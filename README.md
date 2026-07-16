@@ -68,6 +68,17 @@ Services par défaut :
 La base est SQLite par défaut (`ACP_DATABASE_URL` pour PostgreSQL). Le seed de
 démonstration est appliqué via `python -m acp_api.seed`.
 
+## Assets graphiques
+
+Le dépôt embarque uniquement des **placeholders originaux libres**. Les
+graphismes premium (personnages, mobilier, extérieurs, UI) proviennent des
+packs **[LimeZu](https://limezu.itch.io/)** (Modern Interiors, Modern Office,
+Modern Exteriors, Modern User Interface), achetés séparément et importés en
+local — jamais redistribués ici. Installation :
+[docs/assets/limezu-installation.md](docs/assets/limezu-installation.md).
+
+**Crédits : pixel art par [LimeZu](https://limezu.itch.io/).**
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — vue d'ensemble et frontières

@@ -125,7 +125,7 @@ export class CanvasRenderer implements IOfficeRenderer {
     // pas de caméra en legacy
   }
 
-  showGallery(): void {
+  showGallery(_filterPack?: string): void {
     console.warn("[pixel-office-engine] La galerie n'existe qu'avec le renderer Phaser.");
   }
 

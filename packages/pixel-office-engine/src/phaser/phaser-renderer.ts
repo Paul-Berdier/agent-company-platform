@@ -110,12 +110,13 @@ export class PhaserRenderer implements IOfficeRenderer {
     this.office?.focusRoomById(roomId);
   }
 
-  showGallery(): void {
+  showGallery(filterPack?: string): void {
     if (!this.game || !this.assets || this.galleryOpen) return;
     this.galleryOpen = true;
     this.game.scene.sleep("office");
     const data = {
       assets: this.assets,
+      filterPack,
       onClose: () => {
         this.galleryOpen = false;
         this.game?.scene.stop("gallery");

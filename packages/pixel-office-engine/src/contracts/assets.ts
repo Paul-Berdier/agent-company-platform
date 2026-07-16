@@ -85,11 +85,22 @@ export interface EffectDef {
   animation: AnimationClipDef;
 }
 
+/** Origine et licence d'un pack (assets tiers sous licence). */
+export interface PackProvenance {
+  source: string; // ex. "LimeZu — Modern Interiors (itch.io)"
+  license: string; // résumé : "commercial OK, redistribution interdite"
+  credit_url?: string;
+  imported_at?: string; // ISO-8601
+  archive?: string; // nom de l'archive d'origine
+}
+
 export interface AssetManifest {
   manifest_version: string;
   pack_id: string;
   /** pack parent dont les définitions sont héritées (fusion, le fils gagne) */
   extends?: string;
+  /** provenance/licence — obligatoire pour les packs sous licence */
+  provenance?: PackProvenance;
   grid: { tile: number; character: { w: number; h: number } };
   atlases: AtlasDef[];
   tilesets: TilesetDef[];
@@ -107,6 +118,11 @@ export interface AssetManifest {
 /** Index des packs disponibles (apps/web/public/assets/packs.json). */
 export interface PacksIndex {
   packs: Record<string, string>; // pack_id → dossier relatif
+  /**
+   * Packs facultatifs (assets sous licence, importés localement) :
+   * absents ⇒ ignorés proprement, l'app tourne sur les placeholders.
+   */
+  optional_packs?: Record<string, string>;
   /** department_type → pack_id ; "*" = pack par défaut */
   department_packs: Record<string, string>;
 }

@@ -21,7 +21,8 @@ export interface IOfficeRenderer {
   pulseRoom(roomId: string): void;
   selectEntity(entityId: string | null): void;
   focusRoom(roomId: string): void;
-  showGallery(): void;
+  /** ouvre la galerie d'assets ; `filterPack` limite l'affichage à un pack */
+  showGallery(filterPack?: string): void;
   destroy(): void;
 }
 

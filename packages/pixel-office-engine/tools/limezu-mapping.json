@@ -1,0 +1,102 @@
+{
+  "mapping_version": "1.0",
+  "note": "Sélection et nomenclature des assets LimeZu. Ce fichier est committé : il ne contient AUCUN pixel, seulement des chemins et des noms logiques.",
+  "packs": {
+    "limezu-characters": {
+      "archive": "moderninteriors-win.zip",
+      "required": true,
+      "target_dir": "licensed/limezu/characters",
+      "provenance": {
+        "source": "LimeZu — Modern Interiors (version complète)",
+        "license": "usage commercial autorisé ; redistribution interdite ; crédits requis",
+        "credit_url": "https://limezu.itch.io/"
+      },
+      "base_path": "2_Characters/Old/Single_Characters_Legacy/32x32/",
+      "frame": { "w": 32, "h": 64 },
+      "clips": {
+        "idle": { "token": "idle_anim", "directional": true },
+        "walk": { "token": "run", "directional": true },
+        "sit": { "token": "sit", "directional": true, "keep": "down" },
+        "read": { "token": "reading", "directional": false, "max_frames": 6 },
+        "phone": { "token": "phone", "directional": false, "max_frames": 9 }
+      },
+      "characters": [
+        { "id": "adam", "prefixes": ["Adam"] },
+        { "id": "alex", "prefixes": ["Alex"] },
+        { "id": "amelia", "prefixes": ["Amelia_Abby", "Amelia", "Abby"] },
+        { "id": "bob", "prefixes": ["Bob"] },
+        { "id": "exec-m", "prefixes": ["Conference_man"] },
+        { "id": "exec-f", "prefixes": ["Conference_woman"] },
+        { "id": "josh", "prefixes": ["Old_man_Josh", "man_Josh"] },
+        { "id": "jenny", "prefixes": ["Old_woman_Jenny", "woman_Jenny"] },
+        { "id": "lucy", "prefixes": ["Lucy"] },
+        { "id": "molly", "prefixes": ["Molly"] }
+      ],
+      "role_characters": {
+        "frontend-developer": ["limezu-adam", "limezu-alex"],
+        "backend-developer": ["limezu-bob", "limezu-josh"],
+        "qa-engineer": ["limezu-amelia"],
+        "tech-lead": ["limezu-exec-m"],
+        "data-engineer": ["limezu-josh", "limezu-bob"],
+        "data-scientist": ["limezu-jenny", "limezu-amelia"],
+        "ml-engineer": ["limezu-adam"],
+        "researcher": ["limezu-exec-f", "limezu-lucy"],
+        "research-assistant": ["limezu-molly"],
+        "game-designer": ["limezu-alex", "limezu-lucy"],
+        "gameplay-programmer": ["limezu-adam"],
+        "3d-artist": ["limezu-lucy"],
+        "build-engineer": ["limezu-bob"]
+      }
+    },
+    "limezu-office": {
+      "archive": "Modern_Office_Revamped_*.zip",
+      "required": true,
+      "target_dir": "licensed/limezu/office",
+      "provenance": {
+        "source": "LimeZu — Modern Office Revamped",
+        "license": "usage commercial autorisé ; redistribution interdite ; crédits appréciés",
+        "credit_url": "https://limezu.itch.io/modernoffice"
+      },
+      "singles_glob": "4_Modern_Office_singles/32x32/",
+      "logical_prefix": "office.single",
+      "tilesets": [
+        {
+          "zip_path": "1_Room_Builder_Office/Room_Builder_Office_32x32.png",
+          "id": "limezu-office-roombuilder",
+          "tile": 32
+        }
+      ]
+    },
+    "limezu-exterior": {
+      "archive": "modernexteriors-win.zip",
+      "required": true,
+      "target_dir": "licensed/limezu/exterior",
+      "provenance": {
+        "source": "LimeZu — Modern Exteriors",
+        "license": "usage commercial autorisé ; redistribution interdite ; crédits requis",
+        "credit_url": "https://limezu.itch.io/modernexteriors"
+      },
+      "singles_glob": "Modern_Exteriors_32x32/Modern_Exteriors_Complete_Singles_32x32/",
+      "logical_prefix": "exterior",
+      "include_patterns": [
+        "Tree_", "Bush", "Bench", "Fountain", "Hedge", "Flower",
+        "Street_Light", "Streetlight", "Lamp_Post", "Trash", "Sign"
+      ],
+      "max_files": 160
+    },
+    "limezu-ui": {
+      "archive": "modernuserinterface-win.zip",
+      "required": true,
+      "target_dir": "licensed/limezu/ui",
+      "provenance": {
+        "source": "LimeZu — Modern User Interface",
+        "license": "usage commercial autorisé (hors NFT) ; redistribution interdite ; crédits REQUIS",
+        "credit_url": "https://limezu.itch.io/"
+      },
+      "sheets_glob": "32x32/",
+      "sheets_patterns": ["Modern_UI_"],
+      "logical_prefix": "ui.sheet",
+      "max_sheet_size": 2048
+    }
+  }
+}

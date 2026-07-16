@@ -23,11 +23,14 @@ interface CyclingSprite {
 export interface GallerySceneData {
   assets: LoadedAssets;
   onClose: () => void;
+  /** n'affiche que ce pack (filtre `#/dev/assets?pack=...`) */
+  filterPack?: string;
 }
 
 export class GalleryScene extends Phaser.Scene {
   private assets!: LoadedAssets;
   private onClose: (() => void) | null = null;
+  private filterPack: string | null = null;
   private cycling: CyclingSprite[] = [];
   private cursorY = MARGIN;
 
@@ -38,6 +41,7 @@ export class GalleryScene extends Phaser.Scene {
   init(data: GallerySceneData): void {
     this.assets = data.assets;
     this.onClose = data.onClose;
+    this.filterPack = data.filterPack ?? null;
   }
 
   create(): void {
@@ -47,8 +51,29 @@ export class GalleryScene extends Phaser.Scene {
     this.cameras.main.setZoom(1);
     this.cameras.main.setScroll(0, 0);
 
+    if (this.assets.missingPacks.length > 0) {
+      this.add.text(MARGIN, this.cursorY,
+        `⚠ Licensed assets not installed (${this.assets.missingPacks.join(", ")}).\n` +
+        `Run:  npm run assets:import-limezu -- "C:\\AgentCompanyAssets\\LimeZu"`, {
+          fontFamily: "monospace", fontSize: "12px", color: "#ffb03a",
+          backgroundColor: "#3a2a10", padding: { x: 10, y: 8 },
+        });
+      this.cursorY += 58;
+    }
+    if (this.filterPack) {
+      this.heading(`Filtre actif : pack « ${this.filterPack} »`, "#8d99ae", 11);
+    }
+
     for (const pack of this.assets.packs) {
+      if (this.filterPack && pack.pack_id !== this.filterPack) continue;
       this.heading(`▌ Pack « ${pack.pack_id} »`, "#ffe066", 18);
+      if (pack.provenance) {
+        this.heading(
+          `${pack.provenance.source} — ${pack.provenance.license}` +
+          (pack.provenance.credit_url ? ` — crédit : ${pack.provenance.credit_url}` : ""),
+          "#7d8598", 10,
+        );
+      }
       if (pack.characters.length) {
         this.heading("Personnages (cycle de toutes les animations)", "#8d99ae", 12);
         this.characterRow(pack.pack_id);

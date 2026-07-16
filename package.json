@@ -10,6 +10,8 @@
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace @acp/web",
-    "build:web": "npm run build --workspace @acp/web"
+    "build:web": "npm run build --workspace @acp/web",
+    "test:engine": "npm test --workspace @acp/pixel-office-engine",
+    "assets:import-limezu": "node packages/pixel-office-engine/tools/import-limezu.mjs"
   }
 }

@@ -550,6 +550,20 @@ async function boot(): Promise<void> {
   await refreshOverview();
   connectEvents(handleEvent);
   window.setInterval(renderTopbar, 30_000); // horloge
+
+  // route développeur #/dev/assets[?pack=...] — désactivable en production
+  const devGalleryEnabled =
+    !import.meta.env.PROD || import.meta.env.VITE_ACP_DEV_GALLERY === "1";
+  const applyHashRoute = () => {
+    if (!devGalleryEnabled) return;
+    const hash = location.hash;
+    if (hash.startsWith("#/dev/assets")) {
+      const pack = new URLSearchParams(hash.split("?")[1] ?? "").get("pack") ?? undefined;
+      engine.showGallery(pack);
+    }
+  };
+  window.addEventListener("hashchange", applyHashRoute);
+  applyHashRoute();
   if (params.get("gallery") === "1") engine.showGallery();
 }
 

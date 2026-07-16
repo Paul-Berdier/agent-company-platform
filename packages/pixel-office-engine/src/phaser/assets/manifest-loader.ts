@@ -30,6 +30,8 @@ export interface ResolvedUrl<T> {
 export interface LoadedAssets {
   /** packs dans l'ordre de chargement (parents avant enfants) */
   packs: AssetManifest[];
+  /** packs facultatifs déclarés mais non installés (assets sous licence) */
+  missingPacks: string[];
   atlases: ResolvedUrl<AtlasDef>[];
   tilesets: ResolvedUrl<TilesetDef>[];
   tilemaps: ResolvedUrl<TilemapDef>[];
@@ -67,11 +69,16 @@ export function validateManifest(data: unknown): AssetManifest {
     fail(packId, `manifest_version "${m.manifest_version}" non supportée (attendu ${ASSET_MANIFEST_VERSION})`);
   }
   if (!m.grid || m.grid.tile !== 32) fail(packId, "grid.tile doit valoir 32");
-  if (!m.grid.character || m.grid.character.w !== 32 || m.grid.character.h !== 48) {
-    fail(packId, "grid.character doit valoir 32×48");
+  const CHAR_HEIGHTS = [48, 64]; // placeholders 32×48, LimeZu 32×64
+  if (!m.grid.character || m.grid.character.w !== 32
+      || !CHAR_HEIGHTS.includes(m.grid.character.h)) {
+    fail(packId, "grid.character doit valoir 32×48 ou 32×64");
   }
   for (const c of m.characters ?? []) {
     if (!c.id || !c.atlas) fail(packId, "character sans id ou atlas");
+    if (c.size && (c.size.w !== 32 || !CHAR_HEIGHTS.includes(c.size.h))) {
+      fail(packId, `character "${c.id}" : taille ${c.size.w}×${c.size.h} non supportée`);
+    }
     if (!c.animations || Object.keys(c.animations).length === 0) {
       fail(packId, `character "${c.id}" sans animations`);
     }
@@ -96,6 +103,7 @@ export function validateManifest(data: unknown): AssetManifest {
     manifest_version: m.manifest_version,
     pack_id: m.pack_id,
     extends: m.extends,
+    provenance: m.provenance,
     grid: m.grid,
     atlases: m.atlases ?? [],
     tilesets: m.tilesets ?? [],
@@ -114,7 +122,11 @@ export function validatePacksIndex(data: unknown): PacksIndex {
   if (!index || typeof index.packs !== "object" || index.packs === null) {
     throw new ManifestError("packs.json invalide : champ packs manquant");
   }
-  return { packs: index.packs, department_packs: index.department_packs ?? {} };
+  return {
+    packs: index.packs,
+    optional_packs: index.optional_packs ?? {},
+    department_packs: index.department_packs ?? {},
+  };
 }
 
 // -------------------------------------------------------------------- fusion
@@ -124,6 +136,7 @@ export function mergeManifests(ordered: { manifest: AssetManifest; dir: string }
                                baseUrl: string): LoadedAssets {
   const result: LoadedAssets = {
     packs: ordered.map((o) => o.manifest),
+    missingPacks: [],
     atlases: [],
     tilesets: [],
     tilemaps: [],
@@ -196,7 +209,23 @@ export async function loadAssetPacks(options: LoadOptions): Promise<LoadedAssets
   }
 
   for (const packId of wanted) await loadPack(packId, []);
-  return mergeManifests([...loaded.values()], base);
+
+  // packs facultatifs (assets sous licence) : absents ⇒ ignorés proprement
+  const missing: string[] = [];
+  for (const [packId, dir] of Object.entries(index.optional_packs ?? {})) {
+    if (loaded.has(packId)) continue;
+    try {
+      const manifest = validateManifest(await fetchJson(`${base}/${dir}/manifest.json`));
+      if (manifest.extends) await loadPack(manifest.extends, []);
+      loaded.set(packId, { manifest, dir });
+    } catch {
+      missing.push(packId);
+    }
+  }
+
+  const assets = mergeManifests([...loaded.values()], base);
+  assets.missingPacks = missing;
+  return assets;
 }
 
 /** Charge tous les packs déclarés dans packs.json (galerie, préchargement). */
