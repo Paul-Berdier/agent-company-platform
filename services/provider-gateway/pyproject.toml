@@ -1,0 +1,25 @@
+[project]
+name = "acp-provider-gateway"
+version = "0.1.0"
+description = "Passerelle des orchestrator providers (mock / manual / hermes / futurs)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "acp-contracts",
+    "acp-provider-sdk",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

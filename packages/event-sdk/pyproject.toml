@@ -1,0 +1,13 @@
+[project]
+name = "acp-event-sdk"
+version = "0.1.0"
+description = "SDK d'émission d'événements de l'Agent Company Platform"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27", "acp-contracts"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
