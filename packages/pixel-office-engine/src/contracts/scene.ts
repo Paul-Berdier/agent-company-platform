@@ -33,6 +33,8 @@ export interface RoomSpec {
   w: number;
   h: number;
   badge?: string; // ex: "3 tâches actives"
+  /** sous-titre de l'enseigne, ex: "5 EN LIGNE" */
+  subtitle?: string;
   stations: StationSpec[];
   /** thème d'un pack d'assets (prioritaire sur `theme`) */
   themeId?: string;
@@ -54,11 +56,24 @@ export interface EntitySpec {
   speedTilesPerSec?: number;
 }
 
+/** Élément de décor hors salle (arbre, plante, banc...), résolu par assetId. */
+export interface DecorationSpec {
+  assetId: string;
+  x: number; // tuiles absolues
+  y: number;
+}
+
 export interface SceneSpec {
   cols: number;
   rows: number;
   rooms: RoomSpec[];
   entities: EntitySpec[];
+  /** thème peint sur toute la scène sous les salles (campus extérieur) */
+  groundThemeId?: string;
+  /** rectangles d'allées peints avec les pathTiles du ground theme */
+  paths?: { x: number; y: number; w: number; h: number }[];
+  /** décor extérieur (arbres, bancs...) */
+  decorations?: DecorationSpec[];
   /** statut logique → animation, fourni par les modules (jamais codé en dur) */
   statusMapping?: Record<string, string>;
   /** animation → glyphe texte (renderer legacy uniquement) */

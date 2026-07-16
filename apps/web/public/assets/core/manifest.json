@@ -32,7 +32,7 @@
       "tile": 32,
       "margin": 0,
       "spacing": 0,
-      "columns": 3
+      "columns": 7
     }
   ],
   "tilemaps": [
@@ -356,6 +356,134 @@
         "y": 0
       },
       "blocking": true
+    },
+    {
+      "kind": "tree",
+      "id": "tree-core",
+      "frames": {
+        "back": "tree/back"
+      },
+      "footprint": {
+        "w": 1,
+        "h": 1
+      },
+      "seats": [],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "plant",
+      "id": "plant-core",
+      "frames": {
+        "back": "plant/back"
+      },
+      "footprint": {
+        "w": 1,
+        "h": 1
+      },
+      "seats": [],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "bench",
+      "id": "bench-core",
+      "frames": {
+        "back": "bench/back"
+      },
+      "footprint": {
+        "w": 2,
+        "h": 1
+      },
+      "seats": [
+        {
+          "dx": 0,
+          "dy": 1,
+          "facing": "down"
+        },
+        {
+          "dx": 1,
+          "dy": 1,
+          "facing": "down"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "reception-desk",
+      "id": "reception-desk-core",
+      "frames": {
+        "back": "reception-desk/back"
+      },
+      "footprint": {
+        "w": 2,
+        "h": 1
+      },
+      "seats": [
+        {
+          "dx": 1,
+          "dy": 1,
+          "facing": "up"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "meeting-table",
+      "id": "meeting-table-core",
+      "frames": {
+        "back": "meeting-table/back"
+      },
+      "footprint": {
+        "w": 2,
+        "h": 2
+      },
+      "seats": [
+        {
+          "dx": -1,
+          "dy": 1,
+          "facing": "right"
+        },
+        {
+          "dx": 2,
+          "dy": 1,
+          "facing": "left"
+        },
+        {
+          "dx": 0,
+          "dy": 2,
+          "facing": "up"
+        },
+        {
+          "dx": 1,
+          "dy": 2,
+          "facing": "up"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
     }
   ],
   "themes": [
@@ -370,6 +498,22 @@
         2
       ],
       "accentColor": "#5b8266"
+    },
+    {
+      "id": "campus",
+      "tileset": "office-base",
+      "floorTiles": [
+        3,
+        4
+      ],
+      "wallTiles": [
+        2
+      ],
+      "pathTiles": [
+        5,
+        6
+      ],
+      "accentColor": "#57cc99"
     }
   ],
   "effects": [

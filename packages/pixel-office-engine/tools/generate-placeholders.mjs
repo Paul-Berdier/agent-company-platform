@@ -248,8 +248,46 @@ function drawArtStation(img, x, y) {
   img.fill(x + 14, y + 22, 10, 8, hex("#f4845f"));
 }
 
+function drawTree(img, x, y) {
+  img.fill(x + 13, y + 32, 6, 14, hex("#6d4c33"));   // tronc
+  img.fill(x + 12, y + 44, 8, 2, hex("#553a26"));
+  img.fill(x + 6, y + 10, 20, 24, hex("#2f7d4f"));   // feuillage
+  img.fill(x + 2, y + 16, 28, 14, hex("#2f7d4f"));
+  img.fill(x + 9, y + 4, 14, 10, hex("#3c9a63"));
+  img.fill(x + 6, y + 12, 8, 6, hex("#3c9a63"));
+  img.fill(x + 20, y + 20, 8, 6, hex("#256b41"));
+}
+function drawPlant(img, x, y) {
+  img.fill(x + 10, y + 20, 12, 10, hex("#a3542e"));  // pot
+  img.fill(x + 11, y + 18, 10, 2, hex("#8f4021"));
+  img.fill(x + 13, y + 8, 6, 12, hex("#2f9e5f"));    // feuilles
+  img.fill(x + 8, y + 12, 6, 6, hex("#37b06c"));
+  img.fill(x + 18, y + 11, 6, 7, hex("#278551"));
+}
+function drawBench(img, x, y) {
+  img.fill(x + 2, y + 6, 60, 8, hex("#a07850"));     // assise
+  img.fill(x + 2, y + 6, 60, 2, hex("#b98f63"));
+  img.fill(x + 4, y + 14, 4, 8, hex("#5f4732"));     // pieds
+  img.fill(x + 56, y + 14, 4, 8, hex("#5f4732"));
+}
+function drawReceptionDesk(img, x, y) {
+  img.fill(x + 2, y + 8, 60, 20, hex("#4a3b6b"));    // comptoir
+  img.fill(x + 2, y + 8, 60, 4, hex("#5d4b85"));
+  img.fill(x + 6, y + 12, 52, 2, hex("#7c5cff"));    // liseré
+  img.fill(x + 26, y, 12, 8, hex("#1d2733"));        // écran d'accueil
+  img.fill(x + 28, y + 2, 8, 4, hex("#3fa7d6"));
+}
+function drawMeetingTable(img, x, y) {
+  img.fill(x + 8, y + 12, 48, 24, hex("#8a6a4b"));   // table
+  img.fill(x + 8, y + 12, 48, 3, hex("#a58562"));
+  img.fill(x + 26, y + 20, 12, 8, hex("#f5f5f5"));   // documents
+  for (const [cx, cy] of [[0, 16], [56, 16], [16, 0], [40, 0], [16, 40], [40, 40]]) {
+    img.fill(x + cx + 2, y + cy + 2, 6, 6, hex("#33424d")); // chaises
+  }
+}
+
 function generateFurnitureAtlas(dir) {
-  const img = new Img(256, 128);
+  const img = new Img(256, 224);
   const frames = {};
   const add = (name, x, y, w, h, draw) => {
     draw(img, x, y);
@@ -265,6 +303,11 @@ function generateFurnitureAtlas(dir) {
   add("bookshelf/back", 180, 0, 64, 46, drawBookshelf);
   add("couch/back", 0, 48, 64, 30, drawCouch);
   add("art-station/back", 70, 40, 32, 48, drawArtStation);
+  add("tree/back", 110, 48, 32, 48, drawTree);
+  add("plant/back", 146, 48, 32, 32, drawPlant);
+  add("bench/back", 0, 96, 64, 24, drawBench);
+  add("reception-desk/back", 70, 96, 64, 32, drawReceptionDesk);
+  add("meeting-table/back", 140, 96, 64, 48, drawMeetingTable);
   img.save(path.join(dir, "atlases", "furniture-core.png"));
   writeJson(path.join(dir, "atlases", "furniture-core.json"), {
     frames,
@@ -361,13 +404,44 @@ function drawWallTile(img, x, y, base) {
   }
 }
 
-function generateTileset(dir, file, floors, wall) {
-  const tiles = [...floors, wall];
-  const img = new Img(tiles.length * 32, 32);
+/** Tuile d'herbe avec brins déterministes. */
+function drawGrassTile(img, x, y, base) {
+  const b = hex(base);
+  img.fill(x, y, 32, 32, b);
+  let seed = x * 11 + y * 17 + 3;
+  for (let k = 0; k < 14; k++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const gx = x + (seed % 30) + 1, gy = y + ((seed >> 6) % 30) + 1;
+    img.px(gx, gy, shade(b, 1.18));
+    img.px(gx, gy + 1, shade(b, 0.85));
+  }
+}
+
+/** Tuile d'allée pavée. */
+function drawPathTile(img, x, y, base, alt = false) {
+  const b = hex(base);
+  img.fill(x, y, 32, 32, alt ? shade(b, 0.94) : b);
+  img.fill(x, y, 32, 1, shade(b, 1.1));
+  img.fill(x, y + 16, 32, 1, shade(b, 0.88));
+  img.fill(x + (alt ? 8 : 16), y, 1, 16, shade(b, 0.88));
+  img.fill(x + (alt ? 20 : 6), y + 16, 1, 16, shade(b, 0.88));
+}
+
+function generateTileset(dir, file, floors, wall, outdoor = null) {
+  const extra = outdoor ? 4 : 0; // grassA, grassB, path, pathAlt
+  const count = floors.length + 1 + extra;
+  const img = new Img(count * 32, 32);
   floors.forEach((c, i) => drawFloorTile(img, i * 32, 0, c));
   drawWallTile(img, floors.length * 32, 0, wall);
+  if (outdoor) {
+    const base = floors.length + 1;
+    drawGrassTile(img, base * 32, 0, outdoor.grass);
+    drawGrassTile(img, (base + 1) * 32, 0, outdoor.grassAlt);
+    drawPathTile(img, (base + 2) * 32, 0, outdoor.path, false);
+    drawPathTile(img, (base + 3) * 32, 0, outdoor.path, true);
+  }
   img.save(path.join(dir, "tilesets", file));
-  return { columns: tiles.length, count: tiles.length };
+  return { columns: count, count };
 }
 
 // -------------------------------------------------------------- tilemap démo
@@ -419,6 +493,18 @@ const STATIONS = [
     footprint: { w: 2, h: 1 }, seats: [{ dx: 0, dy: 1, facing: "down" }, { dx: 1, dy: 1, facing: "down" }] },
   { kind: "art-station", id: "art-station-core", frames: { back: "art-station/back" },
     footprint: { w: 1, h: 2 }, seats: [{ dx: 0, dy: 2, facing: "up" }] },
+  { kind: "tree", id: "tree-core", frames: { back: "tree/back" },
+    footprint: { w: 1, h: 1 }, seats: [] },
+  { kind: "plant", id: "plant-core", frames: { back: "plant/back" },
+    footprint: { w: 1, h: 1 }, seats: [] },
+  { kind: "bench", id: "bench-core", frames: { back: "bench/back" },
+    footprint: { w: 2, h: 1 }, seats: [{ dx: 0, dy: 1, facing: "down" }, { dx: 1, dy: 1, facing: "down" }] },
+  { kind: "reception-desk", id: "reception-desk-core", frames: { back: "reception-desk/back" },
+    footprint: { w: 2, h: 1 }, seats: [{ dx: 1, dy: 1, facing: "up" }] },
+  { kind: "meeting-table", id: "meeting-table-core", frames: { back: "meeting-table/back" },
+    footprint: { w: 2, h: 2 },
+    seats: [{ dx: -1, dy: 1, facing: "right" }, { dx: 2, dy: 1, facing: "left" },
+            { dx: 0, dy: 2, facing: "up" }, { dx: 1, dy: 2, facing: "up" }] },
 ].map((s) => ({ ...s, atlas: "furniture-core", pivot: { x: 0, y: 0 }, blocking: true }));
 
 const ALIASES = {
@@ -450,8 +536,16 @@ const PACKS = [
       { id: "worker-c", palette: { skin: "#f8d5b8", hair: "#a86b32", shirt: "#e76f51", pants: "#4a4e57" } },
     ],
     atlasId: "characters-core",
-    tileset: { id: "office-base", file: "office-base.png", floors: ["#cfc4a5", "#c2b492"], wall: "#7a6a52" },
+    tileset: {
+      id: "office-base", file: "office-base.png",
+      floors: ["#cfc4a5", "#c2b492"], wall: "#7a6a52",
+      outdoor: { grass: "#3d6b3f", grassAlt: "#37613a", path: "#8d8577" },
+    },
     theme: { id: "default", accentColor: "#5b8266" },
+    extraThemes: [{
+      id: "campus", tileset: "office-base",
+      floorTiles: [3, 4], wallTiles: [2], pathTiles: [5, 6], accentColor: "#57cc99",
+    }],
     roles: { "*": ["worker-a", "worker-b", "worker-c"] },
     hasFurniture: true, hasFx: true, hasTilemap: true,
   },
@@ -509,7 +603,8 @@ const PACKS = [
 function generatePack(pack) {
   const dir = path.join(OUT, pack.dir);
   generateCharacterAtlas(dir, pack.atlasId, pack.characters);
-  const ts = generateTileset(dir, pack.tileset.file, pack.tileset.floors, pack.tileset.wall);
+  const ts = generateTileset(dir, pack.tileset.file, pack.tileset.floors,
+                             pack.tileset.wall, pack.tileset.outdoor ?? null);
   if (pack.hasFurniture) generateFurnitureAtlas(dir);
   if (pack.hasFx) generateFxAtlas(dir);
   if (pack.hasTilemap) generateDemoTilemap(dir);
@@ -533,10 +628,13 @@ function generatePack(pack) {
       : [],
     characters: pack.characters.map((c) => charManifest(c.id, pack.atlasId)),
     stations: pack.hasFurniture ? STATIONS : [],
-    themes: [{
-      id: pack.theme.id, tileset: pack.tileset.id,
-      floorTiles: [0, 1], wallTiles: [2], accentColor: pack.theme.accentColor,
-    }],
+    themes: [
+      {
+        id: pack.theme.id, tileset: pack.tileset.id,
+        floorTiles: [0, 1], wallTiles: [2], accentColor: pack.theme.accentColor,
+      },
+      ...(pack.extraThemes ?? []),
+    ],
     effects: pack.hasFx ? EFFECTS : [],
     role_characters: pack.roles,
     animation_aliases: ALIASES,

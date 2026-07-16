@@ -74,6 +74,8 @@ export interface ThemeDef {
   floorTiles: number[];
   /** index de tuiles de mur (rangée haute des salles) */
   wallTiles: number[];
+  /** index de tuiles d'allées extérieures (thèmes de campus) */
+  pathTiles?: number[];
   accentColor: string;
 }
 

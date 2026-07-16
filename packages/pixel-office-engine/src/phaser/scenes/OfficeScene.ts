@@ -306,10 +306,50 @@ export class OfficeScene extends Phaser.Scene {
     floorLayer?.setDepth(DEPTH_FLOOR);
     wallLayer?.setDepth(DEPTH_WALLS);
 
+    this.paintGround(model, tilesetRefs, floorLayer);
     for (const room of model.rooms) {
       this.paintRoom(room, tilesetRefs, floorLayer, wallLayer);
       this.decorateRoom(room);
     }
+    for (const decoration of model.decorations) this.placeDecoration(decoration);
+  }
+
+  /** Sol extérieur du campus : herbe partout, allées sur les rectangles `paths`. */
+  private paintGround(
+    model: RenderModel,
+    tilesetRefs: Map<string, Phaser.Tilemaps.Tileset>,
+    floorLayer: Phaser.Tilemaps.TilemapLayer | null,
+  ): void {
+    const theme = model.groundTheme;
+    const tileset = theme ? tilesetRefs.get(theme.tileset) : undefined;
+    if (!theme || !tileset || !floorLayer) return;
+    for (let y = 0; y < model.rows; y++) {
+      for (let x = 0; x < model.cols; x++) {
+        const local = theme.floorTiles[(x * 7 + y * 13) % theme.floorTiles.length];
+        floorLayer.putTileAt(tileset.firstgid + local, x, y);
+      }
+    }
+    const pathTiles = theme.pathTiles?.length ? theme.pathTiles : theme.floorTiles;
+    for (const rect of model.paths) {
+      for (let y = rect.y; y < rect.y + rect.h; y++) {
+        for (let x = rect.x; x < rect.x + rect.w; x++) {
+          const local = pathTiles[(x + y) % pathTiles.length];
+          floorLayer.putTileAt(tileset.firstgid + local, x, y);
+        }
+      }
+    }
+  }
+
+  private placeDecoration(decoration: { spec: { x: number; y: number }; asset: { atlas: string; frames: { back: string } } | null }): void {
+    const asset = decoration.asset;
+    if (!asset) return;
+    const x = decoration.spec.x * TILE;
+    const y = decoration.spec.y * TILE;
+    const image = this.add.image(x, y, asset.atlas, asset.frames.back).setOrigin(0, 0);
+    // ancre au sol : la base du sprite définit sa profondeur
+    image.setY(y + TILE - image.height);
+    image.setDepth(sortedDepth(y + TILE));
+    this.decor.push(image);
   }
 
   private paintRoom(
@@ -337,22 +377,39 @@ export class OfficeScene extends Phaser.Scene {
   private decorateRoom(room: RenderRoom): void {
     const { x, y, w, h } = room.spec;
     const accent = room.theme?.accentColor ?? "#5b8266";
+    const accentColor = Phaser.Display.Color.HexStringToColor(accent).color;
+    const centerX = x * TILE + (w * TILE) / 2;
 
     for (const station of room.stations) this.placeStation(station);
 
-    const name = this.add.text(x * TILE + 4, y * TILE + 4, room.spec.name, {
-      fontFamily: "monospace", fontSize: "13px", color: "#ffffff",
-    }).setDepth(DEPTH_WALLS + 1);
-    this.decor.push(name);
+    // enseigne : nom centré sur un cartouche, sous-titre en dessous
+    const name = this.add.text(centerX, y * TILE + 8, room.spec.name.toUpperCase(), {
+      fontFamily: "monospace", fontSize: "12px", color: "#ffffff", fontStyle: "bold",
+    }).setOrigin(0.5, 0.5).setDepth(DEPTH_UI + 1);
+    const plate = this.add
+      .rectangle(centerX, y * TILE + 8, name.width + 18, 18, 0x14161c, 0.88)
+      .setStrokeStyle(1, accentColor)
+      .setDepth(DEPTH_UI);
+    this.decor.push(plate, name);
+    if (room.spec.subtitle) {
+      const sub = this.add.text(centerX, y * TILE + 24, room.spec.subtitle, {
+        fontFamily: "monospace", fontSize: "10px", color: accent,
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH_UI + 1);
+      const subPlate = this.add
+        .rectangle(centerX, y * TILE + 24, sub.width + 12, 13, 0x14161c, 0.75)
+        .setDepth(DEPTH_UI);
+      this.decor.push(subPlate, sub);
+    }
     if (room.spec.badge) {
-      const badge = this.add.text(x * TILE + 4, (y + h) * TILE - 16, room.spec.badge, {
-        fontFamily: "monospace", fontSize: "11px", color: accent,
+      const badge = this.add.text(x * TILE + 6, (y + h) * TILE - 16, room.spec.badge, {
+        fontFamily: "monospace", fontSize: "10px", color: accent,
+        backgroundColor: "#14161cbb", padding: { x: 4, y: 2 },
       }).setDepth(DEPTH_UI);
       this.decor.push(badge);
     }
     const border = this.add
-      .rectangle(x * TILE + (w * TILE) / 2, y * TILE + (h * TILE) / 2, w * TILE, h * TILE)
-      .setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(accent).color, 0.5)
+      .rectangle(centerX, y * TILE + (h * TILE) / 2, w * TILE, h * TILE)
+      .setStrokeStyle(2, accentColor, 0.5)
       .setFillStyle()
       .setDepth(DEPTH_WALLS + 1);
     this.decor.push(border);

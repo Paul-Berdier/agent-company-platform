@@ -5,7 +5,7 @@
  */
 
 import type { CharacterDef, StationAssetDef, ThemeDef } from "../../contracts/assets";
-import type { EntitySpec, RoomSpec, SceneSpec, StationSpec } from "../../contracts/scene";
+import type { DecorationSpec, EntitySpec, RoomSpec, SceneSpec, StationSpec } from "../../contracts/scene";
 import {
   resolveCharacter,
   resolveStationAsset,
@@ -39,12 +39,20 @@ export interface RenderEntity {
   stationKey: string | null;
 }
 
+export interface RenderDecoration {
+  spec: DecorationSpec;
+  asset: StationAssetDef | null;
+}
+
 export interface RenderModel {
   cols: number;
   rows: number;
   tile: number;
   rooms: RenderRoom[];
   entities: RenderEntity[];
+  groundTheme: ThemeDef | null;
+  paths: { x: number; y: number; w: number; h: number }[];
+  decorations: RenderDecoration[];
   statusMapping: Record<string, string>;
   /** signature de la disposition : si elle change, décor reconstruit */
   layoutSignature: string;
@@ -97,11 +105,19 @@ export function buildRenderModel(scene: SceneSpec, assets: LoadedAssets): Render
       : null,
   }));
 
+  const decorations: RenderDecoration[] = (scene.decorations ?? []).map((spec) => ({
+    spec,
+    asset: assets.stationsById.get(spec.assetId) ?? null,
+  }));
+
   const layoutSignature = JSON.stringify({
     cols: scene.cols,
     rows: scene.rows,
+    ground: scene.groundThemeId,
+    paths: scene.paths,
+    decorations: scene.decorations,
     rooms: scene.rooms.map((r) => [
-      r.id, r.x, r.y, r.w, r.h, r.theme, r.themeId, r.tilemapId,
+      r.id, r.x, r.y, r.w, r.h, r.theme, r.themeId, r.tilemapId, r.subtitle,
       r.stations.map((s) => [s.id, s.kind, s.x, s.y, s.assetId]),
     ]),
   });
@@ -112,6 +128,9 @@ export function buildRenderModel(scene: SceneSpec, assets: LoadedAssets): Render
     tile: scene.gridTile ?? 32,
     rooms,
     entities,
+    groundTheme: scene.groundThemeId ? assets.themes.get(scene.groundThemeId) ?? null : null,
+    paths: scene.paths ?? [],
+    decorations,
     statusMapping: scene.statusMapping ?? {},
     layoutSignature,
   };
