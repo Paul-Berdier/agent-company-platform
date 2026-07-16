@@ -26,3 +26,13 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Third-party licensed pixel-art assets (LimeZu...) — NE JAMAIS COMMITTER
+Limzu/
+LimeZu/
+local-assets/
+licensed-assets/
+vendor-assets/
+apps/web/public/assets/licensed/
+packages/pixel-office-engine/assets/licensed/
+*.aseprite
