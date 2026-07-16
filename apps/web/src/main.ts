@@ -1,7 +1,11 @@
 import "./style.css";
 
 import type { AcpEvent, Overview } from "@acp/contracts";
-import { PixelOfficeEngine } from "@acp/pixel-office-engine";
+import {
+  createOfficeRenderer,
+  type IOfficeRenderer,
+  type RendererMode,
+} from "@acp/pixel-office-engine";
 import { badge, el, formatTime, statusColor } from "@acp/ui";
 
 import { connectEvents, createAndQueueTask, fetchOfficeConfig, fetchOverview } from "./api";
@@ -22,7 +26,7 @@ type View =
 let overview: Overview;
 const officeConfigs: OfficeConfigMap = {};
 let view: View = { kind: "company" };
-let engine: PixelOfficeEngine;
+let engine: IOfficeRenderer;
 let selectedAgentId: string | null = null;
 const eventLog: AcpEvent[] = [];
 let refreshTimer: number | null = null;
@@ -30,7 +34,7 @@ let refreshTimer: number | null = null;
 const sidebar = document.getElementById("sidebar")!;
 const topbar = document.getElementById("topbar")!;
 const inspector = document.getElementById("inspector")!;
-const canvas = document.getElementById("office") as HTMLCanvasElement;
+const canvasWrap = document.getElementById("canvas-wrap")!;
 
 function setView(next: View): void {
   view = next;
@@ -232,13 +236,13 @@ function handleEvent(event: AcpEvent): void {
     if (agent) agent.status = status as typeof agent.status;
   }
   if (event.type === "task.progress" && event.agent_instance_id) {
-    engine.emote(event.agent_instance_id, "⚙");
+    engine.emote(event.agent_instance_id, "task-progress");
   }
   if (event.type === "task.completed" && event.agent_instance_id) {
-    engine.emote(event.agent_instance_id, "✔", 4000);
+    engine.emote(event.agent_instance_id, "task-complete", 4000);
   }
   if (event.type === "task.failed" && event.agent_instance_id) {
-    engine.emote(event.agent_instance_id, "✖", 4000);
+    engine.emote(event.agent_instance_id, "task-failed", 4000);
   }
   if (event.project_id) engine.pulseRoom(event.project_id);
   if (event.department_id) engine.pulseRoom(event.department_id);
@@ -252,21 +256,31 @@ function handleEvent(event: AcpEvent): void {
 // ------------------------------------------------------------------- boot
 
 async function boot(): Promise<void> {
-  engine = new PixelOfficeEngine(canvas, {
-    onRoomClick: (roomId) => {
-      if (view.kind === "company" && overview.departments.some((d) => d.id === roomId)) {
-        setView({ kind: "department", id: roomId });
-      } else if (overview.projects.some((p) => p.id === roomId)) {
-        setView({ kind: "project", id: roomId });
-      }
-    },
-    onEntityClick: (entityId) => {
-      selectedAgentId = entityId;
-      renderInspector();
+  const params = new URLSearchParams(location.search);
+  const mode = (params.get("renderer") ?? "auto") as RendererMode;
+  engine = await createOfficeRenderer({
+    mount: canvasWrap,
+    mode,
+    callbacks: {
+      onRoomClick: (roomId) => {
+        if (view.kind === "company" && overview.departments.some((d) => d.id === roomId)) {
+          setView({ kind: "department", id: roomId });
+        } else if (overview.projects.some((p) => p.id === roomId)) {
+          setView({ kind: "project", id: roomId });
+        }
+      },
+      onEntityClick: (entityId) => {
+        selectedAgentId = entityId;
+        engine.selectEntity(entityId);
+        renderInspector();
+      },
+      onRendererFallback: (reason) =>
+        console.warn(`Renderer de secours (canvas) : ${reason}`),
     },
   });
   await refreshOverview();
   connectEvents(handleEvent);
+  if (params.get("gallery") === "1") engine.showGallery();
 }
 
 boot().catch((error) => {
