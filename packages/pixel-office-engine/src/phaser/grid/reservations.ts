@@ -17,9 +17,14 @@ export interface Reservation {
   seat: SeatPosition;
 }
 
+export type SeatOrQueue =
+  | { kind: "seat"; reservation: Reservation }
+  | { kind: "queued"; position: number };
+
 export class StationReservations {
   private seatsByStation = new Map<string, Map<number, string>>();
   private byEntity = new Map<string, Reservation>();
+  private queues = new Map<string, string[]>();
 
   /**
    * Réserve un siège de la station pour l'entité. Idempotent : si l'entité
@@ -47,11 +52,41 @@ export class StationReservations {
     return null;
   }
 
+  /**
+   * Réserve un siège ou place l'agent en file d'attente (ordonnée).
+   * Le siège libéré revient toujours à la tête de file.
+   */
+  reserveOrQueue(entityId: string, stationKey: string, seats: SeatPosition[]): SeatOrQueue {
+    const existing = this.byEntity.get(entityId);
+    if (existing && existing.stationKey === stationKey) {
+      return { kind: "seat", reservation: existing };
+    }
+    const queue = this.queues.get(stationKey) ?? [];
+    const occupied = this.seatsByStation.get(stationKey)?.size ?? 0;
+    const isHead = queue.length === 0 || queue[0] === entityId;
+
+    if (occupied < seats.length && isHead) {
+      if (queue[0] === entityId) queue.shift();
+      this.queues.set(stationKey, queue);
+      const reservation = this.reserve(entityId, stationKey, seats);
+      if (reservation) return { kind: "seat", reservation };
+    }
+    if (existing) this.release(entityId); // il attend : il n'occupe plus son ancien siège
+    if (!queue.includes(entityId)) queue.push(entityId);
+    this.queues.set(stationKey, queue);
+    return { kind: "queued", position: queue.indexOf(entityId) };
+  }
+
   release(entityId: string): void {
     const reservation = this.byEntity.get(entityId);
-    if (!reservation) return;
-    this.byEntity.delete(entityId);
-    this.seatsByStation.get(reservation.stationKey)?.delete(reservation.seatIndex);
+    if (reservation) {
+      this.byEntity.delete(entityId);
+      this.seatsByStation.get(reservation.stationKey)?.delete(reservation.seatIndex);
+    }
+    for (const queue of this.queues.values()) {
+      const index = queue.indexOf(entityId);
+      if (index >= 0) queue.splice(index, 1);
+    }
   }
 
   reservationOf(entityId: string): Reservation | null {
@@ -62,8 +97,13 @@ export class StationReservations {
     return this.seatsByStation.get(stationKey)?.size ?? 0;
   }
 
+  queueLength(stationKey: string): number {
+    return this.queues.get(stationKey)?.length ?? 0;
+  }
+
   clear(): void {
     this.seatsByStation.clear();
     this.byEntity.clear();
+    this.queues.clear();
   }
 }

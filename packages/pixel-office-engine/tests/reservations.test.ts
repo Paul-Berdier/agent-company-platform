@@ -55,3 +55,46 @@ describe("StationReservations", () => {
     expect(r.reservationOf("a")).toBeNull();
   });
 });
+
+describe("file d'attente (reserveOrQueue)", () => {
+  it("met en file quand la station est pleine, dans l'ordre d'arrivée", () => {
+    const r = new StationReservations();
+    expect(r.reserveOrQueue("a", "desk-1", SEATS).kind).toBe("seat");
+    expect(r.reserveOrQueue("b", "desk-1", SEATS).kind).toBe("seat");
+    const c = r.reserveOrQueue("c", "desk-1", SEATS);
+    const d = r.reserveOrQueue("d", "desk-1", SEATS);
+    expect(c).toEqual({ kind: "queued", position: 0 });
+    expect(d).toEqual({ kind: "queued", position: 1 });
+    expect(r.queueLength("desk-1")).toBe(2);
+  });
+
+  it("le siège libéré revient à la tête de file, jamais au dernier arrivé", () => {
+    const r = new StationReservations();
+    r.reserveOrQueue("a", "desk-1", SEATS);
+    r.reserveOrQueue("b", "desk-1", SEATS);
+    r.reserveOrQueue("c", "desk-1", SEATS); // en file
+    r.reserveOrQueue("d", "desk-1", SEATS); // en file
+    r.release("a");
+    // "d" re-demande avant "c" : il doit rester en file
+    expect(r.reserveOrQueue("d", "desk-1", SEATS).kind).toBe("queued");
+    expect(r.reserveOrQueue("c", "desk-1", SEATS).kind).toBe("seat");
+    // "d" devient tête et obtient le prochain siège libéré
+    r.release("b");
+    expect(r.reserveOrQueue("d", "desk-1", SEATS).kind).toBe("seat");
+  });
+
+  it("un agent déjà assis reste assis (idempotent)", () => {
+    const r = new StationReservations();
+    const first = r.reserveOrQueue("a", "desk-1", SEATS);
+    const again = r.reserveOrQueue("a", "desk-1", SEATS);
+    expect(again).toEqual(first);
+  });
+
+  it("release retire aussi de la file", () => {
+    const r = new StationReservations();
+    r.reserveOrQueue("a", "desk-1", [SEATS[0]]);
+    r.reserveOrQueue("b", "desk-1", [SEATS[0]]);
+    r.release("b");
+    expect(r.queueLength("desk-1")).toBe(0);
+  });
+});

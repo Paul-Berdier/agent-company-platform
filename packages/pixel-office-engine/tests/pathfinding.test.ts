@@ -20,13 +20,37 @@ function room(x: number, y: number, w: number, h: number, stations: Partial<Rend
 }
 
 describe("buildCollisionGrid", () => {
-  it("bloque l'extérieur des salles et la rangée de mur", () => {
+  it("extérieur praticable, mur haut et anneau bloqués", () => {
     const grid = buildCollisionGrid({ cols: 20, rows: 15, rooms: [room(2, 2, 10, 8)] });
-    expect(grid.isWalkable(0, 0)).toBe(false);   // hors salle
+    expect(grid.isWalkable(0, 0)).toBe(true);    // campus praticable
     expect(grid.isWalkable(3, 2)).toBe(false);   // mur (rangée haute)
     expect(grid.isWalkable(3, 3)).toBe(true);    // intérieur
     expect(grid.isWalkable(11, 9)).toBe(true);   // intérieur bord
-    expect(grid.isWalkable(12, 3)).toBe(false);  // juste après le bord droit
+    expect(grid.isWalkable(12, 3)).toBe(false);  // anneau à droite
+    expect(grid.isWalkable(3, 10)).toBe(false);  // anneau en bas
+    expect(grid.isWalkable(3, 11)).toBe(true);   // herbe après l'anneau
+  });
+
+  it("les portes percent l'anneau et le mur ; sans porte, pas de sortie", () => {
+    const sealed = buildCollisionGrid({ cols: 20, rows: 15, rooms: [room(2, 2, 10, 8)] });
+    expect(findPath(sealed, { x: 4, y: 5 }, { x: 0, y: 0 })).toBeNull();
+
+    const withDoor = room(2, 2, 10, 8);
+    withDoor.spec.doors = [{ x: 5, y: 8 }]; // entrée basse
+    const grid = buildCollisionGrid({ cols: 20, rows: 15, rooms: [withDoor] });
+    expect(grid.isWalkable(7, 10)).toBe(true);   // anneau percé (2+5, 2+8)
+    const path = findPath(grid, { x: 4, y: 5 }, { x: 0, y: 0 });
+    expect(path).not.toBeNull();
+    expect(path!.some((p) => p.x === 7 && p.y === 10)).toBe(true); // passe par la porte
+  });
+
+  it("les décorations extérieures bloquent", () => {
+    const grid = buildCollisionGrid({
+      cols: 20, rows: 15, rooms: [],
+      decorations: [{ spec: { assetId: "tree-core", x: 5, y: 5 }, asset: null }],
+    });
+    expect(grid.isWalkable(5, 5)).toBe(false);
+    expect(grid.isWalkable(6, 5)).toBe(true);
   });
 
   it("bloque les footprints des stations mais pas les sièges", () => {

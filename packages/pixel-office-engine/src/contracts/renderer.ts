@@ -40,4 +40,6 @@ export interface RendererOptions {
    * continuer à tourner dans un onglet en arrière-plan.
    */
   forceTimeout?: boolean;
+  /** couche debug : grille de collision + états de déplacement (`?debug=1`) */
+  debug?: boolean;
 }

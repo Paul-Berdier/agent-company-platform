@@ -81,6 +81,7 @@ export class PhaserRenderer implements IOfficeRenderer {
         assets,
         callbacks: this.options.callbacks ?? {},
         onReady: resolve,
+        debug: this.options.debug ?? false,
       });
     });
     this.debug("office-created");

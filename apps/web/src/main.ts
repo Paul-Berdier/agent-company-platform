@@ -528,6 +528,7 @@ async function boot(): Promise<void> {
     mount: canvasWrap,
     mode,
     forceTimeout: params.get("timer") === "1",
+    debug: params.get("debug") === "1",
     callbacks: {
       onRoomClick: (roomId) => {
         if (view.kind === "company" && overview.departments.some((d) => d.id === roomId)) {

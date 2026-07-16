@@ -23,7 +23,7 @@
       "tile": 32,
       "margin": 0,
       "spacing": 0,
-      "columns": 3
+      "columns": 4
     }
   ],
   "tilemaps": [],
@@ -94,6 +94,9 @@
       ],
       "wallTiles": [
         2
+      ],
+      "windowTiles": [
+        3
       ],
       "accentColor": "#2f9e8f"
     }

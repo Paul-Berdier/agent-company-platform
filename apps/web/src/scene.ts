@@ -111,6 +111,9 @@ function mergedStatusMapping(configs: (OfficeConfig | undefined)[]): Record<stri
     reviewing: "think", blocked: "sit", offline: "away",
   };
   for (const config of configs) Object.assign(mapping, config?.status_mapping ?? {});
+  // dans les vues multi-départements, un agent inactif flâne (animation non
+  // ancrante) au lieu d'hériter du mapping "idle" d'un autre secteur
+  if (configs.filter(Boolean).length > 1) mapping.idle = "coffee";
   return mapping;
 }
 
@@ -148,6 +151,14 @@ function makeEntities(
   }));
 }
 
+/** Porte d'entrée en bas au centre + fenêtres régulières sur le mur haut. */
+function buildingOpenings(): Pick<RoomSpec, "doors" | "windows"> {
+  return {
+    doors: [{ x: Math.floor(ROOM_W / 2), y: ROOM_H }],
+    windows: [2, 5, 9],
+  };
+}
+
 function amenityRooms(positions: { x: number; y: number }[], startIndex: number): RoomSpec[] {
   return AMENITIES.map((amenity, i) => ({
     id: amenity.id,
@@ -159,6 +170,7 @@ function amenityRooms(positions: { x: number; y: number }[], startIndex: number)
     h: ROOM_H,
     subtitle: amenity.subtitle,
     stations: amenity.stations.map((s) => ({ ...s })),
+    ...buildingOpenings(),
   }));
 }
 
@@ -201,6 +213,7 @@ function projectRoom(
     subtitle: onlineSubtitle(agents),
     badge: active ? `${active} tâche(s) active(s)` : undefined,
     stations,
+    ...buildingOpenings(),
   };
   return { room, entities: makeEntities(agents, room.id, stations) };
 }
@@ -228,6 +241,7 @@ export function companyScene(overview: Overview, configs: OfficeConfigMap): Scen
       subtitle: onlineSubtitle(agents),
       badge: `${projects.length} projet(s) · ${active} actif(s)`,
       stations,
+      ...buildingOpenings(),
     };
     rooms.push(room);
     entities.push(...makeEntities(agents, room.id, stations));

@@ -36,32 +36,82 @@ export class CollisionGrid {
 }
 
 /**
- * Construit la grille de collision d'une scène :
- * tout est bloqué sauf l'intérieur des salles ; la rangée haute de chaque
- * salle (mur visuel) et les footprints des stations `blocking` sont bloqués,
- * les sièges restent praticables.
+ * Construit la grille de collision d'une scène.
+ *
+ * Règles :
+ * - l'extérieur (campus) est praticable : herbe et allées, sauf décorations ;
+ * - un anneau d'une tuile autour de chaque salle est bloqué : on n'entre et
+ *   ne sort que par les portes ;
+ * - dans une salle : praticable sauf la rangée de mur haut et les footprints
+ *   des stations `blocking` ; les sièges restent praticables ;
+ * - chaque porte perce le mur (y=0) ou l'anneau (y=h, x=-1, x=w).
  */
-export function buildCollisionGrid(model: Pick<RenderModel, "cols" | "rows" | "rooms">): CollisionGrid {
+export function buildCollisionGrid(
+  model: Pick<RenderModel, "cols" | "rows" | "rooms"> &
+    Partial<Pick<RenderModel, "decorations">>,
+): CollisionGrid {
   const grid = new CollisionGrid(model.cols, model.rows, true);
+
+  // 1. extérieur praticable partout...
+  const inRoom = (x: number, y: number) =>
+    model.rooms.some((r) =>
+      x >= r.spec.x && x < r.spec.x + r.spec.w && y >= r.spec.y && y < r.spec.y + r.spec.h);
+  for (let y = 0; y < model.rows; y++) {
+    for (let x = 0; x < model.cols; x++) {
+      if (!inRoom(x, y)) grid.setBlocked(x, y, false);
+    }
+  }
+  // ...sauf les décorations (arbres, bancs...)
+  for (const decoration of model.decorations ?? []) {
+    grid.setBlocked(decoration.spec.x, decoration.spec.y, true);
+  }
+
+  // 2. anneau bloquant autour de chaque salle
+  for (const room of model.rooms) {
+    const { x, y, w, h } = room.spec;
+    for (let i = x - 1; i <= x + w; i++) {
+      grid.setBlocked(i, y - 1, true);
+      grid.setBlocked(i, y + h, true);
+    }
+    for (let j = y - 1; j <= y + h; j++) {
+      grid.setBlocked(x - 1, j, true);
+      grid.setBlocked(x + w, j, true);
+    }
+  }
+
+  // 3. intérieur praticable sauf mur haut
   for (const room of model.rooms) {
     const { x, y, w, h } = room.spec;
     for (let j = y + 1; j < y + h; j++) {
       for (let i = x; i < x + w; i++) grid.setBlocked(i, j, false);
     }
+    for (let i = x; i < x + w; i++) grid.setBlocked(i, y, true); // mur haut
   }
+
+  // 4. stations bloquantes, sièges praticables
   for (const room of model.rooms) {
     for (const station of room.stations) {
       if (station.asset && station.asset.blocking === false) continue;
-      const fw = station.footprint.w;
-      const fh = station.footprint.h;
-      for (let j = 0; j < fh; j++) {
-        for (let i = 0; i < fw; i++) {
+      for (let j = 0; j < station.footprint.h; j++) {
+        for (let i = 0; i < station.footprint.w; i++) {
           grid.setBlocked(station.worldX + i, station.worldY + j, true);
         }
       }
     }
     for (const station of room.stations) {
       for (const seat of station.seats) grid.setBlocked(seat.x, seat.y, false);
+    }
+  }
+
+  // 5. portes : percées dans le mur ou l'anneau, plus la tuile extérieure
+  for (const room of model.rooms) {
+    const { x, y, h } = room.spec;
+    for (const door of room.spec.doors ?? []) {
+      const doorX = x + door.x;
+      const doorY = y + door.y;
+      grid.setBlocked(doorX, doorY, false);
+      if (door.y === 0) grid.setBlocked(doorX, y - 1, false); // mur haut → dehors
+      if (door.y === h) grid.setBlocked(doorX, y + h + 1, false); // entrée basse
     }
   }
   return grid;

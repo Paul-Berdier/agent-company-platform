@@ -118,6 +118,7 @@ export function buildRenderModel(scene: SceneSpec, assets: LoadedAssets): Render
     decorations: scene.decorations,
     rooms: scene.rooms.map((r) => [
       r.id, r.x, r.y, r.w, r.h, r.theme, r.themeId, r.tilemapId, r.subtitle,
+      r.doors, r.windows,
       r.stations.map((s) => [s.id, s.kind, s.x, s.y, s.assetId]),
     ]),
   });

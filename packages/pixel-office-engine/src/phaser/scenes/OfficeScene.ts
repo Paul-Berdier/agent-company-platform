@@ -21,11 +21,20 @@ import { hashCode, type LoadedAssets } from "../assets/manifest-loader";
 import { CameraController } from "../camera/camera-controller";
 import { buildCollisionGrid, findPath, type CollisionGrid, type Point } from "../grid/pathfinding";
 import { StationReservations } from "../grid/reservations";
-import { DEPTH_EFFECTS, DEPTH_FLOOR, DEPTH_UI, DEPTH_WALLS, FRONT_BIAS, sortedDepth } from "../layers";
+import {
+  DEPTH_DEBUG, DEPTH_EFFECTS, DEPTH_FLOOR, DEPTH_LABELS, DEPTH_UI,
+  DEPTH_WALLS_BACK, DEPTH_WINDOWS, FRONT_BIAS, sortedDepth,
+} from "../layers";
 
 const TILE = 32;
 /** animations qui n'ancrent PAS l'agent à sa station (mêmes règles que legacy) */
 const NON_ANCHORING = new Set(["walk", "coffee"]);
+/** vecteur « s'éloigner du siège » pour les points d'attente en file */
+const FACING_AWAY: Record<Facing, [number, number]> = {
+  up: [0, 1], down: [0, -1], left: [1, 0], right: [-1, 0],
+};
+
+type MoveState = "waiting_for_path" | "walking" | "working" | "waiting" | "idle" | "blocked";
 
 interface EntityView {
   model: RenderEntity;
@@ -39,6 +48,7 @@ interface EntityView {
   wanderAt: number;
   currentClip: string;
   seed: number;
+  moveState: MoveState;
 }
 
 interface EmoteView {
@@ -51,6 +61,7 @@ export interface OfficeSceneData {
   assets: LoadedAssets;
   callbacks: EngineCallbacks;
   onReady: () => void;
+  debug?: boolean;
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -74,6 +85,8 @@ export class OfficeScene extends Phaser.Scene {
   private selectedId: string | null = null;
   private cameraCtl: CameraController | null = null;
   private clickConsumed = false;
+  private debugEnabled = false;
+  private debugGraphics: Phaser.GameObjects.Graphics | null = null;
 
   constructor() {
     super({ key: "office" });
@@ -83,6 +96,7 @@ export class OfficeScene extends Phaser.Scene {
     this.assets = data.assets;
     this.callbacks = data.callbacks;
     this.onReadyCallback = data.onReady;
+    this.debugEnabled = data.debug ?? false;
   }
 
   preload(): void {
@@ -207,6 +221,7 @@ export class OfficeScene extends Phaser.Scene {
       }
       this.cameraCtl?.setWorldSize(model.cols * TILE, model.rows * TILE);
       this.cameraCtl?.fit();
+      this.drawDebugGrid();
     }
     this.diffEntities(model);
   }
@@ -303,12 +318,14 @@ export class OfficeScene extends Phaser.Scene {
     const allTilesets = [...tilesetRefs.values()];
     const floorLayer = this.map.createBlankLayer("floor", allTilesets);
     const wallLayer = this.map.createBlankLayer("walls", allTilesets);
+    const windowLayer = this.map.createBlankLayer("windows", allTilesets);
     floorLayer?.setDepth(DEPTH_FLOOR);
-    wallLayer?.setDepth(DEPTH_WALLS);
+    wallLayer?.setDepth(DEPTH_WALLS_BACK);
+    windowLayer?.setDepth(DEPTH_WINDOWS);
 
     this.paintGround(model, tilesetRefs, floorLayer);
     for (const room of model.rooms) {
-      this.paintRoom(room, tilesetRefs, floorLayer, wallLayer);
+      this.paintRoom(room, tilesetRefs, floorLayer, wallLayer, windowLayer);
       this.decorateRoom(room);
     }
     for (const decoration of model.decorations) this.placeDecoration(decoration);
@@ -357,6 +374,7 @@ export class OfficeScene extends Phaser.Scene {
     tilesetRefs: Map<string, Phaser.Tilemaps.Tileset>,
     floorLayer: Phaser.Tilemaps.TilemapLayer | null,
     wallLayer: Phaser.Tilemaps.TilemapLayer | null,
+    windowLayer: Phaser.Tilemaps.TilemapLayer | null,
   ): void {
     const theme = room.theme;
     const tileset = theme ? tilesetRefs.get(theme.tileset) : undefined;
@@ -372,6 +390,24 @@ export class OfficeScene extends Phaser.Scene {
       const local = theme.wallTiles[i % theme.wallTiles.length];
       wallLayer.putTileAt(tileset.firstgid + local, x + i, y);
     }
+    // fenêtres sur le mur haut (data-driven : theme.windowTiles)
+    if (windowLayer && theme.windowTiles?.length) {
+      for (const wx of room.spec.windows ?? []) {
+        const local = theme.windowTiles[wx % theme.windowTiles.length];
+        windowLayer.putTileAt(tileset.firstgid + local, x + wx, y);
+      }
+    }
+    // portes : percée dans le mur haut, ou parvis au sol pour une entrée basse
+    for (const door of room.spec.doors ?? []) {
+      const doorstep = tileset.firstgid + theme.floorTiles[0];
+      if (door.y === 0) {
+        wallLayer.removeTileAt(x + door.x, y);
+        floorLayer.putTileAt(doorstep, x + door.x, y - 1);
+      } else if (door.y === h) {
+        floorLayer.putTileAt(doorstep, x + door.x, y + h);
+        floorLayer.putTileAt(doorstep, x + door.x, y + h + 1);
+      }
+    }
   }
 
   private decorateRoom(room: RenderRoom): void {
@@ -385,34 +421,51 @@ export class OfficeScene extends Phaser.Scene {
     // enseigne : nom centré sur un cartouche, sous-titre en dessous
     const name = this.add.text(centerX, y * TILE + 8, room.spec.name.toUpperCase(), {
       fontFamily: "monospace", fontSize: "12px", color: "#ffffff", fontStyle: "bold",
-    }).setOrigin(0.5, 0.5).setDepth(DEPTH_UI + 1);
+    }).setOrigin(0.5, 0.5).setDepth(DEPTH_LABELS + 1);
     const plate = this.add
       .rectangle(centerX, y * TILE + 8, name.width + 18, 18, 0x14161c, 0.88)
       .setStrokeStyle(1, accentColor)
-      .setDepth(DEPTH_UI);
+      .setDepth(DEPTH_LABELS);
     this.decor.push(plate, name);
     if (room.spec.subtitle) {
       const sub = this.add.text(centerX, y * TILE + 24, room.spec.subtitle, {
         fontFamily: "monospace", fontSize: "10px", color: accent,
-      }).setOrigin(0.5, 0.5).setDepth(DEPTH_UI + 1);
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH_LABELS + 1);
       const subPlate = this.add
         .rectangle(centerX, y * TILE + 24, sub.width + 12, 13, 0x14161c, 0.75)
-        .setDepth(DEPTH_UI);
+        .setDepth(DEPTH_LABELS);
       this.decor.push(subPlate, sub);
     }
     if (room.spec.badge) {
       const badge = this.add.text(x * TILE + 6, (y + h) * TILE - 16, room.spec.badge, {
         fontFamily: "monospace", fontSize: "10px", color: accent,
         backgroundColor: "#14161cbb", padding: { x: 4, y: 2 },
-      }).setDepth(DEPTH_UI);
+      }).setDepth(DEPTH_LABELS);
       this.decor.push(badge);
     }
     const border = this.add
       .rectangle(centerX, y * TILE + (h * TILE) / 2, w * TILE, h * TILE)
       .setStrokeStyle(2, accentColor, 0.5)
       .setFillStyle()
-      .setDepth(DEPTH_WALLS + 1);
+      .setDepth(DEPTH_WALLS_BACK + 1);
     this.decor.push(border);
+  }
+
+  /** Couche debug : grille de collision (rouge = bloqué). */
+  private drawDebugGrid(): void {
+    this.debugGraphics?.destroy();
+    this.debugGraphics = null;
+    if (!this.debugEnabled || !this.grid || !this.model) return;
+    const graphics = this.add.graphics().setDepth(DEPTH_DEBUG);
+    graphics.fillStyle(0xff3040, 0.18);
+    for (let y = 0; y < this.model.rows; y++) {
+      for (let x = 0; x < this.model.cols; x++) {
+        if (!this.grid.isWalkable(x, y)) {
+          graphics.fillRect(x * TILE + 1, y * TILE + 1, TILE - 2, TILE - 2);
+        }
+      }
+    }
+    this.debugGraphics = graphics;
   }
 
   private placeStation(station: RenderStation): void {
@@ -444,12 +497,24 @@ export class OfficeScene extends Phaser.Scene {
         existing.model = entity;
         existing.label.setText(entity.spec.name);
         if (roomChanged) {
-          const home = this.entityHomePx(entity, model);
-          existing.px = home.x;
-          existing.py = home.y;
+          this.reservations.release(entity.spec.id);
           existing.path = [];
           existing.targetTile = null;
-          this.reservations.release(entity.spec.id);
+          // marche vers la nouvelle salle (par les portes) ; téléportation
+          // uniquement si aucun chemin n'existe
+          const home = this.entityHomePx(entity, model);
+          const homeTile = { x: Math.floor(home.x / TILE), y: Math.floor(home.y / TILE) };
+          const path = this.grid
+            ? findPath(this.grid, this.tileOf(existing), homeTile)
+            : null;
+          if (path) {
+            existing.path = path;
+            existing.targetTile = homeTile;
+            existing.moveState = "walking";
+          } else {
+            existing.px = home.x;
+            existing.py = home.y;
+          }
         }
       } else {
         this.createEntityView(entity, model);
@@ -503,6 +568,7 @@ export class OfficeScene extends Phaser.Scene {
       wanderAt: 0,
       currentClip: idle ? clipKey(character.id, idle.name) : "",
       seed: hashCode(entity.spec.id),
+      moveState: "idle",
     });
   }
 
@@ -543,25 +609,42 @@ export class OfficeScene extends Phaser.Scene {
     const animName = model.statusMapping[spec.status] ?? "idle-down";
     const anchored = Boolean(view.model.stationKey) && !NON_ANCHORING.has(animName)
       && animName !== "idle-down";
-    const bounds = {
-      x: room.spec.x, y: room.spec.y + 1,
-      w: room.spec.w, h: room.spec.h - 1,
+
+    const goTo = (target: Point): boolean => {
+      if (view.targetTile && view.targetTile.x === target.x && view.targetTile.y === target.y) {
+        return true;
+      }
+      const path = findPath(grid, this.tileOf(view), target);
+      if (path) {
+        view.path = path;
+        view.targetTile = target;
+        return true;
+      }
+      view.moveState = "waiting_for_path";
+      return false;
     };
 
     if (anchored) {
       const station = room.stations.find((s) => s.key === view.model.stationKey);
       if (station) {
-        const reservation = this.reservations.reserve(spec.id, station.key, station.seats);
-        if (reservation) {
-          const target = { x: reservation.seat.x, y: reservation.seat.y };
-          view.seatFacing = reservation.seat.facing;
-          if (!view.targetTile || view.targetTile.x !== target.x || view.targetTile.y !== target.y) {
-            const path = findPath(grid, this.tileOf(view), target, bounds);
-            if (path) {
-              view.path = path;
-              view.targetTile = target;
-            }
+        const outcome = this.reservations.reserveOrQueue(spec.id, station.key, station.seats);
+        if (outcome.kind === "seat") {
+          view.seatFacing = outcome.reservation.seat.facing;
+          goTo({ x: outcome.reservation.seat.x, y: outcome.reservation.seat.y });
+        } else {
+          // station pleine : file d'attente derrière le premier siège
+          view.seatFacing = null;
+          const seat = station.seats[0];
+          const away = FACING_AWAY[seat.facing];
+          let wait: Point = {
+            x: seat.x + away[0] * (1 + outcome.position),
+            y: seat.y + away[1] * (1 + outcome.position),
+          };
+          if (!grid.isWalkable(wait.x, wait.y)) {
+            wait = { x: seat.x, y: seat.y + 1 + outcome.position };
           }
+          if (grid.isWalkable(wait.x, wait.y)) goTo(wait);
+          view.moveState = view.path.length ? "walking" : "waiting";
         }
       }
     } else {
@@ -570,14 +653,12 @@ export class OfficeScene extends Phaser.Scene {
       const atTarget = view.path.length === 0;
       if (atTarget && time > view.wanderAt) {
         view.wanderAt = time + 2500 + (view.seed % 3000);
-        const target = this.randomWalkableTile(room, grid);
-        if (target) {
-          const path = findPath(grid, this.tileOf(view), target, bounds);
-          if (path) {
-            view.path = path;
-            view.targetTile = target;
-          }
-        }
+        // une balade sur quatre sort par la porte se dégourdir les jambes
+        const outing = (room.spec.doors?.length ?? 0) > 0
+          && (view.seed + Math.floor(time / 1000)) % 4 === 0;
+        const target = (outing ? this.randomOutdoorTile(room, grid) : null)
+          ?? this.randomWalkableTile(room, grid);
+        if (target) goTo(target);
       }
     }
 
@@ -600,17 +681,43 @@ export class OfficeScene extends Phaser.Scene {
       }
       const walk = walkClipForDirection(character, dx, dy, aliases);
       this.playClip(view, walk?.name ?? null);
+      view.moveState = "walking";
     } else {
       view.targetTile = null;
       const clip = resolveClip(character, animName, aliases);
       this.playClip(view, clip?.name ?? null);
+      if (view.moveState !== "waiting") {
+        view.moveState = anchored ? "working" : "idle";
+      }
     }
 
     view.sprite.setPosition(Math.round(view.px), Math.round(view.py));
     view.sprite.setDepth(sortedDepth(view.py, 0.25));
     view.sprite.setAlpha(spec.status === "offline" ? 0.4 : 1);
+    const labelText = this.debugEnabled
+      ? `${spec.name} [${view.moveState}]`
+      : spec.name;
+    if (view.label.text !== labelText) view.label.setText(labelText);
     view.label.setPosition(Math.round(view.px), Math.round(view.py) + 4);
     view.label.setDepth(sortedDepth(view.py, 0.3));
+  }
+
+  /** Tuile praticable dehors, près de la porte de la salle (balade campus). */
+  private randomOutdoorTile(room: RenderRoom, grid: CollisionGrid): Point | null {
+    const doors = room.spec.doors ?? [];
+    if (doors.length === 0 || !this.model) return null;
+    const door = doors[Math.floor(Math.random() * doors.length)];
+    const baseX = room.spec.x + door.x;
+    const baseY = door.y === 0 ? room.spec.y - 2 : room.spec.y + room.spec.h + 1;
+    const inAnyRoom = (x: number, y: number) =>
+      this.model!.rooms.some((r) =>
+        x >= r.spec.x && x < r.spec.x + r.spec.w && y >= r.spec.y && y < r.spec.y + r.spec.h);
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const tx = baseX + Math.floor(Math.random() * 11) - 5;
+      const ty = baseY + Math.floor(Math.random() * 7) - 3;
+      if (grid.isWalkable(tx, ty) && !inAnyRoom(tx, ty)) return { x: tx, y: ty };
+    }
+    return null;
   }
 
   private randomWalkableTile(room: RenderRoom, grid: CollisionGrid): Point | null {

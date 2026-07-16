@@ -427,9 +427,20 @@ function drawPathTile(img, x, y, base, alt = false) {
   img.fill(x + (alt ? 20 : 6), y + 16, 1, 16, shade(b, 0.88));
 }
 
+/** Tuile de fenêtre : base de mur + vitre bleutée avec croisillon. */
+function drawWindowTile(img, x, y, wallColor) {
+  drawWallTile(img, x, y, wallColor);
+  const glass = hex("#7ec4e8");
+  img.fill(x + 5, y + 9, 22, 16, hex("#3a3f4b")); // cadre
+  img.fill(x + 7, y + 11, 18, 12, glass);
+  img.fill(x + 7, y + 11, 18, 3, hex("#a8dcf5")); // reflet
+  img.fill(x + 15, y + 11, 2, 12, hex("#3a3f4b")); // croisillon
+  img.fill(x + 7, y + 16, 18, 1, hex("#3a3f4b"));
+}
+
 function generateTileset(dir, file, floors, wall, outdoor = null) {
   const extra = outdoor ? 4 : 0; // grassA, grassB, path, pathAlt
-  const count = floors.length + 1 + extra;
+  const count = floors.length + 1 + extra + 1; // + fenêtre en dernier
   const img = new Img(count * 32, 32);
   floors.forEach((c, i) => drawFloorTile(img, i * 32, 0, c));
   drawWallTile(img, floors.length * 32, 0, wall);
@@ -440,8 +451,10 @@ function generateTileset(dir, file, floors, wall, outdoor = null) {
     drawPathTile(img, (base + 2) * 32, 0, outdoor.path, false);
     drawPathTile(img, (base + 3) * 32, 0, outdoor.path, true);
   }
+  const windowIndex = count - 1;
+  drawWindowTile(img, windowIndex * 32, 0, wall);
   img.save(path.join(dir, "tilesets", file));
-  return { columns: count, count };
+  return { columns: count, count, windowIndex };
 }
 
 // -------------------------------------------------------------- tilemap démo
@@ -631,7 +644,8 @@ function generatePack(pack) {
     themes: [
       {
         id: pack.theme.id, tileset: pack.tileset.id,
-        floorTiles: [0, 1], wallTiles: [2], accentColor: pack.theme.accentColor,
+        floorTiles: [0, 1], wallTiles: [2], windowTiles: [ts.windowIndex],
+        accentColor: pack.theme.accentColor,
       },
       ...(pack.extraThemes ?? []),
     ],

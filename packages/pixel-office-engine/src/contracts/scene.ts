@@ -40,6 +40,14 @@ export interface RoomSpec {
   themeId?: string;
   /** salle dessinée depuis une tilemap Tiled d'un pack */
   tilemapId?: string;
+  /**
+   * Portes, en tuiles relatives à la salle. `y === 0` = percée dans le mur
+   * haut ; `y === h` = entrée par le bas. Les agents ne franchissent la
+   * frontière d'une salle qu'aux portes.
+   */
+  doors?: { x: number; y: number }[];
+  /** offsets x des fenêtres sur le mur haut */
+  windows?: number[];
 }
 
 export interface EntitySpec {
