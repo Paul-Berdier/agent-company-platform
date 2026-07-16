@@ -199,6 +199,17 @@ export async function loadAssetPacks(options: LoadOptions): Promise<LoadedAssets
   return mergeManifests([...loaded.values()], base);
 }
 
+/** Charge tous les packs déclarés dans packs.json (galerie, préchargement). */
+export async function loadAllAssetPacks(
+  baseUrl: string,
+  fetchJson?: FetchJson,
+): Promise<LoadedAssets> {
+  const fetcher = fetchJson ?? defaultFetchJson;
+  const base = baseUrl.replace(/\/$/, "");
+  const index = validatePacksIndex(await fetcher(`${base}/packs.json`));
+  return loadAssetPacks({ baseUrl, packIds: Object.keys(index.packs), fetchJson: fetcher });
+}
+
 // ------------------------------------------------------------- résolutions
 
 const FALLBACK_STATION_KIND = "desk";

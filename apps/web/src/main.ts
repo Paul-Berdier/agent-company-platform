@@ -261,6 +261,7 @@ async function boot(): Promise<void> {
   engine = await createOfficeRenderer({
     mount: canvasWrap,
     mode,
+    forceTimeout: params.get("timer") === "1",
     callbacks: {
       onRoomClick: (roomId) => {
         if (view.kind === "company" && overview.departments.some((d) => d.id === roomId)) {
@@ -278,6 +279,7 @@ async function boot(): Promise<void> {
         console.warn(`Renderer de secours (canvas) : ${reason}`),
     },
   });
+  (window as { __acpEngine?: IOfficeRenderer }).__acpEngine = engine; // aide au debug
   await refreshOverview();
   connectEvents(handleEvent);
   if (params.get("gallery") === "1") engine.showGallery();

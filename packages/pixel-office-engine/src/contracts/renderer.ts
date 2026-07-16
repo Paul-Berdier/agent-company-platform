@@ -34,4 +34,9 @@ export interface RendererOptions {
   callbacks?: EngineCallbacks;
   /** base des packs d'assets (défaut "/assets") */
   assetsBaseUrl?: string;
+  /**
+   * Boucle setTimeout au lieu de requestAnimationFrame (Phaser) : permet de
+   * continuer à tourner dans un onglet en arrière-plan.
+   */
+  forceTimeout?: boolean;
 }

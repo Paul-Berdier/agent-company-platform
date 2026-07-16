@@ -19,7 +19,14 @@ export async function createOfficeRenderer(options: RendererOptions): Promise<IO
   try {
     const { PhaserRenderer } = await import("./phaser/phaser-renderer");
     const renderer = new PhaserRenderer(options);
-    await renderer.ready();
+    // un boot Phaser qui pend (WebGL, onglet gelé...) ne doit pas bloquer
+    // l'application : au-delà du délai, bascule sur le fallback en mode auto
+    await Promise.race([
+      renderer.ready(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("délai de démarrage Phaser dépassé")), 20_000),
+      ),
+    ]);
     return renderer;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
