@@ -1,0 +1,126 @@
+{
+  "manifest_version": "1.0",
+  "pack_id": "dept-data-science",
+  "extends": "core",
+  "grid": {
+    "tile": 32,
+    "character": {
+      "w": 32,
+      "h": 48
+    }
+  },
+  "atlases": [
+    {
+      "id": "characters-data",
+      "image": "atlases/characters-data.png",
+      "data": "atlases/characters-data.json"
+    }
+  ],
+  "tilesets": [
+    {
+      "id": "floors-data",
+      "image": "tilesets/floors-data.png",
+      "tile": 32,
+      "margin": 0,
+      "spacing": 0,
+      "columns": 3
+    }
+  ],
+  "tilemaps": [],
+  "characters": [
+    {
+      "id": "data-a",
+      "atlas": "characters-data",
+      "size": {
+        "w": 32,
+        "h": 48
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9
+      },
+      "animations": {
+        "idle-down": {
+          "frames": "data-a/idle-down/{0..3}",
+          "frameRate": 3,
+          "repeat": -1
+        },
+        "walk-down": {
+          "frames": "data-a/walk-down/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-up": {
+          "frames": "data-a/walk-up/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-left": {
+          "frames": "data-a/walk-left/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-right": {
+          "frames": "data-a/walk-right/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "type": {
+          "frames": "data-a/type/{0..3}",
+          "frameRate": 6,
+          "repeat": -1
+        },
+        "think": {
+          "frames": "data-a/think/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        },
+        "sit": {
+          "frames": "data-a/sit/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        }
+      }
+    }
+  ],
+  "stations": [],
+  "themes": [
+    {
+      "id": "data-lab",
+      "tileset": "floors-data",
+      "floorTiles": [
+        0,
+        1
+      ],
+      "wallTiles": [
+        2
+      ],
+      "accentColor": "#2f9e8f"
+    }
+  ],
+  "effects": [],
+  "role_characters": {
+    "data-engineer": [
+      "data-a",
+      "worker-b"
+    ],
+    "data-scientist": [
+      "data-a",
+      "worker-a"
+    ],
+    "ml-engineer": [
+      "data-a"
+    ]
+  },
+  "animation_aliases": {
+    "walk": "walk-down",
+    "coffee": "idle-down",
+    "read": "sit",
+    "write": "type",
+    "chart": "type",
+    "draw": "type",
+    "play": "type",
+    "point": "think",
+    "away": "sit"
+  }
+}

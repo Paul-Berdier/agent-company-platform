@@ -1,0 +1,123 @@
+{
+  "manifest_version": "1.0",
+  "pack_id": "dept-research",
+  "extends": "core",
+  "grid": {
+    "tile": 32,
+    "character": {
+      "w": 32,
+      "h": 48
+    }
+  },
+  "atlases": [
+    {
+      "id": "characters-research",
+      "image": "atlases/characters-research.png",
+      "data": "atlases/characters-research.json"
+    }
+  ],
+  "tilesets": [
+    {
+      "id": "floors-research",
+      "image": "tilesets/floors-research.png",
+      "tile": 32,
+      "margin": 0,
+      "spacing": 0,
+      "columns": 3
+    }
+  ],
+  "tilemaps": [],
+  "characters": [
+    {
+      "id": "res-a",
+      "atlas": "characters-research",
+      "size": {
+        "w": 32,
+        "h": 48
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9
+      },
+      "animations": {
+        "idle-down": {
+          "frames": "res-a/idle-down/{0..3}",
+          "frameRate": 3,
+          "repeat": -1
+        },
+        "walk-down": {
+          "frames": "res-a/walk-down/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-up": {
+          "frames": "res-a/walk-up/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-left": {
+          "frames": "res-a/walk-left/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-right": {
+          "frames": "res-a/walk-right/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "type": {
+          "frames": "res-a/type/{0..3}",
+          "frameRate": 6,
+          "repeat": -1
+        },
+        "think": {
+          "frames": "res-a/think/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        },
+        "sit": {
+          "frames": "res-a/sit/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        }
+      }
+    }
+  ],
+  "stations": [],
+  "themes": [
+    {
+      "id": "library",
+      "tileset": "floors-research",
+      "floorTiles": [
+        0,
+        1
+      ],
+      "wallTiles": [
+        2
+      ],
+      "accentColor": "#a0522d"
+    }
+  ],
+  "effects": [],
+  "role_characters": {
+    "researcher": [
+      "res-a",
+      "worker-a"
+    ],
+    "research-assistant": [
+      "res-a",
+      "worker-c"
+    ]
+  },
+  "animation_aliases": {
+    "walk": "walk-down",
+    "coffee": "idle-down",
+    "read": "sit",
+    "write": "type",
+    "chart": "type",
+    "draw": "type",
+    "play": "type",
+    "point": "think",
+    "away": "sit"
+  }
+}

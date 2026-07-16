@@ -1,0 +1,431 @@
+{
+  "manifest_version": "1.0",
+  "pack_id": "core",
+  "grid": {
+    "tile": 32,
+    "character": {
+      "w": 32,
+      "h": 48
+    }
+  },
+  "atlases": [
+    {
+      "id": "characters-core",
+      "image": "atlases/characters-core.png",
+      "data": "atlases/characters-core.json"
+    },
+    {
+      "id": "furniture-core",
+      "image": "atlases/furniture-core.png",
+      "data": "atlases/furniture-core.json"
+    },
+    {
+      "id": "fx-core",
+      "image": "atlases/fx-core.png",
+      "data": "atlases/fx-core.json"
+    }
+  ],
+  "tilesets": [
+    {
+      "id": "office-base",
+      "image": "tilesets/office-base.png",
+      "tile": 32,
+      "margin": 0,
+      "spacing": 0,
+      "columns": 3
+    }
+  ],
+  "tilemaps": [
+    {
+      "id": "demo-office",
+      "file": "tilemaps/demo-office.tmj",
+      "format": "tiled-json"
+    }
+  ],
+  "characters": [
+    {
+      "id": "worker-a",
+      "atlas": "characters-core",
+      "size": {
+        "w": 32,
+        "h": 48
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9
+      },
+      "animations": {
+        "idle-down": {
+          "frames": "worker-a/idle-down/{0..3}",
+          "frameRate": 3,
+          "repeat": -1
+        },
+        "walk-down": {
+          "frames": "worker-a/walk-down/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-up": {
+          "frames": "worker-a/walk-up/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-left": {
+          "frames": "worker-a/walk-left/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-right": {
+          "frames": "worker-a/walk-right/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "type": {
+          "frames": "worker-a/type/{0..3}",
+          "frameRate": 6,
+          "repeat": -1
+        },
+        "think": {
+          "frames": "worker-a/think/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        },
+        "sit": {
+          "frames": "worker-a/sit/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        }
+      }
+    },
+    {
+      "id": "worker-b",
+      "atlas": "characters-core",
+      "size": {
+        "w": 32,
+        "h": 48
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9
+      },
+      "animations": {
+        "idle-down": {
+          "frames": "worker-b/idle-down/{0..3}",
+          "frameRate": 3,
+          "repeat": -1
+        },
+        "walk-down": {
+          "frames": "worker-b/walk-down/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-up": {
+          "frames": "worker-b/walk-up/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-left": {
+          "frames": "worker-b/walk-left/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-right": {
+          "frames": "worker-b/walk-right/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "type": {
+          "frames": "worker-b/type/{0..3}",
+          "frameRate": 6,
+          "repeat": -1
+        },
+        "think": {
+          "frames": "worker-b/think/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        },
+        "sit": {
+          "frames": "worker-b/sit/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        }
+      }
+    },
+    {
+      "id": "worker-c",
+      "atlas": "characters-core",
+      "size": {
+        "w": 32,
+        "h": 48
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9
+      },
+      "animations": {
+        "idle-down": {
+          "frames": "worker-c/idle-down/{0..3}",
+          "frameRate": 3,
+          "repeat": -1
+        },
+        "walk-down": {
+          "frames": "worker-c/walk-down/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-up": {
+          "frames": "worker-c/walk-up/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-left": {
+          "frames": "worker-c/walk-left/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-right": {
+          "frames": "worker-c/walk-right/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "type": {
+          "frames": "worker-c/type/{0..3}",
+          "frameRate": 6,
+          "repeat": -1
+        },
+        "think": {
+          "frames": "worker-c/think/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        },
+        "sit": {
+          "frames": "worker-c/sit/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        }
+      }
+    }
+  ],
+  "stations": [
+    {
+      "kind": "desk",
+      "id": "desk-core",
+      "frames": {
+        "back": "desk/back",
+        "front": "desk/front"
+      },
+      "footprint": {
+        "w": 2,
+        "h": 1
+      },
+      "seats": [
+        {
+          "dx": 1,
+          "dy": 1,
+          "facing": "up"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "whiteboard",
+      "id": "whiteboard-core",
+      "frames": {
+        "back": "whiteboard/back"
+      },
+      "footprint": {
+        "w": 2,
+        "h": 1
+      },
+      "seats": [
+        {
+          "dx": 1,
+          "dy": 1,
+          "facing": "up"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "server-rack",
+      "id": "server-rack-core",
+      "frames": {
+        "back": "server-rack/back"
+      },
+      "footprint": {
+        "w": 1,
+        "h": 2
+      },
+      "seats": [
+        {
+          "dx": 0,
+          "dy": 2,
+          "facing": "up"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "bookshelf",
+      "id": "bookshelf-core",
+      "frames": {
+        "back": "bookshelf/back"
+      },
+      "footprint": {
+        "w": 2,
+        "h": 2
+      },
+      "seats": [
+        {
+          "dx": 1,
+          "dy": 2,
+          "facing": "up"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "couch",
+      "id": "couch-core",
+      "frames": {
+        "back": "couch/back"
+      },
+      "footprint": {
+        "w": 2,
+        "h": 1
+      },
+      "seats": [
+        {
+          "dx": 0,
+          "dy": 1,
+          "facing": "down"
+        },
+        {
+          "dx": 1,
+          "dy": 1,
+          "facing": "down"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    },
+    {
+      "kind": "art-station",
+      "id": "art-station-core",
+      "frames": {
+        "back": "art-station/back"
+      },
+      "footprint": {
+        "w": 1,
+        "h": 2
+      },
+      "seats": [
+        {
+          "dx": 0,
+          "dy": 2,
+          "facing": "up"
+        }
+      ],
+      "atlas": "furniture-core",
+      "pivot": {
+        "x": 0,
+        "y": 0
+      },
+      "blocking": true
+    }
+  ],
+  "themes": [
+    {
+      "id": "default",
+      "tileset": "office-base",
+      "floorTiles": [
+        0,
+        1
+      ],
+      "wallTiles": [
+        2
+      ],
+      "accentColor": "#5b8266"
+    }
+  ],
+  "effects": [
+    {
+      "id": "task-progress",
+      "animation": {
+        "frames": "fx/gear/{0..3}",
+        "frameRate": 8,
+        "repeat": -1
+      },
+      "atlas": "fx-core"
+    },
+    {
+      "id": "task-complete",
+      "animation": {
+        "frames": "fx/check/{0..3}",
+        "frameRate": 10,
+        "repeat": 0
+      },
+      "atlas": "fx-core"
+    },
+    {
+      "id": "task-failed",
+      "animation": {
+        "frames": "fx/cross/{0..3}",
+        "frameRate": 10,
+        "repeat": 0
+      },
+      "atlas": "fx-core"
+    },
+    {
+      "id": "room-pulse",
+      "animation": {
+        "frames": "fx/pulse/{0..3}",
+        "frameRate": 10,
+        "repeat": 2
+      },
+      "atlas": "fx-core"
+    }
+  ],
+  "role_characters": {
+    "*": [
+      "worker-a",
+      "worker-b",
+      "worker-c"
+    ]
+  },
+  "animation_aliases": {
+    "walk": "walk-down",
+    "coffee": "idle-down",
+    "read": "sit",
+    "write": "type",
+    "chart": "type",
+    "draw": "type",
+    "play": "type",
+    "point": "think",
+    "away": "sit"
+  }
+}

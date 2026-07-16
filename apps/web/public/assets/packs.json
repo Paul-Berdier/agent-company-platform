@@ -1,0 +1,16 @@
+{
+  "packs": {
+    "core": "core",
+    "dept-software-engineering": "dept-software-engineering",
+    "dept-data-science": "dept-data-science",
+    "dept-research": "dept-research",
+    "dept-game-development": "dept-game-development"
+  },
+  "department_packs": {
+    "software-engineering": "dept-software-engineering",
+    "data-science": "dept-data-science",
+    "research": "dept-research",
+    "game-development": "dept-game-development",
+    "*": "core"
+  }
+}

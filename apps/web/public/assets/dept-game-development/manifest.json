@@ -1,0 +1,129 @@
+{
+  "manifest_version": "1.0",
+  "pack_id": "dept-game-development",
+  "extends": "core",
+  "grid": {
+    "tile": 32,
+    "character": {
+      "w": 32,
+      "h": 48
+    }
+  },
+  "atlases": [
+    {
+      "id": "characters-game",
+      "image": "atlases/characters-game.png",
+      "data": "atlases/characters-game.json"
+    }
+  ],
+  "tilesets": [
+    {
+      "id": "floors-game",
+      "image": "tilesets/floors-game.png",
+      "tile": 32,
+      "margin": 0,
+      "spacing": 0,
+      "columns": 3
+    }
+  ],
+  "tilemaps": [],
+  "characters": [
+    {
+      "id": "game-a",
+      "atlas": "characters-game",
+      "size": {
+        "w": 32,
+        "h": 48
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9
+      },
+      "animations": {
+        "idle-down": {
+          "frames": "game-a/idle-down/{0..3}",
+          "frameRate": 3,
+          "repeat": -1
+        },
+        "walk-down": {
+          "frames": "game-a/walk-down/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-up": {
+          "frames": "game-a/walk-up/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-left": {
+          "frames": "game-a/walk-left/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-right": {
+          "frames": "game-a/walk-right/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "type": {
+          "frames": "game-a/type/{0..3}",
+          "frameRate": 6,
+          "repeat": -1
+        },
+        "think": {
+          "frames": "game-a/think/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        },
+        "sit": {
+          "frames": "game-a/sit/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        }
+      }
+    }
+  ],
+  "stations": [],
+  "themes": [
+    {
+      "id": "game-studio",
+      "tileset": "floors-game",
+      "floorTiles": [
+        0,
+        1
+      ],
+      "wallTiles": [
+        2
+      ],
+      "accentColor": "#ff7043"
+    }
+  ],
+  "effects": [],
+  "role_characters": {
+    "game-designer": [
+      "game-a",
+      "worker-a"
+    ],
+    "gameplay-programmer": [
+      "game-a",
+      "worker-b"
+    ],
+    "3d-artist": [
+      "game-a"
+    ],
+    "build-engineer": [
+      "worker-b"
+    ]
+  },
+  "animation_aliases": {
+    "walk": "walk-down",
+    "coffee": "idle-down",
+    "read": "sit",
+    "write": "type",
+    "chart": "type",
+    "draw": "type",
+    "play": "type",
+    "point": "think",
+    "away": "sit"
+  }
+}

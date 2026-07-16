@@ -1,0 +1,152 @@
+{
+  "frames": {
+    "desk/back": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "sourceSize": {
+        "w": 64,
+        "h": 32
+      },
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 32
+      }
+    },
+    "desk/front": {
+      "frame": {
+        "x": 0,
+        "y": 36,
+        "w": 64,
+        "h": 6
+      },
+      "rotated": false,
+      "trimmed": false,
+      "sourceSize": {
+        "w": 64,
+        "h": 6
+      },
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 6
+      }
+    },
+    "whiteboard/back": {
+      "frame": {
+        "x": 70,
+        "y": 0,
+        "w": 64,
+        "h": 30
+      },
+      "rotated": false,
+      "trimmed": false,
+      "sourceSize": {
+        "w": 64,
+        "h": 30
+      },
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 30
+      }
+    },
+    "server-rack/back": {
+      "frame": {
+        "x": 140,
+        "y": 0,
+        "w": 32,
+        "h": 62
+      },
+      "rotated": false,
+      "trimmed": false,
+      "sourceSize": {
+        "w": 32,
+        "h": 62
+      },
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 62
+      }
+    },
+    "bookshelf/back": {
+      "frame": {
+        "x": 180,
+        "y": 0,
+        "w": 64,
+        "h": 46
+      },
+      "rotated": false,
+      "trimmed": false,
+      "sourceSize": {
+        "w": 64,
+        "h": 46
+      },
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 46
+      }
+    },
+    "couch/back": {
+      "frame": {
+        "x": 0,
+        "y": 48,
+        "w": 64,
+        "h": 30
+      },
+      "rotated": false,
+      "trimmed": false,
+      "sourceSize": {
+        "w": 64,
+        "h": 30
+      },
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 30
+      }
+    },
+    "art-station/back": {
+      "frame": {
+        "x": 70,
+        "y": 40,
+        "w": 32,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false,
+      "sourceSize": {
+        "w": 32,
+        "h": 48
+      },
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 48
+      }
+    }
+  },
+  "meta": {
+    "image": "furniture-core.png",
+    "size": {
+      "w": 256,
+      "h": 128
+    },
+    "scale": "1"
+  }
+}

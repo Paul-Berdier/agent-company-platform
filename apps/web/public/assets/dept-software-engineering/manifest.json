@@ -1,0 +1,129 @@
+{
+  "manifest_version": "1.0",
+  "pack_id": "dept-software-engineering",
+  "extends": "core",
+  "grid": {
+    "tile": 32,
+    "character": {
+      "w": 32,
+      "h": 48
+    }
+  },
+  "atlases": [
+    {
+      "id": "characters-dev",
+      "image": "atlases/characters-dev.png",
+      "data": "atlases/characters-dev.json"
+    }
+  ],
+  "tilesets": [
+    {
+      "id": "floors-dev",
+      "image": "tilesets/floors-dev.png",
+      "tile": 32,
+      "margin": 0,
+      "spacing": 0,
+      "columns": 3
+    }
+  ],
+  "tilemaps": [],
+  "characters": [
+    {
+      "id": "dev-a",
+      "atlas": "characters-dev",
+      "size": {
+        "w": 32,
+        "h": 48
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9
+      },
+      "animations": {
+        "idle-down": {
+          "frames": "dev-a/idle-down/{0..3}",
+          "frameRate": 3,
+          "repeat": -1
+        },
+        "walk-down": {
+          "frames": "dev-a/walk-down/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-up": {
+          "frames": "dev-a/walk-up/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-left": {
+          "frames": "dev-a/walk-left/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "walk-right": {
+          "frames": "dev-a/walk-right/{0..3}",
+          "frameRate": 8,
+          "repeat": -1
+        },
+        "type": {
+          "frames": "dev-a/type/{0..3}",
+          "frameRate": 6,
+          "repeat": -1
+        },
+        "think": {
+          "frames": "dev-a/think/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        },
+        "sit": {
+          "frames": "dev-a/sit/{0..1}",
+          "frameRate": 2,
+          "repeat": -1
+        }
+      }
+    }
+  ],
+  "stations": [],
+  "themes": [
+    {
+      "id": "dev-floor",
+      "tileset": "floors-dev",
+      "floorTiles": [
+        0,
+        1
+      ],
+      "wallTiles": [
+        2
+      ],
+      "accentColor": "#2b6cb0"
+    }
+  ],
+  "effects": [],
+  "role_characters": {
+    "frontend-developer": [
+      "dev-a",
+      "worker-a"
+    ],
+    "backend-developer": [
+      "dev-a",
+      "worker-b"
+    ],
+    "qa-engineer": [
+      "worker-c"
+    ],
+    "tech-lead": [
+      "dev-a"
+    ]
+  },
+  "animation_aliases": {
+    "walk": "walk-down",
+    "coffee": "idle-down",
+    "read": "sit",
+    "write": "type",
+    "chart": "type",
+    "draw": "type",
+    "play": "type",
+    "point": "think",
+    "away": "sit"
+  }
+}
