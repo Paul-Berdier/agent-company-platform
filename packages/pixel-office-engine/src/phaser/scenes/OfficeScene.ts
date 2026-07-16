@@ -472,8 +472,14 @@ export class OfficeScene extends Phaser.Scene {
     const asset = station.asset;
     if (!asset) return;
     const x = station.worldX * TILE;
-    const y = station.worldY * TILE;
-    const back = this.add.image(x, y, asset.atlas, asset.frames.back).setOrigin(0, 0);
+    // pivot.y === 1 : la base du sprite est ancrée au bas du footprint
+    // (meubles plus hauts que leur emprise, ex. bureaux LimeZu)
+    const footprintBottom = (station.worldY + station.footprint.h) * TILE;
+    const back = this.add.image(x, 0, asset.atlas, asset.frames.back).setOrigin(0, 0);
+    const y = asset.pivot.y === 1
+      ? footprintBottom - back.height
+      : station.worldY * TILE;
+    back.setY(y);
     const baseY = y + back.height;
     back.setDepth(sortedDepth(baseY));
     this.decor.push(back);

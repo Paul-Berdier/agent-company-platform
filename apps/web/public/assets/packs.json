@@ -12,5 +12,11 @@
     "research": "dept-research",
     "game-development": "dept-game-development",
     "*": "core"
+  },
+  "optional_packs": {
+    "limezu-characters": "licensed/limezu/characters",
+    "limezu-office": "licensed/limezu/office",
+    "limezu-exterior": "licensed/limezu/exterior",
+    "limezu-ui": "licensed/limezu/ui"
   }
 }

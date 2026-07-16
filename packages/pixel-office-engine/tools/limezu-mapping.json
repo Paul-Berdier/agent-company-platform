@@ -12,40 +12,147 @@
         "credit_url": "https://limezu.itch.io/"
       },
       "base_path": "2_Characters/Old/Single_Characters_Legacy/32x32/",
-      "frame": { "w": 32, "h": 64 },
+      "frame": {
+        "w": 32,
+        "h": 64
+      },
       "clips": {
-        "idle": { "token": "idle_anim", "directional": true },
-        "walk": { "token": "run", "directional": true },
-        "sit": { "token": "sit", "directional": true, "keep": "down" },
-        "read": { "token": "reading", "directional": false, "max_frames": 6 },
-        "phone": { "token": "phone", "directional": false, "max_frames": 9 }
+        "idle": {
+          "token": "idle_anim",
+          "directional": true
+        },
+        "walk": {
+          "token": "run",
+          "directional": true
+        },
+        "sit": {
+          "token": "sit",
+          "directional": true,
+          "keep": "down"
+        },
+        "read": {
+          "token": "reading",
+          "directional": false,
+          "max_frames": 6
+        },
+        "phone": {
+          "token": "phone",
+          "directional": false,
+          "max_frames": 9
+        }
       },
       "characters": [
-        { "id": "adam", "prefixes": ["Adam"] },
-        { "id": "alex", "prefixes": ["Alex"] },
-        { "id": "amelia", "prefixes": ["Amelia_Abby", "Amelia", "Abby"] },
-        { "id": "bob", "prefixes": ["Bob"] },
-        { "id": "exec-m", "prefixes": ["Conference_man"] },
-        { "id": "exec-f", "prefixes": ["Conference_woman"] },
-        { "id": "josh", "prefixes": ["Old_man_Josh", "man_Josh"] },
-        { "id": "jenny", "prefixes": ["Old_woman_Jenny", "woman_Jenny"] },
-        { "id": "lucy", "prefixes": ["Lucy"] },
-        { "id": "molly", "prefixes": ["Molly"] }
+        {
+          "id": "adam",
+          "prefixes": [
+            "Adam"
+          ]
+        },
+        {
+          "id": "alex",
+          "prefixes": [
+            "Alex"
+          ]
+        },
+        {
+          "id": "amelia",
+          "prefixes": [
+            "Amelia_Abby",
+            "Amelia",
+            "Abby"
+          ]
+        },
+        {
+          "id": "bob",
+          "prefixes": [
+            "Bob"
+          ]
+        },
+        {
+          "id": "exec-m",
+          "prefixes": [
+            "Conference_man"
+          ]
+        },
+        {
+          "id": "exec-f",
+          "prefixes": [
+            "Conference_woman"
+          ]
+        },
+        {
+          "id": "josh",
+          "prefixes": [
+            "Old_man_Josh",
+            "man_Josh"
+          ]
+        },
+        {
+          "id": "jenny",
+          "prefixes": [
+            "Old_woman_Jenny",
+            "woman_Jenny"
+          ]
+        },
+        {
+          "id": "lucy",
+          "prefixes": [
+            "Lucy"
+          ]
+        },
+        {
+          "id": "molly",
+          "prefixes": [
+            "Molly"
+          ]
+        }
       ],
       "role_characters": {
-        "frontend-developer": ["limezu-adam", "limezu-alex"],
-        "backend-developer": ["limezu-bob", "limezu-josh"],
-        "qa-engineer": ["limezu-amelia"],
-        "tech-lead": ["limezu-exec-m"],
-        "data-engineer": ["limezu-josh", "limezu-bob"],
-        "data-scientist": ["limezu-jenny", "limezu-amelia"],
-        "ml-engineer": ["limezu-adam"],
-        "researcher": ["limezu-exec-f", "limezu-lucy"],
-        "research-assistant": ["limezu-molly"],
-        "game-designer": ["limezu-alex", "limezu-lucy"],
-        "gameplay-programmer": ["limezu-adam"],
-        "3d-artist": ["limezu-lucy"],
-        "build-engineer": ["limezu-bob"]
+        "frontend-developer": [
+          "limezu-adam",
+          "limezu-alex"
+        ],
+        "backend-developer": [
+          "limezu-bob",
+          "limezu-josh"
+        ],
+        "qa-engineer": [
+          "limezu-amelia"
+        ],
+        "tech-lead": [
+          "limezu-exec-m"
+        ],
+        "data-engineer": [
+          "limezu-josh",
+          "limezu-bob"
+        ],
+        "data-scientist": [
+          "limezu-jenny",
+          "limezu-amelia"
+        ],
+        "ml-engineer": [
+          "limezu-adam"
+        ],
+        "researcher": [
+          "limezu-exec-f",
+          "limezu-lucy"
+        ],
+        "research-assistant": [
+          "limezu-molly"
+        ],
+        "game-designer": [
+          "limezu-alex",
+          "limezu-lucy"
+        ],
+        "gameplay-programmer": [
+          "limezu-adam"
+        ],
+        "3d-artist": [
+          "limezu-lucy"
+        ],
+        "build-engineer": [
+          "limezu-bob"
+        ]
       }
     },
     "limezu-office": {
@@ -59,11 +166,183 @@
       },
       "singles_glob": "4_Modern_Office_singles/32x32/",
       "logical_prefix": "office.single",
+      "trim": true,
       "tilesets": [
         {
           "zip_path": "1_Room_Builder_Office/Room_Builder_Office_32x32.png",
           "id": "limezu-office-roombuilder",
           "tile": 32
+        }
+      ],
+      "themes": [
+        {
+          "id": "dev-floor",
+          "tileset": "limezu-office-roombuilder",
+          "floorTiles": [
+            186,
+            187
+          ],
+          "wallTiles": [
+            96
+          ],
+          "accentColor": "#7c5cff"
+        }
+      ],
+      "composed_frames": [
+        {
+          "key": "office.composed.desk-dev",
+          "layers": [
+            {
+              "frame": "office.single.modern-office-singles-248",
+              "dx": 0,
+              "dy": 14
+            },
+            {
+              "frame": "office.single.modern-office-singles-227",
+              "dx": 4,
+              "dy": 0
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "kind": "desk",
+          "id": "office-desk-dev",
+          "frame": "office.composed.desk-dev",
+          "footprint": {
+            "w": 2,
+            "h": 1
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": [
+            {
+              "dx": 0,
+              "dy": 1,
+              "facing": "up"
+            },
+            {
+              "dx": 1,
+              "dy": 1,
+              "facing": "up"
+            }
+          ]
+        },
+        {
+          "kind": "whiteboard",
+          "id": "office-whiteboard",
+          "frame": "office.single.modern-office-singles-171",
+          "footprint": {
+            "w": 2,
+            "h": 1
+          },
+          "seats": [
+            {
+              "dx": 1,
+              "dy": 1,
+              "facing": "up"
+            }
+          ],
+          "pivot": {
+            "x": 0,
+            "y": 1
+          }
+        },
+        {
+          "kind": "coffee-machine",
+          "id": "office-coffee",
+          "frame": "office.single.modern-office-singles-321",
+          "footprint": {
+            "w": 2,
+            "h": 1
+          },
+          "seats": [
+            {
+              "dx": 1,
+              "dy": 1,
+              "facing": "up"
+            }
+          ],
+          "pivot": {
+            "x": 0,
+            "y": 1
+          }
+        },
+        {
+          "kind": "plant",
+          "id": "office-plant",
+          "frame": "office.single.modern-office-singles-99",
+          "footprint": {
+            "w": 1,
+            "h": 1
+          },
+          "seats": [],
+          "pivot": {
+            "x": 0,
+            "y": 1
+          }
+        },
+        {
+          "kind": "water-cooler",
+          "id": "office-water",
+          "frame": "office.single.modern-office-singles-173",
+          "footprint": {
+            "w": 1,
+            "h": 1
+          },
+          "seats": [],
+          "pivot": {
+            "x": 0,
+            "y": 1
+          }
+        },
+        {
+          "kind": "server-rack",
+          "id": "office-server",
+          "frame": "office.single.modern-office-singles-176",
+          "footprint": {
+            "w": 1,
+            "h": 2
+          },
+          "seats": [
+            {
+              "dx": 0,
+              "dy": 2,
+              "facing": "up"
+            }
+          ],
+          "pivot": {
+            "x": 0,
+            "y": 1
+          }
+        },
+        {
+          "kind": "couch",
+          "id": "office-couch",
+          "frame": "office.single.modern-office-singles-200",
+          "footprint": {
+            "w": 2,
+            "h": 1
+          },
+          "seats": [
+            {
+              "dx": 0,
+              "dy": 1,
+              "facing": "down"
+            },
+            {
+              "dx": 1,
+              "dy": 1,
+              "facing": "down"
+            }
+          ],
+          "pivot": {
+            "x": 0,
+            "y": 1
+          }
         }
       ]
     },
@@ -78,9 +357,19 @@
       },
       "singles_glob": "Modern_Exteriors_32x32/Modern_Exteriors_Complete_Singles_32x32/",
       "logical_prefix": "exterior",
+      "trim": true,
       "include_patterns": [
-        "Tree_", "Bush", "Bench", "Fountain", "Hedge", "Flower",
-        "Street_Light", "Streetlight", "Lamp_Post", "Trash", "Sign"
+        "Tree_",
+        "Bush",
+        "Bench",
+        "Fountain",
+        "Hedge",
+        "Flower",
+        "Street_Light",
+        "Streetlight",
+        "Lamp_Post",
+        "Trash",
+        "Sign"
       ],
       "max_files": 160
     },
@@ -94,7 +383,9 @@
         "credit_url": "https://limezu.itch.io/"
       },
       "sheets_glob": "32x32/",
-      "sheets_patterns": ["Modern_UI_"],
+      "sheets_patterns": [
+        "Modern_UI_"
+      ],
       "logical_prefix": "ui.sheet",
       "max_sheet_size": 2048
     }

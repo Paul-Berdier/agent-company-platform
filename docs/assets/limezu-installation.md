@@ -59,6 +59,23 @@ Le script :
   téléchargeable public ;
 - **crédits requis** : voir la section Crédits du README.
 
+## Outils de curation
+
+```powershell
+# planches contact numérotées d'un atlas (choisir les meubles par numéro)
+node packages/pixel-office-engine/tools/contact-sheet.mjs `
+  apps/web/public/assets/licensed/limezu/office limezu-office C:\temp\contact
+
+# prévisualisation statique d'une salle (thème + stations du plugin), sans navigateur
+node packages/pixel-office-engine/tools/room-preview.mjs software-engineering out.png
+# itération rapide de thème : THEME_FLOOR="186,187" THEME_WALL="96" node tools/room-preview.mjs ...
+```
+
+Le mapping supporte les **frames composées** (ex. bureau nu + plateau
+double-écrans bakés en une frame à l'import) via `composed_frames`, et
+l'ancrage au sol des meubles plus hauts que leur emprise via
+`pivot: {x:0, y:1}`.
+
 ## Adapter la sélection
 
 Modifier `packages/pixel-office-engine/tools/limezu-mapping.json`

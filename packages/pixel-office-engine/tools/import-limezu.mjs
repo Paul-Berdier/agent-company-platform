@@ -77,11 +77,53 @@ function blit(dst, src, dx, dy, sx = 0, sy = 0, w = src.width, h = src.height) {
   }
 }
 
+/** blit avec alpha (compositions de frames). */
+function blitAlpha(dst, src, dx, dy) {
+  for (let y = 0; y < src.height; y++) {
+    for (let x = 0; x < src.width; x++) {
+      const s = ((y * src.width + x) << 2);
+      const alpha = src.data[s + 3];
+      if (alpha === 0) continue;
+      const d = (((dy + y) * dst.width) + dx + x) << 2;
+      if (alpha === 255) {
+        dst.data[d] = src.data[s]; dst.data[d + 1] = src.data[s + 1];
+        dst.data[d + 2] = src.data[s + 2]; dst.data[d + 3] = 255;
+      } else {
+        const a = alpha / 255;
+        for (let c = 0; c < 3; c++) {
+          dst.data[d + c] = Math.round(src.data[s + c] * a + dst.data[d + c] * (1 - a));
+        }
+        dst.data[d + 3] = Math.max(dst.data[d + 3], alpha);
+      }
+    }
+  }
+}
+
+/** Rogne les bords transparents (les singles LimeZu ont un fort padding). */
+function trimTransparent(png) {
+  let minX = png.width, minY = png.height, maxX = -1, maxY = -1;
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      if (png.data[((y * png.width + x) << 2) + 3] > 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return png; // entièrement transparent
+  const out = new PNG({ width: maxX - minX + 1, height: maxY - minY + 1 });
+  blit(out, png, 0, 0, minX, minY, out.width, out.height);
+  return out;
+}
+
 /** Compose des frames décodées en atlas PNG+JSON dans targetDir. */
 function writeAtlases(targetDir, atlasBaseName, frames) {
   const sheets = shelfPack(frames.map((f) => ({ key: f.key, w: f.png.width, h: f.png.height })));
   const byKey = new Map(frames.map((f) => [f.key, f.png]));
   const atlases = [];
+  const atlasOf = new Map(); // frame key → atlas id
   sheets.forEach((sheet, index) => {
     const suffix = sheets.length > 1 ? `-${index + 1}` : "";
     const imageName = `${atlasBaseName}${suffix}.png`;
@@ -100,8 +142,9 @@ function writeAtlases(targetDir, atlasBaseName, frames) {
       image: `atlases/${imageName}`,
       data: `atlases/${atlasBaseName}${suffix}.json`,
     });
+    for (const item of sheet.items) atlasOf.set(item.key, `${atlasBaseName}${suffix}`);
   });
-  return atlases;
+  return { atlases, atlasOf };
 }
 
 function baseManifest(packId, pack) {
@@ -215,9 +258,10 @@ function importCharacters(packId, pack, srcDir) {
   if (characters.length === 0) throw new ImportError(`${packId}: aucun personnage résolu`);
 
   const targetDir = path.join(OUT_BASE, ...pack.target_dir.split("/"));
-  const atlases = writeAtlases(targetDir, "limezu-characters", frames);
-  const atlasId = atlases.length === 1 ? atlases[0].id : atlases[0].id; // personnages tiennent sur 1 feuille sinon warning
+  const { atlases, atlasOf } = writeAtlases(targetDir, "limezu-characters", frames);
+  const atlasId = atlases[0].id;
   if (atlases.length > 1) warn(`${packId}: personnages répartis sur ${atlases.length} atlas — vérifier les clés`);
+  void atlasOf;
 
   const manifest = baseManifest(packId, pack);
   manifest.atlases = atlases;
@@ -298,8 +342,9 @@ function importSingles(packId, pack, srcDir) {
   const frames = [];
   const seen = new Set();
   for (const name of names) {
-    const png = decodePng(entries[name]);
-    if (png.width % 16 !== 0 || png.height % 16 !== 0) {
+    let png = decodePng(entries[name]);
+    if (pack.trim) png = trimTransparent(png);
+    if (!pack.trim && (png.width % 16 !== 0 || png.height % 16 !== 0)) {
       warn(`${packId}: ${name.split("/").pop()} dimensions non multiples de 16 (${png.width}×${png.height})`);
     }
     if (png.width > 2048 || png.height > 2048) {
@@ -317,11 +362,61 @@ function importSingles(packId, pack, srcDir) {
     frames.push({ key, png });
   }
 
+  // frames composées (ex. bureau nu + plateau écrans) bakées à l'import
+  const frameByKey = new Map(frames.map((f) => [f.key, f.png]));
+  for (const composed of pack.composed_frames ?? []) {
+    const parts = composed.layers.map((layer) => ({
+      png: frameByKey.get(layer.frame),
+      dx: layer.dx ?? 0,
+      dy: layer.dy ?? 0,
+      key: layer.frame,
+    }));
+    const missing = parts.find((p) => !p.png);
+    if (missing) {
+      warn(`${packId}: composition "${composed.key}" — frame "${missing.key}" introuvable`);
+      continue;
+    }
+    const minX = Math.min(...parts.map((p) => p.dx));
+    const minY = Math.min(...parts.map((p) => p.dy));
+    const maxX = Math.max(...parts.map((p) => p.dx + p.png.width));
+    const maxY = Math.max(...parts.map((p) => p.dy + p.png.height));
+    const canvas = new PNG({ width: maxX - minX, height: maxY - minY });
+    for (const part of parts) {
+      blitAlpha(canvas, part.png, part.dx - minX, part.dy - minY);
+    }
+    frames.push({ key: composed.key, png: canvas });
+    frameByKey.set(composed.key, canvas);
+  }
+
   const targetDir = path.join(OUT_BASE, ...pack.target_dir.split("/"));
-  const atlases = writeAtlases(targetDir, packId, frames);
+  const { atlases, atlasOf } = writeAtlases(targetDir, packId, frames);
 
   const manifest = baseManifest(packId, pack);
   manifest.atlases = atlases;
+
+  // stations déclarées dans le mapping (curation) → StationAssetDef
+  for (const station of pack.stations ?? []) {
+    const backAtlas = atlasOf.get(station.frame);
+    if (!backAtlas) {
+      warn(`${packId}: station "${station.id}" — frame "${station.frame}" introuvable`);
+      continue;
+    }
+    const frontOk = station.front && atlasOf.get(station.front);
+    if (station.front && !frontOk) {
+      warn(`${packId}: station "${station.id}" — frame front "${station.front}" introuvable`);
+    }
+    manifest.stations.push({
+      kind: station.kind,
+      id: station.id,
+      atlas: backAtlas,
+      frames: { back: station.frame, ...(frontOk ? { front: station.front } : {}) },
+      footprint: station.footprint,
+      pivot: station.pivot ?? { x: 0, y: 0 },
+      seats: station.seats ?? [],
+      blocking: station.blocking ?? true,
+    });
+  }
+  manifest.themes = pack.themes ?? [];
 
   for (const tilesetDef of pack.tilesets ?? []) {
     const tsEntries = unzipFiltered(archivePath, (n) => n === tilesetDef.zip_path);
@@ -372,7 +467,7 @@ function importSheets(packId, pack, srcDir) {
   }
   if (frames.length === 0) throw new ImportError(`${packId}: aucune feuille sélectionnée`);
   const targetDir = path.join(OUT_BASE, ...pack.target_dir.split("/"));
-  const atlases = writeAtlases(targetDir, packId, frames);
+  const { atlases } = writeAtlases(targetDir, packId, frames);
   const manifest = baseManifest(packId, pack);
   manifest.atlases = atlases;
   writeJson(path.join(targetDir, "manifest.json"), manifest);

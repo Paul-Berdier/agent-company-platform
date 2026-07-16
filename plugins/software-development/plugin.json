@@ -8,11 +8,18 @@
       "name": "Software Engineering",
       "office_theme": "dev-floor",
       "stations": [
-        { "id": "dev-desk-1", "name": "Dev Desk 1", "kind": "desk", "x": 2, "y": 2 },
-        { "id": "dev-desk-2", "name": "Dev Desk 2", "kind": "desk", "x": 5, "y": 2 },
-        { "id": "dev-desk-3", "name": "Dev Desk 3", "kind": "desk", "x": 8, "y": 2 },
-        { "id": "review-corner", "name": "Review Corner", "kind": "whiteboard", "x": 2, "y": 6 },
-        { "id": "ci-rack", "name": "CI Server Rack", "kind": "server-rack", "x": 8, "y": 6 }
+        { "id": "dev-desk-1", "name": "Dev Desk 1", "kind": "desk", "x": 1, "y": 3 },
+        { "id": "dev-desk-2", "name": "Dev Desk 2", "kind": "desk", "x": 4, "y": 3 },
+        { "id": "dev-desk-3", "name": "Dev Desk 3", "kind": "desk", "x": 7, "y": 3 },
+        { "id": "dev-desk-4", "name": "Dev Desk 4", "kind": "desk", "x": 1, "y": 6 },
+        { "id": "dev-desk-5", "name": "Dev Desk 5", "kind": "desk", "x": 4, "y": 6 },
+        { "id": "dev-desk-6", "name": "Dev Desk 6", "kind": "desk", "x": 7, "y": 6 },
+        { "id": "review-corner", "name": "Review Corner", "kind": "whiteboard", "x": 4, "y": 1 },
+        { "id": "coffee-corner", "name": "Coffee Corner", "kind": "coffee-machine", "x": 9, "y": 1 },
+        { "id": "plant-1", "name": "Plant", "kind": "plant", "x": 0, "y": 1 },
+        { "id": "plant-2", "name": "Plant", "kind": "plant", "x": 11, "y": 4 },
+        { "id": "water-cooler", "name": "Water Cooler", "kind": "water-cooler", "x": 0, "y": 4 },
+        { "id": "ci-rack", "name": "CI Server Rack", "kind": "server-rack", "x": 10, "y": 6 }
       ],
       "available_animations": ["sit", "type", "walk", "think", "coffee", "point"],
       "status_mapping": {
