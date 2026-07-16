@@ -1,0 +1,8 @@
+{
+  "name": "@acp/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "typescript/index.ts",
+  "types": "typescript/index.ts"
+}

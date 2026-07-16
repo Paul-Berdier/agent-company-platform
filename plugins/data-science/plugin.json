@@ -1,0 +1,56 @@
+{
+  "module": "data-science",
+  "version": "0.1.0",
+  "description": "Département Data Science : data lab, pipelines et exploration.",
+  "departments": [
+    {
+      "department_type": "data-science",
+      "name": "Data Science",
+      "office_theme": "data-lab",
+      "stations": [
+        { "id": "notebook-desk-1", "name": "Notebook Desk 1", "kind": "desk", "x": 2, "y": 2 },
+        { "id": "notebook-desk-2", "name": "Notebook Desk 2", "kind": "desk", "x": 5, "y": 2 },
+        { "id": "dashboard-wall", "name": "Dashboard Wall", "kind": "whiteboard", "x": 8, "y": 2 },
+        { "id": "data-rack", "name": "Data Warehouse Rack", "kind": "server-rack", "x": 2, "y": 6 },
+        { "id": "etl-console", "name": "ETL Console", "kind": "desk", "x": 8, "y": 6 }
+      ],
+      "available_animations": ["sit", "type", "walk", "think", "coffee", "chart"],
+      "status_mapping": {
+        "idle": "coffee",
+        "thinking": "think",
+        "working": "chart",
+        "reviewing": "think",
+        "blocked": "sit",
+        "offline": "away"
+      },
+      "roles": [
+        { "id": "data-engineer", "name": "Data Engineer", "capabilities": ["pipeline", "database"], "sprite": "data" },
+        { "id": "data-scientist", "name": "Data Scientist", "capabilities": ["analyze", "model"], "sprite": "data" },
+        { "id": "ml-engineer", "name": "ML Engineer", "capabilities": ["model", "deploy"], "sprite": "data" }
+      ]
+    }
+  ],
+  "capabilities": [
+    { "id": "pipeline", "name": "Construire des pipelines", "required_providers": ["databases", "cicd"] },
+    { "id": "analyze", "name": "Analyser des données", "required_providers": ["databases"] },
+    { "id": "model", "name": "Entraîner des modèles", "required_providers": [] },
+    { "id": "deploy", "name": "Déployer des modèles", "required_providers": ["cicd"] }
+  ],
+  "workflows": [
+    {
+      "id": "data-pipeline",
+      "name": "Pipeline de données",
+      "project_types": ["data-pipeline", "data-science"],
+      "steps": [
+        { "id": "ingest", "name": "Ingestion", "role_id": "data-engineer" },
+        { "id": "clean", "name": "Nettoyage", "role_id": "data-engineer", "validator": "quality-checks" },
+        { "id": "analyze", "name": "Analyse", "role_id": "data-scientist" },
+        { "id": "report", "name": "Restitution", "role_id": "data-scientist" }
+      ]
+    }
+  ],
+  "indicators": [
+    { "id": "pipeline-health", "name": "Santé des pipelines" },
+    { "id": "datasets", "name": "Datasets suivis" }
+  ]
+}

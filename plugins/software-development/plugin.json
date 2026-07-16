@@ -1,0 +1,57 @@
+{
+  "module": "software-development",
+  "version": "0.1.0",
+  "description": "Département Software Engineering : rôles, workflow de livraison, open space de dev.",
+  "departments": [
+    {
+      "department_type": "software-engineering",
+      "name": "Software Engineering",
+      "office_theme": "dev-floor",
+      "stations": [
+        { "id": "dev-desk-1", "name": "Dev Desk 1", "kind": "desk", "x": 2, "y": 2 },
+        { "id": "dev-desk-2", "name": "Dev Desk 2", "kind": "desk", "x": 5, "y": 2 },
+        { "id": "dev-desk-3", "name": "Dev Desk 3", "kind": "desk", "x": 8, "y": 2 },
+        { "id": "review-corner", "name": "Review Corner", "kind": "whiteboard", "x": 2, "y": 6 },
+        { "id": "ci-rack", "name": "CI Server Rack", "kind": "server-rack", "x": 8, "y": 6 }
+      ],
+      "available_animations": ["sit", "type", "walk", "think", "coffee", "point"],
+      "status_mapping": {
+        "idle": "coffee",
+        "thinking": "think",
+        "working": "type",
+        "reviewing": "point",
+        "blocked": "sit",
+        "offline": "away"
+      },
+      "roles": [
+        { "id": "frontend-developer", "name": "Frontend Developer", "capabilities": ["code", "review"], "sprite": "dev" },
+        { "id": "backend-developer", "name": "Backend Developer", "capabilities": ["code", "review", "database"], "sprite": "dev" },
+        { "id": "qa-engineer", "name": "QA Engineer", "capabilities": ["test", "review"], "sprite": "qa" },
+        { "id": "tech-lead", "name": "Tech Lead", "capabilities": ["plan", "review", "code"], "sprite": "lead" }
+      ]
+    }
+  ],
+  "capabilities": [
+    { "id": "code", "name": "Écrire du code", "required_providers": ["git", "filesystem"] },
+    { "id": "test", "name": "Tester", "required_providers": ["cicd"] },
+    { "id": "review", "name": "Relire du code", "required_providers": ["git"] },
+    { "id": "database", "name": "Gérer les bases de données", "required_providers": ["databases"] }
+  ],
+  "workflows": [
+    {
+      "id": "web-delivery",
+      "name": "Livraison web",
+      "project_types": ["web-app", "automation"],
+      "steps": [
+        { "id": "spec", "name": "Spécifier", "role_id": "tech-lead" },
+        { "id": "implement", "name": "Implémenter", "role_id": "backend-developer" },
+        { "id": "test", "name": "Tester", "role_id": "qa-engineer", "validator": "tests-pass" },
+        { "id": "review", "name": "Relire", "role_id": "tech-lead", "validator": "review-approved" }
+      ]
+    }
+  ],
+  "indicators": [
+    { "id": "open-tasks", "name": "Tâches ouvertes" },
+    { "id": "review-queue", "name": "File de review" }
+  ]
+}

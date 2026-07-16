@@ -1,0 +1,62 @@
+{
+  "module": "game-development",
+  "version": "0.1.0",
+  "description": "Département Game Development (optionnel). Accueillera plus tard les adaptateurs Blender, Unreal Engine, nanos world, asset validation, build & cook. Le cœur fonctionne sans ce module.",
+  "departments": [
+    {
+      "department_type": "game-development",
+      "name": "Game Development",
+      "office_theme": "game-studio",
+      "stations": [
+        { "id": "design-desk", "name": "Design Desk", "kind": "desk", "x": 2, "y": 2 },
+        { "id": "code-desk", "name": "Gameplay Desk", "kind": "desk", "x": 5, "y": 2 },
+        { "id": "art-station", "name": "Art Station", "kind": "art-station", "x": 8, "y": 2 },
+        { "id": "playtest-couch", "name": "Playtest Couch", "kind": "couch", "x": 2, "y": 6 },
+        { "id": "build-rack", "name": "Build Farm Rack", "kind": "server-rack", "x": 8, "y": 6 }
+      ],
+      "available_animations": ["sit", "type", "walk", "think", "coffee", "draw", "play"],
+      "status_mapping": {
+        "idle": "play",
+        "thinking": "think",
+        "working": "type",
+        "reviewing": "play",
+        "blocked": "sit",
+        "offline": "away"
+      },
+      "roles": [
+        { "id": "game-designer", "name": "Game Designer", "capabilities": ["design"], "sprite": "designer" },
+        { "id": "gameplay-programmer", "name": "Gameplay Programmer", "capabilities": ["code"], "sprite": "dev" },
+        { "id": "3d-artist", "name": "3D Artist", "capabilities": ["model-3d"], "sprite": "artist" },
+        { "id": "build-engineer", "name": "Build Engineer", "capabilities": ["build-cook"], "sprite": "dev" }
+      ]
+    }
+  ],
+  "capabilities": [
+    { "id": "design", "name": "Game design", "required_providers": ["filesystem"] },
+    { "id": "code", "name": "Programmation gameplay", "required_providers": ["git", "filesystem"] },
+    { "id": "model-3d", "name": "Modélisation 3D", "required_providers": ["blender-mcp"] },
+    { "id": "build-cook", "name": "Build & cook", "required_providers": ["unreal-mcp", "cicd"] }
+  ],
+  "workflows": [
+    {
+      "id": "game-prototype",
+      "name": "Prototype de jeu",
+      "project_types": ["game"],
+      "steps": [
+        { "id": "gdd", "name": "Game design document", "role_id": "game-designer" },
+        { "id": "prototype", "name": "Prototype", "role_id": "gameplay-programmer" },
+        { "id": "assets", "name": "Assets", "role_id": "3d-artist", "validator": "asset-validation" },
+        { "id": "playtest", "name": "Playtest", "role_id": "game-designer" }
+      ]
+    }
+  ],
+  "adapters": [
+    { "id": "blender-mcp", "name": "Blender MCP", "status": "planned" },
+    { "id": "unreal-mcp", "name": "Unreal MCP", "status": "planned" },
+    { "id": "nanos-world", "name": "nanos world", "status": "planned" }
+  ],
+  "indicators": [
+    { "id": "assets-validated", "name": "Assets validés" },
+    { "id": "build-status", "name": "État des builds" }
+  ]
+}

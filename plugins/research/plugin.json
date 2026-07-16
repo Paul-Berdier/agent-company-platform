@@ -1,0 +1,53 @@
+{
+  "module": "research",
+  "version": "0.1.0",
+  "description": "Département Research : bibliothèque, veille, expériences et publications.",
+  "departments": [
+    {
+      "department_type": "research",
+      "name": "Research",
+      "office_theme": "library",
+      "stations": [
+        { "id": "reading-desk-1", "name": "Reading Desk 1", "kind": "desk", "x": 2, "y": 2 },
+        { "id": "reading-desk-2", "name": "Reading Desk 2", "kind": "desk", "x": 5, "y": 2 },
+        { "id": "bookshelf", "name": "Bookshelf", "kind": "bookshelf", "x": 8, "y": 2 },
+        { "id": "seminar-board", "name": "Seminar Board", "kind": "whiteboard", "x": 5, "y": 6 }
+      ],
+      "available_animations": ["sit", "read", "walk", "think", "coffee", "write"],
+      "status_mapping": {
+        "idle": "read",
+        "thinking": "think",
+        "working": "write",
+        "reviewing": "read",
+        "blocked": "sit",
+        "offline": "away"
+      },
+      "roles": [
+        { "id": "researcher", "name": "Researcher", "capabilities": ["survey", "experiment", "write"], "sprite": "researcher" },
+        { "id": "research-assistant", "name": "Research Assistant", "capabilities": ["survey", "write"], "sprite": "researcher" }
+      ]
+    }
+  ],
+  "capabilities": [
+    { "id": "survey", "name": "Revue de littérature", "required_providers": ["browser"] },
+    { "id": "experiment", "name": "Mener des expériences", "required_providers": [] },
+    { "id": "write", "name": "Rédiger", "required_providers": ["filesystem"] }
+  ],
+  "workflows": [
+    {
+      "id": "research-study",
+      "name": "Étude de recherche",
+      "project_types": ["research", "content-creation"],
+      "steps": [
+        { "id": "survey", "name": "Revue de littérature", "role_id": "research-assistant" },
+        { "id": "protocol", "name": "Protocole", "role_id": "researcher" },
+        { "id": "experiment", "name": "Expérimentation", "role_id": "researcher" },
+        { "id": "publish", "name": "Publication", "role_id": "researcher", "validator": "peer-review" }
+      ]
+    }
+  ],
+  "indicators": [
+    { "id": "papers-read", "name": "Articles lus" },
+    { "id": "experiments", "name": "Expériences en cours" }
+  ]
+}

@@ -1,0 +1,113 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Courier New", monospace;
+  background: #14161c;
+  color: #e6e6e6;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 260px 1fr 280px;
+  height: 100vh;
+}
+
+#sidebar, #inspector {
+  background: #1b1f28;
+  padding: 12px;
+  overflow-y: auto;
+  border-right: 2px solid #2b3040;
+}
+
+#inspector { border-right: none; border-left: 2px solid #2b3040; }
+
+#stage { display: flex; flex-direction: column; min-width: 0; }
+
+#topbar {
+  padding: 10px 16px;
+  background: #1b1f28;
+  border-bottom: 2px solid #2b3040;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#topbar h1 { font-size: 16px; letter-spacing: 1px; }
+
+#canvas-wrap { flex: 1; position: relative; min-height: 0; }
+
+#office { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+.section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: #7d8598;
+  margin: 14px 0 6px;
+}
+
+.nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #232837;
+  color: #e6e6e6;
+  border: 1px solid #2b3040;
+  padding: 7px 9px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.nav-item:hover { background: #2d3446; }
+.nav-item.active { background: #354064; border-color: #5b8266; }
+.nav-item.sub { margin-left: 14px; width: calc(100% - 14px); font-size: 12px; }
+
+.acp-badge {
+  display: inline-block;
+  color: #14161c;
+  font-size: 10px;
+  font-weight: bold;
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+
+.log-entry {
+  font-size: 11px;
+  padding: 4px 6px;
+  border-left: 3px solid #5b8266;
+  background: #20242f;
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.log-entry time { color: #7d8598; margin-right: 4px; }
+
+.inspector-card {
+  background: #232837;
+  border: 1px solid #2b3040;
+  padding: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.inspector-card h3 { font-size: 13px; margin-bottom: 6px; }
+.inspector-card p { margin: 3px 0; color: #aab2c5; }
+
+.action-btn {
+  display: block;
+  width: 100%;
+  background: #5b8266;
+  color: #fff;
+  border: none;
+  padding: 9px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.action-btn:hover { background: #6d9878; }
+.muted { color: #7d8598; font-size: 11px; }

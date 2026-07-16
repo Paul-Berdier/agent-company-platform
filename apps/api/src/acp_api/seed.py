@@ -20,7 +20,7 @@ from acp_database.models import (
     WorkspaceModel,
 )
 
-ORG_NAME = "Berdier Virtual Company"
+ORG_NAME = "Virtual Company"
 
 PROVIDERS = [
     ("orchestrator", "Mock Orchestrator", "mock"),
