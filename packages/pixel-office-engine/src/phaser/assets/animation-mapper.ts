@@ -58,6 +58,25 @@ export function clipKey(characterId: string, clipName: string): string {
   return `${characterId}:${clipName}`;
 }
 
+/**
+ * Clip d'un agent assis, orienté par son siège quand le personnage possède
+ * une variante directionnelle (`sit-left`, `sit-right`...). Les personnages
+ * sans variantes (legacy) gardent leur clip de base — le repli `idle-down`
+ * d'une variante manquante n'est jamais préféré au clip de base.
+ */
+export function resolveSeatedClip(
+  character: CharacterDef,
+  animationName: string,
+  facing: string | null,
+  aliases: Record<string, string> = {},
+): { name: string; clip: AnimationClipDef } | null {
+  const base = resolveClip(character, animationName, aliases);
+  if (!base || !facing || !base.name.startsWith("sit")) return base;
+  const faced = resolveClip(character, `sit-${facing}`, aliases);
+  if (faced && faced.name !== FALLBACK_CLIP) return faced;
+  return base;
+}
+
 /** Clip de marche selon la direction du déplacement. */
 export function walkClipForDirection(
   character: CharacterDef,

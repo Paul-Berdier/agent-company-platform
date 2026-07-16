@@ -109,49 +109,272 @@
       ],
       "role_characters": {
         "frontend-developer": [
+          "limezu-gen-dev-1",
+          "limezu-gen-dev-2",
           "limezu-adam",
           "limezu-alex"
         ],
         "backend-developer": [
+          "limezu-gen-dev-3",
+          "limezu-gen-dev-1",
           "limezu-bob",
           "limezu-josh"
         ],
         "qa-engineer": [
+          "limezu-gen-qa-1",
           "limezu-amelia"
         ],
         "tech-lead": [
+          "limezu-gen-lead-1",
           "limezu-exec-m"
         ],
         "data-engineer": [
+          "limezu-gen-data-1",
           "limezu-josh",
           "limezu-bob"
         ],
         "data-scientist": [
+          "limezu-gen-data-2",
           "limezu-jenny",
           "limezu-amelia"
         ],
         "ml-engineer": [
+          "limezu-gen-data-1",
           "limezu-adam"
         ],
         "researcher": [
+          "limezu-gen-research-1",
           "limezu-exec-f",
           "limezu-lucy"
         ],
         "research-assistant": [
+          "limezu-gen-research-2",
           "limezu-molly"
         ],
         "game-designer": [
+          "limezu-gen-game-1",
           "limezu-alex",
           "limezu-lucy"
         ],
         "gameplay-programmer": [
+          "limezu-gen-game-2",
           "limezu-adam"
         ],
         "3d-artist": [
+          "limezu-gen-game-1",
           "limezu-lucy"
         ],
         "build-engineer": [
+          "limezu-gen-dev-3",
           "limezu-bob"
+        ]
+      },
+      "generated": {
+        "base_path": "2_Characters/Character_Generator/",
+        "clips": {
+          "idle": {
+            "row": 1,
+            "from": 0,
+            "count": 24,
+            "directional": true,
+            "frameRate": 4
+          },
+          "walk": {
+            "row": 2,
+            "from": 0,
+            "count": 24,
+            "directional": true,
+            "frameRate": 10
+          },
+          "sit-right": {
+            "row": 4,
+            "from": 0,
+            "count": 6,
+            "frameRate": 4
+          },
+          "sit-left": {
+            "row": 4,
+            "from": 6,
+            "count": 6,
+            "frameRate": 4
+          },
+          "phone": {
+            "row": 6,
+            "from": 0,
+            "count": 12,
+            "frameRate": 4
+          },
+          "read": {
+            "row": 7,
+            "from": 0,
+            "count": 12,
+            "frameRate": 4
+          },
+          "error": {
+            "row": 19,
+            "from": 9,
+            "count": 3,
+            "frameRate": 6,
+            "repeat": 0
+          }
+        },
+        "variants": [
+          {
+            "id": "dev-1",
+            "body": 1,
+            "eyes": 1,
+            "outfit": [
+              1,
+              1
+            ],
+            "hair": [
+              1,
+              1
+            ]
+          },
+          {
+            "id": "dev-2",
+            "body": 3,
+            "eyes": 2,
+            "outfit": [
+              13,
+              2
+            ],
+            "hair": [
+              5,
+              1
+            ]
+          },
+          {
+            "id": "dev-3",
+            "body": 5,
+            "eyes": 3,
+            "outfit": [
+              16,
+              1
+            ],
+            "hair": [
+              9,
+              2
+            ]
+          },
+          {
+            "id": "data-1",
+            "body": 2,
+            "eyes": 4,
+            "outfit": [
+              21,
+              1
+            ],
+            "hair": [
+              15,
+              1
+            ]
+          },
+          {
+            "id": "data-2",
+            "body": 6,
+            "eyes": 6,
+            "outfit": [
+              6,
+              2
+            ],
+            "hair": [
+              18,
+              1
+            ]
+          },
+          {
+            "id": "research-1",
+            "body": 4,
+            "eyes": 2,
+            "outfit": [
+              22,
+              1
+            ],
+            "hair": [
+              21,
+              1
+            ]
+          },
+          {
+            "id": "research-2",
+            "body": 8,
+            "eyes": 7,
+            "outfit": [
+              22,
+              2
+            ],
+            "hair": [
+              24,
+              1
+            ]
+          },
+          {
+            "id": "qa-1",
+            "body": 9,
+            "eyes": 1,
+            "outfit": [
+              10,
+              1
+            ],
+            "hair": [
+              27,
+              1
+            ]
+          },
+          {
+            "id": "lead-1",
+            "body": 1,
+            "eyes": 3,
+            "outfit": [
+              5,
+              1
+            ],
+            "hair": [
+              30,
+              1
+            ]
+          },
+          {
+            "id": "game-1",
+            "body": 3,
+            "eyes": 6,
+            "outfit": [
+              27,
+              1
+            ],
+            "hair": [
+              7,
+              1
+            ]
+          },
+          {
+            "id": "game-2",
+            "body": 7,
+            "eyes": 4,
+            "outfit": [
+              16,
+              3
+            ],
+            "hair": [
+              11,
+              2
+            ]
+          },
+          {
+            "id": "generic-1",
+            "body": 2,
+            "eyes": 7,
+            "outfit": [
+              11,
+              1
+            ],
+            "hair": [
+              14,
+              1
+            ]
+          }
         ]
       }
     },

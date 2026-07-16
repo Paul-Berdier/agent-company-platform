@@ -16,7 +16,9 @@ import {
   type RenderRoom,
   type RenderStation,
 } from "../adapter/scene-adapter";
-import { clipKey, expandFrames, resolveClip, walkClipForDirection } from "../assets/animation-mapper";
+import {
+  clipKey, expandFrames, resolveClip, resolveSeatedClip, walkClipForDirection,
+} from "../assets/animation-mapper";
 import { hashCode, type LoadedAssets } from "../assets/manifest-loader";
 import { CameraController } from "../camera/camera-controller";
 import { buildCollisionGrid, findPath, type CollisionGrid, type Point } from "../grid/pathfinding";
@@ -690,7 +692,7 @@ export class OfficeScene extends Phaser.Scene {
       view.moveState = "walking";
     } else {
       view.targetTile = null;
-      const clip = resolveClip(character, animName, aliases);
+      const clip = resolveSeatedClip(character, animName, view.seatFacing, aliases);
       this.playClip(view, clip?.name ?? null);
       if (view.moveState !== "waiting") {
         view.moveState = anchored ? "working" : "idle";

@@ -77,11 +77,11 @@ function blit(dst, src, dx, dy, sx = 0, sy = 0, w = src.width, h = src.height) {
   }
 }
 
-/** blit avec alpha (compositions de frames). */
-function blitAlpha(dst, src, dx, dy) {
-  for (let y = 0; y < src.height; y++) {
-    for (let x = 0; x < src.width; x++) {
-      const s = ((y * src.width + x) << 2);
+/** blit avec alpha (compositions de frames), sous-rectangle source optionnel. */
+function blitAlpha(dst, src, dx, dy, sx = 0, sy = 0, w = src.width, h = src.height) {
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const s = (((sy + y) * src.width + sx + x) << 2);
       const alpha = src.data[s + 3];
       if (alpha === 0) continue;
       const d = (((dy + y) * dst.width) + dx + x) << 2;
@@ -97,6 +97,123 @@ function blitAlpha(dst, src, dx, dy) {
       }
     }
   }
+}
+
+// ------------------------------------- personnages générés (couches bakées)
+
+const GEN_DIRECTIONS = LIMEZU_DIRECTIONS; // ordre des blocs directionnels
+
+function generatedLayerFile(layer, spec) {
+  const pad = (n) => String(n).padStart(2, "0");
+  switch (layer) {
+    case "body": return `Bodies/32x32/Body_32x32_${pad(spec)}.png`;
+    case "eyes": return `Eyes/32x32/Eyes_32x32_${pad(spec)}.png`;
+    case "outfit": return `Outfits/32x32/Outfit_${pad(spec[0])}_32x32_${pad(spec[1])}.png`;
+    case "hair": return `Hairstyles/32x32/Hairstyle_${pad(spec[0])}_32x32_${pad(spec[1])}.png`;
+    default: throw new ImportError(`couche inconnue: ${layer}`);
+  }
+}
+
+/**
+ * Compose les variantes du Character Generator (corps × yeux × tenue ×
+ * coiffure) et découpe les clips depuis la méga-feuille (grille 32×64).
+ * Retourne les entrées de manifest ; les frames sont poussées dans `frames`.
+ */
+function importGeneratedVariants(packId, pack, srcDir, frames) {
+  const gen = pack.generated;
+  if (!gen) return [];
+  const base = gen.base_path;
+  const archivePath = path.join(srcDir, pack.archiveFile);
+
+  // fichiers de couches nécessaires (avec replis couleur/style → 01)
+  const wanted = new Set();
+  for (const variant of gen.variants) {
+    wanted.add(generatedLayerFile("body", variant.body));
+    wanted.add(generatedLayerFile("eyes", variant.eyes));
+    wanted.add(generatedLayerFile("outfit", variant.outfit));
+    wanted.add(generatedLayerFile("outfit", [variant.outfit[0], 1]));
+    wanted.add(generatedLayerFile("hair", variant.hair));
+    wanted.add(generatedLayerFile("hair", [variant.hair[0], 1]));
+    wanted.add(generatedLayerFile("hair", [1, 1]));
+  }
+  const entries = unzipFiltered(archivePath, (name) =>
+    name.startsWith(base) && [...wanted].some((w) => name === base + w));
+  const cache = new Map();
+  const decodeLayer = (file) => {
+    if (!cache.has(file)) {
+      const bytes = entries[base + file];
+      cache.set(file, bytes ? decodePng(bytes) : null);
+    }
+    return cache.get(file);
+  };
+  const resolveLayer = (layer, spec, fallbacks) => {
+    const candidates = [spec, ...fallbacks];
+    for (const candidate of candidates) {
+      const png = decodeLayer(generatedLayerFile(layer, candidate));
+      if (png) return png;
+    }
+    return null;
+  };
+
+  const FW = 32, FH = 64;
+  const characters = [];
+  for (const variant of gen.variants) {
+    const layers = [
+      resolveLayer("body", variant.body, []),
+      resolveLayer("eyes", variant.eyes, []),
+      resolveLayer("outfit", variant.outfit, [[variant.outfit[0], 1]]),
+      resolveLayer("hair", variant.hair, [[variant.hair[0], 1], [1, 1]]),
+    ];
+    if (layers.some((l) => !l)) {
+      warn(`${packId}: variante "${variant.id}" ignorée (couche introuvable)`);
+      continue;
+    }
+    const composeCell = (row, col) => {
+      const cell = new PNG({ width: FW, height: FH });
+      for (const layer of layers) {
+        blitAlpha(cell, layer, 0, 0, col * FW, row * FH, FW, FH);
+      }
+      return cell;
+    };
+
+    const animations = {};
+    const charId = `limezu-gen-${variant.id}`;
+    for (const [clipName, def] of Object.entries(gen.clips)) {
+      if (def.directional) {
+        const perDir = def.count / 4;
+        GEN_DIRECTIONS.forEach((dir, d) => {
+          for (let i = 0; i < perDir; i++) {
+            frames.push({
+              key: `${charId}/${clipName}-${dir}/${i}`,
+              png: composeCell(def.row, def.from + d * perDir + i),
+            });
+          }
+          animations[`${clipName}-${dir}`] = {
+            frames: `${charId}/${clipName}-${dir}/{0..${perDir - 1}}`,
+            frameRate: def.frameRate, repeat: def.repeat ?? -1,
+          };
+        });
+      } else {
+        for (let i = 0; i < def.count; i++) {
+          frames.push({
+            key: `${charId}/${clipName}/${i}`,
+            png: composeCell(def.row, def.from + i),
+          });
+        }
+        animations[clipName] = {
+          frames: `${charId}/${clipName}/{0..${def.count - 1}}`,
+          frameRate: def.frameRate, repeat: def.repeat ?? -1,
+        };
+      }
+    }
+    // clip plat "sit" : les alias communs du pack (type→sit...) restent
+    // valides ; le moteur upgrade vers sit-<facing> quand disponible
+    if (animations["sit-right"] && !animations["sit"]) {
+      animations["sit"] = { ...animations["sit-right"] };
+    }
+    characters.push({ id: charId, animations });
+  }
+  return characters;
 }
 
 /** Rogne les bords transparents (les singles LimeZu ont un fort padding). */
@@ -257,6 +374,8 @@ function importCharacters(packId, pack, srcDir) {
 
   if (characters.length === 0) throw new ImportError(`${packId}: aucun personnage résolu`);
 
+  const generated = importGeneratedVariants(packId, pack, srcDir, frames);
+
   const targetDir = path.join(OUT_BASE, ...pack.target_dir.split("/"));
   const { atlases, atlasOf } = writeAtlases(targetDir, "limezu-characters", frames);
   const atlasId = atlases[0].id;
@@ -293,6 +412,13 @@ function importCharacters(packId, pack, srcDir) {
       animations,
     };
   });
+  manifest.characters.push(...generated.map((g) => ({
+    id: g.id,
+    atlas: atlasId,
+    size: { w: 32, h: 64 },
+    pivot: { x: 0.5, y: 0.95 },
+    animations: g.animations,
+  })));
   const importedIds = new Set(manifest.characters.map((c) => c.id));
   manifest.role_characters = { "*": [...importedIds] };
   for (const [role, ids] of Object.entries(pack.role_characters ?? {})) {
@@ -305,7 +431,8 @@ function importCharacters(packId, pack, srcDir) {
   manifest.animation_aliases = {
     type: "sit", think: "phone", coffee: "idle-down", chart: "sit",
     write: "read", draw: "sit", play: "phone", point: "phone",
-    away: "sit", walk: "walk-down",
+    away: "sit", walk: "walk-down", talk: "phone", celebrate: "idle-down",
+    "sit-up": "sit-left", "sit-down": "sit-right",
   };
   writeJson(path.join(targetDir, "manifest.json"), manifest);
   writeProvenance(targetDir, packId, pack,

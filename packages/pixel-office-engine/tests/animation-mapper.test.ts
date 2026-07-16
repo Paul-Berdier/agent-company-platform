@@ -6,6 +6,7 @@ import {
   expandFrames,
   resolveAnimationForStatus,
   resolveClip,
+  resolveSeatedClip,
   walkClipForDirection,
 } from "../src/phaser/assets/animation-mapper";
 
@@ -89,5 +90,35 @@ describe("walkClipForDirection", () => {
 describe("clipKey", () => {
   it("préfixe par le personnage", () => {
     expect(clipKey("worker-a", "type")).toBe("worker-a:type");
+  });
+});
+
+describe("resolveSeatedClip", () => {
+  const GENERATED: CharacterDef = {
+    ...CHARACTER,
+    animations: {
+      ...CHARACTER.animations,
+      "sit-right": { frames: "g/sit-right/{0..5}", frameRate: 4, repeat: -1 },
+      "sit-left": { frames: "g/sit-left/{0..5}", frameRate: 4, repeat: -1 },
+    },
+  };
+  const ALIASES2 = { ...ALIASES, chart: "sit", "sit-up": "sit-left", "sit-down": "sit-right" };
+
+  it("oriente l'assise quand la variante existe", () => {
+    expect(resolveSeatedClip(GENERATED, "chart", "left", ALIASES2)?.name).toBe("sit-left");
+    expect(resolveSeatedClip(GENERATED, "chart", "up", ALIASES2)?.name).toBe("sit-left"); // alias
+  });
+
+  it("garde le clip de base pour un personnage sans variantes (legacy)", () => {
+    expect(resolveSeatedClip(CHARACTER, "chart", "up", ALIASES2)?.name).toBe("sit");
+    expect(resolveSeatedClip(CHARACTER, "chart", "left", ALIASES2)?.name).toBe("sit");
+  });
+
+  it("ne s'applique qu'aux clips de la famille sit", () => {
+    expect(resolveSeatedClip(GENERATED, "walk", "left", ALIASES2)?.name).toBe("walk-down");
+  });
+
+  it("sans facing, comportement inchangé", () => {
+    expect(resolveSeatedClip(GENERATED, "chart", null, ALIASES2)?.name).toBe("sit");
   });
 });
