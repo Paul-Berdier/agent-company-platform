@@ -185,6 +185,8 @@ export function mergeManifests(ordered: { manifest: AssetManifest; dir: string }
 export interface LoadOptions {
   baseUrl: string; // ex. "/assets"
   packIds: string[]; // packs demandés par la scène (core implicite)
+  /** charge aussi tous les packs facultatifs installés (galerie/préchargement) */
+  includeOptionalPacks?: boolean;
   fetchJson?: FetchJson;
 }
 
@@ -195,36 +197,39 @@ export async function loadAssetPacks(options: LoadOptions): Promise<LoadedAssets
 
   const wanted = ["core", ...options.packIds.filter((p) => p !== "core")];
   const loaded = new Map<string, { manifest: AssetManifest; dir: string }>();
+  const missing = new Set<string>();
 
-  async function loadPack(packId: string, chain: string[]): Promise<void> {
+  async function loadPack(packId: string, chain: string[], optional = false): Promise<void> {
     if (loaded.has(packId)) return;
     if (chain.includes(packId)) {
       throw new ManifestError(`héritage circulaire: ${[...chain, packId].join(" → ")}`);
     }
-    const dir = index.packs[packId];
+    const dir = index.packs[packId] ?? index.optional_packs?.[packId];
     if (!dir) throw new ManifestError(`pack inconnu dans packs.json: "${packId}"`);
-    const manifest = validateManifest(await fetchJson(`${base}/${dir}/manifest.json`));
-    if (manifest.extends) await loadPack(manifest.extends, [...chain, packId]);
-    loaded.set(packId, { manifest, dir });
-  }
-
-  for (const packId of wanted) await loadPack(packId, []);
-
-  // packs facultatifs (assets sous licence) : absents ⇒ ignorés proprement
-  const missing: string[] = [];
-  for (const [packId, dir] of Object.entries(index.optional_packs ?? {})) {
-    if (loaded.has(packId)) continue;
     try {
       const manifest = validateManifest(await fetchJson(`${base}/${dir}/manifest.json`));
-      if (manifest.extends) await loadPack(manifest.extends, []);
+      if (manifest.extends) await loadPack(manifest.extends, [...chain, packId]);
       loaded.set(packId, { manifest, dir });
-    } catch {
-      missing.push(packId);
+    } catch (error) {
+      if (!optional && !(packId in (index.optional_packs ?? {}))) throw error;
+      missing.add(packId);
+    }
+  }
+
+  for (const packId of wanted) {
+    await loadPack(packId, [], packId in (index.optional_packs ?? {}));
+  }
+
+  // packs facultatifs (assets sous licence) : absents ⇒ ignorés proprement
+  if (options.includeOptionalPacks !== false) {
+    for (const packId of Object.keys(index.optional_packs ?? {})) {
+      if (loaded.has(packId)) continue;
+      await loadPack(packId, [], true);
     }
   }
 
   const assets = mergeManifests([...loaded.values()], base);
-  assets.missingPacks = missing;
+  assets.missingPacks = [...missing];
   return assets;
 }
 
@@ -236,7 +241,12 @@ export async function loadAllAssetPacks(
   const fetcher = fetchJson ?? defaultFetchJson;
   const base = baseUrl.replace(/\/$/, "");
   const index = validatePacksIndex(await fetcher(`${base}/packs.json`));
-  return loadAssetPacks({ baseUrl, packIds: Object.keys(index.packs), fetchJson: fetcher });
+  return loadAssetPacks({
+    baseUrl,
+    packIds: Object.keys(index.packs),
+    includeOptionalPacks: true,
+    fetchJson: fetcher,
+  });
 }
 
 // ------------------------------------------------------------- résolutions

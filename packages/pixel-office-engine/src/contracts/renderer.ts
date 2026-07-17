@@ -23,6 +23,12 @@ export interface IOfficeRenderer {
   focusRoom(roomId: string): void;
   /** zoom par paliers (+1 / -1) ; sans effet sur le renderer legacy */
   zoomStep(direction: 1 | -1): void;
+  /** caméra automatique (screensaver) : cycle les salles ; sans effet en legacy */
+  setAutoCamera(enabled: boolean, intervalMs?: number): void;
+  /** suspend ou reprend la boucle de rendu (onglet caché, économie d'énergie) */
+  setRenderingPaused(paused: boolean): void;
+  /** ajuste la limite d'images par seconde sans recréer le renderer */
+  setFpsTarget(fps: number): void;
   /** ouvre la galerie d'assets ; `filterPack` limite l'affichage à un pack */
   showGallery(filterPack?: string): void;
   destroy(): void;
@@ -44,4 +50,10 @@ export interface RendererOptions {
   forceTimeout?: boolean;
   /** couche debug : grille de collision + états de déplacement (`?debug=1`) */
   debug?: boolean;
+  /** FPS cible (profils ambient : performance ≈18, balanced 30, cinematic 60) */
+  fpsTarget?: number;
+  /** multiplicateur des pauses d'errance (>1 = agents plus calmes, moins de CPU) */
+  wanderScale?: number;
+  /** packs à précharger ; sans valeur, le renderer charge la galerie complète */
+  assetPackIds?: string[];
 }

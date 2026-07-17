@@ -21,6 +21,8 @@ import {
 } from "../assets/animation-mapper";
 import { hashCode, type LoadedAssets } from "../assets/manifest-loader";
 import { CameraController } from "../camera/camera-controller";
+import { autoCameraDelay, nextAutoCameraIndex } from "../camera/auto-camera";
+import { activitySourceFor, type ActivitySource } from "../activity-source";
 import { buildCollisionGrid, findPath, type CollisionGrid, type Point } from "../grid/pathfinding";
 import { StationReservations } from "../grid/reservations";
 import {
@@ -51,6 +53,8 @@ interface EntityView {
   currentClip: string;
   seed: number;
   moveState: MoveState;
+  /** l'animation reflète-t-elle un événement réel ou du décoratif ? (§29) */
+  activitySource: ActivitySource;
 }
 
 interface EmoteView {
@@ -64,6 +68,8 @@ export interface OfficeSceneData {
   callbacks: EngineCallbacks;
   onReady: () => void;
   debug?: boolean;
+  /** multiplicateur des pauses d'errance (profils ambient/wallpaper) */
+  wanderScale?: number;
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -89,6 +95,9 @@ export class OfficeScene extends Phaser.Scene {
   private clickConsumed = false;
   private debugEnabled = false;
   private debugGraphics: Phaser.GameObjects.Graphics | null = null;
+  private wanderScale = 1;
+  private autoCameraTimer: Phaser.Time.TimerEvent | null = null;
+  private autoCameraIndex = 0;
 
   constructor() {
     super({ key: "office" });
@@ -99,6 +108,7 @@ export class OfficeScene extends Phaser.Scene {
     this.callbacks = data.callbacks;
     this.onReadyCallback = data.onReady;
     this.debugEnabled = data.debug ?? false;
+    this.wanderScale = data.wanderScale ?? 1;
   }
 
   preload(): void {
@@ -292,6 +302,28 @@ export class OfficeScene extends Phaser.Scene {
 
   zoomStep(direction: 1 | -1): void {
     this.cameraCtl?.stepZoom(direction);
+  }
+
+  /** Caméra automatique (screensaver) : survole les salles à intervalle fixe. */
+  setAutoCamera(enabled: boolean, intervalMs?: number): void {
+    this.autoCameraTimer?.remove();
+    this.autoCameraTimer = null;
+    if (!enabled) return;
+    this.autoCameraIndex = 0;
+    this.autoCameraTimer = this.time.addEvent({
+      delay: autoCameraDelay(intervalMs),
+      loop: true,
+      callback: () => {
+        const rooms = this.model?.rooms ?? [];
+        const next = nextAutoCameraIndex(this.autoCameraIndex, rooms.length);
+        if (!next) return;
+        this.autoCameraIndex = next.nextIndex;
+        const room = rooms[next.roomIndex].spec;
+        this.cameraCtl?.focusRoom({
+          x: room.x * TILE, y: room.y * TILE, w: room.w * TILE, h: room.h * TILE,
+        });
+      },
+    });
   }
 
   focusRoomById(roomId: string): void {
@@ -632,6 +664,7 @@ export class OfficeScene extends Phaser.Scene {
       currentClip: idle ? clipKey(character.id, idle.name) : "",
       seed: hashCode(entity.spec.id),
       moveState: "idle",
+      activitySource: "decorative",
     });
   }
 
@@ -672,6 +705,8 @@ export class OfficeScene extends Phaser.Scene {
     const animName = model.statusMapping[spec.status] ?? "idle-down";
     const anchored = Boolean(view.model.stationKey) && !NON_ANCHORING.has(animName)
       && animName !== "idle-down";
+    // source de vérité : statut backend réel = REAL ; errance = DECORATIVE
+    view.activitySource = activitySourceFor(spec.status, anchored);
 
     const goTo = (target: Point): boolean => {
       if (view.targetTile && view.targetTile.x === target.x && view.targetTile.y === target.y) {
@@ -715,7 +750,7 @@ export class OfficeScene extends Phaser.Scene {
       view.seatFacing = null;
       const atTarget = view.path.length === 0;
       if (atTarget && time > view.wanderAt) {
-        view.wanderAt = time + 2500 + (view.seed % 3000);
+        view.wanderAt = time + (2500 + (view.seed % 3000)) * this.wanderScale;
         // façade (vue campus) : balade extérieure uniquement ; sinon une
         // balade sur quatre sort par la porte se dégourdir les jambes
         const outing = room.spec.facade || ((room.spec.doors?.length ?? 0) > 0
@@ -759,7 +794,7 @@ export class OfficeScene extends Phaser.Scene {
     view.sprite.setDepth(sortedDepth(view.py, 0.25));
     view.sprite.setAlpha(spec.status === "offline" ? 0.4 : 1);
     const labelText = this.debugEnabled
-      ? `${spec.name} [${view.moveState}]`
+      ? `${spec.name} [${view.moveState}·${view.activitySource === "real" ? "R" : "D"}]`
       : spec.name;
     if (view.label.text !== labelText) view.label.setText(labelText);
     view.label.setPosition(Math.round(view.px), Math.round(view.py) + 4);

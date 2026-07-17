@@ -83,9 +83,12 @@ export async function createAndQueueTask(projectId: string, title: string): Prom
 export function connectEvents(
   onEvent: (event: AcpEvent) => void,
   onStatus?: (connected: boolean) => void,
-): void {
+): () => void {
   let socket: WebSocket | null = null;
+  let reconnectTimer: number | null = null;
+  let stopped = false;
   const open = () => {
+    if (stopped) return;
     socket = new WebSocket(EVENTS_WS_URL);
     socket.onopen = () => onStatus?.(true);
     socket.onmessage = (msg) => {
@@ -97,9 +100,15 @@ export function connectEvents(
     };
     socket.onclose = () => {
       onStatus?.(false);
-      setTimeout(open, 2000);
+      if (!stopped) reconnectTimer = window.setTimeout(open, 2000);
     };
     socket.onerror = () => socket?.close();
   };
   open();
+  return () => {
+    stopped = true;
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+    socket?.close();
+    socket = null;
+  };
 }

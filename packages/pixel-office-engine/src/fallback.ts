@@ -13,7 +13,7 @@ export async function createOfficeRenderer(options: RendererOptions): Promise<IO
   const mode = options.mode ?? "auto";
 
   if (mode === "canvas") {
-    return new CanvasRenderer(options.mount, options.callbacks);
+    return new CanvasRenderer(options.mount, options.callbacks, options.fpsTarget);
   }
 
   try {
@@ -35,6 +35,6 @@ export async function createOfficeRenderer(options: RendererOptions): Promise<IO
     }
     console.warn(`[pixel-office-engine] fallback canvas (${reason})`);
     options.callbacks?.onRendererFallback?.(reason);
-    return new CanvasRenderer(options.mount, options.callbacks);
+    return new CanvasRenderer(options.mount, options.callbacks, options.fpsTarget);
   }
 }

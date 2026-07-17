@@ -455,9 +455,14 @@ export function renderBottombar(ctx: HudContext): void {
     else wrap.requestFullscreen();
   };
 
-  const ambient = el("button", "bb-btn bb-disabled", "🌙 ambient");
-  ambient.title = "Mode ambient (phase 8)";
-  ambient.disabled = true;
+  const ambient = el("button", "bb-btn", "🌙 ambient");
+  ambient.title = "Ouvrir le mode ambient";
+  ambient.onclick = () => {
+    const path = ctx.view.kind === "project"
+      ? `/projects/${encodeURIComponent(ctx.view.id)}/ambient`
+      : "/ambient";
+    window.location.assign(path);
+  };
 
   host.append(mode, renderer, live, el("span", "bb-spacer"), zoomOut, zoomIn, fullscreen, ambient);
 }

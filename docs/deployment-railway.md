@@ -15,6 +15,11 @@ reliés uniquement par HTTP et des variables d'environnement.
 - Redis             (optionnel, futur bus d'événements)
 ```
 
+Le service statique doit appliquer un fallback SPA vers `index.html` pour les
+routes inconnues. Le fichier `apps/web/public/_redirects` couvre les hébergeurs
+compatibles ; sur Railway, configurer la même réécriture afin que `/ambient` et
+`/projects/:id/ambient` soient servis par le point d'entrée web.
+
 Variables clés :
 
 ```text

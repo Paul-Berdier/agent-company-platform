@@ -154,6 +154,48 @@ describe("loadAssetPacks", () => {
       baseUrl: "/assets", packIds: ["dept-x"], fetchJson: fakeFetch(files),
     })).rejects.toThrow(/circulaire/);
   });
+
+  it("ne charge que les packs facultatifs explicitement demandés", async () => {
+    const files = {
+      ...FILES,
+      "/assets/packs.json": {
+        ...FILES["/assets/packs.json"],
+        optional_packs: { "premium-x": "licensed/x", "premium-y": "licensed/y" },
+      },
+      "/assets/licensed/x/manifest.json": { ...structuredClone(VALID_CHILD), pack_id: "premium-x" },
+      "/assets/licensed/y/manifest.json": { ...structuredClone(VALID_CHILD), pack_id: "premium-y" },
+    };
+    const requested: string[] = [];
+    const assets = await loadAssetPacks({
+      baseUrl: "/assets",
+      packIds: ["premium-x"],
+      includeOptionalPacks: false,
+      fetchJson: async (url) => {
+        requested.push(url);
+        return fakeFetch(files)(url);
+      },
+    });
+    expect(assets.packs.map((p) => p.pack_id)).toContain("premium-x");
+    expect(requested).not.toContain("/assets/licensed/y/manifest.json");
+  });
+
+  it("tolère un pack facultatif demandé mais non installé", async () => {
+    const files = {
+      ...FILES,
+      "/assets/packs.json": {
+        ...FILES["/assets/packs.json"],
+        optional_packs: { "premium-absent": "licensed/absent" },
+      },
+    };
+    const assets = await loadAssetPacks({
+      baseUrl: "/assets",
+      packIds: ["premium-absent"],
+      includeOptionalPacks: false,
+      fetchJson: fakeFetch(files),
+    });
+    expect(assets.missingPacks).toEqual(["premium-absent"]);
+    expect(assets.packs.map((p) => p.pack_id)).toEqual(["core"]);
+  });
 });
 
 describe("résolutions", () => {

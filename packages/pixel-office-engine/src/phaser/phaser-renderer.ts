@@ -8,7 +8,7 @@ import Phaser from "phaser";
 
 import type { IOfficeRenderer, RendererOptions } from "../contracts/renderer";
 import type { SceneSpec } from "../contracts/scene";
-import { loadAllAssetPacks, type LoadedAssets } from "./assets/manifest-loader";
+import { loadAllAssetPacks, loadAssetPacks, type LoadedAssets } from "./assets/manifest-loader";
 import { GalleryScene } from "./scenes/GalleryScene";
 import { OfficeScene } from "./scenes/OfficeScene";
 
@@ -33,7 +33,14 @@ export class PhaserRenderer implements IOfficeRenderer {
 
   private async boot(): Promise<void> {
     this.debug("loading-assets");
-    const assets = await loadAllAssetPacks(this.options.assetsBaseUrl ?? "/assets");
+    const assetsBaseUrl = this.options.assetsBaseUrl ?? "/assets";
+    const assets = this.options.assetPackIds
+      ? await loadAssetPacks({
+          baseUrl: assetsBaseUrl,
+          packIds: this.options.assetPackIds,
+          includeOptionalPacks: false,
+        })
+      : await loadAllAssetPacks(assetsBaseUrl);
     this.assets = assets;
     this.debug("assets-loaded");
 
@@ -48,7 +55,12 @@ export class PhaserRenderer implements IOfficeRenderer {
         width: "100%",
         height: "100%",
       },
-      fps: this.options.forceTimeout ? { forceSetTimeOut: true } : undefined,
+      fps: (this.options.forceTimeout || this.options.fpsTarget)
+        ? {
+            ...(this.options.fpsTarget ? { target: this.options.fpsTarget, limit: this.options.fpsTarget } : {}),
+            ...(this.options.forceTimeout ? { forceSetTimeOut: true } : {}),
+          }
+        : undefined,
     });
     this.game = game;
     (globalThis as { __acpGame?: Phaser.Game }).__acpGame = game;
@@ -82,6 +94,7 @@ export class PhaserRenderer implements IOfficeRenderer {
         callbacks: this.options.callbacks ?? {},
         onReady: resolve,
         debug: this.options.debug ?? false,
+        wanderScale: this.options.wanderScale ?? 1,
       });
     });
     this.debug("office-created");
@@ -113,6 +126,31 @@ export class PhaserRenderer implements IOfficeRenderer {
 
   zoomStep(direction: 1 | -1): void {
     this.office?.zoomStep(direction);
+  }
+
+  setAutoCamera(enabled: boolean, intervalMs?: number): void {
+    this.office?.setAutoCamera(enabled, intervalMs);
+  }
+
+  setRenderingPaused(paused: boolean): void {
+    if (!this.game) return;
+    if (paused) this.game.loop.sleep();
+    else if (!this.game.loop.running) this.game.loop.wake();
+  }
+
+  setFpsTarget(fps: number): void {
+    if (!this.game) return;
+    const target = Math.max(1, Math.round(fps));
+    const loop = this.game.loop as Phaser.Core.TimeStep & {
+      _limitRate: number;
+      _target: number;
+    };
+    loop.targetFps = target;
+    loop.fpsLimit = target;
+    loop.hasFpsLimit = true;
+    // Phaser ne fournit pas de setter public pour ces durées calculées.
+    loop._target = 1000 / target;
+    loop._limitRate = 1000 / target;
   }
 
   /** nom du renderer actif (indicateur HUD) */

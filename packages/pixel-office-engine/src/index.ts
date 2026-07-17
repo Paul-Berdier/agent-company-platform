@@ -7,6 +7,7 @@
  */
 
 export type {
+  DecorationSpec,
   EntitySpec,
   Facing,
   RoomSpec,

@@ -47,11 +47,19 @@ export class CanvasRenderer implements IOfficeRenderer {
   private roomPulse: Map<string, number> = new Map();
   private selectedId: string | null = null;
   private raf = 0;
+  private paused = false;
+  private fpsTarget: number;
+  private lastFrameAt = 0;
   private tile = 16;
   private offsetX = 0;
   private offsetY = 0;
 
-  constructor(private mount: HTMLElement, private callbacks: EngineCallbacks = {}) {
+  constructor(
+    private mount: HTMLElement,
+    private callbacks: EngineCallbacks = {},
+    fpsTarget = 60,
+  ) {
+    this.fpsTarget = Math.max(1, fpsTarget);
     this.canvas = document.createElement("canvas");
     this.canvas.style.display = "block";
     this.canvas.style.width = "100%";
@@ -127,6 +135,26 @@ export class CanvasRenderer implements IOfficeRenderer {
 
   zoomStep(_direction: 1 | -1): void {
     // pas de zoom en legacy (vue ajustée automatiquement)
+  }
+
+  setAutoCamera(_enabled: boolean, _intervalMs?: number): void {
+    // pas de caméra en legacy
+  }
+
+  setRenderingPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.paused = paused;
+    if (paused) {
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    } else {
+      this.lastFrameAt = 0;
+      this.raf = requestAnimationFrame(this.loop);
+    }
+  }
+
+  setFpsTarget(fps: number): void {
+    this.fpsTarget = Math.max(1, fps);
   }
 
   showGallery(_filterPack?: string): void {
@@ -223,6 +251,13 @@ export class CanvasRenderer implements IOfficeRenderer {
   // ------------------------------------------------------------------ render
 
   private loop(now: number): void {
+    if (this.paused) return;
+    const minFrameDuration = 1000 / this.fpsTarget;
+    if (this.lastFrameAt > 0 && now - this.lastFrameAt < minFrameDuration) {
+      this.raf = requestAnimationFrame(this.loop);
+      return;
+    }
+    this.lastFrameAt = now;
     this.fitCanvas();
     this.update(now);
     this.render(now);

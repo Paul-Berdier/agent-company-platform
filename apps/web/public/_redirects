@@ -1,0 +1,2 @@
+# SPA fallback : requis pour /ambient et /projects/:id/ambient sur un hébergeur statique.
+/*  /index.html  200
