@@ -25,10 +25,20 @@ Règles opérationnelles :
 
 ## Périmètre applicatif (MVP local)
 
-- Authentification : header `X-User-Id` de développement, permissions par
-  workspace/projet côté API. **Pas de production sans vraie auth + RBAC**
-  (prévu Phase 9 avec les workers distants : tokens hachés, expiration,
-  allowlist de commandes, protection `../`, rate limiting, audit).
+- Authentification utilisateur : header `X-User-Id` de développement,
+  permissions par workspace/projet côté API. **Pas de production sans vraie
+  auth + RBAC**.
+- Authentification worker : enrôlement protégé par
+  `ACP_WORKER_REGISTRATION_TOKEN`, jeton aléatoire distinct par worker,
+  stockage serveur SHA-256 avec pepper optionnel, comparaison constante et
+  expiration à 30 jours. Réenregistrer un même nom révoque de fait son ancien
+  jeton. Le jeton brut n'est jamais journalisé.
+- Présence et attribution : heartbeat à 15 s, worker hors ligne après 45 s,
+  lease renouvelable par task run, concurrence bornée et filtrage strict par
+  `required_capabilities`.
+- Exécution locale : ce socle n'expose aucun endpoint de commande arbitraire.
+  Le mode réel échoue fermé tant qu'un exécuteur avec allowlist, racine projet
+  canonique et audit n'est pas configuré. La simulation reste explicite.
 - Le frontend ne peut déclencher aucune commande arbitraire : uniquement des
   endpoints métier typés.
 - Hermes et tout orchestrateur externe : jamais d'accès direct à la base ;
@@ -37,4 +47,6 @@ Règles opérationnelles :
 - Secrets : variables d'environnement uniquement (`HERMES_SERVICE_TOKEN`…),
   jamais en dur ni dans les logs.
 
-Ce document sera étendu à chaque phase (workers, locks, approbations).
+Restent requis avant une exécution réelle : allowlist de commandes, résolution
+canonique empêchant `../`, verrouillage des ressources, rate limiting, audit
+des commandes et approbations humaines pour les opérations sensibles.

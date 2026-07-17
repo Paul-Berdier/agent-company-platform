@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -175,3 +175,69 @@ class ProviderModel(_Common, Base):
     config: Mapped[dict] = mapped_column(JSON, default=dict)
     enabled: Mapped[int] = mapped_column(Integer, default=1)
     last_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class WorkerModel(_Common, Base):
+    __tablename__ = "workers"
+    name: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64))
+    token_prefix: Mapped[str] = mapped_column(String(12))
+    token_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    capabilities: Mapped[list] = mapped_column(JSON, default=list)
+    max_concurrency: Mapped[int] = mapped_column(Integer, default=1)
+    active_runs: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(50), default="online", index=True)
+    simulation: Mapped[int] = mapped_column(Integer, default=1)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WorkerLeaseModel(_Common, Base):
+    __tablename__ = "worker_leases"
+    worker_id: Mapped[str] = mapped_column(ForeignKey("workers.id"), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), index=True)
+    task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), default="active", index=True)
+    required_capabilities: Mapped[list] = mapped_column(JSON, default=list)
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ResourceLockModel(_Common, Base):
+    __tablename__ = "resource_locks"
+    __table_args__ = (UniqueConstraint("resource_type", "resource_key"),)
+    resource_type: Mapped[str] = mapped_column(String(50), index=True)
+    resource_key: Mapped[str] = mapped_column(String(1000))
+    owner_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
+    worker_id: Mapped[str] = mapped_column(ForeignKey("workers.id"), index=True)
+    status: Mapped[str] = mapped_column(String(50), default="active", index=True)
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ApprovalModel(_Common, Base):
+    __tablename__ = "approvals"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    task_run_id: Mapped[str | None] = mapped_column(ForeignKey("task_runs.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(100), index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(50), default="WAITING_APPROVAL", index=True)
+    requested_by: Mapped[str] = mapped_column(String(200))
+    decided_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    decision_comment: Mapped[str] = mapped_column(Text, default="")
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ArtifactModel(_Common, Base):
+    __tablename__ = "artifacts"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
+    worker_id: Mapped[str] = mapped_column(ForeignKey("workers.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(100))
+    path: Mapped[str] = mapped_column(String(1000))
+    checksum: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)

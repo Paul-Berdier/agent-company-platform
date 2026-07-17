@@ -8,7 +8,7 @@ if (-not (Test-Path "$root\.venv")) {
 }
 $py = "$root\.venv\Scripts\python.exe"
 
-& $py -m pip install --upgrade pip
+& $py -m pip install --upgrade pip setuptools wheel
 & $py -m pip install `
     -e "$root\packages\contracts" `
     -e "$root\packages\database" `

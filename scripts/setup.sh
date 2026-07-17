@@ -7,7 +7,7 @@ cd "$ROOT"
 [ -d .venv ] || python3 -m venv .venv
 PY=".venv/bin/python"
 
-"$PY" -m pip install --upgrade pip
+"$PY" -m pip install --upgrade pip setuptools wheel
 "$PY" -m pip install \
     -e packages/contracts \
     -e packages/database \

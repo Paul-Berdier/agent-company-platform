@@ -43,3 +43,27 @@ from .providers import (  # noqa: F401
     ProviderHealth,
 )
 from .sessions import SessionContext  # noqa: F401
+from .operations import (  # noqa: F401
+    ApprovalAction,
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalRequestCreate,
+    ApprovalStatus,
+    Artifact,
+    ArtifactCreate,
+    LockAcquireRequest,
+    LockOwnerRequest,
+    ResourceLock,
+    ResourceType,
+)
+from .workers import (  # noqa: F401
+    WorkerCapability,
+    WorkerClaimRequest,
+    WorkerHeartbeatRequest,
+    WorkerHeartbeatResponse,
+    WorkerLeaseResponse,
+    WorkerRegistrationRequest,
+    WorkerRegistrationResponse,
+    WorkerSnapshot,
+    WorkerStatus,
+)

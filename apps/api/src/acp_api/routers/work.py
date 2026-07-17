@@ -1,12 +1,20 @@
-"""Tâches, task runs et endpoints du worker simulé."""
+"""Tâches, task runs et attribution aux workers d'exécution."""
 
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from acp_contracts import Event, SessionContext, Task, TaskRun
+from acp_contracts import (
+    Event,
+    SessionContext,
+    Task,
+    TaskRun,
+    WorkerClaimRequest,
+    WorkerLeaseResponse,
+)
 from acp_contracts.enums import SessionScope
 from acp_database.models import (
     AgentInstanceModel,
@@ -15,11 +23,19 @@ from acp_database.models import (
     TaskModel,
     TaskRunModel,
     TeamMemberModel,
+    WorkerLeaseModel,
+    WorkerModel,
     WorkspaceModel,
 )
 
 from ..deps import ensure_access, get_db, get_principal
 from ..events_bus import forward_event, store_event
+from .workers import (
+    WORKER_LEASE_SECONDS,
+    authenticate_worker,
+    expire_task_leases,
+    utcnow,
+)
 
 router = APIRouter(tags=["work"])
 
@@ -140,17 +156,31 @@ def queue_task(task_id: str, background: BackgroundTasks, db: Session = Depends(
     return Task.model_validate(task, from_attributes=True)
 
 
-@router.post("/worker/claim")
-def claim_next_task(body: ClaimRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
-    """Attribue la prochaine tâche `queued` au worker, avec session d'exécution isolée."""
-    task = (
+def _claim_next_task(
+    body: WorkerClaimRequest,
+    background: BackgroundTasks,
+    db: Session,
+    worker: WorkerModel | None = None,
+):
+    if worker is not None and worker.active_runs >= worker.max_concurrency:
+        return {"task": None, "reason": "capacité de concurrence atteinte"}
+
+    worker_capabilities = set(worker.capabilities or []) if worker is not None else None
+    task = None
+    for candidate in (
         db.query(TaskModel)
         .filter_by(status="queued")
         .order_by(TaskModel.priority, TaskModel.created_at)
-        .first()
-    )
+        .with_for_update(skip_locked=True)
+        .all()
+    ):
+        required = set((candidate.meta or {}).get("required_capabilities", []))
+        if worker_capabilities is None or required.issubset(worker_capabilities):
+            task = candidate
+            break
     if task is None:
-        return {"task": None}
+        reason = "aucune tâche compatible" if worker is not None else None
+        return {"task": None, **({"reason": reason} if reason else {})}
 
     project = db.get(ProjectModel, task.project_id)
     workspace = db.get(WorkspaceModel, project.workspace_id)
@@ -199,8 +229,22 @@ def claim_next_task(body: ClaimRequest, background: BackgroundTasks, db: Session
     task.agent_instance_id = agent.id
     agent.status = "thinking"
     db.add_all([session, run])
-    db.commit()
+    db.flush()
     run.session_id = session.id
+    lease = None
+    if worker is not None:
+        lease = WorkerLeaseModel(
+            worker_id=worker.id,
+            task_id=task.id,
+            task_run_id=run.id,
+            status="active",
+            required_capabilities=(task.meta or {}).get("required_capabilities", []),
+            lease_expires_at=utcnow() + timedelta(seconds=WORKER_LEASE_SECONDS),
+            last_renewed_at=utcnow(),
+        )
+        worker.active_runs += 1
+        worker.status = "busy" if worker.active_runs >= worker.max_concurrency else "online"
+        db.add(lease)
     db.commit()
 
     ids = _task_event_ids(db, task)
@@ -224,13 +268,75 @@ def claim_next_task(body: ClaimRequest, background: BackgroundTasks, db: Session
         agent_instance_id=agent.id,
         provider_id=body.provider_id,
     )
-    return {
+    response = {
         "task": Task.model_validate(task, from_attributes=True).model_dump(mode="json"),
         "task_run": TaskRun.model_validate(run, from_attributes=True).model_dump(mode="json"),
         "session": context.model_dump(mode="json"),
         "agent": {"id": agent.id, "name": agent.name, "role_id": agent.role_id},
         "project": {"id": project.id, "name": project.name, "project_type": project.project_type},
+        "required_capabilities": (task.meta or {}).get("required_capabilities", []),
     }
+    if lease is not None:
+        response["lease_expires_at"] = lease.lease_expires_at.isoformat()
+    return response
+
+
+@router.post("/workers/{worker_id}/claim")
+def claim_next_task(
+    worker_id: str,
+    body: WorkerClaimRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+):
+    """Attribue une tâche compatible à un worker authentifié."""
+    worker = authenticate_worker(db, worker_id, authorization)
+    expire_task_leases(db)
+    db.refresh(worker)
+    return _claim_next_task(body, background, db, worker)
+
+
+@router.post(
+    "/workers/{worker_id}/leases/{run_id}/renew",
+    response_model=WorkerLeaseResponse,
+)
+def renew_task_lease(
+    worker_id: str,
+    run_id: str,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+):
+    worker = authenticate_worker(db, worker_id, authorization)
+    lease = (
+        db.query(WorkerLeaseModel)
+        .filter_by(worker_id=worker.id, task_run_id=run_id, status="active")
+        .first()
+    )
+    if lease is None:
+        raise HTTPException(status_code=404, detail="Lease actif introuvable")
+    now = utcnow()
+    lease.last_renewed_at = now
+    lease.lease_expires_at = now + timedelta(seconds=WORKER_LEASE_SECONDS)
+    db.commit()
+    return WorkerLeaseResponse(
+        worker_id=worker.id,
+        task_run_id=run_id,
+        lease_expires_at=lease.lease_expires_at,
+    )
+
+
+@router.post("/worker/claim", deprecated=True)
+def claim_next_task_legacy(
+    body: ClaimRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Ancien endpoint, désactivé sauf opt-in explicite pour une transition locale."""
+    if os.environ.get("ACP_ALLOW_LEGACY_WORKER_CLAIM") != "1":
+        raise HTTPException(status_code=410, detail="Enregistrez le worker via /workers/register")
+    return _claim_next_task(
+        WorkerClaimRequest(provider_id=body.provider_id), background, db
+    )
 
 
 @router.get("/task-runs", response_model=list[TaskRun])
@@ -250,6 +356,13 @@ def patch_task_run(run_id: str, body: TaskRunPatch, db: Session = Depends(get_db
         run.status = body.status
         if body.status in ("succeeded", "failed", "cancelled"):
             run.finished_at = datetime.now(timezone.utc)
+            lease = db.query(WorkerLeaseModel).filter_by(task_run_id=run.id).first()
+            if lease is not None and lease.status == "active":
+                lease.status = "released"
+                worker = db.get(WorkerModel, lease.worker_id)
+                if worker is not None:
+                    worker.active_runs = max(0, worker.active_runs - 1)
+                    worker.status = "online"
     if body.plan is not None:
         run.plan = body.plan
     if body.result is not None:

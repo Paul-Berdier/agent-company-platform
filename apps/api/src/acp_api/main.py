@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from acp_agent_sdk import load_modules
 from acp_database import init_db
 
-from .routers import crud, platform, work
+from .routers import crud, operations, platform, work, workers
 
 
 @asynccontextmanager
@@ -32,6 +32,8 @@ app.add_middleware(
 
 app.include_router(crud.router)
 app.include_router(work.router)
+app.include_router(workers.router)
+app.include_router(operations.router)
 app.include_router(platform.router)
 
 

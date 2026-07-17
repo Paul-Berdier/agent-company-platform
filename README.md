@@ -21,7 +21,7 @@ agent-company-platform/
 │   ├── web/                  # Interface pixel art (Vite + TypeScript)
 │   ├── api/                  # API REST cœur (FastAPI)
 │   ├── event-service/        # Diffusion temps réel des événements (WebSocket)
-│   └── worker/               # Worker simulé exécutant les task runs
+│   └── worker/               # Worker distant authentifié (simulation disponible)
 ├── services/
 │   └── provider-gateway/     # Passerelle providers (mock / manual / hermes)
 ├── packages/
@@ -48,7 +48,7 @@ Prérequis : Python ≥ 3.11, Node ≥ 20.
 # 1. Installation (crée .venv, installe les packages Python et npm)
 ./scripts/setup.ps1
 
-# 2. Lancer tous les services (api, event-service, provider-gateway, worker, web)
+# 2. Lancer les services (le worker démarre s'il a déjà été enregistré)
 ./scripts/dev.ps1
 
 # 3. Ouvrir http://localhost:5173
@@ -68,6 +68,11 @@ Services par défaut :
 La base est SQLite par défaut (`ACP_DATABASE_URL` pour PostgreSQL). Le seed de
 démonstration est appliqué via `python -m acp_api.seed`.
 
+Pour la première installation d'un worker Windows, définir
+`ACP_WORKER_REGISTRATION_TOKEN` côté API puis exécuter
+`agent-company-worker register`, `doctor` et `start`. Procédure détaillée :
+[docs/workers/windows-worker.md](docs/workers/windows-worker.md).
+
 ## Assets graphiques
 
 Le dépôt embarque uniquement des **placeholders originaux libres**. Les
@@ -83,6 +88,8 @@ local — jamais redistribués ici. Installation :
 
 - [docs/architecture.md](docs/architecture.md) — vue d'ensemble et frontières
 - [docs/providers.md](docs/providers.md) — orchestrator / execution / tool providers, Hermes
+- [docs/providers-local-executors.md](docs/providers-local-executors.md) — garde-fous Claude Code et Codex CLI
 - [docs/plugins.md](docs/plugins.md) — écrire un module métier
 - [docs/sessions-memory.md](docs/sessions-memory.md) — sessions isolées et scopes mémoire
 - [docs/deployment-railway.md](docs/deployment-railway.md) — déploiement indépendant plateforme / Hermes
+- [docs/workers/windows-worker.md](docs/workers/windows-worker.md) — enrôler et exploiter un worker Windows
