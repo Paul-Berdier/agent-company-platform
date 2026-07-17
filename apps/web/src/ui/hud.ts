@@ -8,7 +8,7 @@
 import type { AcpEvent, Overview } from "@acp/contracts";
 import { badge, el, formatTime, statusColor } from "@acp/ui";
 
-import type { PendingApproval } from "../api";
+import type { CompanyLevel, PendingApproval } from "../api";
 
 export type View =
   | { kind: "company" }
@@ -25,6 +25,7 @@ export interface HudContext {
   rendererName: string;
   wsConnected: boolean;
   devGalleryEnabled: boolean;
+  companyLevel: CompanyLevel | null;
   setView(view: View): void;
   selectAgent(id: string | null): void;
   showGallery(): void;
@@ -75,11 +76,16 @@ function deptProjects(overview: Overview, deptId: string): Set<string> {
 function viewMeta(ctx: HudContext): { icon: string; title: string; subtitle: string } {
   const { view, overview } = ctx;
   switch (view.kind) {
-    case "company":
+    case "company": {
+      const growth = ctx.companyLevel;
       return {
         icon: "🏢", title: "Company Campus",
-        subtitle: "Vue globale des départements, agents et opérations",
+        subtitle: growth
+          ? `Niveau ${growth.level} — ${growth.name}` +
+            (growth.next ? ` · prochain : ${growth.next.name} (${growth.next.min_completed_tasks} tâches, ${growth.next.min_agents} agents)` : "")
+          : "Vue globale des départements, agents et opérations",
       };
+    }
     case "workspace": {
       const ws = overview.workspaces.find((w) => w.id === view.id);
       return { icon: "🗂", title: `Workspace — ${ws?.name ?? "?"}`,

@@ -243,6 +243,43 @@ def list_memberships(user_id: str | None = None, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/company/level")
+def company_level(request: Request, db: Session = Depends(get_db)):
+    """Niveau de croissance calculé depuis les métriques réelles (jamais
+    depuis une affirmation libre) ; seuils fournis par les modules."""
+    from acp_database.models import TaskModel
+
+    projects = db.query(ProjectModel).filter_by(status="active").count()
+    agents = db.query(AgentInstanceModel).count()
+    completed = db.query(TaskModel).filter_by(status="done").count()
+
+    levels = sorted(
+        (lvl for m in request.app.state.modules.values() for lvl in m.growth),
+        key=lambda level: level.level,
+    )
+    current = None
+    unlocked: list[str] = []
+    for level in levels:
+        if (projects >= level.min_projects and agents >= level.min_agents
+                and completed >= level.min_completed_tasks):
+            current = level
+            unlocked.extend(level.unlocks)
+    next_level = next((l for l in levels if current is None or l.level == current.level + 1), None)
+    return {
+        "level": current.level if current else 0,
+        "name": current.name if current else "—",
+        "metrics": {"projects": projects, "agents": agents, "completed_tasks": completed},
+        "unlocked": unlocked,
+        "next": None if next_level is None or (current and next_level.level <= current.level) else {
+            "level": next_level.level,
+            "name": next_level.name,
+            "min_projects": next_level.min_projects,
+            "min_agents": next_level.min_agents,
+            "min_completed_tasks": next_level.min_completed_tasks,
+        },
+    }
+
+
 @router.get("/modules")
 def list_modules(request: Request):
     modules = request.app.state.modules

@@ -23,6 +23,26 @@ export async function fetchPendingApprovals(): Promise<PendingApproval[]> {
   }
 }
 
+export interface CompanyLevel {
+  level: number;
+  name: string;
+  metrics: { projects: number; agents: number; completed_tasks: number };
+  unlocked: string[];
+  next: {
+    level: number; name: string;
+    min_projects: number; min_agents: number; min_completed_tasks: number;
+  } | null;
+}
+
+export async function fetchCompanyLevel(): Promise<CompanyLevel | null> {
+  try {
+    const resp = await fetch(`${API_URL}/company/level`);
+    return resp.ok ? resp.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchRecentEvents(limit = 200): Promise<AcpEvent[]> {
   try {
     const resp = await fetch(`${API_URL}/events?limit=${limit}`);

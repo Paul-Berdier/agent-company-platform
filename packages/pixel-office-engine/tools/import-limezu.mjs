@@ -450,9 +450,11 @@ function importCharacters(packId, pack, srcDir) {
 function importSingles(packId, pack, srcDir) {
   const archivePath = path.join(srcDir, pack.archiveFile);
   const dirPrefix = pack.singles_glob;
+  const includeFiles = pack.include_files ? new Set(pack.include_files) : null;
   const include = (name) => {
     if (!name.includes(dirPrefix) || !name.endsWith(".png")) return false;
     const baseName = name.split("/").pop();
+    if (includeFiles) return includeFiles.has(baseName);
     if (pack.include_patterns) {
       return pack.include_patterns.some((p) => baseName.includes(p));
     }
@@ -516,10 +518,33 @@ function importSingles(packId, pack, srcDir) {
   }
 
   const targetDir = path.join(OUT_BASE, ...pack.target_dir.split("/"));
+
+  // tilesets composés depuis des tuiles unitaires (terrain campus)
+  const composedTilesets = [];
+  for (const tilesetDef of pack.tilesets_from_singles ?? []) {
+    const tiles = tilesetDef.tiles.map((file) => {
+      const entryName = Object.keys(entries).find((n) => n.endsWith("/" + file));
+      return entryName ? decodePng(entries[entryName]) : null;
+    });
+    if (tiles.some((t) => !t || t.width !== 32 || t.height !== 32)) {
+      warn(`${packId}: tileset "${tilesetDef.id}" — tuiles manquantes ou non 32×32`);
+      continue;
+    }
+    const strip = new PNG({ width: tiles.length * 32, height: 32 });
+    tiles.forEach((tile, i) => blit(strip, tile, i * 32, 0));
+    fs.mkdirSync(path.join(targetDir, "tilesets"), { recursive: true });
+    fs.writeFileSync(path.join(targetDir, "tilesets", `${tilesetDef.id}.png`), PNG.sync.write(strip));
+    composedTilesets.push({
+      id: tilesetDef.id, image: `tilesets/${tilesetDef.id}.png`,
+      tile: 32, margin: 0, spacing: 0, columns: tiles.length,
+    });
+  }
+
   const { atlases, atlasOf } = writeAtlases(targetDir, packId, frames);
 
   const manifest = baseManifest(packId, pack);
   manifest.atlases = atlases;
+  manifest.tilesets.push(...composedTilesets);
 
   // stations déclarées dans le mapping (curation) → StationAssetDef
   for (const station of pack.stations ?? []) {

@@ -8,6 +8,17 @@ from .definitions import ModuleManifest, RoomTemplate
 CORE_MANIFEST = ModuleManifest(
     module="core",
     description="Module de base : bureau générique, rôle polyvalent.",
+    growth=[
+        {"level": 1, "name": "Startup Office", "unlocks": ["amenity-reception"]},
+        {"level": 2, "name": "Small Company", "min_projects": 2, "min_agents": 4,
+         "min_completed_tasks": 3, "unlocks": ["amenity-lounge"]},
+        {"level": 3, "name": "Multi-Department Office", "min_projects": 3,
+         "min_agents": 8, "min_completed_tasks": 8, "unlocks": ["amenity-meeting"]},
+        {"level": 4, "name": "Corporate Building", "min_projects": 4,
+         "min_agents": 12, "min_completed_tasks": 25, "unlocks": ["decor-plaza"]},
+        {"level": 5, "name": "Company Campus", "min_projects": 6,
+         "min_agents": 20, "min_completed_tasks": 60, "unlocks": ["decor-gardens"]},
+    ],
     departments=[
         {
             "department_type": "general",

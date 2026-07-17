@@ -30,6 +30,8 @@ export interface RenderRoom {
   spec: RoomSpec;
   theme: ThemeDef | null;
   stations: RenderStation[];
+  /** asset de façade (vue campus) : `facade-<theme>` sinon `facade-default` */
+  facadeAsset: StationAssetDef | null;
 }
 
 export interface RenderEntity {
@@ -87,7 +89,12 @@ export function buildRenderModel(scene: SceneSpec, assets: LoadedAssets): Render
   const rooms: RenderRoom[] = scene.rooms.map((room) => ({
     spec: room,
     theme: resolveTheme(assets, room),
-    stations: room.stations.map((s) => buildStation(room, s, assets)),
+    stations: room.facade ? [] : room.stations.map((s) => buildStation(room, s, assets)),
+    facadeAsset: room.facade
+      ? assets.stationsById.get(`facade-${room.themeId ?? room.theme}`)
+        ?? assets.stationsById.get("facade-default")
+        ?? null
+      : null,
   }));
 
   const stationKeys = new Map<string, string>(); // "<roomId>:<stationId>" → key
@@ -118,7 +125,7 @@ export function buildRenderModel(scene: SceneSpec, assets: LoadedAssets): Render
     decorations: scene.decorations,
     rooms: scene.rooms.map((r) => [
       r.id, r.x, r.y, r.w, r.h, r.theme, r.themeId, r.tilemapId, r.subtitle,
-      r.doors, r.windows,
+      r.doors, r.windows, r.facade,
       r.stations.map((s) => [s.id, s.kind, s.x, s.y, s.assetId]),
     ]),
   });

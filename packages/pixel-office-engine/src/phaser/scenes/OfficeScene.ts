@@ -331,10 +331,55 @@ export class OfficeScene extends Phaser.Scene {
 
     this.paintGround(model, tilesetRefs, floorLayer);
     for (const room of model.rooms) {
+      if (room.facadeAsset) {
+        this.placeFacade(room);
+        continue;
+      }
       this.paintRoom(room, tilesetRefs, floorLayer, wallLayer, windowLayer);
       this.decorateRoom(room);
     }
     for (const decoration of model.decorations) this.placeDecoration(decoration);
+  }
+
+  /** Vue campus : bâtiment en façade, enseigne posée devant l'entrée. */
+  private placeFacade(room: RenderRoom): void {
+    const asset = room.facadeAsset!;
+    const { x, y, w, h } = room.spec;
+    const accent = room.theme?.accentColor ?? "#57cc99";
+    const accentColor = Phaser.Display.Color.HexStringToColor(accent).color;
+    const bottom = (y + h) * TILE;
+
+    const image = this.add.image(0, 0, asset.atlas, asset.frames.back).setOrigin(0, 1);
+    image.setPosition(x * TILE + Math.floor((w * TILE - image.width) / 2), bottom);
+    image.setDepth(sortedDepth(bottom));
+    this.decor.push(image);
+
+    const centerX = x * TILE + (w * TILE) / 2;
+    const plateY = bottom + 14;
+    const name = this.add.text(centerX, plateY, room.spec.name.toUpperCase(), {
+      fontFamily: "monospace", fontSize: "12px", color: "#ffffff", fontStyle: "bold",
+    }).setOrigin(0.5, 0.5).setDepth(DEPTH_LABELS + 1);
+    const plate = this.add
+      .rectangle(centerX, plateY, name.width + 18, 18, 0x14161c, 0.88)
+      .setStrokeStyle(1, accentColor)
+      .setDepth(DEPTH_LABELS);
+    this.decor.push(plate, name);
+    if (room.spec.subtitle) {
+      const sub = this.add.text(centerX, plateY + 15, room.spec.subtitle, {
+        fontFamily: "monospace", fontSize: "10px", color: accent,
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH_LABELS + 1);
+      const subPlate = this.add
+        .rectangle(centerX, plateY + 15, sub.width + 12, 13, 0x14161c, 0.75)
+        .setDepth(DEPTH_LABELS);
+      this.decor.push(subPlate, sub);
+    }
+    if (room.spec.badge) {
+      const badge = this.add.text(centerX, plateY + 30, room.spec.badge, {
+        fontFamily: "monospace", fontSize: "10px", color: accent,
+        backgroundColor: "#14161cbb", padding: { x: 4, y: 2 },
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH_LABELS);
+      this.decor.push(badge);
+    }
   }
 
   /** Sol extérieur du campus : herbe partout, allées sur les rectangles `paths`. */
@@ -547,6 +592,12 @@ export class OfficeScene extends Phaser.Scene {
     const room = model.rooms.find((r) => r.spec.id === entity.spec.roomId);
     if (!room) return { x: 16, y: 26 };
     const seed = hashCode(entity.spec.id);
+    if (room.spec.facade) {
+      // devant le bâtiment, sur le parvis
+      const tx = room.spec.x + 1 + (seed % Math.max(1, room.spec.w - 2));
+      const ty = room.spec.y + room.spec.h + 2 + ((seed >> 3) % 2);
+      return { x: tx * TILE + TILE / 2, y: ty * TILE + 26 };
+    }
     const tx = room.spec.x + 1 + (seed % Math.max(1, room.spec.w - 2));
     const ty = room.spec.y + 2 + ((seed >> 3) % Math.max(1, room.spec.h - 3));
     return { x: tx * TILE + TILE / 2, y: ty * TILE + 26 };
@@ -665,11 +716,12 @@ export class OfficeScene extends Phaser.Scene {
       const atTarget = view.path.length === 0;
       if (atTarget && time > view.wanderAt) {
         view.wanderAt = time + 2500 + (view.seed % 3000);
-        // une balade sur quatre sort par la porte se dégourdir les jambes
-        const outing = (room.spec.doors?.length ?? 0) > 0
-          && (view.seed + Math.floor(time / 1000)) % 4 === 0;
+        // façade (vue campus) : balade extérieure uniquement ; sinon une
+        // balade sur quatre sort par la porte se dégourdir les jambes
+        const outing = room.spec.facade || ((room.spec.doors?.length ?? 0) > 0
+          && (view.seed + Math.floor(time / 1000)) % 4 === 0);
         const target = (outing ? this.randomOutdoorTile(room, grid) : null)
-          ?? this.randomWalkableTile(room, grid);
+          ?? (room.spec.facade ? null : this.randomWalkableTile(room, grid));
         if (target) goTo(target);
       }
     }

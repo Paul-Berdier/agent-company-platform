@@ -709,23 +709,232 @@
         "license": "usage commercial autorisé ; redistribution interdite ; crédits requis",
         "credit_url": "https://limezu.itch.io/modernexteriors"
       },
-      "singles_glob": "Modern_Exteriors_32x32/Modern_Exteriors_Complete_Singles_32x32/",
+      "singles_glob": "Modern_Exteriors_32x32/ME_Theme_Sorter_32x32/",
       "logical_prefix": "exterior",
       "trim": true,
-      "include_patterns": [
-        "Tree_",
-        "Bush",
-        "Bench",
-        "Fountain",
-        "Hedge",
-        "Flower",
-        "Street_Light",
-        "Streetlight",
-        "Lamp_Post",
-        "Trash",
-        "Sign"
+      "include_files": [
+        "ME_Singles_Terrains_and_Fences_32x32_Grass_1_1.png",
+        "ME_Singles_Terrains_and_Fences_32x32_Grass_1_2.png",
+        "ME_Singles_City_Terrains_32x32_Sidewalk_1_1.png",
+        "ME_Singles_City_Terrains_32x32_Sidewalk_1_2.png",
+        "ME_Singles_City_Props_32x32_Tree_1.png",
+        "ME_Singles_City_Props_32x32_Tree_2.png",
+        "ME_Singles_City_Props_32x32_Tree_3.png",
+        "ME_Singles_Garden_32x32_Bush_1.png",
+        "ME_Singles_Garden_32x32_Bush_14.png",
+        "ME_Singles_Garden_32x32_Big_Bench_Horizontal.png",
+        "ME_Singles_Garden_32x32_Fountain_1_1.png",
+        "ME_Singles_City_Props_32x32_Street_Lamp_1.png",
+        "ME_Singles_Garden_32x32_Big_Red_Flower_Vase.png",
+        "ME_Singles_Garden_32x32_Big_Light_Blue_Flower_Vase.png",
+        "ME_Singles_Office_32x32_Example_1.png",
+        "ME_Singles_Office_32x32_Example_2.png",
+        "ME_Singles_City_Props_32x32_Power_House_1.png",
+        "ME_Singles_Garden_32x32_Large_Greenhouse_Example.png",
+        "ME_Singles_Villas_32x32_Villa_1.png",
+        "ME_Singles_Office_32x32_Building_Sign_1.png"
       ],
-      "max_files": 160
+      "tilesets_from_singles": [
+        {
+          "id": "limezu-campus-terrain",
+          "tiles": [
+            "ME_Singles_Terrains_and_Fences_32x32_Grass_1_1.png",
+            "ME_Singles_Terrains_and_Fences_32x32_Grass_1_2.png",
+            "ME_Singles_City_Terrains_32x32_Sidewalk_1_1.png",
+            "ME_Singles_City_Terrains_32x32_Sidewalk_1_2.png"
+          ]
+        }
+      ],
+      "themes": [
+        {
+          "id": "campus",
+          "tileset": "limezu-campus-terrain",
+          "floorTiles": [
+            0,
+            1
+          ],
+          "wallTiles": [
+            2
+          ],
+          "pathTiles": [
+            2,
+            3
+          ],
+          "accentColor": "#57cc99"
+        }
+      ],
+      "stations": [
+        {
+          "kind": "tree",
+          "id": "tree-core",
+          "frame": "exterior.me-singles-city-props-tree-1",
+          "footprint": {
+            "w": 1,
+            "h": 1
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "tree-alt",
+          "id": "tree-alt",
+          "frame": "exterior.me-singles-city-props-tree-2",
+          "footprint": {
+            "w": 1,
+            "h": 1
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "plant-outdoor",
+          "id": "plant-core",
+          "frame": "exterior.me-singles-garden-bush-1",
+          "footprint": {
+            "w": 1,
+            "h": 1
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "bench-outdoor",
+          "id": "bench-core",
+          "frame": "exterior.me-singles-garden-big-bench-horizontal",
+          "footprint": {
+            "w": 3,
+            "h": 1
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": [
+            {
+              "dx": 0,
+              "dy": 1,
+              "facing": "down"
+            },
+            {
+              "dx": 1,
+              "dy": 1,
+              "facing": "down"
+            },
+            {
+              "dx": 2,
+              "dy": 1,
+              "facing": "down"
+            }
+          ]
+        },
+        {
+          "kind": "fountain",
+          "id": "fountain-core",
+          "frame": "exterior.me-singles-garden-fountain-1-1",
+          "footprint": {
+            "w": 2,
+            "h": 2
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "street-lamp",
+          "id": "street-lamp",
+          "frame": "exterior.me-singles-city-props-street-lamp-1",
+          "footprint": {
+            "w": 1,
+            "h": 1
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "facade",
+          "id": "facade-dev-floor",
+          "frame": "exterior.me-singles-office-example-1",
+          "footprint": {
+            "w": 12,
+            "h": 9
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "facade",
+          "id": "facade-data-lab",
+          "frame": "exterior.me-singles-city-props-power-house-1",
+          "footprint": {
+            "w": 7,
+            "h": 8
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "facade",
+          "id": "facade-library",
+          "frame": "exterior.me-singles-garden-large-greenhouse-example",
+          "footprint": {
+            "w": 8,
+            "h": 7
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "facade",
+          "id": "facade-game-studio",
+          "frame": "exterior.me-singles-villas-villa-1",
+          "footprint": {
+            "w": 9,
+            "h": 9
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        },
+        {
+          "kind": "facade",
+          "id": "facade-default",
+          "frame": "exterior.me-singles-office-example-2",
+          "footprint": {
+            "w": 12,
+            "h": 9
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": []
+        }
+      ]
     },
     "limezu-ui": {
       "archive": "modernuserinterface-win.zip",

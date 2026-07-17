@@ -79,9 +79,15 @@ export function buildCollisionGrid(
     }
   }
 
-  // 3. intérieur praticable sauf mur haut
+  // 3. intérieur praticable sauf mur haut (façades : tout le lot est bloqué)
   for (const room of model.rooms) {
     const { x, y, w, h } = room.spec;
+    if (room.spec.facade) {
+      for (let j = y; j < y + h; j++) {
+        for (let i = x; i < x + w; i++) grid.setBlocked(i, j, true);
+      }
+      continue;
+    }
     for (let j = y + 1; j < y + h; j++) {
       for (let i = x; i < x + w; i++) grid.setBlocked(i, j, false);
     }
@@ -104,7 +110,10 @@ export function buildCollisionGrid(
   }
 
   // 5. portes : percées dans le mur ou l'anneau, plus la tuile extérieure
+  // (les façades restent scellées : leurs portes ne sont que des ancres
+  // visuelles pour les balades extérieures)
   for (const room of model.rooms) {
+    if (room.spec.facade) continue;
     const { x, y, h } = room.spec;
     for (const door of room.spec.doors ?? []) {
       const doorX = x + door.x;

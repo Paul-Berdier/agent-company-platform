@@ -108,22 +108,47 @@ function roomOpenings(
   };
 }
 
-function decorate(layout: CampusLayout, rooms: RoomSpec[]): DecorationSpec[] {
+function decorate(
+  layout: CampusLayout,
+  rooms: RoomSpec[],
+  growth?: GrowthInfo,
+): DecorationSpec[] {
   const inRoom = (x: number, y: number) =>
     rooms.some((r) => x >= r.x - 1 && x <= r.x + r.w && y >= r.y - 1 && y <= r.y + r.h);
   const onPath = (x: number, y: number) =>
     layout.paths.some((p) => x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h);
   const decorations: DecorationSpec[] = [];
+  // plus l'entreprise grandit, plus le campus est planté
+  const density = growth && growth.level >= 5 ? 11 : growth && growth.level >= 4 ? 15 : 23;
   for (let y = 1; y < layout.rows - 1; y++) {
     for (let x = 1; x < layout.cols - 1; x++) {
       if (inRoom(x, y) || onPath(x, y)) continue;
-      const roll = (x * 31 + y * 17) % 23;
+      const roll = (x * 31 + y * 17) % density;
       if (roll === 0) decorations.push({ assetId: "tree-core", x, y });
       else if (roll === 7) decorations.push({ assetId: "plant-core", x, y });
       else if (roll === 14 && !onPath(x, y - 1)) decorations.push({ assetId: "bench-core", x, y });
     }
   }
+  // place centrale : fontaine et lampadaires débloqués au niveau 4
+  if (growth?.unlocked.includes("decor-plaza")) {
+    const cx = Math.floor(layout.cols / 2);
+    const cy = Math.floor(layout.rows / 2);
+    const spots: DecorationSpec[] = [
+      { assetId: "fountain-core", x: cx - 1, y: cy - 1 },
+      { assetId: "street-lamp", x: cx - 3, y: cy },
+      { assetId: "street-lamp", x: cx + 2, y: cy },
+    ];
+    for (const spot of spots) {
+      if (!inRoom(spot.x, spot.y)) decorations.push(spot);
+    }
+  }
   return decorations;
+}
+
+export interface GrowthInfo {
+  level: number;
+  name: string;
+  unlocked: string[];
 }
 
 function stationsFor(config: OfficeConfig | undefined): StationSpec[] {
@@ -184,8 +209,12 @@ function buildingOpenings(): Pick<RoomSpec, "doors" | "windows"> {
   };
 }
 
-function amenityRooms(positions: { x: number; y: number }[], startIndex: number): RoomSpec[] {
-  return AMENITIES.map((amenity, i) => ({
+function amenityRooms(
+  positions: { x: number; y: number }[],
+  startIndex: number,
+  amenities: typeof AMENITIES = AMENITIES,
+): RoomSpec[] {
+  return amenities.map((amenity, i) => ({
     id: amenity.id,
     name: amenity.name,
     theme: "default",
@@ -204,6 +233,7 @@ function assemble(
   rooms: RoomSpec[],
   entities: EntitySpec[],
   configs: (OfficeConfig | undefined)[],
+  growth?: GrowthInfo,
 ): SceneSpec {
   return {
     cols: layout.cols,
@@ -212,7 +242,7 @@ function assemble(
     entities,
     groundThemeId: GROUND_THEME,
     paths: layout.paths,
-    decorations: decorate(layout, rooms),
+    decorations: decorate(layout, rooms, growth),
     statusMapping: mergedStatusMapping(configs),
   };
 }
@@ -244,38 +274,57 @@ function projectRoom(
   return { room, entities: makeEntities(agents, room.id, stations) };
 }
 
-/** Company view : un bâtiment par département + espaces communs du campus. */
-export function companyScene(overview: Overview, configs: OfficeConfigMap): SceneSpec {
+/**
+ * Company view : campus extérieur — un bâtiment (façade) par département,
+ * espaces communs débloqués par la croissance. Les agents au travail sont
+ * dans les bâtiments ; les autres flânent sur le campus.
+ */
+export function companyScene(
+  overview: Overview,
+  configs: OfficeConfigMap,
+  growth?: GrowthInfo,
+): SceneSpec {
   const departments = overview.departments;
+  const amenities = AMENITIES.filter(
+    (a) => !growth || growth.unlocked.includes(a.id),
+  );
   const slot = maxDims(Object.values(configs));
-  const layout = campusLayout(departments.length + AMENITIES.length, slot.w, slot.h);
+  // rangées plus espacées : les façades s'élèvent au-dessus de leur parcelle
+  const layout = campusLayout(departments.length + amenities.length, slot.w, slot.h + 5);
   const rooms: RoomSpec[] = [];
   const entities: EntitySpec[] = [];
   departments.forEach((dept, i) => {
     const config = configs[dept.id];
-    const stations = stationsFor(config);
     const projects = overview.projects.filter((p) => p.department_id === dept.id);
     const agents = projects.flatMap((p) => agentsOfProject(overview, p.id));
-    const active = projects.reduce((sum, p) => sum + activeTaskCount(overview, p.id), 0);
+    const working = agents.filter((a) =>
+      ["working", "thinking", "reviewing"].includes(a.status));
+    const idlers = agents.filter((a) => !working.includes(a));
     const dims = roomDims(config);
+    const pos = layout.positions[i];
     const room: RoomSpec = {
       id: dept.id,
       name: dept.name,
       theme: config?.office_theme ?? dept.office_theme ?? "default",
-      x: layout.positions[i].x,
-      y: layout.positions[i].y,
+      x: pos.x,
+      y: pos.y + 5, // la parcelle est en bas du slot, la façade monte au-dessus
       w: dims.w,
       h: dims.h,
+      facade: true,
       subtitle: onlineSubtitle(agents),
-      badge: `${projects.length} projet(s) · ${active} actif(s)`,
-      stations,
-      ...roomOpenings(config, dims),
+      badge: `${working.length} au travail · ${projects.length} projet(s)`,
+      stations: [],
+      doors: [{ x: Math.floor(dims.w / 2), y: dims.h }],
     };
     rooms.push(room);
-    entities.push(...makeEntities(agents, room.id, stations));
+    entities.push(...makeEntities(idlers, room.id, []));
   });
-  rooms.push(...amenityRooms(layout.positions, departments.length));
-  return assemble(layout, rooms, entities, Object.values(configs));
+  rooms.push(...amenityRooms(
+    layout.positions.map((p) => ({ x: p.x, y: p.y + 5 })),
+    departments.length,
+    amenities,
+  ));
+  return assemble(layout, rooms, entities, Object.values(configs), growth);
 }
 
 /** Workspace view : un bâtiment par projet du workspace. */

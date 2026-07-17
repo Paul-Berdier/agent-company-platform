@@ -13,10 +13,12 @@ import { enablePixelUi } from "@acp/ui";
 import {
   connectEvents,
   createAndQueueTask,
+  fetchCompanyLevel,
   fetchOfficeConfig,
   fetchOverview,
   fetchPendingApprovals,
   fetchRecentEvents,
+  type CompanyLevel,
   type PendingApproval,
 } from "./api";
 import {
@@ -47,6 +49,7 @@ let refreshTimer: number | null = null;
 let rendererName = "auto";
 let wsConnected = false;
 let devGalleryEnabled = true;
+let companyLevel: CompanyLevel | null = null;
 
 const canvasWrap = document.getElementById("canvas-wrap")!;
 
@@ -62,6 +65,7 @@ function hudContext(): HudContext {
     rendererName,
     wsConnected,
     devGalleryEnabled,
+    companyLevel,
     setView,
     selectAgent(id) {
       selectedAgentId = id;
@@ -87,7 +91,7 @@ function setView(next: View): void {
 
 function currentScene() {
   switch (view.kind) {
-    case "company": return companyScene(overview, officeConfigs);
+    case "company": return companyScene(overview, officeConfigs, companyLevel ?? undefined);
     case "workspace": return workspaceScene(overview, view.id, officeConfigs);
     case "project": return projectScene(overview, view.id, officeConfigs);
     case "department": return departmentScene(overview, view.id, officeConfigs);
@@ -102,12 +106,14 @@ function renderAll(): void {
 // ---------------------------------------------------------------- données
 
 async function refreshOverview(): Promise<void> {
-  const [nextOverview, nextApprovals] = await Promise.all([
+  const [nextOverview, nextApprovals, nextLevel] = await Promise.all([
     fetchOverview(),
     fetchPendingApprovals(),
+    fetchCompanyLevel(),
   ]);
   overview = nextOverview;
   approvals = nextApprovals;
+  companyLevel = nextLevel;
   const missing = overview.departments.filter((d) => !officeConfigs[d.id]);
   await Promise.all(missing.map(async (dept) => {
     try {

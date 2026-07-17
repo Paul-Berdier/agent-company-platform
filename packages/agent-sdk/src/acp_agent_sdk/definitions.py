@@ -77,12 +77,24 @@ class DepartmentDefinition(BaseModel):
     roles: list[RoleDefinition] = Field(default_factory=list)
 
 
+class GrowthLevel(BaseModel):
+    """Niveau de croissance de l'entreprise, atteint par métriques réelles."""
+
+    level: int
+    name: str
+    min_projects: int = 0
+    min_agents: int = 0
+    min_completed_tasks: int = 0
+    unlocks: list[str] = Field(default_factory=list)  # ids d'amenities, décor...
+
+
 class ModuleManifest(BaseModel):
     module: str
     version: str = "0.1.0"
     description: str = ""
     departments: list[DepartmentDefinition] = Field(default_factory=list)
     room_templates: list[RoomTemplate] = Field(default_factory=list)
+    growth: list[GrowthLevel] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
     workflows: list[WorkflowDefinition] = Field(default_factory=list)
     indicators: list[dict[str, Any]] = Field(default_factory=list)

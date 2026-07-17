@@ -41,6 +41,12 @@ export interface RoomSpec {
   /** salle dessinée depuis une tilemap Tiled d'un pack */
   tilemapId?: string;
   /**
+   * Vue campus : la salle est rendue comme façade de bâtiment (asset
+   * `facade-<theme>` d'un pack), sans intérieur ni stations ; cliquer
+   * dessus ouvre la vue intérieure correspondante.
+   */
+  facade?: boolean;
+  /**
    * Portes, en tuiles relatives à la salle. `y === 0` = percée dans le mur
    * haut ; `y === h` = entrée par le bas. Les agents ne franchissent la
    * frontière d'une salle qu'aux portes.
