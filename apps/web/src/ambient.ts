@@ -27,6 +27,7 @@ import {
   ambientAssetPackIds,
   ambientProfile,
   effectiveFps,
+  focusAmbientProjectScene,
   resolveAmbientView,
   selectPilotProjectId,
   type AmbientView,
@@ -67,10 +68,14 @@ overlay.style.cssText =
 let overview: Overview;
 let dataSource: "api" | "demo" = "demo";
 let wsConnected = false;
+let visibleAgentIds = new Set<string>();
 
 function renderOverlay(): void {
   const clock = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  const working = overview.agents.filter((agent) =>
+  const visibleAgents = visibleAgentIds.size
+    ? overview.agents.filter((agent) => visibleAgentIds.has(agent.id))
+    : overview.agents;
+  const working = visibleAgents.filter((agent) =>
     ["working", "thinking", "reviewing"].includes(agent.status)).length;
   const source = dataSource === "demo"
     ? { label: "◌ DEMO", color: "#e9c46a" }
@@ -87,7 +92,7 @@ function renderOverlay(): void {
     title,
     document.createElement("br"),
     status,
-    document.createTextNode(` · ${working} agent(s) au travail · ${overview.agents.length} agents`),
+    document.createTextNode(` · ${working} agent(s) au travail · ${visibleAgents.length} agents`),
   );
 }
 
@@ -124,13 +129,18 @@ function buildScene(configs: OfficeConfigMap): { scene: SceneSpec; view: Ambient
   }
   if (requestedView.startsWith("project:")) {
     return {
-      scene: projectScene(overview, requestedView.slice("project:".length), configs),
+      scene: focusAmbientProjectScene(
+        projectScene(overview, requestedView.slice("project:".length), configs),
+      ),
       view: requestedView,
     };
   }
   const projectId = selectPilotProjectId(overview);
   if (projectId) {
-    return { scene: projectScene(overview, projectId, configs), view: `project:${projectId}` };
+    return {
+      scene: focusAmbientProjectScene(projectScene(overview, projectId, configs)),
+      view: `project:${projectId}`,
+    };
   }
   return { scene: companyScene(overview, configs), view: "company" };
 }
@@ -146,6 +156,7 @@ async function getBattery(): Promise<BatteryManagerLike | null> {
 async function boot(): Promise<void> {
   const [{ configs }, battery] = await Promise.all([loadData(), getBattery()]);
   const { scene, view } = buildScene(configs);
+  visibleAgentIds = new Set(scene.entities.map((entity) => entity.id));
   const engine: IOfficeRenderer = await createOfficeRenderer({
     mount: stage,
     mode: (params.get("renderer") ?? "auto") as RendererMode,

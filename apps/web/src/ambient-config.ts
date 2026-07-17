@@ -1,4 +1,5 @@
 import type { Overview } from "@acp/contracts";
+import type { SceneSpec } from "@acp/pixel-office-engine";
 
 export const AMBIENT_PROFILES = {
   performance: { fpsTarget: 18, wanderScale: 2.5 },
@@ -46,6 +47,21 @@ export function ambientProfile(name: string | null) {
 
 export function effectiveFps(target: number, onBattery: boolean): number {
   return onBattery ? Math.min(target, AMBIENT_PROFILES.performance.fpsTarget) : target;
+}
+
+/** Une vue ambient de projet cadre uniquement la salle, sans décor de campus. */
+export function focusAmbientProjectScene(scene: SceneSpec): SceneSpec {
+  const room = scene.rooms[0];
+  if (!room) return { ...scene, groundThemeId: undefined, paths: [], decorations: [] };
+  return {
+    ...scene,
+    cols: room.w,
+    rows: room.h + 2,
+    rooms: [{ ...room, x: 0, y: 0 }],
+    groundThemeId: undefined,
+    paths: [],
+    decorations: [],
+  };
 }
 
 /** Choisit une équipe de 4 à 8 agents, sinon le projet le plus peuplé. */

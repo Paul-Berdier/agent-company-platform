@@ -4,6 +4,7 @@ import {
   ambientAssetPackIds,
   ambientProfile,
   effectiveFps,
+  focusAmbientProjectScene,
   resolveAmbientView,
   selectPilotProjectId,
 } from "../src/ambient-config";
@@ -47,5 +48,24 @@ describe("scène pilote", () => {
     expect(packs).toContain("dept-software-engineering");
     expect(packs).toContain("limezu-office");
     expect(packs).not.toContain("limezu-ui");
+  });
+
+  it("retire les allées et décorations de campus autour de la salle", () => {
+    const scene = focusAmbientProjectScene({
+      cols: 10,
+      rows: 8,
+      rooms: [{ id: "room", name: "Room", theme: "default", x: 3, y: 3,
+        w: 8, h: 6, stations: [] }],
+      entities: [],
+      groundThemeId: "campus",
+      paths: [{ x: 0, y: 0, w: 2, h: 2 }],
+      decorations: [{ assetId: "tree", x: 1, y: 1 }],
+    });
+    expect(scene.paths).toEqual([]);
+    expect(scene.decorations).toEqual([]);
+    expect(scene.groundThemeId).toBeUndefined();
+    expect(scene.cols).toBe(8);
+    expect(scene.rows).toBe(8);
+    expect(scene.rooms[0]).toMatchObject({ x: 0, y: 0 });
   });
 });
