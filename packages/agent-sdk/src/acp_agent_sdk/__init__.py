@@ -3,8 +3,9 @@ from .definitions import (  # noqa: F401
     DepartmentDefinition,
     ModuleManifest,
     RoleDefinition,
+    RoomTemplate,
     StationDefinition,
     WorkflowDefinition,
     WorkflowStep,
 )
-from .loader import load_module_manifest, load_modules  # noqa: F401
+from .loader import load_module_manifest, load_modules, select_room_template  # noqa: F401

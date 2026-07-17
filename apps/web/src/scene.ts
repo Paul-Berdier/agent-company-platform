@@ -62,25 +62,50 @@ interface CampusLayout {
   paths: { x: number; y: number; w: number; h: number }[];
 }
 
-function campusLayout(count: number): CampusLayout {
+/** Grille de campus à slots de taille variable (max des salles présentes). */
+function campusLayout(count: number, slotW = ROOM_W, slotH = ROOM_H): CampusLayout {
   const gridCols = Math.max(1, Math.ceil(Math.sqrt(count)));
   const gridRows = Math.max(1, Math.ceil(count / gridCols));
-  const cols = GAP + gridCols * (ROOM_W + GAP);
-  const rows = GAP + gridRows * (ROOM_H + GAP);
+  const cols = GAP + gridCols * (slotW + GAP);
+  const rows = GAP + gridRows * (slotH + GAP);
   const positions = Array.from({ length: count }, (_, i) => ({
-    x: GAP + (i % gridCols) * (ROOM_W + GAP),
-    y: GAP + Math.floor(i / gridCols) * (ROOM_H + GAP),
+    x: GAP + (i % gridCols) * (slotW + GAP),
+    y: GAP + Math.floor(i / gridCols) * (slotH + GAP),
   }));
 
   const paths: CampusLayout["paths"] = [];
   // allées verticales au milieu de chaque couloir (bords inclus)
   for (let c = 0; c <= gridCols; c++) {
-    paths.push({ x: c * (ROOM_W + GAP) + 1, y: 0, w: 1, h: rows });
+    paths.push({ x: c * (slotW + GAP) + 1, y: 0, w: 1, h: rows });
   }
   for (let r = 0; r <= gridRows; r++) {
-    paths.push({ x: 0, y: r * (ROOM_H + GAP) + 1, w: cols, h: 1 });
+    paths.push({ x: 0, y: r * (slotH + GAP) + 1, w: cols, h: 1 });
   }
   return { cols, rows, positions, paths };
+}
+
+function roomDims(config: OfficeConfig | undefined): { w: number; h: number } {
+  return { w: config?.width ?? ROOM_W, h: config?.height ?? ROOM_H };
+}
+
+function maxDims(configs: (OfficeConfig | undefined)[]): { w: number; h: number } {
+  let w = ROOM_W, h = ROOM_H;
+  for (const config of configs) {
+    const dims = roomDims(config);
+    w = Math.max(w, dims.w);
+    h = Math.max(h, dims.h);
+  }
+  return { w, h };
+}
+
+function roomOpenings(
+  config: OfficeConfig | undefined,
+  dims: { w: number; h: number },
+): Pick<RoomSpec, "doors" | "windows"> {
+  return {
+    doors: config?.doors?.length ? config.doors : [{ x: Math.floor(dims.w / 2), y: dims.h }],
+    windows: config?.windows ?? [2, 5, 9].filter((x) => x < dims.w - 1),
+  };
 }
 
 function decorate(layout: CampusLayout, rooms: RoomSpec[]): DecorationSpec[] {
@@ -202,18 +227,19 @@ function projectRoom(
   const stations = stationsFor(config);
   const agents = agentsOfProject(overview, project.id);
   const active = activeTaskCount(overview, project.id);
+  const dims = roomDims(config);
   const room: RoomSpec = {
     id: project.id,
     name: project.name,
     theme: config?.office_theme ?? "default",
     x: pos.x,
     y: pos.y,
-    w: ROOM_W,
-    h: ROOM_H,
+    w: dims.w,
+    h: dims.h,
     subtitle: onlineSubtitle(agents),
     badge: active ? `${active} tâche(s) active(s)` : undefined,
     stations,
-    ...buildingOpenings(),
+    ...roomOpenings(config, dims),
   };
   return { room, entities: makeEntities(agents, room.id, stations) };
 }
@@ -221,7 +247,8 @@ function projectRoom(
 /** Company view : un bâtiment par département + espaces communs du campus. */
 export function companyScene(overview: Overview, configs: OfficeConfigMap): SceneSpec {
   const departments = overview.departments;
-  const layout = campusLayout(departments.length + AMENITIES.length);
+  const slot = maxDims(Object.values(configs));
+  const layout = campusLayout(departments.length + AMENITIES.length, slot.w, slot.h);
   const rooms: RoomSpec[] = [];
   const entities: EntitySpec[] = [];
   departments.forEach((dept, i) => {
@@ -230,18 +257,19 @@ export function companyScene(overview: Overview, configs: OfficeConfigMap): Scen
     const projects = overview.projects.filter((p) => p.department_id === dept.id);
     const agents = projects.flatMap((p) => agentsOfProject(overview, p.id));
     const active = projects.reduce((sum, p) => sum + activeTaskCount(overview, p.id), 0);
+    const dims = roomDims(config);
     const room: RoomSpec = {
       id: dept.id,
       name: dept.name,
       theme: config?.office_theme ?? dept.office_theme ?? "default",
       x: layout.positions[i].x,
       y: layout.positions[i].y,
-      w: ROOM_W,
-      h: ROOM_H,
+      w: dims.w,
+      h: dims.h,
       subtitle: onlineSubtitle(agents),
       badge: `${projects.length} projet(s) · ${active} actif(s)`,
       stations,
-      ...buildingOpenings(),
+      ...roomOpenings(config, dims),
     };
     rooms.push(room);
     entities.push(...makeEntities(agents, room.id, stations));
@@ -257,7 +285,8 @@ export function workspaceScene(
   configs: OfficeConfigMap,
 ): SceneSpec {
   const projects = overview.projects.filter((p) => p.workspace_id === workspaceId);
-  const layout = campusLayout(projects.length);
+  const slot = maxDims(projects.map((p) => (p.department_id ? configs[p.department_id] : undefined)));
+  const layout = campusLayout(projects.length, slot.w, slot.h);
   const rooms: RoomSpec[] = [];
   const entities: EntitySpec[] = [];
   projects.forEach((project, i) => {
@@ -276,7 +305,8 @@ export function projectScene(
 ): SceneSpec {
   const project = overview.projects.find((p) => p.id === projectId);
   if (!project) return { cols: 10, rows: 8, rooms: [], entities: [] };
-  const layout = campusLayout(1);
+  const slot = roomDims(project.department_id ? configs[project.department_id] : undefined);
+  const layout = campusLayout(1, slot.w, slot.h);
   const built = projectRoom(overview, project, layout.positions[0], configs);
   const config = project.department_id ? configs[project.department_id] : undefined;
   return assemble(layout, [built.room], built.entities, [config]);
@@ -289,7 +319,8 @@ export function departmentScene(
   configs: OfficeConfigMap,
 ): SceneSpec {
   const projects = overview.projects.filter((p) => p.department_id === departmentId);
-  const layout = campusLayout(Math.max(1, projects.length));
+  const slot = roomDims(configs[departmentId]);
+  const layout = campusLayout(Math.max(1, projects.length), slot.w, slot.h);
   const rooms: RoomSpec[] = [];
   const entities: EntitySpec[] = [];
   projects.forEach((project, i) => {

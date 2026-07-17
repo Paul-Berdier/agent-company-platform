@@ -67,4 +67,12 @@ export interface OfficeConfig {
   stations: StationDef[];
   available_animations: string[];
   status_mapping: Record<string, string>;
+  /** présents quand un template de salle a été sélectionné */
+  template_id?: string;
+  width?: number;
+  height?: number;
+  capacity?: number;
+  doors?: { x: number; y: number }[];
+  windows?: number[];
+  upgrade_to?: string | null;
 }

@@ -46,6 +46,27 @@ class WorkflowDefinition(BaseModel):
     steps: list[WorkflowStep] = Field(default_factory=list)
 
 
+class RoomTemplate(BaseModel):
+    """Salle modulaire data-driven, fournie par un module.
+
+    Sélectionnée par type de département et capacité (nombre de places de
+    travail). `upgrade_to` prépare la croissance (Phase campus).
+    """
+
+    id: str
+    schema_version: str = "1.0"
+    department_type: str | None = None  # None = générique (espaces communs)
+    name: str = ""
+    theme: str = "default"
+    width: int = 12
+    height: int = 9
+    capacity: int = 4
+    stations: list[StationDefinition] = Field(default_factory=list)
+    doors: list[dict[str, int]] = Field(default_factory=list)
+    windows: list[int] = Field(default_factory=list)
+    upgrade_to: str | None = None
+
+
 class DepartmentDefinition(BaseModel):
     department_type: str
     name: str
@@ -61,6 +82,7 @@ class ModuleManifest(BaseModel):
     version: str = "0.1.0"
     description: str = ""
     departments: list[DepartmentDefinition] = Field(default_factory=list)
+    room_templates: list[RoomTemplate] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
     workflows: list[WorkflowDefinition] = Field(default_factory=list)
     indicators: list[dict[str, Any]] = Field(default_factory=list)

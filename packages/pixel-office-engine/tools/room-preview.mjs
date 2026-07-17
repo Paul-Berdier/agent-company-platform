@@ -77,15 +77,31 @@ for (const dir of dirs) {
   for (const t of manifest.themes) themes.set(t.id, t);
 }
 
-// stations de la salle : depuis le plugin backend
+// stations de la salle : template du plugin si présent, sinon stations legacy
 const plugins = fs.readdirSync(path.join(REPO, "plugins"));
 let dept = null;
+let template = null;
 for (const plugin of plugins) {
   const manifest = readJson(path.join(REPO, "plugins", plugin, "plugin.json"));
   const found = manifest.departments?.find((d) => d.department_type === deptType);
   if (found) dept = found;
+  const roomsDir = path.join(REPO, "plugins", plugin, "rooms");
+  if (fs.existsSync(roomsDir)) {
+    for (const file of fs.readdirSync(roomsDir).filter((f) => f.endsWith(".json"))) {
+      const t = readJson(path.join(roomsDir, file));
+      if (t.department_type === deptType && (!template || t.capacity < template.capacity)) {
+        template = t;
+      }
+    }
+  }
 }
-if (!dept) throw new Error(`département "${deptType}" introuvable dans plugins/`);
+if (!dept && !template) throw new Error(`département "${deptType}" introuvable dans plugins/`);
+if (template) {
+  dept = { ...dept, stations: template.stations, office_theme: template.theme };
+}
+
+const ROOM_W2 = template?.width ?? ROOM_W;
+const ROOM_H2 = template?.height ?? ROOM_H;
 
 const themeId = themeIdArg ?? dept.office_theme;
 const theme = { ...(themes.get(themeId) ?? themes.get("default")) };
@@ -96,8 +112,8 @@ const tileset = tilesets.get(theme.tileset);
 if (!tileset) throw new Error(`tileset "${theme.tileset}" introuvable`);
 
 const img = new PNG({
-  width: (ROOM_W + 2 * MARGIN) * TILE,
-  height: (ROOM_H + 2 * MARGIN) * TILE,
+  width: (ROOM_W2 + 2 * MARGIN) * TILE,
+  height: (ROOM_H2 + 2 * MARGIN) * TILE,
 });
 // fond sombre
 for (let i = 0; i < img.data.length; i += 4) {
@@ -111,17 +127,17 @@ const drawTile = (index, tx, ty) => {
 };
 
 // sol + mur + fenêtres
-for (let j = 0; j < ROOM_H; j++) {
-  for (let i = 0; i < ROOM_W; i++) {
+for (let j = 0; j < ROOM_H2; j++) {
+  for (let i = 0; i < ROOM_W2; i++) {
     drawTile(theme.floorTiles[(i + j) % theme.floorTiles.length], i, j);
   }
 }
-for (let i = 0; i < ROOM_W; i++) drawTile(theme.wallTiles[i % theme.wallTiles.length], i, 0);
+for (let i = 0; i < ROOM_W2; i++) drawTile(theme.wallTiles[i % theme.wallTiles.length], i, 0);
 if (theme.windowTiles?.length) {
   for (const wx of [2, 5, 9]) drawTile(theme.windowTiles[0], wx, 0);
 }
 // porte basse (parvis)
-drawTile(theme.floorTiles[0], 6, ROOM_H);
+drawTile(theme.floorTiles[0], Math.floor(ROOM_W2 / 2), ROOM_H2);
 
 // stations triées par baseY
 const placed = [];

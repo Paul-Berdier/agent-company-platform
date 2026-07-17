@@ -1,0 +1,30 @@
+{
+  "id": "software-office-large-v1",
+  "schema_version": "1.0",
+  "department_type": "software-engineering",
+  "name": "Software Office (large)",
+  "theme": "dev-floor",
+  "width": 14,
+  "height": 11,
+  "capacity": 18,
+  "doors": [{ "x": 7, "y": 11 }],
+  "windows": [2, 5, 8, 11],
+  "stations": [
+    { "id": "dev-desk-1", "name": "Dev Desk 1", "kind": "desk", "x": 1, "y": 3 },
+    { "id": "dev-desk-2", "name": "Dev Desk 2", "kind": "desk", "x": 4, "y": 3 },
+    { "id": "dev-desk-3", "name": "Dev Desk 3", "kind": "desk", "x": 7, "y": 3 },
+    { "id": "dev-desk-4", "name": "Dev Desk 4", "kind": "desk", "x": 10, "y": 3 },
+    { "id": "dev-desk-5", "name": "Dev Desk 5", "kind": "desk", "x": 1, "y": 6 },
+    { "id": "dev-desk-6", "name": "Dev Desk 6", "kind": "desk", "x": 4, "y": 6 },
+    { "id": "dev-desk-7", "name": "Dev Desk 7", "kind": "desk", "x": 7, "y": 6 },
+    { "id": "dev-desk-8", "name": "Dev Desk 8", "kind": "desk", "x": 10, "y": 6 },
+    { "id": "dev-desk-9", "name": "Dev Desk 9", "kind": "desk", "x": 4, "y": 8 },
+    { "id": "review-corner", "name": "Review Corner", "kind": "whiteboard", "x": 5, "y": 1 },
+    { "id": "coffee-corner", "name": "Coffee Corner", "kind": "coffee-machine", "x": 11, "y": 1 },
+    { "id": "plant-1", "name": "Plant", "kind": "plant", "x": 0, "y": 1 },
+    { "id": "plant-2", "name": "Plant", "kind": "plant", "x": 13, "y": 5 },
+    { "id": "water-cooler", "name": "Water Cooler", "kind": "water-cooler", "x": 0, "y": 5 },
+    { "id": "ci-rack-1", "name": "CI Server Rack", "kind": "server-rack", "x": 12, "y": 8 },
+    { "id": "ci-rack-2", "name": "CI Server Rack", "kind": "server-rack", "x": 0, "y": 8 }
+  ]
+}

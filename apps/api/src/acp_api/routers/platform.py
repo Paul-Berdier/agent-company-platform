@@ -250,8 +250,20 @@ def list_modules(request: Request):
 
 
 @router.get("/departments/{department_id}/office-config")
-def department_office_config(department_id: str, request: Request, db: Session = Depends(get_db)):
-    """Configuration data-driven du bureau pixel art d'un département."""
+def department_office_config(
+    department_id: str,
+    request: Request,
+    capacity: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Configuration data-driven du bureau pixel art d'un département.
+
+    Si un module fournit des templates de salles pour ce secteur, le plus
+    petit template couvrant `capacity` est retenu (stations, dimensions,
+    portes, fenêtres). Sinon, repli sur les stations historiques du module.
+    """
+    from acp_agent_sdk import select_room_template
+
     dept = db.get(DepartmentModel, department_id)
     if dept is None:
         raise HTTPException(status_code=404, detail="Département introuvable")
@@ -267,10 +279,26 @@ def department_office_config(department_id: str, request: Request, db: Session =
     if definition is None:  # repli générique : le cœur vit sans module métier
         definition = modules["core"].departments[0]
     config = definition.model_dump(mode="json")
+
+    all_templates = [t for m in modules.values() for t in m.room_templates]
+    template = select_room_template(all_templates, dept.department_type, capacity)
+    if template is not None:
+        config.update({
+            "template_id": template.id,
+            "width": template.width,
+            "height": template.height,
+            "capacity": template.capacity,
+            "stations": [s.model_dump(mode="json") for s in template.stations],
+            "doors": template.doors,
+            "windows": template.windows,
+            "office_theme": template.theme,
+            "upgrade_to": template.upgrade_to,
+        })
+
     config.update({
         "department_id": dept.id,
         "department_type": dept.department_type,
-        "office_theme": dept.office_theme or definition.office_theme,
+        "office_theme": config.get("office_theme") or dept.office_theme or definition.office_theme,
     })
     config.update(dept.config or {})
     return config

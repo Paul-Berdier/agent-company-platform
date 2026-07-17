@@ -409,6 +409,42 @@
             96
           ],
           "accentColor": "#7c5cff"
+        },
+        {
+          "id": "data-lab",
+          "tileset": "limezu-office-roombuilder",
+          "floorTiles": [
+            90,
+            91
+          ],
+          "wallTiles": [
+            96
+          ],
+          "accentColor": "#2f9e8f"
+        },
+        {
+          "id": "library",
+          "tileset": "limezu-office-roombuilder",
+          "floorTiles": [
+            154,
+            155
+          ],
+          "wallTiles": [
+            80
+          ],
+          "accentColor": "#a0522d"
+        },
+        {
+          "id": "game-studio",
+          "tileset": "limezu-office-roombuilder",
+          "floorTiles": [
+            202,
+            203
+          ],
+          "wallTiles": [
+            64
+          ],
+          "accentColor": "#ff7043"
         }
       ],
       "composed_frames": [
@@ -566,6 +602,101 @@
             "x": 0,
             "y": 1
           }
+        },
+        {
+          "kind": "bookshelf",
+          "id": "office-bookshelf",
+          "frame": "office.single.modern-office-singles-194",
+          "footprint": {
+            "w": 1,
+            "h": 2
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": [
+            {
+              "dx": 0,
+              "dy": 2,
+              "facing": "up"
+            }
+          ]
+        },
+        {
+          "kind": "meeting-table",
+          "id": "office-meeting-table",
+          "frame": "office.single.modern-office-singles-191",
+          "footprint": {
+            "w": 2,
+            "h": 2
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": [
+            {
+              "dx": -1,
+              "dy": 1,
+              "facing": "right"
+            },
+            {
+              "dx": 2,
+              "dy": 1,
+              "facing": "left"
+            },
+            {
+              "dx": 0,
+              "dy": 2,
+              "facing": "up"
+            },
+            {
+              "dx": 1,
+              "dy": 2,
+              "facing": "up"
+            }
+          ]
+        },
+        {
+          "kind": "reception-desk",
+          "id": "office-reception",
+          "frame": "office.single.modern-office-singles-210",
+          "footprint": {
+            "w": 2,
+            "h": 1
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": [
+            {
+              "dx": 1,
+              "dy": 1,
+              "facing": "up"
+            }
+          ]
+        },
+        {
+          "kind": "art-station",
+          "id": "office-art-station",
+          "frame": "office.single.modern-office-singles-311",
+          "footprint": {
+            "w": 1,
+            "h": 2
+          },
+          "pivot": {
+            "x": 0,
+            "y": 1
+          },
+          "seats": [
+            {
+              "dx": 0,
+              "dy": 2,
+              "facing": "up"
+            }
+          ]
         }
       ]
     },

@@ -1,0 +1,23 @@
+{
+  "id": "game-studio-v1",
+  "schema_version": "1.0",
+  "department_type": "game-development",
+  "name": "Game Studio",
+  "theme": "game-studio",
+  "width": 12,
+  "height": 9,
+  "capacity": 8,
+  "doors": [{ "x": 6, "y": 9 }],
+  "windows": [2, 9],
+  "stations": [
+    { "id": "design-desk", "name": "Design Desk", "kind": "desk", "x": 1, "y": 3 },
+    { "id": "code-desk", "name": "Gameplay Desk", "kind": "desk", "x": 4, "y": 3 },
+    { "id": "art-station-1", "name": "Art Station", "kind": "art-station", "x": 8, "y": 2 },
+    { "id": "art-station-2", "name": "Art Station", "kind": "art-station", "x": 10, "y": 2 },
+    { "id": "playtest-couch", "name": "Playtest Couch", "kind": "couch", "x": 1, "y": 6 },
+    { "id": "build-rack", "name": "Build Farm Rack", "kind": "server-rack", "x": 10, "y": 6 },
+    { "id": "coffee", "name": "Coffee", "kind": "coffee-machine", "x": 6, "y": 6 },
+    { "id": "plant-1", "name": "Plant", "kind": "plant", "x": 0, "y": 1 },
+    { "id": "plant-2", "name": "Plant", "kind": "plant", "x": 11, "y": 4 }
+  ]
+}

@@ -474,7 +474,13 @@ async function refreshOverview(): Promise<void> {
   const missing = overview.departments.filter((d) => !officeConfigs[d.id]);
   await Promise.all(missing.map(async (dept) => {
     try {
-      officeConfigs[dept.id] = await fetchOfficeConfig(dept.id);
+      // capacité demandée = agents du secteur (sélection du template)
+      const deptProjectIds = new Set(
+        overview.projects.filter((p) => p.department_id === dept.id).map((p) => p.id));
+      const teamIds = new Set(
+        overview.teams.filter((t) => deptProjectIds.has(t.project_id)).map((t) => t.id));
+      const agentCount = overview.agents.filter((a) => a.team_id && teamIds.has(a.team_id)).length;
+      officeConfigs[dept.id] = await fetchOfficeConfig(dept.id, agentCount);
     } catch {
       /* configuration par défaut côté moteur */
     }

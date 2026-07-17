@@ -1,0 +1,25 @@
+{
+  "id": "library-v1",
+  "schema_version": "1.0",
+  "department_type": "research",
+  "name": "Research Library",
+  "theme": "library",
+  "width": 12,
+  "height": 9,
+  "capacity": 8,
+  "doors": [{ "x": 6, "y": 9 }],
+  "windows": [3, 8],
+  "stations": [
+    { "id": "shelf-1", "name": "Bookshelf", "kind": "bookshelf", "x": 0, "y": 1 },
+    { "id": "shelf-2", "name": "Bookshelf", "kind": "bookshelf", "x": 1, "y": 1 },
+    { "id": "shelf-3", "name": "Bookshelf", "kind": "bookshelf", "x": 10, "y": 1 },
+    { "id": "shelf-4", "name": "Bookshelf", "kind": "bookshelf", "x": 11, "y": 1 },
+    { "id": "reading-desk-1", "name": "Reading Desk 1", "kind": "desk", "x": 1, "y": 4 },
+    { "id": "reading-desk-2", "name": "Reading Desk 2", "kind": "desk", "x": 4, "y": 4 },
+    { "id": "reading-desk-3", "name": "Reading Desk 3", "kind": "desk", "x": 7, "y": 4 },
+    { "id": "seminar-board", "name": "Seminar Board", "kind": "whiteboard", "x": 5, "y": 1 },
+    { "id": "meeting", "name": "Discussion Table", "kind": "meeting-table", "x": 4, "y": 6 },
+    { "id": "plant-1", "name": "Plant", "kind": "plant", "x": 0, "y": 7 },
+    { "id": "plant-2", "name": "Plant", "kind": "plant", "x": 11, "y": 7 }
+  ]
+}

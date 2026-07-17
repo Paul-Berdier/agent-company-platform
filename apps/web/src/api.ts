@@ -38,8 +38,13 @@ export async function fetchOverview(): Promise<Overview> {
   return resp.json();
 }
 
-export async function fetchOfficeConfig(departmentId: string): Promise<OfficeConfig> {
-  const resp = await fetch(`${API_URL}/departments/${departmentId}/office-config`);
+export async function fetchOfficeConfig(
+  departmentId: string,
+  capacity = 0,
+): Promise<OfficeConfig> {
+  const resp = await fetch(
+    `${API_URL}/departments/${departmentId}/office-config?capacity=${capacity}`,
+  );
   if (!resp.ok) throw new Error(`office-config: ${resp.status}`);
   return resp.json();
 }

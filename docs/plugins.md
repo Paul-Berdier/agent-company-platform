@@ -41,6 +41,10 @@ Déposez le dossier dans `plugins/`, redémarrez l'API : le module apparaît dan
 `GET /modules` et ses bureaux sont disponibles pour les départements qui
 référencent son `department_type`.
 
+Un module peut aussi fournir des **templates de salles** (`rooms/*.json`,
+sélectionnés par capacité, dessinables dans Tiled) — voir
+[assets/room-templates.md](assets/room-templates.md).
+
 ## Modules livrés
 
 `core` (intégré au SDK), `software-development`, `data-science`, `research`,

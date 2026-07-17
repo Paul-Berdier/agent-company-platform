@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from .definitions import ModuleManifest
+from .definitions import ModuleManifest, RoomTemplate
 
 # Module "core" intégré : thème de bureau générique, aucun rôle métier.
 CORE_MANIFEST = ModuleManifest(
@@ -42,7 +42,35 @@ CORE_MANIFEST = ModuleManifest(
 
 def load_module_manifest(path: Path) -> ModuleManifest:
     data = json.loads(path.read_text(encoding="utf-8"))
-    return ModuleManifest.model_validate(data)
+    manifest = ModuleManifest.model_validate(data)
+    # templates de salles : un fichier JSON par template dans <module>/rooms/
+    rooms_dir = path.parent / "rooms"
+    if rooms_dir.is_dir():
+        for room_path in sorted(rooms_dir.glob("*.json")):
+            try:
+                template = RoomTemplate.model_validate(
+                    json.loads(room_path.read_text(encoding="utf-8"))
+                )
+                manifest.room_templates.append(template)
+            except Exception:  # noqa: BLE001 — un template cassé n'empêche rien
+                continue
+    return manifest
+
+
+def select_room_template(
+    templates: list[RoomTemplate],
+    department_type: str,
+    capacity: int,
+) -> RoomTemplate | None:
+    """Choisit le plus petit template du secteur couvrant la capacité demandée,
+    sinon le plus grand disponible."""
+    candidates = [t for t in templates if t.department_type == department_type]
+    if not candidates:
+        return None
+    fitting = [t for t in candidates if t.capacity >= capacity]
+    if fitting:
+        return min(fitting, key=lambda t: t.capacity)
+    return max(candidates, key=lambda t: t.capacity)
 
 
 def load_modules(plugins_dir: str | os.PathLike | None = None) -> dict[str, ModuleManifest]:
