@@ -741,7 +741,79 @@
         "Modern_UI_"
       ],
       "logical_prefix": "ui.sheet",
-      "max_sheet_size": 2048
+      "max_sheet_size": 2048,
+      "slices": [
+        {
+          "key": "frame-window",
+          "from": "ui.sheet.modern-ui-style-2",
+          "rect": [
+            0,
+            0,
+            96,
+            68
+          ]
+        },
+        {
+          "key": "frame-window2",
+          "from": "ui.sheet.modern-ui-style-2",
+          "rect": [
+            0,
+            64,
+            96,
+            76
+          ]
+        },
+        {
+          "key": "panel-round",
+          "from": "ui.sheet.modern-ui-style-2",
+          "rect": [
+            96,
+            448,
+            96,
+            72
+          ]
+        },
+        {
+          "key": "panel-small",
+          "from": "ui.sheet.modern-ui-style-2",
+          "rect": [
+            0,
+            280,
+            80,
+            56
+          ]
+        },
+        {
+          "key": "panel-dark",
+          "from": "ui.sheet.modern-ui-style-2",
+          "rect": [
+            2,
+            450,
+            90,
+            54
+          ]
+        },
+        {
+          "key": "cursor-arrow",
+          "from": "ui.sheet.modern-ui-style-2",
+          "rect": [
+            318,
+            648,
+            26,
+            26
+          ]
+        },
+        {
+          "key": "cursor-hand",
+          "from": "ui.sheet.modern-ui-style-2",
+          "rect": [
+            346,
+            646,
+            30,
+            28
+          ]
+        }
+      ]
     }
   }
 }

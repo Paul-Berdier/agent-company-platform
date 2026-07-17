@@ -111,6 +111,15 @@ export class PhaserRenderer implements IOfficeRenderer {
     this.office?.focusRoomById(roomId);
   }
 
+  zoomStep(direction: 1 | -1): void {
+    this.office?.zoomStep(direction);
+  }
+
+  /** nom du renderer actif (indicateur HUD) */
+  get name(): string {
+    return "phaser";
+  }
+
   showGallery(filterPack?: string): void {
     if (!this.game || !this.assets || this.galleryOpen) return;
     this.galleryOpen = true;

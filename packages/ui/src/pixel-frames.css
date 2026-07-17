@@ -1,0 +1,73 @@
+/*
+ * Cadres pixel art Modern UI (LimeZu) appliqués au HUD via border-image.
+ * Activés seulement quand `body.ui-pixel` est posé (assets licenciés
+ * installés — voir enablePixelUi) ; sinon le style plat par défaut reste.
+ * Les contenus restent en HTML/CSS : seuls les cadres sont des images.
+ */
+
+body.ui-pixel {
+  cursor: url("/assets/licensed/limezu/ui/slices/cursor-arrow.png") 2 2, auto;
+}
+
+body.ui-pixel button,
+body.ui-pixel .nav-item,
+body.ui-pixel canvas {
+  cursor: url("/assets/licensed/limezu/ui/slices/cursor-hand.png") 6 2, pointer;
+}
+
+/* panneaux du rail, KPI et cartes : panneau arrondi acier */
+body.ui-pixel .rail-panel,
+body.ui-pixel .kpi,
+body.ui-pixel .user-card {
+  border: 8px solid transparent;
+  border-image: url("/assets/licensed/limezu/ui/slices/panel-round.png") 10 fill / 8px stretch;
+  border-radius: 0;
+  background: none;
+  image-rendering: pixelated;
+}
+
+body.ui-pixel .rail-panel h3,
+body.ui-pixel .kpi .label,
+body.ui-pixel .kpi .hint {
+  color: #4c5265; /* lisible sur le panneau clair LimeZu */
+}
+body.ui-pixel .kpi .value,
+body.ui-pixel .rail-panel,
+body.ui-pixel .user-card .who b {
+  color: #232838;
+}
+body.ui-pixel .rail-panel .grow,
+body.ui-pixel .rail-panel small,
+body.ui-pixel .log-entry,
+body.ui-pixel .user-card .who small {
+  color: #3a4053;
+}
+body.ui-pixel .log-entry { border-bottom-color: #c9cbd8; }
+body.ui-pixel .log-entry time { color: #7a8095; }
+
+/* boutons d'action : petit panneau pixel */
+body.ui-pixel .cta,
+body.ui-pixel .action-btn {
+  border: 6px solid transparent;
+  border-image: url("/assets/licensed/limezu/ui/slices/panel-small.png") 8 fill / 6px stretch;
+  border-radius: 0;
+  background: none;
+  color: #232838;
+  image-rendering: pixelated;
+}
+
+/* fenêtre du monde : cadre acier */
+body.ui-pixel #canvas-wrap {
+  border: 10px solid transparent;
+  border-image: url("/assets/licensed/limezu/ui/slices/frame-window.png") 14 / 10px stretch;
+  border-radius: 0;
+  image-rendering: pixelated;
+}
+
+/* barre du bas : panneau sombre */
+body.ui-pixel #bottombar {
+  border: 8px solid transparent;
+  border-image: url("/assets/licensed/limezu/ui/slices/panel-dark.png") 10 fill / 8px stretch;
+  background: none;
+  image-rendering: pixelated;
+}

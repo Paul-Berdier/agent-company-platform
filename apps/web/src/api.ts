@@ -60,10 +60,14 @@ export async function createAndQueueTask(projectId: string, title: string): Prom
   await fetch(`${API_URL}/tasks/${task.id}/queue`, { method: "POST" });
 }
 
-export function connectEvents(onEvent: (event: AcpEvent) => void): void {
+export function connectEvents(
+  onEvent: (event: AcpEvent) => void,
+  onStatus?: (connected: boolean) => void,
+): void {
   let socket: WebSocket | null = null;
   const open = () => {
     socket = new WebSocket(EVENTS_WS_URL);
+    socket.onopen = () => onStatus?.(true);
     socket.onmessage = (msg) => {
       try {
         onEvent(JSON.parse(msg.data));
@@ -71,7 +75,10 @@ export function connectEvents(onEvent: (event: AcpEvent) => void): void {
         /* message non JSON ignoré */
       }
     };
-    socket.onclose = () => setTimeout(open, 2000);
+    socket.onclose = () => {
+      onStatus?.(false);
+      setTimeout(open, 2000);
+    };
     socket.onerror = () => socket?.close();
   };
   open();

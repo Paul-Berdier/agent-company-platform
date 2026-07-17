@@ -290,6 +290,10 @@ export class OfficeScene extends Phaser.Scene {
     this.selectionMarker.setVisible(true);
   }
 
+  zoomStep(direction: 1 | -1): void {
+    this.cameraCtl?.stepZoom(direction);
+  }
+
   focusRoomById(roomId: string): void {
     const room = this.model?.rooms.find((r) => r.spec.id === roomId);
     if (!room) return;

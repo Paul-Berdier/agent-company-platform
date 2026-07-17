@@ -594,9 +594,29 @@ function importSheets(packId, pack, srcDir) {
   }
   if (frames.length === 0) throw new ImportError(`${packId}: aucune feuille sélectionnée`);
   const targetDir = path.join(OUT_BASE, ...pack.target_dir.split("/"));
+
+  // tranches UI autonomes (cadres 9-slice, curseurs) pour le CSS border-image
+  let sliceCount = 0;
+  for (const slice of pack.slices ?? []) {
+    const source = frames.find((f) => f.key === slice.from);
+    if (!source) {
+      warn(`${packId}: tranche "${slice.key}" — feuille "${slice.from}" introuvable`);
+      continue;
+    }
+    const [sx, sy, sw, sh] = slice.rect;
+    const crop = new PNG({ width: sw, height: sh });
+    blit(crop, source.png, 0, 0, sx, sy, sw, sh);
+    const trimmed = trimTransparent(crop);
+    const outPath = path.join(targetDir, "slices", `${slice.key}.png`);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, PNG.sync.write(trimmed));
+    sliceCount++;
+  }
+
   const { atlases } = writeAtlases(targetDir, packId, frames);
   const manifest = baseManifest(packId, pack);
   manifest.atlases = atlases;
+  if (sliceCount) report.packs[`${packId}-slices`] = { slices: sliceCount };
   writeJson(path.join(targetDir, "manifest.json"), manifest);
   writeProvenance(targetDir, packId, pack);
   report.packs[packId] = { sheets: frames.length, atlases: atlases.length };

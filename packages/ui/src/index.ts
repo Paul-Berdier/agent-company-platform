@@ -1,5 +1,24 @@
 /** Petites briques UI partagées (agnostiques du métier). */
 
+/**
+ * Active les cadres pixel art Modern UI si les assets sous licence sont
+ * installés (sinon, l'interface garde son style plat par défaut).
+ */
+export async function enablePixelUi(
+  slicesBase = "/assets/licensed/limezu/ui/slices",
+): Promise<boolean> {
+  try {
+    const resp = await fetch(`${slicesBase}/panel-round.png`, { method: "HEAD" });
+    if (resp.ok) {
+      document.body.classList.add("ui-pixel");
+      return true;
+    }
+  } catch {
+    /* assets absents : style plat */
+  }
+  return false;
+}
+
 export const STATUS_COLORS: Record<string, string> = {
   idle: "#8d99ae",
   thinking: "#e9c46a",
