@@ -15,6 +15,7 @@ PY=".venv/bin/python"
     -e packages/event-sdk \
     -e packages/agent-sdk \
     -e apps/api \
+    -e apps/cli \
     -e apps/event-service \
     -e apps/worker \
     -e "services/provider-gateway[test]"

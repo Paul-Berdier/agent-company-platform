@@ -16,6 +16,7 @@ $py = "$root\.venv\Scripts\python.exe"
     -e "$root\packages\event-sdk" `
     -e "$root\packages\agent-sdk" `
     -e "$root\apps\api" `
+    -e "$root\apps\cli" `
     -e "$root\apps\event-service" `
     -e "$root\apps\worker" `
     -e "$root\services\provider-gateway[test]"
