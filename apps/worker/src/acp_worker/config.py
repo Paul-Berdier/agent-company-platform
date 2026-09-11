@@ -6,7 +6,7 @@ import os
 import platform
 import re
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -131,7 +131,7 @@ def _simulation_flag(value: object) -> bool:
 class WorkerConfig:
     api_url: str
     gateway_url: str
-    gateway_service_token: str | None
+    gateway_service_token: str | None = field(repr=False)
     provider_id: str
     poll_interval: float
     step_seconds: float
@@ -139,7 +139,7 @@ class WorkerConfig:
     name: str
     max_concurrency: int
     simulation: bool
-    registration_token: str | None
+    registration_token: str | None = field(repr=False)
     local_runner: LocalRunnerConfig | None = None
 
     def __post_init__(self) -> None:

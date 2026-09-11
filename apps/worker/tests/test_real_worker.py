@@ -77,6 +77,37 @@ async def test_programmatic_real_worker_refuses_the_mock_evaluator(tmp_path: Pat
     assert not config.state_dir.exists()
 
 
+async def test_worker_http_clients_ignore_environment_proxies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = LocalRunnerConfig(
+        argv=(sys.executable, "-I", "-c", "raise SystemExit(99)"),
+        run_root=tmp_path / "runs",
+    )
+    config = worker_config(tmp_path, runner)
+    real_async_client = httpx.AsyncClient
+    client_options: list[dict[str, object]] = []
+
+    def client_factory(**kwargs: object) -> httpx.AsyncClient:
+        client_options.append(dict(kwargs))
+        is_api_client = len(client_options) == 1
+        handler = lambda _request: httpx.Response(
+            200 if is_api_client else 500,
+            json={"task": None} if is_api_client else {},
+        )
+        return real_async_client(
+            **kwargs,
+            transport=httpx.MockTransport(handler),
+        )
+
+    monkeypatch.setattr("acp_worker.main.httpx.AsyncClient", client_factory)
+
+    await run_forever(config, credentials(), once=True)
+
+    assert len(client_options) == 2
+    assert all(options.get("trust_env") is False for options in client_options)
+
+
 def claim(*, stop_requested: bool = False) -> dict:
     return {
         "task": {

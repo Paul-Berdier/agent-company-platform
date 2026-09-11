@@ -108,6 +108,7 @@ class GatewayClient:
                 base_url=self.base_url,
                 timeout=self.timeout_seconds,
                 transport=self.transport,
+                trust_env=False,
             ) as client:
                 response = await client.request(
                     method,

@@ -43,6 +43,26 @@ async def test_forwarder_sends_secret_only_in_authorization_header(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_forwarder_disables_environment_proxies_for_bearer_requests(monkeypatch):
+    calls: list[dict] = []
+    client_options: list[dict] = []
+    monkeypatch.setenv("ACP_EVENT_SERVICE_TOKEN", "forwarder-secret")
+    monkeypatch.setenv("ACP_EVENT_SERVICE_URL", "https://events.test")
+
+    def client_factory(**kwargs):
+        client_options.append(kwargs)
+        return _RecordingAsyncClient(calls, **kwargs)
+
+    monkeypatch.setattr(events_bus.httpx, "AsyncClient", client_factory)
+
+    await events_bus.forward_event(Event(type="task.progress"))
+
+    assert len(calls) == 1
+    assert len(client_options) == 1
+    assert client_options[0]["trust_env"] is False
+
+
+@pytest.mark.asyncio
 async def test_forwarder_makes_no_request_without_service_token(monkeypatch):
     calls: list[dict] = []
     monkeypatch.delenv("ACP_EVENT_SERVICE_TOKEN", raising=False)

@@ -852,8 +852,12 @@ async def run_forever(
     stop = asyncio.Event()
     active: set[asyncio.Task] = set()
     async with (
-        httpx.AsyncClient(timeout=10.0, headers=headers) as api_client,
-        httpx.AsyncClient(timeout=15.0, headers=gateway_headers(config)) as gateway_client,
+        httpx.AsyncClient(timeout=10.0, headers=headers, trust_env=False) as api_client,
+        httpx.AsyncClient(
+            timeout=15.0,
+            headers=gateway_headers(config),
+            trust_env=False,
+        ) as gateway_client,
     ):
         heartbeat = asyncio.create_task(
             _heartbeat_loop(api_client, config, credentials, stop, logger)

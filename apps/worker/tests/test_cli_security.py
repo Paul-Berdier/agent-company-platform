@@ -95,6 +95,7 @@ def test_registration_persists_the_normalized_api_origin(tmp_path: Path, monkeyp
     request_payload: dict[str, object] = {}
 
     def post(url: str, **kwargs: object) -> httpx.Response:
+        assert kwargs["trust_env"] is False
         request_payload.update(kwargs["json"])  # type: ignore[arg-type]
         return httpx.Response(
             200,
@@ -164,6 +165,7 @@ def test_doctor_verifies_provider_readiness_with_the_service_token(
     worker_config = replace(config(tmp_path), gateway_service_token="gateway-secret")
 
     def get(url: str, **kwargs: object) -> httpx.Response:
+        assert kwargs["trust_env"] is False
         if url.endswith("/v1/providers/hermes/health"):
             assert kwargs["headers"] == {"Authorization": "Bearer gateway-secret"}
             body = {"provider_id": "hermes", "available": True}
@@ -172,12 +174,12 @@ def test_doctor_verifies_provider_readiness_with_the_service_token(
         return httpx.Response(200, request=httpx.Request("GET", url), json=body)
 
     monkeypatch.setattr("acp_worker.cli.httpx.get", get)
-    monkeypatch.setattr(
-        "acp_worker.cli.httpx.post",
-        lambda url, **_kwargs: httpx.Response(
-            200, request=httpx.Request("POST", url), json={}
-        ),
-    )
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        assert kwargs["trust_env"] is False
+        return httpx.Response(200, request=httpx.Request("POST", url), json={})
+
+    monkeypatch.setattr("acp_worker.cli.httpx.post", post)
 
     assert _doctor(worker_config) == 0
     report = capsys.readouterr().out

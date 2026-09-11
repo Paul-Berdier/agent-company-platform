@@ -145,3 +145,14 @@ def test_real_execution_rejects_the_mock_evaluator():
     config.validate_execution_mode(simulation=True)
     with pytest.raises(WorkerConfigurationError, match="mock est interdit"):
         config.validate_execution_mode(simulation=False)
+
+
+def test_worker_config_repr_never_contains_service_secrets():
+    config = base_config(
+        gateway_service_token="gateway-secret",
+        registration_token="registration-secret",
+    )
+
+    rendered = repr(config)
+    assert "gateway-secret" not in rendered
+    assert "registration-secret" not in rendered

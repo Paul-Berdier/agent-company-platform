@@ -39,6 +39,7 @@ class EventClient:
             async with httpx.AsyncClient(
                 timeout=5.0,
                 transport=self._transport,
+                trust_env=False,
                 headers={
                     "Authorization": f"Bearer {self._worker_token}",
                     "X-Worker-Id": self._worker_id,

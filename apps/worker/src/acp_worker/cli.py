@@ -75,6 +75,7 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
                 "metadata": config.metadata,
             },
             timeout=15.0,
+            trust_env=False,
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -137,12 +138,16 @@ def _doctor(config: WorkerConfig) -> int:
         else:
             checks["execution"] = "ok"
     try:
-        response = httpx.get(f"{config.api_url}/health", timeout=5.0)
+        response = httpx.get(
+            f"{config.api_url}/health", timeout=5.0, trust_env=False
+        )
         checks["api"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
     except httpx.HTTPError:
         pass
     try:
-        response = httpx.get(f"{config.gateway_url}/health", timeout=5.0)
+        response = httpx.get(
+            f"{config.gateway_url}/health", timeout=5.0, trust_env=False
+        )
         checks["gateway"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
     except httpx.HTTPError:
         pass
@@ -156,6 +161,7 @@ def _doctor(config: WorkerConfig) -> int:
                     "Authorization": f"Bearer {config.gateway_service_token}"
                 },
                 timeout=5.0,
+                trust_env=False,
             )
             if response.status_code >= 400:
                 checks["provider"] = f"http_{response.status_code}"
@@ -177,6 +183,7 @@ def _doctor(config: WorkerConfig) -> int:
                 headers={"Authorization": f"Bearer {credentials.token}"},
                 json={},
                 timeout=5.0,
+                trust_env=False,
             )
             checks["authentication"] = (
                 "ok" if response.status_code < 400 else f"http_{response.status_code}"

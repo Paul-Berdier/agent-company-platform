@@ -95,6 +95,7 @@ class HermesClient:
             headers={"Authorization": f"Bearer {self.settings.service_token}"},
             timeout=self.settings.timeout_seconds,
             transport=self._transport,
+            trust_env=False,
         )
 
     async def get_json(self, path: str) -> dict[str, Any]:

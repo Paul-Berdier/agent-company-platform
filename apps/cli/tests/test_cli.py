@@ -64,6 +64,59 @@ def authenticated_config(path: Path) -> None:
     save_settings(path, settings)
 
 
+class InteractiveInput(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+@pytest.mark.parametrize("login_args", [[], ["--login", "owner"]])
+def test_json_login_never_prompts_or_calls_getpass(tmp_path, login_args):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    code = main(
+        [
+            "login",
+            *login_args,
+            "--json",
+            "--config",
+            str(tmp_path / "config.json"),
+        ],
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("an incomplete JSON login must not call HTTP")
+        ),
+        stdout=stdout,
+        stderr=stderr,
+        stdin=InteractiveInput(),
+        environ={},
+        password_reader=lambda _prompt: pytest.fail("JSON mode must not call getpass"),
+    )
+
+    assert code == ExitCode.USAGE
+    assert stdout.getvalue() == ""
+    assert json.loads(stderr.getvalue())["error"]["code"] == "usage"
+
+
+def test_json_chat_never_prompts_on_an_interactive_stdin(tmp_path):
+    config = tmp_path / "config.json"
+    authenticated_config(config)
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    code = main(
+        ["chat", "--json", "--config", str(config)],
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("an incomplete JSON chat must not call HTTP")
+        ),
+        stdout=stdout,
+        stderr=stderr,
+        stdin=InteractiveInput(),
+        environ={},
+    )
+
+    assert code == ExitCode.USAGE
+    assert stdout.getvalue() == ""
+    assert json.loads(stderr.getvalue())["error"]["code"] == "usage"
+
+
 def test_login_reads_password_from_stdin_and_never_outputs_secrets(tmp_path):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/auth/login"

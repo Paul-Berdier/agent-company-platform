@@ -471,7 +471,7 @@ def _non_empty_strings(value: Any, field: str, *, allow_empty: bool) -> list[str
 
 
 def mission_snapshot_from_claim(claim: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Valide et copie l'enveloppe mission non secrète annoncée par l'API."""
+    """Valide et copie les champs de mission allowlistés annoncés par l'API."""
 
     if "mission" not in claim:
         return None

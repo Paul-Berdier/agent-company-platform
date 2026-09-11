@@ -1,9 +1,12 @@
 import json
+import os
+import stat
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+import acp_worker.state as worker_state
 from acp_worker.state import (
     CredentialStateError,
     WorkerCredentials,
@@ -34,6 +37,7 @@ def test_credentials_round_trip_without_temporary_file():
         assert "secret-token" in path.read_text(encoding="utf-8")
         assert worker_credentials.api_origin == "https://api.example"
         assert not path.with_suffix(".tmp").exists()
+        assert list(test_dir.glob(".worker.json.*.tmp")) == []
     finally:
         for child in test_dir.glob("*"):
             child.unlink()
@@ -59,3 +63,68 @@ def test_legacy_credentials_without_origin_fail_closed(tmp_path: Path):
 
     with pytest.raises(CredentialStateError, match="réenregistrement requis"):
         load_credentials(tmp_path, "https://api.example")
+
+
+def test_worker_credentials_repr_never_contains_the_bearer():
+    rendered = repr(credentials())
+
+    assert "secret-token" not in rendered
+
+
+def test_credentials_file_is_private_before_the_first_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    real_chmod = worker_state.os.chmod
+    observations: list[tuple[int, int]] = []
+
+    def record_chmod(path: str | os.PathLike[str], mode: int) -> None:
+        candidate = Path(path)
+        observations.append((mode, candidate.stat().st_size))
+        real_chmod(path, mode)
+
+    monkeypatch.setattr(worker_state.os, "chmod", record_chmod)
+
+    path = save_credentials(tmp_path, credentials())
+
+    assert observations[0] == (0o600, 0)
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_predictable_legacy_symlink_is_never_followed(tmp_path: Path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("intact", encoding="utf-8")
+    legacy_temporary = tmp_path / "worker.tmp"
+    symbolic = True
+    try:
+        legacy_temporary.symlink_to(victim)
+    except OSError:
+        # Windows peut refuser les symlinks sans mode développeur. Un hard link
+        # reproduit le risque de l'ancien `write_text(worker.tmp)` sans skip.
+        symbolic = False
+        os.link(victim, legacy_temporary)
+
+    path = save_credentials(tmp_path, credentials())
+
+    assert path == tmp_path / "worker.json"
+    assert victim.read_text(encoding="utf-8") == "intact"
+    assert legacy_temporary.is_symlink() is symbolic
+    assert list(tmp_path.glob(".worker.json.*.tmp")) == []
+
+
+def test_failed_atomic_replace_preserves_state_and_removes_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    path = save_credentials(tmp_path, credentials())
+    original = path.read_bytes()
+
+    def fail_replace(_source: os.PathLike[str], _destination: os.PathLike[str]) -> None:
+        raise OSError("replace refused")
+
+    monkeypatch.setattr(worker_state.os, "replace", fail_replace)
+
+    with pytest.raises(CredentialStateError, match="façon sûre"):
+        save_credentials(tmp_path, credentials("https://other-api.example"))
+
+    assert path.read_bytes() == original
+    assert list(tmp_path.glob(".worker.json.*.tmp")) == []

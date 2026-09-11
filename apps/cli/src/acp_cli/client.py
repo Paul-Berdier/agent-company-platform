@@ -110,6 +110,7 @@ class ACPClient:
                 timeout=self.timeout,
                 transport=self.transport,
                 follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = client.request(
                     method,

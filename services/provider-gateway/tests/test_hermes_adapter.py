@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
+import acp_provider_gateway.providers.hermes.client as hermes_client_module
 from acp_contracts import (
     ContextSummaryRequest,
     EvaluationRequest,
@@ -16,13 +17,12 @@ from acp_contracts import (
     PlanStep,
 )
 from acp_contracts.sessions import SessionContext
-from acp_provider_sdk import ProviderUnavailableError
-
 from acp_provider_gateway.providers.hermes import (
     HermesClient,
     HermesOrchestratorProvider,
     HermesSettings,
 )
+from acp_provider_sdk import ProviderUnavailableError
 
 RUN_ID = "run_" + "a" * 32
 OTHER_RUN_ID = "run_" + "b" * 32
@@ -803,3 +803,26 @@ async def test_unsafe_hermes_origin_never_receives_the_api_key(base_url: str):
     with pytest.raises(ProviderUnavailableError, match="HERMES_BASE_URL invalide"):
         await client.get_json("/health/detailed")
     assert requests == []
+
+
+async def test_hermes_client_disables_environment_proxies_for_bearer_requests(
+    monkeypatch,
+):
+    client_options: list[dict] = []
+    original_async_client = httpx.AsyncClient
+
+    def async_client_spy(**kwargs):
+        client_options.append(kwargs)
+        return original_async_client(**kwargs)
+
+    monkeypatch.setattr(hermes_client_module.httpx, "AsyncClient", async_client_spy)
+    client = HermesClient(
+        HermesSettings(base_url="https://hermes.test", service_token="secret-token"),
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"status": "ok"})
+        ),
+    )
+
+    assert await client.get_json("/health/detailed") == {"status": "ok"}
+    assert len(client_options) == 1
+    assert client_options[0]["trust_env"] is False

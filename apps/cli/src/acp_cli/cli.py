@@ -732,7 +732,7 @@ def _handle_login(
 ) -> tuple[Any, Settings]:
     login_name = (args.login_name or "").strip()
     if not login_name:
-        if args.non_interactive:
+        if args.non_interactive or args.json:
             raise UsageError("--login est requis en mode non interactif")
         print("Identifiant: ", end="", file=stdout, flush=True)
         login_name = stdin.readline().strip()
@@ -740,7 +740,7 @@ def _handle_login(
         raise UsageError("l'identifiant ne peut pas être vide")
     if args.password_stdin:
         password = stdin.readline().rstrip("\r\n")
-    elif args.non_interactive:
+    elif args.non_interactive or args.json:
         raise UsageError("--password-stdin est requis en mode non interactif")
     else:
         password = password_reader("Mot de passe: ")
@@ -950,7 +950,7 @@ def _handle_chat(
     if message is None and not _stream_is_interactive(stdin):
         message = stdin.read()
     if message is None:
-        if args.non_interactive:
+        if args.non_interactive or args.json:
             raise UsageError("un message ou une entrée standard est requis")
         print("Message: ", end="", file=stdout, flush=True)
         message = stdin.readline()
