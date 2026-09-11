@@ -394,7 +394,7 @@ export function renderRail(ctx: HudContext): void {
     approvalsPanel.append(row);
   }
   if (!approvals.length) {
-    approvalsPanel.append(el("div", "empty", "Aucune demande (orchestrateur mock actif)."));
+    approvalsPanel.append(el("div", "empty", "Aucune demande en attente retournée par l’API."));
   }
   host.append(approvalsPanel);
 

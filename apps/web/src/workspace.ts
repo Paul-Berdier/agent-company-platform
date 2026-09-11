@@ -5,9 +5,25 @@ import {
   MissionQueueError,
   WorkspaceApiClient,
   WorkspaceApiError,
+  WorkspaceHttpClient,
   type ApprovalSummary,
   type MissionInput,
+  type OnboardingProjectInput,
+  type OnboardingStatus,
 } from "./workspace-api";
+import {
+  AuthApiClient,
+  type AuthSession,
+  type BootstrapInput,
+  type LoginInput,
+} from "./auth-api";
+import {
+  ConversationApiClient,
+  isTerminalConversationTurn,
+  type ConversationSummary,
+  type ConversationTurn,
+  type HermesDiagnostic,
+} from "./conversation-api";
 import {
   NAVIGATION_ITEMS,
   isActiveTask,
@@ -19,15 +35,19 @@ import {
 
 type LoadPhase = "loading" | "ready" | "offline" | "forbidden" | "error";
 type Theme = "light" | "dark";
+type AuthPhase = "checking" | "bootstrap" | "login" | "authenticated" | "offline" | "error";
+type ResourcePhase = "idle" | "loading" | "ready" | "error";
 
 interface WorkspaceState {
   phase: LoadPhase;
   overview: Overview | null;
   events: AcpEvent[];
   approvals: ApprovalSummary[];
+  onboarding: OnboardingStatus | null;
   primaryError: WorkspaceApiError | null;
   eventsError: WorkspaceApiError | null;
   approvalsError: WorkspaceApiError | null;
+  onboardingError: WorkspaceApiError | null;
 }
 
 interface MissionNotice {
@@ -35,20 +55,76 @@ interface MissionNotice {
   message: string;
 }
 
-const api = new WorkspaceApiClient();
+interface AuthState {
+  phase: AuthPhase;
+  session: AuthSession | null;
+  error: WorkspaceApiError | null;
+}
+
+interface ConversationState {
+  phase: ResourcePhase;
+  items: ConversationSummary[];
+  error: WorkspaceApiError | null;
+  activeId: string | null;
+  turnsPhase: ResourcePhase;
+  turns: ConversationTurn[];
+  turnsError: WorkspaceApiError | null;
+  notice: MissionNotice | null;
+}
+
+interface ConnectionState {
+  phase: ResourcePhase;
+  diagnostic: HermesDiagnostic | null;
+  error: WorkspaceApiError | null;
+}
+
+const http = new WorkspaceHttpClient();
+const api = new WorkspaceApiClient({ http });
+const authApi = new AuthApiClient({ http });
+const conversationApi = new ConversationApiClient({ http });
 const state: WorkspaceState = {
   phase: "loading",
   overview: null,
   events: [],
   approvals: [],
+  onboarding: null,
   primaryError: null,
   eventsError: null,
   approvalsError: null,
+  onboardingError: null,
+};
+const authState: AuthState = { phase: "checking", session: null, error: null };
+const conversationState: ConversationState = {
+  phase: "idle",
+  items: [],
+  error: null,
+  activeId: null,
+  turnsPhase: "idle",
+  turns: [],
+  turnsError: null,
+  notice: null,
+};
+const connectionState: ConnectionState = {
+  phase: "idle",
+  diagnostic: null,
+  error: null,
+};
+const conversationDrafts = new Map<string, string>();
+const newConversationDraft = { projectId: "", title: "" };
+const newProjectDraft = { name: "", description: "", projectType: "generic" };
+const conversationFilters: { search: string; status: "" | "active" | "archived" } = {
+  search: "",
+  status: "",
 };
 
 let currentRoute = routeFromPathname(window.location.pathname);
 let loadSequence = 0;
+let conversationSequence = 0;
+let turnsSequence = 0;
+let pollSequence = 0;
+let connectionSequence = 0;
 let missionNotice: MissionNotice | null = null;
+let projectNotice: MissionNotice | null = null;
 let fieldSequence = 0;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -73,8 +149,9 @@ function routeLink(path: string, label: string, className = "button button-secon
   return link;
 }
 
-const root = document.getElementById("app");
-if (!root) throw new Error("Le conteneur #app est absent.");
+const appRoot = document.getElementById("app");
+if (!appRoot) throw new Error("Le conteneur #app est absent.");
+const root: HTMLElement = appRoot;
 
 root.className = "workspace-root";
 root.removeAttribute("style");
@@ -140,14 +217,24 @@ themeButton.addEventListener("click", () => {
   const next: Theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   applyTheme(next, true);
 });
-topbarActions.append(apiStatus, refreshButton, themeButton);
+const userLabel = el("span", "workspace-user");
+const logoutButton = el("button", "icon-button", "Se déconnecter");
+logoutButton.type = "button";
+logoutButton.addEventListener("click", () => void logout());
+topbarActions.append(apiStatus, refreshButton, themeButton, userLabel, logoutButton);
 topbar.append(topbarTitles, topbarActions);
 
 const content = el("div", "workspace-content");
 content.id = "workspace-content";
 content.tabIndex = -1;
 main.append(topbar, content);
-root.replaceChildren(skipLink, sidebar, main);
+
+function mountWorkspaceShell(): void {
+  root.replaceChildren(skipLink, sidebar, main);
+  const user = authState.session?.user;
+  userLabel.textContent = user ? user.display_name : "";
+  userLabel.title = user ? `${user.login} · ${user.role}` : "";
+}
 
 function preferredTheme(): Theme {
   try {
@@ -173,6 +260,326 @@ function applyTheme(theme: Theme, persist: boolean): void {
   }
 }
 
+function authThemeButton(): HTMLButtonElement {
+  const button = el(
+    "button",
+    "auth-theme-button",
+    document.documentElement.dataset.theme === "dark" ? "Thème clair" : "Thème sombre",
+  );
+  button.type = "button";
+  button.addEventListener("click", () => {
+    const next: Theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next, true);
+    renderAuthGate();
+  });
+  return button;
+}
+
+function authIntro(title: string, description: string): HTMLElement {
+  const header = el("header", "auth-header");
+  header.append(
+    el("span", "workspace-mark", "AC"),
+    el("p", "workspace-eyebrow", "Agent Company Platform"),
+    el("h1", "auth-title", title),
+    el("p", "auth-description", description),
+  );
+  return header;
+}
+
+function authFeedback(): HTMLElement {
+  const feedback = el("div", "form-feedback auth-feedback");
+  feedback.setAttribute("role", "status");
+  feedback.setAttribute("aria-live", "polite");
+  if (authState.error) {
+    feedback.dataset.tone = "error";
+    feedback.textContent = errorMessage(authState.error);
+  }
+  return feedback;
+}
+
+function createLoginForm(): HTMLFormElement {
+  const form = el("form", "auth-form");
+  const login = el("input", "form-control") as HTMLInputElement;
+  login.name = "login";
+  login.required = true;
+  login.autocomplete = "username";
+  login.maxLength = 120;
+
+  const password = el("input", "form-control") as HTMLInputElement;
+  password.name = "password";
+  password.type = "password";
+  password.required = true;
+  password.minLength = 12;
+  password.maxLength = 256;
+  password.autocomplete = "current-password";
+
+  const feedback = authFeedback();
+  const submit = el("button", "button button-primary", "Se connecter") as HTMLButtonElement;
+  submit.type = "submit";
+  form.append(
+    labeledField("Identifiant", login),
+    labeledField("Mot de passe", password),
+    feedback,
+    submit,
+  );
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const input: LoginInput = { login: login.value, password: password.value };
+    submit.disabled = true;
+    submit.textContent = "Connexion…";
+    feedback.dataset.tone = "pending";
+    feedback.textContent = "Vérification de la session propriétaire…";
+    authState.error = null;
+    try {
+      completeAuthentication(await authApi.login(input));
+    } catch (error) {
+      authState.error = normalizeApiError(error, "Connexion impossible.");
+      feedback.dataset.tone = "error";
+      feedback.textContent = errorMessage(authState.error);
+      submit.disabled = false;
+      submit.textContent = "Se connecter";
+      password.focus();
+      password.select();
+    }
+  });
+  return form;
+}
+
+function createBootstrapForm(): HTMLFormElement {
+  const form = el("form", "auth-form");
+  const displayName = el("input", "form-control") as HTMLInputElement;
+  displayName.name = "displayName";
+  displayName.required = true;
+  displayName.autocomplete = "name";
+  displayName.maxLength = 120;
+
+  const login = el("input", "form-control") as HTMLInputElement;
+  login.name = "login";
+  login.required = true;
+  login.autocomplete = "username";
+  login.maxLength = 120;
+
+  const password = el("input", "form-control") as HTMLInputElement;
+  password.name = "password";
+  password.type = "password";
+  password.required = true;
+  password.minLength = 12;
+  password.maxLength = 256;
+  password.autocomplete = "new-password";
+
+  const confirmation = password.cloneNode() as HTMLInputElement;
+  confirmation.name = "passwordConfirmation";
+
+  const bootstrapToken = el("input", "form-control") as HTMLInputElement;
+  bootstrapToken.name = "bootstrapToken";
+  bootstrapToken.type = "password";
+  bootstrapToken.required = true;
+  bootstrapToken.autocomplete = "off";
+  bootstrapToken.setAttribute("aria-describedby", "bootstrap-token-hint");
+
+  const tokenField = labeledField(
+    "Jeton d’initialisation",
+    bootstrapToken,
+    "Utilise le secret ACP_BOOTSTRAP_TOKEN fourni directement par l’administrateur. Il n’est pas conservé dans le navigateur.",
+  );
+  tokenField.querySelector(".form-hint")!.id = "bootstrap-token-hint";
+
+  const feedback = authFeedback();
+  const submit = el("button", "button button-primary", "Créer l’accès propriétaire") as HTMLButtonElement;
+  submit.type = "submit";
+  form.append(
+    labeledField("Nom affiché", displayName),
+    labeledField("Identifiant", login),
+    labeledField("Mot de passe", password, "12 caractères minimum."),
+    labeledField("Confirmer le mot de passe", confirmation),
+    tokenField,
+    feedback,
+    submit,
+  );
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    if (password.value !== confirmation.value) {
+      confirmation.setCustomValidity("Les mots de passe ne correspondent pas.");
+      confirmation.reportValidity();
+      confirmation.addEventListener("input", () => confirmation.setCustomValidity(""), { once: true });
+      return;
+    }
+    const input: BootstrapInput = {
+      login: login.value,
+      displayName: displayName.value,
+      password: password.value,
+      bootstrapToken: bootstrapToken.value,
+    };
+    submit.disabled = true;
+    submit.textContent = "Sécurisation…";
+    feedback.dataset.tone = "pending";
+    feedback.textContent = "Création atomique du premier accès…";
+    authState.error = null;
+    try {
+      completeAuthentication(await authApi.bootstrap(input));
+    } catch (error) {
+      authState.error = normalizeApiError(error, "Initialisation impossible.");
+      feedback.dataset.tone = "error";
+      feedback.textContent = errorMessage(authState.error);
+      submit.disabled = false;
+      submit.textContent = "Créer l’accès propriétaire";
+      bootstrapToken.value = "";
+      bootstrapToken.focus();
+    }
+  });
+  return form;
+}
+
+function renderAuthGate(): void {
+  const shell = el("main", "auth-shell");
+  const card = el("section", "auth-card");
+  const theme = authThemeButton();
+  shell.append(theme, card);
+  if (authState.phase === "checking") {
+    card.append(
+      authIntro("Vérification de l’accès", "La plateforme vérifie si un propriétaire existe et recherche une session sécurisée."),
+      statePanel("loading", "Connexion en cours", "Aucune donnée métier n’est chargée avant authentification."),
+    );
+  } else if (authState.phase === "bootstrap") {
+    card.append(
+      authIntro("Sécuriser le premier accès", "Crée l’unique accès propriétaire initial. L’inscription publique reste fermée."),
+      createBootstrapForm(),
+    );
+  } else if (authState.phase === "login") {
+    card.append(
+      authIntro("Retrouver ton espace", "Connecte-toi avec le compte propriétaire déjà initialisé."),
+      createLoginForm(),
+    );
+  } else {
+    const offline = authState.phase === "offline";
+    card.append(
+      authIntro("Accès indisponible", "La vérification de sécurité n’a pas pu aboutir."),
+      statePanel(
+        offline ? "offline" : "error",
+        offline ? "API hors ligne" : "Réponse d’authentification invalide",
+        authState.error ? errorMessage(authState.error) : "La plateforme ne peut pas déterminer l’état de l’accès.",
+      ),
+    );
+    const retry = el("button", "button button-primary auth-retry", "Réessayer") as HTMLButtonElement;
+    retry.type = "button";
+    retry.addEventListener("click", () => void initializeAuthentication());
+    card.append(retry);
+  }
+  root.replaceChildren(shell);
+}
+
+function normalizeApiError(error: unknown, fallback: string): WorkspaceApiError {
+  return error instanceof WorkspaceApiError
+    ? error
+    : new WorkspaceApiError(fallback, "invalid_response");
+}
+
+function resetPrivateWorkspaceState(): void {
+  state.phase = "loading";
+  state.overview = null;
+  state.events = [];
+  state.approvals = [];
+  state.onboarding = null;
+  state.primaryError = null;
+  state.eventsError = null;
+  state.approvalsError = null;
+  state.onboardingError = null;
+  conversationState.phase = "idle";
+  conversationState.items = [];
+  conversationState.error = null;
+  conversationState.activeId = null;
+  conversationState.turnsPhase = "idle";
+  conversationState.turns = [];
+  conversationState.turnsError = null;
+  conversationState.notice = null;
+  connectionState.phase = "idle";
+  connectionState.diagnostic = null;
+  connectionState.error = null;
+  conversationDrafts.clear();
+  newConversationDraft.projectId = "";
+  newConversationDraft.title = "";
+  newProjectDraft.name = "";
+  newProjectDraft.description = "";
+  missionNotice = null;
+  projectNotice = null;
+}
+
+function completeAuthentication(session: AuthSession): void {
+  resetPrivateWorkspaceState();
+  authState.phase = "authenticated";
+  authState.session = session;
+  authState.error = null;
+  logoutButton.disabled = false;
+  logoutButton.textContent = "Se déconnecter";
+  logoutButton.removeAttribute("title");
+  mountWorkspaceShell();
+  updateConnectionStatus();
+  renderCurrentRoute();
+  void loadWorkspaceData();
+}
+
+function requireLogin(): void {
+  ++loadSequence;
+  ++conversationSequence;
+  ++turnsSequence;
+  ++pollSequence;
+  ++connectionSequence;
+  authApi.clearLocalSession();
+  resetPrivateWorkspaceState();
+  authState.phase = "login";
+  authState.session = null;
+  authState.error = null;
+  renderAuthGate();
+}
+
+async function initializeAuthentication(): Promise<void> {
+  authState.phase = "checking";
+  authState.error = null;
+  renderAuthGate();
+  try {
+    const status = await authApi.fetchStatus();
+    if (status.bootstrap_required) {
+      authState.phase = "bootstrap";
+      renderAuthGate();
+      return;
+    }
+    try {
+      completeAuthentication(await authApi.fetchSession());
+    } catch (error) {
+      const apiError = normalizeApiError(error, "Session impossible à vérifier.");
+      if (apiError.status === 401) {
+        authState.phase = "login";
+        authState.error = null;
+      } else {
+        authState.phase = apiError.kind === "offline" ? "offline" : "error";
+        authState.error = apiError;
+      }
+      renderAuthGate();
+    }
+  } catch (error) {
+    const apiError = normalizeApiError(error, "État d’authentification impossible à vérifier.");
+    authState.phase = apiError.kind === "offline" ? "offline" : "error";
+    authState.error = apiError;
+    renderAuthGate();
+  }
+}
+
+async function logout(): Promise<void> {
+  logoutButton.disabled = true;
+  logoutButton.textContent = "Déconnexion…";
+  try {
+    await authApi.logout();
+    requireLogin();
+  } catch (error) {
+    const apiError = normalizeApiError(error, "Déconnexion impossible.");
+    logoutButton.disabled = false;
+    logoutButton.textContent = "Réessayer la déconnexion";
+    logoutButton.title = errorMessage(apiError);
+  }
+}
+
 function failurePhase(error: WorkspaceApiError): Exclude<LoadPhase, "loading" | "ready"> {
   if (error.kind === "offline") return "offline";
   if (error.kind === "forbidden") return "forbidden";
@@ -184,7 +591,9 @@ function errorMessage(error: WorkspaceApiError): string {
     return "L’API métier ne répond pas. Les données de démonstration ne sont jamais utilisées ici.";
   }
   if (error.kind === "forbidden") {
-    return "La session courante n’a pas accès à ces données. Aucun écran de connexion n’est simulé.";
+    return error.status === 401
+      ? "La session a expiré ou n’est plus valide. Reconnecte-toi pour continuer."
+      : "Le compte courant n’a pas accès à cette ressource.";
   }
   return error.message;
 }
@@ -193,7 +602,7 @@ function updateConnectionStatus(): void {
   let label = "Connexion en cours";
   let tone = "pending";
   if (state.phase === "ready") {
-    const partial = Boolean(state.eventsError || state.approvalsError);
+    const partial = Boolean(state.eventsError || state.approvalsError || state.onboardingError);
     label = partial ? "API partiellement disponible" : "API connectée";
     tone = partial ? "warning" : "success";
   } else if (state.phase === "offline") {
@@ -218,13 +627,15 @@ async function loadWorkspaceData(): Promise<void> {
   state.primaryError = null;
   state.eventsError = null;
   state.approvalsError = null;
+  state.onboardingError = null;
   updateConnectionStatus();
   renderCurrentRoute();
 
-  const [overviewResult, eventsResult, approvalsResult] = await Promise.allSettled([
+  const [overviewResult, eventsResult, approvalsResult, onboardingResult] = await Promise.allSettled([
     api.fetchOverview(),
     api.fetchRecentEvents(),
     api.fetchPendingApprovals(),
+    api.fetchOnboardingStatus(),
   ]);
   if (sequence !== loadSequence) return;
 
@@ -232,6 +643,10 @@ async function loadWorkspaceData(): Promise<void> {
     const error = overviewResult.reason instanceof WorkspaceApiError
       ? overviewResult.reason
       : new WorkspaceApiError("Impossible de charger l’espace de travail.", "offline");
+    if (error.status === 401) {
+      requireLogin();
+      return;
+    }
     state.overview = null;
     state.primaryError = error;
     state.phase = failurePhase(error);
@@ -256,6 +671,15 @@ async function loadWorkspaceData(): Promise<void> {
     state.approvalsError = approvalsResult.reason instanceof WorkspaceApiError
       ? approvalsResult.reason
       : new WorkspaceApiError("Approbations indisponibles.", "offline");
+  }
+
+  if (onboardingResult.status === "fulfilled") {
+    state.onboarding = onboardingResult.value;
+  } else {
+    state.onboarding = null;
+    state.onboardingError = onboardingResult.reason instanceof WorkspaceApiError
+      ? onboardingResult.reason
+      : new WorkspaceApiError("Progression de l’onboarding indisponible.", "offline");
   }
 
   updateConnectionStatus();
@@ -366,6 +790,66 @@ function unavailableSection(title: string, error: WorkspaceApiError): HTMLElemen
   return section;
 }
 
+function onboardingStep(label: string, complete: boolean, detail: string): HTMLElement {
+  const item = el("li", "onboarding-step");
+  item.dataset.complete = String(complete);
+  item.append(
+    el("span", "onboarding-step-mark", complete ? "✓" : "○"),
+    el("strong", "", label),
+    el("span", "", detail),
+  );
+  return item;
+}
+
+function renderOnboardingProgress(): HTMLElement {
+  const section = el("section", "content-section onboarding-section");
+  const header = sectionHeader(
+    "Mise en route",
+    "Cette progression vient de l’API et reste disponible après reconnexion.",
+  );
+  section.append(header);
+  if (state.onboardingError || !state.onboarding) {
+    section.append(statePanel(
+      state.onboardingError?.kind === "offline" ? "offline" : "error",
+      "Progression indisponible",
+      state.onboardingError
+        ? errorMessage(state.onboardingError)
+        : "Aucun état d’onboarding exploitable n’a été retourné.",
+    ));
+    return section;
+  }
+  const progress = state.onboarding;
+  const steps = el("ol", "onboarding-steps");
+  steps.append(
+    onboardingStep("Accès propriétaire", progress.bootstrap_completed, progress.bootstrap_completed ? "Sécurisé" : "À terminer"),
+    onboardingStep(
+      "Hermes",
+      progress.hermes_ready,
+      progress.hermes_ready
+        ? "Connecté"
+        : progress.hermes_configured
+          ? `Configuré · ${progress.hermes_status}`
+          : "Configuration requise",
+    ),
+    onboardingStep(
+      "Premier projet",
+      progress.project_count > 0,
+      progress.project_count > 0 ? `${progress.project_count} projet(s)` : "Aucun projet",
+    ),
+    onboardingStep("Runner", progress.runner_ready, progress.runner_ready ? "Disponible" : "Aucun runner prêt"),
+  );
+  const actions = el("div", "workspace-actions onboarding-actions");
+  if (!progress.hermes_ready) actions.append(routeLink("/connections", "Diagnostiquer Hermes"));
+  if (progress.project_count === 0) actions.append(routeLink("/projects", "Ajouter le premier projet", "button button-primary"));
+  if (!progress.runner_ready) {
+    const runner = capabilityTag("Connecter un runner", "L’enrôlement de runner n’est pas livré dans ce lot.");
+    actions.append(runner);
+  }
+  section.append(steps);
+  if (actions.childElementCount) section.append(actions);
+  return section;
+}
+
 function renderHome(overview: Overview): void {
   const hero = el("section", "workspace-hero");
   const heroCopy = el("div", "workspace-hero-copy");
@@ -378,15 +862,16 @@ function renderHome(overview: Overview): void {
   heroActions.append(
     routeLink("/missions", "Lancer une mission", "button button-primary"),
     routeLink("/projects", "Voir les projets"),
+    routeLink("/conversations", "Ouvrir une conversation"),
   );
   const disabledActions = el("div", "disabled-actions");
   disabledActions.append(
-    capabilityTag("Discuter", "Conversation Hermes non configurée"),
-    capabilityTag("Connecter un outil", "Centre de connexions non configuré"),
+    capabilityTag("Automatiser", "Planificateur non configuré"),
+    capabilityTag("Parcourir les livrables", "Bibliothèque sécurisée non configurée"),
   );
   heroCopy.append(heroActions, disabledActions);
   hero.append(heroCopy);
-  content.append(hero);
+  content.append(hero, renderOnboardingProgress());
 
   const activeTasks = overview.tasks.filter(isActiveTask);
   const outcome = taskOutcomeRate(overview.tasks);
@@ -504,6 +989,76 @@ function renderProjectGrid(projects: readonly Project[], overview: Overview): HT
   return grid;
 }
 
+function createOnboardingProjectForm(): HTMLFormElement {
+  const form = el("form", "project-create-form");
+  const name = el("input", "form-control") as HTMLInputElement;
+  name.required = true;
+  name.maxLength = 160;
+  name.placeholder = "Ex. Site personnel";
+  name.value = newProjectDraft.name;
+  name.addEventListener("input", () => { newProjectDraft.name = name.value; });
+
+  const type = el("select", "form-control") as HTMLSelectElement;
+  for (const [value, label] of [
+    ["generic", "Général"],
+    ["software", "Développement logiciel"],
+    ["research", "Recherche"],
+    ["data-science", "Données"],
+  ]) {
+    const option = el("option", "", label) as HTMLOptionElement;
+    option.value = value;
+    type.append(option);
+  }
+  type.value = newProjectDraft.projectType;
+  type.addEventListener("change", () => { newProjectDraft.projectType = type.value; });
+
+  const description = el("textarea", "form-control form-textarea compact") as HTMLTextAreaElement;
+  description.maxLength = 2_000;
+  description.rows = 3;
+  description.placeholder = "Objectif et périmètre du projet";
+  description.value = newProjectDraft.description;
+  description.addEventListener("input", () => { newProjectDraft.description = description.value; });
+
+  const feedback = el("div", "form-feedback");
+  feedback.setAttribute("aria-live", "polite");
+  if (projectNotice) {
+    feedback.dataset.tone = projectNotice.tone;
+    feedback.textContent = projectNotice.message;
+  }
+  const submit = el("button", "button button-primary", "Ajouter le projet") as HTMLButtonElement;
+  submit.type = "submit";
+  const split = el("div", "form-split");
+  split.append(labeledField("Nom", name), labeledField("Type", type));
+  form.append(split, labeledField("Description", description), feedback, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const input: OnboardingProjectInput = {
+      name: name.value,
+      projectType: type.value,
+      description: description.value,
+    };
+    submit.disabled = true;
+    feedback.dataset.tone = "pending";
+    feedback.textContent = "Création de l’espace personnel et du projet si nécessaire…";
+    try {
+      const project = await api.createOnboardingProject(input);
+      projectNotice = { tone: "success", message: `Projet « ${project.name} » créé.` };
+      newProjectDraft.name = "";
+      newProjectDraft.description = "";
+      await loadWorkspaceData();
+    } catch (error) {
+      const apiError = normalizeApiError(error, "Le projet n’a pas pu être créé.");
+      if (apiError.status === 401) return requireLogin();
+      projectNotice = { tone: "error", message: errorMessage(apiError) };
+      feedback.dataset.tone = "error";
+      feedback.textContent = projectNotice.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
 function renderProjects(overview: Overview): void {
   const intro = el("section", "page-intro");
   intro.append(
@@ -512,6 +1067,16 @@ function renderProjects(overview: Overview): void {
     el("p", "page-description", "Projets retournés par l’instantané métier. Aucun dépôt supplémentaire n’est importé automatiquement."),
   );
   content.append(intro);
+  const canCreate = authState.session?.user.role === "owner";
+  const creator = el("section", "content-section project-creator");
+  creator.append(sectionHeader(
+    "Ajouter un projet",
+    "La plateforme crée ou réutilise l’organisation et l’espace personnel côté serveur.",
+  ));
+  creator.append(canCreate
+    ? createOnboardingProjectForm()
+    : statePanel("forbidden", "Droit propriétaire requis", "Ce compte peut consulter les projets, mais pas initialiser un nouvel espace."));
+  content.append(creator);
   content.append(overview.projects.length
     ? renderProjectGrid(overview.projects, overview)
     : statePanel("empty", "Aucun projet accessible", "L’API ne retourne aucun projet pour la session courante."));
@@ -696,16 +1261,632 @@ function createMissionForm(overview: Overview): HTMLFormElement {
   return form;
 }
 
-const CAPABILITY_COPY: Record<Exclude<WorkspaceRoute, "home" | "projects" | "missions">, {
+function conversationStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    active: "Active",
+    archived: "Archivée",
+    submitting: "Envoi",
+    running: "Hermes travaille",
+    completed: "Terminée",
+    failed: "Échec",
+    interrupted: "Interrompue",
+  };
+  return labels[status] ?? status;
+}
+
+function conversationTone(status: string): string {
+  if (status === "active" || status === "completed") return "active";
+  if (status === "submitting" || status === "running") return "waiting";
+  if (status === "failed") return "failed";
+  if (status === "interrupted") return "blocked";
+  return "neutral";
+}
+
+function renderConversationList(overview: Overview): HTMLElement {
+  const section = el("section", "content-section conversation-sidebar");
+  const header = sectionHeader(
+    "Conversations enregistrées",
+    "Une conversation générale reste privée ; une conversation projet suit ses droits d’accès.",
+  );
+  const reload = el("button", "button button-secondary", "Actualiser") as HTMLButtonElement;
+  reload.type = "button";
+  reload.disabled = conversationState.phase === "loading";
+  reload.addEventListener("click", () => void loadConversations());
+  header.append(reload);
+  section.append(header, createConversationForm(overview), createConversationFilterForm());
+
+  if (conversationState.phase === "loading" || conversationState.phase === "idle") {
+    section.append(statePanel("loading", "Chargement", "Lecture de l’historique persistant…"));
+    return section;
+  }
+  if (conversationState.phase === "error") {
+    section.append(statePanel(
+      conversationState.error?.kind === "offline" ? "offline" : "error",
+      "Conversations indisponibles",
+      conversationState.error ? errorMessage(conversationState.error) : "La réponse reçue est inexploitable.",
+    ));
+    return section;
+  }
+  if (!conversationState.items.length) {
+    section.append(statePanel(
+      "empty",
+      "Aucune conversation",
+      "Crée une conversation générale ou rattache-la explicitement à un projet.",
+    ));
+    return section;
+  }
+
+  const list = el("div", "conversation-list");
+  for (const conversation of conversationState.items) {
+    const button = el("button", "conversation-list-item") as HTMLButtonElement;
+    button.type = "button";
+    button.dataset.active = String(conversation.id === conversationState.activeId);
+    if (conversation.id === conversationState.activeId) button.setAttribute("aria-current", "true");
+    const project = conversation.project_id
+      ? projectName(overview, conversation.project_id)
+      : "Conversation générale";
+    button.append(
+      el("span", "conversation-list-title", conversation.title || "Conversation sans titre"),
+      el("span", "conversation-list-meta", `${project} · ${formatDateTime(conversation.updated_at)}`),
+      statusChip(conversationStatusLabel(conversation.status), conversationTone(conversation.status)),
+    );
+    button.addEventListener("click", () => selectConversation(conversation.id));
+    list.append(button);
+  }
+  section.append(list);
+  return section;
+}
+
+function createConversationFilterForm(): HTMLFormElement {
+  const form = el("form", "conversation-filter-form");
+  form.setAttribute("role", "search");
+  const search = el("input", "form-control") as HTMLInputElement;
+  search.type = "search";
+  search.maxLength = 200;
+  search.placeholder = "Rechercher un titre";
+  search.setAttribute("aria-label", "Rechercher une conversation");
+  search.value = conversationFilters.search;
+
+  const status = el("select", "form-control") as HTMLSelectElement;
+  status.setAttribute("aria-label", "Filtrer par état");
+  for (const [value, label] of [["", "Toutes"], ["active", "Actives"], ["archived", "Archivées"]]) {
+    const option = el("option", "", label) as HTMLOptionElement;
+    option.value = value;
+    status.append(option);
+  }
+  status.value = conversationFilters.status;
+  const submit = el("button", "button button-secondary", "Filtrer") as HTMLButtonElement;
+  submit.type = "submit";
+  form.append(search, status, submit);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    conversationFilters.search = search.value;
+    conversationFilters.status = status.value as typeof conversationFilters.status;
+    void loadConversations();
+  });
+  return form;
+}
+
+function createConversationForm(overview: Overview): HTMLFormElement {
+  const form = el("form", "conversation-create-form");
+  const project = el("select", "form-control") as HTMLSelectElement;
+  const general = el("option", "", "Conversation générale") as HTMLOptionElement;
+  general.value = "";
+  project.append(general);
+  for (const item of overview.projects) {
+    const option = el("option", "", item.name) as HTMLOptionElement;
+    option.value = item.id;
+    project.append(option);
+  }
+  project.value = newConversationDraft.projectId;
+  project.addEventListener("change", () => { newConversationDraft.projectId = project.value; });
+
+  const title = el("input", "form-control") as HTMLInputElement;
+  title.maxLength = 160;
+  title.placeholder = "Titre facultatif";
+  title.value = newConversationDraft.title;
+  title.addEventListener("input", () => { newConversationDraft.title = title.value; });
+
+  const submit = el("button", "button button-primary", "Nouvelle conversation") as HTMLButtonElement;
+  submit.type = "submit";
+  const feedback = el("div", "form-feedback");
+  feedback.setAttribute("aria-live", "polite");
+  if (conversationState.notice) {
+    feedback.dataset.tone = conversationState.notice.tone;
+    feedback.textContent = conversationState.notice.message;
+  }
+
+  const fields = el("div", "conversation-create-fields");
+  fields.append(
+    labeledField("Portée", project),
+    labeledField("Titre", title),
+  );
+  form.append(fields, feedback, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    feedback.dataset.tone = "pending";
+    feedback.textContent = "Création de la conversation…";
+    try {
+      const created = await conversationApi.createConversation({
+        projectId: project.value || null,
+        title: title.value,
+      });
+      conversationState.items = [created, ...conversationState.items.filter((item) => item.id !== created.id)];
+      conversationState.phase = "ready";
+      conversationState.activeId = created.id;
+      conversationState.turns = [];
+      conversationState.turnsPhase = "ready";
+      conversationState.turnsError = null;
+      conversationState.notice = { tone: "success", message: "Conversation enregistrée." };
+      newConversationDraft.title = "";
+      renderCurrentRoute();
+    } catch (error) {
+      const apiError = normalizeApiError(error, "La conversation n’a pas pu être créée.");
+      if (apiError.status === 401) return requireLogin();
+      conversationState.notice = { tone: "error", message: errorMessage(apiError) };
+      feedback.dataset.tone = "error";
+      feedback.textContent = conversationState.notice.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function renderConversationTurn(turn: ConversationTurn): HTMLElement {
+  const article = el("article", "conversation-turn");
+  article.dataset.status = turn.status;
+  const meta = el("div", "conversation-turn-meta");
+  const time = el("time", "", formatDateTime(turn.created_at));
+  time.dateTime = turn.created_at;
+  meta.append(time, statusChip(conversationStatusLabel(turn.status), conversationTone(turn.status)));
+
+  const userMessage = el("section", "conversation-message conversation-message-user");
+  userMessage.append(el("h4", "conversation-speaker", "Vous"), el("p", "conversation-copy", turn.user_content));
+  article.append(meta, userMessage);
+
+  if (turn.assistant_content) {
+    const assistant = el("section", "conversation-message conversation-message-assistant");
+    assistant.append(el("h4", "conversation-speaker", "Hermes"), el("p", "conversation-copy", turn.assistant_content));
+    article.append(assistant);
+  } else if (turn.status === "submitting" || turn.status === "running") {
+    article.append(el(
+      "p",
+      "conversation-pending",
+      turn.status === "submitting" ? "Le message est accepté par la plateforme…" : "Hermes traite ce tour…",
+    ));
+  }
+  if (turn.error) article.append(el("p", "conversation-error", turn.error));
+  return article;
+}
+
+function replaceConversation(updated: ConversationSummary): void {
+  conversationState.items = conversationState.items.map((item) => item.id === updated.id ? updated : item);
+}
+
+async function renameConversation(conversation: ConversationSummary): Promise<void> {
+  const title = window.prompt("Nouveau titre de la conversation", conversation.title)?.trim();
+  if (!title || title === conversation.title) return;
+  try {
+    replaceConversation(await conversationApi.updateConversation(conversation.id, { title }));
+    conversationState.notice = { tone: "success", message: "Conversation renommée." };
+  } catch (error) {
+    const apiError = normalizeApiError(error, "La conversation n’a pas pu être renommée.");
+    if (apiError.status === 401) return requireLogin();
+    conversationState.notice = { tone: "error", message: errorMessage(apiError) };
+  }
+  renderCurrentRoute();
+}
+
+async function toggleConversationArchive(conversation: ConversationSummary): Promise<void> {
+  const status = conversation.status === "archived" ? "active" : "archived";
+  try {
+    const updated = await conversationApi.updateConversation(conversation.id, { status });
+    replaceConversation(updated);
+    conversationState.notice = {
+      tone: "success",
+      message: status === "archived" ? "Conversation archivée." : "Conversation réactivée.",
+    };
+    ++pollSequence;
+  } catch (error) {
+    const apiError = normalizeApiError(error, "L’état de la conversation n’a pas pu être modifié.");
+    if (apiError.status === 401) return requireLogin();
+    conversationState.notice = { tone: "error", message: errorMessage(apiError) };
+  }
+  renderCurrentRoute();
+}
+
+async function exportConversation(conversation: ConversationSummary): Promise<void> {
+  try {
+    const exported = await conversationApi.exportConversation(conversation.id);
+    const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const download = el("a");
+    const safeTitle = (conversation.title || "conversation")
+      .normalize("NFKD")
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "conversation";
+    download.href = url;
+    download.download = `${safeTitle}.json`;
+    download.hidden = true;
+    document.body.append(download);
+    download.click();
+    download.remove();
+    globalThis.setTimeout(() => URL.revokeObjectURL(url), 0);
+    conversationState.notice = { tone: "success", message: "Export JSON préparé localement." };
+  } catch (error) {
+    const apiError = normalizeApiError(error, "L’export n’a pas pu être préparé.");
+    if (apiError.status === 401) return requireLogin();
+    conversationState.notice = { tone: "error", message: errorMessage(apiError) };
+  }
+  renderCurrentRoute();
+}
+
+function renderActiveConversation(overview: Overview): HTMLElement {
+  const section = el("section", "content-section conversation-thread");
+  const conversation = conversationState.items.find((item) => item.id === conversationState.activeId);
+  if (!conversation) {
+    section.append(statePanel(
+      "empty",
+      "Choisis une conversation",
+      "L’historique et le formulaire de message apparaîtront ici.",
+    ));
+    return section;
+  }
+
+  const scope = conversation.project_id ? projectName(overview, conversation.project_id) : "Privée · générale";
+  const header = sectionHeader(conversation.title || "Conversation sans titre", scope);
+  const actions = el("div", "conversation-actions");
+  const rename = el("button", "button button-secondary", "Renommer") as HTMLButtonElement;
+  rename.type = "button";
+  rename.addEventListener("click", () => void renameConversation(conversation));
+  const archive = el(
+    "button",
+    "button button-secondary",
+    conversation.status === "archived" ? "Réactiver" : "Archiver",
+  ) as HTMLButtonElement;
+  archive.type = "button";
+  archive.addEventListener("click", () => void toggleConversationArchive(conversation));
+  const exportButton = el("button", "button button-secondary", "Exporter") as HTMLButtonElement;
+  exportButton.type = "button";
+  exportButton.addEventListener("click", () => void exportConversation(conversation));
+  actions.append(rename, archive, exportButton);
+  header.append(actions);
+  section.append(header);
+  if (conversationState.turnsPhase === "idle") {
+    conversationState.turnsPhase = "loading";
+    queueMicrotask(() => void loadConversationTurns(conversation.id));
+  }
+  if (conversationState.turnsPhase === "loading") {
+    section.append(statePanel("loading", "Historique en cours", "Lecture des tours enregistrés…"));
+  } else if (conversationState.turnsPhase === "error") {
+    const retry = el("button", "button button-secondary", "Réessayer") as HTMLButtonElement;
+    retry.type = "button";
+    retry.addEventListener("click", () => void loadConversationTurns(conversation.id));
+    section.append(
+      statePanel(
+        conversationState.turnsError?.kind === "offline" ? "offline" : "error",
+        "Historique indisponible",
+        conversationState.turnsError
+          ? errorMessage(conversationState.turnsError)
+          : "Impossible de lire les tours de cette conversation.",
+      ),
+      retry,
+    );
+  } else {
+    const log = el("div", "conversation-turns");
+    log.setAttribute("aria-live", "polite");
+    if (!conversationState.turns.length) {
+      log.append(statePanel("empty", "Conversation vide", "Écris le premier message. Aucun contenu de démonstration n’est injecté."));
+    } else {
+      for (const turn of conversationState.turns) log.append(renderConversationTurn(turn));
+    }
+    section.append(log);
+    if (conversation.status === "active") {
+      section.append(createTurnForm(conversation));
+    } else {
+      section.append(statePanel(
+        "unconfigured",
+        "Conversation archivée",
+        "Réactive-la pour envoyer un nouveau message. Son historique reste consultable et exportable.",
+      ));
+    }
+  }
+  return section;
+}
+
+function createTurnForm(conversation: ConversationSummary): HTMLFormElement {
+  const form = el("form", "conversation-composer");
+  const textarea = el("textarea", "form-control form-textarea") as HTMLTextAreaElement;
+  textarea.required = true;
+  textarea.rows = 5;
+  textarea.maxLength = 20_000;
+  textarea.placeholder = "Décris ce que tu veux demander à Hermes…";
+  textarea.value = conversationDrafts.get(conversation.id) ?? "";
+  textarea.addEventListener("input", () => conversationDrafts.set(conversation.id, textarea.value));
+
+  const feedback = el("div", "form-feedback");
+  feedback.setAttribute("aria-live", "polite");
+  if (conversationState.notice) {
+    feedback.dataset.tone = conversationState.notice.tone;
+    feedback.textContent = conversationState.notice.message;
+  }
+  const submit = el("button", "button button-primary", "Envoyer à Hermes") as HTMLButtonElement;
+  submit.type = "submit";
+  form.append(
+    labeledField("Message", textarea, "Le brouillon reste présent tant que l’API n’a pas accepté le tour."),
+    feedback,
+    submit,
+  );
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const contentValue = textarea.value.trim();
+    if (!contentValue) return;
+    conversationDrafts.set(conversation.id, textarea.value);
+    submit.disabled = true;
+    feedback.dataset.tone = "pending";
+    feedback.textContent = "Envoi durable du message…";
+    const clientRequestId = globalThis.crypto.randomUUID();
+    try {
+      const turn = await conversationApi.createTurn({
+        conversationId: conversation.id,
+        clientRequestId,
+        content: contentValue,
+      });
+      conversationDrafts.delete(conversation.id);
+      conversationState.turns = [
+        ...conversationState.turns.filter((item) => item.id !== turn.id),
+        turn,
+      ];
+      conversationState.notice = isTerminalConversationTurn(turn.status)
+        ? null
+        : { tone: "success", message: "Message accepté. Suivi du traitement en cours." };
+      renderCurrentRoute();
+      if (!isTerminalConversationTurn(turn.status)) void pollConversationTurn(conversation.id, turn.id);
+    } catch (error) {
+      const apiError = normalizeApiError(error, "Le message n’a pas pu être envoyé.");
+      if (apiError.status === 401) return requireLogin();
+      conversationState.notice = { tone: "error", message: errorMessage(apiError) };
+      feedback.dataset.tone = "error";
+      feedback.textContent = conversationState.notice.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function selectConversation(conversationId: string): void {
+  if (conversationState.activeId === conversationId && conversationState.turnsPhase === "ready") return;
+  ++turnsSequence;
+  ++pollSequence;
+  conversationState.activeId = conversationId;
+  conversationState.turns = [];
+  conversationState.turnsPhase = "idle";
+  conversationState.turnsError = null;
+  conversationState.notice = null;
+  renderCurrentRoute();
+}
+
+async function loadConversations(): Promise<void> {
+  const sequence = ++conversationSequence;
+  conversationState.phase = "loading";
+  conversationState.error = null;
+  if (currentRoute === "conversations") renderCurrentRoute();
+  try {
+    const conversations = await conversationApi.listConversations({
+      search: conversationFilters.search,
+      status: conversationFilters.status || undefined,
+    });
+    if (sequence !== conversationSequence) return;
+    conversationState.items = conversations;
+    conversationState.phase = "ready";
+    if (!conversations.some((item) => item.id === conversationState.activeId)) {
+      conversationState.activeId = conversations[0]?.id ?? null;
+      conversationState.turns = [];
+      conversationState.turnsPhase = "idle";
+      conversationState.turnsError = null;
+    }
+  } catch (error) {
+    if (sequence !== conversationSequence) return;
+    const apiError = normalizeApiError(error, "Les conversations n’ont pas pu être chargées.");
+    if (apiError.status === 401) return requireLogin();
+    conversationState.phase = "error";
+    conversationState.error = apiError;
+  }
+  if (currentRoute === "conversations") renderCurrentRoute();
+}
+
+async function loadConversationTurns(conversationId: string): Promise<void> {
+  const sequence = ++turnsSequence;
+  conversationState.turnsPhase = "loading";
+  conversationState.turnsError = null;
+  if (currentRoute === "conversations") renderCurrentRoute();
+  try {
+    const turns = await conversationApi.listTurns(conversationId);
+    if (sequence !== turnsSequence || conversationState.activeId !== conversationId) return;
+    conversationState.turns = turns;
+    conversationState.turnsPhase = "ready";
+    for (const turn of turns) {
+      if (!isTerminalConversationTurn(turn.status)) {
+        void pollConversationTurn(conversationId, turn.id);
+      }
+    }
+  } catch (error) {
+    if (sequence !== turnsSequence || conversationState.activeId !== conversationId) return;
+    const apiError = normalizeApiError(error, "L’historique n’a pas pu être chargé.");
+    if (apiError.status === 401) return requireLogin();
+    conversationState.turnsPhase = "error";
+    conversationState.turnsError = apiError;
+  }
+  if (currentRoute === "conversations") renderCurrentRoute();
+}
+
+function waitForPoll(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+}
+
+async function pollConversationTurn(conversationId: string, turnId: string): Promise<void> {
+  const sequence = pollSequence;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await waitForPoll(attempt < 5 ? 1_000 : 2_000);
+    if (
+      sequence !== pollSequence
+      || conversationState.activeId !== conversationId
+      || currentRoute !== "conversations"
+    ) return;
+    try {
+      const turn = await conversationApi.fetchTurn(conversationId, turnId);
+      if (sequence !== pollSequence) return;
+      conversationState.turns = conversationState.turns.map((item) => item.id === turn.id ? turn : item);
+      conversationState.notice = null;
+      renderCurrentRoute();
+      if (isTerminalConversationTurn(turn.status)) return;
+    } catch (error) {
+      const apiError = normalizeApiError(error, "Le suivi du tour a été interrompu.");
+      if (apiError.status === 401) return requireLogin();
+      conversationState.notice = {
+        tone: "warning",
+        message: `Suivi interrompu : ${errorMessage(apiError)} Le traitement peut encore continuer côté Hermes.`,
+      };
+      renderCurrentRoute();
+      return;
+    }
+  }
+  conversationState.notice = {
+    tone: "warning",
+    message: "Le suivi automatique a atteint sa limite. Actualise la conversation pour réconcilier son état réel.",
+  };
+  if (currentRoute === "conversations") renderCurrentRoute();
+}
+
+function renderConversations(overview: Overview): void {
+  const intro = el("section", "page-intro");
+  intro.append(
+    el("p", "workspace-eyebrow", "Historique durable"),
+    el("h2", "page-title", "Conversations"),
+    el(
+      "p",
+      "page-description",
+      "Les messages sont persistés par la plateforme puis traduits vers un run Hermes. Un état incomplet n’est jamais présenté comme une réponse réussie.",
+    ),
+  );
+  content.append(intro);
+  if (conversationState.phase === "idle") {
+    conversationState.phase = "loading";
+    queueMicrotask(() => void loadConversations());
+  }
+  const layout = el("div", "conversation-layout");
+  layout.append(renderConversationList(overview), renderActiveConversation(overview));
+  content.append(layout);
+}
+
+function diagnosticLabel(diagnostic: HermesDiagnostic): string {
+  if (diagnostic.status === "connected" && diagnostic.healthy) return "Connecté";
+  if (diagnostic.status === "degraded") return "Dégradé";
+  return "Indisponible";
+}
+
+async function loadHermesDiagnostic(force: boolean): Promise<void> {
+  const sequence = ++connectionSequence;
+  connectionState.phase = "loading";
+  connectionState.error = null;
+  if (currentRoute === "connections") renderCurrentRoute();
+  try {
+    const diagnostic = force
+      ? await conversationApi.runHermesDiagnostic()
+      : await conversationApi.fetchHermesDiagnostic();
+    if (sequence !== connectionSequence) return;
+    connectionState.diagnostic = diagnostic;
+    connectionState.phase = "ready";
+  } catch (error) {
+    if (sequence !== connectionSequence) return;
+    const apiError = normalizeApiError(error, "Le diagnostic Hermes n’a pas pu être obtenu.");
+    if (apiError.status === 401) return requireLogin();
+    connectionState.diagnostic = null;
+    connectionState.phase = "error";
+    connectionState.error = apiError;
+  }
+  if (currentRoute === "connections") renderCurrentRoute();
+}
+
+function renderConnections(): void {
+  const intro = el("section", "page-intro");
+  intro.append(
+    el("p", "workspace-eyebrow", "Services raccordés"),
+    el("h2", "page-title", "Connexions"),
+    el(
+      "p",
+      "page-description",
+      "Les diagnostics affichent uniquement l’état mesuré par l’API. Une configuration absente reste visible comme telle.",
+    ),
+  );
+  content.append(intro);
+
+  if (connectionState.phase === "idle") {
+    connectionState.phase = "loading";
+    queueMicrotask(() => void loadHermesDiagnostic(false));
+  }
+  const section = el("section", "content-section");
+  const header = sectionHeader("Hermes Agent", "Moteur agentique principal, exécuté comme service séparé.");
+  const check = el("button", "button button-primary", "Relancer le diagnostic") as HTMLButtonElement;
+  check.type = "button";
+  check.disabled = connectionState.phase === "loading";
+  check.addEventListener("click", () => void loadHermesDiagnostic(true));
+  header.append(check);
+  section.append(header);
+
+  if (connectionState.phase === "loading") {
+    section.append(statePanel("loading", "Diagnostic en cours", "Vérification de la santé et des capacités exposées par Hermes…"));
+  } else if (connectionState.phase === "error" || !connectionState.diagnostic) {
+    section.append(statePanel(
+      connectionState.error?.kind === "offline" ? "offline" : "error",
+      "Diagnostic indisponible",
+      connectionState.error
+        ? errorMessage(connectionState.error)
+        : "L’API n’a retourné aucun diagnostic exploitable.",
+    ));
+  } else {
+    const diagnostic = connectionState.diagnostic;
+    const card = el("article", "diagnostic-card");
+    const title = el("div", "diagnostic-title");
+    title.append(
+      el("h3", "list-item-title", "État observé"),
+      statusChip(diagnosticLabel(diagnostic), diagnostic.healthy ? "active" : diagnostic.status === "degraded" ? "waiting" : "failed"),
+    );
+    const checked = el("time", "diagnostic-time", `Vérifié le ${formatDateTime(diagnostic.checked_at)}`);
+    checked.dateTime = diagnostic.checked_at;
+    card.append(title, el("p", "diagnostic-message", diagnostic.message), checked);
+    if (diagnostic.capabilities.length) {
+      const capabilities = el("ul", "diagnostic-capabilities");
+      for (const capability of diagnostic.capabilities) capabilities.append(el("li", "", capability));
+      card.append(el("h4", "diagnostic-subtitle", "Capacités annoncées"), capabilities);
+    } else {
+      card.append(el("p", "diagnostic-empty", "Aucune capacité exploitable n’a été annoncée."));
+    }
+    section.append(card);
+  }
+  content.append(section);
+
+  const business = el("section", "content-section");
+  business.append(sectionHeader("Plateforme métier"));
+  const row = el("article", "list-item");
+  row.append(
+    el("div", "list-item-copy", "API authentifiée par cookie de session HttpOnly"),
+    statusChip(state.phase === "ready" ? "Connectée" : "Indisponible", state.phase === "ready" ? "active" : "failed"),
+  );
+  business.append(row);
+  content.append(business);
+}
+
+type UnconfiguredRoute = "automations" | "library";
+
+const CAPABILITY_COPY: Record<UnconfiguredRoute, {
   title: string;
   description: string;
   consequence: string;
 }> = {
-  conversations: {
-    title: "Conversations",
-    description: "La création et la reprise de conversations Hermes ne sont pas encore raccordées.",
-    consequence: "Aucun message ne sera envoyé tant qu’une API de conversation compatible et authentifiée n’est pas configurée.",
-  },
   automations: {
     title: "Automatisations",
     description: "Aucun propriétaire de planification n’est encore configuré dans ce shell.",
@@ -716,14 +1897,9 @@ const CAPABILITY_COPY: Record<Exclude<WorkspaceRoute, "home" | "projects" | "mis
     description: "La liste sécurisée des livrables et leurs aperçus ne sont pas encore raccordés.",
     consequence: "Le shell ne prétend pas exposer les fichiers tant que leurs autorisations et URLs ne sont pas vérifiées.",
   },
-  connections: {
-    title: "Connexions",
-    description: "Le centre Hermes, MCP et fournisseurs n’est pas encore disponible.",
-    consequence: "L’API métier est la seule connexion vérifiée sur cet écran ; aucun outil externe n’est activé automatiquement.",
-  },
 };
 
-function renderUnconfigured(route: keyof typeof CAPABILITY_COPY): void {
+function renderUnconfigured(route: UnconfiguredRoute): void {
   const copy = CAPABILITY_COPY[route];
   const intro = el("section", "page-intro");
   intro.append(
@@ -732,20 +1908,6 @@ function renderUnconfigured(route: keyof typeof CAPABILITY_COPY): void {
     el("p", "page-description", copy.description),
   );
   content.append(intro, statePanel("unconfigured", "Capacité indisponible", copy.consequence));
-  if (route === "connections") {
-    const connection = el("section", "content-section");
-    connection.append(sectionHeader("État vérifié"));
-    const row = el("article", "list-item");
-    row.append(
-      el("div", "list-item-copy", "API métier"),
-      statusChip(
-        state.phase === "ready" ? "Connectée" : state.phase === "loading" ? "Vérification" : "Indisponible",
-        state.phase === "ready" ? "active" : state.phase === "loading" ? "waiting" : "failed",
-      ),
-    );
-    connection.append(row);
-    content.append(connection);
-  }
 }
 
 function formatDateTime(value: string): string {
@@ -777,16 +1939,23 @@ function renderCurrentRoute(): void {
     renderDataBoundary(renderHome);
   } else if (currentRoute === "projects") {
     renderDataBoundary(renderProjects);
+  } else if (currentRoute === "conversations") {
+    renderDataBoundary(renderConversations);
   } else if (currentRoute === "missions") {
     renderDataBoundary(renderMissions);
+  } else if (currentRoute === "connections") {
+    renderConnections();
   } else {
-    renderUnconfigured(currentRoute);
+    renderUnconfigured(currentRoute as UnconfiguredRoute);
   }
 }
 
 function navigate(path: string, focusContent: boolean): void {
   const url = new URL(path, window.location.href);
   if (url.origin !== window.location.origin) return;
+  if (currentRoute === "conversations" && routeFromPathname(url.pathname) !== "conversations") {
+    ++pollSequence;
+  }
   window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
   currentRoute = routeFromPathname(url.pathname);
   renderCurrentRoute();
@@ -803,12 +1972,11 @@ root.addEventListener("click", (event) => {
 });
 
 window.addEventListener("popstate", () => {
+  if (currentRoute === "conversations") ++pollSequence;
   currentRoute = routeFromPathname(window.location.pathname);
   renderCurrentRoute();
   content.focus();
 });
 
 applyTheme(preferredTheme(), false);
-updateConnectionStatus();
-renderCurrentRoute();
-void loadWorkspaceData();
+void initializeAuthentication();

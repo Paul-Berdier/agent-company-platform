@@ -30,6 +30,9 @@ describe("navigation du workspace", () => {
       "Bibliothèque",
       "Connexions",
     ]);
+    expect(NAVIGATION_ITEMS.find((item) => item.id === "conversations")?.configured).toBe(true);
+    expect(NAVIGATION_ITEMS.find((item) => item.id === "connections")?.configured).toBe(true);
+    expect(NAVIGATION_ITEMS.find((item) => item.id === "automations")?.configured).toBe(false);
   });
 
   it("résout les URLs et tolère un slash final", () => {

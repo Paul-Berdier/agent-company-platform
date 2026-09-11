@@ -4,7 +4,6 @@ import {
   MissionQueueError,
   WorkspaceApiClient,
   WorkspaceApiError,
-  readOptionalSessionToken,
   type MissionInput,
 } from "../src/workspace-api";
 
@@ -50,11 +49,10 @@ function task(status: string) {
 }
 
 describe("WorkspaceApiClient", () => {
-  it("charge l’overview réel et transmet le token de session optionnel", async () => {
+  it("charge l’overview réel avec le cookie cross-origin sans Bearer navigateur", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json(overview));
     const client = new WorkspaceApiClient({
       baseUrl: "https://api.example.test/",
-      sessionToken: "secret-session-token",
       fetcher,
     });
 
@@ -62,7 +60,8 @@ describe("WorkspaceApiClient", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toBe("https://api.example.test/overview");
     const headers = fetcher.mock.calls[0][1]?.headers as Headers;
-    expect(headers.get("Authorization")).toBe("Bearer secret-session-token");
+    expect(headers.get("Authorization")).toBeNull();
+    expect(fetcher.mock.calls[0][1]?.credentials).toBe("include");
   });
 
   it("vérifie les réponses de création et de mise en file", async () => {
@@ -70,6 +69,7 @@ describe("WorkspaceApiClient", () => {
       .mockResolvedValueOnce(json(task("backlog"), 200))
       .mockResolvedValueOnce(json(task("queued"), 200));
     const client = new WorkspaceApiClient({ baseUrl: "https://api.example.test", fetcher });
+    client.http.setCsrfToken("csrf-current");
 
     await expect(client.createAndQueueMission(mission)).resolves.toMatchObject({
       created: { id: "task-123", status: "backlog" },
@@ -80,6 +80,10 @@ describe("WorkspaceApiClient", () => {
       "https://api.example.test/tasks/task-123/queue",
     );
     const createBody = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    const createHeaders = fetcher.mock.calls[0][1]?.headers as Headers;
+    const queueHeaders = fetcher.mock.calls[1][1]?.headers as Headers;
+    expect(createHeaders.get("X-CSRF-Token")).toBe("csrf-current");
+    expect(queueHeaders.get("X-CSRF-Token")).toBe("csrf-current");
     expect(createBody).toMatchObject({
       project_id: mission.projectId,
       title: mission.title,
@@ -90,6 +94,44 @@ describe("WorkspaceApiClient", () => {
         acceptance_criteria: mission.acceptanceCriteria,
         autonomy: mission.autonomy,
       },
+    });
+  });
+
+  it("reprend l’onboarding et crée le premier projet via la route atomique", async () => {
+    const project = {
+      id: "project-1",
+      workspace_id: "workspace-personal",
+      department_id: null,
+      name: "Premier projet",
+      project_type: "software",
+      description: "Périmètre réel",
+      status: "active",
+    };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({
+        bootstrap_completed: true,
+        hermes_configured: false,
+        hermes_ready: false,
+        hermes_status: "unavailable",
+        project_count: 0,
+        runner_ready: false,
+      }))
+      .mockResolvedValueOnce(json(project, 201));
+    const client = new WorkspaceApiClient({ baseUrl: "https://api.example.test", fetcher });
+    client.http.setCsrfToken("csrf-current");
+
+    await expect(client.fetchOnboardingStatus()).resolves.toMatchObject({ project_count: 0 });
+    await expect(client.createOnboardingProject({
+      name: " Premier projet ",
+      projectType: "software",
+      description: " Périmètre réel ",
+    })).resolves.toEqual(project);
+    expect(fetcher.mock.calls[1][0]).toBe("https://api.example.test/onboarding/projects");
+    expect((fetcher.mock.calls[1][1]?.headers as Headers).get("X-CSRF-Token")).toBe("csrf-current");
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({
+      name: "Premier projet",
+      project_type: "software",
+      description: "Périmètre réel",
     });
   });
 
@@ -135,12 +177,5 @@ describe("WorkspaceApiClient", () => {
     });
     await expect(offline.fetchOverview()).rejects.toBeInstanceOf(WorkspaceApiError);
     await expect(offline.fetchOverview()).rejects.toMatchObject({ kind: "offline" });
-  });
-});
-
-describe("token de session", () => {
-  it("reste optionnel et ignore une valeur vide", () => {
-    expect(readOptionalSessionToken({ getItem: () => "  token  " })).toBe("token");
-    expect(readOptionalSessionToken({ getItem: () => "   " })).toBeNull();
   });
 });

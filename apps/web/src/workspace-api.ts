@@ -1,4 +1,4 @@
-import type { AcpEvent, Overview, TaskStatus, TaskSummary } from "@acp/contracts";
+import type { AcpEvent, Overview, Project, TaskStatus, TaskSummary } from "@acp/contracts";
 
 export type ApiFailureKind = "offline" | "forbidden" | "http" | "invalid_response";
 
@@ -56,16 +56,29 @@ export interface QueuedMission {
   queued: TaskResource;
 }
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type Validator<T> = (value: unknown) => value is T;
+export interface OnboardingStatus {
+  bootstrap_completed: boolean;
+  hermes_configured: boolean;
+  hermes_ready: boolean;
+  hermes_status: string;
+  project_count: number;
+  runner_ready: boolean;
+}
 
-const SESSION_TOKEN_KEY = "acp.session-token";
+export interface OnboardingProjectInput {
+  name: string;
+  projectType?: string;
+  description?: string;
+}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export type Validator<T> = (value: unknown) => value is T;
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasString(value: Record<string, unknown>, key: string): boolean {
+export function hasString(value: Record<string, unknown>, key: string): boolean {
   return typeof value[key] === "string";
 }
 
@@ -84,6 +97,29 @@ function isProjectSummary(value: unknown): boolean {
     && hasString(value, "name")
     && hasString(value, "description")
     && hasString(value, "status");
+}
+
+function isProjectResource(value: unknown): value is Project {
+  return isRecord(value)
+    && hasString(value, "id")
+    && hasString(value, "workspace_id")
+    && (value.department_id === null || typeof value.department_id === "string")
+    && hasString(value, "name")
+    && hasString(value, "project_type")
+    && hasString(value, "description")
+    && hasString(value, "status");
+}
+
+function isOnboardingStatus(value: unknown): value is OnboardingStatus {
+  return isRecord(value)
+    && typeof value.bootstrap_completed === "boolean"
+    && typeof value.hermes_configured === "boolean"
+    && typeof value.hermes_ready === "boolean"
+    && typeof value.hermes_status === "string"
+    && typeof value.project_count === "number"
+    && Number.isInteger(value.project_count)
+    && value.project_count >= 0
+    && typeof value.runner_ready === "boolean";
 }
 
 function isDepartmentSummary(value: unknown): boolean {
@@ -136,60 +172,60 @@ function asApiError(error: unknown): WorkspaceApiError {
   return new WorkspaceApiError("Impossible de joindre l’API métier.", "offline");
 }
 
-export function readOptionalSessionToken(storage?: Pick<Storage, "getItem">): string | null {
-  try {
-    const source = storage ?? globalThis.sessionStorage;
-    const value = source.getItem(SESSION_TOKEN_KEY)?.trim();
-    return value || null;
-  } catch {
-    return null;
-  }
-}
-
 function defaultApiBaseUrl(): string {
   const configured = import.meta.env.VITE_ACP_API_URL?.trim();
   if (configured) return configured.replace(/\/$/, "");
   return import.meta.env.DEV ? "http://localhost:8000" : "";
 }
 
-export class WorkspaceApiClient {
+interface RequestSecurity {
+  csrf?: boolean;
+}
+
+export class WorkspaceHttpClient {
   readonly baseUrl: string;
   private readonly fetcher: Fetcher;
-  private readonly sessionToken: string | null;
   private readonly timeoutMs: number;
+  private csrfToken: string | null = null;
 
   constructor(options: {
     baseUrl?: string;
     fetcher?: Fetcher;
-    sessionToken?: string | null;
     timeoutMs?: number;
   } = {}) {
     this.baseUrl = (options.baseUrl ?? defaultApiBaseUrl()).replace(/\/$/, "");
     this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
-    this.sessionToken = Object.hasOwn(options, "sessionToken")
-      ? options.sessionToken ?? null
-      : readOptionalSessionToken();
     this.timeoutMs = options.timeoutMs ?? 8_000;
   }
 
-  private async request<T>(
+  setCsrfToken(token: string | null): void {
+    this.csrfToken = token?.trim() || null;
+  }
+
+  async request<T>(
     path: string,
     validator: Validator<T>,
     init: RequestInit = {},
+    security: RequestSecurity = {},
   ): Promise<T> {
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => controller.abort(), this.timeoutMs);
     const headers = new Headers(init.headers);
+    headers.delete("Authorization");
     headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
-    if (this.sessionToken) headers.set("Authorization", `Bearer ${this.sessionToken}`);
+    const method = (init.method ?? "GET").toUpperCase();
+    const mutation = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+    if (mutation && security.csrf !== false && this.csrfToken) {
+      headers.set("X-CSRF-Token", this.csrfToken);
+    }
 
     let response: Response;
     try {
       response = await this.fetcher(`${this.baseUrl}${path}`, {
         ...init,
         headers,
-        credentials: "same-origin",
+        credentials: "include",
         signal: controller.signal,
       });
     } catch (error) {
@@ -202,10 +238,17 @@ export class WorkspaceApiClient {
       const kind: ApiFailureKind = response.status === 401 || response.status === 403
         ? "forbidden"
         : "http";
+      let detail = "";
+      try {
+        const payload: unknown = await response.json();
+        if (isRecord(payload) && typeof payload.detail === "string") detail = payload.detail.trim();
+      } catch {
+        // Le statut HTTP reste la source de vérité lorsque le corps est inexploitable.
+      }
       throw new WorkspaceApiError(
-        kind === "forbidden"
+        detail || (kind === "forbidden"
           ? "Cette session n’est pas autorisée à accéder à cette ressource."
-          : `L’API a répondu avec le statut ${response.status}.`,
+          : `L’API a répondu avec le statut ${response.status}.`),
         kind,
         response.status,
       );
@@ -222,22 +265,50 @@ export class WorkspaceApiClient {
     }
     return value;
   }
+}
+
+export class WorkspaceApiClient {
+  readonly http: WorkspaceHttpClient;
+
+  constructor(options: {
+    baseUrl?: string;
+    fetcher?: Fetcher;
+    timeoutMs?: number;
+    http?: WorkspaceHttpClient;
+  } = {}) {
+    this.http = options.http ?? new WorkspaceHttpClient(options);
+  }
 
   fetchOverview(): Promise<Overview> {
-    return this.request("/overview", isOverview);
+    return this.http.request("/overview", isOverview);
   }
 
   fetchRecentEvents(limit = 40): Promise<AcpEvent[]> {
     const bounded = Math.max(1, Math.min(limit, 200));
-    return this.request(`/events?limit=${bounded}`, isEventList);
+    return this.http.request(`/events?limit=${bounded}`, isEventList);
   }
 
   fetchPendingApprovals(): Promise<ApprovalSummary[]> {
-    return this.request("/approvals?status=WAITING_APPROVAL", isApprovalList);
+    return this.http.request("/approvals?status=WAITING_APPROVAL", isApprovalList);
+  }
+
+  fetchOnboardingStatus(): Promise<OnboardingStatus> {
+    return this.http.request("/onboarding/status", isOnboardingStatus);
+  }
+
+  createOnboardingProject(input: OnboardingProjectInput): Promise<Project> {
+    return this.http.request("/onboarding/projects", isProjectResource, {
+      method: "POST",
+      body: JSON.stringify({
+        name: input.name.trim(),
+        project_type: input.projectType?.trim() || "generic",
+        description: input.description?.trim() || "",
+      }),
+    });
   }
 
   async createAndQueueMission(input: MissionInput): Promise<QueuedMission> {
-    const created = await this.request("/tasks", isTaskResource, {
+    const created = await this.http.request("/tasks", isTaskResource, {
       method: "POST",
       body: JSON.stringify({
         project_id: input.projectId,
@@ -256,7 +327,7 @@ export class WorkspaceApiClient {
 
     let queued: TaskResource;
     try {
-      queued = await this.request(
+      queued = await this.http.request(
         `/tasks/${encodeURIComponent(created.id)}/queue`,
         isTaskResource,
         { method: "POST" },
