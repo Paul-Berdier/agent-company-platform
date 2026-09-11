@@ -28,7 +28,10 @@ Limites facultatives :
 `ACP_API_URL` et `ACP_PROVIDER_GATEWAY_URL` doivent être des origines sans chemin.
 HTTP est accepté uniquement sur une adresse loopback ; tout service distant exige
 HTTPS avant qu'un secret d'enrôlement, un Bearer worker ou un jeton gateway soit
-envoyé. `ACP_WORKER_SIMULATION` accepte exclusivement `1` ou `0`.
+envoyé. `ACP_WORKER_SIMULATION` accepte exclusivement `1` ou `0`. Le mode réel
+refuse `ACP_ORCHESTRATOR_PROVIDER=mock` avant l'enrôlement et le démarrage. Les
+clients inter-services du worker ignorent `HTTP_PROXY`/`HTTPS_PROXY` pour empêcher
+le détournement d'un Bearer loopback par la configuration ambiante.
 
 Exemple PowerShell avec un programme local déjà installé dans un emplacement de
 confiance :
@@ -49,6 +52,11 @@ Les répertoires et preuves locales sont conservés. `request.json` est créé a
 spawn ; `evidence.json` est écrit atomiquement et synchronisé sur disque avant tout
 envoi du verdict à l'API. Si le répertoire d'une même tentative existe déjà, le
 worker refuse un rejeu implicite au lieu de l'écraser.
+
+stdout/stderr sont des données non fiables et potentiellement sensibles : ils sont
+bornés mais ne peuvent pas être expurgés automatiquement. Ne jamais allowlister un
+secret destiné au programme, protéger la racine des runs et définir une rétention
+adaptée aux preuves locales.
 
 Pour une mission, `duration_seconds` est une deadline globale calculée dès la
 prise en charge du claim. Elle couvre la planification, les mises à jour de
@@ -77,24 +85,32 @@ et transmet la preuve réelle et marque la validation technique du processus
 comme réussie, mais termine le run en `blocked` : une indisponibilité ne vaut
 jamais approbation.
 
-Le renouvellement du lease pilote l'arrêt. Sous POSIX, le worker termine la
-session de processus avec `SIGTERM` puis `SIGKILL`. Sous Windows, il cible le
-nouveau groupe puis utilise `taskkill.exe /T /F` par argv absolu, sans shell, pour
-forcer l'arrêt de l'arbre. Ce nettoyage est aussi effectué après la sortie normale
-du parent afin qu'un descendant ne survive pas à une tentative déclarée terminée.
+Le renouvellement du lease pilote l'arrêt. Sous POSIX, le worker termine le groupe
+de processus avec `SIGTERM` puis `SIGKILL`. Sous Windows, il accorde d'abord la
+grâce configurée via `CTRL_BREAK`, puis utilise `taskkill.exe /T /F` par argv
+absolu, sans shell. Une vérification native Toolhelp épingle les handles de la
+famille et converge sur plusieurs snapshots bornés. Le nettoyage est aussi
+effectué après la sortie normale du parent ; s'il ne peut pas être confirmé, un
+code de sortie zéro devient `exit_process_tree_cleanup_failed`, jamais un succès.
 
 ## Limites de sécurité
 
-Ce backend est une frontière locale reproductible, pas une sandbox de système
+Ce backend est une frontière locale contrôlée et testable, pas une sandbox de système
 d'exploitation. Il ne fournit pas encore de quota CPU, mémoire ou disque, ni de
 filtrage réseau sortant. Le programme configuré et le compte Windows qui exécute
 le worker restent dans la base de confiance. La racine des runs doit donc être
 privée à ce compte et l'exécutable ainsi que ses scripts fixes doivent résider
 dans un emplacement non modifiable par les projets ou missions.
 
+La terminaison d'arbre n'est pas une primitive d'isolation : Toolhelp ne remplace
+pas un Job Object Windows attribué au spawn, et un descendant POSIX qui appelle
+`setsid()` sort du groupe. Un déploiement acceptant un exécutable non fiable doit
+donc ajouter un Job Object, un cgroup ou une portée de service supervisée ; ce cas
+reste hors du backend local actuel et échoue la frontière de confiance annoncée.
+
 En conséquence, la politique mission est volontairement conservatrice et
 vérifiée avant tout spawn : seul le mode `supervised` est accepté, avec
-`allowed_actions` et `approval_required_actions` vides et uniquement des
+`allowed_actions`, `forbidden_actions` et `approval_required_actions` vides et uniquement des
 ressources déclarées en lecture. Toute ressource en écriture, délégation d'action
 ou action soumise à approbation est refusée. Le worker n'implémente pas de circuit
 d'approbation et ne prétend pas isoler les droits du programme approuvé sur l'OS.

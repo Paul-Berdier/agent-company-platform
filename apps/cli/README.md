@@ -13,11 +13,16 @@ acp pending show
 
 Le mot de passe n'est jamais accepté comme argument. Utilisez l'invite masquée ou
 `--password-stdin` dans un environnement non interactif. `--json` peut être placé
-avant ou après la commande. La configuration (URL, cookie de session et jeton
-CSRF) est écrite atomiquement avec des permissions restreintes au mieux du système.
+avant ou après la commande et n'ouvre jamais d'invite ; `runs watch --json` émet du
+NDJSON. La configuration (URL, cookie de session et jeton CSRF) est écrite
+atomiquement avec des permissions restreintes au mieux du système.
 HTTP n'est accepté que pour `localhost`, le réseau `127.0.0.0/8` et `::1`. Les
 credentials sont liés à l'origine API qui les a émis et sont ignorés dès qu'une
 surcharge d'URL change cette origine.
+
+Le transport ignore les variables proxy de l'environnement. Sous WSL, utiliser un
+environnement Python et une configuration séparés de Windows, comme documenté dans
+le README racine.
 
 `acp runs watch` peut être interrompu avec `Ctrl+C` sans arrêter la mission. La
 commande `acp open --run ...` affiche seulement l'URL ; ajoutez `--browser` pour

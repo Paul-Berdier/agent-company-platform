@@ -6,6 +6,47 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-11
+
+### Ajouté
+
+- ressource mission durable et atomique, avec objectif, résultat attendu, critères,
+  autonomie, ressources, budget, durée et première tentative ;
+- machine d'états explicite, arrêt et relance idempotents par tentative, fencing
+  monotone, commentaires, preuves structurées et acceptation utilisateur séparée ;
+- backend worker local opt-in à argv configuré, cwd neuf, environnement minimal,
+  capture bornée et hachée, timeout et arrêt de l'arbre de processus ;
+- CLI `acp` installable pour l'accès, les diagnostics, projets, conversations,
+  missions, suivi/arrêt, approbations, artefacts, workers et ouverture d'un run ;
+- écran Missions raccordé aux tentatives, preuves, validations, commentaires et
+  liens directs de run.
+
+### Modifié
+
+- le claim worker transporte une identité de tentative, un fencing token et un
+  snapshot de mission explicitement autorisé ;
+- la CI installe et teste le CLI, et le contrôle de version inclut son paquet et son
+  module Python ;
+- les versions des composants publiables sont synchronisées sur `0.4.0`.
+
+### Sécurité
+
+- aucun argv de mission n'est interprété et aucun shell n'est utilisé par le backend
+  local ; une politique d'autonomie non garantie est refusée avant le spawn ;
+- perte de lease, arrêt, timeout, fencing obsolète, évaluateur indisponible ou sortie
+  mal formée échouent fermés sans perdre la preuve technique déjà produite ;
+- les workers simulés ne peuvent pas voler les missions réelles ;
+- le mode réel refuse le provider `mock` avant enrôlement ou démarrage et vérifie
+  que chaque verdict provient du provider non simulé configuré ;
+- `worker doctor` exige l'API, le gateway, l'identité worker et la readiness
+  authentifiée du provider configuré avant de rendre un succès ;
+- les credentials worker sont liés à l'origine API normalisée, et les clients qui
+  portent les Bearers gateway, événements ou Hermes refusent une origine ambiguë ou
+  HTTP hors loopback avant toute requête et ignorent les proxies d'environnement ;
+- le CLI refuse HTTP hors loopback et ne réutilise pas une session sur une autre
+  origine API ; un verrou interprocessus sérialise ses mutations incertaines, qui
+  sont reprises avec la même clé d'idempotence.
+
 ## [0.3.0] - 2026-09-11
 
 ### Ajouté
@@ -66,6 +107,7 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/5887603...v0.2.0

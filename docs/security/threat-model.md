@@ -1,4 +1,4 @@
-# Threat model (v0 — MVP)
+# Threat model — état du Lot C
 
 ## Assets sous licence (LimeZu)
 
@@ -23,11 +23,12 @@ Règles opérationnelles :
   téléchargement n'en est pas un ;
 - la CI et les tests ne dépendent que des placeholders libres.
 
-## Périmètre applicatif (MVP local)
+## Périmètre applicatif local
 
-- Authentification utilisateur : header `X-User-Id` de développement,
-  permissions par workspace/projet côté API. **Pas de production sans vraie
-  auth + RBAC**.
+- Authentification utilisateur : bootstrap propriétaire unique, mot de passe
+  Argon2id, session serveur opaque révocable/expirable, cookie `HttpOnly`, CSRF et
+  rôles par projet. La matrice RBAC de toutes les ressources enfant et les contrôles
+  d'exploitation restent à compléter avant la production.
 - Authentification worker : enrôlement protégé par
   `ACP_WORKER_REGISTRATION_TOKEN`, jeton aléatoire distinct par worker,
   stockage serveur SHA-256 avec pepper optionnel, comparaison constante et
@@ -36,17 +37,23 @@ Règles opérationnelles :
 - Présence et attribution : heartbeat à 15 s, worker hors ligne après 45 s,
   lease renouvelable par task run, concurrence bornée et filtrage strict par
   `required_capabilities`.
-- Exécution locale : ce socle n'expose aucun endpoint de commande arbitraire.
-  Le mode réel échoue fermé tant qu'un exécuteur avec allowlist, racine projet
-  canonique et audit n'est pas configuré. La simulation reste explicite.
+- Exécution locale : le mode réel n'accepte qu'un exécutable absolu via un argv
+  fixe configuré par l'opérateur, sans shell ni commande provenant d'une mission.
+  Chaque tentative a un cwd neuf, une enveloppe allowlistée, un environnement
+  minimal, des limites et un fencing token. Le processus conserve toutefois les
+  droits OS et réseau du compte worker : ce backend n'est pas une sandbox.
 - Le frontend ne peut déclencher aucune commande arbitraire : uniquement des
   endpoints métier typés.
 - Hermes et tout orchestrateur externe : jamais d'accès direct à la base ;
   passage obligatoire par le gateway avec contrats versionnés ; le contexte
   d'un projet n'est jamais transmis à un autre.
-- Secrets : variables d'environnement uniquement (`HERMES_SERVICE_TOKEN`…),
-  jamais en dur ni dans les logs.
+- Secrets de service : variables d'environnement (`HERMES_API_KEY`, Bearers
+  inter-services) et fichiers d'état locaux à protéger. Les clients refusent HTTP hors
+  loopback et les origines ambiguës avant d'envoyer un secret, et ignorent les
+  variables proxy de l'environnement. Les secrets ne sont pas volontairement
+  journalisés, mais stdout/stderr du programme enfant sont des contenus arbitraires,
+  persistés et non expurgés : aucun secret ne doit lui être allowlisté.
 
-Restent requis avant une exécution réelle : allowlist de commandes, résolution
-canonique empêchant `../`, verrouillage des ressources, rate limiting, audit
-des commandes et approbations humaines pour les opérations sensibles.
+Restent requis avant l'exécution de code non fiable : isolation OS et réseau, compte
+non privilégié, verrouillage des ressources, quotas, rate limiting, audit complet et
+approbations humaines pour les opérations sensibles.
