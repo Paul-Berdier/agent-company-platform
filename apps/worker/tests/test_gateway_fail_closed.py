@@ -8,8 +8,8 @@ from acp_worker.main import execution_outcome, gateway_evaluate, gateway_plan
 
 def config(gateway_service_token: str | None = "gateway-secret") -> WorkerConfig:
     return WorkerConfig(
-        api_url="http://api.test",
-        gateway_url="http://gateway.test",
+        api_url="https://api.test",
+        gateway_url="https://gateway.test",
         gateway_service_token=gateway_service_token,
         provider_id="hermes",
         poll_interval=0.1,

@@ -7,6 +7,7 @@ from acp_worker.executors import (
     codex_command,
     resolve_project_path,
     restricted_environment,
+    run_executor,
 )
 
 
@@ -39,3 +40,14 @@ def test_worker_secrets_are_not_forwarded(monkeypatch):
     assert environment["PATH"] == "safe-path"
     assert "ACP_WORKER_REGISTRATION_TOKEN" not in environment
     assert "HERMES_SERVICE_TOKEN" not in environment
+
+
+async def test_legacy_executor_fails_closed_without_absolute_program():
+    root = Path.cwd().resolve()
+    with pytest.raises(RuntimeError, match="chemin absolu"):
+        await run_executor(
+            "codex_cli",
+            root,
+            "apps/worker",
+            "Ne doit jamais être lancé",
+        )
