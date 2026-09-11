@@ -10,6 +10,9 @@ faux succès. Il ne livre pas encore l'authentification propriétaire, une conve
 Hermes, un runner réel ou le CLI `acp`. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
+Version du lot : **0.2.0**. Les changements versionnés sont décrits dans
+[CHANGELOG.md](CHANGELOG.md).
+
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
 
 ## Ce qui fonctionne aujourd'hui

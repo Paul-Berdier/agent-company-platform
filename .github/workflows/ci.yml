@@ -1,6 +1,6 @@
 name: CI
 
-on:
+"on":
   pull_request:
   push:
     branches:
@@ -27,6 +27,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Verify release versions
+        run: python scripts/check_version.py
       - name: Install Python packages
         run: >-
           python -m pip install

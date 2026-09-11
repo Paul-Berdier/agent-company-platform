@@ -135,7 +135,7 @@ Aucun déploiement ou service payant n'a été lancé pendant l'audit.
 | Commande | Résultat |
 |---|---|
 | `npm test --workspace @acp/web` | 3 fichiers, 16 tests réussis |
-| `npm test --workspace @acp/pixel-office-engine` | 12 fichiers, 117 tests réussis |
+| `npm test --workspace @acp/pixel-office-engine` | 12 fichiers, 117 tests réussis dans le worktree combiné ; 7 fichiers et 66 tests appartiennent à la branche Lot A |
 | `python -m pytest -q` avant installation de l'extra de test | 14 réussis, 6 non démarrés faute de `pytest-asyncio` |
 | suite Python après installation des extras déclarés | 20 tests réussis (audit secondaire) |
 
@@ -177,8 +177,10 @@ réel, ni un déploiement Railway. Aucun test externe payant n'a été exécuté
   `0.21.1`, avec detailed health, capabilities, idempotence, polling borné et sorties
   strictes.
 
-Vérification finale sur le même worktree : **78 tests Python**, **27 tests web** et
-**117 tests du moteur legacy** réussis ; typecheck TypeScript et build Vite réussis.
+Vérification de la branche Lot A : **78 tests Python**, **19 tests web** et
+**66 tests du moteur legacy** réussis ; typecheck TypeScript et build Vite réussis.
+Le worktree combiné monte à 27/117 grâce au chantier pixel local préexistant, exclu
+des commits de modernisation.
 Deux warnings de dépendances Starlette/FastAPI subsistent. Deux captures navigateur
 réelles sont conservées dans `docs/assets/screenshots`.
 

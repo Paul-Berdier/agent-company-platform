@@ -33,7 +33,8 @@ Le moteur devient une option legacy désactivée par défaut ; il n'est pas supp
 - thème clair/sombre, dispositions responsives, focus et réduction d'animation
   prévus par le nouveau système visuel ;
 - moteur pixel conservé derrière une activation legacy et non chargé par défaut ;
-- **27/27 tests web** réussis et **117/117 tests du moteur** réussis ;
+- **19/19 tests web versionnés** réussis et **66/66 tests du moteur versionnés**
+  réussis ; le complément pixel local 27/117 reste hors de la branche ;
 - parcours réel dans le navigateur intégré : bureau sombre, mobile clair, Missions,
   capacité non configurée et panne API ; deux captures PNG conservées.
 

@@ -31,7 +31,7 @@ Statuts utilisés :
 | 7 | Ajout, test, activation et révocation d'un MCP | **Non satisfait** | Centre MCP non implémenté. |
 | 8 | Import d'un skill, affichage des fichiers et activation limitée | **Non satisfait** | Bibliothèque de skills non implémentée. |
 | 9 | Refus d'une installation ou d'une action non autorisée | **Partiel** | Des appels worker non authentifiés sont refusés dans les 5 tests API ciblés ; aucune installation MCP/skill ni politique générale d'action n'est raccordée. |
-| 10 | Tests web avec résultat structuré et capture de la session réelle | **Non satisfait** | Deux captures réelles du shell existent, mais aucun runner Playwright, reporter ou capture de la session de test. Les 27 tests web sont unitaires et ne couvrent pas ce parcours. |
+| 10 | Tests web avec résultat structuré et capture de la session réelle | **Non satisfait** | Deux captures réelles du shell existent, mais aucun runner Playwright, reporter ou capture de la session de test. Les 19 tests web versionnés sont unitaires et ne couvrent pas ce parcours. |
 | 11 | Consultation d'une trace et d'une capture après échec | **Non satisfait** | Pas de trace, capture, stockage d'objets ou replay. |
 | 12 | Déconnexion/reconnexion sans perte d'historique ni double lancement | **Non satisfait** | Pas de curseur durable, outbox ni test de reconnexion E2E. |
 | 13 | Approbation, refus, expiration et arrêt réel d'une exécution | **Partiel** | Modèles d'approbation et leases existent ; le provider manuel n'approuve plus par défaut. Aucun cycle complet ni arrêt d'un runner réel n'est testé. |
@@ -47,8 +47,8 @@ Statuts utilisés :
 
 | Commande ou suite | Résultat connu | Ce que cela prouve | Ce que cela ne prouve pas |
 |---|---:|---|---|
-| `npm test --workspace @acp/web` | **27/27 réussis** | logique du shell moderne, API web et états couverts par ses tests | navigateur réel, accessibilité automatisée, E2E ou capture |
-| `npm test --workspace @acp/pixel-office-engine` | **117/117 réussis** | absence de régression détectée dans le moteur legacy | chargement par défaut, Studio ou parcours moderne |
+| `npm test --workspace @acp/web` | **19/19 versionnés réussis** | logique du shell moderne, API web et routes ambient versionnées | navigateur réel, accessibilité automatisée, E2E ou capture |
+| `npm test --workspace @acp/pixel-office-engine` | **66/66 versionnés réussis** | absence de régression détectée dans le moteur legacy publié avec le lot | chantier pixel local non inclus, Studio ou parcours moderne |
 | `python -m pytest -q apps/api/tests/test_workers.py` | **5/5 réussis** | identité worker, claims/leases et refus ciblés du parcours testé | RBAC utilisateur, toutes les routes ou concurrence de production |
 | `python -m pytest -q apps/worker/tests/test_gateway_fail_closed.py services/provider-gateway/tests/test_manual_provider.py` | **7/7 réussis** | panne/JSON invalide/absence de verdict sans faux succès, simulation bloquée, manuel non approuvé | service Hermes réel ou exécution réelle |
 | tests du provider Hermes | **58/58 réussis** | contrats Runs, readiness/capacités, idempotence, délais et sorties strictes sur transport simulé | instance, modèle, mémoire ou outils Hermes réels |
@@ -77,8 +77,10 @@ de test verrouillé plutôt que masqués.
 
 ### Réalisé/vérifié
 
-- 27 tests web, 117 tests du moteur legacy et 78 tests Python sont réussis sur le
-  même état du dépôt ; typecheck et build web réussissent.
+- 19 tests web, 66 tests du moteur legacy et 78 tests Python appartiennent à la
+  branche versionnée et sont réussis ; typecheck et build web réussissent.
+- Le worktree local combiné atteint 27 tests web et 117 tests moteur grâce à un
+  chantier pixel/LimeZu préexistant volontairement exclu de cette branche.
 - Les scénarios sont inventoriés avec un manque bloquant explicite.
 
 ### Réalisé, non testé réel
