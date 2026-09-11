@@ -32,6 +32,7 @@ from ..deps import ensure_access, get_db, get_principal
 from ..events_bus import forward_event, store_event
 from .workers import (
     WORKER_LEASE_SECONDS,
+    _as_utc,
     authenticate_worker,
     expire_task_leases,
     utcnow,
@@ -66,9 +67,73 @@ class ClaimRequest(BaseModel):
 
 class TaskRunPatch(BaseModel):
     status: str | None = None
+    workflow_step: str | None = None
     plan: dict | None = None
     result: dict | None = None
     append_logs: list[dict] = Field(default_factory=list)
+
+
+_RUN_STATES = {
+    "pending",
+    "queued",
+    "preparing",
+    "running",
+    "waiting_approval",
+    "blocked",
+    "stopping",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "interrupted",
+}
+_TERMINAL_RUN_STATES = {"blocked", "succeeded", "failed", "cancelled", "interrupted"}
+_RUN_TRANSITIONS = {
+    "pending": {"queued", "preparing", "running", "failed", "cancelled"},
+    "queued": {"preparing", "running", "failed", "cancelled"},
+    "preparing": {
+        "running", "waiting_approval", "blocked", "stopping", "failed",
+        "cancelled", "interrupted",
+    },
+    "running": {
+        "waiting_approval", "blocked", "stopping", "succeeded", "failed",
+        "cancelled", "interrupted",
+    },
+    "waiting_approval": {"running", "blocked", "stopping", "failed", "cancelled", "interrupted"},
+    "stopping": {"failed", "cancelled", "interrupted"},
+    "blocked": set(),
+    "succeeded": set(),
+    "failed": set(),
+    "cancelled": set(),
+    "interrupted": set(),
+}
+_TASK_STATUS_BY_RUN = {
+    "queued": "queued",
+    "preparing": "planning",
+    "running": "in_progress",
+    "waiting_approval": "review",
+    "blocked": "blocked",
+    "succeeded": "done",
+    "failed": "failed",
+    "cancelled": "backlog",
+    "interrupted": "blocked",
+}
+_AGENT_STATUS_BY_RUN = {
+    "preparing": "thinking",
+    "running": "working",
+    "waiting_approval": "reviewing",
+    "blocked": "blocked",
+    "succeeded": "idle",
+    "failed": "idle",
+    "cancelled": "idle",
+    "interrupted": "blocked",
+}
+_TERMINAL_EVENT_BY_RUN = {
+    "blocked": "task.blocked",
+    "succeeded": "task.completed",
+    "failed": "task.failed",
+    "cancelled": "task.cancelled",
+    "interrupted": "task.interrupted",
+}
 
 
 def _emit(db: Session, background: BackgroundTasks, event: Event) -> None:
@@ -128,10 +193,17 @@ def patch_task(
     body: TaskPatch,
     background: BackgroundTasks,
     db: Session = Depends(get_db),
+    principal: str | None = Depends(get_principal),
 ):
     task = db.get(TaskModel, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Tâche introuvable")
+    ensure_access(db, principal, project_id=task.project_id, minimum_role="member")
+    if body.status is not None and body.status != "backlog":
+        raise HTTPException(
+            status_code=422,
+            detail="Cet état est géré par la file et le run, pas par la modification de tâche",
+        )
     changes = body.model_dump(exclude_none=True)
     status_changed = "status" in changes and changes["status"] != task.status
     for key, value in changes.items():
@@ -315,6 +387,12 @@ def renew_task_lease(
     if lease is None:
         raise HTTPException(status_code=404, detail="Lease actif introuvable")
     now = utcnow()
+    if _as_utc(lease.lease_expires_at) <= now:
+        expire_task_leases(db)
+        raise HTTPException(
+            status_code=409,
+            detail="Lease expiré ; renouvellement refusé et run interrompu",
+        )
     lease.last_renewed_at = now
     lease.lease_expires_at = now + timedelta(seconds=WORKER_LEASE_SECONDS)
     db.commit()
@@ -348,26 +426,96 @@ def list_task_runs(task_id: str | None = None, db: Session = Depends(get_db)):
 
 
 @router.patch("/task-runs/{run_id}", response_model=TaskRun)
-def patch_task_run(run_id: str, body: TaskRunPatch, db: Session = Depends(get_db)):
+def patch_task_run(
+    run_id: str,
+    body: TaskRunPatch,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    worker_id: str | None = Header(default=None, alias="X-Worker-Id"),
+):
+    """Accepte une progression uniquement du worker qui détient le lease actif."""
+
+    if not worker_id:
+        raise HTTPException(status_code=401, detail="X-Worker-Id requis")
+    worker = authenticate_worker(db, worker_id, authorization)
     run = db.get(TaskRunModel, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Task run introuvable")
+    lease = (
+        db.query(WorkerLeaseModel)
+        .filter_by(worker_id=worker.id, task_run_id=run.id, status="active")
+        .first()
+    )
+    if lease is None:
+        raise HTTPException(status_code=409, detail="Lease actif requis pour modifier ce run")
+    if _as_utc(lease.lease_expires_at) <= utcnow():
+        raise HTTPException(status_code=409, detail="Lease expiré ; progression refusée")
+    task = db.get(TaskModel, run.task_id)
+    if task is None or lease.task_id != task.id:
+        raise HTTPException(status_code=409, detail="Lease incohérent avec la tâche du run")
+    if body.status is not None and body.status not in _RUN_STATES:
+        raise HTTPException(status_code=422, detail="État de run inconnu")
+    if (
+        body.status is not None
+        and body.status != run.status
+        and body.status not in _RUN_TRANSITIONS.get(run.status, set())
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Transition de run interdite: {run.status} → {body.status}",
+        )
+    if body.status == "succeeded":
+        result = body.result if body.result is not None else run.result
+        evidence = result.get("evidence") if isinstance(result, dict) else None
+        if (
+            not isinstance(result, dict)
+            or result.get("technical_validation") != "passed"
+            or not isinstance(evidence, list)
+            or not evidence
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Un succès exige technical_validation=passed et au moins une preuve",
+            )
+    terminal_event: Event | None = None
     if body.status is not None:
         run.status = body.status
-        if body.status in ("succeeded", "failed", "cancelled"):
+        task.status = _TASK_STATUS_BY_RUN.get(body.status, task.status)
+        if run.agent_instance_id:
+            agent = db.get(AgentInstanceModel, run.agent_instance_id)
+            if agent is not None:
+                agent.status = _AGENT_STATUS_BY_RUN.get(body.status, agent.status)
+        if body.status in _TERMINAL_RUN_STATES:
             run.finished_at = datetime.now(timezone.utc)
-            lease = db.query(WorkerLeaseModel).filter_by(task_run_id=run.id).first()
-            if lease is not None and lease.status == "active":
-                lease.status = "released"
-                worker = db.get(WorkerModel, lease.worker_id)
-                if worker is not None:
-                    worker.active_runs = max(0, worker.active_runs - 1)
-                    worker.status = "online"
+            lease.status = "released"
+            worker.active_runs = max(0, worker.active_runs - 1)
+            worker.status = "online"
+            terminal_event = Event(
+                type=_TERMINAL_EVENT_BY_RUN[body.status],
+                **_task_event_ids(db, task),
+                task_run_id=run.id,
+                payload={
+                    "title": task.title,
+                    "run_status": body.status,
+                    "worker_id": worker.id,
+                    "technical_validation": (
+                        body.result.get("technical_validation")
+                        if isinstance(body.result, dict)
+                        else None
+                    ),
+                },
+            )
+    if body.workflow_step is not None:
+        task.workflow_step = body.workflow_step
     if body.plan is not None:
         run.plan = body.plan
     if body.result is not None:
         run.result = body.result
     if body.append_logs:
         run.logs = list(run.logs or []) + body.append_logs
-    db.commit()
+    if terminal_event is not None:
+        _emit(db, background, terminal_event)
+    else:
+        db.commit()
     return TaskRun.model_validate(run, from_attributes=True)

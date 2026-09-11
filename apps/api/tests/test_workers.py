@@ -118,6 +118,9 @@ def test_heartbeat_capability_matching_concurrency_and_lease_release():
                 "meta": {"required_capabilities": ["git"]},
             },
         ).json()
+        assert client.patch(
+            f"/tasks/{compatible['id']}", json={"status": "done"}
+        ).status_code == 422
         client.post(f"/tasks/{compatible['id']}/queue")
         claim = client.post(
             f"/workers/{worker_id}/claim",
@@ -142,7 +145,59 @@ def test_heartbeat_capability_matching_concurrency_and_lease_release():
         assert renewal.status_code == 200
         assert renewal.json()["task_run_id"] == run_id
 
-        client.patch(f"/task-runs/{run_id}", json={"status": "succeeded"})
+        event = {
+            "type": "task.progress",
+            "project_id": project_id,
+            "task_id": compatible["id"],
+            "task_run_id": run_id,
+            "payload": {"step": "test"},
+        }
+        assert client.post("/events", json=event).status_code == 401
+        worker_headers = {**headers, "X-Worker-Id": worker_id}
+        assert client.post("/events", headers=worker_headers, json=event).status_code == 200
+        wrong_scope_event = {
+            **event,
+            "id": str(uuid4()),
+            "workspace_id": str(uuid4()),
+        }
+        assert client.post(
+            "/events", headers=worker_headers, json=wrong_scope_event
+        ).status_code == 400
+        forbidden_terminal_event = {**event, "type": "task.completed"}
+        assert client.post(
+            "/events", headers=worker_headers, json=forbidden_terminal_event
+        ).status_code == 400
+
+        assert client.patch(f"/task-runs/{run_id}", json={"status": "succeeded"}).status_code == 401
+        unsupported_success = client.patch(
+            f"/task-runs/{run_id}",
+            headers=worker_headers,
+            json={"status": "succeeded", "result": {"technical_validation": "unknown"}},
+        )
+        assert unsupported_success.status_code == 422
+        assert client.patch(
+            f"/task-runs/{run_id}",
+            headers=worker_headers,
+            json={
+                "status": "succeeded",
+                "result": {
+                    "technical_validation": "passed",
+                    "evidence": [{"kind": "test", "exit_code": 0}],
+                },
+            },
+        ).status_code == 200
+        terminal_events = client.get(
+            "/events", params={"project_id": project_id, "limit": 100}
+        ).json()
+        assert any(
+            item["type"] == "task.completed" and item["task_run_id"] == run_id
+            for item in terminal_events
+        )
+        renewal = client.post(
+            f"/workers/{worker_id}/leases/{run_id}/renew", headers=headers
+        )
+        assert renewal.status_code == 404
+
         heartbeat = client.post(
             f"/workers/{worker_id}/heartbeat", headers=headers, json={}
         ).json()
@@ -158,7 +213,7 @@ def test_legacy_claim_is_disabled_by_default():
         assert response.status_code == 410
 
 
-def test_expired_lease_requeues_task_and_releases_capacity():
+def test_expired_lease_blocks_uncertain_task_and_releases_capacity():
     with TestClient(app) as client:
         registration = _register(client, f"worker-{uuid4().hex}", ["git"]).json()
         worker_id = registration["worker_id"]
@@ -184,14 +239,31 @@ def test_expired_lease_requeues_task_and_releases_capacity():
             lease.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             db.commit()
 
+        renewal = client.post(
+            f"/workers/{worker_id}/leases/{run_id}/renew", headers=headers
+        )
+        assert renewal.status_code == 409
+        assert "run interrompu" in renewal.json()["detail"]
+
         heartbeat = client.post(
             f"/workers/{worker_id}/heartbeat", headers=headers, json={}
         ).json()
         assert heartbeat["active_runs"] == 0
         tasks = client.get("/tasks", params={"project_id": project_id}).json()
-        assert next(item for item in tasks if item["id"] == task["id"])["status"] == "queued"
+        assert next(item for item in tasks if item["id"] == task["id"])["status"] == "blocked"
         runs = client.get("/task-runs", params={"task_id": task["id"]}).json()
-        assert next(item for item in runs if item["id"] == run_id)["status"] == "failed"
+        interrupted = next(item for item in runs if item["id"] == run_id)
+        assert interrupted["status"] == "interrupted"
+        assert "reprise automatique interdite" in interrupted["logs"][-1]["message"]
+        events = client.get(
+            "/events", params={"project_id": project_id, "limit": 100}
+        ).json()
+        assert any(
+            item["type"] == "task.interrupted"
+            and item["task_run_id"] == run_id
+            and item["payload"]["reason"] == "worker_lease_expired"
+            for item in events
+        )
 
 
 def test_resource_locks_artifacts_and_approvals():

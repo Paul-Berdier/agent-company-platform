@@ -85,9 +85,9 @@ class ManualOrchestratorProvider(OrchestratorProvider):
     async def evaluate_result(self, request: EvaluationRequest) -> EvaluationResult:
         request_id = self._record("evaluate", request.model_dump(mode="json"))
         return EvaluationResult(
-            approved=True,
-            score=0.5,
-            feedback=f"Approbation provisoire ; revue humaine en attente ({request_id}).",
+            approved=False,
+            score=0.0,
+            feedback=f"Non approuvé : revue humaine encore en attente ({request_id}).",
             provider_id="manual",
         )
 

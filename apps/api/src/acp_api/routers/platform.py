@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -16,21 +16,89 @@ from acp_database.models import (
     MemoryModel,
     ProjectModel,
     SessionModel,
+    TaskModel,
+    TaskRunModel,
     TeamModel,
+    WorkerLeaseModel,
     WorkspaceModel,
 )
 
 from ..deps import ensure_access, get_db, get_principal
 from ..events_bus import forward_event, store_event
+from .workers import _as_utc, authenticate_worker, utcnow
 
 router = APIRouter(tags=["platform"])
 
+_WORKER_EVENT_TYPES = {
+    "task.plan_ready",
+    "task.progress",
+    "task.log",
+    "task.test_started",
+    "task.test_finished",
+    "task.artifact_created",
+}
+
 
 @router.post("/events")
-def post_event(event: Event, background: BackgroundTasks, db: Session = Depends(get_db)):
-    store_event(db, event)
-    background.add_task(forward_event, event)
-    return {"ok": True, "id": event.id}
+def post_event(
+    event: Event,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    worker_id: str | None = Header(default=None, alias="X-Worker-Id"),
+):
+    """Ingestion réservée au worker qui détient le lease du run référencé."""
+
+    if not worker_id:
+        raise HTTPException(status_code=401, detail="X-Worker-Id requis")
+    worker = authenticate_worker(db, worker_id, authorization)
+    if not event.task_run_id or not event.task_id:
+        raise HTTPException(status_code=422, detail="task_run_id et task_id sont requis")
+    lease = (
+        db.query(WorkerLeaseModel)
+        .filter_by(
+            worker_id=worker.id,
+            task_run_id=event.task_run_id,
+            task_id=event.task_id,
+            status="active",
+        )
+        .first()
+    )
+    if lease is None or _as_utc(lease.lease_expires_at) <= utcnow():
+        raise HTTPException(status_code=409, detail="Lease actif requis pour cet événement")
+    task = db.get(TaskModel, lease.task_id)
+    run = db.get(TaskRunModel, lease.task_run_id)
+    if task is None or run is None or event.project_id != task.project_id:
+        raise HTTPException(status_code=400, detail="Événement hors du projet du run")
+    if event.type not in _WORKER_EVENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Type d'événement worker non autorisé ; les terminaux sont produits par l'API",
+        )
+    project = db.get(ProjectModel, task.project_id)
+    workspace = db.get(WorkspaceModel, project.workspace_id) if project else None
+    if project is None or workspace is None:
+        raise HTTPException(status_code=409, detail="Scope métier du run introuvable")
+    canonical_scope = {
+        "organization_id": workspace.organization_id,
+        "workspace_id": project.workspace_id,
+        "department_id": project.department_id,
+        "project_id": task.project_id,
+        "team_id": task.team_id,
+        "agent_instance_id": run.agent_instance_id,
+        "task_id": task.id,
+        "task_run_id": run.id,
+    }
+    for field, expected in canonical_scope.items():
+        supplied = getattr(event, field)
+        if supplied is not None and supplied != expected:
+            raise HTTPException(status_code=400, detail=f"Scope d'événement incohérent: {field}")
+    if db.get(EventModel, event.id) is not None:
+        raise HTTPException(status_code=409, detail="Identifiant d'événement déjà utilisé")
+    canonical_event = event.model_copy(update=canonical_scope)
+    store_event(db, canonical_event)
+    background.add_task(forward_event, canonical_event)
+    return {"ok": True, "id": canonical_event.id}
 
 
 @router.get("/events")
