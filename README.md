@@ -52,7 +52,7 @@ identifiants doivent être rapprochés explicitement. Voir
 
 ## Démarrage local de développement
 
-Prérequis actuels : Python 3.11 ou supérieur, Node 20 ou supérieur, npm. Les
+Prérequis actuels : Python 3.11 ou supérieur, Node 22.12 ou supérieur, npm. Les
 dépendances Python ne sont pas encore verrouillées et les scripts créent les tables
 avec `create_all()` ; utiliser uniquement une machine de développement de confiance.
 

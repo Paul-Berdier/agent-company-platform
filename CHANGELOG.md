@@ -22,6 +22,7 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 - bureau pixel historique conservé derrière un opt-in explicite ;
 - configuration locale sans secret ou provider de secours implicite ;
 - versions des composants internes synchronisées sur la version produit.
+- Vite `8.3.0` et Vitest `5.0.0`, versions corrigées vérifiées par `npm audit`.
 
 ### Sécurité
 
