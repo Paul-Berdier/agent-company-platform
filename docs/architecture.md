@@ -1,52 +1,147 @@
-# Architecture
+# Architecture cible
 
-## Vue d'ensemble
+Statut : décision adoptée pour la modernisation 2026.
+Produit : Agent Company Platform, espace personnel par défaut.
 
-L'Agent Company Platform est une entreprise virtuelle générique. Le cœur ne connaît
-aucun métier : les secteurs (dev, data, recherche, jeu vidéo...) sont fournis par des
-**modules**, les intelligences externes par des **providers**, et l'interface pixel art
-est entièrement pilotée par les **données** et les **événements réels** du backend.
+## Décision
 
-## Hiérarchie organisationnelle
+La plateforme conserve son interface `apps/web` et son API métier. Hermes Agent est
+un service externe versionné, joint uniquement côté serveur par un adaptateur de
+runtime. Le dashboard Hermes reste une console native facultative ; il n'est ni
+embarqué par iframe ni forké pour devenir l'interface principale.
 
 ```text
-Organization      entreprise virtuelle globale
-└─ Workspace      contexte isolé (personnel, professionnel, scolaire, expérimental)
-   └─ Department  secteur réutilisable (défini par un module)
-      └─ Project  projet concret d'un workspace
-         └─ Team  groupe temporaire d'agents affecté au projet
-            └─ Agent Instance  agent logique avec rôle et capacités
-               └─ Task         unité de travail
-                  └─ Task Run  exécution concrète d'une tâche
+Navigateur ───────┐
+                  ├── API Agent Company Platform ── PostgreSQL
+CLI acp ──────────┘          │            │
+                             │            ├── stockage privé des livrables
+                             │            └── journal durable / outbox
+                             │
+                             ├── adaptateur Hermes ── Hermes Agent v0.21.1
+                             │      sessions, runs, SSE, stop, approvals
+                             │
+                             └── planificateur ── runners enrôlés
+                                    environnements de run isolés
 ```
 
-## Services
+## Options évaluées
 
-| Service | Rôle | Dépend de |
+| Option | Atouts | Limites | Décision |
+|---|---|---|---|
+| Étendre le dashboard Hermes | Réutilise chat, profils, skills et MCP natifs ; maintenance UI réduite | Ne porte pas naturellement les projets, droits, preuves, runners et données existantes de la plateforme ; le plugin hériterait fortement du cycle Hermes | Console d'administration facultative seulement |
+| Conserver `apps/web` avec adaptateur | Préserve les données et contrats, autorise une isolation par projet, un web et un CLI identiques, et un historique de preuves indépendant | Nécessite de traduire et persister explicitement les sessions/runs/événements | **Retenue** |
+
+Cette décision évite deux administrations concurrentes : les réglages natifs Hermes
+peuvent être consultés ou modifiés via son API lorsque la capacité existe ; la
+plateforme ne maintient pas une copie silencieuse de ces réglages.
+
+## Sources de vérité
+
+| Domaine | Autorité | Données de rapprochement |
 |---|---|---|
-| `apps/api` | source de vérité : CRUD, sessions, mémoire, permissions, journal d'événements, chargement des modules | PostgreSQL/SQLite |
-| `apps/event-service` | diffusion WebSocket des événements vers l'interface | api (push HTTP) |
-| `apps/worker` | exécute les task runs (simulation dans le MVP) | api, provider-gateway |
-| `services/provider-gateway` | héberge les orchestrator providers derrière un contrat unique | providers externes optionnels |
-| `apps/web` | bureau pixel art multi-vues | api, event-service |
+| Identité, droits, projets | plateforme | `user_id`, `project_id` |
+| Mission, état accepté, budget, approbation | plateforme | `task_id`, `task_run_id`, `attempt_id` |
+| Preuves, artefacts, tests | plateforme et moteur ayant produit la preuve | checksum, code de sortie, reporter, provenance |
+| Session, profil, modèle et skills Hermes | Hermes | `hermes_session_id`, profil et version détectée |
+| Exécution Hermes | Hermes pendant le run ; plateforme pour l'historique durable | `hermes_run_id`, idempotency key |
+| Processus d'un runner | runner pendant l'exécution ; plateforme pour la réservation | `worker_id`, lease, fencing token |
 
-Flux d'un run : `web → api (queue) → worker (claim) → gateway (plan) → worker (simulation,
-événements) → api (journal) → event-service → web (animations)`.
+Un identifiant Hermes ou runner n'accorde jamais à lui seul un accès à un projet.
+Le mapping appartient à la plateforme et est contrôlé côté serveur.
 
-## Frontières strictes
+## Responsabilités
 
-- Le cœur n'importe **jamais** une classe interne d'un provider externe (Hermes, Claude...).
-  Seul le dossier `services/provider-gateway/src/acp_provider_gateway/providers/hermes/`
-  connaît le protocole Hermes, à travers un contrat versionné.
-- Le moteur pixel art (`packages/pixel-office-engine`) ne contient aucun rôle, salle ou
-  animation métier : tout est décrit par les manifestes des modules.
-- Aucun contexte d'un projet n'est transmis automatiquement à un autre : chaque appel
-  provider embarque une `SessionContext` bornée à sa hiérarchie.
+### Interface web et CLI
 
-## Packages partagés
+- utilisent la même API et les mêmes règles d'autorisation ;
+- affichent `inconnu` lorsque la mesure n'existe pas ;
+- se reconnectent par curseur sans relancer une mission ;
+- ne reçoivent jamais une clé de service Hermes ou worker ;
+- proposent le pixel office uniquement par un drapeau legacy désactivé par défaut.
 
-- `contracts` : modèles Pydantic + types TypeScript, versionnés (`CONTRACTS_VERSION`).
-- `database` : modèles SQLAlchemy, unique point d'accès à la base.
-- `provider-sdk` : interface `OrchestratorProvider`, registre, erreurs.
-- `event-sdk` : émission d'événements résiliente.
-- `agent-sdk` : définitions déclaratives (rôles, stations, workflows) et chargeur de modules.
+### API métier
+
+- authentifie le propriétaire/opérateur/lecteur ;
+- applique le scope projet sur chaque lecture, écriture, flux et fichier ;
+- valide la machine d'états, les approbations, budgets et idempotency keys ;
+- persiste l'événement et son effet métier de façon transactionnelle ;
+- délivre des URLs de fichier privées et bornées.
+
+### Adaptateur Hermes
+
+- détecte la surface avec `/v1/capabilities` ;
+- distingue `/health` (liveness) de `/health/detailed` (readiness) ;
+- traduit les opérations plateforme vers sessions et Runs officiels ;
+- conserve `API_SERVER_KEY` côté serveur ;
+- utilise des clés d'idempotence pour la création de run ;
+- échoue fermé si une capacité ou une réponse est absente ;
+- normalise les événements SSE avant persistance.
+
+Les méthodes historiques `plan/evaluate` de la plateforme sont des traductions
+explicites vers un run structuré, pas des routes supposées exister chez Hermes.
+
+### Runners
+
+- s'enrôlent avec une identité révocable et se connectent en sortie ;
+- annoncent des capacités vérifiées et une concurrence bornée ;
+- reçoivent uniquement le dossier autorisé, les références de secrets nécessaires
+  et un lease lié à une tentative ;
+- exécutent sans interpolation shell, sous utilisateur non privilégié et avec des
+  limites de durée/ressources/réseau ;
+- publient preuves et événements uniquement pour le run loué.
+
+Un worktree Git organise les changements mais n'est pas une sandbox. Le socket Docker
+hôte n'est jamais exposé à un agent.
+
+## Modèle personnel sans supprimer l'existant
+
+La hiérarchie existante reste compatible :
+
+```text
+Organization → Workspace → Department → Project → Team → Agent → Task → Task Run
+```
+
+L'interface masque cependant Organization/Department/Team dans le parcours courant.
+Un espace personnel est sélectionné par défaut ; un projet peut être un dépôt, un
+dossier de runner, une collection de documents ou un projet vide.
+
+## Machine d'états cible
+
+```text
+queued → preparing → running ───────────────→ succeeded
+             │          │                         │
+             │          ├→ waiting_approval ─────┤
+             │          ├→ blocked               │
+             │          ├→ stopping → cancelled  │
+             │          └→ interrupted           │
+             └────────────────────────────→ failed
+```
+
+Trois valeurs restent séparées :
+
+- état d'exécution du run ;
+- validation technique (`passed`, `failed`, `not_run`, `unknown`) ;
+- acceptation utilisateur (`pending`, `accepted`, `rejected`).
+
+Une simulation, une sortie vide, un évaluateur indisponible ou un JSON invalide ne
+peut jamais produire `succeeded`.
+
+## Événements durables
+
+Chaque événement cible porte : version, id, séquence monotone par run, horodatage,
+projet, conversation, run, tentative, étape, exécuteur, type et payload autorisé.
+Les médias sont stockés hors du flux et référencés par un artefact.
+
+Le flux cible est : transaction métier + outbox, relay idempotent, puis WebSocket/SSE
+authentifié. Une reconnexion fournit le dernier curseur ; le serveur page, déduplique
+et réconcilie le statut auprès du runtime.
+
+## Déploiement
+
+Hermes et la plateforme sont des services distincts et peuvent partager un réseau
+privé, jamais un volume implicite. PostgreSQL conserve le métier ; Hermes possède son
+propre état persistant ; un stockage d'objets privé reçoit les livrables. Les runners
+ne tournent pas dans le serveur de contrôle par défaut.
+
+Voir `docs/deployment-railway.md` pour l'état réellement livré et les actions restant
+à vérifier avant une mise en production.

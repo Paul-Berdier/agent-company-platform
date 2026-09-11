@@ -6,7 +6,7 @@ restent derrière leurs contrats de provider et ne sont jamais importées ici.
 
 import asyncio
 import random
-import uuid
+from typing import Any
 
 import httpx
 
@@ -32,35 +32,8 @@ async def emit(
         "agent_instance_id": session.get("agent_instance_id"),
         **extra,
     }
-    try:
-        await client.post(f"{config.api_url}/events", json=event)
-    except httpx.HTTPError:
-        pass
-
-
-async def set_agent_status(
-    client: httpx.AsyncClient, config: WorkerConfig, agent_id: str, status: str
-) -> None:
-    try:
-        await client.patch(f"{config.api_url}/agents/{agent_id}", json={"status": status})
-    except httpx.HTTPError:
-        pass
-
-
-async def set_task_status(
-    client: httpx.AsyncClient,
-    config: WorkerConfig,
-    task_id: str,
-    status: str,
-    workflow_step: str | None = None,
-) -> None:
-    body = {"status": status}
-    if workflow_step:
-        body["workflow_step"] = workflow_step
-    try:
-        await client.patch(f"{config.api_url}/tasks/{task_id}", json=body)
-    except httpx.HTTPError:
-        pass
+    response = await client.post(f"{config.api_url}/events", json=event)
+    response.raise_for_status()
 
 
 async def gateway_plan(
@@ -72,20 +45,26 @@ async def gateway_plan(
             json={"session": session, "goal": goal, "context": {}, "constraints": []},
             timeout=15.0,
         )
-        if response.status_code < 400:
-            return response.json()
-    except httpx.HTTPError:
-        pass
-    return {
-        "plan_id": f"fallback-{uuid.uuid4().hex[:8]}",
-        "steps": [
-            {"id": "s1", "title": "Analyser la demande", "depends_on": []},
-            {"id": "s2", "title": "Produire le livrable", "depends_on": ["s1"]},
-            {"id": "s3", "title": "Vérifier le résultat", "depends_on": ["s2"]},
-        ],
-        "rationale": "Plan de secours local (gateway indisponible).",
-        "provider_id": "local-fallback",
-    }
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"planification indisponible: {exc}") from exc
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError("réponse de planification non JSON") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("réponse de planification invalide")
+    if not isinstance(data.get("plan_id"), str) or not data["plan_id"].strip():
+        raise RuntimeError("réponse de planification sans plan_id")
+    steps = data.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise RuntimeError("réponse de planification sans étape vérifiable")
+    for step in steps:
+        if not isinstance(step, dict) or not isinstance(step.get("id"), str) or not isinstance(
+            step.get("title"), str
+        ):
+            raise RuntimeError("étape de planification invalide")
+    return data
 
 
 async def gateway_evaluate(
@@ -102,11 +81,35 @@ async def gateway_evaluate(
             },
             timeout=15.0,
         )
-        if response.status_code < 400:
-            return response.json()
-    except httpx.HTTPError:
-        pass
-    return {"approved": True, "score": 0.8, "feedback": "Évaluation locale par défaut."}
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"évaluation indisponible: {exc}") from exc
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError("réponse d'évaluation non JSON") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("approved"), bool):
+        raise RuntimeError("réponse d'évaluation sans verdict booléen explicite")
+    return data
+
+
+def execution_outcome(
+    evaluation: dict[str, Any] | None, *, simulation: bool
+) -> tuple[str, str, str]:
+    """Retourne (run, tâche, événement) sans jamais promouvoir une simulation.
+
+    Un verdict absent ou mal typé est une erreur de protocole. Cette vérification
+    reste locale même si la passerelle a déjà validé sa réponse : la terminaison
+    d'un run est la dernière frontière avant un événement de succès.
+    """
+
+    if simulation:
+        return "blocked", "blocked", "task.blocked"
+    if not isinstance(evaluation, dict) or not isinstance(evaluation.get("approved"), bool):
+        raise RuntimeError("verdict d'évaluation explicite requis")
+    if evaluation["approved"] is True:
+        return "succeeded", "done", "task.completed"
+    return "failed", "failed", "task.failed"
 
 
 async def _renew_lease(
@@ -133,7 +136,8 @@ async def _renew_lease(
 
 
 async def process(
-    client: httpx.AsyncClient,
+    api_client: httpx.AsyncClient,
+    gateway_client: httpx.AsyncClient,
     config: WorkerConfig,
     credentials: WorkerCredentials,
     claim: dict,
@@ -143,7 +147,7 @@ async def process(
     run = claim["task_run"]
     session = claim["session"]
     agent = claim["agent"]
-    task_id, run_id, agent_id = task["id"], run["id"], agent["id"]
+    task_id, run_id = task["id"], run["id"]
     missing = missing_capabilities(
         claim.get("required_capabilities", []), credentials.capabilities
     )
@@ -154,13 +158,14 @@ async def process(
 
     stop_lease = asyncio.Event()
     lease_task = asyncio.create_task(
-        _renew_lease(client, config, credentials, run_id, stop_lease, logger)
+        _renew_lease(api_client, config, credentials, run_id, stop_lease, logger)
     )
     try:
-        plan = await gateway_plan(client, config, session, task["title"])
-        response = await client.patch(
+        plan = await gateway_plan(gateway_client, config, session, task["title"])
+        response = await api_client.patch(
             f"{config.api_url}/task-runs/{run_id}",
             json={
+                "status": "running",
                 "plan": plan,
                 "append_logs": [
                     {
@@ -172,7 +177,7 @@ async def process(
         )
         response.raise_for_status()
         await emit(
-            client,
+            api_client,
             config,
             "task.plan_ready",
             session,
@@ -180,16 +185,10 @@ async def process(
             task_run_id=run_id,
             payload={"plan_id": plan["plan_id"], "steps": len(plan["steps"]), "title": task["title"]},
         )
-        await set_task_status(client, config, task_id, "in_progress")
-        await set_agent_status(client, config, agent_id, "working")
-
-        steps = plan.get("steps") or [{"id": "s1", "title": "Exécution"}]
+        steps = plan["steps"]
         for index, step in enumerate(steps, start=1):
-            await set_task_status(
-                client, config, task_id, "in_progress", workflow_step=step.get("title")
-            )
             await emit(
-                client,
+                api_client,
                 config,
                 "task.progress",
                 session,
@@ -203,9 +202,10 @@ async def process(
                     "agent": agent["name"],
                 },
             )
-            await client.patch(
+            await api_client.patch(
                 f"{config.api_url}/task-runs/{run_id}",
                 json={
+                    "workflow_step": step.get("title"),
                     "append_logs": [
                         {"level": "info", "message": f"Étape {index}/{len(steps)}: {step.get('title')}"}
                     ]
@@ -213,38 +213,45 @@ async def process(
             )
             await asyncio.sleep(config.step_seconds * random.uniform(0.6, 1.4))
 
-        await set_task_status(client, config, task_id, "review")
-        await set_agent_status(client, config, agent_id, "reviewing")
-        evaluation = await gateway_evaluate(client, config, session, task["title"])
+        if credentials.simulation:
+            run_status, _, _ = execution_outcome(None, simulation=True)
+            result = {
+                "execution_mode": "simulation",
+                "technical_validation": "not_executed",
+                "user_acceptance": "pending",
+                "worker_id": credentials.worker_id,
+                "message": "Simulation terminée ; aucune exécution réelle ni preuve technique.",
+            }
+            response = await api_client.patch(
+                f"{config.api_url}/task-runs/{run_id}",
+                json={"status": run_status, "result": result},
+            )
+            response.raise_for_status()
+            return
+
+        evaluation = await gateway_evaluate(gateway_client, config, session, task["title"])
         await asyncio.sleep(config.step_seconds * 0.5)
-        succeeded = bool(evaluation.get("approved", True))
-        response = await client.patch(
+        run_status, _, _ = execution_outcome(evaluation, simulation=False)
+        response = await api_client.patch(
             f"{config.api_url}/task-runs/{run_id}",
             json={
-                "status": "succeeded" if succeeded else "failed",
-                "result": {"evaluation": evaluation, "worker_id": credentials.worker_id},
+                "status": run_status,
+                "result": {
+                    "evaluation": evaluation,
+                    "execution_mode": "real",
+                    "technical_validation": "provider_evaluation_only",
+                    "user_acceptance": "pending",
+                    "worker_id": credentials.worker_id,
+                },
             },
         )
         response.raise_for_status()
-        await set_task_status(client, config, task_id, "done" if succeeded else "failed")
-        await set_agent_status(client, config, agent_id, "idle")
-        await emit(
-            client,
-            config,
-            "task.completed" if succeeded else "task.failed",
-            session,
-            task_id=task_id,
-            task_run_id=run_id,
-            payload={"title": task["title"], "score": evaluation.get("score"), "agent": agent["name"]},
-        )
     except Exception:
         try:
-            await client.patch(
+            await api_client.patch(
                 f"{config.api_url}/task-runs/{run_id}",
                 json={"status": "failed", "append_logs": [{"level": "error", "message": "Échec du worker"}]},
             )
-            await set_task_status(client, config, task_id, "failed")
-            await set_agent_status(client, config, agent_id, "idle")
         finally:
             raise
     finally:
@@ -292,12 +299,18 @@ async def run_forever(
         provider=config.provider_id,
         concurrency=credentials.max_concurrency,
     )
-    headers = {"Authorization": f"Bearer {credentials.token}"}
+    headers = {
+        "Authorization": f"Bearer {credentials.token}",
+        "X-Worker-Id": credentials.worker_id,
+    }
     stop = asyncio.Event()
     active: set[asyncio.Task] = set()
-    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+    async with (
+        httpx.AsyncClient(timeout=10.0, headers=headers) as api_client,
+        httpx.AsyncClient(timeout=15.0) as gateway_client,
+    ):
         heartbeat = asyncio.create_task(
-            _heartbeat_loop(client, config, credentials, stop, logger)
+            _heartbeat_loop(api_client, config, credentials, stop, logger)
         )
         try:
             while True:
@@ -312,7 +325,7 @@ async def run_forever(
                     await asyncio.sleep(config.poll_interval)
                     continue
                 try:
-                    response = await client.post(
+                    response = await api_client.post(
                         f"{config.api_url}/workers/{credentials.worker_id}/claim",
                         json={"provider_id": config.provider_id},
                     )
@@ -324,7 +337,9 @@ async def run_forever(
                 if claim.get("task"):
                     title = claim["task"]["title"]
                     logger.write("info", "Tâche prise en charge", title=title)
-                    job = asyncio.create_task(process(client, config, credentials, claim, logger))
+                    job = asyncio.create_task(
+                        process(api_client, gateway_client, config, credentials, claim, logger)
+                    )
                     active.add(job)
                     if once:
                         await job

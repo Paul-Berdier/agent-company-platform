@@ -1,7 +1,7 @@
 // Types TypeScript miroir des contrats Pydantic (version 1.0).
 
 export type TaskStatus =
-  | "backlog" | "queued" | "planning" | "in_progress" | "review" | "done" | "failed";
+  | "backlog" | "queued" | "planning" | "in_progress" | "review" | "blocked" | "done" | "failed";
 
 export type AgentStatus =
   | "idle" | "thinking" | "working" | "reviewing" | "blocked" | "offline";

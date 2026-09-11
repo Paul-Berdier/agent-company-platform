@@ -19,13 +19,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("ACP_CORS_ORIGINS", "*").split(","),
+    allow_origins=os.environ.get(
+        "ACP_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )

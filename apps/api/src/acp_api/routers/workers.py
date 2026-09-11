@@ -19,10 +19,13 @@ from acp_contracts import (
 )
 from acp_database.models import (
     AgentInstanceModel,
+    EventModel,
+    ProjectModel,
     TaskModel,
     TaskRunModel,
     WorkerLeaseModel,
     WorkerModel,
+    WorkspaceModel,
 )
 
 from ..deps import get_db
@@ -88,7 +91,7 @@ def worker_snapshot(worker: WorkerModel) -> WorkerSnapshot:
 
 
 def expire_task_leases(db: Session) -> int:
-    """Libère et remet en file les runs abandonnés après expiration du lease."""
+    """Interrompt les runs abandonnés sans rejouer un effet devenu incertain."""
     now = utcnow()
     expired = 0
     leases = db.query(WorkerLeaseModel).filter_by(status="active").all()
@@ -97,20 +100,53 @@ def expire_task_leases(db: Session) -> int:
             continue
         lease.status = "expired"
         run = db.get(TaskRunModel, lease.task_run_id)
-        if run is not None and run.status == "running":
-            run.status = "failed"
+        if run is not None and run.status in {
+            "pending",
+            "queued",
+            "preparing",
+            "running",
+            "waiting_approval",
+            "stopping",
+        }:
+            run.status = "interrupted"
             run.finished_at = now
             run.logs = list(run.logs or []) + [
-                {"level": "error", "message": "Lease worker expiré; tâche remise en file"}
+                {
+                    "level": "error",
+                    "message": (
+                        "Lease worker expiré ; effet éventuel inconnu, "
+                        "reprise automatique interdite"
+                    ),
+                }
             ]
         task = db.get(TaskModel, lease.task_id)
         if task is not None and task.status in {"planning", "in_progress", "review"}:
-            task.status = "queued"
-            task.workflow_step = None
+            task.status = "blocked"
+        if task is not None and run is not None:
+            project = db.get(ProjectModel, task.project_id)
+            workspace = db.get(WorkspaceModel, project.workspace_id) if project else None
+            db.add(
+                EventModel(
+                    type="task.interrupted",
+                    organization_id=workspace.organization_id if workspace else None,
+                    workspace_id=project.workspace_id if project else None,
+                    department_id=project.department_id if project else None,
+                    project_id=task.project_id,
+                    team_id=task.team_id,
+                    agent_instance_id=run.agent_instance_id,
+                    task_id=task.id,
+                    task_run_id=run.id,
+                    payload={
+                        "title": task.title,
+                        "reason": "worker_lease_expired",
+                        "worker_id": lease.worker_id,
+                    },
+                )
+            )
         if run is not None and run.agent_instance_id:
             agent = db.get(AgentInstanceModel, run.agent_instance_id)
             if agent is not None:
-                agent.status = "idle"
+                agent.status = "blocked"
         expired += 1
     if expired:
         db.flush()

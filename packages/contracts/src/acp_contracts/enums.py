@@ -7,16 +7,23 @@ class TaskStatus(str, Enum):
     PLANNING = "planning"
     IN_PROGRESS = "in_progress"
     REVIEW = "review"
+    BLOCKED = "blocked"
     DONE = "done"
     FAILED = "failed"
 
 
 class TaskRunStatus(str, Enum):
     PENDING = "pending"
+    QUEUED = "queued"
+    PREPARING = "preparing"
     RUNNING = "running"
+    WAITING_APPROVAL = "waiting_approval"
+    BLOCKED = "blocked"
+    STOPPING = "stopping"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
 
 
 class AgentStatus(str, Enum):

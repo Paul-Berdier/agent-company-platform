@@ -6,9 +6,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
+        main: resolve(import.meta.dirname, "index.html"),
         // mode wallpaper autonome (second écran, Wallpaper Engine futur)
-        ambient: resolve(__dirname, "ambient.html"),
+        ambient: resolve(import.meta.dirname, "ambient.html"),
       },
     },
   },
