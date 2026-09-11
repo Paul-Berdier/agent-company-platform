@@ -63,6 +63,19 @@ le stockage ou le runner qui détient effectivement la ressource.
 Ces garanties ont des tests ciblés. Elles ne couvrent pas encore un fencing token
 par tentative, toute la machine d'états, toutes les routes ou le flux WebSocket.
 
+## Durcissement du service d'événements (lot B)
+
+- `POST /internal/events` échoue fermé lorsque `ACP_EVENT_SERVICE_TOKEN` est absent,
+  et exige un Bearer comparé en temps constant lorsqu'il est configuré. L'API ne
+  transmet ce secret que dans l'en-tête `Authorization`, jamais dans l'URL.
+- Le WebSocket navigateur anonyme est fermé par défaut avec le code applicatif
+  `4403`. Seul l'opt-in explicitement dangereux
+  `ACP_UNSAFE_ALLOW_ANONYMOUS_EVENT_WEBSOCKET=1` rétablit le comportement historique
+  pour un développement local isolé.
+- Ce verrouillage ne constitue pas encore un flux temps réel utilisateur : une voie
+  authentifiée et scoppée, avec reprise par curseur, reste à construire avant toute
+  exposition réseau.
+
 ## Écarts bloquants
 
 ### Identité et autorisation
@@ -80,8 +93,9 @@ par tentative, toute la machine d'états, toutes les routes ou le flux WebSocket
 
 - La configuration CORS de production, les méthodes/en-têtes permis et le modèle
   d'authentification restent à tester ; CORS ne constitue pas un contrôle d'accès.
-- Le service d'événements conserve les sockets en mémoire ; ses points internes et
-  WebSocket ne sont pas tous authentifiés, scoppés, séquencés ou rejouables.
+- Le service d'événements conserve les sockets en mémoire ; l'ingestion interne est
+  authentifiée et le WebSocket anonyme est fermé par défaut, mais il n'existe pas
+  encore de flux navigateur authentifié, scoppé, séquencé ou rejouable.
 - Il n'existe pas d'origine séparée pour les aperçus de projets non fiables.
 - CSRF, CSP, en-têtes de sécurité, limitations d'upload et politique de cookies ne
   sont pas encore validés.
