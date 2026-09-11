@@ -7,7 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from acp_agent_sdk import load_modules
 from acp_database import init_db
 
-from .routers import crud, operations, platform, work, workers
+from .routers import (
+    auth,
+    connections,
+    conversations,
+    crud,
+    onboarding,
+    operations,
+    platform,
+    work,
+    workers,
+)
 
 
 @asynccontextmanager
@@ -19,7 +29,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -30,13 +40,30 @@ app.add_middleware(
     ).split(","),
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
+app.include_router(auth.router)
+app.include_router(connections.router)
+app.include_router(conversations.router)
+app.include_router(onboarding.router)
 app.include_router(crud.router)
 app.include_router(work.router)
 app.include_router(workers.router)
 app.include_router(operations.router)
 app.include_router(platform.router)
+
+
+@app.middleware("http")
+async def prevent_private_response_caching(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/auth"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    elif request.cookies.get("acp_session"):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.get("/health")

@@ -16,6 +16,13 @@ from .local_log import WorkerLogger
 from .state import WorkerCredentials
 
 
+def gateway_headers(config: WorkerConfig) -> dict[str, str]:
+    token = config.gateway_service_token
+    if token is None or not token.strip():
+        raise RuntimeError("ACP_GATEWAY_SERVICE_TOKEN doit être configuré pour le worker")
+    return {"Authorization": f"Bearer {token}"}
+
+
 async def emit(
     client: httpx.AsyncClient,
     config: WorkerConfig,
@@ -42,6 +49,7 @@ async def gateway_plan(
     try:
         response = await client.post(
             f"{config.gateway_url}/v1/providers/{config.provider_id}/plan",
+            headers=gateway_headers(config),
             json={"session": session, "goal": goal, "context": {}, "constraints": []},
             timeout=15.0,
         )
@@ -73,6 +81,7 @@ async def gateway_evaluate(
     try:
         response = await client.post(
             f"{config.gateway_url}/v1/providers/{config.provider_id}/evaluate",
+            headers=gateway_headers(config),
             json={
                 "session": session,
                 "task_summary": summary,
@@ -307,7 +316,7 @@ async def run_forever(
     active: set[asyncio.Task] = set()
     async with (
         httpx.AsyncClient(timeout=10.0, headers=headers) as api_client,
-        httpx.AsyncClient(timeout=15.0) as gateway_client,
+        httpx.AsyncClient(timeout=15.0, headers=gateway_headers(config)) as gateway_client,
     ):
         heartbeat = asyncio.create_task(
             _heartbeat_loop(api_client, config, credentials, stop, logger)

@@ -7,7 +7,14 @@ traduites en runs Hermes puis validées à la frontière de l'adaptateur.
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 
 HERMES_API_VERSION = "0.21.1"
 # Alias conservé pour les imports existants ; il désigne désormais la version
@@ -71,6 +78,24 @@ class HermesRunRequest(BaseModel):
     instructions: str = Field(min_length=1)
 
 
+class HermesConversationRunRequest(BaseModel):
+    """Entrée interne du gateway pour un tour conversationnel asynchrone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=200_000)
+    model: str | None = Field(default=None, min_length=1, max_length=256)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    session_id: str | None = Field(default=None, min_length=1, max_length=512)
+
+    @field_validator("prompt", "model", "session_id")
+    @classmethod
+    def reject_blank_strings(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+
 HermesRunAcceptedState = Literal[
     "started",
     "queued",
@@ -110,6 +135,48 @@ class HermesRunStatus(HermesWireModel):
     output: str | None = None
     error: str | None = None
     usage: dict[str, Any] | None = None
+
+
+class HermesRunView(BaseModel):
+    """État stable renvoyé à l'appelant, commun à l'admission et la lecture."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(pattern=r"^run_[0-9a-f]{32}$")
+    status: HermesRunAcceptedState
+    replayed: bool = False
+    session_id: str | None = None
+    model: str | None = None
+    output: str | None = None
+    error: str | None = None
+    usage: dict[str, Any] | None = None
+
+
+HermesDiagnosticState = Literal[
+    "not_configured",
+    "ready",
+    "unauthorized",
+    "timeout",
+    "incompatible_version",
+    "invalid_response",
+    "unavailable",
+]
+
+
+class HermesDiagnostic(BaseModel):
+    """Diagnostic exploitable par l'UI, volontairement dépourvu de secret."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: Literal["hermes"] = "hermes"
+    status: HermesDiagnosticState
+    configured: bool
+    ready: bool
+    expected_version: Literal[HERMES_API_VERSION] = HERMES_API_VERSION
+    detected_version: str | None = None
+    model: str | None = None
+    latency_ms: float | None = Field(default=None, ge=0)
+    detail: str
 
 
 class HermesPlanOutputStep(BaseModel):

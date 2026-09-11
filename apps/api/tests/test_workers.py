@@ -7,11 +7,30 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from acp_api.main import app
+from acp_api.security import create_user_session
 from acp_database import get_session_factory
-from acp_database.models import TaskModel, WorkerLeaseModel, WorkerModel
+from acp_database.models import TaskModel, UserModel, WorkerLeaseModel, WorkerModel
 
 
 REGISTRATION_TOKEN = "test-registration-secret"
+
+
+def _authenticate_owner(client: TestClient) -> None:
+    """Les opérations humaines passent par une session; les appels worker gardent leur Bearer."""
+
+    with get_session_factory()() as db:
+        user = UserModel(
+            login_normalized=f"worker-test-owner-{uuid4().hex}",
+            display_name="Worker test owner",
+            password_hash="not-used-by-this-test",
+            platform_role="owner",
+        )
+        db.add(user)
+        db.flush()
+        _, session_token, csrf_token = create_user_session(db, user.id)
+        db.commit()
+    client.cookies.set("acp_session", session_token)
+    client.headers["X-CSRF-Token"] = csrf_token
 
 
 def _register(client: TestClient, name: str, capabilities: list[str]):
@@ -74,6 +93,7 @@ def test_registration_requires_bootstrap_token_and_hashes_worker_token():
 
 def test_heartbeat_capability_matching_concurrency_and_lease_release():
     with TestClient(app) as client:
+        _authenticate_owner(client)
         worker_name = f"worker-{uuid4().hex}"
         registration = _register(client, worker_name, ["git"]).json()
         worker_id = registration["worker_id"]
@@ -215,6 +235,7 @@ def test_legacy_claim_is_disabled_by_default():
 
 def test_expired_lease_blocks_uncertain_task_and_releases_capacity():
     with TestClient(app) as client:
+        _authenticate_owner(client)
         registration = _register(client, f"worker-{uuid4().hex}", ["git"]).json()
         worker_id = registration["worker_id"]
         headers = {"Authorization": f"Bearer {registration['token']}"}
@@ -268,6 +289,7 @@ def test_expired_lease_blocks_uncertain_task_and_releases_capacity():
 
 def test_resource_locks_artifacts_and_approvals():
     with TestClient(app) as client:
+        _authenticate_owner(client)
         first = _register(client, f"worker-{uuid4().hex}", ["git", "codex_cli"]).json()
         second = _register(client, f"worker-{uuid4().hex}", ["git", "codex_cli"]).json()
         first_headers = {"Authorization": f"Bearer {first['token']}"}
@@ -276,7 +298,11 @@ def test_resource_locks_artifacts_and_approvals():
             db.query(TaskModel).filter_by(status="queued").update({"status": "done"})
             db.commit()
         project_id, first_agent = _project_with_agent(client)
-        workspace_id = client.get("/projects").json()[-1]["workspace_id"]
+        workspace_id = next(
+            project["workspace_id"]
+            for project in client.get("/projects").json()
+            if project["id"] == project_id
+        )
         second_agent = client.post(
             "/agents",
             json={

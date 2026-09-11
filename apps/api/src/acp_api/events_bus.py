@@ -31,11 +31,17 @@ def store_event(db: Session, event: Event) -> None:
 
 async def forward_event(event: Event) -> None:
     """Pousse l'événement vers le service temps réel ; jamais bloquant pour le métier."""
+    service_token = os.environ.get("ACP_EVENT_SERVICE_TOKEN", "").strip()
+    if not service_token:
+        return
+
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            await client.post(
+            response = await client.post(
                 f"{EVENT_SERVICE_URL.rstrip('/')}/internal/events",
                 json=event.model_dump(mode="json"),
+                headers={"Authorization": f"Bearer {service_token}"},
             )
+            response.raise_for_status()
     except httpx.HTTPError:
         pass

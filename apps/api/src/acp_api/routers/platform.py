@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from acp_contracts import Event, MemoryItem, SessionContext
@@ -19,11 +20,22 @@ from acp_database.models import (
     TaskModel,
     TaskRunModel,
     TeamModel,
+    UserModel,
     WorkerLeaseModel,
     WorkspaceModel,
 )
 
-from ..deps import ensure_access, get_db, get_principal
+from ..deps import (
+    accessible_agent_ids,
+    accessible_department_ids,
+    accessible_project_ids,
+    accessible_workspace_ids,
+    ensure_access,
+    get_db,
+    get_principal,
+    is_platform_owner,
+    require_platform_role,
+)
 from ..events_bus import forward_event, store_event
 from .workers import _as_utc, authenticate_worker, utcnow
 
@@ -107,8 +119,21 @@ def list_events(
     workspace_id: str | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
 ):
     q = db.query(EventModel).order_by(EventModel.occurred_at.desc())
+    if not is_platform_owner(db, principal):
+        project_ids = accessible_project_ids(db, principal)
+        workspace_ids = accessible_workspace_ids(db, principal)
+        q = q.filter(
+            or_(
+                EventModel.project_id.in_(project_ids),
+                and_(
+                    EventModel.project_id.is_(None),
+                    EventModel.workspace_id.in_(workspace_ids),
+                ),
+            )
+        )
     if project_id:
         q = q.filter_by(project_id=project_id)
     if workspace_id:
@@ -134,7 +159,12 @@ def list_events(
 
 
 @router.post("/sessions", response_model=SessionContext)
-def create_session(body: SessionContext, db: Session = Depends(get_db)):
+def create_session(
+    body: SessionContext,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    _ensure_session_scope(db, principal, body, minimum_role="member")
     obj = SessionModel(
         scope=body.scope.value,
         organization_id=body.organization_id,
@@ -153,8 +183,24 @@ def create_session(body: SessionContext, db: Session = Depends(get_db)):
 
 
 @router.get("/sessions")
-def list_sessions(project_id: str | None = None, db: Session = Depends(get_db)):
+def list_sessions(
+    project_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
     q = db.query(SessionModel)
+    if not is_platform_owner(db, principal):
+        project_ids = accessible_project_ids(db, principal)
+        workspace_ids = accessible_workspace_ids(db, principal)
+        q = q.filter(
+            or_(
+                SessionModel.project_id.in_(project_ids),
+                and_(
+                    SessionModel.project_id.is_(None),
+                    SessionModel.workspace_id.in_(workspace_ids),
+                ),
+            )
+        )
     if project_id:
         q = q.filter_by(project_id=project_id)
     return [
@@ -183,8 +229,97 @@ def _not_expired(m: MemoryModel) -> bool:
     return datetime.now(timezone.utc) < created + timedelta(seconds=m.ttl_seconds)
 
 
+def _ensure_session_scope(
+    db: Session,
+    principal: str,
+    body: SessionContext,
+    *,
+    minimum_role: str,
+) -> None:
+    """Valide toute la hiérarchie avant de persister un contexte provider."""
+
+    if body.project_id:
+        project = db.get(ProjectModel, body.project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Projet introuvable")
+        ensure_access(db, principal, project_id=project.id, minimum_role=minimum_role)
+        if body.workspace_id and body.workspace_id != project.workspace_id:
+            raise HTTPException(status_code=422, detail="Workspace incohérent avec le projet")
+        workspace = db.get(WorkspaceModel, project.workspace_id)
+    elif body.workspace_id:
+        workspace = db.get(WorkspaceModel, body.workspace_id)
+        if workspace is None:
+            raise HTTPException(status_code=404, detail="Workspace introuvable")
+        ensure_access(db, principal, workspace_id=workspace.id, minimum_role=minimum_role)
+    else:
+        require_platform_role(db, principal, "owner")
+        workspace = None
+    if body.organization_id and (
+        workspace is None or body.organization_id != workspace.organization_id
+    ):
+        raise HTTPException(status_code=422, detail="Organisation incohérente avec le scope")
+    if body.team_id:
+        team = db.get(TeamModel, body.team_id)
+        if team is None or not body.project_id or team.project_id != body.project_id:
+            raise HTTPException(status_code=422, detail="Équipe incohérente avec le projet")
+    if body.agent_instance_id:
+        agent = db.get(AgentInstanceModel, body.agent_instance_id)
+        if agent is None or workspace is None or agent.workspace_id != workspace.id:
+            raise HTTPException(status_code=422, detail="Agent incohérent avec le workspace")
+
+
+def _ensure_memory_access(
+    db: Session,
+    principal: str,
+    scope: str,
+    owner_id: str,
+    *,
+    minimum_role: str,
+) -> None:
+    if scope == MemoryScope.GLOBAL.value:
+        require_platform_role(db, principal, "owner")
+        return
+    if scope == MemoryScope.WORKSPACE.value:
+        if db.get(WorkspaceModel, owner_id) is None:
+            raise HTTPException(status_code=404, detail="Workspace introuvable")
+        ensure_access(db, principal, workspace_id=owner_id, minimum_role=minimum_role)
+        return
+    if scope == MemoryScope.PROJECT.value:
+        if db.get(ProjectModel, owner_id) is None:
+            raise HTTPException(status_code=404, detail="Projet introuvable")
+        ensure_access(db, principal, project_id=owner_id, minimum_role=minimum_role)
+        return
+    if scope == MemoryScope.TEAM.value:
+        team = db.get(TeamModel, owner_id)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Équipe introuvable")
+        ensure_access(db, principal, project_id=team.project_id, minimum_role=minimum_role)
+        return
+    if scope == MemoryScope.AGENT.value:
+        agent = db.get(AgentInstanceModel, owner_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="Agent introuvable")
+        ensure_access(db, principal, workspace_id=agent.workspace_id, minimum_role=minimum_role)
+        return
+    if scope == MemoryScope.TASK_RUN.value:
+        run = db.get(TaskRunModel, owner_id)
+        task = db.get(TaskModel, run.task_id) if run else None
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task run introuvable")
+        ensure_access(db, principal, project_id=task.project_id, minimum_role=minimum_role)
+        return
+    raise HTTPException(status_code=422, detail="Scope mémoire inconnu")
+
+
 @router.post("/memories", response_model=MemoryItem)
-def create_memory(body: MemoryItem, db: Session = Depends(get_db)):
+def create_memory(
+    body: MemoryItem,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    _ensure_memory_access(
+        db, principal, body.scope.value, body.owner_id, minimum_role="member"
+    )
     obj = MemoryModel(
         scope=body.scope.value,
         owner_id=body.owner_id,
@@ -202,7 +337,13 @@ def create_memory(body: MemoryItem, db: Session = Depends(get_db)):
 
 
 @router.get("/memories")
-def list_memories(scope: str, owner_id: str, db: Session = Depends(get_db)):
+def list_memories(
+    scope: str,
+    owner_id: str,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    _ensure_memory_access(db, principal, scope, owner_id, minimum_role="viewer")
     rows = db.query(MemoryModel).filter_by(scope=scope, owner_id=owner_id).all()
     return [_memory_dict(m) for m in rows if _not_expired(m)]
 
@@ -290,9 +431,38 @@ class MembershipCreate(BaseModel):
 
 
 @router.post("/memberships")
-def create_membership(body: MembershipCreate, db: Session = Depends(get_db)):
+def create_membership(
+    body: MembershipCreate,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
     if body.scope_type not in ("workspace", "project"):
         raise HTTPException(status_code=422, detail="scope_type: workspace ou project")
+    if body.role not in ("viewer", "member", "operator", "owner"):
+        raise HTTPException(status_code=422, detail="Rôle de membership inconnu")
+    if db.get(UserModel, body.user_id) is None:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if body.scope_type == "workspace":
+        if db.get(WorkspaceModel, body.scope_id) is None:
+            raise HTTPException(status_code=404, detail="Workspace introuvable")
+        ensure_access(
+            db, principal, workspace_id=body.scope_id, minimum_role="owner"
+        )
+    else:
+        if db.get(ProjectModel, body.scope_id) is None:
+            raise HTTPException(status_code=404, detail="Projet introuvable")
+        ensure_access(db, principal, project_id=body.scope_id, minimum_role="owner")
+    duplicate = (
+        db.query(MembershipModel)
+        .filter_by(
+            user_id=body.user_id,
+            scope_type=body.scope_type,
+            scope_id=body.scope_id,
+        )
+        .first()
+    )
+    if duplicate is not None:
+        raise HTTPException(status_code=409, detail="Membership déjà existante")
     obj = MembershipModel(**body.model_dump())
     db.add(obj)
     db.commit()
@@ -300,8 +470,27 @@ def create_membership(body: MembershipCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/memberships")
-def list_memberships(user_id: str | None = None, db: Session = Depends(get_db)):
+def list_memberships(
+    user_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
     q = db.query(MembershipModel)
+    if not is_platform_owner(db, principal):
+        project_ids = accessible_project_ids(db, principal)
+        workspace_ids = accessible_workspace_ids(db, principal)
+        q = q.filter(
+            or_(
+                and_(
+                    MembershipModel.scope_type == "project",
+                    MembershipModel.scope_id.in_(project_ids),
+                ),
+                and_(
+                    MembershipModel.scope_type == "workspace",
+                    MembershipModel.scope_id.in_(workspace_ids),
+                ),
+            )
+        )
     if user_id:
         q = q.filter_by(user_id=user_id)
     return [
@@ -312,14 +501,31 @@ def list_memberships(user_id: str | None = None, db: Session = Depends(get_db)):
 
 
 @router.get("/company/level")
-def company_level(request: Request, db: Session = Depends(get_db)):
+def company_level(
+    request: Request,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
     """Niveau de croissance calculé depuis les métriques réelles (jamais
     depuis une affirmation libre) ; seuils fournis par les modules."""
     from acp_database.models import TaskModel
 
-    projects = db.query(ProjectModel).filter_by(status="active").count()
-    agents = db.query(AgentInstanceModel).count()
-    completed = db.query(TaskModel).filter_by(status="done").count()
+    project_ids = accessible_project_ids(db, principal)
+    projects = (
+        db.query(ProjectModel)
+        .filter(ProjectModel.id.in_(project_ids), ProjectModel.status == "active")
+        .count()
+    )
+    agents = (
+        db.query(AgentInstanceModel)
+        .filter(AgentInstanceModel.id.in_(accessible_agent_ids(db, principal)))
+        .count()
+    )
+    completed = (
+        db.query(TaskModel)
+        .filter(TaskModel.project_id.in_(project_ids), TaskModel.status == "done")
+        .count()
+    )
 
     levels = sorted(
         (lvl for m in request.app.state.modules.values() for lvl in m.growth),
@@ -349,7 +555,7 @@ def company_level(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/modules")
-def list_modules(request: Request):
+def list_modules(request: Request, _principal: str = Depends(get_principal)):
     modules = request.app.state.modules
     return {name: manifest.model_dump(mode="json") for name, manifest in modules.items()}
 
@@ -360,6 +566,7 @@ def department_office_config(
     request: Request,
     capacity: int = 0,
     db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
 ):
     """Configuration data-driven du bureau pixel art d'un département.
 
@@ -372,6 +579,8 @@ def department_office_config(
     dept = db.get(DepartmentModel, department_id)
     if dept is None:
         raise HTTPException(status_code=404, detail="Département introuvable")
+    if dept.id not in accessible_department_ids(db, principal):
+        raise HTTPException(status_code=403, detail="Accès refusé pour ce département")
     modules = request.app.state.modules
     definition = None
     for manifest in modules.values():

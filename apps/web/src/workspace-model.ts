@@ -20,11 +20,11 @@ export interface NavigationItem {
 export const NAVIGATION_ITEMS: readonly NavigationItem[] = [
   { id: "home", label: "Accueil", path: "/", icon: "⌂", configured: true },
   { id: "projects", label: "Projets", path: "/projects", icon: "▱", configured: true },
-  { id: "conversations", label: "Conversations", path: "/conversations", icon: "◌", configured: false },
+  { id: "conversations", label: "Conversations", path: "/conversations", icon: "◌", configured: true },
   { id: "missions", label: "Missions", path: "/missions", icon: "→", configured: true },
   { id: "automations", label: "Automatisations", path: "/automations", icon: "↻", configured: false },
   { id: "library", label: "Bibliothèque", path: "/library", icon: "◇", configured: false },
-  { id: "connections", label: "Connexions", path: "/connections", icon: "⌁", configured: false },
+  { id: "connections", label: "Connexions", path: "/connections", icon: "⌁", configured: true },
 ] as const;
 
 const ROUTE_BY_PATH = new Map(

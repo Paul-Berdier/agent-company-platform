@@ -10,6 +10,28 @@ import httpx
 from acp_provider_sdk import ProviderUnavailableError
 
 
+class HermesHTTPError(ProviderUnavailableError):
+    """Refus HTTP Hermes sans recopier un corps potentiellement sensible."""
+
+    def __init__(self, method: str, path: str, status_code: int) -> None:
+        self.method = method
+        self.path = path
+        self.status_code = status_code
+        super().__init__(f"Hermes a refusé {method} {path} (HTTP {status_code})")
+
+
+class HermesTimeoutError(ProviderUnavailableError):
+    """Délai réseau épuisé après les tentatives configurées."""
+
+
+class HermesTransportError(ProviderUnavailableError):
+    """Échec de transport non HTTP après les tentatives configurées."""
+
+
+class HermesInvalidResponseError(ProviderUnavailableError):
+    """Réponse HTTP réussie mais non conforme au format JSON minimal."""
+
+
 @dataclass
 class HermesSettings:
     base_url: str = field(default_factory=lambda: os.environ.get("HERMES_BASE_URL", ""))
@@ -86,38 +108,49 @@ class HermesClient:
             )
 
         last_error = "erreur inconnue"
+        error_type: type[ProviderUnavailableError] = HermesTransportError
         for attempt in range(max(0, self.settings.max_retries) + 1):
             try:
                 async with self._client() as client:
                     response = await client.request(method, path, json=payload, headers=headers)
+            except httpx.TimeoutException as exc:
+                error_type = HermesTimeoutError
+                last_error = type(exc).__name__
             except httpx.RequestError as exc:
+                error_type = HermesTransportError
                 last_error = type(exc).__name__
             else:
                 if 200 <= response.status_code < 300:
                     try:
                         data = response.json()
                     except ValueError as exc:
-                        raise ProviderUnavailableError(
+                        raise HermesInvalidResponseError(
                             f"Réponse JSON Hermes invalide sur {path}"
                         ) from exc
                     if not isinstance(data, dict):
-                        raise ProviderUnavailableError(
+                        raise HermesInvalidResponseError(
                             f"Réponse Hermes non objet sur {path}"
                         )
+                    if method == "POST" and path == "/v1/runs":
+                        replayed_header = response.headers.get("Idempotency-Replayed")
+                        if replayed_header is not None:
+                            normalized = replayed_header.strip().lower()
+                            if normalized not in {"true", "false"}:
+                                raise HermesInvalidResponseError(
+                                    "En-tête Idempotency-Replayed Hermes invalide"
+                                )
+                            data = {**data, "replayed": normalized == "true"}
                     return data
 
                 # Les 3xx/4xx sont laissées au contrôle de l'appelant. En
                 # particulier, aucun redirect susceptible d'exposer le Bearer
                 # et aucun retry 429 implicite n'est suivi ici.
                 if response.status_code < 500:
-                    raise ProviderUnavailableError(
-                        f"Hermes a refusé {method} {path} (HTTP {response.status_code})"
-                    )
+                    raise HermesHTTPError(method, path, response.status_code)
+                error_type = HermesTransportError
                 last_error = f"HTTP {response.status_code}"
 
             if attempt < max(0, self.settings.max_retries):
                 await asyncio.sleep(0.2 * (attempt + 1))
 
-        raise ProviderUnavailableError(
-            f"Hermes injoignable ({method} {path}): {last_error}"
-        )
+        raise error_type(f"Hermes injoignable ({method} {path}): {last_error}")

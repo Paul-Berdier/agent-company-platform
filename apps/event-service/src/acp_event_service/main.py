@@ -7,13 +7,23 @@ workspace / projet / département.
 
 import asyncio
 import os
+import secrets
+from typing import Annotated
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from acp_contracts import Event
 
-app = FastAPI(title="Agent Company Platform — Event Service", version="0.2.0")
+app = FastAPI(title="Agent Company Platform — Event Service", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,12 +72,40 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _require_internal_token(
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    """Authentifie l'appel de service sans exposer le secret dans l'URL."""
+    token = os.environ.get("ACP_EVENT_SERVICE_TOKEN", "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="L'authentification interne du service d'événements n'est pas configurée.",
+        )
+
+    supplied = authorization or ""
+    if not secrets.compare_digest(
+        supplied.encode("utf-8"), f"Bearer {token}".encode("utf-8")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentification interne invalide.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def _unsafe_anonymous_websocket_enabled() -> bool:
+    return os.environ.get(
+        "ACP_UNSAFE_ALLOW_ANONYMOUS_EVENT_WEBSOCKET", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "event-service"}
 
 
-@app.post("/internal/events")
+@app.post("/internal/events", dependencies=[Depends(_require_internal_token)])
 async def ingest(event: Event):
     await manager.broadcast(event)
     return {"ok": True}
@@ -80,6 +118,24 @@ async def ws_endpoint(
     project_id: str | None = None,
     department_id: str | None = None,
 ):
+    if not _unsafe_anonymous_websocket_enabled():
+        await ws.accept()
+        await ws.send_json(
+            {
+                "type": "error",
+                "code": "anonymous_websocket_disabled",
+                "message": (
+                    "Le flux WebSocket anonyme est désactivé. "
+                    "Utilisez un canal utilisateur authentifié."
+                ),
+            }
+        )
+        await ws.close(
+            code=4403,
+            reason="Le flux WebSocket anonyme est désactivé.",
+        )
+        return
+
     filters = {
         "workspace_id": workspace_id,
         "project_id": project_id,

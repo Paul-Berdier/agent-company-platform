@@ -4,13 +4,15 @@ Poste de travail personnel pour organiser des projets et des missions, raccorder
 Hermes Agent et, à terme, piloter des runners et outils spécialisés depuis le web et
 un CLI commun.
 
-La modernisation est engagée par tranches. Le Lot A livre un shell web moderne, un
-adaptateur Hermes fondé sur l'API Runs officielle et des garde-fous contre plusieurs
-faux succès. Il ne livre pas encore l'authentification propriétaire, une conversation
-Hermes, un runner réel ou le CLI `acp`. Le détail exact se trouve dans
+La modernisation est engagée par tranches. Après les fondations du Lot A, le Lot B
+ferme l'accès utilisateur, ajoute l'espace personnel et livre une conversation web
+persistante adossée à l'API Runs officielle de Hermes. Les frontières de service et
+les écritures web sensibles échouent désormais fermées. Une instance Hermes réelle,
+un runner réel, le streaming et le CLI `acp` ne sont toutefois pas encore livrés. Le
+détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version du lot : **0.2.0**. Les changements versionnés sont décrits dans
+Version préparée pour le Lot B : **0.3.0**. Les changements versionnés sont décrits dans
 [CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
@@ -20,10 +22,24 @@ Version du lot : **0.2.0**. Les changements versionnés sont décrits dans
 - accueil, projets et composition d'une mission raccordés à l'API métier ;
 - états chargement, vide, hors ligne, refus et non configuré sans données factices ;
 - thèmes sombre/clair et disposition responsive ;
+- bootstrap unique du propriétaire protégé par un secret dédié, mots de passe
+  Argon2id et aucune inscription publique ;
+- sessions opaques, hachées en base, expirables et révocables dans un cookie
+  `HttpOnly` `SameSite=Strict`, avec jeton CSRF requis sur les mutations ;
+- routes utilisateur fermées par défaut et lectures/écritures filtrées par les rôles
+  propriétaire, opérateur/membre et lecteur au niveau du projet ;
+- onboarding court avec diagnostic de préparation et création d'un projet dans un
+  espace personnel masquant la hiérarchie historique ;
+- conversations générales privées et conversations de projet persistées ; une clé
+  d'idempotence durable conserve un seul Run logique même si l'admission est répétée,
+  puis le tour est repris par consultation `GET` sans dépendre de l'onglet ouvert ;
 - tâches, runs, workers enrôlés, leases, locks, approbations, événements persistés et
   métadonnées d'artefacts dans le socle FastAPI/SQLAlchemy ;
 - provider Hermes `0.21.1` via `/health/detailed`, `/v1/capabilities` et
   `/v1/runs` ;
+- diagnostic Hermes typé visible dans Connexions, sans clé dans le navigateur ;
+- surface métier du provider-gateway privée derrière un Bearer inter-services ;
+  ingestion du service d'événements protégée et WebSocket anonyme fermé par défaut ;
 - simulation worker explicitement `blocked`, jamais présentée comme une exécution
   réussie ;
 - refus d'un succès de run sans validation technique `passed` et preuve ;
@@ -76,16 +92,24 @@ L'interface est ensuite disponible sur `http://localhost:5173`. Services locaux 
 |---|---:|---|
 | web | 5173 | shell utilisateur |
 | api | 8000 | projets, missions, droits et historique métier |
-| event-service | 8001 | diffusion WebSocket actuelle, non durable |
-| provider-gateway | 8002 | frontière providers, dont Hermes |
+| event-service | 8001 | ingestion interne protégée ; temps réel utilisateur encore à livrer |
+| provider-gateway | 8002 | frontière privée des providers, dont Hermes |
 
-Copier les valeurs utiles de `.env.example` dans l'environnement du processus. Ne
-jamais committer `.env`, une clé Hermes ou un jeton worker. Aucun secret par défaut
-n'est fourni.
+Copier les valeurs utiles de `.env.example` dans l'environnement du processus. Avant
+le premier accès, générer au minimum un `ACP_BOOTSTRAP_TOKEN` long et aléatoire. Les
+appels API/worker vers le gateway nécessitent aussi `ACP_GATEWAY_SERVICE_TOKEN` ;
+l'ingestion d'événements utilise un `ACP_EVENT_SERVICE_TOKEN` distinct. Ne jamais
+committer `.env`, une clé Hermes ou un jeton worker. Aucun secret par défaut n'est
+fourni.
 
-Le seed local est un jeu de démonstration. L'accès utilisateur reste ouvert en mode
-développement tant que le bootstrap propriétaire du Lot B n'est pas livré : ne pas
-publier les services. Un worker doit être enregistré séparément selon
+Au premier affichage, le formulaire « Sécuriser le premier accès » consomme le jeton
+de bootstrap et crée l'unique propriétaire initial. Les visites suivantes restaurent
+la session ou affichent la connexion ; elles ne rouvrent pas l'inscription. En HTTP
+local uniquement, `ACP_SESSION_COOKIE_SECURE=0` est nécessaire ; utiliser `1` derrière
+HTTPS.
+
+Le seed local reste un jeu de démonstration et `create_all()` ne remplace pas des
+migrations de production. Un worker doit être enregistré séparément selon
 [la procédure Windows](docs/workers/windows-worker.md). Son mode simulation termine
 en `blocked`. Aucun exécuteur réel n'est raccordé à la boucle worker actuelle.
 
@@ -104,6 +128,7 @@ Sur le provider-gateway :
 ```text
 HERMES_BASE_URL=<URL joignable depuis le gateway>
 HERMES_API_KEY=<même secret>
+ACP_GATEWAY_SERVICE_TOKEN=<secret inter-services partagé avec API et worker>
 ```
 
 L'URL locale native est généralement `http://127.0.0.1:8642`, mais elle n'est pas
@@ -138,8 +163,9 @@ python -m pytest -q
 
 Les résultats réellement obtenus, l'environnement Python utilisé, les warnings et
 les limites sont consignés dans [docs/acceptance-report.md](docs/acceptance-report.md).
-Les tests Hermes utilisent un transport HTTP simulé ; ils ne constituent pas une
-connexion réelle.
+Les tests Hermes, de conversation et de diagnostic utilisent un transport HTTP
+simulé ; ils ne constituent pas une connexion à une instance Hermes réelle. La
+reprise web actuelle repose sur un polling `GET`, pas sur un streaming SSE/WebSocket.
 
 ## Documentation
 

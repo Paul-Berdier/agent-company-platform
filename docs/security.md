@@ -1,15 +1,20 @@
 # Sécurité et frontières de confiance
 
 Date d'état : 11 septembre 2026
-Statut : durcissement critique partiel du lot A ; production interdite
+Statut : frontières utilisateur et inter-services du Lot B fermées ; production
+interdite tant que les contrôles runner, stockage et exploitation restent absents
 
 ## Conclusion
 
-Le dépôt ne possède pas encore de premier accès sécurisé, de session utilisateur
-révocable ni de RBAC complet. Plusieurs routes métier et flux restent ouverts ou
-insuffisamment scoppés. Les corrections du lot A empêchent certains faux succès et
-protègent les écritures worker les plus critiques, mais elles ne rendent pas la
-plateforme exploitable sur Internet.
+Le Lot B livre un bootstrap propriétaire unique, des sessions serveur révocables et
+expirables, une protection CSRF et des rôles appliqués aux routes utilisateur. Les
+frontières API → provider-gateway et API → event-service utilisent des secrets
+inter-services distincts ; les surfaces sans secret configuré échouent fermées.
+
+Ces garanties ne rendent pas encore la plateforme exploitable sur Internet. Il
+reste notamment à compléter la matrice d'autorisation exhaustive, les en-têtes web
+de production, le flux temps réel utilisateur, l'isolation d'un runner réel, le
+stockage privé, les migrations, la rotation et la restauration.
 
 L'infrastructure pcIA et les systèmes Prooftag sont hors périmètre. Ils ne doivent
 être ni découverts, ni configurés, ni proposés comme runner ou ressource personnelle.
@@ -35,7 +40,7 @@ Un `project_id`, une instruction de prompt, un worktree Git ou un manifest de pl
 n'est pas une frontière de sécurité. Chaque contrôle doit être appliqué par l'API,
 le stockage ou le runner qui détient effectivement la ressource.
 
-## Corrections critiques du lot A
+## Corrections critiques héritées du Lot A
 
 - Les échecs HTTP, réponses non JSON, plans vides et verdicts absents ou invalides
   du gateway échouent fermés ; aucun plan ou verdict positif n'est inventé.
@@ -63,28 +68,62 @@ le stockage ou le runner qui détient effectivement la ressource.
 Ces garanties ont des tests ciblés. Elles ne couvrent pas encore un fencing token
 par tentative, toute la machine d'états, toutes les routes ou le flux WebSocket.
 
+## Accès utilisateur et frontière Hermes (Lot B)
+
+- Le bootstrap n'est disponible qu'avant la création du premier propriétaire et
+  exige `ACP_BOOTSTRAP_TOKEN` ; aucune inscription publique n'est exposée.
+- Les mots de passe sont hachés avec Argon2id. Seul le SHA-256 d'un jeton de session
+  opaque est stocké ; la session expire, peut être révoquée et voyage dans un cookie
+  `HttpOnly` `SameSite=Strict` (`Secure` exigé derrière HTTPS).
+- Le jeton CSRF est tourné lors de la restauration de session et exigé sur les
+  mutations web. Les réponses d'authentification sont `no-store`.
+- `X-User-Id` n'établit aucune identité. Les ressources utilisateur sont résolues à
+  partir de la session puis filtrées par projet/workspace et rôle propriétaire,
+  opérateur/membre ou lecteur.
+- Le navigateur ne reçoit ni `HERMES_API_KEY`, ni Bearer worker ou gateway. Hors
+  `GET /health`, le provider-gateway exige `ACP_GATEWAY_SERVICE_TOKEN`.
+- Conversations et tours sont persistés avant l'appel provider ; les répétitions
+  conservent une clé d'idempotence durable et une conversation générale reste privée
+  à son créateur, sauf pouvoir d'administration global explicitement testé.
+
+## Durcissement du service d'événements (lot B)
+
+- `POST /internal/events` échoue fermé lorsque `ACP_EVENT_SERVICE_TOKEN` est absent,
+  et exige un Bearer comparé en temps constant lorsqu'il est configuré. L'API ne
+  transmet ce secret que dans l'en-tête `Authorization`, jamais dans l'URL.
+- Le WebSocket navigateur anonyme est fermé par défaut avec le code applicatif
+  `4403`. Seul l'opt-in explicitement dangereux
+  `ACP_UNSAFE_ALLOW_ANONYMOUS_EVENT_WEBSOCKET=1` rétablit le comportement historique
+  pour un développement local isolé.
+- Ce verrouillage ne constitue pas encore un flux temps réel utilisateur : une voie
+  authentifiée et scoppée, avec reprise par curseur, reste à construire avant toute
+  exposition réseau.
+
 ## Écarts bloquants
 
 ### Identité et autorisation
 
-- L'identité utilisateur peut encore être absente ou déclarée via `X-User-Id` ; cet
-  en-tête est usurpable et ne prouve pas un principal.
-- Il n'existe ni bootstrap propriétaire fermé, ni session révocable, ni protection
-  contre l'inscription publique, ni rôles propriétaire/opérateur/lecture seule
-  appliqués partout.
-- Les scopes projet ne sont pas contrôlés sur chaque route, événement et fichier.
-- Les changements de membership et autres écritures métier nécessitent un audit
-  d'autorisation complet.
+- Les routes utilisateur principales sont protégées et scoppées, mais aucune matrice
+  exhaustive ne couvre encore chaque relation enfant, événement, fichier, export et
+  future route de plugin.
+- Le propriétaire global possède volontairement un pouvoir d'administration large ;
+  sa journalisation, les changements de membership et les actions sensibles doivent
+  encore recevoir un audit d'autorisation complet.
+- Il n'existe pas encore de jeton utilisateur court et scoppé pour le futur CLI.
+- La limitation des tentatives de connexion, la récupération de compte et une
+  politique de mot de passe d'exploitation ne sont pas livrées.
 
 ### Réseau, événements et navigateur
 
 - La configuration CORS de production, les méthodes/en-têtes permis et le modèle
   d'authentification restent à tester ; CORS ne constitue pas un contrôle d'accès.
-- Le service d'événements conserve les sockets en mémoire ; ses points internes et
-  WebSocket ne sont pas tous authentifiés, scoppés, séquencés ou rejouables.
+- Le service d'événements conserve les sockets en mémoire ; l'ingestion interne est
+  authentifiée et le WebSocket anonyme est fermé par défaut, mais il n'existe pas
+  encore de flux navigateur authentifié, scoppé, séquencé ou rejouable.
 - Il n'existe pas d'origine séparée pour les aperçus de projets non fiables.
-- CSRF, CSP, en-têtes de sécurité, limitations d'upload et politique de cookies ne
-  sont pas encore validés.
+- Le CSRF et la politique de cookie sont couverts localement ; CSP, HSTS, autres
+  en-têtes de sécurité, limitations d'upload et configuration HTTPS restent à
+  valider en déploiement.
 
 ### Exécution, secrets et stockage
 
@@ -150,10 +189,12 @@ un état durable et un événement d'audit.
 - Les secrets sont référencés, injectés au dernier moment et absents des URL, logs,
   événements, réponses frontend et exports.
 
-## Validation requise avant exposition réseau
+## Validation restant requise avant exposition réseau
 
-- tests d'intégration de bootstrap, reconnexion, expiration, révocation et CSRF ;
-- matrice RBAC par route, projet, flux et fichier, avec tests inter-projets négatifs ;
+- E2E navigateur de bootstrap, reconnexion, expiration, révocation et CSRF sur les
+  services réellement démarrés ;
+- matrice RBAC exhaustive par route, projet, flux et fichier, en complément des tests
+  inter-projets négatifs déjà présents ;
 - tests de concurrence lease/fencing et worker obsolète ;
 - tests SSRF, traversée de chemins, archive malveillante, XSS et limites d'upload ;
 - rotation des clés de service, révocation runner et absence de secrets dans les
@@ -176,31 +217,35 @@ un état durable et un événement d'audit.
   n'est pas démontrée.
 - La séparation des clients empêche la transmission accidentelle du Bearer worker au
   provider-gateway.
+- Le bootstrap, les sessions, l'expiration/révocation, le CSRF, l'isolation de
+  conversations et les rôles projet sont couverts dans la suite propre du Lot B.
+- Les frontières gateway/event-service refusent un appel sans Bearer interne valide,
+  et le WebSocket anonyme est fermé par défaut.
 - Le lockfile Node versionné utilise Vite `8.3.0` et Vitest `5.0.0` ; un `npm ci`
   propre suivi de `npm audit` ne signale aucune vulnérabilité connue au moment de la
-  préparation de `0.2.0`.
+  préparation de `0.3.0`.
 
 ### Réalisé, non testé réel
 
 - L'adaptateur Hermes conserve son secret côté serveur par conception, mais aucune
   connexion Hermes réelle n'a été effectuée.
-- Le shell prévoit un Bearer de session optionnel, sans implémenter le mécanisme de
-  connexion qui le délivre.
+- Le web utilise une session cookie/CSRF réelle dans les tests API et TypeScript,
+  mais le parcours complet n'a pas encore été rejoué dans un navigateur contre les
+  services et une instance Hermes réellement lancés.
 
 ### Non configuré
 
-- propriétaire initial, sessions, RBAC et matrice de scopes ;
+- matrice RBAC exhaustive, journal d'administration et authentification du futur CLI ;
 - coffre de secrets et rotation ;
-- CORS de production, CSRF, CSP et origine d'aperçu ;
+- CORS de production, HTTPS/HSTS, CSP et origine d'aperçu ;
 - runner isolé, réseau sortant et fencing token ;
 - stockage privé, URLs signées et rétention ;
 - outbox, authentification des flux et reprise par curseur.
 
 ### Restant
 
-La prochaine tranche de sécurité doit fermer l'accès utilisateur avant toute
-exposition réseau, puis appliquer le scope projet à toutes les routes et tous les
-flux. Les lots suivants doivent compléter l'isolation du runner, les événements
-durables, MCP/skills, les médias privés et la restauration. Tant que ces points ne
-sont pas testés, le produit reste réservé au développement local sur une machine de
-confiance.
+La prochaine tranche de sécurité doit isoler le runner réel et achever sa machine
+d'états, ses preuves et ses approbations. Les lots suivants doivent compléter la
+matrice de scopes, les événements durables, MCP/skills, les médias privés, les
+migrations et la restauration. Tant que ces points ne sont pas testés, le produit
+reste réservé au développement local sur une machine de confiance.

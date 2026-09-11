@@ -1,10 +1,18 @@
 import type { AcpEvent, OfficeConfig, Overview } from "@acp/contracts";
 
+import { AuthApiClient } from "./auth-api";
+import { WorkspaceHttpClient, isRecord } from "./workspace-api";
+
 export const API_URL = import.meta.env.VITE_ACP_API_URL ?? "http://localhost:8000";
 export const EVENTS_WS_URL =
   import.meta.env.VITE_ACP_EVENTS_WS_URL ?? "ws://localhost:8001/ws";
-export const GATEWAY_URL =
-  import.meta.env.VITE_ACP_GATEWAY_URL ?? "http://localhost:8002";
+
+const legacyHttp = new WorkspaceHttpClient({ baseUrl: API_URL });
+const legacyAuth = new AuthApiClient({ http: legacyHttp });
+
+function acceptJson<T>(_value: unknown): _value is T {
+  return true;
+}
 
 export interface PendingApproval {
   id: string;
@@ -13,14 +21,34 @@ export interface PendingApproval {
   payload: Record<string, unknown>;
 }
 
-/** Demandes en attente de l'orchestrateur manuel (vide si gateway absent). */
+interface PlatformApproval {
+  id: string;
+  action: string;
+  reason: string;
+  expires_at: string;
+}
+
+function isPlatformApprovals(value: unknown): value is PlatformApproval[] {
+  return Array.isArray(value) && value.every((item) =>
+    isRecord(item)
+    && typeof item.id === "string"
+    && typeof item.action === "string"
+    && typeof item.reason === "string"
+    && typeof item.expires_at === "string");
+}
+
+/** Demandes durables de la plateforme ; le provider-gateway reste interne. */
 export async function fetchPendingApprovals(): Promise<PendingApproval[]> {
-  try {
-    const resp = await fetch(`${GATEWAY_URL}/v1/manual/pending`);
-    return resp.ok ? resp.json() : [];
-  } catch {
-    return [];
-  }
+  const approvals = await legacyHttp.request(
+    "/approvals?status=WAITING_APPROVAL",
+    isPlatformApprovals,
+  );
+  return approvals.map((approval) => ({
+    id: approval.id,
+    kind: approval.action,
+    created_at: approval.expires_at,
+    payload: { goal: approval.reason },
+  }));
 }
 
 export interface CompanyLevel {
@@ -36,48 +64,48 @@ export interface CompanyLevel {
 
 export async function fetchCompanyLevel(): Promise<CompanyLevel | null> {
   try {
-    const resp = await fetch(`${API_URL}/company/level`);
-    return resp.ok ? resp.json() : null;
+    return await legacyHttp.request("/company/level", acceptJson<CompanyLevel>);
   } catch {
     return null;
   }
 }
 
 export async function fetchRecentEvents(limit = 200): Promise<AcpEvent[]> {
-  try {
-    const resp = await fetch(`${API_URL}/events?limit=${limit}`);
-    return resp.ok ? resp.json() : [];
-  } catch {
-    return [];
-  }
+  return legacyHttp.request(`/events?limit=${Math.max(1, Math.min(limit, 200))}`, acceptJson<AcpEvent[]>);
 }
 
 export async function fetchOverview(): Promise<Overview> {
-  const resp = await fetch(`${API_URL}/overview`);
-  if (!resp.ok) throw new Error(`overview: ${resp.status}`);
-  return resp.json();
+  return legacyHttp.request("/overview", acceptJson<Overview>);
 }
 
 export async function fetchOfficeConfig(
   departmentId: string,
   capacity = 0,
 ): Promise<OfficeConfig> {
-  const resp = await fetch(
-    `${API_URL}/departments/${departmentId}/office-config?capacity=${capacity}`,
+  return legacyHttp.request(
+    `/departments/${encodeURIComponent(departmentId)}/office-config?capacity=${capacity}`,
+    acceptJson<OfficeConfig>,
   );
-  if (!resp.ok) throw new Error(`office-config: ${resp.status}`);
-  return resp.json();
 }
 
 export async function createAndQueueTask(projectId: string, title: string): Promise<void> {
-  const resp = await fetch(`${API_URL}/tasks`, {
+  try {
+    await legacyAuth.fetchSession();
+  } catch {
+    throw new Error(
+      "Le bureau pixel ne peut pas créer de tâche sans session sécurisée. Connecte-toi d’abord dans l’espace principal.",
+    );
+  }
+  const task = await legacyHttp.request<{ id: string }>("/tasks", (value): value is { id: string } =>
+    isRecord(value) && typeof value.id === "string", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ project_id: projectId, title }),
   });
-  if (!resp.ok) throw new Error(`create task: ${resp.status}`);
-  const task = await resp.json();
-  await fetch(`${API_URL}/tasks/${task.id}/queue`, { method: "POST" });
+  await legacyHttp.request(
+    `/tasks/${encodeURIComponent(task.id)}/queue`,
+    acceptJson<Record<string, unknown>>,
+    { method: "POST" },
+  );
 }
 
 export function connectEvents(
