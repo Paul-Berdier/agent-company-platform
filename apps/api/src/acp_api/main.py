@@ -12,6 +12,7 @@ from .routers import (
     connections,
     conversations,
     crud,
+    missions,
     onboarding,
     operations,
     platform,
@@ -29,7 +30,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -48,6 +49,7 @@ app.include_router(connections.router)
 app.include_router(conversations.router)
 app.include_router(onboarding.router)
 app.include_router(crud.router)
+app.include_router(missions.router)
 app.include_router(work.router)
 app.include_router(workers.router)
 app.include_router(operations.router)

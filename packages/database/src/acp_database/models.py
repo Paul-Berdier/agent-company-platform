@@ -1,7 +1,17 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -174,6 +184,23 @@ class TaskModel(_Common, Base):
     workflow_step: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=3)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Une mission réutilise la tâche comme agrégat durable. Ces colonnes restent
+    # optionnelles afin de conserver la compatibilité des tâches historiques.
+    is_mission: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    objective: Mapped[str] = mapped_column(Text, default="")
+    expected_outcome: Mapped[str] = mapped_column(Text, default="")
+    acceptance_criteria: Mapped[list] = mapped_column(JSON, default=list)
+    autonomy: Mapped[dict] = mapped_column(JSON, default=dict)
+    resources: Mapped[list] = mapped_column(JSON, default=list)
+    budget: Mapped[dict] = mapped_column(JSON, default=dict)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    attempt_counter: Mapped[int] = mapped_column(Integer, default=0)
+    active_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("task_runs.id", use_alter=True), nullable=True, index=True
+    )
 
 
 class TaskRunModel(_Common, Base):
@@ -193,6 +220,91 @@ class TaskRunModel(_Common, Base):
     plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     logs: Mapped[list] = mapped_column(JSON, default=list)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    fencing_token: Mapped[int] = mapped_column(Integer, default=0)
+    stop_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stop_requested_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    technical_validation: Mapped[dict] = mapped_column(JSON, default=dict)
+    user_acceptance: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now, index=True
+    )
+
+
+class MissionCommandModel(_Common, Base):
+    """Journal de déduplication des commandes utilisateur non naturellement idempotentes."""
+
+    __tablename__ = "mission_commands"
+    __table_args__ = (
+        UniqueConstraint(
+            "principal_id",
+            "command",
+            "idempotency_key",
+            name="uq_mission_command_principal_key",
+        ),
+    )
+
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), index=True)
+    command: Mapped[str] = mapped_column(String(50))
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    principal_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    request_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    task_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("task_runs.id"), nullable=True
+    )
+
+
+class MissionCommentModel(_Common, Base):
+    __tablename__ = "mission_comments"
+    __table_args__ = (
+        UniqueConstraint(
+            "author_user_id",
+            "task_run_id",
+            "idempotency_key",
+            name="uq_mission_comment_principal_run_key",
+        ),
+        CheckConstraint(
+            "idempotency_key IS NULL OR task_run_id IS NOT NULL",
+            name="ck_mission_comment_key_requires_run",
+        ),
+    )
+
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), index=True)
+    task_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("task_runs.id"), nullable=True, index=True
+    )
+    author_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+
+
+class MissionEvidenceModel(_Common, Base):
+    __tablename__ = "mission_evidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_run_id", "fingerprint", name="uq_mission_evidence_fingerprint"
+        ),
+    )
+
+    task_run_id: Mapped[str] = mapped_column(
+        ForeignKey("task_runs.id"), index=True
+    )
+    worker_id: Mapped[str] = mapped_column(ForeignKey("workers.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(100))
+    summary: Mapped[str] = mapped_column(Text)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uri: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
 
 
 class EventModel(_Common, Base):
@@ -297,6 +409,11 @@ class ApprovalModel(_Common, Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     task_run_id: Mapped[str | None] = mapped_column(ForeignKey("task_runs.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(100), index=True)
+    target: Mapped[str] = mapped_column(String(1000), default="")
+    consequences: Mapped[list] = mapped_column(JSON, default=list)
+    scope: Mapped[dict] = mapped_column(JSON, default=dict)
+    footprint: Mapped[dict] = mapped_column(JSON, default=dict)
+    action_fingerprint: Mapped[str] = mapped_column(String(64), default="", index=True)
     reason: Mapped[str] = mapped_column(Text)
     context: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(50), default="WAITING_APPROVAL", index=True)
@@ -304,6 +421,10 @@ class ApprovalModel(_Common, Base):
     decided_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     decision_comment: Mapped[str] = mapped_column(Text, default="")
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invalidated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    invalidated_reason: Mapped[str] = mapped_column(Text, default="")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

@@ -122,6 +122,8 @@ def expire_task_leases(db: Session) -> int:
         task = db.get(TaskModel, lease.task_id)
         if task is not None and task.status in {"planning", "in_progress", "review"}:
             task.status = "blocked"
+        if task is not None and task.is_mission and task.active_run_id == lease.task_run_id:
+            task.active_run_id = None
         if task is not None and run is not None:
             project = db.get(ProjectModel, task.project_id)
             workspace = db.get(WorkspaceModel, project.workspace_id) if project else None
@@ -244,6 +246,14 @@ def heartbeat(
         worker.capabilities = [capability.value for capability in body.capabilities]
     if body.max_concurrency is not None:
         worker.max_concurrency = body.max_concurrency
+    if body.simulation is False and worker.simulation:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Un worker de simulation ne peut devenir réel que par un nouvel "
+                "enregistrement autorisé"
+            ),
+        )
     if body.simulation is not None:
         worker.simulation = int(body.simulation)
     active_runs = (

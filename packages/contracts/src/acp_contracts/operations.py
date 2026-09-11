@@ -63,12 +63,22 @@ class ApprovalStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
+    INVALIDATED = "INVALIDATED"
 
 
-class ApprovalRequestCreate(BaseModel):
+class ApprovalActionEnvelope(BaseModel):
+    """Description canonique de l'effet autorisé, jamais une permission globale."""
+
+    action: ApprovalAction
+    target: str = Field(default="", max_length=1000)
+    consequences: list[str] = Field(default_factory=list, max_length=100)
+    scope: dict[str, Any] = Field(default_factory=dict)
+    footprint: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApprovalRequestCreate(ApprovalActionEnvelope):
     project_id: str
     task_run_id: str | None = None
-    action: ApprovalAction
     reason: str = Field(min_length=1, max_length=2000)
     context: dict[str, Any] = Field(default_factory=dict)
     expires_in_seconds: int = Field(default=3600, ge=60, le=86400)
@@ -91,6 +101,11 @@ class ApprovalRequest(BaseModel):
     project_id: str
     task_run_id: str | None = None
     action: ApprovalAction
+    target: str = ""
+    consequences: list[str] = Field(default_factory=list)
+    scope: dict[str, Any] = Field(default_factory=dict)
+    footprint: dict[str, Any] = Field(default_factory=dict)
+    action_fingerprint: str
     reason: str
     context: dict[str, Any] = Field(default_factory=dict)
     status: ApprovalStatus
@@ -98,8 +113,23 @@ class ApprovalRequest(BaseModel):
     decided_by: str | None = None
     decision_comment: str = ""
     decided_at: datetime | None = None
+    invalidated_at: datetime | None = None
+    invalidated_reason: str = ""
     expires_at: datetime
     created_at: datetime | None = None
+
+
+class ApprovalExecutionCheck(ApprovalActionEnvelope):
+    task_run_id: str
+    fencing_token: int = Field(ge=1)
+
+
+class ApprovalValidationResult(BaseModel):
+    approval_id: str
+    valid: bool
+    status: ApprovalStatus
+    action_fingerprint: str
+    expires_at: datetime
 
 
 class ArtifactCreate(BaseModel):

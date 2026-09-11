@@ -1,5 +1,7 @@
 """Tâches, task runs et attribution aux workers d'exécution."""
 
+import hashlib
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -8,16 +10,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from acp_contracts import (
+    EvidenceCreate,
     Event,
     SessionContext,
     Task,
     TaskRun,
+    TechnicalValidation,
     WorkerClaimRequest,
     WorkerLeaseResponse,
 )
 from acp_contracts.enums import SessionScope
 from acp_database.models import (
     AgentInstanceModel,
+    MissionEvidenceModel,
     ProjectModel,
     SessionModel,
     TaskModel,
@@ -72,6 +77,8 @@ class TaskRunPatch(BaseModel):
     plan: dict | None = None
     result: dict | None = None
     append_logs: list[dict] = Field(default_factory=list)
+    technical_validation: TechnicalValidation | None = None
+    evidence: list[EvidenceCreate] = Field(default_factory=list)
 
 
 _RUN_STATES = {
@@ -100,7 +107,7 @@ _RUN_TRANSITIONS = {
         "cancelled", "interrupted",
     },
     "waiting_approval": {"running", "blocked", "stopping", "failed", "cancelled", "interrupted"},
-    "stopping": {"failed", "cancelled", "interrupted"},
+    "stopping": {"cancelled", "interrupted"},
     "blocked": set(),
     "succeeded": set(),
     "failed": set(),
@@ -212,6 +219,11 @@ def patch_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Tâche introuvable")
     ensure_access(db, principal, project_id=task.project_id, minimum_role="member")
+    if task.is_mission:
+        raise HTTPException(
+            status_code=409,
+            detail="Utilisez les routes /missions pour modifier une mission",
+        )
     if body.status is not None and body.status != "backlog":
         raise HTTPException(
             status_code=422,
@@ -245,6 +257,11 @@ def queue_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Tâche introuvable")
     ensure_access(db, principal, project_id=task.project_id, minimum_role="member")
+    if task.is_mission:
+        raise HTTPException(
+            status_code=409,
+            detail="Utilisez /missions/{id}/retry pour relancer une mission",
+        )
     task.status = "queued"
     db.commit()
     _emit(db, background, Event(type="task.queued", **_task_event_ids(db, task),
@@ -263,6 +280,7 @@ def _claim_next_task(
 
     worker_capabilities = set(worker.capabilities or []) if worker is not None else None
     task = None
+    simulation_rejected_real_mission = False
     for candidate in (
         db.query(TaskModel)
         .filter_by(status="queued")
@@ -270,12 +288,31 @@ def _claim_next_task(
         .with_for_update(skip_locked=True)
         .all()
     ):
+        if worker is not None and worker.simulation and candidate.is_mission:
+            simulation_rejected_real_mission = True
+            continue
         required = set((candidate.meta or {}).get("required_capabilities", []))
-        if worker_capabilities is None or required.issubset(worker_capabilities):
+        if worker_capabilities is not None and not required.issubset(worker_capabilities):
+            continue
+        # ``FOR UPDATE SKIP LOCKED`` est efficace sur PostgreSQL, mais ignoré par
+        # SQLite. La mise à jour conditionnelle conserve une attribution unique
+        # sur les deux moteurs.
+        reserved = (
+            db.query(TaskModel)
+            .filter(TaskModel.id == candidate.id, TaskModel.status == "queued")
+            .update({TaskModel.status: "planning"}, synchronize_session=False)
+        )
+        if reserved == 1:
             task = candidate
             break
     if task is None:
-        reason = "aucune tâche compatible" if worker is not None else None
+        reason = None
+        if worker is not None:
+            reason = (
+                "worker de simulation interdit pour une mission réelle"
+                if simulation_rejected_real_mission
+                else "aucune tâche compatible"
+            )
         return {"task": None, **({"reason": reason} if reason else {})}
 
     project = db.get(ProjectModel, task.project_id)
@@ -315,20 +352,50 @@ def _claim_next_task(
         provider_id=body.provider_id,
         memory_scope="PROJECT",
     )
-    run = TaskRunModel(
-        task_id=task.id,
-        agent_instance_id=agent.id,
-        status="running",
-        started_at=datetime.now(timezone.utc),
+    run = (
+        db.query(TaskRunModel)
+        .filter_by(task_id=task.id, status="queued")
+        .order_by(TaskRunModel.attempt_number.desc(), TaskRunModel.created_at.desc())
+        .with_for_update()
+        .first()
     )
+    if run is None:
+        # Compatibilité des tâches historiques mises en file sans tentative.
+        task.attempt_counter = max(task.attempt_counter or 0, 0) + 1
+        run = TaskRunModel(
+            task_id=task.id,
+            attempt_number=task.attempt_counter,
+            fencing_token=task.attempt_counter,
+            technical_validation={"status": "pending"},
+            user_acceptance={"status": "pending"},
+        )
+        db.add(run)
+    run.agent_instance_id = agent.id
+    run.status = "preparing" if task.is_mission else "running"
+    run.started_at = run.started_at or datetime.now(timezone.utc)
     task.status = "planning"
     task.agent_instance_id = agent.id
     agent.status = "thinking"
-    db.add_all([session, run])
+    db.add(session)
     db.flush()
     run.session_id = session.id
     lease = None
     if worker is not None:
+        capacity_reserved = (
+            db.query(WorkerModel)
+            .filter(
+                WorkerModel.id == worker.id,
+                WorkerModel.active_runs < WorkerModel.max_concurrency,
+            )
+            .update(
+                {WorkerModel.active_runs: WorkerModel.active_runs + 1},
+                synchronize_session=False,
+            )
+        )
+        if capacity_reserved != 1:
+            db.rollback()
+            return {"task": None, "reason": "capacité de concurrence atteinte"}
+        db.refresh(worker)
         lease = WorkerLeaseModel(
             worker_id=worker.id,
             task_id=task.id,
@@ -338,9 +405,9 @@ def _claim_next_task(
             lease_expires_at=utcnow() + timedelta(seconds=WORKER_LEASE_SECONDS),
             last_renewed_at=utcnow(),
         )
-        worker.active_runs += 1
         worker.status = "busy" if worker.active_runs >= worker.max_concurrency else "online"
         db.add(lease)
+    task.active_run_id = run.id if task.is_mission else task.active_run_id
     db.commit()
 
     ids = _task_event_ids(db, task)
@@ -371,7 +438,22 @@ def _claim_next_task(
         "agent": {"id": agent.id, "name": agent.name, "role_id": agent.role_id},
         "project": {"id": project.id, "name": project.name, "project_type": project.project_type},
         "required_capabilities": (task.meta or {}).get("required_capabilities", []),
+        "attempt_id": run.id,
+        "attempt_number": run.attempt_number,
+        "fencing_token": run.fencing_token,
+        "stop_requested": run.stop_requested_at is not None,
     }
+    if task.is_mission:
+        response["mission"] = {
+            "id": task.id,
+            "objective": task.objective,
+            "expected_outcome": task.expected_outcome,
+            "acceptance_criteria": list(task.acceptance_criteria or []),
+            "autonomy": dict(task.autonomy or {}),
+            "resources": list(task.resources or []),
+            "budget": dict(task.budget or {}),
+            "duration_seconds": task.duration_seconds,
+        }
     if lease is not None:
         response["lease_expires_at"] = lease.lease_expires_at.isoformat()
     return response
@@ -401,6 +483,9 @@ def renew_task_lease(
     run_id: str,
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
+    fencing_token: int | None = Header(
+        default=None, alias="X-Attempt-Fencing-Token"
+    ),
 ):
     worker = authenticate_worker(db, worker_id, authorization)
     lease = (
@@ -410,6 +495,12 @@ def renew_task_lease(
     )
     if lease is None:
         raise HTTPException(status_code=404, detail="Lease actif introuvable")
+    run = db.get(TaskRunModel, run_id)
+    task = db.get(TaskModel, run.task_id) if run is not None else None
+    if run is None or task is None or lease.task_id != task.id:
+        raise HTTPException(status_code=409, detail="Lease incohérent avec la tentative")
+    if task.is_mission and fencing_token != run.fencing_token:
+        raise HTTPException(status_code=409, detail="Fencing token requis ou périmé")
     now = utcnow()
     if _as_utc(lease.lease_expires_at) <= now:
         expire_task_leases(db)
@@ -424,6 +515,9 @@ def renew_task_lease(
         worker_id=worker.id,
         task_run_id=run_id,
         lease_expires_at=lease.lease_expires_at,
+        status=run.status,
+        stop_requested=run.stop_requested_at is not None or run.status == "stopping",
+        fencing_token=run.fencing_token,
     )
 
 
@@ -459,6 +553,35 @@ def list_task_runs(
     return [TaskRun.model_validate(r, from_attributes=True) for r in q.all()]
 
 
+def _evidence_fingerprint(evidence: EvidenceCreate) -> str:
+    canonical = json.dumps(
+        evidence.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _compare_and_set_run_status(
+    db: Session, *, run_id: str, expected_status: str, target_status: str
+) -> bool:
+    """Change l'état seulement si aucun autre acteur ne l'a fait entre-temps."""
+
+    return (
+        db.query(TaskRunModel)
+        .filter(
+            TaskRunModel.id == run_id,
+            TaskRunModel.status == expected_status,
+        )
+        .update(
+            {TaskRunModel.status: target_status},
+            synchronize_session=False,
+        )
+        == 1
+    )
+
+
 @router.patch("/task-runs/{run_id}", response_model=TaskRun)
 def patch_task_run(
     run_id: str,
@@ -467,13 +590,24 @@ def patch_task_run(
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
     worker_id: str | None = Header(default=None, alias="X-Worker-Id"),
+    fencing_token: int | None = Header(
+        default=None, alias="X-Attempt-Fencing-Token"
+    ),
 ):
     """Accepte une progression uniquement du worker qui détient le lease actif."""
 
     if not worker_id:
         raise HTTPException(status_code=401, detail="X-Worker-Id requis")
     worker = authenticate_worker(db, worker_id, authorization)
-    run = db.get(TaskRunModel, run_id)
+    # Serialize worker transitions with user stop requests on databases that
+    # support row locks. SQLite ignores FOR UPDATE, so the conditional status
+    # update below remains the final stale-read guard there.
+    run = (
+        db.query(TaskRunModel)
+        .filter_by(id=run_id)
+        .with_for_update()
+        .first()
+    )
     if run is None:
         raise HTTPException(status_code=404, detail="Task run introuvable")
     lease = (
@@ -488,6 +622,13 @@ def patch_task_run(
     task = db.get(TaskModel, run.task_id)
     if task is None or lease.task_id != task.id:
         raise HTTPException(status_code=409, detail="Lease incohérent avec la tâche du run")
+    if task.is_mission and fencing_token != run.fencing_token:
+        raise HTTPException(status_code=409, detail="Fencing token requis ou périmé")
+    if run.status == "stopping" and body.status not in {"cancelled", "interrupted"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Une tentative en arrêt doit être annulée ou interrompue",
+        )
     if body.status is not None and body.status not in _RUN_STATES:
         raise HTTPException(status_code=422, detail="État de run inconnu")
     if (
@@ -499,23 +640,81 @@ def patch_task_run(
             status_code=409,
             detail=f"Transition de run interdite: {run.status} → {body.status}",
         )
+    technical_validation = dict(run.technical_validation or {"status": "pending"})
+    if body.technical_validation is not None:
+        technical_validation = body.technical_validation.model_dump(mode="json")
+        technical_validation["checked_at"] = technical_validation.get(
+            "checked_at"
+        ) or utcnow().isoformat()
+
+    new_evidence: list[tuple[EvidenceCreate, str]] = []
+    for evidence in body.evidence:
+        fingerprint = _evidence_fingerprint(evidence)
+        exists = (
+            db.query(MissionEvidenceModel.id)
+            .filter_by(task_run_id=run.id, fingerprint=fingerprint)
+            .first()
+        )
+        if exists is None and all(item[1] != fingerprint for item in new_evidence):
+            new_evidence.append((evidence, fingerprint))
+
     if body.status == "succeeded":
-        result = body.result if body.result is not None else run.result
-        evidence = result.get("evidence") if isinstance(result, dict) else None
-        if (
-            not isinstance(result, dict)
-            or result.get("technical_validation") != "passed"
-            or not isinstance(evidence, list)
-            or not evidence
-        ):
+        if task.is_mission:
+            evidence_count = (
+                db.query(MissionEvidenceModel)
+                .filter_by(task_run_id=run.id)
+                .count()
+            ) + len(new_evidence)
+            if technical_validation.get("status") != "passed" or evidence_count < 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Un succès exige une validation technique passed "
+                        "et au moins une preuve structurée"
+                    ),
+                )
+        else:
+            # Compatibilité temporaire de l'ancien protocole task-run.
+            result = body.result if body.result is not None else run.result
+            evidence = result.get("evidence") if isinstance(result, dict) else None
+            if (
+                not isinstance(result, dict)
+                or result.get("technical_validation") != "passed"
+                or not isinstance(evidence, list)
+                or not evidence
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Un succès exige technical_validation=passed et au moins une preuve",
+                )
+    previous_status = run.status
+    if body.status is not None and body.status != previous_status:
+        transitioned = _compare_and_set_run_status(
+            db,
+            run_id=run.id,
+            expected_status=previous_status,
+            target_status=body.status,
+        )
+        if not transitioned:
+            db.rollback()
+            current = db.get(TaskRunModel, run_id)
+            current_status = current.status if current is not None else "absent"
             raise HTTPException(
-                status_code=422,
-                detail="Un succès exige technical_validation=passed et au moins une preuve",
+                status_code=409,
+                detail=(
+                    "Transition refusée après changement concurrent: "
+                    f"{previous_status} → {current_status}"
+                ),
             )
+        db.refresh(run)
     terminal_event: Event | None = None
     if body.status is not None:
         run.status = body.status
-        task.status = _TASK_STATUS_BY_RUN.get(body.status, task.status)
+        task.status = (
+            "review"
+            if task.is_mission and body.status == "succeeded"
+            else _TASK_STATUS_BY_RUN.get(body.status, task.status)
+        )
         if run.agent_instance_id:
             agent = db.get(AgentInstanceModel, run.agent_instance_id)
             if agent is not None:
@@ -525,6 +724,8 @@ def patch_task_run(
             lease.status = "released"
             worker.active_runs = max(0, worker.active_runs - 1)
             worker.status = "online"
+            if task.is_mission and task.active_run_id == run.id:
+                task.active_run_id = None
             terminal_event = Event(
                 type=_TERMINAL_EVENT_BY_RUN[body.status],
                 **_task_event_ids(db, task),
@@ -533,11 +734,7 @@ def patch_task_run(
                     "title": task.title,
                     "run_status": body.status,
                     "worker_id": worker.id,
-                    "technical_validation": (
-                        body.result.get("technical_validation")
-                        if isinstance(body.result, dict)
-                        else None
-                    ),
+                    "technical_validation": technical_validation.get("status"),
                 },
             )
     if body.workflow_step is not None:
@@ -546,6 +743,17 @@ def patch_task_run(
         run.plan = body.plan
     if body.result is not None:
         run.result = body.result
+    if body.technical_validation is not None:
+        run.technical_validation = technical_validation
+    for evidence, fingerprint in new_evidence:
+        db.add(
+            MissionEvidenceModel(
+                task_run_id=run.id,
+                worker_id=worker.id,
+                fingerprint=fingerprint,
+                **evidence.model_dump(),
+            )
+        )
     if body.append_logs:
         run.logs = list(run.logs or []) + body.append_logs
     if terminal_event is not None:
