@@ -11,6 +11,7 @@ from pathlib import Path
 class WorkerConfig:
     api_url: str
     gateway_url: str
+    gateway_service_token: str | None
     provider_id: str
     poll_interval: float
     step_seconds: float
@@ -30,6 +31,7 @@ class WorkerConfig:
             gateway_url=os.environ.get(
                 "ACP_PROVIDER_GATEWAY_URL", "http://localhost:8002"
             ).rstrip("/"),
+            gateway_service_token=os.environ.get("ACP_GATEWAY_SERVICE_TOKEN"),
             provider_id=os.environ.get("ACP_ORCHESTRATOR_PROVIDER", "mock"),
             poll_interval=float(os.environ.get("ACP_WORKER_POLL_INTERVAL", "2.0")),
             step_seconds=float(os.environ.get("ACP_WORKER_STEP_SECONDS", "3.0")),

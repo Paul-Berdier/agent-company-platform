@@ -1,7 +1,10 @@
 import os
+import secrets
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from acp_contracts import (
@@ -12,7 +15,12 @@ from acp_contracts import (
 )
 from acp_provider_sdk import ProviderRegistry, ProviderUnavailableError
 
-from .providers.hermes import HermesOrchestratorProvider
+from .providers.hermes import (
+    HermesConversationRunRequest,
+    HermesDiagnostic,
+    HermesOrchestratorProvider,
+    HermesRunView,
+)
 from .providers.manual import ManualOrchestratorProvider
 from .providers.mock import MockOrchestratorProvider
 
@@ -29,9 +37,41 @@ app.add_middleware(
 
 registry = ProviderRegistry()
 manual_provider = ManualOrchestratorProvider()
+hermes_provider = HermesOrchestratorProvider()
 registry.register(MockOrchestratorProvider())
 registry.register(manual_provider)
-registry.register(HermesOrchestratorProvider())  # indisponible tant que non configuré
+registry.register(hermes_provider)  # indisponible tant que non configuré
+
+
+@app.middleware("http")
+async def require_internal_bearer(request: Request, call_next):
+    """Ne laisse publique que la liveness, y compris si le secret est absent."""
+
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    expected = os.environ.get("ACP_GATEWAY_SERVICE_TOKEN", "").strip()
+    if not expected:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Authentification interne du gateway non configurée"},
+        )
+
+    authorization = request.headers.get("Authorization", "")
+    scheme, separator, credential = authorization.partition(" ")
+    authenticated = (
+        separator == " "
+        and scheme.lower() == "bearer"
+        and bool(credential)
+        and secrets.compare_digest(credential, expected)
+    )
+    if not authenticated:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentification Bearer requise"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
 
 
 def _get(provider_id: str):
@@ -54,6 +94,64 @@ def list_providers():
 @app.get("/v1/providers/{provider_id}/health")
 async def provider_health(provider_id: str):
     return (await _get(provider_id).health_check()).model_dump(mode="json")
+
+
+@app.get(
+    "/v1/providers/hermes/diagnostic",
+    response_model=HermesDiagnostic,
+    response_model_exclude_none=True,
+)
+async def hermes_diagnostic():
+    return await hermes_provider.diagnostic()
+
+
+def _idempotency_key(value: str | None) -> str:
+    if value is None or not 1 <= len(value) <= 255:
+        raise HTTPException(
+            status_code=422,
+            detail="Idempotency-Key doit contenir de 1 à 255 caractères ASCII visibles",
+        )
+    if any(ord(character) < 33 or ord(character) > 126 for character in value):
+        raise HTTPException(
+            status_code=422,
+            detail="Idempotency-Key doit contenir de 1 à 255 caractères ASCII visibles",
+        )
+    return value
+
+
+@app.post(
+    "/v1/providers/hermes/runs",
+    response_model=HermesRunView,
+    response_model_exclude_none=True,
+    status_code=202,
+)
+async def submit_hermes_run(
+    request: HermesConversationRunRequest,
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key")
+    ] = None,
+):
+    try:
+        return await hermes_provider.submit_conversation_run(
+            request,
+            idempotency_key=_idempotency_key(idempotency_key),
+        )
+    except ProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/providers/hermes/runs/{run_id}",
+    response_model=HermesRunView,
+    response_model_exclude_none=True,
+)
+async def read_hermes_run(
+    run_id: Annotated[str, Path(pattern=r"^run_[0-9a-f]{32}$")],
+):
+    try:
+        return await hermes_provider.read_conversation_run(run_id)
+    except ProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/v1/providers/{provider_id}/plan")
