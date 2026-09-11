@@ -1,4 +1,4 @@
-import type { AcpEvent, Overview, Project, TaskStatus, TaskSummary } from "@acp/contracts";
+import type { AcpEvent, Overview, Project, TaskSummary } from "@acp/contracts";
 
 export type ApiFailureKind = "offline" | "forbidden" | "http" | "invalid_response";
 
@@ -11,18 +11,6 @@ export class WorkspaceApiError extends Error {
     this.name = "WorkspaceApiError";
     this.kind = kind;
     this.status = status;
-  }
-}
-
-export class MissionQueueError extends Error {
-  readonly taskId: string;
-  readonly cause: WorkspaceApiError;
-
-  constructor(taskId: string, cause: WorkspaceApiError) {
-    super(`La mission ${taskId} a été créée, mais sa mise en file a échoué.`);
-    this.name = "MissionQueueError";
-    this.taskId = taskId;
-    this.cause = cause;
   }
 }
 
@@ -41,19 +29,99 @@ export interface MissionInput {
   title: string;
   objective: string;
   expectedResult: string;
-  acceptanceCriteria: string;
+  acceptanceCriteria: string[];
   autonomy: "read_only" | "isolated_work" | "sensitive_on_approval";
   priority: number;
+  durationSeconds: number;
+  maxToolCalls: number;
 }
 
-export interface TaskResource extends TaskSummary {
+export type MissionExecutionStatus =
+  | "queued"
+  | "preparing"
+  | "running"
+  | "waiting_approval"
+  | "blocked"
+  | "stopping"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
+
+export interface MissionEvidence {
+  id: string;
+  task_run_id: string;
+  worker_id: string;
+  kind: string;
+  summary: string;
+  data: Record<string, unknown>;
+  command: string | null;
+  exit_code: number | null;
+  uri: string | null;
+  checksum: string | null;
+  created_at: string | null;
+}
+
+export interface MissionRunResource {
+  id: string;
+  mission_id: string;
+  attempt_number: number;
+  fencing_token: number;
+  status: MissionExecutionStatus;
+  stop_requested: boolean;
+  technical_validation: {
+    status: "pending" | "passed" | "failed";
+    summary: string;
+    checked_at: string | null;
+  };
+  user_acceptance: {
+    status: "pending" | "accepted" | "rejected";
+    comment: string;
+    decided_by: string | null;
+    decided_at: string | null;
+  };
+  evidence: MissionEvidence[];
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+}
+
+export interface MissionSummary {
+  id: string;
+  project_id: string;
+  title: string;
+  objective: string;
+  expected_outcome: string;
+  acceptance_criteria: string[];
+  duration_seconds: number;
+  priority: number;
+  status: MissionExecutionStatus;
+  current_run: MissionRunResource;
+  created_at: string | null;
+}
+
+export interface MissionDetail extends MissionSummary {
+  runs: MissionRunResource[];
+}
+
+export interface MissionStopResponse {
+  mission_id: string;
+  run: MissionRunResource;
+  already_stopped: boolean;
+}
+
+export interface MissionComment {
+  id: string;
+  mission_id: string;
+  run_id: string | null;
+  author_user_id: string;
+  body: string;
+  created_at: string | null;
+}
+
+interface TaskResource extends TaskSummary {
   description?: string;
   meta?: Record<string, unknown>;
-}
-
-export interface QueuedMission {
-  created: TaskResource;
-  queued: TaskResource;
 }
 
 export interface OnboardingStatus {
@@ -88,6 +156,114 @@ function isTaskResource(value: unknown): value is TaskResource {
     && hasString(value, "project_id")
     && hasString(value, "title")
     && hasString(value, "status");
+}
+
+const MISSION_STATUSES = new Set<MissionExecutionStatus>([
+  "queued",
+  "preparing",
+  "running",
+  "waiting_approval",
+  "blocked",
+  "stopping",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function isMissionEvidence(value: unknown): value is MissionEvidence {
+  return isRecord(value)
+    && hasString(value, "id")
+    && hasString(value, "task_run_id")
+    && hasString(value, "worker_id")
+    && hasString(value, "kind")
+    && hasString(value, "summary")
+    && isRecord(value.data)
+    && isNullableString(value.command)
+    && (value.exit_code === null || typeof value.exit_code === "number")
+    && isNullableString(value.uri)
+    && isNullableString(value.checksum)
+    && isNullableString(value.created_at);
+}
+
+function isMissionRun(value: unknown): value is MissionRunResource {
+  if (!isRecord(value) || !hasString(value, "status")) return false;
+  const technical = value.technical_validation;
+  const acceptance = value.user_acceptance;
+  return hasString(value, "id")
+    && hasString(value, "mission_id")
+    && typeof value.attempt_number === "number"
+    && Number.isInteger(value.attempt_number)
+    && typeof value.fencing_token === "number"
+    && Number.isInteger(value.fencing_token)
+    && MISSION_STATUSES.has(value.status as MissionExecutionStatus)
+    && typeof value.stop_requested === "boolean"
+    && isRecord(technical)
+    && ["pending", "passed", "failed"].includes(String(technical.status))
+    && typeof technical.summary === "string"
+    && isNullableString(technical.checked_at)
+    && isRecord(acceptance)
+    && ["pending", "accepted", "rejected"].includes(String(acceptance.status))
+    && typeof acceptance.comment === "string"
+    && isNullableString(acceptance.decided_by)
+    && isNullableString(acceptance.decided_at)
+    && Array.isArray(value.evidence)
+    && value.evidence.every(isMissionEvidence)
+    && isNullableString(value.started_at)
+    && isNullableString(value.finished_at)
+    && isNullableString(value.created_at);
+}
+
+function isMissionSummary(value: unknown): value is MissionSummary {
+  return isRecord(value)
+    && hasString(value, "id")
+    && hasString(value, "project_id")
+    && hasString(value, "title")
+    && hasString(value, "objective")
+    && hasString(value, "expected_outcome")
+    && Array.isArray(value.acceptance_criteria)
+    && value.acceptance_criteria.every((item) => typeof item === "string")
+    && typeof value.duration_seconds === "number"
+    && typeof value.priority === "number"
+    && hasString(value, "status")
+    && MISSION_STATUSES.has(value.status as MissionExecutionStatus)
+    && isMissionRun(value.current_run)
+    && isNullableString(value.created_at);
+}
+
+function isMissionDetail(value: unknown): value is MissionDetail {
+  if (!isMissionSummary(value)) return false;
+  const candidate = value as unknown as Record<string, unknown>;
+  return Array.isArray(candidate.runs) && candidate.runs.every(isMissionRun);
+}
+
+function isMissionList(value: unknown): value is MissionSummary[] {
+  return Array.isArray(value) && value.every(isMissionSummary);
+}
+
+function isMissionStopResponse(value: unknown): value is MissionStopResponse {
+  return isRecord(value)
+    && hasString(value, "mission_id")
+    && typeof value.already_stopped === "boolean"
+    && isMissionRun(value.run);
+}
+
+function isMissionComment(value: unknown): value is MissionComment {
+  return isRecord(value)
+    && hasString(value, "id")
+    && hasString(value, "mission_id")
+    && isNullableString(value.run_id)
+    && hasString(value, "author_user_id")
+    && hasString(value, "body")
+    && isNullableString(value.created_at);
+}
+
+function isMissionCommentList(value: unknown): value is MissionComment[] {
+  return Array.isArray(value) && value.every(isMissionComment);
 }
 
 function isProjectSummary(value: unknown): boolean {
@@ -307,44 +483,106 @@ export class WorkspaceApiClient {
     });
   }
 
-  async createAndQueueMission(input: MissionInput): Promise<QueuedMission> {
-    const created = await this.http.request("/tasks", isTaskResource, {
+  fetchMissions(): Promise<MissionSummary[]> {
+    return this.http.request("/missions", isMissionList);
+  }
+
+  fetchMission(missionId: string): Promise<MissionDetail> {
+    return this.http.request(`/missions/${encodeURIComponent(missionId)}`, isMissionDetail);
+  }
+
+  fetchMissionByRun(runId: string): Promise<MissionDetail> {
+    return this.http.request(`/missions/by-run/${encodeURIComponent(runId)}`, isMissionDetail);
+  }
+
+  createMission(input: MissionInput, idempotencyKey: string): Promise<MissionDetail> {
+    const autonomy = input.autonomy === "read_only"
+      ? {
+          mode: "supervised",
+          allowed_actions: [],
+          forbidden_actions: ["write", "external_effect"],
+          approval_required_actions: [],
+        }
+      : {
+          mode: "bounded",
+          allowed_actions: ["read", "write_workspace"],
+          forbidden_actions: [],
+          approval_required_actions: input.autonomy === "sensitive_on_approval"
+            ? ["external_effect", "sensitive_action"]
+            : ["external_effect"],
+        };
+    return this.http.request("/missions", isMissionDetail, {
       method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify({
         project_id: input.projectId,
-        title: input.title,
-        description: input.objective,
+        title: input.title.trim(),
+        objective: input.objective.trim(),
+        expected_outcome: input.expectedResult.trim(),
+        acceptance_criteria: input.acceptanceCriteria,
+        autonomy,
+        resources: [],
+        budget: { max_tool_calls: input.maxToolCalls },
+        duration_seconds: input.durationSeconds,
         priority: input.priority,
-        meta: {
-          kind: "mission",
-          source: "web-workspace",
-          expected_result: input.expectedResult,
-          acceptance_criteria: input.acceptanceCriteria,
-          autonomy: input.autonomy,
-        },
       }),
     });
+  }
 
-    let queued: TaskResource;
-    try {
-      queued = await this.http.request(
-        `/tasks/${encodeURIComponent(created.id)}/queue`,
-        isTaskResource,
-        { method: "POST" },
-      );
-    } catch (error) {
-      throw new MissionQueueError(created.id, asApiError(error));
-    }
+  stopMission(missionId: string, idempotencyKey: string): Promise<MissionStopResponse> {
+    return this.http.request(
+      `/missions/${encodeURIComponent(missionId)}/stop`,
+      isMissionStopResponse,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey } },
+    );
+  }
 
-    if (queued.id !== created.id || queued.status !== ("queued" satisfies TaskStatus)) {
-      throw new MissionQueueError(
-        created.id,
-        new WorkspaceApiError(
-          "La réponse de mise en file ne confirme pas l’état « queued ».",
-          "invalid_response",
-        ),
-      );
-    }
-    return { created, queued };
+  retryMission(missionId: string, reason: string, idempotencyKey: string): Promise<MissionRunResource> {
+    return this.http.request(
+      `/missions/${encodeURIComponent(missionId)}/retry`,
+      isMissionRun,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ reason: reason.trim() }),
+      },
+    );
+  }
+
+  decideMissionAcceptance(
+    missionId: string,
+    runId: string,
+    decision: "accepted" | "rejected",
+    comment = "",
+  ): Promise<MissionRunResource> {
+    return this.http.request(
+      `/missions/${encodeURIComponent(missionId)}/runs/${encodeURIComponent(runId)}/acceptance`,
+      isMissionRun,
+      { method: "POST", body: JSON.stringify({ decision, comment: comment.trim() }) },
+    );
+  }
+
+  addMissionComment(
+    missionId: string,
+    runId: string,
+    body: string,
+    idempotencyKey: string,
+  ): Promise<MissionComment> {
+    return this.http.request(
+      `/missions/${encodeURIComponent(missionId)}/comments`,
+      isMissionComment,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ run_id: runId, body: body.trim() }),
+      },
+    );
+  }
+
+  fetchMissionComments(missionId: string): Promise<MissionComment[]> {
+    return this.http.request(
+      `/missions/${encodeURIComponent(missionId)}/comments`,
+      isMissionCommentList,
+    );
   }
 }

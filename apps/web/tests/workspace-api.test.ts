@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  MissionQueueError,
   WorkspaceApiClient,
   WorkspaceApiError,
   type MissionInput,
@@ -23,9 +22,11 @@ const mission: MissionInput = {
   title: "Vérifier le produit",
   objective: "Exécuter une vérification déterministe.",
   expectedResult: "Un rapport vérifiable",
-  acceptanceCriteria: "Les assertions passent",
-  autonomy: "isolated_work",
+  acceptanceCriteria: ["Les assertions passent"],
+  autonomy: "read_only",
   priority: 2,
+  durationSeconds: 3600,
+  maxToolCalls: 50,
 };
 
 function json(value: unknown, status = 200): Response {
@@ -35,16 +36,43 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
-function task(status: string) {
+function missionRun(status = "queued") {
   return {
-    id: "task-123",
-    project_id: mission.projectId,
-    team_id: null,
-    agent_instance_id: null,
-    title: mission.title,
+    id: "run-1",
+    mission_id: "mission-1",
+    attempt_number: 1,
+    fencing_token: 1,
     status,
-    workflow_step: null,
+    stop_requested: false,
+    technical_validation: { status: "pending", summary: "", checked_at: null },
+    user_acceptance: {
+      status: "pending",
+      comment: "",
+      decided_by: null,
+      decided_at: null,
+    },
+    evidence: [],
+    started_at: null,
+    finished_at: null,
+    created_at: "2026-09-11T10:00:00Z",
+  };
+}
+
+function missionDetail(status = "queued") {
+  const run = missionRun(status);
+  return {
+    id: "mission-1",
+    project_id: mission.projectId,
+    title: mission.title,
+    objective: mission.objective,
+    expected_outcome: mission.expectedResult,
+    acceptance_criteria: mission.acceptanceCriteria,
+    duration_seconds: mission.durationSeconds,
     priority: mission.priority,
+    status,
+    current_run: run,
+    runs: [run],
+    created_at: "2026-09-11T10:00:00Z",
   };
 }
 
@@ -64,36 +92,32 @@ describe("WorkspaceApiClient", () => {
     expect(fetcher.mock.calls[0][1]?.credentials).toBe("include");
   });
 
-  it("vérifie les réponses de création et de mise en file", async () => {
-    const fetcher = vi.fn()
-      .mockResolvedValueOnce(json(task("backlog"), 200))
-      .mockResolvedValueOnce(json(task("queued"), 200));
+  it("crée atomiquement une mission et sa première tentative", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(json(missionDetail(), 201));
     const client = new WorkspaceApiClient({ baseUrl: "https://api.example.test", fetcher });
     client.http.setCsrfToken("csrf-current");
 
-    await expect(client.createAndQueueMission(mission)).resolves.toMatchObject({
-      created: { id: "task-123", status: "backlog" },
-      queued: { id: "task-123", status: "queued" },
+    await expect(client.createMission(mission, "create-key")).resolves.toMatchObject({
+      id: "mission-1",
+      status: "queued",
+      current_run: { attempt_number: 1, technical_validation: { status: "pending" } },
     });
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(fetcher.mock.calls[1][0]).toBe(
-      "https://api.example.test/tasks/task-123/queue",
-    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toBe("https://api.example.test/missions");
     const createBody = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
     const createHeaders = fetcher.mock.calls[0][1]?.headers as Headers;
-    const queueHeaders = fetcher.mock.calls[1][1]?.headers as Headers;
     expect(createHeaders.get("X-CSRF-Token")).toBe("csrf-current");
-    expect(queueHeaders.get("X-CSRF-Token")).toBe("csrf-current");
+    expect(createHeaders.get("Idempotency-Key")).toBe("create-key");
     expect(createBody).toMatchObject({
       project_id: mission.projectId,
       title: mission.title,
-      description: mission.objective,
-      meta: {
-        kind: "mission",
-        expected_result: mission.expectedResult,
-        acceptance_criteria: mission.acceptanceCriteria,
-        autonomy: mission.autonomy,
-      },
+      objective: mission.objective,
+      expected_outcome: mission.expectedResult,
+      acceptance_criteria: mission.acceptanceCriteria,
+      autonomy: { mode: "supervised", allowed_actions: [] },
+      resources: [],
+      budget: { max_tool_calls: 50 },
+      duration_seconds: 3600,
     });
   });
 
@@ -135,29 +159,93 @@ describe("WorkspaceApiClient", () => {
     });
   });
 
-  it("signale distinctement une tâche créée mais non mise en file", async () => {
+  it("pilote l’arrêt et la relance avec des clés d’idempotence explicites", async () => {
     const fetcher = vi.fn()
-      .mockResolvedValueOnce(json(task("backlog")))
-      .mockResolvedValueOnce(json({ detail: "runner indisponible" }, 503));
+      .mockResolvedValueOnce(json({
+        mission_id: "mission-1",
+        run: { ...missionRun("stopping"), stop_requested: true },
+        already_stopped: false,
+      }))
+      .mockResolvedValueOnce(json({ ...missionRun(), attempt_number: 2, fencing_token: 2 }));
     const client = new WorkspaceApiClient({ baseUrl: "https://api.example.test", fetcher });
+    client.http.setCsrfToken("csrf-current");
 
-    const error = await client.createAndQueueMission(mission).catch((reason: unknown) => reason);
-    expect(error).toBeInstanceOf(MissionQueueError);
-    expect(error).toMatchObject({ taskId: "task-123" });
-    expect((error as MissionQueueError).cause).toMatchObject({ kind: "http", status: 503 });
+    await expect(client.stopMission("mission-1", "stop-key")).resolves.toMatchObject({
+      run: { status: "stopping", stop_requested: true },
+    });
+    await expect(client.retryMission("mission-1", "nouvelle tentative", "retry-key")).resolves.toMatchObject({
+      attempt_number: 2,
+      fencing_token: 2,
+    });
+    expect((fetcher.mock.calls[0][1]?.headers as Headers).get("Idempotency-Key")).toBe("stop-key");
+    expect((fetcher.mock.calls[1][1]?.headers as Headers).get("Idempotency-Key")).toBe("retry-key");
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ reason: "nouvelle tentative" });
   });
 
-  it("refuse une mise en file dont la réponse ne confirme pas queued", async () => {
+  it("sépare l’acceptation utilisateur et le commentaire de tentative", async () => {
+    const acceptedRun = {
+      ...missionRun("succeeded"),
+      technical_validation: {
+        status: "passed",
+        summary: "Assertions réussies",
+        checked_at: "2026-09-11T10:05:00Z",
+      },
+      user_acceptance: {
+        status: "accepted",
+        comment: "",
+        decided_by: "owner-1",
+        decided_at: "2026-09-11T10:06:00Z",
+      },
+    };
     const fetcher = vi.fn()
-      .mockResolvedValueOnce(json(task("backlog")))
-      .mockResolvedValueOnce(json(task("in_progress")));
+      .mockResolvedValueOnce(json(acceptedRun))
+      .mockResolvedValueOnce(json({
+        id: "comment-1",
+        mission_id: "mission-1",
+        run_id: "run-1",
+        author_user_id: "owner-1",
+        body: "Preuve vérifiée",
+        created_at: "2026-09-11T10:07:00Z",
+      }, 201))
+      .mockResolvedValueOnce(json([{
+        id: "comment-1",
+        mission_id: "mission-1",
+        run_id: "run-1",
+        author_user_id: "owner-1",
+        body: "Preuve vérifiée",
+        created_at: "2026-09-11T10:07:00Z",
+      }]));
+    const client = new WorkspaceApiClient({ baseUrl: "https://api.example.test", fetcher });
+    client.http.setCsrfToken("csrf-current");
+
+    await expect(client.decideMissionAcceptance("mission-1", "run-1", "accepted"))
+      .resolves.toMatchObject({ user_acceptance: { status: "accepted" } });
+    await expect(client.addMissionComment("mission-1", "run-1", " Preuve vérifiée ", "comment-key"))
+      .resolves.toMatchObject({ body: "Preuve vérifiée" });
+    expect(fetcher.mock.calls[0][0]).toBe(
+      "https://api.example.test/missions/mission-1/runs/run-1/acceptance",
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({
+      run_id: "run-1",
+      body: "Preuve vérifiée",
+    });
+    expect((fetcher.mock.calls[1][1]?.headers as Headers).get("Idempotency-Key"))
+      .toBe("comment-key");
+    await expect(client.fetchMissionComments("mission-1"))
+      .resolves.toEqual([expect.objectContaining({ id: "comment-1", run_id: "run-1" })]);
+    expect(fetcher.mock.calls[2][0]).toBe(
+      "https://api.example.test/missions/mission-1/comments",
+    );
+  });
+
+  it("résout directement une mission depuis un identifiant de run", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(json(missionDetail()));
     const client = new WorkspaceApiClient({ baseUrl: "https://api.example.test", fetcher });
 
-    await expect(client.createAndQueueMission(mission)).rejects.toMatchObject({
-      name: "MissionQueueError",
-      taskId: "task-123",
-      cause: { kind: "invalid_response" },
-    });
+    await expect(client.fetchMissionByRun("run/1")).resolves.toMatchObject({ id: "mission-1" });
+    expect(fetcher.mock.calls[0][0]).toBe(
+      "https://api.example.test/missions/by-run/run%2F1",
+    );
   });
 
   it("distingue accès refusé et indisponibilité réseau", async () => {
