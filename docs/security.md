@@ -176,6 +176,9 @@ un état durable et un événement d'audit.
   n'est pas démontrée.
 - La séparation des clients empêche la transmission accidentelle du Bearer worker au
   provider-gateway.
+- Le lockfile Node versionné utilise Vite `8.3.0` et Vitest `5.0.0` ; un `npm ci`
+  propre suivi de `npm audit` ne signale aucune vulnérabilité connue au moment de la
+  préparation de `0.2.0`.
 
 ### Réalisé, non testé réel
 

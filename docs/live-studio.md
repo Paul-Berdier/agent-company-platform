@@ -113,7 +113,7 @@ Aucun n'est satisfait de bout en bout.
 ### Réalisé/vérifié
 
 - Les responsabilités et frontières de sécurité du Studio sont documentées.
-- La suite versionnée du moteur pixel reste verte (66 tests ; 117 dans le worktree
+- La suite versionnée du moteur pixel reste verte (74 tests ; 117 dans le worktree
   local combiné), mais elle ne constitue aucune preuve du Studio et le pixel art
   reste une fonction legacy.
 

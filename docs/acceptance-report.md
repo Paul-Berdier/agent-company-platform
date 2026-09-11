@@ -48,19 +48,24 @@ Statuts utilisés :
 | Commande ou suite | Résultat connu | Ce que cela prouve | Ce que cela ne prouve pas |
 |---|---:|---|---|
 | `npm test --workspace @acp/web` | **19/19 versionnés réussis** | logique du shell moderne, API web et routes ambient versionnées | navigateur réel, accessibilité automatisée, E2E ou capture |
-| `npm test --workspace @acp/pixel-office-engine` | **66/66 versionnés réussis** | absence de régression détectée dans le moteur legacy publié avec le lot | chantier pixel local non inclus, Studio ou parcours moderne |
+| `npm test --workspace @acp/pixel-office-engine` | **74/74 versionnés réussis** | absence de régression détectée dans le moteur legacy publié avec le lot | chantier pixel local non inclus, Studio ou parcours moderne |
 | `python -m pytest -q apps/api/tests/test_workers.py` | **5/5 réussis** | identité worker, claims/leases et refus ciblés du parcours testé | RBAC utilisateur, toutes les routes ou concurrence de production |
 | `python -m pytest -q apps/worker/tests/test_gateway_fail_closed.py services/provider-gateway/tests/test_manual_provider.py` | **7/7 réussis** | panne/JSON invalide/absence de verdict sans faux succès, simulation bloquée, manuel non approuvé | service Hermes réel ou exécution réelle |
 | tests du provider Hermes | **58/58 réussis** | contrats Runs, readiness/capacités, idempotence, délais et sorties strictes sur transport simulé | instance, modèle, mémoire ou outils Hermes réels |
 | `python -m pytest -q` sur l'état final du lot | **78/78 réussis** | ensemble des tests Python, dont Hermes, API worker, fail-closed et event-sdk | service externe, E2E, PostgreSQL ou production |
 | `npm exec tsc -- --noEmit -p apps/web/tsconfig.json` | **réussi** | cohérence TypeScript du web et des contrats importés | comportement navigateur ou API réelle |
-| `npm run build:web` | **réussi, 45 modules** | production du shell et séparation du chunk Phaser legacy | déploiement ou absence de chargement réseau dans tous les navigateurs |
+| `npm run build:web` | **réussi, 38 modules** | production du shell et séparation du chunk Phaser legacy | déploiement ou présence locale des assets LimeZu licenciés |
+| `npm audit` après `npm ci` | **0 vulnérabilité connue** | lockfile Vite `8.3.0` / Vitest `5.0.0` contrôlé par le registre npm | vulnérabilités futures ou dépendances Python |
 | parcours navigateur local | **réussi sur les états ciblés** | accueil sombre, Missions mobile clair, non configuré et panne API ; deux PNG conservés | E2E de mission, accessibilité complète ou Studio |
 
 La suite Python a émis **deux warnings de dépendances Starlette/FastAPI** : usage
 transitoire de `httpx` au lieu de `httpx2` par `TestClient`, et alias AnyIO déprécié.
 Ils ne rendent pas les tests rouges, mais doivent être éliminés par un jeu de versions
 de test verrouillé plutôt que masqués.
+
+Le build propre conserve six URLs d'assets d'interface LimeZu non résolues au build.
+Ces fichiers licenciés ne sont volontairement pas versionnés ; le shell moderne ne
+les requiert pas, mais le mode legacy doit les installer localement pour les afficher.
 
 ## Vérifications explicitement non exécutées
 
@@ -77,7 +82,7 @@ de test verrouillé plutôt que masqués.
 
 ### Réalisé/vérifié
 
-- 19 tests web, 66 tests du moteur legacy et 78 tests Python appartiennent à la
+- 19 tests web, 74 tests du moteur legacy et 78 tests Python appartiennent à la
   branche versionnée et sont réussis ; typecheck et build web réussissent.
 - Le worktree local combiné atteint 27 tests web et 117 tests moteur grâce à un
   chantier pixel/LimeZu préexistant volontairement exclu de cette branche.
