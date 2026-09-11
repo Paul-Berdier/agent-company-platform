@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import acp_worker.local_runner as local_runner_module
 from acp_worker.local_runner import (
     EVIDENCE_FILENAME,
     EVIDENCE_SCHEMA,
@@ -115,6 +116,31 @@ async def test_non_zero_exit_is_a_real_failure_with_stderr(tmp_path: Path):
     assert result.stderr.text.splitlines() == ["real failure"]
 
 
+async def test_success_fails_closed_when_process_tree_cleanup_is_unconfirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    async def cleanup_unconfirmed(
+        process: asyncio.subprocess.Process, grace_seconds: float
+    ) -> bool:
+        assert process.returncode == 0
+        assert grace_seconds == 0
+        return False
+
+    monkeypatch.setattr(
+        local_runner_module,
+        "_terminate_process",
+        cleanup_unconfirmed,
+    )
+    result = await run_local_program(
+        runner_config(tmp_path, "raise SystemExit(0)"),
+        request(),
+    )
+
+    assert result.succeeded is False
+    assert result.status == "failed"
+    assert result.termination_reason == "exit_process_tree_cleanup_failed"
+
+
 async def test_timeout_terminates_the_real_process(tmp_path: Path):
     config = runner_config(
         tmp_path,
@@ -218,11 +244,47 @@ def process_is_running(process_id: int) -> bool:
     return True
 
 
+async def terminate_test_process(process_id: int) -> None:
+    """Nettoie un enfant de test même si l'assertion principale a échoué."""
+
+    if process_is_running(process_id):
+        try:
+            os.kill(process_id, signal.SIGTERM)
+        except OSError:
+            pass
+    for _ in range(200):
+        if not process_is_running(process_id):
+            return
+        await asyncio.sleep(0.01)
+    if hasattr(signal, "SIGKILL"):
+        try:
+            os.kill(process_id, signal.SIGKILL)
+        except OSError:
+            pass
+        for _ in range(200):
+            if not process_is_running(process_id):
+                return
+            await asyncio.sleep(0.01)
+
+
+def read_test_process_id(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="ascii"))
+    except (OSError, ValueError):
+        return None
+
+
 async def test_stop_terminates_a_spawned_child_process(tmp_path: Path):
     child_pid_file = tmp_path / "child.pid"
+    child_code = (
+        "import signal,time; "
+        "signal.signal(signal.SIGBREAK, signal.SIG_IGN) "
+        "if hasattr(signal, 'SIGBREAK') else None; "
+        "time.sleep(30)"
+    )
     code = (
         "import pathlib,subprocess,sys,time; "
-        "child=subprocess.Popen([sys.executable,'-I','-c','import time; time.sleep(30)']); "
+        f"child=subprocess.Popen([sys.executable,'-I','-c',{child_code!r}]); "
         "pathlib.Path(sys.argv[1]).write_text(str(child.pid)); time.sleep(30)"
     )
     config = runner_config(
@@ -235,7 +297,7 @@ async def test_stop_terminates_a_spawned_child_process(tmp_path: Path):
 
     async def stop_after_child_started() -> None:
         for _ in range(300):
-            if child_pid_file.exists():
+            if read_test_process_id(child_pid_file) is not None:
                 stop.set()
                 return
             await asyncio.sleep(0.01)
@@ -248,31 +310,43 @@ async def test_stop_terminates_a_spawned_child_process(tmp_path: Path):
             run_local_program(config, request(), stop_event=stop), timeout=5
         )
         await stopper
-        child_pid = int(child_pid_file.read_text(encoding="ascii"))
+        child_pid = read_test_process_id(child_pid_file)
+        assert child_pid is not None
         for _ in range(200):
             if not process_is_running(child_pid):
                 break
             await asyncio.sleep(0.01)
         assert result.status == "cancelled"
+        assert result.termination_reason == "stop_requested"
         assert not process_is_running(child_pid)
     finally:
-        if child_pid is not None and process_is_running(child_pid):
-            os.kill(child_pid, signal.SIGTERM)
+        stopper.cancel()
+        await asyncio.gather(stopper, return_exceptions=True)
+        if child_pid is None:
+            child_pid = read_test_process_id(child_pid_file)
+        if child_pid is not None:
+            await terminate_test_process(child_pid)
 
 
 async def test_normal_parent_exit_cannot_leave_a_background_child(tmp_path: Path):
     child_pid_file = tmp_path / "background-child.pid"
+    child_code = (
+        "import signal,time; "
+        "signal.signal(signal.SIGBREAK, signal.SIG_IGN) "
+        "if hasattr(signal, 'SIGBREAK') else None; "
+        "time.sleep(30)"
+    )
     code = (
         "import pathlib,subprocess,sys; "
-        "child=subprocess.Popen([sys.executable,'-I','-c','import time; time.sleep(30)'], "
-        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); "
+        f"child=subprocess.Popen([sys.executable,'-I','-c',{child_code!r}]); "
         "pathlib.Path(sys.argv[1]).write_text(str(child.pid))"
     )
     config = runner_config(tmp_path, code, extra_args=(str(child_pid_file),))
     child_pid: int | None = None
     try:
         result = await asyncio.wait_for(run_local_program(config, request()), timeout=5)
-        child_pid = int(child_pid_file.read_text(encoding="ascii"))
+        child_pid = read_test_process_id(child_pid_file)
+        assert child_pid is not None
         for _ in range(200):
             if not process_is_running(child_pid):
                 break
@@ -280,8 +354,10 @@ async def test_normal_parent_exit_cannot_leave_a_background_child(tmp_path: Path
         assert result.succeeded
         assert not process_is_running(child_pid)
     finally:
-        if child_pid is not None and process_is_running(child_pid):
-            os.kill(child_pid, signal.SIGTERM)
+        if child_pid is None:
+            child_pid = read_test_process_id(child_pid_file)
+        if child_pid is not None:
+            await terminate_test_process(child_pid)
 
 
 async def test_asyncio_cancellation_terminates_the_process_tree(tmp_path: Path):

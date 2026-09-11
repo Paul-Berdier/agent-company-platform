@@ -40,6 +40,7 @@ RUN_TERMINATE_GRACE_ENV = "ACP_WORKER_RUN_TERMINATE_GRACE_SECONDS"
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
 DEFAULT_TERMINATE_GRACE_SECONDS = 1.0
+OUTPUT_DRAIN_GRACE_SECONDS = 1.0
 MAX_CONFIGURED_OUTPUT_BYTES = 16 * 1024 * 1024
 MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 
@@ -743,70 +744,319 @@ def _process_group_options() -> dict[str, Any]:
     return {"start_new_session": True}
 
 
-async def _windows_taskkill_tree(process_id: int) -> None:
+async def _wait_for_process_exit(process: asyncio.subprocess.Process) -> int:
+    """Attend la fin du processus sans attendre la fermeture de ses pipes.
+
+    Les transports asyncio peuvent ne résoudre ``Process.wait`` qu'après la
+    fermeture de tous les pipes hérités. Un petit-fils peut donc masquer la sortie
+    réelle du parent et transformer à tort son succès en timeout. ``returncode``
+    est publié dès que le processus est signalé ; le polling borné par la deadline
+    externe permet alors de nettoyer l'arbre avant de drainer les flux.
+    """
+
+    while process.returncode is None:
+        await asyncio.sleep(0.01)
+    return process.returncode
+
+
+async def _windows_force_terminate_tree(
+    process_id: int, *, include_root: bool
+) -> bool:
+    """Termine l'arbre Windows identifié avant de faire disparaître sa racine.
+
+    ``taskkill /T`` peut être indisponible sous un jeton Windows restreint. Le
+    snapshot Toolhelp permet d'ouvrir les processus encore vivants avant toute
+    terminaison, ce qui évite à la fois la perte de filiation et la réutilisation
+    accidentelle d'un PID entre l'énumération et l'arrêt.
+    """
+
+    def terminate_tree() -> bool:
+        import ctypes
+        from ctypes import wintypes
+
+        snapshot_flag = 0x00000002  # TH32CS_SNAPPROCESS
+        process_terminate = 0x0001
+        synchronize = 0x00100000
+        wait_object_0 = 0x00000000
+        wait_timeout = 0x00000102
+        error_no_more_files = 18
+        error_invalid_parameter = 87
+        invalid_handle = ctypes.c_void_p(-1).value
+
+        class ProcessEntry(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        kernel32.Process32FirstW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(ProcessEntry),
+        ]
+        kernel32.Process32FirstW.restype = wintypes.BOOL
+        kernel32.Process32NextW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(ProcessEntry),
+        ]
+        kernel32.Process32NextW.restype = wintypes.BOOL
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel32.TerminateProcess.restype = wintypes.BOOL
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        known_family_ids = {process_id}
+
+        def process_depths() -> tuple[bool, dict[int, int]]:
+            snapshot = kernel32.CreateToolhelp32Snapshot(snapshot_flag, 0)
+            if not snapshot or snapshot == invalid_handle:
+                return False, {}
+            parents: dict[int, int] = {}
+            try:
+                entry = ProcessEntry()
+                entry.dwSize = ctypes.sizeof(entry)
+                ctypes.set_last_error(0)
+                present = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+                if not present:
+                    return False, {}
+                while present:
+                    parents[int(entry.th32ProcessID)] = int(entry.th32ParentProcessID)
+                    ctypes.set_last_error(0)
+                    present = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+                if ctypes.get_last_error() not in {0, error_no_more_files}:
+                    return False, {}
+            finally:
+                kernel32.CloseHandle(snapshot)
+
+            depths = {candidate: 0 for candidate in known_family_ids}
+            changed = True
+            while changed:
+                changed = False
+                for candidate, parent in parents.items():
+                    if candidate not in depths and parent in depths:
+                        depths[candidate] = depths[parent] + 1
+                        changed = True
+            known_family_ids.update(depths)
+            targets = {
+                candidate: depth
+                for candidate, depth in depths.items()
+                if candidate in parents and (include_root or candidate != process_id)
+            }
+            return True, targets
+
+        all_stopped = True
+        converged = False
+        pinned_handles: dict[int, Any] = {}
+        # Les passes suivantes attrapent un descendant créé entre un snapshot et
+        # l'arrêt de son parent. Les handles restent ouverts pour empêcher toute
+        # réutilisation de PID pendant cette convergence bornée.
+        try:
+            for _ in range(4):
+                snapshot_ok, depths = process_depths()
+                if not snapshot_ok:
+                    all_stopped = False
+                    continue
+                ordered_ids = sorted(
+                    depths,
+                    key=lambda candidate: depths[candidate],
+                    reverse=True,
+                )
+                if not ordered_ids:
+                    converged = True
+                    break
+                # Ouvrir tous les handles avant de tuer la racine épingle
+                # l'identité des processus malgré leur éventuelle sortie.
+                for candidate in ordered_ids:
+                    if candidate in pinned_handles:
+                        continue
+                    ctypes.set_last_error(0)
+                    handle = kernel32.OpenProcess(
+                        process_terminate | synchronize,
+                        False,
+                        candidate,
+                    )
+                    if handle:
+                        pinned_handles[candidate] = handle
+                    elif ctypes.get_last_error() != error_invalid_parameter:
+                        all_stopped = False
+                handles = [
+                    (candidate, pinned_handles[candidate])
+                    for candidate in ordered_ids
+                    if candidate in pinned_handles
+                ]
+                for _, handle in handles:
+                    state = kernel32.WaitForSingleObject(handle, 0)
+                    if state == wait_timeout:
+                        if not kernel32.TerminateProcess(handle, 1):
+                            # Une sortie concurrente reste un succès si le handle
+                            # est devenu signalé entre les deux appels.
+                            if kernel32.WaitForSingleObject(handle, 0) != wait_object_0:
+                                all_stopped = False
+                    elif state != wait_object_0:
+                        all_stopped = False
+                wait_deadline = monotonic() + 0.75
+                for _, handle in handles:
+                    remaining_ms = max(
+                        0,
+                        round((wait_deadline - monotonic()) * 1000),
+                    )
+                    state = kernel32.WaitForSingleObject(handle, remaining_ms)
+                    if state != wait_object_0:
+                        all_stopped = False
+        finally:
+            for handle in pinned_handles.values():
+                kernel32.CloseHandle(handle)
+        return all_stopped and converged
+
+    kill_task = asyncio.create_task(asyncio.to_thread(terminate_tree))
+    cancellation_received = False
+    while True:
+        try:
+            result = await asyncio.shield(kill_task)
+            break
+        except asyncio.CancelledError:
+            cancellation_received = True
+            if kill_task.done():
+                result = kill_task.result()
+                break
+    if cancellation_received:
+        raise asyncio.CancelledError
+    return result
+
+
+async def _windows_taskkill_tree(process_id: int) -> bool:
     system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
     taskkill = (system_root / "System32" / "taskkill.exe").resolve(strict=False)
     if not taskkill.is_file():
-        return
-    try:
-        killer = await asyncio.create_subprocess_exec(
-            str(taskkill),
-            "/PID",
-            str(process_id),
-            "/T",
-            "/F",
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-            env={
-                key: value
-                for key, value in os.environ.items()
-                if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
-            },
-        )
+        return False
+
+    def kill_tree() -> bool:
         try:
-            await asyncio.wait_for(killer.wait(), timeout=5.0)
-        except TimeoutError:
-            killer.kill()
-            await killer.wait()
-    except OSError:
-        return
+            completed = subprocess.run(
+                [str(taskkill), "/PID", str(process_id), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
+                },
+                timeout=5.0,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return completed.returncode == 0
+
+    # Un subprocess synchrone déporté ferme ses handles avant de rendre la main
+    # et n'ajoute pas un second transport Proactor au cycle de nettoyage. La
+    # destruction d'arbre est une section critique : si l'appelant est annulé,
+    # ``shield`` laisse le thread finir et nous l'attendons avant de poursuivre.
+    kill_task = asyncio.create_task(asyncio.to_thread(kill_tree))
+    cancellation_received = False
+    while True:
+        try:
+            result = await asyncio.shield(kill_task)
+            break
+        except asyncio.CancelledError:
+            # Une seconde annulation peut arriver pendant le nettoyage. Ne jamais
+            # abandonner le thread et ses handles : la boucle n'attend au plus que
+            # le timeout interne de ``subprocess.run``.
+            cancellation_received = True
+            if kill_task.done():
+                result = kill_task.result()
+                break
+    if cancellation_received:
+        raise asyncio.CancelledError
+    return result
+
+
+def _close_process_transport(process: asyncio.subprocess.Process) -> None:
+    """Ferme explicitement pipes et handles une fois le processus terminé.
+
+    ``asyncio.subprocess.Process`` n'expose pas de méthode publique de fermeture.
+    Sous Proactor, laisser le transport à son destructeur après une lecture de pipe
+    annulée déclenche des erreurs non levables à la fermeture de la boucle.
+    """
+
+    transport = getattr(process, "_transport", None)
+    close = getattr(transport, "close", None)
+    if callable(close):
+        try:
+            close()
+        except (OSError, RuntimeError, ValueError):
+            # Le transport peut avoir été fermé par la notification de sortie
+            # entre le contrôle précédent et cet ultime repli.
+            pass
 
 
 async def _terminate_process(
     process: asyncio.subprocess.Process, grace_seconds: float
-) -> None:
+) -> bool:
     """Arrête le groupe puis force tout l'arbre de la tentative."""
 
     process_id = process.pid
     if os.name == "nt":
-        try:
-            # CREATE_NEW_PROCESS_GROUP fait de ``pid`` l'identifiant du groupe.
-            os.kill(process_id, signal.CTRL_BREAK_EVENT)
-        except (OSError, ValueError):
-            pass
-        if process.returncode is None:
+        if process.returncode is None and grace_seconds > 0:
             try:
-                await asyncio.wait_for(process.wait(), timeout=grace_seconds)
+                # CREATE_NEW_PROCESS_GROUP fait de ``pid`` l'identifiant du groupe.
+                os.kill(process_id, signal.CTRL_BREAK_EVENT)
+            except (OSError, ValueError):
+                pass
+            try:
+                await asyncio.wait_for(
+                    _wait_for_process_exit(process), timeout=grace_seconds
+                )
             except TimeoutError:
                 pass
-        # ``taskkill /T`` est lancé comme argv absolu, sans cmd.exe ni shell.
-        await _windows_taskkill_tree(process_id)
+
+        # L'énumération native retrouve les descendants même lorsque la racine
+        # vient de sortir. Ne jamais rouvrir le PID racine dans ce cas : son handle
+        # asyncio suffit à épingler son identité jusqu'à la fermeture du transport.
+        if process.returncode is None:
+            # L'outil système bénéficie encore de la filiation vivante ; la passe
+            # native qui suit sert de repli et de vérification indépendante.
+            await _windows_taskkill_tree(process_id)
+        tree_stopped = await _windows_force_terminate_tree(
+            process_id,
+            include_root=process.returncode is None,
+        )
         if process.returncode is None:
             try:
                 process.kill()
             except ProcessLookupError:
                 pass
-            await process.wait()
-        return
+            try:
+                await asyncio.wait_for(_wait_for_process_exit(process), timeout=5.0)
+            except TimeoutError:
+                _close_process_transport(process)
+        return process.returncode is not None and tree_stopped
 
     try:
         os.killpg(process_id, signal.SIGTERM)
     except ProcessLookupError:
-        return
+        return True
     if grace_seconds > 0:
         try:
-            await asyncio.wait_for(process.wait(), timeout=grace_seconds)
+            await asyncio.wait_for(
+                _wait_for_process_exit(process), timeout=grace_seconds
+            )
         except TimeoutError:
             pass
     try:
@@ -815,7 +1065,12 @@ async def _terminate_process(
     except ProcessLookupError:
         pass
     if process.returncode is None:
-        await process.wait()
+        try:
+            await asyncio.wait_for(_wait_for_process_exit(process), timeout=5.0)
+        except TimeoutError:
+            _close_process_transport(process)
+            return False
+    return True
 
 
 async def run_local_program(
@@ -850,7 +1105,6 @@ async def run_local_program(
         config.timeout_seconds,
         request.timeout_seconds or config.timeout_seconds,
     )
-    execution_deadline = started_clock + timeout_seconds
     empty = _empty_capture()
     if stop_event is not None and stop_event.is_set():
         result = LocalRunnerResult(
@@ -908,10 +1162,11 @@ async def run_local_program(
     stderr_capture = _BoundedCapture(config.max_output_bytes)
     stdout_task = asyncio.create_task(stdout_capture.read(process.stdout))
     stderr_task = asyncio.create_task(stderr_capture.read(process.stderr))
-    wait_task = asyncio.create_task(process.wait())
+    wait_task = asyncio.create_task(_wait_for_process_exit(process))
     stop_task = asyncio.create_task(stop_event.wait()) if stop_event is not None else None
     termination_reason = "exit"
     status = "failed"
+    process_tree_stopped = True
     try:
         waiters = {wait_task}
         if stop_task is not None:
@@ -926,39 +1181,83 @@ async def run_local_program(
             # A configured program must not turn a successful parent exit into
             # an untracked background workload. Terminate anything that still
             # belongs to the process group/tree before accepting the result.
-            await _terminate_process(process, 0)
+            process_tree_stopped = await _terminate_process(process, 0)
         elif stop_task is not None and stop_task in done:
             termination_reason = "stop_requested"
             status = "cancelled"
-            await _terminate_process(process, config.terminate_grace_seconds)
+            process_tree_stopped = await _terminate_process(
+                process, config.terminate_grace_seconds
+            )
         else:
             termination_reason = "timeout"
             status = "timed_out"
-            await _terminate_process(process, config.terminate_grace_seconds)
+            process_tree_stopped = await _terminate_process(
+                process, config.terminate_grace_seconds
+            )
     except asyncio.CancelledError:
         termination_reason = "task_cancelled"
         status = "cancelled"
-        await _terminate_process(process, config.terminate_grace_seconds)
+        process_tree_stopped = await _terminate_process(
+            process, config.terminate_grace_seconds
+        )
     finally:
+        if process.returncode is None:
+            process_tree_stopped = (
+                await _terminate_process(process, config.terminate_grace_seconds)
+                and process_tree_stopped
+            )
+        capture_tasks = {stdout_task, stderr_task}
+        capture_cancelled = False
+        try:
+            _, pending_captures = await asyncio.wait(
+                capture_tasks,
+                timeout=OUTPUT_DRAIN_GRACE_SECONDS,
+            )
+        except asyncio.CancelledError:
+            pending_captures = capture_tasks
+            capture_cancelled = True
+            termination_reason = "task_cancelled"
+            status = "cancelled"
+        capture_failed = any(
+            task.done()
+            and (task.cancelled() or task.exception() is not None)
+            for task in capture_tasks
+        )
+        if pending_captures or capture_failed:
+            # `asyncio.wait_for(gather(...))` attend l'annulation complète du read
+            # Proactor et peut donc dépasser son timeout si un descendant a gardé
+            # le pipe. Fermer d'abord les transports puis borner l'attente évite ce
+            # deadlock de nettoyage.
+            if not capture_cancelled and termination_reason == "exit":
+                termination_reason = "output_stream_timeout"
+                status = "timed_out"
+            _close_process_transport(process)
+            for task in pending_captures:
+                task.cancel()
+            if pending_captures:
+                await asyncio.gather(*pending_captures, return_exceptions=True)
+        for task in capture_tasks:
+            if task.done() and not task.cancelled():
+                try:
+                    task.exception()
+                except (OSError, RuntimeError, ValueError):
+                    pass
+        stdout = stdout_capture.snapshot()
+        stderr = stderr_capture.snapshot()
         if stop_task is not None:
             stop_task.cancel()
-        if process.returncode is None:
-            await process.wait()
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                asyncio.gather(stdout_task, stderr_task),
-                timeout=max(0.05, execution_deadline - monotonic()),
-            )
-        except TimeoutError:
-            termination_reason = "output_stream_timeout"
-            status = "timed_out"
-            await _terminate_process(process, config.terminate_grace_seconds)
-            stdout_task.cancel()
-            stderr_task.cancel()
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            stdout = stdout_capture.snapshot()
-            stderr = stderr_capture.snapshot()
         wait_task.cancel()
+        await asyncio.gather(
+            *(task for task in (stop_task, wait_task) if task is not None),
+            return_exceptions=True,
+        )
+        if not process_tree_stopped:
+            if status == "succeeded":
+                status = "failed"
+            if not termination_reason.endswith("_process_tree_cleanup_failed"):
+                termination_reason = (
+                    f"{termination_reason}_process_tree_cleanup_failed"
+                )
 
     result = LocalRunnerResult(
         status=status,
