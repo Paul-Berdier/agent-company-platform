@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from acp_contracts import Event
 
-app = FastAPI(title="Agent Company Platform — Event Service", version="0.2.0")
+app = FastAPI(title="Agent Company Platform — Event Service", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
