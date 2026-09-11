@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from acp_contracts import ServiceOriginError, normalize_service_origin
 from acp_provider_sdk import ProviderUnavailableError
 
 
@@ -32,7 +33,7 @@ class HermesInvalidResponseError(ProviderUnavailableError):
     """Réponse HTTP réussie mais non conforme au format JSON minimal."""
 
 
-@dataclass
+@dataclass(repr=False)
 class HermesSettings:
     base_url: str = field(default_factory=lambda: os.environ.get("HERMES_BASE_URL", ""))
     service_token: str = field(
@@ -53,6 +54,19 @@ class HermesSettings:
     poll_interval_seconds: float = field(
         default_factory=lambda: float(os.environ.get("HERMES_POLL_INTERVAL_SECONDS", "0.5"))
     )
+    _base_url_invalid: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.base_url, str) or not self.base_url.strip():
+            self.base_url = ""
+            return
+        try:
+            self.base_url = normalize_service_origin(
+                self.base_url, setting="HERMES_BASE_URL"
+            )
+        except ServiceOriginError:
+            self.base_url = ""
+            self._base_url_invalid = True
 
     @property
     def configured(self) -> bool:
@@ -60,6 +74,10 @@ class HermesSettings:
         # gateway stocke la valeur cliente dans HERMES_API_KEY (avec
         # HERMES_SERVICE_TOKEN conservé comme alias de migration).
         return bool(self.base_url.strip() and self.service_token.strip())
+
+    @property
+    def base_url_invalid(self) -> bool:
+        return self._base_url_invalid
 
 
 class HermesClient:
@@ -101,7 +119,8 @@ class HermesClient:
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if not self.settings.base_url.strip():
-            raise ProviderUnavailableError("HERMES_BASE_URL non configurée")
+            detail = "invalide" if self.settings.base_url_invalid else "non configurée"
+            raise ProviderUnavailableError(f"HERMES_BASE_URL {detail}")
         if not self.settings.service_token.strip():
             raise ProviderUnavailableError(
                 "HERMES_API_KEY non configurée (HERMES_SERVICE_TOKEN accepté en migration)"

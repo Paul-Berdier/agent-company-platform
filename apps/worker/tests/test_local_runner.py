@@ -389,7 +389,7 @@ def valid_mission_claim() -> dict:
             "autonomy": {
                 "mode": "supervised",
                 "allowed_actions": [],
-                "forbidden_actions": ["network"],
+                "forbidden_actions": [],
                 "approval_required_actions": [],
             },
             "resources": [
@@ -451,24 +451,41 @@ def test_safe_local_policy_accepts_only_supervised_read_only_envelope():
 
 
 @pytest.mark.parametrize(
-    ("mode", "allowed_actions", "approval_actions", "resource_access", "message"),
+    (
+        "mode",
+        "allowed_actions",
+        "forbidden_actions",
+        "approval_actions",
+        "resource_access",
+        "message",
+    ),
     [
-        ("bounded", [], [], "read", "uniquement les missions supervisées"),
-        ("autonomous", [], [], "read", "uniquement les missions supervisées"),
-        ("supervised", ["read_repository"], [], "read", "aucune allowed_action"),
+        ("bounded", [], [], [], "read", "uniquement les missions supervisées"),
+        ("autonomous", [], [], [], "read", "uniquement les missions supervisées"),
         (
             "supervised",
+            ["read_repository"],
+            [],
+            [],
+            "read",
+            "aucune allowed_action",
+        ),
+        ("supervised", [], ["network"], [], "read", "aucune forbidden_action"),
+        (
+            "supervised",
+            [],
             [],
             ["publish_result"],
             "read",
             "actions soumises à approbation",
         ),
-        ("supervised", [], [], "write", "ressources en écriture"),
+        ("supervised", [], [], [], "write", "ressources en écriture"),
     ],
 )
 def test_unsafe_local_policy_is_rejected_before_execution(
     mode: str,
     allowed_actions: list[str],
+    forbidden_actions: list[str],
     approval_actions: list[str],
     resource_access: str,
     message: str,
@@ -476,6 +493,7 @@ def test_unsafe_local_policy_is_rejected_before_execution(
     mission = valid_mission_claim()["mission"]
     mission["autonomy"]["mode"] = mode
     mission["autonomy"]["allowed_actions"] = allowed_actions
+    mission["autonomy"]["forbidden_actions"] = forbidden_actions
     mission["autonomy"]["approval_required_actions"] = approval_actions
     mission["resources"][0]["access"] = resource_access
 

@@ -60,7 +60,7 @@ def _capabilities() -> dict:
 def _provider(
     handler,
     *,
-    base_url: str = "http://hermes.test",
+    base_url: str = "https://hermes.test",
     service_token: str = HERMES_TOKEN,
     max_retries: int = 0,
 ) -> HermesOrchestratorProvider:

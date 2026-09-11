@@ -18,6 +18,7 @@ MAX_POLL_INTERVAL_SECONDS = 300.0
 MAX_STEP_SECONDS = 3600.0
 MAX_CONCURRENCY = 32
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+_PROVIDER_ID = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
 
 
 class WorkerConfigurationError(ValueError):
@@ -177,8 +178,32 @@ class WorkerConfig:
         object.__setattr__(
             self, "max_concurrency", _bounded_concurrency(self.max_concurrency)
         )
+        if (
+            not isinstance(self.provider_id, str)
+            or _PROVIDER_ID.fullmatch(self.provider_id) is None
+        ):
+            raise WorkerConfigurationError(
+                "ACP_ORCHESTRATOR_PROVIDER doit être un identifiant ASCII minuscule"
+            )
         if not isinstance(self.simulation, bool):
             raise WorkerConfigurationError("simulation doit être un booléen")
+
+    def validate_execution_mode(self, *, simulation: bool) -> None:
+        """Refuse toute exécution dite réelle qui dépend encore d'un simulacre."""
+
+        if not isinstance(simulation, bool):
+            raise WorkerConfigurationError("simulation doit être un booléen")
+        if simulation:
+            return
+        if self.local_runner is None:
+            raise WorkerConfigurationError(
+                "Aucun exécuteur réel sécurisé n'est configuré; configurez "
+                "ACP_WORKER_RUNNER_ARGV_JSON et ACP_WORKER_RUN_ROOT"
+            )
+        if self.provider_id == "mock":
+            raise WorkerConfigurationError(
+                "ACP_ORCHESTRATOR_PROVIDER=mock est interdit en mode réel"
+            )
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":

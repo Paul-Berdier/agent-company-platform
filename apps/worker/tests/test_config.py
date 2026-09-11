@@ -128,3 +128,20 @@ def test_direct_boolean_timing_values_are_rejected():
         base_config(poll_interval=True)
     with pytest.raises(WorkerConfigurationError, match="STEP_SECONDS"):
         base_config(step_seconds=False)
+
+
+@pytest.mark.parametrize(
+    "provider_id",
+    ["", "Mock", " mock", "mock ", "../mock", "mock/provider", "mock?x=1"],
+)
+def test_provider_id_is_a_safe_lowercase_path_segment(provider_id: str):
+    with pytest.raises(WorkerConfigurationError, match="ORCHESTRATOR_PROVIDER"):
+        base_config(provider_id=provider_id)
+
+
+def test_real_execution_rejects_the_mock_evaluator():
+    config = base_config(provider_id="mock", local_runner=object())
+
+    config.validate_execution_mode(simulation=True)
+    with pytest.raises(WorkerConfigurationError, match="mock est interdit"):
+        config.validate_execution_mode(simulation=False)

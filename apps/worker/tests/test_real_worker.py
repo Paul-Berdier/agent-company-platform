@@ -9,7 +9,7 @@ import pytest
 from acp_contracts import EvidenceCreate, TechnicalValidation
 
 from acp_worker.cli import main as cli_main
-from acp_worker.config import WorkerConfig
+from acp_worker.config import WorkerConfig, WorkerConfigurationError
 from acp_worker.local_log import WorkerLogger
 from acp_worker.local_runner import LocalRunnerConfig, RunnerRequestError
 from acp_worker.main import _renew_lease, process, run_forever
@@ -62,6 +62,21 @@ async def test_programmatic_worker_start_refuses_mismatched_api_origin(tmp_path:
     assert not config.state_dir.exists()
 
 
+async def test_programmatic_real_worker_refuses_the_mock_evaluator(tmp_path: Path):
+    runner = LocalRunnerConfig(
+        argv=(sys.executable, "-I", "-c", "raise SystemExit(99)"),
+        run_root=tmp_path / "runs",
+    )
+    config = WorkerConfig(
+        **{**worker_config(tmp_path, runner).__dict__, "provider_id": "mock"}
+    )
+
+    with pytest.raises(WorkerConfigurationError, match="mock est interdit"):
+        await run_forever(config, credentials(), once=True)
+
+    assert not config.state_dir.exists()
+
+
 def claim(*, stop_requested: bool = False) -> dict:
     return {
         "task": {
@@ -96,7 +111,7 @@ def claim(*, stop_requested: bool = False) -> dict:
             "autonomy": {
                 "mode": "supervised",
                 "allowed_actions": [],
-                "forbidden_actions": ["network"],
+                "forbidden_actions": [],
                 "approval_required_actions": [],
             },
             "resources": [],
@@ -152,7 +167,10 @@ async def test_real_worker_only_succeeds_after_process_proof_and_evaluation(
             "text"
         ].splitlines() == ["real-output"]
         assert body["acceptance_criteria"] == ["sortie réelle"]
-        return httpx.Response(200, json={"approved": True, "score": 1})
+        return httpx.Response(
+            200,
+            json={"approved": True, "score": 1, "provider_id": "hermes"},
+        )
 
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
@@ -211,7 +229,9 @@ async def test_terminal_patch_conflict_reconciles_interrupted_with_same_evidence
                 200,
                 json={"plan_id": "plan-1", "steps": [{"id": "one", "title": "Run"}]},
             )
-        return httpx.Response(200, json={"approved": True})
+        return httpx.Response(
+            200, json={"approved": True, "provider_id": "hermes"}
+        )
 
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,

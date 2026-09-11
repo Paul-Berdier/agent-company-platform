@@ -2,7 +2,7 @@ import os
 
 import httpx
 
-from acp_contracts import Event
+from acp_contracts import Event, ServiceOriginError, normalize_service_origin
 
 
 class EventClient:
@@ -21,13 +21,19 @@ class EventClient:
         worker_token: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._api_url = (api_url or os.environ.get("ACP_API_URL", "http://localhost:8000")).rstrip("/")
+        raw_api_url = api_url or os.environ.get("ACP_API_URL", "http://localhost:8000")
+        try:
+            self._api_url: str | None = normalize_service_origin(
+                raw_api_url, setting="ACP_API_URL"
+            )
+        except ServiceOriginError:
+            self._api_url = None
         self._worker_id = worker_id
         self._worker_token = worker_token
         self._transport = transport
 
     async def emit(self, event: Event) -> bool:
-        if not self._worker_id or not self._worker_token:
+        if self._api_url is None or not self._worker_id or not self._worker_token:
             return False
         try:
             async with httpx.AsyncClient(

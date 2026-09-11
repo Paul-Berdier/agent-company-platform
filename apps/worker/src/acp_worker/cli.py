@@ -49,12 +49,10 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
         print("ACP_WORKER_REGISTRATION_TOKEN est requis", file=sys.stderr)
         return 2
     simulation = config.simulation and not args.real
-    if not simulation and config.local_runner is None:
-        print(
-            "Mode réel refusé: configurez ACP_WORKER_RUNNER_ARGV_JSON et "
-            "ACP_WORKER_RUN_ROOT.",
-            file=sys.stderr,
-        )
+    try:
+        config.validate_execution_mode(simulation=simulation)
+    except WorkerConfigurationError as exc:
+        print(f"Mode réel refusé: {exc}.", file=sys.stderr)
         return 2
     capabilities = sorted(set(args.capabilities or detect_capabilities()))
     max_concurrency = (
@@ -124,9 +122,20 @@ def _doctor(config: WorkerConfig) -> int:
         "local_runner": "configured" if config.local_runner is not None else "missing",
         "api": "unreachable",
         "gateway": "unreachable",
+        "provider": "unchecked",
     }
     if credential_error:
         checks["state_error"] = credential_error
+    execution_error: str | None = None
+    if credentials is not None:
+        try:
+            config.validate_execution_mode(simulation=credentials.simulation)
+        except WorkerConfigurationError as exc:
+            execution_error = str(exc)
+            checks["execution"] = "invalid"
+            checks["execution_error"] = execution_error
+        else:
+            checks["execution"] = "ok"
     try:
         response = httpx.get(f"{config.api_url}/health", timeout=5.0)
         checks["api"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
@@ -137,6 +146,30 @@ def _doctor(config: WorkerConfig) -> int:
         checks["gateway"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
     except httpx.HTTPError:
         pass
+    if not config.gateway_service_token:
+        checks["provider"] = "missing_service_token"
+    else:
+        try:
+            response = httpx.get(
+                f"{config.gateway_url}/v1/providers/{config.provider_id}/health",
+                headers={
+                    "Authorization": f"Bearer {config.gateway_service_token}"
+                },
+                timeout=5.0,
+            )
+            if response.status_code >= 400:
+                checks["provider"] = f"http_{response.status_code}"
+            else:
+                provider_health = response.json()
+                checks["provider"] = (
+                    "ok"
+                    if isinstance(provider_health, dict)
+                    and provider_health.get("provider_id") == config.provider_id
+                    and provider_health.get("available") is True
+                    else "unavailable"
+                )
+        except (httpx.HTTPError, ValueError):
+            checks["provider"] = "unreachable"
     if credentials and checks["api"] == "ok":
         try:
             response = httpx.post(
@@ -151,12 +184,14 @@ def _doctor(config: WorkerConfig) -> int:
         except httpx.HTTPError:
             checks["authentication"] = "unreachable"
     print(json.dumps(checks, ensure_ascii=False, indent=2))
-    required_ok = checks["state"] == "ok" and checks["api"] == "ok"
-    runner_ok = bool(
-        credentials is not None
-        and (credentials.simulation or config.local_runner is not None)
+    required_ok = (
+        checks["state"] == "ok"
+        and checks["api"] == "ok"
+        and checks["gateway"] == "ok"
+        and checks["provider"] == "ok"
     )
-    return 0 if required_ok and runner_ok and checks.get("authentication") == "ok" else 1
+    execution_ok = credentials is not None and execution_error is None
+    return 0 if required_ok and execution_ok and checks.get("authentication") == "ok" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -185,11 +220,10 @@ def main(argv: list[str] | None = None) -> int:
     if credentials is None:
         print("Worker non enregistré. Exécutez agent-company-worker register.", file=sys.stderr)
         return 2
-    if not credentials.simulation and config.local_runner is None:
-        print(
-            "Aucun exécuteur réel sécurisé n'est configuré; démarrage refusé.",
-            file=sys.stderr,
-        )
+    try:
+        config.validate_execution_mode(simulation=credentials.simulation)
+    except WorkerConfigurationError as exc:
+        print(f"Mode d'exécution refusé: {exc}.", file=sys.stderr)
         return 2
     asyncio.run(run_forever(config, credentials, once=args.once))
     return 0

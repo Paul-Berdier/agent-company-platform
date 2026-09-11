@@ -599,7 +599,9 @@ def validate_safe_local_policy(mission: Mapping[str, Any] | None) -> None:
     """Refuse ce que le backend local sans sandbox ne peut pas garantir.
 
     La seule enveloppe mission actuellement admise est supervisée, sans action
-    accordée ou soumise à approbation, et avec des ressources en lecture seule.
+    accordée, interdite ou soumise à approbation, et avec des ressources en lecture
+    seule. Une interdiction déclarée serait trompeuse sans sandbox capable de
+    l'appliquer.
     Le programme fixe peut produire son résultat dans le dossier de tentative,
     mais aucune capacité d'écriture projet n'est promise.
     """
@@ -614,6 +616,10 @@ def validate_safe_local_policy(mission: Mapping[str, Any] | None) -> None:
     if autonomy["allowed_actions"]:
         raise RunnerRequestError(
             "le runner local ne peut garantir aucune allowed_action de mission"
+        )
+    if autonomy["forbidden_actions"]:
+        raise RunnerRequestError(
+            "le runner local ne peut garantir aucune forbidden_action de mission"
         )
     if autonomy["approval_required_actions"]:
         raise RunnerRequestError(

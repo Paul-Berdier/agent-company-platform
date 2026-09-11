@@ -1,6 +1,7 @@
+from pathlib import Path
+
 import httpx
 import pytest
-from pathlib import Path
 
 from acp_worker.config import WorkerConfig
 from acp_worker.main import execution_outcome, gateway_evaluate, gateway_plan
@@ -71,6 +72,27 @@ async def test_evaluation_requires_explicit_boolean_verdict():
     async with client(lambda _: httpx.Response(200, json={"approved": "yes"})) as http:
         with pytest.raises(RuntimeError, match="verdict booléen explicite"):
             await gateway_evaluate(http, config(), {}, "résultat")
+
+
+@pytest.mark.parametrize("provider_id", [None, "mock", "manual"])
+async def test_evaluation_rejects_an_unexpected_or_simulated_provider(provider_id):
+    async with client(
+        lambda _: httpx.Response(
+            200, json={"approved": True, "provider_id": provider_id}
+        )
+    ) as http:
+        with pytest.raises(RuntimeError, match="provider inattendu ou simulé"):
+            await gateway_evaluate(http, config(), {}, "résultat")
+
+
+async def test_evaluation_accepts_only_the_configured_real_provider():
+    async with client(
+        lambda _: httpx.Response(
+            200, json={"approved": True, "provider_id": "hermes"}
+        )
+    ) as http:
+        result = await gateway_evaluate(http, config(), {}, "résultat")
+    assert result["approved"] is True
 
 
 def test_simulation_and_missing_verdict_cannot_succeed():

@@ -188,7 +188,7 @@ def make_provider(
     poll_interval_seconds: float = 0,
 ) -> HermesOrchestratorProvider:
     settings = HermesSettings(
-        base_url="http://hermes.test",
+        base_url="https://hermes.test",
         service_token="secret-token",
         timeout_seconds=5,
         max_retries=max_retries,
@@ -421,7 +421,7 @@ async def test_health_uses_authenticated_detailed_readiness_and_capabilities():
     ("base_url", "token", "expected"),
     [
         ("", "secret", "HERMES_BASE_URL"),
-        ("http://hermes.test", "", "HERMES_API_KEY"),
+        ("https://hermes.test", "", "HERMES_API_KEY"),
     ],
 )
 async def test_incomplete_configuration_fails_closed(base_url, token, expected):
@@ -774,3 +774,32 @@ def test_api_key_environment_name_and_migration_alias(monkeypatch):
 
     monkeypatch.delenv("HERMES_API_KEY")
     assert HermesSettings().service_token == "legacy"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://hermes.example",
+        "https://user:secret@hermes.example",
+        "https://hermes.example/v1",
+        "https://hermes.example?token=secret",
+    ],
+)
+async def test_unsafe_hermes_origin_never_receives_the_api_key(base_url: str):
+    requests: list[httpx.Request] = []
+    settings = HermesSettings(base_url=base_url, service_token="secret-token")
+    client = HermesClient(
+        settings,
+        transport=httpx.MockTransport(
+            lambda request: (
+                requests.append(request),
+                httpx.Response(200, json={}),
+            )[1]
+        ),
+    )
+
+    assert settings.base_url_invalid is True
+    assert "secret-token" not in repr(settings)
+    with pytest.raises(ProviderUnavailableError, match="HERMES_BASE_URL invalide"):
+        await client.get_json("/health/detailed")
+    assert requests == []

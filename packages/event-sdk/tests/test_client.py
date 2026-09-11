@@ -12,7 +12,7 @@ async def test_missing_worker_credentials_fails_closed_without_request():
         return httpx.Response(200, json={"ok": True})
 
     client = EventClient(
-        "http://api.test",
+        "https://api.test",
         transport=httpx.MockTransport(handler),
     )
 
@@ -28,7 +28,7 @@ async def test_worker_identity_is_sent_and_only_2xx_is_accepted():
         return httpx.Response(202, json={"ok": True})
 
     client = EventClient(
-        "http://api.test",
+        "https://api.test",
         worker_id="worker-1",
         worker_token="secret-token",
         transport=httpx.MockTransport(handler),
@@ -41,7 +41,7 @@ async def test_worker_identity_is_sent_and_only_2xx_is_accepted():
 
 async def test_rejected_event_is_not_reported_as_delivered():
     client = EventClient(
-        "http://api.test",
+        "https://api.test",
         worker_id="worker-1",
         worker_token="secret-token",
         transport=httpx.MockTransport(
@@ -50,3 +50,21 @@ async def test_rejected_event_is_not_reported_as_delivered():
     )
 
     assert await client.emit(Event(type="task.progress")) is False
+
+
+async def test_insecure_api_origin_never_receives_worker_credentials():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(202, json={"ok": True})
+
+    client = EventClient(
+        "http://api.example",
+        worker_id="worker-1",
+        worker_token="secret-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert await client.emit(Event(type="task.progress")) is False
+    assert requests == []

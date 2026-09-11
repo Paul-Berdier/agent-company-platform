@@ -208,6 +208,9 @@ async def gateway_evaluate(
         raise RuntimeError("réponse d'évaluation non JSON") from exc
     if not isinstance(data, dict) or not isinstance(data.get("approved"), bool):
         raise RuntimeError("réponse d'évaluation sans verdict booléen explicite")
+    reported_provider = data.get("provider_id")
+    if reported_provider != config.provider_id or reported_provider == "mock":
+        raise RuntimeError("réponse d'évaluation issue d'un provider inattendu ou simulé")
     return data
 
 
@@ -832,6 +835,7 @@ async def run_forever(
         raise CredentialStateError(
             "Credentials liés à une autre origine API; réenregistrement requis"
         )
+    config.validate_execution_mode(simulation=credentials.simulation)
     logger = WorkerLogger(config.state_dir)
     logger.write(
         "info",

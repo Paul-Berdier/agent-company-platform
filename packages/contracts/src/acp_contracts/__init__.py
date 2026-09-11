@@ -84,6 +84,10 @@ from .providers import (  # noqa: F401
     ProviderHealth,
 )
 from .sessions import SessionContext  # noqa: F401
+from .service_urls import (  # noqa: F401
+    ServiceOriginError,
+    normalize_service_origin,
+)
 from .operations import (  # noqa: F401
     ApprovalActionEnvelope,
     ApprovalAction,
