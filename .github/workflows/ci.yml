@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python 3.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python packages
+        run: >-
+          python -m pip install
+          -e packages/contracts
+          -e packages/database
+          -e packages/provider-sdk
+          -e packages/event-sdk
+          -e packages/agent-sdk
+          -e apps/api
+          -e apps/event-service
+          -e apps/worker
+          -e "services/provider-gateway[test]"
+      - name: Run Python tests
+        run: python -m pytest -q
+
+  web:
+    name: Node 22
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install Node packages
+        run: npm ci
+      - name: Check committed whitespace
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          else
+            git show --check --format=fuller HEAD
+          fi
+      - name: Type-check the modern workspace
+        run: npm exec tsc -- --noEmit -p apps/web/tsconfig.json
+      - name: Test the modern workspace
+        run: npm test --workspace @acp/web
+      - name: Test the legacy engine
+        run: npm test --workspace @acp/pixel-office-engine
+      - name: Build the web application
+        run: npm run build:web
