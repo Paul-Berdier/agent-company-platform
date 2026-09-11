@@ -28,7 +28,7 @@ from acp_database.models import (
     WorkspaceModel,
 )
 
-from ..deps import get_db
+from ..deps import get_db, get_principal, require_platform_role
 
 router = APIRouter(prefix="/workers", tags=["workers"])
 
@@ -270,13 +270,21 @@ def heartbeat(
 
 
 @router.get("", response_model=list[WorkerSnapshot])
-def list_workers(db: Session = Depends(get_db)):
+def list_workers(
+    db: Session = Depends(get_db), principal: str = Depends(get_principal)
+):
+    require_platform_role(db, principal, "owner", "operator")
     _mark_stale_workers(db)
     return [worker_snapshot(worker) for worker in db.query(WorkerModel).all()]
 
 
 @router.get("/{worker_id}", response_model=WorkerSnapshot)
-def get_worker(worker_id: str, db: Session = Depends(get_db)):
+def get_worker(
+    worker_id: str,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    require_platform_role(db, principal, "owner", "operator")
     _mark_stale_workers(db)
     worker = db.get(WorkerModel, worker_id)
     if worker is None:

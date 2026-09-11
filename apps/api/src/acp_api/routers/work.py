@@ -23,12 +23,13 @@ from acp_database.models import (
     TaskModel,
     TaskRunModel,
     TeamMemberModel,
+    TeamModel,
     WorkerLeaseModel,
     WorkerModel,
     WorkspaceModel,
 )
 
-from ..deps import ensure_access, get_db, get_principal
+from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
 from ..events_bus import forward_event, store_event
 from .workers import (
     WORKER_LEASE_SECONDS,
@@ -163,8 +164,17 @@ def create_task(
     principal: str | None = Depends(get_principal),
 ):
     ensure_access(db, principal, project_id=body.project_id, minimum_role="member")
-    if db.get(ProjectModel, body.project_id) is None:
+    project = db.get(ProjectModel, body.project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail="Projet introuvable")
+    if body.team_id is not None:
+        team = db.get(TeamModel, body.team_id)
+        if team is None or team.project_id != body.project_id:
+            raise HTTPException(status_code=422, detail="Équipe hors du projet")
+    if body.agent_instance_id is not None:
+        agent = db.get(AgentInstanceModel, body.agent_instance_id)
+        if agent is None or agent.workspace_id != project.workspace_id:
+            raise HTTPException(status_code=422, detail="Agent hors du workspace du projet")
     obj = TaskModel(**body.model_dump())
     db.add(obj)
     db.commit()
@@ -178,8 +188,11 @@ def list_tasks(
     project_id: str | None = None,
     status: str | None = None,
     db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
 ):
-    q = db.query(TaskModel)
+    q = db.query(TaskModel).filter(
+        TaskModel.project_id.in_(accessible_project_ids(db, principal))
+    )
     if project_id:
         q = q.filter_by(project_id=project_id)
     if status:
@@ -204,6 +217,11 @@ def patch_task(
             status_code=422,
             detail="Cet état est géré par la file et le run, pas par la modification de tâche",
         )
+    if body.agent_instance_id is not None:
+        project = db.get(ProjectModel, task.project_id)
+        agent = db.get(AgentInstanceModel, body.agent_instance_id)
+        if project is None or agent is None or agent.workspace_id != project.workspace_id:
+            raise HTTPException(status_code=422, detail="Agent hors du workspace du projet")
     changes = body.model_dump(exclude_none=True)
     status_changed = "status" in changes and changes["status"] != task.status
     for key, value in changes.items():
@@ -217,10 +235,16 @@ def patch_task(
 
 
 @router.post("/tasks/{task_id}/queue", response_model=Task)
-def queue_task(task_id: str, background: BackgroundTasks, db: Session = Depends(get_db)):
+def queue_task(
+    task_id: str,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
     task = db.get(TaskModel, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Tâche introuvable")
+    ensure_access(db, principal, project_id=task.project_id, minimum_role="member")
     task.status = "queued"
     db.commit()
     _emit(db, background, Event(type="task.queued", **_task_event_ids(db, task),
@@ -408,20 +432,30 @@ def claim_next_task_legacy(
     body: ClaimRequest,
     background: BackgroundTasks,
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
 ):
     """Ancien endpoint, désactivé sauf opt-in explicite pour une transition locale."""
     if os.environ.get("ACP_ALLOW_LEGACY_WORKER_CLAIM") != "1":
         raise HTTPException(status_code=410, detail="Enregistrez le worker via /workers/register")
+    worker = authenticate_worker(db, body.worker_id, authorization)
     return _claim_next_task(
-        WorkerClaimRequest(provider_id=body.provider_id), background, db
+        WorkerClaimRequest(provider_id=body.provider_id), background, db, worker
     )
 
 
 @router.get("/task-runs", response_model=list[TaskRun])
-def list_task_runs(task_id: str | None = None, db: Session = Depends(get_db)):
-    q = db.query(TaskRunModel)
+def list_task_runs(
+    task_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    q = (
+        db.query(TaskRunModel)
+        .join(TaskModel, TaskModel.id == TaskRunModel.task_id)
+        .filter(TaskModel.project_id.in_(accessible_project_ids(db, principal)))
+    )
     if task_id:
-        q = q.filter_by(task_id=task_id)
+        q = q.filter(TaskRunModel.task_id == task_id)
     return [TaskRun.model_validate(r, from_attributes=True) for r in q.all()]
 
 

@@ -6,6 +6,14 @@ de provider (Hermes, Claude, Codex, ...).
 
 CONTRACTS_VERSION = "1.0"
 
+from .auth import (  # noqa: F401
+    AuthenticatedUser,
+    AuthSessionResponse,
+    AuthStatusResponse,
+    LoginRequest,
+    LogoutResponse,
+    OwnerBootstrapRequest,
+)
 from .enums import (  # noqa: F401
     AgentStatus,
     MemoryClassification,
@@ -27,6 +35,19 @@ from .entities import (  # noqa: F401
     Team,
     TeamMember,
     Workspace,
+)
+from .conversations import (  # noqa: F401
+    ConversationCreate,
+    ConversationDetail,
+    ConversationList,
+    ConversationPatch,
+    ConversationStatus,
+    ConversationSummary,
+    ConversationTurn,
+    ConversationTurnCreate,
+    ConversationTurnList,
+    ConversationTurnStatus,
+    HermesConnectionDiagnostic,
 )
 from .events import Event, EventEnvelope  # noqa: F401
 from .memory import MemoryItem  # noqa: F401

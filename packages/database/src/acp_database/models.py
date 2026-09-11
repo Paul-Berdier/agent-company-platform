@@ -22,6 +22,82 @@ class _Common:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class UserModel(_Common, Base):
+    __tablename__ = "users"
+    login_normalized: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(Text)
+    platform_role: Mapped[str] = mapped_column(String(50), default="owner", index=True)
+    is_active: Mapped[int] = mapped_column(Integer, default=1)
+    bootstrap_marker: Mapped[str | None] = mapped_column(
+        String(32), unique=True, nullable=True
+    )
+    password_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class UserSessionModel(_Common, Base):
+    __tablename__ = "user_sessions"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    csrf_token_hash: Mapped[str] = mapped_column(String(64))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+
+class ConversationModel(_Common, Base):
+    __tablename__ = "conversations"
+
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id"), nullable=True, index=True
+    )
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200), default="Nouvelle conversation")
+    status: Mapped[str] = mapped_column(String(50), default="active", index=True)
+    provider_id: Mapped[str] = mapped_column(String(100), default="hermes")
+    provider_session_id: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now, index=True
+    )
+
+
+class ConversationTurnModel(_Common, Base):
+    __tablename__ = "conversation_turns"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "client_request_id",
+            name="uq_conversation_turn_client_request",
+        ),
+    )
+
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id"), index=True
+    )
+    client_request_id: Mapped[str] = mapped_column(String(128))
+    idempotency_key: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    user_content: Mapped[str] = mapped_column(Text)
+    requested_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    assistant_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="submitting", index=True)
+    provider_run_id: Mapped[str | None] = mapped_column(
+        String(100), unique=True, nullable=True, index=True
+    )
+    provider_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    usage: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now, index=True
+    )
+
+
 class OrganizationModel(_Common, Base):
     __tablename__ = "organizations"
     name: Mapped[str] = mapped_column(String(200))

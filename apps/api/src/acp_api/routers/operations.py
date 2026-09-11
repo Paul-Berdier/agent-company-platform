@@ -26,7 +26,7 @@ from acp_database.models import (
     WorkerLeaseModel,
 )
 
-from ..deps import ensure_access, get_db, get_principal
+from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
 from .workers import _as_utc, authenticate_worker, expire_task_leases, utcnow
 
 router = APIRouter(tags=["operations"])
@@ -154,10 +154,23 @@ def release_lock(
 
 
 @router.get("/locks", response_model=list[ResourceLock])
-def list_locks(active_only: bool = True, db: Session = Depends(get_db)):
+def list_locks(
+    active_only: bool = True,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
     now = utcnow()
-    query = db.query(ResourceLockModel)
-    rows = query.filter_by(status="active").all() if active_only else query.all()
+    query = (
+        db.query(ResourceLockModel)
+        .join(TaskRunModel, TaskRunModel.id == ResourceLockModel.owner_run_id)
+        .join(TaskModel, TaskModel.id == TaskRunModel.task_id)
+        .filter(TaskModel.project_id.in_(accessible_project_ids(db, principal)))
+    )
+    rows = (
+        query.filter(ResourceLockModel.status == "active").all()
+        if active_only
+        else query.all()
+    )
     return [
         _lock_contract(lock)
         for lock in rows
@@ -208,9 +221,12 @@ def list_approvals(
     project_id: str | None = None,
     status: ApprovalStatus | None = None,
     db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
 ):
     _expire_approvals(db)
-    query = db.query(ApprovalModel)
+    query = db.query(ApprovalModel).filter(
+        ApprovalModel.project_id.in_(accessible_project_ids(db, principal))
+    )
     if project_id:
         query = query.filter_by(project_id=project_id)
     if status:
@@ -267,8 +283,14 @@ def report_artifact(
 
 
 @router.get("/artifacts", response_model=list[Artifact])
-def list_artifacts(project_id: str | None = None, db: Session = Depends(get_db)):
-    query = db.query(ArtifactModel)
+def list_artifacts(
+    project_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    query = db.query(ArtifactModel).filter(
+        ArtifactModel.project_id.in_(accessible_project_ids(db, principal))
+    )
     if project_id:
         query = query.filter_by(project_id=project_id)
     return [_artifact_contract(row) for row in query.all()]
