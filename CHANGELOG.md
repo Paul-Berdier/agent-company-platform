@@ -6,6 +6,39 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-11
+
+### Ajouté
+
+- bootstrap unique du propriétaire, mots de passe Argon2id et sessions opaques
+  révocables/expirables avec cookie `HttpOnly` et protection CSRF ;
+- rôles propriétaire, opérateur/membre et lecteur, avec filtrage des ressources par
+  projet et espace accessible ;
+- onboarding personnel reprenable et création du premier projet ;
+- conversations privées ou rattachées à un projet, tours persistés, recherche,
+  renommage, archivage, réactivation et export JSON ;
+- diagnostic Hermes typé côté serveur et Runs conversationnels asynchrones avec clé
+  d'idempotence persistée et reprise par consultation de statut ;
+- interfaces web de bootstrap, connexion, onboarding, Connexions et Conversations.
+
+### Modifié
+
+- le navigateur utilise exclusivement la session API et ne transmet plus de Bearer
+  métier ni de secret provider ;
+- la reprise d'un tour conversationnel conserve son identifiant de requête et sa clé
+  d'idempotence après une admission réseau incertaine ;
+- les versions des composants publiables sont synchronisées sur `0.3.0`.
+
+### Sécurité
+
+- les routes métier échouent fermées sans session et les mutations exigent un jeton
+  CSRF ainsi qu'un rôle suffisant ;
+- seul le liveness du provider-gateway reste public, sa surface `/v1/*` exigeant un
+  Bearer inter-services distinct ;
+- l'ingestion event-service exige son propre Bearer et le WebSocket anonyme est fermé
+  par défaut ;
+- l'en-tête `X-User-Id` ne peut plus forger une identité utilisateur.
+
 ## [0.2.0] - 2026-09-11
 
 ### Ajouté
@@ -33,5 +66,6 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/5887603...v0.2.0

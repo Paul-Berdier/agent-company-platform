@@ -2,8 +2,8 @@
 
 Date de référence : 11 septembre 2026
 Version supportée : Hermes Agent `0.21.1`, tag de publication `v2026.9.7`
-Statut : adaptateur Runs livré et testé sur transport simulé ; aucune instance réelle
-n'a été jointe pendant ce lot.
+Statut : adaptateur Runs, diagnostic et conversation web persistante livrés sur
+transport simulé ; aucune instance réelle n'a été jointe pendant ce lot.
 
 ## Surface retenue
 
@@ -22,16 +22,22 @@ La surface a été vérifiée dans la
 et la version dans les
 [releases Hermes Agent](https://github.com/NousResearch/hermes-agent/releases).
 L'API Runs est une frontière serveur : la clé Hermes ne va ni au navigateur, ni au
-worker.
+worker. Le worker et l'API appellent le provider-gateway avec un jeton inter-services
+distinct ; seul le gateway détient `HERMES_API_KEY`.
 
 ## Architecture et traduction
 
 ```text
-worker → provider-gateway → readiness + capacités Hermes
-                           → création d'un Run idempotent
-                           → polling borné du statut
-                           → validation stricte de la sortie
-                           → contrat plateforme
+navigateur → API authentifiée → conversation et tour persistés
+                              → provider-gateway (Bearer interne)
+                                  → readiness + capacités Hermes
+                                  → création d'un Run idempotent
+                              ← identifiant et état d'admission
+navigateur → API (polling GET) → lecture unique du Run via le gateway
+                              → réponse et usage persistés
+
+worker ───────────────────────→ provider-gateway (Bearer interne)
+                              → traduction plan/évaluation synchrone
 ```
 
 Le gateway conserve son contrat d'orchestration historique pour limiter la migration
@@ -50,8 +56,29 @@ métier. En l'absence d'`external_session_id`, l'adaptateur construit un identif
 déterministe namespacé par organisation, espace, projet, équipe, agent et session ;
 il ne réutilise pas un transcript d'un autre scope.
 
-Cette traduction synchrone est une étape de migration. Elle ne remplace pas encore
-la conversation persistante ou le flux d'événements natif.
+La traduction synchrone demeure pour les opérations historiques de planification et
+d'évaluation. Le Lot B ajoute séparément l'admission asynchrone d'un tour de
+conversation et la lecture d'un état de Run. L'API plateforme persiste conversation,
+tour, clé d'idempotence, `run_id`, sortie et usage ; elle utilise un identifiant de
+session Hermes stable par conversation.
+
+La reprise actuelle est volontairement simple : le web interroge
+`GET /conversations/{conversation_id}/turns/{turn_id}`. Cette lecture peut
+réconcilier un tour `submitting`/`running` puis persiste l'état reçu. Ce mécanisme ne
+doit pas être présenté comme du streaming, du SSE ou un journal d'événements durable.
+
+## Frontière interne du provider-gateway
+
+Seul `GET /health` est public. Toutes les routes `/v1/*`, y compris le diagnostic,
+les providers manuels et les Runs, exigent exactement :
+
+```text
+Authorization: Bearer <ACP_GATEWAY_SERVICE_TOKEN>
+```
+
+Sans jeton configuré, le gateway renvoie `503` ; avec un jeton absent ou incorrect,
+il renvoie `401`. Le navigateur n'appelle pas cette surface. Les routes utilisateur
+de l'API plateforme exigent une session valide, et les mutations un jeton CSRF.
 
 ## Admission fail-closed
 
@@ -99,6 +126,7 @@ HERMES_TIMEOUT_SECONDS=30
 HERMES_MAX_RETRIES=2
 HERMES_RUN_TIMEOUT_SECONDS=120
 HERMES_POLL_INTERVAL_SECONDS=0.5
+ACP_GATEWAY_SERVICE_TOKEN=<secret inter-services>
 ```
 
 `HERMES_BASE_URL` reste volontairement vide dans `.env.example`. Une URL loopback
@@ -106,22 +134,53 @@ serait fausse pour des services séparés. `HERMES_API_KEY` doit contenir la mê
 valeur que `API_SERVER_KEY`. `HERMES_SERVICE_TOKEN` reste accepté comme alias de
 migration, mais ne doit plus être utilisé dans une nouvelle configuration.
 
-Le diagnostic public du gateway est :
+Le diagnostic interne du gateway est :
 
 ```text
-GET /v1/providers/hermes/health
+GET /v1/providers/hermes/diagnostic
 ```
 
-Il renvoie `available=false` avec la configuration manquante ou la cause de
-readiness ; il ne déclenche aucun Run. Ne journaliser ni la clé ni l'en-tête
-Authorization lors d'un diagnostic.
+Il renvoie un contrat typé avec `configured`, `ready`, version attendue/détectée,
+modèle, latence et une cause expurgée. Les états distinguent notamment
+`not_configured`, `unauthorized`, `timeout`, `incompatible_version`,
+`invalid_response` et `unavailable`. Il ne déclenche aucun Run. L'interface utilise
+`GET` ou `POST /connections/hermes/diagnostic` sur l'API métier, jamais cette route
+interne. Ne journaliser ni clé ni en-tête `Authorization` lors d'un diagnostic.
+
+## Conversation et idempotence
+
+L'API métier crée une conversation générale privée ou une conversation explicitement
+rattachée à un projet. Les droits sont vérifiés avant chaque lecture et mutation ;
+un lecteur peut consulter une conversation projet autorisée mais ne peut pas ajouter
+de tour.
+
+Un tour porte deux identifiants distincts :
+
+- `client_request_id`, fourni par le web et unique dans la conversation, empêche de
+  créer deux tours lors d'une répétition HTTP ;
+- `idempotency_key`, générée et persistée côté API, est transmise sans changement au
+  gateway puis à Hermes dans `Idempotency-Key`.
+
+Si l'admission a un résultat réseau incertain, le tour reste `submitting`, conserve
+son message et son erreur exploitable, puis une répétition avec le même
+`client_request_id` réutilise exactement la même clé. Un message différent avec le
+même identifiant est refusé en conflit. Le gateway rend la main après l'admission ;
+il ne masque pas une boucle de polling dans la requête `POST`.
 
 ## Tests réalisés
 
-Les tests de contrat dans `services/provider-gateway/tests/test_hermes_adapter.py`
-utilisent `httpx.MockTransport` et couvrent les chemins heureux, la readiness, les
-capacités, l'idempotence, les états terminaux, délais et sorties mal formées. La
-suite ciblée stabilisée compte **58 tests réussis**.
+Les tests de contrat historiques dans
+`services/provider-gateway/tests/test_hermes_adapter.py` utilisent
+`httpx.MockTransport` et couvrent les chemins heureux, la readiness, les capacités,
+l'idempotence, les états terminaux, délais et sorties mal formées. Leur baseline du
+Lot A compte **58 tests réussis**.
+
+Le Lot B ajoute `test_gateway_hermes_runs.py`, `test_conversations.py` et les tests
+TypeScript du client de conversation pour le Bearer interne, le diagnostic typé,
+l'admission asynchrone, la lecture unitaire, la persistance, la confidentialité et la
+reprise de clé. Dans le worktree propre du Lot B, la suite Python complète compte
+**121 tests réussis** et la suite web **28 tests réussis**. Ces résultats ne prouvent
+pas une intégration externe.
 
 Ce résultat valide la traduction et les invariants locaux. Il ne prouve pas :
 
@@ -138,10 +197,11 @@ clé est `non exécuté`, jamais vert.
 
 ## Capacités non livrées dans cette tranche
 
-- conversations et sessions REST exposées dans le web/CLI ;
+- conversation et reprise dans le CLI `acp` ;
 - streaming SSE et persistance de ses événements ;
 - stop/cancel transmis à Hermes ;
 - demandes et décisions d'approbation Hermes ;
+- pièces jointes ;
 - profils, modèles, MCP, skills et toolsets consultables/configurables ;
 - jobs et automatisations ;
 - délégations rapprochées des missions métier.
@@ -153,10 +213,13 @@ mais le Run peut continuer côté Hermes. Ce point doit être corrigé avec la c
 ## Prochaine tranche
 
 1. Lancer exactement Hermes `0.21.1` dans un environnement local isolé et exécuter
-   le test réel opt-in.
-2. Persister un mapping explicite `project_id` / conversation plateforme /
-   `hermes_session_id`.
-3. Ajouter streaming, reconnexion et réconciliation par statut durable.
-4. Implémenter stop et approbations uniquement après détection de capacité.
-5. Exposer modèles, profils, MCP et skills dans Connexions sans dupliquer leur
+   le test réel opt-in : diagnostic puis tour borné, sans fournisseur payant
+   implicite.
+2. Vérifier après redémarrage la correspondance persistée `project_id` /
+   conversation plateforme / `provider_session_id` / `run_id`.
+3. Ajouter streaming authentifié, journal durable, reconnexion par curseur et
+   réconciliation de statut.
+4. Raccorder la conversation au CLI `acp` avec la même idempotence.
+5. Implémenter stop et approbations uniquement après détection de capacité.
+6. Exposer modèles, profils, MCP et skills dans Connexions sans dupliquer leur
    configuration native.
