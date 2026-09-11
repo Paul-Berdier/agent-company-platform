@@ -1,95 +1,153 @@
 # Agent Company Platform
 
-Plateforme générique multi-projets représentant une **entreprise virtuelle** dans laquelle
-des agents IA travaillent dans différents départements, sur plusieurs projets, visualisée
-comme un bureau **pixel art vu du dessus**.
+Poste de travail personnel pour organiser des projets et des missions, raccorder
+Hermes Agent et, à terme, piloter des runners et outils spécialisés depuis le web et
+un CLI commun.
 
-Le cœur est totalement agnostique du métier : jeux vidéo, data science, recherche,
-développement logiciel, etc. sont fournis par des **modules (plugins)**, des **adaptateurs**
-et des **providers** optionnels. Hermes est un service externe optionnel, jamais importé
-par le cœur.
+La modernisation est engagée par tranches. Le Lot A livre un shell web moderne, un
+adaptateur Hermes fondé sur l'API Runs officielle et des garde-fous contre plusieurs
+faux succès. Il ne livre pas encore l'authentification propriétaire, une conversation
+Hermes, un runner réel ou le CLI `acp`. Le détail exact se trouve dans
+[l'état d'implémentation](docs/implementation-status.md).
+
+![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
+
+## Ce qui fonctionne aujourd'hui
+
+- accueil, projets et composition d'une mission raccordés à l'API métier ;
+- états chargement, vide, hors ligne, refus et non configuré sans données factices ;
+- thèmes sombre/clair et disposition responsive ;
+- tâches, runs, workers enrôlés, leases, locks, approbations, événements persistés et
+  métadonnées d'artefacts dans le socle FastAPI/SQLAlchemy ;
+- provider Hermes `0.21.1` via `/health/detailed`, `/v1/capabilities` et
+  `/v1/runs` ;
+- simulation worker explicitement `blocked`, jamais présentée comme une exécution
+  réussie ;
+- refus d'un succès de run sans validation technique `passed` et preuve ;
+- bureau pixel historique préservé mais non chargé par défaut.
+
+Ce qui ne fonctionne pas encore est visible comme `Non configuré` et recensé dans
+[le rapport d'acceptation](docs/acceptance-report.md). Le projet n'est pas prêt à
+être exposé sur Internet.
 
 ## Architecture
 
 ```text
-Organization → Workspace → Department → Project → Team → Agent Instance → Task → Task Run
+Web (Vite/TypeScript) ─┐
+                      ├── API métier (FastAPI) ── base plateforme
+CLI acp (à livrer) ───┘         │
+                                ├── provider-gateway ── Hermes Agent séparé
+                                ├── service d'événements
+                                └── workers enrôlés ── runners à livrer
 ```
 
-```text
-agent-company-platform/
-├── apps/
-│   ├── web/                  # Interface pixel art (Vite + TypeScript)
-│   ├── api/                  # API REST cœur (FastAPI)
-│   ├── event-service/        # Diffusion temps réel des événements (WebSocket)
-│   └── worker/               # Worker distant authentifié (simulation disponible)
-├── services/
-│   └── provider-gateway/     # Passerelle providers (mock / manual / hermes)
-├── packages/
-│   ├── contracts/            # Contrats Pydantic + types TypeScript versionnés
-│   ├── database/             # Modèles SQLAlchemy + accès base
-│   ├── event-sdk/            # SDK d'émission d'événements
-│   ├── provider-sdk/         # Abstraction OrchestratorProvider
-│   ├── agent-sdk/            # Définitions d'agents logiques et capacités
-│   ├── pixel-office-engine/  # Moteur pixel art data-driven (TypeScript)
-│   └── ui/                   # Composants UI partagés
-├── plugins/
-│   ├── software-development/
-│   ├── data-science/
-│   ├── game-development/
-│   └── research/
-└── docs/
-```
+La plateforme est la source de vérité des projets, droits, missions et preuves.
+Hermes reste la source de vérité de ses sessions, profils, modèles et skills. Les
+identifiants doivent être rapprochés explicitement. Voir
+[docs/architecture.md](docs/architecture.md) et
+[docs/hermes-integration.md](docs/hermes-integration.md).
 
-## Démarrage rapide (MVP, sans Hermes)
+## Démarrage local de développement
 
-Prérequis : Python ≥ 3.11, Node ≥ 20.
+Prérequis actuels : Python 3.11 ou supérieur, Node 20 ou supérieur, npm. Les
+dépendances Python ne sont pas encore verrouillées et les scripts créent les tables
+avec `create_all()` ; utiliser uniquement une machine de développement de confiance.
+
+Sous Windows PowerShell :
 
 ```powershell
-# 1. Installation (crée .venv, installe les packages Python et npm)
 ./scripts/setup.ps1
-
-# 2. Lancer les services (le worker démarre s'il a déjà été enregistré)
 ./scripts/dev.ps1
-
-# 3. Ouvrir http://localhost:5173
 ```
 
-Sous Linux/macOS : `./scripts/setup.sh` puis `./scripts/dev.sh`.
+Sous Linux/macOS :
 
-Services par défaut :
+```bash
+./scripts/setup.sh
+./scripts/dev.sh
+```
 
-| Service          | Port | Rôle                                   |
-|------------------|------|----------------------------------------|
-| api              | 8000 | CRUD, sessions, mémoire, permissions   |
-| event-service    | 8001 | WebSocket `/ws` + ingestion événements |
-| provider-gateway | 8002 | Orchestrateurs mock / manual / hermes  |
-| web              | 5173 | Bureau pixel art                       |
+L'interface est ensuite disponible sur `http://localhost:5173`. Services locaux :
 
-La base est SQLite par défaut (`ACP_DATABASE_URL` pour PostgreSQL). Le seed de
-démonstration est appliqué via `python -m acp_api.seed`.
+| Service | Port | Rôle |
+|---|---:|---|
+| web | 5173 | shell utilisateur |
+| api | 8000 | projets, missions, droits et historique métier |
+| event-service | 8001 | diffusion WebSocket actuelle, non durable |
+| provider-gateway | 8002 | frontière providers, dont Hermes |
 
-Pour la première installation d'un worker Windows, définir
-`ACP_WORKER_REGISTRATION_TOKEN` côté API puis exécuter
-`agent-company-worker register`, `doctor` et `start`. Procédure détaillée :
-[docs/workers/windows-worker.md](docs/workers/windows-worker.md).
+Copier les valeurs utiles de `.env.example` dans l'environnement du processus. Ne
+jamais committer `.env`, une clé Hermes ou un jeton worker. Aucun secret par défaut
+n'est fourni.
 
-## Assets graphiques
+Le seed local est un jeu de démonstration. L'accès utilisateur reste ouvert en mode
+développement tant que le bootstrap propriétaire du Lot B n'est pas livré : ne pas
+publier les services. Un worker doit être enregistré séparément selon
+[la procédure Windows](docs/workers/windows-worker.md). Son mode simulation termine
+en `blocked`. Aucun exécuteur réel n'est raccordé à la boucle worker actuelle.
 
-Le dépôt embarque uniquement des **placeholders originaux libres**. Les
-graphismes premium (personnages, mobilier, extérieurs, UI) proviennent des
-packs **[LimeZu](https://limezu.itch.io/)** (Modern Interiors, Modern Office,
-Modern Exteriors, Modern User Interface), achetés séparément et importés en
-local — jamais redistribués ici. Installation :
-[docs/assets/limezu-installation.md](docs/assets/limezu-installation.md).
+## Hermes
 
-**Crédits : pixel art par [LimeZu](https://limezu.itch.io/).**
+Version attendue : Hermes Agent `0.21.1` (`v2026.9.7`). Sur Hermes, activer l'API
+Server et générer une clé :
+
+```text
+API_SERVER_ENABLED=true
+API_SERVER_KEY=<secret>
+```
+
+Sur le provider-gateway :
+
+```text
+HERMES_BASE_URL=<URL joignable depuis le gateway>
+HERMES_API_KEY=<même secret>
+```
+
+L'URL locale native est généralement `http://127.0.0.1:8642`, mais elle n'est pas
+un défaut valable entre conteneurs ou services Railway. Le provider reste donc
+indisponible tant que l'URL et la clé ne sont pas configurées. Aucun basculement
+automatique vers un provider payant ou un plan local n'a lieu.
+
+## Bureau pixel historique
+
+Le moteur, les scènes et les données existantes sont conservés. Ils sont hors du
+parcours principal et chargés uniquement avec :
+
+```text
+http://localhost:5173/?legacy-office=1
+```
+
+ou au build avec `VITE_ACP_LEGACY_OFFICE=1`. Les assets LimeZu restent des achats
+séparés et ne doivent pas être redistribués. Voir
+[la documentation d'installation](docs/assets/limezu-installation.md).
+
+## Vérifications
+
+Commandes principales :
+
+```powershell
+npm exec tsc -- --noEmit -p apps/web/tsconfig.json
+npm test --workspace @acp/web
+npm test --workspace @acp/pixel-office-engine
+npm run build:web
+python -m pytest -q
+```
+
+Les résultats réellement obtenus, l'environnement Python utilisé, les warnings et
+les limites sont consignés dans [docs/acceptance-report.md](docs/acceptance-report.md).
+Les tests Hermes utilisent un transport HTTP simulé ; ils ne constituent pas une
+connexion réelle.
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — vue d'ensemble et frontières
-- [docs/providers.md](docs/providers.md) — orchestrator / execution / tool providers, Hermes
-- [docs/providers-local-executors.md](docs/providers-local-executors.md) — garde-fous Claude Code et Codex CLI
-- [docs/plugins.md](docs/plugins.md) — écrire un module métier
-- [docs/sessions-memory.md](docs/sessions-memory.md) — sessions isolées et scopes mémoire
-- [docs/deployment-railway.md](docs/deployment-railway.md) — déploiement indépendant plateforme / Hermes
-- [docs/workers/windows-worker.md](docs/workers/windows-worker.md) — enrôler et exploiter un worker Windows
+- [Audit de modernisation](docs/audit-modernisation.md)
+- [Architecture et sources de vérité](docs/architecture.md)
+- [Décisions de réutilisation](docs/reuse-decisions.md)
+- [Système visuel](docs/design-system.md)
+- [Intégration Hermes](docs/hermes-integration.md)
+- [Sécurité](docs/security.md)
+- [Centre MCP et skills — cible](docs/mcp-and-skills.md)
+- [Studio en direct — cible](docs/live-studio.md)
+- [Déploiement Railway](docs/deployment-railway.md)
+- [Rapport d'acceptation](docs/acceptance-report.md)
+- [État d'implémentation et reprise](docs/implementation-status.md)
