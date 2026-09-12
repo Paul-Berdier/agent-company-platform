@@ -48,6 +48,10 @@ from .conversations import (  # noqa: F401
     ConversationTurnList,
     ConversationTurnStatus,
     HermesConnectionDiagnostic,
+    HermesNativeListing,
+    HermesNativeListingStatus,
+    HermesNativeSkill,
+    HermesNativeToolset,
 )
 from .events import Event, EventEnvelope  # noqa: F401
 from .memory import MemoryItem  # noqa: F401

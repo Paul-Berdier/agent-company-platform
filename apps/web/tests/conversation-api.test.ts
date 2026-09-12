@@ -122,6 +122,54 @@ describe("ConversationApiClient", () => {
     );
   });
 
+  it("lit les skills et toolsets natifs annoncés par Hermes, sans les écrire", async () => {
+    const listing = {
+      status: "available",
+      skills: [{ name: "pdf-report", description: "Rapport PDF", category: "documents" }],
+      toolsets: [{
+        name: "filesystem",
+        label: "Système de fichiers",
+        description: "Lecture locale",
+        enabled: true,
+        configured: true,
+        tools: ["read_file"],
+      }],
+      message: "Lecture Hermes : 1 skill(s) et 1 toolset(s) annoncés.",
+      read_at: "2026-09-12T08:30:00Z",
+    };
+    const fetcher = vi.fn(async () => json(listing));
+    const client = new ConversationApiClient({ baseUrl: "https://api.example.test", fetcher });
+
+    await expect(client.fetchHermesNativeListing()).resolves.toEqual(listing);
+    expect(fetcher.mock.calls[0][0]).toBe(
+      "https://api.example.test/connections/hermes/native-listing",
+    );
+    const init = fetcher.mock.calls[0][1] as RequestInit;
+    expect((init.method ?? "GET").toUpperCase()).toBe("GET");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("normalise un état sans contenu et refuse une forme invalide", async () => {
+    const unavailable = {
+      status: "unsupported",
+      message: "Cette instance Hermes n’expose pas ses skills natifs.",
+      read_at: null,
+    };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json(unavailable))
+      .mockResolvedValueOnce(json({ status: "available", skills: [{ name: 42 }], toolsets: [], message: "x", read_at: "2026-09-12T08:30:00Z" }))
+      .mockResolvedValueOnce(json({ status: "inconnu", skills: [], toolsets: [], message: "x", read_at: null }));
+    const client = new ConversationApiClient({ baseUrl: "https://api.example.test", fetcher });
+
+    await expect(client.fetchHermesNativeListing()).resolves.toEqual({
+      ...unavailable,
+      skills: [],
+      toolsets: [],
+    });
+    await expect(client.fetchHermesNativeListing()).rejects.toThrow();
+    await expect(client.fetchHermesNativeListing()).rejects.toThrow();
+  });
+
   it("distingue les tours terminaux des états encore suivis", () => {
     expect(isTerminalConversationTurn("submitting")).toBe(false);
     expect(isTerminalConversationTurn("running")).toBe(false);

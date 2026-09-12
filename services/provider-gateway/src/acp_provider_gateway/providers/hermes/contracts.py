@@ -179,6 +179,36 @@ class HermesDiagnostic(BaseModel):
     detail: str
 
 
+class HermesNativeEntry(BaseModel):
+    """Entrée de consultation native Hermes : les champs inconnus sont ignorés.
+
+    Contrairement à `HermesWireModel`, rien d'inconnu n'est conservé : ces
+    entrées décrivent la configuration propre d'Hermes, que la plateforme lit
+    sans la recopier ni la réécrire.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class HermesSkillEntry(HermesNativeEntry):
+    """Skill listé par `GET /v1/skills`."""
+
+    name: str = Field(min_length=1)
+    description: str = ""
+    category: str = ""
+
+
+class HermesToolsetEntry(HermesNativeEntry):
+    """Toolset listé par `GET /v1/toolsets`."""
+
+    name: str = Field(min_length=1)
+    label: str = ""
+    description: str = ""
+    enabled: bool
+    configured: bool
+    tools: list[str] = Field(default_factory=list)
+
+
 class HermesPlanOutputStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

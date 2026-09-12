@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 
-from acp_contracts import HermesConnectionDiagnostic
+from acp_contracts import HermesConnectionDiagnostic, HermesNativeListing
 
 from ..deps import get_auth_context, require_csrf
 from ..gateway import GatewayClient, GatewayUnavailableError, get_gateway_client
@@ -63,3 +63,27 @@ async def run_hermes_diagnostic(
     client: GatewayClient = Depends(get_gateway_client),
 ):
     return await _diagnose(client)
+
+
+@router.get("/hermes/native-listing", response_model=HermesNativeListing)
+async def read_hermes_native_listing(
+    _context: AuthContext = Depends(get_auth_context),
+    client: GatewayClient = Depends(get_gateway_client),
+):
+    """Affiche ce qu'Hermes annonce lui-même, sans jamais l'écrire.
+
+    Hermes reste la source de vérité de ses skills et toolsets : cette route
+    est en lecture seule et une passerelle injoignable produit un état
+    explicite, jamais une liste vide présentée comme un succès.
+    """
+
+    try:
+        return await client.hermes_native_listing()
+    except GatewayUnavailableError:
+        return HermesNativeListing(
+            status="unavailable",
+            message=(
+                "Passerelle indisponible : les skills et toolsets natifs "
+                "d'Hermes n'ont pas pu être lus."
+            ),
+        )

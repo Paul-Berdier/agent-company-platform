@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from acp_contracts import (
     ContextSummaryRequest,
     EvaluationRequest,
+    HermesNativeListing,
     PlanningRequest,
     PlanRevisionRequest,
 )
@@ -103,6 +104,20 @@ async def provider_health(provider_id: str):
 )
 async def hermes_diagnostic():
     return await hermes_provider.diagnostic()
+
+
+@app.get(
+    "/v1/providers/hermes/native-listing",
+    response_model=HermesNativeListing,
+)
+async def hermes_native_listing():
+    """Lecture seule des skills et toolsets annoncés par Hermes.
+
+    Aucune écriture n'est faite côté Hermes et aucune indisponibilité ne
+    devient un 500 : l'état est explicite dans le corps de la réponse.
+    """
+
+    return await hermes_provider.native_listing()
 
 
 def _idempotency_key(value: str | None) -> str:

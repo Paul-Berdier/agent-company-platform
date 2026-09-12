@@ -4,8 +4,9 @@ Aucune route utilisateur ne renvoie une valeur de secret. Seule la route de clai
 à un runner authentifié doté de la capacité ``mcp_stdio_probe`` et non simulé, reçoit les
 valeurs résolues, avec ``Cache-Control: no-store``.
 
-Les routes d'import (``/mcp/import/*``) sont ajoutées ensuite par l'agent H, sur ce même
-routeur, en s'appuyant sur ``mcp.importers`` ; la section leur est réservée en fin de module.
+Les routes d'import (``/mcp/import/*``) sont déclarées en fin de module et s'appuient sur
+``mcp.importers`` : le contenu importé est une donnée non fiable, son aperçu ne renvoie que des
+candidats de secrets masqués et rien n'est créé sans choix explicite.
 """
 
 from __future__ import annotations
@@ -28,6 +29,10 @@ from acp_contracts import (
     McpCatalogEntry,
     McpExport,
     McpExportFormat,
+    McpImportApplyRequest,
+    McpImportApplyResult,
+    McpImportPreview,
+    McpImportPreviewRequest,
     McpProbe,
     McpProbeDecision,
     McpProbeResult,
@@ -55,7 +60,7 @@ from ..deps import (
     get_principal,
     require_platform_role,
 )
-from ..mcp import service
+from ..mcp import importers, service
 from ..mcp.service import ConfigRefused, SecretResolutionError
 from ..outbound import OutboundPolicy
 from ..secrets_vault import SecretsVault, VaultNotConfigured, get_vault
@@ -818,8 +823,41 @@ def report_stdio_probe(
     return service.probe_contract(probe)
 
 
-# --- import (agent H) ---------------------------------------------------------------------------
-# Les routes ``POST /mcp/import/preview`` et ``POST /mcp/import/apply`` se déclarent ici, sur
-# ``router``, en s'appuyant sur ``acp_api.mcp.importers`` ; elles réservent leur validation aux
-# propriétaires (``require_platform_role(db, principal, "owner")``) et ne renvoient jamais de
-# valeur de secret (seulement des candidats masqués).
+# --- import ---------------------------------------------------------------------------------------
+# Le contenu importé est une donnée non fiable : il est borné par le contrat (1 000 000 caractères,
+# au-delà ⇒ 422), analysé sans exécution, et aucun secret n'en ressort — l'aperçu ne renvoie que des
+# candidats masqués, reliés à un secret du coffre au moment de l'application.
+
+
+def _existing_server_names(db: Session) -> set[str]:
+    return {name for (name,) in db.query(McpServerModel.name).all()}
+
+
+@router.post("/import/preview", response_model=McpImportPreview)
+def preview_import(
+    body: McpImportPreviewRequest,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    """Aperçu normalisé d'une configuration Hermes / Claude Code / Codex (rien n'est écrit)."""
+
+    require_platform_role(db, principal, "owner")
+    return importers.parse_import(body.format, body.content, _existing_server_names(db))
+
+
+@router.post("/import/apply", response_model=McpImportApplyResult)
+def apply_import(
+    body: McpImportApplyRequest,
+    db: Session = Depends(get_db),
+    principal: str = Depends(get_principal),
+):
+    """Crée en brouillon les entrées explicitement choisies ; le reste est ignoré et expliqué."""
+
+    require_platform_role(db, principal, "owner")
+    preview = importers.parse_import(body.format, body.content, _existing_server_names(db))
+    if preview.errors and not preview.entries:
+        # Contenu illisible : aucune écriture, l'erreur d'analyse est rendue telle quelle.
+        return McpImportApplyResult(errors=list(preview.errors))
+    result = importers.apply_import(db, principal, body, preview, policy=_policy())
+    db.commit()
+    return result

@@ -117,7 +117,12 @@ GITHUB_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 WINDOWS_ABSOLUTE_PATTERN = re.compile("^[A-Za-z]:[\\\\/]")
 
 MCP_EXPORT_FORMATS = ("hermes", "claude", "codex")
+MCP_IMPORT_FORMATS = ("auto", "hermes", "claude", "codex")
+MCP_IMPORT_CONFLICTS = ("skip", "new_revision")
 MCP_TIMEOUT_RANGE = (1, 120)
+# Le fichier d'import est lu localement : le serveur ne lit jamais un chemin fourni par le client.
+MAX_IMPORT_FILE_BYTES = 1024 * 1024
+MAX_IMPORT_CHARS = 1_000_000
 TERMINAL_PROBE_STATES = {
     "succeeded",
     "failed",
@@ -387,11 +392,40 @@ def _add_mcp_group(commands: argparse._SubParsersAction) -> None:
     export.add_argument("--project")
     export.set_defaults(handler="mcp_export")
 
-    # `acp mcp import` est prévu par la spécification mais pas encore raccordé :
-    # le sous-groupe reste déclaré pour éviter une erreur d'usage trompeuse.
-    importer = actions.add_parser("import", help="commande prévue mais non raccordée")
-    importer.add_argument("arguments", nargs=argparse.REMAINDER)
-    importer.set_defaults(handler="unsupported", unsupported_name="mcp import")
+    # Import assisté : le fichier est lu localement, seul son contenu est envoyé, et rien
+    # n'est créé sans `--apply` accompagné des entrées explicitement nommées.
+    importer = actions.add_parser("import", help="importer une configuration MCP existante")
+    importer.add_argument("path", help="fichier de configuration local (1 MiB au plus)")
+    importer.add_argument(
+        "--format",
+        dest="import_format",
+        choices=MCP_IMPORT_FORMATS,
+        default="auto",
+        help="format du fichier (défaut : détection automatique)",
+    )
+    importer.add_argument(
+        "--apply",
+        action="store_true",
+        help="appliquer les entrées nommées (sans cette option, la commande se limite à l'aperçu)",
+    )
+    importer.add_argument(
+        "--name", action="append", default=[], help="entrée de l'aperçu à importer (répétable)"
+    )
+    importer.add_argument(
+        "--map",
+        dest="mapping",
+        action="append",
+        default=[],
+        metavar="SECRET_NAME=SECRET_ID",
+        help="relie un candidat de secret à un secret existant du coffre (répétable)",
+    )
+    importer.add_argument(
+        "--on-conflict",
+        choices=MCP_IMPORT_CONFLICTS,
+        default=None,
+        help="nom déjà pris : ignorer (défaut) ou créer une révision (l'ancienne est conservée)",
+    )
+    importer.set_defaults(handler="mcp_import")
 
 
 def _add_skills_group(commands: argparse._SubParsersAction) -> None:
@@ -1862,6 +1896,208 @@ def _handle_mcp_test(
     _raise_when_probe_failed(probe_id, status)
 
 
+def _read_import_file(raw_path: str) -> str:
+    """Lit le fichier de configuration à importer, borné localement (1 MiB puis 1 000 000 caractères)."""
+
+    if not raw_path.strip():
+        raise UsageError("le chemin du fichier de configuration ne peut pas être vide")
+    path = Path(raw_path)
+    if not path.exists():
+        raise UsageError(f"fichier de configuration introuvable : {raw_path}")
+    info = _regular_file_stat(raw_path, path, what="le fichier de configuration")
+    if info.st_size > MAX_IMPORT_FILE_BYTES:
+        raise UsageError("le fichier de configuration dépasse la limite locale de 1 MiB")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise UsageError("le fichier de configuration doit être encodé en UTF-8") from exc
+    except OSError as exc:
+        raise UsageError(
+            f"lecture impossible du fichier de configuration « {raw_path} » : {_system_reason(exc)}"
+        ) from exc
+    if len(content) > MAX_IMPORT_CHARS:
+        raise UsageError(
+            f"le fichier de configuration dépasse {MAX_IMPORT_CHARS} caractères : "
+            "l'API refuse un contenu plus long"
+        )
+    return content
+
+
+def _parse_secret_mapping(values: Sequence[str]) -> dict[str, str]:
+    """Traduit les `--map SECRET_NAME=SECRET_ID` ; aucune valeur de secret n'est acceptée ici."""
+
+    expected = "--map attend SECRET_NAME=SECRET_ID (nom d'un secret existant du coffre)"
+    mapping: dict[str, str] = {}
+    for raw in values:
+        if "=" not in raw:
+            raise UsageError(expected)
+        name, secret_id = raw.split("=", 1)
+        name, secret_id = name.strip(), secret_id.strip()
+        if not name or not secret_id:
+            raise UsageError(expected)
+        if not SECRET_NAME_PATTERN.match(name):
+            raise UsageError(
+                "--map attend un nom de secret en majuscules (^[A-Z][A-Z0-9_]{1,62}$), "
+                "tel que proposé par l'aperçu"
+            )
+        if name in mapping:
+            raise UsageError(f"--map définit « {name} » deux fois")
+        mapping[name] = secret_id
+    return mapping
+
+
+def _import_entry_names(values: Sequence[str]) -> list[str]:
+    names: list[str] = []
+    for raw in values:
+        name = raw.strip()
+        if not name:
+            raise UsageError("--name exige un nom d'entrée non vide")
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _import_string_list(payload: Mapping[str, Any], key: str) -> list[str]:
+    value = payload.get(key)
+    if not isinstance(value, list):
+        raise ProtocolError("l'API n'a pas retourné un résultat d'import exploitable")
+    return [str(item) for item in value]
+
+
+def _import_table(entries: Sequence[Any]) -> list[str]:
+    """Tableau aligné de l'aperçu ; les valeurs viennent du fichier importé (données non fiables)."""
+
+    rows: list[tuple[str, ...]] = [("NOM", "TRANSPORT", "IMPORTABLE", "CONFLIT", "SECRETS", "SOURCE")]
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            raise ProtocolError("l'API n'a pas retourné un aperçu d'import exploitable")
+        candidates = entry.get("secret_candidates")
+        rows.append(
+            (
+                entry["name"],
+                str(entry.get("transport") or "-"),
+                "oui" if entry.get("importable") else "non",
+                str(entry.get("conflict") or "none"),
+                str(len(candidates) if isinstance(candidates, list) else 0),
+                str(entry.get("source_name") or "")[:60],
+            )
+        )
+    widths = [max(len(row[index]) for row in rows) for index in range(len(rows[0]))]
+    return [
+        "  ".join(value.ljust(widths[index]) for index, value in enumerate(row)).rstrip()
+        for row in rows
+    ]
+
+
+def _print_import_entry_details(entry: Mapping[str, Any], stream: TextIO) -> None:
+    lines: list[str] = []
+    for candidate in entry.get("secret_candidates") or []:
+        if not isinstance(candidate, dict):
+            continue
+        lines.append(
+            f"  secret à fournir : {candidate.get('suggested_secret_name')} "
+            f"({candidate.get('location')} « {candidate.get('key')} », "
+            f"valeur masquée {candidate.get('masked_value')})"
+        )
+    for item in entry.get("unsupported") or []:
+        lines.append(f"  non supporté : {item}")
+    for item in entry.get("warnings") or []:
+        lines.append(f"  avertissement : {item}")
+    if lines:
+        print(f"{entry.get('name')} :", file=stream)
+        for line in lines:
+            print(line, file=stream)
+
+
+def _handle_mcp_import(
+    args: argparse.Namespace, client: ACPClient, *, stdout: TextIO, stderr: TextIO
+) -> None:
+    """Aperçu (par défaut) ou application explicite d'une configuration MCP existante."""
+
+    if not args.apply and (args.name or args.mapping or args.on_conflict):
+        raise UsageError(
+            "--name, --map et --on-conflict ne s'appliquent qu'avec --apply : "
+            "sans --apply, la commande se limite à un aperçu"
+        )
+    names = _import_entry_names(args.name) if args.apply else []
+    mapping = _parse_secret_mapping(args.mapping) if args.apply else {}
+    if args.apply and not names:
+        raise UsageError(
+            "--apply exige au moins une entrée à importer (--name), listée par l'aperçu"
+        )
+    content = _read_import_file(args.path)
+
+    if not args.apply:
+        preview = client.request(
+            "POST",
+            "/mcp/import/preview",
+            json_body={"format": args.import_format, "content": content},
+        )
+        if not isinstance(preview, dict) or not isinstance(preview.get("entries"), list):
+            raise ProtocolError("l'API n'a pas retourné un aperçu d'import exploitable")
+        entries = preview["entries"]
+        if args.json:
+            _emit(preview, as_json=True, stream=stdout)
+        else:
+            print(f"Format détecté : {preview.get('detected_format') or 'inconnu'}", file=stdout)
+            for line in _import_table(entries):
+                print(line, file=stdout)
+            for entry in entries:
+                if isinstance(entry, dict):
+                    _print_import_entry_details(entry, stdout)
+        for error in _import_string_list(preview, "errors"):
+            _emit_notice("import_analysis_error", error, as_json=args.json, stream=stderr)
+        if not entries:
+            raise CommandError(
+                "import_empty", "aucune entrée n'a été trouvée : rien à importer depuis ce fichier"
+            )
+        _emit_notice(
+            "import_preview_only",
+            "Aperçu seul : relancez avec --apply --name <entrée> pour créer les serveurs "
+            "(ils resteront en brouillon).",
+            as_json=args.json,
+            stream=stderr,
+        )
+        return
+
+    result = client.request(
+        "POST",
+        "/mcp/import/apply",
+        json_body={
+            "format": args.import_format,
+            "content": content,
+            "names": names,
+            "secret_mapping": mapping,
+            "on_conflict": args.on_conflict or "skip",
+        },
+    )
+    if not isinstance(result, dict):
+        raise ProtocolError("l'API n'a pas retourné un résultat d'import exploitable")
+    created = _items(result.get("created")) if isinstance(result.get("created"), list) else None
+    revised = _items(result.get("revised")) if isinstance(result.get("revised"), list) else None
+    if created is None or revised is None:
+        raise ProtocolError("l'API n'a pas retourné un résultat d'import exploitable")
+    skipped = _import_string_list(result, "skipped")
+    errors = _import_string_list(result, "errors")
+    if args.json:
+        _emit(result, as_json=True, stream=stdout)
+    else:
+        for label, servers in (("créé", created), ("révisé", revised)):
+            for server in servers:
+                name = server.get("name") if isinstance(server, dict) else None
+                identifier = server.get("id") if isinstance(server, dict) else None
+                print(f"{label} : {name} ({identifier}) — statut brouillon", file=stdout)
+        for name in skipped:
+            print(f"ignoré : {name}", file=stdout)
+    for error in errors:
+        _emit_notice("import_entry_error", error, as_json=args.json, stream=stderr)
+    if not created and not revised:
+        raise CommandError(
+            "import_failed",
+            "aucune entrée n'a été importée : chaque refus est détaillé ci-dessus",
+        )
+
+
 def _parse_skill_source(raw: str) -> dict[str, Any]:
     """Traduit une source de skill en contrat `SkillSource`, fichiers lus localement."""
 
@@ -2205,6 +2441,9 @@ def _dispatch(
         return True, client.request("POST", path, json_body=body), client.settings
     if handler == "mcp_export":
         _handle_mcp_export(args, client, stdout=stdout, stderr=stderr)
+        return False, None, client.settings
+    if handler == "mcp_import":
+        _handle_mcp_import(args, client, stdout=stdout, stderr=stderr)
         return False, None, client.settings
     if handler == "skills_search":
         params = {"q": _require_text(args.query, "la requête de recherche")}

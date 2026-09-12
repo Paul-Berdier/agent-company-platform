@@ -450,6 +450,37 @@ export interface ProjectExtensions {
   resolved_at: string;
 }
 
+/** Miroir de `acp_contracts.conversations` : lecture seule du natif Hermes. */
+export type HermesNativeListingStatus =
+  | "available"
+  | "unavailable"
+  | "not_configured"
+  | "unsupported";
+
+export interface HermesNativeSkill {
+  name: string;
+  description: string;
+  category: string;
+}
+
+export interface HermesNativeToolset {
+  name: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  configured: boolean;
+  tools: string[];
+}
+
+/** `read_at` n’est renseigné que lorsque les listes ont réellement été lues. */
+export interface HermesNativeListing {
+  status: HermesNativeListingStatus;
+  skills: HermesNativeSkill[];
+  toolsets: HermesNativeToolset[];
+  message: string;
+  read_at: string | null;
+}
+
 export interface StationDef { id: string; name: string; kind: string; x: number; y: number }
 
 export interface OfficeConfig {

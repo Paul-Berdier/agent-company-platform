@@ -1235,11 +1235,12 @@ def test_network_failure_keeps_the_dedicated_exit_code(tmp_path):
 @pytest.mark.parametrize(
     "args",
     [
-        ["mcp", "import", "config.yaml"],
+        # `mcp import` est désormais raccordé (voir la section « acp mcp import » plus bas) ;
+        # `automations` reste hors périmètre du lot D et doit le dire honnêtement.
         ["automations", "list"],
     ],
 )
-def test_import_and_automations_remain_honestly_unsupported(tmp_path, args):
+def test_automations_remain_honestly_unsupported(tmp_path, args):
     code, out, err, _ = invoke(tmp_path, [*args, "--json"], never)
 
     assert code == ExitCode.UNSUPPORTED
@@ -1554,3 +1555,388 @@ def test_blank_project_on_bind_is_refused_before_any_request(tmp_path, args):
     assert code == ExitCode.USAGE
     assert out == ""
     assert "--project" in json.loads(err)["error"]["message"]
+
+
+# --- acp mcp import ---------------------------------------------------------
+
+CLAUDE_FILE = json.dumps(
+    {
+        "mcpServers": {
+            "context7": {
+                "type": "http",
+                "url": "https://mcp.context7.com/mcp",
+                "headers": {"CONTEXT7_API_KEY": "ctx-live-abcd1234"},
+            }
+        }
+    },
+    ensure_ascii=False,
+)
+
+PREVIEW_BODY = {
+    "detected_format": "claude",
+    "entries": [
+        {
+            "name": "context7",
+            "source_name": "context7",
+            "transport": "http",
+            "config": {
+                "transport": "http",
+                "http": {
+                    "url": "https://mcp.context7.com/mcp",
+                    "headers": {},
+                    "header_secrets": {},
+                    "timeout_seconds": 15,
+                },
+                "stdio": None,
+            },
+            "secret_candidates": [
+                {
+                    "location": "header",
+                    "key": "CONTEXT7_API_KEY",
+                    "suggested_secret_name": "CONTEXT7_CONTEXT7_API_KEY",
+                    "masked_value": "***34",
+                }
+            ],
+            "unsupported": [],
+            "warnings": ["Transport http : diagnostic requis avant activation."],
+            "conflict": "none",
+            "importable": True,
+        },
+        {
+            "name": "broken",
+            "source_name": "broken",
+            "transport": None,
+            "config": None,
+            "secret_candidates": [],
+            "unsupported": ["entrée sans « url » ni « command » : rien à importer."],
+            "warnings": [],
+            "conflict": "existing_server",
+            "importable": False,
+        },
+    ],
+    "errors": [],
+}
+
+APPLY_BODY = {
+    "created": [{"id": "srv-1", "name": "context7"}],
+    "revised": [],
+    "skipped": ["broken"],
+    "errors": [],
+}
+
+
+def write_import_file(tmp_path: Path, content: str = CLAUDE_FILE, name: str = "mcp.json") -> Path:
+    path = tmp_path / name
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_mcp_import_previews_a_local_file_without_sending_its_path(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+    recorder = Recorder(ok(PREVIEW_BODY))
+
+    code, out, err, _ = invoke(tmp_path, ["mcp", "import", str(path)], recorder)
+
+    assert code == ExitCode.OK
+    assert recorder.requests == [
+        ("POST", "/mcp/import/preview", {"format": "auto", "content": CLAUDE_FILE})
+    ]
+    # Le serveur ne lit jamais un chemin fourni par le client : seul le contenu est envoyé.
+    assert str(path) not in json.dumps(recorder.calls[0]["body"])
+    assert "context7" in out
+    assert "CONTEXT7_CONTEXT7_API_KEY" in out
+    assert "***34" in out
+    assert "existing_server" in out
+
+
+def test_mcp_import_json_mode_emits_the_preview_payload(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+
+    code, out, _err, _ = invoke(
+        tmp_path, ["mcp", "import", str(path), "--format", "claude", "--json"], ok(PREVIEW_BODY)
+    )
+
+    assert code == ExitCode.OK
+    assert json.loads(out) == PREVIEW_BODY
+
+
+def test_mcp_import_passes_the_requested_format(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path, "mcp_servers: {}\n", name="config.yaml")
+    recorder = Recorder(ok(PREVIEW_BODY))
+
+    invoke(tmp_path, ["mcp", "import", str(path), "--format", "hermes"], recorder)
+
+    assert recorder.calls[0]["body"]["format"] == "hermes"
+
+
+def test_mcp_import_applies_only_the_named_entries(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+    recorder = Recorder(ok(APPLY_BODY))
+
+    code, out, _err, _ = invoke(
+        tmp_path,
+        [
+            "mcp",
+            "import",
+            str(path),
+            "--apply",
+            "--name",
+            "context7",
+            "--map",
+            "CONTEXT7_CONTEXT7_API_KEY=sec-1",
+            "--on-conflict",
+            "new_revision",
+        ],
+        recorder,
+    )
+
+    assert code == ExitCode.OK
+    assert recorder.requests == [
+        (
+            "POST",
+            "/mcp/import/apply",
+            {
+                "format": "auto",
+                "content": CLAUDE_FILE,
+                "names": ["context7"],
+                "secret_mapping": {"CONTEXT7_CONTEXT7_API_KEY": "sec-1"},
+                "on_conflict": "new_revision",
+            },
+        )
+    ]
+    assert "context7" in out
+
+
+def test_mcp_import_apply_requires_an_explicit_entry(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+
+    code, out, err, _ = invoke(tmp_path, ["mcp", "import", str(path), "--apply", "--json"], never)
+
+    assert code == ExitCode.USAGE
+    assert out == ""
+    assert "--name" in json.loads(err)["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--name", "context7"],
+        ["--map", "A_SECRET=sec-1"],
+        ["--on-conflict", "new_revision"],
+    ],
+)
+def test_mcp_import_refuses_selection_options_without_apply(tmp_path, extra):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+
+    code, out, err, _ = invoke(tmp_path, ["mcp", "import", str(path), *extra, "--json"], never)
+
+    assert code == ExitCode.USAGE
+    assert out == ""
+    assert "--apply" in json.loads(err)["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    "mapping",
+    ["CONTEXT7_API_KEY", "=sec-1", "CONTEXT7_API_KEY=", "minuscule=sec-1"],
+)
+def test_mcp_import_refuses_an_invalid_secret_mapping(tmp_path, mapping):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+
+    code, out, err, _ = invoke(
+        tmp_path,
+        ["mcp", "import", str(path), "--apply", "--name", "context7", "--map", mapping, "--json"],
+        never,
+    )
+
+    assert code == ExitCode.USAGE
+    assert out == ""
+    assert "--map" in json.loads(err)["error"]["message"]
+
+
+def test_mcp_import_refuses_a_duplicate_secret_mapping(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+
+    code, _out, err, _ = invoke(
+        tmp_path,
+        [
+            "mcp",
+            "import",
+            str(path),
+            "--apply",
+            "--name",
+            "context7",
+            "--map",
+            "A_SECRET=sec-1",
+            "--map",
+            "A_SECRET=sec-2",
+            "--json",
+        ],
+        never,
+    )
+
+    assert code == ExitCode.USAGE
+    assert "deux fois" in json.loads(err)["error"]["message"]
+
+
+@pytest.mark.parametrize("argument", ["", "   "])
+def test_mcp_import_refuses_an_empty_path(tmp_path, argument):
+    authenticated_config(tmp_path / "config.json")
+
+    code, out, err, _ = invoke(tmp_path, ["mcp", "import", argument, "--json"], never)
+
+    assert code == ExitCode.USAGE
+    assert out == ""
+    assert json.loads(err)["error"]["code"] == "usage"
+
+
+def test_mcp_import_refuses_a_missing_file_before_any_request(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+
+    code, out, err, _ = invoke(
+        tmp_path, ["mcp", "import", str(tmp_path / "absent.json"), "--json"], never
+    )
+
+    assert code == ExitCode.USAGE
+    assert out == ""
+    assert "introuvable" in json.loads(err)["error"]["message"]
+
+
+def test_mcp_import_refuses_a_directory(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+
+    code, _out, err, _ = invoke(tmp_path, ["mcp", "import", str(tmp_path), "--json"], never)
+
+    assert code == ExitCode.USAGE
+    assert "fichier régulier" in json.loads(err)["error"]["message"]
+
+
+def test_mcp_import_refuses_a_file_over_one_mib(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = tmp_path / "huge.json"
+    path.write_text("{}", encoding="utf-8")
+
+    class FakeStat:
+        st_size = 1024 * 1024 + 1
+        st_mode = 0o100644
+
+    original = Path.stat
+    Path.stat = lambda self, *a, **k: FakeStat() if self == path else original(self, *a, **k)
+    try:
+        code, out, err, _ = invoke(tmp_path, ["mcp", "import", str(path), "--json"], never)
+    finally:
+        Path.stat = original
+
+    assert code == ExitCode.USAGE
+    assert out == ""
+    assert "1 MiB" in json.loads(err)["error"]["message"]
+
+
+def test_mcp_import_refuses_a_non_utf8_file(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = tmp_path / "latin.json"
+    path.write_bytes(b'{"mcpServers": {"caf\xe9": {}}}')
+
+    code, out, err, _ = invoke(tmp_path, ["mcp", "import", str(path), "--json"], never)
+
+    assert code == ExitCode.USAGE
+    assert out == ""
+    assert "UTF-8" in json.loads(err)["error"]["message"]
+
+
+def test_mcp_import_reports_an_unreadable_preview_as_a_client_error(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+
+    code, out, err, _ = invoke(tmp_path, ["mcp", "import", str(path), "--json"], ok({"entries": 3}))
+
+    assert code == ExitCode.REMOTE
+    assert out == ""
+    assert json.loads(err)["error"]["code"] == "client"
+
+
+def test_mcp_import_fails_when_the_preview_has_no_entry(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path, "ni json ni toml")
+    body = {"detected_format": None, "entries": [], "errors": ["Format non reconnu : ..."]}
+
+    code, out, err, _ = invoke(tmp_path, ["mcp", "import", str(path), "--json"], ok(body))
+
+    assert code == ExitCode.REMOTE
+    assert json.loads(out) == body
+    assert "Format non reconnu" in err
+
+
+def test_mcp_import_apply_fails_when_nothing_was_applied(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+    body = {
+        "created": [],
+        "revised": [],
+        "skipped": ["context7"],
+        "errors": ["Entrée « context7 » ignorée : secret « X » non fourni."],
+    }
+
+    code, out, err, _ = invoke(
+        tmp_path,
+        ["mcp", "import", str(path), "--apply", "--name", "context7", "--json"],
+        ok(body),
+    )
+
+    assert code == ExitCode.REMOTE
+    assert json.loads(out) == body
+    assert "non fourni" in err
+
+
+def test_mcp_import_apply_reports_partial_errors_without_hiding_the_successes(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+    body = {
+        "created": [{"id": "srv-1", "name": "context7"}],
+        "revised": [],
+        "skipped": ["broken"],
+        "errors": ["Entrée « broken » non importable : rien à importer."],
+    }
+
+    code, out, err, _ = invoke(
+        tmp_path,
+        ["mcp", "import", str(path), "--apply", "--name", "context7", "--name", "broken"],
+        ok(body),
+    )
+
+    assert code == ExitCode.OK
+    assert "context7" in out
+    assert "broken" in err
+
+
+def test_mcp_import_deduplicates_requested_names(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+    recorder = Recorder(ok(APPLY_BODY))
+
+    invoke(
+        tmp_path,
+        ["mcp", "import", str(path), "--apply", "--name", "context7", "--name", "context7"],
+        recorder,
+    )
+
+    assert recorder.calls[0]["body"]["names"] == ["context7"]
+
+
+def test_mcp_import_refuses_a_blank_entry_name(tmp_path):
+    authenticated_config(tmp_path / "config.json")
+    path = write_import_file(tmp_path)
+
+    code, _out, err, _ = invoke(
+        tmp_path, ["mcp", "import", str(path), "--apply", "--name", " ", "--json"], never
+    )
+
+    assert code == ExitCode.USAGE
+    assert "--name" in json.loads(err)["error"]["message"]

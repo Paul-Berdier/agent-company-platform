@@ -21,6 +21,8 @@ acp mcp test context7-ID --wait
 acp mcp bind SERVER_ID --project PROJECT_ID --tool resolve --tool query
 acp mcp activate SERVER_ID
 acp mcp export --format hermes > ~/.hermes/mcp.yaml
+acp mcp import ~/.claude.json
+acp mcp import ~/.claude.json --apply --name context7 --map CONTEXT7_CONTEXT7_API_KEY=SECRET_ID
 acp skills install github:anthropics/skills@<sha40>:skills/pdf
 acp skills approve SKILL_ID --revision 2
 acp skills bind SKILL_ID --project PROJECT_ID
@@ -51,8 +53,22 @@ son contenu n'est jamais interprété.
 
 `acp mcp export` écrit la configuration sur la sortie standard, sans rien ajouter, et
 réserve la sortie d'erreur aux variables `ACP_SECRET_*` à définir et aux limites de
-compatibilité. `acp mcp import` et `acp automations` restent honnêtement « non
-raccordés » et sortent avec le code `UNSUPPORTED`.
+compatibilité. `acp automations` reste honnêtement « non raccordé » et sort avec le
+code `UNSUPPORTED`.
+
+`acp mcp import FILE` lit le fichier **localement** (1 MiB au plus, UTF-8, fichier
+régulier) et n'envoie que son contenu : le serveur ne lit jamais un chemin fourni par le
+client. Sans `--apply`, la commande se limite à un aperçu — un tableau `NOM / TRANSPORT /
+IMPORTABLE / CONFLIT / SECRETS / SOURCE`, puis pour chaque entrée les secrets détectés
+(nom de secret proposé et valeur **masquée**), ce que la plateforme ne reprend pas et les
+avertissements ; `--json` rend l'aperçu tel quel. Rien n'est créé tant que
+`--apply --name <entrée>` n'est pas passé : `--name`, `--map` et `--on-conflict` sont
+refusés sans `--apply`, et `--map SECRET_NAME=SECRET_ID` relie un candidat à un secret
+**déjà** présent dans le coffre (aucune valeur ne transite par le CLI). `--on-conflict
+new_revision` ajoute une révision au serveur existant — l'ancienne est conservée et reste
+la sauvegarde. Les serveurs importés arrivent en brouillon : diagnostic et activation
+restent à faire. La commande sort avec `REMOTE` si aucune entrée n'a pu être appliquée, et
+avec 0 en cas de succès partiel, chaque refus étant détaillé sur la sortie d'erreur.
 
 Le mot de passe n'est jamais accepté comme argument. Utilisez l'invite masquée ou
 `--password-stdin` dans un environnement non interactif. `--json` peut être placé

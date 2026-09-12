@@ -38,6 +38,9 @@ import {
   type ConversationSummary,
   type ConversationTurn,
   type HermesDiagnostic,
+  type HermesNativeListing,
+  type HermesNativeSkill,
+  type HermesNativeToolset,
 } from "./conversation-api";
 import {
   NAVIGATION_ITEMS,
@@ -91,6 +94,11 @@ interface ConnectionState {
   phase: ResourcePhase;
   diagnostic: HermesDiagnostic | null;
   error: WorkspaceApiError | null;
+  /** Lecture seule du natif Hermes : chargée après le diagnostic. */
+  nativePhase: ResourcePhase;
+  native: HermesNativeListing | null;
+  nativeError: WorkspaceApiError | null;
+  nativeSequence: number;
 }
 
 interface MissionState {
@@ -133,6 +141,10 @@ const connectionState: ConnectionState = {
   phase: "idle",
   diagnostic: null,
   error: null,
+  nativePhase: "idle",
+  native: null,
+  nativeError: null,
+  nativeSequence: 0,
 };
 const missionState: MissionState = {
   phase: "idle",
@@ -515,6 +527,10 @@ function resetPrivateWorkspaceState(): void {
   connectionState.phase = "idle";
   connectionState.diagnostic = null;
   connectionState.error = null;
+  connectionState.nativePhase = "idle";
+  connectionState.native = null;
+  connectionState.nativeError = null;
+  ++connectionState.nativeSequence;
   missionState.phase = "idle";
   missionState.items = [];
   missionState.commentsByMission.clear();
@@ -2151,12 +2167,158 @@ function renderConnections(): void {
     connectionState.phase = "loading";
     queueMicrotask(() => void loadHermesDiagnostic(false));
   }
+
+  /**
+   * Lecture seule des skills et toolsets natifs : aucune écriture n'est
+   * possible ici, Hermes reste la source de vérité de sa configuration.
+   */
+  const loadNativeListing = async (): Promise<void> => {
+    const sequence = ++connectionState.nativeSequence;
+    try {
+      const listing = await conversationApi.fetchHermesNativeListing();
+      if (sequence !== connectionState.nativeSequence) return;
+      connectionState.native = listing;
+      connectionState.nativePhase = "ready";
+    } catch (error) {
+      if (sequence !== connectionState.nativeSequence) return;
+      const apiError = normalizeApiError(
+        error,
+        "Les skills et toolsets natifs d’Hermes n’ont pas pu être lus.",
+      );
+      if (apiError.status === 401) return requireLogin();
+      connectionState.native = null;
+      connectionState.nativePhase = "error";
+      connectionState.nativeError = apiError;
+    }
+    if (currentRoute === "connections") renderCurrentRoute();
+  };
+
+  // La lecture native suit le diagnostic : elle ne démarre qu'une fois celui-ci
+  // terminé, et ne se relance pas d'elle-même.
+  if (
+    connectionState.nativePhase === "idle"
+    && (connectionState.phase === "ready" || connectionState.phase === "error")
+  ) {
+    connectionState.nativePhase = "loading";
+    queueMicrotask(() => void loadNativeListing());
+  }
+
+  const nativeSkillItem = (skill: HermesNativeSkill): HTMLElement => {
+    const item = el("article", "list-item");
+    const copy = el("div", "list-item-copy");
+    copy.append(el("h4", "list-item-title", skill.name));
+    if (skill.description) copy.append(el("p", "list-item-meta", skill.description));
+    item.append(copy, statusChip(skill.category || "Sans catégorie", "neutral"));
+    return item;
+  };
+
+  const nativeToolsetItem = (toolset: HermesNativeToolset): HTMLElement => {
+    const item = el("article", "list-item");
+    const copy = el("div", "list-item-copy");
+    copy.append(el("h4", "list-item-title", toolset.label || toolset.name));
+    const details = [`Nom Hermes : ${toolset.name}`];
+    if (toolset.description) details.push(toolset.description);
+    details.push(toolset.configured ? "Configuré côté Hermes" : "Non configuré côté Hermes");
+    details.push(
+      toolset.tools.length
+        ? `Outils annoncés : ${toolset.tools.join(", ")}`
+        : "Aucun outil annoncé.",
+    );
+    for (const detail of details) copy.append(el("p", "list-item-meta", detail));
+    item.append(
+      copy,
+      statusChip(toolset.enabled ? "Activé" : "Désactivé", toolset.enabled ? "active" : "unconfigured"),
+    );
+    return item;
+  };
+
+  const nativeSection = el("section", "content-section");
+  nativeSection.append(sectionHeader(
+    "Skills et toolsets natifs Hermes",
+    "Lecture seule de ce qu’Hermes annonce. Leur configuration reste côté Hermes et n’est jamais dupliquée ici.",
+  ));
+  const listing = connectionState.native;
+  if (connectionState.nativePhase === "idle") {
+    nativeSection.append(statePanel(
+      "loading",
+      "En attente du diagnostic",
+      "La lecture des skills et toolsets natifs démarre une fois le diagnostic Hermes terminé.",
+    ));
+  } else if (connectionState.nativePhase === "loading") {
+    nativeSection.append(statePanel(
+      "loading",
+      "Lecture en cours",
+      "Consultation des skills et toolsets annoncés par Hermes…",
+    ));
+  } else if (connectionState.nativePhase === "error" || !listing) {
+    nativeSection.append(statePanel(
+      connectionState.nativeError?.kind === "offline" ? "offline" : "error",
+      "Lecture indisponible",
+      connectionState.nativeError
+        ? errorMessage(connectionState.nativeError)
+        : "L’API n’a retourné aucune liste exploitable.",
+    ));
+  } else if (listing.status === "not_configured") {
+    nativeSection.append(statePanel("unconfigured", "Hermes non configuré", listing.message));
+  } else if (listing.status === "unsupported") {
+    nativeSection.append(statePanel(
+      "unconfigured",
+      "Consultation non supportée",
+      listing.message,
+    ));
+  } else if (listing.status === "unavailable") {
+    nativeSection.append(statePanel("error", "Lecture impossible", listing.message));
+  } else {
+    const card = el("article", "diagnostic-card");
+    const title = el("div", "diagnostic-title");
+    title.append(
+      el("h3", "list-item-title", "Déclaré par Hermes"),
+      statusChip("Lu", "active"),
+    );
+    card.append(title, el("p", "diagnostic-message", listing.message));
+    if (listing.read_at) {
+      const read = el("time", "diagnostic-time", `Source : Hermes, lu le ${formatDateTime(listing.read_at)}`);
+      read.dateTime = listing.read_at;
+      card.append(read);
+    }
+    card.append(el("h3", "diagnostic-subtitle", `Skills (${listing.skills.length})`));
+    if (listing.skills.length) {
+      const skills = el("div", "item-list");
+      for (const skill of listing.skills) skills.append(nativeSkillItem(skill));
+      card.append(skills);
+    } else {
+      card.append(el("p", "diagnostic-empty", "Aucun skill natif annoncé par Hermes."));
+    }
+    card.append(el("h3", "diagnostic-subtitle", `Toolsets (${listing.toolsets.length})`));
+    if (listing.toolsets.length) {
+      const toolsets = el("div", "item-list");
+      for (const toolset of listing.toolsets) toolsets.append(nativeToolsetItem(toolset));
+      card.append(toolsets);
+    } else {
+      card.append(el("p", "diagnostic-empty", "Aucun toolset natif annoncé par Hermes."));
+    }
+    card.append(el(
+      "p",
+      "diagnostic-empty",
+      "Consultation seule : la configuration MCP native d’Hermes s’applique par export côté service Hermes.",
+    ));
+    nativeSection.append(card);
+  }
+
   const section = el("section", "content-section");
   const header = sectionHeader("Hermes Agent", "Moteur agentique principal, exécuté comme service séparé.");
   const check = el("button", "button button-primary", "Relancer le diagnostic") as HTMLButtonElement;
   check.type = "button";
   check.disabled = connectionState.phase === "loading";
-  check.addEventListener("click", () => void loadHermesDiagnostic(true));
+  check.addEventListener("click", () => {
+    // La relecture du natif Hermes suit le diagnostic : elle est simplement
+    // remise à l'état initial, aucune écriture n'est déclenchée.
+    ++connectionState.nativeSequence;
+    connectionState.nativePhase = "idle";
+    connectionState.native = null;
+    connectionState.nativeError = null;
+    void loadHermesDiagnostic(true);
+  });
   header.append(check);
   section.append(header);
 
@@ -2191,6 +2353,8 @@ function renderConnections(): void {
     section.append(card);
   }
   content.append(section);
+
+  content.append(nativeSection);
 
   const business = el("section", "content-section");
   business.append(sectionHeader("Plateforme métier"));

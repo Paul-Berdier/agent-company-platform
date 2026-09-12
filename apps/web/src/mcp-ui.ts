@@ -29,6 +29,11 @@ import type {
   McpDiscoveredTool,
   McpExport,
   McpExportFormat,
+  McpImportApplyResult,
+  McpImportEntry,
+  McpImportFormat,
+  McpImportPreview,
+  McpImportSecretCandidate,
   McpProbe,
   McpProbeStatus,
   McpServerConfig,
@@ -46,7 +51,12 @@ import type {
 
 import "./mcp.css";
 import { AuthApiClient } from "./auth-api";
-import { McpApiClient, type RunnerSummary } from "./mcp-api";
+import {
+  MCP_IMPORT_FORMATS,
+  MCP_IMPORT_MAX_CHARS,
+  McpApiClient,
+  type RunnerSummary,
+} from "./mcp-api";
 import { SecretsApiClient } from "./secrets-api";
 import {
   el,
@@ -2173,25 +2183,479 @@ function exportResultView(result: McpExport): HTMLElement {
   return node;
 }
 
-// --- import (emplacement réservé) ------------------------------------------
+// --- import (/mcp/import/*) -------------------------------------------------
 
 /**
- * Emplacement de la section « Import » (`/mcp/import/*`).
+ * État de la section « Import ».
  *
- * La section est ajoutée dans une révision ultérieure ; en attendant, l’écran dit
- * explicitement ce qui manque plutôt que d’exposer un formulaire inopérant.
+ * Il ne survit pas au changement de compte (`resetMcpUiState`) et n’est jamais
+ * pré-rempli : tant que l’utilisateur n’a pas coché une entrée et cliqué sur
+ * « Appliquer », rien n’est créé.
+ */
+interface ImportState {
+  format: McpImportFormat;
+  content: string;
+  phase: Phase;
+  preview: McpImportPreview | null;
+  error: WorkspaceApiError | null;
+  selected: Set<string>;
+  mapping: Record<string, string>;
+  onConflict: "skip" | "new_revision";
+  applyPhase: Phase;
+  result: McpImportApplyResult | null;
+  applyError: WorkspaceApiError | null;
+}
+
+function initialImportState(): ImportState {
+  return {
+    format: "auto",
+    content: "",
+    phase: "idle",
+    preview: null,
+    error: null,
+    selected: new Set<string>(),
+    mapping: {},
+    onConflict: "skip",
+    applyPhase: "idle",
+    result: null,
+    applyError: null,
+  };
+}
+
+const importState: ImportState = initialImportState();
+
+/**
+ * Rafraîchit le bouton « Appliquer » après une case cochée, sans repeindre la liste
+ * (un repeint ferait perdre le focus). Réinstallé à chaque rendu de la section.
+ */
+let refreshImportApply: (() => void) | null = null;
+
+const IMPORT_FORMAT_LABELS: Record<McpImportFormat, string> = {
+  auto: "Détection automatique",
+  hermes: "Hermes (~/.hermes/config.yaml)",
+  claude: "Claude Code (.mcp.json / ~/.claude.json)",
+  codex: "Codex (~/.codex/config.toml)",
+};
+
+const IMPORT_LOCATION_LABELS: Record<string, string> = {
+  header: "en-tête",
+  env: "variable d’environnement",
+  url: "URL",
+};
+
+function importConflictChip(entry: McpImportEntry): HTMLElement {
+  return entry.conflict === "existing_server"
+    ? statusChip("! Nom déjà pris", "waiting")
+    : statusChip("✓ Nom disponible", "active");
+}
+
+/** Résumé masqué d’une configuration importée : jamais une valeur de secret. */
+function importConfigView(config: McpServerConfig): HTMLElement {
+  const rows: Array<[string, string | HTMLElement]> = [["Transport", TRANSPORT_LABELS[config.transport]]];
+  if (config.transport === "http" && config.http) {
+    rows.push(["Point d’entrée", config.http.url]);
+    rows.push(["Délai maximal", `${config.http.timeout_seconds} s`]);
+    const headers = Object.entries(config.http.headers);
+    rows.push([
+      "En-têtes repris",
+      headers.length ? preBlock(headers.map(([key, value]) => `${key}: ${value}`).join("\n"), true) : "aucun",
+    ]);
+  } else if (config.stdio) {
+    rows.push(["Commande", preBlock(config.stdio.command, true)]);
+    rows.push([
+      "Arguments",
+      config.stdio.args.length ? preBlock(config.stdio.args.join("\n"), true) : "aucun",
+    ]);
+    rows.push(["Répertoire de travail", config.stdio.cwd ?? "hérité du runner"]);
+    rows.push(["Délai maximal", `${config.stdio.timeout_seconds} s`]);
+    const env = Object.entries(config.stdio.env);
+    rows.push([
+      "Environnement repris",
+      env.length ? preBlock(env.map(([key, value]) => `${key}=${value}`).join("\n"), true) : "aucun",
+    ]);
+  }
+  return keyValueList(rows);
+}
+
+/**
+ * Un candidat de secret : la valeur du fichier n’est jamais transmise (elle arrive
+ * masquée), et l’import ne peut aboutir que reliée à un secret **déjà** dans le coffre.
+ */
+function importCandidateRow(candidate: McpImportSecretCandidate): HTMLElement {
+  const row = el("div", "mcp-kv-row");
+  const label = el("p", "mcp-card-meta");
+  label.textContent = `${IMPORT_LOCATION_LABELS[candidate.location] ?? candidate.location} « ${candidate.key} » — valeur du fichier masquée : ${candidate.masked_value}`;
+
+  const secrets = availableSecrets();
+  const select = selectControl(`import-secret-${candidate.suggested_secret_name}`, [
+    {
+      value: "",
+      label: secrets.length ? "— choisir un secret du coffre —" : "aucun secret disponible",
+      selected: !importState.mapping[candidate.suggested_secret_name],
+    },
+    ...secrets.map((secret) => ({
+      value: secret.id,
+      label: `${secret.name} (${secret.scope_type === "project" ? "projet" : "plateforme"})`,
+      selected: importState.mapping[candidate.suggested_secret_name] === secret.id,
+    })),
+  ]);
+  select.disabled = secrets.length === 0;
+  select.setAttribute(
+    "aria-label",
+    `Secret du coffre pour ${candidate.key} (nom proposé : ${candidate.suggested_secret_name})`,
+  );
+  select.addEventListener("change", () => {
+    if (select.value) importState.mapping[candidate.suggested_secret_name] = select.value;
+    else delete importState.mapping[candidate.suggested_secret_name];
+  });
+
+  const hint = el("p", "mcp-block-hint");
+  hint.textContent = secrets.length
+    ? `Nom proposé si le secret n’existe pas encore : ${candidate.suggested_secret_name} (à créer dans le coffre ci-dessous).`
+    : `Crée d’abord le secret ${candidate.suggested_secret_name} dans le coffre : l’import ne transporte aucune valeur.`;
+
+  row.append(label, select, hint);
+  return row;
+}
+
+function importEntryCard(entry: McpImportEntry): HTMLElement {
+  const card = el("article", "mcp-card");
+  const head = el("div", "mcp-card-head");
+
+  const title = el("label", "mcp-card-title");
+  const checkbox = el("input", "");
+  checkbox.type = "checkbox";
+  checkbox.checked = importState.selected.has(entry.name);
+  checkbox.disabled = !entry.importable;
+  if (!entry.importable) {
+    checkbox.title = "Entrée non importable : voir les points non supportés ci-dessous.";
+  }
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) importState.selected.add(entry.name);
+    else importState.selected.delete(entry.name);
+    // Mise à jour locale du bouton : un repeint complet ferait perdre le focus de la case.
+    refreshImportApply?.();
+  });
+  title.append(checkbox, el("span", "mcp-import-name", ` ${entry.name}`));
+
+  const chips = el("div", "mcp-chips");
+  chips.append(importConflictChip(entry));
+  chips.append(entry.importable
+    ? statusChip("✓ Importable", "active")
+    : statusChip("✗ Non importable", "failed"));
+  if (entry.transport) chips.append(statusChip(`○ ${TRANSPORT_LABELS[entry.transport]}`, "queued"));
+  head.append(title, chips);
+  card.append(head);
+
+  const source = el("p", "mcp-card-meta");
+  source.textContent = `Nom d’origine : ${entry.source_name}`;
+  card.append(source);
+
+  if (entry.config) card.append(importConfigView(entry.config));
+
+  if (entry.secret_candidates.length) {
+    card.append(el(
+      "p",
+      "mcp-block-hint",
+      "Secrets détectés : relie chacun à un secret existant du coffre, sinon l’entrée sera ignorée.",
+    ));
+    const rows = el("div", "mcp-kv-rows");
+    for (const candidate of entry.secret_candidates) rows.append(importCandidateRow(candidate));
+    card.append(rows);
+  }
+  if (entry.unsupported.length) {
+    card.append(el("p", "mcp-block-hint", "Non repris par la plateforme :"), bulletList(entry.unsupported));
+  }
+  if (entry.warnings.length) {
+    card.append(el("p", "mcp-block-hint", "À vérifier :"), bulletList(entry.warnings));
+  }
+  return card;
+}
+
+function importResultView(result: McpImportApplyResult): HTMLElement {
+  const node = el("div", "mcp-export-result");
+  const applied = [...result.created, ...result.revised];
+  if (applied.length) {
+    const list = el("ul", "mcp-plain-list");
+    for (const server of result.created) {
+      list.append(el("li", "", `Créé : ${server.name} (brouillon, révision ${server.current_revision_number ?? 1})`));
+    }
+    for (const server of result.revised) {
+      list.append(el(
+        "li",
+        "",
+        `Révisé : ${server.name} (révision ${server.current_revision_number ?? "?"} ; la précédente reste consultable)`,
+      ));
+    }
+    node.append(el("p", "mcp-block-hint", "Serveurs importés (aucun n’est actif avant diagnostic) :"), list);
+  } else {
+    node.append(statePanel(
+      "empty",
+      "Aucune entrée importée",
+      "Rien n’a été créé : les raisons sont listées ci-dessous.",
+    ));
+  }
+  if (result.skipped.length) {
+    node.append(el("p", "mcp-block-hint", "Entrées ignorées :"), bulletList(result.skipped));
+  }
+  if (result.errors.length) {
+    node.append(el("p", "mcp-block-hint", "Refus détaillés :"), bulletList(result.errors));
+  }
+  node.append(el(
+    "p",
+    "mcp-block-hint",
+    "Les conflits de noms affichés au-dessus datent de l’analyse : relance-la pour les revoir à jour.",
+  ));
+  return node;
+}
+
+function runImportPreview(content: string, format: McpImportFormat): void {
+  importState.content = content;
+  importState.format = format;
+  importState.phase = "loading";
+  importState.error = null;
+  importState.result = null;
+  importState.applyError = null;
+  importState.applyPhase = "idle";
+  importState.selected.clear();
+  importState.mapping = {};
+  paintMcp();
+  const generation = stateGeneration;
+  void mcpApi.previewImport(format, content).then(
+    (preview) => {
+      if (generation !== stateGeneration) return;
+      importState.preview = preview;
+      importState.phase = "ready";
+      paintMcp();
+    },
+    (error: unknown) => {
+      if (generation !== stateGeneration) return;
+      const apiError = normalizeApiError(error, "L’aperçu d’import n’a pas pu être calculé.");
+      invalidateCsrfOnRefusal(apiError);
+      importState.preview = null;
+      importState.error = apiError;
+      importState.phase = "error";
+      paintMcp();
+    },
+  );
+}
+
+function runImportApply(): void {
+  const names = [...importState.selected];
+  importState.applyPhase = "loading";
+  importState.applyError = null;
+  importState.result = null;
+  paintMcp();
+  const generation = stateGeneration;
+  void mcpApi.applyImport({
+    format: importState.format,
+    content: importState.content,
+    names,
+    secretMapping: importState.mapping,
+    onConflict: importState.onConflict,
+  }).then(
+    (result) => {
+      if (generation !== stateGeneration) return;
+      importState.result = result;
+      importState.applyPhase = "ready";
+      // Les entrées appliquées sont décochées : un second clic ne rejouerait pas l’import.
+      importState.selected.clear();
+      // La liste des serveurs a changé : elle est relue plutôt que devinée.
+      void loadMcp({ silent: true });
+      paintMcp();
+    },
+    (error: unknown) => {
+      if (generation !== stateGeneration) return;
+      const apiError = normalizeApiError(error, "L’import n’a pas pu être appliqué.");
+      invalidateCsrfOnRefusal(apiError);
+      importState.applyError = apiError;
+      importState.applyPhase = "error";
+      paintMcp();
+    },
+  );
+}
+
+function importFormNode(): HTMLElement {
+  const form = el("form", "mcp-export-form");
+  form.noValidate = true;
+  const formatSelect = selectControl(
+    "import-format",
+    MCP_IMPORT_FORMATS.map((format) => ({
+      value: format,
+      label: IMPORT_FORMAT_LABELS[format],
+      selected: importState.format === format,
+    })),
+  );
+  const area = textArea("import-content", 10, {
+    value: importState.content,
+    placeholder: "Colle ici le contenu de config.yaml, .mcp.json ou config.toml",
+    maxLength: MCP_IMPORT_MAX_CHARS,
+  });
+  const submit = el("button", "button button-primary", "Analyser (aucune écriture)");
+  submit.type = "submit";
+  submit.disabled = importState.phase === "loading";
+
+  form.append(
+    labeledField("Format", formatSelect, "La détection automatique reconnaît les trois formats."),
+    labeledField(
+      "Configuration à importer",
+      area,
+      "Le contenu est analysé côté serveur comme une donnée : il n’est ni exécuté ni appliqué à ce stade.",
+    ),
+    submit,
+  );
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const content = area.value;
+    if (!content.trim()) {
+      importState.error = new WorkspaceApiError("Colle une configuration à importer.", "http", 422);
+      importState.phase = "error";
+      importState.preview = null;
+      paintMcp();
+      return;
+    }
+    runImportPreview(content, formatSelect.value as McpImportFormat);
+  });
+  return form;
+}
+
+function importSelectionNode(preview: McpImportPreview): HTMLElement {
+  const node = el("div", "mcp-export-result");
+  const importable = preview.entries.filter((entry) => entry.importable);
+
+  const conflictSelect = selectControl("import-on-conflict", [
+    {
+      value: "skip",
+      label: "Nom déjà pris : ignorer l’entrée",
+      selected: importState.onConflict === "skip",
+    },
+    {
+      value: "new_revision",
+      label: "Nom déjà pris : ajouter une révision (l’ancienne est conservée)",
+      selected: importState.onConflict === "new_revision",
+    },
+  ]);
+  conflictSelect.addEventListener("change", () => {
+    importState.onConflict = conflictSelect.value === "new_revision" ? "new_revision" : "skip";
+  });
+  node.append(labeledField("Conflit de nom", conflictSelect));
+
+  const apply = actionButton("Appliquer les entrées cochées", "primary", () => {
+    if (!importState.selected.size) return;
+    runImportApply();
+  });
+  /**
+   * Le bouton suit l’état des cases à cocher sans repeindre la liste : une case cochée
+   * l’active immédiatement, et le libellé dit combien d’entrées partiront.
+   */
+  const refresh = (): void => {
+    const count = importState.selected.size;
+    apply.disabled = count === 0 || importState.applyPhase === "loading";
+    apply.textContent = count
+      ? `Appliquer ${count} entrée(s) cochée(s)`
+      : "Appliquer les entrées cochées";
+    apply.title = count
+      ? "Les serveurs sont créés en brouillon : diagnostic et activation restent à faire."
+      : "Coche au moins une entrée importable : rien n’est importé implicitement.";
+  };
+  refresh();
+  refreshImportApply = refresh;
+
+  const actions = el("div", "mcp-actions");
+  actions.append(apply);
+  node.append(actions);
+  node.append(el(
+    "p",
+    "mcp-block-hint",
+    importable.length
+      ? "Les serveurs importés restent en brouillon : ils ne sont ni diagnostiqués ni activés par l’import."
+      : "Aucune entrée de cet aperçu n’est importable en l’état.",
+  ));
+  return node;
+}
+
+/**
+ * Section « Import » : aperçu normalisé d’une configuration Hermes / Claude Code / Codex,
+ * puis application des seules entrées cochées.
+ *
+ * Règles tenues ici : le contenu collé est une donnée (jamais interprétée dans le
+ * navigateur), aucune valeur de secret ne circule (l’API ne renvoie que des candidats
+ * masqués, reliés à un secret existant du coffre), et rien n’est créé sans choix
+ * explicite — les serveurs importés arrivent en brouillon.
  */
 export function renderMcpImportSection(container: HTMLElement): void {
   const node = block(
     "Import de configurations existantes",
-    "Hermes (`config.yaml`), Claude Code (`.mcp.json`) et Codex (`config.toml`).",
+    "Hermes (config.yaml), Claude Code (.mcp.json) et Codex (config.toml). L’aperçu n’écrit rien.",
   );
   node.dataset.module = "mcp-import";
-  node.append(statePanel(
-    "unconfigured",
-    "Import disponible dans la révision suivante",
-    "L’aperçu normalisé, le masquage des secrets détectés et l’application des entrées choisies seront branchés sur /mcp/import. Aucun aperçu n’est simulé ici.",
-  ));
+  // Le rendu précédent est jeté : son bouton n’existe plus, sa mise à jour non plus.
+  refreshImportApply = null;
+
+  if (!mayManagePlatform()) {
+    node.append(statePanel(
+      "forbidden",
+      "Réservé au propriétaire",
+      "Seul le propriétaire de la plateforme peut importer des serveurs MCP.",
+    ));
+    container.append(node);
+    return;
+  }
+
+  node.append(importFormNode());
+
+  if (importState.phase === "loading") {
+    node.append(statePanel("loading", "Analyse en cours", "Interrogation de l’API /mcp/import/preview…"));
+    container.append(node);
+    return;
+  }
+  if (importState.error) {
+    node.append(errorPanel(importState.error));
+    container.append(node);
+    return;
+  }
+
+  const preview = importState.preview;
+  if (!preview) {
+    node.append(statePanel(
+      "empty",
+      "Aucun aperçu",
+      "Colle une configuration puis lance l’analyse : les entrées, les secrets détectés et les points non supportés seront listés avant toute écriture.",
+    ));
+    container.append(node);
+    return;
+  }
+
+  node.append(keyValueList([
+    ["Format détecté", preview.detected_format ? IMPORT_FORMAT_LABELS[preview.detected_format] : "non reconnu"],
+    ["Entrées trouvées", String(preview.entries.length)],
+  ]));
+  if (preview.errors.length) {
+    node.append(el("p", "mcp-block-hint", "Analyse :"), bulletList(preview.errors));
+  }
+  if (!preview.entries.length) {
+    node.append(statePanel(
+      "empty",
+      "Aucune entrée trouvée",
+      "Ce contenu ne décrit aucun serveur MCP exploitable : rien n’a été importé.",
+    ));
+    container.append(node);
+    return;
+  }
+
+  const list = el("div", "mcp-card-list");
+  for (const entry of preview.entries) list.append(importEntryCard(entry));
+  node.append(list);
+  node.append(importSelectionNode(preview));
+
+  if (importState.applyPhase === "loading") {
+    node.append(statePanel("loading", "Import en cours", "Interrogation de l’API /mcp/import/apply…"));
+  } else if (importState.applyError) {
+    node.append(errorPanel(importState.applyError));
+  } else if (importState.result) {
+    node.append(importResultView(importState.result));
+  }
+
   container.append(node);
 }
 
@@ -2580,7 +3044,9 @@ export function resetMcpUiState(): void {
   stateGeneration += 1;
   Object.assign(mcpState, initialMcpState());
   Object.assign(secretsState, initialSecretsState());
+  Object.assign(importState, initialImportState());
   selectedTools.clear();
+  refreshImportApply = null;
   mcpRoot = null;
   secretsRoot = null;
   pendingTabFocus = null;

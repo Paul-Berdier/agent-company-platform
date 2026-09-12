@@ -1,6 +1,5 @@
 /**
- * Client du centre MCP (`/mcp`, spec Lot D §5.2, hors import qui arrive dans une
- * révision ultérieure).
+ * Client du centre MCP (`/mcp`, spec Lot D §5.2, import compris).
  *
  * Chaque réponse est validée par un validateur de forme strict (motif
  * `isRecord`/`hasString` de `workspace-api.ts`). Les configurations reçues ne
@@ -18,6 +17,11 @@ import type {
   McpExport,
   McpExportFormat,
   McpHttpConfig,
+  McpImportApplyResult,
+  McpImportEntry,
+  McpImportFormat,
+  McpImportPreview,
+  McpImportSecretCandidate,
   McpProbe,
   McpProbeAuthorization,
   McpProbeResult,
@@ -69,6 +73,14 @@ export interface McpBindingPatchInput {
   enabled?: boolean;
 }
 
+export interface McpImportApplyInput {
+  format: McpImportFormat;
+  content: string;
+  names: string[];
+  secretMapping: Record<string, string>;
+  onConflict: "skip" | "new_revision";
+}
+
 export interface McpBindingFilter {
   projectId?: string;
   serverId?: string;
@@ -95,7 +107,16 @@ export const MCP_PROBE_STATUSES: readonly McpProbeStatus[] = [
   "invalidated",
   "cancelled",
 ];
+export const MCP_IMPORT_FORMATS: readonly McpImportFormat[] = ["auto", "hermes", "claude", "codex"];
+/** Borne du contrat `McpImportPreviewRequest.content` : refusée localement avant tout appel. */
+export const MCP_IMPORT_MAX_CHARS = 1_000_000;
+
 const SOURCE_KINDS = new Set<string>(["catalog", "remote_url", "import", "manual"]);
+const DETECTED_FORMATS = new Set<string>(["hermes", "claude", "codex"]);
+const IMPORT_CONFLICTS = new Set<string>(["none", "existing_server"]);
+const SECRET_LOCATIONS = new Set<string>(["header", "env", "url"]);
+/** Champs qui trahiraient une valeur de secret dans un candidat d’import. */
+const CANDIDATE_FORBIDDEN_KEYS = ["value", "secret_value", "plaintext", "secret"];
 const RISK_LEVELS = new Set<string>(["info", "caution", "danger"]);
 const EXPORT_FORMATS = new Set<string>(["hermes", "claude", "codex"]);
 const SERVER_STATUSES = new Set<string>(MCP_SERVER_STATUSES);
@@ -338,6 +359,53 @@ function isCatalogList(value: unknown): value is McpCatalogEntry[] {
   return Array.isArray(value) && value.every(isMcpCatalogEntry);
 }
 
+/**
+ * Un candidat de secret ne transporte **jamais** de valeur : `masked_value` est masquée
+ * (`***` + deux caractères au plus) et aucun champ supplémentaire n’est toléré. Une réponse
+ * qui fuirait une valeur est traitée comme un contrat violé, jamais affichée.
+ */
+export function isMcpImportSecretCandidate(value: unknown): value is McpImportSecretCandidate {
+  if (!isRecord(value)) return false;
+  if (CANDIDATE_FORBIDDEN_KEYS.some((key) => key in value)) return false;
+  if (!SECRET_LOCATIONS.has(String(value.location))) return false;
+  if (!hasString(value, "key") || !hasString(value, "suggested_secret_name")) return false;
+  if (!hasString(value, "masked_value")) return false;
+  const masked = value.masked_value as string;
+  return masked.startsWith("***") && masked.length <= 5;
+}
+
+function isImportEntry(value: unknown): value is McpImportEntry {
+  return isRecord(value)
+    && hasString(value, "name")
+    && hasString(value, "source_name")
+    && (value.transport === null || isTransport(value.transport))
+    && (value.config === null || isMcpServerConfig(value.config))
+    && Array.isArray(value.secret_candidates)
+    && value.secret_candidates.every(isMcpImportSecretCandidate)
+    && isStringArray(value.unsupported)
+    && isStringArray(value.warnings)
+    && IMPORT_CONFLICTS.has(String(value.conflict))
+    && typeof value.importable === "boolean";
+}
+
+export function isMcpImportPreview(value: unknown): value is McpImportPreview {
+  return isRecord(value)
+    && (value.detected_format === null || DETECTED_FORMATS.has(String(value.detected_format)))
+    && Array.isArray(value.entries)
+    && value.entries.every(isImportEntry)
+    && isStringArray(value.errors);
+}
+
+export function isMcpImportApplyResult(value: unknown): value is McpImportApplyResult {
+  return isRecord(value)
+    && Array.isArray(value.created)
+    && value.created.every(isMcpServerSummary)
+    && Array.isArray(value.revised)
+    && value.revised.every(isMcpServerSummary)
+    && isStringArray(value.skipped)
+    && isStringArray(value.errors);
+}
+
 export function isMcpExport(value: unknown): value is McpExport {
   return isRecord(value)
     && EXPORT_FORMATS.has(String(value.format))
@@ -369,6 +437,17 @@ function isRunnerList(value: unknown): value is Array<Record<string, unknown> & 
 
 function localRejection(message: string): WorkspaceApiError {
   return new WorkspaceApiError(message, "http", 422);
+}
+
+/** Refus local d’un contenu vide ou hors bornes : inutile d’envoyer ce que l’API refusera. */
+function checkedImportContent(content: string): string {
+  if (!content.trim()) throw localRejection("Colle une configuration à importer.");
+  if (content.length > MCP_IMPORT_MAX_CHARS) {
+    throw localRejection(
+      `La configuration dépasse ${MCP_IMPORT_MAX_CHARS} caractères : importe-la par fichiers séparés.`,
+    );
+  }
+  return content;
 }
 
 function serverPath(serverId: string, suffix = ""): string {
@@ -526,6 +605,40 @@ export class McpApiClient {
   revokeBinding(bindingId: string): Promise<McpBinding> {
     return this.http.request(`/mcp/bindings/${encodeURIComponent(bindingId)}`, isMcpBinding, {
       method: "DELETE",
+    });
+  }
+
+  // --- import ---------------------------------------------------------------
+
+  /**
+   * Aperçu normalisé d’une configuration existante : seul le **contenu** est envoyé,
+   * jamais un chemin de fichier (le serveur ne lit aucun fichier du poste client).
+   * Aucune écriture n’a lieu ; les valeurs de secrets restent masquées côté serveur.
+   */
+  async previewImport(format: McpImportFormat, content: string): Promise<McpImportPreview> {
+    return this.http.request("/mcp/import/preview", isMcpImportPreview, {
+      method: "POST",
+      body: JSON.stringify({ format, content: checkedImportContent(content) }),
+    });
+  }
+
+  /** Applique les seules entrées explicitement choisies ; les serveurs créés restent en brouillon. */
+  async applyImport(input: McpImportApplyInput): Promise<McpImportApplyResult> {
+    const names: string[] = [];
+    for (const raw of input.names) {
+      const name = raw.trim();
+      if (name && !names.includes(name)) names.push(name);
+    }
+    if (!names.length) throw localRejection("Choisis au moins une entrée à importer.");
+    return this.http.request("/mcp/import/apply", isMcpImportApplyResult, {
+      method: "POST",
+      body: JSON.stringify({
+        format: input.format,
+        content: checkedImportContent(input.content),
+        names,
+        secret_mapping: { ...input.secretMapping },
+        on_conflict: input.onConflict,
+      }),
     });
   }
 

@@ -512,3 +512,142 @@ describe("McpApiClient — refus locaux du formulaire", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+const importCandidate = {
+  location: "header",
+  key: "CONTEXT7_API_KEY",
+  suggested_secret_name: "CONTEXT7_CONTEXT7_API_KEY",
+  masked_value: "***34",
+};
+
+const importEntry = {
+  name: "context7",
+  source_name: "context7",
+  transport: "http",
+  config: httpConfig,
+  secret_candidates: [importCandidate],
+  unsupported: [],
+  warnings: ["Transport http : diagnostic requis avant activation."],
+  conflict: "none",
+  importable: true,
+};
+
+const importPreview = {
+  detected_format: "claude",
+  entries: [
+    importEntry,
+    {
+      ...importEntry,
+      name: "broken",
+      source_name: "broken",
+      transport: null,
+      config: null,
+      secret_candidates: [],
+      unsupported: ["entrée sans « url » ni « command » : rien à importer."],
+      warnings: [],
+      conflict: "existing_server",
+      importable: false,
+    },
+  ],
+  errors: [],
+};
+
+const importResult = {
+  created: [summary],
+  revised: [],
+  skipped: ["broken"],
+  errors: ["Entrée « broken » non importable : rien à importer."],
+};
+
+describe("McpApiClient — import", () => {
+  it("demande un aperçu en envoyant le contenu, jamais un chemin de fichier", async () => {
+    const fetcher = vi.fn(async () => json(importPreview));
+    await expect(client(fetcher).previewImport("auto", "{\"mcpServers\": {}}"))
+      .resolves.toEqual(importPreview);
+    expect(fetcher.mock.calls[0][0]).toBe("https://api.example.test/mcp/import/preview");
+    expect(requestInit(fetcher).method).toBe("POST");
+    expect(body(fetcher)).toEqual({ format: "auto", content: "{\"mcpServers\": {}}" });
+    expect((requestInit(fetcher).headers as Headers).get("X-CSRF-Token")).toBe("csrf-current");
+  });
+
+  it("refuse localement un contenu vide ou hors bornes, sans appel réseau", async () => {
+    const fetcher = vi.fn(async () => json(importPreview));
+    const api = client(fetcher);
+    await expect(api.previewImport("auto", "   ")).rejects.toMatchObject({ kind: "http", status: 422 });
+    await expect(api.previewImport("auto", "x".repeat(1_000_001))).rejects.toMatchObject({ kind: "http", status: 422 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("refuse un aperçu dont un candidat transporte une valeur en clair", async () => {
+    const leaked = vi.fn(async () => json({
+      ...importPreview,
+      entries: [{ ...importEntry, secret_candidates: [{ ...importCandidate, masked_value: "ctx-live-abcd1234" }] }],
+    }));
+    await expect(client(leaked).previewImport("auto", "{}")).rejects.toMatchObject({ kind: "invalid_response" });
+
+    const extraField = vi.fn(async () => json({
+      ...importPreview,
+      entries: [{ ...importEntry, secret_candidates: [{ ...importCandidate, value: "ctx-live-abcd1234" }] }],
+    }));
+    await expect(client(extraField).previewImport("auto", "{}")).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+
+  it("refuse un aperçu dont une entrée porte une configuration inexploitable", async () => {
+    const fetcher = vi.fn(async () => json({
+      ...importPreview,
+      entries: [{ ...importEntry, config: { transport: "http", http: null, stdio: null } }],
+    }));
+    await expect(client(fetcher).previewImport("claude", "{}")).rejects.toMatchObject({ kind: "invalid_response" });
+
+    const unknownFormat = vi.fn(async () => json({ ...importPreview, detected_format: "cursor" }));
+    await expect(client(unknownFormat).previewImport("auto", "{}")).rejects.toMatchObject({ kind: "invalid_response" });
+
+    const unknownConflict = vi.fn(async () => json({
+      ...importPreview,
+      entries: [{ ...importEntry, conflict: "maybe" }],
+    }));
+    await expect(client(unknownConflict).previewImport("auto", "{}")).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+
+  it("applique les entrées choisies en snake_case, avec le mapping de secrets", async () => {
+    const fetcher = vi.fn(async () => json(importResult));
+    await expect(client(fetcher).applyImport({
+      format: "claude",
+      content: "{\"mcpServers\": {}}",
+      names: [" context7 ", "context7", "broken"],
+      secretMapping: { CONTEXT7_CONTEXT7_API_KEY: "secret-1" },
+      onConflict: "new_revision",
+    })).resolves.toEqual(importResult);
+    expect(fetcher.mock.calls[0][0]).toBe("https://api.example.test/mcp/import/apply");
+    expect(body(fetcher)).toEqual({
+      format: "claude",
+      content: "{\"mcpServers\": {}}",
+      names: ["context7", "broken"],
+      secret_mapping: { CONTEXT7_CONTEXT7_API_KEY: "secret-1" },
+      on_conflict: "new_revision",
+    });
+  });
+
+  it("refuse localement une application sans entrée choisie", async () => {
+    const fetcher = vi.fn(async () => json(importResult));
+    await expect(client(fetcher).applyImport({
+      format: "auto",
+      content: "{}",
+      names: ["  "],
+      secretMapping: {},
+      onConflict: "skip",
+    })).rejects.toMatchObject({ kind: "http", status: 422 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("refuse un résultat d’application de forme inattendue", async () => {
+    const fetcher = vi.fn(async () => json({ ...importResult, skipped: [{ name: "broken" }] }));
+    await expect(client(fetcher).applyImport({
+      format: "auto",
+      content: "{}",
+      names: ["context7"],
+      secretMapping: {},
+      onConflict: "skip",
+    })).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+});
