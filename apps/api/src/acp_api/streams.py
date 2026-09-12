@@ -5,12 +5,27 @@ réveillée plus tôt par le hub local. La base reste la seule source de vérit�
 reconnexion ne duplique ni ne perd d'événement, et plusieurs processus d'API peuvent
 servir le même run.
 
-Deux portées, deux curseurs :
+Deux portées, **deux espaces de curseurs distincts** — un client ne les mélange jamais,
+et ne réutilise jamais le curseur d'une portée sur l'autre :
 
-- **tentative** (``/streams/runs/{id}``) — le curseur est la séquence monotone du run ;
-- **projet** (``/streams/projects/{id}``) — les séquences étant propres à chaque run, le
-  curseur est la date de création de la ligne exprimée en microsecondes depuis l'époque
-  Unix, avec un ordre total ``(created_at, id)``.
+- **tentative** (``/runs/{id}/events``, ``/streams/runs/{id}``) — le curseur est la
+  séquence monotone du run, celle que porte ``StreamEvent.sequence`` (1, 2, 3, …) ;
+- **projet** (``/projects/{id}/events``, ``/streams/projects/{id}``) — les séquences
+  étant propres à chaque run, elles ne peuvent pas ordonner un projet entier : le
+  curseur est ``EventModel.journal_seq``, le compteur monotone du journal alloué à
+  l'écriture (``events_bus``). Il **n'a rien à voir** avec ``StreamEvent.sequence``,
+  qui reste la séquence du run dans les deux portées.
+
+Les deux curseurs partagent la même propriété, la seule qui compte pour paginer : un
+**ordre total**. Aucune horloge ne l'offre — la granularité réelle (environ 1,5 ms
+sous Windows) rend les égalités courantes, et une page qui s'arrête au milieu d'un
+groupe d'égalité perd des lignes que la reprise « strictement après » ne reverra
+jamais. Les deux portées se lisent donc de la même façon : filtrer strictement après
+le curseur, ordonner par le compteur, borner à ``limit``.
+
+Une ligne sans ``journal_seq`` — une base dont la migration n'a pas encore tourné —
+est exclue de la portée projet plutôt que de la faire échouer ; la migration
+(``_upgrade_sqlite_schema``) les numérote toutes dans leur ordre d'insertion.
 
 Le RBAC résolu à l'ouverture est **revérifié à chaque page** : une révocation de session
 ou une perte de membership ferme la connexion au plus tard à l'interrogation suivante.
@@ -25,7 +40,7 @@ import threading
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from time import monotonic
 
 from fastapi import HTTPException
@@ -82,9 +97,6 @@ DEFAULT_KEEPALIVE_SECONDS = 15.0
 DEFAULT_MAX_SECONDS = 900.0
 DEFAULT_MAX_CONNECTIONS_PER_USER = 4
 DEFAULT_STREAM_BATCH = 200
-
-_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-_MICROSECONDS_PER_DAY = 86_400_000_000
 
 
 # --- Configuration ------------------------------------------------------------
@@ -234,20 +246,23 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def project_cursor(model: EventModel) -> int:
-    """Curseur projet : microsecondes depuis l'époque Unix, en arithmétique entière.
+def project_cursor(model: EventModel) -> int | None:
+    """Curseur projet : le compteur monotone du journal porté par la ligne.
 
     Les séquences étant propres à chaque tentative, elles ne peuvent pas ordonner un
-    projet entier : l'ordre d'écriture le peut, et il tient dans l'entier attendu par
+    projet entier ; ``journal_seq`` le peut, et il tient dans l'entier attendu par
     ``after_seq`` / ``Last-Event-ID``.
+
+    Ce nombre n'est **pas** une séquence de tentative : il n'est comparable qu'à un
+    autre curseur projet, jamais à ``StreamEvent.sequence``.
+
+    ``None`` pour une ligne non numérotée : un curseur ne peut pas être inventé pour
+    elle, et la lecture l'exclut au lieu d'échouer.
     """
 
-    delta = _as_utc(model.created_at) - _EPOCH
-    return delta.days * _MICROSECONDS_PER_DAY + delta.seconds * 1_000_000 + delta.microseconds
-
-
-def _cursor_datetime(cursor: int) -> datetime:
-    return _EPOCH + timedelta(microseconds=cursor)
+    if model.journal_seq is None:
+        return None
+    return int(model.journal_seq)
 
 
 def to_stream_event(model: EventModel) -> StreamEvent:
@@ -304,24 +319,30 @@ def _read_run_rows(
 def _read_project_rows(
     db: Session, project_id: str, cursor: int, limit: int
 ) -> tuple[list[tuple[StreamEvent, int]], bool]:
-    query = db.query(EventModel).filter(EventModel.project_id == project_id)
-    if cursor > 0:
-        query = query.filter(EventModel.created_at > _cursor_datetime(cursor))
+    """Page projet ordonnée par ``journal_seq`` croissant, bornée par ``limit``.
+
+    Le compteur du journal étant un ordre **total**, la lecture est celle d'une
+    tentative à l'identique : aucun groupe d'égalité à recoller, donc aucune page
+    élargie, et ``next_cursor`` ne peut plus dépasser une ligne jamais rendue.
+
+    Une ligne non numérotée est exclue, jamais une exception : c'est le seul
+    comportement défini possible pour une ligne dont le curseur n'existe pas.
+    """
+
     rows = (
-        query.order_by(EventModel.created_at.asc(), EventModel.id.asc())
+        db.query(EventModel)
+        .filter(
+            EventModel.project_id == project_id,
+            EventModel.journal_seq.is_not(None),
+            EventModel.journal_seq > cursor,
+        )
+        .order_by(EventModel.journal_seq.asc())
         .limit(limit + 1)
         .all()
     )
     has_more = len(rows) > limit
     rows = rows[:limit]
-    if has_more and rows:
-        # Ne jamais couper au milieu d'un groupe de lignes partageant la même
-        # microseconde : la page suivante reprend en « strictement après ».
-        boundary = project_cursor(rows[-1])
-        trimmed = [row for row in rows if project_cursor(row) < boundary]
-        if trimmed:
-            rows = trimmed
-    return [(to_stream_event(row), project_cursor(row)) for row in rows], has_more
+    return [(to_stream_event(row), int(row.journal_seq)) for row in rows], has_more
 
 
 def _page(
@@ -356,7 +377,7 @@ def read_project_page(
     after_seq: int = 0,
     limit: int = DEFAULT_EVENT_PAGE_LIMIT,
 ) -> EventPage:
-    """Page du journal d'un projet, ordonnée par date d'écriture croissante."""
+    """Page du journal d'un projet, ordonnée par compteur de journal croissant."""
 
     rows, has_more = _read_project_rows(db, project_id, max(0, after_seq), limit)
     return _page(rows, has_more=has_more, cursor=max(0, after_seq))
@@ -462,6 +483,13 @@ async def _event_stream(
         # fermeture immédiate désabonne quand même le flux du hub.
         yield _KEEPALIVE_FRAME
         while True:
+            # Borne de durée évaluée **avant** toute lecture : un flux qui rattrape
+            # un retard trouve des lignes à chaque tour et ne repasserait jamais par
+            # une branche « rien à lire ». Il vivrait alors sans limite et garderait
+            # son jeton de connexion (``ACP_STREAM_MAX_CONNECTIONS_PER_USER``).
+            if monotonic() - started >= policy.max_seconds:
+                yield _frame_rotate(cursor)
+                return
             if not await asyncio.to_thread(_still_authorized, db_factory, policy):
                 yield _frame_closed("unauthorized")
                 return
@@ -480,9 +508,6 @@ async def _event_stream(
                 # Rattrapage : vider le retard avant de repasser en attente.
                 continue
             now = monotonic()
-            if now - started >= policy.max_seconds:
-                yield _frame_rotate(cursor)
-                return
             if now - last_keepalive >= policy.keepalive_seconds:
                 yield _KEEPALIVE_FRAME
                 last_keepalive = now
@@ -515,7 +540,7 @@ def project_event_stream(
     after_seq: int,
     policy: StreamPolicy,
 ) -> AsyncIterator[bytes]:
-    """Flux SSE d'un projet, curseur = microsecondes d'écriture."""
+    """Flux SSE d'un projet, curseur = compteur du journal."""
 
     return _event_stream(
         db_factory,

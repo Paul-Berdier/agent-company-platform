@@ -779,7 +779,7 @@ function identityOf(test: unknown, suitePath: string[]): string {
     return identity;
   }
   const digest = createHash("sha256").update(identity).digest("hex").slice(0, 8);
-  return `${identity.slice(0, MAX_TEST_ID_CHARS - digest.length - 1)}#${digest}`;
+  return `${bounded(identity, MAX_TEST_ID_CHARS - digest.length - 1)}#${digest}`;
 }
 
 /** Message agrégé et extrait de code d'une tentative, expurgés et bornés. */

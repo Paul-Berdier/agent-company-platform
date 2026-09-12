@@ -310,15 +310,22 @@ class MissionEvidenceModel(_Common, Base):
 
 
 _EVENT_SEQUENCE_PREDICATE = "task_run_id IS NOT NULL AND sequence IS NOT NULL"
+_EVENT_JOURNAL_PREDICATE = "journal_seq IS NOT NULL"
 
 
 class EventModel(_Common, Base):
     """Journal durable des événements métier.
 
-    ``sequence`` (Lot E) est la séquence monotone allouée par tentative : elle sert
-    de curseur de reprise au flux SSE. L'unicité ``(task_run_id, sequence)`` est
-    **partielle** car les lignes écrites avant le Lot E, et les événements sans run,
-    n'ont ni run ni séquence.
+    Deux compteurs, deux portées, jamais interchangeables :
+
+    - ``sequence`` (Lot E) est la séquence monotone allouée par **tentative** : elle
+      ordonne une tentative et sert de curseur de reprise à son flux SSE. L'unicité
+      ``(task_run_id, sequence)`` est **partielle** car les lignes écrites avant le
+      Lot E, et les événements sans run, n'ont ni run ni séquence ;
+    - ``journal_seq`` est le compteur monotone du **journal entier** : il donne à la
+      portée projet un ordre total, indépendant de la granularité de l'horloge. Son
+      unicité est également partielle : les lignes antérieures à la colonne restent
+      valides, et la migration les numérote dans leur ordre d'insertion.
     """
 
     __tablename__ = "events"
@@ -332,6 +339,14 @@ class EventModel(_Common, Base):
             postgresql_where=text(_EVENT_SEQUENCE_PREDICATE),
         ),
         Index("ix_events_task_run_sequence", "task_run_id", "sequence"),
+        Index(
+            "uq_events_journal_seq",
+            "journal_seq",
+            unique=True,
+            sqlite_where=text(_EVENT_JOURNAL_PREDICATE),
+            postgresql_where=text(_EVENT_JOURNAL_PREDICATE),
+        ),
+        Index("ix_events_journal_seq", "journal_seq"),
     )
 
     type: Mapped[str] = mapped_column(String(100), index=True)
@@ -349,6 +364,7 @@ class EventModel(_Common, Base):
         String(10), default="1.0", server_default="1.0"
     )
     sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    journal_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
     conversation_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True, index=True
     )

@@ -302,6 +302,12 @@ def test_the_served_type_comes_from_the_server_allowlist(
         ("image/svg+xml", "schema.svg"),
         ("application/zip", "trace.zip"),
         ("application/xhtml+xml", "page.xhtml"),
+        # Un nom d'apparence inoffensive ne réhabilite jamais un type dangereux :
+        # la concordance nom/type se juge dans les deux sens (§7).
+        ("text/html", "piege.png"),
+        ("application/zip", "trace.txt"),
+        ("image/svg+xml", "schema.png"),
+        ("application/xhtml+xml", "page.json"),
     ],
 )
 def test_html_svg_and_archives_are_never_served_inline(declared, original_name):
@@ -484,6 +490,33 @@ def test_an_svg_artifact_is_forced_to_download(context):
         payload=b"<svg xmlns='http://www.w3.org/2000/svg'></svg>",
         content_type="image/svg+xml",
         original_name="schema.svg",
+    )
+
+    response = context.client.get(f"/artifacts/{artifact_id}/content")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"].startswith("attachment")
+
+
+@pytest.mark.parametrize(
+    ("content_type", "original_name", "payload"),
+    [
+        ("text/html", "piege.png", b"<html><script>alert(1)</script></html>"),
+        ("application/zip", "trace.txt", b"PK\x03\x04 archive"),
+        ("image/svg+xml", "schema.png", b"<svg onload='alert(1)'></svg>"),
+    ],
+)
+def test_a_dangerous_type_hidden_behind_a_previewable_name_is_forced_to_download(
+    context, content_type, original_name, payload
+):
+    """Le nom d'origine ne réhabilite jamais un type « jamais en ligne » (§7)."""
+
+    artifact_id = _seed_artifact(
+        context,
+        payload=payload,
+        content_type=content_type,
+        original_name=original_name,
     )
 
     response = context.client.get(f"/artifacts/{artifact_id}/content")
@@ -955,6 +988,87 @@ def test_a_file_sent_before_the_fields_still_needs_an_active_lease(context):
     )
 
     assert response.status_code == 409
+    assert _blob_files(context) == []
+
+
+def test_a_semicolon_in_a_filename_never_rebinds_the_field_name(context):
+    """Un « ; » cité appartient au nom de fichier : il ne renomme pas la partie."""
+
+    body, content_type = _raw_multipart(
+        [
+            ("autre", "x;name=file", b"pas la piece"),
+            ("kind", "", b"report"),
+            ("task_run_id", "", context.run_id.encode()),
+            ("project_id", "", context.project_id.encode()),
+        ]
+    )
+
+    response = context.client.post(
+        f"/workers/{context.worker_id}/artifacts/content",
+        headers={
+            "Authorization": f"Bearer {context.worker_token}",
+            "Content-Type": content_type,
+        },
+        content=body,
+    )
+
+    assert response.status_code == 422
+    assert "file" in response.json()["detail"]
+    assert _blob_files(context) == []
+
+
+def test_a_filename_containing_a_semicolon_is_preserved(context):
+    """Une capture Playwright nommée « a;b.png » garde son nom entier."""
+
+    body, content_type = _raw_multipart(
+        [
+            ("kind", "", b"report"),
+            ("stream_kind", "", b"report"),
+            ("task_run_id", "", context.run_id.encode()),
+            ("project_id", "", context.project_id.encode()),
+            ("file", "a;b.png", b"capture"),
+        ]
+    )
+
+    response = context.client.post(
+        f"/workers/{context.worker_id}/artifacts/content",
+        headers={
+            "Authorization": f"Bearer {context.worker_token}",
+            "Content-Type": content_type,
+        },
+        content=body,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["original_name"] == "a;b.png"
+
+
+def test_a_disposition_with_an_unbalanced_quote_is_refused(context):
+    """Un en-tête de partie non analysable est rejeté, jamais deviné."""
+
+    boundary = "----acp-test-boundary"
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode(),
+            b'Content-Disposition: form-data; name="file; filename="x.txt"\r\n',
+            b"Content-Type: application/octet-stream\r\n\r\n",
+            b"contenu",
+            f"\r\n--{boundary}--\r\n".encode(),
+        ]
+    )
+
+    response = context.client.post(
+        f"/workers/{context.worker_id}/artifacts/content",
+        headers={
+            "Authorization": f"Bearer {context.worker_token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        content=body,
+    )
+
+    assert response.status_code == 422
+    # Le refus vient de l'en-tête illisible, pas d'un champ manquant deviné après coup.
+    assert "guillemet" in response.json()["detail"]
     assert _blob_files(context) == []
 
 

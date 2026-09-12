@@ -56,7 +56,12 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
     except WorkerConfigurationError as exc:
         print(f"Mode réel refusé: {exc}.", file=sys.stderr)
         return 2
-    capabilities = sorted(set(args.capabilities or detect_capabilities()))
+    # Le mode annoncé est celui qui sera enregistré : `--real` doit rendre
+    # annonçables les capacités réservées au mode réel, sans dépendre d'une
+    # seconde lecture de ACP_WORKER_SIMULATION.
+    capabilities = sorted(
+        set(args.capabilities or detect_capabilities(simulation=simulation))
+    )
     max_concurrency = (
         config.max_concurrency
         if args.max_concurrency is None
@@ -110,6 +115,21 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
     return 0
 
 
+def _web_tests_state(config: WorkerConfig, capabilities: list[str]) -> str:
+    """État des tests web tel qu'il sera réellement annoncé, sans le contredire.
+
+    Une configuration complète en mode simulé est activée sans être annonçable :
+    la publier ``enabled`` laisserait croire qu'une mission ``web_test_suite``
+    sera exécutée par la suite Playwright, alors qu'elle repartirait vers le
+    programme local du Lot C — un faux succès dont ``doctor`` serait la source.
+    """
+
+    status = config.web_tests.status()
+    if status == "enabled" and WorkerCapability.WEB_TESTS.value not in capabilities:
+        return "enabled_not_announced"
+    return status
+
+
 def _doctor(config: WorkerConfig) -> int:
     credential_error: str | None = None
     try:
@@ -117,14 +137,20 @@ def _doctor(config: WorkerConfig) -> int:
     except CredentialStateError as exc:
         credentials = None
         credential_error = str(exc)
+    # Mode effectif : celui du worker déjà enregistré s'il existe, sinon celui
+    # que l'environnement produirait au prochain `register`.
+    simulation = (
+        credentials.simulation if credentials is not None else config.simulation
+    )
+    capabilities = detect_capabilities(simulation=simulation)
     checks: dict[str, object] = {
         "state": (
             "invalid" if credential_error else ("ok" if credentials else "missing")
         ),
-        "capabilities": detect_capabilities(),
+        "capabilities": capabilities,
         "local_runner": "configured" if config.local_runner is not None else "missing",
         "mcp_stdio_probe": config.mcp_probe.status(),
-        "web_tests": config.web_tests.status(),
+        "web_tests": _web_tests_state(config, capabilities),
         "api": "unreachable",
         "gateway": "unreachable",
         "provider": "unchecked",
@@ -233,7 +259,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         return _doctor(config)
     if args.command == "capabilities":
-        print(json.dumps(detect_capabilities(), ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                detect_capabilities(simulation=config.simulation),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
     if args.command == "logs":
         for line in tail_logs(config.state_dir, max(1, args.tail)):

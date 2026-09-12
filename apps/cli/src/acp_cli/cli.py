@@ -19,7 +19,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping, Sequence, TextIO
+from typing import Any, Callable, Iterator, Mapping, NamedTuple, Sequence, TextIO
 from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
@@ -151,6 +151,23 @@ EVENTS_MAX_LIMIT = 500
 EVENTS_MAX_PAGES = 10_000
 SSE_MAX_EVENT_CHARS = 1024 * 1024
 FOLLOW_SEEN_IDS_MAX = 5000
+# Noms de trames SSE du serveur (`apps/api/src/acp_api/streams.py`, spec §5.2).
+# Seul `acp.event` porte un événement de journal : les deux autres pilotent la
+# connexion et ne doivent jamais être écrits sur la sortie standard.
+SSE_EVENT_NAME = "acp.event"
+SSE_ROTATE_EVENT = "acp.stream.rotate"
+SSE_CLOSED_EVENT = "acp.stream.closed"
+# Le serveur ferme le flux après `ACP_STREAM_MAX_SECONDS` (900 s) « pour que le
+# client se reconnecte » (§5.2). La reconnexion est bornée : une observation ne
+# boucle jamais indéfiniment sur un serveur qui tournerait sans rien émettre.
+FOLLOW_MAX_ROTATIONS = 8
+# Genres de flux du §3.2, seuls filtres exposés par `GET /artifacts` (§6).
+ARTIFACT_STREAM_KINDS = ("screenshot", "video", "trace", "report", "file")
+# Paramètre de vue du lien profond Studio (§2.5, §10). Le shell web ne lit que
+# celui-ci (`apps/web/src/studio-ui.ts::STUDIO_VIEW_PARAM`) ; `view` appartient
+# déjà à une autre vue de la même application.
+STUDIO_VIEW_PARAM = "vue"
+STUDIO_VIEW_VALUE = "studio"
 ARTIFACT_CHUNK_BYTES = 1024 * 1024
 # Utilisé seulement quand l'API n'annonce pas de taille : sinon la taille
 # annoncée fait foi et tout octet supplémentaire interrompt le téléchargement.
@@ -160,7 +177,8 @@ ARTIFACT_LINK_DEFAULT_TTL_SECONDS = 300
 ARTIFACT_LINK_MAX_TTL_SECONDS = 900
 DOWNLOAD_NAME_MAX_CHARS = 200
 TEST_TOTALS_KEYS = ("expected", "unexpected", "flaky", "skipped", "interrupted", "timedOut")
-TEST_FAILING_TOTALS = ("unexpected", "timedOut", "interrupted")
+# Ordre du résumé serveur (`testing_service.py::derive_technical_validation`).
+TEST_FAILING_TOTALS = ("unexpected", "interrupted", "timedOut")
 TEXT_CONTENT_TYPES = {"application/json", "application/x-ndjson", "application/xml"}
 WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"} | {
     f"{prefix}{index}" for prefix in ("COM", "LPT") for index in range(1, 10)
@@ -697,7 +715,13 @@ def build_parser() -> argparse.ArgumentParser:
     artifacts_list = artifact_actions.add_parser("list")
     artifacts_list.add_argument("--run", required=True)
     artifacts_list.add_argument("--project")
-    artifacts_list.add_argument("--kind", help="filtrer sur le genre d'artefact (ex. screenshot)")
+    artifacts_list.add_argument(
+        "--kind",
+        help=(
+            "filtrer sur le genre de flux (screenshot, video, trace, report, file) "
+            "ou sur le genre d'artefact (ex. test_report)"
+        ),
+    )
     artifacts_list.add_argument(
         "--type",
         dest="content_type",
@@ -2620,19 +2644,30 @@ def _drain_events(
         cursor = next_cursor
 
 
-def _iter_stream_events(response: httpx.Response) -> Iterator[dict[str, Any]]:
-    """Décode un flux SSE : commentaires ignorés, un objet JSON par événement."""
+def _iter_stream_events(response: httpx.Response) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Décode un flux SSE en ``(nom de trame, objet JSON)``.
+
+    Le nom est porteur de sens : le serveur n'émet un événement de journal que
+    sous ``acp.event``, et pilote la connexion avec ``acp.stream.rotate`` et
+    ``acp.stream.closed`` (§5.2). Les confondre reviendrait à écrire une trame de
+    contrôle dans le NDJSON du journal. Une trame sans nom est traitée comme un
+    événement : c'est la valeur par défaut de la spécification SSE.
+    """
 
     data: list[str] = []
+    name = ""
     size = 0
     for line in response.iter_lines():
         if line.startswith(":"):
             continue
         if not line:
             if not data:
+                name = ""
                 continue
             raw = "\n".join(data)
+            frame = name or SSE_EVENT_NAME
             data = []
+            name = ""
             size = 0
             try:
                 payload = json.loads(raw)
@@ -2640,12 +2675,15 @@ def _iter_stream_events(response: httpx.Response) -> Iterator[dict[str, Any]]:
                 raise ProtocolError("le flux a livré un événement illisible") from exc
             if not isinstance(payload, dict):
                 raise ProtocolError("le flux a livré un événement illisible")
-            yield payload
+            yield frame, payload
             continue
         field, _, value = line.partition(":")
+        chunk = value[1:] if value.startswith(" ") else value
+        if field == "event":
+            name = chunk.strip()
+            continue
         if field != "data":
             continue
-        chunk = value[1:] if value.startswith(" ") else value
         size += len(chunk)
         if size > SSE_MAX_EVENT_CHARS:
             raise ProtocolError("le flux a dépassé la taille maximale d'un événement")
@@ -2665,6 +2703,71 @@ def _degraded_notice(
     )
 
 
+class _StreamOutcome(NamedTuple):
+    """Comment un flux SSE s'est terminé.
+
+    ``end`` : le serveur a fermé sans rien dire. ``rotate`` : durée maximale
+    atteinte, la mission continue et le client doit se reconnecter au curseur
+    porté par la trame. ``closed`` : le serveur a annoncé une fermeture.
+    """
+
+    kind: str
+    cursor: int | None = None
+    reason: str = ""
+
+
+def _consume_stream(
+    client: ACPClient, run_id: str, *, sink: _EventSink, cursor: int | None
+) -> _StreamOutcome:
+    """Ouvre le flux au curseur donné et n'écrit que les événements de journal."""
+
+    params: dict[str, Any] = {}
+    headers: dict[str, str] = {}
+    if cursor is not None:
+        params["after_seq"] = cursor
+        # ``Last-Event-ID`` est prioritaire côté serveur (§6) : les deux portent
+        # la même valeur, une reconnexion ne rejoue donc rien.
+        headers["Last-Event-ID"] = str(cursor)
+    http, response = _open_stream(
+        client,
+        f"/streams/runs/{_path_segment(run_id)}",
+        accept="text/event-stream",
+        params=params,
+        extra_headers=headers,
+        read_timeout=None,
+    )
+    try:
+        for frame, payload in _iter_stream_events(response):
+            if frame == SSE_ROTATE_EVENT:
+                return _StreamOutcome(
+                    "rotate",
+                    _positive_int(payload.get("cursor")),
+                    str(payload.get("reason") or ""),
+                )
+            if frame == SSE_CLOSED_EVENT:
+                reason = str(payload.get("reason") or "")
+                if reason == "unauthorized":
+                    # Le serveur revalide session et membership à chaque page :
+                    # une révocation en cours d'observation est un refus d'accès,
+                    # pas une ligne de journal ni une fin normale.
+                    raise CommandError(
+                        "stream_unauthorized",
+                        "le serveur a fermé le flux : accès révoqué pendant "
+                        "l'observation (session ou membership)",
+                        ExitCode.AUTH,
+                    )
+                return _StreamOutcome("closed", None, reason)
+            if frame != SSE_EVENT_NAME:
+                # Trame de contrôle inconnue : elle ne porte pas un événement de
+                # journal et ne sera donc jamais écrite comme tel.
+                continue
+            sink.offer(payload)
+    finally:
+        response.close()
+        http.close()
+    return _StreamOutcome("end")
+
+
 def _follow_events(
     client: ACPClient,
     run_id: str,
@@ -2681,38 +2784,55 @@ def _follow_events(
         client, run_id, sink=sink, after_seq=after_seq, limit=limit, resolve=True
     )
     cursor = sink.last_sequence if sink.last_sequence is not None else after_seq
-    params: dict[str, Any] = {}
-    headers: dict[str, str] = {}
-    if cursor is not None:
-        params["after_seq"] = cursor
-        # ``Last-Event-ID`` est prioritaire côté serveur (§6) : les deux portent
-        # la même valeur, une reconnexion ne rejoue donc rien.
-        headers["Last-Event-ID"] = str(cursor)
-    try:
-        http, response = _open_stream(
-            client,
-            f"/streams/runs/{_path_segment(run_id)}",
-            accept="text/event-stream",
-            params=params,
-            extra_headers=headers,
-            read_timeout=None,
-        )
+    rotations = 0
+    while True:
         try:
-            for payload in _iter_stream_events(response):
-                sink.offer(payload)
-        finally:
-            response.close()
-            http.close()
-    except APIError as exc:
-        # Un refus d'accès ou une requête invalide doivent rester visibles :
-        # seule l'indisponibilité du flux lui-même justifie l'interrogation.
-        if exc.status_code != 404 and exc.status_code < 500:
-            raise
-        _degraded_notice(exc.detail, sink=sink, as_json=as_json, stream=stderr)
-    except (NetworkError, ProtocolError, httpx.HTTPError) as exc:
-        # Une coupure n'invente aucun état : on le dit, puis on relit le
-        # journal durable à partir du dernier curseur reçu.
-        _degraded_notice(str(exc), sink=sink, as_json=as_json, stream=stderr)
+            outcome = _consume_stream(client, run_id, sink=sink, cursor=cursor)
+        except APIError as exc:
+            # Un refus d'accès ou une requête invalide doivent rester visibles :
+            # seule l'indisponibilité du flux lui-même justifie l'interrogation.
+            if exc.status_code != 404 and exc.status_code < 500:
+                raise
+            _degraded_notice(exc.detail, sink=sink, as_json=as_json, stream=stderr)
+            break
+        except (NetworkError, ProtocolError, httpx.HTTPError) as exc:
+            # Une coupure n'invente aucun état : on le dit, puis on relit le
+            # journal durable à partir du dernier curseur reçu.
+            _degraded_notice(str(exc), sink=sink, as_json=as_json, stream=stderr)
+            break
+        if outcome.kind == "closed":
+            _emit_cursor_notice(
+                "stream_closed",
+                "Flux fermé par le serveur "
+                f"({outcome.reason or 'sans raison annoncée'}) : la mission n'est "
+                "pas arrêtée.",
+                cursor=sink.last_sequence,
+                as_json=as_json,
+                stream=stderr,
+            )
+            break
+        if outcome.kind != "rotate":
+            break
+        if rotations >= FOLLOW_MAX_ROTATIONS:
+            _emit_cursor_notice(
+                "stream_rotations_exhausted",
+                f"Le flux a tourné {rotations} fois : observation arrêtée, la "
+                "mission n'est pas arrêtée.",
+                cursor=sink.last_sequence,
+                as_json=as_json,
+                stream=stderr,
+            )
+            break
+        rotations += 1
+        cursor = outcome.cursor if outcome.cursor is not None else sink.last_sequence
+        _emit_cursor_notice(
+            "stream_rotated",
+            "Le flux a atteint sa durée maximale : la mission continue, "
+            f"reconnexion à partir de la séquence {cursor or 0}.",
+            cursor=cursor,
+            as_json=as_json,
+            stream=stderr,
+        )
     _drain_events(
         client, run_id, sink=sink, after_seq=sink.last_sequence, limit=limit, resolve=False
     )
@@ -2781,7 +2901,16 @@ def _handle_runs_events(
 
 
 def _test_summary(detail: Any) -> dict[str, Any]:
-    """Dérive la validation technique sans jamais forcer un succès."""
+    """Dérive la validation technique sans jamais forcer un succès.
+
+    Règle **identique** à celle du serveur
+    (`apps/api/src/acp_api/testing_service.py::derive_technical_validation`,
+    spec §5.4) : `passed` seulement si `exit_code == 0` — un code de sortie
+    absent est un refus —, si `unexpected`, `interrupted` et `timedOut` sont nuls
+    et si au moins un cas a été exécuté. `status` est affiché mais n'ajoute
+    aucune cause : le CLI est la porte qu'une CI franchit, il ne doit diverger de
+    la validation technique de la tentative dans aucun des deux sens.
+    """
 
     if not isinstance(detail, dict):
         raise ProtocolError("l'API n'a pas retourné une exécution de tests")
@@ -2795,13 +2924,11 @@ def _test_summary(detail: Any) -> dict[str, Any]:
     status = detail.get("status")
     exit_code = detail.get("exit_code")
     reasons: list[str] = []
-    if status != "completed":
-        reasons.append("status")
     if case_count < 1:
         reasons.append("case_count")
-    reasons.extend(key for key in TEST_FAILING_TOTALS if totals[key] > 0)
-    if isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code != 0:
+    if not isinstance(exit_code, int) or isinstance(exit_code, bool) or exit_code != 0:
         reasons.append("exit_code")
+    reasons.extend(key for key in TEST_FAILING_TOTALS if totals[key] > 0)
     report = detail.get("report_artifact")
     report_id = report.get("id") if isinstance(report, dict) else None
     return {
@@ -2870,13 +2997,22 @@ def _handle_runs_tests(
 def _artifact_matches(
     item: Any, *, run: str, kind: str, content_type: str
 ) -> bool:
-    """Le filtrage reste local : un serveur qui ignore la requête ne fuit rien."""
+    """Le filtrage reste local : un serveur qui ignore la requête ne fuit rien.
+
+    ``--kind`` accepte les deux vocabulaires du modèle : le genre de flux du §3.2
+    (`screenshot`, `video`, `trace`, `report`, `file`) **et** le genre d'artefact
+    écrit par le worker (`test_attachment`, `test_report`). Ne comparer que
+    `kind` faisait taire le filtre documenté pour tous les livrables du Lot E.
+    """
 
     if not isinstance(item, dict):
         return True
     if item.get("task_run_id") != run:
         return False
-    if kind and str(item.get("kind") or "") != kind:
+    if kind and kind not in {
+        str(item.get("kind") or ""),
+        str(item.get("stream_kind") or ""),
+    }:
         return False
     if content_type and str(item.get("content_type") or "").strip().lower() != content_type:
         return False
@@ -2888,6 +3024,10 @@ def _handle_artifacts_list(args: argparse.Namespace, client: ACPClient) -> list[
     kind = (args.kind or "").strip()
     content_type = (args.content_type or "").strip().lower()
     base = _filtered_params(task_run_id=run, project_id=args.project)
+    if kind in ARTIFACT_STREAM_KINDS:
+        # §6 n'expose que `stream_kind` côté serveur : l'envoyer évite de
+        # parcourir tous les artefacts du run. Le filtre local reste en place.
+        base["stream_kind"] = kind
     collected: list[Any] = []
     cursor: str | None = None
     seen_cursors: set[str] = set()
@@ -2959,14 +3099,38 @@ def _write_bytes(stream: TextIO, chunk: bytes) -> None:
     stream.write(chunk.decode("utf-8", errors="replace"))
 
 
+def _served_content_type(response: httpx.Response) -> str:
+    """Type réellement servi par l'API, seul type digne de confiance (§7)."""
+
+    return str(response.headers.get("content-type") or "").split(";")[0].strip().lower()
+
+
+def _refuse_binary_stdout(content_type: str) -> None:
+    """Refuse d'écrire un contenu non textuel sur un terminal interactif."""
+
+    if _is_text_content_type(content_type):
+        return
+    raise CommandError(
+        "binary_stdout",
+        f"« {content_type or 'type inconnu'} » est un contenu binaire : "
+        "redirigez la sortie, utilisez --output, ou confirmez avec --force",
+        ExitCode.USAGE,
+    )
+
+
 def _download_artifact(
     client: ACPClient,
     artifact_id: str,
     *,
     writer: Callable[[bytes], Any],
     max_bytes: int,
-) -> tuple[str, int]:
-    """Écrit le contenu par morceaux bornés et retourne (sha256, taille)."""
+    on_content_type: Callable[[str], None] | None = None,
+) -> tuple[str, int, str]:
+    """Écrit le contenu par morceaux bornés et retourne (sha256, taille, type servi).
+
+    ``on_content_type`` est appelé avec le type servi **avant le premier octet
+    écrit** : c'est là que se décide ce qui peut atteindre un terminal.
+    """
 
     digest = hashlib.sha256()
     size = 0
@@ -2976,7 +3140,11 @@ def _download_artifact(
         accept="*/*",
         read_timeout=client.timeout,
     )
+    served = ""
     try:
+        served = _served_content_type(response)
+        if on_content_type is not None:
+            on_content_type(served)
         for chunk in response.iter_bytes(ARTIFACT_CHUNK_BYTES):
             size += len(chunk)
             if size > max_bytes:
@@ -2999,7 +3167,7 @@ def _download_artifact(
     finally:
         response.close()
         http.close()
-    return digest.hexdigest(), size
+    return digest.hexdigest(), size, served
 
 
 def _write_failed(exc: OSError) -> CommandError:
@@ -3031,7 +3199,7 @@ def _download_to_file(
     force: bool,
     max_bytes: int,
     checksum: str,
-) -> tuple[str, int]:
+) -> tuple[str, int, str]:
     parent = target.parent if str(target.parent) else Path(".")
     if force:
         # Écriture dans un fichier temporaire voisin puis remplacement atomique :
@@ -3046,7 +3214,7 @@ def _download_to_file(
         try:
             try:
                 with handle:
-                    digest, size = _download_artifact(
+                    digest, size, served = _download_artifact(
                         client, artifact_id, writer=handle.write, max_bytes=max_bytes
                     )
                 _verify_checksum(checksum, digest)
@@ -3056,7 +3224,7 @@ def _download_to_file(
         except BaseException:
             _discard(temporary)
             raise
-        return digest, size
+        return digest, size, served
     try:
         handle = target.open("xb")
     except FileExistsError as exc:
@@ -3070,7 +3238,7 @@ def _download_to_file(
     try:
         try:
             with handle:
-                digest, size = _download_artifact(
+                digest, size, served = _download_artifact(
                     client, artifact_id, writer=handle.write, max_bytes=max_bytes
                 )
             _verify_checksum(checksum, digest)
@@ -3079,7 +3247,7 @@ def _download_to_file(
     except BaseException:
         _discard(target)
         raise
-    return digest, size
+    return digest, size, served
 
 
 def _handle_artifacts_get(
@@ -3100,26 +3268,23 @@ def _handle_artifacts_get(
             "no_content", "cet artefact ne porte aucun contenu téléchargeable"
         )
     checksum = str(summary.get("checksum") or "").strip().lower()
-    declared = _positive_int(summary.get("size_bytes"))
-    max_bytes = declared if declared is not None else ARTIFACT_MAX_DOWNLOAD_BYTES
-    content_type = str(summary.get("content_type") or "").split(";")[0].strip().lower()
+    declared_size = _positive_int(summary.get("size_bytes"))
+    max_bytes = declared_size if declared_size is not None else ARTIFACT_MAX_DOWNLOAD_BYTES
+    declared_type = str(summary.get("content_type") or "").split(";")[0].strip().lower()
     if args.to_stdout:
-        if (
-            not _is_text_content_type(content_type)
-            and _stream_is_interactive(stdout)
-            and not args.force
-        ):
-            raise CommandError(
-                "binary_stdout",
-                f"« {content_type or 'type inconnu'} » est un contenu binaire : "
-                "redirigez la sortie, utilisez --output, ou confirmez avec --force",
-                ExitCode.USAGE,
-            )
-        digest, size = _download_artifact(
+        guard: Callable[[str], None] | None = None
+        if _stream_is_interactive(stdout) and not args.force:
+            # Le type déclaré vient d'un worker (§0.4 : contenu non fiable) : il
+            # permet de refuser tôt, jamais d'autoriser. Seul le type servi par
+            # l'API, déjà ramené à une allowlist (§7), ouvre le terminal.
+            _refuse_binary_stdout(declared_type)
+            guard = _refuse_binary_stdout
+        digest, size, served = _download_artifact(
             client,
             artifact_id,
             writer=lambda chunk: _write_bytes(stdout, chunk),
             max_bytes=max_bytes,
+            on_content_type=guard,
         )
         _verify_checksum(checksum, digest)
         result: dict[str, Any] = {
@@ -3127,7 +3292,8 @@ def _handle_artifacts_get(
             "path": None,
             "size_bytes": size,
             "checksum": digest,
-            "content_type": content_type,
+            "content_type": served or declared_type,
+            "declared_content_type": declared_type,
             "verified": bool(checksum),
         }
         if args.json:
@@ -3142,7 +3308,7 @@ def _handle_artifacts_get(
             )
         return
     target = _download_target(args.output, summary, artifact_id)
-    digest, size = _download_to_file(
+    digest, size, served = _download_to_file(
         client,
         artifact_id,
         target,
@@ -3162,7 +3328,8 @@ def _handle_artifacts_get(
         "path": str(target),
         "size_bytes": size,
         "checksum": digest,
-        "content_type": content_type,
+        "content_type": served or declared_type,
+        "declared_content_type": declared_type,
         "verified": bool(checksum),
     }
     if args.json:
@@ -3326,7 +3493,11 @@ def _dispatch(
     if handler == "open":
         query = {"run": args.run}
         if args.studio:
-            query["view"] = "studio"
+            # Clé de requête attendue par le shell web
+            # (`apps/web/src/studio-ui.ts::STUDIO_VIEW_PARAM`, spec §2.5 et §10).
+            # Elle est volontairement distincte du champ `view` de la réponse
+            # JSON : les deux ne peuvent pas dériver l'une vers l'autre.
+            query[STUDIO_VIEW_PARAM] = STUDIO_VIEW_VALUE
         url = f"{client.settings.web_url}/missions?{urlencode(query)}"
         opened = False
         if args.browser:
@@ -3339,7 +3510,7 @@ def _dispatch(
                 "run_id": args.run,
                 "url": url,
                 "opened": opened,
-                "view": "studio" if args.studio else "mission",
+                "view": STUDIO_VIEW_VALUE if args.studio else "mission",
             },
             client.settings,
         )

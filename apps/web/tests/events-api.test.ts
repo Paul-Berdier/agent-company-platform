@@ -11,17 +11,22 @@
  * `connected | reconnecting | polling | offline`.
  */
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
   EVENTS_PAGE_LIMIT_DEFAULT,
   EVENTS_PAGE_LIMIT_MAX,
   EventsApiClient,
+  STREAM_CLOSED_EVENT_TYPE,
+  STREAM_EVENT_NAME,
   STREAM_FAILURES_BEFORE_POLLING,
   STREAM_POLLS_BEFORE_LIVE_RETRY,
   STREAM_POLL_INTERVAL_MS,
   STREAM_RECONNECT_BASE_MS,
   STREAM_RECONNECT_MAX_MS,
+  STREAM_ROTATE_EVENT_TYPE,
   classifyArtifactPreview,
   describeConnectionState,
   describeStudioMode,
@@ -706,6 +711,143 @@ describe("EventsApiClient.openRunStream", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].kind).toBe("forbidden");
     expect(subscription.state).toBe("offline");
+    subscription.close();
+  });
+});
+
+// --- Conformité aux trames réellement émises par l’API --------------------------
+
+/**
+ * Les tests ci-dessus simulent les trames ; ceux-ci **lisent la source du serveur**
+ * (`apps/api/src/acp_api/streams.py`) et rejouent ses octets à travers un découpage SSE
+ * conforme au navigateur.
+ *
+ * Raison d’être : un `EventSource` ne remet une trame **nommée** qu’aux écouteurs
+ * enregistrés sous ce nom exact. Un client qui aiguillerait la rotation sur
+ * `StreamEvent.type` — ou des noms qui divergeraient entre le serveur et le client —
+ * ne casserait aucun test de simulation, mais compterait chaque rotation propre comme
+ * une panne de connexion en production (bandeau « Reconnexion… » toutes les 15 minutes,
+ * curseur annoncé jamais adopté). Le garde-fou vit donc ici, lié à la source servante.
+ */
+const streamsSource = readFileSync(
+  new URL("../../api/src/acp_api/streams.py", import.meta.url),
+  "utf8",
+);
+
+/** Valeur d’une constante de chaîne de premier niveau de `streams.py`. */
+function serverConstant(name: string): string {
+  const match = new RegExp(`^${name} = "([^"]*)"`, "m").exec(streamsSource);
+  if (!match) throw new Error(`constante introuvable dans streams.py : ${name}`);
+  return match[1];
+}
+
+/** `_KEEPALIVE_FRAME` : un commentaire SSE, jamais une donnée. */
+const SERVER_KEEPALIVE_FRAME = ": ping\n\n";
+
+/** `_frame_event` : `id:`, nom `acp.event`, et un `StreamEvent` complet en `data`. */
+function serverEventFrame(cursor: number, event: unknown): string {
+  const name = serverConstant("SSE_EVENT_NAME");
+  return `id: ${cursor}\nevent: ${name}\ndata: ${JSON.stringify(event)}\n\n`;
+}
+
+/** `_frame_rotate` : payload **nu** `{cursor, reason}`, qui n’est pas un `StreamEvent`. */
+function serverRotateFrame(cursor: number): string {
+  const name = serverConstant("SSE_ROTATE_EVENT");
+  const data = JSON.stringify({ cursor, reason: "max_seconds" });
+  return `id: ${cursor}\nevent: ${name}\ndata: ${data}\n\n`;
+}
+
+/** `_frame_closed` : fin décidée par le serveur, sans `id:`, avec sa raison. */
+function serverClosedFrame(reason: string): string {
+  const name = serverConstant("SSE_CLOSED_EVENT");
+  return `event: ${name}\ndata: ${JSON.stringify({ reason })}\n\n`;
+}
+
+/**
+ * Découpe des trames SSE littérales et les dispatche comme un `EventSource` : une trame
+ * nommée n’atteint que les écouteurs de ce nom, un commentaire n’atteint personne, et une
+ * trame sans champ `data` ne déclenche aucun événement.
+ */
+function feedServerFrames(source: FakeEventSource, raw: string): void {
+  for (const frame of raw.split("\n\n")) {
+    if (!frame) continue;
+    let name = "message";
+    const data: string[] = [];
+    let hasData = false;
+    for (const line of frame.split("\n")) {
+      if (!line || line.startsWith(":")) continue;
+      const separator = line.indexOf(":");
+      const field = separator < 0 ? line : line.slice(0, separator);
+      const rawValue = separator < 0 ? "" : line.slice(separator + 1);
+      const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue;
+      if (field === "event") name = value;
+      else if (field === "data") {
+        data.push(value);
+        hasData = true;
+      }
+    }
+    if (!hasData) continue;
+    source.emit(name, data.join("\n"));
+  }
+}
+
+describe("conformité aux trames réellement émises par streams.py", () => {
+  it("écoute exactement les noms de trames déclarés par le serveur", () => {
+    expect(STREAM_EVENT_NAME).toBe(serverConstant("SSE_EVENT_NAME"));
+    expect(STREAM_ROTATE_EVENT_TYPE).toBe(serverConstant("SSE_ROTATE_EVENT"));
+    expect(STREAM_CLOSED_EVENT_TYPE).toBe(serverConstant("SSE_CLOSED_EVENT"));
+  });
+
+  it("rejoue la séquence réelle du serveur : keep-alive, événement, rotation", () => {
+    const { client, handlers, events, timers } = harness();
+    const subscription = client.openRunStream("run-1", null, handlers);
+    const first = latestSource();
+    first.open();
+
+    feedServerFrames(
+      first,
+      SERVER_KEEPALIVE_FRAME
+        + serverEventFrame(7, streamEvent({ id: "a", sequence: 7 }))
+        + serverRotateFrame(7),
+    );
+    // `run_event_stream` rend la main juste après la rotation : la connexion tombe.
+    first.fail();
+
+    expect(events.flat().map((event) => (event as { id: string }).id)).toEqual(["a"]);
+    // Le commentaire de keep-alive n’est ni une donnée ni une trame illisible, et le
+    // payload nu de rotation ne doit pas être compté comme un `StreamEvent` invalide.
+    expect(subscription.malformed).toBe(0);
+    // Une rotation est une fin **attendue** : ni échec, ni délai d’attente, ni bandeau
+    // « Reconnexion… » — la reprise est immédiate, au curseur annoncé par le serveur.
+    expect(subscription.failures).toBe(0);
+    expect(subscription.state).toBe("connected");
+    expect(timers.size).toBe(0);
+    expect(first.closed).toBe(true);
+    expect(latestSource()).not.toBe(first);
+    expect(latestSource().url).toBe("http://api.test/streams/runs/run-1?after_seq=7");
+    subscription.close();
+  });
+
+  it("bascule en interrogation sur la trame de fermeture réelle d’un accès révoqué", async () => {
+    const fetcher = vi.fn(async () => json(page([])));
+    const { client, handlers, states, timers } = harness({ fetcher: fetcher as never });
+    const subscription = client.openRunStream("run-1", 2, handlers);
+    const first = latestSource();
+    first.open();
+
+    feedServerFrames(first, serverClosedFrame("unauthorized"));
+    first.fail();
+    await flush();
+
+    expect(subscription.failures).toBe(0);
+    expect(subscription.malformed).toBe(0);
+    expect(states).toEqual(["connected", "polling"]);
+    // Rouvrir en boucle un flux dont l’accès est révoqué annoncerait un direct fantôme.
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(fetcher.mock.calls[0][0]).toBe(
+      `http://api.test/runs/run-1/events?after_seq=2&limit=${EVENTS_PAGE_LIMIT_DEFAULT}`,
+    );
+    expect(timers.delays).toEqual([STREAM_POLL_INTERVAL_MS]);
     subscription.close();
   });
 });

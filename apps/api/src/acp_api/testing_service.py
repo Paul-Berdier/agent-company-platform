@@ -380,6 +380,46 @@ def _observed_totals(cases: list[TestCaseModel]) -> TestTotals:
     )
 
 
+def _accepts_exit_code(
+    current: int | None, reported: int, *, was_finished: bool
+) -> bool:
+    """Dit si un code de sortie annoncé peut remplacer celui déjà enregistré.
+
+    Tant que l'exécution n'est pas terminale, le dernier code annoncé fait foi. Une
+    fois terminale, un second rapport peut encore **signaler** un échec (``0`` puis
+    non nul) mais jamais l'**effacer** : sans cette règle, un ``run_end`` tardif
+    annonçant ``exit_code=0`` repeindrait en vert une validation technique déjà
+    refusée, y compris lorsque l'échec ne tenait qu'au code de sortie (teardown
+    global, erreur de configuration, plantage après les assertions) et qu'aucune
+    ligne rouge ne protège le verdict.
+    """
+
+    if not was_finished:
+        return True
+    if reported != 0:
+        return True
+    return (current or 0) == 0
+
+
+def _resolved_run_status(reported: str | None, exit_code: int | None) -> str:
+    """Statut d'une exécution qui vient de recevoir son ``run_end``.
+
+    Un ``run_end`` **termine** l'exécution : le statut annoncé ne peut pas la
+    laisser ouverte. ``TestRunStatus`` admet pourtant ``running``, et recopier cette
+    valeur priverait la tentative de toute validation technique et de son
+    ``test.run.finished`` — un reporter modifié étoufferait ainsi un échec au lieu
+    de le déclarer. Un ``completed`` annoncé sur un code de sortie non nul est
+    refusé pour la même raison.
+    """
+
+    derived = "completed" if exit_code == 0 else "failed"
+    if reported not in _TERMINAL_TEST_RUN_STATUSES:
+        return derived
+    if reported == "completed" and exit_code != 0:
+        return derived
+    return reported
+
+
 def _merged_totals(reported: TestTotals | None, observed: TestTotals) -> TestTotals:
     """Conserve les totaux du rapport, sans jamais laisser sous-déclarer un échec.
 
@@ -667,10 +707,18 @@ def ingest_test_run(
         )
 
     stored_cases = _ordered_cases(db, test_run.id)
+    baseline_totals = reported_totals
+    if baseline_totals is None and was_finished:
+        # Lot de rattrapage sans ``run_end`` : les totaux déjà annoncés par le
+        # rapport restent la référence. Les recalculer à partir des seules lignes
+        # enregistrées perdrait ``flaky``, que Playwright seul connaît.
+        baseline_totals = TestTotals.model_validate(dict(test_run.totals or {}))
     test_run.totals = _merged_totals(
-        reported_totals, _observed_totals(stored_cases)
+        baseline_totals, _observed_totals(stored_cases)
     ).model_dump()
-    if exit_code is not None:
+    if exit_code is not None and _accepts_exit_code(
+        test_run.exit_code, exit_code, was_finished=was_finished
+    ):
         test_run.exit_code = exit_code
     if reporter_errors:
         config = dict(test_run.config or {})
@@ -679,9 +727,7 @@ def ingest_test_run(
 
     if run_end_seen:
         test_run.finished_at = finished_at
-        test_run.status = run_status or (
-            "completed" if test_run.exit_code == 0 else "failed"
-        )
+        test_run.status = _resolved_run_status(run_status, test_run.exit_code)
         if test_run.started_at is not None and finished_at is not None:
             elapsed = _as_utc(finished_at) - _as_utc(test_run.started_at)
             test_run.duration_ms = max(0, int(elapsed.total_seconds() * 1000))
@@ -695,6 +741,7 @@ def ingest_test_run(
     detail = test_run_detail(db, test_run)
     if test_run.status in _TERMINAL_TEST_RUN_STATUSES:
         status, summary = derive_technical_validation(detail)
+        previous_status = (attempt.technical_validation or {}).get("status")
         # Jamais ``succeeded`` : la tentative n'est pas conclue ici. L'état du run,
         # l'acceptation utilisateur et l'évaluateur du Lot C restent intacts.
         attempt.technical_validation = {
@@ -702,7 +749,9 @@ def ingest_test_run(
             "summary": summary,
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }
-        if not was_finished:
+        # Republié dès que le verdict change : le journal ne doit jamais
+        # contredire ``TaskRunModel.technical_validation``.
+        if not was_finished or status != previous_status:
             _publish(
                 db,
                 scope=scope,

@@ -14,7 +14,14 @@ from typing import Any, Callable, Iterable, Iterator
 import httpx
 import pytest
 
-from acp_cli.cli import ExitCode, main
+from acp_cli.cli import (
+    FOLLOW_MAX_ROTATIONS,
+    SSE_CLOSED_EVENT,
+    SSE_EVENT_NAME,
+    SSE_ROTATE_EVENT,
+    ExitCode,
+    main,
+)
 from acp_cli.config import Settings, save_settings
 
 
@@ -87,8 +94,19 @@ def sse(*frames: str) -> bytes:
 
 
 def frame(sequence: int | None, event: dict[str, Any]) -> str:
+    """Trame de journal telle que le serveur l'écrit (`streams.py::_frame_event`).
+
+    Le nom de trame est `acp.event`, jamais le type métier de l'événement.
+    """
+
     head = f"id: {sequence}\n" if sequence is not None else ""
-    return f"{head}event: {event['type']}\ndata: {json.dumps(event, sort_keys=True)}\n\n"
+    return f"{head}event: {SSE_EVENT_NAME}\ndata: {json.dumps(event, sort_keys=True)}\n\n"
+
+
+def control_frame(name: str, payload: dict[str, Any]) -> str:
+    """Trame de contrôle du flux (`acp.stream.rotate`, `acp.stream.closed`)."""
+
+    return f"event: {name}\ndata: {json.dumps(payload, sort_keys=True)}\n\n"
 
 
 def event(sequence: int | None, event_type: str = "run.progress", **extra: Any) -> dict[str, Any]:
@@ -294,7 +312,7 @@ def test_follow_degrades_when_the_stream_carries_unreadable_data(tmp_path):
             return httpx.Response(200, json=page([]))
         return httpx.Response(
             200,
-            stream=ChunkStream([b"event: run.progress\ndata: {ceci n'est pas du JSON}\n\n"]),
+            stream=ChunkStream([b"event: acp.event\ndata: {ceci n'est pas du JSON}\n\n"]),
             headers={"content-type": "text/event-stream"},
         )
 
@@ -463,6 +481,144 @@ def test_follow_refuses_a_cursor_that_does_not_advance(tmp_path):
     assert json.loads(err)["error"]["code"] == "client"
 
 
+def test_follow_keeps_control_frames_out_of_the_journal_and_reconnects(tmp_path):
+    """Une rotation (§5.2) n'est pas un événement : elle rouvre le flux.
+
+    Le serveur ferme le flux après `ACP_STREAM_MAX_SECONDS` avec
+    `event: acp.stream.rotate` « pour que le client se reconnecte ». La trame ne
+    doit jamais atterrir sur la sortie standard comme un événement de journal.
+    """
+
+    seen: list[tuple[str, dict[str, str]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, dict(request.url.params)))
+        if request.url.path == "/runs/r-1/events":
+            after = int(request.url.params.get("after_seq", "0"))
+            return httpx.Response(200, json=page([event(1)] if after == 0 else []))
+        if request.url.params.get("after_seq") == "1":
+            return httpx.Response(
+                200,
+                stream=ChunkStream(
+                    [
+                        sse(
+                            frame(2, event(2)),
+                            control_frame(
+                                SSE_ROTATE_EVENT, {"cursor": 2, "reason": "max_seconds"}
+                            ),
+                        )
+                    ]
+                ),
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(
+            200,
+            stream=ChunkStream([sse(frame(3, event(3)))]),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    code, out, err, _ = invoke(tmp_path, ["runs", "events", "r-1", "--follow", "--json"], handler)
+
+    assert code == ExitCode.OK
+    assert [item["sequence"] for item in ndjson(out)] == [1, 2, 3]
+    assert "max_seconds" not in out
+    streams = [params for path, params in seen if path == "/streams/runs/r-1"]
+    assert streams == [{"after_seq": "1"}, {"after_seq": "2"}]
+    notices = [json.loads(line)["notice"] for line in err.splitlines() if line.strip()]
+    assert [notice["code"] for notice in notices] == ["stream_rotated", "follow_ended"]
+    assert notices[0]["next_cursor"] == 2
+    assert "mission" in notices[0]["message"]
+
+
+def test_follow_fails_with_the_auth_code_when_the_stream_is_closed_as_unauthorized(tmp_path):
+    """`acp.stream.closed` + `unauthorized` (`streams.py`) est un refus, pas une ligne."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/runs/r-1/events":
+            return httpx.Response(200, json=page([]))
+        return httpx.Response(
+            200,
+            stream=ChunkStream([sse(control_frame(SSE_CLOSED_EVENT, {"reason": "unauthorized"}))]),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    code, out, err, _ = invoke(tmp_path, ["runs", "events", "r-1", "--follow", "--json"], handler)
+
+    assert code == ExitCode.AUTH
+    assert out == ""
+    assert json.loads(err)["error"]["code"] == "stream_unauthorized"
+
+
+def test_follow_reports_an_announced_close_that_is_not_a_refusal(tmp_path):
+    """Une fermeture annoncée sans refus se dit sur stderr, pas sur stdout."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/runs/r-1/events":
+            return httpx.Response(200, json=page([]))
+        return httpx.Response(
+            200,
+            stream=ChunkStream([sse(control_frame(SSE_CLOSED_EVENT, {"reason": "shutdown"}))]),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    code, out, err, _ = invoke(tmp_path, ["runs", "events", "r-1", "--follow", "--json"], handler)
+
+    assert code == ExitCode.OK
+    assert out == ""
+    notices = [json.loads(line)["notice"] for line in err.splitlines() if line.strip()]
+    assert [notice["code"] for notice in notices] == ["stream_closed", "follow_ended"]
+    assert "shutdown" in notices[0]["message"]
+    assert "n'est pas arrêtée" in notices[0]["message"]
+
+
+def test_follow_stops_reconnecting_after_a_bounded_number_of_rotations(tmp_path):
+    """Une reconnexion bornée : un serveur qui tourne sans fin ne boucle pas."""
+
+    opened: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/runs/r-1/events":
+            return httpx.Response(200, json=page([]))
+        opened.append(request.url.params.get("after_seq"))
+        return httpx.Response(
+            200,
+            stream=ChunkStream(
+                [sse(control_frame(SSE_ROTATE_EVENT, {"cursor": 0, "reason": "max_seconds"}))]
+            ),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    code, out, err, _ = invoke(tmp_path, ["runs", "events", "r-1", "--follow", "--json"], handler)
+
+    assert code == ExitCode.OK
+    assert out == ""
+    assert len(opened) == FOLLOW_MAX_ROTATIONS + 1
+    codes = [json.loads(line)["notice"]["code"] for line in err.splitlines() if line.strip()]
+    assert codes.count("stream_rotated") == FOLLOW_MAX_ROTATIONS
+    assert codes[-2:] == ["stream_rotations_exhausted", "follow_ended"]
+
+
+def test_follow_ignores_a_control_frame_it_does_not_know(tmp_path):
+    """Une trame inconnue n'est pas un événement : elle ne pollue pas le NDJSON."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/runs/r-1/events":
+            return httpx.Response(200, json=page([]))
+        return httpx.Response(
+            200,
+            stream=ChunkStream(
+                [sse(control_frame("acp.stream.hello", {"reason": "bonjour"}), frame(1, event(1)))]
+            ),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    code, out, _err, _ = invoke(tmp_path, ["runs", "events", "r-1", "--follow", "--json"], handler)
+
+    assert code == ExitCode.OK
+    assert [item["sequence"] for item in ndjson(out)] == [1]
+    assert "bonjour" not in out
+
+
 # --------------------------------------------------------------------------
 # acp runs tests
 # --------------------------------------------------------------------------
@@ -529,8 +685,8 @@ def test_runs_tests_exits_zero_and_keeps_every_status_distinct(tmp_path):
         ({"totals": {"expected": 1, "unexpected": 0, "flaky": 0, "skipped": 0, "interrupted": 0, "timedOut": 1}}, "timedOut"),
         ({"totals": {"expected": 1, "unexpected": 0, "flaky": 0, "skipped": 0, "interrupted": 1, "timedOut": 0}}, "interrupted"),
         ({"case_count": 0}, "case_count"),
-        ({"status": "failed"}, "status"),
         ({"exit_code": 1}, "exit_code"),
+        ({"exit_code": None}, "exit_code"),
     ],
 )
 def test_runs_tests_exits_four_and_names_the_reason(tmp_path, overrides, reason):
@@ -545,6 +701,28 @@ def test_runs_tests_exits_four_and_names_the_reason(tmp_path, overrides, reason)
     assert payload["validation"] == "failed"
     assert reason in payload["reasons"]
     assert json.loads(err)["error"]["code"] == "tests_failed"
+
+
+def test_runs_tests_adds_no_reason_the_server_rule_does_not_have(tmp_path):
+    """Le CLI reflète `derive_technical_validation` (spec §5.4), sans y ajouter.
+
+    La règle serveur ne regarde pas `status` : si le CLI le refusait de son côté,
+    le terminal sortirait `4` là où la validation technique de la tentative dit
+    `passed`. Le statut reste affiché, jamais transformé en cause.
+    """
+
+    code, out, err, _ = invoke(
+        tmp_path,
+        ["runs", "tests", "r-1", "--json"],
+        lambda _request: httpx.Response(200, json=run_detail(status="failed")),
+    )
+
+    assert code == ExitCode.OK
+    assert err == ""
+    payload = json.loads(out)
+    assert payload["validation"] == "passed"
+    assert payload["reasons"] == []
+    assert payload["status"] == "failed"
 
 
 def test_runs_tests_human_summary_names_each_status(tmp_path):
@@ -583,8 +761,8 @@ def artifact(identifier: str, **overrides: Any) -> dict[str, Any]:
         "id": identifier,
         "project_id": "p-1",
         "task_run_id": "r-1",
-        "kind": "screenshot",
-        "stream_kind": "test",
+        "kind": "test_attachment",
+        "stream_kind": "screenshot",
         "original_name": f"{identifier}.png",
         "content_type": "image/png",
         "size_bytes": 12,
@@ -607,7 +785,7 @@ def test_artifacts_list_filters_kind_and_content_type_locally(tmp_path):
             json={
                 "items": [
                     artifact("a-1"),
-                    artifact("a-2", kind="trace", content_type="application/zip"),
+                    artifact("a-2", stream_kind="trace", content_type="application/zip"),
                     artifact("a-3", content_type="image/webp"),
                     artifact("a-4", task_run_id="r-2"),
                 ],
@@ -623,8 +801,83 @@ def test_artifacts_list_filters_kind_and_content_type_locally(tmp_path):
 
     assert code == ExitCode.OK
     assert err == ""
-    assert seen == [{"task_run_id": "r-1"}]
+    assert seen == [{"task_run_id": "r-1", "stream_kind": "screenshot"}]
     assert [item["id"] for item in json.loads(out)] == ["a-1"]
+
+
+def test_artifacts_list_asks_the_server_for_a_stream_kind(tmp_path):
+    """`screenshot` est un `stream_kind` (§3.2) : `kind` vaut `test_attachment`.
+
+    Filtrer localement sur `kind` ne rendait jamais rien pour les livrables du
+    Lot E ; §6 expose `stream_kind` côté serveur, et c'est lui qu'il faut envoyer.
+    """
+
+    seen: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"items": [artifact("a-1")], "next_cursor": None})
+
+    code, out, err, _ = invoke(
+        tmp_path,
+        ["artifacts", "list", "--run", "r-1", "--kind", "screenshot", "--json"],
+        handler,
+    )
+
+    assert code == ExitCode.OK
+    assert err == ""
+    assert seen == [{"task_run_id": "r-1", "stream_kind": "screenshot"}]
+    assert [item["id"] for item in json.loads(out)] == ["a-1"]
+
+
+def test_artifacts_list_still_filters_a_lax_server_locally(tmp_path):
+    """Un serveur qui ignorerait `stream_kind` ne fait rien apparaître de plus."""
+
+    code, out, err, _ = invoke(
+        tmp_path,
+        ["artifacts", "list", "--run", "r-1", "--kind", "trace", "--json"],
+        lambda _request: httpx.Response(
+            200,
+            json={
+                "items": [artifact("a-1"), artifact("a-2", stream_kind="trace")],
+                "next_cursor": None,
+            },
+        ),
+    )
+
+    assert code == ExitCode.OK
+    assert err == ""
+    assert [item["id"] for item in json.loads(out)] == ["a-2"]
+
+
+def test_artifacts_list_filters_an_artifact_kind_without_sending_it(tmp_path):
+    """`test_report` n'est pas un `stream_kind` : il reste un filtre local."""
+
+    seen: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    artifact("a-1"),
+                    artifact("a-2", kind="test_report", stream_kind="report"),
+                ],
+                "next_cursor": None,
+            },
+        )
+
+    code, out, err, _ = invoke(
+        tmp_path,
+        ["artifacts", "list", "--run", "r-1", "--kind", "test_report", "--json"],
+        handler,
+    )
+
+    assert code == ExitCode.OK
+    assert err == ""
+    assert seen == [{"task_run_id": "r-1"}]
+    assert [item["id"] for item in json.loads(out)] == ["a-2"]
 
 
 def test_artifacts_list_follows_the_server_cursor(tmp_path):
@@ -671,6 +924,7 @@ def content_handler(
     checksum: str | None = None,
     summary_overrides: dict[str, Any] | None = None,
     seen: list[str] | None = None,
+    content_type_header: str = "text/plain; charset=utf-8",
 ):
     def handler(request: httpx.Request) -> httpx.Response:
         if seen is not None:
@@ -679,7 +933,7 @@ def content_handler(
             return httpx.Response(
                 200,
                 stream=ChunkStream([body[index : index + 4] for index in range(0, len(body), 4)]),
-                headers={"content-type": "text/plain; charset=utf-8"},
+                headers={"content-type": content_type_header},
             )
         overrides = {
             "checksum": checksum if checksum is not None else DIGEST,
@@ -691,6 +945,77 @@ def content_handler(
         return httpx.Response(200, json=artifact("a-1", **overrides))
 
     return handler
+
+
+BINARY_PAYLOAD = bytes(range(256)) * 4
+BINARY_DIGEST = hashlib.sha256(BINARY_PAYLOAD).hexdigest()
+
+
+def mislabelled_handler(**overrides: Any):
+    """Artefact binaire que le worker déclare `text/plain` (§0.4 : contenu hostile)."""
+
+    return content_handler(
+        BINARY_PAYLOAD,
+        checksum=BINARY_DIGEST,
+        summary_overrides={"content_type": "text/plain", "original_name": "trace.zip"},
+        content_type_header="application/octet-stream",
+        **overrides,
+    )
+
+
+def test_artifacts_get_refuses_binary_mislabelled_as_text_by_the_worker(tmp_path):
+    """Le type déclaré vient d'un worker : seule la réponse de contenu décide.
+
+    L'API assainit le type servi (§7) ; c'est lui qui protège le terminal, pas
+    la métadonnée que le worker a écrite.
+    """
+
+    captured = Capture(tty=True)
+
+    code, _out, err, stream = invoke(
+        tmp_path,
+        ["artifacts", "get", "a-1", "--stdout", "--json"],
+        mislabelled_handler(),
+        stdout=captured,
+    )
+
+    assert code == ExitCode.USAGE
+    assert stream.buffer.getvalue() == b""
+    assert json.loads(err)["error"]["code"] == "binary_stdout"
+
+
+def test_artifacts_get_writes_mislabelled_binary_only_with_force(tmp_path):
+    captured = Capture(tty=True)
+
+    code, _out, err, stream = invoke(
+        tmp_path,
+        ["artifacts", "get", "a-1", "--stdout", "--force"],
+        mislabelled_handler(),
+        stdout=captured,
+    )
+
+    assert code == ExitCode.OK
+    assert err == ""
+    assert stream.buffer.getvalue() == BINARY_PAYLOAD
+
+
+def test_artifacts_get_reports_the_served_content_type(tmp_path):
+    """Les métadonnées disent le type **servi**, et ce que le worker déclarait."""
+
+    captured = Capture(tty=False)
+
+    code, _out, err, stream = invoke(
+        tmp_path,
+        ["artifacts", "get", "a-1", "--stdout", "--json"],
+        mislabelled_handler(),
+        stdout=captured,
+    )
+
+    assert code == ExitCode.OK
+    assert stream.buffer.getvalue() == BINARY_PAYLOAD
+    payload = json.loads(err)
+    assert payload["content_type"] == "application/octet-stream"
+    assert payload["declared_content_type"] == "text/plain"
 
 
 def test_artifacts_get_writes_the_file_and_checks_the_digest(tmp_path):
@@ -1164,7 +1489,7 @@ def test_open_studio_prints_the_studio_url_without_opening_a_browser(tmp_path):
 
     assert code == ExitCode.OK
     assert err == ""
-    assert out.strip() == "http://127.0.0.1:5173/missions?run=r-1&view=studio"
+    assert out.strip() == "http://127.0.0.1:5173/missions?run=r-1&vue=studio"
     assert opened == []
 
 
@@ -1178,7 +1503,10 @@ def test_open_studio_reports_the_view_in_json(tmp_path):
     assert code == ExitCode.OK
     payload = json.loads(out)
     assert payload["view"] == "studio"
-    assert payload["url"].endswith("view=studio")
+    assert payload["url"].endswith("vue=studio")
+    # Le shell web ne lit que `vue` (studio-ui.ts::STUDIO_VIEW_PARAM) ; `view`
+    # sert déjà à une autre vue de la même application.
+    assert "view=" not in payload["url"]
 
 
 def test_open_studio_can_open_the_browser_on_demand(tmp_path):
@@ -1192,7 +1520,7 @@ def test_open_studio_can_open_the_browser_on_demand(tmp_path):
     )
 
     assert code == ExitCode.OK
-    assert opened == ["http://127.0.0.1:5173/missions?run=r-1&view=studio"]
+    assert opened == ["http://127.0.0.1:5173/missions?run=r-1&vue=studio"]
 
 
 def test_open_without_studio_keeps_the_mission_url(tmp_path):

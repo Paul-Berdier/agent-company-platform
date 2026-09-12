@@ -250,6 +250,38 @@ def _replace_task_scoped_mission_comment_constraint(connection) -> None:
     )
 
 
+def _backfill_event_journal_sequence(connection) -> None:
+    """Numérote les lignes d'événements antérieures au compteur de journal.
+
+    Sous SQLite le ``rowid`` est unique et croît dans l'ordre d'insertion : il donne
+    donc exactement l'ordre d'écriture recherché, là où ``created_at`` ne le donne
+    pas (granularité d'horloge d'environ 1,5 ms sous Windows, donc égalités
+    courantes).
+
+    Le décalage par le maximum déjà attribué garantit l'idempotence dans le seul cas
+    délicat : une base **partiellement** numérotée, où un ``rowid`` nu pourrait
+    heurter un numéro déjà pris. Sur une base jamais migrée ce maximum vaut zéro et
+    la numérotation est exactement le ``rowid``. Il est lu puis passé en paramètre
+    plutôt qu'écrit en sous-requête : la valeur doit être figée **avant** la mise à
+    jour de la table qu'elle interroge.
+    """
+
+    pending = connection.execute(
+        text("SELECT COUNT(*) FROM events WHERE journal_seq IS NULL")
+    ).scalar()
+    if not pending:
+        return
+    offset = (
+        connection.execute(text("SELECT MAX(journal_seq) FROM events")).scalar() or 0
+    )
+    connection.execute(
+        text(
+            "UPDATE events SET journal_seq = rowid + :offset WHERE journal_seq IS NULL"
+        ),
+        {"offset": int(offset)},
+    )
+
+
 def _upgrade_sqlite_schema(engine) -> None:
     """Migration additive minimale pour les bases SQLite MVP déjà créées.
 
@@ -302,6 +334,7 @@ def _upgrade_sqlite_schema(engine) -> None:
         "events": {
             "schema_version": "VARCHAR(10) NOT NULL DEFAULT '1.0'",
             "sequence": "INTEGER",
+            "journal_seq": "INTEGER",
             "conversation_id": "VARCHAR(36)",
             "step_id": "VARCHAR(64)",
             "executor": "VARCHAR(64)",
@@ -412,6 +445,21 @@ def _upgrade_sqlite_schema(engine) -> None:
                     "ON events (conversation_id)"
                 )
             )
+            # Ordre total du journal : unicité partielle, car une ligne peut
+            # rester non numérotée le temps d'un démarrage interrompu.
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_events_journal_seq "
+                    "ON events (journal_seq) WHERE journal_seq IS NOT NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_events_journal_seq "
+                    "ON events (journal_seq)"
+                )
+            )
+            _backfill_event_journal_sequence(connection)
         if inspect(connection).has_table("artifacts"):
             connection.execute(
                 text(

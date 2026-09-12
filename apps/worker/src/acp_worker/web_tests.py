@@ -1012,6 +1012,21 @@ async def _await_exit(
     return "exited"
 
 
+def _os_error_message(exc: OSError) -> str:
+    """Diagnostic d'une erreur système sans le moindre chemin de fichier.
+
+    ``str(exc)`` vaudrait ``[Errno 13] Permission denied: '<chemin absolu>'`` :
+    republier cela dans ``MissionEvidence`` exposerait la racine d'exécution du
+    worker et le nom de fichier choisi par le reporter. Seul le numéro d'erreur
+    est utile au diagnostic et il ne porte aucune donnée non fiable.
+    """
+
+    errno = exc.errno
+    if errno is None:
+        return "Pièce jointe illisible : erreur système."
+    return f"Pièce jointe illisible : erreur système (errno {errno})."
+
+
 def _refusal(
     *,
     path: str,
@@ -1025,13 +1040,17 @@ def _refusal(
 
     ``path`` et ``name`` viennent du reporter : ce sont des chaînes non fiables
     qui finiront dans un corps d'API lisible par les membres du projet.
+    ``message`` est tout aussi hostile — un ``str(OSError)`` porte le nom de
+    fichier annoncé par le reporter **et** le chemin absolu de la machine — donc
+    il passe par la même expurgation. Les appelants n'y mettent de toute façon
+    qu'un texte constant : la règle vaut pour ceux qui viendront après.
     """
 
     return {
         "path": redact_text(path, redactions),
         "name": redact_text(name, redactions),
         "reason": reason,
-        "message": message,
+        "message": redact_text(message, redactions),
         "size_bytes": size_bytes,
     }
 
@@ -1354,7 +1373,9 @@ async def _upload_attachment(
                 path=relative,
                 name=name,
                 reason="absent",
-                message=str(exc),
+                # Jamais ``str(exc)`` : une OSError CPython porte le chemin
+                # absolu de la machine, interdit dans un corps d'API (§ evidence).
+                message=_os_error_message(exc),
                 size_bytes=None,
                 redactions=redactions,
             ),
@@ -1385,7 +1406,7 @@ async def _upload_attachment(
                 path=relative,
                 name=name,
                 reason="absent",
-                message=str(exc),
+                message=_os_error_message(exc),
                 size_bytes=size,
                 redactions=redactions,
             ),
@@ -1406,7 +1427,13 @@ async def _upload_attachment(
         )
     upload = ArtifactUpload(
         path=resolved,
-        original_name=resolved.name,
+        # Le nom d'origine est republié par l'API (champ ``original_name`` et
+        # nom de fichier multipart) puis rendu dans les Livrables : il vient du
+        # reporter, donc il s'expurge exactement comme les événements ingérés.
+        # `_resolve_report_artifact_id` côté API rapproche ce nom du
+        # ``report_path`` de ``run_end``, lui aussi expurgé : les deux côtés
+        # restent cohérents.
+        original_name=redact_text(resolved.name, redactions),
         content_type=content_type or "application/octet-stream",
         kind=kind,
         stream_kind=_stream_kind(content_type, report=report),

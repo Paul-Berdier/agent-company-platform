@@ -665,6 +665,165 @@ def test_a_green_report_sent_after_a_red_one_never_erases_the_failure(testing_co
         assert run.technical_validation["status"] == "failed"
 
 
+def test_a_second_run_end_never_lowers_a_non_zero_exit_code(testing_context):
+    """Un échec porté par le seul code de sortie ne redevient jamais vert.
+
+    Tous les cas sont verts : l'échec vient du processus lui-même (teardown global,
+    erreur de configuration, plantage après les assertions). Aucune ligne rouge ne
+    protège donc le verdict — c'est le code de sortie qui doit résister à un second
+    ``run_end`` annonçant ``0``.
+    """
+
+    worker = _register_worker(testing_context)
+    attempt = _start_attempt(testing_context, worker)
+    red = _ingest(
+        testing_context,
+        worker,
+        attempt,
+        [
+            _run_begin(),
+            _test_end("a.spec.ts:1:1"),
+            _run_end(_totals(expected=1), run_status="failed", exit_code=7),
+        ],
+        exit_code=7,
+    )
+    assert red.status_code == 200, red.text
+    assert red.json()["exit_code"] == 7
+
+    with testing_context["session_factory"]() as db:
+        run = db.get(TaskRunModel, attempt["run_id"])
+        assert run.technical_validation["status"] == "failed"
+
+    green = _ingest(
+        testing_context,
+        worker,
+        attempt,
+        [_run_end(_totals(expected=1), run_status="completed", exit_code=0)],
+        exit_code=0,
+    )
+    assert green.status_code == 200, green.text
+    assert green.json()["exit_code"] == 7
+    assert green.json()["status"] == "failed"
+
+    with testing_context["session_factory"]() as db:
+        run = db.get(TaskRunModel, attempt["run_id"])
+        assert run.technical_validation["status"] == "failed"
+        assert "7" in run.technical_validation["summary"]
+
+
+def test_a_run_end_claiming_to_be_running_still_closes_the_run(testing_context):
+    """Un ``run_end`` termine l'exécution, quoi qu'annonce le reporter.
+
+    Sans cela, un reporter modifié étoufferait un échec en laissant l'exécution
+    « en cours » : aucune validation technique ne serait écrite et la tentative
+    resterait au neutre ``pending``.
+    """
+
+    worker = _register_worker(testing_context)
+    attempt = _start_attempt(testing_context, worker)
+    response = _ingest(
+        testing_context,
+        worker,
+        attempt,
+        [
+            _run_begin(),
+            _test_end("a.spec.ts:1:1", status="failed", outcome="unexpected"),
+            _run_end(_totals(unexpected=1), run_status="running", exit_code=1),
+        ],
+        exit_code=1,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "failed"
+    assert response.json()["finished_at"] is not None
+
+    with testing_context["session_factory"]() as db:
+        run = db.get(TaskRunModel, attempt["run_id"])
+        assert run.technical_validation["status"] == "failed"
+
+    types = _event_types(testing_context, attempt["run_id"])
+    assert types.count("test.run.finished") == 1
+
+
+def test_a_batch_without_run_end_keeps_the_reported_counters(testing_context):
+    """Un lot de rattrapage n'efface pas les totaux annoncés par le rapport.
+
+    ``flaky`` n'est connu que du rapport : recalculer les totaux à partir des seules
+    lignes enregistrées le ramènerait silencieusement à ce que les ``outcome``
+    montrent, donc le perdrait.
+    """
+
+    worker = _register_worker(testing_context)
+    attempt = _start_attempt(testing_context, worker)
+    first = _ingest(
+        testing_context,
+        worker,
+        attempt,
+        [
+            _run_begin(),
+            _test_end("a.spec.ts:1:1"),
+            _test_end("b.spec.ts:1:1", outcome="flaky"),
+            _test_end("c.spec.ts:1:1", status="skipped", outcome="skipped"),
+            _run_end(_totals(expected=1, flaky=3, skipped=1)),
+        ],
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["totals"]["flaky"] == 3
+
+    late = _ingest(testing_context, worker, attempt, [_test_end("d.spec.ts:1:1")])
+    assert late.status_code == 200, late.text
+    totals = late.json()["totals"]
+    assert totals["flaky"] == 3
+    assert totals["skipped"] == 1
+    assert totals["expected"] == 1
+    assert late.json()["case_count"] == 4
+
+
+def test_a_verdict_that_changes_republishes_the_run_finished_event(testing_context):
+    """Le journal ne peut pas contredire la validation technique enregistrée."""
+
+    worker = _register_worker(testing_context)
+    attempt = _start_attempt(testing_context, worker)
+    assert _ingest(testing_context, worker, attempt, _green_report()).status_code == 200
+
+    with testing_context["session_factory"]() as db:
+        run = db.get(TaskRunModel, attempt["run_id"])
+        assert run.technical_validation["status"] == "passed"
+
+    red = _ingest(
+        testing_context,
+        worker,
+        attempt,
+        [
+            _test_end("b.spec.ts:1:1", status="failed", outcome="unexpected"),
+            _run_end(
+                _totals(expected=1, unexpected=1), run_status="failed", exit_code=1
+            ),
+        ],
+        exit_code=1,
+    )
+    assert red.status_code == 200, red.text
+
+    with testing_context["session_factory"]() as db:
+        run = db.get(TaskRunModel, attempt["run_id"])
+        assert run.technical_validation["status"] == "failed"
+
+    types = _event_types(testing_context, attempt["run_id"])
+    assert types.count("test.run.finished") == 2
+
+    with testing_context["session_factory"]() as db:
+        finished = (
+            db.query(EventModel)
+            .filter_by(task_run_id=attempt["run_id"], type="test.run.finished")
+            .order_by(EventModel.sequence)
+            .all()
+        )
+        assert [row.payload["technical_validation"] for row in finished] == [
+            "passed",
+            "failed",
+        ]
+        assert finished[-1].payload["exit_code"] == 1
+
+
 def test_no_ingestion_path_ever_marks_the_attempt_succeeded(testing_context):
     worker = _register_worker(testing_context)
     attempt = _start_attempt(testing_context, worker)

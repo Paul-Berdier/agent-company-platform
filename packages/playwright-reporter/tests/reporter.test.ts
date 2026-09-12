@@ -474,6 +474,29 @@ describe("contenu d'un test_end", () => {
     expect(first.test_id).not.toBe(second.test_id);
   });
 
+  it("borne une identite non-BMP sans emettre de demi-paire de substitution", () => {
+    // L'empreinte coupe l'identite a 191 unites UTF-16 : un emoji pose a cheval sur
+    // cette borne laisserait une demi-paire, que Pydantic refuse (`string_unicode`),
+    // et le worker jetterait la ligne `test_end` entiere.
+    const straddling = `${"a".repeat(190)}${"\u{1F4A5}".repeat(20)}`;
+    const [, declared] = runScenario([
+      { test: makeTest({ id: straddling }), result: makeResult() },
+    ]);
+    expect(declared.test_id.length).toBeLessThanOrEqual(200);
+    expect(hasLoneSurrogate(declared.test_id), "identite declaree").toBe(false);
+
+    rmSync(reportFile, { force: true });
+    const [, fallback] = runScenario([
+      { test: makeTest({ id: undefined, title: straddling }), result: makeResult() },
+    ]);
+    expect(fallback.test_id.length).toBeLessThanOrEqual(200);
+    expect(hasLoneSurrogate(fallback.test_id), "identite de repli").toBe(false);
+
+    const raw = readFileSync(reportFile, "utf8");
+    expect(hasLoneSurrogate(raw)).toBe(false);
+    expect(Buffer.from(raw, "utf8").toString("utf8")).toBe(raw);
+  });
+
   it("retombe sur le chemin de suite quand Playwright ne donne pas d'identifiant", () => {
     const [, testEnd] = runScenario([{ test: makeTest({ id: undefined }), result: makeResult() }]);
     expect(testEnd.test_id).toBe("chromium > tests/dashboard.spec.ts > affiche le tableau de bord");

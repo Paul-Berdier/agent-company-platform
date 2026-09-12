@@ -504,6 +504,9 @@ def test_doctor_reports_the_web_test_capability(
     monkeypatch.setenv("ACP_WORKER_WEBTEST_CWD", str(cwd))
     monkeypatch.setenv("ACP_WORKER_WEBTEST_TIMEOUT_SECONDS", "600")
     monkeypatch.setenv("ACP_WORKER_WEBTEST_ENV_ALLOWLIST", "E2E_USER,E2E_PASSWORD")
+    # Le mode effectif fait partie du diagnostic : « enabled » ne peut être
+    # publié que dans le mode où la capacité est réellement annoncée.
+    monkeypatch.setenv("ACP_WORKER_SIMULATION", "0")
     monkeypatch.setattr(
         "acp_worker.cli.httpx.get",
         lambda *args, **kwargs: (_ for _ in ()).throw(httpx.ConnectError("hors ligne")),
@@ -517,6 +520,9 @@ def test_doctor_reports_the_web_test_capability(
     report = json.loads(capsys.readouterr().out)
 
     assert report["web_tests"] == "enabled"
+    # Un état « enabled » que l'enregistrement n'annoncerait pas serait un faux
+    # diagnostic : les deux champs disent la même chose ou aucun.
+    assert "web_tests" in report["capabilities"]
     assert report["web_tests_argv"] == [PYTHON, "-I", FAKE_RUNNER, "green"]
     assert report["web_tests_cwd"] == str(cwd.resolve())
     assert report["web_tests_timeout_seconds"] == 600
@@ -528,6 +534,109 @@ def test_doctor_reports_the_web_test_capability(
     disabled = json.loads(capsys.readouterr().out)
     assert disabled["web_tests"] == "disabled"
     assert "web_tests_argv" not in disabled
+
+
+def test_doctor_never_claims_a_capability_it_would_not_announce(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    """Configuration complète mais mode simulé : l'état le dit, sans mentir."""
+
+    from acp_worker.cli import main as cli_main
+
+    cwd = tmp_path / "projet"
+    cwd.mkdir()
+    monkeypatch.setenv("ACP_API_URL", "https://api.example")
+    monkeypatch.setenv("ACP_PROVIDER_GATEWAY_URL", "https://gateway.example")
+    monkeypatch.setenv("ACP_WORKER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("ACP_WORKER_RUNNER_ARGV_JSON", raising=False)
+    monkeypatch.delenv("ACP_WORKER_RUN_ROOT", raising=False)
+    monkeypatch.setenv("ACP_WORKER_WEBTEST_ENABLED", "1")
+    monkeypatch.setenv(
+        "ACP_WORKER_WEBTEST_ARGV_JSON", json.dumps([PYTHON, "-I", FAKE_RUNNER, "green"])
+    )
+    monkeypatch.setenv("ACP_WORKER_WEBTEST_CWD", str(cwd))
+    monkeypatch.setenv("ACP_WORKER_SIMULATION", "1")
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(httpx.ConnectError("hors ligne")),
+    )
+
+    assert cli_main(["doctor"]) == 1
+    report = json.loads(capsys.readouterr().out)
+
+    assert "web_tests" not in report["capabilities"]
+    assert report["web_tests"] == "enabled_not_announced"
+
+
+def test_registering_in_real_mode_announces_the_web_test_capability(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """``register --real`` enregistre ``simulation=False`` : l'annonce suit.
+
+    Lire ``ACP_WORKER_SIMULATION`` au lieu du mode effectivement enregistré
+    produisait un worker déclaré réel qui n'annonçait jamais ``web_tests`` : ses
+    missions ``web_test_suite`` repartaient silencieusement vers le programme
+    local du Lot C.
+    """
+
+    import argparse
+
+    from acp_worker.cli import _register
+
+    cwd = tmp_path / "projet"
+    cwd.mkdir()
+    monkeypatch.setenv("ACP_WORKER_WEBTEST_ENABLED", "1")
+    monkeypatch.setenv(
+        "ACP_WORKER_WEBTEST_ARGV_JSON", json.dumps([PYTHON, "-I", FAKE_RUNNER, "green"])
+    )
+    monkeypatch.setenv("ACP_WORKER_WEBTEST_CWD", str(cwd))
+    monkeypatch.setenv("ACP_WORKER_SIMULATION", "1")
+
+    sent: dict = {}
+
+    class _Response:
+        status_code = 201
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "worker_id": "worker-1",
+                "token": "worker-token",
+                "token_expires_at": "2026-09-13T08:00:00Z",
+                "heartbeat_interval_seconds": 30,
+            }
+
+    def _post(url, **kwargs):
+        sent.update(kwargs["json"])
+        return _Response()
+
+    monkeypatch.setattr("acp_worker.cli.httpx.post", _post)
+
+    config = WorkerConfig(
+        api_url="https://api.example",
+        gateway_url="https://gateway.example",
+        gateway_service_token=None,
+        provider_id="hermes",
+        poll_interval=2.0,
+        step_seconds=0.0,
+        state_dir=tmp_path / "state",
+        name="test-worker",
+        max_concurrency=1,
+        simulation=True,
+        registration_token="registration-secret",
+        local_runner=LocalRunnerConfig(
+            argv=(PYTHON, "-V"), run_root=tmp_path / "runs"
+        ),
+    )
+    args = argparse.Namespace(
+        name=None, capabilities=None, max_concurrency=None, real=True
+    )
+
+    assert _register(config, args) == 0
+    assert sent["simulation"] is False
+    assert "web_tests" in sent["capabilities"]
 
 
 def test_a_mission_declares_web_tests_only_through_a_web_test_suite_resource():
@@ -1086,6 +1195,89 @@ async def test_a_value_absent_from_the_allowlist_is_not_injected_at_all(
     body = json.dumps(api.ingested[0], ensure_ascii=False)
     # La variable n'atteint jamais le processus : rien à expurger côté worker.
     assert SECRET not in body
+
+
+async def test_an_uploaded_attachment_name_never_republishes_an_injected_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Le nom d'origine part vers l'API : il s'expurge comme le rapport.
+
+    Le mode ``secret`` n'écrit pas sa pièce jointe, donc rien n'est téléversé.
+    Ici le fichier existe : son nom traverse le champ ``original_name`` **et** le
+    nom de fichier multipart, deux surfaces persistées puis rendues dans les
+    Livrables. Elles doivent dire la même chose que les événements ingérés.
+    """
+
+    monkeypatch.setenv("E2E_PASSWORD", SECRET)
+    api = RecordingApi()
+    config = web_test_config(
+        tmp_path, mode="secret-upload", environment_allowlist=("E2E_PASSWORD",)
+    )
+
+    outcome = await execute(tmp_path, config=config, api=api)
+
+    assert outcome.refused_attachments == ()
+    assert len(api.uploads) == 1
+    multipart = api.uploads[0]["content"].decode("utf-8", errors="replace")
+    assert SECRET not in multipart
+    assert "***" in multipart
+    assert SECRET not in json.dumps(api.ingested[0], ensure_ascii=False)
+    # Le fichier local garde son nom : seule la republication est expurgée.
+    assert (
+        outcome.output_directory / "attachments" / f"{SECRET}.png"
+    ).is_file()
+
+
+async def test_an_unreadable_attachment_never_publishes_a_filesystem_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Une ``OSError`` de lecture porte le chemin absolu : il ne sort pas d'ici.
+
+    ``str(exc)`` d'une ``OSError`` CPython vaut ``[Errno 13] ... : '<chemin>'`` :
+    recopié tel quel dans ``refused_attachments``, il publierait la racine
+    d'exécution du worker **et** le nom injecté par le reporter dans un corps
+    d'API lisible par tout membre du projet.
+    """
+
+    monkeypatch.setenv("E2E_PASSWORD", SECRET)
+    api = RecordingApi()
+    config = web_test_config(
+        tmp_path, mode="secret-upload", environment_allowlist=("E2E_PASSWORD",)
+    )
+
+    def unreadable(path: Path, *, limit: int):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr("acp_worker.web_tests._sha256_of", unreadable)
+
+    outcome = await execute(tmp_path, config=config, api=api)
+
+    assert api.uploads == []
+    assert len(outcome.refused_attachments) == 1
+    refusal = outcome.refused_attachments[0]
+    assert refusal["reason"] == "absent"
+    evidence = json.dumps(outcome.evidence(), ensure_ascii=False)
+    assert SECRET not in evidence
+    assert str(outcome.output_directory) not in evidence
+    assert str(tmp_path) not in evidence
+    assert SECRET not in json.dumps(api.ingested[0], ensure_ascii=False)
+
+
+def test_a_refusal_message_is_redacted_like_its_path():
+    """``message`` est aussi hostile que ``path`` : même traitement."""
+
+    from acp_worker.web_tests import _refusal
+
+    refusal = _refusal(
+        path=f"attachments/{SECRET}.png",
+        name=f"capture-{SECRET}",
+        reason="absent",
+        message=f"lecture refusée pour {SECRET}",
+        size_bytes=3,
+        redactions=(SECRET,),
+    )
+
+    assert SECRET not in json.dumps(refusal, ensure_ascii=False)
 
 
 # --------------------------------------------------------------------------

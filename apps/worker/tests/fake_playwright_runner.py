@@ -26,7 +26,11 @@ Mode           Comportement
                pas sur le disque ; sort 1.
 ``huge``       écrit une pièce jointe de ``taille`` octets (argument suivant).
 ``secret``     recopie ``E2E_PASSWORD`` dans un message d'erreur, un extrait de
-               code, un titre d'étape et une annotation ; sort 1.
+               code, un titre d'étape et une annotation ; la pièce jointe
+               annoncée n'existe pas : elle est refusée ; sort 1.
+``secret-upload``
+               écrit réellement ``attachments/<E2E_PASSWORD>.png`` et l'annonce :
+               la pièce jointe est donc **téléversée**, nom compris ; sort 1.
 ``hang``       écrit son PID et celui d'un petit-fils, puis ne sort jamais.
 =============  ==================================================================
 """
@@ -41,6 +45,7 @@ import time
 from pathlib import Path
 
 
+PNG_MAGIC = bytes.fromhex("89504e470d0a1a0a")
 RUNNER_VERSION = "1.44.2"
 STARTED_AT = "2026-09-12T08:00:00Z"
 FINISHED_AT = "2026-09-12T08:00:42Z"
@@ -529,6 +534,46 @@ def _mode_secret(report: Path, output: Path) -> int:
     return 1
 
 
+def _mode_secret_upload(report: Path, output: Path) -> int:
+    """Pièce jointe réellement écrite dont le **nom** porte le secret.
+
+    Le mode ``secret`` annonce un fichier fantôme : il est refusé et n'est jamais
+    téléversé. Ici le fichier existe, donc le worker le téléverse et son nom
+    d'origine part vers l'API : c'est cette surface-là qui doit être expurgée.
+    """
+
+    secret = os.environ.get("E2E_PASSWORD", "")
+    relative = f"attachments/{secret}.png"
+    _materialize(output, relative, PNG_MAGIC + b"s" * 32)
+    lines = [
+        _run_begin(),
+        _case(
+            test_id="fuite-nom",
+            title="nomme sa capture d'après une variable d'environnement",
+            status="failed",
+            outcome="unexpected",
+            error_message="capture jointe",
+            attachments=[
+                _attachment(f"capture-{secret}", "image/png", relative)
+            ],
+        ),
+        _run_end(
+            totals={
+                "expected": 0,
+                "unexpected": 1,
+                "flaky": 0,
+                "skipped": 0,
+                "interrupted": 0,
+                "timedOut": 0,
+            },
+            run_status="failed",
+            exit_code=1,
+        ),
+    ]
+    _write(report, lines)
+    return 1
+
+
 def _mode_hang(report: Path, output: Path) -> int:
     """Lance un petit-fils qui survivrait au parent, puis ne sort jamais."""
 
@@ -573,6 +618,8 @@ def main(argv: list[str]) -> int:
         return _mode_huge(report, output, int(argv[1]))
     if mode == "secret":
         return _mode_secret(report, output)
+    if mode == "secret-upload":
+        return _mode_secret_upload(report, output)
     if mode == "hang":
         return _mode_hang(report, output)
     print(f"mode inconnu: {mode}", file=sys.stderr)

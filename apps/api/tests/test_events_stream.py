@@ -24,7 +24,6 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 from uuid import uuid4
@@ -41,6 +40,8 @@ from acp_api import events_bus
 from acp_api.deps import get_db
 from acp_api.events_bus import (
     MEDIA_PAYLOAD_KEYS,
+    PAYLOAD_MAX_BYTES,
+    PAYLOAD_MAX_DEPTH,
     SEQUENCE_ALLOCATION_ATTEMPTS,
     EventHub,
     MediaPayloadRefused,
@@ -53,6 +54,7 @@ from acp_api.events_bus import (
 from acp_api.main import app
 from acp_api.security import create_user_session, hash_password, utcnow
 from acp_api.streams import (
+    project_cursor,
     project_event_stream,
     run_event_stream,
     stream_connections,
@@ -273,6 +275,132 @@ def _publish(
             executor="platform",
             emitted_by="api",
         )
+
+
+def _publish_burst(
+    context,
+    *,
+    run_id: str,
+    project_id: str,
+    count: int,
+    event_type: str = "task.progress",
+) -> list[str]:
+    """Publie une rafale dans **une seule** transaction et rend les identifiants écrits.
+
+    C'est la forme que produit ``testing_service`` : plusieurs événements écrits d'un
+    coup, donc plusieurs lignes qui partagent la même microseconde d'écriture sur une
+    horloge à faible granularité (Windows : ~1,5 ms).
+    """
+
+    identifiers: list[str] = []
+    with context["session_factory"]() as db:
+        for index in range(count):
+            event = Event(
+                type=event_type,
+                project_id=project_id,
+                task_run_id=run_id,
+                payload={"index": index},
+            )
+            publish(db, event, commit=False, forward=False, emitted_by="api")
+            identifiers.append(event.id)
+        db.commit()
+    return identifiers
+
+
+def _collapse_created_at(context, event_ids: list[str]) -> None:
+    """Fait partager une **seule** microseconde à ces lignes, de façon déterministe.
+
+    Une rafale réelle produit le même groupe d'égalité, mais seulement quand l'horloge
+    le veut bien : ce forçage retire l'aléa du test sans changer la forme des données.
+    """
+
+    with context["session_factory"]() as db:
+        rows = db.query(EventModel).filter(EventModel.id.in_(event_ids)).all()
+        moment = max(row.created_at for row in rows)
+        db.query(EventModel).filter(EventModel.id.in_(event_ids)).update(
+            {EventModel.created_at: moment}, synchronize_session=False
+        )
+        db.commit()
+
+
+def _journal_cursor(context, event_id: str) -> int:
+    """Curseur de portée projet d'une ligne, lu en base plutôt que deviné."""
+
+    with context["session_factory"]() as db:
+        row = db.get(EventModel, event_id)
+        assert row is not None and row.journal_seq is not None
+        return int(row.journal_seq)
+
+
+def _seed_run_events(
+    context, *, run_id: str, project_id: str, count: int
+) -> tuple[int, int]:
+    """Constitue un retard de lecture directement en base, sans passer par ``publish``.
+
+    Le test qui s'en sert porte sur la borne de durée du flux, pas sur l'allocation de
+    séquence — déjà verrouillée par ailleurs. Rend ``(première séquence, nombre)``.
+    """
+
+    with context["session_factory"]() as db:
+        start = allocate_sequence(db, run_id)
+        db.add_all(
+            [
+                EventModel(
+                    type="task.progress",
+                    occurred_at=utcnow(),
+                    project_id=project_id,
+                    task_run_id=run_id,
+                    payload={"index": index},
+                    sequence=start + index,
+                )
+                for index in range(count)
+            ]
+        )
+        db.commit()
+    return start, count
+
+
+def _project_event_ids(context, project_id: str, *, after: int) -> list[str]:
+    """Identifiants écrits pour ce projet, dans l'ordre du journal, lus directement."""
+
+    with context["session_factory"]() as db:
+        rows = (
+            db.query(EventModel.id)
+            .filter(
+                EventModel.project_id == project_id,
+                EventModel.journal_seq.is_not(None),
+                EventModel.journal_seq > after,
+            )
+            .order_by(EventModel.journal_seq.asc())
+            .all()
+        )
+    return [row[0] for row in rows]
+
+
+def _drain_project_pages(
+    client: TestClient,
+    project_id: str,
+    *,
+    cursor: int,
+    limit: int,
+    max_pages: int = 400,
+) -> tuple[list[str], dict]:
+    """Parcourt la page projet jusqu'à épuisement, sans jamais boucler indéfiniment."""
+
+    delivered: list[str] = []
+    page: dict = {}
+    for _ in range(max_pages):
+        page = client.get(
+            f"/projects/{project_id}/events",
+            params={"after_seq": cursor, "limit": limit},
+        ).json()
+        delivered.extend(event["id"] for event in page["events"])
+        if not page["has_more"]:
+            return delivered, page
+        assert page["next_cursor"] is not None
+        assert page["next_cursor"] > cursor, "curseur immobile : pagination bloquée"
+        cursor = page["next_cursor"]
+    raise AssertionError("pagination non convergente : trop de pages")
 
 
 def _parse_sse(payload: str) -> tuple[list[dict[str, str]], list[str]]:
@@ -580,6 +708,101 @@ def test_store_event_commits_by_default_for_existing_callers(stream_context):
         assert db.query(EventModel).filter_by(type="journal.direct").count() == 1
 
 
+def test_an_event_written_without_publish_still_enters_the_project_cursor(stream_context):
+    """Un appelant direct de ``store_event`` reste lisible dans la portée projet.
+
+    Les routeurs du Lot C écrivent sans passer par ``publish`` : sans numéro de
+    journal, leurs événements sortiraient purement et simplement de la page projet.
+    """
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    event = Event(type="agent.status_changed", project_id=project_id)
+    with stream_context["session_factory"]() as db:
+        store_event(db, event)
+
+    page = client.get(
+        f"/projects/{project_id}/events", params={"after_seq": cursor}
+    ).json()
+    assert [rendered["id"] for rendered in page["events"]] == [event.id]
+    assert _journal_cursor(stream_context, event.id) > cursor
+
+
+def test_an_event_without_a_run_takes_part_in_the_project_cursor(stream_context):
+    """Sans tentative, donc sans séquence, un événement garde son rang dans le journal."""
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    with_run = Event(
+        type="task.progress", project_id=project_id, task_run_id=stream_context["run_a"]
+    )
+    without_run = Event(type="project.updated", project_id=project_id)
+    for event in (with_run, without_run):
+        with stream_context["session_factory"]() as db:
+            assert publish(db, event) is (None if event is without_run else 1)
+
+    page = client.get(
+        f"/projects/{project_id}/events", params={"after_seq": cursor}
+    ).json()
+    assert [rendered["id"] for rendered in page["events"]] == [
+        with_run.id,
+        without_run.id,
+    ]
+    assert [rendered["sequence"] for rendered in page["events"]] == [1, None]
+
+
+def test_the_project_cursor_is_the_journal_counter_not_the_clock():
+    """``project_cursor`` rend ``journal_seq``, et ``None`` pour une ligne non numérotée."""
+
+    numbered = EventModel(type="task.progress", occurred_at=utcnow(), journal_seq=42)
+    unnumbered = EventModel(type="task.progress", occurred_at=utcnow())
+
+    assert project_cursor(numbered) == 42
+    assert project_cursor(unnumbered) is None
+
+
+def test_an_unnumbered_row_is_left_out_of_the_project_page_without_failing(stream_context):
+    """Une ligne sans numéro de journal est exclue, jamais une exception.
+
+    Cas d'une base dont la migration n'a pas encore tourné : la lecture doit rester
+    définie plutôt que de refuser la page entière.
+    """
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    numbered = _publish(
+        stream_context, run_id=stream_context["run_a"], project_id=project_id
+    )
+    assert numbered == 1
+    with stream_context["session_factory"]() as db:
+        db.add(
+            EventModel(
+                id="sans-numero",
+                type="task.progress",
+                occurred_at=utcnow(),
+                project_id=project_id,
+                payload={},
+            )
+        )
+        db.commit()
+
+    page = client.get(
+        f"/projects/{project_id}/events", params={"after_seq": cursor}
+    ).json()
+
+    assert "sans-numero" not in [rendered["id"] for rendered in page["events"]]
+    assert len(page["events"]) == 1
+
+
 def test_store_event_leaves_the_transaction_to_its_caller(stream_context):
     """``commit=False`` n'écrit rien tant que l'appelant n'a pas validé sa transaction."""
 
@@ -710,6 +933,93 @@ def test_a_media_event_is_served_as_a_reference_only(stream_context):
     assert "base64" not in json.dumps(events[0])
 
 
+def _nested(leaf: dict, levels: int) -> dict:
+    payload = leaf
+    for _ in range(levels):
+        payload = {"nested": payload}
+    return payload
+
+
+def _refused(context, payload: dict) -> None:
+    """Le refus est explicite **et** rien n'est écrit : les deux font la garantie."""
+
+    with context["session_factory"]() as db:
+        with pytest.raises(MediaPayloadRefused):
+            store_event(
+                db,
+                Event(
+                    type="artifact.created",
+                    project_id=context["project_a"],
+                    payload=payload,
+                ),
+            )
+    with context["session_factory"]() as db:
+        assert db.query(EventModel).filter_by(type="artifact.created").count() == 0
+
+
+def test_a_payload_nested_deeper_than_the_inspection_depth_is_refused(stream_context):
+    """Au-delà de la profondeur inspectée, la charge utile est refusée, jamais ignorée.
+
+    La charge utile n'emploie **aucune** clé listée : c'est bien la profondeur non
+    inspectable qui est refusée, pas un nom reconnu au passage.
+    """
+
+    _refused(stream_context, _nested({"detail": "hors de portée"}, PAYLOAD_MAX_DEPTH + 1))
+
+
+def test_a_payload_within_the_inspection_depth_is_still_accepted(stream_context):
+    """La borne de profondeur reste une borne : juste en deçà, l'écriture passe."""
+
+    with stream_context["session_factory"]() as db:
+        store_event(
+            db,
+            Event(
+                type="task.progress",
+                project_id=stream_context["project_a"],
+                payload=_nested({"detail": "ok"}, PAYLOAD_MAX_DEPTH - 1),
+            ),
+        )
+    with stream_context["session_factory"]() as db:
+        assert db.query(EventModel).filter_by(type="task.progress").count() == 1
+
+
+def test_an_oversized_payload_is_refused_whatever_its_key_is_called(stream_context):
+    """La garantie ne repose pas sur une liste de noms : la taille est bornée aussi."""
+
+    _refused(stream_context, {"screenshot": "A" * (PAYLOAD_MAX_BYTES + 1)})
+
+
+def test_a_payload_just_under_the_size_bound_is_accepted(stream_context):
+    """La borne de taille ne rétrécit pas les événements métier légitimes."""
+
+    with stream_context["session_factory"]() as db:
+        store_event(
+            db,
+            Event(
+                type="task.progress",
+                project_id=stream_context["project_a"],
+                payload={"error_snippet": "b" * (PAYLOAD_MAX_BYTES // 2)},
+            ),
+        )
+    with stream_context["session_factory"]() as db:
+        assert db.query(EventModel).filter_by(type="task.progress").count() == 1
+
+
+def test_an_artifact_reference_refuses_any_foreign_key(stream_context):
+    """Une référence d'artefact ne porte que ses cinq clés : rien ne voyage à côté."""
+
+    reference = media_reference_payload(
+        artifact_id="33333333-3333-4333-8333-333333333333",
+        content_type="image/png",
+        size_bytes=2048,
+        sha256="c" * 64,
+        stream_kind="screenshot",
+    )
+
+    _refused(stream_context, {**reference, "png": "iVBORw0KGgo="})
+    _refused(stream_context, {"attachments": [{**reference, "thumbnail": "iVBORw0"}]})
+
+
 # --- 4. Lecture par curseur ---------------------------------------------------
 
 
@@ -820,7 +1130,6 @@ def test_the_project_page_paginates_over_every_run_of_the_project(stream_context
                 event_type="task.progress",
             )
         )
-        time.sleep(0.002)
     assert markers == [1, 1, 2]
 
     page = client.get(
@@ -858,6 +1167,216 @@ def test_the_project_page_ignores_the_events_of_another_project(stream_context):
     ).json()
 
     assert page["events"] == []
+
+
+def test_the_project_page_never_drops_a_row_sharing_a_timestamp(stream_context):
+    """Des lignes écrites à la même microseconde sortent toutes, une seule fois chacune.
+
+    Le curseur ne lit plus l'horloge : l'égalité d'horodatage n'a plus d'effet sur la
+    pagination, et une page ne peut plus avancer ``next_cursor`` au-delà de lignes
+    jamais rendues.
+    """
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    identifiers = _publish_burst(
+        stream_context, run_id=stream_context["run_a"], project_id=project_id, count=3
+    )
+    _collapse_created_at(stream_context, identifiers)
+
+    for limit in (1, 2, 3):
+        delivered, last_page = _drain_project_pages(
+            client, project_id, cursor=cursor, limit=limit
+        )
+        assert delivered == identifiers
+        assert len(delivered) == len(set(delivered))
+        assert last_page["has_more"] is False
+
+
+def test_the_project_page_announces_has_more_and_resumes_without_a_gap(
+    stream_context,
+):
+    """``has_more`` et ``next_cursor`` reprennent exactement après la dernière ligne rendue."""
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    tied = _publish_burst(
+        stream_context, run_id=stream_context["run_a"], project_id=project_id, count=2
+    )
+    _collapse_created_at(stream_context, tied)
+    later = _publish_burst(
+        stream_context,
+        run_id=stream_context["sibling_a"],
+        project_id=project_id,
+        count=1,
+    )
+
+    first = client.get(
+        f"/projects/{project_id}/events",
+        params={"after_seq": cursor, "limit": 2},
+    ).json()
+    assert [event["id"] for event in first["events"]] == tied
+    assert first["has_more"] is True
+
+    second = client.get(
+        f"/projects/{project_id}/events",
+        params={"after_seq": first["next_cursor"], "limit": 2},
+    ).json()
+    assert [event["id"] for event in second["events"]] == later
+    assert second["has_more"] is False
+
+
+def test_a_project_burst_in_one_transaction_is_paged_without_loss(stream_context):
+    """Rafale réaliste (une transaction) : page par page, rien ne manque, rien ne double."""
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    identifiers = _publish_burst(
+        stream_context, run_id=stream_context["run_a"], project_id=project_id, count=120
+    )
+
+    for limit in (1, 2):
+        delivered, _ = _drain_project_pages(
+            client, project_id, cursor=cursor, limit=limit
+        )
+        assert delivered == identifiers
+        assert len(delivered) == len(set(delivered))
+
+
+def test_three_hundred_unspaced_publications_are_paged_exactly_once(stream_context):
+    """300 publications d'affilée, page par page (``limit=1``) : 300 rendus, une fois chacun.
+
+    Aucune pause entre les écritures : sur une horloge à faible granularité
+    (Windows : ~1,5 ms) des dizaines de lignes partagent la même microseconde. Un
+    curseur dérivé de l'horodatage en perdait donc silencieusement, en annonçant
+    ``has_more: false``. Le compteur de journal donne un ordre total : rien ne saute.
+    """
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    published = [
+        _publish(
+            stream_context,
+            run_id=stream_context["run_a"],
+            project_id=project_id,
+            payload={"index": index},
+        )
+        for index in range(300)
+    ]
+    assert published == list(range(1, 301))
+    written = _project_event_ids(stream_context, project_id, after=cursor)
+    assert len(written) == 300
+
+    delivered, last_page = _drain_project_pages(
+        client, project_id, cursor=cursor, limit=1
+    )
+
+    assert delivered == written, "événements perdus, dupliqués ou désordonnés"
+    assert last_page["has_more"] is False
+
+
+def test_two_concurrent_publications_get_distinct_journal_sequences(stream_context):
+    """Deux publications simultanées ne peuvent jamais obtenir le même numéro de journal."""
+
+    project_id = stream_context["project_a"]
+    threads = 12
+    barrier = threading.Barrier(threads)
+
+    def publish_one(index: int) -> str:
+        event = Event(
+            type="task.progress",
+            project_id=project_id,
+            task_run_id=stream_context["run_a"] if index % 2 else None,
+            payload={"index": index},
+        )
+        barrier.wait(timeout=10)
+        with stream_context["session_factory"]() as db:
+            publish(db, event)
+        return event.id
+
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        identifiers = list(pool.map(publish_one, range(threads)))
+
+    numbers = [_journal_cursor(stream_context, event_id) for event_id in identifiers]
+    assert len(set(numbers)) == threads
+
+
+def test_the_project_page_never_exceeds_its_limit_on_a_shared_timestamp(stream_context):
+    """Une page reste bornée par ``limit`` même si toutes les lignes partagent l'horodatage.
+
+    L'ancien contournement élargissait la page à tout le groupe d'égalité, sans borne :
+    le curseur ne dépendant plus de l'horloge, la borne redevient celle demandée.
+    """
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    identifiers = _publish_burst(
+        stream_context, run_id=stream_context["run_a"], project_id=project_id, count=25
+    )
+    _collapse_created_at(stream_context, identifiers)
+
+    page = client.get(
+        f"/projects/{project_id}/events",
+        params={"after_seq": cursor, "limit": 2},
+    ).json()
+    assert len(page["events"]) == 2
+    assert page["has_more"] is True
+
+    for limit in (1, 3):
+        delivered, last_page = _drain_project_pages(
+            client, project_id, cursor=cursor, limit=limit
+        )
+        assert delivered == identifiers
+        assert last_page["has_more"] is False
+
+
+def test_the_project_stream_resumes_after_last_event_id_without_loss(stream_context):
+    """Reprise du flux projet par ``Last-Event-ID``, sur des publications non espacées."""
+
+    client = stream_context["client"]
+    project_id = stream_context["project_a"]
+    identifiers = [
+        Event(
+            type="task.progress",
+            project_id=project_id,
+            task_run_id=stream_context["run_a"],
+            payload={"index": index},
+        )
+        for index in range(6)
+    ]
+    for event in identifiers:
+        with stream_context["session_factory"]() as db:
+            publish(db, event)
+    written = [event.id for event in identifiers]
+    resume_from = _journal_cursor(stream_context, written[2])
+
+    response = client.get(
+        f"/streams/projects/{project_id}",
+        headers={"Last-Event-ID": str(resume_from)},
+    )
+    frames, _ = _parse_sse(response.text)
+    served = [
+        json.loads(frame["data"])["id"]
+        for frame in frames
+        if frame.get("event") == "acp.event"
+    ]
+
+    assert served == written[3:]
 
 
 def test_the_page_limit_is_bounded(stream_context):
@@ -1090,7 +1609,6 @@ def test_the_project_stream_serves_the_events_of_the_project(stream_context):
         project_id=stream_context["project_b"],
         event_type="task.blocked",
     )
-    time.sleep(0.002)
     _publish(
         stream_context,
         run_id=stream_context["sibling_a"],
@@ -1241,14 +1759,12 @@ async def test_the_project_stream_follows_every_run_of_the_project(stream_contex
             project_id=stream_context["project_b"],
             event_type="task.blocked",
         )
-        time.sleep(0.002)
         _publish(
             stream_context,
             run_id=stream_context["run_a"],
             project_id=project_a,
             event_type="task.progress",
         )
-        time.sleep(0.002)
         _publish(
             stream_context,
             run_id=stream_context["sibling_a"],
@@ -1380,6 +1896,44 @@ async def test_the_stream_ends_after_the_maximum_duration(stream_context):
     assert reader.exhausted is True
     assert reader.frames[-1]["event"] == "acp.stream.rotate"
     assert json.loads(reader.frames[-1]["data"])["cursor"] == 1
+
+
+@pytest.mark.asyncio
+async def test_the_stream_rotates_even_while_it_is_catching_up(stream_context):
+    """La borne de durée s'applique aussi au rattrapage, pas seulement à l'attente.
+
+    Sans cela, un flux qui trouve toujours des lignes ne tourne jamais : il dépasse
+    ``ACP_STREAM_MAX_SECONDS`` sans limite et garde son jeton de connexion.
+    """
+
+    run_id = stream_context["run_a"]
+    start, backlog = _seed_run_events(
+        stream_context,
+        run_id=run_id,
+        project_id=stream_context["project_a"],
+        count=1500,
+    )
+    policy = _member_policy(
+        stream_context,
+        "alice",
+        run_id=run_id,
+        project_id=stream_context["project_a"],
+        ACP_STREAM_MAX_SECONDS="0.1",
+        ACP_STREAM_BATCH="1",
+    )
+
+    reader = _StreamReader(
+        run_event_stream(stream_context["session_factory"], run_id, 0, policy)
+    )
+    await reader.drain(timeout=30)
+
+    delivered = _sequences(reader.frames)
+    assert reader.exhausted is True
+    assert reader.frames[-1]["event"] == "acp.stream.rotate"
+    # Rattrapage interrompu net : le curseur de rotation reprend exactement là.
+    assert delivered == list(range(start, start + len(delivered)))
+    assert 0 < len(delivered) < backlog
+    assert json.loads(reader.frames[-1]["data"])["cursor"] == delivered[-1]
 
 
 @pytest.mark.asyncio

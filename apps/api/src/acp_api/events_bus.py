@@ -5,20 +5,45 @@ séquence et sert uniquement à réveiller un flux SSE plus tôt que son interro
 périodique. Une coupure du hub ne perd donc aucun événement, elle ajoute au pire la
 latence d'une interrogation.
 
-La séquence est monotone **par tentative** (``task_run_id``) et sert de curseur de
-reprise (``Last-Event-ID``, ``after_seq``). Elle est allouée dans la transaction
-métier et protégée par l'index unique partiel ``uq_event_run_sequence`` : en cas de
-collision concurrente, l'insertion est rejouée dans un point de sauvegarde, au plus
-``SEQUENCE_ALLOCATION_ATTEMPTS`` fois.
+Le journal porte **deux** compteurs, alloués dans la transaction métier et protégés
+chacun par un index unique partiel ; en cas de collision concurrente, l'insertion est
+rejouée dans un point de sauvegarde, au plus ``SEQUENCE_ALLOCATION_ATTEMPTS`` fois :
+
+- ``sequence`` est monotone **par tentative** (``task_run_id``) et sert de curseur de
+  reprise à la portée tentative (``Last-Event-ID``, ``after_seq``) ; index
+  ``uq_event_run_sequence`` ;
+- ``journal_seq`` est monotone **à l'échelle du journal** et sert de curseur à la
+  portée projet ; index ``uq_events_journal_seq``. Une horloge ne peut pas tenir ce
+  rôle : sa granularité réelle (environ 1,5 ms sous Windows) rend les égalités
+  courantes, alors qu'un curseur de pagination exige un ordre **total**.
+
+Tout événement reçoit un ``journal_seq``, avec ou sans tentative : c'est ce qui le
+rend lisible dans la portée projet. L'allocation vit donc dans ``store_event``, le
+point d'écriture unique, et pas seulement dans ``publish``.
 
 Aucun média ne transite dans un événement (§0.2 de la spécification) : un événement
-de média ne porte qu'une référence d'artefact (``media_reference_payload``), et toute
-charge utile contenant du contenu encodé en ligne est refusée.
+de média ne porte qu'une référence d'artefact (``media_reference_payload``). Quatre
+contrôles, tous *refus explicites* à l'écriture — jamais un abandon silencieux :
+
+1. taille : une charge utile sérialisée au-delà de ``PAYLOAD_MAX_BYTES`` est refusée,
+   quel que soit le nom de ses clés — c'est ce contrôle-là, et non une liste de noms,
+   qui arrête un média encodé en ligne dont personne n'avait prévu la clé ;
+2. profondeur : au-delà de ``PAYLOAD_MAX_DEPTH`` niveaux, la charge utile est refusée
+   parce qu'elle n'est plus inspectable ;
+3. clés de contenu : les noms de ``INLINE_CONTENT_KEYS`` sont refusés à toute
+   profondeur inspectée — un filet complémentaire, qui donne un message parlant ;
+4. référence d'artefact : toute table portant ``artifact_id`` ne peut contenir que
+   ``MEDIA_PAYLOAD_KEYS`` ; aucune clé étrangère ne voyage à côté d'une référence.
+
+Ce que ces contrôles ne prétendent pas faire : reconnaître un petit fragment binaire
+logé dans une clé quelconque. La garantie tenue est « rien d'assez gros, d'assez
+profond ou d'assez mal nommé pour être un média », pas « aucun octet encodé ».
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import threading
 from collections.abc import Mapping, Sequence
@@ -42,11 +67,14 @@ __all__ = [
     "EVENT_SCHEMA_VERSION",
     "INLINE_CONTENT_KEYS",
     "MEDIA_PAYLOAD_KEYS",
+    "MEDIA_REFERENCE_KEY",
+    "PAYLOAD_MAX_BYTES",
     "PAYLOAD_MAX_DEPTH",
     "SEQUENCE_ALLOCATION_ATTEMPTS",
     "EventHub",
     "MediaPayloadRefused",
     "SequenceAllocationError",
+    "allocate_journal_seq",
     "allocate_sequence",
     "event_hub",
     "forward_event",
@@ -69,6 +97,9 @@ MEDIA_PAYLOAD_KEYS: tuple[str, ...] = (
 )
 """Seules clés admises dans la charge utile d'un événement de média (§4.1)."""
 
+MEDIA_REFERENCE_KEY = "artifact_id"
+"""Clé qui identifie une référence d'artefact, à quelque profondeur qu'elle soit."""
+
 INLINE_CONTENT_KEYS = frozenset(
     {
         "base64",
@@ -89,11 +120,21 @@ INLINE_CONTENT_KEYS = frozenset(
 PAYLOAD_MAX_DEPTH = 6
 """Profondeur d'inspection de la charge utile : borne le coût du contrôle."""
 
-_SEQUENCE_COLLISION_MARKERS = (
-    # PostgreSQL nomme l'index unique partiel…
+PAYLOAD_MAX_BYTES = 64 * 1024
+"""Taille maximale d'une charge utile sérialisée (§0.2).
+
+Ce n'est pas une borne de conception mais une borne **anti-média** : un événement
+métier tient très largement dedans, un média encodé en ligne n'y tient jamais. Elle
+attrape ce qu'aucune liste de noms de clés ne peut attraper.
+"""
+
+_ALLOCATION_COLLISION_MARKERS = (
+    # PostgreSQL nomme les index uniques partiels…
     "uq_event_run_sequence",
+    "uq_events_journal_seq",
     # …SQLite nomme les colonnes de l'index.
     "events.task_run_id, events.sequence",
+    "events.journal_seq",
 )
 
 _HUB_QUEUE_MAXSIZE = 64
@@ -103,7 +144,11 @@ _pending_forwards: set[asyncio.Task] = set()
 
 
 class SequenceAllocationError(RuntimeError):
-    """Aucune séquence libre après ``SEQUENCE_ALLOCATION_ATTEMPTS`` essais."""
+    """Aucun numéro libre après ``SEQUENCE_ALLOCATION_ATTEMPTS`` essais.
+
+    Vaut pour la séquence de tentative comme pour le compteur de journal : les deux
+    suivent la même discipline d'allocation.
+    """
 
 
 class MediaPayloadRefused(ValueError):
@@ -135,25 +180,77 @@ def media_reference_payload(
     }
 
 
-def _refuse_inline_media(value: Any, depth: int = 0) -> None:
-    """Refuse toute charge utile portant un contenu encodé en ligne."""
+def _is_container(value: Any) -> bool:
+    return isinstance(value, (list, tuple)) or (
+        isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
+    )
+
+
+def _refuse_foreign_media_keys(mapping: Mapping[Any, Any], path: str) -> None:
+    """Une référence d'artefact ne porte **que** ses clés : rien ne voyage à côté.
+
+    Contrôle *positif* : la liste des clés admises fait foi, au lieu d'espérer qu'un
+    média se dénonce par le nom de sa clé.
+    """
+
+    foreign = sorted(str(key) for key in mapping if str(key) not in MEDIA_PAYLOAD_KEYS)
+    if foreign:
+        raise MediaPayloadRefused(
+            "Une référence d'artefact ne contient que "
+            f"{', '.join(MEDIA_PAYLOAD_KEYS)} : « {path} » ajoute {', '.join(foreign)}."
+        )
+
+
+def _refuse_unsafe_payload(value: Any, depth: int = 0, path: str = "payload") -> None:
+    """Refuse toute charge utile qui pourrait transporter un média (§0.2).
+
+    Trois refus, tous explicites : une clé de contenu encodé en ligne, une référence
+    d'artefact alourdie d'une clé étrangère, et une imbrication trop profonde pour
+    être inspectée — cette dernière était auparavant **ignorée** en silence.
+    """
 
     if depth > PAYLOAD_MAX_DEPTH:
-        return
+        raise MediaPayloadRefused(
+            f"Charge utile trop imbriquée pour être contrôlée (« {path} », au-delà de "
+            f"{PAYLOAD_MAX_DEPTH} niveaux) : un événement reste plat et sans média."
+        )
     if isinstance(value, Mapping):
-        for key, nested in value.items():
+        for key in value:
             if isinstance(key, str) and key.strip().lower() in INLINE_CONTENT_KEYS:
                 raise MediaPayloadRefused(
                     "Un événement ne transporte jamais de média : "
                     f"la clé « {key} » doit être remplacée par une référence d'artefact."
                 )
-            _refuse_inline_media(nested, depth + 1)
+        if any(str(key) == MEDIA_REFERENCE_KEY for key in value):
+            _refuse_foreign_media_keys(value, path)
+        for key, nested in value.items():
+            _refuse_unsafe_payload(nested, depth + 1, f"{path}.{key}")
         return
-    if isinstance(value, (list, tuple)) or (
-        isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
-    ):
-        for nested in value:
-            _refuse_inline_media(nested, depth + 1)
+    if _is_container(value):
+        for index, nested in enumerate(value):
+            _refuse_unsafe_payload(nested, depth + 1, f"{path}[{index}]")
+
+
+def _refuse_oversized_payload(payload: Any) -> None:
+    """Borne la charge utile sérialisée : aucun média n'entre dans ``PAYLOAD_MAX_BYTES``."""
+
+    if not payload:
+        return
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    if len(encoded) > PAYLOAD_MAX_BYTES:
+        raise MediaPayloadRefused(
+            f"Charge utile de {len(encoded)} octets : au-delà de {PAYLOAD_MAX_BYTES}, "
+            "un événement cite une référence d'artefact au lieu de porter le contenu."
+        )
+
+
+def _refuse_media_payload(payload: Any) -> None:
+    """Point d'entrée unique du contrôle « aucun média dans un événement »."""
+
+    _refuse_oversized_payload(payload)
+    _refuse_unsafe_payload(payload)
 
 
 # --- Hub local ----------------------------------------------------------------
@@ -292,15 +389,38 @@ def allocate_sequence(db: Session, task_run_id: str) -> int:
     return int(highest or 0) + 1
 
 
-def _is_sequence_collision(error: IntegrityError) -> bool:
-    """Distingue la collision de séquence de toute autre violation d'unicité.
+def allocate_journal_seq(db: Session) -> int:
+    """Retourne le prochain numéro libre du journal, toutes portées confondues.
+
+    Même discipline que ``allocate_sequence`` : l'appel ne consomme rien, l'unicité
+    est garantie par l'index ``uq_events_journal_seq``, et la collision concurrente
+    est rattrapée par le réessai de l'écriture.
+
+    Le maximum est lu par ``ORDER BY … LIMIT 1`` verrouillé plutôt que par un
+    agrégat : ``FOR UPDATE`` est refusé sur un agrégat par PostgreSQL, et c'est bien
+    la ligne la plus haute qu'il faut verrouiller.
+    """
+
+    statement = (
+        select(func.coalesce(EventModel.journal_seq, 0))
+        .where(EventModel.journal_seq.is_not(None))
+        .order_by(EventModel.journal_seq.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    highest = db.execute(statement).scalar()
+    return int(highest or 0) + 1
+
+
+def _is_allocation_collision(error: IntegrityError) -> bool:
+    """Distingue la collision d'un compteur de toute autre violation d'unicité.
 
     Rejouer aveuglément masquerait le vrai défaut de l'appelant — une clé primaire en
     double, par exemple — derrière cinq essais inutiles et un message trompeur.
     """
 
     message = str(getattr(error, "orig", None) or error)
-    return any(marker in message for marker in _SEQUENCE_COLLISION_MARKERS)
+    return any(marker in message for marker in _ALLOCATION_COLLISION_MARKERS)
 
 
 def _ensure_write_transaction(db: Session) -> None:
@@ -332,6 +452,7 @@ def _event_model(
     event: Event,
     *,
     sequence: int | None,
+    journal_seq: int | None,
     schema_version: str,
     conversation_id: str | None,
     step_id: str | None,
@@ -353,6 +474,7 @@ def _event_model(
         payload=event.payload,
         schema_version=schema_version,
         sequence=sequence,
+        journal_seq=journal_seq,
         conversation_id=conversation_id,
         step_id=step_id,
         executor=executor,
@@ -365,6 +487,7 @@ def store_event(
     event: Event,
     *,
     sequence: int | None = None,
+    journal_seq: int | None = None,
     commit: bool = True,
     schema_version: str = EVENT_SCHEMA_VERSION,
     conversation_id: str | None = None,
@@ -372,28 +495,64 @@ def store_event(
     executor: str | None = None,
     emitted_by: str | None = None,
 ) -> EventModel:
-    """Persiste un événement.
+    """Persiste un événement, en lui garantissant un numéro de journal.
 
     ``commit=True`` (défaut) préserve le comportement du Lot C pour les appelants
     existants qui n'ouvrent pas de transaction explicite. Un appelant qui possède
     déjà sa transaction passe ``commit=False`` : rien n'est validé avant son propre
     ``commit()``.
+
+    ``journal_seq`` n'est fourni que par ``publish``, qui mène déjà sa propre boucle
+    d'allocation. Sans lui, l'allocation est faite ici : un appelant direct (les
+    routeurs du Lot C) écrirait sinon une ligne sans numéro, donc invisible dans la
+    portée projet — exactement la perte silencieuse que ce curseur doit empêcher.
     """
 
-    _refuse_inline_media(event.payload)
-    model = _event_model(
-        event,
-        sequence=sequence,
-        schema_version=schema_version,
-        conversation_id=conversation_id,
-        step_id=step_id,
-        executor=executor,
-        emitted_by=emitted_by,
-    )
+    _refuse_media_payload(event.payload)
+    extra = {
+        "schema_version": schema_version,
+        "conversation_id": conversation_id,
+        "step_id": step_id,
+        "executor": executor,
+        "emitted_by": emitted_by,
+    }
+    if journal_seq is None:
+        return _store_numbered(db, event, sequence=sequence, commit=commit, **extra)
+    model = _event_model(event, sequence=sequence, journal_seq=journal_seq, **extra)
     db.add(model)
     if commit:
         db.commit()
     return model
+
+
+def _store_numbered(
+    db: Session, event: Event, *, sequence: int | None, commit: bool, **extra: Any
+) -> EventModel:
+    """Écrit en allouant le numéro de journal, avec la discipline de reprise de ``publish``."""
+
+    last_error: IntegrityError | None = None
+    _ensure_write_transaction(db)
+    for _ in range(SEQUENCE_ALLOCATION_ATTEMPTS):
+        model = _event_model(
+            event, sequence=sequence, journal_seq=allocate_journal_seq(db), **extra
+        )
+        try:
+            with db.begin_nested():
+                db.add(model)
+                db.flush()
+        except IntegrityError as exc:
+            if not _is_allocation_collision(exc):
+                raise
+            last_error = exc
+            continue
+        if commit:
+            db.commit()
+        return model
+
+    raise SequenceAllocationError(
+        "Numéro de journal indisponible après "
+        f"{SEQUENCE_ALLOCATION_ATTEMPTS} essais pour l'événement {event.id}."
+    ) from last_error
 
 
 def publish(
@@ -409,11 +568,12 @@ def publish(
     executor: str | None = None,
     emitted_by: str | None = None,
 ) -> int | None:
-    """Alloue la séquence, persiste, réveille les flux locaux puis relaie l'événement.
+    """Alloue les numéros, persiste, réveille les flux locaux puis relaie l'événement.
 
-    Retourne la séquence allouée, ou ``None`` pour un événement sans tentative
-    (l'unicité ``(task_run_id, sequence)`` est partielle : ces lignes restent
-    valides, simplement hors curseur).
+    Retourne la séquence de tentative allouée, ou ``None`` pour un événement sans
+    tentative (l'unicité ``(task_run_id, sequence)`` est partielle : ces lignes
+    restent valides, simplement hors du curseur de tentative). Le numéro de journal,
+    lui, est alloué dans **tous** les cas : c'est le curseur de la portée projet.
 
     ``background`` accepte les ``BackgroundTasks`` de FastAPI pour relayer
     l'événement au service temps réel après la réponse ; sans lui, le relais est
@@ -422,7 +582,7 @@ def publish(
     """
 
     # Refuser un média avant de prendre le moindre verrou d'écriture.
-    _refuse_inline_media(event.payload)
+    _refuse_media_payload(event.payload)
     extra = {
         "schema_version": schema_version,
         "conversation_id": conversation_id,
@@ -430,21 +590,28 @@ def publish(
         "executor": executor,
         "emitted_by": emitted_by,
     }
-    if not event.task_run_id:
-        store_event(db, event, sequence=None, commit=commit, **extra)
-        _schedule_forward(event, background=background, forward=forward)
-        return None
-
     last_error: IntegrityError | None = None
     _ensure_write_transaction(db)
     for _ in range(SEQUENCE_ALLOCATION_ATTEMPTS):
-        sequence = allocate_sequence(db, event.task_run_id)
+        # Les deux numéros sont relus à chaque essai : une allocation périmée ne
+        # doit jamais survivre à la reprise qui la corrige.
+        journal_seq = allocate_journal_seq(db)
+        sequence = (
+            allocate_sequence(db, event.task_run_id) if event.task_run_id else None
+        )
         try:
             with db.begin_nested():
-                store_event(db, event, sequence=sequence, commit=False, **extra)
+                store_event(
+                    db,
+                    event,
+                    sequence=sequence,
+                    journal_seq=journal_seq,
+                    commit=False,
+                    **extra,
+                )
                 db.flush()
         except IntegrityError as exc:
-            if not _is_sequence_collision(exc):
+            if not _is_allocation_collision(exc):
                 raise
             # Une autre transaction a pris ce numéro : l'index unique partiel est
             # le seul arbitre, on relit et on rejoue.
@@ -452,26 +619,42 @@ def publish(
             continue
         if commit:
             db.commit()
-        _notify(event, sequence, committed=commit, db=db)
+        _notify(
+            event,
+            sequence if sequence is not None else journal_seq,
+            committed=commit,
+            db=db,
+        )
         _schedule_forward(event, background=background, forward=forward)
         return sequence
 
+    scope = (
+        f"la tentative {event.task_run_id}" if event.task_run_id else "le journal"
+    )
     raise SequenceAllocationError(
-        "Séquence d'événement indisponible après "
-        f"{SEQUENCE_ALLOCATION_ATTEMPTS} essais pour la tentative {event.task_run_id}."
+        "Numéro d'événement indisponible après "
+        f"{SEQUENCE_ALLOCATION_ATTEMPTS} essais pour {scope}."
     ) from last_error
 
 
-def _notify(event: Event, sequence: int, *, committed: bool, db: Session) -> None:
-    """Réveille les flux du run et du projet, une fois la ligne visible."""
+def _notify(event: Event, wake_value: int, *, committed: bool, db: Session) -> None:
+    """Réveille les flux du run et du projet, une fois la ligne visible.
 
-    channels = [run_channel(event.task_run_id or "")]
+    ``wake_value`` n'est qu'un jeton de réveil : la lecture en base reste la source
+    de vérité, et un événement sans tentative réveille tout de même son projet.
+    """
+
+    channels = []
+    if event.task_run_id:
+        channels.append(run_channel(event.task_run_id))
     if event.project_id:
         channels.append(project_channel(event.project_id))
+    if not channels:
+        return
 
     def wake() -> None:
         for channel in channels:
-            event_hub.notify(channel, sequence)
+            event_hub.notify(channel, wake_value)
 
     if committed:
         wake()

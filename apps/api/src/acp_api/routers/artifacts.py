@@ -171,13 +171,18 @@ _UNSAFE_NAME_CHARACTERS = re.compile(r'["\\/]')
 def safe_content_type(declared: str, original_name: str) -> tuple[str, bool]:
     """Type réellement servi et autorisation d'aperçu, depuis l'allowlist serveur.
 
-    Le type déclaré et l'extension du nom d'origine doivent concorder : un fichier
-    ``piege.html`` annoncé ``image/png`` est un piège, pas une image. En cas de
-    désaccord — ou de type inconnu — le contenu est servi en
+    Un type de la liste « jamais en ligne » est écarté d'emblée : aucun nom d'origine
+    ne réhabilite ``text/html``, ``image/svg+xml`` ou une archive (§7).
+
+    Le type déclaré et l'extension du nom d'origine doivent ensuite concorder : un
+    fichier ``piege.html`` annoncé ``image/png`` est un piège, pas une image. En cas
+    de désaccord — ou de type inconnu — le contenu est servi en
     ``application/octet-stream`` et téléchargé.
     """
 
     normalized = (declared or "").split(";", 1)[0].strip().lower()
+    if normalized in NEVER_INLINE_CONTENT_TYPES:
+        return OCTET_STREAM, False
     suffix = PurePosixPath((original_name or "").replace("\\", "/")).suffix.lower()
     from_extension = EXTENSION_CONTENT_TYPES.get(suffix)
 
@@ -698,7 +703,12 @@ class UploadedFile:
 
 
 def _multipart_boundary(content_type: str | None) -> bytes:
-    """Extrait la frontière d'un en-tête ``multipart/form-data``."""
+    """Extrait la frontière d'un en-tête ``multipart/form-data``.
+
+    Le découpage simple sur « ; » suffit ici : les caractères autorisés dans une
+    frontière (RFC 2046 §5.1.1) excluent le point-virgule, contrairement à un nom de
+    fichier — voir ``_disposition_parameters`` pour ce dernier.
+    """
 
     raw = (content_type or "").strip()
     main, _, parameters = raw.partition(";")
@@ -723,16 +733,66 @@ def _multipart_boundary(content_type: str | None) -> bytes:
     )
 
 
+def _disposition_parameters(disposition: str) -> list[str]:
+    """Découpe un en-tête en paramètres, chaînes citées comprises (RFC 2045 §5.1).
+
+    Un « ; » à l'intérieur d'une chaîne citée appartient à la valeur. Le découper
+    naïvement tronquerait ``filename="a;b.png"`` en ``a`` et, pire, laisserait un
+    ``name=`` glissé dans le nom de fichier renommer la partie. Un guillemet non
+    fermé n'est pas deviné : l'en-tête est déclaré illisible.
+    """
+
+    parameters: list[str] = []
+    current: list[str] = []
+    quoted = False
+    escaped = False
+    for character in disposition:
+        if escaped:
+            escaped = False
+            current.append(character)
+            continue
+        if quoted and character == "\\":
+            escaped = True
+            current.append(character)
+            continue
+        if character == '"':
+            quoted = not quoted
+            current.append(character)
+            continue
+        if character == ";" and not quoted:
+            parameters.append("".join(current))
+            current = []
+            continue
+        current.append(character)
+    if quoted or escaped:
+        raise MultipartFormatError(
+            "Content-Disposition mal formé : guillemet non fermé."
+        )
+    parameters.append("".join(current))
+    return parameters
+
+
+def _unquote_parameter(value: str) -> str:
+    """Valeur d'un paramètre : chaîne citée déséchappée, ou jeton tel quel."""
+
+    value = value.strip()
+    if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+        return re.sub(r"\\(.)", r"\1", value[1:-1])
+    return value
+
+
 def _part_field_name(headers: dict[str, str]) -> tuple[str, str]:
     """Nom du champ et nom de fichier déclarés dans ``Content-Disposition``."""
 
     disposition = headers.get("content-disposition", "")
     name = ""
     file_name = ""
-    for parameter in disposition.split(";")[1:]:
-        key, _, value = parameter.partition("=")
+    for parameter in _disposition_parameters(disposition)[1:]:
+        key, separator, value = parameter.partition("=")
+        if not separator:
+            continue
         key = key.strip().lower()
-        value = value.strip().strip('"')
+        value = _unquote_parameter(value)
         if key == "name":
             name = value
         elif key == "filename":

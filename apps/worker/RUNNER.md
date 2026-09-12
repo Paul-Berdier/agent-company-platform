@@ -126,9 +126,19 @@ ingère ensuite.
   `ACP_WORKER_WEBTEST_ARGV_JSON` : `doctor` affiche l'argv en clair.
 
 La capacité `web_tests` n'est annoncée que si la configuration est complète **et**
-`ACP_WORKER_SIMULATION=0`. `agent-company-worker doctor` affiche `web_tests`,
-l'argv, la racine de projet, le délai, le plafond d'artefacts et le **nombre** de
-noms allowlistés — jamais une valeur d'environnement.
+que le mode enregistré est le mode réel. Ce mode est celui que `register`
+enregistre : `agent-company-worker register --real` suffit, même si
+`ACP_WORKER_SIMULATION` vaut encore `1`.
+
+`agent-company-worker doctor` affiche `web_tests`, l'argv, la racine de projet,
+le délai, le plafond d'artefacts et le **nombre** de noms allowlistés — jamais
+une valeur d'environnement. Trois états sont possibles :
+
+| `web_tests` | Signification |
+|---|---|
+| `disabled` | `ACP_WORKER_WEBTEST_ENABLED` absent ou `0`, ou configuration incomplète. |
+| `enabled` | Configuration complète **et** capacité `web_tests` présente dans `capabilities` : une mission `web_test_suite` sera exécutée par la suite Playwright. |
+| `enabled_not_announced` | Configuration complète mais mode simulé : la capacité n'est **pas** annoncée et une mission `web_test_suite` repartirait vers le programme local du Lot C. Enregistrez le worker avec `--real` (ou posez `ACP_WORKER_SIMULATION=0`). |
 
 ```powershell
 $env:ACP_WORKER_SIMULATION = '0'
