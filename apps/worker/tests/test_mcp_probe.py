@@ -355,7 +355,13 @@ async def test_environment_is_minimal_and_carries_no_worker_secret(
     )
 
     assert result["status"] == "succeeded", result["error"]
-    visible = set(result["server_info"]["environmentNames"])
+    # CPython pose lui-même ``LC_CTYPE`` dans son propre environnement quand il coerce
+    # une locale POSIX héritée (PEP 538), ce qui arrive sur les runners Linux dont la
+    # locale est `C`. Cette variable est créée par l'interpréteur enfant : elle ne
+    # provient pas de l'environnement du worker et ne peut donc pas transporter un
+    # secret. L'exclure garde l'égalité stricte sur ce que le worker transmet vraiment.
+    interpreter_injected = {"LC_CTYPE"}
+    visible = set(result["server_info"]["environmentNames"]) - interpreter_injected
     expected = {
         name for name in INHERITED_ENVIRONMENT_NAMES if name in os.environ
     } | {"MCP_SERVER_TOKEN"}
