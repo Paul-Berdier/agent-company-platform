@@ -7,7 +7,8 @@ configuration de production non livrée.
 ## Verdict actuel
 
 Le dépôt ne contient encore ni Dockerfile, ni manifeste Railway complet, ni job de
-migration, ni CI, ni test PostgreSQL/sauvegarde-restauration. Les commandes ci-dessous
+migration, ni test PostgreSQL/sauvegarde-restauration. La CI exécute les suites
+locales, le typecheck et le build, mais aucun déploiement. Les commandes ci-dessous
 décrivent les processus attendus ; elles ne prouvent pas que le produit est prêt à
 être publié. L'API, le gateway et le service d'événements ne doivent pas être exposés
 sur Internet dans leur état actuel.
@@ -54,8 +55,9 @@ Le web produit un SPA statique. L'hébergeur doit réécrire les routes comme
 `/projects`, `/missions` et `/connections` vers `index.html`. Le fichier
 `apps/web/public/_redirects` ne garantit pas à lui seul cette règle sur Railway.
 
-Ne pas déployer `apps/worker` comme pseudo-runner dans le serveur de contrôle : la
-boucle actuelle ne raccorde encore aucun exécuteur réel isolé.
+Ne pas déployer `apps/worker` dans le serveur de contrôle : son backend local réel
+est borné et contrôlé, mais il conserve les droits OS/réseau du compte worker et
+n'est pas une sandbox. L'exécuter sur une machine dédiée et non privilégiée.
 
 ## Variables plateforme
 
@@ -65,8 +67,8 @@ privées Railway :
 ```text
 ACP_DATABASE_URL=postgresql+psycopg://...
 ACP_API_URL=https://api.<domaine>
-ACP_EVENT_SERVICE_URL=http://event-service.railway.internal:<port>
-ACP_PROVIDER_GATEWAY_URL=http://provider-gateway.railway.internal:<port>
+ACP_EVENT_SERVICE_URL=https://events.<domaine>
+ACP_PROVIDER_GATEWAY_URL=https://gateway.<domaine>
 ACP_PLUGINS_DIR=./plugins
 ACP_CORS_ORIGINS=https://app.<domaine>
 
@@ -93,7 +95,7 @@ API_SERVER_KEY=<secret>
 Sur le provider-gateway :
 
 ```text
-HERMES_BASE_URL=http://<service-hermes-prive>:<port>
+HERMES_BASE_URL=https://<service-hermes-prive>
 HERMES_API_KEY=<même secret>
 HERMES_TIMEOUT_SECONDS=30
 HERMES_MAX_RETRIES=2
@@ -104,6 +106,11 @@ HERMES_POLL_INTERVAL_SECONDS=0.5
 Épingler Hermes sur `v2026.9.7` et conserver son stockage persistant. La vérification
 de santé du gateway appelle `/health/detailed` puis `/v1/capabilities`; un simple
 200 sur `/health` n'autorise pas un Run.
+
+Ces URL sont des cibles de sécurité, pas la preuve qu'un domaine ou TLS a été
+provisionné. Le worker Lot C refuse HTTP hors loopback afin de ne jamais envoyer ses
+jetons en clair ; une éventuelle adresse interne Railway doit donc être placée derrière
+une terminaison TLS vérifiée avant de raccorder un worker distant.
 
 ## Santé, arrêt et migration
 

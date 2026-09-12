@@ -58,6 +58,9 @@ def post_event(
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
     worker_id: str | None = Header(default=None, alias="X-Worker-Id"),
+    fencing_token: int | None = Header(
+        default=None, alias="X-Attempt-Fencing-Token"
+    ),
 ):
     """Ingestion réservée au worker qui détient le lease du run référencé."""
 
@@ -82,6 +85,8 @@ def post_event(
     run = db.get(TaskRunModel, lease.task_run_id)
     if task is None or run is None or event.project_id != task.project_id:
         raise HTTPException(status_code=400, detail="Événement hors du projet du run")
+    if task.is_mission and fencing_token != run.fencing_token:
+        raise HTTPException(status_code=409, detail="Fencing token requis ou périmé")
     if event.type not in _WORKER_EVENT_TYPES:
         raise HTTPException(
             status_code=400,

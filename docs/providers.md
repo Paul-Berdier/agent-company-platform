@@ -27,9 +27,10 @@ class OrchestratorProvider:
 
 ## Execution providers
 
-Exécutent *concrètement* les étapes : Claude Code, Codex CLI, shell restreint,
-workers spécialisés. Le MVP embarque un worker simulé ; les exécuteurs réels se
-brancheront au même endroit (claim → run → événements).
+Exécutent *concrètement* les étapes : Claude Code, Codex CLI, programme local fixe,
+workers spécialisés. Le Lot C raccorde un backend générique à exécutable configuré,
+sans shell et avec une politique très restrictive. Les adaptateurs spécialisés
+Claude/Codex restent préparatoires.
 
 ## Tool providers
 
@@ -50,7 +51,7 @@ opérations plateforme vers `POST /v1/runs` et le polling
 Configuration :
 
 ```text
-HERMES_BASE_URL           # URL du service (vide = provider indisponible, jamais bloquant)
+HERMES_BASE_URL           # URL du service ; vide = UI consultable, exécution Hermes bloquée
 HERMES_API_KEY            # jeton Bearer ; HERMES_SERVICE_TOKEN = alias de migration
 HERMES_TIMEOUT_SECONDS    # défaut 30
 HERMES_MAX_RETRIES        # défaut 2
@@ -62,10 +63,13 @@ Si Hermes est indisponible : `health_check` renvoie `available=false`, les appel
 lèvent `ProviderUnavailableError` (HTTP 503 côté gateway) et le worker échoue. Il
 n'existe plus de plan de secours local ni d'approbation implicite.
 
-Migrer Hermes vers un autre hébergement = changer `HERMES_BASE_URL`, rien d'autre.
-Hermes conserve sa mémoire interne ; la plateforme contrôle strictement le contexte
-transmis (jamais celui d'un autre projet).
+Migrer Hermes vers un autre hébergement exige de sauvegarder/restaurer son état,
+conserver une version compatible, vérifier santé et capacités, puis modifier
+`HERMES_BASE_URL` et faire tourner la clé si nécessaire. Changer seulement l'URL ne
+déplace ni les sessions ni la mémoire. La plateforme contrôle strictement le
+contexte transmis (jamais celui d'un autre projet).
 
-Cette tranche ne raccorde pas encore conversations, SSE, arrêt, approbations,
-profils, MCP, skills ou jobs. Le provider n'est disponible qu'après configuration
-et diagnostic complet ; un test mock n'est pas une connexion Hermes réelle.
+Les conversations sont raccordées à Hermes par Runs et accessibles depuis le web et
+le CLI. SSE, arrêt transmis à Hermes, approbations, profils, MCP, skills et jobs ne
+le sont pas encore. Le provider n'est disponible qu'après configuration et
+diagnostic complet ; un test mock n'est pas une connexion Hermes réelle.

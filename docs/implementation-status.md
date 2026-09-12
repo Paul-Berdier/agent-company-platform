@@ -1,175 +1,163 @@
 # État d'implémentation et reprise
 
 Date d'état : 11 septembre 2026, Europe/Paris
-Portée : release candidate locale du Lot B `0.3.0`, construite sur la branche du Lot A
+Portée : candidat de release local du Lot C `0.4.0`, construit sur le Lot B publié.
+La publication GitHub du Lot C — PR, CI distante et tag — n'a pas encore été
+effectuée.
 
 ## Résumé
 
-La modernisation complète n'est pas terminée. Le Lot B livre la première tranche
-personnelle sécurisée : bootstrap propriétaire, session web révocable, filtrage par
-projet, onboarding, diagnostic Hermes côté serveur et conversation web persistante.
-Un rechargement ou une nouvelle consultation reprend le même tour par `GET` et une
-nouvelle soumission incertaine conserve sa clé d'idempotence.
+La modernisation complète n'est pas terminée. Le Lot C livre la tranche mission :
+ressource durable, tentatives explicites, arrêt et relance contrôlés, preuves,
+validation technique, acceptation utilisateur, backend de processus local et CLI
+`acp` utilisant la même API que le web.
 
-Cette tranche n'a pas été reliée à une instance Hermes réellement lancée. Les tests
-du diagnostic et des Runs utilisent des doubles ou `httpx.MockTransport`. Il n'y a
-toujours ni runner réel, ni CLI `acp`, ni streaming utilisateur authentifié, ni
-migration versionnée. Le moteur pixel historique reste une option legacy désactivée
-par défaut ; le chantier pixel local préexistant est préservé et hors du Lot B.
+Le backend réel exécute uniquement un exécutable absolu via un argv fixe configuré
+par l'opérateur. Il ne prend jamais une commande dans la mission, crée un cwd neuf,
+transmet un snapshot borné, filtre l'environnement, borne le temps et les sorties,
+et arrête l'arbre de processus lors d'un stop, timeout ou lease perdu. Il reste un
+processus avec les droits OS du compte worker : ce n'est pas une sandbox pour du
+code non fiable.
 
-## Réalisé dans le code et couvert par des tests ciblés
+Aucune instance Hermes réelle, dépense externe, migration de production ou
+déploiement n'a été lancé. Les preuves locales reposent sur des programmes et
+transports déterministes de test.
 
-### Accès propriétaire et session
+## Réalisé et testé dans le Lot C
 
-- bootstrap unique conditionné par `ACP_BOOTSTRAP_TOKEN`, sans mot de passe ou compte
-  fourni par défaut et sans inscription publique ;
-- normalisation de l'identifiant et mot de passe haché avec Argon2id ;
-- jeton de session opaque dont seul le SHA-256 est persisté, expiration et révocation
-  serveur, cookie `HttpOnly` et `SameSite=Strict` ;
-- restauration de session avec rotation du jeton CSRF ; le frontend le conserve en
-  mémoire et l'envoie sur les mutations ;
-- réponses d'authentification `no-store`, erreurs de connexion génériques et refus
-  d'une identité forgée dans `X-User-Id` ;
-- tests API ciblant bootstrap, unicité, stockage des seuls hachages, connexion,
-  expiration, rotation CSRF, déconnexion et révocation ; tests TypeScript du client
-  d'authentification et des en-têtes.
+### Missions et tentatives
 
-### Autorisation, espace personnel et frontières de service
+- création atomique d'une mission et de sa première tentative avec objectif,
+  résultat attendu, critères, autonomie, ressources, budget et durée ;
+- `Idempotency-Key` obligatoire pour créer, arrêter et relancer ; la clé de création
+  est liée au principal et à l'empreinte du payload ;
+- replay d'un arrêt lié à sa tentative d'origine, sans risque d'arrêter une relance
+  ultérieure ;
+- états `queued`, `preparing`, `running`, `waiting_approval`, `blocked`, `stopping`,
+  `succeeded`, `failed`, `cancelled` et `interrupted` ;
+- numéro de tentative et fencing token monotones ; ancien worker refusé lors d'un
+  renew, PATCH ou événement ;
+- succès accepté seulement avec validation technique `passed` et preuve structurée ;
+- décision utilisateur séparée (`pending`, `accepted`, `rejected`), commentaires et
+  relance possible après rejet explicite ;
+- lecture directe d'une mission par identifiant de run pour les liens profonds ;
+- worker simulé exclu des missions réelles.
 
-- les routes utilisateur utilisent la session serveur ; les listes de workspaces,
-  projets, tâches, locks, approbations et artefacts sont filtrées par les scopes
-  accessibles ; les mutations exigent un rôle suffisant ;
-- le propriétaire global conserve l'administration, un membre/opérateur peut
-  travailler dans ses projets et un lecteur ne peut pas écrire ;
-- état d'onboarding authentifié et création d'un projet dans un workspace personnel
-  créé au besoin, avec memberships explicites ;
-- seul `/health` reste public sur le provider-gateway ; toutes ses autres routes
-  exigent `ACP_GATEWAY_SERVICE_TOKEN`. L'API et le worker utilisent ce jeton, jamais
-  le navigateur ;
-- ingestion du service d'événements protégée par `ACP_EVENT_SERVICE_TOKEN` ; le
-  WebSocket anonyme historique est fermé par défaut et ne peut être réactivé que par
-  un drapeau explicitement dangereux de développement ;
-- tests ciblés de refus/acceptation Bearer, fermeture sans configuration, isolation
-  lecteur/projet et WebSocket anonyme fermé.
+### Backend worker local
 
-### Hermes, Connexions et conversations
+- configuration fail-closed par `ACP_WORKER_RUNNER_ARGV_JSON` et
+  `ACP_WORKER_RUN_ROOT` ; exécutable absolu et situé hors de la racine inscriptible ;
+- enveloppe `acp.local-process.request.v1` et preuve
+  `acp.local-process.evidence.v1` à champs structurés allowlistés ; stdout/stderr
+  sont bornés et hachés, mais leur texte non expurgé peut contenir des secrets ;
+- création exclusive d'un répertoire par tentative, aucun rejeu implicite d'un cwd
+  existant et aucun shell ;
+- environnement minimal et allowlisté, stdout/stderr lus en continu, captures
+  bornées et SHA-256 de la totalité ;
+- deadline de mission, timeout, arrêt explicite, perte de lease et fencing obsolète
+  reliés à l'arrêt du groupe/arbre de processus ;
+- sortie du parent détectée indépendamment des pipes hérités et succès refusé si le
+  nettoyage de l'arbre ne peut pas être confirmé ;
+- code de sortie nul insuffisant : l'évaluateur doit répondre explicitement
+  `approved: true`, sinon l'état reste non réussi et la preuve technique est gardée ;
+- mode non supervisé, listes d'actions non vides, ressources en écriture et provider
+  `mock` refusés avant le spawn ; verdict lié au provider réel configuré ;
+- `doctor` exige liveness API/gateway, authentification worker et readiness
+  authentifiée du provider.
 
-- diagnostic Hermes typé : configuration, readiness, version attendue/détectée,
-  modèle, latence et cause exploitable, sans champ secret ;
-- diagnostic exposé au web uniquement via l'API authentifiée ; le navigateur ne
-  parle pas directement au provider-gateway et ne reçoit pas `HERMES_API_KEY` ;
-- admission asynchrone d'un Run conversationnel avec `Idempotency-Key` imposée par
-  l'appelant, puis lecture unitaire de `/v1/runs/{run_id}` sans boucle cachée dans le
-  gateway ;
-- conversation générale privée à son créateur (hors pouvoir d'administration du
-  propriétaire global) et conversation projet contrôlée par membership ;
-- conversations, tours, identifiant de session provider, identifiant de Run, sortie,
-  modèle, usage et erreur persistés en base ; unicité de `client_request_id` dans une
-  conversation et clé d'idempotence stable après résultat de soumission incertain ;
-- interface française pour bootstrap/connexion, Connexions et Conversations : liste,
-  création, brouillon local, envoi et polling `GET` jusqu'à un état terminal ;
-- tests API de persistance après relecture, reprise avec la même clé, conflit de
-  requête, confidentialité générale, droits lecteur et diagnostic ; tests TypeScript
-  du client de conversation, du CSRF et du contrat de polling.
+### Web et CLI synchronisés
 
-## Hérité du Lot A
+- écran Missions relié à l'API, avec état d'exécution, validation technique,
+  acceptation, critères, preuves, arrêt, relance et commentaires ;
+- lien `/missions?run=<id>` qui ouvre la mission et la tentative demandées, y compris
+  une tentative historique ;
+- clé de création web conservée après un timeout afin qu'un nouvel essai logique ne
+  duplique pas la mission ;
+- CLI installable : `login`, `logout`, `doctor`, projets, chat, création/suivi/arrêt
+  de missions, approbations, artefacts, workers, ouverture web et complétion shell ;
+- JSON/NDJSON, codes de sortie stables et `Ctrl+C` sur `runs watch` sans arrêt
+  implicite de la mission ;
+- configuration CLI atomique, session liée à l'origine API, HTTPS obligatoire hors
+  loopback et aucun Cookie/CSRF réutilisé après changement d'origine ;
+- commandes MCP, skills et automatisations explicitement non supportées tant que
+  leurs lots respectifs ne sont pas livrés.
 
-- shell moderne par défaut, thèmes clair/sombre, responsive et états explicites ;
-- moteur pixel conservé derrière l'activation legacy ;
-- exécution fail-closed : simulation `blocked`, succès refusé sans validation
-  technique et preuve, lease expiré réconcilié en `interrupted` ;
+## Hérité des Lots A et B
+
+- shell moderne français, thèmes, responsive, états vides/erreur/hors ligne et
+  pixel office historique désactivé par défaut ;
+- bootstrap propriétaire unique, Argon2id, session opaque révocable/expirable,
+  cookie `HttpOnly`, CSRF et rôles par projet ;
+- onboarding personnel et conversations persistantes ;
 - adaptateur Hermes `0.21.1` fondé sur `/health/detailed`, `/v1/capabilities` et
-  `/v1/runs`, avec validation stricte des sorties ;
-- baseline propre du Lot A : 19 tests web, 74 tests moteur et 78 tests Python
-  réussis, typecheck/build web réussis et audit npm sans vulnérabilité connue ; sa
-  publication reste conditionnée à la PR, à la CI verte et au tag `v0.2.0`.
+  `/v1/runs`, avec réponses strictes et frontière inter-services ;
+- service d'événements protégé en ingestion et WebSocket anonyme fermé par défaut.
 
-## Vérification finale propre du Lot B
+## Vérification du candidat de release
 
-Un worktree détaché sur le commit de code/version `df39634` a exclu tout le chantier
-Pixel/LimeZu local non commité. Sur cet état :
+Les résultats définitifs sont consignés dans
+[le rapport d'acceptation](acceptance-report.md). Le commit de code
+`5ff6aa78a232a721ae14353e907baefc548b4ccb`, arbre Git
+`e697087938aa7ba0247b39cf00b4a3ed9266fcb7`, a été vérifié dans un worktree
+propre sous Windows `10.0.19045` avec Python `3.12.14`, Node.js `v24.19.0` et npm
+`11.17.0`.
 
-- **121/121 tests Python réussis**, avec les deux warnings Starlette/AnyIO connus ;
-- **28/28 tests web réussis** dans 5 fichiers ;
-- **74/74 tests du moteur legacy réussis** dans 7 fichiers ;
-- synchronisation `0.3.0`, typecheck TypeScript et build Vite réussis ;
-- build web à **40 modules** et `npm audit` à **0 vulnérabilité connue**.
+La suite Python compte **323 tests réussis et 2 avertissements de dépréciation
+connus**. Les suites worker et CLI comptent **192 tests réussis** (`122` worker,
+`70` CLI), le web **29** et le moteur Pixel Office **74**. Le typecheck
+TypeScript, le build Vite, le contrôle des versions et la validation syntaxique
+des scripts POSIX réussissent également.
 
-Ces résultats prouvent la tranche locale versionnée, pas un E2E navigateur, une
-instance Hermes réelle ou un déploiement.
+Ces tests prouvent les invariants locaux. Ils ne prouvent pas une instance Hermes,
+un fournisseur payant, PostgreSQL existant, une sandbox OS, un E2E navigateur ou un
+déploiement Railway, ni une CI distante.
 
 ## Réalisé, non testé en conditions réelles
 
-- le diagnostic, l'admission et la reprise Hermes sont câblés sur les routes
-  officielles, mais aucune instance Hermes `0.21.1`, clé, modèle, mémoire ou outil
-  réel n'a été utilisé ;
-- les écrans d'authentification et de conversation sont implémentés, mais aucun test
-  navigateur E2E n'enchaîne encore bootstrap → rechargement → conversation sur des
-  services réellement démarrés ;
-- la persistance est testée sur SQLite et via SQLAlchemy `create_all()` ; elle ne
-  prouve ni migration d'une base existante, ni concurrence PostgreSQL ;
-- la reprise est un polling de statut à la demande. Il n'existe pas encore de flux
-  SSE/WebSocket utilisateur authentifié, outbox ou curseur durable ;
-- les deux warnings de dépendances Starlette/FastAPI identifiés au Lot A restent à
-  éliminer avec des versions de test verrouillées plutôt qu'en les masquant.
+- l'appel plan/évaluation passe par le provider-gateway et échoue fermé, mais aucune
+  instance Hermes `0.21.1`, clé, modèle, mémoire ou outil réel n'a été utilisé ;
+- le backend lance et arrête de vrais processus locaux dans les tests, sans lancer
+  d'agent externe ni effectuer d'effet sur un projet utilisateur ;
+- le web et le CLI partagent les routes et contrats testés séparément, sans E2E
+  navigateur → API → worker → Hermes ;
+- la compatibilité locale SQLite est un upgrade ad hoc non versionné qui peut
+  reconstruire des tables ; une sauvegarde préalable est requise. La migration d'une
+  base PostgreSQL existante n'est pas fournie dans ce lot.
 
-## Non configuré ou non livré
+## Non configuré ou restant
 
-- instance Hermes, clé de service et test réel opt-in ;
-- premier runner réel, sandbox, réseau borné et exécuteur Codex/Claude raccordé ;
-- CLI `acp`, streaming, stop/cancel Hermes, approbations Hermes et pièces jointes ;
-- import de dépôts/dossiers/documents et isolation de leurs fichiers/secrets ;
+- sandbox OS, utilisateur non privilégié dédié et politique réseau vérifiée ;
+- Job Object Windows ou scope cgroup/service POSIX empêchant un programme approuvé
+  de détacher volontairement un descendant ;
+- endpoint worker d'approbation d'une action exacte et exécution sensible ;
+- migrations PostgreSQL versionnées, rollback et restauration ;
+- flux utilisateur authentifié/rejouable, Playwright, captures, traces et fichiers
+  privés ;
 - centre MCP, bibliothèque de skills et coffre de secrets ;
-- Playwright, Studio direct/replay et stockage d'objets privé ;
-- PostgreSQL validé, migrations versionnées, outbox et reprise par curseur ;
-- artefacts téléchargeables, médias, 3D et automatisations ;
-- images de services, déploiement Railway, sauvegarde, restauration, rotation et
-  observabilité de production.
+- automatisations, budgets agrégés, notifications et calendrier Europe/Paris ;
+- médias, image, aperçu 3D et exécuteurs complémentaires ;
+- E2E navigateur, Hermes réel opt-in, Railway et observabilité de production.
 
-## Restant
+## Lots
 
 | Lot | Capacité verticale | État |
 |---|---|---|
-| A | audit, shell moderne, Hermes Runs strict et exécution fail-closed | **Vérifié ; publication PR/CI/tag en attente** |
-| B | accès propriétaire, RBAC, onboarding, diagnostic et conversation persistante | **Vérifié localement ; Hermes réel et E2E navigateur manquants** |
-| C | runner isolé réel, machine d'états validée, preuves, approbations/arrêt et CLI synchronisé | **Non commencé** |
-| D | MCP/skills versionnés, installation contrôlée, diagnostics, révocation et tests SSRF | **Non commencé** |
-| E | reporter Playwright, flux authentifié, traces, captures et bibliothèque de livrables | **Non commencé** |
-| F | automatisations à propriétaire unique, calendrier Europe/Paris, budgets et alertes | **Non commencé** |
-| G | images/3D et exécuteurs complémentaires, uniquement lorsque les backends sont configurés | **Non commencé** |
-| H | PostgreSQL/migrations, Railway, sauvegarde-restauration et validation finale | **Non commencé** |
+| A | audit, shell moderne, Hermes Runs strict et exécution fail-closed | **Publié : PR #1, tag `v0.2.0`** |
+| B | accès propriétaire, RBAC, onboarding et conversation persistante | **Publié : PR #2, tag `v0.3.0`** |
+| C | runner réel contrôlé, missions, preuves, validations et CLI | **Implémenté et vérifié localement ; PR, CI distante et tag non publiés** |
+| D | MCP/skills versionnés, installation contrôlée, diagnostics et révocation | **À réaliser ensuite** |
+| E | Playwright, flux authentifié, traces, captures et livrables | **Non commencé** |
+| F | automatisations, calendrier Europe/Paris, budgets et alertes | **Non commencé** |
+| G | médias/3D, exécuteurs complémentaires et durcissement | **Non commencé** |
+| H | migrations, Railway, sauvegarde-restauration et validation finale | **Non commencé** |
 
-## Ordre de reprise recommandé
+## Reprise après publication du Lot C
 
-1. Démarrer exactement Hermes `0.21.1` dans un environnement local isolé, vérifier
-   le diagnostic puis un tour conversationnel borné avec une clé d'idempotence, sans
-   secret dans les logs et sans fournisseur payant implicite.
-2. Ajouter un E2E navigateur des écrans bootstrap/connexion/rechargement,
-   onboarding, diagnostic et reprise d'une conversation.
-3. Introduire des migrations versionnées avant tout test sur une base existante ou
-   déploiement partagé.
-4. Livrer le runner réel et le CLI du Lot C ; ne pas présenter le polling web actuel
-   comme un streaming ou une reprise CLI.
-
-## Conditions pour annoncer le Lot B terminé
-
-- bootstrap unique, expiration, révocation, CSRF, refus d'identité forgée et RBAC
-  inter-projets sont verts dans la suite finale ;
-- le navigateur restaure une session et une conversation après rechargement sans
-  créer un second Run ;
-- un diagnostic et un Run borné réussissent contre une instance Hermes
-  `0.21.1` réellement lancée, ou le lot reste explicitement « non testé réel » ;
-- hors liveness explicitement publique, aucune donnée provider, événement,
-  conversation ou donnée métier n'est exposée anonymement ; le flux utilisateur
-  temps réel reste désactivé tant qu'il n'est pas authentifié et filtré ;
-- la documentation distingue les tests simulés, l'exécution réelle et les capacités
-  encore absentes.
-
-## Références de suivi
-
-- `docs/audit-modernisation.md` : constats et risques initiaux ;
-- `docs/architecture.md` : frontières et sources de vérité ;
-- `docs/hermes-integration.md` : contrat Runs, diagnostic et configuration ;
-- `docs/acceptance-report.md` : matrice des vingt scénarios ;
-- `docs/security.md` : contrôles livrés et bloqueurs avant exposition réseau ;
-- `docs/mcp-and-skills.md` et `docs/live-studio.md` : architectures des lots D et E.
+1. Construire le Lot D sur le commit de fonctionnalité du Lot C, sans absorber les
+   modifications Pixel/LimeZu locales hors périmètre.
+2. Implémenter d'abord les modèles/versionnements MCP et skills, les scopes projet,
+   le masquage des secrets et les contrôles SSRF/path/archive.
+3. Ajouter les parcours test/activation/révocation et leurs diagnostics avant les
+   écrans de catalogue.
+4. Publier uniquement après suite propre, PR verte et tag annoté `v0.5.0` sur le
+   commit mergé de `main`.

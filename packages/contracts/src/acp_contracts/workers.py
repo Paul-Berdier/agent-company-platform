@@ -86,3 +86,6 @@ class WorkerLeaseResponse(BaseModel):
     worker_id: str
     task_run_id: str
     lease_expires_at: datetime
+    status: str | None = None
+    stop_requested: bool = False
+    fencing_token: int | None = None

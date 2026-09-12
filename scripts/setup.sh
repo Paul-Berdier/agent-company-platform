@@ -4,8 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-[ -d .venv ] || python3 -m venv .venv
-PY=".venv/bin/python"
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    VENV=".venv-wsl"
+else
+    VENV=".venv"
+fi
+[ -d "$VENV" ] || python3 -m venv "$VENV"
+PY="$VENV/bin/python"
 
 "$PY" -m pip install --upgrade pip setuptools wheel
 "$PY" -m pip install \
@@ -15,6 +20,7 @@ PY=".venv/bin/python"
     -e packages/event-sdk \
     -e packages/agent-sdk \
     -e apps/api \
+    -e apps/cli \
     -e apps/event-service \
     -e apps/worker \
     -e "services/provider-gateway[test]"
@@ -22,4 +28,4 @@ PY=".venv/bin/python"
 npm install
 
 echo
-echo "Installation terminée. Lancez ./scripts/dev.sh"
+echo "Installation terminée. Lancez bash scripts/dev.sh"

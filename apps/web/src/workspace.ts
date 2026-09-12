@@ -2,12 +2,15 @@ import type { AcpEvent, Overview, Project, TaskSummary } from "@acp/contracts";
 
 import "./workspace.css";
 import {
-  MissionQueueError,
   WorkspaceApiClient,
   WorkspaceApiError,
   WorkspaceHttpClient,
   type ApprovalSummary,
+  type MissionComment,
+  type MissionDetail,
   type MissionInput,
+  type MissionRunResource,
+  type MissionSummary,
   type OnboardingProjectInput,
   type OnboardingStatus,
 } from "./workspace-api";
@@ -78,6 +81,16 @@ interface ConnectionState {
   error: WorkspaceApiError | null;
 }
 
+interface MissionState {
+  phase: ResourcePhase;
+  items: MissionSummary[];
+  commentsByMission: Map<string, MissionComment[]>;
+  focusedMission: MissionDetail | null;
+  focusedRunId: string | null;
+  error: WorkspaceApiError | null;
+  actionId: string | null;
+}
+
 const http = new WorkspaceHttpClient();
 const api = new WorkspaceApiClient({ http });
 const authApi = new AuthApiClient({ http });
@@ -109,6 +122,15 @@ const connectionState: ConnectionState = {
   diagnostic: null,
   error: null,
 };
+const missionState: MissionState = {
+  phase: "idle",
+  items: [],
+  commentsByMission: new Map(),
+  focusedMission: null,
+  focusedRunId: null,
+  error: null,
+  actionId: null,
+};
 const conversationDrafts = new Map<string, string>();
 const newConversationDraft = { projectId: "", title: "" };
 const newProjectDraft = { name: "", description: "", projectType: "generic" };
@@ -123,6 +145,7 @@ let conversationSequence = 0;
 let turnsSequence = 0;
 let pollSequence = 0;
 let connectionSequence = 0;
+let missionSequence = 0;
 let missionNotice: MissionNotice | null = null;
 let projectNotice: MissionNotice | null = null;
 let fieldSequence = 0;
@@ -497,6 +520,13 @@ function resetPrivateWorkspaceState(): void {
   connectionState.phase = "idle";
   connectionState.diagnostic = null;
   connectionState.error = null;
+  missionState.phase = "idle";
+  missionState.items = [];
+  missionState.commentsByMission.clear();
+  missionState.focusedMission = null;
+  missionState.focusedRunId = null;
+  missionState.error = null;
+  missionState.actionId = null;
   conversationDrafts.clear();
   newConversationDraft.projectId = "";
   newConversationDraft.title = "";
@@ -526,6 +556,7 @@ function requireLogin(): void {
   ++turnsSequence;
   ++pollSequence;
   ++connectionSequence;
+  ++missionSequence;
   authApi.clearLocalSession();
   resetPrivateWorkspaceState();
   authState.phase = "login";
@@ -1092,18 +1123,319 @@ function missionFeedbackNode(): HTMLElement {
   return feedback;
 }
 
+const MISSION_STATUS_LABELS: Record<string, string> = {
+  queued: "En file",
+  preparing: "Préparation",
+  running: "En cours",
+  waiting_approval: "Validation requise",
+  blocked: "Bloquée",
+  stopping: "Arrêt en cours",
+  succeeded: "Exécution réussie",
+  failed: "Échec",
+  cancelled: "Annulée",
+  interrupted: "Interrompue",
+};
+
+function missionStatusTone(status: string): string {
+  if (status === "succeeded") return "active";
+  if (["failed", "cancelled", "interrupted"].includes(status)) return "failed";
+  if (["waiting_approval", "blocked", "stopping"].includes(status)) return "waiting";
+  return "queued";
+}
+
+function missionActionKey(action: string, missionId: string): string {
+  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${++fieldSequence}`;
+  return `web-${action}-${missionId}-${random}`;
+}
+
+function requestedMissionRunId(): string | null {
+  const value = new URLSearchParams(window.location.search).get("run")?.trim() ?? "";
+  return value && value.length <= 200 ? value : null;
+}
+
+function displayedMissionRun(mission: MissionSummary): MissionRunResource {
+  if (missionState.focusedMission?.id !== mission.id || !missionState.focusedRunId) {
+    return mission.current_run;
+  }
+  return missionState.focusedMission.runs.find((run) => run.id === missionState.focusedRunId)
+    ?? mission.current_run;
+}
+
+async function loadMissions(): Promise<void> {
+  const sequence = ++missionSequence;
+  missionState.phase = "loading";
+  missionState.error = null;
+  if (currentRoute === "missions") renderCurrentRoute();
+  try {
+    const requestedRunId = requestedMissionRunId();
+    const missions = await api.fetchMissions();
+    const focusedMission = requestedRunId
+      ? await api.fetchMissionByRun(requestedRunId)
+      : null;
+    if (focusedMission && !missions.some((mission) => mission.id === focusedMission.id)) {
+      missions.unshift(focusedMission);
+    }
+    const commentEntries = await Promise.all(
+      missions.map(async (mission) => [
+        mission.id,
+        await api.fetchMissionComments(mission.id),
+      ] as const),
+    );
+    if (sequence !== missionSequence) return;
+    missionState.items = missions;
+    missionState.commentsByMission = new Map(commentEntries);
+    missionState.focusedMission = focusedMission;
+    missionState.focusedRunId = requestedRunId;
+    missionState.phase = "ready";
+  } catch (error) {
+    if (sequence !== missionSequence) return;
+    const apiError = normalizeApiError(error, "Les missions n’ont pas pu être chargées.");
+    if (apiError.status === 401) return requireLogin();
+    missionState.items = [];
+    missionState.commentsByMission.clear();
+    missionState.focusedMission = null;
+    missionState.focusedRunId = null;
+    missionState.phase = "error";
+    missionState.error = apiError;
+  }
+  if (currentRoute === "missions") renderCurrentRoute();
+}
+
+async function performMissionAction(
+  mission: MissionSummary,
+  action: "stop" | "retry" | "accept" | "reject",
+): Promise<void> {
+  missionState.actionId = mission.id;
+  missionNotice = null;
+  if (currentRoute === "missions") renderCurrentRoute();
+  try {
+    if (action === "stop") {
+      await api.stopMission(mission.id, missionActionKey("stop", mission.id));
+      missionNotice = { tone: "success", message: `L’arrêt de « ${mission.title} » a été demandé.` };
+    } else if (action === "retry") {
+      await api.retryMission(
+        mission.id,
+        "Relance contrôlée demandée depuis l’interface web.",
+        missionActionKey("retry", mission.id),
+      );
+      missionNotice = { tone: "success", message: `Une nouvelle tentative a été créée pour « ${mission.title} ».` };
+    } else {
+      await api.decideMissionAcceptance(
+        mission.id,
+        mission.current_run.id,
+        action === "accept" ? "accepted" : "rejected",
+      );
+      missionNotice = {
+        tone: action === "accept" ? "success" : "warning",
+        message: action === "accept"
+          ? `Le résultat de « ${mission.title} » a été accepté.`
+          : `Le résultat de « ${mission.title} » a été refusé.`,
+      };
+    }
+    await loadMissions();
+  } catch (error) {
+    const apiError = normalizeApiError(error, "L’action sur la mission a échoué.");
+    if (apiError.status === 401) return requireLogin();
+    missionNotice = { tone: "error", message: errorMessage(apiError) };
+  } finally {
+    missionState.actionId = null;
+    if (currentRoute === "missions") renderCurrentRoute();
+  }
+}
+
+async function submitMissionComment(
+  mission: MissionSummary,
+  runId: string,
+  body: string,
+): Promise<void> {
+  const normalized = body.trim();
+  if (!normalized) return;
+  missionState.actionId = mission.id;
+  missionNotice = null;
+  if (currentRoute === "missions") renderCurrentRoute();
+  try {
+    const comment = await api.addMissionComment(
+      mission.id,
+      runId,
+      normalized,
+      missionActionKey("comment", mission.id),
+    );
+    const existing = missionState.commentsByMission.get(mission.id) ?? [];
+    missionState.commentsByMission.set(
+      mission.id,
+      [...existing.filter((item) => item.id !== comment.id), comment],
+    );
+    missionNotice = { tone: "success", message: `Commentaire ajouté à « ${mission.title} ».` };
+  } catch (error) {
+    const apiError = normalizeApiError(error, "Le commentaire n’a pas pu être ajouté.");
+    if (apiError.status === 401) return requireLogin();
+    missionNotice = { tone: "error", message: errorMessage(apiError) };
+  } finally {
+    missionState.actionId = null;
+    if (currentRoute === "missions") renderCurrentRoute();
+  }
+}
+
+function renderMissionList(overview: Overview): HTMLElement {
+  const list = el("div", "item-list mission-results");
+  for (const mission of missionState.items) {
+    const run = displayedMissionRun(mission);
+    const isCurrentRun = run.id === mission.current_run.id;
+    const isFocusedRun = missionState.focusedRunId === run.id;
+    const item = el("article", "mission-result-card");
+    if (isFocusedRun) {
+      item.dataset.focused = "true";
+      item.setAttribute("aria-label", `Tentative demandée : ${mission.title}`);
+    }
+    const header = el("div", "mission-result-header");
+    const copy = el("div", "list-item-copy");
+    copy.append(
+      el("h3", "list-item-title", mission.title),
+      el("p", "list-item-meta", `${projectName(overview, mission.project_id)} · tentative ${run.attempt_number}`),
+    );
+    header.append(copy, statusChip(MISSION_STATUS_LABELS[run.status] ?? run.status, missionStatusTone(run.status)));
+    if (!isCurrentRun) {
+      copy.append(el("p", "form-hint", "Tentative historique ouverte depuis le lien direct ; les actions portent uniquement sur la tentative courante."));
+    }
+
+    const validation = el("div", "mission-validation-grid");
+    const technical = el("div", "mission-validation-item");
+    technical.append(
+      el("span", "mission-validation-label", "Validation technique"),
+      statusChip(
+        run.technical_validation.status === "passed"
+          ? "Réussie"
+          : run.technical_validation.status === "failed" ? "Échouée" : "En attente",
+        run.technical_validation.status === "passed"
+          ? "active"
+          : run.technical_validation.status === "failed" ? "failed" : "waiting",
+      ),
+    );
+    const acceptance = el("div", "mission-validation-item");
+    acceptance.append(
+      el("span", "mission-validation-label", "Acceptation utilisateur"),
+      statusChip(
+        run.user_acceptance.status === "accepted"
+          ? "Acceptée"
+          : run.user_acceptance.status === "rejected" ? "Refusée" : "En attente",
+        run.user_acceptance.status === "accepted"
+          ? "active"
+          : run.user_acceptance.status === "rejected" ? "failed" : "waiting",
+      ),
+    );
+    validation.append(technical, acceptance);
+
+    const criteria = el("ul", "mission-criteria");
+    for (const criterion of mission.acceptance_criteria) criteria.append(el("li", "", criterion));
+    const evidence = el("div", "mission-evidence");
+    evidence.append(el("h4", "diagnostic-subtitle", `Preuves (${run.evidence.length})`));
+    if (run.evidence.length) {
+      const evidenceList = el("ul", "mission-criteria");
+      for (const proof of run.evidence) {
+        const suffix = proof.exit_code === null ? "" : ` · code ${proof.exit_code}`;
+        evidenceList.append(el("li", "", `${proof.kind} — ${proof.summary}${suffix}`));
+      }
+      evidence.append(evidenceList);
+    } else {
+      evidence.append(el("p", "form-hint", "Aucune preuve structurée n’a encore été enregistrée."));
+    }
+
+    const actions = el("div", "mission-result-actions");
+    const busy = missionState.actionId === mission.id;
+    if (isCurrentRun && ["queued", "preparing", "running", "waiting_approval", "blocked"].includes(run.status)) {
+      const stop = el("button", "button button-secondary", busy ? "Action en cours…" : "Arrêter") as HTMLButtonElement;
+      stop.type = "button";
+      stop.disabled = busy;
+      stop.addEventListener("click", () => void performMissionAction(mission, "stop"));
+      actions.append(stop);
+    }
+    if (
+      isCurrentRun
+      && (["failed", "cancelled", "interrupted"].includes(run.status)
+      || (run.status === "succeeded" && run.user_acceptance.status === "rejected"))
+    ) {
+      const retry = el("button", "button button-secondary", busy ? "Action en cours…" : "Relancer") as HTMLButtonElement;
+      retry.type = "button";
+      retry.disabled = busy;
+      retry.addEventListener("click", () => void performMissionAction(mission, "retry"));
+      actions.append(retry);
+    }
+    if (
+      isCurrentRun
+      && run.status === "succeeded"
+      && run.technical_validation.status === "passed"
+      && run.user_acceptance.status === "pending"
+    ) {
+      const accept = el("button", "button button-primary", "Accepter") as HTMLButtonElement;
+      const reject = el("button", "button button-secondary", "Refuser") as HTMLButtonElement;
+      accept.type = "button";
+      reject.type = "button";
+      accept.disabled = busy;
+      reject.disabled = busy;
+      accept.addEventListener("click", () => void performMissionAction(mission, "accept"));
+      reject.addEventListener("click", () => void performMissionAction(mission, "reject"));
+      actions.append(accept, reject);
+    }
+
+    const comments = (missionState.commentsByMission.get(mission.id) ?? [])
+      .filter((comment) => comment.run_id === run.id);
+    const commentHistory = el("div", "mission-comments");
+    commentHistory.append(el("h4", "diagnostic-subtitle", `Commentaires (${comments.length})`));
+    if (comments.length) {
+      const commentList = el("ul", "mission-comment-list");
+      for (const comment of comments) {
+        const date = comment.created_at ? ` · ${formatDateTime(comment.created_at)}` : "";
+        commentList.append(el("li", "", `${comment.body} — ${comment.author_user_id}${date}`));
+      }
+      commentHistory.append(commentList);
+    } else {
+      commentHistory.append(el("p", "form-hint", "Aucun commentaire pour cette tentative."));
+    }
+
+    const commentForm = el("form", "mission-comment-form") as HTMLFormElement;
+    const commentInput = el("input", "form-control") as HTMLInputElement;
+    commentInput.name = "comment";
+    commentInput.maxLength = 20_000;
+    commentInput.required = true;
+    commentInput.placeholder = "Commenter cette tentative…";
+    const commentSubmit = el("button", "button button-secondary", "Ajouter") as HTMLButtonElement;
+    commentSubmit.type = "submit";
+    commentSubmit.disabled = busy;
+    commentForm.append(commentInput, commentSubmit);
+    commentForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!commentForm.reportValidity()) return;
+      void submitMissionComment(mission, run.id, commentInput.value);
+    });
+
+    item.append(
+      header,
+      el("p", "mission-objective", mission.objective),
+      validation,
+      el("h4", "diagnostic-subtitle", "Critères d’acceptation"),
+      criteria,
+      evidence,
+      actions,
+      commentHistory,
+      commentForm,
+    );
+    list.append(item);
+  }
+  return list;
+}
+
 function renderMissions(overview: Overview): void {
   const intro = el("section", "page-intro");
   intro.append(
     el("p", "workspace-eyebrow", "Exécution réelle"),
     el("h2", "page-title", "Missions"),
-    el("p", "page-description", "Une mission crée une tâche métier puis demande sa mise en file. Le succès n’est affiché qu’après confirmation des deux réponses."),
+    el("p", "page-description", "Chaque mission conserve ses tentatives, son arrêt réel, ses preuves et ses validations sans confondre exécution et acceptation."),
   );
   content.append(intro);
 
   const layout = el("div", "missions-layout");
   const composer = el("section", "content-section mission-composer");
-  composer.append(sectionHeader("Nouvelle mission", "Les critères sont transmis dans les métadonnées de la tâche."));
+  composer.append(sectionHeader("Nouvelle mission", "La création est atomique et produit immédiatement une première tentative en file."));
   if (!overview.projects.length) {
     composer.append(statePanel("empty", "Projet requis", "Aucun projet n’est disponible pour recevoir une mission."));
   } else {
@@ -1111,10 +1443,24 @@ function renderMissions(overview: Overview): void {
   }
 
   const existing = el("section", "content-section");
-  existing.append(sectionHeader("Tâches et missions", "L’overview actuel ne permet pas encore de distinguer les anciennes tâches des missions."));
-  existing.append(overview.tasks.length
-    ? renderTaskList(overview, overview.tasks)
-    : statePanel("empty", "Aucune mission", "Aucune tâche métier n’a encore été créée."));
+  existing.append(sectionHeader("Missions et résultats", "État d’exécution, validation technique et acceptation utilisateur restent séparés."));
+  if (missionState.phase === "idle") {
+    missionState.phase = "loading";
+    queueMicrotask(() => void loadMissions());
+  }
+  if (missionState.phase === "loading") {
+    existing.append(statePanel("loading", "Chargement des missions", "Lecture des tentatives et des preuves persistées…"));
+  } else if (missionState.phase === "error") {
+    existing.append(statePanel(
+      missionState.error?.kind === "offline" ? "offline" : "error",
+      "Missions indisponibles",
+      missionState.error ? errorMessage(missionState.error) : "La réponse reçue est inexploitable.",
+    ));
+  } else {
+    existing.append(missionState.items.length
+      ? renderMissionList(overview)
+      : statePanel("empty", "Aucune mission", "Aucune mission n’a encore été créée."));
+  }
   layout.append(composer, existing);
   content.append(layout);
 }
@@ -1133,6 +1479,7 @@ function labeledField(labelText: string, control: HTMLElement, hint = ""): HTMLE
 function createMissionForm(overview: Overview): HTMLFormElement {
   const form = el("form", "mission-form");
   form.noValidate = true;
+  let pendingCreate: { fingerprint: string; key: string } | null = null;
 
   const projectSelect = el("select", "form-control") as HTMLSelectElement;
   projectSelect.name = "projectId";
@@ -1173,13 +1520,13 @@ function createMissionForm(overview: Overview): HTMLFormElement {
   autonomySelect.name = "autonomy";
   const autonomyOptions = [
     ["read_only", "Lecture seule"],
-    ["isolated_work", "Travail en environnement isolé"],
-    ["sensitive_on_approval", "Actions sensibles sur validation"],
+    ["isolated_work", "Travail isolé (runner compatible requis)"],
+    ["sensitive_on_approval", "Actions sensibles (runner compatible requis)"],
   ] as const;
   for (const [value, label] of autonomyOptions) {
     const option = el("option", "", label) as HTMLOptionElement;
     option.value = value;
-    if (value === "isolated_work") option.selected = true;
+    if (value === "read_only") option.selected = true;
     autonomySelect.append(option);
   }
 
@@ -1193,8 +1540,30 @@ function createMissionForm(overview: Overview): HTMLFormElement {
 
   const split = el("div", "form-split");
   split.append(
-    labeledField("Niveau d’autonomie", autonomySelect, "Cette valeur est enregistrée ; son application dépend du runner."),
+    labeledField("Niveau d’autonomie", autonomySelect, "Le backend local Lot C n'accepte que le mode Lecture seule supervisé."),
     labeledField("Priorité", prioritySelect),
+  );
+
+  const durationInput = el("input", "form-control") as HTMLInputElement;
+  durationInput.name = "durationMinutes";
+  durationInput.type = "number";
+  durationInput.min = "1";
+  durationInput.max = "525600";
+  durationInput.value = "60";
+  durationInput.required = true;
+
+  const maxToolCallsInput = el("input", "form-control") as HTMLInputElement;
+  maxToolCallsInput.name = "maxToolCalls";
+  maxToolCallsInput.type = "number";
+  maxToolCallsInput.min = "1";
+  maxToolCallsInput.max = "10000";
+  maxToolCallsInput.value = "50";
+  maxToolCallsInput.required = true;
+
+  const limits = el("div", "form-split");
+  limits.append(
+    labeledField("Durée maximale (minutes)", durationInput),
+    labeledField("Budget d’appels outils", maxToolCallsInput, "Une limite inconnue n’est jamais assimilée à zéro."),
   );
 
   const feedback = missionFeedbackNode();
@@ -1208,6 +1577,7 @@ function createMissionForm(overview: Overview): HTMLFormElement {
     labeledField("Résultat attendu", expectedInput),
     labeledField("Critères d’acceptation", criteriaInput),
     split,
+    limits,
     feedback,
     submit,
   );
@@ -1221,32 +1591,46 @@ function createMissionForm(overview: Overview): HTMLFormElement {
       title: String(data.get("title") ?? "").trim(),
       objective: String(data.get("objective") ?? "").trim(),
       expectedResult: String(data.get("expectedResult") ?? "").trim(),
-      acceptanceCriteria: String(data.get("acceptanceCriteria") ?? "").trim(),
+      acceptanceCriteria: String(data.get("acceptanceCriteria") ?? "")
+        .split(/[;\n]+/)
+        .map((criterion) => criterion.trim())
+        .filter(Boolean),
       autonomy: String(data.get("autonomy")) as MissionInput["autonomy"],
       priority: Number(data.get("priority") ?? 3),
+      durationSeconds: Math.round(Number(data.get("durationMinutes") ?? 60) * 60),
+      maxToolCalls: Math.round(Number(data.get("maxToolCalls") ?? 50)),
     };
 
     submit.disabled = true;
     submit.textContent = "Création en cours…";
     form.setAttribute("aria-busy", "true");
     feedback.dataset.tone = "pending";
-    feedback.textContent = "Création de la tâche métier…";
+    feedback.textContent = "Création de la mission et de sa première tentative…";
     missionNotice = null;
 
+    const fingerprint = JSON.stringify(input);
+    if (!pendingCreate || pendingCreate.fingerprint !== fingerprint) {
+      pendingCreate = {
+        fingerprint,
+        key: missionActionKey("create", input.projectId),
+      };
+    }
+
     try {
-      const result = await api.createAndQueueMission(input);
+      const result = await api.createMission(input, pendingCreate.key);
+      pendingCreate = null;
       missionNotice = {
         tone: "success",
-        message: `Mission « ${result.queued.title} » créée et mise en file (identifiant ${result.queued.id}).`,
+        message: `Mission « ${result.title} » créée et mise en file (identifiant ${result.id}).`,
       };
+      missionState.phase = "idle";
       await loadWorkspaceData();
+      await loadMissions();
     } catch (error) {
-      if (error instanceof MissionQueueError) {
-        missionNotice = {
-          tone: "warning",
-          message: `La tâche ${error.taskId} existe, mais sa mise en file n’est pas confirmée : ${error.cause.message}`,
-        };
-      } else if (error instanceof WorkspaceApiError) {
+      if (!(error instanceof WorkspaceApiError) || error.kind !== "offline") {
+        pendingCreate = null;
+      }
+      if (error instanceof WorkspaceApiError) {
         missionNotice = { tone: "error", message: errorMessage(error) };
       } else {
         missionNotice = { tone: "error", message: "La mission n’a pas pu être créée." };
@@ -1958,6 +2342,7 @@ function navigate(path: string, focusContent: boolean): void {
   }
   window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
   currentRoute = routeFromPathname(url.pathname);
+  if (currentRoute === "missions") missionState.phase = "idle";
   renderCurrentRoute();
   if (focusContent) content.focus();
 }
@@ -1974,6 +2359,7 @@ root.addEventListener("click", (event) => {
 window.addEventListener("popstate", () => {
   if (currentRoute === "conversations") ++pollSequence;
   currentRoute = routeFromPathname(window.location.pathname);
+  if (currentRoute === "missions") missionState.phase = "idle";
   renderCurrentRoute();
   content.focus();
 });

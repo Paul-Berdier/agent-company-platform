@@ -4,15 +4,14 @@ Poste de travail personnel pour organiser des projets et des missions, raccorder
 Hermes Agent et, à terme, piloter des runners et outils spécialisés depuis le web et
 un CLI commun.
 
-La modernisation est engagée par tranches. Après les fondations du Lot A, le Lot B
-ferme l'accès utilisateur, ajoute l'espace personnel et livre une conversation web
-persistante adossée à l'API Runs officielle de Hermes. Les frontières de service et
-les écritures web sensibles échouent désormais fermées. Une instance Hermes réelle,
-un runner réel, le streaming et le CLI `acp` ne sont toutefois pas encore livrés. Le
-détail exact se trouve dans
+La modernisation est engagée par tranches. Le Lot C ajoute aux fondations sécurisées
+et aux conversations du Lot B une ressource mission durable, des tentatives
+clôturées par fencing token, un backend de processus local configuré et le CLI
+`acp`. Une instance Hermes réelle, le streaming utilisateur et une isolation OS du
+runner ne sont toutefois pas encore validés. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version préparée pour le Lot B : **0.3.0**. Les changements versionnés sont décrits dans
+Version du Lot C : **0.4.0**. Les changements versionnés sont décrits dans
 [CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
@@ -35,13 +34,23 @@ Version préparée pour le Lot B : **0.3.0**. Les changements versionnés sont d
   puis le tour est repris par consultation `GET` sans dépendre de l'onglet ouvert ;
 - tâches, runs, workers enrôlés, leases, locks, approbations, événements persistés et
   métadonnées d'artefacts dans le socle FastAPI/SQLAlchemy ;
+- missions atomiques avec objectif, critères, autonomie, budget et durée ; arrêt,
+  relance idempotente, commentaires, preuves, validation technique et acceptation
+  utilisateur séparées ;
+- worker réel opt-in exécutant exclusivement un argv local configuré, sans shell,
+  dans un cwd neuf, avec environnement/captures/timeout bornés, arrêt de l'arbre de
+  processus et verdict fail-closed ; ce backend n'accepte que les missions
+  supervisées dont les trois listes d'actions sont vides et les ressources en
+  lecture seule ;
+- CLI `acp` connecté à la même API pour l'accès, les projets, conversations,
+  missions, runs, approbations, artefacts et workers, avec JSON et codes de sortie ;
 - provider Hermes `0.21.1` via `/health/detailed`, `/v1/capabilities` et
   `/v1/runs` ;
 - diagnostic Hermes typé visible dans Connexions, sans clé dans le navigateur ;
 - surface métier du provider-gateway privée derrière un Bearer inter-services ;
   ingestion du service d'événements protégée et WebSocket anonyme fermé par défaut ;
-- simulation worker explicitement `blocked`, jamais présentée comme une exécution
-  réussie ;
+- terminaison nominale d'une simulation worker en `blocked` (ou `failed` si sa
+  préparation échoue), jamais présentée comme une exécution réussie ;
 - refus d'un succès de run sans validation technique `passed` et preuve ;
 - bureau pixel historique préservé mais non chargé par défaut.
 
@@ -54,10 +63,10 @@ Ce qui ne fonctionne pas encore est visible comme `Non configuré` et recensé d
 ```text
 Web (Vite/TypeScript) ─┐
                       ├── API métier (FastAPI) ── base plateforme
-CLI acp (à livrer) ───┘         │
+CLI acp ───────────────┘         │
                                 ├── provider-gateway ── Hermes Agent séparé
                                 ├── service d'événements
-                                └── workers enrôlés ── runners à livrer
+                                └── workers enrôlés ── backend local configuré
 ```
 
 La plateforme est la source de vérité des projets, droits, missions et preuves.
@@ -82,8 +91,8 @@ Sous Windows PowerShell :
 Sous Linux/macOS :
 
 ```bash
-./scripts/setup.sh
-./scripts/dev.sh
+bash scripts/setup.sh
+bash scripts/dev.sh
 ```
 
 L'interface est ensuite disponible sur `http://localhost:5173`. Services locaux :
@@ -102,6 +111,10 @@ l'ingestion d'événements utilise un `ACP_EVENT_SERVICE_TOKEN` distinct. Ne jam
 committer `.env`, une clé Hermes ou un jeton worker. Aucun secret par défaut n'est
 fourni.
 
+Les URL inter-services qui transportent ces Bearers doivent être des origines sans
+userinfo, chemin, query ni fragment ; HTTP est accepté uniquement sur loopback et
+HTTPS est obligatoire ailleurs.
+
 Au premier affichage, le formulaire « Sécuriser le premier accès » consomme le jeton
 de bootstrap et crée l'unique propriétaire initial. Les visites suivantes restaurent
 la session ou affichent la connexion ; elles ne rouvrent pas l'inscription. En HTTP
@@ -111,7 +124,34 @@ HTTPS.
 Le seed local reste un jeu de démonstration et `create_all()` ne remplace pas des
 migrations de production. Un worker doit être enregistré séparément selon
 [la procédure Windows](docs/workers/windows-worker.md). Son mode simulation termine
-en `blocked`. Aucun exécuteur réel n'est raccordé à la boucle worker actuelle.
+nominalement en `blocked` et ne peut jamais réussir. Le mode réel exige un argv, une
+racine et un provider non simulé configurés localement ; le programme autorisé
+conserve les droits OS du compte worker et n'est donc pas une sandbox pour du code
+non fiable.
+
+## CLI et missions
+
+Après `setup`, activer l'environnement (`. .\.venv\Scripts\Activate.ps1` sous
+PowerShell ou `source .venv/bin/activate` sous POSIX), ou appeler directement
+`.venv\Scripts\acp.exe` / `.venv/bin/acp`. Sous WSL, les scripts utilisent
+`.venv-wsl` afin de ne jamais mélanger les exécutables Linux et Windows ; activer
+`source .venv-wsl/bin/activate`. La configuration/session WSL vit par défaut dans
+`~/.config`, séparément de `%APPDATA%` côté Windows. Les commandes principales
+utilisent la même API et le même modèle de session que le web ; chaque client ouvre
+sa propre session :
+
+```powershell
+acp login
+acp doctor
+acp projects list
+acp run --project <project-id> --goal "Vérifier le dépôt" `
+  --expected "Rapport vérifiable" `
+  --accept "La vérification termine avec le code 0"
+acp runs watch <mission-id>
+```
+
+Quitter `runs watch` n'arrête pas la mission ; `acp runs stop <mission-id>` est une
+action distincte. Voir [Missions, runner local et CLI](docs/missions-and-cli.md).
 
 ## Hermes
 
@@ -159,6 +199,7 @@ npm test --workspace @acp/web
 npm test --workspace @acp/pixel-office-engine
 npm run build:web
 python -m pytest -q
+python -m pytest -q apps/cli/tests
 ```
 
 Les résultats réellement obtenus, l'environnement Python utilisé, les warnings et
@@ -174,6 +215,7 @@ reprise web actuelle repose sur un polling `GET`, pas sur un streaming SSE/WebSo
 - [Décisions de réutilisation](docs/reuse-decisions.md)
 - [Système visuel](docs/design-system.md)
 - [Intégration Hermes](docs/hermes-integration.md)
+- [Missions, runner local et CLI](docs/missions-and-cli.md)
 - [Sécurité](docs/security.md)
 - [Centre MCP et skills — cible](docs/mcp-and-skills.md)
 - [Studio en direct — cible](docs/live-studio.md)

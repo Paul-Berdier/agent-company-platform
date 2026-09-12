@@ -764,6 +764,92 @@ a {
   gap: 15px;
 }
 
+.mission-results {
+  gap: 14px;
+}
+
+.mission-result-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--workspace-surface) 94%, transparent);
+}
+
+.mission-result-card[data-focused="true"] {
+  border-color: var(--workspace-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--workspace-accent) 24%, transparent);
+}
+
+.mission-result-header,
+.mission-result-actions,
+.mission-validation-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.mission-result-header {
+  justify-content: space-between;
+}
+
+.mission-objective {
+  margin: 0;
+  color: var(--workspace-text-soft);
+  line-height: 1.55;
+}
+
+.mission-validation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mission-validation-item {
+  justify-content: space-between;
+  padding: 10px;
+  border-radius: 9px;
+  background: var(--workspace-bg);
+}
+
+.mission-validation-label {
+  font-size: 12px;
+  color: var(--workspace-text-soft);
+}
+
+.mission-criteria {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--workspace-text-soft);
+  font-size: 13px;
+}
+
+.mission-result-actions {
+  flex-wrap: wrap;
+}
+
+.mission-comment-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.mission-comments {
+  display: grid;
+  gap: 8px;
+}
+
+.mission-comment-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  color: var(--color-text-muted);
+}
+
 .form-field {
   display: grid;
   gap: 6px;

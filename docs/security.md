@@ -1,19 +1,24 @@
 # Sécurité et frontières de confiance
 
 Date d'état : 11 septembre 2026
-Statut : frontières utilisateur et inter-services du Lot B fermées ; production
-interdite tant que les contrôles runner, stockage et exploitation restent absents
+Statut : frontières utilisateur/inter-services fermées et runner local contrôlé au
+Lot C ; production interdite sans isolation OS/réseau, stockage et exploitation
 
 ## Conclusion
 
-Le Lot B livre un bootstrap propriétaire unique, des sessions serveur révocables et
+Le Lot C conserve le bootstrap propriétaire, les sessions serveur révocables et
 expirables, une protection CSRF et des rôles appliqués aux routes utilisateur. Les
 frontières API → provider-gateway et API → event-service utilisent des secrets
 inter-services distincts ; les surfaces sans secret configuré échouent fermées.
 
+Le worker réel est désormais un opt-in : seul un exécutable absolu via un argv local
+fixe et configuré peut démarrer, avec tentative/fencing, cwd neuf, environnement
+minimal, durée et sorties bornées, et arrêt de l'arbre de processus. Une politique
+d'autonomie que ce backend ne peut pas appliquer est refusée avant le spawn.
+
 Ces garanties ne rendent pas encore la plateforme exploitable sur Internet. Il
 reste notamment à compléter la matrice d'autorisation exhaustive, les en-têtes web
-de production, le flux temps réel utilisateur, l'isolation d'un runner réel, le
+de production, le flux temps réel utilisateur, l'isolation OS/réseau du runner, le
 stockage privé, les migrations, la rotation et la restauration.
 
 L'infrastructure pcIA et les systèmes Prooftag sont hors périmètre. Ils ne doivent
@@ -45,9 +50,9 @@ le stockage ou le runner qui détient effectivement la ressource.
 - Les échecs HTTP, réponses non JSON, plans vides et verdicts absents ou invalides
   du gateway échouent fermés ; aucun plan ou verdict positif n'est inventé.
 - Le provider manuel conserve une évaluation en attente et non approuvée.
-- Une simulation worker produit un état bloqué, avec validation technique non
-  exécutée et acceptation utilisateur en attente ; elle ne peut plus annoncer un
-  succès.
+- La terminaison nominale d'une simulation worker est bloquée, avec validation
+  technique non exécutée et acceptation utilisateur en attente ; une erreur de
+  préparation peut échouer, mais une simulation ne peut jamais annoncer un succès.
 - Le client HTTP de la plateforme et celui du provider-gateway sont séparés : le
   Bearer du worker n'est plus envoyé au gateway.
 - La mise à jour d'un task run par un worker exige son Bearer, `X-Worker-Id` et un
@@ -65,8 +70,9 @@ le stockage ou le runner qui détient effectivement la ressource.
 - Les trois services HTTP n'acceptent plus `*` par défaut pour CORS ; leurs seules
   origines par défaut sont les deux URLs de développement du web.
 
-Ces garanties ont des tests ciblés. Elles ne couvrent pas encore un fencing token
-par tentative, toute la machine d'états, toutes les routes ou le flux WebSocket.
+Ces garanties ont des tests ciblés. Le Lot C ajoute un fencing token par tentative
+et protège les transitions de la machine d'états mission ; toutes les routes enfant,
+les effets tiers et le flux WebSocket utilisateur ne sont pas encore couverts.
 
 ## Accès utilisateur et frontière Hermes (Lot B)
 
@@ -109,7 +115,8 @@ par tentative, toute la machine d'états, toutes les routes ou le flux WebSocket
 - Le propriétaire global possède volontairement un pouvoir d'administration large ;
   sa journalisation, les changements de membership et les actions sensibles doivent
   encore recevoir un audit d'autorisation complet.
-- Il n'existe pas encore de jeton utilisateur court et scoppé pour le futur CLI.
+- Le CLI ouvre et conserve sa propre session cookie/CSRF ; il n'existe pas encore de
+  jeton utilisateur court et scoppé dédié aux usages non interactifs.
 - La limitation des tentatives de connexion, la récupération de compte et une
   politique de mot de passe d'exploitation ne sont pas livrées.
 
@@ -127,8 +134,17 @@ par tentative, toute la machine d'états, toutes les routes ou le flux WebSocket
 
 ### Exécution, secrets et stockage
 
-- Aucun runner réel isolé et reproductible n'est raccordé. Un worktree ne suffit
-  pas à isoler un processus.
+- Le backend local réel est configuré, borné et testable, mais il conserve les droits
+  du compte worker et n'impose ni sandbox OS ni politique réseau forte. Il refuse
+  tout mode non supervisé, toute liste d'actions non vide et toute ressource en
+  écriture, faute de pouvoir appliquer ces promesses.
+- Les sorties stdout/stderr persistées comme preuves sont bornées mais non expurgées.
+  La racine des runs doit être protégée et aucun secret ne doit être allowlisté vers
+  un programme susceptible de l'imprimer.
+- Les origines qui reçoivent les Bearers gateway, événements, Hermes ou worker sont
+  validées : HTTP uniquement sur loopback, HTTPS ailleurs, sans userinfo, chemin,
+  query ni fragment. Ces clients internes ignorent aussi les variables proxy de
+  l'environnement afin qu'un Bearer loopback ne soit pas détourné par `HTTP_PROXY`.
 - Les secrets ne passent pas encore par un coffre avec références, rotation et
   portées minimales.
 - Les artefacts sont des métadonnées ou chemins ; il n'existe pas de stockage privé,
@@ -195,7 +211,7 @@ un état durable et un événement d'audit.
   services réellement démarrés ;
 - matrice RBAC exhaustive par route, projet, flux et fichier, en complément des tests
   inter-projets négatifs déjà présents ;
-- tests de concurrence lease/fencing et worker obsolète ;
+- compléter les tests de concurrence lease/fencing par une validation multi-processus ;
 - tests SSRF, traversée de chemins, archive malveillante, XSS et limites d'upload ;
 - rotation des clés de service, révocation runner et absence de secrets dans les
   journaux ;
@@ -208,13 +224,12 @@ un état durable et un événement d'audit.
 
 ### Réalisé/vérifié
 
-- Les comportements fail-closed du worker/gateway et du provider manuel ont 7 tests
-  ciblés réussis.
-- Les écritures worker critiques, les leases, le refus d'un succès sans preuve et
-  l'événement terminal canonique ont 5 tests API ciblés réussis.
-- La réconciliation d'un lease expiré et son passage durable en état incertain sont
-  couverts ; sans runner réel ni fencing token, l'absence de double effet externe
-  n'est pas démontrée.
+- Les comportements fail-closed historiques du worker/gateway et du provider manuel,
+  ainsi que les écritures worker critiques, restent couverts ; les nombres de la
+  release courante sont consignés dans le rapport d'acceptation.
+- La réconciliation d'un lease expiré, le fencing par tentative et l'arrêt de
+  l'arbre d'un processus local réel sont couverts par des tests déterministes ;
+  l'absence de double effet externe sur un outil tiers n'est pas démontrée.
 - La séparation des clients empêche la transmission accidentelle du Bearer worker au
   provider-gateway.
 - Le bootstrap, les sessions, l'expiration/révocation, le CSRF, l'isolation de
@@ -235,17 +250,17 @@ un état durable et un événement d'audit.
 
 ### Non configuré
 
-- matrice RBAC exhaustive, journal d'administration et authentification du futur CLI ;
+- matrice RBAC exhaustive et journal d'administration ;
 - coffre de secrets et rotation ;
 - CORS de production, HTTPS/HSTS, CSP et origine d'aperçu ;
-- runner isolé, réseau sortant et fencing token ;
+- sandbox OS et politique réseau du runner, endpoint worker pour les approbations ;
 - stockage privé, URLs signées et rétention ;
 - outbox, authentification des flux et reprise par curseur.
 
 ### Restant
 
-La prochaine tranche de sécurité doit isoler le runner réel et achever sa machine
-d'états, ses preuves et ses approbations. Les lots suivants doivent compléter la
+Les prochaines tranches doivent isoler plus fortement le runner et raccorder ses
+demandes d'approbation. Elles doivent aussi compléter la
 matrice de scopes, les événements durables, MCP/skills, les médias privés, les
 migrations et la restauration. Tant que ces points ne sont pas testés, le produit
 reste réservé au développement local sur une machine de confiance.

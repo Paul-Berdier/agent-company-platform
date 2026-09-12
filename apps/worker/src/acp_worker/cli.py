@@ -10,10 +10,16 @@ import httpx
 from acp_contracts import WorkerCapability
 
 from .capabilities import detect_capabilities
-from .config import WorkerConfig
+from .config import WorkerConfig, WorkerConfigurationError
+from .local_runner import RunnerConfigurationError
 from .local_log import tail_logs
 from .main import run_forever
-from .state import WorkerCredentials, load_credentials, save_credentials
+from .state import (
+    CredentialStateError,
+    WorkerCredentials,
+    load_credentials,
+    save_credentials,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -42,8 +48,18 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
     if not config.registration_token:
         print("ACP_WORKER_REGISTRATION_TOKEN est requis", file=sys.stderr)
         return 2
+    simulation = config.simulation and not args.real
+    try:
+        config.validate_execution_mode(simulation=simulation)
+    except WorkerConfigurationError as exc:
+        print(f"Mode réel refusé: {exc}.", file=sys.stderr)
+        return 2
     capabilities = sorted(set(args.capabilities or detect_capabilities()))
-    max_concurrency = args.max_concurrency or config.max_concurrency
+    max_concurrency = (
+        config.max_concurrency
+        if args.max_concurrency is None
+        else args.max_concurrency
+    )
     if not 1 <= max_concurrency <= 32:
         print("max-concurrency doit être compris entre 1 et 32", file=sys.stderr)
         return 2
@@ -55,10 +71,11 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
                 "name": args.name or config.name,
                 "capabilities": capabilities,
                 "max_concurrency": max_concurrency,
-                "simulation": not args.real and config.simulation,
+                "simulation": simulation,
                 "metadata": config.metadata,
             },
             timeout=15.0,
+            trust_env=False,
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -68,36 +85,97 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
     credentials = WorkerCredentials(
         worker_id=result["worker_id"],
         token=result["token"],
+        api_origin=config.api_url,
         name=args.name or config.name,
         capabilities=capabilities,
         max_concurrency=max_concurrency,
-        simulation=not args.real and config.simulation,
+        simulation=simulation,
         token_expires_at=result["token_expires_at"],
         heartbeat_interval_seconds=result["heartbeat_interval_seconds"],
     )
     path = save_credentials(config.state_dir, credentials)
-    print(json.dumps({"worker_id": credentials.worker_id, "state": str(path), "capabilities": capabilities}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "worker_id": credentials.worker_id,
+                "state": str(path),
+                "capabilities": capabilities,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
 def _doctor(config: WorkerConfig) -> int:
-    credentials = load_credentials(config.state_dir)
+    credential_error: str | None = None
+    try:
+        credentials = load_credentials(config.state_dir, config.api_url)
+    except CredentialStateError as exc:
+        credentials = None
+        credential_error = str(exc)
     checks: dict[str, object] = {
-        "state": "ok" if credentials else "missing",
+        "state": (
+            "invalid" if credential_error else ("ok" if credentials else "missing")
+        ),
         "capabilities": detect_capabilities(),
+        "local_runner": "configured" if config.local_runner is not None else "missing",
         "api": "unreachable",
         "gateway": "unreachable",
+        "provider": "unchecked",
     }
+    if credential_error:
+        checks["state_error"] = credential_error
+    execution_error: str | None = None
+    if credentials is not None:
+        try:
+            config.validate_execution_mode(simulation=credentials.simulation)
+        except WorkerConfigurationError as exc:
+            execution_error = str(exc)
+            checks["execution"] = "invalid"
+            checks["execution_error"] = execution_error
+        else:
+            checks["execution"] = "ok"
     try:
-        response = httpx.get(f"{config.api_url}/health", timeout=5.0)
+        response = httpx.get(
+            f"{config.api_url}/health", timeout=5.0, trust_env=False
+        )
         checks["api"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
     except httpx.HTTPError:
         pass
     try:
-        response = httpx.get(f"{config.gateway_url}/health", timeout=5.0)
+        response = httpx.get(
+            f"{config.gateway_url}/health", timeout=5.0, trust_env=False
+        )
         checks["gateway"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
     except httpx.HTTPError:
         pass
+    if not config.gateway_service_token:
+        checks["provider"] = "missing_service_token"
+    else:
+        try:
+            response = httpx.get(
+                f"{config.gateway_url}/v1/providers/{config.provider_id}/health",
+                headers={
+                    "Authorization": f"Bearer {config.gateway_service_token}"
+                },
+                timeout=5.0,
+                trust_env=False,
+            )
+            if response.status_code >= 400:
+                checks["provider"] = f"http_{response.status_code}"
+            else:
+                provider_health = response.json()
+                checks["provider"] = (
+                    "ok"
+                    if isinstance(provider_health, dict)
+                    and provider_health.get("provider_id") == config.provider_id
+                    and provider_health.get("available") is True
+                    else "unavailable"
+                )
+        except (httpx.HTTPError, ValueError):
+            checks["provider"] = "unreachable"
     if credentials and checks["api"] == "ok":
         try:
             response = httpx.post(
@@ -105,18 +183,31 @@ def _doctor(config: WorkerConfig) -> int:
                 headers={"Authorization": f"Bearer {credentials.token}"},
                 json={},
                 timeout=5.0,
+                trust_env=False,
             )
-            checks["authentication"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
+            checks["authentication"] = (
+                "ok" if response.status_code < 400 else f"http_{response.status_code}"
+            )
         except httpx.HTTPError:
             checks["authentication"] = "unreachable"
     print(json.dumps(checks, ensure_ascii=False, indent=2))
-    required_ok = checks["state"] == "ok" and checks["api"] == "ok"
-    return 0 if required_ok and checks.get("authentication") == "ok" else 1
+    required_ok = (
+        checks["state"] == "ok"
+        and checks["api"] == "ok"
+        and checks["gateway"] == "ok"
+        and checks["provider"] == "ok"
+    )
+    execution_ok = credentials is not None and execution_error is None
+    return 0 if required_ok and execution_ok and checks.get("authentication") == "ok" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    config = WorkerConfig.from_env()
+    try:
+        config = WorkerConfig.from_env()
+    except (RunnerConfigurationError, WorkerConfigurationError) as exc:
+        print(f"Configuration worker refusée: {exc}", file=sys.stderr)
+        return 2
     if args.command == "register":
         return _register(config, args)
     if args.command == "doctor":
@@ -128,15 +219,18 @@ def main(argv: list[str] | None = None) -> int:
         for line in tail_logs(config.state_dir, max(1, args.tail)):
             print(line)
         return 0
-    credentials = load_credentials(config.state_dir)
+    try:
+        credentials = load_credentials(config.state_dir, config.api_url)
+    except CredentialStateError as exc:
+        print(f"Credentials worker refusés: {exc}", file=sys.stderr)
+        return 2
     if credentials is None:
         print("Worker non enregistré. Exécutez agent-company-worker register.", file=sys.stderr)
         return 2
-    if not credentials.simulation:
-        print(
-            "Aucun exécuteur réel sécurisé n'est encore configuré; démarrage refusé.",
-            file=sys.stderr,
-        )
+    try:
+        config.validate_execution_mode(simulation=credentials.simulation)
+    except WorkerConfigurationError as exc:
+        print(f"Mode d'exécution refusé: {exc}.", file=sys.stderr)
         return 2
     asyncio.run(run_forever(config, credentials, once=args.once))
     return 0

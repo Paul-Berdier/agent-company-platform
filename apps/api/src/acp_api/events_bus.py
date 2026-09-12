@@ -3,11 +3,8 @@ import os
 import httpx
 from sqlalchemy.orm import Session
 
-from acp_contracts import Event
+from acp_contracts import Event, ServiceOriginError, normalize_service_origin
 from acp_database.models import EventModel
-
-EVENT_SERVICE_URL = os.environ.get("ACP_EVENT_SERVICE_URL", "http://localhost:8001")
-
 
 def store_event(db: Session, event: Event) -> None:
     db.add(
@@ -34,11 +31,18 @@ async def forward_event(event: Event) -> None:
     service_token = os.environ.get("ACP_EVENT_SERVICE_TOKEN", "").strip()
     if not service_token:
         return
+    try:
+        event_service_url = normalize_service_origin(
+            os.environ.get("ACP_EVENT_SERVICE_URL", "http://localhost:8001"),
+            setting="ACP_EVENT_SERVICE_URL",
+        )
+    except ServiceOriginError:
+        return
 
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             response = await client.post(
-                f"{EVENT_SERVICE_URL.rstrip('/')}/internal/events",
+                f"{event_service_url}/internal/events",
                 json=event.model_dump(mode="json"),
                 headers={"Authorization": f"Bearer {service_token}"},
             )

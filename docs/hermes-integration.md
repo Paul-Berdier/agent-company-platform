@@ -197,7 +197,6 @@ clé est `non exécuté`, jamais vert.
 
 ## Capacités non livrées dans cette tranche
 
-- conversation et reprise dans le CLI `acp` ;
 - streaming SSE et persistance de ses événements ;
 - stop/cancel transmis à Hermes ;
 - demandes et décisions d'approbation Hermes ;
@@ -219,7 +218,6 @@ mais le Run peut continuer côté Hermes. Ce point doit être corrigé avec la c
    conversation plateforme / `provider_session_id` / `run_id`.
 3. Ajouter streaming authentifié, journal durable, reconnexion par curseur et
    réconciliation de statut.
-4. Raccorder la conversation au CLI `acp` avec la même idempotence.
-5. Implémenter stop et approbations uniquement après détection de capacité.
-6. Exposer modèles, profils, MCP et skills dans Connexions sans dupliquer leur
+4. Implémenter stop et approbations uniquement après détection de capacité.
+5. Exposer modèles, profils, MCP et skills dans Connexions sans dupliquer leur
    configuration native.

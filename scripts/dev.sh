@@ -3,7 +3,12 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-PY=".venv/bin/python"
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  VENV=".venv-wsl"
+else
+  VENV=".venv"
+fi
+PY="$VENV/bin/python"
 
 "$PY" -m acp_api.seed
 

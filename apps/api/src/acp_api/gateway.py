@@ -4,6 +4,7 @@ import os
 from typing import Any, Literal
 
 import httpx
+from acp_contracts import ServiceOriginError, normalize_service_origin
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
@@ -65,11 +66,17 @@ class GatewayClient:
         timeout_seconds: float | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self.base_url = (
+        raw_base_url = (
             base_url
             if base_url is not None
             else os.environ.get("ACP_PROVIDER_GATEWAY_URL", "http://localhost:8002")
-        ).rstrip("/")
+        )
+        try:
+            self.base_url: str | None = normalize_service_origin(
+                raw_base_url, setting="ACP_PROVIDER_GATEWAY_URL"
+            )
+        except ServiceOriginError:
+            self.base_url = None
         self.service_token = (
             service_token
             if service_token is not None
@@ -82,6 +89,10 @@ class GatewayClient:
         self.transport = transport
 
     def _headers(self) -> dict[str, str]:
+        if self.base_url is None:
+            raise GatewayUnavailableError(
+                "L'origine du provider-gateway est invalide ou non sécurisée"
+            )
         if not self.service_token.strip():
             raise GatewayUnavailableError(
                 "Le jeton de service du provider-gateway n'est pas configuré"
@@ -90,12 +101,14 @@ class GatewayClient:
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         request_headers = self._headers()
+        assert self.base_url is not None
         request_headers.update(kwargs.pop("headers", {}))
         try:
             async with httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=self.timeout_seconds,
                 transport=self.transport,
+                trust_env=False,
             ) as client:
                 response = await client.request(
                     method,

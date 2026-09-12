@@ -3,6 +3,7 @@ import asyncio
 import httpx
 import pytest
 
+from acp_api import gateway as gateway_module
 from acp_api.gateway import GatewayClient, GatewayUnavailableError
 
 
@@ -21,7 +22,7 @@ def test_gateway_client_sends_service_auth_and_idempotency_key():
         )
 
     client = GatewayClient(
-        base_url="http://gateway.test",
+        base_url="https://gateway.test",
         service_token="internal-secret",
         transport=httpx.MockTransport(handler),
     )
@@ -40,9 +41,43 @@ def test_gateway_client_sends_service_auth_and_idempotency_key():
     assert captured[0].url.path == "/v1/providers/hermes/runs"
 
 
+def test_gateway_client_disables_environment_proxies_for_bearer_requests(monkeypatch):
+    client_options: list[dict] = []
+    original_async_client = httpx.AsyncClient
+
+    def async_client_spy(**kwargs):
+        client_options.append(kwargs)
+        return original_async_client(**kwargs)
+
+    monkeypatch.setattr(gateway_module.httpx, "AsyncClient", async_client_spy)
+    client = GatewayClient(
+        base_url="https://gateway.test",
+        service_token="internal-secret",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "provider_id": "hermes",
+                    "status": "ready",
+                    "configured": True,
+                    "ready": True,
+                    "expected_version": "0.21.1",
+                    "detail": "ready",
+                },
+            )
+        ),
+    )
+
+    diagnostic = asyncio.run(client.diagnose_hermes())
+
+    assert diagnostic.ready is True
+    assert len(client_options) == 1
+    assert client_options[0]["trust_env"] is False
+
+
 def test_gateway_client_fails_closed_without_service_token():
     client = GatewayClient(
-        base_url="http://gateway.test",
+        base_url="https://gateway.test",
         service_token="",
         transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={})),
     )
@@ -53,7 +88,7 @@ def test_gateway_client_fails_closed_without_service_token():
 
 def test_gateway_client_rejects_an_invalid_diagnostic_contract():
     client = GatewayClient(
-        base_url="http://gateway.test",
+        base_url="https://gateway.test",
         service_token="internal-secret",
         transport=httpx.MockTransport(
             lambda _request: httpx.Response(200, json={"ready": "yes"})
@@ -62,3 +97,30 @@ def test_gateway_client_rejects_an_invalid_diagnostic_contract():
 
     with pytest.raises(GatewayUnavailableError, match="diagnostic Hermes"):
         asyncio.run(client.diagnose_hermes())
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://gateway.example",
+        "https://user:secret@gateway.example",
+        "https://gateway.example/v1",
+        "https://gateway.example?token=secret",
+    ],
+)
+def test_gateway_client_never_sends_its_bearer_to_an_unsafe_origin(base_url: str):
+    captured: list[httpx.Request] = []
+    client = GatewayClient(
+        base_url=base_url,
+        service_token="internal-secret",
+        transport=httpx.MockTransport(
+            lambda request: (
+                captured.append(request),
+                httpx.Response(200, json={}),
+            )[1]
+        ),
+    )
+
+    with pytest.raises(GatewayUnavailableError, match="origine"):
+        asyncio.run(client.diagnose_hermes())
+    assert captured == []

@@ -1,5 +1,10 @@
 # Adaptateurs locaux Claude Code et Codex
 
+Ces helpers historiques spécialisés sont distincts du backend de processus générique
+livré au Lot C. Celui-ci exécute un programme local fixe avec une politique
+restrictive ; les helpers Claude/Codex décrits ici ne sont toujours pas raccordés à
+sa boucle réelle.
+
 La Phase 9 prépare deux exécuteurs locaux derrière le worker Windows. Ils ne
 sont jamais importés par le cœur ni par le provider-gateway : le worker lance
 un processus local seulement après attribution d'un run compatible.

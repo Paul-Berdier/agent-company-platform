@@ -3,9 +3,9 @@
 Statut : décision adoptée pour la modernisation 2026.
 Produit : Agent Company Platform, espace personnel par défaut.
 
-Le schéma principal de ce document reste la cible. L'état concret du Lot B utilise
+Le schéma principal de ce document reste la cible. L'état concret du Lot C utilise
 SQLAlchemy avec SQLite par défaut et `create_all()` ; PostgreSQL, migrations, outbox,
-stockage privé et CLI ne sont pas encore validés.
+stockage privé et déploiement ne sont pas encore validés.
 
 ## Décision
 
@@ -39,7 +39,7 @@ Cette décision évite deux administrations concurrentes : les réglages natifs 
 peuvent être consultés ou modifiés via son API lorsque la capacité existe ; la
 plateforme ne maintient pas une copie silencieuse de ces réglages.
 
-## Tranche verticale livrée au Lot B
+## Tranche verticale livrée au Lot C
 
 ```text
 Navigateur
@@ -65,6 +65,14 @@ Le parcours personnel crée au besoin une organisation et un workspace `personal
 internes, puis n'expose que le projet dans l'expérience courante. Leur conservation
 évite de casser le modèle historique sans imposer sa complexité à l'utilisateur.
 
+Le Lot C ajoute une ressource mission au-dessus de `tasks` et une tentative
+distincte au-dessus de `task_runs`. Son état évolue, mais son identité, son numéro,
+son appartenance et son fencing token ne sont jamais réutilisés. La création persiste
+mission et première tentative dans la même transaction. Chaque relance obtient un
+numéro et un fencing token strictement supérieurs ; les commandes de création, arrêt
+et relance sont dédupliquées afin qu'un replay réseau ne vise jamais une autre
+tentative.
+
 ## Sources de vérité
 
 | Domaine | Autorité | Données de rapprochement |
@@ -80,13 +88,18 @@ internes, puis n'expose que le projet dans l'expérience courante. Leur conserva
 Un identifiant Hermes ou runner n'accorde jamais à lui seul un accès à un projet.
 Le mapping appartient à la plateforme et est contrôlé côté serveur.
 
-## Responsabilités
+## Responsabilités cibles et état
+
+Les responsabilités ci-dessous définissent la cible. Au Lot C, les contrôles métier,
+missions, polling et frontières de services sont livrés ; scopes de fichiers/flux,
+URLs privées, outbox et normalisation SSE restent explicitement à réaliser.
 
 ### Interface web et CLI
 
 - utilisent la même API et les mêmes règles d'autorisation ;
 - affichent `inconnu` lorsque la mesure n'existe pas ;
-- se reconnectent par curseur sans relancer une mission ;
+- reprennent par lecture `GET` identifiée sans relancer une mission ; le curseur
+  d'événements utilisateur arrive au Lot E ;
 - ne reçoivent jamais une clé de service Hermes ou worker ;
 - proposent le pixel office uniquement par un drapeau legacy désactivé par défaut.
 
@@ -129,14 +142,18 @@ sur une instance Hermes réelle.
 
 - s'enrôlent avec une identité révocable et se connectent en sortie ;
 - annoncent des capacités vérifiées et une concurrence bornée ;
-- reçoivent uniquement le dossier autorisé, les références de secrets nécessaires
-  et un lease lié à une tentative ;
-- exécutent sans interpolation shell, sous utilisateur non privilégié et avec des
-  limites de durée/ressources/réseau ;
+- reçoivent uniquement un snapshot de mission autorisé et un lease lié à une
+  tentative ;
+- le backend local du Lot C exécute un argv configuré par l'opérateur, jamais une
+  commande issue de la mission, sans interpolation shell, dans un cwd neuf avec un
+  environnement, une durée et des captures bornés ;
 - publient preuves et événements uniquement pour le run loué.
 
-Un worktree Git organise les changements mais n'est pas une sandbox. Le socket Docker
-hôte n'est jamais exposé à un agent.
+Le processus local conserve les droits OS et la politique réseau du compte worker :
+son cwd dédié n'est pas une sandbox. Les autonomies que ce backend ne sait pas
+garantir sont refusées avant spawn. La plateforme ne monte pas elle-même le socket
+Docker, mais le backend ne peut pas garantir son absence si le compte ou l'hôte le
+rend déjà accessible ; l'opérateur doit l'isoler avant toute charge non fiable.
 
 ## Modèle personnel sans supprimer l'existant
 
@@ -165,7 +182,7 @@ queued → preparing → running ───────────────�
 Trois valeurs restent séparées :
 
 - état d'exécution du run ;
-- validation technique (`passed`, `failed`, `not_run`, `unknown`) ;
+- validation technique (`pending`, `passed`, `failed`) ;
 - acceptation utilisateur (`pending`, `accepted`, `rejected`).
 
 Une simulation, une sortie vide, un évaluateur indisponible ou un JSON invalide ne
@@ -181,7 +198,7 @@ Le flux cible est : transaction métier + outbox, relay idempotent, puis WebSock
 authentifié. Une reconnexion fournit le dernier curseur ; le serveur page, déduplique
 et réconcilie le statut auprès du runtime.
 
-Au Lot B, l'ingestion event-service exige déjà un Bearer interne. Aucun mécanisme de
+Au Lot C, l'ingestion event-service exige déjà un Bearer interne. Aucun mécanisme de
 session utilisateur n'est encore raccordé à `/ws` : il est donc fermé par défaut au
 lieu d'exposer un flux anonyme. Le drapeau de réactivation porte explicitement le nom
 `ACP_UNSAFE_ALLOW_ANONYMOUS_EVENT_WEBSOCKET` et reste réservé au développement local.

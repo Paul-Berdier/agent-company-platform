@@ -51,6 +51,26 @@ from .conversations import (  # noqa: F401
 )
 from .events import Event, EventEnvelope  # noqa: F401
 from .memory import MemoryItem  # noqa: F401
+from .missions import (  # noqa: F401
+    AutonomyMode,
+    EvidenceCreate,
+    MissionAcceptanceDecision,
+    MissionAutonomy,
+    MissionBudget,
+    MissionComment,
+    MissionCommentCreate,
+    MissionCreate,
+    MissionDetail,
+    MissionEvidence,
+    MissionResource,
+    MissionRetryRequest,
+    MissionRun,
+    MissionRunStatus,
+    MissionStopResponse,
+    MissionSummary,
+    TechnicalValidation,
+    UserAcceptance,
+)
 from .providers import (  # noqa: F401
     ContextSummary,
     ContextSummaryRequest,
@@ -64,12 +84,19 @@ from .providers import (  # noqa: F401
     ProviderHealth,
 )
 from .sessions import SessionContext  # noqa: F401
+from .service_urls import (  # noqa: F401
+    ServiceOriginError,
+    normalize_service_origin,
+)
 from .operations import (  # noqa: F401
+    ApprovalActionEnvelope,
     ApprovalAction,
     ApprovalDecision,
+    ApprovalExecutionCheck,
     ApprovalRequest,
     ApprovalRequestCreate,
     ApprovalStatus,
+    ApprovalValidationResult,
     Artifact,
     ArtifactCreate,
     LockAcquireRequest,

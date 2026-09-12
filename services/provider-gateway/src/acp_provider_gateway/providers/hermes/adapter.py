@@ -263,7 +263,11 @@ class HermesOrchestratorProvider(OrchestratorProvider):
         if not self._client.settings.configured:
             missing = []
             if not self._client.settings.base_url.strip():
-                missing.append("HERMES_BASE_URL")
+                missing.append(
+                    "HERMES_BASE_URL invalide"
+                    if self._client.settings.base_url_invalid
+                    else "HERMES_BASE_URL"
+                )
             if not self._client.settings.service_token.strip():
                 missing.append("HERMES_API_KEY")
             return ProviderHealth(
