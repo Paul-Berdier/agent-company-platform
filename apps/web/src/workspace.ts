@@ -1,6 +1,18 @@
 import type { AcpEvent, Overview, Project, TaskSummary } from "@acp/contracts";
 
 import "./workspace.css";
+import { renderMcpCenter, renderSecretsPanel } from "./mcp-ui";
+import { renderSkillsLibrary } from "./skills-ui";
+import {
+  el,
+  errorMessage,
+  formatDateTime,
+  labeledField,
+  normalizeApiError,
+  sectionHeader,
+  statePanel,
+  statusChip,
+} from "./ui-primitives";
 import {
   WorkspaceApiClient,
   WorkspaceApiError,
@@ -149,17 +161,6 @@ let missionSequence = 0;
 let missionNotice: MissionNotice | null = null;
 let projectNotice: MissionNotice | null = null;
 let fieldSequence = 0;
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className = "",
-  text = "",
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text) node.textContent = text;
-  return node;
-}
 
 function routeItem(route: WorkspaceRoute) {
   return NAVIGATION_ITEMS.find((item) => item.id === route) ?? NAVIGATION_ITEMS[0];
@@ -493,12 +494,6 @@ function renderAuthGate(): void {
   root.replaceChildren(shell);
 }
 
-function normalizeApiError(error: unknown, fallback: string): WorkspaceApiError {
-  return error instanceof WorkspaceApiError
-    ? error
-    : new WorkspaceApiError(fallback, "invalid_response");
-}
-
 function resetPrivateWorkspaceState(): void {
   state.phase = "loading";
   state.overview = null;
@@ -617,18 +612,6 @@ function failurePhase(error: WorkspaceApiError): Exclude<LoadPhase, "loading" | 
   return "error";
 }
 
-function errorMessage(error: WorkspaceApiError): string {
-  if (error.kind === "offline") {
-    return "L’API métier ne répond pas. Les données de démonstration ne sont jamais utilisées ici.";
-  }
-  if (error.kind === "forbidden") {
-    return error.status === 401
-      ? "La session a expiré ou n’est plus valide. Reconnecte-toi pour continuer."
-      : "Le compte courant n’a pas accès à cette ressource.";
-  }
-  return error.message;
-}
-
 function updateConnectionStatus(): void {
   let label = "Connexion en cours";
   let tone = "pending";
@@ -717,28 +700,6 @@ async function loadWorkspaceData(): Promise<void> {
   renderCurrentRoute();
 }
 
-function statePanel(
-  tone: "loading" | "empty" | "offline" | "forbidden" | "error" | "unconfigured",
-  title: string,
-  message: string,
-  retry = false,
-): HTMLElement {
-  const panel = el("section", `state-panel state-${tone}`);
-  panel.setAttribute("aria-live", tone === "loading" ? "polite" : "assertive");
-  panel.append(
-    el("span", "state-icon", tone === "loading" ? "…" : tone === "empty" ? "○" : "!"),
-    el("h2", "state-title", title),
-    el("p", "state-message", message),
-  );
-  if (retry) {
-    const button = el("button", "button button-secondary", "Réessayer");
-    button.type = "button";
-    button.addEventListener("click", () => void loadWorkspaceData());
-    panel.append(button);
-  }
-  return panel;
-}
-
 function renderDataBoundary(renderReady: (overview: Overview) => void): void {
   if (state.phase === "loading") {
     content.append(statePanel("loading", "Chargement des données réelles", "Connexion à l’API métier en cours."));
@@ -755,26 +716,11 @@ function renderDataBoundary(renderReady: (overview: Overview) => void): void {
       state.phase === "offline" ? "offline" : state.phase === "forbidden" ? "forbidden" : "error",
       title,
       error ? errorMessage(error) : "La réponse reçue est inexploitable.",
-      true,
+      () => void loadWorkspaceData(),
     ));
     return;
   }
   renderReady(state.overview);
-}
-
-function sectionHeader(title: string, description = ""): HTMLElement {
-  const header = el("div", "section-header");
-  const copy = el("div");
-  copy.append(el("h2", "section-heading", title));
-  if (description) copy.append(el("p", "section-description", description));
-  header.append(copy);
-  return header;
-}
-
-function statusChip(label: string, tone: string): HTMLElement {
-  const chip = el("span", "status-chip", label);
-  chip.dataset.tone = tone;
-  return chip;
 }
 
 function projectName(overview: Overview, projectId: string): string {
@@ -815,7 +761,7 @@ function unavailableSection(title: string, error: WorkspaceApiError): HTMLElemen
       error.kind === "forbidden" ? "forbidden" : error.kind === "offline" ? "offline" : "error",
       `${title} indisponible`,
       errorMessage(error),
-      true,
+      () => void loadWorkspaceData(),
     ),
   );
   return section;
@@ -1463,17 +1409,6 @@ function renderMissions(overview: Overview): void {
   }
   layout.append(composer, existing);
   content.append(layout);
-}
-
-function labeledField(labelText: string, control: HTMLElement, hint = ""): HTMLElement {
-  const field = el("div", "form-field");
-  const id = `mission-field-${++fieldSequence}`;
-  control.id = id;
-  const label = el("label", "form-label", labelText);
-  label.htmlFor = id;
-  field.append(label, control);
-  if (hint) field.append(el("p", "form-hint", hint));
-  return field;
 }
 
 function createMissionForm(overview: Overview): HTMLFormElement {
@@ -2264,7 +2199,7 @@ function renderConnections(): void {
   content.append(business);
 }
 
-type UnconfiguredRoute = "automations" | "library";
+type UnconfiguredRoute = "automations";
 
 const CAPABILITY_COPY: Record<UnconfiguredRoute, {
   title: string;
@@ -2275,11 +2210,6 @@ const CAPABILITY_COPY: Record<UnconfiguredRoute, {
     title: "Automatisations",
     description: "Aucun propriétaire de planification n’est encore configuré dans ce shell.",
     consequence: "Aucune routine n’est créée ou exécutée implicitement.",
-  },
-  library: {
-    title: "Bibliothèque",
-    description: "La liste sécurisée des livrables et leurs aperçus ne sont pas encore raccordés.",
-    consequence: "Le shell ne prétend pas exposer les fichiers tant que leurs autorisations et URLs ne sont pas vérifiées.",
   },
 };
 
@@ -2292,16 +2222,6 @@ function renderUnconfigured(route: UnconfiguredRoute): void {
     el("p", "page-description", copy.description),
   );
   content.append(intro, statePanel("unconfigured", "Capacité indisponible", copy.consequence));
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Date inconnue";
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "Europe/Paris",
-  }).format(date);
 }
 
 function updateActiveNavigation(): void {
@@ -2329,6 +2249,10 @@ function renderCurrentRoute(): void {
     renderDataBoundary(renderMissions);
   } else if (currentRoute === "connections") {
     renderConnections();
+    renderMcpCenter(content);
+    renderSecretsPanel(content);
+  } else if (currentRoute === "library") {
+    renderSkillsLibrary(content);
   } else {
     renderUnconfigured(currentRoute as UnconfiguredRoute);
   }

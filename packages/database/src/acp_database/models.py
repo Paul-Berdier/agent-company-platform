@@ -438,3 +438,239 @@ class ArtifactModel(_Common, Base):
     checksum: Mapped[str | None] = mapped_column(String(200), nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+
+# --- Lot D : coffre de secrets, centre MCP, bibliothèque de skills ---------------
+
+
+class SecretModel(_Common, Base):
+    """Secret chiffré au repos (jeton Fernet) ; la valeur en clair n'est jamais stockée.
+
+    SQLite considère les NULL comme distincts dans une contrainte d'unicité : l'unicité
+    du nom pour la portée ``platform`` (``project_id`` NULL) est donc aussi appliquée
+    en Python par le service.
+    """
+
+    __tablename__ = "secrets"
+    __table_args__ = (
+        UniqueConstraint(
+            "name", "scope_type", "project_id", name="uq_secret_name_scope_project"
+        ),
+    )
+
+    name: Mapped[str] = mapped_column(String(64), index=True)
+    scope_type: Mapped[str] = mapped_column(String(20))  # platform | project
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id"), nullable=True, index=True
+    )
+    description: Mapped[str] = mapped_column(Text, default="")
+    key_id: Mapped[str] = mapped_column(String(16))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+    rotated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class McpServerModel(_Common, Base):
+    """Serveur MCP déclaré sur la plateforme ; la configuration vit dans les révisions."""
+
+    __tablename__ = "mcp_servers"
+
+    name: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # slug
+    display_name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    source_kind: Mapped[str] = mapped_column(String(20))  # catalog | remote_url | import | manual
+    origin: Mapped[str] = mapped_column(String(500), default="")
+    transport: Mapped[str] = mapped_column(String(10))  # http | stdio
+    execution_location: Mapped[str] = mapped_column(String(20))  # platform | runner
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    current_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    target_worker_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workers.id"), nullable=True
+    )  # runner désigné pour stdio
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_reason: Mapped[str] = mapped_column(Text, default="")
+    last_probe_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class McpServerRevisionModel(_Common, Base):
+    """Révision immuable de configuration (références de secrets uniquement, jamais de valeur)."""
+
+    __tablename__ = "mcp_server_revisions"
+    __table_args__ = (
+        UniqueConstraint("server_id", "number", name="uq_mcp_server_revision_number"),
+    )
+
+    server_id: Mapped[str] = mapped_column(ForeignKey("mcp_servers.id"), index=True)
+    number: Mapped[int] = mapped_column(Integer)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    fingerprint: Mapped[str] = mapped_column(String(64), index=True)  # sha256 du JSON canonique
+    discovery: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    discovered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    discovery_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    risk_flags: Mapped[list] = mapped_column(JSON, default=list)
+    change_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    requires_approval: Mapped[int] = mapped_column(Integer, default=0)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    note: Mapped[str] = mapped_column(Text, default="")
+    superseded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class McpProbeModel(_Common, Base):
+    """Diagnostic d'un serveur : exécuté côté API (http) ou autorisé puis délégué à un runner (stdio)."""
+
+    __tablename__ = "mcp_probes"
+
+    server_id: Mapped[str] = mapped_column(ForeignKey("mcp_servers.id"), index=True)
+    revision_id: Mapped[str] = mapped_column(
+        ForeignKey("mcp_server_revisions.id"), index=True
+    )
+    transport: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    authorization: Mapped[dict] = mapped_column(JSON, default=dict)  # vide pour http
+    requested_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    decided_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    decision_comment: Mapped[str] = mapped_column(Text, default="")
+    worker_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workers.id"), nullable=True, index=True
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # validité de l'autorisation
+
+
+class McpBindingModel(_Common, Base):
+    """Rattachement d'un serveur à un projet avec un sous-ensemble d'outils autorisés."""
+
+    __tablename__ = "mcp_bindings"
+    __table_args__ = (
+        UniqueConstraint("server_id", "project_id", name="uq_mcp_binding_server_project"),
+    )
+
+    server_id: Mapped[str] = mapped_column(ForeignKey("mcp_servers.id"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    revision_id: Mapped[str] = mapped_column(ForeignKey("mcp_server_revisions.id"))
+    allowed_tools: Mapped[list] = mapped_column(JSON, default=list)  # non vide
+    enabled: Mapped[int] = mapped_column(Integer, default=1)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class SkillModel(_Common, Base):
+    """Skill installé sur la plateforme ; le contenu vit dans les révisions."""
+
+    __tablename__ = "skills"
+
+    name: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # slug
+    display_name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(64), default="general")
+    kind: Mapped[str] = mapped_column(String(20))  # documentary | scripted | native_plugin
+    source_kind: Mapped[str] = mapped_column(String(20))  # manual | directory | archive | github | catalog
+    origin: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    current_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_reason: Mapped[str] = mapped_column(Text, default="")
+
+
+class SkillRevisionModel(_Common, Base):
+    """Révision immuable d'un skill : manifeste des fichiers, frontmatter, scan indicatif."""
+
+    __tablename__ = "skill_revisions"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "number", name="uq_skill_revision_number"),
+    )
+
+    skill_id: Mapped[str] = mapped_column(ForeignKey("skills.id"), index=True)
+    number: Mapped[int] = mapped_column(Integer)
+    fingerprint: Mapped[str] = mapped_column(String(64), index=True)  # sha256 de [{path, sha256}]
+    files: Mapped[list] = mapped_column(JSON, default=list)  # {path, size, sha256, text}
+    skill_md: Mapped[str] = mapped_column(Text, default="")
+    frontmatter: Mapped[dict] = mapped_column(JSON, default=dict)
+    license: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    dependencies: Mapped[dict] = mapped_column(JSON, default=dict)
+    scan: Mapped[list] = mapped_column(JSON, default=list)  # {level, code, message, path}
+    kind: Mapped[str] = mapped_column(String(20))
+    storage_path: Mapped[str] = mapped_column(String(1000))
+    change_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    requires_approval: Mapped[int] = mapped_column(Integer, default=0)
+    approved_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approval_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    note: Mapped[str] = mapped_column(Text, default="")
+    superseded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_ref: Mapped[str] = mapped_column(String(500), default="")  # chemin, sha256 d'archive, owner/repo@sha
+
+
+class SkillBindingModel(_Common, Base):
+    """Rattachement d'un skill à un projet."""
+
+    __tablename__ = "skill_bindings"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "project_id", name="uq_skill_binding_skill_project"),
+    )
+
+    skill_id: Mapped[str] = mapped_column(ForeignKey("skills.id"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    revision_id: Mapped[str] = mapped_column(ForeignKey("skill_revisions.id"))
+    enabled: Mapped[int] = mapped_column(Integer, default=1)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
