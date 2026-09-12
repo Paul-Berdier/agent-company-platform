@@ -5,6 +5,22 @@ import shutil
 
 from acp_contracts import WorkerCapability
 
+from .mcp_probe import McpProbeConfigurationError, McpStdioProbeConfig
+
+
+def _mcp_stdio_probe_available() -> bool:
+    """La sonde stdio n'est annoncée qu'avec son drapeau ET son allowlist.
+
+    Une configuration refusée n'est jamais une capacité : annoncer une sonde
+    que le worker refusera d'exécuter serait un faux succès.
+    """
+
+    try:
+        config = McpStdioProbeConfig.from_environ()
+    except McpProbeConfigurationError:
+        return False
+    return config.enabled and bool(config.allowed_executables)
+
 
 def detect_capabilities() -> list[str]:
     capabilities = {
@@ -32,6 +48,8 @@ def detect_capabilities() -> list[str]:
         capabilities.add(WorkerCapability.ASSET_VALIDATION.value)
     if os.environ.get("ACP_IMAGE_CAPTURE_COMMAND"):
         capabilities.add(WorkerCapability.IMAGE_CAPTURE.value)
+    if _mcp_stdio_probe_available():
+        capabilities.add(WorkerCapability.MCP_STDIO_PROBE.value)
     return sorted(capabilities)
 
 

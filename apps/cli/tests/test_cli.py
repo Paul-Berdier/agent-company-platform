@@ -581,9 +581,10 @@ def test_open_prints_url_without_browser_unless_explicit(tmp_path):
 
 
 def test_unsupported_command_is_honest_machine_readable_error(tmp_path):
+    # `skills install` est raccordé depuis le lot D ; `automations` reste un stub honnête.
     code, out, err, _ = invoke(
         tmp_path,
-        ["skills", "install", "example", "--json"],
+        ["automations", "list", "--json"],
         lambda _request: pytest.fail("unsupported command must not call API"),
     )
     assert code == ExitCode.UNSUPPORTED

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "context7",
+    "display_name": "Context7",
+    "description": "Documentation à jour des bibliothèques et frameworks, exposée en Streamable HTTP.",
+    "transport": "http",
+    "config": {
+      "transport": "http",
+      "http": {
+        "url": "https://mcp.context7.com/mcp",
+        "headers": {},
+        "header_secrets": {},
+        "timeout_seconds": 15
+      }
+    },
+    "required_secrets": ["CONTEXT7_API_KEY"],
+    "prerequisites": [
+      "Créer une clé d'API Context7 et l'enregistrer dans le coffre sous le nom CONTEXT7_API_KEY.",
+      "Associer ce secret à l'en-tête « CONTEXT7_API_KEY » au moment de la création du serveur."
+    ],
+    "risks": [
+      "Les requêtes de documentation sortent de la plateforme vers un service tiers.",
+      "Le contenu renvoyé est une donnée non fiable : il ne modifie ni politique ni instruction."
+    ],
+    "documentation_url": "https://context7.com/docs",
+    "verified_at": "2026-09-11",
+    "verification": "documentation publique lue le 11/09/2026 ; non exécuté"
+  },
+  {
+    "id": "github-remote",
+    "display_name": "GitHub (serveur MCP distant)",
+    "description": "Serveur MCP GitHub hébergé : dépôts, issues et pull requests du compte authentifié.",
+    "transport": "http",
+    "config": {
+      "transport": "http",
+      "http": {
+        "url": "https://api.githubcopilot.com/mcp/",
+        "headers": {},
+        "header_secrets": {},
+        "timeout_seconds": 20
+      }
+    },
+    "required_secrets": ["GITHUB_MCP_TOKEN"],
+    "prerequisites": [
+      "Disposer d'un jeton GitHub à portée minimale et l'enregistrer dans le coffre sous le nom GITHUB_MCP_TOKEN.",
+      "Associer ce secret à l'en-tête « Authorization » (valeur « Bearer <jeton> ») au moment de la création du serveur."
+    ],
+    "risks": [
+      "Le jeton donne au serveur distant l'accès aux dépôts couverts par sa portée.",
+      "Les outils d'écriture (issues, pull requests) agissent au nom du porteur du jeton."
+    ],
+    "documentation_url": "https://docs.github.com/en/copilot/customizing-copilot/using-model-context-protocol",
+    "verified_at": "2026-09-11",
+    "verification": "documentation publique lue le 11/09/2026 ; non exécuté"
+  },
+  {
+    "id": "filesystem",
+    "display_name": "Système de fichiers (serveur local)",
+    "description": "Serveur MCP de référence donnant accès aux dossiers explicitement passés en argument, lancé sur le runner désigné.",
+    "transport": "stdio",
+    "config": {
+      "transport": "stdio",
+      "stdio": {
+        "command": "/usr/local/bin/npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem@2025.8.21", "/srv/mcp/partage"],
+        "env": {},
+        "env_secrets": {},
+        "cwd": null,
+        "timeout_seconds": 20
+      }
+    },
+    "required_secrets": [],
+    "prerequisites": [
+      "Node.js installé sur le runner désigné, avec « npx » dans les exécutables autorisés du worker.",
+      "Remplacer « /usr/local/bin/npx » par le chemin absolu réel de npx sur ce runner.",
+      "Remplacer « /srv/mcp/partage » par le dossier à exposer : le serveur n'accède qu'aux dossiers listés."
+    ],
+    "risks": [
+      "Accès en lecture et en écriture au dossier passé en argument, sur la machine du runner.",
+      "Le paquet est téléchargé par npx : la version est épinglée à 2025.8.21 pour éviter une mise à jour silencieuse."
+    ],
+    "documentation_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+    "verified_at": "2026-09-11",
+    "verification": "documentation publique lue le 11/09/2026 ; non exécuté"
+  }
+]

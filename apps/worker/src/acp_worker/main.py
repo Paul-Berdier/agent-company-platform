@@ -12,6 +12,7 @@ from time import monotonic
 from typing import Any, TypeVar
 
 import httpx
+from acp_contracts import WorkerCapability
 
 from .capabilities import missing_capabilities
 from .config import WorkerConfig
@@ -24,6 +25,7 @@ from .local_runner import (
     validate_safe_local_policy,
 )
 from .local_log import WorkerLogger
+from .mcp_probe import run_stdio_probe
 from .state import CredentialStateError, WorkerCredentials
 
 
@@ -828,6 +830,114 @@ async def _heartbeat_loop(
             pass
 
 
+async def _wait_or_stop(stop: asyncio.Event, delay: float) -> None:
+    """Attend ``delay`` secondes ou l'ordre d'arrêt, selon ce qui vient en premier."""
+
+    try:
+        await asyncio.wait_for(stop.wait(), timeout=delay)
+    except TimeoutError:
+        pass
+
+
+def probe_loop_enabled(config: WorkerConfig, credentials: WorkerCredentials) -> bool:
+    """La boucle de sonde n'existe que si la capacité est réellement annoncée.
+
+    Trois conditions cumulatives : capacité déclarée à l'API, worker réel (pas de
+    simulation) et configuration locale valide. Une seule manquante ⇒ pas de
+    boucle, donc aucun claim de sonde.
+    """
+
+    return (
+        not credentials.simulation
+        and WorkerCapability.MCP_STDIO_PROBE.value in credentials.capabilities
+        and config.mcp_probe.enabled
+        and bool(config.mcp_probe.allowed_executables)
+    )
+
+
+async def _probe_loop(
+    client: httpx.AsyncClient,
+    config: WorkerConfig,
+    credentials: WorkerCredentials,
+    stop: asyncio.Event,
+    logger: WorkerLogger,
+) -> None:
+    """Réclame et exécute les sondes MCP stdio approuvées par la plateforme.
+
+    Cette boucle est indépendante de la boucle mission : elle ne la ralentit pas
+    et ne l'interrompt jamais. Aucune valeur d'environnement n'est journalisée.
+    """
+
+    if not probe_loop_enabled(config, credentials):
+        # Défense en profondeur : même appelée directement, la boucle ne réclame
+        # rien tant que la capacité n'est pas réellement annoncée et configurée.
+        return
+    while not stop.is_set():
+        probe: dict[str, Any] | None = None
+        try:
+            response = await client.post(
+                f"{config.api_url}/mcp/worker/probes/claim", json={}
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.write("warning", "Claim de sonde MCP impossible", error=str(exc))
+            payload = None
+        if isinstance(payload, dict):
+            candidate = payload.get("probe")
+            if isinstance(candidate, dict):
+                probe = candidate
+        if probe is None or not isinstance(probe.get("id"), str):
+            await _wait_or_stop(stop, config.poll_interval)
+            continue
+
+        probe_id = probe["id"]
+        logger.write("info", "Sonde MCP prise en charge", probe_id=probe_id)
+        try:
+            result = await run_stdio_probe(probe, config.mcp_probe)
+        except Exception as exc:  # noqa: BLE001
+            # La sonde est censée être fermée sur ses échecs ; un défaut
+            # inattendu ne doit ni tuer la boucle ni laisser la sonde en attente.
+            # Seul le type est journalisé : un message d'exception pourrait
+            # contenir une valeur d'environnement injectée par l'API.
+            logger.write(
+                "error",
+                "Sonde MCP interrompue",
+                probe_id=probe_id,
+                error_type=type(exc).__name__,
+            )
+            result = {
+                "status": "failed",
+                "protocol_version": None,
+                "server_info": None,
+                "tools": [],
+                "exit_code": None,
+                "stderr_tail": "",
+                "duration_ms": 0,
+                "error": "worker_error",
+            }
+        try:
+            response = await client.post(
+                f"{config.api_url}/mcp/worker/probes/{probe_id}/result",
+                json=result,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.write(
+                "warning",
+                "Résultat de sonde MCP non transmis",
+                probe_id=probe_id,
+                error=str(exc),
+            )
+        else:
+            logger.write(
+                "info",
+                "Sonde MCP terminée",
+                probe_id=probe_id,
+                status=str(result.get("status")),
+            )
+
+
 async def run_forever(
     config: WorkerConfig, credentials: WorkerCredentials, *, once: bool = False
 ) -> None:
@@ -862,6 +972,12 @@ async def run_forever(
         heartbeat = asyncio.create_task(
             _heartbeat_loop(api_client, config, credentials, stop, logger)
         )
+        probe_task: asyncio.Task | None = None
+        if probe_loop_enabled(config, credentials):
+            logger.write("info", "Sonde MCP stdio activée")
+            probe_task = asyncio.create_task(
+                _probe_loop(api_client, config, credentials, stop, logger)
+            )
         try:
             while True:
                 completed = {item for item in active if item.done()}
@@ -905,6 +1021,11 @@ async def run_forever(
                 await asyncio.gather(*active, return_exceptions=True)
             stop.set()
             await heartbeat
+            if probe_task is not None:
+                await asyncio.wait({probe_task}, timeout=30)
+                if not probe_task.done():
+                    probe_task.cancel()
+                await asyncio.gather(probe_task, return_exceptions=True)
 
 
 if __name__ == "__main__":

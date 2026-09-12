@@ -13,6 +13,7 @@ from .capabilities import detect_capabilities
 from .config import WorkerConfig, WorkerConfigurationError
 from .local_runner import RunnerConfigurationError
 from .local_log import tail_logs
+from .mcp_probe import McpProbeConfigurationError
 from .main import run_forever
 from .state import (
     CredentialStateError,
@@ -121,10 +122,17 @@ def _doctor(config: WorkerConfig) -> int:
         ),
         "capabilities": detect_capabilities(),
         "local_runner": "configured" if config.local_runner is not None else "missing",
+        "mcp_stdio_probe": config.mcp_probe.status(),
         "api": "unreachable",
         "gateway": "unreachable",
         "provider": "unchecked",
     }
+    if config.mcp_probe.status() == "enabled":
+        # Le nombre d'entrées suffit au diagnostic : les chemins autorisés ne
+        # sont pas imprimés.
+        checks["mcp_stdio_allowed_executables"] = len(
+            config.mcp_probe.allowed_executables
+        )
     if credential_error:
         checks["state_error"] = credential_error
     execution_error: str | None = None
@@ -205,7 +213,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         config = WorkerConfig.from_env()
-    except (RunnerConfigurationError, WorkerConfigurationError) as exc:
+    except (
+        RunnerConfigurationError,
+        WorkerConfigurationError,
+        McpProbeConfigurationError,
+    ) as exc:
         print(f"Configuration worker refusée: {exc}", file=sys.stderr)
         return 2
     if args.command == "register":

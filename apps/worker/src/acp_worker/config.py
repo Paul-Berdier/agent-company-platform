@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .local_runner import LocalRunnerConfig
+from .mcp_probe import McpStdioProbeConfig
 
 
 MIN_POLL_INTERVAL_SECONDS = 0.01
@@ -141,6 +142,7 @@ class WorkerConfig:
     simulation: bool
     registration_token: str | None = field(repr=False)
     local_runner: LocalRunnerConfig | None = None
+    mcp_probe: McpStdioProbeConfig = field(default_factory=McpStdioProbeConfig.disabled)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -187,6 +189,10 @@ class WorkerConfig:
             )
         if not isinstance(self.simulation, bool):
             raise WorkerConfigurationError("simulation doit être un booléen")
+        if not isinstance(self.mcp_probe, McpStdioProbeConfig):
+            raise WorkerConfigurationError(
+                "mcp_probe doit être une McpStdioProbeConfig"
+            )
 
     def validate_execution_mode(self, *, simulation: bool) -> None:
         """Refuse toute exécution dite réelle qui dépend encore d'un simulacre."""
@@ -225,6 +231,7 @@ class WorkerConfig:
             simulation=_simulation_flag(os.environ.get("ACP_WORKER_SIMULATION", "1")),
             registration_token=os.environ.get("ACP_WORKER_REGISTRATION_TOKEN"),
             local_runner=LocalRunnerConfig.from_environment(),
+            mcp_probe=McpStdioProbeConfig.from_environ(),
         )
 
     @property

@@ -1,8 +1,8 @@
 import type { AcpEvent, Overview, Project, TaskSummary } from "@acp/contracts";
 
 import "./workspace.css";
-import { renderMcpCenter, renderSecretsPanel } from "./mcp-ui";
-import { renderSkillsLibrary } from "./skills-ui";
+import { renderMcpCenter, renderSecretsPanel, resetMcpUiState } from "./mcp-ui";
+import { renderSkillsLibrary, resetSkillsUiState } from "./skills-ui";
 import {
   el,
   errorMessage,
@@ -529,6 +529,10 @@ function resetPrivateWorkspaceState(): void {
   newProjectDraft.description = "";
   missionNotice = null;
   projectNotice = null;
+  // Les modules Connexions et Bibliothèque gardent leur propre état : sans ces purges,
+  // ils repeindraient les serveurs, secrets et skills du compte précédent.
+  resetMcpUiState();
+  resetSkillsUiState();
 }
 
 function completeAuthentication(session: AuthSession): void {
@@ -2249,10 +2253,12 @@ function renderCurrentRoute(): void {
     renderDataBoundary(renderMissions);
   } else if (currentRoute === "connections") {
     renderConnections();
-    renderMcpCenter(content);
-    renderSecretsPanel(content);
+    // Le client du shell porte le jeton CSRF de la session : un client séparé devrait
+    // relire `/auth/session`, ce qui ferait tourner ce jeton unique côté serveur.
+    renderMcpCenter(content, http, authState.session?.user.role ?? null);
+    renderSecretsPanel(content, http, authState.session?.user.role ?? null);
   } else if (currentRoute === "library") {
-    renderSkillsLibrary(content);
+    renderSkillsLibrary(content, http);
   } else {
     renderUnconfigured(currentRoute as UnconfiguredRoute);
   }
