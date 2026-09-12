@@ -6,14 +6,14 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-09-11
+## [0.5.0] - 2026-09-12
 
 Lot D : extensions contrôlées (centre MCP, bibliothèque de skills, coffre de
-secrets). Implémenté et vérifié localement le 12 septembre 2026 ; aucune PR, CI
-distante ni tag n'est publié. Aucun serveur MCP tiers, dépôt GitHub réel ni runner
-distant réel n'a été contacté : les preuves reposent sur des transports simulés,
-des programmes déterministes locaux et un parcours de bout en bout joué contre des
-services réellement démarrés sur le bouclage.
+secrets). Vérifié localement le 12 septembre 2026, puis publié après intégration
+continue verte. Aucun serveur MCP tiers, dépôt GitHub réel ni runner distant réel
+n'a été contacté : les preuves reposent sur des transports simulés, des programmes
+déterministes locaux et un parcours de bout en bout joué contre des services
+réellement démarrés sur le bouclage.
 
 ### Ajouté
 

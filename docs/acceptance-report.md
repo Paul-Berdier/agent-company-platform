@@ -140,8 +140,10 @@ sans `BREAKAWAY_OK`, vacuité du job contrôlée à l'arrêt, et échec fermé e
 passent désormais ; trois exécutions consécutives de
 `apps/worker/tests/test_local_runner.py` ont rendu **34 tests réussis** à chaque fois.
 
-Ces preuves sont locales. Aucune PR des Lots C ou D, CI distante ni tag n'est encore
-créé ou publié.
+Ces preuves sont locales, sur Windows. L'intégration continue les rejoue sur Ubuntu
+avec Python `3.12.14` et Node `22` à chaque poussée ; c'est elle qui a révélé une
+assertion d'environnement trop stricte, invisible sous Windows. Les Lots C et D sont
+publiés (PR #3 et #4, tags `v0.4.0` et `v0.5.0`).
 
 ## Vérifications explicitement non exécutées
 

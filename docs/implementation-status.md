@@ -1,9 +1,9 @@
 # État d'implémentation et reprise
 
 Date d'état : 12 septembre 2026, Europe/Paris
-Portée : Lot D (version `0.5.0`) implémenté et vérifié localement sur la base du
-Lot C `0.4.0`. **Aucune PR n'est publiée** : les publications GitHub du Lot C et du
-Lot D — PR, CI distante et tags — n'ont pas encore été effectuées.
+Portée : Lot D (version `0.5.0`) construit sur le Lot C `0.4.0`. Le Lot C est publié
+(PR #3 fusionnée par commit de merge, tag annoté `v0.4.0`). Le Lot D est publié par la
+PR #4 après intégration continue verte, puis étiqueté `v0.5.0`.
 
 ## Résumé
 
@@ -264,8 +264,8 @@ d'une décision qui manque aujourd'hui.
 |---|---|---|
 | A | audit, shell moderne, Hermes Runs strict et exécution fail-closed | **Publié : PR #1, tag `v0.2.0`** |
 | B | accès propriétaire, RBAC, onboarding et conversation persistante | **Publié : PR #2, tag `v0.3.0`** |
-| C | runner réel contrôlé, missions, preuves, validations et CLI | **Implémenté et vérifié localement (`0.4.0`) ; PR, CI distante et tag non publiés** |
-| D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Implémenté et vérifié localement (`0.5.0`) ; aucun serveur MCP tiers contacté ; PR non publiée, CI distante et tag non créés** |
+| C | runner réel contrôlé, missions, preuves, validations et CLI | **Publié : PR #3, tag `v0.4.0`** |
+| D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Publié : PR #4, tag `v0.5.0` ; aucun serveur MCP tiers contacté** |
 | E | Playwright, flux authentifié, traces, captures et livrables | **Non commencé** |
 | F | automatisations, calendrier Europe/Paris, budgets et alertes | **Non commencé** |
 | G | médias/3D, exécuteurs complémentaires et durcissement | **Non commencé** |
@@ -275,22 +275,18 @@ d'une décision qui manque aujourd'hui.
 
 Ordre de reprise pour la personne ou l'agent qui prend la suite.
 
-1. **Publier les Lots C puis D** : PR, CI distante et tags annotés `v0.4.0` puis
-   `v0.5.0` sur les commits mergés de `main`, sans absorber les modifications
-   Pixel/LimeZu locales hors périmètre. Tant que ce point n'est pas fait, les liens de
-   comparaison du `CHANGELOG` pointent vers des tags inexistants.
-2. **Verser le parcours de bout en bout dans le dépôt** : le scénario 7 n'est
-   reproductible par un tiers qu'à cette condition. L'étendre au transport `stdio`
-   (runner enrôlé, autorisation, claim, résultat) et le raccorder à la CI en opt-in.
-3. **Raccorder un serveur MCP tiers** (un `http` public et un `stdio` local) et rejouer
+1. **Étendre le parcours de bout en bout** : `scripts/verify_mcp_journey.py` couvre le
+   transport `http`. L'étendre au transport `stdio` (runner enrôlé, autorisation, claim,
+   résultat) et le raccorder à la CI en opt-in.
+2. **Raccorder un serveur MCP tiers** (un `http` public et un `stdio` local) et rejouer
    le parcours hors tests simulés, y compris l'expurgation face à un serveur bavard
    réel et un dépôt GitHub réel pour un skill épinglé.
-4. **Construire le courtier d'appels d'outils** à l'exécution d'une mission, sur les
+3. **Construire le courtier d'appels d'outils** à l'exécution d'une mission, sur les
    extensions déjà résolues et figées dans `meta["extensions"]` : c'est la brique qui
    transforme le registre du Lot D en capacité utilisable par un agent.
-5. **Décider du sort de l'autorisation `stdio`** : la relier au circuit
+4. **Décider du sort de l'autorisation `stdio`** : la relier au circuit
    d'approbation des missions (`ApprovalModel`, `/approvals`, `acp approvals`) ou
    assumer durablement deux circuits distincts et le documenter comme tel.
-6. **Enchaîner sur le Lot E** (Playwright, flux authentifié, traces, captures et
+5. **Enchaîner sur le Lot E** (Playwright, flux authentifié, traces, captures et
    livrables) une fois les points 1 et 2 tenus : le Lot E a besoin d'un parcours
    navigateur reproductible, que le Lot D n'a pas produit.
