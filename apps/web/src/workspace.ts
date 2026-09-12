@@ -2,7 +2,13 @@ import type { AcpEvent, Overview, Project, TaskSummary } from "@acp/contracts";
 
 import "./workspace.css";
 import { renderMcpCenter, renderSecretsPanel, resetMcpUiState } from "./mcp-ui";
-import { renderSkillsLibrary, resetSkillsUiState } from "./skills-ui";
+import { renderLibrary, resetLibraryUiState } from "./library-ui";
+import {
+  isStudioViewRequested,
+  renderStudio,
+  resetStudioUiState,
+  studioRouteLink,
+} from "./studio-ui";
 import {
   el,
   errorMessage,
@@ -548,7 +554,11 @@ function resetPrivateWorkspaceState(): void {
   // Les modules Connexions et Bibliothèque gardent leur propre état : sans ces purges,
   // ils repeindraient les serveurs, secrets et skills du compte précédent.
   resetMcpUiState();
-  resetSkillsUiState();
+  // La bibliothèque relaie elle-même la purge à l'onglet Skills.
+  resetLibraryUiState();
+  // Le Studio retient un journal, des résultats de tests et des liens signés, et garde un
+  // flux SSE ouvert : sans cette purge, ils survivraient à un changement de compte.
+  resetStudioUiState();
 }
 
 function completeAuthentication(session: AuthSession): void {
@@ -1308,6 +1318,12 @@ function renderMissionList(overview: Overview): HTMLElement {
 
     const actions = el("div", "mission-result-actions");
     const busy = missionState.actionId === mission.id;
+    // Lien profond vers le Studio de **cette** tentative (spec §2.5) : chronologie du
+    // journal, dernière capture de la session et résultats de tests. Inutile de le
+    // proposer sur la tentative dont le Studio est déjà ouvert.
+    if (!(isFocusedRun && isStudioViewRequested(window.location.search))) {
+      actions.append(routeLink(studioRouteLink(run.id), "Ouvrir le Studio"));
+    }
     if (isCurrentRun && ["queued", "preparing", "running", "waiting_approval", "blocked"].includes(run.status)) {
       const stop = el("button", "button button-secondary", busy ? "Action en cours…" : "Arrêter") as HTMLButtonElement;
       stop.type = "button";
@@ -1429,6 +1445,16 @@ function renderMissions(overview: Overview): void {
   }
   layout.append(composer, existing);
   content.append(layout);
+
+  // Studio en direct : uniquement sur le lien profond `/missions?run=<id>&vue=studio`, et
+  // uniquement pour la tentative ciblée. `http` est le client du shell (règle du Lot D :
+  // le Studio ne crée jamais de client et ne lit jamais `/auth/session`).
+  const studioRunId = missionState.focusedRunId;
+  if (studioRunId && isStudioViewRequested(window.location.search)) {
+    const studio = el("section", "content-section");
+    content.append(studio);
+    renderStudio(studio, http, studioRunId);
+  }
 }
 
 function createMissionForm(overview: Overview): HTMLFormElement {
@@ -2407,6 +2433,12 @@ function renderCurrentRoute(): void {
   updateActiveNavigation();
   content.replaceChildren();
 
+  // Le Studio ne vit que dans `/missions?vue=studio` : quitter cet écran doit fermer son
+  // flux SSE, sinon il consomme une des connexions autorisées du compte en arrière-plan.
+  if (currentRoute !== "missions" || !isStudioViewRequested(window.location.search)) {
+    resetStudioUiState();
+  }
+
   if (currentRoute === "home") {
     renderDataBoundary(renderHome);
   } else if (currentRoute === "projects") {
@@ -2422,7 +2454,8 @@ function renderCurrentRoute(): void {
     renderMcpCenter(content, http, authState.session?.user.role ?? null);
     renderSecretsPanel(content, http, authState.session?.user.role ?? null);
   } else if (currentRoute === "library") {
-    renderSkillsLibrary(content, http);
+    // Deux onglets : Skills (Lot D, délégué tel quel) et Livrables (Lot E).
+    renderLibrary(content, http);
   } else {
     renderUnconfigured(currentRoute as UnconfiguredRoute);
   }

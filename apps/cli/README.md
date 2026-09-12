@@ -29,6 +29,78 @@ acp skills bind SKILL_ID --project PROJECT_ID
 acp projects extensions PROJECT_ID
 ```
 
+## Événements, validation technique et livrables
+
+```console
+acp runs events RUN_ID --after-seq 120 --limit 200
+acp runs events RUN_ID --follow --json
+acp runs tests RUN_ID --json
+acp artifacts list --run RUN_ID --kind screenshot --type image/png
+acp artifacts get ARTIFACT_ID --output ./rapport.zip
+acp artifacts get ARTIFACT_ID --stdout > trace.zip
+acp artifacts link ARTIFACT_ID --ttl 300
+acp open --run RUN_ID --studio
+```
+
+`acp runs events` et `acp runs tests` acceptent un identifiant de run **ou** de mission :
+la mission n'est résolue (`GET /missions/{id}`) qu'après un 404 franc sur le run, pour ne pas
+payer un appel supplémentaire dans le cas courant.
+
+`acp runs events` lit **une seule page** du journal durable
+(`GET /runs/{id}/events?after_seq=&limit=`, `--limit` entre 1 et 500). Chaque événement sort
+sur une ligne : NDJSON brut avec `--json`, sinon `séquence horodatage type identifiant`. Si la
+page est incomplète, la sortie standard ne contient **que** des événements et la reprise
+(`--after-seq`) est annoncée sur la sortie d'erreur, avec `next_cursor` en JSON.
+
+`--follow` observe la mission en trois temps : lecture du journal durable jusqu'au bout, flux
+SSE (`GET /streams/runs/{id}`, `after_seq` et `Last-Event-ID` alignés sur le dernier curseur
+reçu), puis réconciliation par curseur à la fermeture du flux. La sortie est du NDJSON même
+sans `--json`. La déduplication se fait par séquence, puis par identifiant pour les événements
+qui n'en portent pas : un recouvrement entre la relecture et le flux ne duplique rien, et une
+coupure ne perd rien. Si le flux échoue — coupure réseau, données illisibles, route
+indisponible (404 ou 5xx) — le CLI le signale sur la sortie d'erreur (`stream_degraded`) puis
+draine le journal durable par curseur ; un refus d'accès (401/403) ou une requête invalide
+reste au contraire visible et ne devient jamais une interrogation silencieuse.
+
+`Ctrl+C` pendant `--follow` quitte l'observation avec le code `INTERRUPTED` : **la mission
+n'est pas arrêtée**, aucune requête d'annulation n'est envoyée, et le curseur de reprise est
+affiché. Utilisez `acp runs stop` pour demander réellement un arrêt.
+
+`acp runs tests` lit `GET /runs/{id}/test-run` et dérive la validation technique sans jamais
+forcer un succès : elle est `passed` seulement si le statut est `completed`, qu'au moins un cas
+a été exécuté, que les totaux `unexpected`, `timedOut` et `interrupted` sont nuls et que le code
+de sortie annoncé est nul ou absent. La commande sort avec `0` dans ce cas et `4` sinon, en
+nommant la cause (`reasons`). `flaky` et `skipped` sont conservés et affichés distinctement,
+jamais réduits à vert/rouge : un test instable ne fait pas échouer la validation mais reste
+visible dans les totaux.
+
+`acp artifacts list --run` demande `task_run_id` au serveur et suit son curseur, puis filtre
+localement : le run, `--kind` (genre exact) et `--type` (type MIME exact, insensible à la
+casse). Le filtre local est volontaire — un serveur qui ignorerait la requête ne peut pas faire
+apparaître un artefact d'un autre run.
+
+`acp artifacts get` lit d'abord les métadonnées (`GET /artifacts/{id}`) puis écrit le contenu
+**par flux borné** de 1 MiB, sans jamais le charger entièrement en mémoire. Le nombre d'octets
+ne peut pas dépasser la taille annoncée (à défaut 200 MiB) et l'empreinte sha256 reçue est
+recalculée : une empreinte différente écarte le contenu et sort avec `4`. Sans `--output`, le
+nom d'origine est utilisé **réduit à son dernier segment** — il vient d'un worker et n'est
+jamais traité comme un chemin ; un nom inutilisable retombe sur l'identifiant de l'artefact.
+Un fichier existant n'est jamais écrasé sans `--force`, et avec `--force` l'écriture passe par
+un fichier temporaire voisin remplacé atomiquement : un téléchargement raté laisse le fichier
+précédent intact. `--stdout` écrit le contenu brut sur la sortie standard (les métadonnées
+`--json` partent alors sur la sortie d'erreur) et **refuse un contenu binaire sur un terminal
+interactif** sans `--force`. Avec `--stdout`, une empreinte invalide est détectée après
+émission : le CLI le dit explicitement et sort avec `4`.
+
+`acp artifacts link` crée un lien signé temporaire (`POST /artifacts/{id}/link?ttl_seconds=`,
+1 à 900 secondes, 300 par défaut) et imprime l'URL seule, l'échéance étant rappelée sur la
+sortie d'erreur. Cette URL porte un jeton : elle est nominative, bornée dans le temps et
+révocable, mais ne doit pas être publiée. Sans clé de signature côté serveur, la commande
+remonte le `503` tel quel.
+
+`acp open --run ID --studio` ajoute `view=studio` à l'URL de la mission et se contente de
+l'afficher ; `--browser` demande explicitement l'ouverture.
+
 La valeur d'un secret n'est **jamais** acceptée en argument : `--value-stdin` est
 obligatoire pour `acp secrets set` et `acp secrets rotate`, et une valeur placée en
 argument (positionnel ou `--value`) est refusée avec le code `USAGE` sans être

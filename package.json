@@ -5,6 +5,7 @@
   "workspaces": [
     "apps/web",
     "packages/pixel-office-engine",
+    "packages/playwright-reporter",
     "packages/ui",
     "packages/contracts"
   ],
@@ -13,6 +14,7 @@
     "build:web": "npm run build --workspace @acp/web",
     "test:web": "npm test --workspace @acp/web",
     "test:engine": "npm test --workspace @acp/pixel-office-engine",
+    "test:reporter": "npm test --workspace @acp/playwright-reporter",
     "assets:import-limezu": "node packages/pixel-office-engine/tools/import-limezu.mjs"
   }
 }

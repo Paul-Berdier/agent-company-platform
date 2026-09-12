@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from .local_runner import LocalRunnerConfig
 from .mcp_probe import McpStdioProbeConfig
+from .web_tests import WebTestConfig
 
 
 MIN_POLL_INTERVAL_SECONDS = 0.01
@@ -143,6 +144,7 @@ class WorkerConfig:
     registration_token: str | None = field(repr=False)
     local_runner: LocalRunnerConfig | None = None
     mcp_probe: McpStdioProbeConfig = field(default_factory=McpStdioProbeConfig.disabled)
+    web_tests: WebTestConfig = field(default_factory=WebTestConfig.disabled)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -193,6 +195,8 @@ class WorkerConfig:
             raise WorkerConfigurationError(
                 "mcp_probe doit être une McpStdioProbeConfig"
             )
+        if not isinstance(self.web_tests, WebTestConfig):
+            raise WorkerConfigurationError("web_tests doit être une WebTestConfig")
 
     def validate_execution_mode(self, *, simulation: bool) -> None:
         """Refuse toute exécution dite réelle qui dépend encore d'un simulacre."""
@@ -232,6 +236,7 @@ class WorkerConfig:
             registration_token=os.environ.get("ACP_WORKER_REGISTRATION_TOKEN"),
             local_runner=LocalRunnerConfig.from_environment(),
             mcp_probe=McpStdioProbeConfig.from_environ(),
+            web_tests=WebTestConfig.from_environ(),
         )
 
     @property

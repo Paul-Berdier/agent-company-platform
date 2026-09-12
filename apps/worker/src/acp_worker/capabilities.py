@@ -6,6 +6,24 @@ import shutil
 from acp_contracts import WorkerCapability
 
 from .mcp_probe import McpProbeConfigurationError, McpStdioProbeConfig
+from .web_tests import SIMULATION_ENV, WebTestConfig, WebTestConfigurationError
+
+
+def _web_tests_available() -> bool:
+    """Les tests web exigent une configuration complète **et** le mode réel.
+
+    Un worker en simulation ne lance aucun programme : annoncer ``web_tests``
+    l'exposerait à des missions qu'il ne peut pas exécuter. Le drapeau lu est
+    ``ACP_WORKER_SIMULATION``, fermé par défaut comme dans ``WorkerConfig``.
+    """
+
+    if os.environ.get(SIMULATION_ENV, "1").strip() != "0":
+        return False
+    try:
+        config = WebTestConfig.from_environ()
+    except (WebTestConfigurationError, ValueError, OSError):
+        return False
+    return config.enabled and config.configured
 
 
 def _mcp_stdio_probe_available() -> bool:
@@ -50,6 +68,8 @@ def detect_capabilities() -> list[str]:
         capabilities.add(WorkerCapability.IMAGE_CAPTURE.value)
     if _mcp_stdio_probe_available():
         capabilities.add(WorkerCapability.MCP_STDIO_PROBE.value)
+    if _web_tests_available():
+        capabilities.add(WorkerCapability.WEB_TESTS.value)
     return sorted(capabilities)
 
 

@@ -15,6 +15,7 @@ from .local_runner import RunnerConfigurationError
 from .local_log import tail_logs
 from .mcp_probe import McpProbeConfigurationError
 from .main import run_forever
+from .web_tests import WebTestConfigurationError
 from .state import (
     CredentialStateError,
     WorkerCredentials,
@@ -123,6 +124,7 @@ def _doctor(config: WorkerConfig) -> int:
         "capabilities": detect_capabilities(),
         "local_runner": "configured" if config.local_runner is not None else "missing",
         "mcp_stdio_probe": config.mcp_probe.status(),
+        "web_tests": config.web_tests.status(),
         "api": "unreachable",
         "gateway": "unreachable",
         "provider": "unchecked",
@@ -133,6 +135,11 @@ def _doctor(config: WorkerConfig) -> int:
         checks["mcp_stdio_allowed_executables"] = len(
             config.mcp_probe.allowed_executables
         )
+    if config.web_tests.status() == "enabled":
+        # Argv, racine de projet et délai : ce que l'opérateur doit pouvoir
+        # vérifier avant d'autoriser un lancement. Aucune **valeur**
+        # d'environnement n'est publiée, seulement le nombre de noms allowlistés.
+        checks.update(config.web_tests.doctor_report())
     if credential_error:
         checks["state_error"] = credential_error
     execution_error: str | None = None
@@ -217,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         RunnerConfigurationError,
         WorkerConfigurationError,
         McpProbeConfigurationError,
+        WebTestConfigurationError,
     ) as exc:
         print(f"Configuration worker refusée: {exc}", file=sys.stderr)
         return 2

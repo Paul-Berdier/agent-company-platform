@@ -30,6 +30,7 @@ PACKAGE_JSONS = (
     "apps/web/package.json",
     "packages/contracts/package.json",
     "packages/pixel-office-engine/package.json",
+    "packages/playwright-reporter/package.json",
     "packages/ui/package.json",
 )
 
@@ -41,7 +42,14 @@ FASTAPI_APPS = (
 
 PYTHON_VERSION_MODULES = ("apps/cli/src/acp_cli/__init__.py",)
 
-LOCK_PACKAGES = ("", "apps/web", "packages/contracts", "packages/pixel-office-engine", "packages/ui")
+LOCK_PACKAGES = (
+    "",
+    "apps/web",
+    "packages/contracts",
+    "packages/pixel-office-engine",
+    "packages/playwright-reporter",
+    "packages/ui",
+)
 
 
 def report(errors: list[str], path: str, actual: object) -> None:

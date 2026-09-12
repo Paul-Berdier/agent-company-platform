@@ -27,6 +27,13 @@ from .local_runner import (
 from .local_log import WorkerLogger
 from .mcp_probe import run_stdio_probe
 from .state import CredentialStateError, WorkerCredentials
+from .web_tests import (
+    WebTestLease,
+    WorkerTestApi,
+    mission_requests_web_tests,
+    run_web_tests,
+    web_tests_available,
+)
 
 
 _T = TypeVar("_T")
@@ -565,35 +572,82 @@ async def process(
             )
             return
 
-        runner_request = request_from_claim(claim, plan)
-        remaining = _remaining_work_seconds(mission_deadline)
-        if remaining is not None:
-            request_timeout = runner_request.timeout_seconds
-            runner_request = replace(
-                runner_request,
-                timeout_seconds=(
-                    remaining
-                    if request_timeout is None
-                    else min(request_timeout, remaining)
-                ),
-            )
         assert config.local_runner is not None
-        execution = await run_local_program(
-            config.local_runner, runner_request, stop_event=execution_stop
-        )
-        evidence = [platform_evidence(execution, runner_request)]
-        technical_status = "passed" if execution.succeeded else "failed"
-        result = {
-            "execution_mode": "real_local_process",
-            "technical_validation": technical_status,
-            "evidence": evidence,
-            "runner_status": execution.status,
-            "exit_code": execution.exit_code,
-            "user_acceptance": "pending",
-            "worker_id": credentials.worker_id,
-        }
+        if web_tests_available(
+            config.web_tests,
+            credentials.capabilities,
+            simulation=credentials.simulation,
+        ) and mission_requests_web_tests(mission):
+            # Mission de tests web : l'exécution passe par la suite Playwright de
+            # l'opérateur. Tout le reste de la boucle (arrêt, évaluation,
+            # terminaison) est strictement celui du Lot C.
+            web_lease = WebTestLease(
+                worker_id=credentials.worker_id,
+                task_run_id=attempt_id,
+                attempt_number=attempt_number,
+                fencing_token=fencing_token,
+                project_id=session.get("project_id") or "",
+                output_root=config.local_runner.run_root,
+            )
+            outcome = await run_web_tests(
+                mission,
+                config.web_tests,
+                api=WorkerTestApi(api_client, config.api_url, credentials.worker_id),
+                lease=web_lease,
+                stop_event=execution_stop,
+                # La deadline globale de la mission borne la suite comme elle
+                # borne le programme local du Lot C : jamais plus que le reste.
+                remaining_seconds=_remaining_work_seconds(mission_deadline),
+            )
+            execution_label = "Suite de tests web"
+            execution_status = outcome.status
+            execution_succeeded = outcome.succeeded
+            execution_cancelled = outcome.error == "stopped"
+            evidence = [outcome.evidence()]
+            technical_status = "passed" if execution_succeeded else "failed"
+            result = {
+                "execution_mode": "web_tests",
+                "technical_validation": technical_status,
+                "evidence": evidence,
+                "runner_status": outcome.status,
+                "exit_code": outcome.exit_code,
+                "test_run_id": outcome.test_run_id,
+                "user_acceptance": "pending",
+                "worker_id": credentials.worker_id,
+            }
+        else:
+            runner_request = request_from_claim(claim, plan)
+            remaining = _remaining_work_seconds(mission_deadline)
+            if remaining is not None:
+                request_timeout = runner_request.timeout_seconds
+                runner_request = replace(
+                    runner_request,
+                    timeout_seconds=(
+                        remaining
+                        if request_timeout is None
+                        else min(request_timeout, remaining)
+                    ),
+                )
+            execution = await run_local_program(
+                config.local_runner, runner_request, stop_event=execution_stop
+            )
+            execution_label = "Programme local"
+            execution_status = execution.status
+            execution_succeeded = execution.succeeded
+            execution_cancelled = execution.status == "cancelled"
+            evidence = [platform_evidence(execution, runner_request)]
+            technical_status = "passed" if execution_succeeded else "failed"
+            result = {
+                "execution_mode": "real_local_process",
+                "technical_validation": technical_status,
+                "evidence": evidence,
+                "runner_status": execution.status,
+                "exit_code": execution.exit_code,
+                "user_acceptance": "pending",
+                "worker_id": credentials.worker_id,
+            }
 
-        if execution.status == "cancelled":
+        if execution_cancelled:
             stopped_status = _stopped_status(stop_context)
             result["stop_reason"] = stop_context["reason"] or "local_stop"
             await patch_run(
@@ -604,7 +658,7 @@ async def process(
                 {
                     "status": stopped_status,
                     "technical_validation": technical_validation_payload(
-                        "failed", "Processus local interrompu avant validation."
+                        "failed", f"{execution_label} interrompu avant validation."
                     ),
                     "evidence": evidence,
                     "result": result,
@@ -612,7 +666,7 @@ async def process(
             )
             return
 
-        if not execution.succeeded:
+        if not execution_succeeded:
             stopped = execution_stop.is_set()
             terminal_status = _stopped_status(stop_context) if stopped else "failed"
             if stopped:
@@ -626,7 +680,7 @@ async def process(
                     "status": terminal_status,
                     "technical_validation": technical_validation_payload(
                         "failed",
-                        f"Processus local terminé avec le statut {execution.status}.",
+                        f"{execution_label} terminé avec le statut {execution_status}.",
                     ),
                     "evidence": evidence,
                     "result": result,
@@ -645,7 +699,7 @@ async def process(
                 {
                     "status": stopped_status,
                     "technical_validation": technical_validation_payload(
-                        "passed", "Programme local terminé avant la demande d'arrêt."
+                        "passed", f"{execution_label} terminé avant la demande d'arrêt."
                     ),
                     "evidence": evidence,
                     "result": result,
@@ -685,7 +739,7 @@ async def process(
                         "status": _stopped_status(stop_context),
                         "technical_validation": technical_validation_payload(
                             "passed",
-                            "Programme local terminé; évaluation interrompue par l'arrêt.",
+                            f"{execution_label} terminé; évaluation interrompue par l'arrêt.",
                         ),
                         "evidence": evidence,
                         "result": result,
@@ -710,7 +764,7 @@ async def process(
                     "status": "blocked",
                     "technical_validation": technical_validation_payload(
                         "passed",
-                        "Programme local terminé; verdict du provider indisponible.",
+                        f"{execution_label} terminé; verdict du provider indisponible.",
                     ),
                     "evidence": evidence,
                     "result": result,
@@ -737,7 +791,7 @@ async def process(
             {
                 "status": run_status,
                 "technical_validation": technical_validation_payload(
-                    "passed", "Programme local terminé avec un code de sortie nul."
+                    "passed", f"{execution_label} terminé avec un verdict technique réussi."
                 ),
                 "evidence": evidence,
                 "result": result,
