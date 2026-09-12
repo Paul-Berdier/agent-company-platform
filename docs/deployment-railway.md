@@ -1,6 +1,6 @@
 # Déploiement local et Railway
 
-Date d'état : 11 septembre 2026
+Date d'état : 12 septembre 2026 — version `0.5.0`
 Statut : architecture et procédure préparatoire ; aucun déploiement réel effectué,
 configuration de production non livrée.
 
@@ -83,6 +83,59 @@ configuration PostgreSQL est donc une cible, pas une recette validée.
 Les endpoints internes et les flux temps réel doivent rester sur le réseau privé ou
 être authentifiés avant toute exposition. CORS n'est pas un contrôle d'accès.
 
+## Variables du Lot D (extensions contrôlées)
+
+Sur le service **api** uniquement :
+
+```text
+ACP_SECRETS_KEYS=<clé Fernet>[,<clé précédente>…]
+ACP_OUTBOUND_PRIVATE_ALLOWLIST=
+ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP=0
+ACP_SKILLS_STORAGE_DIR=/data/skills
+ACP_SKILLS_ALLOWED_DIRS=
+ACP_SKILLS_GITHUB_ENABLED=0
+ACP_GITHUB_TOKEN=
+```
+
+Points à tenir, dans cet ordre :
+
+1. `ACP_SECRETS_KEYS` est la clé du coffre : sans elle, l'API annonce honnêtement
+   `configured=false` et refuse (`503`) toute route qui chiffre ou déchiffre, mais
+   **la perdre rend illisibles tous les secrets déjà enregistrés**. Elle doit être une
+   référence privée sauvegardée hors du projet, jamais une valeur en clair dans un
+   manifeste. La première clé chiffre, les suivantes déchiffrent encore : une rotation
+   consiste à préfixer la nouvelle clé, faire tourner les secrets, puis retirer
+   l'ancienne. Il n'y a ni KMS, ni HSM, ni rotation planifiée.
+2. `ACP_OUTBOUND_PRIVATE_ALLOWLIST` doit rester **vide** par défaut. Chez un
+   hébergeur, le réseau privé et la métadonnée d'instance sont précisément ce que la
+   politique de sortie bloque ; n'y inscrire une adresse qu'après avoir mesuré ce
+   qu'elle rend joignable. Chaque usage produit un événement d'audit
+   `outbound.private_allowlist_used`. `ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP` reste `0` hors
+   développement local.
+3. `ACP_SKILLS_STORAGE_DIR` doit pointer vers un **volume persistant** : les révisions
+   de skills y vivent, et un système de fichiers éphémère les perdrait au redéploiement
+   alors que la base continuerait de les référencer. Ce stockage n'est ni privé, ni
+   servi par URL signée, ni soumis à rétention : c'est une limite connue.
+4. `ACP_SKILLS_ALLOWED_DIRS` n'a de sens que si un dossier de confiance est monté dans
+   le conteneur ; vide, l'import par dossier est refusé (`403`), ce qui est le bon
+   défaut en production.
+5. `ACP_SKILLS_GITHUB_ENABLED=1` ouvre une sortie réseau vers `api.github.com` (et la
+   redirection vers `codeload.github.com`), sous la même politique de sortie. Ne
+   définir `ACP_GITHUB_TOKEN` que si un dépôt privé est réellement nécessaire.
+
+Sur la **machine du worker**, jamais sur le serveur de contrôle :
+
+```text
+ACP_WORKER_MCP_STDIO_ENABLED=0
+ACP_WORKER_MCP_STDIO_ALLOWED_EXECUTABLES=
+ACP_WORKER_MCP_STDIO_TIMEOUT_SECONDS=20
+```
+
+La capacité `mcp_stdio_probe` n'est annoncée que si le drapeau vaut `1` **et** que
+l'allowlist d'exécutables absolus n'est pas vide. Activer cette sonde revient à
+autoriser le lancement de programmes listés sur cette machine : la traiter comme une
+décision d'exploitation, pas comme un réglage de confort.
+
 ## Variables Hermes
 
 Sur Hermes :
@@ -136,6 +189,8 @@ Changer l'URL sans migrer l'état ne déplace ni les sessions ni la mémoire.
 - authentification du WebSocket et de `/internal/events`, reprise par curseur et
   outbox ;
 - migrations Alembic et driver PostgreSQL verrouillé, test de montée et retour ;
+- sauvegarde et rotation documentées de `ACP_SECRETS_KEYS`, et volume persistant pour
+  `ACP_SKILLS_STORAGE_DIR` ;
 - stockage d'objets privé, URLs signées et politiques de rétention ;
 - images reproductibles, utilisateur non privilégié et fichiers de lock ;
 - secrets de service tournants, CSP/CSRF/en-têtes de sécurité et CORS explicite ;

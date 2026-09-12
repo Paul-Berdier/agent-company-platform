@@ -223,9 +223,18 @@ Lot A compte **58 tests réussis**.
 Le Lot B ajoute `test_gateway_hermes_runs.py`, `test_conversations.py` et les tests
 TypeScript du client de conversation pour le Bearer interne, le diagnostic typé,
 l'admission asynchrone, la lecture unitaire, la persistance, la confidentialité et la
-reprise de clé. Dans le worktree propre du Lot B, la suite Python complète compte
+reprise de clé. Dans le worktree propre du Lot B, la suite Python complète comptait
 **121 tests réussis** et la suite web **28 tests réussis**. Ces résultats ne prouvent
 pas une intégration externe.
+
+Le Lot D ajoute la lecture des skills et toolsets natifs
+(`services/provider-gateway/tests/test_hermes_native_listing.py`,
+`apps/api/tests/test_connections_hermes_native.py`) : statut explicite
+`available` / `not_configured` / `unsupported` / `unavailable`, refus d'une réponse mal
+formée, bornes sur les textes et les listes, et absence de mutation. Dans le worktree
+`lot-d` (version `0.5.0`), la suite du gateway compte **87 tests** et la suite Python
+complète **1 033 tests réussis** avec 2 avertissements de dépréciation connus. Ces
+tests utilisent un transport simulé : aucune instance Hermes réelle n'a été contactée.
 
 Ce résultat valide la traduction et les invariants locaux. Il ne prouve pas :
 

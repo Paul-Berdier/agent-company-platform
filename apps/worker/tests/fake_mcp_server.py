@@ -29,6 +29,10 @@ Modes (premier argument) :
     nommée en second argument sur stderr, dans ``serverInfo`` et dans la
     description d'un outil. Sert à prouver que la sonde expurge les valeurs
     injectées avant de les retourner à l'API.
+``oversized``
+    Une **seule** page contenant plus d'outils que la capacité de la sonde, sans
+    ``nextCursor``. Sert à prouver qu'une liste tronquée n'est jamais présentée
+    comme complète, même sans pagination annoncée.
 ``noisy``
     Comme ``ok``, mais écrit d'abord un long flux sur stderr.
 ``hang``
@@ -48,6 +52,9 @@ from pathlib import Path
 
 PROTOCOL_VERSION = "2025-06-18"
 NOISY_STDERR_CHARS = 6000
+# Strictement supérieur au ``MAX_TOOLS`` de la sonde (500) : la page dépasse la
+# capacité alors qu'elle se présente comme l'unique page.
+OVERSIZED_TOOL_COUNT = 600
 
 
 def _emit(payload: dict) -> None:
@@ -101,6 +108,10 @@ def _tools_page(mode: str, cursor: str | None, target: str | None = None) -> dic
                 )
             ]
         }
+    if mode == "oversized":
+        # Une seule page, aucun ``nextCursor`` : rien n'annonce la suite, donc
+        # rien ne signalerait la troncature si la sonde l'acceptait.
+        return {"tools": [_tool(index) for index in range(1, OVERSIZED_TOOL_COUNT + 1)]}
     if mode == "endless":
         # Ne termine jamais la pagination : la sonde doit refuser plutôt que de
         # présenter une liste tronquée comme complète.

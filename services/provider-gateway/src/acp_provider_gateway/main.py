@@ -25,7 +25,7 @@ from .providers.hermes import (
 from .providers.manual import ManualOrchestratorProvider
 from .providers.mock import MockOrchestratorProvider
 
-app = FastAPI(title="Agent Company Platform — Provider Gateway", version="0.4.0")
+app = FastAPI(title="Agent Company Platform — Provider Gateway", version="0.5.0")
 
 app.add_middleware(
     CORSMiddleware,

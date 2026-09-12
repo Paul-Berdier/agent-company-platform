@@ -203,3 +203,11 @@ from .extensions import (  # noqa: F401
     ProjectMcpExtension,
     ProjectSkillExtension,
 )
+from .redaction import (  # noqa: F401
+    MAX_REDACTION_DEPTH,
+    MIN_REDACTED_VALUE_CHARS,
+    REDACTED_PLACEHOLDER,
+    redact_data,
+    redact_text,
+    redaction_values,
+)

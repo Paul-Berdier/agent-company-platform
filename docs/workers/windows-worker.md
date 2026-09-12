@@ -280,9 +280,13 @@ Garanties de la sonde :
   (valeurs de secrets résolues depuis le coffre) sont remplacées par `***` dans
   `stderr_tail`, `server_info`, `protocol_version` et les outils avant d'être
   postées. Un serveur MCP bavard qui réécrit un jeton reçu ne peut donc pas le
-  publier dans `GET /mcp/probes/{id}`, lisible par tout utilisateur autorisé. Les
-  valeurs de moins de 4 caractères ne sont pas masquées (elles rendraient le
-  diagnostic illisible sans rien protéger) ;
+  publier dans `GET /mcp/probes/{id}`, lisible par tout utilisateur autorisé.
+  **Toute valeur non vide est masquée, sans plancher de longueur** : un secret d'un à
+  trois caractères rend le diagnostic bruyant, mais la règle « aucun secret ne sort du
+  serveur » prime. La règle est écrite une seule fois dans
+  `acp_contracts.redaction` et l'API réapplique la même expurgation au résultat posté
+  par le runner : un runner bavard ou compromis ne peut pas faire écrire une valeur
+  lisible ;
 - répertoire de travail : celui fourni s'il est absolu et existant, sinon un
   répertoire temporaire neuf supprimé à la fin ;
 - échange JSON-RPC ligne par ligne (`initialize` avec `protocolVersion`
@@ -296,4 +300,11 @@ Garanties de la sonde :
   `job_assignment_failed`, `timeout`, `protocol`, `closed`, `server_error`,
   `too_many_tools` ou `process_tree_cleanup_failed` sont retournés avec
   `status="failed"`. Une pagination sans fin (plus de 20 pages ou 500 outils) est
-  refusée plutôt que tronquée silencieusement.
+  refusée plutôt que tronquée silencieusement, et une **page unique** contenant plus
+  d'outils que la capacité restante l'est aussi : une liste tronquée présentée comme
+  complète serait un faux succès.
+
+Ce que la sonde ne fait pas : elle n'isole pas le programme. Le Job Object borne son
+arbre de processus, il ne limite ni CPU, ni mémoire, ni réseau, et le programme
+conserve les droits du compte Windows du worker. L'allowlist d'exécutables est donc le
+contrôle qui compte : n'y inscrire que des binaires de confiance.

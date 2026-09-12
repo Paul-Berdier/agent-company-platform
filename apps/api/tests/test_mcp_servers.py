@@ -21,6 +21,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from acp_contracts.redaction import REDACTED_PLACEHOLDER
+
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.routers import mcp as mcp_router
@@ -38,6 +40,7 @@ from acp_database.models import (
 
 PUBLIC_IP = "93.184.216.34"
 PASSWORD = "correct horse battery staple"
+REDACTED = REDACTED_PLACEHOLDER
 HTTP_SECRET_VALUE = "Bearer SECRET-VALUE-123"
 STDIO_SECRET_VALUE = "stdio-secret-value-456"
 ALL_SECRET_VALUES = (HTTP_SECRET_VALUE, STDIO_SECRET_VALUE)
@@ -56,7 +59,12 @@ def fake_resolver(table: dict[str, list[str]]):
 
 
 class RouterFakeMcp:
-    """Serveur MCP Streamable HTTP simulé (JSON) dont les outils changent entre deux probes."""
+    """Serveur MCP Streamable HTTP simulé (JSON) dont les outils changent entre deux probes.
+
+    ``echo_header`` simule un serveur bavard : il réémet la valeur de l'en-tête reçu dans
+    ``serverInfo``, dans les capacités, dans la description d'un outil et dans un message
+    d'erreur JSON-RPC. C'est le comportement hostile que l'expurgation doit neutraliser.
+    """
 
     def __init__(self) -> None:
         self.tools: list[dict] = [
@@ -64,7 +72,14 @@ class RouterFakeMcp:
             {"name": "fetch", "description": "Lecture", "inputSchema": {"type": "object"}},
         ]
         self.status_override: int | None = None
+        self.echo_header: str | None = None
+        self.echo_as_jsonrpc_error = False
         self.seen: list[httpx.Request] = []
+
+    def _echoed(self, request: httpx.Request) -> str:
+        if self.echo_header is None:
+            return ""
+        return request.headers.get(self.echo_header, "")
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.seen.append(request)
@@ -74,7 +89,22 @@ class RouterFakeMcp:
             return httpx.Response(200)
         body = json.loads(request.content)
         method = body.get("method")
+        echoed = self._echoed(request)
         if method == "initialize":
+            if self.echo_as_jsonrpc_error:
+                return httpx.Response(
+                    200,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": body["id"],
+                        "error": {"code": -32000, "message": f"jeton refusé : {echoed}"},
+                    },
+                )
+            server_info = {"name": "router-fake", "version": "0.1"}
+            capabilities: dict = {"tools": {}}
+            if echoed:
+                server_info["authenticated_as"] = echoed
+                capabilities["echo"] = echoed
             return httpx.Response(
                 200,
                 headers={"Mcp-Session-Id": "router-session"},
@@ -83,16 +113,20 @@ class RouterFakeMcp:
                     "id": body["id"],
                     "result": {
                         "protocolVersion": "2025-06-18",
-                        "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "router-fake", "version": "0.1"},
+                        "capabilities": capabilities,
+                        "serverInfo": server_info,
                     },
                 },
             )
         if method == "notifications/initialized":
             return httpx.Response(202)
         if method == "tools/list":
+            tools = [dict(tool) for tool in self.tools]
+            if echoed:
+                tools[0]["description"] = f"jeton reçu : {echoed}"
+                tools[0]["inputSchema"] = {"type": "object", "title": echoed}
             return httpx.Response(
-                200, json={"jsonrpc": "2.0", "id": body["id"], "result": {"tools": list(self.tools)}}
+                200, json={"jsonrpc": "2.0", "id": body["id"], "result": {"tools": tools}}
             )
         return httpx.Response(400)
 
@@ -258,6 +292,19 @@ def _http_payload(name: str, secret_id: str, url: str = "https://mcp.example/mcp
                 "header_secrets": {"Authorization": {"secret_id": secret_id}},
                 "timeout_seconds": 5,
             },
+        },
+    }
+
+
+def _http_payload_without_secret(name: str, url: str = "https://mcp.example/mcp") -> dict:
+    """Serveur HTTP public : aucune référence de secret, donc aucun besoin de coffre."""
+
+    return {
+        "name": name,
+        "display_name": f"Serveur {name}",
+        "config": {
+            "transport": "http",
+            "http": {"url": url, "headers": {"X-Client": "acp"}, "timeout_seconds": 5},
         },
     }
 
@@ -1338,15 +1385,187 @@ def test_claim_without_a_configured_vault_fails_the_probe_explicitly(mcp_context
     assert "Coffre de secrets non configuré" in failed["error"]
 
 
-def test_http_probe_without_a_configured_vault_is_a_503(mcp_context, monkeypatch):
+def test_http_probe_without_a_configured_vault_fails_only_when_a_secret_is_referenced(
+    mcp_context, monkeypatch
+):
+    """Sans référence de secret, le coffre n'est pas requis : le diagnostic reste possible."""
+
     client = mcp_context["client"]
     secret_id = _create_secret(mcp_context, "GITHUB_TOKEN", HTTP_SECRET_VALUE)
-    server = client.post("/mcp/servers", json=_http_payload("github", secret_id)).json()
+    with_secret = client.post("/mcp/servers", json=_http_payload("github", secret_id)).json()
+    without_secret = client.post(
+        "/mcp/servers", json=_http_payload_without_secret("sans-secret")
+    )
+    assert without_secret.status_code == 201, without_secret.text
+
     monkeypatch.delenv("ACP_SECRETS_KEYS", raising=False)
-    response = client.post(f"/mcp/servers/{server['id']}/probe")
-    assert response.status_code == 503
-    assert "ACP_SECRETS_KEYS" in response.json()["detail"]
+
+    refused = client.post(f"/mcp/servers/{with_secret['id']}/probe")
+    assert refused.status_code == 200, refused.text
+    assert refused.json()["status"] == "failed"
+    assert "ACP_SECRETS_KEYS" in refused.json()["error"]
     assert mcp_context["fake"].seen == []
+
+    # Aucun secret référencé : le diagnostic s'exécute et le serveur devient activable.
+    probe = client.post(f"/mcp/servers/{without_secret.json()['id']}/probe")
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["status"] == "succeeded", probe.json()["error"]
+    assert mcp_context["fake"].seen
+    assert client.post(f"/mcp/servers/{without_secret.json()['id']}/activate").status_code == 200
+
+
+# --- expurgation des contenus renvoyés par un tiers ---------------------------------------------
+
+
+def test_a_talkative_http_server_never_republishes_the_injected_secret(mcp_context):
+    """Un serveur MCP qui réémet l'en-tête reçu ne doit rien publier de lisible (§0.3)."""
+
+    client = mcp_context["client"]
+    fake = mcp_context["fake"]
+    fake.echo_header = "authorization"
+    secret_id = _create_secret(mcp_context, "GITHUB_TOKEN", HTTP_SECRET_VALUE)
+    server = client.post("/mcp/servers", json=_http_payload("bavard", secret_id)).json()
+
+    probe = client.post(f"/mcp/servers/{server['id']}/probe")
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["status"] == "succeeded", probe.json()["error"]
+    # Le serveur a bien reçu la valeur : c'est ce qui rend la fuite possible sans expurgation.
+    assert fake.seen[0].headers["authorization"] == HTTP_SECRET_VALUE
+    _assert_no_secret_value(probe.text)
+    assert probe.json()["result"]["server_info"]["authenticated_as"] == REDACTED
+
+    detail = client.get(f"/mcp/servers/{server['id']}")
+    assert detail.status_code == 200
+    _assert_no_secret_value(detail.text)
+    discovery = detail.json()["current_revision"]["discovery"]
+    assert discovery["server_info"]["authenticated_as"] == REDACTED
+    assert discovery["capabilities"]["echo"] == REDACTED
+    tool = next(item for item in discovery["tools"] if item["name"] == "search")
+    assert REDACTED in tool["description"] and HTTP_SECRET_VALUE not in tool["description"]
+    assert tool["input_schema"]["title"] == REDACTED
+
+    stored = client.get(f"/mcp/probes/{probe.json()['id']}")
+    assert stored.status_code == 200
+    _assert_no_secret_value(stored.text)
+
+    # Un lecteur sans aucun accès projet lit les mêmes routes : rien ne doit y apparaître.
+    reader = _create_user(mcp_context, "lecteur-bavard", "operator", [])
+    _authenticate(client, *reader)
+    _assert_no_secret_value(client.get(f"/mcp/servers/{server['id']}").text)
+    _assert_no_secret_value(client.get(f"/mcp/probes/{probe.json()['id']}").text)
+
+
+def test_an_error_message_quoting_the_secret_is_redacted(mcp_context):
+    """Le message d'erreur d'un diagnostic échoué peut citer la réponse distante."""
+
+    client = mcp_context["client"]
+    fake = mcp_context["fake"]
+    fake.echo_header = "authorization"
+    fake.echo_as_jsonrpc_error = True
+    secret_id = _create_secret(mcp_context, "GITHUB_TOKEN", HTTP_SECRET_VALUE)
+    server = client.post("/mcp/servers", json=_http_payload("erreur", secret_id)).json()
+
+    probe = client.post(f"/mcp/servers/{server['id']}/probe")
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["status"] == "failed"
+    assert REDACTED in probe.json()["error"]
+    _assert_no_secret_value(probe.text)
+    _assert_no_secret_value(client.get(f"/mcp/probes/{probe.json()['id']}").text)
+
+
+def test_a_talkative_runner_result_is_redacted_by_the_server(mcp_context):
+    """Le contrôle n'existe pas que dans le worker : l'API expurge ce que le runner poste."""
+
+    client = mcp_context["client"]
+    real = mcp_context["workers"]["real"]
+    secret_id = _create_secret(mcp_context, "API_KEY", STDIO_SECRET_VALUE)
+    server_id = client.post(
+        "/mcp/servers", json=_stdio_payload("runner-bavard", secret_id, real["worker_id"])
+    ).json()["id"]
+    probe = client.post(f"/mcp/servers/{server_id}/probe").json()
+    client.post(f"/mcp/probes/{probe['id']}/decision", json={"decision": "approved"})
+    claimed = _claim(mcp_context, real).json()["probe"]
+    assert claimed["env"]["API_KEY"] == STDIO_SECRET_VALUE
+
+    result = _stdio_result(["search"])
+    result["server_info"] = {"name": "stdio-fake", "authenticated_as": STDIO_SECRET_VALUE}
+    result["tools"][0]["description"] = f"jeton reçu : {STDIO_SECRET_VALUE}"
+    result["stderr_tail"] = f"connexion avec {STDIO_SECRET_VALUE}"
+    reported = _report(mcp_context, real, claimed["id"], result)
+
+    assert reported.status_code == 200, reported.text
+    assert reported.json()["status"] == "succeeded"
+    _assert_no_secret_value(reported.text)
+    assert reported.json()["result"]["server_info"]["authenticated_as"] == REDACTED
+    detail = client.get(f"/mcp/servers/{server_id}")
+    _assert_no_secret_value(detail.text)
+    assert REDACTED in detail.json()["current_revision"]["discovery"]["tools"][0]["description"]
+
+
+def test_a_runner_result_is_refused_when_the_redaction_cannot_be_checked(
+    mcp_context, monkeypatch
+):
+    """Coffre devenu illisible entre le claim et le résultat : échec explicite, rien d'écrit."""
+
+    client = mcp_context["client"]
+    real = mcp_context["workers"]["real"]
+    secret_id = _create_secret(mcp_context, "API_KEY", STDIO_SECRET_VALUE)
+    server_id = client.post(
+        "/mcp/servers", json=_stdio_payload("coffre-perdu", secret_id, real["worker_id"])
+    ).json()["id"]
+    probe = client.post(f"/mcp/servers/{server_id}/probe").json()
+    client.post(f"/mcp/probes/{probe['id']}/decision", json={"decision": "approved"})
+    claimed = _claim(mcp_context, real).json()["probe"]
+
+    monkeypatch.delenv("ACP_SECRETS_KEYS", raising=False)
+    result = _stdio_result(["search"])
+    result["server_info"] = {"name": "stdio-fake", "authenticated_as": STDIO_SECRET_VALUE}
+    reported = _report(mcp_context, real, claimed["id"], result)
+
+    assert reported.status_code == 200, reported.text
+    assert reported.json()["status"] == "failed"
+    assert "Coffre de secrets non configuré" in reported.json()["error"]
+    _assert_no_secret_value(reported.text)
+    detail = client.get(f"/mcp/servers/{server_id}")
+    _assert_no_secret_value(detail.text)
+    assert detail.json()["current_revision"]["discovery"] is None
+
+
+def test_server_detail_only_exposes_bindings_of_accessible_projects(mcp_context):
+    """Les rattachements nomment des projets : un utilisateur sans accès n'en voit aucun."""
+
+    client = mcp_context["client"]
+    project_a = mcp_context["projects"]["A"]["project_id"]
+    secret_id = _create_secret(mcp_context, "GITHUB_TOKEN", HTTP_SECRET_VALUE)
+    server = client.post("/mcp/servers", json=_http_payload("cloisonne", secret_id)).json()
+    client.post(f"/mcp/servers/{server['id']}/probe")
+    assert client.post(f"/mcp/servers/{server['id']}/activate").status_code == 200
+    binding = client.post(
+        f"/mcp/servers/{server['id']}/bindings",
+        json={"project_id": project_a, "allowed_tools": ["search"]},
+    )
+    assert binding.status_code == 201, binding.text
+
+    owner_detail = client.get(f"/mcp/servers/{server['id']}").json()
+    assert [row["project_id"] for row in owner_detail["bindings"]] == [project_a]
+    assert owner_detail["binding_count"] == 1
+
+    outsider = _create_user(mcp_context, "hors-projet", "operator", [])
+    _authenticate(client, *outsider)
+    assert client.get("/mcp/bindings").json() == []
+    detail = client.get(f"/mcp/servers/{server['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["bindings"] == []
+    assert project_a not in detail.text
+    # Le compteur reste global : l'existence d'un rattachement n'est pas cachée, seul le
+    # projet concerné l'est.
+    assert detail.json()["binding_count"] == 1
+
+    member_a = _create_user(mcp_context, "membre-a", "operator", [("A", "member")])
+    _authenticate(client, *member_a)
+    assert [row["project_id"] for row in client.get(f"/mcp/servers/{server['id']}").json()["bindings"]] == [
+        project_a
+    ]
 
 
 def test_http_probe_fails_explicitly_when_the_encryption_key_disappeared(mcp_context, monkeypatch):

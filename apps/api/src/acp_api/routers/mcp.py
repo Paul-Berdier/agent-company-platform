@@ -100,14 +100,15 @@ def _policy() -> OutboundPolicy:
         raise HTTPException(status_code=500, detail=f"Politique de sortie invalide : {exc}") from exc
 
 
-def _vault_or_503() -> SecretsVault:
-    try:
-        return get_vault(os.environ)
-    except VaultNotConfigured as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
 def _optional_vault() -> SecretsVault | None:
+    """Coffre s'il est configuré, ``None`` sinon.
+
+    Aucune route MCP n'exige le coffre a priori : seules les opérations qui référencent
+    réellement un secret le réclament, et son absence produit alors un échec explicite de
+    l'opération (diagnostic ``failed``), jamais un refus global du centre MCP. Le 503
+    « coffre non configuré » reste propre aux routes ``/secrets``.
+    """
+
     try:
         return get_vault(os.environ)
     except VaultNotConfigured:
@@ -122,6 +123,19 @@ def _server_or_404(db: Session, server_id: str) -> McpServerModel:
     if server is None:
         raise HTTPException(status_code=404, detail="Serveur MCP introuvable")
     return server
+
+
+def _detail(
+    db: Session, server: McpServerModel, principal: str, apply_notes: tuple[str, ...] | list[str] = ()
+) -> McpServerDetail:
+    """Détail filtré : les rattachements exposés sont ceux des projets accessibles à l'appelant."""
+
+    return service.server_detail(
+        db,
+        server,
+        apply_notes,
+        visible_project_ids=accessible_project_ids(db, principal),
+    )
 
 
 def _mutable_server(db: Session, server_id: str) -> McpServerModel:
@@ -287,7 +301,7 @@ def create_server(
     )
     db.commit()
     db.refresh(server)
-    return service.server_detail(db, server)
+    return _detail(db, server, principal)
 
 
 @router.get("/servers", response_model=list[McpServerSummary])
@@ -309,7 +323,7 @@ def get_server(
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
 ):
-    return service.server_detail(db, _server_or_404(db, server_id))
+    return _detail(db, _server_or_404(db, server_id), principal)
 
 
 @router.post("/servers/{server_id}/revisions", response_model=McpServerDetail, status_code=201)
@@ -350,7 +364,7 @@ def create_server_revision(
     )
     db.commit()
     db.refresh(server)
-    return service.server_detail(db, server)
+    return _detail(db, server, principal)
 
 
 @router.post("/servers/{server_id}/probe", response_model=McpProbe)
@@ -373,7 +387,11 @@ def start_probe(
             server,
             revision,
             principal=principal,
-            vault=_vault_or_503(),
+            # Le coffre n'est exigé que si la configuration référence des secrets : sans
+            # référence, un diagnostic HTTP doit rester possible sans ACP_SECRETS_KEYS
+            # (symétrique du claim stdio). L'absence de coffre utile fait échouer le
+            # diagnostic, pas la route.
+            vault=_optional_vault(),
             policy=_policy(),
             resolver=resolver,
             transport=transport,
@@ -428,7 +446,7 @@ def activate_server(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     db.refresh(server)
-    return service.server_detail(db, server, apply_notes=notes)
+    return _detail(db, server, principal, notes)
 
 
 @router.post("/servers/{server_id}/disable", response_model=McpServerDetail)
@@ -442,7 +460,7 @@ def disable_server(
     service.disable_server(db, server)
     db.commit()
     db.refresh(server)
-    return service.server_detail(db, server)
+    return _detail(db, server, principal)
 
 
 @router.post("/servers/{server_id}/revoke", response_model=McpServerDetail)
@@ -457,7 +475,7 @@ def revoke_server(
     service.revoke_server(db, server, reason=body.reason, principal=principal)
     db.commit()
     db.refresh(server)
-    return service.server_detail(db, server)
+    return _detail(db, server, principal)
 
 
 @router.post("/servers/{server_id}/rollback", response_model=McpServerDetail)
@@ -481,7 +499,7 @@ def rollback_server(
     service.rollback_server(db, server, target, principal=principal, note=body.note)
     db.commit()
     db.refresh(server)
-    return service.server_detail(db, server)
+    return _detail(db, server, principal)
 
 
 # --- probes ------------------------------------------------------------------------------------
@@ -817,7 +835,9 @@ def report_stdio_probe(
                 f"(état actuel : {probe.status})."
             ),
         )
-    service.complete_probe(db, probe, body)
+    # Le coffre sert ici à expurger côté serveur ce que le runner rapporte : le contrôle
+    # ne doit pas exister uniquement dans le worker.
+    service.complete_probe(db, probe, body, vault=_optional_vault())
     db.commit()
     db.refresh(probe)
     return service.probe_contract(probe)

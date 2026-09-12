@@ -36,6 +36,15 @@ from pathlib import Path
 from time import monotonic
 from typing import Any, Mapping, Sequence
 
+from acp_contracts.redaction import (
+    MAX_REDACTION_DEPTH,
+    MIN_REDACTED_VALUE_CHARS,
+    REDACTED_PLACEHOLDER,
+    redact_data,
+    redact_text,
+    redaction_values,
+)
+
 from .local_runner import (
     FencedProcess,
     FencedSpawnError,
@@ -56,15 +65,9 @@ PROTOCOL_VERSION = "2025-06-18"
 CLIENT_NAME = "agent-company-platform-worker"
 CLIENT_VERSION = "0.4.0"
 
-# Marqueur substitué aux valeurs d'environnement injectées par l'API dans tout
-# contenu produit par le serveur sondé.
-REDACTED_PLACEHOLDER = "***"
-# En deçà de cette longueur, une valeur (``1``, ``on``, ``dev``) apparaîtrait
-# partout et rendrait le diagnostic illisible sans rien protéger d'utile.
-MIN_REDACTED_VALUE_CHARS = 4
-# Profondeur maximale parcourue lors de l'expurgation : au-delà, la structure
-# est remplacée par le marqueur (échec fermé) plutôt que retournée non examinée.
-MAX_REDACTION_DEPTH = 64
+# L'expurgation (marqueur, plancher de longueur, profondeur) vient de
+# ``acp_contracts.redaction`` : la sonde HTTP de l'API applique exactement la
+# même règle sur ce que renvoie le serveur sondé.
 STDERR_TAIL_MAX_CHARS = 4096
 TOOL_DESCRIPTION_MAX_CHARS = 2000
 MAX_TOOL_PAGES = 20
@@ -229,61 +232,6 @@ def probe_environment(requested: Mapping[str, Any] | None) -> dict[str, str]:
     return environment
 
 
-def redaction_values(requested: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """Valeurs injectées par l'API à masquer dans tout ce que le serveur renvoie.
-
-    Ce sont des valeurs de secrets résolues depuis le coffre : un serveur MCP
-    bavard qui les réécrit sur stderr ou dans ``serverInfo`` les publierait dans
-    une réponse API lisible par tout utilisateur authentifié.
-    """
-
-    if not isinstance(requested, Mapping):
-        return ()
-    values = {
-        value
-        for name, value in requested.items()
-        if isinstance(name, str)
-        and name
-        and isinstance(value, str)
-        and len(value) >= MIN_REDACTED_VALUE_CHARS
-    }
-    # Les plus longues d'abord : une valeur contenue dans une autre ne doit pas
-    # laisser passer le reste du secret englobant.
-    return tuple(sorted(values, key=len, reverse=True))
-
-
-def _redact_text(value: str, redactions: Sequence[str]) -> str:
-    for secret in redactions:
-        if secret and secret in value:
-            value = value.replace(secret, REDACTED_PLACEHOLDER)
-    return value
-
-
-def _redact_data(value: Any, redactions: Sequence[str], depth: int = 0) -> Any:
-    """Expurge récursivement une structure JSON produite par le serveur sondé.
-
-    Au-delà de ``MAX_REDACTION_DEPTH``, la branche est remplacée par le marqueur :
-    un contenu non examiné ne doit jamais être retourné tel quel.
-    """
-
-    if not redactions:
-        return value
-    if depth > MAX_REDACTION_DEPTH:
-        return REDACTED_PLACEHOLDER
-    if isinstance(value, str):
-        return _redact_text(value, redactions)
-    if isinstance(value, Mapping):
-        return {
-            (_redact_text(key, redactions) if isinstance(key, str) else key): (
-                _redact_data(item, redactions, depth + 1)
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [_redact_data(item, redactions, depth + 1) for item in value]
-    return value
-
-
 def _bounded_tail(value: str) -> str:
     return value[-STDERR_TAIL_MAX_CHARS:] if value else ""
 
@@ -312,14 +260,14 @@ def _result(
         "protocol_version": (
             None
             if protocol_version is None
-            else _redact_text(protocol_version, redactions)
+            else redact_text(protocol_version, redactions)
         ),
         "server_info": (
-            None if server_info is None else _redact_data(server_info, redactions)
+            None if server_info is None else redact_data(server_info, redactions)
         ),
-        "tools": [_redact_data(tool, redactions) for tool in tools or []],
+        "tools": [redact_data(tool, redactions) for tool in tools or []],
         "exit_code": exit_code,
-        "stderr_tail": _bounded_tail(_redact_text(stderr_tail, redactions)),
+        "stderr_tail": _bounded_tail(redact_text(stderr_tail, redactions)),
         "duration_ms": duration_ms,
         "error": error,
     }
@@ -474,13 +422,19 @@ async def _list_tools(process: FencedProcess) -> list[dict[str, Any]]:
             raise _ProbeFailure("protocol")
         for raw in raw_tools:
             normalized = _normalize_tool(raw)
-            if normalized is not None and len(tools) < MAX_TOOLS:
-                tools.append(normalized)
+            if normalized is None:
+                continue
+            if len(tools) >= MAX_TOOLS:
+                # Une page plus grande que la capacité restante : garder les
+                # premiers outils et annoncer « succeeded » présenterait une
+                # liste tronquée comme complète, donc un faux succès. Le refus
+                # vaut ici comme pour la pagination.
+                raise _ProbeFailure("too_many_tools")
+            tools.append(normalized)
         next_cursor = result.get("nextCursor")
         if not isinstance(next_cursor, str) or not next_cursor:
             return tools
         if len(tools) >= MAX_TOOLS:
-            # Une liste tronquée annoncée comme complète serait un faux succès.
             raise _ProbeFailure("too_many_tools")
         cursor = next_cursor
     raise _ProbeFailure("too_many_tools")

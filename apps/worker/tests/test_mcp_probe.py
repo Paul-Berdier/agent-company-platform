@@ -344,6 +344,16 @@ async def test_unbounded_pagination_is_refused_instead_of_truncated():
     assert result["error"] == "too_many_tools"
 
 
+async def test_a_single_oversized_page_is_refused_instead_of_truncated():
+    """Sans ``nextCursor``, rien ne signalerait la troncature : elle est refusée."""
+
+    result = await run_stdio_probe(probe_request(mode="oversized"), probe_config())
+
+    assert result["status"] == "failed"
+    assert result["error"] == "too_many_tools"
+    assert result["tools"] == []
+
+
 async def test_environment_is_minimal_and_carries_no_worker_secret(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -394,8 +404,8 @@ async def test_injected_environment_values_never_reach_the_result():
     assert "MCP_TOKEN" in result["server_info"]["environmentNames"]
 
 
-async def test_short_environment_values_are_not_redacted():
-    """Masquer une valeur trop courte rendrait le diagnostic illisible."""
+async def test_short_environment_values_are_redacted_too():
+    """``SecretCreate.value`` autorise une valeur d'un caractère : elle est un secret aussi."""
 
     result = await run_stdio_probe(
         probe_request(mode="echo-env", extra_arg="MCP_TOKEN", env={"MCP_TOKEN": "ok"}),
@@ -403,7 +413,7 @@ async def test_short_environment_values_are_not_redacted():
     )
 
     assert result["status"] == "succeeded", result["error"]
-    assert result["server_info"]["echoedEnvironment"]["MCP_TOKEN"] == "ok"
+    assert result["server_info"]["echoedEnvironment"]["MCP_TOKEN"] == REDACTED
 
 
 async def test_probe_runs_in_a_fresh_directory_when_no_cwd_is_given(tmp_path: Path):

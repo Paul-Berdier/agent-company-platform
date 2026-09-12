@@ -19,7 +19,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
@@ -44,6 +44,7 @@ from acp_contracts import (
     McpServerSummary,
     McpStdioConfig,
 )
+from acp_contracts.redaction import redact_data, redact_text, redaction_values
 from acp_database.models import (
     EventModel,
     McpBindingModel,
@@ -196,11 +197,14 @@ def resolve_secret_values(
     refs: Mapping[str, Any],
     *,
     purpose: str,
+    touch: bool = True,
 ) -> dict[str, str]:
     """Déchiffre les secrets référencés pour un appel autorisé ; met à jour ``last_used_at``.
 
     ``purpose`` documente l'appel autorisé (``mcp_probe``, ``mcp_stdio_claim``) ; il n'est
-    jamais journalisé avec une valeur.
+    jamais journalisé avec une valeur. ``touch=False`` sert aux résolutions qui ne
+    transmettent rien au tiers (contrôle d'expurgation d'un résultat de runner) : elles ne
+    doivent pas faire croire à un usage du secret.
     """
 
     resolved: dict[str, str] = {}
@@ -225,7 +229,8 @@ def resolve_secret_values(
                 f"Secret « {secret.name} » illisible : la clé de chiffrement {secret.key_id} n'est "
                 f"plus dans ACP_SECRETS_KEYS ; l'appel ({purpose}) est refusé."
             ) from exc
-        secret.last_used_at = now
+        if touch:
+            secret.last_used_at = now
     return resolved
 
 
@@ -755,15 +760,29 @@ def server_summary(db: Session, server: McpServerModel) -> McpServerSummary:
 
 
 def server_detail(
-    db: Session, server: McpServerModel, apply_notes: Iterable[str] = ()
+    db: Session,
+    server: McpServerModel,
+    apply_notes: Iterable[str] = (),
+    *,
+    visible_project_ids: set[str] | None = None,
 ) -> McpServerDetail:
+    """Détail d'un serveur ; ``visible_project_ids`` filtre les rattachements exposés.
+
+    Un rattachement nomme un projet : il n'est montré qu'aux utilisateurs qui ont accès à
+    ce projet, comme ``GET /mcp/bindings``. Le compteur ``binding_count`` reste global
+    (nombre de rattachements actifs, sans nommer les projets).
+    """
+
     revision = current_revision(db, server)
     summary = server_summary(db, server)
+    bindings = bindings_of(db, server)
+    if visible_project_ids is not None:
+        bindings = [row for row in bindings if row.project_id in visible_project_ids]
     return McpServerDetail(
         **summary.model_dump(),
         current_revision=revision_contract(revision) if revision is not None else None,
         revisions=[revision_contract(row) for row in revisions_of(db, server)],
-        bindings=[binding_contract(db, row) for row in bindings_of(db, server)],
+        bindings=[binding_contract(db, row) for row in bindings],
         probes=[probe_contract(row) for row in probes_of(db, server, limit=MAX_PROBES_IN_DETAIL)],
         apply_notes=list(apply_notes),
     )
@@ -905,6 +924,91 @@ def expire_probes(db: Session) -> None:
 # --- probes -------------------------------------------------------------------------------------
 
 
+def _redact_tool(tool: McpDiscoveredTool, redactions: Sequence[str]) -> dict[str, Any]:
+    """Un outil est entièrement du contenu serveur : nom, description et schéma."""
+
+    return {
+        "name": redact_text(tool.name, redactions),
+        "description": redact_text(tool.description, redactions),
+        "input_schema": redact_data(tool.input_schema, redactions),
+    }
+
+
+def redact_discovery(discovery: McpDiscovery, redactions: Sequence[str]) -> McpDiscovery:
+    """Expurge tout ce que le serveur sondé a renvoyé (``serverInfo``, capacités, outils).
+
+    Le contenu d'une découverte est une donnée non fiable écrite en base puis servie à
+    tout utilisateur authentifié : un serveur qui réécrit la valeur injectée dans
+    ``serverInfo`` ou dans la description d'un outil la publierait sans cette étape.
+    Seules les valeurs venant du serveur sont traversées — jamais les noms de champs du
+    contrat, qu'une valeur de secret homonyme casserait.
+    """
+
+    if not redactions:
+        return discovery
+    return McpDiscovery.model_validate(
+        {
+            "protocol_version": redact_text(discovery.protocol_version, redactions),
+            "server_info": redact_data(discovery.server_info, redactions),
+            "tools": [_redact_tool(tool, redactions) for tool in discovery.tools],
+            "capabilities": redact_data(discovery.capabilities, redactions),
+            "truncated": discovery.truncated,
+        }
+    )
+
+
+def redact_probe_result(result: McpProbeResult, redactions: Sequence[str]) -> McpProbeResult:
+    """Même règle pour le résultat de diagnostic persisté dans ``mcp_probes.result``."""
+
+    if not redactions:
+        return result
+    return McpProbeResult.model_validate(
+        {
+            "protocol_version": (
+                None
+                if result.protocol_version is None
+                else redact_text(result.protocol_version, redactions)
+            ),
+            "server_info": (
+                None if result.server_info is None else redact_data(result.server_info, redactions)
+            ),
+            "tools": [_redact_tool(tool, redactions) for tool in result.tools],
+            "exit_code": result.exit_code,
+            "stderr_tail": redact_text(result.stderr_tail, redactions),
+            "duration_ms": result.duration_ms,
+            "error": None if result.error is None else redact_text(result.error, redactions),
+        }
+    )
+
+
+def stdio_redaction_values(
+    db: Session,
+    vault: SecretsVault | None,
+    revision: McpServerRevisionModel | None,
+) -> tuple[str, ...]:
+    """Valeurs injectées au runner pour cette révision, à masquer dans ce qu'il rapporte.
+
+    Le runner expurge déjà ; ce second contrôle côté serveur existe parce qu'un runner
+    compromis ou ancien ne doit pas pouvoir faire écrire une valeur de secret en base.
+    Sans coffre lisible alors que la révision référence des secrets, la vérification est
+    impossible : l'appelant en fait un échec explicite, jamais un enregistrement muet.
+    """
+
+    if revision is None:
+        return ()
+    config = McpServerConfig.model_validate(revision.config or {})
+    refs = config.stdio.env_secrets if config.stdio is not None else {}
+    if not refs:
+        return ()
+    if vault is None:
+        raise SecretResolutionError(
+            "Coffre de secrets non configuré : le résultat du runner ne peut pas être "
+            "contrôlé (définissez ACP_SECRETS_KEYS)."
+        )
+    values = resolve_secret_values(db, vault, refs, purpose="mcp_probe_redaction", touch=False)
+    return redaction_values(values)
+
+
 def _attach_discovery(
     db: Session,
     server: McpServerModel,
@@ -924,12 +1028,17 @@ def run_http_probe(
     revision: McpServerRevisionModel,
     *,
     principal: str,
-    vault: SecretsVault,
+    vault: SecretsVault | None,
     policy: OutboundPolicy,
     resolver: Callable[..., object],
     transport: Any = None,
 ) -> McpProbeModel:
-    """Exécute la découverte HTTP depuis la plateforme et enregistre un résultat explicite."""
+    """Exécute la découverte HTTP depuis la plateforme et enregistre un résultat explicite.
+
+    ``vault`` peut être absent : le coffre n'est exigé que si la configuration référence
+    au moins un secret d'en-tête, auquel cas son absence produit un échec explicite du
+    diagnostic (jamais un appel sans en-tête, jamais un refus de la route entière).
+    """
 
     config = McpServerConfig.model_validate(revision.config or {})
     now = utcnow()
@@ -949,10 +1058,23 @@ def run_http_probe(
     started = time.monotonic()
     error: str | None = None
     discovery: McpDiscovery | None = None
+    # Les valeurs injectées dans la requête : tout ce que le serveur distant renvoie est
+    # expurgé avec elles avant d'être écrit en base (§0.3).
+    redactions: tuple[str, ...] = ()
     try:
-        headers = resolve_secret_values(
-            db, vault, config.http.header_secrets, purpose="mcp_probe"
+        if config.http.header_secrets and vault is None:
+            raise SecretResolutionError(
+                "Coffre de secrets non configuré : ce serveur référence des secrets "
+                "d'en-tête, définissez ACP_SECRETS_KEYS avant de lancer un diagnostic."
+            )
+        headers = (
+            {}
+            if vault is None
+            else resolve_secret_values(
+                db, vault, config.http.header_secrets, purpose="mcp_probe"
+            )
         )
+        redactions = redaction_values(headers)
         # Contrôle après résolution : une valeur de secret non transmissible doit produire un
         # échec explicite, jamais une erreur d'encodage non gérée pendant l'envoi.
         ensure_transmittable_headers({**config.http.headers, **headers})
@@ -985,12 +1107,18 @@ def run_http_probe(
     probe.finished_at = utcnow()
     server.last_probe_id = probe.id
     if discovery is not None:
+        # Le serveur distant est une source non fiable : sa réponse est expurgée des
+        # valeurs qui lui ont été transmises avant d'être persistée et servie.
+        discovery = redact_discovery(discovery, redactions)
         probe.status = "succeeded"
-        probe.result = McpProbeResult(
-            protocol_version=discovery.protocol_version,
-            server_info=discovery.server_info,
-            tools=discovery.tools,
-            duration_ms=duration_ms,
+        probe.result = redact_probe_result(
+            McpProbeResult(
+                protocol_version=discovery.protocol_version,
+                server_info=discovery.server_info,
+                tools=discovery.tools,
+                duration_ms=duration_ms,
+            ),
+            redactions,
         ).model_dump(mode="json")
         _attach_discovery(db, server, revision, discovery)
         record_event(
@@ -1007,7 +1135,9 @@ def run_http_probe(
         )
     else:
         probe.status = "failed"
-        probe.error = error or "Diagnostic interrompu sans résultat."
+        # Un message d'erreur peut citer la réponse du serveur distant (erreur JSON-RPC,
+        # type de contenu) : il passe par la même expurgation.
+        probe.error = redact_text(error or "Diagnostic interrompu sans résultat.", redactions)
         probe.result = McpProbeResult(duration_ms=duration_ms, error=probe.error).model_dump(
             mode="json"
         )
@@ -1152,12 +1282,46 @@ def claim_probe_for_worker(
 
 
 def complete_probe(
-    db: Session, probe: McpProbeModel, result: McpProbeResult
+    db: Session,
+    probe: McpProbeModel,
+    result: McpProbeResult,
+    *,
+    vault: SecretsVault | None = None,
 ) -> McpProbeModel:
-    """Enregistre le résultat d'un runner ; un échec ne produit jamais de découverte."""
+    """Enregistre le résultat d'un runner ; un échec ne produit jamais de découverte.
+
+    Le contenu rapporté vient du serveur MCP sondé : il est expurgé une seconde fois ici,
+    côté serveur, avec les valeurs injectées au runner. Le contrôle ne peut pas n'exister
+    que dans le worker, sinon un runner compromis ferait écrire un secret en base.
+    """
 
     server = db.get(McpServerModel, probe.server_id)
     revision = db.get(McpServerRevisionModel, probe.revision_id)
+    try:
+        redactions = stdio_redaction_values(db, vault, revision)
+    except SecretResolutionError as exc:
+        probe.status = "failed"
+        probe.error = str(exc)
+        probe.finished_at = utcnow()
+        probe.result = McpProbeResult(
+            duration_ms=result.duration_ms, error=probe.error
+        ).model_dump(mode="json")
+        if server is not None:
+            server.last_probe_id = probe.id
+        record_event(
+            db,
+            "mcp.probe.failed",
+            payload={
+                "probe_id": probe.id,
+                "server_id": probe.server_id,
+                "server_name": server.name if server is not None else "",
+                "revision_id": probe.revision_id,
+                "transport": "stdio",
+                "error": probe.error,
+            },
+        )
+        return probe
+    result = redact_probe_result(result, redactions)
     probe.result = result.model_dump(mode="json")
     probe.finished_at = utcnow()
     if server is not None:
