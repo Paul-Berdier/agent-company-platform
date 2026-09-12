@@ -182,13 +182,129 @@ profondeur).
   l'environnement minimal, les limites et l'arrêt de l'arbre de processus rendent
   l'exécution contrôlable, mais ne constituent pas une sandbox OS : le programme
   conserve les droits du compte Windows et sa politique réseau ;
-- la convergence native Toolhelp confirme le nettoyage ou fait échouer le run,
-  mais ne remplace pas un Job Object attaché dès le spawn ; fournir cette isolation
-  système avant d'autoriser un programme susceptible d'échapper volontairement à
-  son arbre ;
+- sous Windows, tout spawn du runner est enfermé dans un Job Object dès sa création
+  (voir § 7) ; la convergence native Toolhelp reste une vérification indépendante et
+  fait échouer le run si l'arrêt n'est pas prouvé ;
 - utiliser un compte non privilégié, une racine dédiée et un pare-feu/une isolation
   système adaptés avant d'exécuter le backend sur des dépôts non fiables ;
 - l'évaluateur Hermes doit être réellement configuré pour qu'une exécution réelle
   puisse réussir. Le provider `mock` est refusé avant enrôlement, démarrage ou appel
   direct de la boucle réelle ; un verdict provenant d'un autre provider est refusé.
   L'indisponibilité de l'évaluateur n'est jamais transformée en approbation.
+
+## 7. Clôture d'arrêt Windows (Job Object)
+
+### Pourquoi
+
+Sur Windows, l'arrêt d'un arbre de processus par énumération Toolhelp
+(`th32ParentProcessID`) suppose que la filiation reste observable. Or un
+**lanceur** casse cette filiation : `.venv\Scripts\python.exe` exécute
+l'interpréteur réel dans un processus enfant, exactement comme `npx.cmd` ou `uvx`.
+L'arbre réel est alors `runner → lanceur P → programme R → descendant G`. Quand R
+puis P sortent, G n'a plus de parent connu : l'énumération conclut « tout est
+arrêté » alors que G survit avec les tubes hérités, la capture n'atteint jamais
+EOF et un run réussi devient un `timed_out` / `output_stream_timeout`.
+
+### Ce que fait le worker
+
+Au spawn (`spawn_fenced_process`) :
+
+1. `creationflags = CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED` — le programme
+   est créé mais n'exécute pas encore la moindre instruction ;
+2. `CreateJobObjectW` (job anonyme) avec `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` et
+   **sans** `BREAKAWAY_OK` : aucun descendant ne peut quitter le job ;
+3. `AssignProcessToJobObject` sur un handle ouvert par PID
+   (`PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION |
+   SYNCHRONIZE`), affectation revérifiée par `IsProcessInJob` ;
+4. reprise du thread initial (`CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)` →
+   `OpenThread(THREAD_SUSPEND_RESUME)` → `ResumeThread`).
+
+Toute erreur de cette séquence tue le processus suspendu et retourne
+`status="spawn_failed"`, `termination_reason="job_assignment_failed"`. Il n'existe
+aucun chemin où le programme s'exécute hors de son job.
+
+À l'arrêt (`terminate_process_tree`) : éventuel `CTRL_BREAK_EVENT` de grâce, puis
+`TerminateJobObject(job, 1)`, puis attente bornée de
+`QueryInformationJobObject(JobObjectBasicAccountingInformation).ActiveProcesses == 0`.
+La passe Toolhelp existante est conservée comme vérification indépendante :
+`process_tree_stopped` n'est vrai que si **le job est vide** et que la passe native
+confirme. À la fin du run, la fermeture du handle du job sert de dernier filet
+(`KILL_ON_JOB_CLOSE`) sans jamais requalifier un verdict déjà figé.
+
+Sur POSIX, rien ne change : `start_new_session=True` puis `killpg` (SIGTERM, grâce,
+SIGKILL).
+
+### Conséquences et limites
+
+- aucun descendant ne survit à la tentative, même lancé par un lanceur `.venv`,
+  `npx.cmd` ou `uvx` ; un run normal vide aussi le job avant de rendre son verdict ;
+- le job ne limite ni CPU, ni mémoire, ni réseau : c'est une clôture d'arrêt, pas
+  une sandbox ;
+- les jobs imbriqués exigent Windows 8 / Server 2012 ou ultérieur. Sur un système
+  antérieur, ou si le worker tourne déjà dans un job qui refuse l'imbrication,
+  l'affectation échoue et le run est refusé (`job_assignment_failed`) — jamais
+  exécuté hors clôture ;
+- le compte de service du worker doit pouvoir créer un job et ouvrir ses propres
+  processus avec `PROCESS_SET_QUOTA` ; une stratégie de sécurité qui l'interdit
+  désactive de fait le backend réel, de façon visible.
+
+## 8. Sonde MCP stdio (optionnelle)
+
+Un serveur MCP en transport `stdio` s'exécute sur la machine du worker : l'API ne
+peut pas l'interroger elle-même. Le worker peut prendre en charge ces sondes, mais
+seulement si l'opérateur l'autorise explicitement.
+
+| Variable | Rôle |
+|---|---|
+| `ACP_WORKER_MCP_STDIO_ENABLED` | `0` (défaut) ou `1` |
+| `ACP_WORKER_MCP_STDIO_ALLOWED_EXECUTABLES` | chemins **absolus** séparés par `;` (Windows) — exigé si activé |
+| `ACP_WORKER_MCP_STDIO_TIMEOUT_SECONDS` | 1 à 120, défaut 20 |
+
+La capacité `mcp_stdio_probe` n'est annoncée que si le drapeau vaut `1` **et** que
+l'allowlist n'est pas vide ; `agent-company-worker doctor` affiche
+`mcp_stdio_probe: enabled|disabled` et le nombre d'exécutables autorisés (jamais
+leurs chemins). La boucle de sonde ne démarre que si la capacité est annoncée par
+les credentials et que le worker n'est pas en simulation.
+
+Garanties de la sonde :
+
+- la commande reçue doit être **strictement égale** (après `Path.resolve` et
+  normalisation de casse) à une entrée de l'allowlist ; sinon échec `not_allowed`,
+  **sans aucun lancement** ;
+- jamais de shell : le spawn passe par la même clôture que le runner (Job Object
+  Windows, session POSIX) et l'arbre est arrêté à la fin de l'échange ;
+- environnement minimal (`PATH`, `SYSTEMROOT`, `TEMP`, `TMP`, `HOME`,
+  `USERPROFILE`) augmenté des seules variables envoyées par l'API ; aucun secret du
+  worker n'est hérité et aucune valeur n'est journalisée ;
+- **expurgation du retour** : les valeurs d'environnement injectées par l'API
+  (valeurs de secrets résolues depuis le coffre) sont remplacées par `***` dans
+  `stderr_tail`, `server_info`, `protocol_version` et les outils avant d'être
+  postées. Un serveur MCP bavard qui réécrit un jeton reçu ne peut donc pas le
+  publier dans `GET /mcp/probes/{id}`, lisible par tout utilisateur autorisé.
+  **Toute valeur non vide est masquée, sans plancher de longueur** : un secret d'un à
+  trois caractères rend le diagnostic bruyant, mais la règle « aucun secret ne sort du
+  serveur » prime. La règle est écrite une seule fois dans
+  `acp_contracts.redaction` et l'API réapplique la même expurgation au résultat posté
+  par le runner : un runner bavard ou compromis ne peut pas faire écrire une valeur
+  lisible ;
+- répertoire de travail : celui fourni s'il est absolu et existant, sinon un
+  répertoire temporaire neuf supprimé à la fin ;
+- échange JSON-RPC ligne par ligne (`initialize` avec `protocolVersion`
+  `2025-06-18`, `notifications/initialized`, `tools/list` paginé), `stderr` borné à
+  4096 caractères, descriptions d'outils bornées à 2000 caractères ;
+- réponse `initialize` **complète exigée** : la spécification MCP 2025-06-18 impose
+  `protocolVersion` et `serverInfo` ; une réponse qui en manque est un `protocol`,
+  jamais un succès à `protocol_version: null` (que le contrat `McpDiscovery` ne
+  pourrait pas représenter) ;
+- aucun faux succès : `disabled`, `invalid_request`, `not_allowed`, `spawn_error`,
+  `job_assignment_failed`, `timeout`, `protocol`, `closed`, `server_error`,
+  `too_many_tools` ou `process_tree_cleanup_failed` sont retournés avec
+  `status="failed"`. Une pagination sans fin (plus de 20 pages ou 500 outils) est
+  refusée plutôt que tronquée silencieusement, et une **page unique** contenant plus
+  d'outils que la capacité restante l'est aussi : une liste tronquée présentée comme
+  complète serait un faux succès.
+
+Ce que la sonde ne fait pas : elle n'isole pas le programme. Le Job Object borne son
+arbre de processus, il ne limite ni CPU, ni mémoire, ni réseau, et le programme
+conserve les droits du compte Windows du worker. L'allowlist d'exécutables est donc le
+contrôle qui compte : n'y inscrire que des binaires de confiance.

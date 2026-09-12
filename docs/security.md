@@ -1,8 +1,13 @@
 # Sécurité et frontières de confiance
 
-Date d'état : 11 septembre 2026
+Date d'état : 12 septembre 2026 — version `0.5.0`
 Statut : frontières utilisateur/inter-services fermées et runner local contrôlé au
-Lot C ; production interdite sans isolation OS/réseau, stockage et exploitation
+Lot C ; coffre de secrets, politique de sortie anti-SSRF, expurgation des retours
+tiers, clôture d'arrêt Windows et révocation des extensions ajoutés au Lot D ;
+production interdite sans isolation OS/réseau, stockage et exploitation
+
+Le modèle de menace par actif est tenu à part dans
+[docs/security/threat-model.md](security/threat-model.md).
 
 ## Conclusion
 
@@ -10,6 +15,13 @@ Le Lot C conserve le bootstrap propriétaire, les sessions serveur révocables e
 expirables, une protection CSRF et des rôles appliqués aux routes utilisateur. Les
 frontières API → provider-gateway et API → event-service utilisent des secrets
 inter-services distincts ; les surfaces sans secret configuré échouent fermées.
+
+Le Lot D ajoute un coffre de secrets chiffrés à références, une politique de sortie
+réseau appliquée côté serveur (SSRF, DNS rebinding, redirections, taille de réponse),
+un registre MCP et une bibliothèque de skills versionnés avec autorisation explicite
+de tout lancement `stdio` et révocation de bout en bout. Ces contrôles sont prouvés
+par des tests locaux déterministes : aucun serveur MCP, dépôt GitHub ou runner distant
+réel n'a été contacté.
 
 Le worker réel est désormais un opt-in : seul un exécutable absolu via un argv local
 fixe et configuré peut démarrer, avec tentative/fencing, cwd neuf, environnement
@@ -105,6 +117,89 @@ les effets tiers et le flux WebSocket utilisateur ne sont pas encore couverts.
   authentifiée et scoppée, avec reprise par curseur, reste à construire avant toute
   exposition réseau.
 
+## Coffre de secrets, sorties réseau et extensions (Lot D)
+
+### Coffre de secrets
+
+- Les valeurs sont chiffrées au repos avec Fernet. `ACP_SECRETS_KEYS` liste les clés
+  séparées par des virgules : la première chiffre, les suivantes déchiffrent encore,
+  ce qui permet une rotation de clé sans perte. Sans clé configurée, l'état est
+  explicite (`configured=false`) et les routes qui chiffrent ou déchiffrent répondent
+  `503` avec l'action à effectuer — jamais un stockage en clair de repli.
+- Une valeur n'est jamais retournée : ni par une route de lecture, ni dans un export,
+  ni dans un événement, ni dans une URL, ni dans le frontend. Le CLI refuse
+  `--value` en argument et n'accepte que `--value-stdin`.
+- Les portées sont minimales : un secret `project` ne peut servir qu'à son projet, y
+  compris lors d'une activation ultérieure qui tenterait de faire dériver un
+  rattachement existant. La création, la rotation et la révocation sont réservées au
+  propriétaire et produisent un événement d'audit sans valeur.
+- Le déchiffrement n'a lieu que pour un appel autorisé : en-têtes du diagnostic HTTP
+  exécuté par l'API, ou variables d'environnement remises à un runner authentifié lors
+  du claim d'un diagnostic `stdio` approuvé (réponse `Cache-Control: no-store`). Un
+  secret révoqué, absent ou illisible (clé retirée) produit un échec explicite.
+
+### Expurgation des contenus renvoyés par un tiers
+
+Un serveur MCP peut réécrire la valeur qu'on lui a transmise dans `serverInfo`, dans
+une capacité, dans la description ou le schéma d'un outil, sur `stderr` ou dans un
+message d'erreur. Ce contenu est persisté puis servi à tout utilisateur authentifié :
+il est donc expurgé — les valeurs injectées sont remplacées par `***` — avant écriture
+en base. La règle est écrite une seule fois (`acp_contracts.redaction`) et appliquée
+par les deux chemins : le runner sur son résultat, **et** l'API sur la découverte
+HTTP comme sur le résultat posté par un runner. Toute valeur non vide est expurgée,
+sans plancher de longueur.
+
+### Politique de sortie réseau
+
+- Schémas `http`/`https` uniquement, pas d'userinfo, pas de fragment, hôte normalisé
+  IDNA ; `http` refusé sauf hôte explicitement allowlisté (ou bouclage avec
+  `ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP=1`).
+- Toutes les adresses résolues sont contrôlées et **une seule adresse bloquée suffit
+  à refuser** (réponses DNS mixtes). Sont bloqués : bouclage, réseaux privés,
+  link-local dont la métadonnée cloud `169.254.169.254`, multicast, réservé, CGNAT
+  `100.64.0.0/10`, ULA `fc00::/7`, `fe80::/10`, IPv4-mapped, 6to4 et Teredo.
+- L'adresse retenue est épinglée pendant la requête (`Host` + SNI conservés), les
+  redirections sont revalidées intégralement (3 au maximum) et le corps est borné à
+  2 000 000 octets. Les variables proxy de l'environnement sont ignorées.
+- Une allowlist privée ciblée reste possible ; chaque usage produit l'événement
+  d'audit `outbound.private_allowlist_used` avec l'hôte, l'adresse et le motif.
+
+### Lancement `stdio` et révocation
+
+- Aucun lancement `stdio` sans autorisation explicite portant l'action, la cible
+  (commande et arguments), les conséquences, la portée (runner désigné), l'empreinte
+  exacte de la révision et une expiration d'une heure. Une révision modifiée invalide
+  l'autorisation ; un lease perdu refuse le résultat au lieu de supposer un succès.
+- Côté runner, la capacité est désactivée par défaut et exige une allowlist
+  d'exécutables absolus, comparée après résolution du chemin. Aucun shell,
+  environnement minimal sans héritage des variables du worker, durée et sorties
+  bornées, arrêt de l'arbre de processus.
+- La révocation d'un serveur MCP ou d'un skill est irréversible, exige une raison,
+  révoque les rattachements, retire l'objet des extensions résolues d'un projet et
+  produit un événement d'audit sans supprimer l'historique.
+- Les contenus importés (configurations, `README`, `SKILL.md`, schémas d'outils) sont
+  traités comme des données : bornés, affichés comme texte, jamais rendus, et sans
+  effet sur une politique, un droit ou une instruction système.
+
+### Clôture d'arrêt des processus lancés
+
+- Sous Windows, tout processus lancé par le runner — exécution de mission comme sonde
+  MCP `stdio` — est créé **suspendu**, affecté à un Job Object
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` sans `BREAKAWAY_OK`, vérifié par
+  `IsProcessInJob`, puis repris. Aucune instruction du programme ne s'exécute hors de
+  sa clôture ; une affectation impossible devient `spawn_failed` /
+  `job_assignment_failed` au lieu d'une exécution non bornée.
+- L'arrêt termine le job puis attend que son compteur de processus actifs tombe à
+  zéro ; la passe d'énumération native existante est conservée comme vérification
+  indépendante. Un arbre dont l'arrêt n'est pas prouvé ne produit pas un succès.
+- Ce contrôle répare un défaut réel : l'énumération par filiation ne rattache pas un
+  petit-fils dont le parent intermédiaire — un **lanceur** comme
+  `.venv\Scripts\python.exe`, `npx.cmd` ou `uvx` — a déjà quitté. Le descendant
+  survivait alors avec les tubes hérités.
+- Ce n'est **pas** une sandbox : le job ne limite ni CPU, ni mémoire, ni réseau, et il
+  n'existe pas d'équivalent POSIX dans ce lot (`start_new_session` puis `killpg`, qu'un
+  descendant peut quitter en changeant volontairement de session).
+
 ## Écarts bloquants
 
 ### Identité et autorisation
@@ -137,7 +232,12 @@ les effets tiers et le flux WebSocket utilisateur ne sont pas encore couverts.
 - Le backend local réel est configuré, borné et testable, mais il conserve les droits
   du compte worker et n'impose ni sandbox OS ni politique réseau forte. Il refuse
   tout mode non supervisé, toute liste d'actions non vide et toute ressource en
-  écriture, faute de pouvoir appliquer ces promesses.
+  écriture, faute de pouvoir appliquer ces promesses. Le Job Object Windows borne
+  l'arbre de processus ; il ne borne ni les droits, ni le réseau, ni les quotas, et
+  n'a pas d'équivalent livré sur POSIX.
+- L'autorisation d'un lancement `stdio` vit dans le centre MCP
+  (`mcp_probes.authorization`) et n'est pas reliée au circuit d'approbation des
+  missions : deux mécanismes d'approbation coexistent, avec des journaux distincts.
 - Les sorties stdout/stderr persistées comme preuves sont bornées mais non expurgées.
   La racine des runs doit être protégée et aucun secret ne doit être allowlisté vers
   un programme susceptible de l'imprimer.
@@ -145,8 +245,11 @@ les effets tiers et le flux WebSocket utilisateur ne sont pas encore couverts.
   validées : HTTP uniquement sur loopback, HTTPS ailleurs, sans userinfo, chemin,
   query ni fragment. Ces clients internes ignorent aussi les variables proxy de
   l'environnement afin qu'un Bearer loopback ne soit pas détourné par `HTTP_PROXY`.
-- Les secrets ne passent pas encore par un coffre avec références, rotation et
-  portées minimales.
+- Le coffre du Lot D couvre les secrets d'extensions (MCP), pas les secrets de
+  service : `HERMES_API_KEY`, `ACP_GATEWAY_SERVICE_TOKEN` et `ACP_EVENT_SERVICE_TOKEN`
+  restent des variables d'environnement. Les clés Fernet elles-mêmes vivent dans
+  `ACP_SECRETS_KEYS` : il n'y a ni KMS, ni HSM, ni rotation planifiée, et la procédure
+  de rotation est manuelle.
 - Les artefacts sont des métadonnées ou chemins ; il n'existe pas de stockage privé,
   d'URL signée ou de contrôle de téléchargement de bout en bout.
 - Les migrations PostgreSQL, sauvegardes, restaurations et procédures de rotation
@@ -212,7 +315,10 @@ un état durable et un événement d'audit.
 - matrice RBAC exhaustive par route, projet, flux et fichier, en complément des tests
   inter-projets négatifs déjà présents ;
 - compléter les tests de concurrence lease/fencing par une validation multi-processus ;
-- tests SSRF, traversée de chemins, archive malveillante, XSS et limites d'upload ;
+- rejouer les contrôles SSRF, traversée de chemins et archive malveillante contre un
+  serveur MCP, un dépôt et une archive réels (les suites actuelles utilisent des
+  transports simulés et des sources locales), et compléter par XSS et limites
+  d'upload ;
 - rotation des clés de service, révocation runner et absence de secrets dans les
   journaux ;
 - tests d'artefacts privés et d'URLs expirées ;
@@ -239,6 +345,22 @@ un état durable et un événement d'audit.
 - Le lockfile Node versionné utilise Vite `8.3.0` et Vitest `5.0.0` ; un `npm ci`
   propre suivi de `npm audit` ne signale aucune vulnérabilité connue au moment de la
   préparation de `0.3.0`.
+- Le coffre (chiffrement, rotation de clé, portées, absence de valeur dans les
+  réponses et les événements), la politique de sortie (loopback, réseaux privés,
+  métadonnée cloud, IPv6, réponses DNS mixtes, redirections, corps trop grand,
+  épinglage) et l'expurgation des contenus renvoyés par un serveur MCP bavard sont
+  couverts par des tests déterministes côté API et côté worker.
+- Le parcours MCP complet (déclaration, diagnostic HTTP et `stdio` autorisé,
+  rattachement limité à un sous-ensemble d'outils, activation, révocation) et le
+  parcours skills (import borné, relecture, approbation d'une portée accrue,
+  rattachement, révocation) sont testés, y compris les refus RBAC inter-projets.
+- Le transport `http` a été rejoué contre des services réellement démarrés (API dans
+  son propre processus, serveur MCP Streamable HTTP sur le bouclage inscrit dans
+  l'allowlist auditée) : le secret déchiffré atteint bien le serveur, et n'apparaît ni
+  dans les réponses d'API, ni dans la découverte persistée, ni dans l'export.
+- L'arrêt d'un arbre de processus sous Windows est prouvé par des tests qui échouaient
+  auparavant avec un lanceur d'environnement virtuel, et qui passent désormais sur
+  trois exécutions consécutives.
 
 ### Réalisé, non testé réel
 
@@ -251,16 +373,21 @@ un état durable et un événement d'audit.
 ### Non configuré
 
 - matrice RBAC exhaustive et journal d'administration ;
-- coffre de secrets et rotation ;
+- gestion des clés du coffre par un KMS/HSM et rotation planifiée ;
 - CORS de production, HTTPS/HSTS, CSP et origine d'aperçu ;
 - sandbox OS et politique réseau du runner, endpoint worker pour les approbations ;
+  la clôture d'arrêt Windows est livrée, l'isolation ne l'est pas, et POSIX n'a pas
+  d'équivalent au Job Object ;
+- rattachement de l'autorisation `stdio` au circuit d'approbation des missions ;
+- certification d'un skill : le contrôle automatique reste une heuristique indicative,
+  sans signature vérifiée ni analyse en bac à sable ;
 - stockage privé, URLs signées et rétention ;
 - outbox, authentification des flux et reprise par curseur.
 
 ### Restant
 
 Les prochaines tranches doivent isoler plus fortement le runner et raccorder ses
-demandes d'approbation. Elles doivent aussi compléter la
-matrice de scopes, les événements durables, MCP/skills, les médias privés, les
-migrations et la restauration. Tant que ces points ne sont pas testés, le produit
-reste réservé au développement local sur une machine de confiance.
+demandes d'approbation. Elles doivent aussi compléter la matrice de scopes, les
+événements durables, le courtier d'appels d'outils MCP à l'exécution d'une mission,
+les médias privés, les migrations et la restauration. Tant que ces points ne sont pas
+testés, le produit reste réservé au développement local sur une machine de confiance.

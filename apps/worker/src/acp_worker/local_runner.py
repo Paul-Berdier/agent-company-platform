@@ -20,11 +20,13 @@ import os
 import re
 import signal
 import subprocess
+import time
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 EVIDENCE_SCHEMA = "acp.local-process.evidence.v1"
@@ -43,6 +45,12 @@ DEFAULT_TERMINATE_GRACE_SECONDS = 1.0
 OUTPUT_DRAIN_GRACE_SECONDS = 1.0
 MAX_CONFIGURED_OUTPUT_BYTES = 16 * 1024 * 1024
 MAX_TIMEOUT_SECONDS = 24 * 60 * 60
+
+# ``subprocess`` n'expose pas ce drapeau de CreateProcess : sous Windows le
+# processus est créé suspendu pour être affecté à son Job Object avant
+# d'exécuter la moindre instruction du programme.
+CREATE_SUSPENDED = 0x00000004
+JOB_DRAIN_TIMEOUT_SECONDS = 5.0
 
 _RUN_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -738,10 +746,516 @@ def restricted_run_environment(
     return environment
 
 
+class FencedSpawnError(OSError):
+    """Le processus n'a pas pu être lancé dans sa clôture d'arrêt.
+
+    ``reason`` vaut ``spawn_error`` (création impossible) ou
+    ``job_assignment_failed`` (Windows : job non créé, affectation refusée ou
+    reprise impossible ; le processus suspendu a été tué, rien n'a été exécuté).
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+class _Win32Api:
+    """Fonctions et structures kernel32 utilisées par la clôture Windows."""
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    TH32CS_SNAPTHREAD = 0x00000004
+    PROCESS_TERMINATE = 0x0001
+    PROCESS_SET_QUOTA = 0x0100
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    SYNCHRONIZE = 0x00100000
+    THREAD_SUSPEND_RESUME = 0x0002
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
+    JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS = 1
+    WAIT_OBJECT_0 = 0x00000000
+    WAIT_TIMEOUT = 0x00000102
+    ERROR_NO_MORE_FILES = 18
+    ERROR_INVALID_PARAMETER = 87
+    RESUME_THREAD_FAILED = 0xFFFFFFFF
+
+    def __init__(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        self.ctypes = ctypes
+        self.wintypes = wintypes
+        self.invalid_handle = ctypes.c_void_p(-1).value
+
+        class ProcessEntry(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        class ThreadEntry(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ThreadID", wintypes.DWORD),
+                ("th32OwnerProcessID", wintypes.DWORD),
+                ("tpBasePri", wintypes.LONG),
+                ("tpDeltaPri", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+            ]
+
+        class BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [
+                (name, ctypes.c_uint64)
+                for name in (
+                    "ReadOperationCount",
+                    "WriteOperationCount",
+                    "OtherOperationCount",
+                    "ReadTransferCount",
+                    "WriteTransferCount",
+                    "OtherTransferCount",
+                )
+            ]
+
+        class ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", BasicLimitInformation),
+                ("IoInfo", IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        class BasicAccountingInformation(ctypes.Structure):
+            _fields_ = [
+                ("TotalUserTime", ctypes.c_int64),
+                ("TotalKernelTime", ctypes.c_int64),
+                ("ThisPeriodTotalUserTime", ctypes.c_int64),
+                ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+                ("TotalPageFaultCount", wintypes.DWORD),
+                ("TotalProcesses", wintypes.DWORD),
+                ("ActiveProcesses", wintypes.DWORD),
+                ("TotalTerminatedProcesses", wintypes.DWORD),
+            ]
+
+        self.ProcessEntry = ProcessEntry
+        self.ThreadEntry = ThreadEntry
+        self.ExtendedLimitInformation = ExtendedLimitInformation
+        self.BasicAccountingInformation = BasicAccountingInformation
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+        kernel32.Process32FirstW.restype = wintypes.BOOL
+        kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+        kernel32.Process32NextW.restype = wintypes.BOOL
+        kernel32.Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+        kernel32.Thread32First.restype = wintypes.BOOL
+        kernel32.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+        kernel32.Thread32Next.restype = wintypes.BOOL
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenThread.restype = wintypes.HANDLE
+        kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+        kernel32.ResumeThread.restype = wintypes.DWORD
+        kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel32.TerminateProcess.restype = wintypes.BOOL
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.IsProcessInJob.argtypes = [
+            wintypes.HANDLE,
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.BOOL),
+        ]
+        kernel32.IsProcessInJob.restype = wintypes.BOOL
+        kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel32.TerminateJobObject.restype = wintypes.BOOL
+        self.kernel32 = kernel32
+
+    def last_error(self, function: str) -> OSError:
+        code = self.ctypes.get_last_error()
+        return OSError(code, f"{function} a échoué (erreur Windows {code})")
+
+
+_WIN32_API: _Win32Api | None = None
+
+
+def _win32() -> _Win32Api:
+    global _WIN32_API
+    if _WIN32_API is None:
+        _WIN32_API = _Win32Api()
+    return _WIN32_API
+
+
+def _windows_create_job() -> int:
+    """Crée un job anonyme qui tue ses processus à la fermeture du dernier handle.
+
+    Aucun drapeau ``BREAKAWAY`` n'est accordé : tout descendant, y compris ceux
+    créés par un lanceur intermédiaire (``.venv``, ``npx.cmd``, ``uvx``), reste
+    dans le job.
+    """
+
+    api = _win32()
+    api.ctypes.set_last_error(0)
+    handle = api.kernel32.CreateJobObjectW(None, None)
+    if not handle:
+        raise api.last_error("CreateJobObjectW")
+    limits = api.ExtendedLimitInformation()
+    limits.BasicLimitInformation.LimitFlags = api.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    api.ctypes.set_last_error(0)
+    if not api.kernel32.SetInformationJobObject(
+        handle,
+        api.JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
+        api.ctypes.byref(limits),
+        api.ctypes.sizeof(limits),
+    ):
+        error = api.last_error("SetInformationJobObject")
+        api.kernel32.CloseHandle(handle)
+        raise error
+    return int(handle)
+
+
+def _windows_assign_process_to_job(job_handle: int, process_id: int) -> None:
+    """Affecte le processus (encore suspendu) au job et vérifie l'affectation."""
+
+    api = _win32()
+    api.ctypes.set_last_error(0)
+    process_handle = api.kernel32.OpenProcess(
+        api.PROCESS_SET_QUOTA
+        | api.PROCESS_TERMINATE
+        | api.PROCESS_QUERY_LIMITED_INFORMATION
+        | api.SYNCHRONIZE,
+        False,
+        process_id,
+    )
+    if not process_handle:
+        raise api.last_error("OpenProcess")
+    try:
+        api.ctypes.set_last_error(0)
+        if not api.kernel32.AssignProcessToJobObject(job_handle, process_handle):
+            raise api.last_error("AssignProcessToJobObject")
+        in_job = api.wintypes.BOOL(False)
+        api.ctypes.set_last_error(0)
+        if not api.kernel32.IsProcessInJob(
+            process_handle, job_handle, api.ctypes.byref(in_job)
+        ):
+            raise api.last_error("IsProcessInJob")
+        if not in_job.value:
+            raise OSError("le processus n'appartient pas au job après affectation")
+    finally:
+        api.kernel32.CloseHandle(process_handle)
+
+
+def _windows_resume_process(process_id: int) -> None:
+    """Reprend les threads d'un processus créé avec ``CREATE_SUSPENDED``."""
+
+    api = _win32()
+    api.ctypes.set_last_error(0)
+    snapshot = api.kernel32.CreateToolhelp32Snapshot(api.TH32CS_SNAPTHREAD, 0)
+    if not snapshot or snapshot == api.invalid_handle:
+        raise api.last_error("CreateToolhelp32Snapshot")
+    resumed = 0
+    try:
+        entry = api.ThreadEntry()
+        entry.dwSize = api.ctypes.sizeof(entry)
+        api.ctypes.set_last_error(0)
+        present = api.kernel32.Thread32First(snapshot, api.ctypes.byref(entry))
+        if not present:
+            raise api.last_error("Thread32First")
+        while present:
+            if int(entry.th32OwnerProcessID) == process_id:
+                api.ctypes.set_last_error(0)
+                thread = api.kernel32.OpenThread(
+                    api.THREAD_SUSPEND_RESUME, False, int(entry.th32ThreadID)
+                )
+                if not thread:
+                    raise api.last_error("OpenThread")
+                try:
+                    api.ctypes.set_last_error(0)
+                    previous = api.kernel32.ResumeThread(thread)
+                finally:
+                    api.kernel32.CloseHandle(thread)
+                if previous == api.RESUME_THREAD_FAILED:
+                    raise api.last_error("ResumeThread")
+                resumed += 1
+            api.ctypes.set_last_error(0)
+            present = api.kernel32.Thread32Next(snapshot, api.ctypes.byref(entry))
+        if api.ctypes.get_last_error() not in {0, api.ERROR_NO_MORE_FILES}:
+            raise api.last_error("Thread32Next")
+    finally:
+        api.kernel32.CloseHandle(snapshot)
+    if resumed == 0:
+        raise OSError("aucun thread initial à reprendre pour le processus suspendu")
+
+
+def _windows_job_active_processes(job_handle: int) -> int:
+    api = _win32()
+    accounting = api.BasicAccountingInformation()
+    api.ctypes.set_last_error(0)
+    if not api.kernel32.QueryInformationJobObject(
+        job_handle,
+        api.JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS,
+        api.ctypes.byref(accounting),
+        api.ctypes.sizeof(accounting),
+        None,
+    ):
+        raise api.last_error("QueryInformationJobObject")
+    return int(accounting.ActiveProcesses)
+
+
+def _windows_terminate_job(job_handle: int) -> bool:
+    api = _win32()
+    api.ctypes.set_last_error(0)
+    return bool(api.kernel32.TerminateJobObject(job_handle, 1))
+
+
+class _WindowsJobObject:
+    """Handle d'un Job Object vivant pendant toute l'exécution fencée."""
+
+    def __init__(self, handle: int) -> None:
+        self._handle: int | None = handle
+
+    @property
+    def handle(self) -> int:
+        if self._handle is None:
+            raise RuntimeError("job déjà fermé")
+        return self._handle
+
+    def terminate_and_drain(self, timeout_seconds: float) -> bool:
+        """Termine le job puis attend, borné, que ``ActiveProcesses`` tombe à 0."""
+
+        try:
+            terminated = _windows_terminate_job(self.handle)
+            deadline = monotonic() + timeout_seconds
+            while True:
+                active = _windows_job_active_processes(self.handle)
+                if active == 0:
+                    return True
+                if not terminated or monotonic() >= deadline:
+                    return False
+                time.sleep(0.01)
+        except (OSError, RuntimeError):
+            return False
+
+    def close(self) -> None:
+        handle, self._handle = self._handle, None
+        if handle is not None:
+            _win32().kernel32.CloseHandle(handle)
+
+
+# Le job appartient au spawn, pas à l'appelant : ce registre permet à
+# ``_terminate_process`` de le retrouver sans changer sa signature publique
+# (``executors.py`` l'appelle encore avec deux arguments sur un processus sans job).
+_FENCE_JOBS: "weakref.WeakKeyDictionary[asyncio.subprocess.Process, _WindowsJobObject]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _register_fence_job(
+    process: asyncio.subprocess.Process, job: _WindowsJobObject
+) -> None:
+    _FENCE_JOBS[process] = job
+
+
+def _fence_job_for(
+    process: asyncio.subprocess.Process,
+) -> _WindowsJobObject | None:
+    return _FENCE_JOBS.get(process)
+
+
+def _forget_fence_job(process: asyncio.subprocess.Process) -> None:
+    _FENCE_JOBS.pop(process, None)
+
+
+async def _await_critical_section(work: Callable[[], bool]) -> bool:
+    """Exécute ``work`` dans un thread sans jamais l'abandonner à une annulation.
+
+    La destruction d'un arbre de processus est une section critique : si
+    l'appelant est annulé pendant l'appel, le thread termine son travail et
+    l'annulation n'est relancée qu'ensuite.
+    """
+
+    task = asyncio.create_task(asyncio.to_thread(work))
+    cancellation_received = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            cancellation_received = True
+            if task.done():
+                result = task.result()
+                break
+    if cancellation_received:
+        raise asyncio.CancelledError
+    return result
+
+
+@dataclass(eq=False)
+class FencedProcess:
+    """Processus lancé sans shell dans une clôture d'arrêt.
+
+    POSIX : nouvelle session (``killpg``). Windows : nouveau groupe de processus
+    et Job Object ``KILL_ON_JOB_CLOSE`` attaché avant la première instruction du
+    programme. Le handle du job vit tant que l'appelant n'a pas appelé
+    ``close_fence``.
+    """
+
+    process: asyncio.subprocess.Process
+    job: _WindowsJobObject | None = None
+
+    @property
+    def pid(self) -> int:
+        return self.process.pid
+
+    @property
+    def returncode(self) -> int | None:
+        return self.process.returncode
+
+    @property
+    def stdin(self) -> asyncio.StreamWriter | None:
+        return self.process.stdin
+
+    @property
+    def stdout(self) -> asyncio.StreamReader | None:
+        return self.process.stdout
+
+    @property
+    def stderr(self) -> asyncio.StreamReader | None:
+        return self.process.stderr
+
+    def close_fence(self) -> None:
+        """Ferme le job (dernier filet : tue ce qui y resterait)."""
+
+        job, self.job = self.job, None
+        _forget_fence_job(self.process)
+        if job is not None:
+            job.close()
+
+
 def _process_group_options() -> dict[str, Any]:
+    """Options de création d'un groupe/session propre au processus lancé."""
+
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
+
+
+def _fenced_spawn_options() -> dict[str, Any]:
+    """Options du spawn fencé : groupe propre, et suspension initiale sous Windows."""
+
+    options = _process_group_options()
+    if os.name == "nt":
+        options["creationflags"] = int(options["creationflags"]) | CREATE_SUSPENDED
+    return options
+
+
+async def _discard_suspended_process(process: asyncio.subprocess.Process) -> None:
+    """Tue un processus qui n'a jamais été repris et libère son transport."""
+
+    try:
+        process.kill()
+    except ProcessLookupError:
+        pass
+    try:
+        await asyncio.wait_for(_wait_for_process_exit(process), timeout=5.0)
+    except TimeoutError:
+        pass
+    _close_process_transport(process)
+
+
+async def spawn_fenced_process(
+    argv: Sequence[str],
+    *,
+    cwd: Path | str,
+    env: Mapping[str, str],
+    stdin: int,
+    stdout: int,
+    stderr: int,
+    limit: int | None = None,
+) -> FencedProcess:
+    """Lance ``argv`` sans shell dans sa clôture ; échoue fermé sinon.
+
+    Sous Windows le processus est créé suspendu, affecté à un Job Object neuf
+    puis repris : aucune instruction du programme ne s'exécute hors du job. Toute
+    erreur de cette séquence tue le processus suspendu et lève
+    ``FencedSpawnError('job_assignment_failed')``.
+    """
+
+    options: dict[str, Any] = dict(_fenced_spawn_options())
+    if limit is not None:
+        options["limit"] = limit
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=cwd,
+            env=dict(env),
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            **options,
+        )
+    except OSError as exc:
+        raise FencedSpawnError("spawn_error", str(exc)) from exc
+    if os.name != "nt":
+        return FencedProcess(process=process)
+
+    job: _WindowsJobObject | None = None
+    try:
+        job = _WindowsJobObject(_windows_create_job())
+        _windows_assign_process_to_job(job.handle, process.pid)
+        _windows_resume_process(process.pid)
+    except OSError as exc:
+        await _discard_suspended_process(process)
+        if job is not None:
+            job.close()
+        raise FencedSpawnError("job_assignment_failed", str(exc)) from exc
+    _register_fence_job(process, job)
+    return FencedProcess(process=process, job=job)
 
 
 async def _wait_for_process_exit(process: asyncio.subprocess.Process) -> int:
@@ -1009,10 +1523,17 @@ def _close_process_transport(process: asyncio.subprocess.Process) -> None:
 async def _terminate_process(
     process: asyncio.subprocess.Process, grace_seconds: float
 ) -> bool:
-    """Arrête le groupe puis force tout l'arbre de la tentative."""
+    """Arrête le groupe puis force tout l'arbre de la tentative.
+
+    Sous Windows, la preuve d'arrêt vient du Job Object attaché au spawn : lui
+    seul retrouve un descendant dont la filiation est rompue (lanceur ``.venv``,
+    ``npx.cmd``, ``uvx``). La passe Toolhelp est conservée comme vérification
+    indépendante ; l'arbre n'est déclaré arrêté que si le job est vide.
+    """
 
     process_id = process.pid
     if os.name == "nt":
+        job = _fence_job_for(process)
         if process.returncode is None and grace_seconds > 0:
             try:
                 # CREATE_NEW_PROCESS_GROUP fait de ``pid`` l'identifiant du groupe.
@@ -1025,6 +1546,12 @@ async def _terminate_process(
                 )
             except TimeoutError:
                 pass
+
+        job_drained = True
+        if job is not None:
+            job_drained = await _await_critical_section(
+                lambda: job.terminate_and_drain(JOB_DRAIN_TIMEOUT_SECONDS)
+            )
 
         # L'énumération native retrouve les descendants même lorsque la racine
         # vient de sortir. Ne jamais rouvrir le PID racine dans ce cas : son handle
@@ -1046,7 +1573,7 @@ async def _terminate_process(
                 await asyncio.wait_for(_wait_for_process_exit(process), timeout=5.0)
             except TimeoutError:
                 _close_process_transport(process)
-        return process.returncode is not None and tree_stopped
+        return process.returncode is not None and tree_stopped and job_drained
 
     try:
         os.killpg(process_id, signal.SIGTERM)
@@ -1071,6 +1598,21 @@ async def _terminate_process(
             _close_process_transport(process)
             return False
     return True
+
+
+async def terminate_process_tree(
+    process: asyncio.subprocess.Process, grace_seconds: float
+) -> bool:
+    """Arrête l'arbre d'un processus fencé et confirme qu'il ne reste rien.
+
+    Point d'entrée public de la logique d'arrêt du runner, réutilisé par la
+    sonde MCP stdio. Le comportement est strictement celui du runner :
+    grâce éventuelle, Job Object sous Windows, ``killpg`` sous POSIX, puis
+    vérification indépendante. Retourne ``False`` si l'arrêt complet n'a pas
+    pu être prouvé.
+    """
+
+    return await _terminate_process(process, grace_seconds)
 
 
 async def run_local_program(
@@ -1126,21 +1668,20 @@ async def run_local_program(
         _persist_evidence(result, request)
         return result
     try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
+        fenced = await spawn_fenced_process(
+            argv,
             cwd=run_directory,
             env=restricted_run_environment(config, request, request_path),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            **_process_group_options(),
         )
-    except OSError:
+    except FencedSpawnError as exc:
         finished_at = _utc_now()
         result = LocalRunnerResult(
             status="spawn_failed",
             exit_code=None,
-            termination_reason="spawn_error",
+            termination_reason=exc.reason,
             run_directory=run_directory,
             request_sha256=request_sha256,
             command_sha256=command_sha256,
@@ -1156,6 +1697,7 @@ async def run_local_program(
         _persist_evidence(result, request)
         return result
 
+    process = fenced.process
     assert process.stdout is not None
     assert process.stderr is not None
     stdout_capture = _BoundedCapture(config.max_output_bytes)
@@ -1258,6 +1800,10 @@ async def run_local_program(
                 termination_reason = (
                     f"{termination_reason}_process_tree_cleanup_failed"
                 )
+        # Dernier filet : fermer le job tue ce qui aurait survécu à toutes les
+        # passes précédentes. Le verdict a déjà été figé : la clôture ne
+        # transforme jamais un nettoyage non confirmé en succès.
+        fenced.close_fence()
 
     result = LocalRunnerResult(
         status=status,

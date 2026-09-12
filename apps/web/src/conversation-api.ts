@@ -1,9 +1,30 @@
+import type {
+  HermesNativeListing,
+  HermesNativeListingStatus,
+  HermesNativeSkill,
+  HermesNativeToolset,
+} from "@acp/contracts";
+
 import {
   WorkspaceHttpClient,
   hasString,
   isRecord,
   type Fetcher,
 } from "./workspace-api";
+
+export type {
+  HermesNativeListing,
+  HermesNativeListingStatus,
+  HermesNativeSkill,
+  HermesNativeToolset,
+};
+
+const HERMES_NATIVE_STATUSES: readonly HermesNativeListingStatus[] = [
+  "available",
+  "unavailable",
+  "not_configured",
+  "unsupported",
+];
 
 export type HermesDiagnosticStatus = "connected" | "degraded" | "unavailable";
 
@@ -67,6 +88,49 @@ function normalizeDiagnostic(value: HermesDiagnostic): HermesDiagnostic {
   return { ...value, capabilities: value.capabilities ?? [] };
 }
 
+function isHermesNativeSkill(value: unknown): value is HermesNativeSkill {
+  return isRecord(value)
+    && hasString(value, "name")
+    && hasString(value, "description")
+    && hasString(value, "category");
+}
+
+function isHermesNativeToolset(value: unknown): value is HermesNativeToolset {
+  return isRecord(value)
+    && hasString(value, "name")
+    && hasString(value, "label")
+    && hasString(value, "description")
+    && typeof value.enabled === "boolean"
+    && typeof value.configured === "boolean"
+    && isStringArray(value.tools);
+}
+
+function isOptionalArrayOf<T>(value: unknown, guard: (item: unknown) => item is T): boolean {
+  return value === undefined || Array.isArray(value) && value.every(guard);
+}
+
+/**
+ * Une liste native n’est acceptée que si sa forme est exactement celle du
+ * contrat : aucune entrée partiellement lue n’est affichée comme un succès.
+ */
+function isHermesNativeListing(value: unknown): value is HermesNativeListing {
+  return isRecord(value)
+    && HERMES_NATIVE_STATUSES.includes(String(value.status) as HermesNativeListingStatus)
+    && hasString(value, "message")
+    && (value.read_at === null || value.read_at === undefined || typeof value.read_at === "string")
+    && isOptionalArrayOf(value.skills, isHermesNativeSkill)
+    && isOptionalArrayOf(value.toolsets, isHermesNativeToolset);
+}
+
+function normalizeNativeListing(value: HermesNativeListing): HermesNativeListing {
+  return {
+    ...value,
+    skills: value.skills ?? [],
+    toolsets: value.toolsets ?? [],
+    read_at: value.read_at ?? null,
+  };
+}
+
 function isConversationSummary(value: unknown): value is ConversationSummary {
   return isRecord(value)
     && hasString(value, "id")
@@ -127,6 +191,18 @@ export class ConversationApiClient {
       "/connections/hermes/diagnostic",
       isHermesDiagnostic,
       { method: "POST" },
+    ));
+  }
+
+  /**
+   * Lit les skills et toolsets qu’Hermes annonce lui-même. Lecture seule :
+   * aucune écriture n’est possible depuis l’interface, Hermes reste la source
+   * de vérité de sa configuration native.
+   */
+  async fetchHermesNativeListing(): Promise<HermesNativeListing> {
+    return normalizeNativeListing(await this.http.request(
+      "/connections/hermes/native-listing",
+      isHermesNativeListing,
     ));
   }
 

@@ -6,6 +6,105 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-12
+
+Lot D : extensions contrôlées (centre MCP, bibliothèque de skills, coffre de
+secrets). Vérifié localement le 12 septembre 2026, puis publié après intégration
+continue verte. Aucun serveur MCP tiers, dépôt GitHub réel ni runner distant réel
+n'a été contacté : les preuves reposent sur des transports simulés, des programmes
+déterministes locaux et un parcours de bout en bout joué contre des services
+réellement démarrés sur le bouclage.
+
+### Ajouté
+
+- coffre de secrets chiffrés (Fernet) à références : portées `platform`/`project`,
+  `key_id`, rotation de clé sans perte par `ACP_SECRETS_KEYS`, révocation, dernier
+  usage, routes `/secrets` et groupe CLI `acp secrets` (valeur uniquement par
+  `--value-stdin`) ;
+- politique de sortie réseau `outbound.py` : `https` exigé hors allowlist, blocage du
+  bouclage, des réseaux privés, de la métadonnée cloud, du CGNAT et des plages IPv6
+  équivalentes, contrôle de toutes les adresses résolues, épinglage de l'adresse
+  pendant la requête, revalidation des redirections, corps borné et audit de chaque
+  usage d'une allowlist privée ;
+- centre MCP : catalogue vérifié, serveurs versionnés (empreinte, diff, risques,
+  rollback), diagnostic HTTP exécuté par l'API et diagnostic `stdio` soumis à une
+  autorisation explicite exécutée par un runner authentifié, rattachements par projet
+  limités à un sous-ensemble d'outils, activation, désactivation et révocation
+  auditées, import Hermes/Claude/Codex et export avec placeholders
+  `${ACP_SECRET_…}` ;
+- bibliothèque de skills : import borné depuis un `SKILL.md`, un dossier autorisé, une
+  archive ZIP ou un commit GitHub épinglé, révisions avec manifeste SHA-256,
+  frontmatter, licence, dépendances et contrôle automatique indicatif, approbation
+  d'une portée accrue, rattachements par projet, rollback et révocation ;
+- extensions résolues par projet (`GET /projects/{id}/extensions`) et instantané figé
+  dans `meta["extensions"]` d'une mission ;
+- capacité worker `mcp_stdio_probe` (désactivée par défaut, allowlist d'exécutables
+  absolus obligatoire) et sonde MCP stdio sans shell, à environnement minimal, durée
+  et sorties bornées ;
+- écrans web du centre MCP et de la bibliothèque de skills, groupes CLI `acp mcp`,
+  `acp skills` et `acp projects extensions`, lecture des skills et toolsets natifs
+  Hermes dans Connexions.
+
+### Modifié
+
+- la route web « Bibliothèque » devient une capacité configurée et « Connexions »
+  accueille le centre MCP et le panneau des secrets ; les helpers d'interface partagés
+  sont extraits dans `apps/web/src/ui-primitives.ts` sans changement de comportement ;
+- le shell web transmet son client HTTP et son jeton CSRF aux modules Connexions et
+  Bibliothèque au lieu de les laisser ouvrir leur propre session : un seul jeton CSRF
+  est en circulation, réinitialisé à la connexion comme à la déconnexion ;
+- les groupes CLI `mcp` et `skills`, jusqu'ici des stubs « non supporté », sont
+  raccordés à l'API ; le script de complétion liste `secrets`, `mcp` et `skills`
+  (`automations` reste explicitement non supporté) ;
+- la création d'une mission fige les extensions résolues du projet dans
+  `TaskModel.meta["extensions"]` ; le contrat `MissionSummary` est inchangé ;
+- le provider-gateway expose `GET /v1/providers/hermes/native-listing` et l'API métier
+  la relaie en lecture seule sur `GET /connections/hermes/native-listing` ;
+- `apps/api` dépend désormais de `cryptography>=45,<48` et `pyyaml>=6,<7` ; aucune
+  dépendance ajoutée côté web, CLI ou worker ;
+- les versions des composants publiables sont synchronisées sur `0.5.0`.
+
+### Corrigé
+
+- arrêt déterministe d'un arbre de processus sous Windows : tout spawn du runner et de
+  la sonde MCP `stdio` est créé suspendu, affecté à un Job Object
+  `KILL_ON_JOB_CLOSE` sans `BREAKAWAY_OK`, puis repris ; l'affectation est revérifiée
+  et un échec devient `spawn_failed` / `job_assignment_failed` au lieu d'une exécution
+  hors clôture. L'énumération par filiation ne suffisait pas lorsqu'un **lanceur**
+  (`.venv\Scripts\python.exe`, `npx.cmd`, `uvx`) quittait avant son descendant : le
+  petit-fils survivait avec les tubes hérités et un run réussi devenait
+  `timed_out` / `output_stream_timeout`. Les deux tests concernés
+  (`test_normal_parent_exit_cannot_leave_a_background_child`, systématiquement en
+  échec, et `test_asyncio_cancellation_terminates_the_process_tree`, intermittent)
+  passent désormais, y compris sur trois exécutions consécutives ;
+- la sonde `stdio` refuse une page unique d'outils plus grande que sa capacité au lieu
+  de la tronquer silencieusement ;
+- un diagnostic HTTP ne réclame plus le coffre lorsque la configuration ne référence
+  aucun secret ; il échoue explicitement, avec l'action à effectuer, seulement quand un
+  secret est référencé et que le coffre est absent ;
+- l'aperçu d'import Hermes ne recopie plus la valeur d'un bloc `auth` ou `timeout` dans
+  la liste des éléments non supportés, et un document YAML multiple n'est plus
+  diagnostiqué comme « étiquette ou ancre ».
+
+### Sécurité
+
+- aucune valeur de secret ne sort du serveur : ni réponse d'API, ni export, ni
+  événement, ni URL, ni frontend ; le déchiffrement n'a lieu que pour un diagnostic
+  HTTP ou le claim d'un diagnostic `stdio` approuvé par un runner authentifié, avec
+  `Cache-Control: no-store` ;
+- tout ce qu'un serveur MCP renvoie (`serverInfo`, capacités, outils, `stderr`,
+  messages d'erreur) est expurgé des valeurs injectées avant écriture en base, par le
+  runner **et** par l'API, selon une règle unique `acp_contracts.redaction` ;
+- une valeur littérale ressemblant à un secret, un paquet non épinglé, une commande
+  relative ou une URL refusée par la politique sont rejetés à l'enregistrement ;
+- un lancement `stdio` exige une autorisation portant l'empreinte exacte de la
+  révision ; une révision modifiée l'invalide, une expiration ou un lease perdu
+  produisent un état explicite, jamais un succès supposé ;
+- une liste d'outils tronquée n'est jamais présentée comme complète : la sonde stdio
+  refuse aussi bien une pagination sans fin qu'une page unique surdimensionnée ;
+- un rattachement n'est visible que des utilisateurs ayant accès au projet concerné ;
+  le compteur global reste affiché sans nommer les projets.
+
 ## [0.4.0] - 2026-09-11
 
 ### Ajouté
@@ -107,7 +206,12 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.4.0...HEAD
+Les tags `v0.4.0` et `v0.5.0` ne sont pas encore créés : les liens de comparaison
+correspondants ne fonctionneront qu'après publication des Lots C puis D. Seuls
+`v0.2.0` et `v0.3.0` existent aujourd'hui sur GitHub.
+
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/5887603...v0.2.0

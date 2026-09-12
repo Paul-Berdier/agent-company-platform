@@ -1,6 +1,6 @@
 # Missions, runner local et CLI
 
-Date d'état : 11 septembre 2026, Europe/Paris
+Date d'état : 12 septembre 2026, Europe/Paris — version `0.5.0`
 
 Le Lot C fournit une mission durable dans l'API métier, une exécution locale
 configurée côté worker et le client `acp`. Le web et le CLI utilisent la même
@@ -74,9 +74,56 @@ réponse invalide, relancer exactement la même commande reprend la même opéra
 l'abandonne avec confirmation (`--yes` est obligatoire sans invite), au risque
 explicitement signalé de répéter un effet déjà appliqué.
 
-Les commandes `mcp`, `skills` et `automations` sont visibles comme capacités futures
-mais retournent un code « non supporté » dans cette version ; elles seront raccordées
-dans les Lots D et F, sans résultat simulé.
+Les commandes `automations` restent visibles comme capacité future et retournent un
+code « non supporté » dans cette version ; elles seront raccordées au Lot F, sans
+résultat simulé.
+
+## Secrets, serveurs MCP et skills depuis le CLI
+
+Le Lot D raccorde trois groupes supplémentaires à la même API et au même modèle de
+session. Une valeur de secret n'est jamais acceptée en argument : seule l'entrée
+standard est lue (`--value-stdin`), et une tentative avec `--value` est refusée.
+
+```powershell
+acp secrets status
+acp secrets set GITHUB_TOKEN --value-stdin
+acp secrets list
+acp secrets rotate <secret-id> --value-stdin
+acp secrets revoke <secret-id>
+
+acp mcp catalog
+acp mcp add github --url https://api.githubcopilot.com/mcp/ --header Authorization=@<secret-id>
+acp mcp add local-fs --command /usr/local/bin/mcp-fs --arg --root --arg /data --runner <worker-id>
+acp mcp test <server-id> --wait
+acp mcp probes list
+acp mcp probes approve <probe-id> --comment "lancement vérifié"
+acp mcp tools <server-id>
+acp mcp bind <server-id> --project <project-id> --tool search
+acp mcp activate <server-id>
+acp mcp export --format hermes --project <project-id>
+acp mcp import ./config.toml --format codex
+
+acp skills search rapport
+acp skills install github:owner/repo@<sha40>:skills/rapport
+acp skills files <skill-id>
+acp skills cat <skill-id> SKILL.md
+acp skills approve <skill-id> --revision 2
+acp skills bind <skill-id> --project <project-id>
+acp skills activate <skill-id>
+
+acp projects extensions <project-id>
+```
+
+`acp mcp test` se comporte différemment selon le transport : en `http` le diagnostic
+est exécuté immédiatement et le résultat est retourné ; en `stdio` il crée une
+demande d'autorisation de lancement — rien n'est lancé avant `acp mcp probes approve`
+et le claim du runner désigné. `--wait` interroge jusqu'à un état terminal et
+retourne `0` seulement si le diagnostic a réussi ; `Ctrl+C` interrompt l'attente sans
+annuler le diagnostic en cours.
+
+`acp mcp import` lit le fichier localement (1 Mio au maximum) et envoie son contenu :
+le serveur ne lit jamais un chemin fourni par le client. Sans `--apply`, la commande
+affiche seulement l'aperçu normalisé, avec les secrets masqués.
 
 ## Contrat du backend local
 
@@ -88,10 +135,16 @@ configuration complète.
 
 Le runner crée un cwd neuf par tentative, filtre l'environnement, capture et hache
 stdout/stderr, borne la sortie et arrête l'arbre de processus en cas d'arrêt,
-timeout, perte de lease ou fencing obsolète. Ces contrôles ne sont pas une sandbox
-OS : l'adaptateur local configuré conserve les droits et l'accès réseau du compte
-qui lance le worker. L'emploi sur du code non fiable nécessite une isolation système
-supplémentaire.
+timeout, perte de lease ou fencing obsolète. Sous Windows, cet arrêt ne repose plus sur
+la filiation des processus : le programme est créé suspendu et affecté à un Job Object
+`KILL_ON_JOB_CLOSE` avant d'exécuter la moindre instruction, ce qui couvre le cas d'un
+lanceur intermédiaire (`.venv`, `npx.cmd`, `uvx`) qui quitte avant son descendant. Voir
+[Worker Windows distant](workers/windows-worker.md), § 7.
+
+Ces contrôles ne sont pas une sandbox OS : l'adaptateur local configuré conserve les
+droits et l'accès réseau du compte qui lance le worker, et le Job Object n'impose ni
+quota CPU/mémoire ni politique réseau. L'emploi sur du code non fiable nécessite une
+isolation système supplémentaire.
 
 La politique Lot C est volontairement restrictive : seul le mode `supervised`, avec
 `allowed_actions`, `forbidden_actions` et `approval_required_actions` toutes vides,
@@ -106,8 +159,12 @@ provider non simulé demandé.
 ## Limites vérifiées
 
 - l'intégration est couverte avec transports et programmes déterministes locaux ;
+  seule exception : le parcours MCP `http` a été rejoué contre une API et un serveur
+  MCP réellement démarrés sur le bouclage, hors dépôt ;
 - aucune instance Hermes réelle ni commande agentique payante n'a été lancée pour
   cette release ;
+- l'autorisation d'un lancement MCP `stdio` est distincte du circuit d'approbation des
+  missions : elle n'apparaît ni dans `acp approvals`, ni dans l'écran Missions ;
 - SQLite et `create_all()` restent le chemin local ; les migrations PostgreSQL et
   la restauration sont reportées au Lot H ;
 - le suivi web/CLI interroge l'API ; le flux authentifié et rejouable arrive au Lot E ;

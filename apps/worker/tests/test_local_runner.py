@@ -399,6 +399,89 @@ async def test_asyncio_cancellation_terminates_the_process_tree(tmp_path: Path):
             os.kill(child_pid, signal.SIGTERM)
 
 
+async def test_orphaned_grandchild_is_terminated_when_parent_exits_normally(
+    tmp_path: Path,
+):
+    """Le parent lance un intermédiaire qui lance le petit-fils puis sort aussitôt.
+
+    La filiation est rompue avant même la sortie du parent : seule une clôture
+    attachée au spawn (session POSIX, Job Object Windows) peut retrouver le
+    petit-fils. Le résultat doit rester ``succeeded`` et le petit-fils mort.
+    """
+
+    grandchild_pid_file = tmp_path / "orphan-grandchild.pid"
+    grandchild_code = (
+        "import signal,time; "
+        "signal.signal(signal.SIGBREAK, signal.SIG_IGN) "
+        "if hasattr(signal, 'SIGBREAK') else None; "
+        "time.sleep(30)"
+    )
+    intermediate_code = (
+        "import pathlib,subprocess,sys; "
+        f"child=subprocess.Popen([sys.executable,'-I','-c',{grandchild_code!r}]); "
+        "pathlib.Path(sys.argv[1]).write_text(str(child.pid))"
+    )
+    parent_code = (
+        "import subprocess,sys; "
+        "raise SystemExit(subprocess.call("
+        f"[sys.executable,'-I','-c',{intermediate_code!r},sys.argv[1]]))"
+    )
+    config = runner_config(
+        tmp_path, parent_code, extra_args=(str(grandchild_pid_file),)
+    )
+    grandchild_pid: int | None = None
+    try:
+        result = await asyncio.wait_for(run_local_program(config, request()), timeout=10)
+        grandchild_pid = read_test_process_id(grandchild_pid_file)
+        assert grandchild_pid is not None
+        for _ in range(200):
+            if not process_is_running(grandchild_pid):
+                break
+            await asyncio.sleep(0.01)
+        assert result.status == "succeeded"
+        assert result.termination_reason == "exit"
+        assert result.succeeded
+        assert not process_is_running(grandchild_pid)
+    finally:
+        if grandchild_pid is None:
+            grandchild_pid = read_test_process_id(grandchild_pid_file)
+        if grandchild_pid is not None:
+            await terminate_test_process(grandchild_pid)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Job Object Windows uniquement")
+async def test_job_assignment_failure_is_spawn_failed_and_never_runs_the_program(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    marker = tmp_path / "must-not-run"
+
+    def assignment_refused(job_handle: int, process_id: int) -> None:
+        assert isinstance(job_handle, int) and job_handle
+        assert isinstance(process_id, int) and process_id > 0
+        raise OSError(5, "affectation au job refusée (simulation)")
+
+    monkeypatch.setattr(
+        local_runner_module,
+        "_windows_assign_process_to_job",
+        assignment_refused,
+    )
+    config = runner_config(
+        tmp_path,
+        "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('ran')",
+        extra_args=(str(marker),),
+    )
+
+    result = await asyncio.wait_for(run_local_program(config, request()), timeout=10)
+
+    assert result.succeeded is False
+    assert result.status == "spawn_failed"
+    assert result.termination_reason == "job_assignment_failed"
+    assert result.exit_code is None
+    assert result.evidence(request())["termination_reason"] == "job_assignment_failed"
+    await asyncio.sleep(0.2)
+    assert not marker.exists()
+
+
 @pytest.mark.parametrize(
     ("run_id", "attempt_id"),
     [

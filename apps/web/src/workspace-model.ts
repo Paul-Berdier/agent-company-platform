@@ -23,7 +23,7 @@ export const NAVIGATION_ITEMS: readonly NavigationItem[] = [
   { id: "conversations", label: "Conversations", path: "/conversations", icon: "◌", configured: true },
   { id: "missions", label: "Missions", path: "/missions", icon: "→", configured: true },
   { id: "automations", label: "Automatisations", path: "/automations", icon: "↻", configured: false },
-  { id: "library", label: "Bibliothèque", path: "/library", icon: "◇", configured: false },
+  { id: "library", label: "Bibliothèque", path: "/library", icon: "◇", configured: true },
   { id: "connections", label: "Connexions", path: "/connections", icon: "⌁", configured: true },
 ] as const;
 

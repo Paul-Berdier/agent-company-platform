@@ -147,6 +147,51 @@ modèle, latence et une cause expurgée. Les états distinguent notamment
 `GET` ou `POST /connections/hermes/diagnostic` sur l'API métier, jamais cette route
 interne. Ne journaliser ni clé ni en-tête `Authorization` lors d'un diagnostic.
 
+## Skills et toolsets natifs
+
+Hermes reste la source de vérité de ses skills et de ses toolsets. La plateforme
+les **lit** et ne les écrit jamais :
+
+```text
+GET /v1/skills     → liste de {name, description, category}
+GET /v1/toolsets   → liste de {name, label, description, enabled, configured, tools[]}
+```
+
+Les deux routes exigent le Bearer `API_SERVER_KEY`. Le gateway les expose, après
+contrôle de readiness (`/health/detailed`, même exigence que le diagnostic), sur :
+
+```text
+GET /v1/providers/hermes/native-listing
+```
+
+protégée par `ACP_GATEWAY_SERVICE_TOKEN`. L'API métier la relaie en lecture seule
+sur `GET /connections/hermes/native-listing` (session requise, aucune mutation).
+Le contrat `HermesNativeListing` porte un statut explicite :
+
+| Statut | Signification |
+|---|---|
+| `available` | les deux listes ont été lues ; `read_at` porte la date de lecture |
+| `not_configured` | `HERMES_BASE_URL`/`HERMES_API_KEY` incomplète : rien n'a été lu |
+| `unsupported` | l'instance Hermes ne sert pas ces routes (404) |
+| `unavailable` | readiness dégradée, authentification refusée, délai dépassé ou réponse invalide |
+
+Aucun contenu n'est affiché hors d'une lecture réussie : le contrat refuse une
+liste non vide sans `read_at`, et une indisponibilité ne devient jamais une liste
+vide présentée comme un succès. Les deux formes de réponse documentées sont
+acceptées (tableau JSON nu ou objet `{"skills": [...]}` / `{"toolsets": [...]}`) ;
+toute autre forme est une réponse invalide. Le contenu reçu est une donnée non
+fiable : textes bornés à 500 caractères, sans caractère de contrôle, listes
+bornées à 200 entrées, et il n'influence aucune politique ni instruction.
+
+L'interface « Connexions » affiche cette lecture après le diagnostic, avec la
+mention « Source : Hermes, lu le … » et **aucun bouton d'édition**. Configurer
+les serveurs MCP natifs d'Hermes reste une opération côté service Hermes :
+exporter la configuration depuis la plateforme (`GET /mcp/export?format=hermes`),
+l'appliquer dans `~/.hermes/config.yaml`, définir les variables `ACP_SECRET_*`
+dans l'environnement d'Hermes, puis attendre le rechargement automatique (~30 s)
+ou déclencher `/reload-mcp`. Aucune API HTTP Hermes 0.21.1 ne permet d'écrire
+cette configuration, et la plateforme ne prétend pas le faire.
+
 ## Conversation et idempotence
 
 L'API métier crée une conversation générale privée ou une conversation explicitement
@@ -178,9 +223,18 @@ Lot A compte **58 tests réussis**.
 Le Lot B ajoute `test_gateway_hermes_runs.py`, `test_conversations.py` et les tests
 TypeScript du client de conversation pour le Bearer interne, le diagnostic typé,
 l'admission asynchrone, la lecture unitaire, la persistance, la confidentialité et la
-reprise de clé. Dans le worktree propre du Lot B, la suite Python complète compte
+reprise de clé. Dans le worktree propre du Lot B, la suite Python complète comptait
 **121 tests réussis** et la suite web **28 tests réussis**. Ces résultats ne prouvent
 pas une intégration externe.
+
+Le Lot D ajoute la lecture des skills et toolsets natifs
+(`services/provider-gateway/tests/test_hermes_native_listing.py`,
+`apps/api/tests/test_connections_hermes_native.py`) : statut explicite
+`available` / `not_configured` / `unsupported` / `unavailable`, refus d'une réponse mal
+formée, bornes sur les textes et les listes, et absence de mutation. Dans le worktree
+`lot-d` (version `0.5.0`), la suite du gateway compte **87 tests** et la suite Python
+complète **1 033 tests réussis** avec 2 avertissements de dépréciation connus. Ces
+tests utilisent un transport simulé : aucune instance Hermes réelle n'a été contactée.
 
 Ce résultat valide la traduction et les invariants locaux. Il ne prouve pas :
 
@@ -201,7 +255,9 @@ clé est `non exécuté`, jamais vert.
 - stop/cancel transmis à Hermes ;
 - demandes et décisions d'approbation Hermes ;
 - pièces jointes ;
-- profils, modèles, MCP, skills et toolsets consultables/configurables ;
+- profils, modèles et MCP natifs consultables ; configuration native écrivable
+  depuis la plateforme (les skills et toolsets natifs sont désormais lisibles,
+  mais rien n'est écrit côté Hermes) ;
 - jobs et automatisations ;
 - délégations rapprochées des missions métier.
 

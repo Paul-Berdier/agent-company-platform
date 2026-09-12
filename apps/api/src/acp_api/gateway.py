@@ -4,7 +4,11 @@ import os
 from typing import Any, Literal
 
 import httpx
-from acp_contracts import ServiceOriginError, normalize_service_origin
+from acp_contracts import (
+    HermesNativeListing,
+    ServiceOriginError,
+    normalize_service_origin,
+)
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
@@ -130,6 +134,22 @@ class GatewayClient:
         except ValidationError as exc:
             raise GatewayUnavailableError(
                 "Le diagnostic Hermes ne respecte pas le contrat attendu"
+            ) from exc
+
+    async def hermes_native_listing(self) -> HermesNativeListing:
+        """Lit, via le gateway, les skills et toolsets annoncés par Hermes.
+
+        Lecture seule : l'API ne réécrit jamais la configuration native
+        d'Hermes, qui reste la source de vérité de ses skills et toolsets.
+        """
+
+        data = await self._request("GET", "/v1/providers/hermes/native-listing")
+        try:
+            return HermesNativeListing.model_validate(data)
+        except ValidationError as exc:
+            raise GatewayUnavailableError(
+                "La lecture des skills et toolsets natifs ne respecte pas le "
+                "contrat attendu"
             ) from exc
 
     async def submit_hermes_run(

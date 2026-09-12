@@ -20,6 +20,7 @@ class WorkerCapability(str, Enum):
     NANOSWORLD_COOK = "nanosworld_cook"
     ASSET_VALIDATION = "asset_validation"
     IMAGE_CAPTURE = "image_capture"
+    MCP_STDIO_PROBE = "mcp_stdio_probe"
 
 
 class WorkerStatus(str, Enum):

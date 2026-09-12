@@ -102,11 +102,26 @@ le worker restent dans la base de confiance. La racine des runs doit donc être
 privée à ce compte et l'exécutable ainsi que ses scripts fixes doivent résider
 dans un emplacement non modifiable par les projets ou missions.
 
-La terminaison d'arbre n'est pas une primitive d'isolation : Toolhelp ne remplace
-pas un Job Object Windows attribué au spawn, et un descendant POSIX qui appelle
-`setsid()` sort du groupe. Un déploiement acceptant un exécutable non fiable doit
-donc ajouter un Job Object, un cgroup ou une portée de service supervisée ; ce cas
-reste hors du backend local actuel et échoue la frontière de confiance annoncée.
+Sous Windows, le spawn est désormais **fencé par un Job Object** : le processus est
+créé suspendu, affecté à un job anonyme `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` sans
+`BREAKAWAY_OK`, puis repris. Aucune instruction du programme ne s'exécute hors du
+job, et aucun descendant ne peut en sortir — y compris sous un lanceur
+intermédiaire (`python.exe` d'un `.venv`, `npx.cmd`, `uvx`) qui casse la filiation
+observable par Toolhelp. À l'arrêt, `TerminateJobObject` puis l'attente de
+`ActiveProcesses == 0` constituent la preuve ; la passe Toolhelp est conservée comme
+vérification indépendante. Si le job ne peut pas être créé, l'affectation refusée ou
+la reprise impossible, le processus suspendu est tué et le run échoue en
+`spawn_failed` / `job_assignment_failed` : jamais une exécution hors clôture.
+
+La sonde MCP stdio optionnelle (`ACP_WORKER_MCP_STDIO_*`) réutilise exactement la
+même clôture de spawn et d'arrêt ; elle est documentée dans
+`docs/workers/windows-worker.md` § 8.
+
+La terminaison d'arbre reste une frontière d'arrêt, pas une primitive d'isolation :
+le job ne limite ni le CPU, ni la mémoire, ni le réseau, et un descendant POSIX qui
+appelle `setsid()` sort du groupe de session. Un déploiement acceptant un exécutable
+non fiable doit donc y ajouter un cgroup, des quotas de job ou une portée de service
+supervisée.
 
 En conséquence, la politique mission est volontairement conservatrice et
 vérifiée avant tout spawn : seul le mode `supervised` est accepté, avec

@@ -7,11 +7,16 @@ un CLI commun.
 La modernisation est engagée par tranches. Le Lot C ajoute aux fondations sécurisées
 et aux conversations du Lot B une ressource mission durable, des tentatives
 clôturées par fencing token, un backend de processus local configuré et le CLI
-`acp`. Une instance Hermes réelle, le streaming utilisateur et une isolation OS du
-runner ne sont toutefois pas encore validés. Le détail exact se trouve dans
+`acp`. Le Lot D y ajoute les extensions contrôlées : coffre de secrets chiffrés,
+politique de sortie anti-SSRF, centre MCP versionné avec diagnostics autorisés,
+bibliothèque de skills relisibles et révocation de bout en bout. Une instance Hermes
+réelle, un serveur MCP tiers, le streaming utilisateur et une isolation OS du runner
+ne sont toutefois pas encore validés. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version du Lot C : **0.4.0**. Les changements versionnés sont décrits dans
+Version des sources : **0.5.0** (Lot D), implémentée et vérifiée localement. Ni le
+Lot C (`0.4.0`) ni le Lot D ne sont publiés : la dernière version publiée sur GitHub
+reste **0.3.0** (tag `v0.3.0`). Les changements versionnés sont décrits dans
 [CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
@@ -42,8 +47,28 @@ Version du Lot C : **0.4.0**. Les changements versionnés sont décrits dans
   processus et verdict fail-closed ; ce backend n'accepte que les missions
   supervisées dont les trois listes d'actions sont vides et les ressources en
   lecture seule ;
+- clôture d'arrêt Windows : tout processus lancé par le runner, sonde MCP `stdio`
+  comprise, est enfermé dès sa création dans un Job Object ; plus aucun descendant ne
+  survit à une tentative, même derrière un lanceur (`.venv`, `npx.cmd`, `uvx`), et une
+  affectation impossible échoue fermé au lieu de s'exécuter hors clôture ;
 - CLI `acp` connecté à la même API pour l'accès, les projets, conversations,
-  missions, runs, approbations, artefacts et workers, avec JSON et codes de sortie ;
+  missions, runs, approbations, artefacts, workers, secrets, serveurs MCP et skills,
+  avec JSON et codes de sortie ;
+- coffre de secrets chiffrés à références : portées plateforme ou projet, rotation de
+  clé, révocation, et aucune valeur renvoyée par l'API, un export, un événement ou le
+  navigateur ;
+- centre MCP : catalogue vérifié, import Hermes/Claude/Codex, révisions immuables,
+  diagnostic HTTP exécuté par la plateforme, diagnostic `stdio` lancé uniquement après
+  autorisation explicite sur un runner désigné, sélection des outils par projet,
+  activation, rollback et révocation auditée ;
+- sorties réseau de l'API contrôlées côté serveur : bouclage, réseaux privés,
+  métadonnée cloud et équivalents IPv6 bloqués, adresse épinglée, redirections
+  revalidées et usage d'une allowlist privée audité ;
+- bibliothèque de skills : import borné (SKILL.md, dossier autorisé, archive, commit
+  GitHub épinglé), relecture des fichiers comme texte, dépendances, contrôle
+  automatique indicatif, approbation d'une portée accrue, activation par projet et
+  révocation ;
+- extensions résolues par projet et figées dans l'instantané d'une mission ;
 - provider Hermes `0.21.1` via `/health/detailed`, `/v1/capabilities` et
   `/v1/runs` ;
 - diagnostic Hermes typé visible dans Connexions, sans clé dans le navigateur ;
@@ -114,6 +139,14 @@ fourni.
 Les URL inter-services qui transportent ces Bearers doivent être des origines sans
 userinfo, chemin, query ni fragment ; HTTP est accepté uniquement sur loopback et
 HTTPS est obligatoire ailleurs.
+
+Pour utiliser le coffre de secrets et le centre MCP, définir `ACP_SECRETS_KEYS` avec
+au moins une clé Fernet (`python -m acp_api.secrets_vault generate-key` ; la première
+clé chiffre, les suivantes permettent la rotation). Sans clé, l'état est annoncé
+`non configuré` au lieu d'un stockage en clair. Les autres variables du Lot D —
+allowlist de sortie, stockage et sources de skills, sonde MCP stdio du worker — sont
+documentées dans `.env.example` et dans
+[docs/mcp-and-skills.md](docs/mcp-and-skills.md).
 
 Au premier affichage, le formulaire « Sécuriser le premier accès » consomme le jeton
 de bootstrap et crée l'unique propriétaire initial. Les visites suivantes restaurent
@@ -200,7 +233,22 @@ npm test --workspace @acp/pixel-office-engine
 npm run build:web
 python -m pytest -q
 python -m pytest -q apps/cli/tests
+python scripts/check_version.py
 ```
+
+Sous Windows, appeler l'interpréteur de l'environnement virtuel
+(`./.venv/Scripts/python.exe`) plutôt que le `python` du `PATH` : c'est celui avec
+lequel les résultats publiés ont été obtenus.
+
+Un parcours de bout en bout, hors intégration continue, démarre l'API et un vrai
+serveur MCP local puis rejoue l'ajout, le diagnostic, le rattachement, l'activation,
+l'isolation entre projets, l'export et la révocation :
+
+```powershell
+./.venv/Scripts/python.exe scripts/verify_mcp_journey.py
+```
+
+Il n'effectue aucun appel sortant vers Internet et n'utilise aucune donnée réelle.
 
 Les résultats réellement obtenus, l'environnement Python utilisé, les warnings et
 les limites sont consignés dans [docs/acceptance-report.md](docs/acceptance-report.md).
@@ -216,8 +264,10 @@ reprise web actuelle repose sur un polling `GET`, pas sur un streaming SSE/WebSo
 - [Système visuel](docs/design-system.md)
 - [Intégration Hermes](docs/hermes-integration.md)
 - [Missions, runner local et CLI](docs/missions-and-cli.md)
+- [Centre MCP et bibliothèque de skills](docs/mcp-and-skills.md)
+- [Worker Windows distant](docs/workers/windows-worker.md)
 - [Sécurité](docs/security.md)
-- [Centre MCP et skills — cible](docs/mcp-and-skills.md)
+- [Modèle de menace par actif](docs/security/threat-model.md)
 - [Studio en direct — cible](docs/live-studio.md)
 - [Déploiement Railway](docs/deployment-railway.md)
 - [Rapport d'acceptation](docs/acceptance-report.md)

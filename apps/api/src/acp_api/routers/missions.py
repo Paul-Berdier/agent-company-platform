@@ -52,6 +52,7 @@ from ..deps import (
     get_db,
     get_principal,
 )
+from ..extensions import resolve_project_extensions
 from .work import _emit, _task_event_ids
 from .workers import utcnow
 
@@ -274,6 +275,11 @@ def create_mission(
     )
     db.add(task)
     db.flush()
+    # Instantané des extensions (MCP + skills) figé dans la même transaction que la mission.
+    task.meta = {
+        **(task.meta or {}),
+        "extensions": resolve_project_extensions(db, body.project_id).model_dump(mode="json"),
+    }
     run = TaskRunModel(
         task_id=task.id,
         agent_instance_id=body.agent_instance_id,

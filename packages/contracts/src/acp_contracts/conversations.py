@@ -86,3 +86,66 @@ class HermesConnectionDiagnostic(BaseModel):
     message: str
     capabilities: list[str] = Field(default_factory=list)
     checked_at: datetime
+
+
+HermesNativeListingStatus = Literal[
+    "available",
+    "unavailable",
+    "not_configured",
+    "unsupported",
+]
+
+
+class HermesNativeSkill(BaseModel):
+    """Skill annoncé par Hermes lui-même (`GET /v1/skills`).
+
+    Contenu non fiable et borné : la plateforme l'affiche comme une donnée lue
+    et ne réécrit jamais la configuration native d'Hermes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=500)
+    category: str = Field(default="", max_length=200)
+
+
+class HermesNativeToolset(BaseModel):
+    """Toolset annoncé par Hermes lui-même (`GET /v1/toolsets`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    label: str = Field(default="", max_length=200)
+    description: str = Field(default="", max_length=500)
+    enabled: bool
+    configured: bool
+    tools: list[str] = Field(default_factory=list)
+
+
+class HermesNativeListing(BaseModel):
+    """Résultat d'une lecture seule des skills et toolsets natifs d'Hermes.
+
+    `read_at` n'est renseigné que lorsque les listes ont réellement été lues :
+    une lecture impossible reste un état explicite et sans contenu.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: HermesNativeListingStatus
+    skills: list[HermesNativeSkill] = Field(default_factory=list)
+    toolsets: list[HermesNativeToolset] = Field(default_factory=list)
+    message: str
+    read_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_a_real_read(self) -> "HermesNativeListing":
+        if self.status == "available":
+            if self.read_at is None:
+                raise ValueError("Une lecture réussie doit porter sa date de lecture")
+            return self
+        if self.skills or self.toolsets:
+            raise ValueError("Aucun contenu n'est annonçable sans lecture réussie")
+        if self.read_at is not None:
+            raise ValueError("Une lecture non aboutie n'a pas de date de lecture")
+        return self

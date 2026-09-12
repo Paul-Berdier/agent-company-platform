@@ -1,11 +1,12 @@
 # Architecture cible
 
 Statut : décision adoptée pour la modernisation 2026.
+Date d'état : 12 septembre 2026 — version `0.5.0` (Lot D).
 Produit : Agent Company Platform, espace personnel par défaut.
 
-Le schéma principal de ce document reste la cible. L'état concret du Lot C utilise
-SQLAlchemy avec SQLite par défaut et `create_all()` ; PostgreSQL, migrations, outbox,
-stockage privé et déploiement ne sont pas encore validés.
+Le schéma principal de ce document reste la cible. L'état concret des Lots C et D
+utilise SQLAlchemy avec SQLite par défaut et `create_all()` ; PostgreSQL, migrations,
+outbox, stockage privé et déploiement ne sont pas encore validés.
 
 ## Décision
 
@@ -80,7 +81,9 @@ tentative.
 | Identité, droits, projets | plateforme | `user_id`, `project_id` |
 | Mission, état accepté, budget, approbation | plateforme | `task_id`, `task_run_id`, `attempt_id` |
 | Preuves, artefacts, tests | plateforme et moteur ayant produit la preuve | checksum, code de sortie, reporter, provenance |
-| Session, profil, modèle et skills Hermes | Hermes | `hermes_session_id`, profil et version détectée |
+| Session, profil, modèle, skills et toolsets natifs Hermes | Hermes ; la plateforme les lit sans les recopier | `hermes_session_id`, profil et version détectée |
+| Serveur MCP, skill importé, révision, rattachement projet | plateforme | `mcp_server_id`, `skill_id`, `revision_id`, `project_id` |
+| Valeur d'un secret | plateforme, chiffrée au repos et jamais servie | `secret_id`, `key_id` |
 | Exécution Hermes | Hermes pendant le run ; plateforme pour l'historique durable | `hermes_run_id`, idempotency key |
 | Conversation plateforme et droits associés | plateforme | `conversation_id`, `project_id`, `created_by_user_id`, `provider_session_id` |
 | Processus d'un runner | runner pendant l'exécution ; plateforme pour la réservation | `worker_id`, lease, fencing token |
@@ -91,8 +94,10 @@ Le mapping appartient à la plateforme et est contrôlé côté serveur.
 ## Responsabilités cibles et état
 
 Les responsabilités ci-dessous définissent la cible. Au Lot C, les contrôles métier,
-missions, polling et frontières de services sont livrés ; scopes de fichiers/flux,
-URLs privées, outbox et normalisation SSE restent explicitement à réaliser.
+missions, polling et frontières de services sont livrés ; le Lot D ajoute le coffre
+de secrets, la politique de sortie réseau et les registres MCP/skills. Scopes de
+fichiers/flux, URLs privées, outbox et normalisation SSE restent explicitement à
+réaliser.
 
 ### Interface web et CLI
 
@@ -110,6 +115,22 @@ URLs privées, outbox et normalisation SSE restent explicitement à réaliser.
 - valide la machine d'états, les approbations, budgets et idempotency keys ;
 - persiste l'événement et son effet métier de façon transactionnelle ;
 - délivre des URLs de fichier privées et bornées.
+
+### Extensions : MCP, skills et secrets (Lot D)
+
+- le registre plateforme conserve les serveurs MCP et les skills sous forme de
+  révisions immuables, avec empreinte, découverte, risques et rattachements par
+  projet ; une mission fige les extensions résolues à son démarrage ;
+- une configuration ne contient jamais une valeur de secret, seulement une référence ;
+  la valeur est chiffrée au repos et déchiffrée uniquement pour un appel autorisé ;
+- la découverte d'un serveur `http` est exécutée par l'API à travers un client à
+  destination épinglée et politique de sortie stricte ; celle d'un serveur `stdio`
+  est exécutée par un runner autorisé, après une autorisation explicite portant
+  l'empreinte exacte de la révision ;
+- ce que renvoie un serveur MCP est du contenu non fiable : borné, expurgé des
+  valeurs injectées, affiché comme donnée et sans effet sur une politique ;
+- Hermes reste l'autorité de ses skills et toolsets natifs : ils sont lus et affichés,
+  jamais recopiés dans le registre.
 
 ### Adaptateur Hermes
 
@@ -147,10 +168,18 @@ sur une instance Hermes réelle.
 - le backend local du Lot C exécute un argv configuré par l'opérateur, jamais une
   commande issue de la mission, sans interpolation shell, dans un cwd neuf avec un
   environnement, une durée et des captures bornés ;
+- la sonde MCP `stdio` du Lot D suit les mêmes règles : capacité désactivée par
+  défaut, allowlist locale d'exécutables absolus, aucun héritage des variables du
+  worker, et expurgation des valeurs injectées avant tout retour à l'API ;
+- sous Windows, tout processus lancé — mission comme sonde — est créé suspendu puis
+  affecté à un Job Object `KILL_ON_JOB_CLOSE` avant d'exécuter la moindre instruction :
+  l'arrêt d'un arbre ne dépend plus d'une filiation observable, qu'un lanceur
+  intermédiaire casse. Une affectation impossible échoue fermé ;
 - publient preuves et événements uniquement pour le run loué.
 
 Le processus local conserve les droits OS et la politique réseau du compte worker :
-son cwd dédié n'est pas une sandbox. Les autonomies que ce backend ne sait pas
+son cwd dédié n'est pas une sandbox, et le Job Object est une clôture d'arrêt, pas une
+limite de ressources. Les autonomies que ce backend ne sait pas
 garantir sont refusées avant spawn. La plateforme ne monte pas elle-même le socket
 Docker, mais le backend ne peut pas garantir son absence si le compte ou l'hôte le
 rend déjà accessible ; l'opérateur doit l'isoler avant toute charge non fiable.

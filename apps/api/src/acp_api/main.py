@@ -12,10 +12,13 @@ from .routers import (
     connections,
     conversations,
     crud,
+    mcp,
     missions,
     onboarding,
     operations,
     platform,
+    secrets,
+    skills,
     work,
     workers,
 )
@@ -30,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
 
@@ -54,6 +57,10 @@ app.include_router(work.router)
 app.include_router(workers.router)
 app.include_router(operations.router)
 app.include_router(platform.router)
+app.include_router(secrets.router)
+app.include_router(mcp.router)
+app.include_router(skills.router)
+app.include_router(skills.extensions_router)
 
 
 @app.middleware("http")

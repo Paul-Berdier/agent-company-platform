@@ -101,6 +101,22 @@ class HermesClient:
     async def get_json(self, path: str) -> dict[str, Any]:
         return await self._request("GET", path)
 
+    async def get_collection(self, path: str, *, key: str) -> list[Any]:
+        """Lit une liste native Hermes sans rien y écrire.
+
+        Les routes de consultation d'Hermes 0.21.1 renvoient soit un tableau
+        JSON nu, soit un objet enveloppant ce tableau sous sa clé (`skills`,
+        `toolsets`). Toute autre forme est une réponse invalide : elle est
+        refusée plutôt que réinterprétée.
+        """
+
+        data, _ = await self._request_any("GET", path)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and isinstance(data.get(key), list):
+            return data[key]
+        raise HermesInvalidResponseError(f"Réponse Hermes non listable sur {path}")
+
     async def post_json(
         self,
         path: str,
@@ -119,6 +135,32 @@ class HermesClient:
         *,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        data, response_headers = await self._request_any(
+            method, path, payload, headers=headers
+        )
+        if not isinstance(data, dict):
+            raise HermesInvalidResponseError(f"Réponse Hermes non objet sur {path}")
+        if method == "POST" and path == "/v1/runs":
+            replayed_header = response_headers.get("Idempotency-Replayed")
+            if replayed_header is not None:
+                normalized = replayed_header.strip().lower()
+                if normalized not in {"true", "false"}:
+                    raise HermesInvalidResponseError(
+                        "En-tête Idempotency-Replayed Hermes invalide"
+                    )
+                data = {**data, "replayed": normalized == "true"}
+        return data
+
+    async def _request_any(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[Any, httpx.Headers]:
+        """Exécute la requête et rend le JSON brut avec les en-têtes réponse."""
+
         if not self.settings.base_url.strip():
             detail = "invalide" if self.settings.base_url_invalid else "non configurée"
             raise ProviderUnavailableError(f"HERMES_BASE_URL {detail}")
@@ -147,20 +189,7 @@ class HermesClient:
                         raise HermesInvalidResponseError(
                             f"Réponse JSON Hermes invalide sur {path}"
                         ) from exc
-                    if not isinstance(data, dict):
-                        raise HermesInvalidResponseError(
-                            f"Réponse Hermes non objet sur {path}"
-                        )
-                    if method == "POST" and path == "/v1/runs":
-                        replayed_header = response.headers.get("Idempotency-Replayed")
-                        if replayed_header is not None:
-                            normalized = replayed_header.strip().lower()
-                            if normalized not in {"true", "false"}:
-                                raise HermesInvalidResponseError(
-                                    "En-tête Idempotency-Replayed Hermes invalide"
-                                )
-                            data = {**data, "replayed": normalized == "true"}
-                    return data
+                    return data, response.headers
 
                 # Les 3xx/4xx sont laissées au contrôle de l'appelant. En
                 # particulier, aucun redirect susceptible d'exposer le Bearer
