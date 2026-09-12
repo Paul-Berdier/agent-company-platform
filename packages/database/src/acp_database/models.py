@@ -7,10 +7,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -307,8 +309,31 @@ class MissionEvidenceModel(_Common, Base):
     fingerprint: Mapped[str] = mapped_column(String(64))
 
 
+_EVENT_SEQUENCE_PREDICATE = "task_run_id IS NOT NULL AND sequence IS NOT NULL"
+
+
 class EventModel(_Common, Base):
+    """Journal durable des événements métier.
+
+    ``sequence`` (Lot E) est la séquence monotone allouée par tentative : elle sert
+    de curseur de reprise au flux SSE. L'unicité ``(task_run_id, sequence)`` est
+    **partielle** car les lignes écrites avant le Lot E, et les événements sans run,
+    n'ont ni run ni séquence.
+    """
+
     __tablename__ = "events"
+    __table_args__ = (
+        Index(
+            "uq_event_run_sequence",
+            "task_run_id",
+            "sequence",
+            unique=True,
+            sqlite_where=text(_EVENT_SEQUENCE_PREDICATE),
+            postgresql_where=text(_EVENT_SEQUENCE_PREDICATE),
+        ),
+        Index("ix_events_task_run_sequence", "task_run_id", "sequence"),
+    )
+
     type: Mapped[str] = mapped_column(String(100), index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -320,6 +345,16 @@ class EventModel(_Common, Base):
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     task_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    schema_version: Mapped[str] = mapped_column(
+        String(10), default="1.0", server_default="1.0"
+    )
+    sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    conversation_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    step_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    executor: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    emitted_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class SessionModel(_Common, Base):
@@ -429,6 +464,13 @@ class ApprovalModel(_Common, Base):
 
 
 class ArtifactModel(_Common, Base):
+    """Livrable d'une tentative.
+
+    ``storage_key`` (Lot E) est la clé d'un blob adressé par contenu ; elle reste
+    ``NULL`` pour les artefacts historiques « métadonnées seules ». Le nom fourni par
+    le client vit dans ``original_name`` et n'entre jamais dans le chemin de stockage.
+    """
+
     __tablename__ = "artifacts"
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
@@ -438,6 +480,20 @@ class ArtifactModel(_Common, Base):
     checksum: Mapped[str | None] = mapped_column(String(200), nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    storage_key: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, index=True
+    )
+    content_type: Mapped[str] = mapped_column(
+        String(200),
+        default="application/octet-stream",
+        server_default="application/octet-stream",
+    )
+    original_name: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    source: Mapped[str] = mapped_column(String(50), default="worker", server_default="worker")
+    stream_kind: Mapped[str] = mapped_column(String(50), default="", server_default="")
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 # --- Lot D : coffre de secrets, centre MCP, bibliothèque de skills ---------------
@@ -674,3 +730,88 @@ class SkillBindingModel(_Common, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+# --- Lot E : tests structurés et liens de livrables ----------------------------
+
+
+class TestRunModel(_Common, Base):
+    """Exécution de tests rattachée à une tentative de mission.
+
+    Une seule exécution par tentative et par runner : l'ingestion du worker est
+    idempotente et ne crée jamais un second résultat pour la même tentative.
+    """
+
+    __test__ = False  # table de données : pytest ne doit pas collecter la classe
+    __tablename__ = "test_runs"
+    __table_args__ = (
+        UniqueConstraint("task_run_id", "runner", name="uq_test_run_attempt_runner"),
+    )
+
+    task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    worker_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workers.id"), nullable=True
+    )
+    runner: Mapped[str] = mapped_column(String(50), default="playwright")
+    runner_version: Mapped[str] = mapped_column(String(50), default="")
+    status: Mapped[str] = mapped_column(String(20), default="running", index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    totals: Mapped[dict] = mapped_column(JSON, default=dict)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Référence simple et non contrainte : la rétention peut effacer le rapport
+    # sans avoir à réécrire l'exécution de tests.
+    report_artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class TestCaseModel(_Common, Base):
+    """Cas de test d'une exécution ; chaque tentative garde sa ligne."""
+
+    __test__ = False
+    __tablename__ = "test_cases"
+    __table_args__ = (
+        UniqueConstraint(
+            "test_run_id", "test_id", "attempt", name="uq_test_case_run_test_attempt"
+        ),
+    )
+
+    test_run_id: Mapped[str] = mapped_column(ForeignKey("test_runs.id"), index=True)
+    suite_path: Mapped[list] = mapped_column(JSON, default=list)
+    title: Mapped[str] = mapped_column(String(500))
+    test_id: Mapped[str] = mapped_column(String(200))
+    location: Mapped[dict] = mapped_column(JSON, default=dict)
+    project_name: Mapped[str] = mapped_column(String(200), default="")
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    expected_status: Mapped[str] = mapped_column(String(20), default="passed")
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    outcome: Mapped[str] = mapped_column(String(20), index=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str] = mapped_column(Text, default="")
+    error_snippet: Mapped[str] = mapped_column(Text, default="")
+    steps: Mapped[list] = mapped_column(JSON, default=list)
+    annotations: Mapped[list] = mapped_column(JSON, default=list)
+    attachment_artifact_ids: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class ArtifactLinkModel(_Common, Base):
+    """Lien de téléchargement signé, lié à un artefact et à un utilisateur.
+
+    Seule l'empreinte du jeton est stockée : la valeur signée n'existe que dans
+    l'URL remise à l'utilisateur, et la révocation passe par ``revoked_at``.
+    """
+
+    __tablename__ = "artifact_links"
+
+    artifact_id: Mapped[str] = mapped_column(ForeignKey("artifacts.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    used_count: Mapped[int] = mapped_column(Integer, default=0)

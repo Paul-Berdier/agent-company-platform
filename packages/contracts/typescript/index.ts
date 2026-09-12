@@ -499,3 +499,141 @@ export interface OfficeConfig {
   windows?: number[];
   upgrade_to?: string | null;
 }
+
+// --- Lot E : flux durable, tests structurés et bibliothèque de livrables ------
+
+/** Version du schéma d’événement transporté par le flux (`StreamEvent`). */
+export const EVENT_SCHEMA_VERSION = "1.0";
+
+/**
+ * Événement rendu par le flux SSE et par les lectures paginées.
+ *
+ * `sequence` est le curseur de reprise alloué par tentative ; il est `null` pour
+ * les événements historiques et pour ceux qui n’appartiennent pas à un run.
+ * Aucun média ne transite ici : le `payload` d’un événement de média ne porte
+ * qu’une référence d’artefact.
+ */
+export interface StreamEvent {
+  schema_version: string;
+  id: string;
+  sequence: number | null;
+  type: string;
+  occurred_at: string;
+  project_id: string | null;
+  conversation_id: string | null;
+  task_id: string | null;
+  task_run_id: string | null;
+  step_id: string | null;
+  executor: string | null;
+  emitted_by: string | null;
+  payload: Record<string, unknown>;
+}
+
+/** Page de journal : `retention_days` vaut 0 quand la rétention est illimitée. */
+export interface EventPage {
+  events: StreamEvent[];
+  next_cursor: number | null;
+  has_more: boolean;
+  retention_days: number | null;
+}
+
+/** Statuts Playwright conservés distinctement, jamais réduits à vert/rouge. */
+export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
+
+export type TestOutcome = "expected" | "unexpected" | "flaky" | "skipped";
+
+export type TestRunStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "timed_out";
+
+export interface TestStep {
+  title: string;
+  category: string;
+  duration_ms: number;
+  error: boolean;
+}
+
+export interface TestTotals {
+  expected: number;
+  unexpected: number;
+  flaky: number;
+  skipped: number;
+  interrupted: number;
+  timedOut: number;
+}
+
+export interface TestCaseResult {
+  id: string;
+  test_run_id: string;
+  suite_path: string[];
+  title: string;
+  test_id: string;
+  location: Record<string, unknown>;
+  project_name: string;
+  attempt: number;
+  expected_status: string;
+  status: TestStatus;
+  outcome: TestOutcome;
+  duration_ms: number;
+  error_message: string;
+  error_snippet: string;
+  steps: TestStep[];
+  annotations: Record<string, unknown>[];
+  attachments: ArtifactSummary[];
+}
+
+export interface TestRunSummary {
+  id: string;
+  task_run_id: string;
+  project_id: string;
+  worker_id: string | null;
+  runner: string;
+  runner_version: string;
+  status: TestRunStatus;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  totals: TestTotals;
+  exit_code: number | null;
+  config: Record<string, unknown>;
+  case_count: number;
+}
+
+export interface TestRunDetail extends TestRunSummary {
+  cases: TestCaseResult[];
+  report_artifact: ArtifactSummary | null;
+}
+
+/**
+ * Métadonnées d’un livrable. La clé de stockage n’est jamais publiée :
+ * `has_content` distingue un contenu téléversé d’un artefact « métadonnées seules ».
+ */
+export interface ArtifactSummary {
+  id: string;
+  project_id: string;
+  task_run_id: string;
+  kind: string;
+  stream_kind: string;
+  original_name: string;
+  content_type: string;
+  size_bytes: number | null;
+  checksum: string | null;
+  source: string;
+  has_content: boolean;
+  created_at: string | null;
+}
+
+/** Lien signé, borné dans le temps, lié à un artefact et à un utilisateur. */
+export interface ArtifactLink {
+  artifact_id: string;
+  url: string;
+  expires_at: string;
+}
+
+export interface ArtifactPage {
+  items: ArtifactSummary[];
+  next_cursor: string | null;
+}

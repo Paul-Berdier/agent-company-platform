@@ -299,6 +299,22 @@ def _upgrade_sqlite_schema(engine) -> None:
         "mission_comments": {
             "request_fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''",
         },
+        "events": {
+            "schema_version": "VARCHAR(10) NOT NULL DEFAULT '1.0'",
+            "sequence": "INTEGER",
+            "conversation_id": "VARCHAR(36)",
+            "step_id": "VARCHAR(64)",
+            "executor": "VARCHAR(64)",
+            "emitted_by": "VARCHAR(64)",
+        },
+        "artifacts": {
+            "storage_key": "VARCHAR(200)",
+            "content_type": "VARCHAR(200) NOT NULL DEFAULT 'application/octet-stream'",
+            "original_name": "VARCHAR(500) NOT NULL DEFAULT ''",
+            "source": "VARCHAR(50) NOT NULL DEFAULT 'worker'",
+            "stream_kind": "VARCHAR(50) NOT NULL DEFAULT ''",
+            "deleted_at": "DATETIME",
+        },
     }
     with engine.begin() as connection:
         inspector = inspect(connection)
@@ -372,6 +388,35 @@ def _upgrade_sqlite_schema(engine) -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_mission_comments_author_user_id "
                     "ON mission_comments (author_user_id)"
+                )
+            )
+        if inspect(connection).has_table("events"):
+            # Unicité partielle : les événements historiques et ceux sans
+            # tentative n'ont pas de séquence et ne doivent pas être refusés.
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_event_run_sequence "
+                    "ON events (task_run_id, sequence) "
+                    "WHERE task_run_id IS NOT NULL AND sequence IS NOT NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_events_task_run_sequence "
+                    "ON events (task_run_id, sequence)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_events_conversation_id "
+                    "ON events (conversation_id)"
+                )
+            )
+        if inspect(connection).has_table("artifacts"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_artifacts_storage_key "
+                    "ON artifacts (storage_key)"
                 )
             )
         connection.execute(
