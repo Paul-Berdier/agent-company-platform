@@ -1141,6 +1141,46 @@ def test_running_stop_is_observable_and_approval_action_change_invalidates(
     assert retried.json()["id"] != run_id
 
 
+def test_project_policy_limits_new_missions_and_retries(mission_context):
+    client = mission_context["client"]
+    policy = client.put(
+        f"/projects/{mission_context['project_id']}/budget-policy",
+        json={"max_concurrent_missions": 1, "max_retries_per_mission": 0},
+    )
+    assert policy.status_code == 200, policy.text
+
+    mission = _create_mission(mission_context, "Mission bornée")
+    refused = client.post(
+        "/missions",
+        headers={"Idempotency-Key": "capacity-refused"},
+        json=_mission_payload(mission_context, "Mission concurrente"),
+    )
+    assert refused.status_code == 409
+    assert "concurrentes" in refused.json()["detail"]
+
+    with mission_context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        run = db.get(TaskRunModel, mission["current_run"]["id"])
+        assert task is not None and run is not None
+        run.status = "failed"
+        task.status = "failed"
+        task.active_run_id = None
+        db.commit()
+
+    retry = client.post(
+        f"/missions/{mission['id']}/retry",
+        headers={"Idempotency-Key": "retry-over-project-policy"},
+        json={"reason": "Ne doit pas dépasser la borne"},
+    )
+    assert retry.status_code == 409
+    assert "relances" in retry.json()["detail"]
+    with mission_context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        assert task is not None
+        assert task.attempt_counter == 1
+        assert db.query(TaskRunModel).filter_by(task_id=mission["id"]).count() == 1
+
+
 def test_mission_routes_require_session_and_current_csrf(mission_context):
     client = mission_context["client"]
     csrf = client.headers.pop("X-CSRF-Token")

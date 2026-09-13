@@ -45,6 +45,11 @@ from acp_database.models import (
     TeamModel,
 )
 
+from ..budget_service import (
+    BudgetServiceError,
+    enforce_mission_retry_limit,
+    enforce_project_mission_capacity,
+)
 from ..deps import (
     accessible_agent_ids,
     accessible_project_ids,
@@ -249,6 +254,10 @@ def create_mission(
     if project is None:
         raise HTTPException(status_code=404, detail="Projet introuvable")
     _validate_assignment(db, body, project, principal)
+    try:
+        enforce_project_mission_capacity(db, body.project_id)
+    except BudgetServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     task = TaskModel(
         project_id=body.project_id,
         team_id=body.team_id,
@@ -635,6 +644,11 @@ def retry_mission(
             )
     elif latest.status not in _RETRYABLE_RUN_STATES:
         raise HTTPException(status_code=409, detail="Cette tentative ne peut pas être relancée")
+
+    try:
+        enforce_mission_retry_limit(db, task)
+    except BudgetServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     updated = (
         db.query(TaskModel)
