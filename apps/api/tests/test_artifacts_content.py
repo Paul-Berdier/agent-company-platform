@@ -594,6 +594,32 @@ def test_an_unsatisfiable_range_is_refused_with_the_total_size(context):
     assert response.headers["content-range"] == "bytes */10"
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        "bytes=0-" + "9" * 4400,
+        "bytes=" + "9" * 4400 + "-",
+        "bytes=-" + "9" * 4400,
+    ],
+)
+def test_an_absurdly_long_range_is_ignored_instead_of_failing(context, header):
+    """Un ``Range`` de plus de 4300 chiffres n'est pas une erreur serveur.
+
+    CPython refuse de convertir un entier aussi long : sans borne sur le motif, la
+    conversion levait un ``ValueError`` non intercepté, donc un 500 sur une route
+    authentifiée. La RFC 9110 demande d'ignorer un ``Range`` illisible.
+    """
+
+    artifact_id = _seed_artifact(context, payload=b"0123456789")
+
+    response = context.client.get(
+        f"/artifacts/{artifact_id}/content", headers={"Range": header}
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"0123456789"
+
+
 def test_an_unsupported_range_unit_serves_the_whole_content(context):
     artifact_id = _seed_artifact(context, payload=b"0123456789")
 

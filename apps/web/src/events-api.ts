@@ -256,26 +256,55 @@ export function eventsCursor(events: readonly StreamEvent[]): number | null {
   return cursor;
 }
 
-/** Référence de média portée par un événement, ou `null` si le payload n’en porte pas. */
-export function mediaReference(event: StreamEvent): MediaReference | null {
-  const payload = event.payload;
-  const artifactId = payload.artifact_id;
+/** Construit une référence depuis une table `{artifact_id, content_type, …}`. */
+function referenceFrom(event: StreamEvent, source: Record<string, unknown>): MediaReference | null {
+  const artifactId = source.artifact_id;
   if (typeof artifactId !== "string" || !artifactId) return null;
-  const streamKind = typeof payload.stream_kind === "string" ? payload.stream_kind : "";
-  const contentType = typeof payload.content_type === "string" && payload.content_type
-    ? payload.content_type
+  const streamKind = typeof source.stream_kind === "string" ? source.stream_kind : "";
+  const contentType = typeof source.content_type === "string" && source.content_type
+    ? source.content_type
     : "application/octet-stream";
   return {
     eventId: event.id,
     artifactId,
     contentType,
-    sizeBytes: typeof payload.size_bytes === "number" && Number.isFinite(payload.size_bytes)
-      ? payload.size_bytes
+    sizeBytes: typeof source.size_bytes === "number" && Number.isFinite(source.size_bytes)
+      ? source.size_bytes
       : null,
-    sha256: typeof payload.sha256 === "string" ? payload.sha256 : null,
+    sha256: typeof source.sha256 === "string" ? source.sha256 : null,
     streamKind,
     occurredAt: event.occurred_at,
   };
+}
+
+/**
+ * Toutes les références d’artefact d’un événement, dans l’ordre où il les porte.
+ *
+ * Deux formes coexistent côté serveur et il faut lire les deux : un événement de média
+ * dédié, dont le payload **est** la référence, et un `test.case.finished`, qui range ses
+ * références sous `payload.attachments[]` (`testing_service._attachment_references`).
+ * Ne lire que le premier niveau laissait la capture d’une vraie exécution Playwright
+ * invisible du Studio, faute d’événement de la première forme.
+ */
+export function mediaReferences(event: StreamEvent): MediaReference[] {
+  const payload = event.payload;
+  const references: MediaReference[] = [];
+  const top = referenceFrom(event, payload);
+  if (top) references.push(top);
+  const attachments = payload.attachments;
+  if (Array.isArray(attachments)) {
+    for (const attachment of attachments) {
+      if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) continue;
+      const reference = referenceFrom(event, attachment as Record<string, unknown>);
+      if (reference) references.push(reference);
+    }
+  }
+  return references;
+}
+
+/** Première référence de média portée par un événement, ou `null` s’il n’en porte aucune. */
+export function mediaReference(event: StreamEvent): MediaReference | null {
+  return mediaReferences(event)[0] ?? null;
 }
 
 /**
@@ -289,8 +318,9 @@ export function lastMediaReference(
 ): MediaReference | null {
   let found: MediaReference | null = null;
   for (const event of events) {
-    const reference = mediaReference(event);
-    if (reference && reference.streamKind === streamKind) found = reference;
+    for (const reference of mediaReferences(event)) {
+      if (reference.streamKind === streamKind) found = reference;
+    }
   }
   return found;
 }

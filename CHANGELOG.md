@@ -6,6 +6,163 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-13
+
+Lot E : événements durables, flux authentifié, tests web structurés, livrables privés
+et Studio en lecture seule. Vérifié localement le 13 septembre 2026 ; **non publié** —
+la branche `codex/modernization-lot-e` est poussée mais n'est pas fusionnée dans `main`,
+aucun tag `v0.6.0` n'existe et aucune intégration continue distante ne couvre les
+corrections de revue ni cette documentation.
+
+**Aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté** :
+le reporter est prouvé sur des objets Playwright synthétiques, et l'exécuteur du worker
+sur un programme déterministe (`apps/worker/tests/fake_playwright_runner.py`). La
+reprise en main humaine du navigateur n'est pas livrée et l'interface le dit.
+
+### Ajouté
+
+- journal d'événements durable : `events` gagne `schema_version`, `conversation_id`,
+  `step_id`, `executor`, `emitted_by`, une séquence monotone **par tentative** et un
+  compteur monotone **du journal** (`journal_seq`), tous deux alloués dans la
+  transaction métier et protégés par un index unique partiel ;
+- lecture par curseur `GET /runs/{id}/events` et `GET /projects/{id}/events`
+  (`EventPage` avec `next_cursor`, `has_more`, `retention_days`) ;
+- flux SSE authentifié servi par l'API métier : `GET /streams/runs/{id}` et
+  `GET /streams/projects/{id}`, reprise par `Last-Event-ID` ou `?after_seq=`,
+  keep-alive `: ping`, rotation propre annoncée avec son curseur, limite de connexions
+  par utilisateur, `Cache-Control: no-store` et `X-Accel-Buffering: no` ;
+- stockage de livrables adressé par contenu sur disque (`ACP_ARTIFACT_STORAGE_DIR`,
+  clé `<sha256[0:2]>/<sha256>`) derrière une interface `ArtifactStorage`, avec
+  téléversement worker `POST /workers/{id}/artifacts/content` (multipart, idempotent
+  par sha256, plafond par fichier et quota par tentative appliqués pendant le flux) ;
+- routes de bibliothèque `GET /artifacts`, `GET /artifacts/{id}` et
+  `GET /artifacts/{id}/content` (support des requêtes `Range`), liens signés
+  `POST /artifacts/{id}/link` et révocation `DELETE /artifacts/links/{link_id}` ;
+- résultats de tests structurés : tables `test_runs` et `test_cases`, ingestion
+  worker `POST /workers/{id}/test-runs`, lectures `GET /runs/{id}/test-run` et
+  `GET /test-runs/{id}`, événements `test.run.started`, `test.case.finished` et
+  `test.run.finished` ;
+- workspace npm `@acp/playwright-reporter` : reporter Playwright **sans dépendance
+  runtime** et sans appel réseau, qui écrit un NDJSON local dans `ACP_REPORT_FILE` ;
+- capacité worker `web_tests` (désactivée par défaut) et module
+  `acp_worker/web_tests.py` : lancement de l'argv configuré par l'opérateur dans la
+  clôture d'arrêt du runner, ingestion du NDJSON, téléversement des pièces jointes et
+  preuve de mission `web_tests` résumant totaux, code de sortie et identifiant du
+  `test_run` ;
+- commande de rétention `python -m acp_api.retention` (purge à blanc par défaut,
+  `--apply` pour supprimer) ;
+- Studio web en lecture seule dans le détail d'une mission et sur
+  `/missions?run=<id>&vue=studio`, et onglet « Livrables » de la bibliothèque ;
+- commandes CLI `acp runs events`, `acp runs tests`, `acp artifacts list | get | link`
+  et `acp open --run <id> --studio` ;
+- contrats partagés `StreamEvent`, `EventPage`, `TestRunSummary`, `TestRunDetail`,
+  `TestCaseResult`, `TestStep`, `TestTotals`, `ArtifactSummary`, `ArtifactLink`,
+  `ArtifactPage`, en Python et en TypeScript.
+
+### Modifié
+
+- le flux temps réel utilisateur est servi par l'**API métier**, pas par
+  `apps/event-service` : l'API détient la base, les sessions et le RBAC. Le service
+  d'événements reste un relais interne, son ingestion reste authentifiée et son
+  WebSocket anonyme reste fermé par défaut ;
+- `events_bus.store_event` n'effectue plus de `commit()` implicite quand l'appelant
+  fournit sa transaction ; les appelants existants passent `commit=True` et conservent
+  le comportement du Lot C ;
+- quatre écritures directes d'`EventModel` (`routers/secrets.py`, `routers/workers.py`,
+  `mcp/service.py`, `skills/service.py`) passent par `events_bus.store_event` : sans
+  numéro, ces lignes sortaient de la page projet et du flux projet ;
+- la route web « Bibliothèque » devient un écran à deux onglets, `Skills` (délégué tel
+  quel au module du Lot D) et `Livrables` ; aucun élément de navigation n'est ajouté ;
+- `GET /artifacts` est servi par le nouveau routeur paginé ; la version « liste
+  complète » qui vivait dans `routers/operations.py` est supprimée plutôt que dupliquée ;
+- les versions des composants publiables sont synchronisées sur `0.6.0`, y compris le
+  nouveau workspace `packages/playwright-reporter` ;
+- aucune dépendance runtime n'a été ajoutée : ni en Python, ni côté web, CLI, worker ou
+  reporter.
+
+### Sécurité
+
+- un contenu produit par un test est traité comme non fiable : le type servi vient
+  d'une allowlist serveur (extension + type déclaré) sans aucun reniflage, `text/html`,
+  `image/svg+xml` et les archives — dont la trace Playwright — ne sont **jamais**
+  servis en ligne, et toute réponse porte `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox` et
+  `Cache-Control: private, no-store` ; le Studio n'utilise ni `iframe`, ni `srcdoc`, ni
+  `innerHTML` pour un contenu venu de l'API ;
+- les liens de téléchargement sont signés (HMAC-SHA256), bornés à 900 secondes au
+  maximum, liés à l'artefact **et** au demandeur, enregistrés par empreinte et
+  révocables ; sans `ACP_ARTIFACT_SIGNING_KEYS`, la création répond `503` explicite et
+  le téléchargement par session reste possible ; aucun projet ne devient public ;
+- le processus de test ne reçoit **aucun credential de la plateforme** : le reporter
+  écrit un fichier local et n'appelle jamais le réseau ; messages d'erreur et extraits
+  de code sont expurgés (`redact_text` / `redact_data`) avec les valeurs injectées dans
+  son environnement avant d'être envoyés à l'API ;
+- l'exécution de tests web réutilise `spawn_fenced_process` et
+  `terminate_process_tree` : jamais de shell, jamais de spawn direct, et un arrêt
+  d'arbre non prouvé interdit tout verdict `passed` ;
+- une pièce jointe n'est téléversée que si sa résolution canonique reste sous le
+  répertoire de sortie de la tentative ; liens et `..` sont refusés, comptés et
+  signalés, et un refus interdit le verdict `passed` ;
+- le nom d'origine d'un fichier n'entre jamais dans un chemin de stockage : la clé est
+  dérivée du sha256 ;
+- le RBAC d'un flux est revérifié **à chaque page**, pas seulement à l'ouverture : une
+  révocation de session ou une perte de membership ferme la connexion au plus tard à
+  l'interrogation suivante ;
+- la rétention ne supprime jamais un événement terminal de tentative, ni un blob encore
+  référencé par un autre artefact, ni un artefact cité par une preuve de mission — la
+  citation est détectée en balayant toutes les chaînes de `evidence.data`, pas une
+  liste de noms de clés ;
+- écart assumé et affiché : `ACP_ARTIFACT_PUBLIC_ORIGIN` n'est configurée nulle part.
+  Les aperçus signés sont donc servis par l'origine de l'API, et le Studio l'annonce.
+  Une instance dans cet état ne doit pas être exposée sur Internet.
+
+### Corrigé
+
+- **la page projet du journal perdait des événements.** Son curseur dérivait de
+  `created_at` en microsecondes ; la granularité réelle de l'horloge (environ 1,5 ms
+  sur la machine de vérification) rend les égalités courantes, une page pouvait donc
+  dépasser la limite annoncée **et** avancer au-delà de lignes jamais rendues, tout en
+  annonçant `has_more: false`. Le compteur `journal_seq` donne un ordre total : une
+  page ne dépasse plus sa limite, `has_more` est exact, et 300 publications sans pause
+  sortent exactement une fois chacune. Les `time.sleep` que les tests inséraient pour
+  éviter l'égalité — et qui masquaient le défaut — sont retirés ;
+- **le journal et le flux de tentative perdaient tous les événements du Lot C.** Seul
+  `publish` allouait une séquence de tentative, alors que les producteurs du Lot C
+  écrivent par `store_event` : leurs événements terminaux n'entraient ni dans
+  `GET /runs/{id}/events` ni dans le flux SSE ;
+- **le reporter pouvait annoncer un faux succès** : ses totaux étaient indexés par une
+  identité de test pouvant entrer en collision, et un test réussi écrasait un test
+  échoué ;
+- une pièce jointe fournie en ligne produisait une forme que le contrat d'ingestion
+  refusait, et le worker écartait alors toute la ligne du test — donc son statut et son
+  erreur ;
+- une troncature tombant au milieu d'une paire de substituts UTF-16 produisait un
+  caractère isolé que le contrat rejetait ensuite ;
+- **le worker écrivait un second verdict par-dessus celui de l'API** : un rapport qui
+  sous-déclarait ses échecs transformait un `failed` serveur en `passed` mission.
+  L'adoption du verdict serveur est désormais à sens unique — elle ne peut
+  qu'aggraver ;
+- **le code de sortie annoncé par le rapport écrasait celui mesuré par le worker** :
+  n'importe quelle ligne NDJSON ajoutée par le processus de test obtenait une
+  validation technique verte pour un processus réellement sorti en `1` ;
+- une seconde ingestion ne portant qu'un `run_end` à code de sortie nul écrasait le
+  code non nul déjà enregistré d'une exécution terminale ;
+- la rétention effaçait le rapport Playwright cité par une preuve `web_tests` ;
+- `payload.attachments[]` n'était jamais lu par le Studio : le panneau « dernière
+  capture » affichait toujours « aucune capture », même pour une exécution qui en
+  téléversait une ;
+- un en-tête `Range` de plus de 4 300 chiffres provoquait un `500` au lieu d'être
+  ignoré comme le demande la RFC 9110 ;
+- `acp runs tests` annonçait « validation technique : réussie » et sortait `0` pour une
+  exécution que la plateforme considère en échec ; `acp open --studio` émettait un
+  paramètre que l'interface n'interprète pas ; `acp artifacts list --kind` filtrait le
+  mauvais champ ;
+- la disponibilité de la capacité `web_tests` lisait la variable d'environnement de
+  simulation au lieu du mode d'exécution effectif ;
+- un `Content-Disposition` contenant un point-virgule dans le nom de fichier déviait
+  l'analyse, et un type déclaré « jamais en ligne » pouvait encore être servi avec une
+  disposition d'affichage.
+
 ## [0.5.0] - 2026-09-12
 
 Lot D : extensions contrôlées (centre MCP, bibliothèque de skills, coffre de
@@ -206,11 +363,12 @@ réellement démarrés sur le bouclage.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-Les tags `v0.4.0` et `v0.5.0` ne sont pas encore créés : les liens de comparaison
-correspondants ne fonctionneront qu'après publication des Lots C puis D. Seuls
-`v0.2.0` et `v0.3.0` existent aujourd'hui sur GitHub.
+Les tags `v0.2.0`, `v0.3.0`, `v0.4.0` et `v0.5.0` existent ; `v0.5.0` est un ancêtre de
+`main`. Le tag `v0.6.0` **n'existe pas encore** : le lien de comparaison correspondant
+ne fonctionnera qu'après publication du Lot E.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.2.0...v0.3.0

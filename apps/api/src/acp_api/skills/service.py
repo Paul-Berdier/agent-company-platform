@@ -34,6 +34,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from acp_contracts import (
+    Event,
     SkillBinding,
     SkillCatalogEntry,
     SkillDependencies,
@@ -49,7 +50,6 @@ from acp_contracts import (
 )
 from acp_contracts.skills import SKILL_FILE_CONTENT_MAX_CHARS
 from acp_database.models import (
-    EventModel,
     SkillBindingModel,
     SkillModel,
     SkillRevisionModel,
@@ -58,6 +58,7 @@ from acp_database.models import (
 from . import SkillError
 from . import scan as scan_module
 from . import sources as sources_module
+from ..events_bus import store_event
 from ..outbound import OutboundPolicy, PinnedHttpClient
 
 FRONTMATTER_MAX_CHARS = 65_536
@@ -620,9 +621,18 @@ def skill_detail(
 def record_event(
     db: Session, event_type: str, payload: dict[str, Any], *, project_id: str | None = None
 ) -> None:
-    """Trace d'audit durable, sans secret ni contenu de fichier."""
+    """Trace d'audit durable, sans secret ni contenu de fichier.
 
-    db.add(EventModel(type=event_type, project_id=project_id, payload=payload))
+    ``store_event`` alloue le numéro de journal : une ligne écrite sans lui sort de
+    la page projet jusqu'au prochain redémarrage, puis y remonte hors d'ordre.
+    ``commit=False`` laisse la transaction à l'appelant, comme avant.
+    """
+
+    store_event(
+        db,
+        Event(type=event_type, project_id=project_id, payload=payload),
+        commit=False,
+    )
 
 
 # --- Opérations --------------------------------------------------------------

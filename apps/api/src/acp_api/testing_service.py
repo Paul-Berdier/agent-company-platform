@@ -401,6 +401,26 @@ def _accepts_exit_code(
     return (current or 0) == 0
 
 
+def _merged_exit_code(measured: int | None, reported: int) -> int:
+    """Fusionne le code mesuré par le worker et celui que le rapport s'attribue.
+
+    Le worker mesure le code de sortie réel du processus ; le rapport, lui, est du
+    contenu non fiable — le processus de test reçoit ``ACP_REPORT_FILE`` et peut
+    donc ajouter la ligne ``run_end`` de son choix. La règle est la même que pour
+    ``_merged_totals`` : le rapport peut **signaler** un échec, jamais en effacer un.
+
+    Concrètement, un ``run_end`` annonçant ``0`` ne remplace jamais un code mesuré
+    non nul ; un ``run_end`` annonçant un échec est en revanche toujours retenu
+    quand le worker n'a mesuré aucun échec.
+    """
+
+    if measured is None:
+        return reported
+    if measured == 0 and reported != 0:
+        return reported
+    return measured
+
+
 def _resolved_run_status(reported: str | None, exit_code: int | None) -> str:
     """Statut d'une exécution qui vient de recevoir son ``run_end``.
 
@@ -645,7 +665,9 @@ def ingest_test_run(
             finished_at = event.finished_at or utcnow()
             run_status = event.run_status
             if event.exit_code is not None:
-                exit_code = event.exit_code
+                # Le code mesuré par le worker fait foi ; celui du rapport ne peut
+                # que déclarer un échec de plus (``_merged_exit_code``).
+                exit_code = _merged_exit_code(request.exit_code, event.exit_code)
             report_path = event.report_path
             continue
 

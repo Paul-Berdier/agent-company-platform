@@ -1,6 +1,6 @@
 # Missions, runner local et CLI
 
-Date d'état : 12 septembre 2026, Europe/Paris — version `0.5.0`
+Date d'état : 13 septembre 2026, Europe/Paris — version `0.6.0`
 
 Le Lot C fournit une mission durable dans l'API métier, une exécution locale
 configurée côté worker et le client `acp`. Le web et le CLI utilisent la même
@@ -114,6 +114,35 @@ acp skills activate <skill-id>
 acp projects extensions <project-id>
 ```
 
+## Journal, tests et livrables d'une tentative (Lot E)
+
+```powershell
+acp runs events <mission-id|run-id> --after-seq 120 --limit 200
+acp runs events <mission-id|run-id> --follow --json
+acp runs tests  <mission-id|run-id> --json
+acp artifacts list --run <run-id> --kind screenshot --type image/png
+acp artifacts get  <artifact-id> --output ./rapport.zip
+acp artifacts link <artifact-id> --ttl 300
+acp open --run <run-id> --studio
+```
+
+`acp runs events` et `acp runs tests` acceptent un identifiant de mission **ou** de
+tentative. Sans `--follow`, `runs events` lit une seule page du journal durable et
+affiche le curseur de reprise. Avec `--follow`, il consomme le flux SSE — ou bascule
+sur l'interrogation par curseur si le flux échoue — et écrit une ligne NDJSON par
+événement ; `Ctrl+C` quitte l'observation sans arrêter la mission.
+
+`acp runs tests` applique **la même** règle de dérivation que le serveur : il sort `0`
+seulement si la validation technique est `passed`, et `4` sinon. Un code de sortie non
+nul, un cas `unexpected`, `interrupted` ou `timedOut`, ou zéro cas exécuté rendent la
+validation en échec.
+
+`acp artifacts get` écrit par flux borné, vérifie le sha256 reçu et refuse d'écraser un
+fichier existant sans `--force`. `acp artifacts link` crée un lien signé temporaire
+(900 secondes au maximum) ; sans clé de signature configurée côté API, la commande
+rapporte l'indisponibilité explicite au lieu d'inventer une URL. La référence complète
+est dans [apps/cli/README.md](../apps/cli/README.md).
+
 `acp mcp test` se comporte différemment selon le transport : en `http` le diagnostic
 est exécuté immédiatement et le résultat est retourné ; en `stdio` il crée une
 demande d'autorisation de lancement — rien n'est lancé avant `acp mcp probes approve`
@@ -167,5 +196,9 @@ provider non simulé demandé.
   missions : elle n'apparaît ni dans `acp approvals`, ni dans l'écran Missions ;
 - SQLite et `create_all()` restent le chemin local ; les migrations PostgreSQL et
   la restauration sont reportées au Lot H ;
-- le suivi web/CLI interroge l'API ; le flux authentifié et rejouable arrive au Lot E ;
+- le suivi d'une tentative passe depuis le Lot E par un flux SSE authentifié avec
+  reprise par curseur, exercé par un client de test seulement : aucune coupure réseau
+  réelle ni `EventSource` de navigateur n'a été éprouvé ;
+- l'exécution de tests web est livrée et testée sur un **lanceur déterministe** :
+  aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté ;
 - le backend local contrôlé n'applique pas encore une isolation OS ou réseau forte.

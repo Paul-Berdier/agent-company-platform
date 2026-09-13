@@ -190,6 +190,27 @@ produit » — jamais un succès. Un rapport partiel et des pièces jointes refu
 sont transmis quand même : la preuve incomplète est visible, elle n'est pas
 effacée.
 
+### Ce qui a réellement été vérifié
+
+Toute la chaîne ci-dessus est couverte par `apps/worker/tests/test_web_tests.py`,
+mais **aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été
+exécuté** pour la version `0.6.0`. Le programme lancé pendant les tests est
+`apps/worker/tests/fake_playwright_runner.py`, un lanceur déterministe démarré par
+`sys.executable` qui écrit un NDJSON réaliste et des fichiers de pièces jointes.
+Il exerce le lancement, la clôture d'arrêt, le timeout, l'ingestion, le quota, le
+refus d'une pièce jointe hors périmètre et l'expurgation — il ne prouve pas la
+compatibilité avec une vraie installation de `@playwright/test`.
+
+Sur la machine de vérification, **trois tests sont ignorés** faute de privilège de
+création de liens symboliques : ce sont précisément ceux qui prouvent le refus
+d'une pièce jointe atteinte par un lien. Le contrôle existe dans le code, il n'est
+pas prouvé sur cette machine.
+
+Avant de confier une vraie suite à ce runner, exécutez-la une première fois à la
+main dans le même `ACP_WORKER_WEBTEST_CWD` avec `ACP_REPORT_FILE` positionné, et
+vérifiez que le fichier NDJSON est bien écrit : c'est le seul point de la chaîne
+que la plateforme ne peut pas diagnostiquer à votre place.
+
 ## Limites de sécurité
 
 Ce backend est une frontière locale contrôlée et testable, pas une sandbox de système

@@ -1186,6 +1186,8 @@ async def run_web_tests(
         if run_end is not None and run_end.totals is not None
         else _derived_totals(cases)
     )
+    # Verdict provisoire : il sera remplacé par celui de l'API dès l'ingestion.
+    case_count = len(cases)
 
     if status == "completed":
         if not ingestion.events:
@@ -1219,6 +1221,13 @@ async def run_web_tests(
     budget = config.max_artifact_bytes
     forwarded: list[ReporterEvent] = []
     for event in ingestion.events:
+        if event.kind == "run_end" and event.exit_code is not None:
+            # Le corps de la requête porte déjà le code de sortie **mesuré** du
+            # processus. Retransmettre celui que le rapport s'attribue n'apporte
+            # rien et offrirait au processus de test, qui écrit lui-même le NDJSON,
+            # une seconde chance d'annoncer un succès qu'il n'a pas obtenu.
+            forwarded.append(event.model_copy(update={"exit_code": None}))
+            continue
         if event.kind != "test_end":
             forwarded.append(event)
             continue
@@ -1302,13 +1311,26 @@ async def run_web_tests(
             test_run_id = candidate if isinstance(candidate, str) else None
             if test_run_id is None:
                 error = error or "ingest_failed"
+            else:
+                # Le verdict appartient au serveur : il fusionne les compteurs du
+                # rapport avec ceux qu'il a réellement enregistrés et conserve le
+                # code de sortie mesuré. Le worker adopte ce qu'il en dit avant de
+                # dériver son propre succès, sinon son ``PATCH`` de validation
+                # technique réécrirait en vert un échec déjà refusé par l'API.
+                status, exit_code, totals, case_count = _verdict_held_by_the_api(
+                    detail,
+                    status=status,
+                    exit_code=exit_code,
+                    totals=totals,
+                    case_count=len(cases),
+                )
 
     return WebTestOutcome(
         status=status,
         output_directory=output_directory,
         exit_code=exit_code,
         totals=totals,
-        case_count=len(cases),
+        case_count=case_count,
         test_run_id=test_run_id,
         report_artifact_id=report_artifact_id,
         error=error,
@@ -1317,6 +1339,66 @@ async def run_web_tests(
         duration_ms=elapsed_ms(),
         runner_version=runner_version,
     )
+
+
+_BLOCKING_TOTALS: tuple[str, ...] = ("unexpected", "interrupted", "timedOut")
+"""Compteurs qui interdisent à eux seuls une validation technique ``passed``."""
+
+_FAILED_TEST_RUN_STATUSES: frozenset[str] = frozenset(
+    {"failed", "interrupted", "timed_out"}
+)
+
+
+def _verdict_held_by_the_api(
+    detail: Mapping[str, Any],
+    *,
+    status: str,
+    exit_code: int | None,
+    totals: Mapping[str, int],
+    case_count: int,
+) -> tuple[str, int | None, dict[str, int], int]:
+    """Aligne le verdict local sur celui que l'API vient d'enregistrer.
+
+    L'API est la seule à voir toutes les tentatives d'ingestion : elle relève les
+    compteurs bloquants au niveau réellement observé et refuse qu'un ``run_end``
+    efface un code de sortie non nul. Sans cette reprise, le worker dériverait un
+    second verdict à partir des seuls chiffres que le rapport s'attribue, puis
+    l'écrirait par-dessus celui du serveur (``routers/work.py`` recopie
+    ``technical_validation`` tel quel) : un rapport qui sous-déclare ses échecs
+    suffirait à repeindre la tentative en vert.
+
+    L'adoption est à sens unique — elle ne peut qu'aggraver le verdict local. Le
+    worker sait des choses que l'API ignore (arbre de processus non arrêté, rapport
+    partiellement illisible, pièce jointe refusée) et ne doit jamais les oublier
+    parce que le serveur, lui, a vu une suite propre.
+    """
+
+    merged = dict(totals)
+    reported_totals = detail.get("totals")
+    if isinstance(reported_totals, Mapping):
+        for counter in _BLOCKING_TOTALS:
+            value = reported_totals.get(counter)
+            if isinstance(value, int) and value > merged.get(counter, 0):
+                merged[counter] = value
+
+    reported_exit = detail.get("exit_code")
+    if isinstance(reported_exit, int) and (
+        exit_code is None or (exit_code == 0 and reported_exit != 0)
+    ):
+        exit_code = reported_exit
+
+    reported_status = detail.get("status")
+    if (
+        isinstance(reported_status, str)
+        and reported_status in _FAILED_TEST_RUN_STATUSES
+    ):
+        status = reported_status
+
+    reported_cases = detail.get("case_count")
+    if isinstance(reported_cases, int) and 0 <= reported_cases < case_count:
+        case_count = reported_cases
+
+    return status, exit_code, merged, case_count
 
 
 def _derived_totals(cases: Sequence[ReporterEvent]) -> dict[str, int]:

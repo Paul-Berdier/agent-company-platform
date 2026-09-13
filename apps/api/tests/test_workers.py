@@ -285,6 +285,15 @@ def test_expired_lease_blocks_uncertain_task_and_releases_capacity():
             and item["payload"]["reason"] == "worker_lease_expired"
             for item in events
         )
+        # L'événement doit aussi être numéroté : sans séquence de tentative ni
+        # numéro de journal, le Studio ne verrait jamais la tentative se clore.
+        run_page = client.get(f"/runs/{run_id}/events").json()
+        assert [item["type"] for item in run_page["events"]] == ["task.interrupted"]
+        assert run_page["events"][0]["sequence"] is not None
+        project_page = client.get(f"/projects/{project_id}/events").json()
+        assert any(
+            item["type"] == "task.interrupted" for item in project_page["events"]
+        )
 
 
 def test_resource_locks_artifacts_and_approvals():

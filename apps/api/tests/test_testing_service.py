@@ -711,6 +711,68 @@ def test_a_second_run_end_never_lowers_a_non_zero_exit_code(testing_context):
         assert "7" in run.technical_validation["summary"]
 
 
+def test_a_reported_exit_code_never_erases_the_one_the_worker_measured(testing_context):
+    """Le code de sortie mesuré par le worker fait foi dès la première ingestion.
+
+    Le processus de test reçoit ``ACP_REPORT_FILE`` : n'importe quelle ligne NDJSON
+    qu'il ajoute lui-même annoncerait ``exit_code=0``. Si cette valeur écrasait celle
+    du worker, une suite réellement sortie en ``1`` obtiendrait une validation
+    technique verte — exactement ce que ``_merged_totals`` interdit déjà pour les
+    compteurs bloquants.
+    """
+
+    worker = _register_worker(testing_context)
+    attempt = _start_attempt(testing_context, worker)
+
+    forged = _ingest(
+        testing_context,
+        worker,
+        attempt,
+        [
+            _run_begin(),
+            _test_end("a.spec.ts:1:1"),
+            _run_end(_totals(expected=1), run_status="completed", exit_code=0),
+        ],
+        exit_code=1,
+    )
+
+    assert forged.status_code == 200, forged.text
+    assert forged.json()["exit_code"] == 1
+    assert forged.json()["status"] == "failed"
+
+    with testing_context["session_factory"]() as db:
+        run = db.get(TaskRunModel, attempt["run_id"])
+        assert run.technical_validation["status"] == "failed"
+        assert "1" in run.technical_validation["summary"]
+
+
+def test_a_reported_failure_still_raises_a_zero_exit_code(testing_context):
+    """Dans l'autre sens, le rapport peut toujours **signaler** un échec.
+
+    Le contrôle est asymétrique par construction : il empêche d'effacer un échec,
+    jamais d'en déclarer un.
+    """
+
+    worker = _register_worker(testing_context)
+    attempt = _start_attempt(testing_context, worker)
+
+    response = _ingest(
+        testing_context,
+        worker,
+        attempt,
+        [
+            _run_begin(),
+            _test_end("a.spec.ts:1:1"),
+            _run_end(_totals(expected=1), run_status="failed", exit_code=9),
+        ],
+        exit_code=0,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["exit_code"] == 9
+    assert response.json()["status"] == "failed"
+
+
 def test_a_run_end_claiming_to_be_running_still_closes_the_run(testing_context):
     """Un ``run_end`` termine l'exécution, quoi qu'annonce le reporter.
 

@@ -136,10 +136,15 @@ def web_test_lease(tmp_path: Path, *, attempt_number: int = 1) -> WebTestLease:
 class RecordingApi:
     """Transport API réel (``WorkerTestApi``) branché sur un MockTransport."""
 
-    def __init__(self, *, quota_error: bool = False) -> None:
+    def __init__(
+        self, *, quota_error: bool = False, ingest_verdict: dict | None = None
+    ) -> None:
         self.uploads: list[dict] = []
         self.ingested: list[dict] = []
         self.quota_error = quota_error
+        # Verdict que l'API renvoie : c'est elle qui fusionne les compteurs, pas le
+        # rapport. Sans surcharge, le faux service se contente d'échoer la demande.
+        self.ingest_verdict = dict(ingest_verdict or {})
         self._next_artifact = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -178,33 +183,28 @@ class RecordingApi:
             assert request.headers["x-attempt-fencing-token"] == "9"
             body = json.loads(request.content.decode("utf-8"))
             self.ingested.append(body)
-            return httpx.Response(
-                201,
-                json={
-                    "id": "test-run-1",
-                    "task_run_id": "run-1",
-                    "project_id": "project-1",
-                    "worker_id": "worker-1",
-                    "runner": "playwright",
-                    "runner_version": body.get("runner_version", ""),
-                    "status": "completed",
-                    "started_at": "2026-09-12T08:00:00Z",
-                    "finished_at": "2026-09-12T08:00:42Z",
-                    "duration_ms": 42000,
-                    "totals": {},
-                    "exit_code": body.get("exit_code"),
-                    "config": {},
-                    "case_count": len(
-                        [
-                            event
-                            for event in body["events"]
-                            if event["kind"] == "test_end"
-                        ]
-                    ),
-                    "cases": [],
-                    "report_artifact": None,
-                },
-            )
+            detail = {
+                "id": "test-run-1",
+                "task_run_id": "run-1",
+                "project_id": "project-1",
+                "worker_id": "worker-1",
+                "runner": "playwright",
+                "runner_version": body.get("runner_version", ""),
+                "status": "completed",
+                "started_at": "2026-09-12T08:00:00Z",
+                "finished_at": "2026-09-12T08:00:42Z",
+                "duration_ms": 42000,
+                "totals": {},
+                "exit_code": body.get("exit_code"),
+                "config": {},
+                "case_count": len(
+                    [event for event in body["events"] if event["kind"] == "test_end"]
+                ),
+                "cases": [],
+                "report_artifact": None,
+            }
+            detail.update(self.ingest_verdict)
+            return httpx.Response(201, json=detail)
         raise AssertionError(f"route API inattendue: {path}")
 
     def client(self) -> httpx.AsyncClient:
@@ -828,6 +828,79 @@ async def test_a_green_suite_is_the_only_shape_that_can_succeed(tmp_path: Path):
     assert outcome.exit_code == 0
     assert outcome.case_count == 2
     assert outcome.succeeded is True
+
+
+async def test_a_blocking_counter_raised_by_the_api_defeats_a_green_report(
+    tmp_path: Path,
+):
+    """Les totaux fusionnés par l'API priment sur ceux que le rapport s'attribue.
+
+    L'API relève ``unexpected``, ``interrupted`` et ``timedOut`` au niveau réellement
+    observé (``_merged_totals``). Si le worker gardait les compteurs du rapport pour
+    dériver son propre verdict, son ``PATCH`` réécrirait ensuite en ``passed`` la
+    validation technique que l'API venait de refuser.
+    """
+
+    api = RecordingApi(
+        ingest_verdict={
+            "totals": {
+                "expected": 1,
+                "unexpected": 1,
+                "flaky": 0,
+                "skipped": 0,
+                "interrupted": 0,
+                "timedOut": 0,
+            }
+        }
+    )
+    outcome = await execute(
+        tmp_path, config=web_test_config(tmp_path, mode="green"), api=api
+    )
+
+    assert outcome.totals["unexpected"] == 1
+    assert outcome.succeeded is False
+
+
+async def test_a_non_zero_exit_code_held_by_the_api_defeats_a_green_report(
+    tmp_path: Path,
+):
+    """Un code de sortie non nul conservé par l'API ne peut pas être effacé ici."""
+
+    api = RecordingApi(ingest_verdict={"exit_code": 7, "status": "failed"})
+    outcome = await execute(
+        tmp_path, config=web_test_config(tmp_path, mode="green"), api=api
+    )
+
+    assert outcome.exit_code == 7
+    assert outcome.status == "failed"
+    assert outcome.succeeded is False
+
+
+async def test_the_api_verdict_never_repaints_a_local_failure_green(tmp_path: Path):
+    """L'adoption est à sens unique : l'API ne peut pas relever un verdict local."""
+
+    api = RecordingApi(
+        ingest_verdict={
+            "status": "completed",
+            "exit_code": 0,
+            "totals": {
+                "expected": 6,
+                "unexpected": 0,
+                "flaky": 0,
+                "skipped": 0,
+                "interrupted": 0,
+                "timedOut": 0,
+            },
+        }
+    )
+    outcome = await execute(
+        tmp_path, config=web_test_config(tmp_path, mode="full"), api=api
+    )
+
+    assert outcome.status == "failed"
+    assert outcome.exit_code == 1
+    assert outcome.totals["unexpected"] == 3
+    assert outcome.succeeded is False
 
 
 async def test_the_mission_evidence_summarises_totals_and_is_never_an_image(

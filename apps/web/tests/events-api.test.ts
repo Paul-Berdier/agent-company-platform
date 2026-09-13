@@ -361,6 +361,58 @@ describe("helpers de chronologie", () => {
     expect(lastMediaReference([] as never, "screenshot")).toBeNull();
   });
 
+  it("lit les références de média là où l’API les publie : `payload.attachments`", () => {
+    // Charge utile réellement émise par `testing_service._attachment_references`
+    // dans un `test.case.finished` : aucune référence au premier niveau.
+    const caseFinished = streamEvent({
+      id: "c1",
+      sequence: 12,
+      type: "test.case.finished",
+      occurred_at: "2026-09-12T10:00:12Z",
+      payload: {
+        test_run_id: "tr-1",
+        test_case_id: "tc-1",
+        status: "failed",
+        outcome: "unexpected",
+        attachments: [
+          {
+            artifact_id: "art-trace",
+            content_type: "application/zip",
+            size_bytes: 900,
+            sha256: "c".repeat(64),
+            stream_kind: "trace",
+          },
+          {
+            artifact_id: "art-shot",
+            content_type: "image/png",
+            size_bytes: 1234,
+            sha256: "d".repeat(64),
+            stream_kind: "screenshot",
+          },
+        ],
+      },
+    });
+
+    const reference = lastMediaReference([caseFinished] as never, "screenshot");
+
+    expect(reference?.artifactId).toBe("art-shot");
+    expect(reference?.contentType).toBe("image/png");
+    expect(reference?.sizeBytes).toBe(1234);
+    expect(reference?.occurredAt).toBe("2026-09-12T10:00:12Z");
+    expect(lastMediaReference([caseFinished] as never, "video")).toBeNull();
+    expect(lastMediaReference([caseFinished] as never, "trace")?.artifactId).toBe("art-trace");
+  });
+
+  it("ignore une pièce jointe qui ne porte pas d’identifiant d’artefact", () => {
+    const broken = streamEvent({
+      id: "c2",
+      type: "test.case.finished",
+      payload: { attachments: [{ stream_kind: "screenshot" }, "pas un objet", null] },
+    });
+
+    expect(lastMediaReference([broken] as never, "screenshot")).toBeNull();
+  });
+
   it("n’autorise l’aperçu que pour les types listés par la spécification", () => {
     expect(classifyArtifactPreview("image/png")).toBe("image");
     expect(classifyArtifactPreview("image/jpeg")).toBe("image");

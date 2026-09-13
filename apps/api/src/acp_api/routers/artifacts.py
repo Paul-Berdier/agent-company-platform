@@ -160,7 +160,13 @@ EXTENSION_CONTENT_TYPES: dict[str, str] = {
 
 OCTET_STREAM = "application/octet-stream"
 
-_RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
+#: Les deux bornes sont limitées à 19 chiffres (au-delà de 2^63, donc de toute taille
+#: de fichier concevable). Sans cette limite, CPython refuse de convertir une chaîne
+#: de plus de 4300 chiffres et le ``int()`` levait un ``ValueError`` non intercepté :
+#: un simple en-tête ``Range`` suffisait à provoquer un 500. La RFC 9110 demande
+#: d'ignorer un ``Range`` illisible ; le motif ne correspond plus, donc ``_parse_range``
+#: rend ``None`` et la représentation entière est servie.
+_RANGE_PATTERN = re.compile(r"^bytes=(\d{0,19})-(\d{0,19})$")
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 _UNSAFE_NAME_CHARACTERS = re.compile(r'["\\/]')
 

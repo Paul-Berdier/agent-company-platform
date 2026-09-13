@@ -1,12 +1,15 @@
 # Architecture cible
 
 Statut : décision adoptée pour la modernisation 2026.
-Date d'état : 12 septembre 2026 — version `0.5.0` (Lot D).
+Date d'état : 13 septembre 2026 — version `0.6.0` (Lot E).
 Produit : Agent Company Platform, espace personnel par défaut.
 
-Le schéma principal de ce document reste la cible. L'état concret des Lots C et D
-utilise SQLAlchemy avec SQLite par défaut et `create_all()` ; PostgreSQL, migrations,
-outbox, stockage privé et déploiement ne sont pas encore validés.
+Le schéma principal de ce document reste la cible. L'état concret des Lots C à E
+utilise SQLAlchemy avec SQLite par défaut et `create_all()` complété d'un upgrade
+additif ad hoc ; PostgreSQL, migrations versionnées, outbox et déploiement ne sont pas
+encore validés. Le Lot E livre en revanche le **stockage privé des livrables** sur
+disque local et le **flux utilisateur authentifié par curseur** : ces deux lignes ne
+sont plus des cibles.
 
 ## Décision
 
@@ -74,6 +77,50 @@ numéro et un fencing token strictement supérieurs ; les commandes de création
 et relance sont dédupliquées afin qu'un replay réseau ne vise jamais une autre
 tentative.
 
+## Tranche verticale livrée au Lot E
+
+```text
+Navigateur / CLI
+  │ session HttpOnly + CSRF sur mutations
+  ▼
+API métier ── events (sequence par tentative + journal_seq global)
+  │         ├─ test_runs / test_cases (résultat structuré par tentative)
+  │         ├─ artifacts (métadonnées) ── stockage local adressé par contenu
+  │         └─ artifact_links (liens signés bornés et révocables)
+  │
+  ├── GET /runs/{id}/events, GET /projects/{id}/events      page par curseur
+  ├── GET /streams/runs/{id}, GET /streams/projects/{id}    SSE authentifié
+  ├── GET /artifacts, /artifacts/{id}, /artifacts/{id}/content
+  └── GET /runs/{id}/test-run, GET /test-runs/{id}
+        ▲
+        │ POST /workers/{id}/artifacts/content   (multipart, identité worker + lease)
+        │ POST /workers/{id}/test-runs           (ingestion NDJSON normalisé)
+        │
+   worker authentifié ── argv Playwright de l'opérateur + @acp/playwright-reporter
+                          (NDJSON local ; le test ne reçoit aucun credential)
+```
+
+Trois décisions structurent cette tranche.
+
+1. **Le flux utilisateur est servi par l'API métier, pas par `apps/event-service`.**
+   L'API détient la base, les sessions et le RBAC ; le service d'événements reste un
+   relais interne sans accès aux données. Le WebSocket anonyme de ce service reste
+   fermé par défaut et n'a pas été rouvert.
+2. **Le curseur est un compteur monotone alloué dans la transaction métier**, pas un
+   horodatage. `events.sequence` ordonne une tentative, `events.journal_seq` ordonne
+   le journal entier. Une horloge ne donne pas d'ordre total — la granularité réelle
+   mesurée sur la machine de vérification est d'environ 1,5 ms — et une pagination
+   sur une valeur non unique perd des lignes ou dépasse sa limite. Le flux « tail » la
+   base par curseur (interrogation bornée + réveil intra-processus) : durable,
+   multi-processus, sans courtier externe.
+3. **Le reporter de tests n'émet pas vers le réseau.** Il écrit un NDJSON local ; le
+   worker authentifié l'ingère, téléverse les pièces jointes et publie les événements
+   avec sa propre identité. Aucun média ne transite dans un événement : le payload
+   ne porte qu'une référence d'artefact, une empreinte, un type MIME et une taille.
+
+La prise de contrôle humaine du navigateur n'est **pas** livrée dans ce lot ; elle est
+reportée au Lot G. Voir [docs/live-studio.md](live-studio.md) pour l'état détaillé.
+
 ## Sources de vérité
 
 | Domaine | Autorité | Données de rapprochement |
@@ -95,16 +142,20 @@ Le mapping appartient à la plateforme et est contrôlé côté serveur.
 
 Les responsabilités ci-dessous définissent la cible. Au Lot C, les contrôles métier,
 missions, polling et frontières de services sont livrés ; le Lot D ajoute le coffre
-de secrets, la politique de sortie réseau et les registres MCP/skills. Scopes de
-fichiers/flux, URLs privées, outbox et normalisation SSE restent explicitement à
-réaliser.
+de secrets, la politique de sortie réseau et les registres MCP/skills ; le Lot E
+ajoute le scope de flux et de fichiers, les URLs privées signées et le flux SSE
+authentifié. L'outbox et la normalisation des événements SSE **d'Hermes** restent
+explicitement à réaliser.
 
 ### Interface web et CLI
 
 - utilisent la même API et les mêmes règles d'autorisation ;
 - affichent `inconnu` lorsque la mesure n'existe pas ;
-- reprennent par lecture `GET` identifiée sans relancer une mission ; le curseur
-  d'événements utilisateur arrive au Lot E ;
+- reprennent par lecture `GET` identifiée sans relancer une mission ; depuis le
+  Lot E, ils consomment aussi un flux SSE authentifié et reprennent par curseur
+  (`Last-Event-ID` ou `?after_seq=`), avec un état de connexion explicite
+  (`connected`, `reconnecting`, `polling`, `offline`) et un repli automatique sur
+  l'interrogation `GET` ; une reconnexion ne relance jamais une mission ;
 - ne reçoivent jamais une clé de service Hermes ou worker ;
 - proposent le pixel office uniquement par un drapeau legacy désactivé par défaut.
 
@@ -171,6 +222,12 @@ sur une instance Hermes réelle.
 - la sonde MCP `stdio` du Lot D suit les mêmes règles : capacité désactivée par
   défaut, allowlist locale d'exécutables absolus, aucun héritage des variables du
   worker, et expurgation des valeurs injectées avant tout retour à l'API ;
+- l'exécution de tests web du Lot E suit les mêmes règles : capacité `web_tests`
+  désactivée par défaut, argv absolu et racine de projet configurés par l'opérateur,
+  fichier de rapport NDJSON imposé, aucun credential de la plateforme remis au
+  processus de test, pièces jointes refusées hors du répertoire de sortie de la
+  tentative, et expurgation des messages et extraits avant envoi à l'API. La
+  plateforme n'installe jamais Playwright ;
 - sous Windows, tout processus lancé — mission comme sonde — est créé suspendu puis
   affecté à un Job Object `KILL_ON_JOB_CLOSE` avant d'exécuter la moindre instruction :
   l'arrêt d'un arbre ne dépend plus d'une filiation observable, qu'un lanceur
@@ -219,25 +276,63 @@ peut jamais produire `succeeded`.
 
 ## Événements durables
 
-Chaque événement cible porte : version, id, séquence monotone par run, horodatage,
-projet, conversation, run, tentative, étape, exécuteur, type et payload autorisé.
-Les médias sont stockés hors du flux et référencés par un artefact.
+Chaque événement porte depuis le Lot E : `schema_version`, id, séquence monotone par
+tentative, compteur monotone du journal, horodatage, projet, conversation, tâche,
+tentative, étape, exécuteur (`platform`, `worker:<id>`, `playwright`, `hermes`),
+émetteur (`api`, `worker`, `reporter`), type et payload autorisé. Les médias sont
+stockés hors du flux et référencés par un artefact : `artifact_id`, `content_type`,
+`size_bytes`, `sha256`, `stream_kind`.
 
-Le flux cible est : transaction métier + outbox, relay idempotent, puis WebSocket/SSE
-authentifié. Une reconnexion fournit le dernier curseur ; le serveur page, déduplique
-et réconcilie le statut auprès du runtime.
+Les deux compteurs sont alloués **dans la transaction métier** qui écrit l'événement,
+avec réessai borné sur collision d'index unique. Ils définissent deux espaces de
+curseurs disjoints, que le client ne mélange jamais : la portée tentative
+(`/runs/{id}/events`, `/streams/runs/{id}`) pagine sur `sequence`, la portée projet
+(`/projects/{id}/events`, `/streams/projects/{id}`) sur `journal_seq`. Une ligne
+historique sans numéro est exclue de la page plutôt que de la faire échouer ; la
+migration additive les numérote dans leur ordre d'insertion.
 
-Au Lot C, l'ingestion event-service exige déjà un Bearer interne. Aucun mécanisme de
-session utilisateur n'est encore raccordé à `/ws` : il est donc fermé par défaut au
-lieu d'exposer un flux anonyme. Le drapeau de réactivation porte explicitement le nom
+L'outbox n'est pas livrée. Le flux relit la base par curseur au lieu de dépendre d'un
+relais : la base est la seule source de vérité, donc une reconnexion ne duplique ni ne
+perd d'événement, et plusieurs processus d'API peuvent servir la même tentative. Un
+hub local ne transporte que des numéros de séquence, jamais des données.
+
+`forward_event` continue de recopier l'événement vers `apps/event-service` en
+best effort, pour les consommateurs internes historiques. L'ingestion de ce service
+exige toujours un Bearer interne, et son WebSocket navigateur anonyme reste fermé par
+défaut : le Lot E ne l'a pas rouvert, il a livré une voie authentifiée ailleurs. Le
+drapeau de réactivation porte toujours le nom
 `ACP_UNSAFE_ALLOW_ANONYMOUS_EVENT_WEBSOCKET` et reste réservé au développement local.
+
+## Livrables et résultats de tests
+
+Les livrables sont adressés par contenu sur disque (`ACP_ARTIFACT_STORAGE_DIR`, clé
+`<sha256[0:2]>/<sha256>`), derrière une interface `ArtifactStorage` prévue pour
+accueillir un adaptateur objet **non livré dans ce lot**. Le nom d'origine d'un
+fichier n'entre jamais dans un chemin. Le contenu n'est servi qu'à un membre du projet
+ou via un lien signé borné et révocable ; un type actif (`text/html`,
+`image/svg+xml`, archive) n'est jamais servi en ligne, et le type est déterminé par
+une allowlist serveur sans reniflage.
+
+Un résultat d'exécution de tests est une ressource propre (`test_runs`, `test_cases`)
+rattachée à une tentative, avec une exécution par tentative et par runner. Les statuts
+`passed`, `failed`, `timedOut`, `skipped`, `interrupted` et le caractère `flaky` sont
+conservés distinctement. La validation technique en est dérivée par le serveur ; elle
+ne peut jamais valoir `succeeded` : conclure une tentative reste la décision du Lot C,
+et l'acceptation utilisateur reste séparée.
 
 ## Déploiement
 
 Hermes et la plateforme sont des services distincts et peuvent partager un réseau
 privé, jamais un volume implicite. PostgreSQL conserve le métier ; Hermes possède son
-propre état persistant ; un stockage d'objets privé reçoit les livrables. Les runners
-ne tournent pas dans le serveur de contrôle par défaut.
+propre état persistant ; un stockage privé reçoit les livrables. Les runners ne
+tournent pas dans le serveur de contrôle par défaut.
+
+Au Lot E ce stockage est un **répertoire local** (`ACP_ARTIFACT_STORAGE_DIR`) : sur un
+hébergeur, il doit pointer vers un volume persistant, sans quoi les blobs disparaissent
+au redéploiement alors que la base continue de les référencer. Une origine d'aperçu
+séparée (`ACP_ARTIFACT_PUBLIC_ORIGIN`) est prévue par le code mais n'est configurée
+nulle part aujourd'hui : tant qu'elle ne l'est pas, les liens signés pointent vers
+l'API elle-même et l'instance ne doit pas être exposée sur Internet.
 
 Voir `docs/deployment-railway.md` pour l'état réellement livré et les actions restant
 à vérifier avant une mise en production.

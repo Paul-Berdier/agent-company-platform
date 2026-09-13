@@ -62,10 +62,15 @@ conversation et la lecture d'un état de Run. L'API plateforme persiste conversa
 tour, clé d'idempotence, `run_id`, sortie et usage ; elle utilise un identifiant de
 session Hermes stable par conversation.
 
-La reprise actuelle est volontairement simple : le web interroge
+La reprise d'un tour de conversation reste volontairement simple : le web interroge
 `GET /conversations/{conversation_id}/turns/{turn_id}`. Cette lecture peut
 réconcilier un tour `submitting`/`running` puis persiste l'état reçu. Ce mécanisme ne
 doit pas être présenté comme du streaming, du SSE ou un journal d'événements durable.
+
+Le flux SSE et le journal durable livrés au Lot E portent sur les **tentatives de
+mission**, pas sur les conversations Hermes : ils diffusent les événements que la
+plateforme écrit elle-même. Aucun événement SSE d'Hermes n'est consommé ni normalisé à
+ce jour.
 
 ## Frontière interne du provider-gateway
 
@@ -231,10 +236,12 @@ Le Lot D ajoute la lecture des skills et toolsets natifs
 (`services/provider-gateway/tests/test_hermes_native_listing.py`,
 `apps/api/tests/test_connections_hermes_native.py`) : statut explicite
 `available` / `not_configured` / `unsupported` / `unavailable`, refus d'une réponse mal
-formée, bornes sur les textes et les listes, et absence de mutation. Dans le worktree
-`lot-d` (version `0.5.0`), la suite du gateway compte **87 tests** et la suite Python
-complète **1 033 tests réussis** avec 2 avertissements de dépréciation connus. Ces
-tests utilisent un transport simulé : aucune instance Hermes réelle n'a été contactée.
+formée, bornes sur les textes et les listes, et absence de mutation. Réexécutées le
+13 septembre 2026 dans le worktree `lot-e` (version `0.6.0`), la suite du gateway
+compte **87 tests réussis** et la suite Python complète **1 627 réussis et 4 ignorés**,
+avec 2 avertissements de dépréciation connus. Le Lot E n'a rien changé à l'adaptateur
+Hermes. Ces tests utilisent un transport simulé : aucune instance Hermes réelle n'a été
+contactée.
 
 Ce résultat valide la traduction et les invariants locaux. Il ne prouve pas :
 
@@ -251,7 +258,8 @@ clé est `non exécuté`, jamais vert.
 
 ## Capacités non livrées dans cette tranche
 
-- streaming SSE et persistance de ses événements ;
+- consommation du streaming SSE **d'Hermes** et persistance de ses événements (le flux
+  SSE du Lot E diffuse les événements écrits par la plateforme, pas ceux d'Hermes) ;
 - stop/cancel transmis à Hermes ;
 - demandes et décisions d'approbation Hermes ;
 - pièces jointes ;
@@ -272,8 +280,10 @@ mais le Run peut continuer côté Hermes. Ce point doit être corrigé avec la c
    implicite.
 2. Vérifier après redémarrage la correspondance persistée `project_id` /
    conversation plateforme / `provider_session_id` / `run_id`.
-3. Ajouter streaming authentifié, journal durable, reconnexion par curseur et
-   réconciliation de statut.
+3. Brancher le streaming d'Hermes sur le journal durable et le flux authentifié
+   livrés au Lot E : la reprise par curseur et la réconciliation de statut existent
+   déjà côté plateforme, il reste à normaliser et persister les événements d'un Run
+   Hermes avec le même schéma.
 4. Implémenter stop et approbations uniquement après détection de capacité.
 5. Exposer modèles, profils, MCP et skills dans Connexions sans dupliquer leur
    configuration native.

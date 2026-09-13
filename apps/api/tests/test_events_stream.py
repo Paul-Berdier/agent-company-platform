@@ -25,6 +25,7 @@ import asyncio
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from time import monotonic
 from uuid import uuid4
 
@@ -729,6 +730,91 @@ def test_an_event_written_without_publish_still_enters_the_project_cursor(stream
     ).json()
     assert [rendered["id"] for rendered in page["events"]] == [event.id]
     assert _journal_cursor(stream_context, event.id) > cursor
+
+
+def test_an_event_written_without_publish_still_enters_the_run_cursor(stream_context):
+    """Un événement terminal du Lot C reste lisible dans la portée tentative.
+
+    ``routers/work.py`` et ``routers/missions.py`` écrivent leurs événements de cycle
+    de vie par ``store_event``. Sans séquence de tentative, ``task.completed`` et ses
+    pairs sortiraient de ``GET /runs/{id}/events`` **et** du flux : le Studio
+    n'apprendrait jamais qu'une mission est terminée.
+    """
+
+    client = stream_context["client"]
+    run_id = stream_context["run_a"]
+    event = Event(
+        type="task.completed",
+        project_id=stream_context["project_a"],
+        task_id=stream_context["task_a"],
+        task_run_id=run_id,
+    )
+    with stream_context["session_factory"]() as db:
+        store_event(db, event)
+
+    page = client.get(f"/runs/{run_id}/events").json()
+    assert [rendered["id"] for rendered in page["events"]] == [event.id]
+    assert page["events"][0]["sequence"] == 1
+    assert page["has_more"] is False
+    assert page["next_cursor"] == 1
+
+
+def test_a_terminal_event_of_lot_c_is_delivered_by_the_run_stream(stream_context):
+    """Le même événement doit traverser le flux SSE de la tentative, pas seulement la page."""
+
+    client = stream_context["client"]
+    run_id = stream_context["run_a"]
+    event = Event(
+        type="task.failed",
+        project_id=stream_context["project_a"],
+        task_id=stream_context["task_a"],
+        task_run_id=run_id,
+    )
+    with stream_context["session_factory"]() as db:
+        store_event(db, event)
+
+    response = client.get(f"/streams/runs/{run_id}")
+    frames, _ = _parse_sse(response.text)
+    served = [
+        json.loads(frame["data"])
+        for frame in frames
+        if frame.get("event") == "acp.event"
+    ]
+
+    assert [rendered["id"] for rendered in served] == [event.id]
+    assert [rendered["type"] for rendered in served] == ["task.failed"]
+
+
+def test_a_run_sequence_provided_by_the_caller_is_never_reallocated(stream_context):
+    """``publish`` alloue déjà ses deux numéros : ``store_event`` ne les recalcule pas."""
+
+    run_id = stream_context["run_a"]
+    with stream_context["session_factory"]() as db:
+        publish(
+            db,
+            Event(
+                type="task.progress",
+                project_id=stream_context["project_a"],
+                task_run_id=run_id,
+            ),
+        )
+    event = Event(
+        type="task.progress",
+        project_id=stream_context["project_a"],
+        task_run_id=run_id,
+    )
+    with stream_context["session_factory"]() as db:
+        stored = store_event(db, event, sequence=7)
+        assert stored.sequence == 7
+
+    with stream_context["session_factory"]() as db:
+        rows = (
+            db.query(EventModel.sequence)
+            .filter(EventModel.task_run_id == run_id)
+            .order_by(EventModel.sequence.asc())
+            .all()
+        )
+    assert [row[0] for row in rows] == [1, 7]
 
 
 def test_an_event_without_a_run_takes_part_in_the_project_cursor(stream_context):
@@ -2015,3 +2101,27 @@ def test_publish_notifies_the_run_and_project_channels(stream_context):
     finally:
         events_bus.event_hub.unsubscribe(run_channel, run_queue)
         events_bus.event_hub.unsubscribe(project_channel, project_queue)
+
+
+def test_no_module_writes_an_event_row_outside_the_journal_writer():
+    """``events_bus`` est le seul module autorisé à construire un ``EventModel``.
+
+    Un ``db.add(EventModel(...))` direct écrit une ligne sans numéro : invisible du
+    journal projet jusqu'au prochain redémarrage, puis remontée hors d'ordre par le
+    rattrapage de démarrage. Le garde-fou est structurel parce que la faute ne se
+    voit pas à l'exécution — l'écriture réussit, c'est la lecture qui perd la ligne.
+    """
+
+    import acp_api
+
+    source_root = Path(acp_api.__file__).resolve().parent
+    offenders = sorted(
+        module.relative_to(source_root).as_posix()
+        for module in source_root.rglob("*.py")
+        if module.name != "events_bus.py" and "EventModel(" in module.read_text(encoding="utf-8")
+    )
+
+    assert offenders == [], (
+        "ces modules écrivent une ligne d'événement sans passer par "
+        f"events_bus.store_event : {', '.join(offenders)}"
+    )

@@ -495,7 +495,7 @@ def store_event(
     executor: str | None = None,
     emitted_by: str | None = None,
 ) -> EventModel:
-    """Persiste un événement, en lui garantissant un numéro de journal.
+    """Persiste un événement, en lui garantissant ses deux numéros.
 
     ``commit=True`` (défaut) préserve le comportement du Lot C pour les appelants
     existants qui n'ouvrent pas de transaction explicite. Un appelant qui possède
@@ -506,6 +506,13 @@ def store_event(
     d'allocation. Sans lui, l'allocation est faite ici : un appelant direct (les
     routeurs du Lot C) écrirait sinon une ligne sans numéro, donc invisible dans la
     portée projet — exactement la perte silencieuse que ce curseur doit empêcher.
+
+    ``sequence`` suit la même règle : un événement qui porte une tentative reçoit
+    ici sa séquence de tentative si l'appelant ne l'a pas déjà allouée. Sans elle,
+    les événements terminaux du Lot C (``task.completed``, ``task.failed``,
+    ``task.blocked``, ``task.cancelled``, ``task.interrupted``) et les événements de
+    mission sortiraient de ``GET /runs/{id}/events`` et du flux de la tentative :
+    le Studio ne verrait jamais une mission se clore.
     """
 
     _refuse_media_payload(event.payload)
@@ -528,13 +535,20 @@ def store_event(
 def _store_numbered(
     db: Session, event: Event, *, sequence: int | None, commit: bool, **extra: Any
 ) -> EventModel:
-    """Écrit en allouant le numéro de journal, avec la discipline de reprise de ``publish``."""
+    """Écrit en allouant les numéros manquants, avec la discipline de ``publish``.
+
+    Les deux numéros sont relus à chaque essai : une allocation périmée ne doit
+    jamais survivre à la reprise qui la corrige.
+    """
 
     last_error: IntegrityError | None = None
     _ensure_write_transaction(db)
     for _ in range(SEQUENCE_ALLOCATION_ATTEMPTS):
+        run_sequence = sequence
+        if run_sequence is None and event.task_run_id:
+            run_sequence = allocate_sequence(db, event.task_run_id)
         model = _event_model(
-            event, sequence=sequence, journal_seq=allocate_journal_seq(db), **extra
+            event, sequence=run_sequence, journal_seq=allocate_journal_seq(db), **extra
         )
         try:
             with db.begin_nested():

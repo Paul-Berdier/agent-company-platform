@@ -58,6 +58,10 @@ DEFAULT_ARTIFACT_RETENTION_DAYS = 180
 #: Âge au-delà duquel un fragment de téléversement interrompu est balayé.
 TEMP_UPLOAD_MAX_AGE_HOURS = 24
 
+#: Profondeur maximale explorée dans le ``data`` d'une preuve pour y trouver une
+#: référence d'artefact : une preuve mal formée ne doit pas faire boucler la purge.
+EVIDENCE_SCAN_MAX_DEPTH = 8
+
 #: Événements marquant la fin d'une tentative : jamais purgés.
 TERMINAL_RUN_EVENT_TYPES: frozenset[str] = frozenset(
     {
@@ -124,25 +128,51 @@ def retention_days(
     return value
 
 
+def _referenced_strings(data: Any, depth: int = 0) -> set[str]:
+    """Chaînes atteignables dans ``data``, quelle que soit la clé qui les porte.
+
+    Un identifiant d'artefact est une chaîne : la comparer aux identifiants réels
+    suffit, et une chaîne quelconque ne peut pas protéger un artefact par accident.
+    La profondeur est bornée pour qu'une preuve mal formée ne fasse jamais boucler
+    la purge.
+    """
+
+    if depth > EVIDENCE_SCAN_MAX_DEPTH:
+        return set()
+    if isinstance(data, str):
+        return {data} if data else set()
+    if isinstance(data, Mapping):
+        found: set[str] = set()
+        for value in data.values():
+            found |= _referenced_strings(value, depth + 1)
+        return found
+    if isinstance(data, (list, tuple, set)):
+        found = set()
+        for value in data:
+            found |= _referenced_strings(value, depth + 1)
+        return found
+    return set()
+
+
 def _cited_artifact_ids_and_checksums(db: Session) -> tuple[set[str], set[str]]:
     """Identifiants et empreintes cités par une preuve de mission.
 
-    Une preuve peut désigner un livrable de trois façons : un identifiant dans
-    ``data``, une URI, ou l'empreinte du contenu. Les trois sont honorées — mieux
-    vaut conserver un blob de trop que perdre une pièce justificative.
+    Une preuve peut désigner un livrable de plusieurs façons : un identifiant
+    n'importe où dans ``data``, une URI, ou l'empreinte du contenu. Toutes sont
+    honorées — mieux vaut conserver un blob de trop que perdre une pièce
+    justificative.
+
+    ``data`` est parcouru **en entier**, pas seulement sur les clés ``artifact_id``
+    et ``artifact_ids`` : la preuve ``web_tests`` du worker range la référence de son
+    rapport Playwright sous ``report_artifact_id`` et ne pose ni ``uri`` ni
+    ``checksum``. Une liste de noms de clés finirait toujours par rater le producteur
+    suivant ; balayer les chaînes ne peut, lui, que protéger un blob de plus.
     """
 
     identifiers: set[str] = set()
     checksums: set[str] = set()
     for evidence in db.query(MissionEvidenceModel).all():
-        data: Any = evidence.data or {}
-        if isinstance(data, dict):
-            single = data.get("artifact_id")
-            if isinstance(single, str) and single:
-                identifiers.add(single)
-            many = data.get("artifact_ids")
-            if isinstance(many, list):
-                identifiers.update(item for item in many if isinstance(item, str))
+        identifiers.update(_referenced_strings(evidence.data))
         if evidence.uri:
             identifiers.update(
                 token for token in _URI_TOKENS.split(evidence.uri) if token

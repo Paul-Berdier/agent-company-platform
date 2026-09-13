@@ -46,6 +46,37 @@ from acp_database.models import (
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
 
 
+def _web_tests_evidence_data(artifact_id: str) -> dict:
+    """``data`` exactement tel que le worker le produit pour une mission de tests web.
+
+    Le test lit la forme au producteur plutôt que de la recopier : une preuve
+    ``web_tests`` ne porte ni ``uri`` ni empreinte, seulement
+    ``report_artifact_id`` — c'est la seule accroche qui protège le rapport.
+    """
+
+    from pathlib import Path
+
+    from acp_worker.web_tests import WebTestOutcome
+
+    outcome = WebTestOutcome(
+        status="completed",
+        output_directory=Path("run-1"),
+        exit_code=0,
+        totals={
+            "expected": 1,
+            "unexpected": 0,
+            "flaky": 0,
+            "skipped": 0,
+            "interrupted": 0,
+            "timedOut": 0,
+        },
+        case_count=1,
+        test_run_id="test-run-1",
+        report_artifact_id=artifact_id,
+    )
+    return outcome.evidence()["data"]
+
+
 @pytest.fixture
 def session_factory():
     engine = create_engine(
@@ -277,7 +308,7 @@ def test_two_expired_artifacts_sharing_a_blob_delete_it_once(
     assert not storage.exists(shared_key)
 
 
-@pytest.mark.parametrize("citation", ["data", "uri", "checksum"])
+@pytest.mark.parametrize("citation", ["data", "uri", "checksum", "web_tests"])
 def test_an_artifact_cited_by_a_mission_evidence_is_never_purged(
     session_factory, storage, world, citation
 ):
@@ -295,6 +326,11 @@ def test_an_artifact_cited_by_a_mission_evidence_is_never_purged(
             evidence.data = {"artifact_id": artifact.id}
         elif citation == "uri":
             evidence.uri = f"acp://artifacts/{artifact.id}/content"
+        elif citation == "web_tests":
+            # Forme réellement produite par ``WebTestOutcome.evidence()`` : la
+            # référence vit sous ``report_artifact_id``, sans ``uri`` ni empreinte.
+            evidence.kind = "web_tests"
+            evidence.data = _web_tests_evidence_data(artifact.id)
         else:
             evidence.checksum = artifact.checksum
         db.add(evidence)

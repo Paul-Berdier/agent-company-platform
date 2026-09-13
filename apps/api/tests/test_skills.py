@@ -628,6 +628,8 @@ def test_github_import_downloads_the_pinned_tarball_and_extracts_the_subfolder(c
     with context["session_factory"]() as db:
         for event in db.query(EventModel).all():
             assert "ghp_secret_token" not in repr(event.payload)
+            # Une trace d'audit sans numéro de journal sort de la page projet.
+            assert event.journal_seq is not None
     assert "ghp_secret_token" not in client.get(f"/skills/{detail['id']}").text
 
     # Sous-dossier absent de l'archive ⇒ 422 explicite.
