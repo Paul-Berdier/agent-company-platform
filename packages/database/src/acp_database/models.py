@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -9,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -912,6 +914,17 @@ class AutomationModel(_Common, Base):
     created_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
+    # Le secret brut n'est jamais persisté. Une rotation remplace uniquement son
+    # empreinte et conserve l'instant public de rotation pour l'interface.
+    webhook_enabled: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    webhook_secret_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    webhook_rotated_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
 
 
 class AutomationRunModel(_Common, Base):
@@ -931,6 +944,10 @@ class AutomationRunModel(_Common, Base):
     __tablename__ = "automation_runs"
     __table_args__ = (
         UniqueConstraint("automation_id", "fire_key", name="uq_automation_runs_fire_key"),
+        CheckConstraint(
+            "trigger_kind IN ('manual', 'schedule', 'webhook')",
+            name="ck_automation_runs_trigger_kind",
+        ),
     )
 
     automation_id: Mapped[str] = mapped_column(
@@ -940,6 +957,9 @@ class AutomationRunModel(_Common, Base):
     scheduled_for: Mapped[datetime] = mapped_column(UtcDateTime)
     fired_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
     task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    trigger_kind: Mapped[str] = mapped_column(
+        String(20), default="schedule", server_default="schedule"
+    )
     # launched | skipped_concurrency | skipped_disabled | failed
     outcome: Mapped[str] = mapped_column(String(30))
     detail: Mapped[str] = mapped_column(String(500), default="")
@@ -962,7 +982,12 @@ class BudgetUsageModel(_Common, Base):
     task_run_id: Mapped[str] = mapped_column(
         ForeignKey("task_runs.id"), unique=True, index=True
     )
-    cost: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    # ``Numeric`` évite qu'une succession d'incréments monétaires introduise une
+    # dérive binaire. Les bases SQLite historiques gardent leur colonne FLOAT : la
+    # migration additive ne réécrit pas une table de compteurs en production.
+    cost: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0"), server_default="0"
+    )
     currency: Mapped[str] = mapped_column(
         String(3), default="EUR", server_default="EUR"
     )
@@ -970,6 +995,18 @@ class BudgetUsageModel(_Common, Base):
     tokens_output: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     tool_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     usage_reported: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Disponibilité par métrique : une mesure réellement rapportée à zéro ne doit
+    # jamais être confondue avec une donnée absente.
+    cost_reported: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    tokens_input_reported: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    tokens_output_reported: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    tool_calls_reported: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
@@ -1011,5 +1048,145 @@ class AlertModel(_Common, Base):
     acknowledged_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    acknowledgement_comment: Mapped[str] = mapped_column(
+        Text, default="", server_default=""
+    )
     dedupe_key: Mapped[str] = mapped_column(String(64))
     dedupe_key_active: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class NotificationPreferencesModel(_Common, Base):
+    """Préférences d'alertes d'un utilisateur dans un projet.
+
+    Le seul canal annoncé est ``in_app`` car c'est le seul réellement livré. Les
+    booléens par famille permettent de filtrer avant création d'une notification,
+    sans prétendre qu'un courriel ou webhook externe existe.
+    """
+
+    __tablename__ = "notification_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "user_id", name="uq_notification_preferences_project_user"
+        ),
+        CheckConstraint("channel = 'in_app'", name="ck_notification_preferences_channel"),
+        CheckConstraint(
+            "minimum_severity IN ('info', 'warning', 'critical')",
+            name="ck_notification_preferences_minimum_severity",
+        ),
+        CheckConstraint("enabled IN (0, 1)", name="ck_notification_preferences_enabled"),
+        CheckConstraint(
+            "budget_alerts IN (0, 1)", name="ck_notification_preferences_budget"
+        ),
+        CheckConstraint(
+            "automation_failures IN (0, 1)",
+            name="ck_notification_preferences_automation",
+        ),
+        CheckConstraint(
+            "storage_alerts IN (0, 1)", name="ck_notification_preferences_storage"
+        ),
+    )
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    channel: Mapped[str] = mapped_column(
+        String(20), default="in_app", server_default="in_app"
+    )
+    enabled: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    minimum_severity: Mapped[str] = mapped_column(
+        String(20), default="warning", server_default="warning"
+    )
+    budget_alerts: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    automation_failures: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
+    storage_alerts: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=_now, onupdate=_now
+    )
+
+
+class ProjectBudgetPolicyModel(_Common, Base):
+    """Politique de budget transversale, une version courante par projet."""
+
+    __tablename__ = "project_budget_policies"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_project_budget_policies_project"),
+        CheckConstraint("length(timezone) > 0", name="ck_project_budget_timezone_nonempty"),
+    )
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    timezone: Mapped[str] = mapped_column(
+        String(64), default="Europe/Paris", server_default="Europe/Paris"
+    )
+    policy: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=_now, onupdate=_now
+    )
+
+
+class BudgetUsageReportModel(_Common, Base):
+    """Ledger immuable des incréments de consommation reçus exactement une fois.
+
+    La paire ``(task_run_id, report_id)`` est fournie par l'émetteur et constitue
+    la frontière d'idempotence. ``budget_usage`` reste le cache agrégé rapide ; ce
+    ledger est la preuve rejouable qui permet de le reconstruire.
+    """
+
+    __tablename__ = "budget_usage_reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_run_id", "report_id", name="uq_budget_usage_reports_run_report"
+        ),
+        CheckConstraint(
+            "kind IN ('reservation', 'usage')", name="ck_budget_report_kind"
+        ),
+        CheckConstraint("source IN ('provider', 'platform')", name="ck_budget_report_source"),
+        CheckConstraint(
+            "phase IN ('planning', 'execution', 'evaluation', 'tool')",
+            name="ck_budget_report_phase",
+        ),
+        CheckConstraint("estimated IN (0, 1)", name="ck_budget_report_estimated"),
+        CheckConstraint("allowed IN (0, 1)", name="ck_budget_report_allowed"),
+        CheckConstraint("cost IS NULL OR cost >= 0", name="ck_budget_report_cost"),
+        CheckConstraint(
+            "tokens_input IS NULL OR tokens_input >= 0", name="ck_budget_report_tokens_input"
+        ),
+        CheckConstraint(
+            "tokens_output IS NULL OR tokens_output >= 0", name="ck_budget_report_tokens_output"
+        ),
+        CheckConstraint(
+            "tool_calls IS NULL OR tool_calls >= 0", name="ck_budget_report_tool_calls"
+        ),
+        CheckConstraint(
+            "(cost IS NULL AND currency IS NULL) OR "
+            "(cost IS NOT NULL AND currency IS NOT NULL)",
+            name="ck_budget_report_cost_currency",
+        ),
+        CheckConstraint(
+            "cost IS NOT NULL OR tokens_input IS NOT NULL OR "
+            "tokens_output IS NOT NULL OR tool_calls IS NOT NULL",
+            name="ck_budget_report_has_measure",
+        ),
+    )
+
+    task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
+    report_id: Mapped[str] = mapped_column(String(128))
+    permit_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(100), index=True)
+    # Une réservation est le permit atomique pré-effet ; un usage est la mesure
+    # post-effet. Ils partagent le ledger mais ne peuvent donc pas être confondus.
+    kind: Mapped[str] = mapped_column(
+        String(20), default="usage", server_default="usage"
+    )
+    source: Mapped[str] = mapped_column(String(20))
+    phase: Mapped[str] = mapped_column(String(20))
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    tokens_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tool_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    allowed: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    reconciled_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)

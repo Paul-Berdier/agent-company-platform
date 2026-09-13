@@ -388,9 +388,13 @@ def _upgrade_sqlite_schema(engine) -> None:
             "next_run_at": "DATETIME",
             "last_fire_key": "VARCHAR(64)",
             "created_by_user_id": "VARCHAR(36)",
+            "webhook_enabled": "INTEGER NOT NULL DEFAULT 0",
+            "webhook_secret_hash": "VARCHAR(64)",
+            "webhook_rotated_at": "DATETIME",
         },
         "automation_runs": {
             "task_id": "VARCHAR(36)",
+            "trigger_kind": "VARCHAR(20) NOT NULL DEFAULT 'schedule'",
             "detail": "VARCHAR(500) NOT NULL DEFAULT ''",
         },
         "budget_usage": {
@@ -400,6 +404,10 @@ def _upgrade_sqlite_schema(engine) -> None:
             "tokens_output": "INTEGER NOT NULL DEFAULT 0",
             "tool_calls": "INTEGER NOT NULL DEFAULT 0",
             "usage_reported": "INTEGER NOT NULL DEFAULT 0",
+            "cost_reported": "INTEGER NOT NULL DEFAULT 0",
+            "tokens_input_reported": "INTEGER NOT NULL DEFAULT 0",
+            "tokens_output_reported": "INTEGER NOT NULL DEFAULT 0",
+            "tool_calls_reported": "INTEGER NOT NULL DEFAULT 0",
             "updated_at": "DATETIME",
         },
         "alerts": {
@@ -408,7 +416,44 @@ def _upgrade_sqlite_schema(engine) -> None:
             "automation_id": "VARCHAR(36)",
             "acknowledged_at": "DATETIME",
             "acknowledged_by_user_id": "VARCHAR(36)",
+            "acknowledgement_comment": "TEXT NOT NULL DEFAULT ''",
             "dedupe_key_active": "VARCHAR(64)",
+        },
+        "notification_preferences": {
+            "project_id": "VARCHAR(36)",
+            "user_id": "VARCHAR(36)",
+            "channel": "VARCHAR(20) NOT NULL DEFAULT 'in_app'",
+            "enabled": "INTEGER NOT NULL DEFAULT 1",
+            "minimum_severity": "VARCHAR(20) NOT NULL DEFAULT 'warning'",
+            "budget_alerts": "INTEGER NOT NULL DEFAULT 1",
+            "automation_failures": "INTEGER NOT NULL DEFAULT 1",
+            "storage_alerts": "INTEGER NOT NULL DEFAULT 1",
+            "updated_at": "DATETIME",
+        },
+        "project_budget_policies": {
+            "project_id": "VARCHAR(36)",
+            "timezone": "VARCHAR(64) NOT NULL DEFAULT 'Europe/Paris'",
+            "policy": "JSON NOT NULL DEFAULT '{}'",
+            "updated_at": "DATETIME",
+        },
+        "budget_usage_reports": {
+            "task_run_id": "VARCHAR(36)",
+            "report_id": "VARCHAR(128)",
+            "permit_id": "VARCHAR(128)",
+            "project_id": "VARCHAR(36)",
+            "provider": "VARCHAR(100)",
+            "kind": "VARCHAR(20) NOT NULL DEFAULT 'usage'",
+            "source": "VARCHAR(20)",
+            "phase": "VARCHAR(20)",
+            "cost": "NUMERIC(18, 6)",
+            "currency": "VARCHAR(3)",
+            "tokens_input": "INTEGER",
+            "tokens_output": "INTEGER",
+            "tool_calls": "INTEGER",
+            "estimated": "INTEGER NOT NULL DEFAULT 0",
+            "allowed": "INTEGER NOT NULL DEFAULT 1",
+            "reconciled_at": "DATETIME",
+            "occurred_at": "DATETIME",
         },
     }
     with engine.begin() as connection:
@@ -567,6 +612,12 @@ def _upgrade_sqlite_schema(engine) -> None:
                 columns=("automation_id", "fire_key"),
                 name="uq_automation_runs_fire_key",
             )
+            connection.execute(
+                text(
+                    "UPDATE automation_runs SET trigger_kind = 'schedule' "
+                    "WHERE trigger_kind IS NULL OR trigger_kind = ''"
+                )
+            )
         if inspect(connection).has_table("budget_usage"):
             # Une seule ligne de consommation par tentative : les incréments
             # concurrents portent alors tous sur la même ligne.
@@ -600,6 +651,93 @@ def _upgrade_sqlite_schema(engine) -> None:
                 table="alerts",
                 columns=("project_id", "dedupe_key_active"),
                 name="uq_alerts_dedupe_active",
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_alerts_acknowledged_by_user_id "
+                    "ON alerts (acknowledged_by_user_id)"
+                )
+            )
+        if inspect(connection).has_table("notification_preferences"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_notification_preferences_project_id "
+                    "ON notification_preferences (project_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_notification_preferences_user_id "
+                    "ON notification_preferences (user_id)"
+                )
+            )
+            _ensure_unique_index(
+                connection,
+                table="notification_preferences",
+                columns=("project_id", "user_id"),
+                name="uq_notification_preferences_project_user",
+            )
+            connection.execute(
+                text(
+                    "UPDATE notification_preferences SET updated_at = created_at "
+                    "WHERE updated_at IS NULL"
+                )
+            )
+        if inspect(connection).has_table("project_budget_policies"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_project_budget_policies_project_id "
+                    "ON project_budget_policies (project_id)"
+                )
+            )
+            _ensure_unique_index(
+                connection,
+                table="project_budget_policies",
+                columns=("project_id",),
+                name="uq_project_budget_policies_project",
+            )
+            connection.execute(
+                text(
+                    "UPDATE project_budget_policies SET updated_at = created_at "
+                    "WHERE updated_at IS NULL"
+                )
+            )
+        if inspect(connection).has_table("budget_usage_reports"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_budget_usage_reports_task_run_id "
+                    "ON budget_usage_reports (task_run_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_budget_usage_reports_project_id "
+                    "ON budget_usage_reports (project_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_budget_usage_reports_provider "
+                    "ON budget_usage_reports (provider)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_budget_usage_reports_occurred_at "
+                    "ON budget_usage_reports (occurred_at)"
+                )
+            )
+            _ensure_unique_index(
+                connection,
+                table="budget_usage_reports",
+                columns=("task_run_id", "report_id"),
+                name="uq_budget_usage_reports_run_report",
+            )
+            connection.execute(
+                text(
+                    "UPDATE budget_usage_reports SET kind = 'usage' "
+                    "WHERE kind IS NULL OR kind = ''"
+                )
             )
         connection.execute(
             text(
