@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import io
+import errno
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -24,7 +26,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from acp_api.artifacts_storage import LocalArtifactStorage
+from acp_api.artifacts_storage import (
+    ArtifactStorageFull,
+    ArtifactStorageUnavailable,
+    LocalArtifactStorage,
+)
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.routers.artifacts import safe_content_type
@@ -34,7 +40,9 @@ from acp_api.signing import sign_artifact_token, token_hash
 from acp_database.models import (
     ArtifactLinkModel,
     ArtifactModel,
+    AlertModel,
     Base,
+    EventModel,
     MembershipModel,
     OrganizationModel,
     ProjectModel,
@@ -863,6 +871,76 @@ def test_an_exhausted_quota_refuses_the_next_upload(context, monkeypatch):
 
     assert refused.status_code == 413
     assert "quota" in refused.json()["detail"].lower()
+
+
+def test_an_idempotent_reupload_survives_an_exhausted_quota(context, monkeypatch):
+    monkeypatch.setenv("ACP_ARTIFACT_MAX_BYTES_PER_RUN", "8")
+    first = _upload(context, payload=b"same-8!!")
+    replay = _upload(context, payload=b"same-8!!")
+
+    assert first.status_code == 201
+    assert replay.status_code in (200, 201)
+    assert replay.json()["id"] == first.json()["id"]
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).filter_by(task_run_id=context.run_id).count() == 1
+
+
+@pytest.mark.parametrize(
+    "error,status,kind",
+    [
+        (ArtifactStorageFull("full"), 507, "storage.saturated"),
+        (ArtifactStorageUnavailable("offline"), 503, "storage.unavailable"),
+    ],
+)
+def test_a_physical_storage_failure_is_explicit_deduplicated_and_audited(
+    context, monkeypatch, error, status, kind
+):
+    class FailingStorage:
+        def write(self, stream, *, max_bytes):
+            raise error
+
+    monkeypatch.setattr(
+        "acp_api.routers.artifacts.artifact_storage", lambda: FailingStorage()
+    )
+
+    first = _upload(context, payload=b"premier")
+    second = _upload(context, payload=b"second")
+
+    assert first.status_code == status
+    assert second.status_code == status
+    assert "full" not in first.text
+    assert _blob_files(context) == []
+    with context.session_factory() as db:
+        alerts = db.query(AlertModel).filter_by(kind=kind).all()
+        assert len(alerts) == 1
+        assert alerts[0].severity == "critical"
+        assert db.query(ArtifactModel).count() == 0
+        events = db.query(EventModel).filter_by(type="alert.opened").all()
+        assert len(events) == 1
+        assert str(context.storage.root) not in str(events[0].payload)
+
+
+def test_a_full_multipart_spool_returns_507_and_opens_an_alert(context, monkeypatch):
+    class FullSpool:
+        def __init__(self, *args, **kwargs):
+            self._delegate = tempfile.TemporaryFile()
+
+        def write(self, chunk):
+            raise OSError(errno.ENOSPC, "temporary volume full")
+
+        def close(self):
+            self._delegate.close()
+
+    monkeypatch.setattr(
+        "acp_api.routers.artifacts.tempfile.SpooledTemporaryFile", FullSpool
+    )
+
+    response = _upload(context, payload=b"x" * 4096)
+
+    assert response.status_code == 507
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).count() == 0
+        assert db.query(AlertModel).filter_by(kind="storage.saturated").count() == 1
 
 
 def test_an_upload_without_an_active_lease_is_refused(context):
