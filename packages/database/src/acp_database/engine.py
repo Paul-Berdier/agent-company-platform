@@ -282,6 +282,36 @@ def _backfill_event_journal_sequence(connection) -> None:
     )
 
 
+def _ensure_unique_index(
+    connection, *, table: str, columns: tuple[str, ...], name: str
+) -> None:
+    """Repose une unicité absente d'une table déjà créée sans elle.
+
+    ``create_all`` ne complète jamais une table existante : une base où la table
+    aurait été créée sans sa contrainte perdrait la garantie **silencieusement**.
+    Un index unique donne exactement la même garantie et se crée, lui, de façon
+    additive. La création est omise si l'unicité est déjà déclarée, afin de ne pas
+    doubler l'index automatique posé par ``create_all``.
+    """
+
+    inspector = inspect(connection)
+    declared = {
+        tuple(constraint.get("column_names") or ())
+        for constraint in inspector.get_unique_constraints(table)
+    }
+    declared |= {
+        tuple(index.get("column_names") or ())
+        for index in inspector.get_indexes(table)
+        if index.get("unique")
+    }
+    if columns in declared:
+        return
+    column_list = ", ".join(f'"{column}"' for column in columns)
+    connection.execute(
+        text(f'CREATE UNIQUE INDEX IF NOT EXISTS "{name}" ON "{table}" ({column_list})')
+    )
+
+
 def _upgrade_sqlite_schema(engine) -> None:
     """Migration additive minimale pour les bases SQLite MVP déjà créées.
 
@@ -347,6 +377,38 @@ def _upgrade_sqlite_schema(engine) -> None:
             "source": "VARCHAR(50) NOT NULL DEFAULT 'worker'",
             "stream_kind": "VARCHAR(50) NOT NULL DEFAULT ''",
             "deleted_at": "DATETIME",
+        },
+        "automations": {
+            "description": "TEXT NOT NULL DEFAULT ''",
+            "timezone": "VARCHAR(64) NOT NULL DEFAULT 'Europe/Paris'",
+            "mission_template": "JSON NOT NULL DEFAULT '{}'",
+            "enabled": "INTEGER NOT NULL DEFAULT 0",
+            "catchup_policy": "VARCHAR(20) NOT NULL DEFAULT 'skip'",
+            "max_concurrent_runs": "INTEGER NOT NULL DEFAULT 1",
+            "next_run_at": "DATETIME",
+            "last_fire_key": "VARCHAR(64)",
+            "created_by_user_id": "VARCHAR(36)",
+        },
+        "automation_runs": {
+            "task_id": "VARCHAR(36)",
+            "detail": "VARCHAR(500) NOT NULL DEFAULT ''",
+        },
+        "budget_usage": {
+            "cost": "FLOAT NOT NULL DEFAULT 0",
+            "currency": "VARCHAR(3) NOT NULL DEFAULT 'EUR'",
+            "tokens_input": "INTEGER NOT NULL DEFAULT 0",
+            "tokens_output": "INTEGER NOT NULL DEFAULT 0",
+            "tool_calls": "INTEGER NOT NULL DEFAULT 0",
+            "usage_reported": "INTEGER NOT NULL DEFAULT 0",
+            "updated_at": "DATETIME",
+        },
+        "alerts": {
+            "detail": "TEXT NOT NULL DEFAULT ''",
+            "task_id": "VARCHAR(36)",
+            "automation_id": "VARCHAR(36)",
+            "acknowledged_at": "DATETIME",
+            "acknowledged_by_user_id": "VARCHAR(36)",
+            "dedupe_key_active": "VARCHAR(64)",
         },
     }
     with engine.begin() as connection:
@@ -466,6 +528,78 @@ def _upgrade_sqlite_schema(engine) -> None:
                     "CREATE INDEX IF NOT EXISTS ix_artifacts_storage_key "
                     "ON artifacts (storage_key)"
                 )
+            )
+        if inspect(connection).has_table("automations"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_automations_project_id "
+                    "ON automations (project_id)"
+                )
+            )
+            # Le planificateur ne pose qu'une question à chaque examen :
+            # « quelles automatisations actives sont dues ? ». Sans cet index,
+            # elle coûte une lecture complète de la table toutes les trente secondes.
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_automations_next_run_at "
+                    "ON automations (next_run_at)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_automations_created_by_user_id "
+                    "ON automations (created_by_user_id)"
+                )
+            )
+        if inspect(connection).has_table("automation_runs"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_automation_runs_automation_id "
+                    "ON automation_runs (automation_id)"
+                )
+            )
+            # Unicité de l'occurrence nominale : c'est elle, et non une
+            # vérification en mémoire, qui interdit deux missions pour un même
+            # déclenchement planifié.
+            _ensure_unique_index(
+                connection,
+                table="automation_runs",
+                columns=("automation_id", "fire_key"),
+                name="uq_automation_runs_fire_key",
+            )
+        if inspect(connection).has_table("budget_usage"):
+            # Une seule ligne de consommation par tentative : les incréments
+            # concurrents portent alors tous sur la même ligne.
+            _ensure_unique_index(
+                connection,
+                table="budget_usage",
+                columns=("task_run_id",),
+                name="ix_budget_usage_task_run_id",
+            )
+            connection.execute(
+                text(
+                    "UPDATE budget_usage SET updated_at = created_at "
+                    "WHERE updated_at IS NULL"
+                )
+            )
+        if inspect(connection).has_table("alerts"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_alerts_project_id "
+                    "ON alerts (project_id)"
+                )
+            )
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_alerts_kind ON alerts (kind)")
+            )
+            # ``dedupe_key_active`` vaut ``NULL`` une fois l'alerte acquittée, et
+            # ``NULL`` n'entre pas en conflit avec ``NULL`` : l'unicité ne porte donc
+            # que sur les alertes **ouvertes**.
+            _ensure_unique_index(
+                connection,
+                table="alerts",
+                columns=("project_id", "dedupe_key_active"),
+                name="uq_alerts_dedupe_active",
             )
         connection.execute(
             text(

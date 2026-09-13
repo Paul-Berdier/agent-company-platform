@@ -15,6 +15,46 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
+
+
+class UtcDateTime(TypeDecorator):
+    """Instant toujours stocké et relu en UTC.
+
+    SQLite ne conserve pas le décalage d'un ``DateTime(timezone=True)`` : il écrit
+    l'heure murale et perd le ``+01:00``. Un appelant qui passerait un instant dans
+    le fuseau de l'utilisateur verrait donc l'instant changer en traversant la base.
+
+    Pour les colonnes du Lot F, cela ne serait pas une gêne d'affichage mais une
+    perte de garantie : la clé de tir d'un déclenchement est dérivée de son instant
+    nominal, donc un instant altéré par l'aller-retour produit une clé différente,
+    et la contrainte d'unicité ``(automation_id, fire_key)`` cesse de refuser le
+    doublon qu'elle existe pour refuser.
+
+    Ce type normalise donc en UTC avant l'écriture et rattache UTC à la relecture.
+    Un ``datetime`` naïf est refusé plutôt que supposé UTC : supposer inventerait un
+    instant que l'appelant n'a pas donné.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            raise ValueError(
+                "un instant doit être conscient du fuseau avant d'être stocké "
+                "(UTC attendu)"
+            )
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value: datetime | None, dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 def _uuid() -> str:
@@ -831,3 +871,145 @@ class ArtifactLinkModel(_Common, Base):
         DateTime(timezone=True), nullable=True
     )
     used_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# --- Lot F : automatisations planifiées, budgets appliqués et alertes ----------
+
+
+class AutomationModel(_Common, Base):
+    """Routine planifiée d'un projet : un gabarit de mission et un calendrier.
+
+    Une automatisation **naît désactivée** : elle ne se déclenche jamais du seul fait
+    d'avoir été créée, et son activation est un geste explicite.
+
+    ``next_run_at`` est indexé parce que le planificateur ne pose qu'une question à
+    chaque examen : « quelles automatisations actives sont dues ? ». Sans index,
+    cette question coûte une lecture complète de la table toutes les trente secondes.
+    """
+
+    __tablename__ = "automations"
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    schedule_kind: Mapped[str] = mapped_column(String(20))  # cron | interval
+    schedule_expression: Mapped[str] = mapped_column(String(200))
+    timezone: Mapped[str] = mapped_column(  # nom IANA, fuseau de référence
+        String(64), default="Europe/Paris", server_default="Europe/Paris"
+    )
+    mission_template: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    catchup_policy: Mapped[str] = mapped_column(  # skip | run_once
+        String(20), default="skip", server_default="skip"
+    )
+    max_concurrent_runs: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True, index=True
+    )
+    last_fire_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+
+
+class AutomationRunModel(_Common, Base):
+    """Déclenchement **matérialisé** d'une automatisation, lancé ou refusé.
+
+    L'unicité ``(automation_id, fire_key)`` est la garantie d'absence de doublon du
+    lot, et ce n'est pas une vérification en mémoire : deux planificateurs
+    concurrents insèrent la même paire, la base en refuse un, et celui-là abandonne
+    sans créer de mission.
+
+    ``scheduled_for`` et ``fired_at`` sont deux colonnes distinctes et doivent le
+    rester : l'instant **nominal** identifie l'occurrence, l'instant **réel** dit ce
+    qui s'est passé. Les confondre rendrait la clé d'unicité inutile, puisque deux
+    exécutions réelles n'ont jamais exactement le même instant.
+    """
+
+    __tablename__ = "automation_runs"
+    __table_args__ = (
+        UniqueConstraint("automation_id", "fire_key", name="uq_automation_runs_fire_key"),
+    )
+
+    automation_id: Mapped[str] = mapped_column(
+        ForeignKey("automations.id"), index=True
+    )
+    fire_key: Mapped[str] = mapped_column(String(64))
+    scheduled_for: Mapped[datetime] = mapped_column(UtcDateTime)
+    fired_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    # launched | skipped_concurrency | skipped_disabled | failed
+    outcome: Mapped[str] = mapped_column(String(30))
+    detail: Mapped[str] = mapped_column(String(500), default="")
+
+
+class BudgetUsageModel(_Common, Base):
+    """Consommation observée d'une tentative : une seule ligne par tentative.
+
+    ``usage_reported`` distingue « le fournisseur a rapporté zéro jeton » de « le
+    fournisseur n'a rien rapporté ». Sans ce drapeau, un budget en jetons paraîtrait
+    respecté alors que rien n'a jamais été mesuré : il reste à 0 tant qu'aucun bloc
+    ``usage`` n'est arrivé.
+
+    Les écritures sont des incréments SQL (``SET x = x + :n``) et jamais une lecture
+    suivie d'une écriture : deux rapports concurrents ne doivent pas s'écraser.
+    """
+
+    __tablename__ = "budget_usage"
+
+    task_run_id: Mapped[str] = mapped_column(
+        ForeignKey("task_runs.id"), unique=True, index=True
+    )
+    cost: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    currency: Mapped[str] = mapped_column(
+        String(3), default="EUR", server_default="EUR"
+    )
+    tokens_input: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    tokens_output: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    tool_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    usage_reported: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
+class AlertModel(_Common, Base):
+    """Alerte d'un projet, dédupliquée tant qu'elle reste ouverte.
+
+    ``dedupe_key_active`` vaut ``dedupe_key`` tant que l'alerte est ouverte et passe
+    à ``NULL`` à l'acquittement. En SQL, ``NULL`` n'entre pas en conflit avec
+    ``NULL`` dans un index unique : plusieurs alertes acquittées de même cause
+    coexistent donc, tandis que deux alertes **ouvertes** de même cause sont
+    impossibles.
+
+    C'est la raison d'être de cette colonne apparemment redondante : elle obtient
+    l'effet d'un index unique partiel sans en dépendre, ce que ``create_all`` ne
+    saurait pas produire de façon portable ici.
+    """
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "dedupe_key_active", name="uq_alerts_dedupe_active"
+        ),
+    )
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(50), index=True)
+    severity: Mapped[str] = mapped_column(String(20))  # info | warning | critical
+    title: Mapped[str] = mapped_column(String(300))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    automation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("automations.id"), nullable=True
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    acknowledged_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    dedupe_key: Mapped[str] = mapped_column(String(64))
+    dedupe_key_active: Mapped[str | None] = mapped_column(String(64), nullable=True)
