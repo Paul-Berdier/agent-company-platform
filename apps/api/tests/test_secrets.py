@@ -327,6 +327,7 @@ def test_viewer_and_member_rules(secrets_client, monkeypatch):
 
     # CSRF exigé sur les mutations.
     client.headers.pop("X-CSRF-Token")
+
     assert (
         client.post(
             "/secrets",
@@ -339,3 +340,46 @@ def test_viewer_and_member_rules(secrets_client, monkeypatch):
         ).status_code
         == 403
     )
+
+
+# --- journal d'audit ------------------------------------------------------------------
+
+
+def test_the_audit_trail_of_the_vault_is_readable_in_the_project_journal(
+    secrets_client, monkeypatch
+):
+    """Un événement d'audit du coffre doit entrer dans le curseur du journal projet.
+
+    Écrit sans numéro de journal, il resterait invisible de
+    ``GET /projects/{id}/events`` pour toute la vie du processus, puis ressortirait
+    hors d'ordre après un redémarrage : une trace d'audit muette n'est pas une trace
+    d'audit.
+    """
+
+    client, session_factory = secrets_client
+    monkeypatch.setenv("ACP_SECRETS_KEYS", generate_key())
+    scope = _create_project(client, "Journal")
+    project_id = scope["project_id"]
+    baseline = client.get(f"/projects/{project_id}/events").json()
+    cursor = baseline["next_cursor"] or 0
+
+    created = client.post(
+        "/secrets",
+        json={
+            "name": "API_TOKEN_JOURNAL",
+            "value": SECRET_VALUE,
+            "scope_type": "project",
+            "project_id": project_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    page = client.get(
+        f"/projects/{project_id}/events", params={"after_seq": cursor}
+    ).json()
+    assert [event["type"] for event in page["events"]] == ["secret.created"]
+    assert page["next_cursor"] is not None and page["next_cursor"] > cursor
+    _assert_no_secret_leak(page)
+
+    rows = [event for event in _all_events(session_factory) if event.type == "secret.created"]
+    assert rows and all(row.journal_seq is not None for row in rows)

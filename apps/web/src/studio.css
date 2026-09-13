@@ -1,0 +1,358 @@
+/*
+ * Studio en direct d’une tentative (route « Missions », vue `studio`).
+ *
+ * Réutilise les variables `--workspace-*` et les composants du shell (`content-section`,
+ * `state-panel`, `status-chip`, `button`) : aucune couleur locale, aucune animation
+ * décorative, aucun indicateur porté par la seule couleur — le bandeau de mode et les
+ * statuts de tests portent toujours un libellé textuel.
+ * Les classes sont préfixées `studio-` pour ne jamais entrer en conflit avec
+ * `workspace.css`, `mcp.css` ni `skills.css`.
+ */
+
+.studio {
+  display: grid;
+  gap: 16px;
+}
+
+.studio-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.studio-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.studio-note {
+  margin: 6px 0 0;
+  color: var(--workspace-text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* L’avertissement reste lisible sans couleur : il est aussi bordé et libellé. */
+.studio-warning {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--workspace-warm) 58%, var(--workspace-border));
+  border-radius: var(--workspace-radius-sm);
+  color: var(--workspace-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.studio-subheading {
+  margin: 16px 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* --- Bandeau de mode --------------------------------------------------------- */
+
+.studio-banner-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.studio-banner-labels {
+  min-width: 0;
+}
+
+.studio-banner-title {
+  margin: 2px 0 4px;
+  font-size: 20px;
+  font-weight: 760;
+}
+
+.studio-banner-description {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--workspace-text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Le mode change la bordure gauche : un repère de plus que la couleur du chip. */
+.studio-banner {
+  border-left: 4px solid var(--workspace-border-strong);
+}
+
+.studio-banner[data-mode="live"] {
+  border-left-color: var(--workspace-success);
+}
+
+.studio-banner[data-mode="interim"] {
+  border-left-color: var(--workspace-warm);
+}
+
+.studio-banner[data-mode="replay"] {
+  border-left-color: var(--workspace-accent);
+}
+
+.studio-banner[data-mode="unknown"] {
+  border-left-color: var(--workspace-danger);
+  border-left-style: dashed;
+}
+
+/* --- Fiches clé/valeur ------------------------------------------------------- */
+
+.studio-facts {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 12px 0 0;
+}
+
+.studio-fact-term {
+  color: var(--workspace-text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.studio-fact-value {
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* --- Chronologie ------------------------------------------------------------- */
+
+.studio-event-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.studio-event {
+  padding: 10px 12px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-sm);
+  background: var(--workspace-surface-raised);
+}
+
+.studio-event-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.studio-event-type {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.studio-event-time {
+  color: var(--workspace-text-soft);
+  font-size: 12px;
+}
+
+.studio-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.studio-event-tag {
+  padding: 2px 7px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 999px;
+  color: var(--workspace-text-soft);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.studio-event-message {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.studio-payload {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.studio-payload > summary {
+  cursor: pointer;
+  color: var(--workspace-text-soft);
+}
+
+/* Le contenu venu de l’API reste du texte : cadré, défilable, jamais interprété. */
+.studio-pre {
+  margin: 6px 0 0;
+  max-height: 320px;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-sm);
+  background: var(--workspace-surface);
+  color: var(--workspace-text);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.studio-error {
+  border-color: color-mix(in srgb, var(--workspace-danger) 58%, var(--workspace-border));
+}
+
+/* --- Médias ------------------------------------------------------------------ */
+
+.studio-media {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin-top: 10px;
+}
+
+.studio-image,
+.studio-video {
+  max-width: 100%;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-sm);
+  background: var(--workspace-surface);
+}
+
+.studio-video {
+  width: min(100%, 720px);
+}
+
+/* --- Tests -------------------------------------------------------------------- */
+
+.studio-tree {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.studio-suite {
+  padding: 10px 12px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-sm);
+  background: var(--workspace-surface-raised);
+}
+
+.studio-suite[data-depth="1"],
+.studio-suite[data-depth="2"],
+.studio-suite[data-depth="3"] {
+  margin-top: 8px;
+  background: var(--workspace-surface);
+}
+
+.studio-suite-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.studio-suite-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+
+.studio-case {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-sm);
+  background: var(--workspace-surface);
+}
+
+.studio-case-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.studio-case-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.studio-case-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.studio-step-list {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.studio-step {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.studio-step-title {
+  overflow-wrap: anywhere;
+}
+
+.studio-attachments {
+  margin-top: 10px;
+}
+
+.studio-attachment {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--workspace-border-strong);
+  border-radius: var(--workspace-radius-sm);
+}
+
+.studio-report {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--workspace-border);
+}
+
+/* --- Adaptation --------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .studio-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .studio-fact-value {
+    margin-bottom: 6px;
+  }
+
+  .studio-banner-head {
+    flex-direction: column;
+  }
+}

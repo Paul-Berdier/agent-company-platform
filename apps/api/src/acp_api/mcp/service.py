@@ -29,6 +29,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from acp_contracts import (
+    Event,
     McpBinding,
     McpDiscoveredTool,
     McpDiscovery,
@@ -46,7 +47,6 @@ from acp_contracts import (
 )
 from acp_contracts.redaction import redact_data, redact_text, redaction_values
 from acp_database.models import (
-    EventModel,
     McpBindingModel,
     McpProbeModel,
     McpServerModel,
@@ -55,6 +55,7 @@ from acp_database.models import (
     WorkerModel,
 )
 
+from ..events_bus import store_event
 from ..outbound import OutboundPolicy, OutboundPolicyError, PinnedHttpClient
 from ..secrets_vault import SecretsVault, VaultDecryptionFailed
 from .client import McpClientError, discover_http
@@ -237,9 +238,18 @@ def resolve_secret_values(
 def record_event(
     db: Session, event_type: str, *, project_id: str | None = None, payload: dict[str, Any]
 ) -> None:
-    """Événement d'audit durable ; le payload ne contient jamais de valeur de secret."""
+    """Événement d'audit durable ; le payload ne contient jamais de valeur de secret.
 
-    db.add(EventModel(type=event_type, project_id=project_id, payload=payload))
+    ``store_event`` alloue le numéro de journal : une ligne écrite sans lui sort de
+    la page projet jusqu'au prochain redémarrage, puis y remonte hors d'ordre.
+    ``commit=False`` laisse la transaction à l'appelant, comme avant.
+    """
+
+    store_event(
+        db,
+        Event(type=event_type, project_id=project_id, payload=payload),
+        commit=False,
+    )
 
 
 # --- risques ---------------------------------------------------------------------------------

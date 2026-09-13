@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from acp_contracts import (
@@ -16,6 +16,7 @@ from acp_contracts import (
     ApprovalValidationResult,
     Artifact,
     ArtifactCreate,
+    ArtifactSummary,
     LockAcquireRequest,
     LockOwnerRequest,
     ResourceLock,
@@ -31,6 +32,7 @@ from acp_database.models import (
 )
 
 from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
+from .artifacts import receive_worker_artifact_content
 from .workers import _as_utc, authenticate_worker, expire_task_leases, utcnow
 
 router = APIRouter(tags=["operations"])
@@ -516,18 +518,29 @@ def report_artifact(
     return _artifact_contract(artifact)
 
 
-@router.get("/artifacts", response_model=list[Artifact])
-def list_artifacts(
-    project_id: str | None = None,
-    task_run_id: str | None = None,
+@router.post(
+    "/workers/{worker_id}/artifacts/content",
+    response_model=ArtifactSummary,
+    status_code=201,
+)
+async def upload_artifact_content(
+    worker_id: str,
+    request: Request,
     db: Session = Depends(get_db),
-    principal: str = Depends(get_principal),
+    authorization: str | None = Header(default=None),
 ):
-    query = db.query(ArtifactModel).filter(
-        ArtifactModel.project_id.in_(accessible_project_ids(db, principal))
-    )
-    if project_id:
-        query = query.filter_by(project_id=project_id)
-    if task_run_id:
-        query = query.filter_by(task_run_id=task_run_id)
-    return [_artifact_contract(row) for row in query.all()]
+    """Téléverse le contenu d'un livrable (``multipart/form-data``, §6).
+
+    L'identité du worker est vérifiée **avant** de lire le corps : un appelant sans
+    jeton ne fait jamais écrire un octet. La lecture, les plafonds et l'idempotence
+    par sha256 vivent dans ``routers/artifacts.py``.
+    """
+
+    worker = authenticate_worker(db, worker_id, authorization)
+    return await receive_worker_artifact_content(db, worker, request)
+
+
+# ``GET /artifacts`` est servi par ``routers/artifacts.py`` depuis le Lot E : la
+# bibliothèque est paginée (``ArtifactPage``) et expose le contenu téléversé. La
+# version « liste complète » qui vivait ici est supprimée plutôt que dupliquée —
+# deux routes sur le même chemin auraient laissé la seconde inatteignable.

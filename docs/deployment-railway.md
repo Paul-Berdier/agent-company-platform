@@ -1,6 +1,6 @@
 # Déploiement local et Railway
 
-Date d'état : 12 septembre 2026 — version `0.5.0`
+Date d'état : 13 septembre 2026 — version `0.6.0`
 Statut : architecture et procédure préparatoire ; aucun déploiement réel effectué,
 configuration de production non livrée.
 
@@ -80,6 +80,11 @@ VITE_ACP_LEGACY_OFFICE=0
 `psycopg` et les migrations versionnées ne sont pas encore fournis : cette
 configuration PostgreSQL est donc une cible, pas une recette validée.
 
+`VITE_ACP_EVENTS_WS_URL` ne concerne que le WebSocket **legacy** du service
+d'événements, fermé par défaut. Le flux utilisateur du Lot E passe par l'API métier
+(`VITE_ACP_API_URL`) en SSE, avec le cookie de session : aucune variable
+supplémentaire n'est nécessaire côté web.
+
 Les endpoints internes et les flux temps réel doivent rester sur le réseau privé ou
 être authentifiés avant toute exposition. CORS n'est pas un contrôle d'accès.
 
@@ -136,6 +141,73 @@ l'allowlist d'exécutables absolus n'est pas vide. Activer cette sonde revient �
 autoriser le lancement de programmes listés sur cette machine : la traiter comme une
 décision d'exploitation, pas comme un réglage de confort.
 
+## Variables du Lot E (flux, livrables et tests web)
+
+Sur le service **api** uniquement :
+
+```text
+ACP_ARTIFACT_STORAGE_DIR=/data/artifacts
+ACP_ARTIFACT_SIGNING_KEYS=<clé>[,<clé précédente>…]
+ACP_ARTIFACT_PUBLIC_ORIGIN=https://apercu.<domaine>
+ACP_ARTIFACT_MAX_BYTES=209715200
+ACP_ARTIFACT_MAX_BYTES_PER_RUN=1073741824
+ACP_ARTIFACT_RETENTION_DAYS=180
+ACP_EVENT_RETENTION_DAYS=90
+ACP_STREAM_POLL_INTERVAL_MS=400
+ACP_STREAM_KEEPALIVE_SECONDS=15
+ACP_STREAM_MAX_SECONDS=900
+ACP_STREAM_MAX_CONNECTIONS_PER_USER=4
+```
+
+Points à tenir, dans cet ordre :
+
+1. `ACP_ARTIFACT_STORAGE_DIR` doit pointer vers un **volume persistant**, comme
+   `ACP_SKILLS_STORAGE_DIR`. Les blobs y vivent ; un système de fichiers éphémère les
+   perdrait au redéploiement alors que la base continuerait de les référencer. Le
+   stockage est local : **aucun adaptateur objet distant n'est livré**.
+2. `ACP_ARTIFACT_PUBLIC_ORIGIN` est le **prérequis de sécurité de ce lot**. Tant
+   qu'elle est vide, les liens signés pointent vers l'origine de l'API et le Studio
+   affiche l'avertissement correspondant. Un contenu rapporté par un test est du
+   contenu tiers : il ne doit pas être servi depuis l'origine qui porte le cookie de
+   session. Le service qui répond sur cette origine doit atteindre la même API — c'est
+   une origine, pas un second stockage.
+3. `ACP_ARTIFACT_SIGNING_KEYS` suit la même discipline que `ACP_SECRETS_KEYS` : la
+   première clé signe, les suivantes vérifient encore. **La perdre n'est pas grave**
+   (les liens deviennent invalides, le téléchargement par session reste possible) ; la
+   divulguer permet de forger un lien vers n'importe quel artefact jusqu'à expiration.
+   Sans clé, la création de lien répond `503` explicite.
+4. Les deux durées de rétention (`ACP_ARTIFACT_RETENTION_DAYS`,
+   `ACP_EVENT_RETENTION_DAYS`) ne sont appliquées par **aucun ordonnanceur** :
+   `python -m acp_api.retention` est une commande à déclencher, et elle ne supprime
+   rien sans `--apply`. Tant qu'elle n'est pas planifiée, le stockage croît sans limite.
+5. Le flux SSE tient une connexion longue par onglet et interroge la base toutes les
+   `ACP_STREAM_POLL_INTERVAL_MS`. Derrière un proxy, vérifier que la mise en tampon est
+   désactivée (l'API envoie déjà `X-Accel-Buffering: no`) et que le délai d'inactivité
+   du proxy dépasse `ACP_STREAM_KEEPALIVE_SECONDS`, sans quoi chaque keep-alive arrivera
+   trop tard et le client vivra en reconnexion permanente.
+
+Sur la **machine du runner de tests**, jamais sur le serveur de contrôle :
+
+```text
+ACP_WORKER_WEBTEST_ENABLED=0
+ACP_WORKER_WEBTEST_ARGV_JSON=
+ACP_WORKER_WEBTEST_CWD=
+ACP_WORKER_WEBTEST_TIMEOUT_SECONDS=900
+ACP_WORKER_WEBTEST_MAX_ARTIFACT_BYTES=209715200
+ACP_WORKER_WEBTEST_ENV_ALLOWLIST=
+```
+
+La plateforme n'installe jamais Playwright : c'est l'opérateur qui l'installe sur le
+runner et qui déclare l'argv absolu à lancer. La capacité `web_tests` n'est annoncée que
+si la configuration est complète **et** que le worker n'est pas en simulation. Ne jamais
+allowlister un credential de la plateforme dans `ACP_WORKER_WEBTEST_ENV_ALLOWLIST` : le
+processus de test n'en reçoit aucun, et les valeurs qui y sont injectées servent de
+liste d'expurgation pour ce que le rapport republie.
+
+**Aucune de ces variables n'a été éprouvée en déploiement** : aucun navigateur réel n'a
+été lancé, aucune suite Playwright n'a tourné, aucune origine d'aperçu n'a été
+provisionnée et aucun volume persistant n'a été monté.
+
 ## Variables Hermes
 
 Sur Hermes :
@@ -186,12 +258,17 @@ Changer l'URL sans migrer l'état ne déplace ni les sessions ni la mémoire.
 ## Bloqueurs avant un premier déploiement privé
 
 - bootstrap propriétaire fermé, sessions révocables et RBAC projet complet ;
-- authentification du WebSocket et de `/internal/events`, reprise par curseur et
-  outbox ;
-- migrations Alembic et driver PostgreSQL verrouillé, test de montée et retour ;
-- sauvegarde et rotation documentées de `ACP_SECRETS_KEYS`, et volume persistant pour
-  `ACP_SKILLS_STORAGE_DIR` ;
-- stockage d'objets privé, URLs signées et politiques de rétention ;
+- authentification de `/internal/events` ; le flux utilisateur authentifié et la reprise
+  par curseur sont livrés depuis le Lot E, l'outbox ne l'est pas ;
+- migrations Alembic et driver PostgreSQL verrouillé, test de montée et retour ; la
+  migration additive des compteurs d'événements est propre à SQLite et une base
+  PostgreSQL **existante** ne la reçoit pas ;
+- sauvegarde et rotation documentées de `ACP_SECRETS_KEYS` et
+  `ACP_ARTIFACT_SIGNING_KEYS`, et volumes persistants pour `ACP_SKILLS_STORAGE_DIR` et
+  `ACP_ARTIFACT_STORAGE_DIR` ;
+- **origine d'aperçu séparée configurée** (`ACP_ARTIFACT_PUBLIC_ORIGIN`) : les URLs
+  signées et les politiques de rétention existent, l'origine dédiée non ;
+- purge de rétention planifiée : la commande existe, aucun ordonnanceur ne l'exécute ;
 - images reproductibles, utilisateur non privilégié et fichiers de lock ;
 - secrets de service tournants, CSP/CSRF/en-têtes de sécurité et CORS explicite ;
 - liveness, readiness, timeouts et arrêt propre ;
@@ -208,8 +285,14 @@ Changer l'URL sans migrer l'état ne déplace ni les sessions ni la mémoire.
 5. Couper Hermes : la plateforme reste consultable et les appels Hermes échouent
    explicitement sans fallback.
 6. Couper le runner et le flux : afficher `inconnu`/reconnexion, sans relancer une
-   mission.
+   mission. Depuis le Lot E, vérifier aussi que le client bascule en interrogation après
+   trois échecs, puis reprend le direct, sans doublon ni trou dans le journal.
 7. Tester rotation/révocation des clés et absence de secrets dans les logs.
+8. Vérifier qu'un livrable de type `text/html` ou une trace `.zip` part bien en
+   téléchargement (`Content-Disposition: attachment`, `nosniff`) et jamais en rendu
+   inline, et qu'un lien signé expiré ou révoqué est refusé.
+9. Exécuter `python -m acp_api.retention` sans `--apply` et lire ce qu'elle annoncerait
+   avant de la planifier.
 
 Aucun projet Railway, ressource payante, migration de production ou DNS n'a été créé
 ou modifié pendant cette intervention.

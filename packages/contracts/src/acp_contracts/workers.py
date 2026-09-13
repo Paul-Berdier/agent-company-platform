@@ -21,6 +21,7 @@ class WorkerCapability(str, Enum):
     ASSET_VALIDATION = "asset_validation"
     IMAGE_CAPTURE = "image_capture"
     MCP_STDIO_PROBE = "mcp_stdio_probe"
+    WEB_TESTS = "web_tests"
 
 
 class WorkerStatus(str, Enum):

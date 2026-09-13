@@ -30,6 +30,20 @@ sa licence propre, de ses assets et des modèles qu'elle télécharge.
 
 Aucune autre dépendance n'a été ajoutée au Lot D : rien côté web, CLI ou worker.
 
+## Ajouts du Lot E
+
+| Composant | Révision/surface évaluée | Licence | Maintenance | Décision et coût d'intégration |
+|---|---|---|---|---|
+| Interface Reporter de Playwright | `onBegin`, `onTestBegin`, `onStepBegin`, `onStepEnd`, `onTestEnd`, `onError`, `onEnd` ; statuts `passed`/`failed`/`timedOut`/`skipped`/`interrupted`, `result.retry`, pièces jointes | Apache-2.0 (Playwright) ; **aucune dépendance ajoutée au dépôt** | projet actif, multi-navigateur | **Interface implémentée, paquet non ajouté.** `packages/playwright-reporter` implémente le contrat sans importer `@playwright/test` : la plateforme n'installe jamais Playwright et ne l'impose pas au dépôt. C'est l'opérateur qui l'installe sur son runner (≥ 1.44). Coût faible, et le dépôt reste installable sans navigateur. Limite assumée : sans le paquet, aucun typage n'est vérifié contre la vraie interface — la conformité repose sur des objets synthétiques, et **aucune exécution Playwright réelle ne l'a encore confirmée** |
+| SSE (`text/event-stream`) plutôt qu'un WebSocket | corps SSE natif de Starlette/FastAPI, `EventSource` natif du navigateur avec `withCredentials`, `Last-Event-ID` | standard HTML ; aucune dépendance ajoutée | stable | **Retenu pour le flux utilisateur.** Un sens unique suffit (le Studio observe, il ne pilote pas), `EventSource` gère la reconnexion et `Last-Event-ID` donne la reprise par curseur sans protocole maison. Un WebSocket aurait imposé une couche d'authentification et de reprise à écrire ; le WebSocket anonyme du service d'événements reste fermé. Limite assumée : une rotation de connexion est nécessaire (`ACP_STREAM_MAX_SECONDS`) et le flux n'a jamais été consommé par un vrai navigateur |
+| Tail de base par curseur plutôt qu'un courtier | interrogation bornée (`ACP_STREAM_POLL_INTERVAL_MS`) réveillée par un hub intra-processus | aucune dépendance ajoutée | — | **Retenu.** Redis ou un courtier auraient ajouté un service à exploiter et un second état à réconcilier ; ici la base reste la seule source de vérité, donc une reconnexion ne duplique ni ne perd, et plusieurs processus d'API peuvent servir la même tentative. Coût assumé : une latence nominale bornée par l'intervalle d'interrogation, documentée comme telle |
+| Stockage disque adressé par contenu plutôt qu'un SDK S3 | `write` / `open` / `delete` / `exists`, écriture atomique par `os.replace` | aucune dépendance ajoutée | — | **Retenu pour ce lot.** L'interface `ArtifactStorage` est explicite pour accueillir un adaptateur objet ; l'ajouter maintenant aurait imposé une dépendance et un compte de stockage sans besoin démontré. Limite assumée : sur un hébergeur, ce répertoire exige un volume persistant, et **aucun adaptateur objet n'est livré** |
+| HMAC-SHA256 de la bibliothèque standard plutôt qu'un JWT | `hmac` + `hashlib` + base64url, format `v1.<artifact_id>.<exp>.<sig>`, clés en liste pour la rotation | aucune dépendance ajoutée | — | **Retenu pour les liens de téléchargement.** Le jeton ne porte que trois champs et n'est jamais lu par un tiers : une bibliothèque JWT aurait apporté un format extensible, des algorithmes à exclure et une surface d'attaque, sans bénéfice. Le lien est en plus enregistré en base, donc révocable — ce qu'un JWT autoporteur ne permet pas |
+
+Aucune dépendance runtime n'a été ajoutée au Lot E : ni en Python, ni côté web, CLI,
+worker ou reporter. Le seul ajout au `package.json` racine est le workspace
+`packages/playwright-reporter`, qui ne déclare aucune dépendance.
+
 ## Sources officielles consultées
 
 - [Hermes API Server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server)

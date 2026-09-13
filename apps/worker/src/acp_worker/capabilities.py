@@ -6,6 +6,38 @@ import shutil
 from acp_contracts import WorkerCapability
 
 from .mcp_probe import McpProbeConfigurationError, McpStdioProbeConfig
+from .web_tests import SIMULATION_ENV, WebTestConfig, WebTestConfigurationError
+
+
+def simulation_from_environ() -> bool:
+    """Mode de simulation déduit de l'environnement, fermé par défaut.
+
+    Repli utilisé quand l'appelant ne connaît pas encore le mode effectif.
+    ``register --real`` et ``doctor``, eux, le connaissent et le passent.
+    """
+
+    return os.environ.get(SIMULATION_ENV, "1").strip() != "0"
+
+
+def _web_tests_available(*, simulation: bool) -> bool:
+    """Les tests web exigent une configuration complète **et** le mode réel.
+
+    Un worker en simulation ne lance aucun programme : annoncer ``web_tests``
+    l'exposerait à des missions qu'il ne peut pas exécuter. Le mode est celui
+    que l'appelant enregistre réellement, jamais une seconde lecture de
+    ``ACP_WORKER_SIMULATION`` : ``register --real`` enregistre
+    ``simulation=False`` sans que la variable change, et un worker déclaré réel
+    qui n'annonce pas ``web_tests`` reroute silencieusement ses missions
+    ``web_test_suite`` vers le programme local du Lot C.
+    """
+
+    if simulation:
+        return False
+    try:
+        config = WebTestConfig.from_environ()
+    except (WebTestConfigurationError, ValueError, OSError):
+        return False
+    return config.enabled and config.configured
 
 
 def _mcp_stdio_probe_available() -> bool:
@@ -22,7 +54,16 @@ def _mcp_stdio_probe_available() -> bool:
     return config.enabled and bool(config.allowed_executables)
 
 
-def detect_capabilities() -> list[str]:
+def detect_capabilities(*, simulation: bool | None = None) -> list[str]:
+    """Capacités annonçables dans le mode d'exécution réellement enregistré.
+
+    ``simulation`` vaut le drapeau que l'appelant s'apprête à enregistrer ;
+    ``None`` retombe sur l'environnement pour les appels qui n'ont pas de mode
+    à leur disposition.
+    """
+
+    if simulation is None:
+        simulation = simulation_from_environ()
     capabilities = {
         WorkerCapability.FILESYSTEM_PROJECT.value,
         WorkerCapability.SHELL_RESTRICTED.value,
@@ -50,6 +91,8 @@ def detect_capabilities() -> list[str]:
         capabilities.add(WorkerCapability.IMAGE_CAPTURE.value)
     if _mcp_stdio_probe_available():
         capabilities.add(WorkerCapability.MCP_STDIO_PROBE.value)
+    if _web_tests_available(simulation=simulation):
+        capabilities.add(WorkerCapability.WEB_TESTS.value)
     return sorted(capabilities)
 
 

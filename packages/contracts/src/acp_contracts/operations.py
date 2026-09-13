@@ -162,3 +162,48 @@ class Artifact(BaseModel):
     size_bytes: int | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
+
+
+# --- Lot E : bibliothèque de livrables ----------------------------------------
+
+
+class ArtifactSummary(BaseModel):
+    """Métadonnées d'un livrable exposées à l'interface et au CLI.
+
+    La clé de stockage (adressage par contenu) et le chemin interne ne sont jamais
+    publiés : le contenu ne s'obtient que par la route de téléchargement, par session
+    ou par lien signé. ``has_content`` distingue un livrable réellement téléversé
+    d'un artefact historique « métadonnées seules ».
+    """
+
+    id: str
+    project_id: str
+    task_run_id: str
+    kind: str = Field(max_length=100)
+    stream_kind: str = Field(default="", max_length=50)
+    original_name: str = Field(default="", max_length=500)
+    content_type: str = Field(default="application/octet-stream", max_length=200)
+    size_bytes: int | None = Field(default=None, ge=0)
+    checksum: str | None = Field(default=None, max_length=200)
+    source: str = Field(default="worker", max_length=50)
+    has_content: bool = False
+    created_at: datetime | None = None
+
+
+class ArtifactLink(BaseModel):
+    """Lien de téléchargement signé, borné dans le temps et révocable.
+
+    Le jeton est lié à un artefact et à un utilisateur : aucun projet ne devient
+    public par la création d'un lien.
+    """
+
+    artifact_id: str
+    url: str = Field(max_length=2000)
+    expires_at: datetime
+
+
+class ArtifactPage(BaseModel):
+    """Page de la bibliothèque de livrables ; ``next_cursor`` est opaque au client."""
+
+    items: list[ArtifactSummary] = Field(default_factory=list)
+    next_cursor: str | None = Field(default=None, max_length=200)

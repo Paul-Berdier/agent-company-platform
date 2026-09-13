@@ -8,10 +8,12 @@ from acp_agent_sdk import load_modules
 from acp_database import init_db
 
 from .routers import (
+    artifacts,
     auth,
     connections,
     conversations,
     crud,
+    events,
     mcp,
     missions,
     onboarding,
@@ -19,6 +21,8 @@ from .routers import (
     platform,
     secrets,
     skills,
+    streams,
+    testing,
     work,
     workers,
 )
@@ -33,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.5.0",
+    version="0.6.0",
     lifespan=lifespan,
 )
 
@@ -61,6 +65,10 @@ app.include_router(secrets.router)
 app.include_router(mcp.router)
 app.include_router(skills.router)
 app.include_router(skills.extensions_router)
+app.include_router(events.router)
+app.include_router(streams.router)
+app.include_router(artifacts.router)
+app.include_router(testing.router)
 
 
 @app.middleware("http")

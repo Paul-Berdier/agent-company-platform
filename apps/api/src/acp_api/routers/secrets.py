@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from acp_contracts import SecretCreate, SecretRotate, SecretsStatus, SecretSummary
-from acp_database.models import EventModel, ProjectModel, SecretModel
+from acp_contracts import Event, SecretCreate, SecretRotate, SecretsStatus, SecretSummary
+from acp_database.models import ProjectModel, SecretModel
 
 from ..deps import (
     accessible_project_ids,
@@ -27,6 +27,7 @@ from ..deps import (
     is_platform_owner,
     require_platform_role,
 )
+from ..events_bus import store_event
 from ..mcp.service import referencing_server_ids
 from ..secrets_vault import SecretsVault, VaultNotConfigured, get_vault, vault_status
 
@@ -67,10 +68,18 @@ def _ensure_scope_access(
 
 
 def _record(db: Session, event_type: str, secret: SecretModel) -> None:
-    """Événement d'audit sans valeur : uniquement des identifiants et la portée."""
+    """Événement d'audit sans valeur : uniquement des identifiants et la portée.
 
-    db.add(
-        EventModel(
+    L'écriture passe par ``store_event`` — et non par un ``EventModel`` ajouté à la
+    main — parce que c'est lui qui alloue le numéro de journal : sans ce numéro, la
+    trace d'audit du coffre resterait invisible de ``GET /projects/{id}/events``
+    pour toute la vie du processus, puis ressortirait hors d'ordre après un
+    redémarrage. ``commit=False`` laisse la transaction à la route appelante.
+    """
+
+    store_event(
+        db,
+        Event(
             type=event_type,
             project_id=secret.project_id,
             payload={
@@ -80,7 +89,8 @@ def _record(db: Session, event_type: str, secret: SecretModel) -> None:
                 "project_id": secret.project_id,
                 "key_id": secret.key_id,
             },
-        )
+        ),
+        commit=False,
     )
 
 

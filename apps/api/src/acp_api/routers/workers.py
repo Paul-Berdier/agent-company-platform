@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from acp_contracts import (
+    Event,
     WorkerHeartbeatRequest,
     WorkerHeartbeatResponse,
     WorkerRegistrationRequest,
@@ -19,7 +20,6 @@ from acp_contracts import (
 )
 from acp_database.models import (
     AgentInstanceModel,
-    EventModel,
     ProjectModel,
     TaskModel,
     TaskRunModel,
@@ -29,6 +29,7 @@ from acp_database.models import (
 )
 
 from ..deps import get_db, get_principal, require_platform_role
+from ..events_bus import store_event
 
 router = APIRouter(prefix="/workers", tags=["workers"])
 
@@ -127,8 +128,14 @@ def expire_task_leases(db: Session) -> int:
         if task is not None and run is not None:
             project = db.get(ProjectModel, task.project_id)
             workspace = db.get(WorkspaceModel, project.workspace_id) if project else None
-            db.add(
-                EventModel(
+            # ``store_event`` alloue les deux numéros (séquence de tentative et
+            # numéro de journal) : sans eux, la fin forcée de la tentative sortirait
+            # du flux et de la page projet, et le Studio resterait « en direct » sur
+            # une tentative pourtant close. ``commit=False`` : la boucle possède sa
+            # transaction et valide plus bas.
+            store_event(
+                db,
+                Event(
                     type="task.interrupted",
                     organization_id=workspace.organization_id if workspace else None,
                     workspace_id=project.workspace_id if project else None,
@@ -143,7 +150,8 @@ def expire_task_leases(db: Session) -> int:
                         "reason": "worker_lease_expired",
                         "worker_id": lease.worker_id,
                     },
-                )
+                ),
+                commit=False,
             )
         if run is not None and run.agent_instance_id:
             agent = db.get(AgentInstanceModel, run.agent_instance_id)

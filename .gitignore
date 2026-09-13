@@ -22,7 +22,8 @@ dist/
 .env.local
 *.local.json
 
-# Données locales de la plateforme (révisions de skills importées, etc.)
+# Données locales de la plateforme : révisions de skills importées, blobs de
+# livrables (captures, vidéos, traces) sous acp-data/artifacts, etc.
 acp-data/
 
 # OS / IDE

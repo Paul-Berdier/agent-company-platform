@@ -9,14 +9,22 @@ et aux conversations du Lot B une ressource mission durable, des tentatives
 clôturées par fencing token, un backend de processus local configuré et le CLI
 `acp`. Le Lot D y ajoute les extensions contrôlées : coffre de secrets chiffrés,
 politique de sortie anti-SSRF, centre MCP versionné avec diagnostics autorisés,
-bibliothèque de skills relisibles et révocation de bout en bout. Une instance Hermes
-réelle, un serveur MCP tiers, le streaming utilisateur et une isolation OS du runner
-ne sont toutefois pas encore validés. Le détail exact se trouve dans
+bibliothèque de skills relisibles et révocation de bout en bout. Le Lot E y ajoute
+l'observation et les livrables : journal d'événements ordonné, flux temps réel
+authentifié avec reprise par curseur, reporter Playwright, exécution de tests web sur
+un runner authentifié, résultats de tests structurés, stockage privé de livrables avec
+liens signés, Studio en lecture seule et bibliothèque de livrables.
+
+Une instance Hermes réelle, un serveur MCP tiers et une isolation OS du runner ne sont
+toujours pas validés. Et pour le Lot E en particulier : **aucun navigateur réel n'a été
+lancé et aucun test Playwright réel n'a été exécuté** ; la reprise en main humaine du
+navigateur n'est pas livrée. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version des sources : **0.5.0** (Lot D), implémentée et vérifiée localement. Ni le
-Lot C (`0.4.0`) ni le Lot D ne sont publiés : la dernière version publiée sur GitHub
-reste **0.3.0** (tag `v0.3.0`). Les changements versionnés sont décrits dans
+Version des sources : **0.6.0** (Lot E), implémentée et vérifiée localement mais **non
+publiée** : la branche `codex/modernization-lot-e` est poussée, elle n'est pas fusionnée
+dans `main` et aucun tag `v0.6.0` n'existe. La dernière version publiée est **0.5.0**
+(Lot D, PR #4, tag `v0.5.0`). Les changements versionnés sont décrits dans
 [CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
@@ -77,11 +85,35 @@ reste **0.3.0** (tag `v0.3.0`). Les changements versionnés sont décrits dans
 - terminaison nominale d'une simulation worker en `blocked` (ou `failed` si sa
   préparation échoue), jamais présentée comme une exécution réussie ;
 - refus d'un succès de run sans validation technique `passed` et preuve ;
+- journal d'événements durable et ordonné : deux compteurs monotones alloués dans la
+  transaction métier, pages par curseur sans perte ni doublon, et aucun média dans un
+  événement (référence d'artefact, empreinte, type et taille seulement) ;
+- flux temps réel **authentifié** servi par l'API métier (`GET /streams/runs/{id}`,
+  `GET /streams/projects/{id}`), avec reprise par `Last-Event-ID` ou `?after_seq=`,
+  keep-alive, rotation annoncée, limite de connexions par utilisateur et RBAC
+  revérifié à chaque page ; côté client, les états `connected`, `reconnecting`,
+  `polling` et `offline` sont affichés tels quels et une coupure n'invente aucun état ;
+- reporter Playwright `@acp/playwright-reporter` sans dépendance ni appel réseau : il
+  écrit un NDJSON local, et c'est le worker authentifié qui l'ingère ; les statuts
+  `passed`, `failed`, `timedOut`, `skipped`, `interrupted` et `flaky` restent
+  distincts ;
+- exécution de tests web sur un runner opt-in : argv absolu configuré par l'opérateur,
+  aucun credential de la plateforme remis au processus de test, clôture d'arrêt Job
+  Object, rapport vide ou arrêt d'arbre non prouvé ⇒ échec explicite, jamais un succès ;
+- livrables privés adressés par contenu : téléversement worker idempotent par sha256
+  avec plafond et quota, téléchargement par session ou par lien signé borné et
+  révocable, `Range` supporté, et HTML/SVG/archives jamais servis en ligne ;
+- Studio en lecture seule dans le détail d'une mission (`/missions?run=<id>&vue=studio`)
+  et onglet « Livrables » de la bibliothèque ;
+- commandes `acp runs events`, `acp runs tests`, `acp artifacts list | get | link` et
+  `acp open --run <id> --studio` ;
 - bureau pixel historique préservé mais non chargé par défaut.
 
 Ce qui ne fonctionne pas encore est visible comme `Non configuré` et recensé dans
-[le rapport d'acceptation](docs/acceptance-report.md). Le projet n'est pas prêt à
-être exposé sur Internet.
+[le rapport d'acceptation](docs/acceptance-report.md). En particulier : aucune
+exécution Playwright réelle, aucune capture ni trace produite par un vrai navigateur,
+aucune reprise en main humaine du navigateur, et aucune origine d'aperçu séparée
+configurée. Le projet n'est pas prêt à être exposé sur Internet.
 
 ## Architecture
 
@@ -125,8 +157,8 @@ L'interface est ensuite disponible sur `http://localhost:5173`. Services locaux 
 | Service | Port | Rôle |
 |---|---:|---|
 | web | 5173 | shell utilisateur |
-| api | 8000 | projets, missions, droits et historique métier |
-| event-service | 8001 | ingestion interne protégée ; temps réel utilisateur encore à livrer |
+| api | 8000 | projets, missions, droits, historique métier, **flux SSE utilisateur et livrables privés** |
+| event-service | 8001 | relais interne protégé ; ce n'est pas la voie temps réel utilisateur |
 | provider-gateway | 8002 | frontière privée des providers, dont Hermes |
 
 Copier les valeurs utiles de `.env.example` dans l'environnement du processus. Avant
@@ -147,6 +179,16 @@ clé chiffre, les suivantes permettent la rotation). Sans clé, l'état est anno
 allowlist de sortie, stockage et sources de skills, sonde MCP stdio du worker — sont
 documentées dans `.env.example` et dans
 [docs/mcp-and-skills.md](docs/mcp-and-skills.md).
+
+Pour les liens de téléchargement signés, définir `ACP_ARTIFACT_SIGNING_KEYS`
+(`python -m acp_api.signing generate-key` ; même discipline de rotation par liste).
+Sans clé, la création d'un lien répond `503` explicite et le téléchargement par session
+reste possible. Avant d'exposer le Studio sur un réseau, définir aussi
+`ACP_ARTIFACT_PUBLIC_ORIGIN` : tant que cette variable est vide, les aperçus signés
+sont servis par l'origine de l'API et l'interface affiche cet écart. Les autres
+variables du Lot E — flux SSE, rétention, stockage et quotas de livrables, tests web du
+worker — sont documentées dans `.env.example` et dans
+[docs/live-studio.md](docs/live-studio.md).
 
 Au premier affichage, le formulaire « Sécuriser le premier accès » consomme le jeton
 de bootstrap et crée l'unique propriétaire initial. Les visites suivantes restaurent
@@ -227,18 +269,29 @@ séparés et ne doivent pas être redistribués. Voir
 Commandes principales :
 
 ```powershell
+./.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
 npm exec tsc -- --noEmit -p apps/web/tsconfig.json
 npm test --workspace @acp/web
+npm test --workspace @acp/playwright-reporter
 npm test --workspace @acp/pixel-office-engine
 npm run build:web
-python -m pytest -q
-python -m pytest -q apps/cli/tests
-python scripts/check_version.py
+./.venv/Scripts/python.exe scripts/check_version.py
 ```
 
 Sous Windows, appeler l'interpréteur de l'environnement virtuel
 (`./.venv/Scripts/python.exe`) plutôt que le `python` du `PATH` : c'est celui avec
 lequel les résultats publiés ont été obtenus.
+
+Résultats obtenus le 13 septembre 2026 sur la machine de vérification (Windows 10 Pro
+`10.0.19045`, Python `3.12.0`, Node `v24.19.0`, npm `11.17.0`) : **1 627 tests Python
+réussis et 4 ignorés**, **262 tests web**, **59 tests du reporter**, **74 tests du
+moteur legacy** ; typecheck, build et `check_version.py` (`0.6.0`) réussissent. Les
+quatre tests ignorés sont des limites de la machine — permissions POSIX et création de
+liens symboliques — et non des opt-in.
+
+Aucune de ces commandes ne lance de navigateur. L'opt-in de test E2E Playwright réel
+n'existe pas encore dans le dépôt : un résultat vert ici ne dit **rien** sur une
+exécution Playwright réelle.
 
 Un parcours de bout en bout, hors intégration continue, démarre l'API et un vrai
 serveur MCP local puis rejoue l'ajout, le diagnostic, le rattachement, l'activation,
@@ -253,8 +306,10 @@ Il n'effectue aucun appel sortant vers Internet et n'utilise aucune donnée rée
 Les résultats réellement obtenus, l'environnement Python utilisé, les warnings et
 les limites sont consignés dans [docs/acceptance-report.md](docs/acceptance-report.md).
 Les tests Hermes, de conversation et de diagnostic utilisent un transport HTTP
-simulé ; ils ne constituent pas une connexion à une instance Hermes réelle. La
-reprise web actuelle repose sur un polling `GET`, pas sur un streaming SSE/WebSocket.
+simulé ; ils ne constituent pas une connexion à une instance Hermes réelle. Depuis le
+Lot E, le suivi d'une tentative repose sur un flux SSE authentifié avec reprise par
+curseur, avec repli automatique sur l'interrogation `GET` ; les conversations, elles,
+reprennent toujours par polling `GET`.
 
 ## Documentation
 
@@ -265,10 +320,12 @@ reprise web actuelle repose sur un polling `GET`, pas sur un streaming SSE/WebSo
 - [Intégration Hermes](docs/hermes-integration.md)
 - [Missions, runner local et CLI](docs/missions-and-cli.md)
 - [Centre MCP et bibliothèque de skills](docs/mcp-and-skills.md)
+- [Studio, journal d'événements, tests web et livrables](docs/live-studio.md)
+- [CLI `acp` — référence des commandes](apps/cli/README.md)
 - [Worker Windows distant](docs/workers/windows-worker.md)
+- [Contrat du runner worker](apps/worker/RUNNER.md)
 - [Sécurité](docs/security.md)
 - [Modèle de menace par actif](docs/security/threat-model.md)
-- [Studio en direct — cible](docs/live-studio.md)
 - [Déploiement Railway](docs/deployment-railway.md)
 - [Rapport d'acceptation](docs/acceptance-report.md)
 - [État d'implémentation et reprise](docs/implementation-status.md)

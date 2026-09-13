@@ -1,9 +1,14 @@
-# Threat model — état du Lot D
+# Threat model — état du Lot E
 
-Date d'état : 12 septembre 2026 — version `0.5.0`. Ce document décrit les menaces
+Date d'état : 13 septembre 2026 — version `0.6.0`. Ce document décrit les menaces
 par actif et les mesures **réellement en place**. Les mesures qui n'existent pas sont
 nommées comme telles ; la vue d'ensemble des frontières est dans
 [docs/security.md](../security.md).
+
+Avertissement valable pour toute la section « Lot E » : **aucun navigateur réel n'a
+été lancé et aucun test Playwright réel n'a été exécuté** pour cette version. Les
+mesures décrites sont prouvées sur des objets synthétiques et un programme
+déterministe, jamais contre une vraie exécution de navigateur.
 
 ## Assets sous licence (LimeZu)
 
@@ -154,3 +159,140 @@ utilisateur.
 Écart restant : le contrôle automatique d'un skill est une **heuristique indicative** —
 il signale `eval`, `curl | sh`, chemins sensibles, caractères Unicode invisibles et
 formulations d'injection, mais il ne certifie rien et ne remplace pas une relecture.
+
+## Flux, livrables et tests web (Lot E)
+
+### Journal d'événements et flux temps réel
+
+**Risque** : un utilisateur lit le flux ou le journal d'un projet auquel il n'a pas
+accès ; une session révoquée continue de recevoir des événements sur une connexion déjà
+ouverte ; une reconnexion perd, duplique ou réordonne des événements et fait croire à un
+état qui n'existe pas.
+
+Mesures en place :
+
+- le flux est servi par l'**API métier**, seule détentrice de la base, des sessions et
+  du RBAC ; `apps/event-service` reste un relais interne et son WebSocket anonyme reste
+  fermé par défaut ;
+- le projet est résolu **côté serveur** à partir de la tentative : un `project_id`
+  fourni par le client n'élargit jamais la portée ;
+- l'autorisation n'est pas résolue une seule fois à l'ouverture, elle est revérifiée à
+  chaque page : une révocation de session ou une perte de membership ferme la connexion
+  au plus tard à l'interrogation suivante, avec une trame de fermeture explicite ;
+- la reprise se fait sur un compteur monotone à **ordre total** (`sequence` par
+  tentative, `journal_seq` pour le journal), alloué dans la transaction métier — pas sur
+  un horodatage, dont la granularité réelle mesurée (environ 1,5 ms) rend les égalités
+  courantes et faisait perdre des lignes ;
+- une reconnexion ne relance jamais une mission ; l'interface expose
+  `connected` / `reconnecting` / `polling` / `offline` et réconcilie par `GET` au lieu
+  de supposer « à jour » ;
+- connexions simultanées bornées par utilisateur, rotation propre de la connexion et
+  en-têtes `no-store` / `X-Accel-Buffering: no`.
+
+Écarts restants : aucune coupure réseau réelle ni `EventSource` de navigateur n'a été
+éprouvé ; la migration additive des deux compteurs est propre à SQLite, et une base
+PostgreSQL existante ne la reçoit pas.
+
+### Contenu produit par une exécution de tests
+
+**Risque** : un test visite un site tiers hostile, en rapporte un HTML, un SVG, une
+trace ou une capture, et ce contenu s'exécute ensuite dans l'origine de la plateforme
+avec le cookie de session de l'utilisateur.
+
+Mesures en place :
+
+- le type servi vient d'une **allowlist serveur** (extension + type déclaré), sans
+  aucun reniflage : un type non reconnu devient `application/octet-stream` ;
+- `text/html`, `image/svg+xml` et les archives — dont la trace Playwright — ne sont
+  **jamais** servis en ligne ; `Content-Disposition: attachment` est imposé ;
+- toute réponse de contenu porte `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox` et
+  `Cache-Control: private, no-store` ;
+- le Studio n'utilise ni `iframe`, ni `srcdoc`, ni `innerHTML` pour un contenu venu de
+  l'API ; une trace et un rapport HTML sont proposés en téléchargement explicite, avec
+  l'avertissement de les ouvrir hors de la plateforme.
+
+Écart restant, le plus important de ce lot : `ACP_ARTIFACT_PUBLIC_ORIGIN` n'est
+configurée nulle part. Les aperçus image et vidéo passent donc par un lien signé servi
+sur **l'origine de l'API**. Le Studio affiche cet écart, mais un avertissement n'est pas
+un contrôle : une telle instance ne doit pas être exposée sur Internet.
+
+### Lien de téléchargement d'un livrable
+
+**Risque** : une URL de fichier partagée ou conservée donne un accès durable, ou donne
+accès au livrable d'un autre projet.
+
+Mesures en place : jeton HMAC-SHA256 lié à **l'artefact et au demandeur**, borné à
+900 secondes au maximum (300 par défaut), enregistré par empreinte et révocable par son
+titulaire ou par un owner du projet du livrable ; clés en liste
+(`ACP_ARTIFACT_SIGNING_KEYS`) pour la rotation ; sans clé, la création de lien répond
+`503` explicite et le téléchargement par session reste possible ; ni l'existence du lien
+ni celle du livrable ne sont énumérables (`404` uniforme) ; aucun projet ne devient
+public.
+
+Écarts restants : les clés de signature vivent dans une variable d'environnement (pas de
+KMS/HSM, pas de rotation planifiée) ; le compteur d'usage d'un lien est incrémenté mais
+n'est exposé par aucune route, donc il n'existe pas de journal de consultation.
+
+### Stockage d'un livrable
+
+**Risque** : un nom de fichier fourni par le processus de test sort du répertoire de
+stockage, ou un téléversement sature le disque.
+
+Mesures en place : clé de stockage dérivée du sha256 (`<sha256[0:2]>/<sha256>`) — le nom
+d'origine n'entre jamais dans un chemin ; écriture atomique par fichier temporaire du
+même volume puis `os.replace` ; identité du worker vérifiée **avant** la lecture du
+corps ; plafond par fichier et quota cumulé par tentative appliqués **pendant** le flux,
+donc le premier morceau qui dépasse interrompt la lecture ; côté worker, une pièce
+jointe n'est téléversée que si sa résolution canonique reste sous le répertoire de
+sortie de la tentative, et un refus interdit le verdict `passed`.
+
+Écarts restants : le stockage est un répertoire local, sans quota par projet ni alerte de
+saturation ; les trois tests de refus de lien symbolique sont **ignorés** sur la machine
+de vérification, faute de privilège de création.
+
+### Secret imprimé par une suite de tests
+
+**Risque** : une suite de tests imprime une variable d'environnement ou un en-tête dans
+un message d'erreur, et la plateforme republie cette valeur à tout utilisateur autorisé.
+
+Mesures en place : le processus de test ne reçoit **aucun credential de la plateforme**
+— le reporter écrit un NDJSON local et n'effectue aucun appel réseau, et c'est le worker
+authentifié qui ingère ce fichier ; messages et extraits passent par `redact_text` /
+`redact_data` avec les valeurs injectées par l'opérateur comme liste d'expurgation ; le
+reporter ne journalise ni l'environnement ni les en-têtes, tronque à 8 000 caractères et
+retire les séquences ANSI.
+
+Écarts restants : comme pour un serveur MCP bavard, une valeur **dérivée** (encodée,
+tronquée, hachée) n'est pas couverte ; et un filtre de texte ne masque pas des pixels sur
+une capture d'écran — une suite qui saisit un mot de passe à l'écran le montrera.
+
+### Faux succès d'une exécution de tests
+
+**Risque** : une exécution est présentée comme réussie alors qu'elle a échoué, expiré,
+laissé des processus vivants, ou n'a rien exécuté du tout.
+
+Mesures en place : le verdict est dérivé des codes de sortie et des compteurs, jamais
+d'une image ni d'un résumé ; `passed` exige un code de sortie nul, zéro cas
+`unexpected`, `interrupted` et `timedOut`, **et** au moins un cas réellement exécuté ; un
+rapport absent ou vide est un échec explicite ; un arrêt d'arbre non prouvé interdit le
+succès ; le verdict que l'API dérive des totaux fusionnés ne peut qu'**aggraver** le
+verdict local ; le code de sortie annoncé par le rapport ne peut que **signaler** un
+échec, jamais effacer celui mesuré par le worker ; `flaky` et `skipped` restent distincts
+et affichés, jamais convertis en réussite ou en échec générique. La validation technique
+dérivée ne vaut jamais `succeeded` : l'acceptation utilisateur reste séparée.
+
+Écart restant : toute cette chaîne est prouvée sur un lanceur déterministe
+(`apps/worker/tests/fake_playwright_runner.py`). Aucune exécution Playwright réelle ne
+l'a encore validée, et l'opt-in de test E2E réel prévu par la spécification (`ACP_E2E=1`)
+n'existe pas dans le dépôt.
+
+### Reprise en main humaine du navigateur
+
+**Risque** : une prise de contrôle concurrente, non journalisée ou non exclusive perturbe
+un test automatisé et fausse son résultat.
+
+Mesure en place : **la capacité n'est pas livrée**. Le Studio est en lecture seule et un
+panneau le dit explicitement ; aucun bouton ne laisse croire qu'une action est possible,
+et aucune route de contrôle n'existe côté serveur. Le lease exclusif, la suspension de
+l'automate et le marquage d'un résultat perturbé restent à concevoir (Lot G).

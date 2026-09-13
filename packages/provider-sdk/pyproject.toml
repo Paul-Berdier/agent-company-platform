@@ -1,6 +1,6 @@
 [project]
 name = "acp-provider-sdk"
-version = "0.5.0"
+version = "0.6.0"
 description = "Abstractions providers (orchestrator / execution / tool) de l'Agent Company Platform"
 requires-python = ">=3.11"
 dependencies = ["acp-contracts"]

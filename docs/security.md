@@ -1,10 +1,12 @@
 # Sécurité et frontières de confiance
 
-Date d'état : 12 septembre 2026 — version `0.5.0`
+Date d'état : 13 septembre 2026 — version `0.6.0`
 Statut : frontières utilisateur/inter-services fermées et runner local contrôlé au
 Lot C ; coffre de secrets, politique de sortie anti-SSRF, expurgation des retours
-tiers, clôture d'arrêt Windows et révocation des extensions ajoutés au Lot D ;
-production interdite sans isolation OS/réseau, stockage et exploitation
+tiers, clôture d'arrêt Windows et révocation des extensions ajoutés au Lot D ; flux
+utilisateur authentifié par curseur, stockage privé de livrables, liens signés bornés
+et révocables, expurgation des sorties de tests ajoutés au Lot E ; production
+interdite sans isolation OS/réseau, origine d'aperçu séparée et exploitation
 
 Le modèle de menace par actif est tenu à part dans
 [docs/security/threat-model.md](security/threat-model.md).
@@ -28,10 +30,18 @@ fixe et configuré peut démarrer, avec tentative/fencing, cwd neuf, environneme
 minimal, durée et sorties bornées, et arrêt de l'arbre de processus. Une politique
 d'autonomie que ce backend ne peut pas appliquer est refusée avant le spawn.
 
+Le Lot E ajoute une voie temps réel **authentifiée** servie par l'API métier elle-même
+(session, RBAC revérifié à chaque page, reprise par curseur), un stockage de livrables
+privé adressé par contenu, des liens de téléchargement signés bornés et révocables, et
+une règle claire sur le contenu produit par un test : il est traité comme non fiable et
+n'est jamais exécuté dans l'origine de la plateforme. Ces contrôles sont prouvés par
+des tests déterministes : **aucun navigateur réel n'a été lancé et aucun test
+Playwright réel n'a été exécuté** pour cette version.
+
 Ces garanties ne rendent pas encore la plateforme exploitable sur Internet. Il
 reste notamment à compléter la matrice d'autorisation exhaustive, les en-têtes web
-de production, le flux temps réel utilisateur, l'isolation OS/réseau du runner, le
-stockage privé, les migrations, la rotation et la restauration.
+de production, l'isolation OS/réseau du runner, l'origine d'aperçu séparée, les
+migrations, la rotation et la restauration.
 
 L'infrastructure pcIA et les systèmes Prooftag sont hors périmètre. Ils ne doivent
 être ni découverts, ni configurés, ni proposés comme runner ou ressource personnelle.
@@ -200,6 +210,108 @@ sans plancher de longueur.
   n'existe pas d'équivalent POSIX dans ce lot (`start_new_session` puis `killpg`, qu'un
   descendant peut quitter en changeant volontairement de session).
 
+## Flux, livrables et tests web (Lot E)
+
+### Flux utilisateur authentifié
+
+- Le flux temps réel est servi par l'**API métier** (`GET /streams/runs/{id}`,
+  `GET /streams/projects/{id}`), pas par `apps/event-service` : c'est l'API qui détient
+  la base, les sessions et le RBAC. Le WebSocket anonyme du service d'événements reste
+  fermé par défaut ; il n'a pas été rouvert.
+- L'autorisation n'est pas résolue une seule fois à l'ouverture : elle est **revérifiée
+  à chaque page**. Une révocation de session ou une perte de membership ferme la
+  connexion au plus tard à l'interrogation suivante, avec une trame de fermeture
+  explicite. Un `project_id` fourni par le client n'élargit jamais la portée : le
+  projet est résolu côté serveur à partir de la tentative.
+- La reprise se fait par curseur (`Last-Event-ID` ou `?after_seq=`) sur un compteur
+  monotone à ordre total, jamais sur un horodatage. Une reconnexion ne relance jamais
+  une mission et ne duplique aucun événement ; une coupure n'invente aucun état
+  (`connected`, `reconnecting`, `polling`, `offline` sont exposés tels quels).
+- Le nombre de connexions simultanées par utilisateur est borné
+  (`ACP_STREAM_MAX_CONNECTIONS_PER_USER`, défaut 4), la connexion est rotée après
+  `ACP_STREAM_MAX_SECONDS` (défaut 900 s) et les réponses portent
+  `Cache-Control: no-store` et `X-Accel-Buffering: no`.
+- Aucun média ne transite dans un événement : le payload ne porte qu'une référence
+  d'artefact, une empreinte, un type MIME et une taille.
+
+### Contenu actif produit par un test : jamais servi en ligne
+
+- Le type servi est décidé par une **allowlist serveur** construite sur l'extension et
+  le type déclaré. Aucun reniflage de contenu : un fichier `piege.html` annoncé
+  `image/png` reste un piège, pas une image, et un type non reconnu devient
+  `application/octet-stream`.
+- `text/html`, `image/svg+xml` et les archives — dont la trace Playwright — ne sont
+  **jamais** servis en ligne : `Content-Disposition: attachment` est imposé.
+- Toute réponse de contenu porte `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox` et
+  `Cache-Control: private, no-store`.
+- Le Studio n'utilise ni `iframe`, ni `srcdoc`, ni `innerHTML` pour un contenu venu de
+  l'API : messages d'erreur, extraits de code, noms de fichiers et payloads sont
+  insérés en `textContent`.
+- Écart assumé et affiché : `ACP_ARTIFACT_PUBLIC_ORIGIN` n'est configurée nulle part
+  aujourd'hui. Les liens signés pointent donc vers l'origine de l'API, et le Studio
+  affiche l'avertissement correspondant. Une instance dans cet état ne doit pas être
+  exposée sur Internet.
+
+### Liens de téléchargement signés, bornés et révocables
+
+- Un lien est un jeton HMAC-SHA256 `v1.<artifact_id>.<exp>.<sig>` lié à **l'artefact et
+  au demandeur**, borné à `ttl_seconds` ≤ 900 (défaut 300), enregistré par empreinte
+  (`token_hash`) et révocable par `DELETE /artifacts/links/{link_id}` — par son
+  titulaire, ou par un owner du projet du livrable. Ni l'existence du lien ni celle du
+  livrable ne sont énumérables : un appelant sans droit reçoit `404`.
+- Les clés viennent de `ACP_ARTIFACT_SIGNING_KEYS` (liste : la première signe, les
+  suivantes vérifient encore, ce qui permet la rotation). Sans clé configurée, la
+  création de lien répond `503` avec l'action à effectuer ; le téléchargement
+  authentifié par session reste possible. Aucun projet ne devient public.
+- La clé de stockage est dérivée du sha256 : un nom fourni par le client n'entre jamais
+  dans un chemin, et la traversée de répertoire n'a pas de surface.
+- Le téléversement worker vérifie l'identité **avant** de lire le corps, borne chaque
+  fichier (`ACP_ARTIFACT_MAX_BYTES`, défaut 200 Mio) et le cumul par tentative
+  (`ACP_ARTIFACT_MAX_BYTES_PER_RUN`, défaut 1 Gio) pendant le flux, et rend le même
+  artefact pour un même sha256 sur la même tentative.
+
+### Expurgation des sorties de tests
+
+- Le processus de test **ne reçoit aucun credential de la plateforme** : le reporter
+  écrit un fichier NDJSON local et n'effectue aucun appel réseau ; c'est le worker
+  authentifié qui ingère ce fichier avec sa propre identité.
+- Messages d'erreur et extraits de code produits par la suite de tests passent par
+  `redact_text` / `redact_data` avec les valeurs injectées dans l'environnement du
+  processus comme liste d'expurgation, avant d'être envoyés à l'API : une suite qui
+  imprime une variable ne la republie pas.
+- Le reporter ne journalise ni l'environnement ni les en-têtes de requête, tronque
+  messages et extraits à 8 000 caractères, retire les séquences ANSI et ne coupe pas
+  une paire de substituts UTF-16.
+- Écart restant : comme pour un serveur MCP bavard, l'expurgation porte sur les valeurs
+  connues de la plateforme ; une valeur dérivée (encodée, tronquée, hachée) n'est pas
+  couverte. Et un filtre de texte ne masque pas des pixels sur une capture d'écran.
+
+### Clôture de processus d'une exécution de tests
+
+- L'exécution de tests web réutilise les deux points d'entrée publics du runner du
+  Lot D — `spawn_fenced_process` puis `terminate_process_tree` — donc la clôture Job
+  Object s'applique aussi à un navigateur Playwright et à toute sa descendance. Jamais
+  de shell, jamais de spawn direct.
+- Un arrêt d'arbre non prouvé (`terminate_process_tree` renvoie `False`) **interdit**
+  le verdict `passed` : un succès de test n'est jamais accepté quand des processus
+  peuvent avoir survécu.
+- Un rapport absent, vide ou dont une pièce jointe a été refusée ne peut pas produire
+  un `passed`. Le verdict que l'API dérive des totaux fusionnés ne peut qu'**aggraver**
+  le verdict local, jamais le repeindre en vert, et le code de sortie annoncé par le
+  rapport ne peut jamais effacer celui mesuré par le worker.
+
+### Rétention
+
+- `python -m acp_api.retention` est une purge **à blanc par défaut** : sans `--apply`,
+  elle décrit ce qu'elle supprimerait et ne supprime rien.
+- Elle conserve les événements terminaux d'une tentative, ne supprime jamais un blob
+  encore référencé par un autre artefact (adressage par contenu ⇒ comptage de
+  références) ni un artefact cité par une preuve de mission. La citation est détectée
+  en balayant **toutes** les chaînes de `evidence.data` à profondeur bornée plutôt
+  qu'une liste de noms de clés : une liste de clés finit toujours par rater le
+  producteur suivant.
+
 ## Écarts bloquants
 
 ### Identité et autorisation
@@ -219,10 +331,15 @@ sans plancher de longueur.
 
 - La configuration CORS de production, les méthodes/en-têtes permis et le modèle
   d'authentification restent à tester ; CORS ne constitue pas un contrôle d'accès.
-- Le service d'événements conserve les sockets en mémoire ; l'ingestion interne est
-  authentifiée et le WebSocket anonyme est fermé par défaut, mais il n'existe pas
-  encore de flux navigateur authentifié, scoppé, séquencé ou rejouable.
-- Il n'existe pas d'origine séparée pour les aperçus de projets non fiables.
+- Le flux navigateur authentifié, scoppé, séquencé et rejouable existe depuis le
+  Lot E, mais il est servi par l'API métier : le service d'événements conserve ses
+  sockets en mémoire, son ingestion interne reste authentifiée et son WebSocket
+  anonyme reste fermé par défaut. Ces deux voies coexistent ; la seconde n'est pas une
+  voie utilisateur.
+- Aucune origine séparée n'est **configurée** pour les aperçus de contenu non fiable.
+  `ACP_ARTIFACT_PUBLIC_ORIGIN` existe et est lue par le code ; tant qu'elle est vide,
+  les liens signés pointent vers l'origine de l'API. C'est l'écart bloquant principal
+  avant toute exposition réseau du Studio.
 - Le CSRF et la politique de cookie sont couverts localement ; CSP, HSTS, autres
   en-têtes de sécurité, limitations d'upload et configuration HTTPS restent à
   valider en déploiement.
@@ -250,10 +367,18 @@ sans plancher de longueur.
   restent des variables d'environnement. Les clés Fernet elles-mêmes vivent dans
   `ACP_SECRETS_KEYS` : il n'y a ni KMS, ni HSM, ni rotation planifiée, et la procédure
   de rotation est manuelle.
-- Les artefacts sont des métadonnées ou chemins ; il n'existe pas de stockage privé,
-  d'URL signée ou de contrôle de téléchargement de bout en bout.
+- Le stockage privé des livrables, les URLs signées bornées et révocables et le
+  contrôle de téléchargement existent depuis le Lot E, mais le stockage est un
+  **répertoire local** : sur un hébergeur il exige un volume persistant, et aucun
+  adaptateur de stockage objet n'est livré. Les clés de signature vivent dans
+  `ACP_ARTIFACT_SIGNING_KEYS`, comme les clés du coffre : ni KMS, ni HSM, ni rotation
+  planifiée.
+- Les sorties stdout/stderr d'une exécution de tests sont expurgées des valeurs
+  injectées ; celles du runner de mission du Lot C ne le sont toujours pas.
 - Les migrations PostgreSQL, sauvegardes, restaurations et procédures de rotation
-  ne sont pas livrées.
+  ne sont pas livrées. La migration additive de `events.sequence` et
+  `events.journal_seq` est propre à SQLite : une base PostgreSQL **existante** ne la
+  reçoit pas.
 
 ## Politique cible
 
@@ -321,8 +446,16 @@ un état durable et un événement d'audit.
   d'upload ;
 - rotation des clés de service, révocation runner et absence de secrets dans les
   journaux ;
-- tests d'artefacts privés et d'URLs expirées ;
-- reprise d'événements par curseur sans perte ni double effet ;
+- rejouer les contrôles de livrables et de liens signés derrière une **origine
+  d'aperçu séparée réellement configurée**, et non sur l'origine de l'API : les tests
+  d'URL expirée, révoquée, étrangère et de type actif forcé en téléchargement existent
+  déjà (`apps/api/tests/test_artifacts_content.py`) mais s'exécutent tous sur une seule
+  origine ;
+- exécuter une vraie suite Playwright sur un runner réel : la chaîne reporter → worker
+  → API est prouvée sur un programme déterministe, jamais sur un navigateur ;
+- éprouver la reprise du flux sur une coupure réseau réelle et depuis un `EventSource`
+  de navigateur : la reprise par curseur sans perte ni doublon est couverte par la
+  suite API (`apps/api/tests/test_events_stream.py`), pas par un parcours réel ;
 - analyse statique, audit de dépendances et revue de configuration de production ;
 - restauration testée sur une copie de données.
 
@@ -361,6 +494,18 @@ un état durable et un événement d'audit.
 - L'arrêt d'un arbre de processus sous Windows est prouvé par des tests qui échouaient
   auparavant avec un lanceur d'environnement virtuel, et qui passent désormais sur
   trois exécutions consécutives.
+- Le flux SSE authentifié (RBAC revérifié à chaque page, fermeture après révocation de
+  session, refus inter-projets, reprise par `Last-Event-ID` sans perte ni doublon,
+  limite de connexions par utilisateur) est couvert par
+  `apps/api/tests/test_events_stream.py`.
+- Le contrôle des livrables (idempotence par sha256, quota par tentative, taille
+  maximale, `Range`, en-têtes de sécurité, HTML/SVG/archives forcés en téléchargement,
+  lien expiré, révoqué ou étranger refusé, absence de clé ⇒ `503`) est couvert par
+  `apps/api/tests/test_artifacts_content.py` et `test_artifact_signing.py`.
+- Le refus d'un faux succès de tests (rapport vide, fencing obsolète, arrêt d'arbre non
+  prouvé, pièce jointe hors répertoire, code de sortie du rapport ne pouvant pas
+  effacer celui mesuré) est couvert par `apps/api/tests/test_testing_service.py` et
+  `apps/worker/tests/test_web_tests.py`.
 
 ### Réalisé, non testé réel
 
@@ -369,25 +514,45 @@ un état durable et un événement d'audit.
 - Le web utilise une session cookie/CSRF réelle dans les tests API et TypeScript,
   mais le parcours complet n'a pas encore été rejoué dans un navigateur contre les
   services et une instance Hermes réellement lancés.
+- **Aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté**
+  pour cette version : le reporter est prouvé sur des objets Playwright synthétiques,
+  et l'exécuteur du worker sur un programme déterministe
+  (`apps/worker/tests/fake_playwright_runner.py`). Les contrôles sur le contenu produit
+  par un test n'ont donc jamais rencontré un fichier réellement produit par Playwright.
+- Le flux SSE n'a été exercé que par un client de test : aucune coupure réseau réelle,
+  aucun proxy intermédiaire, aucun `EventSource` de navigateur.
+- Trois tests de refus de lien symbolique dans l'arborescence de sortie des tests web
+  sont **ignorés** sur la machine de vérification (privilège de création indisponible) :
+  ce contrôle n'est donc pas prouvé ici.
 
 ### Non configuré
 
 - matrice RBAC exhaustive et journal d'administration ;
-- gestion des clés du coffre par un KMS/HSM et rotation planifiée ;
-- CORS de production, HTTPS/HSTS, CSP et origine d'aperçu ;
+- gestion des clés du coffre **et des clés de signature de liens** par un KMS/HSM, et
+  rotation planifiée ;
+- CORS de production, HTTPS/HSTS, CSP de l'application et **origine d'aperçu séparée**
+  (`ACP_ARTIFACT_PUBLIC_ORIGIN` reste vide ; les en-têtes de contenu d'artefact, eux,
+  sont livrés et testés) ;
 - sandbox OS et politique réseau du runner, endpoint worker pour les approbations ;
   la clôture d'arrêt Windows est livrée, l'isolation ne l'est pas, et POSIX n'a pas
   d'équivalent au Job Object ;
 - rattachement de l'autorisation `stdio` au circuit d'approbation des missions ;
 - certification d'un skill : le contrôle automatique reste une heuristique indicative,
   sans signature vérifiée ni analyse en bac à sable ;
-- stockage privé, URLs signées et rétention ;
-- outbox, authentification des flux et reprise par curseur.
+- adaptateur de stockage objet distant : l'interface `ArtifactStorage` existe, seul
+  l'adaptateur disque local est livré ;
+- purge de rétention planifiée : la commande existe et est testée, aucun ordonnanceur
+  ne l'exécute ;
+- runner de tests web réel : `ACP_WORKER_WEBTEST_*` n'est configuré sur aucune machine,
+  et la capacité `web_tests` n'a jamais été annoncée par un worker réel ;
+- outbox : le flux relit la base par curseur au lieu de s'appuyer sur un relais, mais
+  aucune outbox transactionnelle n'a été livrée.
 
 ### Restant
 
 Les prochaines tranches doivent isoler plus fortement le runner et raccorder ses
-demandes d'approbation. Elles doivent aussi compléter la matrice de scopes, les
-événements durables, le courtier d'appels d'outils MCP à l'exécution d'une mission,
-les médias privés, les migrations et la restauration. Tant que ces points ne sont pas
-testés, le produit reste réservé au développement local sur une machine de confiance.
+demandes d'approbation. Elles doivent aussi compléter la matrice de scopes, configurer
+et vérifier une origine d'aperçu séparée, exécuter une vraie suite Playwright sur un
+runner réel, livrer le courtier d'appels d'outils MCP à l'exécution d'une mission, les
+médias, les migrations et la restauration. Tant que ces points ne sont pas testés, le
+produit reste réservé au développement local sur une machine de confiance.

@@ -11,6 +11,7 @@ import os
 import re
 import stat
 import sys
+import tempfile
 import time
 import uuid
 import webbrowser
@@ -18,13 +19,21 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence, TextIO
+from typing import Any, Callable, Iterator, Mapping, NamedTuple, Sequence, TextIO
 from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 
 from . import __version__
-from .client import ACPClient, APIError, NetworkError, ProtocolError, SESSION_COOKIE_NAME
+from .client import (
+    ACPClient,
+    APIError,
+    NetworkError,
+    ProtocolError,
+    SESSION_COOKIE_NAME,
+    USER_AGENT,
+)
+from .client import _error_detail as _api_error_detail
 from .config import (
     ConfigError,
     PendingOperation,
@@ -134,6 +143,46 @@ TERMINAL_PROBE_STATES = {
 PENDING_PROBE_STATES = {"pending_approval", "queued", "claimed"}
 KNOWN_PROBE_STATES = TERMINAL_PROBE_STATES | PENDING_PROBE_STATES
 MAX_SKILL_ARCHIVE_BYTES = 25 * 1024 * 1024
+
+# --- Lot E : événements, tests structurés et artefacts -----------------------
+# Bornes du §6 de la spécification, reprises côté client pour refuser une
+# commande impossible avant tout appel réseau. Le serveur revalide.
+EVENTS_MAX_LIMIT = 500
+EVENTS_MAX_PAGES = 10_000
+SSE_MAX_EVENT_CHARS = 1024 * 1024
+FOLLOW_SEEN_IDS_MAX = 5000
+# Noms de trames SSE du serveur (`apps/api/src/acp_api/streams.py`, spec §5.2).
+# Seul `acp.event` porte un événement de journal : les deux autres pilotent la
+# connexion et ne doivent jamais être écrits sur la sortie standard.
+SSE_EVENT_NAME = "acp.event"
+SSE_ROTATE_EVENT = "acp.stream.rotate"
+SSE_CLOSED_EVENT = "acp.stream.closed"
+# Le serveur ferme le flux après `ACP_STREAM_MAX_SECONDS` (900 s) « pour que le
+# client se reconnecte » (§5.2). La reconnexion est bornée : une observation ne
+# boucle jamais indéfiniment sur un serveur qui tournerait sans rien émettre.
+FOLLOW_MAX_ROTATIONS = 8
+# Genres de flux du §3.2, seuls filtres exposés par `GET /artifacts` (§6).
+ARTIFACT_STREAM_KINDS = ("screenshot", "video", "trace", "report", "file")
+# Paramètre de vue du lien profond Studio (§2.5, §10). Le shell web ne lit que
+# celui-ci (`apps/web/src/studio-ui.ts::STUDIO_VIEW_PARAM`) ; `view` appartient
+# déjà à une autre vue de la même application.
+STUDIO_VIEW_PARAM = "vue"
+STUDIO_VIEW_VALUE = "studio"
+ARTIFACT_CHUNK_BYTES = 1024 * 1024
+# Utilisé seulement quand l'API n'annonce pas de taille : sinon la taille
+# annoncée fait foi et tout octet supplémentaire interrompt le téléchargement.
+ARTIFACT_MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
+ARTIFACT_LIST_MAX_PAGES = 1000
+ARTIFACT_LINK_DEFAULT_TTL_SECONDS = 300
+ARTIFACT_LINK_MAX_TTL_SECONDS = 900
+DOWNLOAD_NAME_MAX_CHARS = 200
+TEST_TOTALS_KEYS = ("expected", "unexpected", "flaky", "skipped", "interrupted", "timedOut")
+# Ordre du résumé serveur (`testing_service.py::derive_technical_validation`).
+TEST_FAILING_TOTALS = ("unexpected", "interrupted", "timedOut")
+TEXT_CONTENT_TYPES = {"application/json", "application/x-ndjson", "application/xml"}
+WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"} | {
+    f"{prefix}{index}" for prefix in ("COM", "LPT") for index in range(1, 10)
+}
 
 
 class _Parser(argparse.ArgumentParser):
@@ -615,6 +664,28 @@ def build_parser() -> argparse.ArgumentParser:
     stop.add_argument("mission_id")
     stop.add_argument("--idempotency-key")
     stop.set_defaults(handler="runs_stop")
+    events = run_actions.add_parser("events", help="lire le journal d'événements d'un run")
+    events.add_argument("run_id", help="identifiant de run ou de mission")
+    events.add_argument(
+        "--after-seq",
+        dest="after_seq",
+        type=int,
+        help="reprendre après cette séquence (curseur)",
+    )
+    events.add_argument(
+        "--limit",
+        type=int,
+        help=f"taille de page, 1 à {EVENTS_MAX_LIMIT}",
+    )
+    events.add_argument(
+        "--follow",
+        action="store_true",
+        help="observer le flux ; Ctrl+C quitte sans arrêter la mission",
+    )
+    events.set_defaults(handler="runs_events")
+    run_tests = run_actions.add_parser("tests", help="résumé de la validation technique d'un run")
+    run_tests.add_argument("run_id", help="identifiant de run ou de mission")
+    run_tests.set_defaults(handler="runs_tests")
 
     pending = commands.add_parser(
         "pending", help="inspecter ou abandonner une mutation au résultat incertain"
@@ -644,10 +715,51 @@ def build_parser() -> argparse.ArgumentParser:
     artifacts_list = artifact_actions.add_parser("list")
     artifacts_list.add_argument("--run", required=True)
     artifacts_list.add_argument("--project")
+    artifacts_list.add_argument(
+        "--kind",
+        help=(
+            "filtrer sur le genre de flux (screenshot, video, trace, report, file) "
+            "ou sur le genre d'artefact (ex. test_report)"
+        ),
+    )
+    artifacts_list.add_argument(
+        "--type",
+        dest="content_type",
+        help="filtrer sur le type MIME exact (ex. image/png)",
+    )
     artifacts_list.set_defaults(handler="artifacts_list")
+    artifacts_get = artifact_actions.add_parser("get", help="télécharger le contenu d'un artefact")
+    artifacts_get.add_argument("artifact_id")
+    artifacts_get.add_argument("--output", help="fichier ou répertoire de destination")
+    artifacts_get.add_argument(
+        "--stdout",
+        dest="to_stdout",
+        action="store_true",
+        help="écrire le contenu sur la sortie standard",
+    )
+    artifacts_get.add_argument(
+        "--force",
+        action="store_true",
+        help="écraser un fichier existant, ou accepter du binaire sur un terminal",
+    )
+    artifacts_get.set_defaults(handler="artifacts_get")
+    artifacts_link = artifact_actions.add_parser("link", help="créer un lien signé temporaire")
+    artifacts_link.add_argument("artifact_id")
+    artifacts_link.add_argument(
+        "--ttl",
+        type=int,
+        default=ARTIFACT_LINK_DEFAULT_TTL_SECONDS,
+        help=f"durée de validité en secondes, 1 à {ARTIFACT_LINK_MAX_TTL_SECONDS}",
+    )
+    artifacts_link.set_defaults(handler="artifacts_link")
 
     open_command = commands.add_parser("open", help="afficher l'URL web d'un run")
     open_command.add_argument("--run", required=True)
+    open_command.add_argument(
+        "--studio",
+        action="store_true",
+        help="pointer la vue Studio (événements, tests et livrables du run)",
+    )
     open_command.add_argument(
         "--browser",
         action="store_true",
@@ -2259,6 +2371,1010 @@ def _handle_skills_cat(
         print("Contenu tronqué par le serveur : lisez le fichier complet côté source.", file=stderr)
 
 
+# ---------------------------------------------------------------------------
+# Lot E — journal d'événements, flux, validation technique et artefacts
+# ---------------------------------------------------------------------------
+
+
+def _open_stream(
+    client: ACPClient,
+    path: str,
+    *,
+    accept: str,
+    params: Mapping[str, Any] | None = None,
+    extra_headers: Mapping[str, str] | None = None,
+    read_timeout: float | None = None,
+) -> tuple[httpx.Client, httpx.Response]:
+    """Ouvre une réponse en flux avec la politique de ``ACPClient.request_response``.
+
+    Le transport du client n'expose pas le mode flux ; cette fonction le
+    reproduit à l'identique (cookie de session lié à l'origine, pas de proxy
+    d'environnement, aucune redirection suivie) pour le SSE et le contenu
+    d'artefact, qui ne doivent jamais être chargés entièrement en mémoire.
+
+    La fermeture est rendue à l'appelant (``try``/``finally``) et non confiée à
+    un gestionnaire de contexte : ``APIError`` est un dataclass **gelé**, et le
+    ``__exit__`` de ``contextlib`` lui affecte ``__traceback__``, ce qui lèverait
+    un ``FrozenInstanceError`` à la place de l'erreur d'API réelle.
+    """
+
+    headers = {"Accept": accept, "User-Agent": USER_AGENT}
+    headers.update(extra_headers or {})
+    settings = client.settings
+    cookies: dict[str, str] = {}
+    if settings.authenticated and settings.session_cookie:
+        cookies[SESSION_COOKIE_NAME] = settings.session_cookie
+    http = httpx.Client(
+        base_url=f"{settings.api_url}/",
+        headers=headers,
+        cookies=cookies,
+        timeout=httpx.Timeout(client.timeout, read=read_timeout),
+        transport=client.transport,
+        follow_redirects=False,
+        trust_env=False,
+    )
+    try:
+        request = http.build_request("GET", path.lstrip("/"), params=params)
+        response = http.send(request, stream=True)
+    except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+        http.close()
+        raise NetworkError("API ACP injoignable") from exc
+    except httpx.HTTPError as exc:
+        http.close()
+        raise NetworkError("échec du transport HTTP") from exc
+    except BaseException:
+        http.close()
+        raise
+    status = response.status_code
+    if status < 400 and not response.is_redirect:
+        return http, response
+    detail = "requête refusée"
+    try:
+        if status >= 400:
+            response.read()
+            detail = _api_error_detail(response)
+    except httpx.HTTPError:
+        detail = "réponse d'erreur illisible"
+    finally:
+        response.close()
+        http.close()
+    if status >= 400:
+        raise APIError(status, detail)
+    raise ProtocolError("redirection HTTP inattendue")
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _counter(value: Any, label: str) -> int:
+    """Compteur de totaux : absent vaut zéro, illisible est refusé."""
+
+    if value is None:
+        return 0
+    parsed = _positive_int(value)
+    if parsed is None:
+        raise ProtocolError(f"l'API a retourné un total « {label} » illisible")
+    return parsed
+
+
+def _mission_run_id(client: ACPClient, identifier: str) -> str | None:
+    """Identifiant du run courant d'une mission, ou ``None`` si ce n'en est pas une."""
+
+    try:
+        detail = client.request("GET", f"/missions/{_path_segment(identifier)}")
+    except APIError as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+    run = detail.get("current_run") if isinstance(detail, dict) else None
+    candidate = run.get("id") if isinstance(run, dict) else None
+    if isinstance(candidate, str) and candidate.strip():
+        return candidate.strip()
+    return None
+
+
+def _run_scoped(
+    client: ACPClient, identifier: str, call: Callable[[str], Any]
+) -> tuple[str, Any]:
+    """Exécute ``call`` sur un run ; si l'identifiant est une mission, la résout.
+
+    La spécification accepte « mission-id | run-id ». Le cas courant (un run)
+    ne coûte qu'un appel : la résolution n'a lieu qu'après un 404 franc.
+    """
+
+    run_id = _require_text(identifier, "l'identifiant du run")
+    try:
+        return run_id, call(run_id)
+    except APIError as exc:
+        if exc.status_code != 404:
+            raise
+        resolved = _mission_run_id(client, run_id)
+        if resolved is None or resolved == run_id:
+            raise
+        return resolved, call(resolved)
+
+
+def _events_limit(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= EVENTS_MAX_LIMIT:
+        raise UsageError(f"--limit doit être compris entre 1 et {EVENTS_MAX_LIMIT}")
+    return value
+
+
+def _events_after_seq(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise UsageError("--after-seq ne peut pas être négatif")
+    return value
+
+
+def _events_page(
+    client: ACPClient, run_id: str, *, after_seq: int | None, limit: int | None
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if after_seq is not None:
+        params["after_seq"] = after_seq
+    if limit is not None:
+        params["limit"] = limit
+    body = client.request("GET", f"/runs/{_path_segment(run_id)}/events", params=params)
+    if not isinstance(body, dict) or not isinstance(body.get("events"), list):
+        raise ProtocolError("l'API n'a pas retourné une page d'événements")
+    return body
+
+
+class _EventSink:
+    """Écriture dédupliquée des événements, par séquence puis par identifiant.
+
+    Le flux et le journal durable se recouvrent volontairement : la reprise
+    relit à partir du dernier curseur reçu, et cette classe garantit qu'aucun
+    événement n'est écrit deux fois ni sauté.
+    """
+
+    def __init__(self, *, ndjson: bool, stream: TextIO) -> None:
+        self._ndjson = ndjson
+        self._stream = stream
+        self._seen: dict[str, None] = {}
+        self.last_sequence: int | None = None
+        self.count = 0
+
+    def offer(self, event: Any) -> bool:
+        if not isinstance(event, dict):
+            raise ProtocolError("l'API a retourné un événement illisible")
+        sequence = _positive_int(event.get("sequence"))
+        if (
+            sequence is not None
+            and self.last_sequence is not None
+            and sequence <= self.last_sequence
+        ):
+            return False
+        identifier = event.get("id")
+        if isinstance(identifier, str) and identifier:
+            if identifier in self._seen:
+                return False
+            self._seen[identifier] = None
+            while len(self._seen) > FOLLOW_SEEN_IDS_MAX:
+                self._seen.pop(next(iter(self._seen)))
+        if sequence is not None:
+            self.last_sequence = sequence
+        if self._ndjson:
+            _emit(event, as_json=True, stream=self._stream)
+        else:
+            print(_event_line(event), file=self._stream)
+        self.count += 1
+        return True
+
+
+def _event_line(event: Mapping[str, Any]) -> str:
+    """Ligne lisible : séquence, horodatage, type, identifiant."""
+
+    sequence = _positive_int(event.get("sequence"))
+    return " ".join(
+        (
+            str(sequence) if sequence is not None else "-",
+            str(event.get("occurred_at") or "-"),
+            str(event.get("type") or "-"),
+            str(event.get("id") or "-"),
+        )
+    )
+
+
+def _emit_cursor_notice(
+    code: str,
+    message: str,
+    *,
+    cursor: int | None,
+    as_json: bool,
+    stream: TextIO,
+) -> None:
+    """Avis d'observation : le curseur de reprise reste lisible par machine."""
+
+    if as_json:
+        _emit(
+            {"notice": {"code": code, "message": message, "next_cursor": cursor}},
+            as_json=True,
+            stream=stream,
+        )
+    else:
+        print(message, file=stream)
+
+
+def _drain_events(
+    client: ACPClient,
+    run_id: str,
+    *,
+    sink: _EventSink,
+    after_seq: int | None,
+    limit: int | None,
+    resolve: bool,
+) -> str:
+    """Lit le journal durable page par page jusqu'à épuisement.
+
+    Retourne l'identifiant de run effectivement utilisé (résolu au besoin).
+    """
+
+    cursor = after_seq
+    pages = 0
+    while True:
+        if resolve:
+            run_id, body = _run_scoped(
+                client,
+                run_id,
+                lambda candidate, position=cursor: _events_page(
+                    client, candidate, after_seq=position, limit=limit
+                ),
+            )
+            resolve = False
+        else:
+            body = _events_page(client, run_id, after_seq=cursor, limit=limit)
+        for item in body["events"]:
+            sink.offer(item)
+        pages += 1
+        if not body.get("has_more"):
+            return run_id
+        if pages >= EVENTS_MAX_PAGES:
+            raise ProtocolError("trop de pages d'événements : lecture interrompue")
+        next_cursor = _positive_int(body.get("next_cursor"))
+        if next_cursor is None or next_cursor <= (cursor or 0):
+            raise ProtocolError("le curseur d'événements n'avance pas : lecture interrompue")
+        cursor = next_cursor
+
+
+def _iter_stream_events(response: httpx.Response) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Décode un flux SSE en ``(nom de trame, objet JSON)``.
+
+    Le nom est porteur de sens : le serveur n'émet un événement de journal que
+    sous ``acp.event``, et pilote la connexion avec ``acp.stream.rotate`` et
+    ``acp.stream.closed`` (§5.2). Les confondre reviendrait à écrire une trame de
+    contrôle dans le NDJSON du journal. Une trame sans nom est traitée comme un
+    événement : c'est la valeur par défaut de la spécification SSE.
+    """
+
+    data: list[str] = []
+    name = ""
+    size = 0
+    for line in response.iter_lines():
+        if line.startswith(":"):
+            continue
+        if not line:
+            if not data:
+                name = ""
+                continue
+            raw = "\n".join(data)
+            frame = name or SSE_EVENT_NAME
+            data = []
+            name = ""
+            size = 0
+            try:
+                payload = json.loads(raw)
+            except ValueError as exc:
+                raise ProtocolError("le flux a livré un événement illisible") from exc
+            if not isinstance(payload, dict):
+                raise ProtocolError("le flux a livré un événement illisible")
+            yield frame, payload
+            continue
+        field, _, value = line.partition(":")
+        chunk = value[1:] if value.startswith(" ") else value
+        if field == "event":
+            name = chunk.strip()
+            continue
+        if field != "data":
+            continue
+        size += len(chunk)
+        if size > SSE_MAX_EVENT_CHARS:
+            raise ProtocolError("le flux a dépassé la taille maximale d'un événement")
+        data.append(chunk)
+
+
+def _degraded_notice(
+    reason: str, *, sink: _EventSink, as_json: bool, stream: TextIO
+) -> None:
+    _emit_cursor_notice(
+        "stream_degraded",
+        f"Flux interrompu ({reason}) : reprise par lecture du journal durable "
+        f"à partir de la séquence {sink.last_sequence or 0}.",
+        cursor=sink.last_sequence,
+        as_json=as_json,
+        stream=stream,
+    )
+
+
+class _StreamOutcome(NamedTuple):
+    """Comment un flux SSE s'est terminé.
+
+    ``end`` : le serveur a fermé sans rien dire. ``rotate`` : durée maximale
+    atteinte, la mission continue et le client doit se reconnecter au curseur
+    porté par la trame. ``closed`` : le serveur a annoncé une fermeture.
+    """
+
+    kind: str
+    cursor: int | None = None
+    reason: str = ""
+
+
+def _consume_stream(
+    client: ACPClient, run_id: str, *, sink: _EventSink, cursor: int | None
+) -> _StreamOutcome:
+    """Ouvre le flux au curseur donné et n'écrit que les événements de journal."""
+
+    params: dict[str, Any] = {}
+    headers: dict[str, str] = {}
+    if cursor is not None:
+        params["after_seq"] = cursor
+        # ``Last-Event-ID`` est prioritaire côté serveur (§6) : les deux portent
+        # la même valeur, une reconnexion ne rejoue donc rien.
+        headers["Last-Event-ID"] = str(cursor)
+    http, response = _open_stream(
+        client,
+        f"/streams/runs/{_path_segment(run_id)}",
+        accept="text/event-stream",
+        params=params,
+        extra_headers=headers,
+        read_timeout=None,
+    )
+    try:
+        for frame, payload in _iter_stream_events(response):
+            if frame == SSE_ROTATE_EVENT:
+                return _StreamOutcome(
+                    "rotate",
+                    _positive_int(payload.get("cursor")),
+                    str(payload.get("reason") or ""),
+                )
+            if frame == SSE_CLOSED_EVENT:
+                reason = str(payload.get("reason") or "")
+                if reason == "unauthorized":
+                    # Le serveur revalide session et membership à chaque page :
+                    # une révocation en cours d'observation est un refus d'accès,
+                    # pas une ligne de journal ni une fin normale.
+                    raise CommandError(
+                        "stream_unauthorized",
+                        "le serveur a fermé le flux : accès révoqué pendant "
+                        "l'observation (session ou membership)",
+                        ExitCode.AUTH,
+                    )
+                return _StreamOutcome("closed", None, reason)
+            if frame != SSE_EVENT_NAME:
+                # Trame de contrôle inconnue : elle ne porte pas un événement de
+                # journal et ne sera donc jamais écrite comme tel.
+                continue
+            sink.offer(payload)
+    finally:
+        response.close()
+        http.close()
+    return _StreamOutcome("end")
+
+
+def _follow_events(
+    client: ACPClient,
+    run_id: str,
+    *,
+    sink: _EventSink,
+    after_seq: int | None,
+    limit: int | None,
+    as_json: bool,
+    stderr: TextIO,
+) -> None:
+    """Observation : journal durable, puis flux, puis réconciliation par curseur."""
+
+    run_id = _drain_events(
+        client, run_id, sink=sink, after_seq=after_seq, limit=limit, resolve=True
+    )
+    cursor = sink.last_sequence if sink.last_sequence is not None else after_seq
+    rotations = 0
+    while True:
+        try:
+            outcome = _consume_stream(client, run_id, sink=sink, cursor=cursor)
+        except APIError as exc:
+            # Un refus d'accès ou une requête invalide doivent rester visibles :
+            # seule l'indisponibilité du flux lui-même justifie l'interrogation.
+            if exc.status_code != 404 and exc.status_code < 500:
+                raise
+            _degraded_notice(exc.detail, sink=sink, as_json=as_json, stream=stderr)
+            break
+        except (NetworkError, ProtocolError, httpx.HTTPError) as exc:
+            # Une coupure n'invente aucun état : on le dit, puis on relit le
+            # journal durable à partir du dernier curseur reçu.
+            _degraded_notice(str(exc), sink=sink, as_json=as_json, stream=stderr)
+            break
+        if outcome.kind == "closed":
+            _emit_cursor_notice(
+                "stream_closed",
+                "Flux fermé par le serveur "
+                f"({outcome.reason or 'sans raison annoncée'}) : la mission n'est "
+                "pas arrêtée.",
+                cursor=sink.last_sequence,
+                as_json=as_json,
+                stream=stderr,
+            )
+            break
+        if outcome.kind != "rotate":
+            break
+        if rotations >= FOLLOW_MAX_ROTATIONS:
+            _emit_cursor_notice(
+                "stream_rotations_exhausted",
+                f"Le flux a tourné {rotations} fois : observation arrêtée, la "
+                "mission n'est pas arrêtée.",
+                cursor=sink.last_sequence,
+                as_json=as_json,
+                stream=stderr,
+            )
+            break
+        rotations += 1
+        cursor = outcome.cursor if outcome.cursor is not None else sink.last_sequence
+        _emit_cursor_notice(
+            "stream_rotated",
+            "Le flux a atteint sa durée maximale : la mission continue, "
+            f"reconnexion à partir de la séquence {cursor or 0}.",
+            cursor=cursor,
+            as_json=as_json,
+            stream=stderr,
+        )
+    _drain_events(
+        client, run_id, sink=sink, after_seq=sink.last_sequence, limit=limit, resolve=False
+    )
+    _emit_cursor_notice(
+        "follow_ended",
+        "Observation terminée : "
+        f"reprenez avec --after-seq {sink.last_sequence or 0} si nécessaire.",
+        cursor=sink.last_sequence,
+        as_json=as_json,
+        stream=stderr,
+    )
+
+
+def _handle_runs_events(
+    args: argparse.Namespace,
+    client: ACPClient,
+    *,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> None:
+    limit = _events_limit(args.limit)
+    after_seq = _events_after_seq(args.after_seq)
+    # En observation, la sortie est du NDJSON même sans ``--json`` : c'est un
+    # flux, pas un tableau.
+    sink = _EventSink(ndjson=bool(args.json or args.follow), stream=stdout)
+    try:
+        if args.follow:
+            _follow_events(
+                client,
+                args.run_id,
+                sink=sink,
+                after_seq=after_seq,
+                limit=limit,
+                as_json=args.json,
+                stderr=stderr,
+            )
+            return
+        _run_id, body = _run_scoped(
+            client,
+            args.run_id,
+            lambda candidate: _events_page(
+                client, candidate, after_seq=after_seq, limit=limit
+            ),
+        )
+        for item in body["events"]:
+            sink.offer(item)
+        if body.get("has_more"):
+            cursor = _positive_int(body.get("next_cursor")) or sink.last_sequence
+            _emit_cursor_notice(
+                "events_truncated",
+                f"Page incomplète : relancez avec --after-seq {cursor} pour la suite.",
+                cursor=cursor,
+                as_json=args.json,
+                stream=stderr,
+            )
+    except KeyboardInterrupt:
+        _emit_cursor_notice(
+            "follow_interrupted",
+            "Observation interrompue localement : la mission n'est pas arrêtée. "
+            f"Reprenez avec --after-seq {sink.last_sequence or 0}.",
+            cursor=sink.last_sequence,
+            as_json=args.json,
+            stream=stderr,
+        )
+        raise
+
+
+def _test_summary(detail: Any) -> dict[str, Any]:
+    """Dérive la validation technique sans jamais forcer un succès.
+
+    Règle **identique** à celle du serveur
+    (`apps/api/src/acp_api/testing_service.py::derive_technical_validation`,
+    spec §5.4) : `passed` seulement si `exit_code == 0` — un code de sortie
+    absent est un refus —, si `unexpected`, `interrupted` et `timedOut` sont nuls
+    et si au moins un cas a été exécuté. `status` est affiché mais n'ajoute
+    aucune cause : le CLI est la porte qu'une CI franchit, il ne doit diverger de
+    la validation technique de la tentative dans aucun des deux sens.
+    """
+
+    if not isinstance(detail, dict):
+        raise ProtocolError("l'API n'a pas retourné une exécution de tests")
+    raw_totals = detail.get("totals")
+    totals_source = raw_totals if isinstance(raw_totals, dict) else {}
+    totals = {key: _counter(totals_source.get(key), key) for key in TEST_TOTALS_KEYS}
+    case_count = _positive_int(detail.get("case_count"))
+    if case_count is None:
+        cases = detail.get("cases")
+        case_count = len(cases) if isinstance(cases, list) else 0
+    status = detail.get("status")
+    exit_code = detail.get("exit_code")
+    reasons: list[str] = []
+    if case_count < 1:
+        reasons.append("case_count")
+    if not isinstance(exit_code, int) or isinstance(exit_code, bool) or exit_code != 0:
+        reasons.append("exit_code")
+    reasons.extend(key for key in TEST_FAILING_TOTALS if totals[key] > 0)
+    report = detail.get("report_artifact")
+    report_id = report.get("id") if isinstance(report, dict) else None
+    return {
+        "test_run_id": detail.get("id"),
+        "task_run_id": detail.get("task_run_id"),
+        "runner": detail.get("runner"),
+        "status": status,
+        "validation": "failed" if reasons else "passed",
+        "reasons": reasons,
+        "totals": totals,
+        "case_count": case_count,
+        "duration_ms": detail.get("duration_ms"),
+        "exit_code": exit_code,
+        "report_artifact_id": report_id,
+    }
+
+
+TEST_TOTAL_LABELS = (
+    ("expected", "attendus"),
+    ("unexpected", "inattendus"),
+    ("flaky", "instables (flaky)"),
+    ("skipped", "ignorés"),
+    ("timedOut", "expirés (timedOut)"),
+    ("interrupted", "interrompus"),
+)
+
+
+def _print_test_summary(summary: Mapping[str, Any], stream: TextIO) -> None:
+    validation = "réussie" if summary["validation"] == "passed" else "échouée"
+    print(
+        f"Exécution de tests {summary['test_run_id']} ({summary['runner']}) — "
+        f"statut {summary['status']}, validation technique : {validation}",
+        file=stream,
+    )
+    totals = summary["totals"]
+    for key, label in TEST_TOTAL_LABELS:
+        print(f"{label} : {totals[key]}", file=stream)
+    print(f"cas exécutés : {summary['case_count']}", file=stream)
+    print(f"code de sortie : {summary['exit_code']}", file=stream)
+    if summary["report_artifact_id"]:
+        print(f"rapport : {summary['report_artifact_id']}", file=stream)
+
+
+def _handle_runs_tests(
+    args: argparse.Namespace, client: ACPClient, *, stdout: TextIO
+) -> None:
+    _run_id, detail = _run_scoped(
+        client,
+        args.run_id,
+        lambda candidate: client.request(
+            "GET", f"/runs/{_path_segment(candidate)}/test-run"
+        ),
+    )
+    summary = _test_summary(detail)
+    if args.json:
+        _emit(summary, as_json=True, stream=stdout)
+    else:
+        _print_test_summary(summary, stdout)
+    if summary["validation"] != "passed":
+        raise CommandError(
+            "tests_failed",
+            "validation technique échouée : " + ", ".join(summary["reasons"]),
+        )
+
+
+def _artifact_matches(
+    item: Any, *, run: str, kind: str, content_type: str
+) -> bool:
+    """Le filtrage reste local : un serveur qui ignore la requête ne fuit rien.
+
+    ``--kind`` accepte les deux vocabulaires du modèle : le genre de flux du §3.2
+    (`screenshot`, `video`, `trace`, `report`, `file`) **et** le genre d'artefact
+    écrit par le worker (`test_attachment`, `test_report`). Ne comparer que
+    `kind` faisait taire le filtre documenté pour tous les livrables du Lot E.
+    """
+
+    if not isinstance(item, dict):
+        return True
+    if item.get("task_run_id") != run:
+        return False
+    if kind and kind not in {
+        str(item.get("kind") or ""),
+        str(item.get("stream_kind") or ""),
+    }:
+        return False
+    if content_type and str(item.get("content_type") or "").strip().lower() != content_type:
+        return False
+    return True
+
+
+def _handle_artifacts_list(args: argparse.Namespace, client: ACPClient) -> list[Any]:
+    run = _require_text(args.run, "--run")
+    kind = (args.kind or "").strip()
+    content_type = (args.content_type or "").strip().lower()
+    base = _filtered_params(task_run_id=run, project_id=args.project)
+    if kind in ARTIFACT_STREAM_KINDS:
+        # §6 n'expose que `stream_kind` côté serveur : l'envoyer évite de
+        # parcourir tous les artefacts du run. Le filtre local reste en place.
+        base["stream_kind"] = kind
+    collected: list[Any] = []
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    pages = 0
+    while True:
+        params = dict(base)
+        if cursor is not None:
+            params["cursor"] = cursor
+        body = client.request("GET", "/artifacts", params=params)
+        collected.extend(
+            item
+            for item in _items(body)
+            if _artifact_matches(item, run=run, kind=kind, content_type=content_type)
+        )
+        pages += 1
+        next_cursor = body.get("next_cursor") if isinstance(body, dict) else None
+        if not isinstance(next_cursor, str) or not next_cursor.strip():
+            return collected
+        if next_cursor in seen_cursors or pages >= ARTIFACT_LIST_MAX_PAGES:
+            raise ProtocolError("le curseur d'artefacts n'avance pas : lecture interrompue")
+        seen_cursors.add(next_cursor)
+        cursor = next_cursor
+
+
+def _clean_file_name(value: Any) -> str:
+    """Nom de fichier sûr tiré d'une valeur venue du serveur, ou chaîne vide.
+
+    Le nom d'origine est produit par un worker : il est traité comme une donnée
+    hostile. Seul le dernier segment est conservé, et jamais un chemin.
+    """
+
+    candidate = str(value or "").replace("\\", "/").split("/")[-1].strip().strip(". ")
+    if not candidate or len(candidate) > DOWNLOAD_NAME_MAX_CHARS:
+        return ""
+    if ":" in candidate or any(ord(character) < 32 for character in candidate):
+        return ""
+    if candidate.split(".")[0].upper() in WINDOWS_RESERVED_NAMES:
+        return ""
+    return candidate
+
+
+def _download_target(
+    output: str | None, summary: Mapping[str, Any], artifact_id: str
+) -> Path:
+    name = _clean_file_name(summary.get("original_name")) or _clean_file_name(artifact_id)
+    if output is None:
+        if not name:
+            raise UsageError("aucun nom de fichier sûr : précisez --output")
+        return Path(name)
+    destination = _require_text(output, "--output")
+    path = Path(destination)
+    if path.is_dir():
+        if not name:
+            raise UsageError("aucun nom de fichier sûr : précisez un fichier avec --output")
+        return path / name
+    return path
+
+
+def _is_text_content_type(value: str) -> bool:
+    return value.startswith("text/") or value in TEXT_CONTENT_TYPES
+
+
+def _write_bytes(stream: TextIO, chunk: bytes) -> None:
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        stream.flush()
+        buffer.write(chunk)
+        return
+    stream.write(chunk.decode("utf-8", errors="replace"))
+
+
+def _served_content_type(response: httpx.Response) -> str:
+    """Type réellement servi par l'API, seul type digne de confiance (§7)."""
+
+    return str(response.headers.get("content-type") or "").split(";")[0].strip().lower()
+
+
+def _refuse_binary_stdout(content_type: str) -> None:
+    """Refuse d'écrire un contenu non textuel sur un terminal interactif."""
+
+    if _is_text_content_type(content_type):
+        return
+    raise CommandError(
+        "binary_stdout",
+        f"« {content_type or 'type inconnu'} » est un contenu binaire : "
+        "redirigez la sortie, utilisez --output, ou confirmez avec --force",
+        ExitCode.USAGE,
+    )
+
+
+def _download_artifact(
+    client: ACPClient,
+    artifact_id: str,
+    *,
+    writer: Callable[[bytes], Any],
+    max_bytes: int,
+    on_content_type: Callable[[str], None] | None = None,
+) -> tuple[str, int, str]:
+    """Écrit le contenu par morceaux bornés et retourne (sha256, taille, type servi).
+
+    ``on_content_type`` est appelé avec le type servi **avant le premier octet
+    écrit** : c'est là que se décide ce qui peut atteindre un terminal.
+    """
+
+    digest = hashlib.sha256()
+    size = 0
+    http, response = _open_stream(
+        client,
+        f"/artifacts/{_path_segment(artifact_id)}/content",
+        accept="*/*",
+        read_timeout=client.timeout,
+    )
+    served = ""
+    try:
+        served = _served_content_type(response)
+        if on_content_type is not None:
+            on_content_type(served)
+        for chunk in response.iter_bytes(ARTIFACT_CHUNK_BYTES):
+            size += len(chunk)
+            if size > max_bytes:
+                raise CommandError(
+                    "artifact_too_large",
+                    "contenu plus volumineux que la taille annoncée "
+                    f"({max_bytes} octets) : téléchargement interrompu",
+                )
+            digest.update(chunk)
+            try:
+                writer(chunk)
+            except OSError as exc:
+                # Disque plein, tube cassé, fichier verrouillé : une panne
+                # d'écriture reste une erreur métier, jamais une trace Python.
+                raise _write_failed(exc) from exc
+    except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+        raise NetworkError("API ACP injoignable") from exc
+    except httpx.HTTPError as exc:
+        raise NetworkError("échec du transport HTTP") from exc
+    finally:
+        response.close()
+        http.close()
+    return digest.hexdigest(), size, served
+
+
+def _write_failed(exc: OSError) -> CommandError:
+    return CommandError("write_failed", f"écriture impossible : {_system_reason(exc)}")
+
+
+def _discard(path: Path) -> None:
+    """Retire un fichier partiel sans jamais masquer l'erreur qui l'a causé."""
+
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _verify_checksum(expected: str, digest: str) -> None:
+    if expected and expected != digest:
+        raise CommandError(
+            "checksum_mismatch",
+            "empreinte sha256 différente de celle annoncée par l'API : contenu écarté",
+        )
+
+
+def _download_to_file(
+    client: ACPClient,
+    artifact_id: str,
+    target: Path,
+    *,
+    force: bool,
+    max_bytes: int,
+    checksum: str,
+) -> tuple[str, int, str]:
+    parent = target.parent if str(target.parent) else Path(".")
+    if force:
+        # Écriture dans un fichier temporaire voisin puis remplacement atomique :
+        # un téléchargement raté ne détruit jamais le fichier déjà présent.
+        try:
+            handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - fermé plus bas
+                dir=str(parent), prefix=f".{target.name}.", suffix=".part", delete=False
+            )
+        except OSError as exc:
+            raise _write_failed(exc) from exc
+        temporary = Path(handle.name)
+        try:
+            try:
+                with handle:
+                    digest, size, served = _download_artifact(
+                        client, artifact_id, writer=handle.write, max_bytes=max_bytes
+                    )
+                _verify_checksum(checksum, digest)
+                os.replace(temporary, target)
+            except OSError as exc:
+                raise _write_failed(exc) from exc
+        except BaseException:
+            _discard(temporary)
+            raise
+        return digest, size, served
+    try:
+        handle = target.open("xb")
+    except FileExistsError as exc:
+        raise CommandError(
+            "file_exists",
+            f"« {target} » existe déjà : choisissez --output ou confirmez avec --force",
+            ExitCode.USAGE,
+        ) from exc
+    except OSError as exc:
+        raise _write_failed(exc) from exc
+    try:
+        try:
+            with handle:
+                digest, size, served = _download_artifact(
+                    client, artifact_id, writer=handle.write, max_bytes=max_bytes
+                )
+            _verify_checksum(checksum, digest)
+        except OSError as exc:
+            raise _write_failed(exc) from exc
+    except BaseException:
+        _discard(target)
+        raise
+    return digest, size, served
+
+
+def _handle_artifacts_get(
+    args: argparse.Namespace,
+    client: ACPClient,
+    *,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> None:
+    artifact_id = _require_text(args.artifact_id, "l'identifiant d'artefact")
+    if args.to_stdout and args.output is not None:
+        raise UsageError("--stdout et --output s'excluent")
+    summary = client.request("GET", f"/artifacts/{_path_segment(artifact_id)}")
+    if not isinstance(summary, dict):
+        raise ProtocolError("l'API n'a pas retourné un artefact exploitable")
+    if summary.get("has_content") is False:
+        raise CommandError(
+            "no_content", "cet artefact ne porte aucun contenu téléchargeable"
+        )
+    checksum = str(summary.get("checksum") or "").strip().lower()
+    declared_size = _positive_int(summary.get("size_bytes"))
+    max_bytes = declared_size if declared_size is not None else ARTIFACT_MAX_DOWNLOAD_BYTES
+    declared_type = str(summary.get("content_type") or "").split(";")[0].strip().lower()
+    if args.to_stdout:
+        guard: Callable[[str], None] | None = None
+        if _stream_is_interactive(stdout) and not args.force:
+            # Le type déclaré vient d'un worker (§0.4 : contenu non fiable) : il
+            # permet de refuser tôt, jamais d'autoriser. Seul le type servi par
+            # l'API, déjà ramené à une allowlist (§7), ouvre le terminal.
+            _refuse_binary_stdout(declared_type)
+            guard = _refuse_binary_stdout
+        digest, size, served = _download_artifact(
+            client,
+            artifact_id,
+            writer=lambda chunk: _write_bytes(stdout, chunk),
+            max_bytes=max_bytes,
+            on_content_type=guard,
+        )
+        _verify_checksum(checksum, digest)
+        result: dict[str, Any] = {
+            "artifact_id": artifact_id,
+            "path": None,
+            "size_bytes": size,
+            "checksum": digest,
+            "content_type": served or declared_type,
+            "declared_content_type": declared_type,
+            "verified": bool(checksum),
+        }
+        if args.json:
+            # La sortie standard porte le contenu : les métadonnées vont ailleurs.
+            _emit(result, as_json=True, stream=stderr)
+        if not checksum:
+            _emit_notice(
+                "checksum_absent",
+                "L'API n'a pas annoncé d'empreinte : le contenu n'a pas pu être vérifié.",
+                as_json=args.json,
+                stream=stderr,
+            )
+        return
+    target = _download_target(args.output, summary, artifact_id)
+    digest, size, served = _download_to_file(
+        client,
+        artifact_id,
+        target,
+        force=args.force,
+        max_bytes=max_bytes,
+        checksum=checksum,
+    )
+    if not checksum:
+        _emit_notice(
+            "checksum_absent",
+            "L'API n'a pas annoncé d'empreinte : le contenu n'a pas pu être vérifié.",
+            as_json=args.json,
+            stream=stderr,
+        )
+    result = {
+        "artifact_id": artifact_id,
+        "path": str(target),
+        "size_bytes": size,
+        "checksum": digest,
+        "content_type": served or declared_type,
+        "declared_content_type": declared_type,
+        "verified": bool(checksum),
+    }
+    if args.json:
+        _emit(result, as_json=True, stream=stdout)
+    else:
+        print(str(target), file=stdout)
+
+
+def _handle_artifacts_link(
+    args: argparse.Namespace,
+    client: ACPClient,
+    *,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> None:
+    artifact_id = _require_text(args.artifact_id, "l'identifiant d'artefact")
+    ttl = args.ttl
+    if (
+        isinstance(ttl, bool)
+        or not isinstance(ttl, int)
+        or not 1 <= ttl <= ARTIFACT_LINK_MAX_TTL_SECONDS
+    ):
+        raise UsageError(
+            f"--ttl doit être compris entre 1 et {ARTIFACT_LINK_MAX_TTL_SECONDS} secondes"
+        )
+    body = client.request(
+        "POST",
+        f"/artifacts/{_path_segment(artifact_id)}/link",
+        params={"ttl_seconds": ttl},
+    )
+    if not isinstance(body, dict) or not isinstance(body.get("url"), str):
+        raise ProtocolError("l'API n'a pas retourné un lien exploitable")
+    if args.json:
+        _emit(body, as_json=True, stream=stdout)
+    else:
+        print(body["url"], file=stdout)
+    _emit_notice(
+        "link_expiry",
+        f"Lien signé valable jusqu'à {body.get('expires_at')} : il porte un jeton, "
+        "ne le publiez pas.",
+        as_json=args.json,
+        stream=stderr,
+    )
+
+
 COMPLETION_COMMANDS = (
     "login logout doctor projects chat run runs pending approvals artifacts open workers "
     "secrets mcp skills automations completion"
@@ -2266,7 +3382,7 @@ COMPLETION_COMMANDS = (
 COMPLETION_SUBCOMMANDS = (
     "list add extensions watch stop show discard status set rotate revoke catalog tools "
     "update test probes approve reject bind bindings unbind activate disable rollback "
-    "export import search files cat install"
+    "export import search files cat install events tests get link"
 )
 
 
@@ -2346,6 +3462,12 @@ def _dispatch(
             args, client, config_path, baseline_settings
         )
         return True, result, settings
+    if handler == "runs_events":
+        _handle_runs_events(args, client, stdout=stdout, stderr=stderr)
+        return False, None, client.settings
+    if handler == "runs_tests":
+        _handle_runs_tests(args, client, stdout=stdout)
+        return False, None, client.settings
     if handler == "pending_show":
         return True, _pending_summary(client.settings.pending_operation), client.settings
     if handler == "pending_discard":
@@ -2361,22 +3483,37 @@ def _dispatch(
         params = {"project_id": args.project, "status": args.status}
         return True, client.request("GET", "/approvals", params={k: v for k, v in params.items() if v}), client.settings
     if handler == "artifacts_list":
-        params = {"task_run_id": args.run, "project_id": args.project}
-        body = client.request("GET", "/artifacts", params={k: v for k, v in params.items() if v})
-        filtered = [
-            artifact
-            for artifact in _items(body)
-            if not isinstance(artifact, dict) or artifact.get("task_run_id") == args.run
-        ]
-        return True, filtered, client.settings
+        return True, _handle_artifacts_list(args, client), client.settings
+    if handler == "artifacts_get":
+        _handle_artifacts_get(args, client, stdout=stdout, stderr=stderr)
+        return False, None, client.settings
+    if handler == "artifacts_link":
+        _handle_artifacts_link(args, client, stdout=stdout, stderr=stderr)
+        return False, None, client.settings
     if handler == "open":
-        url = f"{client.settings.web_url}/missions?{urlencode({'run': args.run})}"
+        query = {"run": args.run}
+        if args.studio:
+            # Clé de requête attendue par le shell web
+            # (`apps/web/src/studio-ui.ts::STUDIO_VIEW_PARAM`, spec §2.5 et §10).
+            # Elle est volontairement distincte du champ `view` de la réponse
+            # JSON : les deux ne peuvent pas dériver l'une vers l'autre.
+            query[STUDIO_VIEW_PARAM] = STUDIO_VIEW_VALUE
+        url = f"{client.settings.web_url}/missions?{urlencode(query)}"
         opened = False
         if args.browser:
             opened = bool(browser_open(url))
             if not opened:
                 raise ProtocolError("le navigateur n'a pas accepté l'ouverture de l'URL")
-        return True, {"run_id": args.run, "url": url, "opened": opened}, client.settings
+        return (
+            True,
+            {
+                "run_id": args.run,
+                "url": url,
+                "opened": opened,
+                "view": STUDIO_VIEW_VALUE if args.studio else "mission",
+            },
+            client.settings,
+        )
     if handler == "workers_list":
         return True, client.request("GET", "/workers"), client.settings
     if handler == "projects_extensions":

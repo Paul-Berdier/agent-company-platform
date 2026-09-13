@@ -93,6 +93,124 @@ famille et converge sur plusieurs snapshots bornés. Le nettoyage est aussi
 effectué après la sortie normale du parent ; s'il ne peut pas être confirmé, un
 code de sortie zéro devient `exit_process_tree_cleanup_failed`, jamais un succès.
 
+## Tests web (Playwright)
+
+Le worker peut exécuter une suite de tests web à la place du programme local
+lorsque la mission déclare une ressource `kind = "web_test_suite"` **et** que la
+capacité `web_tests` est annoncée. Sans l'une des deux, le comportement du Lot C
+reste strictement inchangé.
+
+**La plateforme n'installe jamais Playwright.** L'opérateur l'installe lui-même
+sur le runner (`npm i -D @playwright/test && npx playwright install`) et déclare
+l'argv absolu à lancer. Le processus de test ne reçoit **jamais** un credential
+de la plateforme : il écrit un rapport NDJSON local que le worker authentifié
+ingère ensuite.
+
+### Configuration
+
+- `ACP_WORKER_WEBTEST_ENABLED` : `0` (défaut) ou `1` ;
+- `ACP_WORKER_WEBTEST_ARGV_JSON` : tableau JSON non vide. Le premier élément est
+  le chemin absolu d'un exécutable existant, par exemple
+  `["C:\\Program Files\\nodejs\\node.exe","C:\\projets\\app\\node_modules\\@playwright\\test\\cli.js","test"]` ;
+- `ACP_WORKER_WEBTEST_CWD` : racine de projet absolue et existante ;
+- `ACP_WORKER_WEBTEST_TIMEOUT_SECONDS` : 900 par défaut, 7200 au maximum. La
+  `duration_seconds` de la mission peut seulement réduire ce délai ;
+- `ACP_WORKER_WEBTEST_MAX_ARTIFACT_BYTES` : 200 Mio par défaut. C'est le budget
+  **cumulé** de pièces jointes d'une tentative : une fois épuisé, les pièces
+  jointes suivantes sont refusées explicitement, sans perdre le rapport ;
+- `ACP_WORKER_WEBTEST_ENV_ALLOWLIST` : noms séparés par des virgules. Ce sont les
+  seules variables de l'environnement du worker transmises à la suite, et la
+  liste d'expurgation appliquée à tout ce que le rapport republie. Un secret de
+  contrôle de la plateforme (`ACP_GATEWAY_SERVICE_TOKEN`, `HERMES_API_KEY`, …) y
+  est refusé à la configuration. N'y placez jamais un secret dans
+  `ACP_WORKER_WEBTEST_ARGV_JSON` : `doctor` affiche l'argv en clair.
+
+La capacité `web_tests` n'est annoncée que si la configuration est complète **et**
+que le mode enregistré est le mode réel. Ce mode est celui que `register`
+enregistre : `agent-company-worker register --real` suffit, même si
+`ACP_WORKER_SIMULATION` vaut encore `1`.
+
+`agent-company-worker doctor` affiche `web_tests`, l'argv, la racine de projet,
+le délai, le plafond d'artefacts et le **nombre** de noms allowlistés — jamais
+une valeur d'environnement. Trois états sont possibles :
+
+| `web_tests` | Signification |
+|---|---|
+| `disabled` | `ACP_WORKER_WEBTEST_ENABLED` absent ou `0`, ou configuration incomplète. |
+| `enabled` | Configuration complète **et** capacité `web_tests` présente dans `capabilities` : une mission `web_test_suite` sera exécutée par la suite Playwright. |
+| `enabled_not_announced` | Configuration complète mais mode simulé : la capacité n'est **pas** annoncée et une mission `web_test_suite` repartirait vers le programme local du Lot C. Enregistrez le worker avec `--real` (ou posez `ACP_WORKER_SIMULATION=0`). |
+
+```powershell
+$env:ACP_WORKER_SIMULATION = '0'
+$env:ACP_WORKER_WEBTEST_ENABLED = '1'
+$env:ACP_WORKER_WEBTEST_ARGV_JSON = '["C:\\Program Files\\nodejs\\node.exe","C:\\projets\\app\\node_modules\\@playwright\\test\\cli.js","test"]'
+$env:ACP_WORKER_WEBTEST_CWD = 'C:\projets\app'
+agent-company-worker doctor
+```
+
+### Déroulement d'une tentative
+
+1. Un répertoire de sortie **neuf** est créé sous
+   `<ACP_WORKER_RUN_ROOT>\web-tests\<task_run_id>\attempt-<n>`. S'il existe déjà,
+   la tentative échoue plutôt que d'écraser un rejeu.
+2. L'environnement transmis est le socle minimal (`PATH`, `TEMP`, `SYSTEMROOT`,
+   `APPDATA`, …) augmenté de l'allowlist, plus
+   `ACP_REPORT_FILE=<sortie>\report.ndjson` et `PLAYWRIGHT_HTML_OPEN=never`.
+   Configurez `reporter: [['@acp/playwright-reporter']]` dans
+   `playwright.config.ts` pour que ce fichier soit écrit.
+3. Le lancement passe par **exactement la même clôture** que le runner local
+   (`spawn_fenced_process` / `terminate_process_tree`) : aucun shell, session
+   POSIX ou Job Object Windows, arrêt d'arbre vérifié. `stdout.log` et
+   `stderr.log` sont écrits dans le répertoire de sortie ; aucun tube hérité ne
+   peut donc bloquer la fin de la tentative.
+4. Le NDJSON est lu ligne par ligne. Une ligne illisible est **comptée et
+   signalée** sans faire échouer le reste du rapport.
+5. Chaque pièce jointe est résolue canoniquement : seul un fichier réellement
+   situé sous le répertoire de sortie est téléversé. Les `..`, les chemins
+   absolus et **tout lien symbolique**, même pointant à l'intérieur, sont refusés
+   et listés dans la preuve.
+6. Le rapport est transmis à `POST /workers/{id}/test-runs` avec le fencing token
+   de la tentative, après expurgation des valeurs allowlistées.
+7. Une preuve de mission `web_tests` résume les totaux, le code de sortie et
+   l'identifiant du `test_run`. **Jamais une image** : les médias restent des
+   artefacts référencés par empreinte.
+
+### Verdict
+
+Le succès technique exige **cumulativement** : un code de sortie nul, un rapport
+`run_end` complet, au moins un cas exécuté, aucun `unexpected`, `interrupted` ni
+`timedOut`, aucune ligne de rapport illisible, aucune pièce jointe refusée, une
+ingestion API acceptée et un arrêt d'arbre prouvé. `flaky` et `skipped`
+n'empêchent pas le succès mais restent affichés distinctement : les statuts
+`passed`, `failed`, `timedOut`, `skipped` et `interrupted` ne sont jamais réduits
+à vert/rouge.
+
+Un NDJSON absent ou vide est un échec explicite — « aucun résultat de test
+produit » — jamais un succès. Un rapport partiel et des pièces jointes refusées
+sont transmis quand même : la preuve incomplète est visible, elle n'est pas
+effacée.
+
+### Ce qui a réellement été vérifié
+
+Toute la chaîne ci-dessus est couverte par `apps/worker/tests/test_web_tests.py`,
+mais **aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été
+exécuté** pour la version `0.6.0`. Le programme lancé pendant les tests est
+`apps/worker/tests/fake_playwright_runner.py`, un lanceur déterministe démarré par
+`sys.executable` qui écrit un NDJSON réaliste et des fichiers de pièces jointes.
+Il exerce le lancement, la clôture d'arrêt, le timeout, l'ingestion, le quota, le
+refus d'une pièce jointe hors périmètre et l'expurgation — il ne prouve pas la
+compatibilité avec une vraie installation de `@playwright/test`.
+
+Sur la machine de vérification, **trois tests sont ignorés** faute de privilège de
+création de liens symboliques : ce sont précisément ceux qui prouvent le refus
+d'une pièce jointe atteinte par un lien. Le contrôle existe dans le code, il n'est
+pas prouvé sur cette machine.
+
+Avant de confier une vraie suite à ce runner, exécutez-la une première fois à la
+main dans le même `ACP_WORKER_WEBTEST_CWD` avec `ACP_REPORT_FILE` positionné, et
+vérifiez que le fichier NDJSON est bien écrit : c'est le seul point de la chaîne
+que la plateforme ne peut pas diagnostiquer à votre place.
+
 ## Limites de sécurité
 
 Ce backend est une frontière locale contrôlée et testable, pas une sandbox de système
@@ -115,7 +233,10 @@ la reprise impossible, le processus suspendu est tué et le run échoue en
 
 La sonde MCP stdio optionnelle (`ACP_WORKER_MCP_STDIO_*`) réutilise exactement la
 même clôture de spawn et d'arrêt ; elle est documentée dans
-`docs/workers/windows-worker.md` § 8.
+`docs/workers/windows-worker.md` § 8. Les tests web (`ACP_WORKER_WEBTEST_*`)
+réutilisent eux aussi cette clôture : un navigateur Playwright et ses processus
+enfants appartiennent au même Job Object que le processus de test, et un arrêt
+d'arbre non prouvé interdit tout succès.
 
 La terminaison d'arbre reste une frontière d'arrêt, pas une primitive d'isolation :
 le job ne limite ni le CPU, ni la mémoire, ni le réseau, et un descendant POSIX qui

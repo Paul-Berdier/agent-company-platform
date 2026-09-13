@@ -833,6 +833,8 @@ def test_stdio_probe_requires_authorization_then_worker_claim_and_result(mcp_con
         assert db.get(SecretModel, secret_id).last_used_at is not None
         for event in db.query(EventModel).all():
             _assert_no_secret_value(json.dumps(event.payload))
+            # Une trace d'audit sans numéro de journal sort de la page projet.
+            assert event.journal_seq is not None
 
     # Résultat : uniquement par le worker détenteur.
     assert _report(mcp_context, workers["no_capability"], probe_id, _stdio_result(["read_file"])).status_code == 409

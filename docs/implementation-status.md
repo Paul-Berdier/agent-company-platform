@@ -1,9 +1,12 @@
 # État d'implémentation et reprise
 
-Date d'état : 12 septembre 2026, Europe/Paris
-Portée : Lot D (version `0.5.0`) construit sur le Lot C `0.4.0`. Le Lot C est publié
-(PR #3 fusionnée par commit de merge, tag annoté `v0.4.0`). Le Lot D est publié par la
-PR #4 après intégration continue verte, puis étiqueté `v0.5.0`.
+Date d'état : 13 septembre 2026, Europe/Paris
+Portée : Lot E (version `0.6.0`) construit sur le Lot D `0.5.0`. Les Lots C et D sont
+publiés (PR #3 et #4, tags annotés `v0.4.0` et `v0.5.0` ; `v0.5.0` est un ancêtre de
+`origin/main`). Le Lot E **n'est pas publié** : sa branche `codex/modernization-lot-e`
+est poussée, mais elle n'est pas fusionnée dans `main`, aucun tag `v0.6.0` n'existe, et
+les corrections de revue comme cette documentation ne sont pas encore validées — donc
+aucune exécution d'intégration continue distante ne les couvre.
 
 ## Résumé
 
@@ -19,6 +22,17 @@ projet, révocation de bout en bout, import/export des configurations MCP, écra
 et groupes CLI `acp secrets | mcp | skills`. Aucun serveur MCP réel, dépôt GitHub réel
 ou runner distant réel n'a été contacté : les preuves reposent sur des transports et
 programmes déterministes locaux.
+
+Le Lot E livre la tranche observation et livrables : journal d'événements ordonné par
+deux compteurs monotones, flux SSE authentifié par curseur servi par l'API métier,
+reporter Playwright sans dépendance ni appel réseau, exécution de tests web sur un
+runner authentifié, résultats de tests structurés, stockage privé de livrables adressé
+par contenu avec liens signés bornés et révocables, Studio en lecture seule et onglet
+« Livrables » de la bibliothèque, plus les commandes CLI correspondantes.
+**Aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté**
+pour cette version : le reporter est prouvé sur des objets Playwright synthétiques et
+l'exécuteur du worker sur un programme déterministe. La reprise en main humaine du
+navigateur n'est pas livrée et l'interface le dit.
 
 Le backend réel exécute uniquement un exécutable absolu via un argv fixe configuré
 par l'opérateur. Il ne prend jamais une commande dans la mission, crée un cwd neuf,
@@ -150,6 +164,87 @@ transports déterministes de test.
   `timed_out` / `output_stream_timeout` ;
 - sur POSIX, le comportement est inchangé (`start_new_session` puis `killpg`).
 
+## Réalisé et testé dans le Lot E
+
+### Journal d'événements et flux authentifié
+
+- `events` porte `schema_version`, `conversation_id`, `step_id`, `executor`,
+  `emitted_by` et **deux compteurs monotones** alloués dans la transaction métier :
+  `sequence` (par tentative, exposée comme `StreamEvent.sequence`) et `journal_seq`
+  (le journal entier, curseur de la portée projet), chacun sous index unique partiel ;
+- `GET /runs/{id}/events` et `GET /projects/{id}/events` rendent un `EventPage`
+  (`next_cursor`, `has_more`, `retention_days`) ; une page ne dépasse jamais sa limite
+  et `has_more` vaut exactement « il existe une ligne de rang supérieur » ;
+- `GET /streams/runs/{id}` et `GET /streams/projects/{id}` servent du
+  `text/event-stream` depuis l'**API métier**, avec reprise par `Last-Event-ID` ou
+  `?after_seq=`, keep-alive `: ping`, rotation propre annoncée avec son curseur,
+  limite de connexions par utilisateur et RBAC **revérifié à chaque page** ;
+- le flux relit la base par curseur (interrogation bornée + réveil intra-processus) :
+  la base est la seule source de vérité, donc une reconnexion ne duplique ni ne perd
+  d'événement et plusieurs processus d'API peuvent servir la même tentative ;
+- un événement écrit hors de `publish` — les producteurs du Lot C et les écritures
+  d'audit MCP/skills/secrets/workers — reçoit ses numéros de façon transparente ; un
+  test structurel interdit à tout autre module d'`acp_api` de construire un
+  `EventModel` à la main ;
+- aucun média dans un événement : le payload d'une pièce jointe ne porte que
+  `artifact_id`, `content_type`, `size_bytes`, `sha256`, `stream_kind`.
+
+### Livrables privés
+
+- stockage adressé par contenu sur disque (`ACP_ARTIFACT_STORAGE_DIR`, clé
+  `<sha256[0:2]>/<sha256>`), écriture atomique, nom d'origine jamais dans le chemin,
+  derrière une interface `ArtifactStorage` prête pour un adaptateur objet non livré ;
+- `POST /workers/{id}/artifacts/content` : identité worker vérifiée **avant** la
+  lecture du corps, plafond par fichier et quota par tentative appliqués pendant le
+  flux, idempotence par sha256 sur la même tentative ;
+- `GET /artifacts`, `/artifacts/{id}`, `/artifacts/{id}/content` : lecture filtrée par
+  les projets accessibles, support des requêtes `Range`, allowlist de types sans
+  reniflage, `nosniff`, CSP `default-src 'none'; sandbox`, `private, no-store`, et
+  `text/html` / `image/svg+xml` / archives jamais servis en ligne ;
+- `POST /artifacts/{id}/link` et `DELETE /artifacts/links/{link_id}` : lien HMAC borné
+  (≤ 900 s), lié à l'artefact et au demandeur, révocable, `503` explicite sans clé ;
+- `python -m acp_api.retention` : purge à blanc par défaut, conservation des événements
+  terminaux et des artefacts cités par une preuve de mission, comptage de références
+  avant l'effacement d'un blob.
+
+### Tests web structurés
+
+- `packages/playwright-reporter` (`@acp/playwright-reporter`) : workspace npm **sans
+  dépendance runtime**, NDJSON local dans `ACP_REPORT_FILE`, aucun appel réseau,
+  statuts et `flaky` conservés distinctement, troncature à 8 000 caractères sans couper
+  une paire de substituts UTF-16, séquences ANSI retirées ;
+- `apps/worker/src/acp_worker/web_tests.py` : capacité `web_tests` désactivée par
+  défaut, argv absolu et racine configurés par l'opérateur, lancement par
+  `spawn_fenced_process` et arrêt par `terminate_process_tree`, arrêt non prouvé ⇒ pas
+  de succès, NDJSON absent ou vide ⇒ échec explicite, pièce jointe hors du répertoire
+  de sortie refusée, expurgation des messages et extraits, preuve `web_tests` sans
+  image ;
+- `apps/api/src/acp_api/testing_service.py` : ingestion idempotente sous identité
+  worker, lease et fencing ; `test_runs` / `test_cases` ; événements `test.run.started`,
+  `test.case.finished`, `test.run.finished` ; validation technique dérivée
+  (`passed` seulement avec code de sortie nul, aucun `unexpected`/`interrupted`/
+  `timedOut` et au moins un cas exécuté), jamais `succeeded` ;
+- le verdict du serveur ne peut qu'**aggraver** celui du worker, et le code de sortie
+  annoncé par le rapport ne peut jamais effacer celui mesuré.
+
+### Web et CLI
+
+- `studio-ui.ts` : bandeau de mode et de connexion en libellés textuels, chronologie
+  par curseur, arbre des tests avec statuts distincts et étapes dépliables, dernière
+  capture référencée par les pièces jointes, aperçus par lien signé, trace et rapport
+  HTML en téléchargement explicite avec avertissement, **aucun bouton de prise de
+  contrôle** ;
+- `library-ui.ts` : route « Bibliothèque » à deux onglets, `Skills` (délégué tel quel
+  au module du Lot D) et `Livrables` (filtres projet/mission/type, recherche, aperçu,
+  téléchargement, métadonnées, provenance, taille, empreinte) ; aucun nouvel élément de
+  navigation ;
+- règle du Lot D conservée : client HTTP fourni par le shell, aucune lecture de
+  `/auth/session`, purge d'état à la connexion et à la déconnexion — celle du Studio
+  ferme aussi l'`EventSource` ;
+- CLI : `acp runs events` (`--after-seq`, `--limit`, `--follow`, `--json`),
+  `acp runs tests` (même dérivation que le serveur, code `4` si la validation est en
+  échec), `acp artifacts list | get | link`, `acp open --run <id> --studio`.
+
 ## Hérité des Lots A et B
 
 - shell moderne français, thèmes, responsive, états vides/erreur/hors ligne et
@@ -161,34 +256,41 @@ transports déterministes de test.
   `/v1/runs`, avec réponses strictes et frontière inter-services ;
 - service d'événements protégé en ingestion et WebSocket anonyme fermé par défaut.
 
-## Vérification du Lot D
+## Vérification du Lot E
 
 Les résultats détaillés sont consignés dans
-[le rapport d'acceptation](acceptance-report.md). Le Lot D a été vérifié dans le
-worktree `lot-d` sous Windows 10 Pro `10.0.19045`, Node.js `v24.19.0` et npm
+[le rapport d'acceptation](acceptance-report.md). Le Lot E a été vérifié dans le
+worktree `lot-e` sous Windows 10 Pro `10.0.19045`, Node.js `v24.19.0` et npm
 `11.17.0`. Les suites Python ont été exécutées avec `.venv\Scripts\python.exe`, le
-**lanceur d'environnement virtuel Windows** (Python `3.12.0`) ; un interpréteur de
-contrôle croisé `.venv312\Scripts\python.exe` (Python `3.12.14`) reste disponible.
-Ce choix compte : sous Windows, ce lanceur exécute l'interpréteur réel dans un
-processus enfant, la topologie même que le correctif Job Object devait couvrir.
+**lanceur d'environnement virtuel Windows** (Python `3.12.0`). Ce choix compte : sous
+Windows, ce lanceur exécute l'interpréteur réel dans un processus enfant, la topologie
+même que le correctif Job Object du Lot D devait couvrir et que l'exécution de tests
+web réutilise.
 
-La suite Python compte **1 033 tests réussis et 2 avertissements de dépréciation
-connus** (`389` API, `164` worker, `280` CLI, `200` en contrats, event-service et
-gateway). Le web compte **149 tests Vitest sur 12 fichiers** et le moteur legacy
-**74 tests**. Le typecheck TypeScript, le build Vite et
-`scripts/check_version.py` (toutes les versions publiables sur `0.5.0`) réussissent ;
-le build n'émet que l'avertissement attendu sur la taille du chunk Phaser.
+La suite Python compte **1 627 tests réussis, 4 ignorés et 2 avertissements de
+dépréciation connus** (`751` API, `223` worker, `365` CLI, `288` en contrats,
+gateway et event-service). Le web compte **262 tests Vitest sur 17 fichiers**, le
+reporter Playwright **59 tests** et le moteur legacy **74 tests**. Le typecheck
+TypeScript, le build Vite et `scripts/check_version.py` (toutes les versions
+publiables sur `0.6.0`) réussissent ; le build n'émet que l'avertissement attendu sur
+la taille du chunk Phaser.
 
-Le scénario d'acceptation 7 a en outre été rejoué contre des services réellement
+Les quatre tests ignorés sont des limites de la machine, pas des opt-in : un contrôle
+de permissions POSIX inapplicable sous Windows
+(`apps/api/tests/test_artifacts_storage.py`) et trois tests de refus de lien
+symbolique (`apps/worker/tests/test_web_tests.py`) que le compte de vérification ne
+peut pas créer. **Aucun test n'est ignoré faute d'opt-in Playwright : cet opt-in
+n'existe pas dans le dépôt.**
+
+Le scénario d'acceptation 7 reste le seul rejoué contre des services réellement
 démarrés — API métier dans son propre processus et serveur MCP Streamable HTTP sur le
-bouclage — avec **24 étapes sur 24 réussies**, dont la preuve que le secret déchiffré
-atteint bien le serveur MCP sans jamais être republié. Le script de ce parcours n'est
-pas versionné dans le dépôt : il ne rend donc pas le scénario reproductible par un
-tiers.
+bouclage — avec **24 étapes sur 24 réussies**. Son script est désormais versionné
+(`scripts/verify_mcp_journey.py`). Aucun équivalent n'existe pour le Lot E.
 
-Ces tests prouvent les invariants locaux. Ils ne prouvent pas un serveur MCP tiers, un
-dépôt GitHub réel, une instance Hermes, un fournisseur payant, PostgreSQL existant,
-une sandbox OS, un E2E navigateur ou un déploiement Railway, ni une CI distante.
+Ces tests prouvent les invariants locaux. Ils ne prouvent pas un navigateur réel, une
+exécution Playwright réelle, un serveur MCP tiers, un dépôt GitHub réel, une instance
+Hermes, un fournisseur payant, PostgreSQL existant, une sandbox OS, un E2E navigateur,
+un déploiement Railway, ni une CI distante sur ce travail.
 
 ## Réalisé, non testé en conditions réelles
 
@@ -208,23 +310,44 @@ une sandbox OS, un E2E navigateur ou un déploiement Railway, ni une CI distante
   lancé par `sys.executable` sur la machine de vérification : aucun runner distant
   enrôlé, aucun serveur MCP tiers ;
 - les écrans web du centre MCP et de la bibliothèque de skills sont couverts par des
-  tests Vitest sur le DOM, pas par un parcours navigateur réel.
+  tests Vitest sur le DOM, pas par un parcours navigateur réel ;
+- **le Lot E n'a jamais rencontré Playwright** : le reporter est prouvé sur des objets
+  Playwright synthétiques et l'exécuteur du worker sur
+  `apps/worker/tests/fake_playwright_runner.py`, un programme déterministe lancé par
+  `sys.executable`. Aucun navigateur n'a été lancé, aucune capture, vidéo ou trace
+  réelle n'a été produite, téléversée ou affichée ;
+- le Studio et l'onglet « Livrables » sont couverts par des tests Vitest sur le DOM et
+  par un test de câblage du shell ; **aucun parcours navigateur** ne les a exercés ;
+- le flux SSE n'a été éprouvé que par un client de test ASGI : aucune coupure réseau
+  réelle, aucun proxy intermédiaire, aucun `EventSource` de navigateur ;
+- la purge de rétention est testée, mais n'a jamais été exécutée avec `--apply` sur des
+  données d'exploitation, et aucun ordonnanceur ne la déclenche ;
+- la migration additive de `events.sequence` et `events.journal_seq` n'est exercée que
+  sur SQLite.
 
 ## Bloqué
 
 Ces points ne dépendent pas d'un développement supplémentaire mais d'une ressource ou
 d'une décision qui manque aujourd'hui.
 
-- **Publication des Lots C et D** : le code est prêt et vérifié, mais aucune PR n'est
-  ouverte, aucune CI distante n'a tourné et aucun tag n'existe. C'est une décision, pas
-  un travail restant.
+- **Publication du Lot E** : le code est vérifié localement, mais la branche n'est pas
+  fusionnée, aucune PR n'est ouverte pour ce lot, aucune CI distante n'a tourné sur les
+  corrections de revue et cette documentation, et aucun tag `v0.6.0` n'existe. C'est
+  une décision, pas un travail restant.
+- **Passage des scénarios 10, 11, 16 et 19 à « Accepté »** : bloqué par l'absence d'une
+  installation Playwright réelle sur un runner et d'un parcours de bout en bout
+  versionné pour ce lot. Le code est là ; la preuve d'exécution réelle ne l'est pas.
+- **Origine d'aperçu séparée** : bloquée par l'absence d'un second domaine ou
+  sous-domaine dédié. Tant que `ACP_ARTIFACT_PUBLIC_ORIGIN` est vide, les liens signés
+  sont servis par l'origine de l'API.
 - **Passage des scénarios 7 et 8 à « Accepté »** : bloqué par l'absence d'un serveur
   MCP tiers et d'un dépôt GitHub réel autorisés pour la vérification, et par le fait
-  que le parcours de bout en bout n'est pas versionné dans le dépôt.
+  que le parcours versionné ne couvre que le transport `http`.
 - **Vérification Hermes réelle** : bloquée par l'absence d'instance, de clé et de
   modèle ; toute la lecture native est prouvée sur transport simulé.
 - **Vérification PostgreSQL, sauvegarde et restauration** : bloquée par l'absence d'une
-  base existante et d'une procédure de migration versionnée.
+  base existante et d'une procédure de migration versionnée. La migration des deux
+  compteurs d'événements est propre à SQLite.
 
 ## Non configuré ou restant
 
@@ -247,8 +370,17 @@ d'une décision qui manque aujourd'hui.
   manuellement ; aucune API HTTP d'Hermes 0.21.1 ne permet d'écrire cette
   configuration ;
 - migrations PostgreSQL versionnées, rollback et restauration ;
-- flux utilisateur authentifié/rejouable, Playwright, captures, traces et fichiers
-  privés ;
+- exécution Playwright réelle : la chaîne reporter → worker → API est livrée et testée,
+  mais aucun navigateur n'a jamais été lancé, et l'opt-in de test E2E réel
+  (`ACP_E2E=1`) prévu par la spécification n'existe pas dans le dépôt ;
+- prise de contrôle humaine du navigateur : **non livrée**, reportée au Lot G ; le
+  Studio est en lecture seule et l'interface le dit ;
+- diffusion d'images de session en direct : la plateforme ne produit aucune image ; les
+  seules images disponibles sont les captures téléversées par le lanceur de tests ;
+- trace viewer intégré : une trace Playwright se télécharge et s'ouvre hors de la
+  plateforme ;
+- origine d'aperçu séparée, adaptateur de stockage objet distant et purge de rétention
+  planifiée ;
 - courtier d'appels d'outils MCP pendant une mission : le Lot D livre le registre, la
   découverte, l'autorisation et la résolution des extensions, pas l'appel à
   l'exécution ;
@@ -266,27 +398,46 @@ d'une décision qui manque aujourd'hui.
 | B | accès propriétaire, RBAC, onboarding et conversation persistante | **Publié : PR #2, tag `v0.3.0`** |
 | C | runner réel contrôlé, missions, preuves, validations et CLI | **Publié : PR #3, tag `v0.4.0`** |
 | D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Publié : PR #4, tag `v0.5.0` ; aucun serveur MCP tiers contacté** |
-| E | Playwright, flux authentifié, traces, captures et livrables | **Non commencé** |
+| E | événements durables, flux authentifié, Playwright, livrables privés et Studio | **Implémenté et vérifié localement (`0.6.0`), non publié ; aucun navigateur réel lancé, aucun test Playwright réel exécuté ; prise de contrôle du navigateur non livrée** |
 | F | automatisations, calendrier Europe/Paris, budgets et alertes | **Non commencé** |
 | G | médias/3D, exécuteurs complémentaires et durcissement | **Non commencé** |
 | H | migrations, Railway, sauvegarde-restauration et validation finale | **Non commencé** |
 
-## Reprise : du Lot D au Lot E
+## Reprise : du Lot E au Lot F
 
 Ordre de reprise pour la personne ou l'agent qui prend la suite.
 
-1. **Étendre le parcours de bout en bout** : `scripts/verify_mcp_journey.py` couvre le
-   transport `http`. L'étendre au transport `stdio` (runner enrôlé, autorisation, claim,
-   résultat) et le raccorder à la CI en opt-in.
-2. **Raccorder un serveur MCP tiers** (un `http` public et un `stdio` local) et rejouer
-   le parcours hors tests simulés, y compris l'expurgation face à un serveur bavard
-   réel et un dépôt GitHub réel pour un skill épinglé.
-3. **Construire le courtier d'appels d'outils** à l'exécution d'une mission, sur les
-   extensions déjà résolues et figées dans `meta["extensions"]` : c'est la brique qui
-   transforme le registre du Lot D en capacité utilisable par un agent.
-4. **Décider du sort de l'autorisation `stdio`** : la relier au circuit
-   d'approbation des missions (`ApprovalModel`, `/approvals`, `acp approvals`) ou
-   assumer durablement deux circuits distincts et le documenter comme tel.
-5. **Enchaîner sur le Lot E** (Playwright, flux authentifié, traces, captures et
-   livrables) une fois les points 1 et 2 tenus : le Lot E a besoin d'un parcours
-   navigateur reproductible, que le Lot D n'a pas produit.
+1. **Publier le Lot E** : ouvrir la PR, obtenir une intégration continue verte sur
+   Ubuntu et étiqueter `v0.6.0`. Aujourd'hui la branche est poussée mais les
+   corrections de revue et la documentation ne sont pas validées, donc aucune CI ne les
+   a vues. C'est une décision, pas un travail restant.
+2. **Exécuter une vraie suite Playwright sur un runner réel.** C'est la preuve qui
+   manque au Lot E et la seule qui fasse progresser les scénarios 10 et 11. Concrètement :
+   installer Playwright sur la machine du runner, configurer `ACP_WORKER_WEBTEST_ARGV_JSON`
+   et `ACP_WORKER_WEBTEST_CWD`, lancer une mission portant une ressource
+   `kind == "web_test_suite"`, puis vérifier dans le Studio la chronologie, l'arbre des
+   tests, la capture et la trace réellement produites.
+3. **Écrire l'opt-in de test E2E réel** prévu par la spécification (`ACP_E2E=1`,
+   `skipped` sinon, jamais réussi par défaut) et le raccorder à la CI en opt-in. Il
+   n'existe pas : aucun fichier du dépôt ne lit cette variable.
+4. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
+   `scripts/verify_mcp_journey.py` l'a fait pour le scénario 7 : services démarrés,
+   worker authentifié, ingestion d'une exécution de tests, flux SSE consommé avec
+   reprise par curseur, téléchargement d'un livrable par lien signé puis révocation.
+   Sans lui, aucun scénario de ce lot ne peut passer à « Accepté ».
+5. **Configurer une origine d'aperçu séparée** (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et
+   vérifier que le Studio cesse d'afficher son avertissement. C'est le prérequis de
+   sécurité avant toute exposition réseau du Studio.
+6. **Enchaîner sur le Lot F** (automatisations, calendrier Europe/Paris, budgets et
+   alertes). Deux briques du Lot E lui servent directement : le journal ordonné par
+   `journal_seq`, sur lequel une automatisation peut reprendre sans doublon, et la
+   dérivation de validation technique, qui donne un déclencheur fiable. Attention : la
+   purge de rétention ne supprime aujourd'hui que les événements les plus anciens, ce
+   qui garantit que les rangs ne sont jamais réutilisés ; une automatisation qui
+   supprimerait les rangs les plus hauts casserait cette propriété.
+
+Deux dettes du Lot D restent ouvertes et n'ont pas été traitées par le Lot E :
+raccorder un serveur MCP tiers et un dépôt GitHub réel, et construire le courtier
+d'appels d'outils MCP à l'exécution d'une mission. Le sort de l'autorisation `stdio`
+(circuit propre au centre MCP ou circuit d'approbation des missions) reste lui aussi à
+trancher.

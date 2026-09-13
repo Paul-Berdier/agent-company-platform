@@ -53,7 +53,13 @@ from .conversations import (  # noqa: F401
     HermesNativeSkill,
     HermesNativeToolset,
 )
-from .events import Event, EventEnvelope  # noqa: F401
+from .events import (  # noqa: F401
+    EVENT_SCHEMA_VERSION,
+    Event,
+    EventEnvelope,
+    EventPage,
+    StreamEvent,
+)
 from .memory import MemoryItem  # noqa: F401
 from .missions import (  # noqa: F401
     AutonomyMode,
@@ -103,10 +109,29 @@ from .operations import (  # noqa: F401
     ApprovalValidationResult,
     Artifact,
     ArtifactCreate,
+    ArtifactLink,
+    ArtifactPage,
+    ArtifactSummary,
     LockAcquireRequest,
     LockOwnerRequest,
     ResourceLock,
     ResourceType,
+)
+from .testing import (  # noqa: F401
+    REPORTER_EVENTS_MAX,
+    TEST_ERROR_MAX_CHARS,
+    TEST_STEPS_MAX,
+    ReporterAttachment,
+    ReporterEvent,
+    TestCaseResult,
+    TestIngestRequest,
+    TestOutcome,
+    TestRunDetail,
+    TestRunStatus,
+    TestRunSummary,
+    TestStatus,
+    TestStep,
+    TestTotals,
 )
 from .workers import (  # noqa: F401
     WorkerCapability,
