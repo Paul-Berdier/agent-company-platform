@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class MissionRunStatus(str, Enum):
@@ -45,10 +45,14 @@ class MissionResource(BaseModel):
 
 
 class MissionBudget(BaseModel):
-    max_cost: float | None = Field(default=None, ge=0)
-    currency: str = Field(default="EUR", min_length=3, max_length=3)
-    max_tokens: int | None = Field(default=None, ge=0)
-    max_tool_calls: int | None = Field(default=None, ge=0)
+    model_config = ConfigDict(extra="forbid")
+
+    max_cost: float | None = Field(
+        default=None, ge=0, allow_inf_nan=False, strict=True
+    )
+    currency: str = Field(default="EUR", pattern=r"^[A-Za-z]{3}$")
+    max_tokens: int | None = Field(default=None, ge=0, strict=True)
+    max_tool_calls: int | None = Field(default=None, ge=0, strict=True)
 
     @field_validator("currency")
     @classmethod
