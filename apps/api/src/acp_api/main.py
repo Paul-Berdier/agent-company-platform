@@ -9,7 +9,10 @@ from acp_database import init_db
 
 from .routers import (
     artifacts,
+    alerts,
     auth,
+    automations,
+    budgets,
     connections,
     conversations,
     crud,
@@ -52,6 +55,9 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(alerts.router)
+app.include_router(automations.router)
+app.include_router(budgets.router)
 app.include_router(connections.router)
 app.include_router(conversations.router)
 app.include_router(onboarding.router)
