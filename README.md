@@ -21,17 +21,17 @@ strictement opt-in, l'aperçu de GLB validés sur une origine séparée, un conn
 ComfyUI privé et deux exécuteurs worker explicites pour Codex CLI et Claude Code.
 
 Une instance Hermes réelle, un serveur MCP tiers et une isolation OS du runner ne sont
-toujours pas validés. Le harnais E2E existe, mais **aucun navigateur réel n'a été lancé
-et aucun test Playwright réel n'a été exécuté dans cette validation** ; la reprise en
-main humaine du navigateur n'est pas livrée.
+toujours pas validés. Le harnais E2E a été exécuté localement dans un vrai Edge contre
+une API et un serveur Vite isolés ; il prouve le shell et le Studio en lecture, pas la
+chaîne reporter → worker, un rendu GLB WebGL ni une reprise en main humaine.
 PostgreSQL, Railway et les sauvegardes restent au Lot H. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version en préparation dans cette branche : **0.8.0** (Lot G). La dernière version
-publiée est **0.7.0** : Lot F fusionné par la PR
-[#6](https://github.com/Paul-Berdier/agent-company-platform/pull/6), commit de fusion
-`0b4d904`, tag `v0.7.0`, après observation d'une CI verte. Les changements sont
-décrits dans [CHANGELOG.md](CHANGELOG.md).
+Version publiée : **0.8.0** (Lot G). Son socle a été intégré sur `main` au commit
+`004a4f8`, puis durci et publié par la PR
+[#7](https://github.com/Paul-Berdier/agent-company-platform/pull/7) et le tag annoté
+`v0.8.0`, après observation d'une CI verte. Les changements sont décrits dans
+[CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
 
@@ -130,12 +130,16 @@ décrits dans [CHANGELOG.md](CHANGELOG.md).
   requête HTTP réelle est non retentée, ne suit aucune redirection et tout `3xx` est
   refusé avant d'atteindre le navigateur. `Worker`, `SharedWorker` et `EventSource`
   sont neutralisés dans cette preuve, qui exerce donc le vrai repli polling du Studio ;
+  Playwright `1.63.0` accepte un canal explicite `chromium`, `chrome` ou `msedge`, et le
+  lanceur local reproductible a réussi avec Edge contre de vrais services isolés ;
 - exécution de tests web sur un runner opt-in : argv absolu configuré par l'opérateur,
   aucun credential de la plateforme remis au processus de test, clôture d'arrêt Job
   Object, rapport vide ou arrêt d'arbre non prouvé ⇒ échec explicite, jamais un succès ;
 - livrables privés adressés par contenu : téléversement worker idempotent par sha256
   avec plafond et quota, téléchargement par session ou par lien signé borné et
-  révocable, `Range` supporté, et HTML/SVG/archives jamais servis en ligne ;
+  révocable, `Range` supporté, et HTML/SVG/archives jamais servis en ligne ; chaque
+  écriture worker exige le fencing token courant, revérifié sous verrou après lecture
+  du corps afin qu'un worker remplacé ne puisse pas publier tardivement ;
 - aperçu 3D à la demande avec `@google/model-viewer` pour les seuls `.glb` v2
   auto-contenus, cohérents et scellés par leur sha256 ; `.gltf`, URI externes, chunks
   inconnus et extensions nécessitant un décodeur externe restent refusés ou en
@@ -144,7 +148,9 @@ décrits dans [CHANGELOG.md](CHANGELOG.md).
 - connecteur ComfyUI optionnel derrière le Bearer inter-services du gateway : workflow
   JSON fixé par l'opérateur, prompt seul injecté, appels `/prompt`, `/history` et
   `/view` bornés, réponse PNG/JPEG/WebP vérifiée, concurrence/cache mémoire bornés et
-  tombstone après toute soumission `/prompt` incertaine ;
+  tombstone après toute soumission `/prompt` incertaine ; une exécution distante
+  incertaine place le connecteur en quarantaine, avec suppression ciblée d'un prompt en
+  file et interruption globale seulement sur une instance explicitement exclusive ;
 - Studio en lecture seule dans le détail d'une mission (`/missions?run=<id>&vue=studio`)
   et onglet « Livrables » de la bibliothèque ;
 - commandes `acp runs events`, `acp runs tests`, `acp artifacts list | get | link` et
@@ -153,9 +159,9 @@ décrits dans [CHANGELOG.md](CHANGELOG.md).
 
 Ce qui ne fonctionne pas encore est visible comme `Non configuré` et recensé dans
 [le rapport d'acceptation](docs/acceptance-report.md). En particulier : aucune
-exécution Playwright réelle, aucune capture ni trace produite par un vrai navigateur,
-aucune reprise en main humaine du navigateur, et aucune origine d'aperçu séparée
-configurée. Une demande d'aperçu échoue donc explicitement en `424`, sans repli sur
+capture ni trace produite par la chaîne reporter → worker dans un vrai navigateur,
+aucun rendu GLB WebGL réel, aucune reprise en main humaine, et aucune origine d'aperçu
+déployée. Une demande d'aperçu échoue donc explicitement en `424`, sans repli sur
 l'origine de l'API ; le téléchargement reste disponible. Le stockage d'artefacts reste
 local et aucun adaptateur objet externe n'a été éprouvé. Le projet n'est pas prêt à
 être exposé sur Internet.
@@ -337,6 +343,8 @@ npm run test:e2e:unit
 npm test --workspace @acp/pixel-office-engine
 npm run build:web
 ./.venv/Scripts/python.exe scripts/check_version.py
+# opt-in explicite, avec Chromium installé ou ACP_E2E_BROWSER_CHANNEL=msedge
+$env:ACP_E2E="1"; ./.venv/Scripts/python.exe scripts/verify_live_studio_journey.py
 ```
 
 Sous Windows, appeler l'interpréteur de l'environnement virtuel
@@ -358,10 +366,20 @@ avertissements connus**, **295 tests web sur 23 fichiers**, **59 tests du report
 quatre jobs Python 3.12 et Node 22 déclenchés par le dernier push et la PR ont été
 observés verts avant la fusion ; le tag annoté distant `v0.7.0` pointe sur `0b4d904`.
 
-Aucune de ces commandes ne lance de navigateur. Le parcours réel est livré dans le
-paquet isolé `e2e/` et `npm run test:e2e` sort explicitement `[E2E SKIPPED]` tant que
-`ACP_E2E` ne vaut pas exactement `1`. Son activation exige une cible, un compte et une
-tentative réels : elle n'a pas été effectuée pour ce lot. Voir [e2e/README.md](e2e/README.md).
+Pour la version publiée `0.8.0` du Lot G, vérifiée le 14 septembre 2026 avec Python
+`3.12.0`, Node `v24.19.0` et npm `11.17.0`, la passe globale donne **2 498 tests Python
+réussis, 7 ignorés et 2 avertissements connus**. Les suites JavaScript donnent **311
+tests web sur 24 fichiers**, **59 tests du reporter**, **74 tests du moteur** et **34
+tests des garde-fous E2E**. Le typecheck, le build Vite, la synchronisation de version
+et le parcours d'automatisation **62/62** réussissent également. Enfin, le parcours
+shell/Studio opt-in a réussi dans un vrai Edge : **1 test en 11,6 s**.
+
+Les suites déterministes ne lancent aucun navigateur. Le parcours réel du paquet isolé
+`e2e/` reste désactivé tant que `ACP_E2E` ne vaut pas exactement `1`. Le script
+`scripts/verify_live_studio_journey.py` crée une API, un shell, un compte et une mission
+temporaires sur le bouclage, puis exécute ce parcours ; il a réussi avec le canal
+`msedge` pendant la validation du Lot G. Une cible de staging existante reste également
+possible avec les variables détaillées dans [e2e/README.md](e2e/README.md).
 
 Un parcours de bout en bout, hors intégration continue, démarre l'API et un vrai
 serveur MCP local puis rejoue l'ajout, le diagnostic, le rattachement, l'activation,

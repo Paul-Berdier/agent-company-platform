@@ -1,7 +1,6 @@
 # Missions, runner local et CLI
 
-Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.7.0`, Lot G `0.8.0`
-implémenté dans l'arbre de travail
+Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.8.0` (Lot G)
 
 Le Lot C fournit une mission durable dans l'API métier, une exécution locale
 configurée côté worker et le client `acp`. Le web et le CLI utilisent la même
@@ -286,10 +285,9 @@ les sha256, jamais le prompt ni les flux bruts.
 - le suivi d'une tentative passe depuis le Lot E par un flux SSE authentifié avec
   reprise par curseur, exercé par un client de test seulement : aucune coupure réseau
   réelle ni `EventSource` de navigateur n'a été éprouvé ;
-- l'exécution de tests web est livrée et testée sur un **lanceur déterministe** :
-  aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté ;
-- le harnais `e2e/` opt-in existe depuis le Lot G, mais son garde `ACP_E2E=1` n'a pas
-  été activé pendant cette vérification ;
+- l'exécution reporter → worker est testée sur un **lanceur déterministe** ; le harnais
+  `e2e/` distinct a réellement traversé shell et Studio dans Edge, sans capture/trace
+  ingérée par le worker ;
 - le backend local contrôlé n'applique pas encore une isolation OS ou réseau forte ;
 - le planificateur et le groupe `acp automations` sont couverts par des tests locaux ;
   ils n'ont pas été exercés contre Hermes, un fournisseur payant ou un service externe.

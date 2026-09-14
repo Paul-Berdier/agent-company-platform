@@ -1,9 +1,9 @@
 # Rapport d'acceptation
 
 Date d'état : 14 septembre 2026
-Périmètre évalué : Lot G `0.8.0` dans l'arbre de travail, construit sur le Lot F publié
-`0.7.0`, sans service externe ni dépense réelle. Le Lot G n'est ni fusionné, ni taggé,
-et aucune CI distante de cet arbre n'est revendiquée.
+Périmètre évalué : Lot G publié `0.8.0`, sans provider externe ni dépense réelle. Son
+socle a été intégré au commit `004a4f8`, puis durci par la PR #7 et le tag `v0.8.0`
+après CI verte observée.
 
 ## Verdict
 
@@ -12,21 +12,21 @@ brique réelle et de tests ciblés ; deux restent non satisfaits (4 et 20). Le c
 ComfyUI fait passer le scénario 17 à **Partiel** et l'aperçu GLB renforce le scénario 16,
 mais les preuves externes restent incomplètes :
 
-- **aucun navigateur réel n'a été lancé** et **aucun test Playwright réel n'a été
-  exécuté** pour cette version. Le reporter est prouvé sur des objets Playwright
-  synthétiques ; l'exécuteur du worker est prouvé sur
+- un vrai Edge/Playwright a exercé connexion → Missions → Studio contre une API et un
+  Vite isolés. Le reporter est toutefois prouvé sur des objets Playwright
+  synthétiques et l'exécuteur du worker sur
   `apps/worker/tests/fake_playwright_runner.py`, un programme déterministe lancé par
   `sys.executable` qui écrit un NDJSON réaliste et des fichiers de pièces jointes ;
 - aucune capture d'écran d'une session de test réelle n'existe, donc aucune image de
   session n'a jamais été affichée par le Studio ;
-- aucun parcours navigateur des écrans Studio et Bibliothèque n'a été effectué : les
-  deux sont couverts par des tests Vitest sur le DOM ;
+- le Studio a un parcours navigateur réel ; la Bibliothèque reste couverte uniquement
+  par des tests Vitest sur le DOM ;
 - aucune origine d'aperçu séparée n'est configurée ; une demande d'aperçu échoue donc
   en `424` avant création du jeton, sans repli sur l'origine de l'API ;
 - le parcours du Lot F démarre une API et une base SQLite temporaires ; il ne lance ni
   worker distant, ni Hermes, ni fournisseur payant, ni navigateur ;
-- le harnais E2E, l'aperçu 3D, ComfyUI et les points de spawn Codex/Claude sont livrés,
-  mais n'ont été exercés contre aucun navigateur, GPU, service ou modèle réel ;
+- le harnais E2E shell/Studio est exercé dans Edge ; l'aperçu 3D, ComfyUI et les points
+  de spawn Codex/Claude ne l'ont été contre aucun GPU, service ou modèle réel ;
 - les migrations PostgreSQL, Railway et la restauration restent au Lot H.
 
 Le scénario 7 du Lot D a été rejoué contre des services réellement démarrés (API métier
@@ -44,7 +44,7 @@ satisfait** signifie que le parcours principal n'est pas livré.
 
 | # | Scénario | Statut | Preuve disponible et manque bloquant |
 |---:|---|---|---|
-| 1 | Première connexion sécurisée et reconnexion | **Partiel** | Bootstrap unique, Argon2id, session révocable/expirable, cookie `HttpOnly`, CSRF, restauration web et login CLI sont testés. Pas d'E2E navigateur sur services démarrés. |
+| 1 | Première connexion sécurisée et reconnexion | **Partiel** | Bootstrap unique, Argon2id, session révocable/expirable, cookie `HttpOnly`, CSRF, restauration web et login CLI sont testés ; un login navigateur réel a réussi sur services locaux démarrés. Le bootstrap initial par l'UI et une reconnexion complète ne sont pas encore réunis dans le même E2E. |
 | 2 | Connexion Hermes avec diagnostic d'échec exploitable | **Partiel** | Diagnostic typé et frontière serveur testés avec transports simulés. Aucune instance ni clé Hermes réelle. |
 | 3 | Conversation persistante et reprise depuis web/CLI | **Partiel** | Conversations et tours sont persistés ; web et CLI reprennent par `GET`. Pas de streaming ni E2E Hermes réel. |
 | 4 | Import d'un projet sans écrasement du travail existant | **Non satisfait** | Création de projet disponible, mais pas d'import de dépôt/dossier ni test produit de conflit. |
@@ -53,36 +53,39 @@ satisfait** signifie que le parcours principal n'est pas livré.
 | 7 | Ajout, test, activation et révocation d'un MCP | **Partiel** | Parcours complet testé sur les deux transports : déclaration, refus d'un secret en clair, diagnostic HTTP épinglé, autorisation puis diagnostic `stdio` sur le runner désigné, rattachement limité à un sous-ensemble d'outils, activation, rollback, révocation et audit (`apps/api/tests/test_mcp_servers.py`, `apps/worker/tests/test_mcp_probe.py`). Le transport `http` a en outre été rejoué contre des services réellement démarrés : **24/24 étapes**, injection du secret observée côté serveur MCP et jamais republiée. Le script de ce parcours est versionné (`scripts/verify_mcp_journey.py`). Manque bloquant : aucun serveur MCP **tiers** contacté, aucun parcours navigateur, et le transport `stdio` reste prouvé par un serveur déterministe local. |
 | 8 | Import d'un skill, affichage des fichiers et activation limitée | **Partiel** | Import manuel, dossier autorisé, archive et GitHub épinglé ; arborescence, `SKILL.md`, dépendances, licence et contrôle indicatif affichés ; approbation exigée quand la portée augmente ; activation sur le projet A absente des extensions du projet B ; révocation auditée (`apps/api/tests/test_skills.py`, `test_extensions.py`). Manque bloquant : aucun dépôt GitHub réel ni archive de skill tierce ; le transport GitHub est prouvé sur `httpx.MockTransport`. |
 | 9 | Refus d'une installation ou d'une action non autorisée | **Partiel** | CSRF/RBAC et frontières worker sont testés ; le runner refuse avant spawn les autonomies non garanties et toute commande hors allowlist ; un opérateur ou un lecteur est refusé sur `/mcp/servers`, `/skills/import` et `/secrets`, un membre d'un autre projet sur un rattachement, un lancement `stdio` non autorisé n'est jamais distribué, et `GET /mcp/servers/{id}` ne nomme que les rattachements des projets accessibles. Manque bloquant : les refus sont prouvés sur des sources locales et un parcours API, pas sur une installation réelle ni un parcours navigateur. |
-| 10 | Tests web avec résultat structuré et capture de la session réelle | **Partiel** | Le résultat structuré est livré et testé de bout en bout **sur un lanceur simulé** : reporter NDJSON, ingestion worker authentifiée, statuts distincts et faux succès refusés. Le Lot G ajoute un paquet `@playwright/test` isolé et un parcours réel opt-in, mais celui-ci ouvre une tentative existante et ne remplace pas l'exécution reporter → worker. **Manque bloquant : l'opt-in n'a jamais été activé, aucun navigateur ni test Playwright réel n'a été lancé et aucune capture de session réelle n'existe.** |
+| 10 | Tests web avec résultat structuré et capture de la session réelle | **Partiel** | Le résultat structuré est livré et testé de bout en bout **sur un lanceur simulé** : reporter NDJSON, ingestion worker authentifiée, statuts distincts et faux succès refusés. Le Lot G ajoute `@playwright/test` isolé et un parcours réel opt-in, exécuté avec Edge, mais celui-ci ouvre une tentative existante et ne remplace pas reporter → worker. **Manque bloquant : aucune capture de session issue de cette chaîne réelle n'existe.** |
 | 11 | Consultation d'une trace et d'une capture après échec | **Partiel** | Les pièces jointes d'un cas en échec sont téléversées par le worker, stockées hors base, référencées par empreinte et type, puis listées et téléchargeables par le Studio, la bibliothèque et `acp artifacts get`. Une trace et un rapport HTML restent en téléchargement forcé avec `nosniff` et CSP. **Manque bloquant : aucune trace ni capture n'a été produite par un échec Playwright réel ; pas de trace viewer intégré.** |
 | 12 | Déconnexion/reconnexion sans perte d'historique ni double lancement | **Partiel** | Le Lot E fournit le flux SSE authentifié avec reprise par curseur et le Lot F ajoute des clés stables pour créer une routine, déclencher manuellement ou faire tourner un webhook. Une `fire_key` unique en base arbitre deux matérialisations concurrentes ; le web et le CLI conservent la clé après une réponse incertaine. **Manque bloquant : aucune coupure réseau réelle, aucun `EventSource` de navigateur, aucun effet tiers permettant d'observer l'absence de double effet externe et aucun outbox.** |
 | 13 | Approbation, refus, expiration et arrêt réel d'une exécution | **Partiel** | Acceptation/refus, empreinte et expiration d'approbation, stop et arrêt d'arbre sont couverts. Le runner local refuse les actions nécessitant approbation au lieu de les demander. |
 | 14 | Runner perdu puis reprise contrôlée sans double effet | **Partiel** | Lease, fencing, worker obsolète, interruption et nouvelle tentative sont testés. Aucun effet tiers réel ne permet de prouver l'absence de double effet externe. |
 | 15 | Routine planifiée sans doublon et fuseau Europe/Paris | **Partiel** | Routine durable créée désactivée, cron en heure locale IANA et intervalles, heures inexistantes omises et première heure ambiguë retenue, calendrier UTC/local/décalage, rattrapage `skip`/`run_once`, limite de concurrence, bail singleton/fencing et contrainte unique de `fire_key`. La concurrence est testée sur une base SQLite fichier et les bascules Europe/Paris sur plusieurs années. Web, CLI et parcours HTTP local existent. **Manque bloquant : aucun worker distant, aucune exécution Hermes réelle, aucun navigateur réel, aucune validation PostgreSQL/multi-processus de production.** |
 | 16 | Livrable téléchargeable et aperçu 3D réel | **Partiel** | Stockage privé, téléversement idempotent, quotas, `Range`, liens signés, bibliothèque et CLI sont livrés. Le Lot G valide strictement et scelle les `.glb` v2 auto-contenus, y compris buffers/vues/accessors/strides et en-têtes/dimensions/budgets cumulés des images, garde `.gltf` en téléchargement et charge `@google/model-viewer` à la demande dans Studio/Bibliothèque. **Manque bloquant : aucun GLB n'a été rendu dans un navigateur réel, aucune origine d'aperçu séparée n'est déployée, aucun livrable ne provient d'une exécution réelle et le stockage reste local. Les limites applicatives ne remplacent pas l'isolation du décodeur/GPU.** |
-| 17 | Génération d'image réelle si backend configuré | **Partiel** | Le gateway privé expose un diagnostic et une génération ComfyUI à workflow local fixe, prompt seul injecté, appels `/prompt`/`history`/`view` bornés, image PNG/JPEG/WebP vérifiée, concurrence/cache bornés et tombstone après soumission incertaine. **Manque bloquant : aucun ComfyUI/GPU/modèle réel contacté, aucune idempotence durable entre redémarrages ou réplicas, aucun raccordement au worker ni versement en artefact.** |
+| 17 | Génération d'image réelle si backend configuré | **Partiel** | Le gateway privé expose un diagnostic et une génération ComfyUI à workflow local fixe, prompt seul injecté, appels bornés, image PNG/JPEG/WebP vérifiée, concurrence/cache bornés, tombstone et quarantaine/réconciliation après soumission incertaine. **Manque bloquant : aucun ComfyUI/GPU/modèle réel contacté, aucune idempotence durable entre redémarrages ou réplicas, aucun raccordement au worker ni versement en artefact.** |
 | 18 | Budget atteint, fournisseur indisponible et stockage saturé | **Partiel** | Permis avant planification/exécution/évaluation, ledger idempotent, coûts/jetons/appels et saturation sont appliqués localement. Le Lot G obtient un permis avant l'invocation CLI, refuse capacité/backend/scope incompatibles et refuse une mission exigeant une borne de coût/jetons inconnue. Les écritures Codex concurrentes d'une même racine sont sérialisées par un verrou interprocessus coopératif ; un nettoyage incertain place la racine en quarantaine durable jusqu'à levée opérateur. ACP lance au plus un processus CLI de premier niveau ; `spawned_agents=1` et son scope explicite ne comptent aucun descendant et ne démontrent donc pas le plafond global `max_spawned_agents_per_run`. **Manque bloquant : aucun fournisseur payant, stockage objet externe, volume hébergé ni incident disque réel n'a été éprouvé ; verrou/quarantaine exigent des ACL parent et des garanties de partage réseau opérateur.** |
-| 19 | Authentification des médias, événements et fichiers privés | **Partiel** | Flux utilisateur authentifié, RBAC par page, fichiers privés, liens signés liés au demandeur, événements sans média et WebSocket anonyme fermé restent en place. Le Lot G exige une origine d'aperçu distincte de l'API et des origines CORS : absente ou invalide, la route répond `424` avant jeton, sans repli même origine. **Manque bloquant : aucune origine séparée déployée, aucun parcours navigateur ni parcours de bout en bout versionné pour cette chaîne.** |
+| 19 | Authentification des médias, événements et fichiers privés | **Partiel** | Flux utilisateur authentifié, RBAC par page, fichiers privés, liens signés liés au demandeur, événements sans média et WebSocket anonyme fermé restent en place. Le Lot G exige une origine d'aperçu distincte et livre `acp_api.preview:app`, sans session ni routes métier ; absente ou invalide, la configuration répond `424` avant jeton. Les uploads worker sont fencés avant et après lecture. **Manque bloquant : aucune origine séparée n'est déployée ni éprouvée avec un média réel.** |
 | 20 | Sauvegarde/restauration et migration de données existantes | **Non satisfait** | Upgrade SQLite ad hoc et non versionné, avec reconstruction contrôlée de tables et sauvegarde préalable requise ; PostgreSQL versionné et restauration reportés au Lot H. |
 
 ## Preuves locales du Lot G
 
-Les résultats ciblés obtenus sur l'arbre de travail sont : 33 tests unitaires des
-garde-fous E2E, sortie par défaut `[E2E SKIPPED]`, spec Playwright collectée puis
-ignorée ; 311 tests web sur 24 fichiers ; 237 tests API livrables/signatures/GLB ;
-58 tests ciblés du connecteur ComfyUI et sa suite gateway de 145 tests ; 299 tests
-worker ; 59 tests reporter et 74 tests du moteur. Le typecheck TypeScript, le build
-Vite et la compilation Python réussissent.
+La passe Python complète finale donne **2 498 tests réussis, 7 ignorés et 2
+avertissements de dépréciation connus** sous Python 3.12.0. Les résultats JavaScript
+sont : 34 tests unitaires des garde-fous E2E, sortie par défaut `[E2E SKIPPED]`, 311
+tests web sur 24 fichiers, 59 tests reporter et 74 tests du moteur. Les suites ciblées
+finales donnent aussi 263 tests API/worker réussis et 3 ignorés pour le fencing, les
+livrables et l'aperçu, ainsi que 62 tests ComfyUI. Le typecheck TypeScript, le build
+Vite, la compilation Python et la synchronisation de version réussissent.
 La syntaxe de la commande Codex a été contrôlée contre l'aide du CLI installé sans
 exécuter de mission ni appeler un modèle.
 
-Ces sous-ensembles se recouvrent avec les suites historiques et ne doivent pas être
-additionnés en un total global. Aucun de ces résultats ne prouve une cible E2E, un
-rendu GLB, un ComfyUI ou un agent externe réel. Une passe Python complète intermédiaire,
-antérieure aux derniers correctifs de sécurité ensuite rejoués sur toutes les suites
-affectées ci-dessus, donne **2 418 réussis, 4 ignorés, 1 avertissement de dépréciation
-Starlette connu** en Python 3.13.3 local ; la CI cible Python 3.12 et n'a pas été
-exécutée à distance.
+Le lanceur versionné `scripts/verify_live_studio_journey.py` a ensuite démarré une API
+et un Vite isolés, créé compte/projet/mission par HTTP et exécuté la spec dans le canal
+`msedge` : **1 test navigateur réussi en 11,6 s**. Il prouve authentification, CORS,
+shell, lecture de mission/événements et Studio ; pas reporter → worker, média ni WebGL.
+
+Les sous-ensembles ciblés se recouvrent avec la passe globale et ne doivent pas lui être
+additionnés. La preuve navigateur est locale ; aucun de ces résultats ne prouve un
+rendu GLB, un ComfyUI ou un agent externe réel. La publication est conditionnée à une
+CI distante verte sur la PR de durcissement.
 
 ## Référence publiée du Lot E
 
@@ -286,8 +289,8 @@ services externes réels.
 - instance, modèle, mémoire, outils ou clé Hermes réels ;
 - exécuteur Codex/Claude authentifié et effet externe sur un dépôt utilisateur ; le
   câblage worker est prouvé uniquement avec un exécutable contrôlé ;
-- E2E navigateur du bootstrap, d'une conversation, d'une mission, du centre MCP ou de
-  la bibliothèque de skills ;
+- E2E navigateur du bootstrap initial, d'une conversation, du centre MCP ou de la
+  bibliothèque de skills ; Missions et Studio ont un parcours local de lecture réel ;
 - PostgreSQL existant, migration versionnée, sauvegarde ou restauration ;
 - sandbox OS/réseau, quotas CPU/mémoire/disque ou compte non privilégié dédié : le Job
   Object Windows borne et vidange son groupe, sans imposer quota ni politique réseau ;
@@ -297,10 +300,9 @@ services externes réels.
 - rendu GLB par un navigateur sur une origine d'aperçu réellement déployée ;
 - planificateur sur plusieurs hôtes, webhook Internet, fournisseur payant et fan-out
   multi-agent ;
-- **Playwright réel** : aucun navigateur lancé, aucune suite exécutée, aucune trace ni
-  capture produite par une exécution réelle ; l'opt-in `ACP_E2E=1` existe mais n'a pas
-  reçu de cible, compte ni tentative de test ;
-- parcours navigateur du Studio et de la bibliothèque de livrables ;
+- **chaîne Playwright reporter → worker réelle** : le shell/Studio a été exécuté dans
+  Edge, mais aucune trace ni capture n'a été produite puis ingérée par le worker ;
+- parcours navigateur de la bibliothèque de livrables ;
 - coupure réseau réelle, proxy intermédiaire ou `EventSource` de navigateur sur le
   flux SSE ;
 - origine d'aperçu séparée (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et stockage d'objets distant ;
@@ -317,7 +319,8 @@ services externes réels.
   chez un hébergeur ;
 - **configurer et router une origine d'aperçu séparée**
   (`ACP_ARTIFACT_PUBLIC_ORIGIN`) avant d'exposer le Studio : sans elle, l'API refuse
-  l'aperçu en `424` et n'émet aucun jeton ;
+  l'aperçu en `424` et n'émet aucun jeton ; le processus minimal
+  `acp_api.preview:app` est prêt, le domaine/TLS/stockage partagé ne le sont pas ;
 - isoler le runner au niveau OS/réseau et raccorder un circuit d'approbation worker ;
 - placer le webhook entrant derrière HTTPS et une limitation distribuée au reverse
   proxy — la limite locale est par processus — puis éprouver rotation, révocation et
@@ -330,4 +333,4 @@ services externes réels.
 - étendre le parcours du scénario 7 au transport `stdio` et le rejouer contre un
   serveur MCP tiers ;
 - activer les tests externes uniquement par opt-in, avec secrets et budgets bornés ;
-  `ACP_E2E=1` reste à exécuter uniquement contre une cible de test autorisée.
+  `ACP_E2E=1` reste limité au lanceur local isolé ou à une cible de test autorisée.

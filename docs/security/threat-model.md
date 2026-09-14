@@ -290,9 +290,9 @@ dérivée ne vaut jamais `succeeded` : l'acceptation utilisateur reste séparée
 
 Écart restant : toute cette chaîne est prouvée sur un lanceur déterministe
 (`apps/worker/tests/fake_playwright_runner.py`). Aucune exécution Playwright réelle ne
-l'a encore validée. Dans l'état Lot E décrit ici, l'opt-in de test E2E réel prévu par
+l'a encore validée de bout en bout. Dans l'état Lot E décrit ici, l'opt-in de test E2E réel prévu par
 la spécification (`ACP_E2E=1`) n'existait pas ; le Lot G l'ajoute dans un paquet isolé,
-mais il n'a toujours pas été activé contre un navigateur réel.
+et l'a activé localement dans Edge pour le parcours distinct shell → Studio.
 
 ### Reprise en main humaine du navigateur
 
@@ -307,8 +307,8 @@ l'automate et le marquage d'un résultat perturbé restent à concevoir après l
 ## Addendum — nouvelles frontières du Lot G (`0.8.0`)
 
 Cet addendum complète l'instantané Lot E ci-dessus. Il décrit les contrôles ajoutés
-dans l'arbre de travail du 14 septembre 2026 ; aucune intégration externe réelle n'a
-été lancée pour les valider.
+dans la version `0.8.0` du 14 septembre 2026. Le parcours local shell/Studio a été
+exécuté dans un vrai Edge ; aucun provider ou CLI agent externe réel n'a été appelé.
 
 ### Modèle GLB hostile et origine d'aperçu
 
@@ -337,6 +337,11 @@ CORS. Une valeur absente, ambiguë ou identique fait échouer la route en `424` 
 l'émission d'un jeton ; il n'existe plus de repli sur l'origine de l'API. Le
 téléchargement authentifié reste disponible.
 
+Le processus `acp_api.preview:app` destiné à cette origine ne monte que santé et
+lecture par jeton `purpose=preview`, sans session, routes métier, OpenAPI ni CORS avec
+credentials. Les écritures d'artefact worker exigent le fence exact ; un upload
+multipart le revérifie sous verrou après le corps et avant toute persistance.
+
 Écarts restants : aucun GLB n'a été rendu dans un vrai navigateur, aucune origine
 d'aperçu séparée n'a été déployée et le parser borné ne remplace pas l'isolation du
 moteur graphique du navigateur. Le blob est vérifié à l'ingestion, pas re-haché à
@@ -350,8 +355,8 @@ workflow, suit une redirection vers un service interne, attend sans borne ou pub
 fichier qui n'est pas l'image annoncée.
 
 Mesures en place : l'opérateur configure un workflow fixe ; la mission ne fournit que
-le prompt. Le connecteur n'appelle que `/prompt`, `/history/{id}`, `/view` et le
-diagnostic `/system_stats`, sans endpoint d'interruption globale. Origine, TLS distant,
+le prompt. En régime nominal, le connecteur appelle `/prompt`, `/history/{id}`, `/view`
+et le diagnostic `/system_stats`. Origine, TLS distant,
 absence de credentials URL, redirects, variables proxy, temps, tentatives, tailles et
 nombre d'images sont contrôlés. La réponse doit respecter le contrat, la signature et
 le type de fichier attendus. Le gateway exige son Bearer inter-service, ne journalise
@@ -360,6 +365,11 @@ d'expurgation général des journaux du processus n'est toutefois livré. Géné
 waiters et cache image sont bornés séparément, y compris en octets. Après toute tentative
 `/prompt` ambiguë, un tombstone non évictable avant sa TTL empêche une seconde soumission
 de la même clé dans ce processus ; la saturation sûre renvoie `429`.
+Une tentative incertaine ferme aussi les nouvelles soumissions. La réconciliation lit
+`/history/{id}` et `/queue`, supprime uniquement son prompt encore en attente et garde
+la quarantaine pour un prompt partagé en cours. `/interrupt`, global, n'est utilisé que
+si l'instance est déclarée exclusive avec concurrence à un. Sans `prompt_id` fiable,
+seule la recréation du connecteur permet une décision opérateur sûre.
 
 Écarts restants : l'idempotence vit en mémoire du processus, donc ni un redémarrage ni
 plusieurs réplicas ne la rendent durable ; les succès LRU peuvent être évincés avant leur
@@ -420,8 +430,8 @@ périmètre attendu.
 
 Mesures en place : le lanceur nominal `npm run test:e2e` ne continue que pour
 `ACP_E2E=1` exact et annonce sinon `[E2E SKIPPED]` avant de résoudre Playwright. Le
-script de diagnostic `test:direct` peut charger le framework pour collecter la spec,
-mais celle-ci reste ignorée et aucun navigateur n'est lancé sans cet opt-in. Origines
+script local `scripts/verify_live_studio_journey.py` démarre API/Vite et crée ses
+données temporaires uniquement avec ce même opt-in. Origines
 applicative/API et hôtes réseau HTTP(S)/WS(S) sont fermés par une allowlist posée sur le
 contexte navigateur, qui couvre aussi la requête initiale d'une popup ; toute nouvelle
 fenêtre est une violation. Après le `POST /auth/login` exact, seules les lectures
@@ -445,6 +455,6 @@ ni aucune pull request ne peut lancer ou interrompre ce chemin. Cette allowlist
 applicative ne remplace pas le pare-feu sortant du runner et ne couvre pas les
 optimisations spéculatives internes de Chromium (DNS prefetch/preconnect).
 
-Écarts restants : l'opt-in n'a pas été activé dans cette vérification ; aucun navigateur
-réel, aucun compte de staging et aucune capture de session réelle ne constituent donc
-une preuve. La prise de contrôle humaine du navigateur reste entièrement absente.
+Écarts restants : l'opt-in a réussi dans Edge sur le bouclage, mais pas sur un staging ;
+aucune capture/vidéo/trace de session issue de la chaîne reporter → worker n'est donc
+prouvée. La prise de contrôle humaine du navigateur reste entièrement absente.

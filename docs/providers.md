@@ -1,7 +1,6 @@
 # Providers
 
-Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G `0.8.0`
-implémenté dans l'arbre de travail
+Date d'état : 14 septembre 2026 — version publiée `0.8.0` (Lot G)
 
 La plateforme distingue trois familles de providers. Un agent logique peut en
 combiner plusieurs.

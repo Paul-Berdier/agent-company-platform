@@ -6,14 +6,14 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
-## 0.8.0 (préparation) - 2026-09-14
+## [0.8.0] - 2026-09-14
 
 Lot G : connecteurs médias et 3D, exécuteurs complémentaires, harnais de preuve E2E
 réelle activé explicitement et durcissement des surfaces d'aperçu.
 
 ### Ajouté
 
-- paquet Playwright `e2e/` isolé des workspaces et verrouillé sur `1.55.1` : opt-in
+- paquet Playwright `e2e/` isolé des workspaces et verrouillé sur `1.63.0` : opt-in
   exact `ACP_E2E=1`, connexion réelle, ouverture de Missions puis du Studio d'une
   tentative existante, frontière réseau au niveau du contexte et des popups, mutations
   refusées après la connexion, exactement une tentative de login, préflight CORS réel
@@ -21,7 +21,10 @@ réelle activé explicitement et durcissement des surfaces d'aperçu.
   tout `3xx` est bloqué avant le navigateur. `Worker`, `SharedWorker`, `WebTransport`,
   `RTCPeerConnection`, `webkitRTCPeerConnection`, `WebSocketStream` et `EventSource` sont
   neutralisés ; le Studio exerce son polling réel. Mono-worker Chromium headless,
-  capture uniquement sur échec ;
+  capture uniquement sur échec ; canal strict `chromium`, `chrome` ou `msedge` ;
+- lanceur `scripts/verify_live_studio_journey.py`, lui-même opt-in, qui démarre une API
+  et un Vite isolés, crée compte/projet/mission via l'API, puis exécute le vrai parcours
+  navigateur sans fournisseur externe ni dépense ;
 - job CI séparé, exécutable seulement via `workflow_dispatch` sur `refs/heads/main`
   avec `vars.ACP_E2E == '1'` déclaré au niveau dépôt ou organisation, puis dans
   l'environnement dédié `acp-e2e-staging` ; les secrets ne sont injectés que dans
@@ -45,6 +48,12 @@ réelle activé explicitement et durcissement des surfaces d'aperçu.
   `ACP_ARTIFACT_PUBLIC_ORIGIN`, distincte de l'API et des origines web ; une
   configuration absente ou invalide répond `424` avant création du jeton, tandis que
   le téléchargement authentifié reste disponible ;
+- l'origine d'aperçu dispose de l'application ASGI minimale `acp_api.preview:app` :
+  uniquement santé et contenu signé `purpose=preview`, aucune session, route métier ou
+  documentation, CORS exact sans credentials ;
+- les deux routes d'écriture d'artefact worker exigent le fencing token courant. Le
+  téléversement de contenu le revérifie sous verrou après lecture du corps et avant
+  quota, déduplication, stockage ou insertion ;
 - un `.glb` n'est promu en aperçu qu'après validation GLB 2 stricte au téléversement et
   scellement par sha256 ; `.gltf`, URI externes, chunks inconnus et extensions
   Draco/Meshopt/Basisu sont refusés pour l'aperçu. Buffers, vues, offsets/strides et
@@ -54,7 +63,10 @@ réelle activé explicitement et durcissement des surfaces d'aperçu.
 - le client ComfyUI refuse HTTP hors loopback, redirections et proxies ambiants, borne
   workflow, réponses, polls, durée et image, puis vérifie type, extension et signature ;
   générations, waiters et cache sont bornés séparément/en octets, et une tentative
-  `/prompt` incertaine réserve un tombstone non évictable avant sa TTL ;
+  `/prompt` incertaine réserve un tombstone non évictable avant sa TTL. Le connecteur
+  se met aussi en quarantaine, réconcilie `/history` et `/queue`, supprime seulement son
+  prompt encore en attente et n'utilise `/interrupt` que sur une instance explicitement
+  exclusive avec concurrence fixée à un ;
 - Codex et Claude ne sont jamais détectés implicitement dans le `PATH`. L'exécution
   réutilise la clôture Job Object/session POSIX, un environnement minimal et une
   deadline ; le worker demande à Codex de désactiver web, MCP, plugins et multi-agent,
@@ -70,21 +82,23 @@ réelle activé explicitement et durcissement des surfaces d'aperçu.
 
 ### Vérifié localement
 
-- passe Python complète intermédiaire : 2 418 réussis, 4 ignorés et un avertissement
-  de dépréciation Starlette connu ; après la revue de sécurité finale, 299 tests
-  worker ciblés réussis ;
-- 33 tests unitaires des garde-fous E2E ; 311 tests web sur 24 fichiers ;
-- 237 tests API ciblant les livrables/signatures/GLB, 58 tests ciblés et 145 tests de
-  suite gateway pour le connecteur ComfyUI, 59 tests reporter et 74 tests moteur ;
-  typecheck TypeScript, compilation Python et build Vite réussis ;
+- passe Python complète finale : **2 498 réussis, 7 ignorés et 2 avertissements de
+  dépréciation connus** sous Python 3.12.0 ;
+- **34 tests** unitaires des garde-fous E2E, **311 tests web sur 24 fichiers**, **59
+  tests reporter** et **74 tests moteur** ;
+- **263 tests API/worker ciblés réussis, 3 ignorés** pour le fencing des tentatives,
+  les livrables et l'aperçu, ainsi que **62 tests ciblés ComfyUI** ; typecheck
+  TypeScript, compilation Python, build Vite et synchronisation de version réussis ;
+- parcours d'automatisation **62/62** réussi et parcours shell/Studio dans un vrai
+  Edge : **1 test réussi en 11,6 s** ;
 - la commande Codex générée a été vérifiée contre l'aide du CLI local ; aucun run agent
   ni appel réseau payant n'a été déclenché.
 
 ### Limites connues
 
-- aucun navigateur réel, rendu WebGL réel, serveur ComfyUI réel, Codex CLI ou Claude
-  Code réel n'a été exécuté pendant cette validation ; le harnais E2E est présent mais
-  n'a reçu ni cible ni compte de test ;
+- le parcours shell/Studio a été exécuté dans un vrai Edge local, mais aucun rendu GLB
+  WebGL, serveur ComfyUI réel, Codex CLI authentifié, Claude Code authentifié ni chaîne
+  reporter → worker avec capture/vidéo/trace réelle n'a été exécuté ;
 - l'idempotence ComfyUI est bornée à la mémoire d'un processus : redémarrage ou réplica
   peuvent rejouer un effet, les succès LRU peuvent être évincés avant leur TTL, et il
   n'existe ni file durable, ni reprise, ni stockage d'artefact, ni raccordement aux missions ;
@@ -557,10 +571,11 @@ réellement démarrés sur le bouclage.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-Les tags `v0.2.0` à `v0.6.0` existent ; le Lot E a été fusionné par la PR #5 au commit
-`b7d8a44`, après observation d'une CI verte.
+Les tags `v0.2.0` à `v0.8.0` existent ; le Lot G a été finalisé par la PR #7 après
+observation d'une CI verte.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.4.0...v0.5.0
