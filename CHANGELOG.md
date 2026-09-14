@@ -6,12 +6,10 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
-## 0.7.0 (préparation) - 2026-09-14
+## [0.7.0] - 2026-09-14
 
 Lot F : automatisations, calendrier IANA, budgets appliqués, saturation du stockage,
-alertes in-app et surfaces web/CLI. Cette entrée prépare la publication ; la PR, la CI
-distante, la fusion et le tag `v0.7.0` ne sont pas affirmés tant qu'ils n'ont pas été
-observés.
+alertes in-app et surfaces web/CLI.
 
 ### Ajouté
 
@@ -467,7 +465,8 @@ réellement démarrés sur le bouclage.
 Les tags `v0.2.0` à `v0.6.0` existent ; le Lot E a été fusionné par la PR #5 au commit
 `b7d8a44`, après observation d'une CI verte.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.3.0...v0.4.0
