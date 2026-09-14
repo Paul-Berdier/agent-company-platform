@@ -28,6 +28,7 @@ Générer un secret temporaire et le définir dans le terminal qui lance l'API :
 $bytes = New-Object byte[] 32
 [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
 $env:ACP_WORKER_REGISTRATION_TOKEN = [Convert]::ToBase64String($bytes)
+$env:ACP_WORKER_REGISTRATION_PROJECT_ID = "<project-id>"
 ./scripts/dev.ps1
 ```
 
@@ -36,7 +37,9 @@ l'enregistrement :
 
 ```powershell
 $env:ACP_WORKER_REGISTRATION_TOKEN = "<le-secret-généré>"
-./.venv/Scripts/agent-company-worker.exe register --name dev-windows-01
+./.venv/Scripts/agent-company-worker.exe register `
+  --name dev-windows-01 `
+  --project <project-id>
 Remove-Item Env:ACP_WORKER_REGISTRATION_TOKEN
 ```
 
@@ -55,8 +58,28 @@ explicite peut être fournie plusieurs fois :
   --name build-windows-01 `
   --capability git `
   --capability asset_validation `
+  --project <project-id> `
   --max-concurrency 2
 ```
+
+Un nouvel enrôlement doit choisir **exactement un** périmètre. `--project ID`
+est le choix normal : l'API filtre ce projet dans la requête SQL avant le verrou et
+l'attribution. `--global-access` est un privilège d'administration distinct, réservé
+notamment au worker qui cadence le planificateur de toutes les routines. Les deux
+options sont incompatibles. Un heartbeat ne peut jamais modifier cette frontière.
+Une ligne historique sans périmètre est mise en quarantaine : elle ne réclame aucune
+tâche, ne lance pas le planificateur et `doctor` affiche `scope: missing` jusqu'au
+réenrôlement.
+
+Le client ne choisit jamais seul cette portée. L'API doit avoir reçu avec le secret
+d'enrôlement soit `ACP_WORKER_REGISTRATION_PROJECT_ID=<même-id>`, soit
+`ACP_WORKER_REGISTRATION_GLOBAL_ACCESS=1`, jamais les deux. Une demande différente
+répond `403`; une configuration absente, ambiguë ou invalide répond `503`. Le secret
+n'est pas one-shot : tant qu'il reste configuré, il peut enrôler d'autres workers dans
+la portée serveur autorisée. Il faut donc retirer **le secret et sa portée** puis
+redémarrer l'API après l'opération, ou les faire tourner ensemble. Changer explicitement
+la portée serveur autorise ensuite un réenrôlement du même nom dans cette nouvelle
+portée, à condition qu'aucun run ne soit actif.
 
 Réenregistrer le même nom renouvelle son jeton et invalide immédiatement
 l'ancien. Le serveur ne conserve que son empreinte. Le jeton brut reste dans
@@ -91,6 +114,8 @@ Variables utiles :
 | `ACP_WORKER_STATE_DIR` | `%USERPROFILE%\.agent-company-worker` | état et journal locaux |
 | `ACP_WORKER_MAX_CONCURRENCY` | `1` | slots annoncés, entier de 1 à 32 |
 | `ACP_WORKER_SIMULATION` | `1` | `1` simulation bloquée ; `0` réel ; toute autre valeur est refusée |
+| `ACP_WORKER_PROJECT_ID` | non défini | projet unique autorisé pour les claims |
+| `ACP_WORKER_GLOBAL_ACCESS` | `0` | `1` donne explicitement accès à tous les projets et au planificateur |
 | `ACP_ORCHESTRATOR_PROVIDER` | `mock` | simulation uniquement ; interdit en mode réel |
 
 Les deux URL de service sont des origines sans chemin, query, fragment ou userinfo.
@@ -130,7 +155,8 @@ JSON valide avec `approved: true`, sinon la tentative échoue fermée.
 Enrôler ensuite explicitement le worker réel, puis le démarrer :
 
 ```powershell
-./.venv/Scripts/agent-company-worker.exe register --name dev-windows-01 --real
+./.venv/Scripts/agent-company-worker.exe register `
+  --name dev-windows-01 --real --project <project-id>
 ./.venv/Scripts/agent-company-worker.exe doctor
 ./.venv/Scripts/agent-company-worker.exe start
 ```

@@ -580,18 +580,38 @@ def test_open_prints_url_without_browser_unless_explicit(tmp_path):
     assert called == []
 
 
-def test_unsupported_command_is_honest_machine_readable_error(tmp_path):
-    # `skills install` est raccordé depuis le lot D ; `automations` reste un stub honnête.
+def test_automations_list_is_connected_and_returns_api_payload(tmp_path):
+    automation = {
+        "id": "automation-1",
+        "project_id": "project-1",
+        "name": "Revue quotidienne",
+        "description": "",
+        "schedule": {
+            "kind": "cron",
+            "expression": "0 9 * * *",
+            "timezone": "Europe/Paris",
+        },
+        "enabled": False,
+        "catchup_policy": "skip",
+        "max_concurrent_runs": 1,
+        "next_run_at": None,
+        "created_at": "2026-09-14T08:00:00Z",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/automations"
+        assert request.url.params["limit"] == "100"
+        return httpx.Response(200, json=[automation])
+
     code, out, err, _ = invoke(
         tmp_path,
         ["automations", "list", "--json"],
-        lambda _request: pytest.fail("unsupported command must not call API"),
+        handler,
     )
-    assert code == ExitCode.UNSUPPORTED
-    assert out == ""
-    payload = json.loads(err)
-    assert payload["error"]["code"] == "unsupported"
-    assert "pas encore raccordé" in payload["error"]["message"]
+    assert code == ExitCode.OK
+    assert err == ""
+    assert json.loads(out) == [automation]
 
 
 def test_help_uses_injected_output_and_returns_success(tmp_path):

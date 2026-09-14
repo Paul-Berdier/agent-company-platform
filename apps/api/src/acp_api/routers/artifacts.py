@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import os
 import re
 import tempfile
@@ -34,7 +35,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, update
 from sqlalchemy.orm import Session
 
 from acp_contracts import ArtifactLink, ArtifactPage, ArtifactSummary
@@ -42,6 +43,7 @@ from acp_database.models import (
     ArtifactLinkModel,
     ArtifactModel,
     TaskModel,
+    TaskRunModel,
     WorkerLeaseModel,
     WorkerModel,
 )
@@ -50,12 +52,17 @@ from ..artifacts_storage import (
     ArtifactKeyInvalid,
     ArtifactNotFound,
     ArtifactStorage,
+    ArtifactStorageError,
+    ArtifactStorageFull,
+    ArtifactStorageUnavailable,
     ArtifactTooLarge,
     LocalArtifactStorage,
     artifact_max_bytes,
     artifact_max_bytes_per_run,
     local_artifact_storage,
+    storage_error_from_oserror,
 )
+from ..alerts_service import open_or_escalate_alert
 from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
 from ..security import authenticate_session
 from ..signing import (
@@ -843,6 +850,12 @@ class _MultipartScanner:
             if not await self._fill():
                 raise MultipartFormatError("Corps multipart interrompu.")
             index = self._buffer.find(separator)
+        # Un transport ASGI peut livrer tout le segment et son séparateur dans
+        # un unique message. Dans ce cas la boucle s'arrête aussitôt : la borne
+        # doit porter sur la position trouvée, pas seulement sur les remplissages
+        # où le séparateur manquait encore. ``limit`` reste une borne inclusive.
+        if index > limit:
+            raise MultipartFormatError("Partie multipart hors bornes.")
         value = bytes(self._buffer[:index])
         del self._buffer[: index + len(separator)]
         return value
@@ -990,6 +1003,36 @@ def _used_bytes_for_run(db: Session, run_id: str) -> int:
     return int(total or 0)
 
 
+def _uploaded_checksum(stream: BinaryIO) -> str:
+    """Empreinte un spool sans le charger en mémoire et restaure son curseur."""
+
+    digest = hashlib.sha256()
+    stream.seek(0)
+    while chunk := stream.read(STREAM_CHUNK_BYTES):
+        digest.update(chunk)
+    stream.seek(0)
+    return digest.hexdigest()
+
+
+def _lock_artifact_quota(db: Session, run_id: str) -> None:
+    """Sérialise la décision finale de quota pour une tentative.
+
+    PostgreSQL verrouille la ligne du run. SQLite ignore ``FOR UPDATE`` : une mise
+    à jour sans effet prend alors son verrou d'écriture avant le calcul du total.
+    Le verrou reste détenu jusqu'au commit qui insère l'artefact.
+    """
+
+    bind = db.get_bind()
+    if bind.dialect.name == "sqlite":
+        db.execute(
+            update(TaskRunModel)
+            .where(TaskRunModel.id == run_id)
+            .values(updated_at=TaskRunModel.updated_at)
+        )
+        return
+    db.query(TaskRunModel).filter_by(id=run_id).with_for_update().one()
+
+
 def _required_field(fields: dict[str, str], name: str) -> str:
     value = (fields.get(name) or "").strip()
     if not value:
@@ -1011,6 +1054,7 @@ async def receive_worker_artifact_content(
 
     max_file = artifact_max_bytes(os.environ)
     quota = artifact_max_bytes_per_run(os.environ)
+    alert_scope: tuple[str, str] | None = None
     declared_length = request.headers.get("content-length")
     if declared_length and declared_length.isdigit():
         if int(declared_length) > max_file + MULTIPART_OVERHEAD_BYTES:
@@ -1025,6 +1069,7 @@ async def receive_worker_artifact_content(
     def validate(fields: dict[str, str]) -> tuple[str, str, int]:
         """Propriété de la tentative et quota restant, sur les champs reçus."""
 
+        nonlocal alert_scope
         run_id = _required_field(fields, "task_run_id")
         project_id = _required_field(fields, "project_id")
         lease = _active_run_lease(db, worker.id, run_id)
@@ -1033,31 +1078,26 @@ async def receive_worker_artifact_content(
             raise HTTPException(
                 status_code=400, detail="Artefact hors du projet du run"
             )
+        alert_scope = (run_id, project_id)
         remaining = quota - _used_bytes_for_run(db, run_id)
-        if remaining <= 0:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    "Livrable refusé : le quota de la tentative "
-                    f"({quota} octets) est atteint."
-                ),
-            )
         return run_id, project_id, remaining
 
     def prepare(fields: dict[str, str]) -> int:
-        """Resserre le plafond au quota restant quand la tentative est déjà connue.
+        """Valide tôt le propriétaire sans sacrifier les replays idempotents.
 
         L'ordre des parties appartient au client : si la pièce précède les champs,
-        seule la borne par fichier s'applique pendant la lecture, et la validation
-        complète — lease, projet, quota — a lieu juste après, avant toute écriture
-        dans le stockage.
+        seule la borne par fichier s'applique pendant la lecture. Même lorsque le
+        quota paraît épuisé, le spool reste borné par fichier : son empreinte doit
+        être calculée pour reconnaître le renvoi d'un livrable déjà enregistré.
+        La décision de quota est sérialisée juste après, avant toute écriture.
         """
 
         if not (fields.get("task_run_id") or "").strip() or not (
             fields.get("project_id") or ""
         ).strip():
             return max_file
-        return validate(fields)[2]
+        validate(fields)
+        return max_file
 
     try:
         fields, uploaded = await read_upload(
@@ -1065,6 +1105,8 @@ async def receive_worker_artifact_content(
         )
     except ContentTooLarge as exc:
         raise _too_large(int(str(exc)), max_file, quota) from exc
+    except OSError as exc:
+        _raise_storage_failure(db, storage_error_from_oserror(exc), alert_scope)
     except MultipartFormatError as exc:
         raise HTTPException(status_code=422, detail=f"Téléversement invalide : {exc}") from exc
 
@@ -1073,30 +1115,82 @@ async def receive_worker_artifact_content(
             status_code=422, detail="Téléversement invalide : pièce « file » absente."
         )
     try:
-        run_id, project_id, remaining = validate(fields)
+        run_id, project_id, _remaining_before_lock = validate(fields)
+        uploaded_checksum = _uploaded_checksum(uploaded.handle)
+        _lock_artifact_quota(db, run_id)
+        existing = (
+            db.query(ArtifactModel)
+            .filter(
+                ArtifactModel.task_run_id == run_id,
+                ArtifactModel.checksum == uploaded_checksum,
+                ArtifactModel.deleted_at.is_(None),
+            )
+            .order_by(ArtifactModel.created_at)
+            .first()
+        )
+        storage = artifact_storage()
+        if existing is not None:
+            # Une ligne seule ne prouve pas que le contenu existe. Réécrire via
+            # l’adressage par contenu vérifie le blob et répare atomiquement une
+            # ligne metadata-only ou un blob manquant/corrompu.
+            if existing.storage_key is None:
+                remaining = quota - _used_bytes_for_run(db, run_id)
+                if remaining <= 0 or uploaded.size > remaining:
+                    raise _too_large(max(remaining, 0), max_file, quota)
+                cap = min(max_file, remaining)
+            else:
+                # Une ligne déjà comptée dans le quota garde le droit de réparer
+                # son propre blob, y compris si le plafond a été abaissé depuis.
+                cap = max_file
+            try:
+                repaired = storage.write(uploaded.handle, max_bytes=cap)
+            except ArtifactTooLarge as exc:
+                raise _too_large(cap, max_file, quota) from exc
+            except (ArtifactStorageFull, ArtifactStorageUnavailable) as exc:
+                _raise_storage_failure(db, exc, (run_id, project_id))
+            if repaired.sha256 != uploaded_checksum:
+                _raise_storage_failure(
+                    db,
+                    ArtifactStorageUnavailable("empreinte de stockage incohérente"),
+                    (run_id, project_id),
+                )
+            existing.checksum = repaired.sha256
+            existing.size_bytes = repaired.size
+            existing.storage_key = repaired.key
+            existing.worker_id = existing.worker_id or worker.id
+            existing.content_type = existing.content_type or (
+                fields.get("content_type") or uploaded.content_type or OCTET_STREAM
+            ).strip()[:200] or OCTET_STREAM
+            existing.original_name = existing.original_name or (
+                fields.get("original_name") or uploaded.file_name or ""
+            )[:500]
+            existing.source = existing.source or "worker"
+            existing.stream_kind = existing.stream_kind or (
+                fields.get("stream_kind") or ""
+            ).strip()[:50]
+            db.commit()
+            db.refresh(existing)
+            return _summary(existing)
+        remaining = quota - _used_bytes_for_run(db, run_id)
+        if remaining <= 0 or uploaded.size > remaining:
+            raise _too_large(max(remaining, 0), max_file, quota)
         cap = min(max_file, remaining)
         if uploaded.size > cap:
             raise _too_large(cap, max_file, quota)
-        storage = artifact_storage()
         try:
             blob = storage.write(uploaded.handle, max_bytes=cap)
         except ArtifactTooLarge as exc:
             raise _too_large(cap, max_file, quota) from exc
+        except (ArtifactStorageFull, ArtifactStorageUnavailable) as exc:
+            _raise_storage_failure(db, exc, (run_id, project_id))
+        if blob.sha256 != uploaded_checksum:
+            _raise_storage_failure(
+                db,
+                ArtifactStorageUnavailable("empreinte de stockage incohérente"),
+                (run_id, project_id),
+            )
     finally:
         uploaded.handle.close()
-
-    existing = (
-        db.query(ArtifactModel)
-        .filter(
-            ArtifactModel.task_run_id == run_id,
-            ArtifactModel.checksum == blob.sha256,
-            ArtifactModel.deleted_at.is_(None),
-        )
-        .order_by(ArtifactModel.created_at)
-        .first()
-    )
-    if existing is not None:
-        return _summary(existing)
 
     artifact = ArtifactModel(
         project_id=project_id,
@@ -1120,6 +1214,43 @@ async def receive_worker_artifact_content(
     db.commit()
     db.refresh(artifact)
     return _summary(artifact)
+
+
+def _raise_storage_failure(
+    db: Session,
+    error: ArtifactStorageError,
+    scope: tuple[str, str] | None,
+) -> None:
+    """Persiste une alerte sûre puis rend 507 (plein) ou 503 (indisponible)."""
+
+    full = isinstance(error, ArtifactStorageFull)
+    if scope is not None:
+        run_id, project_id = scope
+        run = db.get(TaskRunModel, run_id)
+        task_id = run.task_id if run is not None else None
+        open_or_escalate_alert(
+            db,
+            project_id=project_id,
+            kind="storage.saturated" if full else "storage.unavailable",
+            severity="critical",
+            title="Stockage de livrables saturé" if full else "Stockage indisponible",
+            detail=(
+                "Libérez de l'espace avant de relancer le téléversement."
+                if full
+                else "Vérifiez le volume de livrables et ses permissions."
+            ),
+            task_id=task_id,
+            dimensions={"storage": "artifacts"},
+        )
+        db.commit()
+    raise HTTPException(
+        status_code=507 if full else 503,
+        detail=(
+            "Stockage saturé : libérez de l'espace avant de réessayer."
+            if full
+            else "Stockage de livrables indisponible."
+        ),
+    )
 
 
 def _too_large(applied: int, max_file: int, quota: int) -> HTTPException:

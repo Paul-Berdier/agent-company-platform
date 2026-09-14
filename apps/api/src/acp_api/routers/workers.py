@@ -51,6 +51,35 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(f"{pepper}:{token}".encode()).hexdigest()
 
 
+def _authorized_registration_scope() -> tuple[str | None, bool]:
+    """Lit la portée autorisée par l'opérateur, jamais celle choisie par le client."""
+
+    raw_project = os.environ.get("ACP_WORKER_REGISTRATION_PROJECT_ID")
+    raw_global = os.environ.get("ACP_WORKER_REGISTRATION_GLOBAL_ACCESS")
+    if raw_global not in {None, "", "0", "1"}:
+        raise HTTPException(
+            status_code=503,
+            detail="Configuration du périmètre d'enrôlement worker invalide",
+        )
+    project_id = raw_project if raw_project not in {None, ""} else None
+    if project_id is not None and (
+        project_id != project_id.strip() or len(project_id) > 36
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Configuration du périmètre d'enrôlement worker invalide",
+        )
+    global_access = raw_global == "1"
+    if global_access == (project_id is not None):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Configurez exactement un périmètre d'enrôlement worker côté API"
+            ),
+        )
+    return project_id, global_access
+
+
 def _bearer_token(authorization: str | None) -> str:
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
@@ -83,6 +112,8 @@ def worker_snapshot(worker: WorkerModel) -> WorkerSnapshot:
         active_runs=worker.active_runs,
         status=worker.status,
         simulation=bool(worker.simulation),
+        project_id=worker.project_id,
+        global_access=worker.global_access == 1,
         metadata=worker.metadata_json or {},
         last_seen_at=worker.last_seen_at,
         lease_expires_at=worker.lease_expires_at,
@@ -202,11 +233,30 @@ def register_worker(
     if not registration_token or not hmac.compare_digest(registration_token, expected):
         raise HTTPException(status_code=401, detail="Jeton d'enregistrement invalide")
 
+    authorized_project_id, authorized_global_access = _authorized_registration_scope()
+    if (
+        body.project_id != authorized_project_id
+        or body.global_access is not authorized_global_access
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Périmètre worker non autorisé par la configuration de l'API",
+        )
+
     now = utcnow()
     raw_token = secrets.token_urlsafe(32)
     expire_task_leases(db)
+    if body.project_id is not None and db.get(ProjectModel, body.project_id) is None:
+        raise HTTPException(status_code=422, detail="Projet de worker introuvable")
     worker = db.query(WorkerModel).filter_by(name=body.name).first()
-    if worker is not None and worker.active_runs > 0:
+    active_leases = (
+        db.query(WorkerLeaseModel)
+        .filter_by(worker_id=worker.id, status="active")
+        .count()
+        if worker is not None
+        else 0
+    )
+    if worker is not None and (worker.active_runs > 0 or active_leases > 0):
         raise HTTPException(
             status_code=409,
             detail="Impossible de renouveler un worker avec des runs actifs",
@@ -220,6 +270,8 @@ def register_worker(
         "active_runs": 0,
         "status": WorkerStatus.ONLINE.value,
         "simulation": int(body.simulation),
+        "project_id": body.project_id,
+        "global_access": int(body.global_access),
         "metadata_json": body.metadata,
         "last_seen_at": now,
         "lease_expires_at": now + timedelta(seconds=WORKER_LEASE_SECONDS),
@@ -228,8 +280,20 @@ def register_worker(
         worker = WorkerModel(name=body.name, **values)
         db.add(worker)
     else:
-        for key, value in values.items():
-            setattr(worker, key, value)
+        # La même écriture atomique protège le renouvellement de jeton et le
+        # changement de périmètre contre un claim concurrent. Si le claim a
+        # réservé la capacité en premier, aucune portée n'est modifiée.
+        updated = (
+            db.query(WorkerModel)
+            .filter(WorkerModel.id == worker.id, WorkerModel.active_runs == 0)
+            .update(values, synchronize_session=False)
+        )
+        if updated != 1:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Impossible de renouveler un worker avec des runs actifs",
+            )
     db.commit()
     db.refresh(worker)
     return WorkerRegistrationResponse(
@@ -237,6 +301,8 @@ def register_worker(
         token=raw_token,
         token_expires_at=worker.token_expires_at,
         heartbeat_interval_seconds=HEARTBEAT_INTERVAL_SECONDS,
+        project_id=worker.project_id,
+        global_access=worker.global_access == 1,
     )
 
 

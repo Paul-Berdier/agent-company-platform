@@ -13,19 +13,22 @@ bibliothèque de skills relisibles et révocation de bout en bout. Le Lot E y aj
 l'observation et les livrables : journal d'événements ordonné, flux temps réel
 authentifié avec reprise par curseur, reporter Playwright, exécution de tests web sur
 un runner authentifié, résultats de tests structurés, stockage privé de livrables avec
-liens signés, Studio en lecture seule et bibliothèque de livrables.
+liens signés, Studio en lecture seule et bibliothèque de livrables. Le Lot F ajoute
+les routines planifiées, le calendrier IANA, un planificateur avec bail et fencing,
+les budgets réellement appliqués, la détection de saturation, les alertes in-app et
+les surfaces web/CLI correspondantes.
 
 Une instance Hermes réelle, un serveur MCP tiers et une isolation OS du runner ne sont
-toujours pas validés. Et pour le Lot E en particulier : **aucun navigateur réel n'a été
-lancé et aucun test Playwright réel n'a été exécuté** ; la reprise en main humaine du
-navigateur n'est pas livrée. Le détail exact se trouve dans
+toujours pas validés. **Aucun navigateur réel n'a été lancé et aucun test Playwright
+réel n'a été exécuté** ; la reprise en main humaine du navigateur n'est pas livrée.
+PostgreSQL, Railway et les sauvegardes restent au Lot H. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version des sources : **0.6.0** (Lot E), implémentée et vérifiée localement mais **non
-publiée** : la branche `codex/modernization-lot-e` est poussée, elle n'est pas fusionnée
-dans `main` et aucun tag `v0.6.0` n'existe. La dernière version publiée est **0.5.0**
-(Lot D, PR #4, tag `v0.5.0`). Les changements versionnés sont décrits dans
-[CHANGELOG.md](CHANGELOG.md).
+Version en préparation dans cette branche : **0.7.0** (Lot F). La dernière version
+publiée est **0.6.0** : Lot E fusionné par la PR
+[#5](https://github.com/Paul-Berdier/agent-company-platform/pull/5), commit de fusion
+`b7d8a44`, tag `v0.6.0`, après observation d'une CI verte. Les changements sont
+décrits dans [CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
 
@@ -50,6 +53,18 @@ dans `main` et aucun tag `v0.6.0` n'existe. La dernière version publiée est **
 - missions atomiques avec objectif, critères, autonomie, budget et durée ; arrêt,
   relance idempotente, commentaires, preuves, validation technique et acceptation
   utilisateur séparées ;
+- routines créées désactivées, cron en heure locale ou intervalle, fuseau IANA,
+  politiques de rattrapage, déclenchements manuel et webhook entrant, et calendrier
+  exposant ensemble l'instant UTC, l'heure locale et son décalage ;
+- planificateur porté uniquement par un worker au privilège global explicite, élu par
+  un bail singleton de 45 s
+  et protégé par un fencing token ; clé de tir unique en base, rejeu sans seconde
+  mission, limite de concurrence et désactivation après trois échecs consécutifs ;
+- budgets par mission, journée et fournisseur avec permis avant effet, rapports
+  idempotents et valeurs inconnues distinctes de zéro ; `max_spawned_agents_per_run`
+  est persisté mais attend le point de spawn du Lot G avant d'être appliqué ;
+- alertes durables dédupliquées et à sévérité monotone pour les budgets, les routines
+  et la saturation du stockage ; préférences personnelles et canal in-app uniquement ;
 - worker réel opt-in exécutant exclusivement un argv local configuré, sans shell,
   dans un cwd neuf, avec environnement/captures/timeout bornés, arrêt de l'arbre de
   processus et verdict fail-closed ; ce backend n'accepte que les missions
@@ -106,14 +121,15 @@ dans `main` et aucun tag `v0.6.0` n'existe. La dernière version publiée est **
 - Studio en lecture seule dans le détail d'une mission (`/missions?run=<id>&vue=studio`)
   et onglet « Livrables » de la bibliothèque ;
 - commandes `acp runs events`, `acp runs tests`, `acp artifacts list | get | link` et
-  `acp open --run <id> --studio` ;
+  `acp open --run <id> --studio`, plus le groupe complet `acp automations` ;
 - bureau pixel historique préservé mais non chargé par défaut.
 
 Ce qui ne fonctionne pas encore est visible comme `Non configuré` et recensé dans
 [le rapport d'acceptation](docs/acceptance-report.md). En particulier : aucune
 exécution Playwright réelle, aucune capture ni trace produite par un vrai navigateur,
 aucune reprise en main humaine du navigateur, et aucune origine d'aperçu séparée
-configurée. Le projet n'est pas prêt à être exposé sur Internet.
+configurée. Le stockage d'artefacts reste local et aucun adaptateur objet externe n'a
+été éprouvé. Le projet n'est pas prêt à être exposé sur Internet.
 
 ## Architecture
 
@@ -124,6 +140,7 @@ CLI acp ───────────────┘         │
                                 ├── provider-gateway ── Hermes Agent séparé
                                 ├── service d'événements
                                 └── workers enrôlés ── backend local configuré
+                                      └── bail du planificateur de routines
 ```
 
 La plateforme est la source de vérité des projets, droits, missions et preuves.
@@ -223,10 +240,14 @@ acp run --project <project-id> --goal "Vérifier le dépôt" `
   --expected "Rapport vérifiable" `
   --accept "La vérification termine avec le code 0"
 acp runs watch <mission-id>
+acp automations list --project <project-id>
+acp automations calendar --project <project-id>
 ```
 
 Quitter `runs watch` n'arrête pas la mission ; `acp runs stop <mission-id>` est une
-action distincte. Voir [Missions, runner local et CLI](docs/missions-and-cli.md).
+action distincte. Une routine naît désactivée ; sa création puis son activation sont
+deux gestes. Voir [Missions, runner local et CLI](docs/missions-and-cli.md) et
+[Automatisations, budgets et alertes](docs/automations.md).
 
 ## Hermes
 
@@ -282,12 +303,20 @@ Sous Windows, appeler l'interpréteur de l'environnement virtuel
 (`./.venv/Scripts/python.exe`) plutôt que le `python` du `PATH` : c'est celui avec
 lequel les résultats publiés ont été obtenus.
 
-Résultats obtenus le 13 septembre 2026 sur la machine de vérification (Windows 10 Pro
-`10.0.19045`, Python `3.12.0`, Node `v24.19.0`, npm `11.17.0`) : **1 627 tests Python
-réussis et 4 ignorés**, **262 tests web**, **59 tests du reporter**, **74 tests du
-moteur legacy** ; typecheck, build et `check_version.py` (`0.6.0`) réussissent. Les
-quatre tests ignorés sont des limites de la machine — permissions POSIX et création de
-liens symboliques — et non des opt-in.
+Pour la version publiée `0.6.0`, les résultats obtenus le 13 septembre 2026 sur la
+machine de vérification (Windows 10 Pro `10.0.19045`, Python `3.12.0`, Node
+`v24.19.0`, npm `11.17.0`) étaient : **1 627 tests Python réussis et 4 ignorés**,
+**262 tests web**, **59 tests du reporter**, **74 tests du moteur legacy** ; typecheck,
+build et `check_version.py` réussis. La CI de sa PR #5 a été observée verte avant
+fusion. Ces nombres décrivent le Lot E publié, pas l'arbre de travail du Lot F.
+
+Pour l'arbre candidat `0.7.0` du Lot F, vérifié le 14 septembre 2026 dans le même
+environnement, le relevé global est : **2 291 tests Python réussis, 7 ignorés et 2
+avertissements connus**, **295 tests web sur 23 fichiers**, **59 tests du reporter** et
+**74 tests du moteur legacy**. Le typecheck TypeScript, le build Vite,
+`scripts/check_version.py` et le parcours d'automatisation **62/62** réussissent. Ces
+résultats sont locaux ; la PR, la CI distante, la fusion et le tag `v0.7.0` ne sont pas
+encore affirmés.
 
 Aucune de ces commandes ne lance de navigateur. L'opt-in de test E2E Playwright réel
 n'existe pas encore dans le dépôt : un résultat vert ici ne dit **rien** sur une
@@ -299,9 +328,13 @@ l'isolation entre projets, l'export et la révocation :
 
 ```powershell
 ./.venv/Scripts/python.exe scripts/verify_mcp_journey.py
+./.venv/Scripts/python.exe scripts/verify_automation_journey.py
 ```
 
-Il n'effectue aucun appel sortant vers Internet et n'utilise aucune donnée réelle.
+Ces parcours n'effectuent aucun appel sortant vers Internet et n'utilisent aucune
+donnée réelle. Celui des automatisations démarre l'API sur une base SQLite temporaire
+et a rendu **62 étapes sur 62 réussies** le 14 septembre 2026 ; il n'appelle ni
+Hermes, ni fournisseur payant, ni navigateur.
 
 Les résultats réellement obtenus, l'environnement Python utilisé, les warnings et
 les limites sont consignés dans [docs/acceptance-report.md](docs/acceptance-report.md).
@@ -319,6 +352,7 @@ reprennent toujours par polling `GET`.
 - [Système visuel](docs/design-system.md)
 - [Intégration Hermes](docs/hermes-integration.md)
 - [Missions, runner local et CLI](docs/missions-and-cli.md)
+- [Automatisations, budgets et alertes](docs/automations.md)
 - [Centre MCP et bibliothèque de skills](docs/mcp-and-skills.md)
 - [Studio, journal d'événements, tests web et livrables](docs/live-studio.md)
 - [CLI `acp` — référence des commandes](apps/cli/README.md)

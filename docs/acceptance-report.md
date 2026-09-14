@@ -1,21 +1,18 @@
 # Rapport d'acceptation
 
-Date d'état : 13 septembre 2026
-Périmètre évalué : Lot E (version `0.6.0`) implémenté localement sur la base du
-Lot D `0.5.0`, sans service externe ni dépense réelle. Le Lot E n'est ni fusionné dans
-`main`, ni étiqueté : sa branche `codex/modernization-lot-e` est poussée, mais les
-corrections de revue et cette documentation ne sont pas encore validées, donc aucune
-intégration continue distante ne les couvre.
+Date d'état : 14 septembre 2026
+Périmètre évalué : Lot F, préparation de la version `0.7.0`, sans service externe ni
+dépense réelle. Sa base, le Lot E `0.6.0`, est publiée : PR #5 fusionnée au commit
+`b7d8a44`, tag `v0.6.0`, après observation d'une CI verte. La PR, la CI distante, la
+fusion et le tag `v0.7.0` du Lot F ne sont pas encore affirmés.
 
 ## Verdict
 
-**0 scénario sur 20 est accepté de bout en bout.** Seize scénarios disposent d'une
-brique réelle et de tests ciblés ; quatre restent non satisfaits (4, 15, 17 et 20).
-Trois scénarios changent de statut dans cette version — 10, 11 et 16 passent de **Non
-satisfait** à **Partiel** — et deux voient leurs preuves complétées sans changer de
-statut (12 et 19). Le Lot E rend le
-journal d'événements, le flux authentifié, les résultats de tests structurés et la
-bibliothèque de livrables réellement utilisables et testés, mais :
+**0 scénario sur 20 est accepté de bout en bout.** Dix-sept scénarios disposent d'une
+brique réelle et de tests ciblés ; trois restent non satisfaits (4, 17 et 20). Le
+scénario 15 passe à **Partiel** grâce aux routines et au calendrier Europe/Paris. Le
+scénario 18 reste **Partiel**, mais les coûts, jetons, appels d'outils et erreurs de
+stockage sont désormais appliqués localement. Les preuves restent incomplètes :
 
 - **aucun navigateur réel n'a été lancé** et **aucun test Playwright réel n'a été
   exécuté** pour cette version. Le reporter est prouvé sur des objets Playwright
@@ -28,10 +25,12 @@ bibliothèque de livrables réellement utilisables et testés, mais :
   deux sont couverts par des tests Vitest sur le DOM ;
 - aucune origine d'aperçu séparée n'est configurée, donc les liens signés pointent vers
   l'origine de l'API ;
-- aucun parcours de bout en bout du Lot E n'est versionné dans le dépôt : il n'existe
-  pas d'équivalent de `scripts/verify_mcp_journey.py` pour ce lot.
+- le parcours du Lot F démarre une API et une base SQLite temporaires ; il ne lance ni
+  worker distant, ni Hermes, ni fournisseur payant, ni navigateur ;
+- les migrations PostgreSQL, Railway et la restauration restent au Lot H, tandis que
+  l'aperçu 3D et le point de spawn d'agents restent au Lot G.
 
-Le scénario 7 reste le seul rejoué contre des services réellement démarrés (API métier
+Le scénario 7 du Lot D a été rejoué contre des services réellement démarrés (API métier
 dans son propre processus, serveur MCP Streamable HTTP sur le bouclage) : **24 étapes
 sur 24 réussies**, par un script versionné (`scripts/verify_mcp_journey.py`). Il n'est
 pas retenu comme « Accepté » : il ne couvre que le transport `http`, le serveur
@@ -57,23 +56,23 @@ satisfait** signifie que le parcours principal n'est pas livré.
 | 9 | Refus d'une installation ou d'une action non autorisée | **Partiel** | CSRF/RBAC et frontières worker sont testés ; le runner refuse avant spawn les autonomies non garanties et toute commande hors allowlist ; un opérateur ou un lecteur est refusé sur `/mcp/servers`, `/skills/import` et `/secrets`, un membre d'un autre projet sur un rattachement, un lancement `stdio` non autorisé n'est jamais distribué, et `GET /mcp/servers/{id}` ne nomme que les rattachements des projets accessibles. Manque bloquant : les refus sont prouvés sur des sources locales et un parcours API, pas sur une installation réelle ni un parcours navigateur. |
 | 10 | Tests web avec résultat structuré et capture de la session réelle | **Partiel** | Le résultat structuré est livré et testé de bout en bout **sur un lanceur simulé** : reporter NDJSON sans dépendance ni appel réseau, ingestion worker authentifiée avec lease et fencing, `test_runs`/`test_cases` rattachés à la tentative, statuts `passed`/`failed`/`timedOut`/`skipped`/`interrupted` et `flaky` conservés distinctement, validation technique dérivée sans jamais forcer `succeeded`, refus de tout faux succès (rapport vide, arrêt d'arbre non prouvé, code de sortie du rapport ne pouvant pas effacer celui mesuré). **Manque bloquant : aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté ; aucune capture d'une session réelle n'existe.** |
 | 11 | Consultation d'une trace et d'une capture après échec | **Partiel** | Les pièces jointes d'un cas en échec sont téléversées par le worker, stockées hors base (adressage par contenu sur disque), référencées dans l'événement par empreinte et type, listées et téléchargeables après redémarrage des services — par le Studio, la bibliothèque et `acp artifacts get`, qui vérifie le sha256. Une trace et un rapport HTML ne sont jamais servis en ligne : téléchargement forcé, `nosniff`, CSP `default-src 'none'; sandbox`. **Manque bloquant : aucune trace ni capture n'a jamais été produite par un échec Playwright réel ; aucune origine d'aperçu séparée n'est configurée ; pas de trace viewer intégré (la trace s'ouvre hors plateforme).** |
-| 12 | Déconnexion/reconnexion sans perte d'historique ni double lancement | **Partiel** | Preuves complétées par le Lot E : flux SSE authentifié avec reprise par `Last-Event-ID` ou `?after_seq=` sur un compteur monotone à ordre total, sans perte ni doublon ; 300 publications sans pause sont paginées exactement une fois chacune ; une reconnexion ne relance jamais une mission ; l'interface expose `connected`/`reconnecting`/`polling`/`offline` et réconcilie par `GET` au lieu d'inventer un état ; une révocation de session ferme la connexion au plus tard à la page suivante. S'y ajoute l'idempotence durable héritée du Lot C. **Manque bloquant : aucune coupure réseau réelle, aucun `EventSource` de navigateur, aucun outbox.** |
+| 12 | Déconnexion/reconnexion sans perte d'historique ni double lancement | **Partiel** | Le Lot E fournit le flux SSE authentifié avec reprise par curseur et le Lot F ajoute des clés stables pour créer une routine, déclencher manuellement ou faire tourner un webhook. Une `fire_key` unique en base arbitre deux matérialisations concurrentes ; le web et le CLI conservent la clé après une réponse incertaine. **Manque bloquant : aucune coupure réseau réelle, aucun `EventSource` de navigateur, aucun effet tiers permettant d'observer l'absence de double effet externe et aucun outbox.** |
 | 13 | Approbation, refus, expiration et arrêt réel d'une exécution | **Partiel** | Acceptation/refus, empreinte et expiration d'approbation, stop et arrêt d'arbre sont couverts. Le runner local refuse les actions nécessitant approbation au lieu de les demander. |
 | 14 | Runner perdu puis reprise contrôlée sans double effet | **Partiel** | Lease, fencing, worker obsolète, interruption et nouvelle tentative sont testés. Aucun effet tiers réel ne permet de prouver l'absence de double effet externe. |
-| 15 | Routine planifiée sans doublon et fuseau Europe/Paris | **Non satisfait** | Reporté au Lot F. |
+| 15 | Routine planifiée sans doublon et fuseau Europe/Paris | **Partiel** | Routine durable créée désactivée, cron en heure locale IANA et intervalles, heures inexistantes omises et première heure ambiguë retenue, calendrier UTC/local/décalage, rattrapage `skip`/`run_once`, limite de concurrence, bail singleton/fencing et contrainte unique de `fire_key`. La concurrence est testée sur une base SQLite fichier et les bascules Europe/Paris sur plusieurs années. Web, CLI et parcours HTTP local existent. **Manque bloquant : aucun worker distant, aucune exécution Hermes réelle, aucun navigateur réel, aucune validation PostgreSQL/multi-processus de production.** |
 | 16 | Livrable téléchargeable et aperçu 3D réel | **Partiel** | La moitié « livrable téléchargeable » est livrée et testée : stockage privé adressé par contenu, téléversement worker idempotent par sha256 avec plafond par fichier et quota par tentative appliqués pendant le flux, téléchargement par session ou par lien signé borné et révocable, support des requêtes `Range`, onglet « Livrables » de la bibliothèque (filtres projet/mission/type, recherche, métadonnées, provenance, taille, empreinte) et `acp artifacts list | get | link`. **Manque bloquant : aucun aperçu 3D (reporté au Lot G), aucun livrable produit par une exécution réelle, stockage local seulement (aucun adaptateur objet), et aucune origine d'aperçu séparée configurée.** |
 | 17 | Génération d'image réelle si backend configuré | **Non satisfait** | Reporté au Lot G. |
-| 18 | Budget atteint, fournisseur indisponible et stockage saturé | **Partiel** | Durée globale et panne provider échouent fermées ; coûts/tokens, appels outils et saturation ne sont pas encore appliqués de bout en bout. |
+| 18 | Budget atteint, fournisseur indisponible et stockage saturé | **Partiel** | Permis avant planification/exécution/évaluation, ledger idempotent par mission/jour/fournisseur, coûts décimaux, jetons et appels d'outils, limites de missions et de relances. Une mesure exigée mais inconnue refuse le permis ; un dépassement rapporté reste compté, ouvre `budget.guard` et bloque les permis suivants. Saturation et indisponibilité du stockage local rendent `507`/`503`, ne laissent aucun blob partiel et ouvrent une alerte expurgée si le projet et le run ont déjà été résolus ; une panne plus précoce ne peut pas être attribuée. **Manque bloquant : `max_spawned_agents_per_run` attend le point de spawn du Lot G ; aucun fournisseur payant, stockage objet externe, volume hébergé ni incident disque réel n'a été éprouvé.** |
 | 19 | Authentification des médias, événements et fichiers privés | **Partiel** | Preuves complétées par le Lot E : flux utilisateur authentifié servi par l'API métier (session, RBAC du projet revérifié **à chaque page**, refus inter-projets, fermeture après révocation de session, connexions bornées par utilisateur) ; fichiers privés servis uniquement à un membre ou via un lien signé lié à l'artefact **et** au demandeur, borné à 900 s, révocable, `503` explicite sans clé de signature ; aucun projet rendu public ; aucun média dans un événement (référence, empreinte, type et taille seulement) ; WebSocket anonyme du service d'événements toujours fermé. **Manque bloquant : aucune origine d'aperçu séparée configurée (`ACP_ARTIFACT_PUBLIC_ORIGIN` vide ⇒ les liens signés pointent vers l'origine de l'API), aucun parcours navigateur, aucun parcours de bout en bout versionné pour ce lot.** |
 | 20 | Sauvegarde/restauration et migration de données existantes | **Non satisfait** | Upgrade SQLite ad hoc et non versionné, avec reconstruction contrôlée de tables et sauvegarde préalable requise ; PostgreSQL versionné et restauration reportés au Lot H. |
 
-## Preuves de tests du Lot E
+## Référence publiée du Lot E
 
 Les résultats ci-dessous ont été obtenus le 13 septembre 2026 dans le worktree
 `lot-e`, après les corrections de revue et la synchronisation des versions sur
-`0.6.0`. Ils portent sur l'arbre de travail complet (branche `codex/modernization-lot-e`
-plus les corrections non encore validées), sans les modifications Pixel/LimeZu du
-worktree principal.
+`0.6.0`. Cette version a ensuite été fusionnée par la PR #5 au commit `b7d8a44` et
+étiquetée `v0.6.0`, après observation d'une CI verte. Ces nombres ne sont pas réutilisés
+comme preuve de l'arbre de travail du Lot F.
 
 ### Environnement exact
 
@@ -82,7 +81,7 @@ worktree principal.
 | Système | Windows 10 Pro `10.0.19045` |
 | Interpréteur des suites | `.venv\Scripts\python.exe` — **lanceur d'environnement virtuel Windows**, Python `3.12.0` |
 | Node.js / npm | `v24.19.0` / `11.17.0` |
-| CI GitHub Actions | `ubuntu-latest`, Python `3.12`, Node `22` (`.github/workflows/ci.yml`) — **non exécutée sur ce travail** : les corrections de revue et cette documentation ne sont pas validées |
+| CI GitHub Actions | `ubuntu-latest`, Python `3.12`, Node `22` (`.github/workflows/ci.yml`) — verte observée sur la PR #5 avant fusion |
 
 L'interpréteur retenu n'est pas un détail : sous Windows, le `python.exe` d'un
 environnement virtuel est un **lanceur** qui exécute l'interpréteur réel dans un
@@ -107,27 +106,69 @@ devait couvrir, et que l'exécution de tests web du Lot E réutilise telle quell
 | `npm run build:web` | **réussi** | bundle Vite productible | pas un déploiement |
 | `./.venv/Scripts/python.exe scripts/check_version.py` | **réussi** | tous les composants publiables portent `0.6.0` | n'implique aucune publication |
 
+### Preuves ciblées du Lot F
+
+Le Lot F possède des tests ciblés dans les suites suivantes :
+
+| Domaine | Fichiers principaux | Propriété visée |
+|---|---|---|
+| contrats et fuseaux | `packages/contracts/tests/test_schedule.py`, `test_automations_contracts.py` | cron/intervalle stricts, DST, cohérence UTC/local/décalage |
+| base | `packages/database/tests/test_automation_models.py`, `test_lot_f_schema_extensions.py` | contraintes, clés étrangères, `fire_key` unique et upgrade SQLite |
+| API | `apps/api/tests/test_automations.py`, `test_scheduler.py`, `test_budgets.py`, `test_alerts.py` | RBAC/CSRF, rejeu, bail/fence, rattrapage, budgets et alertes |
+| stockage | `apps/api/tests/test_artifacts_content.py`, `test_artifact_quota_concurrency.py` | `507`/`503`, alerte expurgée, réparation et quota concurrent |
+| worker | `apps/worker/tests/test_automation_scheduler.py`, `test_budget.py`, `test_real_worker.py` | boucle de tick et permis autour des phases réelles |
+| CLI | `apps/cli/tests/test_cli_automations.py`, `test_cli.py` | commandes, validation, secret hors argv, codes de sortie et rejeu |
+| web | `apps/web/tests/automation-*.test.ts`, `mission-routine.test.ts` | contrats, écrans, états, idempotence et proposition de routine |
+
+Le relevé final local du Lot F a été produit le 14 septembre 2026 dans le worktree
+`lot-f`, sous Windows 10 Pro `10.0.19045`, avec `.venv\Scripts\python.exe` (Python
+`3.12.0`), Node `v24.19.0` et npm `11.17.0` :
+
+| Commande ou suite | Résultat |
+|---|---:|
+| `python -m pytest -q -p no:cacheprovider` | **2 291 réussis, 7 ignorés, 2 avertissements** en 408,18 s |
+| API | **867 réussis, 1 ignoré** |
+| worker | **253 réussis, 3 ignorés** |
+| CLI | **430 réussis, 3 ignorés** |
+| contrats / base / event-sdk / gateway / event-service | **741 réussis** (`574 / 66 / 5 / 87 / 9`) |
+| `npm exec tsc -- --noEmit -p apps/web/tsconfig.json` | **réussi** |
+| `npm test --workspace @acp/web` | **295 réussis, 23 fichiers** |
+| `npm test --workspace @acp/playwright-reporter` | **59 réussis** |
+| `npm test --workspace @acp/pixel-office-engine` | **74 réussis** |
+| `npm run build:web` | **réussi** |
+| `python scripts/check_version.py` | **réussi**, tous les composants sur `0.7.0` |
+| `python scripts/verify_automation_journey.py` | **62/62 étapes réussies**, code `0` |
+
+Le parcours impose son `PYTHONPATH`, vérifie que ses imports proviennent du worktree,
+puis démarre l'API en portée worker globale et la redémarre sur la même base en portée
+projet. Il prouve ainsi séparément le planificateur et l'exécuteur sans relâcher la
+politique d'enrôlement.
+
 Les deux avertissements Python proviennent de dépréciations dans les dépendances —
 `StarletteDeprecationWarning` sur l'usage de `httpx` par `starlette.testclient`, et la
 dépréciation de l'alias `anyio.abc.BlockingPortal` — et sont non bloquants. Le build
-Vite se termine avec le seul avertissement attendu sur la taille du chunk Phaser
-(`1 231 kB` avant compression) ; ce n'est pas un échec de compilation.
+Vite signale six URL d'assets LimeZu sous licence, non distribués et résolus au runtime
+après installation locale, ainsi que la taille du chunk Phaser (`1 231,27 kB` avant
+compression) ; ces avertissements n'empêchent pas le bundle.
 
-### Les quatre tests ignorés, nommés
+### Les sept tests ignorés du relevé Lot F, nommés
 
 Aucun test n'est ignoré faute d'opt-in Playwright : **cet opt-in n'existe pas**. Les
-quatre `skipped` sont des limites de la machine de vérification :
+sept `skipped` sont des limites POSIX de la machine Windows de vérification :
 
 | Test | Raison |
 |---|---|
-| `apps/api/tests/test_artifacts_storage.py:246` | permissions POSIX non applicables sous Windows |
-| `apps/worker/tests/test_web_tests.py:706` | liens symboliques indisponibles sur cette machine |
-| `apps/worker/tests/test_web_tests.py:745` | idem |
-| `apps/worker/tests/test_web_tests.py:960` | idem |
+| `apps/api/tests/test_artifacts_storage.py:291` | permissions POSIX non applicables sous Windows |
+| `apps/cli/tests/test_cli_automations.py:710` | permissions privées POSIX du fichier secret |
+| `apps/cli/tests/test_cli_automations.py:737` | mode POSIX `0600` lu depuis le descripteur ouvert |
+| `apps/cli/tests/test_cli_automations.py:776` | refus d'un lien symbolique POSIX avant appel HTTP |
+| `apps/worker/tests/test_web_tests.py:712` | liens symboliques indisponibles sur cette machine |
+| `apps/worker/tests/test_web_tests.py:749` | idem |
+| `apps/worker/tests/test_web_tests.py:964` | idem |
 
-Les trois derniers sont précisément les tests qui prouvent le refus d'une pièce jointe
-atteinte par un lien symbolique : ce contrôle existe dans le code mais **n'est pas
-prouvé sur cette machine**.
+Les quatre tests de liens symboliques et les trois tests de permissions existent dans
+le code mais ne sont donc **pas prouvés par cette exécution Windows**. La CI Ubuntu les
+rejouera avant toute fusion ; son résultat n'est pas anticipé ici.
 
 ### Ce que le Lot E ne prouve pas
 
@@ -179,6 +220,14 @@ les services et rejoue une exécution de tests web, un flux SSE et un téléchar
 livrable. C'est l'une des raisons pour lesquelles les scénarios 10, 11, 16 et 19
 restent **Partiel**.
 
+Le Lot F possède en revanche `scripts/verify_automation_journey.py`. Le 14 septembre
+2026, ce script a démarré l'API dans un processus séparé sur une base SQLite
+temporaire et rendu **62/62 étapes réussies**, code `0`. Il exerce la création et son
+rejeu, le conflit d'idempotence, l'activation, le calendrier, le bail et le tick du
+planificateur, les tirs manuel et webhook, l'historique, le permis/rapport de budget
+et l'alerte. Il reste un parcours de bouclage déterministe : ni navigateur, ni worker
+distant, ni Hermes, ni fournisseur payant, ni PostgreSQL.
+
 ### Correctif Job Object et tests d'arbre de processus
 
 Avec le lanceur d'environnement virtuel,
@@ -203,11 +252,10 @@ assertion d'environnement trop stricte, invisible sous Windows. Les Lots C et D 
 publiés (PR #3 et #4, tags `v0.4.0` et `v0.5.0` ; `v0.5.0` est bien un ancêtre de
 `origin/main`).
 
-Le Lot E, lui, n'est **pas** publié : sa branche `codex/modernization-lot-e` est
-poussée, mais elle n'est pas fusionnée dans `main`, aucun tag `v0.6.0` n'existe, et les
-corrections de revue comme cette documentation ne sont pas encore validées — donc
-aucune exécution d'intégration continue ne les couvre. Les chiffres de ce rapport
-proviennent uniquement de la machine de vérification Windows.
+Le Lot E a été publié par la PR #5 : fusion `b7d8a44`, tag `v0.6.0`, après observation
+d'une CI verte. Les chiffres détaillés ci-dessus proviennent de la vérification
+Windows ; la CI confirme la branche publiée mais ne transforme pas les simulations en
+services externes réels.
 
 ## Vérifications explicitement non exécutées
 
@@ -223,7 +271,9 @@ proviennent uniquement de la machine de vérification Windows.
 - PostgreSQL existant, migration versionnée, sauvegarde ou restauration ;
 - sandbox OS/réseau, quotas CPU/mémoire/disque ou compte non privilégié dédié : le Job
   Object borne l'arbre de processus, il n'impose ni quota ni politique réseau ;
-- appel d'outil MCP pendant une mission, média, aperçu 3D et automatisation ;
+- appel d'outil MCP pendant une mission, média ou aperçu 3D ;
+- planificateur sur plusieurs hôtes, webhook Internet, fournisseur payant et
+  application de `max_spawned_agents_per_run` ;
 - **Playwright réel** : aucun navigateur lancé, aucune suite exécutée, aucune trace ni
   capture produite par une exécution réelle ; l'opt-in `ACP_E2E=1` prévu par la
   spécification n'existe pas dans le dépôt ;
@@ -233,7 +283,7 @@ proviennent uniquement de la machine de vérification Windows.
 - origine d'aperçu séparée (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et stockage d'objets distant ;
 - purge de rétention réellement exécutée sur des données d'exploitation (la commande
   existe, est testée et reste à blanc sans `--apply`) ;
-- CI distante, PR et tag du Lot E ;
+- CI distante, PR, fusion et tag du Lot F ;
 - Railway, HTTPS public, charge ou audit offensif.
 
 ## Conditions avant exposition réseau
@@ -246,6 +296,9 @@ proviennent uniquement de la machine de vérification Windows.
   d'exposer le Studio : sans elle, les aperçus signés sont servis par l'origine de
   l'API, et l'avertissement affiché n'est pas un contrôle ;
 - isoler le runner au niveau OS/réseau et raccorder un circuit d'approbation worker ;
+- placer le webhook entrant derrière HTTPS et une limitation distribuée au reverse
+  proxy — la limite locale est par processus — puis éprouver rotation, révocation et
+  rejeu avec un émetteur réel ;
 - exécuter les scénarios E2E contre les services réellement démarrés, y compris une
   vraie suite Playwright sur un runner réel ;
 - verser dans le dépôt un parcours de bout en bout du Lot E, comme

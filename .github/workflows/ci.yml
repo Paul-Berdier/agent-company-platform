@@ -44,6 +44,8 @@ jobs:
           -e "services/provider-gateway[test]"
       - name: Run Python tests
         run: python -m pytest -q
+      - name: Verify the automation journey
+        run: python scripts/verify_automation_journey.py
 
   web:
     name: Node 22
@@ -71,6 +73,8 @@ jobs:
         run: npm exec tsc -- --noEmit -p apps/web/tsconfig.json
       - name: Test the modern workspace
         run: npm test --workspace @acp/web
+      - name: Test the Playwright reporter
+        run: npm test --workspace @acp/playwright-reporter
       - name: Test the legacy engine
         run: npm test --workspace @acp/pixel-office-engine
       - name: Build the web application

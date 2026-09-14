@@ -1,8 +1,25 @@
-import type { AcpEvent, Overview, Project, TaskSummary } from "@acp/contracts";
+import type {
+  AcpEvent,
+  AutomationCreate,
+  AutomationScheduleKind,
+  Overview,
+  Project,
+  TaskSummary,
+} from "@acp/contracts";
 
 import "./workspace.css";
 import { renderMcpCenter, renderSecretsPanel, resetMcpUiState } from "./mcp-ui";
 import { renderLibrary, resetLibraryUiState } from "./library-ui";
+import { renderAutomations, resetAutomationUiState, unmountAutomationUi } from "./automation-ui";
+import { AutomationApiClient } from "./automation-api";
+import {
+  buildRoutineAutomationInput,
+  missionCanBecomeRoutine,
+  prepareRoutineCreationAttempt,
+  routineNameForMission,
+  settleRoutineCreationAttempt,
+  type RoutineCreationAttempt,
+} from "./mission-routine";
 import {
   isStudioViewRequested,
   renderStudio,
@@ -117,8 +134,21 @@ interface MissionState {
   actionId: string | null;
 }
 
+interface MissionRoutineDraftState {
+  sourceMissionId: string;
+  open: boolean;
+  busy: boolean;
+  name: string;
+  scheduleKind: AutomationScheduleKind;
+  expression: string;
+  timezone: string;
+  pending: RoutineCreationAttempt | null;
+  notice: MissionNotice | null;
+}
+
 const http = new WorkspaceHttpClient();
 const api = new WorkspaceApiClient({ http });
+const automationApi = new AutomationApiClient({ http });
 const authApi = new AuthApiClient({ http });
 const conversationApi = new ConversationApiClient({ http });
 const state: WorkspaceState = {
@@ -179,6 +209,8 @@ let missionSequence = 0;
 let missionNotice: MissionNotice | null = null;
 let projectNotice: MissionNotice | null = null;
 let fieldSequence = 0;
+let missionRoutineDraft: MissionRoutineDraftState | null = null;
+let missionRoutineFocusTarget: string | null = null;
 
 function routeItem(route: WorkspaceRoute) {
   return NAVIGATION_ITEMS.find((item) => item.id === route) ?? NAVIGATION_ITEMS[0];
@@ -544,6 +576,8 @@ function resetPrivateWorkspaceState(): void {
   missionState.focusedRunId = null;
   missionState.error = null;
   missionState.actionId = null;
+  missionRoutineDraft = null;
+  missionRoutineFocusTarget = null;
   conversationDrafts.clear();
   newConversationDraft.projectId = "";
   newConversationDraft.title = "";
@@ -556,6 +590,7 @@ function resetPrivateWorkspaceState(): void {
   resetMcpUiState();
   // La bibliothèque relaie elle-même la purge à l'onglet Skills.
   resetLibraryUiState();
+  resetAutomationUiState();
   // Le Studio retient un journal, des résultats de tests et des liens signés, et garde un
   // flux SSE ouvert : sans cette purge, ils survivraient à un changement de compte.
   resetStudioUiState();
@@ -870,13 +905,10 @@ function renderHome(overview: Overview): void {
     routeLink("/missions", "Lancer une mission", "button button-primary"),
     routeLink("/projects", "Voir les projets"),
     routeLink("/conversations", "Ouvrir une conversation"),
+    routeLink("/automations", "Automatiser"),
+    routeLink("/library", "Parcourir les livrables"),
   );
-  const disabledActions = el("div", "disabled-actions");
-  disabledActions.append(
-    capabilityTag("Automatiser", "Planificateur non configuré"),
-    capabilityTag("Parcourir les livrables", "Bibliothèque sécurisée non configurée"),
-  );
-  heroCopy.append(heroActions, disabledActions);
+  heroCopy.append(heroActions);
   hero.append(heroCopy);
   content.append(hero, renderOnboardingProgress());
 
@@ -1252,6 +1284,358 @@ async function submitMissionComment(
   }
 }
 
+function missionRoutinePanelId(missionId: string): string {
+  return `mission-routine-panel-${missionId}`;
+}
+
+function missionRoutineToggleId(missionId: string): string {
+  return `mission-routine-toggle-${missionId}`;
+}
+
+function missionRoutineNameId(missionId: string): string {
+  return `mission-routine-name-${missionId}`;
+}
+
+function missionRoutineSubmitId(missionId: string): string {
+  return `mission-routine-submit-${missionId}`;
+}
+
+function rerenderMissionsWithFocus(targetId: string): void {
+  missionRoutineFocusTarget = targetId;
+  if (currentRoute === "missions") renderCurrentRoute();
+}
+
+function defaultMissionRoutineTimezone(): string {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim() ?? "";
+  return timezone && timezone.length <= 64 ? timezone : "Europe/Paris";
+}
+
+function openMissionRoutine(mission: MissionSummary): void {
+  const current = missionRoutineDraft;
+  if (current && current.sourceMissionId !== mission.id && (current.busy || current.pending)) return;
+  if (current?.sourceMissionId === mission.id) {
+    current.open = true;
+  } else {
+    missionRoutineDraft = {
+      sourceMissionId: mission.id,
+      open: true,
+      busy: false,
+      name: routineNameForMission(mission),
+      scheduleKind: "cron",
+      expression: "0 9 * * 1-5",
+      timezone: defaultMissionRoutineTimezone(),
+      pending: null,
+      notice: null,
+    };
+  }
+  rerenderMissionsWithFocus(
+    missionRoutineDraft?.pending
+      ? missionRoutineSubmitId(mission.id)
+      : missionRoutineNameId(mission.id),
+  );
+}
+
+function closeMissionRoutine(mission: MissionSummary): void {
+  const current = missionRoutineDraft;
+  if (!current || current.sourceMissionId !== mission.id || current.busy) return;
+  if (current.pending) {
+    current.open = false;
+  } else {
+    missionRoutineDraft = null;
+  }
+  rerenderMissionsWithFocus(missionRoutineToggleId(mission.id));
+}
+
+function routineList(title: string, values: string[], emptyLabel: string): HTMLElement {
+  const section = el("section", "mission-routine-summary-section");
+  section.append(el("h5", "mission-routine-summary-title", title));
+  if (!values.length) {
+    section.append(el("p", "form-hint", emptyLabel));
+    return section;
+  }
+  const list = el("ul", "mission-criteria");
+  for (const value of values) list.append(el("li", "", value));
+  section.append(list);
+  return section;
+}
+
+function routineDetailRow(list: HTMLDListElement, label: string, value: string): void {
+  const row = el("div", "mission-routine-detail-row");
+  row.append(el("dt", "mission-validation-label", label), el("dd", "", value));
+  list.append(row);
+}
+
+async function submitMissionRoutine(mission: MissionSummary): Promise<void> {
+  const draft = missionRoutineDraft;
+  if (!draft || draft.sourceMissionId !== mission.id || draft.busy) return;
+
+  let input: AutomationCreate;
+  try {
+    input = draft.pending?.input ?? buildRoutineAutomationInput(mission, draft);
+  } catch (error) {
+    draft.notice = {
+      tone: "error",
+      message: error instanceof Error ? error.message : "Le préremplissage de la routine est invalide.",
+    };
+    rerenderMissionsWithFocus(missionRoutineNameId(mission.id));
+    return;
+  }
+
+  const attempt = prepareRoutineCreationAttempt(
+    draft.pending,
+    input,
+    () => missionActionKey("routine", mission.id),
+  );
+  draft.pending = attempt;
+  draft.busy = true;
+  draft.notice = {
+    tone: "warning",
+    message: "Création en cours : la routine ne sera annoncée qu’après confirmation du serveur.",
+  };
+  rerenderMissionsWithFocus(missionRoutinePanelId(mission.id));
+
+  try {
+    const created = await automationApi.createAutomation(
+      mission.project_id,
+      attempt.input,
+      attempt.key,
+    );
+    const current = missionRoutineDraft;
+    if (!current
+      || current.sourceMissionId !== mission.id
+      || current.pending?.key !== attempt.key) return;
+    if (created.enabled || created.project_id !== mission.project_id) {
+      throw new WorkspaceApiError(
+        "La réponse de création ne confirme pas une routine en pause dans le projet attendu.",
+        "invalid_response",
+      );
+    }
+    current.pending = null;
+    current.busy = false;
+    missionRoutineDraft = null;
+    missionNotice = {
+      tone: "success",
+      message: `La routine « ${created.name} » (${created.id}) a été créée en pause.`,
+    };
+    rerenderMissionsWithFocus(missionRoutineToggleId(mission.id));
+  } catch (error) {
+    const failure = normalizeApiError(error, "La routine n’a pas pu être créée.");
+    if (failure.status === 401) return requireLogin();
+    const current = missionRoutineDraft;
+    if (!current
+      || current.sourceMissionId !== mission.id
+      || current.pending?.key !== attempt.key) return;
+    current.busy = false;
+    current.pending = settleRoutineCreationAttempt(attempt, failure);
+    current.notice = {
+      tone: "error",
+      message: current.pending
+        ? `${errorMessage(failure)} La prochaine tentative réutilisera la même clé et exactement le même préremplissage.`
+        : errorMessage(failure),
+    };
+    rerenderMissionsWithFocus(missionRoutineSubmitId(mission.id));
+  }
+}
+
+function renderMissionRoutineConfirmation(mission: MissionSummary): HTMLElement {
+  const draft = missionRoutineDraft;
+  if (!draft || draft.sourceMissionId !== mission.id) {
+    throw new Error("Aucun préremplissage de routine pour cette mission.");
+  }
+  const frozen = draft.busy || draft.pending !== null;
+  const panel = el("section", "mission-routine-confirmation");
+  const panelId = missionRoutinePanelId(mission.id);
+  const titleId = `${panelId}-title`;
+  panel.id = panelId;
+  panel.tabIndex = -1;
+  panel.setAttribute("role", "region");
+  panel.setAttribute("aria-labelledby", titleId);
+  const title = el("h4", "diagnostic-subtitle", "Confirmer la transformation en routine");
+  title.id = titleId;
+  panel.append(
+    title,
+    el(
+      "p",
+      "form-hint",
+      "La routine sera créée en pause. Vérifiez le calendrier et l’intégralité du gabarit avant de confirmer.",
+    ),
+  );
+
+  const form = el("form", "mission-routine-form") as HTMLFormElement;
+  const nameInput = el("input", "form-control") as HTMLInputElement;
+  nameInput.id = missionRoutineNameId(mission.id);
+  nameInput.name = "routineName";
+  nameInput.required = true;
+  nameInput.maxLength = 200;
+  nameInput.value = draft.name;
+  nameInput.disabled = frozen;
+  nameInput.autocomplete = "off";
+  const nameField = labeledField("Nom de la routine", nameInput, "Ce nom identifie la routine ; la mission source reste inchangée.");
+  const nameLabel = nameField.querySelector("label");
+  nameInput.id = missionRoutineNameId(mission.id);
+  if (nameLabel) nameLabel.htmlFor = nameInput.id;
+  nameInput.addEventListener("input", () => {
+    if (missionRoutineDraft?.sourceMissionId === mission.id && !missionRoutineDraft.pending) {
+      missionRoutineDraft.name = nameInput.value;
+    }
+  });
+
+  const kindSelect = el("select", "form-control") as HTMLSelectElement;
+  kindSelect.name = "scheduleKind";
+  kindSelect.disabled = frozen;
+  for (const [value, label] of [["cron", "Cron"], ["interval", "Intervalle"]] as const) {
+    const option = el("option", "", label) as HTMLOptionElement;
+    option.value = value;
+    option.selected = value === draft.scheduleKind;
+    kindSelect.append(option);
+  }
+
+  const expressionInput = el("input", "form-control") as HTMLInputElement;
+  expressionInput.name = "scheduleExpression";
+  expressionInput.required = true;
+  expressionInput.maxLength = 200;
+  expressionInput.value = draft.expression;
+  expressionInput.disabled = frozen;
+  expressionInput.autocomplete = "off";
+
+  const timezoneInput = el("input", "form-control") as HTMLInputElement;
+  timezoneInput.name = "timezone";
+  timezoneInput.required = true;
+  timezoneInput.maxLength = 64;
+  timezoneInput.value = draft.timezone;
+  timezoneInput.disabled = frozen;
+  timezoneInput.autocomplete = "off";
+
+  const expressionField = labeledField(
+    "Expression",
+    expressionInput,
+    draft.scheduleKind === "cron" ? "Ex. 0 9 * * 1-5" : "Secondes entre deux occurrences, ex. 900",
+  );
+  const expressionHint = expressionField.querySelector<HTMLElement>(".form-hint");
+
+  kindSelect.addEventListener("change", () => {
+    const current = missionRoutineDraft;
+    if (!current || current.sourceMissionId !== mission.id || current.pending) return;
+    const previous = current.scheduleKind;
+    current.scheduleKind = kindSelect.value as AutomationScheduleKind;
+    if (previous === "cron" && current.scheduleKind === "interval" && expressionInput.value === "0 9 * * 1-5") {
+      expressionInput.value = "900";
+    } else if (previous === "interval" && current.scheduleKind === "cron" && expressionInput.value === "900") {
+      expressionInput.value = "0 9 * * 1-5";
+    }
+    current.expression = expressionInput.value;
+    if (expressionHint) {
+      expressionHint.textContent = current.scheduleKind === "cron"
+        ? "Ex. 0 9 * * 1-5"
+        : "Secondes entre deux occurrences, ex. 900";
+    }
+  });
+  expressionInput.addEventListener("input", () => {
+    if (missionRoutineDraft?.sourceMissionId === mission.id && !missionRoutineDraft.pending) {
+      missionRoutineDraft.expression = expressionInput.value;
+    }
+  });
+  timezoneInput.addEventListener("input", () => {
+    if (missionRoutineDraft?.sourceMissionId === mission.id && !missionRoutineDraft.pending) {
+      missionRoutineDraft.timezone = timezoneInput.value;
+    }
+  });
+
+  const scheduleFields = el("div", "form-split");
+  scheduleFields.append(
+    labeledField("Type de calendrier", kindSelect),
+    expressionField,
+  );
+
+  const summary = el("div", "mission-routine-summary");
+  summary.append(
+    routineList("Objectif", [mission.objective], "Objectif absent"),
+    routineList("Résultat attendu", [mission.expected_outcome], "Résultat absent"),
+    routineList("Critères d’acceptation", mission.acceptance_criteria, "Aucun critère"),
+  );
+  const autonomy = routineList(
+    `Autonomie · ${mission.autonomy.mode}`,
+    [
+      ...mission.autonomy.allowed_actions.map((value) => `Autorisée : ${value}`),
+      ...mission.autonomy.forbidden_actions.map((value) => `Interdite : ${value}`),
+      ...mission.autonomy.approval_required_actions.map((value) => `Approbation requise : ${value}`),
+    ],
+    "Aucune action détaillée",
+  );
+  const resources = routineList(
+    "Ressources",
+    mission.resources.map((resource) => {
+      const description = resource.description ? ` · ${resource.description}` : "";
+      return `${resource.kind} · ${resource.access} · ${resource.identifier}${description}`;
+    }),
+    "Aucune ressource",
+  );
+  const details = el("dl", "mission-routine-details") as HTMLDListElement;
+  routineDetailRow(
+    details,
+    "Budget coût",
+    mission.budget.max_cost === null
+      ? `Non plafonné (${mission.budget.currency})`
+      : `${mission.budget.max_cost} ${mission.budget.currency}`,
+  );
+  routineDetailRow(details, "Budget jetons", mission.budget.max_tokens === null ? "Non plafonné" : String(mission.budget.max_tokens));
+  routineDetailRow(details, "Budget outils", mission.budget.max_tool_calls === null ? "Non plafonné" : String(mission.budget.max_tool_calls));
+  routineDetailRow(details, "Durée maximale", `${mission.duration_seconds} secondes`);
+  routineDetailRow(details, "Priorité", String(mission.priority));
+  routineDetailRow(details, "Équipe", mission.team_id ?? "Non affectée");
+  routineDetailRow(details, "Agent", mission.agent_instance_id ?? "Non affecté");
+  summary.append(
+    autonomy,
+    resources,
+    routineList("Capacités requises", mission.required_capabilities, "Aucune capacité requise"),
+    details,
+    el("p", "form-hint", "Rattrapage : ignorer · concurrence maximale : 1 exécution"),
+  );
+
+  const feedback = el("div", "form-feedback");
+  feedback.setAttribute("aria-live", draft.notice?.tone === "error" ? "assertive" : "polite");
+  if (draft.notice) {
+    feedback.dataset.tone = draft.notice.tone;
+    feedback.textContent = draft.notice.message;
+  }
+  const buttons = el("div", "mission-result-actions");
+  const submit = el(
+    "button",
+    "button button-primary",
+    draft.busy
+      ? "Création en cours…"
+      : draft.pending ? "Réessayer avec la même clé" : "Confirmer et créer en pause",
+  ) as HTMLButtonElement;
+  submit.id = missionRoutineSubmitId(mission.id);
+  submit.type = "submit";
+  submit.disabled = draft.busy;
+  const cancel = el(
+    "button",
+    "button button-secondary",
+    draft.pending ? "Masquer · clé conservée" : "Annuler",
+  ) as HTMLButtonElement;
+  cancel.type = "button";
+  cancel.disabled = draft.busy;
+  cancel.addEventListener("click", () => closeMissionRoutine(mission));
+  buttons.append(submit, cancel);
+
+  form.append(
+    nameField,
+    scheduleFields,
+    labeledField("Fuseau IANA", timezoneInput, "Ex. Europe/Paris ; les changements d’heure sont évalués côté serveur."),
+    summary,
+    feedback,
+    buttons,
+  );
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    void submitMissionRoutine(mission);
+  });
+  panel.append(form);
+  return panel;
+}
+
 function renderMissionList(overview: Overview): HTMLElement {
   const list = el("div", "item-list mission-results");
   for (const mission of missionState.items) {
@@ -1318,6 +1702,7 @@ function renderMissionList(overview: Overview): HTMLElement {
 
     const actions = el("div", "mission-result-actions");
     const busy = missionState.actionId === mission.id;
+    const routineEligible = missionCanBecomeRoutine(mission, run, isCurrentRun);
     // Lien profond vers le Studio de **cette** tentative (spec §2.5) : chronologie du
     // journal, dernière capture de la session et résultats de tests. Inutile de le
     // proposer sur la tentative dont le Studio est déjà ouvert.
@@ -1357,6 +1742,36 @@ function renderMissionList(overview: Overview): HTMLElement {
       accept.addEventListener("click", () => void performMissionAction(mission, "accept"));
       reject.addEventListener("click", () => void performMissionAction(mission, "reject"));
       actions.append(accept, reject);
+    }
+    if (routineEligible) {
+      const draft = missionRoutineDraft?.sourceMissionId === mission.id
+        ? missionRoutineDraft
+        : null;
+      const unresolvedElsewhere = Boolean(
+        missionRoutineDraft
+        && missionRoutineDraft.sourceMissionId !== mission.id
+        && (missionRoutineDraft.busy || missionRoutineDraft.pending),
+      );
+      const toggle = el(
+        "button",
+        "button button-primary",
+        draft?.open
+          ? "Masquer la transformation"
+          : draft?.pending ? "Réessayer la création de routine" : "Transformer en routine",
+      ) as HTMLButtonElement;
+      toggle.id = missionRoutineToggleId(mission.id);
+      toggle.type = "button";
+      toggle.disabled = busy || Boolean(draft?.busy) || unresolvedElsewhere;
+      toggle.setAttribute("aria-controls", missionRoutinePanelId(mission.id));
+      toggle.setAttribute("aria-expanded", String(Boolean(draft?.open)));
+      if (unresolvedElsewhere) {
+        toggle.title = "Résolvez d’abord la création de routine restée incertaine sur une autre mission.";
+      }
+      toggle.addEventListener("click", () => {
+        if (draft?.open) closeMissionRoutine(mission);
+        else openMissionRoutine(mission);
+      });
+      actions.append(toggle);
     }
 
     const comments = (missionState.commentsByMission.get(mission.id) ?? [])
@@ -1398,9 +1813,15 @@ function renderMissionList(overview: Overview): HTMLElement {
       criteria,
       evidence,
       actions,
-      commentHistory,
-      commentForm,
     );
+    if (
+      routineEligible
+      && missionRoutineDraft?.sourceMissionId === mission.id
+      && missionRoutineDraft.open
+    ) {
+      item.append(renderMissionRoutineConfirmation(mission));
+    }
+    item.append(commentHistory, commentForm);
     list.append(item);
   }
   return list;
@@ -1454,6 +1875,11 @@ function renderMissions(overview: Overview): void {
     const studio = el("section", "content-section");
     content.append(studio);
     renderStudio(studio, http, studioRunId);
+  }
+  if (missionRoutineFocusTarget) {
+    const targetId = missionRoutineFocusTarget;
+    missionRoutineFocusTarget = null;
+    queueMicrotask(() => document.getElementById(targetId)?.focus());
   }
 }
 
@@ -2393,31 +2819,6 @@ function renderConnections(): void {
   content.append(business);
 }
 
-type UnconfiguredRoute = "automations";
-
-const CAPABILITY_COPY: Record<UnconfiguredRoute, {
-  title: string;
-  description: string;
-  consequence: string;
-}> = {
-  automations: {
-    title: "Automatisations",
-    description: "Aucun propriétaire de planification n’est encore configuré dans ce shell.",
-    consequence: "Aucune routine n’est créée ou exécutée implicitement.",
-  },
-};
-
-function renderUnconfigured(route: UnconfiguredRoute): void {
-  const copy = CAPABILITY_COPY[route];
-  const intro = el("section", "page-intro");
-  intro.append(
-    statusChip("Non configuré", "unconfigured"),
-    el("h2", "page-title", copy.title),
-    el("p", "page-description", copy.description),
-  );
-  content.append(intro, statePanel("unconfigured", "Capacité indisponible", copy.consequence));
-}
-
 function updateActiveNavigation(): void {
   for (const link of sidebar.querySelectorAll<HTMLAnchorElement>("[data-route]")) {
     const active = link.dataset.route === currentRoute;
@@ -2433,6 +2834,8 @@ function renderCurrentRoute(): void {
   updateActiveNavigation();
   content.replaceChildren();
 
+  if (currentRoute !== "automations") unmountAutomationUi();
+
   // Le Studio ne vit que dans `/missions?vue=studio` : quitter cet écran doit fermer son
   // flux SSE, sinon il consomme une des connexions autorisées du compte en arrière-plan.
   if (currentRoute !== "missions" || !isStudioViewRequested(window.location.search)) {
@@ -2447,6 +2850,8 @@ function renderCurrentRoute(): void {
     renderDataBoundary(renderConversations);
   } else if (currentRoute === "missions") {
     renderDataBoundary(renderMissions);
+  } else if (currentRoute === "automations") {
+    renderAutomations(content, http);
   } else if (currentRoute === "connections") {
     renderConnections();
     // Le client du shell porte le jeton CSRF de la session : un client séparé devrait
@@ -2456,8 +2861,6 @@ function renderCurrentRoute(): void {
   } else if (currentRoute === "library") {
     // Deux onglets : Skills (Lot D, délégué tel quel) et Livrables (Lot E).
     renderLibrary(content, http);
-  } else {
-    renderUnconfigured(currentRoute as UnconfiguredRoute);
   }
 }
 

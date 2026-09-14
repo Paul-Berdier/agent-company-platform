@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import getpass
 import hashlib
 import json
+import math
 import os
 import re
+import secrets
 import stat
 import sys
 import tempfile
@@ -17,6 +20,7 @@ import uuid
 import webbrowser
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
+from datetime import datetime
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, NamedTuple, Sequence, TextIO
@@ -62,10 +66,6 @@ class UsageError(ValueError):
     pass
 
 
-class UnsupportedError(RuntimeError):
-    pass
-
-
 class CommandError(RuntimeError):
     """Échec métier explicite : ni une erreur d'usage, ni une erreur de transport.
 
@@ -77,6 +77,64 @@ class CommandError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.exit_code = exit_code
+
+
+class AutomationTriggerError(CommandError):
+    """Résultat de déclenchement incertain, rejouable avec la même clé.
+
+    Contrairement aux créations de mission, cette mutation n'occupe pas le
+    registre ``pending`` historique du CLI. La clé est donc toujours rendue dans
+    l'erreur afin que l'appelant puisse la fournir explicitement au rejeu.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        idempotency_key: str,
+        code: str,
+        exit_code: ExitCode,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(code, message, exit_code)
+        self.idempotency_key = idempotency_key
+        self.status_code = status_code
+
+
+class AutomationMutationError(CommandError):
+    """Mutation d'automatisation incertaine, avec matériel de rejeu explicite."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str,
+        idempotency_key: str,
+        recovery: str,
+        code: str,
+        exit_code: ExitCode,
+        status_code: int | None = None,
+        retry_secret: str | None = None,
+    ) -> None:
+        super().__init__(code, message, exit_code)
+        self.operation = operation
+        self.idempotency_key = idempotency_key
+        self.recovery = recovery
+        self.status_code = status_code
+        self.retry_secret = retry_secret
+
+
+class AutomationOutcomeError(CommandError):
+    """Occurrence enregistrée mais mission non lancée : sortie non nulle scriptable."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        outcome = str(result["outcome"])
+        super().__init__(
+            "automation_" + outcome,
+            "le déclenchement a été enregistré sans lancer de mission (" + outcome + ")",
+            ExitCode.REMOTE,
+        )
+        self.result = result
 
 
 class PendingOperationError(RuntimeError):
@@ -143,6 +201,17 @@ TERMINAL_PROBE_STATES = {
 PENDING_PROBE_STATES = {"pending_approval", "queued", "claimed"}
 KNOWN_PROBE_STATES = TERMINAL_PROBE_STATES | PENDING_PROBE_STATES
 MAX_SKILL_ARCHIVE_BYTES = 25 * 1024 * 1024
+
+# --- Lot F : automatisations -------------------------------------------------
+AUTOMATION_DEFAULT_TIMEZONE = "Europe/Paris"
+AUTOMATION_MAX_CONCURRENT_RUNS = 5
+AUTOMATION_MAX_LIMIT = 500
+AUTOMATION_TEMPLATE_MAX_BYTES = 1024 * 1024
+AUTOMATION_INTERVAL_MIN_SECONDS = 60
+AUTOMATION_INTERVAL_MAX_SECONDS = 31_536_000
+AUTOMATION_WEBHOOK_SECRET_MAX_BYTES = 512
+AUTOMATION_WEBHOOK_SECRET_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43,200}$")
+ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # --- Lot E : événements, tests structurés et artefacts -----------------------
 # Bornes du §6 de la spécification, reprises côté client pour refuser une
@@ -265,15 +334,6 @@ def _attach_dash_tolerant_values(argv: Sequence[str]) -> list[str]:
         normalized.append(token)
         index += 1
     return normalized
-
-
-def _add_unsupported_group(subcommands: argparse._SubParsersAction, name: str, actions: Sequence[str]) -> None:
-    group = subcommands.add_parser(name, help="commande prévue mais non raccordée")
-    nested = group.add_subparsers(dest="unsupported_action", required=True)
-    for action in actions:
-        parser = nested.add_parser(action)
-        parser.add_argument("arguments", nargs=argparse.REMAINDER)
-        parser.set_defaults(handler="unsupported", unsupported_name=f"{name} {action}")
 
 
 def _add_secrets_group(commands: argparse._SubParsersAction) -> None:
@@ -563,6 +623,191 @@ def _add_skills_group(commands: argparse._SubParsersAction) -> None:
     unbind.set_defaults(handler="skills_unbind")
 
 
+def _add_automation_template_option(
+    parser: argparse.ArgumentParser, *, required: bool
+) -> None:
+    source = parser.add_mutually_exclusive_group(required=required)
+    source.add_argument(
+        "--template",
+        "--template-json",
+        dest="template_json",
+        metavar="JSON",
+        help="gabarit de mission sous forme d'objet JSON",
+    )
+    source.add_argument(
+        "--template-file",
+        type=Path,
+        help="fichier UTF-8 contenant l'objet JSON du gabarit",
+    )
+
+
+def _add_automation_schedule_options(
+    parser: argparse.ArgumentParser, *, required: bool
+) -> None:
+    parser.add_argument(
+        "--schedule-kind",
+        choices=("cron", "interval"),
+        required=required,
+        help="type de calendrier",
+    )
+    parser.add_argument(
+        "--expression",
+        required=required,
+        help="expression cron (5 champs) ou intervalle (ex. 15m)",
+    )
+    parser.add_argument(
+        "--timezone",
+        default=AUTOMATION_DEFAULT_TIMEZONE if required else None,
+        help=f"fuseau IANA (défaut : {AUTOMATION_DEFAULT_TIMEZONE})",
+    )
+
+
+def _add_automations_group(commands: argparse._SubParsersAction) -> None:
+    """`acp automations` : routines, exécutions et calendrier."""
+
+    automations = commands.add_parser(
+        "automations", help="gérer les routines planifiées"
+    )
+    actions = automations.add_subparsers(dest="automation_action", required=True)
+
+    listing = actions.add_parser("list", help="lister les automatisations accessibles")
+    listing.add_argument("--project", help="restreindre à un projet")
+    state = listing.add_mutually_exclusive_group()
+    state.add_argument(
+        "--enabled", dest="enabled", action="store_const", const=True
+    )
+    state.add_argument(
+        "--disabled", dest="enabled", action="store_const", const=False
+    )
+    listing.set_defaults(enabled=None)
+    listing.add_argument("--limit", type=int, default=100)
+    listing.set_defaults(handler="automations_list")
+
+    create = actions.add_parser(
+        "create", help="créer une automatisation désactivée"
+    )
+    create.add_argument("--project", required=True)
+    create.add_argument("--name", required=True)
+    create.add_argument("--description", default="")
+    _add_automation_schedule_options(create, required=True)
+    _add_automation_template_option(create, required=True)
+    create.add_argument(
+        "--catchup", choices=("skip", "run_once"), default="skip"
+    )
+    create.add_argument("--max-concurrent-runs", type=int, default=1)
+    create.add_argument(
+        "--idempotency-key",
+        help="clé stable de rejeu (sinon le CLI en génère et l'affiche)",
+    )
+    create.set_defaults(handler="automations_create")
+
+    show = actions.add_parser("show", help="afficher le détail d'une automatisation")
+    show.add_argument("automation_id")
+    show.set_defaults(handler="automations_show")
+
+    update = actions.add_parser("update", help="modifier une automatisation")
+    update.add_argument("automation_id")
+    update.add_argument("--name")
+    update.add_argument("--description")
+    _add_automation_schedule_options(update, required=False)
+    _add_automation_template_option(update, required=False)
+    update.add_argument("--catchup", choices=("skip", "run_once"))
+    update.add_argument("--max-concurrent-runs", type=int)
+    update.add_argument(
+        "--idempotency-key",
+        help="clé stable de rejeu (sinon le CLI en génère et l'affiche)",
+    )
+    update.set_defaults(handler="automations_update")
+
+    enable = actions.add_parser("enable", help="activer une automatisation")
+    enable.add_argument("automation_id")
+    enable.add_argument(
+        "--idempotency-key",
+        help="clé stable de rejeu (sinon le CLI en génère et l'affiche)",
+    )
+    enable.set_defaults(handler="automations_enable")
+
+    disable = actions.add_parser("disable", help="désactiver une automatisation")
+    disable.add_argument("automation_id")
+    disable.add_argument(
+        "--idempotency-key",
+        help="clé stable de rejeu (sinon le CLI en génère et l'affiche)",
+    )
+    disable.set_defaults(handler="automations_disable")
+
+    trigger = actions.add_parser(
+        "trigger", help="déclencher immédiatement une automatisation"
+    )
+    trigger.add_argument("automation_id")
+    trigger.add_argument(
+        "--idempotency-key",
+        help="clé stable de rejeu (sinon le CLI en génère et l'affiche)",
+    )
+    trigger.set_defaults(handler="automations_trigger")
+
+    runs = actions.add_parser("runs", help="lister les déclenchements d'une automatisation")
+    runs.add_argument("automation_id")
+    runs.add_argument("--limit", type=int, default=100)
+    runs.set_defaults(handler="automations_runs")
+
+    calendar = actions.add_parser(
+        "calendar", help="afficher les occurrences passées et prévues"
+    )
+    calendar.add_argument("--project")
+    calendar.add_argument("--automation", dest="automation_id")
+    calendar.add_argument("--start", help="début RFC 3339 avec décalage UTC")
+    calendar.add_argument("--end", help="fin RFC 3339 avec décalage UTC")
+    calendar.add_argument("--limit", type=int, default=500)
+    calendar.set_defaults(handler="automations_calendar")
+
+    webhook = actions.add_parser(
+        "webhook", help="consulter, faire tourner ou désactiver le webhook"
+    )
+    webhook_actions = webhook.add_subparsers(
+        dest="automation_webhook_action", required=True
+    )
+    webhook_status = webhook_actions.add_parser(
+        "status", help="afficher l'état sans révéler le secret"
+    )
+    webhook_status.add_argument("automation_id")
+    webhook_status.set_defaults(handler="automations_webhook_status")
+
+    webhook_rotate = webhook_actions.add_parser(
+        "rotate", help="installer un nouveau secret de webhook"
+    )
+    webhook_rotate.add_argument("automation_id")
+    # Une valeur positionnelle ou --secret est acceptée par argparse uniquement
+    # pour produire un refus générique qui ne la recopie jamais dans stderr.
+    webhook_rotate.add_argument("forbidden_secret", nargs="?", help=argparse.SUPPRESS)
+    webhook_rotate.add_argument("--secret", dest="forbidden_secret_option", help=argparse.SUPPRESS)
+    secret_source = webhook_rotate.add_mutually_exclusive_group()
+    secret_source.add_argument(
+        "--secret-env",
+        metavar="NAME",
+        help="lire le secret dans la variable d'environnement NAME",
+    )
+    secret_source.add_argument(
+        "--secret-file",
+        type=Path,
+        help="lire le secret dans un fichier UTF-8 local",
+    )
+    webhook_rotate.add_argument(
+        "--idempotency-key",
+        help="clé stable de rejeu (sinon le CLI en génère et l'affiche)",
+    )
+    webhook_rotate.set_defaults(handler="automations_webhook_rotate")
+
+    webhook_disable = webhook_actions.add_parser(
+        "disable", help="révoquer le secret et désactiver le webhook"
+    )
+    webhook_disable.add_argument("automation_id")
+    webhook_disable.add_argument(
+        "--idempotency-key",
+        help="clé stable de rejeu (sinon le CLI en génère et l'affiche)",
+    )
+    webhook_disable.set_defaults(handler="automations_webhook_disable")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="acp", description="Agent Company Platform CLI")
     parser.add_argument("--json", action="store_true", help="sortie JSON stable (NDJSON pour watch)")
@@ -779,7 +1024,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_secrets_group(commands)
     _add_mcp_group(commands)
     _add_skills_group(commands)
-    _add_unsupported_group(commands, "automations", ("list",))
+    _add_automations_group(commands)
     return parser
 
 
@@ -1601,6 +1846,1002 @@ def _filtered_params(**values: Any) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value}
 
 
+def _automation_limit(value: int) -> int:
+    if not 1 <= value <= AUTOMATION_MAX_LIMIT:
+        raise UsageError(
+            f"--limit doit être compris entre 1 et {AUTOMATION_MAX_LIMIT}"
+        )
+    return value
+
+
+def _automation_concurrency(value: int) -> int:
+    if not 1 <= value <= AUTOMATION_MAX_CONCURRENT_RUNS:
+        raise UsageError(
+            "--max-concurrent-runs doit être compris entre 1 et "
+            f"{AUTOMATION_MAX_CONCURRENT_RUNS}"
+        )
+    return value
+
+
+def _read_automation_template_file(path: Path) -> str:
+    raw_path = str(path)
+    if not raw_path.strip():
+        raise UsageError("--template-file attend un chemin non vide")
+    if not path.exists():
+        raise UsageError(f"fichier de gabarit introuvable : {raw_path}")
+    info = _regular_file_stat(raw_path, path, what="le fichier de gabarit")
+    if info.st_size > AUTOMATION_TEMPLATE_MAX_BYTES:
+        raise UsageError("le fichier de gabarit dépasse la limite locale de 1 MiB")
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise UsageError("le fichier de gabarit doit être encodé en UTF-8") from exc
+    except OSError as exc:
+        raise UsageError(
+            f"lecture impossible du fichier de gabarit « {raw_path} » : "
+            f"{_system_reason(exc)}"
+        ) from exc
+
+
+def _automation_template(args: argparse.Namespace) -> dict[str, Any] | None:
+    inline = getattr(args, "template_json", None)
+    path = getattr(args, "template_file", None)
+    if inline is None and path is None:
+        return None
+    raw = inline if inline is not None else _read_automation_template_file(path)
+    if len(raw.encode("utf-8")) > AUTOMATION_TEMPLATE_MAX_BYTES:
+        raise UsageError("le gabarit JSON dépasse la limite locale de 1 MiB")
+    try:
+        template = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise UsageError(
+            f"gabarit JSON invalide (ligne {exc.lineno}, colonne {exc.colno})"
+        ) from exc
+    if not isinstance(template, dict):
+        raise UsageError("le gabarit de mission doit être un objet JSON")
+    return template
+
+
+def _automation_schedule(args: argparse.Namespace) -> dict[str, str] | None:
+    kind = getattr(args, "schedule_kind", None)
+    expression = getattr(args, "expression", None)
+    timezone = getattr(args, "timezone", None)
+    supplied = (kind is not None, expression is not None, timezone is not None)
+    if not any(supplied):
+        return None
+    if kind is None or expression is None:
+        raise UsageError(
+            "--schedule-kind et --expression sont requis ensemble pour modifier le calendrier"
+        )
+    if timezone is None:
+        raise UsageError(
+            "--timezone est requis avec --schedule-kind et --expression pour "
+            "ne pas modifier silencieusement le fuseau existant"
+        )
+    normalized_expression = _require_text(expression, "--expression")
+    if kind == "interval":
+        match = re.fullmatch(r"([0-9]+)([smhd]?)", normalized_expression)
+        if match is None:
+            raise UsageError(
+                "--expression interval attend des secondes ou une durée comme 15m, 2h ou 1d"
+            )
+        amount = int(match.group(1))
+        multiplier = {"": 1, "s": 1, "m": 60, "h": 3_600, "d": 86_400}[
+            match.group(2)
+        ]
+        seconds = amount * multiplier
+        if not AUTOMATION_INTERVAL_MIN_SECONDS <= seconds <= AUTOMATION_INTERVAL_MAX_SECONDS:
+            raise UsageError(
+                "l’intervalle doit être compris entre 60 et 31536000 secondes"
+            )
+        normalized_expression = str(seconds)
+    return {
+        "kind": kind,
+        "expression": normalized_expression,
+        "timezone": _require_text(timezone, "--timezone"),
+    }
+
+
+def _automation_create_payload(args: argparse.Namespace) -> dict[str, Any]:
+    schedule = _automation_schedule(args)
+    template = _automation_template(args)
+    assert schedule is not None  # options requises par argparse
+    assert template is not None
+    return {
+        "name": _require_option_text(args.name, "--name"),
+        "description": args.description,
+        "schedule": schedule,
+        "mission_template": template,
+        "catchup_policy": args.catchup,
+        "max_concurrent_runs": _automation_concurrency(args.max_concurrent_runs),
+    }
+
+
+def _automation_update_payload(args: argparse.Namespace) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if args.name is not None:
+        payload["name"] = _require_option_text(args.name, "--name")
+    if args.description is not None:
+        payload["description"] = args.description
+    schedule = _automation_schedule(args)
+    if schedule is not None:
+        payload["schedule"] = schedule
+    template = _automation_template(args)
+    if template is not None:
+        payload["mission_template"] = template
+    if args.catchup is not None:
+        payload["catchup_policy"] = args.catchup
+    if args.max_concurrent_runs is not None:
+        payload["max_concurrent_runs"] = _automation_concurrency(
+            args.max_concurrent_runs
+        )
+    if not payload:
+        raise UsageError("au moins une modification est requise")
+    return payload
+
+
+def _automation_datetime(value: str | None, option: str) -> tuple[str, datetime] | None:
+    if value is None:
+        return None
+    text = _require_option_text(value, option)
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise UsageError(f"{option} doit être une date RFC 3339 valide") from exc
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        raise UsageError(f"{option} doit porter un décalage UTC")
+    return text, moment
+
+
+def _automation_calendar_params(args: argparse.Namespace) -> dict[str, Any]:
+    start = _automation_datetime(args.start, "--start")
+    end = _automation_datetime(args.end, "--end")
+    if start is not None and end is not None and start[1] >= end[1]:
+        raise UsageError("--end doit être strictement postérieur à --start")
+    params: dict[str, Any] = {"limit": _automation_limit(args.limit)}
+    if args.project is not None:
+        params["project_id"] = _require_option_text(args.project, "--project")
+    if args.automation_id is not None:
+        params["automation_id"] = _require_option_text(
+            args.automation_id, "--automation"
+        )
+    if start is not None:
+        params["start"] = start[0]
+    if end is not None:
+        params["end"] = end[0]
+    return params
+
+
+def _automation_trigger_failure(
+    key: str,
+    *,
+    code: str,
+    exit_code: ExitCode,
+    status_code: int | None = None,
+) -> AutomationTriggerError:
+    return AutomationTriggerError(
+        "résultat du déclenchement incertain ; rejouez `acp automations trigger` "
+        "avec la même --idempotency-key",
+        idempotency_key=key,
+        code=code,
+        exit_code=exit_code,
+        status_code=status_code,
+    )
+
+
+def _automation_mutation_failure(
+    key: str,
+    *,
+    operation: str,
+    command: str,
+    recovery: str,
+    code: str,
+    exit_code: ExitCode,
+    status_code: int | None = None,
+    retry_secret: str | None = None,
+) -> AutomationMutationError:
+    secret_instruction = (
+        " et le même secret via --secret-env ou --secret-file"
+        if retry_secret is not None
+        else ""
+    )
+    return AutomationMutationError(
+        f"résultat de {operation} incertain ; rejouez `{command}` avec la même "
+        f"--idempotency-key{secret_instruction}",
+        operation=operation,
+        idempotency_key=key,
+        recovery=recovery,
+        code=code,
+        exit_code=exit_code,
+        status_code=status_code,
+        retry_secret=retry_secret,
+    )
+
+
+def _idempotent_automation_mutation(
+    client: ACPClient,
+    *,
+    method: str,
+    path: str,
+    key: str,
+    operation: str,
+    command: str,
+    recovery: str,
+    validator: Callable[[Any], dict[str, Any]],
+    json_body: Any = None,
+    retry_secret: str | None = None,
+) -> dict[str, Any]:
+    """Exécute une mutation dont toute réponse non certaine doit être rejouable."""
+
+    try:
+        raw = client.request(
+            method,
+            path,
+            json_body=json_body,
+            idempotency_key=key,
+        )
+    except NetworkError as exc:
+        raise _automation_mutation_failure(
+            key,
+            operation=operation,
+            command=command,
+            recovery=recovery,
+            code="network",
+            exit_code=ExitCode.NETWORK,
+            retry_secret=retry_secret,
+        ) from exc
+    except APIError as exc:
+        if exc.status_code != 408 and exc.status_code < 500:
+            if retry_secret is not None and retry_secret in exc.detail:
+                raise APIError(
+                    exc.status_code, exc.detail.replace(retry_secret, "***")
+                ) from exc
+            raise
+        raise _automation_mutation_failure(
+            key,
+            operation=operation,
+            command=command,
+            recovery=recovery,
+            code="api",
+            exit_code=ExitCode.REMOTE,
+            status_code=exc.status_code,
+            retry_secret=retry_secret,
+        ) from exc
+    except ProtocolError as exc:
+        raise _automation_mutation_failure(
+            key,
+            operation=operation,
+            command=command,
+            recovery=recovery,
+            code="client",
+            exit_code=ExitCode.REMOTE,
+            retry_secret=retry_secret,
+        ) from exc
+    try:
+        return validator(raw)
+    except ProtocolError as exc:
+        raise _automation_mutation_failure(
+            key,
+            operation=operation,
+            command=command,
+            recovery=recovery,
+            code="client",
+            exit_code=ExitCode.REMOTE,
+            retry_secret=retry_secret,
+        ) from exc
+
+
+def _automation_integer(value: Any, *, minimum: int | None = None, maximum: int | None = None) -> bool:
+    if not isinstance(value, int) or isinstance(value, bool):
+        return False
+    return (minimum is None or value >= minimum) and (maximum is None or value <= maximum)
+
+
+def _automation_aware_instant(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return moment.tzinfo is not None and moment.utcoffset() is not None
+
+
+def _automation_schedule_result(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("kind") not in ("cron", "interval"):
+        return False
+    if not isinstance(value.get("expression"), str) or not value["expression"].strip():
+        return False
+    timezone = value.get("timezone")
+    if not isinstance(timezone, str) or not timezone.strip():
+        return False
+    # La réponse a déjà été validée contre la tzdb IANA du serveur. Une tzdb
+    # cliente plus ancienne ne doit pas invalider un identifiant nouvellement
+    # créé ou renommé.
+    if timezone != timezone.strip() or len(timezone) > 64:
+        return False
+    return True
+
+
+def _automation_summary_result(
+    value: Any, *, expected_id: str | None = None, expected_enabled: bool | None = None
+) -> dict[str, Any]:
+    valid = (
+        isinstance(value, dict)
+        and isinstance(value.get("id"), str)
+        and bool(value.get("id"))
+        and isinstance(value.get("project_id"), str)
+        and bool(value.get("project_id"))
+        and isinstance(value.get("name"), str)
+        and isinstance(value.get("description"), str)
+        and _automation_schedule_result(value.get("schedule"))
+        and isinstance(value.get("enabled"), bool)
+        and value.get("catchup_policy") in ("skip", "run_once")
+        and _automation_integer(value.get("max_concurrent_runs"), minimum=1, maximum=5)
+        and (value.get("next_run_at") is None or _automation_aware_instant(value.get("next_run_at")))
+        and _automation_aware_instant(value.get("created_at"))
+    )
+    if not valid:
+        raise ProtocolError("réponse d’automatisation incomplète ou hors contrat")
+    assert isinstance(value, dict)
+    if expected_id is not None and value["id"] != expected_id:
+        raise ProtocolError("la réponse vise une autre automatisation")
+    if expected_enabled is not None and value["enabled"] is not expected_enabled:
+        raise ProtocolError("la réponse ne confirme pas l’état demandé")
+    return dict(value)
+
+
+def _automation_run_result(
+    value: Any, *, expected_automation_id: str | None = None
+) -> dict[str, Any]:
+    valid = (
+        isinstance(value, dict)
+        and isinstance(value.get("id"), str)
+        and bool(value.get("id"))
+        and isinstance(value.get("automation_id"), str)
+        and bool(value.get("automation_id"))
+        and isinstance(value.get("fire_key"), str)
+        and re.fullmatch(r"[0-9a-f]{32}", value.get("fire_key", "")) is not None
+        and _automation_aware_instant(value.get("scheduled_for"))
+        and _automation_aware_instant(value.get("fired_at"))
+        and (value.get("task_id") is None or isinstance(value.get("task_id"), str))
+        and value.get("trigger_kind") in ("manual", "schedule", "webhook")
+        and value.get("outcome") in (
+            "launched", "skipped_concurrency", "skipped_disabled", "skipped_catchup", "failed"
+        )
+        and isinstance(value.get("detail"), str)
+        and len(value.get("detail", "")) <= 500
+        and "completion_status" in value
+    )
+    if not valid:
+        raise ProtocolError("réponse de déclenchement incomplète ou hors contrat")
+    assert isinstance(value, dict)
+    if expected_automation_id is not None and value["automation_id"] != expected_automation_id:
+        raise ProtocolError("la réponse de déclenchement vise une autre automatisation")
+    completion = value.get("completion_status")
+    if completion not in (
+        None, "succeeded", "failed", "blocked", "cancelled", "interrupted"
+    ):
+        raise ProtocolError("statut final de déclenchement hors contrat")
+    return dict(value)
+
+
+def _automation_string_list(value: Any, *, required: bool = False) -> bool:
+    if not isinstance(value, list) or len(value) > 100 or (required and not value):
+        return False
+    if not all(isinstance(item, str) and bool(item.strip()) for item in value):
+        return False
+    normalized = [item.strip() for item in value]
+    return len(normalized) == len(set(normalized))
+
+
+def _automation_budget_result(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "max_cost", "currency", "max_tokens", "max_tool_calls"
+    }:
+        return False
+    cost = value["max_cost"]
+    if cost is not None and (
+        not isinstance(cost, (int, float))
+        or isinstance(cost, bool)
+        or not math.isfinite(cost)
+        or cost < 0
+    ):
+        return False
+    if not isinstance(value["currency"], str) or re.fullmatch(r"[A-Za-z]{3}", value["currency"]) is None:
+        return False
+    for name in ("max_tokens", "max_tool_calls"):
+        metric = value[name]
+        if metric is not None and not _automation_integer(metric, minimum=0):
+            return False
+    return any(value[name] is not None for name in ("max_cost", "max_tokens", "max_tool_calls"))
+
+
+def _automation_mission_template_result(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    required = {
+        "title", "objective", "expected_outcome", "acceptance_criteria",
+        "autonomy", "resources", "budget", "duration_seconds", "team_id",
+        "agent_instance_id", "priority", "required_capabilities",
+    }
+    if set(value) != required:
+        return False
+    for name, maximum in (("title", 300), ("objective", 10_000), ("expected_outcome", 10_000)):
+        field = value[name]
+        if not isinstance(field, str) or not field or len(field) > maximum:
+            return False
+    if not _automation_string_list(value["acceptance_criteria"], required=True):
+        return False
+    autonomy = value["autonomy"]
+    if not isinstance(autonomy, dict) or set(autonomy) != {
+        "mode", "allowed_actions", "forbidden_actions", "approval_required_actions"
+    }:
+        return False
+    if autonomy["mode"] not in ("supervised", "bounded", "autonomous"):
+        return False
+    if not all(
+        _automation_string_list(autonomy[name])
+        for name in ("allowed_actions", "forbidden_actions", "approval_required_actions")
+    ):
+        return False
+    resources = value["resources"]
+    if not isinstance(resources, list) or len(resources) > 100:
+        return False
+    for resource in resources:
+        if not isinstance(resource, dict) or set(resource) != {
+            "kind", "identifier", "access", "description"
+        }:
+            return False
+        if (
+            not isinstance(resource["kind"], str)
+            or not resource["kind"]
+            or len(resource["kind"]) > 100
+            or not isinstance(resource["identifier"], str)
+            or not resource["identifier"]
+            or len(resource["identifier"]) > 1_000
+            or resource["access"] not in ("read", "write")
+            or not isinstance(resource["description"], str)
+            or len(resource["description"]) > 1_000
+        ):
+            return False
+    if not _automation_budget_result(value["budget"]):
+        return False
+    if not _automation_integer(value["duration_seconds"], minimum=1, maximum=31_536_000):
+        return False
+    if not all(value[name] is None or isinstance(value[name], str) for name in ("team_id", "agent_instance_id")):
+        return False
+    return (
+        _automation_integer(value["priority"], minimum=1, maximum=5)
+        and _automation_string_list(value["required_capabilities"])
+    )
+
+
+def _automation_normalized_unique_strings(value: Any) -> Any:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return value
+    return list(dict.fromkeys(item.strip() for item in value))
+
+
+def _canonical_automation_request(payload: dict[str, Any]) -> dict[str, Any]:
+    """Miroir des seules canonicalisations/defaults des contrats automation."""
+
+    expected = json.loads(json.dumps(payload))
+    template = expected.get("mission_template")
+    if not isinstance(template, dict):
+        return expected
+    template.setdefault("resources", [])
+    template.setdefault("team_id", None)
+    template.setdefault("agent_instance_id", None)
+    template.setdefault("priority", 3)
+    template.setdefault("required_capabilities", [])
+    template["acceptance_criteria"] = _automation_normalized_unique_strings(
+        template.get("acceptance_criteria")
+    )
+    template["required_capabilities"] = _automation_normalized_unique_strings(
+        template.get("required_capabilities")
+    )
+
+    autonomy = template.get("autonomy")
+    if isinstance(autonomy, dict):
+        autonomy.setdefault("mode", "bounded")
+        autonomy.setdefault("allowed_actions", [])
+        autonomy.setdefault("forbidden_actions", [])
+        autonomy.setdefault("approval_required_actions", [])
+
+    resources = template.get("resources")
+    if isinstance(resources, list):
+        canonical_resources = []
+        for resource in resources:
+            if not isinstance(resource, dict):
+                canonical_resources.append(resource)
+                continue
+            canonical_resources.append(
+                {"access": "read", "description": "", **resource}
+            )
+        template["resources"] = canonical_resources
+
+    budget = template.get("budget")
+    if isinstance(budget, dict):
+        budget.setdefault("max_cost", None)
+        budget.setdefault("currency", "EUR")
+        budget.setdefault("max_tokens", None)
+        budget.setdefault("max_tool_calls", None)
+        if isinstance(budget.get("currency"), str):
+            budget["currency"] = budget["currency"].upper()
+    return expected
+
+
+def _automation_requested_fields_match(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(
+            key in actual
+            and _automation_requested_fields_match(actual[key], expected_value)
+            for key, expected_value in expected.items()
+        )
+    if isinstance(expected, list):
+        return (
+            isinstance(actual, list)
+            and len(actual) == len(expected)
+            and all(
+                _automation_requested_fields_match(actual_value, expected_value)
+                for actual_value, expected_value in zip(actual, expected)
+            )
+        )
+    return actual == expected
+
+
+def _automation_detail_result(
+    value: Any,
+    *,
+    expected_id: str | None = None,
+    expected_enabled: bool | None = None,
+    expected_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result = _automation_summary_result(
+        value, expected_id=expected_id, expected_enabled=expected_enabled
+    )
+    if not _automation_mission_template_result(value.get("mission_template")):
+        raise ProtocolError("la réponse n’expose pas le gabarit de mission")
+    recent = value.get("recent_runs")
+    if not isinstance(recent, list):
+        raise ProtocolError("la réponse n’expose pas l’historique des déclenchements")
+    for run in recent:
+        _automation_run_result(run, expected_automation_id=result["id"])
+    if expected_fields is not None and not _automation_requested_fields_match(
+        value, _canonical_automation_request(expected_fields)
+    ):
+        raise ProtocolError(
+            "la réponse ne confirme pas tous les champs d’automatisation demandés"
+        )
+    return result
+
+
+def _automation_calendar_entry_result(value: Any) -> dict[str, Any]:
+    valid = (
+        isinstance(value, dict)
+        and _automation_aware_instant(value.get("occurs_at_utc"))
+        and _automation_aware_instant(value.get("occurs_at_local"))
+        and isinstance(value.get("timezone"), str)
+        and bool(value.get("timezone"))
+        and value["timezone"] == value["timezone"].strip()
+        and len(value["timezone"]) <= 64
+        and _automation_integer(value.get("utc_offset_minutes"), minimum=-1440, maximum=1440)
+        and isinstance(value.get("automation_id"), str)
+        and bool(value.get("automation_id"))
+        and isinstance(value.get("automation_name"), str)
+        and value.get("state") in ("planned", "past")
+        and (value.get("task_id") is None or isinstance(value.get("task_id"), str))
+        and value.get("outcome") in (
+            None, "launched", "skipped_concurrency", "skipped_disabled", "skipped_catchup", "failed"
+        )
+    )
+    if not valid:
+        raise ProtocolError("entrée de calendrier incomplète ou hors contrat")
+    assert isinstance(value, dict)
+    utc = datetime.fromisoformat(value["occurs_at_utc"].replace("Z", "+00:00"))
+    local = datetime.fromisoformat(value["occurs_at_local"].replace("Z", "+00:00"))
+    if utc != local or int(local.utcoffset().total_seconds() // 60) != value["utc_offset_minutes"]:
+        raise ProtocolError("entrée de calendrier temporellement incohérente")
+    return dict(value)
+
+
+def _automation_list_result(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ProtocolError("la liste des automatisations est hors contrat")
+    return [_automation_summary_result(item) for item in value]
+
+
+def _automation_runs_result(value: Any, automation_id: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ProtocolError("l’historique des déclenchements est hors contrat")
+    return [
+        _automation_run_result(item, expected_automation_id=automation_id)
+        for item in value
+    ]
+
+
+def _automation_calendar_result(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ProtocolError("le calendrier est hors contrat")
+    return [_automation_calendar_entry_result(item) for item in value]
+
+
+def _automation_webhook_status_result(
+    value: Any,
+    *,
+    automation_id: str,
+    expected_enabled: bool | None = None,
+    expected_secret: str | None = None,
+) -> dict[str, Any]:
+    status_fields = {
+        "enabled",
+        "secret_configured",
+        "endpoint_path",
+        "rotated_at",
+    }
+    allowed_fields = (
+        (status_fields | {"secret"},)
+        if expected_secret is not None
+        else (status_fields,)
+    )
+    if not isinstance(value, dict) or set(value) not in allowed_fields:
+        raise ProtocolError("réponse webhook incomplète ou hors contrat")
+    enabled = value.get("enabled")
+    configured = value.get("secret_configured")
+    rotated_at = value.get("rotated_at")
+    expected_path = f"/automations/{automation_id}/webhook/trigger"
+    valid = (
+        isinstance(enabled, bool)
+        and isinstance(configured, bool)
+        and enabled is configured
+        and value.get("endpoint_path") == expected_path
+        and (rotated_at is None or _automation_aware_instant(rotated_at))
+    )
+    if expected_enabled is not None:
+        valid = valid and enabled is expected_enabled
+    if expected_secret is not None:
+        returned_secret = value.get("secret")
+        valid = (
+            valid
+            and enabled is True
+            and configured is True
+            and _automation_aware_instant(rotated_at)
+            and returned_secret == expected_secret
+        )
+    if not valid:
+        raise ProtocolError("réponse webhook incohérente")
+    return dict(value)
+
+
+def _strip_one_line_ending(value: str) -> str:
+    if value.endswith("\n"):
+        value = value[:-1]
+        if value.endswith("\r"):
+            value = value[:-1]
+    return value
+
+
+def _read_webhook_secret_file(path: Path) -> str:
+    """Lit un secret privé sans suivre de lien ni rouvrir le chemin sur POSIX."""
+
+    raw_path = str(path)
+    if os.name != "posix":
+        info = _regular_file_stat(
+            raw_path, path, what="le fichier de secret webhook"
+        )
+        if info.st_size > AUTOMATION_WEBHOOK_SECRET_MAX_BYTES:
+            raise UsageError("le fichier de secret webhook dépasse 512 octets")
+        try:
+            return path.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise UsageError(
+                "le fichier de secret webhook doit être encodé en UTF-8"
+            ) from exc
+        except OSError as exc:
+            raise UsageError(
+                "lecture impossible du fichier de secret webhook : "
+                f"{_system_reason(exc)}"
+            ) from exc
+
+    try:
+        before = os.lstat(path)
+    except OSError as exc:
+        raise UsageError(
+            "lecture impossible du fichier de secret webhook : "
+            f"{_system_reason(exc)}"
+        ) from exc
+    if stat.S_ISLNK(before.st_mode):
+        raise UsageError("le fichier de secret webhook ne peut pas être un lien symbolique")
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise UsageError(
+            "lecture impossible du fichier de secret webhook : "
+            f"{_system_reason(exc)}"
+        ) from exc
+
+    try:
+        with os.fdopen(descriptor, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise UsageError("le fichier de secret webhook n'est pas un fichier régulier")
+            if info.st_mode & 0o077:
+                raise UsageError(
+                    "le fichier de secret webhook doit être privé (chmod 600)"
+                )
+            if not os.path.samestat(before, info):
+                raise UsageError(
+                    "le fichier de secret webhook a changé pendant son ouverture"
+                )
+            if not nofollow:
+                # Sur les rares POSIX sans O_NOFOLLOW, les deux comparaisons
+                # encadrent open(); la lecture porte ensuite uniquement sur ce FD.
+                try:
+                    after = os.lstat(path)
+                except OSError as exc:
+                    raise UsageError(
+                        "le fichier de secret webhook a changé pendant son ouverture"
+                    ) from exc
+                if (
+                    stat.S_ISLNK(after.st_mode)
+                    or not os.path.samestat(after, info)
+                ):
+                    raise UsageError(
+                        "le fichier de secret webhook a changé pendant son ouverture"
+                    )
+            if info.st_size > AUTOMATION_WEBHOOK_SECRET_MAX_BYTES:
+                raise UsageError("le fichier de secret webhook dépasse 512 octets")
+            payload = handle.read(AUTOMATION_WEBHOOK_SECRET_MAX_BYTES + 1)
+    except UsageError:
+        raise
+    except OSError as exc:
+        raise UsageError(
+            "lecture impossible du fichier de secret webhook : "
+            f"{_system_reason(exc)}"
+        ) from exc
+
+    if len(payload) > AUTOMATION_WEBHOOK_SECRET_MAX_BYTES:
+        raise UsageError("le fichier de secret webhook dépasse 512 octets")
+    try:
+        return payload.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise UsageError(
+            "le fichier de secret webhook doit être encodé en UTF-8"
+        ) from exc
+
+
+def _automation_webhook_secret(
+    args: argparse.Namespace, environ: Mapping[str, str]
+) -> str:
+    if (
+        getattr(args, "forbidden_secret", None) is not None
+        or getattr(args, "forbidden_secret_option", None) is not None
+    ):
+        raise UsageError(
+            "le secret webhook ne se passe jamais directement en argument : "
+            "utilisez --secret-env ou --secret-file"
+        )
+    env_name = getattr(args, "secret_env", None)
+    secret_file = getattr(args, "secret_file", None)
+    if env_name is not None:
+        name = env_name.strip()
+        if not name or ENVIRONMENT_NAME_PATTERN.fullmatch(name) is None:
+            raise UsageError("--secret-env attend un nom de variable valide")
+        if name not in environ:
+            raise UsageError("la variable demandée par --secret-env est absente")
+        secret = environ[name]
+    elif secret_file is not None:
+        if not str(secret_file).strip():
+            raise UsageError("--secret-file attend un chemin non vide")
+        secret = _strip_one_line_ending(_read_webhook_secret_file(secret_file))
+    else:
+        secret = secrets.token_urlsafe(32)
+    if AUTOMATION_WEBHOOK_SECRET_PATTERN.fullmatch(secret) is None:
+        raise UsageError(
+            "le secret webhook doit contenir 43 à 200 caractères base64url"
+        )
+    padding = "=" * (-len(secret) % 4)
+    try:
+        decoded = base64.b64decode(
+            secret + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+    except (binascii.Error, ValueError) as exc:
+        raise UsageError("le secret webhook doit être encodé en base64url") from exc
+    if len(decoded) < 32:
+        raise UsageError("le secret webhook doit représenter au moins 256 bits")
+    return secret
+
+
+def _handle_automation_create(
+    args: argparse.Namespace, client: ACPClient
+) -> dict[str, Any]:
+    project_id = _require_option_text(args.project, "--project")
+    key = _command_idempotency_key(args.idempotency_key, "automation-create")
+    path = f"/projects/{_path_segment(project_id)}/automations"
+    payload = _automation_create_payload(args)
+
+    def validate(value: Any) -> dict[str, Any]:
+        result = _automation_detail_result(
+            value,
+            expected_enabled=False,
+            expected_fields=payload,
+        )
+        if result["project_id"] != project_id:
+            raise ProtocolError("la réponse vise un autre projet")
+        return result
+
+    output = _idempotent_automation_mutation(
+        client,
+        method="POST",
+        path=path,
+        key=key,
+        operation="création d’automatisation",
+        command="acp automations create",
+        recovery="retry_automation_create_with_same_key",
+        validator=validate,
+        json_body=payload,
+    )
+    output["idempotency_key"] = key
+    return output
+
+
+def _handle_automation_update(
+    args: argparse.Namespace, client: ACPClient
+) -> dict[str, Any]:
+    automation_id = _require_text(args.automation_id, "identifiant")
+    path = f"/automations/{_path_segment(automation_id)}"
+    payload = _automation_update_payload(args)
+    key = _command_idempotency_key(args.idempotency_key, "automation-update")
+    output = _idempotent_automation_mutation(
+        client,
+        method="PATCH",
+        path=path,
+        key=key,
+        operation="modification de l’automatisation",
+        command="acp automations update AUTOMATION_ID",
+        recovery="retry_automation_update_with_same_key_and_payload",
+        validator=lambda value: _automation_detail_result(
+            value,
+            expected_id=automation_id,
+            expected_fields=payload,
+        ),
+        json_body=payload,
+    )
+    output["idempotency_key"] = key
+    return output
+
+
+def _handle_automation_enabled(
+    args: argparse.Namespace, client: ACPClient, *, enabled: bool
+) -> dict[str, Any]:
+    automation_id = _require_text(args.automation_id, "identifiant")
+    action = "enable" if enabled else "disable"
+    key = _command_idempotency_key(
+        args.idempotency_key, f"automation-{action}"
+    )
+    path = f"/automations/{_path_segment(automation_id)}/{action}"
+    output = _idempotent_automation_mutation(
+        client,
+        method="POST",
+        path=path,
+        key=key,
+        operation="activation" if enabled else "désactivation",
+        command=f"acp automations {action} AUTOMATION_ID",
+        recovery=f"retry_automation_{action}_with_same_key",
+        validator=lambda value: _automation_detail_result(
+            value,
+            expected_id=automation_id,
+            expected_enabled=enabled,
+        ),
+    )
+    output["idempotency_key"] = key
+    return output
+
+
+def _handle_automation_webhook_rotate(
+    args: argparse.Namespace,
+    client: ACPClient,
+    environ: Mapping[str, str],
+) -> dict[str, Any]:
+    automation_id = _require_text(args.automation_id, "identifiant")
+    secret = _automation_webhook_secret(args, environ)
+    key = _command_idempotency_key(
+        args.idempotency_key, "automation-webhook-rotate"
+    )
+    path = f"/automations/{_path_segment(automation_id)}/webhook"
+    output = _idempotent_automation_mutation(
+        client,
+        method="POST",
+        path=path,
+        key=key,
+        operation="rotation du webhook",
+        command="acp automations webhook rotate AUTOMATION_ID",
+        recovery="retry_automation_webhook_rotate_with_same_key_and_secret",
+        validator=lambda value: _automation_webhook_status_result(
+            value,
+            automation_id=automation_id,
+            expected_enabled=True,
+            expected_secret=secret,
+        ),
+        json_body={"secret": secret},
+        retry_secret=secret,
+    )
+    output["secret"] = secret
+    output["idempotency_key"] = key
+    return output
+
+
+def _handle_automation_webhook_disable(
+    args: argparse.Namespace, client: ACPClient
+) -> dict[str, Any]:
+    automation_id = _require_text(args.automation_id, "identifiant")
+    key = _command_idempotency_key(
+        args.idempotency_key, "automation-webhook-disable"
+    )
+    path = f"/automations/{_path_segment(automation_id)}/webhook"
+    output = _idempotent_automation_mutation(
+        client,
+        method="DELETE",
+        path=path,
+        key=key,
+        operation="désactivation du webhook",
+        command="acp automations webhook disable AUTOMATION_ID",
+        recovery="retry_automation_webhook_disable_with_same_key",
+        validator=lambda value: _automation_webhook_status_result(
+            value,
+            automation_id=automation_id,
+            expected_enabled=False,
+        ),
+    )
+    output["idempotency_key"] = key
+    return output
+
+
+def _handle_automation_trigger(args: argparse.Namespace, client: ACPClient) -> dict[str, Any]:
+    automation_id = _require_text(args.automation_id, "identifiant")
+    key = _command_idempotency_key(args.idempotency_key, "automation-trigger")
+    path = f"/automations/{_path_segment(automation_id)}/trigger"
+    try:
+        result = client.request("POST", path, idempotency_key=key)
+    except NetworkError as exc:
+        raise _automation_trigger_failure(
+            key, code="network", exit_code=ExitCode.NETWORK
+        ) from exc
+    except APIError as exc:
+        if exc.status_code != 408 and exc.status_code < 500:
+            raise
+        raise _automation_trigger_failure(
+            key,
+            code="api",
+            exit_code=ExitCode.REMOTE,
+            status_code=exc.status_code,
+        ) from exc
+    except ProtocolError as exc:
+        raise _automation_trigger_failure(
+            key, code="client", exit_code=ExitCode.REMOTE
+        ) from exc
+    try:
+        output = _automation_run_result(
+            result, expected_automation_id=automation_id
+        )
+    except ProtocolError:
+        raise _automation_trigger_failure(
+            key, code="client", exit_code=ExitCode.REMOTE
+        )
+    output["idempotency_key"] = key
+    if output["outcome"] != "launched":
+        raise AutomationOutcomeError(output)
+    return output
+
+
 def _targets_secrets(argv: Sequence[str]) -> bool:
     """Indique si la ligne de commande vise le groupe `secrets`.
 
@@ -1608,7 +2849,16 @@ def _targets_secrets(argv: Sequence[str]) -> bool:
     d'usage y est appliquée, sans dégrader la lisibilité des autres commandes.
     """
 
-    return _command_group(argv) == "secrets"
+    if _command_group(argv) == "secrets":
+        return True
+    # La rotation webhook refuse les secrets en argv, mais argparse pourrait
+    # citer un argument surnuméraire. Appliquer la même censure défensive évite
+    # de recopier une valeur accidentelle avant même l'entrée dans le handler.
+    return (
+        _command_group(argv) == "automations"
+        and "webhook" in argv
+        and "rotate" in argv
+    )
 
 
 def _mask_secret_material(message: str, argv: Sequence[str]) -> str:
@@ -1621,10 +2871,16 @@ def _mask_secret_material(message: str, argv: Sequence[str]) -> str:
     if not _targets_secrets(argv):
         return message
     masked = re.sub(r"(?<==)\S+", "***", message)
+    instruction = (
+        "arguments surnuméraires : utilisez --value-stdin, jamais un argument, "
+        "pour la valeur d'un secret"
+        if _command_group(argv) == "secrets"
+        else "arguments surnuméraires : utilisez --secret-env ou --secret-file, "
+        "jamais un argument, pour le secret webhook"
+    )
     return re.sub(
         r"unrecognized arguments:.*",
-        "arguments surnuméraires : utilisez --value-stdin, jamais un argument, "
-        "pour la valeur d'un secret",
+        instruction,
         masked,
         flags=re.DOTALL,
     )
@@ -3380,9 +4636,9 @@ COMPLETION_COMMANDS = (
     "secrets mcp skills automations completion"
 )
 COMPLETION_SUBCOMMANDS = (
-    "list add extensions watch stop show discard status set rotate revoke catalog tools "
+    "list add create extensions watch stop show discard status set rotate revoke catalog tools "
     "update test probes approve reject bind bindings unbind activate disable rollback "
-    "export import search files cat install events tests get link"
+    "enable trigger runs calendar webhook export import search files cat install events tests get link"
 )
 
 
@@ -3416,6 +4672,7 @@ def _dispatch(
     password_reader: Callable[[str], str],
     sleep: Callable[[float], None],
     browser_open: Callable[[str], Any],
+    environ: Mapping[str, str],
 ) -> tuple[bool, Any, Settings]:
     handler = args.handler
     if handler == "login":
@@ -3635,12 +4892,75 @@ def _dispatch(
     if handler == "skills_unbind":
         path = f"/skills/bindings/{_path_segment(args.binding_id)}"
         return True, client.request("DELETE", path), client.settings
+    if handler == "automations_list":
+        params: dict[str, Any] = {"limit": _automation_limit(args.limit)}
+        if args.project is not None:
+            params["project_id"] = _require_option_text(args.project, "--project")
+        if args.enabled is not None:
+            params["enabled"] = args.enabled
+        result = client.request("GET", "/automations", params=params)
+        return True, _automation_list_result(result), client.settings
+    if handler == "automations_create":
+        return True, _handle_automation_create(args, client), client.settings
+    if handler == "automations_show":
+        automation_id = _require_text(args.automation_id, "identifiant")
+        path = f"/automations/{_path_segment(automation_id)}"
+        result = client.request("GET", path)
+        return True, _automation_detail_result(result, expected_id=automation_id), client.settings
+    if handler == "automations_update":
+        return True, _handle_automation_update(args, client), client.settings
+    if handler in {"automations_enable", "automations_disable"}:
+        return (
+            True,
+            _handle_automation_enabled(
+                args,
+                client,
+                enabled=handler == "automations_enable",
+            ),
+            client.settings,
+        )
+    if handler == "automations_trigger":
+        return True, _handle_automation_trigger(args, client), client.settings
+    if handler == "automations_runs":
+        automation_id = _require_text(args.automation_id, "identifiant")
+        path = f"/automations/{_path_segment(automation_id)}/runs"
+        params = {"limit": _automation_limit(args.limit)}
+        result = client.request("GET", path, params=params)
+        return True, _automation_runs_result(result, automation_id), client.settings
+    if handler == "automations_calendar":
+        result = client.request(
+            "GET", "/automations/calendar", params=_automation_calendar_params(args)
+        )
+        return (
+            True,
+            _automation_calendar_result(result),
+            client.settings,
+        )
+    if handler == "automations_webhook_status":
+        automation_id = _require_text(args.automation_id, "identifiant")
+        path = f"/automations/{_path_segment(automation_id)}/webhook"
+        result = client.request("GET", path)
+        return (
+            True,
+            _automation_webhook_status_result(
+                result, automation_id=automation_id
+            ),
+            client.settings,
+        )
+    if handler == "automations_webhook_rotate":
+        return (
+            True,
+            _handle_automation_webhook_rotate(args, client, environ),
+            client.settings,
+        )
+    if handler == "automations_webhook_disable":
+        return (
+            True,
+            _handle_automation_webhook_disable(args, client),
+            client.settings,
+        )
     if handler == "completion":
         return True, _completion_script(args.shell), client.settings
-    if handler == "unsupported":
-        raise UnsupportedError(
-            f"`acp {args.unsupported_name}` n'est pas encore raccordé à l'API de cette version"
-        )
     raise UsageError("commande inconnue")
 
 
@@ -3691,6 +5011,7 @@ def main(
             password_reader=password_reader,
             sleep=sleep,
             browser_open=browser_open,
+            environ=env,
         )
         if should_emit:
             if args.handler == "chat" and not args.json:
@@ -3707,10 +5028,6 @@ def main(
         message = _mask_secret_material(str(exc), raw_argv)
         _emit_error("usage", message, as_json=as_json, stream=err)
         return int(ExitCode.USAGE)
-    except UnsupportedError as exc:
-        as_json = "--json" in raw_argv
-        _emit_error("unsupported", str(exc), as_json=as_json, stream=err)
-        return int(ExitCode.UNSUPPORTED)
     except PendingOperationError as exc:
         as_json = "--json" in raw_argv
         if as_json:
@@ -3730,6 +5047,74 @@ def main(
                 f"Erreur: {exc} (Idempotency-Key: {exc.idempotency_key}{status})",
                 file=err,
             )
+        return int(exc.exit_code)
+    except AutomationMutationError as exc:
+        as_json = "--json" in raw_argv
+        if as_json:
+            error: dict[str, Any] = {
+                "code": exc.code,
+                "message": str(exc),
+                "operation": exc.operation,
+                "idempotency_key": exc.idempotency_key,
+                "recovery": exc.recovery,
+            }
+            if exc.status_code is not None:
+                error["status"] = exc.status_code
+            if exc.retry_secret is not None:
+                error["secret"] = exc.retry_secret
+            _emit({"error": error}, as_json=True, stream=err)
+        else:
+            status = (
+                f", HTTP {exc.status_code}"
+                if exc.status_code is not None
+                else ""
+            )
+            recovery_secret = (
+                f", Webhook-Secret: {exc.retry_secret}"
+                if exc.retry_secret is not None
+                else ""
+            )
+            print(
+                f"Erreur: {exc} (Idempotency-Key: {exc.idempotency_key}"
+                f"{recovery_secret}{status})",
+                file=err,
+            )
+        return int(exc.exit_code)
+    except AutomationTriggerError as exc:
+        as_json = "--json" in raw_argv
+        if as_json:
+            error: dict[str, Any] = {
+                "code": exc.code,
+                "message": str(exc),
+                "idempotency_key": exc.idempotency_key,
+                "recovery": "retry_automation_trigger_with_same_key",
+            }
+            if exc.status_code is not None:
+                error["status"] = exc.status_code
+            _emit({"error": error}, as_json=True, stream=err)
+        else:
+            status = f", HTTP {exc.status_code}" if exc.status_code is not None else ""
+            print(
+                f"Erreur: {exc} (Idempotency-Key: {exc.idempotency_key}{status})",
+                file=err,
+            )
+        return int(exc.exit_code)
+    except AutomationOutcomeError as exc:
+        as_json = "--json" in raw_argv
+        if as_json:
+            _emit(
+                {
+                    "error": {
+                        "code": exc.code,
+                        "message": str(exc),
+                        "run": exc.result,
+                    }
+                },
+                as_json=True,
+                stream=err,
+            )
+        else:
+            print(f"Erreur: {exc}", file=err)
         return int(exc.exit_code)
     except CommandError as exc:
         as_json = "--json" in raw_argv

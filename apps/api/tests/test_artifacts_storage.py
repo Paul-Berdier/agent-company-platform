@@ -6,6 +6,7 @@ le fichier entier, et aucun fragment ne survit à un refus.
 """
 
 import io
+import errno
 import os
 import stat
 from pathlib import Path
@@ -20,6 +21,8 @@ from acp_api.artifacts_storage import (
     ArtifactNotFound,
     ArtifactStorage,
     ArtifactStorageError,
+    ArtifactStorageFull,
+    ArtifactStorageUnavailable,
     ArtifactTooLarge,
     LocalArtifactStorage,
     artifact_max_bytes,
@@ -138,10 +141,51 @@ def test_a_failed_replace_without_a_target_is_reported(storage, monkeypatch):
         raise PermissionError("volume en lecture seule")
 
     monkeypatch.setattr(os, "replace", refuse)
-    with pytest.raises(OSError):
+    with pytest.raises(ArtifactStorageUnavailable):
         storage.write(io.BytesIO(CONTENT), max_bytes=1_000_000)
     monkeypatch.undo()
     assert _files(storage.root) == []
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OSError(errno.ENOSPC, "disk full"),
+        OSError(getattr(errno, "EDQUOT", errno.ENOSPC), "quota full"),
+    ],
+)
+def test_a_saturated_volume_has_a_typed_error_without_a_path(
+    storage, monkeypatch, error
+):
+    def refuse(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr("tempfile.mkstemp", refuse)
+    with pytest.raises(ArtifactStorageFull) as excinfo:
+        storage.write(io.BytesIO(CONTENT), max_bytes=1_000_000)
+    assert str(storage.root) not in str(excinfo.value)
+    assert _files(storage.root) == []
+
+
+def test_windows_disk_full_has_the_same_typed_error(storage, monkeypatch):
+    error = OSError("disk full")
+    error.winerror = 112
+
+    def refuse(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr("tempfile.mkstemp", refuse)
+    with pytest.raises(ArtifactStorageFull):
+        storage.write(io.BytesIO(CONTENT), max_bytes=1_000_000)
+
+
+def test_an_unavailable_volume_is_distinct_from_saturation(storage, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError(errno.EACCES, "access denied")
+
+    monkeypatch.setattr("tempfile.mkstemp", refuse)
+    with pytest.raises(ArtifactStorageUnavailable):
+        storage.write(io.BytesIO(CONTENT), max_bytes=1_000_000)
 
 
 # --- borne de taille ----------------------------------------------------------

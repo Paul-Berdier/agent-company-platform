@@ -1,15 +1,15 @@
 # Architecture cible
 
 Statut : décision adoptée pour la modernisation 2026.
-Date d'état : 13 septembre 2026 — version `0.6.0` (Lot E).
+Date d'état : 14 septembre 2026 — préparation de la version `0.7.0` (Lot F).
 Produit : Agent Company Platform, espace personnel par défaut.
 
-Le schéma principal de ce document reste la cible. L'état concret des Lots C à E
+Le schéma principal de ce document reste la cible. L'état concret des Lots C à F
 utilise SQLAlchemy avec SQLite par défaut et `create_all()` complété d'un upgrade
 additif ad hoc ; PostgreSQL, migrations versionnées, outbox et déploiement ne sont pas
-encore validés. Le Lot E livre en revanche le **stockage privé des livrables** sur
-disque local et le **flux utilisateur authentifié par curseur** : ces deux lignes ne
-sont plus des cibles.
+encore validés. Les Lots E et F livrent en revanche le **stockage privé des
+livrables** sur disque local, le **flux utilisateur authentifié par curseur**, les
+**routines planifiées** et leur ledger budgétaire : ces lignes ne sont plus des cibles.
 
 ## Décision
 
@@ -20,7 +20,7 @@ embarqué par iframe ni forké pour devenir l'interface principale.
 
 ```text
 Navigateur ───────┐
-                  ├── API Agent Company Platform ── PostgreSQL
+                  ├── API Agent Company Platform ── base plateforme
 CLI acp ──────────┘          │            │
                              │            ├── stockage privé des livrables
                              │            └── journal durable / outbox
@@ -121,6 +121,47 @@ Trois décisions structurent cette tranche.
 La prise de contrôle humaine du navigateur n'est **pas** livrée dans ce lot ; elle est
 reportée au Lot G. Voir [docs/live-studio.md](live-studio.md) pour l'état détaillé.
 
+## Tranche verticale livrée au Lot F
+
+```text
+Web / CLI ── session + CSRF + RBAC ── API métier
+                                         │
+                                         ├─ automations / automation_runs
+                                         ├─ scheduler_leases
+                                         ├─ project_budget_policies / budget_usage_reports
+                                         └─ alerts / notification_preferences
+                                                ▲
+                                                │ Bearer worker + fences
+                                  workers persistants en concurrence
+```
+
+Le gabarit d'une routine produit une mission normale : le planificateur n'a pas de
+machine d'états parallèle. L'API reste l'autorité du calendrier, du curseur
+`next_run_at`, de la concurrence et de la matérialisation. Les workers ne lisent
+jamais la base. Un worker est enrôlé soit pour un projet précis, soit avec un privilège
+global explicite choisi côté serveur ; seuls les workers globaux concourent au bail
+singleton de 45 secondes et appellent le tick avec le `fencing_token` obtenu.
+
+Le calendrier cron est calculé en heure locale à partir de la base IANA. Une heure
+inexistante est omise et seule la première occurrence d'une heure ambiguë est retenue.
+L'intervalle est au contraire une durée fixe. Chaque tir nominal reçoit une
+`fire_key` déterministe et une contrainte unique SQL garantit une seule ligne et une
+seule mission sous concurrence ou après rejeu.
+
+Les budgets sont des décisions transactionnelles, pas des indicateurs décoratifs :
+le worker réserve un permis avant les phases consommatrices et rapporte ensuite la
+mesure. Les plafonds de mission, de journée et de fournisseur s'appliquent sur un
+ledger idempotent. Le fuseau comptable est figé dès sa première ligne ; le cache
+agrégé sature à la capacité commune Python/SQL/JavaScript tandis que le ledger exact
+reste la preuve. Le plafond `max_spawned_agents_per_run` est seulement contractuel et
+persisté tant que le Lot G n'a pas livré de point de spawn.
+
+Les alertes restent un état métier in-app. Une cause ouverte est unique par projet,
+sa sévérité ne peut que monter, et les préférences personnelles filtrent la boîte sans
+altérer l'alerte canonique. Le webhook du Lot F est un déclencheur **entrant** ; il ne
+constitue pas un canal de notification sortant. Voir
+[Automatisations, budgets et alertes](automations.md).
+
 ## Sources de vérité
 
 | Domaine | Autorité | Données de rapprochement |
@@ -134,6 +175,9 @@ reportée au Lot G. Voir [docs/live-studio.md](live-studio.md) pour l'état dét
 | Exécution Hermes | Hermes pendant le run ; plateforme pour l'historique durable | `hermes_run_id`, idempotency key |
 | Conversation plateforme et droits associés | plateforme | `conversation_id`, `project_id`, `created_by_user_id`, `provider_session_id` |
 | Processus d'un runner | runner pendant l'exécution ; plateforme pour la réservation | `worker_id`, lease, fencing token |
+| Routine et occurrence nominale | plateforme | `automation_id`, `next_run_at`, `fire_key` |
+| Politique et ledger budgétaires | plateforme ; fournisseur pour les mesures rapportées | `permit_id`, `report_id`, jour comptable, provider |
+| Alerte et préférences personnelles | plateforme | cause dédupliquée par projet, `user_id` pour les préférences |
 
 Un identifiant Hermes ou runner n'accorde jamais à lui seul un accès à un projet.
 Le mapping appartient à la plateforme et est contrôlé côté serveur.
@@ -144,8 +188,8 @@ Les responsabilités ci-dessous définissent la cible. Au Lot C, les contrôles 
 missions, polling et frontières de services sont livrés ; le Lot D ajoute le coffre
 de secrets, la politique de sortie réseau et les registres MCP/skills ; le Lot E
 ajoute le scope de flux et de fichiers, les URLs privées signées et le flux SSE
-authentifié. L'outbox et la normalisation des événements SSE **d'Hermes** restent
-explicitement à réaliser.
+authentifié ; le Lot F ajoute routines, budgets et alertes. L'outbox et la
+normalisation des événements SSE **d'Hermes** restent explicitement à réaliser.
 
 ### Interface web et CLI
 
@@ -157,6 +201,9 @@ explicitement à réaliser.
   (`connected`, `reconnecting`, `polling`, `offline`) et un repli automatique sur
   l'interrogation `GET` ; une reconnexion ne relance jamais une mission ;
 - ne reçoivent jamais une clé de service Hermes ou worker ;
+- gèrent les routines avec la même API : le web affiche calendrier, alertes et
+  consommation, tandis que le CLI expose des commandes scriptables et des clés de
+  rejeu explicites ;
 - proposent le pixel office uniquement par un drapeau legacy désactivé par défaut.
 
 ### API métier
@@ -165,6 +212,9 @@ explicitement à réaliser.
 - applique le scope projet sur chaque lecture, écriture, flux et fichier ;
 - valide la machine d'états, les approbations, budgets et idempotency keys ;
 - persiste l'événement et son effet métier de façon transactionnelle ;
+- calcule les occurrences, arbitre les `fire_key`, les baux du planificateur et les
+  permis budgétaires ; aucune décision de calendrier ou de budget ne dépend de l'état
+  mémoire d'un worker ;
 - délivre des URLs de fichier privées et bornées.
 
 ### Extensions : MCP, skills et secrets (Lot D)
@@ -228,6 +278,13 @@ sur une instance Hermes réelle.
   processus de test, pièces jointes refusées hors du répertoire de sortie de la
   tentative, et expurgation des messages et extraits avant envoi à l'API. La
   plateforme n'installe jamais Playwright ;
+- depuis le Lot F, le processus worker persistant concourt aussi au bail du
+  planificateur et appelle ses ticks authentifiés ; le worker ponctuel `--once` n'en
+  démarre pas la boucle. Le fence du planificateur est distinct du fence d'une
+  tentative et les deux sont vérifiés par l'API ;
+- avant chaque phase consommatrice raccordée, le worker demande un permis budgétaire
+  puis rapporte la consommation avec un identifiant stable ; un refus ou une mesure
+  inconnue échoue fermé selon le verdict serveur ;
 - sous Windows, tout processus lancé — mission comme sonde — est créé suspendu puis
   affecté à un Job Object `KILL_ON_JOB_CLOSE` avant d'exécuter la moindre instruction :
   l'arrêt d'un arbre ne dépend plus d'une filiation observable, qu'un lanceur
@@ -327,7 +384,8 @@ privé, jamais un volume implicite. PostgreSQL conserve le métier ; Hermes poss
 propre état persistant ; un stockage privé reçoit les livrables. Les runners ne
 tournent pas dans le serveur de contrôle par défaut.
 
-Au Lot E ce stockage est un **répertoire local** (`ACP_ARTIFACT_STORAGE_DIR`) : sur un
+Au Lot F ce stockage est toujours un **répertoire local**
+(`ACP_ARTIFACT_STORAGE_DIR`) : sur un
 hébergeur, il doit pointer vers un volume persistant, sans quoi les blobs disparaissent
 au redéploiement alors que la base continue de les référencer. Une origine d'aperçu
 séparée (`ACP_ARTIFACT_PUBLIC_ORIGIN`) est prévue par le code mais n'est configurée

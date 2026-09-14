@@ -63,12 +63,33 @@ function missionDetail(status = "queued") {
   return {
     id: "mission-1",
     project_id: mission.projectId,
+    team_id: null,
+    agent_instance_id: "agent-1",
     title: mission.title,
     objective: mission.objective,
     expected_outcome: mission.expectedResult,
     acceptance_criteria: mission.acceptanceCriteria,
+    autonomy: {
+      mode: "bounded",
+      allowed_actions: ["read"],
+      forbidden_actions: ["deploy"],
+      approval_required_actions: ["git_publish"],
+    },
+    resources: [{
+      kind: "git_repository",
+      identifier: "workspace",
+      access: "write",
+      description: "Dépôt de la mission",
+    }],
+    budget: {
+      max_cost: null,
+      currency: "EUR",
+      max_tokens: 10_000,
+      max_tool_calls: mission.maxToolCalls,
+    },
     duration_seconds: mission.durationSeconds,
     priority: mission.priority,
+    required_capabilities: ["git"],
     status,
     current_run: run,
     runs: [run],
@@ -118,6 +139,47 @@ describe("WorkspaceApiClient", () => {
       resources: [],
       budget: { max_tool_calls: 50 },
       duration_seconds: 3600,
+    });
+  });
+
+  it("conserve tous les champs réutilisables d’une mission et refuse une réponse tronquée", async () => {
+    const complete = missionDetail("succeeded");
+    const validClient = new WorkspaceApiClient({
+      baseUrl: "https://api.example.test",
+      fetcher: async () => json([complete]),
+    });
+    await expect(validClient.fetchMissions()).resolves.toEqual([complete]);
+
+    for (const key of [
+      "team_id",
+      "agent_instance_id",
+      "autonomy",
+      "resources",
+      "budget",
+      "required_capabilities",
+    ]) {
+      const truncated: Record<string, unknown> = { ...complete };
+      delete truncated[key];
+      const client = new WorkspaceApiClient({
+        baseUrl: "https://api.example.test",
+        fetcher: async () => json([truncated]),
+      });
+      await expect(client.fetchMissions()).rejects.toMatchObject({
+        kind: "invalid_response",
+        status: null,
+      });
+    }
+
+    const noLimit = {
+      ...complete,
+      budget: { max_cost: null, currency: "EUR", max_tokens: null, max_tool_calls: null },
+    };
+    const invalidBudgetClient = new WorkspaceApiClient({
+      baseUrl: "https://api.example.test",
+      fetcher: async () => json([noLimit]),
+    });
+    await expect(invalidBudgetClient.fetchMissions()).rejects.toMatchObject({
+      kind: "invalid_response",
     });
   });
 

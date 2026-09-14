@@ -22,6 +22,7 @@ L'interface ``ArtifactStorage`` est explicite pour accueillir un adaptateur obje
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import re
@@ -52,6 +53,14 @@ class ArtifactStorageError(RuntimeError):
 
 class ArtifactTooLarge(ArtifactStorageError):
     """Le flux dépasse la taille autorisée ; rien n'est conservé."""
+
+
+class ArtifactStorageFull(ArtifactStorageError):
+    """Le volume ou le quota physique du stockage est saturé."""
+
+
+class ArtifactStorageUnavailable(ArtifactStorageError):
+    """Le stockage est inaccessible pour une autre raison opérationnelle."""
 
 
 class ArtifactNotFound(ArtifactStorageError):
@@ -115,6 +124,16 @@ class LocalArtifactStorage:
     # --- écriture -------------------------------------------------------------
 
     def write(self, stream: BinaryIO, *, max_bytes: int) -> StoredBlob:
+        """Traduit les erreurs du système en états métier sans exposer de chemin."""
+
+        try:
+            return self._write(stream, max_bytes=max_bytes)
+        except ArtifactStorageError:
+            raise
+        except OSError as exc:
+            raise storage_error_from_oserror(exc) from exc
+
+    def _write(self, stream: BinaryIO, *, max_bytes: int) -> StoredBlob:
         """Écrit ``stream`` de façon atomique en refusant tout dépassement en vol.
 
         Lève ``ArtifactTooLarge`` dès que le cumul dépasse ``max_bytes`` : le chunk
@@ -157,7 +176,15 @@ class LocalArtifactStorage:
             target = self._root / sha256[:2] / sha256
             target.parent.mkdir(parents=True, exist_ok=True)
             _restrict(target.parent, directory=True)
-            if not target.exists():
+            if target.exists():
+                if self._matches(target, sha256=sha256, size=size):
+                    return StoredBlob(sha256=sha256, size=size, key=key)
+                # Une cible adressée par ce digest mais corrompue est remplacée
+                # atomiquement. La renvoyer sur la seule foi de son nom ferait
+                # d’un replay un faux succès.
+                os.replace(temp_path, target)
+                _restrict(target)
+            else:
                 try:
                     os.replace(temp_path, target)
                 except OSError:
@@ -165,14 +192,34 @@ class LocalArtifactStorage:
                     # Windows, remplacer un fichier ouvert en lecture échoue.
                     # L'adressage par contenu garantit que la cible porte déjà
                     # les mêmes octets ; sinon l'erreur reste une erreur.
-                    if not target.is_file():
+                    if not target.is_file() or not self._matches(
+                        target, sha256=sha256, size=size
+                    ):
                         raise
                 else:
                     _restrict(target)
             return StoredBlob(sha256=sha256, size=size, key=key)
         finally:
             # Refus, erreur de flux ou contenu déjà stocké : rien ne reste.
-            temp_path.unlink(missing_ok=True)
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                # Ne masque jamais la cause initiale. Le suffixe ``.part`` reste
+                # exclu des lectures et pourra être nettoyé par la maintenance.
+                pass
+
+    @staticmethod
+    def _matches(path: Path, *, sha256: str, size: int) -> bool:
+        try:
+            if path.stat().st_size != size:
+                return False
+            digest = hashlib.sha256()
+            with path.open("rb") as source:
+                while chunk := source.read(CHUNK_BYTES):
+                    digest.update(chunk)
+            return digest.hexdigest() == sha256
+        except OSError:
+            return False
 
     # --- lecture --------------------------------------------------------------
 
@@ -213,6 +260,26 @@ def _restrict(path: Path, *, directory: bool = False) -> None:
         path.chmod(0o700 if directory else 0o600)
     except (OSError, NotImplementedError):  # pragma: no cover - dépend du système
         pass
+
+
+def _is_storage_full(error: OSError) -> bool:
+    """Reconnaît ENOSPC/EDQUOT et l'équivalent Windows ERROR_DISK_FULL."""
+
+    return error.errno in {errno.ENOSPC, getattr(errno, "EDQUOT", -1)} or getattr(
+        error, "winerror", None
+    ) == 112
+
+
+def storage_error_from_oserror(error: OSError) -> ArtifactStorageError:
+    """Convertit une erreur disque, y compris celle du spool multipart."""
+
+    if _is_storage_full(error):
+        return ArtifactStorageFull(
+            "Stockage saturé : libérez de l'espace avant de réessayer."
+        )
+    return ArtifactStorageUnavailable(
+        "Stockage indisponible : vérifiez le volume et ses permissions."
+    )
 
 
 # --- configuration ------------------------------------------------------------

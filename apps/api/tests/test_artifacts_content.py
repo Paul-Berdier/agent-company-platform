@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import io
+import errno
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -24,17 +26,23 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from acp_api.artifacts_storage import LocalArtifactStorage
+from acp_api.artifacts_storage import (
+    ArtifactStorageFull,
+    ArtifactStorageUnavailable,
+    LocalArtifactStorage,
+)
 from acp_api.deps import get_db
 from acp_api.main import app
-from acp_api.routers.artifacts import safe_content_type
+from acp_api.routers.artifacts import MULTIPART_HEADERS_MAX_BYTES, safe_content_type
 from acp_api.routers.workers import _token_hash as worker_token_hash
 from acp_api.security import create_user_session, hash_password
 from acp_api.signing import sign_artifact_token, token_hash
 from acp_database.models import (
     ArtifactLinkModel,
     ArtifactModel,
+    AlertModel,
     Base,
+    EventModel,
     MembershipModel,
     OrganizationModel,
     ProjectModel,
@@ -784,6 +792,57 @@ def test_re_uploading_the_same_content_on_the_same_run_is_idempotent(context):
     assert len(_blob_files(context)) == 1
 
 
+def test_reupload_repairs_a_metadata_only_artifact_instead_of_returning_it_empty(context):
+    payload = b"contenu repare"
+    checksum = hashlib.sha256(payload).hexdigest()
+    with context.session_factory() as db:
+        artifact = ArtifactModel(
+            project_id=context.project_id,
+            task_run_id=context.run_id,
+            worker_id=context.worker_id,
+            kind="report",
+            path="ancien/rapport.txt",
+            checksum=checksum,
+            size_bytes=len(payload),
+            metadata_json={},
+            storage_key=None,
+            content_type="text/plain",
+            original_name="rapport.txt",
+            source="worker",
+            stream_kind="report",
+        )
+        db.add(artifact)
+        db.commit()
+        artifact_id = artifact.id
+
+    response = _upload(context, payload=payload)
+
+    assert response.status_code in (200, 201)
+    assert response.json()["id"] == artifact_id
+    assert response.json()["has_content"] is True
+    download = context.client.get(f"/artifacts/{artifact_id}/content")
+    assert download.status_code == 200
+    assert download.content == payload
+
+
+def test_reupload_repairs_a_missing_or_corrupt_blob(context):
+    payload = b"contenu adresse"
+    first = _upload(context, payload=payload)
+    artifact_id = first.json()["id"]
+    with context.session_factory() as db:
+        artifact = db.get(ArtifactModel, artifact_id)
+        assert artifact is not None and artifact.storage_key is not None
+        blob_path = context.storage.root / artifact.storage_key
+    blob_path.write_bytes(b"corrompu")
+
+    repaired = _upload(context, payload=payload)
+
+    assert repaired.status_code in (200, 201)
+    assert repaired.json()["id"] == artifact_id
+    assert blob_path.read_bytes() == payload
+    assert context.client.get(f"/artifacts/{artifact_id}/content").content == payload
+
+
 def test_the_same_content_on_another_run_stays_a_distinct_artifact(context):
     with context.session_factory() as db:
         second_run, second_task = _run(db, context.project_id)
@@ -863,6 +922,76 @@ def test_an_exhausted_quota_refuses_the_next_upload(context, monkeypatch):
 
     assert refused.status_code == 413
     assert "quota" in refused.json()["detail"].lower()
+
+
+def test_an_idempotent_reupload_survives_an_exhausted_quota(context, monkeypatch):
+    monkeypatch.setenv("ACP_ARTIFACT_MAX_BYTES_PER_RUN", "8")
+    first = _upload(context, payload=b"same-8!!")
+    replay = _upload(context, payload=b"same-8!!")
+
+    assert first.status_code == 201
+    assert replay.status_code in (200, 201)
+    assert replay.json()["id"] == first.json()["id"]
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).filter_by(task_run_id=context.run_id).count() == 1
+
+
+@pytest.mark.parametrize(
+    "error,status,kind",
+    [
+        (ArtifactStorageFull("full"), 507, "storage.saturated"),
+        (ArtifactStorageUnavailable("offline"), 503, "storage.unavailable"),
+    ],
+)
+def test_a_physical_storage_failure_is_explicit_deduplicated_and_audited(
+    context, monkeypatch, error, status, kind
+):
+    class FailingStorage:
+        def write(self, stream, *, max_bytes):
+            raise error
+
+    monkeypatch.setattr(
+        "acp_api.routers.artifacts.artifact_storage", lambda: FailingStorage()
+    )
+
+    first = _upload(context, payload=b"premier")
+    second = _upload(context, payload=b"second")
+
+    assert first.status_code == status
+    assert second.status_code == status
+    assert "full" not in first.text
+    assert _blob_files(context) == []
+    with context.session_factory() as db:
+        alerts = db.query(AlertModel).filter_by(kind=kind).all()
+        assert len(alerts) == 1
+        assert alerts[0].severity == "critical"
+        assert db.query(ArtifactModel).count() == 0
+        events = db.query(EventModel).filter_by(type="alert.opened").all()
+        assert len(events) == 1
+        assert str(context.storage.root) not in str(events[0].payload)
+
+
+def test_a_full_multipart_spool_returns_507_and_opens_an_alert(context, monkeypatch):
+    class FullSpool:
+        def __init__(self, *args, **kwargs):
+            self._delegate = tempfile.TemporaryFile()
+
+        def write(self, chunk):
+            raise OSError(errno.ENOSPC, "temporary volume full")
+
+        def close(self):
+            self._delegate.close()
+
+    monkeypatch.setattr(
+        "acp_api.routers.artifacts.tempfile.SpooledTemporaryFile", FullSpool
+    )
+
+    response = _upload(context, payload=b"x" * 4096)
+
+    assert response.status_code == 507
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).count() == 0
+        assert db.query(AlertModel).filter_by(kind="storage.saturated").count() == 1
 
 
 def test_an_upload_without_an_active_lease_is_refused(context):
@@ -1096,6 +1225,61 @@ def test_a_disposition_with_an_unbalanced_quote_is_refused(context):
     # Le refus vient de l'en-tête illisible, pas d'un champ manquant deviné après coup.
     assert "guillemet" in response.json()["detail"]
     assert _blob_files(context) == []
+
+
+@pytest.mark.parametrize(
+    ("padding", "expected_status"),
+    [
+        # Le plafond porte sur tout le bloc d'en-têtes, délimiteur exclu : sa
+        # valeur exacte est acceptée, le premier octet de trop est refusé.
+        (0, 201),
+        (1, 422),
+    ],
+)
+def test_multipart_header_limit_applies_when_the_whole_body_is_one_chunk(
+    context, padding, expected_status
+):
+    boundary = "----acp-test-boundary"
+    prefix = b'Content-Disposition: form-data; name="file"; filename="x.txt"\r\nX: '
+    # ``read_until(b"\r\n\r\n")`` exclut le séparateur entier : le CRLF qui
+    # termine le dernier en-tête appartient donc au séparateur, pas au bloc
+    # ``raw_headers`` dont on mesure ici exactement la taille.
+    fill_size = MULTIPART_HEADERS_MAX_BYTES - len(prefix) + padding
+    raw_headers = prefix + (b"a" * fill_size)
+    assert len(raw_headers) == MULTIPART_HEADERS_MAX_BYTES + padding
+    run_part = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="task_run_id"\r\n\r\n'
+        f"{context.run_id}\r\n"
+    ).encode()
+    project_part = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="project_id"\r\n\r\n'
+        f"{context.project_id}\r\n"
+    ).encode()
+    body = b"".join(
+        [
+            run_part,
+            project_part,
+            f"--{boundary}\r\n".encode(),
+            raw_headers,
+            b"\r\n\r\nx",
+            f"\r\n--{boundary}--\r\n".encode(),
+        ]
+    )
+
+    response = context.client.post(
+        f"/workers/{context.worker_id}/artifacts/content",
+        headers={
+            "Authorization": f"Bearer {context.worker_token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        content=body,
+    )
+
+    assert response.status_code == expected_status
+    if padding:
+        assert "hors bornes" in response.json()["detail"]
 
 
 def test_an_upload_without_a_run_is_refused(context):

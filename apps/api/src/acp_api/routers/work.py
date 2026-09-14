@@ -273,33 +273,53 @@ def _claim_next_task(
     body: WorkerClaimRequest,
     background: BackgroundTasks,
     db: Session,
-    worker: WorkerModel | None = None,
+    worker: WorkerModel,
 ):
-    if worker is not None and worker.active_runs >= worker.max_concurrency:
+    if worker.active_runs >= worker.max_concurrency:
         return {"task": None, "reason": "capacité de concurrence atteinte"}
 
-    worker_capabilities = set(worker.capabilities or []) if worker is not None else None
+    scope_global_access = worker.global_access == 1
+    scope_project_id = worker.project_id
+    if scope_global_access:
+        project_filter = None
+    elif scope_project_id:
+        project_filter = TaskModel.project_id == scope_project_id
+    else:
+        return {
+            "task": None,
+            "reason": "worker sans périmètre de projet autorisé",
+        }
+
+    worker_capabilities = set(worker.capabilities or [])
     task = None
     simulation_rejected_real_mission = False
+    candidates = db.query(TaskModel).filter(TaskModel.status == "queued")
+    if project_filter is not None:
+        # La frontière de tenant est appliquée dans SQL avant le verrou/claim :
+        # une tâche étrangère n'entre jamais dans le jeu de candidats du worker.
+        candidates = candidates.filter(project_filter)
     for candidate in (
-        db.query(TaskModel)
-        .filter_by(status="queued")
+        candidates
         .order_by(TaskModel.priority, TaskModel.created_at)
         .with_for_update(skip_locked=True)
         .all()
     ):
-        if worker is not None and worker.simulation and candidate.is_mission:
+        if worker.simulation and candidate.is_mission:
             simulation_rejected_real_mission = True
             continue
         required = set((candidate.meta or {}).get("required_capabilities", []))
-        if worker_capabilities is not None and not required.issubset(worker_capabilities):
+        if not required.issubset(worker_capabilities):
             continue
         # ``FOR UPDATE SKIP LOCKED`` est efficace sur PostgreSQL, mais ignoré par
         # SQLite. La mise à jour conditionnelle conserve une attribution unique
         # sur les deux moteurs.
+        reservation = db.query(TaskModel).filter(
+            TaskModel.id == candidate.id, TaskModel.status == "queued"
+        )
+        if project_filter is not None:
+            reservation = reservation.filter(project_filter)
         reserved = (
-            db.query(TaskModel)
-            .filter(TaskModel.id == candidate.id, TaskModel.status == "queued")
+            reservation
             .update({TaskModel.status: "planning"}, synchronize_session=False)
         )
         if reserved == 1:
@@ -307,12 +327,11 @@ def _claim_next_task(
             break
     if task is None:
         reason = None
-        if worker is not None:
-            reason = (
-                "worker de simulation interdit pour une mission réelle"
-                if simulation_rejected_real_mission
-                else "aucune tâche compatible"
-            )
+        reason = (
+            "worker de simulation interdit pour une mission réelle"
+            if simulation_rejected_real_mission
+            else "aucune tâche compatible"
+        )
         return {"task": None, **({"reason": reason} if reason else {})}
 
     project = db.get(ProjectModel, task.project_id)
@@ -379,34 +398,43 @@ def _claim_next_task(
     db.add(session)
     db.flush()
     run.session_id = session.id
-    lease = None
-    if worker is not None:
-        capacity_reserved = (
-            db.query(WorkerModel)
-            .filter(
-                WorkerModel.id == worker.id,
-                WorkerModel.active_runs < WorkerModel.max_concurrency,
-            )
-            .update(
-                {WorkerModel.active_runs: WorkerModel.active_runs + 1},
-                synchronize_session=False,
-            )
+    capacity = db.query(WorkerModel).filter(
+        WorkerModel.id == worker.id,
+        WorkerModel.active_runs < WorkerModel.max_concurrency,
+    )
+    if scope_global_access:
+        capacity = capacity.filter(
+            WorkerModel.global_access == 1,
+            WorkerModel.project_id.is_(None),
         )
-        if capacity_reserved != 1:
-            db.rollback()
-            return {"task": None, "reason": "capacité de concurrence atteinte"}
-        db.refresh(worker)
-        lease = WorkerLeaseModel(
-            worker_id=worker.id,
-            task_id=task.id,
-            task_run_id=run.id,
-            status="active",
-            required_capabilities=(task.meta or {}).get("required_capabilities", []),
-            lease_expires_at=utcnow() + timedelta(seconds=WORKER_LEASE_SECONDS),
-            last_renewed_at=utcnow(),
+    else:
+        capacity = capacity.filter(
+            WorkerModel.global_access == 0,
+            WorkerModel.project_id == scope_project_id,
         )
-        worker.status = "busy" if worker.active_runs >= worker.max_concurrency else "online"
-        db.add(lease)
+    # Tous les prédicats de portée et de capacité font partie de l'UPDATE : une
+    # modification concurrente du périmètre annule toute la transaction de claim.
+    capacity_reserved = (
+        capacity.update(
+            {WorkerModel.active_runs: WorkerModel.active_runs + 1},
+            synchronize_session=False,
+        )
+    )
+    if capacity_reserved != 1:
+        db.rollback()
+        return {"task": None, "reason": "capacité de concurrence atteinte"}
+    db.refresh(worker)
+    lease = WorkerLeaseModel(
+        worker_id=worker.id,
+        task_id=task.id,
+        task_run_id=run.id,
+        status="active",
+        required_capabilities=(task.meta or {}).get("required_capabilities", []),
+        lease_expires_at=utcnow() + timedelta(seconds=WORKER_LEASE_SECONDS),
+        last_renewed_at=utcnow(),
+    )
+    worker.status = "busy" if worker.active_runs >= worker.max_concurrency else "online"
+    db.add(lease)
     task.active_run_id = run.id if task.is_mission else task.active_run_id
     db.commit()
 
@@ -454,8 +482,7 @@ def _claim_next_task(
             "budget": dict(task.budget or {}),
             "duration_seconds": task.duration_seconds,
         }
-    if lease is not None:
-        response["lease_expires_at"] = lease.lease_expires_at.isoformat()
+    response["lease_expires_at"] = lease.lease_expires_at.isoformat()
     return response
 
 

@@ -821,11 +821,15 @@ def report_stdio_probe(
 
     response.headers["Cache-Control"] = "no-store"
     worker = _authenticated_worker(db, x_worker_id, authorization)
-    service.expire_probes(db)
-    probe = db.get(McpProbeModel, probe_id)
+    # Cette lecture est décisionnelle : le verrou précède l'expiration et la
+    # transition terminale. Ainsi un nettoyage concurrent voit soit ``claimed``
+    # et gagne avant le report, soit l'état terminal commité — jamais un objet
+    # ORM périmé capable d'écraser un résultat déjà répondu 200.
+    probe = service.lock_probe_for_worker_result(db, probe_id)
     if probe is None:
         db.commit()
         raise HTTPException(status_code=404, detail="Diagnostic introuvable")
+    service.expire_probe_if_due(db, probe)
     if probe.status != "claimed" or probe.worker_id != worker.id:
         db.commit()
         raise HTTPException(
@@ -837,7 +841,18 @@ def report_stdio_probe(
         )
     # Le coffre sert ici à expurger côté serveur ce que le runner rapporte : le contrôle
     # ne doit pas exister uniquement dans le worker.
-    service.complete_probe(db, probe, body, vault=_optional_vault())
+    try:
+        service.complete_probe(db, probe, body, vault=_optional_vault())
+    except service.ProbeTransitionConflict as exc:
+        current_status = probe.status
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Lease modifié pendant le rapport : le résultat est refusé, aucun succès n'est "
+                f"supposé (état actuel : {current_status})."
+            ),
+        ) from exc
     db.commit()
     db.refresh(probe)
     return service.probe_contract(probe)

@@ -1,6 +1,6 @@
 # Missions, runner local et CLI
 
-Date d'état : 13 septembre 2026, Europe/Paris — version `0.6.0`
+Date d'état : 14 septembre 2026, Europe/Paris — préparation de la version `0.7.0`
 
 Le Lot C fournit une mission durable dans l'API métier, une exécution locale
 configurée côté worker et le client `acp`. Le web et le CLI utilisent la même
@@ -25,6 +25,12 @@ explicitement `approved: true` et au moins une preuve structurée. Une relance c
 une nouvelle tentative et un nouveau fencing token ; elle ne rejoue jamais la
 tentative précédente. Une réussite ne peut être relancée qu'après rejet explicite
 par l'utilisateur.
+
+Le Lot F ne crée pas un second moteur d'exécution : une occurrence de routine
+matérialise cette même ressource mission. Une mission `succeeded`, avec validation
+technique `passed` et acceptation `accepted`, peut servir à préremplir une nouvelle
+routine dans le web. La routine résultante reste désactivée jusqu'à un geste
+explicite ; l'acceptation d'une mission n'autorise jamais silencieusement sa répétition.
 
 ## Installer et utiliser `acp`
 
@@ -74,9 +80,49 @@ réponse invalide, relancer exactement la même commande reprend la même opéra
 l'abandonne avec confirmation (`--yes` est obligatoire sans invite), au risque
 explicitement signalé de répéter un effet déjà appliqué.
 
-Les commandes `automations` restent visibles comme capacité future et retournent un
-code « non supporté » dans cette version ; elles seront raccordées au Lot F, sans
-résultat simulé.
+## Routines depuis le CLI (Lot F)
+
+Le groupe `acp automations` appelle les mêmes routes que le web. Il valide localement
+une partie des entrées, mais le contrat serveur reste l'autorité. Une création naît
+désactivée et exige un gabarit de mission complet :
+
+```powershell
+acp automations list --project <project-id>
+acp automations create --project <project-id> `
+  --name "Rapport quotidien" `
+  --schedule-kind cron --expression "0 9 * * 1-5" `
+  --timezone Europe/Paris `
+  --template-file apps/cli/examples/automation-mission-template.json
+acp automations show <automation-id>
+acp automations update <automation-id> --catchup run_once --max-concurrent-runs 2
+acp automations enable <automation-id>
+acp automations trigger <automation-id>
+acp automations runs <automation-id> --limit 25
+acp automations calendar --project <project-id>
+acp automations webhook status <automation-id>
+acp automations webhook rotate <automation-id> --secret-env ACP_WEBHOOK_SECRET
+acp automations webhook disable <automation-id>
+acp automations disable <automation-id>
+```
+
+`create`, `trigger` et `webhook rotate` utilisent toujours une clé d'idempotence.
+Sans `--idempotency-key`, le CLI en génère une et la rend avec le résultat. Si la
+réponse peut avoir été perdue — coupure, HTTP `408`/`5xx` ou réponse invalide — il
+sort en erreur et rend la même clé à rejouer. Un déclenchement enregistré mais non
+lancé (`skipped_concurrency`, `skipped_disabled`, `skipped_catchup` ou `failed`) est
+également un échec du point de vue du CLI.
+
+Le gabarit accepte `--template`/`--template-json` ou `--template-file`, jamais les
+deux, et le fichier est borné à 1 Mio. Une modification de calendrier exige ensemble
+le genre, l'expression et le fuseau. Les intervalles abrégés (`15m`, `2h`, `1d`) sont
+normalisés en secondes. Le secret webhook n'est jamais accepté comme argument en
+clair : le CLI en génère un par défaut, ou lit une valeur imposée via `--secret-env`
+ou `--secret-file`. Le contrôle local et le serveur exigent tous deux 43 à 200
+caractères base64url décodant au moins 32 octets.
+
+Le détail du calendrier, du rattrapage, du webhook, des budgets et des limites est
+dans [Automatisations, budgets et alertes](automations.md). La référence exhaustive
+des options reste [apps/cli/README.md](../apps/cli/README.md).
 
 ## Secrets, serveurs MCP et skills depuis le CLI
 
@@ -196,9 +242,13 @@ provider non simulé demandé.
   missions : elle n'apparaît ni dans `acp approvals`, ni dans l'écran Missions ;
 - SQLite et `create_all()` restent le chemin local ; les migrations PostgreSQL et
   la restauration sont reportées au Lot H ;
+- le Lot F applique les budgets connus avant planification, exécution et évaluation,
+  mais `max_spawned_agents_per_run` attend le point de spawn du Lot G ;
 - le suivi d'une tentative passe depuis le Lot E par un flux SSE authentifié avec
   reprise par curseur, exercé par un client de test seulement : aucune coupure réseau
   réelle ni `EventSource` de navigateur n'a été éprouvé ;
 - l'exécution de tests web est livrée et testée sur un **lanceur déterministe** :
   aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté ;
-- le backend local contrôlé n'applique pas encore une isolation OS ou réseau forte.
+- le backend local contrôlé n'applique pas encore une isolation OS ou réseau forte ;
+- le planificateur et le groupe `acp automations` sont couverts par des tests locaux ;
+  ils n'ont pas été exercés contre Hermes, un fournisseur payant ou un service externe.

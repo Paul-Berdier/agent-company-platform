@@ -14,6 +14,12 @@ from typing import Any, TypeVar
 import httpx
 from acp_contracts import WorkerCapability
 
+from .automation_scheduler import automation_scheduler_loop
+from .budget import (
+    budgeted_effect,
+    gateway_effect_bounds,
+    non_consuming_effect_bounds,
+)
 from .capabilities import missing_capabilities
 from .config import WorkerConfig
 from .local_runner import (
@@ -423,9 +429,31 @@ async def process(
         validate_safe_local_policy(mission)
         if mission is not None:
             mission_deadline = claimed_clock + mission["duration_seconds"]
+        mission_budget = mission["budget"] if mission is not None else None
+        budget_currency = (
+            mission_budget["currency"] if mission_budget is not None else "EUR"
+        )
+        orchestrator_bounds = gateway_effect_bounds(
+            config.provider_id, budget_currency
+        )
+        local_bounds = non_consuming_effect_bounds(budget_currency)
         goal = mission["objective"] if mission is not None else task["title"]
         plan = await _await_work(
-            lambda: gateway_plan(gateway_client, config, session, goal),
+            lambda: budgeted_effect(
+                api_client,
+                config,
+                credentials,
+                attempt_id=attempt_id,
+                fencing_token=fencing_token,
+                effect_key="gateway-plan",
+                provider=config.provider_id,
+                phase="planning",
+                budget=mission_budget,
+                bounds=orchestrator_bounds,
+                operation=lambda: gateway_plan(
+                    gateway_client, config, session, goal
+                ),
+            ),
             deadline=mission_deadline,
             stop_event=execution_stop,
         )
@@ -589,15 +617,34 @@ async def process(
                 project_id=session.get("project_id") or "",
                 output_root=config.local_runner.run_root,
             )
-            outcome = await run_web_tests(
-                mission,
-                config.web_tests,
-                api=WorkerTestApi(api_client, config.api_url, credentials.worker_id),
-                lease=web_lease,
+            outcome = await _await_work(
+                lambda: budgeted_effect(
+                    api_client,
+                    config,
+                    credentials,
+                    attempt_id=attempt_id,
+                    fencing_token=fencing_token,
+                    effect_key="web-test-suite",
+                    provider="playwright",
+                    phase="execution",
+                    budget=mission_budget,
+                    bounds=local_bounds,
+                    operation=lambda: run_web_tests(
+                        mission,
+                        config.web_tests,
+                        api=WorkerTestApi(
+                            api_client, config.api_url, credentials.worker_id
+                        ),
+                        lease=web_lease,
+                        stop_event=execution_stop,
+                        # La deadline globale borne aussi le processus de test.
+                        remaining_seconds=_remaining_work_seconds(
+                            mission_deadline
+                        ),
+                    ),
+                ),
+                deadline=mission_deadline,
                 stop_event=execution_stop,
-                # La deadline globale de la mission borne la suite comme elle
-                # borne le programme local du Lot C : jamais plus que le reste.
-                remaining_seconds=_remaining_work_seconds(mission_deadline),
             )
             execution_label = "Suite de tests web"
             execution_status = outcome.status
@@ -628,8 +675,26 @@ async def process(
                         else min(request_timeout, remaining)
                     ),
                 )
-            execution = await run_local_program(
-                config.local_runner, runner_request, stop_event=execution_stop
+            execution = await _await_work(
+                lambda: budgeted_effect(
+                    api_client,
+                    config,
+                    credentials,
+                    attempt_id=attempt_id,
+                    fencing_token=fencing_token,
+                    effect_key="local-program",
+                    provider="local-runner",
+                    phase="execution",
+                    budget=mission_budget,
+                    bounds=local_bounds,
+                    operation=lambda: run_local_program(
+                        config.local_runner,
+                        runner_request,
+                        stop_event=execution_stop,
+                    ),
+                ),
+                deadline=mission_deadline,
+                stop_event=execution_stop,
             )
             execution_label = "Programme local"
             execution_status = execution.status
@@ -715,13 +780,25 @@ async def process(
         )
         try:
             evaluation = await _await_work(
-                lambda: gateway_evaluate(
-                    gateway_client,
+                lambda: budgeted_effect(
+                    api_client,
                     config,
-                    session,
-                    evaluation_summary,
-                    produced_output={"execution_evidence": evidence[0]},
-                    acceptance_criteria=acceptance_criteria,
+                    credentials,
+                    attempt_id=attempt_id,
+                    fencing_token=fencing_token,
+                    effect_key="gateway-evaluate",
+                    provider=config.provider_id,
+                    phase="evaluation",
+                    budget=mission_budget,
+                    bounds=orchestrator_bounds,
+                    operation=lambda: gateway_evaluate(
+                        gateway_client,
+                        config,
+                        session,
+                        evaluation_summary,
+                        produced_output={"execution_evidence": evidence[0]},
+                        acceptance_criteria=acceptance_criteria,
+                    ),
                 ),
                 deadline=mission_deadline,
                 stop_event=execution_stop,
@@ -1026,6 +1103,13 @@ async def run_forever(
         heartbeat = asyncio.create_task(
             _heartbeat_loop(api_client, config, credentials, stop, logger)
         )
+        scheduler_task: asyncio.Task | None = None
+        if not once and credentials.global_access:
+            scheduler_task = asyncio.create_task(
+                automation_scheduler_loop(
+                    api_client, config, credentials, stop, logger
+                )
+            )
         probe_task: asyncio.Task | None = None
         if probe_loop_enabled(config, credentials):
             logger.write("info", "Sonde MCP stdio activée")
@@ -1075,6 +1159,11 @@ async def run_forever(
                 await asyncio.gather(*active, return_exceptions=True)
             stop.set()
             await heartbeat
+            if scheduler_task is not None:
+                await asyncio.wait({scheduler_task}, timeout=30)
+                if not scheduler_task.done():
+                    scheduler_task.cancel()
+                await asyncio.gather(scheduler_task, return_exceptions=True)
             if probe_task is not None:
                 await asyncio.wait({probe_task}, timeout=30)
                 if not probe_task.done():

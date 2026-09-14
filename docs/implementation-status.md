@@ -1,12 +1,10 @@
 # État d'implémentation et reprise
 
-Date d'état : 13 septembre 2026, Europe/Paris
-Portée : Lot E (version `0.6.0`) construit sur le Lot D `0.5.0`. Les Lots C et D sont
-publiés (PR #3 et #4, tags annotés `v0.4.0` et `v0.5.0` ; `v0.5.0` est un ancêtre de
-`origin/main`). Le Lot E **n'est pas publié** : sa branche `codex/modernization-lot-e`
-est poussée, mais elle n'est pas fusionnée dans `main`, aucun tag `v0.6.0` n'existe, et
-les corrections de revue comme cette documentation ne sont pas encore validées — donc
-aucune exécution d'intégration continue distante ne les couvre.
+Date d'état : 14 septembre 2026, Europe/Paris
+Portée : Lot F, préparation de la version `0.7.0`, construit sur le Lot E `0.6.0`.
+Le Lot E est publié : PR #5 fusionnée au commit `b7d8a44`, tag `v0.6.0`, après
+observation d'une CI verte. Le Lot F est encore un arbre de travail : sa PR, sa CI
+distante, sa fusion et son tag `v0.7.0` ne sont pas affirmés ici.
 
 ## Résumé
 
@@ -33,6 +31,14 @@ par contenu avec liens signés bornés et révocables, Studio en lecture seule e
 pour cette version : le reporter est prouvé sur des objets Playwright synthétiques et
 l'exécuteur du worker sur un programme déterministe. La reprise en main humaine du
 navigateur n'est pas livrée et l'interface le dit.
+
+Le Lot F livre la tranche routines : calendrier cron en heure locale IANA ou
+intervalle, gestion explicite des bascules DST, matérialisation sans doublon, bail
+singleton et fencing du planificateur, politiques de rattrapage et de concurrence,
+déclenchements manuels et webhook entrant, budgets appliqués par mission/jour/provider,
+saturation du stockage et boîte d'alertes in-app. Le web et `acp automations` utilisent
+les mêmes contrats. Les détails et limites sont dans
+[Automatisations, budgets et alertes](automations.md).
 
 Le backend réel exécute uniquement un exécutable absolu via un argv fixe configuré
 par l'opérateur. Il ne prend jamais une commande dans la mission, crée un cwd neuf,
@@ -101,8 +107,8 @@ transports déterministes de test.
   implicite de la mission ;
 - configuration CLI atomique, session liée à l'origine API, HTTPS obligatoire hors
   loopback et aucun Cookie/CSRF réutilisé après changement d'origine ;
-- commandes d'automatisations explicitement non supportées tant que le Lot F n'est
-  pas livré.
+- dans l'état historique du Lot C, commandes d'automatisations explicitement non
+  supportées ; elles sont désormais livrées par le Lot F décrit plus bas.
 
 ## Réalisé et testé dans le Lot D
 
@@ -245,6 +251,86 @@ transports déterministes de test.
   `acp runs tests` (même dérivation que le serveur, code `4` si la validation est en
   échec), `acp artifacts list | get | link`, `acp open --run <id> --studio`.
 
+## Réalisé et testé dans le Lot F
+
+### Contrats, calendrier et persistance
+
+- contrats Pydantic stricts et miroir TypeScript pour les calendriers, gabarits,
+  routines, déclenchements, webhooks, budgets, consommations et alertes ; champs
+  inconnus, booléens pris pour des nombres, dates naïves et valeurs non finies refusés ;
+- cron à cinq champs en heure locale IANA, sémantique POSIX des jours, recherche bornée
+  à quatre ans ; heure inexistante omise et première occurrence retenue pour une heure
+  ambiguë ; intervalle fixe de 60 à 31 536 000 secondes ;
+- tables et contraintes des routines, occurrences, rotations webhook, bail du
+  planificateur, politiques/ledger budgétaires et alertes/préférences ; clés étrangères
+  SQLite activées à chaque connexion ;
+- upgrade SQLite transactionnel piloté par la parité du modèle pour les onze tables
+  concernées par le Lot F : reconstruction des schémas partiels, préservation des
+  index/triggers locaux, contrôle final des clés étrangères et annulation atomique de
+  la reconstruction d'un ledger historique ambigu ; `create_all()` peut avoir créé
+  auparavant de nouvelles tables vides ;
+- `fire_key` déterministe et contrainte unique `(automation_id, fire_key)` vérifiées
+  sous vraie concurrence sur une base SQLite fichier.
+
+### Routes et planificateur
+
+- API utilisateur pour créer, lister, lire, modifier, activer, suspendre et déclencher
+  une routine, lire ses runs et son calendrier ; création et tir manuel idempotents,
+  RBAC par projet et CSRF sur les mutations de session ;
+- webhook entrant : secret client de 256 bits au minimum, empreinte seule persistée,
+  journal de rotation sans secret, rotation idempotente, révocation et tir dédupliqué
+  par `event_id` ;
+- boucle worker persistante et routes internes de bail/tick/libération : bail singleton
+  de 45 secondes, fencing monotone revérifié entre transactions, limite de tick bornée,
+  rejeu sûr après réponse perdue et absence d'affamement par une routine invalide ;
+- rattrapage `skip` ou `run_once`, historique des refus, plafond de 1 à 5 runs actifs,
+  réconciliation des états terminaux et désactivation avec alerte après trois échecs
+  consécutifs ; un succès remet le compteur à zéro.
+
+### Budgets, stockage et alertes
+
+- politique de projet : plafond journalier et par fournisseur, missions concurrentes,
+  relances et plafond d'agents ; permis avant effet et rapport idempotent avec identité
+  worker, lease et fence revérifiés ;
+- application raccordée aux phases de planification, exécution et évaluation du worker,
+  avec coût décimal, jetons et appels d'outils, distinction `unknown`/zéro,
+  jour comptable figé au permis et agrégats par mission/jour/fournisseur ;
+- fuseau comptable immuable après le premier permis, bornes communes Python/TypeScript/
+  SQL et cache agrégé saturant plutôt que débordant ; ledger exact conservé ;
+- `max_spawned_agents_per_run` est validé, persisté et affiché mais **pas appliqué** :
+  il n'existe pas de point de spawn avant les exécuteurs du Lot G ;
+- saturation ou indisponibilité du stockage classée en `507`/`503`, alerte expurgée
+  lorsque le projet et le run sont déjà résolus, réparation atomique d'un blob
+  corrompu et quotas conservés sous concurrence ;
+- boîte d'alertes durable, cause ouverte unique, escalade monotone, acquittement
+  idempotent, préférences personnelles par projet ; canal in-app uniquement.
+
+### Frontières worker et HTTP
+
+- enrôlement worker fermé si l'API n'autorise pas exactement une portée : un projet
+  précis ou le privilège global ; le client ne peut pas élargir cette portée ; les
+  workers historiques sans portée restent en quarantaine ;
+- claims de travail filtrés par projet avant verrou et capacité réservée atomiquement ;
+  planificateur réservé aux workers globaux, sondes MCP ciblées au worker nommé et
+  sondes non ciblées réservées à la portée globale ;
+- corps HTTP borné à 1 Mio avant parsing, 32 Mio pour les sources de skills, et upload
+  de livrable authentifié puis borné en flux ; webhook limité à 120 requêtes/minute par
+  source TCP et processus, avec cache d'adresses lui-même borné.
+
+### Web et CLI
+
+- écran Automatisations à quatre vues : routines, calendrier, alertes et réglages ;
+  création/modification, activation/suspension, tir manuel, historique, rotation du
+  webhook avec confirmation, politiques et consommations budgétaires ;
+- états de chargement/erreur séparés, listes bornées annoncées, mesure absente distincte
+  de zéro, protection contre les réponses obsolètes lors d'un changement de projet ;
+- proposition de routine préremplie depuis une mission réussie, techniquement validée
+  et acceptée, mais toujours créée désactivée ;
+- groupe `acp automations` complet avec JSON strict, gabarit fichier ou inline,
+  intervalles normalisés, calendrier RFC 3339, codes de sortie et rejeu explicite des
+  opérations incertaines ; secret webhook généré par défaut ou lu depuis fichier ou
+  environnement, jamais accepté en argument clair.
+
 ## Hérité des Lots A et B
 
 - shell moderne français, thèmes, responsive, états vides/erreur/hors ligne et
@@ -256,7 +342,9 @@ transports déterministes de test.
   `/v1/runs`, avec réponses strictes et frontière inter-services ;
 - service d'événements protégé en ingestion et WebSocket anonyme fermé par défaut.
 
-## Vérification du Lot E
+## Vérifications
+
+### Référence publiée du Lot E
 
 Les résultats détaillés sont consignés dans
 [le rapport d'acceptation](acceptance-report.md). Le Lot E a été vérifié dans le
@@ -282,15 +370,35 @@ symbolique (`apps/worker/tests/test_web_tests.py`) que le compte de vérificatio
 peut pas créer. **Aucun test n'est ignoré faute d'opt-in Playwright : cet opt-in
 n'existe pas dans le dépôt.**
 
-Le scénario d'acceptation 7 reste le seul rejoué contre des services réellement
-démarrés — API métier dans son propre processus et serveur MCP Streamable HTTP sur le
-bouclage — avec **24 étapes sur 24 réussies**. Son script est désormais versionné
-(`scripts/verify_mcp_journey.py`). Aucun équivalent n'existe pour le Lot E.
+La référence publiée du scénario d'acceptation 7 a été rejouée contre des services
+réellement démarrés — API métier dans son propre processus et serveur MCP Streamable
+HTTP sur le bouclage — avec **24 étapes sur 24 réussies**. Son script est désormais
+versionné (`scripts/verify_mcp_journey.py`). Aucun parcours navigateur réel n'était inclus.
 
 Ces tests prouvent les invariants locaux. Ils ne prouvent pas un navigateur réel, une
 exécution Playwright réelle, un serveur MCP tiers, un dépôt GitHub réel, une instance
 Hermes, un fournisseur payant, PostgreSQL existant, une sandbox OS, un E2E navigateur,
-un déploiement Railway, ni une CI distante sur ce travail.
+ni un déploiement Railway. Le Lot E a ensuite été publié par la PR #5, fusion
+`b7d8a44`, tag `v0.6.0`, après observation d'une CI verte.
+
+### Vérification du Lot F en préparation
+
+Les suites ciblées couvrent les contrats, la base, les routes, le planificateur, le
+worker, les budgets, les alertes, le stockage, le CLI et les modules web du Lot F.
+Le 14 septembre 2026, l'arbre final local a rendu **2 291 tests Python réussis, 7
+ignorés et 2 avertissements connus** (`867/1` API, `253/3` worker, `430/3` CLI et
+`741/0` pour contrats, base et services). Le web a rendu **295 tests sur 23 fichiers**,
+le reporter **59** et le moteur legacy **74**. Le typecheck TypeScript, le build Vite
+et `scripts/check_version.py` réussissent, avec tous les composants sur `0.7.0`. La CI
+distante, la fusion et le tag ne sont pas encore affirmés.
+
+`scripts/verify_automation_journey.py` a rendu **62 étapes sur 62 réussies**. Il lance
+une API réelle dans un processus séparé sur une base SQLite temporaire, vérifie la
+provenance de ses imports, puis redémarre la même API de la portée worker globale à la
+portée projet. Il rejoue les routes HTTP : création/rejeu/conflit, activation,
+calendrier, bail et tick, tir manuel, webhook, historique, permis/usage de budget et
+alerte. Il n'appelle ni Internet, ni Hermes, ni fournisseur payant et ne constitue pas
+un E2E navigateur.
 
 ## Réalisé, non testé en conditions réelles
 
@@ -330,10 +438,6 @@ un déploiement Railway, ni une CI distante sur ce travail.
 Ces points ne dépendent pas d'un développement supplémentaire mais d'une ressource ou
 d'une décision qui manque aujourd'hui.
 
-- **Publication du Lot E** : le code est vérifié localement, mais la branche n'est pas
-  fusionnée, aucune PR n'est ouverte pour ce lot, aucune CI distante n'a tourné sur les
-  corrections de revue et cette documentation, et aucun tag `v0.6.0` n'existe. C'est
-  une décision, pas un travail restant.
 - **Passage des scénarios 10, 11, 16 et 19 à « Accepté »** : bloqué par l'absence d'une
   installation Playwright réelle sur un runner et d'un parcours de bout en bout
   versionné pour ce lot. Le code est là ; la preuve d'exécution réelle ne l'est pas.
@@ -386,7 +490,10 @@ d'une décision qui manque aujourd'hui.
   l'exécution ;
 - gestion des clés du coffre par un KMS/HSM et rotation planifiée ; les secrets de
   service (`HERMES_API_KEY`, Bearers inter-services) restent hors coffre ;
-- automatisations, budgets agrégés, notifications et calendrier Europe/Paris ;
+- livraison de notifications hors application : aucun courriel, SMS, push système ou
+  webhook sortant n'est implémenté ;
+- application de `max_spawned_agents_per_run`, qui attend le point de spawn des
+  exécuteurs du Lot G ;
 - médias, image, aperçu 3D et exécuteurs complémentaires ;
 - E2E navigateur, Hermes réel opt-in, Railway et observabilité de production.
 
@@ -398,45 +505,46 @@ d'une décision qui manque aujourd'hui.
 | B | accès propriétaire, RBAC, onboarding et conversation persistante | **Publié : PR #2, tag `v0.3.0`** |
 | C | runner réel contrôlé, missions, preuves, validations et CLI | **Publié : PR #3, tag `v0.4.0`** |
 | D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Publié : PR #4, tag `v0.5.0` ; aucun serveur MCP tiers contacté** |
-| E | événements durables, flux authentifié, Playwright, livrables privés et Studio | **Implémenté et vérifié localement (`0.6.0`), non publié ; aucun navigateur réel lancé, aucun test Playwright réel exécuté ; prise de contrôle du navigateur non livrée** |
-| F | automatisations, calendrier Europe/Paris, budgets et alertes | **Non commencé** |
+| E | événements durables, flux authentifié, Playwright, livrables privés et Studio | **Publié : PR #5, fusion `b7d8a44`, tag `v0.6.0`, CI verte observée avant fusion ; aucun navigateur réel lancé, aucun test Playwright réel exécuté** |
+| F | automatisations, calendrier Europe/Paris, budgets et alertes | **Implémenté dans l'arbre `0.7.0` et vérifié par suites ciblées ; publication et relevé global final à confirmer** |
 | G | médias/3D, exécuteurs complémentaires et durcissement | **Non commencé** |
 | H | migrations, Railway, sauvegarde-restauration et validation finale | **Non commencé** |
 
-## Reprise : du Lot E au Lot F
+## Reprise : terminer le Lot F puis les Lots G et H
 
 Ordre de reprise pour la personne ou l'agent qui prend la suite.
 
-1. **Publier le Lot E** : ouvrir la PR, obtenir une intégration continue verte sur
-   Ubuntu et étiqueter `v0.6.0`. Aujourd'hui la branche est poussée mais les
-   corrections de revue et la documentation ne sont pas validées, donc aucune CI ne les
-   a vues. C'est une décision, pas un travail restant.
-2. **Exécuter une vraie suite Playwright sur un runner réel.** C'est la preuve qui
+1. **Clore la vérification locale du Lot F** : exécuter les suites globales Python et
+   TypeScript, le build, le contrôle de versions et
+   `scripts/verify_automation_journey.py`, puis reporter leurs résultats exacts sans
+   extrapoler à un service externe.
+2. **Publier le Lot F** seulement après une CI distante verte : PR, fusion et tag
+   `v0.7.0`. Cette documentation prépare la version, elle ne prétend pas que ces
+   opérations ont déjà eu lieu.
+3. **Exécuter une vraie suite Playwright sur un runner réel.** C'est la preuve qui
    manque au Lot E et la seule qui fasse progresser les scénarios 10 et 11. Concrètement :
    installer Playwright sur la machine du runner, configurer `ACP_WORKER_WEBTEST_ARGV_JSON`
    et `ACP_WORKER_WEBTEST_CWD`, lancer une mission portant une ressource
    `kind == "web_test_suite"`, puis vérifier dans le Studio la chronologie, l'arbre des
    tests, la capture et la trace réellement produites.
-3. **Écrire l'opt-in de test E2E réel** prévu par la spécification (`ACP_E2E=1`,
+4. **Écrire l'opt-in de test E2E réel** prévu par la spécification (`ACP_E2E=1`,
    `skipped` sinon, jamais réussi par défaut) et le raccorder à la CI en opt-in. Il
    n'existe pas : aucun fichier du dépôt ne lit cette variable.
-4. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
+5. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
    `scripts/verify_mcp_journey.py` l'a fait pour le scénario 7 : services démarrés,
    worker authentifié, ingestion d'une exécution de tests, flux SSE consommé avec
    reprise par curseur, téléchargement d'un livrable par lien signé puis révocation.
    Sans lui, aucun scénario de ce lot ne peut passer à « Accepté ».
-5. **Configurer une origine d'aperçu séparée** (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et
+6. **Configurer une origine d'aperçu séparée** (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et
    vérifier que le Studio cesse d'afficher son avertissement. C'est le prérequis de
    sécurité avant toute exposition réseau du Studio.
-6. **Enchaîner sur le Lot F** (automatisations, calendrier Europe/Paris, budgets et
-   alertes). Deux briques du Lot E lui servent directement : le journal ordonné par
-   `journal_seq`, sur lequel une automatisation peut reprendre sans doublon, et la
-   dérivation de validation technique, qui donne un déclencheur fiable. Attention : la
-   purge de rétention ne supprime aujourd'hui que les événements les plus anciens, ce
-   qui garantit que les rangs ne sont jamais réutilisés ; une automatisation qui
-   supprimerait les rangs les plus hauts casserait cette propriété.
+7. **Enchaîner sur le Lot G** : médias, aperçu 3D, exécuteurs complémentaires et point
+   de spawn où appliquer enfin `max_spawned_agents_per_run`.
+8. **Livrer le Lot H** : PostgreSQL et migrations versionnées, Railway, sauvegarde,
+   restauration et validation finale. SQLite `create_all()` et son upgrade ad hoc ne
+   sont pas une migration de production.
 
-Deux dettes du Lot D restent ouvertes et n'ont pas été traitées par le Lot E :
+Deux dettes du Lot D restent ouvertes et n'ont pas été traitées par le Lot F :
 raccorder un serveur MCP tiers et un dépôt GitHub réel, et construire le courtier
 d'appels d'outils MCP à l'exécution d'une mission. Le sort de l'autorisation `stdio`
 (circuit propre au centre MCP ou circuit d'approbation des missions) reste lui aussi à

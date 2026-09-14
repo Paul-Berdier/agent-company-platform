@@ -1,9 +1,14 @@
 [project]
 name = "acp-contracts"
-version = "0.6.0"
+version = "0.7.0"
 description = "Contrats de données versionnés de l'Agent Company Platform"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.7"]
+# ``tzdata`` porte la base IANA là où le système ne la fournit pas — c'est le cas de
+# Windows. Sans elle, ``ZoneInfo("Europe/Paris")`` échoue et aucune occurrence locale
+# n'est calculable. Le paquet est maintenu par les développeurs de CPython et ne
+# contient que des données ; la documentation de ``zoneinfo`` le désigne comme la
+# réponse attendue. Le marqueur le réserve aux plateformes qui en ont besoin.
+dependencies = ["pydantic>=2.7", "tzdata>=2024.1; platform_system == 'Windows'"]
 
 [build-system]
 requires = ["setuptools>=68"]

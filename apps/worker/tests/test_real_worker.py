@@ -8,6 +8,7 @@ import httpx
 import pytest
 from acp_contracts import EvidenceCreate, TechnicalValidation
 
+from acp_worker.budget import BudgetUnavailable
 from acp_worker.cli import main as cli_main
 from acp_worker.config import WorkerConfig, WorkerConfigurationError
 from acp_worker.local_log import WorkerLogger
@@ -43,6 +44,33 @@ def credentials() -> WorkerCredentials:
         max_concurrency=1,
         simulation=False,
         token_expires_at="2030-01-01T00:00:00Z",
+        project_id="project-1",
+    )
+
+
+def budget_success_response(request: httpx.Request) -> httpx.Response | None:
+    if "/budget/" not in request.url.path:
+        return None
+    assert request.headers["x-attempt-fencing-token"] == "9"
+    return httpx.Response(
+        200,
+        json={
+            "accepted": True,
+            "idempotent": False,
+            "permit_allowed": True,
+            "verdict": {
+                "state": "ok",
+                "measured": True,
+                "limit_reached": None,
+                "cost": None,
+                "currency": "EUR",
+                "tokens_input": None,
+                "tokens_output": None,
+                "tool_calls": 1,
+                "usage_reported": False,
+                "estimated": False,
+            },
+        },
     )
 
 
@@ -147,10 +175,10 @@ def claim(*, stop_requested: bool = False) -> dict:
             },
             "resources": [],
             "budget": {
-                "max_cost": 0,
+                "max_cost": None,
                 "currency": "EUR",
                 "max_tokens": None,
-                "max_tool_calls": 1,
+                "max_tool_calls": 3,
             },
             "duration_seconds": 60,
         },
@@ -176,6 +204,9 @@ async def test_real_worker_only_succeeds_after_process_proof_and_evaluation(
             assert request.headers["x-attempt-fencing-token"] == "9"
         body = json.loads(request.content) if request.content else {}
         api_requests.append((f"{request.method} {request.url.path}", body))
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         return httpx.Response(200, json={})
 
     def gateway_handler(request: httpx.Request) -> httpx.Response:
@@ -229,6 +260,94 @@ async def test_real_worker_only_succeeds_after_process_proof_and_evaluation(
         "plan",
         "evaluate",
     ]
+    budget_requests = [
+        (method.rsplit("/", 1)[-1], body)
+        for method, body in api_requests
+        if "/budget/" in method
+    ]
+    assert [kind for kind, _ in budget_requests] == [
+        "permit",
+        "usage",
+        "permit",
+        "permit",
+        "usage",
+    ]
+    assert [body["phase"] for _, body in budget_requests] == [
+        "planning",
+        "planning",
+        "execution",
+        "evaluation",
+        "evaluation",
+    ]
+    assert all(body["tool_calls"] == 1 for _, body in budget_requests)
+    # Les appels Hermes ne revendiquent aucune borne coût/jetons que son API
+    # n'impose pas. L'effet local réserve au contraire ses zéros vérifiables et
+    # reste en attente faute de faux rapport provider.
+    assert "cost" not in budget_requests[0][1]
+    assert budget_requests[2][1]["cost"] == 0
+    assert budget_requests[2][1]["tokens_input"] == 0
+    assert budget_requests[2][1]["tokens_output"] == 0
+    assert "cost" not in budget_requests[-1][1]
+
+
+async def test_hermes_cost_or_token_budget_is_refused_before_provider_effect(
+    tmp_path: Path,
+):
+    marker = tmp_path / "must-not-run"
+    runner = LocalRunnerConfig(
+        argv=(
+            sys.executable,
+            "-I",
+            "-c",
+            "from pathlib import Path; import sys; Path(sys.argv[1]).write_text('ran')",
+            str(marker),
+        ),
+        run_root=tmp_path / "runs",
+        timeout_seconds=2,
+        max_output_bytes=1024,
+    )
+    config = worker_config(tmp_path, runner)
+    bounded_claim = claim()
+    bounded_claim["mission"]["budget"] = {
+        "max_cost": 1,
+        "currency": "EUR",
+        "max_tokens": 100,
+        "max_tool_calls": 3,
+    }
+    api_paths: list[str] = []
+    patches: list[dict] = []
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        api_paths.append(request.url.path)
+        if request.method == "PATCH":
+            patches.append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        raise AssertionError("aucun permis ne doit précéder une borne indisponible")
+
+    def unexpected_gateway(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("Hermes ne doit recevoir aucun effet non bornable")
+
+    async with (
+        httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
+        httpx.AsyncClient(transport=httpx.MockTransport(unexpected_gateway))
+        as gateway_client,
+    ):
+        with pytest.raises(
+            BudgetUnavailable,
+            match="estimation conservatrice indisponible.*coût.*jetons",
+        ):
+            await process(
+                api_client,
+                gateway_client,
+                config,
+                credentials(),
+                bounded_claim,
+                WorkerLogger(config.state_dir),
+            )
+
+    assert marker.exists() is False
+    assert all("/budget/" not in path for path in api_paths)
+    assert patches[-1]["status"] == "failed"
 
 
 async def test_terminal_patch_conflict_reconciles_interrupted_with_same_evidence(
@@ -246,6 +365,9 @@ async def test_terminal_patch_conflict_reconciles_interrupted_with_same_evidence
 
     def api_handler(request: httpx.Request) -> httpx.Response:
         nonlocal terminal_conflicted
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         if request.method == "PATCH":
             body = json.loads(request.content)
             patches.append(body)
@@ -302,6 +424,9 @@ async def test_provider_evaluation_failure_keeps_real_process_proof(tmp_path: Pa
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         if request.method == "PATCH":
             patches.append(json.loads(request.content))
         return httpx.Response(200, json={})
@@ -364,6 +489,9 @@ async def test_global_mission_deadline_covers_plan_process_and_evaluation(
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         if request.method == "PATCH":
             patches.append(json.loads(request.content))
         return httpx.Response(200, json={})
@@ -435,6 +563,9 @@ async def test_unsafe_mission_policy_is_rejected_before_spawn(tmp_path: Path):
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         if request.method == "PATCH":
             patches.append(json.loads(request.content))
         return httpx.Response(200, json={})
@@ -480,6 +611,9 @@ async def test_real_worker_rejects_legacy_task_without_mission_policy(tmp_path: 
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         if request.method == "PATCH":
             patches.append(json.loads(request.content))
         return httpx.Response(200, json={})
@@ -584,6 +718,9 @@ async def test_stop_during_planning_finishes_cancelled_without_failed_repatch(
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         if request.method == "PATCH":
             patches.append(json.loads(request.content))
         return httpx.Response(200, json={})
@@ -645,6 +782,9 @@ async def test_nonzero_process_cannot_reach_provider_approval(tmp_path: Path):
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
+        budget_response = budget_success_response(request)
+        if budget_response is not None:
+            return budget_response
         if request.method == "PATCH":
             patches.append(json.loads(request.content))
         return httpx.Response(200, json={})

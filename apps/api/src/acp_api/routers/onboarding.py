@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from acp_contracts import Project
@@ -77,7 +78,20 @@ async def onboarding_status(
         hermes_status = "unavailable"
     runner_ready = (
         db.query(WorkerModel)
-        .filter(WorkerModel.status == "online", WorkerModel.simulation == 0)
+        .filter(
+            WorkerModel.status == "online",
+            WorkerModel.simulation == 0,
+            or_(
+                and_(
+                    WorkerModel.global_access == 1,
+                    WorkerModel.project_id.is_(None),
+                ),
+                and_(
+                    WorkerModel.global_access == 0,
+                    WorkerModel.project_id.is_not(None),
+                ),
+            ),
+        )
         .first()
         is not None
     )

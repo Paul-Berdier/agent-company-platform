@@ -89,12 +89,33 @@ export interface MissionRunResource {
 export interface MissionSummary {
   id: string;
   project_id: string;
+  team_id: string | null;
+  agent_instance_id: string | null;
   title: string;
   objective: string;
   expected_outcome: string;
   acceptance_criteria: string[];
+  autonomy: {
+    mode: "supervised" | "bounded" | "autonomous";
+    allowed_actions: string[];
+    forbidden_actions: string[];
+    approval_required_actions: string[];
+  };
+  resources: Array<{
+    kind: string;
+    identifier: string;
+    access: "read" | "write";
+    description: string;
+  }>;
+  budget: {
+    max_cost: number | null;
+    currency: string;
+    max_tokens: number | null;
+    max_tool_calls: number | null;
+  };
   duration_seconds: number;
   priority: number;
+  required_capabilities: string[];
   status: MissionExecutionStatus;
   current_run: MissionRunResource;
   created_at: string | null;
@@ -175,6 +196,11 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
 
+function isNonEmptyStringList(value: unknown, required = false): value is string[] {
+  if (!Array.isArray(value) || value.length > 100 || (required && value.length === 0)) return false;
+  return value.every((item) => typeof item === "string" && Boolean(item.trim()));
+}
+
 function isMissionEvidence(value: unknown): value is MissionEvidence {
   return isRecord(value)
     && hasString(value, "id")
@@ -218,17 +244,68 @@ function isMissionRun(value: unknown): value is MissionRunResource {
     && isNullableString(value.created_at);
 }
 
+function isMissionAutonomy(value: unknown): value is MissionSummary["autonomy"] {
+  return isRecord(value)
+    && ["supervised", "bounded", "autonomous"].includes(String(value.mode))
+    && Array.isArray(value.allowed_actions)
+    && value.allowed_actions.length <= 100
+    && value.allowed_actions.every((item) => typeof item === "string")
+    && Array.isArray(value.forbidden_actions)
+    && value.forbidden_actions.length <= 100
+    && value.forbidden_actions.every((item) => typeof item === "string")
+    && Array.isArray(value.approval_required_actions)
+    && value.approval_required_actions.length <= 100
+    && value.approval_required_actions.every((item) => typeof item === "string");
+}
+
+function isMissionResource(value: unknown): value is MissionSummary["resources"][number] {
+  return isRecord(value)
+    && typeof value.kind === "string"
+    && value.kind.length >= 1
+    && value.kind.length <= 100
+    && typeof value.identifier === "string"
+    && value.identifier.length >= 1
+    && value.identifier.length <= 1_000
+    && (value.access === "read" || value.access === "write")
+    && typeof value.description === "string"
+    && value.description.length <= 1_000;
+}
+
+function isMissionBudget(value: unknown): value is MissionSummary["budget"] {
+  if (!isRecord(value)
+    || !(value.max_cost === null
+      || (typeof value.max_cost === "number" && Number.isFinite(value.max_cost) && value.max_cost >= 0))
+    || typeof value.currency !== "string"
+    || !/^[A-Za-z]{3}$/.test(value.currency)) return false;
+  for (const key of ["max_tokens", "max_tool_calls"] as const) {
+    const metric = value[key];
+    if (!(metric === null || (Number.isSafeInteger(metric) && Number(metric) >= 0))) return false;
+  }
+  return value.max_cost !== null || value.max_tokens !== null || value.max_tool_calls !== null;
+}
+
 function isMissionSummary(value: unknown): value is MissionSummary {
   return isRecord(value)
     && hasString(value, "id")
     && hasString(value, "project_id")
+    && isNullableString(value.team_id)
+    && isNullableString(value.agent_instance_id)
     && hasString(value, "title")
     && hasString(value, "objective")
     && hasString(value, "expected_outcome")
-    && Array.isArray(value.acceptance_criteria)
-    && value.acceptance_criteria.every((item) => typeof item === "string")
-    && typeof value.duration_seconds === "number"
-    && typeof value.priority === "number"
+    && isNonEmptyStringList(value.acceptance_criteria, true)
+    && isMissionAutonomy(value.autonomy)
+    && Array.isArray(value.resources)
+    && value.resources.length <= 100
+    && value.resources.every(isMissionResource)
+    && isMissionBudget(value.budget)
+    && Number.isSafeInteger(value.duration_seconds)
+    && Number(value.duration_seconds) >= 1
+    && Number(value.duration_seconds) <= 31_536_000
+    && Number.isSafeInteger(value.priority)
+    && Number(value.priority) >= 1
+    && Number(value.priority) <= 5
+    && isNonEmptyStringList(value.required_capabilities)
     && hasString(value, "status")
     && MISSION_STATUSES.has(value.status as MissionExecutionStatus)
     && isMissionRun(value.current_run)

@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier
 from uuid import uuid4
 
 import pytest
@@ -10,8 +11,10 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 
+from acp_api import budget_service
 from acp_api.deps import get_db
 from acp_api.main import app
+from acp_api.routers import missions as missions_router
 from acp_api.routers.work import _compare_and_set_run_status
 from acp_api.security import create_user_session, hash_password, utcnow
 from acp_database.engine import _upgrade_sqlite_schema
@@ -70,6 +73,10 @@ def mission_context(monkeypatch, tmp_path):
                 "/projects",
                 json={"workspace_id": workspace["id"], "name": "Mission project"},
             ).json()
+            monkeypatch.setenv(
+                "ACP_WORKER_REGISTRATION_PROJECT_ID", project["id"]
+            )
+            monkeypatch.setenv("ACP_WORKER_REGISTRATION_GLOBAL_ACCESS", "0")
             agent = client.post(
                 "/agents",
                 json={
@@ -86,6 +93,7 @@ def mission_context(monkeypatch, tmp_path):
                     "capabilities": ["git"],
                     "max_concurrency": 1,
                     "simulation": False,
+                    "project_id": project["id"],
                 },
             )
             assert registration.status_code == 201
@@ -187,7 +195,9 @@ def test_create_stop_retry_and_comments_are_pilotable_and_idempotent(mission_con
         headers={"Idempotency-Key": create_key},
         json=changed_payload,
     ).status_code == 409
-    assert len(client.get("/missions").json()) == 1
+    listed_missions = client.get("/missions").json()
+    assert len(listed_missions) == 1
+    assert listed_missions[0]["required_capabilities"] == ["git"]
     sibling_project = client.post(
         "/projects",
         json={
@@ -224,6 +234,12 @@ def test_create_stop_retry_and_comments_are_pilotable_and_idempotent(mission_con
     assert mission["status"] == "queued"
     assert mission["current_run"]["attempt_number"] == 1
     assert mission["objective"] == "Produire une modification vérifiable"
+    assert mission["team_id"] is None
+    assert mission["agent_instance_id"] == mission_context["agent_id"]
+    assert mission["autonomy"]["mode"] == "bounded"
+    assert mission["resources"][0]["identifier"] == "workspace"
+    assert mission["budget"]["max_tokens"] == 10_000
+    assert mission["required_capabilities"] == ["git"]
     mission_id = mission["id"]
 
     first_run_id = mission["current_run"]["id"]
@@ -890,6 +906,7 @@ def test_simulation_worker_cannot_claim_a_real_mission(mission_context):
             "name": f"simulated-{uuid4().hex}",
             "capabilities": ["git"],
             "simulation": True,
+            "project_id": mission_context["project_id"],
         },
     )
     assert simulated.status_code == 201
@@ -1139,6 +1156,360 @@ def test_running_stop_is_observable_and_approval_action_change_invalidates(
     assert retried.status_code == 201
     assert retried.json()["attempt_number"] == 2
     assert retried.json()["id"] != run_id
+
+
+def test_project_policy_limits_new_missions_and_retries(mission_context):
+    client = mission_context["client"]
+    policy = client.put(
+        f"/projects/{mission_context['project_id']}/budget-policy",
+        json={"max_concurrent_missions": 1, "max_retries_per_mission": 0},
+    )
+    assert policy.status_code == 200, policy.text
+
+    mission = _create_mission(mission_context, "Mission bornée")
+    refused = client.post(
+        "/missions",
+        headers={"Idempotency-Key": "capacity-refused"},
+        json=_mission_payload(mission_context, "Mission concurrente"),
+    )
+    assert refused.status_code == 409
+    assert "concurrentes" in refused.json()["detail"]
+
+    with mission_context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        run = db.get(TaskRunModel, mission["current_run"]["id"])
+        assert task is not None and run is not None
+        run.status = "failed"
+        task.status = "failed"
+        task.active_run_id = None
+        db.commit()
+
+    retry = client.post(
+        f"/missions/{mission['id']}/retry",
+        headers={"Idempotency-Key": "retry-over-project-policy"},
+        json={"reason": "Ne doit pas dépasser la borne"},
+    )
+    assert retry.status_code == 409
+    assert "relances" in retry.json()["detail"]
+    with mission_context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        assert task is not None
+        assert task.attempt_counter == 1
+        assert db.query(TaskRunModel).filter_by(task_id=mission["id"]).count() == 1
+
+
+def test_concurrent_retries_share_the_project_capacity_atomically(mission_context):
+    client = mission_context["client"]
+    first = _create_mission(mission_context, "Relance concurrente A")
+    second = _create_mission(mission_context, "Relance concurrente B")
+    with mission_context["session_factory"]() as db:
+        for mission in (first, second):
+            task = db.get(TaskModel, mission["id"])
+            run = db.get(TaskRunModel, mission["current_run"]["id"])
+            assert task is not None and run is not None
+            run.status = "failed"
+            task.status = "failed"
+            task.active_run_id = None
+        db.commit()
+
+    policy = client.put(
+        f"/projects/{mission_context['project_id']}/budget-policy",
+        json={"max_concurrent_missions": 1, "max_retries_per_mission": 3},
+    )
+    assert policy.status_code == 200, policy.text
+
+    start = Barrier(2)
+
+    def retry(mission: dict, suffix: str):
+        start.wait(timeout=10)
+        return client.post(
+            f"/missions/{mission['id']}/retry",
+            headers={"Idempotency-Key": f"capacity-retry-{suffix}"},
+            json={"reason": "Course réelle sur la capacité projet"},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(
+            executor.map(
+                lambda item: retry(*item),
+                ((first, "a"), (second, "b")),
+            )
+        )
+
+    assert sorted(response.status_code for response in responses) == [201, 409]
+    refusal = next(response for response in responses if response.status_code == 409)
+    assert "concurrentes" in refusal.json()["detail"]
+    with mission_context["session_factory"]() as db:
+        active = (
+            db.query(TaskRunModel)
+            .join(TaskModel, TaskModel.id == TaskRunModel.task_id)
+            .filter(
+                TaskModel.project_id == mission_context["project_id"],
+                TaskModel.is_mission == 1,
+                TaskRunModel.status == "queued",
+            )
+            .count()
+        )
+        assert active == 1
+        tasks = db.query(TaskModel).filter(
+            TaskModel.id.in_([first["id"], second["id"]])
+        ).all()
+        assert sorted(task.attempt_counter for task in tasks) == [1, 2]
+
+
+def test_retry_reloads_counter_and_latest_status_after_waiting_for_policy_lock(
+    mission_context,
+    monkeypatch,
+):
+    context = mission_context
+    mission = _create_mission(context, "Relance devenue obsolète")
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        first = db.get(TaskRunModel, mission["current_run"]["id"])
+        assert task is not None and first is not None
+        first.status = "failed"
+        task.status = "failed"
+        task.active_run_id = None
+        db.commit()
+
+    policy = context["client"].put(
+        f"/projects/{context['project_id']}/budget-policy",
+        json={"max_concurrent_missions": 3, "max_retries_per_mission": 1},
+    )
+    assert policy.status_code == 200, policy.text
+
+    real_begin = missions_router.begin_budget_write
+    injected = False
+
+    def completed_retry_before_lock(db):
+        nonlocal injected
+        db.rollback()
+        if not injected:
+            injected = True
+            with context["session_factory"]() as concurrent:
+                task = concurrent.get(TaskModel, mission["id"])
+                assert task is not None
+                task.attempt_counter = 2
+                concurrent.add(
+                    TaskRunModel(
+                        task_id=task.id,
+                        status="failed",
+                        attempt_number=2,
+                        fencing_token=2,
+                        technical_validation={"status": "failed"},
+                        user_acceptance={"status": "pending"},
+                    )
+                )
+                concurrent.commit()
+        real_begin(db)
+
+    monkeypatch.setattr(
+        missions_router,
+        "begin_budget_write",
+        completed_retry_before_lock,
+    )
+    refused = context["client"].post(
+        f"/missions/{mission['id']}/retry",
+        headers={"Idempotency-Key": "stale-counter-after-wait"},
+        json={"reason": "Ne doit pas créer une troisième tentative"},
+    )
+    assert refused.status_code == 409, refused.text
+    assert "relances" in refused.json()["detail"]
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        assert task is not None and task.attempt_counter == 2
+        assert db.query(TaskRunModel).filter_by(task_id=task.id).count() == 2
+
+
+def test_retry_reloads_an_active_winning_attempt_after_waiting_for_policy_lock(
+    mission_context,
+    monkeypatch,
+):
+    context = mission_context
+    mission = _create_mission(context, "Relance gagnante devenue active")
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        first = db.get(TaskRunModel, mission["current_run"]["id"])
+        assert task is not None and first is not None
+        first.status = "failed"
+        task.status = "failed"
+        task.active_run_id = None
+        db.commit()
+
+    real_begin = missions_router.begin_budget_write
+    injected = False
+
+    def active_retry_before_lock(db):
+        nonlocal injected
+        db.rollback()
+        if not injected:
+            injected = True
+            with context["session_factory"]() as concurrent:
+                task = concurrent.get(TaskModel, mission["id"])
+                assert task is not None
+                winning = TaskRunModel(
+                    task_id=task.id,
+                    status="queued",
+                    attempt_number=2,
+                    fencing_token=2,
+                    technical_validation={"status": "pending"},
+                    user_acceptance={"status": "pending"},
+                )
+                concurrent.add(winning)
+                concurrent.flush()
+                task.attempt_counter = 2
+                task.active_run_id = winning.id
+                task.status = "queued"
+                concurrent.commit()
+        real_begin(db)
+
+    monkeypatch.setattr(missions_router, "begin_budget_write", active_retry_before_lock)
+    refused = context["client"].post(
+        f"/missions/{mission['id']}/retry",
+        headers={"Idempotency-Key": "active-after-policy-wait"},
+        json={"reason": "Ne doit pas ignorer la tentative gagnante"},
+    )
+    assert refused.status_code == 409, refused.text
+    assert "active" in refused.json()["detail"]
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        assert task is not None and task.attempt_counter == 2
+        assert db.query(TaskRunModel).filter_by(task_id=task.id).count() == 2
+
+
+def test_retry_reloads_latest_run_after_the_serialization_lock(
+    mission_context,
+    monkeypatch,
+):
+    context = mission_context
+    mission = _create_mission(context, "Relance et snapshot PostgreSQL")
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        first = db.get(TaskRunModel, mission["current_run"]["id"])
+        assert task is not None and first is not None
+        first.status = "failed"
+        task.status = "failed"
+        task.active_run_id = None
+        db.commit()
+
+    policy = context["client"].put(
+        f"/projects/{context['project_id']}/budget-policy",
+        json={"max_concurrent_missions": 3, "max_retries_per_mission": 3},
+    )
+    assert policy.status_code == 200, policy.text
+
+    real_lock_policy = budget_service._lock_policy
+    injected = False
+
+    def insert_completed_run_before_policy_lock(db, project_id):
+        nonlocal injected
+        if not injected:
+            injected = True
+            task = db.get(TaskModel, mission["id"])
+            assert task is not None
+            task.attempt_counter = 2
+            task.status = "succeeded"
+            task.active_run_id = None
+            db.add(
+                TaskRunModel(
+                    task_id=task.id,
+                    status="succeeded",
+                    attempt_number=2,
+                    fencing_token=2,
+                    technical_validation={"status": "passed"},
+                    user_acceptance={"status": "pending"},
+                )
+            )
+            db.flush()
+        return real_lock_policy(db, project_id)
+
+    monkeypatch.setattr(
+        budget_service,
+        "_lock_policy",
+        insert_completed_run_before_policy_lock,
+    )
+    refused = context["client"].post(
+        f"/missions/{mission['id']}/retry",
+        headers={"Idempotency-Key": "snapshot-refreshed-after-run-lock"},
+        json={"reason": "Ne doit pas ignorer la réussite la plus récente"},
+    )
+    assert refused.status_code == 409, refused.text
+    assert "réussite" in refused.json()["detail"]
+
+
+def test_retry_counter_cas_refuses_a_changed_observation(
+    mission_context,
+    monkeypatch,
+):
+    context = mission_context
+    mission = _create_mission(context, "CAS du compteur de relance")
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        run = db.get(TaskRunModel, mission["current_run"]["id"])
+        assert task is not None and run is not None
+        run.status = "failed"
+        task.status = "failed"
+        task.active_run_id = None
+        db.commit()
+
+    real_enforce = missions_router.enforce_mission_retry_limit
+
+    def drift_counter_after_check(db, task, policy):
+        real_enforce(db, task, policy)
+        db.query(TaskModel).filter(TaskModel.id == task.id).update(
+            {TaskModel.attempt_counter: TaskModel.attempt_counter + 1},
+            synchronize_session=False,
+        )
+
+    monkeypatch.setattr(
+        missions_router,
+        "enforce_mission_retry_limit",
+        drift_counter_after_check,
+    )
+    refused = context["client"].post(
+        f"/missions/{mission['id']}/retry",
+        headers={"Idempotency-Key": "counter-cas-drift"},
+        json={"reason": "La valeur observée ne doit plus être vraie"},
+    )
+    assert refused.status_code == 409, refused.text
+    assert "concurrente" in refused.json()["detail"]
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, mission["id"])
+        assert task is not None and task.attempt_counter == 1
+        assert db.query(TaskRunModel).filter_by(task_id=task.id).count() == 1
+
+
+def test_retry_revalidates_access_in_each_transaction_after_rollback(
+    mission_context,
+    monkeypatch,
+):
+    context = mission_context
+    mission = _create_mission(context, "Relance et révocation concurrentes")
+    real_ensure_access = missions_router.ensure_access
+    checks = 0
+
+    def access_disappears_after_locked_decision(*args, **kwargs):
+        nonlocal checks
+        checks += 1
+        if checks >= 4:
+            raise missions_router.HTTPException(
+                status_code=403,
+                detail="Accès révoqué pendant la relance",
+            )
+        return real_ensure_access(*args, **kwargs)
+
+    monkeypatch.setattr(
+        missions_router,
+        "ensure_access",
+        access_disappears_after_locked_decision,
+    )
+    refused = context["client"].post(
+        f"/missions/{mission['id']}/retry",
+        headers={"Idempotency-Key": "revoked-after-retry-rollback"},
+        json={"reason": "La tentative active force rollback puis replay"},
+    )
+    assert refused.status_code == 403, refused.text
+    assert checks == 4
 
 
 def test_mission_routes_require_session_and_current_csrf(mission_context):

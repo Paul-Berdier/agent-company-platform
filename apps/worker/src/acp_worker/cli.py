@@ -6,8 +6,9 @@ import json
 import sys
 
 import httpx
+from pydantic import ValidationError
 
-from acp_contracts import WorkerCapability
+from acp_contracts import WorkerCapability, WorkerRegistrationResponse
 
 from .capabilities import detect_capabilities
 from .config import WorkerConfig, WorkerConfigurationError
@@ -37,6 +38,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     register.add_argument("--max-concurrency", type=int)
     register.add_argument("--real", action="store_true", help="Désactiver la simulation")
+    scope = register.add_mutually_exclusive_group()
+    scope.add_argument(
+        "--project",
+        dest="project_id",
+        help="Limiter les claims à cet identifiant de projet",
+    )
+    scope.add_argument(
+        "--global-access",
+        action="store_true",
+        default=None,
+        help="Autoriser explicitement les claims de tous les projets et le planificateur",
+    )
     commands.add_parser("doctor", help="Vérifier l'environnement et la connectivité")
     start = commands.add_parser("start", help="Démarrer la boucle du worker")
     start.add_argument("--once", action="store_true", help="Faire un seul claim puis quitter")
@@ -70,6 +83,28 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
     if not 1 <= max_concurrency <= 32:
         print("max-concurrency doit être compris entre 1 et 32", file=sys.stderr)
         return 2
+    if args.project_id is not None:
+        project_id = args.project_id.strip()
+        global_access = False
+        if not project_id or len(project_id) > 36:
+            print(
+                "project doit contenir entre 1 et 36 caractères",
+                file=sys.stderr,
+            )
+            return 2
+    elif args.global_access is True:
+        project_id = None
+        global_access = True
+    else:
+        project_id = config.project_id
+        global_access = config.global_access
+    if project_id is None and not global_access:
+        print(
+            "Périmètre worker requis: utilisez --project ID (recommandé) ou "
+            "--global-access pour un worker d'administration.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         response = httpx.post(
             f"{config.api_url}/workers/register",
@@ -79,26 +114,52 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
                 "capabilities": capabilities,
                 "max_concurrency": max_concurrency,
                 "simulation": simulation,
+                "project_id": project_id,
+                "global_access": global_access,
                 "metadata": config.metadata,
             },
             timeout=15.0,
             trust_env=False,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            print(
+                "Enregistrement refusé: le périmètre demandé ne correspond pas "
+                "à ACP_WORKER_REGISTRATION_PROJECT_ID/"
+                "ACP_WORKER_REGISTRATION_GLOBAL_ACCESS sur l'API.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Enregistrement impossible: {exc}", file=sys.stderr)
+        return 1
     except httpx.HTTPError as exc:
         print(f"Enregistrement impossible: {exc}", file=sys.stderr)
         return 1
-    result = response.json()
+    try:
+        result = WorkerRegistrationResponse.model_validate(response.json())
+    except (ValueError, ValidationError) as exc:
+        print(f"Réponse d'enregistrement invalide: {exc}", file=sys.stderr)
+        return 1
+    if result.project_id != project_id or result.global_access is not global_access:
+        print(
+            "Résultat d'enregistrement incertain: le périmètre renvoyé diffère; "
+            "réenregistrez seulement après vérification côté API.",
+            file=sys.stderr,
+        )
+        return 1
     credentials = WorkerCredentials(
-        worker_id=result["worker_id"],
-        token=result["token"],
+        worker_id=result.worker_id,
+        token=result.token,
         api_origin=config.api_url,
         name=args.name or config.name,
         capabilities=capabilities,
         max_concurrency=max_concurrency,
         simulation=simulation,
-        token_expires_at=result["token_expires_at"],
-        heartbeat_interval_seconds=result["heartbeat_interval_seconds"],
+        token_expires_at=result.token_expires_at.isoformat(),
+        heartbeat_interval_seconds=result.heartbeat_interval_seconds,
+        project_id=result.project_id,
+        global_access=result.global_access,
     )
     path = save_credentials(config.state_dir, credentials)
     print(
@@ -107,6 +168,8 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
                 "worker_id": credentials.worker_id,
                 "state": str(path),
                 "capabilities": capabilities,
+                "project_id": credentials.project_id,
+                "global_access": credentials.global_access,
             },
             ensure_ascii=False,
             indent=2,
@@ -154,6 +217,15 @@ def _doctor(config: WorkerConfig) -> int:
         "api": "unreachable",
         "gateway": "unreachable",
         "provider": "unchecked",
+        "scope": (
+            "global"
+            if (credentials.global_access if credentials else config.global_access)
+            else (
+                f"project:{credentials.project_id if credentials else config.project_id}"
+                if (credentials.project_id if credentials else config.project_id)
+                else "missing"
+            )
+        ),
     }
     if config.mcp_probe.status() == "enabled":
         # Le nombre d'entrées suffit au diagnostic : les chemins autorisés ne
@@ -234,6 +306,7 @@ def _doctor(config: WorkerConfig) -> int:
     print(json.dumps(checks, ensure_ascii=False, indent=2))
     required_ok = (
         checks["state"] == "ok"
+        and checks["scope"] != "missing"
         and checks["api"] == "ok"
         and checks["gateway"] == "ok"
         and checks["provider"] == "ok"
@@ -278,6 +351,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if credentials is None:
         print("Worker non enregistré. Exécutez agent-company-worker register.", file=sys.stderr)
+        return 2
+    if credentials.project_id is None and not credentials.global_access:
+        print(
+            "Credentials worker sans périmètre; réenregistrez avec --project ID "
+            "ou --global-access.",
+            file=sys.stderr,
+        )
         return 2
     try:
         config.validate_execution_mode(simulation=credentials.simulation)

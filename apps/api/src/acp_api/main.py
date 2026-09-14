@@ -5,11 +5,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from acp_agent_sdk import load_modules
-from acp_database import init_db
+from acp_database import get_engine, init_db
+
+from .webhook_ingress import RequestIngressGuardMiddleware
 
 from .routers import (
     artifacts,
+    alerts,
     auth,
+    automations,
+    budgets,
     connections,
     conversations,
     crud,
@@ -19,6 +24,7 @@ from .routers import (
     onboarding,
     operations,
     platform,
+    scheduler,
     secrets,
     skills,
     streams,
@@ -31,15 +37,22 @@ from .routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    app.state.modules = load_modules(os.environ.get("ACP_PLUGINS_DIR"))
-    yield
+    try:
+        app.state.modules = load_modules(os.environ.get("ACP_PLUGINS_DIR"))
+        yield
+    finally:
+        # Uvicorn's graceful shutdown must release SQLite file handles before
+        # verification scripts (and Windows service managers) remove the DB.
+        get_engine().dispose()
 
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.6.0",
+    version="0.7.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(RequestIngressGuardMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,6 +65,9 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(alerts.router)
+app.include_router(automations.router)
+app.include_router(budgets.router)
 app.include_router(connections.router)
 app.include_router(conversations.router)
 app.include_router(onboarding.router)
@@ -61,6 +77,7 @@ app.include_router(work.router)
 app.include_router(workers.router)
 app.include_router(operations.router)
 app.include_router(platform.router)
+app.include_router(scheduler.router)
 app.include_router(secrets.router)
 app.include_router(mcp.router)
 app.include_router(skills.router)

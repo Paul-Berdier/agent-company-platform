@@ -24,6 +24,8 @@ class WorkerCredentials:
     simulation: bool
     token_expires_at: str
     heartbeat_interval_seconds: int = 15
+    project_id: str | None = None
+    global_access: bool = False
 
     def __post_init__(self) -> None:
         try:
@@ -33,6 +35,20 @@ class WorkerCredentials:
         except WorkerConfigurationError as exc:
             raise CredentialStateError(str(exc)) from exc
         object.__setattr__(self, "api_origin", origin)
+        if self.project_id is not None:
+            if (
+                not isinstance(self.project_id, str)
+                or not self.project_id.strip()
+                or len(self.project_id.strip()) > 36
+            ):
+                raise CredentialStateError("Projet des credentials worker invalide")
+            object.__setattr__(self, "project_id", self.project_id.strip())
+        if not isinstance(self.global_access, bool):
+            raise CredentialStateError("Privilège global des credentials worker invalide")
+        if self.global_access and self.project_id is not None:
+            raise CredentialStateError(
+                "Credentials worker avec deux périmètres incompatibles"
+            )
 
 
 def state_file(state_dir: Path) -> Path:

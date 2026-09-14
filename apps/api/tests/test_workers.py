@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from acp_api.main import app
@@ -13,6 +14,24 @@ from acp_database.models import TaskModel, UserModel, WorkerLeaseModel, WorkerMo
 
 
 REGISTRATION_TOKEN = "test-registration-secret"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_registration_scope(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ACP_WORKER_REGISTRATION_PROJECT_ID", raising=False)
+    monkeypatch.delenv("ACP_WORKER_REGISTRATION_GLOBAL_ACCESS", raising=False)
+
+
+def _authorize_registration(
+    *, project_id: str | None = None, global_access: bool = True
+) -> None:
+    if project_id is None:
+        os.environ.pop("ACP_WORKER_REGISTRATION_PROJECT_ID", None)
+    else:
+        os.environ["ACP_WORKER_REGISTRATION_PROJECT_ID"] = project_id
+    os.environ["ACP_WORKER_REGISTRATION_GLOBAL_ACCESS"] = (
+        "1" if global_access else "0"
+    )
 
 
 def _authenticate_owner(client: TestClient) -> None:
@@ -33,8 +52,16 @@ def _authenticate_owner(client: TestClient) -> None:
     client.headers["X-CSRF-Token"] = csrf_token
 
 
-def _register(client: TestClient, name: str, capabilities: list[str]):
+def _register(
+    client: TestClient,
+    name: str,
+    capabilities: list[str],
+    *,
+    project_id: str | None = None,
+    global_access: bool = True,
+):
     os.environ["ACP_WORKER_REGISTRATION_TOKEN"] = REGISTRATION_TOKEN
+    _authorize_registration(project_id=project_id, global_access=global_access)
     return client.post(
         "/workers/register",
         headers={"X-Worker-Registration-Token": REGISTRATION_TOKEN},
@@ -43,6 +70,8 @@ def _register(client: TestClient, name: str, capabilities: list[str]):
             "capabilities": capabilities,
             "max_concurrency": 1,
             "simulation": True,
+            "project_id": project_id,
+            "global_access": global_access,
             "metadata": {"test": True},
         },
     )
@@ -71,11 +100,16 @@ def _project_with_agent(client: TestClient) -> tuple[str, str]:
 
 def test_registration_requires_bootstrap_token_and_hashes_worker_token():
     os.environ["ACP_WORKER_REGISTRATION_TOKEN"] = REGISTRATION_TOKEN
+    _authorize_registration()
     with TestClient(app) as client:
         denied = client.post(
             "/workers/register",
             headers={"X-Worker-Registration-Token": "wrong"},
-            json={"name": f"denied-{uuid4().hex}", "capabilities": []},
+            json={
+                "name": f"denied-{uuid4().hex}",
+                "capabilities": [],
+                "global_access": True,
+            },
         )
         assert denied.status_code == 401
 
@@ -83,12 +117,250 @@ def test_registration_requires_bootstrap_token_and_hashes_worker_token():
         assert response.status_code == 201
         registration = response.json()
         assert registration["token"]
+        assert registration["project_id"] is None
+        assert registration["global_access"] is True
 
         with get_session_factory()() as db:
             worker = db.get(WorkerModel, registration["worker_id"])
             assert worker is not None
             assert worker.token_hash != registration["token"]
             assert registration["token"] not in worker.token_hash
+
+
+def test_registration_scope_authorization_fails_closed_when_missing_or_ambiguous():
+    os.environ["ACP_WORKER_REGISTRATION_TOKEN"] = REGISTRATION_TOKEN
+    body = {
+        "name": f"scope-config-{uuid4().hex}",
+        "capabilities": [],
+        "global_access": True,
+    }
+    headers = {"X-Worker-Registration-Token": REGISTRATION_TOKEN}
+    with TestClient(app) as client:
+        os.environ.pop("ACP_WORKER_REGISTRATION_PROJECT_ID", None)
+        os.environ.pop("ACP_WORKER_REGISTRATION_GLOBAL_ACCESS", None)
+        assert client.post("/workers/register", headers=headers, json=body).status_code == 503
+
+        os.environ["ACP_WORKER_REGISTRATION_PROJECT_ID"] = "project-authorized"
+        os.environ["ACP_WORKER_REGISTRATION_GLOBAL_ACCESS"] = "1"
+        assert client.post("/workers/register", headers=headers, json=body).status_code == 503
+
+
+def test_registration_token_cannot_choose_or_change_its_server_authorized_scope():
+    os.environ["ACP_WORKER_REGISTRATION_TOKEN"] = REGISTRATION_TOKEN
+    headers = {"X-Worker-Registration-Token": REGISTRATION_TOKEN}
+    with TestClient(app) as client:
+        _authenticate_owner(client)
+        first_project_id, _ = _project_with_agent(client)
+        second_project_id, _ = _project_with_agent(client)
+        worker_name = f"authorized-scope-{uuid4().hex}"
+        _authorize_registration(project_id=first_project_id, global_access=False)
+
+        for unauthorized_body in (
+            {"project_id": second_project_id, "global_access": False},
+            {"project_id": None, "global_access": True},
+        ):
+            response = client.post(
+                "/workers/register",
+                headers=headers,
+                json={
+                    "name": worker_name,
+                    "capabilities": ["git"],
+                    **unauthorized_body,
+                },
+            )
+            assert response.status_code == 403
+
+        accepted = client.post(
+            "/workers/register",
+            headers=headers,
+            json={
+                "name": worker_name,
+                "capabilities": ["git"],
+                "project_id": first_project_id,
+                "global_access": False,
+            },
+        )
+        assert accepted.status_code == 201
+        worker_id = accepted.json()["worker_id"]
+
+        renewed = client.post(
+            "/workers/register",
+            headers=headers,
+            json={
+                "name": worker_name,
+                "capabilities": ["git"],
+                "project_id": first_project_id,
+                "global_access": False,
+            },
+        )
+        assert renewed.status_code == 201
+        assert renewed.json()["worker_id"] == worker_id
+
+        # Même nom et même secret : sans autorisation serveur correspondante, le
+        # réenrôlement ne peut ni changer de projet ni devenir global.
+        changed = client.post(
+            "/workers/register",
+            headers=headers,
+            json={
+                "name": worker_name,
+                "capabilities": ["git"],
+                "global_access": True,
+            },
+        )
+        assert changed.status_code == 403
+        with get_session_factory()() as db:
+            persisted = db.get(WorkerModel, worker_id)
+            assert persisted is not None
+            assert persisted.project_id == first_project_id
+            assert bool(persisted.global_access) is False
+
+        _authorize_registration(global_access=True)
+        global_name = f"global-authorized-{uuid4().hex}"
+        global_to_project = client.post(
+            "/workers/register",
+            headers=headers,
+            json={
+                "name": global_name,
+                "capabilities": [],
+                "project_id": first_project_id,
+                "global_access": False,
+            },
+        )
+        assert global_to_project.status_code == 403
+
+
+def test_project_scope_is_persisted_and_filters_claims_before_assignment():
+    with TestClient(app) as client:
+        _authenticate_owner(client)
+        with get_session_factory()() as db:
+            db.query(TaskModel).filter_by(status="queued").update({"status": "done"})
+            db.commit()
+
+        first_project_id, first_agent_id = _project_with_agent(client)
+        second_project_id, second_agent_id = _project_with_agent(client)
+        foreign_task = client.post(
+            "/tasks",
+            json={
+                "project_id": second_project_id,
+                "agent_instance_id": second_agent_id,
+                "title": "Foreign project task",
+                "meta": {"required_capabilities": ["git"]},
+            },
+        ).json()
+        own_task = client.post(
+            "/tasks",
+            json={
+                "project_id": first_project_id,
+                "agent_instance_id": first_agent_id,
+                "title": "Scoped project task",
+                "meta": {"required_capabilities": ["git"]},
+            },
+        ).json()
+        assert client.post(f"/tasks/{foreign_task['id']}/queue").status_code == 200
+        assert client.post(f"/tasks/{own_task['id']}/queue").status_code == 200
+
+        registration = _register(
+            client,
+            f"scoped-worker-{uuid4().hex}",
+            ["git"],
+            project_id=first_project_id,
+            global_access=False,
+        )
+        assert registration.status_code == 201
+        worker = registration.json()
+        assert worker["project_id"] == first_project_id
+        assert worker["global_access"] is False
+        headers = {"Authorization": f"Bearer {worker['token']}"}
+
+        # Le heartbeat est volontairement incapable d'élargir le périmètre.
+        escalation = client.post(
+            f"/workers/{worker['worker_id']}/heartbeat",
+            headers=headers,
+            json={"global_access": True},
+        )
+        assert escalation.status_code == 422
+        with get_session_factory()() as db:
+            persisted = db.get(WorkerModel, worker["worker_id"])
+            assert persisted is not None
+            assert persisted.project_id == first_project_id
+            assert bool(persisted.global_access) is False
+
+        claim = client.post(
+            f"/workers/{worker['worker_id']}/claim", headers=headers, json={}
+        )
+        assert claim.status_code == 200
+        assert claim.json()["task"]["id"] == own_task["id"]
+        with get_session_factory()() as db:
+            assert db.get(TaskModel, foreign_task["id"]).status == "queued"
+
+        second_registration = _register(
+            client,
+            f"second-scoped-worker-{uuid4().hex}",
+            ["git"],
+            project_id=second_project_id,
+            global_access=False,
+        ).json()
+        second_claim = client.post(
+            f"/workers/{second_registration['worker_id']}/claim",
+            headers={"Authorization": f"Bearer {second_registration['token']}"},
+            json={},
+        )
+        assert second_claim.status_code == 200
+        assert second_claim.json()["task"]["id"] == foreign_task["id"]
+
+
+def test_unscoped_worker_is_quarantined_and_cannot_claim_any_project():
+    os.environ["ACP_WORKER_REGISTRATION_TOKEN"] = REGISTRATION_TOKEN
+    _authorize_registration()
+    with TestClient(app) as client:
+        _authenticate_owner(client)
+        project_id, agent_id = _project_with_agent(client)
+        task = client.post(
+            "/tasks",
+            json={
+                "project_id": project_id,
+                "agent_instance_id": agent_id,
+                "title": "Never exposed to an unscoped worker",
+                "meta": {"required_capabilities": ["git"]},
+            },
+        ).json()
+        assert client.post(f"/tasks/{task['id']}/queue").status_code == 200
+        refused_registration = client.post(
+            "/workers/register",
+            headers={"X-Worker-Registration-Token": REGISTRATION_TOKEN},
+            json={
+                "name": f"quarantined-worker-{uuid4().hex}",
+                "capabilities": ["git"],
+            },
+        )
+        assert refused_registration.status_code == 422
+
+        # Une ligne historique migrée demeure volontairement sans portée. On
+        # conserve son jeton seulement pour prouver que même authentifiée elle
+        # n'accède à aucune file avant un réenrôlement explicite.
+        worker = _register(
+            client, f"legacy-quarantined-{uuid4().hex}", ["git"]
+        ).json()
+        with get_session_factory()() as db:
+            persisted = db.get(WorkerModel, worker["worker_id"])
+            assert persisted is not None
+            persisted.global_access = 0
+            persisted.project_id = None
+            db.commit()
+
+        claim = client.post(
+            f"/workers/{worker['worker_id']}/claim",
+            headers={"Authorization": f"Bearer {worker['token']}"},
+            json={},
+        )
+        assert claim.status_code == 200
+        assert claim.json()["task"] is None
+        assert "sans périmètre" in claim.json()["reason"]
+        with get_session_factory()() as db:
+            persisted_task = db.get(TaskModel, task["id"])
+            assert persisted_task.status == "queued"
+            persisted_task.status = "done"
+            db.commit()
 
 
 def test_heartbeat_capability_matching_concurrency_and_lease_release():

@@ -50,6 +50,51 @@ export interface Overview {
   tasks: TaskSummary[];
 }
 
+export type WorkerCapability =
+  | "git" | "filesystem_project" | "shell_restricted" | "claude_code"
+  | "codex_cli" | "blender" | "blender_mcp" | "unreal_engine"
+  | "unreal_mcp" | "nanosworld_cook" | "asset_validation"
+  | "image_capture" | "mcp_stdio_probe" | "web_tests";
+
+export type WorkerStatus = "online" | "busy" | "offline" | "revoked";
+
+/** Une inscription doit choisir exactement un projet ou le privilège global. */
+export interface WorkerRegistrationRequest {
+  name: string;
+  capabilities: WorkerCapability[];
+  max_concurrency: number;
+  simulation: boolean;
+  project_id: string | null;
+  global_access: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface WorkerRegistrationResponse {
+  worker_id: string;
+  token: string;
+  token_expires_at: string;
+  heartbeat_interval_seconds: number;
+  project_id: string | null;
+  global_access: boolean;
+}
+
+export interface WorkerSnapshot {
+  id: string;
+  name: string;
+  capabilities: WorkerCapability[];
+  max_concurrency: number;
+  active_runs: number;
+  status: WorkerStatus;
+  simulation: boolean;
+  project_id: string | null;
+  global_access: boolean;
+  metadata: Record<string, unknown>;
+  last_seen_at: string | null;
+  lease_expires_at: string | null;
+  token_expires_at: string;
+  created_at: string | null;
+}
+
 export interface AcpEvent {
   id: string; type: string; occurred_at: string;
   organization_id: string | null; workspace_id: string | null;
@@ -636,4 +681,354 @@ export interface ArtifactLink {
 export interface ArtifactPage {
   items: ArtifactSummary[];
   next_cursor: string | null;
+}
+
+// --- Lot F : automatisations, calendrier, budgets et alertes -----------------
+
+export type AutomationScheduleKind = "cron" | "interval";
+export type AutomationCatchupPolicy = "skip" | "run_once";
+export type AutomationTriggerKind = "manual" | "schedule" | "webhook";
+export type AutomationRunOutcome =
+  | "launched"
+  | "skipped_concurrency"
+  | "skipped_disabled"
+  | "skipped_catchup"
+  | "failed";
+export type AutomationCompletionStatus =
+  | "blocked"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
+export type CalendarEntryState = "planned" | "past";
+export type BudgetState = "unknown" | "ok" | "warning" | "exceeded";
+export type BudgetLimitName = "max_cost" | "max_tokens" | "max_tool_calls";
+export type BudgetUsagePhase = "planning" | "execution" | "evaluation" | "tool";
+export type BudgetUsageSource = "provider" | "platform";
+export type AlertSeverity = "info" | "warning" | "critical";
+export type NotificationChannel = "in_app";
+
+export interface AutomationSchedule {
+  kind: AutomationScheduleKind;
+  expression: string;
+  timezone: string;
+}
+
+export interface AutomationScheduleInput {
+  kind: AutomationScheduleKind;
+  expression: string;
+  timezone?: string;
+}
+
+export interface AutomationMissionAutonomy {
+  mode: "supervised" | "bounded" | "autonomous";
+  allowed_actions: string[];
+  forbidden_actions: string[];
+  approval_required_actions: string[];
+}
+
+export interface AutomationMissionAutonomyInput {
+  mode?: "supervised" | "bounded" | "autonomous";
+  allowed_actions?: string[];
+  forbidden_actions?: string[];
+  approval_required_actions?: string[];
+}
+
+export interface AutomationMissionResource {
+  kind: string;
+  identifier: string;
+  access: "read" | "write";
+  description: string;
+}
+
+export interface AutomationMissionResourceInput {
+  kind: string;
+  identifier: string;
+  access?: "read" | "write";
+  description?: string;
+}
+
+export interface AutomationMissionBudget {
+  max_cost: number | null;
+  currency: string;
+  max_tokens: number | null;
+  max_tool_calls: number | null;
+}
+
+export interface AutomationMissionBudgetInput {
+  max_cost?: number | null;
+  currency?: string;
+  max_tokens?: number | null;
+  max_tool_calls?: number | null;
+}
+
+export interface AutomationMissionTemplate {
+  title: string;
+  objective: string;
+  expected_outcome: string;
+  acceptance_criteria: string[];
+  autonomy: AutomationMissionAutonomy;
+  resources: AutomationMissionResource[];
+  budget: AutomationMissionBudget;
+  duration_seconds: number;
+  team_id: string | null;
+  agent_instance_id: string | null;
+  priority: number;
+  required_capabilities: string[];
+}
+
+export interface AutomationMissionTemplateInput {
+  title: string;
+  objective: string;
+  expected_outcome: string;
+  acceptance_criteria: string[];
+  autonomy: AutomationMissionAutonomyInput;
+  resources?: AutomationMissionResourceInput[];
+  budget: AutomationMissionBudgetInput;
+  duration_seconds: number;
+  team_id?: string | null;
+  agent_instance_id?: string | null;
+  priority?: number;
+  required_capabilities?: string[];
+}
+
+export interface AutomationCreate {
+  name: string;
+  description?: string;
+  schedule: AutomationScheduleInput;
+  mission_template: AutomationMissionTemplateInput;
+  catchup_policy?: AutomationCatchupPolicy;
+  max_concurrent_runs?: number;
+}
+
+export interface AutomationUpdate {
+  name?: string;
+  description?: string;
+  schedule?: AutomationScheduleInput;
+  mission_template?: AutomationMissionTemplateInput;
+  catchup_policy?: AutomationCatchupPolicy;
+  max_concurrent_runs?: number;
+}
+
+export interface AutomationSummary {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  schedule: AutomationSchedule;
+  enabled: boolean;
+  catchup_policy: AutomationCatchupPolicy;
+  max_concurrent_runs: number;
+  next_run_at: string | null;
+  created_at: string;
+}
+
+export interface AutomationRunSummary {
+  id: string;
+  automation_id: string;
+  fire_key: string;
+  scheduled_for: string;
+  fired_at: string;
+  task_id: string | null;
+  trigger_kind: AutomationTriggerKind;
+  outcome: AutomationRunOutcome;
+  detail: string;
+  completion_status: AutomationCompletionStatus | null;
+}
+
+export interface AutomationDetail extends AutomationSummary {
+  mission_template: AutomationMissionTemplate;
+  recent_runs: AutomationRunSummary[];
+}
+
+export interface CalendarEntry {
+  occurs_at_utc: string;
+  occurs_at_local: string;
+  timezone: string;
+  utc_offset_minutes: number;
+  automation_id: string;
+  automation_name: string;
+  state: CalendarEntryState;
+  task_id: string | null;
+  outcome: AutomationRunOutcome | null;
+}
+
+export interface AutomationWebhookTrigger {
+  event_id: string;
+  payload?: Record<string, unknown>;
+}
+
+export const WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
+export const WEBHOOK_MAX_PAYLOAD_DEPTH = 32;
+export const WEBHOOK_MAX_PAYLOAD_NODES = 10_000;
+export const MAX_BUDGET_COST = 999_999_999_999;
+export const MAX_BUDGET_COUNTER = 9_007_199_254_740_991;
+
+/** Secret base64url d'au moins 256 bits, généré avec Web Crypto côté client. */
+export interface AutomationWebhookRotationRequest {
+  secret: string;
+}
+
+export interface AutomationWebhookStatus {
+  enabled: boolean;
+  secret_configured: boolean;
+  endpoint_path: string;
+  rotated_at: string | null;
+}
+
+export interface AutomationWebhookSecret extends AutomationWebhookStatus {
+  secret: string;
+}
+
+export interface BudgetUsageDelta {
+  report_id: string;
+  permit_id: string;
+  provider: string;
+  phase: BudgetUsagePhase;
+  source: BudgetUsageSource;
+  cost?: number | null;
+  currency?: string | null;
+  tokens_input?: number | null;
+  tokens_output?: number | null;
+  tool_calls?: number | null;
+  estimated?: boolean;
+}
+
+export interface BudgetPermitRequest {
+  permit_id: string;
+  provider: string;
+  phase: BudgetUsagePhase;
+  cost?: number | null;
+  currency?: string | null;
+  tokens_input?: number | null;
+  tokens_output?: number | null;
+  tool_calls?: number | null;
+}
+
+export interface ProviderBudgetLimit {
+  provider: string;
+  budget: AutomationMissionBudget;
+}
+
+export interface ProviderBudgetLimitInput {
+  provider: string;
+  budget: AutomationMissionBudgetInput;
+}
+
+export interface ProjectBudgetPolicy {
+  timezone: string;
+  daily_budget: AutomationMissionBudget | null;
+  provider_budgets: ProviderBudgetLimit[];
+  max_concurrent_missions: number;
+  max_retries_per_mission: number;
+  max_spawned_agents_per_run: number;
+}
+
+export interface ProjectBudgetPolicyInput {
+  timezone?: string;
+  daily_budget?: AutomationMissionBudgetInput | null;
+  provider_budgets?: ProviderBudgetLimitInput[];
+  max_concurrent_missions?: number;
+  max_retries_per_mission?: number;
+  max_spawned_agents_per_run?: number;
+}
+
+export interface ProjectBudgetPolicySummary extends ProjectBudgetPolicy {
+  project_id: string;
+  updated_at: string;
+}
+
+export interface BudgetVerdict {
+  state: BudgetState;
+  measured: boolean;
+  limit_reached: BudgetLimitName | null;
+  cost: number | null;
+  currency: string;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  tool_calls: number | null;
+  /** Valeurs bornées à Number.MAX_SAFE_INTEGER sur le wire. */
+  saturated_metrics: Array<"tokens_input" | "tokens_output" | "tool_calls">;
+  usage_reported: boolean;
+  estimated: boolean;
+}
+
+export interface BudgetMutationResult {
+  accepted: boolean;
+  idempotent: boolean;
+  permit_allowed: boolean;
+  verdict: BudgetVerdict;
+}
+
+export interface BudgetConsumptionTotals {
+  reports: number;
+  pending_reservations: number;
+  cost: number | null;
+  currency: string | null;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  tool_calls: number | null;
+  /** Valeurs bornées à Number.MAX_SAFE_INTEGER sur le wire. */
+  saturated_metrics: Array<"reports" | "pending_reservations" | "tokens_input" | "tokens_output" | "tool_calls">;
+  usage_reported: boolean;
+  estimated: boolean;
+}
+
+export interface BudgetMissionConsumption {
+  mission_id: string;
+  task_run_ids: string[];
+  totals: BudgetConsumptionTotals;
+}
+
+export interface BudgetProviderConsumption {
+  provider: string;
+  totals: BudgetConsumptionTotals;
+}
+
+export interface BudgetConsumptionSummary {
+  project_id: string;
+  accounting_day: string;
+  timezone: string;
+  totals: BudgetConsumptionTotals;
+  missions: BudgetMissionConsumption[];
+  providers: BudgetProviderConsumption[];
+}
+
+export interface AlertSummary {
+  id: string;
+  project_id: string;
+  kind: string;
+  severity: AlertSeverity;
+  title: string;
+  detail: string;
+  task_id: string | null;
+  automation_id: string | null;
+  acknowledged_at: string | null;
+  acknowledged_by_user_id: string | null;
+  acknowledgement_comment: string;
+  created_at: string;
+}
+
+export interface AlertAcknowledge {
+  comment?: string;
+}
+
+export interface NotificationPreferences {
+  channel?: NotificationChannel;
+  enabled?: boolean;
+  minimum_severity?: AlertSeverity;
+  budget_alerts?: boolean;
+  automation_failures?: boolean;
+  storage_alerts?: boolean;
+}
+
+export interface NotificationPreferencesSummary {
+  channel: NotificationChannel;
+  enabled: boolean;
+  minimum_severity: AlertSeverity;
+  budget_alerts: boolean;
+  automation_failures: boolean;
+  storage_alerts: boolean;
+  project_id: string;
+  updated_at: string;
 }

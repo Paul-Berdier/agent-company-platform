@@ -604,8 +604,8 @@ def ingest_test_run(
     task = db.get(TaskModel, attempt.task_id)
     if task is None:
         raise HTTPException(status_code=409, detail="Tentative sans tâche rattachée")
-    if request.fencing_token < (attempt.fencing_token or 0):
-        raise HTTPException(status_code=409, detail="Fencing token périmé")
+    if request.fencing_token != (attempt.fencing_token or 0):
+        raise HTTPException(status_code=409, detail="Fencing token requis ou périmé")
 
     test_run, created = _get_or_create_test_run(
         db,
