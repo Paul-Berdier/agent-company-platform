@@ -111,6 +111,10 @@ class HeaderNotTransmittable(RuntimeError):
     """Un en-tête résolu n'est pas transmissible : l'appel est refusé avant tout envoi."""
 
 
+class ProbeTransitionConflict(RuntimeError):
+    """Le lease d'un probe a changé avant l'écriture de son résultat terminal."""
+
+
 class ConfigRefused(ValueError):
     """Configuration refusée par la politique (risque bloquant ou URL invalide)."""
 
@@ -890,45 +894,106 @@ def invalidate_stale_probes(db: Session, server: McpServerModel) -> None:
     """Une autorisation ne survit pas à un changement de révision courante."""
 
     now = utcnow()
+    # Le prédicat doit être réévalué par la base au moment de l'UPDATE. Une
+    # révision peut avoir chargé un probe ``queued`` pendant qu'un worker le
+    # réclame : une mutation ORM de cet objet devenu périmé écraserait ensuite le
+    # ``claimed`` commité et rendrait un payload déjà remis impossible à rapporter.
+    # Ce CAS donne la priorité à l'opération qui acquiert/valide la ligne en
+    # premier, sous SQLite comme sous PostgreSQL.
+    db.query(McpProbeModel).filter(
+        McpProbeModel.server_id == server.id,
+        McpProbeModel.revision_id != server.current_revision_id,
+        McpProbeModel.status.in_(("pending_approval", "queued")),
+    ).update(
+        {
+            McpProbeModel.status: "invalidated",
+            McpProbeModel.error: (
+                "Révision courante modifiée : l'autorisation ne correspond plus."
+            ),
+            McpProbeModel.finished_at: now,
+        },
+        # ``has_accepted_authorization`` peut avoir chargé le même probe dans
+        # l'identity-map. Synchroniser évite que la réponse de la route de
+        # révision annonce encore ``queued`` après le CAS commité.
+        synchronize_session="fetch",
+    )
+
+
+def _cas_probe_status(
+    db: Session,
+    probe: McpProbeModel,
+    *,
+    expected_status: str,
+    next_status: str,
+    values: Mapping[Any, Any] | None = None,
+) -> bool:
+    """Transitionne une ligne seulement si son état décisionnel est encore celui lu.
+
+    Le prédicat SQL est l'arbitre après toute attente de verrou : PostgreSQL le
+    réévalue après le commit concurrent et SQLite après la sérialisation de
+    l'écrivain. Le ``refresh`` est indispensable si le CAS perd, car l'identity-map
+    pourrait sinon continuer à exposer l'ancien état chargé.
+    """
+
+    assignments: dict[Any, Any] = {McpProbeModel.status: next_status}
+    assignments.update(values or {})
+    transitioned = db.query(McpProbeModel).filter(
+        McpProbeModel.id == probe.id,
+        McpProbeModel.status == expected_status,
+    ).update(assignments, synchronize_session=False)
+    db.refresh(probe)
+    return transitioned == 1
+
+
+def expire_probe_if_due(
+    db: Session,
+    probe: McpProbeModel,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Périme/invalide un probe par CAS, sans écraser un claim ou un état terminal."""
+
+    _ensure_sqlite_probe_write_transaction(db)
+    effective_now = now or utcnow()
+    expected_status = probe.status
+    next_status: str | None = None
+    error: str | None = None
+    if expected_status in ("pending_approval", "queued"):
+        server = db.get(McpServerModel, probe.server_id)
+        if server is not None and server.current_revision_id != probe.revision_id:
+            next_status = "invalidated"
+            error = "Révision courante modifiée : l'autorisation ne correspond plus."
+        elif as_utc(probe.expires_at) is not None and as_utc(probe.expires_at) <= effective_now:
+            next_status = "expired"
+            error = "Autorisation expirée avant exécution."
+    elif expected_status == "claimed":
+        lease = as_utc(probe.lease_expires_at)
+        if lease is not None and lease <= effective_now:
+            next_status = "expired"
+            error = "Lease du runner expiré : résultat inconnu, aucun succès supposé."
+    if next_status is None:
+        return False
+    return _cas_probe_status(
+        db,
+        probe,
+        expected_status=expected_status,
+        next_status=next_status,
+        values={McpProbeModel.error: error, McpProbeModel.finished_at: effective_now},
+    )
+
+
+def expire_probes(db: Session, *, now: datetime | None = None) -> int:
+    """Périme les autorisations et leases par transitions atomiques et comptées."""
+
+    _ensure_sqlite_probe_write_transaction(db)
+    effective_now = now or utcnow()
     rows = (
         db.query(McpProbeModel)
-        .filter(
-            McpProbeModel.server_id == server.id,
-            McpProbeModel.status.in_(("pending_approval", "queued")),
-        )
+        .filter(McpProbeModel.status.in_(ACTIVE_PROBE_STATUSES))
+        .populate_existing()
         .all()
     )
-    for probe in rows:
-        if probe.revision_id != server.current_revision_id:
-            probe.status = "invalidated"
-            probe.error = "Révision courante modifiée : l'autorisation ne correspond plus."
-            probe.finished_at = now
-
-
-def expire_probes(db: Session) -> None:
-    """Périme les autorisations dépassées et les leases perdus (jamais de succès implicite)."""
-
-    now = utcnow()
-    rows = (
-        db.query(McpProbeModel).filter(McpProbeModel.status.in_(ACTIVE_PROBE_STATUSES)).all()
-    )
-    for probe in rows:
-        if probe.status in ("pending_approval", "queued"):
-            server = db.get(McpServerModel, probe.server_id)
-            if server is not None and server.current_revision_id != probe.revision_id:
-                probe.status = "invalidated"
-                probe.error = "Révision courante modifiée : l'autorisation ne correspond plus."
-                probe.finished_at = now
-            elif as_utc(probe.expires_at) is not None and as_utc(probe.expires_at) <= now:
-                probe.status = "expired"
-                probe.error = "Autorisation expirée avant exécution."
-                probe.finished_at = now
-        elif probe.status == "claimed":
-            lease = as_utc(probe.lease_expires_at)
-            if lease is not None and lease <= now:
-                probe.status = "expired"
-                probe.error = "Lease du runner expiré : résultat inconnu, aucun succès supposé."
-                probe.finished_at = now
+    return sum(expire_probe_if_due(db, probe, now=effective_now) for probe in rows)
 
 
 # --- probes -------------------------------------------------------------------------------------
@@ -1213,11 +1278,63 @@ def request_stdio_probe(
     return probe
 
 
+def _ensure_sqlite_probe_write_transaction(db: Session) -> None:
+    """Prend le verrou d'écriture avant la première lecture décisionnelle SQLite.
+
+    Une transaction déjà ouverte ne peut pas être promue en ``IMMEDIATE``. Dans
+    ce cas, les CAS restent l'arbitre final ; les routes claim/report appellent ce
+    helper avant toute écriture afin d'obtenir la sérialisation forte usuelle.
+    """
+
+    connection = db.connection()
+    if connection.dialect.name != "sqlite":
+        return
+    driver = getattr(connection.connection, "driver_connection", None)
+    if driver is None or getattr(driver, "in_transaction", False):
+        return
+    connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def _lock_queued_probe_for_claim(
+    db: Session, probe_id: str
+) -> McpProbeModel | None:
+    """Verrouille un candidat PostgreSQL sans attendre un autre runner.
+
+    SQLite est déjà sérialisé par ``BEGIN IMMEDIATE``. Le CAS qui suit reste
+    l'arbitre final sur tous les dialectes et protège aussi un futur appelant qui
+    entrerait avec une transaction déjà ouverte.
+    """
+
+    query = db.query(McpProbeModel).filter(
+        McpProbeModel.id == probe_id,
+        McpProbeModel.status == "queued",
+    )
+    if db.connection().dialect.name == "postgresql":
+        query = query.with_for_update(skip_locked=True)
+    return query.populate_existing().one_or_none()
+
+
+def lock_probe_for_worker_result(db: Session, probe_id: str) -> McpProbeModel | None:
+    """Verrouille le probe avant décision d'accepter un résultat de runner.
+
+    PostgreSQL attend le détenteur courant de la ligne (contrairement au claim,
+    il ne faut pas ignorer le probe demandé). SQLite sérialise les écrivains par
+    ``BEGIN IMMEDIATE`` avant cette lecture.
+    """
+
+    _ensure_sqlite_probe_write_transaction(db)
+    query = db.query(McpProbeModel).filter(McpProbeModel.id == probe_id)
+    if db.connection().dialect.name == "postgresql":
+        query = query.with_for_update()
+    return query.populate_existing().one_or_none()
+
+
 def claim_probe_for_worker(
     db: Session, worker: WorkerModel, vault: SecretsVault | None
 ) -> tuple[McpProbeModel, dict[str, Any]] | None:
     """Attribue un probe autorisé à un runner et résout les secrets **pour lui seul**."""
 
+    _ensure_sqlite_probe_write_transaction(db)
     expire_probes(db)
     candidates = (
         db.query(McpProbeModel)
@@ -1225,16 +1342,61 @@ def claim_probe_for_worker(
         .order_by(McpProbeModel.created_at.asc(), McpProbeModel.id.asc())
         .all()
     )
-    now = utcnow()
     for probe in candidates:
         server = db.get(McpServerModel, probe.server_id)
         revision = db.get(McpServerRevisionModel, probe.revision_id)
         if server is None or revision is None:
             continue
-        if server.target_worker_id and server.target_worker_id != worker.id:
+        if server.target_worker_id:
+            # Une cible choisie explicitement par le propriétaire est l'autorité :
+            # elle reste valable même pour un runner limité à un projet.
+            if server.target_worker_id != worker.id:
+                continue
+        elif not bool(worker.global_access):
+            # Sans cible explicite, le probe appartient à la file plateforme.
+            # Un runner de projet ne doit ni l'exécuter, ni provoquer la
+            # résolution des secrets qui seront injectés dans son environnement.
             continue
         if server.current_revision_id != revision.id:
             continue
+        locked_probe = _lock_queued_probe_for_claim(db, probe.id)
+        if locked_probe is None:
+            continue
+        probe = locked_probe
+        # Le serveur a pu être révisé pendant l'attente du verrou PostgreSQL.
+        db.refresh(server)
+        if server.current_revision_id != revision.id:
+            continue
+        # Le verrou (ou le verrou d'écriture SQLite pris en amont) peut avoir
+        # attendu au-delà du TTL. L'instant lu avant l'attente n'autorise donc
+        # jamais le claim : on reprend l'horloge après la lecture verrouillée,
+        # avant toute résolution/divulgation de secret.
+        decision_now = utcnow()
+        expires_at = as_utc(probe.expires_at)
+        if expires_at is not None and expires_at <= decision_now:
+            expire_probe_if_due(db, probe, now=decision_now)
+            continue
+        lease_expires_at = decision_now + timedelta(seconds=PROBE_LEASE_SECONDS)
+        transitioned = (
+            db.query(McpProbeModel)
+            .filter(
+                McpProbeModel.id == probe.id,
+                McpProbeModel.status == "queued",
+            )
+            .update(
+                {
+                    McpProbeModel.status: "claimed",
+                    McpProbeModel.worker_id: worker.id,
+                    McpProbeModel.claimed_at: decision_now,
+                    McpProbeModel.lease_expires_at: lease_expires_at,
+                },
+                synchronize_session=False,
+            )
+        )
+        if transitioned != 1:
+            continue
+        db.flush()
+        db.refresh(probe)
         config = McpServerConfig.model_validate(revision.config or {})
         try:
             if config.stdio.env_secrets and vault is None:
@@ -1248,7 +1410,7 @@ def claim_probe_for_worker(
         except SecretResolutionError as exc:
             probe.status = "failed"
             probe.error = str(exc)
-            probe.finished_at = now
+            probe.finished_at = decision_now
             record_event(
                 db,
                 "mcp.probe.failed",
@@ -1262,10 +1424,6 @@ def claim_probe_for_worker(
                 },
             )
             continue
-        probe.status = "claimed"
-        probe.worker_id = worker.id
-        probe.claimed_at = now
-        probe.lease_expires_at = now + timedelta(seconds=PROBE_LEASE_SECONDS)
         record_event(
             db,
             "mcp.probe.claimed",
@@ -1310,12 +1468,25 @@ def complete_probe(
     try:
         redactions = stdio_redaction_values(db, vault, revision)
     except SecretResolutionError as exc:
-        probe.status = "failed"
-        probe.error = str(exc)
-        probe.finished_at = utcnow()
-        probe.result = McpProbeResult(
-            duration_ms=result.duration_ms, error=probe.error
+        error = str(exc)
+        finished_at = utcnow()
+        stored_result = McpProbeResult(
+            duration_ms=result.duration_ms, error=error
         ).model_dump(mode="json")
+        if not _cas_probe_status(
+            db,
+            probe,
+            expected_status="claimed",
+            next_status="failed",
+            values={
+                McpProbeModel.error: error,
+                McpProbeModel.finished_at: finished_at,
+                McpProbeModel.result: stored_result,
+            },
+        ):
+            raise ProbeTransitionConflict(
+                f"Le diagnostic n'est plus réclamé (état actuel : {probe.status})."
+            )
         if server is not None:
             server.last_probe_id = probe.id
         record_event(
@@ -1327,19 +1498,37 @@ def complete_probe(
                 "server_name": server.name if server is not None else "",
                 "revision_id": probe.revision_id,
                 "transport": "stdio",
-                "error": probe.error,
+                "error": error,
             },
         )
         return probe
     result = redact_probe_result(result, redactions)
-    probe.result = result.model_dump(mode="json")
-    probe.finished_at = utcnow()
+    stored_result = result.model_dump(mode="json")
+    finished_at = utcnow()
+    failed = bool(result.error) or not result.protocol_version
+    error = (
+        result.error or "Le runner n'a pas renvoyé de version de protocole."
+        if failed
+        else None
+    )
+    terminal_status = "failed" if failed else "succeeded"
+    if not _cas_probe_status(
+        db,
+        probe,
+        expected_status="claimed",
+        next_status=terminal_status,
+        values={
+            McpProbeModel.error: error,
+            McpProbeModel.finished_at: finished_at,
+            McpProbeModel.result: stored_result,
+        },
+    ):
+        raise ProbeTransitionConflict(
+            f"Le diagnostic n'est plus réclamé (état actuel : {probe.status})."
+        )
     if server is not None:
         server.last_probe_id = probe.id
-    failed = bool(result.error) or not result.protocol_version
     if failed:
-        probe.status = "failed"
-        probe.error = result.error or "Le runner n'a pas renvoyé de version de protocole."
         record_event(
             db,
             "mcp.probe.failed",
@@ -1349,11 +1538,10 @@ def complete_probe(
                 "server_name": server.name if server is not None else "",
                 "revision_id": probe.revision_id,
                 "transport": "stdio",
-                "error": probe.error,
+                "error": error,
             },
         )
         return probe
-    probe.status = "succeeded"
     discovery = McpDiscovery(
         protocol_version=result.protocol_version,
         server_info=result.server_info or {},

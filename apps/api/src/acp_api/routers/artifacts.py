@@ -850,6 +850,12 @@ class _MultipartScanner:
             if not await self._fill():
                 raise MultipartFormatError("Corps multipart interrompu.")
             index = self._buffer.find(separator)
+        # Un transport ASGI peut livrer tout le segment et son séparateur dans
+        # un unique message. Dans ce cas la boucle s'arrête aussitôt : la borne
+        # doit porter sur la position trouvée, pas seulement sur les remplissages
+        # où le séparateur manquait encore. ``limit`` reste une borne inclusive.
+        if index > limit:
+            raise MultipartFormatError("Partie multipart hors bornes.")
         value = bytes(self._buffer[:index])
         del self._buffer[: index + len(separator)]
         return value
@@ -1122,7 +1128,48 @@ async def receive_worker_artifact_content(
             .order_by(ArtifactModel.created_at)
             .first()
         )
+        storage = artifact_storage()
         if existing is not None:
+            # Une ligne seule ne prouve pas que le contenu existe. Réécrire via
+            # l’adressage par contenu vérifie le blob et répare atomiquement une
+            # ligne metadata-only ou un blob manquant/corrompu.
+            if existing.storage_key is None:
+                remaining = quota - _used_bytes_for_run(db, run_id)
+                if remaining <= 0 or uploaded.size > remaining:
+                    raise _too_large(max(remaining, 0), max_file, quota)
+                cap = min(max_file, remaining)
+            else:
+                # Une ligne déjà comptée dans le quota garde le droit de réparer
+                # son propre blob, y compris si le plafond a été abaissé depuis.
+                cap = max_file
+            try:
+                repaired = storage.write(uploaded.handle, max_bytes=cap)
+            except ArtifactTooLarge as exc:
+                raise _too_large(cap, max_file, quota) from exc
+            except (ArtifactStorageFull, ArtifactStorageUnavailable) as exc:
+                _raise_storage_failure(db, exc, (run_id, project_id))
+            if repaired.sha256 != uploaded_checksum:
+                _raise_storage_failure(
+                    db,
+                    ArtifactStorageUnavailable("empreinte de stockage incohérente"),
+                    (run_id, project_id),
+                )
+            existing.checksum = repaired.sha256
+            existing.size_bytes = repaired.size
+            existing.storage_key = repaired.key
+            existing.worker_id = existing.worker_id or worker.id
+            existing.content_type = existing.content_type or (
+                fields.get("content_type") or uploaded.content_type or OCTET_STREAM
+            ).strip()[:200] or OCTET_STREAM
+            existing.original_name = existing.original_name or (
+                fields.get("original_name") or uploaded.file_name or ""
+            )[:500]
+            existing.source = existing.source or "worker"
+            existing.stream_kind = existing.stream_kind or (
+                fields.get("stream_kind") or ""
+            ).strip()[:50]
+            db.commit()
+            db.refresh(existing)
             return _summary(existing)
         remaining = quota - _used_bytes_for_run(db, run_id)
         if remaining <= 0 or uploaded.size > remaining:
@@ -1130,7 +1177,6 @@ async def receive_worker_artifact_content(
         cap = min(max_file, remaining)
         if uploaded.size > cap:
             raise _too_large(cap, max_file, quota)
-        storage = artifact_storage()
         try:
             blob = storage.write(uploaded.handle, max_bytes=cap)
         except ArtifactTooLarge as exc:

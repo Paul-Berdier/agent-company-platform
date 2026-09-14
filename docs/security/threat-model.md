@@ -40,13 +40,19 @@ Règles opérationnelles :
   rôles par projet. La matrice RBAC de toutes les ressources enfant et les contrôles
   d'exploitation restent à compléter avant la production.
 - Authentification worker : enrôlement protégé par
-  `ACP_WORKER_REGISTRATION_TOKEN`, jeton aléatoire distinct par worker,
-  stockage serveur SHA-256 avec pepper optionnel, comparaison constante et
-  expiration à 30 jours. Réenregistrer un même nom révoque de fait son ancien
-  jeton. Le jeton brut n'est jamais journalisé.
+  `ACP_WORKER_REGISTRATION_TOKEN`, que l'API lie à exactement un projet ou au
+  privilège global dans sa propre configuration. Le client ne peut pas élargir cette
+  portée ; configuration absente/ambiguë et divergence échouent fermées. Le jeton
+  d'enrôlement est réutilisable tant qu'il reste configuré et doit donc être retiré ou
+  tourné après usage. Chaque worker reçoit ensuite un jeton aléatoire distinct,
+  stocké côté serveur en SHA-256 avec pepper optionnel, comparé en temps constant et
+  expirant à 30 jours. Réenregistrer un même nom révoque de fait son ancien jeton ; le
+  jeton brut n'est jamais journalisé.
 - Présence et attribution : heartbeat à 15 s, worker hors ligne après 45 s,
-  lease renouvelable par task run, concurrence bornée et filtrage strict par
-  `required_capabilities`.
+  lease renouvelable par task run, concurrence bornée, filtrage strict par
+  `required_capabilities` et par projet dans le SQL du claim. Les identités globales
+  sont distinctes et seules habilitées à cadencer les routines ou à réclamer un probe
+  MCP `stdio` non ciblé ; un probe ciblé n'est remis qu'au worker exact.
 - Exécution locale : le mode réel n'accepte qu'un exécutable absolu via un argv
   fixe configuré par l'opérateur, sans shell ni commande provenant d'une mission.
   Chaque tentative a un cwd neuf, une enveloppe allowlistée, un environnement

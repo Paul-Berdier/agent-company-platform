@@ -11,7 +11,10 @@ seule autorité du dépôt sur ces sujets : ce module s'en sert, il ne la rééc
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, tzinfo
+import base64
+import binascii
+from datetime import UTC, date, datetime, tzinfo
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import (
@@ -23,7 +26,14 @@ from pydantic import (
     model_validator,
 )
 
-from .missions import MissionAutonomy, MissionBudget, MissionCreate, MissionResource
+from .missions import (
+    MAX_BUDGET_COUNTER,
+    MAX_BUDGET_COST,
+    MissionAutonomy,
+    MissionBudget,
+    MissionCreate,
+    MissionResource,
+)
 from .schedule import (
     DEFAULT_TIMEZONE,
     CronExpression,
@@ -37,7 +47,14 @@ AutomationScheduleKind = Literal["cron", "interval"]
 AutomationCatchupPolicy = Literal["skip", "run_once"]
 AutomationTriggerKind = Literal["manual", "schedule", "webhook"]
 AutomationRunOutcome = Literal[
-    "launched", "skipped_concurrency", "skipped_disabled", "failed"
+    "launched",
+    "skipped_concurrency",
+    "skipped_disabled",
+    "skipped_catchup",
+    "failed",
+]
+AutomationCompletionStatus = Literal[
+    "blocked", "succeeded", "failed", "cancelled", "interrupted"
 ]
 CalendarEntryState = Literal["planned", "past"]
 BudgetState = Literal["unknown", "ok", "warning", "exceeded"]
@@ -47,6 +64,15 @@ BudgetUsageSource = Literal["provider", "platform"]
 MAX_CONCURRENT_RUNS = 5
 """Borne haute de ``max_concurrent_runs`` : au delà, une routine se piétine."""
 
+WEBHOOK_MAX_BODY_BYTES = 1024 * 1024
+"""Taille maximale du corps HTTP d'un déclenchement webhook (1 Mio)."""
+
+WEBHOOK_MAX_PAYLOAD_DEPTH = 32
+"""Profondeur JSON maximale d'un payload webhook après décodage."""
+
+WEBHOOK_MAX_PAYLOAD_NODES = 10_000
+"""Nombre maximal de valeurs JSON dans un payload webhook."""
+
 BUDGET_LIMIT_NAMES = ("max_cost", "max_tokens", "max_tool_calls")
 """Noms admis dans ``BudgetVerdict.limit_reached``.
 
@@ -54,6 +80,23 @@ Ce sont exactement les champs de :class:`~acp_contracts.missions.MissionBudget` 
 verdict nomme la limite telle qu'elle a été écrite par l'utilisateur, pas un synonyme
 inventé par le service qui l'évalue.
 """
+
+MAX_LEDGER_COST = Decimal(str(MAX_BUDGET_COST))
+
+
+def _strict_decimal_cost(value: object) -> object:
+    """Convertit un nombre JSON en Decimal sans accepter booléen ni chaîne."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        return value
+    amount = Decimal(str(value))
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("le coût doit être un nombre fini positif ou nul")
+    if amount > MAX_LEDGER_COST:
+        raise ValueError("le coût dépasse la capacité du ledger")
+    return amount
 
 
 class _AutomationContract(BaseModel):
@@ -84,11 +127,19 @@ class AutomationMissionBudget(MissionBudget):
     model_config = ConfigDict(extra="forbid")
 
     max_cost: float | None = Field(
-        default=None, ge=0, allow_inf_nan=False, strict=True
+        default=None,
+        ge=0,
+        le=MAX_BUDGET_COST,
+        allow_inf_nan=False,
+        strict=True,
     )
     currency: str = Field(default="EUR", pattern=r"^[A-Za-z]{3}$")
-    max_tokens: int | None = Field(default=None, ge=0, strict=True)
-    max_tool_calls: int | None = Field(default=None, ge=0, strict=True)
+    max_tokens: int | None = Field(
+        default=None, ge=0, le=MAX_BUDGET_COUNTER, strict=True
+    )
+    max_tool_calls: int | None = Field(
+        default=None, ge=0, le=MAX_BUDGET_COUNTER, strict=True
+    )
 
 
 # --- Planification -----------------------------------------------------------
@@ -311,6 +362,7 @@ class AutomationRunSummary(_AutomationContract):
     trigger_kind: AutomationTriggerKind
     outcome: AutomationRunOutcome
     detail: str = Field(max_length=500)
+    completion_status: AutomationCompletionStatus | None
 
     @field_validator("scheduled_for", "fired_at")
     @classmethod
@@ -330,6 +382,59 @@ class AutomationWebhookTrigger(_AutomationContract):
     event_id: str = Field(min_length=1, max_length=128)
     payload: dict[str, JsonValue] = Field(default_factory=dict)
 
+    @field_validator("payload")
+    @classmethod
+    def bound_payload_shape(cls, value: dict[str, JsonValue]):
+        nodes = 0
+        stack: list[tuple[JsonValue, int]] = [
+            (item, 1) for item in value.values()
+        ]
+        while stack:
+            item, depth = stack.pop()
+            nodes += 1
+            if nodes > WEBHOOK_MAX_PAYLOAD_NODES:
+                raise ValueError("le payload webhook contient trop de valeurs")
+            if isinstance(item, dict):
+                if item and depth >= WEBHOOK_MAX_PAYLOAD_DEPTH:
+                    raise ValueError("le payload webhook est trop profond")
+                stack.extend((child, depth + 1) for child in item.values())
+            elif isinstance(item, list):
+                if item and depth >= WEBHOOK_MAX_PAYLOAD_DEPTH:
+                    raise ValueError("le payload webhook est trop profond")
+                stack.extend((child, depth + 1) for child in item)
+        return value
+
+
+class AutomationWebhookRotationRequest(_AutomationContract):
+    """Secret de rotation généré par le client et rejouable sans stockage brut.
+
+    Une valeur base64url représentant au moins 32 octets est exigée. Le serveur ne
+    peut pas mesurer l'aléa d'une chaîne reçue ; le client doit donc la produire
+    avec un générateur cryptographiquement sûr.
+    """
+
+    secret: str = Field(
+        min_length=43,
+        max_length=200,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+    @field_validator("secret")
+    @classmethod
+    def require_256_bits_of_material(cls, value: str) -> str:
+        padding = "=" * (-len(value) % 4)
+        try:
+            decoded = base64.b64decode(
+                value + padding,
+                altchars=b"-_",
+                validate=True,
+            )
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("le secret doit être encodé en base64url") from exc
+        if len(decoded) < 32:
+            raise ValueError("le secret doit représenter au moins 256 bits")
+        return value
+
 
 class AutomationWebhookStatus(_AutomationContract):
     """Configuration publique du webhook, sans jamais révéler son secret."""
@@ -346,9 +451,13 @@ class AutomationWebhookStatus(_AutomationContract):
 
 
 class AutomationWebhookSecret(AutomationWebhookStatus):
-    """Secret affiché une seule fois après activation ou rotation."""
+    """Secret fourni par le client, renvoyé dans la seule réponse de rotation."""
 
-    secret: str = Field(min_length=32, max_length=200)
+    secret: str = Field(
+        min_length=43,
+        max_length=200,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
 
 
 class AutomationDetail(AutomationSummary):
@@ -477,16 +586,21 @@ class BudgetUsageDelta(_AutomationContract):
     """
 
     report_id: str = Field(min_length=1, max_length=128)
-    permit_id: str | None = Field(default=None, min_length=1, max_length=128)
+    permit_id: str = Field(min_length=1, max_length=128)
     provider: str = Field(min_length=1, max_length=100)
     phase: BudgetUsagePhase
     source: BudgetUsageSource
-    cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cost: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
     currency: str | None = Field(default=None, pattern=r"^[A-Za-z]{3}$")
-    tokens_input: int | None = Field(default=None, ge=0)
-    tokens_output: int | None = Field(default=None, ge=0)
-    tool_calls: int | None = Field(default=None, ge=0)
+    tokens_input: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+    tokens_output: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+    tool_calls: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
     estimated: bool = False
+
+    @field_validator("cost", mode="before")
+    @classmethod
+    def parse_cost_as_decimal(cls, value: object) -> object:
+        return _strict_decimal_cost(value)
 
     @field_validator("provider")
     @classmethod
@@ -530,11 +644,16 @@ class BudgetPermitRequest(_AutomationContract):
     permit_id: str = Field(min_length=1, max_length=128)
     provider: str = Field(min_length=1, max_length=100)
     phase: BudgetUsagePhase
-    cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cost: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
     currency: str | None = Field(default=None, pattern=r"^[A-Za-z]{3}$")
-    tokens_input: int | None = Field(default=None, ge=0)
-    tokens_output: int | None = Field(default=None, ge=0)
-    tool_calls: int | None = Field(default=None, ge=0)
+    tokens_input: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+    tokens_output: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+    tool_calls: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+
+    @field_validator("cost", mode="before")
+    @classmethod
+    def parse_cost_as_decimal(cls, value: object) -> object:
+        return _strict_decimal_cost(value)
 
     @field_validator("provider")
     @classmethod
@@ -637,9 +756,12 @@ class BudgetVerdict(_AutomationContract):
     limit_reached: str | None = Field(default=None, max_length=64)
     cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     currency: str = Field(default="EUR", pattern=r"^[A-Za-z]{3}$")
-    tokens_input: int | None = Field(default=None, ge=0)
-    tokens_output: int | None = Field(default=None, ge=0)
-    tool_calls: int | None = Field(default=None, ge=0)
+    tokens_input: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+    tokens_output: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+    tool_calls: int | None = Field(default=None, ge=0, le=MAX_BUDGET_COUNTER)
+    saturated_metrics: list[
+        Literal["tokens_input", "tokens_output", "tool_calls"]
+    ] = Field(default_factory=list)
     usage_reported: bool = False
     estimated: bool = False
 
@@ -662,6 +784,15 @@ class BudgetVerdict(_AutomationContract):
     def a_refusal_rests_on_the_relevant_measure(self) -> BudgetVerdict:
         quantities = (self.cost, self.tokens_input, self.tokens_output, self.tool_calls)
         has_measure = any(value is not None for value in quantities)
+        if len(set(self.saturated_metrics)) != len(self.saturated_metrics):
+            raise ValueError("une métrique saturée ne peut être nommée deux fois")
+        if any(
+            getattr(self, metric) != MAX_BUDGET_COUNTER
+            for metric in self.saturated_metrics
+        ):
+            raise ValueError(
+                "une métrique signalée saturée doit valoir le maximum sûr"
+            )
         if self.state in ("warning", "exceeded") and self.limit_reached is None:
             raise ValueError(
                 "un état « warning » ou « exceeded » doit nommer la limite atteinte"
@@ -716,3 +847,96 @@ class BudgetMutationResult(_AutomationContract):
     idempotent: bool
     permit_allowed: bool
     verdict: BudgetVerdict
+
+
+class BudgetConsumptionTotals(_AutomationContract):
+    """Agrégat explicite : une mesure absente reste inconnue, jamais zéro."""
+
+    reports: int = Field(ge=0, le=MAX_BUDGET_COUNTER, strict=True)
+    pending_reservations: int = Field(ge=0, le=MAX_BUDGET_COUNTER, strict=True)
+    cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    currency: str | None = Field(default=None, pattern=r"^[A-Za-z]{3}$")
+    tokens_input: int | None = Field(
+        default=None, ge=0, le=MAX_BUDGET_COUNTER, strict=True
+    )
+    tokens_output: int | None = Field(
+        default=None, ge=0, le=MAX_BUDGET_COUNTER, strict=True
+    )
+    tool_calls: int | None = Field(
+        default=None, ge=0, le=MAX_BUDGET_COUNTER, strict=True
+    )
+    saturated_metrics: list[
+        Literal[
+            "reports",
+            "pending_reservations",
+            "tokens_input",
+            "tokens_output",
+            "tool_calls",
+        ]
+    ] = Field(default_factory=list)
+    usage_reported: bool
+    estimated: bool
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_optional_currency(cls, value: str | None) -> str | None:
+        return None if value is None else value.upper()
+
+    @model_validator(mode="after")
+    def empty_bucket_has_no_invented_measure(self) -> BudgetConsumptionTotals:
+        if len(set(self.saturated_metrics)) != len(self.saturated_metrics):
+            raise ValueError("une métrique saturée ne peut être nommée deux fois")
+        if any(
+            getattr(self, metric) != MAX_BUDGET_COUNTER
+            for metric in self.saturated_metrics
+        ):
+            raise ValueError(
+                "une métrique signalée saturée doit valoir le maximum sûr"
+            )
+        if self.reports == 0 and any(
+            value is not None
+            for value in (
+                self.cost,
+                self.currency,
+                self.tokens_input,
+                self.tokens_output,
+                self.tool_calls,
+            )
+        ):
+            raise ValueError("un agrégat vide ne peut pas inventer une mesure")
+        if self.reports == 0 and (
+            self.pending_reservations
+            or self.usage_reported
+            or self.estimated
+            or self.saturated_metrics
+        ):
+            raise ValueError("un agrégat vide ne peut porter d'état de consommation")
+        if self.cost is not None and self.currency is None:
+            raise ValueError("un coût agrégé connu exige une devise unique")
+        return self
+
+
+class BudgetMissionConsumption(_AutomationContract):
+    """Consommation active regroupée par mission."""
+
+    mission_id: str = Field(min_length=1)
+    task_run_ids: list[str]
+    totals: BudgetConsumptionTotals
+
+
+class BudgetProviderConsumption(_AutomationContract):
+    """Consommation active regroupée par fournisseur normalisé."""
+
+    provider: str = Field(min_length=1, max_length=100)
+    totals: BudgetConsumptionTotals
+
+
+class BudgetConsumptionSummary(_AutomationContract):
+    """Vue utilisateur du ledger actif pour un jour comptable du projet."""
+
+    project_id: str = Field(min_length=1)
+    accounting_day: date
+    timezone: str = Field(min_length=1, max_length=64)
+    totals: BudgetConsumptionTotals
+    missions: list[BudgetMissionConsumption]
+    providers: list[BudgetProviderConsumption]

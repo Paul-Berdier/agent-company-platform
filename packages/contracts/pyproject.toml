@@ -1,6 +1,6 @@
 [project]
 name = "acp-contracts"
-version = "0.6.0"
+version = "0.7.0"
 description = "Contrats de données versionnés de l'Agent Company Platform"
 requires-python = ">=3.11"
 # ``tzdata`` porte la base IANA là où le système ne la fournit pas — c'est le cas de

@@ -42,6 +42,53 @@ acp artifacts link ARTIFACT_ID --ttl 300
 acp open --run RUN_ID --studio
 ```
 
+## Automatisations
+
+```console
+acp automations list --project PROJECT_ID --enabled
+acp automations create --project PROJECT_ID --name "Rapport quotidien" --schedule-kind cron --expression "0 9 * * 1-5" --timezone Europe/Paris --template-file apps/cli/examples/automation-mission-template.json --idempotency-key CREATE_KEY
+acp automations show AUTOMATION_ID
+acp automations update AUTOMATION_ID --catchup run_once --max-concurrent-runs 2 --idempotency-key UPDATE_KEY
+acp automations enable AUTOMATION_ID --idempotency-key ENABLE_KEY
+acp automations trigger AUTOMATION_ID
+acp automations runs AUTOMATION_ID --limit 25
+acp automations calendar --project PROJECT_ID --start 2026-09-01T00:00:00+02:00 --end 2026-10-01T00:00:00+02:00
+acp automations webhook status AUTOMATION_ID
+acp automations webhook rotate AUTOMATION_ID --secret-env ACP_WEBHOOK_SECRET --idempotency-key ROTATE_KEY
+acp automations webhook rotate AUTOMATION_ID --secret-file ./webhook.secret
+acp automations webhook disable AUTOMATION_ID --idempotency-key DISABLE_WEBHOOK_KEY
+```
+
+Une automatisation est créée désactivée. Le gabarit complet de mission est fourni
+soit comme objet JSON avec `--template` (alias `--template-json`), soit comme fichier
+UTF-8 (BOM accepté) avec `--template-file` ; ces deux formes sont exclusives. Le fichier
+versionné `apps/cli/examples/automation-mission-template.json` constitue un exemple
+complet et directement utilisable depuis la racine du dépôt. Une modification de
+calendrier exige `--schedule-kind`, `--expression` et `--timezone` ensemble afin de
+ne jamais remplacer silencieusement le fuseau courant. À la création, le fuseau vaut
+`Europe/Paris` par défaut. Un intervalle accepte des secondes ou une durée telle que
+`15m`, `2h` ou `1d`, normalisée en secondes avant l'envoi.
+
+Toutes les mutations d'automatisation (`create`, `update`, `enable`, `disable`,
+`trigger`, `webhook rotate` et `webhook disable`) envoient un en-tête
+`Idempotency-Key`. Sans `--idempotency-key`, le CLI génère une clé et l’inclut dans
+le résultat. Une coupure réseau, une réponse invalide, un HTTP 408 ou un HTTP 5xx
+laisse le résultat incertain : l'erreur rend la même clé et demande de rejouer
+exactement la commande et son payload avec `--idempotency-key`. Un autre HTTP 4xx
+reste un refus certain de l'API ; un `409` peut notamment signaler qu'une intention
+plus récente a remplacé la commande rejouée, qui n'est alors jamais réappliquée.
+
+Le sous-groupe `webhook` utilise les routes réelles de la routine. `status` et
+`disable` ne rendent jamais de secret ; `disable` possède sa propre clé de rejeu.
+`rotate` génère par défaut un secret
+cryptographiquement aléatoire et URL-safe ; pour imposer une valeur, utilisez
+`--secret-env NOM` ou `--secret-file CHEMIN`. Le secret n'est jamais accepté dans
+`argv`, ni conservé dans la configuration du CLI. La rotation envoie elle aussi une
+clé d'idempotence et n'affiche normalement le secret qu'après validation stricte du
+succès. Si son résultat est incertain, stderr rend exceptionnellement la clé **et**
+le secret nécessaires au rejeu ; conservez-les dans un canal sûr puis rejouez avec
+la même paire. Un HTTP 4xx certain masque tout écho éventuel du secret.
+
 `acp runs events` et `acp runs tests` acceptent un identifiant de run **ou** de mission :
 la mission n'est résolue (`GET /missions/{id}`) qu'après un 404 franc sur le run, pour ne pas
 payer un appel supplémentaire dans le cas courant.
@@ -144,8 +191,7 @@ son contenu n'est jamais interprété.
 
 `acp mcp export` écrit la configuration sur la sortie standard, sans rien ajouter, et
 réserve la sortie d'erreur aux variables `ACP_SECRET_*` à définir et aux limites de
-compatibilité. `acp automations` reste honnêtement « non raccordé » et sort avec le
-code `UNSUPPORTED`.
+compatibilité.
 
 `acp mcp import FILE` lit le fichier **localement** (1 MiB au plus, UTF-8, fichier
 régulier) et n'envoie que son contenu : le serveur ne lit jamais un chemin fourni par le

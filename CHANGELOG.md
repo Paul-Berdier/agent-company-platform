@@ -6,13 +6,114 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## 0.7.0 (préparation) - 2026-09-14
+
+Lot F : automatisations, calendrier IANA, budgets appliqués, saturation du stockage,
+alertes in-app et surfaces web/CLI. Cette entrée prépare la publication ; la PR, la CI
+distante, la fusion et le tag `v0.7.0` ne sont pas affirmés tant qu'ils n'ont pas été
+observés.
+
+### Ajouté
+
+- contrats Python et miroir TypeScript stricts pour les routines, calendriers,
+  déclenchements, webhooks, budgets, consommations et alertes ;
+- cron à cinq champs interprété dans un fuseau IANA et intervalles fixes de 60 secondes
+  à un an ; une heure locale inexistante est omise, une heure ambiguë ne produit que sa
+  première occurrence, et la recherche est bornée à quatre ans ;
+- modèles persistants `automations`, `automation_runs`,
+  `automation_webhook_rotations`, `automation_commands`, `scheduler_leases`,
+  `project_budget_policies`, `budget_usage`, `budget_usage_reports`, `alerts` et
+  `notification_preferences` ;
+- extension de la table existante `workers` avec une portée d'enrôlement globale ou
+  limitée à un projet, exclusive et explicite ;
+- routes de création, liste, détail, modification, activation, suspension, tir manuel,
+  historique et calendrier des routines ; création et tir manuel idempotents ;
+- webhook entrant avec secret fourni par le client, 256 bits au minimum, empreinte
+  seule en base, rotation idempotente, révocation et déduplication par `event_id` ;
+- planificateur worker à bail singleton de 45 secondes, fencing monotone, traitement
+  transactionnel, rattrapage `skip`/`run_once`, plafond de concurrence et
+  réconciliation des missions terminales ;
+- permis de budget avant les phases de planification, exécution et évaluation, ledger
+  idempotent et lecture de consommation par mission, jour et fournisseur ;
+- alertes durables, dédupliquées par cause, escalade monotone, acquittement et
+  préférences personnelles ; canal `in_app` uniquement ;
+- détection explicite de la saturation (`507`) et de l'indisponibilité (`503`) du
+  stockage local, avec alerte expurgée lorsque le projet et le run sont déjà résolus ;
+  réparation atomique d'un blob adressé par contenu devenu incohérent ;
+- écran Automatisations à quatre vues — routines, calendrier, alertes, réglages — avec
+  assistant de création, historique, webhook, politique et consommation budgétaires ;
+- proposition de routine préremplie depuis une mission réussie, techniquement validée
+  et acceptée ; elle reste désactivée jusqu'à activation explicite ;
+- groupe CLI `acp automations` : `list`, `create`, `show`, `update`, `enable`,
+  `disable`, `trigger`, `runs`, `calendar` et `webhook status|rotate|disable`, plus un
+  gabarit de mission d'exemple ;
+- parcours `scripts/verify_automation_journey.py` démarrant une API réelle sur SQLite
+  temporaire : **62/62 étapes réussies** localement, sans Internet ni dépense.
+
+### Modifié
+
+- seuls les workers enrôlés avec un privilège global explicite concourent au
+  planificateur ; les workers ordinaires sont limités au projet autorisé côté API et
+  le mode `--once` ne démarre pas la boucle ;
+- les créations et rotations pouvant avoir abouti malgré une réponse perdue conservent
+  leur clé d'idempotence côté web et CLI afin de rejouer la même opération ;
+- les budgets conservent la différence entre mesure absente et zéro, utilisent des
+  montants décimaux, figent le jour comptable d'un permis jusqu'à son rapport et
+  interdisent de changer le fuseau après la première ligne du ledger ;
+- l'upgrade SQLite reconstruit transactionnellement tout schéma partiel des dix
+  nouvelles tables et de la table `workers` étendue vers la parité du modèle, préserve
+  les index/triggers locaux compatibles et refuse de reconstruire un ledger historique
+  impossible à compléter honnêtement ;
+- l'interface annonce les limites de page et les mesures inconnues, sans inventer un
+  total global ou un coût nul ; les compteurs agrégés au-delà de l'entier sûr sont
+  plafonnés sur le wire et nommés dans `saturated_metrics`, tandis que le ledger reste
+  exact.
+
+### Sécurité
+
+- la `fire_key` déterministe et une contrainte unique SQL arbitrent les tirs
+  concurrents ; le verrouillage ne dépend pas d'une vérification en mémoire ;
+- le bail et le `fencing_token` sont revérifiés entre les transactions ; un détenteur
+  expiré ne peut ni lancer une occurrence ni libérer le bail d'un successeur ;
+- trois échecs terminaux consécutifs désactivent la routine et ouvrent une alerte ; une
+  routine invalide produit un verdict durable expurgé au lieu d'affamer la file ;
+- les mutations de session restent protégées par CSRF et RBAC ; le webhook entrant
+  transporte son secret uniquement dans `Authorization: Bearer`, jamais dans l'URL ;
+- les préférences filtrent la boîte personnelle sans supprimer ni modifier l'alerte
+  canonique du projet ;
+- les rapports de budget exigent l'identité worker, un lease actif et le fence de la
+  tentative, et les dépassements échouent fermés ; les compteurs et coûts partagent
+  les mêmes bornes Python/TypeScript/SQL et le cache agrégé sature sans perdre le
+  ledger exact ;
+- les relances verrouillent et relisent tentative, policy et compteur avant un CAS ;
+  un fence futur inventé est refusé, et les workers historiques sans portée explicite
+  restent en quarantaine ;
+- une borne de coût worker est arrondie vers le haut avant son transport JSON : une
+  conversion binaire ne peut jamais sous-réserver le montant décimal ;
+- les corps HTTP sont bornés avant parsing (1 Mio en général, 32 Mio pour les sources
+  de skills), avec `Content-Length` décimal strict et limites multipart appliquées
+  même en chunk monobloc ; le téléversement de livrable reste authentifié et borné en
+  flux, et le webhook entrant est limité à 120 requêtes/minute par adresse TCP et
+  processus ;
+- les sondes MCP non ciblées exigent un worker global ; une sonde ciblée ne peut être
+  réclamée que par le worker nommé, avec transition atomique et TTL relu après verrou
+  avant divulgation de ses références de secrets ; expiration, claim et rapport final
+  s'arbitrent par transitions conditionnelles.
+
+### Limites connues
+
+- `max_spawned_agents_per_run` est validé, persisté et affiché, mais son application
+  attend le point de spawn des exécuteurs du Lot G ;
+- aucun navigateur réel, fournisseur payant, Hermes réel ou service externe n'a été
+  utilisé pour les preuves de ce lot ;
+- le stockage reste local ; aucun adaptateur objet externe n'a été testé ;
+- PostgreSQL, Alembic, Railway, sauvegarde et restauration restent au Lot H.
+
 ## [0.6.0] - 2026-09-13
 
 Lot E : événements durables, flux authentifié, tests web structurés, livrables privés
-et Studio en lecture seule. Vérifié localement le 13 septembre 2026 ; **non publié** —
-la branche `codex/modernization-lot-e` est poussée mais n'est pas fusionnée dans `main`,
-aucun tag `v0.6.0` n'existe et aucune intégration continue distante ne couvre les
-corrections de revue ni cette documentation.
+et Studio en lecture seule. Vérifié localement le 13 septembre 2026, puis publié par
+la PR #5 après observation d'une CI verte ; commit de fusion `b7d8a44`, tag `v0.6.0`.
 
 **Aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté** :
 le reporter est prouvé sur des objets Playwright synthétiques, et l'exécuteur du worker
@@ -363,9 +464,8 @@ réellement démarrés sur le bouclage.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-Les tags `v0.2.0`, `v0.3.0`, `v0.4.0` et `v0.5.0` existent ; `v0.5.0` est un ancêtre de
-`main`. Le tag `v0.6.0` **n'existe pas encore** : le lien de comparaison correspondant
-ne fonctionnera qu'après publication du Lot E.
+Les tags `v0.2.0` à `v0.6.0` existent ; le Lot E a été fusionné par la PR #5 au commit
+`b7d8a44`, après observation d'une CI verte.
 
 [Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.5.0...v0.6.0

@@ -1232,24 +1232,6 @@ def test_network_failure_keeps_the_dedicated_exit_code(tmp_path):
     assert json.loads(err)["error"]["code"] == "network"
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        # `mcp import` est désormais raccordé (voir la section « acp mcp import » plus bas) ;
-        # `automations` reste hors périmètre du lot D et doit le dire honnêtement.
-        ["automations", "list"],
-    ],
-)
-def test_automations_remain_honestly_unsupported(tmp_path, args):
-    code, out, err, _ = invoke(tmp_path, [*args, "--json"], never)
-
-    assert code == ExitCode.UNSUPPORTED
-    assert out == ""
-    payload = json.loads(err)["error"]
-    assert payload["code"] == "unsupported"
-    assert "pas encore raccordé" in payload["message"]
-
-
 @pytest.mark.parametrize("shell", ["bash", "zsh", "powershell"])
 def test_completion_script_lists_new_groups_and_their_subcommands(tmp_path, shell):
     code, out, err, _ = invoke(tmp_path, ["completion", shell], never)
@@ -1258,7 +1240,19 @@ def test_completion_script_lists_new_groups_and_their_subcommands(tmp_path, shel
     assert err == ""
     for group in ("secrets", "mcp", "skills", "projects", "automations"):
         assert group in out
-    for subcommand in ("rotate", "probes", "rollback", "extensions", "install", "unbind", "catalog", "import"):
+    for subcommand in (
+        "rotate",
+        "probes",
+        "rollback",
+        "extensions",
+        "install",
+        "unbind",
+        "catalog",
+        "import",
+        "create",
+        "trigger",
+        "calendar",
+    ):
         assert subcommand in out
 
 

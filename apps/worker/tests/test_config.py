@@ -29,6 +29,8 @@ def configure_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setenv("ACP_WORKER_STATE_DIR", str(tmp_path))
     monkeypatch.delenv("ACP_WORKER_RUNNER_ARGV_JSON", raising=False)
     monkeypatch.delenv("ACP_WORKER_RUN_ROOT", raising=False)
+    monkeypatch.delenv("ACP_WORKER_PROJECT_ID", raising=False)
+    monkeypatch.delenv("ACP_WORKER_GLOBAL_ACCESS", raising=False)
 
 
 def test_origins_are_normalized_and_http_is_limited_to_loopback():
@@ -88,6 +90,40 @@ def test_simulation_environment_accepts_only_binary_values(
     monkeypatch.setenv("ACP_WORKER_SIMULATION", value)
 
     assert WorkerConfig.from_env().simulation is expected
+
+
+@pytest.mark.parametrize("value", ["", "true", "2", " 1", "1 "])
+def test_global_scope_environment_is_strict(
+    value: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    configure_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("ACP_WORKER_GLOBAL_ACCESS", value)
+
+    with pytest.raises(WorkerConfigurationError, match="GLOBAL_ACCESS"):
+        WorkerConfig.from_env()
+
+
+def test_project_and_global_scope_are_mutually_exclusive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    configure_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("ACP_WORKER_PROJECT_ID", "project-1")
+    monkeypatch.setenv("ACP_WORKER_GLOBAL_ACCESS", "1")
+
+    with pytest.raises(WorkerConfigurationError, match="simultanément"):
+        WorkerConfig.from_env()
+
+
+def test_project_scope_is_trimmed_and_global_defaults_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    configure_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("ACP_WORKER_PROJECT_ID", "  project-1  ")
+
+    config = WorkerConfig.from_env()
+
+    assert config.project_id == "project-1"
+    assert config.global_access is False
 
 
 @pytest.mark.parametrize("value", ["nan", "inf", "-1", "0", "301"])

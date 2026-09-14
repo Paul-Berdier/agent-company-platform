@@ -176,7 +176,15 @@ class LocalArtifactStorage:
             target = self._root / sha256[:2] / sha256
             target.parent.mkdir(parents=True, exist_ok=True)
             _restrict(target.parent, directory=True)
-            if not target.exists():
+            if target.exists():
+                if self._matches(target, sha256=sha256, size=size):
+                    return StoredBlob(sha256=sha256, size=size, key=key)
+                # Une cible adressée par ce digest mais corrompue est remplacée
+                # atomiquement. La renvoyer sur la seule foi de son nom ferait
+                # d’un replay un faux succès.
+                os.replace(temp_path, target)
+                _restrict(target)
+            else:
                 try:
                     os.replace(temp_path, target)
                 except OSError:
@@ -184,7 +192,9 @@ class LocalArtifactStorage:
                     # Windows, remplacer un fichier ouvert en lecture échoue.
                     # L'adressage par contenu garantit que la cible porte déjà
                     # les mêmes octets ; sinon l'erreur reste une erreur.
-                    if not target.is_file():
+                    if not target.is_file() or not self._matches(
+                        target, sha256=sha256, size=size
+                    ):
                         raise
                 else:
                     _restrict(target)
@@ -197,6 +207,19 @@ class LocalArtifactStorage:
                 # Ne masque jamais la cause initiale. Le suffixe ``.part`` reste
                 # exclu des lectures et pourra être nettoyé par la maintenance.
                 pass
+
+    @staticmethod
+    def _matches(path: Path, *, sha256: str, size: int) -> bool:
+        try:
+            if path.stat().st_size != size:
+                return False
+            digest = hashlib.sha256()
+            with path.open("rb") as source:
+                while chunk := source.read(CHUNK_BYTES):
+                    digest.update(chunk)
+            return digest.hexdigest() == sha256
+        except OSError:
+            return False
 
     # --- lecture --------------------------------------------------------------
 

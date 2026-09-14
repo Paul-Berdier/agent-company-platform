@@ -26,18 +26,25 @@ def config(
         max_concurrency=max_concurrency,
         simulation=simulation,
         registration_token="registration-secret",
+        project_id="project-1",
         local_runner=None,
     )
 
 
 def register_args(
-    *, real: bool = False, max_concurrency: int | None = None
+    *,
+    real: bool = False,
+    max_concurrency: int | None = None,
+    project_id: str | None = None,
+    global_access: bool | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         name=None,
         capabilities=["git"],
         max_concurrency=max_concurrency,
         real=real,
+        project_id=project_id,
+        global_access=global_access,
     )
 
 
@@ -105,6 +112,8 @@ def test_registration_persists_the_normalized_api_origin(tmp_path: Path, monkeyp
                 "token": "worker-secret",
                 "token_expires_at": "2030-01-01T00:00:00Z",
                 "heartbeat_interval_seconds": 15,
+                "project_id": "project-1",
+                "global_access": False,
             },
         )
 
@@ -115,6 +124,46 @@ def test_registration_persists_the_normalized_api_origin(tmp_path: Path, monkeyp
     assert credentials is not None
     assert credentials.api_origin == "https://api.example"
     assert request_payload["simulation"] is True
+    assert request_payload["project_id"] == "project-1"
+    assert request_payload["global_access"] is False
+    assert credentials.project_id == "project-1"
+    assert credentials.global_access is False
+
+
+def test_register_requires_an_explicit_scope_before_http(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
+        ),
+    )
+
+    assert _register(replace(config(tmp_path), project_id=None), register_args()) == 2
+    assert "Périmètre worker requis" in capsys.readouterr().err
+
+
+def test_register_refuses_a_response_with_a_different_scope(
+    tmp_path: Path, monkeypatch, capsys
+):
+    def post(url: str, **_kwargs: object) -> httpx.Response:
+        return httpx.Response(
+            201,
+            request=httpx.Request("POST", url),
+            json={
+                "worker_id": "worker-1",
+                "token": "worker-secret",
+                "token_expires_at": "2030-01-01T00:00:00Z",
+                "heartbeat_interval_seconds": 15,
+                "project_id": "project-2",
+                "global_access": False,
+            },
+        )
+
+    monkeypatch.setattr("acp_worker.cli.httpx.post", post)
+
+    assert _register(config(tmp_path), register_args()) == 1
+    assert "périmètre renvoyé diffère" in capsys.readouterr().err
+    assert not (tmp_path / "worker.json").exists()
 
 
 def _save_simulation_credentials(tmp_path: Path) -> None:
@@ -129,6 +178,7 @@ def _save_simulation_credentials(tmp_path: Path) -> None:
             max_concurrency=1,
             simulation=True,
             token_expires_at="2030-01-01T00:00:00Z",
+            project_id="project-1",
         ),
     )
 
@@ -184,6 +234,7 @@ def test_doctor_verifies_provider_readiness_with_the_service_token(
     assert _doctor(worker_config) == 0
     report = capsys.readouterr().out
     assert '"provider": "ok"' in report
+    assert '"scope": "project:project-1"' in report
 
 
 def test_doctor_fails_when_the_configured_provider_is_unavailable(
@@ -210,6 +261,48 @@ def test_doctor_fails_when_the_configured_provider_is_unavailable(
 
     assert _doctor(worker_config) == 1
     assert '"provider": "unavailable"' in capsys.readouterr().out
+
+
+def test_doctor_reports_legacy_credentials_without_scope(
+    tmp_path: Path, monkeypatch, capsys
+):
+    save_credentials(
+        tmp_path,
+        WorkerCredentials(
+            worker_id="legacy-worker",
+            token="worker-secret",
+            api_origin="https://api.example",
+            name="legacy",
+            capabilities=["git"],
+            max_concurrency=1,
+            simulation=True,
+            token_expires_at="2030-01-01T00:00:00Z",
+        ),
+    )
+    worker_config = replace(
+        config(tmp_path), project_id=None, gateway_service_token="gateway-secret"
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.get",
+        lambda url, **_kwargs: httpx.Response(
+            200,
+            request=httpx.Request("GET", url),
+            json=(
+                {"provider_id": "hermes", "available": True}
+                if url.endswith("/v1/providers/hermes/health")
+                else {"status": "ok"}
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda url, **_kwargs: httpx.Response(
+            200, request=httpx.Request("POST", url), json={}
+        ),
+    )
+
+    assert _doctor(worker_config) == 1
+    assert '"scope": "missing"' in capsys.readouterr().out
 
 
 def test_start_refuses_credentials_from_another_api_origin(

@@ -25,6 +25,7 @@ def credentials(api_origin: str = "https://api.example") -> WorkerCredentials:
         max_concurrency=1,
         simulation=True,
         token_expires_at="2030-01-01T00:00:00Z",
+        project_id="project-1",
     )
 
 
@@ -63,6 +64,30 @@ def test_legacy_credentials_without_origin_fail_closed(tmp_path: Path):
 
     with pytest.raises(CredentialStateError, match="réenregistrement requis"):
         load_credentials(tmp_path, "https://api.example")
+
+
+def test_legacy_credentials_without_scope_load_into_quarantine(tmp_path: Path):
+    data = dict(credentials().__dict__)
+    data.pop("project_id")
+    data.pop("global_access")
+    (tmp_path / "worker.json").write_text(json.dumps(data), encoding="utf-8")
+
+    loaded = load_credentials(tmp_path, "https://api.example")
+
+    assert loaded is not None
+    assert loaded.project_id is None
+    assert loaded.global_access is False
+
+
+def test_credentials_reject_simultaneous_project_and_global_scope():
+    with pytest.raises(CredentialStateError, match="incompatibles"):
+        WorkerCredentials(
+            **{
+                **credentials().__dict__,
+                "project_id": "project-1",
+                "global_access": True,
+            }
+        )
 
 
 def test_worker_credentials_repr_never_contains_the_bearer():

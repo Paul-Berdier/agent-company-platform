@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, func, not_, or_
 from sqlalchemy.orm import Session
 
 from acp_contracts import (
@@ -13,7 +15,11 @@ from acp_contracts import (
     NotificationPreferences,
     NotificationPreferencesSummary,
 )
-from acp_database.models import AlertModel
+from acp_database.models import (
+    AlertModel,
+    NotificationPreferencesModel,
+    ProjectModel,
+)
 
 from ..alerts_service import (
     acknowledge_alert,
@@ -26,6 +32,61 @@ from ..deps import accessible_project_ids, ensure_access, get_auth_context, get_
 from ..security import AuthContext
 
 router = APIRouter(tags=["alerts"])
+
+_SEVERITIES_FROM = {
+    "info": ("info", "warning", "critical"),
+    "warning": ("warning", "critical"),
+    "critical": ("critical",),
+}
+
+
+def _project_or_404(db: Session, project_id: str) -> ProjectModel:
+    project = db.get(ProjectModel, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Projet introuvable")
+    return project
+
+
+def _personal_alert_scope(
+    db: Session, project_ids: set[str], user_id: str
+):
+    """Construit le filtre inbox sans altérer les alertes canoniques du projet."""
+
+    stored = {
+        row.project_id: row
+        for row in db.query(NotificationPreferencesModel)
+        .filter(
+            NotificationPreferencesModel.project_id.in_(project_ids),
+            NotificationPreferencesModel.user_id == user_id,
+        )
+        .all()
+    }
+    kind = func.lower(AlertModel.kind)
+    budget_kind = kind.like("budget%")
+    automation_kind = kind.like("automation%")
+    storage_kind = kind.like("storage%")
+    known_category = or_(budget_kind, automation_kind, storage_kind)
+    scopes = []
+    for project_id in project_ids:
+        preference = stored.get(project_id)
+        if preference is not None and not bool(preference.enabled):
+            continue
+        minimum = preference.minimum_severity if preference is not None else "warning"
+        categories = [not_(known_category)]
+        if preference is None or bool(preference.budget_alerts):
+            categories.append(budget_kind)
+        if preference is None or bool(preference.automation_failures):
+            categories.append(automation_kind)
+        if preference is None or bool(preference.storage_alerts):
+            categories.append(storage_kind)
+        scopes.append(
+            and_(
+                AlertModel.project_id == project_id,
+                AlertModel.severity.in_(_SEVERITIES_FROM[minimum]),
+                or_(*categories),
+            )
+        )
+    return or_(*scopes) if scopes else None
 
 
 @router.get("/alerts", response_model=list[AlertSummary])
@@ -46,7 +107,10 @@ def list_alerts(
     if not visible:
         return []
 
-    query = db.query(AlertModel).filter(AlertModel.project_id.in_(visible))
+    personal_scope = _personal_alert_scope(db, visible, context.user.id)
+    if personal_scope is None:
+        return []
+    query = db.query(AlertModel).filter(personal_scope)
     if open_state is True:
         query = query.filter(AlertModel.acknowledged_at.is_(None))
     elif open_state is False:
@@ -114,13 +178,28 @@ def read_notification_preferences(
         project_id=project_id,
         minimum_role="viewer",
     )
-    row = get_or_create_notification_preferences(
-        db,
-        project_id=project_id,
-        user_id=context.user.id,
+    project = _project_or_404(db, project_id)
+    row = (
+        db.query(NotificationPreferencesModel)
+        .filter_by(project_id=project_id, user_id=context.user.id)
+        .first()
     )
-    db.commit()
-    return notification_preferences_summary(row)
+    if row is not None:
+        return notification_preferences_summary(row)
+    return NotificationPreferencesSummary(
+        project_id=project_id,
+        channel="in_app",
+        enabled=True,
+        minimum_severity="warning",
+        budget_alerts=True,
+        automation_failures=True,
+        storage_alerts=True,
+        updated_at=(
+            project.created_at.replace(tzinfo=UTC)
+            if project.created_at.tzinfo is None
+            else project.created_at.astimezone(UTC)
+        ),
+    )
 
 
 @router.put(
@@ -141,6 +220,7 @@ def update_notification_preferences(
         project_id=project_id,
         minimum_role="viewer",
     )
+    _project_or_404(db, project_id)
     row = get_or_create_notification_preferences(
         db,
         project_id=project_id,

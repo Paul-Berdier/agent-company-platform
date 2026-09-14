@@ -9,7 +9,7 @@ déclencherait jamais sans que rien ne le signale à qui l'a créée.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,10 @@ import acp_contracts
 from acp_contracts import (
     ALERT_ACKNOWLEDGE_COMMENT_MAX,
     BUDGET_LIMIT_NAMES,
+    MAX_BUDGET_COUNTER,
+    MAX_BUDGET_COST,
+    WEBHOOK_MAX_PAYLOAD_DEPTH,
+    WEBHOOK_MAX_PAYLOAD_NODES,
     AlertAcknowledge,
     AlertSummary,
     AutomationCreate,
@@ -31,12 +35,17 @@ from acp_contracts import (
     AutomationRunSummary,
     AutomationSchedule,
     AutomationSummary,
+    AutomationWebhookRotationRequest,
     AutomationWebhookSecret,
     AutomationWebhookStatus,
     AutomationWebhookTrigger,
     AutomationUpdate,
+    BudgetConsumptionSummary,
+    BudgetConsumptionTotals,
+    BudgetMissionConsumption,
     BudgetMutationResult,
     BudgetPermitRequest,
+    BudgetProviderConsumption,
     BudgetUsageDelta,
     BudgetVerdict,
     CalendarEntry,
@@ -110,6 +119,7 @@ def _automation_run(**overrides: Any) -> dict[str, Any]:
         "trigger_kind": "manual",
         "outcome": "launched",
         "detail": "",
+        "completion_status": None,
     }
     payload.update(overrides)
     return payload
@@ -151,6 +161,7 @@ def _alert(**overrides: Any) -> dict[str, Any]:
 def _budget_usage_delta(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "report_id": "provider-report-123",
+        "permit_id": "permit-123",
         "provider": "OpenAI",
         "phase": "execution",
         "source": "provider",
@@ -343,6 +354,21 @@ def test_mission_budget_numbers_are_strict(field: str, value: Any) -> None:
         )
 
 
+def test_mission_budget_cost_cannot_exceed_the_ledger_capacity() -> None:
+    with pytest.raises(ValidationError, match="less than or equal"):
+        AutomationMissionTemplate(
+            **_mission_template(budget={"max_cost": MAX_BUDGET_COST + 1})
+        )
+
+
+@pytest.mark.parametrize("field", ["max_tokens", "max_tool_calls"])
+def test_mission_budget_counter_cannot_exceed_cross_runtime_capacity(field: str) -> None:
+    with pytest.raises(ValidationError, match="less than or equal"):
+        AutomationMissionTemplate(
+            **_mission_template(budget={field: MAX_BUDGET_COUNTER + 1})
+        )
+
+
 def test_automation_name_cannot_be_blank() -> None:
     with pytest.raises(ValidationError) as excinfo:
         AutomationCreate(**_automation_create(name="   "))
@@ -466,6 +492,34 @@ def test_automation_run_outcome_is_constrained() -> None:
         AutomationRunSummary(**_automation_run(outcome="peut_être"))
 
 
+def test_automation_run_records_catchup_skip_without_a_task() -> None:
+    run = AutomationRunSummary(
+        **_automation_run(
+            outcome="skipped_catchup",
+            task_id=None,
+            completion_status=None,
+        )
+    )
+
+    assert run.outcome == "skipped_catchup"
+    assert run.task_id is None
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["blocked", "succeeded", "failed", "cancelled", "interrupted"],
+)
+def test_automation_run_exposes_a_constrained_terminal_status(status: str) -> None:
+    run = AutomationRunSummary(**_automation_run(completion_status=status))
+
+    assert run.completion_status == status
+
+
+def test_automation_run_rejects_a_non_terminal_completion_status() -> None:
+    with pytest.raises(ValidationError):
+        AutomationRunSummary(**_automation_run(completion_status="running"))
+
+
 def test_automation_run_keeps_the_nominal_and_the_real_instant_apart() -> None:
     run = AutomationRunSummary(
         **_automation_run(
@@ -502,7 +556,9 @@ def test_automation_run_accepts_the_canonical_fire_key_shape() -> None:
     assert run.fire_key == "0123456789abcdef" * 2
 
 
-@pytest.mark.parametrize("field", ["task_id", "trigger_kind", "detail"])
+@pytest.mark.parametrize(
+    "field", ["task_id", "trigger_kind", "detail", "completion_status"]
+)
 def test_automation_run_requires_nullable_and_empty_persisted_fields(
     field: str,
 ) -> None:
@@ -674,6 +730,28 @@ def test_webhook_trigger_rejects_non_json_payload_values() -> None:
         AutomationWebhookTrigger(event_id="delivery-1", payload={"value": object()})
 
 
+def test_webhook_trigger_rejects_excessive_payload_depth() -> None:
+    payload: dict[str, Any] = {}
+    cursor = payload
+    for _ in range(WEBHOOK_MAX_PAYLOAD_DEPTH + 1):
+        child: dict[str, Any] = {}
+        cursor["child"] = child
+        cursor = child
+
+    with pytest.raises(ValidationError, match="trop profond"):
+        AutomationWebhookTrigger(event_id="delivery-1", payload=payload)
+
+
+def test_webhook_trigger_rejects_excessive_payload_nodes() -> None:
+    payload = {
+        f"value-{index}": index
+        for index in range(WEBHOOK_MAX_PAYLOAD_NODES + 1)
+    }
+
+    with pytest.raises(ValidationError, match="trop de valeurs"):
+        AutomationWebhookTrigger(event_id="delivery-1", payload=payload)
+
+
 def test_webhook_trigger_forbids_credentials_and_other_extra_fields() -> None:
     with pytest.raises(ValidationError):
         AutomationWebhookTrigger(
@@ -699,6 +777,20 @@ def test_webhook_public_status_never_contains_the_secret() -> None:
     }
 
 
+def test_webhook_rotation_requires_a_256_bit_base64url_client_secret() -> None:
+    request = AutomationWebhookRotationRequest(secret="A" * 43)
+
+    assert request.secret == "A" * 43
+    for invalid in ("A" * 42, "A" * 42 + "!", "é" * 43):
+        with pytest.raises(ValidationError):
+            AutomationWebhookRotationRequest(secret=invalid)
+
+
+def test_webhook_rotation_request_forbids_extra_fields() -> None:
+    with pytest.raises(ValidationError):
+        AutomationWebhookRotationRequest(secret="A" * 43, generated_by="server")
+
+
 def test_webhook_status_requires_an_explicit_nullable_rotation_time() -> None:
     with pytest.raises(ValidationError):
         AutomationWebhookStatus(
@@ -714,10 +806,10 @@ def test_webhook_secret_is_only_carried_by_the_dedicated_response() -> None:
         secret_configured=True,
         endpoint_path="/api/v1/automations/abc/webhook",
         rotated_at=None,
-        secret="s" * 32,
+        secret="A" * 43,
     )
 
-    assert response.secret == "s" * 32
+    assert response.secret == "A" * 43
 
 
 @pytest.mark.parametrize("value", ["short", "x" * 201])
@@ -793,6 +885,29 @@ def test_budget_verdict_normalises_its_currency() -> None:
     )
 
     assert verdict.currency == "EUR"
+
+
+def test_budget_verdict_saturates_only_with_an_explicit_safe_integer_signal() -> None:
+    with pytest.raises(ValidationError):
+        BudgetVerdict(
+            state="ok",
+            measured=True,
+            tool_calls=MAX_BUDGET_COUNTER + 1,
+        )
+    verdict = BudgetVerdict(
+        state="ok",
+        measured=True,
+        tool_calls=MAX_BUDGET_COUNTER,
+        saturated_metrics=["tool_calls"],
+    )
+    assert verdict.saturated_metrics == ["tool_calls"]
+    with pytest.raises(ValidationError):
+        BudgetVerdict(
+            state="ok",
+            measured=True,
+            tool_calls=42,
+            saturated_metrics=["tool_calls"],
+        )
 
 
 def test_budget_limit_names_match_the_mission_budget_fields() -> None:
@@ -915,6 +1030,7 @@ def test_budget_usage_delta_requires_at_least_one_measure() -> None:
     with pytest.raises(ValidationError) as excinfo:
         BudgetUsageDelta(
             report_id="provider-report-123",
+            permit_id="permit-123",
             provider="OpenAI",
             phase="execution",
             source="provider",
@@ -946,6 +1062,24 @@ def test_budget_usage_delta_uses_strict_numeric_and_boolean_types(
 def test_budget_usage_delta_rejects_invalid_costs(value: float) -> None:
     with pytest.raises(ValidationError):
         BudgetUsageDelta(**_budget_usage_delta(cost=value, currency="EUR"))
+
+
+def test_budget_usage_delta_rejects_cost_above_cross_runtime_capacity() -> None:
+    with pytest.raises(ValidationError, match="capacité du ledger"):
+        BudgetUsageDelta(
+            **_budget_usage_delta(
+                cost=MAX_BUDGET_COST + 0.5,
+                currency="EUR",
+            )
+        )
+
+
+@pytest.mark.parametrize("field", ["tokens_input", "tokens_output", "tool_calls"])
+def test_budget_usage_delta_rejects_counter_above_capacity(field: str) -> None:
+    with pytest.raises(ValidationError, match="less than or equal"):
+        BudgetUsageDelta(
+            **_budget_usage_delta(**{field: MAX_BUDGET_COUNTER + 1})
+        )
 
 
 @pytest.mark.parametrize(
@@ -1019,6 +1153,16 @@ def test_budget_permit_requires_at_least_one_reserved_quantity() -> None:
         )
 
 
+def test_budget_permit_rejects_cost_above_cross_runtime_capacity() -> None:
+    with pytest.raises(ValidationError, match="capacité du ledger"):
+        BudgetPermitRequest(
+            **_budget_permit(
+                cost=MAX_BUDGET_COST + 0.5,
+                currency="EUR",
+            )
+        )
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -1048,6 +1192,78 @@ def test_budget_mutation_result_carries_idempotence_and_the_verdict() -> None:
     assert result.idempotent is True
     assert result.permit_allowed is True
     assert result.verdict.state == "ok"
+
+
+def test_budget_usage_requires_a_non_nullable_permit_id() -> None:
+    missing = _budget_usage_delta()
+    missing.pop("permit_id")
+    with pytest.raises(ValidationError):
+        BudgetUsageDelta(**missing)
+    with pytest.raises(ValidationError):
+        BudgetUsageDelta(**_budget_usage_delta(permit_id=None))
+
+
+def test_budget_consumption_summary_preserves_unknowns_by_dimension() -> None:
+    summary = BudgetConsumptionSummary(
+        project_id="project-1",
+        accounting_day=date(2026, 9, 14),
+        timezone="Europe/Paris",
+        totals={
+            "reports": 1,
+            "pending_reservations": 1,
+            "cost": None,
+            "currency": None,
+            "tokens_input": None,
+            "tokens_output": None,
+            "tool_calls": 1,
+            "usage_reported": False,
+            "estimated": False,
+        },
+        missions=[],
+        providers=[],
+    )
+
+    assert summary.totals.cost is None
+    assert summary.totals.tool_calls == 1
+    assert summary.accounting_day == date(2026, 9, 14)
+
+
+def test_empty_consumption_bucket_cannot_claim_a_zero_measure() -> None:
+    with pytest.raises(ValidationError):
+        BudgetConsumptionTotals(
+            reports=0,
+            pending_reservations=0,
+            cost=0.0,
+            currency="EUR",
+            usage_reported=False,
+            estimated=False,
+        )
+
+
+def test_consumption_totals_refuse_unsafe_or_false_saturation() -> None:
+    common = {
+        "reports": 1,
+        "pending_reservations": 0,
+        "usage_reported": False,
+        "estimated": False,
+    }
+    with pytest.raises(ValidationError):
+        BudgetConsumptionTotals(
+            **common,
+            tool_calls=MAX_BUDGET_COUNTER + 1,
+        )
+    totals = BudgetConsumptionTotals(
+        **common,
+        tool_calls=MAX_BUDGET_COUNTER,
+        saturated_metrics=["tool_calls"],
+    )
+    assert totals.saturated_metrics == ["tool_calls"]
+    with pytest.raises(ValidationError):
+        BudgetConsumptionTotals(
+            **common,
+            tool_calls=1,
+            saturated_metrics=["tool_calls"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -1321,10 +1537,15 @@ def _typescript_required_and_optional_fields(
         AutomationDetail,
         CalendarEntry,
         AutomationWebhookTrigger,
+        AutomationWebhookRotationRequest,
         AutomationWebhookStatus,
         AutomationWebhookSecret,
+        BudgetConsumptionSummary,
+        BudgetConsumptionTotals,
+        BudgetMissionConsumption,
         BudgetUsageDelta,
         BudgetPermitRequest,
+        BudgetProviderConsumption,
         ProviderBudgetLimit,
         ProjectBudgetPolicy,
         ProjectBudgetPolicySummary,
@@ -1428,6 +1649,18 @@ def test_typescript_automation_update_is_optional_but_never_nullable() -> None:
     assert "| null" not in body
 
 
+def test_typescript_budget_usage_requires_a_non_nullable_permit_id() -> None:
+    source = TYPESCRIPT_MIRROR.read_text(encoding="utf-8")
+    body = _typescript_interface_body(source, "BudgetUsageDelta")
+    required, optional = _typescript_required_and_optional_fields(
+        source, "BudgetUsageDelta"
+    )
+
+    assert "permit_id" in required
+    assert "permit_id" not in optional
+    assert "permit_id: string;" in body
+
+
 # --- Exports ------------------------------------------------------------------
 
 
@@ -1452,12 +1685,17 @@ def test_typescript_automation_update_is_optional_but_never_nullable() -> None:
         "AutomationSummary",
         "AutomationTriggerKind",
         "AutomationUpdate",
+        "AutomationWebhookRotationRequest",
         "AutomationWebhookSecret",
         "AutomationWebhookStatus",
         "AutomationWebhookTrigger",
         "BUDGET_LIMIT_NAMES",
+        "BudgetConsumptionSummary",
+        "BudgetConsumptionTotals",
+        "BudgetMissionConsumption",
         "BudgetMutationResult",
         "BudgetPermitRequest",
+        "BudgetProviderConsumption",
         "BudgetState",
         "BudgetUsageDelta",
         "BudgetUsagePhase",

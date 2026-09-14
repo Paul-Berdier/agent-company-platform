@@ -6,7 +6,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -16,6 +16,7 @@ from acp_api import budget_service
 from acp_api.deps import get_db, get_principal
 from acp_api.routers import budgets
 from acp_api.routers.workers import _token_hash
+from acp_contracts import MAX_BUDGET_COST, MAX_BUDGET_COUNTER
 from acp_database.models import (
     AlertModel,
     Base,
@@ -250,6 +251,206 @@ def test_policy_defaults_rbac_persistence_and_currency_validation(budget_context
     assert incompatible.status_code == 422
 
 
+def test_policy_write_rechecks_access_after_opening_the_write_transaction(
+    budget_context, monkeypatch
+):
+    context = budget_context
+    context["principal"]["id"] = context["member"]
+    real_ensure_access = budgets.ensure_access
+    real_begin = budgets.begin_budget_write
+    events: list[str] = []
+
+    def access_that_disappears(db, principal, **scope):
+        events.append("access")
+        if events.count("access") == 1:
+            # L'accès est encore valide dans la première transaction de lecture.
+            return real_ensure_access(db, principal, **scope)
+        raise HTTPException(status_code=403, detail="Accès révoqué entre transactions")
+
+    def observed_begin(db):
+        events.append("begin")
+        return real_begin(db)
+
+    monkeypatch.setattr(budgets, "ensure_access", access_that_disappears)
+    monkeypatch.setattr(budgets, "begin_budget_write", observed_begin)
+
+    response = context["client"].put(
+        f"/projects/{context['project']}/budget-policy",
+        json={"max_concurrent_missions": 2},
+    )
+
+    assert response.status_code == 403
+    assert events == ["access", "begin", "access"]
+    with context["session_factory"]() as db:
+        assert db.query(ProjectBudgetPolicyModel).count() == 0
+
+
+def test_accounting_timezone_is_frozen_after_the_first_ledger_entry(
+    budget_context, monkeypatch
+):
+    context = budget_context
+    fixed = datetime(2026, 9, 14, 0, 30, tzinfo=UTC)
+    monkeypatch.setattr(budget_service, "utcnow", lambda: fixed)
+    assert _put_policy(
+        context,
+        {"timezone": "UTC", "daily_budget": {"max_tool_calls": 10}},
+    ).status_code == 200
+    first = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("timezone-anchor", tool_calls=1),
+    )
+    assert first.status_code == 200 and first.json()["permit_allowed"] is True
+
+    moved = _put_policy(
+        context,
+        {
+            "timezone": "America/Los_Angeles",
+            "daily_budget": {"max_tool_calls": 10},
+        },
+    )
+    assert moved.status_code == 409
+    assert "fuseau comptable" in moved.json()["detail"]
+    unchanged_timezone = _put_policy(
+        context,
+        {
+            "timezone": "UTC",
+            "daily_budget": {"max_tool_calls": 10},
+            "max_retries_per_mission": 2,
+        },
+    )
+    assert unchanged_timezone.status_code == 200
+    assert unchanged_timezone.json()["max_retries_per_mission"] == 2
+
+
+def test_cost_cache_saturates_and_future_effect_is_refused_before_overflow(
+    budget_context,
+):
+    context = budget_context
+    first_bound = 600_000_000_000
+    second_bound = 399_999_999_999
+    for permit_id, cost in (
+        ("large-cost-1", first_bound),
+        ("large-cost-2", second_bound),
+    ):
+        response = context["client"].post(
+            _path(context, "permit"),
+            headers=_headers(context),
+            json=_permit(
+                permit_id,
+                cost=cost,
+                currency="EUR",
+                tool_calls=1,
+            ),
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["permit_allowed"] is True
+
+    for report_id, permit_id, cost in (
+        ("large-usage-1", "large-cost-1", first_bound),
+        # Simule un fournisseur qui viole sa borne : le ledger exact doit garder
+        # le rapport au lieu de perdre toute la transaction sur overflow du cache.
+        ("large-usage-2", "large-cost-2", 999_999_999_999),
+    ):
+        response = context["client"].post(
+            _path(context, "usage"),
+            headers=_headers(context),
+            json={
+                "report_id": report_id,
+                "permit_id": permit_id,
+                "provider": "mock",
+                "phase": "tool",
+                "source": "provider",
+                "cost": cost,
+                "currency": "EUR",
+                "tool_calls": 1,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    with context["session_factory"]() as db:
+        cache = db.query(BudgetUsageModel).filter_by(
+            task_run_id=context["runs"][0]
+        ).one()
+        assert Decimal(cache.cost) == Decimal(str(MAX_BUDGET_COST))
+        assert (
+            db.query(BudgetUsageReportModel)
+            .filter_by(task_run_id=context["runs"][0], kind="usage")
+            .count()
+            == 2
+        )
+
+    refused = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit(
+            "large-cost-3",
+            cost=1,
+            currency="EUR",
+            tool_calls=1,
+        ),
+    )
+    assert refused.status_code == 422
+    assert "capacité monétaire" in refused.json()["detail"]
+
+
+def test_integer_cache_saturates_without_losing_post_effect_reports(budget_context):
+    context = budget_context
+    for permit_id in ("large-counter-1", "large-counter-2"):
+        response = context["client"].post(
+            _path(context, "permit"),
+            headers=_headers(context),
+            json=_permit(permit_id, tool_calls=1),
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["permit_allowed"] is True
+
+    for report_id, permit_id, tool_calls in (
+        ("large-counter-usage-1", "large-counter-1", MAX_BUDGET_COUNTER - 1),
+        ("large-counter-usage-2", "large-counter-2", MAX_BUDGET_COUNTER),
+    ):
+        response = context["client"].post(
+            _path(context, "usage"),
+            headers=_headers(context),
+            json={
+                "report_id": report_id,
+                "permit_id": permit_id,
+                "provider": "mock",
+                "phase": "tool",
+                "source": "platform",
+                "tool_calls": tool_calls,
+            },
+        )
+        assert response.status_code == 200, response.text
+    assert response.json()["verdict"]["tool_calls"] == MAX_BUDGET_COUNTER
+    assert response.json()["verdict"]["saturated_metrics"] == ["tool_calls"]
+
+    with context["session_factory"]() as db:
+        cache = (
+            db.query(BudgetUsageModel)
+            .filter_by(task_run_id=context["runs"][0])
+            .one()
+        )
+        assert cache.tool_calls == MAX_BUDGET_COUNTER
+        reports = (
+            db.query(BudgetUsageReportModel)
+            .filter_by(task_run_id=context["runs"][0], kind="usage")
+            .order_by(BudgetUsageReportModel.report_id)
+            .all()
+        )
+        assert [report.tool_calls for report in reports] == [
+            MAX_BUDGET_COUNTER - 1,
+            MAX_BUDGET_COUNTER,
+        ]
+
+    consumption = context["client"].get(
+        f"/projects/{context['project']}/budget-usage"
+    )
+    assert consumption.status_code == 200, consumption.text
+    assert consumption.json()["totals"]["tool_calls"] == MAX_BUDGET_COUNTER
+    assert consumption.json()["totals"]["saturated_metrics"] == ["tool_calls"]
+
+
 def test_worker_auth_fencing_and_live_lease_are_mandatory(budget_context):
     context = budget_context
     body = _permit("secure-permit", tool_calls=1)
@@ -275,6 +476,47 @@ def test_worker_auth_fencing_and_live_lease_are_mandatory(budget_context):
         _path(context, "permit"), headers=_headers(context), json=body
     ).status_code == 409
 
+
+def test_lease_is_rechecked_after_waiting_for_budget_locks(
+    budget_context, monkeypatch
+):
+    context = budget_context
+    before_expiry = datetime.now(UTC)
+    after_expiry = before_expiry + timedelta(seconds=2)
+    with context["session_factory"]() as db:
+        lease = (
+            db.query(WorkerLeaseModel)
+            .filter_by(task_run_id=context["runs"][0], status="active")
+            .one()
+        )
+        lease.lease_expires_at = before_expiry + timedelta(seconds=1)
+        db.commit()
+
+    clock = {"now": before_expiry}
+    monkeypatch.setattr(budget_service, "utcnow", lambda: clock["now"])
+    original_lock_policy = budget_service._lock_policy
+
+    def delayed_policy_lock(db, project_id):
+        result = original_lock_policy(db, project_id)
+        clock["now"] = after_expiry
+        return result
+
+    monkeypatch.setattr(budget_service, "_lock_policy", delayed_policy_lock)
+    response = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("expired-while-waiting", tool_calls=1),
+    )
+
+    assert response.status_code == 409
+    assert "Lease expiré" in response.json()["detail"]
+    with context["session_factory"]() as db:
+        assert (
+            db.query(BudgetUsageReportModel)
+            .filter_by(report_id="expired-while-waiting")
+            .count()
+            == 0
+        )
 
 def test_unknown_is_denied_zero_is_known_and_boundary_is_allowed(budget_context):
     context = budget_context
@@ -430,6 +672,48 @@ def test_daily_and_provider_limits_span_attempts_without_implicit_fx(budget_cont
     assert currency_conflict.json()["verdict"]["state"] == "unknown"
 
 
+def test_exact_zero_cost_does_not_create_a_false_currency_conflict(budget_context):
+    context = budget_context
+    _set_task_budget(context, 0, {"max_cost": 10, "currency": "USD"})
+    assert _put_policy(
+        context,
+        {"daily_budget": {"max_cost": 10, "currency": "EUR"}},
+    ).status_code == 200
+
+    local_zero = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit(
+            "local-zero-other-currency",
+            provider="local-runner",
+            cost=0,
+            currency="USD",
+            tokens_input=0,
+            tokens_output=0,
+            tool_calls=1,
+        ),
+    )
+    assert local_zero.status_code == 200, local_zero.text
+    assert local_zero.json()["permit_allowed"] is True
+    assert local_zero.json()["verdict"]["cost"] == 0
+
+    # Un montant positif reste non convertible et est donc refusé.
+    positive = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit(
+            "positive-other-currency",
+            provider="external-provider",
+            cost=1,
+            currency="USD",
+            tool_calls=1,
+        ),
+    )
+    assert positive.status_code == 200, positive.text
+    assert positive.json()["permit_allowed"] is False
+    assert positive.json()["verdict"]["state"] == "unknown"
+
+
 def test_concurrent_permits_use_one_atomic_daily_slot(budget_context):
     context = budget_context
     for index in range(2):
@@ -455,6 +739,58 @@ def test_concurrent_permits_use_one_atomic_daily_slot(budget_context):
         rows = db.query(BudgetUsageReportModel).filter_by(kind="reservation").all()
         assert len(rows) == 2
         assert sum(row.allowed for row in rows) == 1
+
+
+def test_unreconciled_conservative_dimensions_remain_counted(budget_context):
+    context = budget_context
+    _set_task_budget(
+        context,
+        0,
+        {
+            "max_cost": 1,
+            "currency": "EUR",
+            "max_tokens": 10,
+            "max_tool_calls": 10,
+        },
+    )
+    reserved = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit(
+            "conservative-pending",
+            cost=1,
+            currency="EUR",
+            tokens_input=4,
+            tokens_output=6,
+            tool_calls=1,
+        ),
+    )
+    assert reserved.status_code == 200, reserved.text
+    assert reserved.json()["permit_allowed"] is True
+
+    # Aucun rapport d'usage n'arrive. Un nouvel effet ne peut donc pas récupérer
+    # implicitement le coût ou les jetons réservés comme s'ils valaient zéro.
+    next_effect = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit(
+            "after-missing-usage",
+            cost=0.000001,
+            currency="EUR",
+            tokens_input=0,
+            tokens_output=1,
+            tool_calls=1,
+        ),
+    )
+    assert next_effect.status_code == 200, next_effect.text
+    assert next_effect.json()["permit_allowed"] is False
+    assert next_effect.json()["verdict"]["state"] == "exceeded"
+
+    with context["session_factory"]() as db:
+        pending = db.query(BudgetUsageReportModel).filter_by(
+            report_id="conservative-pending"
+        ).one()
+        assert pending.reconciled_at is None
 
 
 def test_daily_window_uses_real_iana_dst_boundaries(budget_context, monkeypatch):
@@ -523,3 +859,204 @@ def test_platform_cannot_self_report_provider_cost_or_tokens(budget_context):
         _path(context, "usage"), headers=_headers(context), json=invalid
     )
     assert response.status_code == 422
+
+
+def test_permit_id_is_required_and_auth_happens_before_the_write_lock(
+    budget_context, monkeypatch
+):
+    context = budget_context
+    begun = 0
+    real_begin = budgets.begin_budget_write
+
+    def observed_begin(db):
+        nonlocal begun
+        begun += 1
+        return real_begin(db)
+
+    monkeypatch.setattr(budgets, "begin_budget_write", observed_begin)
+    missing = {
+        "report_id": "missing-permit",
+        "provider": "mock",
+        "phase": "tool",
+        "source": "platform",
+        "tool_calls": 1,
+    }
+    assert context["client"].post(
+        _path(context, "usage"), headers=_headers(context), json=missing
+    ).status_code == 422
+    assert context["client"].post(
+        _path(context, "permit"), json=_permit("unauthenticated", tool_calls=1)
+    ).status_code == 401
+    assert begun == 0
+
+
+def test_subquantum_positive_cost_never_rounds_to_zero(budget_context):
+    context = budget_context
+    _set_task_budget(
+        context,
+        0,
+        {"max_cost": 0.0000005, "currency": "EUR"},
+    )
+    response = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("subquantum", cost=0.0000004, currency="EUR"),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["permit_allowed"] is False
+    assert response.json()["verdict"]["state"] == "exceeded"
+    with context["session_factory"]() as db:
+        row = db.query(BudgetUsageReportModel).filter_by(
+            report_id="subquantum"
+        ).one()
+        assert row.cost == Decimal("0.000001")
+
+
+def test_replay_returns_the_original_verdict_after_totals_change(budget_context):
+    context = budget_context
+    _set_task_budget(context, 0, {"max_tool_calls": 3})
+    first_body = _permit("stable-first", tool_calls=1)
+    first = context["client"].post(
+        _path(context, "permit"), headers=_headers(context), json=first_body
+    )
+    assert first.status_code == 200
+    assert first.json()["verdict"]["state"] == "ok"
+
+    later = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("stable-later", tool_calls=2),
+    )
+    assert later.json()["verdict"]["state"] == "warning"
+    replay = context["client"].post(
+        _path(context, "permit"), headers=_headers(context), json=first_body
+    )
+    assert replay.status_code == 200
+    assert replay.json()["idempotent"] is True
+    assert replay.json()["verdict"] == first.json()["verdict"]
+
+    denied_body = _permit("stable-denied", tool_calls=1)
+    denied = context["client"].post(
+        _path(context, "permit"), headers=_headers(context), json=denied_body
+    )
+    assert denied.json()["permit_allowed"] is False
+    _set_task_budget(context, 0, {"max_tool_calls": 100})
+    denied_replay = context["client"].post(
+        _path(context, "permit"), headers=_headers(context), json=denied_body
+    )
+    assert denied_replay.json()["permit_allowed"] is False
+    assert denied_replay.json()["verdict"] == denied.json()["verdict"]
+
+
+def test_reservation_and_usage_keep_the_same_accounting_day_across_midnight(
+    budget_context, monkeypatch
+):
+    context = budget_context
+    _set_task_budget(context, 0, {"max_tool_calls": 10})
+    assert _put_policy(
+        context,
+        {"timezone": "Europe/Paris", "daily_budget": {"max_tool_calls": 1}},
+    ).status_code == 200
+
+    monkeypatch.setattr(
+        budget_service,
+        "utcnow",
+        lambda: datetime(2026, 1, 1, 22, 59, tzinfo=UTC),
+    )
+    permit = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("before-midnight", provider="OpenAI", tool_calls=1),
+    )
+    assert permit.json()["permit_allowed"] is True
+
+    monkeypatch.setattr(
+        budget_service,
+        "utcnow",
+        lambda: datetime(2026, 1, 1, 23, 1, tzinfo=UTC),
+    )
+    usage = context["client"].post(
+        _path(context, "usage"),
+        headers=_headers(context),
+        json={
+            "report_id": "after-midnight-usage",
+            "permit_id": "before-midnight",
+            "provider": "openai",
+            "phase": "tool",
+            "source": "platform",
+            "tool_calls": 1,
+        },
+    )
+    assert usage.status_code == 200, usage.text
+    next_day = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("new-day", provider="openai", tool_calls=1),
+    )
+    assert next_day.json()["permit_allowed"] is True
+
+    with context["session_factory"]() as db:
+        by_id = {
+            row.report_id: row
+            for row in db.query(BudgetUsageReportModel).all()
+        }
+        assert by_id["before-midnight"].accounting_day == "2026-01-01"
+        assert by_id["after-midnight-usage"].accounting_day == "2026-01-01"
+        assert by_id["new-day"].accounting_day == "2026-01-02"
+
+    context["principal"]["id"] = context["viewer"]
+    previous = context["client"].get(
+        f"/projects/{context['project']}/budget-usage?day=2026-01-01"
+    )
+    assert previous.status_code == 200, previous.text
+    body = previous.json()
+    assert body["totals"]["reports"] == 1
+    assert body["totals"]["tool_calls"] == 1
+    assert body["totals"]["cost"] is None
+    assert body["providers"][0]["provider"] == "openai"
+    assert body["missions"][0]["mission_id"] == context["tasks"][0]
+
+
+def test_budget_alert_has_one_stable_kind_and_escalates(budget_context):
+    context = budget_context
+    _set_task_budget(context, 0, {"max_tool_calls": 2})
+    warning = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("warning-alert", provider="OpenAI", tool_calls=2),
+    )
+    assert warning.json()["verdict"]["state"] == "warning"
+    exceeded = context["client"].post(
+        _path(context, "permit"),
+        headers=_headers(context),
+        json=_permit("critical-alert", provider="openai", tool_calls=1),
+    )
+    assert exceeded.json()["verdict"]["state"] == "exceeded"
+    with context["session_factory"]() as db:
+        alerts = db.query(AlertModel).all()
+        assert len(alerts) == 1
+        assert alerts[0].kind == "budget.guard"
+        assert alerts[0].severity == "critical"
+
+
+def test_first_policy_put_is_concurrent_safe(budget_context):
+    context = budget_context
+    # Remove the row potentially created by previous helpers in this isolated fixture.
+    with context["session_factory"]() as db:
+        db.query(ProjectBudgetPolicyModel).delete()
+        db.commit()
+
+    def write(limit: int):
+        with TestClient(context["app"], raise_server_exceptions=False) as client:
+            return client.put(
+                f"/projects/{context['project']}/budget-policy",
+                json={"max_concurrent_missions": limit},
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(write, (2, 3)))
+    assert [response.status_code for response in responses] == [200, 200]
+    with context["session_factory"]() as db:
+        rows = db.query(ProjectBudgetPolicyModel).all()
+        assert len(rows) == 1
+        assert rows[0].policy["max_concurrent_missions"] in {2, 3}

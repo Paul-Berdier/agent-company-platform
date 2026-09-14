@@ -83,6 +83,10 @@ def testing_context(monkeypatch):
                 "/projects",
                 json={"workspace_id": workspace["id"], "name": "Projet des tests"},
             ).json()
+            monkeypatch.setenv(
+                "ACP_WORKER_REGISTRATION_PROJECT_ID", project["id"]
+            )
+            monkeypatch.setenv("ACP_WORKER_REGISTRATION_GLOBAL_ACCESS", "0")
             agent = client.post(
                 "/agents",
                 json={
@@ -121,6 +125,7 @@ def _register_worker(context, name=None):
             "capabilities": ["git"],
             "max_concurrency": 1,
             "simulation": False,
+            "project_id": context["project_id"],
         },
     )
     assert response.status_code == 201, response.text
@@ -594,7 +599,7 @@ def test_an_interrupted_run_never_passes(testing_context):
         assert "interrompu" in run.technical_validation["summary"]
 
 
-def test_a_fencing_token_ahead_of_the_attempt_is_accepted(testing_context):
+def test_a_fencing_token_ahead_of_the_attempt_is_refused(testing_context):
     worker = _register_worker(testing_context)
     attempt = _start_attempt(testing_context, worker)
     response = _ingest(
@@ -604,7 +609,12 @@ def test_a_fencing_token_ahead_of_the_attempt_is_accepted(testing_context):
         _green_report(),
         fencing_token=attempt["fencing_token"] + 1,
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 409, response.text
+    with testing_context["session_factory"]() as db:
+        assert (
+            db.query(TestRunModel).filter_by(task_run_id=attempt["run_id"]).count()
+            == 0
+        )
 
 
 def test_a_reporter_error_is_kept_without_hiding_the_verdict(testing_context):

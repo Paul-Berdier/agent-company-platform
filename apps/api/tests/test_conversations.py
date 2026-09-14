@@ -1,5 +1,7 @@
 """Tests de persistance, reprise et isolation des conversations Hermes."""
 
+from datetime import UTC, datetime, timedelta
+
 from uuid import uuid4
 
 import pytest
@@ -26,6 +28,7 @@ from acp_database.models import (
     OrganizationModel,
     ProjectModel,
     UserModel,
+    WorkerModel,
     WorkspaceModel,
 )
 
@@ -294,6 +297,40 @@ def test_onboarding_creates_a_personal_project_without_exposing_hierarchy(
 
     after = client.get("/onboarding/status")
     assert after.json()["project_count"] == 2
+
+
+def test_onboarding_quarantines_an_online_worker_without_effective_scope(
+    conversation_client,
+):
+    client, session_factory, _, _, project_id, _ = conversation_client
+    with session_factory() as db:
+        worker = WorkerModel(
+            name="legacy-unscoped-runner",
+            token_hash="0" * 64,
+            token_prefix="legacy",
+            token_expires_at=datetime.now(UTC) + timedelta(days=1),
+            capabilities=[],
+            max_concurrency=1,
+            active_runs=0,
+            status="online",
+            simulation=0,
+            project_id=None,
+            global_access=0,
+            metadata_json={},
+        )
+        db.add(worker)
+        db.commit()
+        worker_id = worker.id
+
+    assert client.get("/onboarding/status").json()["runner_ready"] is False
+
+    with session_factory() as db:
+        worker = db.get(WorkerModel, worker_id)
+        assert worker is not None
+        worker.project_id = project_id
+        db.commit()
+
+    assert client.get("/onboarding/status").json()["runner_ready"] is True
 
 
 def test_conversation_can_be_renamed_exported_and_archived(conversation_client):

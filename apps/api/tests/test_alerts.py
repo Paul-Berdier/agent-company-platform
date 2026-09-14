@@ -408,6 +408,13 @@ def test_notification_preferences_are_strict_personal_and_persisted(alert_api):
     assert defaults.status_code == 200
     assert defaults.json()["channel"] == "in_app"
     assert defaults.json()["minimum_severity"] == "warning"
+    with context.session_factory() as db:
+        assert (
+            db.query(NotificationPreferencesModel)
+            .filter_by(project_id=context.project_a, user_id=context.viewer[0])
+            .count()
+            == 0
+        )
 
     csrf = context.client.headers.pop("X-CSRF-Token")
     assert (
@@ -451,6 +458,48 @@ def test_notification_preferences_are_strict_personal_and_persisted(alert_api):
         == updated.json()
     )
 
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    budget_id = _insert_alert(
+        context,
+        project_id=context.project_a,
+        kind="budget.limit",
+        severity="critical",
+        created_at=now,
+        alert_id="00000000-0000-0000-0000-000000000021",
+    )
+    automation_warning_id = _insert_alert(
+        context,
+        project_id=context.project_a,
+        kind="automation.repeated_failures",
+        severity="warning",
+        created_at=now + timedelta(minutes=1),
+        alert_id="00000000-0000-0000-0000-000000000022",
+    )
+    automation_critical_id = _insert_alert(
+        context,
+        project_id=context.project_a,
+        kind="automation.repeated_failures",
+        severity="critical",
+        created_at=now + timedelta(minutes=2),
+        alert_id="00000000-0000-0000-0000-000000000023",
+    )
+    storage_id = _insert_alert(
+        context,
+        project_id=context.project_a,
+        kind="storage.saturated",
+        severity="critical",
+        created_at=now + timedelta(minutes=3),
+        alert_id="00000000-0000-0000-0000-000000000024",
+    )
+    visible_alerts = context.client.get(
+        "/alerts", params={"project_id": context.project_a, "open": True}
+    )
+    assert visible_alerts.status_code == 200
+    assert [item["id"] for item in visible_alerts.json()] == [automation_critical_id]
+    assert {budget_id, automation_warning_id, storage_id}.isdisjoint(
+        {item["id"] for item in visible_alerts.json()}
+    )
+
     _authenticate(context.client, context.member)
     personal = context.client.get(
         f"/projects/{context.project_a}/notification-preferences"
@@ -465,8 +514,17 @@ def test_notification_preferences_are_strict_personal_and_persisted(alert_api):
         )
         assert {(row.user_id, row.minimum_severity) for row in rows} == {
             (context.viewer[0], "critical"),
-            (context.member[0], "warning"),
         }
+
+    _authenticate(context.client, context.viewer)
+    disabled = context.client.put(
+        f"/projects/{context.project_a}/notification-preferences",
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 200
+    assert context.client.get(
+        "/alerts", params={"project_id": context.project_a}
+    ).json() == []
 
     _authenticate(context.client, context.outsider)
     assert (

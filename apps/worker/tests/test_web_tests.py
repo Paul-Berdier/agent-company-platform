@@ -253,10 +253,10 @@ def mission_with_web_tests() -> dict:
             }
         ],
         "budget": {
-            "max_cost": 0,
+            "max_cost": None,
             "currency": "EUR",
             "max_tokens": None,
-            "max_tool_calls": 1,
+            "max_tool_calls": 3,
         },
         "duration_seconds": 120,
     }
@@ -606,6 +606,8 @@ def test_registering_in_real_mode_announces_the_web_test_capability(
                 "token": "worker-token",
                 "token_expires_at": "2026-09-13T08:00:00Z",
                 "heartbeat_interval_seconds": 30,
+                "project_id": "project-1",
+                "global_access": False,
             }
 
     def _post(url, **kwargs):
@@ -626,12 +628,18 @@ def test_registering_in_real_mode_announces_the_web_test_capability(
         max_concurrency=1,
         simulation=True,
         registration_token="registration-secret",
+        project_id="project-1",
         local_runner=LocalRunnerConfig(
             argv=(PYTHON, "-V"), run_root=tmp_path / "runs"
         ),
     )
     args = argparse.Namespace(
-        name=None, capabilities=None, max_concurrency=None, real=True
+        name=None,
+        capabilities=None,
+        max_concurrency=None,
+        real=True,
+        project_id=None,
+        global_access=None,
     )
 
     assert _register(config, args) == 0
@@ -1436,6 +1444,28 @@ async def run_routing(
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
+        if "/budget/" in request.url.path:
+            assert request.headers["x-attempt-fencing-token"] == "9"
+            return httpx.Response(
+                200,
+                json={
+                    "accepted": True,
+                    "idempotent": False,
+                    "permit_allowed": True,
+                    "verdict": {
+                        "state": "ok",
+                        "measured": True,
+                        "limit_reached": None,
+                        "cost": None,
+                        "currency": "EUR",
+                        "tokens_input": None,
+                        "tokens_output": None,
+                        "tool_calls": 1,
+                        "usage_reported": False,
+                        "estimated": False,
+                    },
+                },
+            )
         if request.url.path in {
             "/workers/worker-1/artifacts/content",
             "/workers/worker-1/test-runs",

@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     CheckConstraint,
     DateTime,
     Float,
@@ -460,6 +461,15 @@ class ProviderModel(_Common, Base):
 
 class WorkerModel(_Common, Base):
     __tablename__ = "workers"
+    __table_args__ = (
+        CheckConstraint(
+            "global_access IN (0, 1)", name="ck_workers_global_access_boolean"
+        ),
+        CheckConstraint(
+            "global_access = 0 OR project_id IS NULL",
+            name="ck_workers_single_scope",
+        ),
+    )
     name: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     token_hash: Mapped[str] = mapped_column(String(64))
     token_prefix: Mapped[str] = mapped_column(String(12))
@@ -469,6 +479,10 @@ class WorkerModel(_Common, Base):
     active_runs: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(50), default="online", index=True)
     simulation: Mapped[int] = mapped_column(Integer, default=1)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id"), nullable=True, index=True
+    )
+    global_access: Mapped[int] = mapped_column(Integer, default=0)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -890,6 +904,35 @@ class AutomationModel(_Common, Base):
     """
 
     __tablename__ = "automations"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "created_by_user_id",
+            "create_idempotency_key",
+            name="uq_automations_create_principal_key",
+        ),
+        CheckConstraint(
+            "(create_idempotency_key IS NULL AND create_request_fingerprint IS NULL) "
+            "OR (create_idempotency_key IS NOT NULL AND "
+            "create_request_fingerprint IS NOT NULL AND created_by_user_id IS NOT NULL)",
+            name="ck_automations_create_idempotency_complete",
+        ),
+        CheckConstraint(
+            "consecutive_failures >= 0",
+            name="ck_automations_consecutive_failures",
+        ),
+        CheckConstraint(
+            "failure_threshold >= 1", name="ck_automations_failure_threshold"
+        ),
+        CheckConstraint(
+            "webhook_rotation_number >= 0",
+            name="ck_automations_webhook_rotation_number",
+        ),
+        CheckConstraint(
+            "mutation_revision >= 0",
+            name="ck_automations_mutation_revision",
+        ),
+    )
 
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
@@ -914,6 +957,15 @@ class AutomationModel(_Common, Base):
     created_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
+    # Les anciennes lignes n'avaient pas de commande de création. Pour toutes les
+    # nouvelles lignes, cette paire est complète et l'index composite arbitre les
+    # requêtes concurrentes dans le scope projet + principal.
+    create_idempotency_key: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+    create_request_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     # Le secret brut n'est jamais persisté. Une rotation remplace uniquement son
     # empreinte et conserve l'instant public de rotation pour l'interface.
     webhook_enabled: Mapped[int] = mapped_column(
@@ -925,6 +977,102 @@ class AutomationModel(_Common, Base):
     webhook_rotated_at: Mapped[datetime | None] = mapped_column(
         UtcDateTime, nullable=True
     )
+    # Numéro monotone de rotation : comparer seulement l'empreinte du secret ne
+    # permettrait pas de détecter deux rotations distinctes réutilisant le même
+    # secret fourni par le client.
+    webhook_rotation_number: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    failure_threshold: Mapped[int] = mapped_column(
+        Integer, default=3, server_default="3"
+    )
+    # Révision monotone des commandes de configuration utilisateur. Elle ne suit
+    # pas les curseurs du planificateur : elle sert uniquement à reconnaître un
+    # rejeu dont une commande ultérieure a rendu le résultat obsolète.
+    mutation_revision: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default="0"
+    )
+
+
+class AutomationWebhookRotationModel(_Common, Base):
+    """Journal sans secret brut des rotations de webhook.
+
+    La clé d'idempotence appartient à un principal et à une automatisation. La
+    réponse peut être reconstruite à partir du secret que le client rejoue, tandis
+    que seules ses empreintes sont persistées. ``rotation_number`` établit si ce
+    journal désigne encore la configuration courante.
+    """
+
+    __tablename__ = "automation_webhook_rotations"
+    __table_args__ = (
+        UniqueConstraint(
+            "automation_id",
+            "principal_id",
+            "idempotency_key",
+            name="uq_webhook_rotation_principal_key",
+        ),
+        UniqueConstraint(
+            "automation_id",
+            "rotation_number",
+            name="uq_webhook_rotation_number",
+        ),
+        CheckConstraint(
+            "rotation_number >= 1", name="ck_webhook_rotation_number_positive"
+        ),
+    )
+
+    automation_id: Mapped[str] = mapped_column(
+        ForeignKey("automations.id"), index=True
+    )
+    principal_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    rotation_number: Mapped[int] = mapped_column(Integer)
+    rotated_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class AutomationCommandModel(_Common, Base):
+    """Journal transactionnel des mutations rejouables d'une automatisation.
+
+    La clé appartient à un principal, une automatisation et un type de commande.
+    ``request_fingerprint`` interdit de réutiliser la clé avec une autre intention,
+    tandis que ``postcondition`` permet de vérifier qu'un rejeu n'a pas été rendu
+    obsolète par une mutation ultérieure. Le journal et l'événement métier sont
+    validés dans la même transaction que la mutation.
+    """
+
+    __tablename__ = "automation_commands"
+    __table_args__ = (
+        UniqueConstraint(
+            "automation_id",
+            "principal_id",
+            "command",
+            "idempotency_key",
+            name="uq_automation_command_principal_key",
+        ),
+        CheckConstraint(
+            "command IN ('update', 'enable', 'disable', 'webhook.disable')",
+            name="ck_automation_commands_command",
+        ),
+        CheckConstraint(
+            "result_revision >= 1",
+            name="ck_automation_commands_result_revision",
+        ),
+    )
+
+    automation_id: Mapped[str] = mapped_column(
+        ForeignKey("automations.id"), index=True
+    )
+    principal_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    command: Mapped[str] = mapped_column(String(30))
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    postcondition: Mapped[dict] = mapped_column(JSON, default=dict)
+    result_revision: Mapped[int] = mapped_column(BigInteger)
 
 
 class AutomationRunModel(_Common, Base):
@@ -944,9 +1092,26 @@ class AutomationRunModel(_Common, Base):
     __tablename__ = "automation_runs"
     __table_args__ = (
         UniqueConstraint("automation_id", "fire_key", name="uq_automation_runs_fire_key"),
+        Index(
+            "ix_automation_runs_reconcile_order",
+            "automation_id",
+            "completion_observed_at",
+            "scheduled_for",
+            "id",
+            "outcome",
+        ),
         CheckConstraint(
             "trigger_kind IN ('manual', 'schedule', 'webhook')",
             name="ck_automation_runs_trigger_kind",
+        ),
+        CheckConstraint(
+            "outcome IN ('launched', 'skipped_concurrency', 'skipped_disabled', "
+            "'skipped_catchup', 'failed')",
+            name="ck_automation_runs_outcome",
+        ),
+        CheckConstraint(
+            "length(schedule_timezone) > 0",
+            name="ck_automation_runs_schedule_timezone_nonempty",
         ),
     )
 
@@ -956,13 +1121,58 @@ class AutomationRunModel(_Common, Base):
     fire_key: Mapped[str] = mapped_column(String(64))
     scheduled_for: Mapped[datetime] = mapped_column(UtcDateTime)
     fired_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    # Snapshot immuable : un PATCH du calendrier parent ne réétiquette jamais
+    # l'heure locale d'une occurrence déjà matérialisée.
+    schedule_timezone: Mapped[str] = mapped_column(
+        String(64), default="Europe/Paris", server_default="Europe/Paris"
+    )
     task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
     trigger_kind: Mapped[str] = mapped_column(
         String(20), default="schedule", server_default="schedule"
     )
-    # launched | skipped_concurrency | skipped_disabled | failed
+    # launched | skipped_concurrency | skipped_disabled | skipped_catchup | failed
     outcome: Mapped[str] = mapped_column(String(30))
     detail: Mapped[str] = mapped_column(String(500), default="")
+    completion_observed_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True, index=True
+    )
+    completion_status: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
+
+
+class SchedulerLeaseModel(_Common, Base):
+    """Bail singleton du planificateur, arbitré et clôturé par la base.
+
+    ``holder_id`` identifie un processus précis. Deux processus qui réutilisent le
+    même jeton worker ne peuvent ainsi jamais partager implicitement le bail.
+    ``fencing_token`` augmente à chaque reprise après expiration ou libération :
+    une requête retardée d'un ancien leader est donc refusée même après reconnexion.
+    """
+
+    __tablename__ = "scheduler_leases"
+    __table_args__ = (
+        UniqueConstraint("scheduler_key", name="uq_scheduler_leases_key"),
+        CheckConstraint(
+            "fencing_token >= 0", name="ck_scheduler_leases_fencing_token"
+        ),
+    )
+
+    scheduler_key: Mapped[str] = mapped_column(String(64))
+    owner_worker_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workers.id"), nullable=True, index=True
+    )
+    holder_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fencing_token: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True, index=True
+    )
+    last_renewed_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    released_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
 
 class BudgetUsageModel(_Common, Base):
@@ -973,27 +1183,67 @@ class BudgetUsageModel(_Common, Base):
     respecté alors que rien n'a jamais été mesuré : il reste à 0 tant qu'aucun bloc
     ``usage`` n'est arrivé.
 
-    Les écritures sont des incréments SQL (``SET x = x + :n``) et jamais une lecture
-    suivie d'une écriture : deux rapports concurrents ne doivent pas s'écraser.
+    Le ledger immuable reste l'autorité. Ce cache dérivé est mis à jour sous le
+    verrou de la tentative et chaque compteur est saturé à sa capacité maximale :
+    deux rapports concurrents ne s'écrasent pas et aucun dépassement de type ne
+    transforme une grande consommation en valeur plus petite.
     """
 
     __tablename__ = "budget_usage"
+    __table_args__ = (
+        CheckConstraint(
+            "cost >= 0 AND cost <= 999999999999",
+            name="ck_budget_usage_cost_capacity",
+        ),
+        CheckConstraint(
+            "tokens_input >= 0 AND tokens_input <= 9007199254740991",
+            name="ck_budget_usage_tokens_input_capacity",
+        ),
+        CheckConstraint(
+            "tokens_output >= 0 AND tokens_output <= 9007199254740991",
+            name="ck_budget_usage_tokens_output_capacity",
+        ),
+        CheckConstraint(
+            "tool_calls >= 0 AND tool_calls <= 9007199254740991",
+            name="ck_budget_usage_tool_calls_capacity",
+        ),
+        CheckConstraint(
+            "usage_reported IN (0, 1)",
+            name="ck_budget_usage_usage_reported_boolean",
+        ),
+        CheckConstraint(
+            "cost_reported IN (0, 1)",
+            name="ck_budget_usage_cost_reported_boolean",
+        ),
+        CheckConstraint(
+            "tokens_input_reported IN (0, 1)",
+            name="ck_budget_usage_tokens_input_reported_boolean",
+        ),
+        CheckConstraint(
+            "tokens_output_reported IN (0, 1)",
+            name="ck_budget_usage_tokens_output_reported_boolean",
+        ),
+        CheckConstraint(
+            "tool_calls_reported IN (0, 1)",
+            name="ck_budget_usage_tool_calls_reported_boolean",
+        ),
+    )
 
     task_run_id: Mapped[str] = mapped_column(
         ForeignKey("task_runs.id"), unique=True, index=True
     )
     # ``Numeric`` évite qu'une succession d'incréments monétaires introduise une
-    # dérive binaire. Les bases SQLite historiques gardent leur colonne FLOAT : la
-    # migration additive ne réécrit pas une table de compteurs en production.
+    # dérive binaire. L'upgrade SQLite reconstruit également les anciens caches
+    # ``FLOAT`` afin que les bases existantes partagent cette garantie.
     cost: Mapped[Decimal] = mapped_column(
         Numeric(18, 6), default=Decimal("0"), server_default="0"
     )
     currency: Mapped[str] = mapped_column(
         String(3), default="EUR", server_default="EUR"
     )
-    tokens_input: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    tokens_output: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    tool_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    tokens_input: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    tokens_output: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    tool_calls: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     usage_reported: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # Disponibilité par métrique : une mesure réellement rapportée à zéro ne doit
     # jamais être confondue avec une donnée absente.
@@ -1030,6 +1280,10 @@ class AlertModel(_Common, Base):
     __table_args__ = (
         UniqueConstraint(
             "project_id", "dedupe_key_active", name="uq_alerts_dedupe_active"
+        ),
+        CheckConstraint(
+            "severity IN ('info', 'warning', 'critical')",
+            name="ck_alerts_severity",
         ),
     )
 
@@ -1147,15 +1401,33 @@ class BudgetUsageReportModel(_Common, Base):
         ),
         CheckConstraint("estimated IN (0, 1)", name="ck_budget_report_estimated"),
         CheckConstraint("allowed IN (0, 1)", name="ck_budget_report_allowed"),
-        CheckConstraint("cost IS NULL OR cost >= 0", name="ck_budget_report_cost"),
+        CheckConstraint(
+            "length(accounting_day) = 10", name="ck_budget_report_accounting_day"
+        ),
+        CheckConstraint(
+            "cost IS NULL OR (cost >= 0 AND cost <= 999999999999)",
+            name="ck_budget_report_cost",
+        ),
         CheckConstraint(
             "tokens_input IS NULL OR tokens_input >= 0", name="ck_budget_report_tokens_input"
+        ),
+        CheckConstraint(
+            "tokens_input IS NULL OR tokens_input <= 9007199254740991",
+            name="ck_budget_report_tokens_input_capacity",
         ),
         CheckConstraint(
             "tokens_output IS NULL OR tokens_output >= 0", name="ck_budget_report_tokens_output"
         ),
         CheckConstraint(
+            "tokens_output IS NULL OR tokens_output <= 9007199254740991",
+            name="ck_budget_report_tokens_output_capacity",
+        ),
+        CheckConstraint(
             "tool_calls IS NULL OR tool_calls >= 0", name="ck_budget_report_tool_calls"
+        ),
+        CheckConstraint(
+            "tool_calls IS NULL OR tool_calls <= 9007199254740991",
+            name="ck_budget_report_tool_calls_capacity",
         ),
         CheckConstraint(
             "(cost IS NULL AND currency IS NULL) OR "
@@ -1171,7 +1443,7 @@ class BudgetUsageReportModel(_Common, Base):
 
     task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
     report_id: Mapped[str] = mapped_column(String(128))
-    permit_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    permit_id: Mapped[str] = mapped_column(String(128))
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     provider: Mapped[str] = mapped_column(String(100), index=True)
     # Une réservation est le permit atomique pré-effet ; un usage est la mesure
@@ -1183,10 +1455,16 @@ class BudgetUsageReportModel(_Common, Base):
     phase: Mapped[str] = mapped_column(String(20))
     cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
-    tokens_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tokens_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tool_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_input: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tokens_output: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tool_calls: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     estimated: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     allowed: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # Le jour est choisi à la réservation puis copié sur l'usage. Il ne dérive
+    # donc jamais de l'heure du rapport, qui peut franchir minuit local.
+    accounting_day: Mapped[str] = mapped_column(String(10), index=True)
+    # Une réponse rejouée doit rendre exactement la décision originale, même si
+    # d'autres usages ont modifié les totaux depuis.
+    verdict_snapshot: Mapped[dict] = mapped_column(JSON)
     reconciled_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)

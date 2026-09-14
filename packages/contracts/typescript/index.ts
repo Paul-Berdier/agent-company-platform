@@ -50,6 +50,51 @@ export interface Overview {
   tasks: TaskSummary[];
 }
 
+export type WorkerCapability =
+  | "git" | "filesystem_project" | "shell_restricted" | "claude_code"
+  | "codex_cli" | "blender" | "blender_mcp" | "unreal_engine"
+  | "unreal_mcp" | "nanosworld_cook" | "asset_validation"
+  | "image_capture" | "mcp_stdio_probe" | "web_tests";
+
+export type WorkerStatus = "online" | "busy" | "offline" | "revoked";
+
+/** Une inscription doit choisir exactement un projet ou le privilège global. */
+export interface WorkerRegistrationRequest {
+  name: string;
+  capabilities: WorkerCapability[];
+  max_concurrency: number;
+  simulation: boolean;
+  project_id: string | null;
+  global_access: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface WorkerRegistrationResponse {
+  worker_id: string;
+  token: string;
+  token_expires_at: string;
+  heartbeat_interval_seconds: number;
+  project_id: string | null;
+  global_access: boolean;
+}
+
+export interface WorkerSnapshot {
+  id: string;
+  name: string;
+  capabilities: WorkerCapability[];
+  max_concurrency: number;
+  active_runs: number;
+  status: WorkerStatus;
+  simulation: boolean;
+  project_id: string | null;
+  global_access: boolean;
+  metadata: Record<string, unknown>;
+  last_seen_at: string | null;
+  lease_expires_at: string | null;
+  token_expires_at: string;
+  created_at: string | null;
+}
+
 export interface AcpEvent {
   id: string; type: string; occurred_at: string;
   organization_id: string | null; workspace_id: string | null;
@@ -647,7 +692,14 @@ export type AutomationRunOutcome =
   | "launched"
   | "skipped_concurrency"
   | "skipped_disabled"
+  | "skipped_catchup"
   | "failed";
+export type AutomationCompletionStatus =
+  | "blocked"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
 export type CalendarEntryState = "planned" | "past";
 export type BudgetState = "unknown" | "ok" | "warning" | "exceeded";
 export type BudgetLimitName = "max_cost" | "max_tokens" | "max_tool_calls";
@@ -768,7 +820,7 @@ export interface AutomationSummary {
   catchup_policy: AutomationCatchupPolicy;
   max_concurrent_runs: number;
   next_run_at: string | null;
-  created_at: string | null;
+  created_at: string;
 }
 
 export interface AutomationRunSummary {
@@ -781,6 +833,7 @@ export interface AutomationRunSummary {
   trigger_kind: AutomationTriggerKind;
   outcome: AutomationRunOutcome;
   detail: string;
+  completion_status: AutomationCompletionStatus | null;
 }
 
 export interface AutomationDetail extends AutomationSummary {
@@ -805,6 +858,17 @@ export interface AutomationWebhookTrigger {
   payload?: Record<string, unknown>;
 }
 
+export const WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
+export const WEBHOOK_MAX_PAYLOAD_DEPTH = 32;
+export const WEBHOOK_MAX_PAYLOAD_NODES = 10_000;
+export const MAX_BUDGET_COST = 999_999_999_999;
+export const MAX_BUDGET_COUNTER = 9_007_199_254_740_991;
+
+/** Secret base64url d'au moins 256 bits, généré avec Web Crypto côté client. */
+export interface AutomationWebhookRotationRequest {
+  secret: string;
+}
+
 export interface AutomationWebhookStatus {
   enabled: boolean;
   secret_configured: boolean;
@@ -818,7 +882,7 @@ export interface AutomationWebhookSecret extends AutomationWebhookStatus {
 
 export interface BudgetUsageDelta {
   report_id: string;
-  permit_id?: string | null;
+  permit_id: string;
   provider: string;
   phase: BudgetUsagePhase;
   source: BudgetUsageSource;
@@ -871,7 +935,7 @@ export interface ProjectBudgetPolicyInput {
 
 export interface ProjectBudgetPolicySummary extends ProjectBudgetPolicy {
   project_id: string;
-  updated_at: string | null;
+  updated_at: string;
 }
 
 export interface BudgetVerdict {
@@ -883,6 +947,8 @@ export interface BudgetVerdict {
   tokens_input: number | null;
   tokens_output: number | null;
   tool_calls: number | null;
+  /** Valeurs bornées à Number.MAX_SAFE_INTEGER sur le wire. */
+  saturated_metrics: Array<"tokens_input" | "tokens_output" | "tool_calls">;
   usage_reported: boolean;
   estimated: boolean;
 }
@@ -892,6 +958,40 @@ export interface BudgetMutationResult {
   idempotent: boolean;
   permit_allowed: boolean;
   verdict: BudgetVerdict;
+}
+
+export interface BudgetConsumptionTotals {
+  reports: number;
+  pending_reservations: number;
+  cost: number | null;
+  currency: string | null;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  tool_calls: number | null;
+  /** Valeurs bornées à Number.MAX_SAFE_INTEGER sur le wire. */
+  saturated_metrics: Array<"reports" | "pending_reservations" | "tokens_input" | "tokens_output" | "tool_calls">;
+  usage_reported: boolean;
+  estimated: boolean;
+}
+
+export interface BudgetMissionConsumption {
+  mission_id: string;
+  task_run_ids: string[];
+  totals: BudgetConsumptionTotals;
+}
+
+export interface BudgetProviderConsumption {
+  provider: string;
+  totals: BudgetConsumptionTotals;
+}
+
+export interface BudgetConsumptionSummary {
+  project_id: string;
+  accounting_day: string;
+  timezone: string;
+  totals: BudgetConsumptionTotals;
+  missions: BudgetMissionConsumption[];
+  providers: BudgetProviderConsumption[];
 }
 
 export interface AlertSummary {
@@ -906,7 +1006,7 @@ export interface AlertSummary {
   acknowledged_at: string | null;
   acknowledged_by_user_id: string | null;
   acknowledgement_comment: string;
-  created_at: string | null;
+  created_at: string;
 }
 
 export interface AlertAcknowledge {
@@ -930,5 +1030,5 @@ export interface NotificationPreferencesSummary {
   automation_failures: boolean;
   storage_alerts: boolean;
   project_id: string;
-  updated_at: string | null;
+  updated_at: string;
 }

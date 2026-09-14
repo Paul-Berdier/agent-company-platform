@@ -10,6 +10,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+MAX_BUDGET_COST = 999_999_999_999.0
+"""Plafond représentable sans saturer le ledger monétaire NUMERIC(18, 6)."""
+
+MAX_BUDGET_COUNTER = 9_007_199_254_740_991
+"""Plus grand compteur entier exact à la fois en Python, SQL BIGINT et JavaScript."""
+
 
 class MissionRunStatus(str, Enum):
     QUEUED = "queued"
@@ -48,11 +54,19 @@ class MissionBudget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_cost: float | None = Field(
-        default=None, ge=0, allow_inf_nan=False, strict=True
+        default=None,
+        ge=0,
+        le=MAX_BUDGET_COST,
+        allow_inf_nan=False,
+        strict=True,
     )
     currency: str = Field(default="EUR", pattern=r"^[A-Za-z]{3}$")
-    max_tokens: int | None = Field(default=None, ge=0, strict=True)
-    max_tool_calls: int | None = Field(default=None, ge=0, strict=True)
+    max_tokens: int | None = Field(
+        default=None, ge=0, le=MAX_BUDGET_COUNTER, strict=True
+    )
+    max_tool_calls: int | None = Field(
+        default=None, ge=0, le=MAX_BUDGET_COUNTER, strict=True
+    )
 
     @field_validator("currency")
     @classmethod
@@ -155,6 +169,7 @@ class MissionSummary(BaseModel):
     budget: MissionBudget
     duration_seconds: int
     priority: int
+    required_capabilities: list[str] = Field(default_factory=list, max_length=100)
     status: MissionRunStatus
     current_run: MissionRun
     created_at: datetime | None = None

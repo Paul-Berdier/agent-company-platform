@@ -47,8 +47,10 @@ from acp_database.models import (
 
 from ..budget_service import (
     BudgetServiceError,
+    begin_budget_write,
     enforce_mission_retry_limit,
     enforce_project_mission_capacity,
+    lock_mission_retry_context,
 )
 from ..deps import (
     accessible_agent_ids,
@@ -201,6 +203,9 @@ def _mission_contract(
         budget=MissionBudget.model_validate(task.budget or {}),
         duration_seconds=task.duration_seconds,
         priority=task.priority,
+        required_capabilities=list(
+            (task.meta or {}).get("required_capabilities", [])
+        ),
         status=run_contracts[-1].status,
         current_run=run_contracts[-1],
         created_at=task.created_at,
@@ -585,6 +590,38 @@ def _retry_replay(
     return run
 
 
+def _retry_replay_after_rollback(
+    db: Session,
+    *,
+    principal: str,
+    key: str,
+    task_id: str,
+    request_fingerprint: str,
+) -> TaskRunModel | None:
+    """Rouvre une lecture idempotente sans réutiliser l'autorisation annulée.
+
+    ``rollback`` ferme aussi la transaction dans laquelle l'appartenance avait été
+    vérifiée. La relire avant le replay évite de divulguer une tentative après une
+    révocation concurrente.
+    """
+
+    db.rollback()
+    current_task = _mission_or_404(db, task_id)
+    ensure_access(
+        db,
+        principal,
+        project_id=current_task.project_id,
+        minimum_role="member",
+    )
+    return _retry_replay(
+        db,
+        principal=principal,
+        key=key,
+        task_id=task_id,
+        request_fingerprint=request_fingerprint,
+    )
+
+
 @router.post("/{mission_id}/retry", response_model=MissionRun, status_code=201)
 def retry_mission(
     mission_id: str,
@@ -614,22 +651,47 @@ def retry_mission(
     if replayed_run is not None:
         return mission_run_contract(db, replayed_run)
 
-    latest = (
-        db.query(TaskRunModel)
-        .filter_by(task_id=task.id)
-        .order_by(TaskRunModel.attempt_number.desc(), TaskRunModel.created_at.desc())
-        .with_for_update()
-        .first()
+    task_id = task.id
+    project_id = task.project_id
+    # La lecture d'accès ci-dessus ne doit pas devenir la transaction de décision.
+    # SQLite prend son verrou d'écriture avant toute lecture concurrentielle ; sur
+    # PostgreSQL, les verrous suivent run -> projet/policy -> mission, comme le
+    # chemin de réservation budgétaire du worker.
+    begin_budget_write(db)
+    task = _mission_or_404(db, task_id)
+    ensure_access(db, principal, project_id=task.project_id, minimum_role="member")
+    if task.project_id != project_id:
+        raise HTTPException(status_code=409, detail="Le projet de la mission a changé")
+    try:
+        policy, task, latest = lock_mission_retry_context(
+            db,
+            task_id=task_id,
+            project_id=project_id,
+        )
+    except BudgetServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    # L'attente des verrous run/policy peut avoir laissé le temps de révoquer l'accès.
+    ensure_access(db, principal, project_id=project_id, minimum_role="member")
+    # Une requête de même clé a pu valider sa commande pendant notre attente.
+    # Le replay précède les plafonds afin de rester idempotent même si cette
+    # première relance a consommé la dernière place autorisée.
+    replayed_run = _retry_replay(
+        db,
+        principal=principal,
+        key=key,
+        task_id=task_id,
+        request_fingerprint=request_fingerprint,
     )
+    if replayed_run is not None:
+        return mission_run_contract(db, replayed_run)
     if latest is None:
         raise HTTPException(status_code=409, detail="Mission sans tentative")
     if latest.status in _ACTIVE_RUN_STATES or task.active_run_id is not None:
-        db.rollback()
-        replayed_run = _retry_replay(
+        replayed_run = _retry_replay_after_rollback(
             db,
             principal=principal,
             key=key,
-            task_id=mission_id,
+            task_id=task_id,
             request_fingerprint=request_fingerprint,
         )
         if replayed_run is not None:
@@ -646,25 +708,30 @@ def retry_mission(
         raise HTTPException(status_code=409, detail="Cette tentative ne peut pas être relancée")
 
     try:
-        enforce_mission_retry_limit(db, task)
+        enforce_mission_retry_limit(db, task, policy)
     except BudgetServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
+    observed_attempt_counter = int(task.attempt_counter or 0)
     updated = (
         db.query(TaskModel)
-        .filter(TaskModel.id == task.id, TaskModel.active_run_id.is_(None))
+        .filter(
+            TaskModel.id == task.id,
+            TaskModel.project_id == project_id,
+            TaskModel.active_run_id.is_(None),
+            TaskModel.attempt_counter == observed_attempt_counter,
+        )
         .update(
             {TaskModel.attempt_counter: TaskModel.attempt_counter + 1},
             synchronize_session=False,
         )
     )
     if updated != 1:
-        db.rollback()
-        replayed_run = _retry_replay(
+        replayed_run = _retry_replay_after_rollback(
             db,
             principal=principal,
             key=key,
-            task_id=mission_id,
+            task_id=task_id,
             request_fingerprint=request_fingerprint,
         )
         if replayed_run is not None:
@@ -698,12 +765,11 @@ def retry_mission(
         task.status = "queued"
         db.commit()
     except IntegrityError:
-        db.rollback()
-        replayed_run = _retry_replay(
+        replayed_run = _retry_replay_after_rollback(
             db,
             principal=principal,
             key=key,
-            task_id=mission_id,
+            task_id=task_id,
             request_fingerprint=request_fingerprint,
         )
         if replayed_run is None:

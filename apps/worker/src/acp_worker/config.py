@@ -129,6 +129,16 @@ def _simulation_flag(value: object) -> bool:
     raise WorkerConfigurationError("ACP_WORKER_SIMULATION accepte uniquement 0 ou 1")
 
 
+def _global_access_flag(value: object) -> bool:
+    if value == "1":
+        return True
+    if value == "0":
+        return False
+    raise WorkerConfigurationError(
+        "ACP_WORKER_GLOBAL_ACCESS accepte uniquement 0 ou 1"
+    )
+
+
 @dataclass(frozen=True)
 class WorkerConfig:
     api_url: str
@@ -142,6 +152,8 @@ class WorkerConfig:
     max_concurrency: int
     simulation: bool
     registration_token: str | None = field(repr=False)
+    project_id: str | None = None
+    global_access: bool = False
     local_runner: LocalRunnerConfig | None = None
     mcp_probe: McpStdioProbeConfig = field(default_factory=McpStdioProbeConfig.disabled)
     web_tests: WebTestConfig = field(default_factory=WebTestConfig.disabled)
@@ -191,6 +203,25 @@ class WorkerConfig:
             )
         if not isinstance(self.simulation, bool):
             raise WorkerConfigurationError("simulation doit être un booléen")
+        if self.project_id is not None:
+            if not isinstance(self.project_id, str):
+                raise WorkerConfigurationError(
+                    "ACP_WORKER_PROJECT_ID doit être un identifiant de projet"
+                )
+            project_id = self.project_id.strip()
+            if not project_id or len(project_id) > 36:
+                raise WorkerConfigurationError(
+                    "ACP_WORKER_PROJECT_ID doit contenir entre 1 et 36 caractères"
+                )
+            object.__setattr__(self, "project_id", project_id)
+        if not isinstance(self.global_access, bool):
+            raise WorkerConfigurationError(
+                "ACP_WORKER_GLOBAL_ACCESS doit être un booléen"
+            )
+        if self.global_access and self.project_id is not None:
+            raise WorkerConfigurationError(
+                "un worker global ne peut pas être limité simultanément à un projet"
+            )
         if not isinstance(self.mcp_probe, McpStdioProbeConfig):
             raise WorkerConfigurationError(
                 "mcp_probe doit être une McpStdioProbeConfig"
@@ -234,6 +265,10 @@ class WorkerConfig:
             max_concurrency=os.environ.get("ACP_WORKER_MAX_CONCURRENCY", "1"),
             simulation=_simulation_flag(os.environ.get("ACP_WORKER_SIMULATION", "1")),
             registration_token=os.environ.get("ACP_WORKER_REGISTRATION_TOKEN"),
+            project_id=os.environ.get("ACP_WORKER_PROJECT_ID"),
+            global_access=_global_access_flag(
+                os.environ.get("ACP_WORKER_GLOBAL_ACCESS", "0")
+            ),
             local_runner=LocalRunnerConfig.from_environment(),
             mcp_probe=McpStdioProbeConfig.from_environ(),
             web_tests=WebTestConfig.from_environ(),

@@ -6,9 +6,8 @@ contraintes de base de données, et c'est tout l'intérêt de ce fichier :
 - ``(automation_id, fire_key)`` est unique : deux planificateurs concurrents qui
   matérialisent la **même** occurrence nominale ne peuvent pas créer deux missions,
   la base en refuse un ;
-- ``budget_usage.task_run_id`` est unique : une tentative n'a qu'un seul compteur, et
-  les écritures de consommation sont des incréments SQL, jamais une lecture suivie
-  d'une écriture qui écraserait un rapport concurrent ;
+- ``budget_usage.task_run_id`` est unique : une tentative n'a qu'un seul cache
+  saturé sous verrou, dérivé du ledger immuable sans écraser un rapport concurrent ;
 - ``(project_id, dedupe_key_active)`` est unique : une même cause ne produit jamais
   deux alertes **ouvertes**, mais peut en recréer une après acquittement, puisque
   ``NULL`` n'entre pas en conflit avec ``NULL`` dans un index unique SQL.
@@ -18,7 +17,8 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import BigInteger, create_engine, inspect, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -27,16 +27,38 @@ from acp_contracts.schedule import fire_key, next_occurrence
 from acp_database import engine as engine_module
 from acp_database.models import (
     AlertModel,
+    AutomationCommandModel,
     AutomationModel,
     AutomationRunModel,
+    AutomationWebhookRotationModel,
     Base,
     BudgetUsageModel,
+    BudgetUsageReportModel,
+    NotificationPreferencesModel,
+    OrganizationModel,
+    ProjectModel,
+    WorkspaceModel,
 )
 
-LOT_F_TABLES = {"automations", "automation_runs", "budget_usage", "alerts"}
+LOT_F_TABLES = {
+    "automations",
+    "automation_commands",
+    "automation_runs",
+    "budget_usage",
+    "alerts",
+}
 
 LEGACY_EVENT_ID = "evenement-anterieur-au-lot-f"
 """Ligne écrite **avant** la montée de schéma ; elle doit survivre intacte."""
+
+
+def test_budget_counters_compile_to_postgresql_bigint() -> None:
+    dialect = postgresql.dialect()
+    for model in (BudgetUsageModel, BudgetUsageReportModel):
+        for name in ("tokens_input", "tokens_output", "tool_calls"):
+            column_type = model.__table__.c[name].type
+            assert isinstance(column_type, BigInteger)
+            assert column_type.compile(dialect=dialect) == "BIGINT"
 
 LEGACY_EVENTS_TABLE = """
 CREATE TABLE events (
@@ -167,6 +189,7 @@ def test_create_all_creates_the_four_lot_f_tables(inspector):
 
 def test_models_map_to_the_expected_tables():
     assert AutomationModel.__tablename__ == "automations"
+    assert AutomationCommandModel.__tablename__ == "automation_commands"
     assert AutomationRunModel.__tablename__ == "automation_runs"
     assert BudgetUsageModel.__tablename__ == "budget_usage"
     assert AlertModel.__tablename__ == "alerts"
@@ -191,6 +214,9 @@ def test_models_map_to_the_expected_tables():
                 "next_run_at",
                 "last_fire_key",
                 "created_by_user_id",
+                "create_idempotency_key",
+                "create_request_fingerprint",
+                "webhook_rotation_number",
                 "created_at",
             },
         ),
@@ -398,6 +424,61 @@ def test_fire_key_uniqueness_is_declared(inspector):
     )
 
 
+def test_automation_creation_idempotency_is_declared(inspector):
+    assert (
+        "project_id",
+        "created_by_user_id",
+        "create_idempotency_key",
+    ) in _unique_column_sets(inspector, "automations")
+
+
+def test_same_creation_key_is_scoped_by_project_and_principal(engine):
+    common = {
+        "create_idempotency_key": "create-1",
+        "create_request_fingerprint": "a" * 64,
+    }
+    with Session(engine) as db:
+        db.add(
+            _automation(
+                project_id="project-1", created_by_user_id="user-1", **common
+            )
+        )
+        db.commit()
+        db.add(
+            _automation(
+                project_id="project-1", created_by_user_id="user-1", **common
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+        db.add(
+            _automation(
+                project_id="project-2", created_by_user_id="user-1", **common
+            )
+        )
+        db.add(
+            _automation(
+                project_id="project-1", created_by_user_id="user-2", **common
+            )
+        )
+        db.commit()
+
+
+def test_webhook_rotation_journal_is_uniquely_ordered_and_scoped(inspector):
+    assert (
+        "automation_id",
+        "principal_id",
+        "idempotency_key",
+    ) in _unique_column_sets(inspector, "automation_webhook_rotations")
+    assert ("automation_id", "rotation_number") in _unique_column_sets(
+        inspector, "automation_webhook_rotations"
+    )
+    assert AutomationWebhookRotationModel.__tablename__ == (
+        "automation_webhook_rotations"
+    )
+
+
 def test_the_same_occurrence_cannot_be_materialised_twice(engine):
     """Deux planificateurs sur le même instant nominal : la base en refuse un."""
 
@@ -512,6 +593,31 @@ def test_two_projects_may_raise_the_same_cause(engine):
         assert db.query(AlertModel).count() == 2
 
 
+def test_application_sqlite_engine_enforces_foreign_keys(tmp_path, monkeypatch):
+    database = tmp_path / "foreign_keys.db"
+    monkeypatch.setenv("ACP_DATABASE_URL", f"sqlite:///{database.as_posix()}")
+    engine_module.get_engine.cache_clear()
+    engine_module.get_session_factory.cache_clear()
+    engine = engine_module.get_engine()
+    try:
+        Base.metadata.create_all(engine)
+        with engine.connect() as connection:
+            assert connection.execute(text("PRAGMA foreign_keys")).scalar_one() == 1
+        with Session(engine) as db:
+            db.add(
+                NotificationPreferencesModel(
+                    project_id="missing-project",
+                    user_id="missing-user",
+                )
+            )
+            with pytest.raises(IntegrityError):
+                db.commit()
+    finally:
+        engine.dispose()
+        engine_module.get_engine.cache_clear()
+        engine_module.get_session_factory.cache_clear()
+
+
 # --- montée de schéma d'une base antérieure au lot ----------------------------
 
 
@@ -589,6 +695,31 @@ def test_upgrade_repairs_a_table_created_without_its_uniqueness(tmp_path, monkey
             inspect(engine), "automation_runs"
         )
         with Session(engine) as db:
+            db.add(
+                OrganizationModel(
+                    id="organisation-1",
+                    name="Organisation",
+                )
+            )
+            db.flush()
+            db.add(
+                WorkspaceModel(
+                    id="espace-1",
+                    organization_id="organisation-1",
+                    name="Espace",
+                )
+            )
+            db.flush()
+            db.add(
+                ProjectModel(
+                    id="projet-1",
+                    workspace_id="espace-1",
+                    name="Projet",
+                )
+            )
+            db.flush()
+            db.add(_automation(id="automatisation-1"))
+            db.commit()
             db.add(_automation_run())
             db.commit()
             db.add(_automation_run())

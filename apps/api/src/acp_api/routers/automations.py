@@ -20,6 +20,7 @@ from acp_contracts import (
     AutomationRunSummary,
     AutomationSummary,
     AutomationUpdate,
+    AutomationWebhookRotationRequest,
     AutomationWebhookSecret,
     AutomationWebhookStatus,
     AutomationWebhookTrigger,
@@ -54,6 +55,8 @@ def _idempotency_key(value: str | None) -> str:
 
 
 def _translate_error(error: Exception) -> HTTPException:
+    if isinstance(error, service.IdempotencyConflict):
+        return HTTPException(status_code=409, detail=str(error))
     if isinstance(error, service.AutomationNotFound):
         return HTTPException(status_code=404, detail="Automatisation introuvable")
     if isinstance(error, service.ProjectNotFound):
@@ -107,7 +110,9 @@ def create_automation(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    key = _idempotency_key(idempotency_key)
     ensure_access(db, principal, project_id=project_id, minimum_role="member")
     try:
         result = service.create_automation(
@@ -115,6 +120,7 @@ def create_automation(
             project_id=project_id,
             body=body,
             principal_id=principal,
+            idempotency_key=key,
             allowed_agent_ids=accessible_agent_ids(db, principal),
         )
     except (service.AutomationServiceError, ValueError) as exc:
@@ -204,13 +210,17 @@ def update_automation(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    key = _idempotency_key(idempotency_key)
     row = _automation_for_access(db, principal, automation_id, minimum_role="member")
     try:
         result = service.update_automation(
             db,
             row,
             body=body,
+            principal_id=principal,
+            idempotency_key=key,
             allowed_agent_ids=accessible_agent_ids(db, principal),
         )
     except (service.AutomationServiceError, ValueError) as exc:
@@ -226,10 +236,18 @@ def enable_automation(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    key = _idempotency_key(idempotency_key)
     row = _automation_for_access(db, principal, automation_id, minimum_role="member")
     try:
-        result = service.set_automation_enabled(db, row, enabled=True)
+        result = service.set_automation_enabled(
+            db,
+            row,
+            enabled=True,
+            principal_id=principal,
+            idempotency_key=key,
+        )
     except (service.AutomationServiceError, ValueError) as exc:
         db.rollback()
         raise _translate_error(exc) from exc
@@ -243,9 +261,21 @@ def disable_automation(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    key = _idempotency_key(idempotency_key)
     row = _automation_for_access(db, principal, automation_id, minimum_role="member")
-    result = service.set_automation_enabled(db, row, enabled=False)
+    try:
+        result = service.set_automation_enabled(
+            db,
+            row,
+            enabled=False,
+            principal_id=principal,
+            idempotency_key=key,
+        )
+    except (service.AutomationServiceError, ValueError) as exc:
+        db.rollback()
+        raise _translate_error(exc) from exc
     _forward(background, result)
     return service.detail_contract(db, result.value)
 
@@ -323,12 +353,25 @@ def get_webhook_status(
 )
 def enable_or_rotate_webhook(
     automation_id: str,
+    body: AutomationWebhookRotationRequest,
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    key = _idempotency_key(idempotency_key)
     row = _automation_for_access(db, principal, automation_id, minimum_role="member")
-    result = service.rotate_webhook(db, row)
+    try:
+        result = service.rotate_webhook(
+            db,
+            row,
+            body=body,
+            principal_id=principal,
+            idempotency_key=key,
+        )
+    except (service.AutomationServiceError, ValueError) as exc:
+        db.rollback()
+        raise _translate_error(exc) from exc
     _forward(background, result)
     return result.value
 
@@ -342,9 +385,20 @@ def disable_automation_webhook(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    key = _idempotency_key(idempotency_key)
     row = _automation_for_access(db, principal, automation_id, minimum_role="member")
-    result = service.disable_webhook(db, row)
+    try:
+        result = service.disable_webhook(
+            db,
+            row,
+            principal_id=principal,
+            idempotency_key=key,
+        )
+    except (service.AutomationServiceError, ValueError) as exc:
+        db.rollback()
+        raise _translate_error(exc) from exc
     _forward(background, result)
     return result.value
 

@@ -7,9 +7,10 @@ réellement rapporté.  ``None`` reste une information absente, jamais un zéro.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_EVEN
+from datetime import UTC, date, datetime
+from decimal import Decimal, ROUND_CEILING
 from typing import Iterable
 
 from pydantic import ValidationError
@@ -19,11 +20,17 @@ from sqlalchemy.orm import Session
 
 from acp_contracts import (
     AutomationMissionBudget,
+    BudgetConsumptionSummary,
+    BudgetConsumptionTotals,
+    BudgetMissionConsumption,
     BudgetMutationResult,
     BudgetPermitRequest,
+    BudgetProviderConsumption,
     BudgetUsageDelta,
     BudgetVerdict,
     Event,
+    MAX_BUDGET_COUNTER,
+    MAX_BUDGET_COST,
     ProjectBudgetPolicy,
     ProjectBudgetPolicySummary,
 )
@@ -43,6 +50,8 @@ from .alerts_service import open_or_escalate_alert
 from .events_bus import publish
 
 _MONEY_QUANTUM = Decimal("0.000001")
+_CACHE_MAX_COST = Decimal(str(MAX_BUDGET_COST))
+_CACHE_MAX_COUNTER = MAX_BUDGET_COUNTER
 _LIMIT_PRIORITY = ("max_cost", "max_tokens", "max_tool_calls")
 _ACTIVE_MISSION_RUN_STATUSES = {
     "pending",
@@ -80,6 +89,7 @@ class _Totals:
     cost: Decimal = Decimal("0")
     cost_known: bool = True
     currencies: set[str] | None = None
+    charged_currencies: set[str] | None = None
     tokens_input: int = 0
     tokens_input_known: bool = True
     tokens_output: int = 0
@@ -92,6 +102,8 @@ class _Totals:
     def __post_init__(self) -> None:
         if self.currencies is None:
             self.currencies = set()
+        if self.charged_currencies is None:
+            self.charged_currencies = set()
 
     def add(self, row: object) -> None:
         self.rows += 1
@@ -100,9 +112,17 @@ class _Totals:
         if cost is None:
             self.cost_known = False
         else:
-            self.cost += _money(cost)
+            normalised_cost = _money(cost)
+            self.cost += normalised_cost
             assert self.currencies is not None
             self.currencies.add(str(currency).upper())
+            # Un zéro explicite est indépendant de la devise : il prouve une
+            # non-consommation et ne doit pas rendre inconnu un total positif
+            # rapporté dans une autre devise. Les montants positifs, eux, ne
+            # sont jamais convertis implicitement.
+            if normalised_cost > 0:
+                assert self.charged_currencies is not None
+                self.charged_currencies.add(str(currency).upper())
         tokens_input = getattr(row, "tokens_input", None)
         if tokens_input is None:
             self.tokens_input_known = False
@@ -147,7 +167,20 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def _money(value: Decimal | float | int | str) -> Decimal:
-    return Decimal(str(value)).quantize(_MONEY_QUANTUM, rounding=ROUND_HALF_EVEN)
+    """Normalise une charge au quantum stockable, toujours côté protecteur.
+
+    Une charge positive sous le quantum vaut donc un quantum, jamais zéro. Les
+    plafonds restent comparés dans leur précision d'origine par ``_money_limit``.
+    """
+
+    amount = Decimal(str(value))
+    return amount.quantize(_MONEY_QUANTUM, rounding=ROUND_CEILING)
+
+
+def _money_limit(value: Decimal | float | int | str) -> Decimal:
+    """Conserve la précision écrite du plafond, sans l'arrondir à la hausse."""
+
+    return Decimal(str(value))
 
 
 def begin_budget_write(db: Session) -> None:
@@ -175,7 +208,6 @@ def load_worker_budget_context(
 ) -> BudgetContext:
     """Dérive la tâche et le projet depuis un lease actif authentifié."""
 
-    moment = _as_utc(now or utcnow())
     run = (
         db.query(TaskRunModel)
         .filter(TaskRunModel.id == run_id)
@@ -192,6 +224,10 @@ def load_worker_budget_context(
     )
     if lease is None:
         raise BudgetServiceError(409, "Lease actif requis pour le budget")
+    # En production l'heure doit être prise après les deux verrous : une requête
+    # qui a attendu ne peut valider le lease avec son heure d'arrivée. ``now``
+    # reste injectable pour les tests déterministes.
+    moment = _as_utc(now) if now is not None else utcnow()
     if _as_utc(lease.lease_expires_at) <= moment:
         raise BudgetServiceError(409, "Lease expiré ; écriture de budget refusée")
     task = db.get(TaskModel, run.task_id)
@@ -203,6 +239,17 @@ def load_worker_budget_context(
     if project is None:
         raise BudgetServiceError(409, "Projet de la tentative introuvable")
     return BudgetContext(worker=worker, lease=lease, run=run, task=task, project=project)
+
+
+def _locked_operation_moment(
+    context: BudgetContext, now: datetime | None
+) -> datetime:
+    """Relit l'heure après tous les verrous et revalide le lease détenu."""
+
+    moment = _as_utc(now) if now is not None else utcnow()
+    if _as_utc(context.lease.lease_expires_at) <= moment:
+        raise BudgetServiceError(409, "Lease expiré ; écriture de budget refusée")
+    return moment
 
 
 def _policy_payload(policy: ProjectBudgetPolicy) -> dict:
@@ -273,6 +320,16 @@ def put_project_policy(
     policy: ProjectBudgetPolicy,
 ) -> ProjectBudgetPolicySummary:
     _validate_policy_currencies(policy)
+    # Sur PostgreSQL, verrouiller le parent existant sérialise aussi les deux
+    # toutes premières créations de policy, avant que la ligne unique n'existe.
+    locked_project = (
+        db.query(ProjectModel)
+        .filter(ProjectModel.id == project.id)
+        .with_for_update()
+        .one_or_none()
+    )
+    if locked_project is None:
+        raise BudgetServiceError(404, "Projet introuvable")
     row = (
         db.query(ProjectBudgetPolicyModel)
         .filter_by(project_id=project.id)
@@ -289,6 +346,19 @@ def put_project_policy(
         )
         db.add(row)
     else:
+        if row.timezone != policy.timezone:
+            has_ledger_history = (
+                db.query(BudgetUsageReportModel.id)
+                .filter_by(project_id=project.id)
+                .first()
+                is not None
+            )
+            if has_ledger_history:
+                raise BudgetServiceError(
+                    409,
+                    "Le fuseau comptable ne peut plus changer après le premier "
+                    "permis de budget",
+                )
         row.timezone = policy.timezone
         row.policy = _policy_payload(policy)
         row.updated_at = moment
@@ -297,7 +367,19 @@ def put_project_policy(
     return get_project_policy(db, project)
 
 
-def _lock_policy(db: Session, project_id: str) -> tuple[ProjectBudgetPolicyModel, ProjectBudgetPolicy]:
+def _lock_policy(
+    db: Session, project_id: str
+) -> tuple[ProjectBudgetPolicyModel, ProjectBudgetPolicy]:
+    # Même ordre de verrou que PUT policy : parent puis policy. Le parent existe
+    # avant toute policy et sérialise donc aussi la toute première matérialisation.
+    project = (
+        db.query(ProjectModel)
+        .filter(ProjectModel.id == project_id)
+        .with_for_update()
+        .one_or_none()
+    )
+    if project is None:
+        raise BudgetServiceError(404, "Projet introuvable")
     row = (
         db.query(ProjectBudgetPolicyModel)
         .filter_by(project_id=project_id)
@@ -348,7 +430,19 @@ def enforce_project_mission_capacity(
     """
 
     _, policy = _lock_policy(db, project_id)
-    active = (
+    active = _active_project_mission_count(db, project_id)
+    if active >= policy.max_concurrent_missions:
+        raise BudgetServiceError(
+            409,
+            "Plafond de missions concurrentes atteint pour ce projet",
+        )
+    return policy
+
+
+def _active_project_mission_count(db: Session, project_id: str) -> int:
+    """Compte les runs actifs sous le verrou de policy détenu par l'appelant."""
+
+    return (
         db.query(TaskRunModel.id)
         .join(TaskModel, TaskModel.id == TaskRunModel.task_id)
         .filter(
@@ -358,32 +452,83 @@ def enforce_project_mission_capacity(
         )
         .count()
     )
-    if active >= policy.max_concurrent_missions:
-        raise BudgetServiceError(
-            409,
-            "Plafond de missions concurrentes atteint pour ce projet",
-        )
-    return policy
+
+
+def lock_mission_retry_context(
+    db: Session,
+    *,
+    task_id: str,
+    project_id: str,
+) -> tuple[ProjectBudgetPolicy, TaskModel, TaskRunModel | None]:
+    """Verrouille et recharge le contexte sur lequel décider une relance.
+
+    L'ordre est unique : dernière tentative, projet/policy, puis mission. Il suit
+    l'ordre du chemin budget worker (tentative avant policy) afin d'éviter un
+    interblocage PostgreSQL entre un permis et une relance. Deux relances de la
+    même mission se sérialisent d'abord sur la tentative ; celles de missions
+    différentes d'un même projet se sérialisent ensuite sur la policy. La mission
+    est chargée après ces attentes, de sorte que son ``attempt_counter`` est frais.
+    Sous SQLite, l'appelant doit avoir pris ``BEGIN IMMEDIATE`` via
+    :func:`begin_budget_write` avant toute lecture de décision.
+
+    Le routeur conserve cette transaction ouverte jusqu'au commit du nouveau run.
+    """
+
+    # Ce premier verrou est le mutex stable de la chaîne de tentatives. Sous
+    # PostgreSQL READ COMMITTED, une requête ayant attendu ce verrou ne voit pas
+    # forcément une tentative insérée pendant son attente ; elle ne sert donc
+    # qu'à ordonner les écrivains. La tentative de décision est relue plus bas.
+    _serialization_run = (
+        db.query(TaskRunModel)
+        .filter(TaskRunModel.task_id == task_id)
+        .order_by(TaskRunModel.attempt_number.desc(), TaskRunModel.created_at.desc())
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    _, policy = _lock_policy(db, project_id)
+    task = (
+        db.query(TaskModel)
+        .filter(TaskModel.id == task_id, TaskModel.project_id == project_id)
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
+    if task is None:
+        raise BudgetServiceError(404, "Mission introuvable")
+    latest = (
+        db.query(TaskRunModel)
+        .filter(TaskRunModel.task_id == task_id)
+        .order_by(TaskRunModel.attempt_number.desc(), TaskRunModel.created_at.desc())
+        .populate_existing()
+        .first()
+    )
+    # Le verrou SQL reste détenu par la transaction même si la ligne de décision
+    # est une tentative plus récente que ``_serialization_run``.
+    return policy, task, latest
 
 
 def enforce_mission_retry_limit(
-    db: Session, task: TaskModel
-) -> ProjectBudgetPolicy:
-    """Refuse une relance au-delà du nombre de retries configuré.
+    db: Session,
+    task: TaskModel,
+    policy: ProjectBudgetPolicy,
+) -> None:
+    """Applique les plafonds au contexte frais verrouillé par l'appelant."""
 
-    ``attempt_counter`` inclut la tentative initiale ; la policy compte seulement
-    les tentatives supplémentaires. L'appel se fait avant l'incrément atomique du
-    routeur mission et conserve sa transaction ouverte.
-    """
-
-    _, policy = _lock_policy(db, task.project_id)
     retries_used = max(int(task.attempt_counter or 0) - 1, 0)
     if retries_used >= policy.max_retries_per_mission:
         raise BudgetServiceError(
             409,
             "Plafond de relances atteint pour cette mission",
         )
-    return policy
+    if (
+        _active_project_mission_count(db, task.project_id)
+        >= policy.max_concurrent_missions
+    ):
+        raise BudgetServiceError(
+            409,
+            "Plafond de missions concurrentes atteint pour ce projet",
+        )
 
 
 def _mission_budget(task: TaskModel) -> AutomationMissionBudget | None:
@@ -398,12 +543,10 @@ def _mission_budget(task: TaskModel) -> AutomationMissionBudget | None:
         ) from exc
 
 
-def _day_bounds(moment: datetime, timezone_name: str) -> tuple[datetime, datetime]:
+def _accounting_day(moment: datetime, timezone_name: str) -> str:
     zone = resolve_timezone(timezone_name)
     local = _as_utc(moment).astimezone(zone)
-    start_local = datetime.combine(local.date(), datetime.min.time(), tzinfo=zone)
-    next_local = start_local + timedelta(days=1)
-    return start_local.astimezone(UTC), next_local.astimezone(UTC)
+    return local.date().isoformat()
 
 
 def _active_reports_query(db: Session):
@@ -426,14 +569,143 @@ def _totals(rows: Iterable[BudgetUsageReportModel]) -> _Totals:
     return result
 
 
+def _safe_counter(value: int, metric: str, saturated: list[str]) -> int:
+    """Borne une valeur de wire au plus grand entier exact JavaScript."""
+
+    if value > MAX_BUDGET_COUNTER:
+        saturated.append(metric)
+        return MAX_BUDGET_COUNTER
+    return value
+
+
+def _consumption_totals(
+    rows: Iterable[BudgetUsageReportModel],
+) -> BudgetConsumptionTotals:
+    materialized = list(rows)
+    totals = _totals(materialized)
+    saturated: list[str] = []
+    currencies = totals.currencies or set()
+    currency = next(iter(currencies)) if len(currencies) == 1 else None
+    cost = (
+        float(totals.cost)
+        if materialized and totals.cost_known and currency is not None
+        else None
+    )
+    return BudgetConsumptionTotals(
+        reports=_safe_counter(len(materialized), "reports", saturated),
+        pending_reservations=_safe_counter(
+            sum(
+                row.kind == "reservation" and row.reconciled_at is None
+                for row in materialized
+            ),
+            "pending_reservations",
+            saturated,
+        ),
+        cost=cost,
+        currency=currency,
+        tokens_input=(
+            _safe_counter(totals.tokens_input, "tokens_input", saturated)
+            if materialized and totals.tokens_input_known
+            else None
+        ),
+        tokens_output=(
+            _safe_counter(totals.tokens_output, "tokens_output", saturated)
+            if materialized and totals.tokens_output_known
+            else None
+        ),
+        tool_calls=(
+            _safe_counter(totals.tool_calls, "tool_calls", saturated)
+            if materialized and totals.tool_calls_known
+            else None
+        ),
+        usage_reported=totals.usage_reported,
+        estimated=totals.estimated,
+        saturated_metrics=saturated,
+    )
+
+
+def get_project_consumption(
+    db: Session,
+    project: ProjectModel,
+    *,
+    day: date | None = None,
+    now: datetime | None = None,
+) -> BudgetConsumptionSummary:
+    """Retourne le ledger actif, agrégé sans convertir ni fabriquer de mesure."""
+
+    policy_row = (
+        db.query(ProjectBudgetPolicyModel)
+        .filter_by(project_id=project.id)
+        .first()
+    )
+    policy = (
+        _policy_from_row(policy_row)
+        if policy_row is not None
+        else ProjectBudgetPolicy()
+    )
+    accounting_day = (
+        day.isoformat()
+        if day is not None
+        else _accounting_day(now or utcnow(), policy.timezone)
+    )
+    rows = (
+        _active_reports_query(db)
+        .filter(
+            BudgetUsageReportModel.project_id == project.id,
+            BudgetUsageReportModel.accounting_day == accounting_day,
+        )
+        .all()
+    )
+
+    run_ids = sorted({row.task_run_id for row in rows})
+    mission_by_run = {
+        run_id: task_id
+        for run_id, task_id in (
+            db.query(TaskRunModel.id, TaskRunModel.task_id)
+            .filter(TaskRunModel.id.in_(run_ids))
+            .all()
+            if run_ids
+            else []
+        )
+    }
+    mission_rows: dict[str, list[BudgetUsageReportModel]] = defaultdict(list)
+    provider_rows: dict[str, list[BudgetUsageReportModel]] = defaultdict(list)
+    for row in rows:
+        mission_id = mission_by_run.get(row.task_run_id)
+        if mission_id is not None:
+            mission_rows[mission_id].append(row)
+        provider_rows[row.provider].append(row)
+
+    return BudgetConsumptionSummary(
+        project_id=project.id,
+        accounting_day=date.fromisoformat(accounting_day),
+        timezone=policy.timezone,
+        totals=_consumption_totals(rows),
+        missions=[
+            BudgetMissionConsumption(
+                mission_id=mission_id,
+                task_run_ids=sorted({row.task_run_id for row in grouped}),
+                totals=_consumption_totals(grouped),
+            )
+            for mission_id, grouped in sorted(mission_rows.items())
+        ],
+        providers=[
+            BudgetProviderConsumption(
+                provider=provider,
+                totals=_consumption_totals(grouped),
+            )
+            for provider, grouped in sorted(provider_rows.items())
+        ],
+    )
+
+
 def _scope_totals(
     db: Session,
     context: BudgetContext,
     policy: ProjectBudgetPolicy,
     provider: str,
-    moment: datetime,
+    accounting_day: str,
 ) -> tuple[_Totals, _Totals, _Totals]:
-    start, end = _day_bounds(moment, policy.timezone)
     base = _active_reports_query(db)
     run_totals = _totals(
         base.filter(BudgetUsageReportModel.task_run_id == context.run.id).all()
@@ -442,8 +714,7 @@ def _scope_totals(
         _active_reports_query(db)
         .filter(
             BudgetUsageReportModel.project_id == context.project.id,
-            BudgetUsageReportModel.occurred_at >= start,
-            BudgetUsageReportModel.occurred_at < end,
+            BudgetUsageReportModel.accounting_day == accounting_day,
         )
         .all()
     )
@@ -451,8 +722,7 @@ def _scope_totals(
         _active_reports_query(db)
         .filter(
             BudgetUsageReportModel.project_id == context.project.id,
-            BudgetUsageReportModel.occurred_at >= start,
-            BudgetUsageReportModel.occurred_at < end,
+            BudgetUsageReportModel.accounting_day == accounting_day,
             func.lower(BudgetUsageReportModel.provider) == provider.casefold(),
         )
         .all()
@@ -514,12 +784,12 @@ def _metric(scope: _LimitScope, name: str) -> tuple[Decimal | int | None, Decima
     if name == "max_cost":
         if budget.max_cost is None:
             return None, None
-        currencies = totals.currencies or set()
+        currencies = totals.charged_currencies or set()
         if not totals.cost_known or any(
             currency != budget.currency for currency in currencies
         ):
-            return None, _money(budget.max_cost)
-        return totals.cost, _money(budget.max_cost)
+            return None, _money_limit(budget.max_cost)
+        return totals.cost, _money_limit(budget.max_cost)
     if name == "max_tokens":
         if budget.max_tokens is None:
             return None, None
@@ -566,11 +836,22 @@ def _visible_totals(scopes: list[_LimitScope], fallback: _Totals) -> tuple:
         expected = cost_scopes[0].budget.currency
         if all(
             scope.totals.cost_known
-            and not any(c != scope.budget.currency for c in (scope.totals.currencies or set()))
+            and not any(
+                c != scope.budget.currency
+                for c in (scope.totals.charged_currencies or set())
+            )
             for scope in cost_scopes
         ):
             cost = max(scope.totals.cost for scope in cost_scopes)
         currency = expected
+    elif fallback.cost_known and len(fallback.charged_currencies or set()) <= 1:
+        cost = fallback.cost
+        charged = fallback.charged_currencies or set()
+        reported = fallback.currencies or set()
+        if charged:
+            currency = next(iter(charged))
+        elif len(reported) == 1:
+            currency = next(iter(reported))
 
     token_pair: tuple[int, int] | None = None
     complete_tokens = [
@@ -581,10 +862,14 @@ def _visible_totals(scopes: list[_LimitScope], fallback: _Totals) -> tuple:
     if token_scopes and len(complete_tokens) == len(token_scopes):
         picked = max(complete_tokens, key=lambda t: t.tokens_input + t.tokens_output)
         token_pair = (picked.tokens_input, picked.tokens_output)
+    elif not token_scopes and fallback.tokens_input_known and fallback.tokens_output_known:
+        token_pair = (fallback.tokens_input, fallback.tokens_output)
 
     tools: int | None = None
     if tool_scopes and all(scope.totals.tool_calls_known for scope in tool_scopes):
         tools = max(scope.totals.tool_calls for scope in tool_scopes)
+    elif not tool_scopes and fallback.tool_calls_known:
+        tools = fallback.tool_calls
     return cost, currency, token_pair, tools
 
 
@@ -620,6 +905,13 @@ def _verdict(
     cost, currency, token_pair, tools = _visible_totals(scopes, run_totals)
     tokens_input = token_pair[0] if token_pair is not None else None
     tokens_output = token_pair[1] if token_pair is not None else None
+    saturated: list[str] = []
+    if tokens_input is not None:
+        tokens_input = _safe_counter(tokens_input, "tokens_input", saturated)
+    if tokens_output is not None:
+        tokens_output = _safe_counter(tokens_output, "tokens_output", saturated)
+    if tools is not None:
+        tools = _safe_counter(tools, "tool_calls", saturated)
     has_measure = any(
         value is not None for value in (cost, tokens_input, tokens_output, tools)
     )
@@ -638,6 +930,7 @@ def _verdict(
         tokens_input=tokens_input,
         tokens_output=tokens_output,
         tool_calls=tools,
+        saturated_metrics=saturated,
         usage_reported=run_totals.usage_reported,
         estimated=estimated,
     )
@@ -653,8 +946,10 @@ def _evaluate(
     moment: datetime,
     *,
     candidate: BudgetPermitRequest | None = None,
+    accounting_day: str | None = None,
 ) -> tuple[BudgetVerdict, bool]:
-    totals = _scope_totals(db, context, policy, provider, moment)
+    day = accounting_day or _accounting_day(moment, policy.timezone)
+    totals = _scope_totals(db, context, policy, provider, day)
     if candidate is not None:
         row = _request_row(candidate)
         for item in totals:
@@ -678,17 +973,47 @@ def _same_number(stored: object, supplied: object) -> bool:
     return Decimal(str(stored)) == Decimal(str(supplied))
 
 
+def _same_cost(stored: object, supplied: object) -> bool:
+    if stored is None or supplied is None:
+        return stored is None and supplied is None
+    return Decimal(str(stored)) == _money(supplied)
+
+
 def _same_permit(row: BudgetUsageReportModel, body: BudgetPermitRequest) -> bool:
     return (
         row.kind == "reservation"
         and row.provider == _normalised_provider(body.provider)
         and row.phase == body.phase
-        and _same_number(row.cost, body.cost)
+        and _same_cost(row.cost, body.cost)
         and (row.currency or None) == (body.currency or None)
         and _same_number(row.tokens_input, body.tokens_input)
         and _same_number(row.tokens_output, body.tokens_output)
         and _same_number(row.tool_calls, body.tool_calls)
     )
+
+
+def _ensure_run_cost_capacity(
+    db: Session, *, task_run_id: str, candidate_cost: Decimal | None
+) -> None:
+    """Refuse avant effet une somme que le cache NUMERIC ne peut représenter."""
+
+    if candidate_cost is None:
+        return
+    active_costs = (
+        _active_reports_query(db)
+        .filter(
+            BudgetUsageReportModel.task_run_id == task_run_id,
+            BudgetUsageReportModel.cost.is_not(None),
+        )
+        .with_for_update()
+        .all()
+    )
+    reserved = sum((_money(row.cost) for row in active_costs), Decimal("0"))
+    if reserved + _money(candidate_cost) > _CACHE_MAX_COST:
+        raise BudgetServiceError(
+            422,
+            "La somme des coûts bornés dépasse la capacité monétaire du ledger",
+        )
 
 
 def _same_usage(row: BudgetUsageReportModel, body: BudgetUsageDelta) -> bool:
@@ -698,7 +1023,7 @@ def _same_usage(row: BudgetUsageReportModel, body: BudgetUsageDelta) -> bool:
         and row.provider == _normalised_provider(body.provider)
         and row.phase == body.phase
         and row.source == body.source
-        and _same_number(row.cost, body.cost)
+        and _same_cost(row.cost, body.cost)
         and (row.currency or None) == (body.currency or None)
         and _same_number(row.tokens_input, body.tokens_input)
         and _same_number(row.tokens_output, body.tokens_output)
@@ -752,27 +1077,17 @@ def _maybe_alert(
     if verdict.state == "ok":
         return
     if verdict.state == "exceeded":
-        kind, severity, title = (
-            "budget.exceeded",
-            "critical",
-            "Plafond de budget dépassé",
-        )
+        severity, title = "critical", "Plafond de budget dépassé"
     elif verdict.state == "unknown":
-        kind, severity, title = (
-            "budget.unknown",
-            "warning",
-            "Mesure de budget indisponible",
-        )
+        severity, title = "warning", "Mesure de budget indisponible"
     else:
-        kind, severity, title = (
-            "budget.warning",
-            "warning",
-            "Budget proche de sa limite",
-        )
+        severity, title = "warning", "Budget proche de sa limite"
     open_or_escalate_alert(
         db,
         project_id=context.project.id,
-        kind=kind,
+        # Le type et la clé restent identiques lorsque la même cause passe de
+        # warning/unknown à exceeded : le service d'alertes escalade la ligne.
+        kind="budget.guard",
         severity=severity,
         title=title,
         detail=(
@@ -783,8 +1098,30 @@ def _maybe_alert(
         dimensions={
             "task_id": context.task.id,
             "provider": provider,
-            "limit": verdict.limit_reached or "unknown",
         },
+    )
+
+
+def _stored_result(
+    row: BudgetUsageReportModel,
+    *,
+    permit_allowed: bool,
+) -> BudgetMutationResult | None:
+    """Restitue exactement la décision initiale d'un replay moderne."""
+
+    if not isinstance(row.verdict_snapshot, dict):
+        return None
+    try:
+        verdict = BudgetVerdict.model_validate(row.verdict_snapshot)
+    except ValidationError as exc:
+        raise BudgetServiceError(
+            409, "Le verdict budgétaire persisté est invalide"
+        ) from exc
+    return BudgetMutationResult(
+        accepted=True,
+        idempotent=True,
+        permit_allowed=permit_allowed,
+        verdict=verdict,
     )
 
 
@@ -795,8 +1132,8 @@ def reserve_budget(
     *,
     now: datetime | None = None,
 ) -> BudgetMutationResult:
-    moment = _as_utc(now or utcnow())
     _, policy = _lock_policy(db, context.project.id)
+    moment = _locked_operation_moment(context, now)
     provider = _normalised_provider(body.provider)
     existing = (
         db.query(BudgetUsageReportModel)
@@ -809,6 +1146,9 @@ def reserve_budget(
             raise BudgetServiceError(
                 409, "Ce permit_id désigne déjà une réservation différente"
             )
+        stored = _stored_result(existing, permit_allowed=bool(existing.allowed))
+        if stored is not None:
+            return stored
         verdict, _ = _evaluate(
             db,
             context,
@@ -816,6 +1156,10 @@ def reserve_budget(
             provider,
             moment,
             candidate=None if existing.allowed else body,
+            accounting_day=(
+                existing.accounting_day
+                or _accounting_day(existing.occurred_at, policy.timezone)
+            ),
         )
         return BudgetMutationResult(
             accepted=True,
@@ -824,8 +1168,20 @@ def reserve_budget(
             verdict=verdict,
         )
 
+    accounting_day = _accounting_day(moment, policy.timezone)
+    _ensure_run_cost_capacity(
+        db,
+        task_run_id=context.run.id,
+        candidate_cost=body.cost,
+    )
     verdict, allowed = _evaluate(
-        db, context, policy, provider, moment, candidate=body
+        db,
+        context,
+        policy,
+        provider,
+        moment,
+        candidate=body,
+        accounting_day=accounting_day,
     )
     row = BudgetUsageReportModel(
         task_run_id=context.run.id,
@@ -843,6 +1199,8 @@ def reserve_budget(
         tool_calls=body.tool_calls,
         estimated=0,
         allowed=int(allowed),
+        accounting_day=accounting_day,
+        verdict_snapshot=verdict.model_dump(mode="json"),
         occurred_at=moment,
     )
     db.add(row)
@@ -870,8 +1228,6 @@ def reserve_budget(
 def _require_matching_permit(
     db: Session, context: BudgetContext, body: BudgetUsageDelta
 ) -> BudgetUsageReportModel:
-    if body.permit_id is None:
-        raise BudgetServiceError(409, "permit_id requis avant tout effet")
     reservation = (
         db.query(BudgetUsageReportModel)
         .filter_by(
@@ -922,21 +1278,30 @@ def _update_usage_cache(
             cache.currency = body.currency or "EUR"
     values: dict = {BudgetUsageModel.updated_at: moment}
     if body.cost is not None:
-        values[BudgetUsageModel.cost] = BudgetUsageModel.cost + _money(body.cost)
+        # Le ledger reste l'autorité exacte. Si un fournisseur viole sa borne
+        # après l'effet, ce cache dérivé sature au maximum stockable plutôt que
+        # de faire échouer la transaction et de perdre le rapport réel.
+        values[BudgetUsageModel.cost] = min(
+            _CACHE_MAX_COST,
+            _money(cache.cost) + _money(body.cost),
+        )
         values[BudgetUsageModel.cost_reported] = 1
     if body.tokens_input is not None:
-        values[BudgetUsageModel.tokens_input] = (
-            BudgetUsageModel.tokens_input + body.tokens_input
+        values[BudgetUsageModel.tokens_input] = min(
+            _CACHE_MAX_COUNTER,
+            int(cache.tokens_input or 0) + body.tokens_input,
         )
         values[BudgetUsageModel.tokens_input_reported] = 1
     if body.tokens_output is not None:
-        values[BudgetUsageModel.tokens_output] = (
-            BudgetUsageModel.tokens_output + body.tokens_output
+        values[BudgetUsageModel.tokens_output] = min(
+            _CACHE_MAX_COUNTER,
+            int(cache.tokens_output or 0) + body.tokens_output,
         )
         values[BudgetUsageModel.tokens_output_reported] = 1
     if body.tool_calls is not None:
-        values[BudgetUsageModel.tool_calls] = (
-            BudgetUsageModel.tool_calls + body.tool_calls
+        values[BudgetUsageModel.tool_calls] = min(
+            _CACHE_MAX_COUNTER,
+            int(cache.tool_calls or 0) + body.tool_calls,
         )
         values[BudgetUsageModel.tool_calls_reported] = 1
     if body.source == "provider" and any(
@@ -957,8 +1322,8 @@ def record_usage(
     *,
     now: datetime | None = None,
 ) -> BudgetMutationResult:
-    moment = _as_utc(now or utcnow())
     _, policy = _lock_policy(db, context.project.id)
+    moment = _locked_operation_moment(context, now)
     provider = _normalised_provider(body.provider)
     existing = (
         db.query(BudgetUsageReportModel)
@@ -971,7 +1336,20 @@ def record_usage(
             raise BudgetServiceError(
                 409, "Ce report_id désigne déjà un rapport différent"
             )
-        verdict, _ = _evaluate(db, context, policy, provider, moment)
+        stored = _stored_result(existing, permit_allowed=True)
+        if stored is not None:
+            return stored
+        verdict, _ = _evaluate(
+            db,
+            context,
+            policy,
+            provider,
+            moment,
+            accounting_day=(
+                existing.accounting_day
+                or _accounting_day(existing.occurred_at, policy.timezone)
+            ),
+        )
         return BudgetMutationResult(
             accepted=True,
             idempotent=True,
@@ -998,13 +1376,28 @@ def record_usage(
         tool_calls=body.tool_calls,
         estimated=int(body.estimated),
         allowed=1,
+        accounting_day=(
+            reservation.accounting_day
+            or _accounting_day(reservation.occurred_at, policy.timezone)
+        ),
+        # La ligne doit participer aux totaux avant que son verdict final puisse
+        # être calculé. Le placeholder est remplacé dans cette même transaction.
+        verdict_snapshot={},
         occurred_at=moment,
     )
     db.add(row)
     reservation.reconciled_at = moment
     db.flush()
     _update_usage_cache(db, context, body, moment)
-    verdict, _ = _evaluate(db, context, policy, provider, moment)
+    verdict, _ = _evaluate(
+        db,
+        context,
+        policy,
+        provider,
+        moment,
+        accounting_day=row.accounting_day,
+    )
+    row.verdict_snapshot = verdict.model_dump(mode="json")
     _maybe_alert(db, context, provider=provider, verdict=verdict)
     _emit_budget_event(
         db,

@@ -7,10 +7,13 @@ qui réclame l'autorisation et renvoie un résultat.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier, Event as ThreadEvent
 from uuid import uuid4
 
 import httpx
@@ -25,17 +28,21 @@ from acp_contracts.redaction import REDACTED_PLACEHOLDER
 
 from acp_api.deps import get_db
 from acp_api.main import app
+from acp_api.mcp import service as mcp_service
 from acp_api.routers import mcp as mcp_router
 from acp_api.routers.workers import utcnow
-from acp_api.secrets_vault import generate_key
+from acp_api.secrets_vault import SecretsVault, generate_key
 from acp_api.security import create_user_session, hash_password
 from acp_database.models import (
     Base,
     EventModel,
     McpProbeModel,
+    McpServerModel,
+    McpServerRevisionModel,
     SecretModel,
     TaskModel,
     UserModel,
+    WorkerModel,
 )
 
 PUBLIC_IP = "93.184.216.34"
@@ -191,7 +198,22 @@ def mcp_context(monkeypatch):
                     "agent_id": agent["id"],
                 }
 
-            def register(name: str, capabilities: list[str], simulation: bool) -> dict:
+            def register(
+                name: str,
+                capabilities: list[str],
+                simulation: bool,
+                *,
+                project_id: str | None = None,
+                global_access: bool = True,
+            ) -> dict:
+                if project_id is None:
+                    monkeypatch.delenv("ACP_WORKER_REGISTRATION_PROJECT_ID", raising=False)
+                else:
+                    monkeypatch.setenv("ACP_WORKER_REGISTRATION_PROJECT_ID", project_id)
+                monkeypatch.setenv(
+                    "ACP_WORKER_REGISTRATION_GLOBAL_ACCESS",
+                    "1" if global_access else "0",
+                )
                 response = client.post(
                     "/workers/register",
                     headers={"X-Worker-Registration-Token": registration_token},
@@ -200,6 +222,8 @@ def mcp_context(monkeypatch):
                         "capabilities": capabilities,
                         "max_concurrency": 1,
                         "simulation": simulation,
+                        "project_id": project_id,
+                        "global_access": global_access,
                     },
                 )
                 assert response.status_code == 201, response.text
@@ -897,10 +921,15 @@ def test_stdio_probe_rejection_invalidation_expiration_and_lost_lease(mcp_contex
     # Approuvé puis révision modifiée avant claim ⇒ invalidé.
     queued = client.post(f"/mcp/servers/{server_id}/probe").json()
     assert client.post(f"/mcp/probes/{queued['id']}/decision", json={"decision": "approved"}).json()["status"] == "queued"
-    client.post(
+    revised_queued = client.post(
         f"/mcp/servers/{server_id}/revisions",
         json={"config": _stdio_payload("stdio", secret_id, real["worker_id"], args=["--root", "/third"])["config"]},
     )
+    assert revised_queued.status_code == 201, revised_queued.text
+    revised_probe = next(
+        item for item in revised_queued.json()["probes"] if item["id"] == queued["id"]
+    )
+    assert revised_probe["status"] == "invalidated"
     assert _claim(mcp_context, real).json()["probe"] is None
     assert client.get(f"/mcp/probes/{queued['id']}").json()["status"] == "invalidated"
 
@@ -1351,8 +1380,14 @@ def test_transport_cannot_change_across_revisions(mcp_context):
 
 def test_a_probe_is_only_offered_to_the_designated_runner(mcp_context):
     client = mcp_context["client"]
-    designated = mcp_context["workers"]["real"]
-    other = mcp_context["register_worker"]("autre-runner", ["mcp_stdio_probe"], False)
+    designated = mcp_context["register_worker"](
+        "runner-projet-cible",
+        ["mcp_stdio_probe"],
+        False,
+        project_id=mcp_context["projects"]["A"]["project_id"],
+        global_access=False,
+    )
+    other = mcp_context["workers"]["real"]
     secret_id = _create_secret(mcp_context, "API_KEY", STDIO_SECRET_VALUE)
     server_id = client.post(
         "/mcp/servers", json=_stdio_payload("cible", secret_id, designated["worker_id"])
@@ -1365,6 +1400,479 @@ def test_a_probe_is_only_offered_to_the_designated_runner(mcp_context):
     assert client.get(f"/mcp/probes/{probe['id']}").json()["status"] == "queued"
     claimed = _claim(mcp_context, designated).json()["probe"]
     assert claimed is not None and claimed["id"] == probe["id"]
+    assert claimed["env"]["API_KEY"] == STDIO_SECRET_VALUE
+
+
+def test_an_untargeted_probe_is_only_offered_to_a_global_runner(mcp_context):
+    client = mcp_context["client"]
+    scoped = mcp_context["register_worker"](
+        "runner-projet-non-cible",
+        ["mcp_stdio_probe"],
+        False,
+        project_id=mcp_context["projects"]["A"]["project_id"],
+        global_access=False,
+    )
+    global_runner = mcp_context["workers"]["real"]
+    secret_id = _create_secret(mcp_context, "API_KEY", STDIO_SECRET_VALUE)
+    created = client.post(
+        "/mcp/servers", json=_stdio_payload("file-plateforme", secret_id, None)
+    )
+    assert created.status_code == 201, created.text
+    probe = client.post(f"/mcp/servers/{created.json()['id']}/probe").json()
+    decision = client.post(
+        f"/mcp/probes/{probe['id']}/decision", json={"decision": "approved"}
+    )
+    assert decision.status_code == 200, decision.text
+
+    refused = _claim(mcp_context, scoped)
+    assert refused.status_code == 200
+    assert refused.json() == {"probe": None}
+    _assert_no_secret_value(refused.text)
+    assert client.get(f"/mcp/probes/{probe['id']}").json()["status"] == "queued"
+    with mcp_context["session_factory"]() as db:
+        assert db.get(SecretModel, secret_id).last_used_at is None
+
+    claimed = _claim(mcp_context, global_runner)
+    assert claimed.status_code == 200, claimed.text
+    payload = claimed.json()["probe"]
+    assert payload is not None and payload["id"] == probe["id"]
+    assert payload["env"]["API_KEY"] == STDIO_SECRET_VALUE
+
+
+def test_claim_rechecks_authorization_ttl_after_lock_before_disclosing_secrets(
+    mcp_context, monkeypatch
+):
+    client = mcp_context["client"]
+    worker = mcp_context["workers"]["real"]
+    secret_id = _create_secret(mcp_context, "TTL_API_KEY", STDIO_SECRET_VALUE)
+    created = client.post(
+        "/mcp/servers",
+        json=_stdio_payload("ttl-apres-verrou", secret_id, worker["worker_id"]),
+    )
+    assert created.status_code == 201, created.text
+    probe = client.post(f"/mcp/servers/{created.json()['id']}/probe").json()
+    decision = client.post(
+        f"/mcp/probes/{probe['id']}/decision", json={"decision": "approved"}
+    )
+    assert decision.status_code == 200, decision.text
+
+    before_lock = utcnow()
+    expires_at = before_lock + timedelta(seconds=1)
+    after_lock = expires_at + timedelta(microseconds=1)
+    with mcp_context["session_factory"]() as db:
+        stored = db.get(McpProbeModel, probe["id"])
+        assert stored is not None
+        stored.expires_at = expires_at
+        db.commit()
+
+    clock = [before_lock]
+    lock_was_crossed = [False]
+    original_lock = mcp_service._lock_queued_probe_for_claim
+
+    def lock_while_ttl_crosses(db, probe_id):
+        locked = original_lock(db, probe_id)
+        lock_was_crossed[0] = True
+        clock[0] = after_lock
+        return locked
+
+    monkeypatch.setattr(mcp_service, "_lock_queued_probe_for_claim", lock_while_ttl_crosses)
+    monkeypatch.setattr(mcp_service, "utcnow", lambda: clock[0])
+
+    claimed = _claim(mcp_context, worker)
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json() == {"probe": None}
+    assert lock_was_crossed == [True]
+    _assert_no_secret_value(claimed.text)
+    with mcp_context["session_factory"]() as db:
+        stored = db.get(McpProbeModel, probe["id"])
+        secret = db.get(SecretModel, secret_id)
+        assert stored is not None and stored.status == "expired"
+        assert stored.worker_id is None and stored.claimed_at is None
+        assert stored.lease_expires_at is None
+        assert secret is not None and secret.last_used_at is None
+
+
+def test_concurrent_sqlite_claim_discloses_one_probe_to_one_runner(tmp_path, monkeypatch):
+    database_path = tmp_path / "mcp-probe-claim.db"
+    engine = create_engine(
+        f"sqlite:///{database_path.as_posix()}",
+        connect_args={"check_same_thread": False, "timeout": 10},
+    )
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    vault_key = generate_key()
+    vault = SecretsVault([vault_key.encode("ascii")])
+    worker_pepper = f"pepper-{uuid4().hex}"
+    worker_tokens = [f"worker-token-{uuid4().hex}" for _ in range(2)]
+    monkeypatch.setenv("ACP_SECRETS_KEYS", vault_key)
+    monkeypatch.setenv("ACP_WORKER_TOKEN_PEPPER", worker_pepper)
+    now = utcnow()
+
+    try:
+        with session_factory() as db:
+            owner = UserModel(
+                login_normalized=f"owner-{uuid4().hex}",
+                display_name="Owner",
+                password_hash="not-used",
+                platform_role="owner",
+            )
+            db.add(owner)
+            db.flush()
+            workers = [
+                WorkerModel(
+                    name=f"global-probe-runner-{index}-{uuid4().hex[:6]}",
+                    token_hash=hashlib.sha256(
+                        f"{worker_pepper}:{worker_tokens[index]}".encode()
+                    ).hexdigest(),
+                    token_prefix=f"token-{index}",
+                    token_expires_at=now + timedelta(hours=1),
+                    capabilities=["mcp_stdio_probe"],
+                    status="online",
+                    simulation=0,
+                    global_access=1,
+                    metadata_json={},
+                    last_seen_at=now,
+                    lease_expires_at=now + timedelta(minutes=5),
+                )
+                for index in range(2)
+            ]
+            db.add_all(workers)
+            key_id, ciphertext = vault.encrypt(STDIO_SECRET_VALUE)
+            secret = SecretModel(
+                name="CONCURRENT_API_KEY",
+                scope_type="platform",
+                project_id=None,
+                description="",
+                key_id=key_id,
+                ciphertext=ciphertext,
+                created_by_user_id=owner.id,
+            )
+            db.add(secret)
+            db.flush()
+            server = McpServerModel(
+                name=f"concurrent-{uuid4().hex[:8]}",
+                display_name="Concurrent",
+                description="",
+                source_kind="manual",
+                origin="",
+                transport="stdio",
+                execution_location="runner",
+                status="draft",
+                target_worker_id=None,
+                created_by_user_id=owner.id,
+            )
+            db.add(server)
+            db.flush()
+            revision = McpServerRevisionModel(
+                server_id=server.id,
+                number=1,
+                config={
+                    "transport": "stdio",
+                    "stdio": {
+                        "command": "/opt/mcp/bin/server",
+                        "args": ["--probe"],
+                        "env": {},
+                        "env_secrets": {"API_KEY": {"secret_id": secret.id}},
+                        "timeout_seconds": 10,
+                    },
+                },
+                fingerprint="f" * 64,
+                risk_flags=[],
+                change_summary={},
+                requires_approval=1,
+                created_by_user_id=owner.id,
+            )
+            db.add(revision)
+            db.flush()
+            server.current_revision_id = revision.id
+            probe = McpProbeModel(
+                server_id=server.id,
+                revision_id=revision.id,
+                transport="stdio",
+                status="queued",
+                authorization={},
+                requested_by_user_id=owner.id,
+                decided_by_user_id=owner.id,
+                decided_at=now,
+                expires_at=now + timedelta(hours=1),
+            )
+            db.add(probe)
+            db.commit()
+            worker_ids = [worker.id for worker in workers]
+            owner_id = owner.id
+            server_id = server.id
+            revision_id = revision.id
+            probe_id = probe.id
+
+        barrier = Barrier(2)
+
+        def claim(worker_id: str):
+            with session_factory() as db:
+                worker = db.get(WorkerModel, worker_id)
+                assert worker is not None
+                barrier.wait(timeout=5)
+                claimed = mcp_service.claim_probe_for_worker(db, worker, vault)
+                db.commit()
+                return None if claimed is None else claimed[1]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(claim, worker_ids))
+
+        disclosed = [payload for payload in results if payload is not None]
+        assert len(disclosed) == 1
+        assert disclosed[0]["id"] == probe_id
+        assert disclosed[0]["env"]["API_KEY"] == STDIO_SECRET_VALUE
+        with session_factory() as db:
+            stored = db.get(McpProbeModel, probe_id)
+            assert stored is not None
+            assert stored.status == "claimed"
+            assert stored.worker_id in worker_ids
+            assert stored.worker_id == next(
+                worker_id
+                for worker_id, payload in zip(worker_ids, results, strict=True)
+                if payload is not None
+            )
+
+        # L'autre ordre de linéarisation important est « claim commité, puis
+        # nouvelle révision ». L'invalidation ne doit jamais écraser ce lease :
+        # le payload a déjà été remis et son résultat doit rester rapportable.
+        with session_factory() as db:
+            server = db.get(McpServerModel, server_id)
+            current_revision = db.get(McpServerRevisionModel, revision_id)
+            assert server is not None and current_revision is not None
+            revised = mcp_service.create_revision(
+                db,
+                server,
+                mcp_service.McpServerConfig.model_validate(current_revision.config),
+                principal=owner_id,
+                note="révision concurrente après claim",
+            )
+            db.commit()
+            assert revised.id != revision_id
+
+        with session_factory() as db:
+            stored = db.get(McpProbeModel, probe_id)
+            assert stored is not None
+            assert stored.status == "claimed"
+            mcp_service.complete_probe(
+                db,
+                stored,
+                mcp_service.McpProbeResult.model_validate(_stdio_result([])),
+                vault=vault,
+            )
+            db.commit()
+            assert stored.status == "succeeded"
+
+        # Course réelle révision/claim sur fichier : SQLite sérialise les deux
+        # écrivains, mais le test exige l'invariant commun avec PostgreSQL. Soit
+        # la révision gagne et aucun payload ne sort, soit le claim gagne et la
+        # ligne reste ``claimed`` ; payload + ``invalidated`` est interdit.
+        with session_factory() as db:
+            server = db.get(McpServerModel, server_id)
+            assert server is not None and server.current_revision_id is not None
+            race_revision_id = server.current_revision_id
+            race_probe = McpProbeModel(
+                server_id=server.id,
+                revision_id=race_revision_id,
+                transport="stdio",
+                status="queued",
+                authorization={},
+                requested_by_user_id=owner_id,
+                decided_by_user_id=owner_id,
+                decided_at=utcnow(),
+                expires_at=utcnow() + timedelta(hours=1),
+            )
+            db.add(race_probe)
+            db.commit()
+            race_probe_id = race_probe.id
+
+        revision_claim_barrier = Barrier(2)
+
+        def claim_during_revision():
+            with session_factory() as db:
+                worker = db.get(WorkerModel, worker_ids[0])
+                assert worker is not None
+                revision_claim_barrier.wait(timeout=5)
+                claimed = mcp_service.claim_probe_for_worker(db, worker, vault)
+                db.commit()
+                return None if claimed is None else claimed[1]
+
+        def revise_during_claim() -> None:
+            with session_factory() as db:
+                server = db.get(McpServerModel, server_id)
+                current = db.get(McpServerRevisionModel, race_revision_id)
+                assert server is not None and current is not None
+                revision_claim_barrier.wait(timeout=5)
+                mcp_service.create_revision(
+                    db,
+                    server,
+                    mcp_service.McpServerConfig.model_validate(current.config),
+                    principal=owner_id,
+                    note="course révision/claim",
+                )
+                db.commit()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            claim_future = pool.submit(claim_during_revision)
+            revision_future = pool.submit(revise_during_claim)
+            raced_payload = claim_future.result(timeout=15)
+            revision_future.result(timeout=15)
+
+        with session_factory() as db:
+            raced = db.get(McpProbeModel, race_probe_id)
+            assert raced is not None
+            if raced_payload is None:
+                assert raced.status == "invalidated"
+            else:
+                assert raced_payload["id"] == race_probe_id
+                assert raced.status == "claimed"
+                assert raced.worker_id == worker_ids[0]
+
+        # Même invariant à la frontière du TTL d'autorisation. Si le nettoyage
+        # gagne, aucun payload ne sort. Si le claim gagne, son nouveau lease
+        # protège la ligne : l'UPDATE d'expiration ne peut pas écraser ``claimed``.
+        with session_factory() as db:
+            server = db.get(McpServerModel, server_id)
+            assert server is not None and server.current_revision_id is not None
+            ttl_expires_at = utcnow() + timedelta(seconds=30)
+            ttl_probe = McpProbeModel(
+                server_id=server.id,
+                revision_id=server.current_revision_id,
+                transport="stdio",
+                status="queued",
+                authorization={},
+                requested_by_user_id=owner_id,
+                decided_by_user_id=owner_id,
+                decided_at=utcnow(),
+                expires_at=ttl_expires_at,
+            )
+            db.add(ttl_probe)
+            db.commit()
+            ttl_probe_id = ttl_probe.id
+
+        ttl_barrier = Barrier(2)
+
+        def claim_at_authorization_ttl():
+            with session_factory() as db:
+                worker = db.get(WorkerModel, worker_ids[0])
+                assert worker is not None
+                ttl_barrier.wait(timeout=5)
+                claimed = mcp_service.claim_probe_for_worker(db, worker, vault)
+                db.commit()
+                return None if claimed is None else claimed[1]
+
+        def expire_at_authorization_ttl() -> int:
+            with session_factory() as db:
+                ttl_barrier.wait(timeout=5)
+                changed = mcp_service.expire_probes(
+                    db, now=ttl_expires_at + timedelta(microseconds=1)
+                )
+                db.commit()
+                return changed
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            ttl_claim_future = pool.submit(claim_at_authorization_ttl)
+            ttl_expire_future = pool.submit(expire_at_authorization_ttl)
+            ttl_payload = ttl_claim_future.result(timeout=15)
+            ttl_expire_future.result(timeout=15)
+
+        with session_factory() as db:
+            stored_ttl = db.get(McpProbeModel, ttl_probe_id)
+            assert stored_ttl is not None
+            if ttl_payload is None:
+                assert stored_ttl.status == "expired"
+            else:
+                assert ttl_payload["id"] == ttl_probe_id
+                assert stored_ttl.status == "claimed"
+                assert stored_ttl.worker_id == worker_ids[0]
+
+        # Course réelle report HTTP/expiration sur SQLite fichier. Le wrapper
+        # suspend le report après sa lecture verrouillée, puis laisse le nettoyeur
+        # tenter son BEGIN IMMEDIATE. Le 200 terminal doit rester l'état durable.
+        with session_factory() as db:
+            server = db.get(McpServerModel, server_id)
+            assert server is not None and server.current_revision_id is not None
+            report_lease_expires_at = utcnow() + timedelta(hours=1)
+            report_probe = McpProbeModel(
+                server_id=server.id,
+                revision_id=server.current_revision_id,
+                transport="stdio",
+                status="claimed",
+                authorization={},
+                requested_by_user_id=owner_id,
+                decided_by_user_id=owner_id,
+                decided_at=utcnow(),
+                worker_id=worker_ids[0],
+                claimed_at=utcnow(),
+                lease_expires_at=report_lease_expires_at,
+                expires_at=utcnow() + timedelta(hours=2),
+            )
+            db.add(report_probe)
+            db.commit()
+            report_probe_id = report_probe.id
+
+        report_has_lock = ThreadEvent()
+        expiration_started = ThreadEvent()
+        original_complete_probe = mcp_service.complete_probe
+
+        def synchronized_complete_probe(db, probe, result, *, vault=None):
+            report_has_lock.set()
+            assert expiration_started.wait(timeout=10)
+            return original_complete_probe(db, probe, result, vault=vault)
+
+        monkeypatch.setattr(mcp_service, "complete_probe", synchronized_complete_probe)
+
+        def override_get_db():
+            with session_factory() as db:
+                yield db
+
+        def expire_during_report() -> int:
+            assert report_has_lock.wait(timeout=10)
+            expiration_started.set()
+            with session_factory() as db:
+                expiring_probe = db.get(McpProbeModel, report_probe_id)
+                assert expiring_probe is not None
+                changed = mcp_service.expire_probe_if_due(
+                    db,
+                    expiring_probe,
+                    now=report_lease_expires_at + timedelta(seconds=1),
+                )
+                db.commit()
+                return int(changed)
+
+        previous_db_override = app.dependency_overrides.get(get_db)
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            with TestClient(app) as client:
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    report_future = pool.submit(
+                        client.post,
+                        f"/mcp/worker/probes/{report_probe_id}/result",
+                        headers={
+                            "Authorization": f"Bearer {worker_tokens[0]}",
+                            "X-Worker-Id": worker_ids[0],
+                        },
+                        json=_stdio_result(["race_tool"]),
+                    )
+                    expiration_future = pool.submit(expire_during_report)
+                    reported = report_future.result(timeout=20)
+                    expired_count = expiration_future.result(timeout=20)
+            assert reported.status_code == 200, reported.text
+            assert reported.json()["status"] == "succeeded"
+            assert expired_count == 0
+        finally:
+            if previous_db_override is None:
+                app.dependency_overrides.pop(get_db, None)
+            else:
+                app.dependency_overrides[get_db] = previous_db_override
+
+        with session_factory() as db:
+            stored_report = db.get(McpProbeModel, report_probe_id)
+            assert stored_report is not None
+            assert stored_report.status == "succeeded"
+            assert stored_report.finished_at is not None
+    finally:
+        engine.dispose()
 
 
 def test_claim_without_a_configured_vault_fails_the_probe_explicitly(mcp_context, monkeypatch):

@@ -1,12 +1,14 @@
 # Sécurité et frontières de confiance
 
-Date d'état : 13 septembre 2026 — version `0.6.0`
+Date d'état : 14 septembre 2026 — préparation de la version `0.7.0`
 Statut : frontières utilisateur/inter-services fermées et runner local contrôlé au
 Lot C ; coffre de secrets, politique de sortie anti-SSRF, expurgation des retours
 tiers, clôture d'arrêt Windows et révocation des extensions ajoutés au Lot D ; flux
 utilisateur authentifié par curseur, stockage privé de livrables, liens signés bornés
-et révocables, expurgation des sorties de tests ajoutés au Lot E ; production
-interdite sans isolation OS/réseau, origine d'aperçu séparée et exploitation
+et révocables, expurgation des sorties de tests ajoutés au Lot E ; clés de tir uniques,
+bail/fencing du planificateur, webhooks entrants à secrets hachés, budgets fail-closed
+et alertes in-app ajoutés au Lot F. La production reste interdite sans isolation
+OS/réseau, origine d'aperçu séparée et exploitation PostgreSQL sauvegardée.
 
 Le modèle de menace par actif est tenu à part dans
 [docs/security/threat-model.md](security/threat-model.md).
@@ -38,10 +40,21 @@ n'est jamais exécuté dans l'origine de la plateforme. Ces contrôles sont prou
 des tests déterministes : **aucun navigateur réel n'a été lancé et aucun test
 Playwright réel n'a été exécuté** pour cette version.
 
+Le Lot F conserve toutes les décisions de planification et de budget côté API. Une
+contrainte unique SQL arbitre les occurrences concurrentes, le planificateur écrit
+uniquement avec un bail vivant et le fence courant, et le worker doit présenter son
+identité, son lease de tentative et son fence avant un permis ou un rapport de budget.
+Le webhook entrant exige au moins 256 bits fournis par le client ; seule son empreinte
+est persistée et la comparaison est faite en temps constant. Les alertes sont
+dédupliquées par cause et les préférences personnelles ne modifient pas leur état
+canonique. Les tests restent locaux : aucun webhook Internet ni service tiers n'a été
+contacté.
+
 Ces garanties ne rendent pas encore la plateforme exploitable sur Internet. Il
 reste notamment à compléter la matrice d'autorisation exhaustive, les en-têtes web
 de production, l'isolation OS/réseau du runner, l'origine d'aperçu séparée, les
-migrations, la rotation et la restauration.
+migrations PostgreSQL, une limitation de débit distribuée en bordure, la rotation des
+secrets de service et la restauration.
 
 L'infrastructure pcIA et les systèmes Prooftag sont hors périmètre. Ils ne doivent
 être ni découverts, ni configurés, ni proposés comme runner ou ressource personnelle.
@@ -312,6 +325,79 @@ sans plancher de longueur.
   qu'une liste de noms de clés : une liste de clés finit toujours par rater le
   producteur suivant.
 
+## Automatisations, budgets et alertes (Lot F)
+
+### Déduplication et planificateur
+
+- Création de routine, déclenchement manuel et rotation de webhook exigent une clé
+  d'idempotence ASCII visible et bornée. Une clé est scoppée au principal quand
+  l'identité utilisateur compte ; sa réutilisation avec un autre corps répond `409`.
+- Une occurrence planifiée est identifiée par une `fire_key` dérivée de la routine et
+  de l'instant nominal UTC. L'index unique en base décide entre deux écritures
+  concurrentes ; une vérification en mémoire n'est jamais la garantie finale.
+- Le bail singleton du planificateur dure 45 secondes. Son `fencing_token` augmente à
+  chaque reprise et est revérifié sous verrou entre les transactions. Un détenteur
+  expiré ne peut pas continuer à matérialiser des missions.
+- Le rattrapage `skip` écrit un refus durable et `run_once` lance au plus une
+  occurrence. La limite de concurrence se traduit également par un résultat durable
+  sans mission, afin que l'absence d'effet soit auditable.
+- Une configuration illisible produit un message générique, avance son curseur et ne
+  bloque pas les routines suivantes. Après trois échecs terminaux consécutifs, la
+  routine est désactivée et une alerte est ouverte.
+
+### Webhook entrant
+
+- Le secret est généré côté client, encodé en base64url et doit représenter au moins
+  256 bits. Le serveur persiste SHA-256 et compare les empreintes en temps constant ;
+  le secret brut n'entre ni dans le journal de rotation, ni dans les événements.
+- Le secret n'est présent que dans la réponse de rotation qui le reçoit. Une lecture
+  ultérieure expose uniquement l'état, la date et le chemin ; une nouvelle rotation
+  ou une désactivation invalide la précédente.
+- Le déclenchement transporte le secret dans `Authorization: Bearer`, jamais dans
+  l'URL. Le corps `payload` et l'`event_id` ne sont pas recopiés dans les événements ;
+  l'identifiant sert uniquement à la déduplication.
+- Le processus API limite cette route à 120 requêtes par minute et par adresse TCP.
+  Ce compteur local, borné à 10 000 clients, réduit les abus accidentels mais ne se
+  coordonne pas entre réplicas et ne remplace pas une politique distribuée en bordure.
+- Tous les corps HTTP sont plafonnés à 1 Mio avant désérialisation, sauf import ou
+  révision de skill (32 Mio) et téléversement de livrable, qui est lu en flux puis
+  soumis à son propre plafond de 200 Mio et au quota de tentative. Les longueurs
+  contradictoires ou invalides sont refusées.
+- La route ne dispose pas encore d'une allowlist d'émetteurs ni d'une signature du
+  corps. Elle ne doit pas être exposée directement sur Internet sans contrôle de
+  bordure et HTTPS.
+
+### Budget et stockage
+
+- Le permis et le rapport de consommation exigent le Bearer worker, le lease actif et
+  `X-Attempt-Fencing-Token`. Le ledger déduplique `permit_id` et `report_id` et refuse
+  qu'un identifiant stable change de contenu.
+- L'absence d'une mesure exigée par un plafond reste `unknown` et refuse le permis.
+  Une estimation ne suffit pas à prouver un dépassement ; un dépassement mesuré après
+  l'appel reste compté et bloque les permis suivants. Les coûts sont stockés en
+  décimal et le jour comptable du permis est conservé jusqu'au rapport.
+- Le plafond `max_spawned_agents_per_run` est persisté mais n'est pas appliqué tant
+  qu'aucun exécuteur du Lot G ne possède un point de spawn. Il ne faut donc pas le
+  présenter comme une frontière de sécurité active.
+- Une saturation du disque ou du spool répond `507`; une indisponibilité répond
+  `503`. L'alerte et l'événement associés ne révèlent ni chemin local ni exception
+  brute. Le stockage reste néanmoins un répertoire local sans quota OS réservé, sans
+  réplication et sans adaptateur objet éprouvé.
+
+### Alertes et préférences
+
+- Une contrainte unique partielle autorise une seule alerte ouverte par cause et par
+  projet, y compris sous concurrence. La sévérité ne peut que monter ; un acquittement
+  compare-et-échange et ne produit pas deux événements au rejeu.
+- Les préférences appartiennent au couple projet/utilisateur. Elles filtrent la boîte
+  personnelle au niveau de la requête sans masquer la cause pour les autres membres
+  ni modifier l'alerte canonique.
+- Le seul canal est `in_app`. Aucun courriel, SMS, notification système ou webhook
+  sortant n'est implicitement promis.
+
+Les routes, contrats et limites fonctionnelles sont détaillés dans
+[Automatisations, budgets et alertes](automations.md).
+
 ## Écarts bloquants
 
 ### Identité et autorisation
@@ -341,11 +427,24 @@ sans plancher de longueur.
   les liens signés pointent vers l'origine de l'API. C'est l'écart bloquant principal
   avant toute exposition réseau du Studio.
 - Le CSRF et la politique de cookie sont couverts localement ; CSP, HSTS, autres
-  en-têtes de sécurité, limitations d'upload et configuration HTTPS restent à
-  valider en déploiement.
+  en-têtes de sécurité, valeurs de plafonds et configuration HTTPS restent à valider
+  en déploiement.
 
 ### Exécution, secrets et stockage
 
+- Le jeton d'enrôlement worker est lié côté API à **un seul** périmètre configuré :
+  `ACP_WORKER_REGISTRATION_PROJECT_ID` ou
+  `ACP_WORKER_REGISTRATION_GLOBAL_ACCESS=1`. Le corps doit annoncer exactement ce
+  périmètre ; une configuration absente/ambiguë répond `503` et une tentative
+  d'élévation répond `403`. Le jeton reste toutefois réutilisable tant que
+  l'opérateur le laisse configuré : il faut le retirer ou le faire tourner après les
+  enrôlements prévus. Une ancienne identité sans périmètre est mise en quarantaine.
+- Le périmètre projet est inclus dans la requête SQL avant le claim d'une tâche et
+  revérifié dans la réservation atomique de capacité. Seul un worker global peut
+  prendre le bail du planificateur. Pour les probes MCP `stdio`, une cible choisie
+  explicitement est réservée à ce worker exact ; la file non ciblée est réservée aux
+  workers globaux. Le passage `queued` → `claimed` est arbitré avant toute résolution
+  de secret et ne divulgue le payload qu'à un seul claimant.
 - Le backend local réel est configuré, borné et testable, mais il conserve les droits
   du compte worker et n'impose ni sandbox OS ni politique réseau forte. Il refuse
   tout mode non supervisé, toute liste d'actions non vide et toute ressource en
@@ -440,6 +539,8 @@ un état durable et un événement d'audit.
 - matrice RBAC exhaustive par route, projet, flux et fichier, en complément des tests
   inter-projets négatifs déjà présents ;
 - compléter les tests de concurrence lease/fencing par une validation multi-processus ;
+- placer le webhook entrant derrière HTTPS, une limitation de débit distribuée et une
+  politique de bordure, puis tester rotation et rejeu depuis un émetteur réel ;
 - rejouer les contrôles SSRF, traversée de chemins et archive malveillante contre un
   serveur MCP, un dépôt et une archive réels (les suites actuelles utilisent des
   transports simulés et des sources locales), et compléter par XSS et limites
@@ -506,6 +607,13 @@ un état durable et un événement d'audit.
   prouvé, pièce jointe hors répertoire, code de sortie du rapport ne pouvant pas
   effacer celui mesuré) est couvert par `apps/api/tests/test_testing_service.py` et
   `apps/worker/tests/test_web_tests.py`.
+- Les suites ciblées du Lot F couvrent les bascules DST, la contrainte unique de tir
+  sous concurrence SQLite, les baux/fences, le rattrapage, la concurrence des
+  routines, l'idempotence des webhooks, le ledger budgétaire et la déduplication des
+  alertes. Le total global final de `0.7.0` n'est pas anticipé dans ce document.
+- Les erreurs physiques du stockage sont classées `saturated` ou `unavailable`, sans
+  chemin dans les réponses, alertes ou événements ; un blob adressé par contenu dont
+  les octets ne correspondent plus à sa clé est réparé atomiquement au rejeu.
 
 ### Réalisé, non testé réel
 
@@ -521,9 +629,12 @@ un état durable et un événement d'audit.
   par un test n'ont donc jamais rencontré un fichier réellement produit par Playwright.
 - Le flux SSE n'a été exercé que par un client de test : aucune coupure réseau réelle,
   aucun proxy intermédiaire, aucun `EventSource` de navigateur.
-- Trois tests de refus de lien symbolique dans l'arborescence de sortie des tests web
-  sont **ignorés** sur la machine de vérification (privilège de création indisponible) :
-  ce contrôle n'est donc pas prouvé ici.
+- Les trois tests de refus de lien symbolique du Lot E étaient **ignorés** dans la
+  vérification Windows publiée de `0.6.0` (privilège de création indisponible) : ce
+  contrôle n'y était donc pas prouvé.
+- Le planificateur, les budgets et les webhooks ont été exercés avec des composants de
+  test locaux ; aucun worker distant, webhook Internet, fournisseur payant ni effet
+  externe n'a été utilisé.
 
 ### Non configuré
 
@@ -547,6 +658,12 @@ un état durable et un événement d'audit.
   et la capacité `web_tests` n'a jamais été annoncée par un worker réel ;
 - outbox : le flux relit la base par curseur au lieu de s'appuyer sur un relais, mais
   aucune outbox transactionnelle n'a été livrée.
+- limitation de débit distribuée et signature de corps pour le webhook entrant ; le
+  compteur local par processus, le secret aléatoire et la déduplication ne remplacent
+  pas ces contrôles de bordure ;
+- PostgreSQL/Alembic, sauvegarde/restauration, supervision et déploiement Railway ;
+- application de `max_spawned_agents_per_run`, impossible avant le point de spawn des
+  exécuteurs du Lot G.
 
 ### Restant
 

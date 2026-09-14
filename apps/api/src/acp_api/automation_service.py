@@ -10,12 +10,12 @@ from __future__ import annotations
 import hashlib
 import heapq
 import hmac
-import secrets
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Generic, Literal, TypeVar
 
-from sqlalchemy import distinct, func, select, update
+from sqlalchemy import distinct, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,7 @@ from acp_contracts import (
     AutomationSummary,
     AutomationTriggerKind,
     AutomationUpdate,
+    AutomationWebhookRotationRequest,
     AutomationWebhookSecret,
     AutomationWebhookStatus,
     CalendarEntry,
@@ -41,8 +42,10 @@ from acp_contracts.schedule import (
 )
 from acp_database.models import (
     AgentInstanceModel,
+    AutomationCommandModel,
     AutomationModel,
     AutomationRunModel,
+    AutomationWebhookRotationModel,
     ProjectModel,
     TaskModel,
     TaskRunModel,
@@ -62,6 +65,7 @@ ACTIVE_RUN_STATES = frozenset(
 CALENDAR_MAX_DAYS = 366
 CALENDAR_MAX_ENTRIES = 500
 RECENT_RUN_LIMIT = 20
+AutomationCommandType = Literal["update", "enable", "disable", "webhook.disable"]
 
 
 class AutomationServiceError(RuntimeError):
@@ -81,6 +85,10 @@ class AssignmentInvalid(AutomationServiceError):
 
 
 class WebhookAuthenticationFailed(AutomationServiceError):
+    pass
+
+
+class IdempotencyConflict(AutomationServiceError):
     pass
 
 
@@ -111,6 +119,20 @@ def _database_utc(moment: datetime | None) -> datetime | None:
     return moment.astimezone(UTC)
 
 
+def _canonical_fingerprint(value: dict) -> str:
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _secret_hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
 def _project(db: Session, project_id: str) -> ProjectModel:
     row = db.get(ProjectModel, project_id)
     if row is None:
@@ -119,7 +141,40 @@ def _project(db: Session, project_id: str) -> ProjectModel:
 
 
 def automation_or_error(db: Session, automation_id: str) -> AutomationModel:
-    row = db.get(AutomationModel, automation_id)
+    row = (
+        db.query(AutomationModel)
+        .filter_by(id=automation_id)
+        .populate_existing()
+        .one_or_none()
+    )
+    if row is None:
+        raise AutomationNotFound(automation_id)
+    return row
+
+
+def _ensure_sqlite_write_transaction(db: Session) -> None:
+    """Sérialise une décision avant sa première lecture sous SQLite."""
+
+    connection = db.connection()
+    if connection.dialect.name != "sqlite":
+        return
+    driver = getattr(connection.connection, "driver_connection", None)
+    if driver is None or getattr(driver, "in_transaction", False):
+        return
+    connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def _locked_automation(db: Session, automation_id: str) -> AutomationModel:
+    """Recharge la routine courante sous verrou, sans réutiliser l'identity-map."""
+
+    _ensure_sqlite_write_transaction(db)
+    row = (
+        db.query(AutomationModel)
+        .filter_by(id=automation_id)
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
     if row is None:
         raise AutomationNotFound(automation_id)
     return row
@@ -144,6 +199,7 @@ def run_contract(row: AutomationRunModel) -> AutomationRunSummary:
         trigger_kind=row.trigger_kind,
         outcome=row.outcome,
         detail=row.detail or "",
+        completion_status=row.completion_status,
     )
 
 
@@ -168,6 +224,7 @@ def detail_contract(db: Session, row: AutomationModel) -> AutomationDetail:
         .filter_by(automation_id=row.id)
         .order_by(AutomationRunModel.scheduled_for.desc(), AutomationRunModel.id.desc())
         .limit(RECENT_RUN_LIMIT)
+        .populate_existing()
         .all()
     )
     summary = summary_contract(row).model_dump()
@@ -187,6 +244,116 @@ def webhook_status_contract(row: AutomationModel) -> AutomationWebhookStatus:
         endpoint_path=f"/automations/{row.id}/webhook/trigger",
         rotated_at=row.webhook_rotated_at,
     )
+
+
+def _automation_postcondition(
+    row: AutomationModel, fields: set[str]
+) -> dict[str, object]:
+    """Capture uniquement les champs visés, dans leur forme contractuelle."""
+
+    result: dict[str, object] = {}
+    for field in sorted(fields):
+        if field == "name":
+            result[field] = row.name
+        elif field == "description":
+            result[field] = row.description or ""
+        elif field == "schedule":
+            result[field] = _schedule_contract(row).model_dump(mode="json")
+        elif field == "mission_template":
+            result[field] = AutomationMissionTemplate.model_validate(
+                row.mission_template or {}
+            ).model_dump(mode="json")
+        elif field == "catchup_policy":
+            result[field] = row.catchup_policy
+        elif field == "max_concurrent_runs":
+            result[field] = row.max_concurrent_runs
+        elif field == "enabled":
+            result[field] = bool(row.enabled)
+        elif field == "next_run_at":
+            moment = _database_utc(row.next_run_at)
+            result[field] = moment.isoformat() if moment is not None else None
+        elif field == "webhook_enabled":
+            result[field] = bool(row.webhook_enabled)
+        elif field == "webhook_secret_configured":
+            result[field] = row.webhook_secret_hash is not None
+        elif field == "webhook_rotation_number":
+            result[field] = row.webhook_rotation_number
+        else:  # Une entrée de journal inconnue indique une corruption, pas un no-op.
+            raise IdempotencyConflict(
+                "Postcondition de commande d'automatisation inconnue"
+            )
+    return result
+
+
+def _mutation_fingerprint(
+    command: AutomationCommandType, payload: dict[str, object]
+) -> str:
+    return _canonical_fingerprint({"command": command, "payload": payload})
+
+
+def _replayed_mutation_command(
+    db: Session,
+    row: AutomationModel,
+    *,
+    command: AutomationCommandType,
+    principal_id: str,
+    idempotency_key: str,
+    request_fingerprint: str,
+) -> AutomationCommandModel | None:
+    replay = (
+        db.query(AutomationCommandModel)
+        .filter_by(
+            automation_id=row.id,
+            principal_id=principal_id,
+            command=command,
+            idempotency_key=idempotency_key,
+        )
+        .populate_existing()
+        .one_or_none()
+    )
+    if replay is None:
+        return None
+    if replay.request_fingerprint != request_fingerprint:
+        raise IdempotencyConflict(
+            "Idempotency-Key déjà utilisée avec une autre intention"
+        )
+    expected = replay.postcondition or {}
+    current = _automation_postcondition(row, set(expected))
+    # Une mutation ultérieure portant sur un autre champ ne rend pas cette
+    # commande obsolète. La postcondition ciblée est l'arbitre : elle refuse bien
+    # un ancien PATCH dont le champ a été réécrit, tout en permettant au client de
+    # récupérer le résultat d'une réponse perdue après une mutation disjointe.
+    # ``result_revision`` reste conservée dans le journal pour l'audit.
+    if current != expected:
+        raise IdempotencyConflict(
+            "Cette commande a été remplacée par une mutation plus récente"
+        )
+    return replay
+
+
+def _record_mutation_command(
+    db: Session,
+    row: AutomationModel,
+    *,
+    command: AutomationCommandType,
+    principal_id: str,
+    idempotency_key: str,
+    request_fingerprint: str,
+    postcondition_fields: set[str],
+) -> AutomationCommandModel:
+    row.mutation_revision += 1
+    journal = AutomationCommandModel(
+        automation_id=row.id,
+        principal_id=principal_id,
+        command=command,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+        postcondition=_automation_postcondition(row, postcondition_fields),
+        result_revision=row.mutation_revision,
+    )
+    db.add(journal)
+    db.flush()
+    return journal
 
 
 def _event_for(
@@ -278,8 +445,34 @@ def create_automation(
     project_id: str,
     body: AutomationCreate,
     principal_id: str,
+    idempotency_key: str,
     allowed_agent_ids: set[str],
 ) -> ServiceResult[AutomationModel]:
+    request_fingerprint = _canonical_fingerprint(
+        {"command": "create", "payload": body.model_dump(mode="json")}
+    )
+    # La lecture et l'insertion doivent appartenir à la même section critique sur
+    # SQLite. Sur PostgreSQL, l'index unique reste l'arbitre final si deux
+    # transactions ne voient encore aucune ligne.
+    _ensure_sqlite_write_transaction(db)
+    replay = (
+        db.query(AutomationModel)
+        .filter_by(
+            project_id=project_id,
+            created_by_user_id=principal_id,
+            create_idempotency_key=idempotency_key,
+        )
+        .populate_existing()
+        .one_or_none()
+    )
+    if replay is not None:
+        if replay.create_request_fingerprint != request_fingerprint:
+            raise IdempotencyConflict(
+                "Idempotency-Key déjà utilisée avec un autre payload"
+            )
+        db.commit()
+        return ServiceResult(replay, replayed=True)
+
     project = _project(db, project_id)
     _validate_assignment(
         db, body.mission_template, project, allowed_agent_ids=allowed_agent_ids
@@ -297,11 +490,33 @@ def create_automation(
         max_concurrent_runs=body.max_concurrent_runs,
         next_run_at=None,
         created_by_user_id=principal_id,
+        create_idempotency_key=idempotency_key,
+        create_request_fingerprint=request_fingerprint,
         webhook_enabled=0,
         webhook_secret_hash=None,
     )
     db.add(row)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        replay = (
+            db.query(AutomationModel)
+            .filter_by(
+                project_id=project_id,
+                created_by_user_id=principal_id,
+                create_idempotency_key=idempotency_key,
+            )
+            .populate_existing()
+            .one_or_none()
+        )
+        if replay is None:
+            raise exc
+        if replay.create_request_fingerprint != request_fingerprint:
+            raise IdempotencyConflict(
+                "Idempotency-Key déjà utilisée avec un autre payload"
+            ) from exc
+        return ServiceResult(replay, replayed=True)
     event = _event_for(
         db,
         row,
@@ -318,10 +533,28 @@ def update_automation(
     row: AutomationModel,
     *,
     body: AutomationUpdate,
+    principal_id: str,
+    idempotency_key: str,
     allowed_agent_ids: set[str],
     now: datetime | None = None,
 ) -> ServiceResult[AutomationModel]:
+    row = _locked_automation(db, row.id)
     changes = body.model_dump(exclude_unset=True)
+    request_fingerprint = _mutation_fingerprint(
+        "update", body.model_dump(mode="json", exclude_unset=True)
+    )
+    replay = _replayed_mutation_command(
+        db,
+        row,
+        command="update",
+        principal_id=principal_id,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+    )
+    if replay is not None:
+        db.commit()
+        return ServiceResult(row, replayed=True)
+    changed_fields: set[str] = set()
     if "mission_template" in changes:
         template = body.mission_template
         assert template is not None
@@ -331,32 +564,66 @@ def update_automation(
             _project(db, row.project_id),
             allowed_agent_ids=allowed_agent_ids,
         )
-        row.mission_template = template.model_dump(mode="json")
-    if "name" in changes:
+        template_payload = template.model_dump(mode="json")
+        if row.mission_template != template_payload:
+            row.mission_template = template_payload
+            changed_fields.add("mission_template")
+    if "name" in changes and row.name != body.name:
         row.name = body.name  # type: ignore[assignment]
-    if "description" in changes:
+        changed_fields.add("name")
+    if "description" in changes and row.description != body.description:
         row.description = body.description  # type: ignore[assignment]
-    if "catchup_policy" in changes:
+        changed_fields.add("description")
+    if "catchup_policy" in changes and row.catchup_policy != body.catchup_policy:
         row.catchup_policy = body.catchup_policy  # type: ignore[assignment]
-    if "max_concurrent_runs" in changes:
+        changed_fields.add("catchup_policy")
+    if (
+        "max_concurrent_runs" in changes
+        and row.max_concurrent_runs != body.max_concurrent_runs
+    ):
         row.max_concurrent_runs = body.max_concurrent_runs  # type: ignore[assignment]
-    schedule_changed = "schedule" in changes
+        changed_fields.add("max_concurrent_runs")
+    schedule = body.schedule if "schedule" in changes else None
+    schedule_changed = schedule is not None and (
+        row.schedule_kind != schedule.kind
+        or row.schedule_expression != schedule.expression
+        or row.timezone != schedule.timezone
+    )
     if schedule_changed:
-        schedule = body.schedule
-        assert schedule is not None
         row.schedule_kind = schedule.kind
         row.schedule_expression = schedule.expression
         row.timezone = schedule.timezone
+        changed_fields.add("schedule")
     if bool(row.enabled) and schedule_changed:
         row.next_run_at = next_run_after(
             row, now or utcnow(), reset_interval_anchor=True
         )
-    db.flush()
+    if not changed_fields:
+        _record_mutation_command(
+            db,
+            row,
+            command="update",
+            principal_id=principal_id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            postcondition_fields=set(changes),
+        )
+        db.commit()
+        return ServiceResult(row, replayed=True)
+    _record_mutation_command(
+        db,
+        row,
+        command="update",
+        principal_id=principal_id,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+        postcondition_fields=set(changes),
+    )
     event = _event_for(
         db,
         row,
         "automation.updated",
-        payload={"automation_id": row.id, "fields": sorted(changes)},
+        payload={"automation_id": row.id, "fields": sorted(changed_fields)},
     )
     _store_events(db, [event])
     db.commit()
@@ -368,10 +635,36 @@ def set_automation_enabled(
     row: AutomationModel,
     *,
     enabled: bool,
+    principal_id: str,
+    idempotency_key: str,
     now: datetime | None = None,
 ) -> ServiceResult[AutomationModel]:
+    row = _locked_automation(db, row.id)
+    command: AutomationCommandType = "enable" if enabled else "disable"
+    request_fingerprint = _mutation_fingerprint(command, {})
+    replay = _replayed_mutation_command(
+        db,
+        row,
+        command=command,
+        principal_id=principal_id,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+    )
+    if replay is not None:
+        db.commit()
+        return ServiceResult(row, replayed=True)
     target = int(enabled)
     if row.enabled == target:
+        _record_mutation_command(
+            db,
+            row,
+            command=command,
+            principal_id=principal_id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            postcondition_fields={"enabled"},
+        )
+        db.commit()
         return ServiceResult(row, replayed=True)
     row.enabled = target
     row.next_run_at = (
@@ -379,7 +672,15 @@ def set_automation_enabled(
         if enabled
         else None
     )
-    db.flush()
+    _record_mutation_command(
+        db,
+        row,
+        command=command,
+        principal_id=principal_id,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+        postcondition_fields={"enabled"},
+    )
     event = _event_for(
         db,
         row,
@@ -392,16 +693,107 @@ def set_automation_enabled(
 
 
 def rotate_webhook(
-    db: Session, row: AutomationModel, *, now: datetime | None = None
+    db: Session,
+    row: AutomationModel,
+    *,
+    body: AutomationWebhookRotationRequest,
+    principal_id: str,
+    idempotency_key: str,
+    now: datetime | None = None,
 ) -> ServiceResult[AutomationWebhookSecret]:
-    raw_secret = secrets.token_urlsafe(32)
+    row = _locked_automation(db, row.id)
+    request_fingerprint = _canonical_fingerprint(
+        {"command": "webhook.rotate", "payload": body.model_dump(mode="json")}
+    )
+    hashed_secret = _secret_hash(body.secret)
+    replay = (
+        db.query(AutomationWebhookRotationModel)
+        .filter_by(
+            automation_id=row.id,
+            principal_id=principal_id,
+            idempotency_key=idempotency_key,
+        )
+        .populate_existing()
+        .one_or_none()
+    )
+    if replay is not None:
+        if replay.request_fingerprint != request_fingerprint:
+            raise IdempotencyConflict(
+                "Idempotency-Key déjà utilisée avec un autre secret"
+            )
+        if (
+            not row.webhook_enabled
+            or row.webhook_rotation_number != replay.rotation_number
+            or not hmac.compare_digest(
+                row.webhook_secret_hash or "0" * 64, replay.secret_hash
+            )
+        ):
+            raise IdempotencyConflict(
+                "Cette rotation a été remplacée ou le webhook a été désactivé"
+            )
+        db.commit()
+        status = webhook_status_contract(row)
+        return ServiceResult(
+            AutomationWebhookSecret(**status.model_dump(), secret=body.secret),
+            replayed=True,
+        )
+
     rotated_at = _as_utc(now or utcnow())
-    row.webhook_secret_hash = hashlib.sha256(raw_secret.encode("utf-8")).hexdigest()
+    rotation_number = row.webhook_rotation_number + 1
+    row.webhook_secret_hash = hashed_secret
     row.webhook_enabled = 1
     row.webhook_rotated_at = rotated_at
-    db.flush()
+    row.webhook_rotation_number = rotation_number
+    row.mutation_revision += 1
+    db.add(
+        AutomationWebhookRotationModel(
+            automation_id=row.id,
+            principal_id=principal_id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            secret_hash=hashed_secret,
+            rotation_number=rotation_number,
+            rotated_at=rotated_at,
+        )
+    )
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        current = automation_or_error(db, row.id)
+        replay = (
+            db.query(AutomationWebhookRotationModel)
+            .filter_by(
+                automation_id=row.id,
+                principal_id=principal_id,
+                idempotency_key=idempotency_key,
+            )
+            .populate_existing()
+            .one_or_none()
+        )
+        if replay is None:
+            raise exc
+        if replay.request_fingerprint != request_fingerprint:
+            raise IdempotencyConflict(
+                "Idempotency-Key déjà utilisée avec un autre secret"
+            ) from exc
+        if (
+            not current.webhook_enabled
+            or current.webhook_rotation_number != replay.rotation_number
+            or not hmac.compare_digest(
+                current.webhook_secret_hash or "0" * 64, replay.secret_hash
+            )
+        ):
+            raise IdempotencyConflict(
+                "Cette rotation a été remplacée ou le webhook a été désactivé"
+            ) from exc
+        status = webhook_status_contract(current)
+        return ServiceResult(
+            AutomationWebhookSecret(**status.model_dump(), secret=body.secret),
+            replayed=True,
+        )
     status = webhook_status_contract(row)
-    response = AutomationWebhookSecret(**status.model_dump(), secret=raw_secret)
+    response = AutomationWebhookSecret(**status.model_dump(), secret=body.secret)
     event = _event_for(
         db,
         row,
@@ -414,13 +806,56 @@ def rotate_webhook(
 
 
 def disable_webhook(
-    db: Session, row: AutomationModel
+    db: Session,
+    row: AutomationModel,
+    *,
+    principal_id: str,
+    idempotency_key: str,
 ) -> ServiceResult[AutomationWebhookStatus]:
+    row = _locked_automation(db, row.id)
+    request_fingerprint = _mutation_fingerprint("webhook.disable", {})
+    replay = _replayed_mutation_command(
+        db,
+        row,
+        command="webhook.disable",
+        principal_id=principal_id,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+    )
+    if replay is not None:
+        db.commit()
+        return ServiceResult(webhook_status_contract(row), replayed=True)
     if not row.webhook_enabled and row.webhook_secret_hash is None:
+        _record_mutation_command(
+            db,
+            row,
+            command="webhook.disable",
+            principal_id=principal_id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            postcondition_fields={
+                "webhook_enabled",
+                "webhook_secret_configured",
+                "webhook_rotation_number",
+            },
+        )
+        db.commit()
         return ServiceResult(webhook_status_contract(row), replayed=True)
     row.webhook_enabled = 0
     row.webhook_secret_hash = None
-    db.flush()
+    _record_mutation_command(
+        db,
+        row,
+        command="webhook.disable",
+        principal_id=principal_id,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+        postcondition_fields={
+            "webhook_enabled",
+            "webhook_secret_configured",
+            "webhook_rotation_number",
+        },
+    )
     response = webhook_status_contract(row)
     event = _event_for(
         db,
@@ -433,21 +868,44 @@ def disable_webhook(
     return ServiceResult(response, (event,))
 
 
-def authenticate_webhook(
-    db: Session, automation_id: str, bearer_secret: str | None
-) -> AutomationModel:
-    """Authentifie sans révéler si l'identifiant ou le secret est fautif."""
-
-    row = db.get(AutomationModel, automation_id)
+def _webhook_credentials_valid(
+    row: AutomationModel | None, bearer_secret: str | None
+) -> bool:
     supplied_hash = hashlib.sha256((bearer_secret or "").encode("utf-8")).hexdigest()
     expected = row.webhook_secret_hash if row is not None else "0" * 64
     valid = hmac.compare_digest(supplied_hash, expected or "0" * 64)
-    if (
-        row is None
-        or not row.webhook_enabled
-        or row.webhook_secret_hash is None
-        or not valid
-    ):
+    return bool(
+        row is not None
+        and row.webhook_enabled
+        and row.webhook_secret_hash is not None
+        and valid
+    )
+
+
+def authenticate_webhook(
+    db: Session, automation_id: str, bearer_secret: str | None
+) -> AutomationModel:
+    """Authentifie sous le verrou conservé jusqu'à la matérialisation.
+
+    Rotation et désactivation prennent le même verrou. Elles sont donc ordonnées
+    avant l'authentification (l'ancien secret est refusé) ou après le commit du
+    déclenchement (le déclenchement était déjà autorisé), jamais entre les deux.
+    """
+
+    # Une requête manifestement invalide ne doit jamais prendre le verrou global
+    # d'écriture SQLite. Après cette prélecture sans effet, la transaction est
+    # close puis la même preuve est revérifiée sous le verrou décisionnel.
+    candidate = db.get(AutomationModel, automation_id)
+    if not _webhook_credentials_valid(candidate, bearer_secret):
+        raise WebhookAuthenticationFailed("webhook non authentifié")
+    db.rollback()
+    try:
+        row = _locked_automation(db, automation_id)
+    except AutomationNotFound as exc:
+        db.rollback()
+        raise WebhookAuthenticationFailed("webhook non authentifié") from exc
+    if not _webhook_credentials_valid(row, bearer_secret):
+        db.rollback()
         raise WebhookAuthenticationFailed("webhook non authentifié")
     return row
 
@@ -456,8 +914,19 @@ def _external_fire_key(
     automation_id: str,
     trigger_kind: Literal["manual", "webhook"],
     identity: str,
+    *,
+    principal_id: str | None = None,
 ) -> str:
-    encoded = f"{automation_id}:{trigger_kind}:{identity}".encode("utf-8")
+    if trigger_kind == "manual" and not principal_id:
+        raise ValueError("un principal est requis pour un déclenchement manuel")
+    # Une clé manuelle appartient à l'utilisateur authentifié. L'identité webhook
+    # reste au contraire globale à la routine, car elle vient de l'émetteur externe.
+    scope = principal_id if trigger_kind == "manual" else None
+    encoded = json.dumps(
+        [automation_id, trigger_kind, scope, identity],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:32]
 
 
@@ -546,34 +1015,33 @@ def materialize_occurrence(
     if trigger_kind == "schedule":
         key = schedule_fire_key(automation_id, nominal)
     elif trigger_kind in {"manual", "webhook"} and identity:
-        key = _external_fire_key(automation_id, trigger_kind, identity)
+        key = _external_fire_key(
+            automation_id,
+            trigger_kind,
+            identity,
+            principal_id=principal_id,
+        )
     else:
         raise ValueError("une identité stable est requise pour ce déclencheur")
 
     replay = (
         db.query(AutomationRunModel)
         .filter_by(automation_id=automation_id, fire_key=key)
+        .populate_existing()
         .first()
     )
     if replay is not None:
         return ServiceResult(replay, replayed=True)
 
-    # UPDATE sans changement : verrou de sérialisation portable. Sous SQLite il
-    # transforme aussi la transaction différée en transaction d'écriture avant les
-    # lectures de concurrence et les SAVEPOINT du journal durable.
-    locked = db.execute(
-        update(AutomationModel)
-        .where(AutomationModel.id == automation_id)
-        .values(last_fire_key=AutomationModel.last_fire_key)
-    ).rowcount
-    if not locked:
-        db.rollback()
-        raise AutomationNotFound(automation_id)
-    automation = automation_or_error(db, automation_id)
+    # Le verrou parent sérialise le quota de concurrence et recharge explicitement
+    # la ligne : une session réutilisée après commit ne doit jamais décider à partir
+    # d'un objet resté dans son identity-map.
+    automation = _locked_automation(db, automation_id)
 
     replay = (
         db.query(AutomationRunModel)
         .filter_by(automation_id=automation_id, fire_key=key)
+        .populate_existing()
         .first()
     )
     if replay is not None:
@@ -585,6 +1053,7 @@ def materialize_occurrence(
         fire_key=key,
         scheduled_for=nominal,
         fired_at=fired_at,
+        schedule_timezone=automation.timezone,
         trigger_kind=trigger_kind,
         outcome="failed",
         detail="matérialisation interrompue",
@@ -597,6 +1066,7 @@ def materialize_occurrence(
         replay = (
             db.query(AutomationRunModel)
             .filter_by(automation_id=automation_id, fire_key=key)
+            .populate_existing()
             .first()
         )
         if replay is None:
@@ -785,7 +1255,7 @@ def list_calendar(
                 automation_id=automation.id,
                 automation_name=automation.name,
                 state="past" if instant <= current else "planned",
-                timezone=automation.timezone,
+                timezone=run.schedule_timezone or automation.timezone,
                 task_id=run.task_id,
                 outcome=run.outcome,
             )
