@@ -31,6 +31,11 @@ from acp_database.models import (
     WorkerLeaseModel,
 )
 
+from ..attempt_fencing import (
+    ATTEMPT_FENCING_HEADER,
+    parse_attempt_fencing_token,
+    require_active_worker_attempt,
+)
 from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
 from .artifacts import receive_worker_artifact_content
 from .workers import _as_utc, authenticate_worker, expire_task_leases, utcnow
@@ -500,9 +505,19 @@ def report_artifact(
     body: ArtifactCreate,
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
+    attempt_fencing_token: str | None = Header(
+        default=None, alias=ATTEMPT_FENCING_HEADER
+    ),
 ):
     authenticate_worker(db, worker_id, authorization)
-    lease = _require_active_run_lease(db, worker_id, body.task_run_id)
+    fencing_token = parse_attempt_fencing_token(attempt_fencing_token)
+    lease, _run = require_active_worker_attempt(
+        db,
+        worker_id=worker_id,
+        run_id=body.task_run_id,
+        fencing_token=fencing_token,
+        lock=True,
+    )
     task = db.get(TaskModel, lease.task_id)
     if task is None or task.project_id != body.project_id:
         raise HTTPException(status_code=400, detail="Artefact hors du projet du run")
@@ -528,6 +543,9 @@ async def upload_artifact_content(
     request: Request,
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
+    attempt_fencing_token: str | None = Header(
+        default=None, alias=ATTEMPT_FENCING_HEADER
+    ),
 ):
     """Téléverse le contenu d'un livrable (``multipart/form-data``, §6).
 
@@ -537,7 +555,10 @@ async def upload_artifact_content(
     """
 
     worker = authenticate_worker(db, worker_id, authorization)
-    return await receive_worker_artifact_content(db, worker, request)
+    fencing_token = parse_attempt_fencing_token(attempt_fencing_token)
+    return await receive_worker_artifact_content(
+        db, worker, request, fencing_token=fencing_token
+    )
 
 
 # ``GET /artifacts`` est servi par ``routers/artifacts.py`` depuis le Lot E : la

@@ -120,7 +120,7 @@ def _run(db: Session, project_id: str) -> tuple[str, str]:
     task = TaskModel(project_id=project_id, title="Tâche")
     db.add(task)
     db.flush()
-    run = TaskRunModel(task_id=task.id, status="running")
+    run = TaskRunModel(task_id=task.id, status="running", fencing_token=1)
     db.add(run)
     db.flush()
     return run.id, task.id
@@ -206,6 +206,7 @@ def context(tmp_path, monkeypatch):
     client = TestClient(app)
     client.cookies.set("acp_session", member_session)
     client.headers["X-CSRF-Token"] = member_csrf
+    client.headers["X-Attempt-Fencing-Token"] = "1"
     try:
         yield Context(
             client=client,
@@ -2009,6 +2010,64 @@ def test_a_full_multipart_spool_returns_507_and_opens_an_alert(context, monkeypa
     with context.session_factory() as db:
         assert db.query(ArtifactModel).count() == 0
         assert db.query(AlertModel).filter_by(kind="storage.saturated").count() == 1
+
+
+def test_an_upload_without_an_attempt_fence_is_refused_before_storage(context):
+    fence = context.client.headers.pop("X-Attempt-Fencing-Token")
+    try:
+        response = _upload(context)
+    finally:
+        context.client.headers["X-Attempt-Fencing-Token"] = fence
+
+    assert response.status_code == 409
+    assert _blob_files(context) == []
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).count() == 0
+
+
+@pytest.mark.parametrize("fence", ["0", "-1", "abc", "2", "01"])
+def test_an_invalid_or_stale_attempt_fence_is_refused_before_storage(context, fence):
+    response = context.client.post(
+        f"/workers/{context.worker_id}/artifacts/content",
+        headers={
+            "Authorization": f"Bearer {context.worker_token}",
+            "X-Attempt-Fencing-Token": fence,
+        },
+        files={"file": ("rapport.txt", b"rapport", "text/plain")},
+        data={
+            "kind": "report",
+            "task_run_id": context.run_id,
+            "project_id": context.project_id,
+        },
+    )
+
+    assert response.status_code == 409
+    assert _blob_files(context) == []
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).count() == 0
+
+
+def test_a_fence_rotated_while_the_body_is_read_is_rechecked_before_storage(
+    context, monkeypatch
+):
+    original_lock = artifacts_router._lock_artifact_quota
+
+    def rotate_fence_after_body(db: Session, run_id: str) -> None:
+        original_lock(db, run_id)
+        db.query(TaskRunModel).filter_by(id=run_id).update(
+            {TaskRunModel.fencing_token: TaskRunModel.fencing_token + 1},
+            synchronize_session=False,
+        )
+        db.flush()
+
+    monkeypatch.setattr(artifacts_router, "_lock_artifact_quota", rotate_fence_after_body)
+
+    response = _upload(context, payload=b"arrive trop tard")
+
+    assert response.status_code == 409
+    assert _blob_files(context) == []
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).count() == 0
 
 
 def test_an_upload_without_an_active_lease_is_refused(context):

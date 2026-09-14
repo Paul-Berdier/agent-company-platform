@@ -80,6 +80,7 @@ def _settings(
     max_inflight: int = 4,
     max_waiters: int = 16,
     api_token: str = UPSTREAM_TOKEN,
+    exclusive_instance: bool = False,
 ) -> ComfyUISettings:
     return ComfyUISettings(
         enabled=True,
@@ -98,6 +99,7 @@ def _settings(
         idempotency_max_entries=cache_entries,
         idempotency_max_bytes=cache_max_bytes,
         idempotency_ttl_seconds=60,
+        exclusive_instance=exclusive_instance,
     )
 
 
@@ -255,6 +257,11 @@ def test_environment_activation_is_strict_and_partial_configuration_fails_closed
     with pytest.raises(ComfyUIConfigurationError, match="ENABLED=1"):
         ComfyUISettings.from_environment()
 
+    monkeypatch.delenv("ACP_COMFYUI_MAX_INFLIGHT_GENERATIONS")
+    monkeypatch.setenv("ACP_COMFYUI_EXCLUSIVE_INSTANCE", "yes")
+    with pytest.raises(ComfyUIConfigurationError, match="ENABLED=1"):
+        ComfyUISettings.from_environment()
+
 
 @pytest.mark.parametrize(
     ("overrides", "message"),
@@ -274,6 +281,10 @@ def test_environment_activation_is_strict_and_partial_configuration_fails_closed
         ({"max_inflight": 33}, "Concurrence"),
         ({"max_waiters": 65}, "Attentes"),
         ({"cache_max_bytes": 257 * 1024 * 1024}, "Budget mémoire"),
+        (
+            {"exclusive_instance": True, "max_inflight": 2},
+            "exclusive exige une concurrence égale à 1",
+        ),
     ],
 )
 def test_memory_and_concurrency_limits_fail_closed(tmp_path, overrides, message):
@@ -680,11 +691,12 @@ def test_polling_is_bounded_and_never_uses_global_interrupt(monkeypatch, tmp_pat
         )
 
     assert response.status_code == 504
-    assert [request.url.path for request in requests] == [
+    assert [request.url.path for request in requests][:3] == [
         "/prompt",
         f"/history/{PROMPT_ID}",
         f"/history/{PROMPT_ID}",
     ]
+    assert "/queue" in [request.url.path for request in requests]
     assert all(request.url.path != "/interrupt" for request in requests)
 
 
@@ -720,6 +732,8 @@ async def test_poll_timeout_leaves_a_tombstone_and_retry_never_resubmits(tmp_pat
     assert [request.url.path for request in requests] == [
         "/prompt",
         f"/history/{PROMPT_ID}",
+        f"/history/{PROMPT_ID}",
+        "/queue",
     ]
 
 
@@ -821,6 +835,117 @@ async def test_cancellation_after_submit_leaves_a_safe_tombstone(tmp_path):
             ComfyUIImageRequest(prompt="annulé"), idempotency_key="cancelled-key"
         )
     assert [request.url.path for request in requests].count("/prompt") == 1
+
+
+async def test_running_timeout_quarantines_connector_and_refuses_new_prompt(tmp_path):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/prompt":
+            return httpx.Response(200, json={"prompt_id": PROMPT_ID})
+        if request.url.path == f"/history/{PROMPT_ID}":
+            return httpx.Response(200, json={})
+        if request.url.path == "/queue":
+            return httpx.Response(
+                200,
+                json={
+                    "queue_running": [[0, PROMPT_ID, {}, {}, []]],
+                    "queue_pending": [],
+                },
+            )
+        return httpx.Response(404)
+
+    connector = ComfyUIConnector(
+        _settings(_workflow_file(tmp_path), max_polls=1, max_inflight=1),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ComfyUITimeoutError):
+        await connector.generate(
+            ComfyUIImageRequest(prompt="lent"), idempotency_key="timeout-running"
+        )
+    with pytest.raises(ComfyUIBusyError, match="quarantaine"):
+        await connector.generate(
+            ComfyUIImageRequest(prompt="nouveau"), idempotency_key="new-request"
+        )
+
+    assert [request.url.path for request in requests].count("/prompt") == 1
+    assert all(request.url.path != "/interrupt" for request in requests)
+
+
+async def test_pending_timeout_is_deleted_by_prompt_id_before_reopening(tmp_path):
+    requests: list[httpx.Request] = []
+    pending = True
+    prompt_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal pending, prompt_count
+        requests.append(request)
+        if request.url.path == "/prompt":
+            prompt_count += 1
+            return httpx.Response(200, json={"prompt_id": PROMPT_ID})
+        if request.url.path == f"/history/{PROMPT_ID}":
+            if prompt_count == 1:
+                return httpx.Response(200, json={})
+            return httpx.Response(200, json=_history())
+        if request.url.path == "/queue" and request.method == "GET":
+            entries = [[0, PROMPT_ID, {}, {}, []]] if pending else []
+            return httpx.Response(
+                200, json={"queue_running": [], "queue_pending": entries}
+            )
+        if request.url.path == "/queue" and request.method == "POST":
+            assert json.loads(request.content) == {"delete": [PROMPT_ID]}
+            pending = False
+            return httpx.Response(200, json={})
+        if request.url.path == "/view":
+            return httpx.Response(200, content=PNG, headers={"Content-Type": "image/png"})
+        return httpx.Response(404)
+
+    connector = ComfyUIConnector(
+        _settings(_workflow_file(tmp_path), max_polls=1, max_inflight=1),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ComfyUITimeoutError):
+        await connector.generate(
+            ComfyUIImageRequest(prompt="en file"), idempotency_key="pending-timeout"
+        )
+    image = await connector.generate(
+        ComfyUIImageRequest(prompt="suivant"), idempotency_key="next-request"
+    )
+
+    assert image.content == PNG
+    assert [request.url.path for request in requests].count("/prompt") == 2
+    delete_requests = [
+        request
+        for request in requests
+        if request.url.path == "/queue" and request.method == "POST"
+    ]
+    assert len(delete_requests) == 1
+
+
+async def test_ambiguous_prompt_submission_quarantines_until_restart(tmp_path):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise httpx.ReadTimeout("ambiguous", request=request)
+
+    connector = ComfyUIConnector(
+        _settings(_workflow_file(tmp_path)),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ComfyUITimeoutError):
+        await connector.generate(
+            ComfyUIImageRequest(prompt="ambigu"), idempotency_key="ambiguous"
+        )
+    with pytest.raises(ComfyUIBusyError, match="quarantaine"):
+        await connector.generate(
+            ComfyUIImageRequest(prompt="autre"), idempotency_key="other"
+        )
+    assert [request.url.path for request in requests] == ["/prompt"]
 
 
 async def test_cancelling_one_waiter_does_not_cancel_shared_generation(tmp_path):
@@ -943,6 +1068,8 @@ async def test_unexpired_failure_tombstone_is_never_evicted_for_image_bytes(tmp_
             if current_prompt == "failure":
                 return httpx.Response(200, json={})
             return httpx.Response(200, json=_history())
+        if request.url.path == "/queue":
+            return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
         if request.url.path == "/view":
             return httpx.Response(
                 200, content=PNG, headers={"Content-Type": "image/png"}
@@ -987,6 +1114,8 @@ async def test_tombstone_capacity_is_reserved_before_a_new_prompt(tmp_path):
             return httpx.Response(200, json={"prompt_id": PROMPT_ID})
         if request.url.path == f"/history/{PROMPT_ID}":
             return httpx.Response(200, json={})
+        if request.url.path == "/queue":
+            return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
         return httpx.Response(404)
 
     connector = ComfyUIConnector(
