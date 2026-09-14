@@ -1,6 +1,7 @@
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const UNSPECIFIED_HOSTS = new Set(["0.0.0.0", "[::]"]);
+const BROWSER_CHANNELS = new Set(["chromium", "chrome", "msedge"]);
 
 export class E2EConfigurationError extends Error {
   constructor(message) {
@@ -98,6 +99,16 @@ function readRunId(environment) {
   return runId;
 }
 
+function readBrowserChannel(environment) {
+  const channel = environment.ACP_E2E_BROWSER_CHANNEL || "chromium";
+  if (!BROWSER_CHANNELS.has(channel)) {
+    throw new E2EConfigurationError(
+      "ACP_E2E_BROWSER_CHANNEL doit valoir chromium, chrome ou msedge.",
+    );
+  }
+  return channel;
+}
+
 /**
  * Read the complete runtime configuration. No target or credential is needed
  * while disabled, which keeps the repository's default install and test paths
@@ -124,5 +135,6 @@ export function readE2EConfiguration(environment = process.env) {
     login: readLogin(environment),
     password: readPassword(environment),
     runId: readRunId(environment),
+    browserChannel: readBrowserChannel(environment),
   });
 }

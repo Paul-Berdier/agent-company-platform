@@ -26,6 +26,10 @@ npm ci --prefix e2e
 npm --prefix e2e run install:chromium
 ```
 
+Le paquet fixe `@playwright/test` `1.63.0`. Sur une machine qui possède déjà Chrome ou
+Edge, l'installation du Chromium Playwright peut être évitée en sélectionnant le canal
+correspondant ; aucune détection silencieuse n'est effectuée.
+
 Configurer ensuite toutes les variables suivantes dans l'environnement du processus :
 
 | Variable | Rôle |
@@ -37,10 +41,27 @@ Configurer ensuite toutes les variables suivantes dans l'environnement du proces
 | `ACP_E2E_LOGIN` | compte de test existant |
 | `ACP_E2E_PASSWORD` | mot de passe du compte de test, 12 à 256 caractères |
 | `ACP_E2E_RUN_ID` | tentative existante et accessible à ouvrir dans le Studio |
+| `ACP_E2E_BROWSER_CHANNEL` | `chromium` par défaut, ou explicitement `chrome` / `msedge` |
 
 Puis lancer `npm run test:e2e` depuis la racine. Le compte doit déjà exister, la
 plateforme ne doit plus être en phase de bootstrap et le `run_id` doit appartenir à un
 projet visible par ce compte. Le test ne crée, ne modifie et n'accepte aucune mission.
+
+## Preuve locale isolée
+
+Le lanceur versionné crée lui-même une base, une API, un shell Vite, un compte et une
+mission temporaires sur deux ports de bouclage, puis appelle exactement le même paquet :
+
+```powershell
+$env:ACP_E2E="1"
+$env:ACP_E2E_BROWSER_CHANNEL="msedge" # facultatif si Chromium est installé
+./.venv/Scripts/python.exe scripts/verify_live_studio_journey.py
+```
+
+Sans l'opt-in exact, il répond lui aussi `[E2E SKIPPED]`. Il n'appelle aucun fournisseur
+IA, ne contacte aucune cible distante et supprime ses données temporaires. Cette preuve
+a réussi avec Edge pendant la validation de `0.8.0` ; elle ne produit volontairement ni
+trace ni vidéo et ne prouve pas le rendu WebGL d'un GLB.
 
 ## Garde-fous
 

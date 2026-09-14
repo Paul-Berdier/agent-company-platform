@@ -1,7 +1,6 @@
 # Automatisations, budgets et alertes
 
-Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.7.0`, complétée
-par le Lot G `0.8.0` dans l'arbre de travail
+Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.8.0` (Lot G)
 
 Le Lot F ajoute des **routines** durables : chaque routine associe un calendrier à un
 gabarit de mission. À l'échéance, le planificateur matérialise une mission normale ;

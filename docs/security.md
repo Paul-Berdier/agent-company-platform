@@ -1,7 +1,6 @@
 # Sécurité et frontières de confiance
 
-Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G `0.8.0`
-implémenté dans l'arbre de travail et non publié
+Date d'état : 14 septembre 2026 — version publiée `0.8.0` (Lot G)
 Statut : frontières utilisateur/inter-services fermées et runner local contrôlé au
 Lot C ; coffre de secrets, politique de sortie anti-SSRF, expurgation des retours
 tiers, clôture d'arrêt Windows et révocation des extensions ajoutés au Lot D ; flux
@@ -59,7 +58,9 @@ contacté.
 Le Lot G ferme trois nouvelles frontières. Un GLB doit être structurellement validé et
 scellé par son sha256 avant aperçu, lequel exige une origine distincte ou échoue en
 `424`. ComfyUI reçoit uniquement un prompt dans un workflow local fixé par l'opérateur,
-avec réseau, corps et types de sortie bornés. Codex/Claude ne reçoivent qu'une mission
+avec réseau, corps et types de sortie bornés ; un job incertain met le connecteur en
+quarantaine jusqu'à réconciliation ciblée, sans interruption d'une file partagée.
+Codex/Claude ne reçoivent qu'une mission
 supervisée et une racine projet ; ACP refuse un second CLI, désactive les fonctions
 intégrées connues de multi-agent, d'approbation interactive, de MCP et de navigateur,
 mais ne peut empêcher un binaire de créer un processus descendant. Le paquet E2E nominal
@@ -72,8 +73,9 @@ sans redirection ni retry ; ensuite seuls `GET`/`HEAD`/`OPTIONS` restent possibl
 `EventSource` est désactivé dans ce parcours afin que le Studio utilise son polling réel
 et que chaque réponse HTTP puisse être refusée avant toute redirection ; le SSE reste à
 éprouver séparément.
-Aucun de ces quatre chemins n'a été exercé contre un service ou navigateur réel pendant
-cette validation.
+Le parcours shell/Studio a réellement réussi dans Edge contre API/Vite locaux isolés.
+ComfyUI, Codex/Claude authentifiés, le rendu GLB et la chaîne reporter → worker restent
+non exercés contre leurs composants externes réels.
 
 Ces garanties ne rendent pas encore la plateforme exploitable sur Internet. Il
 reste notamment à compléter la matrice d'autorisation exhaustive, les en-têtes web
@@ -436,7 +438,8 @@ sans plancher de longueur.
 - L'origine d'aperçu est comparée à une `ACP_API_URL` obligatoirement explicite et à
   toutes les origines CORS. Une absence, collision ou URL dangereuse échoue avant
   insertion du lien signé. Le client revérifie encore HTTPS/loopback et la différence
-  avec l'application.
+  avec l'application. `acp_api.preview:app` ne monte que santé et contenu signé
+  `purpose=preview`, sans session, route métier, OpenAPI ou CORS avec credentials.
 - ComfyUI est joignable seulement côté gateway authentifié. Son origine et son workflow
   sont des configurations opérateur, jamais des entrées de requête. Le client refuse
   HTTP distant, redirections et proxies ambiants ; il borne workflow, JSON, polls,
@@ -444,7 +447,11 @@ sans plancher de longueur.
   L'idempotence LRU/TTL n'est pas durable : elle réduit les rejeux process-local sans
   garantir l'exactly-once après redémarrage. À capacité simultanée maximale, une
   nouvelle clé est refusée en `429` avec `Retry-After` avant tout appel `/prompt` ; le
-  rejeu d'une clé déjà en vol continue à partager le même résultat.
+  rejeu d'une clé déjà en vol continue à partager le même résultat. Un état distant
+  incertain ferme les nouveaux prompts pendant une réconciliation `/history` + `/queue` ;
+  seule une entrée en attente connue est supprimée. `/interrupt` n'est permis qu'avec
+  instance exclusive déclarée et concurrence à un ; sans `prompt_id`, la quarantaine
+  exige la recréation du connecteur.
 - Une racine projet peut contenir du texte hostile destiné à détourner un agent. La
   défense est capacitaire : mission supervisée et bornée, exactement une racine de cwd,
   configuration/règles utilisateur ignorées côté Codex, outils Claude limités,
@@ -465,8 +472,8 @@ sans plancher de longueur.
   et jamais levée automatiquement. Ce mécanisme reste coopératif : protéger son parent
   par ACL et valider la sémantique des partages réseau, ou fournir des worktrees séparés.
 - Le lanceur nominal du harnais E2E sort avant de résoudre Playwright sans opt-in exact.
-  Le script de collecte directe peut charger le framework, mais la spec reste ignorée
-  et aucun navigateur n'est lancé. Sous opt-in, le parcours refuse HTTP distant,
+  Le lanceur local versionné crée services et données isolés seulement sous opt-in.
+  Sous opt-in, le parcours refuse HTTP distant,
   origines inattendues et toute redirection : chaque requête admise est envoyée une fois
   par un contexte HTTP isolé et borné à 30 secondes, avec retries et suivi coupés, et tout
   `3xx` est bloqué avant le navigateur. Le forwarder reprend les en-têtes de cookies réellement décidés par
@@ -485,6 +492,8 @@ sans plancher de longueur.
   d'une application dépendant de workers ou de son direct SSE. La route Playwright reste
   une frontière applicative, pas un pare-feu OS : les optimisations spéculatives internes
   du navigateur doivent être contenues par la politique réseau externe du runner.
+  La preuve de publication a utilisé `msedge` et a traversé une authentification,
+  Missions et le Studio réels.
   Les identifiants de test restent néanmoins des secrets vivants : ils doivent désigner
   un compte dédié, à privilèges minimaux et à durée limitée.
 
@@ -528,8 +537,9 @@ Les routes, contrats et limites fonctionnelles sont détaillés dans
   voie utilisateur.
 - Aucune origine séparée n'est **configurée** pour les aperçus de contenu non fiable.
   `ACP_ARTIFACT_PUBLIC_ORIGIN` existe et est lue par le code ; tant qu'elle est vide ou
-  invalide, l'API refuse l'aperçu en `424` avant de signer. Il reste à déployer et
-  vérifier réellement cette seconde origine avant toute exposition réseau du Studio.
+  invalide, l'API refuse l'aperçu en `424` avant de signer. L'application minimale
+  d'aperçu est livrée ; il reste à la déployer et à vérifier réellement cette seconde
+  origine avant toute exposition réseau du Studio.
 - Le CSRF et la politique de cookie sont couverts localement ; CSP, HSTS, autres
   en-têtes de sécurité, valeurs de plafonds et configuration HTTPS restent à valider
   en déploiement.
@@ -712,7 +722,9 @@ un état durable et un événement d'audit.
 - Le contrôle des livrables (idempotence par sha256, quota par tentative, taille
   maximale, `Range`, en-têtes de sécurité, HTML/SVG/archives forcés en téléchargement,
   lien expiré, révoqué ou étranger refusé, absence de clé ⇒ `503`) est couvert par
-  `apps/api/tests/test_artifacts_content.py` et `test_artifact_signing.py`.
+  `apps/api/tests/test_artifacts_content.py` et `test_artifact_signing.py`. Les écritures
+  worker exigent en plus le fence exact et le téléversement le revérifie sous verrou
+  après lecture du corps, avant toute persistance.
 - Le refus d'un faux succès de tests (rapport vide, fencing obsolète, arrêt d'arbre non
   prouvé, pièce jointe hors répertoire, code de sortie du rapport ne pouvant pas
   effacer celui mesuré) est couvert par `apps/api/tests/test_testing_service.py` et
@@ -729,13 +741,12 @@ un état durable et un événement d'audit.
 
 - L'adaptateur Hermes conserve son secret côté serveur par conception, mais aucune
   connexion Hermes réelle n'a été effectuée.
-- Le web utilise une session cookie/CSRF réelle dans les tests API et TypeScript,
-  mais le parcours complet n'a pas encore été rejoué dans un navigateur contre les
-  services et une instance Hermes réellement lancés.
-- **Aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté**
-  pour cette version : le reporter/worker est prouvé sur des objets et un programme
-  synthétiques, tandis que le harnais E2E réel est resté désactivé. Les contrôles sur
-  le contenu produit par un test n'ont donc jamais rencontré un fichier Playwright réel.
+- Le web a utilisé une session cookie/CSRF réelle dans Edge contre les services locaux,
+  sans instance Hermes réelle.
+- Le harnais Playwright réel a exercé le shell et le Studio. Le reporter/worker reste
+  prouvé sur des objets et un programme synthétiques ; les contrôles sur le contenu
+  produit par un test n'ont donc toujours pas rencontré de capture/vidéo/trace issue de
+  cette chaîne réelle.
 - Le validateur GLB et `model-viewer` sont couverts séparément sans rendu WebGL ni
   origine d'aperçu déployée. ComfyUI est couvert par un transport simulé. Les chemins
   Codex/Claude lancent des exécutables contrôlés, pas un CLI authentifié.

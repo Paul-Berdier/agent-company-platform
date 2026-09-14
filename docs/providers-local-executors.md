@@ -1,6 +1,6 @@
 # Exécuteurs locaux Codex CLI et Claude Code
 
-Date d'état : 14 septembre 2026 — Lot G `0.8.0` en préparation
+Date d'état : 14 septembre 2026 — Lot G `0.8.0` publié
 
 Le worker peut désormais exécuter Codex CLI ou Claude Code après attribution d'une
 mission compatible. Ce chemin est raccordé à la boucle réelle ; il reste distinct du

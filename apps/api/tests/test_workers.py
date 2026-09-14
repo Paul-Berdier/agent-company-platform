@@ -612,6 +612,7 @@ def test_resource_locks_artifacts_and_approvals():
                 f"/workers/{worker['worker_id']}/claim", headers=headers, json={}
             ).json()
             run_ids.append(claim["task_run"]["id"])
+            headers["X-Attempt-Fencing-Token"] = str(claim["fencing_token"])
 
         resource_key = f"refs/heads/test-{uuid4().hex}"
         acquired = client.post(
@@ -643,6 +644,29 @@ def test_resource_locks_artifacts_and_approvals():
             json={"worker_id": first["worker_id"], "owner_run_id": run_ids[0]},
         ).status_code == 200
 
+        artifact_payload = {
+            "project_id": project_id,
+            "task_run_id": run_ids[0],
+            "kind": "report",
+            "path": "reports/result.json",
+            "size_bytes": 42,
+        }
+        assert client.post(
+            f"/workers/{first['worker_id']}/artifacts",
+            headers={"Authorization": f"Bearer {first['token']}"},
+            json=artifact_payload,
+        ).status_code == 409
+        assert client.post(
+            f"/workers/{first['worker_id']}/artifacts",
+            headers={
+                **first_headers,
+                "X-Attempt-Fencing-Token": str(
+                    int(first_headers["X-Attempt-Fencing-Token"]) + 1
+                ),
+            },
+            json=artifact_payload,
+        ).status_code == 409
+
         invalid_artifact = client.post(
             f"/workers/{first['worker_id']}/artifacts",
             headers=first_headers,
@@ -657,13 +681,7 @@ def test_resource_locks_artifacts_and_approvals():
         artifact = client.post(
             f"/workers/{first['worker_id']}/artifacts",
             headers=first_headers,
-            json={
-                "project_id": project_id,
-                "task_run_id": run_ids[0],
-                "kind": "report",
-                "path": "reports/result.json",
-                "size_bytes": 42,
-            },
+            json=artifact_payload,
         )
         assert artifact.status_code == 201
 

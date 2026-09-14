@@ -20,6 +20,9 @@ export default defineConfig({
   use: {
     baseURL: runtime.enabled ? runtime.baseURL : "http://127.0.0.1/",
     browserName: "chromium",
+    channel: runtime.enabled && runtime.browserChannel !== "chromium"
+      ? runtime.browserChannel
+      : undefined,
     headless: true,
     ignoreHTTPSErrors: false,
     serviceWorkers: "block",

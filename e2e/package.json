@@ -10,6 +10,6 @@
     "test:unit": "node --test unit/*.test.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.55.1"
+    "@playwright/test": "1.63.0"
   }
 }

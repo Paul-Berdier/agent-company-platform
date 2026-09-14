@@ -1,8 +1,7 @@
 # Architecture cible
 
 Statut : décision adoptée pour la modernisation 2026.
-Date d'état : 14 septembre 2026 — version publiée `0.7.0` (Lot F), Lot G `0.8.0`
-implémenté dans l'arbre de travail et non publié.
+Date d'état : 14 septembre 2026 — version publiée `0.8.0` (Lot G).
 Produit : Agent Company Platform, espace personnel par défaut.
 
 Le schéma principal de ce document reste la cible. L'état concret des Lots C à G
@@ -95,7 +94,7 @@ API métier ── events (sequence par tentative + journal_seq global)
   ├── GET /artifacts, /artifacts/{id}, /artifacts/{id}/content
   └── GET /runs/{id}/test-run, GET /test-runs/{id}
         ▲
-        │ POST /workers/{id}/artifacts/content   (multipart, identité worker + lease)
+        │ POST /workers/{id}/artifacts/content   (multipart, worker + lease + fence)
         │ POST /workers/{id}/test-runs           (ingestion NDJSON normalisé)
         │
    worker authentifié ── argv Playwright de l'opérateur + @acp/playwright-reporter
@@ -170,9 +169,10 @@ constitue pas un canal de notification sortant. Voir
 
 ```text
 Studio / Bibliothèque ── POST link?purpose=preview ── API artefacts
-                                                        │  GLB v2 validé + sha256
+                                                        │ jeton signé
                                                         ▼
-                                               origine d'aperçu séparée
+                                              acp_api.preview:app
+                                              origine séparée, sans session
                                                         │
                                               image / vidéo / model-viewer
 
@@ -184,7 +184,9 @@ mission (une capacité + un project_workspace)
 
 L'aperçu n'est jamais un repli implicite. `purpose=preview` exige une `ACP_API_URL`
 explicite et une origine canonique distincte de l'API et des origines web ; sinon l'API
-répond `424` avant le jeton. Seul
+répond `424` avant le jeton. L'application ASGI minimale d'aperçu partage base et
+stockage, mais ne monte que santé et contenu signé `purpose=preview`, sans session ni
+route métier. Seul
 un `.glb` v2 auto-contenu, validé au téléversement et scellé par son sha256, atteint
 `@google/model-viewer`. Les `.gltf`, lignes historiques non scellées, URI externes et
 extensions de décodeur restent en téléchargement ou sont refusés.
@@ -192,7 +194,9 @@ extensions de décodeur restent en téléchargement ou sont refusés.
 ComfyUI est un connecteur média interne, pas un orchestrateur : l'opérateur choisit le
 workflow, le nœud prompt et la sortie ; la requête ne fournit que le texte. Les appels
 et corps sont bornés, le résultat est vérifié, mais l'idempotence reste en mémoire et
-l'image n'est pas encore versée dans les artefacts d'une mission.
+l'image n'est pas encore versée dans les artefacts d'une mission. Une exécution
+incertaine ferme les nouvelles soumissions jusqu'à réconciliation ciblée ;
+`/interrupt` reste réservé à une instance explicitement exclusive et sérialisée.
 
 Les CLIs agents sont activés seulement par chemins absolus, profils d'authentification
 séparés et racines projet allowlistées. Une mission supervisée sélectionne exactement
@@ -428,6 +432,11 @@ et une origine API explicite avant de signer, puis vérifie que le jeton HMAC v2
 non scellé ne sont jamais rendus. Les sessions et liens de téléchargement restent
 forcés en pièce jointe.
 
+Les écritures d'artefact venant d'un worker exigent en outre le fencing token exact de
+la tentative. Pour un corps multipart, le lease et le fence sont contrôlés une première
+fois puis revérifiés sous verrou après réception : un worker remplacé pendant le flux ne
+peut ni créer le blob ni la ligne de métadonnées.
+
 Un résultat d'exécution de tests est une ressource propre (`test_runs`, `test_cases`)
 rattachée à une tentative, avec une exécution par tentative et par runner. Les statuts
 `passed`, `failed`, `timedOut`, `skipped`, `interrupted` et le caractère `flaky` sont
@@ -447,8 +456,9 @@ Au Lot G ce stockage est toujours un **répertoire local**
 hébergeur, il doit pointer vers un volume persistant, sans quoi les blobs disparaissent
 au redéploiement alors que la base continue de les référencer. Une origine d'aperçu
 séparée (`ACP_ARTIFACT_PUBLIC_ORIGIN`) est prévue par le code mais n'est configurée
-nulle part aujourd'hui : tant qu'elle ne l'est pas, toute demande
-`purpose=preview` échoue en `424` avant création du jeton. Les téléchargements restent
+nulle part aujourd'hui. Le processus `acp_api.preview:app` est livré, mais le domaine,
+TLS et le partage de stockage restent à déployer : tant qu'ils ne le sont pas, toute
+demande `purpose=preview` échoue en `424` avant création du jeton. Les téléchargements restent
 servis par l'API, mais aucun contenu n'est promu en aperçu même origine.
 
 Voir `docs/deployment-railway.md` pour l'état réellement livré et les actions restant

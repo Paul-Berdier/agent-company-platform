@@ -1,7 +1,6 @@
 # Déploiement local et Railway
 
-Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G `0.8.0`
-implémenté dans l'arbre de travail
+Date d'état : 14 septembre 2026 — version publiée `0.8.0` (Lot G)
 Statut : architecture et procédure préparatoire ; aucun déploiement réel effectué,
 configuration de production non livrée.
 
@@ -47,6 +46,7 @@ Après installation des packages Python du monorepo :
 
 ```text
 api:              python -m uvicorn acp_api.main:app --host 0.0.0.0 --port $PORT
+artifact-preview: python -m uvicorn acp_api.preview:app --host 0.0.0.0 --port $PORT
 provider-gateway: python -m uvicorn acp_provider_gateway.main:app --host 0.0.0.0 --port $PORT
 event-service:    python -m uvicorn acp_event_service.main:app --host 0.0.0.0 --port $PORT
 web build:        npm run build:web
@@ -178,8 +178,10 @@ Points à tenir, dans cet ordre :
    qu'elle est vide, une demande `purpose=preview` répond `424` avant création du
    jeton, sans repli même origine. Les liens de téléchargement restent sur l'API. Un
    contenu rapporté par un test est du contenu tiers : il ne doit pas être rendu depuis
-   l'origine qui porte le cookie de session. Le service qui répond sur l'origine
-   d'aperçu doit atteindre la même API — c'est une origine, pas un second stockage.
+   l'origine qui porte le cookie de session. Déployer `acp_api.preview:app` sur cette
+   origine : cette application ne monte que santé et lecture par jeton d'aperçu, sans
+   session, routes métier ni documentation. Elle doit atteindre la même base et le même
+   stockage privé que l'API, sous une identité de service distincte.
 3. `ACP_ARTIFACT_SIGNING_KEYS` suit la même discipline que `ACP_SECRETS_KEYS` : la
    première clé signe, les suivantes vérifient encore. **La perdre n'est pas grave**
    (les liens deviennent invalides, le téléchargement par session reste possible) ; la
@@ -215,9 +217,9 @@ jamais allowlister un credential de la plateforme dans
 valeurs qui y sont injectées servent de liste d'expurgation pour ce que le rapport
 republie.
 
-**Aucune de ces variables n'a été éprouvée en déploiement** : aucun navigateur réel n'a
-été lancé, aucune suite Playwright n'a tourné, aucune origine d'aperçu n'a été
-provisionnée et aucun volume persistant n'a été monté.
+**Aucune de ces variables n'a été éprouvée en déploiement** : le parcours local a bien
+tourné dans un vrai Edge contre API/Vite, mais aucune origine d'aperçu n'a été
+provisionnée, aucun volume persistant n'a été monté et aucun rendu GLB n'a été exercé.
 
 ## Variables du Lot G (E2E, ComfyUI et exécuteurs agents)
 
@@ -234,6 +236,7 @@ ACP_COMFYUI_API_TOKEN=<facultatif>
 ACP_COMFYUI_MAX_INFLIGHT_GENERATIONS=4
 ACP_COMFYUI_MAX_INFLIGHT_WAITERS=16
 ACP_COMFYUI_IDEMPOTENCY_MAX_BYTES=67108864
+ACP_COMFYUI_EXCLUSIVE_INSTANCE=0
 ```
 
 Ce bloc décrit une activation complète. Le drapeau doit valoir exactement `1` et toute
@@ -241,10 +244,13 @@ configuration partielle échoue fermée. Pour garder ComfyUI désactivé, laisse
 `ACP_COMFYUI_ENABLED=0` et toutes les autres variables `ACP_COMFYUI_*` non définies.
 HTTP est réservé au loopback ; une origine distante exige HTTPS. Workflow, requêtes,
 polling, images, générations, waiters et cache en octets sont bornés. Une tentative
-`/prompt` ambiguë réserve un tombstone jusqu'à sa TTL afin de ne pas soumettre deux fois
-la même clé dans le processus. Cette idempotence reste locale et non durable : plusieurs
-réplicas ou un redémarrage peuvent rejouer un effet. Les autres limites sont documentées
-dans [Médias et aperçu 3D](media-and-3d.md).
+`/prompt` ambiguë réserve un tombstone et met le connecteur en quarantaine : il
+réconcilie l'historique/la file et supprime seulement son prompt encore en attente.
+L'interruption globale n'est autorisée qu'avec instance exclusive et concurrence à un.
+Une soumission sans `prompt_id` récupérable impose de recréer le connecteur. Cette
+idempotence reste locale et non durable : plusieurs réplicas ou un redémarrage peuvent
+rejouer un effet. Les autres limites sont documentées dans
+[Médias et aperçu 3D](media-and-3d.md).
 
 Sur une **machine worker dédiée**, jamais dans le serveur de contrôle :
 
@@ -281,12 +287,14 @@ ACP_E2E_API_ORIGIN=https://api.staging.<domaine>
 ACP_E2E_LOGIN=<secret de test>
 ACP_E2E_PASSWORD=<secret de test>
 ACP_E2E_RUN_ID=<tentative existante>
+ACP_E2E_BROWSER_CHANNEL=chromium
 ```
 
 Seule la valeur exacte `ACP_E2E=1` fait continuer le lanceur nominal jusqu'à Playwright
-et autorise Chromium. Le script de collecte directe peut charger le framework avec la
-spec ignorée, mais ne lance aucun navigateur sans cet opt-in. Dans GitHub Actions, le
-job ne s'exécute que via `workflow_dispatch` sur `refs/heads/main`, lorsque
+et autorise le canal strict `chromium`, `chrome` ou `msedge`. Le script de collecte
+directe peut charger le framework avec la spec ignorée, mais ne lance aucun navigateur
+sans cet opt-in. Dans GitHub Actions, le job ne s'exécute que via `workflow_dispatch`
+sur `refs/heads/main`, lorsque
 `vars.ACP_E2E == '1'`. Cette variable d'activation doit être créée au niveau du dépôt
 (ou de l'organisation), et non uniquement dans l'environnement : la condition du job
 est évaluée avant que GitHub ne lui ouvre cet environnement. Les URL et le `run_id`
@@ -296,8 +304,10 @@ ne versionne pas ses protections dans ce workflow : avant d'y placer
 branches de déploiement à `main`. Les deux secrets ne sont injectés que dans l'étape
 finale, après checkout et installation ; le parcours n'est pas retenté automatiquement.
 Son groupe de concurrence est distinct de celui des push : aucun push ni aucune pull
-request ne peut le lancer ou l'interrompre. Le parcours n'a pas été activé pendant la
-validation du Lot G ; aucun ComfyUI ni CLI agent authentifié n'a davantage été lancé.
+request ne peut le lancer ou l'interrompre. Le lanceur local versionné
+`scripts/verify_live_studio_journey.py` a été activé avec Edge pendant la validation du
+Lot G et a exercé le shell/Studio contre de vrais services isolés ; aucun ComfyUI ni CLI
+agent authentifié n'a davantage été lancé.
 
 ## Variables Hermes
 

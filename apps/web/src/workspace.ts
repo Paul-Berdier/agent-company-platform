@@ -248,8 +248,10 @@ for (const item of NAVIGATION_ITEMS) {
   const listItem = el("li");
   const link = routeLink(item.path, "", "workspace-nav-link");
   link.dataset.route = item.id;
+  const icon = el("span", "workspace-nav-icon", item.icon);
+  icon.setAttribute("aria-hidden", "true");
   link.append(
-    el("span", "workspace-nav-icon", item.icon),
+    icon,
     el("span", "workspace-nav-label", item.label),
   );
   if (!item.configured) {

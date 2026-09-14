@@ -32,6 +32,7 @@ _MAX_CACHE_IMAGE_BYTES = 256 * 1024 * 1024
 _MAX_INFLIGHT_GENERATIONS = 32
 _MAX_INFLIGHT_IMAGE_BYTES = 128 * 1024 * 1024
 _MAX_INFLIGHT_WAITERS = 64
+_RECONCILIATION_TIMEOUT_SECONDS = 5.0
 _PROMPT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _SAFE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._() -]{0,254}$")
 _SAFE_FOLDER_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._() -]{0,127}$")
@@ -58,6 +59,7 @@ _COMFYUI_CONFIGURATION_ENV = frozenset(
         "ACP_COMFYUI_IDEMPOTENCY_MAX_ENTRIES",
         "ACP_COMFYUI_IDEMPOTENCY_MAX_BYTES",
         "ACP_COMFYUI_IDEMPOTENCY_TTL_SECONDS",
+        "ACP_COMFYUI_EXCLUSIVE_INSTANCE",
     }
 )
 
@@ -156,10 +158,13 @@ class ComfyUISettings:
     idempotency_max_entries: int = 128
     idempotency_max_bytes: int = 64 * 1024 * 1024
     idempotency_ttl_seconds: float = 900.0
+    exclusive_instance: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
             raise ComfyUIConfigurationError("Activation ComfyUI invalide")
+        if not isinstance(self.exclusive_instance, bool):
+            raise ComfyUIConfigurationError("Exclusivité ComfyUI invalide")
         if not self.enabled:
             return
 
@@ -241,6 +246,10 @@ class ComfyUISettings:
             raise ComfyUIConfigurationError(
                 "Le produit concurrence/taille ComfyUI dépasse la limite sûre"
             )
+        if self.exclusive_instance and self.max_inflight_generations != 1:
+            raise ComfyUIConfigurationError(
+                "Une instance ComfyUI exclusive exige une concurrence égale à 1"
+            )
         if not 1 <= self.idempotency_ttl_seconds <= 86_400:
             raise ComfyUIConfigurationError("Durée d'idempotence ComfyUI hors limites")
 
@@ -263,6 +272,11 @@ class ComfyUISettings:
         base_url_alias = os.environ.get("ACP_COMFYUI_BASE_URL", "")
         if origin and base_url_alias and origin != base_url_alias:
             raise ComfyUIConfigurationError("Origines ComfyUI contradictoires")
+        raw_exclusive = os.environ.get("ACP_COMFYUI_EXCLUSIVE_INSTANCE", "0")
+        if raw_exclusive not in {"0", "1"}:
+            raise ComfyUIConfigurationError(
+                "ACP_COMFYUI_EXCLUSIVE_INSTANCE accepte uniquement 0 ou 1"
+            )
 
         return cls(
             enabled=True,
@@ -309,6 +323,7 @@ class ComfyUISettings:
             idempotency_ttl_seconds=_bounded_float(
                 "ACP_COMFYUI_IDEMPOTENCY_TTL_SECONDS", 900.0, 1, 86_400
             ),
+            exclusive_instance=raw_exclusive == "1",
         )
 
 
@@ -397,6 +412,62 @@ class _InflightEntry:
 @dataclass
 class _GenerationAttempt:
     prompt_attempted: bool = False
+    prompt_id: str | None = None
+    remote_terminal: bool = False
+
+
+_TERMINAL_STATUS_WORDS = frozenset(
+    {"success", "error", "failed", "failure", "cancelled", "canceled", "interrupted"}
+)
+
+
+def _history_is_terminal(history: dict[str, Any], prompt_id: str) -> bool:
+    """Confirme une fin distante sans interpréter le contenu comme un succès ACP."""
+
+    if not history:
+        return False
+    if set(history) != {prompt_id}:
+        raise ComfyUIInvalidResponseError("Historique ComfyUI invalide")
+    entry = history.get(prompt_id)
+    if not isinstance(entry, dict):
+        raise ComfyUIInvalidResponseError("Historique ComfyUI invalide")
+    # Les versions ComfyUI courantes conservent les sorties d'un prompt terminé.
+    # Le connecteur accepte aussi un statut terminal explicite pour un échec sans sortie.
+    if isinstance(entry.get("outputs"), dict):
+        return True
+    status = entry.get("status")
+    if not isinstance(status, dict):
+        raise ComfyUIInvalidResponseError("Statut ComfyUI indéterminé")
+    completed = status.get("completed")
+    status_text = status.get("status_str")
+    if not isinstance(completed, bool) or not isinstance(status_text, str):
+        raise ComfyUIInvalidResponseError("Statut ComfyUI indéterminé")
+    return completed or status_text.strip().lower() in _TERMINAL_STATUS_WORDS
+
+
+def _queue_prompt_location(queue: dict[str, Any], prompt_id: str) -> str:
+    """Retourne ``pending``, ``running`` ou ``absent`` pour une file stricte."""
+
+    running = queue.get("queue_running")
+    pending = queue.get("queue_pending")
+    if not isinstance(running, list) or not isinstance(pending, list):
+        raise ComfyUIInvalidResponseError("File ComfyUI invalide")
+    locations: list[str] = []
+    for location, entries in (("running", running), ("pending", pending)):
+        for entry in entries:
+            if not isinstance(entry, list) or len(entry) < 2:
+                raise ComfyUIInvalidResponseError("File ComfyUI invalide")
+            remote_prompt_id = entry[1]
+            if (
+                not isinstance(remote_prompt_id, str)
+                or _PROMPT_ID_PATTERN.fullmatch(remote_prompt_id) is None
+            ):
+                raise ComfyUIInvalidResponseError("File ComfyUI invalide")
+            if remote_prompt_id == prompt_id:
+                locations.append(location)
+    if len(locations) > 1:
+        raise ComfyUIInvalidResponseError("File ComfyUI invalide")
+    return locations[0] if locations else "absent"
 
 
 def _read_workflow(settings: ComfyUISettings, prompt: str) -> _PreparedWorkflow:
@@ -587,6 +658,9 @@ class ComfyUIConnector:
         self._inflight: dict[str, _InflightEntry] = {}
         self._inflight_waiters = 0
         self._cache_lock = threading.Lock()
+        self._quarantined_prompt_ids: set[str] = set()
+        self._unknown_remote_submission = False
+        self._reconciliation_in_progress = False
 
     def _current_settings(self) -> ComfyUISettings:
         return self._settings or ComfyUISettings.from_environment()
@@ -639,6 +713,132 @@ class ComfyUIConnector:
         return sum(
             isinstance(entry, _FailureCacheEntry) for entry in self._cache.values()
         )
+
+    def _has_quarantine_locked(self) -> bool:
+        return self._unknown_remote_submission or bool(self._quarantined_prompt_ids)
+
+    async def _ensure_reconciled(self, settings: ComfyUISettings) -> None:
+        """Réconcilie un prompt incertain ou refuse toute nouvelle soumission."""
+
+        with self._cache_lock:
+            if not self._has_quarantine_locked():
+                return
+            if self._reconciliation_in_progress:
+                raise ComfyUIBusyError("Connecteur ComfyUI en quarantaine")
+            self._reconciliation_in_progress = True
+        try:
+            await self._reconcile_quarantine_bounded(settings)
+        finally:
+            with self._cache_lock:
+                self._reconciliation_in_progress = False
+                still_quarantined = self._has_quarantine_locked()
+        if still_quarantined:
+            raise ComfyUIBusyError("Connecteur ComfyUI en quarantaine")
+
+    async def _contain_uncertain_attempt(
+        self, settings: ComfyUISettings, attempt: _GenerationAttempt
+    ) -> None:
+        if not attempt.prompt_attempted or attempt.remote_terminal:
+            return
+        with self._cache_lock:
+            if attempt.prompt_id is None:
+                # Le POST a pu atteindre ComfyUI sans réponse exploitable. Sans
+                # identifiant, aucune suppression ciblée n'est sûre : seul un
+                # redémarrage/recréation explicite du connecteur lève cet état.
+                self._unknown_remote_submission = True
+            else:
+                self._quarantined_prompt_ids.add(attempt.prompt_id)
+            start_cleanup = not self._reconciliation_in_progress
+            if start_cleanup:
+                self._reconciliation_in_progress = True
+
+        if not start_cleanup:
+            return
+
+        # La quarantaine est posée avant le premier await. La réconciliation
+        # continue si l'appelant est annulé ; tout échec la laisse fermée.
+        async def cleanup_quarantine() -> None:
+            try:
+                await self._reconcile_quarantine_bounded(settings)
+            finally:
+                with self._cache_lock:
+                    self._reconciliation_in_progress = False
+
+        cleanup = asyncio.create_task(cleanup_quarantine())
+        try:
+            await asyncio.shield(cleanup)
+        except (Exception, asyncio.CancelledError):
+            return
+
+    async def _reconcile_quarantine_bounded(
+        self, settings: ComfyUISettings
+    ) -> None:
+        try:
+            async with asyncio.timeout(
+                min(settings.timeout_seconds, _RECONCILIATION_TIMEOUT_SECONDS)
+            ):
+                await self._reconcile_quarantine(settings)
+        except Exception:
+            # Disponibilité ou protocole incertain : jamais de levée optimiste.
+            return
+
+    async def _reconcile_quarantine(self, settings: ComfyUISettings) -> None:
+        with self._cache_lock:
+            if self._unknown_remote_submission:
+                return
+            prompt_ids = tuple(self._quarantined_prompt_ids)
+        if not prompt_ids:
+            return
+
+        async with self._client(settings) as client:
+            for prompt_id in prompt_ids:
+                if await self._reconcile_prompt(client, settings, prompt_id):
+                    with self._cache_lock:
+                        self._quarantined_prompt_ids.discard(prompt_id)
+
+    async def _reconcile_prompt(
+        self,
+        client: httpx.AsyncClient,
+        settings: ComfyUISettings,
+        prompt_id: str,
+    ) -> bool:
+        if await self._remote_prompt_is_terminal(client, prompt_id):
+            return True
+        location = await self._remote_prompt_location(client, prompt_id)
+        if location == "pending":
+            await self._request_ack(
+                client, "POST", "/queue", payload={"delete": [prompt_id]}
+            )
+            if await self._remote_prompt_is_terminal(client, prompt_id):
+                return True
+            location = await self._remote_prompt_location(client, prompt_id)
+            if location == "absent":
+                return True
+
+        if location != "running" or not settings.exclusive_instance:
+            return location == "absent"
+
+        # /interrupt est global : il n'est permis que pour une instance déclarée
+        # exclusive et sérialisée par la validation de configuration.
+        await self._request_ack(client, "POST", "/interrupt")
+        while True:
+            if await self._remote_prompt_is_terminal(client, prompt_id):
+                return True
+            if await self._remote_prompt_location(client, prompt_id) == "absent":
+                return True
+            await asyncio.sleep(min(settings.poll_interval_seconds, 0.1))
+
+    async def _remote_prompt_is_terminal(
+        self, client: httpx.AsyncClient, prompt_id: str
+    ) -> bool:
+        history = await self._request_json(client, "GET", f"/history/{prompt_id}")
+        return _history_is_terminal(history, prompt_id)
+
+    async def _remote_prompt_location(
+        self, client: httpx.AsyncClient, prompt_id: str
+    ) -> str:
+        queue = await self._request_json(client, "GET", "/queue")
+        return _queue_prompt_location(queue, prompt_id)
 
     def _store_failure_locked(
         self,
@@ -712,6 +912,15 @@ class ComfyUIConnector:
                 ready=False,
                 detail="Connecteur ComfyUI non activé",
             )
+        with self._cache_lock:
+            quarantined = self._has_quarantine_locked()
+        if quarantined:
+            return ComfyUIDiagnostic(
+                status="unavailable",
+                configured=True,
+                ready=False,
+                detail="Connecteur ComfyUI en quarantaine après une exécution incertaine",
+            )
         try:
             _read_workflow(settings, "diagnostic")
         except ComfyUIConfigurationError:
@@ -769,6 +978,22 @@ class ComfyUIConnector:
             raise ComfyUIDisabledError("Connecteur ComfyUI non activé")
         prepared = _read_workflow(settings, request.prompt)
         fingerprint = _request_fingerprint(settings, prepared.digest, request.prompt)
+
+        # Une clé déjà connue conserve son contrat d'idempotence, même lorsque
+        # une autre exécution a placé le connecteur en quarantaine. Seule une
+        # nouvelle soumission doit attendre une réconciliation distante sûre.
+        with self._cache_lock:
+            cached_before_reconcile = self._cache.get(idempotency_key)
+            if cached_before_reconcile is not None:
+                if cached_before_reconcile.fingerprint != fingerprint:
+                    raise ComfyUIIdempotencyConflict(
+                        "Clé d'idempotence déjà utilisée pour une autre requête"
+                    )
+                self._cache.move_to_end(idempotency_key)
+                if isinstance(cached_before_reconcile, _FailureCacheEntry):
+                    raise self._safe_failure(cached_before_reconcile.failure_kind)
+                return replace(cached_before_reconcile.image, replayed=True)
+        await self._ensure_reconciled(settings)
 
         owner = False
         waiter_registered = False
@@ -833,6 +1058,7 @@ class ComfyUIConnector:
                 settings, prepared.document, attempt=attempt
             )
         except BaseException as exc:
+            await self._contain_uncertain_attempt(settings, attempt)
             failure_kind: _FailureKind = (
                 "timeout" if isinstance(exc, ComfyUITimeoutError) else "upstream"
             )
@@ -878,9 +1104,11 @@ class ComfyUIConnector:
                         client, "POST", "/prompt", payload={"prompt": workflow}
                     )
                     prompt_id = _safe_prompt_id(prompt_response)
+                    attempt.prompt_id = prompt_id
                     filename, subfolder, output_type = await self._poll_output(
                         client, settings, prompt_id
                     )
+                    attempt.remote_terminal = True
                     async with client.stream(
                         "GET",
                         "/view",
@@ -916,6 +1144,19 @@ class ComfyUIConnector:
                 raise ComfyUIHTTPError(response.status_code)
             raw = await _bounded_body(response, _MAX_UPSTREAM_JSON_BYTES)
         return _json_object(raw)
+
+    async def _request_ack(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        async with client.stream(method, path, json=payload) as response:
+            if not 200 <= response.status_code < 300:
+                raise ComfyUIHTTPError(response.status_code)
+            await _bounded_body(response, _MAX_UPSTREAM_JSON_BYTES)
 
     async def _poll_output(
         self,

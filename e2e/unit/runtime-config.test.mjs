@@ -390,7 +390,19 @@ describe("readE2EConfiguration", () => {
       login: "e2e-owner",
       password: "correct-horse-battery-staple",
       runId: "run-123",
+      browserChannel: "chromium",
     });
+  });
+
+  test("accepte uniquement les canaux navigateur explicites", () => {
+    assert.equal(
+      readE2EConfiguration(environment({ ACP_E2E_BROWSER_CHANNEL: "msedge" })).browserChannel,
+      "msedge",
+    );
+    assert.throws(
+      () => readE2EConfiguration(environment({ ACP_E2E_BROWSER_CHANNEL: "firefox" })),
+      /chromium, chrome ou msedge/,
+    );
   });
 
   test("exige une confirmation exacte de l'origine web", () => {

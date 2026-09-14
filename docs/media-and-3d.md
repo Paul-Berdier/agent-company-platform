@@ -1,6 +1,6 @@
 # Médias, aperçu 3D et ComfyUI
 
-Date d'état : 14 septembre 2026 — Lot G `0.8.0` en préparation
+Date d'état : 14 septembre 2026 — Lot G `0.8.0` publié
 
 Le Lot G ajoute deux surfaces séparées : l'aperçu de modèles 3D déjà stockés comme
 livrables, et un connecteur d'image ComfyUI dans le provider-gateway. Elles ne se
@@ -67,9 +67,19 @@ avant Uvicorn : le reverse proxy, le load balancer et l'hébergeur doivent eux a
 supprimer ou masquer la query string `token` sur `/artifacts/*/content`. Ces journaux
 ne doivent jamais être considérés comme un emplacement acceptable pour un bearer.
 
-Cette séparation d'URL ne déploie pas à elle seule un serveur de contenu : l'opérateur
-doit réellement router cette origine vers la route de contenu et appliquer HTTPS et les
-en-têtes attendus avant toute exposition réseau.
+Le dépôt fournit l'application ASGI dédiée `acp_api.preview:app`. Elle ne monte que
+`GET /health` et `GET /artifacts/{id}/content`, ce dernier exigeant un jeton signé
+`purpose=preview`. Elle ne monte ni sessions, ni API métier, ni OpenAPI/Swagger ; son
+CORS utilise une allowlist exacte, sans credentials. Elle partage la base et le stockage
+privé avec l'API, mais doit être déployée sous une identité et une origine distinctes :
+
+```text
+python -m uvicorn acp_api.preview:app --host 0.0.0.0 --port $PORT
+```
+
+Cette application ne provisionne pas à elle seule le domaine, TLS, le stockage partagé
+ou l'expurgation des journaux du proxy. Ces contrôles restent obligatoires avant toute
+exposition réseau.
 
 ## Connecteur ComfyUI
 
@@ -83,8 +93,7 @@ Toutes les routes, sauf `/health`, restent derrière `ACP_GATEWAY_SERVICE_TOKEN`
 L'opérateur fournit un workflow ComfyUI **API format** JSON de 2 Mio maximum, le nœud
 et l'entrée texte à remplacer, ainsi que le nœud de sortie. La requête ne peut jamais
 choisir un workflow, un checkpoint, un nœud, une URL ou un chemin. Le connecteur appelle
-successivement `/prompt`, `/history/{prompt_id}` et `/view` ; il ne déclenche jamais
-l'interruption globale d'une file partagée.
+successivement `/prompt`, `/history/{prompt_id}` et `/view`.
 
 Configuration minimale :
 
@@ -98,6 +107,7 @@ ACP_COMFYUI_OUTPUT_NODE_ID=9
 ACP_COMFYUI_MAX_INFLIGHT_GENERATIONS=4
 ACP_COMFYUI_MAX_INFLIGHT_WAITERS=16
 ACP_COMFYUI_IDEMPOTENCY_MAX_BYTES=67108864
+ACP_COMFYUI_EXCLUSIVE_INSTANCE=0
 ```
 
 Un Bearer amont optionnel se configure avec `ACP_COMFYUI_API_TOKEN`. Les durées,
@@ -116,6 +126,16 @@ sans que l'annulation d'un waiter annule le travail commun. Après toute tentati
 sa TTL : timeout, annulation ou réponse ambiguë ne resoumettent donc pas le même job dans
 ce processus. Une saturation de tombstones renvoie volontairement `429` jusqu'à leur
 expiration.
+
+Timeout, annulation ou état post-soumission indéterminé placent en plus le connecteur en
+quarantaine avant tout nouvel appel `/prompt`. Avec un `prompt_id`, il relit
+`/history/{id}` et `/queue`, puis demande uniquement la suppression de ce prompt s'il
+est encore en attente. Un prompt en cours sur une instance partagée maintient la
+quarantaine ; `/interrupt`, qui affecte toute la file ComfyUI, n'est autorisé que si
+`ACP_COMFYUI_EXCLUSIVE_INSTANCE=1` **et**
+`ACP_COMFYUI_MAX_INFLIGHT_GENERATIONS=1`. Si le POST a pu réussir sans rendre de
+`prompt_id`, le connecteur reste fermé jusqu'à sa recréation ou son redémarrage : aucune
+levée optimiste n'est possible.
 
 Les valeurs par défaut autorisent 4 générations, 16 waiters et 64 Mio d'images en cache.
 Les bornes codées sont 32 générations, 64 waiters, 256 Mio de cache et 128 Mio pour le

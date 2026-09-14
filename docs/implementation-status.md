@@ -1,10 +1,8 @@
 # État d'implémentation et reprise
 
 Date d'état : 14 septembre 2026, Europe/Paris
-Portée : Lot G `0.8.0` implémenté dans l'arbre de travail, construit sur le Lot F
-publié `0.7.0` ; ni fusion, ni tag, ni CI distante ne sont encore revendiqués.
-Le Lot F est publié : PR #6 fusionnée au commit `0b4d904`, tag annoté `v0.7.0`, après
-observation de quatre jobs CI verts sur le dernier commit candidat.
+Portée : Lot G `0.8.0` publié. Son socle a été intégré sur `main` au commit `004a4f8`,
+puis durci par la PR #7 et le tag annoté `v0.8.0`, après CI verte observée.
 
 ## Résumé
 
@@ -43,9 +41,9 @@ les mêmes contrats. Les détails et limites sont dans
 Le Lot G livre quatre briques opt-in et fermées par défaut : un paquet E2E Playwright
 isolé, un aperçu de GLB v2 validés avec `@google/model-viewer`, un connecteur ComfyUI
 privé au provider-gateway, et des exécuteurs Codex CLI / Claude Code raccordés à la
-boucle worker. Les garde-fous et intégrations sont testés localement ; aucun navigateur,
-serveur ComfyUI, modèle 3D dans WebGL ni CLI agent authentifié n'a été exécuté en
-conditions réelles.
+boucle worker. Le parcours shell/Studio a réussi dans un vrai Edge contre des services
+locaux isolés. Aucun serveur ComfyUI, modèle 3D dans WebGL, CLI agent authentifié ni
+chaîne reporter → worker avec médias réels n'a été exécuté en conditions réelles.
 
 Le backend réel exécute uniquement un exécutable absolu via un argv fixe configuré
 par l'opérateur. Il ne prend jamais une commande dans la mission, crée un cwd neuf,
@@ -343,7 +341,7 @@ transports déterministes de test.
 
 ### Harnais E2E Playwright
 
-- paquet autonome `e2e/`, hors workspaces npm, avec `@playwright/test` `1.55.1` et
+- paquet autonome `e2e/`, hors workspaces npm, avec `@playwright/test` `1.63.0` et
   installation de Chromium séparée ; sans `ACP_E2E=1` exact, le lanceur sort
   `[E2E SKIPPED]` avant de résoudre Playwright ;
 - configuration complète et bornée : origines web/API, confirmation exacte de
@@ -368,6 +366,9 @@ transports déterministes de test.
   GitHub par reviewer requis et branche de déploiement limitée à `main` avant d'y
   enregistrer les identifiants. Ces secrets ne sont injectés que dans l'étape de test,
   et le groupe de concurrence distingue un déclenchement manuel d'un push.
+- canal navigateur strict `chromium`, `chrome` ou `msedge` et lanceur local
+  `scripts/verify_live_studio_journey.py` : API/Vite, compte et mission temporaires ;
+  preuve réellement passée avec Edge sans service tiers ni dépense.
 
 ### Livrables 3D et ComfyUI
 
@@ -384,15 +385,20 @@ transports déterministes de test.
   la demande, avec contrôles caméra et états accessibles, sans AR ni autorotation ;
 - `purpose=preview` exige une `ACP_API_URL` explicite et une
   `ACP_ARTIFACT_PUBLIC_ORIGIN` valide, distincte de l'API et des origines CORS ; sinon
-  `424` avant émission du jeton. Le téléchargement reste disponible ;
+  `424` avant émission du jeton. `acp_api.preview:app` ne monte que santé et contenu
+  signé d'aperçu, sans session, routes métier ou docs. Le téléchargement reste disponible ;
+- les écritures d'artefact worker exigent le fence exact ; pour le multipart, lease et
+  fence sont revérifiés sous verrou après lecture du corps et avant toute persistance ;
 - connecteur ComfyUI derrière le Bearer gateway : diagnostic `/system_stats`, workflow
   JSON local fixe, prompt seul injecté, `/prompt` puis polling `/history/{id}` et
-  téléchargement `/view`, sans interruption globale ;
+  téléchargement `/view` ;
 - réponses et durées bornées, redirections/proxies ambiants coupés, HTTP limité au
   loopback, image PNG/JPEG/WebP vérifiée par type, extension et signature ; générations,
   waiters et cache LRU/TTL bornés séparément et en octets ; tombstone jusqu'à la TTL
   après toute soumission `/prompt` incertaine, mais idempotence process-local et non
-  durable.
+  durable ; quarantaine avant toute nouvelle soumission, réconciliation ciblée de la
+  file, suppression d'un prompt en attente connu et `/interrupt` uniquement sur une
+  instance exclusive avec concurrence à un.
 
 ### Exécuteurs agents du worker
 
@@ -506,21 +512,19 @@ un E2E navigateur.
 
 ### Vérification locale finale du Lot G
 
-Les validations ciblées obtenues sur l'arbre de travail sont : **33 tests** des
-garde-fous E2E, sortie par défaut `[E2E SKIPPED]` et spec Playwright collectée puis
-ignorée ; **311 tests web sur 24 fichiers** ; **237 tests API** sur les livrables,
-signatures et GLB ; **58 tests ciblés** du connecteur ComfyUI et sa suite gateway de
-**145 tests** ; **299 tests worker**, **59 tests reporter** et **74 tests moteur**. Le
-typecheck TypeScript, le build Vite et `compileall` réussissent. La commande Codex
-générée est acceptée par l'aide du CLI installé ; ce contrôle de syntaxe n'a invoqué
-aucun modèle.
+La passe Python complète finale donne **2 498 réussis, 7 ignorés et 2 avertissements de
+dépréciation connus** sous Python 3.12.0. Les validations JavaScript donnent **34 tests**
+des garde-fous E2E, sortie par défaut `[E2E SKIPPED]`, **311 tests web sur 24 fichiers**,
+**59 tests reporter** et **74 tests moteur**. Le typecheck TypeScript, le build Vite et
+la synchronisation de version réussissent. Les suites ciblées finales donnent aussi
+**263 tests API/worker réussis, 3 ignorés** pour le fencing, les livrables et l'aperçu,
+ainsi que **62 tests ComfyUI**.
 
-Ces sous-ensembles ne sont pas additionnés. Une passe Python complète intermédiaire,
-antérieure aux derniers correctifs de sécurité ensuite rejoués sur toutes les suites
-affectées ci-dessus, donne **2 418 réussis, 4 ignorés et 1 avertissement de dépréciation
-Starlette connu** en Python 3.13.3 local. La vérification de version et le parcours
-automatisations 62/62 réussissent. Ces preuves ne valent ni publication, ni CI distante,
-ni exécution de service externe.
+Le parcours automatisations réussit **62/62**. Le lanceur local reproductible démarre
+l'API et Vite, initialise ses données par HTTP et réussit le parcours shell/Studio dans
+un vrai Edge : **1 test en 11,6 s**. La commande Codex générée est acceptée par l'aide
+du CLI installé ; ce contrôle de syntaxe n'a invoqué aucun modèle. Ces preuves locales
+ne constituent ni un appel de service externe ni une validation de PostgreSQL/Railway.
 
 ## Réalisé, non testé en conditions réelles
 
@@ -545,14 +549,14 @@ ni exécution de service externe.
 - le chemin reporter/worker du Lot E reste prouvé sur des objets
   Playwright synthétiques et l'exécuteur du worker sur
   `apps/worker/tests/fake_playwright_runner.py`, un programme déterministe lancé par
-  `sys.executable`. Le nouveau harnais E2E charge le vrai paquet uniquement sous opt-in,
-  mais cet opt-in n'a pas été activé : aucun navigateur, capture, vidéo ou trace réelle ;
+  `sys.executable`. Le harnais E2E a ouvert le shell et le Studio dans un vrai Edge,
+  mais n'a produit aucune capture, vidéo ou trace via la chaîne reporter/worker ;
 - le validateur et le composant d'aperçu GLB sont testés sans rendu WebGL réel et sans
   origine d'aperçu déployée ;
 - le connecteur ComfyUI est testé par transport HTTP simulé et n'est ni appelé contre
   un GPU réel ni raccordé au worker ou au stockage de livrables ;
-- le Studio et l'onglet « Livrables » sont couverts par des tests Vitest sur le DOM et
-  par un test de câblage du shell ; **aucun parcours navigateur** ne les a exercés ;
+- le Studio est couvert par Vitest et par le parcours Edge réel ; l'onglet
+  « Livrables » reste sans parcours navigateur ;
 - le flux SSE n'a été éprouvé que par un client de test ASGI : aucune coupure réseau
   réelle, aucun proxy intermédiaire, aucun `EventSource` de navigateur ;
 - la purge de rétention est testée, mais n'a jamais été exécutée avec `--apply` sur des
@@ -565,9 +569,9 @@ ni exécution de service externe.
 Ces points ne dépendent pas d'un développement supplémentaire mais d'une ressource ou
 d'une décision qui manque aujourd'hui.
 
-- **Passage des scénarios 10, 11, 16 et 19 à « Accepté »** : bloqué par l'absence d'une
-  installation Playwright réelle sur un runner et d'un parcours de bout en bout
-  versionné pour ce lot. Le code est là ; la preuve d'exécution réelle ne l'est pas.
+- **Passage des scénarios 10, 11, 16 et 19 à « Accepté »** : le parcours navigateur
+  shell/Studio existe, mais la chaîne reporter → worker avec médias réels, le rendu GLB
+  et l'origine d'aperçu déployée manquent encore.
 - **Origine d'aperçu séparée** : bloquée par l'absence d'un second domaine ou
   sous-domaine dédié. Tant que `ACP_ARTIFACT_PUBLIC_ORIGIN` est vide, la création d'un
   lien d'aperçu échoue en `424` avant jeton ; le téléchargement continue sur l'API.
@@ -601,8 +605,8 @@ d'une décision qui manque aujourd'hui.
   manuellement ; aucune API HTTP d'Hermes 0.21.1 ne permet d'écrire cette
   configuration ;
 - migrations PostgreSQL versionnées, rollback et restauration ;
-- exécution Playwright réelle : la chaîne reporter → worker → API et le harnais E2E
-  `ACP_E2E=1` sont livrés et testés séparément, mais aucun navigateur n'a été lancé ;
+- exécution Playwright réelle de la chaîne reporter → worker → API ; le harnais
+  shell/Studio `ACP_E2E=1` a, lui, été exécuté dans Edge ;
 - prise de contrôle humaine du navigateur : **non livrée** ; le
   Studio est en lecture seule et l'interface le dit ;
 - diffusion d'images de session en direct : la plateforme ne produit aucune image ; les
@@ -622,7 +626,7 @@ d'une décision qui manque aujourd'hui.
   webhook sortant n'est implémenté ;
 - fan-out et comptabilité multi-agent dynamiques : le Lot G borne uniquement à une
   l'invocation CLI de premier niveau gérée par ACP, sans observer ses descendants ;
-- exécution réelle de ComfyUI, du rendu 3D, de Codex/Claude et du harnais E2E ;
+- exécution réelle de ComfyUI, du rendu 3D, de Codex/Claude et du harnais E2E sur staging ;
 - Hermes réel opt-in, Railway et observabilité de production.
 
 ## Lots
@@ -635,29 +639,23 @@ d'une décision qui manque aujourd'hui.
 | D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Publié : PR #4, tag `v0.5.0` ; aucun serveur MCP tiers contacté** |
 | E | événements durables, flux authentifié, Playwright, livrables privés et Studio | **Publié : PR #5, fusion `b7d8a44`, tag `v0.6.0`, CI verte observée avant fusion ; aucun navigateur réel lancé, aucun test Playwright réel exécuté** |
 | F | automatisations, calendrier Europe/Paris, budgets et alertes | **Publié : PR #6, fusion `0b4d904`, tag `v0.7.0`, CI verte observée avant fusion** |
-| G | médias/3D, exécuteurs complémentaires et durcissement | **Implémenté et testé localement dans l'arbre `0.8.0` ; validation globale finale en cours, non fusionné** |
+| G | médias/3D, exécuteurs complémentaires et durcissement | **Publié : socle `004a4f8`, PR #7 de durcissement, tag `v0.8.0`, CI verte observée** |
 | H | migrations, Railway, sauvegarde-restauration et validation finale | **Non commencé** |
 
-## Reprise : valider le Lot G puis livrer le Lot H
+## Reprise : livrer le Lot H
 
 Ordre de reprise pour la personne ou l'agent qui prend la suite.
 
-1. **Terminer le relevé local du Lot G** : suite Python complète, workspaces npm,
-   typecheck, build, version et vérifications de diff. Ne publier les totaux qu'après ce
-   passage final.
-2. **Activer le harnais E2E sur une cible autorisée**, avec compte et `run_id` dédiés,
-   ou conserver explicitement le statut « non exécuté ». L'absence de cible/secrets ne
-   doit jamais être transformée en succès.
-3. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
+1. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
    `scripts/verify_mcp_journey.py` l'a fait pour le scénario 7 : services démarrés,
    worker authentifié, ingestion d'une exécution de tests, flux SSE consommé avec
    reprise par curseur, téléchargement d'un livrable par lien signé puis révocation.
    Sans lui, aucun scénario de ce lot ne peut passer à « Accepté ».
-4. **Déployer une origine d'aperçu séparée**, y router les contenus, puis vérifier un
+2. **Déployer une origine d'aperçu séparée**, y router les contenus, puis vérifier un
    vrai GLB dans Chromium. Sans cela, l'API doit continuer à répondre `424` aux aperçus.
-5. **Éprouver les intégrations externes sous autorisation explicite** : ComfyUI local,
+3. **Éprouver les intégrations externes sous autorisation explicite** : ComfyUI local,
    puis une mission Codex ou Claude sur un dépôt jetable, avec budgets et profils dédiés.
-6. **Livrer le Lot H** : PostgreSQL et migrations versionnées, Railway, sauvegarde,
+4. **Livrer le Lot H** : PostgreSQL et migrations versionnées, Railway, sauvegarde,
    restauration et validation finale. SQLite `create_all()` et son upgrade ad hoc ne
    sont pas une migration de production.
 

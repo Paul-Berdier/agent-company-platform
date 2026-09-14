@@ -52,10 +52,10 @@ from acp_database.models import (
     ArtifactModel,
     TaskModel,
     TaskRunModel,
-    WorkerLeaseModel,
     WorkerModel,
 )
 
+from ..attempt_fencing import require_active_worker_attempt
 from ..artifacts_storage import (
     ArtifactKeyInvalid,
     ArtifactNotFound,
@@ -85,9 +85,8 @@ from ..signing import (
     token_hash,
     verify_artifact_token,
 )
-from .workers import expire_task_leases
-
 router = APIRouter(tags=["artifacts"])
+preview_router = APIRouter(tags=["artifact-preview"])
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -1533,6 +1532,35 @@ def download_artifact_content(
     )
 
 
+@preview_router.get("/artifacts/{artifact_id}/content")
+def preview_artifact_content(
+    artifact_id: str,
+    request: Request,
+    token: str = Query(min_length=1, max_length=TOKEN_MAX_CHARS),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Surface minimale : accepte uniquement un jeton d'aperçu signé.
+
+    Cette route est montée par ``acp_api.preview`` sur une origine distincte. Elle
+    ne consulte jamais une session et refuse les jetons de téléchargement afin que
+    le service d'aperçu ne devienne pas une seconde API métier.
+    """
+
+    principal, purpose, link_id = _link_principal(
+        db, artifact_id, token, request=request
+    )
+    if purpose != "preview":
+        raise _refused_link("Ce lien n'autorise pas un aperçu.")
+    artifact = _readable_artifact(db, principal, artifact_id)
+    return _content_response(
+        artifact=artifact,
+        storage=artifact_storage(),
+        range_header=request.headers.get("range"),
+        force_download=False,
+        on_prepared=lambda: _record_link_use(db, link_id),
+    )
+
+
 def _session_principal(request: Request, db: Session) -> str | None:
     """Identité de session, ou ``None`` : cette route accepte aussi un lien signé."""
 
@@ -2119,26 +2147,6 @@ async def read_upload(
 # --- Téléversement worker (§6) --------------------------------------------------
 
 
-def _active_run_lease(db: Session, worker_id: str, run_id: str) -> WorkerLeaseModel:
-    """Lease actif du worker sur cette tentative, sinon 409.
-
-    Dupliqué depuis ``routers/operations.py`` pour garder les modules acycliques :
-    c'est ``operations`` qui monte la route et importe ce module, jamais l'inverse.
-    """
-
-    expire_task_leases(db)
-    lease = (
-        db.query(WorkerLeaseModel)
-        .filter_by(worker_id=worker_id, task_run_id=run_id, status="active")
-        .first()
-    )
-    if lease is None:
-        raise HTTPException(
-            status_code=409, detail="Le worker ne possède pas ce run actif"
-        )
-    return lease
-
-
 def _used_bytes_for_run(db: Session, run_id: str) -> int:
     """Volume déjà conservé pour cette tentative (livrables non purgés)."""
 
@@ -2194,7 +2202,11 @@ def _required_field(fields: dict[str, str], name: str) -> str:
 
 
 async def receive_worker_artifact_content(
-    db: Session, worker: WorkerModel, request: Request
+    db: Session,
+    worker: WorkerModel,
+    request: Request,
+    *,
+    fencing_token: int,
 ) -> ArtifactSummary:
     """Téléverse un contenu pour une tentative que ce worker détient réellement.
 
@@ -2223,7 +2235,12 @@ async def receive_worker_artifact_content(
         nonlocal alert_scope
         run_id = _required_field(fields, "task_run_id")
         project_id = _required_field(fields, "project_id")
-        lease = _active_run_lease(db, worker.id, run_id)
+        lease, _run = require_active_worker_attempt(
+            db,
+            worker_id=worker.id,
+            run_id=run_id,
+            fencing_token=fencing_token,
+        )
         task = db.get(TaskModel, lease.task_id)
         if task is None or task.project_id != project_id:
             raise HTTPException(
@@ -2283,6 +2300,22 @@ async def receive_worker_artifact_content(
             _validate_previewable_glb(uploaded.handle, total_size=uploaded.size)
         uploaded_checksum = _uploaded_checksum(uploaded.handle)
         _lock_artifact_quota(db, run_id)
+        # Le corps peut être long à recevoir. Le fence est donc revérifié sous le
+        # même verrou d'écriture que la décision de quota et l'insertion : un
+        # worker remplacé pendant le transfert ne peut pas publier tardivement.
+        lease, _run = require_active_worker_attempt(
+            db,
+            worker_id=worker.id,
+            run_id=run_id,
+            fencing_token=fencing_token,
+            lock=True,
+            expire_leases=False,
+        )
+        task = db.get(TaskModel, lease.task_id)
+        if task is None or task.project_id != project_id:
+            raise HTTPException(
+                status_code=400, detail="Artefact hors du projet du run"
+            )
         existing = (
             db.query(ArtifactModel)
             .filter(
