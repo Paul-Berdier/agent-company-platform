@@ -11,9 +11,15 @@ from acp_contracts import EvidenceCreate, TechnicalValidation
 from acp_worker.budget import BudgetUnavailable
 from acp_worker.cli import main as cli_main
 from acp_worker.config import WorkerConfig, WorkerConfigurationError
+from acp_worker.executors import (
+    ExecutorCleanupError,
+    ExecutorConfig,
+    ExecutorResult,
+    ExecutorSpec,
+)
 from acp_worker.local_log import WorkerLogger
 from acp_worker.local_runner import LocalRunnerConfig, RunnerRequestError
-from acp_worker.main import _renew_lease, process, run_forever
+from acp_worker.main import _await_work, _renew_lease, process, run_forever
 from acp_worker.state import CredentialStateError, WorkerCredentials
 
 
@@ -105,6 +111,78 @@ async def test_programmatic_real_worker_refuses_the_mock_evaluator(tmp_path: Pat
     assert not config.state_dir.exists()
 
 
+async def test_programmatic_worker_refuses_persisted_agent_capability_without_backend(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    binary = tmp_path / "bin" / "claude.exe"
+    auth = tmp_path / "auth"
+    workspace.mkdir()
+    binary.parent.mkdir()
+    binary.write_bytes(b"test")
+    auth.mkdir()
+    claude_only = ExecutorConfig(
+        claude=ExecutorSpec(executable=binary, auth_directory=auth),
+        project_roots={"project-1": workspace},
+    )
+    base = worker_config(
+        tmp_path,
+        LocalRunnerConfig(
+            argv=(sys.executable, "-I", "-c", "raise SystemExit(99)"),
+            run_root=tmp_path / "unused-runs",
+        ),
+    )
+    config = WorkerConfig(
+        **{**base.__dict__, "local_runner": None, "executors": claude_only}
+    )
+    stale = WorkerCredentials(
+        **{**credentials().__dict__, "capabilities": ["codex_cli"]}
+    )
+
+    with pytest.raises(WorkerConfigurationError, match="codex_cli"):
+        await run_forever(config, stale, once=True)
+
+    assert not config.state_dir.exists()
+
+
+async def test_programmatic_worker_refuses_agent_project_without_local_root(
+    tmp_path: Path,
+):
+    allowed_workspace = tmp_path / "allowed-workspace"
+    binary = tmp_path / "bin" / "codex.exe"
+    auth = tmp_path / "auth"
+    allowed_workspace.mkdir()
+    binary.parent.mkdir()
+    binary.write_bytes(b"test")
+    auth.mkdir()
+    executors = ExecutorConfig(
+        codex=ExecutorSpec(executable=binary, auth_directory=auth),
+        project_roots={"project-1": allowed_workspace},
+    )
+    base = worker_config(
+        tmp_path,
+        LocalRunnerConfig(
+            argv=(sys.executable, "-I", "-c", "raise SystemExit(99)"),
+            run_root=tmp_path / "unused-runs",
+        ),
+    )
+    config = WorkerConfig(
+        **{**base.__dict__, "local_runner": None, "executors": executors}
+    )
+    stale = WorkerCredentials(
+        **{
+            **credentials().__dict__,
+            "capabilities": ["codex_cli"],
+            "project_id": "project-2",
+        }
+    )
+
+    with pytest.raises(WorkerConfigurationError, match="project-2"):
+        await run_forever(config, stale, once=True)
+
+    assert not config.state_dir.exists()
+
+
 async def test_worker_http_clients_ignore_environment_proxies(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -134,6 +212,42 @@ async def test_worker_http_clients_ignore_environment_proxies(
 
     assert len(client_options) == 2
     assert all(options.get("trust_env") is False for options in client_options)
+
+
+async def test_await_work_propagates_cleanup_failure_after_stop():
+    started = asyncio.Event()
+    stop = asyncio.Event()
+
+    async def operation() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise ExecutorCleanupError("nettoyage non confirmé") from None
+
+    waiter = asyncio.create_task(
+        _await_work(operation, deadline=None, stop_event=stop)
+    )
+    await started.wait()
+    stop.set()
+
+    with pytest.raises(ExecutorCleanupError, match="nettoyage non confirmé"):
+        await waiter
+
+
+async def test_await_work_propagates_cleanup_failure_after_deadline():
+    async def operation() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise ExecutorCleanupError("nettoyage après délai non confirmé") from None
+
+    with pytest.raises(ExecutorCleanupError, match="après délai"):
+        await _await_work(
+            operation,
+            deadline=monotonic() + 0.02,
+            stop_event=asyncio.Event(),
+        )
 
 
 def claim(*, stop_requested: bool = False) -> dict:
@@ -186,13 +300,106 @@ def claim(*, stop_requested: bool = False) -> dict:
     }
 
 
+async def test_process_never_converts_cleanup_failure_to_a_terminal_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = LocalRunnerConfig(
+        argv=(sys.executable, "-I", "-c", "raise SystemExit(99)"),
+        run_root=tmp_path / "runs",
+    )
+    config = worker_config(tmp_path, runner)
+    api_requests: list[str] = []
+
+    async def fail_closed_await(
+        _factory,
+        *,
+        deadline: float | None,
+        stop_event: asyncio.Event,
+    ) -> None:
+        stop_event.set()
+        raise ExecutorCleanupError("arbre non confirmé")
+
+    monkeypatch.setattr("acp_worker.main._await_work", fail_closed_await)
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        api_requests.append(f"{request.method} {request.url.path}")
+        return httpx.Response(200, json={})
+
+    async with (
+        httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
+        httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={}))
+        ) as gateway_client,
+    ):
+        with pytest.raises(ExecutorCleanupError, match="arbre non confirmé"):
+            await process(
+                api_client,
+                gateway_client,
+                config,
+                credentials(),
+                claim(),
+                WorkerLogger(config.state_dir),
+            )
+
+    assert not any(request.startswith("PATCH ") for request in api_requests)
+
+
+async def test_run_forever_stops_claiming_after_cleanup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = LocalRunnerConfig(
+        argv=(sys.executable, "-I", "-c", "raise SystemExit(99)"),
+        run_root=tmp_path / "runs",
+    )
+    config = worker_config(tmp_path, runner)
+    claim_count = 0
+    process_count = 0
+
+    async def fail_closed_process(*_args, **_kwargs) -> None:
+        nonlocal process_count
+        process_count += 1
+        raise ExecutorCleanupError("arbre non confirmé")
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal claim_count
+        if request.url.path.endswith("/claim"):
+            claim_count += 1
+            return httpx.Response(200, json=claim())
+        return httpx.Response(200, json={})
+
+    real_async_client = httpx.AsyncClient
+    client_count = 0
+
+    def client_factory(**kwargs: object) -> httpx.AsyncClient:
+        nonlocal client_count
+        client_count += 1
+        handler = (
+            api_handler
+            if client_count == 1
+            else lambda _request: httpx.Response(200, json={})
+        )
+        return real_async_client(
+            **kwargs,
+            transport=httpx.MockTransport(handler),
+        )
+
+    monkeypatch.setattr("acp_worker.main.process", fail_closed_process)
+    monkeypatch.setattr("acp_worker.main.httpx.AsyncClient", client_factory)
+
+    with pytest.raises(ExecutorCleanupError, match="arbre non confirmé"):
+        await asyncio.wait_for(run_forever(config, credentials()), timeout=1.0)
+
+    assert process_count == 1
+    assert claim_count == 1
+
+
 async def test_real_worker_only_succeeds_after_process_proof_and_evaluation(
     tmp_path: Path,
 ):
     runner = LocalRunnerConfig(
         argv=(sys.executable, "-I", "-c", "print('real-output')"),
         run_root=tmp_path / "runs",
-        timeout_seconds=2,
+        timeout_seconds=15,
         max_output_bytes=1024,
     )
     config = worker_config(tmp_path, runner)
@@ -290,6 +497,168 @@ async def test_real_worker_only_succeeds_after_process_proof_and_evaluation(
     assert "cost" not in budget_requests[-1][1]
 
 
+async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workspace = tmp_path / "workspace"
+    binary = tmp_path / "bin" / "codex.exe"
+    auth = tmp_path / "auth"
+    workspace.mkdir()
+    binary.parent.mkdir()
+    binary.write_bytes(b"test")
+    auth.mkdir()
+    executor_config = ExecutorConfig(
+        codex=ExecutorSpec(executable=binary, auth_directory=auth),
+        project_roots={"project-1": workspace},
+    )
+    config = WorkerConfig(
+        **{
+            **worker_config(
+                tmp_path,
+                LocalRunnerConfig(
+                    argv=(sys.executable, "-I", "-c", "raise SystemExit(99)"),
+                    run_root=tmp_path / "unused-runs",
+                ),
+            ).__dict__,
+            "local_runner": None,
+            "executors": executor_config,
+        }
+    )
+    worker_credentials = WorkerCredentials(
+        **{
+            **credentials().__dict__,
+            "capabilities": ["codex_cli"],
+        }
+    )
+    executor_claim = claim()
+    executor_claim["task"]["meta"]["required_capabilities"] = ["codex_cli"]
+    executor_claim["required_capabilities"] = ["codex_cli"]
+    executor_claim["mission"]["resources"] = [
+        {
+            "kind": "project_workspace",
+            "identifier": "project-1",
+            "access": "write",
+            "description": "workspace approuvé",
+        }
+    ]
+    invocations: list[dict[str, object]] = []
+
+    async def fake_run_executor(
+        executor: str,
+        project_id: str,
+        requested_path: str,
+        prompt: str,
+        **kwargs: object,
+    ) -> ExecutorResult:
+        invocations.append(
+            {
+                "executor": executor,
+                "project_id": project_id,
+                "requested_path": requested_path,
+                "prompt": prompt,
+                **kwargs,
+            }
+        )
+        return ExecutorResult(
+            executor="codex_cli",
+            exit_code=0,
+            event_count=1,
+            stdout_sha256="a" * 64,
+            stderr_sha256="b" * 64,
+            stdout_bytes=123,
+            stderr_bytes=17,
+        )
+
+    monkeypatch.setattr("acp_worker.main.run_executor", fake_run_executor)
+    api_requests: list[tuple[str, dict]] = []
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else {}
+        api_requests.append((f"{request.method} {request.url.path}", body))
+        budget_response = budget_success_response(request)
+        return budget_response or httpx.Response(200, json={})
+
+    def gateway_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/plan"):
+            return httpx.Response(
+                200,
+                json={
+                    "plan_id": "plan-agent-1",
+                    "provider_id": "hermes",
+                    "steps": [{"id": "step-1", "title": "Modifier le projet"}],
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"approved": True, "score": 1, "provider_id": "hermes"},
+        )
+
+    async with (
+        httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
+        httpx.AsyncClient(transport=httpx.MockTransport(gateway_handler)) as gateway_client,
+    ):
+        await process(
+            api_client,
+            gateway_client,
+            config,
+            worker_credentials,
+            executor_claim,
+            WorkerLogger(config.state_dir),
+        )
+
+    assert len(invocations) == 1
+    assert invocations[0]["executor"] == "codex_cli"
+    assert invocations[0]["project_id"] == "project-1"
+    assert invocations[0]["requested_path"] == "."
+    assert invocations[0]["allow_writes"] is True
+    assert "Produire une sortie déterministe" in str(invocations[0]["prompt"])
+    patches = [body for method, body in api_requests if method.startswith("PATCH ")]
+    assert patches[-1]["status"] == "succeeded"
+    assert patches[-1]["result"]["execution_mode"] == "codex_cli"
+    assert patches[-1]["result"]["spawned_agents"] == 1
+    assert (
+        patches[-1]["result"]["spawned_agents_scope"]
+        == "worker_managed_top_level_cli_only"
+    )
+    assert (
+        patches[-1]["evidence"][0]["data"]["spawned_agents_scope"]
+        == "worker_managed_top_level_cli_only"
+    )
+    assert patches[-1]["evidence"][0]["data"]["stdout"]["sha256"] == "a" * 64
+    persisted = json.dumps(patches, ensure_ascii=False)
+    assert "SORTIE-SENSIBLE" not in persisted
+    assert "ERREUR-SENSIBLE" not in persisted
+    budget_requests = [
+        (method.rsplit("/", 1)[-1], body)
+        for method, body in api_requests
+        if "/budget/" in method
+    ]
+    assert [kind for kind, _ in budget_requests] == [
+        "permit",
+        "usage",
+        "permit",
+        "usage",
+        "permit",
+        "usage",
+    ]
+    assert [body["phase"] for _, body in budget_requests] == [
+        "planning",
+        "planning",
+        "execution",
+        "execution",
+        "evaluation",
+        "evaluation",
+    ]
+    assert all(body["tool_calls"] == 1 for _, body in budget_requests)
+    assert "cost" not in budget_requests[0][1]
+    assert budget_requests[2][1]["provider"] == "codex_cli"
+    assert "cost" not in budget_requests[2][1]
+    assert "tokens_input" not in budget_requests[2][1]
+    assert "tokens_output" not in budget_requests[2][1]
+    assert "cost" not in budget_requests[-1][1]
+
+
 async def test_hermes_cost_or_token_budget_is_refused_before_provider_effect(
     tmp_path: Path,
 ):
@@ -356,7 +725,7 @@ async def test_terminal_patch_conflict_reconciles_interrupted_with_same_evidence
     runner = LocalRunnerConfig(
         argv=(sys.executable, "-I", "-c", "print('durable-proof')"),
         run_root=tmp_path / "runs",
-        timeout_seconds=2,
+        timeout_seconds=15,
         max_output_bytes=1024,
     )
     config = worker_config(tmp_path, runner)
@@ -417,7 +786,7 @@ async def test_provider_evaluation_failure_keeps_real_process_proof(tmp_path: Pa
     runner = LocalRunnerConfig(
         argv=(sys.executable, "-I", "-c", "print('proof-before-evaluation')"),
         run_root=tmp_path / "runs",
-        timeout_seconds=2,
+        timeout_seconds=15,
         max_output_bytes=1024,
     )
     config = worker_config(tmp_path, runner)
@@ -477,7 +846,7 @@ async def test_global_mission_deadline_covers_plan_process_and_evaluation(
             sys.executable,
             "-I",
             "-c",
-            "import time; time.sleep(0.2); print('deadline-proof')",
+            "import time; time.sleep(0.1); print('deadline-proof')",
         ),
         run_root=tmp_path / "runs",
         timeout_seconds=10,
@@ -485,7 +854,9 @@ async def test_global_mission_deadline_covers_plan_process_and_evaluation(
     )
     config = worker_config(tmp_path, runner)
     mission_claim = claim()
-    mission_claim["mission"]["duration_seconds"] = 1
+    # Garde une marge aux créations de processus Windows/antivirus tout en
+    # prouvant qu'une évaluation longue reste bornée par la deadline globale.
+    mission_claim["mission"]["duration_seconds"] = 3
     patches: list[dict] = []
 
     def api_handler(request: httpx.Request) -> httpx.Response:
@@ -497,14 +868,14 @@ async def test_global_mission_deadline_covers_plan_process_and_evaluation(
         return httpx.Response(200, json={})
 
     async def delayed_plan(*args, **kwargs) -> dict:
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.1)
         return {
             "plan_id": "plan-deadline",
             "steps": [{"id": "step-1", "title": "Run"}],
         }
 
     async def evaluation_beyond_deadline(*args, **kwargs) -> dict:
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
         return {"approved": True}
 
     monkeypatch.setattr("acp_worker.main.gateway_plan", delayed_plan)
@@ -527,11 +898,11 @@ async def test_global_mission_deadline_covers_plan_process_and_evaluation(
     elapsed = monotonic() - started
 
     terminal = patches[-1]
-    assert elapsed < 1.7
+    assert elapsed < 4.2
     assert terminal["status"] == "blocked"
     assert terminal["technical_validation"]["status"] == "passed"
     assert terminal["evidence"][0]["data"]["status"] == "succeeded"
-    assert terminal["evidence"][0]["data"]["limits"]["timeout_seconds"] < 1
+    assert terminal["evidence"][0]["data"]["limits"]["timeout_seconds"] < 3
     assert terminal["result"]["evaluation"]["error_type"] == "MissionDeadlineExceeded"
     assert all(item.get("status") != "succeeded" for item in patches)
 
@@ -775,7 +1146,7 @@ async def test_nonzero_process_cannot_reach_provider_approval(tmp_path: Path):
     runner = LocalRunnerConfig(
         argv=(sys.executable, "-I", "-c", "raise SystemExit(6)"),
         run_root=tmp_path / "runs",
-        timeout_seconds=2,
+        timeout_seconds=15,
         max_output_bytes=128,
     )
     config = worker_config(tmp_path, runner)

@@ -420,6 +420,9 @@ describe("helpers de chronologie", () => {
     expect(classifyArtifactPreview("image/gif")).toBe("image");
     expect(classifyArtifactPreview("video/webm")).toBe("video");
     expect(classifyArtifactPreview("video/mp4")).toBe("video");
+    expect(classifyArtifactPreview("model/gltf-binary")).toBe("model");
+    expect(classifyArtifactPreview("MODEL/GLTF-BINARY; version=2")).toBe("model");
+    expect(classifyArtifactPreview("model/gltf+json")).toBe("download");
     expect(classifyArtifactPreview("image/svg+xml")).toBe("download");
     expect(classifyArtifactPreview("text/html")).toBe("download");
     expect(classifyArtifactPreview("application/zip")).toBe("download");

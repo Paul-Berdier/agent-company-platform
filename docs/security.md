@@ -1,14 +1,17 @@
 # Sécurité et frontières de confiance
 
-Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G en cours
+Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G `0.8.0`
+implémenté dans l'arbre de travail et non publié
 Statut : frontières utilisateur/inter-services fermées et runner local contrôlé au
 Lot C ; coffre de secrets, politique de sortie anti-SSRF, expurgation des retours
 tiers, clôture d'arrêt Windows et révocation des extensions ajoutés au Lot D ; flux
 utilisateur authentifié par curseur, stockage privé de livrables, liens signés bornés
 et révocables, expurgation des sorties de tests ajoutés au Lot E ; clés de tir uniques,
 bail/fencing du planificateur, webhooks entrants à secrets hachés, budgets fail-closed
-et alertes in-app ajoutés au Lot F. La production reste interdite sans isolation
-OS/réseau, origine d'aperçu séparée et exploitation PostgreSQL sauvegardée.
+et alertes in-app ajoutés au Lot F ; validation GLB, origine d'aperçu obligatoire,
+connecteur ComfyUI borné, harnais E2E et exécuteurs CLI fencés ajoutés au Lot G. La
+production reste interdite sans isolation OS/réseau, origine d'aperçu séparée déployée
+et exploitation PostgreSQL sauvegardée.
 
 Le modèle de menace par actif est tenu à part dans
 [docs/security/threat-model.md](security/threat-model.md).
@@ -27,10 +30,13 @@ de tout lancement `stdio` et révocation de bout en bout. Ces contrôles sont pr
 par des tests locaux déterministes : aucun serveur MCP, dépôt GitHub ou runner distant
 réel n'a été contacté.
 
-Le worker réel est désormais un opt-in : seul un exécutable absolu via un argv local
-fixe et configuré peut démarrer, avec tentative/fencing, cwd neuf, environnement
-minimal, durée et sorties bornées, et arrêt de l'arbre de processus. Une politique
-d'autonomie que ce backend ne peut pas appliquer est refusée avant le spawn.
+Le worker réel est un opt-in : un exécutable absolu via un argv local fixe, ou un
+exécuteur Codex/Claude avec profil séparé et racines projet allowlistées, doit être
+entièrement configuré. Tous passent par tentative/fencing, environnement minimal,
+durée et sorties bornées. Le Job Object vérifie la vidange sous Windows ; sous POSIX,
+la terminaison du groupe connu reste best effort face à un descendant qui change de
+session. Une politique d'autonomie que le backend sélectionné ne peut pas appliquer
+est refusée avant le spawn.
 
 Le Lot E ajoute une voie temps réel **authentifiée** servie par l'API métier elle-même
 (session, RBAC revérifié à chaque page, reprise par curseur), un stockage de livrables
@@ -49,6 +55,25 @@ est persistée et la comparaison est faite en temps constant. Les alertes sont
 dédupliquées par cause et les préférences personnelles ne modifient pas leur état
 canonique. Les tests restent locaux : aucun webhook Internet ni service tiers n'a été
 contacté.
+
+Le Lot G ferme trois nouvelles frontières. Un GLB doit être structurellement validé et
+scellé par son sha256 avant aperçu, lequel exige une origine distincte ou échoue en
+`424`. ComfyUI reçoit uniquement un prompt dans un workflow local fixé par l'opérateur,
+avec réseau, corps et types de sortie bornés. Codex/Claude ne reçoivent qu'une mission
+supervisée et une racine projet ; ACP refuse un second CLI, désactive les fonctions
+intégrées connues de multi-agent, d'approbation interactive, de MCP et de navigateur,
+mais ne peut empêcher un binaire de créer un processus descendant. Le paquet E2E nominal
+est isolé et ne résout Playwright que sous `ACP_E2E=1` exact ; le script de collecte
+directe peut charger le framework, mais la spec reste ignorée et aucun navigateur n'est
+lancé sans cet opt-in. Lorsque le parcours est activé, sa politique couvre tout le
+contexte navigateur, refuse les popups, neutralise `Worker`/`SharedWorker`, prouve le
+préflight CORS par une vraie requête `OPTIONS` séparée et autorise exactement un login
+sans redirection ni retry ; ensuite seuls `GET`/`HEAD`/`OPTIONS` restent possibles.
+`EventSource` est désactivé dans ce parcours afin que le Studio utilise son polling réel
+et que chaque réponse HTTP puisse être refusée avant toute redirection ; le SSE reste à
+éprouver séparément.
+Aucun de ces quatre chemins n'a été exercé contre un service ou navigateur réel pendant
+cette validation.
 
 Ces garanties ne rendent pas encore la plateforme exploitable sur Internet. Il
 reste notamment à compléter la matrice d'autorisation exhaustive, les en-têtes web
@@ -247,7 +272,7 @@ sans plancher de longueur.
 - Aucun média ne transite dans un événement : le payload ne porte qu'une référence
   d'artefact, une empreinte, un type MIME et une taille.
 
-### Contenu actif produit par un test : jamais servi en ligne
+### Contenu actif produit par un test : jamais servi sur l'origine de contrôle
 
 - Le type servi est décidé par une **allowlist serveur** construite sur l'extension et
   le type déclaré. Aucun reniflage de contenu : un fichier `piege.html` annoncé
@@ -258,21 +283,28 @@ sans plancher de longueur.
 - Toute réponse de contenu porte `X-Content-Type-Options: nosniff`,
   `Content-Security-Policy: default-src 'none'; sandbox` et
   `Cache-Control: private, no-store`.
+- Une session ou un lien `purpose=download` reçoit toujours
+  `Content-Disposition: attachment`. Seul un jeton `purpose=preview`, signé pour cet
+  usage et présenté sur `ACP_ARTIFACT_PUBLIC_ORIGIN`, peut produire une réponse
+  `inline` pour un type allowlisté ; son rejeu sur l'origine API répond `403`.
 - Le Studio n'utilise ni `iframe`, ni `srcdoc`, ni `innerHTML` pour un contenu venu de
   l'API : messages d'erreur, extraits de code, noms de fichiers et payloads sont
   insérés en `textContent`.
 - Écart assumé et affiché : `ACP_ARTIFACT_PUBLIC_ORIGIN` n'est configurée nulle part
-  aujourd'hui. Les liens signés pointent donc vers l'origine de l'API, et le Studio
-  affiche l'avertissement correspondant. Une instance dans cet état ne doit pas être
-  exposée sur Internet.
+  aujourd'hui. Une demande `purpose=preview` répond donc `424` avant création du jeton ;
+  elle ne retombe plus sur l'origine de l'API. Le téléchargement reste disponible.
 
 ### Liens de téléchargement signés, bornés et révocables
 
-- Un lien est un jeton HMAC-SHA256 `v1.<artifact_id>.<exp>.<sig>` lié à **l'artefact et
-  au demandeur**, borné à `ttl_seconds` ≤ 900 (défaut 300), enregistré par empreinte
-  (`token_hash`) et révocable par `DELETE /artifacts/links/{link_id}` — par son
-  titulaire, ou par un owner du projet du livrable. Ni l'existence du lien ni celle du
-  livrable ne sont énumérables : un appelant sans droit reçoit `404`.
+- Un lien est un jeton HMAC-SHA256
+  `v2.<artifact_id>.<exp>.<purpose>.<nonce>.<sig>` lié à **l'artefact, au demandeur et
+  à l'usage**. Le nonce rend deux émissions de la même seconde distinctes. Le lien est
+  borné à `ttl_seconds` ≤ 900 (défaut 300), enregistré par empreinte (`token_hash`) et
+  révocable par `DELETE /artifacts/links/{link_id}` — par son titulaire, ou par un
+  owner du projet du livrable. Les anciens jetons `v1` déjà émis restent lisibles
+  jusqu'à leur expiration mais sont traités uniquement comme téléchargements. Ni
+  l'existence du lien ni celle du livrable ne sont énumérables : un appelant sans droit
+  reçoit `404`.
 - Les clés viennent de `ACP_ARTIFACT_SIGNING_KEYS` (liste : la première signe, les
   suivantes vérifient encore, ce qui permet la rotation). Sans clé configurée, la
   création de lien répond `503` avec l'action à effectuer ; le téléchargement
@@ -376,13 +408,85 @@ sans plancher de longueur.
   Une estimation ne suffit pas à prouver un dépassement ; un dépassement mesuré après
   l'appel reste compté et bloque les permis suivants. Les coûts sont stockés en
   décimal et le jour comptable du permis est conservé jusqu'au rapport.
-- Le plafond `max_spawned_agents_per_run` est persisté mais n'est pas appliqué tant
-  qu'aucun exécuteur du Lot G ne possède un point de spawn. Il ne faut donc pas le
-  présenter comme une frontière de sécurité active.
+- L'exécuteur du Lot G possède un point de spawn unique : demander les deux CLIs est
+  refusé et ACP lance au plus une invocation CLI de premier niveau. La preuve
+  `spawned_agents=1` ne mesure pas les processus ou agents descendants ; elle ne peut
+  donc pas démontrer le plafond global `max_spawned_agents_per_run`. Aucun fan-out
+  dynamique n'est fourni.
 - Une saturation du disque ou du spool répond `507`; une indisponibilité répond
   `503`. L'alerte et l'événement associés ne révèlent ni chemin local ni exception
   brute. Le stockage reste néanmoins un répertoire local sans quota OS réservé, sans
   réplication et sans adaptateur objet éprouvé.
+
+### Frontières du Lot G : GLB, ComfyUI, agents et E2E
+
+- Un GLB ne devient affichable que si le type, l'extension, la signature, la version,
+  les longueurs et l'ordre des chunks concordent. Le JSON est strict et borné ; URI
+  externes, chunks inconnus et décodeurs Draco/Meshopt/Basisu sont refusés. Le marqueur
+  de validation est le sha256 du contenu exact, donc une ancienne métadonnée ne suffit
+  pas à promouvoir un blob historique. Le blob n'est pas re-haché à chaque requête
+  `Range`, afin qu'une plage minuscule ne déclenche pas jusqu'à 200 Mio de lecture :
+  après l'ingestion atomique, l'intégrité du répertoire privé reste donc dans la base
+  de confiance opérationnelle et doit être surveillée par le stockage.
+- Les buffers/vues/accessors sont vérifiés jusque dans leurs offsets absolus et spans
+  stridés, avec budgets cumulés de décodage et de copies ; le sparse est refusé. Les
+  images PNG/JPEG/WebP ont une source unique, un MIME/conteneur cohérent, des dimensions
+  lues sans décompression, puis des plafonds cumulés compressés, pixels et RGBA+mipmaps.
+  Ces limites n'isolent toutefois pas le décodeur ou le GPU du navigateur.
+- L'origine d'aperçu est comparée à une `ACP_API_URL` obligatoirement explicite et à
+  toutes les origines CORS. Une absence, collision ou URL dangereuse échoue avant
+  insertion du lien signé. Le client revérifie encore HTTPS/loopback et la différence
+  avec l'application.
+- ComfyUI est joignable seulement côté gateway authentifié. Son origine et son workflow
+  sont des configurations opérateur, jamais des entrées de requête. Le client refuse
+  HTTP distant, redirections et proxies ambiants ; il borne workflow, JSON, polls,
+  timeout et image, puis vérifie les métadonnées de chemin et la signature binaire.
+  L'idempotence LRU/TTL n'est pas durable : elle réduit les rejeux process-local sans
+  garantir l'exactly-once après redémarrage. À capacité simultanée maximale, une
+  nouvelle clé est refusée en `429` avec `Retry-After` avant tout appel `/prompt` ; le
+  rejeu d'une clé déjà en vol continue à partager le même résultat.
+- Une racine projet peut contenir du texte hostile destiné à détourner un agent. La
+  défense est capacitaire : mission supervisée et bornée, exactement une racine de cwd,
+  configuration/règles utilisateur ignorées côté Codex, outils Claude limités,
+  web/MCP/plugins/multi-agent coupés, aucun secret ambiant et aucun dialogue
+  d'approbation. Ce contrôle réduit l'impact ; il ne rend pas le contenu fiable et ne
+  restreint pas les autres fichiers lisibles par le compte worker.
+- Exécutables, dossiers d'authentification, `PATH` d'outils et racines projet doivent
+  être absolus, existants et sans chevauchement. Le profil Codex refuse tout
+  `AGENTS.md`; le prompt passe par stdin et les sorties brutes ne sont pas persistées.
+  Leur identité n'est toutefois pas épinglée entre validation et spawn : leurs ACL et
+  répertoires parents doivent interdire toute substitution concurrente.
+- Une capacité Codex/Claude explicitement annoncée ou déjà persistée doit encore avoir
+  son backend actif, un scope projet et sa racine allowlistée avant tout accès à l'API ;
+  le scope global agent est refusé. Les capacités génériques exigent le runner fixe et
+  un scope hérité absent échoue également avant réseau. Les écritures Codex visant une
+  même racine sont sérialisées entre processus par un verrou adjacent dont l'attente
+  consomme la deadline. Un nettoyage incertain publie une quarantaine `.poison` atomique
+  et jamais levée automatiquement. Ce mécanisme reste coopératif : protéger son parent
+  par ACL et valider la sémantique des partages réseau, ou fournir des worktrees séparés.
+- Le lanceur nominal du harnais E2E sort avant de résoudre Playwright sans opt-in exact.
+  Le script de collecte directe peut charger le framework, mais la spec reste ignorée
+  et aucun navigateur n'est lancé. Sous opt-in, le parcours refuse HTTP distant,
+  origines inattendues et toute redirection : chaque requête admise est envoyée une fois
+  par un contexte HTTP isolé et borné à 30 secondes, avec retries et suivi coupés, et tout
+  `3xx` est bloqué avant le navigateur. Le forwarder reprend les en-têtes de cookies réellement décidés par
+  Chromium ; son jar Node ne peut donc pas contourner `SameSite` ni la politique tiers.
+  Le vrai
+  `POST /auth/login` n'est donc ni retenté ni suivi et une seconde tentative est bloquée ;
+  sa réponse non modifiée est remise après contrôle de ses propres en-têtes CORS. Une vraie `OPTIONS`,
+  hors du routage du contexte, vérifie séparément la réponse CORS credentialed du serveur
+  lorsque les origines diffèrent.
+  Les service workers et les constructeurs `Worker`/`SharedWorker`, `WebTransport`,
+  `RTCPeerConnection`/`webkitRTCPeerConnection` et `WebSocketStream` sont bloqués avant
+  le code applicatif. `EventSource` est également neutralisé : le Studio exerce son vrai
+  repli par polling, ce qui permet d'envoyer chaque requête HTTP via un transfert réel
+  sans redirection ni retry, mais laisse le SSE hors de cette preuve. Trace/vidéo sont
+  coupées. Ces choix signifient que ce parcours ne valide pas le comportement fonctionnel
+  d'une application dépendant de workers ou de son direct SSE. La route Playwright reste
+  une frontière applicative, pas un pare-feu OS : les optimisations spéculatives internes
+  du navigateur doivent être contenues par la politique réseau externe du runner.
+  Les identifiants de test restent néanmoins des secrets vivants : ils doivent désigner
+  un compte dédié, à privilèges minimaux et à durée limitée.
 
 ### Alertes et préférences
 
@@ -423,9 +527,9 @@ Les routes, contrats et limites fonctionnelles sont détaillés dans
   anonyme reste fermé par défaut. Ces deux voies coexistent ; la seconde n'est pas une
   voie utilisateur.
 - Aucune origine séparée n'est **configurée** pour les aperçus de contenu non fiable.
-  `ACP_ARTIFACT_PUBLIC_ORIGIN` existe et est lue par le code ; tant qu'elle est vide,
-  les liens signés pointent vers l'origine de l'API. C'est l'écart bloquant principal
-  avant toute exposition réseau du Studio.
+  `ACP_ARTIFACT_PUBLIC_ORIGIN` existe et est lue par le code ; tant qu'elle est vide ou
+  invalide, l'API refuse l'aperçu en `424` avant de signer. Il reste à déployer et
+  vérifier réellement cette seconde origine avant toute exposition réseau du Studio.
 - Le CSRF et la politique de cookie sont couverts localement ; CSP, HSTS, autres
   en-têtes de sécurité, valeurs de plafonds et configuration HTTPS restent à valider
   en déploiement.
@@ -447,10 +551,17 @@ Les routes, contrats et limites fonctionnelles sont détaillés dans
   de secret et ne divulgue le payload qu'à un seul claimant.
 - Le backend local réel est configuré, borné et testable, mais il conserve les droits
   du compte worker et n'impose ni sandbox OS ni politique réseau forte. Il refuse
-  tout mode non supervisé, toute liste d'actions non vide et toute ressource en
-  écriture, faute de pouvoir appliquer ces promesses. Le Job Object Windows borne
-  l'arbre de processus ; il ne borne ni les droits, ni le réseau, ni les quotas, et
-  n'a pas d'équivalent livré sur POSIX.
+  tout mode non supervisé et toute liste d'actions non vide. Le backend à commande
+  fixe refuse les ressources en écriture, faute de pouvoir appliquer cette promesse ;
+  l'exécuteur Codex peut accepter une racine `write` explicitement déclarée, tandis
+  que Claude reste limité à `Read,Glob,Grep`. Le Job Object Windows borne l'arbre de
+  processus ; il ne borne ni les droits, ni le réseau, ni les quotas, et n'a pas
+  d'équivalent livré sur POSIX.
+- `spawned_agents=1` signifie qu'ACP a lancé une seule invocation CLI de premier niveau ;
+  `spawned_agents_scope=worker_managed_top_level_cli_only` encode cette limite et la
+  métrique ne voit pas ses descendants. La racine projet fixe le cwd et non les
+  droits OS : des projets non mutuellement fiables doivent utiliser des workers,
+  comptes, conteneurs ou VM séparés avec un filtrage réseau externe.
 - L'autorisation d'un lancement `stdio` vit dans le centre MCP
   (`mcp_probes.authorization`) et n'est pas reliée au circuit d'approbation des
   missions : deux mécanismes d'approbation coexistent, avec des journaux distincts.
@@ -525,8 +636,8 @@ un état durable et un événement d'audit.
   données non fiables et ne peuvent modifier les politiques.
 - Les chemins sont résolus dans une racine autorisée ; archives, liens et fichiers
   spéciaux sont contrôlés avant extraction.
-- Les contenus HTML, SVG, traces et aperçus s'exécutent sur une origine isolée avec
-  CSP et sandbox appropriées.
+- Les contenus HTML, SVG et traces restent en téléchargement forcé. Les seuls aperçus
+  image, vidéo et GLB validé utilisent une origine séparée avec les en-têtes appropriés.
 - Les connexions sortantes contrôlent SSRF, redirections, DNS rebinding, adresses
   privées et métadonnées cloud côté serveur et runner.
 - Les secrets sont référencés, injectés au dernier moment et absents des URL, logs,
@@ -548,10 +659,9 @@ un état durable et un événement d'audit.
 - rotation des clés de service, révocation runner et absence de secrets dans les
   journaux ;
 - rejouer les contrôles de livrables et de liens signés derrière une **origine
-  d'aperçu séparée réellement configurée**, et non sur l'origine de l'API : les tests
-  d'URL expirée, révoquée, étrangère et de type actif forcé en téléchargement existent
-  déjà (`apps/api/tests/test_artifacts_content.py`) mais s'exécutent tous sur une seule
-  origine ;
+  d'aperçu séparée réellement configurée** : les tests prouvent le refus `424`, la
+  séparation d'origine, les GLB invalides et les liens expirés/révoqués, mais aucun
+  navigateur ni second domaine n'a servi le contenu ;
 - exécuter une vraie suite Playwright sur un runner réel : la chaîne reporter → worker
   → API est prouvée sur un programme déterministe, jamais sur un navigateur ;
 - éprouver la reprise du flux sur une coupure réseau réelle et depuis un `EventSource`
@@ -623,10 +733,12 @@ un état durable et un événement d'audit.
   mais le parcours complet n'a pas encore été rejoué dans un navigateur contre les
   services et une instance Hermes réellement lancés.
 - **Aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté**
-  pour cette version : le reporter est prouvé sur des objets Playwright synthétiques,
-  et l'exécuteur du worker sur un programme déterministe
-  (`apps/worker/tests/fake_playwright_runner.py`). Les contrôles sur le contenu produit
-  par un test n'ont donc jamais rencontré un fichier réellement produit par Playwright.
+  pour cette version : le reporter/worker est prouvé sur des objets et un programme
+  synthétiques, tandis que le harnais E2E réel est resté désactivé. Les contrôles sur
+  le contenu produit par un test n'ont donc jamais rencontré un fichier Playwright réel.
+- Le validateur GLB et `model-viewer` sont couverts séparément sans rendu WebGL ni
+  origine d'aperçu déployée. ComfyUI est couvert par un transport simulé. Les chemins
+  Codex/Claude lancent des exécutables contrôlés, pas un CLI authentifié.
 - Le flux SSE n'a été exercé que par un client de test : aucune coupure réseau réelle,
   aucun proxy intermédiaire, aucun `EventSource` de navigateur.
 - Les trois tests de refus de lien symbolique du Lot E étaient **ignorés** dans la
@@ -656,20 +768,22 @@ un état durable et un événement d'audit.
   ne l'exécute ;
 - runner de tests web réel : `ACP_WORKER_WEBTEST_*` n'est configuré sur aucune machine,
   et la capacité `web_tests` n'a jamais été annoncée par un worker réel ;
+- cible et secrets du harnais `ACP_E2E=1`, instance ComfyUI, profils agents de test et
+  origine d'aperçu réellement routée ;
 - outbox : le flux relit la base par curseur au lieu de s'appuyer sur un relais, mais
   aucune outbox transactionnelle n'a été livrée.
 - limitation de débit distribuée et signature de corps pour le webhook entrant ; le
   compteur local par processus, le secret aléatoire et la déduplication ne remplacent
   pas ces contrôles de bordure ;
 - PostgreSQL/Alembic, sauvegarde/restauration, supervision et déploiement Railway ;
-- application de `max_spawned_agents_per_run`, impossible avant le point de spawn des
-  exécuteurs du Lot G.
+- fan-out et comptabilité multi-agent dynamiques ; le Lot G borne seulement à une
+  l'invocation CLI de premier niveau gérée par ACP, sans observer ses descendants.
 
 ### Restant
 
 Les prochaines tranches doivent isoler plus fortement le runner et raccorder ses
-demandes d'approbation. Elles doivent aussi compléter la matrice de scopes, configurer
-et vérifier une origine d'aperçu séparée, exécuter une vraie suite Playwright sur un
-runner réel, livrer le courtier d'appels d'outils MCP à l'exécution d'une mission, les
-médias, les migrations et la restauration. Tant que ces points ne sont pas testés, le
-produit reste réservé au développement local sur une machine de confiance.
+demandes d'approbation. Elles doivent aussi compléter la matrice de scopes, déployer et
+vérifier une origine d'aperçu séparée, exécuter une vraie suite Playwright, ComfyUI et
+un CLI agent sur des cibles jetables, livrer le courtier d'appels d'outils MCP pendant
+une mission, les migrations et la restauration. Tant que ces points ne sont pas
+testés, le produit reste réservé au développement local sur une machine de confiance.

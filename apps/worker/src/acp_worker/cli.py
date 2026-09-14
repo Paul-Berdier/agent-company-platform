@@ -12,6 +12,7 @@ from acp_contracts import WorkerCapability, WorkerRegistrationResponse
 
 from .capabilities import detect_capabilities
 from .config import WorkerConfig, WorkerConfigurationError
+from .executors import ExecutorCleanupError
 from .local_runner import RunnerConfigurationError
 from .local_log import tail_logs
 from .mcp_probe import McpProbeConfigurationError
@@ -73,7 +74,13 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
     # annonçables les capacités réservées au mode réel, sans dépendre d'une
     # seconde lecture de ACP_WORKER_SIMULATION.
     capabilities = sorted(
-        set(args.capabilities or detect_capabilities(simulation=simulation))
+        set(
+            args.capabilities
+            or detect_capabilities(
+                simulation=simulation,
+                local_runner_configured=config.local_runner is not None,
+            )
+        )
     )
     max_concurrency = (
         config.max_concurrency
@@ -104,6 +111,16 @@ def _register(config: WorkerConfig, args: argparse.Namespace) -> int:
             "--global-access pour un worker d'administration.",
             file=sys.stderr,
         )
+        return 2
+    try:
+        config.validate_advertised_capabilities(
+            capabilities,
+            simulation=simulation,
+            project_id=project_id,
+            global_access=global_access,
+        )
+    except WorkerConfigurationError as exc:
+        print(f"Capacités refusées: {exc}.", file=sys.stderr)
         return 2
     try:
         response = httpx.post(
@@ -205,13 +222,18 @@ def _doctor(config: WorkerConfig) -> int:
     simulation = (
         credentials.simulation if credentials is not None else config.simulation
     )
-    capabilities = detect_capabilities(simulation=simulation)
+    capabilities = detect_capabilities(
+        simulation=simulation,
+        local_runner_configured=config.local_runner is not None,
+    )
     checks: dict[str, object] = {
         "state": (
             "invalid" if credential_error else ("ok" if credentials else "missing")
         ),
         "capabilities": capabilities,
         "local_runner": "configured" if config.local_runner is not None else "missing",
+        "agent_executors": sorted(config.executors.enabled_executors),
+        "executor_project_roots": len(config.executors.project_roots),
         "mcp_stdio_probe": config.mcp_probe.status(),
         "web_tests": _web_tests_state(config, capabilities),
         "api": "unreachable",
@@ -243,13 +265,21 @@ def _doctor(config: WorkerConfig) -> int:
     execution_error: str | None = None
     if credentials is not None:
         try:
-            config.validate_execution_mode(simulation=credentials.simulation)
+            config.validate_advertised_capabilities(
+                credentials.capabilities,
+                simulation=credentials.simulation,
+                project_id=credentials.project_id,
+                global_access=credentials.global_access,
+            )
         except WorkerConfigurationError as exc:
             execution_error = str(exc)
             checks["execution"] = "invalid"
             checks["execution_error"] = execution_error
         else:
             checks["execution"] = "ok"
+    if execution_error is not None:
+        print(json.dumps(checks, ensure_ascii=False, indent=2))
+        return 1
     try:
         response = httpx.get(
             f"{config.api_url}/health", timeout=5.0, trust_env=False
@@ -334,7 +364,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "capabilities":
         print(
             json.dumps(
-                detect_capabilities(simulation=config.simulation),
+                detect_capabilities(
+                    simulation=config.simulation,
+                    local_runner_configured=config.local_runner is not None,
+                ),
                 ensure_ascii=False,
                 indent=2,
             )
@@ -360,11 +393,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     try:
-        config.validate_execution_mode(simulation=credentials.simulation)
+        config.validate_advertised_capabilities(
+            credentials.capabilities,
+            simulation=credentials.simulation,
+            project_id=credentials.project_id,
+            global_access=credentials.global_access,
+        )
     except WorkerConfigurationError as exc:
         print(f"Mode d'exécution refusé: {exc}.", file=sys.stderr)
         return 2
-    asyncio.run(run_forever(config, credentials, once=args.once))
+    try:
+        asyncio.run(run_forever(config, credentials, once=args.once))
+    except ExecutorCleanupError:
+        print(
+            "Worker arrêté par sécurité: nettoyage d'un exécuteur non confirmé.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

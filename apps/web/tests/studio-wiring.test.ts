@@ -19,13 +19,18 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  STUDIO_LINK_REUSE_MARGIN_MS,
   STUDIO_VIEW_PARAM,
   STUDIO_VIEW_VALUE,
+  invalidateExpiredStudioLinks,
+  isStudioLinkUsable,
   isStudioViewRequested,
   studioRouteLink,
+  type ArtifactLinkState,
 } from "../src/studio-ui";
 
 const workspaceSource = readFileSync(new URL("../src/workspace.ts", import.meta.url), "utf8");
+const studioSource = readFileSync(new URL("../src/studio-ui.ts", import.meta.url), "utf8");
 
 /** Corps d’une fonction de premier niveau de `workspace.ts`, accolade fermante comprise. */
 function functionBody(source: string, name: string): string {
@@ -81,5 +86,59 @@ describe("câblage du Studio dans workspace.ts", () => {
   it("ferme le flux du Studio en quittant l’écran", () => {
     const body = functionBody(workspaceSource, "renderCurrentRoute");
     expect(body).toMatch(/resetStudioUiState\(\);/);
+  });
+});
+
+describe("aperçu 3D du Studio", () => {
+  it("délègue les modèles validés au visualiseur partagé", () => {
+    expect(studioSource).toMatch(/import \{ modelPreviewNode \} from "\.\/model-preview";/);
+    expect(studioSource).toMatch(/kind === "model"/);
+    expect(studioSource).toMatch(/modelPreviewNode\(link\.url, label\)/);
+  });
+});
+
+describe("expiration des liens signés du Studio", () => {
+  const now = Date.parse("2026-09-14T10:00:00Z");
+
+  function readyLink(expiresAt: number): ArtifactLinkState {
+    return {
+      phase: "ready",
+      link: {
+        artifact_id: "artifact-1",
+        url: "https://preview.example.test/content?token=secret",
+        expires_at: new Date(expiresAt).toISOString(),
+      },
+      error: null,
+    };
+  }
+
+  it("cesse de réutiliser un lien avant son expiration réelle", () => {
+    expect(isStudioLinkUsable(
+      readyLink(now + STUDIO_LINK_REUSE_MARGIN_MS + 1).link,
+      now,
+    )).toBe(true);
+    expect(isStudioLinkUsable(
+      readyLink(now + STUDIO_LINK_REUSE_MARGIN_MS).link,
+      now,
+    )).toBe(false);
+  });
+
+  it("purge le bearer et conserve un état de régénération", () => {
+    const links = new Map<string, ArtifactLinkState>([
+      ["expired", readyLink(now + STUDIO_LINK_REUSE_MARGIN_MS)],
+      ["valid", readyLink(now + STUDIO_LINK_REUSE_MARGIN_MS + 1)],
+    ]);
+
+    expect(invalidateExpiredStudioLinks(links, now)).toBe(true);
+    expect(links.get("expired")).toEqual({ phase: "expired", link: null, error: null });
+    expect(links.get("valid")?.link?.url).toContain("token=secret");
+  });
+
+  it("câble le timer, sa purge et les libellés de renouvellement", () => {
+    expect(studioSource).toMatch(/scheduleLinkExpiryInvalidation\(\);/);
+    expect(studioSource).toMatch(/linkExpiryTimer = globalThis\.setTimeout/);
+    expect(studioSource).toMatch(/clearLinkExpiryTimer\(\);[\s\S]*subscription\?\.close\(\)/);
+    expect(studioSource).toContain("Régénérer l’aperçu");
+    expect(studioSource).toContain("Régénérer le téléchargement");
   });
 });

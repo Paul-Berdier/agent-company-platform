@@ -15,6 +15,8 @@
     "test:web": "npm test --workspace @acp/web",
     "test:engine": "npm test --workspace @acp/pixel-office-engine",
     "test:reporter": "npm test --workspace @acp/playwright-reporter",
+    "test:e2e": "npm --prefix e2e test",
+    "test:e2e:unit": "npm --prefix e2e run test:unit",
     "assets:import-limezu": "node packages/pixel-office-engine/tools/import-limezu.mjs"
   }
 }

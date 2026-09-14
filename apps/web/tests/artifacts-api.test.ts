@@ -21,6 +21,7 @@ import {
   describeArtifactPreview,
   describeArtifactsError,
   formatArtifactSize,
+  isSeparateArtifactPreviewUrl,
   shortChecksum,
 } from "../src/artifacts-api";
 import { WorkspaceApiError } from "../src/workspace-api";
@@ -184,6 +185,18 @@ describe("ArtifactsApiClient — lien signé", () => {
     expect((init.headers as Headers).get("X-CSRF-Token")).toBe("csrf-current");
   });
 
+  it("marque explicitement un lien destiné à l’aperçu", async () => {
+    const fetcher = vi.fn(async () => json({
+      artifact_id: "artifact-1",
+      url: "https://preview.example.test/artifacts/artifact-1/content?token=v1.a.b.c",
+      expires_at: "2026-09-12T10:05:00Z",
+    }));
+
+    await client(fetcher).createLink("artifact-1", 120, "preview");
+
+    expect(requestUrl(fetcher)).toContain("ttl_seconds=120&purpose=preview");
+  });
+
   it("refuse une durée hors bornes avant tout appel réseau", async () => {
     const fetcher = vi.fn(async () => json({ artifact_id: "a", url: "/x", expires_at: "2026-09-12T10:05:00Z" }));
     const api = client(fetcher);
@@ -247,6 +260,15 @@ describe("describeArtifactsError", () => {
     expect(describeArtifactsError(new WorkspaceApiError("x", "invalid_response")).tone).toBe("error");
     expect(describeArtifactsError(new WorkspaceApiError("x", "http", 404)).title).toBe("Introuvable");
   });
+
+  it("distingue une origine d’aperçu absente d’une clé de signature absente", () => {
+    const description = describeArtifactsError(
+      new WorkspaceApiError("Aperçu désactivé.", "http", 424),
+    );
+    expect(description.title).toContain("Origine");
+    expect(description.action).toContain(ARTIFACT_PREVIEW_ORIGIN_ACTION);
+    expect(description.action).not.toContain(ARTIFACT_SIGNING_ACTION);
+  });
 });
 
 describe("describeArtifactPreview", () => {
@@ -263,6 +285,26 @@ describe("describeArtifactPreview", () => {
   it("ignore les paramètres du type et la casse", () => {
     const decision = describeArtifactPreview(artifact({ content_type: "IMAGE/PNG; charset=binary" }));
     expect(decision.kind).toBe("image");
+  });
+
+  it("autorise uniquement un GLB binaire dont le type et l'extension concordent", () => {
+    expect(describeArtifactPreview(artifact({
+      content_type: "MODEL/GLTF-BINARY; version=2",
+      original_name: "scene.GLB",
+      kind: "model-3d",
+      stream_kind: "model",
+    })).kind).toBe("model");
+
+    for (const candidate of [
+      { content_type: "model/gltf+json", original_name: "scene.gltf" },
+      { content_type: "model/gltf-binary", original_name: "scene.gltf" },
+      { content_type: "application/octet-stream", original_name: "scene.glb" },
+    ]) {
+      const decision = describeArtifactPreview(artifact(candidate));
+      expect(decision.kind).toBe("none");
+      expect(decision.downloadOnly).toBe(true);
+      expect(decision.warning).toContain(".glb");
+    }
   });
 
   it("n’affiche jamais en ligne un HTML, un SVG ou une archive et explique pourquoi", () => {
@@ -328,5 +370,20 @@ describe("formats", () => {
 
   it("expose la variable d’origine d’aperçu à documenter", () => {
     expect(ARTIFACT_PREVIEW_ORIGIN_ACTION).toBe("ACP_ARTIFACT_PUBLIC_ORIGIN");
+  });
+});
+
+describe("origine d’aperçu", () => {
+  it("exige une origine absolue distincte de celle de l’application", () => {
+    const application = "https://app.example.test/missions";
+    expect(isSeparateArtifactPreviewUrl("https://preview.example.test/model.glb", application)).toBe(true);
+    expect(isSeparateArtifactPreviewUrl("http://127.0.0.1:8000/model.glb", "http://localhost:5173")).toBe(true);
+    expect(isSeparateArtifactPreviewUrl("https://app.example.test/model.glb", application)).toBe(false);
+    expect(isSeparateArtifactPreviewUrl("http://preview.example.test/model.glb", application)).toBe(false);
+    expect(isSeparateArtifactPreviewUrl("https://user:secret@preview.example.test/model.glb", application)).toBe(false);
+    expect(isSeparateArtifactPreviewUrl("https:\\preview.example.test\\model.glb", application)).toBe(false);
+    expect(isSeparateArtifactPreviewUrl("/artifacts/a/content?token=x", application)).toBe(false);
+    expect(isSeparateArtifactPreviewUrl("javascript:alert(1)", application)).toBe(false);
+    expect(isSeparateArtifactPreviewUrl("https://preview.example.test/model.glb", null)).toBe(false);
   });
 });

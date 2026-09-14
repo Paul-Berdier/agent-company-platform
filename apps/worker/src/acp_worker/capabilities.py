@@ -5,6 +5,8 @@ import shutil
 
 from acp_contracts import WorkerCapability
 
+from .executors import ExecutorConfig, ExecutorConfigurationError
+from .local_runner import LocalRunnerConfig, RunnerConfigurationError
 from .mcp_probe import McpProbeConfigurationError, McpStdioProbeConfig
 from .web_tests import SIMULATION_ENV, WebTestConfig, WebTestConfigurationError
 
@@ -54,7 +56,48 @@ def _mcp_stdio_probe_available() -> bool:
     return config.enabled and bool(config.allowed_executables)
 
 
-def detect_capabilities(*, simulation: bool | None = None) -> list[str]:
+def _agent_executor_capabilities(*, simulation: bool) -> set[str]:
+    """N'annonce jamais un CLI trouvé fortuitement dans le ``PATH``.
+
+    Les chemins de programme, les dossiers d'authentification et au moins une
+    racine projet doivent former une configuration opt-in valide. Une
+    configuration partielle est traitée comme indisponible ici ; le chargement
+    de ``WorkerConfig`` remontera, lui, l'erreur précise à l'opérateur.
+    """
+
+    if simulation:
+        return set()
+    try:
+        config = ExecutorConfig.from_environ()
+    except (ExecutorConfigurationError, OSError, ValueError):
+        return set()
+    capabilities: set[str] = set()
+    if "codex_cli" in config.enabled_executors:
+        capabilities.add(WorkerCapability.CODEX_CLI.value)
+    if "claude_code" in config.enabled_executors:
+        capabilities.add(WorkerCapability.CLAUDE_CODE.value)
+    return capabilities
+
+
+def _local_runner_available() -> bool:
+    """Ne publie les capacités génériques qu'avec leur backend réel.
+
+    Les exécuteurs Codex/Claude ont leur propre capacité explicite. Sans cette
+    distinction, un worker configuré uniquement pour un agent pouvait réclamer
+    une mission ``shell_restricted`` puis échouer après attribution.
+    """
+
+    try:
+        return LocalRunnerConfig.from_environment() is not None
+    except (RunnerConfigurationError, OSError, ValueError):
+        return False
+
+
+def detect_capabilities(
+    *,
+    simulation: bool | None = None,
+    local_runner_configured: bool | None = None,
+) -> list[str]:
     """Capacités annonçables dans le mode d'exécution réellement enregistré.
 
     ``simulation`` vaut le drapeau que l'appelant s'apprête à enregistrer ;
@@ -64,34 +107,47 @@ def detect_capabilities(*, simulation: bool | None = None) -> list[str]:
 
     if simulation is None:
         simulation = simulation_from_environ()
-    capabilities = {
-        WorkerCapability.FILESYSTEM_PROJECT.value,
-        WorkerCapability.SHELL_RESTRICTED.value,
-    }
-    commands = {
-        WorkerCapability.GIT: ("git",),
-        WorkerCapability.CLAUDE_CODE: ("claude",),
-        WorkerCapability.CODEX_CLI: ("codex",),
-        WorkerCapability.BLENDER: ("blender",),
-    }
-    for capability, executables in commands.items():
-        if any(shutil.which(executable) for executable in executables):
-            capabilities.add(capability.value)
-    if os.environ.get("ACP_BLENDER_MCP_URL"):
+    if local_runner_configured is None:
+        local_runner_configured = _local_runner_available()
+    if not isinstance(local_runner_configured, bool):
+        raise TypeError("local_runner_configured doit être un booléen")
+
+    # Une simulation peut annoncer le socle historique sans lancer de programme.
+    # En mode réel, chaque capacité de mission générique exige le runner local.
+    local_mission_backend = simulation or local_runner_configured
+    capabilities: set[str] = set()
+    if local_mission_backend:
+        capabilities.update(
+            {
+                WorkerCapability.FILESYSTEM_PROJECT.value,
+                WorkerCapability.SHELL_RESTRICTED.value,
+            }
+        )
+        commands = {
+            WorkerCapability.GIT: ("git",),
+            WorkerCapability.BLENDER: ("blender",),
+        }
+        for capability, executables in commands.items():
+            if any(shutil.which(executable) for executable in executables):
+                capabilities.add(capability.value)
+    capabilities.update(_agent_executor_capabilities(simulation=simulation))
+    if local_mission_backend and os.environ.get("ACP_BLENDER_MCP_URL"):
         capabilities.add(WorkerCapability.BLENDER_MCP.value)
-    if os.environ.get("UNREAL_EDITOR") or os.environ.get("UE_EDITOR"):
+    if local_mission_backend and (
+        os.environ.get("UNREAL_EDITOR") or os.environ.get("UE_EDITOR")
+    ):
         capabilities.add(WorkerCapability.UNREAL_ENGINE.value)
-    if os.environ.get("ACP_UNREAL_MCP_URL"):
+    if local_mission_backend and os.environ.get("ACP_UNREAL_MCP_URL"):
         capabilities.add(WorkerCapability.UNREAL_MCP.value)
-    if os.environ.get("ACP_NANOSWORLD_COOK_COMMAND"):
+    if local_mission_backend and os.environ.get("ACP_NANOSWORLD_COOK_COMMAND"):
         capabilities.add(WorkerCapability.NANOSWORLD_COOK.value)
-    if os.environ.get("ACP_ASSET_VALIDATION_COMMAND"):
+    if local_mission_backend and os.environ.get("ACP_ASSET_VALIDATION_COMMAND"):
         capabilities.add(WorkerCapability.ASSET_VALIDATION.value)
-    if os.environ.get("ACP_IMAGE_CAPTURE_COMMAND"):
+    if local_mission_backend and os.environ.get("ACP_IMAGE_CAPTURE_COMMAND"):
         capabilities.add(WorkerCapability.IMAGE_CAPTURE.value)
     if _mcp_stdio_probe_available():
         capabilities.add(WorkerCapability.MCP_STDIO_PROBE.value)
-    if _web_tests_available(simulation=simulation):
+    if local_mission_backend and _web_tests_available(simulation=simulation):
         capabilities.add(WorkerCapability.WEB_TESTS.value)
     return sorted(capabilities)
 

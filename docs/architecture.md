@@ -1,15 +1,17 @@
 # Architecture cible
 
 Statut : décision adoptée pour la modernisation 2026.
-Date d'état : 14 septembre 2026 — version publiée `0.7.0` (Lot F), Lot G en cours.
+Date d'état : 14 septembre 2026 — version publiée `0.7.0` (Lot F), Lot G `0.8.0`
+implémenté dans l'arbre de travail et non publié.
 Produit : Agent Company Platform, espace personnel par défaut.
 
-Le schéma principal de ce document reste la cible. L'état concret des Lots C à F
+Le schéma principal de ce document reste la cible. L'état concret des Lots C à G
 utilise SQLAlchemy avec SQLite par défaut et `create_all()` complété d'un upgrade
 additif ad hoc ; PostgreSQL, migrations versionnées, outbox et déploiement ne sont pas
-encore validés. Les Lots E et F livrent en revanche le **stockage privé des
+encore validés. Les Lots E à G livrent en revanche le **stockage privé des
 livrables** sur disque local, le **flux utilisateur authentifié par curseur**, les
-**routines planifiées** et leur ledger budgétaire : ces lignes ne sont plus des cibles.
+**routines planifiées**, leur ledger budgétaire, l'**aperçu GLB**, le connecteur
+**ComfyUI** et les exécuteurs agents bornés : ces lignes ne sont plus des cibles.
 
 ## Décision
 
@@ -25,11 +27,11 @@ CLI acp ──────────┘          │            │
                              │            ├── stockage privé des livrables
                              │            └── journal durable / outbox
                              │
-                             ├── adaptateur Hermes ── Hermes Agent v0.21.1
+                             ├── provider-gateway ── Hermes / ComfyUI optionnel
                              │      sessions, runs, SSE, stop, approvals
                              │
                              └── planificateur ── runners enrôlés
-                                    environnements de run isolés
+                                    runner fixe / Codex CLI / Claude Code
 ```
 
 ## Options évaluées
@@ -118,8 +120,8 @@ Trois décisions structurent cette tranche.
    avec sa propre identité. Aucun média ne transite dans un événement : le payload
    ne porte qu'une référence d'artefact, une empreinte, un type MIME et une taille.
 
-La prise de contrôle humaine du navigateur n'est **pas** livrée dans ce lot ; elle est
-reportée au Lot G. Voir [docs/live-studio.md](live-studio.md) pour l'état détaillé.
+La prise de contrôle humaine du navigateur n'est **pas** livrée. Le Studio reste en
+lecture seule ; voir [docs/live-studio.md](live-studio.md) pour l'état détaillé.
 
 ## Tranche verticale livrée au Lot F
 
@@ -153,14 +155,53 @@ le worker réserve un permis avant les phases consommatrices et rapporte ensuite
 mesure. Les plafonds de mission, de journée et de fournisseur s'appliquent sur un
 ledger idempotent. Le fuseau comptable est figé dès sa première ligne ; le cache
 agrégé sature à la capacité commune Python/SQL/JavaScript tandis que le ledger exact
-reste la preuve. Le plafond `max_spawned_agents_per_run` est seulement contractuel et
-persisté tant que le Lot G n'a pas livré de point de spawn.
+reste la preuve. Dans le Lot F publié, `max_spawned_agents_per_run` reste seulement
+contractuel et persisté. Le Lot G ajoute un point de spawn qui lance au plus une
+invocation CLI de premier niveau ; les descendants du binaire ne sont ni interdits ni
+comptés, donc le plafond global n'est pas démontré et aucun fan-out dynamique n'est livré.
 
 Les alertes restent un état métier in-app. Une cause ouverte est unique par projet,
 sa sévérité ne peut que monter, et les préférences personnelles filtrent la boîte sans
 altérer l'alerte canonique. Le webhook du Lot F est un déclencheur **entrant** ; il ne
 constitue pas un canal de notification sortant. Voir
 [Automatisations, budgets et alertes](automations.md).
+
+## Tranche verticale livrée au Lot G
+
+```text
+Studio / Bibliothèque ── POST link?purpose=preview ── API artefacts
+                                                        │  GLB v2 validé + sha256
+                                                        ▼
+                                               origine d'aperçu séparée
+                                                        │
+                                              image / vidéo / model-viewer
+
+API / worker ── Bearer inter-services ── provider-gateway ── ComfyUI optionnel
+
+mission (une capacité + un project_workspace)
+             └── worker fencé ── Codex CLI ou Claude Code
+```
+
+L'aperçu n'est jamais un repli implicite. `purpose=preview` exige une `ACP_API_URL`
+explicite et une origine canonique distincte de l'API et des origines web ; sinon l'API
+répond `424` avant le jeton. Seul
+un `.glb` v2 auto-contenu, validé au téléversement et scellé par son sha256, atteint
+`@google/model-viewer`. Les `.gltf`, lignes historiques non scellées, URI externes et
+extensions de décodeur restent en téléchargement ou sont refusés.
+
+ComfyUI est un connecteur média interne, pas un orchestrateur : l'opérateur choisit le
+workflow, le nœud prompt et la sortie ; la requête ne fournit que le texte. Les appels
+et corps sont bornés, le résultat est vérifié, mais l'idempotence reste en mémoire et
+l'image n'est pas encore versée dans les artefacts d'une mission.
+
+Les CLIs agents sont activés seulement par chemins absolus, profils d'authentification
+séparés et racines projet allowlistées. Une mission supervisée sélectionne exactement
+un CLI et un `project_workspace`. Codex peut suivre un accès `write`; Claude reste en
+lecture seule selon les options demandées. Le prompt passe par stdin, les fonctions
+web/MCP/multi-agent connues sont demandées désactivées et la preuve ne conserve que
+tailles, empreintes et nombre d'événements. Ces options ne créent pas une sandbox ACP :
+le compte worker conserve ses droits fichiers/réseau et ses descendants restent hors
+de la métrique d'agents.
 
 ## Sources de vérité
 
@@ -178,6 +219,8 @@ constitue pas un canal de notification sortant. Voir
 | Routine et occurrence nominale | plateforme | `automation_id`, `next_run_at`, `fire_key` |
 | Politique et ledger budgétaires | plateforme ; fournisseur pour les mesures rapportées | `permit_id`, `report_id`, jour comptable, provider |
 | Alerte et préférences personnelles | plateforme | cause dédupliquée par projet, `user_id` pour les préférences |
+| Workflow, modèles et file ComfyUI | opérateur / service ComfyUI ; la plateforme ne garde que sa configuration locale | workflow épinglé par chemin, `prompt_id`, empreinte de requête process-local |
+| Processus Codex/Claude et profil d'authentification | worker pendant la tentative | capacité, `project_id`, racine allowlistée, code de sortie et empreintes |
 
 Un identifiant Hermes ou runner n'accorde jamais à lui seul un accès à un projet.
 Le mapping appartient à la plateforme et est contrôlé côté serveur.
@@ -276,8 +319,9 @@ sur une instance Hermes réelle.
   désactivée par défaut, argv absolu et racine de projet configurés par l'opérateur,
   fichier de rapport NDJSON imposé, aucun credential de la plateforme remis au
   processus de test, pièces jointes refusées hors du répertoire de sortie de la
-  tentative, et expurgation des messages et extraits avant envoi à l'API. La
-  plateforme n'installe jamais Playwright ;
+  tentative, et expurgation des messages et extraits avant envoi à l'API. Le runner et
+  les workspaces racine n'installent jamais Playwright ; seul le paquet E2E isolé du
+  Lot G porte sa propre dépendance, installée explicitement ;
 - depuis le Lot F, le processus worker persistant concourt aussi au bail du
   planificateur et appelle ses ticks authentifiés ; le worker ponctuel `--once` n'en
   démarre pas la boucle. Le fence du planificateur est distinct du fence d'une
@@ -285,6 +329,11 @@ sur une instance Hermes réelle.
 - avant chaque phase consommatrice raccordée, le worker demande un permis budgétaire
   puis rapporte la consommation avec un identifiant stable ; un refus ou une mesure
   inconnue échoue fermé selon le verdict serveur ;
+- depuis le Lot G, `codex_cli` et `claude_code` ne sont annoncés qu'après opt-in
+  complet. Une mission supervisée les sélectionne exclusivement avec une seule racine
+  `project_workspace` allowlistée ; Codex peut recevoir l'écriture explicite, Claude
+  reçoit des outils de lecture, et tout second CLI géré par ACP est refusé. Le worker
+  ne bloque ni ne compte les processus ou agents descendants du binaire ;
 - sous Windows, tout processus lancé — mission comme sonde — est créé suspendu puis
   affecté à un Job Object `KILL_ON_JOB_CLOSE` avant d'exécuter la moindre instruction :
   l'arrêt d'un arbre ne dépend plus d'une filiation observable, qu'un lanceur
@@ -292,7 +341,7 @@ sur une instance Hermes réelle.
 - publient preuves et événements uniquement pour le run loué.
 
 Le processus local conserve les droits OS et la politique réseau du compte worker :
-son cwd dédié n'est pas une sandbox, et le Job Object est une clôture d'arrêt, pas une
+son cwd dédié n'isole pas les autres fichiers accessibles, et le Job Object est une clôture d'arrêt, pas une
 limite de ressources. Les autonomies que ce backend ne sait pas
 garantir sont refusées avant spawn. La plateforme ne monte pas elle-même le socket
 Docker, mais le backend ne peut pas garantir son absence si le compte ou l'hôte le
@@ -370,6 +419,15 @@ ou via un lien signé borné et révocable ; un type actif (`text/html`,
 `image/svg+xml`, archive) n'est jamais servi en ligne, et le type est déterminé par
 une allowlist serveur sans reniflage.
 
+Depuis le Lot G, un `.glb` n'entre dans cette allowlist qu'après validation structurelle
+GLB 2 au téléversement et scellement lié au sha256. Le stockage vérifie l'empreinte à
+l'écriture mais n'est pas re-haché à chaque `Range` ; son intégrité après ingestion
+reste une responsabilité opérationnelle. La route d'aperçu exige une origine séparée
+et une origine API explicite avant de signer, puis vérifie que le jeton HMAC v2, lié à
+`purpose=preview`, arrive réellement sur cette origine ; `.gltf` et tout GLB historique
+non scellé ne sont jamais rendus. Les sessions et liens de téléchargement restent
+forcés en pièce jointe.
+
 Un résultat d'exécution de tests est une ressource propre (`test_runs`, `test_cases`)
 rattachée à une tentative, avec une exécution par tentative et par runner. Les statuts
 `passed`, `failed`, `timedOut`, `skipped`, `interrupted` et le caractère `flaky` sont
@@ -384,13 +442,14 @@ privé, jamais un volume implicite. PostgreSQL conserve le métier ; Hermes poss
 propre état persistant ; un stockage privé reçoit les livrables. Les runners ne
 tournent pas dans le serveur de contrôle par défaut.
 
-Au Lot F ce stockage est toujours un **répertoire local**
+Au Lot G ce stockage est toujours un **répertoire local**
 (`ACP_ARTIFACT_STORAGE_DIR`) : sur un
 hébergeur, il doit pointer vers un volume persistant, sans quoi les blobs disparaissent
 au redéploiement alors que la base continue de les référencer. Une origine d'aperçu
 séparée (`ACP_ARTIFACT_PUBLIC_ORIGIN`) est prévue par le code mais n'est configurée
-nulle part aujourd'hui : tant qu'elle ne l'est pas, les liens signés pointent vers
-l'API elle-même et l'instance ne doit pas être exposée sur Internet.
+nulle part aujourd'hui : tant qu'elle ne l'est pas, toute demande
+`purpose=preview` échoue en `424` avant création du jeton. Les téléchargements restent
+servis par l'API, mais aucun contenu n'est promu en aperçu même origine.
 
 Voir `docs/deployment-railway.md` pour l'état réellement livré et les actions restant
 à vérifier avant une mise en production.

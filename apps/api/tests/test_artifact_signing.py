@@ -5,8 +5,11 @@ révocable. La vérification compare en temps constant, accepte les clés encore
 rotation et refuse tout le reste avec un message explicite — jamais un plantage.
 """
 
+import base64
+import hashlib
 import hmac
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 import pytest
 
@@ -41,8 +44,14 @@ NOW = datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc)
 EXPIRES = NOW + timedelta(minutes=5)
 
 
-def _token(key: str = KEY, *, artifact: str = ARTIFACT, user: str = USER) -> str:
-    return sign_artifact_token(artifact, user, EXPIRES, key)
+def _token(
+    key: str = KEY,
+    *,
+    artifact: str = ARTIFACT,
+    user: str = USER,
+    purpose: Literal["download", "preview"] = "download",
+) -> str:
+    return sign_artifact_token(artifact, user, EXPIRES, key, purpose=purpose)
 
 
 # --- chargement des clés ------------------------------------------------------
@@ -90,12 +99,18 @@ def test_key_id_identifies_a_key_without_revealing_it():
 def test_the_token_has_the_documented_format():
     token = _token()
     parts = token.split(".")
-    assert len(parts) == 4
-    assert parts[0] == TOKEN_VERSION == "v1"
+    assert len(parts) == 6
+    assert parts[0] == TOKEN_VERSION == "v2"
     assert parts[1] == ARTIFACT
     assert int(parts[2]) == int(EXPIRES.timestamp())
-    assert parts[3] and "=" not in parts[3]
+    assert parts[3] == "download"
+    assert len(parts[4]) >= 16 and "=" not in parts[4]
+    assert parts[5] and "=" not in parts[5]
     assert USER not in token
+
+
+def test_two_tokens_with_the_same_claims_are_distinct():
+    assert _token() != _token()
 
 
 def test_a_valid_token_verifies_and_returns_its_claims():
@@ -106,6 +121,23 @@ def test_a_valid_token_verifies_and_returns_its_claims():
     assert claims.user_id == USER
     assert claims.expires_at == EXPIRES
     assert claims.key_id == signing_key_id(KEY)
+    assert claims.purpose == "download"
+
+
+def test_a_legacy_v1_token_still_verifies():
+    expiry = int(EXPIRES.timestamp())
+    message = f"v1.{ARTIFACT}.{USER}.{expiry}".encode("utf-8")
+    digest = hmac.new(KEY.encode("utf-8"), message, hashlib.sha256).digest()
+    signature = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    token = f"v1.{ARTIFACT}.{expiry}.{signature}"
+
+    claims = verify_artifact_token(
+        token, [KEY], artifact_id=ARTIFACT, user_id=USER, now=NOW
+    )
+
+    assert claims.expires_at == EXPIRES
+    assert claims.key_id == signing_key_id(KEY)
+    assert claims.purpose == "download"
 
 
 def test_signing_requires_an_aware_expiry():
@@ -124,6 +156,13 @@ def test_signing_refuses_an_unusable_identifier(identifier: str):
 def test_signing_without_a_key_is_reported_as_not_configured():
     with pytest.raises(ArtifactSigningNotConfigured):
         sign_artifact_token(ARTIFACT, USER, EXPIRES, "")
+
+
+def test_signing_refuses_an_unknown_purpose():
+    with pytest.raises(ValueError):
+        sign_artifact_token(
+            ARTIFACT, USER, EXPIRES, KEY, purpose="other"  # type: ignore[arg-type]
+        )
 
 
 def test_verifying_without_a_key_is_reported_as_not_configured():
@@ -185,8 +224,11 @@ def test_a_tampered_signature_is_refused():
 
 
 def test_a_tampered_expiry_is_refused():
-    version, artifact, _, signature = _token().split(".")
-    forged = f"{version}.{artifact}.{int(EXPIRES.timestamp()) + 86400}.{signature}"
+    version, artifact, _, purpose, nonce, signature = _token().split(".")
+    forged = (
+        f"{version}.{artifact}.{int(EXPIRES.timestamp()) + 86400}."
+        f"{purpose}.{nonce}.{signature}"
+    )
     with pytest.raises(ArtifactTokenInvalid):
         verify_artifact_token(
             forged,
@@ -204,8 +246,8 @@ def test_a_token_bound_to_another_artifact_is_refused():
 
 
 def test_swapping_the_artifact_in_the_token_is_refused():
-    version, _, expiry, signature = _token().split(".")
-    forged = f"{version}.{OTHER_ARTIFACT}.{expiry}.{signature}"
+    version, _, expiry, purpose, nonce, signature = _token().split(".")
+    forged = f"{version}.{OTHER_ARTIFACT}.{expiry}.{purpose}.{nonce}.{signature}"
     with pytest.raises(ArtifactTokenInvalid):
         verify_artifact_token(
             forged, [KEY], artifact_id=OTHER_ARTIFACT, user_id=USER, now=NOW
@@ -216,6 +258,15 @@ def test_a_token_bound_to_another_user_is_refused():
     token = _token(user=OTHER_USER)
     with pytest.raises(ArtifactTokenInvalid):
         verify_artifact_token(token, [KEY], artifact_id=ARTIFACT, user_id=USER, now=NOW)
+
+
+def test_swapping_the_purpose_is_refused():
+    version, artifact, expiry, _, nonce, signature = _token().split(".")
+    forged = f"{version}.{artifact}.{expiry}.preview.{nonce}.{signature}"
+    with pytest.raises(ArtifactTokenInvalid):
+        verify_artifact_token(
+            forged, [KEY], artifact_id=ARTIFACT, user_id=USER, now=NOW
+        )
 
 
 @pytest.mark.parametrize(
@@ -255,7 +306,10 @@ def test_a_non_ascii_signature_is_refused_and_never_raises_type_error():
     ``ArtifactTokenInvalid`` comme pour n'importe quel autre jeton illisible.
     """
 
-    forged = f"{TOKEN_VERSION}.{ARTIFACT}.1789200000.é" + "A" * 42
+    forged = (
+        f"{TOKEN_VERSION}.{ARTIFACT}.1789200000.download.{'A' * 24}.é"
+        + "A" * 42
+    )
     with pytest.raises(ArtifactTokenInvalid) as excinfo:
         verify_artifact_token(forged, [KEY], artifact_id=ARTIFACT, user_id=USER, now=NOW)
     assert not isinstance(excinfo.value, ArtifactTokenExpired)
@@ -271,7 +325,10 @@ def test_a_non_ascii_signature_is_refused_before_any_comparison(monkeypatch):
         "compare_digest",
         lambda left, right: (calls.append(1), original(left, right))[1],
     )
-    forged = f"{TOKEN_VERSION}.{ARTIFACT}.1789200000.é" + "A" * 42
+    forged = (
+        f"{TOKEN_VERSION}.{ARTIFACT}.1789200000.download.{'A' * 24}.é"
+        + "A" * 42
+    )
     with pytest.raises(ArtifactTokenInvalid):
         verify_artifact_token(forged, [KEY], artifact_id=ARTIFACT, user_id=USER, now=NOW)
     assert calls == []
@@ -280,7 +337,9 @@ def test_a_non_ascii_signature_is_refused_before_any_comparison(monkeypatch):
 def test_a_non_ascii_artifact_segment_is_refused_without_crashing():
     """Le segment d'artefact non ASCII est refusé avant toute comparaison HMAC."""
 
-    forged = f"{TOKEN_VERSION}.artefact-é.1789200000.AAAA"
+    forged = (
+        f"{TOKEN_VERSION}.artefact-é.1789200000.download.{'A' * 24}.AAAA"
+    )
     with pytest.raises(ArtifactTokenInvalid):
         verify_artifact_token(
             forged, [KEY], artifact_id="artefact-é", user_id=USER, now=NOW

@@ -1,0 +1,55 @@
+/*
+ * Le modèle conserve ses couleurs propres dans une surface neutre. Les dimensions sont
+ * bornées et le contrôle reste utilisable au clavier, au tactile et à la souris.
+ */
+
+.model-preview {
+  display: grid;
+  width: min(100%, 720px);
+  gap: 8px;
+  margin: 0;
+}
+
+.model-preview-viewer {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  max-height: 70vh;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-sm, 8px);
+  background: #eef3f2;
+  color: #152326;
+  touch-action: pan-y;
+}
+
+.model-preview-viewer:focus-visible {
+  outline: 3px solid var(--workspace-accent);
+  outline-offset: 3px;
+}
+
+.model-preview-caption {
+  margin: 0;
+  color: var(--workspace-text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.model-preview-caption[data-state="error"] {
+  color: var(--workspace-danger);
+}
+
+@media (max-width: 720px) {
+  .model-preview-viewer {
+    min-height: 240px;
+    aspect-ratio: 4 / 3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-preview-viewer {
+    --interaction-prompt-display: none;
+    --progress-bar-height: 0;
+  }
+}

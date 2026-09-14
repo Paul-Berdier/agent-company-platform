@@ -24,6 +24,7 @@ class FakeElement {
   placeholder = "";
   href = "";
   src = "";
+  crossOrigin = "";
   alt = "";
   download = "";
   target = "";
@@ -115,7 +116,8 @@ function fire(node: FakeElement, type: string, event: unknown = { preventDefault
 
 async function flush(rounds = 10): Promise<void> {
   for (let index = 0; index < rounds; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
+    else await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
@@ -123,16 +125,25 @@ interface FakeLocation {
   pathname: string;
   search: string;
   hash: string;
+  href: string;
+  origin: string;
 }
 
 function installBrowser(search: string): { location: FakeLocation; replaceCalls: string[] } {
-  const location: FakeLocation = { pathname: "/library", search, hash: "" };
+  const location: FakeLocation = {
+    pathname: "/library",
+    search,
+    hash: "",
+    href: `https://app.example.test/library${search}`,
+    origin: "https://app.example.test",
+  };
   const replaceCalls: string[] = [];
   const history = {
     replaceState(_state: unknown, _title: string, url: string) {
       replaceCalls.push(url);
       const queryStart = url.indexOf("?");
       location.search = queryStart === -1 ? "" : url.slice(queryStart);
+      location.href = `${location.origin}${location.pathname}${location.search}${location.hash}`;
     },
   };
   Object.defineProperty(globalThis, "document", {
@@ -141,6 +152,9 @@ function installBrowser(search: string): { location: FakeLocation; replaceCalls:
     writable: true,
   });
   Object.defineProperty(globalThis, "location", { value: location, configurable: true, writable: true });
+  Object.defineProperty(globalThis, "window", {
+    value: { location }, configurable: true, writable: true,
+  });
   Object.defineProperty(globalThis, "history", { value: history, configurable: true, writable: true });
   return { location, replaceCalls };
 }
@@ -450,13 +464,13 @@ describe("renderLibrary — livrables", () => {
     expect(() => buttonLabelled(container, "Aperçu")).toThrow();
   });
 
-  it("ouvre un aperçu d’image par lien signé, à la demande", async () => {
+  it("ouvre un aperçu d'image par lien signé, à la demande", async () => {
     const { container, fetchMock } = await mountLibrary([
       ...DEFAULT_ROUTES,
       [/\/artifacts\/artifact-1\/link/, () => json({
         artifact_id: "artifact-1",
         url: "https://api.example.test/artifacts/artifact-1/content?token=v1.a.b.c",
-        expires_at: "2026-09-12T10:05:00Z",
+        expires_at: new Date(Date.now() + 300_000).toISOString(),
       })],
     ], { search: "?onglet=livrables" });
 
@@ -472,13 +486,83 @@ describe("renderLibrary — livrables", () => {
     expect(((linkCall?.[1] as RequestInit).headers as Headers).get("X-CSRF-Token")).toBe("csrf-shell");
   });
 
+  it("monte un visualiseur interactif seulement pour un GLB cohérent", async () => {
+    const model = artifact({
+      original_name: "atelier.glb",
+      content_type: "model/gltf-binary",
+      kind: "model-3d",
+      stream_kind: "model",
+    });
+    const { container } = await mountLibrary([
+      [/\/overview$/, () => json(OVERVIEW)],
+      [/\/missions$/, () => json([])],
+      [/\/artifacts\?/, () => json({ items: [model], next_cursor: null })],
+      [/\/artifacts\/artifact-1\/link/, () => json({
+        artifact_id: "artifact-1",
+        url: "https://preview.example.test/artifacts/artifact-1/content?token=v1.a.b.c",
+        expires_at: new Date(Date.now() + 300_000).toISOString(),
+      })],
+    ], { search: "?onglet=livrables" });
+
+    fire(buttonLabelled(container, "Aperçu"), "click");
+    await flush();
+
+    const viewers = byTag(container, "model-viewer");
+    expect(viewers).toHaveLength(1);
+    expect(viewers[0].getAttribute("src")).toContain("preview.example.test");
+    expect(viewers[0].getAttribute("camera-controls")).toBe("");
+    expect(viewers[0].getAttribute("ar")).toBeNull();
+    expect(textOf(container)).toContain("Aperçu 3D indisponible dans cet environnement");
+  });
+
+  it("bloque tout rendu 3D lorsque le lien reste sur l’origine de l’application", async () => {
+    const model = artifact({
+      original_name: "atelier.glb",
+      content_type: "model/gltf-binary",
+      kind: "model-3d",
+      stream_kind: "model",
+    });
+    const { container } = await mountLibrary([
+      [/\/overview$/, () => json(OVERVIEW)],
+      [/\/missions$/, () => json([])],
+      [/\/artifacts\?/, () => json({ items: [model], next_cursor: null })],
+      [/\/artifacts\/artifact-1\/link/, () => json({
+        artifact_id: "artifact-1",
+        url: "https://app.example.test/artifacts/artifact-1/content?token=v1.a.b.c",
+        expires_at: new Date(Date.now() + 300_000).toISOString(),
+      })],
+    ], { search: "?onglet=livrables" });
+
+    fire(buttonLabelled(container, "Aperçu"), "click");
+    await flush();
+
+    expect(byTag(container, "model-viewer")).toHaveLength(0);
+    expect(textOf(container)).toContain("Aperçu bloqué");
+    expect(byTag(container, "a").some((node) => textOf(node).includes("Télécharger sans aperçu"))).toBe(true);
+  });
+
+  it("garde un fichier glTF multi-fichiers en téléchargement sans visualiseur", async () => {
+    const { container } = await mountLibrary([
+      [/\/overview$/, () => json(OVERVIEW)],
+      [/\/missions$/, () => json([])],
+      [/\/artifacts\?/, () => json({
+        items: [artifact({ original_name: "scene.gltf", content_type: "model/gltf+json" })],
+        next_cursor: null,
+      })],
+    ], { search: "?onglet=livrables" });
+
+    expect(byTag(container, "model-viewer")).toHaveLength(0);
+    expect(textOf(container)).toContain("Seul un fichier .glb auto-contenu");
+    expect(() => buttonLabelled(container, "Aperçu")).toThrow();
+  });
+
   it("prépare un téléchargement explicite plutôt que de naviguer seul", async () => {
     const { container } = await mountLibrary([
       ...DEFAULT_ROUTES,
       [/\/artifacts\/artifact-1\/link/, () => json({
         artifact_id: "artifact-1",
         url: "https://api.example.test/artifacts/artifact-1/content?token=v1.a.b.c",
-        expires_at: "2026-09-12T10:05:00Z",
+        expires_at: new Date(Date.now() + 300_000).toISOString(),
       })],
     ], { search: "?onglet=livrables" });
 
@@ -493,36 +577,128 @@ describe("renderLibrary — livrables", () => {
     expect(anchors[0].rel).toContain("noopener");
   });
 
-  it("réutilise un lien encore valable mais en redemande un périmé", async () => {
-    function linkRoutes(expiresAt: string): [RegExp, Route][] {
-      return [
-        ...DEFAULT_ROUTES,
-        [/\/artifacts\/artifact-1\/link/, () => json({
+  it("ne réutilise jamais un lien de téléchargement comme lien d’aperçu", async () => {
+    const mounted = await mountLibrary([
+      ...DEFAULT_ROUTES,
+      [/\/artifacts\/artifact-1\/link/, (url) => {
+        const preview = url.includes("purpose=preview");
+        return json({
           artifact_id: "artifact-1",
-          url: "https://api.example.test/artifacts/artifact-1/content?token=v1.a.b.c",
-          expires_at: expiresAt,
-        })],
-      ];
-    }
-    const fresh = await mountLibrary(
-      linkRoutes(new Date(Date.now() + 300_000).toISOString()),
-      { search: "?onglet=livrables" },
-    );
-    fire(buttonLabelled(fresh.container, "Préparer le téléchargement"), "click");
-    await flush();
-    fire(buttonLabelled(fresh.container, "Aperçu"), "click");
-    await flush();
-    expect(calledUrls(fresh.fetchMock).filter((url) => url.includes("/link"))).toHaveLength(1);
+          url: preview
+            ? "https://preview.example.test/artifacts/artifact-1/content?token=preview-token"
+            : "https://api.example.test/artifacts/artifact-1/content?token=download-token",
+          expires_at: new Date(Date.now() + 300_000).toISOString(),
+        });
+      }],
+    ], { search: "?onglet=livrables" });
 
-    const stale = await mountLibrary(
-      linkRoutes("2020-01-01T00:00:00Z"),
-      { search: "?onglet=livrables" },
-    );
-    fire(buttonLabelled(stale.container, "Préparer le téléchargement"), "click");
+    fire(buttonLabelled(mounted.container, "Préparer le téléchargement"), "click");
     await flush();
-    fire(buttonLabelled(stale.container, "Aperçu"), "click");
+    fire(buttonLabelled(mounted.container, "Aperçu"), "click");
     await flush();
-    expect(calledUrls(stale.fetchMock).filter((url) => url.includes("/link"))).toHaveLength(2);
+
+    const linkCalls = calledUrls(mounted.fetchMock).filter((url) => url.includes("/link"));
+    expect(linkCalls).toHaveLength(2);
+    expect(linkCalls.some((url) => url.includes("purpose=preview"))).toBe(true);
+    expect(byTag(mounted.container, "img")[0].src).toContain("preview-token");
+    expect(byTag(mounted.container, "a")[0].href).toContain("download-token");
+  });
+
+  it("invalide automatiquement un aperçu expiré et le régénère sans relire les livrables", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T10:00:00Z"));
+    let generation = 0;
+    let mounted: Awaited<ReturnType<typeof mountLibrary>> | null = null;
+    try {
+      mounted = await mountLibrary([
+        ...DEFAULT_ROUTES,
+        [/\/artifacts\/artifact-1\/link/, () => {
+          generation += 1;
+          return json({
+            artifact_id: "artifact-1",
+            url: `https://preview.example.test/artifacts/artifact-1/content?token=preview-${generation}`,
+            expires_at: new Date(Date.now() + 300_000).toISOString(),
+          });
+        }],
+      ], { search: "?onglet=livrables" });
+
+      fire(buttonLabelled(mounted.container, "Aperçu"), "click");
+      await flush();
+      expect(byTag(mounted.container, "img")[0].src).toContain("preview-1");
+      const artifactReads = calledUrls(mounted.fetchMock).filter((url) => url.includes("/artifacts?")).length;
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Un repaint intermédiaire remplace le timer existant, il ne l'empile pas.
+      fire(byClass(mounted.container, "library-search")[0], "input");
+      await flush();
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Le timer atteint seul la marge de sécurité de 15 s, sans interaction ni reload.
+      await vi.advanceTimersByTimeAsync(285_001);
+      await flush();
+
+      expect(byTag(mounted.container, "img")).toHaveLength(0);
+      expect(textOf(mounted.container)).toContain("Le lien d’aperçu a expiré");
+      expect(calledUrls(mounted.fetchMock).filter((url) => url.includes("/artifacts?"))).toHaveLength(artifactReads);
+      expect(calledUrls(mounted.fetchMock).filter((url) => url.includes("/link"))).toHaveLength(1);
+
+      fire(buttonLabelled(mounted.container, "Régénérer l’aperçu"), "click");
+      await flush();
+
+      expect(calledUrls(mounted.fetchMock).filter((url) => url.includes("/link"))).toHaveLength(2);
+      expect(byTag(mounted.container, "img")[0].src).toContain("preview-2");
+      expect(textOf(mounted.container)).not.toContain("Le lien d’aperçu a expiré");
+      expect(vi.getTimerCount()).toBe(1);
+
+      mounted.module.resetLibraryUiState();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      mounted?.module.resetLibraryUiState();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retire un téléchargement expiré et le régénère sans relire les livrables", async () => {
+    let now = Date.parse("2026-09-12T10:00:00Z");
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let generation = 0;
+    try {
+      const mounted = await mountLibrary([
+        ...DEFAULT_ROUTES,
+        [/\/artifacts\/artifact-1\/link/, () => {
+          generation += 1;
+          return json({
+            artifact_id: "artifact-1",
+            url: `https://api.example.test/artifacts/artifact-1/content?token=download-${generation}`,
+            expires_at: new Date(now + 300_000).toISOString(),
+          });
+        }],
+      ], { search: "?onglet=livrables" });
+
+      fire(buttonLabelled(mounted.container, "Préparer le téléchargement"), "click");
+      await flush();
+      expect(byTag(mounted.container, "a")[0].href).toContain("download-1");
+      const artifactReads = calledUrls(mounted.fetchMock).filter((url) => url.includes("/artifacts?")).length;
+
+      now += 286_000;
+      fire(byClass(mounted.container, "library-search")[0], "input");
+      await flush();
+
+      expect(byTag(mounted.container, "a")).toHaveLength(0);
+      expect(textOf(mounted.container)).toContain("Le lien de téléchargement a expiré");
+      expect(calledUrls(mounted.fetchMock).filter((url) => url.includes("/artifacts?"))).toHaveLength(artifactReads);
+      expect(calledUrls(mounted.fetchMock).filter((url) => url.includes("/link"))).toHaveLength(1);
+
+      fire(buttonLabelled(mounted.container, "Régénérer le téléchargement"), "click");
+      await flush();
+
+      expect(calledUrls(mounted.fetchMock).filter((url) => url.includes("/link"))).toHaveLength(2);
+      expect(byTag(mounted.container, "a")[0].href).toContain("download-2");
+      expect(textOf(mounted.container)).not.toContain("Le lien de téléchargement a expiré");
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("nomme l’action à effectuer quand la signature de liens est absente et propose la voie session", async () => {

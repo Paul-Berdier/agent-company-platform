@@ -16,11 +16,14 @@ un runner authentifié, résultats de tests structurés, stockage privé de livr
 liens signés, Studio en lecture seule et bibliothèque de livrables. Le Lot F ajoute
 les routines planifiées, le calendrier IANA, un planificateur avec bail et fencing,
 les budgets réellement appliqués, la détection de saturation, les alertes in-app et
-les surfaces web/CLI correspondantes.
+les surfaces web/CLI correspondantes. Le Lot G ajoute un parcours E2E Playwright
+strictement opt-in, l'aperçu de GLB validés sur une origine séparée, un connecteur
+ComfyUI privé et deux exécuteurs worker explicites pour Codex CLI et Claude Code.
 
 Une instance Hermes réelle, un serveur MCP tiers et une isolation OS du runner ne sont
-toujours pas validés. **Aucun navigateur réel n'a été lancé et aucun test Playwright
-réel n'a été exécuté** ; la reprise en main humaine du navigateur n'est pas livrée.
+toujours pas validés. Le harnais E2E existe, mais **aucun navigateur réel n'a été lancé
+et aucun test Playwright réel n'a été exécuté dans cette validation** ; la reprise en
+main humaine du navigateur n'est pas livrée.
 PostgreSQL, Railway et les sauvegardes restent au Lot H. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
@@ -61,8 +64,9 @@ décrits dans [CHANGELOG.md](CHANGELOG.md).
   et protégé par un fencing token ; clé de tir unique en base, rejeu sans seconde
   mission, limite de concurrence et désactivation après trois échecs consécutifs ;
 - budgets par mission, journée et fournisseur avec permis avant effet, rapports
-  idempotents et valeurs inconnues distinctes de zéro ; `max_spawned_agents_per_run`
-  est persisté mais attend le point de spawn du Lot G avant d'être appliqué ;
+  idempotents et valeurs inconnues distinctes de zéro ; l'exécuteur Lot G lance au plus
+  une invocation CLI de premier niveau par tentative, sans compter ses descendants ni
+  prétendre démontrer `max_spawned_agents_per_run` globalement ;
 - alertes durables dédupliquées et à sévérité monotone pour les budgets, les routines
   et la saturation du stockage ; préférences personnelles et canal in-app uniquement ;
 - worker réel opt-in exécutant exclusivement un argv local configuré, sans shell,
@@ -70,6 +74,14 @@ décrits dans [CHANGELOG.md](CHANGELOG.md).
   processus et verdict fail-closed ; ce backend n'accepte que les missions
   supervisées dont les trois listes d'actions sont vides et les ressources en
   lecture seule ;
+- exécuteurs Codex CLI et Claude Code raccordés à la boucle réelle du worker : opt-in
+  par chemins absolus, profils d'authentification séparés, racines projet allowlistées,
+  mission supervisée et une seule invocation CLI fencée de premier niveau ; Codex reçoit
+  le mode lecture/écriture déclaré, Claude des outils de lecture, sans isolation OS
+  supplémentaire fournie par ACP ; les capacités persistées sont revérifiées contre le
+  backend actif avant tout heartbeat/claim, et les écritures Codex visant une même racine
+  sont sérialisées par un verrou interprocessus coopératif adjacent au projet ; un
+  nettoyage incertain publie une quarantaine durable, jamais levée automatiquement ;
 - clôture d'arrêt Windows : tout processus lancé par le runner, sonde MCP `stdio`
   comprise, est enfermé dès sa création dans un Job Object ; plus aucun descendant ne
   survit à une tentative, même derrière un lanceur (`.venv`, `npx.cmd`, `uvx`), et une
@@ -112,12 +124,27 @@ décrits dans [CHANGELOG.md](CHANGELOG.md).
   écrit un NDJSON local, et c'est le worker authentifié qui l'ingère ; les statuts
   `passed`, `failed`, `timedOut`, `skipped`, `interrupted` et `flaky` restent
   distincts ;
+- paquet E2E Playwright isolé des workspaces, qui ne charge aucun navigateur sans
+  `ACP_E2E=1` exact ; le parcours réel se connecte, ouvre Missions puis le Studio d'une
+  tentative existante, avec trafic limité aux origines web/API déclarées ; chaque
+  requête HTTP réelle est non retentée, ne suit aucune redirection et tout `3xx` est
+  refusé avant d'atteindre le navigateur. `Worker`, `SharedWorker` et `EventSource`
+  sont neutralisés dans cette preuve, qui exerce donc le vrai repli polling du Studio ;
 - exécution de tests web sur un runner opt-in : argv absolu configuré par l'opérateur,
   aucun credential de la plateforme remis au processus de test, clôture d'arrêt Job
   Object, rapport vide ou arrêt d'arbre non prouvé ⇒ échec explicite, jamais un succès ;
 - livrables privés adressés par contenu : téléversement worker idempotent par sha256
   avec plafond et quota, téléchargement par session ou par lien signé borné et
   révocable, `Range` supporté, et HTML/SVG/archives jamais servis en ligne ;
+- aperçu 3D à la demande avec `@google/model-viewer` pour les seuls `.glb` v2
+  auto-contenus, cohérents et scellés par leur sha256 ; `.gltf`, URI externes, chunks
+  inconnus et extensions nécessitant un décodeur externe restent refusés ou en
+  téléchargement ; buffers, vues, accessors/strides et images sont validés sous des
+  budgets mémoire/pixels avant que le fichier puisse atteindre le moteur WebGL ;
+- connecteur ComfyUI optionnel derrière le Bearer inter-services du gateway : workflow
+  JSON fixé par l'opérateur, prompt seul injecté, appels `/prompt`, `/history` et
+  `/view` bornés, réponse PNG/JPEG/WebP vérifiée, concurrence/cache mémoire bornés et
+  tombstone après toute soumission `/prompt` incertaine ;
 - Studio en lecture seule dans le détail d'une mission (`/missions?run=<id>&vue=studio`)
   et onglet « Livrables » de la bibliothèque ;
 - commandes `acp runs events`, `acp runs tests`, `acp artifacts list | get | link` et
@@ -128,8 +155,10 @@ Ce qui ne fonctionne pas encore est visible comme `Non configuré` et recensé d
 [le rapport d'acceptation](docs/acceptance-report.md). En particulier : aucune
 exécution Playwright réelle, aucune capture ni trace produite par un vrai navigateur,
 aucune reprise en main humaine du navigateur, et aucune origine d'aperçu séparée
-configurée. Le stockage d'artefacts reste local et aucun adaptateur objet externe n'a
-été éprouvé. Le projet n'est pas prêt à être exposé sur Internet.
+configurée. Une demande d'aperçu échoue donc explicitement en `424`, sans repli sur
+l'origine de l'API ; le téléchargement reste disponible. Le stockage d'artefacts reste
+local et aucun adaptateur objet externe n'a été éprouvé. Le projet n'est pas prêt à
+être exposé sur Internet.
 
 ## Architecture
 
@@ -137,9 +166,9 @@ configurée. Le stockage d'artefacts reste local et aucun adaptateur objet exter
 Web (Vite/TypeScript) ─┐
                       ├── API métier (FastAPI) ── base plateforme
 CLI acp ───────────────┘         │
-                                ├── provider-gateway ── Hermes Agent séparé
+                                ├── provider-gateway ── Hermes / ComfyUI séparés
                                 ├── service d'événements
-                                └── workers enrôlés ── backend local configuré
+                                └── workers enrôlés ── runner fixe ou CLI agent opt-in
                                       └── bail du planificateur de routines
 ```
 
@@ -200,9 +229,10 @@ documentées dans `.env.example` et dans
 Pour les liens de téléchargement signés, définir `ACP_ARTIFACT_SIGNING_KEYS`
 (`python -m acp_api.signing generate-key` ; même discipline de rotation par liste).
 Sans clé, la création d'un lien répond `503` explicite et le téléchargement par session
-reste possible. Avant d'exposer le Studio sur un réseau, définir aussi
-`ACP_ARTIFACT_PUBLIC_ORIGIN` : tant que cette variable est vide, les aperçus signés
-sont servis par l'origine de l'API et l'interface affiche cet écart. Les autres
+reste possible. Avant d'exposer le Studio sur un réseau, définir explicitement
+`ACP_API_URL` et `ACP_ARTIFACT_PUBLIC_ORIGIN`, cette dernière avec une origine HTTPS
+distincte de l'API et du shell : tant qu'une de ces valeurs est vide ou invalide, la
+création d'un lien d'aperçu répond `424` avant d'émettre le jeton. Les autres
 variables du Lot E — flux SSE, rétention, stockage et quotas de livrables, tests web du
 worker — sont documentées dans `.env.example` et dans
 [docs/live-studio.md](docs/live-studio.md).
@@ -217,9 +247,18 @@ Le seed local reste un jeu de démonstration et `create_all()` ne remplace pas d
 migrations de production. Un worker doit être enregistré séparément selon
 [la procédure Windows](docs/workers/windows-worker.md). Son mode simulation termine
 nominalement en `blocked` et ne peut jamais réussir. Le mode réel exige un argv, une
-racine et un provider non simulé configurés localement ; le programme autorisé
+racine et un provider non simulé lorsqu'il utilise le runner fixe ; le programme autorisé
 conserve les droits OS du compte worker et n'est donc pas une sandbox pour du code
 non fiable.
+
+Le runner fixe n'est plus l'unique backend réel : un worker peut aussi activer Codex
+CLI ou Claude Code par une configuration locale complète. Voir
+[les exécuteurs locaux](docs/providers-local-executors.md) ; aucune découverte fortuite
+depuis le `PATH` n'active ces capacités. L'enregistrement et chaque démarrage refusent
+également une capacité agent explicite ou persistée si son backend local correspondant
+n'est plus complètement configuré. Les capacités agent exigent un scope projet dont la
+racine est allowlistée ; elles sont refusées en scope global tant que le claim ne sait
+pas filtrer cette allowlist locale.
 
 ## CLI et missions
 
@@ -291,9 +330,10 @@ Commandes principales :
 
 ```powershell
 ./.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
-npm exec tsc -- --noEmit -p apps/web/tsconfig.json
+npm run typecheck --workspace @acp/web
 npm test --workspace @acp/web
 npm test --workspace @acp/playwright-reporter
+npm run test:e2e:unit
 npm test --workspace @acp/pixel-office-engine
 npm run build:web
 ./.venv/Scripts/python.exe scripts/check_version.py
@@ -318,9 +358,10 @@ avertissements connus**, **295 tests web sur 23 fichiers**, **59 tests du report
 quatre jobs Python 3.12 et Node 22 déclenchés par le dernier push et la PR ont été
 observés verts avant la fusion ; le tag annoté distant `v0.7.0` pointe sur `0b4d904`.
 
-Aucune de ces commandes ne lance de navigateur. L'opt-in de test E2E Playwright réel
-n'existe pas encore dans le dépôt : un résultat vert ici ne dit **rien** sur une
-exécution Playwright réelle.
+Aucune de ces commandes ne lance de navigateur. Le parcours réel est livré dans le
+paquet isolé `e2e/` et `npm run test:e2e` sort explicitement `[E2E SKIPPED]` tant que
+`ACP_E2E` ne vaut pas exactement `1`. Son activation exige une cible, un compte et une
+tentative réels : elle n'a pas été effectuée pour ce lot. Voir [e2e/README.md](e2e/README.md).
 
 Un parcours de bout en bout, hors intégration continue, démarre l'API et un vrai
 serveur MCP local puis rejoue l'ajout, le diagnostic, le rattachement, l'activation,
@@ -355,6 +396,9 @@ reprennent toujours par polling `GET`.
 - [Automatisations, budgets et alertes](docs/automations.md)
 - [Centre MCP et bibliothèque de skills](docs/mcp-and-skills.md)
 - [Studio, journal d'événements, tests web et livrables](docs/live-studio.md)
+- [Médias, aperçu 3D et ComfyUI](docs/media-and-3d.md)
+- [Exécuteurs locaux Codex CLI et Claude Code](docs/providers-local-executors.md)
+- [Parcours E2E Playwright réel, opt-in](e2e/README.md)
 - [CLI `acp` — référence des commandes](apps/cli/README.md)
 - [Worker Windows distant](docs/workers/windows-worker.md)
 - [Contrat du runner worker](apps/worker/RUNNER.md)

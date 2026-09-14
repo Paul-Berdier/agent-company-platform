@@ -48,10 +48,11 @@ prévus, arrêter l'API, supprimer ou faire tourner ce secret dans son environne
 puis la relancer ; sinon ce même jeton continue d'autoriser de nouveaux workers.
 Pour un nouvel enrôlement ultérieur, utiliser une nouvelle valeur temporaire.
 
-`register` détecte automatiquement `git`, Claude Code, Codex CLI et Blender
-lorsqu'ils sont présents dans le `PATH`. Les capacités de base
-`filesystem_project` et `shell_restricted` sont toujours annoncées. Une liste
-explicite peut être fournie plusieurs fois :
+`register` ne déduit jamais Claude Code ni Codex CLI du `PATH`. Ces deux capacités
+exigent l'opt-in complet décrit au § 4. Les capacités génériques
+`filesystem_project` et `shell_restricted`, ainsi que la détection de `git` et Blender,
+ne sont annoncées que si le runner à argv fixe est réellement configuré. Une liste
+explicite peut être fournie plusieurs fois, sans rendre disponible un backend absent :
 
 ```powershell
 ./.venv/Scripts/agent-company-worker.exe register `
@@ -61,6 +62,10 @@ explicite peut être fournie plusieurs fois :
   --project <project-id> `
   --max-concurrency 2
 ```
+
+Cette cohérence est revérifiée au démarrage contre les capacités persistées. Si Codex ou
+Claude a été désactivé depuis l'enrôlement, le worker s'arrête avant tout heartbeat ou
+claim et demande un nouvel enregistrement.
 
 Un nouvel enrôlement doit choisir **exactement un** périmètre. `--project ID`
 est le choix normal : l'API filtre ce projet dans la requête SQL avant le verrou et
@@ -111,18 +116,32 @@ Variables utiles :
 |---|---:|---|
 | `ACP_API_URL` | `http://localhost:8000` | API centrale |
 | `ACP_PROVIDER_GATEWAY_URL` | `http://localhost:8002` | passerelle providers |
+| `ACP_GATEWAY_SERVICE_TOKEN` | non défini | Bearer inter-services obligatoire en mode réel |
 | `ACP_WORKER_STATE_DIR` | `%USERPROFILE%\.agent-company-worker` | état et journal locaux |
 | `ACP_WORKER_MAX_CONCURRENCY` | `1` | slots annoncés, entier de 1 à 32 |
 | `ACP_WORKER_SIMULATION` | `1` | `1` simulation bloquée ; `0` réel ; toute autre valeur est refusée |
 | `ACP_WORKER_PROJECT_ID` | non défini | projet unique autorisé pour les claims |
 | `ACP_WORKER_GLOBAL_ACCESS` | `0` | `1` donne explicitement accès à tous les projets et au planificateur |
 | `ACP_ORCHESTRATOR_PROVIDER` | `mock` | simulation uniquement ; interdit en mode réel |
+| `ACP_WORKER_CODEX_ENABLED` | `0` | `1` active Codex uniquement avec exécutable, profil et racines valides |
+| `ACP_WORKER_CODEX_EXECUTABLE` / `ACP_WORKER_CODEX_HOME` | non définis | exécutable absolu et profil Codex séparé |
+| `ACP_WORKER_CLAUDE_ENABLED` | `0` | `1` active Claude uniquement avec exécutable, profil et racines valides |
+| `ACP_WORKER_CLAUDE_EXECUTABLE` / `ACP_WORKER_CLAUDE_CONFIG_DIR` | non définis | exécutable absolu et profil Claude séparé |
+| `ACP_WORKER_EXECUTOR_PROJECTS_JSON` | non défini | objet JSON `project_id -> racine absolue` des projets autorisés |
+| `ACP_WORKER_EXECUTOR_PATH` | vide | `PATH` minimal facultatif remis aux CLIs |
+| `ACP_WORKER_EXECUTOR_TIMEOUT_SECONDS` | `1800` | délai global, plafonné à 3 600 s |
 
 Les deux URL de service sont des origines sans chemin, query, fragment ou userinfo.
 HTTP est accepté uniquement pour `localhost`, `127.0.0.0/8` et `::1` ; une machine
 distante doit exposer l'API et le gateway en HTTPS.
 
-## 4. Configurer le backend de processus réel
+## 4. Configurer un backend réel
+
+Le mode réel accepte soit le runner à argv fixe historique, soit au moins un exécuteur
+Codex/Claude complètement configuré. Les tests web réels exigent encore le runner fixe,
+car sa racine de sortie porte leurs rapports et pièces jointes.
+
+### Runner à argv fixe
 
 Le backend réel n'accepte jamais une commande fournie par une mission. L'opérateur
 configure un tableau JSON non vide : le premier élément est le chemin absolu d'un
@@ -161,7 +180,8 @@ Enrôler ensuite explicitement le worker réel, puis le démarrer :
 ./.venv/Scripts/agent-company-worker.exe start
 ```
 
-`register --real` vérifie la configuration locale puis enrôle le worker auprès de
+`register --real` vérifie qu'au moins un backend local autorisé est disponible puis
+enrôle le worker auprès de
 l'API ; il ne sonde pas Hermes. Avant `start`, exécuter `doctor` : il vérifie la
 liveness API/gateway, l'authentification worker et la disponibilité authentifiée du
 provider configuré. Son code est non nul si l'une de ces conditions manque.
@@ -172,10 +192,52 @@ est écrit atomiquement dans le répertoire de tentative avant le PATCH terminal
 un conflit réseau ne supprime donc pas la preuve locale. Le répertoire existant
 d'une tentative n'est jamais réutilisé implicitement.
 
-stdout/stderr restent des contenus non fiables et potentiellement sensibles. Ils
-sont bornés mais non expurgés avant `evidence.json` et l'API. Ne jamais allowlister
-un secret destiné au programme ; restreindre l'accès à la racine des runs et définir
-une politique de rétention.
+### Codex CLI ou Claude Code
+
+Les exécuteurs agents utilisent des chemins absolus, un profil d'authentification
+séparé du profil personnel et une allowlist de racines projet :
+
+```powershell
+$env:ACP_WORKER_SIMULATION = '0'
+$env:ACP_WORKER_CODEX_ENABLED = '1'
+$env:ACP_WORKER_CODEX_EXECUTABLE = 'C:\outils\codex\codex.exe'
+$env:ACP_WORKER_CODEX_HOME = 'C:\acp-worker-auth\codex'
+$env:ACP_WORKER_EXECUTOR_PROJECTS_JSON = '{"project-id":"C:\\projets\\project-id"}'
+$env:ACP_GATEWAY_SERVICE_TOKEN = '<secret inter-services>'
+$env:ACP_ORCHESTRATOR_PROVIDER = 'hermes'
+./.venv/Scripts/agent-company-worker.exe doctor
+```
+
+Pour créer une mission Codex en lecture seule avec le CLI plateforme :
+
+```powershell
+acp run --project project-id --goal "Auditer ce projet" `
+  --resource project_workspace=project-id:read `
+  --require-capability codex_cli
+```
+
+Remplacer la capacité par `claude_code` pour Claude. Codex accepte aussi `:write` ;
+Claude le refuse. La mission doit rester `supervised`, sans action autorisée, interdite
+ou soumise à approbation, et sans seconde ressource. Deux capacités agent simultanées
+sont refusées. Les options complètes et les preuves persistées sont décrites dans
+[les exécuteurs locaux](../providers-local-executors.md).
+
+Une mission Codex `:write` conserve un verrou interprocessus adjacent à la racine
+canonique pendant toute l'invocation. Plusieurs processus worker voyant le même checkout
+sur le même système de fichiers se sérialisent ; protéger le dossier parent par ACL et,
+sur un partage réseau, valider les garanties de verrouillage ou donner un worktree
+distinct à chaque worker.
+
+`doctor` affiche uniquement les noms d'exécuteurs activés et le nombre de racines
+allowlistées. Il ne publie ni chemins, ni profils, ni secrets.
+
+Pour le runner à argv fixe, stdout/stderr restent des contenus non fiables et
+potentiellement sensibles. Ils sont bornés mais non expurgés avant `evidence.json` et
+l'API : ne jamais lui allowlister un secret, restreindre l'accès à la racine des runs
+et définir une politique de rétention. Les exécuteurs Codex/Claude suivent une règle
+plus stricte : leur preuve conserve des métadonnées opérationnelles, le code de sortie,
+le nombre d'événements, les tailles et les sha256, jamais le prompt ni les flux bruts.
+Un code nul exige aussi l'événement terminal de succès propre au CLI.
 
 ## 5. Capacités exigées par une tâche
 
@@ -202,12 +264,20 @@ profondeur).
   l'API ; la configuration worker refuse déjà HTTP hors loopback ;
 - le heartbeat expire après 45 secondes et chaque task run possède son propre
   lease renouvelé pendant l'exécution ;
-- `--real` désactive la simulation et échoue fermé tant que l'argv et la racine du
-  backend local ne sont pas configurés ;
+- `--real` désactive la simulation et échoue fermé tant qu'aucun runner fixe ni
+  exécuteur agent complet n'est configuré ;
 - le programme configuré est du code de confiance de l'opérateur. Le cwd dédié,
   l'environnement minimal, les limites et l'arrêt de l'arbre de processus rendent
   l'exécution contrôlable, mais ne constituent pas une sandbox OS : le programme
   conserve les droits du compte Windows et sa politique réseau ;
+- une racine projet sélectionne le cwd sans limiter les fichiers lisibles par ce compte.
+  Ne pas partager un worker entre projets non mutuellement fiables : utiliser un compte,
+  conteneur ou VM et un pare-feu dédiés à chaque frontière de confiance ;
+- la résolution canonique ne verrouille pas l'identité d'un chemin jusqu'au spawn.
+  Protéger par ACL les exécutables, profils, dossiers de `PATH`, racines et parents
+  contre tout remplacement ou reparse point concurrent ;
+- ACP lance un seul CLI de premier niveau mais ne bloque ni ne compte les processus ou
+  agents descendants ; `spawned_agents=1` décrit seulement l'invocation gérée ;
 - sous Windows, tout spawn du runner est enfermé dans un Job Object dès sa création
   (voir § 7) ; la convergence native Toolhelp reste une vérification indépendante et
   fait échouer le run si l'arrêt n'est pas prouvé ;

@@ -1,6 +1,6 @@
 # Décisions de réemploi
 
-Vérification : 11 septembre 2026, complétée le 12 septembre 2026 pour le Lot D. Une
+Vérification : 11 septembre 2026, complétée le 14 septembre 2026 pour le Lot G. Une
 dépendance n'est ajoutée au produit qu'après épinglage dans un lock et vérification de
 sa licence propre, de ses assets et des modèles qu'elle télécharge.
 
@@ -8,13 +8,13 @@ sa licence propre, de ses assets et des modèles qu'elle télécharge.
 |---|---|---|---|---|
 | Hermes Agent | v0.21.1, tag `v2026.9.7` ; API Runs, sessions, jobs, skills/toolsets, dashboard et extensions | MIT | version publiée le 7 septembre 2026 | **Retenu comme runtime principal séparé.** Coût moyen : adaptateur, mapping d'identifiants, persistance SSE, auth de service et stockage natif Hermes |
 | Dashboard Hermes | extensions drop-in, thèmes et plugins UI/backend | inclus dans Hermes (MIT) | même cycle que Hermes | **Non retenu comme shell principal.** Utilisable plus tard comme console native ; pas d'iframe ni de fork massif |
-| Codex App Server | protocole JSON-RPC, stdio stable ; WebSocket documenté expérimental | composant open source Codex, licence à conserver avec la distribution choisie | surface générable depuis la version locale | **Retenu pour une future UX riche** (threads, événements, approbations). Pour les jobs simples, préférer le SDK. Aucun branchement produit dans le Lot A |
-| Claude Agent SDK | sessions, outils, permissions et hooks officiels | à revérifier au moment de l'ajout du paquet | actif | **Retenu comme futur adaptateur**, pas comme orchestrateur Hermes. Coût moyen/fort : approbations, coût, reprise et sandbox |
-| Playwright | reporter, screenshots, vidéos, trace viewer | Apache-2.0 | actif, multi-navigateur | **Retenu pour le Studio et les E2E.** Coût moyen : runner navigateur isolé, stockage privé des traces et normalisation des statuts |
+| Codex App Server | protocole JSON-RPC, stdio stable ; WebSocket documenté expérimental | composant open source Codex, licence à conserver avec la distribution choisie | surface générable depuis la version locale | **Retenu pour une future UX riche** (threads, événements, approbations). Aucun App Server n'est raccordé ; l'exécuteur CLI borné du Lot G est une intégration distincte |
+| Claude Agent SDK | sessions, outils, permissions et hooks officiels | à revérifier au moment de l'ajout du paquet | actif | **Retenu comme futur adaptateur riche**, pas comme orchestrateur Hermes. Le Lot G lance le CLI en lecture seule, sans ajouter le SDK |
+| Playwright | reporter, screenshots, vidéos, trace viewer ; paquet E2E isolé `1.55.1` | Apache-2.0 | actif, multi-navigateur | **Retenu pour le Studio et les E2E.** Le reporter reste sans dépendance ; le vrai paquet n'existe que sous `e2e/`, hors workspaces racine et sans installation de navigateur implicite |
 | xterm.js | API terminal web 6.x | MIT | actif | **Retenu conditionnellement.** Seulement après création d'un PTY authentifié à contrôle exclusif. La documentation xterm rappelle qu'un terminal web expose les frappes et hérite des risques XSS |
-| `<model-viewer>` | visualiseur glTF/GLB web | Apache-2.0 | actif | **Retenu pour l'aperçu 3D**, car plus petit et plus spécialisé que Three.js pour le besoin de base |
+| `<model-viewer>` | `@google/model-viewer` `4.3.1`, visualiseur GLB web chargé à la demande | Apache-2.0 | actif | **Retenu et verrouillé pour l'aperçu 3D**, car plus spécialisé que Three.js pour le besoin de base ; l'API valide et scelle le GLB avant que le composant ne reçoive son URL |
 | Three.js | moteur 3D général | MIT, à revérifier lors du pin | actif | **Non retenu pour le premier aperçu.** À ajouter seulement si mesures, annotations ou rendu avancé dépassent model-viewer |
-| ComfyUI | `/prompt`, `/ws`, historique, vues et interruption | GPL-3.0 | actif | **Connecteur de service optionnel**, jamais bibliothèque liée au cœur. Coût fort : auth réseau, files GPU, modèles/nœuds et licences de chaque workflow |
+| ComfyUI | `/system_stats`, `/prompt`, `/history/{id}` et `/view` ; ni `/ws` ni interruption globale | GPL-3.0 | actif | **Connecteur de service optionnel livré dans le gateway**, jamais bibliothèque liée au cœur. Workflow fixe, prompt seul injecté ; pas encore raccordé aux missions ni au stockage d'artefacts |
 | noVNC | client VNC web | MPL-2.0, à revérifier lors du pin | actif | **Différé.** Pertinent uniquement pour un runner graphique isolé ; ce n'est pas un substitut au Studio Playwright |
 | OpenHands | plateforme agentique complète | licence/version à réauditer si le besoin apparaît | actif | **Écarté pour l'instant.** Dupliquerait orchestration, UI et sandbox sans besoin démontré |
 | Phaser/pixel-office-engine | Phaser 3.90.0 déjà verrouillé ; moteur local | Phaser MIT ; assets LimeZu sous licence distincte | existant | **Conservé derrière une fonctionnalité legacy désactivée.** Aucun chargement dans le parcours principal |
@@ -34,15 +34,29 @@ Aucune autre dépendance n'a été ajoutée au Lot D : rien côté web, CLI ou w
 
 | Composant | Révision/surface évaluée | Licence | Maintenance | Décision et coût d'intégration |
 |---|---|---|---|---|
-| Interface Reporter de Playwright | `onBegin`, `onTestBegin`, `onStepBegin`, `onStepEnd`, `onTestEnd`, `onError`, `onEnd` ; statuts `passed`/`failed`/`timedOut`/`skipped`/`interrupted`, `result.retry`, pièces jointes | Apache-2.0 (Playwright) ; **aucune dépendance ajoutée au dépôt** | projet actif, multi-navigateur | **Interface implémentée, paquet non ajouté.** `packages/playwright-reporter` implémente le contrat sans importer `@playwright/test` : la plateforme n'installe jamais Playwright et ne l'impose pas au dépôt. C'est l'opérateur qui l'installe sur son runner (≥ 1.44). Coût faible, et le dépôt reste installable sans navigateur. Limite assumée : sans le paquet, aucun typage n'est vérifié contre la vraie interface — la conformité repose sur des objets synthétiques, et **aucune exécution Playwright réelle ne l'a encore confirmée** |
+| Interface Reporter de Playwright | `onBegin`, `onTestBegin`, `onStepBegin`, `onStepEnd`, `onTestEnd`, `onError`, `onEnd` ; statuts `passed`/`failed`/`timedOut`/`skipped`/`interrupted`, `result.retry`, pièces jointes | Apache-2.0 (Playwright) ; **aucune dépendance ajoutée au Lot E ni au workspace racine** | projet actif, multi-navigateur | **Interface implémentée sans paquet Playwright au Lot E.** `packages/playwright-reporter` implémente le contrat sans importer `@playwright/test` : le chemin `web_tests` laisse l'installation au runner. Le Lot G ajoute séparément `@playwright/test` dans `e2e/`, sans changer ce contrat. Aucune exécution Playwright réelle n'a encore confirmé la chaîne reporter → worker |
 | SSE (`text/event-stream`) plutôt qu'un WebSocket | corps SSE natif de Starlette/FastAPI, `EventSource` natif du navigateur avec `withCredentials`, `Last-Event-ID` | standard HTML ; aucune dépendance ajoutée | stable | **Retenu pour le flux utilisateur.** Un sens unique suffit (le Studio observe, il ne pilote pas), `EventSource` gère la reconnexion et `Last-Event-ID` donne la reprise par curseur sans protocole maison. Un WebSocket aurait imposé une couche d'authentification et de reprise à écrire ; le WebSocket anonyme du service d'événements reste fermé. Limite assumée : une rotation de connexion est nécessaire (`ACP_STREAM_MAX_SECONDS`) et le flux n'a jamais été consommé par un vrai navigateur |
 | Tail de base par curseur plutôt qu'un courtier | interrogation bornée (`ACP_STREAM_POLL_INTERVAL_MS`) réveillée par un hub intra-processus | aucune dépendance ajoutée | — | **Retenu.** Redis ou un courtier auraient ajouté un service à exploiter et un second état à réconcilier ; ici la base reste la seule source de vérité, donc une reconnexion ne duplique ni ne perd, et plusieurs processus d'API peuvent servir la même tentative. Coût assumé : une latence nominale bornée par l'intervalle d'interrogation, documentée comme telle |
 | Stockage disque adressé par contenu plutôt qu'un SDK S3 | `write` / `open` / `delete` / `exists`, écriture atomique par `os.replace` | aucune dépendance ajoutée | — | **Retenu pour ce lot.** L'interface `ArtifactStorage` est explicite pour accueillir un adaptateur objet ; l'ajouter maintenant aurait imposé une dépendance et un compte de stockage sans besoin démontré. Limite assumée : sur un hébergeur, ce répertoire exige un volume persistant, et **aucun adaptateur objet n'est livré** |
-| HMAC-SHA256 de la bibliothèque standard plutôt qu'un JWT | `hmac` + `hashlib` + base64url, format `v1.<artifact_id>.<exp>.<sig>`, clés en liste pour la rotation | aucune dépendance ajoutée | — | **Retenu pour les liens de téléchargement.** Le jeton ne porte que trois champs et n'est jamais lu par un tiers : une bibliothèque JWT aurait apporté un format extensible, des algorithmes à exclure et une surface d'attaque, sans bénéfice. Le lien est en plus enregistré en base, donc révocable — ce qu'un JWT autoporteur ne permet pas |
+| HMAC-SHA256 de la bibliothèque standard plutôt qu'un JWT | `hmac` + `hashlib` + base64url, format courant `v2.<artifact_id>.<exp>.<purpose>.<nonce>.<sig>`, lecture rétrocompatible `v1` en téléchargement seulement, clés en liste pour la rotation | aucune dépendance ajoutée | — | **Retenu pour les liens de téléchargement et d'aperçu.** Le jeton porte un contrat minimal, lie cryptographiquement son usage et reçoit un nonce anti-collision ; l'utilisateur reste uniquement dans le message signé. Une bibliothèque JWT aurait apporté un format extensible, des algorithmes à exclure et une surface d'attaque, sans bénéfice. Le lien est en plus enregistré en base, donc révocable — ce qu'un JWT autoporteur ne permet pas |
 
 Aucune dépendance runtime n'a été ajoutée au Lot E : ni en Python, ni côté web, CLI,
 worker ou reporter. Le seul ajout au `package.json` racine est le workspace
 `packages/playwright-reporter`, qui ne déclare aucune dépendance.
+
+## Ajouts du Lot G
+
+| Composant | Révision/surface évaluée | Licence | Décision et limite |
+|---|---|---|---|
+| `@google/model-viewer` | `4.3.1`, custom element et contrôles caméra | Apache-2.0 | **Ajouté au web et verrouillé.** Import dynamique seulement pour un GLB v2 auto-contenu validé ; aucun AR, autorotation ou rendu navigateur réel revendiqué |
+| `@playwright/test` | `1.55.1`, Chromium headless, routes HTTP et WebSocket | Apache-2.0 | **Ajouté au paquet isolé `e2e/`.** Hors workspaces racine, navigateur installé et suite lancée uniquement par action explicite ; aucune exécution réelle dans cette validation |
+| Codex CLI | `codex exec --json --ephemeral`, modes sandbox et configuration stricte | distribution CLI externe, non redistribuée par ce dépôt | **Exécuteur worker opt-in.** Auth par profil `CODEX_HOME` séparé, options réseau/outils externes/multi-agent désactivées, événement terminal exigé et preuve par empreinte ; ces options ne remplacent pas une isolation OS ACP ; aucun modèle appelé pendant la validation |
+| Claude Code CLI | `claude -p --output-format stream-json`, `Read,Glob,Grep` | distribution CLI externe, non redistribuée par ce dépôt | **Exécuteur worker opt-in avec outils de lecture demandés.** Profil séparé, MCP et persistance désactivés, événement terminal exigé ; le compte conserve ses droits OS et aucun modèle n'a été appelé pendant la validation |
+
+L'ajout de Playwright au paquet E2E ne change pas le contrat du reporter : le paquet
+`@acp/playwright-reporter` et l'installation npm racine restent sans dépendance sur
+`@playwright/test`. La licence des workflows, modèles et nœuds ComfyUI ne découle pas de
+la licence GPL du serveur et doit être auditée séparément.
 
 ## Sources officielles consultées
 

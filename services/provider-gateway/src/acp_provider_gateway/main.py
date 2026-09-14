@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from acp_contracts import (
@@ -16,6 +16,18 @@ from acp_contracts import (
 )
 from acp_provider_sdk import ProviderRegistry, ProviderUnavailableError
 
+from .providers.comfyui import (
+    ComfyUIBusyError,
+    ComfyUIConfigurationError,
+    ComfyUIConnector,
+    ComfyUIDiagnostic,
+    ComfyUIDisabledError,
+    ComfyUIIdempotencyConflict,
+    ComfyUIImageRequest,
+    ComfyUIInvalidResponseError,
+    ComfyUITimeoutError,
+    ComfyUIUpstreamError,
+)
 from .providers.hermes import (
     HermesConversationRunRequest,
     HermesDiagnostic,
@@ -39,6 +51,7 @@ app.add_middleware(
 registry = ProviderRegistry()
 manual_provider = ManualOrchestratorProvider()
 hermes_provider = HermesOrchestratorProvider()
+comfyui_connector = ComfyUIConnector()
 registry.register(MockOrchestratorProvider())
 registry.register(manual_provider)
 registry.register(hermes_provider)  # indisponible tant que non configuré
@@ -107,6 +120,16 @@ async def hermes_diagnostic():
 
 
 @app.get(
+    "/v1/providers/comfyui/diagnostic",
+    response_model=ComfyUIDiagnostic,
+)
+async def comfyui_diagnostic():
+    """Vérifie la configuration opérateur et la disponibilité de ComfyUI."""
+
+    return await comfyui_connector.diagnostic()
+
+
+@app.get(
     "/v1/providers/hermes/native-listing",
     response_model=HermesNativeListing,
 )
@@ -132,6 +155,61 @@ def _idempotency_key(value: str | None) -> str:
             detail="Idempotency-Key doit contenir de 1 à 255 caractères ASCII visibles",
         )
     return value
+
+
+@app.post("/v1/providers/comfyui/images")
+async def generate_comfyui_image(
+    request: ComfyUIImageRequest,
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key")
+    ] = None,
+):
+    """Génère une image depuis le seul workflow local approuvé par l'opérateur.
+
+    Ce contrat reste volontairement indépendant du worker tant que son contrat
+    d'exécution image n'est pas stabilisé.
+    """
+
+    try:
+        image = await comfyui_connector.generate(
+            request,
+            idempotency_key=_idempotency_key(idempotency_key),
+        )
+    except ComfyUIIdempotencyConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency-Key déjà utilisée pour une autre génération",
+        ) from exc
+    except ComfyUIBusyError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Trop de générations ComfyUI simultanées",
+            headers={"Retry-After": "1"},
+        ) from exc
+    except (ComfyUIDisabledError, ComfyUIConfigurationError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Connecteur ComfyUI non configuré",
+        ) from exc
+    except ComfyUITimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Délai ComfyUI dépassé") from exc
+    except (ComfyUIInvalidResponseError, ComfyUIUpstreamError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Réponse ComfyUI indisponible ou invalide",
+        ) from exc
+
+    return Response(
+        content=image.content,
+        media_type=image.media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="{image.filename}"',
+            "Idempotency-Replayed": "true" if image.replayed else "false",
+            "X-ACP-Idempotency-Scope": "bounded-process-memory",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.post(

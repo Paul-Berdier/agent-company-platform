@@ -29,7 +29,7 @@ import {
 
 /** Variable d’environnement à définir côté API pour activer les liens signés (§5.3). */
 export const ARTIFACT_SIGNING_ACTION = "ACP_ARTIFACT_SIGNING_KEYS";
-/** Variable d’environnement d’une origine d’aperçu séparée (§7), optionnelle. */
+/** Facultative au démarrage, mais obligatoire pour créer tout lien d’aperçu (§7). */
 export const ARTIFACT_PREVIEW_ORIGIN_ACTION = "ACP_ARTIFACT_PUBLIC_ORIGIN";
 
 /** Durées de vie d’un lien signé (§6 : défaut 300 s, plafond 900 s). */
@@ -43,6 +43,7 @@ export const ARTIFACT_PAGE_MAX_LIMIT = 200;
 /** Types affichables en ligne (§7). Toute autre valeur se télécharge. */
 const INLINE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const INLINE_VIDEO_TYPES = new Set(["video/webm", "video/mp4"]);
+const INLINE_MODEL_TYPES = new Set(["model/gltf-binary"]);
 
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 const SVG_TYPES = new Set(["image/svg+xml"]);
@@ -55,13 +56,16 @@ const ARCHIVE_TYPES = new Set([
 const HTML_EXTENSIONS = new Set(["html", "htm", "xhtml"]);
 const SVG_EXTENSIONS = new Set(["svg", "svgz"]);
 const ARCHIVE_EXTENSIONS = new Set(["zip"]);
+const MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
 
 const HTML_WARNING = "Page HTML produite par un test : elle ne s’ouvre jamais dans la plateforme. "
   + "Télécharge le fichier et ouvre-le hors ligne, dans un navigateur isolé.";
 const SVG_WARNING = "Une image SVG peut contenir du script : elle se télécharge, elle ne s’affiche "
   + "jamais en ligne dans l’origine de la plateforme.";
-const ARCHIVE_WARNING = "Archive à ouvrir avec l’outil Playwright, hors de la plateforme : "
-  + "la plateforme n’en extrait ni n’en exécute le contenu.";
+const ARCHIVE_WARNING = "Archive à ouvrir avec l'outil Playwright, hors de la plateforme : "
+  + "la plateforme n'en extrait ni n'en exécute le contenu.";
+const MODEL_WARNING = "Seul un fichier .glb auto-contenu et validé peut être affiché en 3D. "
+  + "Les fichiers .gltf multi-fichiers et les déclarations de type incohérentes restent en téléchargement.";
 
 /** Filtres de la route `GET /artifacts` (§6). Un champ vide n’est pas envoyé. */
 export interface ArtifactListFilter {
@@ -83,7 +87,8 @@ export interface ArtifactsErrorDescription {
   action: string | null;
 }
 
-export type ArtifactPreviewKind = "image" | "video" | "none";
+export type ArtifactPreviewKind = "image" | "video" | "model" | "none";
+export type ArtifactLinkPurpose = "download" | "preview";
 
 /** Décision d’affichage d’un livrable : aperçu autorisé, téléchargement, avertissement. */
 export interface ArtifactPreviewDecision {
@@ -143,12 +148,72 @@ function isArtifactPage(value: unknown): value is ArtifactPage {
  * une URL protocole-relative (`//hôte`) est traité comme une réponse hors contrat.
  */
 export function isSafeArtifactUrl(value: unknown): value is string {
-  if (typeof value !== "string" || !value) return false;
+  if (
+    typeof value !== "string"
+    || !value
+    || value !== value.trim()
+    || /[\\\u0000-\u0020\u007f]/.test(value)
+    || value.includes("#")
+  ) return false;
   if (value.startsWith("//")) return false;
-  if (value.startsWith("/")) return true;
-  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(value);
-  if (!scheme) return false;
-  return scheme[1].toLowerCase() === "http" || scheme[1].toLowerCase() === "https";
+  if (value.startsWith("/")) {
+    try {
+      return new URL(value, "https://artifact-path.invalid").origin
+        === "https://artifact-path.invalid";
+    } catch {
+      return false;
+    }
+  }
+  if (!/^https?:\/\//i.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:")
+      && !parsed.username
+      && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return normalized === "localhost"
+    || normalized === "::1"
+    || /^127(?:\.\d{1,3}){3}$/.test(normalized);
+}
+
+function currentApplicationUrl(): string | null {
+  const browserLocation = (globalThis as {
+    location?: { href?: unknown; origin?: unknown };
+  }).location;
+  if (typeof browserLocation?.href === "string" && browserLocation.href) {
+    return browserLocation.href;
+  }
+  if (typeof browserLocation?.origin === "string" && browserLocation.origin) {
+    return `${browserLocation.origin}/`;
+  }
+  return null;
+}
+
+/**
+ * Un aperçu actif n'est autorisé que depuis une origine HTTP(S) distincte de celle
+ * de l'application. Un chemin relatif, une URL identique ou l'absence de contexte
+ * navigateur échoue fermé ; le lien peut toujours être proposé au téléchargement.
+ */
+export function isSeparateArtifactPreviewUrl(
+  value: unknown,
+  applicationUrl: string | null = currentApplicationUrl(),
+): value is string {
+  if (!isSafeArtifactUrl(value) || value.startsWith("/") || !applicationUrl) return false;
+  try {
+    const preview = new URL(value);
+    const application = new URL(applicationUrl);
+    const transportIsSafe = preview.protocol === "https:"
+      || (preview.protocol === "http:" && isLoopbackHostname(preview.hostname));
+    return transportIsSafe && preview.origin !== application.origin;
+  } catch {
+    return false;
+  }
 }
 
 function isArtifactLink(value: unknown): value is ArtifactLink {
@@ -224,6 +289,20 @@ export function describeArtifactPreview(artifact: ArtifactSummary): ArtifactPrev
   if (warning) {
     return { kind: "none", contentType, downloadOnly: true, downloadable, warning };
   }
+  const declaresModel = INLINE_MODEL_TYPES.has(contentType) || contentType === "model/gltf+json";
+  const namesModel = MODEL_EXTENSIONS.has(extension);
+  if (declaresModel || namesModel) {
+    if (downloadable && contentType === "model/gltf-binary" && extension === "glb") {
+      return { kind: "model", contentType, downloadOnly: false, downloadable, warning: "" };
+    }
+    return {
+      kind: "none",
+      contentType,
+      downloadOnly: true,
+      downloadable,
+      warning: MODEL_WARNING,
+    };
+  }
   if (downloadable && INLINE_IMAGE_TYPES.has(contentType)) {
     return { kind: "image", contentType, downloadOnly: false, downloadable, warning: "" };
   }
@@ -255,6 +334,14 @@ export function describeArtifactsError(error: WorkspaceApiError): ArtifactsError
     return { tone: "error", title: "Réponse inexploitable", message: error.message, action: null };
   }
   switch (error.status) {
+    case 424:
+      return {
+        tone: "unconfigured",
+        title: "Origine d’aperçu non configurée",
+        message: error.message,
+        action: `Définir ${ARTIFACT_PREVIEW_ORIGIN_ACTION} avec une origine HTTPS distincte de `
+          + "l’application et de l’API de contrôle, puis redémarrer l’API.",
+      };
     case 503:
       return {
         tone: "unconfigured",
@@ -336,10 +423,16 @@ export class ArtifactsApiClient {
   }
 
   /** Crée un lien signé borné dans le temps ; 503 si aucune clé de signature n’est définie. */
-  async createLink(artifactId: string, ttlSeconds?: number): Promise<ArtifactLink> {
+  async createLink(
+    artifactId: string,
+    ttlSeconds?: number,
+    purpose: ArtifactLinkPurpose = "download",
+  ): Promise<ArtifactLink> {
     const encoded = checkedIdentifier(artifactId, "L’identifiant du livrable");
     const ttl = checkedTtl(ttlSeconds);
-    return this.http.request(`/artifacts/${encoded}/link?ttl_seconds=${ttl}`, isArtifactLink, {
+    const params = new URLSearchParams({ ttl_seconds: String(ttl) });
+    if (purpose === "preview") params.set("purpose", purpose);
+    return this.http.request(`/artifacts/${encoded}/link?${params.toString()}`, isArtifactLink, {
       method: "POST",
     });
   }

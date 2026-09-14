@@ -1,8 +1,38 @@
+import json
 from pathlib import Path
 
 import pytest
 
 from acp_worker.config import WorkerConfig, WorkerConfigurationError
+from acp_worker.executors import (
+    CLAUDE_CONFIG_DIR_ENV,
+    CLAUDE_ENABLED_ENV,
+    CLAUDE_EXECUTABLE_ENV,
+    CODEX_ENABLED_ENV,
+    CODEX_EXECUTABLE_ENV,
+    CODEX_HOME_ENV,
+    PROJECTS_ENV,
+    TERMINATE_GRACE_ENV,
+    TIMEOUT_ENV,
+    TOOL_PATH_ENV,
+    ExecutorConfig,
+    ExecutorSpec,
+)
+from acp_worker.web_tests import WebTestConfig
+
+
+EXECUTOR_ENVIRONMENT = (
+    CLAUDE_CONFIG_DIR_ENV,
+    CLAUDE_ENABLED_ENV,
+    CLAUDE_EXECUTABLE_ENV,
+    CODEX_ENABLED_ENV,
+    CODEX_EXECUTABLE_ENV,
+    CODEX_HOME_ENV,
+    PROJECTS_ENV,
+    TERMINATE_GRACE_ENV,
+    TIMEOUT_ENV,
+    TOOL_PATH_ENV,
+)
 
 
 def base_config(**overrides: object) -> WorkerConfig:
@@ -31,6 +61,8 @@ def configure_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.delenv("ACP_WORKER_RUN_ROOT", raising=False)
     monkeypatch.delenv("ACP_WORKER_PROJECT_ID", raising=False)
     monkeypatch.delenv("ACP_WORKER_GLOBAL_ACCESS", raising=False)
+    for setting in EXECUTOR_ENVIRONMENT:
+        monkeypatch.delenv(setting, raising=False)
 
 
 def test_origins_are_normalized_and_http_is_limited_to_loopback():
@@ -192,3 +224,81 @@ def test_worker_config_repr_never_contains_service_secrets():
     rendered = repr(config)
     assert "gateway-secret" not in rendered
     assert "registration-secret" not in rendered
+
+
+def test_worker_config_rejects_partial_executor_opt_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    configure_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv(CODEX_ENABLED_ENV, "1")
+
+    with pytest.raises(WorkerConfigurationError, match="CODEX_EXECUTABLE"):
+        WorkerConfig.from_env()
+
+
+def test_worker_config_loads_valid_executor_allowlist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    configure_environment(monkeypatch, tmp_path)
+    project = tmp_path / "project"
+    auth = tmp_path / "auth"
+    executable = tmp_path / "bin" / "codex.exe"
+    project.mkdir()
+    auth.mkdir()
+    executable.parent.mkdir()
+    executable.write_bytes(b"test")
+    monkeypatch.setenv(CODEX_ENABLED_ENV, "1")
+    monkeypatch.setenv(CODEX_EXECUTABLE_ENV, str(executable))
+    monkeypatch.setenv(CODEX_HOME_ENV, str(auth))
+    monkeypatch.setenv(PROJECTS_ENV, json.dumps({"project-1": str(project)}))
+
+    config = WorkerConfig.from_env()
+
+    assert config.executors.enabled_executors == frozenset({"codex_cli"})
+    assert config.executors.project_path("project-1") == project.resolve()
+
+
+def test_real_execution_accepts_an_executor_without_a_local_runner(tmp_path: Path):
+    project = tmp_path / "project"
+    auth = tmp_path / "auth"
+    executable = tmp_path / "bin" / "codex.exe"
+    project.mkdir()
+    auth.mkdir()
+    executable.parent.mkdir()
+    executable.write_bytes(b"test")
+    config = base_config(
+        simulation=False,
+        local_runner=None,
+        executors=ExecutorConfig(
+            codex=ExecutorSpec(executable=executable, auth_directory=auth),
+            project_roots={"project-1": project},
+        ),
+    )
+
+    config.validate_execution_mode(simulation=False)
+
+
+def test_real_web_tests_still_require_a_local_output_runner(tmp_path: Path):
+    project = tmp_path / "project"
+    auth = tmp_path / "auth"
+    executable = tmp_path / "bin" / "codex.exe"
+    project.mkdir()
+    auth.mkdir()
+    executable.parent.mkdir()
+    executable.write_bytes(b"test")
+    config = base_config(
+        simulation=False,
+        local_runner=None,
+        executors=ExecutorConfig(
+            codex=ExecutorSpec(executable=executable, auth_directory=auth),
+            project_roots={"project-1": project},
+        ),
+        web_tests=WebTestConfig(
+            enabled=True,
+            argv=(str(executable),),
+            cwd=project,
+        ),
+    )
+
+    with pytest.raises(WorkerConfigurationError, match="tests web réels"):
+        config.validate_execution_mode(simulation=False)

@@ -1,6 +1,7 @@
 name: CI
 
 "on":
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -11,7 +12,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # A push on main must not cancel a manually-approved E2E proof that it cannot
+  # replace. Runs of the same trigger/ref still supersede one another.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -70,12 +73,45 @@ jobs:
             git show --check --format=fuller HEAD
           fi
       - name: Type-check the modern workspace
-        run: npm exec tsc -- --noEmit -p apps/web/tsconfig.json
+        run: npm run typecheck --workspace @acp/web
       - name: Test the modern workspace
         run: npm test --workspace @acp/web
       - name: Test the Playwright reporter
         run: npm test --workspace @acp/playwright-reporter
+      - name: Test E2E guardrails (no browser)
+        run: npm run test:e2e:unit
       - name: Test the legacy engine
         run: npm test --workspace @acp/pixel-office-engine
       - name: Build the web application
         run: npm run build:web
+
+  e2e:
+    name: Playwright E2E (opt-in)
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          github.ref == 'refs/heads/main' &&
+          vars.ACP_E2E == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: acp-e2e-staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Install the isolated E2E package
+        run: npm ci --ignore-scripts --prefix e2e
+      - name: Install Chromium explicitly
+        run: npm --prefix e2e run install:chromium:ci
+      - name: Run the real shell and Studio journey
+        run: npm run test:e2e
+        env:
+          ACP_E2E: "1"
+          ACP_E2E_BASE_URL: ${{ vars.ACP_E2E_BASE_URL }}
+          ACP_E2E_ALLOWED_ORIGIN: ${{ vars.ACP_E2E_ALLOWED_ORIGIN }}
+          ACP_E2E_API_ORIGIN: ${{ vars.ACP_E2E_API_ORIGIN }}
+          ACP_E2E_RUN_ID: ${{ vars.ACP_E2E_RUN_ID }}
+          ACP_E2E_LOGIN: ${{ secrets.ACP_E2E_LOGIN }}
+          ACP_E2E_PASSWORD: ${{ secrets.ACP_E2E_PASSWORD }}

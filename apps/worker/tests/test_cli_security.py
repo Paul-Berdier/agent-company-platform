@@ -7,6 +7,11 @@ import httpx
 
 from acp_worker.cli import _doctor, _register, main as cli_main
 from acp_worker.config import WorkerConfig
+from acp_worker.executors import (
+    ExecutorCleanupError,
+    ExecutorConfig,
+    ExecutorSpec,
+)
 from acp_worker.local_runner import LocalRunnerConfig
 from acp_worker.state import WorkerCredentials, load_credentials, save_credentials
 
@@ -37,14 +42,39 @@ def register_args(
     max_concurrency: int | None = None,
     project_id: str | None = None,
     global_access: bool | None = None,
+    capabilities: list[str] | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         name=None,
-        capabilities=["git"],
+        capabilities=capabilities or ["git"],
         max_concurrency=max_concurrency,
         real=real,
         project_id=project_id,
         global_access=global_access,
+    )
+
+
+def agent_only_config(
+    tmp_path: Path,
+    *,
+    executor: str = "codex_cli",
+    project_id: str = "project-1",
+) -> WorkerConfig:
+    project = tmp_path / f"workspace-{project_id}"
+    auth = tmp_path / f"auth-{executor}"
+    executable = tmp_path / "bin" / f"{executor}.exe"
+    project.mkdir()
+    auth.mkdir()
+    executable.parent.mkdir(exist_ok=True)
+    executable.write_bytes(b"test")
+    spec = ExecutorSpec(executable=executable, auth_directory=auth)
+    return replace(
+        config(tmp_path, simulation=False),
+        executors=ExecutorConfig(
+            codex=spec if executor == "codex_cli" else None,
+            claude=spec if executor == "claude_code" else None,
+            project_roots={project_id: project},
+        ),
     )
 
 
@@ -235,6 +265,8 @@ def test_doctor_verifies_provider_readiness_with_the_service_token(
     report = capsys.readouterr().out
     assert '"provider": "ok"' in report
     assert '"scope": "project:project-1"' in report
+    assert '"agent_executors": []' in report
+    assert '"executor_project_roots": 0' in report
 
 
 def test_doctor_fails_when_the_configured_provider_is_unavailable(
@@ -284,25 +316,21 @@ def test_doctor_reports_legacy_credentials_without_scope(
     )
     monkeypatch.setattr(
         "acp_worker.cli.httpx.get",
-        lambda url, **_kwargs: httpx.Response(
-            200,
-            request=httpx.Request("GET", url),
-            json=(
-                {"provider_id": "hermes", "available": True}
-                if url.endswith("/v1/providers/hermes/health")
-                else {"status": "ok"}
-            ),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
         ),
     )
     monkeypatch.setattr(
         "acp_worker.cli.httpx.post",
-        lambda url, **_kwargs: httpx.Response(
-            200, request=httpx.Request("POST", url), json={}
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
         ),
     )
 
     assert _doctor(worker_config) == 1
-    assert '"scope": "missing"' in capsys.readouterr().out
+    report = capsys.readouterr().out
+    assert '"scope": "missing"' in report
+    assert '"execution": "invalid"' in report
 
 
 def test_start_refuses_credentials_from_another_api_origin(
@@ -329,3 +357,192 @@ def test_start_refuses_credentials_from_another_api_origin(
 
     assert cli_main(["start"]) == 2
     assert "autre origine API" in capsys.readouterr().err
+
+
+def test_start_returns_failure_when_executor_cleanup_is_unconfirmed(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _save_simulation_credentials(tmp_path)
+    current_config = config(tmp_path)
+
+    async def stopped_worker(*_args, **_kwargs) -> None:
+        raise ExecutorCleanupError("détail local")
+
+    monkeypatch.setattr(
+        "acp_worker.cli.WorkerConfig.from_env",
+        classmethod(lambda cls: current_config),
+    )
+    monkeypatch.setattr("acp_worker.cli.run_forever", stopped_worker)
+
+    assert cli_main(["start"]) == 1
+    stderr = capsys.readouterr().err
+    assert "arrêté par sécurité" in stderr
+    assert "détail local" not in stderr
+
+
+def test_register_refuses_agent_capability_without_matching_executor(
+    tmp_path: Path, monkeypatch, capsys
+):
+    project = tmp_path / "project"
+    auth = tmp_path / "auth"
+    executable = tmp_path / "bin" / "claude.exe"
+    project.mkdir()
+    auth.mkdir()
+    executable.parent.mkdir()
+    executable.write_bytes(b"test")
+    claude_only = replace(
+        config(tmp_path, simulation=False),
+        executors=ExecutorConfig(
+            claude=ExecutorSpec(executable=executable, auth_directory=auth),
+            project_roots={"project-1": project},
+        ),
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
+        ),
+    )
+
+    result = _register(
+        claude_only,
+        register_args(real=True, capabilities=["codex_cli"]),
+    )
+
+    assert result == 2
+    assert "codex_cli" in capsys.readouterr().err
+
+
+def test_register_refuses_phantom_git_without_local_runner_before_http(
+    tmp_path: Path, monkeypatch, capsys
+):
+    current_config = agent_only_config(tmp_path, executor="claude_code")
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
+        ),
+    )
+
+    result = _register(
+        current_config,
+        register_args(real=True, capabilities=["git"]),
+    )
+
+    assert result == 2
+    stderr = capsys.readouterr().err
+    assert "git" in stderr
+    assert "runner local" in stderr
+
+
+def test_register_refuses_probe_only_on_an_agent_without_local_runner(
+    tmp_path: Path, monkeypatch, capsys
+):
+    current_config = agent_only_config(tmp_path)
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
+        ),
+    )
+
+    result = _register(
+        current_config,
+        register_args(real=True, capabilities=["mcp_stdio_probe"]),
+    )
+
+    assert result == 2
+    stderr = capsys.readouterr().err
+    assert "mcp_stdio_probe" in stderr
+    assert "sonde stdio" in stderr
+
+
+def test_register_refuses_global_agent_before_http(tmp_path: Path, monkeypatch, capsys):
+    current_config = agent_only_config(tmp_path)
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
+        ),
+    )
+
+    result = _register(
+        current_config,
+        register_args(
+            real=True,
+            global_access=True,
+            capabilities=["codex_cli"],
+        ),
+    )
+
+    assert result == 2
+    assert "accès global est refusé" in capsys.readouterr().err
+
+
+def test_doctor_refuses_stale_agent_scope_before_network(
+    tmp_path: Path, monkeypatch, capsys
+):
+    current_config = agent_only_config(tmp_path, project_id="project-1")
+    save_credentials(
+        tmp_path,
+        WorkerCredentials(
+            worker_id="worker-1",
+            token="worker-secret",
+            api_origin="https://api.example",
+            name="test-worker",
+            capabilities=["codex_cli"],
+            max_concurrency=1,
+            simulation=False,
+            token_expires_at="2030-01-01T00:00:00Z",
+            project_id="project-2",
+        ),
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
+        ),
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("aucune requête ne doit partir")
+        ),
+    )
+
+    assert _doctor(current_config) == 1
+    report = capsys.readouterr().out
+    assert '"execution": "invalid"' in report
+    assert "project-2" in report
+
+
+def test_start_refuses_persisted_global_agent_before_run_loop(
+    tmp_path: Path, monkeypatch, capsys
+):
+    current_config = agent_only_config(tmp_path)
+    save_credentials(
+        tmp_path,
+        WorkerCredentials(
+            worker_id="worker-1",
+            token="worker-secret",
+            api_origin="https://api.example",
+            name="test-worker",
+            capabilities=["codex_cli"],
+            max_concurrency=1,
+            simulation=False,
+            token_expires_at="2030-01-01T00:00:00Z",
+            global_access=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.WorkerConfig.from_env",
+        classmethod(lambda cls: current_config),
+    )
+
+    async def should_not_start(*_args, **_kwargs) -> None:
+        raise AssertionError("la boucle worker ne doit pas démarrer")
+
+    monkeypatch.setattr("acp_worker.cli.run_forever", should_not_start)
+
+    assert cli_main(["start"]) == 2
+    assert "accès global est refusé" in capsys.readouterr().err

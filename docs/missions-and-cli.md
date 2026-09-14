@@ -1,6 +1,7 @@
 # Missions, runner local et CLI
 
-Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.7.0`, Lot G en cours
+Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.7.0`, Lot G `0.8.0`
+implémenté dans l'arbre de travail
 
 Le Lot C fournit une mission durable dans l'API métier, une exécution locale
 configurée côté worker et le client `acp`. Le web et le CLI utilisent la même
@@ -200,7 +201,7 @@ annuler le diagnostic en cours.
 le serveur ne lit jamais un chemin fourni par le client. Sans `--apply`, la commande
 affiche seulement l'aperçu normalisé, avec les secrets masqués.
 
-## Contrat du backend local
+## Contrat du backend local à argv fixe
 
 Le worker réel n'exécute jamais un argv transmis par l'API. L'argv autorisé, la
 racine des runs, le timeout, la limite de sortie et l'allowlist d'environnement sont
@@ -221,7 +222,8 @@ droits et l'accès réseau du compte qui lance le worker, et le Job Object n'imp
 quota CPU/mémoire ni politique réseau. L'emploi sur du code non fiable nécessite une
 isolation système supplémentaire.
 
-La politique Lot C est volontairement restrictive : seul le mode `supervised`, avec
+La politique du backend à argv fixe est volontairement restrictive : seul le mode
+`supervised`, avec
 `allowed_actions`, `forbidden_actions` et `approval_required_actions` toutes vides,
 et avec des ressources éventuelles en lecture seule, peut atteindre le spawn. Une
 interdiction déclarée est elle aussi refusée puisque ce backend sans sandbox ne peut
@@ -231,24 +233,63 @@ Le mode réel refuse aussi `ACP_ORCHESTRATOR_PROVIDER=mock` avant enrôlement,
 démarrage ou exécution programmée, puis exige que le verdict retourné identifie le
 provider non simulé demandé.
 
+## Exécuteurs Codex CLI et Claude Code (Lot G)
+
+Le Lot G ajoute un second chemin, distinct de l'argv fixe. Un worker peut annoncer
+`codex_cli` ou `claude_code` seulement après un opt-in exact et une configuration
+locale complète : exécutable absolu, répertoire d'authentification séparé, racines de
+projets JSON autorisées, timeout et limite de sortie. L'opérateur peut en plus fournir
+un `PATH` minimal explicite ; l'exécutable n'est jamais déduit du `PATH` ambiant.
+La validation des chemins ne verrouille toutefois pas leur identité jusqu'au spawn :
+leurs ACL et répertoires parents doivent empêcher toute substitution concurrente. La référence complète se trouve dans
+[Exécuteurs locaux Codex CLI et Claude Code](providers-local-executors.md).
+
+La mission doit demander exactement une des deux capacités, utiliser le mode
+`supervised`, garder ses trois listes d'actions vides et déclarer une seule ressource
+`project_workspace` correspondant à son projet. Claude Code refuse l'accès `write` ;
+Codex respecte l'accès `read` ou `write` déclaré. Un permis budgétaire est obtenu avant
+le spawn et une mission portant une borne de coût ou de jetons impossible à garantir
+est refusée avant lancement.
+
+```text
+acp run --project mon-projet --goal "Auditer ce projet" \
+  --resource project_workspace=mon-projet:read --require-capability codex_cli
+```
+
+Une tentative ne peut choisir qu'un CLI et ACP lance au plus un processus CLI de
+premier niveau. `spawned_agents=1` mesure cette invocation uniquement : un processus ou
+agent descendant créé par le binaire n'est ni bloqué ni compté ; le champ
+`spawned_agents_scope=worker_managed_top_level_cli_only` l'explicite, donc le plafond global
+`max_spawned_agents_per_run` n'est pas démontré. Le prompt passe par stdin ; le stdout
+JSONL doit se terminer par l'événement de succès propre au CLI. La preuve conserve les
+métadonnées opérationnelles, le code de sortie, le nombre d'événements, les tailles et
+les sha256, jamais le prompt ni les flux bruts.
+
 ## Limites vérifiées
 
 - l'intégration est couverte avec transports et programmes déterministes locaux ;
   seule exception : le parcours MCP `http` a été rejoué contre une API et un serveur
   MCP réellement démarrés sur le bouclage, hors dépôt ;
-- aucune instance Hermes réelle ni commande agentique payante n'a été lancée pour
-  cette release ;
+- aucune instance Hermes réelle, aucun ComfyUI et aucun CLI agent authentifié n'a été
+  lancé pour cette release ; les exécuteurs Lot G sont prouvés avec des programmes
+  déterministes locaux ;
+- la racine projet fixe le cwd, pas les droits fichiers du compte. Du code ou des projets
+  non mutuellement fiables exigent un worker, un compte, un conteneur ou une VM dédiés,
+  plus un filtrage réseau externe ;
 - l'autorisation d'un lancement MCP `stdio` est distincte du circuit d'approbation des
   missions : elle n'apparaît ni dans `acp approvals`, ni dans l'écran Missions ;
 - SQLite et `create_all()` restent le chemin local ; les migrations PostgreSQL et
   la restauration sont reportées au Lot H ;
-- le Lot F applique les budgets connus avant planification, exécution et évaluation,
-  mais `max_spawned_agents_per_run` attend le point de spawn du Lot G ;
+- le Lot F applique les budgets connus avant planification, exécution et évaluation ;
+  le point de spawn unique du Lot G borne les agents à un par tentative sans offrir de
+  fan-out dynamique ;
 - le suivi d'une tentative passe depuis le Lot E par un flux SSE authentifié avec
   reprise par curseur, exercé par un client de test seulement : aucune coupure réseau
   réelle ni `EventSource` de navigateur n'a été éprouvé ;
 - l'exécution de tests web est livrée et testée sur un **lanceur déterministe** :
   aucun navigateur réel n'a été lancé et aucun test Playwright réel n'a été exécuté ;
+- le harnais `e2e/` opt-in existe depuis le Lot G, mais son garde `ACP_E2E=1` n'a pas
+  été activé pendant cette vérification ;
 - le backend local contrôlé n'applique pas encore une isolation OS ou réseau forte ;
 - le planificateur et le groupe `acp automations` sont couverts par des tests locaux ;
   ils n'ont pas été exercés contre Hermes, un fournisseur payant ou un service externe.

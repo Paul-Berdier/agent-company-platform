@@ -8,8 +8,98 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## 0.8.0 (préparation) - 2026-09-14
 
-Lot G : connecteurs médias et 3D, exécuteurs complémentaires, preuves E2E réelles
-activées explicitement et durcissement des surfaces d'aperçu.
+Lot G : connecteurs médias et 3D, exécuteurs complémentaires, harnais de preuve E2E
+réelle activé explicitement et durcissement des surfaces d'aperçu.
+
+### Ajouté
+
+- paquet Playwright `e2e/` isolé des workspaces et verrouillé sur `1.55.1` : opt-in
+  exact `ACP_E2E=1`, connexion réelle, ouverture de Missions puis du Studio d'une
+  tentative existante, frontière réseau au niveau du contexte et des popups, mutations
+  refusées après la connexion, exactement une tentative de login, préflight CORS réel
+  séparé et contrôle CORS de la réponse ; chaque HTTP est non retenté/non redirigé et
+  tout `3xx` est bloqué avant le navigateur. `Worker`, `SharedWorker`, `WebTransport`,
+  `RTCPeerConnection`, `webkitRTCPeerConnection`, `WebSocketStream` et `EventSource` sont
+  neutralisés ; le Studio exerce son polling réel. Mono-worker Chromium headless,
+  capture uniquement sur échec ;
+- job CI séparé, exécutable seulement via `workflow_dispatch` sur `refs/heads/main`
+  avec `vars.ACP_E2E == '1'` déclaré au niveau dépôt ou organisation, puis dans
+  l'environnement dédié `acp-e2e-staging` ; les secrets ne sont injectés que dans
+  l'étape de preuve, isolée des installations. Avant d'y placer les identifiants,
+  l'opérateur doit lui imposer un reviewer et limiter les branches de déploiement à
+  `main` ; un push ne partage pas son groupe de concurrence ;
+- aperçu GLB dans le Studio et la bibliothèque avec `@google/model-viewer` `4.3.1`
+  chargé à la demande, contrôles caméra accessibles, sans AR ni autorotation ;
+- connecteur ComfyUI privé : diagnostic `/v1/providers/comfyui/diagnostic` et génération
+  `/v1/providers/comfyui/images`, workflow API local fixé par l'opérateur, prompt seul
+  injecté, sortie PNG/JPEG/WebP validée ;
+- capacités worker `codex_cli` et `claude_code` raccordées à la boucle de mission :
+  exécutable et profil d'authentification absolus, racines projet allowlistées, un seul
+  processus CLI de premier niveau par tentative, prompt transmis par stdin et preuve
+  réduite aux tailles, empreintes et nombre d'événements JSONL ; un succès exige aussi
+  l'événement terminal reconnu du CLI concerné.
+
+### Sécurité
+
+- un aperçu signé exige désormais une `ACP_API_URL` explicite et
+  `ACP_ARTIFACT_PUBLIC_ORIGIN`, distincte de l'API et des origines web ; une
+  configuration absente ou invalide répond `424` avant création du jeton, tandis que
+  le téléchargement authentifié reste disponible ;
+- un `.glb` n'est promu en aperçu qu'après validation GLB 2 stricte au téléversement et
+  scellement par sha256 ; `.gltf`, URI externes, chunks inconnus et extensions
+  Draco/Meshopt/Basisu sont refusés pour l'aperçu. Buffers, vues, offsets/strides et
+  accessors sont contrôlés sous budgets cumulés ; sparse est refusé. Les en-têtes et
+  dimensions PNG/JPEG/WebP ainsi que les budgets compressés, pixels et RGBA+mipmaps
+  sont validés sans décompression serveur ;
+- le client ComfyUI refuse HTTP hors loopback, redirections et proxies ambiants, borne
+  workflow, réponses, polls, durée et image, puis vérifie type, extension et signature ;
+  générations, waiters et cache sont bornés séparément/en octets, et une tentative
+  `/prompt` incertaine réserve un tombstone non évictable avant sa TTL ;
+- Codex et Claude ne sont jamais détectés implicitement dans le `PATH`. L'exécution
+  réutilise la clôture Job Object/session POSIX, un environnement minimal et une
+  deadline ; le worker demande à Codex de désactiver web, MCP, plugins et multi-agent,
+  et demande à Claude de se limiter à `Read,Glob,Grep` en lecture seule. Les capacités
+  explicites/persistées sont revérifiées contre backend, scope projet et racine avant
+  tout appel API ; scope global agent, scope absent et capacité générique sans runner
+  sont refusés. Les écritures Codex d'une même racine sont sérialisées par un verrou
+  interprocessus coopératif adjacent au projet ; une clôture incertaine publie une
+  quarantaine `.poison` durable et jamais levée automatiquement ;
+- l'exécuteur lance au plus un processus CLI de premier niveau par tentative.
+  `spawned_agents=1` décrit cette seule invocation gérée par ACP : les processus ou
+  agents que le binaire créerait ensuite ne sont ni bloqués ni comptés.
+
+### Vérifié localement
+
+- passe Python complète intermédiaire : 2 418 réussis, 4 ignorés et un avertissement
+  de dépréciation Starlette connu ; après la revue de sécurité finale, 299 tests
+  worker ciblés réussis ;
+- 33 tests unitaires des garde-fous E2E ; 311 tests web sur 24 fichiers ;
+- 237 tests API ciblant les livrables/signatures/GLB, 58 tests ciblés et 145 tests de
+  suite gateway pour le connecteur ComfyUI, 59 tests reporter et 74 tests moteur ;
+  typecheck TypeScript, compilation Python et build Vite réussis ;
+- la commande Codex générée a été vérifiée contre l'aide du CLI local ; aucun run agent
+  ni appel réseau payant n'a été déclenché.
+
+### Limites connues
+
+- aucun navigateur réel, rendu WebGL réel, serveur ComfyUI réel, Codex CLI ou Claude
+  Code réel n'a été exécuté pendant cette validation ; le harnais E2E est présent mais
+  n'a reçu ni cible ni compte de test ;
+- l'idempotence ComfyUI est bornée à la mémoire d'un processus : redémarrage ou réplica
+  peuvent rejouer un effet, les succès LRU peuvent être évincés avant leur TTL, et il
+  n'existe ni file durable, ni reprise, ni stockage d'artefact, ni raccordement aux missions ;
+- aucune origine d'aperçu séparée n'est configurée dans le dépôt ; les aperçus restent
+  donc désactivés par défaut, sans affecter le téléchargement ;
+- le verrou d'écriture Codex ne remplace ni les ACL du parent ni l'isolation OS ; sa
+  sémantique doit être validée sur un partage réseau, sinon chaque worker doit recevoir
+  un checkout/worktree distinct ;
+- la reprise en main humaine du navigateur, la sandbox OS/réseau forte, le stockage
+  objet, PostgreSQL, Railway et la sauvegarde/restauration ne sont pas livrés.
+- une racine projet fixe le cwd mais n'isole pas les fichiers accessibles au compte
+  worker. Deux projets non mutuellement fiables exigent des comptes, conteneurs ou VM
+  distincts ; sous POSIX, `killpg` ne détecte pas un descendant ayant appelé `setsid()` ;
+  les chemins autorisés sont résolus mais leur identité n'est pas épinglée contre un
+  remplacement concurrent, donc leurs répertoires parents doivent être protégés.
 
 ## [0.7.0] - 2026-09-14
 

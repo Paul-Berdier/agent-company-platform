@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from acp_contracts import WorkerCapability
+
+from .executors import ExecutorConfig, ExecutorConfigurationError
 from .local_runner import LocalRunnerConfig
 from .mcp_probe import McpStdioProbeConfig
 from .web_tests import WebTestConfig
@@ -19,6 +22,16 @@ MIN_POLL_INTERVAL_SECONDS = 0.01
 MAX_POLL_INTERVAL_SECONDS = 300.0
 MAX_STEP_SECONDS = 3600.0
 MAX_CONCURRENCY = 32
+_AGENT_EXECUTOR_CAPABILITIES = frozenset({"codex_cli", "claude_code"})
+_MCP_PROBE_CAPABILITY = WorkerCapability.MCP_STDIO_PROBE.value
+_KNOWN_WORKER_CAPABILITIES = frozenset(
+    capability.value for capability in WorkerCapability
+)
+_LOCAL_RUNNER_CAPABILITIES = (
+    _KNOWN_WORKER_CAPABILITIES
+    - _AGENT_EXECUTOR_CAPABILITIES
+    - {_MCP_PROBE_CAPABILITY}
+)
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 _PROVIDER_ID = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
 
@@ -155,6 +168,7 @@ class WorkerConfig:
     project_id: str | None = None
     global_access: bool = False
     local_runner: LocalRunnerConfig | None = None
+    executors: ExecutorConfig = field(default_factory=ExecutorConfig.disabled)
     mcp_probe: McpStdioProbeConfig = field(default_factory=McpStdioProbeConfig.disabled)
     web_tests: WebTestConfig = field(default_factory=WebTestConfig.disabled)
 
@@ -222,6 +236,8 @@ class WorkerConfig:
             raise WorkerConfigurationError(
                 "un worker global ne peut pas être limité simultanément à un projet"
             )
+        if not isinstance(self.executors, ExecutorConfig):
+            raise WorkerConfigurationError("executors doit être une ExecutorConfig")
         if not isinstance(self.mcp_probe, McpStdioProbeConfig):
             raise WorkerConfigurationError(
                 "mcp_probe doit être une McpStdioProbeConfig"
@@ -236,14 +252,110 @@ class WorkerConfig:
             raise WorkerConfigurationError("simulation doit être un booléen")
         if simulation:
             return
-        if self.local_runner is None:
+        if self.local_runner is None and not self.executors.enabled_executors:
             raise WorkerConfigurationError(
-                "Aucun exécuteur réel sécurisé n'est configuré; configurez "
-                "ACP_WORKER_RUNNER_ARGV_JSON et ACP_WORKER_RUN_ROOT"
+                "Aucun exécuteur réel sécurisé n'est configuré; configurez le runner "
+                "local ou activez explicitement Codex/Claude avec une racine projet"
+            )
+        if self.web_tests.enabled and self.local_runner is None:
+            raise WorkerConfigurationError(
+                "les tests web réels exigent un runner local pour leur racine de sortie"
             )
         if self.provider_id == "mock":
             raise WorkerConfigurationError(
                 "ACP_ORCHESTRATOR_PROVIDER=mock est interdit en mode réel"
+            )
+
+    def validate_advertised_capabilities(
+        self,
+        capabilities: list[str],
+        *,
+        simulation: bool,
+        project_id: str | None,
+        global_access: bool,
+    ) -> None:
+        """Refuse une annonce que le backend ou le périmètre ne peut pas servir.
+
+        La vérification s'applique à l'enregistrement comme au redémarrage avec des
+        credentials persistés : une configuration devenue incomplète ne doit jamais
+        laisser le worker réclamer une mission qu'il échouera seulement après son claim.
+        """
+
+        self.validate_execution_mode(simulation=simulation)
+        if not isinstance(capabilities, list) or any(
+            not isinstance(capability, str) or not capability
+            for capability in capabilities
+        ):
+            raise WorkerConfigurationError("capacités worker invalides")
+        advertised = set(capabilities)
+        unknown = sorted(advertised - _KNOWN_WORKER_CAPABILITIES)
+        if unknown:
+            raise WorkerConfigurationError(
+                "capacités worker inconnues: " + ", ".join(unknown)
+            )
+        if not isinstance(global_access, bool):
+            raise WorkerConfigurationError("périmètre global worker invalide")
+        if project_id is not None and (
+            not isinstance(project_id, str) or not project_id.strip()
+        ):
+            raise WorkerConfigurationError("périmètre projet worker invalide")
+        if project_id is None and not global_access:
+            raise WorkerConfigurationError(
+                "périmètre worker absent; réenregistrement avec un projet ou l'accès global requis"
+            )
+        if project_id is not None and global_access:
+            raise WorkerConfigurationError(
+                "un worker ne peut pas cumuler périmètre projet et accès global"
+            )
+
+        advertised_local = advertised & _LOCAL_RUNNER_CAPABILITIES
+        if not simulation and advertised_local and self.local_runner is None:
+            raise WorkerConfigurationError(
+                "capacités de mission annoncées sans runner local: "
+                + ", ".join(sorted(advertised_local))
+            )
+
+        advertised_agents = advertised & _AGENT_EXECUTOR_CAPABILITIES
+        available_agents = (
+            set() if simulation else set(self.executors.enabled_executors)
+        )
+        unavailable = sorted(advertised_agents - available_agents)
+        if unavailable:
+            raise WorkerConfigurationError(
+                "capacité agent annoncée sans exécuteur activé: "
+                + ", ".join(unavailable)
+            )
+        if advertised_agents:
+            if global_access or project_id is None:
+                raise WorkerConfigurationError(
+                    "une capacité agent exige un périmètre projet explicite; "
+                    "l'accès global est refusé tant que les claims ne filtrent pas "
+                    "l'allowlist des racines locales"
+                )
+            if project_id not in self.executors.project_roots:
+                raise WorkerConfigurationError(
+                    f"le projet {project_id!r} n'a pas de racine d'exécuteur autorisée"
+                )
+
+        if not simulation and _MCP_PROBE_CAPABILITY in advertised:
+            if not self.mcp_probe.enabled or not self.mcp_probe.allowed_executables:
+                raise WorkerConfigurationError(
+                    "capacité mcp_stdio_probe annoncée sans sonde stdio configurée"
+                )
+            # Les capacités enregistrées servent aussi au claim de missions. Tant que
+            # l'API ne sépare pas ces deux canaux, une sonde ajoutée à un worker agent
+            # sans runner rendrait celui-ci éligible à une mission non-agent qu'il ne
+            # peut pas servir.
+            if self.local_runner is None:
+                raise WorkerConfigurationError(
+                    "mcp_stdio_probe exige aussi un runner local tant que les claims "
+                    "de sonde et de mission partagent les capacités du worker"
+                )
+
+        if not simulation and self.local_runner is None and not advertised_agents:
+            raise WorkerConfigurationError(
+                "aucune capacité d'exécuteur agent annoncée et aucun runner local; "
+                "le worker ne peut servir aucun claim de mission"
             )
 
     @classmethod
@@ -251,6 +363,10 @@ class WorkerConfig:
         state_dir = Path(
             os.environ.get("ACP_WORKER_STATE_DIR", Path.home() / ".agent-company-worker")
         ).expanduser()
+        try:
+            executors = ExecutorConfig.from_environ()
+        except ExecutorConfigurationError as exc:
+            raise WorkerConfigurationError(str(exc)) from exc
         return cls(
             api_url=os.environ.get("ACP_API_URL", "http://localhost:8000"),
             gateway_url=os.environ.get(
@@ -270,6 +386,7 @@ class WorkerConfig:
                 os.environ.get("ACP_WORKER_GLOBAL_ACCESS", "0")
             ),
             local_runner=LocalRunnerConfig.from_environment(),
+            executors=executors,
             mcp_probe=McpStdioProbeConfig.from_environ(),
             web_tests=WebTestConfig.from_environ(),
         )

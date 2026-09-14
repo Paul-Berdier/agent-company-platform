@@ -1,4 +1,4 @@
-"""Jetons signés des liens de téléchargement de livrables.
+"""Jetons signés des liens de téléchargement et d'aperçu de livrables.
 
 Un lien de partage n'ouvre jamais un projet : le jeton est lié à **un** artefact et
 à **un** utilisateur, il expire, et la ligne ``artifact_links`` qui le porte permet
@@ -19,14 +19,19 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Literal
 
 ARTIFACT_SIGNING_KEYS_ENV = "ACP_ARTIFACT_SIGNING_KEYS"
-TOKEN_VERSION = "v1"
+LEGACY_TOKEN_VERSION = "v1"
+TOKEN_VERSION = "v2"
+TOKEN_NONCE_BYTES = 18
+TOKEN_NONCE_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,64}")
 MIN_SIGNING_KEY_CHARS = 32
 KEY_ID_LENGTH = 12
 IDENTIFIER_MAX_CHARS = 64
@@ -64,6 +69,7 @@ class ArtifactTokenClaims:
     user_id: str
     expires_at: datetime
     key_id: str
+    purpose: Literal["download", "preview"]
 
 
 def generate_signing_key() -> str:
@@ -121,19 +127,49 @@ def _checked_identifier(value: str, label: str) -> str:
     return value
 
 
-def _signature(artifact_id: str, user_id: str, expires_at: int, key: str) -> str:
-    message = f"{TOKEN_VERSION}.{artifact_id}.{user_id}.{expires_at}".encode("utf-8")
+def _signature(
+    artifact_id: str,
+    user_id: str,
+    expires_at: int,
+    purpose: Literal["download", "preview"],
+    nonce: str,
+    key: str,
+) -> str:
+    message = (
+        f"{TOKEN_VERSION}.{artifact_id}.{user_id}.{expires_at}.{purpose}.{nonce}"
+    ).encode("utf-8")
+    digest = hmac.new(key.encode("utf-8"), message, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _legacy_signature(artifact_id: str, user_id: str, expires_at: int, key: str) -> str:
+    """Signature v1 conservée uniquement pour lire les liens déjà distribués."""
+
+    message = (
+        f"{LEGACY_TOKEN_VERSION}.{artifact_id}.{user_id}.{expires_at}"
+    ).encode("utf-8")
     digest = hmac.new(key.encode("utf-8"), message, hashlib.sha256).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def sign_artifact_token(
-    artifact_id: str, user_id: str, expires_at: datetime, key: str
+    artifact_id: str,
+    user_id: str,
+    expires_at: datetime,
+    key: str,
+    *,
+    purpose: Literal["download", "preview"] = "download",
 ) -> str:
-    """Signe un lien ``v1.<artifact_id>.<exp>.<sig>`` (HMAC-SHA256, base64url)."""
+    """Signe un lien ``v2.<artifact_id>.<exp>.<purpose>.<nonce>.<sig>``.
+
+    Le nonce empêche deux liens créés la même seconde pour le même couple
+    artefact/utilisateur d'entrer en collision dans la colonne ``token_hash`` unique.
+    """
 
     if not key:
         raise ArtifactSigningNotConfigured(NOT_CONFIGURED_MESSAGE)
+    if purpose not in ("download", "preview"):
+        raise ValueError("L'usage du lien doit être « download » ou « preview ».")
     artifact_id = _checked_identifier(artifact_id, "L'identifiant d'artefact")
     user_id = _checked_identifier(user_id, "L'identifiant d'utilisateur")
     if expires_at.tzinfo is None:
@@ -141,8 +177,9 @@ def sign_artifact_token(
             "L'expiration d'un lien doit être une date avec fuseau horaire (UTC)."
         )
     expiry = int(expires_at.timestamp())
-    signature = _signature(artifact_id, user_id, expiry, key)
-    return f"{TOKEN_VERSION}.{artifact_id}.{expiry}.{signature}"
+    nonce = secrets.token_urlsafe(TOKEN_NONCE_BYTES)
+    signature = _signature(artifact_id, user_id, expiry, purpose, nonce, key)
+    return f"{TOKEN_VERSION}.{artifact_id}.{expiry}.{purpose}.{nonce}.{signature}"
 
 
 def verify_artifact_token(
@@ -167,11 +204,20 @@ def verify_artifact_token(
         # HMAC par clé encore en rotation.
         raise ArtifactTokenInvalid("Lien invalide : jeton hors format.")
     parts = (token or "").split(".")
-    if len(parts) != 4:
-        raise ArtifactTokenInvalid("Lien invalide : jeton illisible.")
-    version, token_artifact_id, raw_expiry, signature = parts
-    if version != TOKEN_VERSION:
-        raise ArtifactTokenInvalid("Lien invalide : version de jeton inconnue.")
+    nonce: str | None
+    if len(parts) == 6 and parts[0] == TOKEN_VERSION:
+        version, token_artifact_id, raw_expiry, raw_purpose, nonce, signature = parts
+        if raw_purpose not in ("download", "preview"):
+            raise ArtifactTokenInvalid("Lien invalide : usage hors format.")
+        purpose: Literal["download", "preview"] = raw_purpose
+        if TOKEN_NONCE_PATTERN.fullmatch(nonce) is None:
+            raise ArtifactTokenInvalid("Lien invalide : nonce hors format.")
+    elif len(parts) == 4 and parts[0] == LEGACY_TOKEN_VERSION:
+        version, token_artifact_id, raw_expiry, signature = parts
+        nonce = None
+        purpose = "download"
+    else:
+        raise ArtifactTokenInvalid("Lien invalide : version ou format inconnu.")
     if not token_artifact_id or not signature:
         raise ArtifactTokenInvalid("Lien invalide : jeton incomplet.")
     try:
@@ -191,7 +237,12 @@ def verify_artifact_token(
 
     matched: str | None = None
     for key in usable:
-        expected = _signature(artifact_id, user_id, expiry, key).encode("ascii")
+        expected_signature = (
+            _signature(artifact_id, user_id, expiry, purpose, nonce, key)
+            if version == TOKEN_VERSION and nonce is not None
+            else _legacy_signature(artifact_id, user_id, expiry, key)
+        )
+        expected = expected_signature.encode("ascii")
         if hmac.compare_digest(expected, candidate):
             matched = key
     if matched is None:
@@ -210,6 +261,7 @@ def verify_artifact_token(
         user_id=user_id,
         expires_at=expires_at,
         key_id=signing_key_id(matched),
+        purpose=purpose,
     )
 
 
