@@ -290,8 +290,9 @@ dérivée ne vaut jamais `succeeded` : l'acceptation utilisateur reste séparée
 
 Écart restant : toute cette chaîne est prouvée sur un lanceur déterministe
 (`apps/worker/tests/fake_playwright_runner.py`). Aucune exécution Playwright réelle ne
-l'a encore validée, et l'opt-in de test E2E réel prévu par la spécification (`ACP_E2E=1`)
-n'existe pas dans le dépôt.
+l'a encore validée. Dans l'état Lot E décrit ici, l'opt-in de test E2E réel prévu par
+la spécification (`ACP_E2E=1`) n'existait pas ; le Lot G l'ajoute dans un paquet isolé,
+mais il n'a toujours pas été activé contre un navigateur réel.
 
 ### Reprise en main humaine du navigateur
 
@@ -301,4 +302,149 @@ un test automatisé et fausse son résultat.
 Mesure en place : **la capacité n'est pas livrée**. Le Studio est en lecture seule et un
 panneau le dit explicitement ; aucun bouton ne laisse croire qu'une action est possible,
 et aucune route de contrôle n'existe côté serveur. Le lease exclusif, la suspension de
-l'automate et le marquage d'un résultat perturbé restent à concevoir (Lot G).
+l'automate et le marquage d'un résultat perturbé restent à concevoir après le Lot G.
+
+## Addendum — nouvelles frontières du Lot G (`0.8.0`)
+
+Cet addendum complète l'instantané Lot E ci-dessus. Il décrit les contrôles ajoutés
+dans l'arbre de travail du 14 septembre 2026 ; aucune intégration externe réelle n'a
+été lancée pour les valider.
+
+### Modèle GLB hostile et origine d'aperçu
+
+**Risque** : un fichier présenté comme un modèle 3D contient une structure invalide,
+des références externes, des données embarquées non bornées ou des extensions de
+décodage non prises en charge, puis est rendu dans l'origine portant la session
+utilisateur.
+
+Mesures en place : l'API n'accorde le type `model/gltf-binary` qu'à un GLB v2
+auto-contenu dont l'en-tête, les chunks, le JSON, les longueurs et les URI ont été
+validés sous des bornes fermées. Elle scelle cette validation avec le sha256 du blob ;
+une ligne antérieure au Lot G ou dont le sceau ne correspond plus reste uniquement
+téléchargeable. `.gltf`, les URI externes et les extensions de compression nécessitant
+un décodeur tiers sont refusés ; seules certaines URI `data:` binaires base64
+allowlistées et bornées sont acceptées. Le web charge
+`@google/model-viewer` à la demande, sans AR, lecture ni rotation automatiques.
+Le validateur facture cumulativement les `bufferViews`, les spans stridés et le décodage
+des accessors, refuse les accessors sparse, et impose le mapping BIN de `buffers[0]`.
+Chaque image embarquée doit être un PNG/JPEG/WebP dont l'en-tête et les dimensions sont
+cohérents ; les octets compressés, pixels de base et octets RGBA+mipmaps sont plafonnés
+avant toute remise au navigateur, sans décompression serveur.
+
+La création d'un lien d'aperçu exige `ACP_ARTIFACT_PUBLIC_ORIGIN` et une
+`ACP_API_URL` explicite, l'origine d'aperçu restant distincte de l'API et des origines
+CORS. Une valeur absente, ambiguë ou identique fait échouer la route en `424` **avant**
+l'émission d'un jeton ; il n'existe plus de repli sur l'origine de l'API. Le
+téléchargement authentifié reste disponible.
+
+Écarts restants : aucun GLB n'a été rendu dans un vrai navigateur, aucune origine
+d'aperçu séparée n'a été déployée et le parser borné ne remplace pas l'isolation du
+moteur graphique du navigateur. Le blob est vérifié à l'ingestion, pas re-haché à
+chaque plage HTTP ; l'intégrité du stockage privé après ingestion reste une exigence
+opérationnelle.
+
+### Workflow ComfyUI et réponse distante
+
+**Risque** : une mission transforme le gateway en proxy arbitraire, injecte un
+workflow, suit une redirection vers un service interne, attend sans borne ou publie un
+fichier qui n'est pas l'image annoncée.
+
+Mesures en place : l'opérateur configure un workflow fixe ; la mission ne fournit que
+le prompt. Le connecteur n'appelle que `/prompt`, `/history/{id}`, `/view` et le
+diagnostic `/system_stats`, sans endpoint d'interruption globale. Origine, TLS distant,
+absence de credentials URL, redirects, variables proxy, temps, tentatives, tailles et
+nombre d'images sont contrôlés. La réponse doit respecter le contrat, la signature et
+le type de fichier attendus. Le gateway exige son Bearer inter-service, ne journalise
+ni le prompt ni le jeton dans ce chemin et renvoie des erreurs génériques. Aucun filtre
+d'expurgation général des journaux du processus n'est toutefois livré. Générations,
+waiters et cache image sont bornés séparément, y compris en octets. Après toute tentative
+`/prompt` ambiguë, un tombstone non évictable avant sa TTL empêche une seconde soumission
+de la même clé dans ce processus ; la saturation sûre renvoie `429`.
+
+Écarts restants : l'idempotence vit en mémoire du processus, donc ni un redémarrage ni
+plusieurs réplicas ne la rendent durable ; les succès LRU peuvent être évincés avant leur
+TTL ; aucun ComfyUI réel n'a été joint et aucun contrôle OS/réseau externe ne remplace
+les validations applicatives.
+
+### Processus Codex CLI et Claude Code
+
+**Risque** : un objectif ou un dépôt hostile élargit la racine, active des outils
+réseau ou MCP, réutilise l'authentification personnelle de l'opérateur, déclenche
+plusieurs agents, contourne le permis budgétaire ou fait persister sa sortie brute.
+
+Mesures en place : chaque CLI exige un opt-in exact, un exécutable absolu, un profil
+d'authentification séparé et une racine projet déclarée hors du répertoire de runs.
+Les capacités agent explicites puis persistées sont confrontées à cette configuration
+avant l'enregistrement et avant tout heartbeat ou claim : désactiver un backend fait
+échouer fermé le worker au lieu de lui laisser réclamer une mission impossible.
+Un agent exige un scope projet présent dans l'allowlist locale et ne peut annoncer un
+scope global ; les capacités génériques exigent le runner fixe. Un scope absent et une
+sonde stdio non configurée sont également refusés avant réseau.
+Une mission supervisée demande exactement un identifiant d'exécuteur (`codex_cli` ou
+`claude_code`), même si elle possède d'autres capacités, une ressource
+`project_workspace` correspondante et des listes d'actions vides. Un permis est
+obtenu avant le spawn. Le point de lancement unique interdit deux CLIs et demande la
+désactivation des capacités web, MCP, plugins, navigateur et multi-agent connues ;
+Claude reçoit des outils en lecture seule, Codex respecte l'accès `read`/`write` demandé.
+Prompt, environnement, durée et sorties sont bornés. Un code zéro n'est accepté qu'avec
+l'événement terminal de succès propre au CLI. La preuve conserve des métadonnées
+opérationnelles, le code de sortie, le nombre d'événements, les tailles et les sha256,
+jamais le prompt ni les flux bruts.
+Les écritures Codex visant la même racine canonique sont sérialisées entre processus par
+un fichier verrou adjacent à la racine ; l'attente consomme la deadline et toute sortie,
+erreur ou annulation libère le verrou si le nettoyage est confirmé. Sinon, une
+quarantaine `.poison` atomique est publiée avant libération et bloque durablement les
+nouvelles acquisitions jusqu'à inspection et levée manuelle.
+
+Écarts restants : ces processus conservent les droits fichiers et réseau du compte
+worker ; une racine autorisée fixe le cwd, pas une sandbox. ACP limite l'exécution à une invocation
+CLI de premier niveau et `spawned_agents=1` ne voit aucun descendant créé par le binaire :
+le plafond global `max_spawned_agents_per_run` n'est donc pas démontré. Sous POSIX,
+`killpg` ne détecte pas un descendant ayant changé de session. Enfin, l'identité des
+exécutables, profils, chemins d'outils et racines n'est pas épinglée contre un
+remplacement concurrent après validation. Ils exigent des ACL opérateur et les projets
+non mutuellement fiables des comptes/conteneurs/VM distincts. Aucun CLI authentifié ni
+modèle réel n'a été exécuté. Enfin, un nettoyage incertain arrête le processus worker,
+mais cet état n'est pas persisté : un superviseur ne doit pas redémarrer avant inspection.
+Un claim déjà en vol peut laisser un lease distant sans spawn jusqu'à expiration ou
+réconciliation.
+Le verrou d'écriture est coopératif et ne remplace ni des ACL sur son dossier parent ni
+une isolation OS. Sur un partage réseau, sa sémantique doit être validée ; sinon les
+workers doivent recevoir des checkouts/worktrees distincts.
+
+### Parcours E2E et secrets de staging
+
+**Risque** : un test lancé implicitement, sur une mauvaise origine ou depuis une pull
+request de fork, divulgue les identifiants de staging ou émet des requêtes hors du
+périmètre attendu.
+
+Mesures en place : le lanceur nominal `npm run test:e2e` ne continue que pour
+`ACP_E2E=1` exact et annonce sinon `[E2E SKIPPED]` avant de résoudre Playwright. Le
+script de diagnostic `test:direct` peut charger le framework pour collecter la spec,
+mais celle-ci reste ignorée et aucun navigateur n'est lancé sans cet opt-in. Origines
+applicative/API et hôtes réseau HTTP(S)/WS(S) sont fermés par une allowlist posée sur le
+contexte navigateur, qui couvre aussi la requête initiale d'une popup ; toute nouvelle
+fenêtre est une violation. Après le `POST /auth/login` exact, seules les lectures
+`GET`/`HEAD`/`OPTIONS` sont autorisées. Chaque requête HTTP admise est transmise une fois
+par un contexte HTTP isolé avec `maxRedirects=0`, `maxRetries=0` et une échéance de
+30 secondes ; tout `3xx` est bloqué avant remise au navigateur. Le header `Cookie` est toujours celui décidé par Chromium,
+y compris lorsqu'il est vide : le jar du forwarder ne contourne donc pas `SameSite` ni
+la politique de cookies tiers.
+Une vraie `OPTIONS`, exécutée hors de ce routage avant la saisie des secrets, puis la
+réponse réelle du login prouvent les en-têtes CORS credentialed. Une seconde tentative
+de login est refusée. Service Workers, `Worker`, `SharedWorker`, `WebTransport`,
+`RTCPeerConnection`, `webkitRTCPeerConnection`, `WebSocketStream`, `EventSource`, retry,
+trace et vidéo sont désactivés ; seule une capture d'échec bornée est gardée. Le Studio
+exerce donc son vrai polling HTTP, et ce scénario ne prouve pas le SSE navigateur.
+Le job CI ne s'exécute que via `workflow_dispatch` sur `refs/heads/main`, avec
+`vars.ACP_E2E == '1'`. Il cible l'environnement dédié `acp-e2e-staging` ; les secrets
+ne sont injectés que dans l'étape finale. Avant d'y placer les identifiants, l'opérateur
+doit configurer hors YAML un reviewer requis et une branche de déploiement limitée à
+`main`. Le groupe de concurrence sépare les déclenchements manuels des push : aucun push
+ni aucune pull request ne peut lancer ou interrompre ce chemin. Cette allowlist
+applicative ne remplace pas le pare-feu sortant du runner et ne couvre pas les
+optimisations spéculatives internes de Chromium (DNS prefetch/preconnect).
+
+Écarts restants : l'opt-in n'a pas été activé dans cette vérification ; aucun navigateur
+réel, aucun compte de staging et aucune capture de session réelle ne constituent donc
+une preuve. La prise de contrôle humaine du navigateur reste entièrement absente.

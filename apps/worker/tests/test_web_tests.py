@@ -466,23 +466,23 @@ def test_capability_requires_a_complete_configuration_and_real_mode(
     monkeypatch.delenv("ACP_WORKER_WEBTEST_ARGV_JSON", raising=False)
     monkeypatch.delenv("ACP_WORKER_WEBTEST_CWD", raising=False)
     monkeypatch.setenv("ACP_WORKER_SIMULATION", "0")
-    assert "web_tests" not in detect_capabilities()
+    assert "web_tests" not in detect_capabilities(local_runner_configured=True)
 
     monkeypatch.setenv("ACP_WORKER_WEBTEST_ENABLED", "1")
     monkeypatch.setenv(
         "ACP_WORKER_WEBTEST_ARGV_JSON", json.dumps([PYTHON, "-I", FAKE_RUNNER, "green"])
     )
-    assert "web_tests" not in detect_capabilities()
+    assert "web_tests" not in detect_capabilities(local_runner_configured=True)
 
     monkeypatch.setenv("ACP_WORKER_WEBTEST_CWD", str(cwd))
-    assert "web_tests" in detect_capabilities()
+    assert "web_tests" in detect_capabilities(local_runner_configured=True)
 
     monkeypatch.setenv("ACP_WORKER_SIMULATION", "1")
-    assert "web_tests" not in detect_capabilities()
+    assert "web_tests" not in detect_capabilities(local_runner_configured=True)
 
     monkeypatch.setenv("ACP_WORKER_SIMULATION", "0")
     monkeypatch.setenv("ACP_WORKER_WEBTEST_ENABLED", "0")
-    assert "web_tests" not in detect_capabilities()
+    assert "web_tests" not in detect_capabilities(local_runner_configured=True)
 
 
 def test_doctor_reports_the_web_test_capability(
@@ -495,8 +495,10 @@ def test_doctor_reports_the_web_test_capability(
     monkeypatch.setenv("ACP_API_URL", "https://api.example")
     monkeypatch.setenv("ACP_PROVIDER_GATEWAY_URL", "https://gateway.example")
     monkeypatch.setenv("ACP_WORKER_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.delenv("ACP_WORKER_RUNNER_ARGV_JSON", raising=False)
-    monkeypatch.delenv("ACP_WORKER_RUN_ROOT", raising=False)
+    monkeypatch.setenv(
+        "ACP_WORKER_RUNNER_ARGV_JSON", json.dumps([PYTHON, "-V"])
+    )
+    monkeypatch.setenv("ACP_WORKER_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("ACP_WORKER_WEBTEST_ENABLED", "1")
     monkeypatch.setenv(
         "ACP_WORKER_WEBTEST_ARGV_JSON", json.dumps([PYTHON, "-I", FAKE_RUNNER, "green"])
@@ -1127,13 +1129,22 @@ async def test_a_lease_stop_interrupts_the_suite_and_stops_the_tree(tmp_path: Pa
     stop = asyncio.Event()
     api = RecordingApi()
     config = web_test_config(tmp_path, mode="hang", timeout_seconds=30.0)
+    pids_path = (
+        tmp_path / "runs" / "web-tests" / "run-1" / "attempt-1" / "pids.json"
+    )
 
-    async def stop_soon() -> None:
-        await asyncio.sleep(1.0)
-        stop.set()
+    async def stop_after_tree_started() -> None:
+        try:
+            async with asyncio.timeout(10.0):
+                while not pids_path.is_file():
+                    await asyncio.sleep(0.01)
+        finally:
+            # Même un lanceur cassé ne doit pas laisser le test attendre le
+            # timeout nominal de 30 s ; l'exception du waiter restera visible.
+            stop.set()
 
     async with api.client() as client:
-        waiter = asyncio.create_task(stop_soon())
+        waiter = asyncio.create_task(stop_after_tree_started())
         outcome = await run_web_tests(
             None,
             config,
@@ -1146,9 +1157,7 @@ async def test_a_lease_stop_interrupts_the_suite_and_stops_the_tree(tmp_path: Pa
     assert outcome.status == "interrupted"
     assert outcome.error == "stopped"
     assert outcome.succeeded is False
-    pids = json.loads(
-        (outcome.output_directory / "pids.json").read_text(encoding="utf-8")
-    )
+    pids = json.loads(pids_path.read_text(encoding="utf-8"))
     await asyncio.sleep(0.5)
     assert process_is_running(pids["parent"]) is False
     assert process_is_running(pids["child"]) is False

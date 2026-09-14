@@ -1,5 +1,8 @@
 # Providers
 
+Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G `0.8.0`
+implémenté dans l'arbre de travail
+
 La plateforme distingue trois familles de providers. Un agent logique peut en
 combiner plusieurs.
 
@@ -22,21 +25,34 @@ class OrchestratorProvider:
 | `mock` | Fixture de test | plans déterministes ; ne pas utiliser comme preuve d'exécution |
 | `manual` | Partiel | file en mémoire ; une demande en attente reste non approuvée |
 | `hermes` | Adaptateur testé | Runs officiels `0.21.1`, sans connexion réelle dans ce lot |
-| `claude` | Non livré | aucun `ClaudeOrchestratorProvider` opérationnel |
-| `codex` | Non livré | aucun `CodexOrchestratorProvider` opérationnel |
+| `claude` | Orchestrateur non livré | aucun `ClaudeOrchestratorProvider` ; l'exécuteur CLI Lot G décrit plus bas est une intégration distincte |
+| `codex` | Orchestrateur non livré | aucun `CodexOrchestratorProvider` ; l'exécuteur CLI Lot G décrit plus bas est une intégration distincte |
 
 ## Execution providers
 
 Exécutent *concrètement* les étapes : Claude Code, Codex CLI, programme local fixe,
 workers spécialisés. Le Lot C raccorde un backend générique à exécutable configuré,
-sans shell et avec une politique très restrictive. Les adaptateurs spécialisés
-Claude/Codex restent préparatoires.
+sans shell et avec une politique très restrictive. Le Lot G ajoute des exécuteurs
+spécialisés `codex_cli` et `claude_code`, désactivés par défaut, avec exécutable
+absolu, profil d'authentification séparé, racines projet allowlistées, outils bornés,
+permis avant spawn et preuve expurgée. Ils ne remplacent pas les orchestrateurs du
+tableau précédent et aucun CLI authentifié n'a encore été exécuté. Voir
+[Exécuteurs locaux Codex CLI et Claude Code](providers-local-executors.md).
 
 ## Tool providers
 
 Capacités outillées déclarées par les modules : Git, filesystem, Blender MCP,
 Unreal MCP, navigateur, bases de données, CI/CD. Chaque capacité d'un module
 liste ses `required_providers` ; le cœur n'en connaît aucun.
+
+Le connecteur ComfyUI du Lot G appartient lui aussi à cette frontière outillée : il
+est exposé par le provider-gateway, mais n'implémente pas `OrchestratorProvider`. Il
+exécute un workflow fixé par l'opérateur auquel la requête n'ajoute que le prompt,
+puis borne le polling, les générations simultanées, les attentes coalescées, le cache
+image en octets et le téléchargement. Après toute tentative `/prompt` dont l'issue est
+incertaine, un tombstone process-local empêche la même clé de soumettre un second job
+jusqu'à sa TTL. Il reste désactivé sans configuration complète et n'a pas été essayé
+contre une instance ComfyUI réelle. Voir [Médias et aperçu 3D](media-and-3d.md).
 
 ## Hermes
 

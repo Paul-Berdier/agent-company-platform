@@ -373,6 +373,11 @@ class _BoundedCapture:
             sha256=self._digest.hexdigest(),
         )
 
+    def raw_snapshot(self) -> bytes:
+        """Retourne la capture bornée pour une validation binaire interne."""
+
+        return bytes(self._buffer)
+
 
 def _validate_component(name: str, value: str) -> None:
     if not isinstance(value, str) or not _RUN_COMPONENT.fullmatch(value):

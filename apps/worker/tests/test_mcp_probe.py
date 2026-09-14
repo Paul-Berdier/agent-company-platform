@@ -550,6 +550,7 @@ def loop_credentials(*, capabilities: list[str] | None = None) -> WorkerCredenti
         max_concurrency=1,
         simulation=False,
         token_expires_at="2030-01-01T00:00:00Z",
+        global_access=True,
     )
 
 

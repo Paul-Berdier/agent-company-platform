@@ -1,8 +1,10 @@
 # Studio en direct : journal, tests et livrables
 
-Date d'état : 13 septembre 2026 — version `0.6.0` (Lot E)
-Statut : module livré et couvert par des tests déterministes ; **aucun navigateur réel
-n'a été lancé et aucun test Playwright réel n'a été exécuté** pour cette version.
+Date d'état : 14 septembre 2026 — base `0.6.0` (Lot E), complétée par le Lot G
+`0.8.0` en préparation.
+Statut : module livré et couvert par des tests déterministes ; le Lot G ajoute le
+harnais E2E opt-in et l'aperçu GLB, mais **aucun navigateur réel ni test Playwright
+réel n'a été lancé** pendant cette vérification.
 
 Ce document décrit ce qui est **réellement dans le dépôt**, pas une architecture cible.
 Les capacités absentes sont nommées comme absentes.
@@ -103,8 +105,9 @@ Vérifié en lisant le code cité et en exécutant les suites (chiffres au §
 ### Reporter Playwright
 
 - `packages/playwright-reporter` est un workspace npm **sans dépendance runtime** :
-  il implémente l'interface Reporter de Playwright sans l'importer, et
-  `@playwright/test` n'est pas ajouté au dépôt.
+  il implémente l'interface Reporter de Playwright sans l'importer. Le paquet racine
+  ne dépend pas de Playwright ; depuis le Lot G, le workspace isolé `e2e/` fixe en
+  revanche `@playwright/test` à la version `1.55.1`.
 - Sortie : NDJSON ligne par ligne dans `process.env.ACP_REPORT_FILE`, écrit en
   `appendFileSync` pour survivre à une interruption. Sans cette variable, le reporter
   signale l'erreur sur `stderr` et ne fait pas échouer la suite de tests.
@@ -126,7 +129,8 @@ Vérifié en lisant le code cité et en exécutant les suites (chiffres au §
   un shell. Sous Windows, le processus est donc enfermé dans un Job Object dès sa
   création.
 - Un arrêt d'arbre non prouvé (`terminate_process_tree` renvoie `False`) **interdit**
-  le verdict `passed`.
+  le verdict `passed`. Cette preuve complète vaut pour le Job Object Windows ; sous
+  POSIX, `killpg` ne peut pas détecter un descendant ayant quitté la session.
 - Un NDJSON absent ou vide est un échec explicite (« aucun résultat de test
   produit »), jamais un succès. Une ligne corrompue est ignorée, comptée et signalée ;
   le reste du rapport est conservé.
@@ -187,6 +191,10 @@ Vérifié en lisant le code cité et en exécutant les suites (chiffres au §
   Playwright — ne sont **jamais** servis en ligne : ils partent en
   `application/octet-stream` avec `Content-Disposition: attachment`. Un type non
   reconnu devient `application/octet-stream`.
+- Depuis le Lot G, un `.glb` n'est affichable qu'après validation stricte du conteneur
+  GLB v2 auto-contenu et scellement de cette validation par le sha256 du blob. Un
+  `.gltf`, une ligne antérieure au Lot G ou un sceau incohérent reste téléchargeable
+  sans être rendu.
 - `POST /artifacts/{id}/link` crée un lien signé HMAC-SHA256 borné dans le temps
   (`ttl_seconds` ≤ 900, défaut 300), lié à l'artefact **et** au demandeur, révocable
   par `DELETE /artifacts/links/{link_id}`. Sans `ACP_ARTIFACT_SIGNING_KEYS`, la route
@@ -211,9 +219,13 @@ Vérifié en lisant le code cité et en exécutant les suites (chiffres au §
   jointes, avec son horodatage ; pièces jointes en aperçu image/vidéo par lien signé,
   trace et rapport HTML en téléchargement explicite avec avertissement.
 - Aucun contenu d'artefact n'est rendu dans l'origine de la plateforme : pas
-  d'`iframe`, pas de `srcdoc`, aucune exécution. Quand `ACP_ARTIFACT_PUBLIC_ORIGIN`
-  n'est pas configurée, le Studio affiche l'avertissement « origine unique : ne pas
-  exposer cette instance sur Internet sans origine d'aperçu séparée ».
+  d'`iframe`, pas de `srcdoc`, aucune exécution. Depuis le Lot G,
+  `ACP_ARTIFACT_PUBLIC_ORIGIN` doit être une origine distincte de l'API et des origines
+  CORS ; sinon la création du lien d'aperçu répond `424` avant jeton, sans repli même
+  origine. Le téléchargement authentifié reste possible.
+- Les GLB validés utilisent `@google/model-viewer`, chargé à la demande, sans AR,
+  lecture ni rotation automatiques. Images et vidéos conservent leur aperçu signé ;
+  les autres formats restent en téléchargement explicite.
 - Aucun bouton de prise de contrôle. Un panneau dit explicitement que la capacité
   n'est pas livrée.
 - `apps/web/src/library-ui.ts` donne à la route « Bibliothèque » deux onglets,
@@ -248,16 +260,22 @@ profond `?vue=studio`, le seul paramètre que le shell web interprète. Détails
 ## Réalisé, non testé en conditions réelles
 
 - **Aucun navigateur réel n'a été lancé** et **aucun test Playwright réel n'a été
-  exécuté** pour cette version. Le reporter est prouvé sur des objets Playwright
+  exécuté** pendant les vérifications des Lots E à G. Le reporter est prouvé sur des objets Playwright
   synthétiques ; l'exécuteur du worker est prouvé sur
   `apps/worker/tests/fake_playwright_runner.py`, un programme déterministe lancé par
-  `sys.executable` qui écrit un NDJSON réaliste et des fichiers de pièces jointes.
-  Aucune ligne de ce lot n'a été confrontée à une vraie installation de Playwright.
+  `sys.executable` qui écrit un NDJSON réaliste et des fichiers de pièces jointes. La
+  chaîne reporter → worker n'a jamais été exercée avec un vrai runner Playwright.
 - Aucune capture d'écran d'une session de test réelle n'existe : les panneaux
   d'image du Studio n'ont donc jamais affiché autre chose qu'une pièce jointe
   synthétique de test.
 - Les écrans Studio et Bibliothèque sont couverts par des tests Vitest sur le DOM,
   **pas** par un parcours navigateur. Aucun rendu n'a été observé dans un navigateur.
+- Le paquet `e2e/` du Lot G couvre uniquement le parcours connexion → Missions → Studio
+  contre une tentative existante ; il ne traverse pas la Bibliothèque. Son garde exact
+  `ACP_E2E=1` n'a pas été activé ; le chemin normal produit donc seulement
+  `[E2E SKIPPED]`.
+- Aucun GLB n'a été rendu avec un vrai moteur de navigateur et aucune origine
+  d'aperçu séparée n'a été déployée.
 - Le flux SSE est exercé par la suite API sur un client de test ; aucune coupure
   réseau réelle, aucun proxy intermédiaire et aucune reconnexion depuis un vrai
   `EventSource` de navigateur n'ont été éprouvés.
@@ -270,9 +288,8 @@ profond `?vue=studio`, le seul paramètre que le shell web interprète. Détails
   (`503` explicite) et l'aperçu du Studio le dit ; le téléchargement par session reste
   possible.
 - `ACP_ARTIFACT_PUBLIC_ORIGIN` : **aucune origine d'aperçu séparée n'est configurée**
-  dans cette version. Les liens signés pointent alors vers l'API elle-même. C'est un
-  écart assumé et affiché, pas un contrôle : ne pas exposer une telle instance sur
-  Internet.
+  dans cet environnement. La création d'un lien d'aperçu échoue en `424` avant jeton,
+  sans repli vers l'API ; les téléchargements par session continuent de fonctionner.
 - Aucun stockage d'objets distant : l'interface existe, l'adaptateur n'est pas écrit.
 - `ACP_WORKER_WEBTEST_*` : aucun runner réel n'est configuré dans cet environnement de
   vérification ; la capacité `web_tests` n'a jamais été annoncée par un worker réel.
@@ -281,7 +298,7 @@ profond `?vue=studio`, le seul paramètre que le shell web interprète. Détails
 
 - **Reprise en main humaine du navigateur.** Le Studio est en lecture seule et
   l'interface le dit ; aucun lease de contrôle, aucune suspension de l'automate,
-  aucun bouton. Reporté au Lot G (noVNC/CDP).
+  aucun bouton. Cette capacité reste absente après le Lot G.
 - **Diffusion d'images de la session en direct.** La plateforme ne produit aucune
   image de session : les seules images disponibles sont les captures téléversées par
   le lanceur de tests. Il n'y a ni cadence, ni qualité adaptative, ni backpressure
@@ -292,13 +309,13 @@ profond `?vue=studio`, le seul paramètre que le shell web interprète. Détails
 
 ## Restant à réaliser
 
-- Installer Playwright sur un runner réel, exécuter une vraie suite et rejouer le
+- Exécuter une vraie suite sur un runner et activer le harnais E2E contre un staging
+  autorisé afin de rejouer le
   parcours complet — c'est la seule preuve qui manque pour faire passer les scénarios
   d'acceptation 10 et 11 de **Partiel** à **Accepté**.
-- Ajouter le test E2E Playwright réel **opt-in** prévu par la spécification (`ACP_E2E=1`,
-  `skipped` sinon). Il n'existe pas aujourd'hui : aucun fichier du dépôt ne lit cette
-  variable.
-- Parcours navigateur des écrans Studio et Bibliothèque.
+- Exécuter le parcours navigateur E2E livré sur les écrans Missions et Studio, avec les
+  secrets et origines de staging autorisés, puis l'étendre à la Bibliothèque avant de
+  revendiquer une couverture navigateur de cet écran.
 - Configurer une origine d'aperçu séparée et la vérifier.
 - Migration `journal_seq` / `sequence` sur une base PostgreSQL existante.
 - Adaptateur de stockage objet et politique de rétention exercée sur un volume réel.
@@ -307,15 +324,15 @@ profond `?vue=studio`, le seul paramètre que le shell web interprète. Détails
 
 | Menace | Contrôle livré | Écart restant |
 |---|---|---|
-| Contenu actif produit par un test (HTML, SVG, trace) | allowlist serveur sans reniflage, téléchargement forcé, `nosniff`, CSP `default-src 'none'; sandbox`, jamais d'`iframe` ni de `srcdoc` | l'aperçu image/vidéo reste sur l'origine de l'API tant que `ACP_ARTIFACT_PUBLIC_ORIGIN` n'est pas configurée |
+| Contenu actif produit par un test (HTML, SVG, trace) | allowlist serveur sans reniflage, téléchargement forcé, `nosniff`, CSP `default-src 'none'; sandbox`, jamais d'`iframe` ni de `srcdoc` ; origine d'aperçu distincte obligatoire avant émission d'un jeton | aucune origine séparée n'a été déployée ni testée dans un navigateur réel |
 | URL de média partagée ou durable | lien signé HMAC borné (≤ 900 s), lié à l'artefact et au demandeur, révocable, rotation de clés par liste | pas de journal de consultation par lien ; le compteur d'usage existe mais n'est pas exposé |
 | Lecture du flux ou d'un fichier d'un autre projet | RBAC serveur sur chaque ouverture **et** à chaque page du flux ; un `project_id` client n'élargit jamais la portée | matrice RBAC exhaustive toujours incomplète (écart hérité) |
 | Traversée de chemin | clé de stockage dérivée du sha256, nom d'origine jamais dans le chemin, résolution canonique des pièces jointes, refus des liens et des `..` | les 3 tests de lien symbolique sont ignorés sur cette machine faute de privilège |
 | Fuite de secret par une sortie de test | expurgation `redact_text` / `redact_data` avec les valeurs injectées ; le processus de test ne reçoit aucun credential de la plateforme | un filtre de texte ne masque pas des pixels ; une valeur dérivée (encodée, tronquée, hachée) n'est pas couverte |
-| Faux succès | verdict dérivé des codes de sortie et des compteurs, jamais d'une image ; arrêt d'arbre non prouvé ⇒ pas de succès ; rapport vide ⇒ échec ; le rapport ne peut qu'aggraver le verdict | aucune exécution Playwright réelle n'a encore validé la chaîne complète |
+| Faux succès | verdict dérivé des codes de sortie et des compteurs, jamais d'une image ; arrêt d'arbre signalé comme non prouvé ⇒ pas de succès ; rapport vide ⇒ échec ; le rapport ne peut qu'aggraver le verdict | preuve de vidange complète limitée au Job Object Windows ; POSIX ne détecte pas un descendant sorti de session ; aucune exécution Playwright réelle |
 | Coupure de flux interprétée comme un état | états `connected`/`reconnecting`/`polling`/`offline` explicites, réconciliation par `GET`, aucune relance de mission | pas de test de coupure réseau réelle |
-| Saturation stockage | plafond par fichier et quota par tentative, rétention avec comptage de références | pas de quota par projet ni d'alerte de saturation |
-| Prise de contrôle concurrente | sans objet : la capacité n'est pas livrée | à concevoir au Lot G |
+| Saturation stockage | plafond par fichier et quota par tentative, rétention avec comptage de références ; le Lot F ouvre une alerte in-app locale expurgée sur `507`/`503` lorsque projet et run sont résolus | pas de quota par projet ni de preuve de saturation et d'alerte sur un volume hébergé |
+| Prise de contrôle concurrente | sans objet : la capacité n'est pas livrée | reste à concevoir après le Lot G |
 
 ## Vérification
 
@@ -326,7 +343,7 @@ npm `11.17.0` :
 | Commande | Résultat |
 |---|---|
 | `./.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider` | **1 627 réussis, 4 ignorés**, 2 avertissements de dépréciation |
-| `npm exec tsc -- --noEmit -p apps/web/tsconfig.json` | réussi |
+| `npm run typecheck --workspace @acp/web` | réussi |
 | `npm test --workspace @acp/web` | **262 réussis** (17 fichiers) |
 | `npm test --workspace @acp/playwright-reporter` | **59 réussis** (1 fichier) |
 
@@ -341,5 +358,6 @@ totalisent **113 tests**.
 Les 4 tests ignorés sont : un contrôle de permissions POSIX inapplicable sous Windows
 (`test_artifacts_storage.py`) et trois tests de lien symbolique
 (`apps/worker/tests/test_web_tests.py`) que le compte de vérification ne peut pas
-créer sur cette machine. Aucun test n'est ignoré faute d'opt-in Playwright : cet
-opt-in n'existe pas encore.
+créer sur cette machine. Pour cet instantané Lot E, aucun test n'était ignoré faute
+d'opt-in Playwright parce que celui-ci n'existait pas encore ; le Lot G l'ajoute et le
+garde désactivé par défaut.

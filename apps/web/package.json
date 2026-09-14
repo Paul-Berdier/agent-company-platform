@@ -1,18 +1,20 @@
 {
   "name": "@acp/web",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@acp/contracts": "*",
     "@acp/pixel-office-engine": "*",
-    "@acp/ui": "*"
+    "@acp/ui": "*",
+    "@google/model-viewer": "4.3.1"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

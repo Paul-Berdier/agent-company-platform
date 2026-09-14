@@ -1,6 +1,6 @@
 [project]
 name = "acp-worker"
-version = "0.7.0"
+version = "0.8.0"
 description = "Worker distant exécutant les task runs de l'Agent Company Platform"
 requires-python = ">=3.11"
 dependencies = [

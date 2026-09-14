@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from acp_agent_sdk import load_modules
 from acp_database import get_engine, init_db
 
+from .access_logging import install_access_log_redaction
 from .webhook_ingress import RequestIngressGuardMiddleware
 
 from .routers import (
@@ -34,6 +35,12 @@ from .routers import (
 )
 
 
+# Uvicorn inclut par défaut la query string dans son journal d'accès. Installer le
+# filtre après sa configuration CLI mais avant la première requête empêche qu'un lien
+# signé ``?token=...`` devienne un bearer récupérable dans les logs.
+install_access_log_redaction()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -48,7 +55,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.7.0",
+    version="0.8.0",
     lifespan=lifespan,
 )
 

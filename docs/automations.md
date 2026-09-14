@@ -1,6 +1,7 @@
 # Automatisations, budgets et alertes
 
-Date d'état : 14 septembre 2026, Europe/Paris — préparation de la version `0.7.0`
+Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.7.0`, complétée
+par le Lot G `0.8.0` dans l'arbre de travail
 
 Le Lot F ajoute des **routines** durables : chaque routine associe un calendrier à un
 gabarit de mission. À l'échéance, le planificateur matérialise une mission normale ;
@@ -190,8 +191,10 @@ Le budget du gabarit borne chaque mission. Une politique de projet ajoute :
 - jusqu'à 100 plafonds journaliers par fournisseur, sans doublon de nom ;
 - un plafond de missions actives par projet ;
 - un plafond de relances par mission ;
-- `max_spawned_agents_per_run`, persisté et affiché mais **pas encore appliqué** : le
-  runtime n'a aucun point de spawn d'agents avant les exécuteurs du Lot G.
+- `max_spawned_agents_per_run`, persisté et affiché. Dans le Lot F il n'existait pas
+  encore de point de spawn ; l'exécuteur Lot G lance au plus une invocation CLI de
+  premier niveau par tentative. Ses descendants ne sont ni comptés ni interdits : le
+  plafond global n'est donc pas démontré et aucun fan-out dynamique n'est livré.
 
 Le worker doit obtenir un permis idempotent avant chaque effet consommateur raccordé :
 planification, exécution et évaluation. Il rapporte ensuite la consommation avec un
@@ -404,8 +407,9 @@ Alembic, ni la sauvegarde/restauration du Lot H.
   aucun service externe n'est requis ou revendiqué par les preuves du Lot F.
 - Le stockage d'artefacts reste un répertoire local. La saturation est détectée, mais
   aucun adaptateur objet ni volume hébergé n'a été éprouvé.
-- `max_spawned_agents_per_run` est contractuel, persisté et visible, mais son contrôle
-  attend le point de spawn des exécuteurs du Lot G.
+- `max_spawned_agents_per_run` est contractuel, persisté et visible. Le point de spawn
+  unique du Lot G limite l'exécution à une invocation CLI de premier niveau gérée par ACP ; ses
+  descendants restent hors métrique et un contrôle dynamique de fan-out est absent.
 - Le planificateur crée des missions ; les limites du runner local demeurent : pas de
   sandbox OS/réseau forte et aucune action agentique tierce réellement exécutée.
 - Les alertes restent dans l'application. Il n'existe ni ordonnanceur de rétention,

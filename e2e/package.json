@@ -1,0 +1,15 @@
+{
+  "name": "@acp/real-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:chromium": "playwright install chromium",
+    "install:chromium:ci": "playwright install --with-deps chromium",
+    "test": "node run.mjs",
+    "test:direct": "playwright test --config playwright.config.mjs",
+    "test:unit": "node --test unit/*.test.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1"
+  }
+}

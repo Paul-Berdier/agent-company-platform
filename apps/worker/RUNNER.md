@@ -1,13 +1,16 @@
-# Runner local réel
+# Backends d'exécution réels du worker
 
-Le worker peut lancer un unique programme local approuvé par l'opérateur. La
+Le runner historique peut lancer un unique programme local approuvé par l'opérateur. La
 mission ne fournit jamais de commande, d'exécutable ou d'arguments. Elle arrive
 au programme sous la forme d'un fichier `request.json` versionné, placé dans un
-répertoire neuf propre à la tentative.
+répertoire neuf propre à la tentative. Depuis le Lot G, un worker réel peut aussi
+activer un exécuteur Codex CLI ou Claude Code explicitement configuré ; ce second chemin
+est décrit plus bas et dans
+[docs/providers-local-executors.md](../../docs/providers-local-executors.md).
 
 ## Configuration
 
-Le mode réel échoue fermé tant que les deux variables suivantes ne sont pas
+Le backend à argv fixe échoue fermé tant que les deux variables suivantes ne sont pas
 définies :
 
 - `ACP_WORKER_RUNNER_ARGV_JSON` : tableau JSON non vide. Le premier élément doit
@@ -86,12 +89,14 @@ comme réussie, mais termine le run en `blocked` : une indisponibilité ne vaut
 jamais approbation.
 
 Le renouvellement du lease pilote l'arrêt. Sous POSIX, le worker termine le groupe
-de processus avec `SIGTERM` puis `SIGKILL`. Sous Windows, il accorde d'abord la
+de processus connu avec `SIGTERM` puis `SIGKILL`, sans pouvoir détecter un descendant
+qui aurait quitté la session via `setsid()`. Sous Windows, il accorde d'abord la
 grâce configurée via `CTRL_BREAK`, puis utilise `taskkill.exe /T /F` par argv
 absolu, sans shell. Une vérification native Toolhelp épingle les handles de la
 famille et converge sur plusieurs snapshots bornés. Le nettoyage est aussi
-effectué après la sortie normale du parent ; s'il ne peut pas être confirmé, un
-code de sortie zéro devient `exit_process_tree_cleanup_failed`, jamais un succès.
+effectué après la sortie normale du parent. Sous Windows, s'il ne peut pas être
+confirmé, un code de sortie zéro devient `exit_process_tree_cleanup_failed`, jamais
+un succès ; la garantie POSIX reste une terminaison de groupe best effort.
 
 ## Tests web (Playwright)
 
@@ -100,11 +105,12 @@ lorsque la mission déclare une ressource `kind = "web_test_suite"` **et** que l
 capacité `web_tests` est annoncée. Sans l'une des deux, le comportement du Lot C
 reste strictement inchangé.
 
-**La plateforme n'installe jamais Playwright.** L'opérateur l'installe lui-même
-sur le runner (`npm i -D @playwright/test && npx playwright install`) et déclare
-l'argv absolu à lancer. Le processus de test ne reçoit **jamais** un credential
-de la plateforme : il écrit un rapport NDJSON local que le worker authentifié
-ingère ensuite.
+Le chemin `web_tests` du worker n'installe jamais Playwright. L'opérateur l'installe
+lui-même sur le runner (`npm i -D @playwright/test && npx playwright install`) et
+déclare l'argv absolu à lancer. Le paquet E2E isolé `e2e/` du Lot G possède sa propre
+dépendance, sans modifier ce contrat. Le processus de test ne reçoit **jamais** un
+credential de la plateforme : il écrit un rapport NDJSON local que le worker
+authentifié ingère ensuite.
 
 ### Configuration
 
@@ -160,7 +166,8 @@ agent-company-worker doctor
    `playwright.config.ts` pour que ce fichier soit écrit.
 3. Le lancement passe par **exactement la même clôture** que le runner local
    (`spawn_fenced_process` / `terminate_process_tree`) : aucun shell, session
-   POSIX ou Job Object Windows, arrêt d'arbre vérifié. `stdout.log` et
+   POSIX ou Job Object Windows. La vidange est vérifiée avec le Job Object Windows ;
+   sous POSIX, un descendant sorti de session échappe à `killpg`. `stdout.log` et
    `stderr.log` sont écrits dans le répertoire de sortie ; aucun tube hérité ne
    peut donc bloquer la fin de la tentative.
 4. Le NDJSON est lu ligne par ligne. Une ligne illisible est **comptée et
@@ -184,6 +191,10 @@ ingestion API acceptée et un arrêt d'arbre prouvé. `flaky` et `skipped`
 n'empêchent pas le succès mais restent affichés distinctement : les statuts
 `passed`, `failed`, `timedOut`, `skipped` et `interrupted` ne sont jamais réduits
 à vert/rouge.
+
+La preuve de vidange complète de l'arbre concerne le Job Object Windows. Sous POSIX,
+le verdict échoue si le nettoyage connu signale une incertitude, mais `killpg` ne peut
+pas détecter un descendant qui a quitté la session.
 
 Un NDJSON absent ou vide est un échec explicite — « aucun résultat de test
 produit » — jamais un succès. Un rapport partiel et des pièces jointes refusées
@@ -211,6 +222,56 @@ main dans le même `ACP_WORKER_WEBTEST_CWD` avec `ACP_REPORT_FILE` positionné, 
 vérifiez que le fichier NDJSON est bien écrit : c'est le seul point de la chaîne
 que la plateforme ne peut pas diagnostiquer à votre place.
 
+## Exécuteurs Codex CLI et Claude Code
+
+Un worker réel peut démarrer sans `ACP_WORKER_RUNNER_ARGV_JSON` si au moins un
+exécuteur agent est complètement activé. Codex et Claude ne sont jamais déduits du
+`PATH` : les drapeaux `ACP_WORKER_CODEX_ENABLED` / `ACP_WORKER_CLAUDE_ENABLED`, les
+exécutables absolus, les profils d'authentification séparés et
+`ACP_WORKER_EXECUTOR_PROJECTS_JSON` sont tous exigés. `doctor` ne publie que les noms
+activés et le nombre de racines autorisées.
+
+En mode réel, toute capacité de mission générique fournie explicitement exige le runner
+local ; une capacité agent exige à la fois son exécuteur activé, un périmètre
+`--project` et une entrée correspondante dans `ACP_WORKER_EXECUTOR_PROJECTS_JSON`.
+`--global-access` est refusé avec `codex_cli` ou `claude_code` tant que le claim global
+ne filtre pas lui-même cette allowlist locale. Ces contrôles ont lieu après résolution
+du scope et avant l'appel d'enregistrement, puis sont rejoués par `doctor`, `start` et
+la boucle worker sur les credentials persistés. Retirer un backend ou une racine impose
+donc un réenregistrement avant tout nouveau claim. Le mode simulation conserve son
+socle de capacités simulées sans exiger de runner local.
+
+La mission doit demander exactement un identifiant d'exécuteur parmi `codex_cli` et
+`claude_code` — elle peut conserver d'autres capacités nécessaires —, être supervisée,
+avoir ses trois listes d'actions vides et déclarer une seule ressource
+`project_workspace` liée au projet attribué. Codex suit son accès `read`/`write` ;
+Claude refuse `write`. Deux capacités CLI dans une même tentative sont refusées et le
+multi-agent interne est désactivé via les options connues du CLI. Une invocation Codex
+en écriture conserve pendant toute sa durée un verrou interprocessus dérivé de la racine
+canonique ; deux workers ACP visant le même checkout sur le même système de fichiers se
+sérialisent avant le spawn. ACP lance au plus un processus CLI de premier niveau par
+tentative ; il ne bloque ni ne compte les processus ou agents descendants.
+La preuve rend cette portée explicite avec
+`spawned_agents_scope=worker_managed_top_level_cli_only`.
+
+Le prompt passe par stdin. L'environnement, la durée et les deux flux sont bornés ; le
+stdout est validé comme JSONL et doit se terminer par l'événement de succès propre au
+CLI (`turn.completed` pour Codex, `result/success/is_error=false` pour Claude). La preuve conserve les métadonnées opérationnelles,
+le code de sortie, le nombre d'événements, les tailles et les sha256, mais jamais le
+prompt ni les flux bruts. La clôture d'arrêt est la même que pour le runner fixe.
+Un permis budgétaire précède le spawn ; une mission exigeant une borne de coût ou de
+jetons est refusée, faute de limite dure fiable dans ces CLIs.
+
+Une impossibilité de confirmer le nettoyage arrête le processus worker avant un nouveau
+claim observé. Pour une écriture Codex, elle publie en plus, avant de libérer le verrou,
+un marqueur atomique `.acp-worker-write-<sha256>.poison` adjacent à celui-ci. Toute
+acquisition suivante échoue fermée tant que ce marqueur existe, y compris si elle
+attendait déjà le verrou. Le worker ne le supprime **jamais** automatiquement : arrêter
+les workers partageant la racine, inspecter les processus et le checkout, puis seulement
+le lever manuellement. Un timeout ou une annulation dont le nettoyage et la libération
+du verrou sont confirmés ne crée pas ce marqueur. Un claim HTTP déjà en vol peut laisser
+un lease distant sans spawn ; l'API doit alors le réconcilier ou attendre son expiration.
+
 ## Limites de sécurité
 
 Ce backend est une frontière locale contrôlée et testable, pas une sandbox de système
@@ -219,6 +280,19 @@ filtrage réseau sortant. Le programme configuré et le compte Windows qui exéc
 le worker restent dans la base de confiance. La racine des runs doit donc être
 privée à ce compte et l'exécutable ainsi que ses scripts fixes doivent résider
 dans un emplacement non modifiable par les projets ou missions.
+
+La racine projet sélectionne le cwd ; elle n'empêche pas le CLI de lire tout autre
+chemin accessible au compte worker. Un worker destiné à du code non fiable doit être
+mono-projet, sous un compte/conteneur/VM et un pare-feu dédiés. La validation canonique
+des chemins n'épingle pas leur identité jusqu'au spawn : exécutables, profils, `PATH`,
+racines et répertoires parents doivent être protégés contre toute substitution concurrente.
+
+Le verrou d'écriture Codex est un mécanisme de coordination, pas une barrière contre le
+CLI lui-même : ses fichiers `.acp-worker-write-<sha256>.lock` et, après nettoyage
+incertain, `.acp-worker-write-<sha256>.poison` persistent à côté de la racine ; leur
+parent doit être protégé par ACL. Tous les workers visant un checkout
+partagé doivent voir le même fichier et le système de fichiers doit fournir des verrous
+interprocessus fiables ; sinon utiliser un worktree ou une VM dédiée par worker.
 
 Sous Windows, le spawn est désormais **fencé par un Job Object** : le processus est
 créé suspendu, affecté à un job anonyme `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` sans
@@ -244,9 +318,14 @@ appelle `setsid()` sort du groupe de session. Un déploiement acceptant un exéc
 non fiable doit donc y ajouter un cgroup, des quotas de job ou une portée de service
 supervisée.
 
-En conséquence, la politique mission est volontairement conservatrice et
-vérifiée avant tout spawn : seul le mode `supervised` est accepté, avec
+Pour le backend générique du Lot C, la politique mission reste volontairement
+conservatrice et vérifiée avant tout spawn : seul le mode `supervised` est accepté, avec
 `allowed_actions`, `forbidden_actions` et `approval_required_actions` vides et uniquement des
 ressources déclarées en lecture. Toute ressource en écriture, délégation d'action
 ou action soumise à approbation est refusée. Le worker n'implémente pas de circuit
 d'approbation et ne prétend pas isoler les droits du programme approuvé sur l'OS.
+
+L'exécuteur Codex constitue l'unique exception bornée à cette règle de lecture seule : une ressource
+`project_workspace` explicitement `write` demande au CLI son mode `workspace-write`.
+Claude reçoit une configuration d'outils en lecture seule et aucune des deux voies
+n'autorise une approbation interactive ; ACP ne transforme pas ces options en isolation OS.

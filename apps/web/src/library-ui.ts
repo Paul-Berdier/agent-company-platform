@@ -34,8 +34,10 @@ import {
   describeArtifactPreview,
   describeArtifactsError,
   formatArtifactSize,
+  isSeparateArtifactPreviewUrl,
   shortChecksum,
 } from "./artifacts-api";
+import { modelPreviewNode } from "./model-preview";
 import { renderSkillsLibrary, resetSkillsUiState } from "./skills-ui";
 import {
   el,
@@ -80,8 +82,7 @@ const STREAM_KIND_FILTERS: readonly { value: string; label: string }[] = [
   { value: "file", label: "Fichier" },
 ];
 
-const PREVIEW_ORIGIN_NOTE = "Aperçu servi par l’origine de l’API : sans origine d’aperçu séparée "
-  + `(${ARTIFACT_PREVIEW_ORIGIN_ACTION}), ne pas exposer cette instance sur Internet.`;
+const PREVIEW_ORIGIN_NOTE = "Aperçu chargé depuis une origine distincte de l’application";
 
 const SESSION_DOWNLOAD_NOTE = "Ce lien n’utilise pas de signature : il ne fonctionne que si le "
   + "navigateur transmet le cookie de session à l’origine de l’API.";
@@ -230,7 +231,8 @@ interface DeliverablesState {
 }
 
 interface RowState {
-  link: ArtifactLink | null;
+  previewLink: ArtifactLink | null;
+  downloadLink: ArtifactLink | null;
   preview: boolean;
   download: boolean;
   busy: boolean;
@@ -262,6 +264,7 @@ let tab: LibraryTab = "skills";
 let state: DeliverablesState = initialDeliverables();
 let rows = new Map<string, RowState>();
 let loadSequence = 0;
+let linkExpiryTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 
 let mount: HTMLElement | null = null;
 let resultsMount: HTMLElement | null = null;
@@ -289,6 +292,8 @@ function useHttpClient(client: WorkspaceHttpClient | undefined): void {
 
 /** Un lien signé expire vite : on n’en réutilise un que s’il reste franchement valable. */
 const LINK_REUSE_MARGIN_MS = 15_000;
+/** Plafond natif d'un `setTimeout` navigateur ; au-delà, on replanifie par tranche. */
+const LINK_EXPIRY_TIMER_MAX_MS = 2_147_483_647;
 
 function isLinkUsable(link: ArtifactLink | null): link is ArtifactLink {
   if (!link) return false;
@@ -299,9 +304,60 @@ function isLinkUsable(link: ArtifactLink | null): link is ArtifactLink {
 function rowState(artifactId: string): RowState {
   const existing = rows.get(artifactId);
   if (existing) return existing;
-  const created: RowState = { link: null, preview: false, download: false, busy: false, error: "" };
+  const created: RowState = {
+    previewLink: null,
+    downloadLink: null,
+    preview: false,
+    download: false,
+    busy: false,
+    error: "",
+  };
   rows.set(artifactId, created);
   return created;
+}
+
+function expireUnusableRowLinks(row: RowState): void {
+  if (row.previewLink && !isLinkUsable(row.previewLink)) row.previewLink = null;
+  if (row.downloadLink && !isLinkUsable(row.downloadLink)) row.downloadLink = null;
+}
+
+function clearLinkExpiryTimer(): void {
+  if (linkExpiryTimer === null) return;
+  globalThis.clearTimeout(linkExpiryTimer);
+  linkExpiryTimer = null;
+}
+
+/**
+ * Un seul timer couvre toutes les lignes. Chaque rendu le remplace par l'échéance
+ * utile la plus proche ; son callback repeint uniquement les résultats déjà chargés.
+ */
+function scheduleLinkExpiryInvalidation(): void {
+  clearLinkExpiryTimer();
+  if (tab !== "deliverables" || !resultsMount) return;
+
+  let nextInvalidationAt = Number.POSITIVE_INFINITY;
+  for (const row of rows.values()) {
+    for (const link of [row.previewLink, row.downloadLink]) {
+      if (!link) continue;
+      const expiry = Date.parse(link.expires_at);
+      if (Number.isFinite(expiry)) {
+        nextInvalidationAt = Math.min(
+          nextInvalidationAt,
+          expiry - LINK_REUSE_MARGIN_MS,
+        );
+      }
+    }
+  }
+  if (!Number.isFinite(nextInvalidationAt)) return;
+
+  const delay = Math.min(
+    LINK_EXPIRY_TIMER_MAX_MS,
+    Math.max(1, nextInvalidationAt - Date.now() + 1),
+  );
+  linkExpiryTimer = globalThis.setTimeout(() => {
+    linkExpiryTimer = null;
+    if (tab === "deliverables" && resultsMount) paintResults();
+  }, delay);
 }
 
 // --- URL ---------------------------------------------------------------------------
@@ -430,10 +486,17 @@ async function requestLink(artifact: ArtifactSummary, target: "preview" | "downl
   row.error = "";
   paintResults();
   try {
-    const link = isLinkUsable(row.link) ? row.link : await api.createLink(artifact.id);
-    row.link = link;
-    if (target === "preview") row.preview = true;
-    else row.download = true;
+    const currentLink = target === "preview" ? row.previewLink : row.downloadLink;
+    const link = isLinkUsable(currentLink)
+      ? currentLink
+      : await api.createLink(artifact.id, undefined, target);
+    if (target === "preview") {
+      row.previewLink = link;
+      row.preview = true;
+    } else {
+      row.downloadLink = link;
+      row.download = true;
+    }
     state.signingUnavailable = false;
     state.signingMessage = "";
     state.signingAction = "";
@@ -555,20 +618,45 @@ function metaRow(term: string, value: string): HTMLElement {
   return row;
 }
 
-function previewNode(artifact: ArtifactSummary, link: ArtifactLink, kind: "image" | "video"): HTMLElement {
+function previewNode(
+  artifact: ArtifactSummary,
+  link: ArtifactLink,
+  kind: "image" | "video" | "model",
+): HTMLElement {
   const frame = el("div", "library-preview");
+  if (!isSeparateArtifactPreviewUrl(link.url)) {
+    frame.append(el(
+      "p",
+      "library-warning",
+      `Aperçu bloqué : ${ARTIFACT_PREVIEW_ORIGIN_ACTION} doit désigner une origine distincte `
+        + "de l’application. Le fichier reste téléchargeable sans être rendu ici.",
+    ));
+    frame.append(downloadAnchor(
+      link.url,
+      artifact.original_name,
+      "Télécharger sans aperçu",
+    ));
+    return frame;
+  }
   if (kind === "image") {
     const image = el("img", "library-preview-media");
+    image.crossOrigin = "anonymous";
     image.src = link.url;
     image.alt = `Aperçu de ${artifact.original_name || "livrable sans nom"}`;
     image.loading = "lazy";
     frame.append(image);
-  } else {
+  } else if (kind === "video") {
     const video = el("video", "library-preview-media");
+    video.crossOrigin = "anonymous";
     video.src = link.url;
     video.controls = true;
     video.preload = "metadata";
     frame.append(video);
+  } else {
+    frame.append(modelPreviewNode(
+      link.url,
+      `Aperçu 3D de ${artifact.original_name || "livrable sans nom"}`,
+    ));
   }
   frame.append(el(
     "p",
@@ -595,6 +683,12 @@ function downloadAnchor(
 function artifactRow(artifact: ArtifactSummary): HTMLElement {
   const decision = describeArtifactPreview(artifact);
   const row = rowState(artifact.id);
+  // Une URL signée ne reste jamais dans le DOM au-delà de sa fenêtre utile. Garder
+  // les booléens permet de distinguer une première demande d'un renouvellement, mais
+  // retirer la valeur périmée garantit que ni un média ni une ancre ne la réutilise.
+  expireUnusableRowLinks(row);
+  const previewNeedsRegeneration = row.preview && !row.previewLink;
+  const downloadNeedsRegeneration = row.download && !row.downloadLink;
   const item = el("article", "list-item library-artifact");
 
   const copy = el("div", "list-item-copy");
@@ -641,28 +735,38 @@ function artifactRow(artifact: ArtifactSummary): HTMLElement {
   }
 
   const actions = el("div", "library-actions");
-  if (decision.downloadable && decision.kind !== "none" && !row.preview) {
-    const preview = el("button", "button button-secondary", "Aperçu");
+  if (decision.downloadable && decision.kind !== "none" && !row.previewLink) {
+    const preview = el(
+      "button",
+      "button button-secondary",
+      previewNeedsRegeneration ? "Régénérer l’aperçu" : "Aperçu",
+    );
     preview.type = "button";
     preview.disabled = row.busy;
     preview.addEventListener("click", () => void requestLink(artifact, "preview"));
     actions.append(preview);
   }
-  if (decision.downloadable && !row.download) {
-    const download = el("button", "button button-primary", "Préparer le téléchargement");
+  if (decision.downloadable && !row.downloadLink) {
+    const download = el(
+      "button",
+      "button button-primary",
+      downloadNeedsRegeneration
+        ? "Régénérer le téléchargement"
+        : "Préparer le téléchargement",
+    );
     download.type = "button";
     download.disabled = row.busy;
     download.addEventListener("click", () => void requestLink(artifact, "download"));
     actions.append(download);
   }
-  if (decision.downloadable && row.download && row.link) {
+  if (decision.downloadable && row.downloadLink) {
     actions.append(downloadAnchor(
-      row.link.url,
+      row.downloadLink.url,
       artifact.original_name,
-      `Télécharger (lien valable jusqu’à ${formatDateTime(row.link.expires_at)})`,
+      `Télécharger (lien valable jusqu’à ${formatDateTime(row.downloadLink.expires_at)})`,
     ));
   }
-  if (decision.downloadable && state.signingUnavailable && !row.link) {
+  if (decision.downloadable && state.signingUnavailable && !row.downloadLink) {
     actions.append(downloadAnchor(
       api.contentUrl(artifact.id),
       artifact.original_name,
@@ -671,7 +775,25 @@ function artifactRow(artifact: ArtifactSummary): HTMLElement {
   }
   if (actions.children.length) copy.append(actions);
 
-  if (decision.downloadable && state.signingUnavailable && !row.link) {
+  if (previewNeedsRegeneration) {
+    const expired = el(
+      "p",
+      "form-hint library-expired-link",
+      "Le lien d’aperçu a expiré. Régénérez-le pour afficher de nouveau ce livrable.",
+    );
+    expired.setAttribute("role", "status");
+    copy.append(expired);
+  }
+  if (downloadNeedsRegeneration) {
+    const expired = el(
+      "p",
+      "form-hint library-expired-link",
+      "Le lien de téléchargement a expiré. Régénérez-le avant de télécharger ce livrable.",
+    );
+    expired.setAttribute("role", "status");
+    copy.append(expired);
+  }
+  if (decision.downloadable && state.signingUnavailable && !row.downloadLink) {
     copy.append(el("p", "form-hint", SESSION_DOWNLOAD_NOTE));
   }
   if (row.busy) copy.append(el("p", "form-hint", "Création du lien signé…"));
@@ -680,8 +802,8 @@ function artifactRow(artifact: ArtifactSummary): HTMLElement {
     failure.setAttribute("role", "status");
     copy.append(failure);
   }
-  if (row.preview && row.link && decision.kind !== "none") {
-    copy.append(previewNode(artifact, row.link, decision.kind));
+  if (row.previewLink && decision.kind !== "none") {
+    copy.append(previewNode(artifact, row.previewLink, decision.kind));
   }
 
   item.append(copy);
@@ -776,8 +898,15 @@ function resultNodes(): HTMLElement[] {
 }
 
 function paintResults(): void {
-  if (!resultsMount) return;
+  if (!resultsMount) {
+    clearLinkExpiryTimer();
+    return;
+  }
+  // La recherche peut masquer une ligne : invalider tout le registre avant le rendu
+  // évite qu'un jeton périmé survive simplement parce que sa carte n'est pas visible.
+  for (const row of rows.values()) expireUnusableRowLinks(row);
   resultsMount.replaceChildren(...resultNodes());
+  scheduleLinkExpiryInvalidation();
 }
 
 function deliverablesPanel(panel: HTMLElement): void {
@@ -832,6 +961,7 @@ function tabList(): HTMLElement {
 
 function paint(): void {
   if (!mount) return;
+  clearLinkExpiryTimer();
   resultsMount = null;
   const panel = el("section", "library-panel");
   panel.id = PANEL_ID;
@@ -871,6 +1001,7 @@ export function renderLibrary(container: HTMLElement, sharedHttp?: WorkspaceHttp
  */
 export function resetLibraryUiState(): void {
   loadSequence += 1;
+  clearLinkExpiryTimer();
   state = initialDeliverables();
   rows = new Map();
   tab = "skills";

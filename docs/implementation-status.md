@@ -1,10 +1,10 @@
 # État d'implémentation et reprise
 
 Date d'état : 14 septembre 2026, Europe/Paris
-Portée : Lot F, préparation de la version `0.7.0`, construit sur le Lot E `0.6.0`.
-Le Lot E est publié : PR #5 fusionnée au commit `b7d8a44`, tag `v0.6.0`, après
-observation d'une CI verte. Le Lot F est encore un arbre de travail : sa PR, sa CI
-distante, sa fusion et son tag `v0.7.0` ne sont pas affirmés ici.
+Portée : Lot G `0.8.0` implémenté dans l'arbre de travail, construit sur le Lot F
+publié `0.7.0` ; ni fusion, ni tag, ni CI distante ne sont encore revendiqués.
+Le Lot F est publié : PR #6 fusionnée au commit `0b4d904`, tag annoté `v0.7.0`, après
+observation de quatre jobs CI verts sur le dernier commit candidat.
 
 ## Résumé
 
@@ -39,6 +39,13 @@ déclenchements manuels et webhook entrant, budgets appliqués par mission/jour/
 saturation du stockage et boîte d'alertes in-app. Le web et `acp automations` utilisent
 les mêmes contrats. Les détails et limites sont dans
 [Automatisations, budgets et alertes](automations.md).
+
+Le Lot G livre quatre briques opt-in et fermées par défaut : un paquet E2E Playwright
+isolé, un aperçu de GLB v2 validés avec `@google/model-viewer`, un connecteur ComfyUI
+privé au provider-gateway, et des exécuteurs Codex CLI / Claude Code raccordés à la
+boucle worker. Les garde-fous et intégrations sont testés localement ; aucun navigateur,
+serveur ComfyUI, modèle 3D dans WebGL ni CLI agent authentifié n'a été exécuté en
+conditions réelles.
 
 Le backend réel exécute uniquement un exécutable absolu via un argv fixe configuré
 par l'opérateur. Il ne prend jamais une commande dans la mission, crée un cwd neuf,
@@ -297,8 +304,9 @@ transports déterministes de test.
   jour comptable figé au permis et agrégats par mission/jour/fournisseur ;
 - fuseau comptable immuable après le premier permis, bornes communes Python/TypeScript/
   SQL et cache agrégé saturant plutôt que débordant ; ledger exact conservé ;
-- `max_spawned_agents_per_run` est validé, persisté et affiché mais **pas appliqué** :
-  il n'existe pas de point de spawn avant les exécuteurs du Lot G ;
+- dans l'état publié du Lot F, `max_spawned_agents_per_run` était seulement validé,
+  persisté et affiché ; le Lot G limite l'exécution à une invocation CLI de premier niveau gérée
+  par ACP, sans fan-out ni comptage des processus ou agents descendants ;
 - saturation ou indisponibilité du stockage classée en `507`/`503`, alerte expurgée
   lorsque le projet et le run sont déjà résolus, réparation atomique d'un blob
   corrompu et quotas conservés sous concurrence ;
@@ -330,6 +338,101 @@ transports déterministes de test.
   intervalles normalisés, calendrier RFC 3339, codes de sortie et rejeu explicite des
   opérations incertaines ; secret webhook généré par défaut ou lu depuis fichier ou
   environnement, jamais accepté en argument clair.
+
+## Réalisé et testé dans le Lot G
+
+### Harnais E2E Playwright
+
+- paquet autonome `e2e/`, hors workspaces npm, avec `@playwright/test` `1.55.1` et
+  installation de Chromium séparée ; sans `ACP_E2E=1` exact, le lanceur sort
+  `[E2E SKIPPED]` avant de résoudre Playwright ;
+- configuration complète et bornée : origines web/API, confirmation exacte de
+  l'origine web, compte de test et `run_id` existant ; HTTP distant, userinfo,
+  sous-chemin, query, fragment et hôte d'écoute sont refusés ;
+- parcours en lecture seule après l'unique `POST /auth/login` : `GET`/`HEAD`/`OPTIONS`
+  seulement, shell, Missions et Studio de la tentative déclarée ; réponses réelles
+  exigées, aucune interception substitutive ; chaque requête admise est envoyée une
+  seule fois avec redirections et retries coupés, puis tout `3xx` est refusé avant
+  remise de la réponse inchangée au navigateur ;
+- trafic HTTP(S) et WebSocket limité aux deux origines au niveau du contexte navigateur,
+  première requête d'une popup comprise ; toute nouvelle fenêtre est refusée, les
+  service workers ainsi que `Worker`, `SharedWorker` et `EventSource` sont neutralisés,
+  avec un seul worker Playwright, traces/vidéos coupées et capture seulement sur échec ;
+  le Studio utilise donc son vrai polling HTTP, pas son flux SSE ;
+- avant toute saisie d'identifiant sur deux origines, une vraie requête `OPTIONS` hors
+  routage navigateur prouve le contrat CORS credentialed ; la réponse du `POST` réel est
+  elle aussi contrôlée avant `fulfill`, et une seconde tentative de login est refusée ;
+- job CI séparé, exécutable seulement via `workflow_dispatch` sur `refs/heads/main`
+  avec `vars.ACP_E2E == '1'` au niveau dépôt ou organisation — la condition précède
+  l'ouverture de l'environnement ; il cible ensuite `acp-e2e-staging`, à protéger dans
+  GitHub par reviewer requis et branche de déploiement limitée à `main` avant d'y
+  enregistrer les identifiants. Ces secrets ne sont injectés que dans l'étape de test,
+  et le groupe de concurrence distingue un déclenchement manuel d'un push.
+
+### Livrables 3D et ComfyUI
+
+- validation GLB 2 stricte au téléversement : type et extension cohérents, chunks
+  JSON/BIN bornés et ordonnés, UTF-8/JSON strict, URI externes et décodeurs
+  Draco/Meshopt/Basisu refusés ; mapping de `buffers[0]`, vues, alignements et strides
+  vérifiés, accessors sparse refusés ; budgets cumulés sur vues, spans physiques et
+  décodage ; marqueur réservé lié au sha256 du contenu ;
+- images embarquées strictement PNG/JPEG/WebP avec source XOR, MIME/conteneur et en-têtes
+  validés sans décompression ; dimension, pixels, octets compressés et estimation
+  RGBA+mipmaps sont tous plafonnés avant le scellement ;
+- seul un `.glb` scellé peut être annoncé et servi en aperçu ; `.gltf` et anciens GLB
+  non scellés restent en téléchargement. `@google/model-viewer` `4.3.1` est importé à
+  la demande, avec contrôles caméra et états accessibles, sans AR ni autorotation ;
+- `purpose=preview` exige une `ACP_API_URL` explicite et une
+  `ACP_ARTIFACT_PUBLIC_ORIGIN` valide, distincte de l'API et des origines CORS ; sinon
+  `424` avant émission du jeton. Le téléchargement reste disponible ;
+- connecteur ComfyUI derrière le Bearer gateway : diagnostic `/system_stats`, workflow
+  JSON local fixe, prompt seul injecté, `/prompt` puis polling `/history/{id}` et
+  téléchargement `/view`, sans interruption globale ;
+- réponses et durées bornées, redirections/proxies ambiants coupés, HTTP limité au
+  loopback, image PNG/JPEG/WebP vérifiée par type, extension et signature ; générations,
+  waiters et cache LRU/TTL bornés séparément et en octets ; tombstone jusqu'à la TTL
+  après toute soumission `/prompt` incertaine, mais idempotence process-local et non
+  durable.
+
+### Exécuteurs agents du worker
+
+- capacités `codex_cli` et `claude_code` uniquement hors simulation et après opt-in
+  complet : exécutable absolu, profil d'authentification séparé et mapping JSON de
+  racines projet non chevauchantes ; aucune détection depuis le `PATH` ; une liste
+  explicite et les capacités persistées sont revérifiées contre les backends actifs
+  avant enregistrement, diagnostic, heartbeat ou claim ;
+- une capacité agent exige un scope projet présent dans l'allowlist locale ; le scope
+  global agent est refusé. Les capacités de mission génériques exigent le runner fixe ;
+  `mcp_stdio_probe` exige en plus sa configuration stdio et, tant que les claims partagent
+  la même liste, un runner local. Un scope hérité absent est refusé avant réseau ;
+- mission supervisée, listes d'actions vides, exactement une ressource
+  `project_workspace` du projet et exactement un CLI ; Codex suit `read`/`write`,
+  Claude refuse l'écriture ;
+- Codex lancé en JSON éphémère sans approbation, web, MCP, navigateur, plugins,
+  mémoire, skills ni multi-agent ; Claude limité à `Read,Glob,Grep`, sans MCP,
+  persistance ni commande slash ; il s'agit d'options demandées aux CLIs, pas d'une
+  isolation OS créée par ACP ; prompt sur stdin et environnement minimal ;
+- même clôture Job Object/session POSIX que le runner, deadline et drainage bornés ;
+  le Job Object vérifie la vidange sous Windows, tandis que la limite POSIX décrite plus
+  bas subsiste. JSONL strict (10 000 événements maximum), événement terminal de succès
+  propre au CLI obligatoire et sortie 2 Mio par flux ; preuve persistée limitée au
+  code, au nombre d'événements, aux tailles et sha256 ;
+- permis de budget avant spawn et un appel d'outil rapporté. Une borne de coût ou de
+  jetons exigée refuse l'effet, ces CLI n'offrant pas de limite dure fiable ;
+- toute écriture Codex consomme sa deadline en attendant un verrou interprocessus dérivé
+  de la racine canonique et adjacent au projet ; erreur, timeout ou annulation le
+  libèrent lorsque le nettoyage est confirmé. Sinon, un marqueur `.poison` atomique
+  interdit durablement toute nouvelle écriture jusqu'à inspection et levée manuelle.
+  Ce verrou reste coopératif : les ACL du parent et la sémantique de verrouillage des
+  partages réseau doivent être garanties, sinon chaque worker reçoit son worktree ;
+- ACP lance au plus une invocation CLI de premier niveau ; `spawned_agents=1` ne compte
+  pas les descendants, ce que `spawned_agents_scope=worker_managed_top_level_cli_only`
+  rend explicite, et ne prouve donc pas le plafond global
+  `max_spawned_agents_per_run`. Aucun fan-out dynamique n'est livré.
+- la racine choisie fixe le cwd sans isoler les fichiers lisibles par le compte worker.
+  L'identité des chemins n'étant pas épinglée entre validation et spawn, des projets
+  non mutuellement fiables exigent des workers isolés, et les chemins doivent être
+  protégés par des ACL d'opérateur.
 
 ## Hérité des Lots A et B
 
@@ -363,12 +466,12 @@ TypeScript, le build Vite et `scripts/check_version.py` (toutes les versions
 publiables sur `0.6.0`) réussissent ; le build n'émet que l'avertissement attendu sur
 la taille du chunk Phaser.
 
-Les quatre tests ignorés sont des limites de la machine, pas des opt-in : un contrôle
+Dans cette référence historique du Lot E, les quatre tests ignorés sont des limites de
+la machine, pas des opt-in : un contrôle
 de permissions POSIX inapplicable sous Windows
 (`apps/api/tests/test_artifacts_storage.py`) et trois tests de refus de lien
 symbolique (`apps/worker/tests/test_web_tests.py`) que le compte de vérification ne
-peut pas créer. **Aucun test n'est ignoré faute d'opt-in Playwright : cet opt-in
-n'existe pas dans le dépôt.**
+peut pas créer. **À cette révision, aucun opt-in Playwright réel n'existait encore.**
 
 La référence publiée du scénario d'acceptation 7 a été rejouée contre des services
 réellement démarrés — API métier dans son propre processus et serveur MCP Streamable
@@ -381,7 +484,7 @@ Hermes, un fournisseur payant, PostgreSQL existant, une sandbox OS, un E2E navig
 ni un déploiement Railway. Le Lot E a ensuite été publié par la PR #5, fusion
 `b7d8a44`, tag `v0.6.0`, après observation d'une CI verte.
 
-### Vérification du Lot F en préparation
+### Vérification du Lot F publié
 
 Les suites ciblées couvrent les contrats, la base, les routes, le planificateur, le
 worker, les budgets, les alertes, le stockage, le CLI et les modules web du Lot F.
@@ -389,8 +492,9 @@ Le 14 septembre 2026, l'arbre final local a rendu **2 291 tests Python réussis,
 ignorés et 2 avertissements connus** (`867/1` API, `253/3` worker, `430/3` CLI et
 `741/0` pour contrats, base et services). Le web a rendu **295 tests sur 23 fichiers**,
 le reporter **59** et le moteur legacy **74**. Le typecheck TypeScript, le build Vite
-et `scripts/check_version.py` réussissent, avec tous les composants sur `0.7.0`. La CI
-distante, la fusion et le tag ne sont pas encore affirmés.
+et `scripts/check_version.py` réussissent, avec tous les composants sur `0.7.0`. Les
+quatre jobs CI Python 3.12 et Node 22 du dernier push et de la PR ont été observés
+verts avant la fusion ; le tag distant a ensuite été vérifié sur `0b4d904`.
 
 `scripts/verify_automation_journey.py` a rendu **62 étapes sur 62 réussies**. Il lance
 une API réelle dans un processus séparé sur une base SQLite temporaire, vérifie la
@@ -400,12 +504,31 @@ calendrier, bail et tick, tir manuel, webhook, historique, permis/usage de budge
 alerte. Il n'appelle ni Internet, ni Hermes, ni fournisseur payant et ne constitue pas
 un E2E navigateur.
 
+### Vérification locale finale du Lot G
+
+Les validations ciblées obtenues sur l'arbre de travail sont : **33 tests** des
+garde-fous E2E, sortie par défaut `[E2E SKIPPED]` et spec Playwright collectée puis
+ignorée ; **311 tests web sur 24 fichiers** ; **237 tests API** sur les livrables,
+signatures et GLB ; **58 tests ciblés** du connecteur ComfyUI et sa suite gateway de
+**145 tests** ; **299 tests worker**, **59 tests reporter** et **74 tests moteur**. Le
+typecheck TypeScript, le build Vite et `compileall` réussissent. La commande Codex
+générée est acceptée par l'aide du CLI installé ; ce contrôle de syntaxe n'a invoqué
+aucun modèle.
+
+Ces sous-ensembles ne sont pas additionnés. Une passe Python complète intermédiaire,
+antérieure aux derniers correctifs de sécurité ensuite rejoués sur toutes les suites
+affectées ci-dessus, donne **2 418 réussis, 4 ignorés et 1 avertissement de dépréciation
+Starlette connu** en Python 3.13.3 local. La vérification de version et le parcours
+automatisations 62/62 réussissent. Ces preuves ne valent ni publication, ni CI distante,
+ni exécution de service externe.
+
 ## Réalisé, non testé en conditions réelles
 
 - l'appel plan/évaluation passe par le provider-gateway et échoue fermé, mais aucune
   instance Hermes `0.21.1`, clé, modèle, mémoire ou outil réel n'a été utilisé ;
-- le backend lance et arrête de vrais processus locaux dans les tests, sans lancer
-  d'agent externe ni effectuer d'effet sur un projet utilisateur ;
+- le backend lance et arrête de vrais processus locaux dans les tests, y compris le
+  chemin d'exécuteur agent raccordé, sans authentifier Codex/Claude ni effectuer
+  d'effet sur un projet utilisateur ;
 - le web et le CLI partagent les routes et contrats testés séparément, sans E2E
   navigateur → API → worker → Hermes ;
 - la compatibilité locale SQLite est un upgrade ad hoc non versionné qui peut
@@ -419,11 +542,15 @@ un E2E navigateur.
   enrôlé, aucun serveur MCP tiers ;
 - les écrans web du centre MCP et de la bibliothèque de skills sont couverts par des
   tests Vitest sur le DOM, pas par un parcours navigateur réel ;
-- **le Lot E n'a jamais rencontré Playwright** : le reporter est prouvé sur des objets
+- le chemin reporter/worker du Lot E reste prouvé sur des objets
   Playwright synthétiques et l'exécuteur du worker sur
   `apps/worker/tests/fake_playwright_runner.py`, un programme déterministe lancé par
-  `sys.executable`. Aucun navigateur n'a été lancé, aucune capture, vidéo ou trace
-  réelle n'a été produite, téléversée ou affichée ;
+  `sys.executable`. Le nouveau harnais E2E charge le vrai paquet uniquement sous opt-in,
+  mais cet opt-in n'a pas été activé : aucun navigateur, capture, vidéo ou trace réelle ;
+- le validateur et le composant d'aperçu GLB sont testés sans rendu WebGL réel et sans
+  origine d'aperçu déployée ;
+- le connecteur ComfyUI est testé par transport HTTP simulé et n'est ni appelé contre
+  un GPU réel ni raccordé au worker ou au stockage de livrables ;
 - le Studio et l'onglet « Livrables » sont couverts par des tests Vitest sur le DOM et
   par un test de câblage du shell ; **aucun parcours navigateur** ne les a exercés ;
 - le flux SSE n'a été éprouvé que par un client de test ASGI : aucune coupure réseau
@@ -442,8 +569,8 @@ d'une décision qui manque aujourd'hui.
   installation Playwright réelle sur un runner et d'un parcours de bout en bout
   versionné pour ce lot. Le code est là ; la preuve d'exécution réelle ne l'est pas.
 - **Origine d'aperçu séparée** : bloquée par l'absence d'un second domaine ou
-  sous-domaine dédié. Tant que `ACP_ARTIFACT_PUBLIC_ORIGIN` est vide, les liens signés
-  sont servis par l'origine de l'API.
+  sous-domaine dédié. Tant que `ACP_ARTIFACT_PUBLIC_ORIGIN` est vide, la création d'un
+  lien d'aperçu échoue en `424` avant jeton ; le téléchargement continue sur l'API.
 - **Passage des scénarios 7 et 8 à « Accepté »** : bloqué par l'absence d'un serveur
   MCP tiers et d'un dépôt GitHub réel autorisés pour la vérification, et par le fait
   que le parcours versionné ne couvre que le transport `http`.
@@ -474,17 +601,18 @@ d'une décision qui manque aujourd'hui.
   manuellement ; aucune API HTTP d'Hermes 0.21.1 ne permet d'écrire cette
   configuration ;
 - migrations PostgreSQL versionnées, rollback et restauration ;
-- exécution Playwright réelle : la chaîne reporter → worker → API est livrée et testée,
-  mais aucun navigateur n'a jamais été lancé, et l'opt-in de test E2E réel
-  (`ACP_E2E=1`) prévu par la spécification n'existe pas dans le dépôt ;
-- prise de contrôle humaine du navigateur : **non livrée**, reportée au Lot G ; le
+- exécution Playwright réelle : la chaîne reporter → worker → API et le harnais E2E
+  `ACP_E2E=1` sont livrés et testés séparément, mais aucun navigateur n'a été lancé ;
+- prise de contrôle humaine du navigateur : **non livrée** ; le
   Studio est en lecture seule et l'interface le dit ;
 - diffusion d'images de session en direct : la plateforme ne produit aucune image ; les
   seules images disponibles sont les captures téléversées par le lanceur de tests ;
 - trace viewer intégré : une trace Playwright se télécharge et s'ouvre hors de la
   plateforme ;
-- origine d'aperçu séparée, adaptateur de stockage objet distant et purge de rétention
-  planifiée ;
+- déploiement d'une origine d'aperçu séparée, adaptateur de stockage objet distant et
+  purge de rétention planifiée ;
+- raccordement ComfyUI aux missions, persistance de sa file/idempotence et versement
+  automatique de ses images comme livrables ;
 - courtier d'appels d'outils MCP pendant une mission : le Lot D livre le registre, la
   découverte, l'autorisation et la résolution des extensions, pas l'appel à
   l'exécution ;
@@ -492,10 +620,10 @@ d'une décision qui manque aujourd'hui.
   service (`HERMES_API_KEY`, Bearers inter-services) restent hors coffre ;
 - livraison de notifications hors application : aucun courriel, SMS, push système ou
   webhook sortant n'est implémenté ;
-- application de `max_spawned_agents_per_run`, qui attend le point de spawn des
-  exécuteurs du Lot G ;
-- médias, image, aperçu 3D et exécuteurs complémentaires ;
-- E2E navigateur, Hermes réel opt-in, Railway et observabilité de production.
+- fan-out et comptabilité multi-agent dynamiques : le Lot G borne uniquement à une
+  l'invocation CLI de premier niveau gérée par ACP, sans observer ses descendants ;
+- exécution réelle de ComfyUI, du rendu 3D, de Codex/Claude et du harnais E2E ;
+- Hermes réel opt-in, Railway et observabilité de production.
 
 ## Lots
 
@@ -506,41 +634,30 @@ d'une décision qui manque aujourd'hui.
 | C | runner réel contrôlé, missions, preuves, validations et CLI | **Publié : PR #3, tag `v0.4.0`** |
 | D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Publié : PR #4, tag `v0.5.0` ; aucun serveur MCP tiers contacté** |
 | E | événements durables, flux authentifié, Playwright, livrables privés et Studio | **Publié : PR #5, fusion `b7d8a44`, tag `v0.6.0`, CI verte observée avant fusion ; aucun navigateur réel lancé, aucun test Playwright réel exécuté** |
-| F | automatisations, calendrier Europe/Paris, budgets et alertes | **Implémenté dans l'arbre `0.7.0` et vérifié par suites ciblées ; publication et relevé global final à confirmer** |
-| G | médias/3D, exécuteurs complémentaires et durcissement | **Non commencé** |
+| F | automatisations, calendrier Europe/Paris, budgets et alertes | **Publié : PR #6, fusion `0b4d904`, tag `v0.7.0`, CI verte observée avant fusion** |
+| G | médias/3D, exécuteurs complémentaires et durcissement | **Implémenté et testé localement dans l'arbre `0.8.0` ; validation globale finale en cours, non fusionné** |
 | H | migrations, Railway, sauvegarde-restauration et validation finale | **Non commencé** |
 
-## Reprise : terminer le Lot F puis les Lots G et H
+## Reprise : valider le Lot G puis livrer le Lot H
 
 Ordre de reprise pour la personne ou l'agent qui prend la suite.
 
-1. **Clore la vérification locale du Lot F** : exécuter les suites globales Python et
-   TypeScript, le build, le contrôle de versions et
-   `scripts/verify_automation_journey.py`, puis reporter leurs résultats exacts sans
-   extrapoler à un service externe.
-2. **Publier le Lot F** seulement après une CI distante verte : PR, fusion et tag
-   `v0.7.0`. Cette documentation prépare la version, elle ne prétend pas que ces
-   opérations ont déjà eu lieu.
-3. **Exécuter une vraie suite Playwright sur un runner réel.** C'est la preuve qui
-   manque au Lot E et la seule qui fasse progresser les scénarios 10 et 11. Concrètement :
-   installer Playwright sur la machine du runner, configurer `ACP_WORKER_WEBTEST_ARGV_JSON`
-   et `ACP_WORKER_WEBTEST_CWD`, lancer une mission portant une ressource
-   `kind == "web_test_suite"`, puis vérifier dans le Studio la chronologie, l'arbre des
-   tests, la capture et la trace réellement produites.
-4. **Écrire l'opt-in de test E2E réel** prévu par la spécification (`ACP_E2E=1`,
-   `skipped` sinon, jamais réussi par défaut) et le raccorder à la CI en opt-in. Il
-   n'existe pas : aucun fichier du dépôt ne lit cette variable.
-5. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
+1. **Terminer le relevé local du Lot G** : suite Python complète, workspaces npm,
+   typecheck, build, version et vérifications de diff. Ne publier les totaux qu'après ce
+   passage final.
+2. **Activer le harnais E2E sur une cible autorisée**, avec compte et `run_id` dédiés,
+   ou conserver explicitement le statut « non exécuté ». L'absence de cible/secrets ne
+   doit jamais être transformée en succès.
+3. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
    `scripts/verify_mcp_journey.py` l'a fait pour le scénario 7 : services démarrés,
    worker authentifié, ingestion d'une exécution de tests, flux SSE consommé avec
    reprise par curseur, téléchargement d'un livrable par lien signé puis révocation.
    Sans lui, aucun scénario de ce lot ne peut passer à « Accepté ».
-6. **Configurer une origine d'aperçu séparée** (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et
-   vérifier que le Studio cesse d'afficher son avertissement. C'est le prérequis de
-   sécurité avant toute exposition réseau du Studio.
-7. **Enchaîner sur le Lot G** : médias, aperçu 3D, exécuteurs complémentaires et point
-   de spawn où appliquer enfin `max_spawned_agents_per_run`.
-8. **Livrer le Lot H** : PostgreSQL et migrations versionnées, Railway, sauvegarde,
+4. **Déployer une origine d'aperçu séparée**, y router les contenus, puis vérifier un
+   vrai GLB dans Chromium. Sans cela, l'API doit continuer à répondre `424` aux aperçus.
+5. **Éprouver les intégrations externes sous autorisation explicite** : ComfyUI local,
+   puis une mission Codex ou Claude sur un dépôt jetable, avec budgets et profils dédiés.
+6. **Livrer le Lot H** : PostgreSQL et migrations versionnées, Railway, sauvegarde,
    restauration et validation finale. SQLite `create_all()` et son upgrade ad hoc ne
    sont pas une migration de production.
 

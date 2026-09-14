@@ -15,8 +15,8 @@
  *    extrait de code, nom de fichier, titre de suite, payload d’événement sont insérés par
  *    `textContent` ou par `el()`, jamais par `innerHTML`.
  * 3. **Le contenu d’un artefact n’est jamais rendu dans l’origine de la plateforme** :
- *    images et vidéos passent par une URL signée (origine d’aperçu séparée si
- *    `ACP_ARTIFACT_PUBLIC_ORIGIN` est configurée côté API), et une trace ou un rapport HTML
+ *    images, vidéos et modèles passent uniquement par une URL signée sur une origine
+ *    d’aperçu séparée (sinon l’API refuse l’aperçu), et une trace ou un rapport HTML
  *    n’est proposé qu’en téléchargement explicite, avec avertissement. Aucune `iframe`,
  *    aucun `srcdoc`, aucune exécution.
  * 4. **Aucun bouton de prise de contrôle** : la capacité n’est pas livrée dans ce lot et
@@ -36,6 +36,7 @@ import type {
 } from "@acp/contracts";
 
 import "./studio.css";
+import { isSeparateArtifactPreviewUrl } from "./artifacts-api";
 import {
   EVENTS_PAGE_LIMIT_DEFAULT,
   EventsApiClient,
@@ -51,6 +52,7 @@ import {
   type RunStreamSubscription,
   type StreamConnectionState,
 } from "./events-api";
+import { modelPreviewNode } from "./model-preview";
 import {
   TestingApiClient,
   buildTestTree,
@@ -112,9 +114,9 @@ export function studioRouteLink(runId: string): string {
 }
 
 type Phase = "idle" | "loading" | "ready" | "error";
-type LinkPhase = "idle" | "loading" | "ready" | "error";
+type LinkPhase = "idle" | "loading" | "ready" | "error" | "expired";
 
-interface ArtifactLinkState {
+export interface ArtifactLinkState {
   phase: LinkPhase;
   link: ArtifactLink | null;
   error: WorkspaceApiError | null;
@@ -173,14 +175,77 @@ let testing: TestingApiClient | null = null;
 let subscription: RunStreamSubscription | null = null;
 let loadSequence = 0;
 let paintScheduled = false;
-let createLink: ((artifactId: string) => Promise<ArtifactLink>) | null = null;
+let createLink: ((artifactId: string, purpose?: "download" | "preview") => Promise<ArtifactLink>) | null = null;
+let linkExpiryTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+
+/** Retire le bearer du DOM avant sa vraie échéance, même si l'horloge dérive légèrement. */
+export const STUDIO_LINK_REUSE_MARGIN_MS = 15_000;
+const LINK_EXPIRY_TIMER_MAX_MS = 2_147_483_647;
+
+export function isStudioLinkUsable(
+  link: ArtifactLink | null,
+  now = Date.now(),
+): link is ArtifactLink {
+  if (!link) return false;
+  const expiry = Date.parse(link.expires_at);
+  return Number.isFinite(expiry) && expiry - now > STUDIO_LINK_REUSE_MARGIN_MS;
+}
+
+/** Purge les URLs périmées tout en conservant l'état nécessaire au message de renouvellement. */
+export function invalidateExpiredStudioLinks(
+  links: Map<string, ArtifactLinkState>,
+  now = Date.now(),
+): boolean {
+  let changed = false;
+  for (const [artifactId, current] of links) {
+    if (!current.link || isStudioLinkUsable(current.link, now)) continue;
+    links.set(artifactId, { phase: "expired", link: null, error: null });
+    changed = true;
+  }
+  return changed;
+}
+
+function clearLinkExpiryTimer(): void {
+  if (linkExpiryTimer === null) return;
+  globalThis.clearTimeout(linkExpiryTimer);
+  linkExpiryTimer = null;
+}
+
+function scheduleLinkExpiryInvalidation(): void {
+  clearLinkExpiryTimer();
+  if (!mount) return;
+  let nextInvalidationAt = Number.POSITIVE_INFINITY;
+  for (const current of state.links.values()) {
+    if (!current.link) continue;
+    const expiry = Date.parse(current.link.expires_at);
+    if (Number.isFinite(expiry)) {
+      nextInvalidationAt = Math.min(
+        nextInvalidationAt,
+        expiry - STUDIO_LINK_REUSE_MARGIN_MS,
+      );
+    }
+  }
+  if (!Number.isFinite(nextInvalidationAt)) return;
+  const delay = Math.min(
+    LINK_EXPIRY_TIMER_MAX_MS,
+    Math.max(1, nextInvalidationAt - Date.now() + 1),
+  );
+  linkExpiryTimer = globalThis.setTimeout(() => {
+    linkExpiryTimer = null;
+    invalidateExpiredStudioLinks(state.links);
+    paint();
+  }, delay);
+}
 
 export interface StudioOptions {
   /**
    * Création d’un lien signé. Par défaut, `POST /artifacts/{id}/link` sur le client du
    * shell. E7 peut injecter son `ArtifactsApiClient` sans modifier ce module.
    */
-  createArtifactLink?: (artifactId: string) => Promise<ArtifactLink>;
+  createArtifactLink?: (
+    artifactId: string,
+    purpose?: "download" | "preview",
+  ) => Promise<ArtifactLink>;
 }
 
 // --- Validation locale d’un lien signé -----------------------------------------
@@ -191,15 +256,20 @@ const isArtifactLink: Validator<ArtifactLink> = (value: unknown): value is Artif
   && typeof value.url === "string"
   && typeof value.expires_at === "string";
 
-function defaultCreateArtifactLink(artifactId: string): Promise<ArtifactLink> {
+function defaultCreateArtifactLink(
+  artifactId: string,
+  purpose: "download" | "preview" = "download",
+): Promise<ArtifactLink> {
   if (!http) {
     return Promise.reject(new WorkspaceApiError(
       "Le Studio n’a pas reçu le client HTTP du shell.",
       "invalid_response",
     ));
   }
+  const params = new URLSearchParams({ ttl_seconds: String(LINK_TTL_SECONDS) });
+  if (purpose === "preview") params.set("purpose", purpose);
   return http.request(
-    `/artifacts/${encodeURIComponent(artifactId)}/link?ttl_seconds=${LINK_TTL_SECONDS}`,
+    `/artifacts/${encodeURIComponent(artifactId)}/link?${params.toString()}`,
     isArtifactLink,
     { method: "POST" },
   );
@@ -238,6 +308,14 @@ export function describeStudioError(error: WorkspaceApiError, subject: string): 
       message: `${error.message} Action attendue côté API : définir ${ARTIFACT_SIGNING_ACTION} `
         + `(clé de signature), puis relancer le service. Sans elle, aucun aperçu ni téléchargement `
         + `par lien signé n’est possible.`,
+    };
+  }
+  if (error.status === 424) {
+    return {
+      tone: "unconfigured",
+      title: "Origine d’aperçu non configurée",
+      message: `${error.message} Action attendue côté API : définir `
+        + `${ARTIFACT_PUBLIC_ORIGIN_ACTION} avec une origine HTTPS distincte.`,
     };
   }
   return { tone: "error", title: `${subject} est indisponible`, message: error.message };
@@ -286,22 +364,17 @@ function linkBaseUrl(): string {
   return typeof window === "undefined" ? "http://localhost" : window.location.href;
 }
 
-/** Vrai lorsque le lien signé reste sur l’origine de l’application (§7, avertissement). */
-function isSameOriginLink(url: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return new URL(url, window.location.href).origin === window.location.origin;
-  } catch {
-    return true;
-  }
-}
-
 // --- Chargement ----------------------------------------------------------------
 
 function paint(): void {
-  if (!mount) return;
+  if (!mount) {
+    clearLinkExpiryTimer();
+    return;
+  }
+  invalidateExpiredStudioLinks(state.links);
   mount.replaceChildren();
   mount.append(bannerSection(), timelineSection(), captureSection(), testsSection(), handoverSection());
+  scheduleLinkExpiryInvalidation();
 }
 
 /** Les événements arrivent par rafales : le rendu est groupé sur une micro-tâche. */
@@ -629,13 +702,16 @@ function linkState(artifactId: string): ArtifactLinkState {
   return state.links.get(artifactId) ?? { phase: "idle", link: null, error: null };
 }
 
-async function requestLink(artifactId: string): Promise<void> {
+async function requestLink(
+  artifactId: string,
+  purpose: "download" | "preview",
+): Promise<void> {
   const provider = createLink ?? defaultCreateArtifactLink;
   const sequence = loadSequence;
   state.links.set(artifactId, { phase: "loading", link: null, error: null });
   paint();
   try {
-    const link = await provider(artifactId);
+    const link = await provider(artifactId, purpose);
     if (sequence !== loadSequence) return;
     state.links.set(artifactId, { phase: "ready", link, error: null });
   } catch (error) {
@@ -673,25 +749,47 @@ function mediaBlock(artifactId: string, contentType: string, label: string): HTM
     return block;
   }
   if (current.phase === "error" && current.error) {
-    block.append(errorPanel(current.error, "Le lien signé", () => void requestLink(artifactId)));
+    block.append(errorPanel(
+      current.error,
+      "Le lien signé",
+      () => void requestLink(artifactId, kind === "download" ? "download" : "preview"),
+    ));
     return block;
   }
 
   const link = current.link;
   if (!link) {
+    const expired = current.phase === "expired";
     const button = el(
       "button",
       "button button-secondary",
-      kind === "download" ? "Préparer le téléchargement" : "Afficher l’aperçu",
+      expired
+        ? (kind === "download" ? "Régénérer le téléchargement" : "Régénérer l’aperçu")
+        : (kind === "download" ? "Préparer le téléchargement" : "Afficher l’aperçu"),
     );
     button.type = "button";
-    button.addEventListener("click", () => void requestLink(artifactId));
+    button.addEventListener(
+      "click",
+      () => void requestLink(artifactId, kind === "download" ? "download" : "preview"),
+    );
     block.append(button);
-    block.append(el(
-      "p",
-      "studio-note",
-      `Le lien est signé, lié à ce compte et valable ${LINK_TTL_SECONDS} secondes.`,
-    ));
+    if (expired) {
+      const message = el(
+        "p",
+        "studio-note studio-expired-link",
+        kind === "download"
+          ? "Le lien de téléchargement a expiré. Régénérez-le avant de télécharger ce livrable."
+          : "Le lien d’aperçu a expiré. Régénérez-le pour afficher de nouveau ce livrable.",
+      );
+      message.setAttribute("role", "status");
+      block.append(message);
+    } else {
+      block.append(el(
+        "p",
+        "studio-note",
+        `Le lien est signé, lié à ce compte et valable ${LINK_TTL_SECONDS} secondes.`,
+      ));
+    }
     return block;
   }
 
@@ -705,29 +803,39 @@ function mediaBlock(artifactId: string, contentType: string, label: string): HTM
   }
 
   block.append(el("p", "studio-note", `Lien signé valable jusqu’au ${formatDateTime(link.expires_at)}.`));
-  if (isSameOriginLink(link.url)) {
+  const separatePreviewOrigin = isSeparateArtifactPreviewUrl(link.url);
+  if (kind !== "download" && !separatePreviewOrigin) {
     block.append(el(
       "p",
       "studio-warning",
-      `Origine unique : les liens pointent vers l’API elle-même. Ne pas exposer cette instance sur `
-      + `Internet sans origine d’aperçu séparée (${ARTIFACT_PUBLIC_ORIGIN_ACTION}).`,
+      `Aperçu bloqué : les liens pointent vers l’origine de l’application. Configure `
+      + `${ARTIFACT_PUBLIC_ORIGIN_ACTION} avec une origine distincte ; le fichier n’est pas rendu ici.`,
     ));
+    const anchor = el("a", "button button-secondary", "Télécharger sans aperçu");
+    anchor.href = link.url;
+    anchor.rel = "noopener noreferrer";
+    anchor.download = "";
+    block.append(anchor);
   }
 
-  if (kind === "image") {
+  if (kind === "image" && separatePreviewOrigin) {
     const image = el("img", "studio-image");
+    image.crossOrigin = "anonymous";
     image.src = link.url;
     image.alt = label;
     image.loading = "lazy";
     image.decoding = "async";
     block.append(image);
-  } else if (kind === "video") {
+  } else if (kind === "video" && separatePreviewOrigin) {
     const video = el("video", "studio-video");
+    video.crossOrigin = "anonymous";
     video.src = link.url;
     video.controls = true;
     video.preload = "metadata";
     block.append(video);
-  } else {
+  } else if (kind === "model" && separatePreviewOrigin) {
+    block.append(modelPreviewNode(link.url, label));
+  } else if (kind === "download") {
     const anchor = el("a", "button button-secondary", "Télécharger le fichier");
     anchor.href = link.url;
     anchor.rel = "noopener noreferrer";
@@ -737,7 +845,10 @@ function mediaBlock(artifactId: string, contentType: string, label: string): HTM
 
   const refresh = el("button", "button button-secondary", "Régénérer le lien");
   refresh.type = "button";
-  refresh.addEventListener("click", () => void requestLink(artifactId));
+  refresh.addEventListener(
+    "click",
+    () => void requestLink(artifactId, kind === "download" ? "download" : "preview"),
+  );
   block.append(refresh);
   return block;
 }
@@ -978,6 +1089,7 @@ export function renderStudio(
   http = sharedHttp;
   createLink = options.createArtifactLink ?? null;
   if (changed) {
+    clearLinkExpiryTimer();
     subscription?.close();
     subscription = null;
     loadSequence += 1;
@@ -1002,6 +1114,7 @@ export function renderStudio(
  */
 export function resetStudioUiState(): void {
   loadSequence += 1;
+  clearLinkExpiryTimer();
   subscription?.close();
   subscription = null;
   Object.assign(state, initialState());

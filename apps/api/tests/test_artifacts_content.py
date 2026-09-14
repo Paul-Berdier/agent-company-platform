@@ -12,10 +12,14 @@ traité comme non fiable. Ces tests verrouillent les trois promesses du Lot E :
 
 from __future__ import annotations
 
+import base64
+import errno
 import hashlib
 import io
-import errno
+import json
+import struct
 import tempfile
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -33,6 +37,7 @@ from acp_api.artifacts_storage import (
 )
 from acp_api.deps import get_db
 from acp_api.main import app
+from acp_api.routers import artifacts as artifacts_router
 from acp_api.routers.artifacts import MULTIPART_HEADERS_MAX_BYTES, safe_content_type
 from acp_api.routers.workers import _token_hash as worker_token_hash
 from acp_api.security import create_user_session, hash_password
@@ -153,6 +158,8 @@ def context(tmp_path, monkeypatch):
     monkeypatch.setenv("ACP_ARTIFACT_STORAGE_DIR", str(tmp_path / "blobs"))
     monkeypatch.delenv("ACP_ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ACP_ARTIFACT_PUBLIC_ORIGIN", raising=False)
+    monkeypatch.delenv("ACP_API_URL", raising=False)
+    monkeypatch.delenv("ACP_CORS_ORIGINS", raising=False)
     monkeypatch.delenv("ACP_ARTIFACT_MAX_BYTES", raising=False)
     monkeypatch.delenv("ACP_ARTIFACT_MAX_BYTES_PER_RUN", raising=False)
     engine = create_engine(
@@ -286,6 +293,11 @@ def _seed_artifact(
         ("text/plain", "journal.txt", "text/plain; charset=utf-8", True),
         # Le JSON est servi en texte : jamais interprété par le navigateur.
         ("application/json", "resultat.json", "text/plain; charset=utf-8", True),
+        ("model/gltf-binary", "scene.glb", "model/gltf-binary", True),
+        # Le JSON glTF et une déclaration GLB incomplète restent des téléchargements.
+        ("model/gltf+json", "scene.gltf", "application/octet-stream", False),
+        ("application/octet-stream", "scene.glb", "application/octet-stream", False),
+        ("model/gltf-binary", "scene.bin", "application/octet-stream", False),
         # Type inconnu de l'allowlist.
         ("application/pdf", "rapport.pdf", "application/octet-stream", False),
         ("", "", "application/octet-stream", False),
@@ -316,6 +328,7 @@ def test_the_served_type_comes_from_the_server_allowlist(
         ("application/zip", "trace.txt"),
         ("image/svg+xml", "schema.png"),
         ("application/xhtml+xml", "page.json"),
+        ("model/gltf+json", "modele.png"),
     ],
 )
 def test_html_svg_and_archives_are_never_served_inline(declared, original_name):
@@ -459,7 +472,7 @@ def test_the_detail_of_a_foreign_artifact_is_not_found(context):
 # --- Contenu : en-têtes, aperçu, Range ------------------------------------------
 
 
-def test_the_content_carries_every_security_header(context):
+def test_session_content_carries_every_security_header_and_is_an_attachment(context):
     artifact_id = _seed_artifact(
         context, payload=b"journal", content_type="text/plain", original_name="j.txt"
     )
@@ -473,7 +486,7 @@ def test_the_content_carries_every_security_header(context):
     assert response.headers["cache-control"] == "private, no-store"
     assert response.headers["accept-ranges"] == "bytes"
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
-    assert response.headers["content-disposition"].startswith("inline")
+    assert response.headers["content-disposition"].startswith("attachment")
 
 
 def test_an_html_artifact_is_forced_to_download(context):
@@ -749,6 +762,96 @@ def _upload(
     )
 
 
+def _glb_from_json(
+    raw_json: bytes,
+    *,
+    version: int = 2,
+    binary: bytes | None = None,
+    first_chunk_type: bytes = b"JSON",
+) -> bytes:
+    """Construit un conteneur GLB minimal, y compris avec un JSON volontairement faux."""
+
+    json_chunk = raw_json + (b" " * (-len(raw_json) % 4))
+    chunks = [struct.pack("<I4s", len(json_chunk), first_chunk_type), json_chunk]
+    if binary is not None:
+        binary_chunk = binary + (b"\x00" * (-len(binary) % 4))
+        chunks.extend(
+            [struct.pack("<I4s", len(binary_chunk), b"BIN\x00"), binary_chunk]
+        )
+    body = b"".join(chunks)
+    return struct.pack("<4sII", b"glTF", version, 12 + len(body)) + body
+
+
+def _glb(document: dict, *, binary: bytes | None = None) -> bytes:
+    return _glb_from_json(
+        json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        binary=binary,
+    )
+
+
+def _png(width: int = 1, height: int = 1) -> bytes:
+    """Petit PNG RGBA réel ; les grandes dimensions servent aux tests de bombes."""
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        checksum = zlib.crc32(kind)
+        checksum = zlib.crc32(payload, checksum) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", checksum)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    # Un scanline transparent. Pour les dimensions adversariales, le parseur doit
+    # refuser le budget annoncé avant qu'un décodeur tente de gonfler IDAT.
+    idat = zlib.compress(b"\x00\x00\x00\x00\x00")
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+
+
+ONE_PIXEL_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYI"
+    "DAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkF"
+    "BQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU"
+    "FBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQF"
+    "BgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEI"
+    "I0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNk"
+    "ZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLD"
+    "xMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEB"
+    "AQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJB"
+    "UQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZH"
+    "SElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaan"
+    "qKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oA"
+    "DAMBAAIRAxEAPwD50ooor8MP9Uz/2Q=="
+)
+ONE_PIXEL_WEBP = base64.b64decode(
+    "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/v89"
+)
+
+
+def _webp(*chunks: tuple[bytes, bytes]) -> bytes:
+    body = b"".join(
+        kind
+        + struct.pack("<I", len(payload))
+        + payload
+        + (b"\x00" if len(payload) & 1 else b"")
+        for kind, payload in chunks
+    )
+    return b"RIFF" + struct.pack("<I", len(body) + 4) + b"WEBP" + body
+
+
+def _vp8_frame_header(width: int, height: int) -> bytes:
+    return (
+        b"\x00\x00\x00\x9d\x01\x2a"
+        + struct.pack("<H", width)
+        + struct.pack("<H", height)
+    )
+
+
+def _upload_glb_document(context: Context, document: dict, *, binary=None):
+    return _upload(
+        context,
+        payload=_glb(document, binary=binary),
+        file_name="ressource.glb",
+        content_type="model/gltf-binary",
+    )
+
+
 def _blob_files(context: Context) -> list[str]:
     """Tous les fichiers réellement présents sous la racine de stockage."""
 
@@ -777,6 +880,920 @@ def test_a_worker_uploads_content_and_receives_a_summary(context):
     download = context.client.get(f"/artifacts/{body['id']}/content")
     assert download.status_code == 200
     assert download.content == b"rapport complet"
+
+
+def test_a_valid_self_contained_glb_is_previewable_only_on_the_dedicated_origin(
+    signed, monkeypatch
+):
+    monkeypatch.setenv("ACP_API_URL", "https://api.exemple.fr")
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://apercu.exemple.fr")
+    png_data_uri = base64.b64encode(_png()).decode("ascii")
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": f"data:image/png;base64,{png_data_uri}"}],
+            "buffers": [{"byteLength": 4}],
+        },
+        binary=b"mesh",
+    )
+
+    created = _upload(
+        signed,
+        payload=payload,
+        file_name="scene.glb",
+        content_type="model/gltf-binary",
+        kind="model_3d",
+        stream_kind="model",
+    )
+
+    assert created.status_code == 201
+    artifact_id = created.json()["id"]
+
+    control_response = signed.client.get(f"/artifacts/{artifact_id}/content")
+    assert control_response.status_code == 200
+    assert control_response.content == payload
+    assert control_response.headers["content-disposition"].startswith("attachment")
+
+    preview_url = _create_link(signed, artifact_id, purpose="preview").json()["url"]
+    signed.client.cookies.clear()
+    response = signed.client.get(preview_url)
+    assert response.status_code == 200
+    assert response.content == payload
+    assert response.headers["content-type"] == "model/gltf-binary"
+    assert response.headers["content-disposition"].startswith("inline")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["accept-ranges"] == "bytes"
+
+    partial = signed.client.get(preview_url, headers={"Range": "bytes=0-11"})
+    assert partial.status_code == 206
+    assert partial.content == payload[:12]
+    assert partial.headers["content-range"] == f"bytes 0-11/{len(payload)}"
+    assert partial.headers["content-length"] == "12"
+    assert partial.headers["content-type"] == "model/gltf-binary"
+    assert partial.headers["content-disposition"].startswith("inline")
+    assert partial.headers["x-content-type-options"] == "nosniff"
+
+
+def test_a_historical_glb_without_a_validation_seal_stays_a_download(context):
+    payload = _glb({"asset": {"version": "2.0"}})
+    artifact_id = _seed_artifact(
+        context,
+        payload=payload,
+        content_type="model/gltf-binary",
+        original_name="ancien.glb",
+    )
+
+    response = context.client.get(f"/artifacts/{artifact_id}/content")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"].startswith("attachment")
+    summary = context.client.get(f"/artifacts/{artifact_id}")
+    assert summary.status_code == 200
+    assert summary.json()["content_type"] == "application/octet-stream"
+
+
+@pytest.mark.parametrize(
+    ("content_type", "file_name", "payload"),
+    [
+        ("model/gltf-binary", "scene.gltf", _glb({"asset": {"version": "2.0"}})),
+        ("model/gltf-binary", "scene.png", _glb({"asset": {"version": "2.0"}})),
+        ("application/octet-stream", "scene.glb", b"contenu non verifie"),
+        ("application/x-modele", "scene.glb", b"contenu inconnu"),
+        ("model/gltf+json", "scene.gltf", b'{"asset":{"version":"2.0"}}'),
+    ],
+)
+def test_a_misleading_or_unsupported_model_declaration_stays_a_download(
+    context, content_type, file_name, payload
+):
+    created = _upload(
+        context,
+        payload=payload,
+        file_name=file_name,
+        content_type=content_type,
+        kind="model_3d",
+    )
+
+    assert created.status_code == 201
+    response = context.client.get(f"/artifacts/{created.json()['id']}/content")
+    assert response.status_code == 200
+    assert response.content == payload
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"].startswith("attachment")
+
+
+def test_a_glb_declaration_with_another_payload_is_refused_as_unsupported_media(context):
+    response = _upload(
+        context,
+        payload=b"ceci n'est pas un GLB",
+        file_name="piege.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 415
+    assert "signature" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # Signature présente, mais en-tête tronqué.
+        b"glTF\x02\x00",
+        # Mauvaise version du conteneur.
+        _glb_from_json(b'{"asset":{"version":"2.0"}}', version=1),
+        # La longueur totale de l'en-tête ne correspond plus au fichier reçu.
+        _glb({"asset": {"version": "2.0"}})[:-1],
+        # Le premier chunk n'est pas le JSON obligatoire.
+        _glb_from_json(b'{"asset":{"version":"2.0"}}', first_chunk_type=b"BIN\x00"),
+        # JSON syntaxiquement invalide puis JSON non UTF-8.
+        _glb_from_json(b'{"asset":{"version":"2.0"}'),
+        _glb_from_json(b'{"asset":{"version":"2.0"},"x":"\xff"}'),
+    ],
+)
+def test_a_structurally_invalid_glb_is_refused_without_storage(context, payload):
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="invalide.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "glb refusé" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+    with context.session_factory() as db:
+        assert db.query(ArtifactModel).count() == 0
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://cdn.example/model.bin",
+        "//cdn.example/texture.png",
+        "textures/albedo.png",
+        "file:///etc/passwd",
+        "blob:https://example.test/identifier",
+    ],
+)
+def test_a_glb_with_an_external_uri_is_refused(context, uri):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "extensions": {"VENDOR_nested": {"resource": {"uri": uri}}},
+        }
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="externe.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "uri externe" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "data:image/svg+xml;base64,PHN2Zy8+",
+        "data:text/html;base64,PGgxPnBpZWdlPC9oMT4=",
+        "data:image/png,%89PNG",
+    ],
+)
+def test_a_glb_with_an_active_or_non_base64_data_uri_is_refused(context, uri):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": uri}],
+        }
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="data-uri.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "data uri" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "%%%%",
+        "abc",
+    ],
+)
+def test_a_glb_with_an_invalid_base64_payload_is_refused(context, payload):
+    document = {
+        "asset": {"version": "2.0"},
+        "buffers": [{"uri": f"data:application/octet-stream;base64,{payload}"}],
+    }
+
+    response = _upload(
+        context,
+        payload=_glb(document),
+        file_name="base64-invalide.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "base64" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+@pytest.mark.parametrize(
+    ("media_type", "payload"),
+    [
+        ("image/png", b"not-png"),
+        ("image/jpeg", b"not-jpeg"),
+        ("image/webp", b"RIFF\x04\x00\x00\x00NOPE"),
+    ],
+)
+def test_a_glb_data_image_must_match_its_declared_magic(
+    context, media_type, payload
+):
+    encoded = base64.b64encode(payload).decode("ascii")
+    document = {
+        "asset": {"version": "2.0"},
+        "images": [{"uri": f"data:{media_type};base64,{encoded}"}],
+    }
+
+    response = _upload(
+        context,
+        payload=_glb(document),
+        file_name="image-incoherente.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "signature" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+@pytest.mark.parametrize(
+    ("media_type", "payload"),
+    [
+        ("image/png", _png()),
+        ("image/jpeg", ONE_PIXEL_JPEG),
+        ("image/webp", ONE_PIXEL_WEBP),
+    ],
+)
+def test_a_glb_data_image_with_a_real_one_pixel_header_is_accepted(
+    context, media_type, payload
+):
+    encoded = base64.b64encode(payload).decode("ascii")
+    document = {
+        "asset": {"version": "2.0"},
+        "images": [{"uri": f"data:{media_type};base64,{encoded}"}],
+    }
+
+    response = _upload(
+        context,
+        payload=_glb(document),
+        file_name="image-coherente.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["content_type"] == "model/gltf-binary"
+
+
+def test_a_tiny_glb_cannot_declare_an_unbounded_zero_initialized_accessor(context):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "accessors": [
+                {"componentType": 5126, "count": 2**31, "type": "VEC4"}
+            ],
+        }
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="allocation-geante.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "budget de décodage" in response.json()["detail"]
+    assert _blob_files(context) == []
+
+
+def test_a_glb_accessor_must_fit_its_buffer_view(context):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 4}],
+            "bufferViews": [{"buffer": 0, "byteLength": 4}],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 2,
+                    "type": "SCALAR",
+                }
+            ],
+        },
+        binary=b"data",
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="vue-trop-courte.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "dépasse son bufferview" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+def test_a_glb_buffer_length_must_match_its_binary_chunk(context):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 64}],
+        },
+        binary=b"data",
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="buffer-incoherent.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "chunk bin" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+def test_a_bounded_accessor_that_fits_its_buffer_is_previewable(context):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 8}],
+            "bufferViews": [{"buffer": 0, "byteLength": 8}],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 2,
+                    "type": "SCALAR",
+                }
+            ],
+        },
+        binary=b"12345678",
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="accessor-borne.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["content_type"] == "model/gltf-binary"
+
+
+def test_overlapping_buffer_views_are_each_charged_to_the_cumulative_budget(
+    context, monkeypatch
+):
+    monkeypatch.setattr(artifacts_router, "GLB_MAX_BUFFER_VIEW_BYTES", 7)
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 4}],
+            "bufferViews": [
+                {"buffer": 0, "byteLength": 4},
+                {"buffer": 0, "byteLength": 4},
+            ],
+        },
+        binary=b"data",
+    )
+
+    assert response.status_code == 422
+    assert "bufferviews" in response.json()["detail"].lower()
+    assert "budget cumulé" in response.json()["detail"].lower()
+
+
+def test_a_strided_accessor_is_charged_for_its_physical_span(context, monkeypatch):
+    monkeypatch.setattr(artifacts_router, "GLB_MAX_PHYSICAL_ACCESSOR_BYTES", 8)
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 12}],
+            "bufferViews": [{"buffer": 0, "byteLength": 12, "byteStride": 8}],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 2,
+                    "type": "SCALAR",
+                }
+            ],
+        },
+        binary=b"0123456789ab",
+    )
+
+    assert response.status_code == 422
+    assert "budget physique cumulé" in response.json()["detail"].lower()
+
+
+def test_overlapping_accessors_cannot_share_the_physical_budget(context, monkeypatch):
+    monkeypatch.setattr(artifacts_router, "GLB_MAX_PHYSICAL_ACCESSOR_BYTES", 16)
+    accessor = {
+        "bufferView": 0,
+        "componentType": 5126,
+        "count": 2,
+        "type": "SCALAR",
+    }
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 12}],
+            "bufferViews": [{"buffer": 0, "byteLength": 12, "byteStride": 8}],
+            "accessors": [accessor, dict(accessor)],
+        },
+        binary=b"0123456789ab",
+    )
+
+    assert response.status_code == 422
+    assert "budget physique cumulé" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        {},
+        {
+            "uri": "data:image/png;base64,"
+            + base64.b64encode(_png()).decode("ascii"),
+            "bufferView": 0,
+        },
+    ],
+)
+def test_an_image_requires_exactly_one_storage_form(context, image):
+    document = {"asset": {"version": "2.0"}, "images": [image]}
+    if "bufferView" in image:
+        document.update(
+            {
+                "buffers": [{"byteLength": len(_png())}],
+                "bufferViews": [{"buffer": 0, "byteLength": len(_png())}],
+            }
+        )
+    response = _upload_glb_document(
+        context,
+        document,
+        binary=_png() if "bufferView" in image else None,
+    )
+
+    assert response.status_code == 422
+    assert "exactement uri ou bufferview" in response.json()["detail"].lower()
+
+
+def test_a_buffer_view_png_is_read_from_the_binary_chunk(context):
+    image = _png()
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": len(image)}],
+            "bufferViews": [{"buffer": 0, "byteLength": len(image)}],
+            "images": [{"bufferView": 0, "mimeType": "image/png"}],
+        },
+        binary=image,
+    )
+
+    assert response.status_code == 201
+
+
+def test_a_buffer_view_webp_is_read_from_a_data_buffer(context):
+    encoded = base64.b64encode(ONE_PIXEL_WEBP).decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [
+                {
+                    "byteLength": len(ONE_PIXEL_WEBP),
+                    "uri": f"data:application/octet-stream;base64,{encoded}",
+                }
+            ],
+            "bufferViews": [{"buffer": 0, "byteLength": len(ONE_PIXEL_WEBP)}],
+            "images": [{"bufferView": 0, "mimeType": "image/webp"}],
+        },
+    )
+
+    assert response.status_code == 201
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        {"bufferView": 0},
+        {"bufferView": 0, "mimeType": "image/gif"},
+    ],
+)
+def test_a_buffer_view_image_requires_an_allowed_mime_type(context, image):
+    png = _png()
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": len(png)}],
+            "bufferViews": [{"buffer": 0, "byteLength": len(png)}],
+            "images": [image],
+        },
+        binary=png,
+    )
+
+    assert response.status_code == 422
+    assert "mime" in response.json()["detail"].lower()
+
+
+def test_an_image_mime_type_must_match_its_data_uri(context):
+    encoded = base64.b64encode(_png()).decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [
+                {
+                    "uri": f"data:image/png;base64,{encoded}",
+                    "mimeType": "image/jpeg",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "mime" in response.json()["detail"].lower()
+    assert "incohérent" in response.json()["detail"].lower()
+
+
+def test_a_buffer_data_uri_cannot_use_an_image_media_type(context):
+    encoded = base64.b64encode(b"data").decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [
+                {
+                    "byteLength": 4,
+                    "uri": f"data:image/png;base64,{encoded}",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "data uri de buffer" in response.json()["detail"].lower()
+
+
+def test_an_image_dimension_bomb_is_refused_from_its_png_header(context):
+    bomb = _png(artifacts_router.GLB_MAX_IMAGE_DIMENSION + 1, 1)
+    encoded = base64.b64encode(bomb).decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": f"data:image/png;base64,{encoded}"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "dimensions" in response.json()["detail"].lower()
+
+
+def test_repeated_images_are_each_charged_to_the_pixel_budget(context, monkeypatch):
+    monkeypatch.setattr(artifacts_router, "GLB_MAX_IMAGE_BASE_PIXELS", 1)
+    encoded = base64.b64encode(_png()).decode("ascii")
+    uri = f"data:image/png;base64,{encoded}"
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": uri}, {"uri": uri}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "budget cumulé de pixels" in response.json()["detail"].lower()
+
+
+def test_repeated_images_are_each_charged_with_their_mipmaps(context, monkeypatch):
+    monkeypatch.setattr(artifacts_router, "GLB_MAX_IMAGE_RGBA_MIP_BYTES", 4)
+    encoded = base64.b64encode(_png()).decode("ascii")
+    uri = f"data:image/png;base64,{encoded}"
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": uri}, {"uri": uri}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "budget rgba avec mipmaps" in response.json()["detail"].lower()
+
+
+def test_a_jpeg_with_an_out_of_bounds_segment_is_refused(context):
+    malformed = b"\xff\xd8\xff\xe0\xff\xff" + b"JFIF" + b"\xff\xd9"
+    encoded = base64.b64encode(malformed).decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": f"data:image/jpeg;base64,{encoded}"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "segment jpeg" in response.json()["detail"].lower()
+
+
+def test_a_jpeg_with_multiple_frame_headers_is_refused(context):
+    def sof(width: int, height: int) -> bytes:
+        payload = bytes([8]) + struct.pack(">HHB", height, width, 1) + b"\x01\x11\x00"
+        return b"\xff\xc0" + struct.pack(">H", len(payload) + 2) + payload
+
+    malformed = (
+        b"\xff\xd8"
+        + sof(artifacts_router.GLB_MAX_IMAGE_DIMENSION + 1, 1)
+        + sof(1, 1)
+        + b"\xff\xda\x00\x02"
+        + b"\xff\xd9"
+    )
+    encoded = base64.b64encode(malformed).decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": f"data:image/jpeg;base64,{encoded}"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "un seul sof" in response.json()["detail"].lower()
+
+
+def test_a_webp_with_multiple_image_frames_is_refused(context):
+    payload = _webp(
+        (
+            b"VP8L",
+            b"\x2f"
+            + (((8193 - 1) | ((1 - 1) << 14))).to_bytes(4, "little"),
+        ),
+        (b"VP8 ", _vp8_frame_header(1, 1)),
+    )
+    encoded = base64.b64encode(payload).decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": f"data:image/webp;base64,{encoded}"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "une seule trame" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _webp(
+            (
+                b"VP8L",
+                b"\x2f"
+                + (((8193 - 1) | ((1 - 1) << 14))).to_bytes(4, "little"),
+            )
+        ),
+        _webp(
+            (
+                b"VP8X",
+                b"\x00\x00\x00\x00"
+                + (8193 - 1).to_bytes(3, "little")
+                + (1 - 1).to_bytes(3, "little"),
+            ),
+            (b"VP8 ", _vp8_frame_header(8193, 1)),
+        ),
+    ],
+)
+def test_webp_variants_expose_dimensions_before_decode(context, payload):
+    encoded = base64.b64encode(payload).decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "images": [{"uri": f"data:image/webp;base64,{encoded}"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "dimensions" in response.json()["detail"].lower()
+
+
+def test_accessor_alignment_uses_the_absolute_buffer_offset(context):
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 4}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 1, "byteLength": 3}],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "byteOffset": 1,
+                    "componentType": 5123,
+                    "count": 1,
+                    "type": "SCALAR",
+                }
+            ],
+        },
+        binary=b"data",
+    )
+
+    assert response.status_code == 201
+
+
+def test_a_locally_aligned_accessor_with_an_unaligned_absolute_offset_is_refused(
+    context,
+):
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 4}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 1, "byteLength": 2}],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5123,
+                    "count": 1,
+                    "type": "SCALAR",
+                }
+            ],
+        },
+        binary=b"data",
+    )
+
+    assert response.status_code == 422
+    assert "aligné" in response.json()["detail"].lower()
+
+
+def test_a_buffer_view_stride_must_be_a_multiple_of_four(context):
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": 6}],
+            "bufferViews": [{"buffer": 0, "byteLength": 6, "byteStride": 6}],
+        },
+        binary=b"123456",
+    )
+
+    assert response.status_code == 422
+    assert "multiple de 4" in response.json()["detail"].lower()
+
+
+def test_sparse_accessors_are_refused_fail_closed(context):
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "accessors": [
+                {
+                    "componentType": 5126,
+                    "count": 1,
+                    "type": "SCALAR",
+                    "sparse": {
+                        "count": 1,
+                        "indices": {"bufferView": 0, "componentType": 5121},
+                        "values": {"bufferView": 1},
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "sparse" in response.json()["detail"].lower()
+    assert "pas pris en charge" in response.json()["detail"].lower()
+
+
+def test_only_buffer_zero_can_map_the_binary_chunk(context):
+    encoded = base64.b64encode(b"zero").decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [
+                {
+                    "byteLength": 4,
+                    "uri": f"data:application/octet-stream;base64,{encoded}",
+                },
+                {"byteLength": 4},
+            ],
+        },
+        binary=b"data",
+    )
+
+    assert response.status_code == 422
+    assert "seul buffers[0]" in response.json()["detail"].lower()
+
+
+def test_an_unmapped_binary_chunk_is_refused(context):
+    encoded = base64.b64encode(b"data").decode("ascii")
+    response = _upload_glb_document(
+        context,
+        {
+            "asset": {"version": "2.0"},
+            "buffers": [
+                {
+                    "byteLength": 4,
+                    "uri": f"data:application/octet-stream;base64,{encoded}",
+                }
+            ],
+        },
+        binary=b"junk",
+    )
+
+    assert response.status_code == 422
+    assert "chunk bin" in response.json()["detail"].lower()
+    assert "pas référencé" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [
+        "KHR_draco_mesh_compression",
+        "EXT_meshopt_compression",
+        "KHR_texture_basisu",
+    ],
+)
+def test_a_glb_requiring_an_external_decoder_is_refused(context, extension):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "extensionsUsed": [extension],
+            "extensionsRequired": [extension],
+            "meshes": [{"extensions": {extension: {}}}],
+        }
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="decodeur.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert extension in response.json()["detail"]
+    assert "décodeur externe" in response.json()["detail"].lower()
+    assert _blob_files(context) == []
+
+
+def test_an_undeclared_external_decoder_block_cannot_bypass_validation(context):
+    payload = _glb(
+        {
+            "asset": {"version": "2.0"},
+            "meshes": [
+                {"extensions": {"KHR_draco_mesh_compression": {"bufferView": 0}}}
+            ],
+        },
+        binary=b"mesh",
+    )
+
+    response = _upload(
+        context,
+        payload=payload,
+        file_name="decodeur-cache.glb",
+        content_type="model/gltf-binary",
+    )
+
+    assert response.status_code == 422
+    assert "KHR_draco_mesh_compression" in response.json()["detail"]
+    assert _blob_files(context) == []
 
 
 def test_re_uploading_the_same_content_on_the_same_run_is_idempotent(context):
@@ -1344,6 +2361,7 @@ def test_a_signed_link_downloads_without_a_session(signed):
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["cache-control"] == "private, no-store"
     assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
+    assert response.headers["content-disposition"].startswith("attachment")
 
 
 def test_a_link_never_opens_anything_but_its_artifact(signed):
@@ -1551,6 +2569,23 @@ def test_a_link_counts_its_uses(signed):
         assert link.used_count == 2
 
 
+def test_a_link_counts_only_a_content_response_that_was_prepared(signed):
+    artifact_id = _seed_artifact(signed, payload=b"0123456789")
+    created = _create_link(signed, artifact_id).json()
+    token = created["url"].split("token=", 1)[1]
+    signed.client.cookies.clear()
+
+    refused = signed.client.get(
+        f"/artifacts/{artifact_id}/content",
+        params={"token": token},
+        headers={"Range": "bytes=99-100"},
+    )
+
+    assert refused.status_code == 416
+    with signed.session_factory() as db:
+        assert db.get(ArtifactLinkModel, created["id"]).used_count == 0
+
+
 def test_a_link_cannot_be_created_for_a_foreign_artifact(signed):
     foreign = _seed_artifact(
         signed,
@@ -1594,9 +2629,166 @@ def test_revocation_is_idempotent(signed):
 
 
 def test_the_preview_origin_is_used_when_configured(signed, monkeypatch):
+    monkeypatch.setenv("ACP_API_URL", "https://api.exemple.fr")
     monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://apercu.exemple.fr")
     artifact_id = _seed_artifact(signed)
 
-    url = _create_link(signed, artifact_id).json()["url"]
+    url = _create_link(signed, artifact_id, purpose="preview").json()["url"]
 
     assert url.startswith(f"https://apercu.exemple.fr/artifacts/{artifact_id}/content?")
+
+
+def test_preview_and_download_links_created_in_the_same_second_never_collide(
+    signed, monkeypatch
+):
+    monkeypatch.setenv("ACP_API_URL", "https://api.exemple.fr")
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://apercu.exemple.fr")
+    artifact_id = _seed_artifact(signed)
+
+    preview = _create_link(signed, artifact_id, purpose="preview")
+    download = _create_link(signed, artifact_id, purpose="download")
+
+    assert preview.status_code == download.status_code == 201
+    assert preview.json()["id"] != download.json()["id"]
+    assert preview.json()["url"] != download.json()["url"]
+    with signed.session_factory() as db:
+        assert db.query(ArtifactLinkModel).count() == 2
+
+
+def test_a_preview_token_is_inline_only_on_its_configured_origin(signed, monkeypatch):
+    monkeypatch.setenv("ACP_API_URL", "https://api.exemple.fr")
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://apercu.exemple.fr")
+    artifact_id = _seed_artifact(
+        signed, payload=b"capture", content_type="image/png", original_name="c.png"
+    )
+    created = _create_link(signed, artifact_id, purpose="preview").json()
+    token = created["url"].split("token=", 1)[1]
+    signed.client.cookies.clear()
+
+    refused = signed.client.get(
+        f"https://api.exemple.fr/artifacts/{artifact_id}/content",
+        params={"token": token},
+    )
+    accepted = signed.client.get(created["url"])
+
+    assert refused.status_code == 403
+    assert accepted.status_code == 200
+    assert accepted.content == b"capture"
+    assert accepted.headers["content-disposition"].startswith("inline")
+    with signed.session_factory() as db:
+        assert db.get(ArtifactLinkModel, created["id"]).used_count == 1
+
+
+def test_a_download_token_stays_an_attachment_on_the_preview_origin(
+    signed, monkeypatch
+):
+    monkeypatch.setenv("ACP_API_URL", "https://api.exemple.fr")
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://apercu.exemple.fr")
+    artifact_id = _seed_artifact(
+        signed, payload=b"capture", content_type="image/png", original_name="c.png"
+    )
+    created = _create_link(signed, artifact_id, purpose="download").json()
+    token = created["url"].split("token=", 1)[1]
+    signed.client.cookies.clear()
+
+    response = signed.client.get(
+        f"https://apercu.exemple.fr/artifacts/{artifact_id}/content",
+        params={"token": token},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].startswith("attachment")
+
+
+def test_a_download_link_stays_on_the_api_when_preview_origin_is_configured(
+    signed, monkeypatch
+):
+    monkeypatch.setenv("ACP_API_URL", "https://api.exemple.fr")
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://apercu.exemple.fr")
+    artifact_id = _seed_artifact(signed)
+
+    url = _create_link(signed, artifact_id, purpose="download").json()["url"]
+
+    assert url.startswith(f"https://api.exemple.fr/artifacts/{artifact_id}/content?")
+    assert "apercu.exemple.fr" not in url
+
+
+def test_a_preview_link_checks_its_origin_before_keys_and_persists_nothing(context):
+    artifact_id = _seed_artifact(context)
+
+    response = _create_link(context, artifact_id, purpose="preview")
+
+    assert response.status_code == 424
+    assert "ACP_ARTIFACT_PUBLIC_ORIGIN" in response.json()["detail"]
+    with context.session_factory() as db:
+        assert db.query(ArtifactLinkModel).count() == 0
+
+
+def test_a_preview_link_requires_an_explicit_api_origin_before_signing(
+    signed, monkeypatch
+):
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://apercu.exemple.fr")
+    artifact_id = _seed_artifact(signed)
+
+    response = _create_link(signed, artifact_id, purpose="preview")
+
+    assert response.status_code == 424
+    assert "ACP_API_URL" in response.json()["detail"]
+    with signed.session_factory() as db:
+        assert db.query(ArtifactLinkModel).count() == 0
+
+
+def test_an_invalid_download_origin_fails_before_signing_or_persistence(
+    signed, monkeypatch
+):
+    monkeypatch.setenv("ACP_API_URL", "https://api.example.test/subpath")
+    artifact_id = _seed_artifact(signed)
+
+    response = _create_link(signed, artifact_id, purpose="download")
+
+    assert response.status_code == 424
+    assert "ACP_API_URL" in response.json()["detail"]
+    with signed.session_factory() as db:
+        assert db.query(ArtifactLinkModel).count() == 0
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://preview.example.test",
+        "https://user:secret@preview.example.test",
+        "https://preview.example.test/subpath",
+        "javascript:alert(1)",
+    ],
+)
+def test_an_unsafe_preview_origin_fails_closed(signed, monkeypatch, origin):
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", origin)
+    artifact_id = _seed_artifact(signed)
+
+    response = _create_link(signed, artifact_id, purpose="preview")
+
+    assert response.status_code == 424
+    assert origin not in response.text
+
+
+def test_the_preview_origin_must_differ_from_the_control_api(signed, monkeypatch):
+    monkeypatch.setenv("ACP_API_URL", "https://api.example.test")
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://api.example.test/")
+    artifact_id = _seed_artifact(signed)
+
+    response = _create_link(signed, artifact_id, purpose="preview")
+
+    assert response.status_code == 424
+    assert "distincte" in response.json()["detail"]
+
+
+def test_the_preview_origin_must_differ_from_the_browser_origin(signed, monkeypatch):
+    monkeypatch.setenv("ACP_API_URL", "https://api.example.test")
+    monkeypatch.setenv("ACP_CORS_ORIGINS", "https://app.example.test")
+    monkeypatch.setenv("ACP_ARTIFACT_PUBLIC_ORIGIN", "https://app.example.test/")
+    artifact_id = _seed_artifact(signed)
+
+    response = _create_link(signed, artifact_id, purpose="preview")
+
+    assert response.status_code == 424
+    assert "application" in response.json()["detail"]

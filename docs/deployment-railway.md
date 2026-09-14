@@ -1,6 +1,7 @@
 # Déploiement local et Railway
 
-Date d'état : 13 septembre 2026 — version `0.6.0`
+Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G `0.8.0`
+implémenté dans l'arbre de travail
 Statut : architecture et procédure préparatoire ; aucun déploiement réel effectué,
 configuration de production non livrée.
 
@@ -69,6 +70,8 @@ ACP_DATABASE_URL=postgresql+psycopg://...
 ACP_API_URL=https://api.<domaine>
 ACP_EVENT_SERVICE_URL=https://events.<domaine>
 ACP_PROVIDER_GATEWAY_URL=https://gateway.<domaine>
+ACP_GATEWAY_SERVICE_TOKEN=<secret partagé API/worker/gateway>
+ACP_EVENT_SERVICE_TOKEN=<secret partagé API/event-service>
 ACP_PLUGINS_DIR=./plugins
 ACP_CORS_ORIGINS=https://app.<domaine>
 
@@ -76,6 +79,12 @@ VITE_ACP_API_URL=https://api.<domaine>
 VITE_ACP_EVENTS_WS_URL=wss://events.<domaine>/ws
 VITE_ACP_LEGACY_OFFICE=0
 ```
+
+Les deux jetons inter-services sont distincts l'un de l'autre et de
+`HERMES_API_KEY`. La même valeur `ACP_GATEWAY_SERVICE_TOKEN` doit être remise au
+provider-gateway et à ses appelants autorisés ; la même valeur
+`ACP_EVENT_SERVICE_TOKEN` à l'API et à l'event-service. Sans eux, les routes internes
+échouent fermées.
 
 `psycopg` et les migrations versionnées ne sont pas encore fournis : cette
 configuration PostgreSQL est donc une cible, pas une recette validée.
@@ -166,11 +175,11 @@ Points à tenir, dans cet ordre :
    perdrait au redéploiement alors que la base continuerait de les référencer. Le
    stockage est local : **aucun adaptateur objet distant n'est livré**.
 2. `ACP_ARTIFACT_PUBLIC_ORIGIN` est le **prérequis de sécurité de ce lot**. Tant
-   qu'elle est vide, les liens signés pointent vers l'origine de l'API et le Studio
-   affiche l'avertissement correspondant. Un contenu rapporté par un test est du
-   contenu tiers : il ne doit pas être servi depuis l'origine qui porte le cookie de
-   session. Le service qui répond sur cette origine doit atteindre la même API — c'est
-   une origine, pas un second stockage.
+   qu'elle est vide, une demande `purpose=preview` répond `424` avant création du
+   jeton, sans repli même origine. Les liens de téléchargement restent sur l'API. Un
+   contenu rapporté par un test est du contenu tiers : il ne doit pas être rendu depuis
+   l'origine qui porte le cookie de session. Le service qui répond sur l'origine
+   d'aperçu doit atteindre la même API — c'est une origine, pas un second stockage.
 3. `ACP_ARTIFACT_SIGNING_KEYS` suit la même discipline que `ACP_SECRETS_KEYS` : la
    première clé signe, les suivantes vérifient encore. **La perdre n'est pas grave**
    (les liens deviennent invalides, le téléchargement par session reste possible) ; la
@@ -197,16 +206,98 @@ ACP_WORKER_WEBTEST_MAX_ARTIFACT_BYTES=209715200
 ACP_WORKER_WEBTEST_ENV_ALLOWLIST=
 ```
 
-La plateforme n'installe jamais Playwright : c'est l'opérateur qui l'installe sur le
-runner et qui déclare l'argv absolu à lancer. La capacité `web_tests` n'est annoncée que
-si la configuration est complète **et** que le worker n'est pas en simulation. Ne jamais
-allowlister un credential de la plateforme dans `ACP_WORKER_WEBTEST_ENV_ALLOWLIST` : le
-processus de test n'en reçoit aucun, et les valeurs qui y sont injectées servent de
-liste d'expurgation pour ce que le rapport republie.
+Le chemin `web_tests` du worker n'installe jamais Playwright : c'est l'opérateur qui
+l'installe sur le runner et qui déclare l'argv absolu à lancer. Le paquet `e2e/` du
+Lot G possède sa propre dépendance isolée. La capacité `web_tests` n'est annoncée que
+si la configuration est complète **et** que le worker n'est pas en simulation. Ne
+jamais allowlister un credential de la plateforme dans
+`ACP_WORKER_WEBTEST_ENV_ALLOWLIST` : le processus de test n'en reçoit aucun, et les
+valeurs qui y sont injectées servent de liste d'expurgation pour ce que le rapport
+republie.
 
 **Aucune de ces variables n'a été éprouvée en déploiement** : aucun navigateur réel n'a
 été lancé, aucune suite Playwright n'a tourné, aucune origine d'aperçu n'a été
 provisionnée et aucun volume persistant n'a été monté.
+
+## Variables du Lot G (E2E, ComfyUI et exécuteurs agents)
+
+Sur le **provider-gateway** uniquement, en plus de son Bearer inter-service :
+
+```text
+ACP_COMFYUI_ENABLED=1
+ACP_COMFYUI_ORIGIN=https://comfyui.<réseau-prive>
+ACP_COMFYUI_WORKFLOW_PATH=/run/secrets/acp-image-api.json
+ACP_COMFYUI_PROMPT_NODE_ID=6
+ACP_COMFYUI_PROMPT_INPUT=text
+ACP_COMFYUI_OUTPUT_NODE_ID=9
+ACP_COMFYUI_API_TOKEN=<facultatif>
+ACP_COMFYUI_MAX_INFLIGHT_GENERATIONS=4
+ACP_COMFYUI_MAX_INFLIGHT_WAITERS=16
+ACP_COMFYUI_IDEMPOTENCY_MAX_BYTES=67108864
+```
+
+Ce bloc décrit une activation complète. Le drapeau doit valoir exactement `1` et toute
+configuration partielle échoue fermée. Pour garder ComfyUI désactivé, laisser
+`ACP_COMFYUI_ENABLED=0` et toutes les autres variables `ACP_COMFYUI_*` non définies.
+HTTP est réservé au loopback ; une origine distante exige HTTPS. Workflow, requêtes,
+polling, images, générations, waiters et cache en octets sont bornés. Une tentative
+`/prompt` ambiguë réserve un tombstone jusqu'à sa TTL afin de ne pas soumettre deux fois
+la même clé dans le processus. Cette idempotence reste locale et non durable : plusieurs
+réplicas ou un redémarrage peuvent rejouer un effet. Les autres limites sont documentées
+dans [Médias et aperçu 3D](media-and-3d.md).
+
+Sur une **machine worker dédiée**, jamais dans le serveur de contrôle :
+
+```text
+ACP_WORKER_CODEX_ENABLED=1
+ACP_WORKER_CODEX_EXECUTABLE=<chemin absolu>
+ACP_WORKER_CODEX_HOME=<profil séparé>
+ACP_WORKER_CLAUDE_ENABLED=1
+ACP_WORKER_CLAUDE_EXECUTABLE=<chemin absolu>
+ACP_WORKER_CLAUDE_CONFIG_DIR=<profil séparé>
+ACP_WORKER_EXECUTOR_PROJECTS_JSON={"project-id":"<racine absolue>"}
+ACP_WORKER_EXECUTOR_PATH=<PATH minimal facultatif>
+ACP_WORKER_EXECUTOR_TIMEOUT_SECONDS=1800
+ACP_WORKER_EXECUTOR_TERMINATE_GRACE_SECONDS=1
+```
+
+Ce bloc montre les deux capacités activées et complètement configurées ; une tentative
+n'en sélectionne toujours qu'une. Pour n'en activer qu'une, laisser le drapeau de
+l'autre à `0` et ne définir ni son exécutable ni son profil. Si les deux restent
+désactivées, laisser les deux drapeaux à `0` et toutes les autres variables de ce bloc
+non définies. Les profils, exécutables et outils restent hors des racines projet. Ces
+processus gardent les droits OS et réseau du compte worker : la machine doit fournir
+l'isolation manquante. Voir
+[Exécuteurs locaux Codex CLI et Claude Code](providers-local-executors.md).
+
+Enfin, les variables suivantes appartiennent uniquement au **job CI manuel ou au
+runner de staging**, jamais aux services déployés :
+
+```text
+ACP_E2E=0
+ACP_E2E_BASE_URL=https://staging.<domaine>
+ACP_E2E_ALLOWED_ORIGIN=https://staging.<domaine>
+ACP_E2E_API_ORIGIN=https://api.staging.<domaine>
+ACP_E2E_LOGIN=<secret de test>
+ACP_E2E_PASSWORD=<secret de test>
+ACP_E2E_RUN_ID=<tentative existante>
+```
+
+Seule la valeur exacte `ACP_E2E=1` fait continuer le lanceur nominal jusqu'à Playwright
+et autorise Chromium. Le script de collecte directe peut charger le framework avec la
+spec ignorée, mais ne lance aucun navigateur sans cet opt-in. Dans GitHub Actions, le
+job ne s'exécute que via `workflow_dispatch` sur `refs/heads/main`, lorsque
+`vars.ACP_E2E == '1'`. Cette variable d'activation doit être créée au niveau du dépôt
+(ou de l'organisation), et non uniquement dans l'environnement : la condition du job
+est évaluée avant que GitHub ne lui ouvre cet environnement. Les URL et le `run_id`
+peuvent, eux, rester des variables de l'environnement dédié `acp-e2e-staging`. GitHub
+ne versionne pas ses protections dans ce workflow : avant d'y placer
+`ACP_E2E_LOGIN`/`ACP_E2E_PASSWORD`, configurer un reviewer requis et limiter ses
+branches de déploiement à `main`. Les deux secrets ne sont injectés que dans l'étape
+finale, après checkout et installation ; le parcours n'est pas retenté automatiquement.
+Son groupe de concurrence est distinct de celui des push : aucun push ni aucune pull
+request ne peut le lancer ou l'interrompre. Le parcours n'a pas été activé pendant la
+validation du Lot G ; aucun ComfyUI ni CLI agent authentifié n'a davantage été lancé.
 
 ## Variables Hermes
 

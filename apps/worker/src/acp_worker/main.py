@@ -16,12 +16,19 @@ from acp_contracts import WorkerCapability
 
 from .automation_scheduler import automation_scheduler_loop
 from .budget import (
+    EffectBudgetBounds,
     budgeted_effect,
     gateway_effect_bounds,
     non_consuming_effect_bounds,
 )
 from .capabilities import missing_capabilities
 from .config import WorkerConfig
+from .executors import (
+    ExecutorCleanupError,
+    invocation_from_mission,
+    requested_executor,
+    run_executor,
+)
 from .local_runner import (
     LocalRunnerResult,
     LocalRunRequest,
@@ -83,12 +90,10 @@ async def _await_work(
         )
         if stop_waiter in done:
             operation.cancel()
-            await asyncio.gather(operation, return_exceptions=True)
             raise ExecutionStopped("arrêt du lease reçu")
         if operation in done:
             return await operation
         operation.cancel()
-        await asyncio.gather(operation, return_exceptions=True)
         raise MissionDeadlineExceeded("durée globale de la mission dépassée")
     finally:
         if not operation.done():
@@ -96,6 +101,10 @@ async def _await_work(
         await asyncio.gather(operation, return_exceptions=True)
         stop_waiter.cancel()
         await asyncio.gather(stop_waiter, return_exceptions=True)
+        if not operation.cancelled():
+            operation_error = operation.exception()
+            if isinstance(operation_error, ExecutorCleanupError):
+                raise operation_error
 
 
 def _stopped_status(stop_context: dict[str, str | None]) -> str:
@@ -388,15 +397,21 @@ async def process(
         )
     )
     try:
-        missing = missing_capabilities(
-            claim.get("required_capabilities", []), credentials.capabilities
-        )
+        required_capabilities = claim.get("required_capabilities", [])
+        missing = missing_capabilities(required_capabilities, credentials.capabilities)
         if missing:
             raise RuntimeError(
                 f"capacités manquantes après attribution: {', '.join(missing)}"
             )
-        if not credentials.simulation and config.local_runner is None:
-            raise RuntimeError("aucun exécuteur réel n'est configuré pour ce worker")
+        agent_executor = requested_executor(required_capabilities)
+        if (
+            not credentials.simulation
+            and agent_executor is None
+            and config.local_runner is None
+        ):
+            raise RuntimeError(
+                "aucun runner local n'est configuré pour cette mission"
+            )
 
         if stop_requested:
             await patch_run(
@@ -426,7 +441,25 @@ async def process(
             raise RuntimeError(
                 "un worker réel exige une enveloppe mission complète et bornée"
             )
-        validate_safe_local_policy(mission)
+        agent_invocation = None
+        if agent_executor is None:
+            validate_safe_local_policy(mission)
+        else:
+            if mission is None:
+                raise RuntimeError(
+                    "un exécuteur d'agent exige une enveloppe mission complète"
+                )
+            project_id = session.get("project_id")
+            agent_invocation = invocation_from_mission(
+                agent_executor,
+                project_id,
+                mission,
+                {"steps": []},
+            )
+            # Vérifie exécutable, authentification et racine avant même l'appel de
+            # planification : une configuration locale incomplète ne consomme rien.
+            config.executors.spec_for(agent_executor)
+            config.executors.project_path(agent_invocation.project_id)
         if mission is not None:
             mission_deadline = claimed_clock + mission["duration_seconds"]
         mission_budget = mission["budget"] if mission is not None else None
@@ -600,8 +633,88 @@ async def process(
             )
             return
 
-        assert config.local_runner is not None
-        if web_tests_available(
+        if agent_executor is not None:
+            assert mission is not None
+            agent_invocation = invocation_from_mission(
+                agent_executor,
+                session.get("project_id"),
+                mission,
+                plan,
+            )
+            execution = await _await_work(
+                lambda: budgeted_effect(
+                    api_client,
+                    config,
+                    credentials,
+                    attempt_id=attempt_id,
+                    fencing_token=fencing_token,
+                    effect_key=f"agent-executor-{agent_executor}",
+                    provider=agent_executor,
+                    phase="execution",
+                    budget=mission_budget,
+                    # Les CLIs ne publient pas de plafond fiable de coût ou de
+                    # jetons. Toute politique qui en exige un refuse donc le permis
+                    # avant spawn ; seul l'appel d'outil est borné ici.
+                    bounds=EffectBudgetBounds(tool_calls=1),
+                    operation=lambda: run_executor(
+                        agent_invocation.executor,
+                        agent_invocation.project_id,
+                        agent_invocation.requested_path,
+                        agent_invocation.prompt,
+                        config=config.executors,
+                        timeout_seconds=_remaining_work_seconds(mission_deadline),
+                        allow_writes=agent_invocation.allow_writes,
+                    ),
+                ),
+                deadline=mission_deadline,
+                stop_event=execution_stop,
+            )
+            execution_label = (
+                "Codex CLI" if agent_executor == "codex_cli" else "Claude Code"
+            )
+            execution_status = "succeeded" if execution.exit_code == 0 else "failed"
+            execution_succeeded = execution.exit_code == 0
+            execution_cancelled = False
+            evidence = [
+                {
+                    "kind": "agent_executor",
+                    "summary": (
+                        f"{execution_label} terminé avec le code {execution.exit_code}; "
+                        "sorties conservées uniquement sous forme d'empreintes."
+                    ),
+                    "data": {
+                        "executor": agent_executor,
+                        "status": execution_status,
+                        "project_id": agent_invocation.project_id,
+                        "workspace_write": agent_invocation.allow_writes,
+                        "spawned_agents": 1,
+                        "spawned_agents_scope": "worker_managed_top_level_cli_only",
+                        "stdout": {
+                            "sha256": execution.stdout_sha256,
+                            "total_bytes": execution.stdout_bytes,
+                            "event_count": execution.event_count,
+                        },
+                        "stderr": {
+                            "sha256": execution.stderr_sha256,
+                            "total_bytes": execution.stderr_bytes,
+                        },
+                    },
+                    "exit_code": execution.exit_code,
+                }
+            ]
+            technical_status = "passed" if execution_succeeded else "failed"
+            result = {
+                "execution_mode": agent_executor,
+                "technical_validation": technical_status,
+                "evidence": evidence,
+                "runner_status": execution_status,
+                "exit_code": execution.exit_code,
+                "spawned_agents": 1,
+                "spawned_agents_scope": "worker_managed_top_level_cli_only",
+                "user_acceptance": "pending",
+                "worker_id": credentials.worker_id,
+            }
+        elif web_tests_available(
             config.web_tests,
             credentials.capabilities,
             simulation=credentials.simulation,
@@ -663,6 +776,7 @@ async def process(
                 "worker_id": credentials.worker_id,
             }
         else:
+            assert config.local_runner is not None
             runner_request = request_from_claim(claim, plan)
             remaining = _remaining_work_seconds(mission_deadline)
             if remaining is not None:
@@ -874,6 +988,18 @@ async def process(
                 "result": result,
             },
         )
+    except ExecutorCleanupError as exc:
+        # Un arbre dont l'arrêt n'est pas prouvé ne doit jamais être converti en
+        # résultat métier terminal : le renouvellement du lease cesse et le worker
+        # remonte l'erreur pour cesser de réclamer du travail. Le lease distant
+        # expire ou est réconcilié côté API ; il n'est pas déclaré libéré ici.
+        logger.write(
+            "critical",
+            "Nettoyage de l'exécuteur non confirmé; arrêt de sécurité du worker",
+            attempt_id=attempt_id,
+            error=str(exc),
+        )
+        raise
     except Exception as exc:
         # A terminal PATCH can race with the API's transition to STOPPING before
         # the renew loop observes it. Reconcile that conflict as interrupted,
@@ -1069,6 +1195,30 @@ async def _probe_loop(
             )
 
 
+def _reap_completed_jobs(
+    active: set[asyncio.Task[Any]], logger: WorkerLogger
+) -> None:
+    """Retire les jobs finis et propage toute clôture non confirmée."""
+
+    completed = {item for item in active if item.done()}
+    cleanup_error: ExecutorCleanupError | None = None
+    for item in completed:
+        try:
+            item.result()
+        except ExecutorCleanupError as exc:
+            cleanup_error = cleanup_error or exc
+            logger.write(
+                "critical",
+                "Arrêt de sécurité du worker après un nettoyage non confirmé",
+                error=str(exc),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.write("error", "Échec d'une tâche", error=str(exc))
+    active.difference_update(completed)
+    if cleanup_error is not None:
+        raise cleanup_error
+
+
 async def run_forever(
     config: WorkerConfig, credentials: WorkerCredentials, *, once: bool = False
 ) -> None:
@@ -1076,7 +1226,12 @@ async def run_forever(
         raise CredentialStateError(
             "Credentials liés à une autre origine API; réenregistrement requis"
         )
-    config.validate_execution_mode(simulation=credentials.simulation)
+    config.validate_advertised_capabilities(
+        credentials.capabilities,
+        simulation=credentials.simulation,
+        project_id=credentials.project_id,
+        global_access=credentials.global_access,
+    )
     logger = WorkerLogger(config.state_dir)
     logger.write(
         "info",
@@ -1091,7 +1246,7 @@ async def run_forever(
         "X-Worker-Id": credentials.worker_id,
     }
     stop = asyncio.Event()
-    active: set[asyncio.Task] = set()
+    active: set[asyncio.Task[Any]] = set()
     async with (
         httpx.AsyncClient(timeout=10.0, headers=headers, trust_env=False) as api_client,
         httpx.AsyncClient(
@@ -1118,13 +1273,7 @@ async def run_forever(
             )
         try:
             while True:
-                completed = {item for item in active if item.done()}
-                for item in completed:
-                    try:
-                        item.result()
-                    except Exception as exc:  # noqa: BLE001
-                        logger.write("error", "Échec d'une tâche", error=str(exc))
-                active -= completed
+                _reap_completed_jobs(active, logger)
                 if len(active) >= credentials.max_concurrency:
                     await asyncio.sleep(config.poll_interval)
                     continue
@@ -1138,6 +1287,9 @@ async def run_forever(
                 except httpx.HTTPError as exc:
                     logger.write("warning", "Claim impossible", error=str(exc))
                     claim = {"task": None}
+                # Un autre job peut avoir échoué pendant la requête HTTP. Ne
+                # démarre jamais le claim reçu après une clôture non confirmée.
+                _reap_completed_jobs(active, logger)
                 if claim.get("task"):
                     title = claim["task"]["title"]
                     logger.write("info", "Tâche prise en charge", title=title)

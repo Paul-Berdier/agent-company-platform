@@ -81,12 +81,17 @@ export const PREVIEWABLE_VIDEO_TYPES: ReadonlySet<string> = new Set([
   "video/mp4",
 ]);
 
+/** Type du conteneur GLB auto-contenu accepté par le serveur pour l'aperçu 3D. */
+export const PREVIEWABLE_MODEL_TYPES: ReadonlySet<string> = new Set([
+  "model/gltf-binary",
+]);
+
 export type StreamConnectionState = "connected" | "reconnecting" | "polling" | "offline";
 
 export type StudioMode = "live" | "interim" | "replay" | "unknown";
 
 /** Classement d’un contenu : image et vidéo s’affichent, tout le reste se télécharge. */
-export type ArtifactPreviewKind = "image" | "video" | "download";
+export type ArtifactPreviewKind = "image" | "video" | "model" | "download";
 
 /** Référence d’artefact portée par un événement de média (jamais les octets). */
 export interface MediaReference {
@@ -330,6 +335,7 @@ export function classifyArtifactPreview(contentType: string): ArtifactPreviewKin
   const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   if (PREVIEWABLE_IMAGE_TYPES.has(normalized)) return "image";
   if (PREVIEWABLE_VIDEO_TYPES.has(normalized)) return "video";
+  if (PREVIEWABLE_MODEL_TYPES.has(normalized)) return "model";
   return "download";
 }
 
