@@ -1,6 +1,6 @@
 # Missions, runner local et CLI
 
-Date d'état : 14 septembre 2026, Europe/Paris — préparation de la version `0.7.0`
+Date d'état : 14 septembre 2026, Europe/Paris — version publiée `0.7.0`, Lot G en cours
 
 Le Lot C fournit une mission durable dans l'API métier, une exécution locale
 configurée côté worker et le client `acp`. Le web et le CLI utilisent la même

@@ -6,6 +6,11 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## 0.8.0 (préparation) - 2026-09-14
+
+Lot G : connecteurs médias et 3D, exécuteurs complémentaires, preuves E2E réelles
+activées explicitement et durcissement des surfaces d'aperçu.
+
 ## [0.7.0] - 2026-09-14
 
 Lot F : automatisations, calendrier IANA, budgets appliqués, saturation du stockage,

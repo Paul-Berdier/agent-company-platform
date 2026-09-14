@@ -1,6 +1,6 @@
 [project]
 name = "acp-database"
-version = "0.7.0"
+version = "0.8.0"
 description = "Modèles SQLAlchemy et accès base de l'Agent Company Platform"
 requires-python = ">=3.11"
 dependencies = ["sqlalchemy>=2.0", "acp-contracts"]

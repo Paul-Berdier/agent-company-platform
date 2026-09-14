@@ -24,10 +24,10 @@ réel n'a été exécuté** ; la reprise en main humaine du navigateur n'est pas
 PostgreSQL, Railway et les sauvegardes restent au Lot H. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version en préparation dans cette branche : **0.7.0** (Lot F). La dernière version
-publiée est **0.6.0** : Lot E fusionné par la PR
-[#5](https://github.com/Paul-Berdier/agent-company-platform/pull/5), commit de fusion
-`b7d8a44`, tag `v0.6.0`, après observation d'une CI verte. Les changements sont
+Version en préparation dans cette branche : **0.8.0** (Lot G). La dernière version
+publiée est **0.7.0** : Lot F fusionné par la PR
+[#6](https://github.com/Paul-Berdier/agent-company-platform/pull/6), commit de fusion
+`0b4d904`, tag `v0.7.0`, après observation d'une CI verte. Les changements sont
 décrits dans [CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
@@ -310,13 +310,13 @@ machine de vérification (Windows 10 Pro `10.0.19045`, Python `3.12.0`, Node
 build et `check_version.py` réussis. La CI de sa PR #5 a été observée verte avant
 fusion. Ces nombres décrivent le Lot E publié, pas l'arbre de travail du Lot F.
 
-Pour l'arbre candidat `0.7.0` du Lot F, vérifié le 14 septembre 2026 dans le même
+Pour la version publiée `0.7.0` du Lot F, vérifiée le 14 septembre 2026 dans le même
 environnement, le relevé global est : **2 291 tests Python réussis, 7 ignorés et 2
 avertissements connus**, **295 tests web sur 23 fichiers**, **59 tests du reporter** et
 **74 tests du moteur legacy**. Le typecheck TypeScript, le build Vite,
-`scripts/check_version.py` et le parcours d'automatisation **62/62** réussissent. Ces
-résultats sont locaux ; la PR, la CI distante, la fusion et le tag `v0.7.0` ne sont pas
-encore affirmés.
+`scripts/check_version.py` et le parcours d'automatisation **62/62** réussissent. Les
+quatre jobs Python 3.12 et Node 22 déclenchés par le dernier push et la PR ont été
+observés verts avant la fusion ; le tag annoté distant `v0.7.0` pointe sur `0b4d904`.
 
 Aucune de ces commandes ne lance de navigateur. L'opt-in de test E2E Playwright réel
 n'existe pas encore dans le dépôt : un résultat vert ici ne dit **rien** sur une

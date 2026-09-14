@@ -1,10 +1,9 @@
 # État d'implémentation et reprise
 
 Date d'état : 14 septembre 2026, Europe/Paris
-Portée : Lot F, préparation de la version `0.7.0`, construit sur le Lot E `0.6.0`.
-Le Lot E est publié : PR #5 fusionnée au commit `b7d8a44`, tag `v0.6.0`, après
-observation d'une CI verte. Le Lot F est encore un arbre de travail : sa PR, sa CI
-distante, sa fusion et son tag `v0.7.0` ne sont pas affirmés ici.
+Portée : ouverture du Lot G `0.8.0`, construit sur le Lot F publié `0.7.0`.
+Le Lot F est publié : PR #6 fusionnée au commit `0b4d904`, tag annoté `v0.7.0`, après
+observation de quatre jobs CI verts sur le dernier commit candidat.
 
 ## Résumé
 
@@ -381,7 +380,7 @@ Hermes, un fournisseur payant, PostgreSQL existant, une sandbox OS, un E2E navig
 ni un déploiement Railway. Le Lot E a ensuite été publié par la PR #5, fusion
 `b7d8a44`, tag `v0.6.0`, après observation d'une CI verte.
 
-### Vérification du Lot F en préparation
+### Vérification du Lot F publié
 
 Les suites ciblées couvrent les contrats, la base, les routes, le planificateur, le
 worker, les budgets, les alertes, le stockage, le CLI et les modules web du Lot F.
@@ -389,8 +388,9 @@ Le 14 septembre 2026, l'arbre final local a rendu **2 291 tests Python réussis,
 ignorés et 2 avertissements connus** (`867/1` API, `253/3` worker, `430/3` CLI et
 `741/0` pour contrats, base et services). Le web a rendu **295 tests sur 23 fichiers**,
 le reporter **59** et le moteur legacy **74**. Le typecheck TypeScript, le build Vite
-et `scripts/check_version.py` réussissent, avec tous les composants sur `0.7.0`. La CI
-distante, la fusion et le tag ne sont pas encore affirmés.
+et `scripts/check_version.py` réussissent, avec tous les composants sur `0.7.0`. Les
+quatre jobs CI Python 3.12 et Node 22 du dernier push et de la PR ont été observés
+verts avant la fusion ; le tag distant a ensuite été vérifié sur `0b4d904`.
 
 `scripts/verify_automation_journey.py` a rendu **62 étapes sur 62 réussies**. Il lance
 une API réelle dans un processus séparé sur une base SQLite temporaire, vérifie la
@@ -506,41 +506,34 @@ d'une décision qui manque aujourd'hui.
 | C | runner réel contrôlé, missions, preuves, validations et CLI | **Publié : PR #3, tag `v0.4.0`** |
 | D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Publié : PR #4, tag `v0.5.0` ; aucun serveur MCP tiers contacté** |
 | E | événements durables, flux authentifié, Playwright, livrables privés et Studio | **Publié : PR #5, fusion `b7d8a44`, tag `v0.6.0`, CI verte observée avant fusion ; aucun navigateur réel lancé, aucun test Playwright réel exécuté** |
-| F | automatisations, calendrier Europe/Paris, budgets et alertes | **Implémenté dans l'arbre `0.7.0` et vérifié par suites ciblées ; publication et relevé global final à confirmer** |
-| G | médias/3D, exécuteurs complémentaires et durcissement | **Non commencé** |
+| F | automatisations, calendrier Europe/Paris, budgets et alertes | **Publié : PR #6, fusion `0b4d904`, tag `v0.7.0`, CI verte observée avant fusion** |
+| G | médias/3D, exécuteurs complémentaires et durcissement | **En cours sur la branche `0.8.0`** |
 | H | migrations, Railway, sauvegarde-restauration et validation finale | **Non commencé** |
 
-## Reprise : terminer le Lot F puis les Lots G et H
+## Reprise : terminer les Lots G et H
 
 Ordre de reprise pour la personne ou l'agent qui prend la suite.
 
-1. **Clore la vérification locale du Lot F** : exécuter les suites globales Python et
-   TypeScript, le build, le contrôle de versions et
-   `scripts/verify_automation_journey.py`, puis reporter leurs résultats exacts sans
-   extrapoler à un service externe.
-2. **Publier le Lot F** seulement après une CI distante verte : PR, fusion et tag
-   `v0.7.0`. Cette documentation prépare la version, elle ne prétend pas que ces
-   opérations ont déjà eu lieu.
-3. **Exécuter une vraie suite Playwright sur un runner réel.** C'est la preuve qui
+1. **Exécuter une vraie suite Playwright sur un runner réel.** C'est la preuve qui
    manque au Lot E et la seule qui fasse progresser les scénarios 10 et 11. Concrètement :
    installer Playwright sur la machine du runner, configurer `ACP_WORKER_WEBTEST_ARGV_JSON`
    et `ACP_WORKER_WEBTEST_CWD`, lancer une mission portant une ressource
    `kind == "web_test_suite"`, puis vérifier dans le Studio la chronologie, l'arbre des
    tests, la capture et la trace réellement produites.
-4. **Écrire l'opt-in de test E2E réel** prévu par la spécification (`ACP_E2E=1`,
+2. **Écrire l'opt-in de test E2E réel** prévu par la spécification (`ACP_E2E=1`,
    `skipped` sinon, jamais réussi par défaut) et le raccorder à la CI en opt-in. Il
    n'existe pas : aucun fichier du dépôt ne lit cette variable.
-5. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
+3. **Verser dans le dépôt un parcours de bout en bout du Lot E**, comme
    `scripts/verify_mcp_journey.py` l'a fait pour le scénario 7 : services démarrés,
    worker authentifié, ingestion d'une exécution de tests, flux SSE consommé avec
    reprise par curseur, téléchargement d'un livrable par lien signé puis révocation.
    Sans lui, aucun scénario de ce lot ne peut passer à « Accepté ».
-6. **Configurer une origine d'aperçu séparée** (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et
+4. **Configurer une origine d'aperçu séparée** (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et
    vérifier que le Studio cesse d'afficher son avertissement. C'est le prérequis de
    sécurité avant toute exposition réseau du Studio.
-7. **Enchaîner sur le Lot G** : médias, aperçu 3D, exécuteurs complémentaires et point
+5. **Terminer le Lot G** : médias, aperçu 3D, exécuteurs complémentaires et point
    de spawn où appliquer enfin `max_spawned_agents_per_run`.
-8. **Livrer le Lot H** : PostgreSQL et migrations versionnées, Railway, sauvegarde,
+6. **Livrer le Lot H** : PostgreSQL et migrations versionnées, Railway, sauvegarde,
    restauration et validation finale. SQLite `create_all()` et son upgrade ad hoc ne
    sont pas une migration de production.
 

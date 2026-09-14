@@ -1,6 +1,6 @@
 # Sécurité et frontières de confiance
 
-Date d'état : 14 septembre 2026 — préparation de la version `0.7.0`
+Date d'état : 14 septembre 2026 — version publiée `0.7.0`, Lot G en cours
 Statut : frontières utilisateur/inter-services fermées et runner local contrôlé au
 Lot C ; coffre de secrets, politique de sortie anti-SSRF, expurgation des retours
 tiers, clôture d'arrêt Windows et révocation des extensions ajoutés au Lot D ; flux

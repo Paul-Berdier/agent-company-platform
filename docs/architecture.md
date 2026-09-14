@@ -1,7 +1,7 @@
 # Architecture cible
 
 Statut : décision adoptée pour la modernisation 2026.
-Date d'état : 14 septembre 2026 — préparation de la version `0.7.0` (Lot F).
+Date d'état : 14 septembre 2026 — version publiée `0.7.0` (Lot F), Lot G en cours.
 Produit : Agent Company Platform, espace personnel par défaut.
 
 Le schéma principal de ce document reste la cible. L'état concret des Lots C à F

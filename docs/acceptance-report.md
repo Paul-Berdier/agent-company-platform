@@ -1,10 +1,9 @@
 # Rapport d'acceptation
 
 Date d'état : 14 septembre 2026
-Périmètre évalué : Lot F, préparation de la version `0.7.0`, sans service externe ni
-dépense réelle. Sa base, le Lot E `0.6.0`, est publiée : PR #5 fusionnée au commit
-`b7d8a44`, tag `v0.6.0`, après observation d'une CI verte. La PR, la CI distante, la
-fusion et le tag `v0.7.0` du Lot F ne sont pas encore affirmés.
+Périmètre évalué : Lot F, version publiée `0.7.0`, sans service externe ni dépense
+réelle. La PR #6 a été fusionnée au commit `0b4d904` après observation de quatre jobs
+CI verts ; le tag annoté distant `v0.7.0` pointe sur ce commit.
 
 ## Verdict
 
@@ -283,7 +282,7 @@ services externes réels.
 - origine d'aperçu séparée (`ACP_ARTIFACT_PUBLIC_ORIGIN`) et stockage d'objets distant ;
 - purge de rétention réellement exécutée sur des données d'exploitation (la commande
   existe, est testée et reste à blanc sans `--apply`) ;
-- CI distante, PR, fusion et tag du Lot F ;
+- déploiement ou test d'un service externe pour le Lot F ;
 - Railway, HTTPS public, charge ou audit offensif.
 
 ## Conditions avant exposition réseau
