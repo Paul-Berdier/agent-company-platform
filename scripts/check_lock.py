@@ -155,8 +155,20 @@ def check(
     return errors
 
 
+def _force_utf8_streams() -> None:
+    """Écrit en UTF-8 quelle que soit la console : la sortie est lue par des tests
+    et des scripts qui la décodent en UTF-8, et une console Windows en cp1252
+    rendrait sinon les accents illisibles ou fatals au décodage."""
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Point d'entrée : code 0 si tout est cohérent, 1 sinon (motifs sur stderr)."""
+    _force_utf8_streams()
 
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
