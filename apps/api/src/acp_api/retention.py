@@ -11,6 +11,11 @@ Deux protections ne se négocient pas :
    auditable.
 2. **Les livrables cités par une preuve de mission** ne sont jamais effacés, qu'ils
    soient désignés par identifiant, par URI ou par empreinte.
+3. **Un événement dont la livraison est encore due** (ligne ``event_outbox`` non
+   livrée ou en lettre morte) survit aussi : le purger effacerait la seule trace
+   d'un événement que le service temps réel n'a jamais reçu. Les lignes d'outbox
+   livrées des événements purgés sont supprimées d'abord — la clé étrangère n'a
+   pas de cascade, précisément pour que cette décision soit prise ici.
 
 Enfin, le stockage étant **adressé par contenu**, deux livrables distincts partagent
 un même blob dès que leur contenu est identique. Supprimer le fichier parce qu'un
@@ -38,9 +43,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from acp_database.models import ArtifactModel, EventModel, MissionEvidenceModel
+from acp_database.models import (
+    ArtifactModel,
+    EventModel,
+    EventOutboxModel,
+    MissionEvidenceModel,
+)
 
 from .artifacts_storage import (
     TEMP_DIRECTORY_NAME,
@@ -48,6 +59,7 @@ from .artifacts_storage import (
     LocalArtifactStorage,
     local_artifact_storage,
 )
+from .outbox import undelivered_filter
 
 EVENT_RETENTION_DAYS_ENV = "ACP_EVENT_RETENTION_DAYS"
 ARTIFACT_RETENTION_DAYS_ENV = "ACP_ARTIFACT_RETENTION_DAYS"
@@ -86,6 +98,7 @@ class PurgeReport:
     artifact_days: int
     events_deleted: int = 0
     events_protected: int = 0
+    events_pending_relay: int = 0
     artifacts_marked: int = 0
     artifacts_protected: int = 0
     blobs_deleted: int = 0
@@ -99,6 +112,7 @@ class PurgeReport:
         return (
             f"{mode} — événements supprimés : {self.events_deleted} "
             f"(conservés car terminaux : {self.events_protected}, "
+            f"conservés car non livrés au relais : {self.events_pending_relay}, "
             f"rétention {self.event_days} jours) ; "
             f"livrables marqués : {self.artifacts_marked} "
             f"(conservés car cités par une preuve : {self.artifacts_protected}, "
@@ -243,6 +257,7 @@ def purge_expired(
 
     events_deleted = 0
     events_protected = 0
+    events_pending_relay = 0
     if event_days > 0:
         cutoff = moment - timedelta(days=event_days)
         terminal = sorted(TERMINAL_RUN_EVENT_TYPES)
@@ -250,9 +265,28 @@ def purge_expired(
         # Compté et supprimé en base : un journal de plusieurs millions de lignes ne
         # doit pas transiter par la mémoire du processus de maintenance.
         events_protected = expired.filter(EventModel.type.in_(terminal)).count()
-        deletable = expired.filter(EventModel.type.notin_(terminal))
+        # Une livraison encore due ou abandonnée protège l'événement : le relais
+        # (ou l'opérateur qui remet une lettre morte en attente) doit pouvoir le
+        # relire tel quel.
+        awaiting_relay = select(EventOutboxModel.event_id).where(undelivered_filter())
+        non_terminal = expired.filter(EventModel.type.notin_(terminal))
+        events_pending_relay = non_terminal.filter(
+            EventModel.id.in_(awaiting_relay)
+        ).count()
+        deletable = non_terminal.filter(EventModel.id.notin_(awaiting_relay))
         events_deleted = deletable.count()
         if apply and events_deleted:
+            # Les lignes d'outbox livrées d'abord : la clé étrangère vers ``events``
+            # n'a pas de cascade, et c'est voulu — rien ne doit pouvoir effacer une
+            # livraison due par ricochet.
+            doomed_ids = select(EventModel.id).where(
+                EventModel.occurred_at < cutoff,
+                EventModel.type.notin_(terminal),
+                EventModel.id.notin_(awaiting_relay),
+            )
+            db.query(EventOutboxModel).filter(
+                EventOutboxModel.event_id.in_(doomed_ids)
+            ).delete(synchronize_session=False)
             deletable.delete(synchronize_session=False)
 
     artifacts_marked = 0
@@ -322,6 +356,7 @@ def purge_expired(
         artifact_days=artifact_days,
         events_deleted=events_deleted,
         events_protected=events_protected,
+        events_pending_relay=events_pending_relay,
         artifacts_marked=artifacts_marked,
         artifacts_protected=artifacts_protected,
         blobs_deleted=blobs_deleted,
