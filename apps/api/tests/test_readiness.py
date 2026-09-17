@@ -582,4 +582,3 @@ def test_pg_readiness_probe_is_bounded_by_a_local_statement_timeout(
     assert any("SET LOCAL statement_timeout = 2000" in s for s in statements)
     # Schéma éphémère vide : la base répond mais n'est pas migrée.
     assert report.checks["migrations"].ok is False
-
