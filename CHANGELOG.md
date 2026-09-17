@@ -6,6 +6,12 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## 0.9.0 (préparation) - 2026-09-17
+
+Lot H : PostgreSQL et migrations versionnées, outbox transactionnelle avec reprise,
+sauvegarde-restauration, images de services, configuration Railway et validation
+finale.
+
 ## [0.8.0] - 2026-09-14
 
 Lot G : connecteurs médias et 3D, exécuteurs complémentaires, harnais de preuve E2E
@@ -571,8 +577,9 @@ réellement démarrés sur le bouclage.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-Les tags `v0.2.0` à `v0.8.0` existent ; le Lot G a été finalisé par la PR #7 après
-observation d'une CI verte.
+Les tags `v0.2.0` à `v0.7.0` existent sur `origin` ; le Lot G a été finalisé par la PR #7
+(fusion `e71ebf6`) après observation d'une CI verte, mais son tag `v0.8.0` n'était pas
+encore poussé au 17 septembre 2026.
 
 [Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.7.0...v0.8.0
