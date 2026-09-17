@@ -15,8 +15,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from acp_contracts import ServiceOriginError, normalize_service_origin
-from acp_database import get_engine, init_db
+from acp_database import get_engine
 
+from . import db_errors, readiness
 from .access_logging import install_access_log_redaction
 from .routers.artifacts import preview_router
 
@@ -58,7 +59,8 @@ def configured_preview_cors_origins(
 @asynccontextmanager
 async def preview_lifespan(app: FastAPI):
     del app
-    init_db()
+    # Même démarrage fermé que l'API : base initialisée puis sonde de readiness.
+    readiness.prepare_service_at_startup()
     try:
         yield
     finally:
@@ -93,10 +95,14 @@ def create_preview_app(
             "Content-Type",
         ],
     )
+    db_errors.install(preview)
+    readiness.mount(preview, service="artifact-preview")
     preview.include_router(preview_router)
 
     @preview.get("/health")
     def health() -> dict[str, str]:
+        """Liveness pure : le processus répond. La readiness est servie par ``/ready``."""
+
         return {"status": "ok", "service": "artifact-preview"}
 
     return preview

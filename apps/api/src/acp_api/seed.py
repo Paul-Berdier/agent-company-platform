@@ -3,9 +3,20 @@
 Crée une organisation, deux workspaces, quatre départements, quatre projets
 multi-domaines, des équipes, des agents logiques et des tâches en file.
 Idempotent : ne fait rien si l'organisation existe déjà.
+
+Prévu pour la base SQLite locale. Sur tout autre dialecte (PostgreSQL), le seed
+est refusé sauf ``ACP_ALLOW_SEED=1`` : une base partagée ne doit pas recevoir
+des données de démonstration par un simple ``scripts/dev`` lancé au mauvais
+endroit. La ligne de commande rend le code ``3`` sur refus, comme
+``acp_database.migrate``.
 """
 
-from acp_database import get_session_factory, init_db
+import os
+import sys
+from collections.abc import Mapping
+
+from acp_database import get_engine, get_session_factory, init_db
+from acp_database.locking import write_lock
 from acp_database.models import (
     AgentInstanceModel,
     DepartmentModel,
@@ -21,6 +32,14 @@ from acp_database.models import (
 )
 
 ORG_NAME = "Virtual Company"
+ALLOW_SEED_ENV = "ACP_ALLOW_SEED"
+SEED_LOCK_KEY = "seed"
+EXIT_OK = 0
+EXIT_REFUSED = 3
+
+
+class SeedRefusedError(RuntimeError):
+    """Refus explicite du seed : base non SQLite sans ``ACP_ALLOW_SEED=1``."""
 
 PROVIDERS = [
     ("orchestrator", "Mock Orchestrator", "mock"),
@@ -39,10 +58,28 @@ PROVIDERS = [
 ]
 
 
-def seed() -> bool:
+def seed(environ: Mapping[str, str] | None = None) -> bool:
+    """Applique le seed et retourne ``True`` s'il a créé quelque chose.
+
+    ``init_db()`` passe d'abord : sous PostgreSQL il refuse une base hors version
+    sans rien créer. Le refus hors SQLite vient ensuite, avant toute session. Le
+    contrôle d'existence et les insertions tournent sous ``write_lock('seed')`` :
+    deux seeds lancés en même temps se sérialisent et le second voit
+    l'organisation du premier au lieu de la dupliquer.
+    """
+
+    source = os.environ if environ is None else environ
     init_db()
+    dialect = get_engine().dialect.name
+    if dialect != "sqlite" and source.get(ALLOW_SEED_ENV, "").strip() != "1":
+        raise SeedRefusedError(
+            f"Seed de démonstration refusé sur une base « {dialect} » : il n'est "
+            f"prévu que pour SQLite. Définissez {ALLOW_SEED_ENV}=1 pour l'appliquer "
+            "volontairement à cette base."
+        )
     db = get_session_factory()()
     try:
+        write_lock(db, SEED_LOCK_KEY)
         if db.query(OrganizationModel).filter_by(name=ORG_NAME).first():
             return False
 
@@ -150,6 +187,17 @@ def seed() -> bool:
         db.close()
 
 
-if __name__ == "__main__":
-    created = seed()
+def main() -> int:
+    """Point d'entrée de la commande ; ``3`` sur refus (seed ou base hors version)."""
+
+    try:
+        created = seed()
+    except RuntimeError as exc:
+        print(f"Refus : {exc}", file=sys.stderr)
+        return EXIT_REFUSED
     print("Seed appliqué." if created else "Seed déjà présent, rien à faire.")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

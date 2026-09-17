@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -264,6 +265,7 @@ def test_doctor_verifies_provider_readiness_with_the_service_token(
     assert _doctor(worker_config) == 0
     report = capsys.readouterr().out
     assert '"provider": "ok"' in report
+    assert '"api_readiness": "ready"' in report
     assert '"scope": "project:project-1"' in report
     assert '"agent_executors": []' in report
     assert '"executor_project_roots": 0' in report
@@ -293,6 +295,141 @@ def test_doctor_fails_when_the_configured_provider_is_unavailable(
 
     assert _doctor(worker_config) == 1
     assert '"provider": "unavailable"' in capsys.readouterr().out
+
+
+def _doctor_get_with_readiness(status_code: int, body: object):
+    """Simule une API vivante dont ``/ready`` répond ``status_code`` avec ``body``."""
+
+    def get(url: str, **kwargs: object) -> httpx.Response:
+        assert kwargs["trust_env"] is False
+        request = httpx.Request("GET", url)
+        if url.endswith("/ready"):
+            return httpx.Response(status_code, request=request, json=body)
+        if url.endswith("/v1/providers/hermes/health"):
+            return httpx.Response(
+                200, request=request, json={"provider_id": "hermes", "available": True}
+            )
+        return httpx.Response(200, request=request, json={"status": "ok"})
+
+    return get
+
+
+def test_doctor_reports_a_degraded_api_with_its_failed_checks(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _save_simulation_credentials(tmp_path)
+    worker_config = replace(config(tmp_path), gateway_service_token="gateway-secret")
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.get",
+        _doctor_get_with_readiness(
+            503,
+            {
+                "status": "degraded",
+                "checks": {
+                    "database": {"ok": True, "reason": "base joignable"},
+                    "migrations": {"ok": False, "reason": "schéma hors version"},
+                    "skills_storage": {"ok": False, "reason": "racine non inscriptible"},
+                    "outbox": {"ok": True, "reason": "relais désactivé"},
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda url, **_kwargs: httpx.Response(
+            200, request=httpx.Request("POST", url), json={}
+        ),
+    )
+
+    assert _doctor(worker_config) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["api"] == "ok"
+    assert report["api_readiness"] == "degraded"
+    assert report["api_readiness_failed"] == ["migrations", "skills_storage"]
+    assert report["authentication"] == "ok"
+
+
+def test_doctor_never_confuses_a_missing_ready_route_with_readiness(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _save_simulation_credentials(tmp_path)
+    worker_config = replace(config(tmp_path), gateway_service_token="gateway-secret")
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.get",
+        _doctor_get_with_readiness(404, {"detail": "Not Found"}),
+    )
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda url, **_kwargs: httpx.Response(
+            200, request=httpx.Request("POST", url), json={}
+        ),
+    )
+
+    assert _doctor(worker_config) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["api"] == "ok"
+    assert report["api_readiness"] == "unavailable"
+    assert "api_readiness_failed" not in report
+
+
+def test_doctor_reports_a_degraded_api_without_a_readable_body(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _save_simulation_credentials(tmp_path)
+    worker_config = replace(config(tmp_path), gateway_service_token="gateway-secret")
+
+    def get(url: str, **_kwargs: object) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        if url.endswith("/ready"):
+            return httpx.Response(503, request=request, content=b"<html>panne</html>")
+        if url.endswith("/v1/providers/hermes/health"):
+            return httpx.Response(
+                200, request=request, json={"provider_id": "hermes", "available": True}
+            )
+        return httpx.Response(200, request=request, json={"status": "ok"})
+
+    monkeypatch.setattr("acp_worker.cli.httpx.get", get)
+    monkeypatch.setattr(
+        "acp_worker.cli.httpx.post",
+        lambda url, **_kwargs: httpx.Response(
+            200, request=httpx.Request("POST", url), json={}
+        ),
+    )
+
+    assert _doctor(worker_config) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["api_readiness"] == "degraded"
+    assert report["api_readiness_failed"] == []
+
+
+def test_doctor_skips_readiness_when_the_api_is_unreachable(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _save_simulation_credentials(tmp_path)
+    worker_config = replace(config(tmp_path), gateway_service_token="gateway-secret")
+    requested: list[str] = []
+
+    def get(url: str, **_kwargs: object) -> httpx.Response:
+        requested.append(url)
+        if url.endswith("/ready"):
+            raise AssertionError("la readiness ne doit pas être interrogée")
+        if url.startswith("https://api.example"):
+            raise httpx.ConnectError("refusé", request=httpx.Request("GET", url))
+        request = httpx.Request("GET", url)
+        body = (
+            {"provider_id": "hermes", "available": True}
+            if url.endswith("/v1/providers/hermes/health")
+            else {"status": "ok"}
+        )
+        return httpx.Response(200, request=request, json=body)
+
+    monkeypatch.setattr("acp_worker.cli.httpx.get", get)
+
+    assert _doctor(worker_config) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["api"] == "unreachable"
+    assert report["api_readiness"] == "unchecked"
+    assert not any(url.endswith("/ready") for url in requested)
 
 
 def test_doctor_reports_legacy_credentials_without_scope(

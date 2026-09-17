@@ -132,6 +132,10 @@ def test_business_routes_are_closed_without_a_server_session(rbac_client):
     client.cookies.clear()
 
     assert client.get("/health").status_code == 200
+    # /ready est public comme /health : la sonde d'un orchestrateur n'a pas de session.
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
     for path in (
         "/organizations",
         "/workspaces",

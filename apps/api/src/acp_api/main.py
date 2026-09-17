@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from acp_agent_sdk import load_modules
-from acp_database import get_engine, init_db
+from acp_database import get_engine
 
+from . import db_errors, readiness
 from .access_logging import install_access_log_redaction
 from .webhook_ingress import RequestIngressGuardMiddleware
 
@@ -43,7 +44,9 @@ install_access_log_redaction()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # Démarrage fermé : base initialisée puis sonde de readiness ; tout refus est
+    # une RuntimeError française laissée remonter, uvicorn ne sert alors rien.
+    readiness.prepare_service_at_startup()
     try:
         app.state.modules = load_modules(os.environ.get("ACP_PLUGINS_DIR"))
         yield
@@ -58,6 +61,9 @@ app = FastAPI(
     version="0.9.0",
     lifespan=lifespan,
 )
+
+db_errors.install(app)
+readiness.mount(app, service="api")
 
 app.add_middleware(RequestIngressGuardMiddleware)
 
@@ -109,4 +115,6 @@ async def prevent_private_response_caching(request, call_next):
 
 @app.get("/health")
 def health():
+    """Liveness pure : le processus répond. La readiness est servie par ``/ready``."""
+
     return {"status": "ok", "service": "api"}
