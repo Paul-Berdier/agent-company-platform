@@ -106,6 +106,22 @@ def _counters_sentence(totals: TestTotals, exit_code: int | None, case_count: in
     )
 
 
+def _reporter_utc(value: datetime) -> datetime:
+    """Normalise un instant du reporter en UTC avant de l'écrire en base.
+
+    Le reporter Playwright horodate en UTC ; un instant reçu sans fuseau est donc
+    réputé UTC (``replace(tzinfo=UTC)``), jamais interprété dans le fuseau local
+    du serveur ni de la base ; un instant porteur d'un autre décalage est converti.
+    Sans cette règle, SQLite (qui ne stocke pas le fuseau) relirait un mur d'heure
+    local là où PostgreSQL relit l'instant en UTC, et la durée calculée entre un
+    instant naïf et un instant conscient différerait selon le dialecte.
+    """
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def derive_technical_validation(test_run: TestRunSummary) -> tuple[str, str]:
     """Dérive ``(statut, résumé)`` de la validation technique d'une exécution.
 
@@ -233,8 +249,12 @@ def test_run_detail(db: Session, test_run: TestRunModel) -> TestRunDetail:
         runner=test_run.runner,
         runner_version=test_run.runner_version or "",
         status=test_run.status,
-        started_at=test_run.started_at,
-        finished_at=test_run.finished_at,
+        # Servis avec un décalage explicite quel que soit le dialecte : SQLite relit
+        # naïf ce que PostgreSQL relit en UTC.
+        started_at=_as_utc(test_run.started_at),
+        finished_at=(
+            _as_utc(test_run.finished_at) if test_run.finished_at is not None else None
+        ),
         duration_ms=test_run.duration_ms,
         totals=TestTotals.model_validate(test_run.totals or {}),
         exit_code=test_run.exit_code,
@@ -647,7 +667,7 @@ def ingest_test_run(
         if event.kind == "run_begin":
             if created:
                 if event.started_at is not None:
-                    test_run.started_at = event.started_at
+                    test_run.started_at = _reporter_utc(event.started_at)
                 if event.runner_version:
                     test_run.runner_version = event.runner_version
                 if event.config:
@@ -662,7 +682,11 @@ def ingest_test_run(
         if event.kind == "run_end":
             run_end_seen = True
             reported_totals = event.totals
-            finished_at = event.finished_at or utcnow()
+            finished_at = (
+                _reporter_utc(event.finished_at)
+                if event.finished_at is not None
+                else utcnow()
+            )
             run_status = event.run_status
             if event.exit_code is not None:
                 # Le code mesuré par le worker fait foi ; celui du rapport ne peut

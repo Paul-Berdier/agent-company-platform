@@ -5,6 +5,7 @@ import json
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from acp_contracts import (
@@ -133,7 +134,15 @@ def acquire_lock(
     lock.status = "active"
     lock.last_renewed_at = now
     lock.lease_expires_at = now + timedelta(seconds=body.lease_seconds)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # ``FOR UPDATE`` ne verrouille pas une ligne qui n'existe pas encore : deux
+        # acquisitions simultanées de la même ressource passent toutes deux la
+        # lecture, et l'unicité ``(resource_type, resource_key)`` départage à
+        # l'insertion. Le perdant reçoit le même refus qu'un lock déjà détenu.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ressource déjà verrouillée")
     db.refresh(lock)
     return _lock_contract(lock)
 
@@ -151,16 +160,32 @@ def renew_lock(
     if lock is None:
         raise HTTPException(status_code=404, detail="Lock introuvable")
     now = utcnow()
-    if (
-        lock.worker_id != body.worker_id
-        or lock.owner_run_id != body.owner_run_id
-        or lock.status != "active"
-        or _as_utc(lock.lease_expires_at) <= now
-    ):
+    # Compare-and-set : détention, état actif et validité sont réévalués par la
+    # base au moment de l'écriture. Une affectation ORM depuis la lecture ci-dessus
+    # ressusciterait un lock libéré ou expiré entre-temps.
+    renewed = (
+        db.query(ResourceLockModel)
+        .filter(
+            ResourceLockModel.id == lock.id,
+            ResourceLockModel.worker_id == body.worker_id,
+            ResourceLockModel.owner_run_id == body.owner_run_id,
+            ResourceLockModel.status == "active",
+            ResourceLockModel.lease_expires_at > now,
+        )
+        .update(
+            {
+                ResourceLockModel.last_renewed_at: now,
+                ResourceLockModel.lease_expires_at: now
+                + timedelta(seconds=body.lease_seconds),
+            },
+            synchronize_session=False,
+        )
+    )
+    if renewed != 1:
+        db.rollback()
         raise HTTPException(status_code=409, detail="Ce lock n'est plus détenu par ce run")
-    lock.last_renewed_at = now
-    lock.lease_expires_at = now + timedelta(seconds=body.lease_seconds)
     db.commit()
+    db.refresh(lock)
     return _lock_contract(lock)
 
 

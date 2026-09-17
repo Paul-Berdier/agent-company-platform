@@ -548,41 +548,71 @@ def decide_probe(
     db: Session = Depends(get_db),
     principal: str = Depends(get_principal),
 ):
-    """Autorise ou refuse un lancement stdio : l'empreinte autorisée doit être la courante."""
+    """Autorise ou refuse un lancement stdio : l'empreinte autorisée doit être la courante.
+
+    Toute transition part de ``pending_approval`` par compare-and-set : deux
+    décisions concurrentes, ou une décision croisant une invalidation, ne peuvent
+    pas s'écraser l'une l'autre par une mutation ORM sans verrou ; la seconde lit
+    l'état écrit par la première et répond 409.
+    """
 
     require_platform_role(db, principal, "owner")
     service.expire_probes(db)
     probe = db.get(McpProbeModel, probe_id)
     if probe is None:
         raise HTTPException(status_code=404, detail="Diagnostic introuvable")
-    if probe.status != "pending_approval":
+
+    def _no_decision_possible() -> HTTPException:
         db.commit()
-        raise HTTPException(
+        return HTTPException(
             status_code=409,
             detail=f"Diagnostic dans l'état « {probe.status} » : aucune décision n'est possible.",
         )
+
+    if probe.status != "pending_approval":
+        raise _no_decision_possible()
     server = _server_or_404(db, probe.server_id)
     revision = service.current_revision(db, server)
     authorized_fingerprint = (probe.authorization or {}).get("fingerprint")
     if revision is None or revision.fingerprint != authorized_fingerprint:
-        probe.status = "invalidated"
-        probe.error = "Révision courante modifiée : l'autorisation ne correspond plus."
-        probe.finished_at = service.utcnow()
+        service._cas_probe_status(
+            db,
+            probe,
+            expected_status="pending_approval",
+            next_status="invalidated",
+            values={
+                McpProbeModel.error: (
+                    "Révision courante modifiée : l'autorisation ne correspond plus."
+                ),
+                McpProbeModel.finished_at: service.utcnow(),
+            },
+        )
         db.commit()
         raise HTTPException(
             status_code=409,
             detail="La configuration a changé depuis la demande : relancez un diagnostic.",
         )
     now = service.utcnow()
-    probe.decided_by_user_id = principal
-    probe.decided_at = now
-    probe.decision_comment = body.comment
+    values = {
+        McpProbeModel.decided_by_user_id: principal,
+        McpProbeModel.decided_at: now,
+        McpProbeModel.decision_comment: body.comment,
+    }
     if body.decision == "approved":
-        probe.status = "queued"
+        next_status = "queued"
     else:
-        probe.status = "rejected"
-        probe.finished_at = now
-        probe.error = "Lancement refusé par le propriétaire."
+        next_status = "rejected"
+        values[McpProbeModel.finished_at] = now
+        values[McpProbeModel.error] = "Lancement refusé par le propriétaire."
+    decided = service._cas_probe_status(
+        db,
+        probe,
+        expected_status="pending_approval",
+        next_status=next_status,
+        values=values,
+    )
+    if not decided:
+        raise _no_decision_possible()
     service.record_event(
         db,
         "mcp.probe.decided",
