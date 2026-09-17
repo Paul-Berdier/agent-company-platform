@@ -148,6 +148,11 @@ def _isolated_subprocess_environment() -> dict[str, str]:
     # autre checkout : le parcours doit prouver exactement l'arbre qui contient
     # ce script. L'ordre correspond aux sources installées par ``scripts/setup``.
     env["PYTHONPATH"] = os.pathsep.join(str(path) for path in SOURCE_ROOTS)
+    # Les enfants écrivent en UTF-8 quelle que soit la console : leur sortie est
+    # relue en UTF-8 par ce script, et une console cp1252 rendrait les accents
+    # illisibles ou ferait échouer une étape sur un simple message.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     return env
 
 
