@@ -1299,8 +1299,11 @@ class AlertModel(_Common, Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(
         UtcDateTime, nullable=True
     )
+    # ``index=True`` : l'index ``ix_alerts_acknowledged_by_user_id`` était déjà
+    # posé par la mise à niveau SQLite ad hoc ; le déclarer ici rend le modèle
+    # seul juge du schéma, ce que la chaîne Alembic exige.
     acknowledged_by_user_id: Mapped[str | None] = mapped_column(
-        ForeignKey("users.id"), nullable=True
+        ForeignKey("users.id"), nullable=True, index=True
     )
     acknowledgement_comment: Mapped[str] = mapped_column(
         Text, default="", server_default=""
@@ -1468,3 +1471,52 @@ class BudgetUsageReportModel(_Common, Base):
     verdict_snapshot: Mapped[dict] = mapped_column(JSON)
     reconciled_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)
+
+
+_EVENT_OUTBOX_PENDING_PREDICATE = "delivered_at IS NULL AND dead_at IS NULL"
+
+
+class EventOutboxModel(Base):
+    """Boîte d'envoi transactionnelle des événements à relayer.
+
+    Une ligne par événement journalisé et par consommateur : elle est écrite dans
+    la **même** transaction que la ligne ``events`` et ne disparaît qu'une fois la
+    livraison confirmée (``delivered_at``) ou abandonnée (``dead_at``). Le relais
+    ne dépend ainsi plus d'un appel direct réussi au moment de la publication.
+
+    La table n'hérite pas de ``_Common`` : sa clé est l'identifiant de l'événement
+    lui-même, sans cascade, afin qu'une purge d'événements ne puisse jamais
+    effacer silencieusement une livraison encore due. L'index partiel
+    ``ix_event_outbox_pending`` ne couvre que les lignes encore à livrer : c'est
+    la seule question que pose le relais, et la table grossit avec le journal.
+
+    Le Lot H1 ne livre que le schéma ; le remplissage et la consommation
+    appartiennent au Lot H3.
+    """
+
+    __tablename__ = "event_outbox"
+    __table_args__ = (
+        CheckConstraint("attempts >= 0", name="ck_event_outbox_attempts_non_negative"),
+        Index(
+            "ix_event_outbox_pending",
+            "consumer",
+            "next_attempt_at",
+            sqlite_where=text(_EVENT_OUTBOX_PENDING_PREDICATE),
+            postgresql_where=text(_EVENT_OUTBOX_PENDING_PREDICATE),
+        ),
+    )
+
+    event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("events.id"), primary_key=True
+    )
+    journal_seq: Mapped[int] = mapped_column(Integer, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    consumer: Mapped[str] = mapped_column(
+        String(50), default="event-service", server_default="event-service"
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    delivered_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    dead_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)

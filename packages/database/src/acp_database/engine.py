@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import json
 import os
 from contextlib import contextmanager
@@ -13,20 +14,121 @@ from sqlalchemy import (
     inspect,
     text,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError, IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from .models import Base
+from .schema_state import SchemaOutOfDateError, check_schema_current, stamp_head
 
 DEFAULT_URL = "sqlite:///./acp.db"
+POSTGRESQL_DRIVER = "postgresql+psycopg"
+
+# Variables d'environnement du moteur PostgreSQL : (nom, défaut, minimum).
+_POOL_SIZE = ("ACP_DATABASE_POOL_SIZE", 5, 1)
+_MAX_OVERFLOW = ("ACP_DATABASE_MAX_OVERFLOW", 5, 0)
+_POOL_TIMEOUT = ("ACP_DATABASE_POOL_TIMEOUT_SECONDS", 10, 1)
+_CONNECT_TIMEOUT = ("ACP_DATABASE_CONNECT_TIMEOUT_SECONDS", 5, 1)
+_LOCK_TIMEOUT = ("ACP_DATABASE_LOCK_TIMEOUT_MS", 5000, 1)
+_STATEMENT_TIMEOUT = ("ACP_DATABASE_STATEMENT_TIMEOUT_MS", 30000, 1)
+_IDLE_TRANSACTION_TIMEOUT = ("ACP_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS", 60000, 1)
+_APPLICATION_NAME = ("ACP_DATABASE_APPLICATION_NAME", "acp")
 
 
-@lru_cache(maxsize=1)
-def get_engine():
-    url = os.environ.get("ACP_DATABASE_URL", DEFAULT_URL)
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    engine = create_engine(url, connect_args=connect_args)
+def _env_int(spec: tuple[str, int, int]) -> int:
+    """Lit un entier d'environnement ; une valeur invalide refuse le démarrage.
+
+    Un délai mal orthographié qui retomberait silencieusement sur sa valeur par
+    défaut donnerait à l'opérateur une protection qu'il croit avoir réglée.
+    """
+
+    name, default, minimum = spec
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Variable {name} invalide : « {raw} » n'est pas un entier"
+        ) from exc
+    if value < minimum:
+        raise RuntimeError(
+            f"Variable {name} invalide : {value} est inférieur au minimum {minimum}"
+        )
+    return value
+
+
+def _psycopg_available() -> bool:
+    return importlib.util.find_spec("psycopg") is not None
+
+
+def engine_options(url: str, *, maintenance: bool = False) -> dict:
+    """Options ``create_engine`` d'une URL, calculables sans connexion.
+
+    SQLite garde strictement son réglage historique. Toute autre URL doit porter
+    le pilote ``postgresql+psycopg`` (psycopg 3) : ``postgresql://`` nu ou
+    ``psycopg2`` sont refusés, car le pool, les délais et ``options`` ci-dessous
+    ne sont validés que pour ce pilote. Les délais serveur (``lock_timeout``,
+    ``statement_timeout``, ``idle_in_transaction_session_timeout``) protègent
+    l'application ; ``maintenance=True`` les retire pour les migrations,
+    sauvegardes et purges, dont les instructions longues sont légitimes.
+    """
+
+    if url.startswith("sqlite"):
+        return {"connect_args": {"check_same_thread": False}}
+    try:
+        driver = make_url(url).drivername
+    except ArgumentError as exc:
+        raise RuntimeError(f"URL de base invalide : {exc}") from exc
+    if driver != POSTGRESQL_DRIVER:
+        if driver.startswith("postgresql"):
+            raise RuntimeError(
+                f"Pilote « {driver} » refusé : seule l'URL "
+                f"{POSTGRESQL_DRIVER}:// est prise en charge (psycopg 3)"
+            )
+        raise RuntimeError(
+            f"Dialecte « {driver} » non pris en charge : sqlite ou "
+            f"{POSTGRESQL_DRIVER} attendu"
+        )
+    if not _psycopg_available():
+        raise RuntimeError(
+            "Le pilote psycopg est absent : installez acp-database[postgresql]"
+        )
+    server_settings = ["-c timezone=UTC"]
+    if not maintenance:
+        server_settings.extend(
+            [
+                f"-c lock_timeout={_env_int(_LOCK_TIMEOUT)}",
+                f"-c statement_timeout={_env_int(_STATEMENT_TIMEOUT)}",
+                "-c idle_in_transaction_session_timeout="
+                f"{_env_int(_IDLE_TRANSACTION_TIMEOUT)}",
+            ]
+        )
+    application_name = os.environ.get(_APPLICATION_NAME[0]) or _APPLICATION_NAME[1]
+    return {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "pool_size": _env_int(_POOL_SIZE),
+        "max_overflow": _env_int(_MAX_OVERFLOW),
+        "pool_timeout": _env_int(_POOL_TIMEOUT),
+        "connect_args": {
+            "connect_timeout": _env_int(_CONNECT_TIMEOUT),
+            "application_name": application_name,
+            "options": " ".join(server_settings),
+        },
+    }
+
+
+def make_engine(url: str, *, maintenance: bool = False):
+    """Construit un moteur avec les options de :func:`engine_options`.
+
+    Sous SQLite, les clés étrangères sont activées à chaque connexion : pysqlite
+    ne les applique pas par défaut et le schéma en dépend.
+    """
+
+    engine = create_engine(url, **engine_options(url, maintenance=maintenance))
     if engine.dialect.name == "sqlite":
         @event.listens_for(engine, "connect")
         def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
@@ -36,6 +138,13 @@ def get_engine():
             finally:
                 cursor.close()
     return engine
+
+
+@lru_cache(maxsize=1)
+def get_engine():
+    """Moteur global de l'application, construit depuis ``ACP_DATABASE_URL``."""
+
+    return make_engine(os.environ.get("ACP_DATABASE_URL", DEFAULT_URL))
 
 
 @lru_cache(maxsize=1)
@@ -74,10 +183,28 @@ def _sqlite_migration_connection(engine):
 
 
 def init_db() -> None:
-    """Crée les tables manquantes (MVP ; une migration Alembic viendra ensuite)."""
+    """Prépare la base au démarrage, selon une politique propre à chaque dialecte.
+
+    SQLite (base locale mono-processus) : ``create_all`` crée les tables
+    manquantes, la mise à niveau ad hoc complète les bases historiques, puis la
+    tête de chaîne est estampillée dans ``alembic_version``.
+
+    Tout autre dialecte : **jamais** ``create_all``. La base doit déjà être à la
+    révision de tête (``python -m acp_database.migrate upgrade``), sinon
+    :class:`~acp_database.schema_state.SchemaOutOfDateError` refuse le démarrage.
+    Aucune variable n'active une migration implicite : plusieurs processus
+    démarrent en même temps, et une migration lancée par chacun serait une course.
+    """
+
     engine = get_engine()
+    if engine.dialect.name != "sqlite":
+        state = check_schema_current(engine)
+        if not state.ok:
+            raise SchemaOutOfDateError(state)
+        return
     Base.metadata.create_all(engine)
     _upgrade_sqlite_schema(engine)
+    stamp_head(engine)
 
 
 def _backfill_mission_command_principals(connection) -> None:
@@ -1400,13 +1527,15 @@ def _upgrade_sqlite_schema(engine) -> None:
                 "ON task_runs (attempt_number)"
             )
         )
-        connection.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS "
-                "uq_mission_command_principal_key "
-                "ON mission_commands (principal_id, command, idempotency_key) "
-                "WHERE principal_id IS NOT NULL"
-            )
+        # Une base fraîche porte déjà cette unicité par sa contrainte de table :
+        # l'index nommé n'est reposé que sur une base historique reconstruite
+        # sans elle. Après le backfill, aucun ``principal_id`` n'est NULL, donc
+        # l'index total équivaut à l'ancien index partiel.
+        _ensure_unique_index(
+            connection,
+            table="mission_commands",
+            columns=("principal_id", "command", "idempotency_key"),
+            name="uq_mission_command_principal_key",
         )
         connection.execute(
             text(
@@ -1683,11 +1812,13 @@ def _upgrade_sqlite_schema(engine) -> None:
                 )
             )
         if inspect(connection).has_table("scheduler_leases"):
-            connection.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_scheduler_leases_key "
-                    "ON scheduler_leases (scheduler_key)"
-                )
+            # Omis quand la contrainte de table du modèle est déjà là : une base
+            # fraîche ne doit pas porter d'index doublon.
+            _ensure_unique_index(
+                connection,
+                table="scheduler_leases",
+                columns=("scheduler_key",),
+                name="uq_scheduler_leases_key",
             )
             connection.execute(
                 text(
