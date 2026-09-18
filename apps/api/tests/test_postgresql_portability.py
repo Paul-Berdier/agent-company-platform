@@ -467,6 +467,74 @@ def test_two_workers_claiming_concurrently_each_obtain_a_task(postgresql_context
     ).json()["reason"] == "capacité de concurrence atteinte"
 
 
+def test_a_terminal_attempt_never_overwrites_a_concurrent_claim_counter(
+    portability_context,
+):
+    """La fin d'une tentative ne doit pas écraser la réservation d'un claim concurrent.
+
+    Le compteur ``active_runs`` arbitre l'admission d'un claim. Il était décrémenté
+    depuis la valeur lue à l'authentification du worker : un claim validé entre
+    cette lecture et l'écriture disparaissait, et le worker repassait sous sa
+    capacité réelle — donc admettait des tentatives au-delà de ``max_concurrency``.
+    Ici, le claim concurrent est déclenché pendant la requête terminale, après
+    l'authentification.
+    """
+
+    context = portability_context
+    client = context["client"]
+    worker = context["worker"]
+    first = _queue_task(context, "Tâche terminale")
+    second = _queue_task(context, "Tâche concurrente", agent_id=context["new_agent"]("Agent 2"))
+    with context["session_factory"]() as db:
+        row = db.get(WorkerModel, worker["worker_id"])
+        row.max_concurrency = 2
+        db.commit()
+
+    claimed = _claim(context)
+    assert claimed["task"]["id"] == first["id"], claimed
+    run_id = claimed["task_run"]["id"]
+    fencing_token = claimed["fencing_token"]
+    assert client.patch(
+        f"/task-runs/{run_id}",
+        headers=_worker_auth(worker, fencing_token=fencing_token),
+        json={"status": "running"},
+    ).status_code == 200
+
+    # Le second claim s'exécute au milieu de la requête terminale, après que
+    # celle-ci a lu la ligne du worker.
+    real_authenticate = work_router.authenticate_worker
+    injected = {"done": False}
+
+    def authenticate_then_claim(db, worker_id, authorization):
+        row = real_authenticate(db, worker_id, authorization)
+        if not injected["done"]:
+            injected["done"] = True
+            injected["claim"] = _claim(context)
+        return row
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(work_router, "authenticate_worker", authenticate_then_claim)
+        terminal = client.patch(
+            f"/task-runs/{run_id}",
+            headers=_worker_auth(worker, fencing_token=fencing_token),
+            json={"status": "failed", "result": {"summary": "échec attendu"}},
+        )
+    assert terminal.status_code == 200, terminal.text
+    assert injected["claim"]["task"]["id"] == second["id"], injected["claim"]
+
+    with context["session_factory"]() as db:
+        stored = db.get(WorkerModel, worker["worker_id"]).active_runs
+        active_leases = (
+            db.query(WorkerLeaseModel)
+            .filter_by(worker_id=worker["worker_id"], status="active")
+            .count()
+        )
+    assert (stored, active_leases) == (1, 1), (
+        f"compteur {stored} pour {active_leases} bail(s) actif(s) : la réservation "
+        "du claim concurrent a été écrasée"
+    )
+
+
 def test_lease_renewal_is_refused_once_the_lease_is_no_longer_active(portability_context):
     """Le renouvellement est un compare-and-set : un bail fermé entre-temps n'est pas rouvert."""
 

@@ -41,6 +41,7 @@ from .workers import (
     _as_utc,
     authenticate_worker,
     expire_task_leases,
+    refresh_active_runs,
     utcnow,
 )
 
@@ -775,8 +776,16 @@ def patch_task_run(
         if body.status in _TERMINAL_RUN_STATES:
             run.finished_at = datetime.now(timezone.utc)
             lease.status = "released"
-            worker.active_runs = max(0, worker.active_runs - 1)
-            worker.status = "online"
+            # Le compteur est recalculé par la base à partir des baux encore
+            # actifs, sous verrou de la ligne worker : un décrément depuis la
+            # valeur lue à l'authentification écraserait la réservation d'un
+            # claim validé entre-temps, et admettrait des tentatives au-delà de
+            # la capacité déclarée (ou affamerait un worker libre).
+            db.flush()
+            active_runs = refresh_active_runs(db, worker.id)
+            worker.status = (
+                "busy" if active_runs >= worker.max_concurrency else "online"
+            )
             if task.is_mission and task.active_run_id == run.id:
                 task.active_run_id = None
             terminal_event = Event(
