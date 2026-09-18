@@ -1,6 +1,6 @@
 # Reprise du travail sur un autre poste
 
-Date d'état : 18 septembre 2026, 13 h, Europe/Paris.
+Date d'état : 18 septembre 2026, 12 h 45, Europe/Paris.
 Objet : permettre de relancer Claude Code sur un nouveau poste Windows sans rien perdre.
 Ce document décrit l'état exact des branches, ce qui reste à faire, et comment
 reconstituer la chaîne d'outils. Il complète `CLAUDE.md`, que Claude Code charge
@@ -51,29 +51,39 @@ Commits propres au chantier desktop :
 | `d1efde5` | Intégration continue Windows, installeur Inno Setup, scripts PowerShell |
 | `10e01f9` | Exposition publique Railway, documents de mise à jour et de sécurité |
 | `c6b5f25` | Correctifs issus de la **première vraie compilation MSVC** |
+| `fb8b212` | Ce document et `CLAUDE.md` |
+| `ee318df` | Correctifs QML : singleton de couleurs masqué par Qt, familles de polices |
 
 Suite Python de cette branche : 2 745 réussis, 32 ignorés.
 
-**Premier passage réel de la compilation native, 18 septembre 12 h 26** : l'application
-et ses tests compilent et se lient avec MSVC 14.44 et Qt 6.8.3, zéro erreur.
+**Premier passage réel de la compilation et des tests natifs, 18 septembre 12 h 41**,
+avec MSVC 14.44 et Qt 6.8.3 : compilation sans erreur, **9 suites natives sur 9
+réussies**, dont 52 tests QML.
 
 | Suite native | Résultat |
 |---|---|
 | `tst_sse_parser` | 20 réussis sur 20 |
 | `tst_api_errors`, `tst_command_registry`, `tst_session_state` | réussis |
 | `tst_compatibility`, `tst_cursors`, `tst_redaction`, `tst_backoff` | réussis |
-| `tst_qml_shell` | **29 réussis, 4 échecs** |
+| `tst_qml_shell` | 52 réussis sur 52 |
 
-Les quatre échecs QML sont le prochain travail, décrit plus bas.
+Quatre défauts réels ont été trouvés par cette première compilation, qu'aucune relecture
+n'avait vus : un en-tête qui déclarait un type réseau en avance alors que le générateur
+de métadonnées Qt exige le type complet ; quatre méthodes surchargées déclarées par
+erreur dans la section des signaux, donc définies deux fois ; un parseur SSE qui
+retardait l'événement terminé par un retour chariot seul ; et un singleton de couleurs
+nommé `Palette`, masqué dans toute l'application par le type homonyme de QtQuick.
+
+**Ce qui n'a pas encore été exercé** : l'application n'a jamais été lancée contre une
+vraie API, le workflow `desktop-ci.yml` n'a jamais tourné sur GitHub, et aucun
+installeur n'a été fabriqué.
 
 ## 2. Ce qui reste à faire, dans l'ordre
 
-1. **Corriger les quatre échecs du test QML** (`apps/desktop/tests/qml/`). Symptômes
-   relevés : `tst_design_tokens.qml` lit une palette `undefined` (propriété
-   `surfaceCanvas` introuvable) et `tst_status_chip.qml` ne trouve pas le type
-   `StatusChip`. Cause probable : enregistrement des modules QML de thème et de
-   composants dans l'exécutable de test, ou chemin d'import. Commencer par exécuter
-   `tst_qml_shell.exe -o resultat.txt,txt` et lire les erreurs de compilation QML.
+1. **Lancer l'application pour de vrai** : `apps/desktop/build/windows-msvc-debug/`
+   contient l'exécutable après compilation. La connecter à une API locale
+   (`python -m uvicorn acp_api.main:app`), vérifier l'écran de première ouverture, la
+   compatibilité via `GET /meta`, la connexion, et l'écran de diagnostics.
 2. **Faire passer le workflow `desktop-ci.yml`** sur GitHub Actions : il n'a encore jamais
    tourné. Pousser la branche et lire le résultat.
 3. **Fusionner la PR #8** quand la décision est prise, puis poser le tag annoté `v0.9.0`
@@ -261,6 +271,6 @@ gh run list --branch codex/modernization-lot-h --limit 5
 
 > Lis `CLAUDE.md` puis `docs/reprise-poste.md`. Reprends le chantier desktop sur la
 > branche `feat/desktop-qt-railway` : reconstitue la chaîne d'outils si elle manque,
-> recompile, corrige les quatre échecs du test QML, puis pousse et fais passer
-> `desktop-ci.yml`. Ensuite, propose-moi l'ordre pour la PR #8 et les constats de revue
-> ouverts du Lot H.
+> recompile et relance les tests natifs, puis lance l'application contre une API locale
+> et fais passer `desktop-ci.yml`. Ensuite, propose-moi l'ordre pour la PR #8 et les
+> constats de revue ouverts du Lot H.
