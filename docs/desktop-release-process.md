@@ -14,7 +14,7 @@ Public : mainteneur du dépôt. État de ce document : 18 septembre 2026.
             │
             v
   ┌──────────────────────────────────────────────────────────────┐
-  │ .github/workflows/desktop-release.yml — windows-2025         │
+  │ .github/workflows/desktop-release.yml — windows-2022         │
   │                                                              │
   │ 1. contrôle du déclenchement (étiquette ou confirmation)     │
   │ 2. VERSION == étiquette  ──────────► sinon, arrêt            │
@@ -203,7 +203,7 @@ Pourquoi pas Qt Installer Framework, qui était la piste évidente :
    silencieuse. C'est de la complexité sans emploi.
 3. **Installation sans élévation.** Inno Setup l'obtient par une seule directive,
    `PrivilegesRequired=lowest`, documentée et éprouvée.
-4. **Disponibilité.** L'image `windows-2025` des exécuteurs GitHub fournit déjà
+4. **Disponibilité.** L'image `windows-2022` des exécuteurs GitHub fournit déjà
    InnoSetup 6.7.1 ; le cadre Qt devrait être téléchargé à chaque exécution.
 
 Ce que le script produit, et qui est vérifiable une fois un binaire disponible :
@@ -256,7 +256,7 @@ création d'un brouillon de publication, et le workflow dans son ensemble.
 1. Aucun certificat de signature — section 4.1.
 2. `scripts/check_version.py` ne couvre pas la version du client desktop ; seul le
    workflow de publication rapproche l'étiquette de `VERSION`.
-3. L'image `windows-2025` est déclarée deux fois (`runs-on` et `toolchain.json`) ;
+3. L'image `windows-2022` est déclarée deux fois (`runs-on` et `toolchain.json`) ;
    une étape refuse la divergence, mais GitHub ne permet pas de supprimer le doublon.
 4. Aucune vérification automatique n'atteste que l'installeur s'installe et se
    désinstalle réellement. Un test d'installation en CI (installation silencieuse,

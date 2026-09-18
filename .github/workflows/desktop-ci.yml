@@ -2,9 +2,9 @@ name: Desktop CI
 
 # Intégration continue du client desktop Windows (C++23 / Qt 6 / Qt Quick).
 #
-# C'est la SEULE preuve de compilation du code natif : aucun poste du projet ne
-# dispose de Qt, de CMake ni de MSVC. Tant que ce workflow n'a pas tourné vert sur
-# une révision, le code natif de cette révision est du texte non vérifié.
+# C'est la preuve de compilation de référence du code natif : une compilation sur
+# un poste de développement ne vaut que pour ce poste. Tant que ce workflow n'a pas
+# tourné vert sur une révision, le code natif de cette révision n'est pas prouvé.
 #
 # Ce workflow ne publie rien, jamais, et surtout pas depuis une demande de fusion :
 # il ne demande que `contents: read` et n'emploie aucun jeton d'écriture.
@@ -52,7 +52,9 @@ jobs:
     # changerait le compilateur et la version d'Inno Setup sans prévenir.
     # Elle est répétée dans packaging/windows/toolchain.json (ci.runnerImage) et
     # l'étape « Vérifier l'image » refuse toute divergence entre les deux.
-    runs-on: windows-2025
+    # windows-2022 porte Visual Studio 2022 17.14 : le compilateur visé par les
+    # binaires Qt msvc2022_64 et celui des postes de développement.
+    runs-on: windows-2022
     timeout-minutes: 60
     defaults:
       run:
@@ -82,8 +84,15 @@ jobs:
         run: |
           $attendu = $env:ACP_RUNNER_IMAGE
           $observe = $env:ImageOS
-          $correspondances = @{ 'windows-2025' = 'win25'; 'windows-2022' = 'win22' }
-          if ($correspondances.ContainsKey($attendu) -and $correspondances[$attendu] -ne $observe) {
+          # Depuis juin 2026, l'étiquette windows-2025 sert l'image « win25-vs2026 »
+          # (Visual Studio 2026) : https://github.com/actions/runner-images/issues/14017.
+          # Une étiquette absente de cette table est refusée, jamais acceptée par défaut.
+          $correspondances = @{ 'windows-2022' = 'win22'; 'windows-2025' = 'win25'; 'windows-2025-vs2026' = 'win25-vs2026' }
+          if (-not $correspondances.ContainsKey($attendu)) {
+            Write-Host "::error::L'image $attendu n'a pas de correspondance ImageOS connue : complétez la table de cette étape."
+            exit 1
+          }
+          if ($correspondances[$attendu] -ne $observe) {
             Write-Host "::error::L'image attendue ($attendu) ne correspond pas à l'image observée ($observe). Alignez runs-on et packaging/windows/toolchain.json."
             exit 1
           }

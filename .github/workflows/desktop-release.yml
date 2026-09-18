@@ -36,7 +36,7 @@ concurrency:
 jobs:
   release:
     name: Windows x64 — compilation, tests, empaquetage, brouillon de publication
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 90
     # L'environnement permet d'exiger une revue humaine avant la fabrication :
     # ajoutez un « required reviewer » sur l'environnement desktop-release dans
@@ -117,8 +117,15 @@ jobs:
         run: |
           $attendu = $env:ACP_RUNNER_IMAGE
           $observe = $env:ImageOS
-          $correspondances = @{ 'windows-2025' = 'win25'; 'windows-2022' = 'win22' }
-          if ($correspondances.ContainsKey($attendu) -and $correspondances[$attendu] -ne $observe) {
+          # Depuis juin 2026, l'étiquette windows-2025 sert l'image « win25-vs2026 »
+          # (Visual Studio 2026) : https://github.com/actions/runner-images/issues/14017.
+          # Une étiquette absente de cette table est refusée, jamais acceptée par défaut.
+          $correspondances = @{ 'windows-2022' = 'win22'; 'windows-2025' = 'win25'; 'windows-2025-vs2026' = 'win25-vs2026' }
+          if (-not $correspondances.ContainsKey($attendu)) {
+            Write-Host "::error::L'image $attendu n'a pas de correspondance ImageOS connue : complétez la table de cette étape."
+            exit 1
+          }
+          if ($correspondances[$attendu] -ne $observe) {
             Write-Host "::error::L'image attendue ($attendu) ne correspond pas à l'image observée ($observe)."
             exit 1
           }

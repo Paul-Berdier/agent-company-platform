@@ -30,7 +30,7 @@
     "$description": "Contrat avec le lot qui écrit apps/desktop. apps/desktop/CMakePresets.json doit définir, pour chacun de ces deux noms, un préréglage de configuration, un préréglage de compilation et un préréglage de test, et poser binaryDir à ${sourceDir}/build/${presetName}. Toute divergence est détectée après configuration et refusée explicitement, jamais contournée."
   },
   "ci": {
-    "runnerImage": "windows-2025",
+    "runnerImage": "windows-2022",
     "installQtAction": "jurplel/install-qt-action@bcb88e3bed2e992f5f9e24c0f9e364a231d278eb",
     "installQtActionVersion": "v4.4.0",
     "$description": "L'action tierce est épinglée par empreinte de commit ; le commentaire de version qui l'accompagne dans les workflows sert seulement à la relecture humaine. Les actions first-party de GitHub suivent la convention déjà en place dans .github/workflows/ci.yml : épinglage par étiquette majeure."
@@ -40,7 +40,7 @@
     "chocolateyPackage": "innosetup",
     "chocolateyVersion": "6.7.1",
     "script": "packaging/windows/AgentCompanyPlatform.iss",
-    "$description": "La version minimale 6.4.0 est exigée par la directive ArchitecturesAllowed=x64compatible, apparue en 6.3.0. L'image windows-2025 fournit déjà InnoSetup 6.7.1 ; l'installation par Chocolatey n'est qu'un repli, épinglé, en cas de retrait du paquet de l'image."
+    "$description": "La version minimale 6.4.0 est exigée par la directive ArchitecturesAllowed=x64compatible, apparue en 6.3.0. L'image windows-2022 fournit déjà InnoSetup 6.7.1 ; l'installation par Chocolatey n'est qu'un repli, épinglé, en cas de retrait du paquet de l'image."
   },
   "signing": {
     "timestampUrl": "http://timestamp.digicert.com",

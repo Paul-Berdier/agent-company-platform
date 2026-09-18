@@ -169,7 +169,7 @@ Les fichiers `.yml`, `.json` et `.md` sont en UTF-8 **sans** BOM.
 
 ## 9. Intégration continue
 
-`.github/workflows/desktop-ci.yml`, exécuteur `windows-2025`, `timeout-minutes: 60`,
+`.github/workflows/desktop-ci.yml`, exécuteur `windows-2022` (Visual Studio 2022 17.14), `timeout-minutes: 60`,
 `permissions: contents: read`.
 
 Déclenchement : demande de fusion et poussée sur `main`, `codex/**` ou `feat/**`,
@@ -225,7 +225,7 @@ l'existence même d'un binaire.
    étiquette qui ne correspond pas à `VERSION`.
 2. Aucun certificat de signature de code n'existe. Les binaires produits ne sont pas
    signés : voir [`docs/desktop-release-process.md`](desktop-release-process.md).
-3. L'image `windows-2025` est épinglée dans `runs-on` **et** dans
+3. L'image `windows-2022` est épinglée dans `runs-on` **et** dans
    `packaging/windows/toolchain.json`. GitHub ne permet pas de lire `runs-on` depuis
    un fichier ; une étape compare les deux et refuse la divergence, ce qui limite le
    risque sans le supprimer.
