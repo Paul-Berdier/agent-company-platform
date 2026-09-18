@@ -134,13 +134,16 @@ avertissement, aucune suite n'est ignorée silencieusement.
 ```powershell
 ./scripts/dev-desktop.ps1
 ./scripts/dev-desktop.ps1 -SkipBuild
-./scripts/dev-desktop.ps1 -ServerUrl "https://exemple.up.railway.app"
 ```
 
-Compile puis lance l'application avec les DLL Qt exposées au seul processus lancé.
-`-ServerUrl` ne fait que pré-renseigner `ACP_API_URL` pour cette exécution ;
-**aucune URL de serveur n'est codée en dur nulle part** dans cette chaîne d'outils,
-et aucun domaine n'a été décidé pour ce produit.
+Compile puis lance l'application avec les DLL Qt exposées au seul processus lancé, et
+attend sa fermeture : le code de sortie rendu est celui de l'application. L'adresse du
+serveur se saisit dans l'écran de connexion ; **aucune URL de serveur n'est codée en dur
+nulle part** dans cette chaîne d'outils, et aucun domaine n'a été décidé pour ce produit.
+
+Pour une API locale (`python -m uvicorn acp_api.main:app --port 8000`), saisir
+`http://127.0.0.1:8000` et cocher « Autoriser HTTP en clair sur une adresse de
+bouclage » : le HTTP en clair est refusé partout ailleurs.
 
 ## 7. Codes de sortie
 

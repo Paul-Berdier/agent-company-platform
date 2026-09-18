@@ -53,6 +53,22 @@ ABSOLUTE_PATH_PATTERNS = [
 ]
 
 
+#: Répertoires de sortie locale, ignorés par git (apps/desktop/.gitignore) : ils contiennent
+#: des fichiers engendrés par CMake, avec des chemins absolus du poste, qui ne sont pas des
+#: sources. Les inclure ferait échouer ce script sur tout poste qui a compilé.
+EXCLUDED_DIRECTORIES = {"build"}
+
+
+def desktop_files(pattern: str) -> list[Path]:
+    """Fichiers de ``apps/desktop`` correspondant au motif, hors sorties de compilation."""
+
+    return sorted(
+        path
+        for path in DESKTOP_ROOT.rglob(pattern)
+        if not EXCLUDED_DIRECTORIES.intersection(path.relative_to(DESKTOP_ROOT).parts)
+    )
+
+
 class Findings:
     def __init__(self) -> None:
         self.items: list[str] = []
@@ -68,7 +84,7 @@ class Findings:
 
 
 def cmake_files() -> list[Path]:
-    return sorted(DESKTOP_ROOT.rglob("CMakeLists.txt"))
+    return desktop_files("CMakeLists.txt")
 
 
 def cmake_body(cmake_file: Path) -> str:
@@ -171,7 +187,7 @@ def check_qml_imports(uris: dict[str, Path], findings: Findings) -> None:
     # depuis Application::registerQmlTypes(). C'est un choix documenté.
     known = set(uris) | {"Acp.Runtime"}
     import_pattern = re.compile(r"^\s*import\s+(Acp\.[A-Za-z0-9_.]*)", re.MULTILINE)
-    for path in sorted(DESKTOP_ROOT.rglob("*.qml")):
+    for path in desktop_files("*.qml"):
         text = path.read_text(encoding="utf-8")
         for match in import_pattern.finditer(text):
             uri = match.group(1)
@@ -198,7 +214,7 @@ def check_singletons(findings: Findings) -> None:
                 for token in re.findall(r"[A-Za-z0-9_./-]+\.qml", assignment.group(1)):
                     marked.add(token)
 
-    for path in sorted(DESKTOP_ROOT.rglob("*.qml")):
+    for path in desktop_files("*.qml"):
         text = path.read_text(encoding="utf-8")
         has_pragma = "pragma Singleton" in text
         is_marked = path.name in marked
@@ -253,7 +269,7 @@ def check_tokens(findings: Findings) -> None:
 
 
 def check_file_contents(findings: Findings) -> None:
-    for path in sorted(DESKTOP_ROOT.rglob("*")):
+    for path in desktop_files("*"):
         if not path.is_file() or path.suffix not in TEXT_SUFFIXES:
             continue
         relative = path.relative_to(REPO_ROOT).as_posix()
@@ -304,7 +320,7 @@ def check_no_hardcoded_origin(findings: Findings) -> None:
         "localhost",
         "127.0.0.1",
     }
-    for path in sorted(DESKTOP_ROOT.rglob("*")):
+    for path in desktop_files("*"):
         if not path.is_file() or path.suffix not in {".cpp", ".h", ".qml", ".json", ".txt"}:
             continue
         relative = path.relative_to(REPO_ROOT).as_posix()

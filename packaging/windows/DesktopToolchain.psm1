@@ -217,6 +217,14 @@ function Enter-AcpMsvcEnvironment {
     $lanceur = Join-Path $vs 'Common7\Tools\Launch-VsDevShell.ps1'
     if (-not (Test-Path -LiteralPath $lanceur)) { return $false }
 
+    # Les scripts d'initialisation de Visual Studio appellent vswhere.exe par son nom :
+    # sans le répertoire de l'installeur dans le PATH de la session, ils affichent
+    # « 'vswhere.exe' n'est pas reconnu », sans effet mais trompeur.
+    $installeur = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+    if ((Test-Path -LiteralPath $installeur) -and (($env:PATH -split ';') -notcontains $installeur)) {
+        $env:PATH = "$installeur;$env:PATH"
+    }
+
     & $lanceur -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
     return [bool](Get-Command -Name 'cl.exe' -CommandType Application -ErrorAction SilentlyContinue)
 }

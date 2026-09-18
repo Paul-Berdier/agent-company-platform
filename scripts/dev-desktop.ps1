@@ -9,9 +9,12 @@
     les DLL Qt exposées au seul processus lancé. Ne déploie rien, n'installe rien
     et ne touche à aucun réglage durable du poste.
 
-    L'URL du serveur n'est jamais codée ici : elle se saisit dans l'application.
-    -ServerUrl ne fait que pré-renseigner la variable d'environnement ACP_API_URL
-    pour cette exécution, si le client la lit.
+    L'URL du serveur n'est jamais codée ici : elle se saisit dans l'écran de
+    connexion de l'application, qui la mémorise dans ses réglages non secrets.
+
+    Le script attend la fermeture de l'application : sans cela, PowerShell rendrait
+    la main dès le lancement d'un exécutable fenêtré, avec un code 0 qui ne
+    prouverait rien.
 
     Codes de sortie :
       0  l'application s'est terminée normalement
@@ -30,14 +33,11 @@
 .PARAMETER SkipBuild
     Lance le binaire déjà compilé sans recompiler.
 
-.PARAMETER ServerUrl
-    URL du serveur à proposer à l'application pour cette exécution (ACP_API_URL).
-
 .EXAMPLE
     ./scripts/dev-desktop.ps1
 
 .EXAMPLE
-    ./scripts/dev-desktop.ps1 -SkipBuild -ServerUrl "https://exemple.up.railway.app"
+    ./scripts/dev-desktop.ps1 -SkipBuild
 #>
 
 [CmdletBinding()]
@@ -45,8 +45,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Debug',
     [string] $QtDir,
-    [switch] $SkipBuild,
-    [string] $ServerUrl
+    [switch] $SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,17 +100,10 @@ try {
     }
     $env:PATH = "$(Join-Path $qt 'bin');$env:PATH"
 
-    if (-not [string]::IsNullOrWhiteSpace($ServerUrl)) {
-        if ($ServerUrl -notmatch '^https://') {
-            Write-Host "Attention : $ServerUrl n'est pas en HTTPS. Le client peut refuser cette URL." -ForegroundColor Yellow
-        }
-        $env:ACP_API_URL = $ServerUrl
-        Write-Host "ACP_API_URL = $ServerUrl (pour cette exécution seulement)"
-    }
-
     Write-Host "Exécutable : $executable"
-    & $executable
-    exit $LASTEXITCODE
+    # Start-Process -Wait : l'appel direct d'un exécutable fenêtré ne l'attend pas.
+    $processus = Start-Process -FilePath $executable -Wait -PassThru -NoNewWindow
+    exit $processus.ExitCode
 }
 catch {
     Write-AcpRefus -Message $_.Exception.Message
