@@ -792,6 +792,9 @@ def main(argv: list[str] | None = None) -> int:
     worker_token_pepper = secrets.token_urlsafe(32)
     process: subprocess.Popen[str] | None = None
     verify_dir: Path | None = None
+    # Remplie une URL à la fois, et seulement après avoir prouvé que la base
+    # correspondante était vide : un refus ne doit jamais effacer les données
+    # d'une base que ce parcours vient précisément de refuser de toucher.
     postgres_urls: list[str] = []
     dialect = "inconnu"
 
@@ -803,18 +806,30 @@ def main(argv: list[str] | None = None) -> int:
             url_b = f"sqlite:///{(verify_dir / 'base-b.db').as_posix()}"
         else:
             url_a, url_b = arguments.database_url, arguments.restore_database_url
-            postgres_urls = [url_a, url_b]
         dirs_a = {name: verify_dir / "a" / name for name in ("artifacts", "skills", "plugins")}
         dirs_b = {name: verify_dir / "b" / name for name in ("artifacts", "skills", "plugins")}
         subprocess_env = _isolated_subprocess_environment()
         vault_key = _vault_key(subprocess_env)
-        if postgres_urls:
-            migrate_schema(subprocess_env, url_a)
+        if arguments.database_url is not None:
+            # Chaque base est vérifiée vide AVANT d'entrer dans la liste de
+            # nettoyage : ce parcours n'efface que ce qu'il a lui-même écrit.
+            count_a = table_count(url_a)
+            require(
+                "Base A vide au départ",
+                count_a == 0,
+                f"{count_a} table(s) dans {redacted_url(url_a)} : ce parcours "
+                "remet le schéma public à zéro et refuse une base déjà peuplée",
+            )
+            postgres_urls.append(url_a)
+            count_b = table_count(url_b)
             require(
                 "Base B vide au départ",
-                table_count(url_b) == 0,
-                f"{table_count(url_b)} table(s) dans {redacted_url(url_b)}",
+                count_b == 0,
+                f"{count_b} table(s) dans {redacted_url(url_b)} : ce parcours "
+                "remet le schéma public à zéro et refuse une base déjà peuplée",
             )
+            postgres_urls.append(url_b)
+            migrate_schema(subprocess_env, url_a)
         common = {
             "bootstrap_token": bootstrap_token,
             "worker_registration_token": worker_registration_token,

@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import httpx
-from sqlalchemy import DateTime, bindparam, create_engine, text
+from sqlalchemy import DateTime, bindparam, create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 
@@ -305,6 +305,31 @@ def observed_dialect(database_url: str) -> str:
             return f"{name} {version}"
     finally:
         engine.dispose()
+
+
+def require_empty_postgres_schema(database_url: str) -> None:
+    """Exige un schéma ``public`` vide avant de migrer, et refuse sinon.
+
+    La remise à zéro finale de ce parcours exécute ``DROP SCHEMA public CASCADE``.
+    Une base désignée par erreur — une faute de frappe sur le nom, une URL
+    d'environnement copiée — serait donc effacée alors que le verdict resterait
+    vert. Le parcours n'accepte donc de travailler que sur une base dont il est
+    certain qu'il l'a lui-même remplie : le refus est une étape comptée, et rien
+    n'est ni migré ni supprimé ensuite.
+    """
+
+    engine = create_engine(database_url)
+    try:
+        existing = sorted(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+    require(
+        "Schéma public vide avant migration",
+        not existing,
+        f"{len(existing)} table(s) déjà présentes ({', '.join(existing[:5])}"
+        f"{', …' if len(existing) > 5 else ''}) : ce parcours efface le schéma "
+        "public à la fin et refuse donc une base qui contient déjà des données",
+    )
 
 
 def reset_postgres_schema(database_url: str) -> None:
@@ -1148,6 +1173,9 @@ def main(argv: list[str] | None = None) -> int:
     process: subprocess.Popen[str] | None = None
     verify_dir: Path | None = None
     database_url: str | None = None
+    # Le schéma n'est remis à zéro que si ce parcours l'a lui-même migré depuis
+    # une base vide : un refus ne doit jamais effacer les données d'autrui.
+    owns_postgres_schema = False
     dialect = "inconnu"
 
     try:
@@ -1157,6 +1185,8 @@ def main(argv: list[str] | None = None) -> int:
         subprocess_env = _isolated_subprocess_environment()
         vault_key = _vault_key(subprocess_env)
         if is_postgres_url(database_url):
+            require_empty_postgres_schema(database_url)
+            owns_postgres_schema = True
             migrate_schema(subprocess_env, database_url)
         try:
             process = start_api(
@@ -1232,7 +1262,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if process is not None:
             _stop_process(process)
-        if database_url is not None and is_postgres_url(database_url):
+        if owns_postgres_schema and database_url is not None:
             try:
                 reset_postgres_schema(database_url)
                 step("Schéma PostgreSQL remis à zéro", True, redacted_url(database_url))
