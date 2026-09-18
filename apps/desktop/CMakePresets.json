@@ -118,6 +118,17 @@
       }
     },
     {
+      "name": "windows-msvc-release",
+      "configurePreset": "windows-msvc-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
       "name": "ci-windows",
       "configurePreset": "ci-windows",
       "output": {

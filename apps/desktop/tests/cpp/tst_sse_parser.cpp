@@ -218,13 +218,13 @@ void TestSseParser::readsRetryFieldOnlyWhenNumeric()
     // la spécification l'exige et qu'un futur serveur pourrait en émettre.
     {
         SseParser parser;
-        parser.consume(QByteArrayLiteral("retry: 2500\ndata: a\n\n"));
+        QCOMPARE(parser.consume(QByteArrayLiteral("retry: 2500\ndata: a\n\n")).size(), 1);
         QVERIFY(parser.retryMilliseconds().has_value());
         QCOMPARE(parser.retryMilliseconds().value(), 2500);
     }
     {
         SseParser parser;
-        parser.consume(QByteArrayLiteral("retry: bientôt\ndata: a\n\n"));
+        QCOMPARE(parser.consume(QByteArrayLiteral("retry: bientôt\ndata: a\n\n")).size(), 1);
         QVERIFY(!parser.retryMilliseconds().has_value());
     }
 }
@@ -243,7 +243,7 @@ void TestSseParser::abandonsTruncatedBlockOnFinish()
 void TestSseParser::keepsResumeIdentifierAcrossReset()
 {
     SseParser parser;
-    parser.consume(QByteArrayLiteral("id: 314\ndata: a\n\n"));
+    QCOMPARE(parser.consume(QByteArrayLiteral("id: 314\ndata: a\n\n")).size(), 1);
     QCOMPARE(parser.lastEventId(), QStringLiteral("314"));
     // Une reconnexion réinitialise les tampons de trame mais CONSERVE l'identifiant de
     // reprise : sans cela, le client rejouerait le journal depuis le début.

@@ -315,6 +315,27 @@ function Get-AcpPrerequisites {
         -Detail $(if (Test-Path -LiteralPath $presets) { $presets } else { "$presets est absent : le lot qui écrit apps/desktop n'a pas encore été fusionné" }) `
         -Installation "Aucune commande : ce répertoire est produit par le lot fondation desktop, pas par cette chaîne d'outils."))
 
+    # Contrat des préréglages : chaque nom de toolchain.json (cmake.presets) doit exister
+    # comme préréglage de configuration, de compilation ET de test. Sans le préréglage de
+    # test, test-desktop.ps1 échouerait après une compilation complète.
+    if (Test-Path -LiteralPath $presets) {
+        $declares = Get-Content -LiteralPath $presets -Raw -Encoding UTF8 | ConvertFrom-Json
+        $manquants = New-Object System.Collections.Generic.List[string]
+        foreach ($nom in $Toolchain.cmake.presets.PSObject.Properties.Value) {
+            foreach ($famille in 'configurePresets', 'buildPresets', 'testPresets') {
+                if (-not (@($declares.$famille) | Where-Object { $_.name -eq $nom })) {
+                    $manquants.Add("$famille/$nom")
+                }
+            }
+        }
+        $resultats.Add((New-Verdict `
+            -Nom 'Préréglages CMake exigés par packaging/windows/toolchain.json' `
+            -Requis $true `
+            -Present ($manquants.Count -eq 0) `
+            -Detail $(if ($manquants.Count -eq 0) { 'configuration, compilation et test présents pour chaque préréglage' } else { 'absents de CMakePresets.json : ' + ($manquants -join ', ') }) `
+            -Installation "Aucune commande : déclarer les préréglages manquants dans $($Toolchain.cmake.sourceDirectory)/CMakePresets.json."))
+    }
+
     return $resultats
 }
 
