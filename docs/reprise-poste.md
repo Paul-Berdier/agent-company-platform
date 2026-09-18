@@ -1,6 +1,6 @@
 # Reprise du travail sur un autre poste
 
-Date d'état : 18 septembre 2026, 12 h 55, Europe/Paris.
+Date d'état : 18 septembre 2026, 15 h 20, Europe/Paris.
 Objet : permettre de relancer Claude Code sur un nouveau poste Windows sans rien perdre.
 Ce document décrit l'état exact des branches, ce qui reste à faire, et comment
 reconstituer la chaîne d'outils. Il complète `CLAUDE.md`, que Claude Code charge
@@ -8,7 +8,8 @@ automatiquement à l'ouverture du dépôt.
 
 ## 1. Où en est le code
 
-Le Lot H est **publié** ; le chantier desktop continue sur sa branche.
+Le Lot H est **publié** ; le chantier desktop continue sur sa branche, dont
+l'intégration continue est désormais **verte**.
 
 ### Lot H, version 0.9.0 — publié
 
@@ -23,7 +24,7 @@ Le Lot H est **publié** ; le chantier desktop continue sur sa branche.
 - Journal des modifications 0.9.0 rédigé dans `CHANGELOG.md`.
 - Tag `v0.8.0` posé sur `e71ebf6` et poussé le 18 septembre : il manquait.
 
-Preuves locales relevées sur ce poste :
+Preuves locales relevées sur l'ancien poste :
 
 | Vérification | Résultat |
 |---|---|
@@ -36,9 +37,9 @@ Preuves locales relevées sur ce poste :
 ### Branche `feat/desktop-qt-railway` — client desktop natif
 
 Créée depuis le Lot H au commit `ac1d753`. `main` y a été **fusionnée** le 18 septembre
-à 12 h 53 (commit `bc43b62`) : la branche contient désormais tout le Lot H publié. Pas
-de rebase, pour ne jamais réécrire un historique déjà poussé. Aucune pull request
-n'est encore ouverte pour cette branche.
+à 12 h 53 (commit `bc43b62`). Pas de rebase, pour ne jamais réécrire un historique déjà
+poussé. **Aucune pull request n'est encore ouverte** pour cette branche, et `VERSION`
+vaut encore `0.9.0`.
 
 Commits propres au chantier desktop :
 
@@ -50,60 +51,91 @@ Commits propres au chantier desktop :
 | `aca114d` | Client réseau, session, coffre d'identifiants, client SSE avec reprise |
 | `d1efde5` | Intégration continue Windows, installeur Inno Setup, scripts PowerShell |
 | `10e01f9` | Exposition publique Railway, documents de mise à jour et de sécurité |
-| `c6b5f25` | Correctifs issus de la **première vraie compilation MSVC** |
-| `fb8b212` | Ce document et `CLAUDE.md` |
+| `c6b5f25` | Correctifs issus de la première vraie compilation MSVC |
+| `fb8b212` | Première version de ce document et `CLAUDE.md` |
 | `ee318df` | Correctifs QML : singleton de couleurs masqué par Qt, familles de polices |
+| `c004380` | CI : exécuteurs épinglés sur `windows-2022` (voir section 6) |
+| `721c2c0` | Accessibilité : rôles, noms et actions exposés à UI Automation |
+| `ce2d83c` | Client aligné sur les contrats réels de l'API ; connexion de nouveau atteignable |
+| `340e2ac` | Outillage : `dev-desktop.ps1` attend l'application, vérificateur hors `build/` |
+| `bb08e1c` | Avertissements « jamais compilé » remplacés par les preuves relevées |
+| `3d1e79e` | Compilation et tests Release tels que le CI les exécute ; contrat des préréglages |
+| `4b3d2a6` | `setup.ps1` refuse un venv bâti sur le Python du Microsoft Store |
 
-Suite Python de cette branche : 2 745 réussis, 32 ignorés.
+**Première exécution réelle, 18 septembre après-midi.** L'application a été lancée
+contre une API locale (`uvicorn`, base SQLite jetable dans le répertoire de travail de
+Claude, compte propriétaire amorcé par `POST /auth/bootstrap`) et pilotée par Windows UI
+Automation. Elle a révélé, puis vu corriger, les défauts suivants :
 
-**Premier passage réel de la compilation et des tests natifs, 18 septembre 12 h 41**,
-avec MSVC 14.44 et Qt 6.8.3 : compilation sans erreur, **9 suites natives sur 9
-réussies**, dont 52 tests QML.
+- quatre écarts de contrat entre le client et l'API : `/meta` lu à plat au lieu de
+  `versions.*` et `capabilities.<nom>.available` ; `email` envoyé à `POST /auth/login`
+  qui exige `login` ; rôle lu dans `platform_role` au lieu de `role` ; `/ready` lu
+  en `status`/`detail` au lieu de `ok`/`reason` ;
+- l'écran de connexion disparaissait dès l'adresse acceptée, et la coquille n'offre
+  aucune entrée de connexion : **l'authentification était inatteignable** ;
+- boutons, champs, entrées de navigation et lignes de la palette invisibles ou
+  inactivables pour les technologies d'assistance.
 
-| Suite native | Résultat |
+Les documents d'API lus par les tests natifs vivent dans `apps/desktop/tests/fixtures/`
+et `apps/api/tests/test_desktop_contract_fixtures.py` échoue si l'API s'en écarte.
+
+Parcours vérifié à l'écran : première ouverture, test de lien, compatibilité
+« Contrat d'API 1.0, schéma d'événement 1.0 », connexion, accueil, diagnostics avec les
+cinq contrôles de `/ready` et leurs raisons, navigation sans souris.
+
+| Vérification, 18 septembre | Résultat |
 |---|---|
-| `tst_sse_parser` | 20 réussis sur 20 |
-| `tst_api_errors`, `tst_command_registry`, `tst_session_state` | réussis |
-| `tst_compatibility`, `tst_cursors`, `tst_redaction`, `tst_backoff` | réussis |
-| `tst_qml_shell` | 52 réussis sur 52 |
+| Suite Python complète, SQLite, Python 3.12.10 | 2 748 réussis, 35 ignorés, 0 échec |
+| Compilation Debug et Release, MSVC 14.44, Qt 6.8.3 | sans erreur ni avertissement du compilateur ¹ |
+| Suites natives, Debug et Release | 10 sur 10, dont 59 tests QML |
+| Empaquetage à blanc local | installeur 20,3 Mo, portable 29,1 Mo, `SHA256SUMS.txt` |
+| Archive portable lancée sans aucune variable Qt | démarre, DLL Qt chargées depuis l'archive |
+| **Desktop CI**, run `35348431165` sur `4b3d2a6` | **vert** : 10 suites, installeur, portable |
 
-Quatre défauts réels ont été trouvés par cette première compilation, qu'aucune relecture
-n'avait vus : un en-tête qui déclarait un type réseau en avance alors que le générateur
-de métadonnées Qt exige le type complet ; quatre méthodes surchargées déclarées par
-erreur dans la section des signaux, donc définies deux fois ; un parseur SSE qui
-retardait l'événement terminé par un retour chariot seul ; et un singleton de couleurs
-nommé `Palette`, masqué dans toute l'application par le type homonyme de QtQuick.
+¹ CMake émet un avertissement de Qt pour sept modules QML : leur `OUTPUT_DIRECTORY` ne se
+termine pas par le chemin du module, ce qui peut gêner `qmllint`. Sans effet sur la
+compilation, les tests ni l'empaquetage ; à traiter avec l'outillage QML.
 
-**Ce qui n'a pas encore été exercé** : l'application n'a jamais été lancée contre une
-vraie API, le workflow `desktop-ci.yml` n'a jamais tourné sur GitHub, et aucun
-installeur n'a été fabriqué.
+Les 35 tests ignorés : 28 exigent PostgreSQL (`ACP_TEST_DATABASE_URL` absent, Docker
+arrêté sur ce poste), 4 des fonctions POSIX, et 3 des liens symboliques, que Windows
+n'autorise pas ici (mode développeur désactivé) : c'est l'écart avec l'ancien poste.
+
+**Ce qui n'est toujours pas prouvé** : aucune installation sur une machine Windows
+propre ; aucun binaire signé ; aucune session persistée (il faut se reconnecter à chaque
+lancement, limite documentée) ; le coffre Windows n'est exercé par aucun test ; aucun
+écran métier (missions, runs, conversations) n'existe ; le client n'a jamais parlé à
+Railway.
 
 ## 2. Ce qui reste à faire, dans l'ordre
 
-1. **Lancer l'application pour de vrai** : `apps/desktop/build/windows-msvc-debug/`
-   contient l'exécutable après compilation. La connecter à une API locale
-   (`python -m uvicorn acp_api.main:app`), vérifier l'écran de première ouverture, la
-   compatibilité via `GET /meta`, la connexion, et l'écran de diagnostics.
-2. **Faire passer le workflow `desktop-ci.yml`** sur GitHub Actions : il n'a encore jamais
-   tourné. Pousser la branche et lire le résultat.
-3. **Ouvrir la version 0.10.0** sur la branche desktop, selon la recette de `CLAUDE.md` :
-   le fichier `VERSION` vaut encore `0.9.0`, qui est désormais publiée. Passer toutes
-   les copies vérifiées par `scripts/check_version.py` à `0.10.0`, et ouvrir une section
-   `0.10.0 (préparation)` dans `CHANGELOG.md`. Dans ce même journal, l'en-tête
-   `0.9.0 (préparation)` doit devenir `[0.9.0] - 2026-09-18`.
-4. **Neuf constats de revue de sévérité moyenne** restent ouverts sur le Lot H. Le script
-   de correction prêt à l'emploi est décrit dans la section 6. Les plus importants :
-   - deux ordres de verrous inverses pouvant provoquer un interblocage sous PostgreSQL :
-     planificateur contre routes d'automatisation, et fin de tentative contre expiration
-     de bail ;
-   - le service d'événements diffuse deux fois un même identifiant si deux livraisons se
-     recouvrent ;
-   - la sonde de stockage de `/ready` crée la racine, donc un volume non monté passe pour
-     sain ;
-   - `reset_public_schema` de l'outillage de test efface le schéma de n'importe quelle
-     base sans garde.
-5. **Job d'intégration continue PostgreSQL et images** pour le Lot H : il n'existe pas.
-6. **Phases suivantes du client desktop**, dans l'ordre imposé par le prompt maître :
+1. **Ouvrir la version 0.10.0** sur la branche desktop, selon la recette de `CLAUDE.md` :
+   passer toutes les copies vérifiées par `scripts/check_version.py` à `0.10.0`, ouvrir
+   une section `0.10.0 (préparation)` dans `CHANGELOG.md`, et changer l'en-tête
+   `0.9.0 (préparation)` en `[0.9.0] - 2026-09-18`. Puis journal complet, PR, CI verte,
+   fusion sur validation, tag sur le commit de fusion.
+2. **Constats de revue ouverts du Lot H.** Neuf étaient annoncés ; **seuls quatre sont
+   consignés**, les cinq autres étaient dans le répertoire de travail de l'ancien poste
+   et sont perdus. Les quatre ont été **revérifiés et confirmés** le 18 septembre :
+   - `reset_public_schema` (`packages/database/src/acp_database/testing.py:99`) efface le
+     schéma `public` de n'importe quelle base PostgreSQL sans garde ;
+   - la sonde de stockage de `/ready` (`apps/api/src/acp_api/readiness.py:236`) crée la
+     racine, donc un volume non monté passe pour sain — et le test existant entérine ce
+     comportement ;
+   - le service d'événements (`apps/event-service`, `main.py:130`) diffuse deux fois un
+     même identifiant quand deux livraisons se recouvrent ;
+   - deux interblocages PostgreSQL (planificateur contre routes d'automatisation ; fin
+     de tentative contre expiration de bail), de cause commune : le verrou consultatif
+     `events.journal` est pris en milieu de transaction (`events_bus.py:584` et `:648`),
+     avant d'autres verrous de lignes. Un interblocage PostgreSQL (40P01) devient un 500.
+   Ordre recommandé : garde de `reset_public_schema`, sonde `/ready`, double diffusion,
+   job CI PostgreSQL, puis les deux interblocages avec une règle « journal en dernier »
+   et un test concurrent PostgreSQL par paire. Relancer une revue complète du Lot H pour
+   retrouver les cinq constats perdus.
+3. **Job d'intégration continue PostgreSQL** : il n'existe pas ; les 28 tests
+   PostgreSQL ne tournent que sur un poste équipé.
+4. **Test d'installation sur une machine Windows propre** (critère 8 du prompt maître),
+   à partir de l'artefact `desktop-ci-<run>`.
+5. **Phases suivantes du client desktop**, dans l'ordre imposé par le prompt maître :
    écrans réels (accueil, projets, conversations, missions, runs, studio, livrables),
    puis plateforme d'agents, opérations, design system, distribution, stabilisation.
    Le bureau pixel Godot reste la **dernière** phase, derrière dix critères.
@@ -111,7 +143,8 @@ installeur n'a été fabriqué.
 ## 3. Reconstituer la chaîne d'outils sur le nouveau poste
 
 Tout s'installe sans compte Qt. Environ 10 Go au total. Seuls les Build Tools exigent
-une élévation : Windows affiche alors une invite à valider.
+une élévation : Windows affiche alors une invite à valider. Relevé du 18 septembre :
+l'ensemble s'installe en une trentaine de minutes.
 
 ### 3.1 Outils système
 
@@ -132,8 +165,14 @@ winget install --id JRSoftware.InnoSetup --exact --scope user --silent --accept-
 ```
 
 ```powershell
+winget install --id Python.Python.3.12 --exact --scope user --silent --accept-package-agreements --accept-source-agreements
+```
+
+```powershell
 winget install --id GitHub.cli --exact --accept-package-agreements --accept-source-agreements
 ```
+
+**Python : jamais celui du Microsoft Store** pour le projet (voir section 6).
 
 ### 3.2 Qt 6.8.3 pour MSVC 2022, par aqtinstall
 
@@ -154,53 +193,66 @@ python -m venv "$env:USERPROFILE\.acp-tools\aqt-venv"
 ```
 
 Utiliser `python -m aqt`, **pas** `aqt.exe` : sur un poste d'entreprise, une politique de
-restriction logicielle peut bloquer les exécutables placés dans le profil. C'est arrivé
-ici.
+restriction logicielle peut bloquer les exécutables placés dans le profil.
 
-### 3.3 Variables d'environnement pour compiler
+### 3.3 Variable d'environnement pour compiler
+
+`QT_ROOT_DIR` est posée comme variable utilisateur de Windows sur ce poste :
 
 ```powershell
-$env:QT_ROOT_DIR = "$env:USERPROFILE\Qt\6.8.3\msvc2022_64"
+[Environment]::SetEnvironmentVariable('QT_ROOT_DIR', "$env:USERPROFILE\Qt\6.8.3\msvc2022_64", 'User')
 ```
 
-Pour les rendre permanentes, les poser dans les variables utilisateur de Windows.
-
-### 3.4 Vérifier puis compiler
+### 3.4 Vérifier, compiler, tester, empaqueter
 
 ```powershell
 ./scripts/setup-desktop.ps1
 ```
 
 ```powershell
-./scripts/build-desktop.ps1 -Configuration Debug
+./scripts/build-desktop.ps1 -Configuration Release
 ```
 
 ```powershell
-./scripts/test-desktop.ps1 -Configuration Debug
+./scripts/test-desktop.ps1 -Configuration Release
 ```
 
-`setup-desktop.ps1` n'installe rien : il constate et dit quoi lancer. Pour exécuter les
-tests QML sans écran, poser `$env:QT_QPA_PLATFORM = "offscreen"`.
+```powershell
+./scripts/package-desktop.ps1 -Configuration Release -DryRun -OutputDir "$env:TEMP\acp-dist"
+```
+
+**Toujours compiler en Release avant de pousser** : le préréglage Release traite les
+avertissements comme des erreurs, pas le Debug. `setup-desktop.ps1` n'installe rien : il
+constate, vérifie le contrat des préréglages CMake, et dit quoi lancer.
+
+### 3.5 Lancer l'application contre une API locale
+
+```powershell
+./scripts/dev-desktop.ps1 -Configuration Debug
+```
+
+Le script attend la fermeture de l'application. Dans l'écran de connexion, saisir
+`http://127.0.0.1:8000` et cocher « Autoriser HTTP en clair sur une adresse de
+bouclage ». L'API doit tourner sur une base **dédiée** (`ACP_DATABASE_URL`), jamais sur
+`./acp.db` (section 6).
 
 ## 4. Reconstituer le backend local
 
 ### 4.1 Environnement Python du projet
 
+Créer le venv avec le Python officiel, puis lancer l'installation. `setup.ps1` refuse
+désormais un venv bâti sur le Python du Store.
+
 ```powershell
-python -m venv .venv
+& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv .venv
 ```
 
 ```powershell
 ./scripts/setup.ps1
 ```
 
-Le script installe les paquets du dépôt en mode éditable avec les contraintes du verrou.
-Vérifier que le pilote PostgreSQL est présent : sans lui, 23 tests s'ignorent avec une
-raison explicite.
-
-```powershell
-.venv\Scripts\python.exe -m pip install -e "packages/database[postgresql]"
-```
+Le script installe les paquets du dépôt en mode éditable avec les contraintes du verrou,
+pilote PostgreSQL compris, puis lance `npm install`.
 
 ### 4.2 PostgreSQL de vérification par Docker
 
@@ -223,8 +275,8 @@ sauvegarde utilisent `ACP_BACKUP_PG_DUMP_COMMAND`, `ACP_BACKUP_PG_RESTORE_COMMAN
 
 **Attention** : `reset_public_schema` et les parcours de vérification remettent le
 schéma `public` à zéro. Ne jamais pointer `ACP_TEST_DATABASE_URL` ou `--database-url` sur
-une base contenant des données. Les parcours refusent désormais une base non vide ;
-l'outillage de test, lui, n'a pas encore cette garde.
+une base contenant des données. Les parcours refusent une base non vide ; l'outillage de
+test, lui, n'a toujours pas cette garde (section 2).
 
 ### 4.3 Suites de référence
 
@@ -232,48 +284,53 @@ l'outillage de test, lui, n'a pas encore cette garde.
 .venv\Scripts\python.exe -X utf8 -m pytest -q -p no:cacheprovider
 ```
 
-Environ 15 minutes. `-X utf8` évite les messages illisibles d'une console régionale.
+Environ 11 minutes sur ce poste. `-X utf8` évite les messages illisibles d'une console
+régionale. `-rs` affiche la raison de chaque test ignoré.
 
 ## 5. GitHub
 
-```powershell
-gh auth login
-```
-
-Sur l'ancien poste, l'authentification passait par le gestionnaire d'identifiants de
-git, qui fournissait un jeton avec les droits `repo` et `workflow`. Sur le nouveau poste,
-`gh auth login` suffit.
-
-La PR #8 porte le Lot H. Pour suivre l'intégration continue :
+`gh` est authentifié sur ce poste (compte `Paul-Berdier`, trousseau Windows).
 
 ```powershell
-gh run list --branch codex/modernization-lot-h --limit 5
+gh run list --branch feat/desktop-qt-railway --limit 5
 ```
 
-## 6. Pièges rencontrés sur l'ancien poste
+## 6. Pièges rencontrés
 
-- **Docker Desktop refuse de démarrer** avec l'erreur « initializing Inference manager :
-  The file cannot be accessed by the system ». Cause : un fichier de socket obsolète
-  `%LOCALAPPDATA%\Docker\run\dockerInference` impossible à supprimer. Solution qui a
-  fonctionné : arrêter Docker Desktop, **renommer** le répertoire
-  `%LOCALAPPDATA%\Docker\run`, relancer Docker Desktop.
-- **Fins de ligne** : `core.autocrlf=true` sur ce poste. Les fichiers sont écrits en LF et
-  git avertit de la conversion ; ce n'est pas une erreur. `.gitattributes` force LF sur
-  les scripts, les Dockerfile et les fichiers compose.
-- **Inno Setup installé par utilisateur** va sous
-  `%LOCALAPPDATA%\Programs\Inno Setup 6`. Le module `DesktopToolchain.psm1` le cherche
-  désormais à cet endroit aussi.
-- **Limites de session Claude** : plusieurs agents parallèles ont été coupés en plein
-  travail. Les worktrees orphelins se trouvent sous `.claude/worktrees/` ; les lister
-  avec `git worktree list` et les supprimer après avoir récupéré leurs commits.
-- Les scripts de correction de la revue du Lot H étaient prêts sur l'ancien poste dans le
-  répertoire de travail de Claude, qui ne voyage pas. La liste des constats est dans la
-  section 2 ci-dessus et suffit à les relancer.
+- **Python du Microsoft Store** : sur un poste neuf, `python` résout vers l'alias du
+  Store, même si un Python python.org est installé. Un venv bâti dessus fait tourner
+  l'interpréteur réel comme application empaquetée (MSIX), que Windows **sort du Job
+  Object** du runner local : quatre tests de `apps/worker/tests/test_local_runner.py`
+  échouent (`output_stream_timeout`). Correctif : venv sur python.org 3.12.
+- **Image `windows-2025` de GitHub** : depuis juin 2026 elle porte Visual Studio 2026
+  (`ImageOS=win25-vs2026`, https://github.com/actions/runner-images/issues/14017). Les
+  deux workflows desktop sont épinglés sur `windows-2022` (Visual Studio 2022 17.14,
+  le compilateur ciblé par Qt `msvc2022_64`).
+- **`./acp.db` à la racine est une base de développement avec des données** (créée le
+  11 septembre, 42 organisations). Tout `TestClient(app)` ou `uvicorn` lancé sans
+  `ACP_DATABASE_URL` l'ouvre. La suite de tests pose sa propre base ; un script ponctuel
+  doit en faire autant.
+- **Docker Desktop refuse de démarrer** avec « initializing Inference manager : The file
+  cannot be accessed by the system » : arrêter Docker Desktop, **renommer**
+  `%LOCALAPPDATA%\Docker\run`, relancer.
+- **Fins de ligne** : `core.autocrlf=true`. Les fichiers sont écrits en LF et git avertit
+  de la conversion ; ce n'est pas une erreur. Une sortie redirigée depuis la console
+  Windows produit du CRLF : le vérificateur `check_layout.py` le refuse dans
+  `apps/desktop`.
+- **Piloter le client sans souris** : Qt Quick expose l'interface à Windows UI
+  Automation (`System.Windows.Automation`) ; `ValuePattern` pour les champs,
+  `InvokePattern` pour les boutons, `TogglePattern` pour les cases (l'`Invoke` d'une case
+  Qt ne la coche pas). Capturer la fenêtre depuis un processus déclaré « DPI-aware »,
+  sinon l'image est rognée.
+- **Inno Setup installé par utilisateur** va sous `%LOCALAPPDATA%\Programs\Inno Setup 6`.
+- **Worktrees orphelins** sous `.claude/worktrees/` : les lister avec `git worktree list`.
+- **Arbre de travail** : il contient un chantier pixel-office non commité (`apps/web`,
+  `packages/pixel-office-engine`, `plugins/*/rooms`, `docs/assets`…). Ne pas le mélanger
+  aux commits desktop : indexer fichier par fichier.
 
 ## 7. Phrase de reprise suggérée pour Claude Code
 
-> Lis `CLAUDE.md` puis `docs/reprise-poste.md`. Reprends le chantier desktop sur la
-> branche `feat/desktop-qt-railway` : reconstitue la chaîne d'outils si elle manque,
-> recompile et relance les tests natifs, puis lance l'application contre une API locale
-> et fais passer `desktop-ci.yml`. Ensuite, propose-moi l'ordre pour la PR #8 et les
-> constats de revue ouverts du Lot H.
+> Lis `CLAUDE.md` puis `docs/reprise-poste.md`. Sur `feat/desktop-qt-railway`, ouvre la
+> version 0.10.0 selon la recette, rédige le journal, puis prépare la PR du client
+> desktop. Ensuite, traite les constats confirmés du Lot H dans l'ordre de la section 2,
+> sur une branche partie de `main`.
