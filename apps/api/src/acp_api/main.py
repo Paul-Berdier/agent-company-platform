@@ -22,6 +22,7 @@ from .routers import (
     crud,
     events,
     mcp,
+    meta,
     missions,
     onboarding,
     operations,
@@ -78,6 +79,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(meta.router)
 app.include_router(alerts.router)
 app.include_router(automations.router)
 app.include_router(budgets.router)

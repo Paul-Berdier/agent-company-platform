@@ -723,9 +723,51 @@ peut pas faire honnêtement sans elle.
 
 ### 9.1 Bloquant
 
-**1. Point d'entrée de compatibilité — absent, à créer.**
-Vérifié : aucun des 136 chemins énumérés n'offre `/meta`, `/version` ni
-`/capabilities` ; la seule version est `main.py:61`, exposée par `/openapi.json`.
+**1. Point d'entrée de compatibilité — LIVRÉ.**
+
+> **État au 18 septembre 2026 : livré** par `apps/api/src/acp_api/routers/meta.py`
+> (`GET /meta`, public, sans authentification, `Cache-Control: no-store`), contrat
+> `packages/contracts/src/acp_contracts/compatibility.py`, tests
+> `apps/api/tests/test_compatibility.py`. L'énumération OpenAPI passe de 136 à
+> 138 chemins.
+>
+> Ce qui est publié, et d'où chaque valeur est lue **au moment de l'appel** : version
+> du produit depuis le fichier `VERSION` (quatre sources ordonnées, aucune valeur de
+> repli codée en dur — sans source lisible, c'est un 503, jamais une version
+> supposée) ; `API_CONTRACT_VERSION`, versionnée indépendamment du produit ;
+> `EVENT_SCHEMA_VERSION` ; `CONTRACTS_VERSION` ; les planchers de version des clients
+> `desktop` et `cli` ; huit capacités **calculées** (clés de signature réellement
+> chargées, coffre réellement construit, relais, origine d'aperçu réellement
+> normalisée, claim worker hérité, cookie `Secure`, documentation interactive, point
+> d'obtention CSRF) ; et les bornes réelles lues de `security`, `streams`, `signing`,
+> `webhook_ingress`, `artifacts` et de la signature de `GET /missions`. La borne de
+> flux simultanés est publiée avec sa portée réelle, `process` — ce qui répond aussi
+> au point 18 de la section 9.3.
+>
+> **Refus fermé.** Le plancher est publié dans le corps *et* vérifié sur l'en-tête
+> facultatif `X-ACP-Client: <client>/<version>` : un client qui s'annonce trop ancien
+> reçoit un **426** en français portant le document complet. Aucune requête sans cet
+> en-tête n'est refusée — le web et le CLI ne l'envoient pas — et le contrôle ne vit
+> que sur `/meta`, donc aucune mission en cours n'est coupée par une mise à jour du
+> serveur. Le plancher par défaut est la version du produit servie, faute de matrice
+> de compatibilité prouvée ; `ACP_MIN_CLIENT_VERSION_DESKTOP` et
+> `ACP_MIN_CLIENT_VERSION_CLI` l'abaissent, et une valeur illisible est un 503.
+>
+> **Compagnon livré dans le même lot** : `POST /auth/csrf`, qui confirme un jeton CSRF
+> encore valide **sans le faire tourner** et n'en émet un que s'il n'y en a pas de
+> valide. `GET /auth/session` n'est pas modifié : le web et le CLI gardent exactement
+> leur comportement, ce que prouvent les tests de non-régression. Le point 2 de la
+> section 9.2 n'est donc que **contourné**, pas résolu : supprimer la rotation sur
+> lecture exigerait de conserver l'ancien jeton pendant une fenêtre de grâce, c'est-à-dire
+> une colonne supplémentaire et une migration, hors du périmètre de ce lot.
+>
+> **Non publiée volontairement** : la longueur maximale d'une `Idempotency-Key`, qui
+> n'a pas de source unique dans ce dépôt (elle est écrite dans deux routeurs) ; la
+> republier en aurait fait une troisième copie.
+
+Vérifié avant la livraison : aucun des 136 chemins énumérés n'offrait `/meta`,
+`/version` ni `/capabilities` ; la seule version était `main.py:61`, exposée par
+`/openapi.json`.
 Contenu utile : version du serveur (lue de `VERSION` plutôt que de la constante
 dupliquée), version de contrat d'API versionnée indépendamment du produit, version de
 schéma d'événement (`EVENT_SCHEMA_VERSION = "1.0"`,

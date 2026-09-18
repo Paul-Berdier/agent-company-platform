@@ -57,5 +57,21 @@ class AuthSessionResponse(BaseModel):
     expires_at: datetime
 
 
+class CsrfTokenResponse(BaseModel):
+    """Réponse de ``POST /auth/csrf``, point d'obtention dédié du jeton CSRF.
+
+    Le serveur ne conserve que l'empreinte du jeton : il ne peut donc jamais
+    « rendre le jeton courant ». Quand l'appelant présente un jeton encore valide,
+    la réponse le confirme sans en émettre de nouveau (``rotated`` faux,
+    ``csrf_token`` nul) : deux appels concurrents d'un client multi-thread ne se
+    volent plus leur jeton. Un jeton absent ou périmé déclenche une rotation, et
+    c'est le seul cas où un jeton circule.
+    """
+
+    rotated: bool
+    csrf_token: str | None = None
+    expires_at: datetime
+
+
 class LogoutResponse(BaseModel):
     status: str = "signed_out"
