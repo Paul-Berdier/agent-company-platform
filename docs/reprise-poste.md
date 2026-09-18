@@ -1,6 +1,6 @@
 # Reprise du travail sur un autre poste
 
-Date d'état : 18 septembre 2026, 12 h 45, Europe/Paris.
+Date d'état : 18 septembre 2026, 12 h 55, Europe/Paris.
 Objet : permettre de relancer Claude Code sur un nouveau poste Windows sans rien perdre.
 Ce document décrit l'état exact des branches, ce qui reste à faire, et comment
 reconstituer la chaîne d'outils. Il complète `CLAUDE.md`, que Claude Code charge
@@ -8,20 +8,20 @@ automatiquement à l'ouverture du dépôt.
 
 ## 1. Où en est le code
 
-Deux chantiers coexistent. Aucun n'est fusionné dans `main`.
+Le Lot H est **publié** ; le chantier desktop continue sur sa branche.
 
-### Branche `codex/modernization-lot-h` — Lot H, version 0.9.0
+### Lot H, version 0.9.0 — publié
 
-- **Pull request ouverte** : Paul-Berdier/agent-company-platform#8, vers `main`.
-- **Intégration continue verte** sur Python 3.12 et Node 22 au commit `af08c4b`.
+- **PR #8 fusionnée** dans `main` le 18 septembre à 11 h 42, commit de fusion `94ce876`.
+- **Intégration continue verte** sur le commit de fusion.
+- **Tag annoté `v0.9.0` posé sur `94ce876`** et poussé le 18 septembre à 12 h 50.
+- La branche `codex/modernization-lot-h` n'a plus d'usage : tout est dans `main`.
 - Livré : migrations Alembic, moteur PostgreSQL, démarrage fermé, `GET /ready`,
   outbox transactionnelle et relais, sauvegarde et restauration, images Docker,
   piles compose, verrou de dépendances, configuration Railway, trois parcours de
   vérification, outillage de tests à deux dialectes.
 - Journal des modifications 0.9.0 rédigé dans `CHANGELOG.md`.
-- Tag `v0.8.0` posé sur `e71ebf6` et poussé le 18 septembre. **Le tag `v0.9.0` n'est
-  pas posé** : il doit l'être seulement après la fusion de la PR #8, sur le commit de
-  fusion.
+- Tag `v0.8.0` posé sur `e71ebf6` et poussé le 18 septembre : il manquait.
 
 Preuves locales relevées sur ce poste :
 
@@ -35,10 +35,10 @@ Preuves locales relevées sur ce poste :
 
 ### Branche `feat/desktop-qt-railway` — client desktop natif
 
-Créée depuis `codex/modernization-lot-h` au commit `ac1d753`. Elle ne contient donc
-**pas** les deux derniers commits du Lot H (`d88c2f8` journal 0.9.0 et `af08c4b`
-correctif d'intégration continue). Après la fusion de la PR #8, rebaser cette branche
-sur `main`.
+Créée depuis le Lot H au commit `ac1d753`. `main` y a été **fusionnée** le 18 septembre
+à 12 h 53 (commit `bc43b62`) : la branche contient désormais tout le Lot H publié. Pas
+de rebase, pour ne jamais réécrire un historique déjà poussé. Aucune pull request
+n'est encore ouverte pour cette branche.
 
 Commits propres au chantier desktop :
 
@@ -86,8 +86,11 @@ installeur n'a été fabriqué.
    compatibilité via `GET /meta`, la connexion, et l'écran de diagnostics.
 2. **Faire passer le workflow `desktop-ci.yml`** sur GitHub Actions : il n'a encore jamais
    tourné. Pousser la branche et lire le résultat.
-3. **Fusionner la PR #8** quand la décision est prise, puis poser le tag annoté `v0.9.0`
-   sur le commit de fusion, puis rebaser `feat/desktop-qt-railway` sur `main`.
+3. **Ouvrir la version 0.10.0** sur la branche desktop, selon la recette de `CLAUDE.md` :
+   le fichier `VERSION` vaut encore `0.9.0`, qui est désormais publiée. Passer toutes
+   les copies vérifiées par `scripts/check_version.py` à `0.10.0`, et ouvrir une section
+   `0.10.0 (préparation)` dans `CHANGELOG.md`. Dans ce même journal, l'en-tête
+   `0.9.0 (préparation)` doit devenir `[0.9.0] - 2026-09-18`.
 4. **Neuf constats de revue de sévérité moyenne** restent ouverts sur le Lot H. Le script
    de correction prêt à l'emploi est décrit dans la section 6. Les plus importants :
    - deux ordres de verrous inverses pouvant provoquer un interblocage sous PostgreSQL :
