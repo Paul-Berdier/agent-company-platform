@@ -6,7 +6,12 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
-## 0.9.0 (préparation) - 2026-09-18
+## 0.9.1 (préparation) - 2026-09-18
+
+Durcissement du Lot H : constats de revue ouverts à la publication de 0.9.0,
+vérifiés puis corrigés, et intégration continue PostgreSQL.
+
+## [0.9.0] - 2026-09-18
 
 Lot H : PostgreSQL et migrations versionnées, outbox transactionnelle avec reprise,
 sauvegarde-restauration, images de services, configuration Railway et validation

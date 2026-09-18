@@ -27,13 +27,11 @@ chaîne reporter → worker, un rendu GLB WebGL ni une reprise en main humaine.
 PostgreSQL, Railway et les sauvegardes restent au Lot H. Le détail exact se trouve dans
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version en préparation dans cette branche : **0.9.0** (Lot H). La dernière version
-publiée est **0.8.0** (Lot G) : socle intégré sur `main` au commit `004a4f8`, puis
-durci et fusionné par la PR
-[#7](https://github.com/Paul-Berdier/agent-company-platform/pull/7) (commit `e71ebf6`),
-après observation d'une CI verte. Au 17 septembre 2026, aucun tag `v0.8.0` n'est
-présent sur `origin` : il reste à poser. Les changements sont décrits dans
-[CHANGELOG.md](CHANGELOG.md).
+Version en préparation dans cette branche : **0.9.1**, durcissement du Lot H. La
+dernière version publiée est **0.9.0** (Lot H) : PR
+[#8](https://github.com/Paul-Berdier/agent-company-platform/pull/8) fusionnée au commit
+`94ce876` après observation d'une CI verte, tag annoté `v0.9.0` posé sur ce commit.
+Les changements sont décrits dans [CHANGELOG.md](CHANGELOG.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
 

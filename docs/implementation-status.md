@@ -1,10 +1,9 @@
 # État d'implémentation et reprise
 
-Date d'état : 17 septembre 2026, Europe/Paris
-Portée : ouverture du Lot H `0.9.0`, construit sur le Lot G publié `0.8.0`. Le socle du
-Lot G a été intégré sur `main` au commit `004a4f8`, puis durci par la PR #7 (fusion
-`e71ebf6`) après CI verte observée. Au 17 septembre 2026, le tag annoté `v0.8.0`
-annoncé précédemment n'est pas présent sur `origin` : il reste à poser.
+Date d'état : 18 septembre 2026, Europe/Paris
+Portée : Lot H `0.9.0` publié (PR #8, fusion `94ce876`, tag `v0.9.0`, CI verte
+observée) ; ouverture du durcissement `0.9.1`. Le tag `v0.8.0` a été posé sur `e71ebf6`
+le 18 septembre 2026.
 
 ## Résumé
 
@@ -641,8 +640,8 @@ d'une décision qui manque aujourd'hui.
 | D | MCP/skills versionnés, coffre de secrets, diagnostics et révocation | **Publié : PR #4, tag `v0.5.0` ; aucun serveur MCP tiers contacté** |
 | E | événements durables, flux authentifié, Playwright, livrables privés et Studio | **Publié : PR #5, fusion `b7d8a44`, tag `v0.6.0`, CI verte observée avant fusion ; aucun navigateur réel lancé, aucun test Playwright réel exécuté** |
 | F | automatisations, calendrier Europe/Paris, budgets et alertes | **Publié : PR #6, fusion `0b4d904`, tag `v0.7.0`, CI verte observée avant fusion** |
-| G | médias/3D, exécuteurs complémentaires et durcissement | **Publié : socle `004a4f8`, PR #7 de durcissement fusionnée en `e71ebf6`, CI verte observée ; tag `v0.8.0` absent d'`origin` au 17 septembre 2026** |
-| H | migrations, Railway, sauvegarde-restauration et validation finale | **En cours sur la branche `0.9.0`** |
+| G | médias/3D, exécuteurs complémentaires et durcissement | **Publié : socle `004a4f8`, PR #7 de durcissement fusionnée en `e71ebf6`, tag `v0.8.0`, CI verte observée** |
+| H | migrations, Railway, sauvegarde-restauration et validation finale | **Publié : PR #8, fusion `94ce876`, tag `v0.9.0`, CI verte observée ; durcissement `0.9.1` en cours** |
 
 ## Reprise : livrer le Lot H
 
