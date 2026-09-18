@@ -133,6 +133,11 @@ Item {
                     TapHandler {
                         onTapped: palette.run(row.commandId)
                     }
+
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: row.title
+                    Accessible.description: row.available ? row.category : row.availabilityReason
+                    Accessible.onPressAction: palette.run(row.commandId)
                 }
 
                 Keys.onReturnPressed: {

@@ -134,6 +134,8 @@ Rectangle {
             Accessible.role: Accessible.Button
             Accessible.name: entry.title
             Accessible.description: entry.navigable ? "" : entry.readinessLabel
+            // Même chemin que le clic : le modèle refuse une destination non livrée.
+            Accessible.onPressAction: Navigation.currentRoute = entry.route
         }
     }
 }

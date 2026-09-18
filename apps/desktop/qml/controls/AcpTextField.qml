@@ -18,6 +18,14 @@ Item {
     property string errorText: ""
     property bool masked: false
 
+    //! Nom annoncé par les technologies d'assistance. Par défaut l'indication de saisie ;
+    //! à renseigner quand celle-ci n'est qu'un exemple de forme.
+    property string accessibleName: field.placeholder
+
+    //! Faux : l'aide n'est pas dessinée sous le champ (barre de hauteur fixe) et ne reste
+    //! que dans la description accessible. Une erreur, elle, est toujours dessinée.
+    property bool helperVisible: true
+
     signal accepted()
 
     implicitHeight: Space.densityControlHeightRegular
@@ -56,6 +64,14 @@ Item {
                 : Qt.ImhNone
             onAccepted: field.accepted()
 
+            objectName: "acpTextFieldInput"
+            // Seul le nom et l'aide sont exposés ; la valeur d'une saisie masquée reste
+            // masquée pour UI Automation comme à l'écran.
+            Accessible.role: Accessible.EditableText
+            Accessible.name: field.accessibleName
+            Accessible.description: field.errorText.length > 0 ? field.errorText : field.helperText
+            Accessible.passwordEdit: field.masked
+
             Text {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
@@ -73,7 +89,8 @@ Item {
         anchors.top: box.bottom
         anchors.topMargin: Space.space2
         width: parent.width
-        visible: field.errorText.length > 0 || field.helperText.length > 0
+        visible: field.errorText.length > 0
+            || (field.helperVisible && field.helperText.length > 0)
         wrapMode: Text.WordWrap
         text: field.errorText.length > 0 ? field.errorText : field.helperText
         color: field.errorText.length > 0 ? Status.statusFailedForeground : Colors.textMuted

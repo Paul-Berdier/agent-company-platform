@@ -63,6 +63,12 @@ Item {
         border.color: Colors.borderFocus
     }
 
+    // Un glyphe n'est pas un nom : l'infobulle sert de nom accessible.
+    Accessible.role: Accessible.Button
+    Accessible.name: control.tooltip
+    Accessible.focusable: true
+    Accessible.onPressAction: if (control.manualEnabled) control.triggered()
+
     ToolTip.visible: hover.hovered && control.tooltip.length > 0
     ToolTip.text: control.tooltip
     ToolTip.delay: 400

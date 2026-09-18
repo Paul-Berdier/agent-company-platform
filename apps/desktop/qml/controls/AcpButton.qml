@@ -121,6 +121,15 @@ Item {
         border.color: Colors.borderFocus
     }
 
+    // Rôle, nom et action exposés aux technologies d'assistance (UI Automation sous
+    // Windows) : sans eux, un lecteur d'écran ne voit pas ce bouton du tout.
+    // https://doc.qt.io/qt-6.8/qml-qtquick-accessible.html — consulté le 18 septembre 2026.
+    Accessible.role: Accessible.Button
+    Accessible.name: control.label
+    Accessible.description: control.unavailableReason
+    Accessible.focusable: true
+    Accessible.onPressAction: control.activate()
+
     ToolTip.visible: hover.hovered && control.unavailableReason.length > 0
     ToolTip.text: control.unavailableReason
     ToolTip.delay: 300

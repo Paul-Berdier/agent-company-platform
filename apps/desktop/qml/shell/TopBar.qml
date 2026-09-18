@@ -67,6 +67,8 @@ Rectangle {
             enabled: false
             placeholder: qsTr("Recherche — indisponible pour l'instant")
             helperText: qsTr("Aucune route de recherche globale n'existe côté serveur.")
+            // La barre est de hauteur fixe : l'explication reste accessible sans déborder.
+            helperVisible: false
         }
 
         AcpButton {
