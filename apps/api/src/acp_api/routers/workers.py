@@ -212,6 +212,10 @@ def expire_task_leases(db: Session) -> int:
             .filter(
                 WorkerLeaseModel.id == lease.id,
                 WorkerLeaseModel.status == "active",
+                # Revérifié dans le CAS : sous PostgreSQL (READ COMMITTED), un
+                # renouvellement validé pendant notre attente ne rend la ligne à ce
+                # filtre qu'avec sa nouvelle échéance, et le bail n'est pas expiré.
+                WorkerLeaseModel.lease_expires_at <= now,
             )
             .update({WorkerLeaseModel.status: "expired"}, synchronize_session=False)
         )

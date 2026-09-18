@@ -637,6 +637,62 @@ def test_expiry_only_transitions_leases_already_expired(portability_context):
     assert _events_of_type(context, "task.interrupted", run_id) == []
 
 
+@pytest.mark.postgres
+@pytest.mark.concurrency
+def test_a_renewal_committed_during_the_expiry_keeps_the_lease(postgresql_context):
+    """Le compare-and-set de l'expiration revérifie l'échéance (0.9.1).
+
+    L'expiration lit un bail échu, puis attend le verrou de ligne d'un renouvellement
+    en cours. Sous READ COMMITTED, PostgreSQL ne réévalue que le filtre de l'UPDATE
+    sur la nouvelle version : sans l'échéance dans ce filtre, le bail tout juste
+    renouvelé (200 rendu au worker) était expiré et la tentative interrompue.
+    """
+
+    context = postgresql_context
+    _queue_task(context, "Tâche renouvelée à l'échéance")
+    claim = _claim(context)
+    run_id = claim["task_run"]["id"]
+    now = datetime.now(timezone.utc)
+    with context["session_factory"]() as db:
+        db.query(WorkerLeaseModel).filter_by(task_run_id=run_id).update(
+            {WorkerLeaseModel.lease_expires_at: now - timedelta(seconds=1)},
+            synchronize_session=False,
+        )
+        db.commit()
+
+    renewer = context["session_factory"]()
+    renewer.query(WorkerLeaseModel).filter_by(task_run_id=run_id).update(
+        {WorkerLeaseModel.lease_expires_at: now + timedelta(seconds=45)},
+        synchronize_session=False,
+    )
+    counts: list[int] = []
+    failures: list[BaseException] = []
+
+    def expire_once():
+        try:
+            with context["session_factory"]() as db:
+                counts.append(expire_task_leases(db))
+        except BaseException as exc:  # pragma: no cover - diagnostic
+            failures.append(exc)
+
+    expiry = threading.Thread(target=expire_once)
+    try:
+        expiry.start()
+        expiry.join(1.0)
+        assert expiry.is_alive(), "l'expiration doit attendre le verrou du renouvellement"
+        renewer.commit()
+    finally:
+        renewer.close()
+    expiry.join(60)
+
+    assert not failures, failures
+    assert counts == [0]
+    assert _events_of_type(context, "task.interrupted", run_id) == []
+    with context["session_factory"]() as db:
+        assert db.query(WorkerLeaseModel).filter_by(task_run_id=run_id).one().status == "active"
+        assert db.get(TaskRunModel, run_id).status == "running"
+
+
 @pytest.mark.concurrency
 def test_heartbeat_never_overwrites_a_concurrent_claim(portability_context):
     """``active_runs`` est recalculé par la base sous verrou, jamais réécrit depuis une lecture.
