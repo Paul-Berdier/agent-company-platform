@@ -401,10 +401,24 @@ curseurs disjoints, que le client ne mélange jamais : la portée tentative
 historique sans numéro est exclue de la page plutôt que de la faire échouer ; la
 migration additive les numérote dans leur ordre d'insertion.
 
-L'outbox n'est pas livrée. Le flux relit la base par curseur au lieu de dépendre d'un
-relais : la base est la seule source de vérité, donc une reconnexion ne duplique ni ne
-perd d'événement, et plusieurs processus d'API peuvent servir la même tentative. Un
-hub local ne transporte que des numéros de séquence, jamais des données.
+Le flux utilisateur relit la base par curseur au lieu de dépendre d'un relais : la
+base est la seule source de vérité, donc une reconnexion ne duplique ni ne perd
+d'événement, et plusieurs processus d'API peuvent servir la même tentative. Un hub
+local ne transporte que des numéros de séquence, jamais des données.
+
+Le Lot H ajoute une **outbox transactionnelle** pour la diffusion vers le service
+d'événements, distincte de ce flux. Quand `ACP_EVENT_RELAY_ENABLED` vaut exactement
+`1`, chaque écriture du journal insère dans la même transaction une ligne
+`event_outbox` ; un processus séparé, `python -m acp_api.outbox_relay --follow`,
+livre ces lignes dans l'ordre du journal et reprend là où il s'est arrêté après une
+coupure. La sémantique est **au moins une fois**, jamais exactement une fois : le
+service d'événements déduplique par identifiant dans une fenêtre bornée en mémoire,
+qu'un redémarrage vide. Une ligne qui échoue `ACP_OUTBOX_MAX_ATTEMPTS` fois devient
+une lettre morte, listée par `--list-dead` et rejouable par `--requeue-dead` ; la
+purge de rétention n'efface jamais un événement dont la livraison est encore due.
+Le relais doit tourner en **une seule réplique** : deux relais ne livrent jamais la
+même ligne, mais l'ordre entre eux n'est pas garanti. Sans la variable, le
+comportement historique (relais direct, sans reprise) est conservé.
 
 `forward_event` continue de recopier l'événement vers `apps/event-service` en
 best effort, pour les consommateurs internes historiques. L'ingestion de ce service

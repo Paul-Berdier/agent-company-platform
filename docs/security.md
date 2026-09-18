@@ -781,8 +781,11 @@ un état durable et un événement d'audit.
   et la capacité `web_tests` n'a jamais été annoncée par un worker réel ;
 - cible et secrets du harnais `ACP_E2E=1`, instance ComfyUI, profils agents de test et
   origine d'aperçu réellement routée ;
-- outbox : le flux relit la base par curseur au lieu de s'appuyer sur un relais, mais
-  aucune outbox transactionnelle n'a été livrée.
+- outbox : le flux utilisateur relit la base par curseur ; le Lot H livre en plus une
+  outbox transactionnelle et un relais vers le service d'événements, activés par
+  `ACP_EVENT_RELAY_ENABLED=1` et une réplique unique de `acp_api.outbox_relay`. La
+  sémantique est au moins une fois et la déduplication du consommateur est en mémoire :
+  un redémarrage du service peut rediffuser un lot.
 - limitation de débit distribuée et signature de corps pour le webhook entrant ; le
   compteur local par processus, le secret aléatoire et la déduplication ne remplacent
   pas ces contrôles de bordure ;
