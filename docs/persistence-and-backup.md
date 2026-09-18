@@ -156,9 +156,18 @@ voit** (`127.0.0.1:5432` à l'intérieur, alors que l'opérateur parle à `55432
 seule valeur vaut pour toute l'exécution de la commande : une restauration avec
 `--replace` sur PostgreSQL dumpe puis restaure la même base cible, ce qui est
 cohérent ; pour sauvegarder A puis restaurer vers B depuis un conteneur, lancez deux
-commandes avec deux valeurs. L'URL passée en argument aux outils contient le mot de
+commandes avec deux valeurs. La substitution ne change que le **chemin d'accès** au
+serveur : si le nom de base qu'elle porte diffère de celui de l'URL sur laquelle la
+commande travaille, la commande refuse avant d'appeler le moindre outil, en citant
+les deux noms. Sans ce contrôle, une variable oubliée d'une exécution précédente
+faisait vider une base et restaurer dans une autre. L'URL passée en argument aux outils contient le mot de
 passe et reste visible dans la liste des processus le temps de la commande ; les
 messages et les journaux de la commande, eux, ne le contiennent jamais.
+
+`restore --replace` met d'abord les répertoires à l'écart (opération réversible :
+ils sont remis en place si la suite échoue), **puis** vide la base cible, puis
+restaure. Si la restauration échoue après le vidage, la commande imprime l'état exact
+(« base VIDÉE et non restaurée ») et le chemin de la sauvegarde préalable vérifiée.
 
 ## Ordre opérateur recommandé
 

@@ -149,13 +149,29 @@ def tool_url(url: str, environ: Mapping[str, str] = os.environ) -> str:
     entièrement l'URL substituée au jeton ``{url}``.
     """
 
-    override = (environ.get(TOOLS_URL_ENV) or "").strip()
-    if override:
-        return override
     try:
         parsed = make_url(url)
     except ArgumentError as exc:
         raise SnapshotError(f"URL PostgreSQL invalide : {exc}") from exc
+    override = (environ.get(TOOLS_URL_ENV) or "").strip()
+    if override:
+        # La substitution ne change que le chemin d'accès au serveur, jamais la
+        # base visée : sans ce contrôle, une variable laissée d'une exécution
+        # précédente ferait sauvegarder puis restaurer une base pendant que le
+        # reste de la commande (comptages, vidage, empreinte) en vise une autre.
+        try:
+            substituted = make_url(override)
+        except ArgumentError as exc:
+            raise SnapshotError(
+                f"{TOOLS_URL_ENV} invalide : {exc}"
+            ) from exc
+        if substituted.database != parsed.database:
+            raise SnapshotError(
+                f"{TOOLS_URL_ENV} vise la base « {substituted.database} » alors que "
+                f"la commande travaille sur « {parsed.database} » : corrigez ou "
+                "retirez la variable avant de relancer"
+            )
+        return override
     if not parsed.drivername.startswith("postgresql"):
         raise SnapshotError(
             f"URL PostgreSQL attendue, reçu le dialecte « {parsed.drivername} »"

@@ -536,6 +536,72 @@ def test_replace_aborts_before_touching_the_target_if_the_pre_backup_fails(
     assert not [p for p in tmp_path.iterdir() if ".pre-restore-" in p.name]
 
 
+def test_a_failed_move_aside_leaves_the_target_intact(world, target, tmp_path, monkeypatch):
+    """Une mise à l'écart impossible ne doit jamais laisser la cible à moitié remplacée.
+
+    La mise à l'écart des répertoires est réversible, le remplacement de la base
+    ne l'est pas : le premier échoue ici, et rien de ce qui suit ne doit avoir eu
+    lieu — ni vidage, ni répertoire laissé déplacé.
+    """
+
+    output = tmp_path / "sauvegarde"
+    create(world, output)
+    target.populate()
+    before = table_fingerprints(target.url)
+    before_artifacts = _files_of(target.artifacts_dir)
+    before_skills = _files_of(target.skills_dir)
+    pre_restore = tmp_path / "avant"
+
+    # Le second déplacement échoue : le premier doit être défait.
+    original_rename = Path.rename
+    skills_name = target.skills_dir.name
+
+    def refusing_rename(self: Path, destination):
+        if self.name == skills_name:
+            raise PermissionError(13, "Accès refusé (simulé)")
+        return original_rename(self, destination)
+
+    monkeypatch.setattr(Path, "rename", refusing_rename)
+    code, out, err = run(
+        restore_args(output, target, "--replace", "--pre-restore-backup", str(pre_restore)),
+        world.environ,
+    )
+    monkeypatch.undo()
+
+    assert code != EXIT_OK, out + err
+    assert "Schéma public de la cible vidé" not in out
+    assert table_fingerprints(target.url) == before
+    assert _files_of(target.artifacts_dir) == before_artifacts
+    assert _files_of(target.skills_dir) == before_skills
+    assert not [p for p in tmp_path.iterdir() if ".pre-restore-" in p.name]
+
+
+def test_tools_url_override_refuses_another_database(monkeypatch):
+    """Une substitution d'outils qui vise une autre base est refusée avant tout appel.
+
+    Sans ce contrôle, ``pg_dump`` et ``pg_restore`` travaillaient sur la base de la
+    variable pendant que le reste de la commande (comptages, vidage, empreinte)
+    visait celle de l'URL : la cible était vidée et la restauration partait ailleurs.
+    """
+
+    from acp_database import snapshot
+
+    url = "postgresql+psycopg://acp:acp@127.0.0.1:55432/base_visee"
+    monkeypatch.setenv(
+        "ACP_BACKUP_DATABASE_URL_FOR_TOOLS",
+        "postgresql://acp:acp@127.0.0.1:5432/une_autre_base",
+    )
+    with pytest.raises(snapshot.SnapshotError) as refus:
+        snapshot.tool_url(url)
+    assert "une_autre_base" in str(refus.value) and "base_visee" in str(refus.value)
+
+    monkeypatch.setenv(
+        "ACP_BACKUP_DATABASE_URL_FOR_TOOLS",
+        "postgresql://acp:acp@127.0.0.1:5432/base_visee",
+    )
+    assert snapshot.tool_url(url) == "postgresql://acp:acp@127.0.0.1:5432/base_visee"
+
+
 def test_restore_refuses_the_source_and_another_dialect(world, tmp_path, monkeypatch):
     output = tmp_path / "sauvegarde"
     create(world, output)

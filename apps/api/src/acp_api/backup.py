@@ -902,6 +902,7 @@ def restore_backup(
         )
 
     tables = _target_tables(into_url)
+    wiped = False
     occupied: list[str] = []
     if tables:
         occupied.append(f"base {redacted_url(into_url)} ({len(tables)} table(s))")
@@ -936,22 +937,60 @@ def restore_backup(
                 stdout=out,
             )
             verify_backup(pre_restore_backup, stdout=out)
+        # Ordre imposé : les opérations réversibles d'abord, l'irréversible ensuite.
+        # Vider le schéma avant de déplacer les répertoires laissait la cible vide
+        # dès qu'un renommage échouait (fichier ouvert, répertoire de mise à
+        # l'écart déjà présent), sans aucun retour possible.
         stamp = _utc_stamp()
-        if tables and target_dialect == "postgresql":
-            snapshot.schema_wipe_postgresql(into_url)
-            print("Schéma public de la cible vidé", file=out)
-        for path in (artifacts_dir, skills_dir):
-            if _directory_is_empty(path):
-                continue
-            aside = _move_aside(path, stamp)
-            if aside is not None:
-                print(f"Répertoire mis à l'écart : {aside}", file=out)
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for path in (artifacts_dir, skills_dir):
+                if _directory_is_empty(path):
+                    continue
+                aside = _move_aside(path, stamp)
+                if aside is not None:
+                    moved.append((aside, path))
+                    print(f"Répertoire mis à l'écart : {aside}", file=out)
+            if tables and target_dialect == "postgresql":
+                snapshot.schema_wipe_postgresql(into_url)
+                wiped = True
+                print("Schéma public de la cible vidé", file=out)
+        except BaseException:
+            # Rien d'irréversible n'a encore eu lieu si le vidage n'a pas abouti :
+            # les répertoires retrouvent leur place et la cible reste intacte.
+            for aside, original in reversed(moved):
+                try:
+                    aside.rename(original)
+                except OSError:
+                    print(
+                        f"Répertoire laissé à l'écart : {aside} (remise en place "
+                        f"impossible vers {original})",
+                        file=out,
+                    )
+            raise
 
     database_file = directory / str(database["file"])
-    if target_dialect == "sqlite":
-        snapshot.restore_sqlite(database_file, into_url)
-    else:
-        snapshot.restore_postgresql(database_file, into_url, environ)
+    try:
+        if target_dialect == "sqlite":
+            snapshot.restore_sqlite(database_file, into_url)
+        else:
+            snapshot.restore_postgresql(database_file, into_url, environ)
+    except BaseException:
+        if wiped:
+            # L'opérateur doit savoir que la cible est vide et où se trouve son
+            # contenu précédent : un simple message d'échec le laisserait croire
+            # que rien n'a bougé.
+            print(
+                f"État de la cible : base {redacted_url(into_url)} VIDÉE et non "
+                "restaurée"
+                + (
+                    f" ; sauvegarde préalable vérifiée dans {pre_restore_backup}"
+                    if pre_restore_backup is not None
+                    else ""
+                ),
+                file=out,
+            )
+        raise
     print(f"Base restaurée dans {redacted_url(into_url)}", file=out)
     for entry in manifest["directories"]:
         target = artifacts_dir if entry["name"] == ARTIFACTS_DIRECTORY else skills_dir
