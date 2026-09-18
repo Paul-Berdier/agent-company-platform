@@ -1,6 +1,24 @@
-"""Options du moteur par URL : refus de pilotes, variables, chemin SQLite inchangé."""
+"""Options du moteur par URL : refus de pilotes, variables, chemin SQLite inchangé.
+
+Ces vérifications portent sur le chemin PostgreSQL, que ``engine_options`` refuse
+d'emprunter tant que le pilote n'est pas installé : sans lui, chaque cas rendrait le
+refus de pilote au lieu du comportement testé. Le module est donc ignoré avec une
+raison explicite plutôt que de produire une dizaine d'échecs trompeurs ; l'intégration
+continue installe l'extra, c'est elle qui fait autorité.
+"""
+
+import importlib.util
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("psycopg") is None,
+    reason=(
+        "Pilote psycopg absent : installez « acp-database[postgresql] » pour "
+        "exercer les options du moteur PostgreSQL"
+    ),
+)
+
 from sqlalchemy import text
 
 from acp_database import engine as engine_module
