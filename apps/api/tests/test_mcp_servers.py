@@ -2297,3 +2297,45 @@ def test_absolute_command_detection(command, absolute):
     from acp_api.mcp.service import is_absolute_command
 
     assert is_absolute_command(command) is absolute
+
+
+# --- Frontière de transaction (0.9.1) --------------------------------------------
+
+
+def test_the_http_probe_calls_the_server_outside_any_transaction(mcp_context, monkeypatch):
+    """La résolution des secrets écrit ``last_used_at`` : cette écriture est validée
+    avant la découverte, pour qu'aucune transaction ne reste ouverte pendant les
+    requêtes sortantes (sous PostgreSQL, elle serait tuée au bout de 60 s)."""
+
+    client = mcp_context["client"]
+    fake = mcp_context["fake"]
+    secret_id = _create_secret(mcp_context, "GITHUB_TOKEN", HTTP_SECRET_VALUE)
+    created = client.post("/mcp/servers", json=_http_payload("frontiere", secret_id))
+    assert created.status_code == 201, created.text
+
+    recorded = []
+    base = app.dependency_overrides[get_db]
+
+    def recording():
+        for db in base():
+            recorded.append(db)
+            yield db
+
+    observed: list[bool] = []
+
+    def watching(request: httpx.Request) -> httpx.Response:
+        observed.append(any(db.in_transaction() for db in recorded))
+        return fake.handle(request)
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, recording)
+    monkeypatch.setitem(
+        app.dependency_overrides, mcp_router.get_http_transport, lambda: httpx.MockTransport(watching)
+    )
+
+    probe = client.post(f"/mcp/servers/{created.json()['id']}/probe")
+
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["status"] == "succeeded"
+    assert observed and not any(observed)
+    with mcp_context["session_factory"]() as db:
+        assert db.get(SecretModel, secret_id).last_used_at is not None

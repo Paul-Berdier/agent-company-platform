@@ -1159,6 +1159,10 @@ def run_http_probe(
             )
         )
         redactions = redaction_values(headers)
+        # La résolution a écrit last_used_at : elle est validée ici, avant l'appel
+        # réseau, pour qu'aucune transaction ne reste ouverte pendant la découverte
+        # (acp_api.transactions). Sous PostgreSQL, elle serait tuée au bout de 60 s.
+        db.commit()
         # Contrôle après résolution : une valeur de secret non transmissible doit produire un
         # échec explicite, jamais une erreur d'encodage non gérée pendant l'envoi.
         ensure_transmittable_headers({**config.http.headers, **headers})

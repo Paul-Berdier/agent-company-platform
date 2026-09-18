@@ -38,6 +38,7 @@ from ..attempt_fencing import (
     require_active_worker_attempt,
 )
 from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
+from ..transactions import end_read_transaction
 from .artifacts import receive_worker_artifact_content
 from .workers import _as_utc, authenticate_worker, expire_task_leases, utcnow
 
@@ -581,6 +582,9 @@ async def upload_artifact_content(
 
     worker = authenticate_worker(db, worker_id, authorization)
     fencing_token = parse_attempt_fencing_token(attempt_fencing_token)
+    # Aucune transaction ne reste ouverte pendant la réception du corps (voir
+    # acp_api.transactions) : sous PostgreSQL, elle serait tuée au bout de 60 s.
+    end_read_transaction(db)
     return await receive_worker_artifact_content(
         db, worker, request, fencing_token=fencing_token
     )

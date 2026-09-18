@@ -59,6 +59,7 @@ from . import SkillError
 from . import scan as scan_module
 from . import sources as sources_module
 from ..events_bus import store_event
+from ..transactions import end_read_transaction
 from ..outbound import OutboundPolicy, PinnedHttpClient
 
 FRONTMATTER_MAX_CHARS = 65_536
@@ -671,6 +672,9 @@ def materialize_source(db: Session, source: Any) -> sources_module.MaterializedS
     l'exige la spécification : ``outbound.private_allowlist_used`` avec ``purpose``.
     """
 
+    # Téléchargement possible jusqu'à 25 Mio : les lectures de contrôle de la route ne
+    # gardent pas leur transaction pendant ce temps (acp_api.transactions).
+    end_read_transaction(db)
     enabled = sources_module.github_enabled(os.environ)
     client = None
     allowlist_used: set[tuple[str, str]] = set()

@@ -1312,3 +1312,39 @@ def test_fingerprint_is_stable_and_content_sensitive():
     assert skills_service.compute_fingerprint(first) == skills_service.compute_fingerprint(second)
     changed = skills_service.build_manifest([("SKILL.md", b"a"), ("ref/n.md", b"c")])
     assert skills_service.compute_fingerprint(changed) != skills_service.compute_fingerprint(first)
+
+
+# --- Frontière de transaction (0.9.1) --------------------------------------------
+
+
+def test_the_source_is_materialized_outside_any_transaction(context, monkeypatch):
+    """Le téléchargement d'une source (jusqu'à 25 Mio depuis GitHub) ne garde pas la
+    transaction des lectures de contrôle de la route : sous PostgreSQL, elle serait
+    tuée au bout de 60 s d'inactivité."""
+
+    from acp_api.skills import service as skills_service
+
+    recorded = []
+    base = app.dependency_overrides[get_db]
+
+    def recording():
+        for db in base():
+            recorded.append(db)
+            yield db
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, recording)
+    observed: list[bool] = []
+    real_materialize = skills_service.sources_module.materialize
+
+    def watching(*args, **kwargs):
+        observed.append(any(db.in_transaction() for db in recorded))
+        return real_materialize(*args, **kwargs)
+
+    monkeypatch.setattr(skills_service.sources_module, "materialize", watching)
+
+    _import(
+        context["client"],
+        _manual({"SKILL.md": "---\nname: frontiere\ndescription: test\n---\nCorps.\n"}),
+    )
+
+    assert observed == [False]

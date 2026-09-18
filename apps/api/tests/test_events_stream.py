@@ -2123,3 +2123,48 @@ def test_no_module_writes_an_event_row_outside_the_journal_writer():
         "ces modules écrivent une ligne d'événement sans passer par "
         f"events_bus.store_event : {', '.join(offenders)}"
     )
+
+
+# --- Frontière de transaction (0.9.1) --------------------------------------------
+
+
+@pytest.mark.parametrize("scope", ["run", "project"])
+def test_a_stream_keeps_no_request_transaction_while_it_runs(stream_context, monkeypatch, scope):
+    """La session de la requête ne garde ni transaction ni connexion pendant le flux.
+
+    Avec FastAPI, une dépendance ``get_db`` reste ouverte jusqu'à la fin d'une réponse
+    en flux : sans libération explicite, chaque flux retenait une connexion du pool
+    jusqu'à ACP_STREAM_MAX_SECONDS, et PostgreSQL la tuait au bout de 60 s.
+    """
+
+    import acp_api.streams as streams_module
+
+    recorded = []
+    base = app.dependency_overrides[get_db]
+
+    def recording():
+        for db in base():
+            recorded.append(db)
+            yield db
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, recording)
+    observed: list[bool] = []
+    real_read = streams_module._read_rows
+
+    def watching(*args, **kwargs):
+        observed.append(any(db.in_transaction() for db in recorded))
+        return real_read(*args, **kwargs)
+
+    monkeypatch.setattr(streams_module, "_read_rows", watching)
+    path = (
+        f"/streams/runs/{stream_context['run_a']}"
+        if scope == "run"
+        else f"/streams/projects/{stream_context['project_a']}"
+    )
+
+    response = stream_context["client"].get(path)
+
+    assert response.status_code == 200
+    assert recorded, "la session de la requête doit avoir été enregistrée"
+    assert observed, "le flux doit avoir lu au moins une page"
+    assert not any(observed), "la session de la requête gardait une transaction"
