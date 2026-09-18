@@ -220,20 +220,37 @@ def _configured_root(environ: Mapping[str, str], name: str) -> Path | None:
     return Path(raw).expanduser() if raw else None
 
 
-def _storage_check(root: Path | None) -> CheckResult:
+def _storage_check(root: Path | None, *, create_missing: bool) -> CheckResult:
     """Crée puis supprime un fichier sonde dans la racine configurée.
 
-    La racine est créée si elle manque, comme le fait le stockage lui-même à la
-    première écriture : la sonde révèle ainsi au démarrage un volume non monté ou
-    des permissions insuffisantes, au lieu de les découvrir sur le premier
-    livrable. Une racine non configurée est « ok » : rien n'est à vérifier.
+    ``create_missing`` n'est vrai qu'au démarrage : la racine est alors initialisée,
+    comme le stockage le ferait à la première écriture, et des permissions
+    insuffisantes se voient avant le premier livrable. La route ``/ready`` ne crée
+    jamais rien : une racine disparue depuis le démarrage (volume démonté) la rend
+    « dégradée » au lieu d'être recréée sur la couche éphémère du conteneur. Qu'un
+    volume soit réellement monté ne se prouve pas ici mais dans l'entrypoint de
+    l'image, qui refuse un répertoire de données non persistant.
+
+    Une racine non configurée est « ok » : le stockage se replie alors sur
+    ``./acp-data``, ce que le motif dit explicitement.
     """
 
     if root is None:
-        return CheckResult(True, "non configuré", {"configured": False})
+        return CheckResult(
+            True,
+            "non configuré : repli sur ./acp-data, non persistant hors poste de développement",
+            {"configured": False},
+        )
+    if not create_missing and not root.exists():
+        return CheckResult(
+            False,
+            "racine absente : volume démonté ou répertoire supprimé depuis le démarrage",
+            {"configured": True},
+        )
     probe = root / f"{PROBE_PREFIX}{secrets.token_hex(8)}"
     try:
-        root.mkdir(parents=True, exist_ok=True)
+        if create_missing:
+            root.mkdir(parents=True, exist_ok=True)
         probe.write_bytes(b"ready")
         probe.unlink()
     except OSError as exc:
@@ -288,12 +305,15 @@ def _outbox_check(
     )
 
 
-def build_report(*, engine, environ: Mapping[str, str]) -> ReadinessReport:
+def build_report(
+    *, engine, environ: Mapping[str, str], create_storage_roots: bool = False
+) -> ReadinessReport:
     """Exécute tous les contrôles contre ``engine`` avec la configuration ``environ``.
 
     Les contrôles dépendant de la base (migrations, boîte d'envoi) ne sont tentés
     que si la base répond : une base injoignable produit un seul diagnostic net
-    plutôt que trois erreurs de connexion en cascade.
+    plutôt que trois erreurs de connexion en cascade. ``create_storage_roots`` n'est
+    posé que par le démarrage (voir :func:`_storage_check`).
     """
 
     database = _database_check(engine)
@@ -301,10 +321,12 @@ def build_report(*, engine, environ: Mapping[str, str]) -> ReadinessReport:
         "database": database,
         "migrations": _migrations_check(engine, environ, database_ok=database.ok),
         "artifact_storage": _storage_check(
-            _configured_root(environ, ARTIFACT_STORAGE_DIR_ENV)
+            _configured_root(environ, ARTIFACT_STORAGE_DIR_ENV),
+            create_missing=create_storage_roots,
         ),
         "skills_storage": _storage_check(
-            _configured_root(environ, SKILLS_STORAGE_DIR_ENV)
+            _configured_root(environ, SKILLS_STORAGE_DIR_ENV),
+            create_missing=create_storage_roots,
         ),
         "outbox": _outbox_check(engine, environ, database_ok=database.ok),
     }
@@ -317,15 +339,16 @@ def build_report(*, engine, environ: Mapping[str, str]) -> ReadinessReport:
 def assert_ready_at_startup(*, engine=None, environ: Mapping[str, str] | None = None) -> None:
     """Refuse le démarrage (``RuntimeError``) si un contrôle bloquant échoue.
 
-    Les stockages ne sont vérifiés que s'ils sont configurés. Le message cite
-    chaque contrôle en échec avec sa raison, jamais ``SystemExit`` : uvicorn
-    journalise l'exception, ne sert aucune requête et laisse l'orchestrateur
-    relancer ou alerter.
+    Les stockages ne sont vérifiés que s'ils sont configurés, et leurs racines sont
+    initialisées ici, au démarrage seulement. Le message cite chaque contrôle en
+    échec avec sa raison, jamais ``SystemExit`` : uvicorn journalise l'exception, ne
+    sert aucune requête et laisse l'orchestrateur relancer ou alerter.
     """
 
     report = build_report(
         engine=engine if engine is not None else get_engine(),
         environ=os.environ if environ is None else environ,
+        create_storage_roots=True,
     )
     failed = report.failed()
     if failed:

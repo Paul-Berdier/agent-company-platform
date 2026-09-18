@@ -109,7 +109,8 @@ def test_ready_reports_every_check_and_never_caches(client, tmp_path, sqlite_url
     assert checks["migrations"]["cached"] is True
     assert checks["artifact_storage"] == {
         "ok": True,
-        "reason": "non configuré",
+        "reason": "non configuré : repli sur ./acp-data, non persistant hors poste de "
+        "développement",
         "configured": False,
     }
     assert checks["skills_storage"]["configured"] is False
@@ -130,6 +131,7 @@ def test_ready_degrades_when_a_storage_root_is_a_file(
     blocked = tmp_path / "artifacts-as-file"
     blocked.write_text("pas un répertoire", encoding="utf-8")
     skills = tmp_path / "skills"
+    skills.mkdir()
     monkeypatch.setenv("ACP_ARTIFACT_STORAGE_DIR", str(blocked))
     monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(skills))
 
@@ -144,10 +146,49 @@ def test_ready_degrades_when_a_storage_root_is_a_file(
     assert artifact["configured"] is True
     assert "non inscriptible" in artifact["reason"]
     assert body["checks"]["skills_storage"]["ok"] is True
-    assert skills.is_dir()
     assert not list(skills.glob(".acp-ready-*"))
     assert blocked.read_text(encoding="utf-8") == "pas un répertoire"
     _assert_no_leak(response.text, tmp_path, sqlite_url)
+
+
+def test_ready_never_recreates_a_root_that_disappeared(
+    client, tmp_path, monkeypatch, sqlite_url
+):
+    # Avant 0.9.1, la sonde créait la racine manquante : un volume démonté passait
+    # pour sain, et les livrables suivants partaient sur la couche éphémère.
+    missing = tmp_path / "volume" / "artifacts"
+    monkeypatch.setenv("ACP_ARTIFACT_STORAGE_DIR", str(missing))
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    artifact = body["checks"]["artifact_storage"]
+    assert artifact == {
+        "ok": False,
+        "reason": "racine absente : volume démonté ou répertoire supprimé depuis le "
+        "démarrage",
+        "configured": True,
+    }
+    assert not missing.exists()
+    assert not missing.parent.exists()
+    _assert_no_leak(response.text, tmp_path, sqlite_url)
+
+
+def test_startup_initialises_the_configured_roots(sqlite_url, tmp_path, monkeypatch):
+    artifacts = tmp_path / "donnees" / "artifacts"
+    skills = tmp_path / "donnees" / "skills"
+    monkeypatch.setenv("ACP_ARTIFACT_STORAGE_DIR", str(artifacts))
+    monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(skills))
+
+    with TestClient(app) as api_client:
+        assert artifacts.is_dir() and skills.is_dir()
+        response = api_client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["checks"]["artifact_storage"]["reason"] == "racine inscriptible"
+    assert not list(artifacts.glob(".acp-ready-*"))
 
 
 def test_ready_degrades_when_alembic_version_is_missing(client, monkeypatch):

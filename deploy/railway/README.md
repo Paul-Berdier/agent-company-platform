@@ -132,6 +132,14 @@ déploient jamais : elles appartiennent à la CI et à `docker/compose.test.yml`
   **n'a pas été testé**. Deux issues possibles, à décider à l'exploitation :
   accepter `RAILWAY_RUN_UID=0` sur `api` seulement, ou constater au premier
   déploiement que le volume est inscriptible et ne rien changer.
+- **Volume réellement monté (0.9.1).** L'image crée `/data` elle-même : sans volume, le
+  répertoire existe et reste inscriptible, et les livrables écrits disparaîtraient au
+  redéploiement pendant que la base les référence encore. `api`, `artifact-preview` et
+  `backup` refusent donc de démarrer (code 3) si `/data` et les racines de stockage ne
+  sont sur aucun volume monté. `ACP_DATA_DIR_EPHEMERAL=1` lève ce refus pour un usage
+  jetable assumé : c'est acceptable sur `artifact-preview` tant qu'il ne peut de toute
+  façon pas lire le volume de l'API, jamais sur `api`. Vérification sans lancer de
+  service : `/app/docker/entrypoint.sh check-data`.
 - **Pré-déploiement sans volume.** La migration n'a besoin que de la base ; elle
   n'accède pas à `/data`, ce que l'entrypoint respecte (`migrate` ne vérifie pas le
   répertoire de données).

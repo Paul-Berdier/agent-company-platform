@@ -173,7 +173,10 @@ Points à tenir, dans cet ordre :
 1. `ACP_ARTIFACT_STORAGE_DIR` doit pointer vers un **volume persistant**, comme
    `ACP_SKILLS_STORAGE_DIR`. Les blobs y vivent ; un système de fichiers éphémère les
    perdrait au redéploiement alors que la base continuerait de les référencer. Le
-   stockage est local : **aucun adaptateur objet distant n'est livré**.
+   stockage est local : **aucun adaptateur objet distant n'est livré**. Depuis 0.9.1,
+   l'entrypoint de l'image refuse de démarrer si ces racines ne sont sur aucun volume
+   monté (dérogation explicite : `ACP_DATA_DIR_EPHEMERAL=1`), et `/ready` ne recrée
+   jamais une racine disparue : voir `deploy/railway/README.md`.
 2. `ACP_ARTIFACT_PUBLIC_ORIGIN` est le **prérequis de sécurité de ce lot**. Tant
    qu'elle est vide, une demande `purpose=preview` répond `424` avant création du
    jeton, sans repli même origine. Les liens de téléchargement restent sur l'API. Un
