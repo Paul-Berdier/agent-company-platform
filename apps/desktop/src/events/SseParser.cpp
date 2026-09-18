@@ -43,6 +43,14 @@ QList<SseEvent> SseParser::consume(const QByteArray &chunk)
     }
 
     qsizetype index = 0;
+    if (m_skipLeadingLf && !m_pending.isEmpty()) {
+        // Seconde moitié d'un CRLF coupé entre deux fragments : le retour chariot a déjà
+        // clos la ligne, ce saut de ligne ne doit pas en ouvrir une vide.
+        if (m_pending.at(0) == '\n') {
+            index = 1;
+        }
+        m_skipLeadingLf = false;
+    }
     while (true) {
         qsizetype terminator = -1;
         for (qsizetype position = index; position < m_pending.size(); ++position) {
@@ -55,22 +63,25 @@ QList<SseEvent> SseParser::consume(const QByteArray &chunk)
         if (terminator < 0) {
             break;
         }
-        if (m_pending.at(terminator) == '\r' && terminator == m_pending.size() - 1) {
-            // Un retour chariot en dernière position : impossible de savoir encore s'il
-            // est suivi d'un saut de ligne. On le garde pour le fragment suivant, sans
-            // quoi un CRLF coupé en deux produirait une ligne vide fantôme — donc un
-            // dispatch prématuré.
-            break;
-        }
 
         // Une ligne complète ne peut pas couper une séquence UTF-8 multi-octets : les
         // octets de continuation valent au moins 0x80 et ne peuvent donc jamais être
         // confondus avec CR ou LF. Le décodage par ligne est sûr.
         const QByteArray lineBytes = m_pending.mid(index, terminator - index);
         qsizetype next = terminator + 1;
-        if (m_pending.at(terminator) == '\r' && next < m_pending.size()
-            && m_pending.at(next) == '\n') {
-            ++next;
+        if (m_pending.at(terminator) == '\r') {
+            if (next < m_pending.size()) {
+                if (m_pending.at(next) == '\n') {
+                    ++next;
+                }
+            } else {
+                // Le retour chariot est le dernier octet reçu. Il clôt la ligne tout de
+                // suite (la spécification SSE admet CR seul comme fin de ligne) : le
+                // retenir retarderait la livraison d'un événement jusqu'au fragment
+                // suivant. On note seulement qu'un saut de ligne initial du prochain
+                // fragment appartiendrait à ce même CRLF.
+                m_skipLeadingLf = true;
+            }
         }
         handleLine(QString::fromUtf8(lineBytes), out);
         index = next;
@@ -85,16 +96,13 @@ QList<SseEvent> SseParser::consume(const QByteArray &chunk)
 QList<SseEvent> SseParser::finish()
 {
     QList<SseEvent> out;
-    if (m_pending.endsWith('\r')) {
-        // Le retour chariot retenu attendait un éventuel saut de ligne ; le flux est clos,
-        // il ne viendra pas. C'était donc bien un terminateur de ligne.
-        const QByteArray lineBytes = m_pending.left(m_pending.size() - 1);
-        handleLine(QString::fromUtf8(lineBytes), out);
-    }
+    // Un retour chariot final est désormais traité dès sa réception : il ne reste ici
+    // qu'une éventuelle ligne sans terminateur, qu'un événement ne complète jamais.
     // Tout bloc tronqué est abandonné : un événement partiel n'est jamais complété par
     // hypothèse. L'identifiant de reprise, lui, est conservé.
     m_pending.clear();
     m_bomChecked = false;
+    m_skipLeadingLf = false;
     m_eventType.clear();
     m_dataBuffer.clear();
     return out;
@@ -104,6 +112,7 @@ void SseParser::resetFrameBuffers()
 {
     m_pending.clear();
     m_bomChecked = false;
+    m_skipLeadingLf = false;
     m_eventType.clear();
     m_dataBuffer.clear();
     // m_idBuffer et m_lastEventId survivent : une reconnexion repart du dernier

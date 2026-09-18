@@ -15,6 +15,9 @@
 
 #pragma once
 
+// Le type complet est exigé : moc génère les métadonnées des signatures qui
+// transportent QList<QNetworkCookie>, ce qu'une déclaration anticipée ne permet pas.
+#include <QNetworkCookie>
 #include <QNetworkCookieJar>
 #include <QString>
 
@@ -47,6 +50,7 @@ signals:
         détecter une purge côté serveur (Set-Cookie d'expiration sur /auth/logout). */
     void sessionCookiePresenceChanged(bool present);
 
+public:
     // Surcharges du pot : elles enregistrent le changement de présence, sans journaliser
     // la moindre valeur de cookie.
     //

@@ -53,6 +53,7 @@ target_link_libraries(tst_qml_shell PRIVATE
     acp_themeplugin
     acp_controlsplugin
     acp_componentsplugin
+    Qt6::QuickControls2
 )
 set_target_properties(tst_qml_shell PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME tst_qml_shell COMMAND tst_qml_shell)

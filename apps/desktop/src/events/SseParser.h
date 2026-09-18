@@ -81,6 +81,10 @@ private:
 
     QByteArray m_pending;      //!< Octets non encore consommés (ligne ou UTF-8 incomplets).
     bool m_bomChecked = false; //!< La marque d'ordre des octets n'est cherchée qu'en tête de flux.
+    /*! Le fragment précédent finissait par un retour chariot déjà traité comme fin de
+        ligne : si le suivant commence par un saut de ligne, c'est la seconde moitié
+        d'un CRLF coupé en deux, et elle doit être ignorée. */
+    bool m_skipLeadingLf = false;
 
     QString m_eventType;        //!< Tampon « event type ».
     QString m_dataBuffer;       //!< Tampon « data ».

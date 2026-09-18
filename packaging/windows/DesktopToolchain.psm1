@@ -319,7 +319,11 @@ function Find-AcpInnoSetupCompiler {
         Select-Object -First 1
     if ($commande) { return $commande.Source }
 
+    # winget installe Inno Setup par utilisateur sous LOCALAPPDATA quand on lui
+    # demande --scope user : c'est l'installation recommandée par ce dépôt, qui
+    # évite une élévation inutile. Les deux emplacements machine restent examinés.
     $candidats = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
         (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
     )
