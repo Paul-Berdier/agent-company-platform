@@ -1,15 +1,26 @@
 """Tests de la sélection des templates de salles (office-config)."""
 
-import os
-import tempfile
+from pathlib import Path
 
-os.environ["ACP_DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/test.db"
-os.environ["ACP_PLUGINS_DIR"] = os.path.join(os.path.dirname(__file__), "..", "..", "..", "plugins")
+import pytest
+from fastapi.testclient import TestClient
 
-from fastapi.testclient import TestClient  # noqa: E402
+from acp_agent_sdk import RoomTemplate, select_room_template
+from acp_api.main import app
 
-from acp_agent_sdk import RoomTemplate, select_room_template  # noqa: E402
-from acp_api.main import app  # noqa: E402
+PLUGINS_DIR = Path(__file__).resolve().parents[3] / "plugins"
+
+
+@pytest.fixture(autouse=True)
+def _plugins_dir(monkeypatch):
+    """Les templates de salles viennent des plugins du dépôt, chargés par le lifespan.
+
+    La base du lifespan est fournie par ``conftest.py`` : ce module ne touche plus
+    ``os.environ`` à l'import, ce qui rendait la suite dépendante de l'ordre de
+    collecte.
+    """
+
+    monkeypatch.setenv("ACP_PLUGINS_DIR", str(PLUGINS_DIR))
 
 
 def _templates():

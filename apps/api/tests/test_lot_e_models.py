@@ -16,17 +16,16 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
 
 from acp_api.streams import read_project_page
 from acp_database import engine as engine_module
 from acp_database.models import (
     ArtifactLinkModel,
-    Base,
     EventModel,
     TestCaseModel,
     TestRunModel,
 )
+from acp_database.testing import make_test_engine
 
 LOT_E_TABLES = {"test_runs", "test_cases", "artifact_links"}
 
@@ -70,20 +69,15 @@ CREATE TABLE artifacts (
 """
 
 
-def _memory_engine():
-    return create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-
-
 @pytest.fixture
-def engine():
-    engine = _memory_engine()
-    Base.metadata.create_all(engine)
+def engine(tmp_path):
+    """Moteur bi-dialecte : mémoire SQLite sans variable, schéma PostgreSQL avec."""
+
+    database = make_test_engine(tmp_path)
     try:
-        yield engine
+        yield database.engine
     finally:
-        engine.dispose()
+        database.close()
 
 
 @pytest.fixture
@@ -157,11 +151,13 @@ def test_artifacts_gains_the_content_columns(inspector):
     assert columns["deleted_at"]["nullable"] is True
 
 
+@pytest.mark.sqlite
 def test_artifact_storage_key_is_indexed(engine):
     with engine.connect() as connection:
         assert "ix_artifacts_storage_key" in _index_names(connection, "artifacts")
 
 
+@pytest.mark.sqlite
 def test_event_sequence_indexes_exist(engine):
     with engine.connect() as connection:
         names = _index_names(connection, "events")
@@ -172,6 +168,7 @@ def test_event_sequence_indexes_exist(engine):
         assert "sequence IS NOT NULL" in sql
 
 
+@pytest.mark.sqlite
 def test_event_journal_sequence_indexes_exist(engine):
     """Le compteur de journal est indexé, et son unicité est partielle comme la séquence."""
 
@@ -401,6 +398,7 @@ def legacy_database(tmp_path, monkeypatch):
         engine_module.get_session_factory.cache_clear()
 
 
+@pytest.mark.sqlite
 def test_init_db_upgrades_an_existing_database_and_stays_idempotent(legacy_database):
     engine_module.init_db()
     engine = engine_module.get_engine()
@@ -428,6 +426,7 @@ def test_init_db_upgrades_an_existing_database_and_stays_idempotent(legacy_datab
     assert historical[1] is None
 
 
+@pytest.mark.sqlite
 def test_the_migration_numbers_existing_rows_in_insertion_order(legacy_database):
     """Les lignes antérieures reçoivent un ``journal_seq`` unique et croissant."""
 
@@ -447,6 +446,7 @@ def test_the_migration_numbers_existing_rows_in_insertion_order(legacy_database)
     assert len(set(numbers)) == len(numbers)
 
 
+@pytest.mark.sqlite
 def test_a_second_migration_leaves_the_journal_sequences_untouched(legacy_database):
     """Idempotence : rejouer la migration ne renumérote ni ne casse rien."""
 
@@ -463,6 +463,7 @@ def test_a_second_migration_leaves_the_journal_sequences_untouched(legacy_databa
         assert connection.execute(statement).all() == before
 
 
+@pytest.mark.sqlite
 def test_a_migrated_database_is_read_in_insertion_order(legacy_database):
     """La page projet rend les lignes migrées dans leur ordre d'écriture, sans trou."""
 
@@ -475,6 +476,7 @@ def test_a_migrated_database_is_read_in_insertion_order(legacy_database):
     assert page.has_more is False
 
 
+@pytest.mark.sqlite
 def test_upgraded_database_enforces_the_journal_sequence_uniqueness(legacy_database):
     """Deux lignes ne peuvent pas partager un numéro de journal après migration."""
 
@@ -495,6 +497,7 @@ def test_upgraded_database_enforces_the_journal_sequence_uniqueness(legacy_datab
             )
 
 
+@pytest.mark.sqlite
 def test_upgraded_database_enforces_the_sequence_uniqueness(legacy_database):
     engine_module.init_db()
     engine = engine_module.get_engine()

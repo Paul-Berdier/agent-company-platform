@@ -43,6 +43,7 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from acp_database.testing import make_test_engine
 
 NOW = datetime(2026, 9, 14, 12, tzinfo=UTC)
 TOKEN = "scheduler-worker-secret"
@@ -70,7 +71,9 @@ def test_terminal_reconciliation_locks_only_the_non_nullable_occurrence_on_postg
     assert statements[0].rstrip().endswith("FOR UPDATE OF automation_runs")
 
 
-def _engine(path):
+def _legacy_sqlite_engine(path):
+    """Fichier SQLite nu, pour le seul test de mise à niveau ad hoc (marqué ``sqlite``)."""
+
     return create_engine(
         f"sqlite+pysqlite:///{path.as_posix()}",
         connect_args={"check_same_thread": False, "timeout": 30},
@@ -100,9 +103,8 @@ def _mission_template() -> dict:
 
 @pytest.fixture
 def scheduler_db(tmp_path):
-    engine = _engine(tmp_path / "scheduler.db")
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    database = make_test_engine(tmp_path, concurrent=True)
+    factory = sessionmaker(bind=database.engine, expire_on_commit=False)
     with factory() as db:
         organization = OrganizationModel(name="Scheduler org")
         db.add(organization)
@@ -130,7 +132,7 @@ def scheduler_db(tmp_path):
     try:
         yield factory, identifiers
     finally:
-        engine.dispose()
+        database.close()
 
 
 def _automation(
@@ -1118,8 +1120,9 @@ def test_production_app_exposes_the_authenticated_scheduler_protocol():
     )
 
 
+@pytest.mark.sqlite
 def test_legacy_sqlite_is_upgraded_additively(tmp_path):
-    engine = _engine(tmp_path / "legacy-scheduler.db")
+    engine = _legacy_sqlite_engine(tmp_path / "legacy-scheduler.db")
     with engine.begin() as connection:
         connection.execute(
             text(

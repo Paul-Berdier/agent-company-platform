@@ -8,9 +8,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import QueuePool
 
 from acp_api import budget_service
 from acp_api.deps import get_db, get_principal
@@ -19,7 +17,6 @@ from acp_api.routers.workers import _token_hash
 from acp_contracts import MAX_BUDGET_COST, MAX_BUDGET_COUNTER
 from acp_database.models import (
     AlertModel,
-    Base,
     BudgetUsageModel,
     BudgetUsageReportModel,
     EventModel,
@@ -34,17 +31,13 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from acp_database.testing import make_test_engine
 
 
 @pytest.fixture
 def budget_context(tmp_path):
-    engine = create_engine(
-        f"sqlite+pysqlite:///{(tmp_path / 'budgets.db').as_posix()}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=QueuePool,
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path, concurrent=True)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
     token = f"worker-{uuid4().hex}"
     with session_factory() as db:
         organization = OrganizationModel(name="Budget org")
@@ -162,7 +155,7 @@ def budget_context(tmp_path):
                 **ids,
             }
     finally:
-        engine.dispose()
+        database.close()
 
 
 def _headers(context, run_index=0, *, token=None, fence=None):

@@ -19,9 +19,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from acp_api.artifacts_storage import LocalArtifactStorage
 from acp_api.retention import (
@@ -32,7 +30,6 @@ from acp_api.retention import (
 )
 from acp_database.models import (
     ArtifactModel,
-    Base,
     EventModel,
     EventOutboxModel,
     MissionEvidenceModel,
@@ -43,6 +40,7 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from acp_database.testing import make_test_engine
 
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
 
@@ -79,15 +77,12 @@ def _web_tests_evidence_data(artifact_id: str) -> dict:
 
 
 @pytest.fixture
-def session_factory():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+def session_factory(tmp_path):
+    database = make_test_engine(tmp_path)
     try:
-        yield sessionmaker(bind=engine, expire_on_commit=False)
+        yield sessionmaker(bind=database.engine, expire_on_commit=False)
     finally:
-        engine.dispose()
+        database.close()
 
 
 @pytest.fixture

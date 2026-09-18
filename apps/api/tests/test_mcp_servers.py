@@ -20,9 +20,7 @@ import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from acp_contracts.redaction import REDACTED_PLACEHOLDER
 
@@ -34,7 +32,6 @@ from acp_api.routers.workers import utcnow
 from acp_api.secrets_vault import SecretsVault, generate_key
 from acp_api.security import create_user_session, hash_password
 from acp_database.models import (
-    Base,
     EventModel,
     McpProbeModel,
     McpServerModel,
@@ -44,6 +41,7 @@ from acp_database.models import (
     UserModel,
     WorkerModel,
 )
+from acp_database.testing import make_test_engine
 
 PUBLIC_IP = "93.184.216.34"
 PASSWORD = "correct horse battery staple"
@@ -139,7 +137,7 @@ class RouterFakeMcp:
 
 
 @pytest.fixture
-def mcp_context(monkeypatch):
+def mcp_context(monkeypatch, tmp_path):
     bootstrap_token = f"bootstrap-{uuid4().hex}"
     registration_token = f"registration-{uuid4().hex}"
     monkeypatch.setenv("ACP_BOOTSTRAP_TOKEN", bootstrap_token)
@@ -148,11 +146,8 @@ def mcp_context(monkeypatch):
     monkeypatch.setenv("ACP_SECRETS_KEYS", generate_key())
     monkeypatch.delenv("ACP_OUTBOUND_PRIVATE_ALLOWLIST", raising=False)
     monkeypatch.delenv("ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP", raising=False)
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
     fake = RouterFakeMcp()
     resolver_table = {
         "mcp.example": [PUBLIC_IP],
@@ -247,7 +242,7 @@ def mcp_context(monkeypatch):
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(mcp_router.get_dns_resolver, None)
         app.dependency_overrides.pop(mcp_router.get_http_transport, None)
-        engine.dispose()
+        database.close()
 
 
 # --- helpers ---------------------------------------------------------------------------------
@@ -1492,14 +1487,9 @@ def test_claim_rechecks_authorization_ttl_after_lock_before_disclosing_secrets(
         assert secret is not None and secret.last_used_at is None
 
 
-def test_concurrent_sqlite_claim_discloses_one_probe_to_one_runner(tmp_path, monkeypatch):
-    database_path = tmp_path / "mcp-probe-claim.db"
-    engine = create_engine(
-        f"sqlite:///{database_path.as_posix()}",
-        connect_args={"check_same_thread": False, "timeout": 10},
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+def test_concurrent_claim_discloses_one_probe_to_one_runner(tmp_path, monkeypatch):
+    database = make_test_engine(tmp_path, concurrent=True)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
     vault_key = generate_key()
     vault = SecretsVault([vault_key.encode("ascii")])
     worker_pepper = f"pepper-{uuid4().hex}"
@@ -1872,7 +1862,7 @@ def test_concurrent_sqlite_claim_discloses_one_probe_to_one_runner(tmp_path, mon
             assert stored_report.status == "succeeded"
             assert stored_report.finished_at is not None
     finally:
-        engine.dispose()
+        database.close()
 
 
 def test_claim_without_a_configured_vault_fails_the_probe_explicitly(mcp_context, monkeypatch):

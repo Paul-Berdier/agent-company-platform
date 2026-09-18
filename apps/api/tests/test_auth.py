@@ -4,31 +4,25 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.security import hash_token, utcnow, verify_password
-from acp_database.models import Base, UserModel, UserSessionModel
+from acp_database.models import UserModel, UserSessionModel
+from acp_database.testing import make_test_engine
 
 BOOTSTRAP_TOKEN = "test-bootstrap-token-with-enough-entropy"
 PASSWORD = "correct horse battery staple"
 
 
 @pytest.fixture
-def auth_client(monkeypatch):
+def auth_client(monkeypatch, tmp_path):
     monkeypatch.setenv("ACP_BOOTSTRAP_TOKEN", BOOTSTRAP_TOKEN)
     monkeypatch.setenv("ACP_SESSION_COOKIE_SECURE", "0")
     monkeypatch.setenv("ACP_SESSION_TTL_SECONDS", "3600")
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
 
     def override_get_db():
         with session_factory() as db:
@@ -40,7 +34,7 @@ def auth_client(monkeypatch):
             yield client, session_factory
     finally:
         app.dependency_overrides.pop(get_db, None)
-        engine.dispose()
+        database.close()
 
 
 def _bootstrap(client: TestClient, *, login: str = "Owner"):

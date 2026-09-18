@@ -10,9 +10,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from acp_api import events_bus
 from acp_api.deps import get_db
@@ -22,7 +20,6 @@ from acp_api.testing_service import derive_technical_validation
 from acp_contracts import TestRunSummary, TestTotals
 from acp_database.models import (
     ArtifactModel,
-    Base,
     EventModel,
     MembershipModel,
     TaskRunModel,
@@ -31,6 +28,7 @@ from acp_database.models import (
     UserModel,
     WorkerLeaseModel,
 )
+from acp_database.testing import make_test_engine
 
 PASSWORD = "correct horse battery staple"
 STARTED_AT = "2026-09-12T10:00:00+00:00"
@@ -38,19 +36,14 @@ FINISHED_AT = "2026-09-12T10:00:12+00:00"
 
 
 @pytest.fixture
-def testing_context(monkeypatch):
+def testing_context(monkeypatch, tmp_path):
     bootstrap_token = f"bootstrap-{uuid4().hex}"
     registration_token = f"registration-{uuid4().hex}"
     monkeypatch.setenv("ACP_BOOTSTRAP_TOKEN", bootstrap_token)
     monkeypatch.setenv("ACP_WORKER_REGISTRATION_TOKEN", registration_token)
     monkeypatch.setenv("ACP_SESSION_COOKIE_SECURE", "0")
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
 
     def override_get_db():
         with session_factory() as db:
@@ -108,7 +101,7 @@ def testing_context(monkeypatch):
             }
     finally:
         app.dependency_overrides.pop(get_db, None)
-        engine.dispose()
+        database.close()
 
 
 # --- Fabriques ----------------------------------------------------------------
