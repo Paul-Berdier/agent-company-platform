@@ -98,13 +98,20 @@ def ephemeral_postgresql_schema(url: str) -> Iterator[str]:
         admin.dispose()
 
 
-TEST_DATABASE_MARKER_SCHEMA = "acp_test_database"
-"""Schéma témoin d'une base réservée aux tests, hors de ``public``.
+TEST_DATABASE_MARKER = "acp-test-database"
+"""Commentaire témoin d'une base réservée aux tests (``COMMENT ON DATABASE``).
 
 Il est posé par ``reset_public_schema`` la première fois qu'elle vide une base dont
 ``public`` est vide, et survit aux remises à zéro suivantes : une base marquée reste
-réutilisable même quand un lot interrompu y a laissé ses tables.
+réutilisable même quand un lot interrompu y a laissé ses tables. C'est un commentaire
+de base et non un schéma : ``pg_dump`` sans ``--create`` ne l'exporte pas, si bien
+qu'une sauvegarde de la base de test ne transporte pas le marqueur dans une autre.
 """
+
+_MARKER_SQL = text(
+    "SELECT shobj_description(d.oid, 'pg_database') FROM pg_database d "
+    "WHERE d.datname = current_database()"
+)
 
 APPLICATION_DATABASE_URL_ENVS = ("ACP_DATABASE_URL", "DATABASE_URL")
 """Variables qui désignent la base de l'application (``DATABASE_URL`` : Railway)."""
@@ -160,12 +167,13 @@ def reset_public_schema(url: str, *, application_urls: Mapping[str, str] | None 
     - elle désigne la même base que ``ACP_DATABASE_URL`` ou ``DATABASE_URL`` tels
       qu'ils valaient au lancement de la suite (``application_urls`` les remplace,
       pour les tests de cette garde) ;
-    - la base ne porte pas le schéma témoin ``acp_test_database`` et son schéma
+    - la base ne porte pas le commentaire témoin ``acp-test-database`` et son schéma
       ``public`` contient déjà des tables, vues ou séquences.
 
     Une base vide est marquée au passage : c'est le cas d'une base de CI neuve ou d'une
     base créée pour les tests. Une base déjà peuplée doit être marquée à la main, après
-    avoir vérifié qu'elle est jetable (``CREATE SCHEMA acp_test_database``).
+    avoir vérifié qu'elle est jetable
+    (``COMMENT ON DATABASE <base> IS 'acp-test-database'``).
     """
 
     target = _database_identity(url)
@@ -184,23 +192,19 @@ def reset_public_schema(url: str, *, application_urls: Mapping[str, str] | None 
     admin = _admin_engine(url)
     try:
         with admin.connect() as connection:
-            marked = (
-                connection.execute(
-                    text("SELECT 1 FROM pg_namespace WHERE nspname = :name"),
-                    {"name": TEST_DATABASE_MARKER_SCHEMA},
-                ).scalar()
-                is not None
-            )
-            if not marked:
+            if connection.execute(_MARKER_SQL).scalar() != TEST_DATABASE_MARKER:
+                database = connection.dialect.identifier_preparer.quote(
+                    connection.execute(text("SELECT current_database()")).scalar_one()
+                )
+                mark = f"COMMENT ON DATABASE {database} IS '{TEST_DATABASE_MARKER}'"
                 if connection.execute(_OCCUPIED_PUBLIC_SQL).scalar_one():
                     raise UnsafeTestDatabaseError(
                         "Remise à zéro refusée : le schéma public de cette base contient "
-                        "déjà des données et la base ne porte pas le schéma témoin "
-                        f"« {TEST_DATABASE_MARKER_SCHEMA} » d'une base de test. Si elle "
-                        "est réellement jetable, marquez-la à la main : "
-                        f"CREATE SCHEMA {TEST_DATABASE_MARKER_SCHEMA};"
+                        "déjà des données et la base ne porte pas le commentaire témoin "
+                        f"« {TEST_DATABASE_MARKER} » d'une base de test. Si elle est "
+                        f"réellement jetable, marquez-la à la main : {mark};"
                     )
-                connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TEST_DATABASE_MARKER_SCHEMA}"'))
+                connection.execute(text(mark))
             connection.execute(text("DROP SCHEMA public CASCADE"))
             connection.execute(text("CREATE SCHEMA public"))
     finally:

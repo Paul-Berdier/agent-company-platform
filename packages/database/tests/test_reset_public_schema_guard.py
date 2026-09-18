@@ -21,7 +21,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
 
 from acp_database.testing import (
-    TEST_DATABASE_MARKER_SCHEMA,
+    TEST_DATABASE_MARKER,
     UnsafeTestDatabaseError,
     reset_public_schema,
     skip_or_fail_without_postgresql,
@@ -126,7 +126,7 @@ def guard_url():
     guard = _admin(url)
     try:
         with guard.connect() as connection:
-            connection.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_DATABASE_MARKER_SCHEMA}" CASCADE'))
+            connection.execute(text(f'COMMENT ON DATABASE "{name}" IS NULL'))
             connection.execute(text("DROP SCHEMA public CASCADE"))
             connection.execute(text("CREATE SCHEMA public"))
     finally:
@@ -140,10 +140,12 @@ def _marked(url: str) -> bool:
         with engine.connect() as connection:
             return (
                 connection.execute(
-                    text("SELECT 1 FROM pg_namespace WHERE nspname = :name"),
-                    {"name": TEST_DATABASE_MARKER_SCHEMA},
+                    text(
+                        "SELECT shobj_description(d.oid, 'pg_database') FROM pg_database d "
+                        "WHERE d.datname = current_database()"
+                    )
                 ).scalar()
-                is not None
+                == TEST_DATABASE_MARKER
             )
     finally:
         engine.dispose()
@@ -191,7 +193,7 @@ def test_a_populated_unmarked_database_is_refused_and_left_intact(guard_url):
 
     assert _public_tables(guard_url) == ["donnees_reelles"]
     assert not _marked(guard_url)
-    assert TEST_DATABASE_MARKER_SCHEMA in str(refused.value)
+    assert f"IS '{TEST_DATABASE_MARKER}'" in str(refused.value)
 
 
 @pytest.mark.postgres
