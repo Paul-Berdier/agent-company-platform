@@ -15,6 +15,7 @@ archive. Chacun est prouvé par son code de sortie et son message.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import json
 import tarfile
@@ -765,6 +766,13 @@ def test_usage_errors_exit_2(world):
     assert code == 0 and "create" in out and "restore" in out
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("psycopg") is None,
+    reason=(
+        "Pilote psycopg absent : le moteur refuse l'URL avant d'atteindre l'outil, "
+        "installez « acp-database[postgresql] »"
+    ),
+)
 def test_unreachable_postgresql_is_a_failure_without_password(world, tmp_path):
     """Une base injoignable est un échec (code 1) dont le message ne cite aucun secret."""
 
