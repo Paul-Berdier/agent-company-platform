@@ -1,0 +1,11 @@
+# Fichier généré — NE PAS MODIFIER À LA MAIN.
+# Ce qmldir n'est pas consommé par CMake : qt_add_qml_module en produit un.
+# Il est conservé pour permettre une relecture du module hors configuration.
+module Acp.Design
+singleton Elevation 1.0 Elevation.qml
+singleton Motion 1.0 Motion.qml
+singleton Palette 1.0 Palette.qml
+singleton Radius 1.0 Radius.qml
+singleton Space 1.0 Space.qml
+singleton Status 1.0 Status.qml
+singleton Type 1.0 Type.qml

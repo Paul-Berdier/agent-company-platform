@@ -1,0 +1,15 @@
+# Fins de ligne LF pour toutes les sources de la station, y compris sur un poste Windows.
+# Sans cette règle, un `core.autocrlf` local réintroduirait des CRLF dans les fichiers
+# engendrés, et le vérificateur de cohérence les refuserait à juste titre.
+*.cpp   text eol=lf
+*.h     text eol=lf
+*.in    text eol=lf
+*.qml   text eol=lf
+*.json  text eol=lf
+*.cmake text eol=lf
+*.py    text eol=lf
+*.md    text eol=lf
+CMakeLists.txt text eol=lf
+qmldir  text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
