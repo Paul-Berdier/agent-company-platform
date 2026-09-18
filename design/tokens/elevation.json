@@ -1,0 +1,66 @@
+{
+  "$schema": "acp.design-tokens/1",
+  "$description": "Profondeur. La station de travail sépare par le trait et par le fond, pas par l'ombre : seules les couches réellement flottantes en portent une. C'est le fichier qui concentre toutes les valeurs à canal alpha, colors.json restant volontairement opaque. Chaque niveau expose aussi la bordure et la surface à employer, pour qu'un composant n'ait qu'un seul jeton à consulter.",
+  "$version": "1.0.0",
+  "$file": "elevation",
+  "$themed": true,
+  "$themes": ["dark", "light"],
+  "$defaultTheme": "dark",
+  "$qml": {
+    "singleton": "Elevation",
+    "module": "Acp.Design",
+    "namingRule": "elevation.overlay -> elevationOverlay, exposé comme un QtObject portant offsetX, offsetY, blur, color et opacity.",
+    "implementationNote": "Qt Quick n'a pas de propriété d'ombre native sur Rectangle. Le générateur produit les paramètres bruts ; leur rendu passe par MultiEffect (shadowBlur, shadowVerticalOffset, shadowColor, shadowOpacity) ou par un Rectangle de bordure. La notion de spread de CSS n'a pas d'équivalent direct et n'est donc pas exprimée.",
+    "colorFormat": "Couleur opaque en hexadécimal 6 chiffres plus une opacité séparée entre 0 et 1, afin d'éviter les hexadécimaux à 8 chiffres dont l'ordre des canaux diffère entre CSS et Qt."
+  },
+  "tokens": {
+    "elevation.flat": {
+      "$description": "Niveau 0 : contenu posé sur le canevas. Aucune ombre, aucune bordure. C'est le cas majoritaire de la station.",
+      "$type": "elevation",
+      "dark": { "surface": "surface.canvas", "border": "none", "offsetX": 0, "offsetY": 0, "blur": 0, "color": "#000000", "opacity": 0 },
+      "light": { "surface": "surface.canvas", "border": "none", "offsetX": 0, "offsetY": 0, "blur": 0, "color": "#000000", "opacity": 0 }
+    },
+    "elevation.panel": {
+      "$description": "Niveau 1 : panneau de travail. Délimité par un trait, jamais par une ombre. Un panneau qui flotte au-dessus du fond est une erreur de direction dans ce produit.",
+      "$type": "elevation",
+      "dark": { "surface": "surface.panel", "border": "border.default", "offsetX": 0, "offsetY": 0, "blur": 0, "color": "#000000", "opacity": 0 },
+      "light": { "surface": "surface.panel", "border": "border.default", "offsetX": 0, "offsetY": 0, "blur": 0, "color": "#000000", "opacity": 0 }
+    },
+    "elevation.raised": {
+      "$description": "Niveau 2 : élément collant au sein d'un panneau, en-tête de tableau qui reste visible au défilement. Un fond plus clair et un trait, plus une ombre à peine perceptible qui sert seulement à dire que le contenu passe dessous.",
+      "$type": "elevation",
+      "dark": { "surface": "surface.panelRaised", "border": "border.default", "offsetX": 0, "offsetY": 1, "blur": 3, "color": "#000000", "opacity": 0.32 },
+      "light": { "surface": "surface.panelRaised", "border": "border.default", "offsetX": 0, "offsetY": 1, "blur": 3, "color": "#1b2c2f", "opacity": 0.08 }
+    },
+    "elevation.overlay": {
+      "$description": "Niveau 3 : couche flottante ancrée à un élément — menu, palette de commandes, infobulle riche, liste de complétion.",
+      "$type": "elevation",
+      "dark": { "surface": "surface.overlay", "border": "border.interactive", "offsetX": 0, "offsetY": 6, "blur": 18, "color": "#000000", "opacity": 0.52 },
+      "light": { "surface": "surface.overlay", "border": "border.default", "offsetX": 0, "offsetY": 6, "blur": 18, "color": "#1b2c2f", "opacity": 0.16 }
+    },
+    "elevation.dialog": {
+      "$description": "Niveau 4 : fenêtre modale bloquant l'interaction, réservée aux décisions irréversibles et aux approbations.",
+      "$type": "elevation",
+      "dark": { "surface": "surface.overlay", "border": "border.interactive", "offsetX": 0, "offsetY": 14, "blur": 36, "color": "#000000", "opacity": 0.62 },
+      "light": { "surface": "surface.overlay", "border": "border.default", "offsetX": 0, "offsetY": 14, "blur": 36, "color": "#1b2c2f", "opacity": 0.22 }
+    },
+    "scrim.dialog": {
+      "$description": "Voile posé sur l'application derrière une modale. Il assombrit, il ne floute pas : le flou coûte du GPU en continu et cache l'état du système que l'opérateur surveille.",
+      "$type": "scrim",
+      "dark": { "color": "#05090b", "opacity": 0.58 },
+      "light": { "color": "#0d1a1c", "opacity": 0.34 }
+    },
+    "scrim.inactiveWindow": {
+      "$description": "Voile très léger appliqué quand la fenêtre perd le focus système, pour que l'opérateur sache d'un coup d'œil quelle fenêtre reçoit ses frappes. Peut être désactivé par préférence.",
+      "$type": "scrim",
+      "dark": { "color": "#05090b", "opacity": 0.12 },
+      "light": { "color": "#0d1a1c", "opacity": 0.06 }
+    }
+  },
+  "$rules": [
+    "Quatre niveaux au maximum. Un cinquième signifie que la hiérarchie de l'écran est fausse.",
+    "L'ombre signale qu'une couche est temporaire et fermable, jamais qu'un élément est important.",
+    "Aucun flou d'arrière-plan, aucune transparence de fenêtre : ni glassmorphisme, ni coût de composition permanent.",
+    "En thème clair l'ombre est teintée du gris-vert du produit, jamais noire pure."
+  ]
+}

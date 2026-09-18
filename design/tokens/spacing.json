@@ -1,0 +1,60 @@
+{
+  "$schema": "acp.design-tokens/1",
+  "$description": "Échelle d'espacement et mesures de densité. Base de 4 px, comme le client web actuel. La station de travail vise la densité d'un outil professionnel : une ligne de liste tient en 28 px, pas en 64. Les valeurs sont des pixels logiques ; Qt applique lui-même le facteur d'échelle de l'écran, elles ne doivent donc pas être multipliées à la main.",
+  "$version": "1.0.0",
+  "$file": "spacing",
+  "$themed": false,
+  "$qml": {
+    "singleton": "Space",
+    "module": "Acp.Design",
+    "namingRule": "space.3 -> space3, layout.sidebarWidth -> layoutSidebarWidth, density.rowHeight.compact -> densityRowHeightCompact.",
+    "unit": "px logiques"
+  },
+  "tokens": {
+    "space.0": { "$description": "Aucune marge. Valeur explicite pour éviter les zéros implicites.", "$type": "dimension", "$value": 0 },
+    "space.1": { "$description": "Séparation minimale : glyphe et libellé d'une pastille.", "$type": "dimension", "$value": 2 },
+    "space.2": { "$description": "Intérieur d'un contrôle compact.", "$type": "dimension", "$value": 4 },
+    "space.3": { "$description": "Espacement par défaut entre éléments voisins d'une même ligne.", "$type": "dimension", "$value": 6 },
+    "space.4": { "$description": "Rembourrage horizontal d'une cellule de liste.", "$type": "dimension", "$value": 8 },
+    "space.5": { "$description": "Rembourrage d'un contrôle de formulaire.", "$type": "dimension", "$value": 12 },
+    "space.6": { "$description": "Rembourrage intérieur d'un panneau.", "$type": "dimension", "$value": 16 },
+    "space.7": { "$description": "Écart entre deux groupes d'un même panneau.", "$type": "dimension", "$value": 20 },
+    "space.8": { "$description": "Écart entre deux panneaux.", "$type": "dimension", "$value": 24 },
+    "space.9": { "$description": "Respiration en tête d'écran.", "$type": "dimension", "$value": 32 },
+    "space.10": { "$description": "Réservé aux états pleine page et aux écrans d'accueil.", "$type": "dimension", "$value": 48 },
+    "density.rowHeight.compact": { "$description": "Liste dense par défaut de la station : journal d'événements, tâches, artefacts.", "$type": "dimension", "$value": 24 },
+    "density.rowHeight.regular": { "$description": "Liste comportant deux lignes de texte ou une pastille.", "$type": "dimension", "$value": 28 },
+    "density.rowHeight.comfortable": { "$description": "Liste tactile ou écran de configuration peu fréquenté.", "$type": "dimension", "$value": 34 },
+    "density.controlHeight.small": { "$description": "Bouton discret, filtre, pastille cliquable.", "$type": "dimension", "$value": 24 },
+    "density.controlHeight.regular": { "$description": "Hauteur par défaut d'un bouton et d'un champ.", "$type": "dimension", "$value": 28 },
+    "density.controlHeight.large": { "$description": "Action primaire d'un formulaire, champ de la palette de commandes.", "$type": "dimension", "$value": 34 },
+    "density.hitTarget.minimum": { "$description": "Surface cliquable minimale, obtenue au besoin par une zone transparente autour d'un contrôle plus petit. Le pointeur précis d'un poste de travail autorise 28 px visibles, pas une cible réelle plus petite que 32.", "$type": "dimension", "$value": 32 },
+    "density.iconSize.small": { "$type": "dimension", "$value": 14 },
+    "density.iconSize.regular": { "$type": "dimension", "$value": 16 },
+    "density.iconSize.large": { "$type": "dimension", "$value": 20 },
+    "layout.sidebarWidth": { "$description": "Colonne de navigation. Repris du client web (248 px) en légèrement plus étroit, la station gagnant de la place ailleurs.", "$type": "dimension", "$value": 232 },
+    "layout.sidebarCollapsedWidth": { "$description": "Colonne réduite aux glyphes, avec libellé en infobulle.", "$type": "dimension", "$value": 48 },
+    "layout.inspectorWidth.min": { "$description": "Panneau d'inspection latéral, largeur minimale avant que son contenu ne devienne illisible.", "$type": "dimension", "$value": 320 },
+    "layout.inspectorWidth.default": { "$type": "dimension", "$value": 380 },
+    "layout.contentMaxWidth": { "$description": "Largeur maximale d'une colonne de contenu centrée. Au-delà, on ajoute une colonne plutôt que d'étirer.", "$type": "dimension", "$value": 1080 },
+    "layout.topBarHeight": { "$description": "Barre supérieure : identité de l'environnement, état du lien, recherche.", "$type": "dimension", "$value": 40 },
+    "layout.statusBarHeight": { "$description": "Barre inférieure permanente portant l'état du lien au backend et le compteur de tâches actives.", "$type": "dimension", "$value": 24 },
+    "layout.windowMinWidth": { "$description": "En dessous, la station passe à une seule colonne et masque l'inspecteur.", "$type": "dimension", "$value": 960 },
+    "layout.windowMinHeight": { "$type": "dimension", "$value": 600 },
+    "layout.paneGap": { "$description": "Gouttière entre deux volets redimensionnables.", "$type": "dimension", "$value": 1 },
+    "layout.focusRingWidth": { "$description": "Épaisseur de l'anneau de focus clavier.", "$type": "dimension", "$value": 2 },
+    "layout.focusRingOffset": { "$type": "dimension", "$value": 2 },
+    "layout.borderWidth": { "$description": "Épaisseur de trait par défaut. Un seul pixel partout : la séparation vient du trait, pas de l'ombre.", "$type": "dimension", "$value": 1 }
+  },
+  "$breakpoints": {
+    "$description": "Seuils de largeur de fenêtre. Ce ne sont pas des tailles d'appareil : une station de travail est redimensionnée librement, souvent en demi-écran.",
+    "narrow": { "$value": 960, "$rule": "Une colonne de contenu, inspecteur en surcouche, navigation réduite aux glyphes." },
+    "regular": { "$value": 1280, "$rule": "Navigation, contenu et inspecteur côte à côte." },
+    "wide": { "$value": 1680, "$rule": "Le contenu peut se scinder en deux colonnes ; on n'étire jamais une liste au-delà de layout.contentMaxWidth." }
+  },
+  "$rules": [
+    "Une valeur d'espacement absente de l'échelle est un défaut, pas une exception locale.",
+    "Le vide sépare, le trait délimite, l'ombre est réservée aux couches flottantes.",
+    "Une liste ne gagne pas en lisibilité en s'aérant : elle gagne en alignement de colonnes et en chasse fixe."
+  ]
+}
