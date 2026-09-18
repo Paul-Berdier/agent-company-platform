@@ -31,9 +31,10 @@
 //     donnée explicitement et les octets sont copiés tels quels, sans hypothèse
 //     d'encodage.
 //
-// AVERTISSEMENT : ce fichier n'a jamais été compilé. Aucun compilateur C++, aucun kit de
-// développement Windows n'est installé sur le poste de rédaction. La preuve de
-// compilation ne peut venir que d'un job d'intégration continue Windows.
+// État de la preuve : compilé avec MSVC 14.44 et lié à Advapi32. AUCUN test ne l'exerce
+// contre le Gestionnaire d'identifiants réel, et la station ne lui confie aujourd'hui
+// aucun secret (la session n'est pas persistée) : son comportement à l'exécution n'est
+// pas prouvé.
 
 #pragma once
 

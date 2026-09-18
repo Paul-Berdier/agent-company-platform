@@ -4,17 +4,33 @@ Client natif C++23 / Qt 6 / Qt Quick de l'Agent Company Platform. Il parle à l'
 HTTPS et en SSE, et à rien d'autre : jamais à la base, jamais à `event-service`, jamais à
 `provider-gateway`.
 
-## Ce qui n'a pas été compilé
+## Ce qui est prouvé, et ce qui ne l'est pas
 
-**Rien de ce répertoire n'a jamais été compilé ni exécuté.**
+Relevé du 18 septembre 2026, sur poste Windows 10, MSVC 14.44, Qt 6.8.3, préréglage
+`windows-msvc-debug` :
 
-Le poste de rédaction ne dispose ni de Qt, ni de CMake, ni de Ninja, ni de MSVC, ni
-d'aucun compilateur C++ (relevé du 18 septembre 2026, `docs/desktop-railway-audit.md`,
-section 11.1). Aucune cible n'a été configurée, aucun test n'a été exécuté, aucune fenêtre
-n'a été rendue. **La seule preuve de compilation recevable viendra d'un job d'intégration
-continue Windows, qui n'existe pas encore.**
+- la compilation passe sans erreur ; les dix suites natives passent (`ctest`), dont
+  59 tests Qt Quick Test ;
+- l'application a été lancée contre une API locale réelle (`uvicorn acp_api.main:app`,
+  base SQLite jetable) : écran de connexion, test de lien, compatibilité par `GET /meta`,
+  ouverture de session, coquille, diagnostics avec les contrôles de `/ready`. Le
+  parcours a été piloté par UI Automation, donc aussi sans souris ;
+- cette première confrontation a révélé quatre écarts de contrat entre le client et
+  l'API (`/meta`, corps de connexion, rôle de session, `/ready`) et un aiguillage qui
+  rendait la connexion inatteignable. Ils sont corrigés, et les documents d'API lus par
+  les tests natifs (`tests/fixtures/`) sont gardés alignés sur l'API réelle par
+  `apps/api/tests/test_desktop_contract_fixtures.py`.
 
-Ce qui a été vérifié localement, et cela seul :
+Ce qui n'est **pas** prouvé :
+
+- la compilation Release, l'empaquetage et l'installeur ne l'ont été qu'en intégration
+  continue, quand elle passe (`.github/workflows/desktop-ci.yml`) ;
+- la session n'est pas persistée : au redémarrage, il faut se reconnecter ;
+- le coffre Windows (`WindowsCredentialVault`) compile mais n'est exercé par aucun test,
+  et la station ne lui confie aucun secret aujourd'hui ;
+- aucun écran métier (missions, runs, conversations…) n'est livré.
+
+Vérifications sans chaîne d'outils native :
 
 - la cohérence des chemins, des noms de fichiers et des URI de modules QML entre CMake,
   les sources C++ et les fichiers QML — `python apps/desktop/cmake/check_layout.py` ;

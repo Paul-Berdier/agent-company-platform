@@ -4,8 +4,6 @@
 // fichiers de diagnostic du poste client ». Ces tests décrivent ce que le filtre attrape,
 // et disent aussi ce qu'il n'attrape PAS — un filtre dont on surestime la portée est
 // pire qu'un filtre absent.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
 
 #include "diagnostics/Redaction.h"
 

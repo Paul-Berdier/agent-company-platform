@@ -2,8 +2,6 @@
 //
 // Le point le plus important tenu ici : une MUTATION SANS CLÉ D'IDEMPOTENCE n'est JAMAIS
 // rejouée. Le protocole l'interdit, et une mission relancée deux fois est un dégât réel.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
 
 #include "api/ApiClient.h"
 #include "api/ApiError.h"

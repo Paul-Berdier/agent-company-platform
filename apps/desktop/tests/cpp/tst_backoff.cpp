@@ -4,8 +4,6 @@
 // charge du client. Ces tests éprouvent la partie déterministe — la progression et le
 // plafond — et vérifient que la gigue reste bornée, sans jamais dépendre d'un tirage
 // particulier.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
 
 #include "events/Backoff.h"
 

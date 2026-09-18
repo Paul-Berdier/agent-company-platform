@@ -7,8 +7,6 @@
 //
 // Le harnais balaie récursivement QUICK_TEST_SOURCE_DIR à la recherche des fichiers
 // « tst_*.qml ».
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
 
 #include <QQmlEngine>
 #include <QQuickStyle>

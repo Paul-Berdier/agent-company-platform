@@ -4,8 +4,6 @@
 // particularités du serveur de ce produit : keep-alive « : ping », trames nommées
 // `acp.event`, `acp.stream.rotate` et `acp.stream.closed`, et absence totale de champ
 // `retry`.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté. Écrit pour l'intégration continue.
 
 #include "events/SseParser.h"
 

@@ -1,11 +1,8 @@
 # Station de travail native — Agent Company Platform
 #
-# AVERTISSEMENT, à lire avant toute conclusion sur ce projet :
-# ce fichier n'a JAMAIS été configuré, et aucune cible n'a jamais été compilée. Le poste
-# de rédaction ne dispose ni de Qt, ni de CMake, ni de Ninja, ni de MSVC, ni d'aucun
-# compilateur C++ (relevé du 18 septembre 2026, docs/desktop-railway-audit.md, section
-# 11.1). La seule preuve de compilation recevable viendra d'un job d'intégration continue
-# Windows, qui n'existe pas encore.
+# Compilé et testé sur poste Windows avec MSVC 14.44 et Qt 6.8.3 (préréglage
+# windows-msvc-debug, 18 septembre 2026). La preuve de référence reste le workflow
+# .github/workflows/desktop-ci.yml : une compilation locale ne vaut que pour son poste.
 #
 # Version de CMake : 3.24 est exigée pour disposer de CMAKE_COMPILE_WARNING_AS_ERROR
 # (introduite en 3.24) et d'un support de préréglages version 6. Qt 6.8 exige au minimum

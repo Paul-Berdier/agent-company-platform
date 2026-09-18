@@ -1,6 +1,4 @@
 // Pastille d'état : la couleur n'est jamais seule porteuse d'information.
-//
-// AVERTISSEMENT : jamais exécuté. Écrit pour l'intégration continue.
 
 import QtQuick
 import QtTest

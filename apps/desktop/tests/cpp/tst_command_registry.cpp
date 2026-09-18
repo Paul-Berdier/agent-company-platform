@@ -3,8 +3,6 @@
 // La règle éprouvée ici : une commande INDISPONIBLE n'est jamais exécutée, et son refus
 // porte une raison française. C'est ce qui permet à l'interface de ne jamais montrer de
 // bouton qui fait semblant.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
 
 #include "commands/CommandRegistry.h"
 

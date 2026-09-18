@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Vérifie la cohérence interne de ``apps/desktop`` SANS compiler quoi que ce soit.
 
-Aucune chaîne d'outils native n'est disponible sur le poste de rédaction : ni Qt, ni
-CMake, ni compilateur C++. Ce script couvre ce qui reste vérifiable localement, et rien
-de plus. Il ne prouve PAS que le projet compile ; il prouve seulement qu'aucun chemin,
-aucun nom de fichier et aucun URI de module ne se contredisent.
+Il tourne sans chaîne d'outils native : ni Qt, ni CMake, ni compilateur C++. Il ne
+prouve PAS que le projet compile ; il prouve seulement qu'aucun chemin, aucun nom de
+fichier et aucun URI de module ne se contredisent. La compilation se prouve par
+``scripts/build-desktop.ps1`` et par le workflow ``desktop-ci.yml``.
 
 Contrôles effectués :
 
@@ -354,8 +354,8 @@ def main() -> int:
     if findings.ok():
         print("Aucun constat. La cohérence interne est vérifiée.")
         print(
-            "RAPPEL : ce script ne compile RIEN. Aucune preuve de compilation n'est "
-            "produite ici ; elle ne peut venir que d'un job d'intégration continue Windows."
+            "RAPPEL : ce script ne compile RIEN. La compilation se prouve par "
+            "scripts/build-desktop.ps1 et par le workflow desktop-ci.yml."
         )
         return 0
 

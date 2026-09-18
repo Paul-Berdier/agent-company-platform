@@ -3,8 +3,6 @@
 // Ces tests ne jugent pas l'esthétique. Ils vérifient que le générateur a produit ce que
 // les fichiers de jetons promettent, et que la bascule de thème atteint TOUS les
 // singletons — un thème appliqué à moitié serait pire qu'un thème unique.
-//
-// AVERTISSEMENT : jamais exécuté. Écrit pour l'intégration continue.
 
 import QtQuick
 import QtTest

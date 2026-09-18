@@ -7,8 +7,6 @@
 // L'essentiel de la garantie est tenu par le compilateur (voir les static_assert de
 // api/Cursors.h) ; ces tests couvrent ce qui reste vérifiable à l'exécution : les chemins
 // construits et l'avancement du curseur.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
 
 #include "api/Cursors.h"
 #include "events/StreamScope.h"
