@@ -1,0 +1,143 @@
+name: Desktop CI
+
+# Intégration continue du client desktop Windows (C++23 / Qt 6 / Qt Quick).
+#
+# C'est la SEULE preuve de compilation du code natif : aucun poste du projet ne
+# dispose de Qt, de CMake ni de MSVC. Tant que ce workflow n'a pas tourné vert sur
+# une révision, le code natif de cette révision est du texte non vérifié.
+#
+# Ce workflow ne publie rien, jamais, et surtout pas depuis une demande de fusion :
+# il ne demande que `contents: read` et n'emploie aucun jeton d'écriture.
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "packaging/windows/**"
+      - "scripts/setup-desktop.ps1"
+      - "scripts/dev-desktop.ps1"
+      - "scripts/build-desktop.ps1"
+      - "scripts/test-desktop.ps1"
+      - "scripts/package-desktop.ps1"
+      - ".github/workflows/desktop-ci.yml"
+      - "VERSION"
+  push:
+    branches:
+      - main
+      - "codex/**"
+      - "feat/**"
+    paths:
+      - "apps/desktop/**"
+      - "packaging/windows/**"
+      - "scripts/setup-desktop.ps1"
+      - "scripts/dev-desktop.ps1"
+      - "scripts/build-desktop.ps1"
+      - "scripts/test-desktop.ps1"
+      - "scripts/package-desktop.ps1"
+      - ".github/workflows/desktop-ci.yml"
+      - "VERSION"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64 — MSVC, Qt 6, tests natifs et QML
+    # L'image est épinglée plutôt que windows-latest : une bascule d'image
+    # changerait le compilateur et la version d'Inno Setup sans prévenir.
+    # Elle est répétée dans packaging/windows/toolchain.json (ci.runnerImage) et
+    # l'étape « Vérifier l'image » refuse toute divergence entre les deux.
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lire la chaîne d'outils épinglée
+        run: |
+          $t = Get-Content packaging/windows/toolchain.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $modules = ''
+          if ($t.qt.modules) { $modules = ($t.qt.modules -join ' ') }
+          @(
+            "ACP_QT_VERSION=$($t.qt.version)"
+            "ACP_QT_HOST=$($t.qt.host)"
+            "ACP_QT_TARGET=$($t.qt.target)"
+            "ACP_QT_ARCH=$($t.qt.architecture)"
+            "ACP_QT_MODULES=$modules"
+            "ACP_RUNNER_IMAGE=$($t.ci.runnerImage)"
+            "ACP_INNO_MINIMUM=$($t.innoSetup.minimumVersion)"
+            "ACP_VERSION=$((Get-Content VERSION -Raw -Encoding UTF8).Trim())"
+          ) | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          Write-Host "Qt $($t.qt.version) / $($t.qt.architecture), image $($t.ci.runnerImage)."
+
+      - name: Vérifier l'image de l'exécuteur
+        run: |
+          $attendu = $env:ACP_RUNNER_IMAGE
+          $observe = $env:ImageOS
+          $correspondances = @{ 'windows-2025' = 'win25'; 'windows-2022' = 'win22' }
+          if ($correspondances.ContainsKey($attendu) -and $correspondances[$attendu] -ne $observe) {
+            Write-Host "::error::L'image attendue ($attendu) ne correspond pas à l'image observée ($observe). Alignez runs-on et packaging/windows/toolchain.json."
+            exit 1
+          }
+          Write-Host "Image conforme : $attendu ($observe)."
+
+      - name: Vérifier la présence des sources du client desktop
+        run: |
+          if (-not (Test-Path 'apps/desktop/CMakePresets.json')) {
+            Write-Host "::error::apps/desktop/CMakePresets.json est absent : il n'y a rien à compiler. Ce workflow échoue plutôt que de rendre un succès sans preuve. Il deviendra vert quand le lot fondation desktop sera fusionné."
+            exit 3
+          }
+          Write-Host 'Sources du client desktop présentes.'
+
+      # Action tierce épinglée par empreinte de commit. L'étiquette v4.4.0 a été
+      # publiée le 14 septembre 2026 ; documentation et paramètres relevés sur
+      # https://github.com/jurplel/install-qt-action le 18 septembre 2026.
+      # `cache: true` met en cache l'installation Qt, qui est de loin le
+      # téléchargement le plus lourd du job. Le répertoire de compilation C++ n'est
+      # volontairement PAS mis en cache : un cache natif périmé produit des
+      # résultats faux, ce qui coûte plus cher que les minutes économisées.
+      - name: Installer Qt (version épinglée, avec cache)
+        uses: jurplel/install-qt-action@bcb88e3bed2e992f5f9e24c0f9e364a231d278eb # v4.4.0
+        with:
+          version: ${{ env.ACP_QT_VERSION }}
+          host: ${{ env.ACP_QT_HOST }}
+          target: ${{ env.ACP_QT_TARGET }}
+          arch: ${{ env.ACP_QT_ARCH }}
+          modules: ${{ env.ACP_QT_MODULES }}
+          cache: true
+          cache-key-prefix: desktop-qt-${{ env.ACP_QT_VERSION }}-${{ env.ACP_QT_ARCH }}
+
+      - name: Inventorier les prérequis
+        run: ./scripts/setup-desktop.ps1
+
+      - name: Configurer et compiler (préréglage MSVC Release)
+        run: ./scripts/build-desktop.ps1 -Configuration Release
+
+      - name: Exécuter les tests Qt Test et Qt Quick Test
+        run: ./scripts/test-desktop.ps1 -Configuration Release
+
+      # Empaquetage à blanc : produit réellement l'installeur, l'archive portable
+      # et les sommes de contrôle, pour prouver que la chaîne de distribution
+      # fonctionne — mais ne signe rien et ne publie rien.
+      - name: Empaqueter à blanc
+        run: ./scripts/package-desktop.ps1 -Configuration Release -DryRun -OutputDir "${{ github.workspace }}/dist/desktop"
+
+      - name: Déposer les artefacts d'inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ci-${{ github.run_id }}
+          path: |
+            dist/desktop/*.exe
+            dist/desktop/*.zip
+            dist/desktop/SHA256SUMS.txt
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,53 @@
+{
+  "$schema": "acp.desktop-toolchain/1",
+  "$description": "Source unique des versions, des chemins et des noms utilisés par la chaîne de compilation, d'empaquetage et de publication du client desktop Windows. Les deux workflows GitHub Actions et les cinq scripts PowerShell lisent ce fichier : aucune de ces valeurs ne doit être dupliquée ailleurs.",
+  "$version": "1.0.0",
+  "product": {
+    "name": "Agent Company Platform",
+    "publisher": "Agent Company Platform",
+    "installerAppId": "{53810A6E-FA9C-4595-9C53-74A78EB4D1A8}",
+    "executable": "AgentCompanyPlatform.exe",
+    "artifactPrefix": "AgentCompanyPlatform",
+    "architectureSuffix": "x64",
+    "$description": "installerAppId identifie l'application pour Inno Setup et pour l'entrée de désinstallation de Windows. Le changer casserait la mise à jour sur place des postes déjà installés : il ne se modifie jamais."
+  },
+  "qt": {
+    "version": "6.8.3",
+    "host": "windows",
+    "target": "desktop",
+    "architecture": "win64_msvc2022_64",
+    "modules": [],
+    "$description": "Qt 6.8 est la série LTS. 6.8.3 est le dernier correctif publié en source ouverte : les versions 6.8.4 et suivantes de cette série sont réservées aux licences commerciales et ne sont pas téléchargeables par aqtinstall. modules ne liste que les modules additionnels (hors modules essentiels) ; s'il manque un module exigé par apps/desktop, la configuration CMake échoue, et c'est le comportement voulu."
+  },
+  "cmake": {
+    "sourceDirectory": "apps/desktop",
+    "qmlDirectory": "apps/desktop/qml",
+    "buildDirectoryTemplate": "apps/desktop/build/<preset>",
+    "presets": {
+      "Debug": "windows-msvc-debug",
+      "Release": "windows-msvc-release"
+    },
+    "$description": "Contrat avec le lot qui écrit apps/desktop. apps/desktop/CMakePresets.json doit définir, pour chacun de ces deux noms, un préréglage de configuration, un préréglage de compilation et un préréglage de test, et poser binaryDir à ${sourceDir}/build/${presetName}. Toute divergence est détectée après configuration et refusée explicitement, jamais contournée."
+  },
+  "ci": {
+    "runnerImage": "windows-2025",
+    "installQtAction": "jurplel/install-qt-action@bcb88e3bed2e992f5f9e24c0f9e364a231d278eb",
+    "installQtActionVersion": "v4.4.0",
+    "$description": "L'action tierce est épinglée par empreinte de commit ; le commentaire de version qui l'accompagne dans les workflows sert seulement à la relecture humaine. Les actions first-party de GitHub suivent la convention déjà en place dans .github/workflows/ci.yml : épinglage par étiquette majeure."
+  },
+  "innoSetup": {
+    "minimumVersion": "6.4.0",
+    "chocolateyPackage": "innosetup",
+    "chocolateyVersion": "6.7.1",
+    "script": "packaging/windows/AgentCompanyPlatform.iss",
+    "$description": "La version minimale 6.4.0 est exigée par la directive ArchitecturesAllowed=x64compatible, apparue en 6.3.0. L'image windows-2025 fournit déjà InnoSetup 6.7.1 ; l'installation par Chocolatey n'est qu'un repli, épinglé, en cas de retrait du paquet de l'image."
+  },
+  "signing": {
+    "timestampUrl": "http://timestamp.digicert.com",
+    "fileDigestAlgorithm": "SHA256",
+    "certificateStore": "Cert:\\CurrentUser\\My",
+    "pfxSecretName": "WINDOWS_SIGNING_PFX_BASE64",
+    "passwordSecretName": "WINDOWS_SIGNING_PASSWORD",
+    "$description": "Aucun certificat n'existe aujourd'hui dans ce dépôt ni dans ses secrets. Tant que les deux secrets nommés ici sont absents, la publication produit des binaires NON SIGNÉS et le dit explicitement."
+  }
+}
