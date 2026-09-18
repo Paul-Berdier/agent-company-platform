@@ -5,10 +5,10 @@
 # continue, qui est la seule preuve recevable.
 #
 # Deux familles :
-#   - Qt Test (C++) : registre de commandes et expurgation des secrets à ce stade ; le
-#     transport, les flux et la machine à états de session viennent avec le client
-#     authentifié ;
-#   - Qt Quick Test (QML) : jetons de design engendrés et composants de la coquille.
+#   - Qt Test (C++) : analyseur SSE, erreurs d'API, registre de commandes, machine à états
+#     de session, compatibilité, curseurs, expurgation. Ils ne touchent pas le réseau et
+#     n'ouvrent aucune fenêtre ;
+#   - Qt Quick Test (QML) : composants de la coquille, sur une scène réelle.
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Test QuickTest)
 
@@ -26,8 +26,14 @@ function(acp_add_cpp_test name)
     set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 
+acp_add_cpp_test(tst_sse_parser)
+acp_add_cpp_test(tst_api_errors)
 acp_add_cpp_test(tst_command_registry)
+acp_add_cpp_test(tst_session_state)
+acp_add_cpp_test(tst_compatibility)
+acp_add_cpp_test(tst_cursors)
 acp_add_cpp_test(tst_redaction)
+acp_add_cpp_test(tst_backoff)
 
 # --- Tests QML ----------------------------------------------------------------
 #

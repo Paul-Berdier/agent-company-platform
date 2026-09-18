@@ -123,19 +123,58 @@ endif()
 # fenêtre.
 
 set(ACP_CORE_SOURCES
+    src/api/ApiClient.cpp
+    src/api/ApiClient.h
+    src/api/ApiError.cpp
+    src/api/ApiError.h
+    src/api/ApiRequest.h
+    src/api/Cursors.h
+    src/api/IdempotencyKey.cpp
+    src/api/IdempotencyKey.h
+    src/api/SessionCookieJar.cpp
+    src/api/SessionCookieJar.h
+    src/app/Application.cpp
+    src/app/Application.h
     src/app/QmlEnums.h
+    src/auth/AuthManager.cpp
+    src/auth/AuthManager.h
     src/commands/Command.h
     src/commands/CommandRegistry.cpp
     src/commands/CommandRegistry.h
     src/diagnostics/Redaction.cpp
     src/diagnostics/Redaction.h
+    src/events/Backoff.cpp
+    src/events/Backoff.h
+    src/events/EventStreamService.cpp
+    src/events/EventStreamService.h
+    src/events/SseEvent.h
+    src/events/SseParser.cpp
+    src/events/SseParser.h
+    src/events/StreamScope.h
     src/navigation/NavigationModel.cpp
     src/navigation/NavigationModel.h
+    src/services/CompatibilityService.cpp
+    src/services/CompatibilityService.h
+    src/services/HealthService.cpp
+    src/services/HealthService.h
+    src/storage/CredentialVault.cpp
+    src/storage/CredentialVault.h
     src/storage/SettingsStore.cpp
     src/storage/SettingsStore.h
     src/system/SystemAppearance.cpp
     src/system/SystemAppearance.h
+    src/viewmodels/DiagnosticsViewModel.cpp
+    src/viewmodels/DiagnosticsViewModel.h
+    src/viewmodels/ShellViewModel.cpp
+    src/viewmodels/ShellViewModel.h
 )
+
+if(WIN32)
+    list(APPEND ACP_CORE_SOURCES
+        src/storage/WindowsCredentialVault.cpp
+        src/storage/WindowsCredentialVault.h
+    )
+endif()
 
 qt_add_library(acp_core STATIC ${ACP_CORE_SOURCES})
 
@@ -151,6 +190,12 @@ target_link_libraries(acp_core PUBLIC
     Qt6::Qml
     Qt6::Quick
 )
+
+if(WIN32)
+    # CredWriteW, CredReadW, CredDeleteW et CredFree vivent dans Advapi32.
+    # https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-credwritew
+    target_link_libraries(acp_core PRIVATE Advapi32)
+endif()
 
 # Les conversions implicites de QString depuis un littéral ASCII sont désactivées : elles
 # masquent des problèmes d'encodage, et tout le texte de ce produit est en français, donc
@@ -173,13 +218,34 @@ else()
     target_compile_options(acp_core PUBLIC -Wall -Wextra -Wpedantic)
 endif()
 
-# --- Modules QML --------------------------------------------------------------
-#
-# L'exécutable n'existe pas encore : cette amorce livre le système de construction, la
-# chaîne des jetons de design, la coquille QML et la logique de présentation. Le client
-# authentifié et le flux d'événements viennent ensuite, avec le point d'entrée.
+# --- Modules QML et exécutable ------------------------------------------------
 
 add_subdirectory(qml)
+
+qt_add_executable(acp_desktop WIN32 src/main.cpp)
+
+target_link_libraries(acp_desktop PRIVATE
+    acp_core
+    Qt6::Quick
+    Qt6::QuickControls2
+    acp_designplugin
+    acp_themeplugin
+    acp_controlsplugin
+    acp_componentsplugin
+    acp_pagesplugin
+    acp_stationplugin
+    acp_desktop_qmlplugin
+)
+
+set_target_properties(acp_desktop PROPERTIES
+    OUTPUT_NAME "AgentCompanyPlatform"
+    WIN32_EXECUTABLE TRUE
+)
+
+install(TARGETS acp_desktop
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    BUNDLE DESTINATION .
+)
 
 # --- Tests --------------------------------------------------------------------
 
