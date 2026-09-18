@@ -29,8 +29,8 @@ Item {
 
             Text {
                 text: qsTr("Diagnostics")
-                color: Palette.textPrimary
-                font.families: Type.pageTitle.family
+                color: Colors.textPrimary
+                font.family: Type.pageTitle.family
                 font.pixelSize: Type.pageTitle.pixelSize
                 font.weight: Type.pageTitle.weight
                 font.letterSpacing: Type.pageTitle.letterSpacing
@@ -78,10 +78,10 @@ Item {
             Layout.preferredHeight: Math.max(Space.densityRowHeightRegular,
                                              readyList.contentHeight + Space.space4)
             Layout.maximumHeight: page.height * 0.28
-            color: Palette.surfacePanel
+            color: Colors.surfacePanel
             radius: Radius.radiusMd
             border.width: Space.layoutBorderWidth
-            border.color: Palette.borderDefault
+            border.color: Colors.borderDefault
             clip: true
 
             ListView {
@@ -132,10 +132,10 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Palette.surfacePanel
+            color: Colors.surfacePanel
             radius: Radius.radiusMd
             border.width: Space.layoutBorderWidth
-            border.color: Palette.borderDefault
+            border.color: Colors.borderDefault
             clip: true
 
             ListView {
@@ -151,15 +151,15 @@ Item {
 
                     width: inventory.width
                     height: Space.densityRowHeightRegular
-                    color: Palette.surfacePanelRaised
+                    color: Colors.surfacePanelRaised
 
                     Text {
                         anchors.left: parent.left
                         anchors.leftMargin: Space.space4
                         anchors.verticalCenter: parent.verticalCenter
                         text: sectionHeaderRow.section
-                        color: Palette.textMuted
-                        font.families: Type.columnHeader.family
+                        color: Colors.textMuted
+                        font.family: Type.columnHeader.family
                         font.pixelSize: Type.columnHeader.pixelSize
                         font.weight: Type.columnHeader.weight
                         font.letterSpacing: Type.columnHeader.letterSpacing

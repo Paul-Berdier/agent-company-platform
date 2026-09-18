@@ -14,7 +14,7 @@ import Acp.Pages
 Rectangle {
     id: work
 
-    color: Palette.surfaceCanvas
+    color: Colors.surfaceCanvas
 
     Loader {
         anchors.fill: parent

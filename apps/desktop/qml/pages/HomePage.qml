@@ -23,8 +23,8 @@ Item {
         Text {
             Layout.fillWidth: true
             text: qsTr("Accueil")
-            color: Palette.textPrimary
-            font.families: Type.pageTitle.family
+            color: Colors.textPrimary
+            font.family: Type.pageTitle.family
             font.pixelSize: Type.pageTitle.pixelSize
             font.weight: Type.pageTitle.weight
             font.letterSpacing: Type.pageTitle.letterSpacing
@@ -33,10 +33,10 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: statusColumn.implicitHeight + Space.space6 * 2
-            color: Palette.surfacePanel
+            color: Colors.surfacePanel
             radius: Radius.radiusMd
             border.width: Space.layoutBorderWidth
-            border.color: Palette.borderDefault
+            border.color: Colors.borderDefault
 
             ColumnLayout {
                 id: statusColumn
@@ -104,10 +104,10 @@ Item {
                     visible: Compatibility.explanation.length > 0
                     wrapMode: Text.WordWrap
                     text: Compatibility.explanation
-                    color: Palette.textSecondary
+                    color: Colors.textSecondary
                     lineHeight: Type.prose.lineHeight
                     lineHeightMode: Text.FixedHeight
-                    font.families: Type.prose.family
+                    font.family: Type.prose.family
                     font.pixelSize: Type.prose.pixelSize
                 }
             }

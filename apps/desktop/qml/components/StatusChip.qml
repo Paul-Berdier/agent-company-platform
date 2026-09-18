@@ -99,7 +99,7 @@ Item {
         Text {
             text: chip.effectiveLabel
             color: chip.meta.foreground
-            font.families: Type.statusChip.family
+            font.family: Type.statusChip.family
             font.pixelSize: Type.statusChip.pixelSize
             font.weight: Type.statusChip.weight
             font.letterSpacing: Type.statusChip.letterSpacing

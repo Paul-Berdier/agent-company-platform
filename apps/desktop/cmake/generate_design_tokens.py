@@ -38,7 +38,10 @@ from pathlib import Path
 #: Association fichier de jetons -> nom du singleton QML attendu. Toute divergence avec
 #: le bloc ``$qml.singleton`` du fichier lu est un refus, pas une correction silencieuse.
 EXPECTED_SINGLETONS = {
-    "colors": "Palette",
+    # Pas « Palette » : QtQuick exporte déjà un type Palette, qui masque un singleton
+    # homonyme dans tout fichier important QtQuick. Constaté au premier passage réel
+    # des tests QML : Palette.dark valait undefined.
+    "colors": "Colors",
     "semantic-status": "Status",
     "typography": "Type",
     "spacing": "Space",
@@ -411,12 +414,29 @@ def generate_typography(stem: str, document: dict) -> str:
             lines.append(
                 f"    readonly property var {name}: {qml_string_list(value, reference)}"
             )
+            # font.families (liste) n'existe pas en QML avec Qt 6.8 : seule font.family,
+            # une chaîne, est disponible. La première famille de la pile réellement
+            # installée sur le poste est donc résolue une fois, au chargement. Aucune ne
+            # l'est : chaîne vide, et Qt applique sa police par défaut plutôt qu'un nom
+            # inventé.
+            lines.append(
+                f"    readonly property string {name}Resolved: root.firstInstalled({name})"
+            )
         elif token_type in ("dimension", "fontWeight", "number"):
             lines.append(
                 f"    readonly property real {name}: {qml_number(value, reference)}"
             )
         else:
             raise GenerationError(f"{reference} : type {token_type!r} non pris en charge")
+    lines.append("")
+    lines.append("    function firstInstalled(stack) {")
+    lines.append("        var installed = Qt.fontFamilies();")
+    lines.append("        for (var i = 0; i < stack.length; ++i) {")
+    lines.append("            if (installed.indexOf(stack[i]) >= 0)")
+    lines.append("                return stack[i];")
+    lines.append("        }")
+    lines.append('        return "";')
+    lines.append("    }")
     lines.append("")
 
     roles = document.get("$roles", {})
@@ -426,9 +446,9 @@ def generate_typography(stem: str, document: dict) -> str:
             continue
         lines.append(f"    readonly property QtObject {camel_case(role_name)}: QtObject {{")
         # Les types déclarés suivent ceux de QML : font.pixelSize et font.weight sont
-        # des entiers, lineHeight et letterSpacing des réels, families une liste.
+        # des entiers, lineHeight et letterSpacing des réels, family une chaîne résolue.
         for field, declared, token_ref in (
-            ("family", "var", role.get("family")),
+            ("family", "string", role.get("family")),
             ("pixelSize", "int", role.get("size")),
             ("lineHeight", "real", role.get("lineHeight")),
             ("weight", "int", role.get("weight")),
@@ -440,9 +460,10 @@ def generate_typography(stem: str, document: dict) -> str:
                 raise GenerationError(
                     f"{stem}.$roles.{role_name}.{field} : jeton {token_ref!r} inconnu"
                 )
-            lines.append(
-                f"        readonly property {declared} {field}: root.{camel_case(token_ref)}"
-            )
+            target = camel_case(token_ref)
+            if field == "family":
+                target += "Resolved"
+            lines.append(f"        readonly property {declared} {field}: root.{target}")
         capitalization = role.get("capitalization", "MixedCase")
         if capitalization not in FONT_CAPITALIZATION:
             raise GenerationError(
@@ -614,7 +635,7 @@ def generate_elevation(stem: str, document: dict) -> str:
         )
         # Les champs surface et border citent un jeton de colors.json : le générateur ne
         # les résout pas ici pour ne pas créer de dépendance circulaire entre singletons.
-        # Le composant consommateur les lit comme des noms et interroge Palette.
+        # Le composant consommateur les lit comme des noms et interroge Colors.
         for field in ("surface", "border"):
             if field in payload["dark"]:
                 dark_name = json.dumps(payload["dark"][field], ensure_ascii=False)

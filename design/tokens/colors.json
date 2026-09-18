@@ -7,7 +7,7 @@
   "$themes": ["dark", "light"],
   "$defaultTheme": "dark",
   "$qml": {
-    "singleton": "Palette",
+    "singleton": "Colors",
     "module": "Acp.Design",
     "propertyType": "color",
     "namingRule": "Le nom de jeton pointé devient une propriété camelCase : surface.panelRaised -> surfacePanelRaised.",

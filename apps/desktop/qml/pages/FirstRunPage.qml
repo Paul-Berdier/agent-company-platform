@@ -20,7 +20,7 @@ import Acp.Controls
 Rectangle {
     id: page
 
-    color: Palette.surfaceCanvas
+    color: Colors.surfaceCanvas
 
     property string urlError: ""
 
@@ -40,8 +40,8 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Station de travail")
-                color: Palette.textPrimary
-                font.families: Type.pageTitle.family
+                color: Colors.textPrimary
+                font.family: Type.pageTitle.family
                 font.pixelSize: Type.pageTitle.pixelSize
                 font.weight: Type.pageTitle.weight
                 font.letterSpacing: Type.pageTitle.letterSpacing
@@ -54,10 +54,10 @@ Rectangle {
                            + "propose aucune adresse par défaut : aucun domaine n'a été "
                            + "décidé pour ce produit, et en inventer un ferait échouer la "
                            + "connexion sans le dire.")
-                color: Palette.textSecondary
+                color: Colors.textSecondary
                 lineHeight: Type.prose.lineHeight
                 lineHeightMode: Text.FixedHeight
-                font.families: Type.prose.family
+                font.family: Type.prose.family
                 font.pixelSize: Type.prose.pixelSize
             }
 
@@ -90,8 +90,8 @@ Rectangle {
                         text: loopbackBox.text
                         leftPadding: loopbackBox.indicator.width + Space.space3
                         verticalAlignment: Text.AlignVCenter
-                        color: Palette.textSecondary
-                        font.families: Type.tableCell.family
+                        color: Colors.textSecondary
+                        font.family: Type.tableCell.family
                         font.pixelSize: Type.tableCell.pixelSize
                     }
                 }

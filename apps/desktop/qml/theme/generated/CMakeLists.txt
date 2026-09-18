@@ -8,7 +8,7 @@
 # La cible `acp_check_design_tokens` échoue si la sortie versionnée est périmée.
 
 set(ACP_DESIGN_SINGLETONS
-    Palette.qml
+    Colors.qml
     Status.qml
     Type.qml
     Space.qml

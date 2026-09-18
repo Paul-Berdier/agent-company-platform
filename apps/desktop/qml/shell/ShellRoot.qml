@@ -35,8 +35,8 @@ Item {
             handle: Rectangle {
                 implicitWidth: Space.layoutPaneGap + 4
                 color: SplitHandle.pressed || SplitHandle.hovered
-                    ? Palette.borderInteractive
-                    : Palette.borderSubtle
+                    ? Colors.borderInteractive
+                    : Colors.borderSubtle
             }
 
             SideNavigation {
@@ -75,9 +75,9 @@ Item {
         anchors.topMargin: Space.layoutTopBarHeight
         anchors.bottomMargin: Space.layoutStatusBarHeight
         width: Math.min(Space.layoutInspectorWidthDefault, shell.width * 0.8)
-        color: Palette.surfacePanel
+        color: Colors.surfacePanel
         border.width: Space.layoutBorderWidth
-        border.color: Palette.borderDefault
+        border.color: Colors.borderDefault
 
         InspectorPanel {
             anchors.fill: parent

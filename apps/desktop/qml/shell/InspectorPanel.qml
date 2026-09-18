@@ -15,13 +15,13 @@ import Acp.Controls
 Rectangle {
     id: inspector
 
-    color: Palette.surfacePanel
+    color: Colors.surfacePanel
 
     Rectangle {
         anchors.left: parent.left
         height: parent.height
         width: Space.layoutBorderWidth
-        color: Palette.borderDefault
+        color: Colors.borderDefault
     }
 
     ColumnLayout {

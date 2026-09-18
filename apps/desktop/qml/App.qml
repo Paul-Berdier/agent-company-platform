@@ -22,7 +22,7 @@ ApplicationWindow {
     minimumHeight: Space.layoutWindowMinHeight
     visible: true
     title: qsTr("Station de travail — Agent Company Platform")
-    color: Palette.surfaceCanvas
+    color: Colors.surfaceCanvas
 
     // Les singletons générés portent le thème actif. La sélection vient de la couche C++
     // (préférence de l'opérateur, puis thème système) et jamais d'une décision prise ici.

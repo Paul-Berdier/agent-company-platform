@@ -13,13 +13,13 @@ import Acp.Runtime
 Rectangle {
     id: statusBar
 
-    color: Palette.surfaceSidebar
+    color: Colors.surfaceSidebar
 
     Rectangle {
         anchors.top: parent.top
         width: parent.width
         height: Space.layoutBorderWidth
-        color: Palette.borderDefault
+        color: Colors.borderDefault
     }
 
     RowLayout {
@@ -31,15 +31,15 @@ Rectangle {
         Text {
             // Runs actifs : aucune route consommée ici ne les compte. On l'écrit.
             text: qsTr("Runs actifs : Inconnu")
-            color: Palette.textMuted
-            font.families: Type.metadata.family
+            color: Colors.textMuted
+            font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
         }
 
         Text {
             text: qsTr("Alertes : Inconnu")
-            color: Palette.textMuted
-            font.families: Type.metadata.family
+            color: Colors.textMuted
+            font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
         }
 
@@ -50,8 +50,8 @@ Rectangle {
             text: Shell.lastNotice
             visible: Shell.lastNotice.length > 0
             elide: Text.ElideRight
-            color: Palette.textSecondary
-            font.families: Type.metadata.family
+            color: Colors.textSecondary
+            font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
 
             ToolTip.visible: noticeHover.hovered && Shell.lastNotice.length > 0
@@ -61,8 +61,8 @@ Rectangle {
 
         Text {
             text: Shell.statusSummary
-            color: Palette.textMuted
-            font.families: Type.metadata.family
+            color: Colors.textMuted
+            font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
             elide: Text.ElideLeft
             Layout.maximumWidth: statusBar.width * 0.5

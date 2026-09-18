@@ -20,8 +20,8 @@ Item {
             width: parent.width
             text: header.title
             elide: Text.ElideRight
-            color: Palette.textPrimary
-            font.families: Type.panelTitle.family
+            color: Colors.textPrimary
+            font.family: Type.panelTitle.family
             font.pixelSize: Type.panelTitle.pixelSize
             font.weight: Type.panelTitle.weight
         }
@@ -31,8 +31,8 @@ Item {
             visible: header.subtitle.length > 0
             text: header.subtitle
             wrapMode: Text.WordWrap
-            color: Palette.textMuted
-            font.families: Type.metadata.family
+            color: Colors.textMuted
+            font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
         }
     }

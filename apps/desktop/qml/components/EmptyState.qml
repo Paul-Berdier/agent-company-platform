@@ -29,8 +29,8 @@ Item {
             text: state.title
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            color: Palette.textPrimary
-            font.families: Type.emptyStateTitle.family
+            color: Colors.textPrimary
+            font.family: Type.emptyStateTitle.family
             font.pixelSize: Type.emptyStateTitle.pixelSize
             font.weight: Type.emptyStateTitle.weight
             font.letterSpacing: Type.emptyStateTitle.letterSpacing
@@ -44,8 +44,8 @@ Item {
             wrapMode: Text.WordWrap
             lineHeight: Type.prose.lineHeight
             lineHeightMode: Text.FixedHeight
-            color: Palette.textSecondary
-            font.families: Type.prose.family
+            color: Colors.textSecondary
+            font.family: Type.prose.family
             font.pixelSize: Type.prose.pixelSize
         }
 

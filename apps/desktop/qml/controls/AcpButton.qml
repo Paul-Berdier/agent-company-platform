@@ -44,17 +44,17 @@ Item {
         radius: Radius.radiusSm
         color: {
             if (!control.effectiveEnabled)
-                return Palette.stateDisabled;
+                return Colors.stateDisabled;
             if (control.primary)
-                return tap.pressed ? Palette.accentPressed
-                    : (hover.hovered ? Palette.accentHover : Palette.accentPrimary);
-            return tap.pressed ? Palette.statePressed
-                : (hover.hovered ? Palette.stateHover : "transparent");
+                return tap.pressed ? Colors.accentPressed
+                    : (hover.hovered ? Colors.accentHover : Colors.accentPrimary);
+            return tap.pressed ? Colors.statePressed
+                : (hover.hovered ? Colors.stateHover : "transparent");
         }
         border.width: control.primary ? 0 : Space.layoutBorderWidth
         border.color: control.effectiveEnabled
-            ? Palette.borderInteractive
-            : Palette.borderSubtle
+            ? Colors.borderInteractive
+            : Colors.borderSubtle
 
         Behavior on color {
             enabled: Motion.active.press.duration > 0
@@ -75,10 +75,10 @@ Item {
             text: control.label
             color: {
                 if (!control.effectiveEnabled)
-                    return Palette.textMuted;
-                return control.primary ? Palette.textOnAccent : Palette.textPrimary;
+                    return Colors.textMuted;
+                return control.primary ? Colors.textOnAccent : Colors.textPrimary;
             }
-            font.families: Type.buttonLabel.family
+            font.family: Type.buttonLabel.family
             font.pixelSize: Type.buttonLabel.pixelSize
             font.weight: Type.buttonLabel.weight
             anchors.verticalCenter: parent.verticalCenter
@@ -87,8 +87,8 @@ Item {
         Text {
             visible: control.shortcutHint.length > 0
             text: control.shortcutHint
-            color: Palette.textMuted
-            font.families: Type.identifier.family
+            color: Colors.textMuted
+            font.family: Type.identifier.family
             font.pixelSize: Type.identifier.pixelSize
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -118,7 +118,7 @@ Item {
         color: "transparent"
         radius: Radius.radiusSm
         border.width: Space.layoutFocusRingWidth
-        border.color: Palette.borderFocus
+        border.color: Colors.borderFocus
     }
 
     ToolTip.visible: hover.hovered && control.unavailableReason.length > 0

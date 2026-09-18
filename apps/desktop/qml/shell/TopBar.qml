@@ -14,13 +14,13 @@ import Acp.Controls
 Rectangle {
     id: bar
 
-    color: Palette.surfaceSidebar
+    color: Colors.surfaceSidebar
 
     Rectangle {
         anchors.bottom: parent.bottom
         width: parent.width
         height: Space.layoutBorderWidth
-        color: Palette.borderDefault
+        color: Colors.borderDefault
     }
 
     RowLayout {
@@ -39,8 +39,8 @@ Rectangle {
 
         Text {
             text: Shell.workspaceLabel
-            color: Palette.textPrimary
-            font.families: Type.objectTitle.family
+            color: Colors.textPrimary
+            font.family: Type.objectTitle.family
             font.pixelSize: Type.objectTitle.pixelSize
             font.weight: Type.objectTitle.weight
             elide: Text.ElideRight
@@ -51,8 +51,8 @@ Rectangle {
             text: Shell.serverUrlLabel
             color: Shell.serverUrl.length === 0
                 ? Status.statusNotConfiguredForeground
-                : Palette.textMuted
-            font.families: Type.identifier.family
+                : Colors.textMuted
+            font.family: Type.identifier.family
             font.pixelSize: Type.identifier.pixelSize
             elide: Text.ElideMiddle
             Layout.maximumWidth: 320
@@ -89,8 +89,8 @@ Rectangle {
             text: Session.userDisplayName.length > 0
                 ? Session.userDisplayName
                 : qsTr("Non connecté")
-            color: Palette.textSecondary
-            font.families: Type.metadata.family
+            color: Colors.textSecondary
+            font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
         }
     }

@@ -16,7 +16,7 @@ QtObject {
     readonly property string activeMotionProfile: Appearance.activeMotionProfile
 
     function applyTheme() {
-        Palette.theme = bridge.activeTheme;
+        Colors.theme = bridge.activeTheme;
         Status.theme = bridge.activeTheme;
         Elevation.theme = bridge.activeTheme;
         Motion.profile = bridge.activeMotionProfile;

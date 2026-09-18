@@ -12,14 +12,14 @@ import Acp.Runtime
 Rectangle {
     id: navigation
 
-    color: Palette.surfaceSidebar
+    color: Colors.surfaceSidebar
     readonly property bool collapsed: width <= Space.layoutSidebarCollapsedWidth + 8
 
     Rectangle {
         anchors.right: parent.right
         height: parent.height
         width: Space.layoutBorderWidth
-        color: Palette.borderDefault
+        color: Colors.borderDefault
     }
 
     ListView {
@@ -55,8 +55,8 @@ Rectangle {
                 anchors.rightMargin: Space.space2
                 radius: Radius.radiusSm
                 color: entry.current
-                    ? Palette.accentMuted
-                    : (hover.hovered && entry.navigable ? Palette.stateHover : "transparent")
+                    ? Colors.accentMuted
+                    : (hover.hovered && entry.navigable ? Colors.stateHover : "transparent")
 
                 // Marque de sélection : elle ne repose PAS sur la seule couleur.
                 Rectangle {
@@ -65,7 +65,7 @@ Rectangle {
                     height: background.height - Space.space3 * 2
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    color: Palette.accentPrimary
+                    color: Colors.accentPrimary
                 }
 
                 Text {
@@ -76,8 +76,8 @@ Rectangle {
                     // Le jeu d'icônes n'est pas choisi : on affiche l'initiale du nom
                     // sémantique plutôt qu'une ressource graphique qui n'existe pas.
                     text: entry.glyph.length > 0 ? entry.glyph.charAt(0).toUpperCase() : "·"
-                    color: entry.navigable ? Palette.textSecondary : Palette.textMuted
-                    font.families: Type.identifier.family
+                    color: entry.navigable ? Colors.textSecondary : Colors.textMuted
+                    font.family: Type.identifier.family
                     font.pixelSize: Type.identifier.pixelSize
                 }
 
@@ -90,8 +90,8 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     text: entry.title
                     elide: Text.ElideRight
-                    color: entry.navigable ? Palette.textPrimary : Palette.textMuted
-                    font.families: Type.tableCell.family
+                    color: entry.navigable ? Colors.textPrimary : Colors.textMuted
+                    font.family: Type.tableCell.family
                     font.pixelSize: Type.tableCell.pixelSize
                     font.weight: entry.current
                         ? Type.tableCellEmphasis.weight
@@ -107,7 +107,7 @@ Rectangle {
                     color: "transparent"
                     radius: Radius.radiusSm
                     border.width: Space.layoutFocusRingWidth
-                    border.color: Palette.borderFocus
+                    border.color: Colors.borderFocus
                 }
             }
 

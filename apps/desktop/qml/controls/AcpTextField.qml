@@ -29,11 +29,11 @@ Item {
         width: parent.width
         height: Space.densityControlHeightRegular
         radius: Radius.radiusSm
-        color: field.enabled ? Palette.surfacePanelRaised : Palette.stateDisabled
+        color: field.enabled ? Colors.surfacePanelRaised : Colors.stateDisabled
         border.width: Space.layoutBorderWidth
         border.color: field.errorText.length > 0
             ? Status.statusFailedBorder
-            : (input.activeFocus ? Palette.borderFocus : Palette.borderInteractive)
+            : (input.activeFocus ? Colors.borderFocus : Colors.borderInteractive)
 
         TextInput {
             id: input
@@ -43,10 +43,10 @@ Item {
             verticalAlignment: TextInput.AlignVCenter
             clip: true
             enabled: field.enabled
-            color: field.enabled ? Palette.textPrimary : Palette.textMuted
-            selectionColor: Palette.stateSelected
-            selectedTextColor: Palette.textPrimary
-            font.families: field.masked ? Type.identifier.family : Type.tableCell.family
+            color: field.enabled ? Colors.textPrimary : Colors.textMuted
+            selectionColor: Colors.stateSelected
+            selectedTextColor: Colors.textPrimary
+            font.family: field.masked ? Type.identifier.family : Type.tableCell.family
             font.pixelSize: Type.tableCell.pixelSize
             echoMode: field.masked ? TextInput.Password : TextInput.Normal
             // Ni prédiction, ni correction, ni complétion sur une saisie masquée.
@@ -61,7 +61,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 visible: input.text.length === 0
                 text: field.placeholder
-                color: Palette.textMuted
+                color: Colors.textMuted
                 font: input.font
                 elide: Text.ElideRight
             }
@@ -76,8 +76,8 @@ Item {
         visible: field.errorText.length > 0 || field.helperText.length > 0
         wrapMode: Text.WordWrap
         text: field.errorText.length > 0 ? field.errorText : field.helperText
-        color: field.errorText.length > 0 ? Status.statusFailedForeground : Palette.textMuted
-        font.families: Type.metadata.family
+        color: field.errorText.length > 0 ? Status.statusFailedForeground : Colors.textMuted
+        font.family: Type.metadata.family
         font.pixelSize: Type.metadata.pixelSize
     }
 }

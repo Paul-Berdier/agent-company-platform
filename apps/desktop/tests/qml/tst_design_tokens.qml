@@ -15,31 +15,31 @@ TestCase {
     name: "DesignTokens"
 
     function init() {
-        Palette.theme = "dark";
+        Colors.theme = "dark";
         Status.theme = "dark";
         Elevation.theme = "dark";
         Motion.profile = "standard";
     }
 
     function test_palette_exposes_both_themes() {
-        verify(Palette.dark !== null);
-        verify(Palette.light !== null);
-        verify(Palette.dark.surfaceCanvas !== Palette.light.surfaceCanvas);
+        verify(Colors.dark !== null);
+        verify(Colors.light !== null);
+        verify(Colors.dark.surfaceCanvas !== Colors.light.surfaceCanvas);
     }
 
     function test_flat_accessor_follows_active_theme() {
-        Palette.theme = "dark";
-        compare(String(Palette.surfaceCanvas), String(Palette.dark.surfaceCanvas));
-        Palette.theme = "light";
-        compare(String(Palette.surfaceCanvas), String(Palette.light.surfaceCanvas));
+        Colors.theme = "dark";
+        compare(String(Colors.surfaceCanvas), String(Colors.dark.surfaceCanvas));
+        Colors.theme = "light";
+        compare(String(Colors.surfaceCanvas), String(Colors.light.surfaceCanvas));
     }
 
     function test_default_theme_is_dark() {
         // Les fichiers de jetons déclarent "$defaultTheme": "dark".
-        Palette.theme = "dark";
-        verify(Palette.isDark);
-        Palette.theme = "light";
-        verify(!Palette.isDark);
+        Colors.theme = "dark";
+        verify(Colors.isDark);
+        Colors.theme = "light";
+        verify(!Colors.isDark);
     }
 
     function test_status_resolves_backend_states_data() {
@@ -97,16 +97,32 @@ TestCase {
     function test_typography_roles_are_complete(data) {
         const role = Type[data.role];
         verify(role !== undefined, "le rôle " + data.role + " doit exister");
-        verify(role.family.length > 0);
+        // La famille est la première police de la pile réellement installée. Sans
+        // aucune police (plateforme « offscreen » d'un serveur d'intégration), elle vaut
+        // la chaîne vide et Qt applique sa police par défaut : c'est voulu, pas un échec.
+        compare(typeof role.family, "string");
+        verify(role.family === "" || Type.familyInterface.indexOf(role.family) >= 0
+               || Type.familyMono.indexOf(role.family) >= 0,
+               "famille hors des piles déclarées : " + role.family);
         verify(role.pixelSize > 0);
         verify(role.lineHeight > 0);
         verify(role.weight >= 400);
     }
 
     function test_monospace_roles_use_the_mono_stack() {
-        compare(Type.identifier.family[0], Type.familyMono[0]);
-        compare(Type.logLine.family[0], Type.familyMono[0]);
-        verify(Type.tableCell.family[0] !== Type.familyMono[0]);
+        compare(Type.identifier.family, Type.familyMonoResolved);
+        compare(Type.logLine.family, Type.familyMonoResolved);
+        compare(Type.tableCell.family, Type.familyInterfaceResolved);
+    }
+
+    function test_resolution_picks_the_first_installed_family() {
+        // Une pile dont seul le troisième nom existe doit rendre ce troisième nom ; une
+        // pile sans aucune police installée rend la chaîne vide, jamais un nom inventé.
+        const installed = Qt.fontFamilies();
+        compare(Type.firstInstalled(["police-absente-1", "police-absente-2"]), "");
+        if (installed.length > 0) {
+            compare(Type.firstInstalled(["police-absente", installed[0]]), installed[0]);
+        }
     }
 
     function test_column_header_is_the_only_uppercase_role() {

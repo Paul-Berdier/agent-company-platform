@@ -18,7 +18,7 @@ Item {
     // l'état du système que l'opérateur surveille.
     Rectangle {
         anchors.fill: parent
-        color: Palette.surfaceScrimless
+        color: Colors.surfaceScrimless
         opacity: 0.58
 
         TapHandler {
@@ -32,10 +32,10 @@ Item {
         height: Math.min(parent.height - Space.space10 * 2, 420)
         anchors.horizontalCenter: parent.horizontalCenter
         y: Space.space10
-        color: Palette.surfaceOverlay
+        color: Colors.surfaceOverlay
         radius: Radius.radiusLg
         border.width: Space.layoutBorderWidth
-        border.color: Palette.borderInteractive
+        border.color: Colors.borderInteractive
 
         // Entrée : déplacement minuscule, on suggère l'origine, on ne fait pas voyager.
         opacity: palette.visible ? 1 : 0
@@ -92,8 +92,8 @@ Item {
                         anchors.fill: parent
                         radius: Radius.radiusSm
                         color: list.currentIndex === row.index
-                            ? Palette.stateSelected
-                            : (rowHover.hovered ? Palette.stateHover : "transparent")
+                            ? Colors.stateSelected
+                            : (rowHover.hovered ? Colors.stateHover : "transparent")
                     }
 
                     RowLayout {
@@ -106,8 +106,8 @@ Item {
                             text: row.title
                             elide: Text.ElideRight
                             Layout.fillWidth: true
-                            color: row.available ? Palette.textPrimary : Palette.textMuted
-                            font.families: Type.tableCell.family
+                            color: row.available ? Colors.textPrimary : Colors.textMuted
+                            font.family: Type.tableCell.family
                             font.pixelSize: Type.tableCell.pixelSize
                         }
 
@@ -115,16 +115,16 @@ Item {
                             text: row.available ? row.category : row.availabilityReason
                             elide: Text.ElideRight
                             Layout.maximumWidth: list.width * 0.45
-                            color: Palette.textMuted
-                            font.families: Type.metadata.family
+                            color: Colors.textMuted
+                            font.family: Type.metadata.family
                             font.pixelSize: Type.metadata.pixelSize
                         }
 
                         Text {
                             visible: row.shortcut.length > 0
                             text: row.shortcut
-                            color: Palette.textMuted
-                            font.families: Type.identifier.family
+                            color: Colors.textMuted
+                            font.family: Type.identifier.family
                             font.pixelSize: Type.identifier.pixelSize
                         }
                     }
@@ -145,8 +145,8 @@ Item {
                 Layout.fillWidth: true
                 visible: list.count === 0
                 text: qsTr("Aucune commande ne correspond à « %1 ».").arg(Commands.filter)
-                color: Palette.textMuted
-                font.families: Type.metadata.family
+                color: Colors.textMuted
+                font.family: Type.metadata.family
                 font.pixelSize: Type.metadata.pixelSize
             }
         }

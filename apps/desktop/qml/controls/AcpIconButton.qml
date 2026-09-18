@@ -26,15 +26,15 @@ Item {
         radius: Radius.radiusSm
         color: !control.manualEnabled
             ? "transparent"
-            : (tap.pressed ? Palette.statePressed
-                : (hover.hovered ? Palette.stateHover : "transparent"))
+            : (tap.pressed ? Colors.statePressed
+                : (hover.hovered ? Colors.stateHover : "transparent"))
     }
 
     Text {
         anchors.centerIn: parent
         text: control.glyph
-        color: control.manualEnabled ? Palette.textSecondary : Palette.textMuted
-        font.families: Type.tableCell.family
+        color: control.manualEnabled ? Colors.textSecondary : Colors.textMuted
+        font.family: Type.tableCell.family
         font.pixelSize: Type.tableCell.pixelSize
     }
 
@@ -60,7 +60,7 @@ Item {
         color: "transparent"
         radius: Radius.radiusSm
         border.width: Space.layoutFocusRingWidth
-        border.color: Palette.borderFocus
+        border.color: Colors.borderFocus
     }
 
     ToolTip.visible: hover.hovered && control.tooltip.length > 0
