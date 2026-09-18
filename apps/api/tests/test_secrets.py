@@ -7,15 +7,14 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.secrets_vault import SecretsVault, generate_key
 from acp_api.security import create_user_session, hash_password, utcnow
-from acp_database.models import Base, EventModel, SecretModel, UserModel
+from acp_database.models import EventModel, SecretModel, UserModel
+from acp_database.testing import make_test_engine
 
 BOOTSTRAP_TOKEN = "secrets-bootstrap-token-with-enough-entropy"
 PASSWORD = "correct horse battery staple"
@@ -23,17 +22,12 @@ SECRET_VALUE = "valeur-ultra-confidentielle-9f8e7d"
 
 
 @pytest.fixture
-def secrets_client(monkeypatch):
+def secrets_client(monkeypatch, tmp_path):
     monkeypatch.setenv("ACP_BOOTSTRAP_TOKEN", BOOTSTRAP_TOKEN)
     monkeypatch.setenv("ACP_SESSION_COOKIE_SECURE", "0")
     monkeypatch.delenv("ACP_SECRETS_KEYS", raising=False)
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
 
     def override_get_db():
         with session_factory() as db:
@@ -56,7 +50,7 @@ def secrets_client(monkeypatch):
             yield client, session_factory
     finally:
         app.dependency_overrides.pop(get_db, None)
-        engine.dispose()
+        database.close()
 
 
 def _create_user_session(session_factory, login: str, platform_role: str):

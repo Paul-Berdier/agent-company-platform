@@ -3,6 +3,13 @@
 L'API pousse chaque événement sur `POST /internal/events` ; les clients web
 sont connectés en WebSocket sur `/ws` avec des filtres optionnels par
 workspace / projet / département.
+
+Lot H3 : l'ingestion est idempotente par ``event.id``. Le relais d'outbox livre
+au-moins-une-fois et renvoie un événement dont le commit de livraison a échoué ;
+un identifiant déjà vu répond ``{"ok": true, "duplicate": true}`` sans diffusion.
+Le registre (``DeliveryLedger``) vit en mémoire : après un redémarrage, un lot
+renvoyé peut être rediffusé au plus une fois. Les en-têtes ``X-ACP-*`` du relais
+sont facultatifs : le relais direct historique, qui n'en pose aucun, reste accepté.
 """
 
 import asyncio
@@ -23,7 +30,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from acp_contracts import Event
 
-app = FastAPI(title="Agent Company Platform — Event Service", version="0.8.0")
+from .dedupe import DeliveryLedger, dedupe_size
+
+app = FastAPI(title="Agent Company Platform — Event Service", version="0.9.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,6 +80,9 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+ledger = DeliveryLedger(max_ids=dedupe_size())
+"""Registre des livraisons du processus : borné, en mémoire, partagé par les routes."""
+
 
 def _require_internal_token(
     authorization: Annotated[str | None, Header()] = None,
@@ -107,7 +119,18 @@ def health():
 
 @app.post("/internal/events", dependencies=[Depends(_require_internal_token)])
 async def ingest(event: Event):
+    """Diffuse un événement une seule fois par identifiant, dans la fenêtre du registre.
+
+    Le doublon est **acquitté** (2xx) et non refusé : pour le relais, un événement
+    déjà diffusé est une livraison réussie, et un refus le ferait renvoyer sans fin.
+    La mémorisation suit la diffusion : un événement que personne n'a reçu n'est
+    jamais marqué comme vu.
+    """
+
+    if ledger.seen(event.id):
+        return {"ok": True, "duplicate": True}
     await manager.broadcast(event)
+    ledger.remember(event.id)
     return {"ok": True}
 
 

@@ -21,6 +21,7 @@ def test_preview_app_exposes_only_health_and_signed_content():
     }
     assert routes == {
         ("/health", frozenset({"GET"})),
+        ("/ready", frozenset({"GET"})),
         ("/artifacts/{artifact_id}/content", frozenset({"GET"})),
     }
     paths = {path for path, _methods in routes}

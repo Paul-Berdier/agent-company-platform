@@ -1113,6 +1113,15 @@ def run_http_probe(
     ``vault`` peut être absent : le coffre n'est exigé que si la configuration référence
     au moins un secret d'en-tête, auquel cas son absence produit un échec explicite du
     diagnostic (jamais un appel sans en-tête, jamais un refus de la route entière).
+
+    Le probe ``queued`` est **validé avant** l'appel réseau, qui peut durer jusqu'au
+    délai configuré (120 s au plus) : une transaction gardée ouverte pendant ce temps
+    retiendrait ses verrous d'écriture et, avec le verrou du journal d'événements,
+    bloquerait tous les producteurs d'événements. Le résultat est ensuite écrit par
+    compare-and-set ``queued → succeeded/failed`` dans une transaction courte : si le
+    probe a quitté ``queued`` pendant l'appel (révision remplacée, autorisation
+    périmée), son résultat ne décrit plus la révision courante et n'est ni publié ni
+    rattaché.
     """
 
     config = McpServerConfig.model_validate(revision.config or {})
@@ -1127,7 +1136,7 @@ def run_http_probe(
         expires_at=now + PROBE_AUTHORIZATION_TTL,
     )
     db.add(probe)
-    db.flush()
+    db.commit()
 
     allowlist_used: set[tuple[str, str]] = set()
     started = time.monotonic()
@@ -1179,14 +1188,14 @@ def run_http_probe(
             payload={"host": host, "address": address, "purpose": "mcp_probe"},
         )
 
-    probe.finished_at = utcnow()
-    server.last_probe_id = probe.id
+    finished_at = utcnow()
     if discovery is not None:
         # Le serveur distant est une source non fiable : sa réponse est expurgée des
         # valeurs qui lui ont été transmises avant d'être persistée et servie.
         discovery = redact_discovery(discovery, redactions)
-        probe.status = "succeeded"
-        probe.result = redact_probe_result(
+        next_status = "succeeded"
+        error_text: str | None = None
+        result = redact_probe_result(
             McpProbeResult(
                 protocol_version=discovery.protocol_version,
                 server_info=discovery.server_info,
@@ -1195,6 +1204,31 @@ def run_http_probe(
             ),
             redactions,
         ).model_dump(mode="json")
+    else:
+        next_status = "failed"
+        # Un message d'erreur peut citer la réponse du serveur distant (erreur JSON-RPC,
+        # type de contenu) : il passe par la même expurgation.
+        error_text = redact_text(error or "Diagnostic interrompu sans résultat.", redactions)
+        result = McpProbeResult(duration_ms=duration_ms, error=error_text).model_dump(
+            mode="json"
+        )
+    written = _cas_probe_status(
+        db,
+        probe,
+        expected_status="queued",
+        next_status=next_status,
+        values={
+            McpProbeModel.result: result,
+            McpProbeModel.error: error_text,
+            McpProbeModel.finished_at: finished_at,
+        },
+    )
+    if not written:
+        # Invalidé ou expiré pendant l'appel réseau : l'état écrit par l'autre
+        # transaction fait foi, le résultat obtenu est abandonné.
+        return probe
+    server.last_probe_id = probe.id
+    if discovery is not None:
         _attach_discovery(db, server, revision, discovery)
         record_event(
             db,
@@ -1209,13 +1243,6 @@ def run_http_probe(
             },
         )
     else:
-        probe.status = "failed"
-        # Un message d'erreur peut citer la réponse du serveur distant (erreur JSON-RPC,
-        # type de contenu) : il passe par la même expurgation.
-        probe.error = redact_text(error or "Diagnostic interrompu sans résultat.", redactions)
-        probe.result = McpProbeResult(duration_ms=duration_ms, error=probe.error).model_dump(
-            mode="json"
-        )
         record_event(
             db,
             "mcp.probe.failed",
@@ -1225,7 +1252,7 @@ def run_http_probe(
                 "server_name": server.name,
                 "revision_id": revision.id,
                 "transport": "http",
-                "error": probe.error,
+                "error": error_text,
             },
         )
     return probe

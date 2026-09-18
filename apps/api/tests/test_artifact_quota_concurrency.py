@@ -1,17 +1,15 @@
-"""Le quota d'artefacts est arbitré sous vraie concurrence SQLite."""
+"""Le quota d'artefacts est arbitré sous vraie concurrence (SQLite fichier ou PostgreSQL)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from threading import Barrier, Lock, Thread
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from acp_api.routers.artifacts import _lock_artifact_quota, _used_bytes_for_run
 from acp_database.models import (
     ArtifactModel,
-    Base,
     OrganizationModel,
     ProjectModel,
     TaskModel,
@@ -19,14 +17,12 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from acp_database.testing import make_test_engine
 
 
 def test_two_uploads_cannot_both_spend_the_last_quota_bytes(tmp_path) -> None:
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'quota.db'}",
-        connect_args={"check_same_thread": False, "timeout": 10},
-    )
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path, concurrent=True)
+    engine = database.engine
     with Session(engine) as db:
         organization = OrganizationModel(name="Org")
         db.add(organization)
@@ -98,4 +94,4 @@ def test_two_uploads_cannot_both_spend_the_last_quota_bytes(tmp_path) -> None:
     with Session(engine) as db:
         assert db.query(ArtifactModel).count() == 1
         assert _used_bytes_for_run(db, run_id) == 8
-    engine.dispose()
+    database.close()

@@ -6,6 +6,130 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## 0.9.0 (préparation) - 2026-09-18
+
+Lot H : PostgreSQL et migrations versionnées, outbox transactionnelle avec reprise,
+sauvegarde-restauration, images de services, configuration Railway et validation
+finale.
+
+### Ajouté
+
+- chaîne de migrations **Alembic** versionnée (`packages/database/src/acp_database/migrations/`)
+  avec une révision de base strictement identique au schéma du modèle et une révision
+  additive pour la table d'outbox ; commande `python -m acp_database.migrate`
+  (`upgrade`, `downgrade`, `current`, `check`, `history`, `stamp`) en français, avec des
+  codes de sortie distincts pour le succès, l'usage, l'échec et le refus. Sous
+  PostgreSQL, toute migration prend un verrou consultatif de session : deux
+  pré-déploiements simultanés sont refusés au lieu d'être mis en file ;
+- moteur PostgreSQL configuré et validé au démarrage : pilote `postgresql+psycopg`
+  exigé, pool avec vérification préalable et recyclage, délais de connexion, de verrou,
+  d'instruction et de transaction inactive, fuseau de session forcé à UTC, et refus
+  explicite d'une variable d'environnement illisible plutôt qu'un repli silencieux ;
+- `acp_database.locking` : verrou d'écriture unique à deux dialectes (transaction
+  immédiate sous SQLite, verrou consultatif de transaction sous PostgreSQL) et verrou
+  consultatif de session borné pour les opérations de maintenance ;
+- **endpoint de disponibilité `GET /ready`** sur l'API et sur l'aperçu, distinct de la
+  sonde de vivacité `/health` : base joignable avec sa latence, révision de schéma
+  courante contre attendue, stockages inscriptibles, retard du relais. Réponse 503 dès
+  qu'un contrôle bloquant échoue, sans chemin absolu ni secret dans le corps ;
+- **outbox transactionnelle** : chaque écriture du journal insère, dans la même
+  transaction, une ligne de livraison ; le relais `python -m acp_api.outbox_relay`
+  (`--once`, `--follow`, `--list-dead`, `--requeue-dead`) livre dans l'ordre du journal
+  et reprend après coupure. Sémantique au moins une fois, jamais exactement une fois ;
+  lettres mortes après un nombre d'essais borné ; le consommateur déduplique par
+  identifiant dans une fenêtre bornée ;
+- **sauvegarde et restauration** : `python -m acp_api.backup` (`create`, `verify`,
+  `inspect`, `restore`) couvrant la base et les répertoires de données, avec un
+  manifeste porteur des empreintes, des comptages par table, de la révision de schéma et
+  des identifiants de clés de coffre. La restauration refuse une cible non vide, refuse
+  la base d'origine, refuse un dialecte différent, et contrôle l'état obtenu ;
+- images de services non privilégiées, piles `compose` locales avec PostgreSQL,
+  verrou de dépendances Python avec empreintes, et configuration Railway déclarative
+  par service avec migration en pré-déploiement sur l'API seule ;
+- trois parcours de vérification versionnés, exécutables sur SQLite et sur PostgreSQL :
+  journal et flux d'événements, automatisations, sauvegarde et restauration ;
+- outillage de test à deux dialectes : fabrique de moteurs, schémas éphémères,
+  marqueurs `sqlite`, `postgres` et `concurrency`, et neutralisation de la base globale
+  pendant les tests de l'API.
+
+### Modifié
+
+- `init_db()` suit désormais une politique propre à chaque dialecte : sous SQLite,
+  création puis mise à niveau puis estampillage ; sous tout autre dialecte, **jamais**
+  de création implicite, mais une vérification de révision qui refuse le démarrage si la
+  base n'est pas à jour. Aucune variable n'active une migration implicite ;
+- le démarrage de l'API et de l'aperçu échoue désormais fermé si la base est
+  injoignable ou hors version : le serveur ne répond à aucune requête ;
+- la commande de démonstration refuse de s'exécuter hors SQLite sans autorisation
+  explicite ;
+- le diagnostic du worker distingue la vivacité de la disponibilité et ne considère
+  l'API prête que sur une réponse positive de `/ready`.
+
+### Corrigé
+
+- comparaison d'acceptation de mission portable, l'opérateur d'égalité de document
+  n'existant pas sous PostgreSQL ;
+- réservation de tâche qui ne verrouille plus tous les candidats, un second worker ne
+  recevant plus « aucune tâche compatible » à tort ;
+- expiration et renouvellement de bail par comparaison-et-échange, sans double
+  événement d'interruption ni renouvellement d'un bail déjà expiré ;
+- compteur de capacité d'un worker recalculé depuis les baux réellement actifs à la fin
+  d'une tentative, au lieu d'être décrémenté depuis une lecture périmée qui écrasait la
+  réservation d'une prise concurrente ;
+- diagnostic HTTP validé avant l'appel réseau, puis résultat écrit par
+  comparaison-et-échange, pour ne plus tenir une transaction pendant tout un appel ;
+- collision d'allocation de numéro de journal reconnue par le code d'erreur structuré
+  du pilote et non par le texte du message ;
+- sortie des commandes de contrôle et des sous-processus de parcours forcée en UTF-8,
+  une console régionale rendant auparavant les messages illisibles.
+
+### Sécurité
+
+- **la restauration ne vide plus la base cible avant les opérations réversibles** :
+  les répertoires sont mis à l'écart d'abord, remis en place si la suite échoue, et la
+  base n'est vidée qu'ensuite. Un échec après le vidage annonce explicitement l'état de
+  la cible et l'emplacement de la sauvegarde préalable vérifiée ;
+- une substitution d'outils de sauvegarde qui désigne une autre base que la cible est
+  **refusée avant tout appel externe**, en citant les deux noms : une variable oubliée
+  faisait auparavant vider une base et restaurer dans une autre ;
+- les trois parcours de vérification **refusent une base PostgreSQL non vide** au lieu
+  d'en effacer le schéma : ils ne remettent à zéro que ce qu'ils ont eux-mêmes migré
+  depuis une base vide ;
+- une erreur de verrou indisponible ou de délai dépassé est traduite en refus temporaire
+  explicite, sans divulguer le SQL.
+
+### Vérifié localement
+
+- suite Python complète sur SQLite : **2 707 réussis, 32 ignorés**, aucun échec ;
+- tests marqués PostgreSQL sur un serveur 16.15 réel : **28 réussis**, aucun échec ;
+- parcours réels contre PostgreSQL 16.15 : journal et flux **77 étapes sur 77**,
+  automatisations **64 sur 64**, sauvegarde et restauration **47 sur 47** ; les mêmes
+  parcours passent sur SQLite ;
+- refus prouvé : un parcours lancé sur une base contenant une table témoin la refuse et
+  la table survit ;
+- suites JavaScript inchangées : **311 tests web**, **59 du rapporteur**, **74 du
+  moteur**, **34 des garde-fous E2E** ; vérification de types, construction et contrôle
+  de synchronisation des versions réussis.
+
+### Limites connues
+
+- **aucun déploiement Railway réel n'a eu lieu** : la configuration, les images et les
+  sondes sont écrites et construites localement, jamais observées en service ;
+- l'import d'une base SQLite existante vers PostgreSQL n'est pas livré ; la sauvegarde
+  et la restauration n'ont jamais été exécutées sur des données d'exploitation ;
+- le relais d'événements exige une réplique unique : deux relais ne livrent jamais la
+  même ligne, mais l'ordre entre eux n'est pas garanti. Sans la variable d'activation,
+  le comportement historique sans reprise est conservé ;
+- la déduplication du consommateur d'événements vit en mémoire : un redémarrage du
+  service peut rediffuser un lot ;
+- un volume d'hébergeur appartient à un seul service : l'origine d'aperçu ne peut pas
+  lire les livrables de l'API sans stockage objet, non livré ;
+- l'intégration continue n'exécute encore aucune suite PostgreSQL ni construction
+  d'image : ces preuves sont locales ;
+- des constats de revue de sévérité moyenne restent ouverts, notamment deux ordres de
+  verrous inverses pouvant produire un interblocage sous forte concurrence, et une sonde
+  de stockage qui ne distingue pas un volume absent d'un volume vide.
+
 ## [0.8.0] - 2026-09-14
 
 Lot G : connecteurs médias et 3D, exécuteurs complémentaires, harnais de preuve E2E
@@ -571,10 +695,12 @@ réellement démarrés sur le bouclage.
 - les événements terminaux sont produits par l'API métier ;
 - CORS n'accepte plus toutes les origines par défaut.
 
-Les tags `v0.2.0` à `v0.8.0` existent ; le Lot G a été finalisé par la PR #7 après
-observation d'une CI verte.
+Les tags `v0.2.0` à `v0.8.0` existent sur `origin` ; le Lot G a été finalisé par la PR #7
+(fusion `e71ebf6`) après observation d'une CI verte, et son tag annoté `v0.8.0` a été posé
+sur ce commit le 18 septembre 2026. Le tag `v0.9.0` ne sera posé qu'après fusion du Lot H.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.5.0...v0.6.0

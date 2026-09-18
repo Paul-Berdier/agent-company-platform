@@ -210,6 +210,45 @@ def _web_tests_state(config: WorkerConfig, capabilities: list[str]) -> str:
     return status
 
 
+def _api_readiness(config: WorkerConfig, checks: dict[str, object]) -> None:
+    """Interroge ``/ready`` et publie ``api_readiness`` sans jamais l'inventer.
+
+    « ready » exige un 200 ; un 503 donne « degraded » avec la liste des contrôles
+    en échec extraite du corps ; un 404 (API antérieure au Lot H2a) donne
+    « unavailable » : une readiness absente n'est pas une readiness acquise.
+    Tout autre statut ou une erreur réseau sont publiés tels quels.
+    """
+
+    try:
+        response = httpx.get(f"{config.api_url}/ready", timeout=5.0, trust_env=False)
+    except httpx.HTTPError:
+        checks["api_readiness"] = "unreachable"
+        return
+    if response.status_code == 200:
+        checks["api_readiness"] = "ready"
+        return
+    if response.status_code == 404:
+        checks["api_readiness"] = "unavailable"
+        return
+    if response.status_code != 503:
+        checks["api_readiness"] = f"http_{response.status_code}"
+        return
+    checks["api_readiness"] = "degraded"
+    failed: list[str] = []
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    reported = body.get("checks") if isinstance(body, dict) else None
+    if isinstance(reported, dict):
+        failed = sorted(
+            name
+            for name, check in reported.items()
+            if isinstance(check, dict) and check.get("ok") is False
+        )
+    checks["api_readiness_failed"] = failed
+
+
 def _doctor(config: WorkerConfig) -> int:
     credential_error: str | None = None
     try:
@@ -237,6 +276,7 @@ def _doctor(config: WorkerConfig) -> int:
         "mcp_stdio_probe": config.mcp_probe.status(),
         "web_tests": _web_tests_state(config, capabilities),
         "api": "unreachable",
+        "api_readiness": "unchecked",
         "gateway": "unreachable",
         "provider": "unchecked",
         "scope": (
@@ -287,6 +327,10 @@ def _doctor(config: WorkerConfig) -> int:
         checks["api"] = "ok" if response.status_code < 400 else f"http_{response.status_code}"
     except httpx.HTTPError:
         pass
+    if checks["api"] == "ok":
+        # La readiness n'est interrogée que sur une API vivante : sinon le
+        # diagnostic « unreachable » de la liveness suffit.
+        _api_readiness(config, checks)
     try:
         response = httpx.get(
             f"{config.gateway_url}/health", timeout=5.0, trust_env=False
@@ -338,6 +382,7 @@ def _doctor(config: WorkerConfig) -> int:
         checks["state"] == "ok"
         and checks["scope"] != "missing"
         and checks["api"] == "ok"
+        and checks["api_readiness"] == "ready"
         and checks["gateway"] == "ok"
         and checks["provider"] == "ok"
     )

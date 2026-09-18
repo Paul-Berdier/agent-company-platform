@@ -1264,7 +1264,13 @@ def _summary(artifact: ArtifactModel) -> ArtifactSummary:
 
 
 def _encode_cursor(artifact: ArtifactModel) -> str:
-    raw = f"{artifact.created_at.isoformat()}|{artifact.id}".encode("utf-8")
+    """Curseur opaque ``(created_at UTC, id)`` ; même forme sur les deux dialectes.
+
+    SQLite relit ses instants naïfs, PostgreSQL les relit en UTC : sans
+    normalisation, un curseur émis par l'un serait décodé différemment par l'autre.
+    """
+
+    raw = f"{_as_utc(artifact.created_at).isoformat()}|{artifact.id}".encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
@@ -2189,7 +2195,11 @@ def _lock_artifact_quota(db: Session, run_id: str) -> None:
             .values(updated_at=TaskRunModel.updated_at)
         )
         return
-    db.query(TaskRunModel).filter_by(id=run_id).with_for_update().one()
+    locked = db.query(TaskRunModel).filter_by(id=run_id).with_for_update().one_or_none()
+    if locked is None:
+        # Une tentative disparue entre la validation des champs et le verrou est un
+        # refus explicite, jamais une ``NoResultFound`` rendue en 500.
+        raise HTTPException(status_code=404, detail="Tentative introuvable")
 
 
 def _required_field(fields: dict[str, str], name: str) -> str:

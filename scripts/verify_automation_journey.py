@@ -7,18 +7,28 @@ activation, calendrier, tick du planificateur, déclenchements manuel et webhook
 historique, permis/usage de budget et alerte.
 
 Le tick est rendu déterministe sans attente : après l'activation, le script ne
-modifie que le curseur ``next_run_at`` de sa propre base temporaire pour simuler
-une occurrence devenue due. L'acquisition du bail, le fencing et la
-matérialisation restent exécutés par les routes de production.
+modifie que le curseur ``next_run_at`` de sa propre base pour simuler une
+occurrence devenue due. L'acquisition du bail, le fencing et la matérialisation
+restent exécutés par les routes de production.
 
-Il n'effectue aucun appel Internet, ne dépense rien et supprime sa base à la fin.
+Base de données : sans option, une base SQLite temporaire est créée dans le
+répertoire de vérification et supprimée à la fin. ``--database-url`` accepte une
+URL ``postgresql+psycopg://`` : le schéma est alors migré par
+``python -m acp_database.migrate upgrade`` avant le démarrage de l'API, et remis à
+zéro à la fin (``DROP SCHEMA public CASCADE; CREATE SCHEMA public``) par SQLAlchemy,
+jamais par un binaire ``psql``. Toute autre URL est refusée avant tout lancement.
+Le dialecte réellement constaté sur la base est imprimé dans le verdict.
+
+Il n'effectue aucun appel Internet et ne dépense rien.
 
 Usage, depuis la racine du dépôt, avec l'environnement installé par
 ``scripts/setup`` :
 
 ```
-.venv/Scripts/python.exe scripts/verify_automation_journey.py      # Windows
-.venv/bin/python scripts/verify_automation_journey.py              # Linux/macOS
+.venv/Scripts/python.exe scripts/verify_automation_journey.py                  # Windows
+.venv/bin/python scripts/verify_automation_journey.py                          # Linux/macOS
+.venv/bin/python scripts/verify_automation_journey.py \
+    --database-url postgresql+psycopg://acp:acp@127.0.0.1:55432/acp_h7        # PostgreSQL
 ```
 
 Sortie : une ligne par étape, puis un VERDICT. Code de retour 0 si toutes les
@@ -27,12 +37,12 @@ Sortie : une ligne par étape, puis un VERDICT. Code de retour 0 si toutes les
 
 from __future__ import annotations
 
+import argparse
 import os
 import secrets
 import signal
 import shutil
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -42,6 +52,8 @@ from pathlib import Path
 from typing import NoReturn
 
 import httpx
+from sqlalchemy import DateTime, bindparam, create_engine, inspect, text
+from sqlalchemy.engine import make_url
 
 
 WORKTREE = Path(__file__).resolve().parents[1]
@@ -58,6 +70,8 @@ SOURCE_ROOTS = (
     WORKTREE / "apps" / "event-service" / "src",
     WORKTREE / "services" / "provider-gateway" / "src",
 )
+
+POSTGRES_URL_PREFIX = "postgresql+psycopg://"
 
 # Les sorties redirigées de Python utilisent encore parfois la page de codes locale
 # sous Windows, alors que la CI et les terminaux modernes attendent UTF-8. Fixer
@@ -134,6 +148,11 @@ def _isolated_subprocess_environment() -> dict[str, str]:
     # autre checkout : le parcours doit prouver exactement l'arbre qui contient
     # ce script. L'ordre correspond aux sources installées par ``scripts/setup``.
     env["PYTHONPATH"] = os.pathsep.join(str(path) for path in SOURCE_ROOTS)
+    # Les enfants écrivent en UTF-8 quelle que soit la console : leur sortie est
+    # relue en UTF-8 par ce script, et une console cp1252 rendrait les accents
+    # illisibles ou ferait échouer une étape sur un simple message.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     return env
 
 
@@ -188,10 +207,151 @@ def _vault_key(env: dict[str, str]) -> str:
     ).stdout.strip()
 
 
+# --- Base de données ------------------------------------------------------------
+
+
+def check_database_argument(argument: str | None) -> None:
+    """Refuse toute URL autre que PostgreSQL via psycopg, avant tout lancement.
+
+    Sans option, le script crée lui-même sa base SQLite temporaire : une URL SQLite
+    explicite est donc inutile et refusée comme les autres, pour ne jamais pointer
+    par erreur le parcours sur une base persistante du poste. Le refus est une
+    étape en échec, donc un verdict 0/1 et un code de retour 1.
+    """
+
+    if argument is None:
+        return
+    if argument.startswith(POSTGRES_URL_PREFIX):
+        try:
+            make_url(argument)
+        except Exception as exc:  # noqa: BLE001 - toute URL illisible est refusée
+            step("URL de base acceptée", False, f"URL PostgreSQL illisible : {exc}")
+            raise JourneyStopped("url de base refusée") from exc
+        return
+    step(
+        "URL de base acceptée",
+        False,
+        f"seule une URL {POSTGRES_URL_PREFIX} est acceptée ; sans option, une base "
+        "SQLite temporaire est créée puis supprimée",
+    )
+    raise JourneyStopped("url de base refusée")
+
+
+def database_url_for(argument: str | None, verify_dir: Path) -> str:
+    """URL réellement utilisée : SQLite temporaire par défaut, PostgreSQL sur demande."""
+
+    if argument is None:
+        return f"sqlite:///{(verify_dir / 'verify-automations.db').as_posix()}"
+    return argument
+
+
+def redacted_url(database_url: str) -> str:
+    """URL sans mot de passe : le verdict est un journal, jamais un secret."""
+
+    return make_url(database_url).render_as_string(hide_password=True)
+
+
+def is_postgres_url(database_url: str) -> bool:
+    """Seul PostgreSQL déclenche la migration préalable et la remise à zéro finale."""
+
+    return database_url.startswith(POSTGRES_URL_PREFIX)
+
+
+def migrate_schema(env: dict[str, str], database_url: str) -> None:
+    """Applique les migrations Alembic du dépôt avant de démarrer l'API.
+
+    L'API ne doit jamais créer un schéma PostgreSQL par ``create_all`` : la chaîne
+    de migration est la seule source du schéma hébergé. Une commande absente ou en
+    échec arrête le parcours, sans repli silencieux vers ``init_db``.
+    """
+
+    result = subprocess.run(
+        [
+            str(PYTHON),
+            "-m",
+            "acp_database.migrate",
+            "upgrade",
+            "--database-url",
+            database_url,
+        ],
+        cwd=WORKTREE,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+    output = ((result.stdout or "") + (result.stderr or "")).strip()
+    require(
+        "Schéma migré par acp_database.migrate upgrade",
+        result.returncode == 0,
+        output[-800:] or f"code {result.returncode}",
+    )
+
+
+def observed_dialect(database_url: str) -> str:
+    """Dialecte et version réellement servis par la base, lus par SQLAlchemy."""
+
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            name = connection.dialect.name
+            if name == "postgresql":
+                version = connection.execute(text("SHOW server_version")).scalar_one()
+            elif name == "sqlite":
+                version = connection.execute(text("SELECT sqlite_version()")).scalar_one()
+            else:
+                version = "version inconnue"
+            return f"{name} {version}"
+    finally:
+        engine.dispose()
+
+
+def require_empty_postgres_schema(database_url: str) -> None:
+    """Exige un schéma ``public`` vide avant de migrer, et refuse sinon.
+
+    La remise à zéro finale de ce parcours exécute ``DROP SCHEMA public CASCADE``.
+    Une base désignée par erreur — une faute de frappe sur le nom, une URL
+    d'environnement copiée — serait donc effacée alors que le verdict resterait
+    vert. Le parcours n'accepte donc de travailler que sur une base dont il est
+    certain qu'il l'a lui-même remplie : le refus est une étape comptée, et rien
+    n'est ni migré ni supprimé ensuite.
+    """
+
+    engine = create_engine(database_url)
+    try:
+        existing = sorted(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+    require(
+        "Schéma public vide avant migration",
+        not existing,
+        f"{len(existing)} table(s) déjà présentes ({', '.join(existing[:5])}"
+        f"{', …' if len(existing) > 5 else ''}) : ce parcours efface le schéma "
+        "public à la fin et refuse donc une base qui contient déjà des données",
+    )
+
+
+def reset_postgres_schema(database_url: str) -> None:
+    """Remet le schéma ``public`` à zéro pour que le prochain parcours reparte de rien."""
+
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DROP SCHEMA public CASCADE"))
+            connection.execute(text("CREATE SCHEMA public"))
+    finally:
+        engine.dispose()
+
+
+# --- Processus ------------------------------------------------------------------
+
+
 def start_api(
     verify_dir: Path,
     *,
     port: int,
+    database_url: str,
     bootstrap_token: str,
     worker_registration_token: str,
     worker_token_pepper: str,
@@ -206,9 +366,7 @@ def start_api(
     _assert_subprocess_provenance(env)
     env.update(
         {
-            "ACP_DATABASE_URL": (
-                f"sqlite:///{(verify_dir / 'verify-automations.db').as_posix()}"
-            ),
+            "ACP_DATABASE_URL": database_url,
             "ACP_BOOTSTRAP_TOKEN": bootstrap_token,
             "ACP_PLUGINS_DIR": str(verify_dir / "plugins"),
             "ACP_PROVIDER_GATEWAY_URL": "http://127.0.0.1:9",
@@ -264,27 +422,35 @@ def wait_for_api(process: subprocess.Popen[str], api_url: str) -> bool:
     return False
 
 
-def _force_due(database_path: Path, automation_id: str) -> datetime:
-    """Prépare uniquement la donnée temporelle de la base temporaire du script."""
+def _force_due(database_url: str, automation_id: str) -> datetime:
+    """Prépare uniquement la donnée temporelle de la base du script.
+
+    L'écriture passe par SQLAlchemy sur l'URL réellement servie à l'API, avec un
+    instant conscient du fuseau en UTC. ``AutomationModel.next_run_at`` est un
+    ``UtcDateTime``, c'est-à-dire un ``DateTime(timezone=True)`` normalisé en UTC :
+    lier ici ce même type de colonne fait stocker à SQLite comme à PostgreSQL
+    exactement ce que la colonne relira, sans chaîne ISO fabriquée à la main.
+    """
 
     due = datetime.now(UTC) - timedelta(seconds=65)
-    # SQLite stocke les DateTime SQLAlchemy comme des heures UTC naïves. Le
-    # TypeDecorator UtcDateTime leur rattache UTC à la relecture.
-    stored = due.astimezone(UTC).replace(tzinfo=None).isoformat(
-        sep=" ", timespec="microseconds"
-    )
-    with sqlite3.connect(database_path, timeout=30) as connection:
-        cursor = connection.execute(
-            "UPDATE automations SET next_run_at = ? WHERE id = ? AND enabled = 1",
-            (stored, automation_id),
+    statement = text(
+        "UPDATE automations SET next_run_at = :due WHERE id = :id AND enabled = 1"
+    ).bindparams(bindparam("due", type_=DateTime(timezone=True)))
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            updated = connection.execute(
+                statement, {"due": due.astimezone(UTC), "id": automation_id}
+            ).rowcount
+    finally:
+        engine.dispose()
+    if updated != 1:
+        step(
+            "Occurrence rendue due dans la base éphémère",
+            False,
+            f"ligne mise à jour={updated}",
         )
-        if cursor.rowcount != 1:
-            step(
-                "Occurrence rendue due dans la base éphémère",
-                False,
-                f"ligne mise à jour={cursor.rowcount}",
-            )
-            raise JourneyStopped("curseur scheduler introuvable")
+        raise JourneyStopped("curseur scheduler introuvable")
     return due
 
 
@@ -331,7 +497,7 @@ def _abort_with_api_output(
 def run_global_phase(
     client: httpx.Client,
     *,
-    database_path: Path,
+    database_url: str,
     bootstrap_token: str,
     worker_registration_token: str,
 ) -> str:
@@ -568,7 +734,7 @@ def run_global_phase(
         and lease["fencing_token"] >= 1,
     )
 
-    due = _force_due(database_path, automation_id)
+    due = _force_due(database_url, automation_id)
     step(
         "Occurrence rendue due dans la base éphémère",
         True,
@@ -978,8 +1144,27 @@ def _remove_verify_directory(directory: Path) -> None:
     raise last_error
 
 
-def main() -> int:
+def _parse_arguments(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Rejoue le parcours d'automatisation du Lot F contre une API réellement "
+            "démarrée sur le bouclage."
+        )
+    )
+    parser.add_argument(
+        "--database-url",
+        default=None,
+        help=(
+            "URL postgresql+psycopg:// d'une base dédiée au parcours (migrée avant "
+            "l'API, remise à zéro à la fin). Sans option : SQLite temporaire."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
     steps.clear()
+    arguments = _parse_arguments(argv)
     port = _free_loopback_port()
     api_url = f"http://127.0.0.1:{port}"
     bootstrap_token = secrets.token_urlsafe(32)
@@ -987,15 +1172,27 @@ def main() -> int:
     worker_token_pepper = secrets.token_urlsafe(32)
     process: subprocess.Popen[str] | None = None
     verify_dir: Path | None = None
+    database_url: str | None = None
+    # Le schéma n'est remis à zéro que si ce parcours l'a lui-même migré depuis
+    # une base vide : un refus ne doit jamais effacer les données d'autrui.
+    owns_postgres_schema = False
+    dialect = "inconnu"
 
     try:
+        check_database_argument(arguments.database_url)
         verify_dir = Path(tempfile.mkdtemp(prefix="acp-automations-e2e-"))
-        vault_key = _vault_key(_isolated_subprocess_environment())
-        database_path = verify_dir / "verify-automations.db"
+        database_url = database_url_for(arguments.database_url, verify_dir)
+        subprocess_env = _isolated_subprocess_environment()
+        vault_key = _vault_key(subprocess_env)
+        if is_postgres_url(database_url):
+            require_empty_postgres_schema(database_url)
+            owns_postgres_schema = True
+            migrate_schema(subprocess_env, database_url)
         try:
             process = start_api(
                 verify_dir,
                 port=port,
+                database_url=database_url,
                 bootstrap_token=bootstrap_token,
                 worker_registration_token=worker_registration_token,
                 worker_token_pepper=worker_token_pepper,
@@ -1005,6 +1202,9 @@ def main() -> int:
             if not wait_for_api(process, api_url):
                 _abort_with_api_output(process, "API démarrée")
             step("API démarrée", True, api_url)
+            # Lu sans étape supplémentaire : le décompte des 62 étapes SQLite
+            # reste celui documenté, et le dialecte figure dans le verdict.
+            dialect = observed_dialect(database_url)
             with httpx.Client(
                 base_url=api_url,
                 timeout=30.0,
@@ -1013,7 +1213,7 @@ def main() -> int:
             ) as client:
                 project_id = run_global_phase(
                     client,
-                    database_path=database_path,
+                    database_url=database_url,
                     bootstrap_token=bootstrap_token,
                     worker_registration_token=worker_registration_token,
                 )
@@ -1029,6 +1229,7 @@ def main() -> int:
             process = start_api(
                 verify_dir,
                 port=port,
+                database_url=database_url,
                 bootstrap_token=bootstrap_token,
                 worker_registration_token=worker_registration_token,
                 worker_token_pepper=worker_token_pepper,
@@ -1061,6 +1262,16 @@ def main() -> int:
     finally:
         if process is not None:
             _stop_process(process)
+        if owns_postgres_schema and database_url is not None:
+            try:
+                reset_postgres_schema(database_url)
+                step("Schéma PostgreSQL remis à zéro", True, redacted_url(database_url))
+            except Exception as exc:  # noqa: BLE001 - le nettoyage est une étape comptée
+                step(
+                    "Schéma PostgreSQL remis à zéro",
+                    False,
+                    f"{type(exc).__name__}: {exc}",
+                )
         if verify_dir is not None:
             try:
                 _remove_verify_directory(verify_dir)
@@ -1073,7 +1284,10 @@ def main() -> int:
 
     failures = [label for label, ok, _detail in steps if not ok]
     print()
-    print(f"VERDICT : {len(steps) - len(failures)}/{len(steps)} étapes réussies")
+    print(
+        f"VERDICT : {len(steps) - len(failures)}/{len(steps)} étapes réussies "
+        f"(dialecte : {dialect})"
+    )
     if failures:
         print("Étapes en échec : " + ", ".join(failures))
     return 1 if failures else 0

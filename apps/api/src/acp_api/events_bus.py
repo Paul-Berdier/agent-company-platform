@@ -38,6 +38,17 @@ contrôles, tous *refus explicites* à l'écriture — jamais un abandon silenci
 Ce que ces contrôles ne prétendent pas faire : reconnaître un petit fragment binaire
 logé dans une clé quelconque. La garantie tenue est « rien d'assez gros, d'assez
 profond ou d'assez mal nommé pour être un média », pas « aucun octet encodé ».
+
+Lot H3 — verrou et boîte d'envoi. Les deux chemins d'écriture (``publish`` et
+``_store_numbered``) prennent ``write_lock(db, 'events.journal')`` **avant** toute
+allocation, puis allouent dans le même ordre (journal, puis tentative). Sous SQLite
+c'est le ``BEGIN IMMEDIATE`` historique ; sous PostgreSQL c'est un verrou consultatif
+tenu jusqu'au commit, ce qui rend ``journal_seq`` contigu **et ordonné par commit** :
+``FOR UPDATE`` seul ne verrouille que la ligne maximale existante et laisse deux
+écrivains recalculer le même numéro. Quand ``ACP_EVENT_RELAY_ENABLED`` vaut ``1``,
+``store_event`` ajoute la ligne ``event_outbox`` dans la même transaction et
+``forward_event`` se tait : le relais (``acp_api.outbox_relay``) devient l'unique
+chemin vers le service d'événements.
 """
 
 from __future__ import annotations
@@ -61,11 +72,16 @@ from acp_contracts import (
     ServiceOriginError,
     normalize_service_origin,
 )
+from acp_database.locking import write_lock
 from acp_database.models import EventModel
+
+from .outbox import enqueue as _enqueue_outbox
+from .outbox import relay_enabled
 
 __all__ = [
     "EVENT_SCHEMA_VERSION",
     "INLINE_CONTENT_KEYS",
+    "JOURNAL_LOCK_KEY",
     "MEDIA_PAYLOAD_KEYS",
     "MEDIA_REFERENCE_KEY",
     "PAYLOAD_MAX_BYTES",
@@ -127,6 +143,14 @@ Ce n'est pas une borne de conception mais une borne **anti-média** : un événe
 métier tient très largement dedans, un média encodé en ligne n'y tient jamais. Elle
 attrape ce qu'aucune liste de noms de clés ne peut attraper.
 """
+
+JOURNAL_LOCK_KEY = "events.journal"
+"""Clé du verrou d'écriture pris avant toute allocation de numéro."""
+
+_ALLOCATION_INDEX_NAMES = frozenset({"uq_event_run_sequence", "uq_events_journal_seq"})
+"""Index uniques dont la violation signe une collision d'allocation (psycopg)."""
+
+_UNIQUE_VIOLATION_SQLSTATE = "23505"
 
 _ALLOCATION_COLLISION_MARKERS = (
     # PostgreSQL nomme les index uniques partiels…
@@ -417,35 +441,49 @@ def _is_allocation_collision(error: IntegrityError) -> bool:
 
     Rejouer aveuglément masquerait le vrai défaut de l'appelant — une clé primaire en
     double, par exemple — derrière cinq essais inutiles et un message trompeur.
+
+    Deux reconnaissances, dans cet ordre : le diagnostic structuré de psycopg
+    (``sqlstate`` 23505 et ``diag.constraint_name`` parmi les index d'allocation),
+    qui ne dépend ni de la langue du serveur ni du libellé du message ; puis les
+    marqueurs textuels, seuls disponibles sous SQLite.
     """
 
-    message = str(getattr(error, "orig", None) or error)
+    original = getattr(error, "orig", None)
+    if original is not None:
+        sqlstate = getattr(original, "sqlstate", None)
+        diagnostic = getattr(original, "diag", None)
+        constraint = getattr(diagnostic, "constraint_name", None)
+        if sqlstate == _UNIQUE_VIOLATION_SQLSTATE and constraint in _ALLOCATION_INDEX_NAMES:
+            return True
+    message = str(original or error)
     return any(marker in message for marker in _ALLOCATION_COLLISION_MARKERS)
 
 
 def _ensure_write_transaction(db: Session) -> None:
-    """Garantit une transaction réelle **avant** de poser un point de sauvegarde.
+    """Prend le verrou d'écriture du journal **avant** toute allocation.
 
-    Deux raisons, toutes deux propres à ``pysqlite`` :
-
-    1. le pilote n'émet ``BEGIN`` que devant une écriture ; un ``SAVEPOINT`` posé en
-       premier ouvrirait lui-même la transaction et son ``RELEASE`` la **validerait** —
-       l'appelant qui a passé ``commit=False`` perdrait le contrôle de sa transaction ;
-    2. une transaction *différée* prendrait un verrou partagé à la lecture puis tenterait
-       de l'élever à l'écriture : deux publications simultanées se bloqueraient
-       mutuellement (``database is locked``, sans attente possible).
-
-    ``BEGIN IMMEDIATE`` règle les deux : le verrou d'écriture est pris d'emblée, les
-    publications se sérialisent et ``ACP`` conserve la transaction de l'appelant.
+    Délègue à ``acp_database.locking.write_lock`` : sous SQLite, le ``BEGIN
+    IMMEDIATE`` historique (les publications se sérialisent sur le fichier et
+    l'appelant conserve sa transaction) ; sous PostgreSQL, un verrou consultatif de
+    transaction sur ``events.journal``, tenu jusqu'au commit, sans lequel
+    ``FOR UPDATE`` sur la ligne maximale laisse deux écrivains calculer le même
+    numéro et repartir en collision. Le nom est conservé pour les appelants du Lot E.
     """
 
-    connection = db.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is None or getattr(driver_connection, "in_transaction", False):
-        return
-    connection.exec_driver_sql("BEGIN IMMEDIATE")
+    write_lock(db, JOURNAL_LOCK_KEY)
+
+
+def _add_event(db: Session, model: EventModel) -> None:
+    """Ajoute la ligne du journal et, si le relais d'outbox est actif, sa ligne d'outbox.
+
+    Les deux partent dans la même transaction, l'outbox juste après l'événement :
+    un rollback métier retire les deux, un commit rend la livraison due. C'est le
+    seul point où l'outbox est alimentée, quel que soit l'appelant de ``store_event``.
+    """
+
+    db.add(model)
+    if relay_enabled():
+        _enqueue_outbox(db, model)
 
 
 def _event_model(
@@ -526,7 +564,7 @@ def store_event(
     if journal_seq is None:
         return _store_numbered(db, event, sequence=sequence, commit=commit, **extra)
     model = _event_model(event, sequence=sequence, journal_seq=journal_seq, **extra)
-    db.add(model)
+    _add_event(db, model)
     if commit:
         db.commit()
     return model
@@ -538,21 +576,23 @@ def _store_numbered(
     """Écrit en allouant les numéros manquants, avec la discipline de ``publish``.
 
     Les deux numéros sont relus à chaque essai : une allocation périmée ne doit
-    jamais survivre à la reprise qui la corrige.
+    jamais survivre à la reprise qui la corrige. Le verrou est pris avant, et
+    l'allocation suit le même ordre que ``publish`` (journal, puis tentative).
     """
 
     last_error: IntegrityError | None = None
     _ensure_write_transaction(db)
     for _ in range(SEQUENCE_ALLOCATION_ATTEMPTS):
+        journal_seq = allocate_journal_seq(db)
         run_sequence = sequence
         if run_sequence is None and event.task_run_id:
             run_sequence = allocate_sequence(db, event.task_run_id)
         model = _event_model(
-            event, sequence=run_sequence, journal_seq=allocate_journal_seq(db), **extra
+            event, sequence=run_sequence, journal_seq=journal_seq, **extra
         )
         try:
             with db.begin_nested():
-                db.add(model)
+                _add_event(db, model)
                 db.flush()
         except IntegrityError as exc:
             if not _is_allocation_collision(exc):
@@ -701,7 +741,17 @@ def _schedule_forward(event: Event, *, background: Any | None, forward: bool) ->
 
 
 async def forward_event(event: Event) -> None:
-    """Pousse l'événement vers le service temps réel ; jamais bloquant pour le métier."""
+    """Pousse l'événement vers le service temps réel ; jamais bloquant pour le métier.
+
+    La porte du relais d'outbox est **ici**, et non dans ``_schedule_forward`` : les
+    routeurs du Lot C (``work``, ``platform``, ``crud``, ``automations``) appellent
+    ``forward_event`` directement via ``background.add_task``. Quand
+    ``ACP_EVENT_RELAY_ENABLED`` vaut ``1``, aucune requête n'est émise : la ligne
+    d'outbox écrite par ``store_event`` est le seul chemin, et un envoi direct en
+    plus ferait recevoir chaque événement deux fois au service.
+    """
+    if relay_enabled():
+        return
     service_token = os.environ.get("ACP_EVENT_SERVICE_TOKEN", "").strip()
     if not service_token:
         return

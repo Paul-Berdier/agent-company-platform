@@ -41,6 +41,7 @@ from .workers import (
     _as_utc,
     authenticate_worker,
     expire_task_leases,
+    refresh_active_runs,
     utcnow,
 )
 
@@ -298,10 +299,14 @@ def _claim_next_task(
         # La frontière de tenant est appliquée dans SQL avant le verrou/claim :
         # une tâche étrangère n'entre jamais dans le jeu de candidats du worker.
         candidates = candidates.filter(project_filter)
+    # Aucun ``FOR UPDATE SKIP LOCKED`` sur les candidats : sous PostgreSQL le
+    # premier worker verrouillerait toute la file jusqu'à son commit et le second
+    # recevrait « aucune tâche compatible » à tort. La mise à jour conditionnelle
+    # ``status = 'queued'`` ci-dessous est l'unique arbitre de l'attribution, sur
+    # les deux moteurs : un candidat déjà pris rend 0 ligne et l'on passe au suivant.
     for candidate in (
         candidates
         .order_by(TaskModel.priority, TaskModel.created_at)
-        .with_for_update(skip_locked=True)
         .all()
     ):
         if worker.simulation and candidate.is_mission:
@@ -310,9 +315,6 @@ def _claim_next_task(
         required = set((candidate.meta or {}).get("required_capabilities", []))
         if not required.issubset(worker_capabilities):
             continue
-        # ``FOR UPDATE SKIP LOCKED`` est efficace sur PostgreSQL, mais ignoré par
-        # SQLite. La mise à jour conditionnelle conserve une attribution unique
-        # sur les deux moteurs.
         reservation = db.query(TaskModel).filter(
             TaskModel.id == candidate.id, TaskModel.status == "queued"
         )
@@ -482,7 +484,9 @@ def _claim_next_task(
             "budget": dict(task.budget or {}),
             "duration_seconds": task.duration_seconds,
         }
-    response["lease_expires_at"] = lease.lease_expires_at.isoformat()
+    # Forme identique sur les deux dialectes : SQLite relit ses instants naïfs,
+    # PostgreSQL les relit en UTC ; le worker reçoit toujours un décalage explicite.
+    response["lease_expires_at"] = _as_utc(lease.lease_expires_at).isoformat()
     return response
 
 
@@ -535,13 +539,36 @@ def renew_task_lease(
             status_code=409,
             detail="Lease expiré ; renouvellement refusé et run interrompu",
         )
-    lease.last_renewed_at = now
-    lease.lease_expires_at = now + timedelta(seconds=WORKER_LEASE_SECONDS)
+    renewed_until = now + timedelta(seconds=WORKER_LEASE_SECONDS)
+    # Compare-and-set : le bail lu ci-dessus a pu être expiré ou libéré entre-temps
+    # (expiration concurrente, fin de tentative). Une affectation ORM le rouvrirait
+    # depuis une lecture périmée ; le prédicat SQL est réévalué par la base.
+    renewed = (
+        db.query(WorkerLeaseModel)
+        .filter(
+            WorkerLeaseModel.id == lease.id,
+            WorkerLeaseModel.status == "active",
+            WorkerLeaseModel.lease_expires_at > now,
+        )
+        .update(
+            {
+                WorkerLeaseModel.last_renewed_at: now,
+                WorkerLeaseModel.lease_expires_at: renewed_until,
+            },
+            synchronize_session=False,
+        )
+    )
+    if renewed != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Lease plus actif ; renouvellement refusé",
+        )
     db.commit()
     return WorkerLeaseResponse(
         worker_id=worker.id,
         task_run_id=run_id,
-        lease_expires_at=lease.lease_expires_at,
+        lease_expires_at=renewed_until,
         status=run.status,
         stop_requested=run.stop_requested_at is not None or run.status == "stopping",
         fencing_token=run.fencing_token,
@@ -749,8 +776,16 @@ def patch_task_run(
         if body.status in _TERMINAL_RUN_STATES:
             run.finished_at = datetime.now(timezone.utc)
             lease.status = "released"
-            worker.active_runs = max(0, worker.active_runs - 1)
-            worker.status = "online"
+            # Le compteur est recalculé par la base à partir des baux encore
+            # actifs, sous verrou de la ligne worker : un décrément depuis la
+            # valeur lue à l'authentification écraserait la réservation d'un
+            # claim validé entre-temps, et admettrait des tentatives au-delà de
+            # la capacité déclarée (ou affamerait un worker libre).
+            db.flush()
+            active_runs = refresh_active_runs(db, worker.id)
+            worker.status = (
+                "busy" if active_runs >= worker.max_concurrency else "online"
+            )
             if task.is_mission and task.active_run_id == run.id:
                 task.active_run_id = None
             terminal_event = Event(

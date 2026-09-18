@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import QueuePool
 
 from acp_api import budget_service
 from acp_api.deps import get_db
@@ -20,7 +19,6 @@ from acp_api.security import create_user_session, hash_password, utcnow
 from acp_database.engine import _upgrade_sqlite_schema
 from acp_database.models import (
     ApprovalModel,
-    Base,
     MembershipModel,
     MissionCommandModel,
     MissionCommentModel,
@@ -28,6 +26,7 @@ from acp_database.models import (
     TaskRunModel,
     UserModel,
 )
+from acp_database.testing import make_test_engine
 
 
 @pytest.fixture
@@ -37,14 +36,8 @@ def mission_context(monkeypatch, tmp_path):
     monkeypatch.setenv("ACP_BOOTSTRAP_TOKEN", bootstrap_token)
     monkeypatch.setenv("ACP_WORKER_REGISTRATION_TOKEN", registration_token)
     monkeypatch.setenv("ACP_SESSION_COOKIE_SECURE", "0")
-    database_path = tmp_path / "missions.db"
-    engine = create_engine(
-        f"sqlite+pysqlite:///{database_path.as_posix()}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=QueuePool,
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path, concurrent=True)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
 
     def override_get_db():
         with session_factory() as db:
@@ -108,7 +101,7 @@ def mission_context(monkeypatch, tmp_path):
             }
     finally:
         app.dependency_overrides.pop(get_db, None)
-        engine.dispose()
+        database.close()
 
 
 def _mission_payload(context, title="Mission test"):
@@ -434,6 +427,7 @@ def test_idempotency_keys_reject_spaces_controls_and_non_ascii(mission_context):
         assert response.status_code == 400, response.text
 
 
+@pytest.mark.sqlite
 def test_sqlite_upgrade_replaces_legacy_command_scope_and_refuses_ambiguity(tmp_path):
     def legacy_engine(name):
         engine = create_engine(f"sqlite+pysqlite:///{(tmp_path / name).as_posix()}")

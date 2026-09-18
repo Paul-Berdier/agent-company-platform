@@ -1,9 +1,10 @@
 # Rapport d'acceptation
 
-Date d'état : 14 septembre 2026
+Date d'état : 17 septembre 2026
 Périmètre évalué : Lot G publié `0.8.0`, sans provider externe ni dépense réelle. Son
-socle a été intégré au commit `004a4f8`, puis durci par la PR #7 et le tag `v0.8.0`
-après CI verte observée.
+socle a été intégré au commit `004a4f8`, puis durci par la PR #7 (fusion `e71ebf6`)
+après CI verte observée ; au 17 septembre 2026, aucun tag `v0.8.0` n'est présent sur
+`origin`. Le Lot H `0.9.0` est en cours sur cette branche.
 
 ## Verdict
 

@@ -390,6 +390,31 @@ def store_revision(
     return str(root)
 
 
+def revision_storage_path(skill_id: str, number: int) -> str:
+    """Chemin de stockage mémorisé pour une révision : ``<skill_id>/<numéro>``, relatif.
+
+    La base ne connaît pas la racine : elle vient de ``ACP_SKILLS_STORAGE_DIR`` au
+    moment de la lecture. Un déploiement peut ainsi déplacer son volume ou changer
+    d'hôte (Docker, Railway) sans réécrire les lignes de révision.
+    """
+
+    return f"{skill_id}/{number}"
+
+
+def revision_root(revision: SkillRevisionModel) -> Path:
+    """Répertoire des fichiers d'une révision, résolu contre la racine configurée.
+
+    Les révisions antérieures portent un chemin absolu : il est lu tel quel, sans
+    migration de données. Les nouvelles portent un chemin relatif, résolu contre
+    :func:`storage_directory` à chaque lecture.
+    """
+
+    stored = Path(revision.storage_path)
+    if stored.is_absolute():
+        return stored
+    return storage_directory() / stored
+
+
 def read_file(revision: SkillRevisionModel, path: str) -> SkillFileContent:
     """Lit un fichier **du manifeste** de la révision ; un chemin absent du manifeste est 404."""
 
@@ -409,7 +434,7 @@ def read_file(revision: SkillRevisionModel, path: str) -> SkillFileContent:
             size=int(entry.get("size", 0)),
             sha256=str(entry.get("sha256", "")),
         )
-    root = Path(revision.storage_path)
+    root = revision_root(revision)
     target = root.joinpath(*str(entry["path"]).split("/"))
     anchor = root.resolve()
     if anchor not in target.resolve().parents:
@@ -764,7 +789,8 @@ def _add_revision(
     """Écrit les fichiers puis la ligne de révision ; l'approbation est reportée si déjà acquise."""
 
     diff = compute_revision_diff(previous, content)
-    storage_path = store_revision(storage_directory(), skill.id, number, content.files)
+    store_revision(storage_directory(), skill.id, number, content.files)
+    storage_path = revision_storage_path(skill.id, number)
     revision = SkillRevisionModel(
         skill_id=skill.id,
         number=number,
@@ -1012,7 +1038,7 @@ def rollback_skill(
 def _files_of(revision: SkillRevisionModel) -> list[tuple[str, bytes]]:
     """Relit les fichiers d'une révision depuis son stockage, en suivant son manifeste."""
 
-    root = Path(revision.storage_path)
+    root = revision_root(revision)
     anchor = root.resolve()
     files: list[tuple[str, bytes]] = []
     for entry in revision.files or []:

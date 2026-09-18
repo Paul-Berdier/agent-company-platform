@@ -31,11 +31,9 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import QueuePool
 
 from acp_api import events_bus
 from acp_api.deps import get_db
@@ -70,6 +68,7 @@ from acp_database.models import (
     UserModel,
     UserSessionModel,
 )
+from acp_database.testing import make_test_engine
 
 PASSWORD = "correct horse battery staple"
 FAST_STREAM_ENVIRON = {
@@ -126,20 +125,19 @@ def stream_context(monkeypatch, tmp_path):
     monkeypatch.delenv("ACP_EVENT_SERVICE_TOKEN", raising=False)
     monkeypatch.delenv("ACP_EVENT_RETENTION_DAYS", raising=False)
 
-    database_path = tmp_path / "events.db"
-    engine = create_engine(
-        f"sqlite+pysqlite:///{database_path.as_posix()}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=QueuePool,
-    )
-    # Test uniquement : supprimer les ``fsync`` divise par six le coût du schéma.
-    # ``synchronous=OFF`` ne touche pas au verrouillage (journal de reprise conservé,
-    # pas de WAL) : la concurrence réelle vérifiée plus bas reste représentative.
-    @sqlalchemy_event.listens_for(engine, "connect")
-    def _unsynchronized_sqlite(dbapi_connection, _record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA synchronous=OFF")
-        cursor.close()
+    database = make_test_engine(tmp_path, concurrent=True, create_schema=False)
+    engine = database.engine
+    if engine.dialect.name == "sqlite":
+        # Test uniquement : supprimer les ``fsync`` divise par six le coût du schéma.
+        # ``synchronous=OFF`` ne touche pas au verrouillage (journal de reprise
+        # conservé, pas de WAL) : la concurrence réelle vérifiée plus bas reste
+        # représentative. Le moteur mémoire n'a rien à synchroniser ; le fichier
+        # ``concurrent`` ci-dessous en profite.
+        @sqlalchemy_event.listens_for(engine, "connect")
+        def _unsynchronized_sqlite(dbapi_connection, _record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA synchronous=OFF")
+            cursor.close()
 
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     Base.metadata.create_all(engine)
@@ -247,7 +245,7 @@ def stream_context(monkeypatch, tmp_path):
         app.dependency_overrides.pop(get_db, None)
         events_bus.event_hub.reset()
         stream_connections.reset()
-        engine.dispose()
+        database.close()
 
 
 def _authenticate(client: TestClient, member: dict[str, str]) -> None:

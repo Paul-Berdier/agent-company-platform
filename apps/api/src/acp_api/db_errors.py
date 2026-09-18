@@ -1,0 +1,67 @@
+"""Traduction des erreurs opérationnelles de la base en refus HTTP explicites.
+
+Sous PostgreSQL, le moteur applique ``lock_timeout`` et ``statement_timeout``
+(voir ``acp_database.engine``). Quand l'un d'eux tombe, psycopg lève une erreur
+dont ``sqlstate`` vaut ``55P03`` (verrou indisponible) ou ``57014`` (requête
+annulée par le délai). Sans gestionnaire, l'API répondrait 500 : ce module rend
+un 503 avec un message français, sans jamais recopier le SQL ni les paramètres
+de la requête, qui peuvent contenir des données privées.
+
+Toute autre ``OperationalError`` est relevée telle quelle : elle signale un défaut
+que l'appelant ne peut pas corriger en réessayant, et le masquer en 503 serait un
+faux diagnostic.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
+
+LOCK_NOT_AVAILABLE = "55P03"
+QUERY_CANCELED = "57014"
+
+_MESSAGES = {
+    LOCK_NOT_AVAILABLE: "Ressource temporairement verrouillée, réessayez",
+    QUERY_CANCELED: "Requête interrompue par le délai maximal",
+}
+
+
+def sqlstate_of(exc: BaseException) -> str | None:
+    """Code SQLSTATE porté par l'exception pilote, ou ``None`` (SQLite, autre pilote)."""
+
+    origin = getattr(exc, "orig", None)
+    state = getattr(origin, "sqlstate", None)
+    return state if isinstance(state, str) else None
+
+
+def response_for(exc: OperationalError) -> JSONResponse | None:
+    """Réponse 503 pour un verrou ou un délai ; ``None`` pour tout autre cas."""
+
+    message = _MESSAGES.get(sqlstate_of(exc) or "")
+    if message is None:
+        return None
+    return JSONResponse(
+        status_code=503,
+        content={"detail": message},
+        headers={"Cache-Control": "no-store", "Retry-After": "1"},
+    )
+
+
+def install(app: FastAPI) -> None:
+    """Monte le gestionnaire d'``OperationalError`` sur ``app``.
+
+    Le gestionnaire relève l'exception d'origine quand elle n'est ni un verrou ni
+    un délai : Starlette la remonte alors à son gestionnaire d'erreurs serveur
+    (500), exactement comme sans ce module.
+    """
+
+    async def handle_operational_error(
+        _request: Request, exc: OperationalError
+    ) -> JSONResponse:
+        response = response_for(exc)
+        if response is None:
+            raise exc
+        return response
+
+    app.add_exception_handler(OperationalError, handle_operational_error)

@@ -10,9 +10,7 @@ from threading import Barrier, Lock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from acp_api import alerts_service
 from acp_api.alerts_service import alert_dedupe_key, open_or_escalate_alert
@@ -21,7 +19,6 @@ from acp_api.routers.alerts import router
 from acp_api.security import create_user_session
 from acp_database.models import (
     AlertModel,
-    Base,
     EventModel,
     MembershipModel,
     NotificationPreferencesModel,
@@ -30,6 +27,7 @@ from acp_database.models import (
     UserModel,
     WorkspaceModel,
 )
+from acp_database.testing import make_test_engine
 
 
 @dataclass
@@ -64,14 +62,9 @@ def _authenticate(client: TestClient, identity: tuple[str, str, str]) -> None:
 
 
 @pytest.fixture
-def alert_api() -> AlertApiContext:
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+def alert_api(tmp_path) -> AlertApiContext:
+    database = make_test_engine(tmp_path)
+    session_factory = sessionmaker(bind=database.engine, expire_on_commit=False)
     with session_factory() as db:
         organization = OrganizationModel(name="Alertes")
         db.add(organization)
@@ -131,7 +124,7 @@ def alert_api() -> AlertApiContext:
                 outsider=outsider,
             )
     finally:
-        engine.dispose()
+        database.close()
 
 
 def _insert_alert(
@@ -536,13 +529,8 @@ def test_notification_preferences_are_strict_personal_and_persisted(alert_api):
 
 
 def test_concurrent_opening_keeps_one_active_alert(tmp_path):
-    database_path = tmp_path / "alerts-race.db"
-    engine = create_engine(
-        f"sqlite:///{database_path.as_posix()}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-    )
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    database = make_test_engine(tmp_path, concurrent=True)
+    factory = sessionmaker(bind=database.engine, expire_on_commit=False)
     with factory() as db:
         organization = OrganizationModel(name="Course")
         db.add(organization)
@@ -590,4 +578,4 @@ def test_concurrent_opening_keeps_one_active_alert(tmp_path):
             "unchanged",
         ]
     finally:
-        engine.dispose()
+        database.close()

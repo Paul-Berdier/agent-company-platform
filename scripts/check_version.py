@@ -36,6 +36,7 @@ PACKAGE_JSONS = (
 
 FASTAPI_APPS = (
     "apps/api/src/acp_api/main.py",
+    "apps/api/src/acp_api/preview.py",
     "apps/event-service/src/acp_event_service/main.py",
     "services/provider-gateway/src/acp_provider_gateway/main.py",
 )

@@ -31,7 +31,13 @@ def parse_attempt_fencing_token(raw_value: str | None) -> int:
 
 
 def _lock_run(db: Session, run_id: str) -> TaskRunModel | None:
-    """Verrouille la tentative avant la décision d'écriture."""
+    """Verrouille la tentative avant la décision d'écriture.
+
+    ``None`` si la tentative n'existe pas : l'appelant refuse alors le fence
+    (409) au lieu de laisser une exception ORM devenir un 500. ``one_or_none``
+    exclut aussi le ``LIMIT`` implicite de ``first()``, inutile sur une clé
+    primaire et sans effet sur ``FOR UPDATE``.
+    """
 
     if db.get_bind().dialect.name == "sqlite":
         db.execute(
@@ -43,14 +49,14 @@ def _lock_run(db: Session, run_id: str) -> TaskRunModel | None:
             db.query(TaskRunModel)
             .filter_by(id=run_id)
             .populate_existing()
-            .first()
+            .one_or_none()
         )
     return (
         db.query(TaskRunModel)
         .filter_by(id=run_id)
         .with_for_update()
         .populate_existing()
-        .first()
+        .one_or_none()
     )
 
 

@@ -1,0 +1,3 @@
+# Valeurs locales de la pile compose : secrets et mots de passe, jamais versionnés.
+# (Le .gitignore racine ne couvre que .env et .env.local, pas .env.compose.)
+.env.compose

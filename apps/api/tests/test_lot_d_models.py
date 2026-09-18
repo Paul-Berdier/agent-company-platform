@@ -123,6 +123,7 @@ def test_foreign_keys_target_existing_tables(inspector):
     assert {"skills", "projects", "skill_revisions", "users"} <= binding_fks
 
 
+@pytest.mark.sqlite
 def test_init_db_stays_idempotent_on_an_existing_database(tmp_path, monkeypatch):
     database = tmp_path / "lot_d.db"
     monkeypatch.setenv("ACP_DATABASE_URL", f"sqlite:///{database.as_posix()}")

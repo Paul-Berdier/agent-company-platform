@@ -7,7 +7,9 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from acp_contracts import (
     Event,
@@ -122,15 +124,102 @@ def worker_snapshot(worker: WorkerModel) -> WorkerSnapshot:
     )
 
 
+def _lock_worker_row(db: Session, worker_id: str) -> None:
+    """Prend le verrou d'écriture du worker avant de recalculer son compteur.
+
+    PostgreSQL : ``SELECT … FOR UPDATE`` attend un claim en cours sur la même
+    ligne ; l'instruction suivante prend alors un instantané neuf, dans lequel le
+    bail inséré par ce claim est visible. Un ``UPDATE`` seul ne suffirait pas :
+    en lecture validée, sa sous-requête ``COUNT`` garde l'instantané pris avant
+    l'attente et recompterait sans ce bail. SQLite ignore ``FOR UPDATE`` : une mise
+    à jour sans effet prend le verrou de fichier, ce qui sérialise de la même
+    façon les écrivains concurrents.
+    """
+
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(
+            update(WorkerModel)
+            .where(WorkerModel.id == worker_id)
+            .values(active_runs=WorkerModel.active_runs),
+            execution_options={"synchronize_session": False},
+        )
+        return
+    db.query(WorkerModel).filter_by(id=worker_id).with_for_update().one_or_none()
+
+
+def refresh_active_runs(db: Session, worker_id: str) -> int:
+    """Réaligne ``active_runs`` sur le nombre de baux actifs, par la base et sous verrou.
+
+    Le compteur est réservé par le claim (``active_runs + 1`` conditionnel) et
+    relâché par les fins de tentative ; ce recalcul est la vérité de rattrapage.
+    Il est écrit par une sous-requête ``COUNT`` évaluée par la base, jamais depuis
+    une valeur lue plus tôt dans la session : une affectation ORM depuis une
+    lecture périmée écraserait la réservation d'un claim validé entre-temps.
+    Retourne le compteur écrit et aligne l'objet déjà chargé sans nouvel UPDATE.
+    """
+
+    _lock_worker_row(db, worker_id)
+    active_leases = (
+        select(func.count(WorkerLeaseModel.id))
+        .where(
+            WorkerLeaseModel.worker_id == worker_id,
+            WorkerLeaseModel.status == "active",
+        )
+        .scalar_subquery()
+    )
+    db.execute(
+        update(WorkerModel)
+        .where(WorkerModel.id == worker_id)
+        .values(active_runs=active_leases),
+        execution_options={"synchronize_session": False},
+    )
+    active_runs = db.execute(
+        select(WorkerModel.active_runs).where(WorkerModel.id == worker_id)
+    ).scalar_one()
+    worker = db.get(WorkerModel, worker_id)
+    if worker is not None:
+        set_committed_value(worker, "active_runs", active_runs)
+    return active_runs
+
+
 def expire_task_leases(db: Session) -> int:
-    """Interrompt les runs abandonnés sans rejouer un effet devenu incertain."""
+    """Interrompt les runs dont le bail est échu, chaque bail une seule fois.
+
+    Le filtre ``lease_expires_at <= now`` vit dans le SQL : un bail encore valide
+    n'est ni chargé ni touché. Chaque bail échu est fermé par compare-and-set
+    ``active → expired`` ; les mutations de la tentative, de la tâche et de
+    l'agent, comme l'événement ``task.interrupted``, ne sont écrites que si ce
+    CAS a rendu une ligne. Deux appels concurrents (heartbeat et claim, par
+    exemple) ne produisent donc jamais deux interruptions ni deux événements pour
+    le même bail. L'effet éventuel du worker reste inconnu : aucune reprise
+    automatique n'est rejouée.
+    """
     now = utcnow()
     expired = 0
-    leases = db.query(WorkerLeaseModel).filter_by(status="active").all()
-    for lease in leases:
-        if _as_utc(lease.lease_expires_at) > now:
+    worker_ids: set[str] = set()
+    candidates = (
+        db.query(WorkerLeaseModel)
+        .filter(
+            WorkerLeaseModel.status == "active",
+            WorkerLeaseModel.lease_expires_at <= now,
+        )
+        .order_by(WorkerLeaseModel.created_at, WorkerLeaseModel.id)
+        .all()
+    )
+    for lease in candidates:
+        transitioned = (
+            db.query(WorkerLeaseModel)
+            .filter(
+                WorkerLeaseModel.id == lease.id,
+                WorkerLeaseModel.status == "active",
+            )
+            .update({WorkerLeaseModel.status: "expired"}, synchronize_session=False)
+        )
+        if transitioned != 1:
+            # Un autre appel a fermé ce bail entre notre lecture et notre écriture.
+            db.refresh(lease)
             continue
-        lease.status = "expired"
+        set_committed_value(lease, "status", "expired")
         run = db.get(TaskRunModel, lease.task_run_id)
         if run is not None and run.status in {
             "pending",
@@ -188,18 +277,12 @@ def expire_task_leases(db: Session) -> int:
             agent = db.get(AgentInstanceModel, run.agent_instance_id)
             if agent is not None:
                 agent.status = "blocked"
+        worker_ids.add(lease.worker_id)
         expired += 1
     if expired:
         db.flush()
-        worker_ids = {lease.worker_id for lease in leases}
-        for worker_id in worker_ids:
-            worker = db.get(WorkerModel, worker_id)
-            if worker is not None:
-                worker.active_runs = (
-                    db.query(WorkerLeaseModel)
-                    .filter_by(worker_id=worker_id, status="active")
-                    .count()
-                )
+        for worker_id in sorted(worker_ids):
+            refresh_active_runs(db, worker_id)
         db.commit()
     return expired
 
@@ -330,12 +413,9 @@ def heartbeat(
         )
     if body.simulation is not None:
         worker.simulation = int(body.simulation)
-    active_runs = (
-        db.query(WorkerLeaseModel)
-        .filter_by(worker_id=worker.id, status="active")
-        .count()
-    )
-    worker.active_runs = active_runs
+    # Recalcul par la base, sous le verrou de la ligne : un claim validé pendant ce
+    # heartbeat n'est jamais écrasé par un compteur relu avant lui.
+    active_runs = refresh_active_runs(db, worker.id)
     worker.status = (
         WorkerStatus.BUSY.value
         if active_runs >= worker.max_concurrency

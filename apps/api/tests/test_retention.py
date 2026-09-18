@@ -19,9 +19,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from acp_api.artifacts_storage import LocalArtifactStorage
 from acp_api.retention import (
@@ -32,8 +30,8 @@ from acp_api.retention import (
 )
 from acp_database.models import (
     ArtifactModel,
-    Base,
     EventModel,
+    EventOutboxModel,
     MissionEvidenceModel,
     OrganizationModel,
     ProjectModel,
@@ -42,6 +40,7 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from acp_database.testing import make_test_engine
 
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
 
@@ -78,15 +77,12 @@ def _web_tests_evidence_data(artifact_id: str) -> dict:
 
 
 @pytest.fixture
-def session_factory():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+def session_factory(tmp_path):
+    database = make_test_engine(tmp_path)
     try:
-        yield sessionmaker(bind=engine, expire_on_commit=False)
+        yield sessionmaker(bind=database.engine, expire_on_commit=False)
     finally:
-        engine.dispose()
+        database.close()
 
 
 @pytest.fixture
@@ -482,3 +478,119 @@ def test_the_command_refuses_a_negative_retention(session_factory, storage, worl
     )
 
     assert code == 2
+
+
+# --- Lot H3 : boîte d'envoi -------------------------------------------------------
+
+
+def _outbox_row(
+    db: Session,
+    event: EventModel,
+    *,
+    delivered: bool = False,
+    dead: bool = False,
+) -> EventOutboxModel:
+    """Ligne d'outbox posée à la main : la rétention ne dépend pas du relais."""
+
+    row = EventOutboxModel(
+        event_id=event.id,
+        journal_seq=int(event.journal_seq or 0),
+        project_id=event.project_id,
+        consumer="event-service",
+        attempts=8 if dead else 0,
+        next_attempt_at=NOW,
+        delivered_at=NOW if delivered else None,
+        dead_at=NOW if dead else None,
+        last_error="HTTP 503" if dead else "",
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+@pytest.mark.parametrize("state", ["pending", "dead"])
+def test_an_event_whose_delivery_is_still_due_is_never_purged(
+    session_factory, storage, world, state
+):
+    """Une livraison due ou abandonnée protège l'événement, quel que soit son âge."""
+
+    with session_factory() as db:
+        event = _event(db, world, type_="task.progress", age_days=4000)
+        event.journal_seq = 1
+        _outbox_row(db, event, dead=(state == "dead"))
+        db.commit()
+
+    with session_factory() as db:
+        report = purge_expired(db, storage, now=NOW, apply=True)
+
+    assert report.events_deleted == 0
+    assert report.events_pending_relay == 1
+    assert "non livrés au relais : 1" in report.summary()
+    with session_factory() as db:
+        assert db.query(EventModel).count() == 1
+        assert db.query(EventOutboxModel).count() == 1
+
+
+def test_a_delivered_outbox_row_is_removed_with_its_purged_event(
+    session_factory, storage, world
+):
+    """Clé étrangère sans cascade : la ligne livrée est retirée d'abord, explicitement."""
+
+    with session_factory() as db:
+        event = _event(db, world, type_="task.progress", age_days=400)
+        event.journal_seq = 1
+        _outbox_row(db, event, delivered=True)
+        kept = _event(db, world, type_="task.progress", age_days=1)
+        kept.journal_seq = 2
+        _outbox_row(db, kept, delivered=True)
+        db.commit()
+        kept_id = kept.id
+
+    with session_factory() as db:
+        report = purge_expired(db, storage, now=NOW, apply=True)
+
+    assert report.events_deleted == 1
+    assert report.events_pending_relay == 0
+    with session_factory() as db:
+        assert [row.id for row in db.query(EventModel).all()] == [kept_id]
+        assert [row.event_id for row in db.query(EventOutboxModel).all()] == [kept_id]
+
+
+def test_the_dry_run_reports_the_events_held_back_by_the_relay(
+    session_factory, storage, world, capsys
+):
+    with session_factory() as db:
+        due = _event(db, world, type_="task.progress", age_days=400)
+        due.journal_seq = 1
+        _outbox_row(db, due)
+        _event(db, world, type_="task.progress", age_days=400)
+        db.commit()
+
+    code = main([], session_factory=session_factory, storage=storage)
+
+    assert code == 0
+    printed = capsys.readouterr().out
+    assert "événements supprimés : 1" in printed
+    assert "non livrés au relais : 1" in printed
+    with session_factory() as db:
+        assert db.query(EventModel).count() == 2
+
+
+def test_a_terminal_event_with_a_due_delivery_is_counted_once_as_terminal(
+    session_factory, storage, world
+):
+    """Les deux protections se recoupent : l'événement n'est compté qu'une fois."""
+
+    with session_factory() as db:
+        event = _event(db, world, type_="task.completed", age_days=4000)
+        event.journal_seq = 1
+        _outbox_row(db, event)
+        db.commit()
+
+    with session_factory() as db:
+        report = purge_expired(db, storage, now=NOW, apply=True)
+
+    assert report.events_protected == 1
+    assert report.events_pending_relay == 0
+    with session_factory() as db:
+        assert db.query(EventModel).count() == 1

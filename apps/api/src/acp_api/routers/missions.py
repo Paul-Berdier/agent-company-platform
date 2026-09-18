@@ -11,6 +11,7 @@ import hashlib
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -817,18 +818,23 @@ def decide_acceptance(
         if current == body.decision:
             return mission_run_contract(db, run)
         raise HTTPException(status_code=409, detail="Acceptation déjà décidée")
-    expected_acceptance = dict(run.user_acceptance or {})
     decision = {
         "status": body.decision,
         "comment": body.comment,
         "decided_by": principal,
         "decided_at": utcnow().isoformat(),
     }
+    # Compare-and-set sur le seul champ décisionnel : ``user_acceptance->>'status'``
+    # (``json_extract`` sous SQLite). Comparer le document JSON entier n'est pas
+    # portable : PostgreSQL n'a pas d'opérateur d'égalité pour ``json``. Un statut
+    # absent (document vide des tentatives historiques) vaut « pending », comme
+    # dans la lecture ci-dessus.
+    acceptance_status = TaskRunModel.user_acceptance["status"].as_string()
     decided = (
         db.query(TaskRunModel)
         .filter(
             TaskRunModel.id == run.id,
-            TaskRunModel.user_acceptance == expected_acceptance,
+            or_(acceptance_status == "pending", acceptance_status.is_(None)),
         )
         .update(
             {TaskRunModel.user_acceptance: decision},
