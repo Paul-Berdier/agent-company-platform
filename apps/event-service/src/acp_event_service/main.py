@@ -6,7 +6,8 @@ workspace / projet / département.
 
 Lot H3 : l'ingestion est idempotente par ``event.id``. Le relais d'outbox livre
 au-moins-une-fois et renvoie un événement dont le commit de livraison a échoué ;
-un identifiant déjà vu répond ``{"ok": true, "duplicate": true}`` sans diffusion.
+un identifiant déjà vu répond ``{"ok": true, "duplicate": true}`` sans diffusion, et
+un identifiant en cours de diffusion n'est jamais diffusé une seconde fois (0.9.1).
 Le registre (``DeliveryLedger``) vit en mémoire : après un redémarrage, un lot
 renvoyé peut être rediffusé au plus une fois. Les en-têtes ``X-ACP-*`` du relais
 sont facultatifs : le relais direct historique, qui n'en pose aucun, reste accepté.
@@ -30,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from acp_contracts import Event
 
-from .dedupe import DeliveryLedger, dedupe_size
+from .dedupe import DeliveryLedger, dedupe_size, inflight_wait_seconds
 
 app = FastAPI(title="Agent Company Platform — Event Service", version="0.9.1")
 
@@ -83,6 +84,9 @@ manager = ConnectionManager()
 ledger = DeliveryLedger(max_ids=dedupe_size())
 """Registre des livraisons du processus : borné, en mémoire, partagé par les routes."""
 
+inflight_wait = inflight_wait_seconds()
+"""Attente d'un renvoi pendant que l'original est diffusé (lue au démarrage)."""
+
 
 def _require_internal_token(
     authorization: Annotated[str | None, Header()] = None,
@@ -125,13 +129,48 @@ async def ingest(event: Event):
     déjà diffusé est une livraison réussie, et un refus le ferait renvoyer sans fin.
     La mémorisation suit la diffusion : un événement que personne n'a reçu n'est
     jamais marqué comme vu.
+
+    Un renvoi qui arrive **pendant** la diffusion de l'original (relais qui a dépassé
+    son délai HTTP) attend la fin de celle-ci, au plus ``inflight_wait`` secondes :
+    réussie, il est acquitté comme doublon ; échouée, il reprend la diffusion ;
+    toujours en cours, il reçoit un 503 réessayable (``Retry-After: 1``).
     """
 
-    if ledger.seen(event.id):
-        return {"ok": True, "duplicate": True}
-    await manager.broadcast(event)
-    ledger.remember(event.id)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + inflight_wait
+    while True:
+        state, waiter = ledger.reserve(event.id)
+        if state == "seen":
+            return {"ok": True, "duplicate": True}
+        if state == "reserved":
+            break
+        # Une autre livraison diffuse cet identifiant : on attend sa fin au lieu de
+        # le rediffuser. Réussie, l'identifiant sera « vu » ; échouée, la réservation
+        # est libérée et ce renvoi reprend la diffusion lui-même.
+        remaining = deadline - loop.time()
+        if waiter is None or remaining <= 0:
+            raise _still_broadcasting()
+        try:
+            await asyncio.wait_for(waiter.wait(), remaining)
+        except TimeoutError:
+            raise _still_broadcasting() from None
+    try:
+        await manager.broadcast(event)
+    except BaseException:
+        ledger.release(event.id)
+        raise
+    ledger.confirm(event.id)
     return {"ok": True}
+
+
+def _still_broadcasting() -> HTTPException:
+    """503 réessayable : l'original est encore en cours de diffusion."""
+
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Événement en cours de diffusion par une livraison précédente : réessayer.",
+        headers={"Retry-After": "1"},
+    )
 
 
 @app.websocket("/ws")
