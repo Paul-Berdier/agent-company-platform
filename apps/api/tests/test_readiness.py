@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 
 from acp_api import db_errors, readiness
@@ -383,6 +384,8 @@ def _failing_app(sqlstate: str | None) -> FastAPI:
     [
         ("55P03", "Ressource temporairement verrouillée, réessayez"),
         ("57014", "Requête interrompue par le délai maximal"),
+        ("40P01", "Conflit d'accès concurrent, rien n'a été enregistré : réessayez"),
+        ("40001", "Conflit d'accès concurrent, rien n'a été enregistré : réessayez"),
     ],
 )
 def test_lock_and_timeout_errors_become_503_without_sql(sqlstate, message):
@@ -403,6 +406,26 @@ def test_other_operational_errors_are_re_raised(sqlstate):
     with TestClient(_failing_app(sqlstate)) as failing:
         with pytest.raises(OperationalError):
             failing.get("/boom")
+
+
+def test_an_exhausted_pool_becomes_503_without_detail():
+    application = FastAPI()
+    db_errors.install(application)
+
+    @application.get("/sature")
+    def saturated() -> dict[str, str]:
+        raise PoolTimeoutError(
+            "QueuePool limit of size 5 overflow 5 reached, connection timed out, "
+            "timeout 10.00 postgresql://acp:secret@db.interne/acp"
+        )
+
+    with TestClient(application) as client:
+        response = client.get("/sature")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": db_errors.POOL_EXHAUSTED_MESSAGE}
+    assert response.headers["retry-after"] == "2"
+    assert "QueuePool" not in response.text and "secret" not in response.text
 
 
 def test_sqlstate_extraction_ignores_missing_or_non_text_values():
