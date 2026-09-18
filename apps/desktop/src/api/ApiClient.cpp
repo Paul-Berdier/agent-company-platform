@@ -368,6 +368,9 @@ void ApiClient::startAttempt(ApiCall *call)
     if (!request.isSafeMethod() && !request.publicEndpoint && !m_csrfToken.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("X-CSRF-Token"), m_csrfToken.toUtf8());
     }
+    if (!request.clientAnnouncement.isEmpty()) {
+        networkRequest.setRawHeader(QByteArrayLiteral("X-ACP-Client"), request.clientAnnouncement);
+    }
     if (!request.idempotencyKey.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("Idempotency-Key"),
                                     request.idempotencyKey.toUtf8());

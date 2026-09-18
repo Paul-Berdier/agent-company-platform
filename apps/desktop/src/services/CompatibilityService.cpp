@@ -105,6 +105,7 @@ void CompatibilityService::probe(int candidateIndex)
     // question 7). L'appel n'exige donc rien : s'il répond 401, c'est qu'il est
     // authentifié, et la vérification sera refaite après l'ouverture de session.
     request.publicEndpoint = true;
+    request.clientAnnouncement = QByteArrayLiteral("desktop/") + m_clientVersion.toUtf8();
 
     ApiCall *call = m_client->send(request);
     connect(call, &ApiCall::succeeded, this, [this, path](const ApiResponse &response) {
@@ -119,6 +120,19 @@ void CompatibilityService::probe(int candidateIndex)
     connect(call, &ApiCall::failed, this, [this, candidateIndex, path](const ApiError &error) {
         if (error.kind() == ApiFailure::NotFound) {
             probe(candidateIndex + 1);
+            return;
+        }
+        if (error.httpStatus() == 426) {
+            // Verdict du serveur, qui connaît sa propre règle d'ordre des versions : il
+            // l'emporte sur toute comparaison locale.
+            const QString detail = extractProblemDetail(error.body());
+            m_endpointUsed = path;
+            setState(CompatibilityStatus::ClientTooOld,
+                     detail.isEmpty()
+                         ? QStringLiteral("Ce serveur refuse la version %1 de la station. "
+                                          "Mettez la station à jour avant de poursuivre.")
+                               .arg(m_clientVersion)
+                         : detail);
             return;
         }
         if (error.kind() == ApiFailure::Unauthorized) {
@@ -139,17 +153,46 @@ void CompatibilityService::probe(int candidateIndex)
 void CompatibilityService::evaluate(const QJsonObject &payload, const QString &endpoint)
 {
     m_endpointUsed = endpoint;
-    m_serverVersion = payload.value(QStringLiteral("server_version")).toString();
-    m_apiContractVersion = payload.value(QStringLiteral("api_contract_version")).toString();
-    m_eventSchemaVersion = payload.value(QStringLiteral("event_schema_version")).toString();
+    const QJsonObject versions = payload.value(QStringLiteral("versions")).toObject();
+    m_serverVersion = versions.value(QStringLiteral("product")).toString();
+    m_apiContractVersion = versions.value(QStringLiteral("api_contract")).toString();
+    m_eventSchemaVersion = versions.value(QStringLiteral("event_schema")).toString();
 
     if (m_apiContractVersion.isEmpty()) {
         // La route existe mais ne porte pas le contrat attendu : on le dit précisément,
         // au lieu de conclure à la compatibilité par absence de contradiction.
         setState(CompatibilityStatus::FeatureUnavailable,
-                 QStringLiteral("%1 a répondu, mais sans champ « api_contract_version » : la "
+                 QStringLiteral("%1 a répondu, mais sans champ « versions.api_contract » : la "
                                 "compatibilité ne peut pas être établie.")
                      .arg(endpoint));
+        return;
+    }
+
+    // --- Contrat d'API ---------------------------------------------------------
+    bool majorRead = false;
+    const int contractMajor =
+        m_apiContractVersion.section(QLatin1Char('.'), 0, 0).toInt(&majorRead);
+    if (!majorRead) {
+        setState(CompatibilityStatus::FeatureUnavailable,
+                 QStringLiteral("%1 annonce un contrat d'API illisible (« %2 ») : la "
+                                "compatibilité ne peut pas être établie.")
+                     .arg(endpoint, m_apiContractVersion));
+        return;
+    }
+    if (contractMajor > supportedApiContractMajor) {
+        setState(CompatibilityStatus::ClientTooOld,
+                 QStringLiteral("Le serveur publie le contrat d'API %1 ; cette station ne sait "
+                                "lire que la version %2.x. Mettez la station à jour.")
+                     .arg(m_apiContractVersion)
+                     .arg(supportedApiContractMajor));
+        return;
+    }
+    if (contractMajor < supportedApiContractMajor) {
+        setState(CompatibilityStatus::ServerTooOld,
+                 QStringLiteral("Le serveur publie le contrat d'API %1 ; cette station exige "
+                                "la version %2.x.")
+                     .arg(m_apiContractVersion)
+                     .arg(supportedApiContractMajor));
         return;
     }
 
@@ -167,7 +210,8 @@ void CompatibilityService::evaluate(const QJsonObject &payload, const QString &e
         m_limits.maxStreamSeconds = readLimit("stream_max_seconds", m_limits.maxStreamSeconds);
         m_limits.pollIntervalMilliseconds =
             readLimit("stream_poll_interval_ms", m_limits.pollIntervalMilliseconds);
-        m_limits.pageLimit = readLimit("page_limit", m_limits.pageLimit);
+        // Le rattrapage du journal demande la plus grande page admise par le serveur.
+        m_limits.pageLimit = readLimit("event_page_max_limit", m_limits.pageLimit);
         m_limitsAnnounced = true;
     }
 
@@ -176,8 +220,12 @@ void CompatibilityService::evaluate(const QJsonObject &payload, const QString &e
     m_capabilitiesKnown = !m_capabilities.isEmpty();
 
     // --- Version cliente minimale -------------------------------------------
-    const QJsonObject minimums = payload.value(QStringLiteral("minimum_client_versions")).toObject();
-    const QString minimumDesktop = minimums.value(QStringLiteral("desktop")).toString();
+    const QJsonObject desktopRequirement = payload.value(QStringLiteral("clients"))
+                                               .toObject()
+                                               .value(QStringLiteral("desktop"))
+                                               .toObject();
+    const QString minimumDesktop =
+        desktopRequirement.value(QStringLiteral("minimum_version")).toString();
     if (!minimumDesktop.isEmpty() && compareVersions(m_clientVersion, minimumDesktop) < 0) {
         setState(CompatibilityStatus::ClientTooOld,
                  QStringLiteral("Ce serveur exige au minimum la version %1 de la station ; "
@@ -208,7 +256,10 @@ void CompatibilityService::evaluate(const QJsonObject &payload, const QString &e
 
 bool CompatibilityService::capability(const QString &name, bool *known) const
 {
-    const QJsonValue value = m_capabilities.value(name);
+    // Chaque capacité est un objet { available, detail } : seul un booléen explicite
+    // vaut réponse, toute autre forme reste « Inconnu ».
+    const QJsonValue value =
+        m_capabilities.value(name).toObject().value(QStringLiteral("available"));
     const bool isKnown = m_capabilitiesKnown && value.isBool();
     if (known) {
         *known = isKnown;
@@ -218,7 +269,8 @@ bool CompatibilityService::capability(const QString &name, bool *known) const
 
 bool CompatibilityService::capabilityIsKnown(const QString &name) const
 {
-    return m_capabilitiesKnown && m_capabilities.value(name).isBool();
+    return m_capabilitiesKnown
+        && m_capabilities.value(name).toObject().value(QStringLiteral("available")).isBool();
 }
 
 int CompatibilityService::compareVersions(const QString &left, const QString &right)

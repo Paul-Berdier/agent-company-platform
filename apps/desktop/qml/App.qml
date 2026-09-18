@@ -28,11 +28,12 @@ ApplicationWindow {
     // (préférence de l'opérateur, puis thème système) et jamais d'une décision prise ici.
     ThemeBridge {}
 
-    // L'écran de première ouverture REMPLACE la coquille tant qu'aucune adresse de
-    // serveur n'a été acceptée : il n'y a rien d'honnête à afficher avant.
+    // L'écran de connexion REMPLACE la coquille tant qu'aucune adresse n'est acceptée ou
+    // qu'aucune session n'est ouverte : toutes les données métier exigent une session, il
+    // n'y a donc rien d'honnête à afficher avant.
     Loader {
         anchors.fill: parent
-        sourceComponent: Shell.firstRun ? firstRunComponent : shellComponent
+        sourceComponent: Shell.connectionRequired ? firstRunComponent : shellComponent
     }
 
     Component {

@@ -35,7 +35,7 @@ class ReadinessModel : public QAbstractListModel
 public:
     enum Roles {
         NameRole = Qt::UserRole + 1,
-        StatusRole,   //!< Identifiant brut renvoyé par le serveur.
+        StatusRole,   //!< Verdict en français : « Sain », « En échec » ou « Inconnu ».
         DetailRole,   //!< Raison française donnée par le serveur, telle quelle.
         HealthyRole,
     };
@@ -57,6 +57,15 @@ public:
 
     void setChecks(const QList<Check> &checks);
     void clear();
+
+    /*!
+        Lit les contrôles d'un corps `/ready`, en 200 comme en 503.
+
+        Forme servie par l'API (`acp_api/readiness.py`) : `checks.<nom>` est un objet
+        portant `ok` (booléen) et `reason` (français), plus des champs propres au contrôle.
+        Un contrôle sans `ok` booléen reste « Inconnu » et n'est jamais compté sain.
+    */
+    [[nodiscard]] static QList<Check> parseChecks(const QJsonObject &payload);
 
 private:
     QList<Check> m_checks;

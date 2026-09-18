@@ -1,13 +1,13 @@
 # Cibles de test de la station.
 #
-# AVERTISSEMENT : aucun de ces tests n'a jamais été compilé ni exécuté. Le poste de
-# rédaction n'a ni compilateur, ni Qt, ni CMake. Ils sont écrits POUR l'intégration
-# continue, qui est la seule preuve recevable.
+# Exécutés par scripts/test-desktop.ps1 (ctest) sur poste et dans desktop-ci.yml.
 #
 # Deux familles :
 #   - Qt Test (C++) : analyseur SSE, erreurs d'API, registre de commandes, machine à états
-#     de session, compatibilité, curseurs, expurgation. Ils ne touchent pas le réseau et
-#     n'ouvrent aucune fenêtre ;
+#     de session, compatibilité, curseurs, expurgation, contrôles de disponibilité. Ils
+#     ne touchent pas le réseau et n'ouvrent aucune fenêtre. Ceux qui lisent un document
+#     d'API le prennent dans fixtures/, que la suite Python garde aligné sur l'API réelle
+#     (apps/api/tests/test_desktop_contract_fixtures.py) ;
 #   - Qt Quick Test (QML) : composants de la coquille, sur une scène réelle.
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Test QuickTest)
@@ -30,10 +30,22 @@ acp_add_cpp_test(tst_sse_parser)
 acp_add_cpp_test(tst_api_errors)
 acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_session_state)
+target_compile_definitions(tst_session_state PRIVATE
+    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
 acp_add_cpp_test(tst_compatibility)
+# Document /meta réel, versionné ; tests/test_desktop_meta_fixture.py (côté API) échoue si
+# la forme servie par le serveur s'en écarte.
+target_compile_definitions(tst_compatibility PRIVATE
+    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
 acp_add_cpp_test(tst_cursors)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)
+acp_add_cpp_test(tst_readiness)
+target_compile_definitions(tst_readiness PRIVATE
+    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
 
 # --- Tests QML ----------------------------------------------------------------
 #

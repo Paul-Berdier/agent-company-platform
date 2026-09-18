@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "app/QmlEnums.h"
+
 #include <QObject>
 #include <QString>
 
@@ -25,6 +27,8 @@ class ShellViewModel : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool firstRun READ isFirstRun NOTIFY shellStateChanged)
+    Q_PROPERTY(bool connectionRequired READ isConnectionRequired NOTIFY shellStateChanged)
+    Q_PROPERTY(bool allowsInsecureLoopback READ allowsInsecureLoopback NOTIFY shellStateChanged)
     Q_PROPERTY(bool authenticated READ isAuthenticated NOTIFY shellStateChanged)
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY shellStateChanged)
     Q_PROPERTY(QString serverUrlLabel READ serverUrlLabel NOTIFY shellStateChanged)
@@ -46,6 +50,19 @@ public:
 
     /*! Vrai tant qu'aucune adresse de serveur n'a jamais été saisie. */
     [[nodiscard]] bool isFirstRun() const;
+
+    /*!
+        Vrai tant que l'écran de connexion doit remplacer la coquille : aucune adresse,
+        ou aucune session utilisable. « Hors ligne » n'en fait pas partie : la session
+        peut être encore valide, et la coquille garde les dernières informations reçues.
+        « Connexion en cours » non plus n'ouvre pas la coquille : une tentative qui
+        échoue doit laisser l'opérateur sur l'écran qui affiche le refus.
+    */
+    [[nodiscard]] bool isConnectionRequired() const;
+    [[nodiscard]] static bool connectionRequired(bool serverConfigured,
+                                                 SessionStatus::State session);
+
+    [[nodiscard]] bool allowsInsecureLoopback() const;
     [[nodiscard]] bool isAuthenticated() const;
     [[nodiscard]] QString serverUrl() const;
 

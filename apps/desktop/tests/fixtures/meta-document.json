@@ -1,0 +1,79 @@
+{
+  "service": "api",
+  "checked_at": "2026-09-18T12:00:00Z",
+  "versions": {
+    "product": "0.9.0",
+    "product_source": "fichier VERSION du dépôt",
+    "api_contract": "1.0",
+    "event_schema": "1.0",
+    "contracts": "1.0"
+  },
+  "clients": {
+    "desktop": {
+      "client": "desktop",
+      "minimum_version": "0.9.0",
+      "source": "version du produit servie",
+      "reason": "Aucune compatibilité avec une version antérieure n'est prouvée pour ce serveur : le plancher est la version du produit servie."
+    },
+    "cli": {
+      "client": "cli",
+      "minimum_version": "0.9.0",
+      "source": "version du produit servie",
+      "reason": "Aucune compatibilité avec une version antérieure n'est prouvée pour ce serveur : le plancher est la version du produit servie."
+    }
+  },
+  "capabilities": {
+    "artifact_signing": {
+      "available": false,
+      "detail": "Signature des liens de livrable non configurée : le téléchargement authentifié par session reste disponible."
+    },
+    "secrets_vault": {
+      "available": false,
+      "detail": "Coffre de secrets non configuré : l'écriture d'un secret est refusée."
+    },
+    "event_relay": {
+      "available": false,
+      "detail": "Relais d'événements inactif : la diffusion reste directe."
+    },
+    "artifact_preview": {
+      "available": false,
+      "detail": "Aucune origine d'aperçu n'est configurée : les aperçus signés sont indisponibles."
+    },
+    "legacy_worker_claim": {
+      "available": false,
+      "detail": "La route de claim worker héritée est retirée (410)."
+    },
+    "session_cookie_secure": {
+      "available": false,
+      "detail": "Le cookie de session n'est pas marqué « Secure » : ce serveur n'est utilisable qu'en développement local."
+    },
+    "interactive_docs": {
+      "available": true,
+      "detail": "La documentation interactive et le document OpenAPI sont publics."
+    },
+    "csrf_endpoint": {
+      "available": true,
+      "detail": "POST /auth/csrf confirme un jeton encore valide sans le faire tourner ; GET /auth/session, lui, fait tourner le jeton à chaque appel."
+    }
+  },
+  "limits": {
+    "session_ttl_seconds": 43200,
+    "stream_max_seconds": 900.0,
+    "stream_keepalive_seconds": 15.0,
+    "stream_poll_interval_ms": 400.0,
+    "stream_batch": 200,
+    "stream_max_connections_per_user": 4,
+    "stream_connection_limit_scope": "process",
+    "event_page_default_limit": 200,
+    "event_page_max_limit": 500,
+    "event_retention_days": 90,
+    "mission_page_max_limit": 500,
+    "artifact_page_default_limit": 50,
+    "artifact_page_max_limit": 200,
+    "artifact_link_default_ttl_seconds": 300,
+    "artifact_link_max_ttl_seconds": 900,
+    "max_request_body_bytes": 1048576,
+    "skill_source_max_body_bytes": 33554432
+  },
+  "client_announcement": null
+}

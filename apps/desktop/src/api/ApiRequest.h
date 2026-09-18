@@ -56,6 +56,14 @@ struct ApiRequest
     */
     bool publicEndpoint = false;
 
+    /*!
+        Annonce « client/version » envoyée dans l'en-tête `X-ACP-Client`, par exemple
+        « desktop/0.9.0 ». Vide : l'en-tête n'est pas envoyé. Seul `GET /meta` la lit ;
+        un serveur qui juge le client trop ancien y répond 426. Elle ne porte ni
+        identité, ni secret : le même texte figure dans le document public du serveur.
+    */
+    QByteArray clientAnnouncement;
+
     //! Vrai si la méthode est sûre au sens HTTP : elle ne modifie rien côté serveur.
     [[nodiscard]] bool isSafeMethod() const
     {

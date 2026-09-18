@@ -1,4 +1,7 @@
-// Écran de première ouverture : point d'entrée, test de connexion, authentification.
+// Écran de connexion : point d'entrée, test de connexion, authentification.
+//
+// Il sert à la première ouverture ET à chaque retour sans session (déconnexion, session
+// expirée ou révoquée) : l'adresse déjà acceptée est alors pré-remplie.
 //
 // Trois étapes, dans cet ordre, et pas d'étape sautée :
 //   1. l'adresse du serveur, saisie ; aucune valeur par défaut n'est proposée, parce que
@@ -23,6 +26,10 @@ Rectangle {
     color: Colors.surfaceCanvas
 
     property string urlError: ""
+
+    //! Vrai après un envoi d'identifiants : seul un refus consécutif à une tentative est
+    //! une erreur. « Aucune session mémorisée » au démarrage est un état, pas un échec.
+    property bool loginAttempted: false
 
     Flickable {
         anchors.fill: parent
@@ -50,10 +57,13 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: qsTr("Aucune adresse de serveur n'est configurée. La station ne "
+                text: Shell.firstRun
+                    ? qsTr("Aucune adresse de serveur n'est configurée. La station ne "
                            + "propose aucune adresse par défaut : aucun domaine n'a été "
                            + "décidé pour ce produit, et en inventer un ferait échouer la "
                            + "connexion sans le dire.")
+                    : qsTr("Aucune session n'est ouverte sur ce poste. Vérifiez l'adresse "
+                           + "du serveur, puis connectez-vous.")
                 color: Colors.textSecondary
                 lineHeight: Type.prose.lineHeight
                 lineHeightMode: Text.FixedHeight
@@ -74,6 +84,10 @@ Rectangle {
                 id: urlField
                 Layout.fillWidth: true
                 placeholder: "https://exemple.invalid"
+                accessibleName: qsTr("Adresse du serveur")
+                // Adresse déjà acceptée : reprise telle quelle, jamais inventée. Liaison et non
+                // copie : la page existe avant que les réglages ne soient relus.
+                text: Shell.serverUrl
                 helperText: qsTr("Exemple de forme attendue ; ce n'est pas une adresse réelle.")
                 errorText: page.urlError
                 onAccepted: page.submitUrl()
@@ -86,6 +100,7 @@ Rectangle {
                 CheckBox {
                     id: loopbackBox
                     text: qsTr("Autoriser HTTP en clair sur une adresse de bouclage")
+                    checked: Shell.allowsInsecureLoopback
                     contentItem: Text {
                         text: loopbackBox.text
                         leftPadding: loopbackBox.indicator.width + Space.space3
@@ -175,7 +190,9 @@ Rectangle {
                 enabled: emailField.enabled
                 masked: true
                 placeholder: qsTr("Mot de passe")
-                errorText: Session.state === SessionStatus.Disconnected
+                errorText: (page.loginAttempted && Session.state === SessionStatus.Disconnected)
+                        || Session.state === SessionStatus.Expired
+                        || Session.state === SessionStatus.Revoked
                     ? Session.lastError
                     : ""
                 onAccepted: page.submitLogin()
@@ -218,6 +235,7 @@ Rectangle {
     }
 
     function submitLogin() {
+        page.loginAttempted = true;
         Session.logIn(emailField.text, passwordField.text);
         // Le champ est vidé immédiatement après l'envoi : la valeur ne doit pas rester
         // dans la scène graphique plus longtemps que nécessaire.

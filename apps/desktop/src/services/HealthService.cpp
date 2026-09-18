@@ -12,6 +12,26 @@ namespace acp {
 
 // --- ReadinessModel -----------------------------------------------------------
 
+QList<ReadinessModel::Check> ReadinessModel::parseChecks(const QJsonObject &payload)
+{
+    QList<Check> checks;
+    const QJsonObject entries = payload.value(QStringLiteral("checks")).toObject();
+    for (auto iterator = entries.constBegin(); iterator != entries.constEnd(); ++iterator) {
+        const QJsonObject entry = iterator.value().toObject();
+        const QJsonValue ok = entry.value(QStringLiteral("ok"));
+        Check check;
+        check.name = iterator.key();
+        check.healthy = ok.isBool() && ok.toBool();
+        check.status = !ok.isBool()
+            ? QStringLiteral("Inconnu")
+            : (ok.toBool() ? QStringLiteral("Sain") : QStringLiteral("En échec"));
+        // La raison est celle du serveur, en français, affichée telle quelle.
+        check.detail = entry.value(QStringLiteral("reason")).toString();
+        checks.append(check);
+    }
+    return checks;
+}
+
 int ReadinessModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : static_cast<int>(m_checks.size());
@@ -169,42 +189,7 @@ void HealthService::probeReady()
     ApiCall *call = m_client->send(request);
 
     auto applyPayload = [this](const QJsonObject &payload, bool ready) {
-        QList<ReadinessModel::Check> checks;
-        const QJsonValue rawChecks = payload.value(QStringLiteral("checks"));
-        if (rawChecks.isArray()) {
-            const QJsonArray items = rawChecks.toArray();
-            for (const QJsonValue &item : items) {
-                if (!item.isObject()) {
-                    continue;
-                }
-                const QJsonObject entry = item.toObject();
-                ReadinessModel::Check check;
-                check.name = entry.value(QStringLiteral("name")).toString();
-                check.status = entry.value(QStringLiteral("status")).toString();
-                // La raison est celle du serveur, en français, affichée telle quelle.
-                check.detail = entry.value(QStringLiteral("detail")).toString();
-                check.healthy = check.status == QLatin1String("ok")
-                    || check.status == QLatin1String("ready");
-                checks.append(check);
-            }
-        } else if (rawChecks.isObject()) {
-            const QJsonObject entries = rawChecks.toObject();
-            for (auto iterator = entries.constBegin(); iterator != entries.constEnd();
-                 ++iterator) {
-                ReadinessModel::Check check;
-                check.name = iterator.key();
-                const QJsonValue value = iterator.value();
-                if (value.isObject()) {
-                    check.status = value.toObject().value(QStringLiteral("status")).toString();
-                    check.detail = value.toObject().value(QStringLiteral("detail")).toString();
-                } else {
-                    check.status = value.toString();
-                }
-                check.healthy = check.status == QLatin1String("ok")
-                    || check.status == QLatin1String("ready");
-                checks.append(check);
-            }
-        }
+        const QList<ReadinessModel::Check> checks = ReadinessModel::parseChecks(payload);
         m_readiness->setChecks(checks);
         if (checks.isEmpty()) {
             // /ready a répondu sans détailler : on ne fabrique pas cinq lignes vertes.

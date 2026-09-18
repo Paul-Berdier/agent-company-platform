@@ -1,0 +1,10 @@
+{
+  "user": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "login": "operatrice",
+    "display_name": "Opératrice de test",
+    "role": "owner"
+  },
+  "csrf_token": "jeton-csrf-factice-pour-les-tests",
+  "expires_at": "2026-09-19T00:36:33.852773Z"
+}

@@ -77,6 +77,24 @@ bool ShellViewModel::isFirstRun() const
     return !m_client->isConfigured();
 }
 
+bool ShellViewModel::connectionRequired(bool serverConfigured, SessionStatus::State session)
+{
+    if (!serverConfigured) {
+        return true;
+    }
+    return session != SessionStatus::Connected && session != SessionStatus::Offline;
+}
+
+bool ShellViewModel::isConnectionRequired() const
+{
+    return connectionRequired(m_client->isConfigured(), m_auth->state());
+}
+
+bool ShellViewModel::allowsInsecureLoopback() const
+{
+    return m_client->allowsInsecureLoopback();
+}
+
 bool ShellViewModel::isAuthenticated() const
 {
     return m_auth->state() == SessionStatus::Connected;

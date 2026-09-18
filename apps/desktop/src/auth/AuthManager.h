@@ -87,7 +87,16 @@ public:
         la meilleure garantie possible depuis QML, et elle est documentée comme telle
         dans docs/native-desktop-architecture.md.
     */
-    Q_INVOKABLE void logIn(const QString &email, const QString &password);
+    Q_INVOKABLE void logIn(const QString &login, const QString &password);
+
+    /*! Corps de `POST /auth/login`, conforme à `LoginRequest` côté serveur. */
+    [[nodiscard]] static QJsonObject loginRequestBody(const QString &login,
+                                                      const QString &password);
+
+    /*! Applique une réponse de session (`AuthSessionResponse` côté serveur). Appelé après
+        connexion et reprise ; public pour que les tests l'éprouvent sur la forme
+        réellement servie par l'API. */
+    void applySessionPayload(const QJsonObject &payload);
 
     /*! Tente `POST /auth/logout`, puis purge l'état local quoi qu'il arrive. */
     Q_INVOKABLE void logOut();
@@ -117,7 +126,6 @@ signals:
 
 private:
     void setState(SessionStatus::State state, const QString &reason = {});
-    void applySessionPayload(const QJsonObject &payload);
     void handleUnauthorized();
     void handleForbidden();
 

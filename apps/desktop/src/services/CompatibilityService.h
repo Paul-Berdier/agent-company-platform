@@ -1,16 +1,13 @@
 // Vérification de compatibilité client / serveur.
 //
-// Rappel de l'audit (section 9.1) : AUCUNE route de compatibilité n'existe à la date du
-// relevé. Les 136 chemins énumérés n'offrent ni `/meta`, ni `/version`, ni
-// `/capabilities` ; le seul signal de version est `info.version` du document OpenAPI. La
-// création de ce point d'entrée est le seul changement backend classé « bloquant ».
+// Le serveur publie `GET /meta` (audit, section 9.1, point 1 — livré), dont le contrat
+// fait foi : `packages/contracts/src/acp_contracts/compatibility.py`. Un serveur antérieur
+// à cette route répond 404 ; le client reste donc prudent :
 //
-// Ce service est donc écrit CONTRE LE CONTRAT DÉCRIT, pas contre une route observée :
-//
-//   - il sonde les trois chemins candidats, dans l'ordre `/meta`, `/capabilities`,
-//     `/version`, et retient le premier qui répond 200 avec un corps reconnaissable.
-//     Le nom définitif appartient au lot qui livrera la route ; sonder est la seule
-//     façon honnête de ne pas figer une supposition dans un binaire installé ;
+//   - il sonde les chemins candidats, dans l'ordre `/meta`, `/capabilities`, `/version`,
+//     et retient le premier qui répond 200 avec un corps reconnaissable ;
+//   - il s'annonce par `X-ACP-Client: desktop/<version>` : un serveur qui le juge trop
+//     ancien répond 426 avec le document complet, et ce verdict du serveur l'emporte ;
 //   - si les trois répondent 404, l'état est FeatureUnavailable — PAS « compatible ».
 //     L'application continue de fonctionner, mais elle dit qu'elle ne sait pas, et
 //     l'écran de diagnostics le montre ;
@@ -20,14 +17,14 @@
 //     capacités absentes valent « Inconnu », et un écran qui en dépend affiche
 //     « Indisponible pour l'instant » plutôt qu'un bouton qui fait semblant.
 //
-// Champs attendus dans le corps, d'après la section 9.1 de l'audit :
+// Champs lus dans le corps (CompatibilityDocument côté serveur) :
 //
-//   server_version                 version du produit, lue de VERSION côté serveur
-//   api_contract_version           version du contrat d'API, indépendante du produit
-//   event_schema_version           EVENT_SCHEMA_VERSION, « 1.0 » à la date du relevé
-//   minimum_client_versions.desktop version cliente minimale exigée pour ce client
-//   capabilities.<nom>             capacités CALCULÉES, jamais déclarées
-//   limits.<nom>                   bornes réelles du serveur
+//   versions.product                  version du produit, lue de VERSION côté serveur
+//   versions.api_contract             version du contrat d'API, indépendante du produit
+//   versions.event_schema             EVENT_SCHEMA_VERSION, « 1.0 » à la date du relevé
+//   clients.desktop.minimum_version   version cliente minimale exigée pour ce client
+//   capabilities.<nom>.available      capacités CALCULÉES, jamais déclarées
+//   limits.<nom>                      bornes réelles du serveur
 
 #pragma once
 
@@ -66,6 +63,10 @@ public:
     /*! Versions du schéma d'événement que ce client sait lire. */
     static const QStringList &supportedEventSchemaVersions();
 
+    /*! Partie majeure du contrat d'API que ce client sait lire. Le contrat augmente sa
+        partie majeure pour un retrait ou un changement de sens d'un champ publié. */
+    static constexpr int supportedApiContractMajor = 1;
+
     [[nodiscard]] CompatibilityStatus::State state() const { return m_state; }
     [[nodiscard]] int stateValue() const { return static_cast<int>(m_state); }
     [[nodiscard]] QString stateLabel() const;
@@ -94,6 +95,10 @@ public:
     /*! Lance ou relance la vérification. */
     Q_INVOKABLE void check();
 
+    /*! Évalue un document de compatibilité déjà reçu. Appelé par la sonde ; public pour
+        que les tests l'éprouvent sur la forme réellement servie par l'API. */
+    void evaluate(const QJsonObject &payload, const QString &endpoint);
+
     /*!
         Compare deux versions « majeur.mineur.correctif ».
 
@@ -109,7 +114,6 @@ signals:
 
 private:
     void probe(int candidateIndex);
-    void evaluate(const QJsonObject &payload, const QString &endpoint);
     void setState(CompatibilityStatus::State state, const QString &explanation);
 
     ApiClient *m_client = nullptr;

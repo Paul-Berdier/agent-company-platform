@@ -4,17 +4,21 @@
 // refus d'URL non sûre, refus d'écriture sans jeton CSRF, refus de reprise sans cookie,
 // purge de session au changement de serveur. Ce sont exactement les cas où une erreur
 // produirait un « faux succès » silencieux.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
 
 #include "api/ApiClient.h"
 #include "api/SessionCookieJar.h"
 #include "auth/AuthManager.h"
+#include "viewmodels/ShellViewModel.h"
+
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QNetworkCookie>
 #include <QSet>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTimeZone>
 #include <QUrl>
 
 using namespace acp;
@@ -37,7 +41,82 @@ private slots:
     void forgetLocalSessionClearsEverything();
     void everySessionStateHasFrenchLabel();
     void cookieJarReportsSessionPresence();
+    void connectionScreenStaysUntilASessionIsUsable_data();
+    void connectionScreenStaysUntilASessionIsUsable();
+    void loginBodyHasTheShapeTheApiRequires();
+    void readsTheSessionServedByTheApi();
+
+private:
+    static QJsonObject fixture(const QString &name);
 };
+
+QJsonObject TestSessionState::fixture(const QString &name)
+{
+    QFile file(QStringLiteral(ACP_TEST_FIXTURE_DIR "/") + name);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qFatal("Document de référence introuvable : %s", qPrintable(file.fileName()));
+    }
+    return QJsonDocument::fromJson(file.readAll()).object();
+}
+
+void TestSessionState::loginBodyHasTheShapeTheApiRequires()
+{
+    // Le défaut corrigé : le client envoyait « email », le serveur exige « login » et
+    // répondait 422. La référence est validée côté API par LoginRequest.
+    const QJsonObject reference = fixture(QStringLiteral("auth-login-request.json"));
+    const QJsonObject body =
+        AuthManager::loginRequestBody(QStringLiteral("operateur"), QStringLiteral("x"));
+    QCOMPARE(body.keys(), reference.keys());
+}
+
+void TestSessionState::readsTheSessionServedByTheApi()
+{
+    ApiClient client;
+    AuthManager auth(&client);
+    auth.applySessionPayload(fixture(QStringLiteral("auth-session.json")));
+
+    QCOMPARE(auth.state(), SessionStatus::Connected);
+    QCOMPARE(auth.userId(), QStringLiteral("00000000-0000-4000-8000-000000000001"));
+    QCOMPARE(auth.userDisplayName(), QStringLiteral("Opératrice de test"));
+    QCOMPARE(auth.platformRole(), QStringLiteral("owner"));
+    // Le serveur publie des microsecondes : Qt les lit et les arrondit à la milliseconde
+    // la plus proche (852 773 µs donnent 853 ms).
+    QVERIFY(auth.expiresAt().isValid());
+    QCOMPARE(auth.expiresAt(), QDateTime(QDate(2026, 9, 19), QTime(0, 36, 33, 853),
+                                         QTimeZone::UTC));
+}
+
+void TestSessionState::connectionScreenStaysUntilASessionIsUsable_data()
+{
+    QTest::addColumn<bool>("configured");
+    QTest::addColumn<int>("session");
+    QTest::addColumn<bool>("required");
+
+    // Le défaut corrigé : une adresse acceptée suffisait à ouvrir la coquille, qui
+    // n'offre aucune entrée de connexion ; l'authentification devenait inatteignable.
+    QTest::newRow("sans adresse")
+        << false << int(SessionStatus::Connected) << true;
+    QTest::newRow("adresse, déconnecté")
+        << true << int(SessionStatus::Disconnected) << true;
+    QTest::newRow("adresse, connexion en cours")
+        << true << int(SessionStatus::Connecting) << true;
+    QTest::newRow("adresse, session expirée")
+        << true << int(SessionStatus::Expired) << true;
+    QTest::newRow("adresse, session révoquée")
+        << true << int(SessionStatus::Revoked) << true;
+    QTest::newRow("adresse, connecté") << true << int(SessionStatus::Connected) << false;
+    QTest::newRow("adresse, hors ligne") << true << int(SessionStatus::Offline) << false;
+}
+
+void TestSessionState::connectionScreenStaysUntilASessionIsUsable()
+{
+    QFETCH(bool, configured);
+    QFETCH(int, session);
+    QFETCH(bool, required);
+    QCOMPARE(ShellViewModel::connectionRequired(
+                 configured, static_cast<SessionStatus::State>(session)),
+             required);
+}
 
 void TestSessionState::refusesPlainHttpByDefault()
 {

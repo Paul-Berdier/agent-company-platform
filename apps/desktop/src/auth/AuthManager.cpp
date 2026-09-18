@@ -82,9 +82,17 @@ void AuthManager::refreshBootstrapStatus()
     });
 }
 
-void AuthManager::logIn(const QString &email, const QString &password)
+QJsonObject AuthManager::loginRequestBody(const QString &login, const QString &password)
 {
-    if (email.isEmpty() || password.isEmpty()) {
+    QJsonObject body;
+    body.insert(QStringLiteral("login"), login);
+    body.insert(QStringLiteral("password"), password);
+    return body;
+}
+
+void AuthManager::logIn(const QString &login, const QString &password)
+{
+    if (login.isEmpty() || password.isEmpty()) {
         setState(SessionStatus::Disconnected,
                  QStringLiteral("Identifiant et mot de passe sont tous deux obligatoires."));
         return;
@@ -92,14 +100,10 @@ void AuthManager::logIn(const QString &email, const QString &password)
     setState(SessionStatus::Connecting);
     m_recoveryAttempted = false;
 
-    QJsonObject body;
-    body.insert(QStringLiteral("email"), email);
-    body.insert(QStringLiteral("password"), password);
-
     ApiRequest request;
     request.method = QByteArrayLiteral("POST");
     request.path = QStringLiteral("/auth/login");
-    request.body = QJsonDocument(body);
+    request.body = QJsonDocument(loginRequestBody(login, password));
     // /auth/login est classée « publique » par l'audit : elle ouvre la session et
     // n'exige donc aucun jeton CSRF — il n'en existe aucun à ce stade.
     request.publicEndpoint = true;
@@ -208,9 +212,10 @@ void AuthManager::applySessionPayload(const QJsonObject &payload)
     m_user.id = user.value(QStringLiteral("id")).toString();
     m_user.displayName = user.value(QStringLiteral("display_name")).toString();
     if (m_user.displayName.isEmpty()) {
-        m_user.displayName = user.value(QStringLiteral("email")).toString();
+        m_user.displayName = user.value(QStringLiteral("login")).toString();
     }
-    m_user.platformRole = user.value(QStringLiteral("platform_role")).toString();
+    // Rôle de plateforme, publié sous « role » par AuthenticatedUser.
+    m_user.platformRole = user.value(QStringLiteral("role")).toString();
 
     const QString expires = payload.value(QStringLiteral("expires_at")).toString();
     m_expiresAt = expires.isEmpty() ? QDateTime()

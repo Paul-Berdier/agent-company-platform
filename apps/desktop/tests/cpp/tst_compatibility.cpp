@@ -1,15 +1,17 @@
 // Compatibilité client / serveur.
 //
-// Le comportement décisif éprouvé ici : l'ABSENCE du point d'entrée ne vaut PAS
-// « compatible ». L'audit établit qu'aucune route de compatibilité n'existe à ce jour ;
-// une station qui conclurait à la compatibilité par absence de contradiction serait un
-// faux succès.
-//
-// AVERTISSEMENT : jamais compilé, jamais exécuté.
+// Deux comportements décisifs éprouvés ici :
+//   - l'ABSENCE du point d'entrée ne vaut PAS « compatible » : une station qui conclurait
+//     à la compatibilité par absence de contradiction serait un faux succès ;
+//   - la lecture porte sur la forme RÉELLEMENT servie par `GET /meta`, capturée dans
+//     tests/fixtures/meta-document.json, que la suite Python garde alignée sur l'API.
 
 #include "api/ApiClient.h"
 #include "services/CompatibilityService.h"
 
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTest>
 
 using namespace acp;
@@ -31,7 +33,25 @@ private slots:
     void onlyVersionMismatchIsBlocking();
     void probeOrderIsStable();
     void supportedEventSchemaIsDeclared();
+    void readsTheDocumentServedByTheApi();
+    void newerContractMajorMeansClientTooOld();
+    void olderContractMajorMeansServerTooOld();
+    void desktopFloorAboveClientMeansClientTooOld();
+    void legacyFlatShapeIsNotCompatible();
+    void capabilityWithoutAvailableFlagStaysUnknown();
+
+private:
+    static QJsonObject servedDocument();
 };
+
+QJsonObject TestCompatibility::servedDocument()
+{
+    QFile file(QStringLiteral(ACP_TEST_FIXTURE_DIR "/meta-document.json"));
+    if (!file.open(QIODevice::ReadOnly)) {
+        qFatal("Document /meta de référence introuvable : %s", qPrintable(file.fileName()));
+    }
+    return QJsonDocument::fromJson(file.readAll()).object();
+}
 
 void TestCompatibility::comparesVersions_data()
 {
@@ -153,6 +173,111 @@ void TestCompatibility::supportedEventSchemaIsDeclared()
     // EVENT_SCHEMA_VERSION vaut « 1.0 » dans packages/contracts à la date de l'audit.
     QVERIFY(CompatibilityService::supportedEventSchemaVersions().contains(
         QStringLiteral("1.0")));
+}
+
+void TestCompatibility::readsTheDocumentServedByTheApi()
+{
+    ApiClient client;
+    CompatibilityService service(&client, QStringLiteral("0.9.0"));
+    service.evaluate(servedDocument(), QStringLiteral("/meta"));
+
+    QCOMPARE(service.state(), CompatibilityStatus::Compatible);
+    QVERIFY(!service.isBlocking());
+    QCOMPARE(service.serverVersion(), QStringLiteral("0.9.0"));
+    QCOMPARE(service.apiContractVersion(), QStringLiteral("1.0"));
+    QCOMPARE(service.eventSchemaVersion(), QStringLiteral("1.0"));
+    QCOMPARE(service.endpointUsed(), QStringLiteral("/meta"));
+
+    QVERIFY(service.limitsAreAnnounced());
+    QCOMPARE(service.streamLimits().maxConnectionsPerUser, 4);
+    QCOMPARE(service.streamLimits().keepAliveSeconds, 15);
+    QCOMPARE(service.streamLimits().maxStreamSeconds, 900);
+    QCOMPARE(service.streamLimits().pollIntervalMilliseconds, 400);
+    QCOMPARE(service.streamLimits().pageLimit, 500);
+
+    // Une capacité absente côté serveur est CONNUE et fausse, pas inconnue.
+    bool known = false;
+    QVERIFY(!service.capability(QStringLiteral("artifact_signing"), &known));
+    QVERIFY(known);
+    QVERIFY(service.capability(QStringLiteral("interactive_docs"), &known));
+    QVERIFY(known);
+    QVERIFY(!service.capabilityIsKnown(QStringLiteral("capacite_qui_n_existe_pas")));
+}
+
+void TestCompatibility::newerContractMajorMeansClientTooOld()
+{
+    QJsonObject document = servedDocument();
+    QJsonObject versions = document.value(QStringLiteral("versions")).toObject();
+    versions.insert(QStringLiteral("api_contract"), QStringLiteral("2.0"));
+    document.insert(QStringLiteral("versions"), versions);
+
+    ApiClient client;
+    CompatibilityService service(&client, QStringLiteral("0.9.0"));
+    service.evaluate(document, QStringLiteral("/meta"));
+    QCOMPARE(service.state(), CompatibilityStatus::ClientTooOld);
+    QVERIFY(service.isBlocking());
+}
+
+void TestCompatibility::olderContractMajorMeansServerTooOld()
+{
+    QJsonObject document = servedDocument();
+    QJsonObject versions = document.value(QStringLiteral("versions")).toObject();
+    versions.insert(QStringLiteral("api_contract"), QStringLiteral("0.9"));
+    document.insert(QStringLiteral("versions"), versions);
+
+    ApiClient client;
+    CompatibilityService service(&client, QStringLiteral("0.9.0"));
+    service.evaluate(document, QStringLiteral("/meta"));
+    QCOMPARE(service.state(), CompatibilityStatus::ServerTooOld);
+    QVERIFY(service.isBlocking());
+}
+
+void TestCompatibility::desktopFloorAboveClientMeansClientTooOld()
+{
+    QJsonObject document = servedDocument();
+    QJsonObject clients = document.value(QStringLiteral("clients")).toObject();
+    QJsonObject desktop = clients.value(QStringLiteral("desktop")).toObject();
+    desktop.insert(QStringLiteral("minimum_version"), QStringLiteral("0.10.0"));
+    clients.insert(QStringLiteral("desktop"), desktop);
+    document.insert(QStringLiteral("clients"), clients);
+
+    ApiClient client;
+    CompatibilityService service(&client, QStringLiteral("0.9.0"));
+    service.evaluate(document, QStringLiteral("/meta"));
+    QCOMPARE(service.state(), CompatibilityStatus::ClientTooOld);
+    QVERIFY(service.explanation().contains(QStringLiteral("0.10.0")));
+}
+
+void TestCompatibility::legacyFlatShapeIsNotCompatible()
+{
+    // La forme que ce client lisait avant d'être confronté au vrai serveur : elle ne doit
+    // jamais passer pour un contrat reconnu.
+    QJsonObject document;
+    document.insert(QStringLiteral("server_version"), QStringLiteral("0.9.0"));
+    document.insert(QStringLiteral("api_contract_version"), QStringLiteral("1.0"));
+
+    ApiClient client;
+    CompatibilityService service(&client, QStringLiteral("0.9.0"));
+    service.evaluate(document, QStringLiteral("/meta"));
+    QCOMPARE(service.state(), CompatibilityStatus::FeatureUnavailable);
+    QVERIFY(!service.isBlocking());
+}
+
+void TestCompatibility::capabilityWithoutAvailableFlagStaysUnknown()
+{
+    QJsonObject document = servedDocument();
+    QJsonObject capabilities = document.value(QStringLiteral("capabilities")).toObject();
+    QJsonObject vault;
+    vault.insert(QStringLiteral("detail"), QStringLiteral("sans verdict"));
+    capabilities.insert(QStringLiteral("secrets_vault"), vault);
+    document.insert(QStringLiteral("capabilities"), capabilities);
+
+    ApiClient client;
+    CompatibilityService service(&client, QStringLiteral("0.9.0"));
+    service.evaluate(document, QStringLiteral("/meta"));
+    bool known = true;
+    QVERIFY(!service.capability(QStringLiteral("secrets_vault"), &known));
+    QVERIFY(!known);
 }
 
 QTEST_MAIN(TestCompatibility)
