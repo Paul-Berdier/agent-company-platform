@@ -82,7 +82,9 @@ def test_a_suite_launched_against_the_application_database_is_refused(tmp_path):
         "    print('REFUS', refus)\n"
         "    raise SystemExit(7)\n"
     )
-    environment = {**os.environ, "ACP_DATABASE_URL": UNREACHABLE}
+    # Le refus est en français : sous Windows, un tube est encodé en cp1252 par
+    # défaut, et le relire en UTF-8 perdrait toute la sortie.
+    environment = {**os.environ, "ACP_DATABASE_URL": UNREACHABLE, "PYTHONIOENCODING": "utf-8"}
     environment.pop("DATABASE_URL", None)
     completed = subprocess.run(
         [sys.executable, "-c", script],
