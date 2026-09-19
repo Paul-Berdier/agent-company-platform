@@ -923,7 +923,11 @@ def test_a_rolled_back_transaction_publishes_nothing(stream_context):
 
 
 def test_a_deferred_publication_is_visible_only_after_the_caller_commits(stream_context):
-    """``publish(commit=False)`` s'insère dans la transaction de son appelant."""
+    """``publish(commit=False)`` s'insère dans la transaction de son appelant.
+
+    Depuis 0.9.1, ses numéros n'existent qu'au commit : ``publish`` ne peut donc pas
+    rendre de séquence, et la ligne n'en porte pas avant le commit.
+    """
 
     run_id = stream_context["run_a"]
     with stream_context["session_factory"]() as db:
@@ -936,12 +940,13 @@ def test_a_deferred_publication_is_visible_only_after_the_caller_commits(stream_
             ),
             commit=False,
         )
-        assert sequence == 1
+        assert sequence is None
         with stream_context["session_factory"]() as observer:
             assert observer.query(EventModel).filter_by(task_run_id=run_id).count() == 0
         db.commit()
     with stream_context["session_factory"]() as db:
-        assert db.query(EventModel).filter_by(task_run_id=run_id).count() == 1
+        row = db.query(EventModel).filter_by(task_run_id=run_id).one()
+        assert row.sequence == 1 and row.journal_seq is not None
 
 
 # --- 3. Aucun média dans le journal ------------------------------------------

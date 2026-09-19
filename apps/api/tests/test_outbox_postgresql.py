@@ -105,18 +105,21 @@ def _store(session_factory, count: int) -> list[Event]:
 def test_twelve_concurrent_writers_get_contiguous_commit_ordered_journal_seqs(
     pg_sessions,
 ):
-    """1..12 sans trou, et l'ordre des commits est l'ordre des numéros.
+    """1..12 sans trou, et le journal visible est toujours un préfixe sans trou.
 
-    Chaque écrivain garde sa transaction ouverte un instant après l'allocation :
-    sans le verrou consultatif, un second écrivain allouerait le même numéro pendant
-    cette fenêtre (``FOR UPDATE`` ne verrouille que la ligne maximale existante) et
-    l'ordre des commits ne serait plus celui des numéros.
+    Chaque écrivain garde sa transaction ouverte un instant après sa publication.
+    Depuis 0.9.1, les numéros sont attribués au commit, sous le verrou consultatif
+    tenu jusqu'à la fin du commit : ``n+1`` ne peut être lu, donc attribué, qu'une
+    fois ``n`` visible. Un observateur concurrent ne doit donc jamais voir de trou —
+    c'est la propriété dont dépend le curseur de la portée projet. (Mesurer l'ordre
+    des commits à l'horloge, après le retour de ``commit()``, ne le prouverait pas :
+    le verrou n'est plus tenu que le temps du commit.)
     """
 
     run_id = "run-concurrent"
     barrier = threading.Barrier(WRITERS)
-    committed: list[tuple[float, str]] = []
-    record_lock = threading.Lock()
+    writers_done = threading.Event()
+    observations: list[list[int]] = []
 
     def write(index: int) -> str:
         event = Event(
@@ -127,13 +130,28 @@ def test_twelve_concurrent_writers_get_contiguous_commit_ordered_journal_seqs(
             publish(db, event, commit=False)
             time.sleep(0.03)
             db.commit()
-            stamp = time.monotonic()
-        with record_lock:
-            committed.append((stamp, event.id))
         return event.id
 
-    with ThreadPoolExecutor(max_workers=WRITERS) as pool:
-        event_ids = list(pool.map(write, range(WRITERS)))
+    def observe() -> None:
+        with pg_sessions() as db:
+            while not writers_done.is_set():
+                # READ COMMITTED : chaque requête lit un instantané neuf.
+                seqs = db.query(EventModel.journal_seq).all()
+                db.rollback()
+                observations.append(sorted(value for (value,) in seqs))
+
+    observer = threading.Thread(target=observe)
+    observer.start()
+    try:
+        with ThreadPoolExecutor(max_workers=WRITERS) as pool:
+            event_ids = list(pool.map(write, range(WRITERS)))
+    finally:
+        writers_done.set()
+        observer.join(30)
+
+    assert observations, "l'observateur n'a rien lu"
+    holes = [seen for seen in observations if seen != list(range(1, len(seen) + 1))]
+    assert holes == [], "un numéro est devenu visible avant un numéro inférieur"
 
     with pg_sessions() as db:
         rows = {
@@ -145,17 +163,17 @@ def test_twelve_concurrent_writers_get_contiguous_commit_ordered_journal_seqs(
         }
     assert sorted(rows[i].journal_seq for i in event_ids) == list(range(1, WRITERS + 1))
     assert sorted(rows[i].sequence for i in event_ids) == list(range(1, WRITERS + 1))
-    by_commit = [rows[event_id].journal_seq for _, event_id in sorted(committed)]
-    assert by_commit == list(range(1, WRITERS + 1)), "ordre de commit = ordre de numéro"
+    # Même ordre pour les deux compteurs : la séquence de tentative suit le journal.
+    assert all(rows[i].sequence == rows[i].journal_seq for i in event_ids)
     assert {i: rows[i].journal_seq for i in event_ids} == outbox
 
     transport = SpyTransport()
     report = relay_once(pg_sessions, transport, now=NOW, environ=RELAY_ENVIRON)
     assert report == RelayReport(delivered=WRITERS, cursor_hint=WRITERS)
     assert [call["journal_seq"] for call in transport.calls] == list(range(1, WRITERS + 1))
-    assert [call["event_id"] for call in transport.calls] == [
-        event_id for _, event_id in sorted(committed)
-    ]
+    assert [call["event_id"] for call in transport.calls] == sorted(
+        event_ids, key=lambda event_id: rows[event_id].journal_seq
+    )
 
 
 # --- 2. Deux relais parallèles ----------------------------------------------------

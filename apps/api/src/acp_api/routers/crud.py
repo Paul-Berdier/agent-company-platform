@@ -36,7 +36,7 @@ from ..deps import (
     is_platform_owner,
     require_platform_role,
 )
-from ..events_bus import forward_event, store_event
+from ..events_bus import publish
 
 router = APIRouter(tags=["hierarchy"])
 
@@ -344,7 +344,6 @@ def patch_agent(
     status_changed = "status" in changes and changes["status"] != agent.status
     for key, value in changes.items():
         setattr(agent, key, value)
-    db.commit()
     if status_changed:
         team = db.get(TeamModel, agent.team_id) if agent.team_id else None
         event = Event(
@@ -355,8 +354,10 @@ def patch_agent(
             agent_instance_id=agent.id,
             payload={"status": agent.status, "name": agent.name, "role_id": agent.role_id},
         )
-        store_event(db, event)
-        background.add_task(forward_event, event)
+        # Même transaction que le changement d'état : jamais un état validé sans
+        # son événement (0.9.1).
+        publish(db, event, commit=False, background=background)
+    db.commit()
     return AgentInstance.model_validate(agent, from_attributes=True)
 
 

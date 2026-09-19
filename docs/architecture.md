@@ -107,13 +107,17 @@ Trois décisions structurent cette tranche.
    L'API détient la base, les sessions et le RBAC ; le service d'événements reste un
    relais interne sans accès aux données. Le WebSocket anonyme de ce service reste
    fermé par défaut et n'a pas été rouvert.
-2. **Le curseur est un compteur monotone alloué dans la transaction métier**, pas un
-   horodatage. `events.sequence` ordonne une tentative, `events.journal_seq` ordonne
-   le journal entier. Une horloge ne donne pas d'ordre total — la granularité réelle
-   mesurée sur la machine de vérification est d'environ 1,5 ms — et une pagination
-   sur une valeur non unique perd des lignes ou dépasse sa limite. Le flux « tail » la
-   base par curseur (interrogation bornée + réveil intra-processus) : durable,
-   multi-processus, sans courtier externe.
+2. **Le curseur est un compteur monotone attribué au commit de la transaction
+   métier**, pas un horodatage. `events.sequence` ordonne une tentative,
+   `events.journal_seq` ordonne le journal entier. Une horloge ne donne pas d'ordre
+   total — la granularité réelle mesurée sur la machine de vérification est
+   d'environ 1,5 ms — et une pagination sur une valeur non unique perd des lignes ou
+   dépasse sa limite. Le flux « tail » la base par curseur (interrogation bornée +
+   réveil intra-processus) : durable, multi-processus, sans courtier externe.
+   Depuis 0.9.1, les numéros sont attribués **au commit**, sous un verrou consultatif
+   PostgreSQL tenu jusqu'à la fin de ce commit : c'est le dernier verrou de la
+   transaction, si bien qu'il ne forme plus de cycle avec un verrou de ligne, et le
+   journal visible reste un préfixe sans trou, dans l'ordre des commits.
 3. **Le reporter de tests n'émet pas vers le réseau.** Il écrit un NDJSON local ; le
    worker authentifié l'ingère, téléverse les pièces jointes et publie les événements
    avec sa propre identité. Aucun média ne transite dans un événement : le payload

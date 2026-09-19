@@ -3,8 +3,9 @@
 Les tests ``test_forwarder_*`` décrivent le relais direct **sans**
 ``ACP_EVENT_RELAY_ENABLED`` : ils restent vrais tels quels. Les suivants couvrent
 le Lot H3 : la porte dans ``forward_event`` lui-même, la reconnaissance d'une
-collision par le diagnostic psycopg, et le verrou pris avant toute allocation sur
-les deux chemins d'écriture.
+collision par le diagnostic psycopg, puis 0.9.1 : numéros attribués au commit, sous
+le verrou du journal pris en dernier, et annonces (réveil, relais) au seul commit de
+la transaction racine.
 """
 
 from types import SimpleNamespace
@@ -202,7 +203,7 @@ def test_sqlite_text_markers_are_still_recognized():
     assert events_bus._is_allocation_collision(error) is False
 
 
-# --- Lot H3 : verrou avant allocation, sur les deux chemins ---------------------
+# --- 0.9.1 : numéros attribués au commit, sous le verrou du journal -------------
 
 
 @pytest.fixture
@@ -240,13 +241,26 @@ def _spy_allocation(monkeypatch) -> list[str]:
     return trace
 
 
-def test_publish_takes_the_journal_lock_then_allocates_journal_then_sequence(
-    journal_db, monkeypatch
-):
+def _lock_taken_at_publication(db) -> list[str]:
+    """Ce qui précède le commit : le ``BEGIN IMMEDIATE`` sous SQLite, rien sous PostgreSQL."""
+
+    return ["lock:events.journal"] if db.get_bind().dialect.name == "sqlite" else []
+
+
+def test_publish_numbers_at_commit_under_the_journal_lock(journal_db, monkeypatch):
+    """0.9.1 : rien n'est alloué à la publication ; le commit prend le verrou du
+    journal, puis alloue journal et tentative, dans cet ordre."""
+
     trace = _spy_allocation(monkeypatch)
     with journal_db() as db:
-        events_bus.publish(db, Event(type="task.progress", project_id="p", task_run_id="r"))
-    assert trace == ["lock:events.journal", "journal", "sequence"]
+        sequence = events_bus.publish(
+            db, Event(type="task.progress", project_id="p", task_run_id="r"), commit=False
+        )
+        before_commit = list(trace)
+        db.commit()
+        assert before_commit == _lock_taken_at_publication(db)
+    assert sequence is None
+    assert trace[len(before_commit):] == ["lock:events.journal", "journal", "sequence"]
     assert events_bus.JOURNAL_LOCK_KEY == "events.journal"
 
 
@@ -261,7 +275,70 @@ def test_store_event_takes_the_same_lock_and_allocates_in_the_same_order(
             db, Event(type="task.completed", project_id="p", task_run_id="r")
         )
         assert (model.journal_seq, model.sequence) == (1, 1)
-    assert trace == ["lock:events.journal", "journal", "sequence"]
+        published_first = _lock_taken_at_publication(db)
+    assert trace == [*published_first, "lock:events.journal", "journal", "sequence"]
+
+
+def test_a_committed_publish_returns_the_sequence_given_at_commit(journal_db):
+    with journal_db() as db:
+        first = events_bus.publish(db, Event(type="task.progress", project_id="p", task_run_id="r"))
+        second = events_bus.publish(db, Event(type="task.progress", project_id="p", task_run_id="r"))
+        untracked = events_bus.publish(db, Event(type="project.updated", project_id="p"))
+    assert (first, second, untracked) == (1, 2, None)
+
+
+def test_events_of_one_transaction_are_numbered_in_publication_order(journal_db):
+    with journal_db() as db:
+        for index in range(3):
+            events_bus.store_event(
+                db,
+                Event(type="task.progress", project_id="p", task_run_id="r", payload={"i": index}),
+                commit=False,
+            )
+        events_bus.store_event(db, Event(type="project.updated", project_id="p"), commit=False)
+        db.commit()
+    with journal_db() as db:
+        rows = db.query(EventModel).order_by(EventModel.journal_seq).all()
+    assert [(row.journal_seq, row.sequence) for row in rows] == [
+        (1, 1),
+        (2, 2),
+        (3, 3),
+        (4, None),
+    ]
+    assert [row.payload.get("i") for row in rows] == [0, 1, 2, None]
+
+
+def test_a_rolled_back_savepoint_drops_only_its_own_events(journal_db):
+    """Un point de sauvegarde annulé retire ses événements, pas ceux publiés avant lui ;
+    sa libération ne numérote rien avant le commit de la transaction racine."""
+
+    with journal_db() as db:
+        events_bus.store_event(db, Event(type="task.progress", project_id="p"), commit=False)
+        with db.begin_nested():
+            events_bus.store_event(db, Event(type="task.kept", project_id="p"), commit=False)
+        assert db.query(EventModel.journal_seq).filter_by(type="task.kept").scalar() is None
+        savepoint = db.begin_nested()
+        events_bus.store_event(db, Event(type="task.dropped", project_id="p"), commit=False)
+        db.flush()
+        savepoint.rollback()
+        db.commit()
+    with journal_db() as db:
+        rows = db.query(EventModel).order_by(EventModel.journal_seq).all()
+    assert [(row.type, row.journal_seq) for row in rows] == [
+        ("task.progress", 1),
+        ("task.kept", 2),
+    ]
+
+
+def test_a_rolled_back_transaction_leaves_nothing_to_number(journal_db):
+    with journal_db() as db:
+        events_bus.store_event(db, Event(type="task.lost", project_id="p"), commit=False)
+        db.rollback()
+        events_bus.store_event(db, Event(type="task.kept", project_id="p"), commit=False)
+        db.commit()
+    with journal_db() as db:
+        rows = db.query(EventModel).all()
+    assert [(row.type, row.journal_seq) for row in rows] == [("task.kept", 1)]
 
 
 @pytest.mark.sqlite
@@ -281,3 +358,65 @@ def test_the_lock_is_held_by_the_callers_transaction_until_commit(tmp_path, monk
     with journal_db() as db:
         assert db.query(EventModel).count() == 1
     database.close()
+
+
+# --- 0.9.1 : annonces (réveil et relais) au commit de la transaction racine ------
+
+
+class _Background:
+    """Espion de ``BackgroundTasks`` : retient les relais programmés."""
+
+    def __init__(self) -> None:
+        self.tasks: list[tuple] = []
+
+    def add_task(self, function, *args) -> None:
+        self.tasks.append((function, *args))
+
+
+def _drain(queue) -> list[int]:
+    values = []
+    while not queue.empty():
+        values.append(queue.get_nowait())
+    return values
+
+
+def test_a_deferred_publication_is_announced_only_at_the_root_commit(journal_db):
+    """Ni réveil ni relais avant le commit racine, même à la libération d'un point
+    de sauvegarde (SQLAlchemy y émet pourtant ``after_commit``)."""
+
+    channel = events_bus.project_channel("p-announce")
+    queue = events_bus.event_hub.subscribe(channel)
+    background = _Background()
+    event = Event(type="task.progress", project_id="p-announce", task_run_id="r")
+    try:
+        with journal_db() as db:
+            events_bus.publish(db, event, commit=False, background=background)
+            with db.begin_nested():
+                events_bus.store_event(db, Event(type="task.note", project_id="x"), commit=False)
+            assert _drain(queue) == [] and background.tasks == []
+            db.commit()
+        assert _drain(queue) == [1]
+        assert background.tasks == [(events_bus.forward_event, event)]
+    finally:
+        events_bus.event_hub.unsubscribe(channel, queue)
+
+
+def test_a_rolled_back_publication_neither_wakes_nor_forwards(journal_db):
+    channel = events_bus.project_channel("p-rollback")
+    queue = events_bus.event_hub.subscribe(channel)
+    background = _Background()
+    try:
+        with journal_db() as db:
+            events_bus.publish(
+                db,
+                Event(type="task.progress", project_id="p-rollback"),
+                commit=False,
+                background=background,
+            )
+            db.rollback()
+            # Une transaction suivante validée n'annonce pas l'événement annulé.
+            events_bus.store_event(db, Event(type="task.other", project_id="x"))
+        assert _drain(queue) == []
+        assert background.tasks == []
+    finally:
+        events_bus.event_hub.unsubscribe(channel, queue)

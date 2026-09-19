@@ -129,19 +129,21 @@ def test_store_event_writes_the_outbox_row_in_the_same_transaction(
     event = Event(type="task.progress", project_id="projet-1")
     with session_factory() as db:
         model = store_event(db, event, commit=False)
-        # Visible dans la transaction de l'appelant, avant tout commit.
-        row = db.query(EventOutboxModel).filter_by(event_id=event.id).one()
-        assert row.journal_seq == model.journal_seq
-        assert row.project_id == "projet-1"
-        assert row.consumer == "event-service"
-        assert row.attempts == 0
-        assert row.delivered_at is None and row.dead_at is None
+        # 0.9.1 : la ligne d'outbox naît au commit, avec le numéro de journal
+        # attribué sous le verrou ; avant lui, ni numéro ni ligne d'outbox.
+        assert model.journal_seq is None
+        assert db.query(EventOutboxModel).count() == 0
         # Invisible hors de la transaction tant que l'appelant n'a pas validé.
         with session_factory() as observer:
             assert observer.query(EventOutboxModel).count() == 0
         db.commit()
     rows = _outbox_rows(session_factory)
     assert [row.event_id for row in rows] == [event.id]
+    assert rows[0].journal_seq == model.journal_seq == 1
+    assert rows[0].project_id == "projet-1"
+    assert rows[0].consumer == "event-service"
+    assert rows[0].attempts == 0
+    assert rows[0].delivered_at is None and rows[0].dead_at is None
     assert rows[0].next_attempt_at is not None
 
 
@@ -149,7 +151,7 @@ def test_a_business_rollback_leaves_no_outbox_row(session_factory, relay_on):
     event = Event(type="task.progress", project_id="projet-1", task_run_id="run-1")
     with session_factory() as db:
         publish(db, event, commit=False)
-        assert db.query(EventOutboxModel).count() == 1
+        assert db.query(EventModel).count() == 1
         db.rollback()
     with session_factory() as db:
         assert db.query(EventModel).count() == 0
