@@ -363,10 +363,10 @@ Changer l'URL sans migrer l'état ne déplace ni les sessions ni la mémoire.
 
 - bootstrap propriétaire fermé, sessions révocables et RBAC projet complet ;
 - authentification de `/internal/events` ; le flux utilisateur authentifié et la reprise
-  par curseur sont livrés depuis le Lot E, l'outbox ne l'est pas ;
-- migrations Alembic et driver PostgreSQL verrouillé, test de montée et retour ; la
-  migration additive des compteurs d'événements est propre à SQLite et une base
-  PostgreSQL **existante** ne la reçoit pas ;
+  par curseur sont livrés depuis le Lot E et l'outbox depuis le Lot H ; vérifier
+  leur configuration et les jetons sur l'environnement cible ;
+- migrations Alembic et driver PostgreSQL verrouillé livrés au Lot H ; exécuter
+  les migrations avant démarrage et vérifier le schéma cible ;
 - sauvegarde et rotation documentées de `ACP_SECRETS_KEYS` et
   `ACP_ARTIFACT_SIGNING_KEYS`, et volumes persistants pour `ACP_SKILLS_STORAGE_DIR` et
   `ACP_ARTIFACT_STORAGE_DIR` ;
@@ -400,3 +400,25 @@ Changer l'URL sans migrer l'état ne déplace ni les sessions ni la mémoire.
 
 Aucun projet Railway, ressource payante, migration de production ou DNS n'a été créé
 ou modifié pendant cette intervention.
+
+### Relais et réseau privé (correctifs 0.9.1)
+
+L'API et le relais acceptent HTTP vers les hôtes privés exacts inscrits dans
+`ACP_INTERNAL_HTTP_HOSTS` (liste séparée par virgules). Renseigner les noms
+`*.railway.internal` concrets ; le caractère `*` est interdit dans la variable.
+Les domaines publics exigent toujours HTTPS. Compose fournit explicitement
+`event-service,provider-gateway` à l'API et `event-service` au relais.
+Les workers distants gardent une origine HTTPS pour l'API et la passerelle.
+
+Au démarrage sur PostgreSQL, le relais attend jusqu'à 900 s que la migration de l'API soit
+terminée et que la base soit joignable. Le délai peut être réglé avec
+`--schema-wait-seconds` ; son expiration renvoie 4, sans migration implicite.
+SQLite conserve son initialisation locale et ses mises à niveau au démarrage.
+Une panne du consommateur garde les événements en attente, sans épuiser leur
+budget d'essais. Les lettres mortes concernent les messages refusés ou illisibles.
+
+Avec SQLite, la réservation d'une livraison est validée avant HTTP : l'API peut
+écrire pendant l'attente réseau. La réservation expire après quatre fois le délai
+HTTP plus 30 s ; un arrêt brutal se récupère alors automatiquement. Une réponse
+très lente peut dépasser cette réservation et provoquer un doublon : la livraison
+reste au-moins-une-fois et le consommateur doit dédupliquer les identifiants.

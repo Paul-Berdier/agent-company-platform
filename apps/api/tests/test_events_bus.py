@@ -113,6 +113,18 @@ async def test_forwarder_makes_no_request_to_an_insecure_origin(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_forwarder_accepts_an_explicit_private_http_host(monkeypatch):
+    calls = []
+    monkeypatch.delenv("ACP_EVENT_RELAY_ENABLED", raising=False)
+    monkeypatch.setenv("ACP_EVENT_SERVICE_TOKEN", "test")
+    monkeypatch.setenv("ACP_EVENT_SERVICE_URL", "http://event-service:8000")
+    monkeypatch.setenv("ACP_INTERNAL_HTTP_HOSTS", "event-service")
+    monkeypatch.setattr(events_bus.httpx, "AsyncClient", lambda **kwargs: _RecordingAsyncClient(calls, **kwargs))
+    await events_bus.forward_event(Event(type="task.progress"))
+    assert calls[0]["url"] == "http://event-service:8000/internal/events"
+
+
+@pytest.mark.asyncio
 async def test_forwarder_is_silent_when_the_outbox_relay_is_enabled(monkeypatch):
     """Avec ``ACP_EVENT_RELAY_ENABLED=1``, aucun POST direct : l'outbox est l'unique chemin."""
 

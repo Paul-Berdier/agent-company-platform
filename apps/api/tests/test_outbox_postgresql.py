@@ -272,6 +272,40 @@ def test_a_23505_collision_from_another_session_is_recognized_and_replayed(
         assert db.query(EventOutboxModel).count() == 2
 
 
+# --- 3 bis. Ligne illisible : lettre morte, pas de file bloquée (0.9.1) ---------
+
+
+def test_an_unreadable_event_is_dead_lettered_and_the_queue_moves_on(pg_sessions):
+    """Un ``timestamptz`` au-delà de l'an 9999 est valide pour PostgreSQL mais illisible
+    pour psycopg (``DataError``) : en 0.9.0 l'exception remontait à chaque passage et
+    la ligne restait en tête de file pour toujours."""
+
+    from sqlalchemy import text
+
+    unreadable, healthy = _store(pg_sessions, 2)
+    with pg_sessions() as db:
+        db.execute(
+            text(
+                "UPDATE events SET occurred_at = '10000-01-01 00:00:00+00' "
+                "WHERE id = :event_id"
+            ),
+            {"event_id": unreadable.id},
+        )
+        db.commit()
+    transport = SpyTransport()
+
+    report = relay_once(pg_sessions, transport, now=NOW, environ=RELAY_ENVIRON)
+
+    assert report == RelayReport(delivered=1, failed=1, dead=1, cursor_hint=2)
+    assert [call["event_id"] for call in transport.calls] == [healthy.id]
+    with pg_sessions() as db:
+        dead = db.get(EventOutboxModel, unreadable.id)
+        assert dead.dead_at == NOW
+        assert dead.attempts == 1
+        assert "DataError" in dead.last_error
+        assert db.get(EventOutboxModel, healthy.id).delivered_at == NOW
+
+
 # --- 4. Rétention sous clé étrangère appliquée -----------------------------------
 
 

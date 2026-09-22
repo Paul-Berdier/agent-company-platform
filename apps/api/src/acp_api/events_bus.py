@@ -819,6 +819,7 @@ async def forward_event(event: Event) -> None:
         event_service_url = normalize_service_origin(
             os.environ.get("ACP_EVENT_SERVICE_URL", "http://localhost:8001"),
             setting="ACP_EVENT_SERVICE_URL",
+            internal_http_hosts=os.environ.get("ACP_INTERNAL_HTTP_HOSTS", ""),
         )
     except ServiceOriginError:
         return

@@ -14,10 +14,43 @@ class ServiceOriginError(ValueError):
     """Une URL de service pourrait détourner ou exposer un credential."""
 
 
-def normalize_service_origin(value: str, *, setting: str) -> str:
+def _internal_hosts(value: str) -> set[str]:
+    """Liste exacte de noms privés ; aucun domaine public ni motif générique."""
+    hosts = set()
+    for entry in value.split(","):
+        host = entry.strip().casefold().rstrip(".")
+        if not host:
+            continue
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            private = (
+                ("." not in host or host.endswith(".railway.internal"))
+                and len(host) <= 253
+                and all(_DNS_LABEL.fullmatch(label) for label in host.split("."))
+            )
+        else:
+            private = any(address in network for network in (
+                ipaddress.ip_network("10.0.0.0/8"),
+                ipaddress.ip_network("172.16.0.0/12"),
+                ipaddress.ip_network("192.168.0.0/16"),
+                ipaddress.ip_network("fc00::/7"),
+            ))
+        if not private:
+            raise ServiceOriginError(
+                "ACP_INTERNAL_HTTP_HOSTS exige des hôtes privés exacts, sans URL ni joker"
+            )
+        hosts.add(host)
+    return hosts
+
+
+def normalize_service_origin(
+    value: str, *, setting: str, internal_http_hosts: str = ""
+) -> str:
     """Retourne une origine HTTP(S) canonique, sûre pour porter un secret.
 
-    HTTP est volontairement limité au loopback. Les chemins, userinfo, queries et
+    HTTP est limité au loopback et à la liste explicite d'hôtes privés fournie
+    par les clients internes du serveur. Les chemins, userinfo, queries et
     fragments sont interdits afin que les clients n'envoient jamais leur Bearer à
     une destination ambiguë ou à une URL construite avec des données d'autorité.
     """
@@ -62,6 +95,7 @@ def normalize_service_origin(value: str, *, setting: str) -> str:
 
     if scheme == "http" and not (
         hostname == "localhost" or bool(address and address.is_loopback)
+        or hostname in _internal_hosts(internal_http_hosts)
     ):
         raise ServiceOriginError(f"{setting} doit utiliser HTTPS hors loopback")
 

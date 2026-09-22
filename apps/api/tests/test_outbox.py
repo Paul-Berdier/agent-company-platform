@@ -272,7 +272,7 @@ def test_the_relay_stops_at_the_first_transport_error_then_resumes_in_order(
     first, second, third = _outbox_rows(session_factory)
     assert first.delivered_at == NOW
     assert second.delivered_at is None
-    assert second.attempts == 1
+    assert second.attempts == 0
     assert second.next_attempt_at == NOW + timedelta(seconds=2)
     assert "ConnectError" in second.last_error
     assert third.attempts == 0 and third.delivered_at is None
@@ -290,7 +290,7 @@ def test_the_relay_stops_at_the_first_transport_error_then_resumes_in_order(
     )
     assert report == RelayReport(delivered=2, cursor_hint=3)
     assert healthy.event_ids == [events[1].id, events[2].id]
-    assert [call["headers"]["X-ACP-Delivery-Attempt"] for call in healthy.calls] == ["2", "1"]
+    assert [call["headers"]["X-ACP-Delivery-Attempt"] for call in healthy.calls] == ["1", "1"]
     assert [row.delivered_at for row in _outbox_rows(session_factory)] == [
         NOW,
         NOW + timedelta(seconds=3),
@@ -311,7 +311,7 @@ def test_a_non_2xx_status_is_a_transport_failure(session_factory, relay_on):
     assert report == RelayReport(failed=1, error="HTTP 503: ko")
     assert len(transport.calls) == 1
     first, second = _outbox_rows(session_factory)
-    assert first.attempts == 1 and first.last_error == "HTTP 503: ko"
+    assert first.attempts == 0 and first.last_error == "HTTP 503: ko"
     assert second.attempts == 0
 
 
@@ -322,7 +322,7 @@ def test_the_backoff_doubles_and_is_capped_at_five_minutes(session_factory, rela
     for attempt, delay in enumerate(expected, start=1):
         report = relay_once(
             session_factory,
-            SpyTransport([httpx.ReadTimeout("délai")]),
+            SpyTransport([422]),
             now=moment,
             environ={**RELAY_ENVIRON, "ACP_OUTBOX_MAX_ATTEMPTS": "20"},
         )
@@ -334,7 +334,7 @@ def test_the_backoff_doubles_and_is_capped_at_five_minutes(session_factory, rela
     for _ in range(3):
         relay_once(
             session_factory,
-            SpyTransport([httpx.ReadTimeout("délai")]),
+            SpyTransport([422]),
             now=moment,
             environ={**RELAY_ENVIRON, "ACP_OUTBOX_MAX_ATTEMPTS": "20"},
         )
@@ -362,7 +362,7 @@ def _flaky_factory(session_factory: Callable, failures: list[str]) -> Callable:
         original = db.commit
 
         def commit():
-            if failures:
+            if failures and any(isinstance(row, EventOutboxModel) and row.delivered_at is not None for row in db.dirty):
                 failures.pop()
                 db.rollback()
                 raise RuntimeError("commit refusé (injection de panne)")
@@ -407,14 +407,14 @@ def test_a_failure_between_ack_and_commit_redelivers_and_the_service_ignores_it(
     environ = {**RELAY_ENVIRON, "ACP_EVENT_SERVICE_URL": "http://127.0.0.1:8001"}
 
     with pytest.raises(RuntimeError, match="injection de panne"):
-        relay_once(_flaky_factory(session_factory, ["panne"]), transport, environ=environ)
+        relay_once(_flaky_factory(session_factory, ["panne"]), transport, now=NOW, environ=environ)
 
     assert transport.responses == [{"ok": True}]
     assert broadcasts == [event.id]
     (row,) = _outbox_rows(session_factory)
     assert row.delivered_at is None, "la panne a bien empêché le commit du relais"
 
-    report = relay_once(session_factory, transport, environ=environ)
+    report = relay_once(session_factory, transport, now=NOW + timedelta(seconds=61), environ=environ)
 
     assert report.delivered == 1
     assert transport.responses == [{"ok": True}, {"ok": True, "duplicate": True}]
@@ -434,7 +434,7 @@ def test_a_row_becomes_a_dead_letter_after_max_attempts_then_can_be_requeued(
     for attempt in range(1, DEFAULT_MAX_ATTEMPTS + 1):
         report = relay_once(
             session_factory,
-            SpyTransport([httpx.ConnectError("panne")]),
+            SpyTransport([422]),
             now=moment,
             environ=RELAY_ENVIRON,
         )
@@ -459,7 +459,7 @@ def test_a_row_becomes_a_dead_letter_after_max_attempts_then_can_be_requeued(
     (row,) = _outbox_rows(session_factory)
     assert row.dead_at is None and row.attempts == 0
     assert row.next_attempt_at == moment
-    assert "panne" in row.last_error, "la cause de l'abandon reste lisible"
+    assert "422" in row.last_error, "la cause de l'abandon reste lisible"
 
     healthy = SpyTransport()
     assert relay_once(session_factory, healthy, now=moment, environ=RELAY_ENVIRON).delivered == 1
@@ -495,7 +495,7 @@ def test_max_attempts_is_read_from_the_environment(session_factory, relay_on):
     moment = NOW
     for expected_dead in (0, 1):
         report = relay_once(
-            session_factory, SpyTransport([500]), now=moment, environ=environ
+            session_factory, SpyTransport([422]), now=moment, environ=environ
         )
         assert report.dead == expected_dead
         moment += timedelta(seconds=400)
@@ -550,7 +550,253 @@ def test_another_consumer_sees_nothing(session_factory, relay_on):
     assert transport.calls == []
 
 
-# --- 6. Garde structurelle --------------------------------------------------------
+# --- 6. Message empoisonné (0.9.1) -------------------------------------------------
+
+
+class RealHttpxTransport:
+    """Le vrai ``httpx.Client`` du transport de production, sur un serveur simulé.
+
+    ``SpyTransport`` n'encode ni les en-têtes ni le corps : c'est ``httpx`` qui le
+    fait, dans ``build_request``, et c'est là que naissaient les erreurs qui
+    bloquaient la file en 0.9.0. Ce transport reproduit ``HttpxTransport.post`` à
+    l'identique, le réseau en moins.
+    """
+
+    def __init__(self) -> None:
+        self.requests: list[httpx.Request] = []
+        self.client = httpx.Client(
+            transport=httpx.MockTransport(self._handle), trust_env=False
+        )
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    def post(self, url: str, *, json: Any, headers: dict, timeout: float) -> httpx.Response:
+        return self.client.post(url, json=json, headers=dict(headers), timeout=timeout)
+
+    @property
+    def event_ids(self) -> list[str]:
+        import json as json_module
+
+        return [json_module.loads(request.content)["id"] for request in self.requests]
+
+
+def test_a_non_ascii_event_id_is_delivered_through_the_real_httpx_client(
+    session_factory, relay_on
+):
+    """0.9.0 : ``httpx`` encode les en-têtes en ASCII et levait ``UnicodeEncodeError``,
+    une exception hors transport qui laissait la ligne en tête de file pour toujours."""
+
+    accented = Event(id="événement-0001", type="task.progress", project_id="p")
+    plain = Event(type="task.progress", project_id="p")
+    with session_factory() as db:
+        store_event(db, accented)
+        store_event(db, plain)
+    transport = RealHttpxTransport()
+
+    report = relay_once(session_factory, transport, now=NOW, environ=RELAY_ENVIRON)
+
+    assert report == RelayReport(delivered=2, cursor_hint=2)
+    assert transport.event_ids == ["événement-0001", plain.id], (
+        "le corps JSON porte l'identifiant exact, en UTF-8"
+    )
+    first, second = transport.requests
+    # L'en-tête n'est qu'une aide au diagnostic : encodé en pourcentage (RFC 3986),
+    # il reste de l'ASCII ; un UUID, lui, passe inchangé.
+    assert first.headers["X-ACP-Event-Id"] == "%C3%A9v%C3%A9nement-0001"
+    assert second.headers["X-ACP-Event-Id"] == plain.id
+    assert all(row.delivered_at == NOW for row in _outbox_rows(session_factory))
+
+
+@pytest.mark.sqlite
+def test_an_unreadable_event_is_dead_lettered_and_frees_the_queue(
+    session_factory, relay_on
+):
+    """Une charge utile illisible (JSON corrompu dans la base) lève à la relecture.
+
+    Erreur déterministe : la rejouer ne changerait rien. La ligne part en lettre
+    morte au premier essai, avec sa cause, et la suivante est livrée dans le même
+    passage. Le pendant PostgreSQL (date illisible par psycopg) est dans
+    ``test_outbox_postgresql``.
+    """
+
+    from sqlalchemy import text
+
+    unreadable, healthy = _store(session_factory, 2)
+    with session_factory() as db:
+        db.execute(
+            text("UPDATE events SET payload = '{pas du json' WHERE id = :event_id"),
+            {"event_id": unreadable.id},
+        )
+        db.commit()
+    transport = RealHttpxTransport()
+
+    report = relay_once(session_factory, transport, now=NOW, environ=RELAY_ENVIRON)
+
+    assert report == RelayReport(delivered=1, failed=1, dead=1, cursor_hint=2)
+    assert transport.event_ids == [healthy.id]
+    dead_row, delivered_row = _outbox_rows(session_factory)
+    assert dead_row.dead_at == NOW
+    assert dead_row.attempts == 1
+    assert dead_row.delivered_at is None
+    assert "message non transmissible" in dead_row.last_error
+    assert "JSONDecodeError" in dead_row.last_error
+    assert delivered_row.delivered_at == NOW
+
+
+def test_an_unexpected_transport_exception_is_counted_and_never_escapes(
+    session_factory, relay_on
+):
+    """Une exception inconnue du transport compte un essai et recule la ligne ;
+    au-delà de ``ACP_OUTBOX_MAX_ATTEMPTS``, lettre morte — jamais une boucle sans fin."""
+
+    (event,) = _store(session_factory, 1)
+    environ = {**RELAY_ENVIRON, "ACP_OUTBOX_MAX_ATTEMPTS": "3"}
+    moment = NOW
+    for attempt in (1, 2, 3):
+        report = relay_once(
+            session_factory,
+            SpyTransport([RuntimeError("bogue du transport")]),
+            now=moment,
+            environ=environ,
+        )
+        assert report.failed == 1
+        assert report.dead == (1 if attempt == 3 else 0)
+        assert "RuntimeError" in report.error
+        (row,) = _outbox_rows(session_factory)
+        assert row.attempts == attempt
+        moment += timedelta(seconds=400)
+    (row,) = _outbox_rows(session_factory)
+    assert row.dead_at is not None
+    assert "bogue du transport" in row.last_error
+    with session_factory() as db:
+        assert [dead.event_id for dead in list_dead(db)] == [event.id]
+
+
+@pytest.mark.sqlite
+def test_an_orphan_outbox_row_is_dead_lettered_instead_of_stopping_the_relay(
+    database, session_factory, relay_on
+):
+    """Une corruption héritée d'une base sans FK ne retient plus la file.
+
+    Le moteur normal conserve ses FK actives ; seule une connexion indépendante
+    fabrique la corruption historique, hors transaction, avant de les réactiver.
+    """
+
+    import sqlite3
+    from contextlib import closing
+
+    (event,) = _store(session_factory, 1)
+    with closing(sqlite3.connect(database.engine.url.database, isolation_level=None)) as corruption:
+        corruption.execute("PRAGMA foreign_keys=OFF")
+        try:
+            corruption.execute(
+                "INSERT INTO event_outbox "
+                "(event_id, journal_seq, project_id, consumer, attempts, "
+                "next_attempt_at, last_error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "evenement-disparu", 0, "p", "event-service", 0,
+                    (NOW - timedelta(minutes=1)).isoformat(), "", NOW.isoformat(),
+                ),
+            )
+        finally:
+            corruption.execute("PRAGMA foreign_keys=ON")
+            assert corruption.execute("PRAGMA foreign_keys").fetchone() == (1,)
+    with database.engine.connect() as connection:
+        assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
+    transport = SpyTransport()
+
+    report = relay_once(session_factory, transport, now=NOW, environ=RELAY_ENVIRON)
+
+    assert report == RelayReport(delivered=1, failed=1, dead=1, cursor_hint=1)
+    assert transport.event_ids == [event.id]
+    with session_factory() as db:
+        orphan = db.get(EventOutboxModel, "evenement-disparu")
+        assert orphan.dead_at == NOW
+        assert "orpheline" in orphan.last_error
+
+
+@pytest.mark.parametrize("outcome", [401, 403, 429, 503, httpx.ConnectError("indisponible")])
+def test_consumer_outages_never_dead_letter_a_valid_head(session_factory, relay_on, outcome):
+    events = _store(session_factory, 2)
+    moment = NOW
+    for _ in range(DEFAULT_MAX_ATTEMPTS + 2):
+        transport = SpyTransport([outcome])
+        report = relay_once(session_factory, transport, now=moment, environ=RELAY_ENVIRON)
+        assert report.failed == 1 and report.dead == 0
+        assert transport.event_ids == [events[0].id]
+        head, _ = _outbox_rows(session_factory)
+        assert head.attempts == 0 and head.dead_at is None
+        moment += timedelta(seconds=400)
+    transport = SpyTransport()
+    assert relay_once(session_factory, transport, now=moment, environ=RELAY_ENVIRON).delivered == 2
+    assert transport.event_ids == [event.id for event in events]
+
+
+@pytest.mark.sqlite
+@pytest.mark.concurrency
+def test_sqlite_http_delivery_leaves_the_database_writable(session_factory, relay_on):
+    """Le POST attend une vraie publication concurrente : aucun verrou SQLite ne fuit."""
+    from concurrent.futures import ThreadPoolExecutor
+    _store(session_factory, 1)
+
+    def publish_while_sending():
+        with session_factory() as db:
+            store_event(db, Event(type="task.progress", project_id="p"))
+
+    class ConcurrentTransport(SpyTransport):
+        def post(self, url, *, json, headers, timeout):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(publish_while_sending).result(timeout=2)
+            return super().post(url, json=json, headers=headers, timeout=timeout)
+
+    assert relay_once(session_factory, ConcurrentTransport(), now=NOW, environ=RELAY_ENVIRON).delivered == 1
+
+
+@pytest.mark.sqlite
+def test_sqlite_reservation_blocks_a_second_relay_and_recovers_after_a_crash(session_factory, relay_on):
+    _store(session_factory, 1)
+
+    class CrashTransport(SpyTransport):
+        def post(self, url, **kwargs):
+            assert relay_once(session_factory, SpyTransport(), now=NOW, environ=RELAY_ENVIRON) == RelayReport()
+            raise KeyboardInterrupt("arrêt brutal simulé")
+
+    with pytest.raises(KeyboardInterrupt):
+        relay_once(session_factory, CrashTransport(), now=NOW, environ=RELAY_ENVIRON)
+    assert relay_once(session_factory, SpyTransport(), now=NOW, environ=RELAY_ENVIRON) == RelayReport()
+    assert relay_once(session_factory, SpyTransport(), now=NOW + timedelta(minutes=1), environ=RELAY_ENVIRON).delivered == 1
+
+
+@pytest.mark.sqlite
+def test_sqlite_late_response_cannot_overwrite_a_new_reservation(session_factory, relay_on):
+    _store(session_factory, 1)
+    later = NOW + timedelta(minutes=1)
+
+    class LateTransport(SpyTransport):
+        def post(self, url, **kwargs):
+            assert relay_once(session_factory, SpyTransport([503]), now=later, environ=RELAY_ENVIRON).failed == 1
+            return httpx.Response(422, request=httpx.Request("POST", url))
+
+    assert relay_once(session_factory, LateTransport(), now=NOW, environ=RELAY_ENVIRON) == RelayReport()
+    (row,) = _outbox_rows(session_factory)
+    assert row.attempts == 0 and row.last_error == "HTTP 503: ko"
+    assert row.next_attempt_at == later + timedelta(seconds=2)
+
+
+def test_relay_uses_an_explicit_private_http_destination(session_factory, relay_on):
+    _store(session_factory, 1)
+    transport = RealHttpxTransport()
+    assert relay_once(session_factory, transport, now=NOW, environ={
+        **RELAY_ENVIRON,
+        "ACP_EVENT_SERVICE_URL": "http://event-service:8000",
+        "ACP_INTERNAL_HTTP_HOSTS": "event-service",
+    }).delivered == 1
+    assert str(transport.requests[0].url) == "http://event-service:8000/internal/events"
+
+
+# --- 7. Garde structurelle --------------------------------------------------------
 
 
 def test_only_events_bus_and_outbox_instantiate_the_outbox_model():
