@@ -367,11 +367,10 @@ def test_full_round_trip_preserves_every_table_and_file(world, target, tmp_path)
     code, out, err = run(restore_args(output, target), world.environ)
     assert (code, err) == (EXIT_OK, ""), out + err
     assert "Contrôles post-restauration conformes" in out
-    # Le chemin absolu stocké dans skill_revisions.storage_path n'est pas réécrit :
-    # l'opérateur est prévenu, la restauration n'invente pas de relocalisation.
+    # La colonne historique reste inchangée, mais le lecteur utilise désormais le
+    # dossier canonique sous la racine restaurée : aucun avertissement fictif.
     warnings = [line for line in out.splitlines() if line.startswith("Avertissement")]
-    assert len(warnings) == 1 and "non relocalisé" in warnings[0]
-    assert str(world.skills_dir) in warnings[0] and str(target.skills_dir) in warnings[0]
+    assert warnings == []
 
     assert table_fingerprints(target.url) == before
     assert _files_of(target.artifacts_dir) == {
@@ -380,6 +379,57 @@ def test_full_round_trip_preserves_every_table_and_file(world, target, tmp_path)
     assert _files_of(target.skills_dir) == _files_of(world.skills_dir)
     assert check_schema_current(make_engine(target.url)).ok is True
     assert not target.database.with_name(target.database.name + "-wal").exists()
+
+
+@pytest.mark.parametrize("path_format", ["relative", "legacy_relative", "legacy_absolute"])
+def test_revision_paths_do_not_report_false_relocation_warnings(
+    world, target, tmp_path, path_format
+):
+    """R28 : formes modernes et héritées se lisent dans le même dossier canonique."""
+
+    stored = {
+        "relative": f"{world.skill_id}/1",
+        "legacy_relative": f"acp-data/skills/{world.skill_id}/1",
+        "legacy_absolute": str(world.skills_dir / world.skill_id / "1"),
+    }[path_format]
+    engine = make_engine(world.url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE skill_revisions SET storage_path = :path"),
+                {"path": stored},
+            )
+    finally:
+        engine.dispose()
+    output = tmp_path / "sauvegarde"
+    create(world, output)
+
+    code, out, err = run(restore_args(output, target), world.environ)
+
+    assert (code, err) == (EXIT_OK, ""), out + err
+    assert "Contrôles post-restauration conformes" in out
+    assert [line for line in out.splitlines() if line.startswith("Avertissement")] == []
+    assert (target.skills_dir / world.skill_id / "1" / "SKILL.md").is_file()
+
+
+def test_post_restore_refuses_a_revision_outside_the_configured_root(world, tmp_path, monkeypatch):
+    """Le contrôle ne valide pas un dossier externe que le lecteur refuserait."""
+    manifest = create(world, tmp_path / "sauvegarde")
+    outside = world.skills_dir.parent / "hors-racine" / "1"
+    outside.mkdir(parents=True)
+    monkeypatch.setattr(
+        backup, "_skill_revisions", lambda engine: [("../hors-racine", 1, str(outside))]
+    )
+    problems, _, _ = backup._post_restore_checks(
+        manifest=manifest,
+        into_url=world.url,
+        artifacts_dir=world.artifacts_dir,
+        skills_dir=world.skills_dir,
+        environ=world.environ,
+        require_secret_keys=False,
+        stdout=io.StringIO(),
+    )
+    assert any("révision de skill hors de la racine" in problem for problem in problems)
 
 
 def test_inspect_prints_a_readable_summary(world, tmp_path):

@@ -3,8 +3,7 @@
 ``/health`` reste une liveness pure : elle dit seulement que le processus répond.
 ``/ready`` dit si le service peut rendre service **maintenant** : base joignable,
 schéma à la révision attendue, racines de stockage inscriptibles quand elles sont
-configurées et, à titre informatif seulement, l'état de la boîte d'envoi des
-événements.
+configurées et boîte d'envoi lisible. Un arriéré de livraison reste informatif.
 
 Le même rapport sert au démarrage (:func:`assert_ready_at_startup`) : un service
 qui échouerait à sa propre sonde ne démarre pas, plutôt que d'être mis en ligne
@@ -25,14 +24,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from acp_database import get_engine, init_db
+from acp_database.models import EventOutboxModel
+from acp_database.schema_state import SchemaOutOfDateError, SchemaState, check_schema_current
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
-
-from acp_database import get_engine, init_db
-from acp_database.models import EventOutboxModel
-from acp_database.schema_state import SchemaState, check_schema_current
 
 from .artifacts_storage import ARTIFACT_STORAGE_DIR_ENV
 
@@ -44,9 +42,8 @@ DATABASE_PROBE_TIMEOUT_MS = 2000
 PROBE_PREFIX = ".acp-ready-"
 
 # Contrôles dont l'échec rend le service « degraded » (503) et refuse le démarrage.
-# ``outbox`` n'en fait pas partie : un arriéré de livraison est une information
-# d'exploitation, pas une raison de retirer l'API du trafic.
-BLOCKING_CHECKS = ("database", "migrations", "artifact_storage", "skills_storage")
+# Un arriéré conserve outbox.ok=True ; une boîte illisible bloque les mutations.
+BLOCKING_CHECKS = ("database", "migrations", "artifact_storage", "skills_storage", "outbox")
 
 STATUS_READY = "ready"
 STATUS_DEGRADED = "degraded"
@@ -210,7 +207,7 @@ def _migrations_check(
         return CheckResult(True, "schéma à la révision attendue", details)
     return CheckResult(
         False,
-        "schéma hors version : exécutez « python -m acp_database.migrate upgrade »",
+        str(SchemaOutOfDateError(state)),
         details,
     )
 
@@ -266,11 +263,12 @@ def _storage_check(root: Path | None, *, create_missing: bool) -> CheckResult:
 def _outbox_check(
     engine, environ: Mapping[str, str], *, database_ok: bool
 ) -> CheckResult:
-    """Compte les livraisons en attente et en lettre morte ; ne dégrade jamais.
+    """Compte les livraisons ; une boîte illisible rend le service indisponible.
 
     Actif seulement avec ``ACP_EVENT_RELAY_ENABLED=1``. Un arriéré signale un
     relais en panne ou en retard, ce que l'opérateur doit voir sur la sonde ; mais
-    retirer l'API du trafic n'y changerait rien, d'où ``ok`` toujours vrai.
+    retirer l'API du trafic n'y changerait rien. Une table illisible bloque en
+    revanche toutes les mutations : ce défaut dégrade la disponibilité.
     """
 
     if environ.get(RELAY_ENABLED_ENV, "").strip() != "1":
@@ -294,7 +292,7 @@ def _outbox_check(
             ).scalar_one()
     except (SQLAlchemyError, OSError) as exc:
         return CheckResult(
-            True,
+            False,
             "boîte d'envoi illisible",
             {"enabled": True, "error": type(exc).__name__},
         )

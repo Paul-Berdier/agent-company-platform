@@ -118,6 +118,55 @@ def _compare(url: str):
         engine.dispose()
 
 
+def _canonical_dumped_check(expression):
+    """Normalise seulement les tableaux de littéraux varchar convertis en text.
+
+    pg_dump peut déplacer le cast ``::text[]`` du tableau vers chacun de ses
+    éléments. Les autres casts, les littéraux et la structure AND/OR restent
+    strictement inchangés.
+    """
+    if not isinstance(expression, tuple):
+        return expression
+    if any(isinstance(item, tuple) for item in expression):
+        return tuple(_canonical_dumped_check(item) for item in expression)
+
+    varchar_cast = (":", ":", "character", "varying")
+    text_cast = (":", ":", "text")
+    normalized = []
+    index = 0
+    while index < len(expression):
+        if expression[index:index + 2] == ("array", "["):
+            try:
+                end = expression.index("]", index + 2)
+            except ValueError:
+                end = index
+            elements = [[]]
+            for token in expression[index + 2:end]:
+                if token == ",":
+                    elements.append([])
+                else:
+                    elements[-1].append(token)
+            literal_varchars = all(
+                element and element[0].startswith("'")
+                and tuple(element[1:]) in (varchar_cast, varchar_cast + text_cast)
+                for element in elements
+            )
+            array_cast = expression[end + 1:end + 6] == text_cast + ("[", "]")
+            element_casts = all(tuple(element[1:]) == varchar_cast + text_cast for element in elements)
+            if literal_varchars and (array_cast or element_casts):
+                normalized.extend(("array", "["))
+                for number, element in enumerate(elements):
+                    if number:
+                        normalized.append(",")
+                    normalized.extend((element[0], *text_cast))
+                normalized.append("]")
+                index = end + (6 if array_cast else 1)
+                continue
+        normalized.append(expression[index])
+        index += 1
+    return tuple(normalized)
+
+
 def _comparable_inventory(url: str) -> dict:
     """Inventaire structurel dont les CHECK sont ramenés à une forme canonique.
 
@@ -137,13 +186,42 @@ def _comparable_inventory(url: str) -> dict:
         table["checks"] = {
             (
                 name,
-                expression.replace("::charactervarying::text", "::charactervarying").replace(
-                    "]::text[]", "]"
-                ),
+                _canonical_dumped_check(expression),
             )
             for name, expression in table["checks"]
         }
     return inventory
+
+
+@pytest.mark.parametrize("suffix", ["", " OR a IS NULL", " AND (a IS NULL OR b IS NULL)"])
+def test_check_inventory_normalizes_dump_casts_without_flattening(suffix):
+    from acp_database.testing import _normalized_expression
+
+    source = "state::text = ANY (ARRAY['A B'::character varying, 'x,y'::character varying]::text[])"
+    restored = "state::text = ANY (ARRAY['A B'::character varying::text, 'x,y'::character varying::text])"
+    assert _canonical_dumped_check(_normalized_expression(source + suffix)) == (
+        _canonical_dumped_check(_normalized_expression(restored + suffix))
+    )
+
+
+@pytest.mark.parametrize("first,second", [
+    ("(a OR b) AND c", "a OR (b AND c)"),
+    ("(x + y) * z > 0", "x + (y * z) > 0"),
+    ("state = 'A B'", "state = 'a b'"),
+    ("state = ']::text[]'", "state = ']'"),
+    ("state = '::character varying::text'", "state = '::character varying'"),
+    ("value = ANY (ARRAY[1, 2]::text[])", "value = ANY (ARRAY[1, 2])"),
+    ("value = ANY (ARRAY['ab'::character varying(1)]::text[])",
+     "value = ANY (ARRAY['ab'::character varying]::text[])"),
+])
+def test_check_inventory_preserves_other_semantic_differences(first, second):
+    from acp_database.testing import _normalized_expression
+
+    first_structure = _normalized_expression(first)
+    assert _canonical_dumped_check(first_structure) == first_structure
+    assert _canonical_dumped_check(first_structure) != (
+        _canonical_dumped_check(_normalized_expression(second))
+    )
 
 
 def _ensure_database(admin_url: str, name: str) -> None:

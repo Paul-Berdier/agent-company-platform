@@ -5,13 +5,9 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-
 from acp_contracts import (
-    EvidenceCreate,
     Event,
+    EvidenceCreate,
     SessionContext,
     Task,
     TaskRun,
@@ -20,6 +16,18 @@ from acp_contracts import (
     WorkerLeaseResponse,
 )
 from acp_contracts.enums import SessionScope
+from acp_contracts.limits import (
+    DatabaseModel as BaseModel,
+)
+from acp_contracts.limits import (
+    Int32,
+    Text36,
+    Text50,
+    Text100,
+    Text300,
+    WorkflowLabel,
+    captured_run_result,
+)
 from acp_database.models import (
     AgentInstanceModel,
     MissionEvidenceModel,
@@ -33,6 +41,9 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from pydantic import Field, field_validator
+from sqlalchemy.orm import Session
 
 from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
 from ..events_bus import publish
@@ -49,37 +60,42 @@ router = APIRouter(tags=["work"])
 
 
 class TaskCreate(BaseModel):
-    project_id: str
-    team_id: str | None = None
-    agent_instance_id: str | None = None
-    title: str
+    project_id: Text36
+    team_id: Text36 | None = None
+    agent_instance_id: Text36 | None = None
+    title: Text300
     description: str = ""
-    priority: int = 3
+    priority: Int32 = 3
     meta: dict = Field(default_factory=dict)
 
 
 class TaskPatch(BaseModel):
-    status: str | None = None
-    workflow_step: str | None = None
-    agent_instance_id: str | None = None
-    title: str | None = None
+    status: Text50 | None = None
+    workflow_step: WorkflowLabel | None = None
+    agent_instance_id: Text36 | None = None
+    title: Text300 | None = None
     description: str | None = None
-    priority: int | None = None
+    priority: Int32 | None = None
 
 
 class ClaimRequest(BaseModel):
-    worker_id: str
-    provider_id: str = "mock"
+    worker_id: Text36
+    provider_id: Text100 = "mock"
 
 
 class TaskRunPatch(BaseModel):
-    status: str | None = None
-    workflow_step: str | None = None
+    status: Text50 | None = None
+    workflow_step: WorkflowLabel | None = None
     plan: dict | None = None
     result: dict | None = None
     append_logs: list[dict] = Field(default_factory=list)
     technical_validation: TechnicalValidation | None = None
     evidence: list[EvidenceCreate] = Field(default_factory=list)
+
+    @field_validator("result", mode="before")
+    @classmethod
+    def captured_evidence_in_result(cls, value):
+        return captured_run_result(value)
 
 
 _RUN_STATES = {

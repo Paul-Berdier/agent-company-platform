@@ -12,13 +12,6 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
-from fastapi import Depends, FastAPI
-from fastapi.testclient import TestClient
-from sqlalchemy import event, inspect, select, text
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.exc import TimeoutError as PoolTimeoutError
-from sqlalchemy.orm import Session
-
 from acp_api import db_errors, readiness
 from acp_api import seed as seed_module
 from acp_api.main import app
@@ -43,6 +36,12 @@ from acp_database.testing import (
     reset_public_schema,
     skip_or_fail_without_postgresql,
 )
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import event, inspect, select, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+from sqlalchemy.orm import Session
 
 READINESS_ENV = (
     "ACP_ARTIFACT_STORAGE_DIR",
@@ -646,3 +645,30 @@ def test_pg_readiness_probe_is_bounded_by_a_local_statement_timeout(
     assert any("SET LOCAL statement_timeout = 2000" in s for s in statements)
     # Schéma éphémère vide : la base répond mais n'est pas migrée.
     assert report.checks["migrations"].ok is False
+
+
+def test_data_error_is_refused_in_french_without_sql_or_values():
+    from sqlalchemy.exc import DataError
+    application = FastAPI()
+    db_errors.install(application)
+
+    @application.get("/invalid")
+    def invalid():
+        raise DataError("INSERT INTO secrets VALUES (:value)", {"value": "prive"}, ValueError("pilote prive"))
+
+    with TestClient(application) as client:
+        response = client.get("/invalid")
+    assert response.status_code == 422
+    assert "Valeur non stockable" in response.json()["detail"]
+    assert "INSERT" not in response.text
+    assert "prive" not in response.text
+
+
+def test_ready_refuses_missing_outbox_even_with_cached_revision(client, monkeypatch):
+    monkeypatch.setenv("ACP_EVENT_RELAY_ENABLED", "1")
+    assert client.get("/ready").status_code == 200
+    with get_engine().begin() as connection:
+        connection.execute(text("DROP TABLE event_outbox"))
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["checks"]["outbox"]["ok"] is False

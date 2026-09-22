@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DataError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 LOCK_NOT_AVAILABLE = "55P03"
@@ -85,5 +85,14 @@ def install(app: FastAPI) -> None:
             headers={"Cache-Control": "no-store", "Retry-After": "2"},
         )
 
+    async def handle_data_error(_request: Request, _exc: DataError) -> JSONResponse:
+        # Ne jamais reprendre le message du pilote : il contient le SQL et les données.
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Valeur non stockable : vérifiez sa longueur, sa plage et l'absence de caractère NUL"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    app.add_exception_handler(DataError, handle_data_error)
     app.add_exception_handler(OperationalError, handle_operational_error)
     app.add_exception_handler(PoolTimeoutError, handle_pool_timeout)

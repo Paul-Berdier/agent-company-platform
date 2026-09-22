@@ -1,11 +1,12 @@
 """Outillage de test partagé par tous les arbres de tests du dépôt.
 
-Sans ``ACP_TEST_DATABASE_URL``, les moteurs rendus sont exactement ceux que les
-suites construisaient à la main jusqu'ici (SQLite en mémoire sur ``StaticPool``,
-ou fichier temporaire sur ``QueuePool`` pour les tests concurrents). Avec la
-variable, chaque test reçoit un schéma PostgreSQL éphémère ``t_<hex12>`` détruit
-à la fermeture : les tests d'un même lot peuvent tourner en parallèle sur une
-seule base sans se voir.
+Sans ``ACP_TEST_DATABASE_URL``, les moteurs rendus sont ceux que les suites
+construisaient à la main jusqu'ici (SQLite en mémoire sur ``StaticPool``, ou
+fichier temporaire sur ``QueuePool`` pour les tests concurrents), à une différence
+près : comme le moteur de l'application, ils appliquent les clés étrangères
+(``PRAGMA foreign_keys=ON`` à chaque connexion). Avec la variable, chaque test
+reçoit un schéma PostgreSQL éphémère ``t_<hex12>`` détruit à la fermeture : les
+tests d'un même lot peuvent tourner en parallèle sur une seule base sans se voir.
 
 Doctrine : un test PostgreSQL non configuré est **ignoré** avec une raison
 explicite ; il **échoue** si ``ACP_TEST_DATABASE_REQUIRED=1`` et que la base est
@@ -245,6 +246,8 @@ def make_test_engine(
       ``check_same_thread=False``), la forme historique des tests unitaires ;
     - SQLite, ``concurrent=True`` : fichier ``tmp_path/test.db`` sur ``QueuePool``
       avec ``timeout=30``, la forme historique des tests multi-threads ;
+    - dans les deux formes SQLite, les clés étrangères sont appliquées à chaque
+      connexion, comme par ``make_engine`` ;
     - PostgreSQL : schéma éphémère et moteur ``pool_size=8, max_overflow=8``
       dont le ``search_path`` est fixé au schéma, fuseau UTC, ``lock_timeout``
       10 s et ``statement_timeout`` 30 s.
@@ -270,6 +273,10 @@ def make_test_engine(
                 connect_args={"check_same_thread": False},
                 poolclass=StaticPool,
             )
+        # Même règle que le moteur de l'application, avant toute connexion (y
+        # compris celle de ``create_all``) : une clé étrangère violée échoue ici
+        # comme en production, sous SQLite comme sous PostgreSQL.
+        engine_module.enable_sqlite_foreign_keys(engine)
         database = TestDatabase(engine=engine, backend=backend, url=url)
     else:
         url = _test_url()
@@ -372,15 +379,10 @@ def skip_or_fail_without_postgresql() -> str:
     return url
 
 
-def _normalized_expression(value) -> str:
-    """Compare des expressions SQL sans parenthèses, espaces ni casse.
-
-    PostgreSQL renvoie ``((a IS NOT NULL) AND (b IS NOT NULL))`` là où le modèle
-    écrit ``a IS NOT NULL AND b IS NOT NULL`` ; seule la structure compte ici.
-    """
-
-    rendered = "" if value is None else str(value)
-    return "".join(rendered.lower().replace("(", "").replace(")", "").split())
+def _normalized_expression(value):
+    """Préserve le groupement booléen : (a OR b) AND c diffère de a OR (b AND c)."""
+    from .migrate import _predicate_structure
+    return _predicate_structure(value)
 
 
 def schema_inventory(engine, *, schema: str | None = None) -> dict:

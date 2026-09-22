@@ -822,16 +822,16 @@ def _post_restore_checks(
     for key in sorted(present - all_keys):
         problems.append(f"blob sans ligne de livrable : {key}")
 
-    for skill_id, number, storage_path in sorted(revisions):
-        expected = skills_dir / skill_id / str(number)
-        if not expected.is_dir():
+    skills_anchor = skills_dir.resolve()
+    for skill_id, number, _storage_path in sorted(revisions):
+        # Même emplacement que le lecteur de skills : la colonne historique n'est
+        # pas suivie et ne constitue donc pas un défaut de relocalisation.
+        expected = (skills_anchor / skill_id / str(number)).resolve()
+        if not expected.is_relative_to(skills_anchor):
+            problems.append(f"révision de skill hors de la racine configurée : {skill_id}/{number}")
+        elif not expected.is_dir():
             problems.append(
                 f"révision de skill sans dossier : {skill_id}/{number} (attendu {expected})"
-            )
-        elif storage_path and Path(storage_path).expanduser().resolve() != expected.resolve():
-            warnings.append(
-                f"skill_revisions.storage_path de {skill_id}/{number} désigne "
-                f"{storage_path} ; le dossier restauré est {expected} (non relocalisé)"
             )
 
     configured = _configured_secret_key_ids(environ)

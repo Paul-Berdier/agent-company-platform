@@ -7,7 +7,7 @@ résolveur DNS injecté. Le stockage utilise un répertoire temporaire.
 from __future__ import annotations
 
 import base64
-import gzip
+import hashlib
 import io
 import os
 import socket
@@ -19,9 +19,6 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import sessionmaker
-
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.outbound import OutboundPolicy, PinnedHttpClient
@@ -31,6 +28,8 @@ from acp_api.skills import service as skills_service
 from acp_api.skills import sources as skills_sources
 from acp_database.models import EventModel, SkillBindingModel, UserModel
 from acp_database.testing import make_test_engine
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 
 BOOTSTRAP_TOKEN = "skills-bootstrap-token-with-enough-entropy"
 PASSWORD = "correct horse battery staple"
@@ -345,6 +344,31 @@ def test_scan_flags_dangerous_content_as_advisory_findings(context):
     assert logo.status_code == 200
     assert logo.json()["text"] is False
     assert logo.json()["content"] is None
+    expected_logo = "\x89PNG\r\n\x1a\n\x00binaire".encode("utf-8")
+    stored_logo = context["storage"] / detail["id"] / "1" / "assets" / "logo.png"
+    assert stored_logo.read_bytes() == expected_logo
+    manifest_logo = next(item for item in revision["files"] if item["path"] == "assets/logo.png")
+    assert manifest_logo["size"] == len(expected_logo)
+    assert manifest_logo["sha256"] == hashlib.sha256(expected_logo).hexdigest()
+
+
+@pytest.mark.parametrize("field", ["path", "note"])
+def test_manual_file_nul_is_still_refused_in_persistent_metadata(context, field):
+    payload = {"source": _manual({"SKILL.md": MINIMAL_SKILL_MD}), "note": ""}
+    if field == "path":
+        payload["source"]["files"].append({"path": "assets/bad\x00name.png", "content": "raw\x00bytes"})
+        expected_location = ["body", "source", "manual", "files", 1, "path"]
+    else:
+        payload["note"] = "note\x00persistée"
+        expected_location = ["body", "note"]
+    response = context["client"].post("/skills/import", json=payload)
+    assert response.status_code == 422, response.text
+    assert any(
+        error["loc"] == expected_location and "NUL" in error["msg"]
+        for error in response.json()["detail"]
+    )
+    assert _events(context["session_factory"], "skill.imported") == []
+    assert not context["storage"].exists() or not any(context["storage"].iterdir())
 
 
 def test_native_plugin_is_labelled_and_never_loaded(context):

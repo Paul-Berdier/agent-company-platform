@@ -5,7 +5,10 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
+
+from .limits import DatabaseModel as BaseModel
+from .limits import Int64
 
 
 class ResourceType(str, Enum):
@@ -138,7 +141,7 @@ class ArtifactCreate(BaseModel):
     kind: str = Field(min_length=1, max_length=100)
     path: str = Field(min_length=1, max_length=1000)
     checksum: str | None = Field(default=None, max_length=200)
-    size_bytes: int | None = Field(default=None, ge=0)
+    size_bytes: Int64 | None = Field(default=None, ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("path")
@@ -159,7 +162,7 @@ class Artifact(BaseModel):
     kind: str
     path: str
     checksum: str | None = None
-    size_bytes: int | None = None
+    size_bytes: Int64 | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
 
@@ -183,7 +186,7 @@ class ArtifactSummary(BaseModel):
     stream_kind: str = Field(default="", max_length=50)
     original_name: str = Field(default="", max_length=500)
     content_type: str = Field(default="application/octet-stream", max_length=200)
-    size_bytes: int | None = Field(default=None, ge=0)
+    size_bytes: Int64 | None = Field(default=None, ge=0)
     checksum: str | None = Field(default=None, max_length=200)
     source: str = Field(default="worker", max_length=50)
     has_content: bool = False

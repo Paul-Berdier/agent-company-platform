@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
+from .limits import DatabaseModel as BaseModel
 
 ConversationStatus = Literal["active", "archived"]
 ConversationTurnStatus = Literal[

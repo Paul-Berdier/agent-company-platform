@@ -21,6 +21,7 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from threading import Barrier
 from uuid import uuid4
 
@@ -45,6 +46,7 @@ from acp_api.routers import work as work_router
 from acp_api.routers import workers as workers_router
 from acp_api.routers.workers import expire_task_leases
 from acp_api.secrets_vault import generate_key
+from acp_api.skills import service as skills_service
 from acp_database.models import (
     ArtifactModel,
     EventModel,
@@ -1371,11 +1373,7 @@ def test_skill_revisions_are_stored_relative_to_the_storage_root(
     )
 
 
-def test_a_legacy_absolute_storage_path_is_still_read_as_is(portability_context, monkeypatch):
-    """Les révisions antérieures gardent leur chemin absolu : aucune migration de données."""
-
-    context = portability_context
-    client = context["client"]
+def _import_portable_skill(client, content: str) -> str:
     imported = client.post(
         "/skills/import",
         json={
@@ -1383,23 +1381,125 @@ def test_a_legacy_absolute_storage_path_is_still_read_as_is(portability_context,
                 "kind": "manual",
                 "files": [
                     {"path": "SKILL.md", "content": SKILL_MD},
-                    {"path": "reference/guide.md", "content": "# Guide historique\n"},
+                    {"path": "reference/guide.md", "content": content},
                 ],
             }
         },
     )
     assert imported.status_code == 201, imported.text
-    skill_id = imported.json()["id"]
-    legacy_root = context["tmp_path"] / "legacy-skills"
-    shutil.copytree(str(context["storage"]), str(legacy_root))
+    return imported.json()["id"]
+
+
+def _set_storage_path(context, skill_id: str, storage_path: str) -> None:
+    """Réécrit la ligne comme l'aurait laissée une version antérieure (aucune migration)."""
+
     with context["session_factory"]() as db:
         revision = db.query(SkillRevisionModel).filter_by(skill_id=skill_id).one()
-        revision.storage_path = str(legacy_root / skill_id / "1")
+        revision.storage_path = storage_path
         db.commit()
-    monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(context["tmp_path"] / "elsewhere"))
+
+
+def test_a_legacy_absolute_storage_path_under_the_root_is_still_read_as_is(
+    portability_context,
+):
+    """Les révisions 0.8.0 gardent leur chemin absolu : aucune migration de données."""
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide historique\n")
+    _set_storage_path(context, skill_id, str(context["storage"] / skill_id / "1"))
+
     response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
     assert response.status_code == 200, response.text
     assert response.json()["content"] == "# Guide historique\n"
+
+
+def test_a_legacy_relative_storage_path_from_0_8_0_is_still_read(
+    portability_context, monkeypatch
+):
+    """R28 : racine relative par défaut en 0.8.0, chemin mémorisé ``acp-data/skills/<id>/1``.
+
+    Le joindre à la racine doublait le préfixe (``acp-data/skills/acp-data/skills/…``) :
+    la lecture répondait 404 et le retour arrière 409, fichiers pourtant intacts.
+    """
+
+    context = portability_context
+    client = context["client"]
+    workdir = context["tmp_path"] / "service"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    monkeypatch.delenv("ACP_SKILLS_STORAGE_DIR")
+    skill_id = _import_portable_skill(client, "# Guide relatif\n")
+    assert (workdir / "acp-data" / "skills" / skill_id / "1" / "SKILL.md").is_file()
+    # Valeur exacte que ``store_revision`` de la 0.8.0 renvoyait avec la racine par défaut.
+    legacy = str(Path(skills_service.DEFAULT_STORAGE_DIR) / skill_id / "1")
+    assert not Path(legacy).is_absolute()
+    _set_storage_path(context, skill_id, legacy)
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "# Guide relatif\n"
+    rolled_back = client.post(f"/skills/{skill_id}/rollback", json={"revision_number": 1})
+    assert rolled_back.status_code == 200, rolled_back.text
+
+
+def test_a_legacy_absolute_path_follows_its_moved_root(portability_context, monkeypatch):
+    """Volume déplacé : le chemin absolu mémorisé n'existe plus, la racine configurée si."""
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide déplacé\n")
+    _set_storage_path(context, skill_id, str(context["storage"] / skill_id / "1"))
+    moved_root = context["tmp_path"] / "volume-neuf"
+    shutil.move(str(context["storage"]), str(moved_root))
+    monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(moved_root))
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "# Guide déplacé\n"
+
+
+def test_a_storage_path_outside_the_configured_root_is_refused(
+    portability_context, monkeypatch
+):
+    """Un chemin mémorisé hors de ``ACP_SKILLS_STORAGE_DIR`` n'est jamais suivi.
+
+    La ligne peut venir d'une sauvegarde restaurée ou d'une ancienne racine : la lire
+    telle quelle ferait servir par l'API un répertoire que l'opérateur n'a pas désigné.
+    """
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide historique\n")
+    outside = context["tmp_path"] / "hors-racine"
+    shutil.copytree(str(context["storage"]), str(outside))
+    _set_storage_path(context, skill_id, str(outside / skill_id / "1"))
+    monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(context["tmp_path"] / "ailleurs"))
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert "hors de la racine" in detail and "ACP_SKILLS_STORAGE_DIR" in detail
+    rolled_back = client.post(f"/skills/{skill_id}/rollback", json={"revision_number": 1})
+    assert rolled_back.status_code == 409, rolled_back.text
+    assert "hors de la racine" in rolled_back.json()["detail"]
+
+
+def test_a_relative_storage_path_cannot_escape_the_root(portability_context):
+    """``../`` dans la colonne ne mène jamais hors de la racine : seul l'emplacement
+    canonique ``<racine>/<skill_id>/<numéro>`` est lu."""
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide légitime\n")
+    planted = context["tmp_path"] / "piege" / skill_id / "1" / "reference"
+    planted.mkdir(parents=True)
+    (planted / "guide.md").write_text("# Contenu planté\n", encoding="utf-8")
+    _set_storage_path(context, skill_id, f"../piege/{skill_id}/1")
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "# Guide légitime\n"
 
 
 # --- 8. Horodatages naïfs du reporter -------------------------------------------

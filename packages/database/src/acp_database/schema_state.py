@@ -9,6 +9,7 @@ révisions, nom de la table de version, options de comparaison) : ``env.py``,
 from __future__ import annotations
 
 import re
+from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy import inspect
 
 VERSION_TABLE = "alembic_version"
 MIGRATIONS_PATH = Path(__file__).resolve().parent / "migrations"
@@ -34,6 +36,8 @@ class SchemaState:
     current: str | None
     head: str
     ok: bool
+    unknown_revision: bool = False
+    missing_tables: tuple[str, ...] = ()
 
 
 class SchemaOutOfDateError(RuntimeError):
@@ -48,11 +52,22 @@ class SchemaOutOfDateError(RuntimeError):
     def __init__(self, state: SchemaState) -> None:
         self.state = state
         current = state.current or "aucune (table alembic_version absente)"
-        super().__init__(
-            "Schéma de base hors version : révision courante "
-            f"{current}, révision attendue {state.head}. "
-            f"Exécutez « {UPGRADE_COMMAND} » avant de démarrer."
-        )
+        if getattr(state, "unknown_revision", False):
+            message = (
+                "Base migrée par une version plus récente ou une chaîne inconnue : "
+                f"révision courante {current}, tête de ce code {state.head}. "
+                "Utilisez le code compatible avec cette base ; tout retour arrière "
+                "doit être préparé avec cette version et une sauvegarde vérifiée."
+            )
+        elif getattr(state, "missing_tables", ()):
+            message = "Schéma incomplet malgré son estampille : tables absentes : " + ", ".join(state.missing_tables)
+        else:
+            message = (
+                "Schéma de base hors version : révision courante "
+                f"{current}, révision attendue {state.head}. "
+                f"Exécutez « {UPGRADE_COMMAND} » avant de démarrer."
+            )
+        super().__init__(message)
 
 
 def alembic_config(url: str | None = None) -> Config:
@@ -169,7 +184,7 @@ def autogenerate_options() -> dict:
     }
 
 
-def check_schema_current(engine) -> SchemaState:
+def check_schema_current(engine, *, connection=None) -> SchemaState:
     """Lit la révision estampillée et la confronte à la tête de la chaîne.
 
     Une base sans table ``alembic_version`` donne ``current=None`` et ``ok=False``
@@ -177,19 +192,28 @@ def check_schema_current(engine) -> SchemaState:
     ``acp_database.migrate upgrade`` et jamais par ``create_all``.
     """
 
-    with engine.connect() as connection:
+    head = head_revision()
+    missing: tuple[str, ...] = ()
+    with (nullcontext(connection) if connection is not None else engine.connect()) as connection:
         context = MigrationContext.configure(
             connection, opts={"version_table": VERSION_TABLE}
         )
         heads = tuple(context.get_current_heads())
-    head = head_revision()
+        if heads == (head,):
+            from .models import Base
+            missing = tuple(sorted(set(Base.metadata.tables) - set(inspect(connection).get_table_names())))
     if not heads:
         current: str | None = None
     elif len(heads) == 1:
         current = heads[0]
     else:
         current = ",".join(sorted(heads))
-    return SchemaState(current=current, head=head, ok=current == head)
+    known = {revision.revision for revision in script_directory().walk_revisions()}
+    unknown = any(revision not in known for revision in heads)
+    return SchemaState(
+        current=current, head=head, ok=current == head and not missing,
+        unknown_revision=unknown, missing_tables=missing,
+    )
 
 
 def stamp_head(engine) -> None:

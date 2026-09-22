@@ -2,7 +2,10 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from .limits import DatabaseModel as BaseModel
+from .limits import Text36, Text100
 
 
 def _now() -> datetime:
@@ -12,17 +15,17 @@ def _now() -> datetime:
 class Event(BaseModel):
     """Événement métier réel diffusé au front pixel art et journalisé."""
 
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    type: str  # ex: task.started, agent.status_changed, task.progress
+    id: Text36 = Field(default_factory=lambda: str(uuid4()))
+    type: Text100  # ex: task.started, agent.status_changed, task.progress
     occurred_at: datetime = Field(default_factory=_now)
-    organization_id: str | None = None
-    workspace_id: str | None = None
-    department_id: str | None = None
-    project_id: str | None = None
-    team_id: str | None = None
-    agent_instance_id: str | None = None
-    task_id: str | None = None
-    task_run_id: str | None = None
+    organization_id: Text36 | None = None
+    workspace_id: Text36 | None = None
+    department_id: Text36 | None = None
+    project_id: Text36 | None = None
+    team_id: Text36 | None = None
+    agent_instance_id: Text36 | None = None
+    task_id: Text36 | None = None
+    task_run_id: Text36 | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -50,14 +53,14 @@ class StreamEvent(BaseModel):
     """
 
     schema_version: str = Field(default=EVENT_SCHEMA_VERSION, max_length=10)
-    id: str = Field(max_length=36)
+    id: Text36 = Field(max_length=36)
     sequence: int | None = Field(default=None, ge=1)
     type: str = Field(max_length=100)
     occurred_at: datetime
-    project_id: str | None = Field(default=None, max_length=36)
+    project_id: Text36 | None = Field(default=None, max_length=36)
     conversation_id: str | None = Field(default=None, max_length=36)
-    task_id: str | None = Field(default=None, max_length=36)
-    task_run_id: str | None = Field(default=None, max_length=36)
+    task_id: Text36 | None = Field(default=None, max_length=36)
+    task_run_id: Text36 | None = Field(default=None, max_length=36)
     step_id: str | None = Field(default=None, max_length=64)
     executor: str | None = Field(default=None, max_length=64)
     emitted_by: str | None = Field(default=None, max_length=64)

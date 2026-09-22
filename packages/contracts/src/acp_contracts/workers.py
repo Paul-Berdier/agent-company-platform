@@ -4,7 +4,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
+
+from .limits import DatabaseModel as BaseModel
+from .limits import Text100
 
 
 class WorkerCapability(str, Enum):
@@ -119,7 +122,7 @@ class WorkerSnapshot(BaseModel):
 
 
 class WorkerClaimRequest(BaseModel):
-    provider_id: str = "mock"
+    provider_id: Text100 = "mock"
 
 
 class WorkerLeaseResponse(BaseModel):

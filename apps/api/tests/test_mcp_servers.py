@@ -10,20 +10,16 @@ from __future__ import annotations
 import hashlib
 import json
 import socket
-import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier, Event as ThreadEvent
+from threading import Barrier
+from threading import Event as ThreadEvent
 from uuid import uuid4
 
 import httpx
 import pytest
+import tomllib
 import yaml
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import sessionmaker
-
-from acp_contracts.redaction import REDACTED_PLACEHOLDER
-
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.mcp import service as mcp_service
@@ -31,6 +27,7 @@ from acp_api.routers import mcp as mcp_router
 from acp_api.routers.workers import utcnow
 from acp_api.secrets_vault import SecretsVault, generate_key
 from acp_api.security import create_user_session, hash_password
+from acp_contracts.redaction import REDACTED_PLACEHOLDER
 from acp_database.models import (
     EventModel,
     McpProbeModel,
@@ -42,6 +39,8 @@ from acp_database.models import (
     WorkerModel,
 )
 from acp_database.testing import make_test_engine
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 
 PUBLIC_IP = "93.184.216.34"
 PASSWORD = "correct horse battery staple"
@@ -2204,13 +2203,23 @@ def test_hostile_header_and_env_names_are_refused(mcp_context):
     for env, code in (
         ({"BAD=NAME": "1"}, "invalid_env_name"),
         ({"": "1"}, "invalid_env_name"),
-        ({"LOG_LEVEL": "info\x00rm -rf"}, "invalid_env_value"),
     ):
         payload = _stdio_payload("injection", stdio_secret, real)
         payload["config"]["stdio"]["env"] = env
         response = client.post("/mcp/servers", json=payload)
         assert response.status_code == 422, (env, response.text)
         assert code in response.json()["detail"]
+
+    # Le contrat de stockage refuse le NUL avant la validation métier du MCP.
+    payload = _stdio_payload("injection", stdio_secret, real)
+    payload["config"]["stdio"]["env"] = {"LOG_LEVEL": "info\x00rm -rf"}
+    response = client.post("/mcp/servers", json=payload)
+    assert response.status_code == 422, response.text
+    errors = response.json()["detail"]
+    assert len(errors) == 1
+    assert errors[0]["type"] == "value_error"
+    assert errors[0]["loc"] == ["body", "config", "stdio", "env"]
+    assert "NUL" in errors[0]["msg"]
 
 
 def test_a_non_ascii_secret_value_fails_the_probe_without_leaking_it(mcp_context):
@@ -2275,9 +2284,8 @@ def test_exports_escape_hostile_header_values(mcp_context):
     ],
 )
 def test_unpinned_package_detection(command, args, expected):
-    from acp_contracts import McpStdioConfig
-
     from acp_api.mcp.service import unpinned_package
+    from acp_contracts import McpStdioConfig
 
     assert unpinned_package(McpStdioConfig(command=command, args=args)) == expected
 

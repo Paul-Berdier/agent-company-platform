@@ -8,10 +8,6 @@ empiriquement avant d'écrire ces assertions ; le premier test fige ce constat.
 import io
 
 import pytest
-from alembic.autogenerate import compare_metadata
-from alembic.migration import MigrationContext
-from sqlalchemy import event, inspect, text
-
 from acp_database import engine as engine_module
 from acp_database.migrate import (
     EXIT_OK,
@@ -32,6 +28,9 @@ from acp_database.schema_state import (
     literal_default_text,
 )
 from acp_database.testing import point_global_engine_at, schema_inventory
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from sqlalchemy import event, inspect, text
 
 pytestmark = pytest.mark.sqlite
 
@@ -206,6 +205,44 @@ def test_upgrade_to_first_revision_then_head(tmp_path):
         engine.dispose()
 
 
+def test_0003_changes_nothing_on_sqlite_whose_integers_are_already_64_bit(tmp_path):
+    """0003 élargit des colonnes PostgreSQL ; sous SQLite elle n'émet aucun DDL.
+
+    SQLite stocke tout INTEGER sur 64 bits et n'applique pas la longueur d'un
+    VARCHAR : la variante SQLite du modèle garde le DDL historique, et une valeur
+    au-delà de 2^31 y est déjà conservée à l'identique.
+    """
+
+    engine = engine_module.make_engine(_url(tmp_path, "wide.db"))
+    try:
+        run_upgrade(engine, "0002")
+        before = schema_inventory(engine)
+        run_upgrade(engine)
+        assert head_revision() == "0003"
+        assert _version(engine) == "0003"
+        assert schema_inventory(engine) == before
+        assert _compare(engine) == []
+        run_downgrade(engine, "0002")
+        assert _version(engine) == "0002"
+        assert schema_inventory(engine) == before
+        run_upgrade(engine)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO events (id, created_at, type, occurred_at, payload, "
+                    "schema_version, journal_seq) VALUES ('evt-wide', "
+                    "'2026-09-19 00:00:00', 't', '2026-09-19 00:00:00', '{}', '1.0', "
+                    ":seq)"
+                ),
+                {"seq": 2**40},
+            )
+            assert connection.execute(
+                text("SELECT journal_seq FROM events WHERE id = 'evt-wide'")
+            ).scalar_one() == 2**40
+    finally:
+        engine.dispose()
+
+
 def test_check_drift_reports_extra_table(initialized):
     _url_, engine = initialized
     with engine.begin() as connection:
@@ -316,3 +353,34 @@ def test_cli_reads_url_from_environment(initialized, monkeypatch):
     monkeypatch.setenv("ACP_DATABASE_URL", url)
     code, out, _err = _cli(["current"])
     assert code == EXIT_OK and head_revision() in out
+
+
+def test_sqlite_refuses_unknown_revision_before_any_schema_changes(tmp_path, monkeypatch):
+    from acp_database.schema_state import SchemaOutOfDateError
+    url = _url(tmp_path, "future.db")
+    point_global_engine_at(monkeypatch, url)
+    engine = engine_module.get_engine()
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO alembic_version VALUES ('9999')"))
+    with pytest.raises(SchemaOutOfDateError, match="plus récente"):
+        engine_module.init_db()
+    assert inspect(engine).get_table_names() == ["alembic_version"]
+    assert current_revision(engine) == "9999"
+
+
+def test_inventory_preserves_boolean_grouping_and_literal_case():
+    from acp_database.testing import _normalized_expression
+    assert _normalized_expression("(a OR b) AND c") != _normalized_expression("a OR (b AND c)")
+    assert _normalized_expression("kind = 'A'") != _normalized_expression("kind = 'a'")
+    assert _normalized_expression("((a IS NULL) AND (b IS NULL))") == _normalized_expression("a IS NULL AND b IS NULL")
+
+
+def test_upgrade_guard_reuses_the_single_available_connection(tmp_path):
+    from sqlalchemy import create_engine
+    engine = create_engine(_url(tmp_path, "single.db"), pool_size=1, max_overflow=0, pool_timeout=0.1)
+    try:
+        run_upgrade(engine)
+        assert check_schema_current(engine).ok
+    finally:
+        engine.dispose()
