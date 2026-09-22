@@ -251,6 +251,102 @@ def test_lock_cli_regenere_les_contraintes(tmp_path):
     assert target.read_text(encoding="utf-8") == CONSTRAINTS.read_text(encoding="utf-8")
 
 
+def test_lock_refuse_une_dependance_pyproject_oubliee_dans_la_source(lock):
+    errors = lock.check(
+        "httpx==0.28.1 --hash=sha256:abc\n",
+        "httpx==0.28.1\n",
+        "",
+        required_pins={},
+        project_files={
+            "apps/api/pyproject.toml":
+                '[project]\nname="acp-api"\ndependencies=["httpx>=0.27"]\n',
+        },
+    )
+    assert any("httpx" in error and "python-3.12.in" in error for error in errors)
+
+
+def test_lock_cli_refuse_une_nouvelle_dependance_non_verrouillee(lock, tmp_path, monkeypatch):
+    project = tmp_path / "apps" / "api" / "pyproject.toml"
+    project.parent.mkdir(parents=True)
+    project.write_text(
+        '[project]\nname="acp-api"\ndependencies=["paquet-oublie>=1"]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(lock, "ROOT", tmp_path)
+    assert lock.main([
+        "--lock", str(LOCK), "--constraints", str(CONSTRAINTS), "--source", str(SOURCE),
+    ]) == 1
+
+
+def test_lock_verifie_aussi_extras_construction_et_autres_plateformes(lock):
+    errors = lock.check(
+        "httpx==0.28.1 --hash=sha256:abc\n",
+        "httpx==0.28.1\n",
+        "httpx>=0.27\n",
+        required_pins={},
+        project_files={
+            "apps/api/pyproject.toml": '''
+[project]
+name = "acp-api"
+dependencies = ["httpx>=0.27", "tzdata; platform_system == 'Windows'"]
+[project.optional-dependencies]
+test = ["pytest>=8"]
+[build-system]
+requires = ["setuptools>=68"]
+''',
+        },
+    )
+    for name in ("tzdata", "pytest", "setuptools"):
+        assert any(name in error and "python-3.12.in" in error for error in errors)
+        assert any(name in error and "absent du verrou" in error for error in errors)
+
+
+def test_lock_refuse_version_incompatible_et_extra_oublie(lock):
+    errors = lock.check(
+        "uvicorn==0.29.0 --hash=sha256:abc\n",
+        "uvicorn==0.29.0\n",
+        "uvicorn>=0.29\n",
+        required_pins={},
+        project_files={
+            "apps/api/pyproject.toml":
+                '[project]\nname="acp-api"\ndependencies=["uvicorn[standard]>=0.30"]\n',
+        },
+    )
+    assert any("standard" in error and "python-3.12.in" in error for error in errors)
+    assert any("0.29.0" in error and ">=0.30" in error for error in errors)
+
+
+def test_lock_exempte_seulement_les_distributions_locales_reelles(lock):
+    errors = lock.check(
+        "httpx==0.28.1 --hash=sha256:abc\n",
+        "httpx==0.28.1\n",
+        "httpx>=0.27\n",
+        required_pins={},
+        project_files={
+            "apps/api/pyproject.toml":
+                '[project]\nname="acp-api"\ndependencies=["ACP_contracts", "acp-inconnu"]\n',
+            "packages/contracts/pyproject.toml":
+                '[project]\nname="acp-contracts"\ndependencies=["httpx>=0.27"]\n',
+        },
+    )
+    assert not any("ACP_contracts" in error or "acp-contracts" in error for error in errors)
+    assert any("acp-inconnu" in error for error in errors)
+
+
+def test_lock_refuse_un_specificateur_source_incompatible_avec_le_verrou(lock):
+    errors = lock.check(
+        "fastapi==0.141.1 --hash=sha256:abc\n",
+        "fastapi==0.141.1\n",
+        "fastapi>=99\n",
+        required_pins={},
+        project_files={
+            "apps/api/pyproject.toml":
+                '[project]\nname="acp-api"\ndependencies=["fastapi>=0.111"]\n',
+        },
+    )
+    assert any("python-3.12.in" in error and ">=99" in error for error in errors)
+
+
 # --------------------------------------------------------------------------- Fichiers Docker
 
 
@@ -278,6 +374,10 @@ def test_entrypoint_et_dockerfiles_en_lf_et_commandes_fixees():
     assert 'ENTRYPOINT ["/app/docker/entrypoint.sh"]' in python_dockerfile
     assert 'CMD ["api"]' in python_dockerfile
 
+    # Avant 0.9.1, ce test vérifiait la seule présence des lignes « .env* », « *.db »…
+    # sans voir qu'elles ne visaient que la racine du contexte. Le contexte effectif
+    # est désormais rejoué par apps/api/tests/test_docker_context.py ; ici, seuls les
+    # motifs récursifs attendus sont exigés.
     ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    for pattern in (".venv*", "node_modules", "acp-data", "*.db", ".env*", "e2e", "docs/assets", ".git"):
+    for pattern in ("**/.venv*", "**/node_modules", "**/acp-data", "**/*.db", "**/.env*", "**/licensed", "e2e", ".git"):
         assert pattern in ignored

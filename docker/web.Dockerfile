@@ -38,6 +38,17 @@ COPY packages/pixel-office-engine packages/pixel-office-engine
 COPY packages/playwright-reporter packages/playwright-reporter
 COPY packages/ui packages/ui
 
+# Défense en profondeur : les assets sous licence (LimeZu…, redistribution interdite)
+# sont exclus du contexte par .dockerignore. Si ce filtrage régressait, le build
+# refuse au lieu de les recopier dans dist puis dans l'image servie par nginx.
+RUN licensed="$(find apps packages -name node_modules -prune -o -type d \( -name licensed \
+        -o -name licensed-assets -o -name local-assets -o -name vendor-assets \
+        -o -name Limzu -o -name LimeZu \) -print)"; \
+    if [ -n "$licensed" ]; then \
+        echo "Build refusé : assets sous licence présents dans le contexte (redistribution interdite) : $licensed" >&2; \
+        exit 1; \
+    fi
+
 RUN if [ -z "${VITE_ACP_API_URL}" ]; then \
         echo "Build refusé : VITE_ACP_API_URL est obligatoire (--build-arg VITE_ACP_API_URL=https://api.exemple)." >&2; \
         exit 1; \
