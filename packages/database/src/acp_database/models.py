@@ -346,7 +346,7 @@ class MissionEvidenceModel(_Common, Base):
     summary: Mapped[str] = mapped_column(Text)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
     command: Mapped[str | None] = mapped_column(Text, nullable=True)
-    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(BigInteger().with_variant(Integer(), "sqlite"), nullable=True)
     uri: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(200), nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
@@ -407,7 +407,7 @@ class EventModel(_Common, Base):
         String(10), default="1.0", server_default="1.0"
     )
     sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    journal_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    journal_seq: Mapped[int | None] = mapped_column(BigInteger().with_variant(Integer(), "sqlite"), nullable=True)
     conversation_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True, index=True
     )
@@ -550,7 +550,7 @@ class ArtifactModel(_Common, Base):
     kind: Mapped[str] = mapped_column(String(100))
     path: Mapped[str] = mapped_column(String(1000))
     checksum: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger().with_variant(Integer(), "sqlite"), nullable=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
     storage_key: Mapped[str | None] = mapped_column(
         String(200), nullable=True, index=True
@@ -618,7 +618,7 @@ class McpServerModel(_Common, Base):
     display_name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="")
     source_kind: Mapped[str] = mapped_column(String(20))  # catalog | remote_url | import | manual
-    origin: Mapped[str] = mapped_column(String(500), default="")
+    origin: Mapped[str] = mapped_column(Text().with_variant(String(500), "sqlite"), default="")
     transport: Mapped[str] = mapped_column(String(10))  # http | stdio
     execution_location: Mapped[str] = mapped_column(String(20))  # platform | runner
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
@@ -734,7 +734,7 @@ class SkillModel(_Common, Base):
     category: Mapped[str] = mapped_column(String(64), default="general")
     kind: Mapped[str] = mapped_column(String(20))  # documentary | scripted | native_plugin
     source_kind: Mapped[str] = mapped_column(String(20))  # manual | directory | archive | github | catalog
-    origin: Mapped[str] = mapped_column(String(500), default="")
+    origin: Mapped[str] = mapped_column(Text().with_variant(String(500), "sqlite"), default="")
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     current_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
@@ -780,7 +780,7 @@ class SkillRevisionModel(_Common, Base):
     superseded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    source_ref: Mapped[str] = mapped_column(String(500), default="")  # chemin, sha256 d'archive, owner/repo@sha
+    source_ref: Mapped[str] = mapped_column(Text().with_variant(String(500), "sqlite"), default="")  # chemin, sha256 d'archive, owner/repo@sha
 
 
 class SkillBindingModel(_Common, Base):
@@ -832,9 +832,9 @@ class TestRunModel(_Common, Base):
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger().with_variant(Integer(), "sqlite"), nullable=True)
     totals: Mapped[dict] = mapped_column(JSON, default=dict)
-    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(BigInteger().with_variant(Integer(), "sqlite"), nullable=True)
     # Référence simple et non contrainte : la rétention peut effacer le rapport
     # sans avoir à réécrire l'exécution de tests.
     report_artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -862,7 +862,7 @@ class TestCaseModel(_Common, Base):
     expected_status: Mapped[str] = mapped_column(String(20), default="passed")
     status: Mapped[str] = mapped_column(String(20), index=True)
     outcome: Mapped[str] = mapped_column(String(20), index=True)
-    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(BigInteger().with_variant(Integer(), "sqlite"), default=0)
     error_message: Mapped[str] = mapped_column(Text, default="")
     error_snippet: Mapped[str] = mapped_column(Text, default="")
     steps: Mapped[list] = mapped_column(JSON, default=list)
@@ -1509,7 +1509,7 @@ class EventOutboxModel(Base):
     event_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("events.id"), primary_key=True
     )
-    journal_seq: Mapped[int] = mapped_column(Integer, index=True)
+    journal_seq: Mapped[int] = mapped_column(BigInteger().with_variant(Integer(), "sqlite"), index=True)
     project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     consumer: Mapped[str] = mapped_column(
         String(50), default="event-service", server_default="event-service"

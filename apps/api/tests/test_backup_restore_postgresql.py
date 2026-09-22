@@ -1,12 +1,17 @@
 """Sauvegarde et restauration sur PostgreSQL (base de test ``ACP_TEST_DATABASE_URL``).
 
-Les binaires ``pg_dump``/``pg_restore`` n'existent pas sur le poste de
-développement : ils sont exécutés dans le conteneur Docker du serveur
-(``ACP_TEST_DOCKER_CONTAINER``, défaut ``acp-pg``) par les variables
-``ACP_BACKUP_PG_DUMP_COMMAND``, ``ACP_BACKUP_PG_RESTORE_COMMAND`` et
-``ACP_BACKUP_DATABASE_URL_FOR_TOOLS`` (adresse du serveur vue depuis le
-conteneur). Sans ``docker`` sur le PATH, la suite est ignorée ; elle échoue si
-``ACP_TEST_DATABASE_REQUIRED=1``.
+Les binaires ``pg_dump``/``pg_restore`` sont pris, dans cet ordre :
+
+- **natifs**, s'ils sont sur le PATH (exécuteur GitHub Ubuntu, binaires PostgreSQL
+  installés sur le poste) : les commandes par défaut du module de sauvegarde, sur
+  l'adresse même de la base ;
+- sinon **dans le conteneur Docker** du serveur (``ACP_TEST_DOCKER_CONTAINER``,
+  défaut ``acp-pg``) par ``ACP_BACKUP_PG_DUMP_COMMAND``,
+  ``ACP_BACKUP_PG_RESTORE_COMMAND`` et ``ACP_BACKUP_DATABASE_URL_FOR_TOOLS``
+  (adresse du serveur vue depuis le conteneur).
+
+``ACP_TEST_PG_TOOLS=native`` ou ``docker`` impose l'un des deux. Sans outil, la suite
+est ignorée ; elle échoue si ``ACP_TEST_DATABASE_REQUIRED=1``.
 
 La base du lot est la source ; la restauration vise une seconde base
 ``<base>_restore`` créée à la demande, car restaurer sur la source est refusé.
@@ -68,6 +73,7 @@ NOW = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
 CONTAINER_ENV = "ACP_TEST_DOCKER_CONTAINER"
 DEFAULT_CONTAINER = "acp-pg"
 CONTAINER_PORT = 5432
+TOOLS_ENV = "ACP_TEST_PG_TOOLS"
 
 
 def _normalize(value):
@@ -112,6 +118,55 @@ def _compare(url: str):
         engine.dispose()
 
 
+def _canonical_dumped_check(expression):
+    """Normalise seulement les tableaux de littéraux varchar convertis en text.
+
+    pg_dump peut déplacer le cast ``::text[]`` du tableau vers chacun de ses
+    éléments. Les autres casts, les littéraux et la structure AND/OR restent
+    strictement inchangés.
+    """
+    if not isinstance(expression, tuple):
+        return expression
+    if any(isinstance(item, tuple) for item in expression):
+        return tuple(_canonical_dumped_check(item) for item in expression)
+
+    varchar_cast = (":", ":", "character", "varying")
+    text_cast = (":", ":", "text")
+    normalized = []
+    index = 0
+    while index < len(expression):
+        if expression[index:index + 2] == ("array", "["):
+            try:
+                end = expression.index("]", index + 2)
+            except ValueError:
+                end = index
+            elements = [[]]
+            for token in expression[index + 2:end]:
+                if token == ",":
+                    elements.append([])
+                else:
+                    elements[-1].append(token)
+            literal_varchars = all(
+                element and element[0].startswith("'")
+                and tuple(element[1:]) in (varchar_cast, varchar_cast + text_cast)
+                for element in elements
+            )
+            array_cast = expression[end + 1:end + 6] == text_cast + ("[", "]")
+            element_casts = all(tuple(element[1:]) == varchar_cast + text_cast for element in elements)
+            if literal_varchars and (array_cast or element_casts):
+                normalized.extend(("array", "["))
+                for number, element in enumerate(elements):
+                    if number:
+                        normalized.append(",")
+                    normalized.extend((element[0], *text_cast))
+                normalized.append("]")
+                index = end + (6 if array_cast else 1)
+                continue
+        normalized.append(expression[index])
+        index += 1
+    return tuple(normalized)
+
+
 def _comparable_inventory(url: str) -> dict:
     """Inventaire structurel dont les CHECK sont ramenés à une forme canonique.
 
@@ -131,13 +186,42 @@ def _comparable_inventory(url: str) -> dict:
         table["checks"] = {
             (
                 name,
-                expression.replace("::charactervarying::text", "::charactervarying").replace(
-                    "]::text[]", "]"
-                ),
+                _canonical_dumped_check(expression),
             )
             for name, expression in table["checks"]
         }
     return inventory
+
+
+@pytest.mark.parametrize("suffix", ["", " OR a IS NULL", " AND (a IS NULL OR b IS NULL)"])
+def test_check_inventory_normalizes_dump_casts_without_flattening(suffix):
+    from acp_database.testing import _normalized_expression
+
+    source = "state::text = ANY (ARRAY['A B'::character varying, 'x,y'::character varying]::text[])"
+    restored = "state::text = ANY (ARRAY['A B'::character varying::text, 'x,y'::character varying::text])"
+    assert _canonical_dumped_check(_normalized_expression(source + suffix)) == (
+        _canonical_dumped_check(_normalized_expression(restored + suffix))
+    )
+
+
+@pytest.mark.parametrize("first,second", [
+    ("(a OR b) AND c", "a OR (b AND c)"),
+    ("(x + y) * z > 0", "x + (y * z) > 0"),
+    ("state = 'A B'", "state = 'a b'"),
+    ("state = ']::text[]'", "state = ']'"),
+    ("state = '::character varying::text'", "state = '::character varying'"),
+    ("value = ANY (ARRAY[1, 2]::text[])", "value = ANY (ARRAY[1, 2])"),
+    ("value = ANY (ARRAY['ab'::character varying(1)]::text[])",
+     "value = ANY (ARRAY['ab'::character varying]::text[])"),
+])
+def test_check_inventory_preserves_other_semantic_differences(first, second):
+    from acp_database.testing import _normalized_expression
+
+    first_structure = _normalized_expression(first)
+    assert _canonical_dumped_check(first_structure) == first_structure
+    assert _canonical_dumped_check(first_structure) != (
+        _canonical_dumped_check(_normalized_expression(second))
+    )
 
 
 def _ensure_database(admin_url: str, name: str) -> None:
@@ -155,44 +239,90 @@ def _ensure_database(admin_url: str, name: str) -> None:
         engine.dispose()
 
 
+class PgTools:
+    """Commandes ``pg_dump``/``pg_restore`` et adresse de la base telle qu'elles la voient."""
+
+    def __init__(self, mode: str, commands: dict[str, str]) -> None:
+        self.mode = mode
+        self.commands = commands
+
+    def url_for(self, url: str) -> str:
+        parsed = make_url(url).set(drivername="postgresql")
+        if self.mode == "docker":
+            # Depuis le conteneur, le serveur écoute sur son port interne.
+            parsed = parsed.set(host="127.0.0.1", port=CONTAINER_PORT)
+        return parsed.render_as_string(hide_password=False)
+
+
+def _tools_unavailable(reason: str):
+    if os.environ.get(TEST_REQUIRED_ENV, "").strip() == "1":
+        pytest.fail(f"{TEST_REQUIRED_ENV}=1 mais {reason}")
+    pytest.skip(reason)
+
+
 @pytest.fixture
-def docker_tools() -> dict[str, str]:
-    """Commandes d'outils exécutées dans le conteneur ; ignore la suite sans Docker."""
+def pg_tools() -> PgTools:
+    """Outils natifs si présents, sinon exécutés dans le conteneur ; voir la docstring."""
 
+    wanted = (os.environ.get(TOOLS_ENV) or "").strip().lower()
+    if wanted not in {"", "native", "docker"}:
+        pytest.fail(f"{TOOLS_ENV} : « native » ou « docker » attendu, « {wanted} » lu")
+    native = shutil.which("pg_dump") is not None and shutil.which("pg_restore") is not None
+    if wanted == "native" or (not wanted and native):
+        if not native:
+            _tools_unavailable("pg_dump/pg_restore absents du PATH")
+        return PgTools("native", {})
     if shutil.which("docker") is None:
-        if os.environ.get(TEST_REQUIRED_ENV, "").strip() == "1":
-            pytest.fail(f"{TEST_REQUIRED_ENV}=1 mais « docker » est absent du PATH")
-        pytest.skip("docker absent : pg_dump/pg_restore ne sont accessibles que via docker exec")
+        _tools_unavailable("ni pg_dump/pg_restore sur le PATH, ni docker pour les exécuter")
     container = (os.environ.get(CONTAINER_ENV) or "").strip() or DEFAULT_CONTAINER
-    return {
-        "ACP_BACKUP_PG_DUMP_COMMAND": json.dumps(
-            [
-                "docker", "exec", container, "pg_dump", "--format=custom",
-                "--no-owner", "--no-privileges", "--dbname", "{url}",
-            ]
-        ),
-        "ACP_BACKUP_PG_RESTORE_COMMAND": json.dumps(
-            [
-                "docker", "exec", "-i", container, "pg_restore", "--no-owner",
-                "--no-privileges", "--exit-on-error", "--single-transaction",
-                "--dbname", "{url}",
-            ]
-        ),
-    }
-
-
-def _tools_url(url: str) -> str:
-    """URL libpq de la même base vue depuis le conteneur (port interne 5432)."""
-
-    return (
-        make_url(url)
-        .set(drivername="postgresql", host="127.0.0.1", port=CONTAINER_PORT)
-        .render_as_string(hide_password=False)
+    return PgTools(
+        "docker",
+        {
+            "ACP_BACKUP_PG_DUMP_COMMAND": json.dumps(
+                [
+                    "docker", "exec", container, "pg_dump", "--format=custom",
+                    "--no-owner", "--no-privileges", "--dbname", "{url}",
+                ]
+            ),
+            "ACP_BACKUP_PG_RESTORE_COMMAND": json.dumps(
+                [
+                    "docker", "exec", "-i", container, "pg_restore", "--no-owner",
+                    "--no-privileges", "--exit-on-error", "--single-transaction",
+                    "--dbname", "{url}",
+                ]
+            ),
+        },
     )
 
 
+def _drop_other_schemas(url: str) -> None:
+    """Retire de la base cible tout schéma autre que ``public`` et ceux du système.
+
+    ``pg_dump`` exporte tous les schémas de la source, y compris les schémas
+    éphémères ``t_<hex>`` qu'un lot interrompu y aurait laissés ; une cible qui les
+    aurait déjà reçus d'une restauration précédente ferait échouer ``pg_restore``
+    (« schema already exists »). La cible ``<base>_restore`` n'appartient qu'à ce
+    fichier de tests.
+    """
+
+    engine = create_engine(url, poolclass=NullPool, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            names = connection.execute(
+                text(
+                    "SELECT nspname FROM pg_namespace WHERE nspname <> 'public' "
+                    "AND nspname <> 'information_schema' AND nspname NOT LIKE 'pg\\_%'"
+                )
+            ).scalars().all()
+            for name in names:
+                quoted = connection.dialect.identifier_preparer.quote(name)
+                connection.execute(text(f"DROP SCHEMA {quoted} CASCADE"))
+    finally:
+        engine.dispose()
+
+
 @pytest.fixture
-def databases(docker_tools):
+def databases(pg_tools):
     """Source (base du lot, migrée puis peuplée) et cible ``<base>_restore`` vide."""
 
     source_url = skip_or_fail_without_postgresql()
@@ -202,6 +332,7 @@ def databases(docker_tools):
     target_url = parsed.set(database=target_name).render_as_string(hide_password=False)
     reset_public_schema(source_url)
     reset_public_schema(target_url)
+    _drop_other_schemas(target_url)
     engine = make_engine(source_url, maintenance=True)
     try:
         run_upgrade(engine)
@@ -220,11 +351,11 @@ class World:
         self.key_id = key_id(self.vault_key.encode("ascii"))
         self.storage_keys: list[str] = []
 
-    def environ(self, url: str, tools: dict[str, str]) -> dict[str, str]:
+    def environ(self, url: str, tools: PgTools) -> dict[str, str]:
         return {
-            **tools,
+            **tools.commands,
             "ACP_DATABASE_URL": url,
-            "ACP_BACKUP_DATABASE_URL_FOR_TOOLS": _tools_url(url),
+            "ACP_BACKUP_DATABASE_URL_FOR_TOOLS": tools.url_for(url),
             "ACP_ARTIFACT_STORAGE_DIR": str(self.artifacts_dir),
             "ACP_SKILLS_STORAGE_DIR": str(self.skills_dir),
             "ACP_SECRETS_KEYS": self.vault_key,
@@ -312,7 +443,7 @@ def _restore_args(backup_dir: Path, url: str, world: World, *extra: str) -> list
     ]
 
 
-def test_round_trip_through_docker_pg_dump_and_pg_restore(databases, docker_tools, tmp_path):
+def test_round_trip_through_pg_dump_and_pg_restore(databases, pg_tools, tmp_path):
     source, target = databases["source"], databases["target"]
     world = World(tmp_path, "a").populate(source)
     before = table_fingerprints(source)
@@ -320,7 +451,7 @@ def test_round_trip_through_docker_pg_dump_and_pg_restore(databases, docker_tool
     output = tmp_path / "sauvegarde"
 
     code, out, err = run(
-        ["create", "--output", str(output), "--label", "pg"], world.environ(source, docker_tools)
+        ["create", "--output", str(output), "--label", "pg"], world.environ(source, pg_tools)
     )
     assert (code, err) == (EXIT_OK, ""), out + err
     manifest = json.loads((output / MANIFEST_NAME).read_text(encoding="utf-8"))
@@ -335,17 +466,17 @@ def test_round_trip_through_docker_pg_dump_and_pg_restore(databases, docker_tool
     assert (output / "database.pgdump").read_bytes().startswith(b"PGDMP")
     assert make_url(source).password not in json.dumps(manifest)
 
-    code, out, err = run(["verify", str(output)], world.environ(source, docker_tools))
+    code, out, err = run(["verify", str(output)], world.environ(source, pg_tools))
     assert (code, err) == (EXIT_OK, ""), out + err
 
     # Restaurer sur la source est refusé ; la cible est la base voisine vide.
-    code, _out, err = run(_restore_args(output, source, world), world.environ(source, docker_tools))
+    code, _out, err = run(_restore_args(output, source, world), world.environ(source, pg_tools))
     assert code == EXIT_REFUSED and "base d'origine" in err
 
     restored = World(tmp_path, "b")
     restored.vault_key, restored.key_id = world.vault_key, world.key_id
     code, out, err = run(
-        _restore_args(output, target, restored), restored.environ(target, docker_tools)
+        _restore_args(output, target, restored), restored.environ(target, pg_tools)
     )
     assert (code, err) == (EXIT_OK, ""), out + err
     assert "Contrôles post-restauration conformes" in out
@@ -363,12 +494,12 @@ def test_round_trip_through_docker_pg_dump_and_pg_restore(databases, docker_tool
     ) == sorted(world.storage_keys)
 
 
-def test_replace_backs_up_the_postgresql_target_then_restores(databases, docker_tools, tmp_path):
+def test_replace_backs_up_the_postgresql_target_then_restores(databases, pg_tools, tmp_path):
     source, target = databases["source"], databases["target"]
     world = World(tmp_path, "a").populate(source)
     source_fingerprints = table_fingerprints(source)
     output = tmp_path / "sauvegarde"
-    code, out, err = run(["create", "--output", str(output)], world.environ(source, docker_tools))
+    code, out, err = run(["create", "--output", str(output)], world.environ(source, pg_tools))
     assert (code, err) == (EXIT_OK, ""), out + err
 
     # La cible est elle-même une base ACP migrée et peuplée différemment.
@@ -381,14 +512,14 @@ def test_replace_backs_up_the_postgresql_target_then_restores(databases, docker_
     occupant_fingerprints = table_fingerprints(target)
     assert occupant_fingerprints != source_fingerprints
 
-    code, _out, err = run(_restore_args(output, target, occupant), occupant.environ(target, docker_tools))
+    code, _out, err = run(_restore_args(output, target, occupant), occupant.environ(target, pg_tools))
     assert code == EXIT_REFUSED and "Cible non vide" in err
     assert table_fingerprints(target) == occupant_fingerprints
 
     pre_restore = tmp_path / "avant"
     code, out, err = run(
         _restore_args(output, target, occupant, "--replace", "--pre-restore-backup", str(pre_restore)),
-        occupant.environ(target, docker_tools),
+        occupant.environ(target, pg_tools),
     )
     assert (code, err) == (EXIT_OK, ""), out + err
     assert "Schéma public de la cible vidé" in out
@@ -396,7 +527,7 @@ def test_replace_backs_up_the_postgresql_target_then_restores(databases, docker_
     pre_manifest = json.loads((pre_restore / MANIFEST_NAME).read_text(encoding="utf-8"))
     assert pre_manifest["source_url_fingerprint"] == url_fingerprint(target)
     assert pre_manifest["artifact_storage_keys_referenced"] == sorted(occupant.storage_keys)
-    code, _out, err = run(["verify", str(pre_restore)], occupant.environ(target, docker_tools))
+    code, _out, err = run(["verify", str(pre_restore)], occupant.environ(target, pg_tools))
     assert (code, err) == (EXIT_OK, "")
 
     assert table_fingerprints(target) == source_fingerprints

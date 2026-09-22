@@ -72,6 +72,7 @@ from ..artifacts_storage import (
 )
 from ..alerts_service import open_or_escalate_alert
 from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
+from ..transactions import end_read_transaction
 from ..security import authenticate_session
 from ..signing import (
     DEFAULT_LINK_TTL_SECONDS,
@@ -1527,7 +1528,7 @@ def download_artifact_content(
         if principal is None:
             raise HTTPException(status_code=401, detail="Authentification requise")
     artifact = _readable_artifact(db, principal, artifact_id)
-    return _content_response(
+    response = _content_response(
         artifact=artifact,
         storage=artifact_storage(),
         range_header=request.headers.get("range"),
@@ -1536,6 +1537,10 @@ def download_artifact_content(
             (lambda: _record_link_use(db, link_id)) if link_id is not None else None
         ),
     )
+    # La réponse est diffusée ensuite, parfois longtemps : la session de la requête
+    # ne garde ni transaction ni connexion pendant ce temps (acp_api.transactions).
+    end_read_transaction(db)
+    return response
 
 
 @preview_router.get("/artifacts/{artifact_id}/content")
@@ -1558,13 +1563,15 @@ def preview_artifact_content(
     if purpose != "preview":
         raise _refused_link("Ce lien n'autorise pas un aperçu.")
     artifact = _readable_artifact(db, principal, artifact_id)
-    return _content_response(
+    response = _content_response(
         artifact=artifact,
         storage=artifact_storage(),
         range_header=request.headers.get("range"),
         force_download=False,
         on_prepared=lambda: _record_link_use(db, link_id),
     )
+    end_read_transaction(db)
+    return response
 
 
 def _session_principal(request: Request, db: Session) -> str | None:
@@ -2275,6 +2282,10 @@ async def receive_worker_artifact_content(
         ).strip():
             return max_file
         validate(fields)
+        # Le contenu est reçu ensuite, parfois pendant des minutes : la transaction
+        # de ces lectures de contrôle est terminée avant (acp_api.transactions). La
+        # décision finale est revalidée sous verrou après la réception.
+        end_read_transaction(db)
         return max_file
 
     try:

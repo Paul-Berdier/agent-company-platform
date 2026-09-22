@@ -2,7 +2,9 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
+
+from .limits import DatabaseModel as BaseModel
 
 
 class AuthStatusResponse(BaseModel):

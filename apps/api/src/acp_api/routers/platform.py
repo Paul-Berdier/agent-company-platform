@@ -2,13 +2,16 @@
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
-from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
-
 from acp_contracts import Event, MemoryItem, SessionContext
 from acp_contracts.enums import MemoryScope, SharingPolicy
+from acp_contracts.limits import (
+    DatabaseModel as BaseModel,
+)
+from acp_contracts.limits import (
+    Text36,
+    Text50,
+    Text200,
+)
 from acp_database.models import (
     AgentInstanceModel,
     DepartmentModel,
@@ -24,6 +27,9 @@ from acp_database.models import (
     WorkerLeaseModel,
     WorkspaceModel,
 )
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session
 
 from ..deps import (
     accessible_agent_ids,
@@ -429,10 +435,10 @@ def project_context(
 
 
 class MembershipCreate(BaseModel):
-    user_id: str
-    scope_type: str  # workspace | project
-    scope_id: str
-    role: str = "member"
+    user_id: Text200
+    scope_type: Text50  # workspace | project
+    scope_id: Text36
+    role: Text50 = "member"
 
 
 @router.post("/memberships")

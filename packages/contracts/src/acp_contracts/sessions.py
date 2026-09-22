@@ -1,6 +1,5 @@
-from pydantic import BaseModel
-
 from .enums import MemoryScope, SessionScope
+from .limits import DatabaseModel as BaseModel
 
 
 class SessionContext(BaseModel):

@@ -182,6 +182,31 @@ def refresh_active_runs(db: Session, worker_id: str) -> int:
     return active_runs
 
 
+def _lock_runs_before_leases(db: Session, run_ids: set[str]) -> None:
+    """Verrouille les tentatives avant leurs baux, par identifiant croissant.
+
+    C'est l'ordre de toutes les écritures d'une tentative : ``PATCH /task-runs``
+    et ``require_active_worker_attempt`` prennent la tentative, puis son bail.
+    Jusqu'en 0.9.0, l'expiration prenait le bail d'abord : face à une fin de
+    tentative, chacune tenait ce que l'autre attendait (interblocage 40P01, 500).
+    Toutes les tentatives sont prises avant tout bail, tâche ou agent : l'expiration
+    n'attend donc jamais une tentative en tenant une ligne qu'une fin de tentative
+    attend. ``populate_existing`` relit les tentatives déjà chargées par l'appelant.
+    SQLite ignore ``FOR UPDATE`` : son verrou de fichier sérialise déjà les écrivains.
+    """
+
+    if not run_ids or db.get_bind().dialect.name == "sqlite":
+        return
+    (
+        db.query(TaskRunModel)
+        .filter(TaskRunModel.id.in_(sorted(run_ids)))
+        .order_by(TaskRunModel.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+
+
 def expire_task_leases(db: Session) -> int:
     """Interrompt les runs dont le bail est échu, chaque bail une seule fois.
 
@@ -193,6 +218,9 @@ def expire_task_leases(db: Session) -> int:
     exemple) ne produisent donc jamais deux interruptions ni deux événements pour
     le même bail. L'effet éventuel du worker reste inconnu : aucune reprise
     automatique n'est rejouée.
+
+    Ordre des verrous (0.9.1) : les tentatives, puis les baux, les tâches et les
+    agents, puis les workers ; le journal des événements au commit, en dernier.
     """
     now = utcnow()
     expired = 0
@@ -206,12 +234,19 @@ def expire_task_leases(db: Session) -> int:
         .order_by(WorkerLeaseModel.created_at, WorkerLeaseModel.id)
         .all()
     )
+    _lock_runs_before_leases(
+        db, {lease.task_run_id for lease in candidates if lease.task_run_id}
+    )
     for lease in candidates:
         transitioned = (
             db.query(WorkerLeaseModel)
             .filter(
                 WorkerLeaseModel.id == lease.id,
                 WorkerLeaseModel.status == "active",
+                # Revérifié dans le CAS : sous PostgreSQL (READ COMMITTED), un
+                # renouvellement validé pendant notre attente ne rend la ligne à ce
+                # filtre qu'avec sa nouvelle échéance, et le bail n'est pas expiré.
+                WorkerLeaseModel.lease_expires_at <= now,
             )
             .update({WorkerLeaseModel.status: "expired"}, synchronize_session=False)
         )

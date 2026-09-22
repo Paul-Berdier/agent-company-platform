@@ -5,6 +5,19 @@ from acp_api.preview import configured_preview_cors_origins, create_preview_app
 from acp_api.routers import artifacts as artifacts_router
 
 
+class _ReadOnlySession:
+    """Session factice sans écriture en attente : la route termine sa transaction de
+    lecture avant de diffuser le contenu (``acp_api.transactions``)."""
+
+    new = dirty = deleted = ()
+
+    def __init__(self) -> None:
+        self.rollbacks = 0
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
 def test_preview_app_exposes_only_health_and_signed_content():
     app = create_preview_app(
         {"ACP_CORS_ORIGINS": "https://app.example.test,http://127.0.0.1:5173"}
@@ -111,11 +124,13 @@ def test_preview_route_uses_only_a_preview_token_and_serves_inline(monkeypatch):
 
     monkeypatch.setattr(artifacts_router, "_content_response", content_response)
 
+    db = _ReadOnlySession()
     response = artifacts_router.preview_artifact_content(
-        "artifact-1", _preview_request(), token="signed", db=object()
+        "artifact-1", _preview_request(), token="signed", db=db
     )
 
     assert response.body == b"preview"
+    assert db.rollbacks == 1, "la transaction de lecture est rendue avant la diffusion"
     assert observed["artifact"] is artifact
     assert observed["storage"] is storage
     assert observed["force_download"] is False
@@ -131,7 +146,7 @@ def test_preview_route_rejects_a_download_token(monkeypatch):
 
     with pytest.raises(HTTPException) as error:
         artifacts_router.preview_artifact_content(
-            "artifact-1", _preview_request(), token="signed", db=object()
+            "artifact-1", _preview_request(), token="signed", db=_ReadOnlySession()
         )
 
     assert error.value.status_code == 403

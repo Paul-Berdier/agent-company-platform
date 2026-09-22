@@ -19,7 +19,10 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import tomllib
 from pathlib import Path
+
+from packaging.requirements import InvalidRequirement, Requirement
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK_PATH = ROOT / "requirements" / "python-3.12.lock.txt"
@@ -103,11 +106,90 @@ def render_constraints(lock_text: str) -> str:
     return CONSTRAINTS_HEADER + body
 
 
+def check_project_requirements(
+    project_files: dict[str, str], source_text: str, pins: dict[str, str],
+) -> list[str]:
+    """Contrôle tous les contrats, y compris extras et marqueurs d'autres postes.
+
+    Le verrou vise Linux ; les contraintes dérivées servent aussi sur Windows.
+    Les déclarations de tous les postes sont donc contrôlées : les marqueurs ne
+    sont pas évalués sur la machine qui vérifie. Seules les distributions
+    réellement présentes dans le dépôt sont dispensées d'épingle tierce.
+    """
+
+    errors: list[str] = []
+    projects: dict[str, dict] = {}
+    for path, content in sorted(project_files.items()):
+        try:
+            projects[path] = tomllib.loads(content)
+        except tomllib.TOMLDecodeError as exc:
+            errors.append(f"{path} : TOML illisible ({exc})")
+    local_names = {
+        normalize_name(project["project"]["name"])
+        for project in projects.values()
+        if project.get("project", {}).get("name")
+    }
+    sources: dict[str, list[Requirement]] = {}
+    for raw_line in source_text.splitlines():
+        line = raw_line.split(" #", 1)[0].strip()
+        if not line or line.startswith(("#", "-")):
+            continue
+        try:
+            requirement = Requirement(line)
+        except InvalidRequirement:
+            errors.append(f"python-3.12.in : dépendance illisible ({line})")
+            continue
+        sources.setdefault(normalize_name(requirement.name), []).append(requirement)
+        version = pins.get(normalize_name(requirement.name))
+        if version is not None and (
+            requirement.url or not requirement.specifier.contains(version, prereleases=True)
+        ):
+            errors.append(
+                f"python-3.12.in : {requirement.name}=={version} ne satisfait pas {line}"
+            )
+
+    for path, document in projects.items():
+        project = document.get("project", {})
+        declarations = list(project.get("dependencies", []))
+        for requirements in project.get("optional-dependencies", {}).values():
+            declarations.extend(requirements)
+        declarations.extend(document.get("build-system", {}).get("requires", []))
+        for declaration in declarations:
+            try:
+                requirement = Requirement(declaration)
+            except InvalidRequirement:
+                errors.append(f"{path} : dépendance illisible ({declaration})")
+                continue
+            name = normalize_name(requirement.name)
+            if name in local_names:
+                continue
+            source_requirements = sources.get(name, [])
+            if not source_requirements:
+                errors.append(f"{path} : {name} est absent de python-3.12.in")
+            else:
+                extras = set().union(*(item.extras for item in source_requirements))
+                missing = requirement.extras - extras
+                if missing:
+                    errors.append(
+                        f"{path} : extras {','.join(sorted(missing))} de {name} "
+                        "absents de python-3.12.in"
+                    )
+            version = pins.get(name)
+            if version is None:
+                errors.append(f"{path} : {name} est absent du verrou")
+            elif requirement.url or not requirement.specifier.contains(version, prereleases=True):
+                errors.append(
+                    f"{path} : {name}=={version} ne satisfait pas {declaration}"
+                )
+    return errors
+
+
 def check(
     lock_text: str,
     constraints_text: str,
     source_text: str | None = None,
     required_pins: dict[str, str] | None = None,
+    project_files: dict[str, str] | None = None,
 ) -> list[str]:
     """Retourne la liste des écarts (vide si verrou et contraintes sont cohérents)."""
 
@@ -152,6 +234,9 @@ def check(
             if name not in lock:
                 errors.append(f"{name} est demandé par python-3.12.in mais absent du verrou")
 
+    if project_files is not None or source_text is not None:
+        errors.extend(check_project_requirements(project_files or {}, source_text or "", lock))
+
     return errors
 
 
@@ -193,9 +278,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Fichier de contraintes introuvable : {args.constraints}", file=sys.stderr)
         return 1
     constraints_text = args.constraints.read_text(encoding="utf-8")
-    source_text = args.source.read_text(encoding="utf-8") if args.source.is_file() else None
-
-    errors = check(lock_text, constraints_text, source_text)
+    if not args.source.is_file():
+        print(f"Source du verrou introuvable : {args.source}", file=sys.stderr)
+        return 1
+    source_text = args.source.read_text(encoding="utf-8")
+    project_files = {
+        path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
+        for directory in ("apps", "packages", "services")
+        for path in sorted((ROOT / directory).glob("*/pyproject.toml"))
+    }
+    errors = check(lock_text, constraints_text, source_text, project_files=project_files)
     if errors:
         print("Verrou Python incohérent :", file=sys.stderr)
         for error in errors:

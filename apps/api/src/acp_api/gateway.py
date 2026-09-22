@@ -9,7 +9,7 @@ from acp_contracts import (
     ServiceOriginError,
     normalize_service_origin,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 
 class GatewayUnavailableError(RuntimeError):
@@ -77,7 +77,8 @@ class GatewayClient:
         )
         try:
             self.base_url: str | None = normalize_service_origin(
-                raw_base_url, setting="ACP_PROVIDER_GATEWAY_URL"
+                raw_base_url, setting="ACP_PROVIDER_GATEWAY_URL",
+                internal_http_hosts=os.environ.get("ACP_INTERNAL_HTTP_HOSTS", ""),
             )
         except ServiceOriginError:
             self.base_url = None

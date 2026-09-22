@@ -9,8 +9,11 @@ import re
 from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel as FileTransportModel
+from pydantic import Field, field_validator
 
+from .limits import DatabaseModel as BaseModel
+from .limits import NulFreeStr
 from .mcp import validate_slug
 
 SkillKind = Literal["documentary", "scripted", "native_plugin"]
@@ -124,8 +127,10 @@ class SkillDetail(SkillSummary):
 # --- Sources d'import -------------------------------------------------------
 
 
-class SkillSourceFile(BaseModel):
-    path: str = Field(min_length=1, max_length=1000)
+class SkillSourceFile(FileTransportModel):
+    """Le contenu va au fichier, sans transformation ; seul le chemin est persisté."""
+
+    path: NulFreeStr = Field(min_length=1, max_length=1000)
     content: str = Field(max_length=2_000_000)
 
 

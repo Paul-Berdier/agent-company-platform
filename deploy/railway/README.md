@@ -88,7 +88,7 @@ Sources lues : `docs.railway.com/reference/config-as-code`,
 Readiness : `/ready` sur `api` et `artifact-preview` (Lot H2a), `/health` sur
 `provider-gateway` et `event-service`, `/` sur `web`. `relay` n'expose pas de HTTP et
 n'a pas de sonde. `numReplicas: 1` est fixé sur `api` (volume), `artifact-preview`
-(volume) et `relay` (relais exclusif). `web` n'a pas de `startCommand` : l'image
+(volume) et `relay` (un recouvrement reste possible au redéploiement). `web` n'a pas de `startCommand` : l'image
 nginx fournit la sienne ; renseigner `PORT=8080` sur ce service, car nginx n'écoute
 que sur 8080 et Railway sonde le port `PORT`.
 
@@ -104,12 +104,29 @@ réécrivant le préfixe de `DATABASE_URL` et en ajoutant `?sslmode=require`).
 
 | Service | Variables |
 | --- | --- |
-| `api` | `ACP_DATABASE_URL`, `ACP_DATABASE_POOL_SIZE`, `ACP_DATABASE_MAX_OVERFLOW`, `ACP_DATABASE_POOL_TIMEOUT_SECONDS`, `ACP_DATABASE_CONNECT_TIMEOUT_SECONDS`, `ACP_DATABASE_LOCK_TIMEOUT_MS`, `ACP_DATABASE_STATEMENT_TIMEOUT_MS`, `ACP_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS`, `ACP_EVENT_RELAY_ENABLED`, `ACP_API_URL`, `ACP_EVENT_SERVICE_URL`, `ACP_PROVIDER_GATEWAY_URL`, `ACP_GATEWAY_SERVICE_TOKEN`, `ACP_EVENT_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `ACP_BOOTSTRAP_TOKEN`, `ACP_SESSION_TTL_SECONDS`, `ACP_SESSION_COOKIE_SECURE=1`, `ACP_PLUGINS_DIR=/app/plugins`, `ACP_SECRETS_KEYS`, `ACP_ARTIFACT_SIGNING_KEYS`, `ACP_ARTIFACT_PUBLIC_ORIGIN`, `ACP_ARTIFACT_STORAGE_DIR=/data/artifacts`, `ACP_SKILLS_STORAGE_DIR=/data/skills`, `ACP_ARTIFACT_MAX_BYTES`, `ACP_ARTIFACT_MAX_BYTES_PER_RUN`, `ACP_ARTIFACT_RETENTION_DAYS`, `ACP_EVENT_RETENTION_DAYS`, `ACP_STREAM_*`, `ACP_OUTBOUND_PRIVATE_ALLOWLIST`, `ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP`, `ACP_SKILLS_ALLOWED_DIRS`, `ACP_SKILLS_GITHUB_ENABLED`, `ACP_GITHUB_TOKEN` |
+| `api` | `ACP_DATABASE_URL`, `ACP_DATABASE_POOL_SIZE`, `ACP_DATABASE_MAX_OVERFLOW`, `ACP_DATABASE_POOL_TIMEOUT_SECONDS`, `ACP_DATABASE_CONNECT_TIMEOUT_SECONDS`, `ACP_DATABASE_LOCK_TIMEOUT_MS`, `ACP_DATABASE_STATEMENT_TIMEOUT_MS`, `ACP_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS`, `ACP_EVENT_RELAY_ENABLED`, `ACP_API_URL`, `ACP_EVENT_SERVICE_URL`, `ACP_PROVIDER_GATEWAY_URL`, `ACP_INTERNAL_HTTP_HOSTS`, `ACP_GATEWAY_SERVICE_TOKEN`, `ACP_EVENT_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `ACP_BOOTSTRAP_TOKEN`, `ACP_SESSION_TTL_SECONDS`, `ACP_SESSION_COOKIE_SECURE=1`, `ACP_PLUGINS_DIR=/app/plugins`, `ACP_SECRETS_KEYS`, `ACP_ARTIFACT_SIGNING_KEYS`, `ACP_ARTIFACT_PUBLIC_ORIGIN`, `ACP_ARTIFACT_STORAGE_DIR=/data/artifacts`, `ACP_SKILLS_STORAGE_DIR=/data/skills`, `ACP_ARTIFACT_MAX_BYTES`, `ACP_ARTIFACT_MAX_BYTES_PER_RUN`, `ACP_ARTIFACT_RETENTION_DAYS`, `ACP_EVENT_RETENTION_DAYS`, `ACP_STREAM_*`, `ACP_OUTBOUND_PRIVATE_ALLOWLIST`, `ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP`, `ACP_SKILLS_ALLOWED_DIRS`, `ACP_SKILLS_GITHUB_ENABLED`, `ACP_GITHUB_TOKEN` |
 | `artifact-preview` | `ACP_DATABASE_URL` (+ les `ACP_DATABASE_*` de pool), `ACP_CORS_ORIGINS`, `ACP_ARTIFACT_SIGNING_KEYS`, `ACP_ARTIFACT_STORAGE_DIR` |
 | `provider-gateway` | `ACP_GATEWAY_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `HERMES_BASE_URL`, `HERMES_API_KEY`, `HERMES_TIMEOUT_SECONDS`, `HERMES_MAX_RETRIES`, `HERMES_RUN_TIMEOUT_SECONDS`, `HERMES_POLL_INTERVAL_SECONDS`, `ACP_COMFYUI_*` |
 | `event-service` | `ACP_EVENT_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `ACP_UNSAFE_ALLOW_ANONYMOUS_EVENT_WEBSOCKET=0` |
-| `relay` | `ACP_DATABASE_URL` (+ pool), `ACP_EVENT_SERVICE_URL`, `ACP_EVENT_SERVICE_TOKEN`, `ACP_OUTBOX_MAX_ATTEMPTS`, `ACP_EVENT_RELAY_ENABLED` |
+| `relay` | `ACP_DATABASE_URL` (+ pool), `ACP_EVENT_SERVICE_URL`, `ACP_INTERNAL_HTTP_HOSTS`, `ACP_EVENT_SERVICE_TOKEN`, `ACP_OUTBOX_MAX_ATTEMPTS`, `ACP_EVENT_RELAY_ENABLED` |
 | `web` | `PORT=8080` ; au build : `VITE_ACP_API_URL`, `VITE_ACP_LEGACY_OFFICE=0` (déclarées comme variables de service : Railway les transmet comme arguments de build Docker si le Dockerfile les déclare en `ARG`, ce qui est le cas) |
+
+Pour les appels privés en HTTP, renseigner `ACP_INTERNAL_HTTP_HOSTS` sur l'API et
+le relais : noms exacts séparés par des virgules, par exemple
+`event-service.railway.internal,provider-gateway.railway.internal`. Les noms
+mono-label de compose et les adresses RFC 1918/ULA sont également admis explicitement.
+Aucun joker ni domaine public n'est admis ; les autres origines exigent HTTPS.
+Cette exception reste réservée aux clients internes du serveur : les workers
+conservent leur exigence HTTPS hors loopback. Un worker distant qui appelle la
+passerelle nécessite donc une origine HTTPS accessible ; l'origine privée du
+serveur ne lui est pas transmissible telle quelle.
+
+Le relais attend le schéma courant et la connexion pendant au plus 900 s avant de
+rendre le code 4 (`--schema-wait-seconds` règle cette borne). Il ne migre jamais.
+Les pannes réseau, 5xx, 401/403 et 429 retiennent la tête de file sans la passer en
+lettre morte. Seuls les refus de message (400/413/422), les erreurs déterministes
+ou un transport défectueux peuvent produire une lettre morte ; surveiller les
+compteurs `pending` et `dead` exposés par `/ready` et les journaux du relais.
 
 Les variables de test `ACP_TEST_DATABASE_URL` et `ACP_TEST_DATABASE_REQUIRED` ne se
 déploient jamais : elles appartiennent à la CI et à `docker/compose.test.yml`.
@@ -132,6 +149,14 @@ déploient jamais : elles appartiennent à la CI et à `docker/compose.test.yml`
   **n'a pas été testé**. Deux issues possibles, à décider à l'exploitation :
   accepter `RAILWAY_RUN_UID=0` sur `api` seulement, ou constater au premier
   déploiement que le volume est inscriptible et ne rien changer.
+- **Volume réellement monté (0.9.1).** L'image crée `/data` elle-même : sans volume, le
+  répertoire existe et reste inscriptible, et les livrables écrits disparaîtraient au
+  redéploiement pendant que la base les référence encore. `api`, `artifact-preview` et
+  `backup` refusent donc de démarrer (code 3) si `/data` et les racines de stockage ne
+  sont sur aucun volume monté. `ACP_DATA_DIR_EPHEMERAL=1` lève ce refus pour un usage
+  jetable assumé : c'est acceptable sur `artifact-preview` tant qu'il ne peut de toute
+  façon pas lire le volume de l'API, jamais sur `api`. Vérification sans lancer de
+  service : `/app/docker/entrypoint.sh check-data`.
 - **Pré-déploiement sans volume.** La migration n'a besoin que de la base ; elle
   n'accède pas à `/data`, ce que l'entrypoint respecte (`migrate` ne vérifie pas le
   répertoire de données).

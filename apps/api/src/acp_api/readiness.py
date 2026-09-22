@@ -3,8 +3,7 @@
 ``/health`` reste une liveness pure : elle dit seulement que le processus répond.
 ``/ready`` dit si le service peut rendre service **maintenant** : base joignable,
 schéma à la révision attendue, racines de stockage inscriptibles quand elles sont
-configurées et, à titre informatif seulement, l'état de la boîte d'envoi des
-événements.
+configurées et boîte d'envoi lisible. Un arriéré de livraison reste informatif.
 
 Le même rapport sert au démarrage (:func:`assert_ready_at_startup`) : un service
 qui échouerait à sa propre sonde ne démarre pas, plutôt que d'être mis en ligne
@@ -25,14 +24,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from acp_database import get_engine, init_db
+from acp_database.models import EventOutboxModel
+from acp_database.schema_state import SchemaOutOfDateError, SchemaState, check_schema_current
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
-
-from acp_database import get_engine, init_db
-from acp_database.models import EventOutboxModel
-from acp_database.schema_state import SchemaState, check_schema_current
 
 from .artifacts_storage import ARTIFACT_STORAGE_DIR_ENV
 
@@ -44,9 +42,8 @@ DATABASE_PROBE_TIMEOUT_MS = 2000
 PROBE_PREFIX = ".acp-ready-"
 
 # Contrôles dont l'échec rend le service « degraded » (503) et refuse le démarrage.
-# ``outbox`` n'en fait pas partie : un arriéré de livraison est une information
-# d'exploitation, pas une raison de retirer l'API du trafic.
-BLOCKING_CHECKS = ("database", "migrations", "artifact_storage", "skills_storage")
+# Un arriéré conserve outbox.ok=True ; une boîte illisible bloque les mutations.
+BLOCKING_CHECKS = ("database", "migrations", "artifact_storage", "skills_storage", "outbox")
 
 STATUS_READY = "ready"
 STATUS_DEGRADED = "degraded"
@@ -210,7 +207,7 @@ def _migrations_check(
         return CheckResult(True, "schéma à la révision attendue", details)
     return CheckResult(
         False,
-        "schéma hors version : exécutez « python -m acp_database.migrate upgrade »",
+        str(SchemaOutOfDateError(state)),
         details,
     )
 
@@ -220,20 +217,37 @@ def _configured_root(environ: Mapping[str, str], name: str) -> Path | None:
     return Path(raw).expanduser() if raw else None
 
 
-def _storage_check(root: Path | None) -> CheckResult:
+def _storage_check(root: Path | None, *, create_missing: bool) -> CheckResult:
     """Crée puis supprime un fichier sonde dans la racine configurée.
 
-    La racine est créée si elle manque, comme le fait le stockage lui-même à la
-    première écriture : la sonde révèle ainsi au démarrage un volume non monté ou
-    des permissions insuffisantes, au lieu de les découvrir sur le premier
-    livrable. Une racine non configurée est « ok » : rien n'est à vérifier.
+    ``create_missing`` n'est vrai qu'au démarrage : la racine est alors initialisée,
+    comme le stockage le ferait à la première écriture, et des permissions
+    insuffisantes se voient avant le premier livrable. La route ``/ready`` ne crée
+    jamais rien : une racine disparue depuis le démarrage (volume démonté) la rend
+    « dégradée » au lieu d'être recréée sur la couche éphémère du conteneur. Qu'un
+    volume soit réellement monté ne se prouve pas ici mais dans l'entrypoint de
+    l'image, qui refuse un répertoire de données non persistant.
+
+    Une racine non configurée est « ok » : le stockage se replie alors sur
+    ``./acp-data``, ce que le motif dit explicitement.
     """
 
     if root is None:
-        return CheckResult(True, "non configuré", {"configured": False})
+        return CheckResult(
+            True,
+            "non configuré : repli sur ./acp-data, non persistant hors poste de développement",
+            {"configured": False},
+        )
+    if not create_missing and not root.exists():
+        return CheckResult(
+            False,
+            "racine absente : volume démonté ou répertoire supprimé depuis le démarrage",
+            {"configured": True},
+        )
     probe = root / f"{PROBE_PREFIX}{secrets.token_hex(8)}"
     try:
-        root.mkdir(parents=True, exist_ok=True)
+        if create_missing:
+            root.mkdir(parents=True, exist_ok=True)
         probe.write_bytes(b"ready")
         probe.unlink()
     except OSError as exc:
@@ -249,11 +263,12 @@ def _storage_check(root: Path | None) -> CheckResult:
 def _outbox_check(
     engine, environ: Mapping[str, str], *, database_ok: bool
 ) -> CheckResult:
-    """Compte les livraisons en attente et en lettre morte ; ne dégrade jamais.
+    """Compte les livraisons ; une boîte illisible rend le service indisponible.
 
     Actif seulement avec ``ACP_EVENT_RELAY_ENABLED=1``. Un arriéré signale un
     relais en panne ou en retard, ce que l'opérateur doit voir sur la sonde ; mais
-    retirer l'API du trafic n'y changerait rien, d'où ``ok`` toujours vrai.
+    retirer l'API du trafic n'y changerait rien. Une table illisible bloque en
+    revanche toutes les mutations : ce défaut dégrade la disponibilité.
     """
 
     if environ.get(RELAY_ENABLED_ENV, "").strip() != "1":
@@ -277,7 +292,7 @@ def _outbox_check(
             ).scalar_one()
     except (SQLAlchemyError, OSError) as exc:
         return CheckResult(
-            True,
+            False,
             "boîte d'envoi illisible",
             {"enabled": True, "error": type(exc).__name__},
         )
@@ -288,12 +303,15 @@ def _outbox_check(
     )
 
 
-def build_report(*, engine, environ: Mapping[str, str]) -> ReadinessReport:
+def build_report(
+    *, engine, environ: Mapping[str, str], create_storage_roots: bool = False
+) -> ReadinessReport:
     """Exécute tous les contrôles contre ``engine`` avec la configuration ``environ``.
 
     Les contrôles dépendant de la base (migrations, boîte d'envoi) ne sont tentés
     que si la base répond : une base injoignable produit un seul diagnostic net
-    plutôt que trois erreurs de connexion en cascade.
+    plutôt que trois erreurs de connexion en cascade. ``create_storage_roots`` n'est
+    posé que par le démarrage (voir :func:`_storage_check`).
     """
 
     database = _database_check(engine)
@@ -301,10 +319,12 @@ def build_report(*, engine, environ: Mapping[str, str]) -> ReadinessReport:
         "database": database,
         "migrations": _migrations_check(engine, environ, database_ok=database.ok),
         "artifact_storage": _storage_check(
-            _configured_root(environ, ARTIFACT_STORAGE_DIR_ENV)
+            _configured_root(environ, ARTIFACT_STORAGE_DIR_ENV),
+            create_missing=create_storage_roots,
         ),
         "skills_storage": _storage_check(
-            _configured_root(environ, SKILLS_STORAGE_DIR_ENV)
+            _configured_root(environ, SKILLS_STORAGE_DIR_ENV),
+            create_missing=create_storage_roots,
         ),
         "outbox": _outbox_check(engine, environ, database_ok=database.ok),
     }
@@ -317,15 +337,16 @@ def build_report(*, engine, environ: Mapping[str, str]) -> ReadinessReport:
 def assert_ready_at_startup(*, engine=None, environ: Mapping[str, str] | None = None) -> None:
     """Refuse le démarrage (``RuntimeError``) si un contrôle bloquant échoue.
 
-    Les stockages ne sont vérifiés que s'ils sont configurés. Le message cite
-    chaque contrôle en échec avec sa raison, jamais ``SystemExit`` : uvicorn
-    journalise l'exception, ne sert aucune requête et laisse l'orchestrateur
-    relancer ou alerter.
+    Les stockages ne sont vérifiés que s'ils sont configurés, et leurs racines sont
+    initialisées ici, au démarrage seulement. Le message cite chaque contrôle en
+    échec avec sa raison, jamais ``SystemExit`` : uvicorn journalise l'exception, ne
+    sert aucune requête et laisse l'orchestrateur relancer ou alerter.
     """
 
     report = build_report(
         engine=engine if engine is not None else get_engine(),
         environ=os.environ if environ is None else environ,
+        create_storage_roots=True,
     )
     failed = report.failed()
     if failed:

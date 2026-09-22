@@ -276,7 +276,7 @@ def _quick_check(path: Path) -> None:
 
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, isolation_level=None
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, isolation_level=None
         )
     except sqlite3.Error as exc:
         raise SnapshotError(f"Fichier SQLite illisible « {path.name} » : {exc}") from exc

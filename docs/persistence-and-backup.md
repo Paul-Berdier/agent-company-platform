@@ -156,17 +156,21 @@ voit** (`127.0.0.1:5432` à l'intérieur, alors que l'opérateur parle à `55432
 seule valeur vaut pour toute l'exécution de la commande : une restauration avec
 `--replace` sur PostgreSQL dumpe puis restaure la même base cible, ce qui est
 cohérent ; pour sauvegarder A puis restaurer vers B depuis un conteneur, lancez deux
-commandes avec deux valeurs. La substitution ne change que le **chemin d'accès** au
+commandes avec deux valeurs. La substitution doit ne changer que le **chemin d'accès** au
 serveur : si le nom de base qu'elle porte diffère de celui de l'URL sur laquelle la
 commande travaille, la commande refuse avant d'appeler le moindre outil, en citant
-les deux noms. Sans ce contrôle, une variable oubliée d'une exécution précédente
+les deux noms. Ce contrôle ne compare pas l'identité du serveur : deux serveurs
+hébergeant une base de même nom passent encore (R19 ouvert). Vérifier manuellement
+que les deux adresses atteignent la même base. Sans ce contrôle de nom, une variable oubliée d'une exécution précédente
 faisait vider une base et restaurer dans une autre. L'URL passée en argument aux outils contient le mot de
 passe et reste visible dans la liste des processus le temps de la commande ; les
 messages et les journaux de la commande, eux, ne le contiennent jamais.
 
-`restore --replace` met d'abord les répertoires à l'écart (opération réversible :
-ils sont remis en place si la suite échoue), **puis** vide la base cible, puis
-restaure. Si la restauration échoue après le vidage, la commande imprime l'état exact
+`restore --replace` met d'abord les répertoires à l'écart, **puis** vide la base cible,
+puis restaure. Leur remise en place automatique couvre les échecs pendant le
+déplacement et le vidage ; un échec ultérieur de restauration ou d'extraction les
+laisse à l'écart et exige une récupération manuelle (R20 ouvert). Si la restauration
+échoue après le vidage, la commande imprime l'état exact
 (« base VIDÉE et non restaurée ») et le chemin de la sauvegarde préalable vérifiée.
 
 ## Ordre opérateur recommandé
@@ -212,12 +216,19 @@ restaure. Si la restauration échoue après le vidage, la commande imprime l'ét
 - **Instantané atomique base + fichiers** : sans arrêt de l'API, un livrable peut
   être écrit entre l'instantané de base et l'archive (il apparaît alors comme blob
   sans ligne après restauration, ce qui est signalé, jamais masqué).
-- **Restauration sur la source** : refusée par conception ; restaurer à côté puis
-  basculer la configuration.
-- **Relocalisation de `skill_revisions.storage_path`** : la colonne conserve le
-  chemin absolu d'origine ; restaurer dans un autre répertoire de skills laisse la
-  ligne pointer sur l'ancien chemin (avertissement explicite). Le dossier restauré
-  est bien `<skills-dir>/<skill_id>/<numéro>`.
+- **Restauration sur la source** : interdite par conception ; restaurer à côté puis
+  basculer la configuration. La garde PostgreSQL compare actuellement une empreinte
+  d'URL masquée, pas l'identité réelle du serveur : un autre alias ou utilisateur
+  peut désigner la même base sans être reconnu (R21 ouvert). Vérifier que la cible
+  est réellement distincte avant restauration.
+- **Chemins de `skill_revisions.storage_path`** : les nouvelles lignes portent
+  `<skill_id>/<numéro>`, relatif à la racine configurée. Les chemins hérités de
+  0.8.0 (absolus ou préfixés par `acp-data/skills`) restent inchangés dans la base ;
+  la lecture utilise le dossier `<ACP_SKILLS_STORAGE_DIR>/<skill_id>/<numéro>`.
+  Un déplacement ou une restauration du volume ne demande donc pas de migration
+  de données. Aucun repli vers un chemin extérieur n'est autorisé si ce dossier
+  manque. La vérification après restauration contrôle ce dossier canonique et son
+  confinement ; une ancienne adresse de stockage ne produit pas de faux avertissement.
 - **Données d'exploitation** : journaux applicatifs, caches, état natif Hermes,
   fichiers de prévisualisation ou de médias hors des deux répertoires ci-dessus ne
   sont pas sauvegardés.
@@ -226,4 +237,32 @@ restaure. Si la restauration échoue après le vidage, la commande imprime l'ét
 - **Rendu des CHECK sur PostgreSQL** : après `pg_dump`/`pg_restore`, PostgreSQL
   réécrit `x IN ('a','b')` en `ANY (ARRAY['a'::character varying::text, …])` au lieu
   de `ANY (ARRAY[…]::text[])`. Les contraintes sont équivalentes et
-  `compare_metadata` est vide ; seul le texte du catalogue diffère.
+  `compare_metadata` est vide, mais ne compare pas le corps des CHECK : cette
+  observation ne prouve pas leur équivalence. Le catalogue doit être revu si
+  une dérive de contrainte est suspectée.
+
+
+### Adoption et retour arrière d'un schéma (0.9.1)
+
+Sous PostgreSQL, `migrate stamp head` refuse une base vide ou différente du modèle :
+créez le schéma avec `migrate upgrade`. L'adoption d'une base préexistante exige une
+sauvegarde vérifiée et un schéma déjà conforme aux contrôles de `migrate check`.
+Une estampille intermédiaire exige `--allow-unverified-revision` et une vérification
+manuelle du schéma correspondant ; elle n'exécute aucune migration.
+
+Le démarrage et `/ready` vérifient la présence de toutes les tables attendues, en
+plus de l'estampille. Une révision inconnue peut venir d'une version plus récente :
+le code refuse de la modifier, y compris en SQLite. `upgrade` ne réalise jamais un
+retour arrière implicite. Pour revenir à une image antérieure, conserver la version
+qui connaît le schéma courant, vérifier la sauvegarde, arrêter les écritures puis
+exécuter avec cette version `migrate downgrade --to <révision> --yes-i-understand-data-loss`.
+Vérifier ensuite `migrate check` avec le code cible avant de le redémarrer. Certaines
+valeurs nouvelles rendent la descente impossible : 0003 refuse les entiers hors
+32 bits et les références dépassant 500 caractères, sans tronquer les données.
+
+**Portée des contrôles :** `migrate check` compare les tables, colonnes, types,
+valeurs par défaut, index, prédicats d'index partiels et noms des contraintes CHECK.
+Il ne compare pas l'expression SQL des CHECK : un CHECK de même nom dont le corps a
+été modifié nécessite une revue manuelle. Une sortie sans dérive ne prouve donc pas
+l'équivalence complète du schéma. L'inventaire des tests conserve le groupement
+booléen et la casse des littéraux, au lieu de supprimer toutes les parenthèses.

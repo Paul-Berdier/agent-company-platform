@@ -1,37 +1,66 @@
 # Contexte de build des images (docker/python.Dockerfile, docker/web.Dockerfile).
-# Tout ce qui est local, secret ou volumineux reste hors du contexte : aucun .env,
-# aucune base SQLite, aucun venv ni node_modules n'entre dans une image.
+# Tout ce qui est local, secret, volumineux ou sous licence reste hors du contexte :
+# aucun .env, aucune base SQLite, aucun venv ni node_modules, aucun asset LimeZu.
+#
+# Docker compare chaque motif au chemin RELATIF À LA RACINE du contexte : un motif
+# sans « **/ » ne vise que la racine. Tout ce qui doit être exclu à n'importe quelle
+# profondeur porte donc « **/ ». scripts/check_docker_context.py rejoue cette
+# sélection sans Docker et refuse tout fichier interdit (tests :
+# apps/api/tests/test_docker_context.py).
+
+# Métadonnées et outillage local
 .git
 .github
 .claude
-.venv*
-venv
-node_modules
-**/node_modules
-acp-data
-*.db
-*.sqlite3
-.env*
-!.env.example
-docker/.env.compose
-e2e
-docs/assets
-**/__pycache__
-*.py[cod]
-*.egg-info
-.pytest_cache
-.mypy_cache
-.ruff_cache
-**/dist
-.vite
-*.tsbuildinfo
-Limzu
-LimeZu
-local-assets
-licensed-assets
-vendor-assets
-*.aseprite
-.DS_Store
-Thumbs.db
 .idea
 .vscode
+**/.DS_Store
+**/Thumbs.db
+.tmp-*
+.test-tmp/
+
+# Environnements, secrets et données locales (à toute profondeur)
+**/.env*
+**/.venv*
+**/venv
+**/node_modules
+**/acp-data
+**/*.db
+**/*.db-journal
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.sqlite-journal
+**/*.sqlite-shm
+**/*.sqlite-wal
+**/*.sqlite3
+**/*.sqlite3-journal
+**/*.sqlite3-shm
+**/*.sqlite3-wal
+
+# Assets sous licence : redistribution interdite, jamais dans une image
+# (parité avec la section correspondante de .gitignore, vérifiée par les tests).
+apps/web/public/assets/licensed
+packages/pixel-office-engine/assets/licensed
+**/licensed
+**/Limzu
+**/LimeZu
+**/local-assets
+**/licensed-assets
+**/vendor-assets
+**/*.aseprite
+
+# Sorties et caches de build
+**/dist
+**/.vite
+**/*.tsbuildinfo
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# Hors images
+e2e
+docs/assets

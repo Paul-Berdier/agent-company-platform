@@ -5,8 +5,8 @@ séquence et sert uniquement à réveiller un flux SSE plus tôt que son interro
 périodique. Une coupure du hub ne perd donc aucun événement, elle ajoute au pire la
 latence d'une interrogation.
 
-Le journal porte **deux** compteurs, alloués dans la transaction métier et protégés
-chacun par un index unique partiel ; en cas de collision concurrente, l'insertion est
+Le journal porte **deux** compteurs, attribués au commit de la transaction métier et
+protégés chacun par un index unique partiel ; en cas de collision, l'attribution est
 rejouée dans un point de sauvegarde, au plus ``SEQUENCE_ALLOCATION_ATTEMPTS`` fois :
 
 - ``sequence`` est monotone **par tentative** (``task_run_id``) et sert de curseur de
@@ -39,16 +39,16 @@ Ce que ces contrôles ne prétendent pas faire : reconnaître un petit fragment 
 logé dans une clé quelconque. La garantie tenue est « rien d'assez gros, d'assez
 profond ou d'assez mal nommé pour être un média », pas « aucun octet encodé ».
 
-Lot H3 — verrou et boîte d'envoi. Les deux chemins d'écriture (``publish`` et
-``_store_numbered``) prennent ``write_lock(db, 'events.journal')`` **avant** toute
-allocation, puis allouent dans le même ordre (journal, puis tentative). Sous SQLite
-c'est le ``BEGIN IMMEDIATE`` historique ; sous PostgreSQL c'est un verrou consultatif
-tenu jusqu'au commit, ce qui rend ``journal_seq`` contigu **et ordonné par commit** :
-``FOR UPDATE`` seul ne verrouille que la ligne maximale existante et laisse deux
-écrivains recalculer le même numéro. Quand ``ACP_EVENT_RELAY_ENABLED`` vaut ``1``,
-``store_event`` ajoute la ligne ``event_outbox`` dans la même transaction et
-``forward_event`` se tait : le relais (``acp_api.outbox_relay``) devient l'unique
-chemin vers le service d'événements.
+Verrou et boîte d'envoi (Lot H3, revu en 0.9.1). Les numéros sont attribués **au
+commit** (``_number_pending_events``), sous ``write_lock(db, 'events.journal')``, puis
+dans le même ordre (journal, puis tentative). Sous PostgreSQL c'est un verrou
+consultatif tenu jusqu'au commit, ce qui rend ``journal_seq`` contigu **et ordonné par
+commit** ; pris au commit, il est le **dernier** verrou de la transaction et ne peut
+plus former de cycle avec un verrou de ligne. Sous SQLite, ``store_event`` conserve le
+``BEGIN IMMEDIATE`` historique dès le premier événement. Quand
+``ACP_EVENT_RELAY_ENABLED`` vaut ``1``, la ligne ``event_outbox`` est ajoutée au commit,
+dans la même transaction, et ``forward_event`` se tait : le relais
+(``acp_api.outbox_relay``) devient l'unique chemin vers le service d'événements.
 """
 
 from __future__ import annotations
@@ -62,7 +62,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy import func, select
+from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -460,30 +462,148 @@ def _is_allocation_collision(error: IntegrityError) -> bool:
 
 
 def _ensure_write_transaction(db: Session) -> None:
-    """Prend le verrou d'écriture du journal **avant** toute allocation.
+    """Prend le verrou d'écriture du journal.
 
-    Délègue à ``acp_database.locking.write_lock`` : sous SQLite, le ``BEGIN
-    IMMEDIATE`` historique (les publications se sérialisent sur le fichier et
-    l'appelant conserve sa transaction) ; sous PostgreSQL, un verrou consultatif de
-    transaction sur ``events.journal``, tenu jusqu'au commit, sans lequel
-    ``FOR UPDATE`` sur la ligne maximale laisse deux écrivains calculer le même
-    numéro et repartir en collision. Le nom est conservé pour les appelants du Lot E.
+    Délègue à ``acp_database.locking.write_lock`` : sous PostgreSQL, un verrou
+    consultatif de transaction sur ``events.journal``, tenu jusqu'au commit ; sous
+    SQLite, le ``BEGIN IMMEDIATE`` historique. Depuis 0.9.1, il n'est pris qu'au
+    **commit**, par ``_number_pending_events`` : c'est le dernier verrou de la
+    transaction, qui ne peut donc plus former de cycle avec un verrou de ligne. Le nom
+    est conservé pour les appelants du Lot E.
     """
 
     write_lock(db, JOURNAL_LOCK_KEY)
 
 
-def _add_event(db: Session, model: EventModel) -> None:
-    """Ajoute la ligne du journal et, si le relais d'outbox est actif, sa ligne d'outbox.
+def _begin_sqlite_write(db: Session) -> None:
+    """Sous SQLite seulement : ouvre la transaction en écriture dès le premier événement.
 
-    Les deux partent dans la même transaction, l'outbox juste après l'événement :
-    un rollback métier retire les deux, un commit rend la livraison due. C'est le
-    seul point où l'outbox est alimentée, quel que soit l'appelant de ``store_event``.
+    SQLite ne sait pas faire passer une transaction de lecture en écriture pendant
+    qu'une autre écrit : les deux échoueraient en « database is locked ». Le
+    ``BEGIN IMMEDIATE`` historique est donc conservé ici. Sous PostgreSQL, rien n'est
+    verrouillé à ce stade : le verrou du journal attend le commit.
+    """
+
+    if db.get_bind().dialect.name == "sqlite":
+        write_lock(db, JOURNAL_LOCK_KEY)
+
+
+_PENDING_EVENTS_KEY = "acp.events_bus.pending"
+"""Clé de ``Session.info`` : événements de la transaction en attente de numéros."""
+
+
+def _add_event(db: Session, model: EventModel) -> None:
+    """Ajoute la ligne du journal ; ses numéros et sa ligne d'outbox attendent le commit.
+
+    Un événement dont les numéros sont déjà fournis part tel quel, avec sa ligne
+    d'outbox si le relais est actif. Les autres sont numérotés au commit par
+    ``_number_pending_events``, qui ajoute alors leur ligne d'outbox dans la même
+    transaction : un rollback métier retire les deux, un commit rend la livraison due.
     """
 
     db.add(model)
+    if model.journal_seq is None or (model.task_run_id and model.sequence is None):
+        db.info.setdefault(_PENDING_EVENTS_KEY, []).append(model)
+        return
+    model._acp_numbers = (model.journal_seq, model.sequence)
     if relay_enabled():
         _enqueue_outbox(db, model)
+
+
+def _still_in_transaction(session: Session, model: EventModel) -> bool:
+    """Vrai si la ligne appartient encore à la transaction : un point de sauvegarde
+    annulé ou un ``expunge`` la rendent transitoire, et elle n'est alors pas numérotée."""
+
+    state = sqlalchemy_inspect(model)
+    return state.session is session and not state.deleted and (state.persistent or state.pending)
+
+
+@sqlalchemy_event.listens_for(Session, "before_commit")
+def _number_pending_events(session: Session) -> None:
+    """Numérote au commit les événements de la transaction, sous le verrou du journal.
+
+    Le verrou ``events.journal`` est pris **ici, en dernier** : jusqu'en 0.9.0, il
+    l'était à la publication, au milieu de la transaction métier, et une transaction
+    qui verrouillait une ligne après avoir publié s'opposait à une autre qui publiait
+    après avoir verrouillé cette ligne (interblocages planificateur contre routes
+    d'automatisation, expiration de bail contre fin de tentative). Tenu jusqu'au
+    commit, il garde ``journal_seq`` ordonné par commit, ce qu'exige le curseur de la
+    portée projet.
+
+    Les lignes sont d'abord insérées sans numéro, hors de tout point de sauvegarde ;
+    l'attribution des numéros est rejouée dans un point de sauvegarde en cas de
+    collision, au plus ``SEQUENCE_ALLOCATION_ATTEMPTS`` fois.
+
+    SQLAlchemy émet aussi ``before_commit`` à la libération d'un point de sauvegarde :
+    seul le commit de la transaction racine numérote, sans quoi le verrou du journal
+    serait repris au milieu de la transaction.
+    """
+
+    if session.in_nested_transaction():
+        return
+    pending = session.info.pop(_PENDING_EVENTS_KEY, None)
+    if not pending:
+        return
+    alive = [model for model in pending if _still_in_transaction(session, model)]
+    if not alive:
+        return
+    session.flush()
+    _ensure_write_transaction(session)
+    last_error: IntegrityError | None = None
+    for _ in range(SEQUENCE_ALLOCATION_ATTEMPTS):
+        # Les numéros sont relus à chaque essai : une allocation périmée ne doit
+        # jamais survivre à la reprise qui la corrige.
+        journal_next = allocate_journal_seq(session)
+        run_next: dict[str, int] = {}
+        for model in alive:
+            if model.task_run_id and model.sequence is None and model.task_run_id not in run_next:
+                run_next[model.task_run_id] = allocate_sequence(session, model.task_run_id)
+        try:
+            with session.begin_nested():
+                for model in alive:
+                    if model.journal_seq is None:
+                        model.journal_seq = journal_next
+                        journal_next += 1
+                    if model.task_run_id and model.sequence is None:
+                        model.sequence = run_next[model.task_run_id]
+                        run_next[model.task_run_id] += 1
+                session.flush()
+        except IntegrityError as exc:
+            if not _is_allocation_collision(exc):
+                raise
+            last_error = exc
+            continue
+        break
+    else:
+        raise SequenceAllocationError(
+            "Numéro d'événement indisponible après "
+            f"{SEQUENCE_ALLOCATION_ATTEMPTS} essais au commit de "
+            f"{len(alive)} événement(s)."
+        ) from last_error
+    relay = relay_enabled()
+    for model in alive:
+        # Mémorisés hors des attributs cartographiés : après le commit, les lire ne
+        # doit pas rouvrir une transaction pour les recharger.
+        model._acp_numbers = (model.journal_seq, model.sequence)
+        if relay:
+            _enqueue_outbox(session, model)
+
+
+@sqlalchemy_event.listens_for(Session, "after_transaction_end")
+def _forget_pending_events(session: Session, transaction: Any) -> None:
+    """La fin de la transaction racine (rollback, fermeture) oublie ses événements.
+
+    Après un commit, les numéros et les annonces ont déjà été traités par
+    ``before_commit`` et ``after_commit`` ; après un rollback, rien n'est dû.
+
+    Un point de sauvegarde annulé ne vide rien : les événements publiés avant lui
+    restent dus, et ceux qu'il retire sont écartés au commit par
+    ``_still_in_transaction``.
+    """
+
+    if transaction.parent is None:
+        session.info.pop(_PENDING_EVENTS_KEY, None)
+        session.info.pop(_PENDING_ANNOUNCEMENTS_KEY, None)
 
 
 def _event_model(
@@ -533,24 +653,18 @@ def store_event(
     executor: str | None = None,
     emitted_by: str | None = None,
 ) -> EventModel:
-    """Persiste un événement, en lui garantissant ses deux numéros.
+    """Persiste un événement ; ses deux numéros lui sont attribués au commit.
 
     ``commit=True`` (défaut) préserve le comportement du Lot C pour les appelants
     existants qui n'ouvrent pas de transaction explicite. Un appelant qui possède
-    déjà sa transaction passe ``commit=False`` : rien n'est validé avant son propre
-    ``commit()``.
+    déjà sa transaction passe ``commit=False`` : rien n'est validé ni numéroté avant
+    son propre ``commit()``, et l'événement part dans la même transaction que l'effet
+    métier qu'il décrit — jamais un effet validé suivi d'un événement perdu.
 
-    ``journal_seq`` n'est fourni que par ``publish``, qui mène déjà sa propre boucle
-    d'allocation. Sans lui, l'allocation est faite ici : un appelant direct (les
-    routeurs du Lot C) écrirait sinon une ligne sans numéro, donc invisible dans la
-    portée projet — exactement la perte silencieuse que ce curseur doit empêcher.
-
-    ``sequence`` suit la même règle : un événement qui porte une tentative reçoit
-    ici sa séquence de tentative si l'appelant ne l'a pas déjà allouée. Sans elle,
-    les événements terminaux du Lot C (``task.completed``, ``task.failed``,
-    ``task.blocked``, ``task.cancelled``, ``task.interrupted``) et les événements de
-    mission sortiraient de ``GET /runs/{id}/events`` et du flux de la tentative :
-    le Studio ne verrait jamais une mission se clore.
+    Tout événement reçoit un ``journal_seq`` au commit, et une ``sequence`` s'il porte
+    une tentative : sans eux, il sortirait de la portée projet ou du flux de la
+    tentative (les événements terminaux du Lot C, ceux des missions). Des numéros
+    fournis explicitement ne sont jamais réattribués.
     """
 
     _refuse_media_payload(event.payload)
@@ -561,52 +675,12 @@ def store_event(
         "executor": executor,
         "emitted_by": emitted_by,
     }
-    if journal_seq is None:
-        return _store_numbered(db, event, sequence=sequence, commit=commit, **extra)
+    _begin_sqlite_write(db)
     model = _event_model(event, sequence=sequence, journal_seq=journal_seq, **extra)
     _add_event(db, model)
     if commit:
         db.commit()
     return model
-
-
-def _store_numbered(
-    db: Session, event: Event, *, sequence: int | None, commit: bool, **extra: Any
-) -> EventModel:
-    """Écrit en allouant les numéros manquants, avec la discipline de ``publish``.
-
-    Les deux numéros sont relus à chaque essai : une allocation périmée ne doit
-    jamais survivre à la reprise qui la corrige. Le verrou est pris avant, et
-    l'allocation suit le même ordre que ``publish`` (journal, puis tentative).
-    """
-
-    last_error: IntegrityError | None = None
-    _ensure_write_transaction(db)
-    for _ in range(SEQUENCE_ALLOCATION_ATTEMPTS):
-        journal_seq = allocate_journal_seq(db)
-        run_sequence = sequence
-        if run_sequence is None and event.task_run_id:
-            run_sequence = allocate_sequence(db, event.task_run_id)
-        model = _event_model(
-            event, sequence=run_sequence, journal_seq=journal_seq, **extra
-        )
-        try:
-            with db.begin_nested():
-                _add_event(db, model)
-                db.flush()
-        except IntegrityError as exc:
-            if not _is_allocation_collision(exc):
-                raise
-            last_error = exc
-            continue
-        if commit:
-            db.commit()
-        return model
-
-    raise SequenceAllocationError(
-        "Numéro de journal indisponible après "
-        f"{SEQUENCE_ALLOCATION_ATTEMPTS} essais pour l'événement {event.id}."
-    ) from last_error
 
 
 def publish(
@@ -622,103 +696,89 @@ def publish(
     executor: str | None = None,
     emitted_by: str | None = None,
 ) -> int | None:
-    """Alloue les numéros, persiste, réveille les flux locaux puis relaie l'événement.
+    """Persiste l'événement puis, une fois validé, réveille les flux locaux et le relaie.
 
-    Retourne la séquence de tentative allouée, ou ``None`` pour un événement sans
-    tentative (l'unicité ``(task_run_id, sequence)`` est partielle : ces lignes
-    restent valides, simplement hors du curseur de tentative). Le numéro de journal,
-    lui, est alloué dans **tous** les cas : c'est le curseur de la portée projet.
+    Retourne la séquence de tentative attribuée au commit, ou ``None`` : événement sans
+    tentative, ou ``commit=False`` (les numéros n'existent qu'au commit de
+    l'appelant, depuis 0.9.1).
 
     ``background`` accepte les ``BackgroundTasks`` de FastAPI pour relayer
     l'événement au service temps réel après la réponse ; sans lui, le relais est
     programmé sur la boucle courante s'il y en a une. Le relais reste « best
-    effort » : il n'échoue jamais la transaction métier.
+    effort » : il n'échoue jamais la transaction métier. Avec ``commit=False``, réveil
+    et relais attendent le commit de l'appelant : une transaction annulée n'annonce
+    rien, et aucun relais ne part pour un événement absent du journal.
     """
 
-    # Refuser un média avant de prendre le moindre verrou d'écriture.
-    _refuse_media_payload(event.payload)
-    extra = {
-        "schema_version": schema_version,
-        "conversation_id": conversation_id,
-        "step_id": step_id,
-        "executor": executor,
-        "emitted_by": emitted_by,
-    }
-    last_error: IntegrityError | None = None
-    _ensure_write_transaction(db)
-    for _ in range(SEQUENCE_ALLOCATION_ATTEMPTS):
-        # Les deux numéros sont relus à chaque essai : une allocation périmée ne
-        # doit jamais survivre à la reprise qui la corrige.
-        journal_seq = allocate_journal_seq(db)
-        sequence = (
-            allocate_sequence(db, event.task_run_id) if event.task_run_id else None
-        )
-        try:
-            with db.begin_nested():
-                store_event(
-                    db,
-                    event,
-                    sequence=sequence,
-                    journal_seq=journal_seq,
-                    commit=False,
-                    **extra,
-                )
-                db.flush()
-        except IntegrityError as exc:
-            if not _is_allocation_collision(exc):
-                raise
-            # Une autre transaction a pris ce numéro : l'index unique partiel est
-            # le seul arbitre, on relit et on rejoue.
-            last_error = exc
-            continue
-        if commit:
-            db.commit()
-        _notify(
-            event,
-            sequence if sequence is not None else journal_seq,
-            committed=commit,
-            db=db,
-        )
-        _schedule_forward(event, background=background, forward=forward)
-        return sequence
-
-    scope = (
-        f"la tentative {event.task_run_id}" if event.task_run_id else "le journal"
+    model = store_event(
+        db,
+        event,
+        commit=commit,
+        schema_version=schema_version,
+        conversation_id=conversation_id,
+        step_id=step_id,
+        executor=executor,
+        emitted_by=emitted_by,
     )
-    raise SequenceAllocationError(
-        "Numéro d'événement indisponible après "
-        f"{SEQUENCE_ALLOCATION_ATTEMPTS} essais pour {scope}."
-    ) from last_error
+    announcement = _Announcement(event, model, background=background, forward=forward)
+    if commit:
+        announcement.run()
+    else:
+        db.info.setdefault(_PENDING_ANNOUNCEMENTS_KEY, []).append(announcement)
+    numbers = getattr(model, "_acp_numbers", None) if commit else None
+    return numbers[1] if numbers else None
 
 
-def _notify(event: Event, wake_value: int, *, committed: bool, db: Session) -> None:
-    """Réveille les flux du run et du projet, une fois la ligne visible.
+_PENDING_ANNOUNCEMENTS_KEY = "acp.events_bus.announcements"
+"""Clé de ``Session.info`` : réveils et relais en attente du commit de l'appelant."""
 
-    ``wake_value`` n'est qu'un jeton de réveil : la lecture en base reste la source
-    de vérité, et un événement sans tentative réveille tout de même son projet.
+
+@dataclass
+class _Announcement:
+    """Ce qu'un événement validé déclenche hors de la base : réveil local et relais."""
+
+    event: Event
+    model: EventModel
+    background: Any | None = None
+    forward: bool = True
+
+    def run(self) -> None:
+        numbers = getattr(self.model, "_acp_numbers", None)
+        if numbers is None:
+            # Jamais numéroté : la transaction qui le portait a été annulée.
+            return
+        _wake(self.event, numbers)
+        _schedule_forward(self.event, background=self.background, forward=self.forward)
+
+
+@sqlalchemy_event.listens_for(Session, "after_commit")
+def _announce_committed_events(session: Session) -> None:
+    """Annonce les événements d'une transaction racine, une fois ses lignes visibles.
+
+    ``after_commit`` est aussi émis à la libération d'un point de sauvegarde : rien
+    n'est encore visible des autres connexions, l'annonce attend donc le commit racine.
     """
 
-    channels = []
+    if session.in_nested_transaction():
+        return
+    for announcement in session.info.pop(_PENDING_ANNOUNCEMENTS_KEY, None) or ():
+        announcement.run()
+
+
+def _wake(event: Event, numbers: tuple[int | None, int | None]) -> None:
+    """Réveille les flux du run et du projet.
+
+    La valeur transmise n'est qu'un jeton de réveil : la lecture en base reste la
+    source de vérité, et un événement sans tentative réveille tout de même son projet.
+    À défaut de réveil, l'interrogation périodique du flux prend le relais.
+    """
+
+    journal_seq, sequence = numbers
+    wake_value = sequence if sequence is not None else journal_seq
     if event.task_run_id:
-        channels.append(run_channel(event.task_run_id))
+        event_hub.notify(run_channel(event.task_run_id), wake_value)
     if event.project_id:
-        channels.append(project_channel(event.project_id))
-    if not channels:
-        return
-
-    def wake() -> None:
-        for channel in channels:
-            event_hub.notify(channel, wake_value)
-
-    if committed:
-        wake()
-        return
-    # L'appelant garde sa transaction : réveiller maintenant ferait lire une ligne
-    # encore invisible. Le réveil est donc reporté à son ``commit()`` ; à défaut,
-    # l'interrogation périodique du flux prend le relais.
-    from sqlalchemy import event as sqlalchemy_event
-
-    sqlalchemy_event.listen(db, "after_commit", lambda _session: wake(), once=True)
+        event_hub.notify(project_channel(event.project_id), wake_value)
 
 
 def _schedule_forward(event: Event, *, background: Any | None, forward: bool) -> None:
@@ -759,6 +819,7 @@ async def forward_event(event: Event) -> None:
         event_service_url = normalize_service_origin(
             os.environ.get("ACP_EVENT_SERVICE_URL", "http://localhost:8001"),
             setting="ACP_EVENT_SERVICE_URL",
+            internal_http_hosts=os.environ.get("ACP_INTERNAL_HTTP_HOSTS", ""),
         )
     except ServiceOriginError:
         return

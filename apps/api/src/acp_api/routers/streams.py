@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..deps import ensure_access, get_auth_context, get_db
 from ..security import SESSION_COOKIE_NAME, AuthContext
+from ..transactions import end_read_transaction
 from ..streams import (
     SSE_HEADERS,
     SSE_MEDIA_TYPE,
@@ -88,8 +89,12 @@ async def stream_run_events(
         run_id=run_id,
     )
     cursor = resume_cursor(request.headers.get("Last-Event-ID"), after_seq)
-    _acquire_slot(user_id, policy.max_connections_per_user)
     db_factory = session_factory_from(db)
+    # Le flux dure jusqu'à ACP_STREAM_MAX_SECONDS et lit ses pages dans ses propres
+    # sessions courtes : la session de la requête ne doit garder ni transaction ni
+    # connexion du pool pendant ce temps (acp_api.transactions).
+    end_read_transaction(db)
+    _acquire_slot(user_id, policy.max_connections_per_user)
     return _streaming_response(
         run_event_stream(db_factory, run_id, cursor, policy), user_id
     )
@@ -113,8 +118,9 @@ async def stream_project_events(
         project_id=project_id,
     )
     cursor = resume_cursor(request.headers.get("Last-Event-ID"), after_seq)
-    _acquire_slot(user_id, policy.max_connections_per_user)
     db_factory = session_factory_from(db)
+    end_read_transaction(db)
+    _acquire_slot(user_id, policy.max_connections_per_user)
     return _streaming_response(
         project_event_stream(db_factory, project_id, cursor, policy), user_id
     )

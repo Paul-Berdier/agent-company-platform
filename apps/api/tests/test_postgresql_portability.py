@@ -21,6 +21,7 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from threading import Barrier
 from uuid import uuid4
 
@@ -29,19 +30,23 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
+from acp_api import events_bus
 from acp_api.attempt_fencing import _lock_run
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.mcp import service as mcp_service
 from acp_api.routers import artifacts as artifacts_router
 from acp_api.routers import mcp as mcp_router
+from acp_api.routers import missions as missions_router
 from acp_api.routers import operations as operations_router
 from acp_api.routers import work as work_router
 from acp_api.routers import workers as workers_router
 from acp_api.routers.workers import expire_task_leases
 from acp_api.secrets_vault import generate_key
+from acp_api.skills import service as skills_service
 from acp_database.models import (
     ArtifactModel,
     EventModel,
@@ -637,6 +642,287 @@ def test_expiry_only_transitions_leases_already_expired(portability_context):
     assert _events_of_type(context, "task.interrupted", run_id) == []
 
 
+@pytest.mark.postgres
+@pytest.mark.concurrency
+def test_a_renewal_committed_during_the_expiry_keeps_the_lease(postgresql_context):
+    """Le compare-and-set de l'expiration revérifie l'échéance (0.9.1).
+
+    L'expiration lit un bail échu, puis attend le verrou de ligne d'un renouvellement
+    en cours. Sous READ COMMITTED, PostgreSQL ne réévalue que le filtre de l'UPDATE
+    sur la nouvelle version : sans l'échéance dans ce filtre, le bail tout juste
+    renouvelé (200 rendu au worker) était expiré et la tentative interrompue.
+    """
+
+    context = postgresql_context
+    _queue_task(context, "Tâche renouvelée à l'échéance")
+    claim = _claim(context)
+    run_id = claim["task_run"]["id"]
+    now = datetime.now(timezone.utc)
+    with context["session_factory"]() as db:
+        db.query(WorkerLeaseModel).filter_by(task_run_id=run_id).update(
+            {WorkerLeaseModel.lease_expires_at: now - timedelta(seconds=1)},
+            synchronize_session=False,
+        )
+        db.commit()
+
+    renewer = context["session_factory"]()
+    renewer.query(WorkerLeaseModel).filter_by(task_run_id=run_id).update(
+        {WorkerLeaseModel.lease_expires_at: now + timedelta(seconds=45)},
+        synchronize_session=False,
+    )
+    counts: list[int] = []
+    failures: list[BaseException] = []
+
+    def expire_once():
+        try:
+            with context["session_factory"]() as db:
+                counts.append(expire_task_leases(db))
+        except BaseException as exc:  # pragma: no cover - diagnostic
+            failures.append(exc)
+
+    expiry = threading.Thread(target=expire_once)
+    try:
+        expiry.start()
+        expiry.join(1.0)
+        assert expiry.is_alive(), "l'expiration doit attendre le verrou du renouvellement"
+        renewer.commit()
+    finally:
+        renewer.close()
+    expiry.join(60)
+
+    assert not failures, failures
+    assert counts == [0]
+    assert _events_of_type(context, "task.interrupted", run_id) == []
+    with context["session_factory"]() as db:
+        assert db.query(WorkerLeaseModel).filter_by(task_run_id=run_id).one().status == "active"
+        assert db.get(TaskRunModel, run_id).status == "running"
+
+
+@pytest.mark.postgres
+@pytest.mark.concurrency
+def test_expiring_a_lease_never_deadlocks_with_the_end_of_its_attempt(
+    postgresql_context, monkeypatch
+):
+    """L'expiration verrouille la tentative avant le bail, comme la fin de tentative.
+
+    Jusqu'en 0.9.0, ``expire_task_leases`` fermait le bail (verrou L) puis écrivait
+    la tentative (R), quand ``PATCH /task-runs`` tenait R puis écrivait L : chacune
+    attendait l'autre et PostgreSQL en annulait une (40P01). Ici, la fin de tentative
+    est suspendue juste après avoir verrouillé R, le temps que l'expiration avance.
+    """
+
+    context = postgresql_context
+    client = context["client"]
+    _queue_task(context, "Tâche finie à l'échéance")
+    run_id = _claim(context)["task_run"]["id"]
+    now = datetime.now(timezone.utc)
+    with context["session_factory"]() as db:
+        db.query(WorkerLeaseModel).filter_by(task_run_id=run_id).update(
+            {WorkerLeaseModel.lease_expires_at: now - timedelta(seconds=1)},
+            synchronize_session=False,
+        )
+        db.commit()
+    # Pour la fin de tentative, le bail est encore valide : elle lit son horloge
+    # dans ``work`` ; l'expiration, dans ``workers``, le voit échu.
+    monkeypatch.setattr(work_router, "utcnow", lambda: now - timedelta(minutes=10))
+
+    completion_holds_run = threading.Event()
+    expiry_holds_lease = threading.Event()
+    real_compare_and_set = work_router._compare_and_set_run_status
+    real_set_committed_value = workers_router.set_committed_value
+
+    def compare_and_set_after_the_expiry(*args, **kwargs):
+        completion_holds_run.set()
+        # Ancien ordre : l'expiration ferme le bail pendant cette pause. Nouvel ordre :
+        # elle attend la tentative, et la pause s'achève sur son délai.
+        expiry_holds_lease.wait(2)
+        return real_compare_and_set(*args, **kwargs)
+
+    def lease_closed(*args, **kwargs):
+        expiry_holds_lease.set()
+        return real_set_committed_value(*args, **kwargs)
+
+    monkeypatch.setattr(
+        work_router, "_compare_and_set_run_status", compare_and_set_after_the_expiry
+    )
+    monkeypatch.setattr(workers_router, "set_committed_value", lease_closed)
+
+    completion: dict = {}
+    counts: list[int] = []
+    failures: list[BaseException] = []
+
+    def complete() -> None:
+        completion["response"] = client.patch(
+            f"/task-runs/{run_id}",
+            headers=_worker_auth(context["worker"]),
+            json={"status": "failed"},
+        )
+
+    def expire() -> None:
+        try:
+            with context["session_factory"]() as db:
+                counts.append(expire_task_leases(db))
+        except BaseException as exc:  # pragma: no cover - diagnostic
+            failures.append(exc)
+
+    finisher = threading.Thread(target=complete)
+    finisher.start()
+    assert completion_holds_run.wait(30), "la fin de tentative n'a pas verrouillé R"
+    expiry = threading.Thread(target=expire)
+    expiry.start()
+    finisher.join(60)
+    expiry.join(60)
+    assert not finisher.is_alive() and not expiry.is_alive()
+
+    assert not failures, failures
+    assert completion["response"].status_code == 200, completion["response"].text
+    # La fin de tentative a relâché le bail avant que l'expiration le lise : rien à
+    # expirer, aucune interruption fantôme.
+    assert counts == [0]
+    assert _events_of_type(context, "task.interrupted", run_id) == []
+    assert len(_events_of_type(context, "task.failed", run_id)) == 1
+    with context["session_factory"]() as db:
+        assert db.get(TaskRunModel, run_id).status == "failed"
+        lease = db.query(WorkerLeaseModel).filter_by(task_run_id=run_id).one()
+        assert lease.status == "released"
+
+
+@pytest.mark.postgres
+@pytest.mark.concurrency
+def test_a_claim_never_deadlocks_with_the_stop_of_a_queued_mission(
+    postgresql_context, monkeypatch
+):
+    """Le claim prend la tentative en file avant la tâche, comme l'arrêt (R3).
+
+    Jusqu'en 0.9.0, le claim réservait la tâche T puis attendait la tentative R,
+    qu'un arrêt tenait en attendant d'écrire T : interblocage (40P01). Le claim
+    verrouille désormais R d'abord, en ``SKIP LOCKED`` : une tentative tenue par un
+    arrêt est passée, et l'arrêt s'applique.
+    """
+
+    context = postgresql_context
+    client = context["client"]
+    mission = _create_mission(context, "Mission arrêtée pendant un claim")
+
+    stop_holds_run = threading.Event()
+    claim_holds_task = threading.Event()
+    real_invalidate = missions_router._invalidate_run_approvals
+    real_session_model = work_router.SessionModel
+
+    def invalidate_after_the_claim(*args, **kwargs):
+        stop_holds_run.set()
+        # Ancien ordre : le claim réserve T pendant cette pause, puis attend R.
+        claim_holds_task.wait(2)
+        return real_invalidate(*args, **kwargs)
+
+    def session_model(*args, **kwargs):
+        claim_holds_task.set()
+        return real_session_model(*args, **kwargs)
+
+    monkeypatch.setattr(missions_router, "_invalidate_run_approvals", invalidate_after_the_claim)
+    monkeypatch.setattr(work_router, "SessionModel", session_model)
+
+    stop: dict = {}
+
+    def stop_mission() -> None:
+        stop["response"] = client.post(
+            f"/missions/{mission['id']}/stop",
+            headers={"Idempotency-Key": f"stop-{uuid4().hex}"},
+        )
+
+    stopper = threading.Thread(target=stop_mission)
+    stopper.start()
+    assert stop_holds_run.wait(30), "l'arrêt n'a pas verrouillé la tentative"
+    claimed = client.post(
+        f"/workers/{context['worker']['worker_id']}/claim",
+        headers={"Authorization": f"Bearer {context['worker']['token']}"},
+        json={"provider_id": "mock"},
+    )
+    stopper.join(60)
+    assert not stopper.is_alive()
+
+    assert stop["response"].status_code == 200, stop["response"].text
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["task"] is None
+    with context["session_factory"]() as db:
+        run = db.query(TaskRunModel).filter_by(task_id=mission["id"]).one()
+        assert run.status == "cancelled"
+        assert db.get(TaskModel, mission["id"]).status == "backlog"
+        assert db.query(WorkerLeaseModel).filter_by(task_run_id=run.id).count() == 0
+    assert len(_events_of_type(context, "mission.stop_requested", run.id)) == 1
+
+
+class _LockTimeout:
+    """Erreur psycopg minimale : ``55P03``, le délai de verrou de PostgreSQL."""
+
+    sqlstate = "55P03"
+
+    def __str__(self) -> str:
+        return "canceling statement due to lock timeout"
+
+
+def _journal_lock_times_out(monkeypatch) -> None:
+    """Le verrou du journal, pris au commit, dépasse son délai."""
+
+    def refuse(_db):
+        raise OperationalError("SELECT pg_advisory_xact_lock(...)", {}, _LockTimeout())
+
+    monkeypatch.setattr(events_bus, "_ensure_write_transaction", refuse)
+
+
+def test_a_claim_whose_events_cannot_be_journaled_reserves_nothing(
+    portability_context, monkeypatch
+):
+    """R6 : réservation et événements partent d'un seul commit.
+
+    Jusqu'en 0.9.0, le claim validait la tâche, la tentative, le bail et
+    ``active_runs``, puis journalisait ses événements dans une seconde transaction.
+    Un délai de verrou à ce moment rendait 503 « réessayez » au worker alors que la
+    réservation était validée : la tâche restait orpheline jusqu'à l'expiration du
+    bail. Désormais le 503 dit vrai : rien n'est réservé.
+    """
+
+    context = portability_context
+    client = context["client"]
+    task = _queue_task(context, "Tâche dont le journal est saturé")
+    _journal_lock_times_out(monkeypatch)
+
+    refused = client.post(
+        f"/workers/{context['worker']['worker_id']}/claim",
+        headers={"Authorization": f"Bearer {context['worker']['token']}"},
+        json={"provider_id": "mock"},
+    )
+
+    assert refused.status_code == 503, refused.text
+    assert refused.headers["retry-after"] == "1"
+    with context["session_factory"]() as db:
+        assert db.get(TaskModel, task["id"]).status == "queued"
+        assert db.query(WorkerLeaseModel).count() == 0
+        assert db.get(WorkerModel, context["worker"]["worker_id"]).active_runs == 0
+        assert db.query(TaskRunModel).filter_by(task_id=task["id"]).count() == 0
+
+    monkeypatch.undo()
+    claimed = _claim(context)
+    assert claimed["task"]["id"] == task["id"], "le worker qui réessaie obtient la tâche"
+
+
+def test_a_task_whose_creation_event_cannot_be_journaled_is_not_created(
+    portability_context, monkeypatch
+):
+    """R6 : un 503 après commit poussait le client à réessayer, d'où des doublons."""
+
+    context = portability_context
+    _journal_lock_times_out(monkeypatch)
+    refused = context["client"].post(
+        "/tasks",
+        json={"project_id": context["project_id"], "title": "Tâche à ne pas dupliquer"},
+    )
+    assert refused.status_code == 503, refused.text
+    with context["session_factory"]() as db:
+        assert db.query(TaskModel).filter_by(title="Tâche à ne pas dupliquer").count() == 0
+        assert db.query(EventModel).filter_by(type="task.created").count() == 0
+
+
 @pytest.mark.concurrency
 def test_heartbeat_never_overwrites_a_concurrent_claim(portability_context):
     """``active_runs`` est recalculé par la base sous verrou, jamais réécrit depuis une lecture.
@@ -1087,11 +1373,7 @@ def test_skill_revisions_are_stored_relative_to_the_storage_root(
     )
 
 
-def test_a_legacy_absolute_storage_path_is_still_read_as_is(portability_context, monkeypatch):
-    """Les révisions antérieures gardent leur chemin absolu : aucune migration de données."""
-
-    context = portability_context
-    client = context["client"]
+def _import_portable_skill(client, content: str) -> str:
     imported = client.post(
         "/skills/import",
         json={
@@ -1099,23 +1381,125 @@ def test_a_legacy_absolute_storage_path_is_still_read_as_is(portability_context,
                 "kind": "manual",
                 "files": [
                     {"path": "SKILL.md", "content": SKILL_MD},
-                    {"path": "reference/guide.md", "content": "# Guide historique\n"},
+                    {"path": "reference/guide.md", "content": content},
                 ],
             }
         },
     )
     assert imported.status_code == 201, imported.text
-    skill_id = imported.json()["id"]
-    legacy_root = context["tmp_path"] / "legacy-skills"
-    shutil.copytree(str(context["storage"]), str(legacy_root))
+    return imported.json()["id"]
+
+
+def _set_storage_path(context, skill_id: str, storage_path: str) -> None:
+    """Réécrit la ligne comme l'aurait laissée une version antérieure (aucune migration)."""
+
     with context["session_factory"]() as db:
         revision = db.query(SkillRevisionModel).filter_by(skill_id=skill_id).one()
-        revision.storage_path = str(legacy_root / skill_id / "1")
+        revision.storage_path = storage_path
         db.commit()
-    monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(context["tmp_path"] / "elsewhere"))
+
+
+def test_a_legacy_absolute_storage_path_under_the_root_is_still_read_as_is(
+    portability_context,
+):
+    """Les révisions 0.8.0 gardent leur chemin absolu : aucune migration de données."""
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide historique\n")
+    _set_storage_path(context, skill_id, str(context["storage"] / skill_id / "1"))
+
     response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
     assert response.status_code == 200, response.text
     assert response.json()["content"] == "# Guide historique\n"
+
+
+def test_a_legacy_relative_storage_path_from_0_8_0_is_still_read(
+    portability_context, monkeypatch
+):
+    """R28 : racine relative par défaut en 0.8.0, chemin mémorisé ``acp-data/skills/<id>/1``.
+
+    Le joindre à la racine doublait le préfixe (``acp-data/skills/acp-data/skills/…``) :
+    la lecture répondait 404 et le retour arrière 409, fichiers pourtant intacts.
+    """
+
+    context = portability_context
+    client = context["client"]
+    workdir = context["tmp_path"] / "service"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    monkeypatch.delenv("ACP_SKILLS_STORAGE_DIR")
+    skill_id = _import_portable_skill(client, "# Guide relatif\n")
+    assert (workdir / "acp-data" / "skills" / skill_id / "1" / "SKILL.md").is_file()
+    # Valeur exacte que ``store_revision`` de la 0.8.0 renvoyait avec la racine par défaut.
+    legacy = str(Path(skills_service.DEFAULT_STORAGE_DIR) / skill_id / "1")
+    assert not Path(legacy).is_absolute()
+    _set_storage_path(context, skill_id, legacy)
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "# Guide relatif\n"
+    rolled_back = client.post(f"/skills/{skill_id}/rollback", json={"revision_number": 1})
+    assert rolled_back.status_code == 200, rolled_back.text
+
+
+def test_a_legacy_absolute_path_follows_its_moved_root(portability_context, monkeypatch):
+    """Volume déplacé : le chemin absolu mémorisé n'existe plus, la racine configurée si."""
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide déplacé\n")
+    _set_storage_path(context, skill_id, str(context["storage"] / skill_id / "1"))
+    moved_root = context["tmp_path"] / "volume-neuf"
+    shutil.move(str(context["storage"]), str(moved_root))
+    monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(moved_root))
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "# Guide déplacé\n"
+
+
+def test_a_storage_path_outside_the_configured_root_is_refused(
+    portability_context, monkeypatch
+):
+    """Un chemin mémorisé hors de ``ACP_SKILLS_STORAGE_DIR`` n'est jamais suivi.
+
+    La ligne peut venir d'une sauvegarde restaurée ou d'une ancienne racine : la lire
+    telle quelle ferait servir par l'API un répertoire que l'opérateur n'a pas désigné.
+    """
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide historique\n")
+    outside = context["tmp_path"] / "hors-racine"
+    shutil.copytree(str(context["storage"]), str(outside))
+    _set_storage_path(context, skill_id, str(outside / skill_id / "1"))
+    monkeypatch.setenv("ACP_SKILLS_STORAGE_DIR", str(context["tmp_path"] / "ailleurs"))
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert "hors de la racine" in detail and "ACP_SKILLS_STORAGE_DIR" in detail
+    rolled_back = client.post(f"/skills/{skill_id}/rollback", json={"revision_number": 1})
+    assert rolled_back.status_code == 409, rolled_back.text
+    assert "hors de la racine" in rolled_back.json()["detail"]
+
+
+def test_a_relative_storage_path_cannot_escape_the_root(portability_context):
+    """``../`` dans la colonne ne mène jamais hors de la racine : seul l'emplacement
+    canonique ``<racine>/<skill_id>/<numéro>`` est lu."""
+
+    context = portability_context
+    client = context["client"]
+    skill_id = _import_portable_skill(client, "# Guide légitime\n")
+    planted = context["tmp_path"] / "piege" / skill_id / "1" / "reference"
+    planted.mkdir(parents=True)
+    (planted / "guide.md").write_text("# Contenu planté\n", encoding="utf-8")
+    _set_storage_path(context, skill_id, f"../piege/{skill_id}/1")
+
+    response = client.get(f"/skills/{skill_id}/revisions/1/files/reference/guide.md")
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "# Guide légitime\n"
 
 
 # --- 8. Horodatages naïfs du reporter -------------------------------------------

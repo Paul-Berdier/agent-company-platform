@@ -15,7 +15,8 @@ Sémantique tenue, et seulement celle-là :
 - **ordre du journal par relais** : un relais livre ses lignes par ``journal_seq``
   croissant et s'arrête à la première erreur de transport, pour ne jamais livrer
   ``n+1`` avant ``n`` de son propre lot ; deux relais parallèles ne livrent jamais
-  la même ligne (``SKIP LOCKED`` à la réclamation de chaque ligne), mais l'ordre
+  la même ligne sous PostgreSQL (``SKIP LOCKED``). Sous SQLite, une réservation
+  expirée peut causer un renvoi, sans écraser le résultat du nouveau relais. L'ordre
   **entre** relais n'est pas garanti — d'où une seule réplique par consommateur ;
 - jamais **exactement-une-fois** : personne ne peut le promettre au-dessus d'un
   transport HTTP sans transaction distribuée, et ce module ne le prétend pas.
@@ -29,14 +30,17 @@ d'événements.
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import or_, select
+from sqlalchemy.exc import DataError, DBAPIError
 from sqlalchemy.orm import Session
 
 from acp_contracts import Event, ServiceOriginError, normalize_service_origin
@@ -52,6 +56,7 @@ __all__ = [
     "LAST_ERROR_MAX_LENGTH",
     "MAX_ATTEMPTS_ENV",
     "OUTBOX_LOCK_KEY",
+    "POISON_ERRORS",
     "RELAY_ENABLED_ENV",
     "HttpxTransport",
     "OutboxConfigurationError",
@@ -216,9 +221,9 @@ def _http_timeout(environ: Mapping[str, str]) -> float:
         raise OutboxConfigurationError(
             f"{HTTP_TIMEOUT_ENV} : un délai en secondes est attendu, « {raw} » a été lu."
         ) from exc
-    if value <= 0:
+    if not math.isfinite(value) or not 0 < value <= 60:
         raise OutboxConfigurationError(
-            f"{HTTP_TIMEOUT_ENV} : un délai strictement positif est attendu ({raw} lu)."
+            f"{HTTP_TIMEOUT_ENV} : un délai entre 0 (exclu) et 60 secondes est attendu."
         )
     return value
 
@@ -240,6 +245,7 @@ def _destination(environ: Mapping[str, str]) -> tuple[str, str]:
         origin = normalize_service_origin(
             environ.get("ACP_EVENT_SERVICE_URL", "http://localhost:8001"),
             setting="ACP_EVENT_SERVICE_URL",
+            internal_http_hosts=environ.get("ACP_INTERNAL_HTTP_HOSTS", ""),
         )
     except ServiceOriginError as exc:
         raise OutboxConfigurationError(str(exc)) from exc
@@ -359,7 +365,7 @@ def _claim(db: Session, event_id: str, *, consumer: str) -> EventOutboxModel | N
 
     statement = select(EventOutboxModel).where(
         EventOutboxModel.event_id == event_id, *_pending_filter(consumer)
-    )
+    ).execution_options(populate_existing=True)
     if db.connection().dialect.name == "postgresql":
         statement = statement.with_for_update(skip_locked=True)
     else:
@@ -367,14 +373,125 @@ def _claim(db: Session, event_id: str, *, consumer: str) -> EventOutboxModel | N
     return db.execute(statement).scalar_one_or_none()
 
 
+def _describe(error: BaseException) -> str:
+    """Expurge les erreurs SQL : même ``orig`` peut recopier une valeur sensible."""
+
+    if isinstance(error, DBAPIError):
+        return f"{type(error).__name__}: erreur de base de données"
+    return f"{type(error).__name__}: {error}"
+
+
 def _failure_message(response: Any | None, error: BaseException | None) -> str:
     if error is not None:
-        return f"{type(error).__name__}: {error}"[:LAST_ERROR_MAX_LENGTH]
+        return _describe(error)[:LAST_ERROR_MAX_LENGTH]
     body = ""
     if response is not None:
         body = (getattr(response, "text", "") or "").strip().replace("\n", " ")
     status = getattr(response, "status_code", "?")
     return f"HTTP {status}: {body}"[:LAST_ERROR_MAX_LENGTH]
+
+
+class _OrphanRow(LookupError):
+    """La ligne d'outbox désigne un événement absent du journal."""
+
+
+POISON_ERRORS: tuple[type[BaseException], ...] = (
+    DataError,
+    ValueError,
+    TypeError,
+    _OrphanRow,
+)
+"""Erreurs **déterministes** propres à un message : le rejouer ne changerait rien.
+
+``DataError`` : valeur que le pilote ne sait pas relire (date au-delà de l'an 9999
+sous psycopg) ; ``ValueError`` : charge utile illisible (JSON corrompu), contrat
+invalide (``ValidationError`` en hérite), encodage impossible par ``httpx``
+(``UnicodeEncodeError`` en hérite) ; ``TypeError`` : valeur non sérialisable. Une
+ligne qui lève l'une d'elles passe en lettre morte au premier essai au lieu de
+retenir la file pour toujours. Une panne de base (``OperationalError``) n'en fait
+pas partie : elle remonte, et la ligne sera rejouée.
+"""
+
+
+def _header_value(value: str) -> str:
+    """Valeur d'en-tête toujours ASCII : encodage en pourcentage (RFC 3986).
+
+    ``httpx`` encode les en-têtes en ASCII ; un identifiant d'événement accentué,
+    que la route ``POST /events`` accepte, levait ``UnicodeEncodeError`` avant tout
+    envoi. Un UUID passe inchangé ; l'identifiant qui fait foi reste celui du corps.
+    """
+
+    return quote(value, safe="")
+
+
+def _prepare(
+    db: Session, row: EventOutboxModel, *, token: str, attempt: int
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Relit l'événement d'une ligne et construit le corps et les en-têtes de l'envoi.
+
+    Lève l'une des :data:`POISON_ERRORS` si l'événement est illisible, absent ou
+    impossible à transporter.
+    """
+
+    model = db.get(EventModel, row.event_id)
+    if model is None:
+        raise _OrphanRow(
+            f"ligne d'outbox orpheline : l'événement {row.event_id} n'existe plus "
+            "dans le journal"
+        )
+    body = event_from_model(model).model_dump(mode="json")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        EVENT_ID_HEADER: _header_value(model.id),
+        JOURNAL_SEQ_HEADER: str(row.journal_seq),
+        DELIVERY_ATTEMPT_HEADER: str(attempt),
+    }
+    return body, headers
+
+
+def _dead_letter_poison(
+    db: Session,
+    event_id: str,
+    *,
+    consumer: str,
+    attempts: int,
+    moment: datetime,
+    error: BaseException,
+    reservation: datetime | None = None,
+) -> bool:
+    """Passe en lettre morte une ligne empoisonnée, dans une transaction neuve.
+
+    La transaction de réclamation est annulée d'abord : sous PostgreSQL, une
+    ``DataError`` l'a rendue inutilisable. La ligne est réclamée à nouveau et n'est
+    modifiée que si personne ne l'a changée entre-temps (même nombre d'essais).
+    Renvoie vrai si la ligne a été écartée.
+    """
+
+    db.rollback()
+    row = _claim(db, event_id, consumer=consumer)
+    if row is None or int(row.attempts) != attempts or (
+        reservation is not None and _as_utc(row.next_attempt_at) != reservation
+    ):
+        db.rollback()
+        return False
+    row.attempts = attempts + 1
+    cause = "ligne orpheline" if isinstance(error, _OrphanRow) else type(error).__name__
+    # Les exceptions de validation peuvent contenir le corps intégral de l'événement.
+    row.last_error = f"message non transmissible : {cause}"
+    row.dead_at = moment
+    db.commit()
+    return True
+
+
+def _resume_reserved_row(
+    db: Session, event_id: str, *, consumer: str, reservation: datetime
+) -> EventOutboxModel | None:
+    """Ne valide que le résultat de notre réservation SQLite, jamais celui d'un tiers."""
+    row = _claim(db, event_id, consumer=consumer)
+    if row is None or _as_utc(row.next_attempt_at) != reservation:
+        db.rollback()
+        return None
+    return row
 
 
 def relay_once(
@@ -392,17 +509,22 @@ def relay_once(
     avec le Bearer ``ACP_EVENT_SERVICE_TOKEN`` et les en-têtes ``X-ACP-Event-Id``,
     ``X-ACP-Journal-Seq``, ``X-ACP-Delivery-Attempt``) puis validée **une par une**,
     pour qu'un arrêt brutal ne relivre que la ligne en cours. Un 2xx marque
-    ``delivered_at`` ; tout autre statut ou une erreur ``httpx`` incrémente
-    ``attempts``, recule ``next_attempt_at`` de ``min(2^attempts, 300)`` secondes,
-    conserve le message dans ``last_error`` et **arrête le lot** : livrer la ligne
-    suivante avant celle-ci violerait l'ordre du journal. Pour la même raison, une
-    ligne reculée retient celles qui la suivent jusqu'à son échéance : le passage
-    s'arrête sur la première ligne non encore due. Au-delà de
-    ``ACP_OUTBOX_MAX_ATTEMPTS`` essais, la ligne passe en lettre morte (``dead_at``)
-    et cesse de retenir la file — c'est à cela que sert la lettre morte.
+    ``delivered_at``. Les refus de message (400, 413, 422) et les erreurs inconnues
+    du transport consomment un essai, avec recul exponentiel plafonné à 300 s et
+    lettre morte après ``ACP_OUTBOX_MAX_ATTEMPTS``. Les erreurs déterministes de
+    préparation deviennent immédiatement des lettres mortes, sans exposer leur
+    charge utile dans le diagnostic. Une panne réseau, un 5xx ou un refus de
+    configuration (401/403) retient la tête de file sans consommer ses essais ;
+    nouvelle échéance après 2 s, recul supplémentaire en mode ``--follow``.
 
-    Une exception étrangère au transport (base injoignable, commit refusé) remonte
-    telle quelle : la ligne reste due et sera renvoyée — c'est l'au-moins-une-fois.
+    Sous SQLite, une transaction courte réserve la ligne dans ``next_attempt_at``
+    pendant ``4 * timeout + 30`` secondes, puis rend le verrou avant HTTP. Seul le
+    détenteur de cette réservation peut enregistrer son résultat. Après un arrêt
+    brutal ou un envoi dépassant la réservation, la ligne peut être relivrée :
+    le consommateur doit dédupliquer. Le délai HTTP borne les phases d'I/O, pas
+    la durée totale d'une réponse diffusée lentement. Sous PostgreSQL, le verrou
+    de ligne reste tenu pendant HTTP. Une panne de base ou de commit remonte :
+    la livraison sera retentée (après expiration de la réservation sous SQLite).
     ``now`` et ``environ`` sont injectables ; sans transport, un ``httpx.Client`` sans
     mandataire est construit.
     """
@@ -429,6 +551,8 @@ def relay_once(
             # que chaque ligne soit réclamée dans la sienne.
             db.rollback()
             for event_id, _journal_seq in candidates:
+                if now is None:
+                    moment = _utcnow()
                 row = _claim(db, event_id, consumer=consumer)
                 if row is None:
                     # Livrée ou tenue par un autre relais entre-temps : rien à faire.
@@ -438,33 +562,66 @@ def relay_once(
                     # Tête de file reculée : rien de ce qui suit ne peut partir avant elle.
                     db.rollback()
                     break
-                model = db.get(EventModel, row.event_id)
-                if model is None:
-                    # Impossible tant que la clé étrangère tient ; refus explicite
-                    # plutôt qu'une ligne sautée en silence.
-                    db.rollback()
-                    raise RuntimeError(
-                        f"Ligne d'outbox orpheline : l'événement {row.event_id} "
-                        "n'existe plus dans le journal."
-                    )
-                attempt = int(row.attempts) + 1
-                headers = {
-                    "Authorization": f"Bearer {token}",
-                    EVENT_ID_HEADER: model.id,
-                    JOURNAL_SEQ_HEADER: str(row.journal_seq),
-                    DELIVERY_ATTEMPT_HEADER: str(attempt),
-                }
+                claimed_attempts = int(row.attempts)
+                attempt = claimed_attempts + 1
+                try:
+                    body, headers = _prepare(db, row, token=token, attempt=attempt)
+                except POISON_ERRORS as exc:
+                    # Rejouer une erreur déterministe ne changerait rien : la ligne
+                    # part en lettre morte et cesse aussitôt de retenir la file.
+                    if _dead_letter_poison(
+                        db,
+                        event_id,
+                        consumer=consumer,
+                        attempts=claimed_attempts,
+                        moment=moment,
+                        error=exc,
+                    ):
+                        failed += 1
+                        dead += 1
+                    continue
                 response = None
                 transport_error: BaseException | None = None
+                reservation = None
+                if db.get_bind().dialect.name == "sqlite":
+                    # Réservation courte, persistante en cas d'arrêt brutal. Le réseau
+                    # ne garde aucun verrou de fichier. Après expiration un autre relais
+                    # peut reprendre : une réponse tardive ne doit pas écraser son état.
+                    reservation = moment + timedelta(seconds=4 * timeout + 30)
+                    row.next_attempt_at = reservation
+                    db.commit()
                 try:
                     response = client.post(
-                        url,
-                        json=event_from_model(model).model_dump(mode="json"),
-                        headers=headers,
-                        timeout=timeout,
+                        url, json=body, headers=headers, timeout=timeout
                     )
                 except httpx.HTTPError as exc:
                     transport_error = exc
+                except (ValueError, TypeError) as exc:
+                    # Levée avant tout envoi (encodage du corps ou des en-têtes par
+                    # ``httpx``) : aussi déterministe qu'une ligne illisible.
+                    if _dead_letter_poison(
+                        db,
+                        event_id,
+                        consumer=consumer,
+                        attempts=claimed_attempts,
+                        moment=moment,
+                        error=exc,
+                        reservation=reservation,
+                    ):
+                        failed += 1
+                        dead += 1
+                    continue
+                except Exception as exc:  # noqa: BLE001 — compté, jamais propagé
+                    # Exception inconnue du transport : elle ne doit ni tuer le relais
+                    # ni retenir la file sans fin. Elle compte un essai, comme un
+                    # refus, et mène à la lettre morte au-delà de la borne.
+                    transport_error = exc
+                if reservation is not None:
+                    row = _resume_reserved_row(
+                        db, event_id, consumer=consumer, reservation=reservation
+                    )
+                    if row is None:
+                        continue
                 status = getattr(response, "status_code", None)
                 if transport_error is None and status is not None and 200 <= int(status) < 300:
                     row.delivered_at = moment
@@ -473,14 +630,20 @@ def relay_once(
                     cursor_hint = int(row.journal_seq)
                     continue
                 error = _failure_message(response, transport_error)
-                row.attempts = attempt
                 row.last_error = error
-                if attempt >= limit:
+                message_failure = status in {400, 413, 422} or (
+                    transport_error is not None
+                    and not isinstance(transport_error, httpx.HTTPError)
+                )
+                if message_failure:
+                    row.attempts = attempt
+                if message_failure and attempt >= limit:
                     row.dead_at = moment
                     dead += 1
                 else:
                     row.next_attempt_at = moment + timedelta(
-                        seconds=min(2**attempt, BACKOFF_CAP_SECONDS)
+                        seconds=min(2 ** min(attempt, 9), BACKOFF_CAP_SECONDS)
+                        if message_failure else 2
                     )
                 db.commit()
                 failed += 1

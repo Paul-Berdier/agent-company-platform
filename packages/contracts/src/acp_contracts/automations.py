@@ -18,7 +18,6 @@ from decimal import Decimal
 from typing import Literal
 
 from pydantic import (
-    BaseModel,
     ConfigDict,
     Field,
     JsonValue,
@@ -26,9 +25,10 @@ from pydantic import (
     model_validator,
 )
 
+from .limits import DatabaseModel as BaseModel
 from .missions import (
-    MAX_BUDGET_COUNTER,
     MAX_BUDGET_COST,
+    MAX_BUDGET_COUNTER,
     MissionAutonomy,
     MissionBudget,
     MissionCreate,
