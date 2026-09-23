@@ -206,17 +206,25 @@ try {
 
     $script:CodeCourant = $codes.EmpaquetageEchoue
     Write-AcpEtape "Déploiement des dépendances Qt (windeployqt)"
-    # --qmldir force l'analyse des imports QML ; --compiler-runtime embarque le
-    # runtime MSVC pour que l'archive portable fonctionne sur un poste nu. Les
+    # --qmldir force l'analyse des imports QML. Le CRT MSVC est déployé plus bas
+    # en DLL app-local : --compiler-runtime ne copie qu'un installateur VC Redist
+    # en Release, ce qui ne rend pas une archive ZIP autonome. Les
     # traductions Qt sont volontairement conservées : elles portent le français
     # des boîtes de dialogue standard.
     Invoke-AcpProcess -FilePath $windeployqt -Arguments @(
         "--$($Configuration.ToLowerInvariant())",
         '--qmldir', $repertoireQml,
-        '--compiler-runtime',
+        '--no-compiler-runtime',
         '--verbose', '1',
         $executableScene
     ) -Message "windeployqt a échoué"
+
+    if ($Configuration -ne 'Release') {
+        throw "Seule la configuration Release peut être distribuée : le CRT Debug n'est pas redistribuable."
+    }
+    Write-AcpEtape 'Déploiement du CRT MSVC redistribuable (DLL app-local x64)'
+    $runtime = Copy-AcpMsvcRuntime -BuildDirectory $repertoireCompilation -Destination $scene
+    Write-Host "CRT $($runtime.Version), $($runtime.FileCount) DLL ; toolset minimum $($runtime.RequiredVersion), Qt linker $($runtime.QtLinkerVersion)."
 
     # --- 4. Certificat ------------------------------------------------------------
     $signatureDemandee = (-not $DryRun) -and (-not [string]::IsNullOrWhiteSpace($PfxPath))

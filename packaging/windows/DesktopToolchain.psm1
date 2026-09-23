@@ -195,19 +195,38 @@ function Find-AcpVisualStudio {
     return ([string]$chemin).Trim()
 }
 
+function Set-AcpMsvcOutputEncoding {
+    # Préférer l'anglais lorsqu'il est installé. Sinon MSVC garde sa langue :
+    # la page UTF-8 doit donc être la même pour sa sortie et sa détection CMake.
+    $env:VSLANG = '1033'
+    $chcp = Join-Path $env:SystemRoot 'System32\chcp.com'
+    & $chcp 65001 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Impossible d'initialiser la page de codes UTF-8 de la console MSVC."
+    }
+}
+
 function Enter-AcpMsvcEnvironment {
     <#
     .SYNOPSIS
         Charge l'environnement de développement MSVC x64 dans la session courante.
 
     .DESCRIPTION
-        Ne fait rien si cl.exe est déjà joignable. Sinon, localise Visual Studio par
+        Préfère l'anglais (VSLANG=1033) et fixe la page de codes UTF-8 de la console
+        pour la configuration CMake et la compilation, y compris si cl.exe est
+        déjà joignable. MSVC reste utilisable avec son seul pack de langue installé.
+        Sinon, localise Visual Studio par
         vswhere puis invoque Launch-VsDevShell.ps1, qui est la méthode documentée par
         Microsoft pour initialiser un environnement de compilation depuis un script
         (https://learn.microsoft.com/en-us/visualstudio/ide/reference/command-prompt-powershell,
         consultée le 18 septembre 2026). Renvoie $true si cl.exe est joignable ensuite.
     #>
-    if (Get-Command -Name 'cl.exe' -CommandType Application -ErrorAction SilentlyContinue) {
+    # /showIncludes est un protocole de dépendances pour Ninja. La console
+    # UTF-8 évite un préfixe mal décodé, y compris sans pack anglais installé.
+    Set-AcpMsvcOutputEncoding
+    $compilateur = Get-Command -Name 'cl.exe' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($compilateur) {
         return $true
     }
 
@@ -226,7 +245,12 @@ function Enter-AcpMsvcEnvironment {
     }
 
     & $lanceur -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
-    return [bool](Get-Command -Name 'cl.exe' -CommandType Application -ErrorAction SilentlyContinue)
+    # Réaffirmer après le lanceur, qui peut importer une préférence de langue.
+    Set-AcpMsvcOutputEncoding
+    $compilateur = Get-Command -Name 'cl.exe' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $compilateur) { return $false }
+    return $true
 }
 
 function Get-AcpPrerequisites {
@@ -390,6 +414,97 @@ function Get-AcpBuildDirectory {
     return (Join-Path $source "build\$Preset")
 }
 
+function Copy-AcpMsvcRuntime {
+    <#
+    .SYNOPSIS
+        Déploie le CRT MSVC x64 redistribuable à côté de l'exécutable Release.
+    .DESCRIPTION
+        Utilise l'installation Visual Studio du compilateur enregistré par CMake,
+        jamais une DLL trouvée dans System32 ou dans le PATH. La version des DLL
+        doit couvrir le toolset utilisé et le linker du Qt effectivement déployé.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string] $BuildDirectory,
+        [Parameter(Mandatory = $true)][string] $Destination
+    )
+
+    $cache = Get-Content -LiteralPath (Join-Path $BuildDirectory 'CMakeCache.txt')
+    $compiler = @($cache | Where-Object { $_ -match '^CMAKE_CXX_COMPILER:FILEPATH=' })
+    if ($compiler.Count -ne 1 -or $compiler[0] -notmatch
+        '^CMAKE_CXX_COMPILER:FILEPATH=(.+[\\/]VC)[\\/]Tools[\\/]MSVC[\\/](14\.\d+\.\d+)[\\/]bin[\\/]Host(?:x64|x86)[\\/]x64[\\/]cl\.exe$') {
+        throw 'Le cache CMake ne désigne pas un toolset MSVC x64 redistribuable connu.'
+    }
+    $vcRoot = $Matches[1]
+    $minimumVersion = [version]($Matches[2] + '.0')
+    if ($minimumVersion.Minor -lt 30) {
+        throw 'Le client Qt MSVC 2022 exige le CRT VC143 (toolset 14.30 ou plus récent).'
+    }
+
+    function Read-AcpPeRuntimeContract([string] $Path) {
+        $reader = New-Object System.IO.BinaryReader([System.IO.File]::OpenRead($Path))
+        try {
+            if ($reader.ReadUInt16() -ne 0x5a4d) { throw "Fichier PE invalide : $Path" }
+            $reader.BaseStream.Position = 0x3c
+            $offset = $reader.ReadUInt32()
+            $reader.BaseStream.Position = $offset
+            if ($reader.ReadUInt32() -ne 0x4550 -or $reader.ReadUInt16() -ne 0x8664) {
+                throw "Le fichier n'est pas un binaire PE x64 : $Path"
+            }
+            $reader.BaseStream.Position = $offset + 24
+            if ($reader.ReadUInt16() -ne 0x20b) { throw "En-tête PE32+ attendu : $Path" }
+            return [version](('{0}.{1}' -f $reader.ReadByte(), $reader.ReadByte()))
+        }
+        finally { $reader.Dispose() }
+    }
+
+    $qtLinker = Read-AcpPeRuntimeContract (Join-Path $Destination 'Qt6Core.dll')
+    $appLinker = Read-AcpPeRuntimeContract (Join-Path $Destination 'AgentCompanyPlatform.exe')
+    $redistRoot = Join-Path $vcRoot 'Redist/MSVC'
+    $candidates = @(Get-ChildItem -LiteralPath $redistRoot -Directory | Where-Object {
+        $_.Name -match '^14\.\d+\.\d+$'
+    } | ForEach-Object {
+        $directory = Join-Path $_.FullName 'x64/Microsoft.VC143.CRT'
+        $runtime = Join-Path $directory 'vcruntime140.dll'
+        if (Test-Path -LiteralPath $runtime) {
+            $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($runtime)
+            $version = [version]('{0}.{1}.{2}.{3}' -f $info.FileMajorPart,
+                $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart)
+            if ($version -ge $minimumVersion -and $version -ge $qtLinker -and $version -ge $appLinker) {
+                [pscustomobject]@{ Directory = $directory; Version = $version }
+            }
+        }
+    } | Sort-Object Version -Descending)
+    if ($candidates.Count -eq 0) {
+        throw "CRT VC143 x64 redistribuable introuvable ou trop ancien (minimum $minimumVersion ; Qt linker $qtLinker)."
+    }
+    $selected = $candidates[0]
+    $required = @('concrt140.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll',
+        'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+    foreach ($name in $required) {
+        if (-not (Test-Path -LiteralPath (Join-Path $selected.Directory $name))) {
+            throw "CRT redistribuable incomplet : $name absent."
+        }
+    }
+    $files = @(Get-ChildItem -LiteralPath $selected.Directory -File -Filter '*.dll')
+    foreach ($file in $files) {
+        $null = Read-AcpPeRuntimeContract $file.FullName
+        $info = $file.VersionInfo
+        $version = [version]('{0}.{1}.{2}.{3}' -f $info.FileMajorPart,
+            $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart)
+        if ($version -ne $selected.Version) { throw "Versions CRT incohérentes : $($file.Name)." }
+    }
+    foreach ($file in $files) {
+        Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $Destination $file.Name)
+    }
+    return [pscustomobject]@{
+        Version = $selected.Version.ToString()
+        RequiredVersion = $minimumVersion.ToString()
+        QtLinkerVersion = $qtLinker.ToString()
+        Directory = $selected.Directory
+        FileCount = $files.Count
+    }
+}
+
 function Invoke-AcpProcess {
     <#
     .SYNOPSIS
@@ -467,6 +582,7 @@ Export-ModuleMember -Function `
     Find-AcpInnoSetupCompiler, `
     Get-AcpPresetName, `
     Get-AcpBuildDirectory, `
+    Copy-AcpMsvcRuntime, `
     Invoke-AcpProcess, `
     Get-AcpSha256, `
     Write-AcpChecksumFile

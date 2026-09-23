@@ -14,12 +14,20 @@ name: Desktop CI
   pull_request:
     paths:
       - "apps/desktop/**"
+      - "apps/api/**"
+      - "packages/contracts/**"
+      - "packages/database/**"
+      - "packages/agent-sdk/**"
+      - "requirements/**"
       - "packaging/windows/**"
       - "scripts/setup-desktop.ps1"
       - "scripts/dev-desktop.ps1"
       - "scripts/build-desktop.ps1"
       - "scripts/test-desktop.ps1"
       - "scripts/package-desktop.ps1"
+      - "scripts/verify-desktop-journey.py"
+      - "scripts/prepare-desktop-python-lock.py"
+      - "scripts/tests/test_prepare_desktop_python_lock.py"
       - ".github/workflows/desktop-ci.yml"
       - "VERSION"
   push:
@@ -29,12 +37,20 @@ name: Desktop CI
       - "feat/**"
     paths:
       - "apps/desktop/**"
+      - "apps/api/**"
+      - "packages/contracts/**"
+      - "packages/database/**"
+      - "packages/agent-sdk/**"
+      - "requirements/**"
       - "packaging/windows/**"
       - "scripts/setup-desktop.ps1"
       - "scripts/dev-desktop.ps1"
       - "scripts/build-desktop.ps1"
       - "scripts/test-desktop.ps1"
       - "scripts/package-desktop.ps1"
+      - "scripts/verify-desktop-journey.py"
+      - "scripts/prepare-desktop-python-lock.py"
+      - "scripts/tests/test_prepare_desktop_python_lock.py"
       - ".github/workflows/desktop-ci.yml"
       - "VERSION"
 
@@ -56,6 +72,8 @@ jobs:
     # binaires Qt msvc2022_64 et celui des postes de développement.
     runs-on: windows-2022
     timeout-minutes: 60
+    env:
+      PYTHONUTF8: "1"
     defaults:
       run:
         shell: pwsh
@@ -124,6 +142,33 @@ jobs:
           cache: true
           cache-key-prefix: desktop-qt-${{ env.ACP_QT_VERSION }}-${{ env.ACP_QT_ARCH }}
 
+      # L'action Qt choisit sa propre version Python. Reposer 3.12 APRÈS Qt évite
+      # d'exécuter l'API avec le Python de l'installateur Qt (3.14 dans cette action).
+      - name: Installer Python 3.12 pour le parcours API
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements/python-3.12.lock.txt
+            requirements/desktop-windows-overlay.lock.txt
+
+      - name: Préparer l'API locale avec les dépendances hachées
+        run: |
+          python -m venv .test-tmp/desktop-python
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $journeyPython = Join-Path $PWD '.test-tmp/desktop-python/Scripts/python.exe'
+          & $journeyPython -m unittest discover -s scripts/tests -p test_prepare_desktop_python_lock.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython scripts/prepare-desktop-python-lock.py --target-platform win32
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython -m pip install --require-hashes --no-deps --only-binary=:all: -r .test-tmp/desktop-python-3.12.lock.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython -m pip install --no-deps --no-build-isolation -e packages/contracts -e packages/database -e packages/agent-sdk -e apps/api
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Inventorier les prérequis
         run: ./scripts/setup-desktop.ps1
 
@@ -132,6 +177,15 @@ jobs:
 
       - name: Exécuter les tests Qt Test et Qt Quick Test
         run: ./scripts/test-desktop.ps1 -Configuration Release
+
+      - name: Vérifier le parcours Qt contre une vraie API locale jetable
+        run: |
+          Import-Module ./packaging/windows/DesktopToolchain.psm1 -Force
+          $journeyQt = Resolve-AcpQtDirectory
+          if (-not $journeyQt) { throw 'Qt introuvable pour le parcours API natif.' }
+          $journeyPython = Join-Path $PWD '.test-tmp/desktop-python/Scripts/python.exe'
+          & $journeyPython scripts/verify-desktop-journey.py --qt-bin (Join-Path $journeyQt 'bin')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Empaquetage à blanc : produit réellement l'installeur, l'archive portable
       # et les sommes de contrôle, pour prouver que la chaîne de distribution
@@ -148,5 +202,12 @@ jobs:
             dist/desktop/*.exe
             dist/desktop/*.zip
             dist/desktop/SHA256SUMS.txt
+            .test-tmp/desktop-journey-*/qt-journey.log
+            .test-tmp/desktop-journey-*/qt-journey.xml
+            .test-tmp/desktop-journey-*/result.json
+            .test-tmp/desktop-journey-*/api.log
+          # Le dossier .test-tmp est caché ; seules les quatre preuves ci-dessus sont
+          # autorisées, jamais le décor SQLite, ses fichiers ou l'environnement Python.
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

@@ -76,8 +76,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"
-Name: "{autodesktop}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Check: not WizardNoIcons
+Name: "{autodesktop}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Tasks: desktopicon; Check: not WizardNoIcons
 
 [Run]
 Filename: "{app}\{#AcpExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AcpName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
