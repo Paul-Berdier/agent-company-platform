@@ -48,6 +48,12 @@ et bloque la réexécution incertaine. Les branches produites demandent une int�
 explicite. Les essais natifs des CLI utilisent des services locaux de test ; aucune
 génération payante réelle n'est annoncée.
 
+Ce raccordement est suivi par la
+[PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11).
+Le commit fonctionnel `47de619` a passé les CI Windows/Qt, SQLite, PostgreSQL et
+Node ; le bilan détaille également les **3 025 tests Python locaux réussis**,
+les 70 ignorés et les **22 suites Qt**.
+
 ![Palette du desktop Qt, thème sombre, données de recette isolées](docs/assets/screenshots/desktop-command-palette-dark.png)
 
 Pour préparer **ACP, Hermes, Claude Code, un worker Codex/Claude et un coffre de notes

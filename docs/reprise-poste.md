@@ -4,7 +4,8 @@
 Ce relevé remplace l'état du 18 septembre : le client natif et les écrans métier
 existent désormais. Le chantier courant est **0.10.0 en préparation**.
 
-Reprise fonctionnelle en cours sur `codex/functional-completion` : lire le
+Reprise fonctionnelle sur `codex/functional-completion`, suivie par la
+[PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11) : lire le
 [bilan du 23 septembre](functional-completion-2026-09-23.md) avant les relevés
 historiques ci-dessous. Missions supervisées et équipes explicites, checkpoints
 d'effets, restitution métier, compétences et proxy MCP sont raccordés dans
@@ -13,6 +14,9 @@ partitions disjointes sur bases jetables. Qt : **22 suites sur 22** et parcours
 Qt/API réelle **3 réussis**, avec captures d'interactions distinctes. Le web donne
 **325 tests réussis**, typage et construction verts. La validation MCP ciblée donne
 **36 réussis, 0 ignoré** après revue. Ces groupes ciblés recouvrent la suite complète.
+Le commit fonctionnel `47de619` est validé par les CI plateforme `35856502360`
+et desktop `35856502324`, toutes deux vertes. Le bilan contient les liens directs,
+les empreintes du paquet local final et les limites de son installation.
 
 La pile locale et Hermes sont installés et ont démarré sur loopback. Hermes est
 joignable mais **dégradé**, sans modèle configuré ; **aucun Run génératif payant**

@@ -8,9 +8,32 @@ générative complète avec des comptes Claude, Codex et Hermes authentifiés.
 
 Ce relevé complète l'[audit initial sur `ce42ae2`](functional-audit-2026-09-23.md),
 conservé comme photographie des défauts avant correction. Les nouvelles sources
-ont passé la validation locale complète. La CI, la fusion et la publication
-restent des preuves distinctes ; les CI de la base précédente ne valident pas
-le présent lot.
+ont passé la validation locale complète. La fusion et la publication restent
+des preuves distinctes ; les CI de la base précédente ne valident pas le présent lot.
+
+## Intégration continue du code publié
+
+Le commit fonctionnel est `47de619fe8a8f108d68f37c7b4276ba74baacfc4`.
+La [CI desktop Windows](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/35856502324)
+est **verte** : compilation Release, **22 suites Qt sur 22** en 63,64 secondes,
+parcours Qt/API jetable et création des paquets. Les artefacts de ce workflow
+servent à l'inspection ; il ne signe ni ne publie de version.
+
+La [CI plateforme](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/35856502360)
+est également **verte** sur ce même commit : suites Python SQLite et PostgreSQL 16,
+parcours d'événements, automatisations et sauvegarde/restauration, puis tests,
+typage et build Node 22. Playwright distant reste volontairement ignoré hors
+d'un lancement explicite configuré. Le suivi de l'intégration et les contrôles de
+sa révision finale sont accessibles dans la
+[PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11).
+
+Les journaux de cette CI donnent **3 031 réussis, 64 ignorés** sous SQLite
+(258,99 s) et **3 041 réussis, 54 ignorés** sous PostgreSQL (790,79 s). Le parcours
+d'automatisation SQLite réussit 62 contrôles ; PostgreSQL réussit 77 contrôles
+d'événements, 65 d'automatisation et 48 de sauvegarde/restauration. Les nombres
+diffèrent de Windows selon le dialecte et les prérequis du système ; un cas ignoré
+n'est jamais compté comme réussi. Copie locale :
+`.test-tmp/ci-35856502360/{platform.log,test-summary.json}`.
 
 ## Corrections et comportements livrés dans l'arbre de travail
 
@@ -85,6 +108,21 @@ doivent pas être additionnés en un total global.
 | Enrôlement worker contre API réelle jetable | HTTP **201**, capacités `agent_team`/`claude_code`/`codex_cli`, portée projet, DPAPI relu et heartbeat **200** ; aucun claim ni modèle lancé | `.test-tmp/worker-local-journey-da2c1d12ac2b4aa188b3802dd1dc9acf/result.json` |
 | Contrats et automatisations après intégration d'équipe | **322 réussis**, 63,52 s ; conservation du mode équipe jusqu'à la tentative et refus d'un workspace hors projet | `.test-tmp/automation-contract-final.xml` |
 | Premier paquet desktop du lot, avant le dernier correctif Operations | ZIP et installateur 0.10.0 produits, **1 387 fichiers extraits vérifiés par SHA-256**, non signés et non publiés ; installation annulée proprement par sandbox. Ce paquet ne représente pas le dernier code Qt. | `dist/desktop-functional-20260923/{package-validation.json,install-validation.json,SHA256SUMS.txt}` |
+| Paquet final depuis `47de619` | Release Qt 6.8.3 / version 0.10.0 ; **1 394 entrées ZIP, 1 387 fichiers extraits**, tous identiques au staging par SHA-256 ; sources propres avant/après | `dist/desktop-functional-final-20260923/{package-validation.json,source-provenance.json,SHA256SUMS.txt}` |
+
+Les 70 cas ignorés de la passe SQLite comprennent 60 tests PostgreSQL, quatre
+tests POSIX non applicables sous Windows, trois tests d'entrypoint nécessitant
+`sh` et trois tests de liens symboliques indisponibles sur ce poste. Le détail
+provient des rapports XML, conservé dans `.test-tmp/functional-skips.json` ; aucun
+paquet Python manquant n'est signalé par ces motifs.
+
+Le paquet final local reste **non signé et non publié**, sans installation ni
+lancement par le harnais de packaging. Il ne prouve pas une installation Windows :
+
+| Fichier | Octets | SHA-256 |
+|---|---:|---|
+| `AgentCompanyPlatform-Setup-0.10.0-x64.exe` | 24 326 708 | `6808f7631800709aa5f97dbd2f4752b08ba77ca5b54706598d325508b99fcc6c` |
+| `AgentCompanyPlatform-Portable-0.10.0-x64.zip` | 37 007 629 | `dc6b5c381d819388e09f2936cd3ec19bfae2bee1bcdb4b6328c2e8384e079591` |
 
 Le parcours API couvre session/cookie/CSRF, projet, mission avec tentative réelle
 en file, budget, automatisation en pause, export dont octets et SHA-256 sont
@@ -169,8 +207,8 @@ non prises en charge sont refusées explicitement. Procédure et limites :
 
 ## Ce qui reste à terminer
 
-- CI de la révision publiée et procédure de publication de `CLAUDE.md` ; les preuves
-  locales et historiques ne remplacent pas cette validation distante.
+- Procédure de publication de `CLAUDE.md` après clôture des limites ; une CI verte
+  ne constitue pas une publication 0.10.0 ni une fin de V1.
 - Recette autorisée avec authentifications et modèle réellement disponibles :
   Hermes → Claude/Codex → résultat, puis MCP métier et compétences sur un projet
   dédié. L'installation des binaires et la santé HTTP ne suffisent pas.
