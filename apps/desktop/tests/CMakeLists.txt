@@ -39,6 +39,10 @@ acp_add_cpp_test(tst_session_persistence)
 acp_add_cpp_test(tst_api_journey)
 acp_add_cpp_test(tst_desktop_pages)
 acp_add_cpp_test(tst_desktop_interactions)
+acp_add_cpp_test(tst_conversations_ui)
+target_link_libraries(tst_conversations_ui PRIVATE Qt6::QuickControls2
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 target_link_libraries(tst_desktop_interactions PRIVATE Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)

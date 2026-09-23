@@ -11,6 +11,7 @@
 #include "viewmodels/MissionsViewModel.h"
 #include "viewmodels/ConversationsViewModel.h"
 #include "viewmodels/ShellViewModel.h"
+#include "storage/SettingsStore.h"
 #include <QDir>
 #include <QElapsedTimer>
 #include <QGuiApplication>
@@ -49,8 +50,19 @@ class UiServer final : public QTcpServer {
 public:
     QJsonArray organizations, workspaces, projects;
     QJsonObject createdMission;
+    QJsonArray conversationRows;
+    QJsonObject lastConversationRequest;
+    int conversationsCreated = 0;
     int unexpectedImages = 0;
     UiServer() {
+        const auto summary = [](const QString& id, const QJsonValue& project) {
+            return QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("project_id"), project},
+                {QStringLiteral("title"), id}, {QStringLiteral("status"), QStringLiteral("active")},
+                {QStringLiteral("created_at"), QStringLiteral("2026-09-23T10:00:00Z")},
+                {QStringLiteral("updated_at"), QStringLiteral("2026-09-23T10:00:00Z")}};
+        };
+        conversationRows = {summary(QStringLiteral("general"), QJsonValue::Null),
+            summary(QStringLiteral("project-conversation"), QStringLiteral("project"))};
         connect(this, &QTcpServer::newConnection, this, [this] {
             while (auto* socket = nextPendingConnection()) {
                 auto buffer = std::make_shared<QByteArray>();
@@ -93,14 +105,20 @@ public:
                     } else if (path == "/missions") result = createdMission.isEmpty() ? QJsonArray{} : QJsonArray{createdMission};
                     else if (path == "/missions/mission") result = createdMission;
                     else if (path == "/conversations") {
-                        const auto conversation = [](const QString& id, const QJsonValue& project) {
-                            return QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("project_id"), project},
-                                {QStringLiteral("title"), id}, {QStringLiteral("status"), QStringLiteral("active")},
-                                {QStringLiteral("created_at"), QStringLiteral("2026-09-23T10:00:00Z")},
-                                {QStringLiteral("updated_at"), QStringLiteral("2026-09-23T10:00:00Z")}};
-                        };
-                        result = QJsonObject{{QStringLiteral("items"), QJsonArray{conversation(QStringLiteral("general"), QJsonValue::Null),
-                            conversation(QStringLiteral("project-conversation"), QStringLiteral("project"))}}};
+                        if (method == "POST") {
+                            lastConversationRequest = input;
+                            auto row = conversationRows.first().toObject();
+                            row.insert(QStringLiteral("id"), QStringLiteral("created-%1").arg(++conversationsCreated));
+                            row.insert(QStringLiteral("title"), QStringLiteral("Nouvelle conversation"));
+                            row.insert(QStringLiteral("project_id"), input.value(QStringLiteral("project_id")));
+                            conversationRows.append(row); result = row;
+                        } else result = QJsonObject{{QStringLiteral("items"), conversationRows}};
+                    } else if (path.startsWith("/conversations/")) {
+                        for (const auto& value : conversationRows) {
+                            auto row = value.toObject();
+                            if (row.value(QStringLiteral("id")).toString().toUtf8() != path.mid(15)) continue;
+                            row.insert(QStringLiteral("turns"), QJsonArray{}); result = row; break;
+                        }
                     }
                     const auto body = result.isArray() ? QJsonDocument(result.toArray()).toJson(QJsonDocument::Compact)
                         : QJsonDocument(result.toObject()).toJson(QJsonDocument::Compact);
@@ -155,6 +173,16 @@ class TestDesktopInteractions : public QObject {
         const auto pos = target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, pos); QTest::qWait(35);
         return true;
+    }
+    bool historyDrawerReady(bool opened) {
+        auto* drawer = m_page ? m_page->findChild<QObject*>(QStringLiteral("conversationHistoryDrawer")) : nullptr;
+        if (!drawer) return false;
+        QElapsedTimer timer; timer.start();
+        while (timer.elapsed() < 2000) {
+            if (opened ? drawer->property("opened").toBool() : !drawer->property("visible").toBool()) return true;
+            QTest::qWait(20);
+        }
+        return false;
     }
     bool type(const char* name, const QString& value) {
         auto* target = item(name);
@@ -300,10 +328,30 @@ private slots:
         auto* navigation = controller.findChild<NavigationModel*>();
         auto* shell = controller.findChild<ShellViewModel*>();
         auto* commands = controller.findChild<CommandRegistry*>();
+        auto* preferencesStore = controller.findChild<SettingsStore*>();
+        shell->setSidebarWidth(900);
+        QCOMPARE(preferencesStore->sidebarWidth(), 360);
+        shell->setSidebarWidth(310);
+        QTRY_COMPARE(qRound(item("shell-sidebar")->width()), 310);
+        shell->setInspectorWidth(1);
+        QCOMPARE(preferencesStore->inspectorWidth(), 320);
+        shell->setInspectorWidth(450);
         QVERIFY(capture(QStringLiteral("06-shell-initial")));
         QTRY_VERIFY(item("navigation-missions"));
         QVERIFY(click("navigation-missions"));
         QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("missions"));
+        QTest::keyClick(m_window, Qt::Key_Left, Qt::AltModifier);
+        QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("home"));
+        QTest::keyClick(m_window, Qt::Key_Right, Qt::AltModifier);
+        QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("missions"));
+        QTRY_VERIFY(!missions->busy());
+        QVERIFY(click("shell-inspect"));
+        QTRY_VERIFY(shell->isInspectorVisible());
+        QTRY_VERIFY(item("shell-inspector")->isVisible());
+        QCOMPARE(item("shell-inspector")->property("heading").toString(), QStringLiteral("Mission et tentative"));
+        QTRY_COMPARE(qRound(item("shell-inspector")->width()), 450);
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!shell->isInspectorVisible());
         appearance->setThemePreference(QStringLiteral("dark"));
         QVERIFY(capture(QStringLiteral("06-shell-missions-dark-wide")));
         QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
@@ -317,6 +365,14 @@ private slots:
         QCOMPARE(item("commandPaletteSearch")->property("text").toString(), QStringLiteral("Projets"));
         QTest::keyClick(m_window, Qt::Key_Tab);
         QTRY_VERIFY(item("commandPaletteResults")->hasActiveFocus());
+        int projectsCommandIndex = -1;
+        for (int row = 0; row < commands->rowCount(); ++row)
+            if (commands->data(commands->index(row), CommandRegistry::IdRole).toString() == QStringLiteral("navigation.projects"))
+                projectsCommandIndex = row;
+        QVERIFY(projectsCommandIndex >= 0);
+        QTest::keyClick(m_window, Qt::Key_Home);
+        for (int row = 0; row < projectsCommandIndex; ++row) QTest::keyClick(m_window, Qt::Key_Down);
+        QTRY_COMPARE(item("commandPaletteResults")->property("currentIndex").toInt(), projectsCommandIndex);
         QTest::keyClick(m_window, Qt::Key_Tab, Qt::ShiftModifier);
         QTRY_VERIFY(searchInput->hasActiveFocus());
         QVERIFY(capture(QStringLiteral("07-shell-palette-dark-focused")));
@@ -324,6 +380,8 @@ private slots:
         QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("projects"));
         QTRY_VERIFY(!shell->isCommandPaletteOpen());
         m_window->resize(960, 700);
+        QTRY_COMPARE(qRound(item("shell-sidebar")->width()), 48);
+        QCOMPARE(preferencesStore->sidebarWidth(), 310); // Le repli adaptatif n'écrase pas la préférence.
         appearance->setThemePreference(QStringLiteral("light"));
         QVERIFY(capture(QStringLiteral("08-shell-projects-light-narrow")));
         QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
@@ -334,16 +392,70 @@ private slots:
         QTRY_VERIFY(!shell->isCommandPaletteOpen());
         QVERIFY(click("navigation-conversations"));
         QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("conversations"));
+        QVERIFY(click("conversationHistoryButton"));
+        QVERIFY(historyDrawerReady(true));
         QVERIFY(click("generalConversationsButton"));
+        QCOMPARE(navigation->currentRoute(), QStringLiteral("conversations"));
         QTRY_VERIFY(!conversations->loading());
         QCOMPARE(conversations->projectId(), QString());
         QCOMPARE(qobject_cast<JsonListModel*>(conversations->conversations())->get(0).value(QStringLiteral("id")).toString(), QStringLiteral("general"));
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY(historyDrawerReady(false));
+        QCOMPARE(item("shell-context-label")->property("text").toString(), QStringLiteral("Conversation générale"));
         appearance->setThemePreference(QStringLiteral("light"));
         m_window->resize(1280, 800);
+        QTRY_COMPARE(qRound(item("shell-sidebar")->width()), 310);
         QVERIFY(capture(QStringLiteral("05-general-conversations-light-wide")));
+        QVERIFY(click("conversationHistoryButton"));
+        QVERIFY(historyDrawerReady(true));
         QVERIFY(click("projectConversationsButton"));
+        QCOMPARE(navigation->currentRoute(), QStringLiteral("conversations"));
         QTRY_VERIFY(!conversations->loading());
         QCOMPARE(conversations->projectId(), QStringLiteral("project"));
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY(historyDrawerReady(false));
+        QVERIFY(click("navigation-home"));
+        QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("home"));
+        appearance->setThemePreference(QStringLiteral("dark"));
+        QVERIFY(capture(QStringLiteral("09-home-dark-wide")));
+        QVERIFY(click("homeNewConversationButton"));
+        QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("conversations"));
+        QTRY_COMPARE(server.conversationsCreated, 1);
+        QTRY_VERIFY(!conversations->busy() && !conversations->loading());
+        QCOMPARE(conversations->projectId(), QString());
+        QCOMPARE(conversations->currentId(), QStringLiteral("created-1"));
+        QVERIFY(server.lastConversationRequest.value(QStringLiteral("project_id")).isNull());
+        QVERIFY(!server.lastConversationRequest.contains(QStringLiteral("title")));
+        QVERIFY2(conversations->error().isEmpty(), qPrintable(conversations->error()));
+        QVERIFY(capture(QStringLiteral("10-new-general-chat-dark")));
+        // Actualiser les métadonnées du projet sélectionné ne sort pas du chat général.
+        auto renamedProject = server.projects.first().toObject();
+        renamedProject.insert(QStringLiteral("name"), QStringLiteral("Projet UI actualisé"));
+        server.projects.replace(0, renamedProject);
+        workspace->refresh();
+        QTRY_COMPARE(workspace->projectName(), QStringLiteral("Projet UI actualisé"));
+        QCOMPARE(conversations->projectId(), QString());
+        QVERIFY(click("navigation-home"));
+        appearance->setThemePreference(QStringLiteral("light"));
+        QVERIFY(capture(QStringLiteral("11-home-light-wide")));
+        QVERIFY(click("homeNewProjectButton"));
+        QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("projects"));
+        QTRY_VERIFY(item("projectCreateOk") && item("projectCreateOk")->isVisible());
+        QVERIFY(!workspace->projectCreationPending());
+        // Même un vrai clic dirigé vers la navigation visible sous une modale
+        // doit être absorbé, sans exécuter la commande sous-jacente.
+        auto *projectDialog = m_page->findChild<QObject*>(QStringLiteral("projectCreateDialog"));
+        QVERIFY(projectDialog);
+        QTRY_VERIFY(projectDialog->property("opened").toBool());
+        QVERIFY(click("navigation-home"));
+        QCOMPARE(navigation->currentRoute(), QStringLiteral("projects"));
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!item("projectCreateOk")->isVisible());
+        QVERIFY(click("projectOpenConversationsButton"));
+        QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("conversations"));
+        QTRY_VERIFY(!conversations->loading());
+        QCOMPARE(conversations->projectId(), QStringLiteral("project"));
+        QCOMPARE(server.conversationsCreated, 1); // Reprendre le projet ne crée pas un fil.
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
         qInfo().noquote() << "Captures UI :" << m_captureDirectory;
         m_page.reset(); window.hide(); m_window = nullptr;

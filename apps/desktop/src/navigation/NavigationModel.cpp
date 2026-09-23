@@ -53,6 +53,7 @@ NavigationModel::NavigationModel(QObject *parent)
                         "direct. Cette destination ne sera pas ouverte par ce chantier.")},
     };
     m_currentRoute = QStringLiteral("home");
+    m_history.append(m_currentRoute);
 }
 
 int NavigationModel::rowCount(const QModelIndex &parent) const
@@ -138,7 +139,39 @@ void NavigationModel::setCurrentRoute(const QString &route)
         return;
     }
     m_currentRoute = route;
+    while (m_history.size() > m_historyIndex + 1) m_history.removeLast();
+    m_history.append(route);
+    constexpr qsizetype maxHistory = 32;
+    if (m_history.size() > maxHistory) m_history.removeFirst();
+    m_historyIndex = static_cast<int>(m_history.size()) - 1;
+    emit historyChanged();
     emit currentRouteChanged();
+}
+
+void NavigationModel::goBack()
+{
+    if (!canGoBack()) return;
+    m_currentRoute = m_history.at(--m_historyIndex);
+    emit historyChanged();
+    emit currentRouteChanged();
+}
+
+void NavigationModel::goForward()
+{
+    if (!canGoForward()) return;
+    m_currentRoute = m_history.at(++m_historyIndex);
+    emit historyChanged();
+    emit currentRouteChanged();
+}
+
+void NavigationModel::resetHistory()
+{
+    const bool changed = m_currentRoute != QLatin1String("home");
+    m_currentRoute = QStringLiteral("home");
+    m_history = {m_currentRoute};
+    m_historyIndex = 0;
+    emit historyChanged();
+    if (changed) emit currentRouteChanged();
 }
 
 QString NavigationModel::currentTitle() const

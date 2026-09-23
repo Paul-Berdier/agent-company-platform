@@ -4,6 +4,14 @@
 Ce relevé remplace l'état du 18 septembre : le client natif et les écrans métier
 existent désormais. Le chantier courant est **0.10.0 en préparation**.
 
+La reprise courante se poursuit dans `.claude/worktrees/desktop-completion`,
+branche locale `codex/desktop-chat-projects`, à partir du lot fonctionnel
+`fc12525`. Lire la [recette conversations/projets](desktop-chat-projects-2026-09-23.md)
+pour la nouvelle DA, les parcours, les correctifs modaux et les preuves les
+plus récentes : **3 037 tests Python réussis / 70 ignorés, 23 suites Qt,
+492 tests Node**. Les deux parcours Windows à vrais clics et clavier sont verts.
+Le checkout principal conserve son travail Pixel Office, hors de cette intégration.
+
 Reprise fonctionnelle sur `codex/functional-completion`, suivie par la
 [PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11) : lire le
 [bilan du 23 septembre](functional-completion-2026-09-23.md) avant les relevés
@@ -54,8 +62,8 @@ Les commits de fusion et l'ouverture de version ne prouvent pas une publication
 [le relevé final](desktop-validation-2026-09-23.md) avant de reprendre :
 l'intégration peut avoir avancé depuis cette note.
 
-Le worktree `.claude/worktrees/desktop-completion` porte maintenant
-`codex/functional-completion`, issu de `main` au commit `aa55942`.
+Le lot fonctionnel précédent partait de `main` au commit `aa55942` ; la branche
+actuelle de reprise et ses validations sont indiquées en tête de document.
 Le checkout principal conserve sa branche et son chantier Pixel Office. Les autres worktrees historiques
 peuvent contenir des travaux partiels ; ne pas les supprimer, réinitialiser ou
 réappliquer sans examiner leurs différences. Le chantier pixel local reste

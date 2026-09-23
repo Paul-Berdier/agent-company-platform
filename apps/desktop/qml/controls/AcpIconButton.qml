@@ -50,6 +50,7 @@ Item {
         }
         TapHandler {
             id: tap
+            gesturePolicy: TapHandler.ReleaseWithinBounds
             onTapped: if (control.manualEnabled) control.triggered()
         }
     }

@@ -90,8 +90,13 @@ Application::Application(QObject *parent)
     m_operations = new OperationsViewModel(m_client, m_auth, this);
     m_sessionStorage = new SessionPersistence(m_client, m_auth, m_vault.get(), m_settings, this);
     m_updates = new UpdateService(version(), this);
-    connect(m_workspace, &WorkspaceViewModel::projectChanged, this, [this] {
+    connect(m_workspace, &WorkspaceViewModel::projectChanged, this, [this, previousId = QString()]() mutable {
         const auto id = m_workspace->projectId();
+        // Renommer/recharger le même projet ne déplace pas une conversation générale.
+        // Les titres QML suivent projectChanged ; seuls les changements d'identité
+        // sélectionnent un autre contexte dans les vues métier.
+        if (id == previousId) return;
+        previousId = id;
         m_conversations->setProjectId(id);
         m_missions->setProjectId(id);
         m_artifacts->setProjectId(id);
@@ -99,6 +104,10 @@ Application::Application(QObject *parent)
         m_operations->setProjectId(id);
     });
     registerBuiltinCommands();
+    const auto updateCommands = [this] { m_commands->setContext(m_commands->context()); };
+    connect(m_conversations, &ConversationsViewModel::changed, this, updateCommands);
+    connect(m_workspace, &WorkspaceViewModel::changed, this, updateCommands);
+    connect(m_navigation, &NavigationModel::historyChanged, this, updateCommands);
 }
 
 Application::~Application()
@@ -226,6 +235,48 @@ void Application::registerBuiltinCommands()
                                         : CommandAvailability::NeedsSession;
     };
 
+    m_commands->registerCommand(Command{
+        QStringLiteral("conversation.new"), QStringLiteral("Nouvelle conversation générale"),
+        QStringLiteral("Conversations"), {QStringLiteral("chat"), QStringLiteral("nouveau")},
+        QStringLiteral("Ctrl+N"),
+        [this](const CommandContext &context) {
+            if (!context.sessionConnected) return CommandAvailability::NeedsSession;
+            return m_conversations->busy() || m_conversations->pendingSubmission()
+                ? CommandAvailability::Unavailable : CommandAvailability::Available;
+        }, [this](const CommandContext &) {
+            if (!m_conversations->startConversation(QString()))
+                return CommandResult::reject(m_conversations->error());
+            m_navigation->setCurrentRoute(QStringLiteral("conversations"));
+            return CommandResult::accept();
+        }});
+    m_commands->registerCommand(Command{
+        QStringLiteral("project.new"), QStringLiteral("Créer un projet"),
+        QStringLiteral("Projets"), {QStringLiteral("nouveau"), QStringLiteral("codage")},
+        QStringLiteral("Ctrl+Shift+N"),
+        [this](const CommandContext &context) {
+            if (!context.sessionConnected) return CommandAvailability::NeedsSession;
+            if (m_conversations->busy() || m_conversations->pendingSubmission())
+                return CommandAvailability::Unavailable;
+            return m_workspace->canCreateProject() ? CommandAvailability::Available
+                                                   : CommandAvailability::NeedsRole;
+        }, [this](const CommandContext &) {
+            m_workspace->requestProjectCreation();
+            m_navigation->setCurrentRoute(QStringLiteral("projects"));
+            return CommandResult::accept();
+        }});
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.back"), QStringLiteral("Revenir à l'écran précédent"),
+        QStringLiteral("Navigation"), {}, QStringLiteral("Alt+Left"),
+        [this](const CommandContext &) { return m_navigation->canGoBack()
+            ? CommandAvailability::Available : CommandAvailability::NeedsSelection; },
+        [this](const CommandContext &) { m_navigation->goBack(); return CommandResult::accept(); }});
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.forward"), QStringLiteral("Revenir à l'écran suivant"),
+        QStringLiteral("Navigation"), {}, QStringLiteral("Alt+Right"),
+        [this](const CommandContext &) { return m_navigation->canGoForward()
+            ? CommandAvailability::Available : CommandAvailability::NeedsSelection; },
+        [this](const CommandContext &) { m_navigation->goForward(); return CommandResult::accept(); }});
+
     const QList<QPair<QString, QString>> workspaceRoutes = {
         {QStringLiteral("projects"), QStringLiteral("Projets")},
         {QStringLiteral("conversations"), QStringLiteral("Conversations")},
@@ -239,7 +290,8 @@ void Application::registerBuiltinCommands()
     for (const auto &route : workspaceRoutes) {
         m_commands->registerCommand(Command{
             QStringLiteral("navigation.") + route.first, route.second,
-            QStringLiteral("Navigation"), {route.second}, QString(), needsSession,
+            QStringLiteral("Navigation"), {route.second},
+            route.first == QLatin1String("projects") ? QStringLiteral("Ctrl+P") : QString(), needsSession,
             [this, destination = route.first](const CommandContext &) {
                 m_navigation->setCurrentRoute(destination);
                 return CommandResult::accept();

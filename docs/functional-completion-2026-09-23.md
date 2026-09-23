@@ -1,5 +1,9 @@
 # Complétion fonctionnelle : état et preuves du 23 septembre 2026
 
+La refonte suivante de l’accueil, du chat et des projets est documentée dans
+[la recette UI distincte](desktop-chat-projects-2026-09-23.md). Les preuves de
+ce relevé restent celles de la base fonctionnelle indiquée ci-dessous.
+
 Le chantier `codex/functional-completion` raccorde les missions natives aux
 exécuteurs locaux, aux compétences et au proxy MCP, et ajoute une coordination
 Claude/Codex explicite. **La V1 n'est pas terminée.** Les validations ci-dessous

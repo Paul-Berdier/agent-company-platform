@@ -5,6 +5,7 @@
 // bouton qui fait semblant.
 
 #include "commands/CommandRegistry.h"
+#include "navigation/NavigationModel.h"
 
 #include <QSignalSpy>
 #include <QTest>
@@ -49,6 +50,8 @@ private slots:
     void unregisterKeepsIndexConsistent();
     void resolvesShortcuts();
     void everyAvailabilityHasFrenchReason();
+    void navigationHistoryBranchesAndRefusesUnavailable();
+    void navigationHistoryIsBoundedAndResettable();
 };
 
 void TestCommandRegistry::registersAndCounts()
@@ -237,6 +240,50 @@ void TestCommandRegistry::everyAvailabilityHasFrenchReason()
     }
     // Disponible = aucune raison à afficher.
     QVERIFY(describeAvailability(CommandAvailability::Available).isEmpty());
+}
+
+void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
+{
+    NavigationModel navigation;
+    QVERIFY(!navigation.canGoBack());
+    QVERIFY(!navigation.canGoForward());
+    navigation.goBack();
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
+    navigation.setCurrentRoute(QStringLiteral("projects"));
+    navigation.setCurrentRoute(QStringLiteral("conversations"));
+    navigation.goBack();
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("projects"));
+    QVERIFY(navigation.canGoForward());
+    QSignalSpy refused(&navigation, &NavigationModel::navigationRefused);
+    navigation.setCurrentRoute(QStringLiteral("office"));
+    navigation.setCurrentRoute(QStringLiteral("unknown"));
+    QCOMPARE(refused.count(), 2);
+    QVERIFY(navigation.canGoForward());
+    navigation.goForward();
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("conversations"));
+    navigation.goBack();
+    navigation.setCurrentRoute(QStringLiteral("missions"));
+    QVERIFY(!navigation.canGoForward());
+    navigation.setCurrentRoute(QStringLiteral("missions")); // Pas de doublon adjacent.
+    navigation.goBack();
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("projects"));
+}
+
+void TestCommandRegistry::navigationHistoryIsBoundedAndResettable()
+{
+    NavigationModel navigation;
+    for (int i = 0; i < 80; ++i)
+        navigation.setCurrentRoute(i % 2 ? QStringLiteral("projects") : QStringLiteral("conversations"));
+    int backwards = 0;
+    while (navigation.canGoBack()) { navigation.goBack(); ++backwards; }
+    QCOMPARE(backwards, 31);
+    QVERIFY(navigation.canGoForward());
+    navigation.resetHistory();
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
+    QVERIFY(!navigation.canGoBack());
+    QVERIFY(!navigation.canGoForward());
+    navigation.goForward();
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
 }
 
 QTEST_APPLESS_MAIN(TestCommandRegistry)

@@ -6,6 +6,23 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+### Interface conversations et projets
+
+- accueil à deux entrées : chat libre sans titre préalable ou projet à créer/reprendre ;
+- identité native graphite/ivoire/sarcelle et pictogrammes originaux ;
+- sidebar avec projets et historique contextuel, inspecteur réel, précédent/suivant,
+  volets adaptatifs et préférences de largeur conservées ;
+- brouillons en mémoire par fil, recherche des titres chargés, code copiable,
+  Entrée/Maj+Entrée et suivi du défilement respectant la lecture ;
+- clics des fenêtres modales isolés de la navigation sous-jacente et largeur réelle du champ de saisie bornée ;
+- notification immédiate de la création en cours, actualisation accessible pour
+  rapprocher un envoi incertain et contexte général conservé au renommage d'un projet ;
+- étapes dépendantes d’une équipe admises après la preuve Git finale, et nettoyage Windows fondé sur les handles épinglés ;
+- suite Python complète : 3 037 réussis, 70 ignorés ; 492 tests Node réussis, typage et build verts ;
+- 23 suites Qt vertes, deux parcours UI Windows et parcours Qt/API réelle avec création sans titre ;
+- recette de l'interface et limites dans
+  [`docs/desktop-chat-projects-2026-09-23.md`](docs/desktop-chat-projects-2026-09-23.md).
+
 ### Intégration fonctionnelle desktop et poste local
 
 - formulaires Qt Standard, Codex, Claude et équipe ; conversations générales ou

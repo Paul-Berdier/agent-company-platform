@@ -5,18 +5,21 @@ et appels implémentés dans `apps/desktop`, sans promettre une équivalence
 exhaustive au web/CLI. Les preuves locales et l'état de leur intégration figurent
 dans [le relevé daté](desktop-validation-2026-09-23.md).
 
-L'[audit fonctionnel complémentaire](functional-audit-2026-09-23.md) identifie
-trois défauts ouverts : ressource workspace absente des missions Claude/Codex,
-retour aux conversations générales indisponible après sélection d'un projet,
-et commentaires non rechargés par « Actualiser ». Les liaisons MCP/compétences
-ne constituent pas encore une utilisation de ces extensions par les exécuteurs.
+Le [bilan fonctionnel complémentaire](functional-completion-2026-09-23.md)
+remplace les constats AF01/AF07/AF08 de l'audit initial : les missions portent
+leur workspace, le contexte général reste accessible et les commentaires se
+rechargent. Les exécuteurs utilisent les compétences approuvées et le proxy MCP
+HTTP contrôlé ; un serveur MCP tiers réel reste à valider. La
+[direction artistique](design-reference-study.md) organise désormais l'accueil
+autour des conversations libres et des projets.
 
 | Domaine | Implémenté en natif | Limite ou dépendance |
 |---|---|---|
+| Cadre de travail | Accueil chat/projet, barre latérale contextuelle, palette, raccourcis, précédent/suivant, inspecteur de sélection, volets adaptatifs | Historique de 32 écrans en mémoire ; pas d'onglets indépendants ni de terminal intégré |
 | Connexion et diagnostic | Adresse configurable, session, `/meta`, `/ready` | Premier propriétaire à amorcer par API/web/CLI ; déploiement de test à installer |
 | Organisations et projets | Consultation, création d'organisation/espace/projet, sélection | Création selon le rôle et l'appartenance à l'espace ; aucune administration exhaustive des membres |
-| Conversations | Liste/création, historique, tours, clé stable, polling, renommage, archivage, export lisible | Hermes doit être configuré ; export affiché en texte |
-| Missions | Création, liste/détail, commentaires, arrêt, relance et acceptation | La demande n'atteste pas l'exécution d'un worker |
+| Conversations | Chat général ou de projet sans titre préalable, historique et recherche des titres chargés, brouillons en mémoire par fil, Entrée/Maj+Entrée, code copiable, renommage, archivage, export, arrêt et envoi incertain | Hermes doit être configuré ; polling, pas de streaming token par token ; pas de fichiers/voix ni édition/régénération des messages |
+| Missions | Création, liste/détail, commentaires, arrêt, relance, acceptation et équipe Codex/Claude explicite | Workspace requis pour le code ; deux étapes parallèles maximum, branches à intégrer explicitement ; la demande n'atteste pas l'exécution réelle du fournisseur |
 | Tentatives et Studio | Tentatives, événements, preuves, rapports/cas de test, suivi du flux | Lecture des preuves reçues ; aucun navigateur distant intégré |
 | Livrables | Pagination, filtres, détail, destination, téléchargement annulable et vérifié | 512 Mio maximum ; aucun rendu HTML/SVG/GLB/vidéo intégré |
 | Agents | Inventaire, état, rôle, module et capacités | Aucun appel direct ni édition arbitraire de configuration |
@@ -47,20 +50,19 @@ sa version épinglée.
 
 ## Preuves et reste à faire
 
-Le relevé natif final donne **21 suites sur 21 en 54,82 secondes**. Les tests
-transport utilisent des serveurs HTTP locaux. Les **24 tests de session passent
-sans ignoré hors sandbox**, y compris le vrai coffre Windows ; sous sandbox,
-ce cas était ignoré lorsque `CredWrite` refusait la session d'exécution.
-La suite Python combinée a donné **2 896 réussis, 70 ignorés en 835 secondes**.
-Cela ne prouve pas un fournisseur réel ou Railway.
+Les validations de la base fonctionnelle comptent **22 suites Qt** et un
+parcours Qt/API réelle **3 réussis, 0 ignoré en 2 002 ms**. Les 24 cas de session
+ont également éprouvé le coffre Windows hors sandbox. Les CI du commit
+fonctionnel `47de619` donnent 3 031 tests SQLite réussis (64 ignorés) et
+3 041 PostgreSQL réussis (54 ignorés). Les nombres détaillés et les limites
+figurent dans le [bilan daté](functional-completion-2026-09-23.md).
 
-Le parcours Qt/API réelle sur SQLite jetable du 23 septembre a réussi :
-connexion, projets, conversation avec fournisseur indisponible, mission,
-budget, automatisation, export authentifié exact du livrable et déconnexion.
-Le dernier rapport indique **3 réussis, 0 échec, 0 ignoré en 1 663 ms**,
-avec un lanceur complet de 9,7 secondes. Il ne
-remplace pas la recette visuelle des pages. La branche desktop a depuis été
-fusionnée dans `main` par la PR #10, au commit `0bc9dcb`.
+La refonte conversations/projets ajoute une suite de véritables interactions
+QML : création sans titre, saisie, copie de code, brouillons, recherche et
+défilement. Son relevé distinct est dans
+[la recette de l'interface](desktop-chat-projects-2026-09-23.md). Une capture
+utilise des données de test identifiées ; elle ne prouve pas une réponse de
+modèle réel. L'API réelle de recette utilise une base SQLite jetable.
 
 Restent Windows propre, signature, services réels, écarts de parité ci-dessus
 et **26 constats ouverts du Lot H** dans [le suivi](lot-h-091-review-status.md).

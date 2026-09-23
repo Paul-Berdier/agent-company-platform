@@ -60,6 +60,32 @@ void login(AuthManager &auth, const QString &role = QStringLiteral("owner")) {
 class TestWorkspace : public QObject {
     Q_OBJECT
 private slots:
+    void projectCreationIntentNeverSurvivesSessionOrOrigin_data() {
+        QTest::addColumn<bool>("changeOrigin");
+        QTest::newRow("logout") << false;
+        QTest::newRow("origin") << true;
+    }
+    void projectCreationIntentNeverSurvivesSessionOrOrigin() {
+        QFETCH(bool, changeOrigin);
+        ApiClient client;
+        QVERIFY(!client.setBaseUrl(QUrl(QStringLiteral("https://first.example.test"))).isError());
+        AuthManager auth(&client);
+        login(auth);
+        WorkspaceViewModel vm(&client, &auth);
+        vm.workspaces()->setItems({QJsonObject{{QStringLiteral("id"), QStringLiteral("w1")}}});
+        vm.requestProjectCreation();
+        QVERIFY(vm.projectCreationPending());
+        QVERIFY(!vm.busy()); // Une intention d'ouvrir le formulaire ne crée aucune ressource.
+        vm.acknowledgeProjectCreation();
+        QVERIFY(!vm.projectCreationPending());
+        vm.requestProjectCreation();
+        if (changeOrigin)
+            QVERIFY(!client.setBaseUrl(QUrl(QStringLiteral("https://other.example.test"))).isError());
+        else auth.forgetLocalSession(SessionStatus::Disconnected, QStringLiteral("Fin"));
+        QVERIFY(!vm.projectCreationPending());
+        vm.requestProjectCreation();
+        QVERIFY(!vm.projectCreationPending());
+    }
     void creationRequiresMembershipInWorkspace_data() {
         QTest::addColumn<QString>("scope");
         QTest::addColumn<QString>("role");

@@ -79,12 +79,19 @@ private slots:
         qInfo("journey: organizations, workspaces and projects created and listed through native viewmodel");
 
         ConversationsViewModel conversations(&client, &auth);
-        conversations.setProjectId(projectId);
-        conversations.setActive(true);
-        QTRY_VERIFY_WITH_TIMEOUT(!conversations.loading() && !conversations.busy(), 10000);
-        conversations.createConversation(QStringLiteral("Conversation de vérification Qt"));
+        QVERIFY(conversations.startConversation(QString()));
         QTRY_VERIFY_WITH_TIMEOUT(!conversations.currentId().isEmpty() && !conversations.loading() && !conversations.busy(), 10000);
         QVERIFY2(conversations.error().isEmpty(), qPrintable(conversations.error()));
+        QVERIFY(!conversations.currentTitle().trimmed().isEmpty());
+        QVERIFY(conversations.projectId().isEmpty());
+        const QString generalConversationId = conversations.currentId();
+        QVERIFY(conversations.startConversation(projectId));
+        QTRY_VERIFY_WITH_TIMEOUT(!conversations.currentId().isEmpty() && !conversations.loading() && !conversations.busy(), 10000);
+        QVERIFY2(conversations.error().isEmpty(), qPrintable(conversations.error()));
+        QVERIFY(!conversations.currentTitle().trimmed().isEmpty());
+        QVERIFY(conversations.currentId() != generalConversationId);
+        QCOMPARE(conversations.projectId(), projectId);
+        qInfo("Parcours : chat général et chat de projet créés sans titre imposé, avant ouverture de la page.");
         conversations.setDraft(QStringLiteral("Message synthétique : aucun fournisseur ne doit être appelé."));
         QVERIFY(conversations.canSend());
         conversations.sendMessage();

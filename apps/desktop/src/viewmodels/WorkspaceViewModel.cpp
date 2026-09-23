@@ -24,6 +24,7 @@ void WorkspaceViewModel::clear()
     m_project.clear();
     m_memberships = {};
     m_selectAfterRefresh.clear();
+    m_projectCreationPending = false;
     m_error.clear();
     m_notice.clear();
     emit projectChanged();
@@ -107,6 +108,18 @@ bool WorkspaceViewModel::canCreateProject() const
     for (int i = 0; i < m_workspaces.count(); ++i)
         if (canCreateInWorkspace(m_workspaces.get(i).value(QStringLiteral("id")).toString())) return true;
     return false;
+}
+void WorkspaceViewModel::requestProjectCreation()
+{
+    if (!canCreateProject()) return;
+    m_projectCreationPending = true;
+    emit changed();
+}
+void WorkspaceViewModel::acknowledgeProjectCreation()
+{
+    if (!m_projectCreationPending) return;
+    m_projectCreationPending = false;
+    emit changed();
 }
 void WorkspaceViewModel::selectProject(const QString &id)
 {

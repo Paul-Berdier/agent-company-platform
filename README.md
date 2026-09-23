@@ -4,31 +4,23 @@ Poste de travail pour organiser des projets, conversations, missions et preuves,
 raccorder Hermes et des workers spécialisés, depuis un **desktop natif C++23 / Qt / QML**,
 le web ou le CLI. Les trois clients utilisent la même API métier.
 
-La modernisation est engagée par tranches. Le Lot C ajoute aux fondations sécurisées
-et aux conversations du Lot B une ressource mission durable, des tentatives
-clôturées par fencing token, un backend de processus local configuré et le CLI
-`acp`. Le Lot D y ajoute les extensions contrôlées : coffre de secrets chiffrés,
-politique de sortie anti-SSRF, centre MCP versionné avec diagnostics autorisés,
-bibliothèque de skills relisibles et révocation de bout en bout. Le Lot E y ajoute
-l'observation et les livrables : journal d'événements ordonné, flux temps réel
-authentifié avec reprise par curseur, reporter Playwright, exécution de tests web sur
-un runner authentifié, résultats de tests structurés, stockage privé de livrables avec
-liens signés, Studio en lecture seule et bibliothèque de livrables. Le Lot F ajoute
-les routines planifiées, le calendrier IANA, un planificateur avec bail et fencing,
-les budgets réellement appliqués, la détection de saturation, les alertes in-app et
-les surfaces web/CLI correspondantes. Le Lot G ajoute un parcours E2E Playwright
-strictement opt-in, l'aperçu de GLB validés sur une origine séparée, un connecteur
-ComfyUI privé et deux exécuteurs worker explicites pour Codex CLI et Claude Code.
+Deux usages structurent le desktop : **discuter librement**, sans créer de
+projet, ou **commencer/reprendre un projet** avec son historique, ses missions
+et ses livrables. Une équipe de workers peut faire travailler Codex et Claude
+en parallèle dans des worktrees distincts ; l'intégration du code produit reste
+explicite. Les identités, autorisations et résultats passent par l'API ACP.
 
-Le serveur Hermes réel démarre désormais localement ; son accès à un modèle reste
-à configurer et sa génération n'est pas validée. Un serveur MCP tiers et une isolation
-OS du runner restent à vérifier. Le harnais E2E a été exécuté localement dans un vrai Edge contre
-une API et un serveur Vite isolés ; il prouve le shell et le Studio en lecture, pas la
-chaîne reporter → worker, un rendu GLB WebGL ni une reprise en main humaine.
-Le Lot H a ajouté les migrations PostgreSQL, les sauvegardes et la chaîne de
-déploiement Railway. Une instance de test reste à installer et à vérifier.
-Le détail se trouve dans [la persistance](docs/persistence-and-backup.md) et
-[l'état d'implémentation](docs/implementation-status.md).
+La plateforme comprend sessions et droits par projet, missions durables,
+extensions MCP et compétences versionnées, événements temps réel, livrables
+privés, budgets, automatisations, migrations PostgreSQL et outils de sauvegarde.
+L'[état d'implémentation](docs/implementation-status.md) conserve l'historique des
+lots A à H. Le [guide local](docs/local-runtime.md) décrit le démarrage d'ACP,
+d'Hermes et des workers, ainsi que le coffre de notes Markdown pour Obsidian.
+
+Hermes démarre réellement sur le poste, mais **aucun modèle n'est encore
+configuré**. Une génération réelle, un serveur MCP tiers et une instance Railway
+restent à valider. Les captures et essais automatisés utilisent des données
+jetables identifiées ; ils ne représentent pas des réponses payantes réelles.
 
 Version en préparation : **0.10.0**, ouverte au commit `4915136`. Le durcissement
 Lot H a été intégré par la [PR #9](https://github.com/Paul-Berdier/agent-company-platform/pull/9)
@@ -48,13 +40,13 @@ et bloque la réexécution incertaine. Les branches produites demandent une int�
 explicite. Les essais natifs des CLI utilisent des services locaux de test ; aucune
 génération payante réelle n'est annoncée.
 
-Ce raccordement est suivi par la
+L’intégration fonctionnelle et la refonte conversations/projets sont regroupées dans la
 [PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11).
 Le commit fonctionnel `47de619` a passé les CI Windows/Qt, SQLite, PostgreSQL et
 Node ; le bilan détaille également les **3 025 tests Python locaux réussis**,
 les 70 ignorés et les **22 suites Qt**.
 
-![Palette du desktop Qt, thème sombre, données de recette isolées](docs/assets/screenshots/desktop-command-palette-dark.png)
+![Accueil du desktop Qt : chat libre ou projet, données de recette isolées](docs/assets/screenshots/desktop-home-dark.png)
 
 Pour préparer **ACP, Hermes, Claude Code, un worker Codex/Claude et un coffre de notes
 Obsidian**, suivre [le guide du poste local](docs/local-runtime.md). Il comprend le
@@ -62,6 +54,21 @@ démarrage des services et la création locale du premier compte ; les accès au
 modèles se configurent séparément.
 
 ## Desktop natif
+
+L'accueil propose **une conversation libre** ou **un projet à créer/reprendre**.
+Le projet donne accès à ses échanges, ses missions de code et ses livrables.
+La nouvelle [identité ACP](docs/design-reference-study.md) associe graphite chaud,
+papier ivoire et accent sarcelle, avec des pictogrammes natifs et une barre
+latérale centrée sur le travail. La
+[recette de ces parcours](docs/desktop-chat-projects-2026-09-23.md) distingue les
+essais locaux des fournisseurs réellement configurés.
+
+Les chats disposent de brouillons en mémoire, d'une recherche dans les titres
+chargés, de blocs de code copiables et d'actions de renommage, archivage et export.
+Entrée envoie ; Maj+Entrée ajoute une ligne. Ctrl+N ouvre un chat, Ctrl+P les
+projets et Ctrl+K la palette. L'inspecteur suit la sélection ; précédent/suivant
+parcourt les écrans. Voix, pièces jointes, terminal interactif et éditeur intégré
+ne sont pas encore proposés.
 
 Le client fournit les écrans de projets, conversations, missions et tentatives,
 Studio, livrables, agents/workers/fournisseurs, extensions MCP/compétences et
@@ -92,7 +99,7 @@ non configurés lorsqu'aucune preuve serveur n'est disponible.
 La session peut être mémorisée sur consentement dans le coffre Windows ; aucun
 mot de passe ni cookie n'est écrit dans les préférences. La vérification des mises
 à jour est explicite et ouvre la publication GitHub officielle ; elle n'intègre
-pas de téléchargeur ou d'installateur. Le relevé natif donne **22 suites sur 22**,
+pas de téléchargeur ou d'installateur. Le relevé natif courant donne **23 suites sur 23**,
 et les **24 tests de session** passent avec le vrai coffre Windows hors sandbox.
 La recette Qt inclut les clics, le clavier, la palette de commandes, les formulaires
 et des captures en thèmes sombre et clair, ainsi qu'un parcours contre une API réelle

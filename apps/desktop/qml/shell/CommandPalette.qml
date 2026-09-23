@@ -32,6 +32,7 @@ Item {
         opacity: 0.58
 
         TapHandler {
+            gesturePolicy: TapHandler.ReleaseWithinBounds
             onTapped: Shell.commandPaletteOpen = false
         }
     }
@@ -152,6 +153,7 @@ Item {
 
                     HoverHandler { id: rowHover }
                     TapHandler {
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
                         onTapped: palette.run(row.commandId)
                     }
 

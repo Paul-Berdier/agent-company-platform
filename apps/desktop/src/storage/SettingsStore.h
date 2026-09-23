@@ -56,6 +56,8 @@ public:
     /*! Largeur du panneau d'inspection, en pixels logiques. Zéro = valeur par défaut. */
     [[nodiscard]] int inspectorWidth() const;
     void setInspectorWidth(int width);
+    [[nodiscard]] int sidebarWidth() const;
+    void setSidebarWidth(int width);
 
     /*! Barre latérale repliée. */
     [[nodiscard]] bool sidebarCollapsed() const;

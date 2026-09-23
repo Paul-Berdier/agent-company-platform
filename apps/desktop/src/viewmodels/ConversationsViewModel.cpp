@@ -7,6 +7,7 @@
 #include "models/JsonListModel.h"
 
 #include <QDateTime>
+#include <QRegularExpression>
 #include <QSet>
 #include <QUrl>
 
@@ -45,6 +46,7 @@ ConversationsViewModel::ConversationsViewModel(ApiClient *client, AuthManager *a
     connect(m_auth, &AuthManager::userChanged, this, &ConversationsViewModel::updateSession);
     connect(m_client, &ApiClient::baseUrlChanged, this, [this] {
         m_sessionOrigin.clear();
+        m_drafts.clear();
         invalidate(true);
     });
     updateSession();
@@ -100,7 +102,49 @@ void ConversationsViewModel::setDraft(const QString &draft)
         return;
     }
     m_draft = draft;
+    rememberDraft();
     emit changed();
+}
+
+QString ConversationsViewModel::draftKey() const
+{
+    return m_projectId + QChar(0x1f) + currentId();
+}
+
+void ConversationsViewModel::rememberDraft()
+{
+    if (currentId().isEmpty()) return;
+    if (m_draft.isEmpty()) m_drafts.remove(draftKey());
+    else m_drafts.insert(draftKey(), m_draft);
+}
+
+void ConversationsViewModel::setSearchText(const QString &text)
+{
+    if (m_searchText == text) return;
+    m_searchText = text;
+    updateConversationList();
+    emit changed();
+}
+
+void ConversationsViewModel::setShowArchived(bool show)
+{
+    if (m_showArchived == show) return;
+    m_showArchived = show;
+    updateConversationList();
+    emit changed();
+}
+
+void ConversationsViewModel::updateConversationList()
+{
+    QJsonArray visible;
+    const auto query = m_searchText.trimmed();
+    for (const auto &value : m_summaries) {
+        const auto summary = value.toObject();
+        if (!m_showArchived && summary.value(QStringLiteral("status")).toString() == QLatin1String("archived")) continue;
+        if (!query.isEmpty() && !summary.value(QStringLiteral("title")).toString().contains(query, Qt::CaseInsensitive)) continue;
+        visible.append(summary);
+    }
+    m_conversations->setItems(visible);
 }
 
 void ConversationsViewModel::invalidate(bool clearData)
@@ -131,6 +175,8 @@ void ConversationsViewModel::invalidate(bool clearData)
         m_exportText.clear();
         m_error.clear();
         m_notice.clear();
+        m_searchText.clear();
+        m_showArchived = false;
     }
     emit changed();
 }
@@ -152,6 +198,7 @@ void ConversationsViewModel::updateSession()
         emit changed();
         return;
     }
+    m_drafts.clear();
     invalidate(true);
     m_sessionUser = user;
     m_sessionOrigin = origin;
@@ -166,6 +213,12 @@ void ConversationsViewModel::setProjectId(const QString &projectId)
     if (projectId == m_projectId) {
         return;
     }
+    if (pendingSubmission() || m_busy) {
+        m_error = QStringLiteral("Terminez l'action en cours ou rapprochez l'envoi incertain avant de changer de contexte.");
+        emit changed();
+        return;
+    }
+    rememberDraft();
     invalidate(true);
     m_projectId = projectId;
     emit projectIdChanged();
@@ -304,7 +357,7 @@ void ConversationsViewModel::refresh()
             }
         }
         m_summaries = visible;
-        m_conversations->setItems(visible);
+        updateConversationList();
         const QString selected = currentId();
         bool found = false;
         for (const auto &value : visible) {
@@ -315,6 +368,7 @@ void ConversationsViewModel::refresh()
         if (found) {
             loadDetail(selected);
         } else {
+            rememberDraft();
             m_detailReady = false;
             m_current = {};
             m_turnData = {};
@@ -341,11 +395,12 @@ void ConversationsViewModel::selectConversation(const QString &id)
     }
     for (const auto &value : m_summaries) {
         if (value.toObject().value(QStringLiteral("id")).toString() == id) {
+            rememberDraft();
             invalidate(false);
             m_current = value.toObject();
             m_turnData = {};
             m_turns->clear();
-            m_draft.clear();
+            m_draft = m_drafts.value(draftKey());
             m_exportText.clear();
             m_error.clear();
             m_notice.clear();
@@ -353,6 +408,21 @@ void ConversationsViewModel::selectConversation(const QString &id)
             return;
         }
     }
+}
+
+bool ConversationsViewModel::openConversation(const QString &id)
+{
+    if (!available() || m_busy || pendingSubmission()) return false;
+    bool known = false;
+    for (const auto &value : m_summaries)
+        if (value.toObject().value(QStringLiteral("id")).toString() == id) known = true;
+    if (!known) return false;
+    m_active = true;
+    if (id == currentId()) {
+        invalidate(false);
+        loadDetail(id);
+    } else selectConversation(id);
+    return true;
 }
 
 void ConversationsViewModel::loadDetail(const QString &id)
@@ -395,13 +465,17 @@ void ConversationsViewModel::applySummary(const QJsonObject &summary)
     if (!found) {
         m_summaries.prepend(m_current);
     }
-    m_conversations->setItems(m_summaries);
+    updateConversationList();
 }
 
 void ConversationsViewModel::applyTurns(const QJsonArray &turnsValue)
 {
-    m_turnData = turnsValue;
-    m_turns->setItems(m_turnData);
+    if (m_turnData != turnsValue) {
+        emit historyAboutToChange();
+        m_turnData = turnsValue;
+        m_turns->setItems(m_turnData);
+        emit historyChanged();
+    }
     for (const auto &value : m_turnData) {
         const auto turn = value.toObject();
         if (!m_pendingKey.isEmpty() && turn.value(QStringLiteral("client_request_id")).toString() == m_pendingKey
@@ -409,30 +483,61 @@ void ConversationsViewModel::applyTurns(const QJsonArray &turnsValue)
             m_pendingKey.clear();
             m_pendingContent.clear();
             m_draft.clear();
+            rememberDraft();
         }
     }
 }
 
 void ConversationsViewModel::createConversation(const QString &title)
 {
+    createConversationRequest(title, false);
+}
+
+bool ConversationsViewModel::startConversation(const QString &projectId)
+{
+    if (!available() || m_busy || pendingSubmission()) {
+        m_error = pendingSubmission()
+            ? QStringLiteral("Rapprochez d'abord le message dont l'envoi reste incertain.")
+            : QStringLiteral("Connectez-vous et attendez la fin de l'action en cours pour ouvrir un chat.");
+        emit changed();
+        return false;
+    }
+    rememberDraft();
+    invalidate(false);
+    if (projectId != m_projectId) {
+        invalidate(true);
+        m_projectId = projectId;
+        emit projectIdChanged();
+    }
+    m_active = true;
+    m_searchText.clear();
+    m_showArchived = false;
+    createConversationRequest({}, true);
+    return m_busy;
+}
+
+void ConversationsViewModel::createConversationRequest(const QString &title, bool reloadList)
+{
     if (!m_active || !available() || m_busy || m_loading || pendingSubmission()) {
         return;
     }
-    if (title.trimmed().isEmpty() || title.size() > 200 || title.contains(QChar::Null)) {
-        m_error = QStringLiteral("Saisissez un titre de 1 à 200 caractères, sans caractère NUL.");
+    if (title.size() > 200 || title.contains(QChar::Null)) {
+        m_error = QStringLiteral("Le titre doit rester inférieur à 201 caractères, sans caractère NUL.");
         emit changed();
         return;
     }
+    rememberDraft();
     invalidate(false);
     m_busy = true;
     m_error.clear();
     ApiRequest req;
     req.method = QByteArrayLiteral("POST");
     req.path = QStringLiteral("/conversations");
-    req.body = QJsonDocument(QJsonObject{{QStringLiteral("title"), title.trimmed()},
-        {QStringLiteral("project_id"), m_projectId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(m_projectId)}});
+    QJsonObject body{{QStringLiteral("project_id"), m_projectId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(m_projectId)}};
+    if (!title.trimmed().isEmpty()) body.insert(QStringLiteral("title"), title.trimmed());
+    req.body = QJsonDocument(body);
     // La création n'a pas de contrat d'idempotence : aucun rejeu automatique.
-    request(req, [this](const ApiResponse &response) {
+    request(req, [this, reloadList](const ApiResponse &response) {
         const auto summary = response.json.object();
         if (!validSummary(summary) || !belongsToProject(summary)) {
             failProtocol(QStringLiteral("de création de conversation"));
@@ -446,12 +551,14 @@ void ConversationsViewModel::createConversation(const QString &title)
         m_detailReady = true;
         m_notice = QStringLiteral("Conversation créée.");
         emit changed();
+        if (reloadList) refresh();
     }, [this](const ApiError &error) {
         m_busy = false;
         if (error.isRetryable()) {
             m_notice = QStringLiteral("La création a pu aboutir. Actualisez la liste avant de réessayer.");
         }
     });
+    emit changed();
 }
 
 void ConversationsViewModel::sendMessage()
@@ -698,6 +805,55 @@ void ConversationsViewModel::exportConversation()
         m_notice = QStringLiteral("Export JSON prêt à lire ou copier.");
         emit changed();
     }, [this](const ApiError &) { m_busy = false; });
+}
+
+QVariantList ConversationsViewModel::messageBlocks(const QString &text) const
+{
+    // Seules les lignes de clôture sont reconnues. Tout le reste, notamment HTML,
+    // liens et images Markdown, reste du texte littéral dans un TextEdit PlainText.
+    // Une borne de blocs évite une explosion de délégués sur un contenu hostile.
+    static const QRegularExpression opening(QStringLiteral("^(`{3,}|~{3,})([A-Za-z0-9_+#.\\-]{0,40})[ \\t]*$"));
+    QVariantList result;
+    QStringList buffer;
+    QString language;
+    QChar fence;
+    qsizetype fenceSize = 0;
+    bool code = false;
+    const auto append = [&] {
+        if (buffer.isEmpty()) return;
+        result.append(QVariantMap{{QStringLiteral("kind"), code ? QStringLiteral("code") : QStringLiteral("text")},
+            {QStringLiteral("text"), buffer.join(QLatin1Char('\n'))}, {QStringLiteral("language"), language}});
+        buffer.clear();
+    };
+    const auto lines = text.split(QLatin1Char('\n'));
+    for (qsizetype i = 0; i < lines.size(); ++i) {
+        if (result.size() >= 127) {
+            // Le reste est lisible et copiable en texte brut, sans rien exécuter.
+            for (; i < lines.size(); ++i) buffer.append(lines.at(i));
+            break;
+        }
+        const auto line = lines.at(i).trimmed();
+        if (!code) {
+            const auto match = opening.match(line);
+            if (match.hasMatch()) {
+                append();
+                const auto delimiter = match.captured(1);
+                fence = delimiter.at(0);
+                fenceSize = delimiter.size();
+                language = match.captured(2);
+                code = true;
+                continue;
+            }
+        } else if (line.size() >= fenceSize && line.count(fence) == line.size()) {
+            append();
+            code = false;
+            language.clear();
+            continue;
+        }
+        buffer.append(lines.at(i));
+    }
+    append();
+    return result;
 }
 
 } // namespace acp
