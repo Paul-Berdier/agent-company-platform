@@ -31,10 +31,9 @@
 //     donnée explicitement et les octets sont copiés tels quels, sans hypothèse
 //     d'encodage.
 //
-// État de la preuve : compilé avec MSVC 14.44 et lié à Advapi32. AUCUN test ne l'exerce
-// contre le Gestionnaire d'identifiants réel, et la station ne lui confie aujourd'hui
-// aucun secret (la session n'est pas persistée) : son comportement à l'exécution n'est
-// pas prouvé.
+// Le test windowsCredentialVaultRoundTripIsIsolated exerce écriture, lecture et
+// suppression d'une entrée synthétique UUID. Une session Windows sans coffre utilisable
+// produit un saut explicite ; la station refuse alors la persistance sans repli en clair.
 
 #pragma once
 

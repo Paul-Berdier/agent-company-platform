@@ -12,6 +12,7 @@ Q_LOGGING_CATEGORY(lcSettings, "acp.settings")
 
 constexpr char kServerUrl[] = "connection/serverUrl";
 constexpr char kAllowInsecureLoopback[] = "connection/allowInsecureLoopback";
+constexpr char kRememberSession[] = "connection/rememberSession";
 constexpr char kTheme[] = "appearance/theme";
 constexpr char kMotion[] = "appearance/motion";
 constexpr char kInspectorWidth[] = "layout/inspectorWidth";
@@ -25,6 +26,7 @@ const QStringList &SettingsStore::allowedKeys()
         QLatin1String(kServerUrl),      QLatin1String(kAllowInsecureLoopback),
         QLatin1String(kTheme),          QLatin1String(kMotion),
         QLatin1String(kInspectorWidth), QLatin1String(kSidebarCollapsed),
+        QLatin1String(kRememberSession),
     };
     return keys;
 }
@@ -120,6 +122,18 @@ void SettingsStore::setAllowInsecureLoopback(bool allowed)
     setValue(QLatin1String(kAllowInsecureLoopback), allowed);
 }
 
+bool SettingsStore::rememberSession() const
+{
+    return value(QLatin1String(kRememberSession), false).toBool();
+}
+
+void SettingsStore::setRememberSession(bool remember)
+{
+    if (rememberSession() == remember) return;
+    setValue(QLatin1String(kRememberSession), remember);
+    emit rememberSessionChanged();
+}
+
 int SettingsStore::inspectorWidth() const
 {
     return value(QLatin1String(kInspectorWidth), 0).toInt();
@@ -152,6 +166,7 @@ void SettingsStore::clear()
     emit serverUrlChanged();
     emit themePreferenceChanged();
     emit motionPreferenceChanged();
+    emit rememberSessionChanged();
 }
 
 QString SettingsStore::location() const

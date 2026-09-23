@@ -22,35 +22,30 @@ QString readinessLabel(NavigationModel::Readiness readiness)
 NavigationModel::NavigationModel(QObject *parent)
     : QAbstractListModel(parent)
 {
-    // Cette fondation livre trois écrans réels : l'accueil (état du lien et de la
-    // session), les diagnostics, et l'écran de première ouverture. Tout le reste est
-    // déclaré « prévu » et le dit, plutôt que d'afficher une coquille vide.
+    // Seuls les écrans effectivement livrés sont navigables.
     m_destinations = {
         {QStringLiteral("home"), QStringLiteral("Accueil"), QStringLiteral("home"),
+         Readiness::Ready, QString()},
+        {QStringLiteral("projects"), QStringLiteral("Projets"), QStringLiteral("folder"),
          Readiness::Ready, QString()},
         {QStringLiteral("diagnostics"), QStringLiteral("Diagnostics"),
          QStringLiteral("stethoscope"), Readiness::Ready, QString()},
         {QStringLiteral("missions"), QStringLiteral("Missions"), QStringLiteral("target"),
-         Readiness::Planned,
-         QStringLiteral("L'écran des missions n'est pas livré par cette fondation. Les "
-                        "routes serveur existent ; l'écran natif viendra dans un lot "
-                        "ultérieur.")},
-        {QStringLiteral("approvals"), QStringLiteral("Approbations"),
-         QStringLiteral("hand-raised"), Readiness::Planned,
-         QStringLiteral("La décision d'approbation existe côté serveur et n'a encore aucun "
-                        "client. Cet écran en sera le premier ; il n'est pas livré ici.")},
+         Readiness::Ready, QString()},
+        {QStringLiteral("approvals"), QStringLiteral("Opérations"),
+         QStringLiteral("hand-raised"), Readiness::Ready, QString()},
+        {QStringLiteral("studio"), QStringLiteral("Studio en direct"),
+         QStringLiteral("target"), Readiness::Ready, QString()},
+        {QStringLiteral("platform"), QStringLiteral("Agents et workers"),
+         QStringLiteral("building"), Readiness::Ready, QString()},
+        {QStringLiteral("settings"), QStringLiteral("Réglages"),
+         QStringLiteral("settings"), Readiness::Ready, QString()},
         {QStringLiteral("library"), QStringLiteral("Bibliothèque"), QStringLiteral("archive"),
-         Readiness::Planned,
-         QStringLiteral("Le gestionnaire de livrables n'est pas livré par cette fondation.")},
+         Readiness::Ready, QString()},
         {QStringLiteral("conversations"), QStringLiteral("Conversations"),
-         QStringLiteral("message"), Readiness::Planned,
-         QStringLiteral("Aucun flux temps réel n'existe pour les conversations : l'écran "
-                        "devra interroger périodiquement, ce qui est à décider avant de le "
-                        "livrer.")},
+         QStringLiteral("message"), Readiness::Ready, QString()},
         {QStringLiteral("extensions"), QStringLiteral("Extensions"), QStringLiteral("plug"),
-         Readiness::Planned,
-         QStringLiteral("Centre MCP et bibliothèque de skills : non livrés par cette "
-                        "fondation.")},
+         Readiness::Ready, QString()},
         {QStringLiteral("office"), QStringLiteral("Bureau de département"),
          QStringLiteral("building"), Readiness::OutOfScope,
          QStringLiteral("Hors périmètre : les ressources graphiques du bureau ne sont pas "

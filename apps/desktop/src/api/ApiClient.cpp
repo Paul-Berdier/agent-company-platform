@@ -6,6 +6,7 @@
 #include <QHostAddress>
 #include <QJsonParseError>
 #include <QNetworkAccessManager>
+#include <QNetworkCookie>
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -178,8 +179,28 @@ void ApiClient::clearCsrfToken()
 
 void ApiClient::clearSessionState()
 {
+    invalidatePendingCalls();
     m_cookieJar->clearAll();
     clearCsrfToken();
+    emit sessionStateCleared();
+}
+
+void ApiClient::invalidatePendingCalls()
+{
+    ++m_sessionGeneration;
+    const bool alreadyInvalidating = m_invalidating;
+    m_invalidating = true;
+    const auto calls = m_inFlight;
+    m_pendingRotating.clear();
+    m_pendingUnsafe.clear();
+    m_rotatingCall = nullptr;
+    for (const QPointer<ApiCall> &call : calls) {
+        if (call && !call->m_finished) {
+            call->abort();
+            releaseCall(call);
+        }
+    }
+    m_invalidating = alreadyInvalidating;
 }
 
 QUrl ApiClient::resolve(const QString &path, const QUrlQuery &query) const
@@ -255,6 +276,9 @@ std::chrono::milliseconds ApiClient::retryDelay(const ApiError &error, int attem
 
 ApiError ApiClient::validateBeforeSend(const ApiRequest &request) const
 {
+    if (m_invalidating) {
+        return ApiError(ApiFailure::Cancelled, QStringLiteral("La session change ; appel annulé."));
+    }
     if (m_baseUrl.isEmpty()) {
         return ApiError::refusal(QStringLiteral(
             "Aucune adresse de serveur n'est configurée. Renseignez-la dans l'écran de "
@@ -282,6 +306,8 @@ ApiCall *ApiClient::send(const ApiRequest &request)
 {
     auto *call = new ApiCall(request, this);
     call->m_maxAttempts = plannedAttempts(request);
+    call->m_sessionGeneration = m_sessionGeneration;
+    call->m_url = resolve(request.path, request.query);
 
     const ApiError refusal = validateBeforeSend(request);
     if (refusal.isError()) {
@@ -308,6 +334,8 @@ ApiCall *ApiClient::sendCsrfRotating(const ApiRequest &request)
 {
     auto *call = new ApiCall(request, this);
     call->m_maxAttempts = plannedAttempts(request);
+    call->m_sessionGeneration = m_sessionGeneration;
+    call->m_url = resolve(request.path, request.query);
 
     const ApiError refusal = validateBeforeSend(request);
     if (refusal.isError()) {
@@ -339,14 +367,14 @@ void ApiClient::startAttempt(ApiCall *call)
     if (!call || call->m_finished) {
         return;
     }
-    if (call->m_aborted) {
+    if (call->m_aborted || call->m_sessionGeneration != m_sessionGeneration) {
         finishWithError(call, ApiError(ApiFailure::Cancelled, QStringLiteral("Appel interrompu.")));
         return;
     }
     ++call->m_attempt;
 
     const ApiRequest &request = call->m_request;
-    const QUrl url = resolve(request.path, request.query);
+    const QUrl url = call->m_url;
     if (url.isEmpty()) {
         finishWithError(call,
                         ApiError::refusal(QStringLiteral(
@@ -355,6 +383,10 @@ void ApiClient::startAttempt(ApiCall *call)
     }
 
     QNetworkRequest networkRequest(url);
+    // Qt ne doit pas appliquer un Set-Cookie AVANT le contrôle de génération : une
+    // réponse de connexion retardée pourrait autrement rétablir une session purgée.
+    networkRequest.setAttribute(QNetworkRequest::CookieSaveControlAttribute,
+                                QNetworkRequest::Manual);
     networkRequest.setRawHeader(QByteArrayLiteral("Accept"), request.accept);
     if (!m_userAgent.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("User-Agent"), m_userAgent);
@@ -410,6 +442,12 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
         return;
     }
     call->m_reply = nullptr;
+    if (call->m_finished || call->m_aborted
+        || call->m_sessionGeneration != m_sessionGeneration) {
+        reply->deleteLater();
+        finishWithError(call, ApiError(ApiFailure::Cancelled, QStringLiteral("Appel interrompu.")));
+        return;
+    }
     const QByteArray body = reply->readAll();
     const QVariant statusAttribute = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
     const int httpStatus = statusAttribute.isValid() ? statusAttribute.toInt() : 0;
@@ -425,9 +463,15 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
             response.headers.insert(name, reply->rawHeader(name));
         }
     }
+    QList<QNetworkCookie> cookies;
+    for (const auto &header : reply->rawHeaderPairs()) {
+        if (header.first.compare(QByteArrayLiteral("set-cookie"), Qt::CaseInsensitive) == 0)
+            cookies.append(QNetworkCookie::parseCookies(header.second));
+    }
+    if (!cookies.isEmpty()) m_cookieJar->setCookiesFromUrl(cookies, call->m_url);
     reply->deleteLater();
 
-    if (call->m_aborted) {
+    if (call->m_aborted || call->m_sessionGeneration != m_sessionGeneration) {
         finishWithError(call,
                         ApiError(ApiFailure::Cancelled, QStringLiteral("Appel interrompu.")));
         return;
@@ -469,9 +513,21 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
             }
         }
         if (httpStatus == 401) {
+            // Le terminal doit précéder la purge réentrante provoquée par le signal.
+            // Sinon abort() remplacerait le 401 par Cancelled pour cet appel même.
+            call->m_finished = true;
             emit unauthorizedObserved();
+            emit call->failed(error);
+            releaseCall(call);
+            call->deleteLater();
+            return;
         } else if (httpStatus == 403) {
+            call->m_finished = true;
             emit forbiddenObserved();
+            emit call->failed(error);
+            releaseCall(call);
+            call->deleteLater();
+            return;
         }
         if (shouldRetry(call->m_request, error, call->m_attempt)) {
             const auto delay = retryDelay(error, call->m_attempt);
@@ -514,6 +570,10 @@ void ApiClient::finishWithResponse(ApiCall *call, const ApiResponse &response)
     if (!call || call->m_finished) {
         return;
     }
+    if (call->m_sessionGeneration != m_sessionGeneration) {
+        finishWithError(call, ApiError(ApiFailure::Cancelled, QStringLiteral("La session a changé.")));
+        return;
+    }
     call->m_finished = true;
     emit call->succeeded(response);
     releaseCall(call);
@@ -535,11 +595,12 @@ void ApiClient::releaseCall(ApiCall *call)
 
 void ApiClient::drainPending()
 {
+    if (m_invalidating) return;
     // Priorité au prochain appel rotatif : il renouvelle le jeton dont les mutations
     // retenues ont besoin.
     while (!m_pendingRotating.isEmpty()) {
         const QPointer<ApiCall> next = m_pendingRotating.dequeue();
-        if (!next) {
+        if (!next || next->m_finished || next->m_aborted) {
             continue;
         }
         m_rotatingCall = next;
@@ -548,7 +609,7 @@ void ApiClient::drainPending()
     }
     while (!m_pendingUnsafe.isEmpty()) {
         const QPointer<ApiCall> next = m_pendingUnsafe.dequeue();
-        if (!next) {
+        if (!next || next->m_finished || next->m_aborted) {
             continue;
         }
         dispatch(next);

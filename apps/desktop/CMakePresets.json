@@ -27,7 +27,7 @@
     {
       "name": "windows-msvc-debug",
       "displayName": "Windows / MSVC / Debug",
-      "description": "Compilation de mise au point sur Windows avec MSVC. Qt est localisé par QT_ROOT_DIR ou Qt6_DIR. JAMAIS exécuté : aucun MSVC n'est installé sur le poste de rédaction.",
+      "description": "Compilation de mise au point sur Windows avec MSVC. Qt est localisé par QT_ROOT_DIR ou Qt6_DIR. Les preuves de compilation sont consignées dans docs/desktop-build.md.",
       "inherits": ["base", "qt-from-environment"],
       "generator": "Ninja",
       "condition": {

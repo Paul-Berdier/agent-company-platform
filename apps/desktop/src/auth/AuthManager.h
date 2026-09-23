@@ -136,6 +136,7 @@ private:
     QString m_lastError;
     bool m_bootstrapRequired = false;
     bool m_recoveryAttempted = false; //!< Une seule reprise après un 403, et une seule.
+    quint64 m_operation = 0;
 };
 
 } // namespace acp

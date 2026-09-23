@@ -37,14 +37,10 @@ Rectangle {
             onTriggered: Shell.sidebarCollapsed = !Shell.sidebarCollapsed
         }
 
-        Text {
-            text: Shell.workspaceLabel
-            color: Colors.textPrimary
-            font.family: Type.objectTitle.family
-            font.pixelSize: Type.objectTitle.pixelSize
-            font.weight: Type.objectTitle.weight
-            elide: Text.ElideRight
+        AcpButton {
+            label: Workspace.projectName || qsTr("Choisir un projet")
             Layout.maximumWidth: 260
+            onTriggered: Navigation.setCurrentRoute("projects")
         }
 
         Text {
@@ -59,17 +55,6 @@ Rectangle {
         }
 
         Item { Layout.fillWidth: true }
-
-        // La recherche globale n'existe pas dans cette fondation : le champ est présent,
-        // désactivé, et dit pourquoi. Il n'ouvre rien et n'appelle rien.
-        AcpTextField {
-            Layout.preferredWidth: 220
-            enabled: false
-            placeholder: qsTr("Recherche — indisponible pour l'instant")
-            helperText: qsTr("Aucune route de recherche globale n'existe côté serveur.")
-            // La barre est de hauteur fixe : l'explication reste accessible sans déborder.
-            helperVisible: false
-        }
 
         AcpButton {
             label: qsTr("Commandes")

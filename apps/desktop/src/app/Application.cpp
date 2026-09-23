@@ -15,6 +15,15 @@
 #include "system/SystemAppearance.h"
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/ShellViewModel.h"
+#include "viewmodels/WorkspaceViewModel.h"
+#include "viewmodels/ConversationsViewModel.h"
+#include "viewmodels/MissionsViewModel.h"
+#include "viewmodels/ArtifactsViewModel.h"
+#include "services/ArtifactDownload.h"
+#include "viewmodels/PlatformViewModel.h"
+#include "viewmodels/OperationsViewModel.h"
+#include "services/SessionPersistence.h"
+#include "services/UpdateService.h"
 
 #include <QCoreApplication>
 #include <QLibraryInfo>
@@ -73,14 +82,41 @@ Application::Application(QObject *parent)
                                  m_settings, m_appearance, m_vault.get(), version(), buildInfo(),
                                  this);
 
+    m_workspace = new WorkspaceViewModel(m_client, m_auth, this);
+    m_conversations = new ConversationsViewModel(m_client, m_auth, this);
+    m_missions = new MissionsViewModel(m_client, m_auth, m_streams, this);
+    m_artifacts = new ArtifactsViewModel(m_client, m_auth, this);
+    m_platform = new PlatformViewModel(m_client, m_auth, this);
+    m_operations = new OperationsViewModel(m_client, m_auth, this);
+    m_sessionStorage = new SessionPersistence(m_client, m_auth, m_vault.get(), m_settings, this);
+    m_updates = new UpdateService(version(), this);
+    connect(m_workspace, &WorkspaceViewModel::projectChanged, this, [this] {
+        const auto id = m_workspace->projectId();
+        m_conversations->setProjectId(id);
+        m_missions->setProjectId(id);
+        m_artifacts->setProjectId(id);
+        m_platform->setProjectId(id);
+        m_operations->setProjectId(id);
+    });
     registerBuiltinCommands();
 }
 
-Application::~Application() = default;
+Application::~Application()
+{
+    shutdown();
+    // Les vues dépendent du transport et des flux créés avant elles. QObject détruit
+    // normalement ses enfants dans l'ordre de création : les vues doivent ici partir
+    // en premier, pendant que leurs services et le coffre sont encore disponibles.
+    while (!children().isEmpty()) delete children().last();
+}
 
 void Application::registerQmlTypes()
 {
     qRegisterMetaType<acp::ApiError>("acp::ApiError");
+    qmlRegisterUncreatableType<JsonListModel>(kQmlUri, 1, 0, "JsonListModel",
+        QStringLiteral("Le modèle est fourni par la station."));
+    qmlRegisterUncreatableType<ArtifactDownload>(kQmlUri, 1, 0, "ArtifactDownload",
+        QStringLiteral("Le téléchargement est fourni par la station."));
 
     // Énumérations : types non instanciables, exposés pour que QML puisse comparer des
     // états sans recopier des chaînes magiques.
@@ -121,6 +157,14 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Diagnostics", m_diagnostics);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Workspace", m_workspace);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Conversations", m_conversations);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Missions", m_missions);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Artifacts", m_artifacts);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Platform", m_platform);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Operations", m_operations);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "SessionStorage", m_sessionStorage);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Updates", m_updates);
 }
 
 bool Application::load(QQmlApplicationEngine *engine)
@@ -158,6 +202,7 @@ void Application::start()
         m_auth->refreshBootstrapStatus();
         // La reprise de session s'appuie sur le cookie ; sans cookie détenu elle échoue
         // immédiatement, sans appel réseau.
+        m_sessionStorage->restore();
         m_auth->resumeSession();
     }
 }
@@ -180,6 +225,45 @@ void Application::registerBuiltinCommands()
         return context.sessionConnected ? CommandAvailability::Available
                                         : CommandAvailability::NeedsSession;
     };
+
+    const QList<QPair<QString, QString>> workspaceRoutes = {
+        {QStringLiteral("projects"), QStringLiteral("Projets")},
+        {QStringLiteral("conversations"), QStringLiteral("Conversations")},
+        {QStringLiteral("missions"), QStringLiteral("Missions et runs")},
+        {QStringLiteral("library"), QStringLiteral("Livrables")},
+        {QStringLiteral("studio"), QStringLiteral("Studio en direct")},
+        {QStringLiteral("platform"), QStringLiteral("Agents et workers")},
+        {QStringLiteral("extensions"), QStringLiteral("Extensions MCP et skills")},
+        {QStringLiteral("approvals"), QStringLiteral("Opérations")},
+    };
+    for (const auto &route : workspaceRoutes) {
+        m_commands->registerCommand(Command{
+            QStringLiteral("navigation.") + route.first, route.second,
+            QStringLiteral("Navigation"), {route.second}, QString(), needsSession,
+            [this, destination = route.first](const CommandContext &) {
+                m_navigation->setCurrentRoute(destination);
+                return CommandResult::accept();
+            }});
+    }
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.settings"), QStringLiteral("Réglages et mises à jour"),
+        QStringLiteral("Navigation"), {}, QString(), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("settings"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("session.resume"), QStringLiteral("Reprendre la session"),
+        QStringLiteral("Session"), {}, QString(),
+        [this](const CommandContext &) {
+            return m_client->isConfigured() && !m_auth->isBusy()
+                ? CommandAvailability::Available : CommandAvailability::NotConfigured;
+        }, [this](const CommandContext &) {
+            m_auth->resumeSession();
+            return CommandResult::accept();
+        }});
 
     m_commands->registerCommand(Command{
         QStringLiteral("palette.open"), QStringLiteral("Ouvrir la palette de commandes"),
@@ -239,7 +323,7 @@ void Application::registerBuiltinCommands()
     m_commands->registerCommand(Command{
         QStringLiteral("session.logout"), QStringLiteral("Se déconnecter"),
         QStringLiteral("Session"), {QStringLiteral("quitter"), QStringLiteral("session")},
-        QString(), needsSession,
+        QString(), alwaysAvailable,
         [this](const CommandContext &) {
             m_streams->closeAll();
             m_auth->logOut();

@@ -103,7 +103,6 @@ void DiagnosticsViewModel::refresh()
     const QString session = QStringLiteral("Session");
     const QString streams = QStringLiteral("Flux d'événements");
     const QString storage = QStringLiteral("Stockage local");
-    const QString proof = QStringLiteral("Preuve");
 
     // --- Station ------------------------------------------------------------
     entries.append({station, QStringLiteral("Version de la station"), m_clientVersion, true, true});
@@ -219,20 +218,6 @@ void DiagnosticsViewModel::refresh()
                     true, false});
     entries.append({storage, QStringLiteral("Préférences (aucun secret)"), m_settings->location(),
                     true, true});
-
-    // --- Preuve -------------------------------------------------------------
-    // Cette section existe pour que la station ne se présente jamais comme plus éprouvée
-    // qu'elle ne l'est. Elle est aussi vraie en production que sur un poste de dévelop-
-    // pement, et elle est écrite ici plutôt que promise dans un document.
-    entries.append({proof, QStringLiteral("Flux de portée projet"),
-                    QStringLiteral("Cette station en est le premier consommateur applicatif ; "
-                                   "jamais éprouvé en réel"),
-                    false, false});
-    entries.append({proof, QStringLiteral("Reprise après coupure réseau réelle"),
-                    QStringLiteral("Jamais éprouvée : seuls des minuteurs injectés l'ont été"),
-                    false, false});
-    entries.append({proof, QStringLiteral("Déploiement hébergé"),
-                    QStringLiteral("Aucun déploiement n'a jamais eu lieu"), false, false});
 
     beginResetModel();
     m_entries = entries;

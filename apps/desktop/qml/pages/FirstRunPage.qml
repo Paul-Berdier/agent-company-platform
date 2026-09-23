@@ -198,6 +198,20 @@ Rectangle {
                 onAccepted: page.submitLogin()
             }
 
+            CheckBox {
+                text: qsTr("Mémoriser la session dans le coffre Windows")
+                checked: SessionStorage.rememberSession
+                onToggled: SessionStorage.rememberSession = checked
+            }
+            Label {
+                Layout.fillWidth: true
+                text: SessionStorage.error || SessionStorage.status
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Colors.textSecondary
+            }
+            AcpButton { label: qsTr("Retenter la session mémorisée"); commandId: "session.resume" }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Space.space4

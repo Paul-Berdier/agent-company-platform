@@ -120,6 +120,26 @@ endif()
 # fenêtre.
 
 set(ACP_CORE_SOURCES
+    src/viewmodels/PlatformViewModel.cpp
+    src/viewmodels/PlatformViewModel.h
+    src/viewmodels/OperationsViewModel.cpp
+    src/viewmodels/OperationsViewModel.h
+    src/services/SessionPersistence.cpp
+    src/services/SessionPersistence.h
+    src/services/UpdateService.cpp
+    src/services/UpdateService.h
+    src/models/JsonListModel.cpp
+    src/models/JsonListModel.h
+    src/viewmodels/WorkspaceViewModel.cpp
+    src/viewmodels/WorkspaceViewModel.h
+    src/viewmodels/ConversationsViewModel.cpp
+    src/viewmodels/ConversationsViewModel.h
+    src/viewmodels/MissionsViewModel.cpp
+    src/viewmodels/MissionsViewModel.h
+    src/viewmodels/ArtifactsViewModel.cpp
+    src/viewmodels/ArtifactsViewModel.h
+    src/services/ArtifactDownload.cpp
+    src/services/ArtifactDownload.h
     src/api/ApiClient.cpp
     src/api/ApiClient.h
     src/api/ApiError.cpp

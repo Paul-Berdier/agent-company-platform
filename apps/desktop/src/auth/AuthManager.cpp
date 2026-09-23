@@ -14,6 +14,14 @@ AuthManager::AuthManager(ApiClient *client, QObject *parent)
 {
     connect(m_client, &ApiClient::unauthorizedObserved, this, &AuthManager::handleUnauthorized);
     connect(m_client, &ApiClient::forbiddenObserved, this, &AuthManager::handleForbidden);
+    connect(m_client, &ApiClient::sessionStateCleared, this, [this] {
+        ++m_operation;
+        m_user = {};
+        m_expiresAt = {};
+        m_recoveryAttempted = false;
+        emit userChanged();
+        setState(SessionStatus::Disconnected, QStringLiteral("Session locale effacée."));
+    });
 }
 
 QString AuthManager::stateLabel() const
@@ -62,7 +70,9 @@ void AuthManager::refreshBootstrapStatus()
     request.path = QStringLiteral("/auth/status");
 
     ApiCall *call = m_client->send(request);
-    connect(call, &ApiCall::succeeded, this, [this](const ApiResponse &response) {
+    const auto generation = m_client->sessionGeneration();
+    connect(call, &ApiCall::succeeded, this, [this, generation](const ApiResponse &response) {
+        if (generation != m_client->sessionGeneration()) return;
         const QJsonObject payload = response.json.object();
         const QJsonValue required = payload.value(QStringLiteral("bootstrap_required"));
         if (!required.isBool()) {
@@ -76,7 +86,8 @@ void AuthManager::refreshBootstrapStatus()
             emit bootstrapRequiredChanged();
         }
     });
-    connect(call, &ApiCall::failed, this, [this](const ApiError &error) {
+    connect(call, &ApiCall::failed, this, [this, generation](const ApiError &error) {
+        if (generation != m_client->sessionGeneration()) return;
         // L'état d'amorçage reste INCONNU : on n'affirme surtout pas « pas besoin ».
         setState(m_state, error.message());
     });
@@ -92,11 +103,15 @@ QJsonObject AuthManager::loginRequestBody(const QString &login, const QString &p
 
 void AuthManager::logIn(const QString &login, const QString &password)
 {
+    if (isBusy()) return;
     if (login.isEmpty() || password.isEmpty()) {
         setState(SessionStatus::Disconnected,
                  QStringLiteral("Identifiant et mot de passe sont tous deux obligatoires."));
         return;
     }
+    forgetLocalSession(SessionStatus::Disconnected, QString());
+    const auto operation = ++m_operation;
+    const auto generation = m_client->sessionGeneration();
     setState(SessionStatus::Connecting);
     m_recoveryAttempted = false;
 
@@ -109,10 +124,12 @@ void AuthManager::logIn(const QString &login, const QString &password)
     request.publicEndpoint = true;
 
     ApiCall *call = m_client->send(request);
-    connect(call, &ApiCall::succeeded, this, [this](const ApiResponse &response) {
+    connect(call, &ApiCall::succeeded, this, [this, operation, generation](const ApiResponse &response) {
+        if (operation != m_operation || generation != m_client->sessionGeneration()) return;
         applySessionPayload(response.json.object());
     });
-    connect(call, &ApiCall::failed, this, [this](const ApiError &error) {
+    connect(call, &ApiCall::failed, this, [this, operation, generation](const ApiError &error) {
+        if (operation != m_operation || generation != m_client->sessionGeneration()) return;
         const SessionStatus::State state = error.kind() == ApiFailure::Network
                 || error.kind() == ApiFailure::Timeout
             ? SessionStatus::Offline
@@ -131,11 +148,26 @@ void AuthManager::logOut()
     request.method = QByteArrayLiteral("POST");
     request.path = QStringLiteral("/auth/logout");
 
+    // Les anciennes lectures, connexions et réessais sont abandonnés avant le dernier
+    // envoi. Le POST part avec le cookie courant ; ensuite la copie locale disparaît
+    // immédiatement, même si le réseau ne répond jamais.
+    const auto operation = ++m_operation;
+    m_client->invalidatePendingCalls();
+    const auto generation = m_client->sessionGeneration();
     ApiCall *call = m_client->send(request);
-    connect(call, &ApiCall::succeeded, this, [this](const ApiResponse &) {
+    m_client->cookieJar()->clearAll();
+    m_client->clearCsrfToken();
+    m_user = {};
+    m_expiresAt = {};
+    emit userChanged();
+    setState(SessionStatus::Disconnected,
+             QStringLiteral("Déconnexion locale effectuée ; confirmation du serveur en cours."));
+    connect(call, &ApiCall::succeeded, this, [this, operation, generation](const ApiResponse &) {
+        if (operation != m_operation || generation != m_client->sessionGeneration()) return;
         forgetLocalSession(SessionStatus::Disconnected, QStringLiteral("Déconnecté."));
     });
-    connect(call, &ApiCall::failed, this, [this](const ApiError &error) {
+    connect(call, &ApiCall::failed, this, [this, operation, generation](const ApiError &error) {
+        if (operation != m_operation || generation != m_client->sessionGeneration()) return;
         // Le serveur n'a peut-être pas révoqué la session ; l'état local, lui, est purgé
         // de toute façon. On le dit plutôt que de laisser croire à une déconnexion nette.
         forgetLocalSession(
@@ -149,6 +181,7 @@ void AuthManager::logOut()
 
 void AuthManager::resumeSession()
 {
+    if (isBusy()) return;
     if (!m_client->isConfigured()) {
         setState(SessionStatus::Disconnected,
                  QStringLiteral("Aucune adresse de serveur n'est configurée."));
@@ -160,6 +193,8 @@ void AuthManager::resumeSession()
                  QStringLiteral("Aucune session mémorisée sur ce poste."));
         return;
     }
+    const auto operation = ++m_operation;
+    const auto generation = m_client->sessionGeneration();
     setState(SessionStatus::Connecting);
 
     ApiRequest request;
@@ -169,10 +204,12 @@ void AuthManager::resumeSession()
     // Cet appel FAIT TOURNER le jeton CSRF côté serveur : il passe par le portail de
     // sérialisation, sans exception.
     ApiCall *call = m_client->sendCsrfRotating(request);
-    connect(call, &ApiCall::succeeded, this, [this](const ApiResponse &response) {
+    connect(call, &ApiCall::succeeded, this, [this, operation, generation](const ApiResponse &response) {
+        if (operation != m_operation || generation != m_client->sessionGeneration()) return;
         applySessionPayload(response.json.object());
     });
-    connect(call, &ApiCall::failed, this, [this](const ApiError &error) {
+    connect(call, &ApiCall::failed, this, [this, operation, generation](const ApiError &error) {
+        if (operation != m_operation || generation != m_client->sessionGeneration()) return;
         switch (error.kind()) {
         case ApiFailure::Unauthorized:
             forgetLocalSession(SessionStatus::Expired,
@@ -221,7 +258,6 @@ void AuthManager::applySessionPayload(const QJsonObject &payload)
     m_expiresAt = expires.isEmpty() ? QDateTime()
                                     : QDateTime::fromString(expires, Qt::ISODateWithMs).toUTC();
 
-    m_recoveryAttempted = false;
     emit userChanged();
     setState(SessionStatus::Connected);
 }

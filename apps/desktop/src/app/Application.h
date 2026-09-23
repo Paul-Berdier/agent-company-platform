@@ -27,6 +27,14 @@ class NavigationModel;
 class SettingsStore;
 class ShellViewModel;
 class SystemAppearance;
+class WorkspaceViewModel;
+class ConversationsViewModel;
+class MissionsViewModel;
+class ArtifactsViewModel;
+class PlatformViewModel;
+class OperationsViewModel;
+class SessionPersistence;
+class UpdateService;
 
 class Application : public QObject
 {
@@ -75,6 +83,14 @@ private:
     SystemAppearance *m_appearance = nullptr;
     ShellViewModel *m_shell = nullptr;
     DiagnosticsViewModel *m_diagnostics = nullptr;
+    WorkspaceViewModel *m_workspace = nullptr;
+    ConversationsViewModel *m_conversations = nullptr;
+    MissionsViewModel *m_missions = nullptr;
+    ArtifactsViewModel *m_artifacts = nullptr;
+    PlatformViewModel *m_platform = nullptr;
+    OperationsViewModel *m_operations = nullptr;
+    SessionPersistence *m_sessionStorage = nullptr;
+    UpdateService *m_updates = nullptr;
     std::unique_ptr<CredentialVault> m_vault;
 };
 

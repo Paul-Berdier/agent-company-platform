@@ -27,6 +27,7 @@ Item {
         Text {
             Layout.fillWidth: true
             text: state.title
+            textFormat: Text.PlainText
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             color: Colors.textPrimary
@@ -40,6 +41,7 @@ Item {
             Layout.fillWidth: true
             visible: state.body.length > 0
             text: state.body
+            textFormat: Text.PlainText
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             lineHeight: Type.prose.lineHeight

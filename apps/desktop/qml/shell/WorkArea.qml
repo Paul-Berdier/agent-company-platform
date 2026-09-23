@@ -24,6 +24,15 @@ Rectangle {
                 return homeComponent;
             case "diagnostics":
                 return diagnosticsComponent;
+            case "projects": return projectsComponent;
+            case "conversations": return conversationsComponent;
+            case "missions": return missionsComponent;
+            case "library": return artifactsComponent;
+            case "platform": return platformComponent;
+            case "extensions": return extensionsComponent;
+            case "approvals": return operationsComponent;
+            case "settings": return settingsComponent;
+            case "studio": return studioComponent;
             default:
                 return unknownComponent;
             }
@@ -39,6 +48,16 @@ Rectangle {
         id: diagnosticsComponent
         DiagnosticsPage {}
     }
+
+    Component { id: projectsComponent; ProjectsPage {} }
+    Component { id: conversationsComponent; ConversationsPage {} }
+    Component { id: missionsComponent; MissionsPage {} }
+    Component { id: artifactsComponent; ArtifactsPage {} }
+    Component { id: platformComponent; PlatformPage {} }
+    Component { id: extensionsComponent; ExtensionsPage {} }
+    Component { id: operationsComponent; OperationsPage {} }
+    Component { id: settingsComponent; SettingsPage {} }
+    Component { id: studioComponent; StudioPage {} }
 
     Component {
         id: unknownComponent

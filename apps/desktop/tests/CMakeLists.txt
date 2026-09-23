@@ -27,6 +27,24 @@ function(acp_add_cpp_test name)
 endfunction()
 
 acp_add_cpp_test(tst_sse_parser)
+acp_add_cpp_test(tst_event_stream_transport)
+acp_add_cpp_test(tst_workspace)
+acp_add_cpp_test(tst_conversations)
+acp_add_cpp_test(tst_missions)
+acp_add_cpp_test(tst_artifacts)
+acp_add_cpp_test(tst_updates)
+acp_add_cpp_test(tst_platform)
+acp_add_cpp_test(tst_operations)
+acp_add_cpp_test(tst_session_persistence)
+acp_add_cpp_test(tst_api_journey)
+acp_add_cpp_test(tst_desktop_pages)
+target_link_libraries(tst_desktop_pages PRIVATE Qt6::QuickControls2
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+qt_add_executable(desktop_preview cpp/desktop_preview.cpp)
+target_link_libraries(desktop_preview PRIVATE acp_core Qt6::QuickControls2
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 acp_add_cpp_test(tst_api_errors)
 acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_session_state)

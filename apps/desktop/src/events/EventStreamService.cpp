@@ -22,6 +22,12 @@ namespace {
 //! mort même si la socket n'a rien signalé.
 constexpr int kSilenceMarginSeconds = 10;
 
+bool hasEventStreamType(QNetworkReply *reply)
+{
+    return reply->rawHeader(QByteArrayLiteral("Content-Type")).split(';').first().trimmed().toLower()
+        == QByteArrayLiteral("text/event-stream");
+}
+
 } // namespace
 
 // --- StreamSubscription -------------------------------------------------------
@@ -247,6 +253,9 @@ void StreamSubscription::openStream()
     }
 
     QNetworkRequest request(url);
+    // Le flux ne renouvelle pas la session. Une réponse tardive ne doit pas rétablir
+    // un cookie après la déconnexion ou un changement de serveur.
+    request.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
     request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("text/event-stream"));
     request.setRawHeader(QByteArrayLiteral("Cache-Control"), QByteArrayLiteral("no-cache"));
     if (!m_parser.lastEventId().isEmpty()) {
@@ -282,9 +291,19 @@ void StreamSubscription::handleStreamBytes()
 
     const QVariant statusAttribute = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
     const int httpStatus = statusAttribute.isValid() ? statusAttribute.toInt() : 0;
+    if (httpStatus == 401 || httpStatus == 403) {
+        refuseStream(ApiError::fromHttpStatus(httpStatus, extractProblemDetail(m_reply->read(4096))));
+        return;
+    }
     if (httpStatus >= 400) {
         // Le corps d'erreur sera traité à la fin de la réponse ; on ne l'analyse pas
         // comme du SSE.
+        return;
+    }
+    if (httpStatus != 200 || !hasEventStreamType(m_reply)) {
+        refuseStream(ApiError(ApiFailure::InvalidResponse,
+                              QStringLiteral("Le serveur n'a pas renvoyé un flux SSE HTTP 200 de type text/event-stream."),
+                              httpStatus));
         return;
     }
 
@@ -393,13 +412,25 @@ void StreamSubscription::handleStreamFinished()
     const int httpStatus = statusAttribute.isValid() ? statusAttribute.toInt() : 0;
     const QByteArray tail = reply->readAll();
     const QString transportError = reply->errorString();
+    const bool validStream = httpStatus == 200 && hasEventStreamType(reply);
     reply->deleteLater();
 
     if (m_stopped) {
         return;
     }
 
-    if (!tail.isEmpty() && httpStatus < 400) {
+    if (httpStatus == 401 || httpStatus == 403) {
+        refuseStream(ApiError::fromHttpStatus(httpStatus, extractProblemDetail(tail)));
+        return;
+    }
+    if (httpStatus > 0 && httpStatus < 400 && !validStream) {
+        refuseStream(ApiError(ApiFailure::InvalidResponse,
+                              QStringLiteral("Le serveur n'a pas renvoyé un flux SSE HTTP 200 de type text/event-stream."),
+                              httpStatus));
+        return;
+    }
+
+    if (!tail.isEmpty() && validStream) {
         handleFrames(m_parser.consume(tail));
         if (m_stopped) {
             return;
@@ -414,14 +445,6 @@ void StreamSubscription::handleStreamFinished()
         }
     }
 
-    if (httpStatus == 401 || httpStatus == 403) {
-        const ApiError error = ApiError::fromHttpStatus(httpStatus, extractProblemDetail(tail));
-        m_stopped = true;
-        leavePolling();
-        setStatus(StreamStatus::Refused, error.message());
-        emit refused(error);
-        return;
-    }
     if (httpStatus == 429) {
         // Borne de flux simultanés atteinte. Le serveur donne Retry-After: 5, et le jeton
         // d'un flux mal refermé n'est rendu qu'au bout de 900 s : insister ne sert à rien.
@@ -437,6 +460,21 @@ void StreamSubscription::handleStreamFinished()
     }
     scheduleReconnect(transportError.isEmpty() ? QStringLiteral("Le flux s'est interrompu.")
                                                : transportError);
+}
+
+void StreamSubscription::refuseStream(const ApiError &error)
+{
+    m_stopped = true;
+    m_reconnectTimer->stop();
+    m_silenceTimer->stop();
+    leavePolling();
+    closeReply();
+    setStatus(StreamStatus::Refused, error.message());
+    const QPointer<ApiClient> client = m_client;
+    emit refused(error);
+    // Un 403 peut désigner seulement une appartenance manquante. Un 401, en revanche,
+    // invalide la session globale et donc sa copie éventuelle dans le coffre système.
+    if (error.httpStatus() == 401 && client) emit client->unauthorizedObserved();
 }
 
 void StreamSubscription::scheduleReconnect(const QString &reason)
@@ -481,6 +519,8 @@ EventStreamService::EventStreamService(ApiClient *client, QObject *parent)
     : QObject(parent)
     , m_client(client)
 {
+    connect(client, &ApiClient::baseUrlChanged, this, &EventStreamService::closeAll);
+    connect(client, &ApiClient::sessionStateCleared, this, &EventStreamService::closeAll);
 }
 
 void EventStreamService::setLimits(const StreamLimits &limits)

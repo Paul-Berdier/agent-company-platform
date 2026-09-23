@@ -81,6 +81,8 @@ private:
     int m_maxAttempts = 1;
     bool m_finished = false;
     bool m_aborted = false;
+    quint64 m_sessionGeneration = 0;
+    QUrl m_url;
     QPointer<QNetworkReply> m_reply;
 };
 
@@ -180,6 +182,11 @@ public:
     /*! Purge le pot de cookies et le jeton CSRF. Déconnexion, expiration, révocation. */
     void clearSessionState();
 
+    /*! Invalide les appels et leurs réessais, sans effacer le cookie nécessaire au
+        dernier POST /auth/logout. Aucun ancien appel ne change de serveur. */
+    void invalidatePendingCalls();
+    [[nodiscard]] quint64 sessionGeneration() const { return m_sessionGeneration; }
+
     // --- Politique, exposée pour les tests -----------------------------------
 
     /*!
@@ -213,6 +220,7 @@ signals:
     /*! Émis dès qu'un appel reçoit un 403. Peut signaler un droit manquant OU un jeton
         CSRF périmé : seul AuthManager sait trancher, en tentant une reprise de session. */
     void forbiddenObserved();
+    void sessionStateCleared();
 
 private:
     void dispatch(ApiCall *call);
@@ -239,6 +247,8 @@ private:
     QPointer<ApiCall> m_rotatingCall;            //!< Appel rotatif actuellement en vol.
     QQueue<QPointer<ApiCall>> m_pendingRotating; //!< Appels rotatifs en attente.
     QQueue<QPointer<ApiCall>> m_pendingUnsafe;   //!< Mutations retenues pendant une rotation.
+    quint64 m_sessionGeneration = 0;
+    bool m_invalidating = false;
 };
 
 } // namespace acp

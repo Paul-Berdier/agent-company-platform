@@ -1,8 +1,4 @@
-// Accueil : l'état réel du lien, de la session et des flux. Rien d'autre.
-//
-// Cette fondation ne consomme aucune route métier : il n'y a donc ni compteur de
-// missions, ni file d'approbations, ni graphique. Les afficher vides ou à zéro serait
-// exactement l'invention que la doctrine interdit. L'écran dit ce qui viendra, et où.
+// Accueil : état mesuré de la liaison et accès au contexte projet natif.
 
 import QtQuick
 import QtQuick.Controls.Basic
@@ -116,14 +112,12 @@ Item {
         EmptyState {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            title: qsTr("Aucune donnée métier n'est encore affichée")
-            body: qsTr("Cette version est la fondation de la station : transport, session, "
-                       + "flux d'événements, compatibilité et coquille. Les écrans des "
-                       + "missions, des approbations et de la bibliothèque ne sont pas "
-                       + "livrés, et leurs compteurs ne sont donc pas affichés plutôt que "
-                       + "d'être montrés à zéro.")
-            actionLabel: qsTr("Ouvrir les diagnostics")
-            actionCommandId: "navigation.diagnostics"
+            title: Workspace.projectName || qsTr("Votre espace de travail")
+            body: qsTr("Choisissez un projet pour retrouver ses conversations, créer une mission, "
+                       + "suivre ses runs et télécharger ses livrables. Les informations proviennent "
+                       + "du serveur auquel cette session est connectée.")
+            actionLabel: qsTr("Ouvrir les projets")
+            actionCommandId: "navigation.projects"
         }
     }
 }

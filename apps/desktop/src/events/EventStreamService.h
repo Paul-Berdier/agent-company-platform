@@ -123,6 +123,7 @@ private:
     void openStream();
     void handleStreamBytes();
     void handleStreamFinished();
+    void refuseStream(const acp::ApiError &error);
     void handleFrames(const QList<SseEvent> &frames);
     void scheduleReconnect(const QString &reason);
     void enterPolling(const QString &reason);

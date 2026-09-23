@@ -73,6 +73,7 @@ Item {
 
         Text {
             text: control.label
+            textFormat: Text.PlainText
             color: {
                 if (!control.effectiveEnabled)
                     return Colors.textMuted;
