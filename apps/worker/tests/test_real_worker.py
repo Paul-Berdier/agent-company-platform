@@ -886,7 +886,7 @@ async def test_provider_evaluation_failure_keeps_real_process_proof(tmp_path: Pa
         )
 
     terminal = patches[-1]
-    assert terminal["status"] == "blocked"
+    assert terminal["status"] == "blocked", terminal
     assert terminal["technical_validation"]["status"] == "passed"
     assert terminal["evidence"][0]["exit_code"] == 0
     assert terminal["evidence"][0]["data"]["status"] == "succeeded"

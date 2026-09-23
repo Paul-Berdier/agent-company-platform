@@ -1410,8 +1410,20 @@ async def _windows_force_terminate_tree(
                 if not snapshot_ok:
                     all_stopped = False
                     continue
+                # Un processus terminé peut rester visible dans Toolhelp tant
+                # qu'un handle le référence. Le handle épinglé et signalé prouve
+                # son arrêt sans rouvrir un PID potentiellement réutilisé. Garder
+                # son ID dans l'ascendance permet de retrouver un descendant
+                # apparu depuis la passe précédente avant de conclure.
+                pending_depths = {
+                    candidate: depth
+                    for candidate, depth in depths.items()
+                    if candidate not in pinned_handles
+                    or kernel32.WaitForSingleObject(pinned_handles[candidate], 0)
+                    != wait_object_0
+                }
                 ordered_ids = sorted(
-                    depths,
+                    pending_depths,
                     key=lambda candidate: depths[candidate],
                     reverse=True,
                 )
