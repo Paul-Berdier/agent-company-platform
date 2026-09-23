@@ -7,8 +7,22 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+# Le Python du Microsoft Store est une application empaquetée : l'interpréteur réel d'un
+# venv bâti sur lui sort du Job Object du runner local, et les tests d'arbre de processus
+# échouent (apps/worker/tests/test_local_runner.py). Refus explicite, plutôt qu'un venv
+# qui semble fonctionner.
+$pythonOfficiel = "winget install --id Python.Python.3.12 --exact --scope user, puis : " +
+    "& `"$env:LOCALAPPDATA\Programs\Python\Python312\python.exe`" -m venv `"$root\.venv`""
 if (-not (Test-Path "$root\.venv")) {
+    $basePrefix = & python -c "import sys; print(sys.base_prefix)"
+    if ($LASTEXITCODE -ne 0 -or $basePrefix -match '\\WindowsApps\\') {
+        throw "Le Python trouvé ($basePrefix) est celui du Microsoft Store ou n'est pas utilisable. $pythonOfficiel"
+    }
     python -m venv "$root\.venv"
+}
+$venvConfig = Get-Content "$root\.venv\pyvenv.cfg" -Raw
+if ($venvConfig -match '\\WindowsApps\\') {
+    throw ".venv est bâti sur le Python du Microsoft Store. Supprimez-le et recréez-le. $pythonOfficiel"
 }
 $py = "$root\.venv\Scripts\python.exe"
 

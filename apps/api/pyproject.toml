@@ -1,6 +1,6 @@
 [project]
 name = "acp-api"
-version = "0.9.1"
+version = "0.10.0"
 description = "API cœur de l'Agent Company Platform"
 requires-python = ">=3.11"
 dependencies = [

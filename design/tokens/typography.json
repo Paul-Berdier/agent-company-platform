@@ -1,0 +1,74 @@
+{
+  "$schema": "acp.design-tokens/1",
+  "$description": "Échelle typographique de la station de travail. Dense et hiérarchisée par le poids et la couleur avant de l'être par la taille : l'écart entre deux niveaux voisins est d'un ou deux pixels, jamais d'un saut décoratif. Les tailles sont en pixels et se branchent sur font.pixelSize en QML ; les hauteurs de ligne sont absolues et se branchent sur lineHeight avec lineHeightMode: Text.FixedHeight. Aucune police n'est téléchargée : les piles listées reposent sur ce qui est installé.",
+  "$version": "1.0.0",
+  "$file": "typography",
+  "$themed": false,
+  "$qml": {
+    "singleton": "Type",
+    "module": "Acp.Design",
+    "namingRule": "size.body -> sizeBody, role.tableCell -> roleTableCell. Un rôle est généré comme un objet QtObject exposant family, pixelSize, lineHeight, weight, letterSpacing et capitalization.",
+    "familyProperty": "Les piles sont fournies comme listes et se branchent sur font.families (Qt 6). Un générateur ciblant font.family prend le premier élément disponible."
+  },
+  "tokens": {
+    "family.interface": {
+      "$description": "Pile de l'interface. Inter en premier pour la continuité avec le client web, puis les polices système Windows, macOS et Linux. Aucune n'est embarquée à ce stade ; si Inter est absente, le rendu bascule sans réglage.",
+      "$type": "fontFamilyStack",
+      "$value": ["Inter", "Inter Variable", "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", "Noto Sans", "DejaVu Sans"]
+    },
+    "family.mono": {
+      "$description": "Pile à chasse fixe pour les journaux, les identifiants, les diff, les durées et tout ce qui doit s'aligner en colonne.",
+      "$type": "fontFamilyStack",
+      "$value": ["Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", "SFMono-Regular", "Consolas", "DejaVu Sans Mono"]
+    },
+    "size.micro": { "$description": "Compteurs, unités, numéros de ligne. Jamais pour une phrase.", "$type": "dimension", "$value": 11 },
+    "size.small": { "$description": "Métadonnées, horodatages, aide de champ.", "$type": "dimension", "$value": 12 },
+    "size.body": { "$description": "Taille par défaut de l'interface : cellules, libellés, contenu de liste.", "$type": "dimension", "$value": 13 },
+    "size.subtitle": { "$description": "Titre d'un panneau ou d'une section interne.", "$type": "dimension", "$value": 14 },
+    "size.title": { "$description": "Titre d'une vue ou d'un objet ouvert.", "$type": "dimension", "$value": 16 },
+    "size.sectionTitle": { "$description": "Titre d'un écran entier. Plus grande taille de l'interface courante.", "$type": "dimension", "$value": 20 },
+    "size.display": { "$description": "Réservé aux états pleine page : vide, hors ligne, accueil. Une seule occurrence par écran au maximum.", "$type": "dimension", "$value": 26 },
+    "size.monoSmall": { "$description": "Journal dense, trace, sortie brute.", "$type": "dimension", "$value": 11 },
+    "size.mono": { "$description": "Chasse fixe par défaut : identifiants, chemins, durées.", "$type": "dimension", "$value": 12 },
+    "lineHeight.micro": { "$type": "dimension", "$value": 14 },
+    "lineHeight.small": { "$type": "dimension", "$value": 16 },
+    "lineHeight.body": { "$type": "dimension", "$value": 18 },
+    "lineHeight.subtitle": { "$type": "dimension", "$value": 20 },
+    "lineHeight.title": { "$type": "dimension", "$value": 22 },
+    "lineHeight.sectionTitle": { "$type": "dimension", "$value": 26 },
+    "lineHeight.display": { "$type": "dimension", "$value": 32 },
+    "lineHeight.mono": { "$description": "Interligne des blocs à chasse fixe. Assez serré pour tenir beaucoup de lignes, assez ouvert pour rester lisible pendant un flux.", "$type": "dimension", "$value": 17 },
+    "lineHeight.prose": { "$description": "Interligne des paragraphes réellement rédigés : message d'agent, description longue.", "$type": "dimension", "$value": 20 },
+    "weight.regular": { "$type": "fontWeight", "$value": 400 },
+    "weight.medium": { "$description": "Distinction de premier recours dans une liste dense, avant toute couleur.", "$type": "fontWeight", "$value": 500 },
+    "weight.semibold": { "$type": "fontWeight", "$value": 600 },
+    "weight.bold": { "$description": "Réservé aux titres d'écran et aux libellés d'action primaire.", "$type": "fontWeight", "$value": 700 },
+    "letterSpacing.tight": { "$description": "Titres à partir de 16 px.", "$type": "dimension", "$value": -0.2 },
+    "letterSpacing.normal": { "$type": "dimension", "$value": 0 },
+    "letterSpacing.wide": { "$description": "En-têtes de colonne en petites capitales.", "$type": "dimension", "$value": 0.4 },
+    "measure.prose": { "$description": "Largeur maximale conseillée d'un bloc de texte rédigé, en pixels. Au-delà, la lecture se dégrade même sur un grand écran.", "$type": "dimension", "$value": 680 }
+  },
+  "$roles": {
+    "$description": "Compositions prêtes à l'emploi. Un écran natif ne recompose pas une police à la main : il consomme un rôle. Si un rôle manque, on l'ajoute ici plutôt que d'improviser localement.",
+    "pageTitle": { "family": "family.interface", "size": "size.sectionTitle", "lineHeight": "lineHeight.sectionTitle", "weight": "weight.bold", "letterSpacing": "letterSpacing.tight" },
+    "panelTitle": { "family": "family.interface", "size": "size.subtitle", "lineHeight": "lineHeight.subtitle", "weight": "weight.semibold", "letterSpacing": "letterSpacing.normal" },
+    "objectTitle": { "family": "family.interface", "size": "size.title", "lineHeight": "lineHeight.title", "weight": "weight.semibold", "letterSpacing": "letterSpacing.tight" },
+    "columnHeader": { "family": "family.interface", "size": "size.micro", "lineHeight": "lineHeight.micro", "weight": "weight.semibold", "letterSpacing": "letterSpacing.wide", "capitalization": "AllUppercase" },
+    "tableCell": { "family": "family.interface", "size": "size.body", "lineHeight": "lineHeight.body", "weight": "weight.regular", "letterSpacing": "letterSpacing.normal" },
+    "tableCellEmphasis": { "family": "family.interface", "size": "size.body", "lineHeight": "lineHeight.body", "weight": "weight.medium", "letterSpacing": "letterSpacing.normal" },
+    "metadata": { "family": "family.interface", "size": "size.small", "lineHeight": "lineHeight.small", "weight": "weight.regular", "letterSpacing": "letterSpacing.normal" },
+    "statusChip": { "family": "family.interface", "size": "size.micro", "lineHeight": "lineHeight.micro", "weight": "weight.semibold", "letterSpacing": "letterSpacing.wide" },
+    "buttonLabel": { "family": "family.interface", "size": "size.body", "lineHeight": "lineHeight.body", "weight": "weight.medium", "letterSpacing": "letterSpacing.normal" },
+    "prose": { "family": "family.interface", "size": "size.body", "lineHeight": "lineHeight.prose", "weight": "weight.regular", "letterSpacing": "letterSpacing.normal" },
+    "identifier": { "family": "family.mono", "size": "size.mono", "lineHeight": "lineHeight.mono", "weight": "weight.regular", "letterSpacing": "letterSpacing.normal" },
+    "logLine": { "family": "family.mono", "size": "size.monoSmall", "lineHeight": "lineHeight.mono", "weight": "weight.regular", "letterSpacing": "letterSpacing.normal" },
+    "emptyStateTitle": { "family": "family.interface", "size": "size.display", "lineHeight": "lineHeight.display", "weight": "weight.semibold", "letterSpacing": "letterSpacing.tight" }
+  },
+  "$rules": [
+    "Une seule taille au-dessus de 16 px par écran.",
+    "La hiérarchie se fait d'abord par le poids et la couleur du texte, ensuite seulement par la taille.",
+    "Tout identifiant, chemin, durée, hachage ou sortie de commande est en chasse fixe, sans exception : c'est ce qui rend une valeur copiable et comparable du regard.",
+    "Aucune capitale intégrale en dehors du rôle columnHeader.",
+    "Le texte rédigé ne dépasse pas measure.prose, même dans un panneau large."
+  ]
+}

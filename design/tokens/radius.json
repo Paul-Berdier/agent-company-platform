@@ -1,0 +1,32 @@
+{
+  "$schema": "acp.design-tokens/1",
+  "$description": "Rayons d'arrondi. La station de travail arrondit nettement moins que le client web (8, 14 et 22 px) : un outil dense se lit mieux avec des angles francs, et des coins très ronds font perdre des pixels utiles à chaque cellule. Les valeurs se branchent sur la propriété radius d'un Rectangle QML.",
+  "$version": "1.0.0",
+  "$file": "radius",
+  "$themed": false,
+  "$qml": {
+    "singleton": "Radius",
+    "module": "Acp.Design",
+    "namingRule": "radius.md -> radiusMd.",
+    "unit": "px logiques"
+  },
+  "tokens": {
+    "radius.none": { "$description": "Tableaux, en-têtes de colonne, séparateurs, volets redimensionnables. Valeur par défaut de la station.", "$type": "dimension", "$value": 0 },
+    "radius.xs": { "$description": "Pastille de statut, étiquette, case à cocher.", "$type": "dimension", "$value": 3 },
+    "radius.sm": { "$description": "Bouton, champ de saisie, ligne sélectionnée.", "$type": "dimension", "$value": 5 },
+    "radius.md": { "$description": "Carte, panneau interne, bloc d'exécution.", "$type": "dimension", "$value": 8 },
+    "radius.lg": { "$description": "Couche flottante : palette de commandes, boîte de dialogue, menu.", "$type": "dimension", "$value": 12 },
+    "radius.pill": { "$description": "Réservé aux compteurs circulaires et aux indicateurs ronds. Une pastille de statut n'est PAS une gélule dans la station : radius.xs suffit et gagne de la place.", "$type": "dimension", "$value": 999 }
+  },
+  "$rules": [
+    "Le rayon décroît avec la densité : plus un élément se répète, plus il est carré.",
+    "Un même écran n'utilise pas plus de trois rayons différents.",
+    "Aucun arrondi sur les éléments d'une grille de données : l'alignement vertical prime."
+  ],
+  "$continuity": {
+    "$description": "Écart assumé avec le client web, à documenter si les deux clients sont montrés côte à côte.",
+    "web": { "sm": 8, "md": 14, "lg": 22, "source": "apps/web/src/workspace.css:18-20" },
+    "desktop": { "sm": 5, "md": 8, "lg": 12 },
+    "reason": "Le web sert une navigation occasionnelle et large ; la station sert une surveillance continue et dense."
+  }
+}

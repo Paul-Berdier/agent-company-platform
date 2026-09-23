@@ -1,0 +1,62 @@
+{
+  "$schema": "acp.design-tokens/1",
+  "$description": "Mouvement. Bref, fonctionnel, jamais décoratif : une animation sert à montrer d'où vient une chose ou qu'un travail est vivant, sinon elle est retirée. Aucune transition ne dépasse 240 ms, les durées se branchent sur NumberAnimation.duration en QML et les courbes sur easing.bezierCurve. Le profil « mouvement réduit » est une variante complète, pas un simple interrupteur : il annule les déplacements et garde les fondus courts qui évitent un changement brutal.",
+  "$version": "1.0.0",
+  "$file": "motion",
+  "$themed": false,
+  "$qml": {
+    "singleton": "Motion",
+    "module": "Acp.Design",
+    "namingRule": "duration.fast -> durationFast, easing.standard -> easingStandard.",
+    "easingFormat": "Points de contrôle d'une courbe de Bézier cubique, dans l'ordre x1, y1, x2, y2. En QML : easing.type: Easing.Bezier ; easing.bezierCurve: [x1, y1, x2, y2, 1, 1].",
+    "reducedMotion": "Le générateur produit les deux profils. Le choix à l'exécution vient de la préférence système, exposée par la couche C++, avec une préférence applicative capable de forcer le profil réduit."
+  },
+  "tokens": {
+    "duration.instant": { "$description": "Aucune animation. Survol d'une ligne dans une liste dense, changement de sélection au clavier : la réponse doit être immédiate.", "$type": "duration", "$value": 0 },
+    "duration.micro": { "$description": "Retour d'état d'un contrôle : appui, bascule, apparition d'un anneau de focus.", "$type": "duration", "$value": 80 },
+    "duration.fast": { "$description": "Fondu d'une infobulle, d'une pastille qui change d'état, d'un compteur qui se met à jour.", "$type": "duration", "$value": 120 },
+    "duration.base": { "$description": "Ouverture d'une couche flottante, d'un panneau latéral, d'un bloc d'exécution qui se déplie.", "$type": "duration", "$value": 180 },
+    "duration.slow": { "$description": "Plus longue durée autorisée. Réservée à une modale et au déplacement d'un volet redimensionnable.", "$type": "duration", "$value": 240 },
+    "duration.pulse": { "$description": "Période complète de l'indicateur d'activité continue. Assez lente pour ne pas attirer l'œil en permanence.", "$type": "duration", "$value": 1600 },
+    "easing.standard": { "$description": "Courbe par défaut, sortie douce. Pour tout ce qui apparaît ou change de valeur.", "$type": "cubicBezier", "$value": [0.2, 0, 0, 1] },
+    "easing.enter": { "$description": "Entrée d'une couche : démarrage franc, arrivée amortie.", "$type": "cubicBezier", "$value": [0.05, 0.7, 0.1, 1] },
+    "easing.exit": { "$description": "Sortie d'une couche : départ immédiat, la disparition n'a pas à être contemplée.", "$type": "cubicBezier", "$value": [0.3, 0, 0.8, 0.15] },
+    "easing.linear": { "$description": "Indicateurs de progression et pulsation d'activité uniquement.", "$type": "cubicBezier", "$value": [0, 0, 1, 1] },
+    "distance.enter": { "$description": "Déplacement d'entrée d'une couche flottante, en pixels. Volontairement minuscule : on suggère l'origine, on ne fait pas voyager l'élément.", "$type": "dimension", "$value": 4 },
+    "distance.panelSlide": { "$description": "Déplacement d'un panneau latéral qui s'ouvre. Au-delà, le panneau est simplement affiché sans glissement.", "$type": "dimension", "$value": 12 },
+    "opacity.enterFrom": { "$type": "number", "$value": 0 },
+    "opacity.pulseMin": { "$description": "Opacité basse de l'indicateur d'activité continue. Il ne disparaît jamais complètement : un point qui clignote à zéro se confond avec une absence de donnée.", "$type": "number", "$value": 0.45 }
+  },
+  "$profiles": {
+    "standard": {
+      "$description": "Profil par défaut.",
+      "hover": { "duration": "duration.instant" },
+      "press": { "duration": "duration.micro", "easing": "easing.standard" },
+      "focusRing": { "duration": "duration.micro", "easing": "easing.standard" },
+      "statusChange": { "duration": "duration.fast", "easing": "easing.standard", "properties": ["color", "opacity"] },
+      "overlayEnter": { "duration": "duration.base", "easing": "easing.enter", "properties": ["opacity", "y"], "distance": "distance.enter" },
+      "overlayExit": { "duration": "duration.fast", "easing": "easing.exit", "properties": ["opacity"] },
+      "panelResize": { "duration": "duration.instant", "note": "Un volet suit le pointeur sans retard ; toute interpolation donne l'impression d'une application lente." },
+      "listInsert": { "duration": "duration.fast", "easing": "easing.standard", "properties": ["opacity"], "note": "Un événement qui arrive dans un flux apparaît en fondu, sans glissement : les lignes voisines ne doivent pas bouger sous le curseur." },
+      "activityPulse": { "duration": "duration.pulse", "easing": "easing.linear", "properties": ["opacity"], "loops": "infini" }
+    },
+    "reduced": {
+      "$description": "Profil « mouvement réduit », activé par la préférence système ou par l'application. Aucun déplacement, aucune boucle infinie, aucun changement de taille. Les fondus survivants sont ramenés à la durée micro pour éviter un changement brutal de couleur d'état.",
+      "hover": { "duration": "duration.instant" },
+      "press": { "duration": "duration.instant" },
+      "focusRing": { "duration": "duration.instant" },
+      "statusChange": { "duration": "duration.micro", "easing": "easing.linear", "properties": ["opacity"] },
+      "overlayEnter": { "duration": "duration.micro", "easing": "easing.linear", "properties": ["opacity"], "distance": 0 },
+      "overlayExit": { "duration": "duration.instant" },
+      "panelResize": { "duration": "duration.instant" },
+      "listInsert": { "duration": "duration.instant" },
+      "activityPulse": { "duration": "duration.instant", "loops": 0, "fallback": "L'activité est alors signalée par le libellé « En cours » et par un glyphe fixe, jamais par un clignotement." }
+    }
+  },
+  "$rules": [
+    "Rien ne bouge pendant qu'une donnée arrive : un flux d'événements s'allonge, il ne défile pas tout seul sous les yeux de l'opérateur.",
+    "Aucune animation ne retarde l'affichage d'une information. Le contenu est peint d'abord, l'animation habille au plus.",
+    "Aucune animation de chargement qui simule une progression inconnue : un indicateur indéterminé se dit indéterminé.",
+    "Le profil réduit doit rester utilisable et complet ; il ne dégrade aucune information."
+  ]
+}

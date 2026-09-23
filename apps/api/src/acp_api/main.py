@@ -22,6 +22,7 @@ from .routers import (
     crud,
     events,
     mcp,
+    meta,
     missions,
     onboarding,
     operations,
@@ -58,7 +59,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.9.1",
+    version="0.10.0",
     lifespan=lifespan,
 )
 
@@ -78,6 +79,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(meta.router)
 app.include_router(alerts.router)
 app.include_router(automations.router)
 app.include_router(budgets.router)

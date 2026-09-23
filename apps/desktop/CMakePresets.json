@@ -1,0 +1,154 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "23",
+        "ACP_DESKTOP_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "qt-from-environment",
+      "hidden": true,
+      "description": "Localise Qt par une variable d'environnement, jamais par un chemin codé en dur. QT_ROOT_DIR est prioritaire ; à défaut, Qt6_DIR est employé. Aucune installation de Qt n'est supposée à un emplacement particulier.",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
+        "Qt6_DIR": "$env{Qt6_DIR}"
+      }
+    },
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "Windows / MSVC / Debug",
+      "description": "Compilation de mise au point sur Windows avec MSVC. Qt est localisé par QT_ROOT_DIR ou Qt6_DIR. Les preuves de compilation sont consignées dans docs/desktop-build.md.",
+      "inherits": ["base", "qt-from-environment"],
+      "generator": "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "OFF"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "intelliSenseMode": "windows-msvc-x64"
+        }
+      }
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Windows / MSVC / Release",
+      "description": "Compilation de livraison sur Windows avec MSVC. Les avertissements sont traités comme des erreurs : c'est le préréglage attendu de l'intégration continue.",
+      "inherits": ["base", "qt-from-environment"],
+      "generator": "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "ACP_DESKTOP_REGENERATE_TOKENS": "OFF"
+      }
+    },
+    {
+      "name": "ci-windows",
+      "displayName": "Intégration continue Windows",
+      "description": "Préréglage destiné au job Windows. Identique au préréglage de livraison, plus la vérification des jetons de design ; c'est le SEUL endroit d'où une preuve de compilation peut venir.",
+      "inherits": "windows-msvc-release",
+      "cacheVariables": {
+        "ACP_DESKTOP_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "linux-gcc-debug",
+      "displayName": "Linux / GCC / Debug",
+      "description": "Préréglage secondaire, utile pour éprouver la logique sans Windows. Le coffre de secrets y REFUSE de stocker, faute d'implémentation écrite pour ce système.",
+      "inherits": ["base", "qt-from-environment"],
+      "generator": "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug"
+    },
+    {
+      "name": "windows-msvc-release",
+      "configurePreset": "windows-msvc-release"
+    },
+    {
+      "name": "ci-windows",
+      "configurePreset": "ci-windows"
+    },
+    {
+      "name": "linux-gcc-debug",
+      "configurePreset": "linux-gcc-debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "windows-msvc-release",
+      "configurePreset": "windows-msvc-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "ci-windows",
+      "configurePreset": "ci-windows",
+      "output": {
+        "outputOnFailure": true,
+        "verbosity": "verbose"
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "linux-gcc-debug",
+      "configurePreset": "linux-gcc-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

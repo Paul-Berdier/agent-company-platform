@@ -1,0 +1,213 @@
+name: Desktop CI
+
+# Intégration continue du client desktop Windows (C++23 / Qt 6 / Qt Quick).
+#
+# C'est la preuve de compilation de référence du code natif : une compilation sur
+# un poste de développement ne vaut que pour ce poste. Tant que ce workflow n'a pas
+# tourné vert sur une révision, le code natif de cette révision n'est pas prouvé.
+#
+# Ce workflow ne publie rien, jamais, et surtout pas depuis une demande de fusion :
+# il ne demande que `contents: read` et n'emploie aucun jeton d'écriture.
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "apps/api/**"
+      - "packages/contracts/**"
+      - "packages/database/**"
+      - "packages/agent-sdk/**"
+      - "requirements/**"
+      - "packaging/windows/**"
+      - "scripts/setup-desktop.ps1"
+      - "scripts/dev-desktop.ps1"
+      - "scripts/build-desktop.ps1"
+      - "scripts/test-desktop.ps1"
+      - "scripts/package-desktop.ps1"
+      - "scripts/verify-desktop-journey.py"
+      - "scripts/prepare-desktop-python-lock.py"
+      - "scripts/tests/test_prepare_desktop_python_lock.py"
+      - ".github/workflows/desktop-ci.yml"
+      - "VERSION"
+  push:
+    branches:
+      - main
+      - "codex/**"
+      - "feat/**"
+    paths:
+      - "apps/desktop/**"
+      - "apps/api/**"
+      - "packages/contracts/**"
+      - "packages/database/**"
+      - "packages/agent-sdk/**"
+      - "requirements/**"
+      - "packaging/windows/**"
+      - "scripts/setup-desktop.ps1"
+      - "scripts/dev-desktop.ps1"
+      - "scripts/build-desktop.ps1"
+      - "scripts/test-desktop.ps1"
+      - "scripts/package-desktop.ps1"
+      - "scripts/verify-desktop-journey.py"
+      - "scripts/prepare-desktop-python-lock.py"
+      - "scripts/tests/test_prepare_desktop_python_lock.py"
+      - ".github/workflows/desktop-ci.yml"
+      - "VERSION"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64 — MSVC, Qt 6, tests natifs et QML
+    # L'image est épinglée plutôt que windows-latest : une bascule d'image
+    # changerait le compilateur et la version d'Inno Setup sans prévenir.
+    # Elle est répétée dans packaging/windows/toolchain.json (ci.runnerImage) et
+    # l'étape « Vérifier l'image » refuse toute divergence entre les deux.
+    # windows-2022 porte Visual Studio 2022 17.14 : le compilateur visé par les
+    # binaires Qt msvc2022_64 et celui des postes de développement.
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: "1"
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lire la chaîne d'outils épinglée
+        run: |
+          $t = Get-Content packaging/windows/toolchain.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $modules = ''
+          if ($t.qt.modules) { $modules = ($t.qt.modules -join ' ') }
+          @(
+            "ACP_QT_VERSION=$($t.qt.version)"
+            "ACP_QT_HOST=$($t.qt.host)"
+            "ACP_QT_TARGET=$($t.qt.target)"
+            "ACP_QT_ARCH=$($t.qt.architecture)"
+            "ACP_QT_MODULES=$modules"
+            "ACP_RUNNER_IMAGE=$($t.ci.runnerImage)"
+            "ACP_INNO_MINIMUM=$($t.innoSetup.minimumVersion)"
+            "ACP_VERSION=$((Get-Content VERSION -Raw -Encoding UTF8).Trim())"
+          ) | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          Write-Host "Qt $($t.qt.version) / $($t.qt.architecture), image $($t.ci.runnerImage)."
+
+      - name: Vérifier l'image de l'exécuteur
+        run: |
+          $attendu = $env:ACP_RUNNER_IMAGE
+          $observe = $env:ImageOS
+          # Depuis juin 2026, l'étiquette windows-2025 sert l'image « win25-vs2026 »
+          # (Visual Studio 2026) : https://github.com/actions/runner-images/issues/14017.
+          # Une étiquette absente de cette table est refusée, jamais acceptée par défaut.
+          $correspondances = @{ 'windows-2022' = 'win22'; 'windows-2025' = 'win25'; 'windows-2025-vs2026' = 'win25-vs2026' }
+          if (-not $correspondances.ContainsKey($attendu)) {
+            Write-Host "::error::L'image $attendu n'a pas de correspondance ImageOS connue : complétez la table de cette étape."
+            exit 1
+          }
+          if ($correspondances[$attendu] -ne $observe) {
+            Write-Host "::error::L'image attendue ($attendu) ne correspond pas à l'image observée ($observe). Alignez runs-on et packaging/windows/toolchain.json."
+            exit 1
+          }
+          Write-Host "Image conforme : $attendu ($observe)."
+
+      - name: Vérifier la présence des sources du client desktop
+        run: |
+          if (-not (Test-Path 'apps/desktop/CMakePresets.json')) {
+            Write-Host "::error::apps/desktop/CMakePresets.json est absent : il n'y a rien à compiler. Ce workflow échoue plutôt que de rendre un succès sans preuve. Il deviendra vert quand le lot fondation desktop sera fusionné."
+            exit 3
+          }
+          Write-Host 'Sources du client desktop présentes.'
+
+      # Action tierce épinglée par empreinte de commit. L'étiquette v4.4.0 a été
+      # publiée le 14 septembre 2026 ; documentation et paramètres relevés sur
+      # https://github.com/jurplel/install-qt-action le 18 septembre 2026.
+      # `cache: true` met en cache l'installation Qt, qui est de loin le
+      # téléchargement le plus lourd du job. Le répertoire de compilation C++ n'est
+      # volontairement PAS mis en cache : un cache natif périmé produit des
+      # résultats faux, ce qui coûte plus cher que les minutes économisées.
+      - name: Installer Qt (version épinglée, avec cache)
+        uses: jurplel/install-qt-action@bcb88e3bed2e992f5f9e24c0f9e364a231d278eb # v4.4.0
+        with:
+          version: ${{ env.ACP_QT_VERSION }}
+          host: ${{ env.ACP_QT_HOST }}
+          target: ${{ env.ACP_QT_TARGET }}
+          arch: ${{ env.ACP_QT_ARCH }}
+          modules: ${{ env.ACP_QT_MODULES }}
+          cache: true
+          cache-key-prefix: desktop-qt-${{ env.ACP_QT_VERSION }}-${{ env.ACP_QT_ARCH }}
+
+      # L'action Qt choisit sa propre version Python. Reposer 3.12 APRÈS Qt évite
+      # d'exécuter l'API avec le Python de l'installateur Qt (3.14 dans cette action).
+      - name: Installer Python 3.12 pour le parcours API
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements/python-3.12.lock.txt
+            requirements/desktop-windows-overlay.lock.txt
+
+      - name: Préparer l'API locale avec les dépendances hachées
+        run: |
+          python -m venv .test-tmp/desktop-python
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $journeyPython = Join-Path $PWD '.test-tmp/desktop-python/Scripts/python.exe'
+          & $journeyPython -m unittest discover -s scripts/tests -p test_prepare_desktop_python_lock.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython scripts/prepare-desktop-python-lock.py --target-platform win32
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython -m pip install --require-hashes --no-deps --only-binary=:all: -r .test-tmp/desktop-python-3.12.lock.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython -m pip install --no-deps --no-build-isolation -e packages/contracts -e packages/database -e packages/agent-sdk -e apps/api
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $journeyPython -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Inventorier les prérequis
+        run: ./scripts/setup-desktop.ps1
+
+      - name: Configurer et compiler (préréglage MSVC Release)
+        run: ./scripts/build-desktop.ps1 -Configuration Release
+
+      - name: Exécuter les tests Qt Test et Qt Quick Test
+        run: ./scripts/test-desktop.ps1 -Configuration Release
+
+      - name: Vérifier le parcours Qt contre une vraie API locale jetable
+        run: |
+          Import-Module ./packaging/windows/DesktopToolchain.psm1 -Force
+          $journeyQt = Resolve-AcpQtDirectory
+          if (-not $journeyQt) { throw 'Qt introuvable pour le parcours API natif.' }
+          $journeyPython = Join-Path $PWD '.test-tmp/desktop-python/Scripts/python.exe'
+          & $journeyPython scripts/verify-desktop-journey.py --qt-bin (Join-Path $journeyQt 'bin')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Empaquetage à blanc : produit réellement l'installeur, l'archive portable
+      # et les sommes de contrôle, pour prouver que la chaîne de distribution
+      # fonctionne — mais ne signe rien et ne publie rien.
+      - name: Empaqueter à blanc
+        run: ./scripts/package-desktop.ps1 -Configuration Release -DryRun -OutputDir "${{ github.workspace }}/dist/desktop"
+
+      - name: Déposer les artefacts d'inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ci-${{ github.run_id }}
+          path: |
+            dist/desktop/*.exe
+            dist/desktop/*.zip
+            dist/desktop/SHA256SUMS.txt
+            .test-tmp/desktop-journey-*/qt-journey.log
+            .test-tmp/desktop-journey-*/qt-journey.xml
+            .test-tmp/desktop-journey-*/result.json
+            .test-tmp/desktop-journey-*/api.log
+          # Le dossier .test-tmp est caché ; seules les quatre preuves ci-dessus sont
+          # autorisées, jamais le décor SQLite, ses fichiers ou l'environnement Python.
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

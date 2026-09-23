@@ -10,9 +10,28 @@ from .auth import (  # noqa: F401
     AuthenticatedUser,
     AuthSessionResponse,
     AuthStatusResponse,
+    CsrfTokenResponse,
     LoginRequest,
     LogoutResponse,
     OwnerBootstrapRequest,
+)
+from .compatibility import (  # noqa: F401
+    API_CONTRACT_VERSION,
+    CLIENT_HEADER,
+    CLIENT_HEADER_HELP,
+    KNOWN_CLIENTS,
+    ClientAnnouncement,
+    ClientRequirement,
+    ClientRequirements,
+    ClientVersionError,
+    CompatibilityDocument,
+    ServerCapabilities,
+    ServerCapability,
+    ServerLimits,
+    ServerVersions,
+    compare_versions,
+    parse_client_header,
+    parse_version,
 )
 from .enums import (  # noqa: F401
     AgentStatus,

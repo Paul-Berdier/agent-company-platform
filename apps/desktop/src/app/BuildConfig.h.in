@@ -1,0 +1,13 @@
+// Constantes de construction, engendrées par CMake.
+//
+// La version vient du fichier VERSION de la racine du dépôt, lu par CMake. Elle n'est
+// JAMAIS saisie une seconde fois : l'audit rappelle que `scripts/check_version.py` devra
+// couvrir la station, « sans quoi le client dérivera silencieusement de VERSION ».
+//
+// Fichier généré à la configuration — ne pas modifier à la main, ne pas versionner.
+
+#pragma once
+
+#define ACP_DESKTOP_VERSION "@ACP_DESKTOP_VERSION@"
+#define ACP_DESKTOP_QT_VERSION "@ACP_DESKTOP_QT_VERSION@"
+#define ACP_DESKTOP_BUILD_TYPE "@ACP_DESKTOP_BUILD_TYPE@"

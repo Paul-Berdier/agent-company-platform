@@ -6,6 +6,68 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## 0.10.0 (préparation) - 2026-09-23
+
+Client natif Qt : intégration du Lot H et parcours métier reliés à l'API.
+Cette version reste en préparation ; elle n'annonce pas une recette Railway achevée.
+
+### Ajouté
+
+- écrans natifs de projets, conversations, missions/tentatives, Studio et livrables ;
+- inventaire des agents, workers et fournisseurs, liaisons MCP et compétences ;
+- décisions d'approbation, alertes, budgets et automatisations avec formulaires typés ;
+- réglages d'apparence, vérification explicite des publications GitHub et session
+  mémorisée sur consentement dans le coffre Windows ;
+- tests HTTP loopback, chargement QML et parcours du client Qt contre une vraie API
+  SQLite jetable ; projection hachée du verrou Python pour cette recette en CI Windows.
+
+### Modifié
+
+- contexte de projet partagé par les écrans, navigation et palette de commandes ;
+- arrêt, relance et envois incertains rapprochés avec la même clé pendant la session ;
+- README, documentation de parité, sécurité, construction, installation et reprise
+  alignés sur les fonctions présentes et les limites observées.
+
+### Corrigé
+
+- réponses et réessais d'une ancienne origine annulés après changement de serveur ;
+- reprise de session préservant le contexte connu, refus 401/403 terminaux uniques,
+  et absence de boucle de renouvellement sur un refus métier ;
+- fermeture des services dans l'ordre de leurs dépendances et dialogues QML sans
+  boucle de dimensionnement ;
+- encodage des sorties MSVC stabilisé pour que Ninja détecte les changements d'en-têtes.
+- droits effectifs de création de projet et de liaison d'extensions vérifiés avant envoi ;
+- DLL redistribuables MSVC x64 embarquées dans le paquet portable, avec contrôle de version.
+
+### Sécurité
+
+- aucun cookie ACP transmis à GitHub ; notes de publication et contenus métier rendus
+  en texte brut, liens de publication limités au dépôt officiel ;
+- cookie mémorisé lié à l'URL complète et à son expiration ; aucun repli en stockage clair ;
+- téléchargement de livrable atomique et borné, contrôles de taille/SHA-256, redirections refusées ;
+- un corps HTML ou une redirection ne peut plus apparaître comme un flux SSE en direct.
+
+### Vérifié localement
+
+- backend combiné : 2 896 tests réussis, 70 ignorés ; contrats desktop : 6 réussis ;
+- compilation MSVC Release et 21 suites natives réussies en 54,82 secondes ;
+- parcours Qt/API réelle : 3 réussis, 0 ignoré, livrable de 180 224 octets vérifié ;
+- session/coffre dans la session Windows locale : 24 réussis, aucun ignoré ;
+- projection du verrou Windows : 4 tests réussis ; dépendance incrémentale MSVC prouvée ;
+- portable démarré avec PATH Windows seul ; installation/désinstallation isolées sans élévation,
+  codes 0, 1 387 fichiers vérifiés ; application installée non lancée pour préserver le profil ;
+- résultats finaux de compilation, CI et empaquetage dans
+  `docs/desktop-validation-2026-09-23.md` ; les tentatives échouées y restent distinguées.
+
+### Limites connues
+
+- recette Railway, fournisseur/worker réels, Windows propre et signature de code non prouvés ;
+- revue visuelle interrompue par l'expiration de l'autorisation de capture de fenêtre ;
+- mise à jour manuelle depuis la publication GitHub ; aucune installation automatique ;
+- import/administration avancée de MCP et compétences encore partiellement réservés au web/CLI ;
+- aucune publication 0.10.0 ni fin de la Desktop V1 annoncée ; Pixel Office conservé à part ;
+- les 26 constats ouverts du Lot H demeurent suivis dans `docs/lot-h-091-review-status.md`.
+
 ## 0.9.1 (préparation) - 2026-09-22
 
 Durcissement du Lot H en cours. L'inventaire des constats, des corrections reprises

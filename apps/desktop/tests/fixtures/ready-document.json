@@ -1,0 +1,34 @@
+{
+  "status": "ready",
+  "service": "api",
+  "checks": {
+    "database": {
+      "ok": true,
+      "reason": "base joignable",
+      "dialect": "sqlite",
+      "latency_ms": 0.3
+    },
+    "migrations": {
+      "ok": true,
+      "reason": "schéma à la révision attendue",
+      "current": "0002",
+      "head": "0002",
+      "cached": false
+    },
+    "artifact_storage": {
+      "ok": true,
+      "reason": "non configuré",
+      "configured": false
+    },
+    "skills_storage": {
+      "ok": true,
+      "reason": "non configuré",
+      "configured": false
+    },
+    "outbox": {
+      "ok": true,
+      "reason": "relais désactivé",
+      "enabled": false
+    }
+  }
+}

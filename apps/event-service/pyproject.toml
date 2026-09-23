@@ -1,6 +1,6 @@
 [project]
 name = "acp-event-service"
-version = "0.9.1"
+version = "0.10.0"
 description = "Diffusion temps réel des événements de l'Agent Company Platform"
 requires-python = ">=3.11"
 dependencies = [

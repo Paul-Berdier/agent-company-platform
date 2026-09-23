@@ -33,7 +33,7 @@ from acp_contracts import Event
 
 from .dedupe import DeliveryLedger, dedupe_size, inflight_wait_seconds
 
-app = FastAPI(title="Agent Company Platform — Event Service", version="0.9.1")
+app = FastAPI(title="Agent Company Platform — Event Service", version="0.10.0")
 
 app.add_middleware(
     CORSMiddleware,

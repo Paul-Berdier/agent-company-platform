@@ -1,0 +1,422 @@
+#include "api/ApiClient.h"
+#include "api/SessionCookieJar.h"
+#include <QNetworkCookie>
+#include "auth/AuthManager.h"
+#include "models/JsonListModel.h"
+#include "viewmodels/ConversationsViewModel.h"
+
+#include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPointer>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTest>
+#include <QTimer>
+
+#include <functional>
+#include <memory>
+
+using namespace acp;
+
+namespace {
+const QString kDate = QStringLiteral("2026-09-23T10:00:00+00:00");
+
+QJsonObject summary(const QString &id, const QString &project = QStringLiteral("project-a"))
+{
+    return {{QStringLiteral("id"), id}, {QStringLiteral("project_id"), project.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(project)},
+        {QStringLiteral("title"), QStringLiteral("Une conversation")}, {QStringLiteral("status"), QStringLiteral("active")},
+        {QStringLiteral("created_at"), kDate}, {QStringLiteral("updated_at"), kDate}};
+}
+
+QJsonObject turn(const QString &key, const QString &status = QStringLiteral("running"))
+{
+    return {{QStringLiteral("id"), QStringLiteral("turn-a")}, {QStringLiteral("client_request_id"), key}, {QStringLiteral("status"), status},
+        {QStringLiteral("user_content"), QStringLiteral("Bonjour <img src='https://example.invalid/x'>")},
+        {QStringLiteral("assistant_content"), status == QLatin1String("completed") ? QJsonValue(QStringLiteral("Réponse réelle")) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("error"), QJsonValue(QJsonValue::Null)}, {QStringLiteral("created_at"), kDate}, {QStringLiteral("updated_at"), kDate}};
+}
+
+struct Request {
+    QByteArray method;
+    QByteArray path;
+    QByteArray headers;
+    QJsonObject body;
+};
+
+struct Response {
+    int status = 200;
+    QJsonObject body;
+    int delayMs = 0;
+    QByteArray sessionCookie;
+};
+
+// Serveur HTTP local : exerce le vrai ApiClient, ses réessais et les réponses tardives.
+class ConversationServer : public QObject
+{
+public:
+    QTcpServer server;
+    QList<Request> requests;
+    std::function<Response(const Request &)> handler;
+
+    ConversationServer()
+    {
+        connect(&server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = server.nextPendingConnection()) {
+                const auto buffer = std::make_shared<QByteArray>();
+                const auto answered = std::make_shared<bool>(false);
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, this, [this, socket, buffer, answered] {
+                    buffer->append(socket->readAll());
+                    if (*answered) {
+                        return;
+                    }
+                    const qsizetype headerEnd = buffer->indexOf("\r\n\r\n");
+                    if (headerEnd < 0) {
+                        return;
+                    }
+                    const QByteArray headers = buffer->left(headerEnd);
+                    qsizetype length = 0;
+                    for (const auto &line : headers.split('\n')) {
+                        if (line.toLower().startsWith("content-length:")) {
+                            length = line.mid(15).trimmed().toLongLong();
+                        }
+                    }
+                    if (buffer->size() < headerEnd + 4 + length) {
+                        return;
+                    }
+                    *answered = true;
+                    const QList<QByteArray> first = headers.split('\n').first().trimmed().split(' ');
+                    Request req{first.value(0), first.value(1), headers,
+                        QJsonDocument::fromJson(buffer->mid(headerEnd + 4, length)).object()};
+                    requests.append(req);
+                    const Response reply = handler ? handler(req) : Response{404, {{QStringLiteral("detail"), QStringLiteral("absent")}}, 0};
+                    QTimer::singleShot(reply.delayMs, socket, [socket, reply] {
+                        const QByteArray body = QJsonDocument(reply.body).toJson(QJsonDocument::Compact);
+                        const QByteArray cookie = reply.sessionCookie.isEmpty() ? QByteArray()
+                            : "Set-Cookie: acp_session=" + reply.sessionCookie + "; Path=/; HttpOnly; SameSite=Strict\r\n";
+                        socket->write("HTTP/1.1 " + QByteArray::number(reply.status)
+                            + " Result\r\nContent-Type: application/json\r\nConnection: close\r\n" + cookie + "Content-Length: "
+                            + QByteArray::number(body.size()) + "\r\n\r\n" + body);
+                        socket->disconnectFromHost();
+                    });
+                });
+            }
+        });
+    }
+
+    bool start() { return server.listen(QHostAddress::LocalHost, 0); }
+    QUrl url() const { return QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())); }
+};
+
+void authenticate(AuthManager &auth)
+{
+    auth.applySessionPayload({{QStringLiteral("authenticated"), true}, {QStringLiteral("csrf_token"), QStringLiteral("csrf-test")},
+        {QStringLiteral("expires_at"), QStringLiteral("2099-01-01T00:00:00+00:00")},
+        {QStringLiteral("user"), QJsonObject{{QStringLiteral("id"), QStringLiteral("user-a")}, {QStringLiteral("display_name"), QStringLiteral("Alice")},
+                              {QStringLiteral("role"), QStringLiteral("owner")}}}});
+}
+
+JsonListModel *model(QObject *object) { return qobject_cast<JsonListModel *>(object); }
+} // namespace
+
+class TestConversations : public QObject
+{
+    Q_OBJECT
+private slots:
+    void activationBeforeLoginLoadsAfterIdentityConfirmation();
+    void projectAndSessionChangesDiscardOldResponses();
+    void invalidDocumentsNeverBecomeEmptySuccess();
+    void createSendRetryPollRenameArchiveAndExport();
+    void hidingThePageStopsPolling();
+    void uncertainSubmissionSurvivesSessionRefresh();
+};
+
+void TestConversations::activationBeforeLoginLoadsAfterIdentityConfirmation()
+{
+    ConversationServer server;
+    QVERIFY(server.start());
+    bool authenticatedRead = false;
+    server.handler = [&](const Request &req) {
+        if (req.path == "/auth/login" && req.method == "POST") {
+            return Response{200, {{QStringLiteral("authenticated"), true},
+                {QStringLiteral("csrf_token"), QStringLiteral("csrf-test")},
+                {QStringLiteral("expires_at"), QStringLiteral("2099-01-01T00:00:00Z")},
+                {QStringLiteral("user"), QJsonObject{{QStringLiteral("id"), QStringLiteral("user-a")},
+                    {QStringLiteral("display_name"), QStringLiteral("Alice")},
+                    {QStringLiteral("role"), QStringLiteral("owner")}}}}, 0,
+                QByteArrayLiteral("real-login-cookie-0123456789")};
+        }
+        authenticatedRead = req.headers.toLower().contains("cookie: acp_session=real-login-cookie-0123456789");
+        return Response{200, {{QStringLiteral("items"), QJsonArray{summary(QStringLiteral("a"))}}}, 0};
+    };
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client);
+    ConversationsViewModel vm(&client, &auth);
+    vm.setProjectId(QStringLiteral("project-a"));
+    vm.setActive(true);
+    QVERIFY(server.requests.isEmpty());
+    bool pendingIdentityObserved = false;
+    connect(&auth, &AuthManager::userChanged, &vm, [&] {
+        if (auth.state() == SessionStatus::Connecting && !auth.userId().isEmpty()) {
+            pendingIdentityObserved = true;
+            QVERIFY(!vm.available());
+            QCOMPARE(model(vm.conversations())->count(), 0);
+        }
+    });
+    auth.logIn(QStringLiteral("alice"), QStringLiteral("test-password"));
+    QTRY_COMPARE(auth.state(), SessionStatus::Connected);
+    QVERIFY(pendingIdentityObserved);
+    QVERIFY(client.cookieJar()->hasSessionCookie());
+    QTRY_COMPARE(model(vm.conversations())->count(), 1);
+    QTRY_VERIFY(!vm.loading());
+    QVERIFY(authenticatedRead);
+    QVERIFY(vm.available());
+}
+
+void TestConversations::projectAndSessionChangesDiscardOldResponses()
+{
+    ConversationServer server;
+    QVERIFY(server.start());
+    server.handler = [](const Request &req) {
+        if (req.path == "/conversations") {
+            return Response{200, {{QStringLiteral("items"), QJsonArray{summary(QStringLiteral("a")), summary(QStringLiteral("b"), QStringLiteral("project-b")), summary(QStringLiteral("general"), QString())}}}, 0};
+        }
+        QJsonObject detail = summary(QStringLiteral("a"));
+        detail.insert(QStringLiteral("turns"), QJsonArray{turn(QStringLiteral("old-key"))});
+        return Response{200, detail, 250};
+    };
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client);
+    authenticate(auth);
+    ConversationsViewModel vm(&client, &auth);
+    vm.setProjectId(QStringLiteral("project-a"));
+    vm.setActive(true);
+    QTRY_VERIFY(!vm.loading());
+    QCOMPARE(model(vm.conversations())->count(), 1);
+    QCOMPARE(model(vm.conversations())->get(0).value(QStringLiteral("id")).toString(), QStringLiteral("a"));
+    vm.selectConversation(QStringLiteral("a"));
+    QTRY_VERIFY(server.requests.size() >= 2);
+    vm.setProjectId(QStringLiteral("project-b"));
+    QTRY_VERIFY(!vm.loading());
+    QTest::qWait(300);
+    QVERIFY(vm.currentId().isEmpty());
+    QCOMPARE(model(vm.turns())->count(), 0);
+    QCOMPARE(model(vm.conversations())->get(0).value(QStringLiteral("id")).toString(), QStringLiteral("b"));
+    vm.setProjectId(QStringLiteral(""));
+    QTRY_VERIFY(!vm.loading());
+    QCOMPARE(model(vm.conversations())->get(0).value(QStringLiteral("id")).toString(), QStringLiteral("general"));
+    auth.forgetLocalSession(SessionStatus::Disconnected, QStringLiteral("Déconnexion de test"));
+    QVERIFY(!vm.available());
+    QCOMPARE(model(vm.conversations())->count(), 0);
+    QVERIFY(vm.draft().isEmpty());
+}
+
+void TestConversations::invalidDocumentsNeverBecomeEmptySuccess()
+{
+    ConversationServer server;
+    QVERIFY(server.start());
+    server.handler = [](const Request &) { return Response{200, {{QStringLiteral("items"), QJsonArray{QJsonObject{{QStringLiteral("id"), QStringLiteral("bad")}}}}}, 0}; };
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client);
+    authenticate(auth);
+    ConversationsViewModel vm(&client, &auth);
+    vm.setActive(true);
+    QTRY_VERIFY(!vm.loading());
+    QVERIFY(vm.error().contains(QStringLiteral("invalide")));
+    QCOMPARE(model(vm.conversations())->count(), 0);
+}
+
+void TestConversations::createSendRetryPollRenameArchiveAndExport()
+{
+    ConversationServer server;
+    QVERIFY(server.start());
+    QJsonObject stored = summary(QStringLiteral("conversation-a"));
+    QJsonObject storedTurn;
+    QList<QJsonObject> attempts;
+    bool csrfSeen = false;
+    bool stableHeaderSeen = false;
+    server.handler = [&](const Request &req) {
+        if (req.path == "/conversations" && req.method == "GET") {
+            return Response{200, {{QStringLiteral("items"), QJsonArray{}}}, 0};
+        }
+        if (req.path == "/conversations" && req.method == "POST") {
+            stored.insert(QStringLiteral("title"), req.body.value(QStringLiteral("title")));
+            stored.insert(QStringLiteral("project_id"), req.body.value(QStringLiteral("project_id")));
+            return Response{201, stored, 0};
+        }
+        if (req.method == "PATCH") {
+            for (auto it = req.body.begin(); it != req.body.end(); ++it) {
+                stored.insert(it.key(), it.value());
+            }
+            return Response{200, stored, 0};
+        }
+        if (req.path.endsWith("/turns") && req.method == "POST") {
+            attempts.append(req.body);
+            csrfSeen = req.headers.toLower().contains("x-csrf-token: csrf-test");
+            stableHeaderSeen = req.headers.contains(req.body.value(QStringLiteral("client_request_id")).toString().toUtf8());
+            storedTurn = turn(req.body.value(QStringLiteral("client_request_id")).toString());
+            // Réponse perdue après persistance simulée : le rejeu doit garder son identité.
+            if (attempts.size() == 1) {
+                return Response{503, {{QStringLiteral("detail"), QStringLiteral("Indisponibilité temporaire")}}, 0};
+            }
+            return Response{202, storedTurn, 0};
+        }
+        if (req.path.endsWith("/turns/turn-a")) {
+            storedTurn = turn(storedTurn.value(QStringLiteral("client_request_id")).toString(), QStringLiteral("completed"));
+            return Response{200, storedTurn, 0};
+        }
+        if (req.path.endsWith("/export")) {
+            auto result = stored;
+            result.insert(QStringLiteral("turns"), QJsonArray{storedTurn});
+            return Response{200, result, 0};
+        }
+        return Response{404, {{QStringLiteral("detail"), QStringLiteral("absent")}}, 0};
+    };
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client);
+    authenticate(auth);
+    ConversationsViewModel vm(&client, &auth);
+    vm.setProjectId(QStringLiteral("project-a"));
+    vm.setActive(true);
+    QTRY_VERIFY(!vm.loading());
+    vm.createConversation(QStringLiteral("Discussion native"));
+    QTRY_VERIFY(!vm.busy());
+    QCOMPARE(vm.currentTitle(), QStringLiteral("Discussion native"));
+    vm.setDraft(QStringLiteral("Bonjour <img src='https://example.invalid/x'>"));
+    QVERIFY(vm.canSend());
+    vm.sendMessage();
+    QVERIFY(vm.pendingSubmission());
+    vm.setDraft(QStringLiteral("Ne doit pas remplacer un envoi incertain"));
+    QTRY_VERIFY_WITH_TIMEOUT(!vm.busy(), 5000);
+    QCOMPARE(attempts.size(), 2);
+    QCOMPARE(attempts.at(0), attempts.at(1));
+    QVERIFY(csrfSeen);
+    QVERIFY(stableHeaderSeen);
+    QCOMPARE(model(vm.turns())->count(), 1);
+    QVERIFY(!vm.pendingSubmission());
+    QVERIFY(vm.draft().isEmpty());
+    QTRY_COMPARE_WITH_TIMEOUT(model(vm.turns())->get(0).value(QStringLiteral("status")).toString(), QStringLiteral("completed"), 5000);
+    QCOMPARE(model(vm.turns())->get(0).value(QStringLiteral("assistant_content")).toString(), QStringLiteral("Réponse réelle"));
+    QVERIFY(!vm.polling());
+    vm.renameConversation(QStringLiteral("Renommée"));
+    QTRY_VERIFY(!vm.busy());
+    QCOMPARE(vm.currentTitle(), QStringLiteral("Renommée"));
+    vm.setArchived(true);
+    QTRY_VERIFY(!vm.busy());
+    QVERIFY(vm.archived());
+    vm.setDraft(QStringLiteral("Interdit tant qu'archivée"));
+    QVERIFY(!vm.canSend());
+    vm.exportConversation();
+    QTRY_VERIFY(!vm.busy());
+    const QJsonObject exported = QJsonDocument::fromJson(vm.exportText().toUtf8()).object();
+    QCOMPARE(exported.value(QStringLiteral("title")).toString(), QStringLiteral("Renommée"));
+    QCOMPARE(exported.value(QStringLiteral("turns")).toArray().size(), 1);
+    vm.setArchived(false);
+    QTRY_VERIFY(!vm.busy());
+    QVERIFY(vm.canSend());
+}
+
+void TestConversations::hidingThePageStopsPolling()
+{
+    ConversationServer server;
+    QVERIFY(server.start());
+    int polls = 0;
+    server.handler = [&](const Request &req) {
+        if (req.path == "/conversations") {
+            return Response{200, {{QStringLiteral("items"), QJsonArray{summary(QStringLiteral("a"))}}}, 0};
+        }
+        if (req.path.contains("/turns/")) {
+            ++polls;
+            return Response{200, turn(QStringLiteral("pending")), 0};
+        }
+        auto detail = summary(QStringLiteral("a"));
+        detail.insert(QStringLiteral("turns"), QJsonArray{turn(QStringLiteral("pending"))});
+        return Response{200, detail, 0};
+    };
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client);
+    authenticate(auth);
+    ConversationsViewModel vm(&client, &auth);
+    vm.setProjectId(QStringLiteral("project-a"));
+    vm.setActive(true);
+    QTRY_VERIFY(!vm.loading());
+    vm.selectConversation(QStringLiteral("a"));
+    QTRY_VERIFY(!vm.loading());
+    QVERIFY(vm.polling());
+    vm.setActive(false);
+    QVERIFY(!vm.polling());
+    QTest::qWait(2200);
+    QCOMPARE(polls, 0);
+    QVERIFY(!vm.canSend());
+    // Une nouvelle origine ne doit conserver aucun historique de l'ancienne session.
+    QVERIFY(!client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:1"))).isError());
+    QCOMPARE(model(vm.turns())->count(), 0);
+    QVERIFY(vm.currentId().isEmpty());
+    QVERIFY(!vm.available());
+}
+
+void TestConversations::uncertainSubmissionSurvivesSessionRefresh()
+{
+    ConversationServer server;
+    QVERIFY(server.start());
+    QList<QJsonObject> attempts;
+    bool acceptTurn = false;
+    server.handler = [&](const Request &req) {
+        if (req.path == "/auth/session") return Response{200,
+            {{QStringLiteral("csrf_token"), QStringLiteral("new-csrf")}, {QStringLiteral("expires_at"), QStringLiteral("2099-01-01T00:00:00Z")},
+             {QStringLiteral("user"), QJsonObject{{QStringLiteral("id"), QStringLiteral("user-a")}, {QStringLiteral("role"), QStringLiteral("owner")}, {QStringLiteral("display_name"), QStringLiteral("Alice")}}}}, 300};
+        if (req.method == "POST" && req.path.endsWith("/turns")) {
+            attempts.append(req.body);
+            if (!acceptTurn) return Response{503, {{QStringLiteral("detail"), QStringLiteral("Résultat incertain")}}, 0};
+            auto result = turn(req.body.value(QStringLiteral("client_request_id")).toString());
+            result[QStringLiteral("user_content")] = req.body.value(QStringLiteral("content"));
+            return Response{202, result, 0};
+        }
+        if (req.path == "/conversations") return Response{200, {{QStringLiteral("items"), QJsonArray{summary(QStringLiteral("a"))}}}, 0};
+        auto detail = summary(QStringLiteral("a")); detail[QStringLiteral("turns")] = QJsonArray{};
+        return Response{200, detail, 0};
+    };
+    ApiClient client; client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    QVERIFY(client.cookieJar()->setCookiesFromUrl({QNetworkCookie("acp_session", "synthetic-cookie")}, server.url()));
+    AuthManager auth(&client); authenticate(auth);
+    ConversationsViewModel vm(&client, &auth);
+    vm.setProjectId(QStringLiteral("project-a")); vm.setActive(true);
+    QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("a")); QTRY_VERIFY(!vm.loading());
+    vm.setDraft(QStringLiteral("Message à conserver")); vm.sendMessage();
+    QTRY_VERIFY_WITH_TIMEOUT(!vm.busy(), 7000);
+    QVERIFY(vm.pendingSubmission()); QVERIFY(attempts.size() >= 1);
+    auth.resumeSession();
+    QCOMPARE(auth.state(), SessionStatus::Connecting);
+    QVERIFY(vm.pendingSubmission()); QCOMPARE(vm.draft(), QStringLiteral("Message à conserver"));
+    QTRY_COMPARE(auth.state(), SessionStatus::Connected);
+    QVERIFY(vm.pendingSubmission());
+    bool acknowledgmentWhileRefreshing = false;
+    connect(&vm, &ConversationsViewModel::changed, &vm, [&] {
+        if (auth.state() == SessionStatus::Connecting && !vm.busy() && !vm.pendingSubmission())
+            acknowledgmentWhileRefreshing = true;
+    });
+    acceptTurn = true; vm.retryPendingMessage();
+    auth.resumeSession();
+    QCOMPARE(auth.state(), SessionStatus::Connecting);
+    QTRY_VERIFY(!vm.busy()); QVERIFY(!vm.pendingSubmission());
+    QVERIFY(acknowledgmentWhileRefreshing);
+    QTRY_COMPARE(auth.state(), SessionStatus::Connected);
+    QVERIFY(vm.polling());
+    for (const auto &attempt : attempts) QCOMPARE(attempt, attempts.first());
+}
+
+QTEST_GUILESS_MAIN(TestConversations)
+#include "tst_conversations.moc"

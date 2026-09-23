@@ -11,6 +11,11 @@ toute entorse aux règles ci-dessous.
 Aucun projet Railway n'a été créé ni modifié : ces fichiers sont une préparation,
 pas la preuve d'un déploiement.
 
+Pour un client desktop **distant**, la lecture d'ensemble est
+`docs/railway-architecture.md` (exposition publique, en-têtes de proxy, CORS,
+stockage) et `docs/railway-environment.md` (noms de variables par service, sans
+aucune valeur). Ce fichier-ci ne décrit que ce que Railway lit dans le dépôt.
+
 ## Ce que la documentation Railway dit (lecture du 17 septembre 2026)
 
 Sources lues : `docs.railway.com/reference/config-as-code`,
@@ -80,10 +85,18 @@ Sources lues : `docs.railway.com/reference/config-as-code`,
    migrations (`/app/docker/entrypoint.sh migrate` →
    `python -m acp_database.migrate upgrade`) ; en cas d'échec, Railway ne déploie
    pas. Aucun autre service ne migre : c'est la seule commande exclusive.
-6. Déployer ensuite `event-service`, `provider-gateway`, `relay`,
-   `artifact-preview`, puis `web` (son build fige `VITE_ACP_API_URL`).
-7. Ajouter les domaines publics (`api`, `artifact-preview`, `web`) ; `event-service`,
-   `provider-gateway` et `relay` restent sur le réseau privé.
+6. Déployer ensuite `event-service`, `provider-gateway`, `relay`, puis `web` si
+   l'interface navigateur est servie (son build fige `VITE_ACP_API_URL`).
+   `artifact-preview` n'a rien à servir sur Railway tant qu'aucun stockage partagé
+   n'existe : voir `docs/railway-architecture.md`.
+7. Générer **un seul** domaine public, sur `api` — plus celui de `web` si
+   l'interface navigateur est déployée. `event-service`, `provider-gateway`,
+   `relay` et `artifact-preview` n'en reçoivent aucun et restent joignables par le
+   réseau privé (`<service>.railway.internal`). Relecture :
+   `python scripts/check_railway_config.py --exposure` imprime cette intention ;
+   elle ne prouve rien, Railway ne lit aucun domaine dans ces fichiers.
+8. Sur `api`, renseigner `ACP_TRUSTED_PROXY_IPS` : sans elle, l'API voit le schéma
+   `http` et l'adresse du proxy pour tout le trafic (`docker/README.md`).
 
 Readiness : `/ready` sur `api` et `artifact-preview` (Lot H2a), `/health` sur
 `provider-gateway` et `event-service`, `/` sur `web`. `relay` n'expose pas de HTTP et
@@ -91,6 +104,15 @@ n'a pas de sonde. `numReplicas: 1` est fixé sur `api` (volume), `artifact-previ
 (volume) et `relay` (un recouvrement reste possible au redéploiement). `web` n'a pas de `startCommand` : l'image
 nginx fournit la sienne ; renseigner `PORT=8080` sur ce service, car nginx n'écoute
 que sur 8080 et Railway sonde le port `PORT`.
+
+`sleepApplication: false` est déclaré sur les six services. La clé ne crée rien :
+elle empêche qu'un réglage du tableau de bord endorme un service, puisque
+« Configuration defined in code will always override values from the dashboard ».
+Un service endormi couperait les flux SSE d'un poste distant et suspendrait la
+livraison de la boîte d'envoi ; d'après la documentation d'app sleeping
+(`docs.railway.com/reference/app-sleeping`, lecture du 18 septembre 2026), un
+conteneur est considéré inactif après cinq minutes sans trafic sortant, et
+« Serverless is applied to a container when that container is created ».
 
 ## Variables par service (noms seulement)
 
@@ -102,10 +124,14 @@ composée à partir des références `${{Postgres.PGUSER}}`, `${{Postgres.PGPASS
 `${{Postgres.PGHOST}}`, `${{Postgres.PGPORT}}`, `${{Postgres.PGDATABASE}}` (ou en
 réécrivant le préfixe de `DATABASE_URL` et en ajoutant `?sslmode=require`).
 
+La liste détaillée, avec le rôle de chaque nom, son caractère obligatoire ou secret
+et le comportement en cas d'absence, est dans `docs/railway-environment.md`. Le
+tableau ci-dessous en reste le résumé d'installation.
+
 | Service | Variables |
 | --- | --- |
-| `api` | `ACP_DATABASE_URL`, `ACP_DATABASE_POOL_SIZE`, `ACP_DATABASE_MAX_OVERFLOW`, `ACP_DATABASE_POOL_TIMEOUT_SECONDS`, `ACP_DATABASE_CONNECT_TIMEOUT_SECONDS`, `ACP_DATABASE_LOCK_TIMEOUT_MS`, `ACP_DATABASE_STATEMENT_TIMEOUT_MS`, `ACP_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS`, `ACP_EVENT_RELAY_ENABLED`, `ACP_API_URL`, `ACP_EVENT_SERVICE_URL`, `ACP_PROVIDER_GATEWAY_URL`, `ACP_INTERNAL_HTTP_HOSTS`, `ACP_GATEWAY_SERVICE_TOKEN`, `ACP_EVENT_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `ACP_BOOTSTRAP_TOKEN`, `ACP_SESSION_TTL_SECONDS`, `ACP_SESSION_COOKIE_SECURE=1`, `ACP_PLUGINS_DIR=/app/plugins`, `ACP_SECRETS_KEYS`, `ACP_ARTIFACT_SIGNING_KEYS`, `ACP_ARTIFACT_PUBLIC_ORIGIN`, `ACP_ARTIFACT_STORAGE_DIR=/data/artifacts`, `ACP_SKILLS_STORAGE_DIR=/data/skills`, `ACP_ARTIFACT_MAX_BYTES`, `ACP_ARTIFACT_MAX_BYTES_PER_RUN`, `ACP_ARTIFACT_RETENTION_DAYS`, `ACP_EVENT_RETENTION_DAYS`, `ACP_STREAM_*`, `ACP_OUTBOUND_PRIVATE_ALLOWLIST`, `ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP`, `ACP_SKILLS_ALLOWED_DIRS`, `ACP_SKILLS_GITHUB_ENABLED`, `ACP_GITHUB_TOKEN` |
-| `artifact-preview` | `ACP_DATABASE_URL` (+ les `ACP_DATABASE_*` de pool), `ACP_CORS_ORIGINS`, `ACP_ARTIFACT_SIGNING_KEYS`, `ACP_ARTIFACT_STORAGE_DIR` |
+| `api` | `ACP_TRUSTED_PROXY_IPS`, `ACP_DATABASE_URL`, `ACP_DATABASE_POOL_SIZE`, `ACP_DATABASE_MAX_OVERFLOW`, `ACP_DATABASE_POOL_TIMEOUT_SECONDS`, `ACP_DATABASE_CONNECT_TIMEOUT_SECONDS`, `ACP_DATABASE_LOCK_TIMEOUT_MS`, `ACP_DATABASE_STATEMENT_TIMEOUT_MS`, `ACP_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS`, `ACP_EVENT_RELAY_ENABLED`, `ACP_API_URL`, `ACP_EVENT_SERVICE_URL`, `ACP_PROVIDER_GATEWAY_URL`, `ACP_INTERNAL_HTTP_HOSTS`, `ACP_GATEWAY_SERVICE_TOKEN`, `ACP_EVENT_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `ACP_BOOTSTRAP_TOKEN`, `ACP_SESSION_TTL_SECONDS`, `ACP_SESSION_COOKIE_SECURE=1`, `ACP_PLUGINS_DIR=/app/plugins`, `ACP_SECRETS_KEYS`, `ACP_ARTIFACT_SIGNING_KEYS`, `ACP_ARTIFACT_PUBLIC_ORIGIN`, `ACP_ARTIFACT_STORAGE_DIR=/data/artifacts`, `ACP_SKILLS_STORAGE_DIR=/data/skills`, `ACP_ARTIFACT_MAX_BYTES`, `ACP_ARTIFACT_MAX_BYTES_PER_RUN`, `ACP_ARTIFACT_RETENTION_DAYS`, `ACP_EVENT_RETENTION_DAYS`, `ACP_STREAM_*`, `ACP_OUTBOUND_PRIVATE_ALLOWLIST`, `ACP_OUTBOUND_ALLOW_LOOPBACK_HTTP`, `ACP_SKILLS_ALLOWED_DIRS`, `ACP_SKILLS_GITHUB_ENABLED`, `ACP_GITHUB_TOKEN` |
+| `artifact-preview` | `ACP_TRUSTED_PROXY_IPS`, `ACP_DATABASE_URL` (+ les `ACP_DATABASE_*` de pool), `ACP_CORS_ORIGINS`, `ACP_ARTIFACT_SIGNING_KEYS`, `ACP_ARTIFACT_STORAGE_DIR` |
 | `provider-gateway` | `ACP_GATEWAY_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `HERMES_BASE_URL`, `HERMES_API_KEY`, `HERMES_TIMEOUT_SECONDS`, `HERMES_MAX_RETRIES`, `HERMES_RUN_TIMEOUT_SECONDS`, `HERMES_POLL_INTERVAL_SECONDS`, `ACP_COMFYUI_*` |
 | `event-service` | `ACP_EVENT_SERVICE_TOKEN`, `ACP_CORS_ORIGINS`, `ACP_UNSAFE_ALLOW_ANONYMOUS_EVENT_WEBSOCKET=0` |
 | `relay` | `ACP_DATABASE_URL` (+ pool), `ACP_EVENT_SERVICE_URL`, `ACP_INTERNAL_HTTP_HOSTS`, `ACP_EVENT_SERVICE_TOKEN`, `ACP_OUTBOX_MAX_ATTEMPTS`, `ACP_EVENT_RELAY_ENABLED` |
@@ -170,8 +196,9 @@ déploient jamais : elles appartiennent à la CI et à `docker/compose.test.yml`
 ## Vérification
 
 ```text
-python scripts/check_railway_config.py   # 0 : conforme ; 1 : écarts en français
-python scripts/check_lock.py             # verrou et contraintes cohérents
+python scripts/check_railway_config.py              # 0 : conforme ; 1 : écarts en français
+python scripts/check_railway_config.py --exposure   # exposition publique voulue (relecture)
+python scripts/check_lock.py                        # verrou et contraintes cohérents
 ```
 
 `apps/api/tests/test_deploy_config.py` exerce ces deux scripts (fichiers valides

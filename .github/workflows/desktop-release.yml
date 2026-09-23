@@ -1,0 +1,264 @@
+name: Desktop Release
+
+# Fabrication et publication EN BROUILLON des artefacts Windows du client desktop.
+#
+# Rien n'est publié tant qu'un humain n'a pas ouvert le brouillon, vérifié les
+# sommes de contrôle et cliqué sur « Publish release ». Toute étape en échec
+# interrompt le job avant la création du brouillon : c'est le comportement par
+# défaut de GitHub Actions, et aucune étape de ce workflow ne le contourne par
+# `continue-on-error`.
+#
+# Ce workflow n'a jamais été exercé : aucune étiquette v0.8.0 ni v0.9.0 n'existe
+# dans ce dépôt au moment où il est écrit.
+
+"on":
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Étiquette déjà poussée, au format vX.Y.Z"
+        required: true
+        type: string
+      confirmation:
+        description: "Tapez exactement PUBLIER-BROUILLON pour confirmer"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Windows x64 — compilation, tests, empaquetage, brouillon de publication
+    runs-on: windows-2022
+    timeout-minutes: 90
+    # L'environnement permet d'exiger une revue humaine avant la fabrication :
+    # ajoutez un « required reviewer » sur l'environnement desktop-release dans
+    # les réglages du dépôt si la seule revue du brouillon ne suffit pas.
+    environment: desktop-release
+    permissions:
+      # Écriture indispensable pour créer le brouillon et y téléverser les fichiers.
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Résoudre et contrôler le déclenchement
+        id: declencheur
+        env:
+          # Les valeurs contrôlées par l'utilisateur transitent par des variables
+          # d'environnement, jamais par une interpolation directe dans le script :
+          # un nom d'étiquette est une donnée, pas du code.
+          ENTREE_TAG: ${{ inputs.tag }}
+          ENTREE_CONFIRMATION: ${{ inputs.confirmation }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            if ($env:ENTREE_CONFIRMATION -cne 'PUBLIER-BROUILLON') {
+              Write-Host "::error::Confirmation manquante ou incorrecte. Tapez exactement PUBLIER-BROUILLON."
+              exit 1
+            }
+            $tag = $env:ENTREE_TAG
+          }
+          else {
+            $tag = $env:REF_NAME
+          }
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([-+.0-9A-Za-z]*)$') {
+            Write-Host "::error::L'étiquette '$tag' n'a pas la forme vX.Y.Z."
+            exit 1
+          }
+          "tag=$tag" | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+          Write-Host "Étiquette retenue : $tag"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.declencheur.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Vérifier que le fichier VERSION correspond à l'étiquette
+        id: version
+        env:
+          ACP_TAG: ${{ steps.declencheur.outputs.tag }}
+        run: |
+          $version = (Get-Content VERSION -Raw -Encoding UTF8).Trim()
+          $attendu = $env:ACP_TAG -replace '^v', ''
+          if ($version -cne $attendu) {
+            Write-Host "::error::Le fichier VERSION porte '$version' alors que l'étiquette $($env:ACP_TAG) annonce '$attendu'. Aucun artefact ne sera fabriqué."
+            exit 1
+          }
+          "version=$version" | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+          "ACP_VERSION=$version" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          Write-Host "Version confirmée : $version"
+
+      - name: Lire la chaîne d'outils épinglée
+        run: |
+          $t = Get-Content packaging/windows/toolchain.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $modules = ''
+          if ($t.qt.modules) { $modules = ($t.qt.modules -join ' ') }
+          @(
+            "ACP_QT_VERSION=$($t.qt.version)"
+            "ACP_QT_HOST=$($t.qt.host)"
+            "ACP_QT_TARGET=$($t.qt.target)"
+            "ACP_QT_ARCH=$($t.qt.architecture)"
+            "ACP_QT_MODULES=$modules"
+            "ACP_RUNNER_IMAGE=$($t.ci.runnerImage)"
+            "ACP_ARTIFACT_PREFIX=$($t.product.artifactPrefix)"
+            "ACP_ARCH_SUFFIX=$($t.product.architectureSuffix)"
+          ) | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+
+      - name: Vérifier l'image de l'exécuteur
+        run: |
+          $attendu = $env:ACP_RUNNER_IMAGE
+          $observe = $env:ImageOS
+          # Depuis juin 2026, l'étiquette windows-2025 sert l'image « win25-vs2026 »
+          # (Visual Studio 2026) : https://github.com/actions/runner-images/issues/14017.
+          # Une étiquette absente de cette table est refusée, jamais acceptée par défaut.
+          $correspondances = @{ 'windows-2022' = 'win22'; 'windows-2025' = 'win25'; 'windows-2025-vs2026' = 'win25-vs2026' }
+          if (-not $correspondances.ContainsKey($attendu)) {
+            Write-Host "::error::L'image $attendu n'a pas de correspondance ImageOS connue : complétez la table de cette étape."
+            exit 1
+          }
+          if ($correspondances[$attendu] -ne $observe) {
+            Write-Host "::error::L'image attendue ($attendu) ne correspond pas à l'image observée ($observe)."
+            exit 1
+          }
+
+      - name: Vérifier la présence des sources du client desktop
+        run: |
+          if (-not (Test-Path 'apps/desktop/CMakePresets.json')) {
+            Write-Host "::error::apps/desktop/CMakePresets.json est absent à l'étiquette publiée : il n'y a rien à distribuer."
+            exit 3
+          }
+
+      - name: Installer Qt (version épinglée, avec cache)
+        uses: jurplel/install-qt-action@bcb88e3bed2e992f5f9e24c0f9e364a231d278eb # v4.4.0
+        with:
+          version: ${{ env.ACP_QT_VERSION }}
+          host: ${{ env.ACP_QT_HOST }}
+          target: ${{ env.ACP_QT_TARGET }}
+          arch: ${{ env.ACP_QT_ARCH }}
+          modules: ${{ env.ACP_QT_MODULES }}
+          cache: true
+          cache-key-prefix: desktop-qt-${{ env.ACP_QT_VERSION }}-${{ env.ACP_QT_ARCH }}
+
+      - name: Compiler en Release
+        run: ./scripts/build-desktop.ps1 -Configuration Release
+
+      - name: Exécuter les tests Qt Test et Qt Quick Test
+        run: ./scripts/test-desktop.ps1 -Configuration Release
+
+      # La signature est conditionnée à la présence du secret de certificat.
+      # Sans lui, la fabrication continue et produit des binaires NON SIGNÉS :
+      # c'est dit ici, dans le journal, dans la sortie du script d'empaquetage et
+      # dans les notes du brouillon. Rien ne prétend qu'un binaire est signé.
+      - name: Empaqueter (déploiement Qt, installeur, archive portable, SHA-256)
+        id: empaquetage
+        env:
+          ACP_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          ACP_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          # Table de hachage et non tableau : un tableau serait transmis en
+          # arguments positionnels par PowerShell, et les noms de paramètres
+          # deviendraient des valeurs.
+          $parametres = @{
+            Configuration = 'Release'
+            Version       = $env:ACP_VERSION
+            OutputDir     = "${{ github.workspace }}/dist/desktop"
+          }
+          $pfx = $null
+          $signe = 'non'
+          if (-not [string]::IsNullOrWhiteSpace($env:ACP_SIGNING_PFX_BASE64)) {
+            if ([string]::IsNullOrWhiteSpace($env:ACP_SIGNING_PASSWORD)) {
+              Write-Host "::error::Le secret WINDOWS_SIGNING_PFX_BASE64 est présent mais WINDOWS_SIGNING_PASSWORD est absent. Signature impossible."
+              exit 7
+            }
+            $pfx = Join-Path $env:RUNNER_TEMP 'signature.pfx'
+            [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:ACP_SIGNING_PFX_BASE64))
+            $parametres['PfxPath'] = $pfx
+            $signe = 'oui'
+          }
+          else {
+            Write-Host "::warning::Aucun certificat de signature de code n'est configuré : les artefacts de cette publication ne seront pas signés."
+          }
+
+          $code = 0
+          try {
+            & ./scripts/package-desktop.ps1 @parametres
+            $code = $LASTEXITCODE
+          }
+          finally {
+            if ($pfx -and (Test-Path -LiteralPath $pfx)) { Remove-Item -LiteralPath $pfx -Force }
+          }
+          "signe=$signe" | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+          exit $code
+
+      - name: Déposer les artefacts du job
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ steps.version.outputs.version }}-windows-x64
+          path: |
+            dist/desktop/*.exe
+            dist/desktop/*.zip
+            dist/desktop/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # Dernière étape : elle n'est atteinte que si toutes les précédentes ont réussi.
+      - name: Créer la publication en brouillon
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACP_TAG: ${{ steps.declencheur.outputs.tag }}
+          ACP_SIGNE: ${{ steps.empaquetage.outputs.signe }}
+        run: |
+          $version = $env:ACP_VERSION
+          $prefixe = $env:ACP_ARTIFACT_PREFIX
+          $suffixe = $env:ACP_ARCH_SUFFIX
+          $dossier = Join-Path $env:GITHUB_WORKSPACE 'dist/desktop'
+          $installeur = Join-Path $dossier "$prefixe-Setup-$version-$suffixe.exe"
+          $archive = Join-Path $dossier "$prefixe-Portable-$version-$suffixe.zip"
+          $sommes = Join-Path $dossier 'SHA256SUMS.txt'
+
+          foreach ($fichier in @($installeur, $archive, $sommes)) {
+            if (-not (Test-Path -LiteralPath $fichier)) {
+              Write-Host "::error::Artefact attendu manquant : $fichier. Aucun brouillon ne sera créé."
+              exit 1
+            }
+          }
+
+          if ($env:ACP_SIGNE -eq 'oui') {
+            $phraseSignature = "Les deux binaires sont signés numériquement avec le certificat de code du projet, et horodatés."
+          }
+          else {
+            $phraseSignature = "**Ces binaires ne sont PAS signés numériquement.** Windows SmartScreen affichera l'avertissement « Windows a protégé votre ordinateur » au premier lancement : sans réputation établie, un fichier est présenté comme un risque plus élevé. Vérifiez les sommes de contrôle ci-dessous avant d'exécuter quoi que ce soit."
+          }
+
+          # Les notes proviennent d'un gabarit versionné : aucune mise en forme
+          # Markdown n'est reconstruite ici, où l'indentation du bloc YAML la casserait.
+          $gabarit = Get-Content packaging/windows/release-notes.template.md -Raw -Encoding UTF8
+          $notes = $gabarit.
+            Replace('{{VERSION}}', $version).
+            Replace('{{PREFIXE}}', $prefixe).
+            Replace('{{SUFFIXE}}', $suffixe).
+            Replace('{{SIGNATURE}}', $phraseSignature)
+
+          $fichierNotes = Join-Path $env:RUNNER_TEMP 'notes-publication.md'
+          [System.IO.File]::WriteAllText($fichierNotes, $notes, (New-Object System.Text.UTF8Encoding($false)))
+
+          gh release create $env:ACP_TAG `
+            --draft `
+            --verify-tag `
+            --title "Agent Company Platform $version — client desktop Windows" `
+            --notes-file $fichierNotes `
+            "$installeur" "$archive" "$sommes"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::La création du brouillon de publication a échoué."
+            exit $LASTEXITCODE
+          }
+          Write-Host "Brouillon créé pour $env:ACP_TAG. Il reste à le relire et à le publier à la main."
