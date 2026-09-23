@@ -11,7 +11,8 @@ opérations. La validation locale finale donne **21 suites sur 21 en 54,82 s**,
 un parcours Qt/API réelle sur SQLite jetable réussi et le coffre Windows éprouvé
 hors sandbox. Voir [la parité native](native-desktop-parity.md) et
 [le registre de validation desktop](desktop-validation-2026-09-23.md).
-Sa fusion dans `main` reste à terminer ; Railway réel, Windows propre, recette
+Sa fusion dans `main` est faite par la PR #10 (`0bc9dcb`), après les CI Windows
+et plateforme vertes sur `52dc4761`. Railway réel, Windows propre, recette
 visuelle complète et signature ne sont pas encore prouvés. Aucune V1 complète
 ni publication 0.10.0 finalisée n'est annoncée.
 

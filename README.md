@@ -31,9 +31,9 @@ Le détail se trouve dans [la persistance](docs/persistence-and-backup.md) et
 
 Version en préparation : **0.10.0**, ouverte au commit `4915136`. Le durcissement
 Lot H a été intégré par la [PR #9](https://github.com/Paul-Berdier/agent-company-platform/pull/9)
-au commit `3f8e5fe`, avec le run CI `35799431367` observé vert. Cette version de
-`main` a été intégrée dans la branche desktop au commit `887fb72` ; la validation
-locale des compléments est passée, leur fusion dans `main` reste à terminer.
+au commit `3f8e5fe`, avec le run CI `35799431367` observé vert. Le desktop Qt est
+fusionné dans `main` par la [PR #10](https://github.com/Paul-Berdier/agent-company-platform/pull/10),
+commit `0bc9dcb`, après validation des CI Windows, web, SQLite et PostgreSQL.
 Cela n'annonce ni une publication 0.10.0 finalisée,
 ni une V1 complète. Voir [CHANGELOG.md](CHANGELOG.md) et
 [les preuves desktop](docs/desktop-validation-2026-09-23.md).

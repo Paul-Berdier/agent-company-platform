@@ -11,7 +11,7 @@ existent désormais. Le chantier courant est **0.10.0 en préparation**.
 | Lot H 0.9.0 historique | PR #8 fusionnée au commit `94ce876`, tag `v0.9.0` posé le 18 septembre |
 | Durcissement Lot H | PR #9 fusionnée dans `main` au commit `3f8e5fe` |
 | CI de ce durcissement | Run `35799431367` observé vert |
-| Intégration desktop | `main` intégrée dans `codex/desktop-completion` au commit `887fb72` ; fusion inverse encore à valider |
+| Intégration desktop | PR #10 fusionnée dans `main` au commit `0bc9dcb` ; branche validée par les CI `35806313489` et `35806313531` |
 | Ouverture de version | `0.10.0`, commit `4915136` |
 | Python de l'arbre combiné | 2 896 réussis, 70 ignorés, 835 secondes |
 | Ancienne fondation native | 10 suites sur 10 réussies ; ce relevé précède les nouveaux écrans |
@@ -32,8 +32,8 @@ Les commits de fusion et l'ouverture de version ne prouvent pas une publication
 [le relevé final](desktop-validation-2026-09-23.md) avant de reprendre :
 l'intégration peut avoir avancé depuis cette note.
 
-Le travail courant est construit dans
-`.claude/worktrees/desktop-completion`. Les autres worktrees historiques
+Le worktree `.claude/worktrees/desktop-completion` est maintenant sur `main`.
+Le checkout principal conserve sa branche et son chantier Pixel Office. Les autres worktrees historiques
 peuvent contenir des travaux partiels ; ne pas les supprimer, réinitialiser ou
 réappliquer sans examiner leurs différences. Le chantier pixel local reste
 conservé hors périmètre. Indexer les fichiers explicitement.
@@ -59,9 +59,8 @@ Il n'intègre aucun téléchargement de paquet ou installateur.
 
 Restent à achever ou prouver :
 
-1. Terminer l'intégration desktop dans `main` ; relever le commit et le CI réels.
-   Les preuves locales
-   ci-dessus ne constituent pas une publication ni une recette visuelle complète.
+1. Compléter la recette visuelle des interactions. L'intégration dans `main` et
+   les CI de la branche sont acquises ; elles ne constituent pas une publication.
 2. Parcours contre le déploiement Railway réel, dont l'URL n'est pas connue.
 3. Installation et mise à jour sur un Windows propre.
 4. Signature Windows : aucun certificat disponible, binaires non signés.

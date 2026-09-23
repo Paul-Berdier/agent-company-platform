@@ -11,6 +11,31 @@ Ce relevé distingue développement intégré, tests exécutés et recette de di
 - `main` intégrée dans `codex/desktop-completion` par `887fb72`, puis ouverture
   de la version 0.10.0 par `4915136`. Ces deux commits ne constituent pas une
   publication ni la fusion du desktop dans `main`.
+- Desktop : [PR #10](https://github.com/Paul-Berdier/agent-company-platform/pull/10)
+  fusionnée dans `main` au commit `0bc9dcb7f0e95c699d9d1610b76d2324940fe2b7`,
+  après validation de `52dc4761` sur la même base `3f8e5fe`. Le worktree desktop
+  suit désormais `main` ; le checkout Pixel Office est conservé séparément.
+
+## Intégration continue du desktop
+
+Sur `52dc4761ba1400709a6c6549838c12603b5bd0e3`, la
+[CI Windows 35806313489](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/35806313489)
+est verte : build Release, 21 suites natives (54,59 s), parcours Qt/API réelle
+effectivement exécuté sans saut, puis fabrication des deux paquets. Le CRT
+déployé comprend 10 DLL VC143 x64 14.44.35211.0. L'artefact d'inspection
+`desktop-ci-35806313489` contient les paquets et les rapports autorisés.
+Il ne s'agit pas d'une publication GitHub Release.
+
+La [CI plateforme 35806313531](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/35806313531)
+est également verte sur le même commit : Node/web, suite SQLite, suite PostgreSQL 16,
+parcours événements et automatisations, sauvegarde/restauration PostgreSQL.
+Décomptes des rapports : **2 903 réussis, 63 ignorés** sur SQLite (246,92 s) ;
+**2 913 réussis, 53 ignorés** sur PostgreSQL (669,80 s), avec deux avertissements
+de dépendances dans chaque suite. Les écarts avec Windows viennent des cas
+conditionnés par la plateforme et le moteur ; les cas ignorés restent explicites.
+Le job Playwright E2E opt-in est **ignoré** ; aucun passage n'est revendiqué pour lui.
+L'ouverture de la PR et sa fusion relancent automatiquement les workflows ; les
+preuves ci-dessus identifient précisément les exécutions terminées avant fusion.
 
 ## Preuves exécutées localement
 

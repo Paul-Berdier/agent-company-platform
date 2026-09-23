@@ -1,5 +1,9 @@
 # Exposition Railway pour un client desktop distant
 
+> Cette étude conserve son état historique du 18 septembre. Le client natif a
+> depuis été compilé et testé contre une API locale ; l'état de l'intégration et
+> les limites de recette figurent dans [le relevé actuel](desktop-validation-2026-09-23.md).
+
 Date d'état : 18 septembre 2026, Europe/Paris.
 Branche : `feat/desktop-qt-railway`. Version du produit : `0.9.0`.
 Source de vérité en amont : `docs/desktop-railway-audit.md`, section 5.2.

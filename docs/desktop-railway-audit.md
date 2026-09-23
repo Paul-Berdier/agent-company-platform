@@ -1,5 +1,9 @@
 # Audit préalable : station de travail desktop (C++23 / Qt 6 / QML) sur backend Railway
 
+> Relevé historique du 18 septembre : ses états Git, versions et absences de code
+> valent pour la révision auditée. Pour la livraison native du 23 septembre,
+> consulter [la reprise](reprise-poste.md) et [les preuves actuelles](desktop-validation-2026-09-23.md).
+
 Date d'état : 18 septembre 2026, Europe/Paris
 Branche auditée : `feat/desktop-qt-railway`, tête `ac1d753`, dérivée de
 `codex/modernization-lot-h`. Le Lot H n'est pas fusionné dans `main` : tout ce qui
