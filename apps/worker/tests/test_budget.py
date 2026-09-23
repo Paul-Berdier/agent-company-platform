@@ -1,5 +1,6 @@
 """Frontière budgétaire du worker : permis avant effet, usage après effet."""
 
+import asyncio
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -104,6 +105,54 @@ async def test_denied_permit_prevents_the_effect(tmp_path: Path):
                 operation=effect,
             )
     assert called is False
+
+
+async def test_completion_is_preserved_before_cancellation_during_usage(tmp_path):
+    reporting = asyncio.Event()
+    completed = []
+
+    async def handler(request):
+        if request.url.path.endswith("/budget/usage"):
+            reporting.set()
+            await asyncio.Event().wait()
+        return httpx.Response(200, json=mutation_result())
+
+    async def effect():
+        return {"proof": "effect_completed"}
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        pending = asyncio.create_task(budgeted_effect(
+            client, config(tmp_path), credentials(), attempt_id="run-cancel",
+            fencing_token=1, effect_key="effect", provider="codex_cli", phase="execution",
+            operation=effect, on_completed=completed.append,
+        ))
+        await asyncio.wait_for(reporting.wait(), 1)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    assert completed == [{"proof": "effect_completed"}]
+
+
+async def test_usage_permission_refusal_is_not_retried(tmp_path):
+    reports = []
+    completed = []
+
+    def handler(request):
+        if request.url.path.endswith("/budget/usage"):
+            reports.append(request.content)
+            return httpx.Response(403)
+        return httpx.Response(200, json=mutation_result())
+
+    async def effect():
+        return {"proof": "completed"}
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(BudgetUnavailable):
+            await budgeted_effect(client, config(tmp_path), credentials(), attempt_id="run-denied",
+                fencing_token=1, effect_key="effect", provider="codex_cli", phase="execution",
+                operation=effect, on_completed=completed.append)
+    assert len(reports) == 1
+    assert completed == [{"proof": "completed"}]
 
 
 async def test_effect_is_bracketed_and_unknown_usage_is_not_invented(tmp_path: Path):

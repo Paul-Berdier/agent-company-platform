@@ -28,6 +28,7 @@ Item {
             spacing: Space.space5
 
             Text {
+                textFormat: Text.PlainText
                 text: qsTr("Diagnostics")
                 color: Colors.textPrimary
                 font.family: Type.pageTitle.family
@@ -154,6 +155,7 @@ Item {
                     color: Colors.surfacePanelRaised
 
                     Text {
+                        textFormat: Text.PlainText
                         anchors.left: parent.left
                         anchors.leftMargin: Space.space4
                         anchors.verticalCenter: parent.verticalCenter

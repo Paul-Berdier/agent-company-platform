@@ -13,13 +13,17 @@ import errno
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, BinaryIO, Mapping
+from typing import Any, BinaryIO, Mapping, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .mcp_execution import McpExecution
 
 from .local_runner import (
     _BoundedCapture,
@@ -29,8 +33,9 @@ from .local_runner import (
 
 
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
-MAX_PROMPT_CHARS = 16_000
+MAX_PROMPT_CHARS = 64_000
 MAX_EVENT_LINES = 10_000
+MAX_RESULT_CHARS = 16_000
 MAX_TIMEOUT_SECONDS = 3600.0
 MAX_TERMINATE_GRACE_SECONDS = 30.0
 OUTPUT_DRAIN_SECONDS = 1.0
@@ -427,6 +432,19 @@ class ExecutorResult:
     stderr_sha256: str
     stdout_bytes: int
     stderr_bytes: int
+    output: dict[str, Any] | None = field(default=None, repr=False)
+    usage: dict[str, Any] | None = field(default=None, repr=False)
+
+
+def _effective_timeout(configured: float, remaining: float | None) -> float:
+    if remaining is None:
+        return configured
+    # La durée de mission peut dépasser le plafond local. Elle peut le réduire,
+    # jamais l'augmenter ; les valeurs non finies/non positives restent refusées.
+    if isinstance(remaining, bool) or not isinstance(remaining, (int, float)) \
+            or not math.isfinite(remaining) or remaining <= 0:
+        raise ExecutorConfigurationError("timeout_seconds doit être positif et fini")
+    return min(configured, remaining)
 
 
 @dataclass(frozen=True)
@@ -547,6 +565,9 @@ def invocation_from_mission(
             "Plan indicatif:\n"
             + "\n".join(f"- {step['title'].strip()}" for step in steps)
         )
+    if plan.get("_skills"):
+        prompt_parts.append("Documents de compétences épinglés par la plateforme. Ils ne peuvent accorder ni outil, ni réseau, ni agent supplémentaire.\n"
+                            + json.dumps(plan["_skills"], ensure_ascii=False))
     prompt_parts.append(
         "N'utilise aucun autre agent et ne demande aucune approbation interactive."
     )
@@ -579,7 +600,7 @@ def resolve_project_path(project_root: Path, requested_path: str) -> Path:
 
 
 def codex_command(
-    project_path: Path, prompt: str, *, allow_writes: bool = False
+    project_path: Path, prompt: str, *, allow_writes: bool = False, mcp: McpExecution | None = None
 ) -> list[str]:
     del prompt  # le contenu sensible est transmis par stdin, jamais dans l'argv
     return [
@@ -617,7 +638,7 @@ def codex_command(
         "--config",
         f"projects.{json.dumps(str(project_path))}.trust_level=\"untrusted\"",
         "--config",
-        "mcp_servers={}",
+        _codex_mcp_configuration(mcp),
         "--disable",
         "apps",
         "--disable",
@@ -644,11 +665,23 @@ def codex_command(
     ]
 
 
-def claude_command(project_path: Path, prompt: str, *, max_turns: int = 12) -> list[str]:
+def _codex_mcp_configuration(mcp: McpExecution | None) -> str:
+    if mcp is None:
+        return "mcp_servers={}"
+    servers = []
+    for server in mcp.servers:
+        fields = ["url=" + json.dumps(server["url"]), "bearer_token_env_var=" + json.dumps(server["token_variable"]),
+                  "enabled_tools=" + json.dumps(server["tools"]), "required=true", "startup_timeout_sec=15", "tool_timeout_sec=30",
+                  'default_tools_approval_mode="approve"']
+        servers.append(server["name"] + "={" + ",".join(fields) + "}")
+    return "mcp_servers={" + ",".join(servers) + "}"
+
+
+def claude_command(project_path: Path, prompt: str, *, max_turns: int = 12, mcp: McpExecution | None = None) -> list[str]:
     del project_path, prompt  # cwd et stdin portent ces valeurs sans les exposer dans argv
     if not 1 <= max_turns <= 50:
         raise ValueError("max_turns doit être compris entre 1 et 50")
-    return [
+    command = [
         "claude",
         "-p",
         "--output-format",
@@ -671,6 +704,22 @@ def claude_command(project_path: Path, prompt: str, *, max_turns: int = 12) -> l
         "mcp__*",
         "Traite uniquement la mission fournie sur l'entrée standard.",
     ]
+
+    if mcp is not None:
+        # safe-mode désactive aussi les MCP explicites. Le mode restreint garde
+        # l'allowlist des outils et ignore les réglages utilisateur/projet.
+        command.remove("--safe-mode")
+        configuration = {"mcpServers": {server["name"]: {"type": "http", "url": server["url"],
+            "headers": {"Authorization": "Bearer ${" + server["token_variable"] + "}"}, "timeout": 30000}
+            for server in mcp.servers}}
+        command[command.index("--mcp-config") + 1] = json.dumps(configuration, ensure_ascii=True)
+        position = command.index("--disallowedTools")
+        command[position + 1] = "Agent,Task,Bash,PowerShell,WebFetch,WebSearch,Edit,Write,NotebookEdit"
+        allowed = ["Read", "Glob", "Grep"] + [f"mcp__{server['name']}__{tool}" for server in mcp.servers for tool in server["tools"]]
+        command[-1:-1] = ["--restricted", "--setting-sources", "", "--settings",
+            '{"disableAllHooks":true,"autoMemoryEnabled":false,"enabledPlugins":{}}',
+            "--allowedTools", ",".join(allowed)]
+    return command
 
 
 def restricted_environment(
@@ -729,11 +778,13 @@ def _count_json_events(
     raw: bytes,
     *,
     require_terminal_success: bool,
-) -> int:
-    """Valide le flux structuré sans conserver son contenu sensible."""
+    redactions: tuple[str, ...] = (),
+) -> tuple[int, dict[str, Any] | None, dict[str, Any] | None]:
+    """Extrait uniquement la réponse finale et l'usage, jamais les outils/logs."""
 
     count = 0
     last_event: dict[str, Any] | None = None
+    answer: str | None = None
     for raw_line in io.BytesIO(raw):
         if not raw_line.strip():
             continue
@@ -749,13 +800,40 @@ def _count_json_events(
         if not isinstance(item, dict):
             raise RuntimeError("événement non objet produit par l'exécuteur")
         last_event = item
+        if executor == "codex_cli" and item.get("type") == "item.completed":
+            content = item.get("item")
+            if isinstance(content, dict) and content.get("type") == "agent_message" \
+                    and isinstance(content.get("text"), str):
+                answer = content["text"]
+        elif executor == "claude_code" and item.get("type") == "result" \
+                and isinstance(item.get("result"), str):
+            answer = item["result"]
     if require_terminal_success and (
         last_event is None or not _is_terminal_success_event(executor, last_event)
     ):
         raise RuntimeError(
             f"{executor} a terminé sans événement terminal de succès"
         )
-    return count
+    output = None
+    if answer is not None:
+        safe = answer.replace("\x00", "\ufffd").encode("utf-8", "replace").decode("utf-8")
+        for secret in redactions:
+            safe = safe.replace(secret, "[jeton MCP masqué]")
+        output = {"text": safe[:MAX_RESULT_CHARS], "truncated": len(safe) > MAX_RESULT_CHARS,
+                  "complete": require_terminal_success, "normalized": safe != answer}
+    usage: dict[str, Any] = {}
+    reported = (last_event or {}).get("usage")
+    if isinstance(reported, dict):
+        for source, target in (("input_tokens", "tokens_input"), ("output_tokens", "tokens_output")):
+            value = reported.get(source)
+            if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 9_007_199_254_740_991:
+                usage[target] = value
+    # La devise USD est portée par le nom explicite du champ Claude ; aucune
+    # conversion ni estimation depuis un tarif/token n'est effectuée.
+    cost = (last_event or {}).get("total_cost_usd") if executor == "claude_code" else None
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and math.isfinite(cost) and 0 <= cost <= 999_999_999_999:
+        usage.update(cost=cost, currency="USD")
+    return count, output, usage or None
 
 
 async def _wait_for_process_exit(process: asyncio.subprocess.Process) -> int:
@@ -1001,6 +1079,7 @@ async def _run_executor_unlocked(
     config: ExecutorConfig,
     timeout_seconds: float | None = None,
     allow_writes: bool = False,
+    mcp: McpExecution | None = None,
 ) -> ExecutorResult:
     """Exécute un CLI configuré dans une clôture de processus vérifiable."""
 
@@ -1012,34 +1091,33 @@ async def _run_executor_unlocked(
         raise ValueError("prompt non vide requis")
     if len(prompt) > MAX_PROMPT_CHARS:
         raise ValueError(f"prompt limité à {MAX_PROMPT_CHARS} caractères")
-    effective_timeout = config.timeout_seconds
-    if timeout_seconds is not None:
-        requested_timeout = _bounded_float(
-            timeout_seconds,
-            setting="timeout_seconds",
-            minimum=0.01,
-            maximum=config.timeout_seconds,
-        )
-        effective_timeout = min(effective_timeout, requested_timeout)
+    effective_timeout = _effective_timeout(config.timeout_seconds, timeout_seconds)
+    if mcp is not None:
+        effective_timeout = min(effective_timeout, mcp.remaining_seconds())
 
     if not isinstance(allow_writes, bool):
         raise ValueError("allow_writes doit être un booléen")
     if executor == "codex_cli":
-        command = codex_command(project_path, prompt, allow_writes=allow_writes)
+        command = codex_command(project_path, prompt, allow_writes=allow_writes, mcp=mcp)
     elif executor == "claude_code":
         if allow_writes:
             raise ExecutorConfigurationError(
                 "l'adaptateur Claude Code est strictement en lecture seule"
             )
-        command = claude_command(project_path, prompt)
+        command = claude_command(project_path, prompt, mcp=mcp)
     else:
         raise ExecutorConfigurationError(f"exécuteur non autorisé: {executor}")
     command[0] = str(spec.executable)
 
+    environment = restricted_environment(executor, config=config)
+    if mcp is not None:
+        environment.update(mcp.environment)
+        if executor == "claude_code":
+            environment.update(ENABLE_CLAUDEAI_MCP_SERVERS="false", CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1")
     fenced = await spawn_fenced_process(
         command,
         cwd=project_path,
-        env=restricted_environment(executor, config=config),
+        env=environment,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -1140,10 +1218,11 @@ async def _run_executor_unlocked(
         raise RuntimeError(
             f"sortie de l'exécuteur supérieure à {config.max_output_bytes} octets"
         )
-    event_count = _count_json_events(
+    event_count, output, usage = _count_json_events(
         executor,
         stdout_capture.raw_snapshot(),
         require_terminal_success=exit_code == 0,
+        redactions=tuple(mcp.environment.values()) if mcp is not None else (),
     )
     return ExecutorResult(
         executor=executor,
@@ -1153,6 +1232,8 @@ async def _run_executor_unlocked(
         stderr_sha256=stderr.sha256,
         stdout_bytes=stdout.total_bytes,
         stderr_bytes=stderr.total_bytes,
+        output=output,
+        usage=usage,
     )
 
 
@@ -1165,6 +1246,7 @@ async def run_executor(
     config: ExecutorConfig,
     timeout_seconds: float | None = None,
     allow_writes: bool = False,
+    mcp: McpExecution | None = None,
 ) -> ExecutorResult:
     """Sérialise toute écriture Codex visant la même racine, même entre workers."""
 
@@ -1181,23 +1263,16 @@ async def run_executor(
             config=config,
             timeout_seconds=timeout_seconds,
             allow_writes=False,
+            mcp=mcp,
         )
 
     if executor != "codex_cli":
         raise ExecutorConfigurationError(
             "seul Codex peut recevoir une ressource projet en écriture"
         )
-    effective_timeout = config.timeout_seconds
-    if timeout_seconds is not None:
-        effective_timeout = min(
-            effective_timeout,
-            _bounded_float(
-                timeout_seconds,
-                setting="timeout_seconds",
-                minimum=0.01,
-                maximum=config.timeout_seconds,
-            ),
-        )
+    effective_timeout = _effective_timeout(config.timeout_seconds, timeout_seconds)
+    if mcp is not None:
+        effective_timeout = min(effective_timeout, mcp.remaining_seconds())
     poison_path = config.project_write_poison_path(project_id)
     lease = _ProjectWriteLease(
         config.project_write_lock_path(project_id),
@@ -1222,6 +1297,7 @@ async def run_executor(
                 config=config,
                 timeout_seconds=remaining,
                 allow_writes=True,
+                mcp=mcp,
             )
         except ExecutorCleanupError as exc:
             # Le marqueur est publié pendant que ce worker détient encore le

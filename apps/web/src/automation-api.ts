@@ -26,6 +26,7 @@ import {
   WorkspaceHttpClient,
   hasString,
   isRecord,
+  isMissionExecution,
   type Fetcher,
 } from "./workspace-api";
 
@@ -136,7 +137,8 @@ function isMissionTemplate(value: unknown): boolean {
     && nullableString(value.agent_instance_id)
     && Number.isInteger(value.priority)
     && Array.isArray(value.required_capabilities)
-    && value.required_capabilities.every((item) => typeof item === "string");
+    && value.required_capabilities.every((item) => typeof item === "string")
+    && isMissionExecution(value.execution);
 }
 
 function isAutomationSummary(value: unknown): value is AutomationSummary {

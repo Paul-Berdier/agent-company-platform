@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Generic, Literal, TypeVar
 
+from pydantic import ValidationError
 from sqlalchemy import distinct, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -395,6 +396,10 @@ def _validate_assignment(
     *,
     allowed_agent_ids: set[str] | None,
 ) -> None:
+    try:
+        template.to_mission_create(project.id)
+    except ValidationError:
+        raise AssignmentInvalid("Le gabarit de mission ou son workspace ne correspond pas au projet.") from None
     if template.team_id is not None:
         team = db.get(TeamModel, template.team_id)
         if team is None or team.project_id != project.id:
@@ -1122,6 +1127,7 @@ def materialize_occurrence(
             "mission": True,
             "execution_mode": "real",
             "required_capabilities": mission.required_capabilities,
+            "execution": mission.execution.model_dump(mode="json") if mission.execution else None,
             "automation": {
                 "automation_id": automation.id,
                 "automation_run_id": run.id,

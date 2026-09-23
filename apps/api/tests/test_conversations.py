@@ -42,6 +42,10 @@ class FakeGateway(GatewayClient):
         self.submit_keys: list[str] = []
         self.fail_first_submission = False
         self.status_reads = 0
+        self.read_status = "completed"
+        self.submit_status = "queued"
+        self.stop_failures = 0
+        self.stopped_runs = []
 
     async def diagnose_hermes(self) -> GatewayDiagnostic:
         return GatewayDiagnostic(
@@ -60,19 +64,27 @@ class FakeGateway(GatewayClient):
         self.submit_keys.append(kwargs["idempotency_key"])
         if self.fail_first_submission and len(self.submit_keys) == 1:
             raise GatewayUnavailableError("coupure simulée")
-        return GatewayRun(run_id=RUN_ID, status="queued")
+        return GatewayRun(run_id=RUN_ID, status=self.submit_status)
 
     async def get_hermes_run(self, run_id: str) -> GatewayRun:
         assert run_id == RUN_ID
         self.status_reads += 1
         return GatewayRun(
             run_id=RUN_ID,
-            status="completed",
+            status=self.read_status,
             session_id="hermes-session",
             model="hermes-agent",
             output="Réponse Hermes persistée",
             usage={"input_tokens": 4, "output_tokens": 3},
         )
+
+
+    async def stop_hermes_run(self, run_id: str) -> GatewayRun:
+        self.stopped_runs.append(run_id)
+        if self.stop_failures:
+            self.stop_failures -= 1
+            raise GatewayUnavailableError("arrêt indéterminé")
+        return GatewayRun(run_id=run_id, status="stopping")
 
 
 @pytest.fixture
@@ -365,3 +377,139 @@ def test_conversation_can_be_renamed_exported_and_archived(conversation_client):
         json={"client_request_id": "after-archive", "content": "Ne pas envoyer"},
     )
     assert denied.status_code == 409
+
+
+def _submit_turn(client, csrf, conversation, key="request-stop"):
+    result = client.post(
+        f"/conversations/{conversation['id']}/turns",
+        headers={"X-CSRF-Token": csrf},
+        json={"client_request_id": key, "content": "Un travail interruptible"},
+    )
+    assert result.status_code == 202
+    return result.json()
+
+
+def test_waiting_approval_is_explicit_and_stop_intent_survives_transport_error(conversation_client):
+    client, factory, gateway, csrf, project_id, _ = conversation_client
+    conversation = _create_conversation(client, csrf, project_id)
+    turn = _submit_turn(client, csrf, conversation)
+    path = f"/conversations/{conversation['id']}/turns/{turn['id']}"
+    gateway.read_status = "waiting_for_approval"
+    waiting = client.get(path).json()
+    assert waiting["status"] == "waiting_for_approval"
+    assert "approbation" in waiting["error"]
+    gateway.stop_failures = 1
+    stopped = client.post(path + "/stop", headers={"X-CSRF-Token": csrf})
+    assert stopped.status_code == 202
+    assert stopped.json()["status"] == "stopping"
+    assert "pas encore confirmé" in stopped.json()["error"]
+    with factory() as db:
+        assert db.get(ConversationTurnModel, turn["id"]).status == "stopping"
+    gateway.read_status = "running"
+    resumed = client.get(path)
+    assert resumed.json()["status"] == "stopping"
+    assert gateway.stopped_runs == [RUN_ID, RUN_ID]
+    gateway.read_status = "cancelled"
+    assert client.get(path).json()["status"] == "interrupted"
+    assert client.post(path + "/stop", headers={"X-CSRF-Token": csrf}).json()["status"] == "interrupted"
+    assert len(gateway.stopped_runs) == 2
+    assert len(gateway.submit_keys) == 1
+
+
+def test_stop_recovers_uncertain_admission_with_original_key(conversation_client):
+    client, _, gateway, csrf, project_id, _ = conversation_client
+    gateway.fail_first_submission = True
+    conversation = _create_conversation(client, csrf, project_id)
+    turn = _submit_turn(client, csrf, conversation)
+    assert turn["status"] == "submitting"
+    result = client.post(
+        f"/conversations/{conversation['id']}/turns/{turn['id']}/stop",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert result.status_code == 202
+    assert result.json()["status"] == "stopping"
+    assert gateway.submit_keys[0] == gateway.submit_keys[1]
+    assert gateway.stopped_runs == [RUN_ID]
+
+
+def test_expired_ambiguous_admission_is_never_recreated(conversation_client):
+    client, factory, gateway, csrf, project_id, _ = conversation_client
+    gateway.fail_first_submission = True
+    conversation = _create_conversation(client, csrf, project_id)
+    turn = _submit_turn(client, csrf, conversation)
+    with factory() as db:
+        row = db.get(ConversationTurnModel, turn["id"])
+        row.created_at = datetime.now(UTC) - timedelta(hours=25)
+        db.commit()
+    result = client.get(f"/conversations/{conversation['id']}/turns/{turn['id']}")
+    assert result.json()["status"] == "submitting"
+    assert "Aucun nouveau run" in result.json()["error"]
+    assert len(gateway.submit_keys) == 1
+
+
+def test_replayed_terminal_admission_is_read_before_completed(conversation_client):
+    client, _, gateway, csrf, project_id, _ = conversation_client
+    gateway.submit_status = "completed"
+    conversation = _create_conversation(client, csrf, project_id)
+    turn = _submit_turn(client, csrf, conversation)
+    assert turn["status"] == "completed"
+    assert turn["assistant_content"] == "Réponse Hermes persistée"
+    assert gateway.status_reads == 1
+
+
+def test_late_read_cannot_erase_stop_intent_or_terminal_result(conversation_client):
+    from acp_api.routers.conversations import _apply_run
+    client, factory, _, csrf, project_id, _ = conversation_client
+    conversation = _create_conversation(client, csrf, project_id)
+    turn = _submit_turn(client, csrf, conversation)
+    with factory() as stale_db:
+        stale_turn = stale_db.get(ConversationTurnModel, turn["id"])
+        stale_conversation = stale_db.get(ConversationModel, conversation["id"])
+        with factory() as other:
+            other.get(ConversationTurnModel, turn["id"]).status = "stopping"
+            other.commit()
+        _apply_run(stale_db, stale_conversation, stale_turn, GatewayRun(run_id=RUN_ID, status="running"))
+        assert stale_turn.status == "stopping"
+        with factory() as other:
+            row = other.get(ConversationTurnModel, turn["id"])
+            row.status = "completed"
+            row.assistant_content = "preuve finale"
+            other.commit()
+        _apply_run(stale_db, stale_conversation, stale_turn, GatewayRun(run_id=RUN_ID, status="running"))
+        assert stale_turn.status == "completed"
+        assert stale_turn.assistant_content == "preuve finale"
+
+
+def test_stop_requires_csrf_and_member_access(conversation_client):
+    client, factory, gateway, csrf, project_id, workspace_id = conversation_client
+    conversation = _create_conversation(client, csrf, project_id)
+    turn = _submit_turn(client, csrf, conversation)
+    path = f"/conversations/{conversation['id']}/turns/{turn['id']}/stop"
+    assert client.post(path).status_code == 403
+    with factory() as db:
+        user = UserModel(login_normalized="stop-viewer", display_name="Lecteur",
+                         password_hash=hash_password(PASSWORD), platform_role="viewer")
+        db.add(user)
+        db.flush()
+        db.add(MembershipModel(user_id=user.id, scope_type="workspace", scope_id=workspace_id, role="viewer"))
+        _, token, viewer_csrf = create_user_session(db, user.id)
+        db.commit()
+    client.cookies.set("acp_session", token)
+    assert client.post(path, headers={"X-CSRF-Token": viewer_csrf}).status_code == 403
+    assert gateway.stopped_runs == []
+
+
+@pytest.mark.parametrize("admission_status", ["queued", "completed"])
+def test_terminal_get_without_output_is_a_failure_including_replayed_admission(conversation_client, admission_status):
+    client, _, gateway, csrf, project_id, _ = conversation_client
+    gateway.submit_status = admission_status
+    async def empty_result(run_id):
+        return GatewayRun(run_id=run_id, status="completed", output="  ")
+    gateway.get_hermes_run = empty_result
+    conversation = _create_conversation(client, csrf, project_id)
+    turn = _submit_turn(client, csrf, conversation)
+    result = client.get(f"/conversations/{conversation['id']}/turns/{turn['id']}")
+    assert result.json()["status"] == "failed"
+    assert result.json()["assistant_content"] is None
+    assert "sans réponse exploitable" in result.json()["error"]
+    assert len(gateway.submit_keys) == 1

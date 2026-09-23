@@ -17,6 +17,7 @@ Item {
         spacing: Space.space8
 
         Text {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             text: qsTr("Accueil")
             color: Colors.textPrimary
@@ -96,6 +97,7 @@ Item {
                 }
 
                 Text {
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     visible: Compatibility.explanation.length > 0
                     wrapMode: Text.WordWrap

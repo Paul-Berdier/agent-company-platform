@@ -12,6 +12,7 @@ import { renderMcpCenter, renderSecretsPanel, resetMcpUiState } from "./mcp-ui";
 import { renderLibrary, resetLibraryUiState } from "./library-ui";
 import { renderAutomations, resetAutomationUiState, unmountAutomationUi } from "./automation-ui";
 import { AutomationApiClient } from "./automation-api";
+import { renderConversationTurnProgress } from "./conversation-turn-ui";
 import {
   buildRoutineAutomationInput,
   missionCanBecomeRoutine,
@@ -192,6 +193,7 @@ const missionState: MissionState = {
   actionId: null,
 };
 const conversationDrafts = new Map<string, string>();
+const conversationStopRequests = new Set<string>();
 const newConversationDraft = { projectId: "", title: "" };
 const newProjectDraft = { name: "", description: "", projectType: "generic" };
 const conversationFilters: { search: string; status: "" | "active" | "archived" } = {
@@ -581,6 +583,7 @@ function resetPrivateWorkspaceState(): void {
   missionRoutineDraft = null;
   missionRoutineFocusTarget = null;
   conversationDrafts.clear();
+  conversationStopRequests.clear();
   newConversationDraft.projectId = "";
   newConversationDraft.title = "";
   newProjectDraft.name = "";
@@ -1586,6 +1589,11 @@ function renderMissionRoutineConfirmation(mission: MissionSummary): HTMLElement 
   routineDetailRow(details, "Priorité", String(mission.priority));
   routineDetailRow(details, "Équipe", mission.team_id ?? "Non affectée");
   routineDetailRow(details, "Agent", mission.agent_instance_id ?? "Non affecté");
+  if (mission.execution) {
+    routineDetailRow(details, "Exécution", "Équipe : " + mission.execution.executors
+      .map((executor) => executor === "codex_cli" ? "Codex" : "Claude").join(" + "));
+    routineDetailRow(details, "Agents simultanés", String(mission.execution.max_concurrency));
+  }
   summary.append(
     autonomy,
     resources,
@@ -2060,6 +2068,8 @@ function conversationStatusLabel(status: string): string {
     archived: "Archivée",
     submitting: "Envoi",
     running: "Hermes travaille",
+    waiting_for_approval: "Approbation attendue",
+    stopping: "Arrêt en cours",
     completed: "Terminée",
     failed: "Échec",
     interrupted: "Interrompue",
@@ -2069,7 +2079,7 @@ function conversationStatusLabel(status: string): string {
 
 function conversationTone(status: string): string {
   if (status === "active" || status === "completed") return "active";
-  if (status === "submitting" || status === "running") return "waiting";
+  if (["submitting", "running", "waiting_for_approval", "stopping"].includes(status)) return "waiting";
   if (status === "failed") return "failed";
   if (status === "interrupted") return "blocked";
   return "neutral";
@@ -2242,15 +2252,44 @@ function renderConversationTurn(turn: ConversationTurn): HTMLElement {
     const assistant = el("section", "conversation-message conversation-message-assistant");
     assistant.append(el("h4", "conversation-speaker", "Hermes"), el("p", "conversation-copy", turn.assistant_content));
     article.append(assistant);
-  } else if (turn.status === "submitting" || turn.status === "running") {
-    article.append(el(
-      "p",
-      "conversation-pending",
-      turn.status === "submitting" ? "Le message est accepté par la plateforme…" : "Hermes traite ce tour…",
-    ));
   }
+  const progress = renderConversationTurnProgress(turn, () => void stopConversationTurn(turn), conversationStopRequests.has(turn.id));
+  if (progress) article.append(progress);
   if (turn.error) article.append(el("p", "conversation-error", turn.error));
   return article;
+}
+
+async function stopConversationTurn(turn: ConversationTurn): Promise<void> {
+  const conversationId = conversationState.activeId;
+  if (!conversationId || isTerminalConversationTurn(turn.status) || conversationStopRequests.has(turn.id)) return;
+  const sequence = turnsSequence;
+  const session = authState.session;
+  const stillCurrent = () => sequence === turnsSequence
+    && conversationState.activeId === conversationId && session === authState.session;
+  conversationStopRequests.add(turn.id);
+  // Invalider les lectures déjà en vol avant de demander l’arrêt durable.
+  ++pollSequence;
+  conversationState.notice = null;
+  renderCurrentRoute();
+  try {
+    const updated = await conversationApi.stopTurn(conversationId, turn.id);
+    if (!stillCurrent()) return;
+    conversationState.turns = conversationState.turns.map((item) => item.id === updated.id ? updated : item);
+  } catch (error) {
+    if (!stillCurrent()) return;
+    const apiError = normalizeApiError(error, "La demande d’arrêt n’a pas pu être confirmée.");
+    if (apiError.status === 401) return requireLogin();
+    conversationState.notice = { tone: "error", message: errorMessage(apiError) };
+  } finally {
+    conversationStopRequests.delete(turn.id);
+    if (stillCurrent()) {
+      renderCurrentRoute();
+      // Même après une réponse perdue, relire l’intention enregistrée côté API.
+      for (const item of conversationState.turns) {
+        if (!isTerminalConversationTurn(item.status)) void pollConversationTurn(conversationId, item.id);
+      }
+    }
+  }
 }
 
 function replaceConversation(updated: ConversationSummary): void {
@@ -2331,6 +2370,13 @@ function renderActiveConversation(overview: Overview): HTMLElement {
   const scope = conversation.project_id ? projectName(overview, conversation.project_id) : "Privée · générale";
   const header = sectionHeader(conversation.title || "Conversation sans titre", scope);
   const actions = el("div", "conversation-actions");
+  const refresh = el("button", "button button-secondary", "Actualiser les tours");
+  refresh.type = "button";
+  refresh.disabled = conversationState.turnsPhase === "loading" || conversationStopRequests.size > 0;
+  refresh.addEventListener("click", () => {
+    ++pollSequence;
+    void loadConversationTurns(conversation.id);
+  });
   const rename = el("button", "button button-secondary", "Renommer") as HTMLButtonElement;
   rename.type = "button";
   rename.addEventListener("click", () => void renameConversation(conversation));
@@ -2344,7 +2390,7 @@ function renderActiveConversation(overview: Overview): HTMLElement {
   const exportButton = el("button", "button button-secondary", "Exporter") as HTMLButtonElement;
   exportButton.type = "button";
   exportButton.addEventListener("click", () => void exportConversation(conversation));
-  actions.append(rename, archive, exportButton);
+  actions.append(refresh, rename, archive, exportButton);
   header.append(actions);
   section.append(header);
   if (conversationState.turnsPhase === "idle") {
@@ -2407,6 +2453,7 @@ function createTurnForm(conversation: ConversationSummary): HTMLFormElement {
   }
   const submit = el("button", "button button-primary", "Envoyer à Hermes") as HTMLButtonElement;
   submit.type = "submit";
+  submit.disabled = conversationState.turns.some((turn) => !isTerminalConversationTurn(turn.status));
   form.append(
     labeledField("Message", textarea, "Le brouillon reste présent tant que l’API n’a pas accepté le tour."),
     feedback,
@@ -2414,6 +2461,7 @@ function createTurnForm(conversation: ConversationSummary): HTMLFormElement {
   );
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (conversationState.turns.some((turn) => !isTerminalConversationTurn(turn.status))) return;
     if (!form.reportValidity()) return;
     const contentValue = textarea.value.trim();
     if (!contentValue) return;
@@ -2533,10 +2581,11 @@ async function pollConversationTurn(conversationId: string, turnId: string): Pro
       const turn = await conversationApi.fetchTurn(conversationId, turnId);
       if (sequence !== pollSequence) return;
       conversationState.turns = conversationState.turns.map((item) => item.id === turn.id ? turn : item);
-      conversationState.notice = null;
+      if (conversationState.notice?.tone !== "error") conversationState.notice = null;
       renderCurrentRoute();
       if (isTerminalConversationTurn(turn.status)) return;
     } catch (error) {
+      if (sequence !== pollSequence || conversationState.activeId !== conversationId) return;
       const apiError = normalizeApiError(error, "Le suivi du tour a été interrompu.");
       if (apiError.status === 401) return requireLogin();
       conversationState.notice = {
@@ -2547,6 +2596,7 @@ async function pollConversationTurn(conversationId: string, turnId: string): Pro
       return;
     }
   }
+  if (sequence !== pollSequence || conversationState.activeId !== conversationId) return;
   conversationState.notice = {
     tone: "warning",
     message: "Le suivi automatique a atteint sa limite. Actualise la conversation pour réconcilier son état réel.",

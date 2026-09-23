@@ -84,7 +84,7 @@ def test_upgrade_matches_model_and_second_upgrade_emits_no_ddl(pg_engine):
     assert current_revision(pg_engine) == head_revision()
     assert _compare(pg_engine) == []
     assert check_drift(pg_engine) == []
-    assert len(schema_inventory(pg_engine)) == 48
+    assert len(schema_inventory(pg_engine)) == 50
 
     statements = _ddl_statements(pg_engine)
     run_upgrade(pg_engine)
@@ -219,7 +219,7 @@ def test_0003_widens_unbounded_integers_and_downgrade_restores_them(pg_engine):
     assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"integer"}
 
     run_upgrade(pg_engine)
-    assert head_revision() == "0003"
+    assert current_revision(pg_engine) == head_revision()
     assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"bigint"}
     assert check_drift(pg_engine) == []
 
@@ -234,7 +234,9 @@ def test_0003_widens_unbounded_integers_and_downgrade_restores_them(pg_engine):
 def test_0003_downgrade_fails_closed_on_a_value_beyond_int4(pg_engine):
     """Redescendre ne tronque jamais : une valeur > 2^31 - 1 fait échouer la révision."""
 
-    run_upgrade(pg_engine)
+    # Tester le rollback de cette révision, indépendamment des migrations
+    # suivantes qui disposent chacune de leur propre transaction Alembic.
+    run_upgrade(pg_engine, "0003")
     beyond = 2**31 + 7
     with pg_engine.begin() as connection:
         connection.execute(
@@ -247,7 +249,7 @@ def test_0003_downgrade_fails_closed_on_a_value_beyond_int4(pg_engine):
         )
     with pytest.raises(Exception, match="out of range"):
         run_downgrade(pg_engine, "0002")
-    assert current_revision(pg_engine) == head_revision()
+    assert current_revision(pg_engine) == "0003"
     with pg_engine.connect() as connection:
         assert connection.execute(
             text("SELECT journal_seq FROM events WHERE id = 'evt-wide'")
@@ -276,7 +278,7 @@ def test_cli_upgrade_twice_check_and_current(pg_engine, postgresql_url):
     assert f"Révision courante : {head_revision()}" in out
 
 
-@pytest.mark.parametrize("revision", ["head", "heads", "0003"])
+@pytest.mark.parametrize("revision", ["head", "heads", "0004"])
 @pytest.mark.parametrize("allow_unverified_revision", [False, True])
 def test_stamp_refuses_empty_postgresql_database(pg_engine, revision, allow_unverified_revision):
     from acp_database.migrate import run_stamp
@@ -363,7 +365,8 @@ def test_stamp_accepts_existing_model_schema_without_migrations(pg_engine):
 
 
 def test_wide_reference_downgrade_refuses_truncation(pg_engine):
-    run_upgrade(pg_engine)
+    # La garde des références longues appartient à 0003, pas à la tête courante.
+    run_upgrade(pg_engine, "0003")
     reference = "chemin/" * 100
     from sqlalchemy.orm import Session
     from acp_database.models import SkillModel, UserModel

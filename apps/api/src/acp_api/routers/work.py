@@ -59,6 +59,30 @@ from .workers import (
 router = APIRouter(tags=["work"])
 
 
+@router.get("/work/workers/{worker_id}/runs/{run_id}/extensions")
+def worker_execution_extensions(
+    worker_id: str,
+    run_id: str,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    fencing_token: int | None = Header(default=None, alias="X-Attempt-Fencing-Token"),
+):
+    from ..attempt_fencing import require_active_worker_attempt
+    from ..execution_extensions import execution_skills
+
+    worker = authenticate_worker(db, worker_id, authorization)
+    _, run = require_active_worker_attempt(
+        db, worker_id=worker_id, run_id=run_id, fencing_token=fencing_token,
+    )
+    if run.stop_requested_at is not None or run.status in _TERMINAL_RUN_STATES | {"stopping"}:
+        raise HTTPException(409, "La tentative ne peut plus utiliser d'extensions.")
+    task = db.get(TaskModel, run.task_id)
+    if task is None or (worker.global_access != 1 and worker.project_id != task.project_id):
+        raise HTTPException(403, "Le périmètre du worker ne permet plus cette mission.")
+    skills = execution_skills(db, task)
+    return {"skills": skills, "mcp": ((task.meta or {}).get("extensions") or {}).get("mcp", [])}
+
+
 class TaskCreate(BaseModel):
     project_id: Text36
     team_id: Text36 | None = None
@@ -401,6 +425,13 @@ def _claim_next_task(
     project = db.get(ProjectModel, task.project_id)
     workspace = db.get(WorkspaceModel, project.workspace_id)
 
+    # Le plafond est pris avant les écritures et le verrou du journal.
+    # Il accompagne l'attribution : une mission ne peut relever ce plafond.
+    from ..budget_service import get_project_policy
+    execution_limits = {
+        "max_agents": min(8, get_project_policy(db, project).max_spawned_agents_per_run)
+    }
+
     agent = None
     if task.agent_instance_id:
         agent = db.get(AgentInstanceModel, task.agent_instance_id)
@@ -530,6 +561,7 @@ def _claim_next_task(
         "attempt_number": run.attempt_number,
         "fencing_token": run.fencing_token,
         "stop_requested": run.stop_requested_at is not None,
+        "execution_limits": execution_limits,
     }
     if task.is_mission:
         response["mission"] = {
@@ -541,6 +573,7 @@ def _claim_next_task(
             "resources": list(task.resources or []),
             "budget": dict(task.budget or {}),
             "duration_seconds": task.duration_seconds,
+            "execution": (task.meta or {}).get("execution"),
         }
     # Forme identique sur les deux dialectes : SQLite relit ses instants naïfs,
     # PostgreSQL les relit en UTC ; le worker reçoit toujours un décalage explicite.

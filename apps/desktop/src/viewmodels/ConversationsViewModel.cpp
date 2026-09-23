@@ -82,6 +82,17 @@ bool ConversationsViewModel::polling() const
     return m_pollTimer.isActive() || m_pollInFlight;
 }
 
+bool ConversationsViewModel::canStopTurn() const
+{
+    if (!m_active || !available() || m_loading || m_busy || pendingSubmission()) return false;
+    for (const auto& value : m_turnData) {
+        const auto status = value.toObject().value(QStringLiteral("status")).toString();
+        if (status == QLatin1String("submitting") || status == QLatin1String("running")
+            || status == QLatin1String("waiting_for_approval")) return true;
+    }
+    return false;
+}
+
 void ConversationsViewModel::setDraft(const QString &draft)
 {
     // Un envoi incertain conserve exactement son texte et sa clé, jusqu'à rapprochement.
@@ -220,6 +231,7 @@ bool ConversationsViewModel::validSummary(const QJsonObject &summary)
 bool ConversationsViewModel::validTurn(const QJsonObject &turn)
 {
     static const QSet<QString> states{QStringLiteral("submitting"), QStringLiteral("running"),
+        QStringLiteral("waiting_for_approval"), QStringLiteral("stopping"),
         QStringLiteral("completed"), QStringLiteral("failed"), QStringLiteral("interrupted")};
     return textField(turn, "id") && !turn.value(QStringLiteral("id")).toString().isEmpty()
         && textField(turn, "client_request_id") && !turn.value(QStringLiteral("client_request_id")).toString().isEmpty()
@@ -464,6 +476,44 @@ void ConversationsViewModel::retryPendingMessage()
     }
 }
 
+void ConversationsViewModel::stopTurn()
+{
+    if (!canStopTurn()) return;
+    const QString id = activeTurnId();
+    // Une ancienne lecture running ne doit pas écraser la confirmation stopping.
+    invalidate(false);
+    m_busy = true;
+    m_error.clear();
+    m_notice.clear();
+    ApiRequest req;
+    req.method = QByteArrayLiteral("POST");
+    req.path = QStringLiteral("/conversations/%1/turns/%2/stop").arg(segment(currentId()), segment(id));
+    request(req, [this, id](const ApiResponse& response) {
+        m_busy = false;
+        const auto turn = response.json.object();
+        if (!validTurn(turn) || turn.value(QStringLiteral("id")).toString() != id) {
+            failProtocol(QStringLiteral("d'arrêt de tour"));
+            return;
+        }
+        auto turnsValue = m_turnData;
+        for (qsizetype i = 0; i < turnsValue.size(); ++i) {
+            if (turnsValue.at(i).toObject().value(QStringLiteral("id")).toString() == id)
+                turnsValue.replace(i, turn);
+        }
+        applyTurns(turnsValue);
+        m_notice = QStringLiteral("Demande d'arrêt transmise ; l'état réel reste suivi.");
+        m_pollWindow.start();
+        schedulePoll();
+        emit changed();
+    }, [this](const ApiError&) {
+        m_busy = false;
+        m_notice = QStringLiteral("L'arrêt n'est pas encore confirmé. Le suivi relit l'état du serveur sans créer un nouveau tour.");
+        m_pollWindow.start();
+        schedulePoll();
+    });
+    emit changed();
+}
+
 void ConversationsViewModel::submitPending()
 {
     m_busy = true;
@@ -561,7 +611,8 @@ QString ConversationsViewModel::activeTurnId() const
     for (const auto &value : m_turnData) {
         const auto turn = value.toObject();
         const QString state = turn.value(QStringLiteral("status")).toString();
-        if (state == QLatin1String("submitting") || state == QLatin1String("running")) {
+        if (state == QLatin1String("submitting") || state == QLatin1String("running")
+            || state == QLatin1String("waiting_for_approval") || state == QLatin1String("stopping")) {
             return turn.value(QStringLiteral("id")).toString();
         }
     }

@@ -19,6 +19,8 @@ Item {
         switch (status) {
         case "submitting": return qsTr("Envoi enregistré");
         case "running": return qsTr("Réponse en cours");
+        case "waiting_for_approval": return qsTr("Approbation attendue dans Hermes");
+        case "stopping": return qsTr("Arrêt demandé, confirmation attendue");
         case "completed": return qsTr("Terminé");
         case "failed": return qsTr("Échec");
         case "interrupted": return qsTr("Interrompu");
@@ -91,6 +93,30 @@ Item {
             wrapMode: Text.Wrap
             color: Colors.textSecondary
         }
+        RowLayout {
+            Layout.fillWidth: true
+            AcpButton {
+                objectName: "generalConversationsButton"
+                label: qsTr("Conversations générales")
+                primary: Conversations.projectId.length === 0
+                manualEnabled: Conversations.available && !Conversations.busy && !Conversations.pendingSubmission
+                onTriggered: Conversations.projectId = ""
+            }
+            AcpButton {
+                objectName: "projectConversationsButton"
+                label: Workspace.projectName ? qsTr("Projet : %1").arg(Workspace.projectName) : qsTr("Choisissez un projet")
+                primary: Conversations.projectId.length > 0
+                manualEnabled: Conversations.available && Workspace.projectId.length > 0
+                    && !Conversations.busy && !Conversations.pendingSubmission
+                onTriggered: Conversations.projectId = Workspace.projectId
+            }
+            AcpButton {
+                objectName: "conversationStopTurnButton"
+                label: qsTr("Arrêter le tour")
+                manualEnabled: Conversations.canStopTurn
+                onTriggered: Conversations.stopTurn()
+            }
+        }
 
         SplitView {
             Layout.fillWidth: true
@@ -109,6 +135,7 @@ Item {
                     anchors.margins: Space.space4
                     spacing: Space.space4
                     Label {
+                        textFormat: Text.PlainText
                         text: qsTr("Vos conversations")
                         color: Colors.textPrimary
                         font.bold: true
@@ -224,6 +251,7 @@ Item {
                             label: Conversations.archived ? qsTr("Archivée") : qsTr("Active")
                         }
                         Label {
+                            textFormat: Text.PlainText
                             visible: Conversations.polling
                             text: qsTr("Suivi de la réponse…")
                             color: Colors.textSecondary
@@ -263,6 +291,7 @@ Item {
                                 anchors.margins: Space.space5
                                 spacing: Space.space4
                                 Text {
+                                    textFormat: Text.PlainText
                                     text: qsTr("Vous")
                                     color: Colors.textSecondary
                                     font.bold: true
@@ -309,6 +338,7 @@ Item {
                             }
                         }
                         Label {
+                            textFormat: Text.PlainText
                             anchors.centerIn: parent
                             visible: history.count === 0 && !Conversations.loading
                             text: qsTr("Aucun message. Écrivez le premier.")

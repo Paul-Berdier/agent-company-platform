@@ -9,7 +9,7 @@ from acp_contracts import (
     ServiceOriginError,
     normalize_service_origin,
 )
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class GatewayUnavailableError(RuntimeError):
@@ -41,7 +41,7 @@ class GatewayDiagnostic(BaseModel):
 class GatewayRun(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    run_id: str
+    run_id: str = Field(pattern=r"^run_[0-9a-f]{32}$")
     status: Literal[
         "started",
         "queued",
@@ -192,6 +192,16 @@ class GatewayClient:
         except ValidationError as exc:
             raise GatewayUnavailableError(
                 "Le statut du run Hermes ne respecte pas le contrat attendu"
+            ) from exc
+
+
+    async def stop_hermes_run(self, run_id: str) -> GatewayRun:
+        data = await self._request("POST", f"/v1/providers/hermes/runs/{run_id}/stop")
+        try:
+            return GatewayRun.model_validate(data)
+        except ValidationError as exc:
+            raise GatewayUnavailableError(
+                "L'arrêt du run Hermes ne respecte pas le contrat attendu"
             ) from exc
 
 

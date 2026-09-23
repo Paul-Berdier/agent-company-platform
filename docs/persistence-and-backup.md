@@ -260,6 +260,15 @@ Vérifier ensuite `migrate check` avec le code cible avant de le redémarrer. Ce
 valeurs nouvelles rendent la descente impossible : 0003 refuse les entiers hors
 32 bits et les références dépassant 500 caractères, sans tronquer les données.
 
+La révision **0004** ajoute les délégations MCP et les preuves durables d'appels
+(`mcp_execution_grants`, `mcp_execution_calls`). Son retour arrière refuse de
+supprimer ces preuves lorsqu'une tentative associée est encore active. Arrêter
+les services et résoudre les tentatives avant toute descente ; ne pas contourner
+le refus en supprimant des lignes. Les migrations sont transactionnelles **par
+révision** : si une descente de 0004 à 0002 échoue dans 0003, le passage préalable
+de 0004 à 0003 peut déjà être validé. Lire `migrate current` et vérifier le schéma
+effectif avant toute reprise, sans présumer un retour global à l'état initial.
+
 **Portée des contrôles :** `migrate check` compare les tables, colonnes, types,
 valeurs par défaut, index, prédicats d'index partiels et noms des contraintes CHECK.
 Il ne compare pas l'expression SQL des CHECK : un CHECK de même nom dont le corps a

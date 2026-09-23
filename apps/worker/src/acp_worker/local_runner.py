@@ -492,7 +492,7 @@ def mission_snapshot_from_claim(claim: Mapping[str, Any]) -> dict[str, Any] | No
     mission = claim.get("mission")
     if not isinstance(mission, Mapping):
         raise RunnerRequestError("claim mission invalide")
-    if set(mission) != _MISSION_FIELDS:
+    if set(mission) not in (_MISSION_FIELDS, _MISSION_FIELDS | {"execution"}):
         raise RunnerRequestError("claim mission incomplet ou contenant des champs inconnus")
 
     task = claim.get("task")
@@ -582,6 +582,26 @@ def mission_snapshot_from_claim(claim: Mapping[str, Any]) -> dict[str, Any] | No
         raise RunnerRequestError("mission.budget doit définir au moins une limite")
     budget_copy = {field: budget[field] for field in budget_fields}
 
+    execution = mission.get("execution")
+    if execution is not None:
+        from acp_contracts import MissionExecution
+        from pydantic import ValidationError
+
+        try:
+            execution = MissionExecution.model_validate(execution).model_dump(mode="json")
+        except ValidationError as exc:
+            raise RunnerRequestError("mission.execution invalide") from exc
+        required = set(claim.get("required_capabilities", []))
+        if "agent_team" not in required or required & {"codex_cli", "claude_code"} != set(execution["executors"]):
+            raise RunnerRequestError("capacités d'équipe incohérentes avec les exécuteurs")
+        if autonomy_copy["mode"] != "supervised" or any(autonomy_copy[key] for key in ("allowed_actions", "forbidden_actions", "approval_required_actions")):
+            raise RunnerRequestError("une équipe exige la supervision sans listes d'actions")
+        project_id = claim.get("session", {}).get("project_id")
+        if len(resources_copy) != 1 or resources_copy[0]["kind"] != "project_workspace" or resources_copy[0]["identifier"] != project_id:
+            raise RunnerRequestError("une équipe exige exactement le workspace attribué")
+        if resources_copy[0]["access"] == "write" and "codex_cli" not in execution["executors"]:
+            raise RunnerRequestError("seul Codex peut écrire dans un workspace d'équipe")
+
     return {
         "id": mission["id"],
         "objective": mission["objective"],
@@ -591,6 +611,7 @@ def mission_snapshot_from_claim(claim: Mapping[str, Any]) -> dict[str, Any] | No
         "resources": resources_copy,
         "budget": budget_copy,
         "duration_seconds": duration,
+        **({"execution": execution} if "execution" in mission else {}),
     }
 
 

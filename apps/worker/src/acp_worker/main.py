@@ -6,9 +6,10 @@ restent derrière leurs contrats de provider et ne sont jamais importées ici.
 
 import asyncio
 import random
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from time import monotonic
+from time import monotonic, time
 from typing import Any, TypeVar
 
 import httpx
@@ -22,6 +23,7 @@ from .budget import (
     non_consuming_effect_bounds,
 )
 from .capabilities import missing_capabilities
+from .checkpoints import read_checkpoint, write_checkpoint
 from .config import WorkerConfig
 from .executors import (
     ExecutorCleanupError,
@@ -29,6 +31,10 @@ from .executors import (
     requested_executor,
     run_executor,
 )
+from .hermes_lifecycle import run_operation as hermes_operation
+from .extensions import load_extensions
+from .multi_agent import run_team
+from .mcp_execution import acquire_mcp
 from .local_runner import (
     LocalRunnerResult,
     LocalRunRequest,
@@ -171,22 +177,26 @@ async def patch_run(
 
 
 async def gateway_plan(
-    client: httpx.AsyncClient, config: WorkerConfig, session: dict, goal: str
+    client: httpx.AsyncClient, config: WorkerConfig, session: dict, goal: str,
+    *, attempt_id: str | None = None, deadline: float | None = None,
+    context: dict[str, Any] | None = None,
 ) -> dict:
-    try:
-        response = await client.post(
-            f"{config.gateway_url}/v1/providers/{config.provider_id}/plan",
-            headers=gateway_headers(config),
-            json={"session": session, "goal": goal, "context": {}, "constraints": []},
-            timeout=15.0,
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"planification indisponible: {exc}") from exc
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise RuntimeError("réponse de planification non JSON") from exc
+    payload = {"session": session, "goal": goal, "context": context or {}, "constraints": []}
+    if config.provider_id == "hermes" and attempt_id is not None:
+        data = await hermes_operation(client, config, attempt_id=attempt_id, operation="plan",
+                                      payload=payload, headers=gateway_headers(config), deadline=deadline)
+    else:
+        try:
+            response = await client.post(
+                f"{config.gateway_url}/v1/providers/{config.provider_id}/plan",
+                headers=gateway_headers(config), json=payload, timeout=15.0)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RuntimeError("planification indisponible") from exc
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise RuntimeError("réponse de planification non JSON") from exc
     if not isinstance(data, dict):
         raise RuntimeError("réponse de planification invalide")
     if not isinstance(data.get("plan_id"), str) or not data["plan_id"].strip():
@@ -210,26 +220,26 @@ async def gateway_evaluate(
     *,
     produced_output: dict[str, Any] | None = None,
     acceptance_criteria: list[Any] | None = None,
+    attempt_id: str | None = None,
+    deadline: float | None = None,
 ) -> dict:
-    try:
-        response = await client.post(
-            f"{config.gateway_url}/v1/providers/{config.provider_id}/evaluate",
-            headers=gateway_headers(config),
-            json={
-                "session": session,
-                "task_summary": summary,
-                "produced_output": produced_output or {},
-                "acceptance_criteria": acceptance_criteria or [],
-            },
-            timeout=15.0,
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"évaluation indisponible: {exc}") from exc
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise RuntimeError("réponse d'évaluation non JSON") from exc
+    payload = {"session": session, "task_summary": summary,
+               "produced_output": produced_output or {}, "acceptance_criteria": acceptance_criteria or []}
+    if config.provider_id == "hermes" and attempt_id is not None:
+        data = await hermes_operation(client, config, attempt_id=attempt_id, operation="evaluate",
+                                      payload=payload, headers=gateway_headers(config), deadline=deadline)
+    else:
+        try:
+            response = await client.post(
+                f"{config.gateway_url}/v1/providers/{config.provider_id}/evaluate",
+                headers=gateway_headers(config), json=payload, timeout=15.0)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RuntimeError("évaluation indisponible") from exc
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise RuntimeError("réponse d'évaluation non JSON") from exc
     if not isinstance(data, dict) or not isinstance(data.get("approved"), bool):
         raise RuntimeError("réponse d'évaluation sans verdict booléen explicite")
     reported_provider = data.get("provider_id")
@@ -383,6 +393,23 @@ async def process(
     evidence: list[dict[str, Any]] = []
     result: dict[str, Any] | None = None
     technical_status: str | None = None
+    execution_label = "Exécution"
+    execution_status = "unknown"
+    execution_succeeded = False
+    execution_cancelled = False
+
+    def capture_completed() -> None:
+        assert result is not None
+        result["accounting"] = {"status": "unconfirmed", "reservation_reconciled": False}
+        write_checkpoint(config, attempt_id, "execution", {"status": "completed", "result": result})
+
+    def capture_reported(reconciled: bool) -> None:
+        assert result is not None
+        result["accounting"] = {
+            "status": "reported" if reconciled else "reservation_retained",
+            "reservation_reconciled": reconciled,
+        }
+        write_checkpoint(config, attempt_id, "execution", {"status": "completed", "result": result})
     lease_task = asyncio.create_task(
         _renew_lease(
             api_client,
@@ -397,16 +424,34 @@ async def process(
         )
     )
     try:
+        previous = read_checkpoint(config, attempt_id, "execution")
+        if previous is not None:
+            previous_result = previous.get("result")
+            if not isinstance(previous_result, dict):
+                raise RuntimeError("preuve de reprise invalide; réexécution refusée")
+            result = previous_result
+            evidence = result.get("evidence", [])
+            technical_status = result.get("technical_validation", "pending")
+            await patch_run(api_client, config, attempt_id, fencing_token, {
+                "status": "blocked",
+                "technical_validation": technical_validation_payload(technical_status, "Effet déjà exécuté; réexécution automatique refusée."),
+                "evidence": evidence,
+                "result": result,
+            })
+            return
         required_capabilities = claim.get("required_capabilities", [])
         missing = missing_capabilities(required_capabilities, credentials.capabilities)
         if missing:
             raise RuntimeError(
                 f"capacités manquantes après attribution: {', '.join(missing)}"
             )
-        agent_executor = requested_executor(required_capabilities)
+        mission = validate_claim_for_local_runner(claim)
+        team_execution = mission.get("execution") if mission is not None else None
+        agent_executor = None if team_execution else requested_executor(required_capabilities)
         if (
             not credentials.simulation
             and agent_executor is None
+            and team_execution is None
             and config.local_runner is None
         ):
             raise RuntimeError(
@@ -436,13 +481,16 @@ async def process(
             )
             return
 
-        mission = validate_claim_for_local_runner(claim)
         if mission is None and not credentials.simulation:
             raise RuntimeError(
                 "un worker réel exige une enveloppe mission complète et bornée"
             )
         agent_invocation = None
-        if agent_executor is None:
+        if team_execution is not None:
+            for executor_id in team_execution["executors"]:
+                config.executors.spec_for(executor_id)
+            config.executors.project_path(session.get("project_id"))
+        elif agent_executor is None:
             validate_safe_local_policy(mission)
         else:
             if mission is None:
@@ -461,7 +509,15 @@ async def process(
             config.executors.spec_for(agent_executor)
             config.executors.project_path(agent_invocation.project_id)
         if mission is not None:
-            mission_deadline = claimed_clock + mission["duration_seconds"]
+            remembered = read_checkpoint(config, attempt_id, "mission-deadline")
+            if remembered is None:
+                epoch = time() + max(0, claimed_clock + mission["duration_seconds"] - monotonic())
+                write_checkpoint(config, attempt_id, "mission-deadline", {"deadline_epoch": epoch})
+            else:
+                epoch = remembered.get("deadline_epoch")
+                if type(epoch) not in {int, float} or not math.isfinite(epoch):
+                    raise RuntimeError("deadline de reprise invalide")
+            mission_deadline = min(claimed_clock + mission["duration_seconds"], monotonic() + epoch - time())
         mission_budget = mission["budget"] if mission is not None else None
         budget_currency = (
             mission_budget["currency"] if mission_budget is not None else "EUR"
@@ -470,6 +526,18 @@ async def process(
             config.provider_id, budget_currency
         )
         local_bounds = non_consuming_effect_bounds(budget_currency)
+        extensions = await _await_work(
+            lambda: load_extensions(api_client, config, credentials.worker_id, attempt_id,
+                                    fencing_token, (task.get("meta") or {}).get("extensions") or {}),
+            deadline=mission_deadline, stop_event=execution_stop)
+        if extensions["mcp"] and agent_executor is None and team_execution is None:
+            raise RuntimeError("les MCP d'exécution exigent un CLI d'agent configuré")
+        planning_context = {"extensions": extensions}
+        if team_execution is not None:
+            limits = claim.get("execution_limits")
+            if not isinstance(limits, dict) or type(limits.get("max_agents")) is not int or not 1 <= limits["max_agents"] <= 8:
+                raise RuntimeError("plafond d'agents de la mission absent ou invalide")
+            planning_context.update(execution=team_execution, execution_limits=limits)
         goal = mission["objective"] if mission is not None else task["title"]
         plan = await _await_work(
             lambda: budgeted_effect(
@@ -484,12 +552,15 @@ async def process(
                 budget=mission_budget,
                 bounds=orchestrator_bounds,
                 operation=lambda: gateway_plan(
-                    gateway_client, config, session, goal
+                    gateway_client, config, session, goal,
+                    attempt_id=attempt_id, deadline=mission_deadline, context=planning_context,
                 ),
             ),
             deadline=mission_deadline,
             stop_event=execution_stop,
         )
+        plan["_skills"] = extensions["skills"]
+        plan["_mcp"] = extensions["mcp"]
         await _await_work(
             lambda: patch_run(
                 api_client,
@@ -633,7 +704,33 @@ async def process(
             )
             return
 
-        if agent_executor is not None:
+        if team_execution is not None:
+            assert mission is not None and mission_deadline is not None
+            execution_label = "Équipe d'agents"
+
+            def team_progress(value: dict) -> None:
+                nonlocal result, evidence, technical_status
+                result = value
+                evidence = value["evidence"]
+                technical_status = value["technical_validation"]
+
+            async def team_publish(value: dict) -> None:
+                await patch_run(api_client, config, attempt_id, fencing_token, {
+                    "result": value, "evidence": value["evidence"],
+                    "technical_validation": technical_validation_payload(value["technical_validation"], "Progression de l'équipe persistée par étape.")})
+
+            result = await _await_work(
+                lambda: run_team(api_client, config, credentials, attempt_id=attempt_id,
+                    fencing_token=fencing_token, project_id=session["project_id"], mission=mission,
+                    plan=plan, max_agents=limits["max_agents"], deadline=mission_deadline,
+                    on_progress=team_progress, publish=team_publish),
+                deadline=mission_deadline, stop_event=execution_stop)
+            evidence = result["evidence"]
+            technical_status = result["technical_validation"]
+            execution_status = result["runner_status"]
+            execution_succeeded = execution_status == "succeeded"
+            execution_cancelled = False
+        elif agent_executor is not None:
             assert mission is not None
             agent_invocation = invocation_from_mission(
                 agent_executor,
@@ -641,6 +738,68 @@ async def process(
                 mission,
                 plan,
             )
+            async def execute_agent():
+                remaining = _remaining_work_seconds(mission_deadline)
+                mcp = await acquire_mcp(api_client, config, worker_id=credentials.worker_id,
+                    attempt_id=attempt_id, fencing_token=fencing_token, step_id="single-" + agent_executor,
+                    snapshot=extensions["mcp"], timeout_seconds=min(config.executors.timeout_seconds, remaining or config.executors.timeout_seconds))
+                return await run_executor(agent_invocation.executor, agent_invocation.project_id,
+                    agent_invocation.requested_path, agent_invocation.prompt, config=config.executors,
+                    timeout_seconds=_remaining_work_seconds(mission_deadline), allow_writes=agent_invocation.allow_writes, mcp=mcp)
+
+            def capture_agent(execution) -> None:
+                nonlocal evidence, result, technical_status
+                nonlocal execution_label, execution_status, execution_succeeded, execution_cancelled
+                execution_label = (
+                    "Codex CLI" if agent_executor == "codex_cli" else "Claude Code"
+                )
+                execution_status = "succeeded" if execution.exit_code == 0 else "failed"
+                execution_succeeded = execution.exit_code == 0
+                execution_cancelled = False
+                evidence = [
+                    {
+                        "kind": "agent_executor",
+                        "summary": (
+                            f"{execution_label} terminé avec le code {execution.exit_code}; "
+                            "flux bruts conservés uniquement sous forme d'empreintes."
+                        ),
+                        "data": {
+                            "executor": agent_executor,
+                            "status": execution_status,
+                            "project_id": agent_invocation.project_id,
+                            "workspace_write": agent_invocation.allow_writes,
+                            "spawned_agents": 1,
+                            "spawned_agents_scope": "worker_managed_top_level_cli_only",
+                            "stdout": {
+                                "sha256": execution.stdout_sha256,
+                                "total_bytes": execution.stdout_bytes,
+                                "event_count": execution.event_count,
+                            },
+                            "stderr": {
+                                "sha256": execution.stderr_sha256,
+                                "total_bytes": execution.stderr_bytes,
+                            },
+                        },
+                        "exit_code": execution.exit_code,
+                    }
+                ]
+                technical_status = "passed" if execution_succeeded else "failed"
+                result = {
+                    "execution_mode": agent_executor,
+                    "technical_validation": technical_status,
+                    "evidence": evidence,
+                    "runner_status": execution_status,
+                    "exit_code": execution.exit_code,
+                    "spawned_agents": 1,
+                    "spawned_agents_scope": "worker_managed_top_level_cli_only",
+                    "user_acceptance": "pending",
+                    "worker_id": credentials.worker_id,
+                }
+                if execution.output is not None:
+                    result["output"] = execution.output
+                result["usage"] = {"cost": None, "currency": None, "tokens_input": None, "tokens_output": None, **(execution.usage or {})}
+                capture_completed()
+
             execution = await _await_work(
                 lambda: budgeted_effect(
                     api_client,
@@ -651,69 +810,18 @@ async def process(
                     effect_key=f"agent-executor-{agent_executor}",
                     provider=agent_executor,
                     phase="execution",
+                    on_completed=capture_agent,
+                    on_reported=capture_reported,
                     budget=mission_budget,
                     # Les CLIs ne publient pas de plafond fiable de coût ou de
                     # jetons. Toute politique qui en exige un refuse donc le permis
                     # avant spawn ; seul l'appel d'outil est borné ici.
                     bounds=EffectBudgetBounds(tool_calls=1),
-                    operation=lambda: run_executor(
-                        agent_invocation.executor,
-                        agent_invocation.project_id,
-                        agent_invocation.requested_path,
-                        agent_invocation.prompt,
-                        config=config.executors,
-                        timeout_seconds=_remaining_work_seconds(mission_deadline),
-                        allow_writes=agent_invocation.allow_writes,
-                    ),
+                    operation=execute_agent,
                 ),
                 deadline=mission_deadline,
                 stop_event=execution_stop,
             )
-            execution_label = (
-                "Codex CLI" if agent_executor == "codex_cli" else "Claude Code"
-            )
-            execution_status = "succeeded" if execution.exit_code == 0 else "failed"
-            execution_succeeded = execution.exit_code == 0
-            execution_cancelled = False
-            evidence = [
-                {
-                    "kind": "agent_executor",
-                    "summary": (
-                        f"{execution_label} terminé avec le code {execution.exit_code}; "
-                        "sorties conservées uniquement sous forme d'empreintes."
-                    ),
-                    "data": {
-                        "executor": agent_executor,
-                        "status": execution_status,
-                        "project_id": agent_invocation.project_id,
-                        "workspace_write": agent_invocation.allow_writes,
-                        "spawned_agents": 1,
-                        "spawned_agents_scope": "worker_managed_top_level_cli_only",
-                        "stdout": {
-                            "sha256": execution.stdout_sha256,
-                            "total_bytes": execution.stdout_bytes,
-                            "event_count": execution.event_count,
-                        },
-                        "stderr": {
-                            "sha256": execution.stderr_sha256,
-                            "total_bytes": execution.stderr_bytes,
-                        },
-                    },
-                    "exit_code": execution.exit_code,
-                }
-            ]
-            technical_status = "passed" if execution_succeeded else "failed"
-            result = {
-                "execution_mode": agent_executor,
-                "technical_validation": technical_status,
-                "evidence": evidence,
-                "runner_status": execution_status,
-                "exit_code": execution.exit_code,
-                "spawned_agents": 1,
-                "spawned_agents_scope": "worker_managed_top_level_cli_only",
-                "user_acceptance": "pending",
-                "worker_id": credentials.worker_id,
-            }
         elif web_tests_available(
             config.web_tests,
             credentials.capabilities,
@@ -730,6 +838,27 @@ async def process(
                 project_id=session.get("project_id") or "",
                 output_root=config.local_runner.run_root,
             )
+            def capture_web(outcome) -> None:
+                nonlocal evidence, result, technical_status
+                nonlocal execution_label, execution_status, execution_succeeded, execution_cancelled
+                execution_label = "Suite de tests web"
+                execution_status = outcome.status
+                execution_succeeded = outcome.succeeded
+                execution_cancelled = outcome.error == "stopped"
+                evidence = [outcome.evidence()]
+                technical_status = "passed" if execution_succeeded else "failed"
+                result = {
+                    "execution_mode": "web_tests",
+                    "technical_validation": technical_status,
+                    "evidence": evidence,
+                    "runner_status": outcome.status,
+                    "exit_code": outcome.exit_code,
+                    "test_run_id": outcome.test_run_id,
+                    "user_acceptance": "pending",
+                    "worker_id": credentials.worker_id,
+                }
+                capture_completed()
+
             outcome = await _await_work(
                 lambda: budgeted_effect(
                     api_client,
@@ -740,6 +869,8 @@ async def process(
                     effect_key="web-test-suite",
                     provider="playwright",
                     phase="execution",
+                    on_completed=capture_web,
+                    on_reported=capture_reported,
                     budget=mission_budget,
                     bounds=local_bounds,
                     operation=lambda: run_web_tests(
@@ -759,22 +890,6 @@ async def process(
                 deadline=mission_deadline,
                 stop_event=execution_stop,
             )
-            execution_label = "Suite de tests web"
-            execution_status = outcome.status
-            execution_succeeded = outcome.succeeded
-            execution_cancelled = outcome.error == "stopped"
-            evidence = [outcome.evidence()]
-            technical_status = "passed" if execution_succeeded else "failed"
-            result = {
-                "execution_mode": "web_tests",
-                "technical_validation": technical_status,
-                "evidence": evidence,
-                "runner_status": outcome.status,
-                "exit_code": outcome.exit_code,
-                "test_run_id": outcome.test_run_id,
-                "user_acceptance": "pending",
-                "worker_id": credentials.worker_id,
-            }
         else:
             assert config.local_runner is not None
             runner_request = request_from_claim(claim, plan)
@@ -789,6 +904,26 @@ async def process(
                         else min(request_timeout, remaining)
                     ),
                 )
+            def capture_local(execution) -> None:
+                nonlocal evidence, result, technical_status
+                nonlocal execution_label, execution_status, execution_succeeded, execution_cancelled
+                execution_label = "Programme local"
+                execution_status = execution.status
+                execution_succeeded = execution.succeeded
+                execution_cancelled = execution.status == "cancelled"
+                evidence = [platform_evidence(execution, runner_request)]
+                technical_status = "passed" if execution_succeeded else "failed"
+                result = {
+                    "execution_mode": "real_local_process",
+                    "technical_validation": technical_status,
+                    "evidence": evidence,
+                    "runner_status": execution.status,
+                    "exit_code": execution.exit_code,
+                    "user_acceptance": "pending",
+                    "worker_id": credentials.worker_id,
+                }
+                capture_completed()
+
             execution = await _await_work(
                 lambda: budgeted_effect(
                     api_client,
@@ -799,6 +934,8 @@ async def process(
                     effect_key="local-program",
                     provider="local-runner",
                     phase="execution",
+                    on_completed=capture_local,
+                    on_reported=capture_reported,
                     budget=mission_budget,
                     bounds=local_bounds,
                     operation=lambda: run_local_program(
@@ -810,21 +947,6 @@ async def process(
                 deadline=mission_deadline,
                 stop_event=execution_stop,
             )
-            execution_label = "Programme local"
-            execution_status = execution.status
-            execution_succeeded = execution.succeeded
-            execution_cancelled = execution.status == "cancelled"
-            evidence = [platform_evidence(execution, runner_request)]
-            technical_status = "passed" if execution_succeeded else "failed"
-            result = {
-                "execution_mode": "real_local_process",
-                "technical_validation": technical_status,
-                "evidence": evidence,
-                "runner_status": execution.status,
-                "exit_code": execution.exit_code,
-                "user_acceptance": "pending",
-                "worker_id": credentials.worker_id,
-            }
 
         if execution_cancelled:
             stopped_status = _stopped_status(stop_context)
@@ -847,7 +969,7 @@ async def process(
 
         if not execution_succeeded:
             stopped = execution_stop.is_set()
-            terminal_status = _stopped_status(stop_context) if stopped else "failed"
+            terminal_status = _stopped_status(stop_context) if stopped else ("blocked" if execution_status == "blocked" else "failed")
             if stopped:
                 result["stop_reason"] = stop_context["reason"]
             await patch_run(
@@ -858,7 +980,7 @@ async def process(
                 {
                     "status": terminal_status,
                     "technical_validation": technical_validation_payload(
-                        "failed",
+                        technical_status or "failed",
                         f"{execution_label} terminé avec le statut {execution_status}.",
                     ),
                     "evidence": evidence,
@@ -910,13 +1032,16 @@ async def process(
                         config,
                         session,
                         evaluation_summary,
-                        produced_output={"execution_evidence": evidence[0]},
+                        produced_output={"execution_evidence": evidence[0], "execution_evidence_all": evidence, "output": result.get("output")},
                         acceptance_criteria=acceptance_criteria,
+                        attempt_id=attempt_id, deadline=mission_deadline,
                     ),
                 ),
                 deadline=mission_deadline,
                 stop_event=execution_stop,
             )
+        except ExecutorCleanupError:
+            raise
         except Exception as exc:
             if execution_stop.is_set():
                 result["evaluation"] = {"status": "interrupted"}
@@ -1012,7 +1137,8 @@ async def process(
             stop_context["reason"] = "api_state_conflict"
             execution_stop.set()
         stopped = execution_stop.is_set()
-        terminal_status = _stopped_status(stop_context) if stopped else "failed"
+        accounting_pending = result is not None and result.get("accounting", {}).get("status") == "unconfirmed"
+        terminal_status = _stopped_status(stop_context) if stopped else ("blocked" if accounting_pending else "failed")
         if evidence:
             validation_status = technical_status or "failed"
             validation_summary = (
@@ -1051,7 +1177,7 @@ async def process(
             fencing_token,
             failure_body,
         )
-        if stopped:
+        if stopped or accounting_pending:
             return
         raise
     finally:

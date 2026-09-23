@@ -1,10 +1,11 @@
 """Conversations persistantes et reprise idempotente des runs Hermes."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -26,13 +27,11 @@ from ..security import AuthContext
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-_ACTIVE_TURN_STATES = {"submitting", "running"}
+_ACTIVE_TURN_STATES = {"submitting", "running", "waiting_for_approval", "stopping"}
 _RUNNING_PROVIDER_STATES = {
     "started",
     "queued",
     "running",
-    "waiting_for_approval",
-    "stopping",
 }
 
 
@@ -89,75 +88,115 @@ def _load_turn(
     return turn
 
 
-def _apply_run(
-    db: Session,
-    conversation: ConversationModel,
-    turn: ConversationTurnModel,
-    run: GatewayRun,
+def _write_turn_state(
+    db: Session, conversation: ConversationModel, turn: ConversationTurnModel,
+    expected_status: str, values: dict,
 ) -> None:
+    """Écriture conditionnelle : une lecture tardive ne défait jamais un arrêt."""
+    now = _now()
+    changed = db.execute(
+        update(ConversationTurnModel).where(
+            ConversationTurnModel.id == turn.id,
+            ConversationTurnModel.status == expected_status,
+        ).values(**values, updated_at=now),
+        execution_options={"synchronize_session": False},
+    ).rowcount
+    if changed:
+        conversation.updated_at = now
+    db.commit()
+    db.refresh(turn)
+
+
+def _apply_run(
+    db: Session, conversation: ConversationModel, turn: ConversationTurnModel,
+    run: GatewayRun, *, admission: bool = False,
+) -> None:
+    db.refresh(turn)
+    if turn.status not in _ACTIVE_TURN_STATES:
+        return
+    expected_status = turn.status
     if turn.provider_run_id is not None and turn.provider_run_id != run.run_id:
-        turn.status = "failed"
-        turn.error = "Hermes a retourné l'identifiant d'un autre run."
+        # Conserver le run connu et l'intention d'arrêt ; aucun état distant
+        # n'a été prouvé par cette réponse destinée à un autre run.
+        values = {"error": "Hermes a retourné l'identifiant d'un autre run."}
     else:
-        turn.provider_run_id = run.run_id
-        turn.provider_model = run.model or turn.requested_model
-        turn.usage = run.usage
-        if run.status in _RUNNING_PROVIDER_STATES:
-            turn.status = "running"
-            turn.error = None
+        values = {
+            "provider_run_id": run.run_id,
+            "provider_model": run.model or turn.provider_model or turn.requested_model,
+            "usage": run.usage if run.usage is not None else turn.usage,
+        }
+        if run.status in _RUNNING_PROVIDER_STATES | {"waiting_for_approval", "stopping"}:
+            if expected_status == "stopping" or run.status == "stopping":
+                values.update(status="stopping", error=None)
+            elif run.status == "waiting_for_approval":
+                values.update(status="waiting_for_approval", error=(
+                    "Hermes attend une approbation. La décision n'est pas disponible "
+                    "dans cette interface ; vous pouvez arrêter ce tour."
+                ))
+            else:
+                values.update(status="running", error=None)
         elif run.status == "completed":
             if run.output is None or not run.output.strip():
-                turn.status = "failed"
-                turn.error = "Hermes a terminé le run sans réponse exploitable."
+                # Un replay de POST peut être terminal sans contenir sa sortie.
+                # GET doit relire le run, sans le requalifier prématurément en échec.
+                if admission:
+                    values.update(error="Hermes a terminé ; relecture de la réponse nécessaire.")
+                else:
+                    values.update(status="failed", error="Hermes a terminé le run sans réponse exploitable.")
             else:
-                turn.status = "completed"
-                turn.assistant_content = run.output
-                turn.error = None
+                values.update(status="completed", assistant_content=run.output, error=None)
         elif run.status in {"cancelled", "interrupted"}:
-            turn.status = "interrupted"
-            turn.error = "Le run Hermes a été interrompu."
+            values.update(status="interrupted", error="Le run Hermes a été interrompu.")
         else:
-            turn.status = "failed"
-            turn.error = "Le run Hermes s'est terminé en erreur."
-    now = _now()
-    turn.updated_at = now
-    conversation.updated_at = now
-    db.commit()
+            values.update(status="failed", error="Le run Hermes s'est terminé en erreur.")
+    _write_turn_state(db, conversation, turn, expected_status, values)
 
 
 async def _advance_turn(
-    db: Session,
-    conversation: ConversationModel,
-    turn: ConversationTurnModel,
+    db: Session, conversation: ConversationModel, turn: ConversationTurnModel,
     client: GatewayClient,
 ) -> None:
     if turn.status not in _ACTIVE_TURN_STATES:
         return
     try:
         if turn.provider_run_id is None:
+            created_at = turn.created_at.replace(tzinfo=timezone.utc) if turn.created_at.tzinfo is None else turn.created_at
+            if _now() - created_at >= timedelta(hours=24):
+                _write_turn_state(db, conversation, turn, turn.status, {"error": (
+                    "L'admission reste indéterminée après la durée de conservation "
+                    "de sa clé. Aucun nouveau run ne sera créé ; vérifiez le run dans Hermes."
+                )})
+                return
             run = await client.submit_hermes_run(
-                prompt=turn.user_content,
-                session_id=conversation.provider_session_id,
-                idempotency_key=turn.idempotency_key,
-                model=turn.requested_model,
-                metadata={
-                    "conversation_id": conversation.id,
-                    "turn_id": turn.id,
-                    "project_id": conversation.project_id,
-                },
+                prompt=turn.user_content, session_id=conversation.provider_session_id,
+                idempotency_key=turn.idempotency_key, model=turn.requested_model,
+                metadata={"conversation_id": conversation.id, "turn_id": turn.id,
+                          "project_id": conversation.project_id},
             )
+            _apply_run(db, conversation, turn, run, admission=True)
+            # Un POST rejoué peut annoncer la fin sans inclure son résultat.
+            if run.status == "completed" and turn.status in _ACTIVE_TURN_STATES:
+                run = await client.get_hermes_run(run.run_id)
+                _apply_run(db, conversation, turn, run)
         else:
             run = await client.get_hermes_run(turn.provider_run_id)
+            _apply_run(db, conversation, turn, run)
+        db.refresh(turn)
+        if turn.status == "stopping" and turn.provider_run_id is not None:
+            run = await client.stop_hermes_run(turn.provider_run_id)
+            _apply_run(db, conversation, turn, run)
     except GatewayUnavailableError:
-        turn.error = (
+        db.refresh(turn)
+        if turn.status not in _ACTIVE_TURN_STATES:
+            return
+        message = (
+            "L'arrêt est enregistré mais n'est pas encore confirmé par Hermes. "
+            "Il sera repris sur le même run."
+            if turn.status == "stopping" else
             "Hermes est momentanément indisponible. Le message reste enregistré "
             "et sera repris avec la même clé d'idempotence."
         )
-        turn.updated_at = _now()
-        conversation.updated_at = turn.updated_at
-        db.commit()
-        return
-    _apply_run(db, conversation, turn, run)
+        _write_turn_state(db, conversation, turn, turn.status, {"error": message})
 
 
 @router.get("", response_model=ConversationList)
@@ -387,5 +426,28 @@ async def get_conversation_turn(
 ):
     conversation = _load_conversation(db, conversation_id, context)
     turn = _load_turn(db, conversation, turn_id)
+    await _advance_turn(db, conversation, turn, client)
+    return _turn(turn)
+
+
+@router.post(
+    "/{conversation_id}/turns/{turn_id}/stop",
+    response_model=ConversationTurn, status_code=202,
+)
+async def stop_conversation_turn(
+    conversation_id: str, turn_id: str,
+    context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db),
+    client: GatewayClient = Depends(get_gateway_client),
+):
+    conversation = _load_conversation(db, conversation_id, context, minimum_role="member")
+    turn = _load_turn(db, conversation, turn_id)
+    # Le compare-and-set empêche un arrêt concurrent de réouvrir un état terminal.
+    db.execute(update(ConversationTurnModel).where(
+        ConversationTurnModel.id == turn.id,
+        ConversationTurnModel.status.in_(_ACTIVE_TURN_STATES),
+    ).values(status="stopping", error=None, updated_at=_now()),
+        execution_options={"synchronize_session": False})
+    db.commit()
+    db.refresh(turn)
     await _advance_turn(db, conversation, turn, client)
     return _turn(turn)

@@ -13,8 +13,8 @@ ScrollView {
         x: Space.space6
         y: Space.space6
         spacing: Space.space5
-        Label { text: qsTr("Réglages"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
-        Label { text: qsTr("Serveur et session"); color: Colors.textPrimary; font.bold: true }
+        Label { textFormat: Text.PlainText; text: qsTr("Réglages"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
+        Label { textFormat: Text.PlainText; text: qsTr("Serveur et session"); color: Colors.textPrimary; font.bold: true }
         AcpTextField { id: server; Layout.fillWidth: true; text: Shell.serverUrl; placeholder: qsTr("Adresse HTTPS de l’API ACP") }
         CheckBox { id: loopback; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
         AcpButton { label: qsTr("Changer de serveur"); onTriggered: changeServer.open() }
@@ -27,9 +27,9 @@ ScrollView {
         Label { text: SessionStorage.error || SessionStorage.status; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary }
         AcpButton { label: qsTr("Se déconnecter"); commandId: "session.logout" }
         AcpButton { label: qsTr("Reprendre la session"); commandId: "session.resume" }
-        Label { text: qsTr("Apparence"); color: Colors.textPrimary; font.bold: true }
+        Label { textFormat: Text.PlainText; text: qsTr("Apparence"); color: Colors.textPrimary; font.bold: true }
         RowLayout {
-            Label { text: qsTr("Thème"); color: Colors.textSecondary }
+            Label { textFormat: Text.PlainText; text: qsTr("Thème"); color: Colors.textSecondary }
             ComboBox {
                 model: [qsTr("Suivre Windows"), qsTr("Clair"), qsTr("Sombre")]
                 currentIndex: ["system", "light", "dark"].indexOf(Appearance.themePreference)
@@ -42,8 +42,9 @@ ScrollView {
                 onToggled: Appearance.motionPreference = checked ? "reduced" : "standard"
             }
         }
-        Label { text: qsTr("Mises à jour · version %1").arg(Updates.currentVersion); color: Colors.textPrimary; font.bold: true }
+        Label { textFormat: Text.PlainText; text: qsTr("Mises à jour · version %1").arg(Updates.currentVersion); color: Colors.textPrimary; font.bold: true }
         Label {
+            textFormat: Text.PlainText
             Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary
             text: qsTr("La vérification contacte GitHub à votre demande. Vous choisissez ensuite le paquet dans la publication ; rien n’est téléchargé ni installé automatiquement.")
         }
@@ -60,7 +61,7 @@ ScrollView {
         }
         Label { text: Updates.status; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary }
         Label { visible: Updates.latestVersion.length > 0; text: qsTr("Publication vérifiée : %1").arg(Updates.latestVersion); textFormat: Text.PlainText; color: Colors.textPrimary }
-        Label { visible: Updates.updateAvailable; text: qsTr("Vérifiez SHA256SUMS.txt et la signature du paquet avant installation. Les paquets de développement peuvent être non signés."); color: Colors.textSecondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+        Label { textFormat: Text.PlainText; visible: Updates.updateAvailable; text: qsTr("Vérifiez SHA256SUMS.txt et la signature du paquet avant installation. Les paquets de développement peuvent être non signés."); color: Colors.textSecondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
         TextArea { visible: Updates.notes.length > 0; text: Updates.notes; textFormat: TextEdit.PlainText; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: Colors.textPrimary; Layout.fillWidth: true }
         Item { Layout.preferredHeight: Space.space8 }
     }
@@ -70,7 +71,7 @@ ScrollView {
         title: qsTr("Changer de serveur ?")
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
-        Label { text: qsTr("La session courante sera oubliée sur ce poste. Vous devrez vous reconnecter.") }
+        Label { textFormat: Text.PlainText; text: qsTr("La session courante sera oubliée sur ce poste. Vous devrez vous reconnecter.") }
         onAccepted: serverError.text = Shell.applyServerUrl(server.text, loopback.checked)
     }
 }

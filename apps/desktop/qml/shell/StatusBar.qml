@@ -29,6 +29,7 @@ Rectangle {
         spacing: Space.space5
 
         Text {
+            textFormat: Text.PlainText
             // Runs actifs : aucune route consommée ici ne les compte. On l'écrit.
             text: qsTr("Runs actifs : Inconnu")
             color: Colors.textMuted
@@ -37,6 +38,7 @@ Rectangle {
         }
 
         Text {
+            textFormat: Text.PlainText
             text: qsTr("Alertes : Inconnu")
             color: Colors.textMuted
             font.family: Type.metadata.family
@@ -46,6 +48,7 @@ Rectangle {
         Item { Layout.fillWidth: true }
 
         Text {
+            textFormat: Text.PlainText
             Layout.maximumWidth: statusBar.width * 0.45
             text: Shell.lastNotice
             visible: Shell.lastNotice.length > 0
@@ -54,12 +57,17 @@ Rectangle {
             font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
 
-            ToolTip.visible: noticeHover.hovered && Shell.lastNotice.length > 0
-            ToolTip.text: Shell.lastNotice
+            ToolTip {
+                id: noticeTip
+                visible: noticeHover.hovered && Shell.lastNotice.length > 0
+                text: Shell.lastNotice
+                contentItem: Text { text: noticeTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+            }
             HoverHandler { id: noticeHover }
         }
 
         Text {
+            textFormat: Text.PlainText
             text: Shell.statusSummary
             color: Colors.textMuted
             font.family: Type.metadata.family

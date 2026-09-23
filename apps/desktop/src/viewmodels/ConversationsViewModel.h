@@ -35,6 +35,7 @@ class ConversationsViewModel : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool available READ available NOTIFY changed)
     Q_PROPERTY(bool canSend READ canSend NOTIFY changed)
+    Q_PROPERTY(bool canStopTurn READ canStopTurn NOTIFY changed)
     Q_PROPERTY(bool polling READ polling NOTIFY changed)
     Q_PROPERTY(bool pendingSubmission READ pendingSubmission NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
@@ -58,6 +59,7 @@ public:
     [[nodiscard]] bool busy() const { return m_busy; }
     [[nodiscard]] bool available() const;
     [[nodiscard]] bool canSend() const;
+    [[nodiscard]] bool canStopTurn() const;
     [[nodiscard]] bool polling() const;
     [[nodiscard]] bool pendingSubmission() const { return !m_pendingKey.isEmpty(); }
     [[nodiscard]] QString error() const { return m_error; }
@@ -73,6 +75,7 @@ public:
     Q_INVOKABLE void createConversation(const QString &title);
     Q_INVOKABLE void sendMessage();
     Q_INVOKABLE void retryPendingMessage();
+    Q_INVOKABLE void stopTurn();
     Q_INVOKABLE void renameConversation(const QString &title);
     Q_INVOKABLE void setArchived(bool archived);
     Q_INVOKABLE void exportConversation();

@@ -44,6 +44,7 @@ Rectangle {
         }
 
         Text {
+            textFormat: Text.PlainText
             text: Shell.serverUrlLabel
             color: Shell.serverUrl.length === 0
                 ? Status.statusNotConfiguredForeground
@@ -73,6 +74,7 @@ Rectangle {
         }
 
         Text {
+            textFormat: Text.PlainText
             text: Session.userDisplayName.length > 0
                 ? Session.userDisplayName
                 : qsTr("Non connecté")

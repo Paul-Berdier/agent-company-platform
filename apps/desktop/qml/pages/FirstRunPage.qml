@@ -45,6 +45,7 @@ Rectangle {
             spacing: Space.space8
 
             Text {
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: qsTr("Station de travail")
                 color: Colors.textPrimary
@@ -55,6 +56,7 @@ Rectangle {
             }
 
             Text {
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: Shell.firstRun
@@ -102,6 +104,7 @@ Rectangle {
                     text: qsTr("Autoriser HTTP en clair sur une adresse de bouclage")
                     checked: Shell.allowsInsecureLoopback
                     contentItem: Text {
+                        textFormat: Text.PlainText
                         text: loopbackBox.text
                         leftPadding: loopbackBox.indicator.width + Space.space3
                         verticalAlignment: Text.AlignVCenter

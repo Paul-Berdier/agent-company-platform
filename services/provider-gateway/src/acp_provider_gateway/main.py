@@ -1,6 +1,6 @@
 import os
 import secrets
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, Header, HTTPException, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,7 @@ from acp_contracts import (
     PlanningRequest,
     PlanRevisionRequest,
 )
-from acp_provider_sdk import ProviderRegistry, ProviderUnavailableError
+from acp_provider_sdk import OrchestratorOperation, ProviderRegistry, ProviderUnavailableError
 
 from .providers.comfyui import (
     ComfyUIBusyError,
@@ -247,33 +247,110 @@ async def read_hermes_run(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/v1/providers/{provider_id}/plan")
-async def plan(provider_id: str, request: PlanningRequest):
+@app.post("/v1/providers/hermes/runs/{run_id}/stop", response_model=HermesRunView,
+          response_model_exclude_none=True, status_code=202)
+async def stop_hermes_run(run_id: Annotated[str, Path(pattern=r"^run_[0-9a-f]{32}$")]):
     try:
+        return await hermes_provider.stop_run(run_id)
+    except ProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/v1/providers/hermes/operations/plan", response_model=OrchestratorOperation,
+          status_code=202)
+async def submit_hermes_plan(
+    request: PlanningRequest,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
+    try:
+        return await hermes_provider.submit_plan(
+            request, idempotency_key=_idempotency_key(idempotency_key),
+        )
+    except ProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/v1/providers/hermes/operations/evaluate", response_model=OrchestratorOperation,
+          status_code=202)
+async def submit_hermes_evaluation(
+    request: EvaluationRequest,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
+    try:
+        return await hermes_provider.submit_evaluation(
+            request, idempotency_key=_idempotency_key(idempotency_key),
+        )
+    except ProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/v1/providers/hermes/operations/{operation}/{run_id}",
+         response_model=OrchestratorOperation)
+async def read_hermes_operation(
+    operation: Literal["plan", "evaluate"],
+    run_id: Annotated[str, Path(pattern=r"^run_[0-9a-f]{32}$")],
+):
+    try:
+        return await hermes_provider.read_operation(operation, run_id)
+    except ProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/v1/providers/{provider_id}/plan")
+async def plan(
+    provider_id: str, request: PlanningRequest,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
+    try:
+        if provider_id == "hermes":
+            return (await hermes_provider.create_plan(
+                request, idempotency_key=_idempotency_key(idempotency_key),
+            )).model_dump(mode="json")
         return (await _get(provider_id).create_plan(request)).model_dump(mode="json")
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/v1/providers/{provider_id}/revise")
-async def revise(provider_id: str, request: PlanRevisionRequest):
+async def revise(
+    provider_id: str, request: PlanRevisionRequest,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
     try:
+        if provider_id == "hermes":
+            return (await hermes_provider.revise_plan(
+                request, idempotency_key=_idempotency_key(idempotency_key),
+            )).model_dump(mode="json")
         return (await _get(provider_id).revise_plan(request)).model_dump(mode="json")
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/v1/providers/{provider_id}/evaluate")
-async def evaluate(provider_id: str, request: EvaluationRequest):
+async def evaluate(
+    provider_id: str, request: EvaluationRequest,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
     try:
+        if provider_id == "hermes":
+            return (await hermes_provider.evaluate_result(
+                request, idempotency_key=_idempotency_key(idempotency_key),
+            )).model_dump(mode="json")
         return (await _get(provider_id).evaluate_result(request)).model_dump(mode="json")
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/v1/providers/{provider_id}/summarize")
-async def summarize(provider_id: str, request: ContextSummaryRequest):
+async def summarize(
+    provider_id: str, request: ContextSummaryRequest,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
     try:
+        if provider_id == "hermes":
+            return (await hermes_provider.summarize_context(
+                request, idempotency_key=_idempotency_key(idempotency_key),
+            )).model_dump(mode="json")
         return (await _get(provider_id).summarize_context(request)).model_dump(mode="json")
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

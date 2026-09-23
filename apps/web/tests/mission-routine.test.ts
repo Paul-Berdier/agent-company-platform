@@ -74,6 +74,17 @@ const acceptedMission: MissionSummary = {
 };
 
 describe("transformation d’une mission acceptée en routine", () => {
+  it("conserve les exécutants multi-agents et leur concurrence sans alias mutable", () => {
+    const execution = { mode: "multi_agent" as const, executors: ["codex_cli", "claude_code"] as ("codex_cli" | "claude_code")[], max_concurrency: 2 };
+    const input = buildRoutineAutomationInput({ ...acceptedMission, execution }, {
+      name: "Équipe récurrente", scheduleKind: "interval", expression: "900", timezone: "UTC",
+    });
+    expect(input.mission_template.execution).toEqual(execution);
+    expect(input.mission_template.execution).not.toBe(execution);
+    input.mission_template.execution!.executors.reverse();
+    expect(execution.executors).toEqual(["codex_cli", "claude_code"]);
+  });
+
   it("n’affiche l’action que pour la tentative courante réussie, validée et acceptée", () => {
     expect(missionCanBecomeRoutine(acceptedMission, acceptedRun, true)).toBe(true);
 

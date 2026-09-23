@@ -86,6 +86,7 @@ Item {
         }
 
         Text {
+            textFormat: Text.PlainText
             visible: control.shortcutHint.length > 0
             text: control.shortcutHint
             color: Colors.textMuted
@@ -131,9 +132,13 @@ Item {
     Accessible.focusable: true
     Accessible.onPressAction: control.activate()
 
-    ToolTip.visible: hover.hovered && control.unavailableReason.length > 0
-    ToolTip.text: control.unavailableReason
-    ToolTip.delay: 300
+    ToolTip {
+        id: plainTip
+        visible: hover.hovered && control.unavailableReason.length > 0
+        text: control.unavailableReason
+        contentItem: Text { text: plainTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+        delay: 300
+    }
 
     Keys.onReturnPressed: control.activate()
     Keys.onSpacePressed: control.activate()

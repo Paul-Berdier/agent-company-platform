@@ -35,7 +35,7 @@ def test_credentials_round_trip_without_temporary_file():
     try:
         path = save_credentials(test_dir, worker_credentials)
         assert load_credentials(test_dir, "https://api.example") == worker_credentials
-        assert "secret-token" in path.read_text(encoding="utf-8")
+        assert ("secret-token" in path.read_text(encoding="utf-8")) is (os.name != "nt")
         assert worker_credentials.api_origin == "https://api.example"
         assert not path.with_suffix(".tmp").exists()
         assert list(test_dir.glob(".worker.json.*.tmp")) == []
@@ -153,3 +153,66 @@ def test_failed_atomic_replace_preserves_state_and_removes_temporary_file(
 
     assert path.read_bytes() == original
     assert list(tmp_path.glob(".worker.json.*.tmp")) == []
+
+
+def test_windows_dpapi_protects_before_any_file_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from acp_worker.credentials_protection import CredentialProtectionError
+
+    monkeypatch.setattr(worker_state, "uses_windows_protection", lambda: True)
+
+    def refuse(_payload: bytes) -> bytes:
+        raise CredentialProtectionError("Refus simulé")
+
+    monkeypatch.setattr(worker_state, "protect_credentials", refuse)
+    with pytest.raises(CredentialStateError, match="façon sûre"):
+        save_credentials(tmp_path, credentials())
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_windows_plaintext_migration_is_required_before_use(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from acp_worker.credentials_protection import CredentialProtectionError
+
+    path = tmp_path / "worker.json"
+    original = json.dumps(credentials().__dict__)
+    path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(worker_state, "uses_windows_protection", lambda: True)
+
+    def refuse(_payload: bytes) -> bytes:
+        raise CredentialProtectionError("Refus simulé")
+
+    monkeypatch.setattr(worker_state, "protect_credentials", refuse)
+    with pytest.raises(CredentialStateError, match="façon sûre"):
+        load_credentials(tmp_path, "https://api.example")
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_wrong_origin_never_rewrites_legacy_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    path = tmp_path / "worker.json"
+    original = json.dumps(credentials().__dict__)
+    path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(worker_state, "uses_windows_protection", lambda: True)
+
+    def unexpected_save(*_args: object) -> Path:
+        pytest.fail("Aucune migration avant validation de l'origine")
+
+    monkeypatch.setattr(worker_state, "save_credentials", unexpected_save)
+    with pytest.raises(CredentialStateError, match="autre origine API"):
+        load_credentials(tmp_path, "https://another-api.example")
+    assert path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.skipif(os.name != "nt", reason="DPAPI réel propre à Windows")
+def test_windows_dpapi_round_trip_and_legacy_migration(tmp_path: Path):
+    path = tmp_path / "worker.json"
+    path.write_text(json.dumps(credentials().__dict__), encoding="utf-8")
+    assert load_credentials(tmp_path, "https://api.example") == credentials()
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["format"] == "acp-worker-credentials-dpapi-v1"
+    assert "secret-token" not in path.read_text(encoding="utf-8")
+    assert "token" not in stored
+    assert load_credentials(tmp_path, "https://api.example") == credentials()
+    # Une enveloppe altérée est refusée, sans repli vers des données en clair.
+    stored["ciphertext"] = stored["ciphertext"][:-12] + "AAAAAAAAAAAA"
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    with pytest.raises(CredentialStateError, match="DPAPI illisibles"):
+        load_credentials(tmp_path, "https://api.example")

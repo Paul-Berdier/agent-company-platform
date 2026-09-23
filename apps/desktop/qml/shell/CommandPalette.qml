@@ -13,6 +13,16 @@ import Acp.Controls
 
 Item {
     id: palette
+    property Item previousFocus: null
+    onVisibleChanged: {
+        if (visible) {
+            previousFocus = Window.window ? Window.window.activeFocusItem : null;
+            search.text = "";
+            Qt.callLater(function() { if (palette.visible) search.forceActiveFocus(); });
+        } else if (previousFocus) {
+            previousFocus.forceActiveFocus();
+        }
+    }
 
     // Voile : il assombrit, il ne floute pas — le flou coûte du GPU en continu et cache
     // l'état du système que l'opérateur surveille.
@@ -57,20 +67,28 @@ Item {
 
             AcpTextField {
                 id: search
+                objectName: "commandPaletteSearch"
                 Layout.fillWidth: true
                 placeholder: qsTr("Rechercher une commande")
                 focus: palette.visible
                 onTextChanged: Commands.filter = text
+                onAccepted: { if (list.currentItem !== null) palette.run(list.currentItem.commandId); }
+                Keys.onDownPressed: list.forceActiveFocus()
+                Keys.onTabPressed: list.forceActiveFocus()
+                Keys.onBacktabPressed: list.forceActiveFocus()
             }
 
             ListView {
                 id: list
+                objectName: "commandPaletteResults"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 model: Commands
                 currentIndex: 0
                 keyNavigationEnabled: true
+                Keys.onTabPressed: search.forceActiveFocus()
+                Keys.onBacktabPressed: search.forceActiveFocus()
 
                 delegate: Item {
                     id: row
@@ -103,6 +121,7 @@ Item {
                         spacing: Space.space4
 
                         Text {
+                            textFormat: Text.PlainText
                             text: row.title
                             elide: Text.ElideRight
                             Layout.fillWidth: true
@@ -112,6 +131,7 @@ Item {
                         }
 
                         Text {
+                            textFormat: Text.PlainText
                             text: row.available ? row.category : row.availabilityReason
                             elide: Text.ElideRight
                             Layout.maximumWidth: list.width * 0.45
@@ -121,6 +141,7 @@ Item {
                         }
 
                         Text {
+                            textFormat: Text.PlainText
                             visible: row.shortcut.length > 0
                             text: row.shortcut
                             color: Colors.textMuted
@@ -147,6 +168,7 @@ Item {
             }
 
             Text {
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 visible: list.count === 0
                 text: qsTr("Aucune commande ne correspond à « %1 ».").arg(Commands.filter)

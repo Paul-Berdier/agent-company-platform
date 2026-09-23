@@ -1520,3 +1520,45 @@ class EventOutboxModel(Base):
     dead_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     last_error: Mapped[str] = mapped_column(String(500), default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+class McpExecutionGrantModel(_Common, Base):
+    """Délégation courte au CLI : seul le condensat du jeton est conservé."""
+
+    __tablename__ = "mcp_execution_grants"
+
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    worker_id: Mapped[str] = mapped_column(ForeignKey("workers.id"), index=True)
+    worker_token_hash: Mapped[str] = mapped_column(String(64))
+    task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
+    fencing_token: Mapped[int] = mapped_column(Integer)
+    step_id: Mapped[str] = mapped_column(String(128))
+    server_id: Mapped[str] = mapped_column(ForeignKey("mcp_servers.id"))
+    revision_id: Mapped[str] = mapped_column(ForeignKey("mcp_server_revisions.id"))
+    allowed_tools: Mapped[list] = mapped_column(JSON)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+
+class McpExecutionCallModel(_Common, Base):
+    """Réservation avant effet ; un résultat perdu n'autorise jamais un replay."""
+
+    __tablename__ = "mcp_execution_calls"
+    __table_args__ = (
+        UniqueConstraint("call_key", name="uq_mcp_execution_call_key"),
+        CheckConstraint(
+            "status IN ('pending', 'succeeded', 'unknown', 'denied')",
+            name="ck_mcp_execution_call_status",
+        ),
+    )
+
+    call_key: Mapped[str] = mapped_column(String(64))
+    task_run_id: Mapped[str] = mapped_column(ForeignKey("task_runs.id"), index=True)
+    server_id: Mapped[str] = mapped_column(ForeignKey("mcp_servers.id"))
+    revision_id: Mapped[str] = mapped_column(ForeignKey("mcp_server_revisions.id"))
+    step_id: Mapped[str] = mapped_column(String(128))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    tool_name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)

@@ -22,6 +22,7 @@ from .routers import (
     crud,
     events,
     mcp,
+    mcp_execution,
     meta,
     missions,
     onboarding,
@@ -95,6 +96,7 @@ app.include_router(platform.router)
 app.include_router(scheduler.router)
 app.include_router(secrets.router)
 app.include_router(mcp.router)
+app.include_router(mcp_execution.router)
 app.include_router(skills.router)
 app.include_router(skills.extensions_router)
 app.include_router(events.router)

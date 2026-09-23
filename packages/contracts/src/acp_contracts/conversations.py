@@ -11,6 +11,8 @@ ConversationStatus = Literal["active", "archived"]
 ConversationTurnStatus = Literal[
     "submitting",
     "running",
+    "waiting_for_approval",
+    "stopping",
     "completed",
     "failed",
     "interrupted",

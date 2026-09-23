@@ -163,6 +163,81 @@ def _claim(context):
     return response.json()
 
 
+def test_multi_agent_execution_survives_admission_read_and_worker_claim(mission_context):
+    from acp_database.models import WorkerModel
+    client = mission_context["client"]
+    body = _mission_payload(mission_context)
+    body.update(autonomy={"mode": "supervised"},
+                resources=[{"kind": "project_workspace", "identifier": body["project_id"], "access": "read"}],
+                budget={"max_tool_calls": 12},
+                required_capabilities=["agent_team", "codex_cli", "claude_code"],
+                execution={"mode": "multi_agent", "executors": ["codex_cli", "claude_code"], "max_concurrency": 2})
+    with mission_context["session_factory"]() as db:
+        worker = db.get(WorkerModel, mission_context["worker"]["worker_id"])
+        worker.capabilities = body["required_capabilities"]
+        db.commit()
+    response = client.post("/missions", json=body, headers={"Idempotency-Key": "team-create"})
+    assert response.status_code == 201, response.text
+    mission = response.json()
+    assert mission["execution"] == body["execution"]
+    assert client.get(f"/missions/{mission['id']}").json()["execution"] == body["execution"]
+    updated = client.put(f"/projects/{body['project_id']}/budget-policy",
+                         json={"max_spawned_agents_per_run": 2})
+    assert updated.status_code == 200, updated.text
+    claim = _claim(mission_context)
+    assert claim["mission"]["execution"] == body["execution"]
+    assert claim["execution_limits"]["max_agents"] == 2
+
+
+def test_worker_receives_pinned_skill_and_revocation_blocks_later_reads(mission_context):
+    import hashlib
+    from acp_database.models import SkillModel, SkillRevisionModel, SkillBindingModel
+    content = "# Compétence approuvée\nComparer les résultats avec les critères de la mission.\n"
+    digest = hashlib.sha256(content.encode()).hexdigest()
+    client = mission_context["client"]
+    with mission_context["session_factory"]() as db:
+        owner = db.query(UserModel).filter_by(platform_role="owner").one()
+        skill = SkillModel(name="qa-guide", display_name="Guide QA", kind="documentary",
+                           source_kind="manual", status="active", created_by_user_id=owner.id)
+        db.add(skill)
+        db.flush()
+        revision = SkillRevisionModel(skill_id=skill.id, number=1, fingerprint=digest,
+            files=[{"path": "SKILL.md", "sha256": digest, "size": len(content.encode()), "text": True}],
+            skill_md=content, kind="documentary", storage_path="fixture-not-read",
+            requires_approval=1, approved_at=utcnow(), approval_fingerprint=digest,
+            approved_by_user_id=owner.id, created_by_user_id=owner.id)
+        db.add(revision)
+        db.flush()
+        skill.current_revision_id = revision.id
+        binding = SkillBindingModel(skill_id=skill.id, revision_id=revision.id,
+            project_id=mission_context["project_id"], enabled=1, created_by_user_id=owner.id)
+        db.add(binding)
+        db.commit()
+        skill_id = skill.id
+    _create_mission(mission_context, idempotency_key="skill-execution")
+    claim = _claim(mission_context)
+    worker = mission_context["worker"]
+    url = f"/work/workers/{worker['worker_id']}/runs/{claim['attempt_id']}/extensions"
+    headers = {"Authorization": f"Bearer {worker['token']}",
+               "X-Attempt-Fencing-Token": str(claim["fencing_token"])}
+    response = client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["skills"][0]["content"] == content
+    assert client.get(url).status_code in {401, 409}
+    with mission_context["session_factory"]() as db:
+        db.get(TaskRunModel, claim["attempt_id"]).status = "stopping"
+        db.commit()
+    assert client.get(url, headers=headers).status_code == 409
+    with mission_context["session_factory"]() as db:
+        db.get(TaskRunModel, claim["attempt_id"]).status = "preparing"
+        db.commit()
+    assert client.get(url, headers=headers).status_code == 200
+    with mission_context["session_factory"]() as db:
+        db.get(SkillModel, skill_id).status = "revoked"
+        db.commit()
+    assert client.get(url, headers=headers).status_code == 409
+
+
 def test_create_stop_retry_and_comments_are_pilotable_and_idempotent(mission_context):
     client = mission_context["client"]
     invalid = _mission_payload(mission_context)

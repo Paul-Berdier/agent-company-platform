@@ -268,6 +268,62 @@ Les mutations web exigent le jeton CSRF. Les contenus importés (configurations,
 `SKILL.md`, schémas d'outils) sont des données : ils n'altèrent jamais une politique,
 un droit ni une instruction système.
 
+## Exécution des outils d'une mission
+
+Le worker authentifié obtient une délégation par serveur HTTP via
+`POST /work/workers/{worker_id}/runs/{run_id}/mcp/grants`, avec le Bearer worker,
+`X-Attempt-Fencing-Token` et `{ "step_id": "etape-stable", "ttl_seconds": 900 }`.
+La durée autorisée va de 30 à 3 600 secondes. `step_id` reste identique lors d'une
+reprise, et distinct entre étapes/CLI. La réponse `servers` contient uniquement
+`server_id`, `name`, `revision_number`, `allowed_tools`, `url_path`, `token` et
+`expires_at` en UTC. Le jeton est aléatoire, son condensat seul est enregistré,
+et sa réponse porte `Cache-Control: no-store`.
+
+Le CLI joint l'API ACP avec ce jeton, jamais le serveur MCP d'origine. Le proxy
+`/mcp/execution/{grant_id}` accepte les messages JSON-RPC `initialize`,
+`notifications/initialized`, `ping`, `tools/list` et `tools/call`. La découverte
+visible se limite aux outils épinglés de la mission encore autorisés par la liaison
+courante. Il ne propose pas de flux SSE entrant (`GET` retourne 405). `DELETE`
+révoque la délégation. Les appels portant un `Origin` de navigateur sont refusés.
+
+Chaque appel recontrôle le worker et son jeton actuel, le bail, le fencing token,
+la tentative active, l'arrêt, la liaison projet, la révision et les outils.
+Un changement de révision ne migre pas silencieusement une mission en cours.
+Les secrets sont résolus côté API ; l'URL passe par `PinnedHttpClient`, avec
+résolution DNS contrôlée, adresse épinglée, aucun proxy d'environnement, aucune
+redirection d'appel et des corps bornés. L'autorisation et les secrets sont relus
+après le handshake, juste avant l'appel d'outil.
+
+L'identité durable d'un appel associe tentative, fence, étape, serveur et identifiant
+JSON-RPC (type compris). Elle reste valable lorsqu'un nouveau jeton remplace le
+précédent. Même identifiant et même corps : résultat confirmé déjà enregistré, ou
+refus explicite si le premier résultat est inconnu. Autre corps : conflit. Le CLI
+ne doit donc jamais réutiliser un identifiant RPC pour une nouvelle action dans
+la même étape. Il n'y a aucun retry automatique de `tools/call`.
+
+Avant l'effet, le proxy réserve puis comptabilise **un appel d'outil** dans le ledger.
+Un coût ou une consommation de tokens inconnus restent inconnus : sous un plafond
+qui exige cette information, le budget refuse avant tout appel distant. L'absence
+d'un prix fiable n'est jamais convertie en zéro. Après une réponse perdue, la
+réservation et l'état indéterminé empêchent le même effet d'être rejoué. Les résultats
+confirmés sont expurgés des secrets injectés avant retour et persistance.
+
+La migration `0004` ajoute les délégations et les preuves d'appel. Son retour vers
+`0003` refuse d'effacer les appels d'une tentative encore active ; il faut d'abord
+terminer ces tentatives. Les données des révisions précédentes restent inchangées.
+
+Vérification du 23 septembre 2026 : **30 tests MCP réussis** sur transport simulé
+(`.test-tmp/mcp-execution/final.log`), puis **1 test de protection du retour de
+schéma réussi** (`rollback.log`). La chaîne Alembic SQLite, la parité avec le modèle
+et les premiers tests MCP donnent **41 réussis** dans `third.log`. Les logs de cette
+passe sont sous `.test-tmp/mcp-execution/`. PostgreSQL doit être vérifié par la suite
+centrale ; ces résultats locaux n'en constituent pas une preuve.
+
+Un arrêt ou une révocation empêche les prochains appels ; il ne permet pas d'annuler
+un effet déjà parti sur un serveur tiers. Une action en cours qui perd son résultat
+reste indéterminée et exige une vérification explicite. Les méthodes d'approbation,
+ressources, prompts et transports stdio ne sont pas implémentés par ce proxy.
+
 ## Ce qui reste hors périmètre
 
 - Aucun serveur MCP **tiers**, dépôt GitHub réel ou runner distant réel n'a été
@@ -281,9 +337,9 @@ un droit ni une instruction système.
 - Les skills sont stockés sur le système de fichiers local (`ACP_SKILLS_STORAGE_DIR`) :
   pas de stockage privé partagé, d'URL signée ni de rétention.
 - Un plugin natif n'est pas isolé ; l'interface l'affiche, elle ne le sécurise pas.
-- Aucun appel d'outil MCP n'est encore exécuté par une mission : le Lot D livre le
-  registre, la découverte, l'autorisation et la résolution des extensions, pas le
-  courtier d'appels à l'exécution.
+- Le proxy d'exécution de mission couvre les outils Streamable HTTP ; l'exécution
+  d'outils stdio en mission reste refusée. Le probe stdio n'est pas une autorisation
+  générale d'exécution pour une mission.
 - Le contrôle automatique des skills est indicatif ; il ne remplace pas une relecture.
 
 ## Correspondance avec les critères d'acceptation

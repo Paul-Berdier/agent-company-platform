@@ -54,7 +54,7 @@ export type WorkerCapability =
   | "git" | "filesystem_project" | "shell_restricted" | "claude_code"
   | "codex_cli" | "blender" | "blender_mcp" | "unreal_engine"
   | "unreal_mcp" | "nanosworld_cook" | "asset_validation"
-  | "image_capture" | "mcp_stdio_probe" | "web_tests";
+  | "image_capture" | "mcp_stdio_probe" | "web_tests" | "agent_team";
 
 export type WorkerStatus = "online" | "busy" | "offline" | "revoked";
 
@@ -762,6 +762,12 @@ export interface AutomationMissionBudgetInput {
   max_tool_calls?: number | null;
 }
 
+export interface MissionExecution {
+  mode: "multi_agent";
+  executors: ("codex_cli" | "claude_code")[];
+  max_concurrency: number;
+}
+
 export interface AutomationMissionTemplate {
   title: string;
   objective: string;
@@ -775,6 +781,7 @@ export interface AutomationMissionTemplate {
   agent_instance_id: string | null;
   priority: number;
   required_capabilities: string[];
+  execution?: MissionExecution | null;
 }
 
 export interface AutomationMissionTemplateInput {
@@ -790,6 +797,7 @@ export interface AutomationMissionTemplateInput {
   agent_instance_id?: string | null;
   priority?: number;
   required_capabilities?: string[];
+  execution?: MissionExecution | null;
 }
 
 export interface AutomationCreate {

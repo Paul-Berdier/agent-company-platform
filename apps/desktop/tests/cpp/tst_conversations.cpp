@@ -131,7 +131,57 @@ private slots:
     void createSendRetryPollRenameArchiveAndExport();
     void hidingThePageStopsPolling();
     void uncertainSubmissionSurvivesSessionRefresh();
+    void approvalWaitCanBeStoppedWithoutInventingTerminalState_data();
+    void approvalWaitCanBeStoppedWithoutInventingTerminalState();
 };
+
+void TestConversations::approvalWaitCanBeStoppedWithoutInventingTerminalState_data()
+{
+    QTest::addColumn<bool>("lostResponse");
+    QTest::newRow("confirmation") << false;
+    QTest::newRow("reponse-perdue") << true;
+}
+void TestConversations::approvalWaitCanBeStoppedWithoutInventingTerminalState()
+{
+    QFETCH(bool, lostResponse);
+    ConversationServer server;
+    QVERIFY(server.start());
+    int stops = 0;
+    Request stopRequest;
+    server.handler = [&](const Request& req) {
+        if (req.path == "/conversations") return Response{200, {{QStringLiteral("items"), QJsonArray{summary(QStringLiteral("a"))}}}};
+        if (req.path == "/conversations/a/turns/turn-a/stop") {
+            ++stops; stopRequest = req;
+            return lostResponse ? Response{503, {{QStringLiteral("detail"), QStringLiteral("Réponse perdue")}}}
+                : Response{202, turn(QStringLiteral("key"), QStringLiteral("stopping"))};
+        }
+        if (req.path == "/conversations/a/turns/turn-a")
+            return Response{200, turn(QStringLiteral("key"), stops ? QStringLiteral("interrupted") : QStringLiteral("waiting_for_approval"))};
+        auto value = summary(QStringLiteral("a"));
+        value.insert(QStringLiteral("turns"), QJsonArray{turn(QStringLiteral("key"), QStringLiteral("waiting_for_approval"))});
+        return Response{200, value};
+    };
+    ApiClient client; client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client); authenticate(auth);
+    ConversationsViewModel vm(&client, &auth); vm.setProjectId(QStringLiteral("project-a")); vm.setActive(true);
+    QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("a"));
+    QTRY_VERIFY(!vm.loading());
+    vm.setDraft(QStringLiteral("Prochain message"));
+    QVERIFY(!vm.canSend()); QVERIFY(vm.canStopTurn());
+    vm.stopTurn(); QTRY_VERIFY(!vm.busy());
+    QCOMPARE(stops, 1);
+    QCOMPARE(stopRequest.method, QByteArray("POST"));
+    QVERIFY(stopRequest.headers.toLower().contains("x-csrf-token: csrf-test"));
+    QVERIFY(!stopRequest.headers.toLower().contains("idempotency-key:"));
+    QCOMPARE(model(vm.turns())->get(0).value(QStringLiteral("status")).toString(),
+        lostResponse ? QStringLiteral("waiting_for_approval") : QStringLiteral("stopping"));
+    QVERIFY(vm.polling());
+    QTRY_COMPARE_WITH_TIMEOUT(model(vm.turns())->get(0).value(QStringLiteral("status")).toString(), QStringLiteral("interrupted"), 5000);
+    QVERIFY(!vm.polling()); QVERIFY(!vm.canStopTurn()); QVERIFY(vm.canSend());
+    QCOMPARE(vm.draft(), QStringLiteral("Prochain message"));
+    QCOMPARE(stops, 1);
+}
 
 void TestConversations::activationBeforeLoginLoadsAfterIdentityConfirmation()
 {

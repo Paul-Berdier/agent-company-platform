@@ -223,6 +223,46 @@ private slots:
         QVERIFY(!mutations[0].headers.value(QByteArrayLiteral("idempotency-key")).isEmpty());
         QVERIFY(mutations[0].headers.value(QByteArrayLiteral("idempotency-key")) != mutations[1].headers.value(QByteArrayLiteral("idempotency-key")));
     }
+    void automationExecutionDefaultPreservesExactIntent_data()
+    {
+        QTest::addColumn<int>("variant"); QTest::addColumn<bool>("accepted");
+        QTest::newRow("new-null-default") << 0 << true;
+        QTest::newRow("unsolicited-team") << 1 << false;
+        QTest::newRow("invalid-execution") << 2 << false;
+        QTest::newRow("changed-budget") << 3 << false;
+        QTest::newRow("unknown-template-field") << 4 << false;
+    }
+    void automationExecutionDefaultPreservesExactIntent()
+    {
+        QFETCH(int, variant); QFETCH(bool, accepted);
+        OperationsHttp http;
+        http.intercept = [variant](QTcpSocket* socket, const OperationRequest& req) {
+            if (req.method != "POST" || !req.url.path().endsWith(QLatin1String("/automations"))) return false;
+            auto row = req.body; auto mission = row.value(QStringLiteral("mission_template")).toObject();
+            mission[QStringLiteral("execution")] = QJsonValue::Null;
+            if (variant == 1) mission[QStringLiteral("execution")] = QJsonObject{
+                {QStringLiteral("mode"), QStringLiteral("multi_agent")},
+                {QStringLiteral("executors"), QJsonArray{QStringLiteral("codex_cli"), QStringLiteral("claude_code")}},
+                {QStringLiteral("max_concurrency"), 2}};
+            if (variant == 2) mission[QStringLiteral("execution")] = false;
+            if (variant == 3) {
+                auto budget = mission.value(QStringLiteral("budget")).toObject();
+                budget[QStringLiteral("max_tool_calls")] = 999;
+                mission[QStringLiteral("budget")] = budget;
+            }
+            if (variant == 4) mission[QStringLiteral("unrequested_setting")] = true;
+            row[QStringLiteral("mission_template")] = mission;
+            row[QStringLiteral("id")] = QStringLiteral("new-routine");
+            row[QStringLiteral("project_id")] = QStringLiteral("p1"); row[QStringLiteral("enabled")] = false;
+            OperationsHttp::reply(socket, QJsonDocument(row), 201); return true;
+        };
+        ApiClient client; AuthManager auth(&client); session(client, auth, http);
+        OperationsViewModel vm(&client, &auth); vm.setProjectId(QStringLiteral("p1")); QTRY_VERIFY(!vm.busy());
+        vm.createAutomation(form()); QTRY_VERIFY(!vm.busy());
+        QCOMPARE(http.mutations().size(), 1);
+        QCOMPARE(vm.error().isEmpty(), accepted);
+        QCOMPARE(!vm.notice().isEmpty(), accepted);
+    }
     void decisionFailureIsNotRetriedOrReportedAsSuccess()
     {
         OperationsHttp http;

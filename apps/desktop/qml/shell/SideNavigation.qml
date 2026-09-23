@@ -35,6 +35,7 @@ Rectangle {
 
         delegate: Item {
             id: entry
+            objectName: "navigation-" + route
             required property string route
             required property string title
             required property string glyph
@@ -69,6 +70,7 @@ Rectangle {
                 }
 
                 Text {
+                    textFormat: Text.PlainText
                     id: glyphText
                     anchors.left: parent.left
                     anchors.leftMargin: Space.space5
@@ -82,6 +84,7 @@ Rectangle {
                 }
 
                 Text {
+                    textFormat: Text.PlainText
                     visible: !navigation.collapsed
                     anchors.left: glyphText.right
                     anchors.leftMargin: Space.space4
@@ -116,11 +119,13 @@ Rectangle {
                 cursorShape: entry.navigable ? Qt.PointingHandCursor : Qt.ArrowCursor
             }
 
-            ToolTip.visible: hover.hovered && (navigation.collapsed || !entry.navigable)
-            ToolTip.text: entry.navigable
-                ? entry.title
-                : entry.title + " — " + entry.readinessLabel + "\n" + entry.detail
-            ToolTip.delay: 400
+            ToolTip {
+                id: plainTip
+                visible: hover.hovered && (navigation.collapsed || !entry.navigable)
+                text: entry.navigable ? entry.title : entry.title + " — " + entry.readinessLabel + "\n" + entry.detail
+                contentItem: Text { text: plainTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+                delay: 400
+            }
 
             // Le clic passe TOUJOURS par le modèle : c'est lui qui refuse une destination
             // non livrée et qui fournit l'explication affichée dans la barre basse.

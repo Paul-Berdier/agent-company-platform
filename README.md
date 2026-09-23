@@ -20,8 +20,9 @@ les surfaces web/CLI correspondantes. Le Lot G ajoute un parcours E2E Playwright
 strictement opt-in, l'aperçu de GLB validés sur une origine séparée, un connecteur
 ComfyUI privé et deux exécuteurs worker explicites pour Codex CLI et Claude Code.
 
-Une instance Hermes réelle, un serveur MCP tiers et une isolation OS du runner ne sont
-toujours pas validés. Le harnais E2E a été exécuté localement dans un vrai Edge contre
+Le serveur Hermes réel démarre désormais localement ; son accès à un modèle reste
+à configurer et sa génération n'est pas validée. Un serveur MCP tiers et une isolation
+OS du runner restent à vérifier. Le harnais E2E a été exécuté localement dans un vrai Edge contre
 une API et un serveur Vite isolés ; il prouve le shell et le Studio en lecture, pas la
 chaîne reporter → worker, un rendu GLB WebGL ni une reprise en main humaine.
 Le Lot H a ajouté les migrations PostgreSQL, les sauvegardes et la chaîne de
@@ -38,15 +39,21 @@ Cela n'annonce ni une publication 0.10.0 finalisée,
 ni une V1 complète. Voir [CHANGELOG.md](CHANGELOG.md) et
 [les preuves desktop](docs/desktop-validation-2026-09-23.md).
 
-L'[audit fonctionnel du 23 septembre](docs/functional-audit-2026-09-23.md) relève
-des blocages encore ouverts : formulaire desktop incompatible avec les missions
-Claude/Codex, restitution des résultats et reprise après incident incomplètes.
-Les workers peuvent traiter des tentatives distinctes en parallèle ; une mission
-Hermes coordonnant plusieurs agents et l'usage effectif des MCP/compétences liés
-dans ACP restent à raccorder. Aucune instance Hermes n'est encore installée sur
-le périmètre audité. Le rapport détaille aussi l'intégration Obsidian proposée.
+La [validation fonctionnelle du 23 septembre](docs/functional-completion-2026-09-23.md)
+complète l'audit initial : formulaires Qt pour Codex, Claude et leurs équipes,
+résultats persistés avant clôture, arrêt des Runs Hermes, compétences épinglées et
+délégations MCP HTTP contrôlées. Une équipe exécute jusqu'à deux étapes simultanées
+dans des worktrees distincts ; une reprise après interruption conserve les preuves
+et bloque la réexécution incertaine. Les branches produites demandent une intégration
+explicite. Les essais natifs des CLI utilisent des services locaux de test ; aucune
+génération payante réelle n'est annoncée.
 
-![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
+![Palette du desktop Qt, thème sombre, données de recette isolées](docs/assets/screenshots/desktop-command-palette-dark.png)
+
+Pour préparer **ACP, Hermes, Claude Code, un worker Codex/Claude et un coffre de notes
+Obsidian**, suivre [le guide du poste local](docs/local-runtime.md). Il comprend le
+démarrage des services et la création locale du premier compte ; les accès aux
+modèles se configurent séparément.
 
 ## Desktop natif
 
@@ -79,10 +86,12 @@ non configurés lorsqu'aucune preuve serveur n'est disponible.
 La session peut être mémorisée sur consentement dans le coffre Windows ; aucun
 mot de passe ni cookie n'est écrit dans les préférences. La vérification des mises
 à jour est explicite et ouvre la publication GitHub officielle ; elle n'intègre
-pas de téléchargeur ou d'installateur. Le relevé natif donne **21 suites sur 21**,
+pas de téléchargeur ou d'installateur. Le relevé natif donne **22 suites sur 22**,
 et les **24 tests de session** passent avec le vrai coffre Windows hors sandbox.
-Windows propre, recette visuelle complète, signature et Railway réel restent
-à prouver. Les [26 constats ouverts du Lot H](docs/lot-h-091-review-status.md)
+La recette Qt inclut les clics, le clavier, la palette de commandes, les formulaires
+et des captures en thèmes sombre et clair, ainsi qu'un parcours contre une API réelle
+jetable. Windows propre, signature et Railway réel restent à prouver.
+Les [26 constats ouverts du Lot H](docs/lot-h-091-review-status.md)
 restent suivis séparément ; le bureau pixel historique est conservé hors périmètre.
 
 ## Fonctions de la plateforme (API, web et CLI)
@@ -153,7 +162,11 @@ restent suivis séparément ; le bureau pixel historique est conservé hors pér
   GitHub épinglé), relecture des fichiers comme texte, dépendances, contrôle
   automatique indicatif, approbation d'une portée accrue, activation par projet et
   révocation ;
-- extensions résolues par projet et figées dans l'instantané d'une mission ;
+- extensions résolues par projet et figées dans l'instantané d'une mission ; contenu
+  des compétences revérifié sous bail, délégations MCP HTTP bornées par étape,
+  révocation et budget vérifiés avant effet, absence de rejeu d'un résultat incertain ;
+- équipes Claude/Codex supervisées, étapes et concurrence bornées par la politique
+  projet, worktrees conservés avec sorties et diffs, sans fusion automatique ;
 - provider Hermes `0.21.1` via `/health/detailed`, `/v1/capabilities` et
   `/v1/runs` ;
 - diagnostic Hermes typé visible dans Connexions, sans clé dans le navigateur ;

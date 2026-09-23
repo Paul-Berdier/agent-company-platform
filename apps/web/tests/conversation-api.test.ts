@@ -33,6 +33,31 @@ const turn = {
 };
 
 describe("ConversationApiClient", () => {
+  it.each(["waiting_for_approval", "stopping"] as const)("accepte %s sans arrêter le suivi", async (status) => {
+    const response = { ...turn, status };
+    const client = new ConversationApiClient({ fetcher: async () => json({ items: [response] }) });
+    await expect(client.listTurns(conversation.id)).resolves.toEqual([response]);
+    expect(isTerminalConversationTurn(status)).toBe(false);
+  });
+
+  it("demande l’arrêt authentifié sans inventer un état terminal", async () => {
+    const fetcher = vi.fn(async () => json({ ...turn, status: "stopping" }, 202));
+    const client = new ConversationApiClient({ baseUrl: "https://api.example.test", fetcher });
+    client.http.setCsrfToken("csrf-current");
+    await expect(client.stopTurn(conversation.id, turn.id)).resolves.toMatchObject({ status: "stopping" });
+    expect(fetcher.mock.calls[0][0]).toBe("https://api.example.test/conversations/conversation%2F1/turns/turn%2F1/stop");
+    const init = fetcher.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.credentials).toBe("include");
+    expect((init.headers as Headers).get("X-CSRF-Token")).toBe("csrf-current");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("refuse toujours un état de tour inconnu", async () => {
+    const client = new ConversationApiClient({ fetcher: async () => json({ ...turn, status: "invented" }) });
+    await expect(client.fetchTurn(conversation.id, turn.id)).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+
   it("lit un diagnostic honnête et normalise les capacités absentes", async () => {
     const fetcher = vi.fn(async () => json({
       status: "unavailable",

@@ -170,7 +170,7 @@ def test_alembic_upgrade_on_empty_sqlite_equals_fresh_init_db(initialized, tmp_p
         assert _version(engine) == head_revision()
         assert _compare(engine) == []
         assert schema_inventory(engine) == schema_inventory(reference)
-        assert len(schema_inventory(engine)) == 48
+        assert len(schema_inventory(engine)) == 50
     finally:
         engine.dispose()
 
@@ -217,15 +217,14 @@ def test_0003_changes_nothing_on_sqlite_whose_integers_are_already_64_bit(tmp_pa
     try:
         run_upgrade(engine, "0002")
         before = schema_inventory(engine)
-        run_upgrade(engine)
-        assert head_revision() == "0003"
+        run_upgrade(engine, "0003")
         assert _version(engine) == "0003"
         assert schema_inventory(engine) == before
-        assert _compare(engine) == []
         run_downgrade(engine, "0002")
         assert _version(engine) == "0002"
         assert schema_inventory(engine) == before
         run_upgrade(engine)
+        assert _compare(engine) == []
         with engine.begin() as connection:
             connection.execute(
                 text(
