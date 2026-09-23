@@ -1,24 +1,20 @@
 # Compiler le client desktop Windows
 
 Public : développeur du client natif C++23 / Qt 6 / Qt Quick (`apps/desktop`).
-Version du produit : `0.9.0` (fichier `VERSION` à la racine).
-État de ce document : 18 septembre 2026.
+Version du produit : `0.10.0` en préparation (fichier `VERSION` à la racine).
+État de ce document : 23 septembre 2026.
 
-## Avertissement, à lire avant tout le reste
+## État des preuves
 
-**Rien de ce qui suit n'a été compilé.** Aucun poste du projet ne dispose de Qt, de
-CMake, de Ninja ni de MSVC ; le relevé figure dans
-[`docs/desktop-railway-audit.md`](desktop-railway-audit.md), section 11. La seule
-preuve de compilation recevable pour ce chantier vient du workflow
-`.github/workflows/desktop-ci.yml`, sur un exécuteur Windows de GitHub. Tant que
-ce workflow n'est pas passé au vert sur une révision, le code natif de cette
-révision est du texte non vérifié, et cette chaîne d'outils est du texte non
-exécuté sur une compilation réelle.
-
-Ce qui **a** été exécuté sur un poste, et qui n'est donc pas une promesse :
-l'analyse syntaxique des cinq scripts PowerShell, la validité YAML des deux
-workflows, et les chemins de refus des scripts (prérequis absents, sources
-absentes) — voir la section « Ce qui a été vérifié et comment » en fin de document.
+La fondation a compilé en Debug/Release sur Windows, passé dix suites natives et
+produit un portable et un installeur local. Son CI historique est vert. Le nouvel
+arbre métier 0.10.0 a compilé en Release et passé 21 suites sur 21 en 54,82 s.
+Les résultats du CI sont consignés dans le relevé daté ci-dessous.
+Un parcours Qt contre une vraie API locale et SQLite jetable a réussi le
+23 septembre : connexion, projets, conversation avec fournisseur indisponible,
+mission, budget, automatisation et téléchargement authentifié. Il ne prouve pas
+Railway, une instance Hermes réelle ou une installation Windows propre.
+Voir [les preuves datées](desktop-validation-2026-09-23.md).
 
 ## 1. Prérequis
 
@@ -34,9 +30,8 @@ La version de Qt est **épinglée**, au même titre que la base d'image Python p
 digest et que le verrou haché des dépendances. Elle vit à un seul endroit :
 `packaging/windows/toolchain.json`. Ne la recopiez nulle part.
 
-`6.8.3` est le dernier correctif de la série LTS 6.8 publié en source ouverte ; les
-versions `6.8.4` et suivantes de cette série sont réservées aux licences
-commerciales et ne sont pas téléchargeables par `aqtinstall`.
+Qt 6.8.3 est la version effectivement retenue et installée pour ce dépôt. Un
+changement de version doit mettre à jour la chaîne épinglée et ses preuves.
 
 ### Constater ce qui manque
 
@@ -51,7 +46,7 @@ sont présents, `2` sinon. `-Json` produit le même inventaire en JSON.
 Un poste vierge obtient une sortie de ce genre :
 
 ```text
-[MANQUANT] CMake (>= 3.28 recommandé pour les préréglages v8)
+[MANQUANT] CMake
            cmake introuvable dans le PATH
            À lancer vous-même : winget install --id Kitware.CMake
 ```
@@ -72,9 +67,8 @@ avec un Qt approximatif.
 
 ## 3. Contrat avec `apps/desktop`
 
-Cette chaîne d'outils ne produit pas `apps/desktop` : ce répertoire appartient au
-lot fondation desktop. Elle attend de lui quatre choses, et **refuse** si l'une
-manque, au lieu de deviner.
+Les scripts vérifient le contrat du répertoire `apps/desktop` existant. Une valeur
+manquante ou incohérente conduit à un refus explicite.
 
 | Attendu | Valeur | Vérifié par |
 |---|---|---|
@@ -143,7 +137,10 @@ nulle part** dans cette chaîne d'outils, et aucun domaine n'a été décidé po
 
 Pour une API locale (`python -m uvicorn acp_api.main:app --port 8000`), saisir
 `http://127.0.0.1:8000` et cocher « Autoriser HTTP en clair sur une adresse de
-bouclage » : le HTTP en clair est refusé partout ailleurs.
+bouclage » : le HTTP en clair est refusé partout ailleurs. Affecter une base
+jetable explicite à `ACP_DATABASE_URL` avant un parcours de vérification ; la
+base `./acp.db` de développement ne doit jamais servir aux tests destructifs.
+L'API locale nécessite `ACP_SESSION_COOKIE_SECURE=0` et un compte déjà amorcé.
 
 ## 7. Codes de sortie
 
@@ -190,10 +187,10 @@ lourd. Ce qu'elle ne met **pas** en cache : le répertoire de compilation C++. U
 cache natif périmé produit des résultats faux, ce qui coûte plus cher que les
 minutes économisées.
 
-**Le job échoue tant que `apps/desktop` n'existe pas.** C'est délibéré : rendre un
-succès vert sans avoir rien compilé serait exactement le faux succès que la doctrine
-du projet interdit. Le job deviendra vert quand le lot fondation desktop sera
-fusionné — et pas avant.
+La garde de présence de `apps/desktop` reste utile et les sources existent.
+Le CI de la fondation a déjà été observé vert ; chaque nouvelle révision doit
+obtenir son propre verdict. Les compléments 0.10.0 sont encore en validation
+locale et n'ont pas encore leur run distant.
 
 L'action Qt est une action tierce, épinglée par empreinte de commit
 (`bcb88e3bed2e992f5f9e24c0f9e364a231d278eb`, étiquette `v4.4.0` publiée le
@@ -203,7 +200,7 @@ place dans `.github/workflows/ci.yml` : épinglage par étiquette majeure.
 
 ## 10. Ce qui a été vérifié et comment
 
-Exécuté sur le poste de développement le 18 septembre 2026 :
+Premiers contrôles historiques du 18 septembre 2026, avant installation des outils :
 
 - **Validité YAML des deux workflows** —
   `python -c "import yaml,sys; [yaml.safe_load(open(f,encoding='utf-8')) for f in sys.argv[1:]]"`
@@ -215,24 +212,45 @@ Exécuté sur le poste de développement le 18 septembre 2026 :
   `test-desktop.ps1`, `package-desktop.ps1` et `dev-desktop.ps1` rendent `3` en
   nommant précisément le fichier attendu.
 
-Ce qui n'a **pas** pu être vérifié ici, et ne le sera que par la CI : l'exécution de
-`cmake`, de `ctest`, de `windeployqt`, d'`ISCC` et de `signtool` ; la validité du
-script Inno Setup ; le comportement réel de l'action d'installation de Qt ; et
-l'existence même d'un binaire.
+Depuis ce premier relevé, CMake, CTest, `windeployqt` et Inno Setup ont été
+exécutés sur la fondation et un binaire a démarré. Le parcours API réel du
+23 septembre est passé ; la suite native complète du nouvel arbre est encore
+en cours. `signtool` avec un certificat de production, l'installation sur un
+Windows propre et Railway restent non prouvés.
+
+Pour diagnostiquer un test Qt silencieux sur ce poste, lancer son exécutable avec
+`-o <rapport-absolu>,txt` et lire le rapport. Les exécutables résident directement
+dans `apps/desktop/build/windows-msvc-release`. Éviter les builds simultanés
+dans ce répertoire.
 
 ## 11. Limites connues
 
-1. `scripts/check_version.py` ne couvre pas encore la version du client desktop. Le
-   client peut donc dériver silencieusement de `VERSION` (constat déjà porté par
-   l'audit, section 6.3, point 7). Le workflow de publication, lui, refuse une
-   étiquette qui ne correspond pas à `VERSION`.
+L'empaquetage Release place les DLL redistribuables **VC143 x64** à côté de
+l'exécutable. Le premier essai du 23 septembre 2026 a montré que
+`windeployqt --compiler-runtime` ne copiait que `vc_redist.x64.exe` ; ni l'archive
+portable ni l'installeur n'exécutaient ce programme. Cet ancien paquet est non
+conforme et ne doit pas être distribué. Le script utilise maintenant le CRT de
+l'installation Visual Studio identifiée dans le cache CMake, vérifie sa version
+contre le toolset et le linker Qt, son architecture et ses DLL obligatoires,
+puis le copie dans les deux formats sans installation système ni élévation.
+
+Le contrôle `packaging/windows/tests/Test-DesktopRuntime.ps1` utilise le build
+Release existant et des copies jetables sous `.test-tmp` ; il vérifie le
+déploiement réel et le refus d'un runtime ancien, incomplet ou x86. Il ne modifie
+aucune DLL système. Cette vérification sur un poste de développement ne remplace
+pas une recette sur Windows propre. Le déploiement local, documenté par
+[Microsoft](https://learn.microsoft.com/en-us/cpp/windows/choosing-a-deployment-method?view=msvc-170),
+implique de reconstruire et redistribuer le client pour actualiser ces DLL ;
+elles ne bénéficient pas de la maintenance d'un CRT installé centralement.
+
+1. Le client lit sa version depuis `VERSION` à la configuration CMake. Reconfigurer
+   et reconstruire après un changement de version ; un ancien binaire n'est pas
+   mis à jour par une modification du fichier. La publication rapproche aussi le tag.
 2. Aucun certificat de signature de code n'existe. Les binaires produits ne sont pas
    signés : voir [`docs/desktop-release-process.md`](desktop-release-process.md).
 3. L'image `windows-2022` est épinglée dans `runs-on` **et** dans
    `packaging/windows/toolchain.json`. GitHub ne permet pas de lire `runs-on` depuis
    un fichier ; une étape compare les deux et refuse la divergence, ce qui limite le
    risque sans le supprimer.
-4. Le générateur employé par le préréglage MSVC n'est pas connu de cette chaîne
-   d'outils. L'environnement MSVC est chargé dans tous les cas, ce qui couvre aussi
-   bien Ninja que le générateur Visual Studio, mais le `-Filter` de `ctest` et
-   l'emplacement exact du binaire dépendent de ce choix.
+4. Les préréglages MSVC actuels utilisent Ninja. Leur contrat, le filtre CTest et
+   les chemins doivent rester cohérents si ce générateur change.

@@ -3,10 +3,10 @@
 Public : utilisateur de la station de travail. Aucune connaissance technique
 requise, aucune ligne de commande obligatoire.
 
-> **État au 18 septembre 2026 : aucune version n'a encore été publiée.** Aucune
-> étiquette `v0.9.0` n'existe et aucun binaire n'a jamais été fabriqué. Ce document
-> décrit ce qui se passera dès la première publication ; il ne décrit pas un
-> téléchargement disponible aujourd'hui.
+> **État au 23 septembre 2026 : 0.10.0 est en préparation.** Des binaires et paquets
+> de la fondation ont été fabriqués ; cela n'annonce pas une publication desktop
+> 0.10.0 disponible. L'installation sur un Windows propre reste à vérifier.
+> Consulter les notes de la publication réellement proposée avant téléchargement.
 
 ## Ce dont vous avez besoin
 
@@ -17,8 +17,10 @@ requise, aucune ligne de commande obligatoire.
 
 ## 1. Télécharger
 
-Ouvrez la page des versions du projet sur GitHub et prenez la plus récente. Deux
-fichiers vous concernent :
+Ouvrez [les publications officielles](https://github.com/Paul-Berdier/agent-company-platform/releases)
+et vérifiez qu'une publication propose les paquets desktop pour votre canal.
+Une simple étiquette ou une archive du code source n'est pas un installeur.
+Deux fichiers vous concernent lorsqu'ils sont joints :
 
 | Fichier | Quand le choisir |
 |---|---|
@@ -42,14 +44,12 @@ Si elles diffèrent, **n'exécutez pas le fichier** et signalez-le.
 ### Un avertissement de Windows est attendu
 
 Tant qu'aucun certificat de signature de code n'est en place pour ce produit, les
-binaires ne sont **pas signés**. Windows affichera « Windows a protégé votre
-ordinateur » au premier lancement : sans réputation établie, Microsoft Defender
-SmartScreen présente un fichier comme un risque plus élevé et avertit l'utilisateur.
+binaires ne sont **pas signés**. Windows peut afficher un avertissement comme
+« Windows a protégé votre ordinateur », selon la politique du poste.
 
-Vous pouvez passer outre par **Informations complémentaires** puis **Exécuter quand
-même** — mais faites-le seulement après avoir vérifié la somme de contrôle
-ci-dessus. Les notes de chaque version disent explicitement si ses binaires sont
-signés ou non ; elles ne prétendent jamais l'inverse.
+La somme de contrôle vérifie la copie, pas l'identité cryptographique de l'éditeur.
+Respectez la politique de votre poste et vérifiez l'origine de la publication.
+Les notes doivent annoncer explicitement l'état de signature.
 
 ## 2. Installer
 
@@ -60,9 +60,10 @@ Double-cliquez sur `AgentCompanyPlatform-Setup-<version>-x64.exe`.
 - Une entrée est ajoutée au menu Démarrer.
 - Le raccourci sur le Bureau est **optionnel** : la case est décochée par défaut.
 
-Pour l'archive portable, décompressez le `.zip` où vous voulez et lancez
-`AgentCompanyPlatform.exe`. Rien n'est écrit dans le registre, il n'y a pas
-d'entrée au menu Démarrer, et la mise à jour consiste à remplacer le dossier.
+Pour l'archive portable, décompressez le `.zip` et lancez
+`AgentCompanyPlatform.exe`. Elle ne crée pas d'entrée d'installation au menu
+Démarrer ; l'application utilise toutefois les mêmes préférences utilisateur
+et, sur consentement, le même coffre de session que la version installée.
 
 ## 3. Connecter l'application à votre serveur
 
@@ -72,10 +73,20 @@ identifiants. Elle ne devine aucune adresse et n'en embarque aucune par défaut.
 Si l'adresse ou le compte sont refusés, l'application le dit en clair : elle
 n'affiche jamais un état inventé ni un écran vide à la place d'une erreur.
 
+Le premier propriétaire doit être amorcé par l'API, le web ou le CLI.
+L'adresse Railway réelle n'est pas fournie par défaut. La mémorisation de session
+est facultative et utilise le coffre Windows ; aucun mot de passe n'est conservé.
+La session reste soumise à son expiration et à la validation du serveur.
+
 ## 4. Mettre à jour
 
 Téléchargez la nouvelle version et relancez le programme d'installation par-dessus
 l'ancienne. Vos préférences et l'adresse de votre serveur sont conservées.
+
+Les réglages permettent une vérification GitHub explicite, stable ou avec
+préversions. Elle affiche les notes en texte brut et peut ouvrir la publication
+officielle dans votre navigateur. Le client n'intègre aucun téléchargeur ou
+installateur. Voir [le fonctionnement exact](desktop-update-process.md).
 
 L'application **ne se met jamais à jour toute seule** et ne télécharge rien en
 arrière-plan.
@@ -88,10 +99,12 @@ Platform* > **Désinstaller**.
 Ce qui est supprimé : le programme et tous les fichiers posés par l'installation,
 le raccourci du menu Démarrer, celui du Bureau, et l'entrée de désinstallation.
 
-Ce qui est **conservé** : vos préférences non sensibles, sous
-`%APPDATA%\Agent Company Platform`. Réinstaller ne vous fait donc pas ressaisir
-l'adresse du serveur. Pour repartir de zéro, supprimez ce dossier vous-même après
-la désinstallation.
+Ce qui est **conservé** : les préférences non sensibles gérées par `QSettings`
+(sur Windows, généralement dans le registre utilisateur). L'emplacement réel est
+fourni par les diagnostics ; ne supposez pas qu'un dossier `%APPDATA%` les contient.
+Avant de désinstaller, déconnectez-vous et désactivez la mémorisation de session
+pour effacer la copie du coffre. La désinstallation des fichiers ne constitue
+pas une révocation de session sur le serveur.
 
 Pour l'archive portable : supprimez le dossier décompressé.
 
@@ -109,7 +122,10 @@ de contrôle.
 
 ## Ce que ce document ne promet pas
 
-Aucune installation n'a jamais été réalisée sur un poste tiers, aucun binaire n'a
-jamais été fabriqué, et aucun serveur n'a jamais été déployé pour ce produit. Les
-écrans et les libellés cités ici décrivent le comportement attendu de la première
-version, pas un logiciel observé en fonctionnement.
+Le client a été compilé, lancé et exercé contre une vraie API locale jetable.
+L'installation sur Windows propre, la signature et le parcours Railway restent
+non prouvés. Les 21 suites natives et les 24 tests de session, dont le vrai
+coffre Windows hors sandbox, passent. Consulter
+[le relevé daté](desktop-validation-2026-09-23.md) pour les preuves de paquet
+et d'installation. Cette documentation
+n'annonce ni une V1 complète ni une publication 0.10.0 finalisée.

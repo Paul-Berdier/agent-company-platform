@@ -1,8 +1,8 @@
 # Agent Company Platform
 
-Poste de travail personnel pour organiser des projets et des missions, raccorder
-Hermes Agent et, à terme, piloter des runners et outils spécialisés depuis le web et
-un CLI commun.
+Poste de travail pour organiser des projets, conversations, missions et preuves,
+raccorder Hermes et des workers spécialisés, depuis un **desktop natif C++23 / Qt / QML**,
+le web ou le CLI. Les trois clients utilisent la même API métier.
 
 La modernisation est engagée par tranches. Le Lot C ajoute aux fondations sécurisées
 et aux conversations du Lot B une ressource mission durable, des tentatives
@@ -24,18 +24,60 @@ Une instance Hermes réelle, un serveur MCP tiers et une isolation OS du runner 
 toujours pas validés. Le harnais E2E a été exécuté localement dans un vrai Edge contre
 une API et un serveur Vite isolés ; il prouve le shell et le Studio en lecture, pas la
 chaîne reporter → worker, un rendu GLB WebGL ni une reprise en main humaine.
-PostgreSQL, Railway et les sauvegardes restent au Lot H. Le détail exact se trouve dans
+Le Lot H a ajouté les migrations PostgreSQL, les sauvegardes et la chaîne de
+déploiement Railway. Un déploiement Railway réel reste à vérifier avec son URL.
+Le détail se trouve dans [la persistance](docs/persistence-and-backup.md) et
 [l'état d'implémentation](docs/implementation-status.md).
 
-Version en préparation dans cette branche : **0.9.1**, durcissement du Lot H. La
-dernière version publiée est **0.9.0** (Lot H) : PR
-[#8](https://github.com/Paul-Berdier/agent-company-platform/pull/8) fusionnée au commit
-`94ce876` après observation d'une CI verte, tag annoté `v0.9.0` posé sur ce commit.
-Les changements sont décrits dans [CHANGELOG.md](CHANGELOG.md).
+Version en préparation : **0.10.0**, ouverte au commit `4915136`. Le durcissement
+Lot H a été intégré par la [PR #9](https://github.com/Paul-Berdier/agent-company-platform/pull/9)
+au commit `3f8e5fe`, avec le run CI `35799431367` observé vert. Cette version de
+`main` a été intégrée dans la branche desktop au commit `887fb72` ; la validation
+locale des compléments est passée, leur fusion dans `main` reste à terminer.
+Cela n'annonce ni une publication 0.10.0 finalisée,
+ni une V1 complète. Voir [CHANGELOG.md](CHANGELOG.md) et
+[les preuves desktop](docs/desktop-validation-2026-09-23.md).
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
 
-## Ce qui fonctionne aujourd'hui
+## Desktop natif
+
+Le client fournit les écrans de projets, conversations, missions et tentatives,
+Studio, livrables, agents/workers/fournisseurs, extensions MCP/compétences et
+opérations (approbations, alertes, budgets, automatisations). Les actions appellent
+les routes réelles de l'API et présentent les refus serveur. La
+[matrice de parité](docs/native-desktop-parity.md) distingue les fonctions disponibles
+des opérations encore réservées au web/CLI.
+
+Sous Windows, la chaîne de développement utilise MSVC 2022, Qt 6.8.3,
+CMake/Ninja et Python. Les versions de référence sont dans
+`packaging/windows/toolchain.json` ; [la construction](docs/desktop-build.md)
+et [la reprise de poste](docs/reprise-poste.md) décrivent leur installation.
+
+```powershell
+./scripts/setup-desktop.ps1
+./scripts/build-desktop.ps1 -Configuration Release
+./scripts/test-desktop.ps1 -Configuration Release
+./scripts/dev-desktop.ps1 -Configuration Release
+```
+
+Le desktop requiert une API démarrée et un compte existant ; amorcer le premier
+propriétaire via l'API, le web ou le CLI. Saisir son URL dans l'écran de connexion.
+Pour une API locale dédiée, `http://127.0.0.1:8000` nécessite l'option explicite de
+bouclage HTTP et `ACP_SESSION_COOKIE_SECURE=0` côté API. Utiliser HTTPS ailleurs.
+Hermes et les workers restent optionnels et apparaissent inconnus, absents ou
+non configurés lorsqu'aucune preuve serveur n'est disponible.
+
+La session peut être mémorisée sur consentement dans le coffre Windows ; aucun
+mot de passe ni cookie n'est écrit dans les préférences. La vérification des mises
+à jour est explicite et ouvre la publication GitHub officielle ; elle n'intègre
+pas de téléchargeur ou d'installateur. Le relevé natif donne **21 suites sur 21**,
+et les **24 tests de session** passent avec le vrai coffre Windows hors sandbox.
+Windows propre, recette visuelle complète, signature et Railway réel restent
+à prouver. Les [26 constats ouverts du Lot H](docs/lot-h-091-review-status.md)
+restent suivis séparément ; le bureau pixel historique est conservé hors périmètre.
+
+## Fonctions de la plateforme (API, web et CLI)
 
 - accueil, projets et composition d'une mission raccordés à l'API métier ;
 - états chargement, vide, hors ligne, refus et non configuré sans données factices ;
@@ -169,8 +211,8 @@ local et aucun adaptateur objet externe n'a été éprouvé. Le projet n'est pas
 ## Architecture
 
 ```text
-Web (Vite/TypeScript) ─┐
-                      ├── API métier (FastAPI) ── base plateforme
+Desktop Qt / QML ──────┐
+Web (Vite/TypeScript) ─┼── API métier (FastAPI) ── base plateforme
 CLI acp ───────────────┘         │
                                 ├── provider-gateway ── Hermes / ComfyUI séparés
                                 ├── service d'événements
@@ -186,9 +228,11 @@ identifiants doivent être rapprochés explicitement. Voir
 
 ## Démarrage local de développement
 
-Prérequis actuels : Python 3.11 ou supérieur, Node 22.12 ou supérieur, npm. Les
-dépendances Python ne sont pas encore verrouillées et les scripts créent les tables
-avec `create_all()` ; utiliser uniquement une machine de développement de confiance.
+Prérequis backend/web : Python 3.11 ou supérieur, Node 22.12 ou supérieur et npm.
+Les dépendances Python sont contraintes par le verrou du dépôt. SQLite convient
+au développement local ; PostgreSQL utilise les migrations Alembic du Lot H.
+Consulter [la procédure de persistance](docs/persistence-and-backup.md) avant de
+préparer une base de production ; `create_all()` ne remplace pas une migration.
 
 Sous Windows PowerShell :
 
@@ -332,6 +376,22 @@ séparés et ne doivent pas être redistribués. Voir
 
 ## Vérifications
 
+Le relevé Python de l'arbre combiné du 23 septembre 2026 donne **2 896 réussis,
+70 ignorés en 835 secondes**. Le relevé natif terminé donne **21 suites sur 21
+réussies en 54,82 secondes**. Les tests de session passent **24 sur 24, sans
+ignoré**, dont lecture/écriture/suppression dans le vrai coffre Windows hors
+sandbox. Les preuves, leur état d'intégration et leurs limites sont
+consignées dans [le relevé desktop daté](docs/desktop-validation-2026-09-23.md).
+Les résultats historiques ci-dessous restent utiles pour leurs lots respectifs.
+
+Un parcours Qt contre une **vraie API locale et SQLite jetable** a aussi réussi :
+connexion cookie/CSRF, création des projets, conversation persistée avec fournisseur
+indisponible explicite, mission, budget, automatisation en pause et téléchargement
+authentifié de 180 224 octets avec SHA-256 exact, puis purge après déconnexion.
+Le dernier test Qt donne **3 réussis, 0 échec, 0 ignoré en 1 663 ms**,
+avec un lanceur complet de 9,7 secondes.
+Cette preuve locale ne valide pas Railway, Hermes réel ou la recette visuelle.
+
 Commandes principales :
 
 ```powershell
@@ -404,6 +464,15 @@ curseur, avec repli automatique sur l'interrogation `GET` ; les conversations, e
 reprennent toujours par polling `GET`.
 
 ## Documentation
+
+- [Surface métier et limites du desktop natif](docs/native-desktop-parity.md)
+- [Architecture native](docs/native-desktop-architecture.md)
+- [Construction Windows](docs/desktop-build.md)
+- [Sécurité et session du desktop](docs/desktop-security.md)
+- [Vérification des mises à jour](docs/desktop-update-process.md)
+- [Preuves desktop du 23 septembre 2026](docs/desktop-validation-2026-09-23.md)
+- [Reprise de poste](docs/reprise-poste.md)
+- [Constats ouverts du Lot H](docs/lot-h-091-review-status.md)
 
 - [Audit de modernisation](docs/audit-modernisation.md)
 - [Architecture et sources de vérité](docs/architecture.md)

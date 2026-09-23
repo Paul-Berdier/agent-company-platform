@@ -1,11 +1,14 @@
 # Publier une version du client desktop Windows
 
-Public : mainteneur du dépôt. État de ce document : 18 septembre 2026.
+Public : mainteneur du dépôt. État du 23 septembre 2026, **0.10.0 en préparation**.
 
-> **Ce mécanisme n'a jamais été exercé.** Aucune étiquette `v0.8.0` ni `v0.9.0`
-> n'existe dans ce dépôt ; les derniers tags présents vont de `v0.2.0` à `v0.7.0`,
-> et aucun d'eux n'a produit de binaire. Le premier passage de
-> `.github/workflows/desktop-release.yml` sera aussi son premier test.
+La fondation native a été compilée et empaquetée localement, et son CI historique
+est vert. Les tags historiques 0.8.0/0.9.0 existent. Les compléments 0.10.0 sont
+validés localement par le build Release, 21 suites natives et le parcours
+Qt/API réelle. Le paquet local a été produit ; le portable démarre avec le
+seul `PATH` Windows. Le relevé daté consigne séparément les résultats du CI. Aucun de ces
+faits n'annonce une publication desktop 0.10.0 finalisée. Voir
+[le relevé de validation](desktop-validation-2026-09-23.md).
 
 ## 1. Vue d'ensemble
 
@@ -64,17 +67,21 @@ par `sha256sum -c SHA256SUMS.txt`.
 
 ### 3.1 Avant d'étiqueter
 
-1. `apps/desktop` est fusionné et `.github/workflows/desktop-ci.yml` est vert sur la
-   révision visée. C'est la seule preuve de compilation disponible.
+1. Le code visé est fusionné et `.github/workflows/desktop-ci.yml` est vert sur
+   cette révision ; ajouter les preuves locales sans substituer un ancien run CI.
 2. `VERSION` porte la version à publier.
 3. `CHANGELOG.md` décrit la version, avec ses rubriques « Ajouté », « Sécurité »,
    « Vérifié localement » et « Limites connues ».
 
 ### 3.2 Étiqueter
 
+Suivre `CLAUDE.md` : poser une étiquette **annotée**, sur le commit de fusion
+validé, puis la pousser. Pour la version 0.10.0, uniquement une fois ces conditions
+remplies :
+
 ```bash
-git tag v0.9.0
-git push origin v0.9.0
+git tag -a v0.10.0 <commit-de-fusion-valide> -m "Release 0.10.0"
+git push origin v0.10.0
 ```
 
 L'étiquette doit avoir la forme `vX.Y.Z`. Le workflow compare `VERSION` à
@@ -114,14 +121,13 @@ mainteneurs et n'apparaît sur aucun flux. Avant de la publier :
    entrée de menu Démarrer, se désinstalle proprement, et l'archive portable se
    lance sans installation préalable.
 
-Le point 4 n'a jamais été effectué pour ce produit ; il ne peut pas l'être avant
-qu'un binaire existe.
+Le point 4 reste à effectuer sur Windows propre. Des binaires existent désormais,
+mais un lancement sur le poste de développement ne remplace pas cette recette.
 
 ### 3.5 Publier
 
-Bouton **Publish release** sur le brouillon. Il n'existe aucune automatisation qui
-le fasse à votre place, et il n'en existera pas : une publication est une décision
-humaine.
+Bouton **Publish release** sur le brouillon après la décision de publication.
+Le workflow actuel ne rend pas le brouillon public automatiquement.
 
 ## 4. Signature de code
 
@@ -146,11 +152,11 @@ risque plus élevé et un avertissement lui est présenté
 ([Microsoft Learn, Microsoft Defender SmartScreen](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/),
 consultée le 18 septembre 2026).
 
-Concrètement, pour un binaire non signé et nouvellement publié : écran bleu
-« Windows a protégé votre ordinateur », nécessité de passer par « Informations
-complémentaires », et méfiance légitime des utilisateurs. Un certificat EV établit
-la réputation immédiatement ; un certificat OV standard la construit au fil des
-téléchargements. Ce choix a un coût et un délai, et il n'est pas tranché.
+Un avertissement Windows est possible pour les paquets actuels non signés.
+Son comportement dépend de la politique et de la réputation observées sur le
+poste ; la documentation du produit ne garantit pas qu'un type de certificat
+supprimerait immédiatement tous les avertissements. L'approvisionnement du
+certificat reste ouvert.
 
 ### 4.3 Activer la signature
 
@@ -206,7 +212,7 @@ Pourquoi pas Qt Installer Framework, qui était la piste évidente :
 4. **Disponibilité.** L'image `windows-2022` des exécuteurs GitHub fournit déjà
    InnoSetup 6.7.1 ; le cadre Qt devrait être téléchargé à chaque exécution.
 
-Ce que le script produit, et qui est vérifiable une fois un binaire disponible :
+Ce que le script configure, à vérifier par la recette sur le paquet final :
 
 | Exigence | Mise en œuvre |
 |---|---|
@@ -223,11 +229,17 @@ Ce que le script produit, et qui est vérifiable une fois un binaire disponible 
 modifier ferait apparaître deux entrées de désinstallation sur les postes déjà
 équipés.
 
-Le contenu installé est exactement celui produit par `windeployqt`, qui analyse le
-répertoire QML source (`--qmldir`) pour n'embarquer que les modules réellement
-importés, et `--compiler-runtime` pour que l'archive portable fonctionne sur un
-poste dépourvu de redistribuable MSVC. Aucun fichier n'est ajouté à la main dans le
-script d'installation.
+`windeployqt` analyse le répertoire QML source (`--qmldir`) et déploie les modules
+Qt avec `--no-compiler-runtime`. Le script appelle ensuite `Copy-AcpMsvcRuntime`
+pour copier les DLL VC143 x64 redistribuables à côté de l'exécutable : elles
+proviennent de l'installation Visual Studio correspondant au compilateur du cache
+CMake, jamais de `System32` ou du `PATH`. La fonction vérifie leur architecture PE
+x64, la cohérence de leurs versions et leur compatibilité avec le toolset et les
+linkers de Qt et de l'application.
+
+En Release, `--compiler-runtime` seul copie un installateur VC Redist ; sa présence
+dans une archive ZIP ne rend pas celle-ci autonome. Le paquet utilise donc les DLL
+locales vérifiées. Inno Setup installe ce même contenu préparé par le script.
 
 ## 6. Notes de version
 
@@ -237,10 +249,10 @@ quatre jetons : version, préfixe d'artefact, suffixe d'architecture, et le
 paragraphe d'état de signature. Aucune mise en forme n'est reconstruite dans le
 YAML, où l'indentation du bloc la casserait.
 
-Le gabarit porte une section « Ce que cette publication ne prouve pas ». Elle n'est
-pas décorative : elle rappelle qu'aucun serveur n'a été déployé et qu'aucune
-installation n'a été vérifiée sur un poste tiers. Elle doit être mise à jour quand
-ces faits changent — et pas avant.
+Le gabarit porte une section « Ce que cette publication ne prouve pas ». La relire
+avant diffusion : le client existe et a parlé à une API locale réelle ; Railway,
+la signature et l'installation sur Windows propre restent non prouvés. Les notes
+doivent décrire le paquet courant sans recopier les anciennes absences devenues fausses.
 
 ## 7. Ce qui a été vérifié pour ce document
 
@@ -248,19 +260,24 @@ Exécuté le 18 septembre 2026 : validité YAML de `desktop-release.yml`, analys
 syntaxique de `scripts/package-desktop.ps1`, et exécution de ce script sur un poste
 sans Qt, qui refuse avec le code `3` en nommant le répertoire de compilation absent.
 
-Jamais exécuté, et donc jamais prouvé : `windeployqt`, `ISCC`, `signtool`, la
-création d'un brouillon de publication, et le workflow dans son ensemble.
+Après ces premiers contrôles, `windeployqt` et Inno Setup ont produit les paquets
+de la fondation puis le paquet local 0.10.0. Le portable final a démarré avec le
+seul `PATH` Windows. Le build Release, les 21 suites natives et le parcours
+Qt/API locale du 23 septembre passent. Les preuves détaillées du paquet et de
+l'installation sont consignées dans [le relevé daté](desktop-validation-2026-09-23.md).
+Cela ne constitue pas une publication 0.10.0 ; le nouveau CI et la signature
+avec un certificat ne sont pas encore éprouvés.
 
 ## 8. Limites connues
 
 1. Aucun certificat de signature — section 4.1.
-2. `scripts/check_version.py` ne couvre pas la version du client desktop ; seul le
-   workflow de publication rapproche l'étiquette de `VERSION`.
+2. La version native est lue dans `VERSION` à la configuration CMake ; reconstruire
+   après modification. Le workflow rapproche également l'étiquette de ce fichier.
 3. L'image `windows-2022` est déclarée deux fois (`runs-on` et `toolchain.json`) ;
    une étape refuse la divergence, mais GitHub ne permet pas de supprimer le doublon.
-4. Aucune vérification automatique n'atteste que l'installeur s'installe et se
-   désinstalle réellement. Un test d'installation en CI (installation silencieuse,
-   contrôle des raccourcis, désinstallation, contrôle des restes) est possible et
-   n'est pas livré ici.
+4. Une recette d'installation sur un Windows propre reste nécessaire. Le workflow
+   CI n'exécute pas encore l'installation silencieuse, le contrôle des raccourcis,
+   la désinstallation et le contrôle des restes ; les preuves locales sont
+   distinctes et suivies dans le relevé daté.
 5. Le workflow ne publie que sur GitHub Releases. Aucun autre canal — ni winget, ni
    Microsoft Store, ni dépôt interne — n'est prévu.

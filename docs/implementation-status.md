@@ -1,9 +1,23 @@
 # État d'implémentation et reprise
 
-Date d'état : 18 septembre 2026, Europe/Paris
-Portée : Lot H `0.9.0` publié (PR #8, fusion `94ce876`, tag `v0.9.0`, CI verte
-observée) ; ouverture du durcissement `0.9.1`. Le tag `v0.8.0` a été posé sur `e71ebf6`
-le 18 septembre 2026.
+Date d'état : **23 septembre 2026**, Europe/Paris.
+Le durcissement Lot H a été fusionné par la PR #9 dans `main` (`3f8e5fe`,
+CI `35799431367` observée verte). Il reste **26 constats ouverts** dans
+[le registre de revue](lot-h-091-review-status.md).
+
+Le desktop natif **0.10.0 est en préparation**, avec les écrans métier réels
+projets, conversations, missions/Studio, livrables, plateforme, extensions et
+opérations. La validation locale finale donne **21 suites sur 21 en 54,82 s**,
+un parcours Qt/API réelle sur SQLite jetable réussi et le coffre Windows éprouvé
+hors sandbox. Voir [la parité native](native-desktop-parity.md) et
+[le registre de validation desktop](desktop-validation-2026-09-23.md).
+Sa fusion dans `main` reste à terminer ; Railway réel, Windows propre, recette
+visuelle complète et signature ne sont pas encore prouvés. Aucune V1 complète
+ni publication 0.10.0 finalisée n'est annoncée.
+
+Les sections de lots ci-dessous conservent leurs preuves historiques : Lot H
+`0.9.0` publié par PR #8, fusion `94ce876`, tag `v0.9.0` et CI verte observée ;
+le tag `v0.8.0` a été posé sur `e71ebf6` le 18 septembre 2026.
 
 ## Résumé
 
