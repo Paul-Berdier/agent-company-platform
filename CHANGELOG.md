@@ -6,6 +6,11 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+## 0.10.0 (préparation) - 2026-09-23
+
+Client natif Qt : intégration du Lot H et livraison des parcours métier.
+Validation et limites consignées avant publication.
+
 ## 0.9.1 (préparation) - 2026-09-22
 
 Durcissement du Lot H en cours. L'inventaire des constats, des corrections reprises

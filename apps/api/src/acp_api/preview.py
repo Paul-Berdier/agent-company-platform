@@ -75,7 +75,7 @@ def create_preview_app(
     install_access_log_redaction()
     preview = FastAPI(
         title="Agent Company Platform Artifact Preview",
-        version="0.9.1",
+        version="0.10.0",
         lifespan=preview_lifespan,
         openapi_url=None,
         docs_url=None,

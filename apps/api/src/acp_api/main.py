@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agent Company Platform API",
-    version="0.9.1",
+    version="0.10.0",
     lifespan=lifespan,
 )
 
