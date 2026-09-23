@@ -104,7 +104,7 @@ async def test_two_agents_run_concurrently_in_distinct_worktrees_then_dependency
                       plan=plan(), max_agents=3, deadline=monotonic() + 20, on_progress=lambda _: None, publish=publish)
         result = await run_team(client, config, credentials, **kwargs)
         replay = await run_team(client, config, credentials, **kwargs)
-    assert result["runner_status"] == "succeeded"
+    assert result["runner_status"] == "succeeded", result
     assert result["technical_validation"] == "passed"
     assert result["spawned_agents"] == 3
     assert replay["runner_status"] == "blocked"
@@ -114,6 +114,111 @@ async def test_two_agents_run_concurrently_in_distinct_worktrees_then_dependency
     assert "modified by fixture" in result["steps"][0]["workspace"]["diff"]
     assert all(item["workspace"]["merged"] is False for item in result["steps"])
     assert len(snapshots) >= 6
+
+
+async def test_dependency_waits_for_final_workspace_proof(tmp_path, monkeypatch):
+    """Le CLI et son rapport ne suffisent pas : le diff doit aussi être disponible."""
+    config, credentials, mission, _ = setup(tmp_path)
+    write_proof_waiting, read_proof_done = asyncio.Event(), asyncio.Event()
+    release_proof, review_started = asyncio.Event(), asyncio.Event()
+    snapshots = []
+
+    async def prepare(_config, _project, _attempt, step_id, _deadline):
+        path = tmp_path / step_id
+        path.mkdir()
+        if step_id == "review":
+            review_started.set()
+        return {"path": str(path), "branch": step_id, "base_commit": "fixture", "merged": False}
+
+    async def proof(workspace, _deadline):
+        if workspace["branch"] == "write":
+            write_proof_waiting.set()
+            await release_proof.wait()
+        elif workspace["branch"] == "read":
+            await write_proof_waiting.wait()
+            read_proof_done.set()
+        return {**workspace, "diff": "preuve finale " + workspace["branch"], "diff_sha256": "a" * 64}
+
+    async def cli(executor, project_id, _path, prompt, **kwargs):
+        if kwargs["config"].project_path(project_id).name == "review":
+            assert "preuve finale write" in prompt
+        return completed(executor, "Réponse " + executor)
+
+    async def publish(value):
+        snapshots.append(value)
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr("acp_worker.multi_agent.prepare_worktree", prepare)
+    monkeypatch.setattr("acp_worker.multi_agent.workspace_proof", proof)
+    monkeypatch.setattr("acp_worker.multi_agent.run_executor", cli)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(ledger)) as client:
+        running = asyncio.create_task(run_team(client, config, credentials,
+            attempt_id="proof-barrier", fencing_token=1, project_id="project-1", mission=mission,
+            plan=plan(), max_agents=3, deadline=monotonic() + 20,
+            on_progress=snapshots.append, publish=publish))
+        try:
+            await asyncio.wait_for(read_proof_done.wait(), 5)
+            # Les deux effets ont terminé et le second a sa preuve. Une preuve
+            # du premier reste volontairement suspendue ; aucun enfant admissible.
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(review_started.wait(), 1)
+            assert all(value["runner_status"] != "succeeded" for value in snapshots)
+        finally:
+            release_proof.set()
+            result = await asyncio.wait_for(running, 5)
+    assert result["runner_status"] == "succeeded", result
+    assert review_started.is_set()
+    assert result["steps"][0]["workspace"]["diff"] == "preuve finale write"
+
+
+@pytest.mark.parametrize("failure", ["workspace", "accounting", "cancel_after_effect"])
+async def test_dependency_is_blocked_when_effect_has_no_final_proof(tmp_path, monkeypatch, failure):
+    config, credentials, mission, root = setup(tmp_path)
+    executed = []
+    steps = plan()["steps"]
+    steps = [steps[0], {**steps[2], "depends_on": ["write"]}]
+
+    async def prepare(*_args):
+        return {"path": str(root), "branch": "fixture", "base_commit": "fixture", "merged": False}
+
+    async def proof(workspace, _deadline):
+        if failure == "cancel_after_effect":
+            raise asyncio.CancelledError()
+        raise RuntimeError("preuve Git indisponible")
+
+    async def cli(executor, *_args, **_kwargs):
+        executed.append(executor)
+        return completed(executor, "effet conservé")
+
+    def handler(request):
+        if failure == "accounting" and request.url.path.endswith("/budget/usage"):
+            return httpx.Response(409, json={"detail": "rapport refusé"})
+        return ledger(request)
+
+    async def publish(_value):
+        pass
+
+    monkeypatch.setattr("acp_worker.multi_agent.prepare_worktree", prepare)
+    monkeypatch.setattr("acp_worker.multi_agent.workspace_proof", proof)
+    monkeypatch.setattr("acp_worker.multi_agent.run_executor", cli)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        operation = run_team(client, config, credentials, attempt_id="incomplete-proof", fencing_token=1,
+            project_id="project-1", mission=mission, plan={"steps": steps}, max_agents=2,
+            deadline=monotonic() + 20, on_progress=lambda _: None, publish=publish)
+        if failure == "cancel_after_effect":
+            with pytest.raises(asyncio.CancelledError):
+                await operation
+        else:
+            result = await operation
+            assert result["runner_status"] == "blocked", result
+    from acp_worker.checkpoints import read_checkpoint
+    state = read_checkpoint(config, "incomplete-proof", "team")
+    assert executed == ["codex_cli"]
+    assert state["steps"][0]["status"] == "blocked"
+    assert state["steps"][0]["execution"]["output"]["text"] == "effet conservé"
+    expected = "unconfirmed" if failure == "accounting" else "reported"
+    assert state["steps"][0]["accounting"] == expected
+    assert state["steps"][1]["status"] == "blocked"
 
 
 async def test_stop_cancels_all_children_and_retains_checkpoint(tmp_path, monkeypatch):

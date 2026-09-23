@@ -201,7 +201,9 @@ async def run_team(client: httpx.AsyncClient, config: WorkerConfig, credentials:
             persist()
 
             def completed(value: ExecutorResult) -> None:
-                item.update(status="completed" if value.exit_code == 0 else "failed", execution=asdict(value), accounting="unconfirmed")
+                # Le retour du CLI conserve son effet, mais ne rend pas encore
+                # l'étape admissible comme dépendance : sa preuve Git manque.
+                item.update(status="running" if value.exit_code == 0 else "failed", execution=asdict(value), accounting="unconfirmed")
                 persist()
 
             def reported(reconciled: bool) -> None:
@@ -225,6 +227,8 @@ async def run_team(client: httpx.AsyncClient, config: WorkerConfig, credentials:
                 operation=execute_step)
             if item.get("workspace"):
                 item["workspace"] = await workspace_proof(item["workspace"], deadline)
+            if item.get("execution", {}).get("exit_code") == 0:
+                item["status"] = "completed"
             persist()
             await flush()
         except ExecutorCleanupError:
@@ -232,8 +236,9 @@ async def run_team(client: httpx.AsyncClient, config: WorkerConfig, credentials:
             persist()
             raise
         except asyncio.CancelledError:
-            if not item.get("execution"):
-                item["status"] = "cancelled"
+            # Un effet déjà exécuté reste conservé, sans annoncer que sa preuve
+            # et sa comptabilité sont toutes deux finalisées après l'arrêt.
+            item["status"] = "blocked" if item.get("execution") else "cancelled"
             persist()
             raise
         except Exception as exc:
