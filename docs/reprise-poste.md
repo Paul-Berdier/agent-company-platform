@@ -40,6 +40,12 @@ conservé hors périmètre. Indexer les fichiers explicitement.
 
 ## 2. Ce qui est implémenté et ce qui reste
 
+Complément du 23 septembre : l'[audit fonctionnel](functional-audit-2026-09-23.md)
+documente huit défauts ouverts et les raccordements manquants pour Hermes,
+Claude/Codex, MCP et compétences. Aucun service Hermes n'est installé sur le
+périmètre utilisateur. Lire ce rapport avant de déclarer la chaîne utilisable
+ou de brancher Obsidian ; il complète les preuves de compilation et de transport.
+
 Les viewmodels et pages natifs couvrent projets, conversations, missions,
 tentatives/Studio, livrables, agents/workers/fournisseurs, MCP/compétences,
 approbations, alertes, budgets et automatisations. Voir
@@ -61,7 +67,8 @@ Restent à achever ou prouver :
 
 1. Compléter la recette visuelle des interactions. L'intégration dans `main` et
    les CI de la branche sont acquises ; elles ne constituent pas une publication.
-2. Parcours contre le déploiement Railway réel, dont l'URL n'est pas connue.
+2. Installer un déploiement de test, puis réaliser le parcours distant ; aucun
+   déploiement ACP n'est actuellement installé sur le périmètre utilisateur.
 3. Installation et mise à jour sur un Windows propre.
 4. Signature Windows : aucun certificat disponible, binaires non signés.
 5. Les **26 constats Lot H encore ouverts**, décrits dans

@@ -25,7 +25,7 @@ toujours pas validés. Le harnais E2E a été exécuté localement dans un vrai 
 une API et un serveur Vite isolés ; il prouve le shell et le Studio en lecture, pas la
 chaîne reporter → worker, un rendu GLB WebGL ni une reprise en main humaine.
 Le Lot H a ajouté les migrations PostgreSQL, les sauvegardes et la chaîne de
-déploiement Railway. Un déploiement Railway réel reste à vérifier avec son URL.
+déploiement Railway. Une instance de test reste à installer et à vérifier.
 Le détail se trouve dans [la persistance](docs/persistence-and-backup.md) et
 [l'état d'implémentation](docs/implementation-status.md).
 
@@ -37,6 +37,14 @@ commit `0bc9dcb`, après validation des CI Windows, web, SQLite et PostgreSQL.
 Cela n'annonce ni une publication 0.10.0 finalisée,
 ni une V1 complète. Voir [CHANGELOG.md](CHANGELOG.md) et
 [les preuves desktop](docs/desktop-validation-2026-09-23.md).
+
+L'[audit fonctionnel du 23 septembre](docs/functional-audit-2026-09-23.md) relève
+des blocages encore ouverts : formulaire desktop incompatible avec les missions
+Claude/Codex, restitution des résultats et reprise après incident incomplètes.
+Les workers peuvent traiter des tentatives distinctes en parallèle ; une mission
+Hermes coordonnant plusieurs agents et l'usage effectif des MCP/compétences liés
+dans ACP restent à raccorder. Aucune instance Hermes n'est encore installée sur
+le périmètre audité. Le rapport détaille aussi l'intégration Obsidian proposée.
 
 ![Accueil sombre du Lot A](docs/assets/screenshots/lot-a-home-dark.png)
 
@@ -465,6 +473,7 @@ reprennent toujours par polling `GET`.
 
 ## Documentation
 
+- [Audit fonctionnel : desktop, Hermes, multi-agents et Obsidian](docs/functional-audit-2026-09-23.md)
 - [Surface métier et limites du desktop natif](docs/native-desktop-parity.md)
 - [Architecture native](docs/native-desktop-architecture.md)
 - [Construction Windows](docs/desktop-build.md)

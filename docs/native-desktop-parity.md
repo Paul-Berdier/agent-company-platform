@@ -5,9 +5,15 @@ et appels implémentés dans `apps/desktop`, sans promettre une équivalence
 exhaustive au web/CLI. Les preuves locales et l'état de leur intégration figurent
 dans [le relevé daté](desktop-validation-2026-09-23.md).
 
+L'[audit fonctionnel complémentaire](functional-audit-2026-09-23.md) identifie
+trois défauts ouverts : ressource workspace absente des missions Claude/Codex,
+retour aux conversations générales indisponible après sélection d'un projet,
+et commentaires non rechargés par « Actualiser ». Les liaisons MCP/compétences
+ne constituent pas encore une utilisation de ces extensions par les exécuteurs.
+
 | Domaine | Implémenté en natif | Limite ou dépendance |
 |---|---|---|
-| Connexion et diagnostic | Adresse configurable, session, `/meta`, `/ready` | Premier propriétaire à amorcer par API/web/CLI ; URL Railway inconnue |
+| Connexion et diagnostic | Adresse configurable, session, `/meta`, `/ready` | Premier propriétaire à amorcer par API/web/CLI ; déploiement de test à installer |
 | Organisations et projets | Consultation, création d'organisation/espace/projet, sélection | Création selon le rôle et l'appartenance à l'espace ; aucune administration exhaustive des membres |
 | Conversations | Liste/création, historique, tours, clé stable, polling, renommage, archivage, export lisible | Hermes doit être configuré ; export affiché en texte |
 | Missions | Création, liste/détail, commentaires, arrêt, relance et acceptation | La demande n'atteste pas l'exécution d'un worker |
@@ -30,7 +36,8 @@ dans [le relevé daté](desktop-validation-2026-09-23.md).
 Les données ACP passent par les routes de l'API métier. Les refus sont visibles
 en français. Un écran vide, un fournisseur inconnu ou un worker de simulation
 ne devient pas un succès supposé. Les secrets restent hors des propriétés QML
-et les textes serveur s'affichent en texte brut. Les changements de projet,
+et l'affichage en texte brut est la règle ; sa couverture complète reste à vérifier.
+Les changements de projet,
 session et origine invalident l'ancien contexte.
 
 La liaison utilise les outils réellement découverts. L'API rattache une nouvelle
@@ -52,8 +59,8 @@ connexion, projets, conversation avec fournisseur indisponible, mission,
 budget, automatisation, export authentifié exact du livrable et déconnexion.
 Le dernier rapport indique **3 réussis, 0 échec, 0 ignoré en 1 663 ms**,
 avec un lanceur complet de 9,7 secondes. Il ne
-remplace pas la recette visuelle des pages. La branche desktop n'est pas encore
-fusionnée dans `main` au moment de ce relevé.
+remplace pas la recette visuelle des pages. La branche desktop a depuis été
+fusionnée dans `main` par la PR #10, au commit `0bc9dcb`.
 
 Restent Windows propre, signature, services réels, écarts de parité ci-dessus
 et **26 constats ouverts du Lot H** dans [le suivi](lot-h-091-review-status.md).
