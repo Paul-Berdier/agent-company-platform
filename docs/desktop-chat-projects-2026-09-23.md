@@ -116,6 +116,28 @@ désormais la preuve d'arrêt de cette identité, sans rouvrir son PID. Un
 processus actif, un accès refusé ou une attente invalide restent des échecs de
 nettoyage. Les descendants tardifs restent recherchés.
 
+## Paquet Windows local
+
+Le paquet de cette interface est produit depuis le commit propre
+`2381ebcbf9da3548310a8b89e52ee27c15332686`, avec Qt 6.8.3 et le CRT MSVC
+embarqué. Il se trouve dans `dist/desktop-chat-projects-20260923/` ; les
+binaires sont non signés et ne constituent pas une publication de version.
+
+| Artefact | Octets | SHA-256 |
+| --- | ---: | --- |
+| `AgentCompanyPlatform-Setup-0.10.0-x64.exe` | 24 384 843 | `0ebb295f4cbf49a92ccb9e7d333859b19e0049573e297e44035742e73606e810` |
+| `AgentCompanyPlatform-Portable-0.10.0-x64.zip` | 37 100 229 | `87c75a92262c22592d0c7f55a225b20038a42f9901d67e552931c4323f93119f` |
+
+Les sommes de contrôle, les dépendances Qt/MSVC requises et chacun des
+1 387 fichiers du ZIP ont été comparés au répertoire préparé. L'exécutable
+emballé correspond au build testé. `provenance.json` conserve ces vérifications
+et la révision source ; `.test-tmp/chat-projects-package-20260923.log` conserve
+la fabrication. Ce contrôle de contenu ne remplace pas l'installation.
+
+L'installation/désinstallation reste non validée : la revue automatique avait
+refusé l'écriture temporaire de la clé HKCU de désinstallation. Cet essai n'a
+pas été relancé sans réponse à la demande d'autorisation correspondante.
+
 ## Limites
 
 Les conversations nécessitent un modèle Hermes réellement configuré. Les essais
