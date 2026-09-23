@@ -94,6 +94,29 @@ def test_dump_sqlite_refuses_memory_and_missing_databases(tmp_path):
     assert not (tmp_path / "copy.sqlite").exists()
 
 
+@pytest.mark.parametrize("name", ["base#section", "base%20litteral", "base espace é"])
+def test_sqlite_snapshot_preserves_uri_characters_in_paths(tmp_path, name):
+    """R27 : le nom réel n'est ni un fragment ni une séquence URI à décoder."""
+    source = tmp_path / f"{name}.db"
+    copy = tmp_path / f"{name}-copie.sqlite"
+    target = tmp_path / f"{name}-restauree.db"
+    _seed(source)
+    dump_sqlite(_sqlite_url(source), copy)
+    restore_sqlite(copy, _sqlite_url(target))
+    assert _rows(target) == [1]
+    assert _rows(source) == [1]
+    assert {path.name for path in tmp_path.iterdir()} == {
+        source.name, copy.name, target.name
+    }
+
+
+def test_quick_check_never_creates_a_missing_uri_named_database(tmp_path):
+    missing = tmp_path / "absente%23#base.db"
+    with pytest.raises(SnapshotError, match="illisible"):
+        snapshot._quick_check(missing)
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_restore_sqlite_replaces_atomically_and_drops_sidecars(tmp_path):
     source = tmp_path / "source.db"
     _seed(source)

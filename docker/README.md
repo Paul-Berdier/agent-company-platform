@@ -2,7 +2,22 @@
 
 Ce dossier contient les deux images de services, leur configuration et deux piles
 compose. Tout est construit depuis la racine du dépôt (`context: ..`) ; le contexte
-est filtré par `.dockerignore` (aucun `.env*`, aucun venv, aucune base SQLite).
+est filtré par `.dockerignore`, à toute profondeur (motifs `**/`) : aucun `.env*`,
+aucun venv, aucune base SQLite, aucune donnée `acp-data`, aucun asset sous licence
+(`apps/web/public/assets/licensed`, `LimeZu`…, redistribution interdite).
+
+Docker ne compare un motif sans `**/` qu'à la racine du contexte : avant 0.9.1,
+`apps/web/public/assets/licensed/limezu` (586 fichiers sur le poste de développement)
+entrait dans le contexte, puis dans l'image web servie par nginx. Avant tout build
+local, vérifier le contexte effectif, sans Docker :
+
+```text
+python scripts/check_docker_context.py          # code 1 et liste des fichiers refusés
+python scripts/check_docker_context.py --list   # affiche le contexte effectif
+```
+
+L'image web refuse en outre de se construire si un dossier `licensed`, `LimeZu`…
+atteint l'étape de build (défense en profondeur si le filtrage régressait).
 
 ## Fichiers
 

@@ -17,13 +17,14 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 from acp_api.events_bus import store_event
-from acp_api.outbox import list_dead
+from acp_api.outbox import RelayReport, list_dead
 from acp_api.outbox_relay import (
     EXIT_INTERRUPTED,
     EXIT_OK,
     EXIT_USAGE,
     main,
 )
+from acp_api import outbox_relay
 from acp_contracts import Event
 from acp_database.models import EventOutboxModel
 from acp_database.testing import make_test_engine
@@ -245,6 +246,64 @@ def test_follow_delivers_then_stops_cleanly_on_the_stop_flag(session_factory):
     assert len(transport.calls) == 2
 
 
+def test_startup_waits_for_migrations_and_connection_recovery():
+    from sqlalchemy.exc import OperationalError, TimeoutError as PoolTimeoutError
+    from acp_database.schema_state import SchemaOutOfDateError, SchemaState
+    errors = [SchemaOutOfDateError(SchemaState(current=None, head="head", ok=False)), OperationalError("sql", {}, Exception("secret")), PoolTimeoutError("pool saturé")]
+    attempts = []
+    waits = []
+
+    class Stop:
+        event = threading.Event()
+
+        def wait(self, seconds):
+            waits.append(seconds)
+            return False
+
+    def initialize():
+        attempts.append(1)
+        if errors:
+            raise errors.pop(0)
+
+    err = io.StringIO()
+    assert outbox_relay.wait_for_schema(initialize, timeout=10, stop=Stop(), err=err, monotonic=lambda: sum(waits))
+    assert len(attempts) == 4 and waits == [1, 2, 4]
+    assert "secret" not in err.getvalue()
+
+
+def test_startup_wait_has_a_deadline_and_explicit_exit_code(monkeypatch):
+    import acp_database
+    import signal
+    from acp_database.schema_state import SchemaOutOfDateError, SchemaState
+
+    def unavailable():
+        raise SchemaOutOfDateError(SchemaState(current=None, head="head", ok=False))
+
+    monkeypatch.setattr(acp_database, "init_db", unavailable)
+    handler = signal.getsignal(signal.SIGTERM)
+    code, _, err = _run(["--follow", "--schema-wait-seconds", "0"])
+    assert code == 4
+    assert "délai" in err and "traceback" not in err.lower()
+    assert signal.getsignal(signal.SIGTERM) == handler
+
+
+@pytest.mark.parametrize("state_extra", [{"unknown_revision": True}, {"missing_tables": ("events",)}])
+def test_startup_refuses_an_incompatible_schema_without_waiting(monkeypatch, state_extra):
+    import acp_database
+    from types import SimpleNamespace
+    from acp_database.schema_state import SchemaOutOfDateError
+    state = SimpleNamespace(current="autre", head="head", ok=False, **state_extra)
+
+    def incompatible():
+        raise SchemaOutOfDateError(state)
+
+    monkeypatch.setattr(acp_database, "init_db", incompatible)
+    monkeypatch.setattr(outbox_relay._StopSignal, "wait", lambda *_: pytest.fail("aucune attente attendue"))
+    code, _, err = _run(["--follow"])
+    assert code == EXIT_USAGE
+    assert "Démarrage refusé" in err
+
+
 def test_follow_backs_off_after_a_transport_error_and_honours_the_stop(session_factory):
     _store(session_factory, 1)
     stop = threading.Event()
@@ -282,6 +341,63 @@ def test_follow_survives_a_database_error_with_backoff(session_factory):
     assert code == EXIT_OK
     assert "base injoignable" in err and "nouvel essai dans 1 s" in err
     assert calls == [1]
+
+
+def test_follow_keeps_outage_backoff_while_the_head_is_not_yet_due(monkeypatch):
+    """Une tête reculée rend un passage vide : ce n'est pas un rétablissement."""
+    reports = iter([RelayReport(failed=1, error="HTTP 503"), RelayReport(), RelayReport(failed=1, error="HTTP 503")])
+    monkeypatch.setattr(outbox_relay, "relay_once", lambda *args, **kwargs: next(reports))
+    waits = []
+
+    class Stop:
+        event = threading.Event()
+
+        def wait(self, seconds):
+            waits.append(seconds)
+            return len(waits) == 3
+
+    assert outbox_relay.follow(
+        lambda: None, None, consumer="event-service", batch_size=100,
+        poll_interval_seconds=0.5, clock=None, stop=Stop(),
+        out=io.StringIO(), err=io.StringIO(),
+    ) == EXIT_OK
+    assert waits == [1, 0.5, 2]
+
+
+def test_follow_dead_letters_a_poison_message_and_keeps_delivering(session_factory):
+    """0.9.0 : une erreur déterministe hors transport était rejouée sans fin, la file
+    restait bloquée derrière elle. Elle devient une lettre morte, la suivante part."""
+
+    poison, healthy = _store(session_factory, 2)
+    stop = threading.Event()
+
+    class PoisonTransport(SpyTransport):
+        def post(self, url, *, json, headers, timeout):
+            self.calls.append({"json": json})
+            if len(self.calls) >= 3:
+                stop.set()  # garde-fou : jamais d'attente illimitée si la file bloque
+            if json["id"] == poison.id:
+                raise UnicodeEncodeError("ascii", "é", 0, 1, "ordinal not in range(128)")
+            stop.set()
+            return httpx.Response(202, request=httpx.Request("POST", url))
+
+    transport = PoisonTransport()
+    code, out, err = _run(
+        ["--follow", "--poll-interval-ms", "10"],
+        session_factory=session_factory,
+        transport=transport,
+        stop=stop,
+        clock=lambda: NOW,
+    )
+
+    assert code == EXIT_OK
+    assert [call["json"]["id"] for call in transport.calls] == [poison.id, healthy.id]
+    assert "lettres mortes : 1" in err
+    with session_factory() as db:
+        (dead,) = list_dead(db)
+        assert dead.event_id == poison.id
+        assert "UnicodeEncodeError" in dead.last_error
+        assert db.get(EventOutboxModel, healthy.id).delivered_at is not None
 
 
 def test_follow_stops_immediately_when_already_asked(session_factory):

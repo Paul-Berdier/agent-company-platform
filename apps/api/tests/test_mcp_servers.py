@@ -10,20 +10,16 @@ from __future__ import annotations
 import hashlib
 import json
 import socket
-import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier, Event as ThreadEvent
+from threading import Barrier
+from threading import Event as ThreadEvent
 from uuid import uuid4
 
 import httpx
 import pytest
+import tomllib
 import yaml
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import sessionmaker
-
-from acp_contracts.redaction import REDACTED_PLACEHOLDER
-
 from acp_api.deps import get_db
 from acp_api.main import app
 from acp_api.mcp import service as mcp_service
@@ -31,6 +27,7 @@ from acp_api.routers import mcp as mcp_router
 from acp_api.routers.workers import utcnow
 from acp_api.secrets_vault import SecretsVault, generate_key
 from acp_api.security import create_user_session, hash_password
+from acp_contracts.redaction import REDACTED_PLACEHOLDER
 from acp_database.models import (
     EventModel,
     McpProbeModel,
@@ -42,6 +39,8 @@ from acp_database.models import (
     WorkerModel,
 )
 from acp_database.testing import make_test_engine
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 
 PUBLIC_IP = "93.184.216.34"
 PASSWORD = "correct horse battery staple"
@@ -2204,13 +2203,23 @@ def test_hostile_header_and_env_names_are_refused(mcp_context):
     for env, code in (
         ({"BAD=NAME": "1"}, "invalid_env_name"),
         ({"": "1"}, "invalid_env_name"),
-        ({"LOG_LEVEL": "info\x00rm -rf"}, "invalid_env_value"),
     ):
         payload = _stdio_payload("injection", stdio_secret, real)
         payload["config"]["stdio"]["env"] = env
         response = client.post("/mcp/servers", json=payload)
         assert response.status_code == 422, (env, response.text)
         assert code in response.json()["detail"]
+
+    # Le contrat de stockage refuse le NUL avant la validation métier du MCP.
+    payload = _stdio_payload("injection", stdio_secret, real)
+    payload["config"]["stdio"]["env"] = {"LOG_LEVEL": "info\x00rm -rf"}
+    response = client.post("/mcp/servers", json=payload)
+    assert response.status_code == 422, response.text
+    errors = response.json()["detail"]
+    assert len(errors) == 1
+    assert errors[0]["type"] == "value_error"
+    assert errors[0]["loc"] == ["body", "config", "stdio", "env"]
+    assert "NUL" in errors[0]["msg"]
 
 
 def test_a_non_ascii_secret_value_fails_the_probe_without_leaking_it(mcp_context):
@@ -2275,9 +2284,8 @@ def test_exports_escape_hostile_header_values(mcp_context):
     ],
 )
 def test_unpinned_package_detection(command, args, expected):
-    from acp_contracts import McpStdioConfig
-
     from acp_api.mcp.service import unpinned_package
+    from acp_contracts import McpStdioConfig
 
     assert unpinned_package(McpStdioConfig(command=command, args=args)) == expected
 
@@ -2297,3 +2305,45 @@ def test_absolute_command_detection(command, absolute):
     from acp_api.mcp.service import is_absolute_command
 
     assert is_absolute_command(command) is absolute
+
+
+# --- Frontière de transaction (0.9.1) --------------------------------------------
+
+
+def test_the_http_probe_calls_the_server_outside_any_transaction(mcp_context, monkeypatch):
+    """La résolution des secrets écrit ``last_used_at`` : cette écriture est validée
+    avant la découverte, pour qu'aucune transaction ne reste ouverte pendant les
+    requêtes sortantes (sous PostgreSQL, elle serait tuée au bout de 60 s)."""
+
+    client = mcp_context["client"]
+    fake = mcp_context["fake"]
+    secret_id = _create_secret(mcp_context, "GITHUB_TOKEN", HTTP_SECRET_VALUE)
+    created = client.post("/mcp/servers", json=_http_payload("frontiere", secret_id))
+    assert created.status_code == 201, created.text
+
+    recorded = []
+    base = app.dependency_overrides[get_db]
+
+    def recording():
+        for db in base():
+            recorded.append(db)
+            yield db
+
+    observed: list[bool] = []
+
+    def watching(request: httpx.Request) -> httpx.Response:
+        observed.append(any(db.in_transaction() for db in recorded))
+        return fake.handle(request)
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, recording)
+    monkeypatch.setitem(
+        app.dependency_overrides, mcp_router.get_http_transport, lambda: httpx.MockTransport(watching)
+    )
+
+    probe = client.post(f"/mcp/servers/{created.json()['id']}/probe")
+
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["status"] == "succeeded"
+    assert observed and not any(observed)
+    with mcp_context["session_factory"]() as db:
+        assert db.get(SecretModel, secret_id).last_used_at is not None

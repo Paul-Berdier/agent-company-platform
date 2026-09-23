@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from acp_api.artifacts_storage import LocalArtifactStorage
@@ -554,6 +555,36 @@ def test_a_delivered_outbox_row_is_removed_with_its_purged_event(
     with session_factory() as db:
         assert [row.id for row in db.query(EventModel).all()] == [kept_id]
         assert [row.event_id for row in db.query(EventOutboxModel).all()] == [kept_id]
+
+
+def test_an_event_still_referenced_by_the_outbox_cannot_be_deleted(
+    session_factory, storage, world
+):
+    """L'ordre de la purge est imposé par la base, pas seulement par le code.
+
+    Sans cascade, supprimer un événement avant sa ligne d'outbox échoue, comme en
+    production. Si le moteur de test n'appliquait pas les clés étrangères, une purge
+    qui inverserait l'ordre passerait ici au vert et échouerait sur Railway.
+    """
+
+    with session_factory() as db:
+        event = _event(db, world, type_="task.progress", age_days=400)
+        event.journal_seq = 1
+        _outbox_row(db, event, delivered=True)
+        db.commit()
+        event_id = event.id
+
+    with session_factory() as db:
+        with pytest.raises(IntegrityError):
+            db.query(EventModel).filter(EventModel.id == event_id).delete(
+                synchronize_session=False
+            )
+            db.flush()
+        db.rollback()
+
+    with session_factory() as db:
+        assert [row.id for row in db.query(EventModel).all()] == [event_id]
+        assert [row.event_id for row in db.query(EventOutboxModel).all()] == [event_id]
 
 
 def test_the_dry_run_reports_the_events_held_back_by_the_relay(

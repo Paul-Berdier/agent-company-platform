@@ -88,6 +88,7 @@ services:
       <<: *database-env
       ACP_EVENT_SERVICE_URL: http://event-service:8000
       ACP_PROVIDER_GATEWAY_URL: http://provider-gateway:8000
+      ACP_INTERNAL_HTTP_HOSTS: event-service,provider-gateway
       ACP_PLUGINS_DIR: /app/plugins
       ACP_ARTIFACT_STORAGE_DIR: /data/artifacts
       ACP_SKILLS_STORAGE_DIR: /data/skills
@@ -162,6 +163,7 @@ services:
     environment:
       <<: *database-env
       ACP_EVENT_SERVICE_URL: http://event-service:8000
+      ACP_INTERNAL_HTTP_HOSTS: event-service
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -312,9 +312,9 @@ def _publish(
 ) -> None:
     """Publie un événement séquencé **dans la transaction courante**.
 
-    Délègue à ``events_bus.publish`` (agent E1) : allocation de séquence avec réessai
-    sur l'index unique partiel, réveil des flux SSE du run et du projet reporté au
-    ``commit()`` de l'appelant, et relais « best effort » vers le service temps réel.
+    Délègue à ``events_bus.publish`` (agent E1) : numéros attribués au ``commit()`` de
+    l'appelant (0.9.1), réveil des flux SSE du run et du projet et relais « best
+    effort » vers le service temps réel reportés à ce même commit.
     ``commit=False`` est essentiel : la validation technique de la tentative et les
     cas de test doivent être validés dans la même transaction que ces événements.
     """

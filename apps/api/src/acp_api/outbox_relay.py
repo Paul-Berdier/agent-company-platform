@@ -2,7 +2,8 @@
 
 Le relais est un processus **à part** de l'API : il lit ``event_outbox``, livre au
 service d'événements dans l'ordre du journal et valide ligne par ligne. Une seule
-réplique tourne à la fois (``deploy/railway/relay``), non par verrou global mais parce
+réplique est configurée (``deploy/railway/relay``), sans empêcher le recouvrement
+pendant un redéploiement ; aucun verrou global ne le garantit parce
 que l'ordre **entre** relais n'est pas garanti ; le ``SKIP LOCKED`` de ``relay_once``
 empêche seulement deux relais de livrer la même ligne.
 
@@ -18,21 +19,27 @@ python -m acp_api.outbox_relay --requeue-dead    # remet les lettres mortes en a
 Options : ``--batch-size`` (100), ``--poll-interval-ms`` (500), ``--consumer``
 (``event-service``). Codes de sortie : ``0`` succès, ``2`` usage ou configuration
 invalide (schéma hors version, jeton absent, origine refusée), ``3`` lot ``--once``
-interrompu par une erreur de transport — les lignes restantes seront rejouées.
+interrompu par une erreur de transport ; ``4`` délai de démarrage dépassé ou arrêt.
+Les lignes restantes seront rejouées.
 
-La commande démarre par ``init_db()`` : sous PostgreSQL, un schéma qui n'est pas à
-la révision de tête refuse le démarrage plutôt que de lire une table incomplète.
+La commande attend que ``init_db()`` confirme le schéma courant et la connexion
+pendant au plus 900 s (``--schema-wait-seconds``), sans lancer de migration.
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any, TextIO
+
+from sqlalchemy.exc import OperationalError, TimeoutError as PoolTimeoutError
+from acp_database.schema_state import SchemaOutOfDateError
 
 from .outbox import (
     DEFAULT_CONSUMER,
@@ -46,17 +53,20 @@ from .outbox import (
 
 __all__ = [
     "EXIT_INTERRUPTED",
+    "EXIT_NOT_READY",
     "EXIT_OK",
     "EXIT_USAGE",
     "FOLLOW_BACKOFF_MAX_SECONDS",
     "FOLLOW_BACKOFF_MIN_SECONDS",
     "follow",
     "main",
+    "wait_for_schema",
 ]
 
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_INTERRUPTED = 3
+EXIT_NOT_READY = 4
 
 FOLLOW_BACKOFF_MIN_SECONDS = 1.0
 FOLLOW_BACKOFF_MAX_SECONDS = 60.0
@@ -105,6 +115,10 @@ def _parser() -> argparse.ArgumentParser:
         help=f"Attente entre deux lots vides en --follow (défaut {DEFAULT_POLL_INTERVAL_MS}).",
     )
     parser.add_argument(
+        "--schema-wait-seconds", type=float, default=900,
+        help="Attente maximale de la migration ou de la base au démarrage (900 s).",
+    )
+    parser.add_argument(
         "--consumer",
         default=DEFAULT_CONSUMER,
         help=f"Consommateur servi (défaut « {DEFAULT_CONSUMER} »).",
@@ -117,6 +131,7 @@ class _StopSignal:
 
     def __init__(self, stop: threading.Event | None = None) -> None:
         self.event = stop or threading.Event()
+        self.previous: dict[int, Any] = {}
 
     def install(self) -> None:
         """Pose les gestionnaires de signal si le fil courant le permet.
@@ -133,14 +148,54 @@ class _StopSignal:
             if signum is None:
                 continue
             try:
+                self.previous[signum] = signal.getsignal(signum)
                 signal.signal(signum, _handler)
             except ValueError:
+                self.previous.pop(signum, None)
                 return
+
+    def restore(self) -> None:
+        """Rend les gestionnaires au processus appelant, même après une sortie précoce."""
+        for signum, handler in self.previous.items():
+            signal.signal(signum, handler)
+        self.previous.clear()
 
     def wait(self, seconds: float) -> bool:
         """Attend ``seconds`` ou l'arrêt ; vrai si l'arrêt a été demandé."""
 
         return self.event.wait(max(0.0, seconds))
+
+
+def wait_for_schema(
+    initialize: Callable[[], Any], *, timeout: float, stop: _StopSignal,
+    err: TextIO, monotonic: Callable[[], float] = time.monotonic,
+) -> bool:
+    """Attend le schéma courant sans lancer de migration ; arrêt et délai sont bornés."""
+    deadline = monotonic() + timeout
+    backoff = FOLLOW_BACKOFF_MIN_SECONDS
+    while not stop.event.is_set():
+        try:
+            initialize()
+            return True
+        except (SchemaOutOfDateError, OperationalError, PoolTimeoutError) as exc:
+            if isinstance(exc, SchemaOutOfDateError) and (
+                getattr(exc.state, "unknown_revision", False)
+                or getattr(exc.state, "missing_tables", ())
+            ):
+                # Une base plus récente ou estampillée mais incomplète n'est pas
+                # une migration en cours : conserver son refus explicite.
+                raise
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                print("Démarrage refusé : délai d'attente du schéma ou de la base dépassé.", file=err)
+                return False
+            # Le pilote peut inclure des paramètres sensibles dans son message.
+            print(f"Démarrage en attente ({type(exc).__name__}) ; nouvel essai.", file=err)
+            if stop.wait(min(backoff, remaining)):
+                break
+            backoff = min(2 * backoff, FOLLOW_BACKOFF_MAX_SECONDS)
+    print("Démarrage interrompu par une demande d'arrêt.", file=err)
+    return False
 
 
 def follow(
@@ -192,7 +247,12 @@ def follow(
                 break
             backoff = min(backoff * 2, FOLLOW_BACKOFF_MAX_SECONDS)
             continue
-        backoff = FOLLOW_BACKOFF_MIN_SECONDS
+        # Un lot vide peut signifier que la tête attend encore son échéance :
+        # seul un progrès réel prouve le rétablissement du consommateur.
+        if report.delivered or report.dead:
+            backoff = FOLLOW_BACKOFF_MIN_SECONDS
+        if report.dead:
+            print(report.summary(), file=err)
         if report.delivered:
             print(report.summary(), file=out)
             continue
@@ -212,7 +272,7 @@ def main(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
-    """Point d'entrée ; renvoie 0, 2 (usage/configuration) ou 3 (lot interrompu).
+    """Point d'entrée : 0 succès, 2 usage, 3 lot interrompu, 4 démarrage indisponible.
 
     ``session_factory``, ``transport``, ``clock`` et ``stop`` sont injectables pour
     les tests ; en production, ``init_db()`` est appelé d'abord et refuse un schéma
@@ -232,81 +292,90 @@ def main(
     if arguments.poll_interval_ms < 1:
         print("--poll-interval-ms : un délai strictement positif est attendu.", file=err)
         return EXIT_USAGE
+    if not math.isfinite(arguments.schema_wait_seconds) or arguments.schema_wait_seconds < 0:
+        print("--schema-wait-seconds : un délai fini et positif ou nul est attendu.", file=err)
+        return EXIT_USAGE
 
-    if session_factory is None:  # pragma: no cover - chemin de production
-        from acp_database import get_session_factory, init_db
-        from acp_database.schema_state import SchemaOutOfDateError
-
-        try:
-            init_db()
-        except (SchemaOutOfDateError, RuntimeError) as exc:
-            print(f"Démarrage refusé : {exc}", file=err)
-            return EXIT_USAGE
-        session_factory = get_session_factory()
+    stop_signal = _StopSignal(stop)
+    stop_signal.install()
 
     try:
-        if arguments.list_dead:
-            with session_factory() as db:
-                rows = list_dead(db, consumer=arguments.consumer)
-            if not rows:
+        if session_factory is None:
+            from acp_database import get_session_factory, init_db
+
+            try:
+                if not wait_for_schema(
+                    init_db, timeout=arguments.schema_wait_seconds, stop=stop_signal, err=err
+                ):
+                    return EXIT_NOT_READY
+            except RuntimeError as exc:
+                print(f"Démarrage refusé : {exc}", file=err)
+                return EXIT_USAGE
+            session_factory = get_session_factory()
+
+        try:
+            if arguments.list_dead:
+                with session_factory() as db:
+                    rows = list_dead(db, consumer=arguments.consumer)
+                if not rows:
+                    print(
+                        f"Aucune lettre morte pour le consommateur « {arguments.consumer} ».",
+                        file=out,
+                    )
+                    return EXIT_OK
                 print(
-                    f"Aucune lettre morte pour le consommateur « {arguments.consumer} ».",
+                    f"{len(rows)} lettre(s) morte(s) pour « {arguments.consumer} » :",
                     file=out,
                 )
+                for row in rows:
+                    print(
+                        f"  journal {row.journal_seq} — événement {row.event_id} — "
+                        f"{row.attempts} essai(s) — {row.last_error or 'sans message'}",
+                        file=out,
+                    )
                 return EXIT_OK
-            print(
-                f"{len(rows)} lettre(s) morte(s) pour « {arguments.consumer} » :",
-                file=out,
-            )
-            for row in rows:
-                print(
-                    f"  journal {row.journal_seq} — événement {row.event_id} — "
-                    f"{row.attempts} essai(s) — {row.last_error or 'sans message'}",
-                    file=out,
-                )
-            return EXIT_OK
-        if arguments.requeue_dead:
-            with session_factory() as db:
-                count = requeue_dead(
-                    db,
+            if arguments.requeue_dead:
+                with session_factory() as db:
+                    count = requeue_dead(
+                        db,
+                        consumer=arguments.consumer,
+                        now=clock() if clock is not None else None,
+                    )
+                print(f"{count} lettre(s) morte(s) remise(s) en attente.", file=out)
+                return EXIT_OK
+            if arguments.follow:
+                return follow(
+                    session_factory,
+                    transport,
                     consumer=arguments.consumer,
-                    now=clock() if clock is not None else None,
+                    batch_size=arguments.batch_size,
+                    poll_interval_seconds=arguments.poll_interval_ms / 1000,
+                    clock=clock,
+                    stop=stop_signal,
+                    out=out,
+                    err=err,
                 )
-            print(f"{count} lettre(s) morte(s) remise(s) en attente.", file=out)
-            return EXIT_OK
-        if arguments.follow:
-            stop_signal = _StopSignal(stop)
-            stop_signal.install()
-            return follow(
+            report: RelayReport = relay_once(
                 session_factory,
                 transport,
                 consumer=arguments.consumer,
                 batch_size=arguments.batch_size,
-                poll_interval_seconds=arguments.poll_interval_ms / 1000,
-                clock=clock,
-                stop=stop_signal,
-                out=out,
-                err=err,
+                now=clock() if clock is not None else None,
             )
-        report: RelayReport = relay_once(
-            session_factory,
-            transport,
-            consumer=arguments.consumer,
-            batch_size=arguments.batch_size,
-            now=clock() if clock is not None else None,
-        )
-    except OutboxConfigurationError as exc:
-        print(str(exc), file=err)
-        return EXIT_USAGE
-    print(report.summary(), file=out)
-    if report.interrupted:
-        print(
-            "Le lot a été interrompu : les lignes restantes seront rejouées au "
-            "prochain passage.",
-            file=err,
-        )
-        return EXIT_INTERRUPTED
-    return EXIT_OK
+        except OutboxConfigurationError as exc:
+            print(str(exc), file=err)
+            return EXIT_USAGE
+        print(report.summary(), file=out)
+        if report.interrupted:
+            print(
+                "Le lot a été interrompu : les lignes restantes seront rejouées au "
+                "prochain passage.",
+                file=err,
+            )
+            return EXIT_INTERRUPTED
+        return EXIT_OK
+    finally:
+        stop_signal.restore()
 
 
 if __name__ == "__main__":  # pragma: no cover - utilitaire de console

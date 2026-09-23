@@ -2846,3 +2846,62 @@ def test_the_preview_origin_must_differ_from_the_browser_origin(signed, monkeypa
 
     assert response.status_code == 424
     assert "application" in response.json()["detail"]
+
+
+# --- Frontières de transaction (0.9.1) -------------------------------------------
+#
+# Sous PostgreSQL, une transaction ouverte pendant une attente réseau est tuée au bout
+# de 60 s (idle_in_transaction_session_timeout) et retient une connexion du pool.
+# Sous SQLite, rien ne coupe : ces tests observent donc directement la session.
+
+
+def _record_request_sessions(monkeypatch) -> list[Session]:
+    recorded: list[Session] = []
+    base = app.dependency_overrides[get_db]
+
+    def recording():
+        for db in base():
+            recorded.append(db)
+            yield db
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, recording)
+    return recorded
+
+
+def test_no_transaction_stays_open_while_the_file_is_received(context, monkeypatch):
+    recorded = _record_request_sessions(monkeypatch)
+    observed: list[bool] = []
+    real_iterate = artifacts_router._MultipartScanner.iterate_body
+
+    async def watching(self):
+        async for chunk in real_iterate(self):
+            observed.append(any(db.in_transaction() for db in recorded))
+            yield chunk
+
+    monkeypatch.setattr(artifacts_router._MultipartScanner, "iterate_body", watching)
+
+    response = _upload(context, payload=b"x" * 50_000)
+
+    assert response.status_code == 201, response.text
+    assert observed, "la réception du corps doit avoir été observée"
+    assert not any(observed), "une transaction restait ouverte pendant la réception"
+
+
+def test_a_session_download_holds_no_transaction_while_it_streams(context, monkeypatch):
+    uploaded = _upload(context, payload=b"contenu diffuse" * 1000)
+    assert uploaded.status_code == 201, uploaded.text
+    recorded = _record_request_sessions(monkeypatch)
+    observed: list[bool] = []
+    real_stream = artifacts_router._blob_stream
+
+    def watching(handle, start, length):
+        for chunk in real_stream(handle, start, length):
+            observed.append(any(db.in_transaction() for db in recorded))
+            yield chunk
+
+    monkeypatch.setattr(artifacts_router, "_blob_stream", watching)
+
+    response = context.client.get(f"/artifacts/{uploaded.json()['id']}/content")
+
+    assert response.status_code == 200
+    assert observed and not any(observed)

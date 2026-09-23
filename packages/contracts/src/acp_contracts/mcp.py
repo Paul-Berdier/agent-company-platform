@@ -9,7 +9,10 @@ import re
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
+
+from .limits import CapturedStr
+from .limits import DatabaseModel as BaseModel
 
 McpTransport = Literal["http", "stdio"]
 McpExecutionLocation = Literal["platform", "runner"]
@@ -191,7 +194,7 @@ class McpProbeResult(BaseModel):
     server_info: dict[str, Any] | None = None
     tools: list[McpDiscoveredTool] = Field(default_factory=list)
     exit_code: int | None = None
-    stderr_tail: str = ""
+    stderr_tail: CapturedStr = ""
     duration_ms: int | None = None
     error: str | None = None
 

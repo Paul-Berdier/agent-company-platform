@@ -59,6 +59,7 @@ from . import SkillError
 from . import scan as scan_module
 from . import sources as sources_module
 from ..events_bus import store_event
+from ..transactions import end_read_transaction
 from ..outbound import OutboundPolicy, PinnedHttpClient
 
 FRONTMATTER_MAX_CHARS = 65_536
@@ -404,15 +405,34 @@ def revision_storage_path(skill_id: str, number: int) -> str:
 def revision_root(revision: SkillRevisionModel) -> Path:
     """Répertoire des fichiers d'une révision, résolu contre la racine configurée.
 
-    Les révisions antérieures portent un chemin absolu : il est lu tel quel, sans
-    migration de données. Les nouvelles portent un chemin relatif, résolu contre
-    :func:`storage_directory` à chaque lecture.
+    L'emplacement est toujours ``<racine>/<skill_id>/<numéro>``. Les anciennes
+    lignes incluent parfois la racine dans ``storage_path`` (relative au processus
+    ou absolue) : ne pas la préfixer à nouveau et ne pas la suivre hors du volume
+    configuré. Un volume déplacé reste lisible sans migration des lignes.
     """
 
-    stored = Path(revision.storage_path)
-    if stored.is_absolute():
-        return stored
-    return storage_directory() / stored
+    anchor = storage_directory().resolve()
+    canonical = (anchor / revision.skill_id / str(revision.number)).resolve()
+    if not canonical.is_relative_to(anchor):
+        raise SkillError(
+            "Lecture refusée hors de la racine ACP_SKILLS_STORAGE_DIR.", status_code=409
+        )
+    if canonical.is_dir():
+        return canonical
+
+    # Si le volume attendu est absent, une ancienne adresse ne doit pas servir de
+    # repli vers un autre volume. Une adresse relative moderne se résout sous la
+    # racine ; une adresse héritée incluait déjà cette racine dans son préfixe.
+    stored = Path(revision.storage_path).expanduser()
+    if stored == Path(revision_storage_path(revision.skill_id, revision.number)):
+        stored = anchor / stored
+    if not stored.resolve().is_relative_to(anchor):
+        raise SkillError(
+            "Lecture refusée hors de la racine ACP_SKILLS_STORAGE_DIR ; "
+            "la révision est absente du volume configuré.",
+            status_code=409,
+        )
+    return canonical
 
 
 def read_file(revision: SkillRevisionModel, path: str) -> SkillFileContent:
@@ -671,6 +691,9 @@ def materialize_source(db: Session, source: Any) -> sources_module.MaterializedS
     l'exige la spécification : ``outbound.private_allowlist_used`` avec ``purpose``.
     """
 
+    # Téléchargement possible jusqu'à 25 Mio : les lectures de contrôle de la route ne
+    # gardent pas leur transaction pendant ce temps (acp_api.transactions).
+    end_read_transaction(db)
     enabled = sources_module.github_enabled(os.environ)
     client = None
     allowlist_used: set[tuple[str, str]] = set()

@@ -6,7 +6,71 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
-## 0.9.0 (préparation) - 2026-09-18
+## 0.9.1 (préparation) - 2026-09-22
+
+Durcissement du Lot H en cours. L'inventaire des constats, des corrections reprises
+et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
+
+### Ajouté
+
+- migration PostgreSQL 0003 pour les tailles, durées, codes de sortie et séquences
+  sur 64 bits, ainsi que les références longues ; schéma SQLite historique conservé ;
+- tests de contention budgétaire et d'ingestion d'un rapport de 2 000 cas avec
+  réservation concurrente ; suites et parcours PostgreSQL dans l'intégration continue ;
+- validation commune des bornes de stockage, des horodatages UTC et des NUL.
+
+### Modifié
+
+- événements métier numérotés et journalisés au commit ; verrous de projet
+  budgétaires compatibles avec les insertions filles tout en sérialisant les décisions ;
+- relais SQLite avec réservation persistante courte et verrou libéré avant l'appel HTTP ;
+  attente bornée des migrations au démarrage et recul en cas de panne du consommateur ;
+- installation CI Python depuis le verrou haché, sans résolution des dépendances
+  locales, puis vérification de cohérence des distributions et des déclarations.
+
+### Corrigé
+
+- messages d'outbox illisibles isolés en lettre morte ; une panne du consommateur
+  n'épuise plus les essais d'un message valide ; hôtes HTTP internes autorisés explicitement ;
+- gardes d'adoption du schéma, refus d'une révision inconnue et contrôle des tables
+  attendues ; réutilisation de la connexion de migration avec un pool de taille un ;
+- ouverture SQLite en lecture seule avec URI encodée, y compris pour les chemins
+  contenant des caractères réservés ; résolution confinée des anciennes révisions
+  de compétences après déplacement ou restauration du volume ;
+- activation des clés étrangères dans les tests SQLite, avec correction des fixtures ;
+- protection contre la remise à zéro d'une base de tests non identifiée, diagnostic
+  de volume absent, déduplication des livraisons concurrentes et refus temporaires 503
+  pour les interblocages et l'épuisement du pool.
+
+### Sécurité
+
+- diagnostics de messages illisibles expurgés de leur contenu et des détails SQL ;
+- exclusions Docker récursives des données locales, secrets et éléments sous licence,
+  avec contrôle du contexte et défense supplémentaire dans l'image web ;
+- les garde-fous de schéma ne déclarent pas une base utilisable sur la seule présence
+  d'une estampille Alembic.
+
+### Vérifié localement
+
+- SQLite : 2 852 tests réussis et 70 ignorés ; PostgreSQL : 2 862 réussis et 60 ignorés,
+  après suites complètes et reprises ciblées documentées, sans modification du produit ;
+- six parcours API réussis sur les deux dialectes, et construction des roues
+  `acp-contracts`, `acp-database` et `acp-api` ;
+- rapports initiaux, incidents de validation et limitations détaillés dans
+  `docs/lot-h-091-review-status.md` ; les exécutions interrompues n'y valent pas succès.
+
+### Limites connues
+
+- 0.9.1 n'est pas publiée ; plusieurs constats de sauvegarde, rétention, déploiement,
+  reprise du worker et routes asynchrones restent ouverts dans l'inventaire ;
+- aucun déploiement Railway ni construction Docker pendant cette reprise ;
+- garanties de restauration annoncées en 0.9.0 à restreindre : le rollback des
+  répertoires ne couvre pas tous les échecs, et les gardes d'URL ne prouvent pas
+  l'identité réelle des bases ; R19–R21 restent ouverts ;
+- la comparaison de schéma contrôle les noms des contraintes CHECK, pas leur corps SQL ;
+- livraison au moins une fois et réplique unique du relais nécessaires pour l'ordre global.
+
+## [0.9.0] - 2026-09-18
 
 Lot H : PostgreSQL et migrations versionnées, outbox transactionnelle avec reprise,
 sauvegarde-restauration, images de services, configuration Railway et validation

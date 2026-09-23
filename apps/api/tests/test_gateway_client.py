@@ -7,6 +7,13 @@ from acp_api import gateway as gateway_module
 from acp_api.gateway import GatewayClient, GatewayUnavailableError
 
 
+def test_gateway_accepts_only_explicit_private_http_hosts(monkeypatch):
+    monkeypatch.setenv("ACP_INTERNAL_HTTP_HOSTS", "provider-gateway")
+    client = GatewayClient(base_url="http://provider-gateway:8000", service_token="test")
+    assert client.base_url == "http://provider-gateway:8000"
+    assert GatewayClient(base_url="http://public.example").base_url is None
+
+
 def test_gateway_client_sends_service_auth_and_idempotency_key():
     captured: list[httpx.Request] = []
 

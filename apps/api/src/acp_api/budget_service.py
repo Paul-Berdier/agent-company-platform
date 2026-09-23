@@ -322,10 +322,13 @@ def put_project_policy(
     _validate_policy_currencies(policy)
     # Sur PostgreSQL, verrouiller le parent existant sérialise aussi les deux
     # toutes premières créations de policy, avant que la ligne unique n'existe.
+    # ``FOR NO KEY UPDATE`` (``key_share=True``) : deux décisions s'excluent, mais les
+    # insertions de lignes filles du projet (tâches, alertes, artefacts) prennent
+    # leur ``KEY SHARE`` sans attendre la fin de la décision budgétaire.
     locked_project = (
         db.query(ProjectModel)
         .filter(ProjectModel.id == project.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .one_or_none()
     )
     if locked_project is None:
@@ -372,10 +375,12 @@ def _lock_policy(
 ) -> tuple[ProjectBudgetPolicyModel, ProjectBudgetPolicy]:
     # Même ordre de verrou que PUT policy : parent puis policy. Le parent existe
     # avant toute policy et sérialise donc aussi la toute première matérialisation.
+    # ``FOR NO KEY UPDATE`` : un ``FOR UPDATE`` bloquait le ``KEY SHARE`` de toute
+    # insertion rattachée au projet pendant la décision (N2-6, 0.9.1).
     project = (
         db.query(ProjectModel)
         .filter(ProjectModel.id == project_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .one_or_none()
     )
     if project is None:

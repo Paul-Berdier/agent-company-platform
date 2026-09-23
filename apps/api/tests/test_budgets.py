@@ -3,18 +3,25 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import threading
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from acp_api import budget_service
+from acp_api import budget_service, testing_service
 from acp_api.deps import get_db, get_principal
 from acp_api.routers import budgets
 from acp_api.routers.workers import _token_hash
-from acp_contracts import MAX_BUDGET_COST, MAX_BUDGET_COUNTER
+from acp_contracts import (
+    MAX_BUDGET_COST,
+    MAX_BUDGET_COUNTER,
+    BudgetPermitRequest,
+    TestIngestRequest,
+)
 from acp_database.models import (
     AlertModel,
     BudgetUsageModel,
@@ -31,7 +38,7 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
-from acp_database.testing import make_test_engine
+from acp_database.testing import make_test_engine, skip_or_fail_without_postgresql
 
 
 @pytest.fixture
@@ -195,6 +202,87 @@ def _put_policy(context, payload):
     return context["client"].put(
         f"/projects/{context['project']}/budget-policy", json=payload
     )
+
+
+@pytest.mark.postgres
+@pytest.mark.concurrency
+def test_large_report_allows_another_runs_budget_permit(budget_context, monkeypatch):
+    """N2-7 : 2 000 cas restent atomiques sans monopoliser le journal à l'ingestion.
+
+    Une pause déterministe à mi-rapport laisse un permis réel valider sous un délai
+    de verrou court. Elle reproduit aussi un rapport lent, sans chronomètre fragile.
+    Les numéros du rapport doivent ensuite former un bloc contigu après le permis.
+    """
+    skip_or_fail_without_postgresql()
+    context = budget_context
+    monkeypatch.setenv("ACP_EVENT_RELAY_ENABLED", "1")
+    midpoint = threading.Event()
+    resume = threading.Event()
+    outcome = []
+    case_count = 2_000
+    real_publish = testing_service._publish
+    published_cases = 0
+
+    def pause_mid_report(*args, **kwargs):
+        nonlocal published_cases
+        real_publish(*args, **kwargs)
+        if kwargs["event_type"] == testing_service.EVENT_CASE_FINISHED:
+            published_cases += 1
+            if published_cases == case_count // 2:
+                midpoint.set()
+                assert resume.wait(15), "le permis concurrent n'a pas terminé"
+
+    monkeypatch.setattr(testing_service, "_publish", pause_mid_report)
+    request = TestIngestRequest(
+        task_run_id=context["runs"][0],
+        runner="playwright",
+        fencing_token=3,
+        exit_code=0,
+        events=[
+            {"kind": "test_end", "test_id": f"cas-{index}", "title": f"Cas {index}",
+             "status": "passed", "outcome": "expected"}
+            for index in range(case_count)
+        ] + [{"kind": "run_end", "exit_code": 0, "run_status": "completed"}],
+    )
+
+    def ingest():
+        try:
+            with context["session_factory"]() as db:
+                result = testing_service.ingest_test_run(
+                    db, db.get(WorkerModel, context["worker"]), request
+                )
+                outcome.append(result.case_count)
+        except BaseException as exc:  # pragma: no cover - diagnostic
+            outcome.append(exc)
+
+    thread = threading.Thread(target=ingest)
+    thread.start()
+    try:
+        assert midpoint.wait(45), outcome
+        with context["session_factory"]() as db:
+            db.execute(text("SET LOCAL lock_timeout = '1000ms'"))
+            budget = budget_service.load_worker_budget_context(
+                db, worker=db.get(WorkerModel, context["worker"]),
+                run_id=context["runs"][1], fencing_token=4,
+            )
+            result = budget_service.reserve_budget(
+                db, budget, BudgetPermitRequest(
+                    permit_id="pendant-rapport", provider="mock", phase="tool", tool_calls=1
+                ),
+            )
+            assert result.permit_allowed
+    finally:
+        resume.set()
+        thread.join(60)
+        assert not thread.is_alive(), "l'ingestion doit terminer"
+    assert outcome == [case_count], outcome
+    with context["session_factory"]() as db:
+        rows = db.query(EventModel).order_by(EventModel.journal_seq).all()
+        report = [row for row in rows if row.type.startswith("test.")]
+        assert len(report) == case_count + 2
+        assert rows[0].task_run_id == context["runs"][1]
+        assert [row.sequence for row in report] == list(range(1, case_count + 3))
+        assert [row.journal_seq for row in rows] == list(range(1, len(rows) + 1))
 
 
 def test_policy_defaults_rbac_persistence_and_currency_validation(budget_context):

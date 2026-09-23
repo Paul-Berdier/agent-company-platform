@@ -5,13 +5,9 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-
 from acp_contracts import (
-    EvidenceCreate,
     Event,
+    EvidenceCreate,
     SessionContext,
     Task,
     TaskRun,
@@ -20,6 +16,18 @@ from acp_contracts import (
     WorkerLeaseResponse,
 )
 from acp_contracts.enums import SessionScope
+from acp_contracts.limits import (
+    DatabaseModel as BaseModel,
+)
+from acp_contracts.limits import (
+    Int32,
+    Text36,
+    Text50,
+    Text100,
+    Text300,
+    WorkflowLabel,
+    captured_run_result,
+)
 from acp_database.models import (
     AgentInstanceModel,
     MissionEvidenceModel,
@@ -33,9 +41,12 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from pydantic import Field, field_validator
+from sqlalchemy.orm import Session
 
 from ..deps import accessible_project_ids, ensure_access, get_db, get_principal
-from ..events_bus import forward_event, store_event
+from ..events_bus import publish
 from .workers import (
     WORKER_LEASE_SECONDS,
     _as_utc,
@@ -49,37 +60,42 @@ router = APIRouter(tags=["work"])
 
 
 class TaskCreate(BaseModel):
-    project_id: str
-    team_id: str | None = None
-    agent_instance_id: str | None = None
-    title: str
+    project_id: Text36
+    team_id: Text36 | None = None
+    agent_instance_id: Text36 | None = None
+    title: Text300
     description: str = ""
-    priority: int = 3
+    priority: Int32 = 3
     meta: dict = Field(default_factory=dict)
 
 
 class TaskPatch(BaseModel):
-    status: str | None = None
-    workflow_step: str | None = None
-    agent_instance_id: str | None = None
-    title: str | None = None
+    status: Text50 | None = None
+    workflow_step: WorkflowLabel | None = None
+    agent_instance_id: Text36 | None = None
+    title: Text300 | None = None
     description: str | None = None
-    priority: int | None = None
+    priority: Int32 | None = None
 
 
 class ClaimRequest(BaseModel):
-    worker_id: str
-    provider_id: str = "mock"
+    worker_id: Text36
+    provider_id: Text100 = "mock"
 
 
 class TaskRunPatch(BaseModel):
-    status: str | None = None
-    workflow_step: str | None = None
+    status: Text50 | None = None
+    workflow_step: WorkflowLabel | None = None
     plan: dict | None = None
     result: dict | None = None
     append_logs: list[dict] = Field(default_factory=list)
     technical_validation: TechnicalValidation | None = None
     evidence: list[EvidenceCreate] = Field(default_factory=list)
+
+    @field_validator("result", mode="before")
+    @classmethod
+    def captured_evidence_in_result(cls, value):
+        return captured_run_result(value)
 
 
 _RUN_STATES = {
@@ -146,8 +162,16 @@ _TERMINAL_EVENT_BY_RUN = {
 
 
 def _emit(db: Session, background: BackgroundTasks, event: Event) -> None:
-    store_event(db, event)
-    background.add_task(forward_event, event)
+    """Journalise l'événement dans la transaction de la route, **avant** son commit.
+
+    La route valide ensuite l'effet et l'événement d'un seul commit (0.9.1). Jusqu'en
+    0.9.0, l'événement partait dans une seconde transaction, après le commit métier :
+    un délai de verrou y rendait un 503 « réessayez » pour un effet déjà validé
+    (claim orphelin, tâche en double) et l'événement était perdu. Numéros, réveil des
+    flux et relais attendent le commit ; une transaction annulée n'annonce rien.
+    """
+
+    publish(db, event, commit=False, background=background)
 
 
 def _task_event_ids(db: Session, task: TaskModel) -> dict:
@@ -185,9 +209,10 @@ def create_task(
             raise HTTPException(status_code=422, detail="Agent hors du workspace du projet")
     obj = TaskModel(**body.model_dump())
     db.add(obj)
-    db.commit()
+    db.flush()
     _emit(db, background, Event(type="task.created", **_task_event_ids(db, obj),
                                 payload={"title": obj.title, "status": obj.status}))
+    db.commit()
     return Task.model_validate(obj, from_attributes=True)
 
 
@@ -239,11 +264,11 @@ def patch_task(
     status_changed = "status" in changes and changes["status"] != task.status
     for key, value in changes.items():
         setattr(task, key, value)
-    db.commit()
     if status_changed:
         _emit(db, background, Event(type="task.status_changed", **_task_event_ids(db, task),
                                     payload={"status": task.status, "title": task.title,
                                              "workflow_step": task.workflow_step}))
+    db.commit()
     return Task.model_validate(task, from_attributes=True)
 
 
@@ -264,10 +289,42 @@ def queue_task(
             detail="Utilisez /missions/{id}/retry pour relancer une mission",
         )
     task.status = "queued"
-    db.commit()
     _emit(db, background, Event(type="task.queued", **_task_event_ids(db, task),
                                 payload={"title": task.title}))
+    db.commit()
     return Task.model_validate(task, from_attributes=True)
+
+
+def _lock_queued_run(db: Session, task_id: str) -> tuple[bool, TaskRunModel | None]:
+    """Verrouille la tentative en file d'une tâche **avant** de réserver la tâche.
+
+    C'est l'ordre de l'arrêt et de la relance d'une mission, et de la politique de
+    budget : la tentative, puis la tâche. Jusqu'en 0.9.0, le claim réservait la tâche
+    puis attendait la tentative, qu'un arrêt tenait en attendant la tâche
+    (interblocage 40P01, 500). ``SKIP LOCKED`` : une tentative tenue par un arrêt ou
+    une relance en cours fait passer au candidat suivant au lieu d'attendre.
+
+    Rend ``(False, None)`` si la tentative est tenue ou n'est plus en file ;
+    ``(True, None)`` pour une tâche historique sans tentative ; ``(True, run)`` sinon.
+    SQLite ignore ``FOR UPDATE`` : son verrou de fichier sérialise déjà les claims.
+    """
+
+    latest = (
+        db.query(TaskRunModel.id)
+        .filter_by(task_id=task_id, status="queued")
+        .order_by(TaskRunModel.attempt_number.desc(), TaskRunModel.created_at.desc())
+        .first()
+    )
+    if latest is None:
+        return True, None
+    run = (
+        db.query(TaskRunModel)
+        .filter(TaskRunModel.id == latest.id, TaskRunModel.status == "queued")
+        .with_for_update(skip_locked=True)
+        .populate_existing()
+        .one_or_none()
+    )
+    return run is not None, run
 
 
 def _claim_next_task(
@@ -293,6 +350,7 @@ def _claim_next_task(
 
     worker_capabilities = set(worker.capabilities or [])
     task = None
+    reserved_run: TaskRunModel | None = None
     simulation_rejected_real_mission = False
     candidates = db.query(TaskModel).filter(TaskModel.status == "queued")
     if project_filter is not None:
@@ -315,6 +373,9 @@ def _claim_next_task(
         required = set((candidate.meta or {}).get("required_capabilities", []))
         if not required.issubset(worker_capabilities):
             continue
+        available, queued_run = _lock_queued_run(db, candidate.id)
+        if not available:
+            continue
         reservation = db.query(TaskModel).filter(
             TaskModel.id == candidate.id, TaskModel.status == "queued"
         )
@@ -326,6 +387,7 @@ def _claim_next_task(
         )
         if reserved == 1:
             task = candidate
+            reserved_run = queued_run
             break
     if task is None:
         reason = None
@@ -373,13 +435,7 @@ def _claim_next_task(
         provider_id=body.provider_id,
         memory_scope="PROJECT",
     )
-    run = (
-        db.query(TaskRunModel)
-        .filter_by(task_id=task.id, status="queued")
-        .order_by(TaskRunModel.attempt_number.desc(), TaskRunModel.created_at.desc())
-        .with_for_update()
-        .first()
-    )
+    run = reserved_run
     if run is None:
         # Compatibilité des tâches historiques mises en file sans tentative.
         task.attempt_counter = max(task.attempt_counter or 0, 0) + 1
@@ -438,7 +494,6 @@ def _claim_next_task(
     worker.status = "busy" if worker.active_runs >= worker.max_concurrency else "online"
     db.add(lease)
     task.active_run_id = run.id if task.is_mission else task.active_run_id
-    db.commit()
 
     ids = _task_event_ids(db, task)
     _emit(db, background, Event(type="task.status_changed", **ids,
@@ -450,6 +505,9 @@ def _claim_next_task(
         team_id=task.team_id, agent_instance_id=agent.id,
         payload={"status": "thinking", "name": agent.name, "role_id": agent.role_id},
     ))
+    # Un seul commit pour la réservation et ses événements : un worker qui reçoit
+    # une erreur n'a rien réservé, et une réservation validée est toujours journalisée.
+    db.commit()
 
     context = SessionContext(
         session_id=session.id,
@@ -820,6 +878,5 @@ def patch_task_run(
         run.logs = list(run.logs or []) + body.append_logs
     if terminal_event is not None:
         _emit(db, background, terminal_event)
-    else:
-        db.commit()
+    db.commit()
     return TaskRun.model_validate(run, from_attributes=True)

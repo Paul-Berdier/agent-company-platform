@@ -8,7 +8,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
+
+from .limits import DatabaseModel as BaseModel
+from .limits import Int64, captured_local_process_data
 
 MAX_BUDGET_COST = 999_999_999_999.0
 """Plafond représentable sans saturer le ledger monétaire NUMERIC(18, 6)."""
@@ -122,9 +125,16 @@ class EvidenceCreate(BaseModel):
     summary: str = Field(min_length=1, max_length=4000)
     data: dict[str, Any] = Field(default_factory=dict)
     command: str | None = Field(default=None, max_length=4000)
-    exit_code: int | None = None
+    exit_code: Int64 | None = None
     uri: str | None = Field(default=None, max_length=2000)
     checksum: str | None = Field(default=None, max_length=200)
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def captured_streams(cls, value, info):
+        if info.data.get("kind") == "local_process":
+            return captured_local_process_data(value)
+        return value
 
 
 class MissionEvidence(EvidenceCreate):

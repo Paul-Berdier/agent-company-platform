@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from .enums import MemoryClassification, MemoryScope, SharingPolicy
+from .limits import DatabaseModel as BaseModel
 
 
 class MemoryItem(BaseModel):

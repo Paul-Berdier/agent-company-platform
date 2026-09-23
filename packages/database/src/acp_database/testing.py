@@ -1,11 +1,12 @@
 """Outillage de test partagé par tous les arbres de tests du dépôt.
 
-Sans ``ACP_TEST_DATABASE_URL``, les moteurs rendus sont exactement ceux que les
-suites construisaient à la main jusqu'ici (SQLite en mémoire sur ``StaticPool``,
-ou fichier temporaire sur ``QueuePool`` pour les tests concurrents). Avec la
-variable, chaque test reçoit un schéma PostgreSQL éphémère ``t_<hex12>`` détruit
-à la fermeture : les tests d'un même lot peuvent tourner en parallèle sur une
-seule base sans se voir.
+Sans ``ACP_TEST_DATABASE_URL``, les moteurs rendus sont ceux que les suites
+construisaient à la main jusqu'ici (SQLite en mémoire sur ``StaticPool``, ou
+fichier temporaire sur ``QueuePool`` pour les tests concurrents), à une différence
+près : comme le moteur de l'application, ils appliquent les clés étrangères
+(``PRAGMA foreign_keys=ON`` à chaque connexion). Avec la variable, chaque test
+reçoit un schéma PostgreSQL éphémère ``t_<hex12>`` détruit à la fermeture : les
+tests d'un même lot peuvent tourner en parallèle sur une seule base sans se voir.
 
 Doctrine : un test PostgreSQL non configuré est **ignoré** avec une raison
 explicite ; il **échoue** si ``ACP_TEST_DATABASE_REQUIRED=1`` et que la base est
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from collections.abc import Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from typing import Iterator
@@ -24,6 +26,7 @@ from typing import Iterator
 import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.pool import NullPool, QueuePool, StaticPool
 
 from . import engine as engine_module
@@ -96,15 +99,113 @@ def ephemeral_postgresql_schema(url: str) -> Iterator[str]:
         admin.dispose()
 
 
-def reset_public_schema(url: str) -> None:
-    """Vide entièrement le schéma ``public`` (tests Alembic et sauvegarde).
+TEST_DATABASE_MARKER = "acp-test-database"
+"""Commentaire témoin d'une base réservée aux tests (``COMMENT ON DATABASE``).
 
-    Destructif et réservé aux bases de test : chaque lot reçoit la sienne.
+Il est posé par ``reset_public_schema`` la première fois qu'elle vide une base dont
+``public`` est vide, et survit aux remises à zéro suivantes : une base marquée reste
+réutilisable même quand un lot interrompu y a laissé ses tables. C'est un commentaire
+de base et non un schéma : ``pg_dump`` sans ``--create`` ne l'exporte pas, si bien
+qu'une sauvegarde de la base de test ne transporte pas le marqueur dans une autre.
+"""
+
+_MARKER_SQL = text(
+    "SELECT shobj_description(d.oid, 'pg_database') FROM pg_database d "
+    "WHERE d.datname = current_database()"
+)
+
+APPLICATION_DATABASE_URL_ENVS = ("ACP_DATABASE_URL", "DATABASE_URL")
+"""Variables qui désignent la base de l'application (``DATABASE_URL`` : Railway)."""
+
+_LAUNCH_APPLICATION_URLS: dict[str, str] = {
+    name: os.environ.get(name, "") for name in APPLICATION_DATABASE_URL_ENVS
+}
+"""Relevé au premier import, avant toute fixture : l'environnement dans lequel la suite
+a été lancée. Les tests redirigent ensuite ``ACP_DATABASE_URL`` vers leur propre base,
+ce qui est légitime ; le danger est une suite lancée dans un shell qui désigne déjà la
+base de l'application."""
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: Objets qui prouvent que ``public`` porte des données : tables, tables
+#: partitionnées, vues, vues matérialisées, séquences et tables étrangères.
+_OCCUPIED_PUBLIC_SQL = text(
+    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')"
+)
+
+
+class UnsafeTestDatabaseError(RuntimeError):
+    """Refus de remettre à zéro une base qui n'est pas prouvée jetable."""
+
+
+def _database_identity(url: str) -> tuple[str, int, str, str] | None:
+    """Hôte, port, base et rôle d'une URL PostgreSQL ; ``None`` pour tout autre URL.
+
+    Le pilote et le mot de passe sont ignorés : ``postgres://`` (Railway) et
+    ``postgresql+psycopg://`` désignent la même base.
     """
+
+    try:
+        parsed = make_url(url)
+    except (ArgumentError, ValueError):  # pas une URL exploitable
+        return None
+    if parsed.drivername.split("+", 1)[0] not in {"postgresql", "postgres"}:
+        return None
+    host = (parsed.host or "").lower()
+    if host in _LOOPBACK_HOSTS:
+        host = "loopback"
+    return host, int(parsed.port or 5432), parsed.database or "", parsed.username or ""
+
+
+def reset_public_schema(url: str, *, application_urls: Mapping[str, str] | None = None) -> None:
+    """Vide entièrement le schéma ``public`` d'une base **prouvée** réservée aux tests.
+
+    Utilisé par les tests Alembic, de disponibilité et de sauvegarde. Refus explicite
+    (``UnsafeTestDatabaseError``), sans rien effacer, quand :
+
+    - l'URL n'est pas une URL PostgreSQL ;
+    - elle désigne la même base que ``ACP_DATABASE_URL`` ou ``DATABASE_URL`` tels
+      qu'ils valaient au lancement de la suite (``application_urls`` les remplace,
+      pour les tests de cette garde) ;
+    - la base ne porte pas le commentaire témoin ``acp-test-database`` et son schéma
+      ``public`` contient déjà des tables, vues ou séquences.
+
+    Une base vide est marquée au passage : c'est le cas d'une base de CI neuve ou d'une
+    base créée pour les tests. Une base déjà peuplée doit être marquée à la main, après
+    avoir vérifié qu'elle est jetable
+    (``COMMENT ON DATABASE <base> IS 'acp-test-database'``).
+    """
+
+    target = _database_identity(url)
+    if target is None:
+        raise UnsafeTestDatabaseError(
+            "Remise à zéro refusée : seule une base PostgreSQL de test peut être vidée."
+        )
+    launched = _LAUNCH_APPLICATION_URLS if application_urls is None else application_urls
+    for variable in APPLICATION_DATABASE_URL_ENVS:
+        if _database_identity((launched.get(variable) or "").strip()) == target:
+            raise UnsafeTestDatabaseError(
+                f"Remise à zéro refusée : la base de test est la base de l'application "
+                f"désignée par {variable}. Utilisez une base dédiée aux tests."
+            )
 
     admin = _admin_engine(url)
     try:
         with admin.connect() as connection:
+            if connection.execute(_MARKER_SQL).scalar() != TEST_DATABASE_MARKER:
+                database = connection.dialect.identifier_preparer.quote(
+                    connection.execute(text("SELECT current_database()")).scalar_one()
+                )
+                mark = f"COMMENT ON DATABASE {database} IS '{TEST_DATABASE_MARKER}'"
+                if connection.execute(_OCCUPIED_PUBLIC_SQL).scalar_one():
+                    raise UnsafeTestDatabaseError(
+                        "Remise à zéro refusée : le schéma public de cette base contient "
+                        "déjà des données et la base ne porte pas le commentaire témoin "
+                        f"« {TEST_DATABASE_MARKER} » d'une base de test. Si elle est "
+                        f"réellement jetable, marquez-la à la main : {mark};"
+                    )
+                connection.execute(text(mark))
             connection.execute(text("DROP SCHEMA public CASCADE"))
             connection.execute(text("CREATE SCHEMA public"))
     finally:
@@ -145,6 +246,8 @@ def make_test_engine(
       ``check_same_thread=False``), la forme historique des tests unitaires ;
     - SQLite, ``concurrent=True`` : fichier ``tmp_path/test.db`` sur ``QueuePool``
       avec ``timeout=30``, la forme historique des tests multi-threads ;
+    - dans les deux formes SQLite, les clés étrangères sont appliquées à chaque
+      connexion, comme par ``make_engine`` ;
     - PostgreSQL : schéma éphémère et moteur ``pool_size=8, max_overflow=8``
       dont le ``search_path`` est fixé au schéma, fuseau UTC, ``lock_timeout``
       10 s et ``statement_timeout`` 30 s.
@@ -170,6 +273,10 @@ def make_test_engine(
                 connect_args={"check_same_thread": False},
                 poolclass=StaticPool,
             )
+        # Même règle que le moteur de l'application, avant toute connexion (y
+        # compris celle de ``create_all``) : une clé étrangère violée échoue ici
+        # comme en production, sous SQLite comme sous PostgreSQL.
+        engine_module.enable_sqlite_foreign_keys(engine)
         database = TestDatabase(engine=engine, backend=backend, url=url)
     else:
         url = _test_url()
@@ -272,15 +379,10 @@ def skip_or_fail_without_postgresql() -> str:
     return url
 
 
-def _normalized_expression(value) -> str:
-    """Compare des expressions SQL sans parenthèses, espaces ni casse.
-
-    PostgreSQL renvoie ``((a IS NOT NULL) AND (b IS NOT NULL))`` là où le modèle
-    écrit ``a IS NOT NULL AND b IS NOT NULL`` ; seule la structure compte ici.
-    """
-
-    rendered = "" if value is None else str(value)
-    return "".join(rendered.lower().replace("(", "").replace(")", "").split())
+def _normalized_expression(value):
+    """Préserve le groupement booléen : (a OR b) AND c diffère de a OR (b AND c)."""
+    from .migrate import _predicate_structure
+    return _predicate_structure(value)
 
 
 def schema_inventory(engine, *, schema: str | None = None) -> dict:

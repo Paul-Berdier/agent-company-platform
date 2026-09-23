@@ -121,23 +121,44 @@ def engine_options(url: str, *, maintenance: bool = False) -> dict:
     }
 
 
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
+
+def enable_sqlite_foreign_keys(engine):
+    """Active ``PRAGMA foreign_keys=ON`` à chaque nouvelle connexion d'un moteur SQLite.
+
+    pysqlite n'applique pas les clés étrangères par défaut, et le schéma en dépend
+    (``event_outbox.event_id`` n'a volontairement aucune cascade). Le moteur de
+    l'application (:func:`make_engine`) et celui des tests
+    (``acp_database.testing.make_test_engine``) passent tous deux par ici : une
+    référence pendante refusée en production l'est aussi dans la suite. Sans effet
+    sur un autre dialecte ; un second appel sur le même moteur ne double pas
+    l'écouteur. Rend le moteur.
+    """
+
+    if engine.dialect.name == "sqlite" and not event.contains(
+        engine, "connect", _enable_sqlite_foreign_keys
+    ):
+        event.listen(engine, "connect", _enable_sqlite_foreign_keys)
+    return engine
+
+
 def make_engine(url: str, *, maintenance: bool = False):
     """Construit un moteur avec les options de :func:`engine_options`.
 
-    Sous SQLite, les clés étrangères sont activées à chaque connexion : pysqlite
-    ne les applique pas par défaut et le schéma en dépend.
+    Sous SQLite, les clés étrangères sont activées à chaque connexion
+    (:func:`enable_sqlite_foreign_keys`) : pysqlite ne les applique pas par défaut
+    et le schéma en dépend.
     """
 
-    engine = create_engine(url, **engine_options(url, maintenance=maintenance))
-    if engine.dialect.name == "sqlite":
-        @event.listens_for(engine, "connect")
-        def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
-            cursor = dbapi_connection.cursor()
-            try:
-                cursor.execute("PRAGMA foreign_keys=ON")
-            finally:
-                cursor.close()
-    return engine
+    return enable_sqlite_foreign_keys(
+        create_engine(url, **engine_options(url, maintenance=maintenance))
+    )
 
 
 @lru_cache(maxsize=1)
@@ -202,6 +223,9 @@ def init_db() -> None:
         if not state.ok:
             raise SchemaOutOfDateError(state)
         return
+    state = check_schema_current(engine)
+    if state.unknown_revision:
+        raise SchemaOutOfDateError(state)
     Base.metadata.create_all(engine)
     _upgrade_sqlite_schema(engine)
     stamp_head(engine)

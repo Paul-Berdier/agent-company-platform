@@ -1,9 +1,5 @@
 """CRUD de la hiérarchie Organization → ... → Agent Instance."""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-
 from acp_contracts import (
     AgentInstance,
     Department,
@@ -13,6 +9,15 @@ from acp_contracts import (
     Team,
     TeamMember,
     Workspace,
+)
+from acp_contracts.limits import (
+    DatabaseModel as BaseModel,
+)
+from acp_contracts.limits import (
+    Text36,
+    Text50,
+    Text100,
+    Text200,
 )
 from acp_database.models import (
     AgentInstanceModel,
@@ -24,6 +29,9 @@ from acp_database.models import (
     TeamModel,
     WorkspaceModel,
 )
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import Field
+from sqlalchemy.orm import Session
 
 from ..deps import (
     accessible_agent_ids,
@@ -36,64 +44,64 @@ from ..deps import (
     is_platform_owner,
     require_platform_role,
 )
-from ..events_bus import forward_event, store_event
+from ..events_bus import publish
 
 router = APIRouter(tags=["hierarchy"])
 
 
 class OrganizationCreate(BaseModel):
-    name: str
+    name: Text200
     description: str = ""
 
 
 class WorkspaceCreate(BaseModel):
-    organization_id: str
-    name: str
-    kind: str = "generic"
+    organization_id: Text36
+    name: Text200
+    kind: Text50 = "generic"
     description: str = ""
 
 
 class DepartmentCreate(BaseModel):
-    workspace_id: str
-    name: str
-    department_type: str
-    office_theme: str = "default"
+    workspace_id: Text36
+    name: Text200
+    department_type: Text100
+    office_theme: Text100 = "default"
     config: dict = Field(default_factory=dict)
 
 
 class ProjectCreate(BaseModel):
-    workspace_id: str
-    department_id: str | None = None
-    name: str
-    project_type: str = "generic"
+    workspace_id: Text36
+    department_id: Text36 | None = None
+    name: Text200
+    project_type: Text100 = "generic"
     description: str = ""
 
 
 class TeamCreate(BaseModel):
-    project_id: str
-    name: str
+    project_id: Text36
+    name: Text200
     mission: str = ""
 
 
 class TeamMemberCreate(BaseModel):
-    agent_instance_id: str
-    role_id: str | None = None
+    agent_instance_id: Text36
+    role_id: Text100 | None = None
 
 
 class AgentCreate(BaseModel):
-    workspace_id: str
-    team_id: str | None = None
-    name: str
-    role_id: str
-    module: str = "core"
+    workspace_id: Text36
+    team_id: Text36 | None = None
+    name: Text200
+    role_id: Text100
+    module: Text100 = "core"
     capabilities: list[str] = Field(default_factory=list)
     config: dict = Field(default_factory=dict)
 
 
 class AgentPatch(BaseModel):
-    status: str | None = None
-    team_id: str | None = None
-    name: str | None = None
+    status: Text50 | None = None
+    team_id: Text36 | None = None
+    name: Text200 | None = None
 
 
 def _get_or_404(db: Session, model, entity_id: str):
@@ -344,7 +352,6 @@ def patch_agent(
     status_changed = "status" in changes and changes["status"] != agent.status
     for key, value in changes.items():
         setattr(agent, key, value)
-    db.commit()
     if status_changed:
         team = db.get(TeamModel, agent.team_id) if agent.team_id else None
         event = Event(
@@ -355,8 +362,10 @@ def patch_agent(
             agent_instance_id=agent.id,
             payload={"status": agent.status, "name": agent.name, "role_id": agent.role_id},
         )
-        store_event(db, event)
-        background.add_task(forward_event, event)
+        # Même transaction que le changement d'état : jamais un état validé sans
+        # son événement (0.9.1).
+        publish(db, event, commit=False, background=background)
+    db.commit()
     return AgentInstance.model_validate(agent, from_attributes=True)
 
 

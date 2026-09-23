@@ -6,6 +6,7 @@ __pycache__/
 .venv-wsl/
 venv/
 .pytest_cache/
+.test-tmp/
 .mypy_cache/
 .ruff_cache/
 *.db

@@ -319,8 +319,21 @@ def create_mission(
         )
     )
     try:
+        # Dans le ``try`` : lire la portée de l'événement peut déclencher le flush de
+        # la commande, donc la violation d'unicité d'une création rejouée.
+        _emit(
+            db,
+            background,
+            Event(
+                type="mission.created",
+                **_task_event_ids(db, task),
+                task_run_id=run.id,
+                payload={"title": task.title, "attempt_number": 1, "status": "queued"},
+            ),
+        )
         db.commit()
     except IntegrityError:
+        # Le rollback retire aussi l'événement : une création rejouée n'en émet pas.
         db.rollback()
         previous_command = _principal_command(
             db, principal=principal, command="create", key=key
@@ -337,16 +350,6 @@ def create_mission(
             db, principal, project_id=previous_task.project_id, minimum_role="viewer"
         )
         return _mission_contract(db, previous_task, include_runs=True)
-    _emit(
-        db,
-        background,
-        Event(
-            type="mission.created",
-            **_task_event_ids(db, task),
-            task_run_id=run.id,
-            payload={"title": task.title, "attempt_number": 1, "status": "queued"},
-        ),
-    )
     return _mission_contract(db, task, include_runs=True)
 
 
@@ -525,24 +528,24 @@ def stop_mission(
             )
         )
         try:
+            if not already_stopped:
+                _emit(
+                    db,
+                    background,
+                    Event(
+                        type="mission.stop_requested",
+                        **_task_event_ids(db, task),
+                        task_run_id=run.id,
+                        payload={
+                            "status": run.status,
+                            "attempt_number": run.attempt_number,
+                        },
+                    ),
+                )
             db.commit()
         except IntegrityError:
             db.rollback()
             continue
-        if not already_stopped:
-            _emit(
-                db,
-                background,
-                Event(
-                    type="mission.stop_requested",
-                    **_task_event_ids(db, task),
-                    task_run_id=run.id,
-                    payload={
-                        "status": run.status,
-                        "attempt_number": run.attempt_number,
-                    },
-                ),
-            )
         return MissionStopResponse(
             mission_id=task.id,
             run=mission_run_contract(db, run),
@@ -764,6 +767,16 @@ def retry_mission(
         command.task_run_id = run.id
         task.active_run_id = run.id
         task.status = "queued"
+        _emit(
+            db,
+            background,
+            Event(
+                type="mission.retried",
+                **_task_event_ids(db, task),
+                task_run_id=run.id,
+                payload={"attempt_number": attempt_number, "reason": body.reason},
+            ),
+        )
         db.commit()
     except IntegrityError:
         replayed_run = _retry_replay_after_rollback(
@@ -776,16 +789,6 @@ def retry_mission(
         if replayed_run is None:
             raise HTTPException(status_code=409, detail="Relance concurrente")
         return mission_run_contract(db, replayed_run)
-    _emit(
-        db,
-        background,
-        Event(
-            type="mission.retried",
-            **_task_event_ids(db, task),
-            task_run_id=run.id,
-            payload={"attempt_number": attempt_number, "reason": body.reason},
-        ),
-    )
     return mission_run_contract(db, run)
 
 
@@ -852,7 +855,6 @@ def decide_acceptance(
         raise HTTPException(status_code=409, detail="Acceptation déjà décidée")
     db.refresh(run)
     task.status = "done" if body.decision == "accepted" else "blocked"
-    db.commit()
     _emit(
         db,
         background,
@@ -863,6 +865,7 @@ def decide_acceptance(
             payload={"comment": body.comment, "decided_by": principal},
         ),
     )
+    db.commit()
     return mission_run_contract(db, run)
 
 

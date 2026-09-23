@@ -107,13 +107,17 @@ Trois décisions structurent cette tranche.
    L'API détient la base, les sessions et le RBAC ; le service d'événements reste un
    relais interne sans accès aux données. Le WebSocket anonyme de ce service reste
    fermé par défaut et n'a pas été rouvert.
-2. **Le curseur est un compteur monotone alloué dans la transaction métier**, pas un
-   horodatage. `events.sequence` ordonne une tentative, `events.journal_seq` ordonne
-   le journal entier. Une horloge ne donne pas d'ordre total — la granularité réelle
-   mesurée sur la machine de vérification est d'environ 1,5 ms — et une pagination
-   sur une valeur non unique perd des lignes ou dépasse sa limite. Le flux « tail » la
-   base par curseur (interrogation bornée + réveil intra-processus) : durable,
-   multi-processus, sans courtier externe.
+2. **Le curseur est un compteur monotone attribué au commit de la transaction
+   métier**, pas un horodatage. `events.sequence` ordonne une tentative,
+   `events.journal_seq` ordonne le journal entier. Une horloge ne donne pas d'ordre
+   total — la granularité réelle mesurée sur la machine de vérification est
+   d'environ 1,5 ms — et une pagination sur une valeur non unique perd des lignes ou
+   dépasse sa limite. Le flux « tail » la base par curseur (interrogation bornée +
+   réveil intra-processus) : durable, multi-processus, sans courtier externe.
+   Depuis 0.9.1, les numéros sont attribués **au commit**, sous un verrou consultatif
+   PostgreSQL tenu jusqu'à la fin de ce commit : c'est le dernier verrou de la
+   transaction, si bien qu'il ne forme plus de cycle avec un verrou de ligne, et le
+   journal visible reste un préfixe sans trou, dans l'ordre des commits.
 3. **Le reporter de tests n'émet pas vers le réseau.** Il écrit un NDJSON local ; le
    worker authentifié l'ingère, téléverse les pièces jointes et publie les événements
    avec sa propre identité. Aucun média ne transite dans un événement : le payload
@@ -235,8 +239,8 @@ Les responsabilités ci-dessous définissent la cible. Au Lot C, les contrôles 
 missions, polling et frontières de services sont livrés ; le Lot D ajoute le coffre
 de secrets, la politique de sortie réseau et les registres MCP/skills ; le Lot E
 ajoute le scope de flux et de fichiers, les URLs privées signées et le flux SSE
-authentifié ; le Lot F ajoute routines, budgets et alertes. L'outbox et la
-normalisation des événements SSE **d'Hermes** restent explicitement à réaliser.
+authentifié ; le Lot F ajoute routines, budgets et alertes, et le Lot H livre
+l'outbox. La normalisation des événements SSE **d'Hermes** reste à réaliser.
 
 ### Interface web et CLI
 
@@ -413,15 +417,21 @@ d'événements, distincte de ce flux. Quand `ACP_EVENT_RELAY_ENABLED` vaut exact
 livre ces lignes dans l'ordre du journal et reprend là où il s'est arrêté après une
 coupure. La sémantique est **au moins une fois**, jamais exactement une fois : le
 service d'événements déduplique par identifiant dans une fenêtre bornée en mémoire,
-qu'un redémarrage vide. Une ligne qui échoue `ACP_OUTBOX_MAX_ATTEMPTS` fois devient
+qu'un redémarrage vide. Une ligne refusée comme message invalide (400/413/422)
+`ACP_OUTBOX_MAX_ATTEMPTS` fois devient
 une lettre morte, listée par `--list-dead` et rejouable par `--requeue-dead` ; la
 purge de rétention n'efface jamais un événement dont la livraison est encore due.
-Le relais doit tourner en **une seule réplique** : deux relais ne livrent jamais la
-même ligne, mais l'ordre entre eux n'est pas garanti. Sans la variable, le
+Le relais doit tourner en **une seule réplique** : PostgreSQL empêche deux relais
+de livrer simultanément la même ligne, mais l'ordre entre eux n'est pas garanti.
+SQLite persiste une réservation courte et libère le verrou avant l'appel HTTP ; après son
+expiration, une réponse tardive peut causer un doublon, sans écraser l'état d'un
+relais successeur. Les pannes réseau et du consommateur retiennent la file sans
+épuiser le budget d'essais d'un message valide. Sans la variable, le
 comportement historique (relais direct, sans reprise) est conservé.
 
-`forward_event` continue de recopier l'événement vers `apps/event-service` en
-best effort, pour les consommateurs internes historiques. L'ingestion de ce service
+Hors `ACP_EVENT_RELAY_ENABLED=1`, `forward_event` recopie l'événement vers
+`apps/event-service` en best effort pour les consommateurs internes historiques.
+Avec l'outbox activée, il n'effectue aucun envoi. L'ingestion de ce service
 exige toujours un Bearer interne, et son WebSocket navigateur anonyme reste fermé par
 défaut : le Lot E ne l'a pas rouvert, il a livré une voie authentifiée ailleurs. Le
 drapeau de réactivation porte toujours le nom

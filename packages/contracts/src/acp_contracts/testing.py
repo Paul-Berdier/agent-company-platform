@@ -17,8 +17,10 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from .limits import CapturedStr, Int32, Int64
+from .limits import DatabaseModel as BaseModel
 from .operations import ArtifactSummary
 
 TestStatus = Literal["passed", "failed", "timedOut", "skipped", "interrupted"]
@@ -45,7 +47,7 @@ class TestStep(BaseModel):
 
     title: str = Field(max_length=500)
     category: str = Field(default="", max_length=50)
-    duration_ms: int = Field(default=0, ge=0)
+    duration_ms: Int64 = Field(default=0, ge=0)
     error: bool = False
 
 
@@ -74,13 +76,13 @@ class TestCaseResult(BaseModel):
     test_id: str = Field(max_length=200)
     location: dict[str, Any] = Field(default_factory=dict)
     project_name: str = Field(default="", max_length=200)
-    attempt: int = Field(default=1, ge=1)
+    attempt: Int32 = Field(default=1, ge=1)
     expected_status: str = Field(default="passed", max_length=20)
     status: TestStatus
     outcome: TestOutcome
-    duration_ms: int = Field(default=0, ge=0)
-    error_message: str = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
-    error_snippet: str = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
+    duration_ms: Int64 = Field(default=0, ge=0)
+    error_message: CapturedStr = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
+    error_snippet: CapturedStr = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
     steps: list[TestStep] = Field(default_factory=list, max_length=TEST_STEPS_MAX)
     annotations: list[dict[str, Any]] = Field(
         default_factory=list, max_length=TEST_ANNOTATIONS_MAX
@@ -104,9 +106,9 @@ class TestRunSummary(BaseModel):
     status: TestRunStatus
     started_at: datetime
     finished_at: datetime | None = None
-    duration_ms: int | None = Field(default=None, ge=0)
+    duration_ms: Int64 | None = Field(default=None, ge=0)
     totals: TestTotals = Field(default_factory=TestTotals)
-    exit_code: int | None = None
+    exit_code: Int64 | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     case_count: int = Field(default=0, ge=0)
 
@@ -148,7 +150,7 @@ class ReporterAttachment(BaseModel):
     content_type: str = Field(default="application/octet-stream", max_length=200)
     path: str = Field(max_length=1000)
     sha256: str = Field(default="", max_length=64)
-    size_bytes: int = Field(default=0, ge=0)
+    size_bytes: Int64 = Field(default=0, ge=0)
 
     @field_validator("path")
     @classmethod
@@ -179,13 +181,13 @@ class ReporterEvent(BaseModel):
     suite_path: list[str] = Field(default_factory=list, max_length=TEST_SUITE_DEPTH_MAX)
     location: dict[str, Any] = Field(default_factory=dict)
     project_name: str = Field(default="", max_length=200)
-    attempt: int = Field(default=1, ge=1)
+    attempt: Int32 = Field(default=1, ge=1)
     expected_status: str = Field(default="passed", max_length=20)
     status: TestStatus | None = None
     outcome: TestOutcome | None = None
-    duration_ms: int = Field(default=0, ge=0)
-    error_message: str = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
-    error_snippet: str = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
+    duration_ms: Int64 = Field(default=0, ge=0)
+    error_message: CapturedStr = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
+    error_snippet: CapturedStr = Field(default="", max_length=TEST_ERROR_MAX_CHARS)
     steps: list[TestStep] = Field(default_factory=list, max_length=TEST_STEPS_MAX)
     annotations: list[dict[str, Any]] = Field(
         default_factory=list, max_length=TEST_ANNOTATIONS_MAX
@@ -198,11 +200,11 @@ class ReporterEvent(BaseModel):
     finished_at: datetime | None = None
     totals: TestTotals | None = None
     run_status: TestRunStatus | None = None
-    exit_code: int | None = None
+    exit_code: Int64 | None = None
     report_path: str | None = Field(default=None, max_length=1000)
 
     # error
-    message: str = Field(default="", max_length=2000)
+    message: CapturedStr = Field(default="", max_length=2000)
 
     @field_validator("report_path")
     @classmethod
@@ -233,5 +235,5 @@ class TestIngestRequest(BaseModel):
     runner: Literal["playwright"]
     runner_version: str = Field(default="", max_length=50)
     config: dict[str, Any] = Field(default_factory=dict)
-    exit_code: int | None = None
+    exit_code: Int64 | None = None
     events: list[ReporterEvent] = Field(max_length=REPORTER_EVENTS_MAX)

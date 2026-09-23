@@ -20,6 +20,7 @@ import argparse
 import functools
 import os
 import sys
+from contextlib import nullcontext
 from typing import Callable, Sequence, TextIO
 
 from alembic import command
@@ -27,6 +28,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
+from sqlalchemy import CheckConstraint, inspect
 from sqlalchemy.exc import SQLAlchemyError
 
 from .engine import make_engine
@@ -34,10 +36,12 @@ from .locking import LockUnavailableError, advisory_session_lock
 from .models import Base
 from .schema_state import (
     VERSION_TABLE,
+    SchemaOutOfDateError,
     SchemaState,
     alembic_config,
     autogenerate_options,
     check_schema_current,
+    head_revision,
     script_directory,
 )
 
@@ -58,7 +62,7 @@ class _UsageError(Exception):
     """Erreur d'usage de la ligne de commande (code 2)."""
 
 
-class _Refusal(Exception):
+class _Refusal(RuntimeError):
     """Refus explicite (code 3)."""
 
 
@@ -98,11 +102,13 @@ def run_upgrade(
     la même table de version et écriraient le même DDL.
     """
 
-    _with_migration_lock(
-        engine,
-        lambda config: command.upgrade(config, revision),
-        lock_timeout_seconds=lock_timeout_seconds,
-    )
+    def upgrade(config):
+        state = check_schema_current(engine, connection=config.attributes["connection"])
+        if state.unknown_revision:
+            raise _Refusal(str(SchemaOutOfDateError(state)))
+        command.upgrade(config, revision)
+
+    _with_migration_lock(engine, upgrade, lock_timeout_seconds=lock_timeout_seconds)
 
 
 def run_downgrade(
@@ -129,14 +135,26 @@ def run_stamp(
     revision: str,
     *,
     lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
+    allow_unverified_revision: bool = False,
 ) -> None:
-    """Écrit ``revision`` dans la table de version sans exécuter de DDL."""
+    """Estampille une base conforme ; une adoption intermédiaire exige un accord explicite."""
 
-    _with_migration_lock(
-        engine,
-        lambda config: command.stamp(config, revision),
-        lock_timeout_seconds=lock_timeout_seconds,
-    )
+    def stamp(config):
+        if engine.dialect.name == "postgresql":
+            targets = script_directory().get_revisions(revision)
+            if head_revision() not in {target.revision for target in targets}:
+                if not allow_unverified_revision:
+                    raise _Refusal(
+                        "estampillage intermédiaire refusé : exige --allow-unverified-revision "
+                        "après vérification manuelle du schéma de cette révision"
+                    )
+            else:
+                drift = check_drift(engine, connection=config.attributes["connection"])
+                if drift:
+                    raise _Refusal("estampillage refusé : schéma différent du modèle : " + "; ".join(drift))
+        command.stamp(config, revision)
+
+    _with_migration_lock(engine, stamp, lock_timeout_seconds=lock_timeout_seconds)
 
 
 def current_revision(engine) -> str | None:
@@ -179,21 +197,78 @@ def _describe_diff(diff) -> str:
     return repr(diff)
 
 
-def check_drift(engine) -> list[str]:
+def _predicate_structure(expression):
+    """Compare AND/OR avec leur groupement ; conserve les atomes SQL et leurs littéraux.
+
+    Les prédicats du modèle n'utilisent que IS NULL/NOT NULL, AND et OR.
+    Toute autre expression demeure textuelle : aucun effacement de parenthèses
+    susceptible de rendre deux expressions différentes artificiellement égales.
+    """
+    import re
+    tokens = re.findall(r"'(?:''|[^'])*'|[A-Za-z_][A-Za-z_0-9]*|[^\s]", str(expression) if expression is not None else "")
+    tokens = [token if token.startswith("'") else token.lower() for token in tokens]
+
+    def parse(items):
+        while items and items[0] == "(" and items[-1] == ")":
+            depth = 0
+            for i, token in enumerate(items):
+                depth += (token == "(") - (token == ")")
+                if depth == 0:
+                    break
+            if i != len(items) - 1:
+                break
+            items = items[1:-1]
+        for operator in ("or", "and"):
+            depth, start, parts = 0, 0, []
+            for i, token in enumerate(items):
+                depth += (token == "(") - (token == ")")
+                if depth == 0 and token == operator:
+                    parts.append(parse(items[start:i]))
+                    start = i + 1
+            if parts:
+                parts.append(parse(items[start:]))
+                return (operator, tuple(parts))
+        return tuple(items)
+    return parse(tokens)
+
+
+def check_drift(engine, *, connection=None) -> list[str]:
     """Écarts entre la base et ``Base.metadata``, rendus en français.
 
-    Une liste vide signifie que le schéma physique correspond au modèle, avec les
-    mêmes options de comparaison que l'autogénération (types, valeurs par défaut
-    littérales, table de version exclue).
+    Une liste vide signifie que les contrôles effectués ne trouvent pas de dérive :
+    types, valeurs par défaut, index et prédicats, noms des CHECK. Les expressions
+    SQL des CHECK ne sont pas comparées ; cette limite est affichée par la CLI.
     """
 
-    with engine.connect() as connection:
+    with (nullcontext(connection) if connection is not None else engine.connect()) as connection:
         context = MigrationContext.configure(
             connection,
             opts={"version_table": VERSION_TABLE, **autogenerate_options()},
         )
         diffs = compare_metadata(context, Base.metadata)
-    return [_describe_diff(diff) for diff in diffs]
+        inspector = inspect(connection)
+        extra = []
+        tables = set(inspector.get_table_names())
+        for table in Base.metadata.sorted_tables:
+            if table.name not in tables:
+                continue
+            expected_checks = {c.name for c in table.constraints if isinstance(c, CheckConstraint)}
+            actual_checks = {c["name"] for c in inspector.get_check_constraints(table.name)}
+            for name in sorted(expected_checks - actual_checks):
+                extra.append(f"contrainte CHECK {name} sur {table.name} absente")
+            for name in sorted(actual_checks - expected_checks, key=str):
+                extra.append(f"contrainte CHECK {name} sur {table.name} inattendue")
+            actual_indexes = {i["name"]: i for i in inspector.get_indexes(table.name)}
+            dialect = connection.dialect.name
+            for index in table.indexes:
+                actual = actual_indexes.get(index.name)
+                if actual is None:
+                    continue
+                expected_where = index.dialect_options[dialect].get("where")
+                actual_where = actual.get("dialect_options", {}).get(f"{dialect}_where")
+                if _predicate_structure(expected_where) != _predicate_structure(actual_where):
+                    extra.append(f"prédicat de l'index {index.name} sur {table.name} différent")
+    return [_describe_diff(diff) for diff in diffs] + extra
 
 
 class _Parser(argparse.ArgumentParser):
@@ -265,6 +340,10 @@ def _build_parser(stdout: TextIO, stderr: TextIO) -> _Parser:
         "stamp", parents=[common], help="estampille une révision sans DDL"
     )
     stamp.add_argument("revision")
+    stamp.add_argument(
+        "--allow-unverified-revision", action="store_true",
+        help="adoption intermédiaire après vérification manuelle (ne contourne pas le contrôle de la tête)",
+    )
     return parser
 
 
@@ -313,13 +392,14 @@ def _run(namespace, stdout: TextIO, stderr: TextIO) -> int:
         if namespace.command == "check":
             state = check_schema_current(engine)
             if not state.ok:
-                raise _Refusal(_format_current(state))
+                raise _Refusal(str(SchemaOutOfDateError(state)))
             drift = check_drift(engine)
             if drift:
                 raise _Refusal(
                     "dérive du schéma face au modèle :\n  - " + "\n  - ".join(drift)
                 )
-            stdout.write(f"Schéma à jour ({state.head}) et conforme au modèle.\n")
+            stdout.write(f"Schéma à jour ({state.head}) et conforme aux contrôles effectués.\n")
+            stdout.write("Limite : les noms des CHECK sont comparés, pas leur expression SQL.\n")
             return EXIT_OK
         if namespace.command == "upgrade":
             before = check_schema_current(engine)
@@ -341,7 +421,8 @@ def _run(namespace, stdout: TextIO, stderr: TextIO) -> int:
             )
             return EXIT_OK
         if namespace.command == "stamp":
-            run_stamp(engine, namespace.revision, lock_timeout_seconds=timeout)
+            run_stamp(engine, namespace.revision, lock_timeout_seconds=timeout,
+                      allow_unverified_revision=namespace.allow_unverified_revision)
             after = check_schema_current(engine)
             stdout.write(f"Base estampillée à {after.current or 'aucune'}.\n")
             return EXIT_OK

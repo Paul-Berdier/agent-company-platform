@@ -1,11 +1,7 @@
 """Parcours personnel court : état de préparation et premier projet."""
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
-
 from acp_contracts import Project
+from acp_contracts.limits import DatabaseModel as BaseModel
 from acp_database.models import (
     MembershipModel,
     OrganizationModel,
@@ -13,6 +9,10 @@ from acp_database.models import (
     WorkerModel,
     WorkspaceModel,
 )
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ConfigDict, Field
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session
 
 from ..deps import get_auth_context, get_db, require_csrf
 from ..gateway import GatewayClient, GatewayUnavailableError, get_gateway_client

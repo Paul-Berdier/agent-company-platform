@@ -6,10 +6,6 @@ Chaque test remet le schéma ``public`` à zéro : la base du lot lui est réser
 import io
 
 import pytest
-from alembic.autogenerate import compare_metadata
-from alembic.migration import MigrationContext
-from sqlalchemy import event, inspect, text
-
 from acp_database import engine as engine_module
 from acp_database.locking import LockUnavailableError, advisory_session_lock
 from acp_database.migrate import (
@@ -34,6 +30,9 @@ from acp_database.testing import (
     reset_public_schema,
     schema_inventory,
 )
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from sqlalchemy import event, inspect, text
 
 pytestmark = pytest.mark.postgres
 
@@ -189,6 +188,73 @@ def test_init_db_refuses_stale_revision(postgresql_url, monkeypatch):
     assert not inspect(engine_module.get_engine()).has_table("event_outbox")
 
 
+# Entiers non bornés par leur source : code de sortie Windows (DWORD non signé,
+# 0xC000013A = 3221225786 après un CTRL_BREAK), tailles et durées, compteur du
+# journal entier. En INTEGER (int4), PostgreSQL les refuse au-delà de 2^31 - 1.
+WIDE_INTEGER_COLUMNS = (
+    ("artifacts", "size_bytes"),
+    ("event_outbox", "journal_seq"),
+    ("events", "journal_seq"),
+    ("mission_evidence", "exit_code"),
+    ("test_cases", "duration_ms"),
+    ("test_runs", "duration_ms"),
+    ("test_runs", "exit_code"),
+)
+
+
+def _data_types(engine, columns) -> dict[tuple[str, str], str]:
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public'"
+            )
+        ).all()
+    found = {(row[0], row[1]): row[2] for row in rows}
+    return {column: found.get(column) for column in columns}
+
+
+def test_0003_widens_unbounded_integers_and_downgrade_restores_them(pg_engine):
+    run_upgrade(pg_engine, "0002")
+    assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"integer"}
+
+    run_upgrade(pg_engine)
+    assert head_revision() == "0003"
+    assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"bigint"}
+    assert check_drift(pg_engine) == []
+
+    run_downgrade(pg_engine, "0002")
+    assert current_revision(pg_engine) == "0002"
+    assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"integer"}
+
+    run_upgrade(pg_engine)
+    assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"bigint"}
+
+
+def test_0003_downgrade_fails_closed_on_a_value_beyond_int4(pg_engine):
+    """Redescendre ne tronque jamais : une valeur > 2^31 - 1 fait échouer la révision."""
+
+    run_upgrade(pg_engine)
+    beyond = 2**31 + 7
+    with pg_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO events (id, created_at, type, occurred_at, payload, "
+                "schema_version, journal_seq) VALUES ('evt-wide', now(), 't', now(), "
+                "'{}', '1.0', :seq)"
+            ),
+            {"seq": beyond},
+        )
+    with pytest.raises(Exception, match="out of range"):
+        run_downgrade(pg_engine, "0002")
+    assert current_revision(pg_engine) == head_revision()
+    with pg_engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT journal_seq FROM events WHERE id = 'evt-wide'")
+        ).scalar_one() == beyond
+    assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"bigint"}
+
+
 def test_cli_upgrade_twice_check_and_current(pg_engine, postgresql_url):
     def cli(*argv):
         out, err = io.StringIO(), io.StringIO()
@@ -203,7 +269,128 @@ def test_cli_upgrade_twice_check_and_current(pg_engine, postgresql_url):
     assert "aucun DDL émis" in out
     code, out, err = cli("check")
     assert (code, err) == (EXIT_OK, "")
-    assert "conforme au modèle" in out
+    assert "conforme aux contrôles effectués" in out
+    assert "pas leur expression SQL" in out
     code, out, err = cli("current")
     assert (code, err) == (EXIT_OK, "")
     assert f"Révision courante : {head_revision()}" in out
+
+
+@pytest.mark.parametrize("revision", ["head", "heads", "0003"])
+@pytest.mark.parametrize("allow_unverified_revision", [False, True])
+def test_stamp_refuses_empty_postgresql_database(pg_engine, revision, allow_unverified_revision):
+    from acp_database.migrate import run_stamp
+    with pytest.raises(RuntimeError, match="schéma différent"):
+        run_stamp(pg_engine, revision, allow_unverified_revision=allow_unverified_revision)
+    assert current_revision(pg_engine) is None
+
+
+def test_stamp_refuses_intermediate_revision_without_explicit_override(pg_engine):
+    from acp_database.migrate import run_stamp
+    run_upgrade(pg_engine)
+    with pytest.raises(RuntimeError, match="intermédiaire"):
+        run_stamp(pg_engine, "0001")
+    assert current_revision(pg_engine) == head_revision()
+
+
+def test_stamp_accepts_intermediate_revision_with_explicit_override(pg_engine):
+    from acp_database.migrate import run_stamp
+    run_upgrade(pg_engine, "0002")
+    run_stamp(pg_engine, "0002", allow_unverified_revision=True)
+    assert current_revision(pg_engine) == "0002"
+
+
+def test_stamp_resolves_short_head_before_checking_schema(pg_engine, monkeypatch):
+    from acp_database import migrate
+    from alembic.script.revision import Revision, RevisionMap
+
+    script = migrate.ScriptDirectory.from_config(migrate.alembic_config())
+    script.revision_map = RevisionMap(lambda: [Revision("abcdef123456", None)])
+    monkeypatch.setattr(migrate, "script_directory", lambda: script)
+    monkeypatch.setattr(migrate, "head_revision", lambda: "abcdef123456")
+    monkeypatch.setattr(migrate.command, "stamp", lambda *_: pytest.fail("tête estampillée sans contrôle"))
+
+    with pytest.raises(RuntimeError, match="schéma différent"):
+        migrate.run_stamp(pg_engine, "abcdef", allow_unverified_revision=True)
+    assert current_revision(pg_engine) is None
+
+
+def test_current_revision_without_tables_is_not_ready(pg_engine, postgresql_url, monkeypatch):
+    run_upgrade(pg_engine)
+    with pg_engine.begin() as connection:
+        connection.execute(text("DROP TABLE event_outbox"))
+    state = check_schema_current(pg_engine)
+    assert not state.ok
+    assert "event_outbox" in str(SchemaOutOfDateError(state))
+    point_global_engine_at(monkeypatch, postgresql_url)
+    with pytest.raises(SchemaOutOfDateError, match="event_outbox"):
+        engine_module.init_db()
+
+
+def test_unknown_revision_is_not_misdiagnosed_as_behind(pg_engine):
+    run_upgrade(pg_engine)
+    with pg_engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = '9999'"))
+    state = check_schema_current(pg_engine)
+    assert not state.ok
+    message = str(SchemaOutOfDateError(state))
+    assert "plus récente" in message
+    assert "Exécutez" not in message
+    with pytest.raises(RuntimeError, match="plus récente"):
+        run_upgrade(pg_engine)
+
+
+def test_drift_detects_removed_check(pg_engine):
+    run_upgrade(pg_engine)
+    with pg_engine.begin() as connection:
+        connection.execute(text("ALTER TABLE event_outbox DROP CONSTRAINT ck_event_outbox_attempts_non_negative"))
+    assert any("ck_event_outbox_attempts_non_negative" in item for item in check_drift(pg_engine))
+
+
+def test_drift_detects_removed_partial_index_predicate(pg_engine):
+    run_upgrade(pg_engine)
+    with pg_engine.begin() as connection:
+        connection.execute(text("DROP INDEX uq_events_journal_seq"))
+        connection.execute(text("CREATE UNIQUE INDEX uq_events_journal_seq ON events (journal_seq)"))
+    assert any("uq_events_journal_seq" in item for item in check_drift(pg_engine))
+
+
+def test_stamp_accepts_existing_model_schema_without_migrations(pg_engine):
+    from acp_database.migrate import run_stamp
+    Base.metadata.create_all(pg_engine)
+    run_stamp(pg_engine, "head")
+    assert check_schema_current(pg_engine).ok
+
+
+def test_wide_reference_downgrade_refuses_truncation(pg_engine):
+    run_upgrade(pg_engine)
+    reference = "chemin/" * 100
+    from sqlalchemy.orm import Session
+    from acp_database.models import SkillModel, UserModel
+    with Session(pg_engine) as session:
+        owner = UserModel(login_normalized="wide-owner", display_name="Propriétaire", password_hash="test-hash")
+        session.add(owner)
+        session.flush()
+        session.add(SkillModel(
+            id="wide-ref", name="wide-ref", display_name="Référence longue",
+            kind="documentary", source_kind="directory", origin=reference,
+            created_by_user_id=owner.id,
+        ))
+        session.commit()
+    with pytest.raises(RuntimeError, match="500 caractères"):
+        run_downgrade(pg_engine, "0002")
+    assert current_revision(pg_engine) == "0003"
+    with pg_engine.connect() as connection:
+        assert connection.execute(text("SELECT origin FROM skills WHERE id = 'wide-ref'")).scalar_one() == reference
+
+
+def test_migration_guards_reuse_the_single_available_connection(pg_engine, postgresql_url):
+    from sqlalchemy import create_engine
+    from acp_database.migrate import run_stamp
+    engine = create_engine(postgresql_url, pool_size=1, max_overflow=0, pool_timeout=0.1)
+    try:
+        run_upgrade(engine)
+        run_stamp(engine, "heads", allow_unverified_revision=True)
+        assert check_schema_current(engine).ok
+    finally:
+        engine.dispose()
