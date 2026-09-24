@@ -85,7 +85,7 @@ Correspondance des champs (schéma publié par Codex CLI 0.156.1) :
 | `usedPercent` | `windows[].used_percent` | entier arrondi par le serveur ; hors 0–100 : lecture `unavailable` |
 | `windowDurationMins` | `windows[].window_minutes` | nul : « Inconnu » ; la durée nomme la fenêtre, pas sa position |
 | `resetsAt` (secondes Unix) | `windows[].resets_at` (UTC) | nul : « Inconnu » |
-| `planType` (sinon celui de `account/read`) | `plan` | texte de la source, par exemple `prolite` |
+| `planType` (sinon celui de `account/read`) | `plan` | texte de la source, par exemple `prolite` ; `unknown`, par lequel le serveur dit ignorer l'offre, est traité comme absent : `null`, « Inconnu » |
 | `credits` | `credits` (`has_credits`, `unlimited`, `balance`) | `balance` reste le texte de la source |
 | `rateLimitReachedType` | `limit_reached`, `reached_type` | présent et nul : `false` ; présent : `true` et son type ; absent : `null` |
 

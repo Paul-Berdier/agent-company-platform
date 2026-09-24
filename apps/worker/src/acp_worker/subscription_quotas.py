@@ -355,10 +355,25 @@ def _detail(text: str) -> str:
     return text if len(text) <= QUOTA_DETAIL_MAX else text[: QUOTA_DETAIL_MAX - 1] + "…"
 
 
+SOURCE_UNKNOWN_PLAN = "unknown"
+
+
+def _source_plan(plan: str | None) -> str | None:
+    """« unknown » est la valeur par laquelle Codex dit ignorer l'offre : elle reste inconnue."""
+
+    return None if plan == SOURCE_UNKNOWN_PLAN else plan
+
+
 def _safe_plan(plan: object) -> str | None:
     """Plan recopié seulement s'il respecte le contrat ; sinon « Inconnu »."""
 
-    if isinstance(plan, str) and plan.strip() and len(plan) <= QUOTA_PLAN_MAX and "\x00" not in plan:
+    if (
+        isinstance(plan, str)
+        and plan.strip()
+        and len(plan) <= QUOTA_PLAN_MAX
+        and "\x00" not in plan
+        and plan != SOURCE_UNKNOWN_PLAN
+    ):
         return plan
     return None
 
@@ -637,7 +652,7 @@ def _account_plan(account_result: dict[str, Any]) -> tuple[str | None, str | Non
     plan = account.get("planType")
     if plan is not None and not isinstance(plan, str):
         raise _Malformed
-    return plan, None
+    return _source_plan(plan), None
 
 
 def _codex_windows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -719,6 +734,7 @@ def codex_reports_from_rate_limits(
         plan = snapshot.get("planType", account_plan)
         if plan is not None and not isinstance(plan, str):
             raise _Malformed
+        plan = _source_plan(plan)
         if "rateLimitReachedType" in snapshot:
             reached_type = snapshot["rateLimitReachedType"]
             if reached_type is not None and not isinstance(reached_type, str):
@@ -730,7 +746,7 @@ def codex_reports_from_rate_limits(
             "provider": "codex",
             "status": "ok",
             "source": "codex_app_server",
-            "plan": plan if plan is not None else account_plan,
+            "plan": plan if plan is not None else _source_plan(account_plan),
             "limit_id": limit_id,
             "windows": _codex_windows(snapshot),
             "credits": _codex_credits(snapshot),

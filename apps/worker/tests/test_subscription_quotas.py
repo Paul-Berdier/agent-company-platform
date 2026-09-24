@@ -570,6 +570,32 @@ def test_too_many_counters_are_refused_rather_than_truncated():
     assert [report.status for report in reports] == ["ok"] * 15
 
 
+def test_the_unknown_plan_of_the_source_stays_unknown():
+    """``PlanType`` de Codex vaut « unknown » quand le serveur ignore l'offre."""
+
+    counter = FAKE.snapshot("codex", "Codex", 10, 20)
+    counter["planType"] = "unknown"
+    (report,) = quotas.codex_reports_from_rate_limits(
+        {"rateLimits": counter}, account_plan=None, observed_at=datetime.now(UTC)
+    )
+    assert (report.status, report.plan) == ("ok", None)
+    # Comme une offre absente du compteur : celle lue par « account/read » s'applique.
+    (from_account,) = quotas.codex_reports_from_rate_limits(
+        {"rateLimits": counter}, account_plan="prolite", observed_at=datetime.now(UTC)
+    )
+    assert from_account.plan == "prolite"
+    assert quotas._account_plan({"account": {"type": "chatgpt", "planType": "unknown"}}) == (
+        None,
+        None,
+    )
+    without_plan = FAKE.snapshot("codex", "Codex", 10, 20)
+    del without_plan["planType"]
+    (inherited,) = quotas.codex_reports_from_rate_limits(
+        {"rateLimits": without_plan}, account_plan="unknown", observed_at=datetime.now(UTC)
+    )
+    assert inherited.plan is None
+
+
 def test_a_plan_outside_the_contract_is_never_forwarded():
     oversized = FAKE.snapshot("codex", "Codex", 10, 20)
     oversized["planType"] = "p" * 41
