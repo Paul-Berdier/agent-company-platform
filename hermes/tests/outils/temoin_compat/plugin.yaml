@@ -1,0 +1,5 @@
+# Greffon TÉMOIN, jamais livré : il importe un ancien chemin PLUGIN-COMPAT pour prouver que
+# `hermes plugins compat <chemin>` échoue (code 1) quand un tel import existe.
+name: temoin-compat
+version: 0.0.0
+description: "Témoin de test : import par un pointeur de compatibilité."
