@@ -1,0 +1,91 @@
+{
+  "items": [
+    {
+      "provider": "claude_code",
+      "status": "ok",
+      "source": "claude_code_statusline",
+      "plan": null,
+      "limit_id": "default",
+      "windows": [
+        {
+          "key": "five_hour",
+          "used_percent": 12.5,
+          "window_minutes": 300,
+          "resets_at": null,
+          "remaining_percent": 87.5
+        },
+        {
+          "key": "seven_day",
+          "used_percent": null,
+          "window_minutes": 10080,
+          "resets_at": null,
+          "remaining_percent": null
+        }
+      ],
+      "credits": null,
+      "limit_reached": null,
+      "reached_type": null,
+      "observed_at": "2026-09-24T08:00:00Z",
+      "detail": null,
+      "worker_id": "5b1f7a52-3c1e-4d3a-9d1e-0c2f6a7b8c9d",
+      "worker_name": "poste-principal",
+      "received_at": "2026-09-24T08:00:02Z",
+      "stale": false
+    },
+    {
+      "provider": "codex",
+      "status": "ok",
+      "source": "codex_app_server",
+      "plan": "prolite",
+      "limit_id": "codex",
+      "windows": [
+        {
+          "key": "primary",
+          "used_percent": 42,
+          "window_minutes": 300,
+          "resets_at": "2026-09-24T12:00:00Z",
+          "remaining_percent": 58
+        },
+        {
+          "key": "secondary",
+          "used_percent": 7,
+          "window_minutes": 10080,
+          "resets_at": "2026-09-29T00:00:00Z",
+          "remaining_percent": 93
+        }
+      ],
+      "credits": {
+        "has_credits": false,
+        "unlimited": false,
+        "balance": null
+      },
+      "limit_reached": false,
+      "reached_type": null,
+      "observed_at": "2026-09-24T08:00:00Z",
+      "detail": null,
+      "worker_id": "5b1f7a52-3c1e-4d3a-9d1e-0c2f6a7b8c9d",
+      "worker_name": "poste-principal",
+      "received_at": "2026-09-24T08:00:02Z",
+      "stale": false
+    },
+    {
+      "provider": "codex",
+      "status": "not_signed_in",
+      "source": "codex_app_server",
+      "plan": null,
+      "limit_id": "default",
+      "windows": [],
+      "credits": null,
+      "limit_reached": null,
+      "reached_type": null,
+      "observed_at": "2026-09-24T08:00:00Z",
+      "detail": "Profil Codex dédié non connecté : exécutez « codex login » avec ce profil.",
+      "worker_id": "5b1f7a52-3c1e-4d3a-9d1e-0c2f6a7b8c9d",
+      "worker_name": "poste-principal",
+      "received_at": "2026-09-24T08:00:02Z",
+      "stale": false
+    }
+  ],
+  "stale_after_seconds": 1800,
+  "generated_at": "2026-09-24T08:00:05Z"
+}
