@@ -1,8 +1,10 @@
-"""CLI locale du poste : diagnostic, relevé des quotas et journal.
+"""CLI locale du poste : diagnostic et relevé des quotas.
 
 Refonte « Hermes au centre » : l'enrôlement auprès de l'API ACP et la boucle de
 claims ont disparu avec cette API. La réclamation des travaux sur Hermes (voie
 kanban du tableau ``poste``) arrive en P5 : aucune commande ne la simule ici.
+Aucune commande ``journal`` non plus : aucun composant du poste n'écrit encore de
+journal ; la lecture reviendra en P5 avec un écrivain réel.
 Aucune commande n'ouvre de connexion réseau.
 """
 
@@ -12,7 +14,6 @@ import json
 import sys
 
 from .config import PosteConfig, PosteConfigurationError
-from .local_log import tail_logs
 from .local_runner import RunnerConfigurationError
 from .subscription_quotas import collect_reports
 
@@ -33,8 +34,6 @@ def _parser() -> argparse.ArgumentParser:
         "quotas",
         help="Relever maintenant les quotas Codex et Claude Code de ce poste",
     )
-    journal = commands.add_parser("journal", help="Afficher la fin du journal local")
-    journal.add_argument("--fin", type=int, default=100, dest="count")
     return parser
 
 
@@ -48,12 +47,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "diagnostic":
         print(json.dumps(config.diagnostic(), ensure_ascii=False, indent=2))
         return 0
-    if args.command == "quotas":
-        reports = asyncio.run(collect_reports(config.subscription_quotas))
-        print(json.dumps(reports, ensure_ascii=False, indent=2))
-        return 0
-    for line in tail_logs(config.state_dir, max(1, args.count)):
-        print(line)
+    reports = asyncio.run(collect_reports(config.subscription_quotas))
+    print(json.dumps(reports, ensure_ascii=False, indent=2))
     return 0
 
 

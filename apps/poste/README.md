@@ -17,7 +17,7 @@ encore : elle arrive en P5.** Aujourd'hui, le poste ne parle à aucun serveur.
 | `subscription_quotas.py` | sondes des quotas réels : `codex app-server` et fichier de la ligne d'état Claude Code |
 | `claude_statusline.py` | ligne d'état Claude Code qui recopie `rate_limits.five_hour` et `seven_day` |
 | `config.py` | `PosteConfig` ; `normalize_service_origin` impose HTTPS hors boucle locale (pour l'origine de Hermes en P5) |
-| `local_log.py` | journal JSONL local, sans secret |
+| `local_log.py` | journal JSONL local, sans secret ; gardé pour P5, aucun composant ne l'écrit ni ne le lit encore |
 | `cli.py` | commande `acp-poste` (ci-dessous) |
 
 Le contrat Python des quotas est partagé avec le greffon :
@@ -58,8 +58,10 @@ Aucune de ces commandes n'ouvre de connexion réseau.
   projet, runner local, état du relevé des quotas), sans chemin ni secret ;
 - `acp-poste quotas` : relève maintenant Codex et Claude Code et affiche les relevés
   JSON. Une source absente devient un état explicite (`cli_missing`, `not_signed_in`,
-  `unavailable`…), jamais une valeur inventée ;
-- `acp-poste journal --fin N` : fin du journal local.
+  `unavailable`…), jamais une valeur inventée.
+
+Pas de commande `journal` : aucun composant du poste n'écrit encore de journal. Elle
+reviendra en P5 avec un écrivain réel, et refusera explicitement un journal absent.
 
 Une configuration invalide est refusée en français, code de sortie 2.
 
@@ -67,11 +69,12 @@ Une configuration invalide est refusée en français, code de sortie 2.
 
 Jusqu'à P5, la configuration vient de l'environnement. Les noms `ACP_WORKER_*` sont
 conservés tels quels pour les modules repris sans changement ; P5 les remplace par la
-politique locale `%LOCALAPPDATA%\ACP\poste.toml` décrite dans le plan.
+politique locale `%LOCALAPPDATA%\ACP\poste.toml` décrite dans le plan. Le poste n'a
+plus de dossier d'état : rien ne s'y écrirait avant le jeton machine et le journal de
+P5.
 
 | Variable | Rôle |
 |---|---|
-| `ACP_POSTE_STATE_DIR` | dossier d'état (journal) ; défaut `%USERPROFILE%\.acp-poste` |
 | `ACP_WORKER_CODEX_ENABLED`, `ACP_WORKER_CODEX_EXECUTABLE`, `ACP_WORKER_CODEX_HOME` | exécuteur Codex : opt-in, exécutable absolu, profil dédié |
 | `ACP_WORKER_CLAUDE_ENABLED`, `ACP_WORKER_CLAUDE_EXECUTABLE`, `ACP_WORKER_CLAUDE_CONFIG_DIR` | exécuteur Claude Code, mêmes règles |
 | `ACP_WORKER_EXECUTOR_PROJECTS_JSON` | racines projet autorisées (`{"alias": "C:/chemin"}`) |

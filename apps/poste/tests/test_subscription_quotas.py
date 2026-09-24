@@ -334,7 +334,6 @@ def _clean_poste_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     for name in list(os.environ):
         if name.startswith("ACP_"):
             monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("ACP_POSTE_STATE_DIR", str(tmp_path / "state"))
 
 
 def test_poste_config_carries_the_quota_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

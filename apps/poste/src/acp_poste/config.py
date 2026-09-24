@@ -11,10 +11,8 @@ d'ici là, aucune origine réseau n'est lue.
 """
 
 import ipaddress
-import os
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from urllib.parse import urlsplit
 
 from .executors import ExecutorConfig, ExecutorConfigurationError
@@ -25,16 +23,11 @@ from .subscription_quotas import (
 )
 
 
-STATE_DIR_ENV = "ACP_POSTE_STATE_DIR"
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
 class PosteConfigurationError(ValueError):
     """Configuration refusée avant toute exécution."""
-
-
-def default_state_dir() -> Path:
-    return Path.home() / ".acp-poste"
 
 
 def normalize_service_origin(value: str, *, setting: str) -> str:
@@ -101,9 +94,13 @@ def normalize_service_origin(value: str, *, setting: str) -> str:
 
 @dataclass(frozen=True)
 class PosteConfig:
-    """Réglages locaux du poste, fermés par défaut."""
+    """Réglages locaux du poste, fermés par défaut.
 
-    state_dir: Path
+    Aucun dossier d'état : plus rien ne s'y écrit depuis le retrait de l'enrôlement
+    et de la boucle de claims. Le jeton machine (DPAPI) et le journal local
+    reviendront en P5, avec la politique locale ``poste.toml`` du plan.
+    """
+
     local_runner: LocalRunnerConfig | None = None
     executors: ExecutorConfig = field(default_factory=ExecutorConfig.disabled)
     subscription_quotas: SubscriptionQuotaConfig = field(
@@ -111,8 +108,6 @@ class PosteConfig:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(self.state_dir, Path):
-            raise PosteConfigurationError(f"{STATE_DIR_ENV} doit être un chemin")
         if self.local_runner is not None and not isinstance(
             self.local_runner, LocalRunnerConfig
         ):
@@ -126,10 +121,6 @@ class PosteConfig:
 
     @classmethod
     def from_env(cls) -> "PosteConfig":
-        raw_state_dir = os.environ.get(STATE_DIR_ENV)
-        state_dir = (
-            Path(raw_state_dir).expanduser() if raw_state_dir else default_state_dir()
-        )
         try:
             executors = ExecutorConfig.from_environ()
         except ExecutorConfigurationError as exc:
@@ -139,7 +130,6 @@ class PosteConfig:
         except SubscriptionQuotaConfigurationError as exc:
             raise PosteConfigurationError(str(exc)) from exc
         return cls(
-            state_dir=state_dir,
             local_runner=LocalRunnerConfig.from_environment(),
             executors=executors,
             subscription_quotas=subscription_quotas,

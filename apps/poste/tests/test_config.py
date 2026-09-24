@@ -4,10 +4,8 @@ from pathlib import Path
 import pytest
 
 from acp_poste.config import (
-    STATE_DIR_ENV,
     PosteConfig,
     PosteConfigurationError,
-    default_state_dir,
     normalize_service_origin,
 )
 from acp_poste.executors import (
@@ -39,7 +37,6 @@ EXECUTOR_ENVIRONMENT = (
 
 
 def configure_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv(STATE_DIR_ENV, str(tmp_path))
     monkeypatch.delenv("ACP_WORKER_RUNNER_ARGV_JSON", raising=False)
     monkeypatch.delenv("ACP_WORKER_RUN_ROOT", raising=False)
     monkeypatch.delenv("ACP_WORKER_SUBSCRIPTION_QUOTAS", raising=False)
@@ -77,17 +74,18 @@ def test_origin_rejects_userinfo_query_fragment_and_path(url: str):
         normalize_service_origin(url, setting="X")
 
 
-def test_the_state_directory_defaults_to_the_dedicated_location(
+def test_the_poste_configuration_is_closed_by_default(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     configure_environment(monkeypatch, tmp_path)
-    monkeypatch.delenv(STATE_DIR_ENV)
 
     config = PosteConfig.from_env()
 
-    assert config.state_dir == default_state_dir()
     assert config.local_runner is None
     assert config.executors.enabled_executors == frozenset()
+    assert config.subscription_quotas.enabled is False
+    # Plus de dossier d'état : rien ne s'y écrit avant P5.
+    assert not hasattr(config, "state_dir")
 
 
 def test_poste_config_rejects_partial_executor_opt_in(
@@ -118,7 +116,6 @@ def test_poste_config_loads_valid_executor_allowlist(
 
     config = PosteConfig.from_env()
 
-    assert config.state_dir == tmp_path
     assert config.executors.enabled_executors == frozenset({"codex_cli"})
     assert config.executors.project_path("project-1") == project.resolve()
     assert config.diagnostic() == {
@@ -129,8 +126,8 @@ def test_poste_config_loads_valid_executor_allowlist(
     }
 
 
-def test_poste_config_refuses_foreign_component_types(tmp_path: Path):
+def test_poste_config_refuses_foreign_component_types():
     with pytest.raises(PosteConfigurationError, match="executors"):
-        PosteConfig(state_dir=tmp_path, executors=object())  # type: ignore[arg-type]
+        PosteConfig(executors=object())  # type: ignore[arg-type]
     with pytest.raises(PosteConfigurationError, match="local_runner"):
-        PosteConfig(state_dir=tmp_path, local_runner=object())  # type: ignore[arg-type]
+        PosteConfig(local_runner=object())  # type: ignore[arg-type]
