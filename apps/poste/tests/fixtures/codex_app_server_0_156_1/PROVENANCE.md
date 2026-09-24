@@ -1,8 +1,8 @@
 # Provenance des schémas de l'app-server Codex 0.156.1
 
 Ces fichiers JSON Schema (draft-07) décrivent le protocole JSON-RPC de
-`codex app-server`. Ils servent **uniquement aux tests** du worker
-(`apps/worker/tests/test_subscription_quotas.py`) : le faux app-server de test doit
+`codex app-server`. Ils servent **uniquement aux tests** du poste
+(`apps/poste/tests/test_subscription_quotas.py`) : le faux app-server de test doit
 répondre exactement dans la forme que publie la version réelle du CLI, et les
 requêtes envoyées par la sonde doivent respecter les paramètres attendus.
 

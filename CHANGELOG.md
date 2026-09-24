@@ -4,6 +4,30 @@ Les changements notables d'Agent Company Platform sont consignés dans ce fichie
 Le projet suit le versionnage sémantique ; tant que la version majeure reste à zéro,
 les interfaces peuvent encore évoluer entre deux versions mineures.
 
+## 0.11.0 (en cours) — refonte « Hermes au centre »
+
+Branche `refonte/hermes`, ouverte depuis l'étiquette `archive/acp-0.10.0-avant-hermes`
+(plan : `docs/refonte/plan.md`). La section complète (Ajouté, Modifié, Corrigé,
+Sécurité, Vérifié localement, Limites connues) sera rédigée avant la PR finale vers
+`main`, en 1.0.0.
+
+### P0 — branche, élagage et gel du moteur
+
+- retirés : API FastAPI, base et migrations, bus d'événements, passerelle de
+  fournisseurs, CLI `acp`, interface web Vite (hors `apps/web/public/assets`),
+  `packages/ui`, contrats TypeScript et Python (hors quotas), `agent-sdk`,
+  `playwright-reporter`, `e2e`, déploiement Railway multi-services et scripts liés,
+  documentation datée des lots A à H ;
+- `apps/worker` devient `apps/poste` (commande `acp-poste`, locale et sans réseau),
+  élagué des modules liés à l'API ; le contrat des quotas passe dans
+  `hermes/plugins/acp-poste/contrat` ; la ligne d'état Claude Code devient
+  `python -m acp_poste.claude_statusline` ;
+- `scripts/check_engine_frozen.py` : garde du gel du moteur Pixel Office ; CI en trois
+  volets (moteur, poste sous Linux et Windows, desktop) ;
+- les sections « Unreleased » et « 0.10.0 (préparation) » ci-dessous décrivent la ligne
+  archivée : leurs fonctions côté API, web et CLI n'existent plus sur cette branche, et
+  les documents qu'elles citent restent consultables sous l'étiquette d'archive.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

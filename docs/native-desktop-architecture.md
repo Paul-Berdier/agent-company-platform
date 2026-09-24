@@ -1,9 +1,16 @@
 # Architecture du client desktop natif
 
+> **Refonte « Hermes au centre ».** Le client desktop est conservé intact mais hors
+> service jusqu'à P8 : il parle encore l'ancienne API ACP, retirée
+> (`docs/refonte/plan.md`). Ce document décrit le client tel qu'il est avant P8.
+> Les relevés datés qu'il cite (validation du 23 septembre 2026, matrice de parité,
+> constats Lot H) restent consultables sous l'étiquette
+> `archive/acp-0.10.0-avant-hermes`.
+
 État du 23 septembre 2026, **0.10.0 en préparation**. Le client existe sous
 `apps/desktop` et comprend les écrans métier. La fondation a été compilée,
 testée et empaquetée sur Windows avant cette extension ; la validation de l'arbre
-0.10.0 est suivie dans [le relevé daté](desktop-validation-2026-09-23.md).
+0.10.0 est suivie dans le relevé daté (sous l'étiquette d'archive).
 L'implémentation d'un écran ne constitue pas à elle seule une preuve de parcours réel.
 
 ## Architecture et responsabilité
@@ -32,7 +39,7 @@ partagés viennent de `design/tokens/` via `cmake/generate_design_tokens.py`.
 
 ## Surface métier
 
-La [matrice de parité](native-desktop-parity.md) décrit les actions et leurs limites.
+La matrice de parité (sous l'étiquette d'archive) décrit les actions et leurs limites.
 
 - `WorkspaceViewModel` : organisations, espaces, création et sélection de projets.
 - `ConversationsViewModel` : historique, création, tours, renommage, archivage et export consultable.
@@ -113,7 +120,7 @@ Le relevé final 0.10.0 donne **21 suites natives sur 21 en 54,82 s**. Les
 **24 tests de session passent sans ignoré hors sandbox**, y compris le cycle
 réel du coffre Windows.
 La suite Python combinée a donné **2 896 réussis, 70 ignorés, 835 s**.
-Les preuves finales appartiennent au [relevé daté](desktop-validation-2026-09-23.md).
+Les preuves finales appartiennent au relevé daté (sous l'étiquette d'archive).
 
 Le parcours Qt du 23 septembre contre l'API réelle sur SQLite jetable a réussi :
 cookie/CSRF, projets, conversation sans réponse fournisseur inventée, mission,
@@ -125,5 +132,5 @@ Ce parcours ne remplace ni la suite complète ni la recette visuelle.
 
 Restent l'installation sur Windows propre, la signature, le parcours sur l'URL
 Railway réelle non fournie et les **26 constats ouverts du Lot H** dans
-[le suivi de revue](lot-h-091-review-status.md). Une CI antérieure verte ne valide
+le suivi de revue (sous l'étiquette d'archive). Une CI antérieure verte ne valide
 pas automatiquement le nouvel arbre. Le bureau pixel reste conservé hors périmètre.
