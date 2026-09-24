@@ -46,6 +46,15 @@ class WorkerRegistrationRequest(BaseModel):
     global_access: bool = Field(default=False, strict=True)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("name")
+    @classmethod
+    def readable_name(cls, value: str) -> str:
+        # Même règle que les vues qui citent le worker (quotas d'abonnement) : un nom
+        # vide n'y serait pas lisible. Le NUL est déjà refusé par DatabaseModel.
+        if not value.strip():
+            raise ValueError("le nom du worker ne peut pas être vide ni fait de seuls espaces")
+        return value
+
     @field_validator("capabilities")
     @classmethod
     def unique_capabilities(cls, value: list[WorkerCapability]) -> list[WorkerCapability]:

@@ -9,7 +9,8 @@ GitHub des mises à jour, à la demande. Aucun WebView/WebEngine n'est embarqué
 
 Les écrans comprennent projets, conversations, missions, tentatives et Studio,
 livrables, agents/workers/fournisseurs, MCP/compétences, approbations, alertes,
-budgets et automatisations. Voir [la matrice de parité](../../docs/native-desktop-parity.md)
+budgets, automatisations et quotas réels d'abonnement (propriétaire seulement,
+voir [les quotas d'abonnement](../../docs/subscription-quotas.md)). Voir [la matrice de parité](../../docs/native-desktop-parity.md)
 pour les opérations réellement proposées et les écarts au web/CLI.
 
 Les réglages comprennent la mémorisation facultative de session dans le coffre

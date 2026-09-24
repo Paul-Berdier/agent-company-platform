@@ -1562,3 +1562,53 @@ class McpExecutionCallModel(_Common, Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+
+class SubscriptionQuotaSnapshotModel(_Common, Base):
+    """Dernier relevé de quota d'abonnement d'un worker, par fournisseur et compteur.
+
+    Chaque ligne recopie ce que la source officielle a répondu (app-server Codex,
+    ligne d'état Claude Code) : ``windows`` et ``credits`` gardent la forme validée
+    par ``acp_contracts.subscriptions``, une valeur inconnue y reste ``null``.
+    ``observed_at`` est l'instant de la lecture à la source ; un relevé plus ancien
+    que celui stocké ne le remplace jamais. Les lignes disparaissent avec leur
+    worker : un relevé sans poste connu n'a plus de titulaire vérifiable.
+    """
+
+    __tablename__ = "subscription_quota_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "worker_id", "provider", "limit_id", name="uq_subscription_quota_snapshot"
+        ),
+        CheckConstraint(
+            "provider IN ('codex', 'claude_code')", name="ck_subscription_quota_provider"
+        ),
+        CheckConstraint(
+            "status IN ('ok', 'not_signed_in', 'cli_missing', 'cli_too_old', 'unavailable')",
+            name="ck_subscription_quota_status",
+        ),
+        CheckConstraint(
+            "source IN ('codex_app_server', 'claude_code_statusline')",
+            name="ck_subscription_quota_source",
+        ),
+        CheckConstraint(
+            "limit_reached IS NULL OR limit_reached IN (0, 1)",
+            name="ck_subscription_quota_limit_reached",
+        ),
+    )
+
+    worker_id: Mapped[str] = mapped_column(
+        ForeignKey("workers.id", ondelete="CASCADE")
+    )
+    provider: Mapped[str] = mapped_column(String(32))
+    limit_id: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32))
+    source: Mapped[str] = mapped_column(String(32))
+    plan: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    windows: Mapped[list] = mapped_column(JSON)
+    credits: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    limit_reached: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reached_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detail: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    received_at: Mapped[datetime] = mapped_column(UtcDateTime)

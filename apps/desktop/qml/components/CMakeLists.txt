@@ -6,6 +6,7 @@ acp_add_qml_module(
     QML_FILES
         EmptyState.qml
         KeyValueRow.qml
+        QuotaGauge.qml
         SectionHeader.qml
         StatusChip.qml
 )

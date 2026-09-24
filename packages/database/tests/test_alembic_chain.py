@@ -170,7 +170,7 @@ def test_alembic_upgrade_on_empty_sqlite_equals_fresh_init_db(initialized, tmp_p
         assert _version(engine) == head_revision()
         assert _compare(engine) == []
         assert schema_inventory(engine) == schema_inventory(reference)
-        assert len(schema_inventory(engine)) == 50
+        assert len(schema_inventory(engine)) == 51
     finally:
         engine.dispose()
 
@@ -238,6 +238,60 @@ def test_0003_changes_nothing_on_sqlite_whose_integers_are_already_64_bit(tmp_pa
             assert connection.execute(
                 text("SELECT journal_seq FROM events WHERE id = 'evt-wide'")
             ).scalar_one() == 2**40
+    finally:
+        engine.dispose()
+
+
+def test_0005_adds_subscription_quota_snapshots_and_downgrade_removes_them(tmp_path):
+    """0005 crée la table des relevés de quotas ; sa descente la retire sans résidu.
+
+    Ces relevés sont un cache du dernier état lu à la source : le prochain passage
+    du worker les recrée. La descente n'a donc aucun garde-fou de données.
+    """
+
+    engine = engine_module.make_engine(_url(tmp_path, "quotas.db"))
+    try:
+        run_upgrade(engine, "0004")
+        before = schema_inventory(engine)
+        assert not inspect(engine).has_table("subscription_quota_snapshots")
+
+        run_upgrade(engine, "0005")
+        assert _version(engine) == "0005"
+        created = schema_inventory(engine)["subscription_quota_snapshots"]
+        assert (
+            ("worker_id",),
+            "workers",
+            ("id",),
+            (("ondelete", "CASCADE"),),
+        ) in created["foreign_keys"]
+        assert ("uq_subscription_quota_snapshot", ("worker_id", "provider", "limit_id")) in created["uniques"]
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO workers (id, created_at, name, token_hash, token_prefix, "
+                    "token_expires_at, capabilities, max_concurrency, active_runs, status, "
+                    "simulation, global_access, metadata) VALUES ('w-quota', "
+                    "'2026-09-24 00:00:00', 'w-quota', 'h', 'p', '2030-01-01 00:00:00', "
+                    "'[]', 1, 0, 'online', 1, 1, '{}')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO subscription_quota_snapshots (id, created_at, worker_id, "
+                    "provider, limit_id, status, source, windows, observed_at, received_at) "
+                    "VALUES ('s-quota', '2026-09-24 00:00:00', 'w-quota', 'codex', "
+                    "'default', 'not_signed_in', 'codex_app_server', '[]', "
+                    "'2026-09-24 00:00:00', '2026-09-24 00:00:00')"
+                )
+            )
+
+        run_downgrade(engine, "0004")
+        assert _version(engine) == "0004"
+        assert schema_inventory(engine) == before
+
+        run_upgrade(engine)
+        assert _version(engine) == head_revision()
+        assert _compare(engine) == []
     finally:
         engine.dispose()
 

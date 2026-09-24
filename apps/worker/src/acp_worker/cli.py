@@ -295,6 +295,9 @@ def _doctor(config: WorkerConfig) -> int:
         checks["mcp_stdio_allowed_executables"] = len(
             config.mcp_probe.allowed_executables
         )
+    # État et intervalle seulement : ni le profil Codex ni le fichier de la ligne
+    # d'état ne sont imprimés.
+    checks.update(config.subscription_quotas.doctor_report())
     if config.web_tests.status() == "enabled":
         # Argv, racine de projet et délai : ce que l'opérateur doit pouvoir
         # vérifier avant d'autoriser un lancement. Aucune **valeur**

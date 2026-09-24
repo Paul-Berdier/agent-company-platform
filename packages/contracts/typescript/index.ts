@@ -1040,3 +1040,77 @@ export interface NotificationPreferencesSummary {
   project_id: string;
   updated_at: string;
 }
+
+// --- Quotas réels d'abonnement (miroir de acp_contracts.subscriptions) ---
+// Valeurs relevées à la source officielle (app-server Codex, ligne d'état Claude Code),
+// jamais estimées : `null` signifie « Inconnu ». Lecture réservée au propriétaire.
+
+export type SubscriptionProvider = "codex" | "claude_code";
+export type QuotaSource = "codex_app_server" | "claude_code_statusline";
+export type ProbeStatus = "ok" | "not_signed_in" | "cli_missing" | "cli_too_old" | "unavailable";
+
+export interface QuotaWindow {
+  key: string;
+  used_percent: number | null;
+  window_minutes: number | null;
+  resets_at: string | null;
+}
+
+export interface QuotaWindowView extends QuotaWindow {
+  remaining_percent: number | null;
+}
+
+export interface QuotaCredits {
+  has_credits: boolean;
+  unlimited: boolean;
+  balance: string | null;
+}
+
+export interface SubscriptionQuotaReport {
+  provider: SubscriptionProvider;
+  status: ProbeStatus;
+  source: QuotaSource;
+  plan?: string | null;
+  /** Réservé : `"probe"` pour une lecture en échec ; sinon le compteur, `"default"` par défaut. */
+  limit_id?: string;
+  windows?: QuotaWindow[];
+  credits?: QuotaCredits | null;
+  limit_reached?: boolean | null;
+  reached_type?: string | null;
+  observed_at: string;
+  detail?: string | null;
+}
+
+export interface SubscriptionQuotaBatch {
+  reports: SubscriptionQuotaReport[];
+}
+
+export interface SubscriptionQuotaIngestResult {
+  stored: number;
+  ignored_older: number;
+  removed: number;
+}
+
+export interface SubscriptionQuotaView {
+  provider: SubscriptionProvider;
+  status: ProbeStatus;
+  source: QuotaSource;
+  plan: string | null;
+  limit_id: string;
+  windows: QuotaWindowView[];
+  credits: QuotaCredits | null;
+  limit_reached: boolean | null;
+  reached_type: string | null;
+  observed_at: string;
+  detail: string | null;
+  worker_id: string;
+  worker_name: string;
+  received_at: string;
+  stale: boolean;
+}
+
+export interface SubscriptionQuotaList {
+  items: SubscriptionQuotaView[];
+  stale_after_seconds: number;
+  generated_at: string;
+}

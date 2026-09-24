@@ -258,6 +258,9 @@ void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
     navigation.setCurrentRoute(QStringLiteral("office"));
     navigation.setCurrentRoute(QStringLiteral("unknown"));
     QCOMPARE(refused.count(), 2);
+    // Les quotas d'abonnement sont une destination livrée, hors contexte de projet.
+    QVERIFY(navigation.isNavigable(QStringLiteral("quotas")));
+    QVERIFY(navigation.detailFor(QStringLiteral("quotas")).isEmpty());
     QVERIFY(navigation.canGoForward());
     navigation.goForward();
     QCOMPARE(navigation.currentRoute(), QStringLiteral("conversations"));

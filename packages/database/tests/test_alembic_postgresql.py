@@ -84,7 +84,7 @@ def test_upgrade_matches_model_and_second_upgrade_emits_no_ddl(pg_engine):
     assert current_revision(pg_engine) == head_revision()
     assert _compare(pg_engine) == []
     assert check_drift(pg_engine) == []
-    assert len(schema_inventory(pg_engine)) == 50
+    assert len(schema_inventory(pg_engine)) == 51
 
     statements = _ddl_statements(pg_engine)
     run_upgrade(pg_engine)
@@ -257,6 +257,63 @@ def test_0003_downgrade_fails_closed_on_a_value_beyond_int4(pg_engine):
     assert set(_data_types(pg_engine, WIDE_INTEGER_COLUMNS).values()) == {"bigint"}
 
 
+def test_0005_round_trip_keeps_the_cascade_and_leaves_no_residue(pg_engine):
+    run_upgrade(pg_engine, "0004")
+    before = schema_inventory(pg_engine)
+    assert not inspect(pg_engine).has_table("subscription_quota_snapshots")
+
+    run_upgrade(pg_engine, "0005")
+    assert current_revision(pg_engine) == "0005"
+    with pg_engine.connect() as connection:
+        delete_rule = connection.execute(
+            text(
+                "SELECT confdeltype FROM pg_constraint "
+                "WHERE conrelid = 'subscription_quota_snapshots'::regclass AND contype = 'f'"
+            )
+        ).scalar_one()
+        assert delete_rule == "c"
+        column_types = dict(
+            connection.execute(
+                text(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = 'subscription_quota_snapshots'"
+                )
+            ).all()
+        )
+    assert column_types["windows"] == "json"
+    assert column_types["observed_at"] == "timestamp with time zone"
+    assert column_types["limit_reached"] == "integer"
+    with pg_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO workers (id, created_at, name, token_hash, token_prefix, "
+                "token_expires_at, capabilities, max_concurrency, active_runs, status, "
+                "simulation, global_access, metadata) VALUES ('w-quota', now(), 'w-quota', "
+                "'h', 'p', now() + interval '1 day', '[]', 1, 0, 'online', 1, 1, '{}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO subscription_quota_snapshots (id, created_at, worker_id, provider, "
+                "limit_id, status, source, windows, observed_at, received_at) VALUES "
+                "('s-quota', now(), 'w-quota', 'codex', 'default', 'not_signed_in', "
+                "'codex_app_server', '[]', now(), now())"
+            )
+        )
+        connection.execute(text("DELETE FROM workers WHERE id = 'w-quota'"))
+        assert connection.execute(
+            text("SELECT count(*) FROM subscription_quota_snapshots")
+        ).scalar_one() == 0
+
+    run_downgrade(pg_engine, "0004")
+    assert current_revision(pg_engine) == "0004"
+    assert schema_inventory(pg_engine) == before
+
+    run_upgrade(pg_engine)
+    assert current_revision(pg_engine) == head_revision()
+    assert check_drift(pg_engine) == []
+
+
 def test_cli_upgrade_twice_check_and_current(pg_engine, postgresql_url):
     def cli(*argv):
         out, err = io.StringIO(), io.StringIO()
@@ -278,7 +335,7 @@ def test_cli_upgrade_twice_check_and_current(pg_engine, postgresql_url):
     assert f"Révision courante : {head_revision()}" in out
 
 
-@pytest.mark.parametrize("revision", ["head", "heads", "0004"])
+@pytest.mark.parametrize("revision", ["head", "heads", "0005"])
 @pytest.mark.parametrize("allow_unverified_revision", [False, True])
 def test_stamp_refuses_empty_postgresql_database(pg_engine, revision, allow_unverified_revision):
     from acp_database.migrate import run_stamp

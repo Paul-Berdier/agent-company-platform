@@ -46,6 +46,7 @@ from .local_runner import (
 from .local_log import WorkerLogger
 from .mcp_probe import run_stdio_probe
 from .state import CredentialStateError, WorkerCredentials
+from .subscription_quotas import subscription_quota_loop
 from .web_tests import (
     WebTestLease,
     WorkerTestApi,
@@ -1397,6 +1398,12 @@ async def run_forever(
             probe_task = asyncio.create_task(
                 _probe_loop(api_client, config, credentials, stop, logger)
             )
+        quota_task: asyncio.Task | None = None
+        if not once and config.subscription_quotas.enabled:
+            logger.write("info", "Relevé des quotas d'abonnement activé")
+            quota_task = asyncio.create_task(
+                subscription_quota_loop(api_client, config, credentials, stop, logger)
+            )
         try:
             while True:
                 _reap_completed_jobs(active, logger)
@@ -1447,6 +1454,12 @@ async def run_forever(
                 if not probe_task.done():
                     probe_task.cancel()
                 await asyncio.gather(probe_task, return_exceptions=True)
+            if quota_task is not None:
+                # Une sonde en cours arrête elle-même l'arbre du CLI, même annulée.
+                await asyncio.wait({quota_task}, timeout=30)
+                if not quota_task.done():
+                    quota_task.cancel()
+                await asyncio.gather(quota_task, return_exceptions=True)
 
 
 if __name__ == "__main__":

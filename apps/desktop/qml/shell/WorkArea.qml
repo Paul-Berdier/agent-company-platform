@@ -33,6 +33,7 @@ Rectangle {
             case "approvals": return operationsComponent;
             case "settings": return settingsComponent;
             case "studio": return studioComponent;
+            case "quotas": return quotasComponent;
             default:
                 return unknownComponent;
             }
@@ -58,6 +59,7 @@ Rectangle {
     Component { id: operationsComponent; OperationsPage {} }
     Component { id: settingsComponent; SettingsPage {} }
     Component { id: studioComponent; StudioPage {} }
+    Component { id: quotasComponent; QuotasPage {} }
 
     Component {
         id: unknownComponent

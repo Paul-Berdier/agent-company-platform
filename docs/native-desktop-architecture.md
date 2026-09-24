@@ -40,6 +40,9 @@ La [matrice de parité](native-desktop-parity.md) décrit les actions et leurs l
 - `ArtifactsViewModel` : liste paginée, filtres, détail et téléchargement explicite.
 - `PlatformViewModel` : agents/workers, fournisseurs, MCP, compétences et liaisons au projet.
 - `OperationsViewModel` : approbations, alertes, budgets, automatisations et historique.
+- `SubscriptionQuotasViewModel` : quotas réels d'abonnement lus par `GET /subscription-quotas`,
+  réservés au propriétaire, validés en échec fermé et relus toutes les 60 s pendant l'affichage ;
+  hors contexte de projet.
 
 Les listes utilisent `JsonListModel`. Les configurations d'agents, métadonnées
 privées de workers, secrets et cookies ne doivent pas être transmis globalement

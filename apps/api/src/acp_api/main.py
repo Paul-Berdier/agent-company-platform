@@ -32,6 +32,7 @@ from .routers import (
     secrets,
     skills,
     streams,
+    subscriptions,
     testing,
     work,
     workers,
@@ -84,6 +85,7 @@ app.include_router(meta.router)
 app.include_router(alerts.router)
 app.include_router(automations.router)
 app.include_router(budgets.router)
+app.include_router(subscriptions.router)
 app.include_router(connections.router)
 app.include_router(conversations.router)
 app.include_router(onboarding.router)

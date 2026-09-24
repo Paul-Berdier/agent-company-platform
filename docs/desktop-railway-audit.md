@@ -166,7 +166,7 @@ Il n'existe que quatre modes dans tout le produit :
 |---|---|---|
 | **public** | rien | `/health`, `/ready`, `/openapi.json`, `/docs`, `/auth/status` |
 | **session humaine** | cookie `acp_session` (HttpOnly, `SameSite=strict`, `Secure` conditionné par `ACP_SESSION_COOKIE_SECURE`) | tout le reste de la surface humaine |
-| **jeton porteur worker** | en-tête `Authorization` du worker | routes `/workers/**`, `/events` en écriture, `/task-runs/{id}`, budget, sondes MCP |
+| **jeton porteur worker** | en-tête `Authorization` du worker | routes `/workers/**`, `/events` en écriture, `/task-runs/{id}`, budget, sondes MCP, dépôt des quotas d'abonnement |
 | **secret dédié** | `X-ACP-Bootstrap-Token`, `X-Worker-Registration-Token`, `Bearer` de webhook, jeton signé `?token=` | amorçage, enrôlement, webhook entrant, téléchargement de livrable |
 
 **Il n'existe aucun bearer utilisateur, aucune clé d'API personnelle, aucun OAuth.**
@@ -315,6 +315,17 @@ Un client est donc condamné à l'interrogation périodique.
   /revoke`, contrairement à ce qu'affirmait le rapport clients).
 - **Automatisations** : 14 routes utilisateur, dont `GET /automations/calendar`.
 - **Budgets** : `GET|PUT /projects/{id}/budget-policy`, `GET /projects/{id}/budget-usage`.
+- **Quotas réels d'abonnement** (ajout du 24 septembre 2026) : `GET /subscription-quotas`,
+  **session du propriétaire de la plateforme uniquement** ; tout autre rôle reçoit un 403
+  explicite en français, car l'usage d'un abonnement est personnel à son titulaire.
+  Réponse `SubscriptionQuotaList` : `items[]` (dernier relevé par worker, fournisseur
+  `codex`|`claude_code` et compteur `limit_id`, avec `status`, `windows[]` portant
+  `used_percent`, `remaining_percent`, `window_minutes`, `resets_at`, et `stale`),
+  `stale_after_seconds`, `generated_at`. Valeurs relevées par les workers aux sources
+  officielles, jamais estimées : `null` s'affiche « Inconnu », `stale` « Périmé ».
+  Lecture périodique, sans flux temps réel ; un serveur antérieur répond 404. Forme
+  figée par `apps/desktop/tests/fixtures/subscription-quotas.json` ; détail dans
+  [les quotas d'abonnement](subscription-quotas.md).
 - **Alertes** : `GET /alerts`, `POST /alerts/{id}/acknowledge`, préférences par projet.
 - **Workers** : `GET /workers`, `GET /workers/{id}` — réservées aux rôles plateforme
   `owner` ou `operator`. **Aucune route de révocation d'un worker depuis l'interface.**
@@ -333,6 +344,7 @@ facilités qu'elles sembleraient offrir :
 `POST /workers/{id}/leases/{run_id}/renew` · `PATCH /task-runs/{run_id}` ·
 `POST /workers/{id}/automation-scheduler/**` ·
 `POST /work/workers/{id}/runs/{run_id}/budget/**` · `POST /mcp/worker/probes/**` ·
+`POST /work/workers/{id}/subscription-quotas` ·
 `POST /worker/claim` (410 sauf `ACP_ALLOW_LEGACY_WORKER_CLAIM=1`).
 
 **Conséquence directe et lourde** : le seul chemin d'entrée de contenu binaire est
@@ -704,6 +716,7 @@ chantier.
 | Tests structurés | `GET /runs/{id}/test-run`, `GET /test-runs/{id}` | oui | oui | Onglet tests d'une tentative, arbre de suites et de cas, liens vers les traces | Aucun | faible | P2 |
 | Automatisations et calendrier | 14 routes utilisateur dont `GET /automations/calendar` | oui | oui, parité quasi complète | Vue calendrier native, éditeur cron avec fuseau IANA, secret webhook affiché une seule fois | Aucun — le CLI prouve que tout passe par l'API | moyen | P2 |
 | Budgets par projet | `GET|PUT /projects/{id}/budget-policy`, `GET /projects/{id}/budget-usage` | oui | non | Jauges de dépense, alerte avant saturation, édition de politique (remplacement complet) | Aucun | faible | P2 |
+| Quotas réels d'abonnement (Codex, Claude Code) | `GET /subscription-quotas` (propriétaire seulement) | non | non | Reste par fenêtre, heure de remise à zéro, « Inconnu », « Périmé », « Non connecté » ; aucune estimation. Livré le 24 septembre 2026 : écran « Quotas » (`QuotasPage`) | Aucun — livré le 24 septembre 2026 (worker opt-in) | moyen | P2 |
 | Centre MCP | 24 routes `/mcp/**` | oui, module le plus volumineux du web | oui, parité complète | Centre d'extensions natif ; import/export de fichiers locaux plus naturel qu'en navigateur | Aucun | moyen | P2 |
 | Bibliothèque de skills | 15 routes `/skills/**` | oui | oui, parité complète | Visionneuse **en lecture seule, sans rendu riche ni exécution** ; import → relecture → approbation → activation | À vérifier : l'import « dossier autorisé » désigne un chemin **côté serveur**, inutilisable depuis un poste distant | moyen | P2 |
 | Coffre de secrets | `GET /secrets/status`, `GET|POST /secrets`, `POST /secrets/{id}/rotate`, `DELETE /secrets/{id}` | oui, aucune valeur affichée | oui, valeur lue sur l'entrée standard uniquement | Champ masqué, jamais en argv, jamais journalisé, jamais en cache disque, jamais dans un rapport de plantage | Aucun | élevé | P1 |
