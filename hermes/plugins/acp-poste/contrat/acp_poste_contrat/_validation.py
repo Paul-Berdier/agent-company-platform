@@ -16,10 +16,14 @@ NUL = "\x00"
 
 
 def refuse_nul(value: str) -> str:
-    """Refuse un texte contenant l'octet NUL."""
+    """Refuse un texte contenant l'octet NUL.
+
+    Le message nomme l'octet sous sa forme échappée ``\\x00`` : il ne doit jamais
+    transporter l'octet qu'il refuse jusqu'aux journaux ou à une réponse 422.
+    """
 
     if NUL in value:
-        raise ValueError("le caractère NUL (\x00) est interdit")
+        raise ValueError("le caractère NUL (\\x00) est interdit")
     return value
 
 

@@ -28,6 +28,7 @@ from acp_poste_contrat import (
     SubscriptionQuotaReport,
     SubscriptionQuotaView,
 )
+from acp_poste_contrat._validation import ContratValide, refuse_nul
 
 def _now() -> datetime:
     return datetime.now(UTC).replace(microsecond=0)
@@ -257,6 +258,51 @@ def test_text_fields_have_explicit_french_bounds(field, value):
         SubscriptionQuotaReport.model_validate(_report(**overrides))
     assert field in _messages(caught.value)
     assert "Input should" not in _messages(caught.value)
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        {"detail": "texte\x00nul"},
+        {"plan": "plan\x00"},
+        {"windows": [_window(key="prim\x00ary")]},
+    ],
+)
+def test_the_nul_refusal_of_a_field_never_carries_the_byte_it_refuses(report):
+    # Le refus nomme l'octet sous sa forme échappée : un vrai NUL dans le message
+    # atteindrait l'erreur Pydantic, les journaux ou une réponse 422 du greffon.
+    with pytest.raises(ValidationError) as caught:
+        SubscriptionQuotaReport.model_validate(_report(**report))
+    message = _messages(caught.value)
+    assert r"le caractère NUL (\x00) est interdit" in message
+    assert "\x00" not in message
+
+
+class _ModeleSansValidateurDeChamp(ContratValide):
+    """Modèle minimal : seul le filet commun de ``ContratValide`` le protège."""
+
+    texte: str
+    etiquettes: dict[str, str]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"texte": "a\x00b", "etiquettes": {}},
+        {"texte": "a", "etiquettes": {"cle": "val\x00eur"}},
+        {"texte": "a", "etiquettes": {"c\x00le": "valeur"}},
+    ],
+)
+def test_the_common_nul_refusal_never_carries_the_byte_it_refuses(payload):
+    # Filet commun à tout modèle du contrat, y compris ceux que le greffon ajoutera.
+    with pytest.raises(ValidationError) as caught:
+        _ModeleSansValidateurDeChamp.model_validate(payload)
+    message = _messages(caught.value)
+    assert r"le caractère NUL (\x00) est interdit" in message
+    assert "\x00" not in message
+    with pytest.raises(ValueError) as direct:
+        refuse_nul("a\x00b")
+    assert "\x00" not in str(direct.value)
 
 
 @pytest.mark.parametrize(
