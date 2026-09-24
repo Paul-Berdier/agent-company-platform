@@ -105,8 +105,9 @@ Aucune API ne donne les limites d'un compte individuel Pro ou Max. Claude Code
 transmet en revanche à sa **ligne d'état** un JSON qui contient
 `rate_limits.five_hour` et `rate_limits.seven_day` (`used_percentage` de 0 à 100,
 `resets_at` en secondes Unix), pour les abonnés Pro et Max, après la première réponse
-de l'API dans la session. La ligne d'état du titulaire recopie ces valeurs dans un
-fichier, que le worker lit :
+de l'API dans la session. La ligne d'état livrée avec le worker
+(`python -m acp_worker.claude_statusline`, § 5.2) recopie ces valeurs dans un fichier,
+que le worker lit :
 
 ```json
 {
@@ -124,6 +125,8 @@ fichier, que le worker lit :
 une durée inconnue. `observed_at` est l'instant d'écriture par la ligne d'état. Un
 fichier absent, illisible, trop volumineux (plus de 64 Kio), mal formé ou hors
 contrat donne un relevé `unavailable` avec son explication ; la sonde ne lève jamais.
+Le format est défini à un seul endroit, `apps/worker/src/acp_worker/claude_statusline.py`,
+que la sonde importe.
 
 ## 4. Contrat de l'API
 
@@ -280,12 +283,61 @@ d'état (bases SQLite, journaux), comme lors de tout usage de Codex.
 
 ### 5.2 Ligne d'état Claude Code
 
-Dans `~/.claude/settings.json` du titulaire, `statusLine` désigne une commande qui
-reçoit le JSON de Claude Code sur son entrée standard et écrit, de façon atomique et
-sans aucun secret, le fichier décrit au § 3.2. Chemin lu par défaut :
-`%USERPROFILE%\.acp\quotas\claude-code.json` (hors de `%LOCALAPPDATA%`, que
-l'application Claude Desktop redirige vers un dossier privé). Le fichier n'apparaît
-qu'après une première réponse de Claude Code dans une session Pro ou Max.
+Le worker livre sa ligne d'état : `acp_worker.claude_statusline`, bibliothèque standard
+seulement, lancée par l'interpréteur Python du worker. Dans `~/.claude/settings.json`
+du titulaire (chemins en barres obliques sous Windows) :
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "C:/chemin/du/worker/.venv/Scripts/python.exe -m acp_worker.claude_statusline"
+  }
+}
+```
+
+Claude Code n'accepte qu'**une** commande `statusLine`. Si le titulaire en a déjà une, il
+la place après `--` : elle reçoit la même entrée standard et son affichage est repris
+tel quel, par exemple
+`… -m acp_worker.claude_statusline -- powershell -NoProfile -File C:/Users/titulaire/.claude/statusline.ps1`.
+La commande chaînée est lancée sans shell (le shell de Claude Code a déjà découpé la
+ligne), avec un délai de 10 s ; si elle échoue ou ne répond pas, la ligne courte du
+module s'affiche, suivie de « ligne d'état existante en échec ». Sans commande chaînée,
+la ligne affiche le modèle, le dossier et chaque fenêtre (« 5 h : 23,5 % utilisés,
+remise 14:00 »).
+
+À chaque mise à jour de la ligne d'état, le module :
+
+- ne recopie que `rate_limits.five_hour` et `rate_limits.seven_day` ; ni identifiant de
+  session, ni chemin, ni modèle, ni coût, ni `spend_limit` (limite de dépense d'une
+  passerelle, qui n'est pas un quota d'abonnement, et peut dépasser 100 %) ;
+- écrit dans un fichier temporaire du même dossier (`.claude-code.json.*.tmp`), puis le
+  substitue par `os.replace` : le worker ne lit jamais un fichier à moitié écrit, même
+  quand Claude Code interrompt la commande pour une mise à jour plus récente. Les
+  fichiers temporaires d'une exécution interrompue sont retirés après une heure. Sous
+  Windows, un lecteur qui tient le fichier ouvert fait échouer la substitution : trois
+  essais, puis la ligne affiche « relevé non enregistré » et la mise à jour suivante
+  réessaie ;
+- n'écrit rien tant que Claude Code n'a transmis aucune de ces fenêtres (avant la
+  première réponse, ou hors abonnement Pro ou Max) : la ligne affiche « quotas
+  d'abonnement non transmis par Claude Code » et le relevé précédent garde sa date ;
+- recopie une part utilisée hors de 0–100, non numérique ou booléenne, et un instant de
+  remise à zéro illisible, comme **inconnus** (`null`) ;
+- ne lève jamais et sort avec le code 0 ; une entrée illisible ou un argument autre que
+  `-- commande` est signalé dans la ligne affichée.
+
+Chemin écrit et lu par défaut : `%USERPROFILE%\.acp\quotas\claude-code.json` (hors de
+`%LOCALAPPDATA%`, que l'application Claude Desktop redirige vers un dossier privé).
+`ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT`, chemin absolu, le remplace pour le worker **et**
+pour la ligne d'état : la définir dans les deux environnements (par exemple dans le bloc
+`env` des réglages de Claude Code). Une valeur non absolue est refusée : rien n'est écrit
+et la ligne le dit.
+
+Preuves : `apps/worker/tests/test_claude_statusline.py` (vrai processus alimenté par le
+JSON de session documenté par Claude Code, fichier relu par la sonde du worker, ligne
+existante conservée ou en échec, écriture atomique) et, de bout en bout jusqu'à la vue du
+propriétaire, `test_a_real_status_line_reading_reaches_the_owner_view` dans
+`apps/api/tests/test_subscription_quotas.py`.
 
 ### 5.3 Variables du worker
 
@@ -370,6 +422,10 @@ latérale) et
 - **Compteurs Codex** : `limitName` n'est pas transmis ; au-delà de 15 compteurs, le
   relevé Codex devient `unavailable` plutôt que tronqué ; un `usedPercent` hors 0–100
   rend toute la lecture `unavailable` (les derniers compteurs réussis restent affichés).
+- **Ligne d'état non éprouvée dans un vrai Claude Code** : le module est exercé par un
+  vrai processus alimenté par le JSON de session documenté, pas encore lancé par Claude
+  Code lui-même sur le poste de référence. Il ne tourne que pendant l'usage de Claude
+  Code : sans session ouverte, rien n'est relevé.
 - **Claude Code** : rien n'est relevé tant que Claude Code n'a pas répondu une fois
   dans une session ; sans usage, le relevé vieillit et devient « Périmé ». Une erreur
   de lecture passagère apparaît comme l'état courant (« Indisponible ») jusqu'à la

@@ -132,7 +132,7 @@ Variables utiles :
 | `ACP_WORKER_EXECUTOR_TIMEOUT_SECONDS` | `1800` | délai global, plafonné à 3 600 s |
 | `ACP_WORKER_SUBSCRIPTION_QUOTAS` | `0` | `1` relève les quotas réels d'abonnement Codex et Claude Code ([détail](../subscription-quotas.md)) |
 | `ACP_WORKER_QUOTA_INTERVAL_SECONDS` | `300` | intervalle des relevés, entier de 60 à 86 400 |
-| `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT` | `%USERPROFILE%\.acp\quotas\claude-code.json` | fichier écrit par la ligne d'état Claude Code |
+| `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT` | `%USERPROFILE%\.acp\quotas\claude-code.json` | fichier écrit par la ligne d'état livrée (`python -m acp_worker.claude_statusline`), qui lit la même variable |
 | `ACP_WORKER_QUOTA_CODEX_HOME` / `ACP_WORKER_QUOTA_CODEX_EXECUTABLE` | `%USERPROFILE%\.acp\codex-home` / `codex` du `PATH` | profil et CLI Codex des quotas, refusés si l'exécuteur Codex est activé (son profil est réutilisé) |
 
 Les deux URL de service sont des origines sans chemin, query, fragment ou userinfo.

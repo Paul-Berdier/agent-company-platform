@@ -9,8 +9,12 @@ qui possède la plateforme lit ces valeurs.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
+import subprocess
+import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -382,6 +386,66 @@ def test_a_failed_reading_never_replaces_the_single_codex_counter():
         assert refused.status_code == 422
         assert "identifiant réservé « probe »" in refused.text
     assert [item["status"] for item in _owner_items(worker_id)] == ["ok", "not_signed_in"]
+
+
+def test_a_real_status_line_reading_reaches_the_owner_view(tmp_path: Path):
+    """Parcours complet : JSON de session de Claude Code → ligne d'état livrée →
+    fichier → sonde du worker → dépôt authentifié → vue du propriétaire."""
+
+    import acp_worker
+    from acp_worker.claude_statusline import SNAPSHOT_ENV
+    from acp_worker.subscription_quotas import SubscriptionQuotaConfig, probe_claude_code
+
+    snapshot = tmp_path / "claude-code.json"
+    session = {
+        "session_id": "session-secrete",
+        "model": {"id": "claude-opus-5-5", "display_name": "Opus"},
+        "workspace": {"current_dir": str(tmp_path)},
+        "rate_limits": {
+            "five_hour": {"used_percentage": 23.5, "resets_at": 1_790_000_000},
+            "seven_day": {"used_percentage": 41.2, "resets_at": 1_790_400_000},
+        },
+    }
+    env = {name: value for name, value in os.environ.items() if name != "PYTHONPATH"}
+    env["PYTHONPATH"] = str(Path(acp_worker.__file__).resolve().parents[1])
+    env[SNAPSHOT_ENV] = str(snapshot)
+    written = subprocess.run(
+        [sys.executable, "-m", "acp_worker.claude_statusline"],
+        input=json.dumps(session).encode("utf-8"),
+        capture_output=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+    assert written.returncode == 0, written.stderr
+    report = asyncio.run(
+        probe_claude_code(
+            SubscriptionQuotaConfig(
+                enabled=True, codex_home=tmp_path, claude_snapshot_path=snapshot
+            )
+        )
+    )
+    assert report.status == "ok"
+
+    with TestClient(app) as client:
+        worker_id, token, _ = _register(client)
+        posted = _post(client, worker_id, token, report.model_dump(mode="json"))
+        assert posted.json() == {"stored": 1, "ignored_older": 0, "removed": 0}
+    (item,) = _owner_items(worker_id)
+    assert (item["provider"], item["status"], item["limit_id"], item["stale"]) == (
+        "claude_code",
+        "ok",
+        "default",
+        False,
+    )
+    assert [
+        (window["key"], window["window_minutes"], window["remaining_percent"], window["resets_at"])
+        for window in item["windows"]
+    ] == [
+        ("five_hour", 300, 76.5, "2026-09-21T14:13:20Z"),
+        ("seven_day", 10080, 58.8, "2026-09-26T05:20:00Z"),
+    ]
+    assert "session-secrete" not in json.dumps(item)
 
 
 def test_an_old_observation_is_marked_stale_against_the_configured_threshold(

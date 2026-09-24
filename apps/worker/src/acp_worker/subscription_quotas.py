@@ -56,6 +56,10 @@ from acp_contracts import (
     SubscriptionQuotaReport,
 )
 
+from .claude_statusline import SNAPSHOT_ENV as CLAUDE_SNAPSHOT_ENV
+from .claude_statusline import SNAPSHOT_SOURCE as CLAUDE_SNAPSHOT_SOURCE
+from .claude_statusline import SNAPSHOT_WINDOW_MINUTES as CLAUDE_WINDOW_MINUTES
+from .claude_statusline import default_snapshot_path as default_claude_snapshot_path
 from .executors import ExecutorConfig
 from .local_runner import FencedProcess, FencedSpawnError, spawn_fenced_process, terminate_process_tree
 
@@ -67,7 +71,6 @@ if TYPE_CHECKING:
 
 ENABLED_ENV = "ACP_WORKER_SUBSCRIPTION_QUOTAS"
 INTERVAL_ENV = "ACP_WORKER_QUOTA_INTERVAL_SECONDS"
-CLAUDE_SNAPSHOT_ENV = "ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT"
 QUOTA_CODEX_HOME_ENV = "ACP_WORKER_QUOTA_CODEX_HOME"
 QUOTA_CODEX_EXECUTABLE_ENV = "ACP_WORKER_QUOTA_CODEX_EXECUTABLE"
 EXECUTOR_CODEX_HOME_ENV = "ACP_WORKER_CODEX_HOME"
@@ -90,8 +93,7 @@ CLIENT_NAME = "agent_company_platform_worker"
 CLIENT_TITLE = "Agent Company Platform — worker"
 CLIENT_VERSION = "1.0"
 """Version du dialogue de cette sonde avec l'app-server, pas celle du produit."""
-CLAUDE_SNAPSHOT_SOURCE = "claude-code-statusline"
-CLAUDE_WINDOW_MINUTES = {"five_hour": 300, "seven_day": 10_080}
+# Format du fichier de la ligne d'état : défini par son écrivain, ``claude_statusline``.
 
 API_KEY_VARIABLES = ("OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN")
 # Seules ces variables du worker sont recopiées : de quoi lancer le CLI (et son
@@ -158,8 +160,9 @@ CODEX_CLEANUP_UNCONFIRMED = (
     "Arrêt de l'app-server Codex non confirmé : relevé écarté par prudence."
 )
 CLAUDE_MISSING = (
-    "Aucun relevé de la ligne d'état Claude Code : fichier absent. Installez la ligne "
-    "d'état (docs/subscription-quotas.md) puis utilisez Claude Code une fois."
+    "Aucun relevé de la ligne d'état Claude Code : fichier absent. Réglez la ligne "
+    "d'état de Claude Code sur « python -m acp_worker.claude_statusline » "
+    "(docs/subscription-quotas.md § 5.2), puis utilisez Claude Code une fois."
 )
 CLAUDE_UNREADABLE = "Relevé de la ligne d'état Claude Code illisible : quotas non relevés."
 CLAUDE_MALFORMED = "Relevé de la ligne d'état Claude Code mal formé : quotas non relevés."
@@ -187,10 +190,6 @@ class _RpcError(Exception):
 
 def default_codex_home() -> Path:
     return Path.home() / ".acp" / "codex-home"
-
-
-def default_claude_snapshot_path() -> Path:
-    return Path.home() / ".acp" / "quotas" / "claude-code.json"
 
 
 def _absolute_setting(value: str, setting: str) -> Path:
