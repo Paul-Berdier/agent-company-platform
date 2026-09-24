@@ -16,6 +16,10 @@ from acp_contracts import WorkerCapability
 from .executors import ExecutorConfig, ExecutorConfigurationError
 from .local_runner import LocalRunnerConfig
 from .mcp_probe import McpStdioProbeConfig
+from .subscription_quotas import (
+    SubscriptionQuotaConfig,
+    SubscriptionQuotaConfigurationError,
+)
 from .web_tests import WebTestConfig
 
 
@@ -172,6 +176,9 @@ class WorkerConfig:
     executors: ExecutorConfig = field(default_factory=ExecutorConfig.disabled)
     mcp_probe: McpStdioProbeConfig = field(default_factory=McpStdioProbeConfig.disabled)
     web_tests: WebTestConfig = field(default_factory=WebTestConfig.disabled)
+    subscription_quotas: SubscriptionQuotaConfig = field(
+        default_factory=SubscriptionQuotaConfig.disabled
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -245,6 +252,10 @@ class WorkerConfig:
             )
         if not isinstance(self.web_tests, WebTestConfig):
             raise WorkerConfigurationError("web_tests doit être une WebTestConfig")
+        if not isinstance(self.subscription_quotas, SubscriptionQuotaConfig):
+            raise WorkerConfigurationError(
+                "subscription_quotas doit être une SubscriptionQuotaConfig"
+            )
 
     def validate_execution_mode(self, *, simulation: bool) -> None:
         """Refuse toute exécution dite réelle qui dépend encore d'un simulacre."""
@@ -370,6 +381,10 @@ class WorkerConfig:
             executors = ExecutorConfig.from_environ()
         except ExecutorConfigurationError as exc:
             raise WorkerConfigurationError(str(exc)) from exc
+        try:
+            subscription_quotas = SubscriptionQuotaConfig.from_environ(executors=executors)
+        except SubscriptionQuotaConfigurationError as exc:
+            raise WorkerConfigurationError(str(exc)) from exc
         return cls(
             api_url=os.environ.get("ACP_API_URL", "http://localhost:8000"),
             gateway_url=os.environ.get(
@@ -392,6 +407,7 @@ class WorkerConfig:
             executors=executors,
             mcp_probe=McpStdioProbeConfig.from_environ(),
             web_tests=WebTestConfig.from_environ(),
+            subscription_quotas=subscription_quotas,
         )
 
     @property
