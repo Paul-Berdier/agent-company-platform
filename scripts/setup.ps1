@@ -1,8 +1,8 @@
-# Installation complète du monorepo (Windows PowerShell)
+# Installation du dépôt pour le développement (Windows PowerShell)
 #
 # Les versions tierces sont bornées par requirements/constraints.txt, dérivé du verrou
-# haché de l'image Python 3.12 (scripts/check_lock.py --write-constraints) : le poste
-# local, même en Python 3.13, installe les mêmes versions que l'image de production.
+# haché Python 3.12 (scripts/check_lock.py --write-constraints) : le poste local, même
+# en Python 3.13, installe les mêmes versions que l'intégration continue.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -29,16 +29,9 @@ $py = "$root\.venv\Scripts\python.exe"
 & $py -m pip install --upgrade pip setuptools wheel
 & $py -m pip install `
     -c "$root\requirements\constraints.txt" `
+    pytest pytest-asyncio `
     -e "$root\packages\contracts" `
-    -e "$root\packages\database[postgresql]" `
-    -e "$root\packages\provider-sdk" `
-    -e "$root\packages\event-sdk" `
-    -e "$root\packages\agent-sdk" `
-    -e "$root\apps\api" `
-    -e "$root\apps\cli" `
-    -e "$root\apps\event-service" `
-    -e "$root\apps\worker" `
-    -e "$root\services\provider-gateway[test]"
+    -e "$root\apps\worker"
 
 & $py "$root\scripts\check_lock.py"
 if ($LASTEXITCODE -ne 0) {
@@ -47,4 +40,4 @@ if ($LASTEXITCODE -ne 0) {
 
 npm install
 
-Write-Host "`nInstallation terminée. Lancez ./scripts/dev.ps1" -ForegroundColor Green
+Write-Host "`nInstallation terminée. Tests : & $py -m pytest -q ; npm run test:engine" -ForegroundColor Green

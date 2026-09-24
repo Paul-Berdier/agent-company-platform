@@ -8,9 +8,7 @@ manquant, afin qu'un 422 de l'API se lise sans traduction.
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -30,9 +28,6 @@ from acp_contracts import (
     SubscriptionQuotaReport,
     SubscriptionQuotaView,
 )
-
-TYPESCRIPT_MIRROR = Path(__file__).resolve().parents[1] / "typescript" / "index.ts"
-
 
 def _now() -> datetime:
     return datetime.now(UTC).replace(microsecond=0)
@@ -464,47 +459,3 @@ def test_the_list_carries_its_freshness_threshold():
     assert listing.items == []
     with pytest.raises(ValidationError):
         SubscriptionQuotaList(items=[], stale_after_seconds=10, generated_at=_now())
-
-
-# --- Miroir TypeScript -----------------------------------------------------------
-
-
-def _typescript_fields(source: str, name: str) -> set[str]:
-    match = re.search(
-        rf"^export interface {name}(?: extends (?P<parent>\w+))? \{{\n(?P<body>.*?)^\}}",
-        source,
-        re.MULTILINE | re.DOTALL,
-    )
-    assert match is not None, f"interface TypeScript « {name} » absente du miroir"
-    fields = set(re.findall(r"^  (\w+)\??:", match.group("body"), re.MULTILINE))
-    if match.group("parent") is not None:
-        fields |= _typescript_fields(source, match.group("parent"))
-    return fields
-
-
-@pytest.mark.parametrize(
-    "model",
-    [
-        QuotaWindow,
-        QuotaWindowView,
-        QuotaCredits,
-        SubscriptionQuotaReport,
-        SubscriptionQuotaBatch,
-        SubscriptionQuotaIngestResult,
-        SubscriptionQuotaView,
-        SubscriptionQuotaList,
-    ],
-)
-def test_typescript_mirror_declares_the_same_field_names(model):
-    source = TYPESCRIPT_MIRROR.read_text(encoding="utf-8")
-    assert _typescript_fields(source, model.__name__) == set(model.model_fields)
-
-
-def test_typescript_mirror_declares_the_closed_enumerations():
-    source = TYPESCRIPT_MIRROR.read_text(encoding="utf-8")
-    assert 'export type SubscriptionProvider = "codex" | "claude_code";' in source
-    assert 'export type QuotaSource = "codex_app_server" | "claude_code_statusline";' in source
-    assert (
-        'export type ProbeStatus = "ok" | "not_signed_in" | "cli_missing" | '
-        '"cli_too_old" | "unavailable";'
-    ) in source

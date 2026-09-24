@@ -14,136 +14,50 @@ permissions:
   contents: read
 
 concurrency:
-  # A push on main must not cancel a manually-approved E2E proof that it cannot
-  # replace. Runs of the same trigger/ref still supersede one another.
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  python:
-    name: Python 3.12
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  worker:
+    name: Worker — Python 3.12 (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Le worker vise Windows (Job Object, DPAPI) : ses chemins Windows ne sont
+        # exercés que sur windows-2022 ; ubuntu garde la référence historique.
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements/python-3.12.lock.txt
       - name: Verify release versions
         run: python scripts/check_version.py
       - name: Install Python packages
-        # Même verrou haché et mêmes outils de construction que l'image. Aucun
-        # résolveur ni environnement de build ne peut télécharger une dépendance
-        # flottante lors de l'installation des distributions locales.
+        # Verrou haché, aucun résolveur : les distributions locales s'installent sans
+        # dépendances ni environnement de construction téléchargé.
         run: |
           python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
           python -m pip install --no-deps --no-build-isolation \
             -e packages/contracts \
-            -e "packages/database[postgresql]" \
-            -e packages/provider-sdk \
-            -e packages/event-sdk \
-            -e packages/agent-sdk \
-            -e apps/api \
-            -e apps/cli \
-            -e apps/event-service \
-            -e apps/worker \
-            -e "services/provider-gateway[test]"
+            -e apps/worker
           python -m pip check
       - name: Verify Python dependency declarations and lock
         run: python scripts/check_lock.py
       - name: Run Python tests
         run: python -m pytest -q
-      - name: Verify the automation journey
-        run: python scripts/verify_automation_journey.py
 
-  postgresql:
-    # La suite complète et les parcours sur un vrai PostgreSQL. Sans ce job, les tests
-    # marqués « postgres » n'étaient qu'ignorés en CI : aucun interblocage, aucune
-    # différence de dialecte ne pouvait y apparaître. ACP_TEST_DATABASE_REQUIRED=1 fait
-    # échouer, et non ignorer, un test dont la base serait injoignable.
-    name: Python 3.12 — PostgreSQL 16
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: acp
-          POSTGRES_PASSWORD: acp
-          POSTGRES_DB: acp
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U acp -d acp"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      ACP_TEST_DATABASE_URL: postgresql+psycopg://acp:acp@127.0.0.1:5432/acp
-      ACP_TEST_DATABASE_REQUIRED: "1"
-      ACP_TEST_PG_TOOLS: native
-      PGHOST: 127.0.0.1
-      PGUSER: acp
-      PGPASSWORD: acp
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Use PostgreSQL 16 client tools
-        # pg_dump refuse un serveur plus récent que lui : les outils clients doivent
-        # être de la même version majeure que le service.
-        run: |
-          if [ ! -x /usr/lib/postgresql/16/bin/pg_dump ]; then
-            sudo apt-get update
-            sudo apt-get install --yes --no-install-recommends postgresql-client-16
-          fi
-          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
-          /usr/lib/postgresql/16/bin/pg_dump --version
-      - name: Install Python packages
-        run: |
-          python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
-          python -m pip install --no-deps --no-build-isolation \
-            -e packages/contracts \
-            -e "packages/database[postgresql]" \
-            -e packages/provider-sdk \
-            -e packages/event-sdk \
-            -e packages/agent-sdk \
-            -e apps/api \
-            -e apps/cli \
-            -e apps/event-service \
-            -e apps/worker \
-            -e "services/provider-gateway[test]"
-          python -m pip check
-      - name: Verify Python dependency declarations and lock
-        run: python scripts/check_lock.py
-      - name: Create the journey databases
-        run: |
-          for name in acp_journey_events acp_journey_automation acp_journey_backup_a acp_journey_backup_b; do
-            psql --dbname acp --command "CREATE DATABASE $name"
-          done
-      - name: Run the Python tests on PostgreSQL
-        run: python -m pytest -q
-      - name: Verify the events journey on PostgreSQL
-        run: >-
-          python scripts/verify_events_journey.py
-          --database-url postgresql+psycopg://acp:acp@127.0.0.1:5432/acp_journey_events
-      - name: Verify the automation journey on PostgreSQL
-        run: >-
-          python scripts/verify_automation_journey.py
-          --database-url postgresql+psycopg://acp:acp@127.0.0.1:5432/acp_journey_automation
-      - name: Verify backup and restore on PostgreSQL
-        run: >-
-          python scripts/verify_backup_restore.py
-          --database-url postgresql+psycopg://acp:acp@127.0.0.1:5432/acp_journey_backup_a
-          --restore-database-url postgresql+psycopg://acp:acp@127.0.0.1:5432/acp_journey_backup_b
-
-  web:
-    name: Node 22
+  engine:
+    name: Pixel Office engine — Node 22
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -164,46 +78,5 @@ jobs:
           else
             git show --check --format=fuller HEAD
           fi
-      - name: Type-check the modern workspace
-        run: npm run typecheck --workspace @acp/web
-      - name: Test the modern workspace
-        run: npm test --workspace @acp/web
-      - name: Test the Playwright reporter
-        run: npm test --workspace @acp/playwright-reporter
-      - name: Test E2E guardrails (no browser)
-        run: npm run test:e2e:unit
-      - name: Test the legacy engine
-        run: npm test --workspace @acp/pixel-office-engine
-      - name: Build the web application
-        run: npm run build:web
-
-  e2e:
-    name: Playwright E2E (opt-in)
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' &&
-          github.ref == 'refs/heads/main' &&
-          vars.ACP_E2E == '1' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: acp-e2e-staging
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: e2e/package-lock.json
-      - name: Install the isolated E2E package
-        run: npm ci --ignore-scripts --prefix e2e
-      - name: Install Chromium explicitly
-        run: npm --prefix e2e run install:chromium:ci
-      - name: Run the real shell and Studio journey
-        run: npm run test:e2e
-        env:
-          ACP_E2E: "1"
-          ACP_E2E_BASE_URL: ${{ vars.ACP_E2E_BASE_URL }}
-          ACP_E2E_ALLOWED_ORIGIN: ${{ vars.ACP_E2E_ALLOWED_ORIGIN }}
-          ACP_E2E_API_ORIGIN: ${{ vars.ACP_E2E_API_ORIGIN }}
-          ACP_E2E_RUN_ID: ${{ vars.ACP_E2E_RUN_ID }}
-          ACP_E2E_LOGIN: ${{ secrets.ACP_E2E_LOGIN }}
-          ACP_E2E_PASSWORD: ${{ secrets.ACP_E2E_PASSWORD }}
+      - name: Test the Pixel Office engine
+        run: npm run test:engine
