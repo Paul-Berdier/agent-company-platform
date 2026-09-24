@@ -27,6 +27,7 @@ Règles d'écriture, appliquées sous le verrou de la ligne du worker :
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from collections.abc import Mapping
@@ -39,7 +40,6 @@ from sqlalchemy.orm import Session
 
 from acp_contracts import (
     DEFAULT_QUOTA_STALE_SECONDS,
-    QUOTA_SOURCE_BY_PROVIDER,
     QUOTA_STALE_SECONDS_MAX,
     QUOTA_STALE_SECONDS_MIN,
     QuotaCredits,
@@ -62,6 +62,7 @@ UNREADABLE_SNAPSHOT_DETAIL = (
     "Relevé enregistré illisible : il sera remplacé au prochain passage du worker."
 )
 _DIGITS = re.compile(r"[0-9]{1,9}")
+_LOGGER = logging.getLogger(__name__)
 
 
 def stale_after_seconds(environ: Mapping[str, str] | None = None) -> int:
@@ -155,9 +156,28 @@ def ingest_reports(
     )
 
 
+def _fields_of(error: ValidationError) -> str:
+    names = {
+        part
+        for item in error.errors()
+        for part in item.get("loc", ())
+        if isinstance(part, str)
+    }
+    return ", ".join(sorted(names)) or "relevé"
+
+
 def _view(
     row: SubscriptionQuotaSnapshotModel, worker_name: str, *, threshold: datetime
-) -> SubscriptionQuotaView:
+) -> SubscriptionQuotaView | None:
+    """Vue d'une ligne, ou ``None`` quand même son identité ne peut pas être servie.
+
+    Aucune ligne ne doit empêcher la lecture des autres, ni s'afficher comme valide.
+    Des mesures illisibles donnent un relevé « indisponible » avec l'identité réelle
+    de la ligne. Une identité hors contrat (par exemple le nom vide d'un worker
+    enrôlé avant la règle actuelle) écarte la ligne, signalée au journal par
+    l'identifiant du worker et le nom des champs refusés, jamais par leur valeur.
+    """
+
     identity = {
         "provider": row.provider,
         "source": row.source,
@@ -183,13 +203,22 @@ def _view(
             detail=row.detail,
         )
     except (ValidationError, TypeError, ValueError):
-        # Aucune ligne ne doit empêcher la lecture des autres, ni s'afficher comme
-        # valide : elle devient « indisponible », avec son identité réelle.
-        if identity["source"] != QUOTA_SOURCE_BY_PROVIDER.get(identity["provider"]):
-            raise
+        pass
+    try:
         return SubscriptionQuotaView(
             **identity, status="unavailable", detail=UNREADABLE_SNAPSHOT_DETAIL
         )
+    except ValidationError as exc:
+        fields = _fields_of(exc)
+    except (TypeError, ValueError):
+        fields = "relevé"
+    _LOGGER.warning(
+        "Relevé de quota écarté de la lecture : identité hors contrat "
+        "(worker %s, champs %s)",
+        str(row.worker_id)[:36],
+        fields,
+    )
+    return None
 
 
 def list_views(db: Session, *, now: datetime, stale_seconds: int) -> SubscriptionQuotaList:
@@ -207,8 +236,9 @@ def list_views(db: Session, *, now: datetime, stale_seconds: int) -> Subscriptio
         rows,
         key=lambda item: (item[0].provider, item[0].limit_id, item[1], item[0].worker_id),
     )
+    views = [_view(row, worker_name, threshold=threshold) for row, worker_name in rows]
     return SubscriptionQuotaList(
-        items=[_view(row, worker_name, threshold=threshold) for row, worker_name in rows],
+        items=[view for view in views if view is not None],
         stale_after_seconds=stale_seconds,
         generated_at=now,
     )

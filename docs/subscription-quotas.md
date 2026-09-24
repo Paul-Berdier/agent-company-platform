@@ -234,6 +234,12 @@ autre rôle, `503` si `ACP_SUBSCRIPTION_QUOTA_STALE_SECONDS` est invalide. Répo
 - pour un même worker et un même fournisseur, le relevé dont `observed_at` est le
   plus récent donne l'état courant (par exemple « Indisponible » après un délai
   dépassé) ; les compteurs plus anciens restent affichés avec leur date ;
+- une ligne ne fait jamais tomber la lecture des autres : des mesures stockées
+  illisibles donnent un relevé `unavailable` (« Relevé enregistré illisible ») avec
+  l'identité réelle de la ligne ; une identité elle-même hors contrat (par exemple le
+  nom vide d'un worker enrôlé avant que l'enrôlement ne refuse les noms vides) écarte
+  la ligne, signalée au journal de l'API par l'identifiant du worker et le nom des champs
+  refusés, jamais par leur valeur ;
 - un serveur antérieur à cette version répond `404` : le client affiche alors
   « Non disponible sur ce serveur ».
 
@@ -376,6 +382,10 @@ latérale) et
   émis pour un nouveau relevé.
 - **Worker révoqué** : ses derniers relevés restent listés, deviennent « Périmé », et
   ne disparaissent qu'avec la suppression du worker.
+- **Worker au nom vide** : l'enrôlement refuse désormais un nom vide ou fait de seuls
+  espaces (le NUL l'était déjà). Un worker enrôlé avant cette règle sous un tel nom n'a
+  plus de relevé visible dans l'écran « Quotas » (ligne écartée, signalée au seul
+  journal de l'API) : le réenrôler sous un nom lisible.
 - **Horloges** : la fraîcheur compare l'horloge de l'API à `observed_at`, fixé par le
   poste du worker (Codex) ou par la ligne d'état (Claude Code) ; un écart de plus de
   cinq minutes dans le futur est refusé.

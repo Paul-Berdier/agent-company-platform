@@ -10,6 +10,7 @@ qui possède la plateforme lit ces valeurs.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -396,6 +397,35 @@ def test_an_old_observation_is_marked_stale_against_the_configured_threshold(
         listing = client.get("/subscription-quotas").json()
     assert listing["stale_after_seconds"] == 86400
     assert [item["stale"] for item in listing["items"] if item["worker_id"] == worker_id] == [False]
+
+
+def test_one_row_with_an_unservable_identity_never_fails_the_whole_listing(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Worker d'avant la règle d'enrôlement, au nom vide : ses relevés sont écartés
+    et signalés au journal ; ceux des autres workers restent lisibles."""
+
+    with TestClient(app) as client:
+        normal_id, normal_token, _ = _register(client)
+        blank_id, blank_token, _ = _register(client)
+        observed = _instant(-30)
+        assert _post(client, normal_id, normal_token, _codex(observed)).status_code == 200
+        assert _post(client, blank_id, blank_token, _codex(observed)).status_code == 200
+    with get_session_factory()() as db:
+        db.get(WorkerModel, blank_id).name = "   "
+        db.commit()
+    try:
+        with caplog.at_level(logging.WARNING, logger="acp_api.subscription_quotas"):
+            items = _owner_items()
+        workers = {item["worker_id"] for item in items}
+        assert normal_id in workers
+        assert blank_id not in workers
+        warnings = [record.getMessage() for record in caplog.records]
+        assert any(blank_id in message and "worker_name" in message for message in warnings), warnings
+    finally:
+        with get_session_factory()() as db:
+            db.get(WorkerModel, blank_id).name = f"poste-{uuid4().hex[:10]}"
+            db.commit()
 
 
 @pytest.mark.parametrize("value", ["abc", "10", "604801", "1800.5", " "])
