@@ -9,9 +9,17 @@ name: Desktop CI
 # Ce workflow ne publie rien, jamais, et surtout pas depuis une demande de fusion :
 # il ne demande que `contents: read` et n'emploie aucun jeton d'écriture.
 
+# Refonte « Hermes au centre » : le client est intact mais hors service jusqu'à P8
+# (il parle encore l'ancienne API ACP, retirée) ; ce workflow garde la preuve qu'il
+# compile et que ses tests passent. Le parcours contre une API locale a disparu avec
+# cette API.
+
 "on":
   workflow_dispatch:
   pull_request:
+    branches:
+      - main
+      - "refonte/hermes"
     paths:
       - "apps/desktop/**"
       - "design/tokens/**"
@@ -26,8 +34,7 @@ name: Desktop CI
   push:
     branches:
       - main
-      - "codex/**"
-      - "feat/**"
+      - "refonte/**"
     paths:
       - "apps/desktop/**"
       - "design/tokens/**"

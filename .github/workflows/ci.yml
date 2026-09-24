@@ -1,14 +1,24 @@
 name: CI
 
+# Refonte « Hermes au centre » : trois volets.
+#   - moteur : gel de packages/pixel-office-engine sur l'étiquette d'archive, puis ses
+#     tests npm ;
+#   - poste : pytest sur apps/poste, le contrat partagé et l'outillage, sous Linux et
+#     sous Windows ;
+#   - desktop : workflow séparé desktop-ci.yml (windows-2022).
+# Chaque étape de la refonte arrive par une PR refonte/hermes-pN vers refonte/hermes ;
+# la PR finale va de refonte/hermes vers main.
+
 "on":
   workflow_dispatch:
   pull_request:
+    branches:
+      - main
+      - "refonte/hermes"
   push:
     branches:
       - main
-      - "codex/**"
-      - "feat/**"
-      - "fix/**"
+      - "refonte/**"
 
 permissions:
   contents: read
@@ -18,6 +28,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  moteur:
+    name: Moteur Pixel Office — gel et tests (Node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Historique et étiquettes : la garde compare l'arbre à
+          # archive/acp-0.10.0-avant-hermes.
+          fetch-depth: 0
+      - name: Vérifier le gel du moteur
+        run: |
+          git diff --exit-code archive/acp-0.10.0-avant-hermes -- \
+            packages/pixel-office-engine apps/web/public/assets plugins
+          python3 scripts/check_engine_frozen.py
+      - name: Vérifier les blancs des commits
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          else
+            git show --check --format=fuller HEAD
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Installer les paquets npm (verrou)
+        run: npm ci
+      - name: Tester le moteur
+        run: npm run test:engine
+
   poste:
     name: Poste — Python 3.12 (${{ matrix.os }})
     strategy:
@@ -40,43 +82,18 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements/python-3.12.lock.txt
-      - name: Verify release versions
+      - name: Vérifier les versions publiables
         run: python scripts/check_version.py
-      - name: Install Python packages
-        # Verrou haché, aucun résolveur : les distributions locales s'installent sans
-        # dépendances ni environnement de construction téléchargé.
+      - name: Installer les paquets Python (verrou haché)
+        # Aucun résolveur : les distributions locales s'installent sans dépendances
+        # ni environnement de construction téléchargé.
         run: |
           python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
           python -m pip install --no-deps --no-build-isolation \
             -e hermes/plugins/acp-poste/contrat \
             -e apps/poste
           python -m pip check
-      - name: Verify Python dependency declarations and lock
+      - name: Vérifier les déclarations et le verrou Python
         run: python scripts/check_lock.py
-      - name: Run Python tests
+      - name: Exécuter les tests Python
         run: python -m pytest -q
-
-  engine:
-    name: Pixel Office engine — Node 22
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install Node packages
-        run: npm ci
-      - name: Check committed whitespace
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            git diff --check "origin/${{ github.base_ref }}...HEAD"
-          else
-            git show --check --format=fuller HEAD
-          fi
-      - name: Test the Pixel Office engine
-        run: npm run test:engine
