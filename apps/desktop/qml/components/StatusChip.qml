@@ -97,6 +97,7 @@ Item {
         }
 
         Text {
+            textFormat: Text.PlainText
             text: chip.effectiveLabel
             color: chip.meta.foreground
             font.family: Type.statusChip.family
@@ -108,9 +109,13 @@ Item {
     }
 
     HoverHandler { id: hover }
-    ToolTip.visible: hover.hovered && chip.detail.length > 0
-    ToolTip.text: chip.detail
-    ToolTip.delay: 400
+    ToolTip {
+        id: plainTip
+        visible: hover.hovered && chip.detail.length > 0
+        text: chip.detail
+        contentItem: Text { text: plainTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+        delay: 400
+    }
 
     // Accessibilité : le repli ASCII accompagne le libellé, pour les lecteurs d'écran et
     // pour toute sortie textuelle.

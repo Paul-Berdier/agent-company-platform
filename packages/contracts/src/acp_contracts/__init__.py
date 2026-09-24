@@ -93,6 +93,7 @@ from .missions import (  # noqa: F401
     MissionCreate,
     MissionDetail,
     MissionEvidence,
+    MissionExecution,
     MissionResource,
     MissionRetryRequest,
     MissionRun,

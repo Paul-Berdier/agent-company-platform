@@ -5,5 +5,5 @@ add_subdirectory(generated)
 acp_add_qml_module(
     TARGET acp_theme
     URI Acp.Theme
-    QML_FILES ThemeBridge.qml
+    QML_FILES ThemeBridge.qml NativePalette.qml
 )

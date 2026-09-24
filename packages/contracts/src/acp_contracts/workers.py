@@ -16,6 +16,7 @@ class WorkerCapability(str, Enum):
     SHELL_RESTRICTED = "shell_restricted"
     CLAUDE_CODE = "claude_code"
     CODEX_CLI = "codex_cli"
+    AGENT_TEAM = "agent_team"
     BLENDER = "blender"
     BLENDER_MCP = "blender_mcp"
     UNREAL_ENGINE = "unreal_engine"

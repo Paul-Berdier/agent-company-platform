@@ -6,6 +6,48 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+### Interface conversations et projets
+
+- accueil à deux entrées : chat libre sans titre préalable ou projet à créer/reprendre ;
+- identité native graphite/ivoire/sarcelle et pictogrammes originaux ;
+- sidebar avec projets et historique contextuel, inspecteur réel, précédent/suivant,
+  volets adaptatifs et préférences de largeur conservées ;
+- brouillons en mémoire par fil, recherche des titres chargés, code copiable,
+  Entrée/Maj+Entrée et suivi du défilement respectant la lecture ;
+- clics des fenêtres modales isolés de la navigation sous-jacente et largeur réelle du champ de saisie bornée ;
+- notification immédiate de la création en cours, actualisation accessible pour
+  rapprocher un envoi incertain et contexte général conservé au renommage d'un projet ;
+- étapes dépendantes d’une équipe admises après la preuve Git finale, et nettoyage Windows fondé sur les handles épinglés ;
+- suite Python complète : 3 037 réussis, 70 ignorés ; 492 tests Node réussis, typage et build verts ;
+- 23 suites Qt vertes, deux parcours UI Windows et parcours Qt/API réelle avec création sans titre ;
+- recette de l'interface et limites dans
+  [`docs/desktop-chat-projects-2026-09-23.md`](docs/desktop-chat-projects-2026-09-23.md).
+
+### Intégration fonctionnelle desktop et poste local
+
+- formulaires Qt Standard, Codex, Claude et équipe ; conversations générales ou
+  de projet, arrêt visible et commentaires actualisés ;
+- focus clavier de la palette corrigé, contrôles natifs lisibles dans les deux
+  thèmes, contenus métier rendus en texte brut ;
+- états d'approbation et d'arrêt Hermes compris par le web, configuration d'équipe
+  conservée dans les routines et confirmation Qt compatible avec le champ optionnel ;
+- équipes supervisées dans des worktrees distincts, dépendances et concurrence
+  bornées, checkpoints de résultats et rapports idempotents ;
+- cycle asynchrone des Runs Hermes avec arrêt confirmé et reprise d'admission
+  sous la même clé ; compétences épinglées et proxy MCP HTTP par délégation ;
+- migration `0004` pour la déduplication MCP et garde de rollback pendant un appel ;
+- outils Hermes/Claude épinglés, lanceurs ACP et worker locaux, coffre de notes
+  Markdown dédié et secrets techniques/credentials worker protégés par DPAPI Windows ;
+- refus des profils Hermes qui remplacent les bornes du lanceur via `.env` ;
+- 3 025 tests Python réussis, 70 ignorés, 325 tests web réussis avec typage/build ;
+- 22 suites Qt vertes, interactions réelles avec captures et parcours API jetable.
+
+Les preuves détaillées et limites sont dans
+[`docs/functional-completion-2026-09-23.md`](docs/functional-completion-2026-09-23.md).
+Hermes répond localement, mais son diagnostic est dégradé ; aucune génération réelle
+payante, reprise automatique d'équipe interrompue, fusion automatique des branches
+produites ou publication finale 0.10.0 n'est annoncée.
+
 ## 0.10.0 (préparation) - 2026-09-23
 
 Client natif Qt : intégration du Lot H et parcours métier reliés à l'API.
@@ -62,7 +104,8 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 ### Limites connues
 
 - recette Railway, fournisseur/worker réels, Windows propre et signature de code non prouvés ;
-- revue visuelle interrompue par l'expiration de l'autorisation de capture de fenêtre ;
+- première revue visuelle interrompue par l'expiration de l'autorisation de capture ;
+  recette Qt complétée ensuite avec le harnais natif décrit dans la validation fonctionnelle ;
 - mise à jour manuelle depuis la publication GitHub ; aucune installation automatique ;
 - import/administration avancée de MCP et compétences encore partiellement réservés au web/CLI ;
 - aucune publication 0.10.0 ni fin de la Desktop V1 annoncée ; Pixel Office conservé à part ;

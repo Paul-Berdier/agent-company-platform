@@ -90,6 +90,10 @@ class TestMissions : public QObject {
     Q_OBJECT
 private slots:
     void creationRequiresBoundedRealContract();
+    void executorFormsDeclareWorkspaceAndKeepBudget_data();
+    void executorFormsDeclareWorkspaceAndKeepBudget();
+    void invalidExecutorCombinationsAreRefused();
+    void refreshReloadsCommentsAndRejectsOlderReplies();
     void acceptanceAndRetryAreDifferentDecisions();
     void staleProjectAndSessionRepliesCannotRepopulate();
     void mutationUsesOnlyDeclaredIdempotency();
@@ -124,6 +128,94 @@ void TestMissions::acceptanceAndRetryAreDifferentDecisions() {
     auto invalid = attempt(QStringLiteral("r"), QStringLiteral("succeeded"));
     invalid.insert(QStringLiteral("technical_validation"), QJsonObject{{QStringLiteral("status"), QStringLiteral("failed")}});
     QVERIFY(!MissionsViewModel::acceptanceAllowed(invalid));
+}
+void TestMissions::executorFormsDeclareWorkspaceAndKeepBudget_data() {
+    QTest::addColumn<QString>("executor"); QTest::addColumn<QString>("access");
+    QTest::newRow("codex-read") << QStringLiteral("codex_cli") << QStringLiteral("read");
+    QTest::newRow("codex-write") << QStringLiteral("codex_cli") << QStringLiteral("write");
+    QTest::newRow("claude-read") << QStringLiteral("claude_code") << QStringLiteral("read");
+    QTest::newRow("team-write") << QStringLiteral("multi_agent") << QStringLiteral("write");
+}
+void TestMissions::executorFormsDeclareWorkspaceAndKeepBudget() {
+    QFETCH(QString, executor); QFETCH(QString, access);
+    QVariantMap form{{QStringLiteral("title"), QStringLiteral("Mission")}, {QStringLiteral("objective"), QStringLiteral("Objectif")},
+        {QStringLiteral("expected_outcome"), QStringLiteral("Résultat")}, {QStringLiteral("acceptance_criteria"), QStringLiteral("Rapport")},
+        {QStringLiteral("max_cost"), QStringLiteral("7.50")}, {QStringLiteral("cost_limit_enabled"), true},
+        {QStringLiteral("max_tool_calls"), 10}, {QStringLiteral("duration_seconds"), 900},
+        {QStringLiteral("autonomy"), QStringLiteral("supervised")}, {QStringLiteral("executor"), executor},
+        {QStringLiteral("workspace_access"), access}, {QStringLiteral("max_concurrency"), 2}};
+    QString error;
+    auto body = MissionsViewModel::creationBody(QStringLiteral("project"), form, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(body.value(QStringLiteral("budget")).toObject().value(QStringLiteral("max_cost")).toDouble(), 7.5);
+    const auto resource = body.value(QStringLiteral("resources")).toArray().first().toObject();
+    QCOMPARE(resource.value(QStringLiteral("kind")).toString(), QStringLiteral("project_workspace"));
+    QCOMPARE(resource.value(QStringLiteral("identifier")).toString(), QStringLiteral("project"));
+    QCOMPARE(resource.value(QStringLiteral("access")).toString(), access);
+    if (executor == QLatin1String("multi_agent")) {
+        const auto execution = body.value(QStringLiteral("execution")).toObject();
+        QCOMPARE(execution.value(QStringLiteral("max_concurrency")).toInt(), 2);
+        QCOMPARE(execution.value(QStringLiteral("executors")).toArray().size(), 2);
+        QVERIFY(body.value(QStringLiteral("required_capabilities")).toArray().contains(QStringLiteral("agent_team")));
+    } else QVERIFY(body.value(QStringLiteral("required_capabilities")).toArray().contains(executor));
+    form.insert(QStringLiteral("cost_limit_enabled"), false);
+    body = MissionsViewModel::creationBody(QStringLiteral("project"), form, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(body.value(QStringLiteral("budget")).toObject().value(QStringLiteral("max_cost")).isNull());
+    QCOMPARE(body.value(QStringLiteral("budget")).toObject().value(QStringLiteral("max_tool_calls")).toInt(), 10);
+    QCOMPARE(form.value(QStringLiteral("max_cost")).toString(), QStringLiteral("7.50"));
+}
+void TestMissions::invalidExecutorCombinationsAreRefused() {
+    QVariantMap form{{QStringLiteral("title"), QStringLiteral("Mission")}, {QStringLiteral("objective"), QStringLiteral("Objectif")},
+        {QStringLiteral("expected_outcome"), QStringLiteral("Résultat")}, {QStringLiteral("acceptance_criteria"), QStringLiteral("Rapport")},
+        {QStringLiteral("max_cost"), QStringLiteral("5")}, {QStringLiteral("duration_seconds"), 900},
+        {QStringLiteral("executor"), QStringLiteral("claude_code")}, {QStringLiteral("workspace_access"), QStringLiteral("read")}};
+    QString error;
+    QVERIFY(MissionsViewModel::creationBody(QStringLiteral("project"), form, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("supervisé")));
+    form.insert(QStringLiteral("autonomy"), QStringLiteral("supervised"));
+    form.insert(QStringLiteral("workspace_access"), QStringLiteral("write"));
+    QVERIFY(MissionsViewModel::creationBody(QStringLiteral("project"), form, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("lecture")));
+    form.insert(QStringLiteral("workspace_access"), QStringLiteral("read"));
+    form.insert(QStringLiteral("required_capabilities"), QStringLiteral("codex_cli"));
+    QVERIFY(MissionsViewModel::creationBody(QStringLiteral("project"), form, &error).isEmpty());
+    form.remove(QStringLiteral("required_capabilities"));
+    form.insert(QStringLiteral("cost_limit_enabled"), false);
+    QVERIFY(MissionsViewModel::creationBody(QStringLiteral("project"), form, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("plafond d'appels")));
+    form.insert(QStringLiteral("executor"), QStringLiteral("multi_agent"));
+    form.insert(QStringLiteral("max_tool_calls"), 2);
+    QVERIFY(MissionsViewModel::creationBody(QStringLiteral("project"), form, &error).isEmpty());
+    form.insert(QStringLiteral("max_tool_calls"), 10);
+    form.insert(QStringLiteral("max_concurrency"), 3);
+    QVERIFY(MissionsViewModel::creationBody(QStringLiteral("project"), form, &error).isEmpty());
+}
+void TestMissions::refreshReloadsCommentsAndRejectsOlderReplies() {
+    HttpFixture server;
+    int reads = 0;
+    Incoming delayed;
+    server.handle = [&](const Incoming& req) {
+        if (req.target == "/missions/mission") HttpFixture::reply(req, detail(attempt(QStringLiteral("run"), QStringLiteral("running"))));
+        else if (req.target == "/missions/mission/comments") {
+            ++reads;
+            if (reads == 2) delayed = req;
+            else HttpFixture::reply(req, QJsonArray{QJsonObject{{QStringLiteral("body"), reads == 1 ? QStringLiteral("Initial") : QStringLiteral("Ajout extérieur")}}});
+        } else if (req.target.endsWith("/test-run")) HttpFixture::reply(req, QJsonObject{}, 404);
+        else HttpFixture::reply(req, QJsonArray{});
+    };
+    ApiClient api; configure(api, server); AuthManager auth(&api); login(auth);
+    EventStreamService streams(&api); noStreams(streams);
+    MissionsViewModel vm(&api, &auth, &streams); vm.setProjectId(QStringLiteral("project"));
+    vm.selectMission(QStringLiteral("mission"));
+    QTRY_COMPARE(vm.comments()->count(), 1);
+    QCOMPARE(vm.comments()->get(0).value(QStringLiteral("body")).toString(), QStringLiteral("Initial"));
+    vm.refresh(); QTRY_VERIFY(delayed.socket);
+    vm.refreshDetail();
+    QTRY_COMPARE(vm.comments()->get(0).value(QStringLiteral("body")).toString(), QStringLiteral("Ajout extérieur"));
+    HttpFixture::reply(delayed, QJsonArray{QJsonObject{{QStringLiteral("body"), QStringLiteral("Ancien")}}});
+    QTest::qWait(40);
+    QCOMPARE(vm.comments()->get(0).value(QStringLiteral("body")).toString(), QStringLiteral("Ajout extérieur"));
 }
 void TestMissions::staleProjectAndSessionRepliesCannotRepopulate() {
     HttpFixture server;

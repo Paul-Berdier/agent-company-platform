@@ -1,4 +1,4 @@
-import type { AcpEvent, Overview, Project, TaskSummary } from "@acp/contracts";
+import type { AcpEvent, MissionExecution, Overview, Project, TaskSummary } from "@acp/contracts";
 
 export type ApiFailureKind = "offline" | "forbidden" | "http" | "invalid_response";
 
@@ -116,6 +116,7 @@ export interface MissionSummary {
   duration_seconds: number;
   priority: number;
   required_capabilities: string[];
+  execution?: MissionExecution | null;
   status: MissionExecutionStatus;
   current_run: MissionRunResource;
   created_at: string | null;
@@ -284,6 +285,16 @@ function isMissionBudget(value: unknown): value is MissionSummary["budget"] {
   return value.max_cost !== null || value.max_tokens !== null || value.max_tool_calls !== null;
 }
 
+export function isMissionExecution(value: unknown): value is MissionExecution | null | undefined {
+  return value === undefined || value === null || isRecord(value)
+    && value.mode === "multi_agent"
+    && Array.isArray(value.executors)
+    && value.executors.length === 2
+    && value.executors.includes("codex_cli")
+    && value.executors.includes("claude_code")
+    && (value.max_concurrency === 1 || value.max_concurrency === 2);
+}
+
 function isMissionSummary(value: unknown): value is MissionSummary {
   return isRecord(value)
     && hasString(value, "id")
@@ -306,6 +317,7 @@ function isMissionSummary(value: unknown): value is MissionSummary {
     && Number(value.priority) >= 1
     && Number(value.priority) <= 5
     && isNonEmptyStringList(value.required_capabilities)
+    && isMissionExecution(value.execution)
     && hasString(value, "status")
     && MISSION_STATUSES.has(value.status as MissionExecutionStatus)
     && isMissionRun(value.current_run)

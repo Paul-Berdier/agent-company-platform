@@ -131,7 +131,191 @@ private slots:
     void createSendRetryPollRenameArchiveAndExport();
     void hidingThePageStopsPolling();
     void uncertainSubmissionSurvivesSessionRefresh();
+    void approvalWaitCanBeStoppedWithoutInventingTerminalState_data();
+    void approvalWaitCanBeStoppedWithoutInventingTerminalState();
+    void newChatsNeedNoTitleAndWorkBeforePageActivation();
+    void draftsSurviveThreadAndProjectSwitchesButNotIdentityLoss();
+    void searchAndArchiveFiltersNeverChangeSelectedDraft();
+    void codeFencesStayInertAndBounded();
 };
+
+void TestConversations::newChatsNeedNoTitleAndWorkBeforePageActivation()
+{
+    ConversationServer server; QVERIFY(server.start());
+    QJsonArray stored;
+    int creations = 0;
+    bool titlesOmitted = true;
+    server.handler = [&](const Request &req) {
+        if (req.path == "/conversations" && req.method == "POST") {
+            ++creations;
+            titlesOmitted = titlesOmitted && !req.body.contains(QStringLiteral("title"));
+            auto row = summary(QString::number(creations), req.body.value(QStringLiteral("project_id")).toString());
+            row.insert(QStringLiteral("title"), QStringLiteral("Titre par défaut du serveur"));
+            stored.append(row);
+            return Response{201, row};
+        }
+        if (req.path == "/conversations") return Response{200, {{QStringLiteral("items"), stored}}};
+        for (const auto &value : stored) {
+            auto row = value.toObject();
+            if (req.path.endsWith(row.value(QStringLiteral("id")).toString().toUtf8())) {
+                row.insert(QStringLiteral("turns"), QJsonArray{});
+                return Response{200, row};
+            }
+        }
+        return Response{404, {}};
+    };
+    ApiClient client; client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client); authenticate(auth);
+    ConversationsViewModel vm(&client, &auth);
+    bool busyNotified = false;
+    connect(&vm, &ConversationsViewModel::changed, &vm, [&] { if (vm.busy()) busyNotified = true; });
+    QVERIFY(vm.startConversation(QString()));
+    QVERIFY(busyNotified);
+    QTRY_VERIFY(!vm.busy() && !vm.loading());
+    QCOMPARE(vm.currentId(), QStringLiteral("1"));
+    QCOMPARE(vm.currentTitle(), QStringLiteral("Titre par défaut du serveur"));
+    QVERIFY(vm.projectId().isEmpty());
+    vm.setDraft(QStringLiteral("Général à garder"));
+    QVERIFY(vm.startConversation(QStringLiteral("project-a")));
+    QTRY_VERIFY(!vm.busy() && !vm.loading());
+    QCOMPARE(vm.currentId(), QStringLiteral("2"));
+    QCOMPARE(vm.projectId(), QStringLiteral("project-a"));
+    QCOMPARE(creations, 2);
+    QVERIFY(titlesOmitted);
+    vm.setProjectId(QString()); QTRY_VERIFY(!vm.loading());
+    vm.setActive(false);
+    QVERIFY(vm.openConversation(QStringLiteral("1")));
+    QTRY_VERIFY(!vm.loading());
+    QCOMPARE(vm.draft(), QStringLiteral("Général à garder"));
+    QVERIFY(!vm.openConversation(QStringLiteral("non-visible")));
+}
+
+void TestConversations::draftsSurviveThreadAndProjectSwitchesButNotIdentityLoss()
+{
+    ConversationServer server; QVERIFY(server.start());
+    const QJsonArray rows{summary(QStringLiteral("a")), summary(QStringLiteral("b")), summary(QStringLiteral("general"), QString())};
+    server.handler = [&](const Request &req) {
+        if (req.path == "/conversations") return Response{200, {{QStringLiteral("items"), rows}}};
+        for (const auto &value : rows) {
+            auto row = value.toObject();
+            if (req.path == "/conversations/" + row.value(QStringLiteral("id")).toString().toUtf8()) {
+                row.insert(QStringLiteral("turns"), QJsonArray{}); return Response{200, row};
+            }
+        }
+        return Response{404, {}};
+    };
+    ApiClient client; client.setAllowInsecureLoopback(true); QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client); authenticate(auth);
+    ConversationsViewModel vm(&client, &auth); vm.setProjectId(QStringLiteral("project-a")); vm.setActive(true);
+    QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("a")); QTRY_VERIFY(!vm.loading());
+    vm.setDraft(QStringLiteral("Brouillon A\ncode non envoyé"));
+    vm.selectConversation(QStringLiteral("b")); QTRY_VERIFY(!vm.loading()); QVERIFY(vm.draft().isEmpty());
+    vm.setDraft(QStringLiteral("Brouillon B"));
+    vm.selectConversation(QStringLiteral("a")); QTRY_VERIFY(!vm.loading()); QCOMPARE(vm.draft(), QStringLiteral("Brouillon A\ncode non envoyé"));
+    vm.setProjectId(QString()); QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("general")); QTRY_VERIFY(!vm.loading());
+    vm.setDraft(QStringLiteral("Brouillon général"));
+    vm.setProjectId(QStringLiteral("project-a")); QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("b")); QTRY_VERIFY(!vm.loading());
+    QCOMPARE(vm.draft(), QStringLiteral("Brouillon B"));
+    auth.forgetLocalSession(SessionStatus::Disconnected, QStringLiteral("Fin de session")); authenticate(auth);
+    QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("a")); QTRY_VERIFY(!vm.loading()); QVERIFY(vm.draft().isEmpty());
+    vm.setDraft(QStringLiteral("À purger avec le serveur"));
+    QVERIFY(!client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:1"))).isError());
+    QVERIFY(vm.draft().isEmpty());
+    QVERIFY(!client.setBaseUrl(server.url()).isError()); authenticate(auth);
+    QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("a")); QTRY_VERIFY(!vm.loading()); QVERIFY(vm.draft().isEmpty());
+}
+
+void TestConversations::searchAndArchiveFiltersNeverChangeSelectedDraft()
+{
+    ConversationServer server; QVERIFY(server.start());
+    auto first = summary(QStringLiteral("a")); first.insert(QStringLiteral("title"), QStringLiteral("Projet Boréal"));
+    auto archived = summary(QStringLiteral("b")); archived.insert(QStringLiteral("status"), QStringLiteral("archived"));
+    archived.insert(QStringLiteral("title"), QStringLiteral("Souvenir Boréal"));
+    server.handler = [&](const Request &req) {
+        if (req.path == "/conversations") return Response{200, {{QStringLiteral("items"), QJsonArray{first, archived}}}};
+        auto detail = first; detail.insert(QStringLiteral("turns"), QJsonArray{}); return Response{200, detail};
+    };
+    ApiClient client; client.setAllowInsecureLoopback(true); QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client); authenticate(auth);
+    ConversationsViewModel vm(&client, &auth); vm.setProjectId(QStringLiteral("project-a")); vm.setActive(true);
+    QTRY_VERIFY(!vm.loading()); QCOMPARE(model(vm.conversations())->count(), 1);
+    vm.selectConversation(QStringLiteral("a")); QTRY_VERIFY(!vm.loading()); vm.setDraft(QStringLiteral("À préserver"));
+    vm.setSearchText(QStringLiteral(" BORÉAL ")); QCOMPARE(model(vm.conversations())->count(), 1);
+    vm.setShowArchived(true); QCOMPARE(model(vm.conversations())->count(), 2);
+    vm.setSearchText(QStringLiteral("Souvenir")); QCOMPARE(model(vm.conversations())->count(), 1);
+    QCOMPARE(vm.currentId(), QStringLiteral("a")); QCOMPARE(vm.draft(), QStringLiteral("À préserver"));
+    vm.setSearchText(QStringLiteral("<img>")); QCOMPARE(model(vm.conversations())->count(), 0);
+    QCOMPARE(vm.currentId(), QStringLiteral("a")); QCOMPARE(vm.draft(), QStringLiteral("À préserver"));
+}
+
+void TestConversations::codeFencesStayInertAndBounded()
+{
+    ApiClient client; AuthManager auth(&client); ConversationsViewModel vm(&client, &auth);
+    const QString hostile = QStringLiteral("<img src='https://example.invalid/secret'>\n[ouvrir](file:///secret)\n![image](https://example.invalid/image)");
+    auto blocks = vm.messageBlocks(hostile);
+    QCOMPARE(blocks.size(), 1); QCOMPARE(blocks.at(0).toMap().value(QStringLiteral("kind")).toString(), QStringLiteral("text"));
+    QCOMPARE(blocks.at(0).toMap().value(QStringLiteral("text")).toString(), hostile);
+    blocks = vm.messageBlocks(QStringLiteral("Explication\n```cpp\n<script>alert(1)</script>\nreturn 0;\n```\nSuite"));
+    QCOMPARE(blocks.size(), 3);
+    QCOMPARE(blocks.at(1).toMap().value(QStringLiteral("kind")).toString(), QStringLiteral("code"));
+    QCOMPARE(blocks.at(1).toMap().value(QStringLiteral("language")).toString(), QStringLiteral("cpp"));
+    QCOMPARE(blocks.at(1).toMap().value(QStringLiteral("text")).toString(), QStringLiteral("<script>alert(1)</script>\nreturn 0;"));
+    blocks = vm.messageBlocks(QStringLiteral("~~~~python\nprint('```')\n~~~\n~~~~"));
+    QCOMPARE(blocks.size(), 1); QCOMPARE(blocks.at(0).toMap().value(QStringLiteral("text")).toString(), QStringLiteral("print('```')\n~~~"));
+    blocks = vm.messageBlocks(QStringLiteral("```txt\nBloc non clos"));
+    QCOMPARE(blocks.at(0).toMap().value(QStringLiteral("text")).toString(), QStringLiteral("Bloc non clos"));
+    blocks = vm.messageBlocks(QStringLiteral("```\nx\n```\n").repeated(500) + QStringLiteral("FIN"));
+    QVERIFY(blocks.size() <= 128); QVERIFY(blocks.last().toMap().value(QStringLiteral("text")).toString().endsWith(QStringLiteral("FIN")));
+}
+
+void TestConversations::approvalWaitCanBeStoppedWithoutInventingTerminalState_data()
+{
+    QTest::addColumn<bool>("lostResponse");
+    QTest::newRow("confirmation") << false;
+    QTest::newRow("reponse-perdue") << true;
+}
+void TestConversations::approvalWaitCanBeStoppedWithoutInventingTerminalState()
+{
+    QFETCH(bool, lostResponse);
+    ConversationServer server;
+    QVERIFY(server.start());
+    int stops = 0;
+    Request stopRequest;
+    server.handler = [&](const Request& req) {
+        if (req.path == "/conversations") return Response{200, {{QStringLiteral("items"), QJsonArray{summary(QStringLiteral("a"))}}}};
+        if (req.path == "/conversations/a/turns/turn-a/stop") {
+            ++stops; stopRequest = req;
+            return lostResponse ? Response{503, {{QStringLiteral("detail"), QStringLiteral("Réponse perdue")}}}
+                : Response{202, turn(QStringLiteral("key"), QStringLiteral("stopping"))};
+        }
+        if (req.path == "/conversations/a/turns/turn-a")
+            return Response{200, turn(QStringLiteral("key"), stops ? QStringLiteral("interrupted") : QStringLiteral("waiting_for_approval"))};
+        auto value = summary(QStringLiteral("a"));
+        value.insert(QStringLiteral("turns"), QJsonArray{turn(QStringLiteral("key"), QStringLiteral("waiting_for_approval"))});
+        return Response{200, value};
+    };
+    ApiClient client; client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(server.url()).isError());
+    AuthManager auth(&client); authenticate(auth);
+    ConversationsViewModel vm(&client, &auth); vm.setProjectId(QStringLiteral("project-a")); vm.setActive(true);
+    QTRY_VERIFY(!vm.loading()); vm.selectConversation(QStringLiteral("a"));
+    QTRY_VERIFY(!vm.loading());
+    vm.setDraft(QStringLiteral("Prochain message"));
+    QVERIFY(!vm.canSend()); QVERIFY(vm.canStopTurn());
+    vm.stopTurn(); QTRY_VERIFY(!vm.busy());
+    QCOMPARE(stops, 1);
+    QCOMPARE(stopRequest.method, QByteArray("POST"));
+    QVERIFY(stopRequest.headers.toLower().contains("x-csrf-token: csrf-test"));
+    QVERIFY(!stopRequest.headers.toLower().contains("idempotency-key:"));
+    QCOMPARE(model(vm.turns())->get(0).value(QStringLiteral("status")).toString(),
+        lostResponse ? QStringLiteral("waiting_for_approval") : QStringLiteral("stopping"));
+    QVERIFY(vm.polling());
+    QTRY_COMPARE_WITH_TIMEOUT(model(vm.turns())->get(0).value(QStringLiteral("status")).toString(), QStringLiteral("interrupted"), 5000);
+    QVERIFY(!vm.polling()); QVERIFY(!vm.canStopTurn()); QVERIFY(vm.canSend());
+    QCOMPARE(vm.draft(), QStringLiteral("Prochain message"));
+    QCOMPARE(stops, 1);
+}
 
 void TestConversations::activationBeforeLoginLoadsAfterIdentityConfirmation()
 {
@@ -398,6 +582,11 @@ void TestConversations::uncertainSubmissionSurvivesSessionRefresh()
     vm.setDraft(QStringLiteral("Message à conserver")); vm.sendMessage();
     QTRY_VERIFY_WITH_TIMEOUT(!vm.busy(), 7000);
     QVERIFY(vm.pendingSubmission()); QVERIFY(attempts.size() >= 1);
+    QVERIFY(!vm.startConversation(QString()));
+    QVERIFY(!vm.openConversation(QStringLiteral("a")));
+    vm.setProjectId(QString());
+    QCOMPARE(vm.projectId(), QStringLiteral("project-a"));
+    QCOMPARE(vm.draft(), QStringLiteral("Message à conserver"));
     auth.resumeSession();
     QCOMPARE(auth.state(), SessionStatus::Connecting);
     QVERIFY(vm.pendingSubmission()); QCOMPARE(vm.draft(), QStringLiteral("Message à conserver"));

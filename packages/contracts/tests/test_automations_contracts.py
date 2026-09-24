@@ -421,6 +421,25 @@ def test_mission_template_becomes_a_mission_create() -> None:
     assert mission.title == "Recette nocturne"
 
 
+def test_team_template_preserves_execution_and_rechecks_project_scope() -> None:
+    template = AutomationMissionTemplate(**_mission_template(
+        autonomy={"mode": "supervised"},
+        resources=[{"kind": "project_workspace", "identifier": "project", "access": "write"}],
+        required_capabilities=["agent_team", "codex_cli", "claude_code"],
+        execution={"mode": "multi_agent", "executors": ["codex_cli", "claude_code"], "max_concurrency": 2},
+    ))
+    assert template.to_mission_create("project").execution == template.execution
+    with pytest.raises(ValidationError, match="workspace"):
+        template.to_mission_create("other-project")
+
+
+def test_team_template_refuses_unsupported_autonomy_before_scheduling() -> None:
+    with pytest.raises(ValidationError, match="supervisée"):
+        AutomationMissionTemplate(**_mission_template(
+            execution={"executors": ["codex_cli"]},
+        ))
+
+
 def test_mission_template_rejects_an_empty_acceptance_criterion() -> None:
     with pytest.raises(ValidationError):
         AutomationMissionTemplate(**_mission_template(acceptance_criteria=["  "]))
@@ -1615,6 +1634,7 @@ def test_typescript_mirror_declares_the_same_field_names(
                 "agent_instance_id",
                 "priority",
                 "required_capabilities",
+                "execution",
             },
         ),
         (

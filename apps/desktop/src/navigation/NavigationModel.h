@@ -17,6 +17,7 @@
 #include <QAbstractListModel>
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 namespace acp {
 
@@ -25,6 +26,8 @@ class NavigationModel : public QAbstractListModel
     Q_OBJECT
     Q_PROPERTY(QString currentRoute READ currentRoute WRITE setCurrentRoute NOTIFY currentRouteChanged)
     Q_PROPERTY(QString currentTitle READ currentTitle NOTIFY currentRouteChanged)
+    Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
+    Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
 
 public:
     enum class Readiness {
@@ -62,8 +65,14 @@ public:
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
 
     [[nodiscard]] const QString &currentRoute() const { return m_currentRoute; }
-    void setCurrentRoute(const QString &route);
+    Q_INVOKABLE void setCurrentRoute(const QString &route);
     [[nodiscard]] QString currentTitle() const;
+    [[nodiscard]] bool canGoBack() const { return m_historyIndex > 0; }
+    [[nodiscard]] bool canGoForward() const { return m_historyIndex + 1 < m_history.size(); }
+    Q_INVOKABLE void goBack();
+    Q_INVOKABLE void goForward();
+    // Historique des écrans en mémoire seulement, effacé à la fermeture de session.
+    void resetHistory();
 
     /*! Vrai si la route existe ET est prête. Une route prévue n'est pas navigable. */
     [[nodiscard]] Q_INVOKABLE bool isNavigable(const QString &route) const;
@@ -73,6 +82,7 @@ public:
 
 signals:
     void currentRouteChanged();
+    void historyChanged();
 
     /*! Émis quand une route non navigable est demandée. L'interface affiche le détail. */
     void navigationRefused(const QString &route, const QString &detail);
@@ -82,6 +92,8 @@ private:
 
     QList<Destination> m_destinations;
     QString m_currentRoute;
+    QStringList m_history;
+    int m_historyIndex = 0;
 };
 
 } // namespace acp

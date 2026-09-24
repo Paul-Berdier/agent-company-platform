@@ -355,7 +355,7 @@ def test_report_with_nul_keeps_machine_error_with_visible_replacement(limits_con
 
 
 async def test_real_local_process_nul_outputs_reach_the_terminal_patch(
-    limits_context, tmp_path
+    limits_context, tmp_path_factory
 ):
     """Une sortie binaire réelle ne doit perdre ni sa preuve ni son état terminal."""
     import hashlib
@@ -385,7 +385,9 @@ async def test_real_local_process_nul_outputs_reach_the_terminal_patch(
             argv=(sys.executable, "-I", "-c",
                   "import sys; sys.stdout.buffer.write(b'stdout\\x00tail'); "
                   "sys.stderr.buffer.write(b'stderr\\x00tail')"),
-            run_root=tmp_path / "real-runner", timeout_seconds=5,
+            # CreateProcess limite aussi le cwd : éviter d'ajouter le long nom
+            # du test aux deux UUID réels de la tentative dans le répertoire.
+            run_root=tmp_path_factory.mktemp("nul"), timeout_seconds=5,
             max_output_bytes=1024, terminate_grace_seconds=0.05,
         ),
         request,

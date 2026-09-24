@@ -159,6 +159,8 @@ class FakeHermes:
             if code != 202:
                 return httpx.Response(code, json={"error": "temporary"})
             return httpx.Response(202, json=self.accepted)
+        if request.url.path == f"/v1/runs/{RUN_ID}/stop":
+            return httpx.Response(200, json={"status": "stopping"})
         if request.url.path == f"/v1/runs/{RUN_ID}":
             item = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
             if isinstance(item, dict):
@@ -247,7 +249,7 @@ async def test_create_plan_uses_official_routes_and_maps_strict_json():
     provider = make_provider(fake)
 
     result = await provider.create_plan(
-        PlanningRequest(session=SESSION, goal="Construire l'auth")
+        PlanningRequest(session=SESSION, goal="Construire l'auth"), idempotency_key="stable-test-operation-key"
     )
 
     assert result.plan_id == RUN_ID
@@ -278,7 +280,7 @@ async def test_create_plan_uses_official_routes_and_maps_strict_json():
     }
     assert "exactly one JSON object" in fake.run_payload["instructions"]
     assert len(fake.idempotency_keys) == 1
-    assert re.fullmatch(r"acp-plan-[0-9a-f]{32}", fake.idempotency_keys[0])
+    assert fake.idempotency_keys[0] == "stable-test-operation-key"
     assert_secret_headers(fake)
 
 
@@ -308,7 +310,7 @@ async def test_revise_plan_keeps_platform_plan_id():
             plan_id="platform-plan-1",
             previous_steps=[PlanStep(id="t1", title="Cadrer le besoin")],
             feedback="Simplifier",
-        )
+        ), idempotency_key="stable-test-operation-key"
     )
 
     assert result.plan_id == "platform-plan-1"
@@ -325,7 +327,7 @@ async def test_evaluate_maps_strict_boolean_verdict():
     provider = make_provider(fake)
 
     result = await provider.evaluate_result(
-        EvaluationRequest(session=SESSION, task_summary="Auth livrée")
+        EvaluationRequest(session=SESSION, task_summary="Auth livrée"), idempotency_key="stable-test-operation-key"
     )
 
     assert result.approved is True
@@ -339,7 +341,7 @@ async def test_summarize_uses_completed_run_plain_text():
     provider = make_provider(fake)
 
     result = await provider.summarize_context(
-        ContextSummaryRequest(session=SESSION, items=[{"kind": "note", "value": "x"}])
+        ContextSummaryRequest(session=SESSION, items=[{"kind": "note", "value": "x"}]), idempotency_key="stable-test-operation-key"
     )
 
     assert result.summary == "Résumé fiable."
@@ -358,10 +360,10 @@ async def test_session_fallback_is_namespaced_when_no_external_id_exists():
     fake_b = FakeHermes(output="B")
 
     await make_provider(fake_a).summarize_context(
-        ContextSummaryRequest(session=session_a, items=[])
+        ContextSummaryRequest(session=session_a, items=[]), idempotency_key="stable-test-operation-key"
     )
     await make_provider(fake_b).summarize_context(
-        ContextSummaryRequest(session=session_b, items=[])
+        ContextSummaryRequest(session=session_b, items=[]), idempotency_key="stable-test-operation-key"
     )
 
     assert re.fullmatch(r"acp-[0-9a-f]{64}", fake_a.run_payload["session_id"])
@@ -383,7 +385,7 @@ async def test_pydantic_supported_context_values_are_serialized_for_run_input():
             session=SESSION,
             goal="x",
             context={"at": datetime(2026, 9, 11, 10, 0, tzinfo=timezone.utc)},
-        )
+        ), idempotency_key="stable-test-operation-key"
     )
 
     submitted = json.loads(fake.run_payload["input"])
@@ -396,7 +398,7 @@ async def test_unsupported_context_value_becomes_provider_error_before_admission
 
     with pytest.raises(ProviderUnavailableError, match="non sérialisable"):
         await provider.create_plan(
-            PlanningRequest(session=SESSION, goal="x", context={"bad": object()})
+            PlanningRequest(session=SESSION, goal="x", context={"bad": object()}), idempotency_key="stable-test-operation-key"
         )
 
     assert all(request.url.path != "/v1/runs" for request in fake.requests)
@@ -434,7 +436,7 @@ async def test_incomplete_configuration_fails_closed(base_url, token, expected):
     assert health.available is False
     assert expected in health.detail
     with pytest.raises(ProviderUnavailableError, match=expected):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 async def test_degraded_readiness_fails_before_capability_or_run_calls():
@@ -449,7 +451,7 @@ async def test_degraded_readiness_fails_before_capability_or_run_calls():
     assert "model" in result.detail
     assert [request.url.path for request in fake.requests] == ["/health/detailed"]
     with pytest.raises(ProviderUnavailableError, match="Readiness"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
     assert all(request.url.path != "/v1/runs" for request in fake.requests)
 
 
@@ -483,7 +485,7 @@ async def test_missing_readiness_check_fails_closed():
     provider = make_provider(fake)
 
     with pytest.raises(ProviderUnavailableError, match="state_db"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 async def test_capabilities_with_optional_extras_remain_compatible():
@@ -502,7 +504,7 @@ async def test_hermes_auth_must_be_required():
     provider = make_provider(fake)
 
     with pytest.raises(ProviderUnavailableError, match="auth.required"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 @pytest.mark.parametrize(
@@ -520,7 +522,7 @@ async def test_missing_required_capability_fails_closed(feature_path):
     provider = make_provider(fake)
 
     with pytest.raises(ProviderUnavailableError, match=re.escape(feature_path)):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
     assert all(request.url.path != "/v1/runs" for request in fake.requests)
 
@@ -531,7 +533,7 @@ async def test_non_success_terminal_status_fails_closed(terminal_status):
     provider = make_provider(fake)
 
     with pytest.raises(ProviderUnavailableError, match=terminal_status):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 async def test_non_terminal_run_times_out_after_bounded_poll():
@@ -544,15 +546,48 @@ async def test_non_terminal_run_times_out_after_bounded_poll():
 
     started = time.monotonic()
     with pytest.raises(ProviderUnavailableError, match="Délai d'attente dépassé"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
     polls = [request for request in fake.requests if request.url.path.startswith("/v1/runs/")]
     assert polls
     assert time.monotonic() - started < 0.2
+    assert any(request.url.path.endswith("/stop") for request in fake.requests)
+
+
+async def test_separate_timed_out_calls_keep_the_caller_operation_identity():
+    fake = FakeHermes(statuses=["running"])
+    for _ in range(2):
+        provider = make_provider(fake, run_timeout_seconds=0.001, poll_interval_seconds=0.01)
+        with pytest.raises(ProviderUnavailableError, match=RUN_ID):
+            await provider.create_plan(PlanningRequest(session=SESSION, goal="x"),
+                                       idempotency_key="persisted-operation-42")
+    assert fake.idempotency_keys == ["persisted-operation-42"] * 2
+    assert sum(request.url.path.endswith("/stop") for request in fake.requests) == 2
+
+
+@pytest.mark.parametrize("key", [None, "", "unsafe key", "x" * 256])
+async def test_adapter_rejects_missing_operation_identity_without_admission(key):
+    fake = FakeHermes()
+    with pytest.raises(ProviderUnavailableError, match="clé d'idempotence stable"):
+        await make_provider(fake).create_plan(PlanningRequest(session=SESSION, goal="x"),
+                                              idempotency_key=key)
+    assert fake.requests == []
+
+
+@pytest.mark.parametrize("feature,value", [("run_stop", False), ("retention_seconds", 86399)])
+async def test_admission_requires_stop_and_minimum_durable_retention(feature, value):
+    capabilities = run_capabilities()
+    container = capabilities["features"] if feature == "run_stop" else capabilities["features"]["runs_idempotency"]
+    container[feature] = value
+    fake = FakeHermes(capabilities=capabilities)
+    with pytest.raises(ProviderUnavailableError, match=feature):
+        await make_provider(fake).submit_plan(PlanningRequest(session=SESSION, goal="x"),
+                                              idempotency_key="persistent-key")
+    assert not any(request.method == "POST" for request in fake.requests)
 
 
 @pytest.mark.parametrize("status", ["waiting_for_approval", "stopping"])
-async def test_other_non_terminal_states_wait_until_timeout(status):
+async def test_other_non_terminal_states_are_explicit_or_bounded(status):
     fake = FakeHermes(statuses=[status])
     provider = make_provider(
         fake,
@@ -560,8 +595,8 @@ async def test_other_non_terminal_states_wait_until_timeout(status):
         poll_interval_seconds=0.02,
     )
 
-    with pytest.raises(ProviderUnavailableError, match="Délai d'attente dépassé"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+    with pytest.raises(ProviderUnavailableError, match="approbation non prise en charge" if status == "waiting_for_approval" else "Délai d'attente dépassé"):
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 async def test_replayed_terminal_admission_still_polls_for_output():
@@ -577,7 +612,7 @@ async def test_replayed_terminal_admission_still_polls_for_output():
     )
     provider = make_provider(fake)
 
-    result = await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+    result = await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
     assert result.plan_id == RUN_ID
     assert any(request.url.path == f"/v1/runs/{RUN_ID}" for request in fake.requests)
@@ -602,7 +637,7 @@ async def test_malformed_terminal_status_fails_closed(terminal_payload):
     provider = make_provider(FakeHermes(statuses=[terminal_payload]))
 
     with pytest.raises(ProviderUnavailableError):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 @pytest.mark.parametrize(
@@ -625,7 +660,7 @@ async def test_malformed_plan_output_fails_closed(bad_output):
     provider = make_provider(FakeHermes(output=bad_output))
 
     with pytest.raises(ProviderUnavailableError):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 async def test_string_evaluation_boolean_is_rejected():
@@ -636,7 +671,7 @@ async def test_string_evaluation_boolean_is_rejected():
 
     with pytest.raises(ProviderUnavailableError, match="évaluation"):
         await provider.evaluate_result(
-            EvaluationRequest(session=SESSION, task_summary="x")
+            EvaluationRequest(session=SESSION, task_summary="x"), idempotency_key="stable-test-operation-key"
         )
 
 
@@ -653,7 +688,7 @@ async def test_invalid_evaluation_score_fails_closed(bad_output):
 
     with pytest.raises(ProviderUnavailableError, match="évaluation"):
         await provider.evaluate_result(
-            EvaluationRequest(session=SESSION, task_summary="x")
+            EvaluationRequest(session=SESSION, task_summary="x"), idempotency_key="stable-test-operation-key"
         )
 
 
@@ -661,7 +696,7 @@ async def test_empty_summary_fails_closed():
     provider = make_provider(FakeHermes(output="   \n"))
 
     with pytest.raises(ProviderUnavailableError, match="sans sortie"):
-        await provider.summarize_context(ContextSummaryRequest(session=SESSION, items=[]))
+        await provider.summarize_context(ContextSummaryRequest(session=SESSION, items=[]), idempotency_key="stable-test-operation-key")
 
 
 async def test_invalid_admission_run_id_is_rejected_before_status_request():
@@ -669,7 +704,7 @@ async def test_invalid_admission_run_id_is_rejected_before_status_request():
     provider = make_provider(fake)
 
     with pytest.raises(ProviderUnavailableError, match="admission"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
     assert [request.url.path for request in fake.requests] == [
         "/health/detailed",
@@ -683,7 +718,7 @@ async def test_mismatched_status_run_id_fails_closed():
     provider = make_provider(fake)
 
     with pytest.raises(ProviderUnavailableError, match="autre run"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 async def test_post_retry_reuses_same_idempotency_key():
@@ -696,7 +731,7 @@ async def test_post_retry_reuses_same_idempotency_key():
     fake = FakeHermes(output=output, post_status_codes=[503, 202])
     provider = make_provider(fake, max_retries=1)
 
-    result = await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+    result = await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
     assert result.plan_id == RUN_ID
     assert len(fake.idempotency_keys) == 2
@@ -712,7 +747,7 @@ async def test_client_does_not_retry_auth_errors_or_follow_redirects():
 
     provider = make_provider(unauthorized, max_retries=3)
     with pytest.raises(ProviderUnavailableError, match="HTTP 401"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
     assert len(calls) == 1
 
     calls.clear()
@@ -723,7 +758,7 @@ async def test_client_does_not_retry_auth_errors_or_follow_redirects():
 
     provider = make_provider(redirect, max_retries=3)
     with pytest.raises(ProviderUnavailableError, match="HTTP 307"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
     assert len(calls) == 1
 
 
@@ -740,7 +775,7 @@ async def test_malformed_http_json_fails_closed(response):
 
     provider = make_provider(malformed)
     with pytest.raises(ProviderUnavailableError, match="Hermes"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
 
 
 async def test_client_does_not_automatically_retry_429():
@@ -763,7 +798,7 @@ async def test_client_does_not_automatically_retry_429():
 
     provider = make_provider(rate_limited, max_retries=3)
     with pytest.raises(ProviderUnavailableError, match="HTTP 429"):
-        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"))
+        await provider.create_plan(PlanningRequest(session=SESSION, goal="x"), idempotency_key="stable-test-operation-key")
     assert len(calls) == 1
 
 

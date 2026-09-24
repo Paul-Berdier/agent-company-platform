@@ -61,6 +61,7 @@ class HermesFeatures(HermesWireModel):
 
     run_submission: bool
     run_status: bool
+    run_stop: bool = False
     runs_idempotency: HermesIdempotencyCapabilities
 
 
@@ -152,6 +153,10 @@ class HermesRunView(BaseModel):
     usage: dict[str, Any] | None = None
 
 
+class HermesStopAccepted(HermesWireModel):
+    status: Literal["stopping", "completed", "failed", "cancelled", "interrupted"]
+
+
 HermesDiagnosticState = Literal[
     "not_configured",
     "ready",
@@ -216,6 +221,7 @@ class HermesPlanOutputStep(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
     role_id: str | None = None
+    executor: Literal["codex_cli", "claude_code"] | None = None
     depends_on: list[str] = Field(default_factory=list)
     estimated_effort: str = "medium"
 

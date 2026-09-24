@@ -29,6 +29,13 @@ ShellViewModel::ShellViewModel(ApiClient *client, AuthManager *auth, HealthServi
     , m_settings(settings)
 {
     connect(m_client, &ApiClient::baseUrlChanged, this, &ShellViewModel::shellStateChanged);
+    connect(m_client, &ApiClient::sessionStateCleared, this, [this] {
+        m_navigation->resetHistory();
+        setInspectorVisible(false);
+        setCommandPaletteOpen(false);
+        m_lastNotice.clear();
+        emit noticeChanged();
+    });
     connect(m_auth, &AuthManager::stateChanged, this, [this] {
         refreshCommandContext();
         emit shellStateChanged();
@@ -175,6 +182,24 @@ void ShellViewModel::setSidebarCollapsed(bool collapsed)
     }
     m_settings->setSidebarCollapsed(collapsed);
     emit sidebarCollapsedChanged();
+}
+
+int ShellViewModel::sidebarWidth() const { return m_settings->sidebarWidth(); }
+
+void ShellViewModel::setSidebarWidth(int width)
+{
+    if (sidebarWidth() == width) return;
+    m_settings->setSidebarWidth(width);
+    emit panelWidthsChanged();
+}
+
+int ShellViewModel::inspectorWidth() const { return m_settings->inspectorWidth(); }
+
+void ShellViewModel::setInspectorWidth(int width)
+{
+    if (inspectorWidth() == width) return;
+    m_settings->setInspectorWidth(width);
+    emit panelWidthsChanged();
 }
 
 QString ShellViewModel::applyServerUrl(const QString &url, bool allowInsecureLoopback)

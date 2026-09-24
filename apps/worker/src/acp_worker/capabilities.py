@@ -76,6 +76,8 @@ def _agent_executor_capabilities(*, simulation: bool) -> set[str]:
         capabilities.add(WorkerCapability.CODEX_CLI.value)
     if "claude_code" in config.enabled_executors:
         capabilities.add(WorkerCapability.CLAUDE_CODE.value)
+    if capabilities and shutil.which("git"):
+        capabilities.add("agent_team")
     return capabilities
 
 

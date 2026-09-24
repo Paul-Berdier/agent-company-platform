@@ -1485,16 +1485,13 @@ async def run_routing(
         return httpx.Response(200, json={})
 
     def gateway_handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/plan"):
-            return httpx.Response(
-                200,
-                json={
-                    "plan_id": "plan-1",
-                    "provider_id": "hermes",
-                    "steps": [{"id": "step-1", "title": "Lancer la suite"}],
-                },
-            )
-        return httpx.Response(200, json={"approved": True, "provider_id": "hermes"})
+        operation = request.url.path.split("/operations/")[1].split("/")[0]
+        result = ({"plan_id": "plan-1", "provider_id": "hermes",
+                   "steps": [{"id": "step-1", "title": "Lancer la suite"}]}
+                  if operation == "plan" else {"approved": True, "provider_id": "hermes"})
+        return httpx.Response(200, json={"provider_id": "hermes", "operation": operation,
+            "run_id": "fake-" + operation, "status": "completed", "result": result,
+            "error": None, "replayed": False})
 
     config = routing_config(tmp_path, web_test_config(tmp_path, mode="green"))
     async with (

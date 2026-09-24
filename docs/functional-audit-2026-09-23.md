@@ -1,5 +1,10 @@
 # Audit fonctionnel : desktop, Hermes et agents
 
+**Photographie initiale, conservée pour traçabilité.** Lire la
+[complétion fonctionnelle et ses preuves actuelles](functional-completion-2026-09-23.md)
+pour les corrections, les outils désormais installés et les limites restantes.
+Les constats ci-dessous décrivent `ce42ae2`, pas l'état du nouveau chantier.
+
 Audit du 23 septembre 2026 sur `main`, commit `ce42ae2`. **Le socle est testé,
 mais le parcours complet Hermes → Claude/Codex → livrable n'est pas prêt.**
 Le propriétaire confirme qu'aucune instance Hermes ni aucun déploiement ACP

@@ -83,6 +83,23 @@ class MissionBudget(BaseModel):
         return self
 
 
+class MissionExecution(BaseModel):
+    """Équipe explicitement autorisée pour une tentative supervisée."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["multi_agent"] = "multi_agent"
+    executors: list[Literal["codex_cli", "claude_code"]] = Field(min_length=1, max_length=2)
+    max_concurrency: int = Field(default=2, ge=1, le=2, strict=True)
+
+    @field_validator("executors")
+    @classmethod
+    def unique_executors(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("les exécuteurs de l'équipe doivent être distincts")
+        return value
+
+
 class MissionCreate(BaseModel):
     project_id: str
     title: str = Field(min_length=1, max_length=300)
@@ -97,6 +114,26 @@ class MissionCreate(BaseModel):
     agent_instance_id: str | None = None
     priority: int = Field(default=3, ge=1, le=5)
     required_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    execution: MissionExecution | None = None
+
+    @model_validator(mode="after")
+    def validate_execution(self) -> "MissionCreate":
+        if self.execution is None:
+            return self
+        if self.autonomy.mode != AutonomyMode.SUPERVISED:
+            raise ValueError("une équipe d'agents exige une mission supervisée")
+        if any((self.autonomy.allowed_actions, self.autonomy.forbidden_actions,
+                self.autonomy.approval_required_actions)):
+            raise ValueError("les listes d'actions doivent être vides pour cette équipe")
+        if len(self.resources) != 1 or self.resources[0].kind != "project_workspace" \
+                or self.resources[0].identifier != self.project_id:
+            raise ValueError("l'équipe exige exactement le workspace du projet")
+        if self.resources[0].access == "write" and "codex_cli" not in self.execution.executors:
+            raise ValueError("seul Codex peut recevoir le workspace en écriture")
+        required = {"agent_team", *self.execution.executors}
+        if not required.issubset(self.required_capabilities):
+            raise ValueError("les capacités doivent inclure agent_team et les exécuteurs choisis")
+        return self
 
     @field_validator("acceptance_criteria", "required_capabilities")
     @classmethod
@@ -180,6 +217,7 @@ class MissionSummary(BaseModel):
     duration_seconds: int
     priority: int
     required_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    execution: MissionExecution | None = None
     status: MissionRunStatus
     current_run: MissionRun
     created_at: datetime | None = None

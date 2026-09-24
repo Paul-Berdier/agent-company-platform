@@ -98,6 +98,21 @@ function missionDetail(status = "queued") {
 }
 
 describe("WorkspaceApiClient", () => {
+  it("valide la configuration multi-agent avant de permettre sa copie en routine", async () => {
+    const execution = { mode: "multi_agent", executors: ["codex_cli", "claude_code"], max_concurrency: 2 };
+    const client = new WorkspaceApiClient({ fetcher: async () => json([{ ...missionDetail(), execution }]) });
+    await expect(client.fetchMissions()).resolves.toMatchObject([{ execution }]);
+    for (const invalid of [
+      { ...execution, mode: "unknown" },
+      { ...execution, max_concurrency: 3 },
+      { ...execution, executors: ["codex_cli", "codex_cli"] },
+      { ...execution, executors: ["codex_cli", "unknown"] },
+    ]) {
+      const invalidClient = new WorkspaceApiClient({ fetcher: async () => json([{ ...missionDetail(), execution: invalid }]) });
+      await expect(invalidClient.fetchMissions()).rejects.toMatchObject({ kind: "invalid_response" });
+    }
+  });
+
   it("charge l’overview réel avec le cookie cross-origin sans Bearer navigateur", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json(overview));
     const client = new WorkspaceApiClient({

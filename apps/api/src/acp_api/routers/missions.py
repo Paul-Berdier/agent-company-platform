@@ -207,6 +207,7 @@ def _mission_contract(
         required_capabilities=list(
             (task.meta or {}).get("required_capabilities", [])
         ),
+        execution=(task.meta or {}).get("execution"),
         status=run_contracts[-1].status,
         current_run=run_contracts[-1],
         created_at=task.created_at,
@@ -225,6 +226,7 @@ def _snapshot(task: TaskModel) -> dict:
         "resources": list(task.resources or []),
         "budget": dict(task.budget or {}),
         "duration_seconds": task.duration_seconds,
+        "execution": (task.meta or {}).get("execution"),
     }
 
 
@@ -276,6 +278,7 @@ def create_mission(
             "mission": True,
             "execution_mode": "real",
             "required_capabilities": body.required_capabilities,
+            "execution": body.execution.model_dump(mode="json") if body.execution else None,
         },
         is_mission=1,
         objective=body.objective,

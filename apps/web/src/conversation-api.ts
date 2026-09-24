@@ -47,6 +47,8 @@ export interface ConversationSummary {
 export type ConversationTurnStatus =
   | "submitting"
   | "running"
+  | "waiting_for_approval"
+  | "stopping"
   | "completed"
   | "failed"
   | "interrupted";
@@ -154,7 +156,7 @@ function isConversationTurn(value: unknown): value is ConversationTurn {
   return isRecord(value)
     && hasString(value, "id")
     && hasString(value, "client_request_id")
-    && ["submitting", "running", "completed", "failed", "interrupted"].includes(String(value.status))
+    && ["submitting", "running", "waiting_for_approval", "stopping", "completed", "failed", "interrupted"].includes(String(value.status))
     && hasString(value, "user_content")
     && isNullableString(value, "assistant_content")
     && isNullableString(value, "provider_run_id")
@@ -276,6 +278,14 @@ export class ConversationApiClient {
     return this.http.request(
       `/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}`,
       isConversationTurn,
+    );
+  }
+
+  stopTurn(conversationId: string, turnId: string): Promise<ConversationTurn> {
+    return this.http.request(
+      `/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/stop`,
+      isConversationTurn,
+      { method: "POST" },
     );
   }
 }

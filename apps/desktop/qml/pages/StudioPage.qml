@@ -12,12 +12,13 @@ Item {
         spacing: Space.space4
         RowLayout {
             Layout.fillWidth: true
-            Label { text: qsTr("Studio en direct"); font.pixelSize: Type.pageTitle.pixelSize; color: Colors.textPrimary }
+            Label { textFormat: Text.PlainText; text: qsTr("Studio en direct"); font.pixelSize: Type.pageTitle.pixelSize; color: Colors.textPrimary }
             Item { Layout.fillWidth: true }
             AcpButton { label: qsTr("Choisir une mission"); onTriggered: Navigation.setCurrentRoute("missions") }
             AcpButton { label: qsTr("Livrables"); manualEnabled: Workspace.projectId.length > 0; onTriggered: Navigation.setCurrentRoute("library") }
         }
         Label {
+            textFormat: Text.PlainText
             visible: Missions.selectedRunId.length === 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap

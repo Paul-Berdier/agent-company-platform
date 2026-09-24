@@ -16,7 +16,7 @@ QtObject {
     readonly property string familyMonoResolved: root.firstInstalled(familyMono)
     readonly property real sizeMicro: 11
     readonly property real sizeSmall: 12
-    readonly property real sizeBody: 13
+    readonly property real sizeBody: 14
     readonly property real sizeSubtitle: 14
     readonly property real sizeTitle: 16
     readonly property real sizeSectionTitle: 20
@@ -25,13 +25,13 @@ QtObject {
     readonly property real sizeMono: 12
     readonly property real lineHeightMicro: 14
     readonly property real lineHeightSmall: 16
-    readonly property real lineHeightBody: 18
+    readonly property real lineHeightBody: 20
     readonly property real lineHeightSubtitle: 20
     readonly property real lineHeightTitle: 22
     readonly property real lineHeightSectionTitle: 26
     readonly property real lineHeightDisplay: 32
     readonly property real lineHeightMono: 17
-    readonly property real lineHeightProse: 20
+    readonly property real lineHeightProse: 24
     readonly property real weightRegular: 400
     readonly property real weightMedium: 500
     readonly property real weightSemibold: 600

@@ -1,17 +1,16 @@
-# Icônes
+# Pictogrammes du desktop
 
-**Ce dossier est vide, et c'est un fait, pas un oubli.**
+La navigation utilise le composant natif `Acp.Controls/AcpIcon.qml`. Ses tracés
+Canvas originaux (grille de 24 unités) sont embarqués avec le code QML : aucune
+police d'icônes, ressource distante ou bibliothèque tierce n'est redistribuée.
+Le composant expose `name`, `color` et `size` ; les boutons conservent un libellé
+accessible distinct du dessin.
 
-Le jeu d'icônes du produit **n'est pas choisi**. `design/tokens/semantic-status.json`
-le déclare explicitement : `"$iconSet": { "resolved": false }`. Les noms de glyphe portés
-par les jetons (`question`, `unplugged`, `link-broken`, `queue`, `activity`, `barrier`,
-`cross`, `check`, `warning`, `hand-raised`) sont **sémantiques** ; leur correspondance
-vers des ressources réelles sera décidée avec le premier écran métier.
+Le jeu couvre conversation, dossier, ajout, recherche, chevrons, fermeture,
+envoi, code, validation, menu, activité, archive, grille et réglages. Les boutons
+ACP l'emploient via `iconName`. Les couleurs viennent des jetons du thème.
 
-En attendant, l'interface n'affiche **aucune icône** : les contrôles emploient un
-caractère ou l'initiale du nom sémantique, et chaque état porte son libellé français et
-son repli ASCII. Aucune icône d'emprunt n'est embarquée, parce qu'une icône embarquée est
-une redistribution et engage une licence.
-
-Quand le jeu sera décidé, les fichiers déposés ici devront être déclarés dans le
-`qt_add_qml_module` correspondant, via `RESOURCES`.
+Le champ `$iconSet.resolved` de `design/tokens/semantic-status.json` concerne
+encore la correspondance complète des **états métier**. Il ne décrit pas le jeu
+de navigation. Les statuts conservent un libellé français ; ce premier jeu ne
+prétend pas remplacer l'ensemble des glyphes sémantiques prévus.

@@ -289,10 +289,16 @@ void OperationsViewModel::createAutomation(const QVariantMap& form)
     req.body = QJsonDocument(body);
     const QString project = m_projectId;
     mutate(req, [project, name, schedule, mission](const QJsonObject& row) {
+        auto confirmedMission = row.value(QStringLiteral("mission_template")).toObject();
+        // L’API ajoute désormais execution:null à un gabarit sans équipe explicite.
+        // Seul ce défaut équivalent à l’absence est normalisé ; une équipe ajoutée
+        // ou toute autre modification du gabarit doit encore faire échouer la preuve.
+        if (!mission.contains(QStringLiteral("execution")) && confirmedMission.value(QStringLiteral("execution")).isNull())
+            confirmedMission.remove(QStringLiteral("execution"));
         return !text(row, "id").isEmpty() && text(row, "project_id") == project && text(row, "name") == name
             && row.value(QStringLiteral("enabled")).isBool() && !row.value(QStringLiteral("enabled")).toBool()
             && row.value(QStringLiteral("schedule")).toObject() == schedule
-            && row.value(QStringLiteral("mission_template")).toObject() == mission;
+            && confirmedMission == mission;
     }, QStringLiteral("Automation créée en pause. Son activation reste une action explicite."));
 }
 void OperationsViewModel::selectAutomation(const QString& id)

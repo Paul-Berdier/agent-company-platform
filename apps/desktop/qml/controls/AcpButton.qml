@@ -13,6 +13,7 @@ Item {
     id: control
 
     property string label: ""
+    property string iconName: ""
     property string shortcutHint: ""
     property bool primary: false
 
@@ -71,6 +72,15 @@ Item {
         anchors.centerIn: parent
         spacing: Space.space3
 
+        AcpIcon {
+            visible: control.iconName.length > 0
+            name: control.iconName
+            size: 16
+            anchors.verticalCenter: parent.verticalCenter
+            color: !control.effectiveEnabled ? Colors.textMuted
+                : (control.primary ? Colors.textOnAccent : Colors.textSecondary)
+        }
+
         Text {
             text: control.label
             textFormat: Text.PlainText
@@ -86,6 +96,7 @@ Item {
         }
 
         Text {
+            textFormat: Text.PlainText
             visible: control.shortcutHint.length > 0
             text: control.shortcutHint
             color: Colors.textMuted
@@ -96,7 +107,7 @@ Item {
     }
 
     // Cible cliquable d'au moins 32 px, obtenue par une zone transparente : le contrôle
-    // visible reste à 28 px.
+    // visible peut employer la variante compacte.
     Item {
         anchors.centerIn: parent
         width: Math.max(control.width, Space.densityHitTargetMinimum)
@@ -108,6 +119,9 @@ Item {
         }
         TapHandler {
             id: tap
+            // Une action prend le clic : une modale ne doit pas déclencher aussi
+            // un autre gestionnaire passif situé sous son contenu.
+            gesturePolicy: TapHandler.ReleaseWithinBounds
             onTapped: control.activate()
         }
     }
@@ -131,9 +145,13 @@ Item {
     Accessible.focusable: true
     Accessible.onPressAction: control.activate()
 
-    ToolTip.visible: hover.hovered && control.unavailableReason.length > 0
-    ToolTip.text: control.unavailableReason
-    ToolTip.delay: 300
+    ToolTip {
+        id: plainTip
+        visible: hover.hovered && control.unavailableReason.length > 0
+        text: control.unavailableReason
+        contentItem: Text { text: plainTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+        delay: 300
+    }
 
     Keys.onReturnPressed: control.activate()
     Keys.onSpacePressed: control.activate()

@@ -1,9 +1,4 @@
-// Barre inférieure permanente : runs, connexion, alertes.
-//
-// Le hors ligne vit ici, en permanence, avec l'horodatage du dernier échange réussi.
-// Aucune donnée de démonstration ne comble un trou : un compteur sans échantillon affiche
-// « Inconnu ».
-
+// État réel de connexion ; les détails techniques restent accessibles aux diagnostics.
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -12,60 +7,64 @@ import Acp.Runtime
 
 Rectangle {
     id: statusBar
-
     color: Colors.surfaceSidebar
-
-    Rectangle {
-        anchors.top: parent.top
-        width: parent.width
-        height: Space.layoutBorderWidth
-        color: Colors.borderDefault
-    }
-
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Space.space4
-        anchors.rightMargin: Space.space4
-        spacing: Space.space5
-
+        anchors.leftMargin: Space.space5
+        anchors.rightMargin: Space.space5
+        spacing: Space.space4
+        Rectangle {
+            width: 5; height: 5; radius: 3
+            color: Health.linkStatus === LinkStatus.Online && Session.state === SessionStatus.Connected
+                ? Colors.accentPrimary : Colors.textMuted
+        }
         Text {
-            // Runs actifs : aucune route consommée ici ne les compte. On l'écrit.
-            text: qsTr("Runs actifs : Inconnu")
+            text: Session.state === SessionStatus.Offline ? Session.stateLabel : Health.linkStatusLabel
+            textFormat: Text.PlainText
+            color: Colors.textSecondary
+            font.family: Type.metadata.family
+            font.pixelSize: Type.metadata.pixelSize
+        }
+        Text {
+            Layout.maximumWidth: statusBar.width * 0.24
+            text: Shell.serverUrlLabel
+            textFormat: Text.PlainText
+            elide: Text.ElideMiddle
             color: Colors.textMuted
             font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
         }
-
         Text {
-            text: qsTr("Alertes : Inconnu")
-            color: Colors.textMuted
-            font.family: Type.metadata.family
-            font.pixelSize: Type.metadata.pixelSize
-        }
-
-        Item { Layout.fillWidth: true }
-
-        Text {
-            Layout.maximumWidth: statusBar.width * 0.45
+            Layout.fillWidth: true
             text: Shell.lastNotice
-            visible: Shell.lastNotice.length > 0
+            textFormat: Text.PlainText
             elide: Text.ElideRight
             color: Colors.textSecondary
             font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
-
-            ToolTip.visible: noticeHover.hovered && Shell.lastNotice.length > 0
-            ToolTip.text: Shell.lastNotice
             HoverHandler { id: noticeHover }
+            ToolTip {
+                id: noticeTip
+                visible: noticeHover.hovered && Shell.lastNotice.length > 0
+                text: Shell.lastNotice
+                contentItem: Text { text: noticeTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+            }
         }
-
         Text {
-            text: Shell.statusSummary
+            text: Session.userDisplayName || Session.stateLabel
+            textFormat: Text.PlainText
             color: Colors.textMuted
             font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
-            elide: Text.ElideLeft
-            Layout.maximumWidth: statusBar.width * 0.5
+            elide: Text.ElideRight
+            Layout.maximumWidth: statusBar.width * 0.18
+            HoverHandler { id: stateHover }
+            ToolTip {
+                id: stateTip
+                visible: stateHover.hovered
+                text: Shell.statusSummary
+                contentItem: Text { text: stateTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+            }
         }
     }
 }

@@ -3,6 +3,7 @@
 #include "api/ApiRequest.h"
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -10,6 +11,7 @@
 #include <QPointer>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 
 #include <functional>
 
@@ -35,6 +37,7 @@ class ConversationsViewModel : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool available READ available NOTIFY changed)
     Q_PROPERTY(bool canSend READ canSend NOTIFY changed)
+    Q_PROPERTY(bool canStopTurn READ canStopTurn NOTIFY changed)
     Q_PROPERTY(bool polling READ polling NOTIFY changed)
     Q_PROPERTY(bool pendingSubmission READ pendingSubmission NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
@@ -42,6 +45,8 @@ class ConversationsViewModel : public QObject
     Q_PROPERTY(QString draft READ draft WRITE setDraft NOTIFY changed)
     Q_PROPERTY(QString exportText READ exportText NOTIFY changed)
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY changed)
+    Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY changed)
+    Q_PROPERTY(bool showArchived READ showArchived WRITE setShowArchived NOTIFY changed)
 
 public:
     ConversationsViewModel(ApiClient *client, AuthManager *auth, QObject *parent = nullptr);
@@ -58,6 +63,7 @@ public:
     [[nodiscard]] bool busy() const { return m_busy; }
     [[nodiscard]] bool available() const;
     [[nodiscard]] bool canSend() const;
+    [[nodiscard]] bool canStopTurn() const;
     [[nodiscard]] bool polling() const;
     [[nodiscard]] bool pendingSubmission() const { return !m_pendingKey.isEmpty(); }
     [[nodiscard]] QString error() const { return m_error; }
@@ -67,19 +73,30 @@ public:
     [[nodiscard]] QString exportText() const { return m_exportText; }
     [[nodiscard]] bool active() const { return m_active; }
     void setActive(bool active);
+    [[nodiscard]] QString searchText() const { return m_searchText; }
+    void setSearchText(const QString &text);
+    [[nodiscard]] bool showArchived() const { return m_showArchived; }
+    void setShowArchived(bool show);
 
+    Q_INVOKABLE bool startConversation(const QString &projectId);
+    Q_INVOKABLE bool openConversation(const QString &id);
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void selectConversation(const QString &id);
     Q_INVOKABLE void createConversation(const QString &title);
     Q_INVOKABLE void sendMessage();
     Q_INVOKABLE void retryPendingMessage();
+    Q_INVOKABLE void stopTurn();
     Q_INVOKABLE void renameConversation(const QString &title);
     Q_INVOKABLE void setArchived(bool archived);
     Q_INVOKABLE void exportConversation();
+    // Découpe inerte : texte et clôtures de code uniquement, jamais HTML ni URL active.
+    Q_INVOKABLE QVariantList messageBlocks(const QString &text) const;
 
 signals:
     void changed();
     void projectIdChanged();
+    void historyAboutToChange();
+    void historyChanged();
 
 private:
     using Success = std::function<void(const ApiResponse &)>;
@@ -91,6 +108,10 @@ private:
     void applySummary(const QJsonObject &summary);
     void applyTurns(const QJsonArray &turns);
     void submitPending();
+    void createConversationRequest(const QString &title, bool reloadList);
+    void updateConversationList();
+    void rememberDraft();
+    [[nodiscard]] QString draftKey() const;
     void patchConversation(const QJsonObject &body);
     void schedulePoll();
     void pollTurn();
@@ -120,12 +141,15 @@ private:
     QString m_pendingKey;
     QString m_pendingContent;
     QString m_exportText;
+    QString m_searchText;
+    QHash<QString, QString> m_drafts;
     quint64 m_generation = 0;
     bool m_active = false;
     bool m_loading = false;
     bool m_busy = false;
     bool m_pollInFlight = false;
     bool m_detailReady = false;
+    bool m_showArchived = false;
 };
 
 } // namespace acp

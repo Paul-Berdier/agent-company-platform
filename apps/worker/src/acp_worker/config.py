@@ -5,6 +5,7 @@ import math
 import os
 import platform
 import re
+import shutil
 import socket
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,7 +31,7 @@ _KNOWN_WORKER_CAPABILITIES = frozenset(
 _LOCAL_RUNNER_CAPABILITIES = (
     _KNOWN_WORKER_CAPABILITIES
     - _AGENT_EXECUTOR_CAPABILITIES
-    - {_MCP_PROBE_CAPABILITY}
+    - {_MCP_PROBE_CAPABILITY, "agent_team"}
 )
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 _PROVIDER_ID = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
@@ -316,6 +317,8 @@ class WorkerConfig:
             )
 
         advertised_agents = advertised & _AGENT_EXECUTOR_CAPABILITIES
+        if "agent_team" in advertised and (simulation or not advertised_agents or shutil.which("git") is None):
+            raise WorkerConfigurationError("agent_team exige un exécuteur réel annoncé et Git disponible")
         available_agents = (
             set() if simulation else set(self.executors.enabled_executors)
         )

@@ -4,6 +4,11 @@ Périmètre : durcissement Lot H et client C++23 / Qt 6.8.3. Le chantier Pixel O
 du checkout principal est conservé séparément, conformément au choix du propriétaire.
 Ce relevé distingue développement intégré, tests exécutés et recette de distribution.
 
+La [validation fonctionnelle suivante](functional-completion-2026-09-23.md) complète
+ce premier relevé avec 22 suites Qt, interactions clavier/souris, captures natives,
+formulaires Claude/Codex et nouveau paquet local. Les chiffres, binaires et CI
+historiques ci-dessous correspondent au premier lot et ne valident pas ces changements.
+
 ## Historique d'intégration
 
 - Lot H : [PR #9](https://github.com/Paul-Berdier/agent-company-platform/pull/9)

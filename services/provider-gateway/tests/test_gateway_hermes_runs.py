@@ -48,6 +48,7 @@ def _capabilities() -> dict:
         "features": {
             "run_submission": True,
             "run_status": True,
+            "run_stop": True,
             "runs_idempotency": {
                 "supported": True,
                 "durable": True,
@@ -342,3 +343,107 @@ def test_read_rejects_invalid_run_id_before_upstream(monkeypatch):
 
     assert response.status_code == 422
     assert calls == []
+
+
+@pytest.mark.parametrize("operation", ["plan", "evaluate"])
+def test_operation_replays_across_gateway_restart_then_reads_validated_result(monkeypatch, operation):
+    calls = []
+    reservations = {}
+    output = ({"steps": [{"id": "one", "title": "Faire", "executor": "codex_cli"}]}
+              if operation == "plan" else {"approved": True, "score": 0.9, "feedback": "Prouvé"})
+
+    def handler(request):
+        calls.append(request)
+        if request.url.path == "/health/detailed":
+            return httpx.Response(200, json=_ready_health())
+        if request.url.path == "/v1/capabilities":
+            return httpx.Response(200, json=_capabilities())
+        if request.url.path == "/v1/runs":
+            key = request.headers["Idempotency-Key"]
+            replay = key in reservations
+            if replay:
+                assert reservations[key] == request.content
+            reservations[key] = request.content
+            return httpx.Response(202, json={"run_id": RUN_ID, "status": "completed" if replay else "started"},
+                                  headers={"Idempotency-Replayed": str(replay).lower()})
+        assert request.method == "GET"
+        return httpx.Response(200, json={"object": "hermes.run", "run_id": RUN_ID,
+                                       "status": "completed", "output": json.dumps(output)})
+
+    body = {"session": {}}
+    body.update({"goal": "Objectif", "context": {"execution": {"mode": "multi_agent", "executors": ["codex_cli"]}}}
+                if operation == "plan" else {"task_summary": "Tâche", "produced_output": {"evidence": "Preuve"}})
+    headers = {**_authorization(), "Idempotency-Key": f"attempt-42-{operation}"}
+    monkeypatch.setattr(gateway_main, "hermes_provider", _provider(handler))
+    with TestClient(gateway_main.app) as client:
+        first = client.post(f"/v1/providers/hermes/operations/{operation}", json=body, headers=headers)
+        assert first.status_code == 202
+        assert first.json()["run_id"] == RUN_ID
+        assert first.json()["result"] is None
+        assert not any(r.url.path == f"/v1/runs/{RUN_ID}" for r in calls)
+        monkeypatch.setattr(gateway_main, "hermes_provider", _provider(handler))
+        replay = client.post(f"/v1/providers/hermes/operations/{operation}", json=body, headers=headers)
+        assert replay.status_code == 202
+        assert replay.json()["replayed"] is True
+        result = client.get(f"/v1/providers/hermes/operations/{operation}/{RUN_ID}", headers=_authorization())
+    assert len(reservations) == 1
+    assert result.status_code == 200
+    assert result.json()["status"] == "completed"
+    assert result.json()["result"]["provider_id"] == "hermes"
+    if operation == "plan":
+        assert result.json()["result"]["steps"][0]["executor"] == "codex_cli"
+    else:
+        assert result.json()["result"]["approved"] is True
+
+
+@pytest.mark.parametrize("path", ["operations/plan", "plan", "operations/evaluate", "evaluate"])
+def test_every_hermes_operation_requires_caller_key_before_upstream(monkeypatch, path):
+    calls = []
+    monkeypatch.setattr(gateway_main, "hermes_provider", _provider(lambda request: calls.append(request)))
+    body = {"session": {}}
+    body.update({"goal": "x"} if path.endswith("plan") else {"task_summary": "x", "produced_output": {"evidence": "x"}})
+    with TestClient(gateway_main.app) as client:
+        result = client.post(f"/v1/providers/hermes/{path}", json=body, headers=_authorization())
+    assert result.status_code == 422
+    assert calls == []
+
+
+@pytest.mark.parametrize("status,output,expected", [
+    ("completed", "not-json", "failed"),
+    ("completed", '{"approved":"yes","score":1}', "failed"),
+    ("waiting_for_approval", None, "waiting_for_approval"),
+    ("failed", None, "failed"),
+    ("cancelled", None, "cancelled"),
+])
+def test_operation_snapshot_has_no_false_success_or_raw_error(monkeypatch, status, output, expected):
+    def handler(request):
+        return httpx.Response(200, json={"object": "hermes.run", "run_id": RUN_ID,
+                                       "status": status, "output": output, "error": HERMES_TOKEN})
+    monkeypatch.setattr(gateway_main, "hermes_provider", _provider(handler))
+    with TestClient(gateway_main.app) as client:
+        result = client.get(f"/v1/providers/hermes/operations/evaluate/{RUN_ID}", headers=_authorization())
+    assert result.status_code == 200
+    assert result.json()["status"] == expected
+    assert result.json()["result"] is None
+    assert result.json()["error"]
+    assert HERMES_TOKEN not in result.text
+
+
+def test_stop_acknowledges_only_stopping_then_reads_actual_cancellation(monkeypatch):
+    calls = []
+    state = "waiting_for_approval"
+    def handler(request):
+        calls.append((request.method, request.url.path))
+        if request.method == "POST":
+            assert request.url.path.endswith("/stop")
+            return httpx.Response(200, json={"status": "stopping"})
+        return httpx.Response(200, json={"object": "hermes.run", "run_id": RUN_ID, "status": state})
+    monkeypatch.setattr(gateway_main, "hermes_provider", _provider(handler))
+    with TestClient(gateway_main.app) as client:
+        stopped = client.post(f"/v1/providers/hermes/runs/{RUN_ID}/stop", headers=_authorization())
+        assert stopped.status_code == 202
+        assert stopped.json()["status"] == "stopping"
+        state = "cancelled"
+        terminal = client.post(f"/v1/providers/hermes/runs/{RUN_ID}/stop", headers=_authorization())
+    assert terminal.json()["status"] == "cancelled"
+    assert sum(method == "POST" for method, _ in calls) == 1

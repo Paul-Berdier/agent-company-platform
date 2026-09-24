@@ -17,6 +17,7 @@ Item {
         spacing: Space.space1
 
         Text {
+            textFormat: Text.PlainText
             width: parent.width
             text: header.title
             elide: Text.ElideRight
@@ -27,6 +28,7 @@ Item {
         }
 
         Text {
+            textFormat: Text.PlainText
             width: parent.width
             visible: header.subtitle.length > 0
             text: header.subtitle

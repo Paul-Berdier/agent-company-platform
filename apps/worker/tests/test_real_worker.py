@@ -23,6 +23,40 @@ from acp_worker.main import _await_work, _renew_lease, process, run_forever
 from acp_worker.state import CredentialStateError, WorkerCredentials
 
 
+def hermes_transport(handler):
+    """Simulation des nouvelles admissions/polls autour des résultats de fixture."""
+    admissions = {}
+    cancelled = set()
+
+    def dispatch(request):
+        path = request.url.path
+        if "/operations/" not in path:
+            if path.endswith("/stop"):
+                run_id = path.split("/")[-2]
+                cancelled.add(run_id)
+                return httpx.Response(200, json={"run_id": run_id, "status": "cancelled"})
+            return handler(request)
+        operation = path.split("/operations/")[1].split("/")[0]
+        run_id = "fake-" + operation
+        envelope = {"provider_id": "hermes", "operation": operation, "run_id": run_id,
+                    "status": "started", "result": None, "replayed": False, "error": None}
+        if request.method == "POST":
+            assert request.headers.get("Idempotency-Key")
+            admissions[operation] = request
+            return httpx.Response(200, json=envelope)
+        if run_id in cancelled:
+            return httpx.Response(200, json={**envelope, "status": "cancelled"})
+        admitted = admissions[operation]
+        legacy_request = httpx.Request("POST", admitted.url.copy_with(path="/v1/providers/hermes/" + operation),
+                                       headers=admitted.headers, content=admitted.content)
+        response = handler(legacy_request)
+        if response.status_code >= 400:
+            return httpx.Response(200, json={**envelope, "status": "failed", "error": "Échec simulé"})
+        return httpx.Response(200, json={**envelope, "status": "completed", "result": response.json()})
+
+    return httpx.MockTransport(dispatch)
+
+
 def worker_config(tmp_path: Path, runner: LocalRunnerConfig) -> WorkerConfig:
     return WorkerConfig(
         api_url="https://api.test",
@@ -443,7 +477,7 @@ async def test_real_worker_only_succeeds_after_process_proof_and_evaluation(
 
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
-        httpx.AsyncClient(transport=httpx.MockTransport(gateway_handler)) as gateway_client,
+        httpx.AsyncClient(transport=hermes_transport(gateway_handler)) as gateway_client,
     ):
         await process(
             api_client,
@@ -497,9 +531,11 @@ async def test_real_worker_only_succeeds_after_process_proof_and_evaluation(
     assert "cost" not in budget_requests[-1][1]
 
 
+@pytest.mark.parametrize("usage_failures", [0, 1, 3])
 async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    usage_failures: int,
 ):
     workspace = tmp_path / "workspace"
     binary = tmp_path / "bin" / "codex.exe"
@@ -568,14 +604,23 @@ async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_ou
             stderr_sha256="b" * 64,
             stdout_bytes=123,
             stderr_bytes=17,
+            output={"text": "Réponse métier vérifiable", "truncated": False, "complete": True},
         )
 
     monkeypatch.setattr("acp_worker.main.run_executor", fake_run_executor)
     api_requests: list[tuple[str, dict]] = []
 
+    execution_reports: list[dict] = []
+    evaluations: list[dict] = []
+
     def api_handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else {}
         api_requests.append((f"{request.method} {request.url.path}", body))
+        if request.url.path.endswith("/budget/usage") and body.get("phase") == "execution":
+            execution_reports.append(body)
+            if len(execution_reports) <= usage_failures:
+                # Simule une réponse perdue après un éventuel commit côté API.
+                raise httpx.ReadError("réponse perdue", request=request)
         budget_response = budget_success_response(request)
         return budget_response or httpx.Response(200, json={})
 
@@ -589,6 +634,7 @@ async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_ou
                     "steps": [{"id": "step-1", "title": "Modifier le projet"}],
                 },
             )
+        evaluations.append(json.loads(request.content))
         return httpx.Response(
             200,
             json={"approved": True, "score": 1, "provider_id": "hermes"},
@@ -596,7 +642,7 @@ async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_ou
 
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
-        httpx.AsyncClient(transport=httpx.MockTransport(gateway_handler)) as gateway_client,
+        httpx.AsyncClient(transport=hermes_transport(gateway_handler)) as gateway_client,
     ):
         await process(
             api_client,
@@ -606,6 +652,10 @@ async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_ou
             executor_claim,
             WorkerLogger(config.state_dir),
         )
+        if usage_failures == 3:
+            # Même tentative après redémarrage : preuve relue, aucun second effet.
+            await process(api_client, gateway_client, config, worker_credentials,
+                          executor_claim, WorkerLogger(config.state_dir))
 
     assert len(invocations) == 1
     assert invocations[0]["executor"] == "codex_cli"
@@ -614,7 +664,16 @@ async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_ou
     assert invocations[0]["allow_writes"] is True
     assert "Produire une sortie déterministe" in str(invocations[0]["prompt"])
     patches = [body for method, body in api_requests if method.startswith("PATCH ")]
-    assert patches[-1]["status"] == "succeeded"
+    assert patches[-1]["status"] == ("blocked" if usage_failures == 3 else "succeeded")
+    assert patches[-1]["technical_validation"]["status"] == "passed"
+    assert patches[-1]["result"]["output"]["text"] == "Réponse métier vérifiable"
+    assert len(execution_reports) == min(usage_failures + 1, 3)
+    assert all(item == execution_reports[0] for item in execution_reports)
+    if usage_failures == 3:
+        assert patches[-1]["result"]["accounting"]["status"] == "unconfirmed"
+        assert evaluations == []
+    else:
+        assert evaluations[0]["produced_output"]["output"]["text"] == "Réponse métier vérifiable"
     assert patches[-1]["result"]["execution_mode"] == "codex_cli"
     assert patches[-1]["result"]["spawned_agents"] == 1
     assert (
@@ -634,6 +693,8 @@ async def test_real_worker_spawns_one_explicit_codex_executor_without_leaking_ou
         for method, body in api_requests
         if "/budget/" in method
     ]
+    if usage_failures:
+        return
     assert [kind for kind, _ in budget_requests] == [
         "permit",
         "usage",
@@ -757,7 +818,7 @@ async def test_terminal_patch_conflict_reconciles_interrupted_with_same_evidence
 
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
-        httpx.AsyncClient(transport=httpx.MockTransport(gateway_handler)) as gateway_client,
+        httpx.AsyncClient(transport=hermes_transport(gateway_handler)) as gateway_client,
     ):
         await process(
             api_client,
@@ -813,7 +874,7 @@ async def test_provider_evaluation_failure_keeps_real_process_proof(tmp_path: Pa
 
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
-        httpx.AsyncClient(transport=httpx.MockTransport(gateway_handler)) as gateway_client,
+        httpx.AsyncClient(transport=hermes_transport(gateway_handler)) as gateway_client,
     ):
         await process(
             api_client,
@@ -825,7 +886,7 @@ async def test_provider_evaluation_failure_keeps_real_process_proof(tmp_path: Pa
         )
 
     terminal = patches[-1]
-    assert terminal["status"] == "blocked"
+    assert terminal["status"] == "blocked", terminal
     assert terminal["technical_validation"]["status"] == "passed"
     assert terminal["evidence"][0]["exit_code"] == 0
     assert terminal["evidence"][0]["data"]["status"] == "succeeded"
@@ -1173,7 +1234,7 @@ async def test_nonzero_process_cannot_reach_provider_approval(tmp_path: Path):
 
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(api_handler)) as api_client,
-        httpx.AsyncClient(transport=httpx.MockTransport(gateway_handler)) as gateway_client,
+        httpx.AsyncClient(transport=hermes_transport(gateway_handler)) as gateway_client,
     ):
         await process(
             api_client,

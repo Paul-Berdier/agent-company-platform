@@ -9,7 +9,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Acp.Design
 
-Item {
+FocusScope {
     id: field
 
     property alias text: input.text
@@ -45,6 +45,7 @@ Item {
 
         TextInput {
             id: input
+            focus: true
             anchors.fill: parent
             anchors.leftMargin: Space.space5
             anchors.rightMargin: Space.space5
@@ -73,6 +74,7 @@ Item {
             Accessible.passwordEdit: field.masked
 
             Text {
+                textFormat: Text.PlainText
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
                 visible: input.text.length === 0
@@ -85,6 +87,7 @@ Item {
     }
 
     Text {
+        textFormat: Text.PlainText
         id: helper
         anchors.top: box.bottom
         anchors.topMargin: Space.space2

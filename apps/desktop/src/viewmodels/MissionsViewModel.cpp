@@ -250,11 +250,14 @@ void MissionsViewModel::selectMission(const QString& id)
         return;
     }
     clearSelection(); m_error.clear(); m_notice.clear(); m_missionId = id;
-    emit changed(); refreshDetail(); loadComments();
+    emit changed(); refreshDetail();
 }
 void MissionsViewModel::refreshDetail()
 {
     if (!ready() || m_missionId.isEmpty()) return;
+    // Une actualisation manuelle ou déclenchée par le journal recharge aussi
+    // les commentaires publiés depuis un autre client.
+    loadComments();
     const quint64 selection = m_selection, serial = ++m_detailRequest;
     ApiRequest req; req.path = QStringLiteral("/missions/") + segment(m_missionId);
     request(req, [this, selection, serial](const ApiResponse& response) {
@@ -428,7 +431,7 @@ void MissionsViewModel::sendPending()
         if (creation) {
             selectMission(id);
             m_notice = successText;
-        } else { refreshDetail(); loadComments(); }
+        } else { refreshDetail(); }
         refresh();
     }, [this, selection](const ApiError& error) {
         m_mutating = false;
@@ -458,24 +461,78 @@ QJsonObject MissionsViewModel::creationBody(const QString& projectId, const QVar
     }
     const auto criteria = lines(form.value(QStringLiteral("acceptance_criteria")).toString());
     if (criteria.isEmpty() || criteria.size() > 100) return reject(QStringLiteral("Indiquez entre 1 et 100 critères, un par ligne."));
+    const bool costLimited = form.value(QStringLiteral("cost_limit_enabled"), true).toBool();
     bool validCost = false, validDuration = false;
     const double cost = form.value(QStringLiteral("max_cost")).toString().toDouble(&validCost);
     const int duration = form.value(QStringLiteral("duration_seconds")).toInt(&validDuration);
-    if (!validCost || !std::isfinite(cost) || cost < 0 || cost > 999999999999.0)
+    if (costLimited && (!validCost || !std::isfinite(cost) || cost < 0 || cost > 999999999999.0))
         return reject(QStringLiteral("Le plafond de coût doit être un nombre entre 0 et 999999999999 (point décimal)."));
     if (!validDuration || duration < 1 || duration > 31536000)
         return reject(QStringLiteral("La durée doit être comprise entre 1 et 31536000 secondes."));
     const QString mode = form.value(QStringLiteral("autonomy"), QStringLiteral("bounded")).toString();
     if (mode != QLatin1String("supervised") && mode != QLatin1String("bounded") && mode != QLatin1String("autonomous"))
         return reject(QStringLiteral("Mode d'autonomie inconnu."));
-    const auto capabilities = lines(form.value(QStringLiteral("required_capabilities")).toString());
+    auto capabilities = lines(form.value(QStringLiteral("required_capabilities")).toString());
     if (capabilities.size() > 100) return reject(QStringLiteral("Au plus 100 capacités sont admises."));
+    const QString executor = form.value(QStringLiteral("executor"), QStringLiteral("standard")).toString();
+    const bool multiAgent = executor == QLatin1String("multi_agent");
+    const bool agentExecutor = multiAgent || executor == QLatin1String("codex_cli") || executor == QLatin1String("claude_code");
+    if (executor != QLatin1String("standard") && !agentExecutor)
+        return reject(QStringLiteral("Choisissez un exécuteur proposé par ce formulaire."));
+    for (const QString& agent : {QStringLiteral("codex_cli"), QStringLiteral("claude_code")}) {
+        if (capabilities.contains(agent) && agent != executor && !multiAgent)
+            return reject(QStringLiteral("Choisissez un seul exécuteur dans le sélecteur ; les capacités ne peuvent pas en imposer un autre."));
+    }
+    QJsonArray resources;
+    if (agentExecutor) {
+        if (mode != QLatin1String("supervised"))
+            return reject(QStringLiteral("Codex et Claude Code exigent le mode supervisé."));
+        const QString access = form.value(QStringLiteral("workspace_access"), QStringLiteral("read")).toString();
+        if (access != QLatin1String("read") && access != QLatin1String("write"))
+            return reject(QStringLiteral("Choisissez un accès en lecture ou en écriture au projet."));
+        if (executor == QLatin1String("claude_code") && access != QLatin1String("read"))
+            return reject(QStringLiteral("Cet adaptateur Claude Code accepte seulement la lecture du projet."));
+        const QStringList executors = multiAgent
+            ? QStringList{QStringLiteral("codex_cli"), QStringLiteral("claude_code")}
+            : QStringList{executor};
+        for (const auto& capability : executors)
+            if (!capabilities.contains(capability)) capabilities.append(capability);
+        if (multiAgent && !capabilities.contains(QStringLiteral("agent_team")))
+            capabilities.append(QStringLiteral("agent_team"));
+        if (capabilities.size() > 100) return reject(QStringLiteral("Au plus 100 capacités sont admises, exécuteur compris."));
+        resources.append(QJsonObject{{QStringLiteral("kind"), QStringLiteral("project_workspace")},
+            {QStringLiteral("identifier"), projectId}, {QStringLiteral("access"), access}});
+        if (multiAgent) {
+            bool validConcurrency = false;
+            const int concurrency = form.value(QStringLiteral("max_concurrency"), 2).toInt(&validConcurrency);
+            if (!validConcurrency || concurrency < 1 || concurrency > 2)
+                return reject(QStringLiteral("L'équipe Claude + Codex autorise une ou deux tâches simultanées."));
+            body.insert(QStringLiteral("execution"), QJsonObject{{QStringLiteral("mode"), QStringLiteral("multi_agent")},
+                {QStringLiteral("executors"), QJsonArray::fromStringList(executors)},
+                {QStringLiteral("max_concurrency"), concurrency}});
+        }
+    }
+    QJsonObject budget{{QStringLiteral("max_cost"), costLimited ? QJsonValue(cost) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("currency"), QStringLiteral("EUR")}};
+    if (form.contains(QStringLiteral("max_tool_calls"))) {
+        bool validTools = false;
+        const int toolCalls = form.value(QStringLiteral("max_tool_calls")).toInt(&validTools);
+        if (!validTools || toolCalls < 0 || toolCalls > 1000000)
+            return reject(QStringLiteral("Le plafond d'appels d'outils doit être compris entre 0 et 1000000."));
+        if (agentExecutor && toolCalls < 1)
+            return reject(QStringLiteral("Une invocation CLI exige au moins un appel d'outil autorisé."));
+        if (multiAgent && toolCalls < 3)
+            return reject(QStringLiteral("L'équipe exige au moins trois appels d'outils ; prévoyez aussi la planification et l'évaluation."));
+        budget.insert(QStringLiteral("max_tool_calls"), toolCalls);
+    } else if (!costLimited) {
+        return reject(QStringLiteral("Sans plafond de coût, définissez explicitement un plafond d'appels d'outils."));
+    }
     body.insert(QStringLiteral("acceptance_criteria"), criteria);
     body.insert(QStringLiteral("autonomy"), QJsonObject{{QStringLiteral("mode"), mode}});
-    body.insert(QStringLiteral("budget"), QJsonObject{{QStringLiteral("max_cost"), cost}, {QStringLiteral("currency"), QStringLiteral("EUR")}});
+    body.insert(QStringLiteral("budget"), budget);
     body.insert(QStringLiteral("duration_seconds"), duration);
     body.insert(QStringLiteral("required_capabilities"), capabilities);
-    body.insert(QStringLiteral("resources"), QJsonArray{});
+    body.insert(QStringLiteral("resources"), resources);
     return body;
 }
 void MissionsViewModel::createMission(const QVariantMap& form)

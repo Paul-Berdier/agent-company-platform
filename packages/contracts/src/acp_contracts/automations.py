@@ -32,6 +32,7 @@ from .missions import (
     MissionAutonomy,
     MissionBudget,
     MissionCreate,
+    MissionExecution,
     MissionResource,
 )
 from .schedule import (
@@ -229,6 +230,16 @@ class AutomationMissionTemplate(_AutomationContract):
     agent_instance_id: str | None = None
     priority: int = Field(default=3, ge=1, le=5, strict=True)
     required_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    execution: MissionExecution | None = None
+
+    @model_validator(mode="after")
+    def validate_execution(self) -> AutomationMissionTemplate:
+        if self.execution is not None:
+            # Les contraintes indépendantes du projet sont contrôlées dès la
+            # saisie. L'API revérifie ensuite l'identifiant du projet réel.
+            project_id = self.resources[0].identifier if self.resources else "project"
+            self.to_mission_create(project_id)
+        return self
 
     @field_validator("acceptance_criteria", "required_capabilities")
     @classmethod

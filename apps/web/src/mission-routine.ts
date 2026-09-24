@@ -88,6 +88,12 @@ export function buildRoutineAutomationInput(
       agent_instance_id: mission.agent_instance_id,
       priority: mission.priority,
       required_capabilities: [...mission.required_capabilities],
+      ...(mission.execution !== undefined ? {
+        execution: mission.execution === null ? null : {
+          ...mission.execution,
+          executors: [...mission.execution.executors],
+        },
+      } : {}),
     },
     catchup_policy: "skip",
     max_concurrent_runs: 1,

@@ -16,6 +16,7 @@ constexpr char kRememberSession[] = "connection/rememberSession";
 constexpr char kTheme[] = "appearance/theme";
 constexpr char kMotion[] = "appearance/motion";
 constexpr char kInspectorWidth[] = "layout/inspectorWidth";
+constexpr char kSidebarWidth[] = "layout/sidebarWidth";
 constexpr char kSidebarCollapsed[] = "layout/sidebarCollapsed";
 
 } // namespace
@@ -27,6 +28,7 @@ const QStringList &SettingsStore::allowedKeys()
         QLatin1String(kTheme),          QLatin1String(kMotion),
         QLatin1String(kInspectorWidth), QLatin1String(kSidebarCollapsed),
         QLatin1String(kRememberSession),
+        QLatin1String(kSidebarWidth),
     };
     return keys;
 }
@@ -136,12 +138,24 @@ void SettingsStore::setRememberSession(bool remember)
 
 int SettingsStore::inspectorWidth() const
 {
-    return value(QLatin1String(kInspectorWidth), 0).toInt();
+    const int width = value(QLatin1String(kInspectorWidth), 0).toInt();
+    return width == 0 ? 0 : qBound(320, width, 600);
 }
 
 void SettingsStore::setInspectorWidth(int width)
 {
-    setValue(QLatin1String(kInspectorWidth), width);
+    setValue(QLatin1String(kInspectorWidth), width == 0 ? 0 : qBound(320, width, 600));
+}
+
+int SettingsStore::sidebarWidth() const
+{
+    const int width = value(QLatin1String(kSidebarWidth), 0).toInt();
+    return width == 0 ? 0 : qBound(200, width, 360);
+}
+
+void SettingsStore::setSidebarWidth(int width)
+{
+    setValue(QLatin1String(kSidebarWidth), width == 0 ? 0 : qBound(200, width, 360));
 }
 
 bool SettingsStore::sidebarCollapsed() const

@@ -41,6 +41,8 @@ class ShellViewModel : public QObject
                    inspectorVisibleChanged)
     Q_PROPERTY(bool sidebarCollapsed READ isSidebarCollapsed WRITE setSidebarCollapsed NOTIFY
                    sidebarCollapsedChanged)
+    Q_PROPERTY(int sidebarWidth READ sidebarWidth WRITE setSidebarWidth NOTIFY panelWidthsChanged)
+    Q_PROPERTY(int inspectorWidth READ inspectorWidth WRITE setInspectorWidth NOTIFY panelWidthsChanged)
 
 public:
     ShellViewModel(ApiClient *client, AuthManager *auth, HealthService *health,
@@ -86,6 +88,10 @@ public:
 
     [[nodiscard]] bool isSidebarCollapsed() const;
     void setSidebarCollapsed(bool collapsed);
+    [[nodiscard]] int sidebarWidth() const;
+    void setSidebarWidth(int width);
+    [[nodiscard]] int inspectorWidth() const;
+    void setInspectorWidth(int width);
 
     /*!
         Applique une adresse de serveur saisie par l'opérateur.
@@ -105,6 +111,7 @@ signals:
     void commandPaletteOpenChanged();
     void inspectorVisibleChanged();
     void sidebarCollapsedChanged();
+    void panelWidthsChanged();
 
 private:
     void refreshCommandContext();

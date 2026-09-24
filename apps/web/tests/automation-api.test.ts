@@ -52,6 +52,29 @@ const summary = {
   created_at: "2026-09-14T08:00:00Z",
 };
 const detail = { ...summary, mission_template: missionTemplate, recent_runs: [run] };
+
+describe("configuration d’exécution des routines", () => {
+  it("transporte execution sans perte et refuse un serveur qui la retire", async () => {
+    const execution = { mode: "multi_agent" as const, executors: ["codex_cli", "claude_code"] as ("codex_cli" | "claude_code")[], max_concurrency: 2 };
+    const template = { ...missionTemplate, execution };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ ...detail, mission_template: template }, 201))
+      .mockResolvedValueOnce(json(detail, 201));
+    const client = new AutomationApiClient({ fetcher });
+    const input = { name: summary.name, schedule, mission_template: template };
+    await expect(client.createAutomation(summary.project_id, input, "team-key")).resolves.toMatchObject({
+      mission_template: { execution },
+    });
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).mission_template.execution).toEqual(execution);
+    await expect(client.createAutomation(summary.project_id, input, "team-key-2")).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+
+  it("refuse une configuration d’exécution inconnue dans le détail serveur", () => {
+    expect(automationValidators.detail({
+      ...detail, mission_template: { ...missionTemplate, execution: { mode: "unknown" } },
+    })).toBe(false);
+  });
+});
 const calendar = {
   occurs_at_utc: "2026-10-25T00:30:00Z",
   occurs_at_local: "2026-10-25T02:30:00+02:00",

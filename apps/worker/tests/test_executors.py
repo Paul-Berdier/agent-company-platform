@@ -411,6 +411,54 @@ async def test_zero_exit_requires_executor_specific_terminal_success(
     assert fence.closed is True
 
 
+@pytest.mark.parametrize("executor,allow_writes", [("codex_cli", False), ("codex_cli", True), ("claude_code", False)])
+async def test_mission_timeout_larger_than_local_limit_is_clamped(tmp_path, monkeypatch, executor, allow_writes):
+    config = configured_executor(tmp_path, timeout_seconds=1, executor=executor)
+    stdout = (b'{"type":"turn.completed"}\n' if executor == "codex_cli" else b'{"type":"result","subtype":"success","is_error":false}\n')
+    fence = FakeFence(FakeProcess(returncode=0, stdout=stdout))
+
+    async def spawn(*args, **kwargs):
+        return fence
+
+    async def terminate(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(executor_module, "spawn_fenced_process", spawn)
+    monkeypatch.setattr(executor_module, "terminate_process_tree", terminate)
+    result = await run_executor(executor, "project-1", ".", "Run", config=config, timeout_seconds=60, allow_writes=allow_writes)
+    assert result.exit_code == 0
+    assert fence.closed
+
+
+@pytest.mark.parametrize("executor", ["codex_cli", "claude_code"])
+async def test_final_business_output_is_bounded_without_copying_other_events(tmp_path, monkeypatch, executor):
+    config = configured_executor(tmp_path, executor=executor)
+    answer = "é" * 16001 + "\0"
+    if executor == "codex_cli":
+        events = [{"type": "item.completed", "item": {"type": "command_execution", "text": "RAW_PRIVATE"}},
+                  {"type": "item.completed", "item": {"type": "agent_message", "text": answer}},
+                  {"type": "turn.completed", "usage": {"input_tokens": 4, "output_tokens": 2}}]
+    else:
+        events = [{"type": "assistant", "message": "RAW_PRIVATE"}, {"type": "result", "subtype": "success", "is_error": False,
+                   "result": answer, "usage": {"input_tokens": 4, "output_tokens": 2}, "total_cost_usd": 0.01}]
+    stdout = ("\n".join(json.dumps(item) for item in events) + "\n").encode()
+    fence = FakeFence(FakeProcess(returncode=0, stdout=stdout))
+
+    async def spawn(*args, **kwargs):
+        return fence
+
+    async def terminate(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(executor_module, "spawn_fenced_process", spawn)
+    monkeypatch.setattr(executor_module, "terminate_process_tree", terminate)
+    result = await run_executor(executor, "project-1", ".", "Run", config=config)
+    assert result.output == {"text": "é" * 16000, "truncated": True, "complete": True, "normalized": True}
+    assert result.usage["tokens_input"] == 4
+    assert result.usage["tokens_output"] == 2
+    assert "RAW_PRIVATE" not in repr(result)
+
+
 async def test_claude_success_requires_its_final_result_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

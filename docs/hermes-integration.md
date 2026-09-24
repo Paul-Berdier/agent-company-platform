@@ -1,9 +1,10 @@
 # Intégration Hermes Agent
 
-Date de référence : 11 septembre 2026
+Date de référence : 23 septembre 2026
 Version supportée : Hermes Agent `0.21.1`, tag de publication `v2026.9.7`
-Statut : adaptateur Runs, diagnostic et conversation web persistante livrés sur
-transport simulé ; aucune instance réelle n'a été jointe pendant ce lot.
+Statut : admission durable, lecture et arrêt des Runs implémentés et testés sur
+transport simulé. Une instance locale isolée a été jointe en diagnostic uniquement,
+sans modèle configuré ni création de Run.
 
 ## Surface retenue
 
@@ -15,6 +16,7 @@ GET  /health/detailed
 GET  /v1/capabilities
 POST /v1/runs
 GET  /v1/runs/{run_id}
+POST /v1/runs/{run_id}/stop
 ```
 
 La surface a été vérifiée dans la
@@ -37,7 +39,7 @@ navigateur → API (polling GET) → lecture unique du Run via le gateway
                               → réponse et usage persistés
 
 worker ───────────────────────→ provider-gateway (Bearer interne)
-                              → traduction plan/évaluation synchrone
+                              → admission plan/évaluation, puis lecture du résultat
 ```
 
 Le gateway conserve son contrat d'orchestration historique pour limiter la migration
@@ -56,16 +58,17 @@ métier. En l'absence d'`external_session_id`, l'adaptateur construit un identif
 déterministe namespacé par organisation, espace, projet, équipe, agent et session ;
 il ne réutilise pas un transcript d'un autre scope.
 
-La traduction synchrone demeure pour les opérations historiques de planification et
-d'évaluation. Le Lot B ajoute séparément l'admission asynchrone d'un tour de
-conversation et la lecture d'un état de Run. L'API plateforme persiste conversation,
-tour, clé d'idempotence, `run_id`, sortie et usage ; elle utilise un identifiant de
-session Hermes stable par conversation.
+L'admission asynchrone couvre les conversations et les opérations `plan` et
+`evaluate`. Le worker conserve la clé par tentative et opération, puis le `run_id`
+avant de lire son résultat. Les routes historiques synchrones restent disponibles,
+mais exigent elles aussi une clé stable fournie par l'appelant : une répétition ne
+crée plus une nouvelle identité d'opération.
 
-La reprise d'un tour de conversation reste volontairement simple : le web interroge
-`GET /conversations/{conversation_id}/turns/{turn_id}`. Cette lecture peut
-réconcilier un tour `submitting`/`running` puis persiste l'état reçu. Ce mécanisme ne
-doit pas être présenté comme du streaming, du SSE ou un journal d'événements durable.
+L'API plateforme persiste conversation, tour, clé d'idempotence, `run_id`, sortie et
+usage ; elle utilise un identifiant de session Hermes stable par conversation.
+`GET /conversations/{conversation_id}/turns/{turn_id}` réconcilie les états
+`submitting`, `running`, `waiting_for_approval` et `stopping`. Ce mécanisme n'est
+ni du streaming, ni un journal d'événements Hermes.
 
 Le flux SSE et le journal durable livrés au Lot E portent sur les **tentatives de
 mission**, pas sur les conversations Hermes : ils diffusent les événements que la
@@ -95,8 +98,8 @@ Avant chaque Run, l'adaptateur exige :
   `background_queues`, tous `ok` ;
 - la version exacte `0.21.1` ;
 - authentification Bearer requise ;
-- soumission et consultation de Runs disponibles ;
-- idempotence annoncée comme supportée et durable.
+- soumission, consultation et arrêt de Runs disponibles (`run_stop`) ;
+- idempotence annoncée comme durable, avec au moins 86 400 secondes de conservation.
 
 Un serveur vivant sur `/health` mais sans modèle, mémoire ou gateway prêt est donc
 indisponible pour la plateforme. Une capacité manquante, un redirect, un 4xx, un
@@ -217,7 +220,87 @@ son message et son erreur exploitable, puis une répétition avec le même
 même identifiant est refusé en conflit. Le gateway rend la main après l'admission ;
 il ne masque pas une boucle de polling dans la requête `POST`.
 
+## Contrat asynchrone et reprise
+
+Les routes internes suivantes exigent le Bearer inter-services. Les deux admissions
+exigent aussi `Idempotency-Key` (1 à 255 caractères ASCII visibles, sans espace).
+Le corps reste celui de `PlanningRequest` ou `EvaluationRequest`.
+
+| Méthode et route | Réponse |
+|---|---|
+| `POST /v1/providers/hermes/operations/plan` | `202`, opération admise |
+| `POST /v1/providers/hermes/operations/evaluate` | `202`, opération admise |
+| `GET /v1/providers/hermes/operations/{plan\|evaluate}/{run_id}` | `200`, une lecture et un résultat validé si terminé |
+| `POST /v1/providers/hermes/runs/{run_id}/stop` | `202`, Run `stopping` ou terminal déjà observé |
+
+L'opération porte `provider_id`, `operation`, `run_id`, `status`, `replayed`,
+`result` et `error`. `result` est `null` à l'admission : même un replay annonçant
+`completed` doit être suivi d'un GET. Sur ce GET, le résultat reprend exactement
+le contrat historique `PlanningResult` ou `EvaluationResult`. Une sortie JSON
+invalide devient `failed`, avec une erreur explicite et aucun résultat utilisable.
+
+Les états sont `started`, `queued`, `running`, `waiting_for_approval`, `stopping`,
+`completed`, `failed`, `cancelled`, `interrupted`. Seuls les quatre derniers sont
+terminaux. Le suivi et l'arrêt d'un Run connu ne dépendent pas d'un nouveau contrôle
+de readiness : une dégradation ultérieure ne doit pas empêcher de tenter l'arrêt.
+
+La garantie de reprise dépend du stockage durable et du même profil Hermes. La
+clé doit être enregistrée **avant** la première admission et réutilisée avec un
+corps identique. Après 24 heures, une admission dont le `run_id` reste inconnu est
+refusée ; elle ne reçoit jamais automatiquement une nouvelle clé. Un identifiant
+connu continue à être consulté sans nouvelle admission. Le redémarrage d'un client
+ne remplace pas la conservation du stockage et du profil Hermes côté serveur.
+
+Pour les conversations, `POST /conversations/{conversation_id}/turns/{turn_id}/stop`
+exige CSRF et droits d'écriture, sans corps supplémentaire. L'API enregistre
+`stopping` avant le réseau ; le GET suivant reprend cette intention si la réponse
+se perd. Une lecture concurrente ne peut revenir de `stopping` à `running`, ni
+écraser un résultat terminal. L'arrêt d'un tour déjà terminal est sans nouvel effet.
+Une attente d'approbation porte `waiting_for_approval` et explique que la décision
+n'est pas exposée ; le client peut demander l'arrêt.
+
+## Recette locale volontaire
+
+Préparer un profil Hermes `0.21.1` isolé et un modèle local explicitement configuré.
+Dans ce profil seulement, activer `API_SERVER_ENABLED=true`, fixer
+`API_SERVER_HOST=127.0.0.1` et `API_SERVER_PORT=8642`, et définir `API_SERVER_KEY`
+dans l'environnement du processus. Le gateway utilise alors
+`HERMES_BASE_URL=http://127.0.0.1:8642` et la même clé sous `HERMES_API_KEY`, avec
+un autre secret pour `ACP_GATEWAY_SERVICE_TOKEN`. Ne recopier aucun secret de
+production et ne laisser aucun fournisseur payant choisi implicitement.
+
+1. Lancer Hermes et le gateway avec cet environnement explicite ; appeler seulement
+   le diagnostic jusqu'à `ready`. Ce contrôle ne crée pas de Run.
+2. Pour exercer volontairement un Run, créer et conserver une clé de recette,
+   soumettre un plan minimal puis enregistrer le `run_id` avant le polling.
+3. Recréer le client puis relire ce même identifiant ; réadmettre exactement le
+   même corps et la même clé doit rapprocher le même Run.
+4. Sur un Run actif, demander l'arrêt puis relire jusqu'à un terminal. Un délai
+   dépassé est un résultat indéterminé, jamais une preuve d'annulation.
+
+Le 23 septembre, un profil Hermes `0.21.1` jetable a répondu aux lectures de santé
+et de capacités : `run_stop=true`, conservation d'idempotence de 86 400 secondes.
+Il annonce une santé dégradée (modèle absent, disque occupé à 97,9 %). Aucun Run
+n'a été soumis. Preuve locale :
+`.test-tmp/hermes-local-3dcd28c722a042538ecffb04f808d06d/result.json`.
+La recette complète avec modèle et arrêt réel reste non exécutée. Les tests
+automatiques cités ci-dessous simulent le transport.
+
 ## Tests réalisés
+
+Le 23 septembre 2026, après la correction des reprises et arrêts, la commande
+suivante a donné **192 réussis, 0 ignoré, 2 avertissements de dépréciation** :
+
+```text
+python -B -m pytest services/provider-gateway/tests apps/api/tests/test_conversations.py apps/api/tests/test_gateway_client.py -q --basetemp .test-tmp/hermes-fixes/pytest-complete
+```
+
+Elle couvre notamment la reprise après recréation du gateway simulé, l'identité
+stable entre deux délais dépassés, l'arrêt non confirmé, l'attente d'approbation,
+les lectures tardives et l'absence de sortie terminale. Preuve locale :
+`.test-tmp/hermes-fixes/targeted-complete.log`. La base des conversations est
+SQLite en mémoire ; le transport Hermes est simulé, sans appel fournisseur.
+
 
 Les tests de contrat historiques dans
 `services/provider-gateway/tests/test_hermes_adapter.py` utilisent
@@ -260,8 +343,8 @@ clé est `non exécuté`, jamais vert.
 
 - consommation du streaming SSE **d'Hermes** et persistance de ses événements (le flux
   SSE du Lot E diffuse les événements écrits par la plateforme, pas ceux d'Hermes) ;
-- stop/cancel transmis à Hermes ;
-- demandes et décisions d'approbation Hermes ;
+- décisions d'approbation Hermes : l'attente est affichée explicitement et le tour
+  peut être arrêté, mais aucun bouton n'approuve une action à l'aveugle ;
 - pièces jointes ;
 - profils, modèles et MCP natifs consultables ; configuration native écrivable
   depuis la plateforme (les skills et toolsets natifs sont désormais lisibles,
@@ -269,9 +352,11 @@ clé est `non exécuté`, jamais vert.
 - jobs et automatisations ;
 - délégations rapprochées des missions métier.
 
-Un timeout local n'envoie actuellement pas `/stop`. Le gateway cesse d'attendre,
-mais le Run peut continuer côté Hermes. Ce point doit être corrigé avec la capacité
-`run_stop` avant de présenter l'arrêt comme opérationnel.
+Les anciennes routes synchrones demandent `/stop` après leur délai local ou une
+annulation reçue pendant le suivi. Une erreur d'arrêt reste « non confirmé » et
+conserve l'identifiant de run. Les appels asynchrones délèguent au worker la durée
+globale et la confirmation d'arrêt. Un accusé `stopping` ne prouve jamais la fin du
+travail distant ; il faut relire un état terminal.
 
 ## Prochaine tranche
 
@@ -284,6 +369,7 @@ mais le Run peut continuer côté Hermes. Ce point doit être corrigé avec la c
    livrés au Lot E : la reprise par curseur et la réconciliation de statut existent
    déjà côté plateforme, il reste à normaliser et persister les événements d'un Run
    Hermes avec le même schéma.
-4. Implémenter stop et approbations uniquement après détection de capacité.
+4. Exercer l'arrêt réel puis définir un contrat de décision d'approbation avec la
+   description exacte de l'action concernée, avant de l'exposer dans le client.
 5. Exposer modèles, profils, MCP et skills dans Connexions sans dupliquer leur
    configuration native.

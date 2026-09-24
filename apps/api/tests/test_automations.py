@@ -177,6 +177,63 @@ def _authenticate(context, *, viewer: bool) -> None:
     context["client"].headers["X-CSRF-Token"] = context[f"{role}_csrf"]
 
 
+def _team_payload(context):
+    payload = _payload(context)
+    payload["mission_template"].update(
+        autonomy={"mode": "supervised"},
+        resources=[{"kind": "project_workspace", "identifier": context["project_id"], "access": "write"}],
+        required_capabilities=["agent_team", "codex_cli", "claude_code"],
+        execution={"mode": "multi_agent", "executors": ["codex_cli", "claude_code"], "max_concurrency": 2},
+    )
+    return payload
+
+
+def test_team_automation_materializes_the_same_execution_contract(automation_context):
+    context = automation_context
+    payload = _team_payload(context)
+    created = context["client"].post(
+        f"/projects/{context['project_id']}/automations", json=payload,
+        headers={"Idempotency-Key": "create-team"},
+    )
+    assert created.status_code == 201, created.text
+    triggered = context["client"].post(
+        f"/automations/{created.json()['id']}/trigger",
+        headers={"Idempotency-Key": "trigger-team"},
+    )
+    assert triggered.status_code == 201, triggered.text
+    expected = payload["mission_template"]["execution"]
+    with context["session_factory"]() as db:
+        task = db.get(TaskModel, triggered.json()["task_id"])
+        assert task.meta["execution"] == expected
+        assert set(task.meta["required_capabilities"]) == {"agent_team", "codex_cli", "claude_code"}
+        attempt = db.get(TaskRunModel, task.active_run_id)
+        assert attempt.plan["mission_snapshot"]["execution"] == expected
+    detail = context["client"].get(f"/missions/{triggered.json()['task_id']}")
+    assert detail.status_code == 200 and detail.json()["execution"] == expected
+
+
+@pytest.mark.parametrize("mutation", ["create", "update"])
+def test_team_automation_cannot_target_another_project_workspace(automation_context, mutation):
+    context = automation_context
+    payload = _team_payload(context)
+    payload["mission_template"]["resources"][0]["identifier"] = "other-project"
+    if mutation == "create":
+        response = context["client"].post(
+            f"/projects/{context['project_id']}/automations", json=payload,
+            headers={"Idempotency-Key": "foreign-team"},
+        )
+    else:
+        created = _create(context)
+        response = context["client"].patch(
+            f"/automations/{created['id']}", json={"mission_template": payload["mission_template"]},
+            headers={"Idempotency-Key": "foreign-team"},
+        )
+    assert response.status_code == 422, response.text
+    assert "workspace" in response.json()["detail"]
+    with context["session_factory"]() as db:
+        assert db.query(TaskModel).count() == 0
+
+
 def test_oversized_json_is_rejected_before_authentication(automation_context):
     context = automation_context
     client = context["client"]

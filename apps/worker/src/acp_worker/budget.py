@@ -7,6 +7,7 @@ peut pas atteindre l'API : aucune consommation inconnue ne devient zéro.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
@@ -24,6 +25,7 @@ from .state import WorkerCredentials
 _T = TypeVar("_T")
 BudgetPhase = Literal["planning", "execution", "evaluation", "tool"]
 _LEDGER_COST_QUANTUM = Decimal("0.000001")
+_REPORT_RETRY_DELAYS = (0.1, 0.3)
 
 
 class BudgetDenied(RuntimeError):
@@ -285,9 +287,9 @@ async def request_permit(
 def _provider_measurements(result: object) -> dict[str, Any]:
     """Copie seulement les mesures provider présentes et correctement typées."""
 
-    if not isinstance(result, dict) or not isinstance(result.get("usage"), dict):
+    usage = result.get("usage") if isinstance(result, dict) else getattr(result, "usage", None)
+    if not isinstance(usage, dict):
         return {}
-    usage = result["usage"]
     measurements: dict[str, Any] = {}
     cost = usage.get("cost")
     currency = usage.get("currency")
@@ -360,13 +362,7 @@ async def report_usage(
     # réellement : l'effet a été lancé une fois. Les coûts/jetons restent absents.
     if source == "platform":
         measurements = {}
-    response = await client.post(
-        (
-            f"{config.api_url}/work/workers/{credentials.worker_id}/runs/"
-            f"{attempt_id}/budget/usage"
-        ),
-        headers=_fencing_headers(fencing_token),
-        json={
+    payload = {
             "report_id": _stable_identifier("usage", attempt_id, effect_key),
             "permit_id": permit_id,
             "provider": provider,
@@ -374,8 +370,24 @@ async def report_usage(
             "source": source,
             "tool_calls": reservation.get("tool_calls", 1),
             **measurements,
-        },
-    )
+        }
+    # Seul le rapport est rejoué : l'effet a déjà eu lieu. Le même identifiant
+    # et le même corps permettent au ledger de reconnaître une réponse perdue.
+    for index in range(len(_REPORT_RETRY_DELAYS) + 1):
+        try:
+            response = await client.post(
+                f"{config.api_url}/work/workers/{credentials.worker_id}/runs/"
+                f"{attempt_id}/budget/usage",
+                headers=_fencing_headers(fencing_token),
+                json=payload,
+            )
+        except httpx.TransportError:
+            if index == len(_REPORT_RETRY_DELAYS):
+                raise BudgetUnavailable("rapport budgétaire indisponible") from None
+        else:
+            if response.status_code not in {408, 429, 500, 502, 503, 504} or index == len(_REPORT_RETRY_DELAYS):
+                break
+        await asyncio.sleep(_REPORT_RETRY_DELAYS[index])
     result = _mutation_result(_response_body(response, "rapport"), "rapport")
     if exceeded_bound:
         raise BudgetUnavailable(
@@ -399,6 +411,8 @@ async def budgeted_effect(
     operation: Callable[[], Awaitable[_T]],
     budget: Mapping[str, Any] | None = None,
     bounds: EffectBudgetBounds | None = None,
+    on_completed: Callable[[_T], None] | None = None,
+    on_reported: Callable[[bool], None] | None = None,
 ) -> _T:
     """Exécute un effet seulement entre sa réservation et son rapport.
 
@@ -420,7 +434,11 @@ async def budgeted_effect(
         bounds=bounds,
     )
     result = await operation()
-    await report_usage(
+    # Pas d'await entre le retour de l'effet et la conservation de sa preuve :
+    # même une annulation pendant le rapprochement doit garder ce résultat.
+    if on_completed is not None:
+        on_completed(result)
+    reconciled = await report_usage(
         client,
         config,
         credentials,
@@ -433,4 +451,6 @@ async def budgeted_effect(
         result=result,
         reservation=reservation,
     )
+    if on_reported is not None:
+        on_reported(reconciled)
     return result

@@ -23,6 +23,7 @@ ApplicationWindow {
     visible: true
     title: qsTr("Station de travail — Agent Company Platform")
     color: Colors.surfaceCanvas
+    palette: NativePalette {}
 
     // Les singletons générés portent le thème actif. La sélection vient de la couche C++
     // (préférence de l'opérateur, puis thème système) et jamais d'une décision prise ici.

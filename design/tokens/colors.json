@@ -1,10 +1,13 @@
 {
   "$schema": "acp.design-tokens/1",
-  "$description": "Jetons de couleur neutres et d'accentuation de la station de travail Agent Company Platform, direction QUIET OPERATIONS. Deux thèmes : sombre par défaut, clair. Les valeurs sont opaques et en hexadécimal 6 chiffres afin d'être injectées telles quelles dans une propriété QML de type color ; toute couleur porteuse d'alpha vit dans elevation.json. Les couleurs de statut ne sont PAS ici, elles sont dans semantic-status.json.",
-  "$version": "1.0.0",
+  "$description": "Identité ACP : graphite végétal, papier ivoire et sarcelle mesurée. Palette native du poste conversations/projets, distincte des surfaces web historiques. Les états métier restent dans semantic-status.json.",
+  "$version": "1.1.0",
   "$file": "colors",
   "$themed": true,
-  "$themes": ["dark", "light"],
+  "$themes": [
+    "dark",
+    "light"
+  ],
   "$defaultTheme": "dark",
   "$qml": {
     "singleton": "Colors",
@@ -14,12 +17,11 @@
     "themeSelection": "Le générateur produit un objet par thème ; la sélection de thème est faite à l'exécution par la couche QML, pas par le générateur."
   },
   "$contrast": {
-    "$description": "Contrastes mesurés par le calcul WCAG 2.1 (luminance relative) au moment de la rédaction. Seuls les jetons porteurs de texte, d'icône ou de bordure d'élément interactif ont été mesurés ; les remplissages purement décoratifs ne le sont pas et ne prétendent à aucun niveau.",
-    "textMinimumDark": 5.23,
-    "textMinimumLight": 4.6,
+    "$description": "Contrastes calculés le 23 septembre 2026 : textes sur les six surfaces opaques de base, contours interactifs et encre sur les trois états d’accent. La validation des captures reste distincte.",
+    "textMinimumDark": 5.63,
+    "textMinimumLight": 5.11,
     "target": "AA (4.5:1 pour le texte, 3:1 pour la bordure d'un élément interactif et pour le focus)",
     "unverified": [
-      "accent.pressed",
       "surface.scrimless",
       "state.hover",
       "state.pressed"
@@ -27,142 +29,142 @@
   },
   "tokens": {
     "surface.canvas": {
-      "$description": "Fond global de la fenêtre. Repris à l'identique de --workspace-bg du client web pour la continuité visuelle.",
+      "$description": "Canevas principal : graphite chaud en sombre, papier ivoire en clair.",
       "$type": "color",
-      "dark": "#0e1417",
-      "light": "#eef3f2"
+      "dark": "#191c1a",
+      "light": "#f7f6f0"
     },
     "surface.sidebar": {
       "$description": "Colonne de navigation persistante, légèrement distincte du canevas sans bordure lumineuse.",
       "$type": "color",
-      "dark": "#111a1e",
-      "light": "#f8fbfa"
+      "dark": "#131714",
+      "light": "#eeefe7"
     },
     "surface.panel": {
       "$description": "Surface de travail principale : listes, tableaux, formulaires, panneaux d'inspection.",
       "$type": "color",
-      "dark": "#172126",
+      "dark": "#1e2420",
       "light": "#ffffff"
     },
     "surface.panelRaised": {
       "$description": "Surface d'un élément posé sur un panneau : en-tête collant, ligne sélectionnée, contrôle de formulaire.",
       "$type": "color",
-      "dark": "#1c292f",
-      "light": "#f4f8f7"
+      "dark": "#272e29",
+      "light": "#f2f3eb"
     },
     "surface.sunken": {
       "$description": "Surface creusée pour les zones de sortie brute : journaux, flux SSE, diff, terminal, JSON. Plus sombre que le panneau en thème sombre, plus grise en thème clair.",
       "$type": "color",
-      "dark": "#0a1013",
-      "light": "#e4ebe9"
+      "dark": "#111612",
+      "light": "#e8ebe2"
     },
     "surface.overlay": {
       "$description": "Fond des couches flottantes : palette de commandes, menu, infobulle riche, boîte de dialogue.",
       "$type": "color",
-      "dark": "#1f2c32",
-      "light": "#ffffff"
+      "dark": "#282f2a",
+      "light": "#fffef8"
     },
     "surface.scrimless": {
       "$description": "Fond de remplacement pour un environnement sans composition alpha fiable, utilisé si l'assombrissement défini dans elevation.json ne peut pas être appliqué.",
       "$type": "color",
-      "dark": "#060a0c",
-      "light": "#c4cfcd"
+      "dark": "#090d0a",
+      "light": "#c9cfc3"
     },
     "text.primary": {
-      "$description": "Texte principal : titres, libellés, contenu de cellule. Contraste mesuré 16,66:1 sur surface.canvas en sombre, 14,41:1 en clair.",
+      "$description": "Encre principale des titres, contrôles et messages.",
       "$type": "color",
-      "dark": "#edf4f4",
-      "light": "#152326"
+      "dark": "#eef2e9",
+      "light": "#1f2b23"
     },
     "text.secondary": {
       "$description": "Texte secondaire : métadonnées, horodatages, aide de champ. Reste au niveau AA, ce n'est pas un gris décoratif.",
       "$type": "color",
-      "dark": "#a8b7bb",
-      "light": "#4d5f62"
+      "dark": "#b1bcb2",
+      "light": "#506154"
     },
     "text.muted": {
-      "$description": "Texte de moindre importance encore lisible : unités, compteurs, en-têtes de colonne. Niveau AA le plus bas du système (5,23:1 sombre, 4,60:1 clair). Aucun texte plus pâle n'est autorisé.",
+      "$description": "Métadonnées et aides, toujours lisibles au niveau AA sur les surfaces de base.",
       "$type": "color",
-      "dark": "#8b9ca1",
-      "light": "#57696d"
+      "dark": "#9aaa9d",
+      "light": "#536657"
     },
     "text.onAccent": {
-      "$description": "Encre posée sur un remplissage accent.primary. Mesuré 6,97:1 en sombre et 6,18:1 en clair.",
+      "$description": "Encre de l’action principale et de ses états de survol/appui.",
       "$type": "color",
-      "dark": "#04221f",
+      "dark": "#07271c",
       "light": "#ffffff"
     },
     "accent.primary": {
-      "$description": "Accent unique du produit, sarcelle. Sert à l'action principale, à la sélection de navigation et au focus d'intention. La valeur claire est assombrie par rapport au web (#087f79) qui restait à 4,34:1 sur surface.canvas ; #0a6d68 atteint 5,51:1.",
+      "$description": "Sarcelle ACP réservée à l’action principale et à la sélection ; aucun dégradé.",
       "$type": "color",
-      "dark": "#38b9b0",
-      "light": "#0a6d68"
+      "dark": "#65c6ae",
+      "light": "#0a6d60"
     },
     "accent.hover": {
       "$description": "Variante de survol de l'accent.",
       "$type": "color",
-      "dark": "#63d7ce",
-      "light": "#075550"
+      "dark": "#86dcc5",
+      "light": "#085748"
     },
     "accent.pressed": {
-      "$description": "Variante d'appui de l'accent. Remplissage seulement, non mesuré pour du texte.",
+      "$description": "Variante d'appui de l'accent ; le texte utilise text.onAccent, inclus dans la mesure de contraste.",
       "$type": "color",
-      "dark": "#2aa39b",
-      "light": "#05423e"
+      "dark": "#4eb298",
+      "light": "#064637"
     },
     "accent.muted": {
-      "$description": "Teinte d'accent très basse pour signaler une ligne active ou un onglet courant sans remplissage plein. Texte principal dessus : 11,52:1 sombre, 13,91:1 clair.",
+      "$description": "Sélection discrète de navigation et contexte actif.",
       "$type": "color",
-      "dark": "#1c3639",
-      "light": "#e6f0f0"
+      "dark": "#233e32",
+      "light": "#e0ede4"
     },
     "border.subtle": {
       "$description": "Séparateur interne d'une même surface : lignes de tableau, découpe de section. Volontairement sous 3:1, purement décoratif, jamais seul porteur d'information.",
       "$type": "color",
-      "dark": "#232f34",
-      "light": "#dfe7e5"
+      "dark": "#2b332d",
+      "light": "#dfe3d7"
     },
     "border.default": {
-      "$description": "Contour d'un panneau ou d'un groupe. Repris de --workspace-border. Décoratif lui aussi.",
+      "$description": "Trait de séparation structurel, sans ombre décorative.",
       "$type": "color",
-      "dark": "#2d3c42",
-      "light": "#ccd9d7"
+      "dark": "#3a453c",
+      "light": "#cdd5c7"
     },
     "border.interactive": {
-      "$description": "Contour d'un élément interactif non rempli : champ de saisie, bouton secondaire, case. Mesuré 3,19:1 sur surface.panel et 3,61:1 sur surface.canvas en sombre, 3,41:1 et 3,04:1 en clair.",
+      "$description": "Contour visible des champs et contrôles, mesuré contre toutes les surfaces de base.",
       "$type": "color",
-      "dark": "#5c7178",
-      "light": "#7c8f8c"
+      "dark": "#7e8e80",
+      "light": "#748771"
     },
     "border.focus": {
-      "$description": "Anneau de focus clavier. Mesuré 13,12:1 en sombre et 6,79:1 en clair sur surface.canvas. Jamais supprimé, jamais remplacé par une simple variation de fond.",
+      "$description": "Anneau clavier toujours visible, distinct de la sélection.",
       "$type": "color",
-      "dark": "#8be9e1",
-      "light": "#075e5a"
+      "dark": "#95e4c9",
+      "light": "#0a6654"
     },
     "state.hover": {
       "$description": "Fond de survol d'une ligne ou d'un bouton discret, posé sur surface.panel.",
       "$type": "color",
-      "dark": "#242e32",
-      "light": "#f3f4f4"
+      "dark": "#2b332d",
+      "light": "#e6ebdf"
     },
     "state.pressed": {
       "$description": "Fond d'appui d'une ligne ou d'un bouton discret.",
       "$type": "color",
-      "dark": "#2f383d",
-      "light": "#e8e9e9"
+      "dark": "#343f36",
+      "light": "#dce4d4"
     },
     "state.selected": {
-      "$description": "Fond d'une ligne sélectionnée dans une liste dense. Texte principal dessus : 8,21:1 sombre, 11,99:1 clair.",
+      "$description": "Fond de ligne sélectionnée, accompagné d’un trait et d’un libellé.",
       "$type": "color",
-      "dark": "#214f4f",
-      "light": "#cee2e1"
+      "dark": "#2b4435",
+      "light": "#dceadb"
     },
     "state.disabled": {
       "$description": "Fond d'un contrôle désactivé. Le texte d'un contrôle désactivé utilise text.muted, jamais une valeur plus pâle : une capacité indisponible doit rester lisible.",
       "$type": "color",
-      "dark": "#1a2328",
-      "light": "#eaefee"
+      "dark": "#202722",
+      "light": "#e5e9df"
     }
   }
 }

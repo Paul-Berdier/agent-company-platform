@@ -90,6 +90,7 @@ Item {
             wrapMode: Text.WordWrap
         }
         Text {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             visible: Missions.selectedRunId.length > 0
             text: qsTr("Arrêt et relance concernent la tentative courante. L’acceptation exige une réussite technique ; une réussite doit être rejetée avant relance.")
@@ -128,6 +129,7 @@ Item {
             }
             ColumnLayout {
                 Text {
+                    textFormat: Text.PlainText
                     text: qsTr("Derniers 1 000 événements reçus. Reprise et repli par interrogation sont assurés par le service de flux.")
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
@@ -160,7 +162,7 @@ Item {
                     textFormat: TextEdit.PlainText; color: Colors.textPrimary
                     text: (item.kind || "") + " · " + (item.summary || "") + "\n" + Missions.displayJson(item)
                 }
-                Text { visible: proofs.count === 0; text: qsTr("Aucune preuve reçue pour cette tentative."); color: Colors.textMuted; wrapMode: Text.WordWrap; width: parent.width }
+                Text { textFormat: Text.PlainText; visible: proofs.count === 0; text: qsTr("Aucune preuve reçue pour cette tentative."); color: Colors.textMuted; wrapMode: Text.WordWrap; width: parent.width }
             }
             ColumnLayout {
                 Text { text: Missions.testsStatus; textFormat: Text.PlainText; color: Colors.textMuted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
@@ -222,7 +224,7 @@ Item {
         modal: true
         title: qsTr("Arrêter la tentative courante ?")
         standardButtons: Dialog.Ok | Dialog.Cancel
-        Label { text: qsTr("L’arrêt est une demande au worker ; il peut prendre du temps.") }
+        Label { textFormat: Text.PlainText; text: qsTr("L’arrêt est une demande au worker ; il peut prendre du temps.") }
         onAccepted: { if (runId === Missions.selectedRunId) Missions.stopMission(); }
     }
     Dialog {

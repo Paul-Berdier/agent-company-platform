@@ -4,6 +4,36 @@
 Ce relevé remplace l'état du 18 septembre : le client natif et les écrans métier
 existent désormais. Le chantier courant est **0.10.0 en préparation**.
 
+La reprise courante se poursuit dans `.claude/worktrees/desktop-completion`,
+branche locale `codex/desktop-chat-projects`, à partir du lot fonctionnel
+`fc12525`. Lire la [recette conversations/projets](desktop-chat-projects-2026-09-23.md)
+pour la nouvelle DA, les parcours, les correctifs modaux et les preuves les
+plus récentes : **3 037 tests Python réussis / 70 ignorés, 23 suites Qt,
+492 tests Node**. Les deux parcours Windows à vrais clics et clavier sont verts.
+Le checkout principal conserve son travail Pixel Office, hors de cette intégration.
+
+Reprise fonctionnelle sur `codex/functional-completion`, suivie par la
+[PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11) : lire le
+[bilan du 23 septembre](functional-completion-2026-09-23.md) avant les relevés
+historiques ci-dessous. Missions supervisées et équipes explicites, checkpoints
+d'effets, restitution métier, compétences et proxy MCP sont raccordés dans
+l'arbre de travail. Suite Python complète : **3 025 réussis, 70 ignorés**, en quatre
+partitions disjointes sur bases jetables. Qt : **22 suites sur 22** et parcours
+Qt/API réelle **3 réussis**, avec captures d'interactions distinctes. Le web donne
+**325 tests réussis**, typage et construction verts. La validation MCP ciblée donne
+**36 réussis, 0 ignoré** après revue. Ces groupes ciblés recouvrent la suite complète.
+Le commit fonctionnel `47de619` est validé par les CI plateforme `35856502360`
+et desktop `35856502324`, toutes deux vertes. Le bilan contient les liens directs,
+les empreintes du paquet local final et les limites de son installation.
+
+La pile locale et Hermes sont installés et ont démarré sur loopback. Hermes est
+joignable mais **dégradé**, sans modèle configuré ; **aucun Run génératif payant**
+n'a été lancé. Voir [la procédure locale](local-runtime.md). Une équipe déjà
+commencée reste bloquée à la reprise, avec preuves conservées et sans fusion
+automatique. Les **26 constats Lot H** ne sont pas déclarés clos ; N2-5 conserve
+son défaut de récupération d'un claim incertain malgré le correctif de délai.
+La V1 reste à terminer.
+
 ## 1. État Git et preuves connues
 
 | Élément | État relevé |
@@ -32,7 +62,8 @@ Les commits de fusion et l'ouverture de version ne prouvent pas une publication
 [le relevé final](desktop-validation-2026-09-23.md) avant de reprendre :
 l'intégration peut avoir avancé depuis cette note.
 
-Le worktree `.claude/worktrees/desktop-completion` est maintenant sur `main`.
+Le lot fonctionnel précédent partait de `main` au commit `aa55942` ; la branche
+actuelle de reprise et ses validations sont indiquées en tête de document.
 Le checkout principal conserve sa branche et son chantier Pixel Office. Les autres worktrees historiques
 peuvent contenir des travaux partiels ; ne pas les supprimer, réinitialiser ou
 réappliquer sans examiner leurs différences. Le chantier pixel local reste
@@ -40,11 +71,12 @@ conservé hors périmètre. Indexer les fichiers explicitement.
 
 ## 2. Ce qui est implémenté et ce qui reste
 
-Complément du 23 septembre : l'[audit fonctionnel](functional-audit-2026-09-23.md)
-documente huit défauts ouverts et les raccordements manquants pour Hermes,
-Claude/Codex, MCP et compétences. Aucun service Hermes n'est installé sur le
-périmètre utilisateur. Lire ce rapport avant de déclarer la chaîne utilisable
-ou de brancher Obsidian ; il complète les preuves de compilation et de transport.
+L'[audit fonctionnel initial](functional-audit-2026-09-23.md) documente huit
+défauts sur `ce42ae2`. Le [bilan de correction](functional-completion-2026-09-23.md)
+distingue les raccordements désormais implémentés de leur validation réelle.
+Hermes est maintenant installé, avec profil dédié ; son diagnostic dégradé
+empêche encore d'annoncer la chaîne générative utilisable. Lire ces deux relevés
+avant de brancher un coffre de notes ou de clôturer les constats.
 
 Les viewmodels et pages natifs couvrent projets, conversations, missions,
 tentatives/Studio, livrables, agents/workers/fournisseurs, MCP/compétences,

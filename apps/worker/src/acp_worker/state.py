@@ -1,5 +1,6 @@
 """État local persistant du worker (le jeton n'est jamais journalisé)."""
 
+import base64
 import json
 import os
 import tempfile
@@ -7,6 +8,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .config import WorkerConfigurationError, normalize_service_origin
+from .credentials_protection import (
+    CredentialProtectionError,
+    protect_credentials,
+    unprotect_credentials,
+    uses_windows_protection,
+)
+
+_DPAPI_FORMAT = "acp-worker-credentials-dpapi-v1"
 
 
 class CredentialStateError(RuntimeError):
@@ -66,6 +75,19 @@ def load_credentials(state_dir: Path, api_origin: str) -> WorkerCredentials | No
         raise CredentialStateError("Fichier de credentials worker invalide") from exc
     if not isinstance(data, dict):
         raise CredentialStateError("Fichier de credentials worker invalide")
+    encrypted = data.get("format") == _DPAPI_FORMAT
+    if encrypted:
+        try:
+            encoded = data["ciphertext"]
+            if not isinstance(encoded, str) or len(encoded) > 2 * 1024 * 1024:
+                raise ValueError("Enveloppe invalide")
+            data = json.loads(unprotect_credentials(base64.b64decode(encoded, validate=True)))
+        except (KeyError, TypeError, ValueError, CredentialProtectionError, OSError) as exc:
+            raise CredentialStateError(
+                "Credentials DPAPI illisibles pour ce compte Windows ; réenregistrement requis"
+            ) from exc
+        if not isinstance(data, dict):
+            raise CredentialStateError("Document de credentials DPAPI invalide")
     if "api_origin" not in data:
         raise CredentialStateError(
             "Credentials antérieurs non liés à une origine; réenregistrement requis"
@@ -78,6 +100,10 @@ def load_credentials(state_dir: Path, api_origin: str) -> WorkerCredentials | No
         raise CredentialStateError(
             "Credentials liés à une autre origine API; réenregistrement requis"
         )
+    if uses_windows_protection() and not encrypted:
+        # N'utiliser l'ancien jeton qu'après migration atomique réussie. Un refus
+        # d'écriture conserve le fichier historique et interrompt le chargement.
+        save_credentials(state_dir, credentials)
     return credentials
 
 
@@ -86,6 +112,10 @@ def save_credentials(state_dir: Path, credentials: WorkerCredentials) -> Path:
     descriptor: int | None = None
     temporary: Path | None = None
     try:
+        document = asdict(credentials)
+        if uses_windows_protection():
+            protected = protect_credentials(json.dumps(document, ensure_ascii=False).encode("utf-8"))
+            document = {"format": _DPAPI_FORMAT, "ciphertext": base64.b64encode(protected).decode("ascii")}
         state_dir.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=state_dir,
@@ -100,14 +130,13 @@ def save_credentials(state_dir: Path, credentials: WorkerCredentials) -> Path:
         try:
             os.chmod(temporary, 0o600)
         except OSError:
-            # Sous Windows, ces bits POSIX ne configurent pas la DACL :
-            # l'opérateur doit protéger explicitement le dossier d'état.
+            # Sous Windows, les credentials sont déjà chiffrés par DPAPI.
             pass
 
         handle = os.fdopen(descriptor, "w", encoding="utf-8", newline="\n")
         descriptor = None
         with handle:
-            json.dump(asdict(credentials), handle, ensure_ascii=False, indent=2)
+            json.dump(document, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -118,7 +147,7 @@ def save_credentials(state_dir: Path, credentials: WorkerCredentials) -> Path:
         except OSError:
             pass
         return path
-    except (OSError, TypeError, ValueError) as exc:
+    except (OSError, TypeError, ValueError, CredentialProtectionError) as exc:
         raise CredentialStateError(
             "Impossible d'enregistrer les credentials worker de façon sûre"
         ) from exc

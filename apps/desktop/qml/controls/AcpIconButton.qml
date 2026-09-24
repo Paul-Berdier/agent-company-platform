@@ -31,6 +31,7 @@ Item {
     }
 
     Text {
+        textFormat: Text.PlainText
         anchors.centerIn: parent
         text: control.glyph
         color: control.manualEnabled ? Colors.textSecondary : Colors.textMuted
@@ -49,6 +50,7 @@ Item {
         }
         TapHandler {
             id: tap
+            gesturePolicy: TapHandler.ReleaseWithinBounds
             onTapped: if (control.manualEnabled) control.triggered()
         }
     }
@@ -69,9 +71,13 @@ Item {
     Accessible.focusable: true
     Accessible.onPressAction: if (control.manualEnabled) control.triggered()
 
-    ToolTip.visible: hover.hovered && control.tooltip.length > 0
-    ToolTip.text: control.tooltip
-    ToolTip.delay: 400
+    ToolTip {
+        id: plainTip
+        visible: hover.hovered && control.tooltip.length > 0
+        text: control.tooltip
+        contentItem: Text { text: plainTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+        delay: 400
+    }
 
     Keys.onReturnPressed: if (control.manualEnabled) control.triggered()
     Keys.onSpacePressed: if (control.manualEnabled) control.triggered()

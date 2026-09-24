@@ -4,7 +4,7 @@ Toute communication avec un orchestrateur externe (Hermes, Claude, Codex, ...)
 passe par ces modèles — jamais par les classes internes du service distant.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,7 @@ class PlanStep(BaseModel):
     role_id: str | None = None
     depends_on: list[str] = Field(default_factory=list)
     estimated_effort: str = "medium"
+    executor: Literal["codex_cli", "claude_code"] | None = None
 
 
 class PlanningRequest(BaseModel):

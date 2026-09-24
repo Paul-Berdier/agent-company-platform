@@ -21,6 +21,7 @@ class WorkspaceViewModel : public QObject
     Q_PROPERTY(QVariantMap project READ project NOTIFY projectChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool canCreateProject READ canCreateProject NOTIFY changed)
+    Q_PROPERTY(bool projectCreationPending READ projectCreationPending NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QString notice READ notice NOTIFY changed)
 public:
@@ -33,6 +34,9 @@ public:
     QVariantMap project() const { return m_project; }
     bool busy() const { return m_pending != 0; }
     bool canCreateProject() const;
+    bool projectCreationPending() const { return m_projectCreationPending; }
+    Q_INVOKABLE void requestProjectCreation();
+    Q_INVOKABLE void acknowledgeProjectCreation();
     Q_INVOKABLE bool canCreateInWorkspace(const QString &workspaceId) const;
     QString error() const { return m_error; }
     QString notice() const { return m_notice; }
@@ -61,5 +65,6 @@ private:
     QString m_selectAfterRefresh;
     quint64 m_epoch = 0;
     int m_pending = 0;
+    bool m_projectCreationPending = false;
 };
 }

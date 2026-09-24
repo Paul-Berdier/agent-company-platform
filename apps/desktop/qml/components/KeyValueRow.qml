@@ -30,6 +30,7 @@ Item {
     }
 
     Text {
+        textFormat: Text.PlainText
         id: labelText
         anchors.left: parent.left
         anchors.leftMargin: Space.space4
@@ -43,6 +44,7 @@ Item {
     }
 
     Text {
+        textFormat: Text.PlainText
         anchors.left: labelText.right
         anchors.leftMargin: Space.space5
         anchors.right: parent.right
@@ -56,9 +58,13 @@ Item {
         font.family: row.monospace ? Type.identifier.family : Type.tableCell.family
         font.pixelSize: row.monospace ? Type.identifier.pixelSize : Type.tableCell.pixelSize
 
-        ToolTip.visible: hover.hovered && row.value.length > 60
-        ToolTip.text: row.value
-        ToolTip.delay: 500
+        ToolTip {
+            id: plainTip
+            visible: hover.hovered && row.value.length > 60
+            text: row.value
+            contentItem: Text { text: plainTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+            delay: 500
+        }
     }
 
     HoverHandler { id: hover }
