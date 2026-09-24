@@ -1,4 +1,7 @@
-"""CLI locale ``acp-poste`` : aucune connexion réseau, aucune commande simulée."""
+"""CLI ``acp-poste`` : aucune commande simulée, aucun relevé sans accord, aucun réseau en test.
+
+Codex CLI n'est jamais lancé ici : son exécutable pointe vers un chemin absent.
+"""
 
 from __future__ import annotations
 

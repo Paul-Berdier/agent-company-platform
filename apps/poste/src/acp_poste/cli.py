@@ -5,7 +5,11 @@ claims ont disparu avec cette API. La réclamation des travaux sur Hermes (voie
 kanban du tableau ``poste``) arrive en P5 : aucune commande ne la simule ici.
 Aucune commande ``journal`` non plus : aucun composant du poste n'écrit encore de
 journal ; la lecture reviendra en P5 avec un écrivain réel.
-Aucune commande n'ouvre de connexion réseau.
+
+Le poste n'ouvre lui-même aucune connexion réseau. ``acp-poste quotas`` lance
+toutefois Codex CLI, qui interroge le serveur d'OpenAI pour lire les limites du
+compte : d'où l'accord ``ACP_WORKER_SUBSCRIPTION_QUOTAS=1`` qu'il exige.
+``acp-poste diagnostic`` reste entièrement local.
 """
 
 import argparse

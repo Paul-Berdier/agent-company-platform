@@ -5,7 +5,9 @@ Ancien `apps/worker`, renommé et réduit à l'étape P0 de la refonte « Hermes
 il réclamera en HTTPS sortant les demandes créées par l'outil `poste_deleguer` du
 greffon Hermes `acp-poste`, sur le tableau kanban dédié `poste`, et les exécutera avec
 Codex CLI ou Claude Code sous les connexions du propriétaire. **Cette voie n'existe pas
-encore : elle arrive en P5.** Aujourd'hui, le poste ne parle à aucun serveur.
+encore : elle arrive en P5.** Aujourd'hui, le poste n'ouvre lui-même aucune connexion
+réseau ; seul `acp-poste quotas`, sur accord explicite, lance Codex CLI, qui interroge
+le serveur d'OpenAI.
 
 ## Ce qui reste
 
@@ -52,7 +54,11 @@ propre code, jamais celui d'un autre checkout.
 
 ## Commande `acp-poste`
 
-Aucune de ces commandes n'ouvre de connexion réseau.
+Le poste n'ouvre lui-même aucune connexion réseau. `acp-poste quotas` lance toutefois
+Codex CLI (`codex app-server`) sous le compte ChatGPT du profil dédié et lui demande
+`account/read` puis `account/rateLimits/read` : Codex interroge alors le serveur
+d'OpenAI pour lire les limites du compte. C'est pourquoi la commande exige l'accord
+`ACP_WORKER_SUBSCRIPTION_QUOTAS=1`. `acp-poste diagnostic` reste entièrement local.
 
 - `acp-poste diagnostic` : configuration reconnue (exécuteurs activés, nombre de racines
   projet, runner local, relevé des quotas autorisé ou non), sans chemin ni secret ;

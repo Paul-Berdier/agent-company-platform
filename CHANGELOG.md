@@ -18,7 +18,9 @@ Sécurité, Vérifié localement, Limites connues) sera rédigée avant la PR fi
   `packages/ui`, contrats TypeScript et Python (hors quotas), `agent-sdk`,
   `playwright-reporter`, `e2e`, déploiement Railway multi-services et scripts liés,
   documentation datée des lots A à H ;
-- `apps/worker` devient `apps/poste` (commande `acp-poste`, locale et sans réseau),
+- `apps/worker` devient `apps/poste` (commande `acp-poste` : `diagnostic`, local, et
+  `quotas`, sur accord `ACP_WORKER_SUBSCRIPTION_QUOTAS=1`, qui lance Codex CLI, lequel
+  interroge le serveur d'OpenAI ; le poste n'ouvre lui-même aucune connexion),
   élagué des modules liés à l'API ; le contrat des quotas passe dans
   `hermes/plugins/acp-poste/contrat` ; la ligne d'état Claude Code devient
   `python -m acp_poste.claude_statusline` ;
