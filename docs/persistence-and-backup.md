@@ -269,6 +269,13 @@ révision** : si une descente de 0004 à 0002 échoue dans 0003, le passage pré
 de 0004 à 0003 peut déjà être validé. Lire `migrate current` et vérifier le schéma
 effectif avant toute reprise, sans présumer un retour global à l'état initial.
 
+La révision **0005** ajoute `subscription_quota_snapshots`, le dernier relevé des
+quotas réels d'abonnement transmis par chaque worker (voir
+[les quotas d'abonnement](subscription-quotas.md)). Une ligne par worker, fournisseur
+et compteur ; elle disparaît avec son worker (`ON DELETE CASCADE`). Ces lignes sont un
+cache recréé au passage suivant du worker : la descente de 0005 vers 0004 les supprime
+sans garde-fou de données.
+
 **Portée des contrôles :** `migrate check` compare les tables, colonnes, types,
 valeurs par défaut, index, prédicats d'index partiels et noms des contraintes CHECK.
 Il ne compare pas l'expression SQL des CHECK : un CHECK de même nom dont le corps a
