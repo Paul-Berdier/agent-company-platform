@@ -317,14 +317,17 @@ Code : `apps/desktop/src/viewmodels/SubscriptionQuotasViewModel.*`,
   à zéro et son compte à rebours (« dans 2 h 14 », « déjà passée »). Une part inconnue
   n'est jamais dessinée comme zéro : « Inconnu ».
 - **Actualisation** : bouton « Actualiser » et relecture automatique toutes les 60 s,
-  seulement pendant l'affichage de l'écran. Un serveur sans la route (404) donne « Non
-  disponible sur ce serveur » ; un serveur injoignable, « Hors ligne ».
+  seulement pendant l'affichage de l'écran, fenêtre non réduite ; quitter l'écran ou
+  réduire la fenêtre arrête la lecture, et revenir relit l'API au lieu de montrer des
+  valeurs d'avant. Un serveur sans la route (404) donne « Non disponible sur ce
+  serveur » ; un serveur injoignable, « Hors ligne ».
 
 Preuves : `apps/desktop/tests/cpp/tst_subscription_quotas.cpp` (fixture de référence,
 liste vide, 403, rôle non propriétaire, charges malformées, relevé périmé, valeurs nulles,
 limite atteinte, horodatages fractionnaires, hors ligne, 404, actualisation liée à
 l'écran, session changée), `tst_quotas_ui.cpp` (vraie page, noms accessibles, jauge
-dessinée, actualisation, 403, navigation par la barre latérale) et
+dessinée, fenêtre réduite puis restaurée, actualisation, 403, navigation par la barre
+latérale) et
 `tests/qml/tst_quota_gauge.qml`.
 
 ## 7. Limites connues

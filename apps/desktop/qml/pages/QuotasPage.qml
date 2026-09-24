@@ -16,9 +16,22 @@ import Acp.Controls
 Item {
     id: page
     readonly property bool hasRows: SubscriptionQuotas.reports.count > 0
+    // L'écran n'est actif que s'il est réellement visible : fenêtre affichée et non réduite.
+    // Réduire la fenêtre arrête la lecture périodique ; la restaurer relit l'API.
+    readonly property bool shown: Window.window !== null && Window.visibility !== Window.Minimized
+        && Window.visibility !== Window.Hidden
 
-    Component.onCompleted: SubscriptionQuotas.active = true
+    // Un état de fenêtre qui oscille (réduction, restauration) n'est appliqué qu'une fois
+    // stabilisé : pas de lecture pour une visibilité transitoire.
+    onShownChanged: visibilitySettle.restart()
+    Component.onCompleted: SubscriptionQuotas.active = page.shown
     Component.onDestruction: SubscriptionQuotas.active = false
+
+    Timer {
+        id: visibilitySettle
+        interval: 250
+        onTriggered: SubscriptionQuotas.active = page.shown
+    }
 
     ColumnLayout {
         anchors.fill: parent

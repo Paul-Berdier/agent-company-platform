@@ -178,7 +178,7 @@ private slots:
         m_window->show(); m_window->requestActivate();
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
         appearance->setThemePreference(QStringLiteral("dark"));
-        QVERIFY(vm->active());
+        QTRY_VERIFY(vm->active());
         QTRY_COMPARE(vm->state(), QStringLiteral("ready"));
         QCOMPARE(server.reads, 1);
 
@@ -222,10 +222,29 @@ private slots:
         QVERIFY(accessibleName(unknown).contains(QStringLiteral("reste Inconnu")));
         QVERIFY(capture(QStringLiteral("12-quotas-dark-wide")));
 
-        // Actualisation manuelle : un vrai appel de plus, rien d'autre.
-        QVERIFY(click(QStringLiteral("quotasRefreshButton")));
-        QTRY_COMPARE(server.reads, 2);
+        // Fenêtre réduite : l'écran n'est plus visible, la lecture périodique s'arrête ;
+        // il relit à la restauration plutôt que d'afficher des valeurs d'avant.
+        // La plateforme peut faire osciller l'état de la fenêtre pendant la réduction : ces
+        // allers-retours transitoires ne déclenchent aucune lecture.
+        m_window->showMinimized();
+        QTRY_VERIFY(!vm->active());
+        QTest::qWait(400);
+        QVERIFY(!vm->active());
+        const int readsWhileMinimized = server.reads;
+        QCOMPARE(readsWhileMinimized, 1);
+        m_window->showNormal();
+        QTRY_VERIFY(vm->active());
         QTRY_COMPARE(vm->state(), QStringLiteral("ready"));
+        QCOMPARE(server.reads, readsWhileMinimized + 1);
+        QTRY_VERIFY(item(QStringLiteral("quotaCard-0")));
+
+        // Actualisation manuelle : un vrai appel de plus, rien d'autre.
+        const int readsBeforeRefresh = server.reads;
+        QVERIFY(click(QStringLiteral("quotasRefreshButton")));
+        QTRY_COMPARE(server.reads, readsBeforeRefresh + 1);
+        QTRY_COMPARE(vm->state(), QStringLiteral("ready"));
+        QTest::qWait(150);
+        QCOMPARE(server.reads, readsBeforeRefresh + 1);
 
         appearance->setThemePreference(QStringLiteral("light"));
         // Taille posée explicitement : une vraie fenêtre applique resize() de façon différée.
