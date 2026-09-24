@@ -198,6 +198,21 @@ class Conteneur:
             time.sleep(2)
         raise AssertionError(f"tableau de bord injoignable après {delai} s :\n{self.journaux()[-4000:]}")
 
+    def attendre_passerelle(self, delai: float = 180) -> None:
+        """Attend que la passerelle ait branché son api_server : le tableau de bord répond
+        parfois avant (constaté sur un poste chargé)."""
+        limite = time.monotonic() + delai
+        dernier: object = None
+        while time.monotonic() < limite:
+            code, statut = self.json("/api/status")
+            dernier = statut
+            if code == 200 and isinstance(statut, dict):
+                serveur = (statut.get("gateway_platforms") or {}).get("api_server") or {}
+                if statut.get("gateway_running") and serveur.get("state") == "connected":
+                    return
+            time.sleep(2)
+        raise AssertionError(f"api_server de la passerelle non branché après {delai} s : {dernier}")
+
 
 def lancer(ressources: Ressources, image: str, env: Dict[str, str], *, volume: Optional[str] = None,
            reseau: Optional[str] = None) -> Conteneur:
@@ -210,6 +225,7 @@ def lancer(ressources: Ressources, image: str, env: Dict[str, str], *, volume: O
     docker(*options, *options_env(env), image)
     conteneur = Conteneur(nom)
     conteneur.attendre_pret()
+    conteneur.attendre_passerelle()
     return conteneur
 
 
