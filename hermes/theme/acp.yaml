@@ -1,0 +1,16 @@
+# Thème « acp » du tableau de bord de Hermes.
+#
+# Version provisoire écrite à la main en P1 pour éprouver le dépôt du thème par
+# 05-acp (répertoire /opt/data/dashboard-themes rendu propriété de root). Les
+# couleurs reprennent design/tokens/colors.json, thème sombre : surface.canvas,
+# text.primary et accent.primary. P3 remplace ce fichier par la sortie de
+# scripts/generer_themes.py, générée depuis la même source que le QML.
+#
+# Format : _normalise_theme_definition (hermes_cli/web_server_dashboard.py:317-411).
+name: acp
+label: ACP
+description: Thème ACP provisoire (graphite, ivoire et sarcelle).
+palette:
+  background: "#191c1a"
+  midground: "#eef2e9"
+  warmGlow: "rgba(101, 198, 174, 0.25)"

@@ -1,0 +1,25 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# ACP — données du volume /opt/data.
+#
+# Après 01-hermes-setup, 015-supervise-perms et 02-reconcile-profiles (ordre
+# lexicographique de /etc/cont-init.d), en root, idempotent. Refait les contrôles du
+# crochet acp-gardes (défense en profondeur, si S6_STAGE2_HOOK avait été retiré) et
+# vérifie la managed scope installée ; rend /opt/data/plugins, /opt/data/dashboard-themes
+# et /opt/data/acp propriété de root (0755) après avoir refusé tout nom réservé acp-* ou
+# lien symbolique ; dépose le thème acp et SOUL.md selon son empreinte ; écrit l'état du
+# démarrage dans /run/acp/etat-demarrage.json.
+#
+# Un refus (code 1, message en français) arrête le conteneur à la fin de l'étape
+# cont-init (S6_BEHAVIOUR_IF_STAGE2_FAILS=2), avant le tableau de bord ; même arrêt
+# explicite que acp-gardes si cette variable a été changée.
+/opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py donnees
+code=$?
+if [ "$code" -ne 0 ]; then
+    if [ "${S6_BEHAVIOUR_IF_STAGE2_FAILS:-0}" != "2" ]; then
+        echo "[acp] S6_BEHAVIOUR_IF_STAGE2_FAILS ne vaut pas 2 : arrêt explicite du conteneur." >&2
+        echo 1 > /run/s6-linux-init-container-results/exitcode 2>/dev/null || true
+        /run/s6/basedir/bin/halt
+    fi
+    exit 1
+fi
