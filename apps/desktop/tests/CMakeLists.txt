@@ -55,6 +55,13 @@ target_link_libraries(tst_desktop_interactions PRIVATE Qt6::QuickControls2
 target_link_libraries(tst_desktop_pages PRIVATE Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+acp_add_cpp_test(tst_quotas_ui)
+target_link_libraries(tst_quotas_ui PRIVATE Qt6::QuickControls2
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+target_compile_definitions(tst_quotas_ui PRIVATE
+    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
 qt_add_executable(desktop_preview cpp/desktop_preview.cpp)
 target_link_libraries(desktop_preview PRIVATE acp_core Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin

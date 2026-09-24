@@ -22,6 +22,7 @@
 #include "services/ArtifactDownload.h"
 #include "viewmodels/PlatformViewModel.h"
 #include "viewmodels/OperationsViewModel.h"
+#include "viewmodels/SubscriptionQuotasViewModel.h"
 #include "services/SessionPersistence.h"
 #include "services/UpdateService.h"
 
@@ -88,6 +89,9 @@ Application::Application(QObject *parent)
     m_artifacts = new ArtifactsViewModel(m_client, m_auth, this);
     m_platform = new PlatformViewModel(m_client, m_auth, this);
     m_operations = new OperationsViewModel(m_client, m_auth, this);
+    // Hors contexte de projet : les quotas d'abonnement appartiennent au propriétaire de
+    // la plateforme, pas à un projet ; aucun changement de projet ne les recharge.
+    m_quotas = new SubscriptionQuotasViewModel(m_client, m_auth, this);
     m_sessionStorage = new SessionPersistence(m_client, m_auth, m_vault.get(), m_settings, this);
     m_updates = new UpdateService(version(), this);
     connect(m_workspace, &WorkspaceViewModel::projectChanged, this, [this, previousId = QString()]() mutable {
@@ -172,6 +176,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Artifacts", m_artifacts);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Platform", m_platform);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Operations", m_operations);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "SubscriptionQuotas", m_quotas);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "SessionStorage", m_sessionStorage);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Updates", m_updates);
 }
@@ -286,6 +291,7 @@ void Application::registerBuiltinCommands()
         {QStringLiteral("platform"), QStringLiteral("Agents et workers")},
         {QStringLiteral("extensions"), QStringLiteral("Extensions MCP et skills")},
         {QStringLiteral("approvals"), QStringLiteral("Opérations")},
+        {QStringLiteral("quotas"), QStringLiteral("Quotas d'abonnement")},
     };
     for (const auto &route : workspaceRoutes) {
         m_commands->registerCommand(Command{

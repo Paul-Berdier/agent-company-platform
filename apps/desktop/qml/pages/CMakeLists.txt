@@ -17,4 +17,5 @@ acp_add_qml_module(
         OperationsPage.qml
         SettingsPage.qml
         StudioPage.qml
+        QuotasPage.qml
 )

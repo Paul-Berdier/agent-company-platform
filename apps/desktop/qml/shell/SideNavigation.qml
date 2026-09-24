@@ -239,6 +239,14 @@ Rectangle {
         }
         NavEntry {
             Layout.fillWidth: true
+            objectName: "navigation-quotas"
+            label: qsTr("Quotas"); iconName: "gauge"
+            selected: Navigation.currentRoute === "quotas"
+            explanation: qsTr("Quotas d'abonnement du propriétaire : reste réel, jamais estimé")
+            onActivated: Navigation.setCurrentRoute("quotas")
+        }
+        NavEntry {
+            Layout.fillWidth: true
             objectName: "navigation-diagnostics"
             label: qsTr("Diagnostics"); iconName: "activity"
             selected: Navigation.currentRoute === "diagnostics"

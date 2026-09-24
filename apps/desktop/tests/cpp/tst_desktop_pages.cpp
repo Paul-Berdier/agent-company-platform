@@ -23,7 +23,7 @@ private slots:
         const QStringList pages = {QStringLiteral("ProjectsPage"), QStringLiteral("ConversationsPage"),
             QStringLiteral("MissionsPage"), QStringLiteral("ArtifactsPage"), QStringLiteral("HomePage"),
             QStringLiteral("PlatformPage"), QStringLiteral("ExtensionsPage"), QStringLiteral("OperationsPage"),
-            QStringLiteral("SettingsPage"), QStringLiteral("StudioPage")};
+            QStringLiteral("SettingsPage"), QStringLiteral("StudioPage"), QStringLiteral("QuotasPage")};
         for (const auto &name : pages) {
             warnings.clear();
             QQmlComponent component(&engine);

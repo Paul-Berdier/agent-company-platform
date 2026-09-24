@@ -33,6 +33,7 @@ class MissionsViewModel;
 class ArtifactsViewModel;
 class PlatformViewModel;
 class OperationsViewModel;
+class SubscriptionQuotasViewModel;
 class SessionPersistence;
 class UpdateService;
 
@@ -89,6 +90,7 @@ private:
     ArtifactsViewModel *m_artifacts = nullptr;
     PlatformViewModel *m_platform = nullptr;
     OperationsViewModel *m_operations = nullptr;
+    SubscriptionQuotasViewModel *m_quotas = nullptr;
     SessionPersistence *m_sessionStorage = nullptr;
     UpdateService *m_updates = nullptr;
     std::unique_ptr<CredentialVault> m_vault;

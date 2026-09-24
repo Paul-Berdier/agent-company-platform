@@ -66,6 +66,9 @@ Canvas {
         case "grid":
             c.strokeRect(3,3,7,7); c.strokeRect(14,3,7,7);
             c.strokeRect(3,14,7,7); c.strokeRect(14,14,7,7); break;
+        case "gauge":
+            c.beginPath(); c.arc(12, 15, 8, Math.PI, Math.PI * 2); c.stroke();
+            path([[12,15],[16,9]], false); circle(12,15,1.4,true); break;
         case "settings":
             path([[4,6],[20,6]], false); path([[4,12],[20,12]], false); path([[4,18],[20,18]], false);
             circle(9,6,2,false); circle(16,12,2,false); circle(8,18,2,false); break;

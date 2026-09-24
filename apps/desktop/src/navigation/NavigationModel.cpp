@@ -46,6 +46,8 @@ NavigationModel::NavigationModel(QObject *parent)
          QStringLiteral("message"), Readiness::Ready, QString()},
         {QStringLiteral("extensions"), QStringLiteral("Extensions"), QStringLiteral("plug"),
          Readiness::Ready, QString()},
+        {QStringLiteral("quotas"), QStringLiteral("Quotas"), QStringLiteral("gauge"),
+         Readiness::Ready, QString()},
         {QStringLiteral("office"), QStringLiteral("Bureau de département"),
          QStringLiteral("building"), Readiness::OutOfScope,
          QStringLiteral("Hors périmètre : les ressources graphiques du bureau ne sont pas "

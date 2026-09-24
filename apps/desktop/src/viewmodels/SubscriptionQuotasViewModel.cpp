@@ -590,7 +590,7 @@ QJsonArray buildRows(const QuotaListing &listing, const QDateTime &now, const QT
         QString superseded;
         if (!current) {
             const QuotaReport *head = currentOf.value(group(report));
-            superseded = QStringLiteral("Relevé antérieur : le relevé le plus récent de ce poste pour ce fournisseur (%1) indique « %2 ».")
+            superseded = QStringLiteral("Relevé antérieur : le relevé le plus récent de ce worker pour ce fournisseur (%1) indique « %2 ».")
                              .arg(freshness(head->observedAt, now), statusLabel(head->status));
         }
         row.insert(QStringLiteral("supersededNote"), superseded);
@@ -602,7 +602,7 @@ QJsonArray buildRows(const QuotaListing &listing, const QDateTime &now, const QT
             windows.append(item);
         }
         row.insert(QStringLiteral("windows"), windows);
-        QString name = QStringLiteral("%1, poste %2, compteur %3 : %4.")
+        QString name = QStringLiteral("%1, worker « %2 », compteur %3 : %4.")
                            .arg(providerLabel(report.provider), report.workerName, report.limitId,
                                 statusLabel(report.status));
         if (!summaries.isEmpty()) { name += QLatin1Char(' ') + summaries.join(QStringLiteral(" ; ")) + QLatin1Char('.'); }
