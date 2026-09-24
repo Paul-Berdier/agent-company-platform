@@ -1,8 +1,7 @@
 # Quotas réels d'abonnement (Codex CLI, Claude Code)
 
-Date d'état : 24 septembre 2026 — phase 1 : contrats, stockage, API et worker.
-L'affichage dans le client desktop consomme la route décrite ici ; il n'est pas
-l'objet de ce document.
+Date d'état : 24 septembre 2026 — phase 1 : contrats, stockage, API, worker et
+écran « Quotas » du client desktop, qui consomme la route décrite ici (§ 6).
 
 ## 1. Ce que la plateforme montre, et ce qu'elle refuse de montrer
 
@@ -23,8 +22,8 @@ Chaque relevé porte un état :
 |---|---|---|
 | `ok` | la source a répondu ; les fenêtres portent les valeurs reçues | valeurs, ou « Inconnu » par valeur absente |
 | `not_signed_in` | profil Codex dédié absent, non connecté, ou connecté hors compte ChatGPT | « Non connecté » |
-| `cli_missing` | Codex CLI introuvable ou impossible à lancer sur le poste du worker | « CLI absent » |
-| `cli_too_old` | Codex CLI antérieur à 0.100.0 | « CLI trop ancien » |
+| `cli_missing` | Codex CLI introuvable ou impossible à lancer sur le poste du worker | « CLI absente » |
+| `cli_too_old` | Codex CLI antérieur à 0.100.0 | « CLI trop ancienne » |
 | `unavailable` | réponse mal formée, délai dépassé, erreur du serveur, fichier absent ou illisible | « Indisponible » |
 
 Un état autre que `ok` ne porte **aucune mesure** (ni fenêtre, ni crédit, ni limite
@@ -287,7 +286,48 @@ HTTP seulement, jamais par son message, et la boucle reprend à l'intervalle sui
 `agent-company-worker doctor` affiche `subscription_quotas` (`enabled`/`disabled`) et
 l'intervalle, jamais les chemins.
 
-## 6. Limites connues
+## 6. Affichage dans le client desktop
+
+L'écran **« Quotas »** du client natif (entrée « Quotas » de la barre latérale, commande
+`navigation.quotas`) lit `GET /subscription-quotas` par le client d'API partagé, avec le
+cookie de session ; il ne lit jamais le poste du worker, un fichier local ni la base.
+Code : `apps/desktop/src/viewmodels/SubscriptionQuotasViewModel.*`,
+`apps/desktop/qml/pages/QuotasPage.qml`, `apps/desktop/qml/components/QuotaGauge.qml`.
+
+- **Réservé au propriétaire** : une session d'un autre rôle n'envoie aucune requête et
+  affiche « Réservé au propriétaire de la plateforme » ; un 403 du serveur produit le
+  même état, sans relecture automatique. Une mention visible rappelle en tête d'écran
+  « Abonnements personnels du propriétaire — usage personnel uniquement ».
+- **Échec fermé** : la réponse est validée champ par champ (champs attendus exactement,
+  types, énumérations, bornes, horodatages avec fuseau, cohérence `source`/`provider`,
+  `remaining_percent` = 100 − `used_percent` à l'arrondi de l'API près, absence de mesure
+  hors `ok`, doublons). Au moindre écart, toute la réponse est refusée avec sa raison en
+  français et les valeurs précédentes disparaissent.
+- **Une carte par relevé** : fournisseur (« Codex (compte ChatGPT) », « Claude Code »),
+  worker, offre, état de la sonde (Connecté, Non connecté, CLI absente, CLI trop
+  ancienne, Indisponible), source (« relevé officiel app-server », « ligne d'état Claude
+  Code »), compteur, fraîcheur (« relevé il y a 3 min »), badge « Périmé », crédits et
+  alerte « Limite atteinte ». Pour un même worker et un même fournisseur, le relevé le plus
+  récent donne l'état courant ; un compteur plus ancien porte la mention « Relevé
+  antérieur ».
+- **Une jauge par fenêtre**, dessinée en Qt Quick (Qt Charts est exclu pour licence) :
+  « Fenêtre 5 h » (300 min), « Semaine » (10 080 min), sinon « Fenêtre de N min », ou la
+  clé de la source quand la durée est inconnue. La barre montre la part restante ; les
+  parts restante et utilisée sont écrites en toutes lettres, avec l'heure locale de remise
+  à zéro et son compte à rebours (« dans 2 h 14 », « déjà passée »). Une part inconnue
+  n'est jamais dessinée comme zéro : « Inconnu ».
+- **Actualisation** : bouton « Actualiser » et relecture automatique toutes les 60 s,
+  seulement pendant l'affichage de l'écran. Un serveur sans la route (404) donne « Non
+  disponible sur ce serveur » ; un serveur injoignable, « Hors ligne ».
+
+Preuves : `apps/desktop/tests/cpp/tst_subscription_quotas.cpp` (fixture de référence,
+liste vide, 403, rôle non propriétaire, charges malformées, relevé périmé, valeurs nulles,
+limite atteinte, horodatages fractionnaires, hors ligne, 404, actualisation liée à
+l'écran, session changée), `tst_quotas_ui.cpp` (vraie page, noms accessibles, jauge
+dessinée, actualisation, 403, navigation par la barre latérale) et
+`tests/qml/tst_quota_gauge.qml`.
+
+## 7. Limites connues
 
 - **Non mesurés** : l'usage et les limites de **Figma**, et les **crédits d'API**
   (clés OpenAI ou Anthropic facturées à l'usage) : aucune source n'est relevée ici.

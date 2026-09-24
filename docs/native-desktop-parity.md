@@ -13,6 +13,11 @@ HTTP contrôlé ; un serveur MCP tiers réel reste à valider. La
 [direction artistique](design-reference-study.md) organise désormais l'accueil
 autour des conversations libres et des projets.
 
+Complément du 24 septembre 2026 : l'écran « Quotas » affiche les quotas réels
+d'abonnement (Codex par compte ChatGPT, Claude Code) relevés par les workers, au seul
+propriétaire de la plateforme. Détail et contrat dans
+[les quotas d'abonnement](subscription-quotas.md).
+
 | Domaine | Implémenté en natif | Limite ou dépendance |
 |---|---|---|
 | Cadre de travail | Accueil chat/projet, barre latérale contextuelle, palette, raccourcis, précédent/suivant, inspecteur de sélection, volets adaptatifs | Historique de 32 écrans en mémoire ; pas d'onglets indépendants ni de terminal intégré |
@@ -30,6 +35,7 @@ autour des conversations libres et des projets.
 | Administration d'extensions | Activation/désactivation globale avec confirmation | Propriétaire uniquement ; prérequis vérifiés par l'API |
 | Approbations et alertes | Consultation, décision commentée et acquittement | Droits requis ; aucun canal externe ajouté |
 | Budgets | Politique/consommation et limites du formulaire | Surface ciblée, sans éditeur libre de politique JSON |
+| Quotas d'abonnement | Écran « Quotas » : reste réel par fenêtre (5 h, semaine) relevé par l'app-server Codex et la ligne d'état Claude Code, jauges, heure locale de remise à zéro et compte à rebours, fraîcheur, « Périmé », crédits, « Limite atteinte », mention d'usage personnel ; actualisation manuelle et toutes les 60 s pendant l'affichage | Propriétaire uniquement : autre rôle sans requête, 403 affiché « Réservé au propriétaire de la plateforme » ; lecture seule, aucune estimation (« Inconnu ») ; réponse hors contrat refusée en entier ; relevés d'un worker opt-in, sans temps réel ; chemin « compte connecté » non éprouvé avec un vrai compte |
 | Automatisations | Liste/détail, création, activation/désactivation et historique | Les opérations avancées du web/CLI ne sont pas toutes reprises |
 | Réglages/session | Préférences et mémorisation facultative dans le coffre Windows | Coffre réel éprouvé hors sandbox ; installation sur Windows propre encore à vérifier ; aucun repli en clair |
 | Mises à jour | Vérification GitHub, stable/préversions, comparaison, notes brutes, ouverture officielle | Pas de téléchargeur/installateur intégré ; signature absente |
@@ -56,6 +62,11 @@ ont également éprouvé le coffre Windows hors sandbox. Les CI du commit
 fonctionnel `47de619` donnent 3 031 tests SQLite réussis (64 ignorés) et
 3 041 PostgreSQL réussis (54 ignorés). Les nombres détaillés et les limites
 figurent dans le [bilan daté](functional-completion-2026-09-23.md).
+
+L'écran « Quotas » ajoute deux suites Qt (`tst_subscription_quotas`,
+`tst_quotas_ui`) et un test Qt Quick (`tst_quota_gauge.qml`) ; le relevé local du
+24 septembre 2026 en Debug donne **25 suites sur 25**. La page a été rendue contre un
+serveur local qui sert la fixture de référence, jamais contre un compte réel.
 
 La refonte conversations/projets ajoute une suite de véritables interactions
 QML : création sans titre, saisie, copie de code, brouillons, recherche et
