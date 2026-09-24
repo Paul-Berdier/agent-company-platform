@@ -27,8 +27,10 @@ d'environnement, adresse électronique, identifiant de compte ni message d'erreu
 serveur n'est journalisé ou transmis.
 
 Refonte « Hermes au centre » : la boucle qui transmettait les relevés à l'API ACP a
-été retirée avec cette API. ``acp-poste quotas`` relève et affiche les quotas sur le
-poste ; leur envoi à Hermes (route machine du greffon ``acp-poste``) arrive en P6.
+été retirée avec cette API, et avec elle son intervalle d'envoi. ``acp-poste quotas``
+relève et affiche les quotas sur le poste, seulement si ``ACP_WORKER_SUBSCRIPTION_QUOTAS``
+vaut ``1`` : sans cet accord, rien n'est lancé ni lu. Leur envoi à Hermes (route
+machine du greffon ``acp-poste``) arrive en P6.
 """
 
 from __future__ import annotations
@@ -65,14 +67,10 @@ from .local_runner import FencedProcess, FencedSpawnError, spawn_fenced_process,
 
 
 ENABLED_ENV = "ACP_WORKER_SUBSCRIPTION_QUOTAS"
-INTERVAL_ENV = "ACP_WORKER_QUOTA_INTERVAL_SECONDS"
 QUOTA_CODEX_HOME_ENV = "ACP_WORKER_QUOTA_CODEX_HOME"
 QUOTA_CODEX_EXECUTABLE_ENV = "ACP_WORKER_QUOTA_CODEX_EXECUTABLE"
 EXECUTOR_CODEX_HOME_ENV = "ACP_WORKER_CODEX_HOME"
 
-DEFAULT_INTERVAL_SECONDS = 300
-MIN_INTERVAL_SECONDS = 60
-MAX_INTERVAL_SECONDS = 86_400
 DEFAULT_PROBE_TIMEOUT_SECONDS = 20.0
 MIN_PROBE_TIMEOUT_SECONDS = 1.0
 MAX_PROBE_TIMEOUT_SECONDS = 120.0
@@ -202,30 +200,17 @@ def _enabled_setting(value: str | None) -> bool:
     raise SubscriptionQuotaConfigurationError(f"{ENABLED_ENV} accepte uniquement 0 ou 1")
 
 
-def _interval_setting(value: str | None) -> int:
-    if value is None:
-        return DEFAULT_INTERVAL_SECONDS
-    text = value.strip()
-    if not re.fullmatch(r"[0-9]{1,9}", text) or not (
-        MIN_INTERVAL_SECONDS <= int(text) <= MAX_INTERVAL_SECONDS
-    ):
-        raise SubscriptionQuotaConfigurationError(
-            f"{INTERVAL_ENV} doit être un entier de {MIN_INTERVAL_SECONDS} à "
-            f"{MAX_INTERVAL_SECONDS} secondes"
-        )
-    return int(text)
-
-
 @dataclass(frozen=True)
 class SubscriptionQuotaConfig:
     """Réglages locaux du relevé des quotas, fermés par défaut.
 
+    ``enabled`` est l'accord du propriétaire : sans lui, ``collect_reports`` refuse
+    et ni Codex CLI ni le fichier de la ligne d'état ne sont touchés.
     ``codex_command`` est l'argv du CLI sans sous-commande ; ``None`` signifie
     « chercher ``codex`` dans le PATH du poste au moment de la sonde ».
     """
 
     enabled: bool = False
-    interval_seconds: int = DEFAULT_INTERVAL_SECONDS
     codex_command: tuple[str, ...] | None = None
     codex_home: Path = field(default_factory=default_codex_home)
     claude_snapshot_path: Path = field(default_factory=default_claude_snapshot_path)
@@ -234,13 +219,6 @@ class SubscriptionQuotaConfig:
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
             raise SubscriptionQuotaConfigurationError(f"{ENABLED_ENV} accepte uniquement 0 ou 1")
-        if type(self.interval_seconds) is not int or not (
-            MIN_INTERVAL_SECONDS <= self.interval_seconds <= MAX_INTERVAL_SECONDS
-        ):
-            raise SubscriptionQuotaConfigurationError(
-                f"{INTERVAL_ENV} doit être un entier de {MIN_INTERVAL_SECONDS} à "
-                f"{MAX_INTERVAL_SECONDS} secondes"
-            )
         if self.codex_command is not None:
             if (
                 not isinstance(self.codex_command, tuple)
@@ -281,7 +259,6 @@ class SubscriptionQuotaConfig:
 
         source = os.environ if environ is None else environ
         enabled = _enabled_setting(source.get(ENABLED_ENV))
-        interval = _interval_setting(source.get(INTERVAL_ENV))
         quota_home = source.get(QUOTA_CODEX_HOME_ENV)
         quota_executable = source.get(QUOTA_CODEX_EXECUTABLE_ENV)
         executor_codex = executors.codex if executors is not None else None
@@ -320,7 +297,6 @@ class SubscriptionQuotaConfig:
         )
         return cls(
             enabled=enabled,
-            interval_seconds=interval,
             codex_command=command,
             codex_home=home,
             claude_snapshot_path=snapshot,
@@ -332,10 +308,7 @@ class SubscriptionQuotaConfig:
     def doctor_report(self) -> dict[str, object]:
         """État pour ``doctor`` : jamais de chemin (profil, fichier) ni de secret."""
 
-        report: dict[str, object] = {"subscription_quotas": self.status()}
-        if self.enabled:
-            report["subscription_quota_interval_seconds"] = self.interval_seconds
-        return report
+        return {"subscription_quotas": self.status()}
 
 
 # --------------------------------------------------------------------------
@@ -965,8 +938,20 @@ async def probe_claude_code(config: SubscriptionQuotaConfig) -> SubscriptionQuot
 # --------------------------------------------------------------------------
 
 
-async def collect_reports(config: SubscriptionQuotaConfig) -> list[dict[str, Any]]:
-    """Relevés Codex puis Claude Code, prêts pour ``SubscriptionQuotaBatch``."""
+QUOTAS_DISABLED = (
+    f"le relevé est désactivé sur ce poste ; {ENABLED_ENV}=1 autorise le lancement de "
+    "Codex CLI, qui interroge le serveur d'OpenAI, et la lecture du fichier de la ligne "
+    "d'état Claude Code"
+)
 
+
+async def collect_reports(config: SubscriptionQuotaConfig) -> list[dict[str, Any]]:
+    """Relevés Codex puis Claude Code, prêts pour ``SubscriptionQuotaBatch``.
+
+    Refuse, sans rien lancer ni lire, tant que le relevé n'est pas autorisé.
+    """
+
+    if not config.enabled:
+        raise SubscriptionQuotaConfigurationError(QUOTAS_DISABLED)
     codex, claude = await asyncio.gather(probe_codex(config), probe_claude_code(config))
     return [report.model_dump(mode="json") for report in (*codex, claude)]

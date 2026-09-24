@@ -15,7 +15,7 @@ import sys
 
 from .config import PosteConfig, PosteConfigurationError
 from .local_runner import RunnerConfigurationError
-from .subscription_quotas import collect_reports
+from .subscription_quotas import SubscriptionQuotaConfigurationError, collect_reports
 
 EPILOGUE = (
     "La délégation de travaux par Hermes (réclamation, battements, résultats) "
@@ -47,7 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "diagnostic":
         print(json.dumps(config.diagnostic(), ensure_ascii=False, indent=2))
         return 0
-    reports = asyncio.run(collect_reports(config.subscription_quotas))
+    try:
+        reports = asyncio.run(collect_reports(config.subscription_quotas))
+    except SubscriptionQuotaConfigurationError as exc:
+        print(f"Relevé des quotas refusé : {exc}.", file=sys.stderr)
+        return 2
     print(json.dumps(reports, ensure_ascii=False, indent=2))
     return 0
 

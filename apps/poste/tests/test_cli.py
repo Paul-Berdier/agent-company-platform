@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from acp_poste import subscription_quotas
 from acp_poste.cli import main as cli_main
 
 
@@ -33,6 +34,7 @@ def test_the_quota_command_reports_missing_sources_without_inventing_values(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ):
+    monkeypatch.setenv("ACP_WORKER_SUBSCRIPTION_QUOTAS", "1")
     monkeypatch.setenv("ACP_WORKER_QUOTA_CODEX_EXECUTABLE", str(tmp_path / "absent" / "codex.exe"))
     monkeypatch.setenv("ACP_WORKER_QUOTA_CODEX_HOME", str(tmp_path / "codex-home"))
     monkeypatch.setenv("ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT", str(tmp_path / "absent.json"))
@@ -45,6 +47,31 @@ def test_the_quota_command_reports_missing_sources_without_inventing_values(
         ("claude_code", "unavailable"),
     ]
     assert all(report["windows"] == [] for report in reports)
+
+
+@pytest.mark.parametrize("agreement", [None, "0"])
+def test_the_quota_command_is_refused_in_french_without_the_owner_agreement(
+    poste_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    agreement: str | None,
+):
+    # Fermé par défaut : sans ACP_WORKER_SUBSCRIPTION_QUOTAS=1, ni Codex CLI (qui
+    # interroge le serveur d'OpenAI) ni le fichier de la ligne d'état ne sont touchés.
+    if agreement is not None:
+        monkeypatch.setenv("ACP_WORKER_SUBSCRIPTION_QUOTAS", agreement)
+
+    async def no_probe(_config):
+        pytest.fail("aucune sonde sans l'accord du propriétaire")
+
+    monkeypatch.setattr(subscription_quotas, "probe_codex", no_probe)
+    monkeypatch.setattr(subscription_quotas, "probe_claude_code", no_probe)
+
+    assert cli_main(["quotas"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Relevé des quotas refusé" in captured.err
+    assert "ACP_WORKER_SUBSCRIPTION_QUOTAS=1" in captured.err
 
 
 def test_an_invalid_configuration_is_refused_in_french(

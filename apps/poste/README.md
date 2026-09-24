@@ -55,10 +55,11 @@ propre code, jamais celui d'un autre checkout.
 Aucune de ces commandes n'ouvre de connexion réseau.
 
 - `acp-poste diagnostic` : configuration reconnue (exécuteurs activés, nombre de racines
-  projet, runner local, état du relevé des quotas), sans chemin ni secret ;
+  projet, runner local, relevé des quotas autorisé ou non), sans chemin ni secret ;
 - `acp-poste quotas` : relève maintenant Codex et Claude Code et affiche les relevés
-  JSON. Une source absente devient un état explicite (`cli_missing`, `not_signed_in`,
-  `unavailable`…), jamais une valeur inventée.
+  JSON, **seulement si** `ACP_WORKER_SUBSCRIPTION_QUOTAS=1` ; sinon, refus en français,
+  code 2, sans rien lancer ni lire. Une source absente devient un état explicite
+  (`cli_missing`, `not_signed_in`, `unavailable`…), jamais une valeur inventée.
 
 Pas de commande `journal` : aucun composant du poste n'écrit encore de journal. Elle
 reviendra en P5 avec un écrivain réel, et refusera explicitement un journal absent.
@@ -80,7 +81,7 @@ P5.
 | `ACP_WORKER_EXECUTOR_PROJECTS_JSON` | racines projet autorisées (`{"alias": "C:/chemin"}`) |
 | `ACP_WORKER_EXECUTOR_PATH`, `ACP_WORKER_EXECUTOR_TIMEOUT_SECONDS`, `ACP_WORKER_EXECUTOR_TERMINATE_GRACE_SECONDS` | `PATH` des exécuteurs, délai, grâce avant arrêt forcé |
 | `ACP_WORKER_RUNNER_ARGV_JSON`, `ACP_WORKER_RUN_ROOT` et `ACP_WORKER_RUN_*` | runner local à argv fixe (absent tant que ces deux variables manquent) |
-| `ACP_WORKER_SUBSCRIPTION_QUOTAS`, `ACP_WORKER_QUOTA_INTERVAL_SECONDS` | relevé des quotas (`0`/`1`) et intervalle prévu pour l'envoi (P6) |
+| `ACP_WORKER_SUBSCRIPTION_QUOTAS` | accord du relevé des quotas (`0` par défaut, `1` pour l'autoriser) : sans lui, `acp-poste quotas` refuse (code 2) sans rien lancer ni lire |
 | `ACP_WORKER_QUOTA_CODEX_HOME`, `ACP_WORKER_QUOTA_CODEX_EXECUTABLE` | profil et exécutable Codex des quotas, si l'exécuteur Codex n'est pas activé (refusés sinon) |
 | `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT` | fichier de la ligne d'état ; défaut `%USERPROFILE%\.acp\quotas\claude-code.json` |
 

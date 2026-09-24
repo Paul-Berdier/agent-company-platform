@@ -259,7 +259,6 @@ def test_quotas_are_disabled_by_default_and_use_the_dedicated_locations(tmp_path
     config = SubscriptionQuotaConfig.from_environ({})
     assert config.enabled is False
     assert config.status() == "disabled"
-    assert config.interval_seconds == 300
     assert config.codex_command is None
     assert config.codex_home == Path.home() / ".acp" / "codex-home"
     assert config.claude_snapshot_path == Path.home() / ".acp" / "quotas" / "claude-code.json"
@@ -270,7 +269,6 @@ def test_quota_settings_are_read_from_the_environment(tmp_path: Path):
     config = SubscriptionQuotaConfig.from_environ(
         {
             "ACP_WORKER_SUBSCRIPTION_QUOTAS": "1",
-            "ACP_WORKER_QUOTA_INTERVAL_SECONDS": "60",
             "ACP_WORKER_QUOTA_CODEX_EXECUTABLE": str(executable),
             "ACP_WORKER_QUOTA_CODEX_HOME": str(tmp_path / "profil"),
             "ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT": str(tmp_path / "claude.json"),
@@ -278,7 +276,6 @@ def test_quota_settings_are_read_from_the_environment(tmp_path: Path):
     )
     assert config.enabled is True
     assert config.status() == "enabled"
-    assert config.interval_seconds == 60
     assert config.codex_command == (str(executable),)
     assert config.codex_home == tmp_path / "profil"
     assert config.claude_snapshot_path == tmp_path / "claude.json"
@@ -288,9 +285,7 @@ def test_quota_settings_are_read_from_the_environment(tmp_path: Path):
     "setting,value",
     [
         ("ACP_WORKER_SUBSCRIPTION_QUOTAS", "oui"),
-        ("ACP_WORKER_QUOTA_INTERVAL_SECONDS", "59"),
-        ("ACP_WORKER_QUOTA_INTERVAL_SECONDS", "86401"),
-        ("ACP_WORKER_QUOTA_INTERVAL_SECONDS", "5 minutes"),
+        ("ACP_WORKER_SUBSCRIPTION_QUOTAS", "true"),
         ("ACP_WORKER_QUOTA_CODEX_HOME", "profil-relatif"),
         ("ACP_WORKER_QUOTA_CODEX_EXECUTABLE", "codex"),
         ("ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT", "claude.json"),
@@ -340,13 +335,10 @@ def test_poste_config_carries_the_quota_settings(monkeypatch: pytest.MonkeyPatch
     _clean_poste_environment(monkeypatch, tmp_path)
     assert PosteConfig.from_env().subscription_quotas.enabled is False
     monkeypatch.setenv("ACP_WORKER_SUBSCRIPTION_QUOTAS", "1")
-    monkeypatch.setenv("ACP_WORKER_QUOTA_INTERVAL_SECONDS", "120")
-    config = PosteConfig.from_env()
-    assert config.subscription_quotas.enabled is True
-    assert config.subscription_quotas.interval_seconds == 120
+    assert PosteConfig.from_env().subscription_quotas.enabled is True
 
-    monkeypatch.setenv("ACP_WORKER_QUOTA_INTERVAL_SECONDS", "10")
-    with pytest.raises(PosteConfigurationError, match="ACP_WORKER_QUOTA_INTERVAL_SECONDS"):
+    monkeypatch.setenv("ACP_WORKER_SUBSCRIPTION_QUOTAS", "2")
+    with pytest.raises(PosteConfigurationError, match="ACP_WORKER_SUBSCRIPTION_QUOTAS"):
         PosteConfig.from_env()
 
 
@@ -360,8 +352,9 @@ def test_the_diagnostic_reports_the_quota_state_without_paths(
     assert cli_main(["diagnostic"]) == 0
     output = capsys.readouterr().out
     report = json.loads(output)
+    # Seul l'accord du relevé est annoncé : aucun réglage qui ne gouverne rien.
     assert report["subscription_quotas"] == "enabled"
-    assert report["subscription_quota_interval_seconds"] == 300
+    assert "subscription_quota_interval_seconds" not in report
     assert "secret-path" not in output
 
     monkeypatch.setenv("ACP_WORKER_SUBSCRIPTION_QUOTAS", "0")
@@ -751,6 +744,24 @@ async def test_an_oversized_or_directory_snapshot_is_unavailable(tmp_path: Path)
 # --------------------------------------------------------------------------
 # Lot de relevés
 # --------------------------------------------------------------------------
+
+
+async def test_nothing_is_collected_without_the_owner_agreement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    witness = tmp_path / "requests.jsonl"
+    snapshot = tmp_path / "claude-code.json"
+    _write_snapshot(snapshot)
+    config = quota_config(tmp_path, "record", extra=str(witness), snapshot=snapshot, enabled=False)
+
+    async def no_probe(_config: SubscriptionQuotaConfig):
+        pytest.fail("aucune sonde sans l'accord du propriétaire")
+
+    monkeypatch.setattr(quotas, "probe_codex", no_probe)
+    monkeypatch.setattr(quotas, "probe_claude_code", no_probe)
+    with pytest.raises(SubscriptionQuotaConfigurationError, match="ACP_WORKER_SUBSCRIPTION_QUOTAS=1"):
+        await collect_reports(config)
+    assert not witness.exists()
 
 
 async def test_collected_reports_form_a_valid_batch(tmp_path: Path):
