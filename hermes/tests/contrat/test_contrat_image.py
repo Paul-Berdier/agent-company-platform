@@ -119,6 +119,8 @@ CAS_DE_REFUS = {
     "manifeste_tableau_de_bord": ({}, {"plugins/ui/dashboard/manifest.json": '{"name": "acp-interface"}'}, {},
                                   "déclare le nom réservé « acp-interface »"),
     "lien_symbolique": ({}, {}, {"plugins/raccourci": "/opt/data/ailleurs"}, "est un lien symbolique"),
+    "path_du_volume": ({"PATH": "/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+                       {}, {}, "la variable PATH contient"),
 }
 
 
@@ -333,6 +335,52 @@ def test_l_agent_ne_peut_pas_enregistrer_de_service_supervise_root(hermes_en_mar
                                         utilisateur="hermes")
     assert relance.returncode == 0, relance.stderr
     hermes_en_marche.attendre_passerelle()
+
+
+PIEGE_PATH = r"""
+set -eu
+mkdir -p /opt/data/.local/bin
+cd /opt/data/.local/bin
+for d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+  for f in "$d"/*; do
+    n=${f##*/}
+    [ -e "$n" ] && continue
+    printf '#!/bin/sh\n[ "$(/usr/bin/id -u)" = 0 ] && /usr/bin/touch "/opt/data/acp-piege-root-%s"\nexec "%s" "$@"\n' "$n" "$f" > "$n"
+    chmod 755 "$n"
+  done
+done
+ls | wc -l
+"""
+
+
+def test_les_scripts_root_n_executent_pas_les_binaires_de_l_agent(ressources, image):
+    """L'image officielle met /opt/data/.local/bin, que l'agent possède, dans le PATH de tous
+    les scripts root (with-contenv) : un faux `id` déposé là tournait en root à la relance du
+    tableau de bord par l'agent (constaté sur 6b5a699). On pose un faux binaire pour CHAQUE
+    commande système ; aucun ne doit tourner en root, ni aux relances des services par
+    l'agent, ni au redémarrage du conteneur."""
+    conteneur = lancer(ressources, image, ENV_VALIDE)
+    chemin = conteneur.sh("cat /run/s6/container_environment/PATH", verifier=True).stdout.strip()
+    afficher("PATH reçu par les scripts root", chemin)
+    assert "/opt/data" not in chemin
+    poses = conteneur.sh(PIEGE_PATH, utilisateur="hermes", verifier=True).stdout.strip()
+    afficher("faux binaires posés par l'agent dans /opt/data/.local/bin", poses)
+    assert int(poses) > 100
+
+    for service in ("dashboard", "gateway-default"):
+        relance = conteneur.executer(["/command/s6-svc", "-r", f"/run/service/{service}"],
+                                     utilisateur="hermes")
+        assert relance.returncode == 0, relance.stderr
+    time.sleep(5)
+    conteneur.attendre_pret()
+    conteneur.attendre_passerelle()
+    docker("restart", conteneur.nom, delai=120)
+    conteneur.attendre_pret()
+    conteneur.attendre_passerelle()
+
+    traces = conteneur.sh("ls /opt/data | grep '^acp-piege-root-' || true", verifier=True).stdout.strip()
+    afficher("binaires de l'agent exécutés en root", traces or "aucun")
+    assert traces == ""
 
 
 # =========================================================================== 4. authentifié

@@ -167,6 +167,13 @@ VALEURS_IMPOSEES: Dict[str, Tuple[str, bool]] = {
     "API_SERVER_HOST": ("127.0.0.1", False),
 }
 
+# Seuls répertoires admis dans le PATH du conteneur, que tous les scripts root lancés par s6
+# reçoivent par with-contenv (s6-overlay y ajoute /command). Tous appartiennent à root. Un
+# répertoire du volume (l'image officielle y met /opt/data/.local/bin, Dockerfile:476) ferait
+# exécuter en root les binaires que l'agent y dépose (`id`, `sh`, `sleep`…).
+PATH_ADMIS = ("/command", "/opt/hermes/bin", "/opt/hermes/.venv/bin", "/usr/local/sbin",
+              "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+
 PORTEES_PAR_DEFAUT = "openid profile email"
 
 _URL_CARACTERES = re.compile(r"^[A-Za-z0-9._~:/%-]+$")
@@ -296,6 +303,14 @@ def verifier_environnement(env: Mapping[str, str]) -> ValeursDeploiement:
         if env[nom] != attendu:
             erreurs.append(
                 f"la variable {nom} vaut « {env[nom]} » ; seule la valeur « {attendu} » est admise.")
+    if "PATH" in env:
+        etrangers = [entree for entree in env["PATH"].split(":") if entree not in PATH_ADMIS]
+        if etrangers:
+            erreurs.append(
+                "la variable PATH contient " + ", ".join(f"« {e} »" for e in etrangers)
+                + " ; seuls les répertoires système de l'image sont admis ("
+                + ":".join(PATH_ADMIS) + ") : un répertoire du volume ferait exécuter en root "
+                "les binaires de l'agent.")
 
     def lire(nom: str, validateur: Callable[[str, str], str], *, defaut: Optional[str] = None) -> str:
         if nom not in env:
@@ -704,12 +719,12 @@ def _envelopper_run_passerelle(svc: Path) -> bool:
     # donc `run` est toujours le script amont ici : on le sauve puis on installe l'enveloppe.
     ecrire_atomique(svc / ".acp-amont-run", contenu, mode=0o755, uid=0, gid=0)
     enveloppe = (
-        "#!/command/with-contenv sh\n"
+        "#!/command/with-contenv /bin/sh\n"
         f"{_MARQUEUR_RUN_ACP}\n"
         "# Vérifie /opt/data/.env avant de relancer la passerelle amont (correctif P1).\n"
         "/opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py verifier-relance "
-        "|| { sleep 5; exit 1; }\n"
-        f"exec /command/with-contenv sh {svc / '.acp-amont-run'}\n"
+        "|| { /bin/sleep 5; exit 1; }\n"
+        f"exec /command/with-contenv /bin/sh {svc / '.acp-amont-run'}\n"
     ).encode("utf-8")
     ecrire_atomique(svc / "run", enveloppe, mode=0o755, uid=0, gid=0)
     return True

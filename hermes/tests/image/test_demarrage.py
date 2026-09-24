@@ -100,6 +100,24 @@ def test_une_valeur_imposee_par_l_image_ne_peut_pas_changer(env_valide, nom, val
         ad.verifier_environnement(env_valide)
 
 
+@pytest.mark.parametrize("chemin", [
+    "/opt/data/.local/bin:/usr/bin:/bin",
+    "/usr/bin:/bin:/opt/data/.local/bin",
+    "/usr/bin::/bin",
+    "/tmp:/usr/bin",
+])
+def test_un_path_qui_sort_des_repertoires_systeme_est_refuse(env_valide, chemin):
+    env_valide["PATH"] = chemin
+    with pytest.raises(ad.Refus, match="la variable PATH contient"):
+        ad.verifier_environnement(env_valide)
+
+
+def test_le_path_de_l_image_est_admis(env_valide):
+    env_valide["PATH"] = ("/command:/opt/hermes/bin:/opt/hermes/.venv/bin:/usr/local/sbin:"
+                          "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+    ad.verifier_environnement(env_valide)
+
+
 def test_la_boucle_locale_explicite_est_admise_pour_l_api_server(env_valide):
     env_valide["API_SERVER_HOST"] = "127.0.0.1"
     ad.verifier_environnement(env_valide)

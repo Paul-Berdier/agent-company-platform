@@ -17,11 +17,19 @@ FROM nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15
 #   (voir hermes/image/acp-gardes).
 # HERMES_DASHBOARD* : le tableau de bord (service s6 docker/s6-rc.d/dashboard/run) écoute
 #   sur 0.0.0.0:9119, seul port routé par Railway ; toute autre valeur est refusée.
+# PATH : l'image officielle y place /opt/data/.local/bin (Dockerfile:476), que l'agent
+#   possède, AVANT /usr/bin et /bin. Or tous les scripts exécutés en root par s6 (crochet,
+#   cont-init, scripts run des services) prennent ce PATH par with-contenv : un faux `id`
+#   ou `sh` déposé là par l'agent tournait en root à la relance suivante du tableau de bord
+#   (constaté sur 6b5a699). On le retire ; le terminal local de l'agent le rajoute de
+#   lui-même, en fin de PATH, à ses propres shells (tools/environments/local.py:630-657).
+#   Les gardes refusent tout autre répertoire (acp_demarrage.py, PATH_ADMIS).
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
     S6_STAGE2_HOOK=/opt/acp/bin/acp-gardes \
     HERMES_DASHBOARD=1 \
     HERMES_DASHBOARD_HOST=0.0.0.0 \
-    HERMES_DASHBOARD_PORT=9119
+    HERMES_DASHBOARD_PORT=9119 \
+    PATH=/opt/hermes/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Fichiers d'ACP, en lecture seule pour l'agent (uid 10000).
 COPY contrat/ /opt/acp/contrat/
