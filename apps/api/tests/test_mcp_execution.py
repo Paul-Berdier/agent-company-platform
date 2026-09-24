@@ -396,7 +396,10 @@ def test_schema_rollback_keeps_active_attempt_call_identity(proxy):
     assert _rpc(proxy, _grant(proxy)).status_code == 200
     with pytest.raises(RuntimeError, match="tentative active"):
         run_downgrade(engine, "0003")
-    assert current_revision(engine) == head_revision()
+    # Chaque révision a sa propre transaction : les révisions au-dessus de 0004 sont
+    # déjà redescendues, et le refus de 0004 la laisse en place avec ses preuves.
+    assert current_revision(engine) == "0004"
+    assert head_revision() != "0004"
     with proxy["factory"]() as db:
         assert db.query(McpExecutionCallModel).count() == 1
         db.get(TaskRunModel, proxy["ids"]["run"]).status = "succeeded"

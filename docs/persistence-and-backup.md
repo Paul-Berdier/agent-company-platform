@@ -274,7 +274,8 @@ quotas réels d'abonnement transmis par chaque worker (voir
 [les quotas d'abonnement](subscription-quotas.md)). Une ligne par worker, fournisseur
 et compteur ; elle disparaît avec son worker (`ON DELETE CASCADE`). Ces lignes sont un
 cache recréé au passage suivant du worker : la descente de 0005 vers 0004 les supprime
-sans garde-fou de données.
+sans garde-fou de données. Une descente de 0005 vers 0003 que le garde-fou de 0004
+refuse (tentative active) laisse donc la base à **0004**, sans cette table.
 
 **Portée des contrôles :** `migrate check` compare les tables, colonnes, types,
 valeurs par défaut, index, prédicats d'index partiels et noms des contraintes CHECK.
