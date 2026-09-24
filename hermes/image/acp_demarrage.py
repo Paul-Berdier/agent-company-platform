@@ -74,6 +74,7 @@ class Chemins:
     soul_livre: Path = Path("/opt/acp/persona/SOUL.md")
     soul_amont: Path = Path("/opt/hermes/docker/SOUL.md")
     dossier_etat: Path = Path("/run/acp")
+    scandir_s6: Path = Path("/run/service")
 
     @property
     def greffons_utilisateur(self) -> Path:
@@ -356,6 +357,14 @@ EPINGLES_OBLIGATOIRES: Tuple[Tuple[str, Any], ...] = (
     ("dashboard.basic_auth.password", ""),
     ("dashboard.basic_auth.password_hash", ""),
     ("dashboard.basic_auth.secret", ""),
+    # api_server de la passerelle épinglé en boucle locale : l'agent ne peut pas le
+    # déplacer sur 0.0.0.0 par /opt/data/config.yaml. La valeur de config.yaml gagne sinon
+    # sur API_SERVER_HOST (gateway/platforms/api_server.py:209-218), et sans clé utilisable
+    # dans l'environnement l'agent enrôle l'api_server directement par config.yaml
+    # (gateway/config_env.py:307-315) : la managed scope, appliquée par-dessus la config du
+    # volume (managed_scope.apply_managed_overlay), impose l'hôte et le port.
+    ("platforms.api_server.extra.host", "127.0.0.1"),
+    ("platforms.api_server.extra.port", 8642),
 )
 
 EPINGLES_DEPLOIEMENT: Dict[str, str] = {
@@ -465,6 +474,12 @@ ENV_VIDES: Tuple[str, ...] = (
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET",
     "HERMES_DASHBOARD_BASIC_AUTH_TTL_SECONDS",
     "HERMES_DASHBOARD_DRAIN_SECRET",
+    # Greffons groupés épinglés sur /opt/hermes/plugins : une valeur vide fait retomber
+    # get_bundled_plugins_dir sur le chemin de l'image (hermes_cli/plugins.py:68-75), donc un
+    # HERMES_BUNDLED_PLUGINS posé dans /opt/data/.env est neutralisé (managed .env appliqué en
+    # dernier, override=True : env_loader.py:473 et 503-518). Sans cette épingle, l'agent
+    # ferait exécuter son propre code de greffon dans le tableau de bord et la passerelle.
+    "HERMES_BUNDLED_PLUGINS",
     # Aucun mandataire : une valeur vide est ignorée par urllib et httpx
     # (urllib.request.getproxies_environment ne retient que les valeurs non vides).
     "HTTP_PROXY",
@@ -487,6 +502,10 @@ ENV_FIXES: Tuple[Tuple[str, str], ...] = (
     ("API_SERVER_HOST", "127.0.0.1"),
     ("API_SERVER_PORT", "8642"),
     ("HERMES_LANGUAGE", "fr"),
+    # Aucun greffon de projet (./.hermes/plugins) : sans cette épingle, l'agent servirait
+    # son propre JS au navigateur authentifié du propriétaire (web_server_dashboard.py:502-503 ;
+    # plugins_discovery.py:187). « 0 » n'est pas une valeur vraie (utils.is_truthy_value).
+    ("HERMES_ENABLE_PROJECT_PLUGINS", "0"),
     ("SSL_CERT_FILE", MAGASIN_CERTIFICATS),
     ("SSL_CERT_DIR", REPERTOIRE_CERTIFICATS),
     ("REQUESTS_CA_BUNDLE", MAGASIN_CERTIFICATS),
@@ -526,6 +545,237 @@ def relire_env(chemin: Path) -> Dict[str, Optional[str]]:
     from dotenv import dotenv_values
 
     return dict(dotenv_values(chemin, interpolate=False))
+
+
+# ---------------------------------------------------------------------------------------------
+# Variables interdites injectées dans /opt/data (défense contre l'agent)
+# ---------------------------------------------------------------------------------------------
+
+# /opt/data/.env est écrit par l'agent et Hermes le charge avec override=True AVANT la managed
+# scope (env_loader.py:433-435 puis 473). Les variables neutres (greffons, mandataires…) sont
+# épinglées à vide dans /etc/hermes/.env et gagnent donc. Mais HERMES_MANAGED_DIR, elle, choisit
+# QUELLE managed scope est lue (managed_scope.py:52) : aucune épingle ne peut la contrer, puisque
+# la managed .env qui la contrerait n'est plus consultée. On refuse donc, au démarrage ET à chaque
+# relance des services, toute variable de cette liste trouvée dans /opt/data/.env (et profiles/*/.env).
+#
+# La liste est étroite À DESSEIN : elle ne contient QUE des variables qui font échapper l'agent à la
+# managed scope ou lui font exécuter du code, et que Hermes n'écrit JAMAIS lui-même dans un .env du
+# volume. En particulier, API_SERVER_KEY est exclue : l'image la génère et l'écrit dans
+# /opt/data/.env à chaque démarrage (docker/stage2-hook.sh:504-540) ; la refuser bloquerait tout
+# démarrage. HERMES_BUNDLED_PLUGINS et HERMES_ENABLE_PROJECT_PLUGINS sont déjà épinglées dans la
+# managed .env (neutralisées) ; les refuser ici est une défense en profondeur, échec fermé.
+VARIABLES_VOLUME_INTERDITES: Dict[str, str] = {
+    "HERMES_MANAGED_DIR": (
+        "elle déplacerait la portée gérée hors de /etc/hermes (managed_scope.py:45-59) ; "
+        "aucune épingle ne peut la contrer, puisque c'est elle qui choisit le .env géré lu"),
+    "HERMES_BUNDLED_PLUGINS": (
+        "elle ferait charger le code de greffon de l'agent dans le tableau de bord et la passerelle "
+        "(hermes_cli/plugins.py:68-75)"),
+    "HERMES_ENABLE_PROJECT_PLUGINS": (
+        "elle servirait le JS de l'agent au navigateur authentifié du propriétaire "
+        "(web_server_dashboard.py:502-503)"),
+}
+
+
+def fichiers_env_du_volume(chemins: Chemins) -> List[Path]:
+    """Fichiers .env lus par Hermes sur le volume : racine et un par profil."""
+    fichiers = [chemins.hermes_home / ".env"]
+    profils = chemins.hermes_home / "profiles"
+    try:
+        entrees = sorted(profils.iterdir())
+    except OSError:
+        entrees = []
+    for entree in entrees:
+        try:
+            st = os.lstat(entree)
+        except OSError:
+            continue
+        if stat.S_ISDIR(st.st_mode):
+            fichiers.append(entree / ".env")
+    return fichiers
+
+
+def _relire_env_sans_lien(chemin: Path) -> Dict[str, Optional[str]]:
+    """Analyse un .env sans suivre de lien symbolique, avec l'analyseur de Hermes."""
+    import io
+
+    from dotenv import dotenv_values
+
+    donnees = lire_sans_lien(chemin)
+    if donnees is None:
+        return {}
+    texte = donnees.decode("utf-8", errors="replace")
+    return dict(dotenv_values(stream=io.StringIO(texte), interpolate=False))
+
+
+def variables_interdites_dans_le_volume(chemins: Chemins) -> List[Tuple[Path, str, str]]:
+    """(fichier, variable, raison) pour chaque variable de VARIABLES_VOLUME_INTERDITES posée dans un
+    .env du volume."""
+    trouvees: List[Tuple[Path, str, str]] = []
+    for fichier in fichiers_env_du_volume(chemins):
+        try:
+            valeurs = _relire_env_sans_lien(fichier)
+        except Refus:
+            # Un lien symbolique ou un fichier spécial à la place d'un .env est déjà suspect.
+            trouvees.append((fichier, "(fichier)", "n'est pas un fichier ordinaire"))
+            continue
+        for nom in sorted(valeurs):
+            raison = VARIABLES_VOLUME_INTERDITES.get(nom)
+            if raison:
+                trouvees.append((fichier, nom, raison))
+    return trouvees
+
+
+def refuser_variables_du_volume(chemins: Chemins) -> None:
+    """Lève :class:`Refus` si un .env du volume porte une variable interdite."""
+    trouvees = variables_interdites_dans_le_volume(chemins)
+    if trouvees:
+        lignes = [f"{fichier} définit la variable interdite {nom} : {raison}."
+                  for fichier, nom, raison in trouvees]
+        raise Refus(
+            "des variables interdites ont été injectées dans le volume (/opt/data) ; "
+            "elles échapperaient à la managed scope :\n" + "\n".join(f"  - {l}" for l in lignes)
+            + "\nSupprimez-les de ces fichiers avant de redémarrer.")
+
+
+# ---------------------------------------------------------------------------------------------
+# Reprise à root des services s6 (empêche l'élévation par /run/service)
+# ---------------------------------------------------------------------------------------------
+
+# L'image officielle rend /run/service et les emplacements de service des passerelles propriété de
+# l'agent (docker/cont-init.d/02-reconcile-profiles:119 ; docker/cont-init.d/015-supervise-perms).
+# Or s6-supervise tourne en root (spawné par s6-svscan en PID 1) : un service que l'agent crée là,
+# ou un script `run` qu'il réécrit, est exécuté EN ROOT avant de retomber sous l'uid hermes
+# (hermes_cli/container_boot.py:291 ; service_manager.py:_render_run_script). On reprend donc à
+# root le répertoire de services (l'agent ne peut plus y créer de service) et, pour chaque
+# passerelle dynamique, son répertoire et ses scripts ; on ne laisse à l'agent que la FIFO
+# supervise/control, pour qu'il puisse encore relancer la passerelle par `s6-svc -r`.
+
+_SERVICES_S6_INTERNES = {".s6-svscan", "s6-linux-init-shutdownd"}
+_PREFIXE_PASSERELLE = "gateway-"
+_MARQUEUR_RUN_ACP = "# acp-garde-relance"
+
+
+def _fchown_fchmod(fd: int, mode: int) -> None:
+    os.fchown(fd, 0, 0)
+    os.fchmod(fd, mode)
+
+
+def _reprendre_fichier(fd_parent: int, nom: str, *, mode: int) -> None:
+    """Rend un fichier ordinaire root:root sans suivre de lien ; ignore ce qui n'existe pas."""
+    try:
+        st = os.lstat(nom, dir_fd=fd_parent)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(st.st_mode):
+        return
+    fd = os.open(nom, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd_parent)
+    try:
+        _fchown_fchmod(fd, mode)
+    finally:
+        os.close(fd)
+
+
+def _reprendre_repertoire(fd_parent: int, nom: str, *, mode: int = 0o755) -> None:
+    """Rend un sous-répertoire root:root 0755 sans suivre de lien ; ignore ce qui n'existe pas."""
+    try:
+        st = os.lstat(nom, dir_fd=fd_parent)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISDIR(st.st_mode):
+        return
+    fd = os.open(nom, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd_parent)
+    try:
+        _fchown_fchmod(fd, mode)
+    finally:
+        os.close(fd)
+
+
+def _envelopper_run_passerelle(svc: Path) -> bool:
+    """Enveloppe le script `run` d'une passerelle (déjà repris par root) d'une garde ACP qui refuse
+    la relance si un .env du volume porte une variable interdite. Idempotent."""
+    contenu = lire_sans_lien(svc / "run")
+    if contenu is None:
+        return False
+    lignes = contenu.split(b"\n", 2)
+    if len(lignes) >= 2 and lignes[1].strip() == _MARQUEUR_RUN_ACP.encode("utf-8"):
+        return False  # déjà enveloppé : ne pas ré-envelopper ni écraser l'amont sauvé
+    # Le reconciler reconstruit tout le répertoire à chaque démarrage (container_boot:310-312),
+    # donc `run` est toujours le script amont ici : on le sauve puis on installe l'enveloppe.
+    ecrire_atomique(svc / ".acp-amont-run", contenu, mode=0o755, uid=0, gid=0)
+    enveloppe = (
+        "#!/command/with-contenv sh\n"
+        f"{_MARQUEUR_RUN_ACP}\n"
+        "# Vérifie /opt/data/.env avant de relancer la passerelle amont (correctif P1).\n"
+        "/opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py verifier-relance "
+        "|| { sleep 5; exit 1; }\n"
+        f"exec /command/with-contenv sh {svc / '.acp-amont-run'}\n"
+    ).encode("utf-8")
+    ecrire_atomique(svc / "run", enveloppe, mode=0o755, uid=0, gid=0)
+    return True
+
+
+def reprendre_service_passerelle(scandir: Path, nom: str) -> None:
+    """Reprend à root une passerelle dynamique ; laisse la FIFO supervise/control à l'agent."""
+    svc = scandir / nom
+    fd_svc = os.open(svc, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        _fchown_fchmod(fd_svc, 0o755)
+        _reprendre_fichier(fd_svc, "run", mode=0o755)
+        _reprendre_fichier(fd_svc, "finish", mode=0o755)
+        _reprendre_fichier(fd_svc, "type", mode=0o644)
+        _reprendre_repertoire(fd_svc, "supervise")
+        # Sous-service log : run root aussi (exécuté en root avant de retomber sous hermes).
+        try:
+            fd_log = os.open("log", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd_svc)
+        except FileNotFoundError:
+            fd_log = None
+        if fd_log is not None:
+            try:
+                _fchown_fchmod(fd_log, 0o755)
+                _reprendre_fichier(fd_log, "run", mode=0o755)
+                _reprendre_repertoire(fd_log, "supervise")
+            finally:
+                os.close(fd_log)
+    finally:
+        os.close(fd_svc)
+    _envelopper_run_passerelle(svc)
+
+
+def reprendre_services_s6(scandir: Path = Path("/run/service")) -> Dict[str, Any]:
+    """Reprend à root le répertoire de services s6 et les passerelles dynamiques.
+
+    Renvoie un résumé pour l'état du démarrage. Hors de s6 (répertoire absent), ne fait rien."""
+    resume: Dict[str, Any] = {"present": False, "passerelles": []}
+    try:
+        st = os.lstat(scandir)
+    except FileNotFoundError:
+        return resume
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        raise Refus(f"{scandir} n'est pas un répertoire réel : démarrage refusé.")
+    resume["present"] = True
+    fd_scandir = os.open(scandir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        passerelles: List[str] = []
+        for nom in sorted(os.listdir(fd_scandir)):
+            if nom in _SERVICES_S6_INTERNES:
+                continue
+            st_e = os.lstat(nom, dir_fd=fd_scandir)
+            # Les services statiques (dashboard, main-hermes) sont des liens vers des
+            # servicedirs déjà root : on ne les suit pas. Seules les passerelles dynamiques
+            # sont de vrais répertoires que l'agent possède.
+            if stat.S_ISLNK(st_e.st_mode) or not stat.S_ISDIR(st_e.st_mode):
+                continue
+            if not nom.startswith(_PREFIXE_PASSERELLE):
+                continue
+            reprendre_service_passerelle(scandir, nom)
+            passerelles.append(nom)
+        # Le répertoire lui-même en dernier : l'agent ne peut plus y créer de service supervisé.
+        _fchown_fchmod(fd_scandir, 0o755)
+        resume["passerelles"] = passerelles
+    finally:
+        os.close(fd_scandir)
+    return resume
 
 
 # ---------------------------------------------------------------------------------------------
@@ -939,6 +1189,9 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int)
     # 3. Thème et persona.
     themes = deposer_theme(chemins.theme_livre, chemins.themes)
     soul = gerer_soul(chemins, uid=uid, gid=gid)
+    # 4. Reprise à root des services s6 : l'agent ne peut plus enregistrer un service supervisé
+    #    en root ni réécrire le script d'exécution d'une passerelle (empêche l'élévation).
+    services = reprendre_services_s6(chemins.scandir_s6)
     return {
         "schema": 1,
         "genere_le": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
@@ -951,6 +1204,7 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int)
         },
         "themes_deposes": themes,
         "soul": soul,
+        "services_s6": services,
     }
 
 
@@ -999,6 +1253,9 @@ def commande_construire(chemins: Chemins) -> None:
 def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     _exiger_root()
     valeurs = verifier_environnement(env)
+    # Une variable interdite posée dans /opt/data/.env échapperait à la managed scope
+    # (HERMES_MANAGED_DIR la déplacerait carrément) : un volume ainsi piégé refuse de démarrer.
+    refuser_variables_du_volume(chemins)
     resume = installer_scope_geree(chemins, valeurs)
     _informer(f"variables validées ; émetteur OIDC {valeurs.oidc_emetteur}, client {valeurs.oidc_client}, "
               f"URL publique {valeurs.url_publique}"
@@ -1017,6 +1274,7 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
     # Défense en profondeur : si le crochet S6_STAGE2_HOOK avait été retiré, ce script de
     # cont-init refait les mêmes contrôles et vérifie la managed scope installée.
     valeurs = verifier_environnement(env)
+    refuser_variables_du_volume(chemins)
     scope = preparer_scope_geree(chemins, valeurs)
     verifier_scope_installee(chemins, scope, valeurs)
     compte = pwd.getpwnam("hermes")
@@ -1024,6 +1282,11 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
     cible = ecrire_etat(chemins, etat)
     _informer(f"{chemins.greffons_utilisateur}, {chemins.themes} et {chemins.donnees_acp} "
               "appartiennent à root (0755).")
+    services = etat.get("services_s6") or {}
+    if services.get("present"):
+        _informer("services s6 repris par root : /run/service et "
+                  + (", ".join(services.get("passerelles") or []) or "aucune passerelle")
+                  + " (l'agent ne peut plus enregistrer de service supervisé).")
     _informer(f"thèmes déposés : {', '.join(etat['themes_deposes']) or 'aucun'} ; "
               f"SOUL.md : {etat['soul']['etat']}.")
     if etat["greffons_utilisateur"]["dossiers"]:
@@ -1032,10 +1295,18 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
     _informer(f"état du démarrage écrit dans {cible}.")
 
 
+def commande_verifier_relance(chemins: Chemins) -> None:
+    """Garde exécutée en root en tête des scripts `run` du tableau de bord et de la passerelle :
+    refuse la relance si l'agent a injecté une variable interdite dans un .env du volume."""
+    _exiger_root()
+    refuser_variables_du_volume(chemins)
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if len(arguments) != 1 or arguments[0] not in {"construire", "gardes", "donnees"}:
-        print(f"{PREFIXE} usage : acp_demarrage.py construire|gardes|donnees", file=sys.stderr)
+    if len(arguments) != 1 or arguments[0] not in {"construire", "gardes", "donnees", "verifier-relance"}:
+        print(f"{PREFIXE} usage : acp_demarrage.py construire|gardes|donnees|verifier-relance",
+              file=sys.stderr)
         return 2
     chemins = Chemins()
     try:
@@ -1043,6 +1314,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             commande_construire(chemins)
         elif arguments[0] == "gardes":
             commande_gardes(chemins, dict(os.environ))
+        elif arguments[0] == "verifier-relance":
+            commande_verifier_relance(chemins)
         else:
             commande_donnees(chemins, dict(os.environ))
     except Refus as exc:

@@ -3,10 +3,17 @@
 # Hermes applique ce fichier en dernier, feuille par feuille, par-dessus
 # /opt/data/config.yaml (hermes_cli/managed_scope.py:125-147 ;
 # hermes_cli/config.py:2211-2226) ; `hermes config set` refuse toute clé épinglée
-# ici (hermes_cli/config.py:3384-3391). La seule garantie est la permission :
-# /etc/hermes appartient à root (0755, fichiers 0644) et l'agent tourne sous
-# l'uid 10000 sans sudo (website/docs/user-guide/managed-scope.md:36-39 et
-# 139-148 ; Dockerfile:168 de l'image officielle).
+# ici (hermes_cli/config.py:3384-3391). Ce que garantit ce fichier tient à la
+# permission : /etc/hermes appartient à root (0755, fichiers 0644) et l'agent
+# tourne sous l'uid 10000 sans sudo (website/docs/user-guide/managed-scope.md:36-39
+# et 139-148 ; Dockerfile:168 de l'image officielle).
+#
+# Ce que ce fichier NE garantit PAS : l'agent tourne sous le MÊME uid que le tableau
+# de bord (10000). Il ne peut pas modifier cette portée gérée, mais il peut tuer le
+# processus du tableau de bord et écouter lui-même sur 0.0.0.0:9119 (le port public).
+# La frontière d'uid ne sépare donc pas l'agent du tableau de bord ; la vraie parade
+# (uid distinct ou dorsale isolée pour les outils terminal) relève de P2. Voir
+# docs/refonte/image.md §5 et §10.
 #
 # 00-acp-gardes régénère /etc/hermes/config.yaml à chaque démarrage à partir de ce
 # modèle, après avoir remplacé les marqueurs de déploiement (chaînes encadrées de
@@ -74,6 +81,18 @@ display:
 agent:
   # Navigateur intégré désactivé au départ (plan, section 8).
   disabled_toolsets: [browser]
+
+platforms:
+  # api_server de la passerelle : épinglé en boucle locale. Sans clé utilisable dans
+  # l'environnement, l'agent peut l'enrôler lui-même par /opt/data/config.yaml
+  # (gateway/config_env.py:307-315) et la valeur de config.yaml gagne sur API_SERVER_HOST
+  # (gateway/platforms/api_server.py:209-218). En épinglant l'hôte et le port ici, la
+  # managed scope (appliquée par-dessus la config du volume) le ramène toujours en
+  # 127.0.0.1:8642, y compris après une relance de la passerelle par l'agent.
+  api_server:
+    extra:
+      host: 127.0.0.1
+      port: 8642
 
 dashboard:
   theme: acp

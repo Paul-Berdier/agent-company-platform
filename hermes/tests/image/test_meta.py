@@ -47,6 +47,22 @@ def test_un_soul_divergent_et_des_greffons_utilisateur_sont_signales(tmp_path):
     assert any("outil" in a for a in alertes)
 
 
+def test_la_meta_expose_l_etat_de_la_portee_geree(tmp_path):
+    donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}, "greffons_utilisateur": {}}))
+    # Sous pytest, get_managed_dir() renvoie None sans détournement : aucune alerte de portée.
+    assert donnees["environnement"]["managed_dir_attendu"] == "/etc/hermes"
+    assert donnees["environnement"]["hermes_managed_dir_present"] is False
+    assert not any("Portée gérée détournée" in a for a in donnees["alertes"])
+
+
+def test_hermes_managed_dir_dans_l_environnement_declenche_une_alerte(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_MANAGED_DIR", "/opt/data/faux-gere")
+    donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}, "greffons_utilisateur": {}}))
+    assert donnees["environnement"]["hermes_managed_dir_present"] is True
+    assert donnees["environnement"]["managed_dir_conforme"] is False
+    assert any("Portée gérée détournée" in a for a in donnees["alertes"])
+
+
 def test_un_contrat_openrpc_different_est_signale(tmp_path):
     autre = tmp_path / "openrpc.json"
     autre.write_text(json.dumps({"info": {"version": "2"}, "methods": []}), encoding="utf-8")

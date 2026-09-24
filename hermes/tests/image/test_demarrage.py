@@ -181,6 +181,15 @@ def test_un_marqueur_manquant_ou_inconnu_est_refuse(valeurs):
         ad.generer_config_geree(modele + '\nextra: "@@ACP:INCONNU@@"\n', valeurs)
 
 
+def test_le_modele_epingle_l_api_server_en_boucle_locale(valeurs):
+    donnees = ad.charger_yaml(ad.generer_config_geree(_modele(), valeurs))
+    assert donnees["platforms"]["api_server"]["extra"] == {"host": "127.0.0.1", "port": 8642}
+    # Les deux clés font bien partie des épingles obligatoires vérifiées à chaque démarrage.
+    epingles = dict(ad.EPINGLES_OBLIGATOIRES)
+    assert epingles["platforms.api_server.extra.host"] == "127.0.0.1"
+    assert epingles["platforms.api_server.extra.port"] == 8642
+
+
 def test_la_managed_scope_est_installee_root_0644_et_relue(chemins, valeurs):
     resume = ad.installer_scope_geree(chemins, valeurs)
     for nom in ("config.yaml", ".env"):
@@ -190,6 +199,9 @@ def test_la_managed_scope_est_installee_root_0644_et_relue(chemins, valeurs):
     assert relu["HERMES_DASHBOARD_OIDC_ISSUER"] == "https://idp.acp.test:8443"
     assert relu["API_SERVER_HOST"] == "127.0.0.1"
     assert relu["HERMES_LANGUAGE"] == "fr"
+    # Greffons de projet coupés, greffons groupés ramenés au chemin de l'image (valeur vide).
+    assert relu["HERMES_ENABLE_PROJECT_PLUGINS"] == "0"
+    assert relu["HERMES_BUNDLED_PLUGINS"] == ""
     for vide in ("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "HERMES_DASHBOARD_OAUTH_CLIENT_ID", "HTTPS_PROXY",
                  "https_proxy", "HERMES_DASHBOARD_OIDC_CLIENT_SECRET"):
         assert relu[vide] == ""
@@ -348,6 +360,132 @@ def test_l_etat_du_demarrage_est_ecrit_par_root(chemins, valeurs):
     relu = json.loads(cible.read_text(encoding="utf-8"))
     assert relu["soul"]["etat"] == "depose"
     assert relu["scope_geree"]["config_sha256"] == ad.empreinte(scope.config)
+
+
+# ------------------------------------------- variables interdites injectées dans /opt/data
+
+
+def test_une_variable_interdite_dans_le_env_du_volume_est_trouvee(chemins):
+    (chemins.hermes_home / ".env").write_text(
+        "OPENAI_API_KEY=legitime\nHERMES_MANAGED_DIR=/opt/data/faux-gere\n", encoding="utf-8")
+    trouvees = ad.variables_interdites_dans_le_volume(chemins)
+    assert [(f.name, n) for f, n, _ in trouvees] == [(".env", "HERMES_MANAGED_DIR")]
+    with pytest.raises(ad.Refus, match="HERMES_MANAGED_DIR"):
+        ad.refuser_variables_du_volume(chemins)
+
+
+def test_les_env_de_profils_sont_aussi_inspectes(chemins):
+    profil = chemins.hermes_home / "profiles" / "coder"
+    profil.mkdir(parents=True)
+    (profil / ".env").write_text("HERMES_BUNDLED_PLUGINS=/opt/data/greffons-intrus\n", encoding="utf-8")
+    trouvees = ad.variables_interdites_dans_le_volume(chemins)
+    assert [(str(f).endswith("profiles/coder/.env"), n) for f, n, _ in trouvees] == [
+        (True, "HERMES_BUNDLED_PLUGINS")]
+
+
+def test_un_env_sans_variable_interdite_ni_env_absent_est_accepte(chemins):
+    # Absent : rien à signaler.
+    assert ad.variables_interdites_dans_le_volume(chemins) == []
+    (chemins.hermes_home / ".env").write_text(
+        "OPENAI_API_KEY=legitime\nHERMES_CRON_AUTO_DELIVER_PLATFORM=telegram\n", encoding="utf-8")
+    assert ad.variables_interdites_dans_le_volume(chemins) == []
+    ad.refuser_variables_du_volume(chemins)  # ne lève pas
+
+
+def test_les_trois_vecteurs_d_evasion_sont_couverts(chemins):
+    (chemins.hermes_home / ".env").write_text(
+        "HERMES_MANAGED_DIR=/opt/data/x\nHERMES_BUNDLED_PLUGINS=/opt/data/y\n"
+        "HERMES_ENABLE_PROJECT_PLUGINS=1\n", encoding="utf-8")
+    trouvees = ad.variables_interdites_dans_le_volume(chemins)
+    assert sorted(n for _, n, _ in trouvees) == [
+        "HERMES_BUNDLED_PLUGINS", "HERMES_ENABLE_PROJECT_PLUGINS", "HERMES_MANAGED_DIR"]
+
+
+def test_la_cle_api_server_ecrite_par_l_image_n_est_pas_refusee(chemins):
+    """API_SERVER_KEY est légitimement écrite dans /opt/data/.env par l'image
+    (docker/stage2-hook.sh) : la garde étroite ne doit pas la confondre avec une injection."""
+    (chemins.hermes_home / ".env").write_text(
+        "API_SERVER_KEY=0123456789abcdef0123456789\nHERMES_DASHBOARD_BASIC_AUTH_USERNAME=x\n",
+        encoding="utf-8")
+    assert ad.variables_interdites_dans_le_volume(chemins) == []
+    ad.refuser_variables_du_volume(chemins)  # ne lève pas
+
+
+# ------------------------------------------------------------------ reprise des services s6
+
+
+def _fausse_passerelle(scandir: Path, nom: str = "gateway-default") -> Path:
+    """Reproduit l'emplacement de service d'une passerelle tel que le reconciler le crée :
+    scripts et FIFO supervise/control propriété de l'agent (uid 10000)."""
+    svc = scandir / nom
+    (svc / "supervise").mkdir(parents=True)
+    (svc / "event").mkdir()
+    (svc / "log" / "supervise").mkdir(parents=True)
+    (svc / "run").write_text("#!/command/with-contenv sh\nexec s6-setuidgid hermes hermes gateway run --replace\n",
+                             encoding="utf-8")
+    (svc / "finish").write_text("#!/command/with-contenv sh\nexit 0\n", encoding="utf-8")
+    (svc / "type").write_text("longrun\n", encoding="utf-8")
+    (svc / "log" / "run").write_text("#!/command/with-contenv sh\nexec s6-log /opt/data/logs\n", encoding="utf-8")
+    os.mkfifo(svc / "supervise" / "control", 0o660)
+    for chemin in (svc / "run", svc / "finish", svc / "log" / "run"):
+        os.chmod(chemin, 0o755)
+    for racine, sous, fichiers in os.walk(scandir):
+        os.chown(racine, UID_HERMES, UID_HERMES)
+        for f in fichiers:
+            os.chown(Path(racine) / f, UID_HERMES, UID_HERMES)
+    return svc
+
+
+def test_reprendre_services_s6_rend_root_le_repertoire_et_les_scripts(chemins):
+    scandir = chemins.hermes_home / "run-service"
+    scandir.mkdir()
+    os.chown(scandir, UID_HERMES, UID_HERMES)
+    svc = _fausse_passerelle(scandir)
+    # Un service interne et un lien statique ne doivent pas être touchés/suivis.
+    (scandir / ".s6-svscan").mkdir()
+    (scandir / "dashboard").symlink_to("/run/s6-rc/servicedirs/dashboard")
+
+    resume = ad.reprendre_services_s6(scandir)
+    assert resume["present"] is True and resume["passerelles"] == ["gateway-default"]
+
+    # Répertoire de services et scripts d'exécution repris par root.
+    for chemin in (scandir, svc, svc / "run", svc / "finish", svc / "type",
+                   svc / "supervise", svc / "log", svc / "log" / "run"):
+        assert os.lstat(chemin).st_uid == 0, chemin
+    assert stat.S_IMODE(os.lstat(scandir).st_mode) == 0o755
+    # La FIFO supervise/control reste à l'agent : il peut encore relancer par s6-svc -r.
+    ctrl = os.lstat(svc / "supervise" / "control")
+    assert ctrl.st_uid == UID_HERMES and stat.S_ISFIFO(ctrl.st_mode)
+    # Le lien statique n'a pas été suivi ni transformé.
+    assert os.path.islink(scandir / "dashboard")
+    # Le run est enveloppé par la garde de relance et l'amont est préservé.
+    run_texte = (svc / "run").read_text(encoding="utf-8")
+    assert run_texte.splitlines()[1].strip() == ad._MARQUEUR_RUN_ACP
+    assert "verifier-relance" in run_texte
+    assert "gateway run --replace" in (svc / ".acp-amont-run").read_text(encoding="utf-8")
+
+    # L'agent ne peut plus créer de service ni réécrire le run repris.
+    assert _comme_hermes("mkdir", str(scandir / "intrus")).returncode != 0
+    assert _comme_hermes("sh", "-c", f"echo x >> {svc / 'run'}").returncode != 0
+    assert _comme_hermes("sh", "-c", f"rm -f {svc / 'type'}").returncode != 0
+
+
+def test_reprendre_services_s6_est_idempotent_et_ne_double_pas_l_enveloppe(chemins):
+    scandir = chemins.hermes_home / "run-service"
+    scandir.mkdir()
+    os.chown(scandir, UID_HERMES, UID_HERMES)
+    svc = _fausse_passerelle(scandir)
+    ad.reprendre_services_s6(scandir)
+    amont1 = (svc / ".acp-amont-run").read_bytes()
+    run1 = (svc / "run").read_bytes()
+    ad.reprendre_services_s6(scandir)
+    assert (svc / ".acp-amont-run").read_bytes() == amont1  # l'amont n'est pas ré-écrasé
+    assert (svc / "run").read_bytes() == run1
+
+
+def test_reprendre_services_s6_hors_de_s6_ne_fait_rien(chemins):
+    resume = ad.reprendre_services_s6(chemins.hermes_home / "absent")
+    assert resume == {"present": False, "passerelles": []}
 
 
 def test_main_refuse_en_francais_avec_le_code_1(capsys, monkeypatch):

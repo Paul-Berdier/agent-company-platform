@@ -28,7 +28,7 @@ COPY contrat/ /opt/acp/contrat/
 COPY gere/config.yaml /opt/acp/gere/config.yaml
 COPY persona/SOUL.md /opt/acp/persona/SOUL.md
 COPY theme/ /opt/acp/theme/
-COPY image/acp_demarrage.py image/acp-gardes /opt/acp/bin/
+COPY image/acp_demarrage.py image/acp-gardes image/acp-run-dashboard /opt/acp/bin/
 # Greffon groupé : /opt/hermes/plugins est la source « bundled » de Hermes
 # (hermes_cli/plugins.py:68-75), en lecture seule pour l'agent.
 COPY plugins/acp-poste/ /opt/hermes/plugins/acp-poste/
@@ -43,8 +43,21 @@ RUN set -eu; \
     chown -R root:root /opt/acp /opt/hermes/plugins/acp-poste /etc/cont-init.d/05-acp; \
     find /opt/acp /opt/hermes/plugins/acp-poste -type d -exec chmod 0755 {} +; \
     find /opt/acp /opt/hermes/plugins/acp-poste -type f -exec chmod 0644 {} +; \
-    chmod 0755 /opt/acp/bin/acp-gardes /etc/cont-init.d/05-acp; \
+    chmod 0755 /opt/acp/bin/acp-gardes /opt/acp/bin/acp-run-dashboard /etc/cont-init.d/05-acp; \
     /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py construire
+
+# Enveloppe root du service s6 « dashboard » : à chaque (re)lancement, y compris quand
+# l'agent le relance lui-même (s6-svc -r, la FIFO supervise/control lui restant
+# accessible), la garde ACP refuse de démarrer sur un .env de volume qui porte une
+# variable interdite (HERMES_MANAGED_DIR déplacerait la managed scope). Le script amont
+# officiel est préservé tel quel dans /opt/acp/amont ; une montée de version le recopie
+# sans que l'enveloppe change. (hermes/image/acp-run-dashboard.)
+RUN set -eu; \
+    mkdir -p /opt/acp/amont; \
+    cp -a /etc/s6-overlay/s6-rc.d/dashboard/run /opt/acp/amont/s6-dashboard-run; \
+    cp /opt/acp/bin/acp-run-dashboard /etc/s6-overlay/s6-rc.d/dashboard/run; \
+    chown root:root /opt/acp/amont/s6-dashboard-run /etc/s6-overlay/s6-rc.d/dashboard/run; \
+    chmod 0755 /opt/acp/amont/s6-dashboard-run /etc/s6-overlay/s6-rc.d/dashboard/run
 
 # La passerelle (cron, répartiteur kanban, messagerie) est supervisée par s6 quand le
 # CMD vaut « gateway run » ; l'image officielle a CMD [] (Dockerfile:513) et son service

@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 CONTRAT = "acp-poste/1"
 NOM_GREFFON = "acp-poste"
+DOSSIER_GERE_ATTENDU = "/etc/hermes"
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,36 @@ def _empreinte(chemin: Path) -> Optional[str]:
         return hashlib.sha256(chemin.read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def etat_environnement() -> Dict[str, Any]:
+    """Contrôle vif de la portée gérée : détourne-t-on /etc/hermes ? Lu dans le processus du
+    tableau de bord (donc reflète une injection de HERMES_MANAGED_DIR même après une relance
+    par l'agent). Toute valeur illisible vaut ``None``."""
+    resultat: Dict[str, Any] = {
+        "managed_dir": None,
+        "managed_dir_attendu": DOSSIER_GERE_ATTENDU,
+        "managed_dir_conforme": None,
+        "hermes_managed_dir_present": None,
+    }
+    try:
+        import os
+
+        from hermes_cli import managed_scope
+
+        present = "HERMES_MANAGED_DIR" in os.environ
+        dossier = managed_scope.get_managed_dir()
+        resultat["hermes_managed_dir_present"] = present
+        resultat["managed_dir"] = str(dossier) if dossier is not None else None
+        # Ne conclut « non conforme » que sur un constat POSITIF de détournement : sous pytest
+        # get_managed_dir() renvoie None sans que rien soit détourné (managed_scope.py:39-56).
+        if present or (dossier is not None and str(dossier) != DOSSIER_GERE_ATTENDU):
+            resultat["managed_dir_conforme"] = False
+        elif dossier is not None:
+            resultat["managed_dir_conforme"] = True
+    except Exception:  # noqa: BLE001 — valeur inconnue plutôt qu'une erreur 500
+        return resultat
+    return resultat
 
 
 def _info_openrpc(chemin: Path) -> Dict[str, Any]:
@@ -127,6 +158,11 @@ def construire_meta(sources: SourcesMeta = SourcesMeta()) -> Dict[str, Any]:
             alertes.append("Greffons utilisateur présents sous /opt/data/plugins (jamais activés) : "
                            + ", ".join(greffons) + ".")
 
+    environnement = etat_environnement()
+    if environnement["managed_dir_conforme"] is False:
+        alertes.append("Portée gérée détournée : HERMES_MANAGED_DIR est défini ou la portée gérée "
+                       "n'est pas /etc/hermes. Les épingles de sécurité ne s'appliquent peut-être plus.")
+
     return {
         "contrat": CONTRAT,
         "greffon": {"nom": NOM_GREFFON, "version": version_greffon(sources.manifeste_greffon)},
@@ -150,5 +186,6 @@ def construire_meta(sources: SourcesMeta = SourcesMeta()) -> Dict[str, Any]:
             "identique": identique,
         },
         "demarrage": demarrage,
+        "environnement": environnement,
         "alertes": alertes,
     }

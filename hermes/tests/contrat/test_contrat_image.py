@@ -300,6 +300,41 @@ def test_les_greffons_charges_sont_ceux_attendus(hermes_en_marche):
                        "self-hosted": "enabled"}
 
 
+def test_l_agent_ne_peut_pas_enregistrer_de_service_supervise_root(hermes_en_marche):
+    """s6-supervise tourne en root : un service que l'agent créerait sous /run/service, ou un
+    script `run` qu'il réécrirait, serait exécuté en root. 05-acp reprend /run/service et les
+    scripts des passerelles à root ; il ne reste à l'agent que la FIFO supervise/control."""
+    proprio = hermes_en_marche.sh(
+        "stat -c '%U:%G %a' /run/service; stat -c '%U:%G %a' /run/service/gateway-default/run; "
+        "stat -c '%U:%G' /run/service/gateway-default/supervise/control", verifier=True).stdout
+    afficher("propriétaires des emplacements s6", proprio)
+    lignes = proprio.split("\n")
+    assert lignes[0].startswith("root:root 755")  # scandir : plus de création de service
+    assert lignes[1].startswith("root:root")       # run de la passerelle : plus de réécriture
+    assert lignes[2].startswith("hermes:hermes")    # control : la relance par s6-svc reste possible
+    essais = {
+        "créer un service": "mkdir /run/service/revue-intrus",
+        "réécrire le run de la passerelle": "echo x >> /run/service/gateway-default/run",
+        "déplacer la passerelle": "mv /run/service/gateway-default /run/service/gateway-vole",
+        "réécrire l'amont enveloppé": "echo x >> /run/service/gateway-default/.acp-amont-run",
+    }
+    rapport = []
+    for libelle, commande in essais.items():
+        resultat = hermes_en_marche.sh(commande, utilisateur="hermes")
+        rapport.append(f"{libelle} : code {resultat.returncode} {resultat.stderr.strip()}")
+        assert resultat.returncode != 0, libelle
+    afficher("élévation par /run/service refusée à l'uid hermes", "\n".join(rapport))
+    # Le run repris est bien enveloppé par la garde de relance d'ACP.
+    run = hermes_en_marche.sh("cat /run/service/gateway-default/run", verifier=True).stdout
+    assert "acp-garde-relance" in run and "verifier-relance" in run
+    # La relance par s6-svc reste possible (la FIFO control appartient à l'agent) : la passerelle
+    # repart, ce qui prouve qu'on n'a pas cassé la supervision en reprenant les scripts à root.
+    relance = hermes_en_marche.executer(["/command/s6-svc", "-r", "/run/service/gateway-default"],
+                                        utilisateur="hermes")
+    assert relance.returncode == 0, relance.stderr
+    hermes_en_marche.attendre_passerelle()
+
+
 # =========================================================================== 4. authentifié
 
 
@@ -443,6 +478,13 @@ dashboard:
     self_hosted:
       issuer: https://intrus.example
       client_id: intrus
+platforms:
+  api_server:
+    enabled: true
+    extra:
+      host: 0.0.0.0
+      port: 8642
+      key: cle-intrus-tres-longue-0123456789
 model:
   provider: custom
   base_url: http://127.0.0.1:18080/v1
@@ -462,11 +504,15 @@ SSL_CERT_FILE=/opt/data/intrus.pem
 """
 
 
+def _ecoutes(conteneur: Conteneur) -> set:
+    return set(conteneur.python(LIRE_ECOUTES, verifier=True).stdout.split("\n")) - {""}
+
+
 def _verifier_connexion_intacte(pile: Conteneur, contexte: str) -> None:
     code, fournisseurs = pile.json("/api/auth/providers")
     code_login, _, redirection = pile.http("/auth/login?provider=self-hosted")
     code_basic, _, _ = pile.http("/auth/login?provider=basic")
-    code_meta, _ = pile.json("/api/plugins/acp-poste/v1/meta", jeton=jeton(pile))
+    code_meta, meta = pile.json("/api/plugins/acp-poste/v1/meta", jeton=jeton(pile))
     code_intrus, _ = pile.json("/api/plugins/acp-poste/v1/meta", jeton=jeton(pile, aud="intrus"))
     afficher(f"connexion après {contexte}",
              f"/api/auth/providers : {code} {json.dumps(fournisseurs)}\n"
@@ -481,6 +527,8 @@ def _verifier_connexion_intacte(pile: Conteneur, contexte: str) -> None:
     assert code_basic == 404
     assert code_meta == 200
     assert code_intrus in (401, 503)
+    # La portée gérée n'est pas détournée : aucune alerte de portée dans la meta.
+    assert isinstance(meta, dict) and not any("Portée gérée détournée" in a for a in meta["alertes"])
 
 
 def test_une_injection_dans_opt_data_est_neutralisee_quand_l_agent_relance_le_tableau_de_bord(pile):
@@ -488,15 +536,31 @@ def test_une_injection_dans_opt_data_est_neutralisee_quand_l_agent_relance_le_ta
                   verifier=True)
     pile.executer(["sh", "-c", "cat >> /opt/data/.env"], utilisateur="hermes", entree=ENV_PIEGE, verifier=True)
     avant = pile.sh("pgrep -f 'hermes dashboard'", verifier=True).stdout.split()
-    # L'agent (uid hermes) peut relancer le tableau de bord lui-même (supervise/control lui
-    # appartient : docker/cont-init.d/015-supervise-perms) ; 05-acp ne tourne pas alors.
+    # L'agent (uid hermes) peut relancer le tableau de bord ET la passerelle lui-même (la FIFO
+    # supervise/control lui reste accessible) ; 05-acp ne tourne pas alors. La config.yaml et
+    # le .env piégés ne portent aucune variable d'évasion, donc la garde de relance les laisse
+    # repartir ; c'est la managed scope, appliquée par-dessus, qui neutralise l'injection.
     relance = pile.executer(["/command/s6-svc", "-r", "/run/service/dashboard"], utilisateur="hermes")
     assert relance.returncode == 0, relance.stderr
+    relance_gw = pile.executer(["/command/s6-svc", "-r", "/run/service/gateway-default"], utilisateur="hermes")
+    assert relance_gw.returncode == 0, relance_gw.stderr
     time.sleep(3)
     pile.attendre_pret()
+    pile.attendre_passerelle()
     apres = pile.sh("pgrep -f 'hermes dashboard'", verifier=True).stdout.split()
     assert set(avant).isdisjoint(apres), (avant, apres)
-    _verifier_connexion_intacte(pile, "injection et relance du tableau de bord par l'agent")
+    _verifier_connexion_intacte(pile, "injection et relance du tableau de bord et de la passerelle")
+    # L'api_server, que la config.yaml piégée place sur 0.0.0.0, reste en boucle locale : le seul
+    # écouteur public reste le tableau de bord (9119). (La pile expose aussi le modèle factice en
+    # 127.0.0.1:18080 et le résolveur DNS de Docker en 127.0.0.11 ; ni l'un ni l'autre n'est public.)
+    ecoutes = _ecoutes(pile)
+    afficher("sockets en écoute après injection api_server", "\n".join(sorted(ecoutes)))
+    assert "127.0.0.1 8642" in ecoutes
+    assert "0.0.0.0 8642" not in ecoutes
+    publics = [e for e in ecoutes if e.startswith("0.0.0.0 ")]
+    assert publics == ["0.0.0.0 9119"], ecoutes
+    _, statut = pile.json("/api/status")
+    assert statut["gateway_platforms"]["api_server"]["listener_base"] == "http://127.0.0.1:8642"
 
 
 def test_une_injection_reste_neutralisee_apres_redemarrage_du_conteneur(pile):
@@ -525,3 +589,82 @@ def test_un_soul_modifie_par_le_proprietaire_est_garde_et_signale(pile):
     assert contenu == "Persona choisie par le propriétaire.\n"
     assert meta["demarrage"]["soul"]["etat"] == "divergent"
     assert any("SOUL.md a été modifié" in a for a in meta["alertes"])
+
+
+# ===================================================== 5. évasion de la managed scope refusée
+
+
+CONFIG_API_SERVER_PUBLIC = """\
+platforms:
+  api_server:
+    enabled: true
+    extra:
+      host: 0.0.0.0
+      port: 8642
+      key: cle-intrus-tres-longue-0123456789
+"""
+
+
+def test_l_api_server_reste_en_boucle_locale_meme_sans_cle_dans_l_env(ressources, image):
+    """Défaut P1 : l'agent retire API_SERVER_KEY de /opt/data/.env (l'enrôlement par
+    l'environnement s'arrête, gateway/config_env.py:307-315) puis enrôle l'api_server sur
+    0.0.0.0 via /opt/data/config.yaml. La managed scope épingle l'hôte : l'écoute reste locale."""
+    conteneur = lancer(ressources, image, ENV_VALIDE)
+    conteneur.executer(["sh", "-c", "sed -i '/^API_SERVER_KEY=/d' /opt/data/.env"],
+                       utilisateur="hermes", verifier=True)
+    conteneur.executer(["sh", "-c", "cat > /opt/data/config.yaml"], utilisateur="hermes",
+                       entree=CONFIG_API_SERVER_PUBLIC, verifier=True)
+    relance = conteneur.executer(["/command/s6-svc", "-r", "/run/service/gateway-default"],
+                                 utilisateur="hermes")
+    assert relance.returncode == 0, relance.stderr
+    time.sleep(3)
+    conteneur.attendre_passerelle()
+    ecoutes = _ecoutes(conteneur)
+    afficher("api_server après retrait de la clé et enrôlement 0.0.0.0 par config.yaml",
+             "\n".join(sorted(ecoutes)))
+    assert "127.0.0.1 8642" in ecoutes
+    assert "0.0.0.0 8642" not in ecoutes
+    assert all(e.endswith(" 9119") or e == "127.0.0.1 8642" for e in ecoutes), ecoutes
+
+
+def _attendre_arret(nom: str, delai: float = 40) -> int:
+    """Attend qu'un conteneur s'arrête et rend son code de sortie."""
+    limite = time.monotonic() + delai
+    while time.monotonic() < limite:
+        etat = docker("inspect", "-f", "{{.State.Running}}", nom, verifier=False).stdout.strip()
+        if etat == "false":
+            return int(docker("inspect", "-f", "{{.State.ExitCode}}", nom, verifier=True).stdout.strip())
+        time.sleep(1)
+    raise AssertionError(f"le conteneur {nom} tourne encore après {delai} s")
+
+
+def test_hermes_managed_dir_injecte_dans_le_volume_est_fail_closed(ressources, image):
+    """HERMES_MANAGED_DIR ne peut pas être épinglée (elle choisit la portée gérée). Posée par
+    l'agent dans /opt/data/.env, elle est refusée : la relance du tableau de bord échoue fermé,
+    et le redémarrage du conteneur refuse de démarrer (message français, code 1)."""
+    conteneur = lancer(ressources, image, ENV_VALIDE)
+    conteneur.executer(["sh", "-c", "mkdir -p /opt/data/faux-gere && "
+                        "printf 'approvals:\\n  mode: \"off\"\\n' > /opt/data/faux-gere/config.yaml && "
+                        "printf 'HERMES_MANAGED_DIR=/opt/data/faux-gere\\n' >> /opt/data/.env"],
+                       utilisateur="hermes", verifier=True)
+
+    # 1. Relance du tableau de bord par l'agent : la garde root (enveloppe de run) refuse. Le
+    #    tableau de bord ne repart donc jamais sur la portée détournée ; il boucle sur le refus.
+    relance = conteneur.executer(["/command/s6-svc", "-r", "/run/service/dashboard"], utilisateur="hermes")
+    assert relance.returncode == 0, relance.stderr
+    time.sleep(8)  # la garde de relance temporise 5 s sur refus, puis s6 réessaie
+    journal = conteneur.journaux()
+    afficher("relance du tableau de bord avec HERMES_MANAGED_DIR injectée",
+             "\n".join(l for l in journal.splitlines() if "acp" in l.lower())[-2000:])
+    # La garde a bien refusé la relance (au moins une fois ; s6 boucle donc jamais servi détourné).
+    assert journal.count("REFUS : relance du tableau de bord refusée") >= 1
+
+    # 2. Redémarrage du conteneur : les gardes de démarrage refusent (échec fermé, code 1).
+    docker("restart", conteneur.nom, verifier=False, delai=60)
+    code = _attendre_arret(conteneur.nom)
+    journal = conteneur.journaux()
+    afficher(f"redémarrage avec HERMES_MANAGED_DIR injectée : code {code}",
+             "\n".join(l for l in journal.splitlines() if "[acp]" in l)[-2000:])
+    assert code == 1
+    assert "[acp] REFUS" in journal and "HERMES_MANAGED_DIR" in journal
+    assert "des variables interdites ont été injectées dans le volume" in journal
