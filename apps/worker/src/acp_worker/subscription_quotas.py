@@ -47,6 +47,7 @@ from acp_contracts import (
     DEFAULT_LIMIT_ID,
     QUOTA_BATCH_MAX,
     QUOTA_DETAIL_MAX,
+    QUOTA_PLAN_MAX,
     QUOTA_SOURCE_BY_PROVIDER,
     SubscriptionQuotaReport,
 )
@@ -83,7 +84,8 @@ TERMINATE_GRACE_SECONDS = 0.2
 CLEAN_EXIT_GRACE_SECONDS = 2.0
 CLIENT_NAME = "agent_company_platform_worker"
 CLIENT_TITLE = "Agent Company Platform — worker"
-CLIENT_VERSION = "0.10.0"
+CLIENT_VERSION = "1.0"
+"""Version du dialogue de cette sonde avec l'app-server, pas celle du produit."""
 CLAUDE_SNAPSHOT_SOURCE = "claude-code-statusline"
 CLAUDE_WINDOW_MINUTES = {"five_hour": 300, "seven_day": 10_080}
 
@@ -350,19 +352,27 @@ def _detail(text: str) -> str:
     return text if len(text) <= QUOTA_DETAIL_MAX else text[: QUOTA_DETAIL_MAX - 1] + "…"
 
 
+def _safe_plan(plan: object) -> str | None:
+    """Plan recopié seulement s'il respecte le contrat ; sinon « Inconnu »."""
+
+    if isinstance(plan, str) and plan.strip() and len(plan) <= QUOTA_PLAN_MAX and "\x00" not in plan:
+        return plan
+    return None
+
+
 def _failure(
     provider: str,
     status: str,
     detail: str,
     *,
     limit_id: str = DEFAULT_LIMIT_ID,
-    plan: str | None = None,
+    plan: object = None,
 ) -> SubscriptionQuotaReport:
     return SubscriptionQuotaReport(
         provider=provider,
         status=status,
         source=QUOTA_SOURCE_BY_PROVIDER[provider],
-        plan=plan,
+        plan=_safe_plan(plan),
         limit_id=limit_id,
         observed_at=_now(),
         detail=_detail(detail),
@@ -383,14 +393,13 @@ def _validated(payload: dict[str, Any], label: str) -> SubscriptionQuotaReport:
     try:
         return SubscriptionQuotaReport.model_validate(payload)
     except ValidationError as exc:
-        plan = payload.get("plan")
         return _failure(
             payload["provider"],
             "unavailable",
             f"Relevé {label} refusé par le contrat de la plateforme "
             f"(champ {_field_of(exc)}) : quotas non transmis.",
             limit_id=payload.get("limit_id", DEFAULT_LIMIT_ID),
-            plan=plan if isinstance(plan, str) and len(plan) <= 40 and plan.strip() else None,
+            plan=payload.get("plan"),
         )
 
 

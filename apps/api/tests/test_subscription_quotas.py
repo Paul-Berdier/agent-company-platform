@@ -285,6 +285,32 @@ def test_a_newer_probe_retires_the_counters_it_no_longer_reports():
     assert providers == ["claude_code", "codex"]
 
 
+def test_a_failed_reading_never_retires_the_last_successful_counters():
+    with TestClient(app) as client:
+        worker_id, token, _ = _register(client)
+        ok = _post(client, worker_id, token, _codex(_instant(-120)), _codex(_instant(-120), limit_id="codex_other"))
+        assert ok.json() == {"stored": 2, "ignored_older": 0, "removed": 0}
+        failed = {
+            "provider": "codex",
+            "status": "unavailable",
+            "source": "codex_app_server",
+            "observed_at": _instant(-5),
+            "detail": "L'app-server Codex n'a pas répondu dans le délai de 20 s : quotas non relevés.",
+        }
+        assert _post(client, worker_id, token, failed).json() == {
+            "stored": 1,
+            "ignored_older": 0,
+            "removed": 0,
+        }
+    items = _owner_items(worker_id)
+    assert [(item["limit_id"], item["status"]) for item in items] == [
+        ("codex", "ok"),
+        ("codex_other", "ok"),
+        ("default", "unavailable"),
+    ]
+    assert items[0]["windows"][0]["used_percent"] == 42
+
+
 def test_an_old_observation_is_marked_stale_against_the_configured_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ):

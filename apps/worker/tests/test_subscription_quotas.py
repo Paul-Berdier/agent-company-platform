@@ -532,6 +532,35 @@ async def test_an_out_of_range_counter_is_unavailable_without_inventing_a_value(
     assert "used_percent" in report.detail
 
 
+def test_too_many_counters_are_refused_rather_than_truncated():
+    many = {f"compteur_{index:02d}": FAKE.snapshot(f"compteur_{index:02d}", "C", 1, 1) for index in range(16)}
+    (report,) = quotas.codex_reports_from_rate_limits(
+        {"rateLimits": many["compteur_00"], "rateLimitsByLimitId": many},
+        account_plan="prolite",
+        observed_at=datetime.now(UTC),
+    )
+    assert (report.status, report.limit_id, report.plan) == ("unavailable", "default", "prolite")
+    assert "16 compteurs" in report.detail
+
+    fifteen = dict(list(many.items())[:15])
+    reports = quotas.codex_reports_from_rate_limits(
+        {"rateLimits": many["compteur_00"], "rateLimitsByLimitId": fifteen},
+        account_plan="prolite",
+        observed_at=datetime.now(UTC),
+    )
+    assert [report.status for report in reports] == ["ok"] * 15
+
+
+def test_a_plan_outside_the_contract_is_never_forwarded():
+    oversized = FAKE.snapshot("codex", "Codex", 10, 20)
+    oversized["planType"] = "p" * 41
+    (report,) = quotas.codex_reports_from_rate_limits(
+        {"rateLimits": oversized}, account_plan=None, observed_at=datetime.now(UTC)
+    )
+    assert (report.status, report.limit_id, report.plan) == ("unavailable", "codex", None)
+    assert "plan" in report.detail
+
+
 async def test_a_json_rpc_error_is_unavailable_and_never_echoes_the_server_message(tmp_path: Path):
     (report,) = await probe_codex(quota_config(tmp_path, "rpc-error"))
     assert report.status == "unavailable"

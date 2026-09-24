@@ -138,10 +138,13 @@ futur est refusé (horloge du poste déréglée).
   compté dans `ignored_older` ;
 - un relevé au moins aussi récent le remplace (un rejeu à l'identique est sans effet
   sur les valeurs) et compte dans `stored` ;
-- un relevé fait foi pour son fournisseur : les compteurs du même worker et du même
+- une lecture réussie fait foi pour la liste des compteurs : si le lot contient au
+  moins un relevé `ok` pour un fournisseur, les compteurs du même worker et du même
   fournisseur qu'il ne rapporte plus, s'ils sont plus anciens que lui, sont retirés et
   comptés dans `removed` (par exemple l'état « non connecté » une fois le profil
-  connecté).
+  connecté) ;
+- un échec de lecture (aucun relevé `ok` pour ce fournisseur) ne retire rien : les
+  derniers relevés réussis restent visibles avec leur date et deviennent « Périmé ».
 
 Réponse : `{"stored": 2, "ignored_older": 0, "removed": 1}`.
 
@@ -212,6 +215,9 @@ autre rôle, `503` si `ACP_SUBSCRIPTION_QUOTA_STALE_SECONDS` est invalide. Répo
 - `stale` est vrai quand `observed_at` est plus ancien que `stale_after_seconds`
   (`ACP_SUBSCRIPTION_QUOTA_STALE_SECONDS`, 1 800 s par défaut, de 60 à 604 800) ;
   `received_at` dit seulement quand l'API a reçu le relevé ;
+- pour un même worker et un même fournisseur, le relevé dont `observed_at` est le
+  plus récent donne l'état courant (par exemple « Indisponible » après un délai
+  dépassé) ; les compteurs plus anciens restent affichés avec leur date ;
 - un serveur antérieur à cette version répond `404` : le client affiche alors
   « Non disponible sur ce serveur ».
 
@@ -305,6 +311,8 @@ l'intervalle, jamais les chemins.
   d'état.
 - **Pas de temps réel** : la vue se relit périodiquement ; aucun événement SSE n'est
   émis pour un nouveau relevé.
+- **Worker révoqué** : ses derniers relevés restent listés, deviennent « Périmé », et
+  ne disparaissent qu'avec la suppression du worker.
 - **Horloges** : la fraîcheur compare l'horloge de l'API à `observed_at`, fixé par le
   poste du worker (Codex) ou par la ligne d'état (Claude Code) ; un écart de plus de
   cinq minutes dans le futur est refusé.

@@ -10,9 +10,12 @@ Trois règles d'écriture, appliquées sous le verrou de la ligne du worker :
   compté comme tel dans le bilan ;
 - un relevé au moins aussi récent remplace le précédent (un rejeu à l'identique
   est donc sans effet sur les valeurs) ;
-- un relevé fait foi pour son fournisseur : les compteurs du même worker et du
-  même fournisseur qu'il ne rapporte plus, et qui sont plus anciens que lui, sont
-  retirés (par exemple l'état « non connecté » une fois le profil connecté).
+- une lecture réussie fait foi pour la liste des compteurs de son fournisseur : si
+  le lot contient au moins un relevé ``ok`` pour ce fournisseur, les compteurs du même
+  worker et du même fournisseur qu'il ne rapporte plus, et qui sont plus anciens que
+  lui, sont retirés (par exemple l'état « non connecté » une fois le profil connecté).
+  Un échec de lecture ne retire rien : les derniers relevés réussis restent visibles
+  avec leur date, et deviennent « Périmé » avec le temps.
 """
 
 from __future__ import annotations
@@ -128,8 +131,11 @@ def ingest_reports(
         stored += 1
 
     for provider in sorted({report.provider for report in batch.reports}):
-        reported = {report.limit_id for report in batch.reports if report.provider == provider}
-        newest = max(report.observed_at for report in batch.reports if report.provider == provider)
+        provider_reports = [report for report in batch.reports if report.provider == provider]
+        if not any(report.status == "ok" for report in provider_reports):
+            continue
+        reported = {report.limit_id for report in provider_reports}
+        newest = max(report.observed_at for report in provider_reports)
         for (row_provider, limit_id), row in sorted(existing.items()):
             if row_provider == provider and limit_id not in reported and row.observed_at < newest:
                 db.delete(row)
