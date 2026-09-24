@@ -432,6 +432,10 @@ QString localMoment(const QDateTime &instant, const QDateTime &now, const QTimeZ
 QString freshness(const QDateTime &observed, const QDateTime &now)
 {
     const qint64 age = observed.secsTo(now);
+    if (age < -60) {
+        // L'API tolère cinq minutes d'avance : le dire plutôt que d'écrire « à l'instant ».
+        return QStringLiteral("relevé daté de %1 dans le futur (horloge du worker en avance)").arg(duration(-age));
+    }
     return age < 60 ? QStringLiteral("relevé à l'instant") : QStringLiteral("relevé il y a %1").arg(duration(age));
 }
 
@@ -511,7 +515,7 @@ QJsonObject windowRow(const QuotaWindow &window, const QDateTime &now, const QTi
 QString windowSummary(const QJsonObject &window)
 {
     const QString remaining = window.value(QStringLiteral("remainingPercent")).isNull()
-        ? QStringLiteral("restant Inconnu")
+        ? QStringLiteral("reste Inconnu")
         : window.value(QStringLiteral("remainingText")).toString() + QStringLiteral(" restant");
     QString reset = window.value(QStringLiteral("resetText")).toString();
     const QString countdown = window.value(QStringLiteral("countdownText")).toString();
@@ -813,7 +817,9 @@ void SubscriptionQuotasViewModel::refresh()
         updateSession();
         return;
     }
-    if (m_reports->count() == 0 && m_state != QLatin1String("loading")) {
+    // Seul un écran encore sans état affiche « Chargement… » : une relecture périodique
+    // garde l'état et son explication (« Aucun relevé », « Hors ligne »…) jusqu'à la réponse.
+    if (m_state == QLatin1String("idle") || m_state == QLatin1String("signedOut")) {
         m_state = QStringLiteral("loading");
         m_message = QStringLiteral("Lecture des derniers relevés auprès de l'API…");
     }

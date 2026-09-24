@@ -170,6 +170,10 @@ private slots:
     void missingRouteMeansUnsupportedServer();
     void automaticRefreshOnlyWhileVisible();
     void staleSessionResponsesAreDiscarded();
+    void probeStatesAreNamedInFrench_data();
+    void probeStatesAreNamedInFrench();
+    void futureTimestampIsNotCalledRecent();
+    void periodicRefreshKeepsTheCurrentExplanation();
 };
 
 void TestSubscriptionQuotas::twoProvidersFromTheReferenceFixture()
@@ -437,6 +441,7 @@ void TestSubscriptionQuotas::nullValuesStayUnknown()
     QCOMPARE(item.value(QStringLiteral("creditsLabel")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(item.value(QStringLiteral("limitReachedLabel")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(item.value(QStringLiteral("freshness")).toString(), QStringLiteral("relevé à l'instant"));
+    QVERIFY(item.value(QStringLiteral("accessibleName")).toString().contains(QStringLiteral("Fenêtre « primary » (durée inconnue) : reste Inconnu")));
     const auto unknown = windowAt(item, 0);
     QCOMPARE(unknown.value(QStringLiteral("label")).toString(), QStringLiteral("Fenêtre « primary » (durée inconnue)"));
     QCOMPARE(unknown.value(QStringLiteral("usedText")).toString(), QStringLiteral("Inconnu"));
@@ -551,6 +556,66 @@ void TestSubscriptionQuotas::staleSessionResponsesAreDiscarded()
     authenticate(*h.auth);
     QTRY_COMPARE(h.vm->state(), QStringLiteral("ready"));
     QCOMPARE(rows(*h.vm)->count(), 3);
+}
+
+void TestSubscriptionQuotas::probeStatesAreNamedInFrench_data()
+{
+    QTest::addColumn<QString>("status");
+    QTest::addColumn<QString>("label");
+    QTest::addColumn<QString>("chip");
+    QTest::newRow("ok") << QStringLiteral("ok") << QStringLiteral("Connecté") << QStringLiteral("succeeded");
+    QTest::newRow("not-signed-in") << QStringLiteral("not_signed_in") << QStringLiteral("Non connecté") << QStringLiteral("notConfigured");
+    QTest::newRow("cli-missing") << QStringLiteral("cli_missing") << QStringLiteral("CLI absente") << QStringLiteral("notConfigured");
+    QTest::newRow("cli-too-old") << QStringLiteral("cli_too_old") << QStringLiteral("CLI trop ancienne") << QStringLiteral("blocked");
+    QTest::newRow("unavailable") << QStringLiteral("unavailable") << QStringLiteral("Indisponible") << QStringLiteral("failed");
+}
+
+void TestSubscriptionQuotas::probeStatesAreNamedInFrench()
+{
+    QFETCH(QString, status);
+    QFETCH(QString, label);
+    QFETCH(QString, chip);
+    Harness h;
+    const auto row = report(QStringLiteral("codex"), status, QStringLiteral("2026-09-24T08:00:00Z"));
+    h.server.handler = [&](const Request &) { return Response{json(listing({row}))}; };
+    h.vm->setActive(true);
+    QTRY_COMPARE(h.vm->state(), QStringLiteral("ready"));
+    const auto item = rows(*h.vm)->get(0);
+    QCOMPARE(item.value(QStringLiteral("statusLabel")).toString(), label);
+    QCOMPARE(item.value(QStringLiteral("statusKey")).toString(), chip);
+    QCOMPARE(item.value(QStringLiteral("detail")).toString(),
+             status == QLatin1String("ok") ? QString() : QStringLiteral("Explication du worker."));
+}
+
+void TestSubscriptionQuotas::futureTimestampIsNotCalledRecent()
+{
+    Harness h;
+    // L'API tolère cinq minutes d'avance d'horloge : l'écran ne l'appelle pas « à l'instant ».
+    const auto row = report(QStringLiteral("claude_code"), QStringLiteral("ok"), QStringLiteral("2026-09-24T08:07:00Z"),
+        {window(QStringLiteral("five_hour"), 10, 300, QJsonValue::Null)});
+    h.server.handler = [&](const Request &) { return Response{json(listing({row}))}; };
+    h.vm->setActive(true);
+    QTRY_COMPARE(h.vm->state(), QStringLiteral("ready"));
+    QCOMPARE(rows(*h.vm)->get(0).value(QStringLiteral("freshness")).toString(),
+             QStringLiteral("relevé daté de 4 min dans le futur (horloge du worker en avance)"));
+}
+
+void TestSubscriptionQuotas::periodicRefreshKeepsTheCurrentExplanation()
+{
+    Harness h;
+    int delay = 0;
+    h.server.handler = [&delay](const Request &) { return Response{json(listing({})), 200, delay}; };
+    h.vm->setActive(true);
+    QTRY_COMPARE(h.vm->state(), QStringLiteral("empty"));
+    const QString explanation = h.vm->message();
+    delay = 300;
+    h.vm->refresh();
+    QVERIFY(h.vm->loading());
+    // Pas de clignotement « Chargement… » à chaque relecture : l'explication reste lisible.
+    QCOMPARE(h.vm->state(), QStringLiteral("empty"));
+    QCOMPARE(h.vm->message(), explanation);
+    QTRY_VERIFY(!h.vm->loading());
+    QCOMPARE(h.vm->state(), QStringLiteral("empty"));
 }
 
 QTEST_GUILESS_MAIN(TestSubscriptionQuotas)
