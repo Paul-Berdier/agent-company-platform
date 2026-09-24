@@ -16,6 +16,8 @@ name: Image Hermes
 #         relance des services par l'agent et après redémarrage du conteneur ;
 #       * /run/service et les scripts des passerelles repris par root : pas d'élévation
 #         par un service supervisé ; la relance par s6-svc reste possible ;
+#       * PATH des scripts root sans répertoire du volume : un faux binaire déposé
+#         par l'agent pour chaque commande système n'est jamais exécuté en root ;
 #       * api_server ramené en 127.0.0.1 même clé retirée et enrôlé sur 0.0.0.0 par
 #         config.yaml ;
 #       * HERMES_MANAGED_DIR posée dans /opt/data/.env : relance ET redémarrage refusés

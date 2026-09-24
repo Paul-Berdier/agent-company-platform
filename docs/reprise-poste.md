@@ -285,6 +285,14 @@ complet dans [`docs/refonte/image.md`](refonte/image.md) (§ 4.3, § 4.4, § 5, 
    pour chaque vecteur ci-dessus ; en-tête d'`image.yml`, § 5/§ 9/§ 10 d'`image.md`,
    commentaire de `gere/config.yaml` et cette note ne revendiquent que le prouvé et listent
    la limite du même uid.
+6. **Élévation par le `PATH` (critique, trouvée à la vérification finale, après la
+   relecture).** L'image officielle place `/opt/data/.local/bin`, que l'agent possède, avant
+   `/usr/bin` dans le `PATH` que reçoivent tous les scripts root de s6. Sur `6b5a699`, un faux
+   `id` déposé par l'agent tournait en root à la relance du tableau de bord (`uid=0(root)`) ;
+   avec un faux binaire par commande système, quatorze tournaient en root. **Correctif** :
+   `PATH` redéfini sans répertoire du volume, refusé par les gardes s'il sort de `PATH_ADMIS`,
+   `/bin/sh` et `/bin/sleep` en chemin absolu dans les scripts d'ACP (image.md § 4.5).
+   Prouvé : le nouveau test de contrat échoue sur l'ancienne image et passe sur la nouvelle.
 
 Preuves rejouées le 24 septembre 2026 (Windows 10, Docker 29.5.3), après reconstruction :
 
@@ -301,6 +309,24 @@ Preuves rejouées le 24 septembre 2026 (Windows 10, Docker 29.5.3), après recon
 - `hermes plugins compat /opt/hermes/plugins/acp-poste` → code 0 (« No enabled plugin
   imports paths scheduled for removal »).
 - `scripts/check_engine_frozen.py` → code 0 ; `scripts/check_version.py` → code 0 (0.11.0).
+
+Preuves du correctif `PATH` (point 6), le même jour, image reconstruite :
+
+- Sur l'ancienne image (`6b5a699`), un faux `id` posé par l'uid hermes dans
+  `/opt/data/.local/bin` puis `s6-svc -r /run/service/dashboard` : le faux binaire écrit
+  `uid=0(root) gid=0(root)`. Le nouveau test de contrat échoue sur cette image, d'abord
+  sur le `PATH` reçu par les scripts root, puis, cette assertion retirée, sur quatorze
+  faux binaires exécutés en root (`basename`, `cat`, `chmod`, `chown`, `curl`, `dirname`,
+  `stat`…).
+- Sur la nouvelle image : `PATH` des scripts root =
+  `/command:/opt/hermes/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` ;
+  598 faux binaires posés, **aucun** exécuté en root après relance du tableau de bord et
+  de la passerelle par l'agent puis redémarrage du conteneur ; un `PATH` qui contient
+  `/opt/data/.local/bin` fait refuser le démarrage (code 1, message français).
+- pytest dans l'image : **108 réussis** (+5). Tests de contrat : **37 réussis** (+2).
+  Au premier passage local, 31 réussis et 5 en échec sur `UnicodeEncodeError 'charmap'` :
+  la console Windows, sortie redirigée vers un fichier, n'encodait pas les `print` de
+  preuve. Relancés avec `PYTHONUTF8=1`, les 5 passent. Ce n'est pas un défaut de l'image.
 
 ### Écarts au plan, assumés
 

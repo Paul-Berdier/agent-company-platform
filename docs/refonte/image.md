@@ -50,7 +50,7 @@ PID 1, il lance `/init` de s6-overlay (entrypoint-dispatch.sh:17-19).
 1. **Crochet `S6_STAGE2_HOOK` = `/opt/acp/bin/acp-gardes`**, en root, au tout début de
    l'étape 2, avant tout service et tout script cont-init (rc.init de s6-overlay 3.2.3.0,
    `/package/admin/s6-overlay/etc/s6-linux-init/skel/rc.init`). L'en-tête
-   `#!/command/with-contenv sh` lui donne l'environnement du conteneur (même motif que
+   `#!/command/with-contenv /bin/sh` lui donne l'environnement du conteneur (même motif que
    `01-hermes-setup`, Dockerfile:402-405). Il :
    - refuse une variable interdite ou invalide (§ 4) ;
    - régénère `/etc/hermes/config.yaml` et `/etc/hermes/.env` (root, 0644, écriture
@@ -173,6 +173,35 @@ dynamique, son répertoire et ses scripts (`run`, `finish`, `type`, `log/`, `log
 encore relancer la passerelle par `s6-svc -r` (comportement attendu et testé). Conséquence
 voulue : seul le profil `default` reste enregistrable, ce qui concorde avec
 `kanban.dispatch_profiles: [default]`.
+
+### 4.5 `PATH` des scripts root
+
+L'image officielle met `/opt/data/.local/bin`, que l'agent possède, dans son `PATH`, **avant**
+`/usr/bin` et `/bin` (Dockerfile:476). Or tous les scripts que s6 exécute en root — crochet,
+scripts cont-init, scripts `run` des services — reçoivent ce `PATH` par `with-contenv`
+(`/run/s6/container_environment/PATH`). Constaté sur `6b5a699` : l'agent dépose un faux `id`
+dans `/opt/data/.local/bin`, relance le tableau de bord par `s6-svc -r`, et son script tourne
+**en root** (`uid=0(root)`). Avec un faux binaire pour chaque commande système, quatorze
+d'entre elles (`cat`, `chown`, `chmod`, `curl`, `stat`…) sont exécutées en root au cours des
+relances et du redémarrage. Le fichier est sur le volume : le piège survit aux redémarrages.
+
+**Correctif** : le `Dockerfile` d'ACP redéfinit `PATH` sans aucun répertoire du volume ; les
+gardes refusent tout `PATH` qui sort de `PATH_ADMIS` (`/command`, `/opt/hermes/bin`,
+`/opt/hermes/.venv/bin` et les répertoires système, tous à root) ; les scripts d'ACP
+appellent `/bin/sh` et `/bin/sleep` par leur chemin absolu. Le terminal local de l'agent
+rajoute lui-même `~/.local/bin`, **en fin** de `PATH`, à ses propres shells
+(tools/environments/local.py:630-657) : ses outils installés par `pip --user` ou `uv tool`
+restent utilisables, sans jamais masquer une commande système. En revanche, un programme
+lancé par la passerelle elle-même hors du terminal (un serveur MCP stdio, par exemple) ne
+cherche plus dans `~/.local/bin` : il doit être désigné par son chemin absolu, ce que fera
+le catalogue épinglé de P3. Prouvé par
+`test_les_scripts_root_n_executent_pas_les_binaires_de_l_agent` : sur l'ancienne image il
+échoue (quatorze traces root), sur la nouvelle aucun faux binaire ne tourne en root, ni aux
+relances du tableau de bord et de la passerelle par l'agent, ni au redémarrage.
+
+Ce défaut vient de l'image officielle, pas d'ACP ; il n'avait été vu ni par l'implémentation
+ni par la relecture indépendante de P1. D'autres chemins root lisent encore le volume
+(`stage2-hook.sh`, `02-reconcile-profiles`) sans audit exhaustif (§ 10).
 
 ## 5. Managed scope `/etc/hermes`
 
@@ -337,7 +366,9 @@ relance du tableau de bord ET de la passerelle **par l'agent** et après redéma
 conteneur ; écritures de l'agent refusées dans la managed scope, les greffons, le thème, le
 greffon groupé et `/etc/cont-init.d` ; **`/run/service` et les scripts des passerelles
 repris par root** — l'agent ne peut ni y créer un service (qui tournerait en root) ni
-réécrire un `run`, mais garde `s6-svc -r` par la FIFO `control` ; **api_server ramené en
+réécrire un `run`, mais garde `s6-svc -r` par la FIFO `control` ; **aucun binaire déposé
+par l'agent dans `/opt/data/.local/bin` n'est exécuté en root** (un faux binaire par
+commande système, relances et redémarrage compris ; § 4.5) ; **api_server ramené en
 `127.0.0.1:8642`** même quand l'agent retire `API_SERVER_KEY` de `/opt/data/.env` et l'enrôle
 sur `0.0.0.0` par `config.yaml` ; **`HERMES_MANAGED_DIR` posée dans `/opt/data/.env` refuse
 la relance du tableau de bord (garde root du `run`) et refuse le redémarrage du conteneur**
@@ -353,7 +384,8 @@ Non prouvé — et non garanti — en P1 :
 - **La frontière d'uid ne sépare pas l'agent du tableau de bord** : sous le même uid 10000,
   l'agent peut tuer le processus du tableau de bord et écouter lui-même sur `0.0.0.0:9119`.
   La managed scope, la reprise de `/run/service` et les gardes de relance protègent la
-  **configuration** et empêchent une élévation à root, mais **pas** la prise du port public
+  **configuration** et ferment les deux voies d'élévation à root trouvées (`/run/service`,
+  `PATH`), mais **pas** la prise du port public
   par un processus de l'agent sous le même uid. La vraie parade (uid distinct ou dorsale
   isolée pour les outils terminal) relève de P2. Ce point n'est **pas** couvert par un test
   (le prouver reviendrait à exécuter l'attaque) : il est documenté comme limite assumée.
@@ -371,13 +403,21 @@ Non prouvé — et non garanti — en P1 :
 
 - **Même uid que le tableau de bord (limite de fond).** L'agent et le tableau de bord
   tournent tous deux sous l'uid 10000. Les épingles, la reprise de `/run/service` et les
-  gardes de relance empêchent l'agent de modifier la configuration ou de s'élever à root,
+  gardes de relance empêchent l'agent de modifier la configuration et ferment les deux voies
+  d'élévation à root trouvées (§ 4.4, § 4.5),
   mais **pas** de tuer le processus du tableau de bord et d'écouter lui-même sur
   `0.0.0.0:9119`, le seul port routé par Railway, sans authentification. Aucune permission
   de fichier n'y fait obstacle. La vraie parade — outils terminal de l'agent sous un uid
   distinct, ou dans une dorsale isolée (docker/ssh), ou contrôle de santé externe de
   l'identité du service sur 9119 — est portée à P2. C'est une limite assumée, non couverte
   par un test (l'éprouver reviendrait à exécuter l'attaque).
+- **Chemins root qui lisent le volume, sans audit exhaustif.** Deux élévations à root sont
+  venues de l'image officielle (§ 4.4, § 4.5) et la seconde avait échappé à la relecture.
+  `stage2-hook.sh` (01-hermes-setup) et `02-reconcile-profiles` tournent encore en root sur
+  un `/opt/data` que l'agent contrôle ; ils n'ont pas été audités ligne à ligne. Tant que
+  l'agent dispose d'un shell dans ce conteneur, chaque montée de l'image officielle peut en
+  rouvrir une. La parade de fond est la même que pour le même uid : ne pas donner à l'agent
+  de shell dans le conteneur de Hermes (P2).
 - **Remplacement d'un répertoire root.** `/opt/data` appartient à l'agent : il peut
   renommer `/opt/data/plugins` ou `/opt/data/dashboard-themes` et en recréer un à lui. Le
   crochet et `05-acp` le détectent au démarrage suivant (nom réservé, lien) et reprennent
