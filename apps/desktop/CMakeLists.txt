@@ -124,6 +124,8 @@ set(ACP_CORE_SOURCES
     src/viewmodels/PlatformViewModel.h
     src/viewmodels/OperationsViewModel.cpp
     src/viewmodels/OperationsViewModel.h
+    src/viewmodels/SubscriptionQuotasViewModel.cpp
+    src/viewmodels/SubscriptionQuotasViewModel.h
     src/services/SessionPersistence.cpp
     src/services/SessionPersistence.h
     src/services/UpdateService.cpp

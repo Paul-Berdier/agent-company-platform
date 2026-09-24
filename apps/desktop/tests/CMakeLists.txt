@@ -35,6 +35,12 @@ acp_add_cpp_test(tst_artifacts)
 acp_add_cpp_test(tst_updates)
 acp_add_cpp_test(tst_platform)
 acp_add_cpp_test(tst_operations)
+acp_add_cpp_test(tst_subscription_quotas)
+# Forme de référence de GET /subscription-quotas, comparée à la réponse réelle par
+# apps/api/tests/test_subscription_quotas.py.
+target_compile_definitions(tst_subscription_quotas PRIVATE
+    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
 acp_add_cpp_test(tst_session_persistence)
 acp_add_cpp_test(tst_api_journey)
 acp_add_cpp_test(tst_desktop_pages)
