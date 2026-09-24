@@ -26,6 +26,11 @@ Sécurité, Vérifié localement, Limites connues) sera rédigée avant la PR fi
   `python -m acp_poste.claude_statusline` ;
 - `scripts/check_engine_frozen.py` : garde du gel du moteur Pixel Office ; CI en trois
   volets (moteur, poste sous Linux et Windows, desktop) ;
+- corrections de la relecture indépendante : le refus des NUL du contrat ne contient
+  plus l'octet NUL ; tests DPAPI réels rétablis ; commande `journal`, qu'aucun
+  composant n'alimentait, et `ACP_POSTE_STATE_DIR` retirées ; `acp-poste quotas`
+  refusé (code 2) sans l'accord `ACP_WORKER_SUBSCRIPTION_QUOTAS=1` ;
+  `ACP_WORKER_QUOTA_INTERVAL_SECONDS`, sans effet, retiré ;
 - les sections « Unreleased » et « 0.10.0 (préparation) » ci-dessous décrivent la ligne
   archivée : leurs fonctions côté API, web et CLI n'existent plus sur cette branche, et
   les documents qu'elles citent restent consultables sous l'étiquette d'archive.

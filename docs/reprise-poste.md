@@ -72,9 +72,42 @@ Commits, dans l'ordre, sur `refonte/hermes-p0` :
    `hermes/plugins/acp-poste/contrat` ; le reste de `packages/contracts` part.
 4. `0def013` `ci: guard the frozen Pixel Office engine and reduce CI to three lanes` —
    `scripts/check_engine_frozen.py` et CI en trois volets (moteur, poste, desktop).
-5. `docs: rewrite CLAUDE.md and handoff notes for the Hermes architecture` — ce
-   document, `CLAUDE.md`, `README.md`, `docs/refonte/plan.md`, README du desktop ;
+5. `805ca4c` `docs: rewrite CLAUDE.md and handoff notes for the Hermes architecture` —
+   ce document, `CLAUDE.md`, `README.md`, `docs/refonte/plan.md`, README du desktop ;
    documentation datée des lots A à H retirée.
+6. à 10. `25c9e59`, `9f12fa5`, `c991ecf`, `92ce76a`, `ce91bbb` — corrections de la
+   relecture indépendante (ci-dessous).
+11. `docs: record the P0 review fixes and fresh evidence` — ce document et le journal
+    des modifications, preuves rejouées.
+
+### Corrections après la relecture indépendante
+
+Cinq défauts confirmés, chacun vérifié avant correction :
+
+- `25c9e59` `fix(contract): keep the NUL byte out of its own refusal message` — le
+  message de `refuse_nul` (`_validation.py`) contenait un vrai octet NUL (chaîne non
+  brute ; l'étiquette écrivait `"\\x00"`). Les modèles de quotas n'y arrivaient pas
+  (leurs validateurs de champ refusent le NUL avant, avec un message échappé), mais le
+  filet commun `ContratValide` si. Tests : aucun message de refus, de champ ou commun,
+  ne contient l'octet ; les trois cas du filet commun échouaient avant la correction.
+- `9f12fa5` `test(poste): restore real DPAPI tests for credentials_protection` — les
+  tests du DPAPI vivaient dans `test_state.py` du worker, retiré avec l'enrôlement ;
+  plus aucun test n'importait le module. `tests/test_credentials_protection.py` :
+  aller-retour DPAPI réel, blob altéré ou jamais protégé refusé, charge vide ou de
+  plus de 1 Mio refusée (Windows) ; hors Windows, refus avant tout appel natif.
+- `c991ecf` `fix(poste): drop the journal command that nothing feeds` — `acp-poste
+  journal` lisait un fichier que plus rien n'écrit et sortait en 0 sans rien dire.
+  Commande retirée, avec `ACP_POSTE_STATE_DIR`, qui ne servait qu'à elle.
+  `local_log.py` reste (le plan le garde) avec ses propres tests ; la commande
+  reviendra en P5 avec un écrivain réel.
+- `92ce76a` `fix(poste): make the quota switch govern acp-poste quotas` —
+  `ACP_WORKER_SUBSCRIPTION_QUOTAS` ne gouvernait que le diagnostic. `collect_reports`
+  refuse désormais sans rien lancer ni lire tant qu'il ne vaut pas `1`, et
+  `acp-poste quotas` le dit en français, code 2. `ACP_WORKER_QUOTA_INTERVAL_SECONDS`,
+  validé mais lu par rien depuis le retrait de la boucle d'envoi, est retiré.
+- `ce91bbb` `docs(poste): say that acp-poste quotas reaches OpenAI through Codex CLI` —
+  « aucune connexion réseau » était inexact : le poste n'en ouvre aucune lui-même, mais
+  Codex CLI, qu'il lance, interroge le serveur d'OpenAI (`account/rateLimits/read`).
 
 ### Ce qui a dû être gardé, et pourquoi
 
@@ -101,6 +134,8 @@ Commits, dans l'ordre, sur `refonte/hermes-p0` :
   (`request.json`, jeton de clôture) ; seule la lecture des « claims » de l'API est
   retirée. `executors.py` garde `invocation_from_mission`, qui ne dépend de rien de
   retiré : P5 le remplacera par l'invocation depuis la table `demandes`.
+- `credentials_protection.py` (DPAPI, pour le jeton machine de P5) et `local_log.py`
+  (journal de P5) sont gardés sans utilisateur en production, chacun avec ses tests.
 
 ### Écarts au plan, assumés
 
@@ -110,8 +145,10 @@ Commits, dans l'ordre, sur `refonte/hermes-p0` :
   la CI) pour que chaque commit reste cohérent.
 - `capabilities.py`, `state.py` et l'ancienne `cli.py` du worker, absents des deux
   listes du plan, sont retirés : ils n'existaient que pour l'enrôlement auprès de
-  l'API. La nouvelle `acp-poste` n'offre que `diagnostic`, `quotas` et `journal`,
-  sans réseau ; aucune commande ne simule la délégation.
+  l'API. La nouvelle `acp-poste` n'offre que `diagnostic`, entièrement local, et
+  `quotas`, sur accord `ACP_WORKER_SUBSCRIPTION_QUOTAS=1` : le poste n'ouvre lui-même
+  aucune connexion, mais Codex CLI, qu'il lance, interroge le serveur d'OpenAI. Aucune
+  commande ne simule la délégation ; `journal` attend son écrivain (P5).
 - La passerelle MCP des exécuteurs est retirée (aucun MCP côté poste en v1, selon le
   plan) ; la boucle qui envoyait les quotas à l'API aussi.
 - Le verrou Python ne garde que `pydantic`, pytest et leurs dépendances ; `colorama`
@@ -120,36 +157,59 @@ Commits, dans l'ordre, sur `refonte/hermes-p0` :
   de base du Lot H ne sont plus imposées par `check_lock.py`.
 - Desktop CI perd l'étape « parcours Qt contre une vraie API locale » (API retirée) et
   se déclenche aussi sur `design/tokens/**`.
-- Les variables d'environnement du poste gardent leur préfixe `ACP_WORKER_*` (sauf
-  `ACP_POSTE_STATE_DIR`) ; P5 les remplace par `%LOCALAPPDATA%\ACP\poste.toml`.
+- Les variables d'environnement du poste gardent leur préfixe `ACP_WORKER_*` ; P5 les
+  remplace par `%LOCALAPPDATA%\ACP\poste.toml`. `ACP_POSTE_STATE_DIR` et
+  `ACP_WORKER_QUOTA_INTERVAL_SECONDS` sont retirées : elles ne gouvernaient plus rien.
+- Écart à la relecture : elle proposait de retirer aussi `PosteLogger` ; il reste,
+  parce que le plan garde `local_log.py`.
 
 ### Preuves relevées le 24 septembre 2026 (Windows 10, poste de reprise)
 
+Rejouées après les corrections de la relecture, sur `ce91bbb` (seuls `apps/poste`,
+le contrat, `CHANGELOG.md` et ce document diffèrent de `805ca4c`).
+
 - Garde du moteur : `git diff --exit-code archive/acp-0.10.0-avant-hermes --
-  packages/pixel-office-engine apps/web/public/assets plugins` → sortie vide, code 0 ;
-  `python scripts/check_engine_frozen.py` → code 0. Ses refus ont été éprouvés un par
-  un (fichier du moteur modifié, fichier non suivi dans `plugins`, bloc `.gitignore`
-  altéré, version de `phaser` changée dans le verrou) : code 1 et motif en français.
-- `npm run test:engine` : **7 fichiers, 74 tests réussis**, identique avant et après la
-  réduction des workspaces, après `npm ci` sur le nouveau verrou.
-- Verrou npm : 31 entrées retirées, toutes propres aux workspaces retirés ; les 67
-  paquets de la fermeture du moteur gardent version, URL et intégrité (10 entrées ne
-  gagnent que l'attribut `"peer": true`).
-- pytest sous Windows : **220 réussis, 0 ignoré** (`apps/poste` 161, contrat 54,
-  outillage 5), dans le venv du poste et dans un venv neuf Python 3.12 de python.org
-  installé depuis le seul verrou haché (rejeu des étapes du volet CI Windows) ;
-  `pip check` propre.
-- pytest sous Linux, rejeu des étapes du volet CI dans un conteneur
-  `python:3.12-slim` sur `git archive HEAD` : **219 réussis, 1 ignoré** (« Job Object
-  Windows uniquement »).
-- Desktop Debug : compilation réussie ; `test-desktop.ps1` **25 suites sur 25** ;
-  détail Qt Test : **406 réussis, 0 échec, 1 ignoré** (`tst_api_journey`, qui
-  n'a plus de parcours). Deux compilations ont d'abord échoué à l'édition de liens
-  (`LNK1168` puis `LNK1104` : exécutable de test verrouillé en écriture, sans
-  processus du projet actif) ; la troisième, incrémentale, a abouti. Release n'a pas
-  été recompilé sur ce poste.
+  packages/pixel-office-engine apps/web/public/assets plugins` → sortie vide, code 0,
+  pour l'arbre de travail comme pour `HEAD` ; `python scripts/check_engine_frozen.py`
+  → code 0. Ses refus ont été éprouvés un par un lors de la première passe (fichier du
+  moteur modifié, fichier non suivi dans `plugins`, bloc `.gitignore` altéré, version
+  de `phaser` changée dans le verrou : code 1 et motif en français) ; les deux premiers
+  ont été rejoués ici, puis l'arbre restauré (`git checkout`). Les 68 fichiers suivis
+  des trois chemins gelés ont le contenu exact des blobs de l'étiquette ; seules les
+  fins de ligne de l'arbre de travail diffèrent (`core.autocrlf=true`, § 6).
+- `npm ci` puis `npm run test:engine` (Node 24.19.0, Vitest 5.0.0) : **7 fichiers,
+  74 tests réussis**, comme avant et après la réduction des workspaces.
+- Verrou npm, inchangé depuis `da5bbc7` : 31 entrées retirées, toutes propres aux
+  workspaces retirés ; les 67 paquets de la fermeture du moteur gardent version, URL
+  et intégrité (10 entrées ne gagnent que l'attribut `"peer": true`).
+- pytest sous Windows : **240 réussis, 0 ignoré** (`apps/poste` 175, contrat 60,
+  outillage 5), dans le venv du poste et dans un venv neuf Python 3.12.10 de
+  python.org installé depuis le seul verrou haché (rejeu des étapes du volet CI
+  Windows : `check_version.py`, `pip install --require-hashes --no-deps`,
+  installations éditables sans dépendances, `pip check` propre, `check_lock.py`).
+- pytest sous Linux, rejeu des mêmes étapes dans un conteneur `python:3.12-slim` sur
+  `git archive HEAD` : **231 réussis, 9 ignorés** (8 « DPAPI réel propre à Windows »,
+  1 « Job Object Windows uniquement »).
+- Sous forte charge processeur, des tests temporisés repris sans changement de
+  l'étiquette échouent : une première exécution lancée **pendant** une compilation
+  MSVC complète a donné 1 échec (`FileNotFoundError` sur `hang.pid` dans
+  `test_a_hanging_app_server_times_out_and_its_process_tree_is_stopped`) ; sous charge
+  artificielle (24 à 36 processus actifs pour 12 cœurs logiques), ce test,
+  `test_stop_terminates_a_spawned_child_process`,
+  `test_timeout_terminates_the_real_process` et
+  `test_request_duration_can_only_reduce_the_local_timeout` échouent tour à tour.
+  Sans charge : 240 sur 240 à chaque exécution. Non traité en P0.
+- Desktop Debug : compilation **complète** (`build-desktop.ps1 -Clean`, 433 étapes
+  Ninja, code 0) ; `test-desktop.ps1` **25 suites sur 25** ; détail Qt Test, chaque
+  exécutable lancé avec un rapport `-o …,txt` : **406 réussis, 0 échec, 1 ignoré**
+  (`tst_api_journey`, qui n'a plus de parcours). Release n'a pas été recompilé sur ce
+  poste.
 - `check_version.py` : versions synchronisées sur 0.11.0 ; `check_lock.py` :
-  14 épingles cohérentes ; `git diff --check` propre ; aucun `Co-Authored-By`.
+  14 épingles cohérentes ; `git diff --check archive/acp-0.10.0-avant-hermes HEAD`
+  propre ; aucun `Co-Authored-By` ni pied de page d'agent dans les commits de P0.
+- `acp-poste` lancé à la main : `journal` refusé par argparse (code 2) ; `quotas`
+  sans accord refusé en français (code 2) ; `diagnostic` annonce
+  `"subscription_quotas": "disabled"` et rien d'autre sur les quotas.
 
 ### Non vérifié
 
@@ -160,6 +220,9 @@ Commits, dans l'ordre, sur `refonte/hermes-p0` :
 - `apps/desktop/cmake/check_layout.py` sort en code 1 sur 10 constats hérités de
   l'étiquette (origines codées en dur, chemin absolu dans un test) : non traités, le
   code du client n'est pas modifié en P0.
+- La tenue sous charge des tests temporisés du poste (ci-dessus) : ils bornent des
+  délais de 0,15 à 3 s qui comptent le démarrage d'un interpréteur Python. À durcir
+  (attendre le fichier témoin avant de le lire, délais relatifs) dans une PR dédiée.
 
 ## 5. Chaîne d'outils Windows
 
@@ -207,6 +270,8 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
   ne le remplace pas. MSVC Release applique `/W4 /WX` : employer `QStringLiteral`.
 - Éditions de liens MSVC `LNK1168`/`LNK1104` sur un exécutable de test : relancer la
   compilation incrémentale ; ne pas conclure sans un build complet réussi.
+- Ne pas lancer pytest pendant une compilation MSVC : sous forte charge, des tests
+  temporisés du runner local et de la sonde Codex échouent (voir § 4, preuves).
 - Un exécutable Qt Test peut échouer sans rien écrire : le lancer avec
   `-o <rapport-absolu>,txt` et lire le rapport. CTest compte « Passed » un test qui se
   déclare ignoré (`QSKIP`) : lire les totaux Qt pour les ignorés.
