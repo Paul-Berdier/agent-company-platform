@@ -328,6 +328,7 @@ from .alerts import (  # noqa: F401
 from .subscriptions import (  # noqa: F401
     DEFAULT_LIMIT_ID,
     DEFAULT_QUOTA_STALE_SECONDS,
+    PROBE_LIMIT_ID,
     PROBE_STATUSES,
     QUOTA_BATCH_MAX,
     QUOTA_DETAIL_MAX,

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+import acp_contracts
 from acp_contracts import (
     DEFAULT_QUOTA_STALE_SECONDS,
     QUOTA_BATCH_MAX,
@@ -110,7 +111,7 @@ def test_a_claude_report_keeps_fractional_percentages_and_unknown_values():
     assert report.limit_reached is None
 
 
-def test_limit_id_defaults_to_default_and_windows_to_an_empty_list():
+def test_limit_id_defaults_by_status_and_windows_to_an_empty_list():
     report = SubscriptionQuotaReport.model_validate(
         {
             "provider": "codex",
@@ -121,9 +122,34 @@ def test_limit_id_defaults_to_default_and_windows_to_an_empty_list():
         }
     )
 
-    assert report.limit_id == "default"
+    assert report.limit_id == "probe"
     assert report.windows == []
     assert report.credits is None
+
+    successful = {key: value for key, value in _report().items() if key != "limit_id"}
+    assert SubscriptionQuotaReport.model_validate(successful).limit_id == "default"
+
+
+def test_a_failed_reading_never_takes_the_identity_of_a_counter():
+    """Un échec porte l'identifiant réservé « probe » : il ne remplace jamais un compteur."""
+
+    assert acp_contracts.PROBE_LIMIT_ID == "probe"
+    failure = {
+        "provider": "claude_code",
+        "status": "unavailable",
+        "source": "claude_code_statusline",
+        "observed_at": _now().isoformat(),
+        "detail": "Relevé de la ligne d'état Claude Code mal formé : quotas non relevés.",
+    }
+    assert SubscriptionQuotaReport.model_validate({**failure, "limit_id": "probe"}).limit_id == "probe"
+    for counter in ("default", "codex"):
+        with pytest.raises(ValidationError) as caught:
+            SubscriptionQuotaReport.model_validate({**failure, "limit_id": counter})
+        assert "identifiant réservé « probe »" in _messages(caught.value)
+
+    with pytest.raises(ValidationError) as caught:
+        SubscriptionQuotaReport.model_validate(_report(limit_id="probe"))
+    assert "« probe » est réservé aux lectures en échec" in _messages(caught.value)
 
 
 def test_source_is_bound_to_its_provider():
@@ -276,6 +302,7 @@ def test_observed_at_must_be_aware_and_not_beyond_five_minutes_in_the_future():
 def test_a_failed_probe_carries_an_explanation_and_no_measure():
     base = {
         "status": "not_signed_in",
+        "limit_id": "probe",
         "plan": None,
         "windows": [],
         "credits": None,
@@ -344,6 +371,31 @@ def test_a_batch_holds_one_to_sixteen_distinct_reports():
         }
     )
     assert [report.provider for report in batch.reports] == ["codex", "claude_code"]
+
+
+def test_a_batch_never_mixes_counters_and_a_failure_for_one_provider():
+    failure = {
+        "provider": "codex",
+        "status": "unavailable",
+        "source": "codex_app_server",
+        "observed_at": _now().isoformat(),
+        "detail": "L'app-server Codex n'a pas répondu dans le délai de 20 s : quotas non relevés.",
+    }
+    with pytest.raises(ValidationError) as caught:
+        SubscriptionQuotaBatch.model_validate({"reports": [_report(), failure]})
+    assert "codex mêle des compteurs relevés et un échec de lecture" in _messages(caught.value)
+
+    claude_failure = {
+        **failure,
+        "provider": "claude_code",
+        "source": "claude_code_statusline",
+        "detail": "Relevé de la ligne d'état Claude Code illisible : quotas non relevés.",
+    }
+    batch = SubscriptionQuotaBatch.model_validate({"reports": [_report(), claude_failure]})
+    assert [(report.provider, report.limit_id) for report in batch.reports] == [
+        ("codex", "codex"),
+        ("claude_code", "probe"),
+    ]
 
 
 def test_ingest_result_counts_are_non_negative_integers():

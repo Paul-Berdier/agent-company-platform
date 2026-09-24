@@ -54,6 +54,13 @@ QUOTA_COUNTER_MAX = 1_000
 QUOTA_FUTURE_TOLERANCE = timedelta(minutes=5)
 """Écart d'horloge toléré entre le poste du worker et l'API."""
 DEFAULT_LIMIT_ID = "default"
+"""Compteur unique d'une source qui n'en nomme aucun (ligne d'état Claude Code, vue
+historique ``rateLimits`` de Codex)."""
+PROBE_LIMIT_ID = "probe"
+"""Identifiant réservé à une lecture en échec, jamais à un compteur de la source.
+
+Un échec n'a donc jamais l'identité d'un compteur réussi : il ne peut pas remplacer
+le dernier relevé réussi, qui reste affiché avec sa date."""
 DEFAULT_QUOTA_STALE_SECONDS = 1800
 QUOTA_STALE_SECONDS_MIN = 60
 QUOTA_STALE_SECONDS_MAX = 604_800
@@ -363,7 +370,37 @@ class SubscriptionQuotaReport(_QuotaReportFields):
     ``observed_at`` est l'instant où la source a répondu, jamais celui de l'envoi.
     Un instant plus de cinq minutes dans le futur (horloge du poste déréglée) est
     refusé : il gagnerait à tort toute comparaison de fraîcheur.
+
+    Une lecture en échec (état autre que ``ok``) porte toujours ``limit_id`` =
+    ``probe``, valeur par défaut quand le champ est omis ; un relevé réussi ne la porte
+    jamais. Un échec ne prend ainsi jamais la place d'un compteur relevé.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _failure_identity_by_default(cls, data: Any) -> Any:
+        if (
+            isinstance(data, Mapping)
+            and "limit_id" not in data
+            and data.get("status") in PROBE_STATUSES
+            and data.get("status") != "ok"
+        ):
+            return {**data, "limit_id": PROBE_LIMIT_ID}
+        return data
+
+    @model_validator(mode="after")
+    def _failure_identity(self) -> SubscriptionQuotaReport:
+        if self.status == "ok" and self.limit_id == PROBE_LIMIT_ID:
+            raise ValueError(
+                f"« limit_id » : « {PROBE_LIMIT_ID} » est réservé aux lectures en échec, "
+                "jamais à un compteur relevé"
+            )
+        if self.status != "ok" and self.limit_id != PROBE_LIMIT_ID:
+            raise ValueError(
+                f"« limit_id » : une lecture en échec ({self.status}) porte l'identifiant "
+                f"réservé « {PROBE_LIMIT_ID} », jamais celui d'un compteur"
+            )
+        return self
 
     @field_validator("observed_at", mode="after")
     @classmethod
@@ -377,7 +414,11 @@ class SubscriptionQuotaReport(_QuotaReportFields):
 
 
 class SubscriptionQuotaBatch(_QuotaContract):
-    """Lot envoyé par un worker : un relevé par couple (fournisseur, compteur)."""
+    """Lot envoyé par un worker : un relevé par couple (fournisseur, compteur).
+
+    Pour un fournisseur, une lecture est soit réussie (ses compteurs, tous ``ok``),
+    soit en échec (un seul relevé ``probe``) : un lot ne mêle jamais les deux.
+    """
 
     reports: list[SubscriptionQuotaReport]
 
@@ -402,6 +443,16 @@ class SubscriptionQuotaBatch(_QuotaContract):
                     f"« reports » : relevé en double pour {report.provider}/{report.limit_id}"
                 )
             seen.add(identity)
+        outcomes: dict[str, set[bool]] = {}
+        for report in self.reports:
+            outcomes.setdefault(report.provider, set()).add(report.status == "ok")
+        mixed = sorted(provider for provider, kinds in outcomes.items() if len(kinds) > 1)
+        if mixed:
+            raise ValueError(
+                "« reports » : "
+                + ", ".join(mixed)
+                + " mêle des compteurs relevés et un échec de lecture dans le même lot"
+            )
         return self
 
 

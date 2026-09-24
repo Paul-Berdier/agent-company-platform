@@ -460,7 +460,7 @@ async def test_notifications_and_foreign_messages_are_ignored(tmp_path: Path):
 async def test_an_unsigned_profile_is_reported_as_not_signed_in(tmp_path: Path):
     (report,) = await probe_codex(quota_config(tmp_path, "not-signed-in"))
     assert report.status == "not_signed_in"
-    assert report.limit_id == "default"
+    assert report.limit_id == "probe"
     assert report.windows == []
     assert "codex login" in report.detail
     assert "non connecté" in report.detail
@@ -527,9 +527,28 @@ async def test_a_malformed_exchange_is_unavailable(tmp_path: Path, mode: str):
 
 async def test_an_out_of_range_counter_is_unavailable_without_inventing_a_value(tmp_path: Path):
     (report,) = await probe_codex(quota_config(tmp_path, "out-of-range"))
-    assert (report.status, report.limit_id) == ("unavailable", "codex")
+    assert (report.status, report.limit_id) == ("unavailable", "probe")
     assert report.windows == []
     assert "used_percent" in report.detail
+    assert "« codex »" in report.detail
+
+
+def test_one_counter_outside_the_contract_fails_the_whole_reading():
+    """Aucun compteur transmis à moitié : les derniers relevés réussis restent affichés."""
+
+    valid = FAKE.snapshot("codex", "Codex", 10, 20)
+    beyond = FAKE.snapshot("codex_other", "GPT-6 Astra", 140, 20)
+    reports = quotas.codex_reports_from_rate_limits(
+        {"rateLimits": valid, "rateLimitsByLimitId": {"codex": valid, "codex_other": beyond}},
+        account_plan="prolite",
+        observed_at=datetime.now(UTC),
+    )
+    assert [(report.status, report.limit_id, report.plan) for report in reports] == [
+        ("unavailable", "probe", "prolite")
+    ]
+    assert "« codex_other »" in reports[0].detail
+    assert "used_percent" in reports[0].detail
+    SubscriptionQuotaBatch.model_validate({"reports": [report.model_dump(mode="json") for report in reports]})
 
 
 def test_too_many_counters_are_refused_rather_than_truncated():
@@ -539,7 +558,7 @@ def test_too_many_counters_are_refused_rather_than_truncated():
         account_plan="prolite",
         observed_at=datetime.now(UTC),
     )
-    assert (report.status, report.limit_id, report.plan) == ("unavailable", "default", "prolite")
+    assert (report.status, report.limit_id, report.plan) == ("unavailable", "probe", "prolite")
     assert "16 compteurs" in report.detail
 
     fifteen = dict(list(many.items())[:15])
@@ -557,7 +576,7 @@ def test_a_plan_outside_the_contract_is_never_forwarded():
     (report,) = quotas.codex_reports_from_rate_limits(
         {"rateLimits": oversized}, account_plan=None, observed_at=datetime.now(UTC)
     )
-    assert (report.status, report.limit_id, report.plan) == ("unavailable", "codex", None)
+    assert (report.status, report.limit_id, report.plan) == ("unavailable", "probe", None)
     assert "plan" in report.detail
 
 
@@ -655,7 +674,7 @@ async def test_the_status_line_snapshot_becomes_a_claude_code_report(tmp_path: P
 
 async def test_a_missing_status_line_snapshot_is_unavailable_with_an_explanation(tmp_path: Path):
     report = await probe_claude_code(quota_config(tmp_path, snapshot=tmp_path / "absent.json"))
-    assert report.status == "unavailable"
+    assert (report.status, report.limit_id) == ("unavailable", "probe")
     assert report.windows == []
     assert "absent" in report.detail
     assert "ligne d'état" in report.detail
@@ -688,7 +707,7 @@ async def test_an_unreadable_snapshot_is_unavailable_and_never_raises(tmp_path: 
     snapshot = tmp_path / "claude-code.json"
     snapshot.write_text(content, encoding="utf-8")
     report = await probe_claude_code(quota_config(tmp_path, snapshot=snapshot))
-    assert report.status == "unavailable"
+    assert (report.status, report.limit_id) == ("unavailable", "probe")
     assert report.windows == []
 
 
@@ -704,7 +723,7 @@ async def test_a_snapshot_outside_the_contract_is_unavailable(tmp_path: Path, ov
     snapshot = tmp_path / "claude-code.json"
     _write_snapshot(snapshot, **overrides)
     report = await probe_claude_code(quota_config(tmp_path, snapshot=snapshot))
-    assert report.status == "unavailable"
+    assert (report.status, report.limit_id) == ("unavailable", "probe")
     assert field in report.detail
 
 
@@ -773,7 +792,7 @@ def _static_reports() -> list[dict]:
             "provider": "claude_code",
             "status": "unavailable",
             "source": "claude_code_statusline",
-            "limit_id": "default",
+            "limit_id": "probe",
             "observed_at": datetime.now(UTC).isoformat(),
             "detail": "Aucun relevé de la ligne d'état Claude Code : fichier absent.",
         }

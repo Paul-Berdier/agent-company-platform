@@ -1071,6 +1071,7 @@ export interface SubscriptionQuotaReport {
   status: ProbeStatus;
   source: QuotaSource;
   plan?: string | null;
+  /** Réservé : `"probe"` pour une lecture en échec ; sinon le compteur, `"default"` par défaut. */
   limit_id?: string;
   windows?: QuotaWindow[];
   credits?: QuotaCredits | null;

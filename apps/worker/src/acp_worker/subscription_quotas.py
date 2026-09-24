@@ -17,7 +17,10 @@ Deux sources officielles, jamais d'estimation :
 Chaque sonde rend toujours des relevés valides au sens de ``SubscriptionQuotaReport`` :
 un échec devient un état explicite (``not_signed_in``, ``cli_missing``,
 ``cli_too_old``, ``unavailable``) accompagné d'une explication en français, jamais
-une exception ni une valeur inventée. Le processus Codex est lancé sans shell dans la
+une exception ni une valeur inventée. Un échec porte l'identifiant réservé ``probe`` :
+il ne remplace jamais le dernier relevé réussi d'un compteur, et un seul compteur hors
+contrat fait échouer toute la lecture plutôt que d'en transmettre une partie. Le
+processus Codex est lancé sans shell dans la
 clôture du runner local (Job Object sous Windows) et son arbre est arrêté à la fin,
 y compris après un dépassement de délai ou une annulation. Aucune valeur
 d'environnement, adresse électronique, identifiant de compte ni message d'erreur du
@@ -45,6 +48,7 @@ from pydantic import ValidationError
 
 from acp_contracts import (
     DEFAULT_LIMIT_ID,
+    PROBE_LIMIT_ID,
     QUOTA_BATCH_MAX,
     QUOTA_DETAIL_MAX,
     QUOTA_PLAN_MAX,
@@ -365,15 +369,16 @@ def _failure(
     status: str,
     detail: str,
     *,
-    limit_id: str = DEFAULT_LIMIT_ID,
     plan: object = None,
 ) -> SubscriptionQuotaReport:
+    """Lecture en échec : identifiant réservé, jamais celui d'un compteur réussi."""
+
     return SubscriptionQuotaReport(
         provider=provider,
         status=status,
         source=QUOTA_SOURCE_BY_PROVIDER[provider],
         plan=_safe_plan(plan),
-        limit_id=limit_id,
+        limit_id=PROBE_LIMIT_ID,
         observed_at=_now(),
         detail=_detail(detail),
     )
@@ -388,7 +393,7 @@ def _field_of(error: ValidationError) -> str:
 
 
 def _validated(payload: dict[str, Any], label: str) -> SubscriptionQuotaReport:
-    """Valide un relevé construit ; hors contrat, il devient « indisponible »."""
+    """Valide un relevé construit ; hors contrat, la lecture devient « indisponible »."""
 
     try:
         return SubscriptionQuotaReport.model_validate(payload)
@@ -398,7 +403,6 @@ def _validated(payload: dict[str, Any], label: str) -> SubscriptionQuotaReport:
             "unavailable",
             f"Relevé {label} refusé par le contrat de la plateforme "
             f"(champ {_field_of(exc)}) : quotas non transmis.",
-            limit_id=payload.get("limit_id", DEFAULT_LIMIT_ID),
             plan=payload.get("plan"),
         )
 
@@ -736,7 +740,21 @@ def codex_reports_from_rate_limits(
             "observed_at": observed_at,
             "detail": None,
         }
-        reports.append(_validated(payload, "Codex"))
+        try:
+            reports.append(SubscriptionQuotaReport.model_validate(payload))
+        except ValidationError as exc:
+            # Toute la lecture échoue : un lot partiel retirerait à tort les derniers
+            # relevés réussis du compteur refusé.
+            return [
+                _failure(
+                    "codex",
+                    "unavailable",
+                    f"Compteur Codex « {limit_id} » refusé par le contrat de la plateforme "
+                    f"(champ {_field_of(exc)}) : aucun compteur transmis, les derniers "
+                    "relevés réussis restent affichés.",
+                    plan=account_plan,
+                )
+            ]
     return reports
 
 

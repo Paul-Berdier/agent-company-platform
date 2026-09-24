@@ -133,8 +133,20 @@ def _not_signed_in(observed_at: str) -> dict:
         "provider": "codex",
         "status": "not_signed_in",
         "source": "codex_app_server",
+        "limit_id": "probe",
         "observed_at": observed_at,
         "detail": "Profil Codex dédié non connecté : exécutez « codex login » avec ce profil.",
+    }
+
+
+def _claude_failure(observed_at: str) -> dict:
+    return {
+        "provider": "claude_code",
+        "status": "unavailable",
+        "source": "claude_code_statusline",
+        "limit_id": "probe",
+        "observed_at": observed_at,
+        "detail": "Relevé de la ligne d'état Claude Code mal formé : quotas non relevés.",
     }
 
 
@@ -276,7 +288,7 @@ def test_a_newer_probe_retires_the_counters_it_no_longer_reports():
         assert [item["limit_id"] for item in _owner_items(worker_id)] == [
             "codex",
             "codex_other",
-            "default",
+            "probe",
         ]
         # Une lecture Claude Code ne retire aucun compteur Codex.
         claude = _post(client, worker_id, token, _claude(_instant(-5)))
@@ -294,6 +306,7 @@ def test_a_failed_reading_never_retires_the_last_successful_counters():
             "provider": "codex",
             "status": "unavailable",
             "source": "codex_app_server",
+            "limit_id": "probe",
             "observed_at": _instant(-5),
             "detail": "L'app-server Codex n'a pas répondu dans le délai de 20 s : quotas non relevés.",
         }
@@ -306,9 +319,68 @@ def test_a_failed_reading_never_retires_the_last_successful_counters():
     assert [(item["limit_id"], item["status"]) for item in items] == [
         ("codex", "ok"),
         ("codex_other", "ok"),
-        ("default", "unavailable"),
+        ("probe", "unavailable"),
     ]
     assert items[0]["windows"][0]["used_percent"] == 42
+
+
+def test_a_failed_claude_reading_never_hides_the_last_status_line_snapshot():
+    """Le fichier de la ligne d'état est daté de son écriture, avant l'échec d'une lecture.
+
+    Scénario de la relecture indépendante : relevé réussi, lecture ratée (fichier en
+    cours de réécriture), puis le même fichier relu. Le reste Claude ne disparaît
+    jamais, et l'échec est retiré par la lecture réussie qui le suit.
+    """
+
+    with TestClient(app) as client:
+        worker_id, token, _ = _register(client)
+        written = _instant(-600)
+        assert _post(client, worker_id, token, _claude(written)).json() == {
+            "stored": 1,
+            "ignored_older": 0,
+            "removed": 0,
+        }
+        assert _post(client, worker_id, token, _claude_failure(_instant(-1))).json() == {
+            "stored": 1,
+            "ignored_older": 0,
+            "removed": 0,
+        }
+        during = _owner_items(worker_id)
+        assert [(item["limit_id"], item["status"]) for item in during] == [
+            ("default", "ok"),
+            ("probe", "unavailable"),
+        ]
+        assert during[0]["windows"][0]["remaining_percent"] == 87.5
+
+        reread = _post(client, worker_id, token, _claude(written))
+        assert reread.json() == {"stored": 1, "ignored_older": 0, "removed": 1}
+    after = _owner_items(worker_id)
+    assert [(item["limit_id"], item["status"]) for item in after] == [("default", "ok")]
+    assert after[0]["windows"][0]["remaining_percent"] == 87.5
+
+
+def test_a_failed_reading_never_replaces_the_single_codex_counter():
+    """Vue historique sans ``limitId`` : le compteur « default » survit à un échec."""
+
+    with TestClient(app) as client:
+        worker_id, token, _ = _register(client)
+        assert _post(client, worker_id, token, _codex(_instant(-120), limit_id="default")).json()[
+            "stored"
+        ] == 1
+        assert _post(client, worker_id, token, _not_signed_in(_instant(-60))).json()["stored"] == 1
+        items = _owner_items(worker_id)
+        assert [(item["limit_id"], item["status"]) for item in items] == [
+            ("default", "ok"),
+            ("probe", "not_signed_in"),
+        ]
+        assert items[0]["windows"][0]["used_percent"] == 42
+
+        # Une lecture en échec qui prendrait l'identité d'un compteur est refusée.
+        disguised = {**_not_signed_in(_instant(-30)), "limit_id": "default"}
+        refused = _post(client, worker_id, token, disguised)
+        assert refused.status_code == 422
+        assert "identifiant réservé « probe »" in refused.text
+    assert [item["status"] for item in _owner_items(worker_id)] == ["ok", "not_signed_in"]
 
 
 def test_an_old_observation_is_marked_stale_against_the_configured_threshold(
@@ -498,9 +570,9 @@ def test_desktop_fixture_has_exactly_the_shape_served_by_the_api():
     with TestClient(app) as client:
         worker_id, token, _ = _register(client)
         observed = _instant(-5)
-        assert _post(
-            client, worker_id, token, _claude(observed), _codex(observed), _not_signed_in(observed)
-        ).status_code == 200
+        assert _post(client, worker_id, token, _claude(observed), _codex(observed)).status_code == 200
+        # Un échec n'est jamais dans le même lot que les compteurs de son fournisseur.
+        assert _post(client, worker_id, token, _not_signed_in(observed)).status_code == 200
         _session(client, "owner")
         served = client.get("/subscription-quotas").json()
     served["items"] = [item for item in served["items"] if item["worker_id"] == worker_id]

@@ -30,6 +30,12 @@ Un état autre que `ok` ne porte **aucune mesure** (ni fenêtre, ni crédit, ni 
 atteinte) et porte toujours une explication française dans `detail` (300 caractères
 au plus). Le contrat le refuse autrement.
 
+Un état autre que `ok` décrit une **lecture en échec**, pas un compteur : il porte
+toujours `limit_id = "probe"`, identifiant réservé que la plateforme n'attribue à
+aucun compteur de la source (valeur par défaut d'un échec quand le champ est omis ;
+refusée en 422 sur un relevé `ok`, et tout autre identifiant est refusé sur un échec).
+Un échec ne peut donc jamais remplacer le dernier relevé réussi d'un compteur.
+
 ## 2. Réservé au propriétaire, usage personnel
 
 Les conditions des fournisseurs réservent l'usage d'un abonnement à son titulaire :
@@ -76,12 +82,16 @@ Correspondance des champs (schéma publié par Codex CLI 0.156.1) :
 |---|---|---|
 | clé de `rateLimitsByLimitId`, sinon `limitId` | `limit_id` | `default` si la source n'en donne pas |
 | `primary`, `secondary` | `windows[].key` = `primary`, `secondary` | fenêtre nulle : omise |
-| `usedPercent` | `windows[].used_percent` | entier arrondi par le serveur ; hors 0–100 : compteur `unavailable` |
+| `usedPercent` | `windows[].used_percent` | entier arrondi par le serveur ; hors 0–100 : lecture `unavailable` |
 | `windowDurationMins` | `windows[].window_minutes` | nul : « Inconnu » ; la durée nomme la fenêtre, pas sa position |
 | `resetsAt` (secondes Unix) | `windows[].resets_at` (UTC) | nul : « Inconnu » |
 | `planType` (sinon celui de `account/read`) | `plan` | texte de la source, par exemple `prolite` |
 | `credits` | `credits` (`has_credits`, `unlimited`, `balance`) | `balance` reste le texte de la source |
 | `rateLimitReachedType` | `limit_reached`, `reached_type` | présent et nul : `false` ; présent : `true` et son type ; absent : `null` |
+
+Un seul compteur hors contrat (part utilisée hors 0–100, offre trop longue…) fait
+échouer **toute** la lecture Codex, avec le nom du compteur et du champ refusés : un lot
+partiel retirerait à tort les derniers relevés réussis du compteur écarté.
 
 Ne sont **pas** repris : `limitName`, `rateLimitResetCredits`,
 `ordinaryUsageAllowed`, `individualLimit`, `spendControlReached`, les notifications
@@ -128,8 +138,10 @@ français par champ.
 Authentification identique aux autres routes worker (`Authorization: Bearer <jeton du
 worker>`) ; **interdite aux clients humains**, desktop compris. Corps
 `SubscriptionQuotaBatch` : de 1 à 16 relevés, un seul par couple
-(`provider`, `limit_id`). Un relevé dont `observed_at` est plus de cinq minutes dans le
-futur est refusé (horloge du poste déréglée).
+(`provider`, `limit_id`). Pour un fournisseur, un lot porte soit les compteurs d'une
+lecture réussie, soit un seul relevé d'échec (`probe`), jamais les deux. Un relevé dont
+`observed_at` est plus de cinq minutes dans le futur est refusé (horloge du poste
+déréglée).
 
 Écriture sous le verrou de la ligne du worker, donc sérialisée pour un même worker :
 
@@ -137,13 +149,18 @@ futur est refusé (horloge du poste déréglée).
   compté dans `ignored_older` ;
 - un relevé au moins aussi récent le remplace (un rejeu à l'identique est sans effet
   sur les valeurs) et compte dans `stored` ;
-- une lecture réussie fait foi pour la liste des compteurs : si le lot contient au
-  moins un relevé `ok` pour un fournisseur, les compteurs du même worker et du même
-  fournisseur qu'il ne rapporte plus, s'ils sont plus anciens que lui, sont retirés et
-  comptés dans `removed` (par exemple l'état « non connecté » une fois le profil
-  connecté) ;
-- un échec de lecture (aucun relevé `ok` pour ce fournisseur) ne retire rien : les
-  derniers relevés réussis restent visibles avec leur date et deviennent « Périmé ».
+- une lecture réussie fait foi pour la liste des compteurs : si le lot contient des
+  relevés `ok` pour un fournisseur, les compteurs du même worker et du même fournisseur
+  qu'il ne rapporte plus, s'ils sont plus anciens que lui, sont retirés et comptés dans
+  `removed` ;
+- la même lecture réussie retire l'échec (`probe`) de ce fournisseur, **quelle que
+  soit sa date d'observation** (par exemple l'état « non connecté » une fois le profil
+  connecté) : cet échec a été reçu avant elle, l'écriture étant sérialisée par worker.
+  C'est nécessaire pour Claude Code : le fichier de la ligne d'état est daté de son
+  écriture, souvent avant l'échec de lecture qu'il suit ;
+- un échec de lecture ne retire rien : les derniers relevés réussis restent visibles
+  avec leur date, à côté de l'échec qui explique pourquoi ils ne sont plus relus, et
+  deviennent « Périmé » avec le temps.
 
 Réponse : `{"stored": 2, "ignored_older": 0, "removed": 1}`.
 
@@ -346,12 +363,15 @@ latérale) et
   version (`apps/worker/tests/fixtures/codex_app_server_0_156_1`).
 - **Compteurs Codex** : `limitName` n'est pas transmis ; au-delà de 15 compteurs, le
   relevé Codex devient `unavailable` plutôt que tronqué ; un `usedPercent` hors 0–100
-  rend son compteur `unavailable`.
+  rend toute la lecture `unavailable` (les derniers compteurs réussis restent affichés).
 - **Claude Code** : rien n'est relevé tant que Claude Code n'a pas répondu une fois
   dans une session ; sans usage, le relevé vieillit et devient « Périmé ». Une erreur
-  de lecture passagère enregistre un état `unavailable` daté de l'instant du contrôle,
-  qu'un fichier plus ancien ne remplace pas : il faut une nouvelle écriture de la ligne
-  d'état.
+  de lecture passagère apparaît comme l'état courant (« Indisponible ») jusqu'à la
+  lecture réussie suivante, qui la retire ; le dernier relevé réussi reste affiché
+  entre-temps, avec sa date.
+- **Ordre de réception** : le retrait d'un échec suppose que les lots d'un worker
+  arrivent dans l'ordre de leurs lectures, ce que garantit la boucle du worker (un lot à
+  la fois, sans renvoi). Un lot réussi rejoué plus tard retirerait un échec plus récent.
 - **Pas de temps réel** : la vue se relit périodiquement ; aucun événement SSE n'est
   émis pour un nouveau relevé.
 - **Worker révoqué** : ses derniers relevés restent listés, deviennent « Périmé », et

@@ -4,18 +4,25 @@ Les relevés arrivent d'un worker authentifié, qui les a lus à la source offic
 (app-server Codex, ligne d'état Claude Code). Le service ne calcule rien d'autre que
 la part restante (100 − part utilisée) et la fraîcheur : aucune valeur n'est estimée.
 
-Trois règles d'écriture, appliquées sous le verrou de la ligne du worker :
+Une lecture en échec porte l'identifiant réservé ``probe`` (contrat
+``SubscriptionQuotaReport``) : elle n'a jamais l'identité d'un compteur réussi.
+Règles d'écriture, appliquées sous le verrou de la ligne du worker :
 
 - un relevé plus ancien que celui déjà stocké pour le même compteur est ignoré, et
   compté comme tel dans le bilan ;
 - un relevé au moins aussi récent remplace le précédent (un rejeu à l'identique
   est donc sans effet sur les valeurs) ;
 - une lecture réussie fait foi pour la liste des compteurs de son fournisseur : si
-  le lot contient au moins un relevé ``ok`` pour ce fournisseur, les compteurs du même
+  le lot contient des relevés ``ok`` pour ce fournisseur, les compteurs du même
   worker et du même fournisseur qu'il ne rapporte plus, et qui sont plus anciens que
-  lui, sont retirés (par exemple l'état « non connecté » une fois le profil connecté).
-  Un échec de lecture ne retire rien : les derniers relevés réussis restent visibles
-  avec leur date, et deviennent « Périmé » avec le temps.
+  lui, sont retirés ;
+- la même lecture réussie retire l'état d'échec (``probe``) de ce fournisseur, quelle
+  que soit sa date d'observation : il a été reçu avant elle (l'écriture est
+  sérialisée par worker), et l'instant d'un fichier de ligne d'état Claude Code,
+  daté de son écriture, précède souvent celui de l'échec qu'il suit ;
+- un échec de lecture ne retire rien : les derniers relevés réussis restent visibles
+  avec leur date, à côté de l'échec qui explique pourquoi ils ne sont plus relus, et
+  deviennent « Périmé » avec le temps.
 """
 
 from __future__ import annotations
@@ -137,7 +144,9 @@ def ingest_reports(
         reported = {report.limit_id for report in provider_reports}
         newest = max(report.observed_at for report in provider_reports)
         for (row_provider, limit_id), row in sorted(existing.items()):
-            if row_provider == provider and limit_id not in reported and row.observed_at < newest:
+            if row_provider != provider or limit_id in reported:
+                continue
+            if row.status != "ok" or row.observed_at < newest:
                 db.delete(row)
                 removed += 1
     db.commit()
