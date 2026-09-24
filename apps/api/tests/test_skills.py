@@ -1356,7 +1356,10 @@ def test_the_source_is_materialized_outside_any_transaction(context, monkeypatch
             recorded.append(db)
             yield db
 
-    monkeypatch.setitem(app.dependency_overrides, get_db, recording)
+    # Pas de monkeypatch.setitem : son retour arrière passe APRÈS le démontage de la
+    # fixture « context », et rétablirait pour les modules suivants la dépendance d'une
+    # base déjà fermée. La fixture retire elle-même cette surcharge en fin de test.
+    app.dependency_overrides[get_db] = recording
     observed: list[bool] = []
     real_materialize = skills_service.sources_module.materialize
 
