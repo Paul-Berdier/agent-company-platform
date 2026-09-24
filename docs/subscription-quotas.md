@@ -1,0 +1,312 @@
+# Quotas réels d'abonnement (Codex CLI, Claude Code)
+
+Date d'état : 24 septembre 2026 — phase 1 : contrats, stockage, API et worker.
+L'affichage dans le client desktop consomme la route décrite ici ; il n'est pas
+l'objet de ce document.
+
+## 1. Ce que la plateforme montre, et ce qu'elle refuse de montrer
+
+Les exécuteurs locaux du worker utilisent des abonnements personnels : **Codex CLI**
+connecté par un compte ChatGPT (offre relevée sur le poste de référence : `prolite`)
+et **Claude Code** (offres Pro ou Max). La plateforme affiche le **reste réel** de ces
+abonnements, tel que la source officielle le donne :
+
+- aucune estimation, aucune extrapolation, aucun calcul à partir des jetons consommés ;
+- le seul calcul fait est `reste = 100 − part utilisée`, fenêtre par fenêtre ;
+- une valeur que la source ne donne pas reste `null` et s'affiche **« Inconnu »** ;
+- un relevé plus ancien que le seuil de fraîcheur s'affiche **« Périmé »**, jamais
+  comme actuel.
+
+Chaque relevé porte un état :
+
+| `status` | Sens | Libellé attendu |
+|---|---|---|
+| `ok` | la source a répondu ; les fenêtres portent les valeurs reçues | valeurs, ou « Inconnu » par valeur absente |
+| `not_signed_in` | profil Codex dédié absent, non connecté, ou connecté hors compte ChatGPT | « Non connecté » |
+| `cli_missing` | Codex CLI introuvable ou impossible à lancer sur le poste du worker | « CLI absent » |
+| `cli_too_old` | Codex CLI antérieur à 0.100.0 | « CLI trop ancien » |
+| `unavailable` | réponse mal formée, délai dépassé, erreur du serveur, fichier absent ou illisible | « Indisponible » |
+
+Un état autre que `ok` ne porte **aucune mesure** (ni fenêtre, ni crédit, ni limite
+atteinte) et porte toujours une explication française dans `detail` (300 caractères
+au plus). Le contrat le refuse autrement.
+
+## 2. Réservé au propriétaire, usage personnel
+
+Les conditions des fournisseurs réservent l'usage d'un abonnement à son titulaire :
+les conditions d'OpenAI interdisent de rendre un compte accessible à autrui, et un
+abonnement Claude est de même personnel. En conséquence :
+
+- `GET /subscription-quotas` n'est lisible **que par le propriétaire de la plateforme**
+  (`platform_role = "owner"`). Tout autre rôle reçoit un **403** explicite :
+  « Quotas d'abonnement réservés au propriétaire de la plateforme : l'usage d'un
+  abonnement est personnel à son titulaire. » ;
+- le profil Codex dédié et la ligne d'état Claude Code sont ceux du titulaire, sur
+  son poste ; la plateforme ne se connecte jamais à sa place et ne copie jamais ses
+  identifiants ;
+- ce relevé n'autorise pas à faire servir d'autres personnes par l'abonnement du
+  titulaire : un usage multi-utilisateur passe par des clés d'API ou une offre
+  d'entreprise, hors de ce document.
+
+## 3. Sources officielles
+
+### 3.1 Codex CLI : `codex app-server`
+
+Le worker lance `codex app-server` (JSON-RPC 2.0, une ligne JSON par message sur
+stdio, sans l'en-tête `jsonrpc`) et conduit, dans cet ordre :
+
+1. `codex --version` : **0.100.0 au minimum** (première version qui publie
+   `rateLimitsByLimitId`), sinon `cli_too_old` ; CLI introuvable : `cli_missing` ;
+2. `initialize` puis la notification `initialized` ;
+3. `account/read` : sans compte, `not_signed_in` ; compte par clé d'API ou autre type
+   que `chatgpt`, `not_signed_in` avec l'explication correspondante ;
+4. `account/rateLimits/read` : un relevé par compteur de `rateLimitsByLimitId`, ou à
+   défaut un seul relevé depuis la vue historique `rateLimits`.
+
+Le processus tourne avec `CODEX_HOME` = **profil dédié du worker**, dans un
+environnement minimal recopié variable par variable : `OPENAI_API_KEY`,
+`CODEX_API_KEY` et `CODEX_ACCESS_TOKEN` n'y figurent jamais, pas plus que les jetons
+du worker. La lecture se fait donc en mode compte. Il est lancé sans shell dans la
+clôture du runner local (Job Object sous Windows, session sous POSIX), avec un délai
+global de 20 secondes ; son arbre de processus est arrêté à la fin, y compris après un
+délai dépassé ou une annulation. Un arrêt non confirmé écarte le relevé.
+
+Correspondance des champs (schéma publié par Codex CLI 0.156.1) :
+
+| Source (`RateLimitSnapshot`) | Relevé | Remarque |
+|---|---|---|
+| clé de `rateLimitsByLimitId`, sinon `limitId` | `limit_id` | `default` si la source n'en donne pas |
+| `primary`, `secondary` | `windows[].key` = `primary`, `secondary` | fenêtre nulle : omise |
+| `usedPercent` | `windows[].used_percent` | entier arrondi par le serveur ; hors 0–100 : compteur `unavailable` |
+| `windowDurationMins` | `windows[].window_minutes` | nul : « Inconnu » ; la durée nomme la fenêtre, pas sa position |
+| `resetsAt` (secondes Unix) | `windows[].resets_at` (UTC) | nul : « Inconnu » |
+| `planType` (sinon celui de `account/read`) | `plan` | texte de la source, par exemple `prolite` |
+| `credits` | `credits` (`has_credits`, `unlimited`, `balance`) | `balance` reste le texte de la source |
+| `rateLimitReachedType` | `limit_reached`, `reached_type` | présent et nul : `false` ; présent : `true` et son type ; absent : `null` |
+
+Ne sont **pas** repris : `limitName`, `rateLimitResetCredits`,
+`ordinaryUsageAllowed`, `individualLimit`, `spendControlReached`, les notifications
+`account/rateLimits/updated`, l'adresse électronique et l'identifiant du compte (lus
+par le CLI, jamais conservés ni transmis), ni les messages d'erreur du serveur (seul
+leur code numérique est cité).
+
+### 3.2 Claude Code : la ligne d'état
+
+Aucune API ne donne les limites d'un compte individuel Pro ou Max. Claude Code
+transmet en revanche à sa **ligne d'état** un JSON qui contient
+`rate_limits.five_hour` et `rate_limits.seven_day` (`used_percentage` de 0 à 100,
+`resets_at` en secondes Unix), pour les abonnés Pro et Max, après la première réponse
+de l'API dans la session. La ligne d'état du titulaire recopie ces valeurs dans un
+fichier, que le worker lit :
+
+```json
+{
+  "source": "claude-code-statusline",
+  "observed_at": "2026-09-24T08:00:00+00:00",
+  "windows": {
+    "five_hour": {"used_percentage": 12.5, "resets_at": 1790000000},
+    "seven_day": {"used_percentage": null, "resets_at": null}
+  }
+}
+```
+
+`five_hour` devient une fenêtre de 300 minutes et `seven_day` une fenêtre de
+10 080 minutes, d'après le nom même que leur donne Claude Code ; toute autre clé garde
+une durée inconnue. `observed_at` est l'instant d'écriture par la ligne d'état. Un
+fichier absent, illisible, trop volumineux (plus de 64 Kio), mal formé ou hors
+contrat donne un relevé `unavailable` avec son explication ; la sonde ne lève jamais.
+
+## 4. Contrat de l'API
+
+Les contrats Pydantic sont dans `packages/contracts/src/acp_contracts/subscriptions.py`,
+leur miroir TypeScript dans `packages/contracts/typescript/index.ts`. Ils sont
+stricts : champ inconnu ou manquant, type inattendu (un booléen n'est jamais un
+nombre), borne dépassée ou incohérence sont refusés en **422**, avec un message en
+français par champ.
+
+### 4.1 Dépôt par le worker : `POST /work/workers/{worker_id}/subscription-quotas`
+
+Authentification identique aux autres routes worker (`Authorization: Bearer <jeton du
+worker>`) ; **interdite aux clients humains**, desktop compris. Corps
+`SubscriptionQuotaBatch` : de 1 à 16 relevés, un seul par couple
+(`provider`, `limit_id`). Un relevé dont `observed_at` est plus de cinq minutes dans le
+futur est refusé (horloge du poste déréglée).
+
+Écriture sous le verrou de la ligne du worker, donc sérialisée pour un même worker :
+
+- un relevé **plus ancien** que celui déjà stocké pour le même compteur est ignoré et
+  compté dans `ignored_older` ;
+- un relevé au moins aussi récent le remplace (un rejeu à l'identique est sans effet
+  sur les valeurs) et compte dans `stored` ;
+- un relevé fait foi pour son fournisseur : les compteurs du même worker et du même
+  fournisseur qu'il ne rapporte plus, s'ils sont plus anciens que lui, sont retirés et
+  comptés dans `removed` (par exemple l'état « non connecté » une fois le profil
+  connecté).
+
+Réponse : `{"stored": 2, "ignored_older": 0, "removed": 1}`.
+
+### 4.2 Lecture par le propriétaire : `GET /subscription-quotas`
+
+Session du propriétaire (cookie `acp_session`) ; `401` sans session, `403` pour tout
+autre rôle, `503` si `ACP_SUBSCRIPTION_QUOTA_STALE_SECONDS` est invalide. Réponse
+`SubscriptionQuotaList`, servie avec `Cache-Control: private, no-store` :
+
+```json
+{
+  "items": [
+    {
+      "provider": "claude_code",
+      "status": "ok",
+      "source": "claude_code_statusline",
+      "plan": null,
+      "limit_id": "default",
+      "windows": [
+        {"key": "five_hour", "used_percent": 12.5, "window_minutes": 300,
+         "resets_at": null, "remaining_percent": 87.5},
+        {"key": "seven_day", "used_percent": null, "window_minutes": 10080,
+         "resets_at": null, "remaining_percent": null}
+      ],
+      "credits": null,
+      "limit_reached": null,
+      "reached_type": null,
+      "observed_at": "2026-09-24T08:00:00Z",
+      "detail": null,
+      "worker_id": "5b1f7a52-3c1e-4d3a-9d1e-0c2f6a7b8c9d",
+      "worker_name": "poste-principal",
+      "received_at": "2026-09-24T08:00:02Z",
+      "stale": false
+    },
+    {
+      "provider": "codex",
+      "status": "ok",
+      "source": "codex_app_server",
+      "plan": "prolite",
+      "limit_id": "codex",
+      "windows": [
+        {"key": "primary", "used_percent": 42, "window_minutes": 300,
+         "resets_at": "2026-09-24T12:00:00Z", "remaining_percent": 58},
+        {"key": "secondary", "used_percent": 7, "window_minutes": 10080,
+         "resets_at": "2026-09-29T00:00:00Z", "remaining_percent": 93}
+      ],
+      "credits": {"has_credits": false, "unlimited": false, "balance": null},
+      "limit_reached": false,
+      "reached_type": null,
+      "observed_at": "2026-09-24T08:00:00Z",
+      "detail": null,
+      "worker_id": "5b1f7a52-3c1e-4d3a-9d1e-0c2f6a7b8c9d",
+      "worker_name": "poste-principal",
+      "received_at": "2026-09-24T08:00:02Z",
+      "stale": false
+    }
+  ],
+  "stale_after_seconds": 1800,
+  "generated_at": "2026-09-24T08:00:05Z"
+}
+```
+
+- `items` : le dernier relevé de chaque compteur de chaque worker, triés par
+  `provider`, `limit_id`, `worker_name` puis `worker_id` (ordre des points de code,
+  identique sous SQLite et PostgreSQL) ;
+- `remaining_percent` = 100 − `used_percent`, `null` quand la part utilisée est
+  inconnue ;
+- `stale` est vrai quand `observed_at` est plus ancien que `stale_after_seconds`
+  (`ACP_SUBSCRIPTION_QUOTA_STALE_SECONDS`, 1 800 s par défaut, de 60 à 604 800) ;
+  `received_at` dit seulement quand l'API a reçu le relevé ;
+- un serveur antérieur à cette version répond `404` : le client affiche alors
+  « Non disponible sur ce serveur ».
+
+La forme exacte est figée par `apps/desktop/tests/fixtures/subscription-quotas.json`,
+comparée à la réponse réelle par `apps/api/tests/test_subscription_quotas.py`.
+
+### 4.3 Stockage
+
+Table `subscription_quota_snapshots` (révision Alembic **0005**) : une ligne par
+worker, fournisseur et compteur, fenêtres et crédits en JSON, instants en UTC. Les
+lignes disparaissent avec leur worker (`ON DELETE CASCADE`). Elles ne sont qu'un cache
+du dernier état lu : la descente de 0005 vers 0004 les supprime sans garde-fou.
+
+## 5. Mise en place sur le poste du titulaire
+
+### 5.1 Profil Codex dédié
+
+Le worker n'utilise jamais le profil personnel `~/.codex`. Par défaut, son profil dédié
+est `%USERPROFILE%\.acp\codex-home`. Si l'exécuteur Codex du worker est activé
+(`ACP_WORKER_CODEX_ENABLED=1`), c'est son profil `ACP_WORKER_CODEX_HOME` qui est
+réutilisé, afin que le quota affiché soit celui du compte réellement utilisé par les
+missions.
+
+La connexion est faite **par le titulaire lui-même**, jamais par la plateforme :
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.acp\codex-home" | Out-Null
+# Recommandé : identifiants dans le coffre du système plutôt qu'en clair (auth.json).
+if (-not (Test-Path "$HOME\.acp\codex-home\config.toml")) {
+  Set-Content "$HOME\.acp\codex-home\config.toml" 'cli_auth_credentials_store = "keyring"'
+}
+$env:CODEX_HOME="$HOME\.acp\codex-home"; codex login
+```
+
+Ne jamais copier `auth.json` dans la base, un journal, Git ou `QSettings`. Chaque
+lecture lance `codex app-server` sur ce profil : le CLI y écrit ses propres fichiers
+d'état (bases SQLite, journaux), comme lors de tout usage de Codex.
+
+### 5.2 Ligne d'état Claude Code
+
+Dans `~/.claude/settings.json` du titulaire, `statusLine` désigne une commande qui
+reçoit le JSON de Claude Code sur son entrée standard et écrit, de façon atomique et
+sans aucun secret, le fichier décrit au § 3.2. Chemin lu par défaut :
+`%USERPROFILE%\.acp\quotas\claude-code.json` (hors de `%LOCALAPPDATA%`, que
+l'application Claude Desktop redirige vers un dossier privé). Le fichier n'apparaît
+qu'après une première réponse de Claude Code dans une session Pro ou Max.
+
+### 5.3 Variables du worker
+
+| Variable | Défaut | Rôle |
+|---|---:|---|
+| `ACP_WORKER_SUBSCRIPTION_QUOTAS` | `0` | `1` active la boucle de relevé ; toute autre valeur que `0`/`1` est refusée |
+| `ACP_WORKER_QUOTA_INTERVAL_SECONDS` | `300` | intervalle entre deux relevés, entier de 60 à 86 400 |
+| `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT` | `%USERPROFILE%\.acp\quotas\claude-code.json` | fichier de la ligne d'état, chemin absolu |
+| `ACP_WORKER_QUOTA_CODEX_HOME` | `%USERPROFILE%\.acp\codex-home` | profil Codex dédié, si l'exécuteur Codex n'est pas activé |
+| `ACP_WORKER_QUOTA_CODEX_EXECUTABLE` | `codex` trouvé dans le `PATH` | exécutable absolu, si l'exécuteur Codex n'est pas activé |
+
+Avec l'exécuteur Codex activé, `ACP_WORKER_QUOTA_CODEX_HOME` et
+`ACP_WORKER_QUOTA_CODEX_EXECUTABLE` sont **refusés** : un seul profil Codex par worker.
+La recherche dans le `PATH` ne regarde que les dossiers absolus, jamais le dossier
+courant. Côté API, `ACP_SUBSCRIPTION_QUOTA_STALE_SECONDS` règle le seuil de fraîcheur.
+
+La boucle est indépendante de celle des missions : elle ne retarde jamais un claim.
+Elle relève Codex et Claude Code en parallèle, envoie un lot, puis attend l'intervalle.
+Une erreur (sonde, réseau, refus de l'API) est journalisée par son type ou son code
+HTTP seulement, jamais par son message, et la boucle reprend à l'intervalle suivant.
+`agent-company-worker doctor` affiche `subscription_quotas` (`enabled`/`disabled`) et
+l'intervalle, jamais les chemins.
+
+## 6. Limites connues
+
+- **Non mesurés** : l'usage et les limites de **Figma**, et les **crédits d'API**
+  (clés OpenAI ou Anthropic facturées à l'usage) : aucune source n'est relevée ici.
+- **Journaux de session Codex non utilisés** (`CODEX_HOME/sessions/**/rollout-*.jsonl`) :
+  leur format n'est pas un contrat public, ils peuvent être compressés, absents avec
+  `--ephemeral`, et `rate_limits` y vaut parfois `null`.
+- **Chemin connecté non éprouvé avec un vrai compte** : au 24 septembre 2026, le profil
+  dédié du poste de référence n'est pas connecté. Avec le vrai Codex CLI 0.156.1, seul
+  le chemin « non connecté » a été exécuté, sur un `CODEX_HOME` temporaire portant la
+  même configuration que le profil dédié (réponse `not_signed_in` en 1 s, aucun
+  processus Codex résiduel). Les réponses d'un compte connecté sont éprouvées par un faux
+  app-server dont les réponses sont validées contre le schéma publié par la même
+  version (`apps/worker/tests/fixtures/codex_app_server_0_156_1`).
+- **Compteurs Codex** : `limitName` n'est pas transmis ; au-delà de 15 compteurs, le
+  relevé Codex devient `unavailable` plutôt que tronqué ; un `usedPercent` hors 0–100
+  rend son compteur `unavailable`.
+- **Claude Code** : rien n'est relevé tant que Claude Code n'a pas répondu une fois
+  dans une session ; sans usage, le relevé vieillit et devient « Périmé ». Une erreur
+  de lecture passagère enregistre un état `unavailable` daté de l'instant du contrôle,
+  qu'un fichier plus ancien ne remplace pas : il faut une nouvelle écriture de la ligne
+  d'état.
+- **Pas de temps réel** : la vue se relit périodiquement ; aucun événement SSE n'est
+  émis pour un nouveau relevé.
+- **Horloges** : la fraîcheur compare l'horloge de l'API à `observed_at`, fixé par le
+  poste du worker (Codex) ou par la ligne d'état (Claude Code) ; un écart de plus de
+  cinq minutes dans le futur est refusé.
+- Les conditions et les limites des fournisseurs évoluent : les revérifier avant chaque
+  version, avec leurs sources et leur date.
