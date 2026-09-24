@@ -10,8 +10,18 @@ name: Image Hermes
 #     route meta, comportement de Hermes face à un /opt/data piégé) ;
 #   - tests de contrat pilotés depuis l'hôte : refus de démarrer, PID 1, passerelle et
 #     tableau de bord, api_server en boucle locale, fournisseur OIDC seul, route meta
-#     authentifiée par un faux fournisseur d'identité, injection neutralisée, carte en
-#     triage jamais lancée.
+#     authentifiée par un faux fournisseur d'identité, carte en triage jamais lancée ;
+#   - défense contre l'agent (uid 10000), prouvée sur l'image :
+#       * injection dans /opt/data/config.yaml neutralisée par la managed scope, après
+#         relance des services par l'agent et après redémarrage du conteneur ;
+#       * /run/service et les scripts des passerelles repris par root : pas d'élévation
+#         par un service supervisé ; la relance par s6-svc reste possible ;
+#       * api_server ramené en 127.0.0.1 même clé retirée et enrôlé sur 0.0.0.0 par
+#         config.yaml ;
+#       * HERMES_MANAGED_DIR posée dans /opt/data/.env : relance ET redémarrage refusés
+#         (échec fermé) ; greffons de projet et groupés neutralisés.
+#     LIMITE ASSUMÉE, NON couverte par un test : sous le même uid, l'agent peut tuer le
+#     tableau de bord et prendre le port public 9119 (parade en P2 — voir image.md §10).
 #
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construira lui-même
 # hermes/image/Dockerfile (étape P2) avec « Wait for CI », d'où le déclencheur `push`.

@@ -254,6 +254,54 @@ Commits, dans l'ordre :
    (`KeyError: 'api_server'`) ; les fixtures attendent désormais la passerelle.
 8. `docs: record the P1 CI runs` — identifiants des runs ci-dessous.
 
+### Corrections après la relecture indépendante de P1
+
+Cinq constats de la relecture indépendante, corrigés dans l'image et éprouvés. Détail
+complet dans [`docs/refonte/image.md`](refonte/image.md) (§ 4.3, § 4.4, § 5, § 9, § 10).
+
+1. **Élévation par `/run/service` (critique).** L'image officielle laisse `/run/service` et
+   le `run` des passerelles à l'agent ; s6-supervise tournant en root, un service créé ou un
+   `run` réécrit par l'agent s'exécuterait en root. **Correctif** : `05-acp` reprend à root le
+   répertoire et les scripts des passerelles (`reprendre_services_s6`), ne laissant à l'agent
+   que la FIFO `supervise/control`. Prouvé : l'uid hermes ne peut plus créer de service, ni
+   réécrire `run`/`.acp-amont-run`, ni déplacer la passerelle ; `s6-svc -r` marche toujours.
+2. **`/opt/data/.env` échappe à la managed scope (critique).** `HERMES_MANAGED_DIR` déplace
+   la portée gérée et aucune épingle ne la contre. **Correctif** : `HERMES_ENABLE_PROJECT_PLUGINS=0`
+   et `HERMES_BUNDLED_PLUGINS=` épinglés dans `/etc/hermes/.env` ; les gardes de démarrage
+   **et** une garde root en tête des `run` (tableau de bord et passerelle) refusent tout
+   `/opt/data/.env` (ou `profiles/*/.env`) porteur de `HERMES_MANAGED_DIR`,
+   `HERMES_BUNDLED_PLUGINS` ou `HERMES_ENABLE_PROJECT_PLUGINS`. Liste étroite : `API_SERVER_KEY`,
+   que l'image écrit elle-même dans ce fichier, est exclue. `/v1/meta` signale une portée
+   détournée. Prouvé : relance et redémarrage refusés (échec fermé, message français).
+3. **Prise du port 9119 sous le même uid (haute).** Non corrigeable en P1 : l'agent partage
+   l'uid du tableau de bord. **Traitement** : documenté honnêtement (image.md § 5, § 9, § 10 ;
+   `hermes/gere/config.yaml`) comme limite assumée, parade portée à P2 ; aucun test ne
+   prétend le contraire (l'éprouver reviendrait à exécuter l'attaque).
+4. **api_server déplaçable sur `0.0.0.0` par `config.yaml` (moyenne).** **Correctif** :
+   `platforms.api_server.extra.host: 127.0.0.1` et `.port: 8642` épinglés dans la managed
+   scope. Prouvé : même clé retirée de `/opt/data/.env` et api_server enrôlé sur `0.0.0.0` par
+   `config.yaml`, l'écoute reste `127.0.0.1:8642`.
+5. **Faux succès en CI/doc (moyenne).** **Correctif** : tests de contrat négatifs ajoutés
+   pour chaque vecteur ci-dessus ; en-tête d'`image.yml`, § 5/§ 9/§ 10 d'`image.md`,
+   commentaire de `gere/config.yaml` et cette note ne revendiquent que le prouvé et listent
+   la limite du même uid.
+
+Preuves rejouées le 24 septembre 2026 (Windows 10, Docker 29.5.3), après reconstruction :
+
+- Construction de l'image Railway et de l'image de test : réussie ; managed scope de base
+  « **28 clés épinglées** ».
+- pytest dans l'image de test : **103 réussis**, 0 ignoré (89 auparavant ; +14 : gardes de
+  `/opt/data/.env`, reprise `/run/service`, épingle api_server, greffons neutralisés, alerte
+  de portée dans la meta).
+- Tests de contrat depuis l'hôte : **35 réussis**, 0 ignoré (≈ 4 min 35 s ; 32 auparavant),
+  dont : reprise root de `/run/service` et refus de création de service ; api_server ramené
+  en `127.0.0.1:8642` malgré retrait de clé + enrôlement `0.0.0.0` ; `HERMES_MANAGED_DIR`
+  dans `/opt/data/.env` → relance du tableau de bord et redémarrage du conteneur refusés
+  (code 1, `[acp] REFUS`) ; `hermes config` : bandeau de **28 clés et 28 variables** gérées.
+- `hermes plugins compat /opt/hermes/plugins/acp-poste` → code 0 (« No enabled plugin
+  imports paths scheduled for removal »).
+- `scripts/check_engine_frozen.py` → code 0 ; `scripts/check_version.py` → code 0 (0.11.0).
+
 ### Écarts au plan, assumés
 
 - **Gardes dans un crochet `S6_STAGE2_HOOK`** (`/opt/acp/bin/acp-gardes`) en plus de

@@ -62,13 +62,20 @@ PID 1, il lance `/init` de s6-overlay (entrypoint-dispatch.sh:17-19).
    avant `02-reconcile-profiles` (qui démarre la passerelle).
 2. `01-hermes-setup`, `015-supervise-perms`, `02-reconcile-profiles` de l'image officielle.
 3. **`/etc/cont-init.d/05-acp`** : refait les contrôles du crochet (défense en
-   profondeur si `S6_STAGE2_HOOK` avait été retiré), vérifie que la managed scope
-   installée correspond aux variables de ce démarrage, rend `/opt/data/plugins`,
+   profondeur si `S6_STAGE2_HOOK` avait été retiré), refuse une variable interdite
+   injectée dans `/opt/data/.env` (§ 4.3), vérifie que la managed scope installée
+   correspond aux variables de ce démarrage, rend `/opt/data/plugins`,
    `/opt/data/dashboard-themes` et `/opt/data/acp` propriété de root (répertoires 0755,
-   fichiers 0644, par descripteurs `O_NOFOLLOW`), dépose le thème et `SOUL.md`, écrit
-   `/run/acp/etat-demarrage.json` (tmpfs, root 0644).
+   fichiers 0644, par descripteurs `O_NOFOLLOW`), **reprend à root le répertoire de
+   services s6 `/run/service` et les scripts des passerelles dynamiques** (§ 4.4), dépose
+   le thème et `SOUL.md`, écrit `/run/acp/etat-demarrage.json` (tmpfs, root 0644).
 4. Services s6 : tableau de bord (`hermes dashboard --host 0.0.0.0 --port 9119`, uid
-   hermes) et `main-hermes`.
+   hermes) et `main-hermes`. Le script `run` du tableau de bord est **enveloppé par une
+   garde root d'ACP** (`hermes/image/acp-run-dashboard`, posée sur
+   `/etc/s6-overlay/s6-rc.d/dashboard/run` à la construction) qui refuse la (re)lance sur
+   un `/opt/data/.env` porteur d'une variable interdite ; le script officiel est préservé
+   tel quel dans `/opt/acp/amont/s6-dashboard-run`. `05-acp` enveloppe de même le `run` de
+   `gateway-default` une fois repris par root.
 5. `CMD ["gateway","run"]` : la passerelle (cron, répartiteur kanban, api_server) tourne
    supervisée par s6 sous l'uid hermes (website/docs/user-guide/docker.md:61-66).
 
@@ -131,17 +138,60 @@ Fixées par l'image, refusées si Railway les change : `HERMES_HOME=/opt/data`,
 Le message de refus est en français, préfixé `[acp] REFUS :`, et nomme chaque variable
 fautive (toutes les erreurs d'un démarrage sont listées d'un coup).
 
+### 4.3 Variables interdites injectées dans `/opt/data/.env`
+
+`/opt/data/.env` appartient à l'agent et Hermes le charge avec `override=True` **avant** la
+managed scope (env_loader.py:433-435 puis 473). Les variables neutres (Nous, basic, drain,
+mandataires, greffons de projet et groupés) sont épinglées dans `/etc/hermes/.env`,
+appliquée en dernier, et gagnent donc. Mais `HERMES_MANAGED_DIR` **choisit quel `.env` géré
+est lu** (managed_scope.py:52) : aucune épingle ne peut la contrer. Les gardes (`gardes` et
+`05-acp`) **refusent donc de démarrer**, et la garde des scripts `run` **refuse la relance**,
+si un `.env` du volume (`/opt/data/.env` ou `profiles/*/.env`) porte l'une de ces variables :
+
+| Variable | Raison |
+|---|---|
+| `HERMES_MANAGED_DIR` | déplacerait la portée gérée hors de `/etc/hermes` ; aucune épingle ne la contre |
+| `HERMES_BUNDLED_PLUGINS` | ferait charger le code de greffon de l'agent (aussi épinglée vide) |
+| `HERMES_ENABLE_PROJECT_PLUGINS` | servirait le JS de l'agent au navigateur du propriétaire (aussi épinglée à `0`) |
+
+La liste est **étroite à dessein** : `API_SERVER_KEY` en est exclue, car l'image la génère
+et l'écrit elle-même dans `/opt/data/.env` à chaque démarrage
+(docker/stage2-hook.sh:504-540) ; la refuser bloquerait tout démarrage. `.env.example`, semé
+au premier démarrage, ne contient aucune de ces variables (vérifié).
+
+### 4.4 Reprise à root des services s6
+
+L'image officielle rend `/run/service` et les emplacements de service des passerelles
+propriété de l'agent (docker/cont-init.d/02-reconcile-profiles:119 ;
+docker/cont-init.d/015-supervise-perms). Or **s6-supervise tourne en root** (spawné par
+s6-svscan en PID 1, hermes_cli/container_boot.py:291) : un service que l'agent créerait sous
+`/run/service`, ou un script `run` qu'il réécrirait, serait exécuté **en root** avant de
+retomber sous l'uid hermes — une élévation. `05-acp` reprend donc à root le répertoire
+`/run/service` (l'agent ne peut plus y créer de service) et, pour chaque passerelle
+dynamique, son répertoire et ses scripts (`run`, `finish`, `type`, `log/`, `log/run`,
+`supervise/`). Il ne reste à l'agent que la **FIFO `supervise/control`**, pour qu'il puisse
+encore relancer la passerelle par `s6-svc -r` (comportement attendu et testé). Conséquence
+voulue : seul le profil `default` reste enregistrable, ce qui concorde avec
+`kanban.dispatch_profiles: [default]`.
+
 ## 5. Managed scope `/etc/hermes`
 
 Hermes l'applique en dernier, feuille par feuille, et `hermes config set` refuse toute
 clé épinglée (managed_scope.py:125-147 ; config.py:3384-3391 ; env_loader.py:473 et
-503-518). La seule garantie est la permission : root, 0755/0644, et l'agent tourne sous
-l'uid 10000 sans sudo. Un fichier géré qui ne se lit pas serait **ignoré en silence**
-(managed_scope.py:86-93) : `acp_demarrage.py` le relit avec le chargeur YAML de Hermes
-(`utils.fast_safe_load`, utils.py:613-615) et refuse de démarrer si une épingle manque ou
-diffère. Le modèle est aussi validé à la construction de l'image.
+503-518). Ce que garantit cette portée tient à la permission : root, 0755/0644, et l'agent
+tourne sous l'uid 10000 sans sudo. Un fichier géré qui ne se lit pas serait **ignoré en
+silence** (managed_scope.py:86-93) : `acp_demarrage.py` le relit avec le chargeur YAML de
+Hermes (`utils.fast_safe_load`, utils.py:613-615) et refuse de démarrer si une épingle
+manque ou diffère. Le modèle est aussi validé à la construction de l'image.
 
-**`/etc/hermes/config.yaml`** (26 clés) : `kanban.auto_decompose: false`,
+**Ce que la portée gérée ne garantit pas.** L'agent tourne sous le **même uid** que le
+tableau de bord (10000). Il ne peut pas modifier `/etc/hermes`, mais il peut tuer le
+processus du tableau de bord et écouter lui-même sur `0.0.0.0:9119` (le seul port public).
+La frontière d'uid ne sépare donc pas l'agent du tableau de bord (§ 10) ; la managed scope
+protège la **configuration**, pas le processus. La vraie parade — outils terminal de l'agent
+sous un uid distinct ou dans une dorsale isolée — relève de P2.
+
+**`/etc/hermes/config.yaml`** (28 clés) : `kanban.auto_decompose: false`,
 `kanban.dispatch_profiles: [default]`, `approvals.mode: manual` (et `cron_mode`,
 `single_query_mode`, `unattended_mode` : `deny`), `plugins.enabled: []`,
 `plugins.disabled: [dashboard_auth/basic, dashboard_auth/nous, dashboard_auth/drain]`,
@@ -151,11 +201,18 @@ diffère. Le modèle est aussi validé à la construction de l'image.
 `dashboard.trusted_proxies: []`, `dashboard.public_url` et
 `dashboard.oauth.self_hosted.{issuer, client_id, scopes}` (valeurs Railway validées),
 `dashboard.oauth.self_hosted.client_secret: ""`, `dashboard.oauth.{client_id,
-portal_url}: ""`, `dashboard.basic_auth.{username, password, password_hash, secret}: ""`.
-Aucun secret : une clé dont le nom évoque un secret et qui porte une valeur est refusée.
+portal_url}: ""`, `dashboard.basic_auth.{username, password, password_hash, secret}: ""`,
+et **`platforms.api_server.extra.host: 127.0.0.1`** et **`platforms.api_server.extra.port:
+8642`** (l'agent ne peut donc pas déplacer l'api_server sur `0.0.0.0` par
+`/opt/data/config.yaml` : la valeur de config.yaml gagne sinon sur `API_SERVER_HOST`,
+gateway/platforms/api_server.py:209-218, et sans clé utilisable dans l'environnement il
+enrôlerait l'api_server lui-même, gateway/config_env.py:307-315). Aucun secret : une clé
+dont le nom évoque un secret et qui porte une valeur est refusée.
 
-**`/etc/hermes/.env`** (26 variables) : les quatre variables OIDC et l'URL publique
+**`/etc/hermes/.env`** (28 variables) : les quatre variables OIDC et l'URL publique
 validées, `API_SERVER_HOST=127.0.0.1`, `API_SERVER_PORT=8642`, `HERMES_LANGUAGE=fr`,
+**`HERMES_ENABLE_PROJECT_PLUGINS=0`** (aucun greffon de projet) et
+**`HERMES_BUNDLED_PLUGINS=`** vide (les greffons groupés viennent de l'image),
 `SSL_CERT_FILE` et `REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` sur
 `/etc/ssl/certs/ca-certificates.crt`, `SSL_CERT_DIR=/etc/ssl/certs`, et des valeurs
 **vides** pour Nous, basic, drain, les mandataires et, en client public,
@@ -274,17 +331,32 @@ si `S6_BEHAVIOUR_IF_STAGE2_FAILS` a été changée ; `/proc/1/cmdline` = s6-svsc
 `/init`) ; passerelle et tableau de bord sous l'uid hermes ; api_server sur
 127.0.0.1:8642 seulement ; `/api/auth/providers` = `self-hosted` seul ; meta 401 sans
 session, 200 avec un jeton OIDC valide ; jetons d'une autre clé, d'une autre audience ou
-d'un autre émetteur refusés ; injection dans `/opt/data/config.yaml` et `/opt/data/.env`
-neutralisée après relance du tableau de bord **par l'agent** et après redémarrage du
-conteneur (fournisseur, émetteur, identifiant client, redirection de connexion) ;
-écritures de l'agent refusées dans la managed scope, les greffons, le thème, le greffon
-groupé et `/etc/cont-init.d` ; `POST /api/hermes/update` refusé, `/opt/hermes` identique ;
+d'un autre émetteur refusés ; injection **dans `/opt/data/config.yaml`** (basic, Nous,
+émetteur et client OIDC, `trusted_proxies`, `platforms.api_server`) neutralisée après
+relance du tableau de bord ET de la passerelle **par l'agent** et après redémarrage du
+conteneur ; écritures de l'agent refusées dans la managed scope, les greffons, le thème, le
+greffon groupé et `/etc/cont-init.d` ; **`/run/service` et les scripts des passerelles
+repris par root** — l'agent ne peut ni y créer un service (qui tournerait en root) ni
+réécrire un `run`, mais garde `s6-svc -r` par la FIFO `control` ; **api_server ramené en
+`127.0.0.1:8642`** même quand l'agent retire `API_SERVER_KEY` de `/opt/data/.env` et l'enrôle
+sur `0.0.0.0` par `config.yaml` ; **`HERMES_MANAGED_DIR` posée dans `/opt/data/.env` refuse
+la relance du tableau de bord (garde root du `run`) et refuse le redémarrage du conteneur**
+(échec fermé, message français) ; `HERMES_BUNDLED_PLUGINS` et `HERMES_ENABLE_PROJECT_PLUGINS`
+ramenées à leur valeur d'image ; `/v1/meta` signale une portée gérée détournée
+(`HERMES_MANAGED_DIR` présent) ; `POST /api/hermes/update` refusé, `/opt/hermes` identique ;
 carte en triage du tableau `poste` intacte après plus de quatre ticks du répartiteur,
 sans aucun appel au modèle ; un tour d'agent complet sur le modèle factice ; deux
 démarrages successifs donnent une managed scope, un thème et un SOUL identiques ; SOUL
 modifié gardé et signalé.
 
-Non prouvé en P1 :
+Non prouvé — et non garanti — en P1 :
+- **La frontière d'uid ne sépare pas l'agent du tableau de bord** : sous le même uid 10000,
+  l'agent peut tuer le processus du tableau de bord et écouter lui-même sur `0.0.0.0:9119`.
+  La managed scope, la reprise de `/run/service` et les gardes de relance protègent la
+  **configuration** et empêchent une élévation à root, mais **pas** la prise du port public
+  par un processus de l'agent sous le même uid. La vraie parade (uid distinct ou dorsale
+  isolée pour les outils terminal) relève de P2. Ce point n'est **pas** couvert par un test
+  (le prouver reviendrait à exécuter l'attaque) : il est documenté comme limite assumée.
 - rien sur Railway : PID 1 sur la plateforme, proxy, `trusted_proxies`, variables réelles
   (P2) ;
 - aucune connexion interactive complète par le navigateur (le faux fournisseur n'a pas de
@@ -297,14 +369,33 @@ Non prouvé en P1 :
 
 ## 10. Limites connues
 
+- **Même uid que le tableau de bord (limite de fond).** L'agent et le tableau de bord
+  tournent tous deux sous l'uid 10000. Les épingles, la reprise de `/run/service` et les
+  gardes de relance empêchent l'agent de modifier la configuration ou de s'élever à root,
+  mais **pas** de tuer le processus du tableau de bord et d'écouter lui-même sur
+  `0.0.0.0:9119`, le seul port routé par Railway, sans authentification. Aucune permission
+  de fichier n'y fait obstacle. La vraie parade — outils terminal de l'agent sous un uid
+  distinct, ou dans une dorsale isolée (docker/ssh), ou contrôle de santé externe de
+  l'identité du service sur 9119 — est portée à P2. C'est une limite assumée, non couverte
+  par un test (l'éprouver reviendrait à exécuter l'attaque).
 - **Remplacement d'un répertoire root.** `/opt/data` appartient à l'agent : il peut
   renommer `/opt/data/plugins` ou `/opt/data/dashboard-themes` et en recréer un à lui. Le
   crochet et `05-acp` le détectent au démarrage suivant (nom réservé, lien) et reprennent
   la propriété ; entre-temps, `plugins.enabled: []` empêche tout greffon utilisateur d'être
   importé, mais un thème substitué serait servi (Hermes relit les thèmes à chaque requête,
   web_server_dashboard.py:414-432). Une sentinelle root continue n'est pas écrite.
-- **Relance du tableau de bord par l'agent** (`s6-svc -r`) : sans `05-acp` ; seule la
-  managed scope protège alors, ce qu'éprouvent les tests.
+- **Relance des services par l'agent** (`s6-svc -r`) : la FIFO `supervise/control` reste
+  à l'agent (sinon il ne pourrait plus relancer la passerelle). `05-acp` ne tourne pas
+  alors, mais la managed scope protège la configuration, la reprise de `/run/service`
+  empêche l'agent de réécrire un `run`, et la garde root en tête des `run` (tableau de bord
+  et passerelle) refuse une relance sur un `/opt/data/.env` porteur d'une variable
+  interdite. Il subsiste une course théorique : l'agent peut réécrire `/opt/data/.env`
+  entre le contrôle de la garde et la lecture par le processus Hermes ; la parade complète
+  suppose l'isolation d'uid de P2.
+- **Récupération d'un volume piégé.** Un `/opt/data/.env` porteur de `HERMES_MANAGED_DIR`
+  (ou d'un autre vecteur d'évasion) fait **refuser le démarrage** : sur Railway, on ne peut
+  pas entrer dans le conteneur pour nettoyer le volume. La procédure (volume monté par un
+  service de maintenance) est à écrire en P2, avec celle du § « Récupération » ci-dessous.
 - **Jeton invalide → 503.** Hermes range une signature, une audience ou un émetteur
   invalides en « fournisseur injoignable » (plugins/dashboard_auth/_shared.py:192-229) :
   le client desktop (P8) devra traiter 503 comme un refus.
