@@ -73,7 +73,7 @@
       "status": "not_signed_in",
       "source": "codex_app_server",
       "plan": null,
-      "limit_id": "default",
+      "limit_id": "probe",
       "windows": [],
       "credits": null,
       "limit_reached": null,

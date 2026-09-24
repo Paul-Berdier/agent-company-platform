@@ -103,7 +103,9 @@ QJsonObject report(const QString &provider, const QString &status, const QString
     const bool codex = provider == QLatin1String("codex");
     return {{QStringLiteral("provider"), provider}, {QStringLiteral("status"), status},
         {QStringLiteral("source"), codex ? QStringLiteral("codex_app_server") : QStringLiteral("claude_code_statusline")},
-        {QStringLiteral("plan"), QJsonValue::Null}, {QStringLiteral("limit_id"), QStringLiteral("default")},
+        {QStringLiteral("plan"), QJsonValue::Null},
+        // Une lecture en échec porte l'identifiant réservé « probe » (contrat serveur).
+        {QStringLiteral("limit_id"), status == QLatin1String("ok") ? QStringLiteral("default") : QStringLiteral("probe")},
         {QStringLiteral("windows"), windows}, {QStringLiteral("credits"), QJsonValue::Null},
         {QStringLiteral("limit_reached"), QJsonValue::Null}, {QStringLiteral("reached_type"), QJsonValue::Null},
         {QStringLiteral("observed_at"), observed},
@@ -165,6 +167,9 @@ private slots:
     void staleReadingIsFlaggedAndOlderCountersAreMarked();
     void nullValuesStayUnknown();
     void limitReachedRaisesAnAlert();
+    void reachedTypesAreNamedInFrench_data();
+    void reachedTypesAreNamedInFrench();
+    void unknownPlanOfTheSourceStaysUnknown();
     void fractionalTimestampsAndNumbersAreRead();
     void offlineServerIsReportedAsOffline();
     void missingRouteMeansUnsupportedServer();
@@ -202,6 +207,7 @@ void TestSubscriptionQuotas::twoProvidersFromTheReferenceFixture()
     QCOMPARE(codex.value(QStringLiteral("statusKey")).toString(), QStringLiteral("succeeded"));
     QCOMPARE(codex.value(QStringLiteral("sourceLabel")).toString(), QStringLiteral("relevé officiel app-server"));
     QCOMPARE(codex.value(QStringLiteral("limitId")).toString(), QStringLiteral("codex"));
+    QCOMPARE(codex.value(QStringLiteral("counterLabel")).toString(), QStringLiteral("codex"));
     QCOMPARE(codex.value(QStringLiteral("workerName")).toString(), QStringLiteral("poste-principal"));
     QCOMPARE(codex.value(QStringLiteral("freshness")).toString(), QStringLiteral("relevé il y a 3 min"));
     QCOMPARE(codex.value(QStringLiteral("stale")).toBool(), false);
@@ -233,11 +239,20 @@ void TestSubscriptionQuotas::twoProvidersFromTheReferenceFixture()
     QVERIFY(signedOut.value(QStringLiteral("detail")).toString().contains(QStringLiteral("codex login")));
     QCOMPARE(signedOut.value(QStringLiteral("windows")).toList().size(), 0);
     QCOMPARE(signedOut.value(QStringLiteral("plan")).toString(), QStringLiteral("Inconnu"));
+    // L'échec n'est pas un compteur : son identifiant réservé n'est jamais affiché.
+    QCOMPARE(signedOut.value(QStringLiteral("limitId")).toString(), QStringLiteral("probe"));
+    QCOMPARE(signedOut.value(QStringLiteral("counterLabel")).toString(), QStringLiteral("aucun (lecture en échec)"));
+    const QString signedOutName = signedOut.value(QStringLiteral("accessibleName")).toString();
+    QVERIFY2(signedOutName.contains(QStringLiteral("compteur aucun (lecture en échec)"))
+             && !signedOutName.contains(QStringLiteral("probe")), qPrintable(signedOutName));
 
     const auto claude = rows(*h.vm)->get(2);
     QCOMPARE(claude.value(QStringLiteral("providerLabel")).toString(), QStringLiteral("Claude Code"));
     QCOMPARE(claude.value(QStringLiteral("sourceLabel")).toString(), QStringLiteral("ligne d'état Claude Code"));
     QCOMPARE(claude.value(QStringLiteral("plan")).toString(), QStringLiteral("Inconnu"));
+    // « default » : la source ne nomme aucun compteur ; l'identifiant anglais n'est pas affiché.
+    QCOMPARE(claude.value(QStringLiteral("limitId")).toString(), QStringLiteral("default"));
+    QCOMPARE(claude.value(QStringLiteral("counterLabel")).toString(), QStringLiteral("unique"));
     QCOMPARE(claude.value(QStringLiteral("creditsLabel")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(claude.value(QStringLiteral("limitReachedLabel")).toString(), QStringLiteral("Inconnu"));
     const auto fiveHours = windowAt(claude, 0);
@@ -479,12 +494,75 @@ void TestSubscriptionQuotas::limitReachedRaisesAnAlert()
     QTRY_COMPARE(h.vm->state(), QStringLiteral("ready"));
     const auto item = rows(*h.vm)->get(0);
     QCOMPARE(item.value(QStringLiteral("limitReached")).toBool(), true);
-    QCOMPARE(item.value(QStringLiteral("limitReachedLabel")).toString(), QStringLiteral("Limite atteinte (rate_limit_reached)"));
+    // Le libellé de l'état ne se répète pas dans l'alerte, et aucun identifiant anglais
+    // de la source n'est affiché.
+    QCOMPARE(item.value(QStringLiteral("limitReachedLabel")).toString(), QStringLiteral("Atteinte"));
+    QCOMPARE(item.value(QStringLiteral("limitReachedAlert")).toString(),
+             QStringLiteral("Limite atteinte : limite d'utilisation de l'abonnement"));
     QCOMPARE(item.value(QStringLiteral("creditsLabel")).toString(), QStringLiteral("Solde : 12.50"));
     QCOMPARE(windowAt(item, 0).value(QStringLiteral("remainingText")).toString(), nbsp("0_%"));
     QCOMPARE(windowAt(item, 0).value(QStringLiteral("level")).toString(), QStringLiteral("critical"));
     QCOMPARE(windowAt(item, 0).value(QStringLiteral("countdownText")).toString(), QStringLiteral("dans 57 min"));
-    QVERIFY(item.value(QStringLiteral("accessibleName")).toString().contains(QStringLiteral("Limite atteinte")));
+    const QString name = item.value(QStringLiteral("accessibleName")).toString();
+    QVERIFY2(name.contains(QStringLiteral("Limite atteinte : limite d'utilisation de l'abonnement."))
+             && !name.contains(QStringLiteral("rate_limit_reached")), qPrintable(name));
+}
+
+void TestSubscriptionQuotas::reachedTypesAreNamedInFrench_data()
+{
+    QTest::addColumn<QJsonValue>("type");
+    QTest::addColumn<QString>("alert");
+    QTest::newRow("sans-type") << QJsonValue(QJsonValue::Null) << QStringLiteral("Limite atteinte");
+    QTest::newRow("rate-limit") << QJsonValue(QStringLiteral("rate_limit_reached"))
+                                << QStringLiteral("Limite atteinte : limite d'utilisation de l'abonnement");
+    QTest::newRow("owner-credits") << QJsonValue(QStringLiteral("workspace_owner_credits_depleted"))
+                                   << QStringLiteral("Limite atteinte : crédits du propriétaire de l'espace de travail épuisés");
+    QTest::newRow("member-credits") << QJsonValue(QStringLiteral("workspace_member_credits_depleted"))
+                                    << QStringLiteral("Limite atteinte : crédits du membre de l'espace de travail épuisés");
+    QTest::newRow("owner-usage") << QJsonValue(QStringLiteral("workspace_owner_usage_limit_reached"))
+                                 << QStringLiteral("Limite atteinte : plafond d'utilisation du propriétaire de l'espace de travail");
+    QTest::newRow("member-usage") << QJsonValue(QStringLiteral("workspace_member_usage_limit_reached"))
+                                  << QStringLiteral("Limite atteinte : plafond d'utilisation du membre de l'espace de travail");
+    // Type d'une version future de Codex : cité tel quel, signalé comme non reconnu.
+    QTest::newRow("futur") << QJsonValue(QStringLiteral("team_budget_exhausted"))
+                           << QStringLiteral("Limite atteinte : type non reconnu « team_budget_exhausted »");
+}
+
+void TestSubscriptionQuotas::reachedTypesAreNamedInFrench()
+{
+    QFETCH(QJsonValue, type);
+    QFETCH(QString, alert);
+    Harness h;
+    auto row = report(QStringLiteral("codex"), QStringLiteral("ok"), QStringLiteral("2026-09-24T08:00:00Z"),
+        {window(QStringLiteral("primary"), 100, 300, QStringLiteral("2026-09-24T09:00:00Z"))});
+    row.insert(QStringLiteral("limit_reached"), true);
+    row.insert(QStringLiteral("reached_type"), type);
+    h.server.handler = [&](const Request &) { return Response{json(listing({row}))}; };
+    h.vm->setActive(true);
+    QTRY_COMPARE(h.vm->state(), QStringLiteral("ready"));
+    const auto item = rows(*h.vm)->get(0);
+    QCOMPARE(item.value(QStringLiteral("limitReachedLabel")).toString(), QStringLiteral("Atteinte"));
+    QCOMPARE(item.value(QStringLiteral("limitReachedAlert")).toString(), alert);
+}
+
+void TestSubscriptionQuotas::unknownPlanOfTheSourceStaysUnknown()
+{
+    Harness h;
+    auto row = report(QStringLiteral("codex"), QStringLiteral("ok"), QStringLiteral("2026-09-24T08:00:00Z"),
+        {window(QStringLiteral("primary"), 10, 300, QJsonValue::Null)});
+    row.insert(QStringLiteral("plan"), QStringLiteral("unknown"));
+    row.insert(QStringLiteral("limit_reached"), false);
+    h.server.handler = [&](const Request &) { return Response{json(listing({row}))}; };
+    h.vm->setActive(true);
+    QTRY_COMPARE(h.vm->state(), QStringLiteral("ready"));
+    const auto item = rows(*h.vm)->get(0);
+    QCOMPARE(item.value(QStringLiteral("plan")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(item.value(QStringLiteral("planKnown")).toBool(), false);
+    QCOMPARE(item.value(QStringLiteral("limitReachedLabel")).toString(), QStringLiteral("Non atteinte"));
+    QCOMPARE(item.value(QStringLiteral("limitReachedAlert")).toString(), QString());
+    const QString name = item.value(QStringLiteral("accessibleName")).toString();
+    QVERIFY2(name.contains(QStringLiteral("Offre : Inconnu.")) && !name.contains(QStringLiteral("unknown")),
+             qPrintable(name));
 }
 
 void TestSubscriptionQuotas::fractionalTimestampsAndNumbersAreRead()

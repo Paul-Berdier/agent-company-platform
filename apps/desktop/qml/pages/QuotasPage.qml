@@ -193,9 +193,10 @@ Item {
                     }
 
                     Text {
+                        objectName: "quotaMeta-" + card.index
                         Layout.fillWidth: true
                         text: qsTr("Offre : %1 · Source : %2 · Compteur : %3")
-                            .arg(card.item.plan).arg(card.item.sourceLabel).arg(card.item.limitId)
+                            .arg(card.item.plan).arg(card.item.sourceLabel).arg(card.item.counterLabel)
                         textFormat: Text.PlainText
                         wrapMode: Text.Wrap
                         color: Colors.textSecondary
@@ -230,7 +231,9 @@ Item {
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.margins: Space.space4
-                            text: qsTr("Limite atteinte : %1").arg(card.item.limitReachedLabel)
+                            // Alerte complète rédigée par le ViewModel : cause en français,
+                            // jamais l'identifiant anglais de la source.
+                            text: card.item.limitReachedAlert
                             textFormat: Text.PlainText
                             wrapMode: Text.Wrap
                             color: Status.statusFailedForeground

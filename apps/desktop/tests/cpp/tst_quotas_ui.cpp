@@ -16,6 +16,7 @@
 #include <QGuiApplication>
 #include <QHostAddress>
 #include <QImage>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkCookie>
@@ -205,6 +206,13 @@ private slots:
         QCOMPARE(item(QStringLiteral("quotaState-1"))->property("label").toString(), QStringLiteral("Non connecté"));
         QVERIFY(!item(QStringLiteral("quotaStale-0")));
         QVERIFY(!item(QStringLiteral("quotaLimitReached-0")));
+        // Une lecture en échec n'est pas un compteur : son identifiant réservé ne s'affiche pas.
+        QVERIFY(item(QStringLiteral("quotaMeta-1")));
+        QCOMPARE(item(QStringLiteral("quotaMeta-1"))->property("text").toString(),
+                 QStringLiteral("Offre : Inconnu · Source : relevé officiel app-server · Compteur : aucun (lecture en échec)"));
+        QVERIFY(item(QStringLiteral("quotaMeta-2")));
+        QCOMPARE(item(QStringLiteral("quotaMeta-2"))->property("text").toString(),
+                 QStringLiteral("Offre : Inconnu · Source : ligne d'état Claude Code · Compteur : unique"));
 
         // Jauge dessinée : 58 % restant sur la fenêtre de 5 h Codex.
         auto *gauge = item(QStringLiteral("quotaGauge-0-0"));
@@ -245,6 +253,30 @@ private slots:
         QTRY_COMPARE(vm->state(), QStringLiteral("ready"));
         QTest::qWait(150);
         QCOMPARE(server.reads, readsBeforeRefresh + 1);
+
+        // Limite atteinte : l'alerte nomme la cause en français, sans répéter son libellé ni
+        // afficher l'identifiant anglais de la source ; l'offre « unknown » reste « Inconnu ».
+        {
+            QJsonObject reached = QJsonDocument::fromJson(fixture()).object();
+            QJsonArray items = reached.value(QStringLiteral("items")).toArray();
+            QJsonObject codex = items.at(1).toObject();
+            QCOMPARE(codex.value(QStringLiteral("limit_id")).toString(), QStringLiteral("codex"));
+            codex.insert(QStringLiteral("limit_reached"), true);
+            codex.insert(QStringLiteral("reached_type"), QStringLiteral("workspace_owner_credits_depleted"));
+            codex.insert(QStringLiteral("plan"), QStringLiteral("unknown"));
+            items.replace(1, codex);
+            reached.insert(QStringLiteral("items"), items);
+            server.body = QJsonDocument(reached).toJson(QJsonDocument::Compact);
+        }
+        QVERIFY(click(QStringLiteral("quotasRefreshButton")));
+        QTRY_VERIFY(item(QStringLiteral("quotaLimitReached-0")));
+        QTRY_COMPARE(accessibleName(item(QStringLiteral("quotaLimitReached-0"))),
+                     QStringLiteral("Limite atteinte : crédits du propriétaire de l'espace de travail épuisés"));
+        QVERIFY(item(QStringLiteral("quotaMeta-0")));
+        QCOMPARE(item(QStringLiteral("quotaMeta-0"))->property("text").toString(),
+                 QStringLiteral("Offre : Inconnu · Source : relevé officiel app-server · Compteur : codex"));
+        QVERIFY(capture(QStringLiteral("12b-quotas-limit-reached")));
+        server.body = fixture();
 
         appearance->setThemePreference(QStringLiteral("light"));
         // Taille posée explicitement : une vraie fenêtre applique resize() de façon différée.

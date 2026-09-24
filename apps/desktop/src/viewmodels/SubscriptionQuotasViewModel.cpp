@@ -31,6 +31,13 @@ constexpr double kMaxWindowMinutes = 527040; // 366 jours, comme le contrat serv
 constexpr double kRemainingTolerance = 0.0001;
 
 const QString kUnknown = QStringLiteral("Inconnu");
+// Identifiant réservé par le contrat serveur à une lecture en échec : ce n'est pas un
+// compteur de la source, il n'est jamais affiché comme tel.
+const QString kProbeLimitId = QStringLiteral("probe");
+// Compteur unique d'une source qui n'en nomme aucun (ligne d'état Claude Code).
+const QString kDefaultLimitId = QStringLiteral("default");
+// Valeur par laquelle l'app-server Codex dit ignorer l'offre : elle reste « Inconnu ».
+const QString kSourceUnknownPlan = QStringLiteral("unknown");
 const QString kOwnerOnly = QStringLiteral(
     "Quotas d'abonnement réservés au propriétaire de la plateforme : l'usage d'un "
     "abonnement est personnel à son titulaire.");
@@ -487,6 +494,39 @@ QString windowLabel(const QuotaWindow &window)
     return QStringLiteral("Fenêtre de %1 min").arg(*window.minutes);
 }
 
+//! Compteur affiché : les identifiants propres à la plateforme sont traduits, ceux de la
+//! source (par exemple « codex ») restent tels quels.
+QString counterLabel(const QString &limitId)
+{
+    if (limitId == kProbeLimitId) { return QStringLiteral("aucun (lecture en échec)"); }
+    if (limitId == kDefaultLimitId) { return QStringLiteral("unique"); }
+    return limitId;
+}
+
+std::optional<QString> knownPlan(const std::optional<QString> &plan)
+{
+    if (!plan || *plan == kSourceUnknownPlan) { return std::nullopt; }
+    return plan;
+}
+
+/*! Cause d'une limite atteinte (``RateLimitReachedType`` de Codex), en français. Un type
+    d'une version future reste cité tel quel, signalé comme non reconnu. */
+QString reachedCause(const QString &type)
+{
+    static const QHash<QString, QString> causes{
+        {QStringLiteral("rate_limit_reached"), QStringLiteral("limite d'utilisation de l'abonnement")},
+        {QStringLiteral("workspace_owner_credits_depleted"),
+         QStringLiteral("crédits du propriétaire de l'espace de travail épuisés")},
+        {QStringLiteral("workspace_member_credits_depleted"),
+         QStringLiteral("crédits du membre de l'espace de travail épuisés")},
+        {QStringLiteral("workspace_owner_usage_limit_reached"),
+         QStringLiteral("plafond d'utilisation du propriétaire de l'espace de travail")},
+        {QStringLiteral("workspace_member_usage_limit_reached"),
+         QStringLiteral("plafond d'utilisation du membre de l'espace de travail")},
+    };
+    return causes.value(type, QStringLiteral("type non reconnu « %1 »").arg(type));
+}
+
 QString creditsLabel(const std::optional<QuotaCredits> &credits)
 {
     if (!credits) { return kUnknown; }
@@ -577,14 +617,17 @@ QJsonArray buildRows(const QuotaListing &listing, const QDateTime &now, const QT
     for (const auto index : order) {
         const auto &report = listing.items.at(index);
         const bool current = report.observedAt == latest.value(group(report));
+        const std::optional<QString> plan = knownPlan(report.plan);
+        const QString counter = counterLabel(report.limitId);
         QJsonObject row{
             {QStringLiteral("id"), report.provider + QLatin1Char('/') + report.limitId + QLatin1Char('/') + report.workerId},
             {QStringLiteral("provider"), report.provider},
             {QStringLiteral("providerLabel"), providerLabel(report.provider)},
             {QStringLiteral("workerName"), report.workerName},
             {QStringLiteral("limitId"), report.limitId},
-            {QStringLiteral("plan"), report.plan.value_or(kUnknown)},
-            {QStringLiteral("planKnown"), report.plan.has_value()},
+            {QStringLiteral("counterLabel"), counter},
+            {QStringLiteral("plan"), plan.value_or(kUnknown)},
+            {QStringLiteral("planKnown"), plan.has_value()},
             {QStringLiteral("status"), report.status},
             {QStringLiteral("statusKey"), statusKey(report.status)},
             {QStringLiteral("statusLabel"), statusLabel(report.status)},
@@ -601,12 +644,17 @@ QJsonArray buildRows(const QuotaListing &listing, const QDateTime &now, const QT
             {QStringLiteral("creditsLabel"), creditsLabel(report.credits)},
         };
         QString reached = kUnknown;
+        QString alert;
         if (report.limitReached) {
-            reached = !*report.limitReached ? QStringLiteral("Non atteinte")
-                : report.reachedType ? QStringLiteral("Limite atteinte (%1)").arg(*report.reachedType)
-                                     : QStringLiteral("Limite atteinte");
+            reached = *report.limitReached ? QStringLiteral("Atteinte") : QStringLiteral("Non atteinte");
+        }
+        if (report.limitReached.value_or(false)) {
+            alert = report.reachedType
+                ? QStringLiteral("Limite atteinte : %1").arg(reachedCause(*report.reachedType))
+                : QStringLiteral("Limite atteinte");
         }
         row.insert(QStringLiteral("limitReachedLabel"), reached);
+        row.insert(QStringLiteral("limitReachedAlert"), alert);
         QString superseded;
         if (!current) {
             const QuotaReport *head = currentOf.value(group(report));
@@ -623,12 +671,12 @@ QJsonArray buildRows(const QuotaListing &listing, const QDateTime &now, const QT
         }
         row.insert(QStringLiteral("windows"), windows);
         QString name = QStringLiteral("%1, worker « %2 », compteur %3 : %4.")
-                           .arg(providerLabel(report.provider), report.workerName, report.limitId,
+                           .arg(providerLabel(report.provider), report.workerName, counter,
                                 statusLabel(report.status));
         if (!summaries.isEmpty()) { name += QLatin1Char(' ') + summaries.join(QStringLiteral(" ; ")) + QLatin1Char('.'); }
         name += QStringLiteral(" Offre : %1. Crédits : %2. %3.")
-                    .arg(report.plan.value_or(kUnknown), creditsLabel(report.credits), freshness(report.observedAt, now));
-        if (report.limitReached.value_or(false)) { name += QStringLiteral(" Limite atteinte."); }
+                    .arg(plan.value_or(kUnknown), creditsLabel(report.credits), freshness(report.observedAt, now));
+        if (!alert.isEmpty()) { name += QLatin1Char(' ') + alert + QLatin1Char('.'); }
         if (report.stale) { name += QStringLiteral(" Périmé."); }
         if (!current) { name += QStringLiteral(" Relevé antérieur."); }
         row.insert(QStringLiteral("accessibleName"), name);
