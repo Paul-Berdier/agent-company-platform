@@ -12,15 +12,8 @@
 #   scripts/lock_python.ps1   ou   scripts/lock_python.sh
 # puis ``python scripts/check_lock.py`` pour vérifier verrou et contraintes.
 
-# --- apps/worker ---
-httpx>=0.27
-
-# --- packages/contracts (contrat Python des quotas) ---
+# --- apps/poste et hermes/plugins/acp-poste/contrat ---
 pydantic>=2.7
-# ``tzdata`` n'est requis que sous Windows par acp-contracts, mais il est verrouillé
-# sans marqueur : le fichier de contraintes dérivé du verrou sert aussi au poste
-# local Windows, et le paquet ne contient que des données.
-tzdata>=2024.1
 
 # --- Tests Python ---
 pytest>=8

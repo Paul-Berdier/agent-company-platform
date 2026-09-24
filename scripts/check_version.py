@@ -22,7 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
-PYPROJECTS = ("apps/worker/pyproject.toml",)
+PYPROJECTS = (
+    "apps/poste/pyproject.toml",
+    "hermes/plugins/acp-poste/contrat/pyproject.toml",
+)
 
 PACKAGE_JSONS = ("package.json",)
 

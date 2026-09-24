@@ -9,7 +9,7 @@ Set-Location $root
 
 # Le Python du Microsoft Store est une application empaquetée : l'interpréteur réel d'un
 # venv bâti sur lui sort du Job Object du runner local, et les tests d'arbre de processus
-# échouent (apps/worker/tests/test_local_runner.py). Refus explicite, plutôt qu'un venv
+# échouent (apps/poste/tests/test_local_runner.py). Refus explicite, plutôt qu'un venv
 # qui semble fonctionner.
 $pythonOfficiel = "winget install --id Python.Python.3.12 --exact --scope user, puis : " +
     "& `"$env:LOCALAPPDATA\Programs\Python\Python312\python.exe`" -m venv `"$root\.venv`""
@@ -30,8 +30,8 @@ $py = "$root\.venv\Scripts\python.exe"
 & $py -m pip install `
     -c "$root\requirements\constraints.txt" `
     pytest pytest-asyncio `
-    -e "$root\packages\contracts" `
-    -e "$root\apps\worker"
+    -e "$root\hermes\plugins\acp-poste\contrat" `
+    -e "$root\apps\poste"
 
 & $py "$root\scripts\check_lock.py"
 if ($LASTEXITCODE -ne 0) {

@@ -33,6 +33,14 @@ SOURCE_PATH = ROOT / "requirements" / "python-3.12.in"
 # la base elle-même (refonte « Hermes au centre ») : aucune n'est imposée aujourd'hui.
 REQUIRED_PINS: dict[str, str] = {}
 
+# Distributions Python du dépôt dont les dépendances doivent figurer au verrou : le
+# poste Windows et le contrat qu'il partage avec le greffon Hermes acp-poste.
+PROJECT_PATTERNS = (
+    "apps/*/pyproject.toml",
+    "packages/*/pyproject.toml",
+    "hermes/plugins/*/contrat/pyproject.toml",
+)
+
 CONSTRAINTS_HEADER = (
     "# Contraintes de versions pour le poste local (Python 3.13 compris).\n"
     "# Généré depuis requirements/python-3.12.lock.txt par\n"
@@ -278,8 +286,8 @@ def main(argv: list[str] | None = None) -> int:
     source_text = args.source.read_text(encoding="utf-8")
     project_files = {
         path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
-        for directory in ("apps", "packages", "services")
-        for path in sorted((ROOT / directory).glob("*/pyproject.toml"))
+        for pattern in PROJECT_PATTERNS
+        for path in sorted(ROOT.glob(pattern))
     }
     errors = check(lock_text, constraints_text, source_text, project_files=project_files)
     if errors:

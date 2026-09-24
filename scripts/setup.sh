@@ -20,8 +20,8 @@ PY="$VENV/bin/python"
 "$PY" -m pip install \
     -c requirements/constraints.txt \
     pytest pytest-asyncio \
-    -e packages/contracts \
-    -e apps/worker
+    -e hermes/plugins/acp-poste/contrat \
+    -e apps/poste
 
 "$PY" scripts/check_lock.py
 
