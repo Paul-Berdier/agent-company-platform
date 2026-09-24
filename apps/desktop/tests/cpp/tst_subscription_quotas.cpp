@@ -339,6 +339,9 @@ void TestSubscriptionQuotas::malformedPayloadIsRefused_data()
     missing.remove(QStringLiteral("stale_after_seconds"));
     QTest::newRow("missing-top-level-field") << json(missing) << QStringLiteral("champ absent « stale_after_seconds »");
     QTest::newRow("not-an-object") << QByteArray("[]") << QStringLiteral("objet JSON attendu");
+    auto huge = base;
+    huge.insert(QString(5000, QLatin1Char('k')), 1);
+    QTest::newRow("huge-unknown-field") << json(huge) << QStringLiteral("champ inattendu « kkkk");
     QTest::newRow("unknown-item-field") << withItem([](QJsonObject &item) { item.insert(QStringLiteral("email"), QStringLiteral("x@y")); })
                                         << QStringLiteral("champ inattendu « email »");
     QTest::newRow("missing-item-field") << withItem([](QJsonObject &item) { item.remove(QStringLiteral("stale")); })
@@ -373,6 +376,12 @@ void TestSubscriptionQuotas::malformedPayloadIsRefused_data()
                                      << QStringLiteral("« credits »");
     QTest::newRow("reached-type-without-limit") << withItem([](QJsonObject &item) { item.insert(QStringLiteral("reached_type"), QStringLiteral("primary")); })
                                                 << QStringLiteral("« reached_type »");
+    QTest::newRow("oversized-detail") << withItem([](QJsonObject &item) { item.insert(QStringLiteral("detail"), QString(301, QLatin1Char('x'))); })
+                                      << QStringLiteral("« detail »");
+    QTest::newRow("oversized-worker-name") << withItem([](QJsonObject &item) { item.insert(QStringLiteral("worker_name"), QString(201, QLatin1Char('w'))); })
+                                           << QStringLiteral("« worker_name »");
+    QTest::newRow("oversized-plan") << withItem([](QJsonObject &item) { item.insert(QStringLiteral("plan"), QString(41, QLatin1Char('p'))); })
+                                    << QStringLiteral("« plan »");
     QTest::newRow("duplicate-counter") << withItem([&base](QJsonObject &item) { item = base.value(QStringLiteral("items")).toArray().at(2).toObject(); })
                                        << QStringLiteral("en double");
 }
@@ -394,6 +403,8 @@ void TestSubscriptionQuotas::malformedPayloadIsRefused()
     QCOMPARE(rows(*h.vm)->count(), 0);
     QVERIFY2(h.vm->message().startsWith(QStringLiteral("Réponse des quotas refusée")), qPrintable(h.vm->message()));
     QVERIFY2(h.vm->message().contains(reason), qPrintable(h.vm->message()));
+    // Un nom de champ démesuré envoyé par le serveur ne devient pas un message illisible.
+    QVERIFY2(h.vm->message().size() < 400, qPrintable(QString::number(h.vm->message().size())));
 }
 
 void TestSubscriptionQuotas::staleReadingIsFlaggedAndOlderCountersAreMarked()

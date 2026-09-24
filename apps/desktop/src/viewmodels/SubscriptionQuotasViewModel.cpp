@@ -139,11 +139,18 @@ private:
         return false;
     }
 
+    //! Nom de champ cité dans un refus, borné : un serveur ne dicte pas la taille du message.
+    static QString shown(const QString &key)
+    {
+        constexpr qsizetype limit = 64;
+        return key.size() <= limit ? key : key.left(limit) + QStringLiteral("…");
+    }
+
     bool keys(const QJsonObject &object, const QStringList &expected, const QString &where)
     {
         for (auto it = object.constBegin(); it != object.constEnd(); ++it) {
             if (!expected.contains(it.key())) {
-                return fail(QStringLiteral("champ inattendu « %1 » dans %2").arg(it.key(), where));
+                return fail(QStringLiteral("champ inattendu « %1 » dans %2").arg(shown(it.key()), where));
             }
         }
         for (const auto &key : expected) {
@@ -169,9 +176,12 @@ private:
         return std::isfinite(number) && number >= 0.0 && number <= 100.0;
     }
 
-    static std::optional<QString> text(const QJsonValue &value)
+    //! Texte non vide borné par la longueur maximale du contrat serveur.
+    static std::optional<QString> text(const QJsonValue &value, qsizetype maxLength)
     {
-        if (!value.isString() || value.toString().trimmed().isEmpty()) { return std::nullopt; }
+        if (!value.isString() || value.toString().trimmed().isEmpty() || value.toString().size() > maxLength) {
+            return std::nullopt;
+        }
         return value.toString();
     }
 
@@ -228,22 +238,15 @@ private:
             fail(QStringLiteral("« source » incohérente avec le fournisseur dans %1").arg(where));
             return std::nullopt;
         }
-        if (!optionalText(object, QStringLiteral("plan"), where, result.plan)
-            || !optionalText(object, QStringLiteral("reached_type"), where, result.reachedType)
-            || !optionalText(object, QStringLiteral("detail"), where, result.detail)) {
+        // Longueurs maximales du contrat serveur (packages/contracts/.../subscriptions.py).
+        if (!optionalText(object, QStringLiteral("plan"), 40, where, result.plan)
+            || !optionalText(object, QStringLiteral("reached_type"), 64, where, result.reachedType)
+            || !optionalText(object, QStringLiteral("detail"), 300, where, result.detail)
+            || !requiredText(object, QStringLiteral("limit_id"), 64, where, result.limitId)
+            || !requiredText(object, QStringLiteral("worker_id"), 36, where, result.workerId)
+            || !requiredText(object, QStringLiteral("worker_name"), 200, where, result.workerName)) {
             return std::nullopt;
         }
-        const auto limitId = text(object.value(QStringLiteral("limit_id")));
-        const auto workerId = text(object.value(QStringLiteral("worker_id")));
-        const auto workerName = text(object.value(QStringLiteral("worker_name")));
-        if (!limitId || !workerId || !workerName) {
-            fail(QStringLiteral("« limit_id », « worker_id » et « worker_name » doivent être des textes non vides (%1)")
-                     .arg(where));
-            return std::nullopt;
-        }
-        result.limitId = *limitId;
-        result.workerId = *workerId;
-        result.workerName = *workerName;
         const auto observed = instant(object.value(QStringLiteral("observed_at")));
         if (!observed) {
             fail(QStringLiteral("« observed_at » doit être un horodatage ISO 8601 avec fuseau (%1)").arg(where));
@@ -290,14 +293,27 @@ private:
         return result;
     }
 
-    bool optionalText(const QJsonObject &object, const QString &key, const QString &where,
-                      std::optional<QString> &target)
+    bool optionalText(const QJsonObject &object, const QString &key, qsizetype maxLength,
+                      const QString &where, std::optional<QString> &target)
     {
         const QJsonValue value = object.value(key);
         if (value.isNull()) { return true; }
-        const auto content = text(value);
+        const auto content = text(value, maxLength);
         if (!content) {
-            return fail(QStringLiteral("« %1 » doit être un texte non vide ou null (%2)").arg(key, where));
+            return fail(QStringLiteral("« %1 » doit être un texte non vide de %2 caractères au plus, ou null (%3)")
+                            .arg(key).arg(maxLength).arg(where));
+        }
+        target = *content;
+        return true;
+    }
+
+    bool requiredText(const QJsonObject &object, const QString &key, qsizetype maxLength,
+                      const QString &where, QString &target)
+    {
+        const auto content = text(object.value(key), maxLength);
+        if (!content) {
+            return fail(QStringLiteral("« %1 » doit être un texte non vide de %2 caractères au plus (%3)")
+                            .arg(key).arg(maxLength).arg(where));
         }
         target = *content;
         return true;
@@ -323,7 +339,7 @@ private:
         QuotaCredits result;
         result.hasCredits = has.toBool();
         result.unlimited = unlimited.toBool();
-        if (!optionalText(object, QStringLiteral("balance"), place, result.balance)) { return false; }
+        if (!optionalText(object, QStringLiteral("balance"), 32, place, result.balance)) { return false; }
         target = result;
         return true;
     }
@@ -348,8 +364,8 @@ private:
                 return false;
             }
             QuotaWindow window;
-            const auto key = text(object.value(QStringLiteral("key")));
-            if (!key || key->size() > 32) {
+            const auto key = text(object.value(QStringLiteral("key")), 32);
+            if (!key) {
                 return fail(QStringLiteral("« key » doit être un texte non vide de 32 caractères au plus (%1)").arg(place));
             }
             window.key = *key;
