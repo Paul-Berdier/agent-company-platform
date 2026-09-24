@@ -1,0 +1,13 @@
+# Greffon groupé acp-poste (livré dans l'image, /opt/hermes/plugins/acp-poste).
+#
+# Type « backend » : un greffon groupé de ce type se charge sans figurer dans
+# plugins.enabled (hermes_cli/plugins_discovery.py:264-267), que la managed scope
+# épingle vide pour qu'aucun greffon « utilisateur » ne soit jamais activé.
+# Squelette P1 : route /api/plugins/acp-poste/v1/meta et adaptateur kanban ; les
+# outils poste_*, le jeton machine et les routes du poste arrivent en P5.
+name: acp-poste
+version: 0.11.0
+description: "ACP — façade versionnée du poste Windows (contrat acp-poste/1). Squelette : route /v1/meta et adaptateur kanban ; aucun outil encore."
+author: ACP
+kind: backend
+requires_hermes: ">=0.21.5"

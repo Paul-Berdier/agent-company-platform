@@ -1,0 +1,14 @@
+{
+  "name": "acp-poste",
+  "label": "Poste ACP",
+  "description": "Façade versionnée du poste Windows (contrat acp-poste/1). Aucune page : l'interface arrive avec acp-interface.",
+  "icon": "Puzzle",
+  "version": "0.11.0",
+  "tab": {
+    "path": "/acp-poste",
+    "position": "end",
+    "hidden": true
+  },
+  "entry": "acp-poste.js",
+  "api": "plugin_api.py"
+}

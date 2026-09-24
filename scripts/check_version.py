@@ -14,6 +14,7 @@ obligerait à modifier son ``package.json``, donc à rompre le gel. Son entrée 
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -27,7 +28,12 @@ PYPROJECTS = (
     "hermes/plugins/acp-poste/contrat/pyproject.toml",
 )
 
-PACKAGE_JSONS = ("package.json",)
+PACKAGE_JSONS = ("package.json", "hermes/plugins/acp-poste/dashboard/manifest.json")
+
+# Manifestes YAML des greffons groupés de l'image Hermes (champ ``version`` de premier
+# niveau, lu sans PyYAML : ce script ne dépend que de la bibliothèque standard).
+PLUGIN_YAMLS = ("hermes/plugins/acp-poste/plugin.yaml",)
+_VERSION_YAML = re.compile(r'^version:\s*"?([^"\s#]+)"?\s*(?:#.*)?$', re.MULTILINE)
 
 # Seul le paquet racine est versionné par le produit dans le verrou npm.
 LOCK_PACKAGES = ("",)
@@ -48,6 +54,10 @@ def main() -> int:
     for relative in PACKAGE_JSONS:
         data = json.loads((ROOT / relative).read_text(encoding="utf-8"))
         report(errors, relative, data.get("version"))
+
+    for relative in PLUGIN_YAMLS:
+        found = _VERSION_YAML.findall((ROOT / relative).read_text(encoding="utf-8"))
+        report(errors, relative, found[0] if len(found) == 1 else None)
 
     lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
     report(errors, "package-lock.json", lock.get("version"))
