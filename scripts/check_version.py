@@ -1,9 +1,19 @@
-"""Vérifie que tous les composants publiables portent la version du produit."""
+"""Vérifie que tous les composants publiables portent la version du produit.
+
+Refonte « Hermes au centre » : seuls les composants conservés sont vérifiés. Le
+client desktop lit directement le fichier ``VERSION`` (``apps/desktop/cmake/
+AcpVersion.cmake``) et n'en garde aucune copie.
+
+``packages/pixel-office-engine`` est volontairement ABSENT de cette liste : le moteur
+est gelé octet pour octet sur l'étiquette ``archive/acp-0.10.0-avant-hermes``
+(``scripts/check_engine_frozen.py``). S'il y figurait, chaque hausse de version
+obligerait à modifier son ``package.json``, donc à rompre le gel. Son entrée dans
+``package-lock.json`` garde de même la version que déclare son ``package.json``.
+"""
 
 from __future__ import annotations
 
 import json
-import re
 import sys
 import tomllib
 from pathlib import Path
@@ -12,45 +22,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
-PYPROJECTS = (
-    "apps/api/pyproject.toml",
-    "apps/cli/pyproject.toml",
-    "apps/event-service/pyproject.toml",
-    "apps/worker/pyproject.toml",
-    "packages/agent-sdk/pyproject.toml",
-    "packages/contracts/pyproject.toml",
-    "packages/database/pyproject.toml",
-    "packages/event-sdk/pyproject.toml",
-    "packages/provider-sdk/pyproject.toml",
-    "services/provider-gateway/pyproject.toml",
-)
+PYPROJECTS = ("apps/worker/pyproject.toml",)
 
-PACKAGE_JSONS = (
-    "package.json",
-    "apps/web/package.json",
-    "packages/contracts/package.json",
-    "packages/pixel-office-engine/package.json",
-    "packages/playwright-reporter/package.json",
-    "packages/ui/package.json",
-)
+PACKAGE_JSONS = ("package.json",)
 
-FASTAPI_APPS = (
-    "apps/api/src/acp_api/main.py",
-    "apps/api/src/acp_api/preview.py",
-    "apps/event-service/src/acp_event_service/main.py",
-    "services/provider-gateway/src/acp_provider_gateway/main.py",
-)
-
-PYTHON_VERSION_MODULES = ("apps/cli/src/acp_cli/__init__.py",)
-
-LOCK_PACKAGES = (
-    "",
-    "apps/web",
-    "packages/contracts",
-    "packages/pixel-office-engine",
-    "packages/playwright-reporter",
-    "packages/ui",
-)
+# Seul le paquet racine est versionné par le produit dans le verrou npm.
+LOCK_PACKAGES = ("",)
 
 
 def report(errors: list[str], path: str, actual: object) -> None:
@@ -77,16 +54,6 @@ def main() -> int:
             f"package-lock.json#packages/{package or '<root>'}",
             lock.get("packages", {}).get(package, {}).get("version"),
         )
-
-    version_pattern = re.compile(r'\bversion\s*=\s*"([^"]+)"')
-    for relative in FASTAPI_APPS:
-        match = version_pattern.search((ROOT / relative).read_text(encoding="utf-8"))
-        report(errors, relative, match.group(1) if match else None)
-
-    module_version_pattern = re.compile(r'\b__version__\s*=\s*"([^"]+)"')
-    for relative in PYTHON_VERSION_MODULES:
-        match = module_version_pattern.search((ROOT / relative).read_text(encoding="utf-8"))
-        report(errors, relative, match.group(1) if match else None)
 
     if errors:
         print("Dérive de version détectée :", file=sys.stderr)
