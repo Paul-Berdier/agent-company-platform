@@ -6,6 +6,30 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [Unreleased]
 
+### Quotas réels d'abonnement
+
+- écran desktop « Quotas », réservé au propriétaire de la plateforme : une jauge
+  par fenêtre de limite (utilisé et restant), remise à zéro en heure locale avec
+  compte à rebours, fraîcheur du relevé, badge « Périmé », « Inconnu » pour toute
+  valeur absente et mention « usage personnel » des abonnements ;
+- relevé par le worker, en opt-in : Codex CLI connecté par compte ChatGPT via
+  `codex app-server` (`account/rateLimits/read`, version minimale 0.100.0), et
+  Claude Code via la ligne d'état fournie (`python -m acp_worker.claude_statusline`) ;
+  environnement de Codex expurgé de toute clé d'API, arbre de processus borné ;
+- `POST /work/workers/{id}/subscription-quotas` (worker) et `GET /subscription-quotas`
+  (propriétaire seulement), relevés monotones ; un échec de lecture ne remplace
+  jamais les derniers compteurs réussis ; migration `0005` ;
+- schémas officiels du protocole `app-server` 0.156.1 épinglés comme contrat de test ;
+- suite Python complète : 3 221 réussis, 68 ignorés ; tests PostgreSQL touchés :
+  191 réussis ; 25 suites Qt vertes en Debug ;
+- vérification réelle sur le poste : relevé de la ligne d'état lu par la sonde du
+  worker, et Codex CLI 0.156.1 réel répondant « non connecté » sur le profil dédié.
+
+Le chemin « compte connecté » de Codex n'est éprouvé qu'avec un faux `app-server`
+validé contre les schémas officiels : le profil dédié attend la connexion du
+titulaire. Figma et les crédits d'API ne sont pas mesurés. Détails et mise en place
+dans [`docs/subscription-quotas.md`](docs/subscription-quotas.md).
+
 ### Interface conversations et projets
 
 - accueil à deux entrées : chat libre sans titre préalable ou projet à créer/reprendre ;
