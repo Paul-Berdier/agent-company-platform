@@ -98,7 +98,10 @@ fournisseur s'appelle `self-hosted`, sa clé de greffon `dashboard_auth/self_hos
 L'URI de retour à déclarer chez le fournisseur d'identité est
 `<HERMES_DASHBOARD_PUBLIC_URL>/auth/callback` (vérifiée par
 `plugins/dashboard_auth/_shared.py:93-101`). Un client **public** est recommandé : aucun
-secret n'existe alors nulle part.
+secret n'existe alors nulle part. Un secret client fourni reste lisible par l'agent, qui
+tourne sous le même uid que le tableau de bord (environnement du processus,
+`/run/s6/container_environment`, rendu lisible par rc.init) : il ne protège rien contre
+lui.
 
 Fixées par l'image, refusées si Railway les change : `HERMES_HOME=/opt/data`,
 `HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist`, `HERMES_DASHBOARD=1`,

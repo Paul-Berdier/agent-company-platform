@@ -44,7 +44,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | Étape | Objet | État |
 |---|---|---|
 | P0 | Branche, élagage et gel du moteur | réalisée sur `refonte/hermes-p0`, poussée ; PR #13 vers `refonte/hermes` ouverte, CI `36018143912` et Desktop CI `36018143728` vertes (§ 4) |
-| P1 | Image dérivée et CI de contrat, sans Railway | réalisée sur `refonte/hermes-p1` (empilée sur P0), poussée, sans PR (§ 5) |
+| P1 | Image dérivée et CI de contrat, sans Railway | réalisée sur `refonte/hermes-p1` (empilée sur P0), poussée, CI verte, sans PR (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC) | à faire |
 | P3 | Identité, français et réglages prêts | à faire |
 | P4 | Discussion mobile | à faire |
@@ -249,6 +249,10 @@ Commits, dans l'ordre :
 5. `ci: build the Hermes image and run its contract on every push` — `image.yml`.
 6. `docs: document the Hermes image and record P1 evidence` — ce document,
    `docs/refonte/image.md`, `CLAUDE.md`, journal des modifications.
+7. `test(hermes): wait for the gateway api_server before contract checks` — un run
+   local a lu `/api/status` avant que la passerelle n'ait branché son api_server
+   (`KeyError: 'api_server'`) ; les fixtures attendent désormais la passerelle.
+8. `docs: record the P1 CI runs` — identifiants des runs ci-dessous.
 
 ### Écarts au plan, assumés
 
@@ -340,6 +344,29 @@ Commits, dans l'ordre :
   `git diff --exit-code archive/acp-0.10.0-avant-hermes -- packages/pixel-office-engine
   apps/web/public/assets plugins` vide ; `check_version.py` : 0.11.0 partout (dérive du
   `plugin.yaml` détectée quand on la provoque).
+
+### Intégration continue (commit `860fc04`, branche poussée le 24 septembre 2026)
+
+- **Image Hermes** `36025999003` : verte. Condensat publié confirmé
+  (`Digest: sha256:fca358f1…52b7`), `Hermes Agent v0.21.5 (2026.9.24) · upstream
+  f97608f1`, `hermes plugins compat` : « No enabled plugin imports paths scheduled for
+  removal » pour `acp-poste`, code 1 pour le témoin ; pytest dans l'image **89 réussis** ;
+  tests de contrat **32 réussis** (2 min 43 s), `/proc/1/cmdline` =
+  `s6-svscan -d4 -- /run/service`.
+- **CI** `36025998703` : verte à la **deuxième tentative**. La première a échoué sur le
+  seul volet Windows du poste :
+  `apps/poste/tests/test_subscription_quotas.py::test_an_unreadable_version_is_unavailable`
+  (« Arrêt de l'app-server Codex non confirmé » au lieu d'un détail sur la version),
+  test temporisé de P0 que P1 ne touche pas (aucun fichier sous `apps/` modifié). La
+  relance du seul volet en échec est passée ; les volets moteur et poste Linux étaient
+  verts dès la première tentative. Même famille que les tests temporisés notés au § 4,
+  à durcir dans une PR dédiée.
+- **Desktop CI** `36026018926` (déclenchée à la main, `workflow_dispatch`, P1 ne touchant
+  aucun chemin du desktop) : verte.
+- Localement, après reconstruction depuis `860fc04` : pytest dans l'image 89 réussis ;
+  tests de contrat 31 réussis et 1 échec (la course décrite au commit 7), puis, avec
+  l'attente de la passerelle, 32 réussis (3 min 43 s). Les commits 7 et 8 sont vérifiés
+  par leurs propres runs.
 
 ### Non vérifié
 
