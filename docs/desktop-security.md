@@ -1,8 +1,15 @@
 # Sécurité du client desktop natif
 
+> **Refonte « Hermes au centre ».** Le client desktop est conservé intact mais hors
+> service jusqu'à P8 : il parle encore l'ancienne API ACP, retirée
+> (`docs/refonte/plan.md`). Ce document décrit le client tel qu'il est avant P8.
+> Les relevés datés qu'il cite (validation du 23 septembre 2026, matrice de parité,
+> constats Lot H) restent consultables sous l'étiquette
+> `archive/acp-0.10.0-avant-hermes`.
+
 État du 23 septembre 2026, **0.10.0 en préparation**. Ce document décrit le code Qt
 existant, ses frontières et ses limites. Les preuves exécutées sont consignées
-dans [le relevé de validation](desktop-validation-2026-09-23.md). Il ne constitue
+dans le relevé de validation (sous l'étiquette d'archive). Il ne constitue
 ni une certification ni l'annonce d'une V1 complète.
 
 ## Frontière de confiance
@@ -67,7 +74,7 @@ Les 24 tests de session passent sans ignoré hors sandbox, dont le cycle réel
 lecture/écriture/suppression dans le coffre Windows. Sous sandbox, ce cas était
 ignoré lorsque `CredWrite` refusait la session d'exécution. Cette preuve sur le
 poste de développement ne valide pas une installation sur Windows propre ;
-voir [le relevé central](desktop-validation-2026-09-23.md).
+voir le relevé central (sous l'étiquette d'archive).
 
 ## Contenus produits par les agents
 
@@ -101,6 +108,6 @@ Voir [le processus réel](desktop-update-process.md).
 
 La signature Windows est absente, l'installation sur Windows propre n'a pas été
 réalisée et le parcours Railway réel reste non éprouvé. Les **26 constats du Lot H
-ouverts** sont suivis dans [le registre](lot-h-091-review-status.md) ; l'ajout
+ouverts** sont suivis dans le registre (sous l'étiquette d'archive) ; l'ajout
 d'écrans ne les clôture pas. Les preuves historiques ne remplacent pas les tests
 de l'arbre final ni une revue de sécurité indépendante.

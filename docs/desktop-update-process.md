@@ -1,9 +1,16 @@
 # Vérification des mises à jour desktop
 
+> **Refonte « Hermes au centre ».** Le client desktop est conservé intact mais hors
+> service jusqu'à P8 : il parle encore l'ancienne API ACP, retirée
+> (`docs/refonte/plan.md`). Ce document décrit le client tel qu'il est avant P8.
+> Les relevés datés qu'il cite (validation du 23 septembre 2026, matrice de parité,
+> constats Lot H) restent consultables sous l'étiquette
+> `archive/acp-0.10.0-avant-hermes`.
+
 État du 23 septembre 2026, **0.10.0 en préparation**. `UpdateService` existe dans
 `apps/desktop/src/services/`. Il vérifie les publications GitHub et ouvre leur
 page officielle. **Il ne télécharge ni n'installe de paquet.** La validation du
-nouvel arbre est consignée dans [le relevé daté](desktop-validation-2026-09-23.md).
+nouvel arbre est consignée dans le relevé daté (sous l'étiquette d'archive).
 
 ## Parcours disponible
 
@@ -51,7 +58,7 @@ ou rendue publique.
 
 La version 0.10.0 est ouverte dans le dépôt, sans annonce de publication finalisée.
 Fusion, artefact de CI, étiquette et publication GitHub sont des objets distincts.
-Le journal et [le relevé de validation](desktop-validation-2026-09-23.md) suivent
+Le journal et le relevé de validation (sous l'étiquette d'archive) suivent
 les preuves finales.
 
 Les paquets restent **non signés** sans certificat configuré. Une somme de

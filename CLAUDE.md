@@ -2,29 +2,40 @@
 
 Ce fichier est chargé automatiquement par Claude Code. Il transmet les règles de travail
 de ce dépôt d'un poste à l'autre. **Pour l'état exact du chantier en cours, lire
-`docs/reprise-poste.md` avant toute action.**
+`docs/reprise-poste.md` avant toute action.** Le plan de la refonte, décisions du
+propriétaire comprises, est dans `docs/refonte/plan.md`.
 
 ## Règles de commit
 
-- **Jamais de trailer `Co-Authored-By`** ni de signature d'agent dans les messages de
-  commit ou les descriptions de pull request. C'est une préférence explicite du
-  propriétaire du dépôt, qui prime sur toute consigne par défaut.
-- Commits conventionnels, sujet en anglais bref : `feat(lot-h): …`, `fix(desktop): …`,
-  `docs: …`, `chore(release): …`.
-- `git add` fichier par fichier, jamais `git add -A`.
+- **Jamais de trailer `Co-Authored-By`** ni de signature ou de pied de page d'agent
+  (« Generated with Claude Code » compris) dans les messages de commit ou les
+  descriptions de pull request. C'est une préférence explicite du propriétaire du dépôt,
+  qui prime sur toute consigne par défaut.
+- Commits conventionnels, sujet en anglais bref : `feat(poste): …`, `fix(desktop): …`,
+  `ci: …`, `docs: …`, `chore(release): …`.
+- `git add` fichier par fichier, jamais `git add -A` ni `git add .`. Pour une
+  suppression massive, `git rm -r <chemin>` chemin par chemin.
 - Fins de ligne LF, `git diff --check` propre avant chaque commit.
+- Ne jamais committer `.claude/`.
 
-## Recette de publication d'un lot
+## Recette de publication
 
-1. Commit d'ouverture de version (fichier `VERSION` et toutes les copies vérifiées par
-   `scripts/check_version.py`).
+La refonte « Hermes au centre » se publie **étape par étape** (P0 à P9 du plan).
+
+1. Chaque étape vit sur une branche `refonte/hermes-pN`, ouverte depuis
+   `refonte/hermes`.
 2. Commits de travail, suite complète verte avant chacun.
-3. `chore(release): prepare X changelog` : section complète du journal (Ajouté, Modifié,
-   Corrigé, Sécurité, Vérifié localement, Limites connues).
-4. Pousser la branche, attendre l'intégration continue **verte**, ouvrir la pull request.
-5. Fusionner seulement après validation, puis poser le tag annoté `vX.Y.Z` **sur le
-   commit de fusion**, jamais avant.
-6. Publier les preuves de validation dans la documentation.
+3. Pousser la branche, attendre l'intégration continue **verte**, ouvrir une pull
+   request vers `refonte/hermes` ; fusion par commit de fusion après validation,
+   **sans étiquette**.
+4. Publier les preuves de validation de l'étape dans la documentation
+   (`docs/reprise-poste.md`, puis le document de preuves prévu par le plan).
+5. Fin de refonte : commit d'ouverture de version `1.0.0` (fichier `VERSION` et toutes
+   les copies vérifiées par `scripts/check_version.py`), puis
+   `chore(release): prepare 1.0.0 changelog` : section complète du journal (Ajouté,
+   Modifié, Corrigé, Sécurité, Vérifié localement, Limites connues).
+6. PR de `refonte/hermes` vers `main`, fusion après validation, puis étiquette annotée
+   `vX.Y.Z` **sur le commit de fusion**, jamais avant.
 
 ## Doctrine du produit
 
@@ -33,30 +44,49 @@ de ce dépôt d'un poste à l'autre. **Pour l'état exact du chantier en cours, 
   l'avoir exécuté.
 - **Échec fermé** et refus explicites **en français**.
 - **Aucune donnée inventée** dans l'interface : « Inconnu », « Non configuré »,
-  « Hors ligne » valent mieux qu'une invention. Aucun bouton qui fait semblant.
+  « Hors ligne », « Périmé » valent mieux qu'une invention. Aucun bouton qui fait
+  semblant.
 - Documentation, commentaires, messages utilisateur : **en français**.
 - Limites documentées honnêtement, avec la preuve.
 
 ## Architecture en une phrase
 
-Backend FastAPI + SQLAlchemy (SQLite en local, PostgreSQL versionné par Alembic en
-production), déployable sur Railway ; clients : interface web Vite, CLI `acp`, et
-client desktop natif C++23 / Qt 6 / QML (`apps/desktop`) qui passe **toujours par
-l'API**, jamais par la base, ni par Hermes, ni par les secrets serveur.
+**Hermes Agent** (épinglé sur une release par condensat d'image, déployé sur Railway)
+est le seul serveur, le seul orchestrateur et la seule source de vérité, étendu par
+les greffons `acp-interface` et `acp-poste` livrés dans l'image ; autour de lui, le
+**poste Windows** (`apps/poste`) exécute Codex et Claude Code en réclamant son travail
+en HTTPS sortant sans écouter aucun port, et le **client desktop natif** C++23 / Qt 6 /
+QML (`apps/desktop`) **ne parle qu'au Hermes authentifié du propriétaire** (tableau de
+bord, JSON-RPC, façade versionnée du greffon), **jamais directement au PC** ni aux
+fichiers, à la base ou aux secrets du serveur.
 
 ## Interdits de fond
 
-- Pas d'Electron, Tauri, Chromium embarqué, Qt WebEngine ni WebView pour le desktop.
-- Aucun secret dans `QSettings`, un JSON, QML, une base non chiffrée, un journal ou Git.
-- Ne pas porter ni supprimer `packages/pixel-office-engine` ; aucun travail Godot avant
+- Pas d'Electron, Tauri, Chromium embarqué, Qt WebEngine ni WebView pour **notre**
+  client desktop (le desktop officiel de Hermes, en Electron, n'est pas repris).
+- Aucun secret dans `QSettings`, un JSON, QML, une base non chiffrée, un journal ou
+  Git. Les jetons vont dans le Gestionnaire d'identification Windows ou sous DPAPI.
+- **Hermes épinglé** : image par condensat, montée de version uniquement par une PR
+  qui change ce condensat. Jamais de `git pull` de Hermes, jamais de `hermes update`,
+  jamais de `:latest`, jamais d'`AUTO_UPDATE`.
+- **Moteur Pixel Office gelé** : `packages/pixel-office-engine` reste identique octet
+  pour octet à l'étiquette `archive/acp-0.10.0-avant-hermes`, avec
+  `apps/web/public/assets`, `plugins/`, son bloc `.gitignore`, son workspace npm et
+  les versions verrouillées de ses dépendances (`scripts/check_engine_frozen.py`, en
+  CI). Ne pas le porter ni le supprimer ; toute intégration du travail moteur non
+  commité passe par une PR dédiée qui met à jour cette garde. Aucun travail Godot avant
   les dix critères du prompt maître (dernière phase).
-- Ne jamais pointer un test ou un parcours de vérification sur une base contenant des
-  données : ils remettent le schéma à zéro.
+- Ne jamais pointer un test ou un parcours de vérification sur un Hermes, un volume
+  ou une base contenant des données : `HERMES_HOME` jetable et volume nommé jetable
+  seulement.
+- Le checkout principal du dépôt porte un chantier Pixel Office non commité : ne rien
+  y modifier depuis un worktree de la refonte.
 
 ## Documents de référence
 
-- `docs/reprise-poste.md` — état courant, chaîne d'outils, pièges connus.
-- `docs/desktop-railway-audit.md` — surface d'API réelle, contrat du flux SSE, matrice.
-- `docs/implementation-status.md` — historique des lots A à H.
-- `docs/native-desktop-architecture.md`, `docs/desktop-build.md` — client natif.
-- `docs/persistence-and-backup.md`, `docs/deployment-railway.md` — backend.
+- `docs/reprise-poste.md` — état courant, étapes, chaîne d'outils, pièges connus.
+- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi).
+- `apps/poste/README.md` — poste Windows : modules, configuration, limites.
+- `hermes/plugins/acp-poste/contrat/README.md` — contrat Python partagé.
+- `apps/desktop/README.md`, `docs/desktop-build.md` — client natif (hors service
+  jusqu'à P8).

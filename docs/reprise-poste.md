@@ -1,126 +1,239 @@
 # Reprise du travail sur un autre poste
 
-État du **23 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md`.
-Ce relevé remplace l'état du 18 septembre : le client natif et les écrans métier
-existent désormais. Le chantier courant est **0.10.0 en préparation**.
+État du **24 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md` et
+[le plan de la refonte](refonte/plan.md).
 
-La reprise courante se poursuit dans `.claude/worktrees/desktop-completion`,
-branche locale `codex/desktop-chat-projects`, à partir du lot fonctionnel
-`fc12525`. Lire la [recette conversations/projets](desktop-chat-projects-2026-09-23.md)
-pour la nouvelle DA, les parcours, les correctifs modaux et les preuves les
-plus récentes : **3 037 tests Python réussis / 70 ignorés, 23 suites Qt,
-492 tests Node**. Les deux parcours Windows à vrais clics et clavier sont verts.
-Le checkout principal conserve son travail Pixel Office, hors de cette intégration.
+## 1. Où en est le chantier
 
-Reprise fonctionnelle sur `codex/functional-completion`, suivie par la
-[PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11) : lire le
-[bilan du 23 septembre](functional-completion-2026-09-23.md) avant les relevés
-historiques ci-dessous. Missions supervisées et équipes explicites, checkpoints
-d'effets, restitution métier, compétences et proxy MCP sont raccordés dans
-l'arbre de travail. Suite Python complète : **3 025 réussis, 70 ignorés**, en quatre
-partitions disjointes sur bases jetables. Qt : **22 suites sur 22** et parcours
-Qt/API réelle **3 réussis**, avec captures d'interactions distinctes. Le web donne
-**325 tests réussis**, typage et construction verts. La validation MCP ciblée donne
-**36 réussis, 0 ignoré** après revue. Ces groupes ciblés recouvrent la suite complète.
-Le commit fonctionnel `47de619` est validé par les CI plateforme `35856502360`
-et desktop `35856502324`, toutes deux vertes. Le bilan contient les liens directs,
-les empreintes du paquet local final et les limites de son installation.
+ACP est en pleine **refonte « Hermes au centre »** : Hermes Agent devient le seul
+serveur, le seul orchestrateur et la seule source de vérité ; ACP ne garde que l'image
+Railway dérivée et ses deux greffons (à construire), le poste Windows, le client Qt et
+le tableau de bord de Hermes habillé. L'ancien backend ACP (API FastAPI, base, bus
+d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite) est retiré ;
+il reste entier sous l'étiquette annotée **`archive/acp-0.10.0-avant-hermes`**
+(commit `60a49b6`, dernière fusion de `main` avant la refonte, CI `35981934303` et
+Desktop CI `35981934226` vertes sur ce commit).
 
-La pile locale et Hermes sont installés et ont démarré sur loopback. Hermes est
-joignable mais **dégradé**, sans modèle configuré ; **aucun Run génératif payant**
-n'a été lancé. Voir [la procédure locale](local-runtime.md). Une équipe déjà
-commencée reste bloquée à la reprise, avec preuves conservées et sans fusion
-automatique. Les **26 constats Lot H** ne sont pas déclarés clos ; N2-5 conserve
-son défaut de récupération d'un claim incertain malgré le correctif de délai.
-La V1 reste à terminer.
+- Branche d'intégration : `refonte/hermes`, partie de l'étiquette d'archive, version
+  **0.11.0**.
+- Une branche par étape, `refonte/hermes-pN`, PR vers `refonte/hermes`. Étiquette
+  `1.0.0` seulement à la fusion finale dans `main`.
+- Worktree de travail : `.claude/worktrees/refonte-hermes`. **Le checkout principal
+  porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
+  modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
+  ne pas les supprimer ni les réinitialiser sans examen.
 
-## 1. État Git et preuves connues
+## 2. Décisions du propriétaire
 
-| Élément | État relevé |
-|---|---|
-| Lot H 0.9.0 historique | PR #8 fusionnée au commit `94ce876`, tag `v0.9.0` posé le 18 septembre |
-| Durcissement Lot H | PR #9 fusionnée dans `main` au commit `3f8e5fe` |
-| CI de ce durcissement | Run `35799431367` observé vert |
-| Intégration desktop | PR #10 fusionnée dans `main` au commit `0bc9dcb` ; branche validée par les CI `35806313489` et `35806313531` |
-| Ouverture de version | `0.10.0`, commit `4915136` |
-| Python de l'arbre combiné | 2 896 réussis, 70 ignorés, 835 secondes |
-| Ancienne fondation native | 10 suites sur 10 réussies ; ce relevé précède les nouveaux écrans |
-| Nouvel arbre natif | Relevé final : 21 suites sur 21, 54,82 secondes ; build Release réussi |
-| Session et coffre Windows réel | 24 tests sur 24, 0 ignoré, hors sandbox |
+Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`, § 1).
 
-Un parcours Qt contre une vraie API SQLite jetable a aussi réussi le 23 septembre :
-cookie/CSRF, projets, conversation sans réponse fournisseur inventée, mission,
-budget, automatisation en pause, export exact de 180 224 octets et déconnexion.
-Rapports locaux sous `.test-tmp/desktop-journey-e9c4c89486b240f49017bb16aae70c47/` :
-`result.json` annonce `passed`, Qt exécuté, code 0 ; `qt-journey.log` donne
-3 réussis, 0 échec, 0 ignoré en 1 663 ms ; le lanceur complet prend 9,7 secondes.
-Ce parcours reste distinct de la
-suite native et ne remplace pas une recette visuelle ou Railway.
+- Connexion au tableau de bord par **OIDC auto-hébergé** (fournisseur `self_hosted`
+  de Hermes), **pas** Nous Portal. Le flux natif RFC 8252 du desktop fonctionne avec
+  lui. Hermes n'a aucune liste blanche : le fournisseur d'identité ne devra accepter
+  que le propriétaire. Choix du fournisseur d'identité en P2.
+- Cerveau de Hermes : abonnement **ChatGPT** (`openai-codex`).
+- **Rien n'est déployé sur Railway** : aucune migration de données.
+- Railway **Hobby**, 2 Go, plafond de 30 $ par mois, région Europe, sans domaine
+  personnalisé au départ.
+- Approbations **manuelles**.
 
-Les commits de fusion et l'ouverture de version ne prouvent pas une publication
-0.10.0. Consulter `git status`, `git log` et
-[le relevé final](desktop-validation-2026-09-23.md) avant de reprendre :
-l'intégration peut avoir avancé depuis cette note.
+## 3. Étapes
 
-Le lot fonctionnel précédent partait de `main` au commit `aa55942` ; la branche
-actuelle de reprise et ses validations sont indiquées en tête de document.
-Le checkout principal conserve sa branche et son chantier Pixel Office. Les autres worktrees historiques
-peuvent contenir des travaux partiels ; ne pas les supprimer, réinitialiser ou
-réappliquer sans examiner leurs différences. Le chantier pixel local reste
-conservé hors périmètre. Indexer les fichiers explicitement.
+| Étape | Objet | État |
+|---|---|---|
+| P0 | Branche, élagage et gel du moteur | réalisée sur `refonte/hermes-p0`, non poussée (§ 4) |
+| P1 | Image dérivée et CI de contrat, sans Railway | à faire |
+| P2 | Premier déploiement Railway authentifié (OIDC) | à faire |
+| P3 | Identité, français et réglages prêts | à faire |
+| P4 | Discussion mobile | à faire |
+| P5 | Poste en lecture et délégation kanban | à faire |
+| P6 | Quotas | à faire |
+| P7 | Écritures validées et signées | à faire |
+| P8 | Desktop Qt rebranché | à faire |
+| P9 | Exploitation, montée de version et publication | à faire |
 
-## 2. Ce qui est implémenté et ce qui reste
+## 4. P0 — ce qui a été fait
 
-L'[audit fonctionnel initial](functional-audit-2026-09-23.md) documente huit
-défauts sur `ce42ae2`. Le [bilan de correction](functional-completion-2026-09-23.md)
-distingue les raccordements désormais implémentés de leur validation réelle.
-Hermes est maintenant installé, avec profil dédié ; son diagnostic dégradé
-empêche encore d'annoncer la chaîne générative utilisable. Lire ces deux relevés
-avant de brancher un coffre de notes ou de clôturer les constats.
+Commits, dans l'ordre, sur `refonte/hermes-p0` :
 
-Les viewmodels et pages natifs couvrent projets, conversations, missions,
-tentatives/Studio, livrables, agents/workers/fournisseurs, MCP/compétences,
-approbations, alertes, budgets et automatisations. Voir
-[la matrice de parité](native-desktop-parity.md) pour les actions et omissions
-précises : « écran livré » ne signifie pas toutes les routes API disponibles.
+1. `4ce2aa4` `chore(release): open 0.11.0` — `VERSION` et copies ;
+   `scripts/check_version.py` réduit aux composants conservés, **sans** le moteur.
+2. `da5bbc7` `chore: remove pre-Hermes domains` — retrait de `apps/api`,
+   `packages/database`, `apps/event-service`, `packages/event-sdk`,
+   `services/provider-gateway`, `packages/provider-sdk`, `apps/cli`, des sources et
+   tests d'`apps/web` (seul `apps/web/public/assets` reste), `packages/ui`, du miroir
+   TypeScript des contrats, `packages/agent-sdk`, `packages/playwright-reporter`,
+   `e2e/`, du déploiement ACP (`deploy/railway`, `docker/`, `.dockerignore`,
+   `.env.example`, `.21st/`) et des scripts liés à l'API ou à sa pile locale ;
+   workspaces npm réduits au moteur ; verrou Python recompilé.
+3. `3f51126` `refactor(poste): rename worker to poste and drop API-bound modules` —
+   `apps/worker` devient `apps/poste` (distribution `acp-poste`, commande
+   `acp-poste`), élagué ; le contrat Python des quotas passe dans
+   `hermes/plugins/acp-poste/contrat` ; le reste de `packages/contracts` part.
+4. `0def013` `ci: guard the frozen Pixel Office engine and reduce CI to three lanes` —
+   `scripts/check_engine_frozen.py` et CI en trois volets (moteur, poste, desktop).
+5. `805ca4c` `docs: rewrite CLAUDE.md and handoff notes for the Hermes architecture` —
+   ce document, `CLAUDE.md`, `README.md`, `docs/refonte/plan.md`, README du desktop ;
+   documentation datée des lots A à H retirée.
+6. à 10. `25c9e59`, `9f12fa5`, `c991ecf`, `92ce76a`, `ce91bbb` — corrections de la
+   relecture indépendante (ci-dessous).
+11. `docs: record the P0 review fixes and fresh evidence` — ce document et le journal
+    des modifications, preuves rejouées.
 
-Les réglages incluent la mémorisation de session **facultative** dans le coffre
-Windows. La restauration doit relire la session serveur et n'attribue aucun
-droit depuis le stockage local. Les 24 tests de session passent sans ignoré
-hors sandbox, dont le cycle réel lecture/écriture/suppression dans le coffre.
-Sous sandbox, ce cas était ignoré car `CredWrite` refusait la session
-d'exécution ; ne pas confondre cette limitation avec une preuve du coffre.
+### Corrections après la relecture indépendante
 
-`UpdateService` vérifie les publications GitHub à la demande, compare les
-versions sémantiques, affiche les notes brutes et ouvre la publication officielle.
-Il n'intègre aucun téléchargement de paquet ou installateur.
+Cinq défauts confirmés, chacun vérifié avant correction :
 
-Restent à achever ou prouver :
+- `25c9e59` `fix(contract): keep the NUL byte out of its own refusal message` — le
+  message de `refuse_nul` (`_validation.py`) contenait un vrai octet NUL (chaîne non
+  brute ; l'étiquette écrivait `"\\x00"`). Les modèles de quotas n'y arrivaient pas
+  (leurs validateurs de champ refusent le NUL avant, avec un message échappé), mais le
+  filet commun `ContratValide` si. Tests : aucun message de refus, de champ ou commun,
+  ne contient l'octet ; les trois cas du filet commun échouaient avant la correction.
+- `9f12fa5` `test(poste): restore real DPAPI tests for credentials_protection` — les
+  tests du DPAPI vivaient dans `test_state.py` du worker, retiré avec l'enrôlement ;
+  plus aucun test n'importait le module. `tests/test_credentials_protection.py` :
+  aller-retour DPAPI réel, blob altéré ou jamais protégé refusé, charge vide ou de
+  plus de 1 Mio refusée (Windows) ; hors Windows, refus avant tout appel natif.
+- `c991ecf` `fix(poste): drop the journal command that nothing feeds` — `acp-poste
+  journal` lisait un fichier que plus rien n'écrit et sortait en 0 sans rien dire.
+  Commande retirée, avec `ACP_POSTE_STATE_DIR`, qui ne servait qu'à elle.
+  `local_log.py` reste (le plan le garde) avec ses propres tests ; la commande
+  reviendra en P5 avec un écrivain réel.
+- `92ce76a` `fix(poste): make the quota switch govern acp-poste quotas` —
+  `ACP_WORKER_SUBSCRIPTION_QUOTAS` ne gouvernait que le diagnostic. `collect_reports`
+  refuse désormais sans rien lancer ni lire tant qu'il ne vaut pas `1`, et
+  `acp-poste quotas` le dit en français, code 2. `ACP_WORKER_QUOTA_INTERVAL_SECONDS`,
+  validé mais lu par rien depuis le retrait de la boucle d'envoi, est retiré.
+- `ce91bbb` `docs(poste): say that acp-poste quotas reaches OpenAI through Codex CLI` —
+  « aucune connexion réseau » était inexact : le poste n'en ouvre aucune lui-même, mais
+  Codex CLI, qu'il lance, interroge le serveur d'OpenAI (`account/rateLimits/read`).
 
-1. Compléter la recette visuelle des interactions. L'intégration dans `main` et
-   les CI de la branche sont acquises ; elles ne constituent pas une publication.
-2. Installer un déploiement de test, puis réaliser le parcours distant ; aucun
-   déploiement ACP n'est actuellement installé sur le périmètre utilisateur.
-3. Installation et mise à jour sur un Windows propre.
-4. Signature Windows : aucun certificat disponible, binaires non signés.
-5. Les **26 constats Lot H encore ouverts**, décrits dans
-   [le registre de revue](lot-h-091-review-status.md), sans les confondre avec
-   les constats déjà corrigés.
-6. Publication éventuelle après preuves et recette de `CLAUDE.md` ; aucune V1
-   complète ou publication 0.10.0 finalisée n'est annoncée ici.
+### Ce qui a dû être gardé, et pourquoi
 
-Aucun travail Godot/pixel n'est engagé dans cette phase.
+- `apps/web/public/assets`, `plugins/*` (salles et `plugin.json`) et le bloc
+  `.gitignore` des assets sous licence : le moteur et ses outils les lisent ; ils font
+  partie du gel. Les `plugin.json` servaient à l'API retirée mais `plugins/` est gelé
+  en entier par la garde du plan.
+- Documentation du moteur (`docs/assets/*.md`, `docs/spritesheets.md`,
+  `docs/pixel-engine-phaser-migration.md`, `docs/architecture/campus-growth.md`) :
+  inchangée, pour ne pas entrer en conflit avec le chantier Pixel Office ; certains
+  passages y citent encore l'API retirée.
+- Guides desktop encore justes : `docs/desktop-build.md`,
+  `docs/desktop-msvc-cache-recovery.md`, `docs/desktop-release-process.md`,
+  `docs/desktop-update-process.md`, et, pour le client tel qu'il est avant P8,
+  `docs/native-desktop-architecture.md` et `docs/desktop-security.md`, avec un bandeau
+  « hors service jusqu'à P8 ». 45 fichiers de `docs/` ont été retirés (le plan en
+  annonçait 44 ; la différence vient des captures datées retirées et des guides
+  desktop gardés).
+- `scripts/setup-claude-cli.ps1` (installation épinglée de Claude Code, sans lien avec
+  l'API) et `scripts/lock_python.*`, `scripts/check_lock.py`, `scripts/setup.*`,
+  adaptés.
+- `design/tokens`, `packaging/windows`, `desktop-release.yml` : inchangés.
+- Dans `apps/poste`, `local_runner.py` garde sa structure de requête versionnée
+  (`request.json`, jeton de clôture) ; seule la lecture des « claims » de l'API est
+  retirée. `executors.py` garde `invocation_from_mission`, qui ne dépend de rien de
+  retiré : P5 le remplacera par l'invocation depuis la table `demandes`.
+- `credentials_protection.py` (DPAPI, pour le jeton machine de P5) et `local_log.py`
+  (journal de P5) sont gardés sans utilisateur en production, chacun avec ses tests.
 
-## 3. Chaîne d'outils Windows
+### Écarts au plan, assumés
+
+- Un cinquième commit (`ci: …`) sépare la garde du moteur et la CI réduite du retrait
+  des domaines.
+- Les workspaces npm et le verrou sont réduits dans le commit de retrait (et non avec
+  la CI) pour que chaque commit reste cohérent.
+- `capabilities.py`, `state.py` et l'ancienne `cli.py` du worker, absents des deux
+  listes du plan, sont retirés : ils n'existaient que pour l'enrôlement auprès de
+  l'API. La nouvelle `acp-poste` n'offre que `diagnostic`, entièrement local, et
+  `quotas`, sur accord `ACP_WORKER_SUBSCRIPTION_QUOTAS=1` : le poste n'ouvre lui-même
+  aucune connexion, mais Codex CLI, qu'il lance, interroge le serveur d'OpenAI. Aucune
+  commande ne simule la délégation ; `journal` attend son écrivain (P5).
+- La passerelle MCP des exécuteurs est retirée (aucun MCP côté poste en v1, selon le
+  plan) ; la boucle qui envoyait les quotas à l'API aussi.
+- Le verrou Python ne garde que `pydantic`, pytest et leurs dépendances ; `colorama`
+  y est ajouté pour installer pytest sous Windows avec le même verrou haché. `httpx`
+  en sort (plus aucun import) : il reviendra avec le client HTTPS de P5. Les épingles
+  de base du Lot H ne sont plus imposées par `check_lock.py`.
+- Desktop CI perd l'étape « parcours Qt contre une vraie API locale » (API retirée) et
+  se déclenche aussi sur `design/tokens/**`.
+- Les variables d'environnement du poste gardent leur préfixe `ACP_WORKER_*` ; P5 les
+  remplace par `%LOCALAPPDATA%\ACP\poste.toml`. `ACP_POSTE_STATE_DIR` et
+  `ACP_WORKER_QUOTA_INTERVAL_SECONDS` sont retirées : elles ne gouvernaient plus rien.
+- Écart à la relecture : elle proposait de retirer aussi `PosteLogger` ; il reste,
+  parce que le plan garde `local_log.py`.
+
+### Preuves relevées le 24 septembre 2026 (Windows 10, poste de reprise)
+
+Rejouées après les corrections de la relecture, sur `ce91bbb` (seuls `apps/poste`,
+le contrat, `CHANGELOG.md` et ce document diffèrent de `805ca4c`).
+
+- Garde du moteur : `git diff --exit-code archive/acp-0.10.0-avant-hermes --
+  packages/pixel-office-engine apps/web/public/assets plugins` → sortie vide, code 0,
+  pour l'arbre de travail comme pour `HEAD` ; `python scripts/check_engine_frozen.py`
+  → code 0. Ses refus ont été éprouvés un par un lors de la première passe (fichier du
+  moteur modifié, fichier non suivi dans `plugins`, bloc `.gitignore` altéré, version
+  de `phaser` changée dans le verrou : code 1 et motif en français) ; les deux premiers
+  ont été rejoués ici, puis l'arbre restauré (`git checkout`). Les 68 fichiers suivis
+  des trois chemins gelés ont le contenu exact des blobs de l'étiquette ; seules les
+  fins de ligne de l'arbre de travail diffèrent (`core.autocrlf=true`, § 6).
+- `npm ci` puis `npm run test:engine` (Node 24.19.0, Vitest 5.0.0) : **7 fichiers,
+  74 tests réussis**, comme avant et après la réduction des workspaces.
+- Verrou npm, inchangé depuis `da5bbc7` : 31 entrées retirées, toutes propres aux
+  workspaces retirés ; les 67 paquets de la fermeture du moteur gardent version, URL
+  et intégrité (10 entrées ne gagnent que l'attribut `"peer": true`).
+- pytest sous Windows : **240 réussis, 0 ignoré** (`apps/poste` 175, contrat 60,
+  outillage 5), dans le venv du poste et dans un venv neuf Python 3.12.10 de
+  python.org installé depuis le seul verrou haché (rejeu des étapes du volet CI
+  Windows : `check_version.py`, `pip install --require-hashes --no-deps`,
+  installations éditables sans dépendances, `pip check` propre, `check_lock.py`).
+- pytest sous Linux, rejeu des mêmes étapes dans un conteneur `python:3.12-slim` sur
+  `git archive HEAD` : **231 réussis, 9 ignorés** (8 « DPAPI réel propre à Windows »,
+  1 « Job Object Windows uniquement »).
+- Sous forte charge processeur, des tests temporisés repris sans changement de
+  l'étiquette échouent : une première exécution lancée **pendant** une compilation
+  MSVC complète a donné 1 échec (`FileNotFoundError` sur `hang.pid` dans
+  `test_a_hanging_app_server_times_out_and_its_process_tree_is_stopped`) ; sous charge
+  artificielle (24 à 36 processus actifs pour 12 cœurs logiques), ce test,
+  `test_stop_terminates_a_spawned_child_process`,
+  `test_timeout_terminates_the_real_process` et
+  `test_request_duration_can_only_reduce_the_local_timeout` échouent tour à tour.
+  Sans charge : 240 sur 240 à chaque exécution. Non traité en P0.
+- Desktop Debug : compilation **complète** (`build-desktop.ps1 -Clean`, 433 étapes
+  Ninja, code 0) ; `test-desktop.ps1` **25 suites sur 25** ; détail Qt Test, chaque
+  exécutable lancé avec un rapport `-o …,txt` : **406 réussis, 0 échec, 1 ignoré**
+  (`tst_api_journey`, qui n'a plus de parcours). Release n'a pas été recompilé sur ce
+  poste.
+- `check_version.py` : versions synchronisées sur 0.11.0 ; `check_lock.py` :
+  14 épingles cohérentes ; `git diff --check archive/acp-0.10.0-avant-hermes HEAD`
+  propre ; aucun `Co-Authored-By` ni pied de page d'agent dans les commits de P0.
+- `acp-poste` lancé à la main : `journal` refusé par argparse (code 2) ; `quotas`
+  sans accord refusé en français (code 2) ; `diagnostic` annonce
+  `"subscription_quotas": "disabled"` et rien d'autre sur les quotas.
+
+### Non vérifié
+
+- **Aucune CI n'a tourné** : rien n'est poussé. Le volet Windows du poste
+  (`windows-2022`) n'a jamais tourné en CI ; Desktop CI n'a pas d'identifiant de run
+  pour P0. Pousser `refonte/hermes-p0`, attendre les trois volets verts, puis ouvrir
+  la PR vers `refonte/hermes`.
+- `apps/desktop/cmake/check_layout.py` sort en code 1 sur 10 constats hérités de
+  l'étiquette (origines codées en dur, chemin absolu dans un test) : non traités, le
+  code du client n'est pas modifié en P0.
+- La tenue sous charge des tests temporisés du poste (ci-dessus) : ils bornent des
+  délais de 0,15 à 3 s qui comptent le démarrage d'un interpréteur Python. À durcir
+  (attendre le fichier témoin avant de le lire, délais relatifs) dans une PR dédiée.
+
+## 5. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
-`win64_msvc2022_64`, MSVC 2022, CMake et Ninja. Les workflows desktop
-existent et utilisent `windows-2022`. Inno Setup sert à l'empaquetage.
+`win64_msvc2022_64`, MSVC 2022, CMake et Ninja. Desktop CI utilise `windows-2022`
+(l'étiquette `windows-2025` sert Visual Studio 2026 depuis juin 2026). Inno Setup sert
+à l'empaquetage.
 
-Sur le poste de reprise, Python doit venir de python.org et non de l'alias
-Microsoft Store : le Python empaqueté avait empêché la clôture attendue par
-les Job Objects des tests worker. Créer le venv du projet avec cet exécutable,
-puis utiliser ce venv explicitement.
+**Python** : le venv doit venir de python.org, jamais de l'alias Microsoft Store :
+l'interpréteur réel d'un venv Store sort du Job Object et les tests d'arbre de
+processus du poste échouent. `scripts/setup.ps1` le refuse.
 
 Installation de Qt dans un environnement d'outillage séparé :
 
@@ -131,98 +244,41 @@ python -m venv "$env:USERPROFILE\.acp-tools\aqt-venv"
 $env:QT_ROOT_DIR = "$env:USERPROFILE\Qt\6.8.3\msvc2022_64"
 ```
 
-Les scripts du dépôt chargent l'environnement MSVC et vérifient leurs prérequis.
-`setup-desktop.ps1` diagnostique les outils ; il ne les installe pas.
+Contrôles courants depuis la racine du worktree :
 
 ```powershell
-./scripts/setup-desktop.ps1
+./scripts/setup.ps1                                   # venv python.org, poste, contrat, npm
+.venv\Scripts\python.exe -m pytest -q                 # poste, contrat, outillage
+.venv\Scripts\python.exe scripts/check_engine_frozen.py
+.venv\Scripts\python.exe scripts/check_version.py
+.venv\Scripts\python.exe scripts/check_lock.py
+npm ci ; npm run test:engine
 ./scripts/build-desktop.ps1 -Configuration Release
 ./scripts/test-desktop.ps1 -Configuration Release
-./scripts/package-desktop.ps1 -Configuration Release -DryRun -OutputDir "$env:TEMP\acp-dist"
 ```
 
-Release traite les avertissements du compilateur comme des erreurs. Un succès
-Debug seul ne le remplace pas. Éviter les builds concurrents dans le même
-répertoire CMake. Le répertoire local Release est
-`apps/desktop/build/windows-msvc-release` ; les exécutables de tests sont
-directement dans ce répertoire.
+Le verrou Python se recompile dans un conteneur `python:3.12-slim`
+(`scripts/lock_python.ps1`), jamais sur le poste.
 
-Sur ce poste, un exécutable Qt Test peut échouer sans rien écrire sur stdout.
-Utiliser alors `-o <chemin-absolu-du-rapport>,txt` et lire le rapport. Un lancement
-Python doit transmettre un environnement copié explicitement et ajouter
-`$env:QT_ROOT_DIR\bin` au `PATH`. Cela n'autorise pas à considérer une sortie
-vide comme une réussite.
+## 6. Pièges connus
 
-## 4. API locale et bases jetables
-
-Préparer le venv backend puis suivre [la persistance](persistence-and-backup.md)
-pour le moteur et le schéma. Le desktop requiert une API déjà démarrée et un
-compte existant ; le premier propriétaire s'amorce par API/web/CLI.
-
-```powershell
-./scripts/dev-desktop.ps1 -Configuration Release
-```
-
-Pour un serveur local dédié, saisir `http://127.0.0.1:8000` et activer
-explicitement le bouclage HTTP dans l'interface. L'API locale utilise alors
-`ACP_SESSION_COOKIE_SECURE=0` ; un déploiement distant doit employer HTTPS.
-
-**La base `./acp.db` de la racine contient des données de développement.**
-Ne jamais lancer un script ponctuel, `TestClient(app)`, un parcours ou une API de
-vérification sans lui affecter une base jetable via `ACP_DATABASE_URL`.
-Les tests ne doivent jamais cibler une base d'usage réel.
-
-La suite utilise SQLite temporaire sans `ACP_TEST_DATABASE_URL`. Avec une URL
-`postgresql+psycopg://` dédiée, les tests ordinaires créent des schémas éphémères.
-Les tests qui remettent `public` à zéro passent par une garde : refus si la base
-correspond aux variables d'application relevées au lancement, ou si `public`
-est occupé sans marqueur `acp-test-database`. Une base vide peut être marquée
-par l'outillage. Ne jamais marquer une base peuplée sans avoir vérifié qu'elle
-est réellement jetable.
-
-PostgreSQL 16 natif a été retrouvé sur ce poste en bouclage, port **55432**, avec
-les outils sous `$env:USERPROFILE\.acp-tools\pg16\pgsql\bin`. Les bases
-`acp_wf_*` et `acp_verify` sont des cibles de travail historiques, pas une
-autorisation de les effacer sans contrôle. Ne pas réutiliser une base occupée
-par un autre lot. Docker reste une autre possibilité documentée ; les outils
-`pg_dump` et `pg_restore` ne sont plus supposés exister uniquement en conteneur.
-
-```powershell
-.venv\Scripts\python.exe -X utf8 -m pytest -q -p no:cacheprovider
-```
-
-Utiliser `--basetemp` dans un répertoire dédié du worktree si les permissions
-du temporaire Windows échouent. Ne pas lancer plusieurs suites complètes
-concurrentes sur le poste : elles saturent les entrées/sorties et brouillent
-le diagnostic. Les ignorés restent consignés séparément des tests réussis.
-
-## 5. Repères et pièges conservés
-
-- La fondation du 18 septembre a déjà compilé Debug/Release et produit un
-  portable/installeur local ; son CI desktop `35348431165` était vert sur
-  `4b3d2a6`. C'est une preuve historique, pas celle des écrans du 23 septembre.
-- L'installeur n'a pas encore été éprouvé sur un Windows propre ; l'archive
-  portable historique avait démarré sans variables Qt sur le poste de travail.
-- Les fins de ligne du code desktop doivent rester LF. Une redirection Windows
-  peut produire du CRLF ; vérifier les fichiers avant commit.
-- MSVC Release applique `/W4 /WX` et les interdictions de conversions implicites
-  Qt : employer `QStringLiteral` pour les chaînes QString.
-- Pour Ninja/MSVC, garder la langue des sorties `/showIncludes` cohérente entre
-  configuration et compilation. Un cache configuré avec un préfixe français puis
-  compilé en anglais peut laisser des dépendances incorrectes et des objets périmés.
-  Le rebuild central utilise `VSLANG=1033` et une configuration propre ; ne pas
-  réutiliser aveuglément le cache du poste précédent.
-- Qt Quick expose les contrôles à Windows UI Automation : `ValuePattern` pour
-  les champs, `InvokePattern` pour les boutons, `TogglePattern` pour les cases.
-  Un processus de capture doit être conscient du DPI pour éviter une image rognée.
-- Inno Setup installé par utilisateur se trouve généralement sous
+- `core.autocrlf=true` sur ce poste : l'arbre de travail est en CRLF, l'index en LF.
+  Vérifier `git diff --cached --check` et l'absence de `\r` dans les blobs indexés.
+- Sous Git Bash, `git show <étiquette>:<chemin>` est mal converti en chemin Windows :
+  préfixer par `MSYS_NO_PATHCONV=1` ou passer par PowerShell.
+- Release traite les avertissements du compilateur comme des erreurs ; un succès Debug
+  ne le remplace pas. MSVC Release applique `/W4 /WX` : employer `QStringLiteral`.
+- Éditions de liens MSVC `LNK1168`/`LNK1104` sur un exécutable de test : relancer la
+  compilation incrémentale ; ne pas conclure sans un build complet réussi.
+- Ne pas lancer pytest pendant une compilation MSVC : sous forte charge, des tests
+  temporisés du runner local et de la sonde Codex échouent (voir § 4, preuves).
+- Un exécutable Qt Test peut échouer sans rien écrire : le lancer avec
+  `-o <rapport-absolu>,txt` et lire le rapport. CTest compte « Passed » un test qui se
+  déclare ignoré (`QSKIP`) : lire les totaux Qt pour les ignorés.
+- Pour Ninja/MSVC, garder la langue des sorties `/showIncludes` cohérente
+  (`VSLANG=1033`) ; voir `docs/desktop-msvc-cache-recovery.md`.
+- Inno Setup installé par utilisateur se trouve sous
   `%LOCALAPPDATA%\Programs\Inno Setup 6`.
-- Un message Git de propriété douteuse peut nécessiter
-  `git -c safe.directory=<chemin-du-worktree> …` pour ce worktree précis.
-- Les fichiers locaux du pixel-office ne doivent pas se retrouver dans un
-  commit desktop par un `git add -A`.
-
-Documents à relire : [validation](desktop-validation-2026-09-23.md),
-[parité](native-desktop-parity.md), [architecture](native-desktop-architecture.md),
-[sécurité](desktop-security.md), [mise à jour](desktop-update-process.md),
-[constats Lot H](lot-h-091-review-status.md) et `CHANGELOG.md`.
+- Une ligne d'état Claude Code réglée sur l'ancien module
+  `acp_worker.claude_statusline` doit passer à `acp_poste.claude_statusline`.
+- Les tests ne visent jamais un Hermes, un volume ou une base contenant des données.

@@ -1,5 +1,12 @@
 # Compiler le client desktop Windows
 
+> **Refonte « Hermes au centre ».** Le client desktop est conservé intact mais hors
+> service jusqu'à P8 : il parle encore l'ancienne API ACP, retirée
+> (`docs/refonte/plan.md`). Ce document décrit le client tel qu'il est avant P8.
+> Les relevés datés qu'il cite (validation du 23 septembre 2026, matrice de parité,
+> constats Lot H) restent consultables sous l'étiquette
+> `archive/acp-0.10.0-avant-hermes`.
+
 Public : développeur du client natif C++23 / Qt 6 / Qt Quick (`apps/desktop`).
 Version du produit : `0.10.0` en préparation (fichier `VERSION` à la racine).
 État de ce document : 23 septembre 2026.
@@ -14,7 +21,7 @@ Un parcours Qt contre une vraie API locale et SQLite jetable a réussi le
 23 septembre : connexion, projets, conversation avec fournisseur indisponible,
 mission, budget, automatisation et téléchargement authentifié. Il ne prouve pas
 Railway, une instance Hermes réelle ou une installation Windows propre.
-Voir [les preuves datées](desktop-validation-2026-09-23.md).
+Voir les preuves datées (sous l'étiquette d'archive).
 
 ## 1. Prérequis
 
@@ -135,12 +142,9 @@ attend sa fermeture : le code de sortie rendu est celui de l'application. L'adre
 serveur se saisit dans l'écran de connexion ; **aucune URL de serveur n'est codée en dur
 nulle part** dans cette chaîne d'outils, et aucun domaine n'a été décidé pour ce produit.
 
-Pour une API locale (`python -m uvicorn acp_api.main:app --port 8000`), saisir
-`http://127.0.0.1:8000` et cocher « Autoriser HTTP en clair sur une adresse de
-bouclage » : le HTTP en clair est refusé partout ailleurs. Affecter une base
-jetable explicite à `ACP_DATABASE_URL` avant un parcours de vérification ; la
-base `./acp.db` de développement ne doit jamais servir aux tests destructifs.
-L'API locale nécessite `ACP_SESSION_COOKIE_SECURE=0` et un compte déjà amorcé.
+Jusqu'à P8, aucun serveur compatible n'existe : l'API ACP locale que ce client
+attendait a été retirée. Le client démarre, mais sa connexion échoue ; P8 le
+rebranche sur Hermes. Le HTTP en clair reste refusé hors adresse de bouclage.
 
 ## 7. Codes de sortie
 

@@ -4,9 +4,8 @@ Le verrou ``requirements/python-3.12.lock.txt`` (hachés, compilé dans un conte
 Linux) alimente les images ; ``requirements/constraints.txt`` (mêmes épingles, sans
 hachés) sert au poste local en Python 3.13, où ``--require-hashes`` n'est pas
 possible faute de roues identiques. Les deux fichiers doivent porter exactement les
-mêmes versions, et les trois pilotes du Lot H (alembic, psycopg, sqlalchemy) doivent
-rester aux valeurs imposées : une dérive silencieuse entre l'image et le poste est
-précisément ce que ce script refuse.
+mêmes versions : une dérive silencieuse entre la CI et le poste est précisément ce
+que ce script refuse.
 
 Usage :
     python scripts/check_lock.py                      # vérifie, code 0 ou 1
@@ -29,15 +28,18 @@ LOCK_PATH = ROOT / "requirements" / "python-3.12.lock.txt"
 CONSTRAINTS_PATH = ROOT / "requirements" / "constraints.txt"
 SOURCE_PATH = ROOT / "requirements" / "python-3.12.in"
 
-# Épingles imposées par le Lot H : la migration (alembic), le pilote PostgreSQL
-# (psycopg et sa roue binaire) et l'ORM (sqlalchemy) ne bougent qu'ensemble et
-# explicitement.
-REQUIRED_PINS: dict[str, str] = {
-    "alembic": "1.20.0",
-    "psycopg": "3.3.5",
-    "psycopg-binary": "3.3.5",
-    "sqlalchemy": "2.0.51",
-}
+# Épingles imposées explicitement, en plus de la cohérence verrou/contraintes. Les
+# trois pilotes de base du Lot H (alembic, psycopg, sqlalchemy) en ont disparu avec
+# la base elle-même (refonte « Hermes au centre ») : aucune n'est imposée aujourd'hui.
+REQUIRED_PINS: dict[str, str] = {}
+
+# Distributions Python du dépôt dont les dépendances doivent figurer au verrou : le
+# poste Windows et le contrat qu'il partage avec le greffon Hermes acp-poste.
+PROJECT_PATTERNS = (
+    "apps/*/pyproject.toml",
+    "packages/*/pyproject.toml",
+    "hermes/plugins/*/contrat/pyproject.toml",
+)
 
 CONSTRAINTS_HEADER = (
     "# Contraintes de versions pour le poste local (Python 3.13 compris).\n"
@@ -284,8 +286,8 @@ def main(argv: list[str] | None = None) -> int:
     source_text = args.source.read_text(encoding="utf-8")
     project_files = {
         path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
-        for directory in ("apps", "packages", "services")
-        for path in sorted((ROOT / directory).glob("*/pyproject.toml"))
+        for pattern in PROJECT_PATTERNS
+        for path in sorted(ROOT.glob(pattern))
     }
     errors = check(lock_text, constraints_text, source_text, project_files=project_files)
     if errors:
@@ -295,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     count = len(parse_pins(lock_text))
-    print(f"Verrou et contraintes cohérents ({count} épingles, pilotes du Lot H vérifiés).")
+    print(f"Verrou et contraintes cohérents ({count} épingles).")
     return 0
 
 
