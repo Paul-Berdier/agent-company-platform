@@ -86,6 +86,8 @@ fichiers, à la base ou aux secrets du serveur.
 
 - `docs/reprise-poste.md` — état courant, étapes, chaîne d'outils, pièges connus.
 - `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi).
+- `docs/refonte/image.md` — image Hermes d'ACP : démarrage, variables Railway attendues
+  et interdites, managed scope, greffon `acp-poste`, tests et limites.
 - `apps/poste/README.md` — poste Windows : modules, configuration, limites.
 - `hermes/plugins/acp-poste/contrat/README.md` — contrat Python partagé.
 - `apps/desktop/README.md`, `docs/desktop-build.md` — client natif (hors service

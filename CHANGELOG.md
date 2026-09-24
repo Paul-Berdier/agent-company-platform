@@ -35,6 +35,33 @@ Sécurité, Vérifié localement, Limites connues) sera rédigée avant la PR fi
   archivée : leurs fonctions côté API, web et CLI n'existent plus sur cette branche, et
   les documents qu'elles citent restent consultables sous l'étiquette d'archive.
 
+### P1 — image dérivée et CI de contrat (sans Railway)
+
+- `hermes/image/Dockerfile` : image Railway dérivée de
+  `nousresearch/hermes-agent:v2026.9.24` épinglée par le condensat de son index
+  (`sha256:fca358f1…`), `S6_BEHAVIOUR_IF_STAGE2_FAILS=2`, `CMD ["gateway","run"]`,
+  `ENTRYPOINT` officiel conservé ;
+- gardes de démarrage dans le crochet s6 `S6_STAGE2_HOOK` (`acp-gardes`), avant tout
+  script cont-init : refus en français, code 1, de toute variable interdite ou invalide
+  (émetteur OIDC non https, `API_SERVER_KEY`, `HERMES_MANAGED_DIR`, fournisseurs Nous,
+  basic et drain, mandataires…) et de tout greffon utilisateur qui déclare un nom
+  `acp-*` ; `05-acp` refait ces contrôles, verrouille `/opt/data/plugins`,
+  `/opt/data/dashboard-themes` et `/opt/data/acp` (root 0755), dépose le thème et
+  `SOUL.md` selon son empreinte ;
+- managed scope `/etc/hermes` régénérée et relue à chaque démarrage : connexion au
+  tableau de bord par OIDC auto-hébergé seulement, approbations manuelles,
+  auto-décomposition du kanban coupée, profils lançables épinglés, aucun greffon
+  utilisateur activable, anciens chemins d'import refusés, api_server en boucle locale,
+  magasin de certificats et mandataires fixés ;
+- greffon groupé `acp-poste` en squelette : route `GET /api/plugins/acp-poste/v1/meta`
+  (contrat `acp-poste/1`) et adaptateur kanban qui importe chaque fonction depuis son
+  module de définition ;
+- contrat épinglé (`hermes/contrat/`) : `HERMES_VERSION` et copie de l'OpenRPC de la
+  passerelle (MIT, provenance) ;
+- tests dans l'image et tests de contrat pilotés depuis l'hôte, avec un modèle factice
+  compatible OpenAI et un faux fournisseur d'identité ; workflow `image.yml` ;
+- documentation : `docs/refonte/image.md`.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement
