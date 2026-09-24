@@ -1,0 +1,7 @@
+# Contexte de construction de l'image : seuls les fichiers de l'image y entrent.
+tests/
+**/tests/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/.pytest_cache/

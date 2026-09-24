@@ -1,0 +1,128 @@
+name: Image Hermes
+
+# Refonte « Hermes au centre », étape P1 : construit l'image Railway d'ACP, dérivée de
+# l'image officielle de Hermes Agent épinglée par condensat, et prouve son contrat :
+#   - condensat de la base relevé par `docker buildx imagetools inspect` et comparé à
+#     hermes/contrat/HERMES_VERSION ;
+#   - `hermes --version`, `hermes plugins compat` (greffon acp-poste accepté, témoin
+#     refusé) ;
+#   - pytest DANS l'image de test (gardes de démarrage, managed scope, adaptateur kanban,
+#     route meta, comportement de Hermes face à un /opt/data piégé) ;
+#   - tests de contrat pilotés depuis l'hôte : refus de démarrer, PID 1, passerelle et
+#     tableau de bord, api_server en boucle locale, fournisseur OIDC seul, route meta
+#     authentifiée par un faux fournisseur d'identité, carte en triage jamais lancée ;
+#   - défense contre l'agent (uid 10000), prouvée sur l'image :
+#       * injection dans /opt/data/config.yaml neutralisée par la managed scope, après
+#         relance des services par l'agent et après redémarrage du conteneur ;
+#       * /run/service et les scripts des passerelles repris par root : pas d'élévation
+#         par un service supervisé ; la relance par s6-svc reste possible ;
+#       * PATH des scripts root sans répertoire du volume : un faux binaire déposé
+#         par l'agent pour chaque commande système n'est jamais exécuté en root ;
+#       * api_server ramené en 127.0.0.1 même clé retirée et enrôlé sur 0.0.0.0 par
+#         config.yaml ;
+#       * HERMES_MANAGED_DIR posée dans /opt/data/.env : relance ET redémarrage refusés
+#         (échec fermé) ; greffons de projet et groupés neutralisés.
+#     LIMITE ASSUMÉE, NON couverte par un test : sous le même uid, l'agent peut tuer le
+#     tableau de bord et prendre le port public 9119 (parade en P2 — voir image.md §10).
+#
+# Rien n'est publié : ni image poussée, ni déploiement. Railway construira lui-même
+# hermes/image/Dockerfile (étape P2) avec « Wait for CI », d'où le déclencheur `push`.
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - "refonte/hermes"
+    paths:
+      - "hermes/**"
+      - ".github/workflows/image.yml"
+  push:
+    branches:
+      - main
+      - "refonte/**"
+    paths:
+      - "hermes/**"
+      - ".github/workflows/image.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Image ACP — construction et contrat
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ACP_IMAGE: acp-hermes:ci
+      ACP_IMAGE_TESTS: acp-hermes-tests:ci
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Relever le condensat de l'image officielle
+        run: |
+          set -euo pipefail
+          attendu="$(sed -n 's/^HERMES_IMAGE_INDEX=//p' hermes/contrat/HERMES_VERSION)"
+          etiquette="$(sed -n 's/^HERMES_TAG=//p' hermes/contrat/HERMES_VERSION)"
+          docker buildx imagetools inspect "nousresearch/hermes-agent:${etiquette}" | tee /tmp/imagetools.txt
+          if ! grep -Eq "^Digest: +${attendu}$" /tmp/imagetools.txt; then
+            echo "Le condensat publié de ${etiquette} ne correspond plus à ${attendu} : refus." >&2
+            exit 1
+          fi
+          grep -q "FROM nousresearch/hermes-agent:${etiquette}@${attendu}" hermes/image/Dockerfile
+          echo "Condensat épinglé confirmé : ${etiquette}@${attendu}"
+
+      - name: Construire l'image ACP
+        run: docker build --pull -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
+
+      - name: Construire l'image de test
+        run: docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+
+      - name: hermes --version
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes "$ACP_IMAGE" --version | tee /tmp/version.txt
+          grep -q "Hermes Agent v$(sed -n 's/^HERMES_VERSION=//p' hermes/contrat/HERMES_VERSION) " /tmp/version.txt
+
+      - name: hermes plugins compat
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes "$ACP_IMAGE" \
+            plugins compat /opt/hermes/plugins/acp-poste
+          set +e
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes "$ACP_IMAGE_TESTS" \
+            plugins compat /opt/acp-tests/outils/temoin_compat
+          code=$?
+          set -e
+          echo "Code du témoin : ${code} (1 attendu : il importe hermes_cli.kanban_db.connect)"
+          test "$code" -eq 1
+
+      - name: pytest dans l'image
+        run: |
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/python \
+            -e PYTHONPATH=/opt/acp-tests/site "$ACP_IMAGE_TESTS" \
+            -m pytest -v -rA /opt/acp-tests/image
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer pytest (hachés vérifiés)
+        run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
+
+      - name: Tests de contrat de l'image
+        run: python -m pytest -s -v -rA hermes/tests/contrat
+
+      - name: Aucun conteneur de test ne reste
+        if: always()
+        run: |
+          reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
+          if [ -n "$reste" ]; then
+            echo "Conteneurs restants : ${reste}" >&2
+            docker rm -f $reste >/dev/null
+          fi

@@ -1,0 +1,26 @@
+#!/command/with-contenv /bin/sh
+# shellcheck shell=sh
+# ACP — gardes de démarrage et managed scope de Hermes (crochet S6_STAGE2_HOOK).
+#
+# s6-overlay exécute ce crochet au tout début de l'étape 2, avant tout service et tout
+# script de /etc/cont-init.d (rc.init de s6-overlay 3.2.3.0). Un code non nul, avec
+# S6_BEHAVIOUR_IF_STAGE2_FAILS=2, arrête aussitôt le conteneur avec ce code : ni
+# 01-hermes-setup, ni 02-reconcile-profiles (qui lance la passerelle), ni le tableau de
+# bord ne démarrent. Un script cont-init en échec, lui, laisse tourner les suivants.
+#
+# L'en-tête with-contenv donne au script l'environnement du conteneur, comme pour
+# 01-hermes-setup (Dockerfile:402-405 de l'image officielle) ; sans lui, les variables
+# Railway seraient invisibles et les gardes passeraient à vide.
+#
+# Si S6_BEHAVIOUR_IF_STAGE2_FAILS a été changé, s6 poursuivrait après un refus : le
+# script arrête alors le conteneur lui-même (/run/s6/basedir/bin/halt).
+/opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py gardes
+code=$?
+if [ "$code" -ne 0 ]; then
+    if [ "${S6_BEHAVIOUR_IF_STAGE2_FAILS:-0}" != "2" ]; then
+        echo "[acp] S6_BEHAVIOUR_IF_STAGE2_FAILS ne vaut pas 2 : arrêt explicite du conteneur." >&2
+        echo 1 > /run/s6-linux-init-container-results/exitcode 2>/dev/null || true
+        /run/s6/basedir/bin/halt
+    fi
+    exit 1
+fi

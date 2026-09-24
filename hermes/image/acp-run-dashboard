@@ -1,0 +1,21 @@
+#!/command/with-contenv /bin/sh
+# shellcheck shell=sh
+# acp-garde-relance
+# ACP — enveloppe root du service s6 « dashboard » de l'image officielle.
+#
+# s6-supervise exécute ce script EN ROOT à chaque (re)lancement du tableau de bord, y
+# compris quand l'agent le relance lui-même (`s6-svc -r /run/service/dashboard`, la FIFO
+# supervise/control lui restant accessible). Avant de rendre la main au script amont, il
+# refuse la relance si l'agent a injecté une variable interdite dans un .env du volume
+# (HERMES_MANAGED_DIR déplacerait la managed scope hors de /etc/hermes ; voir
+# hermes/image/acp_demarrage.py, VARIABLES_INTERDITES). Échec fermé : le tableau de bord
+# reste en panne (visible) plutôt que de démarrer sur une portée gérée détournée.
+#
+# Le script amont de l'image officielle est préservé tel quel dans /opt/acp/amont (copié à
+# la construction) ; une montée de version le recopie sans que cette enveloppe change.
+/opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py verifier-relance || {
+    echo "[acp] REFUS : relance du tableau de bord refusée (variable interdite dans /opt/data)." >&2
+    /bin/sleep 5
+    exit 1
+}
+exec /command/with-contenv /bin/sh /opt/acp/amont/s6-dashboard-run

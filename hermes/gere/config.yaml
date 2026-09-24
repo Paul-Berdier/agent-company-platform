@@ -1,0 +1,122 @@
+# Managed scope de Hermes pour ACP : modèle de /etc/hermes/config.yaml.
+#
+# Hermes applique ce fichier en dernier, feuille par feuille, par-dessus
+# /opt/data/config.yaml (hermes_cli/managed_scope.py:125-147 ;
+# hermes_cli/config.py:2211-2226) ; `hermes config set` refuse toute clé épinglée
+# ici (hermes_cli/config.py:3384-3391). Ce que garantit ce fichier tient à la
+# permission : /etc/hermes appartient à root (0755, fichiers 0644) et l'agent
+# tourne sous l'uid 10000 sans sudo (website/docs/user-guide/managed-scope.md:36-39
+# et 139-148 ; Dockerfile:168 de l'image officielle).
+#
+# Ce que ce fichier NE garantit PAS : l'agent tourne sous le MÊME uid que le tableau
+# de bord (10000). Il ne peut pas modifier cette portée gérée, mais il peut tuer le
+# processus du tableau de bord et écouter lui-même sur 0.0.0.0:9119 (le port public).
+# La frontière d'uid ne sépare donc pas l'agent du tableau de bord ; la vraie parade
+# (uid distinct ou dorsale isolée pour les outils terminal) relève de P2. Voir
+# docs/refonte/image.md §5 et §10.
+#
+# 00-acp-gardes régénère /etc/hermes/config.yaml à chaque démarrage à partir de ce
+# modèle, après avoir remplacé les marqueurs de déploiement (chaînes encadrées de
+# doubles arobases) par les variables Railway validées, puis refuse de démarrer si le
+# résultat ne se relit pas (un fichier géré invalide serait ignoré en silence :
+# managed_scope.py:69-96).
+# Aucun secret ici : le fichier est lisible par tous.
+#
+# Toute clé ajoutée ici devient immuable pour l'agent. Les épingles de sécurité
+# listées dans hermes/image/acp_demarrage.py (EPINGLES_OBLIGATOIRES) sont
+# vérifiées à la construction de l'image et à chaque démarrage.
+
+kanban:
+  # Défaut True (config_defaults.py:1907-1909) : à chaque tick, la passerelle
+  # décomposerait toute carte en triage par un LLM auxiliaire et la promouvrait
+  # (gateway/kanban_watchers.py:296-301), ce qui contournerait la validation.
+  auto_decompose: false
+  # Défaut None = tout profil existant est lançable ; une liste fait échouer
+  # fermé tout autre assigné (config_defaults.py:1901-1906 ;
+  # kanban_db_dispatch.py:1636-1700). Un profil créé plus tard sous le nom
+  # « poste-windows » ne pourra donc pas être lancé sur Railway.
+  dispatch_profiles: [default]
+
+approvals:
+  # Défaut « smart » : un modèle auxiliaire approuve seul (config_defaults.py:1656).
+  # Valeurs admises : manual, smart, off (tools/approval_context.py:197).
+  mode: manual
+  cron_mode: deny
+  single_query_mode: deny
+  unattended_mode: deny
+
+plugins:
+  # Aucun greffon « utilisateur » ne peut être activé : tout greffon passe par
+  # l'image. acp-poste est un greffon groupé de type « backend », chargé sans
+  # figurer dans cette liste (hermes_cli/plugins_discovery.py:264-267), et son
+  # API de tableau de bord est montée sans elle (web_server_dashboard.py:782-795).
+  # Une liste vide garantit qu'un homonyme déposé sous /opt/data/plugins n'est
+  # jamais importé (web_server_dashboard.py:793-794 ;
+  # web_routers/dashboard_ui.py:118-128 ; plugins_discovery.py:272-276).
+  enabled: []
+  # Connexion au tableau de bord par OIDC auto-hébergé seulement (décision du
+  # propriétaire). Clés « catégorie/nom » : plugins_discovery.py:238-252 ;
+  # plugins_cmd.py:1206.
+  disabled:
+    - dashboard_auth/basic
+    - dashboard_auth/nous
+    - dashboard_auth/drain
+  # Un greffon qui résout un ancien chemin PLUGIN-COMPAT n'est pas chargé
+  # (hermes_cli/plugin_compat.py:32 et 296-312 ; COMPAT_MANIFEST.md:15-19).
+  allow_deprecated_imports: false
+
+auth:
+  # Défaut True : Hermes emprunterait les connexions Codex CLI et Claude Code
+  # (config_defaults.py:1719-1724).
+  adopt_external_logins: false
+
+security:
+  redact_secrets: true
+
+display:
+  # Messages statiques seulement (approbations, quelques réponses de passerelle) ;
+  # les réponses de l'agent viennent de SOUL.md (config_defaults.py:875-877).
+  language: fr
+
+agent:
+  # Navigateur intégré désactivé au départ (plan, section 8).
+  disabled_toolsets: [browser]
+
+platforms:
+  # api_server de la passerelle : épinglé en boucle locale. Sans clé utilisable dans
+  # l'environnement, l'agent peut l'enrôler lui-même par /opt/data/config.yaml
+  # (gateway/config_env.py:307-315) et la valeur de config.yaml gagne sur API_SERVER_HOST
+  # (gateway/platforms/api_server.py:209-218). En épinglant l'hôte et le port ici, la
+  # managed scope (appliquée par-dessus la config du volume) le ramène toujours en
+  # 127.0.0.1:8642, y compris après une relance de la passerelle par l'agent.
+  api_server:
+    extra:
+      host: 127.0.0.1
+      port: 8642
+
+dashboard:
+  theme: acp
+  # URL publique https validée par 00-acp-gardes (HERMES_DASHBOARD_PUBLIC_URL).
+  public_url: "@@ACP:HERMES_DASHBOARD_PUBLIC_URL@@"
+  # Mesuré puis épinglé en P2 ; vide, seul le bouclage local est cru
+  # (config_defaults.py:988-990 ; web_server_lifecycle.py:440-485).
+  trusted_proxies: []
+  oauth:
+    # Fournisseur Nous écarté : identifiant et portail vides.
+    client_id: ""
+    portal_url: ""
+    # Fournisseur OIDC auto-hébergé (plugins/dashboard_auth/self_hosted/__init__.py:285-310).
+    self_hosted:
+      issuer: "@@ACP:HERMES_DASHBOARD_OIDC_ISSUER@@"
+      client_id: "@@ACP:HERMES_DASHBOARD_OIDC_CLIENT_ID@@"
+      scopes: "@@ACP:HERMES_DASHBOARD_OIDC_SCOPES@@"
+      # Le secret d'un client confidentiel vient de la variable Railway
+      # HERMES_DASHBOARD_OIDC_CLIENT_SECRET, qui gagne sur cette valeur vide
+      # (plugins/dashboard_auth/_shared.py:46-49) ; sans elle, client public (PKCE).
+      client_secret: ""
+  # Fournisseur par mot de passe écarté : aucun identifiant possible.
+  basic_auth:
+    username: ""
+    password: ""
+    password_hash: ""
+    secret: ""

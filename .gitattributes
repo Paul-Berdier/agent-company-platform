@@ -1,3 +1,6 @@
 *.sh text eol=lf
 Dockerfile* text eol=lf
 *.Dockerfile text eol=lf
+# Tout ce qui entre dans l'image Hermes (scripts s6 sans extension, empreintes
+# comparées octet pour octet avec l'image) garde des fins de ligne LF.
+hermes/** text=auto eol=lf
