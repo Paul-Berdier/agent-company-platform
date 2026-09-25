@@ -57,6 +57,18 @@ jobs:
           else
             git show --check --format=fuller HEAD
           fi
+      - name: Balayer les secrets (fichiers suivis et lignes ajoutées par la branche)
+        # scripts/balayer_secrets.py : motifs de clés et de jetons, extraits masqués ; relecture de P3
+        # (la preuve « aucun secret » reposait sur un script hors dépôt). L'historique complet est
+        # là (fetch-depth: 0) : un secret committé puis retiré est trouvé aussi.
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            plage="origin/${{ github.base_ref }}..HEAD"
+          else
+            plage="origin/main..HEAD"
+          fi
+          python3 scripts/balayer_secrets.py --arbre --plage "$plage"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
