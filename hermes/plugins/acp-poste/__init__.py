@@ -7,8 +7,9 @@ Hermes importe ce paquet dans chacun de ses processus et appelle :func:`register
 2. enregistre la garde d'exécution de l'agent, crochet ``pre_tool_call`` en liste blanche
    (:mod:`garde_execution`).
 
-Il n'enregistre encore ni outil ``poste_*``, ni fournisseur de jeton machine, ni route à
-jeton : ils arrivent en P5 ; les annoncer maintenant ferait croire à une délégation qui
+Il n'enregistre encore aucun outil : les outils ``projet_*``, ``poste_*`` et ``question_*``
+arrivent en P4, le jeton machine et les routes du poste en P5 (plan d'autonomie,
+docs/refonte/autonomie.md § 8) ; les annoncer maintenant ferait croire à une délégation qui
 n'existe pas.
 
 La partie tableau de bord (``dashboard/plugin_api.py``) est montée indépendamment, sous
@@ -28,29 +29,62 @@ _log = logging.getLogger(__name__)
 
 CODE_HORS_S6 = 78
 _HOME_DEPLOYE = "/opt/data"
-# Options globales de `hermes` qui prennent une valeur (hermes_cli/main.py) : sautées pour
-# trouver la sous-commande.
-_OPTIONS_A_VALEUR = {"-p", "--profile", "-m", "--model", "--provider", "-t", "--toolsets", "--skills"}
+# Options globales de `hermes` qui prennent une valeur, sautées avec leur valeur pour trouver la
+# sous-commande. Relevées dans l'analyseur réel de Hermes 0.21.5 (hermes_cli/_parser.py:22-26 et
+# 129-197 : valeur obligatoire ; « -c/--continue » à valeur facultative, qu'argparse consomme dès
+# que le mot suivant n'est pas une option) et « -p/--profile », consommée avant argparse
+# (hermes_cli/_parser.py:13-16). test_options_a_valeur_couvrent_l_analyseur_de_hermes compare cette
+# liste à hermes_cli._parser.top_level_value_flag_sets() de l'image épinglée.
+_OPTIONS_A_VALEUR = frozenset({
+    "-p", "--profile", "-z", "--oneshot", "--usage-file", "-m", "--model", "--provider", "--reasoning",
+    "-t", "--toolsets", "-r", "--resume", "--in", "-s", "--skills", "-c", "--continue",
+})
+# Sous-commandes qui lancent le serveur du tableau de bord : « dashboard » et « serve », même
+# serveur sans navigateur (hermes_cli/subcommands/dashboard.py:79-101).
+_COMMANDES_TABLEAU_DE_BORD = frozenset({"dashboard", "serve"})
 
 
 def _sous_commande(argv: Sequence[str]) -> List[str]:
-    """Sous-commande de ``hermes`` (options globales sautées) : ``["gateway", "run"]``,
-    ``["dashboard"]``, ``["chat"]``…"""
+    """Sous-commande de ``hermes`` (options globales sautées avec leur valeur, comme
+    ``_first_positional_argv`` de hermes_cli/main.py:2825-2845) : ``["gateway", "run"]``,
+    ``["gateway"]``, ``["dashboard"]``, ``["chat"]``…"""
     positionnels: List[str] = []
-    attend_valeur = False
-    for argument in list(argv)[1:]:
-        if attend_valeur:
-            attend_valeur = False
-            continue
-        if argument in _OPTIONS_A_VALEUR:
-            attend_valeur = True
-            continue
+    arguments = list(argv)[1:]
+    i = 0
+    while i < len(arguments):
+        argument = arguments[i]
+        if argument == "--":  # tout ce qui suit est positionnel
+            positionnels.extend(arguments[i + 1:])
+            break
         if argument.startswith("-"):
+            # « --option=valeur » est un seul mot ; une option à valeur consomme le mot suivant.
+            i += 2 if ("=" not in argument and argument in _OPTIONS_A_VALEUR) else 1
             continue
         positionnels.append(argument)
+        i += 1
         if positionnels[0] != "gateway" or len(positionnels) == 2:
             break
-    return positionnels
+    return positionnels[:2] if positionnels[:1] == ["gateway"] else positionnels[:1]
+
+
+def _home_de_production(home: Optional[str]) -> bool:
+    """Vrai si ``home`` désigne le volume de production ou l'un de ses sous-répertoires (un profil
+    ``/opt/data/profiles/<nom>`` y compris), après normalisation (``/opt/data/``,
+    ``/opt//data``, ``/opt/data/../data``) et résolution des liens."""
+    if not home:
+        return False
+    for forme in (os.path.normpath(home), os.path.realpath(home)):
+        if forme == _HOME_DEPLOYE or forme.startswith(_HOME_DEPLOYE + "/"):
+            return True
+    return False
+
+
+def _lance_un_serveur(commande: Sequence[str]) -> bool:
+    """« gateway » nu ou « gateway run » (hermes_cli/gateway.py:5108-5112 : la sous-commande absente
+    lance aussi la passerelle), « dashboard » ou « serve »."""
+    if commande[:1] == ["gateway"]:
+        return len(commande) == 1 or commande[1] == "run"
+    return bool(commande) and commande[0] in _COMMANDES_TABLEAU_DE_BORD
 
 
 def _programme_pid1(cmdline: str = "/proc/1/cmdline") -> Optional[str]:
@@ -70,14 +104,16 @@ def _sentinelle_chaine_s6(argv: Optional[Sequence[str]] = None, environ: Optiona
 
     Hors de s6 (``docker run --entrypoint …``, ``--init``, Start Command), ni le crochet
     acp-gardes, ni 05-acp, ni la managed scope régénérée et vérifiée ne s'appliquent. Seuls
-    ``hermes gateway run`` et ``hermes dashboard`` avec ``HERMES_HOME=/opt/data`` sont visés :
-    les commandes ponctuelles, les workers kanban et les tests ne le sont pas."""
+    ``hermes gateway [run]``, ``hermes dashboard`` et ``hermes serve`` avec un ``HERMES_HOME``
+    dans ``/opt/data`` sont visés : les commandes ponctuelles, les workers kanban et les tests ne
+    le sont pas. Défense en profondeur : elle suppose que la commande passe par l'analyse de
+    ``sys.argv`` ; ``acp-entree`` reste la garde principale."""
     argv = sys.argv if argv is None else argv
     environ = os.environ if environ is None else environ
-    if environ.get("HERMES_HOME") != _HOME_DEPLOYE:
+    if not _home_de_production(environ.get("HERMES_HOME")):
         return
     commande = _sous_commande(argv)
-    if commande[:2] != ["gateway", "run"] and commande[:1] != ["dashboard"]:
+    if not _lance_un_serveur(commande):
         return
     programme = _programme_pid1(cmdline)
     if programme == "s6-svscan":

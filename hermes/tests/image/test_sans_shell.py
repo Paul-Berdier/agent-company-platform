@@ -166,8 +166,8 @@ def test_env_gere_neutralise_le_volume(chemins, valeurs):
 # ============================================================ 3. tours d'agent réels
 
 
-def _tour(chemins, valeurs, modele, mode: str, message: str, *, sans_garde: bool = False) -> dict:
-    installer_home_de_test(chemins, valeurs, modele_url=modele.url, sans_garde=sans_garde)
+def _tour(chemins, valeurs, modele, mode: str, message: str, *, sans_garde: bool = False, config: str = "") -> dict:
+    installer_home_de_test(chemins, valeurs, modele_url=modele.url, sans_garde=sans_garde, config=config)
     fichier = chemins.hermes_home.parent / f"agent-{mode}.json"
     sortie = lancer_outil("agent_neuf.py", mode, modele.url, message, str(fichier), env=env_processus(chemins))
     assert sortie.returncode == 0, sortie.stderr[-4000:]
@@ -185,14 +185,63 @@ def test_tour_api_server_refuse_terminal_ecriture_code_cron(chemins, valeurs, mo
     assert list(temoins.iterdir()) == []
 
 
-def test_le_pont_tool_call_ne_rouvre_pas_terminal(chemins, valeurs, modele_factice, temoins):
-    """tool_call (pont des outils différés) est offert à l'api_server ; il est refusé par la
-    garde, et il ne pourrait de toute façon pas atteindre terminal (absent du catalogue)."""
+def test_pont_tool_call_non_resolu_refuse(chemins, valeurs, modele_factice, temoins):
+    """Le pont tool_call vers terminal, qui n'est pas différable : Hermes NE PEUT PAS le résoudre
+    (tools/tool_search.py:543-571), donc ne le déballe pas (agent/tool_executor.py:390-431) ; la
+    garde reçoit « tool_call » lui-même et le refuse (il n'est pas dans la liste blanche). Ce test
+    ne prouve que ce chemin d'erreur : le déballage est prouvé par les deux tests suivants."""
     resultat = _tour(chemins, valeurs, modele_factice, "api_server", "OUTIL:tool_call")
     resultats = modele_factice.resultats_outils()
     print(json.dumps({"offerts": resultat["outils_offerts"], "resultats": resultats}, ensure_ascii=False))
+    assert "tool_call" in resultat["outils_offerts"]
     assert any("Refusé par ACP : l'outil « tool_call » n'est pas autorisé" in r for r in resultats), resultats
     assert list(temoins.iterdir()) == []
+
+
+def test_pont_tool_call_vers_un_outil_admis(chemins, valeurs, modele_factice, temoins):
+    """Relecture P2 : Hermes déballe le pont AVANT le crochet ; la garde juge l'outil sous-jacent.
+    todo_list, différé par défaut (config_defaults.py:1986-1988) donc absent des outils offerts,
+    s'exécute à travers le pont sans aucun refus d'ACP."""
+    resultat = _tour(chemins, valeurs, modele_factice, "api_server", "OUTIL:tool_call>todo_list")
+    resultats = modele_factice.resultats_outils()
+    print(json.dumps({"offerts": resultat["outils_offerts"], "resultats": resultats}, ensure_ascii=False))
+    assert "tool_call" in resultat["outils_offerts"] and "todo_list" not in resultat["outils_offerts"]
+    assert not any("Refusé par ACP" in r for r in resultats), resultats
+    assert any("carte de test ACP" in r and '"todos"' in r for r in resultats), resultats
+    assert list(temoins.iterdir()) == []
+
+
+# Volume qui rend terminal DIFFÉRABLE (tools.tool_search.defer remplace la liste par défaut ; un
+# nom listé est différable même s'il est « cœur » : tools/tool_search.py:150-162). L'agent caché
+# de preview.restart, qui reçoit terminal codé en dur, ne peut alors l'atteindre que par le pont.
+CONFIG_TERMINAL_DIFFERE = """\
+tools:
+  tool_search:
+    enabled: "on"
+    defer: [terminal]
+"""
+
+
+def test_pont_tool_call_juge_l_outil_sous_jacent(chemins, valeurs, modele_factice, temoins):
+    """Relecture P2 : tool_call → terminal RÉSOLU (terminal rendu différable par le volume) : la
+    garde reçoit « terminal » (et non « tool_call ») et le refuse ; aucun témoin."""
+    resultat = _tour(chemins, valeurs, modele_factice, "cache", "OUTIL:tool_call", config=CONFIG_TERMINAL_DIFFERE)
+    resultats = modele_factice.resultats_outils()
+    print(json.dumps({"offerts": resultat["outils_offerts"], "resultats": resultats}, ensure_ascii=False))
+    assert "tool_call" in resultat["outils_offerts"] and "terminal" not in resultat["outils_offerts"]
+    assert any("Refusé par ACP : l'outil « terminal » n'est pas autorisé" in r for r in resultats), resultats
+    assert not any("« tool_call »" in r for r in resultats), resultats
+    assert list(temoins.iterdir()) == []
+
+
+def test_pont_tool_call_juge_l_outil_sous_jacent_temoin_negatif(chemins, valeurs, modele_factice, temoins):
+    """Témoin négatif : même scénario sans acp-poste → terminal s'exécute à travers le pont."""
+    _tour(chemins, valeurs, modele_factice, "cache", "OUTIL:tool_call", sans_garde=True,
+          config=CONFIG_TERMINAL_DIFFERE)
+    resultats = modele_factice.resultats_outils()
+    print(json.dumps({"resultats": resultats}, ensure_ascii=False))
+    assert not any("Refusé par ACP" in r for r in resultats)
+    assert (temoins / "tool_call").exists(), "le témoin négatif n'a pas pu exécuter terminal par le pont"
 
 
 def test_garde_dans_un_agent_neuf(chemins, valeurs, modele_factice, temoins):
@@ -320,7 +369,7 @@ def test_garde_liste_blanche():
     assert len(ge.OUTILS_ADMIS) == 24
     for nom in ge.OUTILS_ADMIS:
         assert ge.garde(tool_name=nom, args={}) is None, nom
-    for nom, motif in (("kanban_create", "la création de carte par l'agent arrive en P5"),
+    for nom, motif in (("kanban_create", "les projets passeront par les outils du greffon acp-poste (P4)"),
                        ("kanban_attach_url", "ne résiste pas au rebinding DNS")):
         bloc = ge.garde(tool_name=nom, args={"skills": ["x"], "workspace_path": "/opt/data"})
         assert bloc["action"] == "block" and bloc["message"].startswith("Refusé par ACP : ") and motif in bloc["message"]
@@ -562,6 +611,24 @@ print("passe")
      False),
     ("/opt/hermes/.venv/bin/python3", "/tmp/autre", ["gateway", "run"], False),
     (None, "/opt/data", ["gateway", "run"], True),
+    # Relecture P2 : options globales à valeur oubliées, HERMES_HOME non normalisé, profil,
+    # « gateway » nu (hermes_cli/gateway.py:5108-5112) et « serve » (même serveur que dashboard).
+    ("/sbin/docker-init", "/opt/data", ["--reasoning", "high", "gateway", "run"], True),
+    ("/sbin/docker-init", "/opt/data", ["--in", "/tmp", "dashboard"], True),
+    ("/sbin/docker-init", "/opt/data", ["--resume", "s1", "-r", "s2", "dashboard"], True),
+    ("/sbin/docker-init", "/opt/data", ["-z", "x", "--usage-file", "/tmp/u", "gateway", "run"], True),
+    ("/sbin/docker-init", "/opt/data", ["-s", "une", "--skills", "deux", "-c", "nom", "gateway", "run"], True),
+    ("/sbin/docker-init", "/opt/data", ["--reasoning=high", "gateway", "run"], True),
+    ("/sbin/docker-init", "/opt/data", ["--", "gateway", "run"], True),
+    ("/sbin/docker-init", "/opt/data/", ["gateway", "run"], True),
+    ("/sbin/docker-init", "/opt//data", ["gateway", "run"], True),
+    ("/sbin/docker-init", "/opt/data/../data", ["dashboard"], True),
+    ("/sbin/docker-init", "/opt/data/profiles/coder", ["gateway", "run"], True),
+    ("/sbin/docker-init", "/opt/data", ["gateway"], True),
+    ("/sbin/docker-init", "/opt/data", ["serve", "--port", "9119"], True),
+    ("/sbin/docker-init", "/opt/data", ["gateway", "status"], False),
+    ("/sbin/docker-init", "/opt/database", ["gateway", "run"], False),
+    ("/sbin/docker-init", "/opt/data", ["--continue", "gateway", "run"], False),  # argparse : « gateway » = SESSION_NAME
 ])
 def test_sentinelle_hors_s6(tmp_path, pid1, home, argv, arret):
     cmdline = tmp_path / "cmdline"
@@ -576,6 +643,44 @@ def test_sentinelle_hors_s6(tmp_path, pid1, home, argv, arret):
     else:
         assert sortie.returncode == 0, sortie.stderr
         assert sortie.stdout.strip() == "passe"
+
+
+def test_sentinelle_suit_un_lien_vers_le_volume(tmp_path):
+    """Un HERMES_HOME qui est un lien vers /opt/data désigne le volume de production."""
+    lien = tmp_path / "lien"
+    lien.symlink_to("/opt/data")
+    cmdline = tmp_path / "cmdline"
+    cmdline.write_bytes(b"/sbin/docker-init\0--\0")
+    sortie = subprocess.run([PYTHON_HERMES, "-c", SENTINELLE, str(lien), str(cmdline), "gateway", "run"],
+                            capture_output=True, text=True, timeout=60)
+    assert sortie.returncode == 78, (sortie.returncode, sortie.stdout, sortie.stderr)
+
+
+def test_options_a_valeur_couvrent_l_analyseur_de_hermes():
+    """Recensement : toute option globale de `hermes` qui prend une valeur, d'après l'analyseur
+    RÉEL de l'image épinglée (hermes_cli._parser.top_level_value_flag_sets, dérivé de
+    build_top_level_parser), est connue de la sentinelle. Une montée de version qui en ajoute une
+    fait échouer ce test au lieu d'ouvrir un contournement."""
+    code = r"""
+import importlib.util, sys
+from hermes_cli import _parser
+obligatoires, facultatives = _parser.top_level_value_flag_sets()
+spec = importlib.util.spec_from_file_location("acp_recensement", "/opt/hermes/plugins/acp-poste/__init__.py",
+                                              submodule_search_locations=["/opt/hermes/plugins/acp-poste"])
+module = importlib.util.module_from_spec(spec)
+sys.modules["acp_recensement"] = module
+spec.loader.exec_module(module)
+connues = set(module._OPTIONS_A_VALEUR)
+resultat = {"hermes": sorted(obligatoires | facultatives), "secours": sorted(_parser._VALUE_FLAGS_FALLBACK
+            | _parser._OPTIONAL_VALUE_FLAGS_FALLBACK), "avant_argparse": [n for n, _ in _parser.PRE_ARGPARSE_INHERITED_FLAGS],
+            "manquantes": sorted((obligatoires | facultatives | _parser._VALUE_FLAGS_FALLBACK
+                                  | _parser._OPTIONAL_VALUE_FLAGS_FALLBACK
+                                  | {n for n, _ in _parser.PRE_ARGPARSE_INHERITED_FLAGS}) - connues)}
+"""
+    resultat = executer_python(code)
+    print(json.dumps(resultat, ensure_ascii=False))
+    assert len(resultat["hermes"]) >= 14  # analyseur réel lu (sinon le test passerait à vide)
+    assert resultat["manquantes"] == []
 
 
 def test_la_garde_est_enregistree_par_register():

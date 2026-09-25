@@ -26,13 +26,22 @@ Fonctionnement (source de Hermes f97608f) :
   aucun greffon (agent/agent_init.py:1066-1067). Parades : test de découverte sur l'image
   épinglée et alerte de ``/v1/meta`` (processus du tableau de bord).
 
-Règle d'extension (P5) : les outils du poste seront nommés ``poste_*`` et ajoutés ici un par
-un. ``kanban_create`` ne sera réadmis qu'avec une liste blanche d'ARGUMENTS : ``title``,
-``body``, ``assignee`` limité aux profils du poste, ``parents``, ``priority``,
-``idempotency_key``, ``triage`` ; seront refusés ``skills``, ``model``, ``provider``,
-``workspace_kind`` autre que ``scratch``, ``workspace_path``, ``project``, ``tenant``,
-``goal_mode``, ``goal_max_turns``, ``completion_contract`` et ``initial_status``. Le crochet
-reçoit déjà ces arguments (paramètre ``args``).
+Pont des outils différés (``tool_call``, correction de la relecture P2) : Hermes le DÉBALLE
+AVANT d'appeler le crochet (agent/tool_executor.py:390-431, ``_unwrap_tool_search_call``) ;
+la garde reçoit donc le nom de l'outil appelé à travers le pont (``todo_list``,
+``session_search``…) et le juge comme un appel direct. Elle ne voit « tool_call » que si Hermes
+n'a pas su le résoudre : outil non différable comme ``terminal``
+(tools/tool_search.py:543-571), arguments invalides, lot de connecteurs ; elle le refuse alors,
+puisque « tool_call » n'est pas dans la liste blanche.
+
+Règle d'extension (plan d'autonomie validé, docs/refonte/autonomie.md § 8) : les outils du
+greffon prévus en P4 (``projet_lancer``, ``projet_planifier``, ``projet_etat``,
+``poste_etat``, ``poste_catalogue``, ``question_repondre``, ``question_escalader``,
+``routage_surcharger``) seront ajoutés ici un par un, par leur nom exact, chacun avec ses
+tests. ``kanban_create`` n'est PAS réadmis : les cartes des projets sont créées par le greffon
+lui-même (``projet_planifier``), sur le tableau qu'il choisit, avec les compétences, le
+modèle, le fournisseur et l'espace de travail qu'il fixe ; l'agent ne les choisit jamais. (La
+règle de P2 qui prévoyait une réadmission avec liste blanche d'arguments est remplacée.)
 
 Ce module n'importe rien de Hermes au chargement.
 """
@@ -51,7 +60,9 @@ OUTILS_ADMIS: FrozenSet[str] = frozenset({
     "skills_list", "skill_view", "skill_manage",
     # Planification, mémoire (écriture soumise à validation : memory.write_approval), historique.
     "todo_list", "memory", "session_search", "clarify",
-    # Recherche d'outils différés ; le pont « tool_call » reste refusé.
+    # Recherche d'outils différés. Le pont « tool_call » n'est pas admis en tant que tel : Hermes
+    # le déballe avant le crochet (la garde juge l'outil appelé à travers lui) ; non résolu, il
+    # arrive ici sous son propre nom et il est refusé.
     "tool_search", "tool_describe",
     # Cycle de vie d'une carte kanban, côté worker.
     "kanban_show", "kanban_list", "kanban_complete", "kanban_block", "kanban_request_review",
@@ -64,8 +75,9 @@ MOTIFS_DEDIES: Dict[str, str] = {
     # hermes_cli/kanban_db_dispatch.py:2676-2710 et 2820-2887 : le worker lancé recevrait les
     # skills, le modèle, le fournisseur et l'espace de travail choisis par l'agent.
     "kanban_create": (
-        "Refusé par ACP : la création de carte par l'agent arrive en P5, avec contrôle des "
-        "arguments (compétences, modèle, fournisseur, espace de travail)."),
+        "Refusé par ACP : l'agent ne crée pas de carte kanban lui-même ; les projets passeront par "
+        "les outils du greffon acp-poste (P4), qui fixent compétences, modèle, fournisseur et "
+        "espace de travail."),
     # tools/kanban_tools.py:924-958 : is_safe_url puis httpx.stream ordinaire, sans protection
     # contre le rebinding DNS (tools/url_safety.py:7-10).
     "kanban_attach_url": (

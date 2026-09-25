@@ -27,7 +27,8 @@ from typing import Dict, List
 
 import pytest
 
-from conftest import ENV_VALIDE, Conteneur, afficher, demarrer_jusqu_a_l_arret, docker, lancer, options_env
+from conftest import (ENV_VALIDE, Conteneur, afficher, attendre_modele_factice, demarrer_jusqu_a_l_arret, docker,
+                      lancer, options_env)
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -61,7 +62,22 @@ def test_entree_refuse_hors_pid1(ressources, image):
     assert code == 1
     assert "[acp] REFUS : l'image n'a pas le PID 1" in journal
     assert "[acp] Démarrage arrêté (échec fermé)" in journal
+    assert "Retirez --init" in journal
     assert "[stage2]" not in journal and "not PID 1; skipping s6-overlay" not in journal
+
+
+def test_entree_refuse_hors_pid1_sur_railway(ressources, image):
+    """Relecture P2 : sur Railway (marqueurs présents), ni --init ni Start Command n'ont de sens ;
+    le refus renvoie à la procédure du § 10 f de railway.md et interdit tout contournement."""
+    env = dict(ENV_VALIDE, RAILWAY_DEPLOYMENT_ID="dep-contrat", RAILWAY_VOLUME_MOUNT_PATH="/opt/data")
+    code, journal = _executer_jusqu_a_l_arret(ressources, image, "--init", env=env)
+    afficher(f"docker run --init « sur Railway » : code {code}", _lignes_acp(journal))
+    assert code == 1
+    assert "[acp] REFUS : l'image n'a pas le PID 1" in journal
+    assert "Sur Railway, la plateforme n'a pas donné le PID 1 à l'image" in journal
+    assert "docs/refonte/railway.md § 10 f" in journal
+    assert "Retirez --init" not in journal
+    assert "[stage2]" not in journal
 
 
 @pytest.mark.parametrize("commande", [["gateway", "run"], ["dashboard", "--host", "0.0.0.0", "--port", "9119"]])
@@ -80,7 +96,15 @@ def test_passerelle_hors_s6_arretee_par_le_greffon(ressources, image, commande):
     ({"hooks/intrus/HOOK.yaml": "name: intrus\nevents: [agent:start]\n",
       "hooks/intrus/handler.py": "def handle(*a):\n    pass\n"}, "/opt/data/hooks n'est pas vide (« intrus »)"),
     ({"scripts/tache.py": "print('cron')\n"}, "/opt/data/scripts n'est pas vide (« tache.py »)"),
-])
+    # Relecture P2 : un profil secondaire avec un script cron ou un crochet dans SES répertoires.
+    # Sans la garde par profil, la passerelle démarrait et le script tournait sous l'uid 10000.
+    ({"profiles/intrus/SOUL.md": "Profil secondaire.\n", "profiles/intrus/scripts/tache.py": "print('cron')\n"},
+     "/opt/data/profiles/intrus/scripts n'est pas vide (« tache.py »)"),
+    ({"profiles/intrus/SOUL.md": "Profil secondaire.\n",
+      "profiles/intrus/hooks/intrus/HOOK.yaml": "name: intrus\nevents: [agent:start]\n",
+      "profiles/intrus/hooks/intrus/handler.py": "def handle(*a):\n    pass\n"},
+     "/opt/data/profiles/intrus/hooks n'est pas vide (« intrus »)"),
+], ids=["hooks", "scripts", "profil_scripts", "profil_hooks"])
 def test_hooks_scripts_refus(ressources, image, fichiers, motif):
     volume = ressources.volume(image, fichiers)
     code, journal = demarrer_jusqu_a_l_arret(ressources, image, ENV_VALIDE, volume)
@@ -97,17 +121,42 @@ def hermes_railway(ressources, image) -> Conteneur:
     env = dict(ENV_VALIDE, RAILWAY_ENVIRONMENT_ID="env-contrat", RAILWAY_SERVICE_ID="svc-contrat",
                RAILWAY_DEPLOYMENT_ID="dep-contrat", RAILWAY_VOLUME_MOUNT_PATH="/opt/data",
                RAILWAY_GIT_COMMIT_SHA=SHA, RAILWAY_RUN_UID="0")
-    return lancer(ressources, image, env)
+    # Un profil secondaire SAIN (relecture P2) : ses hooks/ et scripts/ doivent être repris par root.
+    volume = ressources.volume(image, {"profiles/coder/SOUL.md": "Profil de contrat.\n"})
+    return lancer(ressources, image, env, volume=volume)
 
 
 def test_hooks_scripts_root_et_refus(hermes_railway):
-    etat = hermes_railway.sh("stat -c '%U:%G %a %n' /opt/data/hooks /opt/data/scripts", verifier=True).stdout
-    afficher("hooks/ et scripts/ au démarrage", etat)
+    repertoires = ("/opt/data/hooks /opt/data/scripts /opt/data/profiles/coder/hooks "
+                   "/opt/data/profiles/coder/scripts")
+    etat = hermes_railway.sh(f"stat -c '%U:%G %a %n' {repertoires}", verifier=True).stdout
+    afficher("hooks/ et scripts/ au démarrage (racine et profil coder)", etat)
+    assert len(etat.strip().splitlines()) == 4
     for ligne in etat.strip().splitlines():
         assert ligne.startswith("root:root 755 "), ligne
-    for chemin in ("/opt/data/hooks/intrus", "/opt/data/scripts/intrus.py"):
+    for chemin in ("/opt/data/hooks/intrus", "/opt/data/scripts/intrus.py", "/opt/data/profiles/coder/hooks/intrus",
+                   "/opt/data/profiles/coder/scripts/intrus.py"):
         assert hermes_railway.sh(f"mkdir -p {chemin}", utilisateur="hermes").returncode != 0, chemin
-    assert hermes_railway.sh("touch /opt/data/controle", utilisateur="hermes").returncode == 0
+    assert hermes_railway.sh("touch /opt/data/controle /opt/data/profiles/coder/controle",
+                             utilisateur="hermes").returncode == 0
+    journal = hermes_railway.journaux()
+    assert "ainsi que hooks/ et scripts/ de 1 profil(s) (coder)." in journal
+    etat_demarrage = json.loads(hermes_railway.sh("cat /run/acp/etat-demarrage.json", verifier=True).stdout)
+    assert etat_demarrage["repertoires_executes"]["profils"] == ["coder"]
+
+
+def test_diagnostiquer_sous_s6_sur_un_conteneur_sain(hermes_railway):
+    """Relecture P2 : sous s6, /run/s6/container_environment termine chaque valeur par un saut de
+    ligne ; `diagnostiquer` le lisait tel quel et rendait 29 faux constats (code 1) sur un
+    conteneur sain. Exigé : aucun constat, code 0, depuis une session sans environnement."""
+    resultat = hermes_railway.executer(["env", "-i", "/opt/hermes/.venv/bin/python", "-I", "-B",
+                                        "/opt/acp/bin/acp_demarrage.py", "diagnostiquer"])
+    afficher(f"diagnostiquer sous s6, conteneur sain : code {resultat.returncode}", resultat.stdout + resultat.stderr)
+    assert resultat.returncode == 0, resultat.stdout + resultat.stderr
+    assert "source de l'environnement de référence : /run/s6/container_environment (PID 1 : " in resultat.stdout
+    assert f"commit déployé : {SHA}." in resultat.stdout
+    assert "managed scope installée : déploiement." in resultat.stdout
+    assert "aucun constat ; code 0." in resultat.stdout
 
 
 def test_volume_railway_simule(ressources, image, hermes_railway):
@@ -169,6 +218,7 @@ def pile(ressources, image_tests):
     docker("exec", "-d", "-u", "hermes", hermes.nom, "/opt/hermes/.venv/bin/python",
            "/opt/acp-tests/outils/modele_factice.py", "--port", "18080", "--journal", JOURNAL_FACTICE,
            "--scenarios", SCENARIOS)
+    attendre_modele_factice(hermes, JOURNAL_FACTICE)
     hermes.attache = attache  # type: ignore[attr-defined]
     return hermes
 
@@ -223,7 +273,12 @@ CAS_API_SERVER = {
     "cronjob_manage": "Tool 'cronjob_manage' does not exist",
     "delegate_task": "Tool 'delegate_task' does not exist",
     "browser_navigate": "Tool 'browser_navigate' does not exist",
+    # Pont NON RÉSOLU (terminal n'est pas différable, tools/tool_search.py:543-571) : Hermes ne le
+    # déballe pas, la garde reçoit « tool_call » et le refuse.
     "tool_call": "Refusé par ACP : l'outil « tool_call » n'est pas autorisé",
+    # Pont RÉSOLU vers un outil admis (relecture P2) : Hermes le déballe AVANT le crochet
+    # (agent/tool_executor.py:390-431) ; la garde juge todo_list, qui s'exécute.
+    "tool_call>todo_list": "carte de test ACP",
 }
 
 
@@ -241,9 +296,11 @@ def test_api_server_http_refuse_les_outils_d_execution(pile):
         vus = resultats_outils(pile)
         rapport.append(f"{outil} : offerts={offerts} ; résultat={vus[:1]} ; réponse={reponse[:120]}")
         assert offerts is not None, f"le modèle n'a pas été interrogé pour {outil}"
-        # tool_call (pont des outils différés) est offert : c'est la garde qui le refuse.
+        # tool_call (pont des outils différés) est offert ; il n'est refusé que non résolu.
         assert outil == "tool_call" or outil not in offerts
         assert any(attendu in v for v in vus), (outil, vus)
+        if outil == "tool_call>todo_list":
+            assert "tool_call" in offerts and not any("Refusé par ACP" in v for v in vus), vus
     afficher("api_server HTTP : outils d'exécution demandés par le modèle", "\n".join(rapport))
     assert temoins(pile) == []
 
@@ -262,8 +319,10 @@ def _creer_tache_cron(pile: Conteneur, message: str, nom: str) -> str:
 ])
 def test_agent_cron_refuse_terminal(pile, outil, attendu):
     """Une tâche cron créée par le propriétaire, dont le prompt fait demander un outil
-    d'exécution : l'agent cron ne l'a pas (jeu cron, retraits) ; le pont tool_call, offert, est
-    refusé par la garde DANS le processus qui exécute la tâche."""
+    d'exécution : l'agent cron ne l'a pas (jeu cron, retraits). Le pont tool_call vers terminal,
+    offert mais NON RÉSOLU (terminal n'est pas différable), arrive à la garde sous son propre nom :
+    son refus « Refusé par ACP » prouve la garde DANS le processus qui exécute la tâche. (Un pont
+    résolu serait jugé sur l'outil sous-jacent : test_pont_tool_call_juge_l_outil_sous_jacent.)"""
     vider_journal(pile)
     tache = _creer_tache_cron(pile, f"OUTIL:{outil}", f"acp-contrat-{outil.replace('_', '-')}")
     try:
@@ -303,7 +362,7 @@ def test_worker_kanban_refuse_les_outils_d_execution(pile):
                   verifier=True)
     pile.executer(["sh", "-c", "cd /opt/data && hermes kanban unblock " + " ".join(identifiants.values())],
                   utilisateur="hermes", verifier=True)
-    vus = attendre_resultat(pile, "Refusé par ACP : la création de carte par l'agent arrive en P5", 240)
+    vus = attendre_resultat(pile, "Refusé par ACP : l'agent ne crée pas de carte kanban lui-même", 240)
     vus = attendre_resultat(pile, "Refusé par ACP : ce téléchargement ne résiste pas au rebinding DNS", 240)
     vus = attendre_resultat(pile, "Tool 'terminal' does not exist", 240)
     workers = [r for r in requetes(pile) if "kanban_create" in (r.get("outils_offerts") or [])]
@@ -436,7 +495,7 @@ def test_volume_piege_apres_relance(pile):
             docker("exec", "-d", "-u", "hermes", pile.nom, "/opt/hermes/.venv/bin/python",
                    "/opt/acp-tests/outils/modele_factice.py", "--port", "18080", "--journal", JOURNAL_FACTICE,
                    "--scenarios", SCENARIOS)
-            time.sleep(2)
+            attendre_modele_factice(pile, JOURNAL_FACTICE)
         vider_journal(pile)
         corps = json.dumps({"model": "hermes-agent", "messages": [{"role": "user", "content": "OUTIL:terminal"}]})
         pile.sh("K=$(grep '^API_SERVER_KEY=' /opt/data/.env | cut -d= -f2-); "

@@ -11,7 +11,9 @@ Scénarios d'appel d'outil (étape P2), pour prouver qu'aucun outil d'exécution
   ``--scenarios`` (JSON ``{"sous-chaîne du dernier message utilisateur": "<nom>"}``, relu à
   chaque requête ; sert aux workers kanban, dont le message est « work kanban task <id> ») :
   le modèle répond par UN appel de l'outil ``<nom>`` avec des arguments témoins fixes (par
-  exemple ``terminal`` → ``touch /tmp/acp-temoins/terminal``) ;
+  exemple ``terminal`` → ``touch /tmp/acp-temoins/terminal``) ; « OUTIL:tool_call><outil> »
+  appelle le pont des outils différés avec ``<outil>`` et ses arguments témoins (relecture P2 :
+  Hermes déballe le pont avant le crochet de la garde) ;
 - dès qu'un résultat d'outil arrive (dernier message de rôle ``tool``) : réponse « fin » ; dans
   un worker kanban qui n'a pas encore appelé ``kanban_complete``, un appel de
   ``kanban_complete`` d'abord.
@@ -39,7 +41,7 @@ REPONSE = "Réponse du modèle factice ACP."
 FIN = "fin"
 MODELE = "acp-factice"
 TEMOINS = "/tmp/acp-temoins"
-_MARQUEUR = re.compile(r"OUTIL:([A-Za-z0-9_.-]+)")
+_MARQUEUR = re.compile(r"OUTIL:([A-Za-z0-9_.-]+(?:>[A-Za-z0-9_.-]+)?)")
 
 # Arguments témoins : un outil d'exécution qui s'exécuterait VRAIMENT laisserait un fichier dans
 # /tmp/acp-temoins (les tests vérifient qu'il n'y en a aucun).
@@ -62,6 +64,7 @@ ARGUMENTS_TEMOINS: Dict[str, Dict[str, Any]] = {
                       "model": "m", "provider": "p", "workspace_kind": "dir", "workspace_path": "/opt/data"},
     "kanban_attach_url": {"url": "http://attache.acp.test/fichier"},
     "skills_list": {},
+    "todo_list": {"todos": [{"id": "1", "content": "carte de test ACP", "status": "pending"}]},
 }
 
 
@@ -180,11 +183,16 @@ def main() -> int:
             cree = int(time.time())
             appel = None
             if outil is not None:
-                arguments_outil = ARGUMENTS_TEMOINS.get(outil, {})
-                if outil == "kanban_complete":
+                nom_outil, _, sous_jacent = outil.partition(">")
+                arguments_outil = ARGUMENTS_TEMOINS.get(nom_outil, {})
+                if sous_jacent:  # « tool_call><outil> » : le pont, avec l'outil et ses arguments témoins
+                    arguments_outil = {"calls": [{"name": sous_jacent,
+                                                  "arguments": ARGUMENTS_TEMOINS.get(sous_jacent, {})}]}
+                if nom_outil == "kanban_complete":
                     arguments_outil = {"summary": "fin du scénario de test ACP"}
                 appel = {"id": f"call_{uuid.uuid4().hex[:12]}", "type": "function",
-                         "function": {"name": outil, "arguments": json.dumps(arguments_outil, ensure_ascii=False)}}
+                         "function": {"name": nom_outil,
+                                      "arguments": json.dumps(arguments_outil, ensure_ascii=False)}}
             texte = (FIN if info.get("role_dernier") == "tool" else REPONSE) if appel is None else None
             fin = "tool_calls" if appel is not None else "stop"
             usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
