@@ -285,8 +285,12 @@ def identite_seule(pile, image_identite, empreinte_argon2) -> str:
 def test_demarrage_nominal_et_config_valide(identite_seule, empreinte_argon2):
     sortie = journal(identite_seule)
     afficher("démarrage nominal du fournisseur d'identité", _lignes_garde(sortie))
-    assert ("[acp-identite] variables validées ; utilisateur unique « proprietaire » ; émetteur "
-            "https://identite-acp.test ; client hermes-acp → https://hermes-acp.test/auth/callback") in sortie
+    assert ("[acp-identite] variables validées ; utilisateur unique configuré (identifiant non journalisé) ; "
+            "émetteur https://identite-acp.test ; client hermes-acp → https://hermes-acp.test/auth/callback") in sortie
+    # Relecture P2 : ni l'identifiant ni l'adresse n'apparaissent dans les lignes de la garde, versées
+    # au dépôt public.
+    lignes_garde = "\n".join(l for l in sortie.splitlines() if "[acp-identite]" in l)
+    assert "proprietaire" not in lignes_garde and "@" not in lignes_garde, lignes_garde
     assert "Authelia v4.39.28 is starting" in sortie and "Startup complete" in sortie
     assert empreinte_argon2 not in sortie
     pid1 = docker("exec", identite_seule, "sh", "-c", "tr '\\0' ' ' < /proc/1/cmdline; echo; stat -c '%u:%g' /proc/1").stdout

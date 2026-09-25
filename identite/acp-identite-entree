@@ -264,7 +264,10 @@ chown root:1000 "$temporaire"
 chmod 0640 "$temporaire"
 mv -f "$temporaire" "$RUN_IDENTITE/utilisateurs.yml"
 
-informer "variables validées ; utilisateur unique « $ACP_IDP_UTILISATEUR » ; émetteur https://$ACP_IDP_DOMAINE ; client hermes-acp → $ACP_HERMES_URL/auth/callback"
+# L'identifiant n'est PAS journalisé (relecture P2) : les journaux de démarrage sont versés au dépôt,
+# qui est public (docs/refonte/railway.md § 7), et un tiers qui connaît l'identifiant peut bannir le
+# propriétaire 15 minutes à volonté (configuration.yml, regulation).
+informer "variables validées ; utilisateur unique configuré (identifiant non journalisé) ; émetteur https://$ACP_IDP_DOMAINE ; client hermes-acp → $ACP_HERMES_URL/auth/callback"
 informer "secrets de /config/secrets : générés :${generes:- aucun} ; conservés :${conserves:- aucun}"
 
 # ---------------------------------------------------------------- 7. Authelia

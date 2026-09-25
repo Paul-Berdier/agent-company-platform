@@ -158,10 +158,11 @@ def test_identite_demarre_avec_les_variables_de_railway_ts(graphe, image_identit
         afficher(f"santé d'identite (Host: {HOTE_SANTE}, port {port})", f"code {sante.returncode} : {sante.stdout}")
         assert sante.returncode == 0 and json.loads(sante.stdout) == {"status": "OK"}
         texte = journal(nom)
-        attendu = (f"[acp-identite] variables validées ; utilisateur unique « {UTILISATEUR} » ; émetteur "
-                   f"https://{litterales['ACP_IDP_DOMAINE']} ; client hermes-acp → "
+        attendu = (f"[acp-identite] variables validées ; utilisateur unique configuré (identifiant non journalisé) ; "
+                   f"émetteur https://{litterales['ACP_IDP_DOMAINE']} ; client hermes-acp → "
                    f"{litterales['ACP_HERMES_URL']}/auth/callback")
         assert attendu in texte
+        assert f"« {UTILISATEUR} »" not in texte
         assert "REFUS" not in texte
         assert empreinte_argon2 not in texte
     finally:
