@@ -1,7 +1,8 @@
 # Reprise du travail sur un autre poste
 
-État du **24 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md` et
-[le plan de la refonte](refonte/plan.md).
+État du **25 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md`,
+[le plan de la refonte](refonte/plan.md) et [le plan d'autonomie](refonte/autonomie.md), qui
+remplace ses phases P4 à P8.
 
 ## 1. Où en est le chantier
 
@@ -19,11 +20,16 @@ Desktop CI `35981934226` vertes sur ce commit).
   **0.11.0**.
 - Une branche par étape, `refonte/hermes-pN`, PR vers `refonte/hermes`. Étiquette
   `1.0.0` seulement à la fusion finale dans `main`.
-- Worktrees de travail : `.claude/worktrees/refonte-hermes` et, pour P1,
-  `.claude/worktrees/refonte-hermes-p1`. **Le checkout principal
+- Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
+  `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`.
+  **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
   ne pas les supprimer ni les réinitialiser sans examen.
+- Depuis P2 (côté dépôt), Hermes est prêt à être déployé sur Railway derrière son propre
+  fournisseur d'identité (Authelia, service `identite`), et l'agent n'y a **aucun outil
+  d'exécution**. **Rien n'est encore déployé** : le premier déploiement est fait par le
+  propriétaire, selon [`docs/refonte/railway.md`](refonte/railway.md).
 
 ## 2. Décisions du propriétaire
 
@@ -32,27 +38,46 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 - Connexion au tableau de bord par **OIDC auto-hébergé** (fournisseur `self_hosted`
   de Hermes), **pas** Nous Portal. Le flux natif RFC 8252 du desktop fonctionne avec
   lui. Hermes n'a aucune liste blanche : le fournisseur d'identité ne devra accepter
-  que le propriétaire. Choix du fournisseur d'identité en P2.
+  que le propriétaire. Fournisseur retenu en P2 : **Authelia 4.39.28** (service
+  `identite`, un seul utilisateur, passkeys) ; Pocket ID écarté.
 - Cerveau de Hermes : abonnement **ChatGPT** (`openai-codex`).
 - **Rien n'est déployé sur Railway** : aucune migration de données.
 - Railway **Hobby**, 2 Go, plafond de 30 $ par mois, région Europe, sans domaine
   personnalisé au départ.
 - Approbations **manuelles**.
+- Décisions du 25 septembre 2026 (détail : `docs/refonte/plan.md`, § 1) :
+  - **aucun outil d'exécution pour l'agent sur Railway** (ni terminal, ni fichiers, ni code, ni
+    navigateur, ni cron, ni délégation, ni connexions) ; `kanban_create` et `kanban_attach_url`
+    retirés à l'agent ; `web_extract` et `vision_analyze` gardés ; écritures de l'agent en mémoire
+    et dans les skills soumises à validation ;
+  - surfaces shell du tableau de bord gardées sous le seul OIDC en P2 ; session de 7 jours ;
+  - branche déployée `refonte/hermes` après la fusion de P2 ; IaC `.railway/railway.ts`,
+    appliquée par le propriétaire seul ; libellés des sous-domaines en gabarit qui échouent
+    fermé ; plafond dur 30 $, alerte 15 $, agent Railway 0 $ ; Hermes 2 Go et 1 vCPU ; identite
+    0,5 vCPU, 2,5 Gio mesurés, 100 relances ; sauvegardes quotidienne et hebdomadaire ;
+    `railway ssh` avec une clé dédiée retirée après usage ; `trusted_proxies: []` tant que non
+    mesuré ;
+  - **phases P4 à P8 remplacées** par le plan d'autonomie
+    ([`docs/refonte/autonomie.md`](refonte/autonomie.md)).
 
 ## 3. Étapes
 
 | Étape | Objet | État |
 |---|---|---|
-| P0 | Branche, élagage et gel du moteur | réalisée sur `refonte/hermes-p0`, poussée ; PR #13 vers `refonte/hermes` ouverte, CI `36018143912` et Desktop CI `36018143728` vertes (§ 4) |
-| P1 | Image dérivée et CI de contrat, sans Railway | réalisée sur `refonte/hermes-p1` (empilée sur P0), poussée, CI verte, sans PR (§ 5) |
-| P2 | Premier déploiement Railway authentifié (OIDC) | à faire |
+| P0 | Branche, élagage et gel du moteur | **fusionnée** dans `refonte/hermes` (PR #13, `29c95b5`) (§ 4) |
+| P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
+| P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, poussée, CI verte ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | à faire |
-| P4 | Discussion mobile | à faire |
-| P5 | Poste en lecture et délégation kanban | à faire |
-| P6 | Quotas | à faire |
-| P7 | Écritures validées et signées | à faire |
-| P8 | Desktop Qt rebranché | à faire |
+| P4 | Projets autonomes sur Hermes (plan d'autonomie) | à faire |
+| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
+| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
+| P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
+| P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
 | P9 | Exploitation, montée de version et publication | à faire |
+
+Les anciennes P4 à P8 du plan (discussion mobile, poste en lecture, quotas, écritures signées,
+desktop) sont remplacées par celles du plan d'autonomie ; leur texte reste dans `plan.md` pour
+mémoire.
 
 ## 4. P0 — ce qui a été fait
 
@@ -178,7 +203,7 @@ le contrat, `CHANGELOG.md` et ce document diffèrent de `805ca4c`).
   de `phaser` changée dans le verrou : code 1 et motif en français) ; les deux premiers
   ont été rejoués ici, puis l'arbre restauré (`git checkout`). Les 68 fichiers suivis
   des trois chemins gelés ont le contenu exact des blobs de l'étiquette ; seules les
-  fins de ligne de l'arbre de travail diffèrent (`core.autocrlf=true`, § 6).
+  fins de ligne de l'arbre de travail diffèrent (`core.autocrlf=true`, § 8).
 - `npm ci` puis `npm run test:engine` (Node 24.19.0, Vitest 5.0.0) : **7 fichiers,
   74 tests réussis**, comme avant et après la réduction des workspaces.
 - Verrou npm, inchangé depuis `da5bbc7` : 31 entrées retirées, toutes propres aux
@@ -452,7 +477,204 @@ Preuves du correctif `PATH` (point 6), le même jour, image reconstruite :
 - La procédure de récupération d'un volume qui fait refuser le démarrage n'est pas
   écrite (P2).
 
-## 6. Chaîne d'outils Windows
+## 6. P2 — agent sans terminal, identité et infrastructure Railway
+
+Branche `refonte/hermes-p2`, ouverte depuis `refonte/hermes` (`21d13ee`, P0 et P1 fusionnées),
+poussée ; **ni PR, ni fusion, ni étiquette** à ce jour. Version 0.11.0 inchangée. **Rien n'est
+déployé** : le premier déploiement est fait par le propriétaire seul, selon
+[`docs/refonte/railway.md`](refonte/railway.md). Références : [`image.md`](refonte/image.md)
+(image Hermes), [`identite.md`](refonte/identite.md) (Authelia), [`railway.md`](refonte/railway.md)
+(IaC et procédure), [`autonomie.md`](refonte/autonomie.md) (P4 à P8 remplacées).
+
+### Commits (aucun `Co-Authored-By`)
+
+Partie 1 — image Hermes sans outil d'exécution :
+
+| Commit | Sujet |
+|---|---|
+| `565e37b` | feat(hermes): leave the agent no execution tool and refuse to run outside the guards |
+| `5274649` | test(hermes): prove no execution tool reaches the agent, preview.restart included |
+| `93d9ac9` | chore(hermes): mark acp-entree executable like acp-gardes |
+| `efbf7b0` | docs: document the P2 Hermes image without execution tools |
+| `ba278ac` | docs: record the P2 image CI run |
+
+Partie 2 — fournisseur d'identité :
+
+| Commit | Sujet |
+|---|---|
+| `6413a2e` | feat(identite): add the pinned Authelia identity provider image and its root guard |
+| `822d6e6` | feat(hermes): refuse a Railway private domain for the dashboard URLs |
+| `0d2e40e` | test(identite): prove the identity image and its OIDC compatibility with Hermes |
+| `9fbe433` | test(identite): add the browser login test with a virtual WebAuthn authenticator |
+| `0f21080` | ci: build the identity image and run its contract and browser tests |
+| `69b81a7` | docs: document the identity provider and its measured limits |
+| `8232688` | docs: record the identity CI run |
+
+Partie 3 — infrastructure Railway, CI et procédures :
+
+| Commit | Sujet |
+|---|---|
+| `e9c3014` | feat(railway): declare the Railway project as code with fail-closed domain labels |
+| `2acf0b7` | ci: type-check and evaluate the Railway IaC in the image workflow |
+| `fb4c442` | test(railway): check the IaC statically and against both images |
+| `1f6a35b` | docs: write the owner's Railway procedure for the first deployment and recovery |
+| `8c02f6b` | docs: replace phases P4 to P8 with the autonomy plan and record the P2 decisions |
+| (ce commit) | docs: record P2 in the handoff notes, CLAUDE.md and the changelog |
+
+### Ce qui est en place
+
+- **Agent sans outil d'exécution** sur Railway, en trois couches (managed scope à 40 clés, `.env`
+  géré à 38 variables, garde `pre_tool_call` en liste blanche de 24 outils) ; `kanban_create` et
+  `kanban_attach_url` refusés ; `preview.restart` fermé dans le processus réel.
+- **Gardes** : refus hors PID 1 (`acp-entree`), sentinelle hors s6 (code 78), `hooks/` et
+  `scripts/` du volume exigés vides, volume Railway exigé, `RAILWAY_RUN_UID`, domaine privé refusé,
+  commit déployé journalisé ; `diagnostiquer` en maintenance.
+- **Identité** : `identite/` (Authelia 4.39.28 épinglé, garde root, un seul utilisateur, client
+  public `hermes-acp`, passkeys), limite mémoire mesurée à 2,5 Gio.
+- **IaC** : `.railway/railway.ts` (projet entier, deux services, deux volumes, aucune Start
+  Command, gabarits qui échouent fermé), SDK `railway@3.11.0` isolé et verrouillé,
+  `verifier.mjs` ; procédure complète du propriétaire (`railway.md`).
+- **CI** : `image.yml` construit les deux images, relève les deux condensats, type et évalue l'IaC,
+  lance les tests dans l'image, de contrat (Hermes, identité, IaC) et navigateur ; groupe de
+  concurrence par exécution hors PR.
+
+### Écarts au plan, justifiés
+
+Partie 1 :
+1. **40 clés au lieu de 39** : `agent.service_tier: ""` épinglée aussi (cohérente avec le plan
+   d'autonomie).
+2. **Témoin négatif « composite » corrigé** : sur Hermes 0.21.5, un composite comme
+   `hermes-api-server` est développé puis élagué et ne rend pas terminal ; le vrai contournement
+   mesuré est un nom non configurable comme `debugging` (tools_config.py:614-615).
+3. Test P1 ajusté : un journal du modèle factice absent vaut « aucune requête ».
+
+Partie 2 :
+1. Noms de test `hermes-acp.test` et `identite-acp.test` (deux domaines enregistrables distincts,
+   comme deux sous-domaines de `up.railway.app`).
+2. **HEALTHCHECK Docker de l'image amont retiré** : `/app/.healthcheck.env` en 0666, réécrit par
+   Authelia et sourcé en root, ouvrait une élévation.
+3. Garde plus stricte : liens symboliques et fichiers spéciaux refusés sous `/config` ; empreinte
+   bornée 19 456 ≤ m ≤ 65 536 Kio ; empreinte, nom et adresse retirés de l'environnement d'Authelia.
+4. `acp-identite-admin` admet aussi `storage bans` (lever le bannissement du propriétaire).
+5. Consentement explicite à chaque connexion complète (imposé par Authelia avec `offline_access`).
+6. Mémoire mesurée par `VmHWM` et `memory.peak` (pics exacts du noyau), plus un témoin à 1 Gio.
+7. Hermes refuse `*.railway.internal` pour l'URL publique et l'émetteur.
+8. Documentation dans `identite.md` (renvoi depuis `image.md`).
+
+Partie 3 :
+1. **Branche déployée `refonte/hermes`** dans `railway.ts` (décision du propriétaire), au lieu de
+   `refonte/hermes-p2` puis d'une PR de bascule : le premier apply suit la fusion de P2.
+2. **Libellés en gabarit qui échouent fermé** (décision du propriétaire) au lieu de libellés
+   remplacés avant le commit : `railway.ts` refuse, en français, tant qu'ils valent
+   `<libellé-…>`, s'ils ne sont pas des libellés DNS, s'ils sont identiques, et tout environnement
+   autre que `production` (ajout). Le test statique « aucun `<libellé` résiduel » du plan devient
+   « gabarit détecté, garde présente » ; l'effet réel est prouvé par `verifier.mjs`.
+3. **Limite mémoire d'identite : 2,5 Gio** (mesure de la partie 2) au lieu d'1 Go.
+4. **`verifier.mjs` et `test_railway_iac_contrat.py` ajoutés** au plan : évaluation de `railway.ts`
+   comme la CLI (au-delà du seul `tsc`), et démarrage des deux images avec les variables déclarées,
+   santé sur le PORT déclaré avec l'hôte `healthcheck.railway.app` (mesuré avant : 200 pour les
+   deux ; Authelia rend 400 à un en-tête Host vide). Les tests de contrat exigent donc Node ≥ 22 et
+   `npm ci --ignore-scripts --prefix .railway`.
+5. **Motifs surveillés de Hermes** : `["/hermes/**", "!/hermes/tests/**"]` (les tests ne sont pas
+   dans l'image) ; `typescript@7.0.2`, version courante, épinglée.
+6. **`.railway/.gitignore` en liste blanche** : ce qu'une commande `railway` écrirait dans
+   `.railway/` n'entre jamais dans Git ; `railway config pull` sans `--json`, qui réécrirait
+   `railway.ts`, est proscrit par la procédure.
+7. **Poste de commande WSL** dans la procédure : la doc Railway documente sa CLI sous Windows par
+   WSL, et le SDK exige une CLI ≥ 5.42.1 qu'il interroge au moment de l'évaluation.
+8. `ci.yml` inchangé : le test statique y tourne par `scripts/tests` (déjà dans `testpaths`).
+9. La correction « `client_ip` à request_utils.py:46-49 » du plan structuré est **fausse** :
+   revérifié à `f97608f`, `client_ip` est à `hermes_cli/dashboard_auth/request_utils.py:19-21`,
+   comme le disait déjà le plan ; rien n'a été changé sur ce point.
+
+### Preuves locales (Windows 10, Docker 29.5.3, pytest 9.1.1, Python 3.12.10)
+
+Partie 1 (25/09/2026, images `acp-hermes:p2a`, `acp-hermes-tests:p2a`) :
+- dans l'image : **212 réussis**, 0 échec, 0 ignoré ;
+- contrat : **56 réussis**, 0 échec, 0 ignoré, 9 min 49 s, dont les deux tests bloquants
+  `preview.restart` avec leur témoin négatif ;
+- chaque protection principale retirée d'une copie fait échouer ses tests (détail :
+  `image.md` § 8).
+
+Partie 2 (25/09/2026, images `acp-hermes:p2b`, `acp-hermes-tests:p2b`, `acp-identite:p2b`) :
+- dans l'image : **216 réussis** ; contrat : **96 réussis** (56 Hermes, 40 identité), 11 min 15 s ;
+  navigateur : **1 réussi** (Chromium 1234 déjà présent, rien téléchargé) ; 0 échec, 0 ignoré ;
+- mémoire d'Authelia : 0,726 Gio à 10 premiers facteurs simultanés, **1,346 à 1,348 Gio** à 20 ;
+  témoin sous 1 Gio tué (OOM) ;
+- deux protections d'identité retirées : leurs tests échouent (`identite.md` § 13).
+
+Partie 3 (25/09/2026) :
+- IaC : `npm ci --ignore-scripts --prefix .railway` (8 paquets, verrou haché) puis
+  `npm run --prefix .railway verifier` (Node 24.19.0 local) : `tsc` 7.0.2 sans erreur ; évaluation du
+  fichier committé **refusée** (gabarits), neuf autres refus attendus (chaque gabarit, majuscules,
+  point, tiret initial, vide, 64 caractères, libellés identiques, environnement `staging`) ; graphe
+  d'essai conforme. Sept altérations d'une copie de `railway.ts` (Start Command ajoutée, garde des
+  gabarits retirée, Serverless, volume omis, empreinte en clair, domaine personnalisé, Wait for CI
+  coupé) font chacune **échouer** `verifier.mjs` ; `tsc` refuse `builder: "DOCKER"` et un nombre
+  de relances en chaîne.
+- Mesuré à la main avant d'écrire le test : `/api/health` répond **200** avec
+  `Host: healthcheck.railway.app` sur les deux images (et avec `X-Forwarded-Host` ou
+  `X-Forwarded-Proto` ajoutés pour Authelia) ; un en-tête Host vide rend 400 chez Authelia.
+- Suite du dépôt (`python -m pytest -q`, venv Python 3.12.10 du verrou) : **279 réussis**, 0 ignoré
+  (240 + 39 de `scripts/tests/test_railway_iac.py`) ; quatre altérations (Start Command, gabarit
+  altéré, hôte écrit en dur, `cancel-in-progress: true`) font chacune échouer le test statique.
+  `check_engine_frozen.py` et `check_version.py` : code 0.
+- Images **reconstruites depuis le worktree** au commit `fb4c442` (`acp-hermes:p2c`,
+  `acp-hermes-tests:p2c`, `acp-identite:p2c`) :
+  - dans l'image : `docker run --rm --entrypoint /opt/hermes/.venv/bin/python -e PYTHONPATH=/opt/acp-tests/site acp-hermes-tests:p2c -m pytest -v -rA /opt/acp-tests/image`
+    → **216 réussis**, 0 échec, 0 ignoré (1 min 28 s) ;
+  - contrat : `PYTHONUTF8=1 ACP_IMAGE=acp-hermes:p2c ACP_IMAGE_TESTS=acp-hermes-tests:p2c ACP_IMAGE_IDENTITE=acp-identite:p2c python -m pytest -s -v -rA hermes/tests/contrat`
+    → **99 réussis** (56 Hermes, 40 identité, 3 IaC), 0 échec, 0 ignoré, 11 min 41 s ; mémoire
+    d'Authelia 0,722 Gio à 10, 1,356 Gio à 20 (54,2 % de la limite), témoin sous 1 Gio tué (OOM) ;
+  - navigateur : `PYTHONUTF8=1 ACP_IMAGE_TESTS=… ACP_IMAGE_IDENTITE=… ACP_E2E_OBLIGATOIRE=1 python -m pytest -s -v -rA hermes/tests/e2e`
+    → **1 réussi** (35 s) ; Chromium de Playwright révision 1234 **déjà présent** sur le poste
+    (répertoire daté du 04/08/2026), rien téléchargé ;
+  - aucun conteneur, volume ni réseau `acp-contrat-*` restant.
+
+### Intégration continue
+
+- Partie 1 : `image.yml` 36087965990 (`efbf7b0`) **succès** (212 dans l'image, 56 au contrat) ;
+  `ci.yml` 36087965871 (`efbf7b0`) et 36088738040 (`ba278ac`) **succès**.
+- Partie 2 : `image.yml` 36094807793 (`69b81a7`) **succès** (216, 96, 1 ; condensats de Hermes et
+  d'Authelia confirmés ; Chromium 1234 téléchargé par la CI ; mémoire 0,729 Gio à 10, 1,297 Gio à
+  20) ; `ci.yml` 36094807754 (`69b81a7`) et 36095716568 (`8232688`) **succès**.
+- Partie 3 : `image.yml` 36098262650 (`fb4c442`) **succès** : Node v22.23.2, `npm ci` du verrou
+  (8 paquets), `tsc` et `verifier.mjs` verts (gabarits refusés, graphe d'essai conforme) ;
+  condensats de Hermes et d'Authelia confirmés ; **216** dans l'image, **99** au contrat (dont les 3
+  de `test_railway_iac_contrat.py`), **1** au navigateur ; 0 échec, 0 ignoré ; mémoire d'Authelia
+  0,740 Gio à 10, 1,166 Gio à 20 (46,6 % de la limite), témoin sous 1 Gio tué. `ci.yml`
+  36098262486 (`fb4c442`) **succès** : poste Windows **279 réussis** ; poste Linux **270 réussis,
+  9 ignorés** (les 9 tests propres à Windows déjà notés en P0 : DPAPI réel et Job Object) ; moteur
+  gelé, 74 tests. Les runs des commits de documentation qui suivent sont consignés au commit
+  suivant.
+
+### Preuves Railway
+
+**Aucune** : rien n'est déployé. La liste à relever par le propriétaire est au § 7 de
+[`railway.md`](refonte/railway.md) ; les sorties (sans secret) seront consignées ici.
+
+### Non vérifié
+
+- **Tout ce qui dépend de Railway** ([`railway.md`](refonte/railway.md) § 12) : PID 1 réel ; sort du
+  `CMD` hérité sous une Start Command ; environnement d'une session `railway ssh` ; évaluation de
+  `railway.ts` par la vraie CLI avec le SDK dans `.railway/` ; prise en compte des clés typées
+  mais non documentées (`checkSuites`, `builder`, `watchPatterns`, `sleepApplication`,
+  `restartPolicy*`, `limitOverride`) ; `preserve()` sur une variable neuve ;
+  `RAILWAY_DOCKERFILE_PATH` relatif ; identifiant de région ; « Deploy Latest Commit » et premier
+  déploiement face à « Wait for CI » ; bord réel (`X-Forwarded-*`, `trusted_proxies`), NTP
+  sortant d'Authelia ; disponibilité des libellés ; coûts réels.
+- Côté Hermes : la politique d'exécution de « salon » de l'api_server (`room_execution_policy`)
+  n'est couverte que par la garde, sans test dédié ; l'échec ouvert de la découverte des greffons
+  n'est couvert que par un test sur l'image épinglée et l'alerte de `/v1/meta` ; même uid pour
+  l'agent et le tableau de bord (faille de Hermes elle-même) ; le tableau de bord authentifié reste
+  un shell du propriétaire.
+- Côté identité : un jeton de rafraîchissement révoqué ou rejoué laisse le navigateur en 503
+  (Authelia répond 500) ; expiration à 7 jours et fenêtre glissante non mesurées ; rafale de
+  premiers facteurs non bornée ; effet du mode « under attack » sur Hermes supposé.
+- Côté CI : l'absence d'annulation des runs en attente par le groupe de concurrence par exécution
+  ne se voit que sur GitHub, sur plusieurs pushs rapprochés.
+
+## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
 `win64_msvc2022_64`, MSVC 2022, CMake et Ninja. Desktop CI utilise `windows-2022`
@@ -488,7 +710,7 @@ npm ci ; npm run test:engine
 Le verrou Python se recompile dans un conteneur `python:3.12-slim`
 (`scripts/lock_python.ps1`), jamais sur le poste.
 
-## 7. Pièges connus
+## 8. Pièges connus
 
 - `core.autocrlf=true` sur ce poste : l'arbre de travail est en CRLF, l'index en LF.
   Vérifier `git diff --cached --check` et l'absence de `\r` dans les blobs indexés.
@@ -517,3 +739,22 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
   --version` ; pour un conteneur complet, voir `hermes/tests/contrat/conftest.py`.
 - Un script cont-init en échec ne stoppe pas les suivants : toute garde qui doit agir
   avant l'amorçage de Hermes va dans le crochet `S6_STAGE2_HOOK`.
+- **Déclarer un `ENTRYPOINT` remet à vide le `CMD` hérité** : dans `hermes/image/Dockerfile`,
+  `CMD ["gateway","run"]` doit rester après `ENTRYPOINT`.
+- **`docker run --init` avec l'entrée de l'image est refusé** (`acp-entree` exige le PID 1) ; pour
+  une commande ponctuelle, passer `--entrypoint` explicitement (ci-dessus).
+- **Maintenance** : Start Command `/bin/sh -c "exec sleep infinity"`, jamais `sleep infinity` nu
+  (arguments hérités) ; chemin de santé vidé pendant la maintenance (`railway.md` § 10).
+- **Clé SSH Railway dédiée, retirée après chaque opération** (`railway ssh keys remove --2fa-code`,
+  preuve : `railway ssh keys` vide), puis `railway logout`.
+- **Ne jamais annuler `image.yml` à la main** sur la branche déployée : « Wait for CI » ignore un
+  run annulé dès qu'un autre workflow a réussi.
+- **Aucun `railway config apply` entre une restauration de sauvegarde et la PR qui réaligne
+  `railway.ts`** ; jamais `railway config pull` sans `--json` (il réécrit `railway.ts`).
+- `identite/**` et `.railway/**` sont en LF (`.gitattributes`), comme `hermes/**`.
+- Les tests de contrat exigent aussi Node.js ≥ 22 et `npm ci --ignore-scripts --prefix .railway`
+  (`test_railway_iac_contrat.py` évalue `railway.ts`) ; sans eux ils **échouent**, jamais ignorés.
+  Sous Windows, les lancer avec `PYTHONUTF8=1` (sinon des `UnicodeEncodeError` dans les `print` de
+  preuve).
+- La CLI Railway se lance sous **WSL** (doc Railway) ; `node_modules` de `.railway/` s'installe sur
+  la plateforme qui évalue le fichier (WSL pour la CLI, Windows pour `verifier.mjs` local).
