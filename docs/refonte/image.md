@@ -707,8 +707,14 @@ l'image de test), Docker 29.5.3 sous Windows, le 25/09/2026 :
 - protections retirées une à une : tableau du § 8 ;
 - nettoyage : aucun conteneur, volume ni réseau `acp-contrat-*` restant.
 
-Run CI `image.yml` de la branche `refonte/hermes-p2` : pas encore relevé à ce commit (la
-branche n'était pas encore poussée).
+### Preuves de P2 (CI)
+
+Run `image.yml` [36087965990](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965990)
+sur `refonte/hermes-p2` (commit `efbf7b0`, 25/09/2026, conclusion **success**) : condensat de
+l'image officielle confirmé, **212 tests réussis dans l'image**, **56 tests de contrat
+réussis** (dont les deux tests bloquants `preview.restart`), aucun échec, aucun ignoré. Run
+`ci.yml` [36087965871](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965871)
+du même commit : success.
 
 ## 10. Limites connues
 
