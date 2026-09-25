@@ -20,7 +20,9 @@ Puis : SOUL.md retouché et conteneur redémarré ⇒ la bannière signale la pe
 
 Captures (ACP_E2E_CAPTURES=<répertoire>, sous-dossier interface/) : portail Authelia, Accueil,
 Catalogue, Sessions, Discussion (/chat), Skills, MCP, Kanban, Configuration, aux deux formats ;
-leurs empreintes SHA-256 sont imprimées. Les pages natives de Hermes sont CAPTURÉES, pas vérifiées :
+leurs empreintes SHA-256 sont imprimées. Chaque capture attend le rendu, est refusée si elle est
+blanche et couvre tout le contenu défilant (parcours.capturer_pleine_page) ; celles du portail et de
+nos pages échouent si un conteneur défilant dépasse encore. Les pages natives de Hermes sont CAPTURÉES, pas vérifiées :
 leurs chaînes restées en anglais sont comptées par apps/interface/outils/decompte-traductions.mjs.
 
 Lancement : ACP_IMAGE_TESTS=… ACP_IMAGE_IDENTITE=… python -m pytest -s -v -rA hermes/tests/e2e
@@ -158,20 +160,22 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
         bureau = navigateur.new_context(locale="fr-FR", timezone_id="Europe/Paris", **FORMATS["bureau"])
         page_bureau = bureau.new_page()
         page_bureau.set_default_timeout(60_000)
-        capture_bureau, fichiers_bureau = fabrique_de_captures(dossier, "bureau-")
+        releves_captures: Dict[str, Dict[str, int]] = {}
+        capture_bureau, fichiers_bureau = fabrique_de_captures(dossier, "bureau-", releves_captures)
         cdp, authentificateur = ajouter_authentificateur(bureau, page_bureau)
         se_connecter(page_bureau, cdp, authentificateur, identite,
-                     lambda nom: capture_bureau(page_bureau, "portail-authelia") if nom == "portail" else None)
+                     lambda nom: capture_bureau(page_bureau, "portail-authelia", complete=True)
+                     if nom == "portail" else None)
         etat = bureau.storage_state()
 
         # Portail d'Authelia au format téléphone (sans session).
-        capture_tel, fichiers_tel = fabrique_de_captures(dossier, "telephone-")
+        capture_tel, fichiers_tel = fabrique_de_captures(dossier, "telephone-", releves_captures)
         anonyme = navigateur.new_context(locale="fr-FR", timezone_id="Europe/Paris", **FORMATS["telephone"])
         page_anonyme = anonyme.new_page()
         page_anonyme.goto(f"{URL_HERMES}/")
         page_anonyme.wait_for_url(re.compile(rf"^{re.escape(EMETTEUR)}/"))
         page_anonyme.wait_for_selector("#username-textfield")
-        capture_tel(page_anonyme, "portail-authelia")
+        capture_tel(page_anonyme, "portail-authelia", complete=True)
         anonyme.close()
 
         for format_ in ("telephone", "bureau"):
@@ -204,7 +208,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             carte_catalogue = page.inner_text("#acp-accueil-catalogue >> xpath=..")
             bilan["accueil_catalogue"] = carte_catalogue
             assert re.search(r"(?<!\d)16(?!\d).*(?<!\d)16(?!\d)", carte_catalogue, re.S), carte_catalogue
-            capture(page, "accueil")
+            capture(page, "accueil", complete=True)
 
             # Verrou : « en » forcé, page rechargée ⇒ retour au français.
             page.evaluate("localStorage.setItem('hermes-locale', 'en')")
@@ -232,7 +236,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             texte_catalogue = page.inner_text('[data-acp-racine="catalogue"]')
             assert "acp-redaction" in texte_catalogue and "context7" in texte_catalogue
             bilan["catalogue"] = _verifier_page_acp(page, "catalogue", format_, catalogue)
-            capture(page, "catalogue")
+            capture(page, "catalogue", complete=True)
 
             # Pages natives de Hermes : capturées seulement.
             for nom, chemin in PAGES_NATIVES:
@@ -265,11 +269,14 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
         assert "SOUL.md a été modifié par le propriétaire" in banniere
         assert "Modifiée par le propriétaire" in persona
         assert page.evaluate(JS_HORS_CATALOGUE, catalogue) == []
-        capture_bureau(page, "banniere-persona-divergente")
+        capture_bureau(page, "banniere-persona-divergente", complete=True)
         fichiers = {**fichiers_tel, **fichiers_bureau}
     finally:
         empreintes = {nom: hashlib.sha256(chemin.read_bytes()).hexdigest() for nom, chemin in sorted(fichiers.items())}
         preuves["captures"] = empreintes
+        # Hauteur de fenêtre utilisée et débordement restant de chaque capture (relecture de P3 : au
+        # téléphone, « full_page » seul s'arrêtait à la hauteur de la fenêtre).
+        preuves["captures_releves"] = releves_captures if dossier else {}
         afficher("interface française en navigateur (Chromium, 390×844 et 1440×900)",
                  json.dumps(preuves, ensure_ascii=False, indent=2, default=str))
         navigateur.close()

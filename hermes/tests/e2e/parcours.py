@@ -6,18 +6,74 @@ authentificateur WebAuthn VIRTUEL (CTAP2, vérification de l'utilisateur).
 2. mot de passe, puis enrôlement de la passkey : code à usage unique lu dans /config/notification.txt ;
 3. second facteur par la passkey (le compteur de signatures augmente) ;
 4. consentement explicite, retour vers Hermes, session ouverte.
+
+Captures (relecture de P3) : chaque capture attend que la page soit rendue (formulaire du portail,
+bouton du consentement), est refusée si elle est uniforme (page blanche), et couvre TOUT le contenu :
+Hermes fait défiler ses pages dans un conteneur interne, que « full_page » ne déroule pas ; la
+fenêtre est agrandie à la hauteur de ce contenu le temps de la capture, puis rétablie.
 """
 
 from __future__ import annotations
 
 import re
+import struct
 import time
+import zlib
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
 from pile_identite import EMETTEUR, HOTE_HERMES, HOTE_IDENTITE, MOT_DE_PASSE, URL_HERMES, UTILISATEUR, docker
 
 Capture = Callable[[str], None]
+
+# Plus grand débordement vertical (scrollHeight - clientHeight) des conteneurs défilants de la page.
+JS_DEBORDEMENT = """() => {
+  let max = 0;
+  for (const e of document.querySelectorAll('*')) {
+    const style = getComputedStyle(e);
+    if (!/(auto|scroll)/.test(style.overflowY) || e.clientHeight === 0) continue;
+    max = Math.max(max, e.scrollHeight - e.clientHeight);
+  }
+  return max;
+}"""
+HAUTEUR_MAXIMALE = 12_000
+
+
+def png_uniforme(donnees: bytes) -> bool:
+    """Vrai si une capture PNG est d'une seule teinte (page blanche) : les données d'image
+    décompressées comptent moins de 8 octets distincts (une page rendue, texte lissé compris, en
+    compte des dizaines). Bibliothèque standard seulement."""
+    if donnees[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("capture : ce n'est pas un PNG")
+    position, idat = 8, b""
+    while position < len(donnees):
+        (longueur,) = struct.unpack(">I", donnees[position:position + 4])
+        if donnees[position + 4:position + 8] == b"IDAT":
+            idat += donnees[position + 8:position + 8 + longueur]
+        position += 12 + longueur
+    return len(set(zlib.decompress(idat))) < 8
+
+
+def capturer_pleine_page(page, chemin: Path) -> Dict[str, int]:
+    """Capture de TOUT le contenu : fenêtre agrandie à la hauteur des conteneurs défilants, puis
+    rétablie. Refuse une page blanche ; rend {largeur, hauteur, debordement_restant}."""
+    vue = dict(page.viewport_size)
+    hauteur = vue["height"]
+    try:
+        for _ in range(4):
+            debordement = int(page.evaluate(JS_DEBORDEMENT))
+            if debordement <= 1 or hauteur >= HAUTEUR_MAXIMALE:
+                break
+            hauteur = min(hauteur + debordement, HAUTEUR_MAXIMALE)
+            page.set_viewport_size({"width": vue["width"], "height": hauteur})
+            page.wait_for_timeout(300)
+        debordement = int(page.evaluate(JS_DEBORDEMENT))
+        page.screenshot(path=str(chemin), full_page=True)
+    finally:
+        page.set_viewport_size(vue)
+    if png_uniforme(chemin.read_bytes()):
+        raise AssertionError(f"capture {chemin.name} : page uniforme (blanche), prise avant le rendu")
+    return {"largeur": vue["width"], "hauteur": hauteur, "debordement_restant": debordement}
 
 
 def lancer_chromium(playwright, port: int, spki: str):
@@ -29,18 +85,26 @@ def lancer_chromium(playwright, port: int, spki: str):
         f"--ignore-certificate-errors-spki-list={spki}"])
 
 
-def fabrique_de_captures(dossier: Optional[str], prefixe: str = "") -> Tuple[Capture, Dict[str, Path]]:
-    """(capture(page, nom), fichiers produits). Sans dossier, rien n'est écrit."""
+def fabrique_de_captures(dossier: Optional[str], prefixe: str = "",
+                         releves: Optional[Dict[str, Dict[str, int]]] = None) -> Tuple[Capture, Dict[str, Path]]:
+    """(capture(page, nom, complete=False), fichiers produits). Sans dossier, rien n'est écrit.
+    ``complete`` : la capture doit couvrir tout le contenu (pages d'ACP), sinon échec ; pour une page
+    native, un contenu qui dépasse encore HAUTEUR_MAXIMALE est seulement relevé (``releves``)."""
     compte = [0]
     fichiers: Dict[str, Path] = {}
 
-    def capture(page, nom: str) -> None:
+    def capture(page, nom: str, complete: bool = False) -> None:
         compte[0] += 1
         if not dossier:
             return
         Path(dossier).mkdir(parents=True, exist_ok=True)
         chemin = Path(dossier) / f"{prefixe}{compte[0]:02d}-{nom}.png"
-        page.screenshot(path=str(chemin), full_page=True)
+        releve = capturer_pleine_page(page, chemin)
+        if releves is not None:
+            releves[chemin.name] = releve
+        if complete:
+            assert releve["debordement_restant"] <= 1, (f"capture {chemin.name} tronquée : un conteneur "
+                                                        f"défilant dépasse encore de {releve}")
         fichiers[chemin.name] = chemin
 
     return capture, fichiers
@@ -73,6 +137,8 @@ def se_connecter(page, cdp, authentificateur: str, identite: str,
     # 1. Hermes renvoie vers le portail du fournisseur.
     page.goto(f"{URL_HERMES}/")
     page.wait_for_url(re.compile(rf"^{re.escape(EMETTEUR)}/\?flow=openid_connect&flow_id="))
+    # Le portail se charge après l'URL (« Chargement… ») : la capture attend son formulaire.
+    page.wait_for_selector("#username-textfield")
     capture("portail")
     # 2. Premier facteur, puis enrôlement de la passkey.
     page.fill("#username-textfield", UTILISATEUR)
@@ -80,6 +146,7 @@ def se_connecter(page, cdp, authentificateur: str, identite: str,
     page.click("#sign-in-button")
     page.wait_for_url(re.compile(r"/2fa/webauthn\?flow=openid_connect"))
     url_second_facteur = page.url
+    page.wait_for_selector("#register-link")
     capture("second-facteur-sans-appareil")
     page.click("#register-link")
     page.click("#webauthn-credential-add")
@@ -97,6 +164,7 @@ def se_connecter(page, cdp, authentificateur: str, identite: str,
     # 3. Second facteur par la passkey, 4. consentement explicite, retour vers Hermes.
     page.goto(url_second_facteur)
     page.wait_for_url(re.compile(r"/consent/openid/decision\?flow=openid_connect"))
+    page.wait_for_selector("#openid-consent-accept")
     capture("consentement")
     [credential] = cdp.send("WebAuthn.getCredentials", {"authenticatorId": authentificateur})["credentials"]
     preuves["compteur_apres_second_facteur"] = credential["signCount"]

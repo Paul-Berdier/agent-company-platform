@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from conftest import CAPTURES, afficher, image
-from parcours import ajouter_authentificateur, lancer_chromium, se_connecter
+from parcours import ajouter_authentificateur, capturer_pleine_page, lancer_chromium, se_connecter
 from pile_identite import (
     CLIENT,
     EMETTEUR,
@@ -85,7 +85,7 @@ def test_connexion_complete_rafraichissement_et_refus(playwright_sync, pile):
             etape[0] += 1
             if CAPTURES:
                 Path(CAPTURES).mkdir(parents=True, exist_ok=True)
-                p.screenshot(path=str(Path(CAPTURES) / f"{etape[0]:02d}-{nom}.png"), full_page=True)
+                capturer_pleine_page(p, Path(CAPTURES) / f"{etape[0]:02d}-{nom}.png")
 
         def obtenir(chemin: str, p=page) -> list:
             return p.evaluate("async (c) => { const r = await fetch(c, {credentials: 'same-origin'}); "
