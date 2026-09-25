@@ -295,12 +295,16 @@ def raison_interdiction(nom: str) -> Optional[str]:
 def _hote_interdit(hote: str) -> Optional[str]:
     """Raison du refus d'un nom d'hôte, ou None. Refuse le bouclage local, les adresses non
     publiques et les noms « localhost » : un émetteur servi depuis le conteneur serait sous
-    le contrôle de l'agent."""
+    le contrôle de l'agent. Refuse aussi le domaine privé de Railway : le navigateur doit
+    joindre l'émetteur et l'URL publique, et l'émetteur que publie le fournisseur d'identité est
+    son domaine PUBLIC (docs/refonte/identite.md)."""
     nom = hote.lower().rstrip(".")
     if not nom:
         return "hôte absent"
     if nom == "localhost" or nom.endswith(".localhost"):
         return "hôte local interdit"
+    if nom == "railway.internal" or nom.endswith(".railway.internal"):
+        return "domaine privé de Railway interdit : utilisez le domaine public *.up.railway.app du service"
     try:
         adresse = ipaddress.ip_address(nom)
     except ValueError:

@@ -69,10 +69,19 @@ def test_hermes_managed_dir_est_refuse_en_premier(env_valide):
     ("https://intrus@idp.acp.test", "caractère refusé"),
     ("https://idp.acp.test/../autre", "chemin ambigu"),
     (" https://idp.acp.test", "entourée d'espaces"),
+    ("https://identite.railway.internal", "domaine privé de Railway interdit"),
+    ("https://identite.railway.internal:9091", "domaine privé de Railway interdit"),
+    ("https://<libellé-identite>.up.railway.app", "caractère refusé"),
 ])
 def test_un_emetteur_oidc_invalide_est_refuse(env_valide, emetteur, motif):
     env_valide["HERMES_DASHBOARD_OIDC_ISSUER"] = emetteur
     with pytest.raises(ad.Refus, match=motif):
+        ad.verifier_environnement(env_valide)
+
+
+def test_une_url_publique_sur_le_domaine_prive_de_railway_est_refusee(env_valide):
+    env_valide["HERMES_DASHBOARD_PUBLIC_URL"] = "https://hermes.railway.internal"
+    with pytest.raises(ad.Refus, match="HERMES_DASHBOARD_PUBLIC_URL : domaine privé de Railway interdit"):
         ad.verifier_environnement(env_valide)
 
 
