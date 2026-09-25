@@ -73,6 +73,10 @@ plugins:
     - dashboard_auth/basic
     - dashboard_auth/nous
     - dashboard_auth/drain
+    # Étape P3 (décision D13) : greffon groupé de gamification, en anglais et doté de sa propre
+    # API ; hors du périmètre d'ACP. Un greffon groupé désactivé n'est ni servi au navigateur ni
+    # monté (web_routers/dashboard_ui.py:109-146).
+    - hermes-achievements
   # Un greffon qui résout un ancien chemin PLUGIN-COMPAT n'est pas chargé
   # (hermes_cli/plugin_compat.py:32 et 296-312 ; COMPAT_MANIFEST.md:15-19).
   allow_deprecated_imports: false
@@ -155,7 +159,15 @@ platforms:
       port: 8642
 
 dashboard:
+  # Thème généré depuis design/tokens (scripts/generer_themes.py), déposé par 05-acp.
   theme: acp
+  # Étape P3 : police du thème, jamais une police de substitution. Toute autre valeur injecterait
+  # une feuille de style distante (Google Fonts, web/src/themes/fonts.ts) ; la valeur épinglée
+  # l'emporte sur celle du navigateur au chargement suivant (web/src/themes/context.tsx:519-540).
+  font: theme
+  # Étape P3 : aucun greffon de tableau de bord masqué ; acp-interface, acp-catalogue et
+  # acp-poste restent toujours servis (web_routers/dashboard_ui.py:129-146).
+  hidden_plugins: []
   # URL publique https validée par 00-acp-gardes (HERMES_DASHBOARD_PUBLIC_URL).
   public_url: "@@ACP:HERMES_DASHBOARD_PUBLIC_URL@@"
   # Décision P2 : vide tant que la plage du bord Railway n'est pas mesurée (bloc

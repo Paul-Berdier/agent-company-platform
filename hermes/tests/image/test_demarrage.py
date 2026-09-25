@@ -174,7 +174,10 @@ def test_le_modele_livre_produit_une_config_complete(valeurs):
     assert donnees["kanban"]["dispatch_profiles"] == ["default"]
     assert donnees["approvals"]["mode"] == "manual"
     assert donnees["plugins"]["enabled"] == []
-    assert donnees["plugins"]["disabled"] == ["dashboard_auth/basic", "dashboard_auth/nous", "dashboard_auth/drain"]
+    assert donnees["plugins"]["disabled"] == ["dashboard_auth/basic", "dashboard_auth/nous", "dashboard_auth/drain",
+                                              "hermes-achievements"]
+    assert donnees["dashboard"]["theme"] == "acp" and donnees["dashboard"]["font"] == "theme"
+    assert donnees["dashboard"]["hidden_plugins"] == []
     assert donnees["plugins"]["allow_deprecated_imports"] is False
     assert donnees["dashboard"]["oauth"]["self_hosted"]["issuer"] == "https://idp.acp.test:8443"
     assert donnees["dashboard"]["public_url"] == "https://hermes.acp.test"
@@ -186,6 +189,10 @@ def test_le_modele_livre_produit_une_config_complete(valeurs):
     ("mode: manual", "mode: smart", "approvals.mode"),
     ("allow_deprecated_imports: false", "allow_deprecated_imports: \"false\"", "allow_deprecated_imports"),
     ("    - dashboard_auth/nous\n", "", "plugins.disabled"),
+    ("    - hermes-achievements\n", "", "plugins.disabled"),
+    ("  font: theme", "  font: inter", "dashboard.font"),
+    ("  hidden_plugins: []", "  hidden_plugins: [acp-interface]", "dashboard.hidden_plugins"),
+    ("  theme: acp", "  theme: default", "dashboard.theme"),
     ("  enabled: []", "  enabled: [acp-poste]", "plugins.enabled"),
     ('    secret: ""', '    secret: "fuite"', "aucun secret"),
 ])
@@ -535,9 +542,10 @@ NOUVELLES_INTERDITES = (
 )
 
 
-def test_la_managed_scope_compte_40_cles_et_38_variables(chemins, valeurs):
+def test_la_managed_scope_compte_42_cles_et_38_variables(chemins, valeurs):
+    # 40 clés en P2 ; P3 ajoute dashboard.font et dashboard.hidden_plugins.
     resume = ad.installer_scope_geree(chemins, valeurs)
-    assert len(resume["cles_config"]) == 40, resume["cles_config"]
+    assert len(resume["cles_config"]) == 42, resume["cles_config"]
     assert len(resume["cles_env"]) == 38, resume["cles_env"]
 
 
@@ -780,7 +788,7 @@ def test_journal_commit_deploye(chemins, env_valide, capsys, sha, affiche):
     ad.commande_gardes(chemins, env_valide)
     sortie = capsys.readouterr().out
     assert f"[acp] commit déployé : {affiche}\n" in sortie
-    assert "managed scope régénérée : 40 clés de configuration et 38 variables" in sortie
+    assert "managed scope régénérée : 42 clés de configuration et 38 variables" in sortie
     assert "hooks et " in sortie and "inspectés : vides." in sortie
 
 

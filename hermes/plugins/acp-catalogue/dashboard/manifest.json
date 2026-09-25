@@ -1,0 +1,13 @@
+{
+  "name": "acp-catalogue",
+  "label": "Catalogue",
+  "description": "Catalogue d'ACP en lecture seule : skills et serveurs MCP retenus, profils de projet, écarts. Aucune route serveur : les données viennent du greffon acp-poste et de /api/skills.",
+  "icon": "Package",
+  "version": "0.11.0",
+  "tab": {
+    "path": "/catalogue",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css"
+}
