@@ -542,11 +542,19 @@ NOUVELLES_INTERDITES = (
 )
 
 
-def test_la_managed_scope_compte_42_cles_et_38_variables(chemins, valeurs):
-    # 40 clés en P2 ; P3 ajoute dashboard.font et dashboard.hidden_plugins.
+def test_la_managed_scope_compte_50_cles_et_38_variables(chemins, valeurs):
+    # 40 clés en P2 ; P3 ajoute dashboard.font et dashboard.hidden_plugins, puis les huit épingles
+    # du serveur MCP context7 (mcp_servers.context7.*).
     resume = ad.installer_scope_geree(chemins, valeurs)
-    assert len(resume["cles_config"]) == 42, resume["cles_config"]
+    assert len(resume["cles_config"]) == 50, resume["cles_config"]
     assert len(resume["cles_env"]) == 38, resume["cles_env"]
+    assert [c for c in resume["cles_config"] if c.startswith("mcp_servers.")] == [
+        "mcp_servers.context7.elicitation.enabled", "mcp_servers.context7.enabled",
+        "mcp_servers.context7.sampling.enabled", "mcp_servers.context7.ssl_verify",
+        "mcp_servers.context7.tools.include", "mcp_servers.context7.tools.prompts",
+        "mcp_servers.context7.tools.resources", "mcp_servers.context7.url"]
+    # Jamais les listes de skills : Hermes les lit dans le volume, sans la managed scope (C1, C2).
+    assert not [c for c in resume["cles_config"] if c.startswith("skills.external_dirs") or c.startswith("skills.disabled")]
 
 
 @pytest.mark.parametrize("remplacer, par, motif", [
@@ -558,8 +566,24 @@ def test_la_managed_scope_compte_42_cles_et_38_variables(chemins, valeurs):
     ('service_tier: ""', "service_tier: fast", "agent.service_tier"),
     ("api_server: [web, vision, skills, todo, memory, session_search, no_mcp]",
      "api_server: [hermes-api-server]", "platform_toolsets.api_server"),
-    ("cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]", "cli: []",
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7]", "cli: []",
      "platform_toolsets.cli"),
+    # Étape P3 : cli sans context7 (no_mcp) ou avec un serveur de plus.
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7]",
+     "cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]", "platform_toolsets.cli"),
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7]",
+     "cli: [web, vision, skills, todo, memory, session_search, clarify, context7, autre]", "platform_toolsets.cli"),
+    # Étape P3 : les huit épingles de context7.
+    ("url: https://mcp.context7.com/mcp", "url: https://mcp.context7.test/mcp", "mcp_servers.context7.url"),
+    ("    enabled: true\n    # Certificat", "    enabled: false\n    # Certificat", "mcp_servers.context7.enabled"),
+    ("ssl_verify: true", "ssl_verify: false", "mcp_servers.context7.ssl_verify"),
+    ("    sampling:\n      enabled: false", "    sampling:\n      enabled: true", "mcp_servers.context7.sampling.enabled"),
+    ("    elicitation:\n      enabled: false", "    elicitation:\n      enabled: true",
+     "mcp_servers.context7.elicitation.enabled"),
+    ("include: [resolve-library-id, query-docs]", "include: [resolve-library-id, query-docs, piege]",
+     "mcp_servers.context7.tools.include"),
+    ("      resources: false", "      resources: true", "mcp_servers.context7.tools.resources"),
+    ("      prompts: false", "      prompts: true", "mcp_servers.context7.tools.prompts"),
     ("cron: [web, vision, skills, todo, memory, session_search, no_mcp]",
      "cron: [web, vision, skills, todo, memory, session_search, terminal, no_mcp]", "platform_toolsets.cron"),
     ("inline_shell: false", "inline_shell: true", "skills.inline_shell"),
@@ -788,7 +812,7 @@ def test_journal_commit_deploye(chemins, env_valide, capsys, sha, affiche):
     ad.commande_gardes(chemins, env_valide)
     sortie = capsys.readouterr().out
     assert f"[acp] commit déployé : {affiche}\n" in sortie
-    assert "managed scope régénérée : 42 clés de configuration et 38 variables" in sortie
+    assert "managed scope régénérée : 50 clés de configuration et 38 variables" in sortie
     assert "hooks et " in sortie and "inspectés : vides." in sortie
 
 

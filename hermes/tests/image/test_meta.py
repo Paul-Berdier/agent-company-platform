@@ -158,7 +158,7 @@ def test_meta_garde_execution_apres_vraie_decouverte(tmp_path):
     assert garde["decouverte"] == "reussie"
     assert garde["presente_dans_le_gestionnaire"] is True and garde["enregistree"] is True
     assert garde["alerte"] is None
-    assert len(garde["outils_admis"]) == 24 and garde["outils_retires"] == ["kanban_attach_url", "kanban_create"]
+    assert len(garde["outils_admis"]) == 26 and garde["outils_retires"] == ["kanban_attach_url", "kanban_create"]
 
 
 def test_meta_reseau(tmp_path):

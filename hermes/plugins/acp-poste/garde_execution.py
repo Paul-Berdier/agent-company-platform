@@ -52,8 +52,12 @@ import os
 import sys
 from typing import Any, Dict, FrozenSet, Optional
 
-# Les 24 seuls outils que l'agent peut appeler sur Railway (noms exacts, aucun préfixe).
+# Les 26 seuls outils que l'agent peut appeler sur Railway (noms exacts, aucun préfixe).
 OUTILS_ADMIS: FrozenSet[str] = frozenset({
+    # Étape P3 : les deux outils du serveur MCP DISTANT context7 (documentation des bibliothèques),
+    # sous le nom que leur donne Hermes (mcp__<serveur>__<outil>, tirets remplacés par « _ » :
+    # tools/mcp_tool_schema.py:147-185). Aucun autre outil MCP n'est admis, quel que soit le serveur.
+    "mcp__context7__resolve_library_id", "mcp__context7__query_docs",
     # Recherche et lecture du web, analyse d'image (client sûr : tools/vision_tools.py:167-178).
     "web_search", "web_extract", "vision_analyze",
     # Skills (écriture soumise à validation : skills.write_approval).

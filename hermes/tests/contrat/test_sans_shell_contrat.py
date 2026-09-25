@@ -27,8 +27,8 @@ from typing import Dict, List
 
 import pytest
 
-from conftest import (ENV_VALIDE, Conteneur, afficher, attendre_modele_factice, demarrer_jusqu_a_l_arret, docker,
-                      lancer, options_env)
+from conftest import (ENV_VALIDE, SANS_CONTEXT7, Conteneur, afficher, attendre_modele_factice,
+                      demarrer_jusqu_a_l_arret, docker, lancer, options_env)
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -46,8 +46,8 @@ def _executer_jusqu_a_l_arret(ressources, image: str, *options: str, commande: L
     nom = ressources.nom("arret")
     ressources.conteneurs.append(nom)
     volume = ressources.volume(image)
-    resultat = docker("run", "--name", nom, "-v", f"{volume}:/opt/data", *options_env(env), *options, image,
-                      *commande, verifier=False, delai=delai)
+    resultat = docker("run", "--name", nom, "-v", f"{volume}:/opt/data", *SANS_CONTEXT7, *options_env(env), *options,
+                      image, *commande, verifier=False, delai=delai)
     return resultat.returncode, resultat.stdout + resultat.stderr
 
 
@@ -557,8 +557,8 @@ def test_maintenance_sleep_infinity(ressources, image, cmd_herite):
                                        "config.yaml": "mcp_servers:\n  x:\n    command: /opt/data/x\n"})
     env = dict(ENV_VALIDE, RAILWAY_ENVIRONMENT_ID="env-contrat", RAILWAY_VOLUME_MOUNT_PATH="/opt/data")
     supplement = ["gateway", "run"] if cmd_herite else []
-    docker("run", "-d", "--name", nom, "-v", f"{volume}:/opt/data", *options_env(env), "--entrypoint", "/bin/sh",
-           image, "-c", "exec sleep infinity", *supplement)
+    docker("run", "-d", "--name", nom, "-v", f"{volume}:/opt/data", *SANS_CONTEXT7, *options_env(env), "--entrypoint",
+           "/bin/sh", image, "-c", "exec sleep infinity", *supplement)
     time.sleep(20)
     etat = docker("inspect", "-f", "{{.State.Running}} {{.RestartCount}}", nom, verifier=True).stdout.strip()
     conteneur = Conteneur(nom)

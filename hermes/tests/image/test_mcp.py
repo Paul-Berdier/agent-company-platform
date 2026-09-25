@@ -1,0 +1,192 @@
+"""Étape P3 : un seul serveur MCP côté Hermes, context7, DISTANT (HTTP), derrière trois couches :
+
+1. la managed scope (mcp_servers.context7.* : URL, liste blanche des outils, échantillonnage et
+   élicitation coupés, certificat vérifié) ;
+2. la liste de la plateforme cli (context7 à la place de no_mcp ; api_server et cron gardent no_mcp) ;
+3. la garde d'exécution d'acp-poste : deux noms exacts de plus (26 outils admis).
+
+Les tours d'agent et la découverte tournent dans des PROCESSUS NEUFS contre un faux context7
+(hermes/tests/outils/mcp_factice.py) en TLS, joint sous son vrai nom (mcp.context7.com résolu vers
+le bouclage local pour toute la session) : aucun appel au vrai serveur. Chaque couche a son témoin
+négatif.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+import garde_execution as ge
+from conftest import env_processus, executer_python, installer_home_de_test, lancer_outil
+
+VERROU = json.loads(open("/opt/acp/catalogue/catalogue.lock.json", encoding="utf-8").read())
+[CONTEXT7] = [m for m in VERROU["mcp"] if m["cible"] == "hermes"]
+OUTILS_CONTEXT7 = sorted(CONTEXT7["outils_hermes"])
+URL = "https://mcp.context7.com/mcp"
+
+
+def test_sdk_mcp_present_dans_l_image():
+    code = "import importlib.metadata as m, mcp; resultat = m.version('mcp')"
+    assert executer_python(code, env={"PATH": "/usr/bin:/bin", "HOME": "/tmp"}) == "2.0.0"
+
+
+def test_noms_des_outils_calcules_par_hermes_verrou_et_garde():
+    code = ("from tools.mcp_tool_schema import mcp_prefixed_tool_name; "
+            f"resultat = [mcp_prefixed_tool_name('context7', o) for o in {CONTEXT7['outils_amont']!r}]")
+    noms = executer_python(code, env={"PATH": "/usr/bin:/bin", "HOME": "/tmp"})
+    assert noms == CONTEXT7["outils_hermes"]
+    assert sorted(o for o in ge.OUTILS_ADMIS if o.startswith("mcp__")) == OUTILS_CONTEXT7
+    for nom in OUTILS_CONTEXT7:
+        assert ge.garde(tool_name=nom, args={}) is None
+    for nom in ("mcp__context7__piege", "mcp__autre__query_docs", "mcp__context7__query-docs"):
+        assert ge.garde(tool_name=nom, args={})["action"] == "block", nom
+
+
+VOLUME_HOSTILE_CONTEXT7 = """\
+mcp_servers:
+  context7:
+    url: https://intrus.acp.test/mcp
+    enabled: false
+    ssl_verify: false
+    sampling: {enabled: true}
+    elicitation: {enabled: true}
+    tools: {include: [piege], resources: true, prompts: true}
+"""
+
+
+@pytest.mark.parametrize("volume", ["vide", "hostile"])
+def test_la_config_mcp_vue_par_hermes_est_celle_du_catalogue(chemins, valeurs, volume):
+    """_load_mcp_config (tools/mcp_tool_config.py:362-381) passe par load_config, managed scope
+    comprise : les épingles l'emportent, feuille par feuille, sur le volume."""
+    installer_home_de_test(chemins, valeurs, config=VOLUME_HOSTILE_CONTEXT7 if volume == "hostile" else "")
+    code = "from tools.mcp_tool_config import _load_mcp_config; resultat = _load_mcp_config()"
+    config = executer_python(code, env=env_processus(chemins))
+    assert list(config) == ["context7"]
+    c7 = config["context7"]
+    assert c7["url"] == URL and "command" not in c7
+    assert c7["enabled"] is True and c7["ssl_verify"] is True
+    assert c7["sampling"]["enabled"] is False and c7["elicitation"]["enabled"] is False
+    assert c7["tools"] == {"include": ["resolve-library-id", "query-docs"], "resources": False, "prompts": False}
+
+
+def _sonder(chemins, valeurs, *, remplacements=(), config: str = "") -> dict:
+    installer_home_de_test(chemins, valeurs, remplacements=remplacements, config=config)
+    fichier = chemins.hermes_home.parent / "sonde-mcp.json"
+    sortie = lancer_outil("sonde_surfaces.py", str(fichier), "--mcp", env=env_processus(chemins))
+    assert sortie.returncode == 0, sortie.stderr[-3000:]
+    return json.loads(fichier.read_text(encoding="utf-8"))
+
+
+def test_seules_les_surfaces_cli_recoivent_les_deux_outils_context7(chemins, valeurs, faux_context7):
+    surfaces = _sonder(chemins, valeurs)
+    print(json.dumps(surfaces, ensure_ascii=False))
+    assert surfaces["_decouverte"]["outils"] == OUTILS_CONTEXT7
+    # Aucun processus lancé par la découverte : context7 est distant.
+    assert surfaces["_decouverte"]["processus"] == []
+    # L'enfant de délégation hériterait des jeux de son parent cli (délégation fermée par P2 :
+    # jeu retiré et delegate_task refusé par la garde) : il ne recevrait rien de plus que context7.
+    for surface in ("cli", "tableau_de_bord_tui", "tableau_de_bord_desktop", "worker_kanban", "enfant_delegation"):
+        assert surfaces[surface]["mcp"] == OUTILS_CONTEXT7, surface
+        assert "context7" in surfaces[surface]["toolsets"], surface
+    for surface in ("api_server", "cron"):
+        assert surfaces[surface]["mcp"] == [], surface
+        assert "context7" not in surfaces[surface]["toolsets"] and "no_mcp" not in surfaces[surface]["toolsets"]
+    assert not any("piege" in o for s in surfaces.values() if isinstance(s, dict) for o in s.get("mcp") or [])
+
+
+def test_temoin_sans_context7_dans_la_liste_cli_aucun_outil(chemins, valeurs, faux_context7):
+    """Témoin de la couche 2 : cli avec no_mcp (liste de P2) : la découverte a lieu, mais aucune
+    surface n'offre d'outil MCP. Prouve que la sonde voit bien cette couche."""
+    surfaces = _sonder(chemins, valeurs, remplacements=[(
+        "cli: [web, vision, skills, todo, memory, session_search, clarify, context7]",
+        "cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]")])
+    assert surfaces["_decouverte"]["outils"] == OUTILS_CONTEXT7
+    assert all(v.get("mcp") == [] for k, v in surfaces.items() if not k.startswith("_"))
+
+
+def test_temoin_sans_tools_include_l_outil_piege_est_offert(chemins, valeurs, faux_context7):
+    """Témoin de la liste blanche des outils : sans tools.include, l'outil piège du serveur est
+    enregistré et offert à la surface cli."""
+    surfaces = _sonder(chemins, valeurs, remplacements=[(
+        "      include: [resolve-library-id, query-docs]\n", "")])
+    assert "mcp__context7__piege" in surfaces["_decouverte"]["outils"]
+    assert "mcp__context7__piege" in surfaces["cli"]["mcp"]
+
+
+def _tour(chemins, valeurs, modele, mode: str, message: str, *, remplacements=(), sans_garde: bool = False) -> dict:
+    installer_home_de_test(chemins, valeurs, modele_url=modele.url, remplacements=remplacements,
+                           sans_garde=sans_garde)
+    fichier = chemins.hermes_home.parent / f"agent-{mode}.json"
+    sortie = lancer_outil("agent_neuf.py", mode, modele.url, message, str(fichier), env=env_processus(chemins))
+    assert sortie.returncode == 0, sortie.stderr[-4000:]
+    return json.loads(fichier.read_text(encoding="utf-8"))
+
+
+def test_tour_cli_context7_execute_sans_echantillonnage_ni_elicitation(chemins, valeurs, modele_factice,
+                                                                       faux_context7):
+    """Tour réel : le modèle trouve query_docs derrière le pont des outils différés (tool_call),
+    Hermes le déballe, la garde l'admet, le faux serveur répond, le résultat revient au modèle.
+    Le faux serveur tente un échantillonnage et une élicitation : refusés par Hermes."""
+    resultat = _tour(chemins, valeurs, modele_factice, "cli", "OUTIL:tool_call>mcp__context7__query_docs")
+    resultats = modele_factice.resultats_outils()
+    evenements = faux_context7.evenements()
+    print(json.dumps({"offerts": resultat["outils_offerts"], "resultats": resultats, "serveur": evenements},
+                     ensure_ascii=False))
+    assert "context7" in resultat["jeux"] and "tool_call" in resultat["outils_offerts"]
+    assert faux_context7.appels() == ["query-docs"]
+    assert any("Documentation factice ACP" in r for r in resultats), resultats
+    assert not any("Refusé par ACP" in r for r in resultats)
+    [echantillon] = [e for e in evenements if e.get("evenement") == "echantillonnage"]
+    [elicitation] = [e for e in evenements if e.get("evenement") == "elicitation"]
+    assert echantillon["issue"] == "refuse" and "Sampling not supported" in echantillon["detail"]
+    assert elicitation["issue"] == "refusee" and "Elicitation not supported" in elicitation["detail"]
+    # Hermes marque la sortie d'un serveur MCP comme donnée non fiable.
+    assert any('<untrusted_tool_result source="mcp__context7__query_docs">' in r for r in resultats)
+    assert resultat["enfants"] == []
+
+
+def test_tour_api_server_n_atteint_jamais_context7(chemins, valeurs, modele_factice, faux_context7):
+    resultat = _tour(chemins, valeurs, modele_factice, "api_server", "OUTIL:tool_call>mcp__context7__query_docs")
+    resultats = modele_factice.resultats_outils()
+    print(json.dumps({"offerts": resultat["outils_offerts"], "resultats": resultats}, ensure_ascii=False))
+    assert "context7" not in resultat["jeux"]
+    assert faux_context7.appels() == []
+    # Hermes ne résout pas le pont vers un outil absent de la session : la garde reçoit « tool_call ».
+    assert any("Refusé par ACP : l'outil « tool_call »" in r for r in resultats), resultats
+
+
+PIEGE_INCLUS = [("include: [resolve-library-id, query-docs]", "include: [resolve-library-id, query-docs, piege]")]
+
+
+def test_la_garde_refuse_un_outil_mcp_non_admis(chemins, valeurs, modele_factice, faux_context7):
+    """Couche 3 : même si la liste blanche du serveur laissait passer « piege », la garde le refuse
+    (nom absent d'OUTILS_ADMIS) ; le faux serveur ne reçoit aucun appel."""
+    _tour(chemins, valeurs, modele_factice, "cli", "OUTIL:tool_call>mcp__context7__piege",
+          remplacements=PIEGE_INCLUS)
+    resultats = modele_factice.resultats_outils()
+    print(json.dumps({"resultats": resultats, "serveur": faux_context7.evenements()}, ensure_ascii=False))
+    assert any("Refusé par ACP : l'outil « mcp__context7__piege » n'est pas autorisé" in r for r in resultats), resultats
+    assert "piege" not in faux_context7.appels()
+
+
+def test_temoin_sans_la_garde_l_outil_mcp_non_admis_s_execute(chemins, valeurs, modele_factice, faux_context7):
+    _tour(chemins, valeurs, modele_factice, "cli", "OUTIL:tool_call>mcp__context7__piege",
+          remplacements=PIEGE_INCLUS, sans_garde=True)
+    resultats = modele_factice.resultats_outils()
+    print(json.dumps({"resultats": resultats, "serveur": faux_context7.evenements()}, ensure_ascii=False))
+    assert "piege" in faux_context7.appels()
+    assert any("PIEGE EXECUTE" in r for r in resultats), resultats
+
+
+def test_temoin_echantillonnage_active_la_demande_atteint_hermes(chemins, valeurs, modele_factice, faux_context7):
+    """Témoin de sampling.enabled : activé, la demande d'échantillonnage du serveur est prise en
+    charge par Hermes (elle n'est plus rejetée d'emblée comme non prise en charge)."""
+    _tour(chemins, valeurs, modele_factice, "cli", "OUTIL:tool_call>mcp__context7__query_docs",
+          remplacements=[("    sampling:\n      enabled: false", "    sampling:\n      enabled: true")])
+    echantillon = next(e for e in faux_context7.evenements() if e.get("evenement") == "echantillonnage")
+    print(json.dumps(echantillon, ensure_ascii=False))
+    assert faux_context7.appels() == ["query-docs"]
+    # La même demande, échantillonnage coupé (test du tour cli), est rejetée « Sampling not supported » ;
+    # activé, Hermes la sert avec SON modèle (ici le modèle factice) : le serveur consommerait le modèle.
+    assert echantillon["issue"] == "servi" and "Réponse du modèle factice ACP." in echantillon["detail"], echantillon

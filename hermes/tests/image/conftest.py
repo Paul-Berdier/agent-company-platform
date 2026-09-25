@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence, Tuple
 
 import pytest
 
@@ -177,17 +177,24 @@ def temoins():
 
 
 def installer_home_de_test(chemins: "ad.Chemins", valeurs: "ad.ValeursDeploiement", *, modele_url: Optional[str] = None,
-                           config: str = "", env: str = "", sans_garde: bool = False) -> None:
+                           config: str = "", env: str = "", sans_garde: bool = False,
+                           remplacements: Sequence[Tuple[str, str]] = ()) -> None:
     """Managed scope jetable (celle de l'image, régénérée) et volume jetable garni.
 
-    ``sans_garde`` : témoin négatif, la managed scope de test désactive acp-poste."""
+    ``sans_garde`` : témoin négatif, la managed scope de test désactive acp-poste.
+    ``remplacements`` : témoins négatifs de P3, (texte, remplacement) appliqués à la managed scope
+    installée (chaque texte doit s'y trouver)."""
     ad.installer_scope_geree(chemins, valeurs)
+    fichier = chemins.dossier_gere / "config.yaml"
     if sans_garde:
-        fichier = chemins.dossier_gere / "config.yaml"
         texte = fichier.read_text(encoding="utf-8")
         assert "    - dashboard_auth/drain\n" in texte
         fichier.write_text(texte.replace("    - dashboard_auth/drain\n",
                                          "    - dashboard_auth/drain\n    - acp-poste\n"), encoding="utf-8")
+    for motif, remplacement in remplacements:
+        texte = fichier.read_text(encoding="utf-8")
+        assert motif in texte, motif
+        fichier.write_text(texte.replace(motif, remplacement, 1), encoding="utf-8")
     contenu = config
     if modele_url:
         contenu = (f"model:\n  provider: custom\n  base_url: {modele_url}\n  default: acp-factice\n"
@@ -233,3 +240,65 @@ def executer_python(code: str, *, env: Optional[dict] = None, delai: int = 180, 
             return json.load(flux)
     finally:
         os.unlink(chemin)
+
+
+# ------------------------------------------------------------------ faux context7 (étape P3)
+
+HOTE_CONTEXT7 = "mcp.context7.com"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def context7_sans_reseau():
+    """Pendant TOUTE la session de tests de l'image, mcp.context7.com (épinglé par la managed scope)
+    désigne le bouclage local : aucun processus de test ne joint le vrai serveur ; sans faux serveur,
+    la connexion est refusée (état « hors ligne »)."""
+    hotes = Path("/etc/hosts")
+    avant = hotes.read_text(encoding="utf-8")
+    hotes.write_text(avant.rstrip("\n") + f"\n127.0.0.1 {HOTE_CONTEXT7}\n", encoding="utf-8")
+    yield
+    hotes.write_text(avant, encoding="utf-8")
+
+
+class FauxContext7:
+    """Faux serveur context7 (hermes/tests/outils/mcp_factice.py) en TLS sur 127.0.0.1:443."""
+
+    def __init__(self, dossier: Path) -> None:
+        self.journal = dossier / "mcp-factice.jsonl"
+        self.processus = subprocess.Popen(
+            [PYTHON_HERMES, str(OUTILS / "mcp_factice.py"), "--port", "443", "--certificat",
+             "/opt/acp-tests/ac/mcp.pem", "--cle", "/opt/acp-tests/ac/mcp.key", "--journal", str(self.journal)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        limite = time.monotonic() + 60
+        while time.monotonic() < limite:
+            try:
+                with socket.create_connection(("127.0.0.1", 443), timeout=1):
+                    return
+            except OSError:
+                if self.processus.poll() is not None:
+                    raise RuntimeError("le faux serveur context7 s'est arrêté")
+                time.sleep(0.3)
+        raise RuntimeError("le faux serveur context7 n'a pas démarré")
+
+    def evenements(self) -> list:
+        if not self.journal.exists():
+            return []
+        return [json.loads(l) for l in self.journal.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    def appels(self) -> list:
+        return [e["outil"] for e in self.evenements() if e.get("evenement") == "appel"]
+
+    def arreter(self) -> None:
+        self.processus.terminate()
+        try:
+            self.processus.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.processus.kill()
+
+
+@pytest.fixture
+def faux_context7(tmp_path: Path):
+    dossier = tmp_path / "context7"
+    dossier.mkdir()
+    serveur = FauxContext7(dossier)
+    yield serveur
+    serveur.arreter()

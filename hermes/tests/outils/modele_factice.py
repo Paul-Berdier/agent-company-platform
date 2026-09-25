@@ -20,8 +20,9 @@ Scénarios d'appel d'outil (étape P2), pour prouver qu'aucun outil d'exécution
 
 Le journal consigne pour chaque complétion : les outils OFFERTS, le rôle du dernier message,
 l'outil demandé, les résultats d'outils reçus (tronqués à 400 caractères) et, depuis P3, le début
-du premier message système (6 000 caractères, champ ``systeme``). Sans marqueur
-ni scénario : réponse texte fixe, comme en P1.
+du premier message système (6 000 caractères, champ ``systeme``) et son index des skills
+(``<available_skills>``, champ ``index_skills``). Sans marqueur ni scénario : réponse texte fixe,
+comme en P1.
 
 Usage : python modele_factice.py --port 18080 --journal /tmp/modele-factice.jsonl
         [--scenarios /tmp/scenarios.json]
@@ -66,6 +67,11 @@ ARGUMENTS_TEMOINS: Dict[str, Dict[str, Any]] = {
     "kanban_attach_url": {"url": "http://attache.acp.test/fichier"},
     "skills_list": {},
     "todo_list": {"todos": [{"id": "1", "content": "carte de test ACP", "status": "pending"}]},
+    # Étape P3 : outils du faux serveur context7 (outils/mcp_factice.py) et d'une skill du catalogue.
+    "mcp__context7__resolve_library_id": {"libraryName": "acp"},
+    "mcp__context7__query_docs": {"libraryId": "/acp/bibliotheque-factice", "query": "témoin ACP"},
+    "mcp__context7__piege": {},
+    "skill_view": {"name": "acp-redaction"},
 }
 
 
@@ -176,6 +182,10 @@ def main() -> int:
             # Étape P3 : début du prompt système reçu (la persona SOUL.md en est le premier bloc).
             systeme = [m for m in messages if m.get("role") == "system"]
             entree["systeme"] = _texte(systeme[0].get("content"))[:6000] if systeme else None
+            # Étape P3 : index des skills du prompt système (<available_skills>, agent/prompt_builder.py).
+            complet = _texte(systeme[0].get("content")) if systeme else ""
+            debut, fin = complet.find("<available_skills>"), complet.find("</available_skills>")
+            entree["index_skills"] = complet[debut:fin + 19][:20000] if 0 <= debut < fin else None
             entree["outils_offerts"] = _outils_offerts(corps)
             if outil is not None and not entree["outils_offerts"]:
                 # Appel auxiliaire de Hermes (titre, résumé…), sans outils : réponse texte.
