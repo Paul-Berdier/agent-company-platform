@@ -120,9 +120,18 @@ page : d'où deux greffons (écart assumé à l'ancien cahier, qui en prévoyait
 
 | | `acp-interface` | `acp-catalogue` |
 |---|---|---|
-| Page | **Accueil**, à la place de « / » (`tab.override`, qui remplaçait la redirection vers `/sessions`) | onglet **Catalogue**, après « Skills » |
+| Page | **Accueil**, à la place de « / » (`tab.override`, qui remplaçait la redirection vers `/sessions`) | onglet **Catalogue**, dans le groupe « Plugins » que Hermes place **sous** son menu natif |
 | Emplacements | `header-left` (logotype « ACP », lien vers l'Accueil), `header-banner` (alertes), `overlay` (verrou du français) | — |
 | Données | `/api/plugins/acp-poste/v1/meta`, `/api/sessions` | `/api/plugins/acp-poste/v1/catalogue`, `/api/skills` |
+
+**Où est l'onglet Catalogue** (relecture de P3 : la première version le disait « après Skills ») :
+Hermes range **tous** les onglets de greffons dans un groupe « Plugins » à part, sous les 17 entrées
+de son menu (`web/src/App.tsx`, `partitionSidebarNav`, groupe `t.app.pluginNavSection`) ;
+`tab.position` (`after:skills` au manifeste d'`acp-catalogue`) ne les ordonne qu'entre eux (Kanban,
+puis Catalogue). À 1440×900, ce groupe est sous le pli de la colonne ; au téléphone, il faut
+ouvrir le menu et le faire défiler. **Limite de découvrabilité, dite** : l'Accueil (carte
+Catalogue et raccourci) y mène. Le test navigateur exige le lien dans ce groupe
+(`[aria-labelledby="hermes-sidebar-plugin-nav-heading"]`).
 
 **Accueil** (pensé d'abord pour le téléphone : une colonne, cibles de 44 px) : Hermes (version en
 service et testée, conformité, condensat de l'image, commit déployé ou « Inconnu ») ; garde

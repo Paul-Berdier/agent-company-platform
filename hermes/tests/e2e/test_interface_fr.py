@@ -6,7 +6,8 @@ Vérifié, aux deux formats :
 - « / » affiche l'Accueil d'ACP (greffon acp-interface, tab.override) ; logotype « ACP » ;
 - <html lang="fr"> et localStorage["hermes-locale"] == "fr" ; « en » forcé puis page rechargée :
   retour au français (verrou, décision D10) ;
-- l'onglet « Catalogue » (greffon acp-catalogue) ;
+- l'onglet « Catalogue » (greffon acp-catalogue), dans le groupe des greffons que Hermes place sous
+  son menu natif ;
 - variable --color-primary = accent.primary des jetons (thème « acp » généré) ;
 - AUCUNE requête hors de l'origine du tableau de bord une fois la session ouverte (aucune police,
   aucun script, aucune image externe) ;
@@ -221,6 +222,11 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             # Onglet « Catalogue ».
             # Lien de la navigation de Hermes (hors de nos pages : l'Accueil a aussi ses liens).
             assert page.locator('nav a[href="/catalogue"]', has_text="Catalogue").count() == 1
+            # Hermes range les onglets des greffons dans un groupe à part, SOUS le menu natif
+            # (App.tsx, partitionSidebarNav) : l'onglet n'est pas « après Skills » (relecture de P3).
+            groupe = '[aria-labelledby="hermes-sidebar-plugin-nav-heading"]'
+            assert page.locator(f'{groupe} a[href="/catalogue"]').count() == 1
+            bilan["groupe_de_navigation"] = page.text_content("#hermes-sidebar-plugin-nav-heading")
             page.goto(f"{URL_HERMES}/catalogue")
             _attendre_page_acp(page, "catalogue")
             assert page.inner_text('[data-acp-racine="catalogue"] h1') == "Catalogue"
