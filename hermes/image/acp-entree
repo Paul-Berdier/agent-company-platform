@@ -1,0 +1,19 @@
+#!/bin/sh
+# shellcheck shell=sh
+# ACP — garde d'entrée de l'image (ENTRYPOINT, étape P2).
+#
+# L'ENTRYPOINT officiel, docker/entrypoint-dispatch.sh, ne lance /init de s6-overlay que s'il
+# est PID 1 ; sinon (docker run --init, plateforme qui garde le PID 1 pour son propre init),
+# il se replie SANS s6 : stage2-hook.sh puis la commande demandée
+# (docker/entrypoint-dispatch.sh:17-25). Dans ce repli, ni le crochet acp-gardes, ni 05-acp,
+# ni la managed scope vérifiée au démarrage ne s'appliqueraient. On refuse donc de démarrer
+# (échec fermé). `exec` garde le PID : entrypoint-dispatch.sh voit bien le PID 1.
+#
+# Une Start Command Railway remplace cet ENTRYPOINT (rw_full.txt:29497-29507) : réservée à la
+# maintenance, sous la forme /bin/sh -c "exec sleep infinity" (docs/refonte/railway.md §10).
+if [ "$$" -ne 1 ]; then
+    echo "[acp] REFUS : l'image n'a pas le PID 1 (processus $$) : sans s6-overlay, ni les gardes de démarrage ni la managed scope vérifiée ne s'appliqueraient." >&2
+    echo "[acp] Démarrage arrêté (échec fermé). Retirez --init ou la commande de démarrage personnalisée, puis redéployez." >&2
+    exit 1
+fi
+exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"

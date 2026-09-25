@@ -1,6 +1,6 @@
 """Démarrage ACP de l'image Hermes : gardes, managed scope et données du volume.
 
-Trois commandes, exécutées en root par l'interpréteur de Hermes
+Commandes, exécutées en root par l'interpréteur de Hermes
 (``/opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py <commande>``) :
 
 ``construire``
@@ -25,7 +25,20 @@ Trois commandes, exécutées en root par l'interpréteur de Hermes
     ``/opt/data/plugins``, ``/opt/data/dashboard-themes`` et ``/opt/data/acp`` propriété de
     root (0755, fichiers 0644), dépose le thème ``acp`` et ``SOUL.md`` selon son empreinte,
     puis écrit l'état du démarrage dans ``/run/acp/etat-demarrage.json`` (lu par
-    ``/api/plugins/acp-poste/v1/meta``).
+    ``/api/plugins/acp-poste/v1/meta``). Depuis P2, rend aussi ``/opt/data/hooks`` et
+    ``/opt/data/scripts`` propriété de root après avoir exigé qu'ils soient vides.
+
+``verifier-relance``
+    Garde root en tête des scripts ``run`` du tableau de bord et des passerelles.
+
+``diagnostiquer``
+    Maintenance (étape P2), en LECTURE SEULE et en root : rassemble tout ce qui ferait
+    refuser le démarrage ou ce qui ferait exécuter du code depuis le volume (clés
+    exécutables de ``config.yaml``, ``hooks/``, ``scripts/``, ``lazy-packages``), sans rien
+    écrire. L'environnement de référence est celui du PID 1 (``/proc/1/environ`` hors de
+    s6, ``/run/s6/container_environment`` sous s6), JAMAIS celui de la session qui lance la
+    commande (``railway ssh`` ne documente pas le sien). Code 0 si rien n'est trouvé, 1
+    sinon.
 
 Tout écart lève :class:`Refus` : message en français sur la sortie d'erreur, code 1. Avec
 ``S6_BEHAVIOUR_IF_STAGE2_FAILS=2``, s6-overlay arrête alors le conteneur avec le code 1.
@@ -75,6 +88,11 @@ class Chemins:
     soul_amont: Path = Path("/opt/hermes/docker/SOUL.md")
     dossier_etat: Path = Path("/run/acp")
     scandir_s6: Path = Path("/run/service")
+    # Lus par `diagnostiquer` et la règle du volume Railway (étape P2) ; les tests passent des
+    # fichiers factices.
+    montages: Path = Path("/proc/self/mountinfo")
+    proc_pid1: Path = Path("/proc/1")
+    env_s6: Path = Path("/run/s6/container_environment")
 
     @property
     def greffons_utilisateur(self) -> Path:
@@ -87,6 +105,21 @@ class Chemins:
     @property
     def donnees_acp(self) -> Path:
         return self.hermes_home / "acp"
+
+    @property
+    def crochets_passerelle(self) -> Path:
+        """``handler.py`` exécutés par la passerelle sans consentement (gateway/hooks.py:44-72)."""
+        return self.hermes_home / "hooks"
+
+    @property
+    def scripts_cron(self) -> Path:
+        """Scripts des tâches cron (cron/scheduler_script.py:257-320)."""
+        return self.hermes_home / "scripts"
+
+    @property
+    def paquets_paresseux(self) -> Path:
+        """Cible des installations paresseuses (HERMES_LAZY_INSTALL_TARGET)."""
+        return self.hermes_home / "lazy-packages"
 
 
 class Refus(Exception):
@@ -146,6 +179,37 @@ VARIABLES_INTERDITES: Dict[str, str] = {
     "SSL_CERT_DIR": "les autorités de certification sont celles de l'image",
     "REQUESTS_CA_BUNDLE": "les autorités de certification sont celles de l'image",
     "CURL_CA_BUNDLE": "les autorités de certification sont celles de l'image",
+    # Étape P2 : aucun outil d'exécution pour l'agent. Chacune de ces variables rouvrirait un
+    # chemin d'exécution ou de contournement ; elles sont aussi épinglées dans /etc/hermes/.env.
+    "HERMES_TUI_TOOLSETS": (
+        "elle remplacerait les outils de la discussion du tableau de bord, terminal compris "
+        "(tui_gateway/server.py:1866-1928)"),
+    "HERMES_BIN": (
+        "elle choisirait le programme lancé pour chaque worker kanban "
+        "(hermes_cli/kanban_db_dispatch.py:2510-2530)"),
+    "HERMES_ACCEPT_HOOKS": (
+        "elle ferait inscrire sans consentement les crochets shell de la configuration "
+        "(config_defaults.py:1710-1714)"),
+    "HERMES_SAFE_MODE": (
+        "elle sauterait la découverte des greffons, donc la garde d'exécution d'acp-poste "
+        "(hermes_cli/plugins.py, discover_and_load)"),
+    "HERMES_YOLO_MODE": "elle approuverait sans demander toute commande dangereuse",
+    "HERMES_COPILOT_ACP_COMMAND": "elle choisirait un programme exécuté comme fournisseur copilot-acp",
+    "HERMES_COPILOT_ACP_ARGS": "elle choisirait les arguments d'un programme exécuté comme fournisseur copilot-acp",
+    "COPILOT_CLI_PATH": "elle choisirait un programme exécuté comme fournisseur copilot-acp",
+    "HERMES_ALLOW_PRIVATE_URLS": (
+        "l'accès de l'agent au réseau privé (api_server 8642, tableau de bord 9119, réseau "
+        "Railway) reste fermé : la valeur est fixée à false par l'image"),
+    "HERMES_PORTAL_BASE_URL": (
+        "le fournisseur Nous Portal est écarté ; stage2-hook.sh recopierait cette adresse "
+        "(docker/stage2-hook.sh:579-610)"),
+    "NOUS_PORTAL_BASE_URL": (
+        "le fournisseur Nous Portal est écarté ; stage2-hook.sh recopierait cette adresse "
+        "(docker/stage2-hook.sh:579-610)"),
+    "NOUS_INFERENCE_BASE_URL": (
+        "le fournisseur Nous Portal est écarté ; stage2-hook.sh recopierait cette adresse "
+        "(docker/stage2-hook.sh:579-610)"),
+    "HERMES_GATEWAY_BOOTSTRAP_STATE": "l'état initial de la passerelle n'est jamais injecté au démarrage",
 }
 
 PREFIXES_INTERDITS: Dict[str, str] = {
@@ -165,7 +229,19 @@ VALEURS_IMPOSEES: Dict[str, Tuple[str, bool]] = {
     "S6_BEHAVIOUR_IF_STAGE2_FAILS": ("2", True),
     "S6_STAGE2_HOOK": ("/opt/acp/bin/acp-gardes", True),
     "API_SERVER_HOST": ("127.0.0.1", False),
+    # Valeurs de l'ENV de l'image officielle (Dockerfile:427-449 de Hermes), fixées depuis P2.
+    "HERMES_WRITE_SAFE_ROOT": ("/opt/data", True),
+    "HERMES_DISABLE_LAZY_INSTALLS": ("1", True),
+    "HERMES_LAZY_INSTALL_TARGET": ("/opt/data/lazy-packages", True),
+    "HERMES_TUI_DIR": ("/opt/hermes/ui-tui", True),
+    "XDG_RUNTIME_DIR": ("/tmp/hermes-runtime", True),
 }
+
+# Marqueurs posés par Railway dans chaque déploiement (rw/variables_reference.md) : leur
+# présence signifie « sur Railway », où le volume du service est exigé sur /opt/data.
+MARQUEURS_RAILWAY: Tuple[str, ...] = ("RAILWAY_ENVIRONMENT_ID", "RAILWAY_DEPLOYMENT_ID", "RAILWAY_SERVICE_ID")
+POINT_DE_MONTAGE = "/opt/data"
+_SHA_COMMIT = re.compile(r"[0-9a-f]{7,64}")
 
 # Seuls répertoires admis dans le PATH du conteneur, que tous les scripts root lancés par s6
 # reçoivent par with-contenv (s6-overlay y ajoute /command). Tous appartiennent à root. Un
@@ -283,6 +359,53 @@ def valider_portees(nom: str, valeur: str) -> str:
     return valeur
 
 
+def sur_railway(env: Mapping[str, str]) -> bool:
+    """Vrai si l'un des marqueurs posés par Railway est présent dans l'environnement."""
+    return any(nom in env for nom in MARQUEURS_RAILWAY)
+
+
+def _desechapper_mountinfo(champ: str) -> str:
+    """Le noyau échappe espace, tabulation, saut de ligne et barre oblique inverse en octal
+    (\\040, \\011, \\012, \\134) dans /proc/self/mountinfo."""
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), champ)
+
+
+def point_de_montage_present(mountinfo: Path, point: str = POINT_DE_MONTAGE) -> Optional[bool]:
+    """Vrai si ``point`` est un point de montage (5e champ de /proc/self/mountinfo) ; None si
+    le fichier est illisible."""
+    try:
+        texte = mountinfo.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for ligne in texte.splitlines():
+        champs = ligne.split(" ")
+        if len(champs) >= 5 and _desechapper_mountinfo(champs[4]) == point:
+            return True
+    return False
+
+
+def verifier_montage(env: Mapping[str, str], mountinfo: Path = Path("/proc/self/mountinfo")) -> None:
+    """Sur Railway, /opt/data doit être un vrai point de montage (le volume du service) : la
+    variable RAILWAY_VOLUME_MOUNT_PATH ne suffit pas, elle ne dit rien de ce qui est monté."""
+    if not sur_railway(env):
+        return
+    present = point_de_montage_present(mountinfo)
+    if present is None:
+        raise Refus(f"{mountinfo} est illisible : impossible de vérifier que le volume du service est "
+                    f"monté sur {POINT_DE_MONTAGE}.")
+    if not present:
+        raise Refus(f"sur Railway, {POINT_DE_MONTAGE} n'est pas un point de montage ({mountinfo}) : sans "
+                    "volume, Hermes tournerait sur un disque éphémère et perdrait tout au redéploiement. "
+                    "Attachez le volume du service sur /opt/data.")
+
+
+def commit_deploye(env: Mapping[str, str]) -> Optional[str]:
+    """RAILWAY_GIT_COMMIT_SHA (rw/variables_reference.md:59) s'il a la forme d'un SHA git, sinon
+    None : une valeur inattendue n'est jamais recopiée dans les journaux."""
+    valeur = env.get("RAILWAY_GIT_COMMIT_SHA", "")
+    return valeur if _SHA_COMMIT.fullmatch(valeur) else None
+
+
 def verifier_environnement(env: Mapping[str, str]) -> ValeursDeploiement:
     """Contrôle complet de l'environnement du conteneur. Rassemble toutes les erreurs avant
     de refuser, pour qu'un seul redéploiement suffise à les corriger."""
@@ -311,6 +434,18 @@ def verifier_environnement(env: Mapping[str, str]) -> ValeursDeploiement:
                 + " ; seuls les répertoires système de l'image sont admis ("
                 + ":".join(PATH_ADMIS) + ") : un répertoire du volume ferait exécuter en root "
                 "les binaires de l'agent.")
+    # RAILWAY_RUN_UID fait tourner le conteneur sous un autre uid (rw/variables_reference.md) :
+    # s6-overlay, les gardes et la reprise à root des répertoires exigent root.
+    if "RAILWAY_RUN_UID" in env and env["RAILWAY_RUN_UID"] != "0":
+        erreurs.append(
+            f"la variable RAILWAY_RUN_UID vaut « {env['RAILWAY_RUN_UID']} » ; seule la valeur « 0 » "
+            "(ou son absence) est admise : les gardes d'ACP et s6-overlay exigent root.")
+    if sur_railway(env) and env.get("RAILWAY_VOLUME_MOUNT_PATH") != POINT_DE_MONTAGE:
+        recu = env.get("RAILWAY_VOLUME_MOUNT_PATH")
+        erreurs.append(
+            f"sur Railway, le volume du service doit être monté sur {POINT_DE_MONTAGE} (reçu "
+            f"« {recu if recu is not None else 'aucun volume'} ») : sans lui, Hermes tournerait sur "
+            "un disque éphémère. Attachez le volume du service sur /opt/data.")
 
     def lire(nom: str, validateur: Callable[[str, str], str], *, defaut: Optional[str] = None) -> str:
         if nom not in env:
@@ -361,8 +496,23 @@ EPINGLES_OBLIGATOIRES: Tuple[Tuple[str, Any], ...] = (
     ("plugins.allow_deprecated_imports", False),
     ("auth.adopt_external_logins", False),
     ("security.redact_secrets", True),
+    ("security.allow_private_urls", False),
+    ("security.allow_lazy_installs", False),
     ("display.language", "fr"),
-    ("agent.disabled_toolsets", ["browser"]),
+    # Étape P2 : aucun outil d'exécution pour l'agent (docs/refonte/image.md §5).
+    ("agent.disabled_toolsets", ["browser", "terminal", "file", "code_execution", "computer_use",
+                                 "connections", "cronjob", "delegation", "setup"]),
+    ("agent.coding_context", "off"),
+    ("agent.service_tier", ""),
+    ("platform_toolsets.api_server", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"]),
+    ("platform_toolsets.cli", ["web", "vision", "skills", "todo", "memory", "session_search", "clarify",
+                               "no_mcp"]),
+    ("platform_toolsets.cron", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"]),
+    ("skills.inline_shell", False),
+    ("skills.write_approval", True),
+    ("skills.guard_agent_created", True),
+    ("memory.write_approval", True),
+    ("hooks_auto_accept", False),
     ("dashboard.theme", "acp"),
     ("dashboard.trusted_proxies", []),
     ("dashboard.oauth.client_id", ""),
@@ -503,6 +653,17 @@ ENV_VIDES: Tuple[str, ...] = (
     "http_proxy",
     "https_proxy",
     "all_proxy",
+    # Étape P2 : une valeur vide vaut « non défini » pour chacune (outils de la discussion,
+    # programme des workers kanban, crochets shell, mode sans greffon, approbation sans
+    # demande, fournisseur copilot-acp). Posées dans /opt/data/.env, elles sont neutralisées.
+    "HERMES_TUI_TOOLSETS",
+    "HERMES_BIN",
+    "HERMES_ACCEPT_HOOKS",
+    "HERMES_SAFE_MODE",
+    "HERMES_YOLO_MODE",
+    "HERMES_COPILOT_ACP_COMMAND",
+    "HERMES_COPILOT_ACP_ARGS",
+    "COPILOT_CLI_PATH",
 )
 
 # Magasin de certificats du système (paquet ca-certificates de l'image officielle,
@@ -525,6 +686,13 @@ ENV_FIXES: Tuple[Tuple[str, str], ...] = (
     ("SSL_CERT_DIR", REPERTOIRE_CERTIFICATS),
     ("REQUESTS_CA_BUNDLE", MAGASIN_CERTIFICATS),
     ("CURL_CA_BUNDLE", MAGASIN_CERTIFICATS),
+    # Étape P2. Seule protection effective contre les appels de l'agent vers le réseau privé
+    # (api_server 8642, tableau de bord 9119) : tools/url_safety.py:145-173 lit cette variable
+    # et config.yaml SANS la managed scope.
+    ("HERMES_ALLOW_PRIVATE_URLS", "false"),
+    # Aucune installation paresseuse de paquet (tools/lazy_deps.py:325-338) ; déjà dans l'ENV
+    # de l'image officielle, épinglée ici contre /opt/data/.env.
+    ("HERMES_DISABLE_LAZY_INSTALLS", "1"),
 )
 
 
@@ -1189,16 +1357,93 @@ def inspecter_donnees(chemins: Chemins) -> Inspection:
     return greffons
 
 
-def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int) -> Dict[str, Any]:
+# ---------------------------------------------------------------------------------------------
+# /opt/data/hooks, /opt/data/scripts et /opt/data/lazy-packages (étape P2)
+# ---------------------------------------------------------------------------------------------
+
+# Répertoires du volume dont le contenu est EXÉCUTÉ par Hermes. Ils doivent rester vides : sur
+# Railway, rien de légitime n'y est déposé (l'agent n'a plus d'outil fichier) ; une entrée ne
+# peut venir que d'une ancienne injection ou d'une sauvegarde restaurée.
+REPERTOIRES_EXECUTES: Tuple[Tuple[str, str], ...] = (
+    ("crochets_passerelle",
+     "la passerelle y importe chaque handler.py sans demander de consentement (gateway/hooks.py:44-72)"),
+    ("scripts_cron",
+     "les tâches cron y exécutent leurs scripts (cron/scheduler_script.py:257-320)"),
+)
+
+# Fichiers de service d'une cible d'installation paresseuse (tools/lazy_deps.py:248-285).
+_FICHIERS_LAZY_ADMIS = {".lock", ".python-abi"}
+
+
+def entrees_du_repertoire(racine: Path) -> Optional[List[str]]:
+    """Noms des entrées d'un répertoire, sans suivre de lien ; None s'il est absent. Refuse un
+    lien symbolique ou autre chose qu'un répertoire à la place de ``racine``."""
+    try:
+        st = os.lstat(racine)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        raise Refus(f"{racine} est un lien symbolique ; démarrage refusé (supprimez le lien).")
+    if not stat.S_ISDIR(st.st_mode):
+        raise Refus(f"{racine} existe mais n'est pas un répertoire.")
+    fd = os.open(racine, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        return sorted(os.listdir(fd))
+    finally:
+        os.close(fd)
+
+
+def problemes_repertoires_executes(chemins: Chemins) -> List[str]:
+    """Une ligne par répertoire exécuté qui n'est pas vide (ou qui n'est pas un répertoire)."""
+    problemes: List[str] = []
+    for attribut, raison in REPERTOIRES_EXECUTES:
+        racine: Path = getattr(chemins, attribut)
+        try:
+            entrees = entrees_du_repertoire(racine)
+        except Refus as exc:
+            problemes.append(str(exc))
+            continue
+        if entrees:
+            montre = ", ".join(f"« {''.join(c for c in n if c.isprintable())[:80]} »" for n in entrees[:20])
+            reste = f" et {len(entrees) - 20} autre(s)" if len(entrees) > 20 else ""
+            problemes.append(
+                f"{racine} n'est pas vide ({montre}{reste}) : {raison}. Ce répertoire doit rester vide sur "
+                "Railway ; supprimez ces entrées (maintenance : docs/refonte/railway.md §10).")
+    return problemes
+
+
+def refuser_repertoires_executes(chemins: Chemins) -> None:
+    problemes = problemes_repertoires_executes(chemins)
+    if problemes:
+        raise Refus("\n".join(problemes))
+
+
+def contenu_paquets_paresseux(chemins: Chemins) -> Optional[List[str]]:
+    """Entrées de /opt/data/lazy-packages hors fichiers de service ; None si le répertoire est
+    absent ou illisible sans suivre de lien."""
+    try:
+        entrees = entrees_du_repertoire(chemins.paquets_paresseux)
+    except Refus:
+        return None
+    if entrees is None:
+        return None
+    return [n for n in entrees if n not in _FICHIERS_LAZY_ADMIS]
+
+
+def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
+                     commit: Optional[str] = None) -> Dict[str, Any]:
     """Toutes les opérations de 05-acp sur /opt/data ; renvoie l'état du démarrage."""
     if not chemins.hermes_home.is_dir():
         raise Refus(f"{chemins.hermes_home} est absent : le volume n'est pas monté.")
     livres = themes_livres(chemins)
     # 1. Inspection avant toute écriture : un refus laisse le volume intact.
     inspecter_donnees(chemins)
+    refuser_repertoires_executes(chemins)
     # 2. Verrouillage, puis nouvelle inspection (rien ne doit être apparu entre-temps).
-    for racine in (chemins.greffons_utilisateur, chemins.themes, chemins.donnees_acp):
+    for racine in (chemins.greffons_utilisateur, chemins.themes, chemins.donnees_acp,
+                   chemins.crochets_passerelle, chemins.scripts_cron):
         verrouiller(racine)
+    refuser_repertoires_executes(chemins)
     greffons = inspecter(chemins.greffons_utilisateur)
     inspecter(chemins.themes, themes_livres=livres)
     # 3. Thème et persona.
@@ -1208,8 +1453,15 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int)
     #    en root ni réécrire le script d'exécution d'une passerelle (empêche l'élévation).
     services = reprendre_services_s6(chemins.scandir_s6)
     return {
-        "schema": 1,
+        # Schéma 2 (étape P2) : repertoires_executes, lazy_packages et deploiement.
+        "schema": 2,
         "genere_le": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "deploiement": {"commit": commit},
+        "repertoires_executes": {
+            "hooks": {"vide": True, "proprietaire": "root", "mode": "0755"},
+            "scripts": {"vide": True, "proprietaire": "root", "mode": "0755"},
+        },
+        "lazy_packages": {"entrees": contenu_paquets_paresseux(chemins)},
         "scope_geree": scope.resume(),
         "greffons_utilisateur": {
             "dossiers": greffons.dossiers_premier_niveau,
@@ -1229,6 +1481,250 @@ def ecrire_etat(chemins: Chemins, etat: Mapping[str, Any]) -> Path:
     contenu = (json.dumps(etat, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
     ecrire_atomique(cible, contenu, mode=0o644, uid=0, gid=0)
     return cible
+
+
+# ---------------------------------------------------------------------------------------------
+# Commande « diagnostiquer » : maintenance, en lecture seule (étape P2)
+# ---------------------------------------------------------------------------------------------
+
+PREFIXE_DIAGNOSTIC = f"{PREFIXE} DIAGNOSTIC :"
+_LIMITE_ENVIRONNEMENT = 1024 * 1024
+
+
+def _lire_octets(chemin: Path, limite: int = _LIMITE_ENVIRONNEMENT) -> Optional[bytes]:
+    """Contenu d'un fichier de /proc ou de /run (tronqué à ``limite``) ; None s'il est illisible."""
+    try:
+        with open(chemin, "rb") as flux:
+            return flux.read(limite)
+    except OSError:
+        return None
+
+
+def lire_environ(donnees: bytes) -> Dict[str, str]:
+    """Analyse un /proc/<pid>/environ : entrées « NOM=valeur » séparées par des octets nuls.
+    Rien n'est exécuté ni interprété (ni guillemets, ni substitution)."""
+    env: Dict[str, str] = {}
+    for morceau in donnees.split(b"\0"):
+        if not morceau or b"=" not in morceau:
+            continue
+        nom, _, valeur = morceau.partition(b"=")
+        env[nom.decode("utf-8", errors="replace")] = valeur.decode("utf-8", errors="replace")
+    return env
+
+
+def lire_env_s6(dossier: Path) -> Optional[Dict[str, str]]:
+    """Environnement du conteneur tel que s6-overlay le garde (un fichier par variable, lu sans
+    suivre de lien) ; None si le répertoire est illisible."""
+    try:
+        fd = os.open(dossier, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    env: Dict[str, str] = {}
+    try:
+        for nom in sorted(os.listdir(fd)):
+            try:
+                fichier = os.open(nom, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+            except OSError:
+                continue
+            with os.fdopen(fichier, "rb") as flux:
+                if not stat.S_ISREG(os.fstat(flux.fileno()).st_mode):
+                    continue
+                env[nom] = flux.read(_LIMITE_ENVIRONNEMENT).decode("utf-8", errors="replace")
+    finally:
+        os.close(fd)
+    return env
+
+
+def environnement_de_reference(chemins: Chemins) -> Tuple[Optional[Dict[str, str]], str]:
+    """(environnement, source) du conteneur, JAMAIS celui de la session qui lance la commande :
+    la doc de Railway ne dit rien de l'environnement d'une session « railway ssh »
+    (rw_full.txt:23271-23420). Hors de s6 (maintenance : PID 1 = « sleep infinity »), c'est
+    /proc/1/environ ; sous s6, /run/s6/container_environment ; sinon « inconnue »."""
+    cmdline = chemins.proc_pid1 / "cmdline"
+    brut = _lire_octets(cmdline, 4096)
+    if not brut or not brut.strip(b"\0"):
+        return None, f"inconnue ({cmdline} illisible)"
+    morceaux = [m.decode("utf-8", errors="replace") for m in brut.split(b"\0") if m]
+    programme = os.path.basename(morceaux[0])
+    affiche = "".join(c for c in " ".join(morceaux) if c.isprintable())[:160]
+    if programme == "s6-svscan":
+        env = lire_env_s6(chemins.env_s6)
+        if env is None:
+            return None, f"inconnue ({chemins.env_s6} illisible alors que le PID 1 est s6-svscan)"
+        return env, f"{chemins.env_s6} (PID 1 : {affiche})"
+    environ = chemins.proc_pid1 / "environ"
+    donnees = _lire_octets(environ)
+    if donnees is None:
+        return None, f"inconnue ({environ} illisible : root exigé)"
+    return lire_environ(donnees), f"{environ} (PID 1 hors de s6 : {affiche})"
+
+
+def _tronquer(valeur: Any, limite: int = 120) -> str:
+    texte = valeur if isinstance(valeur, str) else json.dumps(valeur, ensure_ascii=False, default=str)
+    texte = "".join(c for c in texte if c.isprintable())
+    return texte if len(texte) <= limite else texte[:limite] + "…"
+
+
+def cles_executables(donnees: Any) -> List[str]:
+    """Clés d'un config.yaml qui font exécuter un programme ou du code par Hermes : serveurs MCP
+    stdio (hermes_cli/mcp_config.py:209-213), crochets shell ``hooks`` (config_defaults.py:1706-1710),
+    quick_commands de type exec (gateway/run_inbound.py:1044), fournisseurs TTS ou STT de type
+    command (tools/tts_command_provider.py:220-240)."""
+    trouvees: List[str] = []
+    if not isinstance(donnees, dict):
+        return trouvees
+    serveurs = donnees.get("mcp_servers")
+    if isinstance(serveurs, dict):
+        for nom, conf in serveurs.items():
+            if isinstance(conf, dict) and isinstance(conf.get("command"), str) and conf["command"].strip():
+                trouvees.append(f"mcp_servers.{_tronquer(nom, 60)}.command = « {_tronquer(conf['command'])} »")
+    crochets = donnees.get("hooks")
+    if crochets:
+        noms = ", ".join(_tronquer(k, 40) for k in crochets) if isinstance(crochets, dict) else _tronquer(crochets)
+        trouvees.append(f"hooks non vide ({noms}) : crochets shell de la configuration")
+    rapides = donnees.get("quick_commands")
+    if isinstance(rapides, dict):
+        for nom, conf in rapides.items():
+            if isinstance(conf, dict) and str(conf.get("type") or "").strip().lower() == "exec":
+                trouvees.append(f"quick_commands.{_tronquer(nom, 60)} de type exec = "
+                                f"« {_tronquer(conf.get('command', ''))} »")
+    for section in ("tts", "stt"):
+        bloc = donnees.get(section)
+        if not isinstance(bloc, dict):
+            continue
+        candidats: List[Tuple[str, Any]] = []
+        fournisseurs = bloc.get("providers")
+        if isinstance(fournisseurs, dict):
+            candidats += [(f"{section}.providers.{_tronquer(n, 60)}", c) for n, c in fournisseurs.items()]
+        candidats += [(f"{section}.{_tronquer(n, 60)}", c) for n, c in bloc.items() if n != "providers"]
+        for cle, conf in candidats:
+            if not isinstance(conf, dict):
+                continue
+            genre = str(conf.get("type") or "").strip().lower()
+            commande = conf.get("command")
+            if genre in ("", "command") and isinstance(commande, str) and commande.strip():
+                trouvees.append(f"{cle}.command (fournisseur de type command) = « {_tronquer(commande)} »")
+    return trouvees
+
+
+def fichiers_config_du_volume(chemins: Chemins) -> List[Path]:
+    """config.yaml de la racine et de chaque profil (répertoires réels seulement)."""
+    fichiers = [chemins.hermes_home / "config.yaml"]
+    profils = chemins.hermes_home / "profiles"
+    try:
+        entrees = sorted(profils.iterdir())
+    except OSError:
+        entrees = []
+    for entree in entrees:
+        try:
+            if stat.S_ISDIR(os.lstat(entree).st_mode):
+                fichiers.append(entree / "config.yaml")
+        except OSError:
+            continue
+    return fichiers
+
+
+def inventaire_cles_executables(chemins: Chemins) -> List[str]:
+    constats: List[str] = []
+    for fichier in fichiers_config_du_volume(chemins):
+        try:
+            brut = lire_sans_lien(fichier)
+        except Refus as exc:
+            constats.append(str(exc))
+            continue
+        if brut is None:
+            continue
+        try:
+            donnees = charger_yaml(brut.decode("utf-8"))
+        except (UnicodeDecodeError, yaml.YAMLError) as exc:
+            constats.append(f"{fichier} ne se lit pas comme du YAML ({type(exc).__name__}) : à examiner.")
+            continue
+        for cle in cles_executables(donnees):
+            constats.append(f"{fichier} : {cle}.")
+    return constats
+
+
+def relire_scope_pour_diagnostic(chemins: Chemins, env: Optional[Mapping[str, str]]
+                                 ) -> Tuple[Optional[str], str]:
+    """(problème, forme) de la managed scope installée. En maintenance, acp-gardes n'a pas tourné :
+    la scope de CONSTRUCTION (valeurs vides) est alors attendue et n'est pas un problème."""
+    candidats: List[Tuple[str, ValeursDeploiement, bool]] = []
+    if env is not None:
+        try:
+            candidats.append(("déploiement", verifier_environnement(env), False))
+        except Refus:
+            pass
+    candidats.append(("construction (valeurs de déploiement vides)", VALEURS_VIDES, True))
+    dernier = ""
+    for forme, valeurs, construction in candidats:
+        try:
+            attendue = preparer_scope_geree(chemins, valeurs, construction=construction)
+            verifier_scope_installee(chemins, attendue, valeurs)
+            return None, forme
+        except Refus as exc:
+            dernier = str(exc)
+    return f"managed scope installée non conforme : {dernier}", "non conforme"
+
+
+def diagnostic(chemins: Chemins) -> Tuple[List[str], List[str]]:
+    """(informations, constats). Ne modifie RIEN : ni le volume, ni /etc/hermes, ni /run/acp.
+    Aucune liste d'exceptions n'est lue (et jamais depuis le volume)."""
+    infos: List[str] = []
+    constats: List[str] = []
+    env, source = environnement_de_reference(chemins)
+    infos.append(f"source de l'environnement de référence : {source}.")
+    if env is None:
+        constats.append(f"source de l'environnement inconnue ({source}) : les variables Railway ne peuvent "
+                        "pas être vérifiées.")
+    else:
+        infos.append(f"commit déployé : {commit_deploye(env) or 'inconnu'}.")
+        try:
+            verifier_environnement(env)
+        except Refus as exc:
+            constats.extend(str(exc).splitlines())
+        try:
+            verifier_montage(env, chemins.montages)
+        except Refus as exc:
+            constats.append(str(exc))
+    for fichier, nom, raison in variables_interdites_dans_le_volume(chemins):
+        constats.append(f"{fichier} définit la variable interdite {nom} : {raison}.")
+    try:
+        inspecter_donnees(chemins)
+    except Refus as exc:
+        constats.append(str(exc))
+    constats.extend(problemes_repertoires_executes(chemins))
+    constats.extend(inventaire_cles_executables(chemins))
+    try:
+        paresseux = entrees_du_repertoire(chemins.paquets_paresseux)
+    except Refus as exc:
+        constats.append(str(exc))
+        paresseux = None
+    paquets = [n for n in (paresseux or []) if n not in _FICHIERS_LAZY_ADMIS]
+    if paquets:
+        constats.append(f"{chemins.paquets_paresseux} contient des paquets ("
+                        + ", ".join(_tronquer(n, 60) for n in paquets[:20])
+                        + ") : Hermes pourrait les importer (fin de sys.path).")
+    probleme, forme = relire_scope_pour_diagnostic(chemins, env)
+    infos.append(f"managed scope installée : {forme}.")
+    if probleme:
+        constats.append(probleme)
+    return infos, constats
+
+
+def commande_diagnostiquer(chemins: Chemins) -> int:
+    _exiger_root()
+    infos, constats = diagnostic(chemins)
+    print(f"{PREFIXE} diagnostic en lecture seule : rien n'est modifié.", flush=True)
+    for info in infos:
+        print(f"{PREFIXE} diagnostic : {info}", flush=True)
+    for constat in constats:
+        for ligne in constat.splitlines():
+            print(f"{PREFIXE_DIAGNOSTIC} {ligne}", flush=True)
+    if constats:
+        print(f"{PREFIXE} diagnostic : {len(constats)} constat(s) ; code 1.", flush=True)
+        return 1
+    print(f"{PREFIXE} diagnostic : aucun constat ; code 0.", flush=True)
+    return 0
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1267,10 +1763,15 @@ def commande_construire(chemins: Chemins) -> None:
 
 def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     _exiger_root()
+    # Relie ce démarrage à son run CI image.yml (docs/refonte/railway.md), même s'il est refusé.
+    _informer(f"commit déployé : {commit_deploye(env) or 'inconnu'}")
     valeurs = verifier_environnement(env)
+    verifier_montage(env, chemins.montages)
     # Une variable interdite posée dans /opt/data/.env échapperait à la managed scope
     # (HERMES_MANAGED_DIR la déplacerait carrément) : un volume ainsi piégé refuse de démarrer.
     refuser_variables_du_volume(chemins)
+    # hooks/ et scripts/ du volume sont exécutés par Hermes : inspectés avant toute écriture.
+    refuser_repertoires_executes(chemins)
     resume = installer_scope_geree(chemins, valeurs)
     _informer(f"variables validées ; émetteur OIDC {valeurs.oidc_emetteur}, client {valeurs.oidc_client}, "
               f"URL publique {valeurs.url_publique}"
@@ -1282,6 +1783,7 @@ def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     _informer(f"{chemins.greffons_utilisateur} inspecté : aucun nom réservé ni lien symbolique"
               + (f" ({len(greffons.dossiers_premier_niveau)} dossier(s) utilisateur, jamais activés)."
                  if greffons.dossiers_premier_niveau else "."))
+    _informer(f"{chemins.crochets_passerelle} et {chemins.scripts_cron} inspectés : vides.")
 
 
 def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
@@ -1289,14 +1791,20 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
     # Défense en profondeur : si le crochet S6_STAGE2_HOOK avait été retiré, ce script de
     # cont-init refait les mêmes contrôles et vérifie la managed scope installée.
     valeurs = verifier_environnement(env)
+    verifier_montage(env, chemins.montages)
     refuser_variables_du_volume(chemins)
     scope = preparer_scope_geree(chemins, valeurs)
     verifier_scope_installee(chemins, scope, valeurs)
     compte = pwd.getpwnam("hermes")
-    etat = preparer_donnees(chemins, scope, uid=compte.pw_uid, gid=compte.pw_gid)
+    etat = preparer_donnees(chemins, scope, uid=compte.pw_uid, gid=compte.pw_gid, commit=commit_deploye(env))
     cible = ecrire_etat(chemins, etat)
-    _informer(f"{chemins.greffons_utilisateur}, {chemins.themes} et {chemins.donnees_acp} "
-              "appartiennent à root (0755).")
+    _informer(f"{chemins.greffons_utilisateur}, {chemins.themes}, {chemins.donnees_acp}, "
+              f"{chemins.crochets_passerelle} et {chemins.scripts_cron} appartiennent à root (0755).")
+    paresseux = etat["lazy_packages"]["entrees"]
+    if paresseux:
+        _informer("ATTENTION : " + str(chemins.paquets_paresseux) + " contient des paquets ("
+                  + ", ".join(paresseux[:20]) + ") alors que les installations paresseuses sont coupées ; "
+                  "signalé par /v1/meta, à examiner avec `diagnostiquer`.")
     services = etat.get("services_s6") or {}
     if services.get("present"):
         _informer("services s6 repris par root : /run/service et "
@@ -1317,13 +1825,26 @@ def commande_verifier_relance(chemins: Chemins) -> None:
     refuser_variables_du_volume(chemins)
 
 
+COMMANDES = ("construire", "gardes", "donnees", "verifier-relance", "diagnostiquer")
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if len(arguments) != 1 or arguments[0] not in {"construire", "gardes", "donnees", "verifier-relance"}:
-        print(f"{PREFIXE} usage : acp_demarrage.py construire|gardes|donnees|verifier-relance",
-              file=sys.stderr)
+    if len(arguments) != 1 or arguments[0] not in COMMANDES:
+        print(f"{PREFIXE} usage : acp_demarrage.py {'|'.join(COMMANDES)}", file=sys.stderr)
         return 2
     chemins = Chemins()
+    if arguments[0] == "diagnostiquer":
+        # Jamais os.environ : l'environnement de référence est celui du PID 1 (correction R2-7).
+        try:
+            return commande_diagnostiquer(chemins)
+        except Refus as exc:
+            print(f"{PREFIXE_DIAGNOSTIC} {exc}", file=sys.stderr, flush=True)
+            return 1
+        except Exception as exc:  # noqa: BLE001 — un diagnostic incomplet ne conclut jamais « sain »
+            print(f"{PREFIXE_DIAGNOSTIC} erreur inattendue ({type(exc).__name__} : {exc}) ; diagnostic "
+                  "incomplet.", file=sys.stderr, flush=True)
+            return 1
     try:
         if arguments[0] == "construire":
             commande_construire(chemins)

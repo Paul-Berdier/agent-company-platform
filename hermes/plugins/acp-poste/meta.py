@@ -10,10 +10,13 @@ que l'agent ne peut pas modifier.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from types import ModuleType
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 CONTRAT = "acp-poste/1"
 NOM_GREFFON = "acp-poste"
@@ -103,6 +106,102 @@ def etat_environnement() -> Dict[str, Any]:
     return resultat
 
 
+LIBELLE_PROCESSUS = "processus du tableau de bord (sert /api/ws)"
+ALERTE_GARDE_ABSENTE = ("Garde d'exécution absente du processus du tableau de bord : preview.restart "
+                        "rendrait un terminal à l'agent.")
+
+
+def _module_garde() -> ModuleType:
+    """garde_execution.py de CE greffon. Le tableau de bord charge meta.py par son chemin, hors
+    du paquet (dashboard/plugin_api.py) : le module est donc chargé de la même façon. La garde
+    se reconnaît par son fichier, pas par le nom du module (garde_execution._est_cette_garde)."""
+    module = sys.modules.get("garde_execution") or sys.modules.get("acp_poste_greffon_garde_execution")
+    if module is not None and getattr(module, "__file__", None):
+        return module
+    cle = "acp_poste_greffon_garde_execution"
+    spec = importlib.util.spec_from_file_location(cle, Path(__file__).resolve().parent / "garde_execution.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("garde_execution.py du greffon acp-poste introuvable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[cle] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(cle, None)
+        raise
+    return module
+
+
+def etat_garde_execution(decouvrir: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
+    """État de la garde d'exécution DANS LE PROCESSUS QUI SERT CETTE ROUTE, c'est-à-dire le
+    tableau de bord : c'est lui qui fait tourner /api/ws et donc preview.restart
+    (web_routers/chat_ws.py:583-601). Ce bloc ne prouve RIEN pour la passerelle ni pour les
+    workers kanban, qui sont d'autres processus (correction R1-3).
+
+    La découverte des greffons est d'abord demandée (idempotente ; le tableau de bord la fait
+    déjà : web_server_profiles.py:348-349). Si elle lève, ou si le crochet est absent,
+    ``alerte`` porte le message ; toute valeur illisible vaut ``None``."""
+    bloc: Dict[str, Any] = {
+        "processus": LIBELLE_PROCESSUS,
+        "decouverte": None,
+        "erreur_decouverte": None,
+        "enregistree": None,
+        "presente_dans_le_gestionnaire": None,
+        "outils_admis": None,
+        "outils_retires": None,
+        "alerte": None,
+    }
+    try:
+        if decouvrir is None:
+            from hermes_cli.plugins import discover_plugins as decouvrir
+        decouvrir()
+        bloc["decouverte"] = "reussie"
+    except Exception as exc:  # noqa: BLE001 — l'échec de la découverte EST l'information
+        bloc["decouverte"] = "echec"
+        bloc["erreur_decouverte"] = type(exc).__name__
+    try:
+        bloc.update(_module_garde().etat())
+    except Exception:  # noqa: BLE001 — valeur inconnue plutôt qu'une erreur 500
+        pass
+    if bloc["decouverte"] != "reussie" or bloc["presente_dans_le_gestionnaire"] is not True:
+        bloc["alerte"] = ALERTE_GARDE_ABSENTE
+    return bloc
+
+
+ENTETES_MESURES = ("x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "x-railway-edge")
+
+
+def mesure_reseau(reseau: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Normalise la mesure faite par la route : pair, schéma vu, hôte, PRÉSENCE des en-têtes du
+    bord (jamais la valeur de X-Forwarded-For) et X-Forwarded-Proto tronqué. Sert à fixer plus
+    tard dashboard.trusted_proxies sur une mesure, jamais sur une supposition."""
+    if reseau is None:
+        return None
+
+    def court(valeur: Any, limite: int) -> Optional[str]:
+        if not isinstance(valeur, str) or not valeur:
+            return None
+        return "".join(c for c in valeur if c.isprintable())[:limite]
+
+    presents = reseau.get("entetes_transmis") if isinstance(reseau.get("entetes_transmis"), Mapping) else {}
+    return {
+        "pair": court(reseau.get("pair"), 64),
+        "schema_vu": court(reseau.get("schema_vu"), 16),
+        "hote": court(reseau.get("hote"), 255),
+        "entetes_transmis": {nom: bool(presents.get(nom)) for nom in ENTETES_MESURES},
+        "x_forwarded_proto": court(reseau.get("x_forwarded_proto"), 16),
+    }
+
+
+def _commit_du_demarrage(demarrage: Any) -> Optional[str]:
+    """Commit déployé tel que 05-acp l'a relevé (RAILWAY_GIT_COMMIT_SHA validé), écrit par root :
+    l'environnement du tableau de bord, lui, peut être modifié par /opt/data/.env."""
+    if not isinstance(demarrage, dict):
+        return None
+    commit = (demarrage.get("deploiement") or {}).get("commit")
+    return commit if isinstance(commit, str) and commit else None
+
+
 def _info_openrpc(chemin: Path) -> Dict[str, Any]:
     try:
         donnees = json.loads(chemin.read_text(encoding="utf-8"))
@@ -111,7 +210,11 @@ def _info_openrpc(chemin: Path) -> Dict[str, Any]:
         return {"info_version": None, "methodes": None}
 
 
-def construire_meta(sources: SourcesMeta = SourcesMeta()) -> Dict[str, Any]:
+def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mapping[str, Any]] = None,
+                    decouvrir: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
+    """Contenu de la route. ``reseau`` est mesuré par la route sur la requête elle-même
+    (dashboard/plugin_api.py) ; ``None`` hors requête. ``decouvrir`` remplace la découverte des
+    greffons de Hermes (tests)."""
     alertes: List[str] = []
     epingle = lire_cles_valeurs(sources.version_hermes_epinglee) or {}
     if not epingle:
@@ -157,6 +260,22 @@ def construire_meta(sources: SourcesMeta = SourcesMeta()) -> Dict[str, Any]:
         if greffons:
             alertes.append("Greffons utilisateur présents sous /opt/data/plugins (jamais activés) : "
                            + ", ".join(greffons) + ".")
+        paresseux = (demarrage.get("lazy_packages") or {}).get("entrees") or []
+        if paresseux:
+            alertes.append("Paquets présents dans /opt/data/lazy-packages alors que les installations "
+                           "paresseuses sont coupées : " + ", ".join(str(n) for n in paresseux[:20])
+                           + ". À examiner avec « acp_demarrage.py diagnostiquer ».")
+    deploiement = {"commit": _commit_du_demarrage(demarrage)}
+
+    garde = etat_garde_execution(decouvrir)
+    if garde["alerte"]:
+        alertes.append(garde["alerte"])
+
+    bloc_reseau = mesure_reseau(reseau)
+    if bloc_reseau is not None and bloc_reseau.get("schema_vu") != "https":
+        alertes.append(f"Le tableau de bord voit cette requête en « {bloc_reseau.get('schema_vu') or 'inconnu'} » "
+                       "et non en https : ses cookies de session ne portent pas l'attribut Secure "
+                       "(dashboard.trusted_proxies reste vide tant que le bord n'est pas mesuré).")
 
     environnement = etat_environnement()
     if environnement["managed_dir_conforme"] is False:
@@ -187,5 +306,8 @@ def construire_meta(sources: SourcesMeta = SourcesMeta()) -> Dict[str, Any]:
         },
         "demarrage": demarrage,
         "environnement": environnement,
+        "garde_execution": garde,
+        "reseau": bloc_reseau,
+        "deploiement": deploiement,
         "alertes": alertes,
     }
