@@ -527,7 +527,7 @@ utilisateur n'est jamais importé.
   contenu autre que `.lock` et `.python-abi` est signalé (état du démarrage, `/v1/meta`,
   `diagnostiquer`) sans refuser le démarrage.
 - **`/opt/data/config.yaml` (P3)** : `05-acp` y garantit `skills.external_dirs` (le dossier du
-  catalogue en tête), `skills.disabled` (les 44 skills livrées inertes) et une entrée vide
+  catalogue en tête), `skills.disabled` (les 46 skills livrées inertes) et une entrée vide
   `mcp_servers.context7`, **hors** managed scope (Hermes les lit dans ce fichier brut) ; écriture
   seulement si quelque chose change, commentaires, propriétaire et mode conservés, rien d'autre ne
   change ; YAML illisible : rien n'est écrit, alerte. Et **refus de démarrer** (crochet, `05-acp`,

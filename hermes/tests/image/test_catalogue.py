@@ -155,6 +155,43 @@ def test_recensement_des_skills_livrees_desactivees():
         assert nom == "arxiv" or not (dossier / "scripts").exists(), nom
 
 
+# Critère du classement des skills livrées (docs/refonte/catalogue.md § 3.4), relevé dans leur texte.
+# Un LIVRABLE qui exige un outil fermé sur Railway (fichier écrit sur le disque, dépôt git) fait
+# désactiver la skill ; un passage fermé à la marge (recherche par curl, fichier d'état, planification…)
+# la laisse gardée à condition que sa raison au verrou le dise. Relecture de P3 : claude-design
+# (« a complete local HTML file », « Default to local files. ») et hermes-agent-skill-authoring
+# (« Use `write_file` + `git add` ») étaient gardées pour des raisons que leur texte contredit.
+ESSENTIELLES = {"hermes-agent"}
+LIVRABLE_FERME = re.compile(r"local HTML file|on-disk path|Default to local files|Use `write_file`")
+PASSAGES_FERMES = {  # mot que la raison au verrou doit contenir → motif relevé dans le texte
+    "fichier": re.compile(r"\bwrite_file\b|\bread_file\b|state file|local files?\b"),
+    "terminal": re.compile(r"\bcurl\b|\bterminal\b"),
+    "planification": re.compile(r"\bcronjob\b"),
+    "navigateur": re.compile(r"\bbrowser_[a-z]+"),
+    "délégation": re.compile(r"\bdelegate_task\b"),
+    "code": re.compile(r"\bexecute_code\b"),
+}
+
+
+def test_une_skill_livree_gardee_n_a_aucun_livrable_ferme_et_dit_ses_limites():
+    livrees = _noms_reels(Path("/opt/hermes/skills"))
+    raisons = {e["nom"]: e["raison"] for e in VERROU["livrees"]["gardees"]}
+    ecarts, releve = [], []
+    for nom in GARDEES:
+        dossier = Path(livrees[nom][0])
+        texte = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in sorted(dossier.rglob("*.md")))
+        livrable = LIVRABLE_FERME.search(texte)
+        if livrable and nom not in ESSENTIELLES:
+            ecarts.append(f"{nom} : livrable fermé sur Railway (« {livrable.group(0)} ») : à désactiver")
+        passages = {mot: motif.search(texte).group(0) for mot, motif in PASSAGES_FERMES.items() if motif.search(texte)}
+        releve.append(f"{nom:32} {', '.join(f'{m} ({p})' for m, p in passages.items()) or '—'}")
+        for mot, passage in passages.items():
+            if mot not in raisons[nom]:
+                ecarts.append(f"{nom} : son texte cite « {passage} », sa raison au verrou ne dit pas « {mot} »")
+    print("\n".join(releve))
+    assert ecarts == [], "\n".join(ecarts)
+
+
 # =============================================================== réglages du volume (05-acp)
 
 

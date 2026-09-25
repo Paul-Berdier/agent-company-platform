@@ -129,7 +129,7 @@
       "chemin": "acp/acp-profils",
       "fichiers": {
         "SKILL.md": {
-          "sha256": "e99cce231e167b77464423f54e1fb2f0a9871338ae616d12abb1ab720bb1a037"
+          "sha256": "9cc05781b8d327095215c85559df477fe745075c238e03d3877369dd3d19293c"
         }
       },
       "execution": "aucune",
@@ -802,6 +802,10 @@
         "raison": "Pilote Claude Code dans le terminal (relève du poste)."
       },
       {
+        "nom": "claude-design",
+        "raison": "Livrable par défaut : un fichier HTML écrit sur le disque, dont le chemin est cité et vérifié (outil fichiers)."
+      },
+      {
         "nom": "codebase-inspection",
         "raison": "Inspecte un dépôt par commandes du terminal."
       },
@@ -844,6 +848,10 @@
       {
         "nom": "grounded-citations",
         "raison": "Registre des sources tenu par le script scripts/sources.py (terminal)."
+      },
+      {
+        "nom": "hermes-agent-skill-authoring",
+        "raison": "Rédige les skills du dépôt hermes-agent par write_file et git add (fichiers, terminal) ; skill_manage n'en a pas besoin."
       },
       {
         "nom": "himalaya",
@@ -953,35 +961,27 @@
     "gardees": [
       {
         "nom": "arxiv",
-        "raison": "Lecture des articles par web_extract, documentée par la skill."
-      },
-      {
-        "nom": "claude-design",
-        "raison": "Maquettes HTML rendues dans la réponse."
+        "raison": "Lecture des articles par web_extract, documentée par la skill ; sa recherche passe par curl dans le terminal, fermé sur Railway : chercher par web_search, ou par web_extract sur l'URL de l'API d'arXiv (non éprouvé)."
       },
       {
         "nom": "competitor-news-monitor",
-        "raison": "Veille par web_search et web_extract ; la planification (cron) reste refusée."
+        "raison": "Compte rendu ponctuel par web_search et web_extract ; le fichier d'état et la planification (cron) sont fermés sur Railway : aucune veille récurrente."
       },
       {
         "nom": "document-to-action-items",
-        "raison": "Travaille sur un texte fourni ou lu sur le web."
+        "raison": "Travaille sur un texte fourni ou lu sur le web ; la lecture d'un fichier local est fermée sur Railway."
       },
       {
         "nom": "hermes-agent",
-        "raison": "Essentielle : jamais désactivable (agent/skill_utils.py, ESSENTIAL_SKILLS)."
-      },
-      {
-        "nom": "hermes-agent-skill-authoring",
-        "raison": "Rédaction de skills par skill_manage, soumise à validation."
+        "raison": "Essentielle : jamais désactivable (agent/skill_utils.py, ESSENTIAL_SKILLS) ; ses passages sur le terminal, les fichiers, l'exécution de code, la délégation et la planification sont inertes sur Railway."
       },
       {
         "nom": "meeting-action-items",
-        "raison": "Travaille sur des notes fournies."
+        "raison": "Travaille sur des notes collées dans la discussion ; la lecture d'un fichier de notes est fermée sur Railway."
       },
       {
         "nom": "product-price-monitor",
-        "raison": "Veille de prix par le web ; la planification (cron) reste refusée."
+        "raison": "Relevé de prix ponctuel par web_extract ; le navigateur, le fichier d'état et la planification (cron) sont fermés sur Railway : aucune veille récurrente."
       },
       {
         "nom": "songwriting-and-ai-music",
@@ -1072,7 +1072,6 @@
         "design-taste-frontend",
         "minimalist-ui",
         "high-end-visual-design",
-        "claude-design",
         "security-review",
         "accessibility"
       ],

@@ -123,7 +123,7 @@ Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
   greffons `acp-interface` et `acp-catalogue`, verrou du français, décompte des chaînes restées en
   anglais, captures 390×844 et 1440×900 ([interface.md](interface.md)). Seconde partie,
   **réglages prêts**, réalisée côté dépôt : 16 skills livrées (14 vendorisées à des commits
-  épinglés, 2 maison), verrou et vérificateur, 44 skills livrées inertes désactivées, context7
+  épinglés, 2 maison), verrou et vérificateur, 46 skills livrées inertes désactivées, context7
   seul MCP côté Hermes derrière la garde, refus des serveurs MCP stdio ou hors catalogue, route
   `/v1/catalogue` ([catalogue.md](catalogue.md)). Aucune PR ni fusion à ce jour.
 

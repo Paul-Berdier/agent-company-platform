@@ -928,7 +928,7 @@ Même branche `refonte/hermes-p3`, empilée sur `refonte/hermes-p2` ; version 0.
   Hermes, exclusions, texte seul, garde et managed scope ; `--amont` contre les dépôts amont), en
   CI (`ci.yml` hors ligne, `image.yml` `--amont`).
 - **Au démarrage**, `05-acp` écrit dans `/opt/data/config.yaml`, hors managed scope (Hermes les lit
-  sans elle) : `skills.external_dirs`, `skills.disabled` (**44** skills livrées inertes) et une
+  sans elle) : `skills.external_dirs`, `skills.disabled` (**46** skills livrées inertes) et une
   entrée vide `mcp_servers.context7` (sans elle, le tableau de bord ne découvre aucun serveur MCP :
   constaté en contrat). Commentaires, propriétaire et mode gardés ; YAML illisible : rien d'écrit,
   alerte.

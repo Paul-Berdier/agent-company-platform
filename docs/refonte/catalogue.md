@@ -130,17 +130,29 @@ reporté à P8 ».
 Classées une par une au verrou (`livrees`), le vérificateur exige que chacune le soit exactement une
 fois :
 
-- **44 désactivées par ACP** (écrites dans `skills.disabled` du volume) : leur flux principal
-  documenté passe par un outil fermé sur Railway (terminal, fichiers, code, navigateur, cron,
-  délégation) ou par un script. Écarts au cahier : `grounded-citations` (registre des sources tenu
-  par `scripts/sources.py`), `email-inbox-triage` (dépend de `himalaya` et `google-workspace`,
+- **46 désactivées par ACP** (écrites dans `skills.disabled` du volume) : leur livrable ou leur flux
+  principal documenté passe par un outil fermé sur Railway (terminal, fichiers, code, navigateur,
+  cron, délégation) ou par un script. Écarts au cahier : `grounded-citations` (registre des sources
+  tenu par `scripts/sources.py`), `email-inbox-triage` (dépend de `himalaya` et `google-workspace`,
   désactivées) et `spike` (écrit et exécute des prototypes) sont **désactivées**, le cahier les
-  gardait ou les laissait « à confirmer ». Le recensement de l'image (`test_recensement_…`) imprime,
-  pour chaque skill, ses scripts et les outils fermés qu'elle cite.
-- **10 gardées** : `hermes-agent` (essentielle, jamais désactivable), `hermes-agent-skill-authoring`,
-  `arxiv` (lecture par `web_extract`, documentée), `competitor-news-monitor`, `product-price-monitor`
-  (la planification reste refusée), `claude-design`, `songwriting-and-ai-music`,
-  `document-to-action-items`, `meeting-action-items`, `weekly-review-planning`.
+  gardait ou les laissait « à confirmer ». Depuis la relecture de P3, `claude-design` (livrable par
+  défaut : « a complete local HTML file », chemin sur le disque cité et vérifié) et
+  `hermes-agent-skill-authoring` (skills du dépôt hermes-agent écrites par « `write_file` + `git
+  add` » ; `skill_manage` n'en a pas besoin) le sont aussi : leurs raisons de P3 contredisaient leur
+  texte. Le recensement de l'image (`test_recensement_…`) imprime, pour chaque skill, ses scripts
+  et les outils fermés qu'elle cite.
+- **8 gardées**, chacune avec une raison au verrou qui dit ce qui reste fermé :
+  `hermes-agent` (essentielle, jamais désactivable ; ses passages sur le terminal, les fichiers,
+  le code, la délégation et la planification sont inertes), `arxiv` (lecture par `web_extract`,
+  documentée ; sa **recherche** est documentée par `curl`, fermé : `acp-profils` fait chercher par
+  la recherche web, non éprouvé), `competitor-news-monitor` et `product-price-monitor` (compte rendu
+  ou relevé **ponctuel** ; fichier d'état, navigateur et planification fermés : aucune veille
+  récurrente), `document-to-action-items` et `meeting-action-items` (texte fourni ou collé ; lecture
+  de fichier fermée), `songwriting-and-ai-music`, `weekly-review-planning`. Le test
+  `test_une_skill_livree_gardee_n_a_aucun_livrable_ferme_et_dit_ses_limites` relève dans leur texte
+  les livrables fermés (fichier HTML local, `write_file`) et les passages fermés (`curl`,
+  `read_file`, fichier d'état, `cronjob`, `browser_*`, `delegate_task`, `execute_code`) : un
+  livrable fermé refuse la skill gardée, un passage fermé exige que sa raison le dise.
 - **4 réservées à macOS**, filtrées par Hermes sous Linux : `apple-notes`, `apple-reminders`,
   `findmy`, `imessage`.
 
@@ -155,7 +167,7 @@ vérificateur exige qu'elle nomme chacun) ; `projet_lancer` (P4) les appliquera 
 | Profil | Skills côté Hermes | MCP côté Hermes | Poste (P8, reporté) |
 |---|---|---|---|
 | `base` | `acp-redaction`, `acp-profils`, `hermes-agent` | context7 | — |
-| `web` | base + `emil-design-eng`, `apple-design`, `mobile-native`, `animate`, `animation-vocabulary`, `pick-ui-library`, `ask-sonner`, `design-taste-frontend`, `minimalist-ui`, `high-end-visual-design`, `claude-design`, `security-review`, `accessibility` | context7 | skills du § 3.2, Playwright MCP, Figma |
+| `web` | base + `emil-design-eng`, `apple-design`, `mobile-native`, `animate`, `animation-vocabulary`, `pick-ui-library`, `ask-sonner`, `design-taste-frontend`, `minimalist-ui`, `high-end-visual-design`, `security-review`, `accessibility` | context7 | skills du § 3.2, Playwright MCP, Figma |
 | `recherche` | base + `arxiv`, `competitor-news-monitor` | context7 | — |
 | `donnees` | base + `mle-workflow`, `python-patterns` | context7 | — |
 
@@ -184,7 +196,7 @@ verrou mis à jour (le vérificateur affiche l'empreinte et le blob attendus en 
 ## 6. Au démarrage (`05-acp`)
 
 `appliquer_reglages_skills` garantit dans `/opt/data/config.yaml` : `skills.external_dirs` =
-`/opt/acp/skills` en tête (entrées du propriétaire gardées), `skills.disabled` ⊇ les 44 skills
+`/opt/acp/skills` en tête (entrées du propriétaire gardées), `skills.disabled` ⊇ les 46 skills
 désactivées (entrées du propriétaire gardées), `mcp_servers.context7` présent (vide). Écriture
 **seulement si quelque chose change**, atomique, propriétaire et mode conservés (`hermes:hermes
 0640`), par le même chargeur « aller-retour » que Hermes (`ruamel.yaml`) : les commentaires restent ;
@@ -306,7 +318,7 @@ dans l'image épinglée ; aucune image altérée n'a été construite pour cette
 
 | Protection | Témoin : sans elle… |
 |---|---|
-| Réglages écrits par `05-acp` dans le volume | `test_temoin_sans_les_reglages_les_skills_acp_sont_absentes` : aucune skill d'ACP chargée, les 44 inertes offertes |
+| Réglages écrits par `05-acp` dans le volume | `test_temoin_sans_les_reglages_les_skills_acp_sont_absentes` : aucune skill d'ACP chargée, les 46 inertes offertes |
 | Réglages hors managed scope | `test_temoin_c1_external_dirs_en_managed_scope_est_ignore` : épinglés, le chargeur ne les voit pas |
 | `context7` dans `platform_toolsets.cli` | `test_temoin_sans_context7_dans_la_liste_cli_aucun_outil` : aucune surface n'offre context7 |
 | `tools.include` | `test_temoin_sans_tools_include_l_outil_piege_est_offert` : l'outil piège est offert |
@@ -325,6 +337,10 @@ non bloquante de `image.yml`, sortie en artefact `sonde-context7`.
 - context7 **depuis Railway** (sortie réseau, limites de débit), et son usage réel par un vrai
   modèle : à relever ([railway.md](railway.md) § 7) ; conditions du service non lues.
 - Premier tour d'une première session du tableau de bord : context7 peut manquer (§ 7.1).
+- Skills livrées gardées à usage partiel (§ 3.4) : la recherche d'`arxiv` est documentée par
+  `curl` (terminal fermé) ; la chercher par `web_search`, ou par `web_extract` sur l'URL de l'API
+  d'arXiv, n'est pas éprouvé. `competitor-news-monitor` et `product-price-monitor` ne servent qu'à
+  un compte rendu ponctuel (ni fichier d'état, ni planification).
 - La qualité des plans avec les skills vendorisées : non mesurable avant P4. Hermes pousse le
   modèle à charger toute skill « même partiellement pertinente » ; `design-taste-frontend` fait
   87 Kio.

@@ -24,8 +24,9 @@ Base, plus :
 - mouvement : `animate`, `animation-vocabulary` ;
 - choix de bibliothèques : `pick-ui-library`, `ask-sonner` ;
 - direction visuelle : `design-taste-frontend`, `minimalist-ui`, `high-end-visual-design` ;
-- maquette HTML autonome : `claude-design` ;
 - solidité : `security-review`, `accessibility`.
+
+Une maquette HTML se donne en entier dans la réponse : aucun fichier ne s'écrit sur Railway.
 
 Reporté au poste (étape P8, pas encore disponible) : `find-animation-opportunities`, `improve-animations`, `review-animations`, `prototype`, `redesign-existing-projects`, `production-audit`, `browser-qa`, `e2e-testing`, `canary-watch`, `benchmark`, et les serveurs MCP Playwright et Figma. Ils lisent le code d'un dépôt, pilotent un navigateur ou mesurent un site déployé.
 
@@ -33,7 +34,7 @@ Reporté au poste (étape P8, pas encore disponible) : `find-animation-opportun
 
 Base, plus : `arxiv`, `competitor-news-monitor`.
 
-Cite chaque source par son adresse et distingue ce qui est établi de ce qui est supposé. Une veille planifiée (tâche récurrente) n'est pas disponible sur Railway : propose un compte rendu ponctuel.
+Cite chaque source par son adresse et distingue ce qui est établi de ce qui est supposé. Une veille planifiée (tâche récurrente, fichier d'état) n'est pas disponible sur Railway : propose un compte rendu ponctuel. `arxiv` documente sa recherche par `curl`, qui exige le terminal : cherche plutôt par la recherche web, lis les articles par `web_extract`, et dis-le si la recherche n'aboutit pas.
 
 ## Données
 

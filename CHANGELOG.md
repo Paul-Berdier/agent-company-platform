@@ -176,7 +176,7 @@ Seconde partie : réglages prêts (`docs/refonte/catalogue.md`).
   les 58 skills livrées et les 150 optionnelles de Hermes, texte seul, cohérence avec la garde et la
   managed scope ; `--amont` compare chaque fichier au dépôt amont), en CI ;
 - au démarrage, `05-acp` écrit dans `/opt/data/config.yaml` (Hermes les lit sans la managed scope)
-  `skills.external_dirs`, `skills.disabled` (44 skills livrées inertes sur Railway) et une entrée
+  `skills.external_dirs`, `skills.disabled` (46 skills livrées inertes sur Railway) et une entrée
   `mcp_servers.context7`, en gardant commentaires, propriétaire et mode ;
 - context7, seul serveur MCP côté Hermes, **distant** : huit épingles (managed scope à 50 clés),
   `context7` dans `platform_toolsets.cli`, deux outils de plus dans la garde (26) ; échantillonnage
