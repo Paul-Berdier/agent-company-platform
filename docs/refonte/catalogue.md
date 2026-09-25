@@ -245,7 +245,9 @@ Risques dits : la sortie et la description des outils viennent d'un tiers (Herme
 « donnée non fiable », `<untrusted_tool_result>`) ; les questions envoyées révèlent le sujet du
 projet à Upstash ; limites de débit anonymes partagées par l'adresse de sortie de Railway ; la
 version du serveur distant n'est pas épinglable (noms d'outils vérifiés par la sonde) ; **les
-conditions d'utilisation du service n'ont pas été lues**. Aucune clé d'API (D11). La première
+conditions d'utilisation du service n'ont pas été lues**. Depuis la relecture de P3, les lire et
+consigner la décision est un **prérequis du premier déploiement** ([railway.md](railway.md) § 2,
+point 6, rappelé au § 4.1) ; à défaut, une PR retire context7 du catalogue avant le déploiement. Aucune clé d'API (D11). La première
 connexion au vrai serveur a pris **2,46 s** ; le tableau de bord n'attend la découverte que
 1,5 s (`mcp_discovery_timeout`) avant de figer les outils d'une session : context7 peut manquer au
 premier tour d'une toute première session et rejoindre la suivante (rafraîchissement de Hermes
@@ -363,7 +365,8 @@ non bloquante de `image.yml`, sortie en artefact `sonde-context7`.
 ## 10. Limites et ce qui n'est pas prouvé
 
 - context7 **depuis Railway** (sortie réseau, limites de débit), et son usage réel par un vrai
-  modèle : à relever ([railway.md](railway.md) § 7) ; conditions du service non lues.
+  modèle : à relever ([railway.md](railway.md) § 7) ; conditions du service non lues : prérequis du
+  premier déploiement ([railway.md](railway.md) § 2, point 6).
 - Premier tour d'une première session du tableau de bord : context7 peut manquer (§ 7.1).
 - Skills livrées gardées à usage partiel (§ 3.4) : la recherche d'`arxiv` est documentée par
   `curl` (terminal fermé) ; la chercher par `web_search`, ou par `web_extract` sur l'URL de l'API

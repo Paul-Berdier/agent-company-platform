@@ -140,6 +140,16 @@ URL **publique** ; le domaine privé `*.railway.internal` est refusé par les de
      (`rm -rf /dev/shm/acp-cle`) et le support démonté ; jamais de copie sous `~/.ssh` ni sur le
      disque du compte des agents.
 5. **Docker Desktop** sous Windows, pour calculer l'empreinte du mot de passe (§ 5.1).
+6. **Conditions d'utilisation de context7, lues et consignées** (relecture de P3). context7 est
+   **activé par défaut** dans l'image (seul serveur MCP côté Hermes, accès anonyme, sans clé :
+   [catalogue.md](catalogue.md) § 7.1) : dès la première discussion, les questions de l'agent
+   partent chez Upstash, depuis l'adresse de sortie de Railway. **Personne ne les a lues** pendant
+   P3, et un agent ne les interprète pas pour vous. Avant le premier déploiement : lisez-les
+   (la page d'accueil de context7.com renvoie à `https://upstash.com/docs/common/help/legal`,
+   relevé le 25/09/2026), vérifiez qu'elles admettent un usage anonyme, automatisé, depuis un
+   hébergeur, et consignez la date, l'adresse lue et votre décision dans `docs/reprise-poste.md`.
+   Si elles ne l'admettent pas, ou dans le doute : **pas de déploiement** avant une PR qui retire
+   context7 du catalogue (verrou, épingles de la managed scope, liste de la plateforme cli, garde).
 
 ---
 
@@ -229,6 +239,8 @@ politique de redémarrage, limites des répliques), consignez-le dans `docs/repr
 Chaque étape se termine par un contrôle ; au moindre écart, arrêt et retour au § 10.
 
 ### 4.1 Choisir les deux libellés, puis les écrire par une PR
+
+Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues et consignées.
 
 1. Choisissez deux libellés DNS **distincts**, par exemple `acp-hermes-<6 caractères aléatoires>`
    et `acp-identite-<6 caractères aléatoires>` (a-z, 0-9, tirets ; 63 caractères au plus). Ils
