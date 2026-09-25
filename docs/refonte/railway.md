@@ -405,13 +405,15 @@ seulement ; il relit l'environnement du PID 1, jamais celui de la session) :
 
 ## 6. Cerveau de Hermes : openai-codex
 
-1. Connecté au tableau de bord Hermes : **Clés** → **Connexions fournisseurs (OAuth)** →
-   `openai-codex` → **Connexion** : Hermes affiche un **code d'appareil** et l'adresse où le saisir.
+1. Connecté au tableau de bord Hermes : **Clés** (« Keys » si l'interface est en anglais) →
+   **Connexions fournisseurs (OAuth)** → `openai-codex` → **Connexion** (« Login ») : Hermes
+   affiche un **code d'appareil** et l'adresse où le saisir (routes
+   `/api/providers/oauth/openai-codex/start` puis `…/poll/…`).
 2. Ouvrez l'adresse avec **votre** compte ChatGPT et saisissez le code. Si OpenAI refuse (« device-code
    authorization » non activée), activez l'autorisation par code d'appareil dans les paramètres de
    votre compte OpenAI, puis recommencez (message prévu par Hermes,
    `hermes_cli/web_routers/oauth.py:68-85`).
-3. **Modèles** : choisissez le modèle par défaut.
+3. **Modèles** (« Models ») : choisissez le modèle par défaut.
 4. Discussion : « Exécute `id` dans un terminal » → **refus attendu** : l'agent n'a aucun outil
    d'exécution sur Railway ([image.md](image.md) § 5).
 
@@ -497,7 +499,9 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
   `gh run list --workflow image.yml --commit <sha de tête>` → `success` : la doc dit tantôt qu'il
   déploie la branche connectée (rw_full.txt:29653), tantôt la branche par défaut du dépôt
   (rw_full.txt:29564, 52330) ; vérifiez le SHA déployé dans le journal.
-- **Rollback** : restaure l'image et les variables d'un déploiement précédent, pas le volume.
+- **Rollback** : restaure l'image et les variables d'un déploiement précédent
+  (rw_full.txt:29547-29548) ; la doc ne dit rien du volume, qui reste celui du service (supposé) :
+  des données écrites par une version plus récente peuvent ne pas être relues par l'ancienne.
 - Chaque déploiement : preuve du § 7 point 2.
 
 **Sauvegardes.** Quotidienne (6 jours) et hebdomadaire (27 jours), plus une manuelle avant toute
