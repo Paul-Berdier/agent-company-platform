@@ -200,6 +200,10 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
                 "getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()")
             assert str(bilan["primaire"]).lower() == primaire, bilan["primaire"]
             bilan["accueil"] = _verifier_page_acp(page, "accueil", format_, catalogue)
+            # Étape P3 (seconde partie) : résumé du catalogue servi par /v1/meta (16 skills d'ACP actives).
+            carte_catalogue = page.inner_text("#acp-accueil-catalogue >> xpath=..")
+            bilan["accueil_catalogue"] = carte_catalogue
+            assert re.search(r"(?<!\d)16(?!\d).*(?<!\d)16(?!\d)", carte_catalogue, re.S), carte_catalogue
             capture(page, "accueil")
 
             # Verrou : « en » forcé, page rechargée ⇒ retour au français.
@@ -216,8 +220,17 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             page.goto(f"{URL_HERMES}/catalogue")
             _attendre_page_acp(page, "catalogue")
             assert page.inner_text('[data-acp-racine="catalogue"] h1') == "Catalogue"
+            # Étape P3 (seconde partie) : la route /v1/catalogue d'acp-poste est servie ; chaque skill
+            # d'ACP est affichée, avec son état vu par le chargeur de Hermes.
+            page.wait_for_selector("#acp-catalogue-skills >> xpath=.. >> li.acp-entree")
             bilan["catalogue_route_v1"] = ("indisponible" if page.locator(
                 '[data-acp-racine="catalogue"] .acp-erreur').count() else "servie")
+            assert bilan["catalogue_route_v1"] == "servie"
+            entrees = page.locator("#acp-catalogue-skills >> xpath=.. >> li.acp-entree")
+            bilan["catalogue_entrees"] = entrees.count()
+            assert entrees.count() == 26, entrees.count()  # 16 livrées dans l'image + 10 reportées au poste
+            texte_catalogue = page.inner_text('[data-acp-racine="catalogue"]')
+            assert "acp-redaction" in texte_catalogue and "context7" in texte_catalogue
             bilan["catalogue"] = _verifier_page_acp(page, "catalogue", format_, catalogue)
             capture(page, "catalogue")
 
