@@ -1,9 +1,15 @@
 """Autorité de certification JETABLE pour l'image de test : jamais dans l'image Railway.
 
-Crée, dans le répertoire donné : ``ac.pem`` (autorité), ``idp.pem`` et ``idp.key``
-(certificat du faux fournisseur d'identité ``idp.acp.test``). Utilisé à la construction de
-l'image de test, qui ajoute ``ac.pem`` au magasin certifi de Hermes pour que le tableau de
-bord fasse confiance au faux fournisseur, exactement comme à un vrai.
+Crée, dans le répertoire donné :
+- ``ac.pem`` (autorité) ;
+- ``idp.pem`` et ``idp.key`` : certificat du faux fournisseur d'identité ``idp.acp.test`` ;
+- ``bord.pem`` et ``bord.key`` : certificat du bord factice (``bord_factice.py``), qui imite le
+  bord TLS de Railway pour ``hermes-acp.test`` et ``identite-acp.test``. Ces deux noms ont des
+  domaines enregistrables DISTINCTS, comme deux sous-domaines de ``up.railway.app`` (suffixe
+  public) : le navigateur les traite en sites différents, exactement comme sur Railway.
+
+Utilisé à la construction de l'image de test, qui ajoute ``ac.pem`` au magasin du système pour que
+le tableau de bord fasse confiance au faux fournisseur et au bord, exactement comme à de vrais.
 
 Usage : python generer_ac_test.py <répertoire>
 """
@@ -20,6 +26,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 HOTE_IDP = "idp.acp.test"
+HOTES_BORD = ("hermes-acp.test", "identite-acp.test")
 
 
 def _nom(texte: str) -> x509.Name:
@@ -49,27 +56,35 @@ def main(repertoire: str) -> int:
         .sign(cle_ac, hashes.SHA256())
     )
 
-    cle_idp = ec.generate_private_key(ec.SECP256R1())
-    idp = (
-        x509.CertificateBuilder()
-        .subject_name(_nom(HOTE_IDP))
-        .issuer_name(ac.subject)
-        .public_key(cle_idp.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(maintenant - dt.timedelta(minutes=5))
-        .not_valid_after(maintenant + dt.timedelta(days=30))
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(HOTE_IDP)]), critical=False)
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
-        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(cle_ac.public_key()), critical=False)
-        .sign(cle_ac, hashes.SHA256())
-    )
+    def feuille(hotes) -> tuple:
+        cle = ec.generate_private_key(ec.SECP256R1())
+        certificat = (
+            x509.CertificateBuilder()
+            .subject_name(_nom(hotes[0]))
+            .issuer_name(ac.subject)
+            .public_key(cle.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(maintenant - dt.timedelta(minutes=5))
+            .not_valid_after(maintenant + dt.timedelta(days=30))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(h) for h in hotes]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(cle_ac.public_key()), critical=False)
+            .sign(cle_ac, hashes.SHA256())
+        )
+        return certificat, cle
+
+    idp, cle_idp = feuille((HOTE_IDP,))
+    bord, cle_bord = feuille(HOTES_BORD)
 
     (sortie / "ac.pem").write_bytes(ac.public_bytes(serialization.Encoding.PEM))
     (sortie / "idp.pem").write_bytes(idp.public_bytes(serialization.Encoding.PEM))
     (sortie / "idp.key").write_bytes(cle_idp.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-    print(f"AC de test et certificat {HOTE_IDP} écrits dans {sortie}")
+    (sortie / "bord.pem").write_bytes(bord.public_bytes(serialization.Encoding.PEM))
+    (sortie / "bord.key").write_bytes(cle_bord.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    print(f"AC de test et certificats {HOTE_IDP}, {', '.join(HOTES_BORD)} écrits dans {sortie}")
     return 0
 
 
