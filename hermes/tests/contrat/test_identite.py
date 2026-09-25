@@ -65,6 +65,9 @@ GIO = 1024 ** 3
 # fixée d'après test_memoire_premier_facteur_concurrent : le pic mesuré sous 20 premiers facteurs
 # simultanés (~1,35 Gio localement) doit rester sous les deux tiers de la limite.
 LIMITE_MEMOIRE_OCTETS = int(2.5 * GIO)
+# argon2id m=65536 Kio (identite/configuration.yml) : chaque vérification en cours alloue 64 Mio.
+PENTE_VERIFICATION_OCTETS = 64 * 1024 * 1024
+ESSAIS_PAR_RAFALE = 3
 ENV_RAILWAY = {"RAILWAY_ENVIRONMENT_ID": "env-contrat", "RAILWAY_SERVICE_ID": "svc-contrat",
                "RAILWAY_DEPLOYMENT_ID": "dep-contrat", "RAILWAY_VOLUME_MOUNT_PATH": "/config",
                "RAILWAY_RUN_UID": "0"}
@@ -649,6 +652,26 @@ def _gio(octets: int) -> str:
     return f"{octets / GIO:.3f} Gio ({octets} octets)"
 
 
+def rafale_simultanee(avant: int, apres: int, n: int) -> bool:
+    """Vrai si le RSS maximal d'Authelia (VmHWM) a monté d'au moins les TROIS QUARTS de n × 64 Mio :
+    la rafale a vraiment chargé de l'ordre de n vérifications argon2id SIMULTANÉES. Sinon (vérifications
+    qui se succèdent sur 0,5 vCPU, ou court-circuitées par la régulation une fois le compte banni après
+    5 échecs), le pic ne dit rien de ce que coûtent n premiers facteurs simultanés, et le critère de la
+    limite passerait sans avoir rien mesuré (relecture de P3)."""
+    return apres - avant >= n * PENTE_VERIFICATION_OCTETS * 3 // 4
+
+
+def test_critere_de_simultaneite_refuse_une_rafale_qui_n_a_pas_charge_n_verifications():
+    """Relevés réels : image.yml 36134351025 (rafale de 20 : VmHWM 578 174 976 octets, 107 040 768
+    avant, soit ~7 vérifications de 64 Mio) que le critère posé par ec43987 (« après > avant »)
+    acceptait ; poste du 25/09/2026 (rafale de 20 : 1 447 444 480 octets, 98 832 384 avant ; rafale
+    de 10 : 780 206 080 octets, 106 135 552 avant)."""
+    assert 578174976 > 107040768  # ce qu'exigeait le critère d'ec43987 : satisfait par ce run
+    assert not rafale_simultanee(107040768, 578174976, 20)
+    assert rafale_simultanee(98832384, 1447444480, 20)
+    assert rafale_simultanee(106135552, 780206080, 10)
+
+
 def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, empreinte_argon2):
     """10 puis 20 POST /api/firstfactor SIMULTANÉS, identifiant du propriétaire et mauvais mot de
     passe, à travers le bord ; conteneur limité à 0,5 vCPU comme sur Railway, SANS limite mémoire
@@ -657,24 +680,37 @@ def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, e
     d'Authelia, PID 1) et memory.peak (pic du cgroup, ce que compare le tueur OOM). Le plan
     demandait un échantillonnage par docker stats toutes les 200 ms : ces deux compteurs du noyau
     donnent le pic exact, sans échantillonnage. Témoin : sous 1 Go sans échange, la rafale de 20
-    tue Authelia (OOM)."""
+    tue Authelia (OOM).
+
+    Une rafale ne compte que si elle a vraiment chargé ~n vérifications SIMULTANÉES
+    (rafale_simultanee) : sinon elle est refaite sur un conteneur neuf, jusqu'à trois essais, tous
+    rapportés ; aucun essai simultané ⇒ échec (mesure non établie), jamais un pic bas accepté."""
     reseau = pile.reseau()
     bord, _ = pile.lancer_bord(image_tests, reseau, routes={HOTE_IDENTITE: "identite-interne:9091"})
     mesures = {}
+    essais_rafales: Dict[int, List[dict]] = {}
     for n in (10, 20):
-        identite = pile.lancer_identite(image_identite, env_identite(empreinte_argon2), reseau=reseau,
-                                        options=("--cpus", "0.5"))
-        avant = _memoire(identite)
-        sortie = docker("exec", bord, "/opt/hermes/.venv/bin/python", "/opt/acp-tests/outils/client_identite.py",
-                        "rafale", "--n", str(n), "--utilisateur", UTILISATEUR, "--mot-de-passe", "mauvais-mot-de-passe",
-                        delai=600).stdout
-        rafale = json.loads(sortie)
-        apres = _memoire(identite)
-        vivant = docker("inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}", identite).stdout.strip()
-        mesures[n] = {"avant": avant, "apres": apres, "etat": vivant,
-                      "codes": sorted({r["statut"] for r in rafale["resultats"]}),
-                      "duree_max_s": max(r["duree_s"] for r in rafale["resultats"])}
-        docker("rm", "-f", identite)
+        essais_rafales[n] = []
+        for _ in range(ESSAIS_PAR_RAFALE):
+            identite = pile.lancer_identite(image_identite, env_identite(empreinte_argon2), reseau=reseau,
+                                            options=("--cpus", "0.5"))
+            avant = _memoire(identite)
+            sortie = docker("exec", bord, "/opt/hermes/.venv/bin/python", "/opt/acp-tests/outils/client_identite.py",
+                            "rafale", "--n", str(n), "--utilisateur", UTILISATEUR, "--mot-de-passe",
+                            "mauvais-mot-de-passe", delai=600).stdout
+            rafale = json.loads(sortie)
+            apres = _memoire(identite)
+            vivant = docker("inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}",
+                            identite).stdout.strip()
+            docker("rm", "-f", identite)
+            essai = {"avant": avant, "apres": apres, "etat": vivant,
+                     "codes": sorted({r["statut"] for r in rafale["resultats"]}),
+                     "duree_max_s": max(r["duree_s"] for r in rafale["resultats"]),
+                     "simultanee": rafale_simultanee(avant["VmHWM"], apres["VmHWM"], n)}
+            essais_rafales[n].append(essai)
+            mesures[n] = essai
+            if essai["simultanee"]:
+                break
     # Témoin : sous la limite de 1 Go envisagée au départ (sans échange), une rafale de 20 PEUT tuer
     # Authelia. Le pic dépend de l'entrelacement des vérifications sur 0,5 vCPU : sur la CI, le
     # témoin a survécu une fois (image.yml 36118860946, étape P3) après plusieurs morts constatées.
@@ -696,9 +732,12 @@ def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, e
             break
     pic_20 = max(mesures[20]["apres"]["VmHWM"], mesures[20]["apres"]["cgroup_peak"])
     pic_10 = max(mesures[10]["apres"]["VmHWM"], mesures[10]["apres"]["cgroup_peak"])
-    rapport = [f"rafale de {n} : RSS maximal (VmHWM) {_gio(m['apres']['VmHWM'])} ; pic du cgroup "
-               f"{_gio(m['apres']['cgroup_peak'])} ; avant la rafale {_gio(m['avant']['VmHWM'])} ; codes {m['codes']} ; "
-               f"réponse la plus lente {m['duree_max_s']} s ; état {m['etat']}" for n, m in mesures.items()]
+    rapport = [f"rafale de {n}, essai {i} : RSS maximal (VmHWM) {_gio(m['apres']['VmHWM'])} ; pic du cgroup "
+               f"{_gio(m['apres']['cgroup_peak'])} ; avant la rafale {_gio(m['avant']['VmHWM'])} ; hausse "
+               f"{(m['apres']['VmHWM'] - m['avant']['VmHWM']) / PENTE_VERIFICATION_OCTETS:.1f} × 64 Mio "
+               f"({'simultanée' if m['simultanee'] else 'NON simultanée'}, au moins {n * 3 / 4:g} exigées) ; "
+               f"codes {m['codes']} ; réponse la plus lente {m['duree_max_s']} s ; état {m['etat']}"
+               for n, essais in essais_rafales.items() for i, m in enumerate(essais, 1)]
     rapport.append("témoin, limite de 1 Gio sans échange, rafale de 20, état (en marche, tué par OOM, code) : "
                    + " ; ".join(f"essai {i} {e}" for i, e in enumerate(essais_temoin, 1)))
     rapport.append(f"limite RETENUE pour railway.ts (service identite) : {_gio(LIMITE_MEMOIRE_OCTETS)} ; "
@@ -706,15 +745,16 @@ def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, e
     railway_ts = RACINE_DEPOT / ".railway" / "railway.ts"
     rapport.append(f".railway/railway.ts : {'présent' if railway_ts.exists() else 'absent de cette branche (étape suivante)'}")
     afficher("mémoire d'Authelia sous premiers facteurs simultanés (argon2id m=65536, t=3, p=4)", "\n".join(rapport))
+    for n, essais in essais_rafales.items():
+        for m in essais:
+            assert m["codes"] == [401], (n, m)
+            assert m["etat"] == "true false 0", (n, m)
+    # Chaque rafale retenue a chargé ~n vérifications SIMULTANÉES (relecture de P3 : le critère « après >
+    # avant » posé par ec43987 acceptait la rafale de 20 de image.yml 36134351025, ~7 vérifications).
+    # L'ordre des deux pics n'est pas exigé ; le critère de la limite vaut pour le plus haut des deux.
     for n, m in mesures.items():
-        assert m["codes"] == [401], (n, m)
-        assert m["etat"] == "true false 0", (n, m)
-    # Chaque rafale a bien consommé de la mémoire. L'ORDRE des deux pics n'est pas garanti : il dépend
-    # de l'entrelacement des vérifications sur 0,5 vCPU (CI image.yml 36134351025 : 0,725 Gio à 10,
-    # 0,538 Gio à 20, alors que le poste mesure 0,726 et 1,346 Gio). Le critère de la limite vaut
-    # donc pour le plus haut des deux pics.
-    for m in mesures.values():
-        assert m["apres"]["VmHWM"] > m["avant"]["VmHWM"], m
+        assert m["simultanee"], (f"rafale de {n} : aucun des {len(essais_rafales[n])} essais n'a chargé "
+                                 f"{n * 3 / 4:g} vérifications simultanées ; mesure non établie", essais_rafales[n])
     assert etat_temoin.startswith("false true"), essais_temoin
     assert max(pic_10, pic_20) <= LIMITE_MEMOIRE_OCTETS * 2 // 3
     assert LIMITE_MEMOIRE_OCTETS >= GIO
