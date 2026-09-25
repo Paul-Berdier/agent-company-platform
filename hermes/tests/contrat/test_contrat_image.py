@@ -53,7 +53,12 @@ def test_version_de_hermes_et_condensat_epingle(image):
     afficher("condensat épinglé", f"{ligne_from}\nprovenance : {provenance}\nCmd : {config['Cmd']}\n"
                                    f"Entrypoint : {config['Entrypoint']}")
     assert config["Cmd"] == ["gateway", "run"]
-    assert config["Entrypoint"] == ["/opt/hermes/docker/entrypoint-dispatch.sh"]
+    # Étape P2 : l'ENTRYPOINT officiel est enveloppé par acp-entree (refus hors PID 1).
+    assert config["Entrypoint"] == ["/opt/acp/bin/acp-entree"]
+    entree = docker("run", "--rm", "--entrypoint", "sh", image, "-c",
+                    "stat -c '%U:%G %a' /opt/acp/bin/acp-entree && tail -1 /opt/acp/bin/acp-entree",
+                    verifier=True).stdout.splitlines()
+    assert entree == ["root:root 755", 'exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"']
     assert "S6_BEHAVIOUR_IF_STAGE2_FAILS=2" in config["Env"]
     assert "S6_STAGE2_HOOK=/opt/acp/bin/acp-gardes" in config["Env"]
 
@@ -196,6 +201,9 @@ def test_pid1_est_s6_et_les_gardes_ont_tourne(hermes_en_marche):
     assert "info: hook /opt/acp/bin/acp-gardes exited 0" in journal
     assert "cont-init: info: /etc/cont-init.d/05-acp exited 0" in journal
     assert "[acp] variables validées" in journal
+    # Étape P2 : bandeau de la managed scope et commit déployé (inconnu hors Railway).
+    assert "[acp] managed scope régénérée : 40 clés de configuration et 38 variables épinglées" in journal
+    assert "[acp] commit déployé : inconnu" in journal
 
 
 def test_passerelle_et_tableau_de_bord_tournent_sous_l_uid_hermes(hermes_en_marche):
@@ -249,7 +257,8 @@ def test_les_cles_epinglees_sont_visibles_et_immuables(hermes_en_marche):
     bandeau = "\n".join(l for l in config.splitlines() if "managed" in l.lower())
     afficher("hermes config (bandeau de la managed scope)", bandeau)
     for cle in ("kanban.auto_decompose", "kanban.dispatch_profiles", "approvals.mode", "plugins.enabled",
-                "plugins.disabled", "plugins.allow_deprecated_imports", "dashboard.oauth.self_hosted.issuer"):
+                "plugins.disabled", "plugins.allow_deprecated_imports", "dashboard.oauth.self_hosted.issuer",
+                "agent.disabled_toolsets", "platform_toolsets.cli", "hooks_auto_accept"):
         assert cle in bandeau, cle
     valeurs = {}
     for cle in ("kanban.auto_decompose", "approvals.mode", "plugins.allow_deprecated_imports",
@@ -433,7 +442,12 @@ def test_la_meta_repond_avec_une_session_oidc(pile):
     assert meta["openrpc"]["identique"] is True and meta["openrpc"]["info_version"] == "1"
     assert meta["image"]["condensat_index"] == EPINGLE["HERMES_IMAGE_INDEX"]
     assert meta["demarrage"]["soul"]["etat"] == "depose"
-    assert meta["alertes"] == []
+    # Étape P2 : garde d'exécution présente dans le processus du tableau de bord ; en bouclage
+    # local (http), la seule alerte est celle du schéma vu (cookies sans Secure).
+    assert meta["garde_execution"]["presente_dans_le_gestionnaire"] is True
+    assert meta["garde_execution"]["alerte"] is None
+    assert meta["reseau"]["schema_vu"] == "http"
+    assert len(meta["alertes"]) == 1 and "en « http » et non en https" in meta["alertes"][0]
 
 
 @pytest.mark.parametrize("reclamations", [{"cle": "autre"}, {"aud": "intrus"}, {"iss": "https://intrus.example"}])
@@ -482,7 +496,9 @@ print(c.status, c.assignee, c.claim_lock, c.worker_pid, int(time.time()) - c.cre
 """, utilisateur="hermes", env={"HERMES_HOME": "/opt/data"}, verifier=True).stdout.split()
     journal_gateway = pile.sh("grep -h 'kanban dispatcher: embedded' /opt/data/logs/gateways/default/current "
                               "/opt/data/logs/*.log 2>/dev/null | tail -1").stdout.strip()
-    requetes = [json.loads(l) for l in pile.sh("cat /tmp/modele-factice.jsonl 2>/dev/null",
+    # Journal absent = aucune requête reçue. Constaté localement le 25/09/2026 sur l'image P2 :
+    # aucune sonde de métadonnées pendant cette fenêtre, le fichier n'existait pas encore.
+    requetes = [json.loads(l) for l in pile.sh("cat /tmp/modele-factice.jsonl 2>/dev/null || true",
                                                 verifier=True).stdout.splitlines() if l.strip()]
     appels = [r for r in requetes if r["methode"] == "POST" and r["chemin"].endswith("/chat/completions")]
     afficher("carte en triage sur le tableau poste",
