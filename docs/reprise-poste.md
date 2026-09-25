@@ -758,6 +758,19 @@ pytest 9.1.1, Python 3.12.10, Node 24.19.0) :
 - `git diff --check` propre ; aucun conteneur, volume ni réseau restant (comparaison avant et
   après).
 
+Intégration continue des corrections (branche poussée le 25/09/2026, sommet `5e77686`) :
+- `image.yml` [36104820150](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36104820150)
+  **succès** : Node v22.23.2, `tsc` et `verifier.mjs` verts (dont « autre projet lié » et « projet
+  lié inconnu » refusés) ; condensats de Hermes et d'Authelia confirmés ; **242** réussis dans
+  l'image, **103** au contrat, **1** au navigateur (Chromium téléchargé par la CI) ; 0 échec,
+  0 ignoré ; mémoire d'Authelia 0,727 Gio à 10, 1,287 Gio à 20 (51,5 % de la limite) ; étape
+  finale : « Aucun conteneur, volume ni réseau acp-contrat-* ne restait. » ;
+- `ci.yml` [36104820007](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36104820007)
+  **succès** : poste Windows **282 réussis** ; poste Linux **273 réussis, 9 ignorés** (les 9 tests
+  propres à Windows déjà notés en P0) ; moteur gelé, 74 tests.
+- Un seul push pour les neuf commits : la CI n'a tourné que sur le sommet, pas sur chaque commit
+  intermédiaire (les suites locales complètes aussi, sur l'arbre final).
+
 Non vérifié après la relecture (en plus de la liste ci-dessus) : aucune des attaques en direct sur
 Authelia que la relecture de sécurité a laissées de côté (second sujet, jeton d'une autre audience,
 rafraîchissement : couvertes par les tests existants, non rejouées en attaque) ; la recherche de
