@@ -50,6 +50,8 @@ name: Image Hermes
 #   Rien n'est planifié ni appliqué ici : `railway config plan/apply` reste au propriétaire seul.
 #
 # Étape P3, interface française (docs/refonte/interface.md) :
+#   - décompte des chaînes de Hermes restées en anglais, mesuré sur les fichiers EXTRAITS de l'image
+#     construite (apps/interface/outils/decompte-traductions.mjs), sortie en artefact ;
 #   - test navigateur de l'interface (hermes/tests/e2e/test_interface_fr.py) aux formats 390×844 et
 #     1440×900 : Accueil et Catalogue d'ACP, verrou du français, thème, aucune requête hors de
 #     l'origine, chaînes du catalogue français seulement, axe-core (apps/interface, verrou npm),
@@ -159,6 +161,26 @@ jobs:
 
       - name: Dépendances de l'interface ACP (verrou npm, sans scripts d'installation)
         run: npm ci --ignore-scripts --prefix apps/interface
+
+      - name: Décompte des chaînes de Hermes restées en anglais (fichiers de l'image)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/extrait/web/src /tmp/extrait/locales /tmp/decompte
+          id="$(docker create "$ACP_IMAGE")"
+          for chemin in web/src/i18n web/src/App.tsx web/src/pages web/src/components locales/en.yaml locales/fr.yaml; do
+            docker cp "$id:/opt/hermes/$chemin" "/tmp/extrait/$(dirname "$chemin")/"
+          done
+          docker rm "$id" > /dev/null
+          node apps/interface/outils/decompte-traductions.mjs /tmp/extrait \
+            --json /tmp/decompte/decompte-traductions.json --markdown /tmp/decompte/decompte-traductions.md
+
+      - name: Décompte des traductions (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: decompte-traductions
+          path: /tmp/decompte
+          if-no-files-found: error
+          retention-days: 30
 
       - name: hermes --version
         run: |
