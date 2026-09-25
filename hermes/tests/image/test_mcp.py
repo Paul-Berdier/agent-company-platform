@@ -5,6 +5,9 @@
 2. la liste de la plateforme cli (context7 à la place de no_mcp ; api_server et cron gardent no_mcp) ;
 3. la garde d'exécution d'acp-poste : deux noms exacts de plus (26 outils admis).
 
+Et la décision D8 : un serveur stdio ou hors catalogue dans la configuration du volume refuse le
+démarrage (05-acp, acp-gardes, relance du tableau de bord), et ``diagnostiquer`` le signale.
+
 Les tours d'agent et la découverte tournent dans des PROCESSUS NEUFS contre un faux context7
 (hermes/tests/outils/mcp_factice.py) en TLS, joint sous son vrai nom (mcp.context7.com résolu vers
 le bouclage local pour toute la session) : aucun appel au vrai serveur. Chaque couche a son témoin
@@ -17,6 +20,7 @@ import json
 
 import pytest
 
+import acp_demarrage as ad
 import garde_execution as ge
 from conftest import env_processus, executer_python, installer_home_de_test, lancer_outil
 
@@ -190,3 +194,49 @@ def test_temoin_echantillonnage_active_la_demande_atteint_hermes(chemins, valeur
     # La même demande, échantillonnage coupé (test du tour cli), est rejetée « Sampling not supported » ;
     # activé, Hermes la sert avec SON modèle (ici le modèle factice) : le serveur consommerait le modèle.
     assert echantillon["issue"] == "servi" and "Réponse du modèle factice ACP." in echantillon["detail"], echantillon
+
+
+# =============================================================== D8 : volume
+
+
+@pytest.mark.parametrize("relatif, contenu, motif", [
+    ("config.yaml", "mcp_servers:\n  outil:\n    command: /bin/sh\n    args: [-c, 'touch /tmp/acp-temoins/mcp']\n",
+     "avec un « command »"),
+    ("config.yaml", "mcp_servers:\n  context7:\n    command: npx\n", "avec un « command »"),
+    ("config.yaml", "mcp_servers:\n  deepwiki:\n    url: https://mcp.deepwiki.com/mcp\n", "absent du catalogue"),
+    ("profiles/coder/config.yaml", "mcp_servers:\n  outil:\n    command: [uvx, serveur]\n", "avec un « command »"),
+])
+def test_d8_un_serveur_mcp_stdio_ou_hors_catalogue_refuse_le_demarrage(chemins, valeurs, env_valide, relatif,
+                                                                        contenu, motif):
+    fichier = chemins.hermes_home / relatif
+    fichier.parent.mkdir(parents=True, exist_ok=True)
+    fichier.write_text(contenu, encoding="utf-8")
+    with pytest.raises(ad.Refus, match=motif) as refus:
+        ad.commande_gardes(chemins, env_valide)
+    assert "Retirez ces serveurs de mcp_servers" in str(refus.value)
+    # Rien n'a été installé : le refus précède la managed scope.
+    assert not (chemins.dossier_gere / "config.yaml").exists()
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    with pytest.raises(ad.Refus, match=motif):
+        ad.preparer_donnees(chemins, scope, uid=10000, gid=10000)
+    with pytest.raises(ad.Refus, match=motif):
+        ad.commande_verifier_relance(chemins)
+
+
+def test_d8_context7_seul_ou_avec_un_en_tete_est_admis(chemins, env_valide):
+    (chemins.hermes_home / "config.yaml").write_text(
+        "mcp_servers:\n  context7:\n    headers:\n      X-Test: acp\n    timeout: 30\n", encoding="utf-8")
+    ad.commande_gardes(chemins, env_valide)
+    ad.commande_verifier_relance(chemins)
+
+
+def test_d8_config_illisible_signalee_sans_refus(chemins, valeurs):
+    (chemins.hermes_home / "config.yaml").write_text("mcp_servers: [\n", encoding="utf-8")
+    refus, avertissements = ad.problemes_mcp_du_volume(chemins, ["context7"])
+    assert refus == [] and "ses serveurs MCP n'ont pas pu être vérifiés" in avertissements[0]
+
+
+def test_d8_le_journal_des_gardes_le_dit(chemins, env_valide, capsys):
+    ad.commande_gardes(chemins, env_valide)
+    assert ("serveurs MCP du volume inspectés : aucun serveur stdio ni hors catalogue (admis : context7)."
+            in capsys.readouterr().out)

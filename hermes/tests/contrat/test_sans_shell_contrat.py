@@ -165,7 +165,8 @@ def test_volume_railway_simule(ressources, image, hermes_railway):
     assert f"[acp] commit déployé : {SHA}" in journal
     assert "info: hook /opt/acp/bin/acp-gardes exited 0" in journal
     etat = json.loads(hermes_railway.sh("cat /run/acp/etat-demarrage.json", verifier=True).stdout)
-    assert etat["deploiement"] == {"commit": SHA} and etat["schema"] == 2
+    # Schéma 2 en P2 ; 3 depuis P3 (bloc catalogue ajouté, rien de retiré).
+    assert etat["deploiement"] == {"commit": SHA} and etat["schema"] == 3
     base = dict(ENV_VALIDE, RAILWAY_ENVIRONMENT_ID="env-contrat", RAILWAY_SERVICE_ID="svc-contrat")
     cas = {
         "sans_volume": (base, "le volume du service doit être monté sur /opt/data (reçu « aucun volume »)"),

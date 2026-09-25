@@ -715,7 +715,8 @@ def test_hooks_et_scripts_du_volume(chemins, valeurs, repertoire):
         st = os.lstat(chemins.hermes_home / nom)
         assert st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o755, nom
         assert _comme_hermes("touch", str(chemins.hermes_home / nom / "intrus")).returncode != 0
-    assert etat["schema"] == 2 and etat["deploiement"] == {"commit": "0123abc"}
+    # Schéma 2 en P2 ; 3 depuis P3 (bloc catalogue ajouté, rien de retiré).
+    assert etat["schema"] == 3 and etat["deploiement"] == {"commit": "0123abc"}
     assert etat["repertoires_executes"]["hooks"]["vide"] is True
     # Un lien symbolique à la place du répertoire est refusé.
     shutil.rmtree(racine)
