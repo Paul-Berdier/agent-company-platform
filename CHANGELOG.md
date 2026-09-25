@@ -108,13 +108,37 @@ propriétaire, selon `docs/refonte/railway.md`.
 - tests : dans l'image (216), contrat depuis l'hôte (Hermes, identité, IaC), navigateur, et
   contrôle statique de l'IaC dans la suite du dépôt ;
 - documentation : `docs/refonte/image.md`, `identite.md`, `railway.md` ; phases P4 à P8 du plan
-  remplacées par le plan d'autonomie (`docs/refonte/autonomie.md`).
+  remplacées par le plan d'autonomie (`docs/refonte/autonomie.md`) ;
+- corrections de la relecture indépendante (sécurité, exactitude, exploitation) :
+  - **sécurité** : les `hooks/` et `scripts/` de **chaque profil** de `/opt/data/profiles` sont
+    exigés vides puis rendus à root, comme ceux de la racine (un script cron de profil tournait
+    sous l'uid 10000 sans refus) ; un lien symbolique sous `profiles/` refuse le démarrage ;
+    `diagnostiquer` signale aussi les tâches cron à script ;
+  - `diagnostiquer` lit `/run/s6/container_environment` comme `with-contenv` (un « \n » final
+    retiré) : il rendait 29 faux constats sur un conteneur sain ;
+  - sentinelle hors s6 : options globales à valeur relevées dans l'analyseur de Hermes (et
+    comparées à lui par un test), `HERMES_HOME` normalisé (profils compris), `gateway` nu et
+    `serve` visés ;
+  - pont `tool_call` décrit tel que Hermes le traite (déballé avant la garde, qui juge l'outil
+    sous-jacent) et prouvé dans les deux sens ; `kanban_create` n'est plus annoncé « en P5 » :
+    les projets passent par les outils du greffon (P4) ;
+  - `acp-entree` renvoie, sur Railway, à la procédure de refus PID 1 ; `identite` ne journalise
+    plus l'identifiant du propriétaire (dépôt public) ;
+  - `railway.ts` refuse tout projet lié autre que `acp` ; Node ≥ 22.6 exigé pour `.railway/` ;
+  - CI : `ci.yml` n'annule plus de run hors PR (« Wait for CI ») ; l'étape finale d'`image.yml`
+    échoue s'il restait des ressources de test ; le modèle factice doit répondre avant tout test
+    qui conclut « aucune requête » ;
+  - procédure Railway exécutable dans l'ordre écrit : CLI installée sans configuration d'agent,
+    prérequis WSL et Node, compte GitHub relié, limites de dépense, clé SSH (mode opératoire),
+    sauvegardes hors IaC contrôlées au plan, Rollback et 72 h de rétention sur Hobby, 503 et
+    session de 7 jours décrits exactement, libellés publics et identifiant masqué, refus PID 1.
 
 Limites connues de P2 (détail : `image.md` § 10, `identite.md` § 12, `railway.md` § 12) : le
 tableau de bord authentifié reste un shell du propriétaire ; cookies de Hermes sans `Secure` tant
 que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué → 503 persistant ; rafale de
-premiers facteurs non bornée ; PID 1, bord, clés IaC non documentées et coûts réels ne se prouvent
-que sur Railway.
+premiers facteurs non bornée ; `vision_analyze` peut faire décrire toute image locale lisible par
+l'agent ; PID 1, bord, clés IaC non documentées, sort des sauvegardes posées hors IaC et coûts réels
+ne se prouvent que sur Railway.
 
 ## [Unreleased]
 

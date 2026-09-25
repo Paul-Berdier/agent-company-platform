@@ -89,8 +89,11 @@ de passe n'est jamais affichée.
    posé par un processus Authelia compromis donnerait un fichier système à l'uid 1000.
 5. **Secrets** (§5), générés s'ils sont absents.
 6. **Utilisateur unique** (§6).
-7. Journal : `[acp-identite] variables validées ; utilisateur unique « … » ; émetteur https://… ;
-   client hermes-acp → https://…/auth/callback`, puis la liste des secrets générés et conservés.
+7. Journal : `[acp-identite] variables validées ; utilisateur unique configuré (identifiant non
+   journalisé) ; émetteur https://… ; client hermes-acp → https://…/auth/callback`, puis la liste des
+   secrets générés et conservés. Depuis la relecture P2, l'identifiant n'est plus écrit : ces
+   journaux sont versés au dépôt, qui est public, et un tiers qui connaît l'identifiant peut bannir
+   le propriétaire (régulation, § 4 ; [railway.md](railway.md) § 7).
 8. `ACP_IDP_MOT_DE_PASSE_ARGON2`, `ACP_IDP_NOM` et `ACP_IDP_EMAIL` sont retirées de
    l'environnement, puis `exec /app/entrypoint.sh` : `chown -R 1000:1000 /config`,
    `su-exec 1000:1000 authelia`. Authelia est le PID 1, sous l'uid 1000, `umask 077` (fichiers du

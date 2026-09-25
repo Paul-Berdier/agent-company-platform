@@ -12,6 +12,11 @@ Conventions :
 - **supposé** : à prouver sur Railway, au premier déploiement. Rien de supposé n'est présenté comme
   acquis.
 
+Relecture indépendante de P2 (exploitation) : ordre des étapes rendu exécutable à la lettre,
+installation de la CLI sans configuration d'agent, prérequis WSL, sauvegardes hors IaC, refus PID 1,
+Rollback, dépôt public ; chaque correction est signalée « relecture P2 », et le tableau de
+traitement est dans [`docs/reprise-poste.md`](../reprise-poste.md).
+
 Sommaire : § 1 ce qui est déployé · § 2 prérequis · § 3 règles de l'IaC · § 4 premier déploiement ·
 § 5 identité · § 6 cerveau (openai-codex) · § 7 preuves à relever · § 8 relais et
 `trusted_proxies` · § 9 exploitation · § 10 récupération · § 11 sécurité du compte · § 12 prouvé en
@@ -49,8 +54,13 @@ Hermes, `acp-identite-entree` pour l'identité). Une Start Command remplace l'EN
 
 Ce que `railway.ts` **ne décrit pas**, et que la procédure couvre à la main :
 - les **domaines générés** `*.up.railway.app` (non décrits par l'IaC, rw_full.txt:28742) ;
-- les **sauvegardes** planifiées (le type `VolumeMount.backupSchedules` existe dans le SDK, sans
-  forme documentée pour un `volume(...)`) ;
+- les **sauvegardes** planifiées. Attention (relecture P2) : le SDK les **modélise**
+  (`VolumeMount.backupSchedules` et `volumeAttachments[…].backupSchedules`, index-C3uk0ruc.d.ts:113-116
+  et 185-190), mais `volume(...)` ne les transmet jamais (`normalizeVolumeMounts`, dist/iac/index.js).
+  Si le moteur de la CLI compare ce champ, un apply ultérieur pourrait **retirer en silence** les
+  planifications posées à la main : ce serait une ligne de **modification**, pas de destruction.
+  D'où le contrôle du § 4.8 et la règle d'apply du § 3 ; le comportement réel n'est connu que sur
+  Railway (§ 12) ;
 - les **valeurs** des quatre variables d'identité ;
 - les limites de dépense, les clés SSH, l'autorisation de l'application GitHub de Railway.
 
@@ -64,22 +74,49 @@ URL **publique** ; le domaine privé `*.railway.internal` est refusé par les de
 ## 2. Prérequis (une fois)
 
 1. **Compte Railway** : offre **Hobby** ; **double authentification** activée ; région préférée
-   **EU West** (paramètres de l'espace de travail) ; **aucune clé SSH d'espace de travail**.
-2. **Limites de dépense** (décision du propriétaire) :
+   **EU West** (paramètres de l'espace de travail) ; **aucune clé SSH d'espace de travail** ;
+   **compte GitHub relié** au compte Railway, avec accès contributeur au dépôt : l'autodéploiement
+   l'exige (« Autodeploy works only when at least one project member has a connected GitHub
+   account with contributor access », rw_full.txt:29663).
+2. **Limites de dépense** (décision du propriétaire) : dès maintenant par la page **Workspace
+   Usage** du tableau de bord Railway (bouton « Set Usage Limits » : alerte de 15 $ et limite dure
+   de 30 $ pour « Compute Usage », limite dure de 0 $ pour « Agent Usage », rw_full.txt:5475),
+   **ou** par la CLI, mais seulement **après** son installation (§ 2.3) et `railway login`
+   (§ 4.2) — relecture P2 : la première version plaçait ces commandes avant la CLI :
    ```sh
    railway usage limit set --target workspace --soft 15 --hard 30
    railway usage limit set --target agent --hard 0
    railway usage limit status
    ```
+   Dans tous les cas, `railway usage limit status` est relevé au § 4.2, avant tout apply.
    L'alerte de 15 $ envoie un courriel ; la limite dure de 30 $ **met hors ligne toutes les
    charges**, fournisseur d'identité compris, jusqu'au relèvement ou au cycle suivant
    (rw_full.txt:5467-5520). La limite de l'agent Railway (0 $) bloque son usage ; elle est
    indépendante (rw_full.txt:24552-24723).
 3. **Poste de commande : WSL**. Sous Windows, Railway documente sa CLI par WSL
-   (rw_full.txt:16958-16974). Dans WSL :
-   - Node.js **≥ 22** (le SDK l'exige, et la CLI évalue `railway.ts` avec Node) ;
+   (rw_full.txt:16958-16974). Constaté le 25/09/2026 : ce poste n'a **aucune distribution WSL
+   utilisable** (`wsl -l -v` ne montre que `docker-desktop`, réservée à Docker Desktop). À faire
+   une fois :
+   - installer une distribution : `wsl --install -d Ubuntu` (PowerShell en administrateur), puis
+     créer l'utilisateur demandé au premier lancement ; tout ce qui suit se fait dans cette
+     distribution ;
+   - Node.js **≥ 22.6** (24 LTS conseillé), par exemple par le dépôt NodeSource ou par nvm :
+     l'évaluation de `railway.ts` par la CLI et `verifier.mjs` passent
+     `--experimental-strip-types`, apparu dans Node 22.6 (le `package.json` de `.railway/` exige
+     désormais `>=22.6.0`) ; `node --version` ;
    - CLI Railway **≥ 5.42.1** (version minimale exigée par le SDK 3.11.0 : « The IaC engine now
-     ships in the CLI ») ; `railway --version` ;
+     ships in the CLI »), installée **sans configuration d'agent** :
+     `bash <(curl -fsSL railway.com/install.sh)` (« To install the CLI without agent
+     configuration », rw_full.txt:16968-16972), ou `npm i -g @railway/cli@<version>` avec une
+     version exacte ≥ 5.42.1 relevée par `npm view @railway/cli version` ; puis
+     `railway --version`. **Interdits** (relecture P2) : `curl -fsSL agents.railway.com | sh` (la
+     première commande de la page : elle lance `railway setup agent`, rw_full.txt:16958-16966),
+     `railway setup agent` et `railway mcp`, qui installent la compétence Railway et le serveur MCP
+     de Railway pour Claude Code et Codex **avec la session `railway login` du propriétaire**
+     (rw_full.txt:23074-23092) : contraire au § 11 (aucun jeton Railway pour un agent).
+     Contrôle : aucune entrée MCP « railway » (ni `mcp.railway.com`) dans les configurations
+     d'agents, ni sous Windows (`claude mcp list`, section `[mcp_servers]` de
+     `%USERPROFILE%\.codex\config.toml`) ni dans WSL (`~/.claude.json`, `~/.codex/config.toml`) ;
    - `gh` (GitHub CLI), connecté à votre compte ;
    - un **clone propre** de la branche déployée, dans le système de fichiers de WSL (pas le checkout
      Windows, qui porte un chantier Pixel Office non commité) :
@@ -93,6 +130,15 @@ URL **publique** ; le domaine privé `*.railway.internal` est refusé par les de
    où tournent Claude Code et Codex** : un autre compte Windows local, une autre machine, ou un
    support amovible chiffré branché le temps d'une opération. WSL dans le même compte ne compte pas
    comme « hors du compte ». Elle n'est enregistrée chez Railway que pendant une opération (§ 11).
+   **Mode opératoire** (relecture P2 : les commandes `railway ssh -i` sont lancées depuis WSL) :
+   - **préféré** : les opérations SSH se font depuis l'**autre compte Windows** (sa propre
+     distribution WSL, sa propre CLI, sa propre session `railway login` suivie de
+     `railway logout`) ; la clé n'entre jamais dans le compte des agents ;
+   - **à défaut** : le support chiffré est branché et monté dans WSL **le temps de l'opération**,
+     la clé est copiée dans un répertoire en mémoire (`mkdir -m 700 /dev/shm/acp-cle` puis copie en
+     0600), utilisée par `railway ssh -i /dev/shm/acp-cle/<clé>`, puis effacée
+     (`rm -rf /dev/shm/acp-cle`) et le support démonté ; jamais de copie sous `~/.ssh` ni sur le
+     disque du compte des agents.
 5. **Docker Desktop** sous Windows, pour calculer l'empreinte du mot de passe (§ 5.1).
 
 ---
@@ -105,7 +151,10 @@ URL **publique** ; le domaine privé `*.railway.internal` est refusé par les de
   (rw_full.txt:28156) ; détacher ou supprimer un volume est destructif (rw_full.txt:28708). Aucune
   ressource n'est donc créée à la main (hors domaines générés, non gérés par l'IaC).
 - `railway config apply` **toujours interactif** : jamais `--yes`, jamais `--confirm-destructive`.
-  Lisez chaque ligne du plan ; toute ligne de destruction arrête l'opération.
+  Lisez chaque ligne du plan ; toute ligne de destruction arrête l'opération, **et toute ligne de
+  modification d'un volume** (montage, région, planification de sauvegarde) aussi (relecture P2 :
+  « 0 to destroy » ne suffit pas, le retrait d'une planification de sauvegarde serait une
+  modification, § 1).
 - **Railway ne lit jamais `.railway/`** au déploiement (rw_full.txt, « Multi-repo projects ») : le
   fichier ne sert qu'au plan et à l'apply.
 - **Jamais `railway config pull` sans `--json`** : sans lui, la commande **réécrit**
@@ -181,10 +230,13 @@ Chaque étape se termine par un contrôle ; au moindre écart, arrêt et retour 
 
 ### 4.1 Choisir les deux libellés, puis les écrire par une PR
 
-1. Choisissez deux libellés DNS **distincts** et **peu devinables**, par exemple
-   `acp-hermes-<6 caractères aléatoires>` et `acp-identite-<6 caractères aléatoires>` (a-z, 0-9,
-   tirets ; 63 caractères au plus). Ils seront **figés** : les passkeys sont liées au sous-domaine
-   exact de l'identité, et renommer un domaine après l'enrôlement les invalide.
+1. Choisissez deux libellés DNS **distincts**, par exemple `acp-hermes-<6 caractères aléatoires>`
+   et `acp-identite-<6 caractères aléatoires>` (a-z, 0-9, tirets ; 63 caractères au plus). Ils
+   seront **figés** : les passkeys sont liées au sous-domaine exact de l'identité, et renommer un
+   domaine après l'enrôlement les invalide. **Ils seront publics** (relecture P2) : le dépôt est
+   public (`"visibility": "public"`) et la PR qui les écrit les publie ; l'aléa n'apporte donc
+   aucun secret, seulement l'absence de collision. La sécurité repose sur l'OIDC, les passkeys et
+   le bannissement, jamais sur un nom caché.
 2. Branche depuis `refonte/hermes`, remplacement des deux constantes `LIBELLE_HERMES` et
    `LIBELLE_IDENTITE` de `.railway/railway.ts`, puis :
    ```sh
@@ -199,9 +251,15 @@ Chaque étape se termine par un contrôle ; au moindre écart, arrêt et retour 
 ```sh
 cd ~/acp-railway && git pull --ff-only
 railway login                         # navigateur ; `--browserless` sinon
+railway usage limit status            # limites du § 2.2 : les poser ici si ce n'est pas fait
 railway init --name acp               # crée le projet (environnement production) et le lie
 railway link --project acp --environment production
 ```
+
+`railway.ts` refuse désormais d'être évalué pour un autre projet lié que `acp` (ou sans nom de
+projet) : un plan lié par erreur à un autre projet y supprimerait tout ce que le fichier ne décrit
+pas (relecture P2 ; refus mesuré par `verifier.mjs`). Relevez l'identifiant du projet affiché par
+`railway status` et gardez-le dans le compte rendu : l'IaC ne le vérifie pas (il n'existe qu'ici).
 
 Autorisez l'**application GitHub de Railway** sur **ce seul dépôt**, et acceptez ses permissions
 mises à jour (exigées par « Wait for CI », rw_full.txt:29670-29680) : c'est un consentement OAuth
@@ -261,17 +319,23 @@ railway config plan          # « Your Railway configuration is already up to da
 ```
 Déployez le changement de variables (bouton « Deploy » des changements en attente,
 rw_full.txt:30166-30200). Journal attendu :
-`[acp-identite] variables validées ; utilisateur unique « <vous> » ; émetteur https://<libellé-identite>.up.railway.app ; client hermes-acp → https://<libellé-hermes>.up.railway.app/auth/callback`.
+`[acp-identite] variables validées ; utilisateur unique configuré (identifiant non journalisé) ; émetteur https://<libellé-identite>.up.railway.app ; client hermes-acp → https://<libellé-hermes>.up.railway.app/auth/callback`
+(depuis la relecture P2, l'identifiant n'est plus journalisé : ces journaux vont dans un dépôt
+public, § 7).
 
-Si Hermes répond 503 à la connexion alors qu'`identite` est en ligne (sa première découverte OIDC a
-échoué pendant que l'identité refusait de démarrer) : « Redeploy » du déploiement actif de
-`hermes`.
+Un 503 de Hermes à la connexion **pendant que l'identité refuse de démarrer** disparaît seul dès
+qu'elle est en ligne : Hermes ne garde pas une découverte OIDC échouée, il la retente à chaque
+connexion (plugins/dashboard_auth/self_hosted/__init__.py:178-206 ; relecture P2 : la première
+version conseillait à tort un « Redeploy »). Un 503 **persistant** alors que l'identité répond :
+jeton de rafraîchissement révoqué ou rejoué, réglé par la déconnexion
+([identite.md](identite.md) § 12), pas par un redéploiement.
 
 ### 4.7 Sauvegardes
 
 Pour **chaque** service : onglet **Backups** → planifications **Daily** (gardées 6 jours) et
 **Weekly** (gardées 27 jours) (rw_full.txt:32407-32420). Puis une sauvegarde **manuelle** de
-chaque volume.
+chaque volume. Ces planifications ne sont **pas** dans `railway.ts` (§ 1) : le § 4.8 vérifie que le
+plan ne propose pas de les retirer.
 
 ### 4.8 Contrôle de dérive
 
@@ -283,6 +347,15 @@ railway config plan --detailed-exit-code ; echo $?    # 0 exigé
 Dans `acp-graphe.json`, relevez `checkSuites`, `builder`, `watchPatterns`, `sleepApplication`,
 `restartPolicyType`, `restartPolicyMaxRetries`, `limitOverride`, la région, le répertoire racine.
 Toute clé absente : réglage à la main (§ 3), consigné, puis `--detailed-exit-code` à 0.
+
+**Sauvegardes (relecture P2)** : relevez dans `acp-graphe.json` ce que `config pull` montre des
+planifications de sauvegarde, puis lancez `railway config plan --verbose`. **Si le plan montre une
+modification des planifications de sauvegarde** (ou de tout autre réglage d'un volume) : **arrêt**,
+aucun apply ; le code 0 exigé ci-dessus est alors inatteignable sans changer l'IaC. Une PR déclare
+les planifications dans `railway.ts` (forme révélée par `railway config pull --json`, par exemple
+un montage portant `backupSchedules: ["DAILY", "WEEKLY"]`, type typé par le SDK) et les attend dans
+`verifier.mjs`, CI verte, **avant** tout second apply ; consignez le constat dans
+`docs/reprise-poste.md`.
 
 ### 4.9 Journaux et PID 1
 
@@ -300,13 +373,16 @@ Attendus pour `hermes` :
 Journal de construction (`railway logs --service hermes --build --latest --lines 400`, idem pour
 `identite`) : la ligne `FROM …@sha256:…` avec le condensat épinglé de chaque image.
 
-**PID 1** (non documenté par Railway ; la garde `acp-entree` refuse de démarrer sinon) : enregistrez
-la clé dédiée (§ 11), puis
+**PID 1** (non documenté par Railway ; la garde `acp-entree` refuse de démarrer sinon, voir § 10 f) :
+enregistrez la clé dédiée (mode opératoire du § 2.4), puis
 ```sh
+railway ssh keys add --key <clé dédiée>.pub --name acp-operation
 railway ssh -i <clé dédiée> --service hermes -- sh -c "tr '\0' ' ' </proc/1/cmdline"
+railway ssh keys remove --2fa-code <code>      # puis `railway ssh keys` : vide
 ```
 Attendu : `/package/admin/s6/command/s6-svscan -d4 -- /run/service` (ou `s6-svscan -d4 --
-/run/service`). Retirez ensuite la clé (§ 11).
+/run/service`). Si `hermes` refuse de démarrer avec `[acp] REFUS : l'image n'a pas le PID 1` :
+§ 10 f, sans rien contourner.
 
 ### 4.10 Enrôlement, connexions, cerveau
 
@@ -315,7 +391,8 @@ téléphone (captures), § 6 (openai-codex).
 
 ### 4.11 Répétition de maintenance, une fois, avant d'accumuler des données
 
-§ 10 b sur `hermes` (Start Command de maintenance, santé vidée, `diagnostiquer`), essai du § 10 b-bis
+`railway login` d'abord (le § 5.3 s'est terminé par `railway logout`), puis § 10 b sur `hermes`
+(Start Command de maintenance, santé vidée, `diagnostiquer`), essai du § 10 b-bis
 (`railway volume files` sur un service arrêté), retour à la normale, puis
 `railway config plan --detailed-exit-code` → 0. Compte rendu écrit.
 
@@ -377,8 +454,12 @@ guillemets simples) et resterait dans l'historique du shell.
 4. Clôture : `railway ssh keys remove --2fa-code <code>`, `railway ssh keys` vide, `railway logout`.
 
 Le consentement est demandé à **chaque connexion complète** (portée `offline_access`,
-[identite.md](identite.md) § 4) ; les rafraîchissements sont silencieux. La session Hermes dure au
-plus 7 jours sans reconnexion (jeton de rafraîchissement de 7 jours).
+[identite.md](identite.md) § 4) ; les rafraîchissements sont silencieux. Reconnexion exigée après
+**7 jours sans rafraîchissement** (jeton de rafraîchissement de 7 jours chez Authelia) : fenêtre
+**supposée glissante, non mesurée** ([identite.md](identite.md) § 12) — chaque rotation émettrait
+un jeton neuf de 7 jours, donc une session active peut durer plus longtemps. Côté Hermes, le cookie
+du jeton de rafraîchissement vit 30 jours (hermes_cli/dashboard_auth/cookies.py:38) : la borne de
+7 jours ne vient que d'Authelia (relecture P2 : la première version disait « au plus 7 jours »).
 
 ### 5.4 Secours
 
@@ -387,6 +468,10 @@ Toutes ces opérations se font **en maintenance** (§ 10 b sur `identite`) et av
 seulement ; il relit l'environnement du PID 1, jamais celui de la session) :
 
 - **Mot de passe perdu** : nouvelle empreinte (§ 5.1), édition de la variable scellée, « Deploy ».
+  **Ensuite, jamais de Rollback ni de « Redeploy » d'un déploiement d'`identite` antérieur au
+  changement** (relecture P2) : un Rollback restaure l'image **et les variables** du déploiement
+  visé (rw_full.txt:29547-29548 ; 4944), donc l'**ancienne empreinte** scellée, et remettrait en
+  service un mot de passe compromis. Même règle après tout changement d'une variable d'identité.
 - **Passkeys perdues** : `acp-identite-admin user webauthn delete <utilisateur> --all`, retour à la
   normale, nouvel enrôlement (§ 5.3).
 - **Propriétaire banni** (5 échecs en 10 minutes bannissent 15 minutes ; un tiers peut donc vous
@@ -424,15 +509,21 @@ restauration impose de reconnecter openai-codex.
 
 ## 7. Preuves à relever sur Railway
 
-À transmettre sans aucun secret ; elles vont dans `docs/reprise-poste.md`.
+À transmettre sans aucun secret ; elles vont dans `docs/reprise-poste.md`. **Le dépôt est public**
+(relecture P2) : dans tout journal ou toute capture versés au dépôt, **masquez l'identifiant et
+l'adresse** du propriétaire (et le nom affiché), par exemple `<identifiant>` : un tiers qui connaît
+l'identifiant peut vous bannir 15 minutes à volonté (§ 5.4). La garde d'`identite` ne journalise
+plus l'identifiant ; Authelia, lui, peut le journaliser lors d'une tentative de connexion.
 
 1. `railway config plan --verbose` avant l'apply (« 0 to destroy ») ; `railway config pull --json`
    après, avec les clés du § 3 ; sinon réglage manuel et `plan --detailed-exit-code` = 0.
 2. Pour **chaque** déploiement : `gh run list --workflow image.yml --commit <RAILWAY_GIT_COMMIT_SHA>`
-   → `success` (le SHA est dans `[acp] commit déployé : …` et dans le bloc `deploiement` de
+   **et** `gh run list --workflow ci.yml --commit <RAILWAY_GIT_COMMIT_SHA>` → `success` (le SHA est
+   dans `[acp] commit déployé : …` et dans le bloc `deploiement` de
    `/api/plugins/acp-poste/v1/meta`).
 3. Journal de construction : les deux condensats ; constructeur Dockerfile.
-4. Journaux de démarrage (§ 4.9) ; `[acp-identite] … utilisateur unique …`.
+4. Journaux de démarrage (§ 4.9) ; `[acp-identite] … utilisateur unique configuré (identifiant non
+   journalisé) …` ; identifiant et adresse masqués partout ailleurs.
 5. PID 1 : `s6-svscan -d4 -- /run/service` (§ 4.9).
 6. Sans session :
    ```sh
@@ -493,7 +584,11 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
   « Wait for CI » l'ignore dès qu'un autre workflow a réussi. Hors PR, `image.yml` a un groupe de
   concurrence **par exécution** : aucun run n'est jamais remplacé.
 - `ci.yml` et, s'il se déclenche, Desktop CI comptent aussi : un rouge saute le déploiement.
-  Après la relance réussie d'un workflow, le déploiement sauté n'est pas refait seul.
+  Après la relance réussie d'un workflow, le déploiement sauté n'est pas refait seul. Depuis la
+  relecture P2, `ci.yml` a lui aussi, hors PR, un groupe de concurrence **par exécution** : un push
+  n'annule plus le run `ci.yml` du commit précédent (avant, `cancel-in-progress: true` l'annulait,
+  et Railway pouvait déployer ce commit sans verdict de `ci.yml` dès qu'`image.yml` avait réussi).
+  Le § 7 point 2 vérifie les deux workflows.
 - Pour relancer : **« Redeploy »** d'un déploiement déjà prouvé (même code et même configuration,
   rw_full.txt:52320-52330). **« Deploy Latest Commit »** seulement après
   `gh run list --workflow image.yml --commit <sha de tête>` → `success` : la doc dit tantôt qu'il
@@ -502,6 +597,11 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
 - **Rollback** : restaure l'image et les variables d'un déploiement précédent
   (rw_full.txt:29547-29548) ; la doc ne dit rien du volume, qui reste celui du service (supposé) :
   des données écrites par une version plus récente peuvent ne pas être relues par l'ancienne.
+  Deux avertissements (relecture P2) : un Rollback d'`identite` restaure aussi l'**empreinte
+  scellée** du mot de passe (interdit à travers un changement de mot de passe, § 5.4) ; sur
+  **Hobby**, l'image d'un déploiement retiré n'est gardée que **72 heures** (rw_full.txt:4938) ;
+  au-delà, plus de Rollback : « Redeploy » reconstruit depuis la source avec les **variables
+  d'origine** de ce déploiement (rw_full.txt:4944-4946), mêmes réserves.
 - Chaque déploiement : preuve du § 7 point 2.
 
 **Sauvegardes.** Quotidienne (6 jours) et hebdomadaire (27 jours), plus une manuelle avant toute
@@ -547,7 +647,8 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    deviennent `$0` et `$1` du shell et sont ignorés (mesuré en local dans les deux cas).
 3. **Chemin de santé vidé** (rien n'écoute en maintenance), puis « Deploy » des changements en
    attente.
-4. Session root, avec la clé dédiée (§ 11) :
+4. Session root, avec la clé dédiée (§ 11, mode opératoire du § 2.4), après `railway login` si la
+   CLI n'est pas connectée :
    ```sh
    railway ssh keys add --key <clé dédiée>.pub --name acp-maintenance
    railway ssh -i <clé dédiée> --service hermes
@@ -601,6 +702,23 @@ d'`identite`. Les sauvegardes plus récentes que celle restaurée restent sur l'
 
 § 5.4.
 
+### f) Refus PID 1 (relecture P2)
+
+Si `hermes` refuse de démarrer avec
+`[acp] REFUS : l'image n'a pas le PID 1 (processus N) …` puis
+`[acp] Démarrage arrêté (échec fermé). Sur Railway, la plateforme n'a pas donné le PID 1 à l'image …`
+(ce second message ne s'affiche qu'en présence des variables `RAILWAY_*` ; hors Railway, il
+conseille de retirer `--init`) :
+1. **arrêt** : ne rien contourner. Pas de Start Command (elle remplace l'ENTRYPOINT, donc toutes les
+   gardes), pas de variable, pas de retrait d'`acp-entree` ;
+2. relevez le journal complet du déploiement (`railway logs --service hermes --latest --lines 200`)
+   et consignez-le, identifiant masqué ;
+3. laissez le service **hors ligne** (échec fermé) : relances comprises, il refusera de même ;
+   `identite` peut rester en ligne ;
+4. la suite est une **décision de conception**, prise par une PR (par exemple : lancer s6-overlay
+   autrement, avec une nouvelle preuve que les gardes s'appliquent), relue et testée comme P2,
+   jamais un réglage fait dans Railway.
+
 ---
 
 ## 11. Sécurité du compte Railway
@@ -608,7 +726,9 @@ d'`identite`. Les sauvegardes plus récentes que celle restaurée restent sur l'
 Le compte Railway est la **frontière de confiance** : il donne accès aux volumes (jetons
 openai-codex, secrets et clé de signature d'Authelia), aux variables et aux shells root.
 
-- **Clé SSH dédiée** ed25519 avec phrase de passe, rangée hors du compte Windows des agents (§ 2).
+- **Clé SSH dédiée** ed25519 avec phrase de passe, rangée hors du compte Windows des agents, et
+  utilisée selon le mode opératoire du § 2.4 (autre compte, ou copie en mémoire effacée après usage).
+  Enregistrement : `railway ssh keys add --key <clé dédiée>.pub --name acp-operation`.
   Toujours `railway ssh -i <clé dédiée>` (la CLI saute alors l'examen de `~/.ssh`,
   rw_full.txt:23298, 23344).
 - **Interdits** : la clé par défaut de `~/.ssh`, `railway ssh keys github`, toute clé d'espace de
@@ -633,15 +753,16 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
 ### Prouvé en local et en CI (25/09/2026)
 
 - **IaC** : `railway.ts` typé par `tsc` 7.0.2 contre `railway@3.11.0` ; évalué comme la CLI
-  (`verifier.mjs`) : gabarits, libellés invalides ou identiques, autre environnement → refus en
-  français ; graphe d'essai conforme (2 services, 2 volumes, Wait for CI, Dockerfile, santé,
+  (`verifier.mjs`) : gabarits, libellés invalides ou identiques, autre environnement, autre projet
+  lié ou projet lié inconnu (relecture P2) → refus en français ; graphe d'essai conforme (2 services, 2 volumes, Wait for CI, Dockerfile, santé,
   région, limites, redémarrage, Serverless coupé, `preserve()`, aucune Start Command). Chaque
   réglage retiré ou altéré dans une copie (Start Command ajoutée, garde des gabarits retirée,
   Serverless, volume omis, empreinte en clair, domaine personnalisé, Wait for CI coupé) fait
   échouer le vérificateur.
-- **Contrôle statique** (`scripts/tests/test_railway_iac.py`, 39 tests) : SDK isolé et épinglé,
-  verrou haché, aucune Start Command, réglages, gabarits et garde, aucun secret, cohérence avec les
-  images, aucun fichier Config as Code, CI.
+- **Contrôle statique** (`scripts/tests/test_railway_iac.py`, 42 tests depuis la relecture P2) :
+  SDK isolé et épinglé, verrou haché, aucune Start Command, réglages, gabarits et garde, garde du
+  projet lié, aucun secret, cohérence avec les images, aucun fichier Config as Code, CI (`ci.yml`
+  sans annulation hors PR, étape finale d'`image.yml` en échec s'il reste des ressources de test).
 - **Images et IaC** (`test_railway_iac_contrat.py`) : Hermes démarre avec les variables déclarées
   et celles que Railway fournit (message de commit sur deux lignes avec `$HOME`, `` `id` `` et
   `$(id)` compris), journalise le commit déployé ; santé 200 sur 9119 avec l'hôte
@@ -658,7 +779,9 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
 2. **Start Command** : Railway garde-t-il le `CMD` hérité ? La forme `/bin/sh -c` couvre les deux cas.
 3. **IaC** : évaluation par la CLI avec le SDK dans `.railway/` (sous WSL) ; prise en compte des clés
    non documentées ; `preserve()` sur une variable neuve ; `RAILWAY_DOCKERFILE_PATH` relatif ;
-   identifiant de région ; forme du répertoire racine.
+   identifiant de région ; forme du répertoire racine ; `ctx.projectName` fourni par la CLI (son
+   absence fait refuser : échec fermé) ; comportement du moteur face aux planifications de
+   sauvegarde posées à la main et absentes de `railway.ts` (§ 4.8).
 4. Environnement et utilisateur d'une session `railway ssh` ; `railway volume files` sur un service
    arrêté.
 5. **Restauration** : mise en attente combinable avec une Start Command dans le même lot ; renommage
@@ -672,6 +795,7 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
 10. Santé, drainage, redémarrages, sauvegardes sur Hobby, consommation et coût réels.
 11. Connexion depuis le téléphone ; openai-codex par code d'appareil ; premier tour réel.
 12. Disponibilité des libellés choisis (`railway domain update … --domain`).
+13. Installation de la CLI sans configuration d'agent et absence d'entrée MCP « railway » (§ 2.3).
 
 ### Limites connues
 
@@ -685,3 +809,7 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
 - Passkeys liées au sous-domaine exact de l'identité : renommer ce domaine oblige à les réenrôler.
 - Une limite dure atteinte met **tout** hors ligne, identité comprise.
 - Un `ci.yml` ou une Desktop CI rouge sur un commit saute son déploiement.
+- Les libellés des sous-domaines sont publics (dépôt public) ; seul le masquage de l'identifiant
+  dans les journaux versés au dépôt protège contre le bannissement ciblé (§ 7).
+- L'identifiant du projet Railway n'est pas vérifié par l'IaC (seul son nom l'est) : la lecture de
+  chaque ligne du plan reste obligatoire.

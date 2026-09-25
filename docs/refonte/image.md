@@ -11,7 +11,9 @@ d'exploitation et de récupération dans [railway.md](railway.md).
 
 L'étape P1 (image dérivée, gardes de démarrage, managed scope, greffon `acp-poste`, CI de
 contrat) reste valable ; ses sections sont mises à jour ci-dessous, et chaque ajout de P2 est
-signalé comme tel.
+signalé comme tel. Les corrections de la **relecture indépendante de P2** (sécurité, exactitude,
+exploitation) sont signalées « relecture P2 » ; leur tableau de traitement est dans
+[`docs/reprise-poste.md`](../reprise-poste.md).
 
 Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiquette
 `v2026.9.24` (commit `f97608f`), sauf mention contraire.
@@ -76,7 +78,9 @@ docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP=acp-hermes:dev -t 
      atomique) puis les relit et vérifie chaque épingle ;
    - inspecte `/opt/data/plugins`, `/opt/data/dashboard-themes` et `/opt/data/acp`
      (noms réservés, liens symboliques) sans rien écrire ;
-   - (P2) exige que `/opt/data/hooks` et `/opt/data/scripts` soient **vides** (§ 6) ;
+   - (P2) exige que `/opt/data/hooks`, `/opt/data/scripts` et, depuis la relecture P2, les
+     `hooks/` et `scripts/` de **chaque profil** de `/opt/data/profiles` soient **vides**, et
+     refuse un lien symbolique sous `profiles/` (§ 6) ;
    - (P2) sur Railway, exige le volume du service monté sur `/opt/data` (§ 4) ;
    - (P2) journalise `[acp] commit déployé : <RAILWAY_GIT_COMMIT_SHA ou « inconnu »>`, même
      en cas de refus, pour relier chaque déploiement à son run `image.yml`.
@@ -89,8 +93,9 @@ docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP=acp-hermes:dev -t 
    injectée dans `/opt/data/.env` (§ 4.3), vérifie que la managed scope installée
    correspond aux variables de ce démarrage, rend `/opt/data/plugins`,
    `/opt/data/dashboard-themes` et `/opt/data/acp` propriété de root (répertoires 0755,
-   fichiers 0644, par descripteurs `O_NOFOLLOW`), ainsi que `/opt/data/hooks` et
-   `/opt/data/scripts` (P2, vides, root 0755), **reprend à root le répertoire de
+   fichiers 0644, par descripteurs `O_NOFOLLOW`), ainsi que `/opt/data/hooks`,
+   `/opt/data/scripts` et les `hooks/` et `scripts/` de chaque profil (P2, vides, root 0755),
+   **reprend à root le répertoire de
    services s6 `/run/service` et les scripts des passerelles dynamiques** (§ 4.4), dépose
    le thème et `SOUL.md`, écrit `/run/acp/etat-demarrage.json` (tmpfs, root 0644).
 4. Services s6 : tableau de bord (`hermes dashboard --host 0.0.0.0 --port 9119`, uid
@@ -115,11 +120,25 @@ scripts d'ACP arrêtent le conteneur eux-mêmes (`/run/s6/basedir/bin/halt`, cod
 **Sentinelle hors s6 (P2).** Si Hermes est lancé sans passer par l'`ENTRYPOINT`
 (`docker run --entrypoint hermes … gateway run`, Start Command Railway autre que la
 maintenance), `acp-entree` ne tourne pas. Le greffon `acp-poste`, chargé par tout processus de
-Hermes, arrête alors lui-même **`hermes gateway run` et `hermes dashboard`** de production
-(`HERMES_HOME=/opt/data`) quand le PID 1 n'est pas `s6-svscan` : message français sur la sortie
-d'erreur, `os._exit(78)`. Les commandes ponctuelles, les workers kanban (`-p default … chat -q`)
-et les tests ne sont pas visés. La passerelle découvre les greffons dès son démarrage
-(gateway/run_startup.py:1017-1020), le tableau de bord aussi (hermes_cli/main.py:2659-2673).
+Hermes, arrête alors lui-même **`hermes gateway` (nu ou `run`), `hermes dashboard` et
+`hermes serve`** de production quand le PID 1 n'est pas `s6-svscan` : message français sur la
+sortie d'erreur, `os._exit(78)`. Les commandes ponctuelles, les workers kanban
+(`-p default … chat -q`) et les tests ne sont pas visés. La passerelle découvre les greffons dès
+son démarrage (gateway/run_startup.py:1017-1020), le tableau de bord aussi
+(hermes_cli/main.py:2659-2673).
+
+Relecture P2 : la sentinelle se contournait par une option globale à valeur qu'elle ignorait
+(`--reasoning high gateway run` : « high » pris pour la sous-commande ; de même `--in`,
+`--resume`, `--usage-file`, `-z`), par un `HERMES_HOME` non normalisé (`/opt/data/`), par
+`hermes gateway` sans sous-commande (qui lance aussi la passerelle, hermes_cli/gateway.py:5108-5112)
+et par `hermes serve` (même serveur que le tableau de bord, hermes_cli/subcommands/dashboard.py:79-101).
+Désormais : les options à valeur sont celles de l'analyseur réel de Hermes 0.21.5
+(hermes_cli/_parser.py), sautées comme le fait Hermes lui-même (`--option=valeur`, `--`), et
+`test_options_a_valeur_couvrent_l_analyseur_de_hermes` compare cette liste à
+`top_level_value_flag_sets()` de l'image épinglée ; tout `HERMES_HOME` qui désigne `/opt/data`
+ou l'un de ses sous-répertoires (profils compris), après normalisation et résolution des liens,
+est visé. Reste une **défense en profondeur** : une commande qui ne passe pas par l'analyse de
+`sys.argv` de `hermes` n'est pas reconnue ; la garde principale est `acp-entree`.
 
 ## 4. Variables Railway
 
@@ -357,14 +376,32 @@ Aucune couche ne suffit seule ; chacune est prouvée séparément, avec son tém
 `kanban_comment`, `kanban_link`, `kanban_unblock`, `kanban_attach`, `kanban_attachments`.
 Tout autre nom est refusé : « Refusé par ACP : l'outil « … » n'est pas autorisé sur Railway
 (ni terminal, ni fichiers, ni exécution de code pour l'agent). L'exécution passe par le poste
-Windows du propriétaire. » (terminal, fichiers, `execute_code`, le pont `tool_call`,
-`desktop_project`, `browser_*`, noms inconnus, futurs outils).
+Windows du propriétaire. » (terminal, fichiers, `execute_code`, `desktop_project`,
+`browser_*`, noms inconnus, futurs outils).
+
+**Pont des outils différés `tool_call` (relecture P2).** Hermes déballe le pont **avant**
+d'appeler le crochet (agent/tool_executor.py:390-431, `_unwrap_tool_search_call`) : la garde
+reçoit le nom de l'outil appelé **à travers** le pont et le juge comme un appel direct.
+`todo_list` et `session_search`, différés par défaut (config_defaults.py:1986-1988), passent donc
+par le pont et s'exécutent. La garde ne voit « tool_call » que si Hermes n'a pas su le résoudre
+(outil non différable comme `terminal`, tools/tool_search.py:543-571 ; arguments invalides ; lot de
+connecteurs) : elle le refuse alors, puisqu'il n'est pas dans la liste blanche. Un volume qui
+rendrait `terminal` différable (`tools.tool_search.defer`) ne rouvre rien : la garde reçoit
+« terminal » et le refuse (prouvé, avec son témoin négatif où terminal s'exécute). La première
+version de ce document disait « le pont `tool_call` est refusé par la garde » : c'était inexact, et
+les tests qui le « prouvaient » ne passaient que par le chemin d'erreur de Hermes ; ils sont
+renommés et complétés (§ 8).
 
 **Retirés en P2**, avec un message dédié :
 - `kanban_create` : le worker lancé recevrait les skills, le modèle, le fournisseur et
   l'espace de travail choisis par l'agent (kanban_db_dispatch.py:2676-2710 et 2820-2887).
-  Réadmis en P5 seulement avec une liste blanche d'arguments (`title`, `body`, `assignee`
-  limité aux profils du poste, `parents`, `priority`, `idempotency_key`, `triage`) ;
+  Il n'est **pas réadmis** : selon le plan d'autonomie validé ([autonomie.md](autonomie.md) § 8,
+  P4), les cartes des projets sont créées par les outils du greffon (`projet_planifier`…), qui
+  fixent eux-mêmes compétences, modèle, fournisseur et espace de travail. (La réadmission « en P5
+  avec une liste blanche d'arguments », annoncée par la première version de P2, est abandonnée :
+  relecture P2.) Message : « Refusé par ACP : l'agent ne crée pas de carte kanban lui-même ; les
+  projets passeront par les outils du greffon acp-poste (P4), qui fixent compétences, modèle,
+  fournisseur et espace de travail. » ;
 - `kanban_attach_url` : `is_safe_url` puis `httpx.stream` ordinaire, sans protection contre
   le rebinding DNS vers le réseau privé (tools/kanban_tools.py:924-958 ; url_safety.py:7-10).
 
@@ -435,6 +472,19 @@ utilisateur n'est jamais importé.
   entrée (ou un lien symbolique à leur place) **refuse le démarrage** en les nommant ; ensuite
   ils deviennent root 0755. `stage2-hook.sh` ne les rend pas à l'agent tant que `/opt/data`
   lui appartient (stage2-hook.sh:228-254).
+- **`hooks/` et `scripts/` de chaque profil (relecture P2)** : une seule passerelle sert tous les
+  profils (hermes_cli/container_boot.py:100-110 ; hermes_cli/profiles.py:1050-1075) ; elle
+  exécute les scripts cron du `scripts/` **propre** à chaque profil (cron/scheduler_script.py:257-298,
+  chemin résolu sous le `HERMES_HOME` du profil) et charge les crochets de son `hooks/`
+  (gateway/hooks.py:28-35). Mesuré par la relecture sur `21eeb5d` : un volume portant un profil
+  secondaire avec un script cron démarrait sans refus, et le script tournait sous l'uid 10000.
+  Désormais, chaque **répertoire réel** de `/opt/data/profiles` (même sans marqueur de profil :
+  plus strict que Hermes) voit ses `hooks/` et `scripts/` inspectés avant toute écriture, exigés
+  vides (refus nommé sinon), puis repris par root 0755, comme ceux de la racine. Un **lien
+  symbolique** sous `profiles/`, ou `profiles/` lui-même en lien, **refuse le démarrage** : Hermes
+  le suivrait comme un profil (profiles.py:349-366). L'état du démarrage liste ces profils
+  (`repertoires_executes.profils`) et le journal les nomme. Un profil créé ensuite par le
+  propriétaire (tableau de bord) est inspecté au démarrage suivant.
 - **`/opt/data/lazy-packages` (P2)** : les installations paresseuses sont coupées (§ 5) ; un
   contenu autre que `.lock` et `.python-abi` est signalé (état du démarrage, `/v1/meta`,
   `diagnostiquer`) sans refuser le démarrage.
@@ -449,12 +499,20 @@ rassemble tout ce qui ferait refuser le démarrage ou exécuter du code depuis l
 
 - **environnement de référence** : `/proc/1/environ` (octets nuls, rien n'est exécuté) si le
   PID 1 n'est pas `s6-svscan` (maintenance : Start Command `/bin/sh -c "exec sleep infinity"`),
-  `/run/s6/container_environment` sous s6, sinon « inconnue » (code 1). **Jamais**
+  `/run/s6/container_environment` sous s6 (un seul « \n » final retiré de chaque valeur, comme
+  le fait `with-contenv` : relecture P2, sans quoi un conteneur **sain** rendait 29 faux constats
+  et le code 1), sinon « inconnue » (code 1). **Jamais**
   l'environnement de la session qui lance la commande : la doc de Railway ne dit rien de
   celui d'une session `railway ssh` (rw_full.txt:23271-23420). La source lue est affichée ;
 - contrôles : variables Railway (§ 4), montage de `/opt/data`, variables interdites des `.env`
-  du volume, noms réservés et liens (§ 6), `hooks/` et `scripts/`, relecture de la managed
-  scope installée (celle de construction est attendue en maintenance, sans constat) ;
+  du volume, noms réservés et liens (§ 6), `hooks/` et `scripts/` de la racine et de chaque
+  profil, liens sous `profiles/`, relecture de la managed scope installée (celle de construction
+  est attendue en maintenance, sans constat) ;
+- **tâches cron à script** (relecture P2) : champs `script` et `monitor_script` des
+  `cron/jobs.json` de la racine et de chaque profil (lecture tolérante comme Hermes : BOM,
+  dictionnaire par identifiant). Sans script dans les `scripts/` exigés vides, elles échouent ;
+  elles sont signalées parce que leur présence dit qu'une sauvegarde restaurée ou une ancienne
+  injection en a posé ;
 - **clés exécutables** de `/opt/data/config.yaml` et `/opt/data/profiles/*/config.yaml`, lues
   sans suivre de lien : `mcp_servers.*.command`, `hooks` non vide, `quick_commands` de type
   `exec`, fournisseurs TTS ou STT de type `command` ;
@@ -469,8 +527,9 @@ liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'e
 - `plugin.yaml` : `kind: backend`, `requires_hermes: ">=0.21.5"`, version `0.11.0`
   (vérifiée par `scripts/check_version.py`).
 - `register(ctx)` (P2) : sentinelle hors s6 (§ 3), puis
-  `ctx.register_hook("pre_tool_call", garde_execution.garde)` (§ 5). Toujours ni outil
-  `poste_*`, ni fournisseur de jeton machine, ni route à jeton : ils arrivent en P5.
+  `ctx.register_hook("pre_tool_call", garde_execution.garde)` (§ 5). Toujours aucun outil : les
+  outils `projet_*`, `poste_*` et `question_*` arrivent en P4, le jeton machine et les routes du
+  poste en P5 ([autonomie.md](autonomie.md) § 8).
 - `kanban_adapter.py` : seul module qui importe l'interne kanban, chaque fonction depuis
   son module de définition (`hermes_cli.kanban_db`, `hermes_cli.kanban_db_connect.connect`,
   `hermes_cli.kanban_db_dispatch.heartbeat_worker`), tableau `poste` toujours nommé ;
@@ -546,7 +605,13 @@ bord).
     `.env` piégé) ; témoins négatifs `test_temoin_scope_p1_rend_terminal`,
     `test_sans_platform_toolsets_un_composite_rend_terminal`, `test_coding_context_focus_neutralise` ;
   - `test_env_gere_neutralise_le_volume` ; `test_tour_api_server_refuse_terminal_ecriture_code_cron`
-    (sept outils) ; `test_le_pont_tool_call_ne_rouvre_pas_terminal` ;
+    (sept outils) ;
+  - pont `tool_call` (relecture P2) : `test_pont_tool_call_non_resolu_refuse` (terminal n'est pas
+    différable : la garde reçoit « tool_call » et le refuse ; seul ce chemin d'erreur était
+    couvert avant), `test_pont_tool_call_vers_un_outil_admis` (`todo_list` s'exécute à travers le
+    pont, aucun refus), `test_pont_tool_call_juge_l_outil_sous_jacent` (volume qui rend terminal
+    différable : la garde reçoit « terminal ») et son témoin négatif (sans `acp-poste`, terminal
+    s'exécute à travers le pont) ;
   - `test_garde_dans_un_agent_neuf` et son témoin négatif (managed scope de test qui désactive
     `acp-poste` : le témoin apparaît) ;
   - **`test_preview_restart_par_tui_gateway` (BLOQUANT, jamais ignoré)** : `python -m
@@ -559,28 +624,40 @@ bord).
     d'outils écrits en dur, épinglés), `test_recensement_http_des_outils_admis` (appels HTTP
     directs des modules des outils admis et de leurs fournisseurs, épinglés par fichier et
     ligne), `test_decouverte_des_greffons_reussit` ;
-  - `test_sentinelle_hors_s6` (neuf cas) ;
+  - `test_sentinelle_hors_s6` (vingt-cinq cas depuis la relecture P2 : options globales à valeur,
+    `--option=valeur`, `--`, `HERMES_HOME` non normalisé ou de profil, `gateway` nu, `serve`),
+    `test_sentinelle_suit_un_lien_vers_le_volume`,
+    `test_options_a_valeur_couvrent_l_analyseur_de_hermes` (recensement contre l'analyseur réel) ;
   - démarrage : `test_epingles_p2_obligatoires` (quatorze altérations du modèle),
     `test_variables_p2_interdites` (treize), `test_valeurs_imposees_p2` (cinq),
     `test_railway_run_uid`, `test_volume_railway`, `test_hooks_et_scripts_du_volume`,
+    `test_hooks_et_scripts_des_profils` (relecture P2 : crochet ou script d'un profil refusé
+    avant toute écriture, puis `hooks/` et `scripts/` de chaque profil repris par root),
+    `test_un_lien_symbolique_sous_profiles_est_refuse`, `test_journal_des_gardes_nomme_les_profils`,
     `test_lazy_packages_non_vide_est_signale`, `test_journal_commit_deploye`, décompte 40
     clés et 38 variables ;
   - `diagnostiquer` : `test_diagnostiquer_rassemble_sans_ecrire` (volume piégé de sept façons,
-    plus un paquet dans `lazy-packages` : tous les motifs, empreinte de l'arbre inchangée,
-    code 1), `test_diagnostiquer_un_volume_sain_rend_0`,
+    plus un paquet dans `lazy-packages`, le `scripts/` d'un profil et deux tâches cron à script :
+    tous les motifs, empreinte de l'arbre inchangée, code 1), `test_diagnostiquer_un_volume_sain_rend_0`,
     `test_diagnostiquer_en_maintenance_accepte_la_scope_de_construction`,
-    `test_diagnostiquer_source_environnement` (session `env -i` ; `/proc/1/environ`, s6,
-    « inconnue »), `test_diagnostiquer_exige_root` ;
+    `test_diagnostiquer_source_environnement` (session `env -i` ; `/proc/1/environ`, s6 avec des
+    fichiers terminés par « \n » comme ceux de s6-overlay, « inconnue »),
+    `test_lire_env_s6_retire_un_seul_saut_de_ligne_final`, `test_diagnostiquer_exige_root` ;
   - meta : `test_meta_garde_execution_*` (découverte qui lève, crochet absent, vraie découverte
     dans un processus neuf), `test_meta_reseau` (et par la route : jamais la valeur de
     `X-Forwarded-For`), `test_meta_lazy_packages`, `test_meta_commit_deploye`.
 - **Depuis l'hôte** (`test_sans_shell_contrat.py`) :
-  - `test_entree_refuse_hors_pid1` (`--init`), `test_passerelle_hors_s6_arretee_par_le_greffon`
-    (passerelle et tableau de bord, code 78), `test_hooks_scripts_refus`,
-    `test_hooks_scripts_root_et_refus`, `test_volume_railway_simule` ;
-  - `test_api_server_http_refuse_les_outils_d_execution` (HTTP réel sur 127.0.0.1:8642),
-    `test_agent_cron_refuse_terminal` (terminal absent ; pont `tool_call` refusé par la garde
-    dans le processus cron), `test_worker_kanban_refuse_les_outils_d_execution` (trois cartes
+  - `test_entree_refuse_hors_pid1` (`--init`), `test_entree_refuse_hors_pid1_sur_railway`
+    (relecture P2 : marqueurs Railway, message qui renvoie à [railway.md](railway.md) § 10 f),
+    `test_passerelle_hors_s6_arretee_par_le_greffon` (passerelle et tableau de bord, code 78),
+    `test_hooks_scripts_refus` (racine et, depuis la relecture P2, `scripts/` et `hooks/` d'un
+    profil secondaire), `test_hooks_scripts_root_et_refus` (racine et profil `coder`),
+    `test_diagnostiquer_sous_s6_sur_un_conteneur_sain` (relecture P2 : code 0 exigé),
+    `test_volume_railway_simule` ;
+  - `test_api_server_http_refuse_les_outils_d_execution` (HTTP réel sur 127.0.0.1:8642 ; pont
+    `tool_call` non résolu refusé, pont vers `todo_list` exécuté),
+    `test_agent_cron_refuse_terminal` (terminal absent ; pont `tool_call` non résolu, refusé par la
+    garde dans le processus cron), `test_worker_kanban_refuse_les_outils_d_execution` (trois cartes
     du propriétaire ; `kanban_create` avec skills, modèle, fournisseur et `workspace_path:
     /opt/data`, et `kanban_attach_url`, OFFERTS au worker, refusés par la garde : preuve du
     crochet dans le processus du worker ; aucune nouvelle carte ; aucune requête vers
@@ -617,7 +694,7 @@ Comme en P1 pour le `PATH`, chaque protection principale a été retirée d'une 
 
 | Protection retirée | Tests dans l'image | Tests de contrat |
 |---|---|---|
-| Garde d'exécution (crochet non enregistré) | 4 échecs sur 4 : pont `tool_call`, agent neuf, **preview.restart en stdio**, découverte | 4 échecs sur 5 : **preview.restart par `/api/ws`**, worker kanban, cron (`tool_call`), meta ; `cron[terminal]` reste vert (tenu par la couche 1) |
+| Garde d'exécution (crochet non enregistré) | 4 échecs sur 4 : pont `tool_call` (non résolu), agent neuf, **preview.restart en stdio**, découverte | 4 échecs sur 5 : **preview.restart par `/api/ws`**, worker kanban, cron (`tool_call`), meta ; `cron[terminal]` reste vert (tenu par la couche 1) |
 | Listes `disabled_toolsets` et `platform_toolsets` | 7 échecs sur 9 : surfaces (vide et hostile), tours api_server (terminal, fichiers, code, délégation) ; `cronjob_manage` et `browser_navigate` restent verts (navigateur toujours retiré, cron non offert) | 1 échec sur 1 : api_server HTTP (terminal offert) |
 | Épingles du `.env` géré | 2 échecs sur 3 : `.env` neutralisé, surfaces sur volume hostile | — |
 | `acp-entree` (ENTRYPOINT officiel) | — | 1 échec sur 1 : refus hors PID 1 |
@@ -660,7 +737,8 @@ Prouvé en P2, en local le 25/09/2026 (preuves chiffrées en fin de section) :
 - **aucune surface n'offre d'outil d'exécution** (api_server, CLI, cron, tableau de bord,
   worker kanban, enfant de délégation), sur volume vide et hostile ;
 - **les vrais processus refusent** : api_server en HTTP (« does not exist » pour terminal,
-  fichiers, code, cron, délégation, navigateur ; pont `tool_call` refusé par la garde),
+  fichiers, code, cron, délégation, navigateur ; pont `tool_call` non résolu refusé par la
+  garde, pont résolu jugé sur l'outil sous-jacent),
   agent cron, **workers kanban** (garde présente dans leur processus : `kanban_create` et
   `kanban_attach_url` refusés avec leur message), tableau de bord après volume piégé, relance
   et redémarrage ;
@@ -671,7 +749,8 @@ Prouvé en P2, en local le 25/09/2026 (preuves chiffrées en fin de section) :
   découverte des greffons réussit sur l'image épinglée ; `/v1/meta` rapporte l'état de la
   garde dans le processus du tableau de bord ;
 - refus hors PID 1 (`--init`), arrêt en code 78 de la passerelle et du tableau de bord lancés
-  hors de s6, `hooks/` et `scripts/` exigés vides puis root, volume Railway exigé (variable et
+  hors de s6, `hooks/` et `scripts/` exigés vides puis root (à la racine et, depuis la relecture
+  P2, dans chaque profil), volume Railway exigé (variable et
   point de montage), `RAILWAY_RUN_UID`, treize nouvelles variables interdites, cinq valeurs
   imposées, quatorze nouvelles épingles, 40 clés et 38 variables ;
 - aucune installation paresseuse (`uv pip install` absent des journaux, `lazy-packages` vide) ;
@@ -697,8 +776,12 @@ Non prouvé — et non garanti :
 
 ### Preuves de P2 (local)
 
-Images construites depuis le worktree (`docker build -f hermes/image/Dockerfile hermes`, puis
-l'image de test), Docker 29.5.3 sous Windows, le 25/09/2026 :
+**Partie 1 seulement (commit `efbf7b0`)** : ces chiffres datent de la première partie de P2 et
+sont périmés au sommet de la branche (216 tests dans l'image dès `822d6e6`, 99 au contrat avec
+l'identité et l'IaC). Les preuves à jour, partie par partie puis après la relecture indépendante,
+sont dans [`docs/reprise-poste.md`](../reprise-poste.md) (§ P2). Relevé de la partie 1 : images
+construites depuis le worktree (`docker build -f hermes/image/Dockerfile hermes`, puis l'image de
+test), Docker 29.5.3 sous Windows, le 25/09/2026 :
 
 - dans l'image : `docker run --rm --entrypoint /opt/hermes/.venv/bin/python -e
   PYTHONPATH=/opt/acp-tests/site <image de test> -m pytest -v -rA /opt/acp-tests/image` →
@@ -711,6 +794,7 @@ l'image de test), Docker 29.5.3 sous Windows, le 25/09/2026 :
 
 ### Preuves de P2 (CI)
 
+Partie 1 seulement ; les runs suivants sont dans [`docs/reprise-poste.md`](../reprise-poste.md).
 Run `image.yml` [36087965990](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965990)
 sur `refonte/hermes-p2` (commit `efbf7b0`, 25/09/2026, conclusion **success**) : condensat de
 l'image officielle confirmé, **212 tests réussis dans l'image**, **56 tests de contrat
@@ -740,6 +824,16 @@ du même commit : success.
 - **Chemins d'exécution pilotés par la configuration ou le volume** (`mcp_servers.*.command`,
   `hooks:`, quick_commands exec, TTS/STT « command », `lazy-packages`) : il faut écrire
   `/opt/data`, ce que l'agent ne peut plus faire ; `diagnostiquer` les inventorie (code 1).
+- **`vision_analyze` lit les images locales** (relecture P2, constat par lecture de la source,
+  non exécuté) : l'outil admis accepte un chemin local ou une URL `file://`
+  (tools/vision_tools.py:875) ; avec le terminal local de l'image, **tout chemin** lisible par
+  l'uid 10000 est admis (tools/image_source.py:71-78 et 173-177), filtré seulement par la garde
+  des fichiers d'identifiants (`.env`, `auth.json` : image_source.py:84-99) et par le contrôle des
+  octets magiques d'image. L'agent peut donc faire décrire par le modèle de vision **toute image
+  locale** lisible (pièces jointes en cache, par exemple), puis en exfiltrer la description par
+  `web_extract`. Gardé par décision du propriétaire (`web_extract` et `vision_analyze` gardés,
+  risque résiduel documenté) ; parade possible si le propriétaire le décide : refuser dans la garde
+  un `image_url` sans schéma `http(s)` ni `data:` (au prix des images jointes par chemin local).
 - **Exfiltration par `web_extract`** (URL publique) après une injection ; **injection
   persistante** par les skills et la mémoire, soumises à la validation du propriétaire
   (`write_approval: true`).
@@ -756,6 +850,11 @@ du même commit : success.
   `/bin/sh -c "exec sleep infinity"`, `diagnostiquer`, correction, retour à la normale) et
   restauration de sauvegarde : [railway.md](railway.md) § 10. On ne désactive jamais une
   garde et on n'ajoute jamais de variable de contournement.
+- **PID 1 sur Railway** : non documenté ; si la plateforme ne le donne pas à l'image, `acp-entree`
+  refuse et renvoie à la procédure ([railway.md](railway.md) § 10 f : service laissé hors ligne,
+  décision de conception par une PR, aucun contournement par Start Command).
+- **Sentinelle** : défense en profondeur seulement (§ 3) ; une commande qui ne passe pas par
+  l'analyse de `sys.argv` de `hermes` n'est pas reconnue.
 - **Hors de s6** : refusé (`acp-entree` hors PID 1 ; sentinelle du greffon pour `gateway
   run` et `dashboard` lancés par une autre entrée). Le PID 1 réel de Railway n'est pas
   documenté : le premier démarrage le tranchera, par un refus explicite s'il le faut.
