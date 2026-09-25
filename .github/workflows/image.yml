@@ -25,8 +25,21 @@ name: Image Hermes
 #     LIMITE ASSUMÉE, NON couverte par un test : sous le même uid, l'agent peut tuer le
 #     tableau de bord et prendre le port public 9119 (parade en P2 — voir image.md §10).
 #
-# Rien n'est publié : ni image poussée, ni déploiement. Railway construira lui-même
-# hermes/image/Dockerfile (étape P2) avec « Wait for CI », d'où le déclencheur `push`.
+# Étape P2, fournisseur d'identité (identite/, docs/refonte/identite.md) :
+#   - condensat de l'image Authelia relevé et comparé à la ligne FROM de identite/Dockerfile ;
+#   - image identite construite, puis tests de contrat test_identite.py : garde root et refus en
+#     français, secrets générés une fois, utilisateur unique, politique OIDC, maintenance,
+#     compatibilité avec le vrai tableau de bord de Hermes À TRAVERS un bord TLS factice qui imite
+#     Railway, mémoire d'Authelia sous premiers facteurs simultanés (valeur consignée) ;
+#   - test navigateur hermes/tests/e2e (Playwright aux hachés vérifiés, Chromium téléchargé ici) :
+#     passkey par authentificateur WebAuthn virtuel, consentement, rafraîchissement sans 503,
+#     PKCE exigé, révocation, refus d'un autre identifiant. ACP_E2E_OBLIGATOIRE=1 : ce test n'est
+#     jamais ignoré en CI.
+#
+# Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
+# hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
+# Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
+# et « Wait for CI » l'ignore dès qu'un autre workflow a réussi sur le commit.
 
 "on":
   workflow_dispatch:
@@ -36,6 +49,7 @@ name: Image Hermes
       - "refonte/hermes"
     paths:
       - "hermes/**"
+      - "identite/**"
       - ".github/workflows/image.yml"
   push:
     branches:
@@ -43,23 +57,29 @@ name: Image Hermes
       - "refonte/**"
     paths:
       - "hermes/**"
+      - "identite/**"
       - ".github/workflows/image.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: image-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Hors PR : un groupe PAR EXÉCUTION, jamais annulée ni remplacée. Par défaut (« queue: single »),
+  # GitHub annule toute exécution EN ATTENTE du même groupe, même avec cancel-in-progress: false ;
+  # or « Wait for CI » de Railway ignore un run annulé dès qu'un autre workflow a réussi sur le
+  # commit (rw_full.txt:29704-29707). En PR seulement, un nouveau push remplace le run en cours.
+  group: image-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   image:
     name: Image ACP — construction et contrat
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       ACP_IMAGE: acp-hermes:ci
       ACP_IMAGE_TESTS: acp-hermes-tests:ci
+      ACP_IMAGE_IDENTITE: acp-identite:ci
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
@@ -77,11 +97,31 @@ jobs:
           grep -q "FROM nousresearch/hermes-agent:${etiquette}@${attendu}" hermes/image/Dockerfile
           echo "Condensat épinglé confirmé : ${etiquette}@${attendu}"
 
+      - name: Relever le condensat de l'image Authelia
+        run: |
+          set -euo pipefail
+          ligne="$(grep -E '^FROM ' identite/Dockerfile)"
+          test "$(grep -cE '^FROM ' identite/Dockerfile)" -eq 1
+          reference="${ligne#FROM }"
+          image="${reference%@*}"
+          attendu="${reference#*@}"
+          case "$image" in docker.io/authelia/authelia:*) ;; *) echo "FROM inattendu : ${ligne}" >&2; exit 1 ;; esac
+          case "$attendu" in sha256:*) ;; *) echo "FROM sans condensat : ${ligne}" >&2; exit 1 ;; esac
+          docker buildx imagetools inspect "$image" | tee /tmp/imagetools-authelia.txt
+          if ! grep -Eq "^Digest: +${attendu}$" /tmp/imagetools-authelia.txt; then
+            echo "Le condensat publié de ${image} ne correspond plus à ${attendu} : refus." >&2
+            exit 1
+          fi
+          echo "Condensat épinglé confirmé : ${image}@${attendu}"
+
       - name: Construire l'image ACP
         run: docker build --pull -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
 
       - name: Construire l'image de test
         run: docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+
+      - name: Construire l'image du fournisseur d'identité
+        run: docker build --pull -t "$ACP_IMAGE_IDENTITE" identite
 
       - name: hermes --version
         run: |
@@ -115,14 +155,45 @@ jobs:
       - name: Installer pytest (hachés vérifiés)
         run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
 
-      - name: Tests de contrat de l'image
+      - name: Tests de contrat des images (Hermes et fournisseur d'identité)
         run: python -m pytest -s -v -rA hermes/tests/contrat
 
-      - name: Aucun conteneur de test ne reste
+      - name: Installer Playwright (hachés vérifiés) et Chromium
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Test navigateur de la connexion (Playwright, WebAuthn virtuel)
+        env:
+          ACP_E2E_OBLIGATOIRE: "1"
+          ACP_E2E_CAPTURES: /tmp/captures-e2e
+        run: python -m pytest -s -v -rA hermes/tests/e2e
+
+      - name: Captures d'écran du test navigateur
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-connexion-navigateur
+          path: /tmp/captures-e2e
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Aucun conteneur, volume ni réseau de test ne reste
         if: always()
         run: |
           reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
           if [ -n "$reste" ]; then
             echo "Conteneurs restants : ${reste}" >&2
-            docker rm -f $reste >/dev/null
+            docker rm -f -v $reste >/dev/null
+          fi
+          volumes="$(docker volume ls -q --filter name=acp-contrat-)"
+          if [ -n "$volumes" ]; then
+            echo "Volumes restants : ${volumes}" >&2
+            docker volume rm -f $volumes >/dev/null
+          fi
+          reseaux="$(docker network ls -q --filter name=acp-contrat-)"
+          if [ -n "$reseaux" ]; then
+            echo "Réseaux restants : ${reseaux}" >&2
+            docker network rm $reseaux >/dev/null
           fi
