@@ -208,18 +208,29 @@ jobs:
       - name: Aucun conteneur, volume ni réseau de test ne reste
         if: always()
         run: |
+          # Nettoie TOUJOURS, puis ÉCHOUE si quelque chose restait : un reste prouve un défaut de
+          # nettoyage des tests (relecture P2 ; l'étape ne faisait que nettoyer).
+          restes=0
           reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
           if [ -n "$reste" ]; then
             echo "Conteneurs restants : ${reste}" >&2
             docker rm -f -v $reste >/dev/null
+            restes=1
           fi
           volumes="$(docker volume ls -q --filter name=acp-contrat-)"
           if [ -n "$volumes" ]; then
             echo "Volumes restants : ${volumes}" >&2
             docker volume rm -f $volumes >/dev/null
+            restes=1
           fi
           reseaux="$(docker network ls -q --filter name=acp-contrat-)"
           if [ -n "$reseaux" ]; then
             echo "Réseaux restants : ${reseaux}" >&2
             docker network rm $reseaux >/dev/null
+            restes=1
           fi
+          if [ "$restes" -ne 0 ]; then
+            echo "Des ressources acp-contrat-* restaient après les tests : nettoyées, mais la CI échoue." >&2
+            exit 1
+          fi
+          echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."

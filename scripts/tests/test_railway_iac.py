@@ -15,7 +15,8 @@ Ce qui est vérifié ici :
 - aucun secret ;
 - cohérence avec les images (Dockerfiles, ports, points de montage, limite mémoire mesurée) ;
 - CI : image.yml suit ``.railway/**``, évalue l'IaC et garde un groupe de concurrence par exécution
-  hors PR ; ``.railway/**`` en LF ; aucun fichier Config as Code (railway.json / railway.toml).
+  hors PR, comme ci.yml ; l'étape finale d'image.yml échoue s'il restait des ressources de test ;
+  ``.railway/**`` en LF ; aucun fichier Config as Code (railway.json / railway.toml).
 """
 
 from __future__ import annotations
@@ -205,6 +206,18 @@ def test_constantes(code):
     assert constante(code, "DEPOT") == "Paul-Berdier/agent-company-platform"
     assert constante(code, "BRANCHE") == "refonte/hermes", "branche déployée : décision du propriétaire."
     assert constante(code, "ENVIRONNEMENT") == "production"
+    assert constante(code, "PROJET") == "acp"
+
+
+def test_garde_du_projet_lie(code):
+    """Relecture P2 : le fichier décrit un projet ENTIER ; évalué pour un autre projet lié, le plan y
+    supprimerait tout. La garde refuse tout projet lié autre que « acp » (effet réel prouvé par
+    .railway/verifier.mjs : « autre projet lié » et « projet lié inconnu »)."""
+    assert "if (ctx.projectName !== PROJET) {" in code
+    assert code.index("ctx.projectName !== PROJET") < code.index("ctx.environment !== ENVIRONNEMENT")
+    assert 'return project(PROJET, {' in code
+    verificateur = lire(IAC / "verifier.mjs")
+    assert '"autre projet lié"' in verificateur and '"projet lié inconnu"' in verificateur
     # Identifiant de la page « Regions » (rw_full.txt:30283) ; repli "europe-west4" par PR seulement.
     assert constante(code, "REGION") in {"europe-west4-drams3a", "europe-west4"}
 
@@ -308,6 +321,27 @@ def test_ci_image_evalue_l_iac():
     assert "cancel-in-progress: true" not in flux
     # L'IaC est évaluée AVANT les tests de contrat, qui lisent son graphe d'essai.
     assert flux.index("npm run --prefix .railway verifier") < flux.index("python -m pytest -s -v -rA hermes/tests/contrat")
+
+
+def test_ci_yml_n_annule_aucun_run_hors_pr():
+    """Relecture P2 : « Wait for CI » ignore un run annulé dès qu'un autre workflow du commit a réussi
+    (rw_full.txt:29704-29707). ci.yml compte pour le déploiement (railway.md § 9) : hors PR, il ne
+    doit donc jamais annuler ni remplacer un run, comme image.yml (groupe par exécution)."""
+    flux = lire(RACINE / ".github" / "workflows" / "ci.yml")
+    assert "group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}" in flux
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in flux
+    assert "cancel-in-progress: true" not in flux
+
+
+def test_image_yml_echoue_s_il_reste_des_ressources_de_test():
+    """Relecture P2 : l'étape finale nettoie puis ÉCHOUE si des ressources acp-contrat-* restaient."""
+    flux = lire(RACINE / ".github" / "workflows" / "image.yml")
+    etape = flux[flux.index("- name: Aucun conteneur, volume ni réseau de test ne reste"):]
+    assert "if: always()" in etape.splitlines()[1]
+    for nettoyage in ("docker rm -f -v $reste", "docker volume rm -f $volumes", "docker network rm $reseaux"):
+        assert nettoyage in etape, nettoyage
+    assert etape.count("restes=1") == 3
+    assert 'if [ "$restes" -ne 0 ]; then' in etape and "exit 1" in etape
 
 
 def test_railway_en_lf():
