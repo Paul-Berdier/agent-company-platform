@@ -140,6 +140,26 @@ premiers facteurs non bornée ; `vision_analyze` peut faire décrire toute image
 l'agent ; PID 1, bord, clés IaC non documentées, sort des sauvegardes posées hors IaC et coûts réels
 ne se prouvent que sur Railway.
 
+### P3 — identité, français et réglages prêts (en cours ; première partie : identité visuelle et français)
+
+- thème `acp` du tableau de bord généré depuis `design/tokens` (`scripts/generer_themes.py`, même
+  chargeur que le QML du desktop, `--check` pour les deux), contrastes recalculés, aucune police
+  téléchargée ;
+- persona `SOUL.md` réécrite en français pour un agent sans outil d'exécution, avec vouvoiement ;
+- greffons de tableau de bord `acp-interface` (Accueil à la place de « / », logotype « ACP »,
+  bannière d'alertes, français verrouillé, contrôle du SDK) et `acp-catalogue` (onglet en lecture
+  seule), sans code serveur, sources dans `apps/interface`, bundles committés et vérifiés en CI ;
+- managed scope à 42 clés : `hermes-achievements` désactivé, police du thème et aucun greffon masqué
+  épinglés ;
+- décompte des chaînes de Hermes restées en anglais, mesuré sur l'image (105 clés du tableau de bord
+  sur 746, 6 libellés de navigation, messages de l'agent complets) ;
+- test navigateur de l'interface aux formats 390×844 et 1440×900 (catalogue des chaînes, axe,
+  cibles tactiles, aucune requête externe) ; connexion factorisée avec le test de P2.
+
+Limites connues (détail : `interface.md` § 9) : titre « Sessions » sur « / » imposé par Hermes ;
+logotype visible au téléphone seulement dans le menu ; sélecteurs de thème et de police actifs
+jusqu'au rechargement ; pages natives en partie en anglais (comptées, non traduites).
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

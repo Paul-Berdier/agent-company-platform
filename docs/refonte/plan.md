@@ -118,6 +118,11 @@ Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
   d'identité, IaC, procédure, CI verte) ; **rien n'est déployé** : le premier déploiement est fait par
   le propriétaire, selon [railway.md](railway.md), après la fusion. Preuves datées :
   `docs/reprise-poste.md`.
+- **P3** : en cours sur `refonte/hermes-p3` (empilée sur P2). Première partie, **identité visuelle
+  et français**, réalisée côté dépôt : thème `acp` généré depuis les jetons, persona française,
+  greffons `acp-interface` et `acp-catalogue`, verrou du français, décompte des chaînes restées en
+  anglais, captures 390×844 et 1440×900 ([interface.md](interface.md)). Seconde partie (catalogue
+  de skills, MCP context7, route `/v1/catalogue`) : à faire.
 
 ### Conséquences de P2 sur la lecture du plan
 

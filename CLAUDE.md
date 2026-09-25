@@ -55,7 +55,7 @@ La refonte « Hermes au centre » se publie **étape par étape** (P0 à P9 du p
 **Hermes Agent** (épinglé sur une release par condensat d'image, déployé sur Railway
 derrière son propre fournisseur d'identité OIDC, Authelia auto-hébergé dans le service
 `identite`, un seul utilisateur) est le seul serveur, le seul orchestrateur et la seule
-source de vérité, étendu par les greffons `acp-interface` et `acp-poste` livrés dans
+source de vérité, étendu par les greffons `acp-interface`, `acp-catalogue` et `acp-poste` livrés dans
 l'image ; sur Railway, l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers,
 ni code) : tout ce qui s'exécute passe par le **poste Windows** (`apps/poste`), qui
 réclame son travail en HTTPS sortant sans écouter aucun port et y lance Codex et Claude
@@ -102,6 +102,9 @@ serveur.
 - `docs/refonte/image.md` — image Hermes d'ACP : démarrage, variables Railway attendues
   et interdites, managed scope, agent sans outil d'exécution, greffon `acp-poste`, tests
   et limites.
+- `docs/refonte/interface.md` — interface d'ACP (P3) : thème généré depuis `design/tokens`,
+  persona française, greffons `acp-interface` et `acp-catalogue` (sources `apps/interface`),
+  verrou du français, décompte des chaînes restées en anglais, captures.
 - `docs/refonte/identite.md` — fournisseur d'identité (Authelia) : garde, configuration,
   compatibilité OIDC avec Hermes, mémoire mesurée, limites.
 - `docs/refonte/railway.md` — infrastructure Railway (`.railway/railway.ts`) et

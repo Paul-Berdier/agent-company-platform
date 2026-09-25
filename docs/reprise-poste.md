@@ -21,7 +21,7 @@ Desktop CI `35981934226` vertes sur ce commit).
 - Une branche par étape, `refonte/hermes-pN`, PR vers `refonte/hermes`. Étiquette
   `1.0.0` seulement à la fusion finale dans `main`.
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
-  `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`.
+  `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`.
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
@@ -67,7 +67,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P0 | Branche, élagage et gel du moteur | **fusionnée** dans `refonte/hermes` (PR #13, `29c95b5`) (§ 4) |
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
-| P3 | Identité, français et réglages prêts | à faire |
+| P3 | Identité, français et réglages prêts | **première partie** (identité visuelle et français) réalisée côté dépôt sur `refonte/hermes-p3`, poussée ; seconde partie (catalogue, MCP) à faire ; sans PR (§ 6 bis) |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | à faire |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
@@ -788,6 +788,87 @@ secrets dans l'historique Docker et Git ; le contournement de la sentinelle par 
 qui ne passe pas par `sys.argv` de `hermes` (limite dite, `image.md` § 10) ; le comportement réel du
 moteur de la CLI face aux sauvegardes et à `ctx.projectName` (Railway seulement).
 
+## 6 bis. P3 — identité visuelle et français (première partie)
+
+Branche `refonte/hermes-p3`, **empilée sur `refonte/hermes-p2`** (`120b15c`, PR #15 ouverte, non
+fusionnée) : tout changement de P2 en revue imposera un rebasage. Version 0.11.0 inchangée ;
+**ni PR, ni fusion, ni étiquette** ; **rien n'est déployé**. Cahier : `plan_p3.md` (brouillon de
+conception) ; référence : [`docs/refonte/interface.md`](refonte/interface.md). La seconde partie
+de P3 (skills vendorisées et verrou du catalogue, MCP context7, route `/v1/catalogue` et bloc
+`catalogue` de `/v1/meta`) reste à faire ; le contrat que l'interface en attend est au § 6 de
+`interface.md`.
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `f53c0bb` | feat(theme): generate the acp dashboard theme from the design tokens |
+| `0c8e8d0` | feat(hermes): rewrite the French persona for an agent without execution tools |
+| `9a638fd` | feat(interface): add the acp-interface and acp-catalogue dashboard plugins |
+| `6260feb` | test(e2e): capture the French interface on phone and desktop viewports |
+| `c202084` | feat(tooling): count the dashboard and agent strings left in English |
+| (ce commit) | docs: document the P3 interface, theme and persona with local proofs |
+
+### Ce qui est en place
+
+- **Thème `acp`** généré depuis `design/tokens` par `scripts/generer_themes.py`, avec le chargeur du
+  générateur QML du desktop ; `--check` vérifie le thème **et** le QML (CI, poste Linux et Windows) ;
+  22 contrastes recalculés, aucune police téléchargée.
+- **Persona française** réécrite pour un agent sans outil d'exécution, vouvoiement (D1) ; montée
+  depuis le SOUL exact de P2 prouvée ; nouvelle session : la persona est en tête du prompt système.
+- **Greffons `acp-interface`** (Accueil sur « / », logotype, bannière d'alertes, verrou du
+  français D10, contrôle du SDK) et **`acp-catalogue`** (lecture seule), sans code serveur ;
+  sources dans `apps/interface`, bundles committés et vérifiés en CI (nouveau travail « Interface
+  ACP » de `ci.yml`).
+- **Managed scope : 42 clés** (`hermes-achievements` désactivé, `dashboard.font: theme`,
+  `dashboard.hidden_plugins: []`) ; `.env` géré : 38 variables, inchangé.
+- **Décompte publié** des chaînes de Hermes restées en anglais, mesuré sur l'image : 105 clés du
+  tableau de bord sur 746, 6 libellés de navigation, 0 message de l'agent sur 374.
+
+### Écarts au cahier, justifiés
+
+- Deux greffons au lieu d'un (un greffon ne porte qu'une page).
+- Pied « propulsé par Hermes Agent » dans l'Accueil : l'emplacement `footer-right` n'est pas rendu
+  par Hermes 0.21.5.
+- Le bloc `interface` de `/v1/meta` (versions des manifestes, SDK attendu) n'est pas ajouté : le
+  greffon `acp-poste` est l'objet de la seconde partie ; le contrôle du SDK est fait dans le
+  navigateur par les greffons eux-mêmes.
+- Décompte : 105 clés manquantes **mesurées** sur 746 (l'estimation lexicale du cahier disait 84
+  sur 684) ; les messages de l'agent sont complets en français (0 sur 374 ; le cahier comptait des
+  lignes, pas des clés).
+- « Nouvelle session en français » : prouvée par le prompt reçu par le modèle factice ; une vraie
+  réponse ne se relève que sur Railway.
+
+### Preuves locales (25/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
+
+Détail et commandes : [`interface.md`](refonte/interface.md) § 8. Images `acp-hermes:p3d`,
+`acp-hermes-tests:p3d`, `acp-identite:p3d`, reconstruites depuis le worktree au dernier état des
+sources :
+- dépôt (`python -m pytest -q`, venv du verrou) : **297 réussis** ; `generer_themes.py --check`,
+  `check_version.py`, `check_engine_frozen.py` : code 0 ;
+- interface (`npm test --prefix apps/interface`) : `tsc` sans erreur, **55 réussis** (Vitest) ;
+  bundles à jour ;
+- dans l'image : **259 réussis**, 0 échec, 0 ignoré ;
+- contrat : **107 réussis** (37 image, 40 identité, 4 interface, 3 IaC, 23 sans exécution), 0 échec,
+  0 ignoré, 12 min 19 s ;
+- navigateur : **2 réussis** (connexion de P2 refactorisée sur `parcours.py`, interface française
+  aux deux formats), Chromium 1234 déjà présent ; aucune violation axe, aucune requête hors de
+  l'origine, 19 captures (empreintes dans `interface.md`) ;
+- témoin : verrou du français retiré d'une image de test ⇒ le test navigateur échoue ;
+- aucun conteneur, volume ni réseau `acp-contrat-*` restant.
+
+### Intégration continue
+
+À relever après la poussée de la branche (commit de documentation suivant).
+
+### Non vérifié
+
+- Sur Railway : réponse en français d'un vrai modèle, rendu réel (bord https, cookies `Secure`).
+- Rendu sur un vrai téléphone (émulation Chromium seulement) ; accessibilité des pages natives.
+- Le Catalogue face à la vraie route `/v1/catalogue` (seconde partie de P3) : seulement des
+  réponses fixées.
+- Aucune relecture indépendante de cette première partie à ce jour.
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -870,5 +951,13 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
   (`test_railway_iac_contrat.py` évalue `railway.ts`) ; sans eux ils **échouent**, jamais ignorés.
   Sous Windows, les lancer avec `PYTHONUTF8=1` (sinon des `UnicodeEncodeError` dans les `print` de
   preuve).
+- **Greffons d'interface** : les bundles de `hermes/plugins/acp-interface` et `acp-catalogue`
+  sont **committés** (exception dans `.gitignore`) ; après toute modification de
+  `apps/interface/src`, `npm run build --prefix apps/interface`, puis reconstruire l'image (un bundle
+  servi différent du dépôt fait échouer `test_interface_contrat.py`). Le catalogue des chaînes
+  (`src/chaines.ts`) emploie des espaces insécables réelles (U+00A0).
+- **Tests navigateur** : Hermes ajoute `?profile=default` à l'URL de « / » ; comparer le chemin.
+  Ils exigent Node ≥ 22 et `npm ci --ignore-scripts --prefix apps/interface` (axe-core, export du
+  catalogue des chaînes).
 - La CLI Railway se lance sous **WSL** (doc Railway) ; `node_modules` de `.railway/` s'installe sur
   la plateforme qui évalue le fichier (WSL pour la CLI, Windows pour `verifier.mjs` local).

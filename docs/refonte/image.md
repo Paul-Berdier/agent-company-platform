@@ -1,4 +1,4 @@
-# Image Hermes d'ACP — étapes P1 et P2
+# Image Hermes d'ACP — étapes P1, P2 et P3
 
 État du **25 septembre 2026**. Étape P2 du [plan de la refonte](plan.md) : sur Railway,
 l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni exécution de code, ni
@@ -15,6 +15,11 @@ signalé comme tel. Les corrections de la **relecture indépendante de P2** (sé
 exploitation) sont signalées « relecture P2 » ; leur tableau de traitement est dans
 [`docs/reprise-poste.md`](../reprise-poste.md).
 
+Étape P3 (identité visuelle et français, première partie) : thème `acp` généré depuis
+`design/tokens`, persona française réécrite, greffons de tableau de bord `acp-interface` et
+`acp-catalogue` (sans code serveur), trois épingles de plus dans la managed scope ; détail et
+preuves dans [interface.md](interface.md). Chaque ajout de P3 est signalé comme tel.
+
 Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiquette
 `v2026.9.24` (commit `f97608f`), sauf mention contraire.
 
@@ -28,9 +33,10 @@ Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiq
 | Logique commune, en Python | `hermes/image/acp_demarrage.py` | `/opt/acp/bin/acp_demarrage.py` |
 | Modèle de la managed scope | `hermes/gere/config.yaml` | `/opt/acp/gere/config.yaml` → `/etc/hermes/config.yaml` |
 | Contrat épinglé | `hermes/contrat/` | `/opt/acp/contrat/` |
-| Persona | `hermes/persona/SOUL.md` | `/opt/acp/persona/SOUL.md` → `/opt/data/SOUL.md` |
-| Thème (provisoire) | `hermes/theme/acp.yaml` | `/opt/acp/theme/` → `/opt/data/dashboard-themes/` |
+| Persona (française, réécrite en P3) | `hermes/persona/SOUL.md` | `/opt/acp/persona/SOUL.md` → `/opt/data/SOUL.md` |
+| Thème (généré en P3 par `scripts/generer_themes.py`) | `hermes/theme/acp.yaml` | `/opt/acp/theme/` → `/opt/data/dashboard-themes/` |
 | Greffon `acp-poste` | `hermes/plugins/acp-poste/` | `/opt/hermes/plugins/acp-poste/` |
+| Greffons d'interface (P3), sources dans `apps/interface` | `hermes/plugins/acp-interface/`, `hermes/plugins/acp-catalogue/` | `/opt/hermes/plugins/acp-interface/`, `/opt/hermes/plugins/acp-catalogue/` |
 | Garde d'entrée hors PID 1 (P2) | `hermes/image/acp-entree` | `/opt/acp/bin/acp-entree` (`ENTRYPOINT`) |
 | Garde d'exécution de l'agent (P2) | `hermes/plugins/acp-poste/garde_execution.py` | dans le greffon |
 | Image de test, outils | `hermes/tests/` | jamais dans l'image Railway |
@@ -292,10 +298,12 @@ tableau de bord (10000). Il ne peut pas modifier `/etc/hermes` ; depuis P2, il n
 outil d'exécution (ci-dessous) pour tuer le processus du tableau de bord ou écouter sur
 `0.0.0.0:9119`. Il ne le pourrait plus que par une **faille de Hermes lui-même** (§ 10).
 
-**`/etc/hermes/config.yaml`** (**40 clés** depuis P2, 28 en P1) : `kanban.auto_decompose: false`,
+**`/etc/hermes/config.yaml`** (**42 clés** depuis P3, 40 en P2, 28 en P1) : `kanban.auto_decompose: false`,
 `kanban.dispatch_profiles: [default]`, `approvals.mode: manual` (et `cron_mode`,
 `single_query_mode`, `unattended_mode` : `deny`), `plugins.enabled: []`,
-`plugins.disabled: [dashboard_auth/basic, dashboard_auth/nous, dashboard_auth/drain]`,
+`plugins.disabled: [dashboard_auth/basic, dashboard_auth/nous, dashboard_auth/drain,
+hermes-achievements]` (le dernier depuis P3, décision D13 : greffon de gamification en anglais,
+doté de sa propre API, jamais servi),
 `plugins.allow_deprecated_imports: false`, `auth.adopt_external_logins: false`,
 `security.redact_secrets: true`, `display.language: fr`, `dashboard.theme: acp`,
 `dashboard.trusted_proxies: []` (vide tant que le bord Railway n'est pas mesuré, décision P2),
@@ -320,7 +328,14 @@ gateway/config_env.py:307-315) ; et, depuis P2 :
 - `skills.inline_shell: false`, `skills.write_approval: true`, `skills.guard_agent_created: true` ;
 - `memory.write_approval: true` (décision du propriétaire) ;
 - `hooks_auto_accept: false` ;
-- `security.allow_private_urls: false` et `security.allow_lazy_installs: false`.
+- `security.allow_private_urls: false` et `security.allow_lazy_installs: false` ;
+
+et, depuis P3 ([interface.md](interface.md) § 3) :
+
+- `dashboard.font: theme` : la police du thème, jamais une police de substitution (toute autre
+  valeur ferait charger une feuille de style de Google Fonts, web/src/themes/fonts.ts) ;
+- `dashboard.hidden_plugins: []` : aucun greffon de tableau de bord masqué, `acp-interface`,
+  `acp-catalogue` et `acp-poste` restent toujours servis.
 
 Aucun secret : une clé dont le nom évoque un secret et qui porte une valeur est refusée.
 
