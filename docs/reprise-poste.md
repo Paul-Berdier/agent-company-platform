@@ -519,7 +519,9 @@ Partie 3 — infrastructure Railway, CI et procédures :
 | `fb4c442` | test(railway): check the IaC statically and against both images |
 | `1f6a35b` | docs: write the owner's Railway procedure for the first deployment and recovery |
 | `8c02f6b` | docs: replace phases P4 to P8 with the autonomy plan and record the P2 decisions |
-| (ce commit) | docs: record P2 in the handoff notes, CLAUDE.md and the changelog |
+| `a4e2d86` | docs: record P2 in the handoff notes, CLAUDE.md and the changelog |
+| `dafad76` | docs(railway): name the dashboard labels in both languages and qualify rollback |
+| (ce commit) | docs: record the P2 CI runs of the Railway part |
 
 ### Ce qui est en place
 
@@ -645,8 +647,10 @@ Partie 3 (25/09/2026) :
   0,740 Gio à 10, 1,166 Gio à 20 (46,6 % de la limite), témoin sous 1 Gio tué. `ci.yml`
   36098262486 (`fb4c442`) **succès** : poste Windows **279 réussis** ; poste Linux **270 réussis,
   9 ignorés** (les 9 tests propres à Windows déjà notés en P0 : DPAPI réel et Job Object) ; moteur
-  gelé, 74 tests. Les runs des commits de documentation qui suivent sont consignés au commit
-  suivant.
+  gelé, 74 tests. Commits de documentation qui suivent : `ci.yml` 36099417097 (`a4e2d86`)
+  **succès** (poste Windows 279 réussis, Linux 270 réussis et 9 ignorés, moteur 74) ; `image.yml`
+  ne se déclenche pas (aucun chemin surveillé touché) : son dernier run, 36098262650, porte sur
+  `fb4c442`, dont `hermes/`, `identite/` et `.railway/` sont identiques au sommet de la branche.
 
 ### Preuves Railway
 
