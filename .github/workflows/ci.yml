@@ -88,6 +88,8 @@ jobs:
           cache-dependency-path: requirements/python-3.12.lock.txt
       - name: Vérifier les versions publiables
         run: python scripts/check_version.py
+      - name: Vérifier le thème généré et le QML du desktop (design/tokens)
+        run: python scripts/generer_themes.py --check
       - name: Installer les paquets Python (verrou haché)
         # Aucun résolveur : les distributions locales s'installent sans dépendances
         # ni environnement de construction téléchargé.
