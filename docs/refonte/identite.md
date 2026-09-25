@@ -354,4 +354,10 @@ jetables, supprimées ensuite) :
 - fichier des utilisateurs conservé au redémarrage au lieu d'être réécrit →
   `test_un_seul_utilisateur` échoue (le second compte survit).
 
-**CI** : voir ci-dessous (consigné après exécution).
+**CI**, commit `69b81a7` (branche `refonte/hermes-p2`, 25/09/2026) :
+- `image.yml`, run **36094807793** : **succès** en 12 min 30 s. Condensats de Hermes et
+  d'Authelia confirmés ; 216 réussis dans l'image ; contrat **96 réussis** (0 échec, 0 ignoré) ;
+  navigateur **1 réussi** (Chrome for Testing 151.0.7922.34, révision 1234, téléchargé par la CI).
+  Mémoire mesurée sur le coureur GitHub : 0,729 Gio à 10, **1,297 Gio** à 20 (51,9 % de la limite
+  de 2,5 Gio) ; témoin sous 1 Gio tué (OOM, code 137).
+- `ci.yml`, run **36094807754** : **succès**.
