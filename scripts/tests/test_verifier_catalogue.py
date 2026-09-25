@@ -224,6 +224,21 @@ def test_exclusion_anthropic_retiree(copie):
     _un_ecart(_verifier(copie), "l'exclusion de « xlsx » (anthropics/skills, licence propriétaire) manque")
 
 
+@pytest.mark.parametrize("source, nom", [("anthropics/skills", "frontend-design"), ("obra/superpowers", "superpowers"),
+                                         ("emilkowalski/skills", "write-swift")])
+def test_skill_recommandee_par_le_plan_non_classee(copie, source, nom):
+    """Relecture de P3 : une skill recommandée par le plan doit être au catalogue ou aux exclus."""
+    _modifier_verrou(copie, lambda v: v.update(exclus=[e for e in v["exclus"] if e["nom"] != nom]))
+    _un_ecart(_verifier(copie), f"« {nom} » ({source}), recommandée par le plan de la refonte")
+
+
+def test_exclusion_d_une_autre_source_ne_classe_pas_la_skill(copie):
+    def deplacer(v):
+        next(e for e in v["exclus"] if e["nom"] == "mcp-builder")["source"] = "affaan-m/ECC"
+    _modifier_verrou(copie, deplacer)
+    _un_ecart(_verifier(copie), "« mcp-builder » (anthropics/skills), recommandée par le plan de la refonte")
+
+
 def test_scripts_dans_une_skill_hermes(copie):
     dossier = copie / "hermes/skills/ecc/security-review/scripts"
     dossier.mkdir()

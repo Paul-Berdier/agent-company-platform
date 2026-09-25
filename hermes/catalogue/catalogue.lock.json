@@ -1217,6 +1217,55 @@
       "nom": "deep-research",
       "source": "affaan-m/ECC",
       "raison": "Dépend des MCP firecrawl et exa."
+    },
+    {
+      "nom": "skill-creator",
+      "source": "anthropics/skills",
+      "chemin_amont": "skills/skill-creator",
+      "commit_releve": "33375500bcea98d610eb30ce10ac4e59b89c390d",
+      "licence": "Apache-2.0 (skills/skill-creator/LICENSE.txt)",
+      "raison": "Non retenue en P3 (D12, choix par défaut à confirmer par le propriétaire) : scripts Python d'évaluation et d'empaquetage (dossier scripts/), inertes sur Railway ; Hermes rédige ses skills par skill_manage."
+    },
+    {
+      "nom": "mcp-builder",
+      "source": "anthropics/skills",
+      "chemin_amont": "skills/mcp-builder",
+      "commit_releve": "33375500bcea98d610eb30ce10ac4e59b89c390d",
+      "licence": "Apache-2.0 (skills/mcp-builder/LICENSE.txt)",
+      "raison": "Non retenue en P3 (D12, choix par défaut à confirmer par le propriétaire) : construit et éprouve des serveurs MCP (dossier scripts/), exécution fermée sur Railway."
+    },
+    {
+      "nom": "frontend-design",
+      "source": "anthropics/skills",
+      "chemin_amont": "skills/frontend-design",
+      "commit_releve": "33375500bcea98d610eb30ce10ac4e59b89c390d",
+      "licence": "Apache-2.0 (skills/frontend-design/LICENSE.txt)",
+      "raison": "Non retenue en P3 (D12, choix par défaut à confirmer par le propriétaire) : texte seul et admissible, mais non citée par le propriétaire ; la direction visuelle est couverte par design-taste-frontend. La vendoriser exige LICENSE, commit épinglé et contrôle --amont."
+    },
+    {
+      "nom": "superpowers",
+      "source": "obra/superpowers",
+      "portee": "source entière",
+      "commit_releve": "5bf4e78011075bcfc0dc295f0724994cd123ee71",
+      "licence": "MIT (LICENSE)",
+      "skills_amont": [
+        "brainstorming",
+        "diagnosing-superpowers",
+        "dispatching-parallel-agents",
+        "executing-plans",
+        "finishing-a-development-branch",
+        "receiving-code-review",
+        "requesting-code-review",
+        "subagent-driven-development",
+        "systematic-debugging",
+        "test-driven-development",
+        "using-git-worktrees",
+        "using-superpowers",
+        "verification-before-completion",
+        "writing-plans",
+        "writing-skills"
+      ],
+      "raison": "Non retenue en P3 (D12, choix par défaut à confirmer par le propriétaire) : quatre noms entrent en collision avec Hermes (requesting-code-review, systematic-debugging, test-driven-development livrées, subagent-driven-development optionnelle) ; les autres pilotent git, le terminal ou la délégation, fermés sur Railway."
     }
   ]
 }

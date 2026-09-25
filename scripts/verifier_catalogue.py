@@ -18,7 +18,8 @@ listés) :
 4. **Collisions** refusées : entre skills du catalogue, avec les skills livrées par Hermes (58) et
    ses skills optionnelles (150), avec les noms exclus.
 5. **Exclusions** : aucune skill ``anthropics/skills`` ``docx``, ``pdf``, ``pptx``, ``xlsx``, aucune
-   source à licence non libre, aucun fichier d'une skill exclue.
+   source à licence non libre, aucun fichier d'une skill exclue ; chaque skill recommandée par le plan
+   de la refonte est classée, au catalogue ou aux exclus.
 6. **Texte seul** pour la cible ``hermes`` (l'agent n'a aucun outil d'exécution sur Railway) :
    seulement des ``.md``, aucun dossier ``scripts/``, aucun bit exécutable, aucun ``!`cmd```,
    aucune clé ``metadata.hermes.config``.
@@ -73,6 +74,19 @@ ESSENTIELLES = {"hermes-agent"}
 # est au plan, « hors-v1 » sinon (Figma : « hors v1 », plan.md § 8 et § 13).
 ETATS_SKILL = {"hermes": {"livree"}, "poste": {"candidate-poste"}}
 MCP_PREVUS_AU_POSTE_EN_P8 = {"context7", "playwright"}
+# Skills recommandées par le plan de la refonte (docs/refonte/plan.md § 8, « Skills proposées » et
+# « Composition du catalogue ») : chacune est classée, au catalogue ou aux exclus avec sa raison
+# (relecture de P3 : skill-creator, mcp-builder, frontend-design et superpowers n'étaient nulle part).
+CANDIDATS_DU_PLAN = {
+    "emilkowalski/skills": {"animate", "animate-expo", "animation-vocabulary", "apple-design", "ask-sonner",
+                            "emil-design-eng", "find-animation-opportunities", "improve-animations",
+                            "mobile-native", "pick-ui-library", "prototype", "review-animations", "write-swift"},
+    "leonxlnx/taste-skill": {"minimalist-ui", "redesign-existing-projects", "high-end-visual-design",
+                             "design-taste-frontend", "full-output-enforcement"},
+    "anthropics/skills": {"skill-creator", "mcp-builder", "frontend-design", "docx", "pdf", "pptx", "xlsx"},
+    "obra/superpowers": {"superpowers"},
+    "Panniantong/Agent-Reach": {"agent-reach"},
+}
 ETATS_MCP_POSTE = {"reporte-p8", "hors-v1"}
 PROFILS_ATTENDUS = {"base", "web", "recherche", "donnees"}
 _NOM_SKILL = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -436,6 +450,13 @@ class Verification:
                 self.erreur(f"exclusion « {nom} » sans raison.")
         if "agent-reach" not in exclus:
             self.erreur("l'exclusion d'agent-reach (décision du propriétaire) manque au verrou.")
+        au_catalogue = {(str(s.get("source")), str(s.get("nom"))) for s in self.skills if isinstance(s, dict)}
+        aux_exclus = {(str(e.get("source")), nom) for nom, e in exclus.items()}
+        for source, noms in sorted(CANDIDATS_DU_PLAN.items()):
+            for nom in sorted(noms):
+                if (source, nom) not in au_catalogue | aux_exclus:
+                    self.erreur(f"« {nom} » ({source}), recommandée par le plan de la refonte (plan.md § 8), n'est ni "
+                                "au catalogue ni aux exclus avec sa raison.")
         for dossier in (self.chemins.skills.glob("*/*") if self.chemins.skills.is_dir() else []):
             if dossier.is_dir() and dossier.name in exclus:
                 self.erreur(f"hermes/skills/{dossier.relative_to(self.chemins.skills).as_posix()} : skill exclue livrée.")

@@ -129,6 +129,15 @@ plan).
   `image-to-code`, `imagegen-frontend-web`, `imagegen-frontend-mobile`, `brandkit`,
   `stitch-design-taste`, `design-taste-frontend-v1`, `industrial-brutalist-ui`, `seo`,
   `pytorch-patterns`, `deep-research`.
+- **Recommandées par le plan, non retenues en P3** (D12, choix par défaut à confirmer par le
+  propriétaire, [plan.md](plan.md) § 1) : `skill-creator`, `mcp-builder` et `frontend-design`
+  d'`anthropics/skills` (Apache-2.0, relevées au commit `33375500`), et `obra/superpowers` (MIT,
+  `5bf4e780`, source entière : quatre de ses noms, `requesting-code-review`,
+  `systematic-debugging`, `test-driven-development` et `subagent-driven-development`, sont déjà pris
+  par Hermes). Raisons au verrou : scripts ou exécution fermés sur Railway, collisions.
+  `frontend-design` est texte seul et admissible : la vendoriser reste possible par une PR
+  (`LICENSE`, commit épinglé, `--amont`). Depuis la relecture de P3, le vérificateur exige que
+  chaque skill recommandée par le plan (§ 8) soit au catalogue ou aux exclus, avec sa raison.
 
 ### 3.4 Skills livrées par Hermes (58)
 
