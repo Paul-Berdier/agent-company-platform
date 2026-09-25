@@ -122,6 +122,9 @@ jobs:
         run: python scripts/check_version.py
       - name: Vérifier le thème généré et le QML du desktop (design/tokens)
         run: python scripts/generer_themes.py --check
+      - name: Vérifier le catalogue de skills et de MCP (verrou, licences, collisions, garde)
+        # Hors ligne ; la comparaison avec les dépôts amont (--amont, réseau) tourne dans image.yml.
+        run: python scripts/verifier_catalogue.py
       - name: Installer les paquets Python (verrou haché)
         # Aucun résolveur : les distributions locales s'installent sans dépendances
         # ni environnement de construction téléchargé.
