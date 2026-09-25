@@ -628,6 +628,12 @@ sortie 0,05 $/Go ; seul l'usage réel est facturé, rw_full.txt:4848-4892) :
 `hermes/contrat/`), CI verte, déploiement par la chaîne normale. Jamais `hermes update`, `:latest`
 ni `AUTO_UPDATE`.
 
+**Page MCP du tableau de bord** (relecture de P3) : n'y utilisez ni « INSTALL » ni « ADD SERVER » :
+un serveur MCP s'ajoute par une PR au catalogue ([catalogue.md](catalogue.md) § 7.3). Un serveur
+ajouté par erreur fait **refuser** le démarrage suivant et toute relance (D8) : supprimez-le
+depuis la même page **avant** tout redémarrage (la bannière d'alerte le nomme) ; le désactiver ne
+suffit pas. S'il a déjà provoqué un refus : § 10 b.
+
 **Modifier l'infrastructure** : PR sur `.railway/railway.ts` (et `verifier.mjs` si le graphe attendu
 change), CI verte, fusion, puis plan (« 0 to destroy » sauf décision écrite) et apply par vous.
 
@@ -664,7 +670,11 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml` (dont, depuis P3, tout serveur
    MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8), `lazy-packages` (code 1 si
    un constat existe). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
-5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré.
+5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Un serveur MCP
+   ajouté depuis la page MCP native (« INSTALL », « ADD SERVER ») se retire en supprimant son
+   entrée `mcp_servers.<nom>` de `/opt/data/config.yaml` (jamais l'entrée `context7`, rétablie de
+   toute façon au démarrage) ; tant que le service tourne encore, la suppression depuis la page MCP
+   évite cette maintenance (§ 9).
 6. **Retour** : Start Command effacée, chemin de santé `/api/health` rétabli, « Deploy » : les gardes
    revérifient tout.
 7. `railway config plan --detailed-exit-code` → **0**.

@@ -242,6 +242,48 @@ def test_d8_le_journal_des_gardes_le_dit(chemins, env_valide, capsys):
             in capsys.readouterr().out)
 
 
+PAGE_MCP_AJOUTER = """
+import asyncio
+from hermes_cli.web_models import MCPCatalogInstall, MCPEnabledToggle, MCPServerCreate
+from hermes_cli.web_routers import mcp as routes
+resultat = {}
+try:
+    asyncio.run(routes.install_mcp_catalog_entry(MCPCatalogInstall(name='airtable', enable=True)))
+    resultat['install'] = 'terminé'
+except Exception as exc:  # la sonde échoue sans réseau ; l'entrée est écrite avant
+    resultat['install'] = type(exc).__name__
+resultat['ajout'] = asyncio.run(routes.add_mcp_server(MCPServerCreate(name='deepwiki', url='https://mcp.deepwiki.com/mcp')))['name']
+resultat['desactivation'] = asyncio.run(routes.set_mcp_server_enabled('deepwiki', MCPEnabledToggle(enabled=False)))
+"""
+PAGE_MCP_SUPPRIMER = """
+import asyncio
+from hermes_cli.web_routers import mcp as routes
+resultat = [asyncio.run(routes.remove_mcp_server(nom)) for nom in ('airtable', 'deepwiki')]
+"""
+
+
+def test_d8_serveur_ajoute_par_la_page_mcp_native_puis_supprime(chemins, valeurs, env_valide):
+    """Relecture de P3 : la page MCP native du tableau de bord propose INSTALL (catalogue de Hermes) et
+    ADD SERVER. Appelées telles quelles (routes de hermes_cli/web_routers/mcp.py, sans réseau : tout
+    mandataire refusé), elles écrivent un serveur hors catalogue dans le config.yaml du volume, et le
+    démarrage suivant est refusé (D8) ; le DÉSACTIVER ne suffit pas. Le remède documenté
+    (docs/refonte/catalogue.md § 7.3, railway.md § 10) : le SUPPRIMER depuis la même page avant tout
+    redémarrage ; le démarrage est alors admis."""
+    installer_home_de_test(chemins, valeurs, config="mcp_servers:\n  context7: {}\n")
+    env = env_processus(chemins, HTTPS_PROXY="http://127.0.0.1:9", HTTP_PROXY="http://127.0.0.1:9",
+                        NO_PROXY="")
+    print(json.dumps(executer_python(PAGE_MCP_AJOUTER, env=env), ensure_ascii=False))
+    refus, _ = ad.problemes_mcp_du_volume(chemins, ["context7"])
+    print("\n".join(refus))
+    assert any("« airtable », absent du catalogue" in r for r in refus), refus
+    assert any("« deepwiki », absent du catalogue" in r for r in refus), refus
+    with pytest.raises(ad.Refus, match="absent du catalogue"):
+        ad.commande_gardes(chemins, env_valide)
+    assert executer_python(PAGE_MCP_SUPPRIMER, env=env) == [{"ok": True}, {"ok": True}]
+    assert ad.problemes_mcp_du_volume(chemins, ["context7"]) == ([], [])
+    ad.commande_gardes(chemins, env_valide)
+
+
 def test_temoin_d8_sans_refus_un_serveur_stdio_du_volume_est_lance(chemins, valeurs, temoins):
     """Pourquoi D8 : la découverte MCP de Hermes lance TOUS les serveurs configurés, quelles que soient
     les listes de plateforme (tools/mcp_tool_discovery.py:552-605). Sans le refus de démarrer, un

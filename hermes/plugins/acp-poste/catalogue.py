@@ -240,8 +240,11 @@ def construire_catalogue(sources: SourcesCatalogue = SourcesCatalogue(),
     if mcp is not None:
         admis = {str(m.get("nom")) for m in verrou.get("mcp") or [] if isinstance(m, dict) and m.get("cible") == "hermes"}
         for nom in sorted(set(mcp) - admis):
-            alertes.append(f"Serveur MCP hors catalogue configuré dans Hermes : {nom} (le prochain démarrage sera "
-                           "refusé tant qu'il reste dans la configuration du volume).")
+            # Ajouté par la page MCP native (INSTALL, ADD SERVER) ou à la main : D8 refusera le prochain
+            # démarrage ; le remède est de le SUPPRIMER depuis la même page (relecture de P3).
+            alertes.append(f"Serveur MCP hors catalogue configuré dans Hermes : {nom}. Le prochain démarrage sera "
+                           "refusé tant qu'il reste dans la configuration du volume : supprimez-le depuis la page "
+                           "MCP du tableau de bord avant tout redémarrage (le désactiver ne suffit pas).")
     return {
         "verrou": {"sha256": empreinte, "schema": verrou.get("schema"), "hermes": verrou.get("hermes")},
         "racine_skills": racine,

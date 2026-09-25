@@ -133,7 +133,10 @@ def test_collision_et_skill_hors_catalogue(chemins, valeurs):
 def test_serveur_mcp_hors_catalogue_signale(chemins, valeurs):
     _preparer(chemins, valeurs, config="mcp_servers:\n  deepwiki:\n    url: https://mcp.deepwiki.com/mcp\n")
     complet = _lire(chemins)["catalogue"]
-    assert any("Serveur MCP hors catalogue configuré dans Hermes : deepwiki" in a for a in complet["alertes"])
+    [alerte] = [a for a in complet["alertes"] if "Serveur MCP hors catalogue configuré dans Hermes : deepwiki" in a]
+    # Le remède est dit (relecture de P3) : le supprimer depuis la page MCP avant de redémarrer.
+    assert "supprimez-le depuis la page MCP du tableau de bord avant tout redémarrage" in alerte
+    assert "le désactiver ne suffit pas" in alerte
 
 
 def _charger_catalogue(nom: str):

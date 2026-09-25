@@ -270,6 +270,19 @@ profil qui porte un `command`, ou dont le nom n'est pas un serveur actif du cata
 illisible est seulement signalé (Hermes ne le lirait pas non plus). `diagnostiquer` (maintenance)
 les liste. Retrait : procédure de maintenance de [railway.md](railway.md) § 10 b.
 
+**Par l'interface native** (relecture de P3) : la page MCP du tableau de bord de Hermes propose
+« INSTALL » (son catalogue de 65 serveurs) et « ADD SERVER ». Un seul clic écrit le serveur dans
+`/opt/data/config.yaml` ; le démarrage suivant, comme la prochaine relance du tableau de bord ou
+des passerelles, est alors **refusé** (D8), et le service reste hors ligne jusqu'à une maintenance
+([railway.md](railway.md) § 10 b). ACP ne masque pas ces boutons (page native). L'alerte de
+`/v1/meta`, affichée par la bannière sur toutes les pages, nomme le serveur et dit le remède :
+le **supprimer** depuis la même page (`DELETE /api/mcp/servers/<nom>`) **avant** tout
+redémarrage ; le **désactiver** ne suffit pas, l'entrée reste dans le fichier. Prouvé dans l'image
+(`test_d8_serveur_ajoute_par_la_page_mcp_native_puis_supprime`) : les routes de Hermes appelées
+telles quelles, sans réseau, écrivent `airtable` (INSTALL) et `deepwiki` (ADD SERVER, puis
+désactivé) ; les gardes refusent ; après la suppression par la route de la page, elles admettent
+le démarrage. L'alerte et son remède : `test_serveur_mcp_hors_catalogue_signale`.
+
 ## 8. Route `/v1/catalogue` et `/v1/meta`
 
 `GET /api/plugins/acp-poste/v1/catalogue` (session obligatoire, `401` sinon) : le verrou et, pour
