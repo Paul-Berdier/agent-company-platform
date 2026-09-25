@@ -8,8 +8,8 @@
 //
 // Ce qui est prouvé :
 // 1. ÉCHEC FERMÉ : tant que les libellés valent leur gabarit, l'évaluation du fichier tel qu'il est
-//    committé refuse, en français ; des libellés invalides, identiques, ou un autre environnement
-//    que « production » sont refusés de même ;
+//    committé refuse, en français ; des libellés invalides, identiques, un autre environnement
+//    que « production », un autre projet lié que « acp » (ou aucun) sont refusés de même ;
 // 2. avec des libellés d'ESSAI (copie temporaire du fichier, supprimée ensuite), le graphe compte
 //    exactement deux services et deux volumes, avec les réglages attendus (source, Wait for CI,
 //    constructeur, santé, région, limites, politique de redémarrage, variables déclarées ou
@@ -132,25 +132,28 @@ function lireConstante(texte, constante) {
   return trouve ? trouve[1] : null;
 }
 
-async function evaluerFichier(chemin, environnement) {
+async function evaluerFichier(chemin, environnement, projet = "acp") {
   const module = await import(pathToFileURL(chemin).href);
   if (typeof module.default !== "function") {
     throw new Error("railway.ts n'exporte pas par défaut le programme de defineRailway().");
   }
-  const ctx = createRailwayContext({ command: "plan", environment: environnement, projectName: "acp" });
+  // projet === null : la CLI ne fournirait aucun nom de projet lié (ctx.projectName absent).
+  const entree = { command: "plan", environment: environnement };
+  if (projet !== null) entree.projectName = projet;
+  const ctx = createRailwayContext(entree);
   return await module.default(ctx, project);
 }
 
 // Évalue une COPIE de railway.ts, libellés remplacés, dans .railway/ (pour que Node y résolve
 // railway/iac) sous un nom ignoré par Git ; la copie est toujours supprimée.
-async function evaluerCopie(libelles, environnement = "production") {
+async function evaluerCopie(libelles, environnement = "production", projet = "acp") {
   let texte = readFileSync(SOURCE, "utf8");
   for (const [constante, valeur] of Object.entries(libelles)) texte = remplacer(texte, constante, valeur);
   essais += 1;
   const copie = join(ICI, `.essai-${process.pid}-${essais}.ts`);
   writeFileSync(copie, texte, "utf8");
   try {
-    return await evaluerFichier(copie, environnement);
+    return await evaluerFichier(copie, environnement, projet);
   } finally {
     rmSync(copie, { force: true });
   }
@@ -278,6 +281,8 @@ async function principal() {
   await attendreRefus("64 caractères", () => evaluerCopie({ ...ESSAI, LIBELLE_HERMES: "a".repeat(64) }), "libellé DNS");
   await attendreRefus("libellés identiques", () => evaluerCopie({ LIBELLE_HERMES: "essai-acp", LIBELLE_IDENTITE: "essai-acp" }), "même sous-domaine");
   await attendreRefus("environnement staging", () => evaluerCopie(ESSAI, "staging"), "seul « production »");
+  await attendreRefus("autre projet lié", () => evaluerCopie(ESSAI, "production", "autre-projet"), "le projet lié est « autre-projet »");
+  await attendreRefus("projet lié inconnu", () => evaluerCopie(ESSAI, "production", null), "le projet lié est « undefined »");
 
   // 3. Graphe avec des libellés d'essai valides.
   const graphe = await evaluerCopie(ESSAI);

@@ -45,6 +45,13 @@ const DEPOT = "Paul-Berdier/agent-company-platform";
 // de P2. Railway construit chaque commit poussé sur cette branche, après « Wait for CI ».
 const BRANCHE = "refonte/hermes";
 
+// Seul projet admis (relecture P2) : ce fichier décrit un projet ENTIER ; évalué pour un autre projet
+// lié par erreur (lien interactif, homonyme d'un autre espace), le plan y supprimerait tout ce qui
+// n'est pas décrit ici. La CLI fournit le nom du projet lié (ctx.projectName, rw_full.txt:28476) ;
+// son absence refuse aussi. L'identifiant du projet n'est pas vérifié : il n'existe qu'après
+// `railway init` (railway.md § 4.2) ; la lecture de « 0 to destroy » reste obligatoire.
+const PROJET = "acp";
+
 // Seul environnement admis : un plan lié à un autre environnement refuse.
 const ENVIRONNEMENT = "production";
 
@@ -94,6 +101,13 @@ function libelle(nom: string, valeur: string): string {
 }
 
 export default defineRailway((ctx) => {
+  if (ctx.projectName !== PROJET) {
+    refuser(
+      `le projet lié est « ${String(ctx.projectName)} » ; ce fichier décrit le projet ENTIER « ${PROJET} », et ` +
+        "l'appliquer à un autre projet y supprimerait toutes les ressources qu'il ne décrit pas " +
+        "(railway link --project acp --environment production).",
+    );
+  }
   if (ctx.environment !== ENVIRONNEMENT) {
     refuser(
       `l'environnement lié est « ${String(ctx.environment)} » ; seul « ${ENVIRONNEMENT} » est décrit ` +
@@ -182,5 +196,5 @@ export default defineRailway((ctx) => {
     },
   });
 
-  return project("acp", { resources: [hermes, identite, donneesHermes, donneesIdentite] });
+  return project(PROJET, { resources: [hermes, identite, donneesHermes, donneesIdentite] });
 });

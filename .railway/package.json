@@ -4,7 +4,7 @@
   "description": "SDK de l'infrastructure Railway d'ACP (.railway/railway.ts), isolé du workspace npm racine. Voir docs/refonte/railway.md.",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.6.0"
   },
   "scripts": {
     "verifier": "tsc -p tsconfig.json && node --experimental-strip-types verifier.mjs"
