@@ -1362,7 +1362,7 @@ def inspecter_donnees(chemins: Chemins) -> Inspection:
 
 
 # ---------------------------------------------------------------------------------------------
-# /opt/data/hooks, /opt/data/scripts et /opt/data/lazy-packages (étape P2)
+# hooks/ et scripts/ de /opt/data et de chaque profil, /opt/data/lazy-packages (étape P2)
 # ---------------------------------------------------------------------------------------------
 
 # Répertoires du volume dont le contenu est EXÉCUTÉ par Hermes. Ils doivent rester vides : sur
@@ -1373,6 +1373,18 @@ REPERTOIRES_EXECUTES: Tuple[Tuple[str, str], ...] = (
      "la passerelle y importe chaque handler.py sans demander de consentement (gateway/hooks.py:44-72)"),
     ("scripts_cron",
      "les tâches cron y exécutent leurs scripts (cron/scheduler_script.py:257-320)"),
+)
+
+# Les MÊMES répertoires dans chaque profil de /opt/data/profiles (correction de la relecture P2).
+# Une seule passerelle sert tous les profils (hermes_cli/container_boot.py:100-110 ;
+# hermes_cli/profiles.py:1050-1075) : elle exécute les scripts cron du scripts/ PROPRE au profil
+# (cron/scheduler_script.py:257-298, chemin résolu sous le HERMES_HOME du profil) et charge les
+# crochets de son hooks/ (gateway/hooks.py:28-35). Mesuré sur 21eeb5d : un script cron de
+# profiles/<nom>/scripts tournait sous l'uid 10000 sans aucun refus.
+REPERTOIRES_EXECUTES_PAR_PROFIL: Tuple[Tuple[str, str], ...] = (
+    ("hooks", "la passerelle y importe chaque handler.py du profil sans demander de consentement "
+              "(gateway/hooks.py:28-72)"),
+    ("scripts", "les tâches cron du profil y exécutent leurs scripts (cron/scheduler_script.py:257-298)"),
 )
 
 # Fichiers de service d'une cible d'installation paresseuse (tools/lazy_deps.py:248-285).
@@ -1397,18 +1409,61 @@ def entrees_du_repertoire(racine: Path) -> Optional[List[str]]:
         os.close(fd)
 
 
-def problemes_repertoires_executes(chemins: Chemins) -> List[str]:
-    """Une ligne par répertoire exécuté qui n'est pas vide (ou qui n'est pas un répertoire)."""
+def _affichable(nom: str, limite: int = 80) -> str:
+    return "".join(c for c in nom if c.isprintable())[:limite]
+
+
+def profils_du_volume(chemins: Chemins) -> Tuple[List[Path], List[str]]:
+    """(répertoires des profils, problèmes) sous /opt/data/profiles, SANS suivre de lien.
+
+    Hermes tient pour profil tout répertoire de ``profiles/`` (hermes_cli/profiles.py:349-366,
+    ``is_dir()`` suit les liens) : un lien symbolique y ferait exécuter les ``hooks/`` et
+    ``scripts/`` de sa cible, il est donc refusé. Tout répertoire réel est examiné, même sans
+    marqueur d'identité (plus strict que Hermes)."""
+    racine = chemins.hermes_home / "profiles"
+    try:
+        noms = entrees_du_repertoire(racine)
+    except Refus as exc:
+        return [], [str(exc)]
+    profils: List[Path] = []
     problemes: List[str] = []
-    for attribut, raison in REPERTOIRES_EXECUTES:
-        racine: Path = getattr(chemins, attribut)
+    for nom in noms or []:
+        chemin = racine / nom
+        try:
+            st = os.lstat(chemin)
+        except OSError:
+            continue
+        if stat.S_ISLNK(st.st_mode):
+            problemes.append(
+                f"{racine}/{_affichable(nom)} est un lien symbolique : Hermes le prendrait pour un profil "
+                "et exécuterait les hooks/ et scripts/ de sa cible ; démarrage refusé (supprimez le lien).")
+        elif stat.S_ISDIR(st.st_mode):
+            profils.append(chemin)
+    return profils, problemes
+
+
+def repertoires_executes(chemins: Chemins) -> Tuple[List[Tuple[Path, str]], List[str]]:
+    """((répertoire exécuté, raison), problèmes) : ceux de la racine, puis ceux de chaque profil."""
+    liste: List[Tuple[Path, str]] = [(getattr(chemins, attribut), raison)
+                                     for attribut, raison in REPERTOIRES_EXECUTES]
+    profils, problemes = profils_du_volume(chemins)
+    for profil in profils:
+        liste.extend((profil / sous, raison) for sous, raison in REPERTOIRES_EXECUTES_PAR_PROFIL)
+    return liste, problemes
+
+
+def problemes_repertoires_executes(chemins: Chemins) -> List[str]:
+    """Une ligne par répertoire exécuté qui n'est pas vide (ou qui n'est pas un répertoire), à la
+    racine du volume comme dans chaque profil, et par lien symbolique sous ``profiles/``."""
+    repertoires, problemes = repertoires_executes(chemins)
+    for racine, raison in repertoires:
         try:
             entrees = entrees_du_repertoire(racine)
         except Refus as exc:
             problemes.append(str(exc))
             continue
         if entrees:
-            montre = ", ".join(f"« {''.join(c for c in n if c.isprintable())[:80]} »" for n in entrees[:20])
+            montre = ", ".join(f"« {_affichable(n)} »" for n in entrees[:20])
             reste = f" et {len(entrees) - 20} autre(s)" if len(entrees) > 20 else ""
             problemes.append(
                 f"{racine} n'est pas vide ({montre}{reste}) : {raison}. Ce répertoire doit rester vide sur "
@@ -1443,11 +1498,14 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
     # 1. Inspection avant toute écriture : un refus laisse le volume intact.
     inspecter_donnees(chemins)
     refuser_repertoires_executes(chemins)
-    # 2. Verrouillage, puis nouvelle inspection (rien ne doit être apparu entre-temps).
+    # 2. Verrouillage, puis nouvelle inspection (rien ne doit être apparu entre-temps). Les
+    #    hooks/ et scripts/ de chaque profil sont repris comme ceux de la racine.
+    executes, _ = repertoires_executes(chemins)
     for racine in (chemins.greffons_utilisateur, chemins.themes, chemins.donnees_acp,
-                   chemins.crochets_passerelle, chemins.scripts_cron):
+                   *(r for r, _ in executes)):
         verrouiller(racine)
     refuser_repertoires_executes(chemins)
+    profils = sorted(_affichable(p.name, 60) for p in profils_du_volume(chemins)[0])
     greffons = inspecter(chemins.greffons_utilisateur)
     inspecter(chemins.themes, themes_livres=livres)
     # 3. Thème et persona.
@@ -1464,6 +1522,8 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
         "repertoires_executes": {
             "hooks": {"vide": True, "proprietaire": "root", "mode": "0755"},
             "scripts": {"vide": True, "proprietaire": "root", "mode": "0755"},
+            # Profils dont hooks/ et scripts/ ont été inspectés vides puis repris par root.
+            "profils": profils,
         },
         "lazy_packages": {"entrees": contenu_paquets_paresseux(chemins)},
         "scope_geree": scope.resume(),
@@ -1518,7 +1578,12 @@ def lire_environ(donnees: bytes) -> Dict[str, str]:
 
 def lire_env_s6(dossier: Path) -> Optional[Dict[str, str]]:
     """Environnement du conteneur tel que s6-overlay le garde (un fichier par variable, lu sans
-    suivre de lien) ; None si le répertoire est illisible."""
+    suivre de lien) ; None si le répertoire est illisible.
+
+    s6-overlay termine chaque fichier par un saut de ligne (mesuré : « /opt/data\\n ») et
+    ``with-contenv`` le retire (``s6-envdir -Lf``, sans ``-n`` : un seul « \\n » final ôté). On
+    retire donc exactement UN « \\n » final, comme lui : la valeur comparée est celle que voient
+    les scripts root et les services."""
     try:
         fd = os.open(dossier, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError:
@@ -1533,7 +1598,8 @@ def lire_env_s6(dossier: Path) -> Optional[Dict[str, str]]:
             with os.fdopen(fichier, "rb") as flux:
                 if not stat.S_ISREG(os.fstat(flux.fileno()).st_mode):
                     continue
-                env[nom] = flux.read(_LIMITE_ENVIRONNEMENT).decode("utf-8", errors="replace")
+                valeur = flux.read(_LIMITE_ENVIRONNEMENT).decode("utf-8", errors="replace")
+                env[nom] = valeur[:-1] if valeur.endswith("\n") else valeur
     finally:
         os.close(fd)
     return env
@@ -1648,6 +1714,51 @@ def inventaire_cles_executables(chemins: Chemins) -> List[str]:
     return constats
 
 
+def taches_cron_a_script(chemins: Chemins) -> List[str]:
+    """Tâches cron qui exécutent un script (champs ``script`` et ``monitor_script`` :
+    cron/scheduler.py:1498, cron/monitor.py:109-114), dans ``cron/jobs.json`` de la racine et de
+    chaque profil. Sans script dans les ``scripts/`` (exigés vides), elles échouent ; elles restent
+    signalées : leur présence dit qu'une sauvegarde restaurée ou une ancienne injection en a posé.
+    Lecture tolérante comme Hermes (BOM, caractères de contrôle, liste nue ou dictionnaire par
+    identifiant : cron/jobs.py:1322-1375), sans suivre de lien."""
+    constats: List[str] = []
+    fichiers = [chemins.hermes_home / "cron" / "jobs.json"]
+    fichiers += [p / "cron" / "jobs.json" for p in profils_du_volume(chemins)[0]]
+    for fichier in fichiers:
+        try:
+            brut = lire_sans_lien(fichier)
+        except Refus as exc:
+            constats.append(str(exc))
+            continue
+        if brut is None:
+            continue
+        try:
+            texte = brut.decode("utf-8-sig")
+            try:
+                donnees = json.loads(texte)
+            except ValueError:
+                donnees = json.loads(texte, strict=False)
+        except (UnicodeDecodeError, ValueError) as exc:
+            constats.append(f"{fichier} ne se lit pas comme du JSON ({type(exc).__name__}) : à examiner.")
+            continue
+        taches = donnees.get("jobs", []) if isinstance(donnees, dict) else donnees
+        if isinstance(taches, dict):
+            taches = [dict(v, id=v.get("id") or k) for k, v in taches.items() if isinstance(v, dict)]
+        if not isinstance(taches, list):
+            constats.append(f"{fichier} n'a pas la forme attendue ({{\"jobs\": [...]}}) : à examiner.")
+            continue
+        for tache in taches:
+            if not isinstance(tache, dict):
+                continue
+            for champ in ("script", "monitor_script"):
+                valeur = tache.get(champ)
+                if isinstance(valeur, str) and valeur.strip():
+                    constats.append(
+                        f"{fichier} : la tâche cron « {_tronquer(tache.get('id') or tache.get('name') or '?', 60)} » "
+                        f"exécute un script ({champ} = « {_tronquer(valeur)} »).")
+    return constats
+
+
 def relire_scope_pour_diagnostic(chemins: Chemins, env: Optional[Mapping[str, str]]
                                  ) -> Tuple[Optional[str], str]:
     """(problème, forme) de la managed scope installée. En maintenance, acp-gardes n'a pas tourné :
@@ -1698,6 +1809,7 @@ def diagnostic(chemins: Chemins) -> Tuple[List[str], List[str]]:
         constats.append(str(exc))
     constats.extend(problemes_repertoires_executes(chemins))
     constats.extend(inventaire_cles_executables(chemins))
+    constats.extend(taches_cron_a_script(chemins))
     try:
         paresseux = entrees_du_repertoire(chemins.paquets_paresseux)
     except Refus as exc:
@@ -1787,7 +1899,10 @@ def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     _informer(f"{chemins.greffons_utilisateur} inspecté : aucun nom réservé ni lien symbolique"
               + (f" ({len(greffons.dossiers_premier_niveau)} dossier(s) utilisateur, jamais activés)."
                  if greffons.dossiers_premier_niveau else "."))
-    _informer(f"{chemins.crochets_passerelle} et {chemins.scripts_cron} inspectés : vides.")
+    profils = [_affichable(p.name, 60) for p in profils_du_volume(chemins)[0]]
+    _informer(f"{chemins.crochets_passerelle} et {chemins.scripts_cron} inspectés : vides"
+              + (f", ainsi que hooks/ et scripts/ de {len(profils)} profil(s) ({', '.join(profils)})."
+                 if profils else "."))
 
 
 def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
@@ -1803,7 +1918,9 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
     etat = preparer_donnees(chemins, scope, uid=compte.pw_uid, gid=compte.pw_gid, commit=commit_deploye(env))
     cible = ecrire_etat(chemins, etat)
     _informer(f"{chemins.greffons_utilisateur}, {chemins.themes}, {chemins.donnees_acp}, "
-              f"{chemins.crochets_passerelle} et {chemins.scripts_cron} appartiennent à root (0755).")
+              f"{chemins.crochets_passerelle} et {chemins.scripts_cron} appartiennent à root (0755)"
+              + (f", ainsi que hooks/ et scripts/ des profils {', '.join(etat['repertoires_executes']['profils'])}."
+                 if etat["repertoires_executes"]["profils"] else "."))
     paresseux = etat["lazy_packages"]["entrees"]
     if paresseux:
         _informer("ATTENTION : " + str(chemins.paquets_paresseux) + " contient des paquets ("

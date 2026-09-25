@@ -692,6 +692,69 @@ def test_hooks_et_scripts_du_volume(chemins, valeurs, repertoire):
         ad.refuser_repertoires_executes(chemins)
 
 
+@pytest.mark.parametrize("relatif", ["hooks/intrus/handler.py", "scripts/tache.py"])
+def test_hooks_et_scripts_des_profils(chemins, valeurs, relatif):
+    """Correction de la relecture P2 : une seule passerelle sert tous les profils et exécute les
+    scripts cron et les crochets PROPRES à chaque profil (cron/scheduler_script.py:257-298 ;
+    gateway/hooks.py:28-35). hooks/ et scripts/ de chaque profil sont donc exigés vides, puis
+    repris par root, comme ceux de la racine."""
+    import shutil
+
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    profil = chemins.hermes_home / "profiles" / "intrus"
+    _ecrire(profil / "SOUL.md", "profil secondaire\n")
+    _ecrire(profil / relatif, "import os\nos.system('id')\n")
+    _ecrire(chemins.hermes_home / "profiles" / "sain" / "SOUL.md", "profil sain\n")
+    subprocess.run(["chown", "-R", f"{UID_HERMES}:{UID_HERMES}", str(chemins.hermes_home)], check=True)
+    repertoire = profil / relatif.split("/")[0]
+    avant = _empreinte_arbre(chemins.hermes_home)
+    with pytest.raises(ad.Refus, match=re.escape(f"{repertoire} n'est pas vide")):
+        ad.refuser_repertoires_executes(chemins)
+    with pytest.raises(ad.Refus, match="doit rester vide sur Railway"):
+        ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert _empreinte_arbre(chemins.hermes_home) == avant  # refus AVANT toute écriture
+    # Vidé : les hooks/ et scripts/ de CHAQUE profil sont repris par root et l'agent n'y écrit plus.
+    shutil.rmtree(repertoire)
+    etat = ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert etat["repertoires_executes"]["profils"] == ["intrus", "sain"]
+    for nom in ("intrus", "sain"):
+        for sous in ("hooks", "scripts"):
+            chemin = chemins.hermes_home / "profiles" / nom / sous
+            st = os.lstat(chemin)
+            assert st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o755, chemin
+            assert _comme_hermes("touch", str(chemin / "intrus")).returncode != 0, chemin
+    # Contrôle positif : le profil lui-même reste à l'agent.
+    assert _comme_hermes("touch", str(profil / "controle")).returncode == 0
+
+
+def test_un_lien_symbolique_sous_profiles_est_refuse(chemins, valeurs, tmp_path):
+    """Hermes suit un lien sous profiles/ (hermes_cli/profiles.py:349-366, is_dir()) : il
+    exécuterait les hooks/ et scripts/ de la cible. Refusé, sans rien écrire."""
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    cible = tmp_path / "ailleurs"
+    _ecrire(cible / "scripts" / "tache.py", "print('cron')\n")
+    (chemins.hermes_home / "profiles").mkdir()
+    (chemins.hermes_home / "profiles" / "detour").symlink_to(cible)
+    with pytest.raises(ad.Refus, match="profiles/detour est un lien symbolique"):
+        ad.refuser_repertoires_executes(chemins)
+    with pytest.raises(ad.Refus, match="lien symbolique"):
+        ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert (cible / "scripts" / "tache.py").is_file()
+    # profiles/ lui-même remplacé par un lien : refusé aussi.
+    (chemins.hermes_home / "profiles" / "detour").unlink()
+    (chemins.hermes_home / "profiles").rmdir()
+    (chemins.hermes_home / "profiles").symlink_to(tmp_path)
+    with pytest.raises(ad.Refus, match="profiles est un lien symbolique"):
+        ad.refuser_repertoires_executes(chemins)
+
+
+def test_journal_des_gardes_nomme_les_profils(chemins, env_valide, capsys):
+    _ecrire(chemins.hermes_home / "profiles" / "coder" / "SOUL.md", "x\n")
+    ad.commande_gardes(chemins, env_valide)
+    assert ("inspectés : vides, ainsi que hooks/ et scripts/ de 1 profil(s) (coder)."
+            in capsys.readouterr().out)
+
+
 def test_lazy_packages_non_vide_est_signale(chemins, valeurs):
     scope = ad.preparer_scope_geree(chemins, valeurs)
     paresseux = chemins.hermes_home / "lazy-packages"
@@ -773,6 +836,13 @@ VOLUME_PIEGE = {
         "quick_commands:\n  shell:\n    type: exec\n    command: id\n  alias:\n    type: alias\n    target: /help\n"
         "tts:\n  provider: voix\n  providers:\n    voix:\n      type: command\n      command: /opt/data/tts.sh\n"),
     "profiles/coder/config.yaml": "stt:\n  maison:\n    type: command\n    command: /opt/data/stt.sh\n",
+    # Correction de la relecture P2 : scripts/ d'un profil et tâches cron à script.
+    "profiles/coder/scripts/tache.py": "print('cron du profil')\n",
+    "profiles/coder/cron/jobs.json": json.dumps({"jobs": [
+        {"id": "nettoyage", "schedule": "1m", "script": "nettoyage.sh", "no_agent": True},
+        {"id": "resume", "schedule": "1d", "prompt": "Résume la journée."}]}),
+    "cron/jobs.json": "\ufeff" + json.dumps({"jobs": {"veille": {"schedule": "5m", "monitor_script": "veille.py",
+                                                               "prompt": "x"}}}),
     "lazy-packages/edge_tts/__init__.py": "x = 1\n",
     "lazy-packages/.python-abi": "3.12\n",
 }
@@ -804,9 +874,14 @@ def test_diagnostiquer_rassemble_sans_ecrire(chemins, valeurs, tmp_path, env_val
                   "quick_commands.shell de type exec = « id »",
                   "tts.providers.voix.command (fournisseur de type command)",
                   "profiles/coder/config.yaml : stt.maison.command (fournisseur de type command)",
-                  "lazy-packages contient des paquets (edge_tts)"):
+                  "lazy-packages contient des paquets (edge_tts)",
+                  "profiles/coder/scripts n'est pas vide (« tache.py »)",
+                  "profiles/coder/cron/jobs.json : la tâche cron « nettoyage » exécute un script "
+                  "(script = « nettoyage.sh »)",
+                  "/cron/jobs.json : la tâche cron « veille » exécute un script (monitor_script = « veille.py »)"):
         assert any(motif in l for l in constats), motif
     assert not any("quick_commands.alias" in l for l in constats)
+    assert not any("« resume »" in l for l in constats)  # tâche sans script : non signalée
     assert not any(".python-abi" in l for l in constats)
     assert "[acp] diagnostic : source de l'environnement de référence : " in sortie
     assert "constat(s) ; code 1." in sortie
@@ -873,7 +948,10 @@ def test_diagnostiquer_source_environnement(chemins, valeurs, tmp_path, env_vali
     s6 = tmp_path / "s6-env"
     s6.mkdir()
     for nom, valeur in env_valide.items():
-        (s6 / nom).write_text(valeur, encoding="utf-8")
+        # Comme s6-overlay : chaque fichier se termine par un saut de ligne (mesuré dans l'image,
+        # « /opt/data\n ») ; with-contenv le retire. Sans ce « \n », le test passait sur un code
+        # qui produisait 29 faux constats sur un vrai conteneur sain (relecture P2).
+        (s6 / nom).write_text(valeur + "\n", encoding="utf-8")
     proc_s6 = tmp_path / "proc-s6"
     proc_s6.mkdir()
     (proc_s6 / "cmdline").write_bytes(b"/package/admin/s6/command/s6-svscan\0-d4\0--\0/run/service\0")
@@ -887,6 +965,16 @@ def test_diagnostiquer_source_environnement(chemins, valeurs, tmp_path, env_vali
     assert resultat.returncode == 1
     assert "source de l'environnement de référence : inconnue" in resultat.stdout
     assert "[acp] DIAGNOSTIC : source de l'environnement inconnue" in resultat.stdout
+
+
+def test_lire_env_s6_retire_un_seul_saut_de_ligne_final(tmp_path):
+    """Comme with-contenv (s6-envdir sans -n) : exactement UN « \n » final est retiré."""
+    dossier = tmp_path / "env"
+    dossier.mkdir()
+    for nom, contenu in {"A": "/opt/data\n", "B": "deux\n\n", "C": "", "D": "\n", "E": "sans"}.items():
+        (dossier / nom).write_text(contenu, encoding="utf-8")
+    (dossier / "LIEN").symlink_to(dossier / "A")
+    assert ad.lire_env_s6(dossier) == {"A": "/opt/data", "B": "deux\n", "C": "", "D": "", "E": "sans"}
 
 
 def test_diagnostiquer_exige_root(capsys, monkeypatch):
