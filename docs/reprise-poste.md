@@ -807,7 +807,9 @@ de P3 (skills vendorisées et verrou du catalogue, MCP context7, route `/v1/cata
 | `9a638fd` | feat(interface): add the acp-interface and acp-catalogue dashboard plugins |
 | `6260feb` | test(e2e): capture the French interface on phone and desktop viewports |
 | `c202084` | feat(tooling): count the dashboard and agent strings left in English |
-| (ce commit) | docs: document the P3 interface, theme and persona with local proofs |
+| `72ad97b` | docs: document the P3 interface, theme and persona with local proofs |
+| `b237912` | test(identite): retry the 1 GiB Authelia OOM witness before concluding |
+| (ce commit) | docs: record the P3 interface CI runs |
 
 ### Ce qui est en place
 
@@ -859,7 +861,31 @@ sources :
 
 ### Intégration continue
 
-À relever après la poussée de la branche (commit de documentation suivant).
+Branche poussée le 25/09/2026 (premier push : sommet `72ad97b`) :
+- `ci.yml` [36118860947](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36118860947)
+  (`72ad97b`) **succès** : interface (Node v22.23.2) **55 réussis** (Vitest, 11 fichiers), bundles
+  identiques aux sources ; poste Windows **297 réussis** ; poste Linux **288 réussis, 9 ignorés**
+  (les 9 tests propres à Windows déjà notés en P0) ; thème et QML à jour sous Linux et Windows ;
+  moteur gelé, 74 tests.
+- `image.yml` [36118860946](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36118860946)
+  (`72ad97b`) **échec** : condensats confirmés, décompte publié, **259** dans l'image, puis contrat
+  **1 échec sur 107** : `test_memoire_premier_facteur_concurrent`, test de P2 que P3 ne touchait
+  pas : le **témoin** limité à 1 Gio a **survécu** à la rafale de 20 (« true false 0 », réponses
+  401) alors qu'il était tué à chaque exécution locale et dans les runs de P2. Le test navigateur
+  n'a donc pas tourné sur ce run. Non relancé à la main (aucune action GitHub hors push) ; corrigé
+  par `b237912` : jusqu'à trois essais du témoin, chacun sur un conteneur neuf, tous rapportés, une
+  mort exigée ; `identite.md` § 8 dit que le témoin n'est pas déterministe.
+- `image.yml` [36120533900](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36120533900)
+  (`b237912`) **succès** : condensats de Hermes et d'Authelia confirmés ; décompte publié (105 clés
+  absentes de `fr.ts` sur 746, 6 libellés sans `labelKey`, 0 message de l'agent) ; **259** réussis
+  dans l'image ; **107** au contrat (témoin tué au premier essai, « false true 137 ») ; **2** au
+  navigateur (connexion, interface française ; Chromium téléchargé par la CI) : aucun texte hors
+  du catalogue, aucune violation axe, aucune requête hors de l'origine (381 et 380 requêtes), route
+  `/v1/catalogue` « indisponible » ; artefacts `captures-navigateur` et `decompte-traductions` ;
+  aucun conteneur, volume ni réseau `acp-contrat-*` restant.
+- `ci.yml` [36120533812](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36120533812)
+  (`b237912`) **succès** : mêmes nombres (interface 55, Windows 297, Linux 288 et 9 ignorés,
+  moteur 74).
 
 ### Non vérifié
 
