@@ -4,3 +4,5 @@ Dockerfile* text eol=lf
 # Tout ce qui entre dans l'image Hermes (scripts s6 sans extension, empreintes
 # comparées octet pour octet avec l'image) garde des fins de ligne LF.
 hermes/** text=auto eol=lf
+# Image du fournisseur d'identité (scripts shell sans extension, gabarit) : LF.
+identite/** text=auto eol=lf
