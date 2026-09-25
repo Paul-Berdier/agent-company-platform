@@ -247,12 +247,12 @@ projet à Upstash ; limites de débit anonymes partagées par l'adresse de sorti
 version du serveur distant n'est pas épinglable (noms d'outils vérifiés par la sonde) ; **les
 conditions d'utilisation du service n'ont pas été lues**. Depuis la relecture de P3, les lire et
 consigner la décision est un **prérequis du premier déploiement** ([railway.md](railway.md) § 2,
-point 6, rappelé au § 4.1) ; à défaut, une PR retire context7 du catalogue avant le déploiement. Aucune clé d'API (D11). La première
-connexion au vrai serveur a pris **2,46 s** ; le tableau de bord n'attend la découverte que
-1,5 s (`mcp_discovery_timeout`) avant de figer les outils d'une session : context7 peut manquer au
-premier tour d'une toute première session et rejoindre la suivante (rafraîchissement de Hermes
-entre les tours) ; non épinglé, pour ne pas retarder chaque première réponse quand le service est
-en panne.
+point 6, rappelé au § 4.1) ; à défaut, une PR retire context7 du catalogue avant le déploiement.
+Aucune clé d'API (D11). La première connexion au vrai serveur a pris **2,46 s** ; le tableau de bord
+n'attend la découverte que 1,5 s (`mcp_discovery_timeout`) avant de figer les outils d'une session :
+context7 peut manquer au premier tour d'une toute première session et rejoindre la suivante
+(rafraîchissement de Hermes entre les tours) ; non épinglé, pour ne pas retarder chaque première
+réponse quand le service est en panne.
 
 ### 7.2 Au poste (P8 ou hors v1) ou refusés
 

@@ -258,6 +258,7 @@ docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP=acp-hermes:p3 -t a
 docker build -t acp-identite:p3 identite
 MSYS_NO_PATHCONV=1 docker run --rm --entrypoint /opt/hermes/.venv/bin/python \
   -e PYTHONPATH=/opt/acp-tests/site acp-hermes-tests:p3 -m pytest -v -rA /opt/acp-tests/image
+npm ci --ignore-scripts --prefix .railway     # prérequis des 3 tests IaC du contrat (« SDK absent » sinon)
 PYTHONUTF8=1 MSYS_NO_PATHCONV=1 ACP_IMAGE=acp-hermes:p3 ACP_IMAGE_TESTS=acp-hermes-tests:p3 \
   ACP_IMAGE_IDENTITE=acp-identite:p3 python -m pytest -s -v -rA hermes/tests/contrat
 PYTHONUTF8=1 MSYS_NO_PATHCONV=1 ACP_IMAGE_TESTS=acp-hermes-tests:p3 ACP_IMAGE_IDENTITE=acp-identite:p3 \
