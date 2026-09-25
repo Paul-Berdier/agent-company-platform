@@ -66,7 +66,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 |---|---|---|
 | P0 | Branche, élagage et gel du moteur | **fusionnée** dans `refonte/hermes` (PR #13, `29c95b5`) (§ 4) |
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
-| P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, poussée, CI verte ; sans PR ; **rien de déployé** (§ 6) |
+| P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | à faire |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | à faire |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
@@ -528,9 +528,10 @@ Partie 3 — infrastructure Railway, CI et procédures :
 - **Agent sans outil d'exécution** sur Railway, en trois couches (managed scope à 40 clés, `.env`
   géré à 38 variables, garde `pre_tool_call` en liste blanche de 24 outils) ; `kanban_create` et
   `kanban_attach_url` refusés ; `preview.restart` fermé dans le processus réel.
-- **Gardes** : refus hors PID 1 (`acp-entree`), sentinelle hors s6 (code 78), `hooks/` et
-  `scripts/` du volume exigés vides, volume Railway exigé, `RAILWAY_RUN_UID`, domaine privé refusé,
-  commit déployé journalisé ; `diagnostiquer` en maintenance.
+- **Gardes** : refus hors PID 1 (`acp-entree`, qui renvoie sur Railway à `railway.md` § 10 f),
+  sentinelle hors s6 (code 78), `hooks/` et `scripts/` exigés vides à la racine du volume **et dans
+  chaque profil** (liens sous `profiles/` refusés), volume Railway exigé, `RAILWAY_RUN_UID`, domaine
+  privé refusé, commit déployé journalisé ; `diagnostiquer` en maintenance (sain sous s6 : code 0).
 - **Identité** : `identite/` (Authelia 4.39.28 épinglé, garde root, un seul utilisateur, client
   public `hermes-acp`, passkeys), limite mémoire mesurée à 2,5 Gio.
 - **IaC** : `.railway/railway.ts` (projet entier, deux services, deux volumes, aucune Start
@@ -548,7 +549,9 @@ Partie 1 :
 2. **Témoin négatif « composite » corrigé** : sur Hermes 0.21.5, un composite comme
    `hermes-api-server` est développé puis élagué et ne rend pas terminal ; le vrai contournement
    mesuré est un nom non configurable comme `debugging` (tools_config.py:614-615).
-3. Test P1 ajusté : un journal du modèle factice absent vaut « aucune requête ».
+3. Test P1 ajusté : un journal du modèle factice absent valait « aucune requête ». **Corrigé
+   après la relecture** : la fixture attend que le modèle réponde (sonde `GET /v1/models`, qui crée
+   le journal) et le test exige ce journal (`0a13f63`).
 
 Partie 2 :
 1. Noms de test `hermes-acp.test` et `identite-acp.test` (deux domaines enregistrables distincts,
@@ -676,7 +679,91 @@ Partie 3 (25/09/2026) :
   (Authelia répond 500) ; expiration à 7 jours et fenêtre glissante non mesurées ; rafale de
   premiers facteurs non bornée ; effet du mode « under attack » sur Hermes supposé.
 - Côté CI : l'absence d'annulation des runs en attente par le groupe de concurrence par exécution
-  ne se voit que sur GitHub, sur plusieurs pushs rapprochés.
+  ne se voit que sur GitHub, sur plusieurs pushs rapprochés (vaut aussi pour `ci.yml` depuis
+  `7a088c7`).
+
+### Relecture indépendante de P2 : traitement
+
+Trois relectures (sécurité offensive, exactitude, exploitation) sur `21eeb5d` ; 21 constats. Chaque
+constat a été **revérifié** (source de Hermes `f97608f`, doc Railway locale, image construite),
+puis corrigé avec un test qui échoue sans la correction, ou documenté. Aucun n'a été réfuté :
+tous sont réels ; deux sont traités par la documentation seule, par décision du propriétaire ou
+faute de pouvoir mesurer hors de Railway (n° 10 et 11).
+
+Commits (aucun `Co-Authored-By`) :
+
+| Commit | Sujet |
+|---|---|
+| `c241257` | fix(hermes): guard hooks and scripts of every profile and read s6 values like with-contenv |
+| `5609313` | fix(hermes): point the Railway PID 1 refusal to the recovery procedure |
+| `dd9c628` | fix(identite): stop logging the owner's identifier |
+| `0a13f63` | test(hermes): wait for the fake model before concluding that no request was sent |
+| `98d50a8` | fix(acp-poste): close sentinel bypasses and describe the tool_call bridge as Hermes runs it |
+| `9022608` | fix(railway): refuse any linked project other than acp and require Node 22.6 |
+| `7a088c7` | ci: never cancel ci.yml runs outside PRs and fail on leftover test resources |
+| (commits de documentation qui suivent) | docs: … |
+
+| N° | Constat (gravité) | Traitement | Preuve |
+|---|---|---|---|
+| 1 | Garde des `hooks/`/`scripts/` limitée à la racine ; script cron de profil exécuté sous l'uid 10000 (haute) | **corrigé** : `hooks/` et `scripts/` de chaque profil inspectés, exigés vides puis root 0755 ; lien sous `profiles/` refusé ; tâches cron à script signalées par `diagnostiquer` | reproduit sur l'image d'avant (`acp-hermes:p2fix0`, `21eeb5d`) : volume avec profil `intrus` et tâche cron à script, redémarrage sans refus, témoin `uid=10000(hermes)` ; image corrigée : `scripts/` du profil à root, injection refusée (« Permission denied »), démarrage sur un volume restauré qui en contient refusé (`test_hooks_scripts_refus[profil_scripts\|profil_hooks]`) ; 5 tests de l'image échouent sur l'ancien module |
+| 2 | `diagnostiquer` sous s6 : 29 faux constats sur un conteneur sain (moyenne) | **corrigé** : un seul « \n » final retiré, comme `with-contenv` ; test unitaire réécrit avec des fichiers terminés par « \n » | avant : « 29 constat(s) ; code 1 » sur un conteneur sain (relevé ici aussi) ; après : `test_diagnostiquer_sous_s6_sur_un_conteneur_sain` → « aucun constat ; code 0 » ; `test_diagnostiquer_source_environnement` et `test_lire_env_s6_…` échouent sur l'ancien module |
+| 3 | Pont `tool_call` mal décrit : Hermes le déballe avant la garde (moyenne) | **corrigé** (description et tests) : commentaire, `image.md` § 5 et § 8 ; test renommé `test_pont_tool_call_non_resolu_refuse` ; ajout `…_vers_un_outil_admis` (todo_list s'exécute) et `…_juge_l_outil_sous_jacent` avec témoin négatif | 4 tests verts ; le témoin négatif exécute terminal à travers le pont sans `acp-poste`. Pas de faille (la garde juge l'outil réel) : ces tests passent aussi sur l'ancien code, ce qui est attendu |
+| 4 | Sentinelle contournable (options à valeur, `HERMES_HOME` non normalisé) (basse) | **corrigé**, plus deux contournements trouvés ici : `hermes gateway` nu et `hermes serve` ; recensement contre l'analyseur réel de Hermes | 16 nouveaux cas + lien + recensement : 14 échouent sur l'ancien `__init__.py` |
+| 5 | Feuille de route « P5 » contraire au plan d'autonomie (basse) | **corrigé** : message de refus de `kanban_create`, commentaires, `plugin.yaml`, `image.md` alignés sur P4 ; réadmission abandonnée | `test_garde_liste_blanche` et le test de contrat du worker kanban exigent le nouveau message |
+| 6 | Session « au plus 7 jours » contredite (basse) | **documenté** : `railway.md` § 5.3 (7 jours sans rafraîchissement, fenêtre supposée glissante, cookie Hermes de 30 jours) | lecture de `cookies.py:38` |
+| 7 | Preuves périmées dans `image.md` (basse) | **documenté** : chiffres rattachés à `efbf7b0` (partie 1), renvoi ici | — |
+| 8 | Test P1 affaibli (`\|\| true`) sans contrôle de vie du modèle (basse) | **corrigé** : attente du modèle factice, journal exigé | contrat vert ; un modèle absent fait désormais échouer la fixture |
+| 9 | Étape finale d'`image.yml` qui ne fait que nettoyer (basse) | **corrigé** : nettoyage puis `exit 1` s'il restait des ressources | `test_image_yml_echoue_s_il_reste_des_ressources_de_test` (échoue sur l'ancien `image.yml`) ; run CI ci-dessous |
+| 10 | `vision_analyze` lit toute image locale (basse) | **documenté** (décision du propriétaire : outil gardé) : `image.md` § 10, avec la parade possible | lecture de la source (`vision_tools.py:875`, `image_source.py:71-99` et `173-177`), non exécuté |
+| 11 | Sauvegardes posées à la main, absentes de l'IaC (moyenne) | **documenté** : `railway.md` § 1, § 3 (lire aussi les modifications de volume), § 4.7, § 4.8 (arrêt si le plan touche aux sauvegardes, PR qui les déclare), § 12 | comportement du moteur non mesurable hors de Railway |
+| 12 | Installation de la CLI qui configurerait les agents (moyenne) | **documenté** : `railway.md` § 2.3 (installation sans agent, interdits, contrôle des MCP) | `rw_full.txt:16958-16972`, `23074-23092` |
+| 13 | Refus PID 1 sans procédure (moyenne) | **corrigé** : message d'`acp-entree` adapté sur Railway + `railway.md` § 10 f | `test_entree_refuse_hors_pid1_sur_railway` |
+| 14 | Procédure non exécutable dans l'ordre (basse) | **documenté** : limites via la page Workspace Usage ou après `railway login`, commande `ssh keys add` au § 4.9 et § 11, `railway login` au § 4.11 et § 10 b | — |
+| 15 | Prérequis WSL incomplets (basse) | **documenté** et `engines` à `>=22.6.0` : distribution à installer (constaté : seule `docker-desktop`), Node ≥ 22.6, compte GitHub relié | `wsl -l -v` relevé ici |
+| 16 | Dépôt public : libellés et identifiant publiés (basse) | **corrigé** (identifiant retiré du journal d'`identite`) et **documenté** (libellés publics, masquage § 7) | `test_demarrage_nominal_et_config_valide` et `test_railway_iac_…` exigent l'absence de l'identifiant |
+| 17 | Garde d'environnement, pas de projet (basse) | **corrigé** : refus si le projet lié n'est pas `acp` (ou inconnu) ; identifiant du projet non vérifié (n'existe qu'après `railway init`, dit) | `verifier.mjs` : 2 refus de plus ; sur l'ancien `railway.ts`, « 2 écart(s) » |
+| 18 | Rollback sans avertissements (basse) | **documenté** : § 5.4 et § 9 (empreinte scellée restaurée, 72 h sur Hobby) | `rw_full.txt:4938-4946`, `29547` |
+| 19 | `ci.yml` annulé par un push suivant (basse) | **corrigé** : groupe par exécution hors PR ; § 7.2 vérifie aussi `ci.yml` | `test_ci_yml_n_annule_aucun_run_hors_pr` (échoue sur l'ancien `ci.yml`) |
+| 20 | « Redeploy » conseillé à tort sur 503 (basse) | **documenté** : § 4.6 (découverte non mise en cache si elle échoue) | lecture de `self_hosted/__init__.py:178-206` |
+| 21 | Clé SSH dédiée utilisée depuis le WSL des agents (basse) | **documenté** : mode opératoire au § 2.4 et § 11 | — |
+
+Écarts au plan de correction, justifiés :
+- n° 1 : les tâches cron à script sont **signalées** par `diagnostiquer`, pas refusées au démarrage :
+  sans script dans des `scripts/` exigés vides et à root, elles échouent (« Script not found »), et
+  refuser un volume pour une tâche inerte bloquerait sans rien protéger ;
+- n° 4 : au-delà du constat, `hermes gateway` nu (qui lance la passerelle) et `hermes serve` (le
+  serveur du tableau de bord) sont visés ; un `HERMES_HOME` de profil (`/opt/data/profiles/x`) aussi ;
+- n° 10 : aucune restriction d'argument ajoutée à la garde (elle casserait les images jointes par
+  chemin local) ; la décision reste au propriétaire ;
+- n° 17 : l'identifiant du projet n'est pas vérifié (il exigerait une PR de plus entre `railway
+  init` et le premier plan) ; la lecture du plan reste la garde.
+
+Preuves locales (25/09/2026 ; images **reconstruites depuis le worktree** au commit `7a088c7`,
+`acp-hermes:p2fix`, `acp-hermes-tests:p2fix`, `acp-identite:p2fix` ; Windows 10, Docker 29.5.3,
+pytest 9.1.1, Python 3.12.10, Node 24.19.0) :
+- dans l'image : `docker run --rm --entrypoint /opt/hermes/.venv/bin/python -e PYTHONPATH=/opt/acp-tests/site acp-hermes-tests:p2fix -m pytest -v -rA /opt/acp-tests/image`
+  → **242 réussis**, 0 échec, 0 ignoré (1 min 43 s) ; 26 de plus qu'avant la relecture ;
+- contrat : `PYTHONUTF8=1 ACP_IMAGE=acp-hermes:p2fix ACP_IMAGE_TESTS=acp-hermes-tests:p2fix ACP_IMAGE_IDENTITE=acp-identite:p2fix python -m pytest -s -v -rA hermes/tests/contrat`
+  → **103 réussis**, 0 échec, 0 ignoré (12 min 18 s) ; mémoire d'Authelia 0,721 Gio à 10 premiers
+  facteurs, 1,350 Gio à 20 (54,0 % de la limite), témoin sous 1 Gio tué (OOM, 137) ;
+- navigateur : `ACP_E2E_OBLIGATOIRE=1 … python -m pytest -s -v -rA hermes/tests/e2e` → **1 réussi**
+  (43 s) ; Chromium de Playwright révision 1234 déjà présent, rien téléchargé ;
+- suite du dépôt (`python -m pytest -q`, venv Python 3.12.10) : **282 réussis**, 0 ignoré (dont 42
+  de `test_railway_iac.py`) ; `check_version.py`, `check_engine_frozen.py`, `check_lock.py` : code 0 ;
+- IaC : `npm run --prefix .railway verifier` : `tsc` sans erreur, gabarits refusés, **onze** autres
+  refus attendus (dont « autre projet lié » et « projet lié inconnu »), graphe d'essai conforme ;
+- **chaque correction rejouée sur le code d'avant** (nouveaux tests, ancien code) : 7 échecs dans
+  `test_demarrage.py`, 15 dans `test_sans_shell.py` (sentinelle et message de `kanban_create`),
+  4 dans `test_railway_iac.py`, 2 écarts de `verifier.mjs` ; reproduction du n° 1 ci-dessus ;
+- `git diff --check` propre ; aucun conteneur, volume ni réseau restant (comparaison avant et
+  après).
+
+Non vérifié après la relecture (en plus de la liste ci-dessus) : aucune des attaques en direct sur
+Authelia que la relecture de sécurité a laissées de côté (second sujet, jeton d'une autre audience,
+rafraîchissement : couvertes par les tests existants, non rejouées en attaque) ; la recherche de
+secrets dans l'historique Docker et Git ; le contournement de la sentinelle par un point d'entrée
+qui ne passe pas par `sys.argv` de `hermes` (limite dite, `image.md` § 10) ; le comportement réel du
+moteur de la CLI face aux sauvegardes et à `ctx.projectName` (Railway seulement).
 
 ## 7. Chaîne d'outils Windows
 
