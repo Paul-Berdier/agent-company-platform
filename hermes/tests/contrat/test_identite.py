@@ -695,6 +695,7 @@ def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, e
         if etat_temoin.startswith("false true"):
             break
     pic_20 = max(mesures[20]["apres"]["VmHWM"], mesures[20]["apres"]["cgroup_peak"])
+    pic_10 = max(mesures[10]["apres"]["VmHWM"], mesures[10]["apres"]["cgroup_peak"])
     rapport = [f"rafale de {n} : RSS maximal (VmHWM) {_gio(m['apres']['VmHWM'])} ; pic du cgroup "
                f"{_gio(m['apres']['cgroup_peak'])} ; avant la rafale {_gio(m['avant']['VmHWM'])} ; codes {m['codes']} ; "
                f"réponse la plus lente {m['duree_max_s']} s ; état {m['etat']}" for n, m in mesures.items()]
@@ -708,7 +709,12 @@ def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, e
     for n, m in mesures.items():
         assert m["codes"] == [401], (n, m)
         assert m["etat"] == "true false 0", (n, m)
-    assert mesures[20]["apres"]["VmHWM"] > mesures[10]["apres"]["VmHWM"]
+    # Chaque rafale a bien consommé de la mémoire. L'ORDRE des deux pics n'est pas garanti : il dépend
+    # de l'entrelacement des vérifications sur 0,5 vCPU (CI image.yml 36134351025 : 0,725 Gio à 10,
+    # 0,538 Gio à 20, alors que le poste mesure 0,726 et 1,346 Gio). Le critère de la limite vaut
+    # donc pour le plus haut des deux pics.
+    for m in mesures.values():
+        assert m["apres"]["VmHWM"] > m["avant"]["VmHWM"], m
     assert etat_temoin.startswith("false true"), essais_temoin
-    assert pic_20 <= LIMITE_MEMOIRE_OCTETS * 2 // 3
+    assert max(pic_10, pic_20) <= LIMITE_MEMOIRE_OCTETS * 2 // 3
     assert LIMITE_MEMOIRE_OCTETS >= GIO

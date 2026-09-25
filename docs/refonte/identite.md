@@ -225,6 +225,11 @@ CI (`image.yml` 36118860946, étape P3 : état « true false 0 », réponses 401
 jusqu'à **trois essais**, chacun sur un conteneur neuf, rapporte chacun et exige au moins une mort
 (OOM) : 1 Go ne tient donc pas **toujours**, et cela suffit à l'écarter.
 
+Les pics eux-mêmes varient d'un run à l'autre : sur la CI (`image.yml` 36134351025, seconde partie de
+P3), la rafale de 20 a culminé à **0,538 Gio** et celle de 10 à 0,725 Gio. Le test n'exige donc plus
+qu'un pic à 20 dépasse celui à 10 ; il exige que chaque rafale consomme de la mémoire, que le témoin
+meure, et que le **plus haut** des deux pics reste sous les deux tiers de la limite retenue.
+
 **Limite retenue pour `railway.ts` (service identite) : 2,5 Gio** (`limitOverride.containers.memoryBytes
 = 2684354560`). Critère du plan : le pic à 20 doit rester sous les deux tiers de la limite ; il en
 vaut 53,9 %. La limite de 1 Go envisagée au départ ne tient pas (témoin mesuré ci-dessus ; par
