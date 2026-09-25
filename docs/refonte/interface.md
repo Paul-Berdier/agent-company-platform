@@ -207,9 +207,8 @@ la seconde partie de P3, le test navigateur **exige** la route servie (`catalogu
 - **Agent** : persona française (§ 4) ; messages statiques par `display.language: fr` et
   `HERMES_LANGUAGE=fr` (P2).
 - **Natif, compté et publié, pas traduit** : mesure de `apps/interface/outils/decompte-traductions.mjs`
-  sur les fichiers **extraits de l'image** (`docker create`, `docker cp` de
-  `/opt/hermes/web/src/{i18n,App.tsx,pages,components}` et `/opt/hermes/locales/{en,fr}.yaml`),
-  Hermes 0.21.5 :
+  sur les fichiers **extraits de l'image** (`docker create`, `docker cp` de `/opt/hermes/web/src`
+  entier et de `/opt/hermes/locales/{en,fr}.yaml`), Hermes 0.21.5 :
 
 | Mesure | Valeur |
 |---|---|
@@ -218,16 +217,20 @@ la seconde partie de P3, le test navigateur **exige** la route servie (`catalogu
 | … absentes de `fr.ts` (affichées en anglais) | **105** |
 | Clés de `fr.ts` identiques à l'anglais (souvent des noms propres) | 65 |
 | Libellés de navigation sans `labelKey` (toujours en anglais) | **6** : Files, MCP, Channels, Webhooks, Pairing, System |
-| Textes JSX et attributs écrits en dur dans `web/src/{pages,components}` (approximation lexicale) | 610 dans 30 fichiers |
+| Textes JSX et attributs écrits en dur dans **tout** `web/src`, hors `i18n` et tests (approximation lexicale) | **615 dans 31 fichiers** : `pages` 548, `components` 62, `App.tsx` 5 (« Loading chat… » trois fois, « Restart all », « Restart the shared gateway? ») ; `contexts`, `plugins`, `themes`, `main.tsx` : 0 |
 | Clés de `locales/en.yaml` (messages statiques de l'agent) | 374 |
 | … absentes de `locales/fr.yaml` | **0** |
 
 Clés absentes de `fr.ts`, par section : `profiles` 30, `kanban` 21, `pluginsPage` 14, `app` 12,
 `cron` 6, `skills` 6, `status` 6, `theme` 6, `common` 4. L'estimation lexicale du cahier (84 sur
 684, sur le clone) est remplacée par cette mesure. L'extraction des clés YAML est contrôlée contre
-PyYAML dans l'image (374 et 374 clés, 0 écart). **Non mesuré** : bundles des greffons `kanban` et
-`hermes-achievements`, TUI de `/chat`, pages `/auth/*` du serveur, documentation `/docs` (iframe
-distante). En CI, `image.yml` refait la mesure et la publie en artefact (`decompte-traductions`).
+PyYAML dans l'image (374 et 374 clés, 0 écart). Relecture de P3 : la première mesure (610 dans 30
+fichiers) ne lisait que `pages` et `components` et laissait `App.tsx`, `contexts` et `plugins` hors
+du compte sans le dire ; elle lit désormais tout `web/src` (test Vitest `decompte.test.ts`).
+**Non mesuré** : bundles des greffons `kanban` et `hermes-achievements`, TUI de `/chat`, pages
+`/auth/*` du serveur, documentation `/docs` (iframe distante), chaînes des modules `.ts`
+(`web/src/lib`, `web/src/hooks`) et textes calculés par une expression (ainsi « Updates don't
+apply from this dashboard. » de `contexts/SystemActions.tsx:96`, repli d'un `??`). En CI, `image.yml` refait la mesure et la publie en artefact (`decompte-traductions`).
 Proposer ces traductions en amont (MIT) reste une option hors chemin critique (D15).
 
 ## 8. Tests et preuves
@@ -251,8 +254,8 @@ PYTHONUTF8=1 MSYS_NO_PATHCONV=1 ACP_IMAGE=acp-hermes:p3 ACP_IMAGE_TESTS=acp-herm
 PYTHONUTF8=1 MSYS_NO_PATHCONV=1 ACP_IMAGE_TESTS=acp-hermes-tests:p3 ACP_IMAGE_IDENTITE=acp-identite:p3 \
   ACP_E2E_CAPTURES=<dossier> python -m pytest -s -v -rA hermes/tests/e2e
 # Décompte (fichiers extraits de l'image)
-id=$(docker create acp-hermes:p3); mkdir -p x/web/src x/locales
-for c in web/src/i18n web/src/App.tsx web/src/pages web/src/components locales/en.yaml locales/fr.yaml; do
+id=$(docker create acp-hermes:p3); mkdir -p x/web x/locales
+for c in web/src locales/en.yaml locales/fr.yaml; do
   docker cp "$id:/opt/hermes/$c" "x/$(dirname $c)/"; done; docker rm "$id"
 node apps/interface/outils/decompte-traductions.mjs x --json decompte.json
 ```

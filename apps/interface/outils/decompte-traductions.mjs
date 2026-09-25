@@ -4,19 +4,22 @@
 //
 //   node apps/interface/outils/decompte-traductions.mjs <dossier extrait> [--json f.json] [--markdown f.md]
 //
-// <dossier extrait> reproduit /opt/hermes : web/src/i18n/{en,fr}.ts, web/src/App.tsx,
-// web/src/{pages,components}/**/*.tsx et locales/{en,fr}.yaml (docker create + docker cp, voir
-// docs/refonte/interface.md). Mesures :
+// <dossier extrait> reproduit /opt/hermes : web/src (tout le dossier) et locales/{en,fr}.yaml
+// (docker create + docker cp, voir docs/refonte/interface.md). Mesures :
 //   1. clés de en.ts absentes de fr.ts, par section (fr.ts évalué avec defineLocale remplacé par
 //      l'identité : une clé absente retombe sur l'anglais à l'affichage) ;
 //   2. clés de fr.ts dont la valeur est identique à l'anglais (souvent des noms propres : comptées,
 //      pas jugées) ;
 //   3. libellés de navigation SANS labelKey dans App.tsx (toujours affichés en anglais) ;
 //   4. clés de locales/en.yaml absentes de locales/fr.yaml (messages statiques de l'agent) ;
-//   5. APPROXIMATION : textes JSX et attributs lisibles écrits en dur dans web/src (pages et
-//      composants), hors tests : au moins deux lettres latines, aucun appel de traduction.
+//   5. APPROXIMATION : textes JSX et attributs lisibles écrits en dur dans TOUS les .tsx de web/src
+//      (App.tsx, main.tsx, pages, components, contexts, plugins, themes…), hors i18n et tests : au
+//      moins deux lettres latines, aucun appel de traduction. Relecture de P3 : la première version
+//      ne lisait que pages et components, et laissait App.tsx (« Loading chat… », « Restart all »),
+//      contexts et plugins hors du compte sans le dire.
 // Non mesuré (dit dans la sortie) : bundles des greffons kanban et hermes-achievements, TUI de
-// /chat, pages /auth/* du serveur, documentation /docs (iframe distante).
+// /chat, pages /auth/* du serveur, documentation /docs (iframe distante), chaînes des modules .ts
+// (web/src/lib, web/src/hooks) et textes calculés par une expression.
 import { readFileSync, readdirSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import vm from "node:vm";
@@ -111,11 +114,11 @@ export function libellesSansCle(source) {
   return trouves;
 }
 
-function fichiersTsx(dossier) {
+function fichiersTsx(dossier, exclus = new Set()) {
   if (!existsSync(dossier)) return [];
-  return readdirSync(dossier).flatMap((nom) => {
+  return readdirSync(dossier).sort().flatMap((nom) => {
     const chemin = join(dossier, nom);
-    if (statSync(chemin).isDirectory()) return fichiersTsx(chemin);
+    if (statSync(chemin).isDirectory()) return exclus.has(nom) ? [] : fichiersTsx(chemin);
     return nom.endsWith(".tsx") && !/\.test\.tsx$/.test(nom) ? [chemin] : [];
   });
 }
@@ -150,13 +153,15 @@ export function decompter(racine) {
   const yamlManquantes = [...yamlEn].filter((k) => !yamlFr.has(k)).sort();
   const enDur = {};
   let totalEnDur = 0;
-  for (const dossier of ["web/src/pages", "web/src/components"]) {
-    for (const chemin of fichiersTsx(join(racine, dossier))) {
-      const textes = textesEnDur(readFileSync(chemin, "utf8"), chemin);
-      if (textes.length) {
-        enDur[relative(racine, chemin).split(sep).join("/")] = textes.length;
-        totalEnDur += textes.length;
-      }
+  const parDossier = {};
+  for (const chemin of fichiersTsx(join(racine, "web/src"), new Set(["i18n"]))) {
+    const textes = textesEnDur(readFileSync(chemin, "utf8"), chemin);
+    if (textes.length) {
+      const relatif = relative(racine, chemin).split(sep).join("/");
+      enDur[relatif] = textes.length;
+      totalEnDur += textes.length;
+      const dossier = relatif.split("/")[2]; // « pages », « contexts »… ou « App.tsx »
+      parDossier[dossier] = (parDossier[dossier] ?? 0) + textes.length;
     }
   }
   return {
@@ -170,7 +175,12 @@ export function decompter(racine) {
       cles_fr_identiques_a_l_anglais: identiques.length,
       identiques: identiques,
       navigation_sans_labelKey: navigation,
-      textes_en_dur_approximation: { total: totalEnDur, fichiers: Object.keys(enDur).length, par_fichier: enDur },
+      textes_en_dur_approximation: {
+        total: totalEnDur,
+        fichiers: Object.keys(enDur).length,
+        par_dossier: Object.fromEntries(Object.entries(parDossier).sort((a, b) => b[1] - a[1])),
+        par_fichier: enDur,
+      },
     },
     agent: {
       cles_en_yaml: yamlEn.size,
@@ -183,6 +193,7 @@ export function decompter(racine) {
       "TUI de la page /chat (terminal embarqué)",
       "pages /auth/* servies par le serveur de Hermes",
       "documentation /docs (iframe distante)",
+      "chaînes des modules .ts (web/src/lib, web/src/hooks) et textes calculés par une expression",
     ],
   };
 }
@@ -197,12 +208,15 @@ export function versMarkdown(d, entete = "") {
   lignes.push(`| … absentes de \`fr.ts\` (affichées en anglais) | **${t.cles_manquantes_fr}** |`);
   lignes.push(`| Clés de \`fr.ts\` identiques à l'anglais | ${t.cles_fr_identiques_a_l_anglais} |`);
   lignes.push(`| Libellés de navigation sans \`labelKey\` | **${t.navigation_sans_labelKey.length}** (${t.navigation_sans_labelKey.map((n) => n.libelle).join(", ")}) |`);
-  lignes.push(`| Textes JSX et attributs écrits en dur (approximation) | ${t.textes_en_dur_approximation.total} dans ${t.textes_en_dur_approximation.fichiers} fichiers |`);
+  lignes.push(`| Textes JSX et attributs écrits en dur dans web/src (approximation) | ${t.textes_en_dur_approximation.total} dans ${t.textes_en_dur_approximation.fichiers} fichiers |`);
   lignes.push(`| Clés de \`locales/en.yaml\` (messages de l'agent) | ${d.agent.cles_en_yaml} |`);
   lignes.push(`| … absentes de \`locales/fr.yaml\` | **${d.agent.cles_manquantes_fr_yaml}** |`);
   lignes.push("", "Clés absentes de `fr.ts`, par section :", "");
   lignes.push("| Section | Clés |", "|---|---|");
   for (const [s, n] of Object.entries(t.manquantes_par_section)) lignes.push(`| \`${s}\` | ${n} |`);
+  lignes.push("", "Textes écrits en dur, par dossier de `web/src` (approximation) :", "");
+  lignes.push("| Dossier ou fichier | Textes |", "|---|---|");
+  for (const [s, n] of Object.entries(t.textes_en_dur_approximation.par_dossier)) lignes.push(`| \`${s}\` | ${n} |`);
   lignes.push("", `Non mesuré : ${d.non_mesure.join(" ; ")}.`);
   return lignes.join("\n") + "\n";
 }

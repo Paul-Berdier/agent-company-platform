@@ -65,8 +65,17 @@ describe("décompte des traductions", () => {
     mkdirSync(join(racine, "locales"), { recursive: true });
     writeFileSync(join(racine, "web", "src", "i18n", "en.ts"), EN);
     writeFileSync(join(racine, "web", "src", "i18n", "fr.ts"), FR);
-    writeFileSync(join(racine, "web", "src", "App.tsx"), APP);
     writeFileSync(join(racine, "web", "src", "pages", "P.tsx"), "export const P = () => <p>Hello</p>;");
+    // Relecture de P3 : App.tsx, contexts et plugins comptent aussi (hors i18n et tests).
+    mkdirSync(join(racine, "web", "src", "contexts"), { recursive: true });
+    mkdirSync(join(racine, "web", "src", "plugins"), { recursive: true });
+    writeFileSync(join(racine, "web", "src", "App.tsx"),
+      `${APP}\nexport const B = () => <Spinner label="Loading chat…" />;\n`);
+    writeFileSync(join(racine, "web", "src", "contexts", "S.tsx"),
+      "export const S = () => <p>Updates don't apply from this dashboard.</p>;");
+    writeFileSync(join(racine, "web", "src", "plugins", "G.tsx"), "export const G = () => <p>Plugin failed</p>;");
+    writeFileSync(join(racine, "web", "src", "i18n", "context.tsx"), "export const I = () => <p>Ignored here</p>;");
+    writeFileSync(join(racine, "web", "src", "pages", "P.test.tsx"), "export const T = () => <p>Test only</p>;");
     writeFileSync(join(racine, "locales", "en.yaml"), YAML_EN);
     writeFileSync(join(racine, "locales", "fr.yaml"), YAML_FR);
     const d = decompter(racine);
@@ -74,7 +83,14 @@ describe("décompte des traductions", () => {
     expect(d.tableau_de_bord.cles_manquantes_fr).toBe(3);
     expect(d.tableau_de_bord.manquantes_par_section).toEqual({ common: 2, app: 1 });
     expect(d.tableau_de_bord.identiques).toEqual(["app.brand"]);
-    expect(d.tableau_de_bord.textes_en_dur_approximation.total).toBe(1);
+    expect(d.tableau_de_bord.textes_en_dur_approximation.total).toBe(4);
+    expect(d.tableau_de_bord.textes_en_dur_approximation.par_dossier).toEqual({
+      "App.tsx": 1,
+      contexts: 1,
+      pages: 1,
+      plugins: 1,
+    });
+    expect(d.non_mesure.join(" ")).toContain("modules .ts");
     expect(d.agent.manquantes).toEqual(["gateway.busy"]);
     const md = versMarkdown(d);
     expect(md).toContain("| … absentes de `fr.ts` (affichées en anglais) | **3** |");
