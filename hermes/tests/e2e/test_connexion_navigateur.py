@@ -31,75 +31,26 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import re
 import secrets
-import sys
-import time
 import urllib.parse
 from pathlib import Path
 from typing import Dict, List
 
-import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "contrat"))
-
-from pile_identite import (  # noqa: E402
+from conftest import CAPTURES, afficher, image
+from parcours import ajouter_authentificateur, lancer_chromium, se_connecter
+from pile_identite import (
     CLIENT,
     EMETTEUR,
     HOTE_HERMES,
-    HOTE_IDENTITE,
     MOT_DE_PASSE,
     URL_HERMES,
-    UTILISATEUR,
-    Pile,
     docker,
     empreinte_argon2,
     lignes_du_bord,
     monter_pile,
     spki_du_bord,
 )
-
-OBLIGATOIRE = os.environ.get("ACP_E2E_OBLIGATOIRE", "").strip() == "1"
-CAPTURES = os.environ.get("ACP_E2E_CAPTURES", "").strip()
-
-
-def afficher(titre: str, texte: str) -> None:
-    print(f"\n===== {titre} =====\n{texte.rstrip()}\n", flush=True)
-
-
-def _manque(raison: str) -> None:
-    if OBLIGATOIRE:
-        pytest.fail(f"{raison} (ACP_E2E_OBLIGATOIRE=1 : l'absence est un échec, jamais un test ignoré)", pytrace=False)
-    pytest.skip(raison)
-
-
-def _image(nom: str) -> str:
-    valeur = os.environ.get(nom, "").strip()
-    if not valeur:
-        pytest.fail(f"{nom} n'est pas défini : ce test exige les images construites.", pytrace=False)
-    return valeur
-
-
-@pytest.fixture(scope="module")
-def playwright_sync():
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        _manque(f"Playwright n'est pas installé ({exc}) : pip install --require-hashes -r "
-                f"hermes/tests/requirements-e2e.txt")
-    with sync_playwright() as p:
-        executable = Path(p.chromium.executable_path)
-        if not executable.exists():
-            _manque(f"Chromium de Playwright absent ({executable}) : rien n'est téléchargé par ce test")
-        yield p
-
-
-@pytest.fixture(scope="module")
-def pile():
-    p = Pile()
-    yield p
-    p.nettoyer()
 
 
 def _jwt(jeton: str) -> dict:
@@ -111,20 +62,9 @@ def _cookies(contexte, suffixe: str) -> List[dict]:
     return [c for c in contexte.cookies() if c["name"].endswith(suffixe)]
 
 
-def _code_a_usage_unique(identite: str, deja_vus: set, delai: float = 60) -> str:
-    limite = time.monotonic() + delai
-    while time.monotonic() < limite:
-        texte = docker("exec", identite, "cat", "/config/notification.txt", verifier=False).stdout
-        codes = [c for c in re.findall(r"^\s*([A-Z0-9]{8})\s*$", texte, re.M) if c not in deja_vus]
-        if codes:
-            return codes[-1]
-        time.sleep(1)
-    raise AssertionError("aucun code à usage unique dans /config/notification.txt")
-
-
 def test_connexion_complete_rafraichissement_et_refus(playwright_sync, pile):
-    image_tests = _image("ACP_IMAGE_TESTS")
-    image_identite = _image("ACP_IMAGE_IDENTITE")
+    image_tests = image("ACP_IMAGE_TESTS")
+    image_identite = image("ACP_IMAGE_IDENTITE")
     empreinte = empreinte_argon2(image_identite)
     noms = monter_pile(pile, image_identite, image_tests, empreinte, publier=True)
     identite, bord, hermes, port = noms["identite"], noms["bord"], noms["hermes"], noms["port"]
@@ -133,13 +73,9 @@ def test_connexion_complete_rafraichissement_et_refus(playwright_sync, pile):
     preuves: Dict[str, object] = {"port_du_bord_sur_l_hote": port, "ip_du_bord": ip_bord}
     etape = [0]
 
-    navigateur = playwright_sync.chromium.launch(headless=True, args=[
-        # Les deux noms mènent au bord publié sur la boucle locale, sans toucher au DNS de l'hôte ;
-        # le navigateur garde les URL https://hermes-acp.test et https://identite-acp.test (port 443).
-        f"--host-resolver-rules=MAP {HOTE_HERMES} 127.0.0.1:{port}, MAP {HOTE_IDENTITE} 127.0.0.1:{port}",
-        # Confiance au SEUL certificat du bord (empreinte SPKI), sans erreur de certificat : WebAuthn
-        # est refusé sur une page en erreur TLS.
-        f"--ignore-certificate-errors-spki-list={spki}"])
+    # Le navigateur garde les URL https://hermes-acp.test et https://identite-acp.test (port 443) ;
+    # seul le certificat du bord est accepté (parcours.lancer_chromium).
+    navigateur = lancer_chromium(playwright_sync, port, spki)
     try:
         contexte = navigateur.new_context(locale="fr-FR")
         page = contexte.new_page()
@@ -155,47 +91,10 @@ def test_connexion_complete_rafraichissement_et_refus(playwright_sync, pile):
             return p.evaluate("async (c) => { const r = await fetch(c, {credentials: 'same-origin'}); "
                               "return [r.status, await r.text()]; }", chemin)
 
-        cdp = contexte.new_cdp_session(page)
-        cdp.send("WebAuthn.enable")
-        authentificateur = cdp.send("WebAuthn.addVirtualAuthenticator", {"options": {
-            "protocol": "ctap2", "transport": "internal", "hasResidentKey": True, "hasUserVerification": True,
-            "isUserVerified": True, "automaticPresenceSimulation": True}})["authenticatorId"]
-
-        # 1. Hermes renvoie vers le portail du fournisseur.
-        page.goto(f"{URL_HERMES}/")
-        page.wait_for_url(re.compile(rf"^{re.escape(EMETTEUR)}/\?flow=openid_connect&flow_id="))
-        capture("portail")
-        # 2. Premier facteur, puis enrôlement de la passkey.
-        page.fill("#username-textfield", UTILISATEUR)
-        page.fill("#password-textfield", MOT_DE_PASSE)
-        page.click("#sign-in-button")
-        page.wait_for_url(re.compile(r"/2fa/webauthn\?flow=openid_connect"))
-        url_second_facteur = page.url
-        capture("second-facteur-sans-appareil")
-        page.click("#register-link")
-        page.click("#webauthn-credential-add")
-        page.wait_for_selector("#one-time-code")
-        code = _code_a_usage_unique(identite, set())
-        page.fill("#one-time-code", code)
-        page.click("#dialog-verify")
-        page.fill("#webauthn-credential-description", "authentificateur virtuel de test")
-        page.click("#dialog-next")
-        page.wait_for_selector("#webauthn-credential-0-information")
-        capture("passkey-enrolee")
-        [credential] = cdp.send("WebAuthn.getCredentials", {"authenticatorId": authentificateur})["credentials"]
-        preuves["passkey"] = {"rpId": credential["rpId"], "resident": credential["isResidentCredential"],
-                              "compteur_apres_enrolement": credential["signCount"]}
-        assert credential["rpId"] == HOTE_IDENTITE
-        # 3. Second facteur par la passkey, 4. consentement explicite, retour vers Hermes.
-        page.goto(url_second_facteur)
-        page.wait_for_url(re.compile(r"/consent/openid/decision\?flow=openid_connect"))
-        capture("consentement")
-        [credential] = cdp.send("WebAuthn.getCredentials", {"authenticatorId": authentificateur})["credentials"]
-        preuves["passkey"]["compteur_apres_second_facteur"] = credential["signCount"]
-        assert credential["signCount"] > preuves["passkey"]["compteur_apres_enrolement"]
-        page.click("#openid-consent-accept")
-        page.wait_for_url(re.compile(rf"^{re.escape(URL_HERMES)}/"))
-        page.wait_for_selector("text=via self-hosted")
+        # 1. à 4. Portail, mot de passe, enrôlement de la passkey, second facteur, consentement
+        # (parcours partagé avec le test de l'interface française : parcours.py).
+        cdp, authentificateur = ajouter_authentificateur(contexte, page)
+        preuves["passkey"] = se_connecter(page, cdp, authentificateur, identite, capture)
         capture("tableau-de-bord")
         code_moi, corps_moi = obtenir("/api/auth/me")
         moi = json.loads(corps_moi)

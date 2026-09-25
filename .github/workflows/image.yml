@@ -49,6 +49,12 @@ name: Image Hermes
 #     healthcheck.railway.app ; identite refuse de démarrer sans les variables du propriétaire.
 #   Rien n'est planifié ni appliqué ici : `railway config plan/apply` reste au propriétaire seul.
 #
+# Étape P3, interface française (docs/refonte/interface.md) :
+#   - test navigateur de l'interface (hermes/tests/e2e/test_interface_fr.py) aux formats 390×844 et
+#     1440×900 : Accueil et Catalogue d'ACP, verrou du français, thème, aucune requête hors de
+#     l'origine, chaînes du catalogue français seulement, axe-core (apps/interface, verrou npm),
+#     cibles tactiles ; captures en artefact.
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -64,6 +70,7 @@ name: Image Hermes
       - "hermes/**"
       - "identite/**"
       - ".railway/**"
+      - "apps/interface/**"
       - ".github/workflows/image.yml"
   push:
     branches:
@@ -73,6 +80,7 @@ name: Image Hermes
       - "hermes/**"
       - "identite/**"
       - ".railway/**"
+      - "apps/interface/**"
       - ".github/workflows/image.yml"
 
 permissions:
@@ -149,6 +157,9 @@ jobs:
       - name: Construire l'image du fournisseur d'identité
         run: docker build --pull -t "$ACP_IMAGE_IDENTITE" identite
 
+      - name: Dépendances de l'interface ACP (verrou npm, sans scripts d'installation)
+        run: npm ci --ignore-scripts --prefix apps/interface
+
       - name: hermes --version
         run: |
           set -euo pipefail
@@ -190,7 +201,7 @@ jobs:
           python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
           python -m playwright install --with-deps chromium
 
-      - name: Test navigateur de la connexion (Playwright, WebAuthn virtuel)
+      - name: Tests navigateur (connexion, interface française ; Playwright, WebAuthn virtuel)
         env:
           ACP_E2E_OBLIGATOIRE: "1"
           ACP_E2E_CAPTURES: /tmp/captures-e2e
@@ -200,7 +211,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: captures-connexion-navigateur
+          name: captures-navigateur
           path: /tmp/captures-e2e
           if-no-files-found: ignore
           retention-days: 14
