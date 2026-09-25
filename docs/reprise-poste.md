@@ -1147,7 +1147,20 @@ venv neuf Python 3.12.10 installé depuis le verrou haché, pytest 9.1.1, Node 2
   commit intermédiaire a passé la suite du dépôt et, selon ce qu'il touchait, le vérificateur, Vitest
   ou les tests de l'image montés sur l'image `rev3`.
 
-Intégration continue : relevée après le push de la branche, au commit de documentation suivant.
+Intégration continue des corrections (branche poussée le 25/09/2026, sommet `0334320`) :
+- `ci.yml` [36150973461](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36150973461)
+  **succès** : balayage des secrets (fichiers suivis et `origin/main..HEAD`) : aucun motif ; moteur
+  **74** ; interface **55** ; catalogue conforme (46 désactivées, 8 gardées, 10 candidates pour le
+  poste) sous Linux et Windows ; poste Windows **368 réussis** ; poste Linux **359 réussis,
+  9 ignorés** (les 9 tests propres à Windows) ;
+- `image.yml` [36150973272](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36150973272)
+  **succès** : `--amont` vert ; sonde réelle de context7 connectée (2 026 ms, 2 outils) ; décompte
+  publié (615 textes dans 31 fichiers, identique à la mesure locale) ; **326** réussis dans l'image
+  (`GET /api/skills` : 69, 24 activées, 45 désactivées) ; **118** au contrat (14 min 35 s ; rafales
+  retenues au premier essai : 10,0 × 64 Mio à 10, 19,0 × 64 Mio à 20, soit 1,305 Gio et 52,2 % de
+  la limite ; témoin tué au premier essai) ; **5** au navigateur ; aucun conteneur, volume ni réseau
+  `acp-contrat-*` restant.
+- Un seul push pour les quatorze commits : la CI n'a tourné que sur le sommet.
 
 Non vérifié après la relecture : l'effet de la persona corrigée sur un **vrai** modèle ; la recherche
 d'arXiv par la recherche web ; context7 depuis Railway ; la cause du pic bas de la rafale de 20 en
