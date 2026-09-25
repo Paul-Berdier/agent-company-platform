@@ -19,7 +19,8 @@ Scénarios d'appel d'outil (étape P2), pour prouver qu'aucun outil d'exécution
   ``kanban_complete`` d'abord.
 
 Le journal consigne pour chaque complétion : les outils OFFERTS, le rôle du dernier message,
-l'outil demandé, et les résultats d'outils reçus (tronqués à 400 caractères). Sans marqueur
+l'outil demandé, les résultats d'outils reçus (tronqués à 400 caractères) et, depuis P3, le début
+du premier message système (6 000 caractères, champ ``systeme``). Sans marqueur
 ni scénario : réponse texte fixe, comme en P1.
 
 Usage : python modele_factice.py --port 18080 --journal /tmp/modele-factice.jsonl
@@ -172,6 +173,9 @@ def main() -> int:
             messages = [m for m in (corps.get("messages") or []) if isinstance(m, dict)]
             outil, info = decider(messages, _lire_scenarios(options.scenarios))
             entree.update(info)
+            # Étape P3 : début du prompt système reçu (la persona SOUL.md en est le premier bloc).
+            systeme = [m for m in messages if m.get("role") == "system"]
+            entree["systeme"] = _texte(systeme[0].get("content"))[:6000] if systeme else None
             entree["outils_offerts"] = _outils_offerts(corps)
             if outil is not None and not entree["outils_offerts"]:
                 # Appel auxiliaire de Hermes (titre, résumé…), sans outils : réponse texte.
