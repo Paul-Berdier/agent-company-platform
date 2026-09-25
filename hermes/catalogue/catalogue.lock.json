@@ -1,0 +1,1223 @@
+{
+  "schema": "acp-catalogue/1",
+  "hermes": {
+    "version": "0.21.5",
+    "etiquette": "v2026.9.24",
+    "commit": "f97608f178d1ffeca59860195ab7da295f7c8e5f",
+    "condensat_index": "sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7"
+  },
+  "racine_image": "/opt/acp/skills",
+  "sources": {
+    "acp": {
+      "url": null,
+      "commit": null,
+      "licence": "aucune licence libre publiée (dépôt ACP)",
+      "auteur": "ACP",
+      "categorie": "acp",
+      "vendorisee": false
+    },
+    "emilkowalski/skills": {
+      "url": "https://github.com/emilkowalski/skills",
+      "commit": "d16ebe60d09a5ba2afcb7054ede9d0a10c9f6128",
+      "date_commit": "2026-09-24",
+      "licence": "MIT",
+      "auteur": "Emil Kowalski",
+      "copyright": "Copyright (c) 2026 Emil Kowalski",
+      "categorie": "emil-kowalski",
+      "vendorisee": true,
+      "licence_fichier": "LICENSE"
+    },
+    "leonxlnx/taste-skill": {
+      "url": "https://github.com/leonxlnx/taste-skill",
+      "commit": "c184364c58658b2f131b4ae8bd3d206cabb3deee",
+      "date_commit": "2026-09-23",
+      "licence": "MIT",
+      "auteur": "Leonxlnx",
+      "copyright": "Copyright (c) 2026 Leonxlnx",
+      "categorie": "taste-skill",
+      "vendorisee": true,
+      "licence_fichier": "LICENSE"
+    },
+    "affaan-m/ECC": {
+      "url": "https://github.com/affaan-m/ECC",
+      "commit": "5064474d4d762dc9640234a41617cccb79185cec",
+      "etiquette": "v2.2.1",
+      "date_commit": "2026-09-07",
+      "licence": "MIT",
+      "auteur": "Affaan Mustafa (et contributeurs du dépôt)",
+      "copyright": "Copyright (c) 2026 Affaan Mustafa",
+      "categorie": "ecc",
+      "vendorisee": true,
+      "licence_fichier": "LICENSE"
+    }
+  },
+  "categories": {
+    "acp": {
+      "fichiers": {
+        "DESCRIPTION.md": {
+          "sha256": "33c4393b3f11a44fc8889156e802817940e248f49a671d69e858cb64ea7ca1e2"
+        }
+      }
+    },
+    "emil-kowalski": {
+      "fichiers": {
+        "LICENSE": {
+          "sha256": "4ff5bdb7887ec1435c9cab0e8d1a7caee704d894d65c2a008ccc68b1cc2f260b",
+          "blob_git": "57b46f1fd11dc62351ea548104a88aa3f659c11b"
+        },
+        "DESCRIPTION.md": {
+          "sha256": "16dfa43ca61d92c51805fa92959d7bbc4890db27158e57bbd2198b4e5aab9ac2"
+        },
+        "PROVENANCE.md": {
+          "sha256": "49a1e06fabca837281659db3b841fc4c08f02be75f0c1bb1a91d43fe9963b027"
+        }
+      }
+    },
+    "taste-skill": {
+      "fichiers": {
+        "LICENSE": {
+          "sha256": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df",
+          "blob_git": "48a2f6640b81ff8eca9ce7f6a96337692713ef5b"
+        },
+        "DESCRIPTION.md": {
+          "sha256": "1d3259d43ee16b5a22a35ac02374082cbd947d62815b4a9481976b6ea92d2e32"
+        },
+        "PROVENANCE.md": {
+          "sha256": "f4a3c4c7a4bc1b041a5f63a4b6a0d7fcf0565fd35bdaeb59f20e0431064016c2"
+        }
+      }
+    },
+    "ecc": {
+      "fichiers": {
+        "LICENSE": {
+          "sha256": "326146379f01bb137c0a5d3c54770c1aa31076705c8b88a7f6b26a460f6221b2",
+          "blob_git": "b832b6f642312312367c07688dc7426db40a82ed"
+        },
+        "DESCRIPTION.md": {
+          "sha256": "5ab4e1cf6449ea64b76564299779ccbcb36aeab8661d017643ffea56622e7cef"
+        },
+        "PROVENANCE.md": {
+          "sha256": "a0172415cd41354511291890c5ed52483a6595698c2a723a69cbeeccf19d0549"
+        }
+      }
+    }
+  },
+  "skills": [
+    {
+      "nom": "acp-redaction",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-redaction",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "684dfbc1cdca842307b0bc62f236803b6dbe4dca7d232c13ce3bad06cd7911dc"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "base"
+      ],
+      "description_fr": "Conventions de rédaction d'ACP en français : vouvoiement, typographie, « Inconnu », refus, comptes rendus, cartes.",
+      "raison": "Skill maison : fixe la façon d'écrire pour le propriétaire ; texte seul."
+    },
+    {
+      "nom": "acp-profils",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-profils",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "e99cce231e167b77464423f54e1fb2f0a9871338ae616d12abb1ab720bb1a037"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "base"
+      ],
+      "description_fr": "Réglages prêts par type de projet (base, site web, recherche, données) et ce qui relève du poste.",
+      "raison": "Skill maison : choisir les skills d'un projet ; texte seul."
+    },
+    {
+      "nom": "emil-design-eng",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/emil-design-eng",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "emil-kowalski/emil-design-eng",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "ffbe68e6007fb42cb8149f089b400a1ca007d59ba23e8948e2be4476f3175939",
+          "blob_git": "62ce902af8dd32c590ea7203e9ab2edb1d6ef81a"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Philosophie d'Emil Kowalski sur la finition d'interface : composants, décisions d'animation, détails invisibles.",
+      "raison": "Critère de conception et de relecture d'une interface ; texte seul."
+    },
+    {
+      "nom": "animation-vocabulary",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/animation-vocabulary",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "emil-kowalski/animation-vocabulary",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "40d2b27adfdfeb0570a9f20e7d0255109d9233c50603878bcd0dcd04c923fd94",
+          "blob_git": "5ab2976514c74a194ebf069506d95ff3a5a0084f"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Glossaire inversé : retrouve le nom exact d'un effet de mouvement décrit vaguement.",
+      "raison": "Nommer précisément un effet dans une consigne ou une carte ; texte seul."
+    },
+    {
+      "nom": "apple-design",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/apple-design",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "emil-kowalski/apple-design",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "77bb63b7043bb93aca2ff4ab040c249484eef35682bb6ff7163433c31d30adc7",
+          "blob_git": "adf68c517f2d7d2781587d619de07f4de286da57"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Principes d'Apple pour une interface fluide et physique (gestes, ressorts, glisser), transposés au web.",
+      "raison": "Principes d'interaction et de mouvement pour concevoir ou relire ; texte seul."
+    },
+    {
+      "nom": "mobile-native",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/mobile-native",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "emil-kowalski/mobile-native",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "888b7651d66d66dbac4e72b7c554638eb19bd971d686d6cbdf030a5ef3788f55",
+          "blob_git": "94bba21fcb990b850e06effbf5709c96a07446ad"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Correctifs CSS et balises qui donnent à une application web l'allure d'une application installée sur téléphone.",
+      "raison": "Sites utilisés au téléphone, comme ACP lui-même ; texte seul."
+    },
+    {
+      "nom": "pick-ui-library",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/pick-ui-library",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "emil-kowalski/pick-ui-library",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "675fdce308683256ed617351a9b74d23457a5fbd0a562d9831b9c764b8c5e682",
+          "blob_git": "5e0028e988b88d2a88a019fdc978b4732243e467"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Liste choisie de bibliothèques front par besoin (graphiques, menus de commande, glisser-déposer, notifications…).",
+      "raison": "Choisir une bibliothèque en planification ; texte seul. Son drapeau « disable-model-invocation » (convention de Claude Code) est ignoré par Hermes."
+    },
+    {
+      "nom": "animate",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/animate",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "emil-kowalski/animate",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "b8ede161270458e6ae2e45e8a1985373515d4c63de5568ddb0f9012d7634356c",
+          "blob_git": "7c3b20c6ed681b2d47c9ca9e3ee0e659ed47d032"
+        },
+        "RECIPES.md": {
+          "sha256": "21ff63d84391db8d96ecdf9170095f55a42c836ccc36fd3269c4772bab031ba2",
+          "blob_git": "6744891261bdf0bb0473d77f2cc706f2d78b574e"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Construire une animation dans l'ordre des décisions : faut-il animer, dans quel but, avec quel outil, quelle courbe.",
+      "raison": "Ordre des décisions d'une animation ; texte seul (recettes en exemple)."
+    },
+    {
+      "nom": "ask-sonner",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/ask-sonner",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "emil-kowalski/ask-sonner",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "39f3ee185b3aa2cf70a689052ff078953ce7ba5915ed7a9391d232e9d4dcf57f",
+          "blob_git": "6cf9217f409315466ecfd7796de4591879983637"
+        },
+        "API.md": {
+          "sha256": "4bb06f482c5757529e3d7a672a30fbeed42d24919a63e2571384a9ce1549aa7f",
+          "blob_git": "d2b0f3cf93d9495a8496275dc6e70199302df0f1"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Guide de Sonner, bibliothèque React de notifications « toast » : installation, appels, promesses, style.",
+      "raison": "Notifications d'une interface React ; texte seul."
+    },
+    {
+      "nom": "design-taste-frontend",
+      "source": "leonxlnx/taste-skill",
+      "chemin_amont": "skills/taste-skill",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "taste-skill/design-taste-frontend",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89",
+          "blob_git": "b72132fcd466da605623ffe96e370b3991fc5285"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Direction de conception contre les interfaces génériques : lit le brief et choisit une direction visuelle.",
+      "raison": "Direction visuelle d'un site ; texte seul (dossier amont « taste-skill »)."
+    },
+    {
+      "nom": "minimalist-ui",
+      "source": "leonxlnx/taste-skill",
+      "chemin_amont": "skills/minimalist-skill",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "taste-skill/minimalist-ui",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "36bc7328f085405f43b476938e62460fa573bf7e984e949e072bcf014831a44c",
+          "blob_git": "44ead27ef04ffe79ade0c6df7fd696dbcf7b246b"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Style éditorial sobre : monochrome chaud, contraste typographique, grilles plates, pastels atténués.",
+      "raison": "Style sobre ; texte seul (dossier amont « minimalist-skill »)."
+    },
+    {
+      "nom": "high-end-visual-design",
+      "source": "leonxlnx/taste-skill",
+      "chemin_amont": "skills/soft-skill",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "taste-skill/high-end-visual-design",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "e1e32f5e2d420872c6c7332b53d5ff7721946766b78c4822b424c2d512c8fdbc",
+          "blob_git": "4038f41ec0137ec92e98ed0151fe3b7038b9329e"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Style « agence » haut de gamme : polices, espacements, ombres, cartes et animations précis.",
+      "raison": "Style soigné ; texte seul (dossier amont « soft-skill »)."
+    },
+    {
+      "nom": "security-review",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/security-review",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "ecc/security-review",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "fe6f9151fb15c1dffd47a55080c3ad147af7c95dd0ad3714735dec6824b060b7",
+          "blob_git": "0846d70a19224cc6cf81f75bda23a7c8f4265033"
+        },
+        "cloud-infrastructure-security.md": {
+          "sha256": "7d9a83852475a9396e04c59c73df84ac24ee0f41322016de7c11c62138c2a8ca",
+          "blob_git": "12634421765e25f961913dd380190ebfa970dd64"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Liste de contrôle de sécurité : authentification, entrées, secrets, API, paiements, infrastructure cloud.",
+      "raison": "Solidité des sites : planifier et juger ; texte seul (la vérification sur le code relève du poste)."
+    },
+    {
+      "nom": "accessibility",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/accessibility",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "ecc/accessibility",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "d8578fe750e7321658450386e2112a46ea1aedca0235fbf97f3db2457e599b3a",
+          "blob_git": "decc95a454dd762963796fe574826921a16b6926"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Concevoir et auditer une interface accessible selon WCAG 2.2 niveau AA (clavier, contraste, lecteurs d'écran).",
+      "raison": "Solidité des sites (décision D5) ; texte seul."
+    },
+    {
+      "nom": "mle-workflow",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/mle-workflow",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "ecc/mle-workflow",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "2497888dd543ca7bdf5d0cb4d90fce023eb2c1c14f860f0af8e8be42423131b4",
+          "blob_git": "b81aa08306c0cc451180418edf591ec507ac9d8d"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "donnees"
+      ],
+      "description_fr": "Démarche d'apprentissage automatique en production : contrats de données, entraînement reproductible, évaluation, suivi.",
+      "raison": "Cadrer un projet de données (décision D5) ; texte seul, l'exécution relève du poste."
+    },
+    {
+      "nom": "python-patterns",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/python-patterns",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "ecc/python-patterns",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "103e0130dac33a49d26705fc5a2df804980fcab6a0138d65bc7f370a987d49f6",
+          "blob_git": "ced3d588d816fb6880dfef4d67f30cab9d1b82df"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "donnees"
+      ],
+      "description_fr": "Idiomes Python, PEP 8, annotations de type et bonnes pratiques pour un code robuste.",
+      "raison": "Conventions Python pour cadrer les cartes (décision D5) ; texte seul."
+    },
+    {
+      "nom": "find-animation-opportunities",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/find-animation-opportunities",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Chercher dans un code ou une interface les endroits qui devraient s'animer.",
+      "raison": "Parcourt le code du dépôt : exige la lecture de fichiers (poste, P8)."
+    },
+    {
+      "nom": "improve-animations",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/improve-animations",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Audit du mouvement d'un code et plans d'amélioration.",
+      "raison": "Parcourt le code du dépôt : exige la lecture de fichiers (poste, P8)."
+    },
+    {
+      "nom": "review-animations",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/review-animations",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Relecture des animations d'un changement selon des standards.",
+      "raison": "Relit un diff ou un fichier du dépôt : exige la lecture de fichiers (poste, P8)."
+    },
+    {
+      "nom": "prototype",
+      "source": "emilkowalski/skills",
+      "chemin_amont": "skills/prototype",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Construire plusieurs variantes d'une interface pour choisir.",
+      "raison": "Écrit des fichiers et lance un serveur de développement (poste, P8)."
+    },
+    {
+      "nom": "redesign-existing-projects",
+      "source": "leonxlnx/taste-skill",
+      "chemin_amont": "skills/redesign-skill",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Refaire le design d'un projet existant après audit.",
+      "raison": "Audite et modifie un projet existant : exige la lecture et l'écriture de fichiers (poste, P8)."
+    },
+    {
+      "nom": "production-audit",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/production-audit",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Audit de mise en production sur preuves locales du dépôt.",
+      "raison": "Lit le dépôt et exécute des vérifications (poste, P8)."
+    },
+    {
+      "nom": "browser-qa",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/browser-qa",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Vérification visuelle et interactive par automatisation d'un navigateur.",
+      "raison": "Pilote un navigateur (Playwright MCP, poste, P8)."
+    },
+    {
+      "nom": "e2e-testing",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/e2e-testing",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Tests de bout en bout d'une application web.",
+      "raison": "Exécute des tests et pilote un navigateur (poste, P8)."
+    },
+    {
+      "nom": "canary-watch",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/canary-watch",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Surveillance d'une URL déployée après une mise en production.",
+      "raison": "Interroge et mesure un site déployé de façon répétée (poste, P8)."
+    },
+    {
+      "nom": "benchmark",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/benchmark",
+      "cible": "poste",
+      "etat": "reportee-p8",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Mesure de performances et détection de régressions.",
+      "raison": "Exécute des mesures (poste, P8)."
+    }
+  ],
+  "livrees": {
+    "instantane_hermes": "0.21.5",
+    "noms": [
+      "airtable",
+      "apple-notes",
+      "apple-reminders",
+      "architecture-diagram",
+      "arxiv",
+      "ascii-video",
+      "baoyu-infographic",
+      "blocked-page-recovery",
+      "box",
+      "claude-code",
+      "claude-design",
+      "codebase-inspection",
+      "codex",
+      "competitor-news-monitor",
+      "computer-use",
+      "design-md",
+      "document-to-action-items",
+      "docx",
+      "dogfood",
+      "email-inbox-triage",
+      "findmy",
+      "gif-search",
+      "github",
+      "google-workspace",
+      "grounded-citations",
+      "hermes-agent",
+      "hermes-agent-skill-authoring",
+      "himalaya",
+      "humanizer",
+      "imessage",
+      "inspecting-hermes-desktop-dom",
+      "llm-wiki",
+      "manim-video",
+      "maps",
+      "meeting-action-items",
+      "node-inspect-debugger",
+      "notion",
+      "obsidian",
+      "opencode",
+      "p5js",
+      "pdf",
+      "popular-web-designs",
+      "powerpoint",
+      "product-price-monitor",
+      "python-debugpy",
+      "requesting-code-review",
+      "sdlc-review",
+      "simplify-code",
+      "songsee",
+      "songwriting-and-ai-music",
+      "spike",
+      "systematic-debugging",
+      "teams-meeting-pipeline",
+      "test-driven-development",
+      "weekly-review-planning",
+      "xlsx",
+      "xurl",
+      "youtube-content"
+    ],
+    "optionnelles": [
+      "1password",
+      "3-statement-model",
+      "accelerate",
+      "actual-setup",
+      "adversarial-ux-test",
+      "agent-merge-conflict-arbiter",
+      "agentmail",
+      "ai-presenter-video",
+      "antigravity-cli",
+      "archify",
+      "ascii-art",
+      "ast-grep",
+      "audiocraft-audio-generation",
+      "auteur",
+      "axolotl",
+      "baoyu-article-illustrator",
+      "baoyu-comic",
+      "bioinformatics",
+      "blackbox",
+      "blogwatcher",
+      "canvas",
+      "chroma",
+      "clip",
+      "cloudflare-temporary-deploy",
+      "code-wiki",
+      "comfyui",
+      "comps-analysis",
+      "concept-diagrams",
+      "creative-ideation",
+      "darwinian-evolver",
+      "dcf-model",
+      "decision-questionnaire",
+      "docker-management",
+      "domain-intel",
+      "draw-your-font",
+      "dream-loop",
+      "drug-discovery",
+      "dspy",
+      "duckduckgo-search",
+      "dynamic-workflow",
+      "evaluating-llms-harness",
+      "evm",
+      "excalidraw",
+      "excel-author",
+      "faiss",
+      "fastmcp",
+      "fitness-nutrition",
+      "flash-attention",
+      "gitnexus-explorer",
+      "godmode",
+      "grill-me",
+      "grok",
+      "guidance",
+      "har-derived-api-client",
+      "heartmula",
+      "here-now",
+      "hermes-s6-container-supervision",
+      "honcho",
+      "huggingface-hub",
+      "huggingface-tokenizers",
+      "hyperframes",
+      "hyperliquid",
+      "impeccable",
+      "inference-sh-cli",
+      "instructor",
+      "ip-as-logo",
+      "jupyter-notebook",
+      "kanban-video-orchestrator",
+      "lambda-labs",
+      "lbo-model",
+      "live-dashboard",
+      "llama-cpp",
+      "llava",
+      "mcp-oauth-remote-gateway",
+      "mcporter",
+      "meme-generation",
+      "memento-flashcards",
+      "merger-model",
+      "minecraft-modpack-server",
+      "modal",
+      "mono-color",
+      "mpp-agent",
+      "nemo-curator",
+      "neuroskill-bci",
+      "obliteratus",
+      "one-three-one-rule",
+      "openclaw-migration",
+      "openhands",
+      "openhue",
+      "osint-investigation",
+      "oss-forensics",
+      "outlines",
+      "page-agent",
+      "parallel-cli",
+      "peft",
+      "pinecone",
+      "pinecone-research",
+      "pinggy-tunnel",
+      "pixel-art",
+      "pokemon-player",
+      "polymarket",
+      "pptx-author",
+      "pr-lens",
+      "pretext",
+      "property-listings",
+      "publish-site",
+      "pytorch-fsdp",
+      "pytorch-lightning",
+      "qdrant",
+      "qmd",
+      "reddit-reading",
+      "research-paper-writing",
+      "rest-graphql-debug",
+      "rss-feeds",
+      "saelens",
+      "scrapling",
+      "scrollcraft",
+      "searxng-search",
+      "segment-anything-model",
+      "serving-llms-vllm",
+      "setup-wizard-generator",
+      "sherlock",
+      "shop",
+      "shopify",
+      "simple-english",
+      "simpo",
+      "siyuan",
+      "sketch",
+      "slime",
+      "social-media-content-calendar",
+      "solana",
+      "stable-diffusion",
+      "stocks",
+      "stripe-link-cli",
+      "stripe-projects",
+      "subagent-driven-development",
+      "system-atlas",
+      "telephony",
+      "tensorrt-llm",
+      "tldraw-offline",
+      "torchtitan",
+      "trl-fine-tuning",
+      "unbroker",
+      "unreal-mcp",
+      "unsloth",
+      "watchers",
+      "web-pentest",
+      "weights-and-biases",
+      "whisper",
+      "yuanbao"
+    ],
+    "macos_seulement": [
+      "apple-notes",
+      "apple-reminders",
+      "findmy",
+      "imessage"
+    ],
+    "desactivees_par_acp": [
+      {
+        "nom": "airtable",
+        "raison": "API Airtable par curl dans le terminal."
+      },
+      {
+        "nom": "architecture-diagram",
+        "raison": "Écrit un fichier de diagramme (outil fichiers)."
+      },
+      {
+        "nom": "ascii-video",
+        "raison": "Rendu vidéo par commandes du terminal."
+      },
+      {
+        "nom": "baoyu-infographic",
+        "raison": "Écrit des fichiers et lance des commandes (fichiers, terminal)."
+      },
+      {
+        "nom": "blocked-page-recovery",
+        "raison": "Script de récupération exécuté dans le terminal."
+      },
+      {
+        "nom": "box",
+        "raison": "CLI Box dans le terminal."
+      },
+      {
+        "nom": "claude-code",
+        "raison": "Pilote Claude Code dans le terminal (relève du poste)."
+      },
+      {
+        "nom": "codebase-inspection",
+        "raison": "Inspecte un dépôt par commandes du terminal."
+      },
+      {
+        "nom": "codex",
+        "raison": "Pilote Codex dans le terminal (relève du poste)."
+      },
+      {
+        "nom": "computer-use",
+        "raison": "Pilotage de l'ordinateur, du navigateur et du terminal."
+      },
+      {
+        "nom": "design-md",
+        "raison": "Écrit un fichier DESIGN.md (outil fichiers)."
+      },
+      {
+        "nom": "docx",
+        "raison": "Scripts Python de manipulation de documents Word (terminal, fichiers)."
+      },
+      {
+        "nom": "dogfood",
+        "raison": "Pilote un navigateur (outils browser_*)."
+      },
+      {
+        "nom": "email-inbox-triage",
+        "raison": "Dépend des connecteurs himalaya et google-workspace, désactivés."
+      },
+      {
+        "nom": "gif-search",
+        "raison": "Requêtes curl dans le terminal."
+      },
+      {
+        "nom": "github",
+        "raison": "CLI gh et git dans le terminal, lecture et écriture de fichiers."
+      },
+      {
+        "nom": "google-workspace",
+        "raison": "Scripts Python d'accès à Google Workspace (terminal)."
+      },
+      {
+        "nom": "grounded-citations",
+        "raison": "Registre des sources tenu par le script scripts/sources.py (terminal)."
+      },
+      {
+        "nom": "himalaya",
+        "raison": "CLI de messagerie himalaya dans le terminal."
+      },
+      {
+        "nom": "humanizer",
+        "raison": "Lit et réécrit des fichiers (outil fichiers)."
+      },
+      {
+        "nom": "inspecting-hermes-desktop-dom",
+        "raison": "Inspection du DOM du desktop de Hermes par commandes du terminal."
+      },
+      {
+        "nom": "llm-wiki",
+        "raison": "Lit et écrit un wiki de fichiers, exécute du code."
+      },
+      {
+        "nom": "manim-video",
+        "raison": "Rendu Manim par script et terminal."
+      },
+      {
+        "nom": "maps",
+        "raison": "Script exécuté dans le terminal (jeu terminal exigé par la skill)."
+      },
+      {
+        "nom": "node-inspect-debugger",
+        "raison": "Débogueur Node lancé dans le terminal."
+      },
+      {
+        "nom": "notion",
+        "raison": "API Notion par curl dans le terminal."
+      },
+      {
+        "nom": "obsidian",
+        "raison": "Lit et écrit les fichiers d'un coffre Obsidian."
+      },
+      {
+        "nom": "opencode",
+        "raison": "Pilote OpenCode dans le terminal."
+      },
+      {
+        "nom": "p5js",
+        "raison": "Scripts et fichiers de croquis p5.js."
+      },
+      {
+        "nom": "pdf",
+        "raison": "Scripts Python de manipulation de PDF (terminal, fichiers)."
+      },
+      {
+        "nom": "popular-web-designs",
+        "raison": "Pilote un navigateur, le terminal et écrit des fichiers."
+      },
+      {
+        "nom": "powerpoint",
+        "raison": "Scripts Python de manipulation de présentations (terminal, fichiers)."
+      },
+      {
+        "nom": "python-debugpy",
+        "raison": "Débogueur Python lancé dans le terminal."
+      },
+      {
+        "nom": "requesting-code-review",
+        "raison": "Délégation et commandes du terminal sur un dépôt."
+      },
+      {
+        "nom": "sdlc-review",
+        "raison": "Lit un dépôt et délègue (fichiers, terminal, délégation)."
+      },
+      {
+        "nom": "simplify-code",
+        "raison": "Lit et modifie le code d'un dépôt (fichiers, terminal, délégation)."
+      },
+      {
+        "nom": "songsee",
+        "raison": "CLI d'analyse audio dans le terminal."
+      },
+      {
+        "nom": "spike",
+        "raison": "Écrit et exécute des prototypes jetables (fichiers, terminal, délégation)."
+      },
+      {
+        "nom": "systematic-debugging",
+        "raison": "Débogage par lecture de fichiers et commandes du terminal."
+      },
+      {
+        "nom": "teams-meeting-pipeline",
+        "raison": "Chaîne de traitement lancée dans le terminal."
+      },
+      {
+        "nom": "test-driven-development",
+        "raison": "Écrit et exécute des tests (terminal, fichiers, délégation)."
+      },
+      {
+        "nom": "xlsx",
+        "raison": "Scripts Python de manipulation de classeurs (terminal, fichiers)."
+      },
+      {
+        "nom": "xurl",
+        "raison": "CLI xurl dans le terminal."
+      },
+      {
+        "nom": "youtube-content",
+        "raison": "Script de récupération exécuté dans le terminal."
+      }
+    ],
+    "gardees": [
+      {
+        "nom": "arxiv",
+        "raison": "Lecture des articles par web_extract, documentée par la skill."
+      },
+      {
+        "nom": "claude-design",
+        "raison": "Maquettes HTML rendues dans la réponse."
+      },
+      {
+        "nom": "competitor-news-monitor",
+        "raison": "Veille par web_search et web_extract ; la planification (cron) reste refusée."
+      },
+      {
+        "nom": "document-to-action-items",
+        "raison": "Travaille sur un texte fourni ou lu sur le web."
+      },
+      {
+        "nom": "hermes-agent",
+        "raison": "Essentielle : jamais désactivable (agent/skill_utils.py, ESSENTIAL_SKILLS)."
+      },
+      {
+        "nom": "hermes-agent-skill-authoring",
+        "raison": "Rédaction de skills par skill_manage, soumise à validation."
+      },
+      {
+        "nom": "meeting-action-items",
+        "raison": "Travaille sur des notes fournies."
+      },
+      {
+        "nom": "product-price-monitor",
+        "raison": "Veille de prix par le web ; la planification (cron) reste refusée."
+      },
+      {
+        "nom": "songwriting-and-ai-music",
+        "raison": "Texte seul."
+      },
+      {
+        "nom": "weekly-review-planning",
+        "raison": "Texte seul."
+      }
+    ]
+  },
+  "mcp": [
+    {
+      "nom": "context7",
+      "cible": "hermes",
+      "etat": "actif",
+      "transport": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "authentification": "aucune",
+      "outils_amont": [
+        "resolve-library-id",
+        "query-docs"
+      ],
+      "outils_hermes": [
+        "mcp__context7__resolve_library_id",
+        "mcp__context7__query_docs"
+      ],
+      "echantillonnage": false,
+      "elicitation": false,
+      "reference_hermes": "optional-mcps/context7/manifest.yaml",
+      "licence_code": "MIT (upstash/context7)",
+      "profils": [
+        "base"
+      ],
+      "description_fr": "Documentation à jour et propre à chaque version des bibliothèques (Upstash).",
+      "raison": "Serveur distant HTTP sans authentification : aucun processus lancé dans le conteneur ; admis par la managed scope, la liste de la plateforme cli et la garde d'exécution (deux noms exacts)."
+    },
+    {
+      "nom": "playwright",
+      "cible": "poste",
+      "etat": "reporte-p8",
+      "paquet": "@playwright/mcp",
+      "version_relevee": "0.0.82",
+      "interdits": [
+        "browser_run_code_unsafe"
+      ],
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Pilotage d'un navigateur par Playwright.",
+      "raison": "Lance un navigateur local : refusé côté Hermes ; reporté au poste (P8), sans browser_run_code_unsafe."
+    },
+    {
+      "nom": "figma",
+      "cible": "poste",
+      "etat": "reporte-p8",
+      "url": "https://mcp.figma.com/mcp",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Lecture des maquettes Figma.",
+      "raison": "OAuth par enregistrement dynamique sous l'identité « Claude Code » usurpée par Hermes, jetons dans le volume : refusé côté Hermes ; reporté au poste (P8), après sonde."
+    }
+  ],
+  "profils": {
+    "base": {
+      "libelle": "Base (tous les projets)",
+      "skills_hermes": [
+        "acp-redaction",
+        "acp-profils",
+        "hermes-agent"
+      ],
+      "mcp_hermes": [
+        "context7"
+      ],
+      "poste": []
+    },
+    "web": {
+      "libelle": "Site web",
+      "skills_hermes": [
+        "emil-design-eng",
+        "apple-design",
+        "mobile-native",
+        "animate",
+        "animation-vocabulary",
+        "pick-ui-library",
+        "ask-sonner",
+        "design-taste-frontend",
+        "minimalist-ui",
+        "high-end-visual-design",
+        "claude-design",
+        "security-review",
+        "accessibility"
+      ],
+      "mcp_hermes": [
+        "context7"
+      ],
+      "poste": [
+        "find-animation-opportunities",
+        "improve-animations",
+        "review-animations",
+        "prototype",
+        "redesign-existing-projects",
+        "production-audit",
+        "browser-qa",
+        "e2e-testing",
+        "canary-watch",
+        "benchmark",
+        "playwright",
+        "figma"
+      ]
+    },
+    "recherche": {
+      "libelle": "Recherche",
+      "skills_hermes": [
+        "arxiv",
+        "competitor-news-monitor"
+      ],
+      "mcp_hermes": [
+        "context7"
+      ],
+      "poste": []
+    },
+    "donnees": {
+      "libelle": "Données",
+      "skills_hermes": [
+        "mle-workflow",
+        "python-patterns"
+      ],
+      "mcp_hermes": [
+        "context7"
+      ],
+      "poste": []
+    }
+  },
+  "exclus": [
+    {
+      "nom": "agent-reach",
+      "source": "Panniantong/Agent-Reach",
+      "raison": "Exclu côté Hermes par le propriétaire : outils et paquets à installer."
+    },
+    {
+      "nom": "literature-review",
+      "source": "affaan-m/ECC",
+      "chemin_amont": "skills/scientific-thinking-literature-review",
+      "raison": "Provenance amont incertaine (commit « salvage scientific research skills », frontmatter « origin: community ») : non vendorisée tant que l'auteur et la licence d'origine ne sont pas établis."
+    },
+    {
+      "nom": "docx",
+      "source": "anthropics/skills",
+      "raison": "Licence propriétaire d'Anthropic : jamais vendorisée."
+    },
+    {
+      "nom": "pdf",
+      "source": "anthropics/skills",
+      "raison": "Licence propriétaire d'Anthropic : jamais vendorisée."
+    },
+    {
+      "nom": "pptx",
+      "source": "anthropics/skills",
+      "raison": "Licence propriétaire d'Anthropic : jamais vendorisée."
+    },
+    {
+      "nom": "xlsx",
+      "source": "anthropics/skills",
+      "raison": "Licence propriétaire d'Anthropic : jamais vendorisée."
+    },
+    {
+      "nom": "animate-expo",
+      "source": "emilkowalski/skills",
+      "raison": "Hors des types de projet retenus (React Native) — D5."
+    },
+    {
+      "nom": "write-swift",
+      "source": "emilkowalski/skills",
+      "raison": "Hors des types de projet retenus (Swift) — D5."
+    },
+    {
+      "nom": "full-output-enforcement",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Réécrit le comportement du modèle (troncature)."
+    },
+    {
+      "nom": "gpt-taste",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Exige une randomisation par Python et GSAP."
+    },
+    {
+      "nom": "image-to-code",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Génération d'images : outil non admis."
+    },
+    {
+      "nom": "imagegen-frontend-web",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Génération d'images : outil non admis."
+    },
+    {
+      "nom": "imagegen-frontend-mobile",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Génération d'images : outil non admis."
+    },
+    {
+      "nom": "brandkit",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Génération d'images : outil non admis."
+    },
+    {
+      "nom": "stitch-design-taste",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Propre à Google Stitch."
+    },
+    {
+      "nom": "design-taste-frontend-v1",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Doublon de l'ancienne version."
+    },
+    {
+      "nom": "industrial-brutalist-ui",
+      "source": "leonxlnx/taste-skill",
+      "raison": "Style de niche — D5."
+    },
+    {
+      "nom": "seo",
+      "source": "affaan-m/ECC",
+      "raison": "Hors « solidité » ; à la demande — D5."
+    },
+    {
+      "nom": "pytorch-patterns",
+      "source": "affaan-m/ECC",
+      "raison": "À la demande — D5."
+    },
+    {
+      "nom": "deep-research",
+      "source": "affaan-m/ECC",
+      "raison": "Dépend des MCP firecrawl et exa."
+    }
+  ]
+}

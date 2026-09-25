@@ -36,6 +36,12 @@ COPY contrat/ /opt/acp/contrat/
 COPY gere/config.yaml /opt/acp/gere/config.yaml
 COPY persona/SOUL.md /opt/acp/persona/SOUL.md
 COPY theme/ /opt/acp/theme/
+# Étape P3 : catalogue épinglé. Skills en texte seul (maison et vendorisées à l'octet près, avec
+# LICENSE et PROVENANCE.md), hors du volume : 05-acp les fait charger par skills.external_dirs
+# (/opt/data/config.yaml, que Hermes lit sans la managed scope). Verrou et licences tierces.
+COPY skills/ /opt/acp/skills/
+COPY catalogue/ /opt/acp/catalogue/
+COPY THIRD_PARTY.md /opt/acp/THIRD_PARTY.md
 COPY image/acp_demarrage.py image/acp-gardes image/acp-run-dashboard image/acp-entree /opt/acp/bin/
 # Greffon groupé : /opt/hermes/plugins est la source « bundled » de Hermes
 # (hermes_cli/plugins.py:68-75), en lecture seule pour l'agent.
