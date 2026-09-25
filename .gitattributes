@@ -6,3 +6,6 @@ Dockerfile* text eol=lf
 hermes/** text=auto eol=lf
 # Image du fournisseur d'identité (scripts shell sans extension, gabarit) : LF.
 identite/** text=auto eol=lf
+# Infrastructure Railway (IaC, verrou npm, vérificateur) : LF, comme le reste des fichiers lus par
+# des outils Unix (CLI Railway sous WSL, CI).
+.railway/** text=auto eol=lf

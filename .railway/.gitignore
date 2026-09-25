@@ -1,0 +1,10 @@
+# Seuls les fichiers de l'IaC sont suivis. Tout le reste est ignoré : node_modules, copies d'essai
+# de verifier.mjs (.essai-*.ts), et tout fichier qu'une commande railway (link, config init/pull)
+# écrirait ici : il ne doit jamais entrer dans Git (identifiants de projet, README généré).
+*
+!.gitignore
+!package.json
+!package-lock.json
+!railway.ts
+!tsconfig.json
+!verifier.mjs
