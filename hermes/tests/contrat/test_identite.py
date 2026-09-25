@@ -675,21 +675,31 @@ def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, e
                       "codes": sorted({r["statut"] for r in rafale["resultats"]}),
                       "duree_max_s": max(r["duree_s"] for r in rafale["resultats"])}
         docker("rm", "-f", identite)
-    # Témoin : sous la limite de 1 Go envisagée au départ (sans échange), une rafale de 20 tue Authelia.
-    temoin = pile.lancer_identite(image_identite, env_identite(empreinte_argon2), reseau=reseau,
-                                  options=("--cpus", "0.5", "--memory", "1g", "--memory-swap", "1g"))
-    sortie = docker("exec", bord, "/opt/hermes/.venv/bin/python", "/opt/acp-tests/outils/client_identite.py",
-                    "rafale", "--n", "20", "--utilisateur", UTILISATEUR, "--mot-de-passe", "mauvais-mot-de-passe",
-                    delai=600).stdout
-    codes_temoin = sorted({str(r["statut"]) for r in json.loads(sortie)["resultats"]})
-    etat_temoin = docker("inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}", temoin).stdout.strip()
-    docker("rm", "-f", temoin)
+    # Témoin : sous la limite de 1 Go envisagée au départ (sans échange), une rafale de 20 PEUT tuer
+    # Authelia. Le pic dépend de l'entrelacement des vérifications sur 0,5 vCPU : sur la CI, le
+    # témoin a survécu une fois (image.yml 36118860946, étape P3) après plusieurs morts constatées.
+    # Jusqu'à trois essais, chacun sur un conteneur neuf ; une seule mort suffit à prouver que
+    # 1 Go ne tient pas. Tous les essais sont rapportés.
+    essais_temoin = []
+    for _ in range(3):
+        temoin = pile.lancer_identite(image_identite, env_identite(empreinte_argon2), reseau=reseau,
+                                      options=("--cpus", "0.5", "--memory", "1g", "--memory-swap", "1g"))
+        sortie = docker("exec", bord, "/opt/hermes/.venv/bin/python", "/opt/acp-tests/outils/client_identite.py",
+                        "rafale", "--n", "20", "--utilisateur", UTILISATEUR, "--mot-de-passe", "mauvais-mot-de-passe",
+                        delai=600).stdout
+        codes_temoin = sorted({str(r["statut"]) for r in json.loads(sortie)["resultats"]})
+        etat_temoin = docker("inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+                             temoin).stdout.strip()
+        docker("rm", "-f", temoin)
+        essais_temoin.append(f"« {etat_temoin} », réponses {codes_temoin}")
+        if etat_temoin.startswith("false true"):
+            break
     pic_20 = max(mesures[20]["apres"]["VmHWM"], mesures[20]["apres"]["cgroup_peak"])
     rapport = [f"rafale de {n} : RSS maximal (VmHWM) {_gio(m['apres']['VmHWM'])} ; pic du cgroup "
                f"{_gio(m['apres']['cgroup_peak'])} ; avant la rafale {_gio(m['avant']['VmHWM'])} ; codes {m['codes']} ; "
                f"réponse la plus lente {m['duree_max_s']} s ; état {m['etat']}" for n, m in mesures.items()]
-    rapport.append(f"témoin, limite de 1 Gio sans échange, rafale de 20 : état « {etat_temoin} » "
-                   f"(en marche, tué par OOM, code) ; réponses {codes_temoin}")
+    rapport.append("témoin, limite de 1 Gio sans échange, rafale de 20, état (en marche, tué par OOM, code) : "
+                   + " ; ".join(f"essai {i} {e}" for i, e in enumerate(essais_temoin, 1)))
     rapport.append(f"limite RETENUE pour railway.ts (service identite) : {_gio(LIMITE_MEMOIRE_OCTETS)} ; "
                    f"pic à 20 rapporté à la limite : {pic_20 / LIMITE_MEMOIRE_OCTETS:.1%} (au plus 66,7 % exigés)")
     railway_ts = RACINE_DEPOT / ".railway" / "railway.ts"
@@ -699,6 +709,6 @@ def test_memoire_premier_facteur_concurrent(pile, image_identite, image_tests, e
         assert m["codes"] == [401], (n, m)
         assert m["etat"] == "true false 0", (n, m)
     assert mesures[20]["apres"]["VmHWM"] > mesures[10]["apres"]["VmHWM"]
-    assert etat_temoin.startswith("false true"), etat_temoin
+    assert etat_temoin.startswith("false true"), essais_temoin
     assert pic_20 <= LIMITE_MEMOIRE_OCTETS * 2 // 3
     assert LIMITE_MEMOIRE_OCTETS >= GIO

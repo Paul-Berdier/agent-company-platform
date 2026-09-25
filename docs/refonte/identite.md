@@ -214,10 +214,16 @@ propriétaire, mauvais mot de passe ; relevés du noyau (pas d'échantillonnage)
 |---|---|---|---|
 | 10 simultanés | 0,726 Gio | 0,689 à 0,690 Gio | 8 à 12 s |
 | 20 simultanés | **1,346 à 1,348 Gio** | 1,311 à 1,313 Gio | 14 à 16 s |
-| 20 simultanés, **témoin sous 1 Gio** sans échange | — | — | Authelia **tué** (OOM, code 137), le bord rend 502 |
+| 20 simultanés, **témoin sous 1 Gio** sans échange (jusqu'à 3 essais) | — | — | Authelia **tué** (OOM, code 137), le bord rend 502 |
 
 Relevés du 25/09/2026 sur le poste Windows (Docker Desktop), trois exécutions concordantes ; au
 repos, Authelia occupe ~0,1 Gio. Pente mesurée : ~64 Mio par vérification simultanée.
+
+Le témoin n'est **pas déterministe** : le pic dépend de l'entrelacement des vérifications sur
+0,5 vCPU. Tué à chaque exécution sur le poste et dans les runs de P2, il a **survécu** une fois sur la
+CI (`image.yml` 36118860946, étape P3 : état « true false 0 », réponses 401). Depuis, le test fait
+jusqu'à **trois essais**, chacun sur un conteneur neuf, rapporte chacun et exige au moins une mort
+(OOM) : 1 Go ne tient donc pas **toujours**, et cela suffit à l'écarter.
 
 **Limite retenue pour `railway.ts` (service identite) : 2,5 Gio** (`limitOverride.containers.memoryBytes
 = 2684354560`). Critère du plan : le pic à 20 doit rester sous les deux tiers de la limite ; il en
