@@ -12,6 +12,10 @@
 >
 > **Les décisions du propriétaire (section 1) priment sur le texte du plan** partout
 > où ils divergent. La section 15 garde les recommandations d'origine pour mémoire.
+>
+> Depuis le 25 septembre 2026, les phases **P4 à P8** sont **remplacées** par le plan
+> d'autonomie ([autonomie.md](autonomie.md)) : leur texte d'origine reste ci-dessous pour
+> mémoire, chacune précédée d'un renvoi (seul ajout aux sections 2 à 15).
 
 ## 1. Décisions du propriétaire (font foi)
 
@@ -48,6 +52,94 @@
 - Sans domaine personnalisé, le tableau de bord vit sur un sous-domaine
   `up.railway.app` : la passkey de P7 est liée à ce sous-domaine, et un renommage du
   service l'invaliderait (limite déjà notée par le plan, section Web, page `/poste`).
+
+### Décisions du 25 septembre 2026 (étape P2)
+
+- **Aucun outil d'exécution pour l'agent sur Railway** : ni terminal, ni fichiers, ni exécution de
+  code, ni navigateur, ni cron, ni délégation, ni connexions. Trois couches : listes d'outils de la
+  managed scope, épingles du `.env` géré, garde `pre_tool_call` en liste blanche (24 outils) dans
+  `acp-poste`. `kanban_create` et `kanban_attach_url` sont retirés à l'agent en P2 (les projets
+  passeront par les outils du greffon). `web_extract` et `vision_analyze` sont gardés, risque
+  résiduel documenté. `memory.write_approval` et `skills.write_approval` à `true`. Détail :
+  [image.md](image.md).
+- **Hermes ne tourne jamais hors des gardes** : refus hors PID 1 (`acp-entree`), arrêt de la
+  passerelle et du tableau de bord lancés hors de s6, volume Railway exigé.
+- **Fournisseur d'identité : Authelia 4.39.28**, épinglé par condensat, service Railway `identite`,
+  un seul utilisateur, un seul client OIDC public (`hermes-acp`) ; Pocket ID écarté. Session sans
+  reconnexion : 7 jours. Détail : [identite.md](identite.md).
+- **Surfaces shell du tableau de bord** (terminal, fichiers, MCP, variables) gardées sous le seul
+  OIDC en P2 ; leur filtrage relève d'une phase ultérieure. Le tableau de bord authentifié reste
+  donc un shell du propriétaire.
+- **Railway** : branche déployée **`refonte/hermes`**, après la fusion de P2 ; IaC
+  `.railway/railway.ts`, SDK `railway@3.11.0` **isolé dans `.railway/`**, appliquée par le
+  propriétaire **seul** ; constructeur Dockerfile, Serverless coupé, politique de redémarrage et
+  limites déclarés dans `railway.ts`. Libellés des sous-domaines `*.up.railway.app` inconnus tant
+  que le propriétaire ne les a pas choisis : valeurs de gabarit qui font **échouer fermé** le plan et
+  l'apply. Plafond dur 30 $, alerte à 15 $, agent Railway à 0 $ ; Hermes 2 Go et 1 vCPU ; identite
+  0,5 vCPU, `ON_FAILURE` à 100 relances, mémoire fixée **après mesure** (2,5 Gio) ; sauvegardes
+  quotidienne et hebdomadaire ; `railway ssh` avec une clé dédiée retirée après usage ;
+  `trusted_proxies: []` tant que le bord n'est pas mesuré. Procédure : [railway.md](railway.md).
+- **Tests bloquants** : les deux tests `preview.restart` (stdio `tui_gateway.entry` et `/api/ws` du
+  vrai tableau de bord) conditionnent la fusion de P2 ; test navigateur Playwright en CI (Chromium
+  téléchargé par la CI), en local seulement si un Chromium de Playwright est déjà présent.
+
+### Phases P4 à P8 remplacées par le plan d'autonomie
+
+Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
+[autonomie.md](autonomie.md) ; en résumé :
+
+- Hermes devient un **chef de projet autonome** : un tableau kanban par projet sur Railway ; le
+  greffon fait d'abord explorer le dépôt par le poste (lecture seule), une carte de planification
+  Hermes découpe le projet (cartes Codex, Claude, Hermes, chacune avec exécutant, modèle et effort),
+  une synthèse juge et relance dans des plafonds fixés.
+- Le **poste Windows** n'est plus en lecture seule et **aucune signature n'est demandée par
+  tâche** : il écrit seul, dans un worktree et une branche `hermes/<carte>` des dépôts autorisés
+  par `poste.toml`, sous bac à sable (Codex *elevated* imposé, Claude `--restricted`), vérifie,
+  committe en local, sans jamais pousser.
+- **Accord explicite du propriétaire** pour l'irréversible et ce qui sort de chez lui : push,
+  fusion, PR, publication, dépenses hors enveloppe, élargissement du périmètre, tâches cron,
+  écritures de l'agent en mémoire et dans les skills.
+- **Modèles** : aucun nom en dur ; catalogues relevés (`model/list` de Codex, alias et modèle
+  observé pour Claude), table de routage validée une fois ; palier Fast interdit par défaut.
+- **Questions** durables dans le greffon, carte mise en attente (pas bloquée), notification
+  Telegram ou ntfy ; état commun au téléphone, au navigateur et au desktop Qt.
+- Nouvelles phases : **P4** projets autonomes sur Hermes (sans le PC) ; **P5** poste connecté
+  (présence, catalogue, quotas, sans exécution) ; **P6** exécution autonome sur un dépôt jetable ;
+  **P7** questions, notifications et continuité, puis dépôts réels ; **P8** desktop Qt et MCP côté
+  poste. P3 et P9 sont inchangées.
+- Retirés de l'ancien plan : la P7 « Écritures validées et signées » (passkey par tentative), le
+  poste en lecture comme verrou, le tableau unique `poste`, l'ancienne P4 « Discussion mobile » comme
+  étape autonome (liste complète : [autonomie.md](autonomie.md) § 9).
+
+### État d'avancement (25 septembre 2026)
+
+- **P0** et **P1** : fusionnées dans `refonte/hermes` (PR #13 et #14, commits de fusion `29c95b5` et `21d13ee`).
+- **P2** : **réalisée côté dépôt** sur `refonte/hermes-p2` (image sans outil d'exécution, fournisseur
+  d'identité, IaC, procédure, CI verte) ; **rien n'est déployé** : le premier déploiement est fait par
+  le propriétaire, selon [railway.md](railway.md), après la fusion. Preuves datées :
+  `docs/reprise-poste.md`.
+
+### Conséquences de P2 sur la lecture du plan
+
+- § 9 « VARIABLES À DÉFINIR » et « VARIABLES INTERDITES » sont **périmées** (elles visent Nous
+  Portal) : la référence est [image.md](image.md) § 4 pour Hermes, [identite.md](identite.md) § 3
+  pour l'identité, [railway.md](railway.md) pour leur pose.
+- § 9 « DÉCLARATION » : « Wait for CI », motifs surveillés et répertoire racine ne sont plus
+  « non couverts par l'IaC » : ils sont déclarés dans `railway.ts` par des clés **typées par le SDK
+  mais absentes de sa documentation** (`checkSuites`, `build.builder`, `build.watchPatterns`,
+  `deploy.sleepApplication`, `deploy.restartPolicy*`, `deploy.limitOverride`) ; leur prise en compte
+  se prouve par `railway config pull --json`. Répertoires racines `/hermes` et `/identite` ;
+  Dockerfile de Hermes désigné par `RAILWAY_DOCKERFILE_PATH=image/Dockerfile` (relatif au répertoire
+  racine, à confirmer au premier build).
+- **Région** : `europe-west4-drams3a` (EU West Metal, Amsterdam, identifiant de la page « Regions ») ;
+  la référence de l'IaC montre aussi `europe-west4` : ambiguïté documentée
+  ([railway.md](railway.md) § 3).
+- § 9 « DERRIÈRE LE PROXY » et P2 « cookie `Secure` » : tant que `trusted_proxies` reste vide, les
+  cookies de Hermes n'ont **pas** l'attribut `Secure` (mesuré derrière un bord factice) ; la mesure du
+  bord réel est au § 8 de [railway.md](railway.md). La lecture brute de `X-Forwarded-For` par
+  `client_ip` est bien à `hermes_cli/dashboard_auth/request_utils.py:19-21` (revérifié le 25/09).
+- P2 « Wait for CI activé ; tableau de bord enregistré sur Nous » : lire « identité Authelia, client
+  `hermes-acp` ».
 
 ## 2. Thèse
 
@@ -751,6 +843,9 @@ Dans le journal de CI :
 
 ### P4 — Discussion mobile
 
+> **Remplacée** le 25 septembre 2026 par le plan d'autonomie ([autonomie.md](autonomie.md) § 8) :
+> P4 « projets autonomes sur Hermes ». Texte d'origine conservé pour mémoire.
+
 **Livrable**
 
 - Page `/discussion`.
@@ -774,6 +869,9 @@ Autres preuves :
 - `/chat` toujours disponible.
 
 ### P5 — Poste en lecture et délégation kanban
+
+> **Remplacée** le 25 septembre 2026 par le plan d'autonomie ([autonomie.md](autonomie.md) § 8) :
+> P5 « poste connecté » et P6 « exécution autonome sur un dépôt jetable ». Texte d'origine conservé pour mémoire.
 
 **Livrable**
 
@@ -813,6 +911,9 @@ De bout en bout, depuis le téléphone :
 
 ### P6 — Quotas
 
+> **Remplacée** le 25 septembre 2026 par le plan d'autonomie ([autonomie.md](autonomie.md) § 8) :
+> P5 « poste connecté » (catalogue et quotas). Texte d'origine conservé pour mémoire.
+
 **Livrable**
 
 - Collecteurs : app-server pour Codex (avec `model_provider` et magasin d'identifiants forcés) ; ligne d'état et `rate_limit_event` pour Claude.
@@ -831,6 +932,9 @@ De bout en bout, depuis le téléphone :
 - Journaux : aucun appel de modèle fait juste pour rafraîchir.
 
 ### P7 — Écritures validées et signées
+
+> **Remplacée** le 25 septembre 2026 par le plan d'autonomie ([autonomie.md](autonomie.md) § 8) :
+> les écritures signées sont retirées (§ 9 du plan d'autonomie) ; l'écriture autonome relève de P6 et P7. Texte d'origine conservé pour mémoire.
 
 **Livrable**
 
@@ -858,6 +962,9 @@ Sonde MCP côté poste (Playwright, context7) ; décision sur Figma.
 - Une annulation tue tout l'arbre de processus.
 
 ### P8 — Desktop Qt rebranché
+
+> **Remplacée** le 25 septembre 2026 par le plan d'autonomie ([autonomie.md](autonomie.md) § 8) :
+> P8 « desktop Qt et MCP côté poste ». Texte d'origine conservé pour mémoire.
 
 **Livrable**
 
