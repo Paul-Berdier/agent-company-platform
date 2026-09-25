@@ -36,6 +36,19 @@ name: Image Hermes
 #     PKCE exigé, révocation, refus d'un autre identifiant. ACP_E2E_OBLIGATOIRE=1 : ce test n'est
 #     jamais ignoré en CI.
 #
+# Étape P2, infrastructure Railway (.railway/, docs/refonte/railway.md) :
+#   - SDK railway@3.11.0 installé depuis son verrou haché (npm ci --ignore-scripts), isolé du
+#     workspace racine ;
+#   - `tsc` : railway.ts typé contre le SDK ;
+#   - .railway/verifier.mjs : railway.ts évalué comme le fait la CLI Railway ; tant que les libellés
+#     des sous-domaines valent leur gabarit, l'évaluation DOIT refuser (échec fermé) ; avec des
+#     libellés d'essai, le graphe attendu (2 services, 2 volumes, Wait for CI, Dockerfile, santé,
+#     région, limites, aucune Start Command) ;
+#   - test_railway_iac_contrat.py (avec les tests de contrat) : les deux images démarrent avec les
+#     variables que railway.ts déclare, et leur santé répond sur le PORT déclaré avec l'hôte
+#     healthcheck.railway.app ; identite refuse de démarrer sans les variables du propriétaire.
+#   Rien n'est planifié ni appliqué ici : `railway config plan/apply` reste au propriétaire seul.
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -50,6 +63,7 @@ name: Image Hermes
     paths:
       - "hermes/**"
       - "identite/**"
+      - ".railway/**"
       - ".github/workflows/image.yml"
   push:
     branches:
@@ -58,6 +72,7 @@ name: Image Hermes
     paths:
       - "hermes/**"
       - "identite/**"
+      - ".railway/**"
       - ".github/workflows/image.yml"
 
 permissions:
@@ -83,6 +98,17 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Infrastructure Railway — SDK épinglé, typage et évaluation (échec fermé)
+        run: |
+          set -euo pipefail
+          node --version
+          npm ci --ignore-scripts --prefix .railway
+          npm run --prefix .railway verifier
 
       - name: Relever le condensat de l'image officielle
         run: |
