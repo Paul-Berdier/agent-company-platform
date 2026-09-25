@@ -57,6 +57,16 @@ name: Image Hermes
 #     l'origine, chaînes du catalogue français seulement, axe-core (apps/interface, verrou npm),
 #     cibles tactiles ; captures en artefact.
 #
+# Étape P3, catalogue (docs/refonte/catalogue.md) :
+#   - scripts/verifier_catalogue.py --amont : chaque skill vendorisée et chaque LICENSE comparés, octet
+#     pour octet, au dépôt amont au commit épinglé (raw.githubusercontent.com), aucun NOTICE amont
+#     oublié ;
+#   - tests dans l'image et de contrat : skills chargées par skills.external_dirs, skills livrées
+#     inertes désactivées, GET /api/skills exactement le catalogue, route /v1/catalogue, context7
+#     (faux serveur TLS) derrière la garde, refus d'un serveur MCP stdio ou hors catalogue ;
+#   - sonde RÉELLE de context7 (`hermes mcp test context7` sur l'image construite) : NON BLOQUANTE
+#     (service tiers), sortie archivée en artefact.
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -73,6 +83,7 @@ name: Image Hermes
       - "identite/**"
       - ".railway/**"
       - "apps/interface/**"
+      - "scripts/verifier_catalogue.py"
       - ".github/workflows/image.yml"
   push:
     branches:
@@ -83,6 +94,7 @@ name: Image Hermes
       - "identite/**"
       - ".railway/**"
       - "apps/interface/**"
+      - "scripts/verifier_catalogue.py"
       - ".github/workflows/image.yml"
 
 permissions:
@@ -112,6 +124,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Catalogue — fichiers vendorisés identiques aux dépôts amont (réseau)
+        run: python3 scripts/verifier_catalogue.py --amont
 
       - name: Infrastructure Railway — SDK épinglé, typage et évaluation (échec fermé)
         run: |
@@ -200,6 +215,27 @@ jobs:
           set -e
           echo "Code du témoin : ${code} (1 attendu : il importe hermes_cli.kanban_db.connect)"
           test "$code" -eq 1
+
+      - name: Sonde réelle de context7 (non bloquante, service tiers)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sonde-context7
+          date -u +"%Y-%m-%dT%H:%M:%SZ" | tee /tmp/sonde-context7/sonde.txt
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes "$ACP_IMAGE" mcp test context7 2>&1 \
+            | tee -a /tmp/sonde-context7/sonde.txt
+          grep -q "Tools discovered: 2" /tmp/sonde-context7/sonde.txt
+          grep -q "resolve-library-id" /tmp/sonde-context7/sonde.txt
+          grep -q "query-docs" /tmp/sonde-context7/sonde.txt
+
+      - name: Sonde réelle de context7 (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonde-context7
+          path: /tmp/sonde-context7
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: pytest dans l'image
         run: |
