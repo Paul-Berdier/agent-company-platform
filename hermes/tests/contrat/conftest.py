@@ -2,8 +2,10 @@
 
 Lancement (le workflow image.yml le fait après la construction des deux images) :
 
-  ACP_IMAGE=acp-hermes:ci ACP_IMAGE_TESTS=acp-hermes-tests:ci \
+  ACP_IMAGE=acp-hermes:ci ACP_IMAGE_TESTS=acp-hermes-tests:ci ACP_IMAGE_IDENTITE=acp-identite:ci \
       python -m pytest -p no:cacheprovider -s -v hermes/tests/contrat
+
+(ACP_IMAGE_IDENTITE : image du fournisseur d'identité, identite/Dockerfile, pour test_identite.py.)
 
 Chaque conteneur démarre sur un volume nommé JETABLE, jamais sur un volume qui contient des
 données ; tout ce qui est créé (conteneurs, volumes, réseau) porte le préfixe
@@ -47,6 +49,21 @@ def image() -> str:
 @pytest.fixture(scope="session")
 def image_tests() -> str:
     return _image("ACP_IMAGE_TESTS")
+
+
+@pytest.fixture(scope="session")
+def image_identite() -> str:
+    """Image du fournisseur d'identité (identite/Dockerfile), construite par image.yml."""
+    return _image("ACP_IMAGE_IDENTITE")
+
+
+@pytest.fixture(scope="session")
+def empreinte_argon2(image_identite) -> str:
+    """Empreinte argon2id du mot de passe de TEST, calculée par l'image elle-même (paramètres par
+    défaut, comme le propriétaire la calcule) : voir pile_identite.py."""
+    from pile_identite import empreinte_argon2 as calculer
+
+    return calculer(image_identite)
 
 
 def docker(*arguments: str, entree: Optional[str] = None, delai: int = 300,
@@ -212,6 +229,24 @@ class Conteneur:
                     return
             time.sleep(2)
         raise AssertionError(f"api_server de la passerelle non branché après {delai} s : {dernier}")
+
+
+def attendre_modele_factice(conteneur: Conteneur, journal: str, delai: float = 60) -> None:
+    """Attend que le modèle factice (lancé par ``docker exec -d``) réponde 200 sur
+    ``/v1/models``, puis exige son journal, où cette sonde est consignée. Sans cela, un test qui
+    conclut « aucune requête reçue » réussirait à vide si le modèle n'avait pas démarré
+    (relecture P2)."""
+    limite = time.monotonic() + delai
+    code = ""
+    while time.monotonic() < limite:
+        code = conteneur.executer(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                                   "http://127.0.0.1:18080/v1/models"]).stdout.strip()
+        if code == "200":
+            break
+        time.sleep(0.5)
+    else:
+        raise AssertionError(f"le modèle factice ne répond pas sur 127.0.0.1:18080 (dernier code « {code} »)")
+    assert conteneur.sh(f"test -s {journal}").returncode == 0, f"journal du modèle factice {journal} absent"
 
 
 def lancer(ressources: Ressources, image: str, env: Dict[str, str], *, volume: Optional[str] = None,

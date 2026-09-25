@@ -1,0 +1,27 @@
+#!/bin/sh
+# shellcheck shell=sh
+# ACP — garde d'entrée de l'image (ENTRYPOINT, étape P2).
+#
+# L'ENTRYPOINT officiel, docker/entrypoint-dispatch.sh, ne lance /init de s6-overlay que s'il
+# est PID 1 ; sinon (docker run --init, plateforme qui garde le PID 1 pour son propre init),
+# il se replie SANS s6 : stage2-hook.sh puis la commande demandée
+# (docker/entrypoint-dispatch.sh:17-25). Dans ce repli, ni le crochet acp-gardes, ni 05-acp,
+# ni la managed scope vérifiée au démarrage ne s'appliqueraient. On refuse donc de démarrer
+# (échec fermé). `exec` garde le PID : entrypoint-dispatch.sh voit bien le PID 1.
+#
+# Une Start Command Railway remplace cet ENTRYPOINT (rw_full.txt:29497-29507) : réservée à la
+# maintenance, sous la forme /bin/sh -c "exec sleep infinity" (docs/refonte/railway.md §10).
+# Sur Railway, ce script ne tourne donc que sans Start Command : un refus y signifie que la
+# plateforme ne donne pas le PID 1 à l'image (non documenté par Railway). Ni --init ni Start
+# Command n'y ont de sens : le message renvoie à la procédure (railway.md § 10 f), qui laisse le
+# service hors ligne jusqu'à une décision de conception prise par une PR.
+if [ "$$" -ne 1 ]; then
+    echo "[acp] REFUS : l'image n'a pas le PID 1 (processus $$) : sans s6-overlay, ni les gardes de démarrage ni la managed scope vérifiée ne s'appliqueraient." >&2
+    if [ -n "${RAILWAY_ENVIRONMENT_ID:-}${RAILWAY_DEPLOYMENT_ID:-}${RAILWAY_SERVICE_ID:-}" ]; then
+        echo "[acp] Démarrage arrêté (échec fermé). Sur Railway, la plateforme n'a pas donné le PID 1 à l'image : laissez le service hors ligne et suivez docs/refonte/railway.md § 10 f (refus PID 1). Aucune Start Command ni variable ne doit servir à contourner ce refus." >&2
+    else
+        echo "[acp] Démarrage arrêté (échec fermé). Retirez --init ou la commande de démarrage personnalisée, puis redéployez." >&2
+    fi
+    exit 1
+fi
+exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"

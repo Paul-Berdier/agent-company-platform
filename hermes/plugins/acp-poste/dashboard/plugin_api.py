@@ -19,7 +19,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 
 _DOSSIER_GREFFON = Path(__file__).resolve().parent.parent
@@ -48,7 +48,22 @@ _meta = _charger("meta")
 router = APIRouter()
 
 
+def mesurer_reseau(request: Request) -> Dict[str, Any]:
+    """Ce que le tableau de bord voit de la requête : pair, schéma, hôte, et la seule PRÉSENCE des
+    en-têtes posés par un bord (jamais la valeur de X-Forwarded-For, qui porte l'adresse du
+    client). Sert à mesurer le bord Railway avant de renseigner dashboard.trusted_proxies."""
+    entetes = request.headers
+    return {
+        "pair": request.client.host if request.client else None,
+        "schema_vu": request.url.scheme,
+        "hote": entetes.get("host"),
+        "entetes_transmis": {nom: nom in entetes for nom in _meta.ENTETES_MESURES},
+        "x_forwarded_proto": (entetes.get("x-forwarded-proto") or "")[:16] or None,
+    }
+
+
 @router.get("/v1/meta")
-async def lire_meta() -> Dict[str, Any]:
-    """Contrat, versions (greffon, Hermes en cours et testée), OpenRPC, état du démarrage."""
-    return await run_in_threadpool(_meta.construire_meta)
+async def lire_meta(request: Request) -> Dict[str, Any]:
+    """Contrat, versions (greffon, Hermes en cours et testée), OpenRPC, état du démarrage, garde
+    d'exécution du processus du tableau de bord, mesure réseau et commit déployé."""
+    return await run_in_threadpool(_meta.construire_meta, reseau=mesurer_reseau(request))

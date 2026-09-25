@@ -1,0 +1,3 @@
+# Contexte de construction de l'image identite : seuls les fichiers de l'image y entrent.
+**/*.md
+tests/

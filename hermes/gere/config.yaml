@@ -8,12 +8,24 @@
 # tourne sous l'uid 10000 sans sudo (website/docs/user-guide/managed-scope.md:36-39
 # et 139-148 ; Dockerfile:168 de l'image officielle).
 #
-# Ce que ce fichier NE garantit PAS : l'agent tourne sous le MÊME uid que le tableau
-# de bord (10000). Il ne peut pas modifier cette portée gérée, mais il peut tuer le
-# processus du tableau de bord et écouter lui-même sur 0.0.0.0:9119 (le port public).
-# La frontière d'uid ne sépare donc pas l'agent du tableau de bord ; la vraie parade
-# (uid distinct ou dorsale isolée pour les outils terminal) relève de P2. Voir
-# docs/refonte/image.md §5 et §10.
+# Décision du propriétaire du 25 septembre 2026 (étape P2) : AUCUN outil d'exécution
+# pour l'agent sur Railway (ni terminal, ni fichiers, ni exécution de code, ni
+# navigateur, ni cron, ni délégation, ni connexions). L'exécution passe par le poste
+# Windows du propriétaire. Trois couches, dont aucune ne suffit seule :
+#   1. les listes de ce fichier (agent.disabled_toolsets et platform_toolsets) ;
+#   2. les épingles de /etc/hermes/.env (HERMES_TUI_TOOLSETS, HERMES_BIN,
+#      HERMES_ACCEPT_HOOKS… vides ; HERMES_ALLOW_PRIVATE_URLS=false) ;
+#   3. le crochet pre_tool_call du greffon acp-poste, en LISTE BLANCHE
+#      (hermes/plugins/acp-poste/garde_execution.py). C'est le SEUL verrou de
+#      preview.restart, dont l'agent caché reçoit ["terminal","file"] codés en dur
+#      (tui_gateway/agent_callbacks.py:371-374).
+# Ce qui reste ouvert, et dit : le tableau de bord AUTHENTIFIÉ reste un shell du
+# propriétaire (shell.exec, /api/pty, /api/mcp, /api/env, quick_commands…), protégé
+# par le seul OIDC mono-utilisateur. Voir docs/refonte/image.md §5 et §10.
+#
+# L'agent, la passerelle et le tableau de bord tournent sous le MÊME uid (10000) : sans
+# outil d'exécution, l'agent ne peut plus s'en servir, mais une faille de Hermes lui-même
+# le pourrait encore (limite dite, docs/refonte/image.md §10).
 #
 # 00-acp-gardes régénère /etc/hermes/config.yaml à chaque démarrage à partir de ce
 # modèle, après avoir remplacé les marqueurs de déploiement (chaînes encadrées de
@@ -72,6 +84,14 @@ auth:
 
 security:
   redact_secrets: true
+  # Défense en profondeur : url_safety lit config.yaml SANS la managed scope
+  # (tools/url_safety.py:145-173) ; la protection effective est
+  # HERMES_ALLOW_PRIVATE_URLS=false dans /etc/hermes/.env.
+  allow_private_urls: false
+  # Défaut True (config_defaults.py:1765 ; tools/lazy_deps.py:325-338). Mesuré le
+  # 25/09/2026 : sans cette épingle, la passerelle lance
+  # `uv pip install --target /opt/data/lazy-packages edge-tts==7.2.7` dès son démarrage.
+  allow_lazy_installs: false
 
 display:
   # Messages statiques seulement (approbations, quelques réponses de passerelle) ;
@@ -79,8 +99,48 @@ display:
   language: fr
 
 agent:
-  # Navigateur intégré désactivé au départ (plan, section 8).
-  disabled_toolsets: [browser]
+  # Retrait outil par outil (model_tools.py:334-340) pour la messagerie, le cron, le
+  # CLI, les workers kanban et la délégation. L'api_server (api_server.py:2232-2270) et
+  # le tableau de bord (tui_gateway/server.py:2451-2468) ne le transmettent PAS à
+  # l'AIAgent : d'où les listes platform_toolsets ci-dessous, qui le repassent
+  # (tools_config.py:620-627).
+  disabled_toolsets: [browser, terminal, file, code_execution, computer_use, connections, cronjob, delegation, setup]
+  # Guillemets obligatoires : « off » nu serait lu comme un booléen par PyYAML. « focus »
+  # réduirait les outils au jeu de codage (terminal et fichiers) (config_defaults.py:181-185).
+  coding_context: "off"
+  # Mode rapide coupé (config_defaults.py:134-136) : « "" » = normal. Cohérent avec le
+  # plan d'autonomie (P4-P8, §7) ; rien ne le rallume depuis le volume.
+  service_tier: ""
+
+# Listes EXPLICITES, sans composite (tools_config.py:576-651) : un composite comme
+# hermes-cli rendrait terminal et fichiers. « cli » sert aussi au tableau de bord
+# (tui_gateway/server.py:1935-1943), aux workers kanban (kanban_db_dispatch.py:2620-2645)
+# et à `hermes -z`. ATTENTION : une liste cli VIDE ferait rendre TOUS les jeux au
+# tableau de bord (tui_gateway/server.py:1942). no_mcp : aucun serveur MCP par défaut.
+platform_toolsets:
+  api_server: [web, vision, skills, todo, memory, session_search, no_mcp]
+  cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]
+  cron: [web, vision, skills, todo, memory, session_search, no_mcp]
+
+skills:
+  # Aucun !`cmd` exécuté à la lecture d'une skill (config_defaults.py:1442-1446).
+  inline_shell: false
+  # Toute création ou modification de skill par l'agent est mise en attente de
+  # validation par le propriétaire (config_defaults.py:1455-1459).
+  write_approval: true
+  # Analyse de sécurité des skills écrites par l'agent (config_defaults.py:1447-1450).
+  guard_agent_created: true
+
+memory:
+  # Toute écriture en mémoire par l'agent attend la validation du propriétaire
+  # (config_defaults.py:1292-1295) : la mémoire est injectée dans toutes les sessions.
+  write_approval: true
+
+# Aucune inscription automatique des crochets shell `hooks:` (config_defaults.py:1710-1714).
+# HERMES_ACCEPT_HOOKS est de plus épinglée vide et interdite ; le répartiteur kanban
+# passe toutefois --accept-hooks à ses workers (kanban_db_dispatch.py:2686-2689) : d'où
+# le jeu file coupé (l'agent n'écrit plus config.yaml) et `diagnostiquer`.
+hooks_auto_accept: false
 
 platforms:
   # api_server de la passerelle : épinglé en boucle locale. Sans clé utilisable dans
@@ -98,7 +158,8 @@ dashboard:
   theme: acp
   # URL publique https validée par 00-acp-gardes (HERMES_DASHBOARD_PUBLIC_URL).
   public_url: "@@ACP:HERMES_DASHBOARD_PUBLIC_URL@@"
-  # Mesuré puis épinglé en P2 ; vide, seul le bouclage local est cru
+  # Décision P2 : vide tant que la plage du bord Railway n'est pas mesurée (bloc
+  # « reseau » de /v1/meta) ; vide, seul le bouclage local est cru
   # (config_defaults.py:988-990 ; web_server_lifecycle.py:440-485).
   trusted_proxies: []
   oauth:
