@@ -1,0 +1,5 @@
+# Dépendances DIRECTES du test navigateur (hermes/tests/e2e). Verrou : requirements-e2e.txt,
+# produit par : uv pip compile hermes/tests/requirements-e2e.in --universal --python-version 3.12 \
+#                --generate-hashes --no-header --output-file hermes/tests/requirements-e2e.txt
+# playwright 1.62.0 attend Chromium révision 1234 (driver/package/browsers.json).
+playwright==1.62.0
