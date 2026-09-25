@@ -770,6 +770,16 @@ Intégration continue des corrections (branche poussée le 25/09/2026, sommet `5
   propres à Windows déjà notés en P0) ; moteur gelé, 74 tests.
 - Un seul push pour les neuf commits : la CI n'a tourné que sur le sommet, pas sur chaque commit
   intermédiaire (les suites locales complètes aussi, sur l'arbre final).
+- `ci.yml` [36105959556](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36105959556)
+  (`d391158`, commit de documentation seule) : **échec** du poste Windows, 2 tests sur 282 :
+  `test_aucun_fichier_config_as_code` (`git ls-files` rend 3221225794, soit 0xC0000142,
+  STATUS_DLL_INIT_FAILED : le processus `git` n'a pas pu démarrer) et
+  `test_stdout_and_stderr_capture_is_bounded_but_hashes_full_streams` (`exit_process_tree_cleanup_failed`).
+  Deux échecs de création ou de nettoyage de processus sur le runner, dans des tests que ce commit
+  ne touche pas ; le même code a réussi sur 36104820007 et localement (suite complète trois fois,
+  282 réussis ; ces deux tests cinq fois). Non relancé à la main (aucune action GitHub hors push de
+  la branche) : le run du commit suivant fait foi, et un nouvel échec de ces tests serait à traiter
+  comme une instabilité réelle du poste Windows.
 
 Non vérifié après la relecture (en plus de la liste ci-dessus) : aucune des attaques en direct sur
 Authelia que la relecture de sécurité a laissées de côté (second sujet, jeton d'une autre audience,
