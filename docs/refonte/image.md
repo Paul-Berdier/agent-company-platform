@@ -5,8 +5,9 @@ l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni exécutio
 navigateur, ni cron, ni délégation : décision du propriétaire du 25 septembre 2026) et Hermes
 ne tourne **jamais hors des gardes d'ACP** (PID 1, s6, volume). L'exécution passe par le poste
 Windows du propriétaire. Tout ce document est prouvé **en local et en CI** ; rien n'est
-déployé. Le fournisseur d'identité (`identite/`), l'infrastructure Railway (`.railway/`) et la
-procédure d'exploitation et de récupération sont décrits dans [railway.md](railway.md).
+déployé. Le fournisseur d'identité (`identite/`, Authelia) est décrit dans
+[identite.md](identite.md) ; l'infrastructure Railway (`.railway/`) et la procédure
+d'exploitation et de récupération dans [railway.md](railway.md).
 
 L'étape P1 (image dérivée, gardes de démarrage, managed scope, greffon `acp-poste`, CI de
 contrat) reste valable ; ses sections sont mises à jour ci-dessous, et chaque ajout de P2 est
@@ -32,7 +33,7 @@ Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiq
 | Garde d'exécution de l'agent (P2) | `hermes/plugins/acp-poste/garde_execution.py` | dans le greffon |
 | Image de test, outils | `hermes/tests/` | jamais dans l'image Railway |
 | Workflow | `.github/workflows/image.yml` | — |
-| Fournisseur d'identité (P2) | `identite/` | image séparée, voir [railway.md](railway.md) |
+| Fournisseur d'identité (P2) | `identite/` | image séparée, voir [identite.md](identite.md) |
 | Infrastructure Railway (P2) | `.railway/` | lue par le propriétaire seul, voir [railway.md](railway.md) |
 
 Construction locale (contexte limité à `hermes/`) :
@@ -688,8 +689,9 @@ Non prouvé — et non garanti :
 - l'api_server accepte une politique d'exécution de « salon » (`room_execution_policy`,
   api_server.py:2238-2241) qui choisit ses propres jeux d'outils : seule la garde la couvre
   (non éprouvé par un test dédié) ;
-- aucune connexion interactive complète par le navigateur dans ces tests : voir le fournisseur
-  d'identité de P2 ([railway.md](railway.md)) ;
+- aucune connexion interactive complète par le navigateur dans ces tests : elle est prouvée,
+  avec le vrai fournisseur Authelia derrière un bord TLS factice, par le test navigateur de P2
+  ([identite.md](identite.md) § 7 et § 10) ;
 - le crochet `S6_STAGE2_HOOK` n'est pas un point d'extension de Hermes mais de s6-overlay ;
   une montée de s6-overlay dans l'image officielle devra être revérifiée.
 
