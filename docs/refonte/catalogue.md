@@ -272,7 +272,9 @@ MSYS_NO_PATHCONV=1 docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes acp
 Preuves locales du 25 septembre 2026, chaque commit vérifié sur son propre arbre (détail :
 `docs/reprise-poste.md` § 6 ter) : dépôt **342** réussis ; dans l'image **323** ; contrat **117**
 (dont 10 du catalogue) ; navigateur **2** ; vérificateur hors ligne et `--amont` : code 0 ; aucun
-échec, aucun test ignoré. La CI est relevée dans le même paragraphe.
+échec, aucun test ignoré. En CI (`image.yml` 36136507335 et `ci.yml` 36136507298, sommet `ec43987`) :
+mêmes nombres (323, 117, 2 ; dépôt 342 sous Windows, 333 et 9 ignorés sous Linux), `--amont` vert,
+sonde réelle de context7 connectée (1 600 ms, 2 outils) ; détail : `docs/reprise-poste.md` § 6 ter.
 
 Tests nouveaux :
 

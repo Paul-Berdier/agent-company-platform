@@ -912,7 +912,9 @@ Même branche `refonte/hermes-p3`, empilée sur `refonte/hermes-p2` ; version 0.
 | `165fbbf` | test(contrat): prove the catalogue and context7 on the running image and in the browser |
 | `4b3ccd5` | test(hermes): witness a stdio MCP server started by discovery without D8 |
 | `e54f8a8` | ci: check vendored skills upstream and probe the real context7 server |
-| (ce commit) | docs: document the P3 catalogue, context7 and startup settings with local proofs |
+| `e7886fd` | docs: document the P3 catalogue, context7 and startup settings with local proofs |
+| `ec43987` | test(identite): stop requiring the 20-request peak to exceed the 10-request one |
+| (ce commit) | docs: record the P3 catalogue CI runs |
 
 ### Ce qui est en place
 
@@ -958,6 +960,10 @@ Même branche `refonte/hermes-p3`, empilée sur `refonte/hermes-p2` ; version 0.
   `--add-host`) ; tous les autres conteneurs Hermes de test résolvent ce nom vers leur bouclage
   local.
 - Balayage des secrets : script de motifs du brouillon (pas de gitleaks), comme la première partie.
+- **Test d'identité de P2 modifié** (`ec43987`) pour rendre `image.yml` vert : il n'exige plus que le
+  pic de la rafale de 20 dépasse celui de la rafale de 10 (ordre non garanti, mesuré en CI) ; le
+  critère des deux tiers de la limite porte sur le plus haut des deux. **Décision à confirmer par le
+  propriétaire** (seconde retouche de ce test après `b237912`).
 
 ### Preuves locales (25/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
 
@@ -1005,10 +1011,39 @@ Détail et commandes : [`catalogue.md`](refonte/catalogue.md) § 9. Chaque commi
 - Constaté puis corrigé pendant la mise au point : sans entrée `mcp_servers.context7` dans le volume,
   la discussion du tableau de bord n'obtenait jamais context7 (`tool_call` refusé par la garde) ;
   un test de P2 attendait le schéma 2 de l'état du démarrage (passé à 3).
+- Après `ec43987`, le test d'identité modifié rejoué seul en local (images `c6`) : réussi (pics
+  0,725 et 1,362 Gio, témoin tué au premier essai) ; le reste du contrat n'a pas été rejoué en local
+  sur ce commit (la CI l'a fait : 117 réussis).
 
 ### Intégration continue
 
-À relever après le push (section complétée par le commit suivant).
+Branche poussée le 25/09/2026 (sommet `e7886fd`, puis `ec43987`) :
+- `ci.yml` [36134350913](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36134350913)
+  (`e7886fd`) **succès** : catalogue conforme sous Linux et Windows ; poste Windows **342 réussis** ;
+  poste Linux **333 réussis, 9 ignorés** (les 9 tests propres à Windows) ; interface **55** ; moteur
+  **74**.
+- `image.yml` [36134351025](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36134351025)
+  (`e7886fd`) **échec** : `--amont` vert, sonde réelle de context7 connectée (1 486 ms, 2 outils),
+  **323** dans l'image, contrat **1 échec sur 117** : `test_memoire_premier_facteur_concurrent`, test
+  d'identité de P2 que la seconde partie ne touchait pas (image `identite` inchangée) : la rafale de
+  20 a culminé à 0,538 Gio, sous celle de 10 (0,725 Gio), alors que le test exigeait l'inverse ; le
+  témoin, lui, est mort au premier essai. Le test navigateur n'a donc pas tourné. Non relancé à la
+  main ; corrigé par `ec43987` (l'ordre des pics n'est plus exigé ; le critère des deux tiers porte
+  désormais sur le plus haut des deux pics ; `identite.md` § 8).
+- `image.yml` [36136507335](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36136507335)
+  (`ec43987`) **succès** : condensats confirmés ; `verifier_catalogue.py --amont` vert ; sonde réelle
+  de context7 connectée (1 600 ms), 2 outils `resolve-library-id` et `query-docs` ; décompte publié ;
+  **323** réussis dans l'image (`GET /api/skills` : 69 skills, 26 activées, 43 désactivées) ;
+  **117** au contrat (14 min 32 s ; rafales 0,724 et 1,222 Gio, témoin tué au premier essai) ;
+  **2** au navigateur (route `/v1/catalogue` servie, 26 entrées, aucune requête hors de l'origine) ;
+  artefacts `captures-navigateur`, `decompte-traductions`, `sonde-context7` ; aucun conteneur,
+  volume ni réseau `acp-contrat-*` restant.
+- `ci.yml` [36136507298](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36136507298)
+  (`ec43987`) **succès** : mêmes nombres (Windows 342, Linux 333 et 9 ignorés, interface 55,
+  moteur 74).
+
+Ce commit de documentation ne touche aucun chemin surveillé par `image.yml`, qui ne se relance donc
+pas ; `ci.yml` se relance.
 
 ### Non vérifié
 
