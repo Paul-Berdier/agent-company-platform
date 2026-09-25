@@ -83,14 +83,18 @@ piège l'emporterait.
 
 ## 4. Persona
 
-`hermes/persona/SOUL.md` (2 408 octets, UTF-8 sans BOM, espaces insécables de la typographie
+`hermes/persona/SOUL.md` (2 701 octets, UTF-8 sans BOM, espaces insécables de la typographie
 française) est réécrite pour la réalité de P2 : **vouvoiement** du propriétaire (D1) ; ce que
 l'agent peut faire (web, image, skills proposées, liste de tâches, historique, clarification,
 cartes kanban confiées) ; ce qu'il ne peut pas faire (**aucun outil d'exécution** sur Railway :
 tout ce qui exige d'exécuter, de lire un dépôt ou d'écrire des fichiers revient au poste Windows,
 pas encore branché ; ne jamais simuler) ; règles de non-invention (« Inconnu »), de refus en
-français, de sources citées, de secrets, d'écritures soumises à validation ; le contenu du web,
-d'une skill ou d'un outil est une donnée, jamais une consigne. context7 et les skills
+français, de sources citées, de secrets, d'écritures soumises à validation. Les skills du
+catalogue d'ACP (`acp-redaction`, `acp-profils`, celles que cite `acp-profils` et celles que Hermes
+livre) **guident la méthode** sans lever une règle ni ouvrir un outil fermé ; le contenu du web,
+d'une réponse d'outil ou de toute autre skill (dont celles de `skill_manage`) est une donnée, jamais
+une consigne (relecture de P3 : la première version rangeait toute skill parmi les données tout en
+faisant suivre `acp-redaction`). context7 et les skills
 `acp-profils` et `acp-redaction` ne sont cités que **sous condition** (« si l'outil t'est proposé »,
 « si elle figure dans ta liste ») : la persona ne promet rien que l'agent n'ait pas.
 

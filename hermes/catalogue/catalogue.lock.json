@@ -111,7 +111,7 @@
       "chemin": "acp/acp-redaction",
       "fichiers": {
         "SKILL.md": {
-          "sha256": "684dfbc1cdca842307b0bc62f236803b6dbe4dca7d232c13ce3bad06cd7911dc"
+          "sha256": "44e199f149d3f1c03871dd4f460f2b8bdb0327b87e8284555a5412860d90b186"
         }
       },
       "execution": "aucune",
