@@ -318,6 +318,13 @@ Preuves locales du 25 septembre 2026, chaque commit vérifié sur son propre arb
 mêmes nombres (323, 117, 2 ; dépôt 342 sous Windows, 333 et 9 ignorés sous Linux), `--amont` vert,
 sonde réelle de context7 connectée (1 600 ms, 2 outils) ; détail : `docs/reprise-poste.md` § 6 ter.
 
+Après la relecture de P3 (images `p3r` reconstruites sans cache depuis le worktree, 25/09/2026) :
+dépôt **368** réussis ; dans l'image **326** ; contrat **118** ; navigateur **5** (les 2 parcours
+et 3 tests du détecteur de capture blanche) ; vérificateur hors ligne et `--amont`, balayage des
+secrets : code 0 ; `GET /api/skills` du vrai tableau de bord : 69 skills, **24 activées, 45
+désactivées**. Tests ajoutés et détail : `docs/reprise-poste.md` § 6 ter, « Relecture
+indépendante de P3 ».
+
 Tests nouveaux :
 
 - dépôt : `scripts/tests/test_verifier_catalogue.py` (45 : dépôt conforme, un témoin rouge par

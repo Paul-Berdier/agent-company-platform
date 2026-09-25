@@ -946,7 +946,8 @@ Même branche `refonte/hermes-p3`, empilée sur `refonte/hermes-p2` ; version 0.
   context7.
 - **44** skills livrées désactivées (liste du cahier, plus `grounded-citations`,
   `email-inbox-triage`, `spike`, dont le flux principal exige un script ou un outil fermé) ;
-  10 gardées.
+  10 gardées. Depuis la relecture : **46** et **8** (`claude-design`,
+  `hermes-agent-skill-authoring` désactivées).
 - Managed scope à **50** clés et non 47 : `ssl_verify`, `tools.resources` et `tools.prompts` de
   context7 épinglés en plus (certificat toujours vérifié, aucun outil utilitaire de ressources ni de
   gabarits) ; `mcp_discovery_timeout` **non** épinglé (le vrai serveur a répondu en 2,46 s : context7
@@ -959,11 +960,14 @@ Même branche `refonte/hermes-p3`, empilée sur `refonte/hermes-p2` ; version 0.
   contrat, dans son **propre conteneur** joint par l'alias réseau `mcp.context7.com` (et non
   `--add-host`) ; tous les autres conteneurs Hermes de test résolvent ce nom vers leur bouclage
   local.
-- Balayage des secrets : script de motifs du brouillon (pas de gitleaks), comme la première partie.
+- Balayage des secrets : script de motifs du brouillon (pas de gitleaks), comme la première partie ;
+  depuis la relecture, `scripts/balayer_secrets.py`, dans le dépôt et en CI (toujours pas gitleaks).
 - **Test d'identité de P2 modifié** (`ec43987`) pour rendre `image.yml` vert : il n'exige plus que le
   pic de la rafale de 20 dépasse celui de la rafale de 10 (ordre non garanti, mesuré en CI) ; le
   critère des deux tiers de la limite porte sur le plus haut des deux. **Décision à confirmer par le
-  propriétaire** (seconde retouche de ce test après `b237912`).
+  propriétaire** (seconde retouche de ce test après `b237912`). La relecture a montré que ce
+  critère acceptait une rafale non simultanée : depuis `9a4b8ce`, la simultanéité est exigée
+  (troisième retouche, qui **renforce** le test ; décision toujours à confirmer).
 
 ### Preuves locales (25/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
 
@@ -1052,7 +1056,103 @@ pas ; `ci.yml` se relance.
 - Premier tour d'une toute première session du tableau de bord sans context7 (délai de 1,5 s de
   Hermes) : non mesuré sur Railway.
 - L'effet de `skills.disabled` dans un vrai worker kanban (même chargeur, surface sondée seulement).
-- Aucune relecture indépendante de la seconde partie à ce jour.
+- Relecture indépendante de P3 (deux lentilles) faite : traitement ci-dessous.
+
+### Relecture indépendante de P3 : traitement
+
+Deux relectures (exactitude, conformité) de `120b15c..96e8cf3` ; 14 constats (4 moyens, 10 bas),
+aucun critique ni haut. Chaque constat a été **revérifié** (source de Hermes `f97608f`, image
+construite, dépôts amont), puis corrigé avec un test qui échoue sans la correction, ou documenté
+quand il ne portait que sur la documentation. **Aucun n'a été réfuté.** Les n° 11 et 1 se
+recouvrent (`hermes-agent-skill-authoring`).
+
+Commits (aucun `Co-Authored-By`) :
+
+| Commit | Sujet |
+|---|---|
+| `ff7af03` | fix(catalogue): disable claude-design and hermes-agent-skill-authoring on Railway |
+| `52a9c57` | fix(catalogue): stop announcing workstation deliveries the autonomy plan does not schedule |
+| `1ed3d6a` | fix(catalogue): classify the plan's recommended skills that P3 did not retain |
+| `b8524f3` | fix(hermes): let catalogue skills guide the method in the French persona |
+| `9a4b8ce` | test(identite): require the Authelia burst to load concurrent argon2id checks |
+| `03873a8` | fix(acp-poste): tell how to remove an uncatalogued MCP server before restarting |
+| `8422d4c` | feat(tooling): count hard-coded English strings across the whole dashboard source |
+| `ed8177c` | test(e2e): capture rendered pages in full and refuse blank captures |
+| `7d7b280` | docs(interface): place the Catalogue tab in Hermes' separate plugin group |
+| `d927327` | feat(tooling): scan tracked files and branch history for secret patterns |
+| `9d99fad` | docs(railway): make reading the context7 terms a first-deployment prerequisite |
+| `c347e4a` | docs(plan): record the P3 default choices D1 to D20 as awaiting the owner |
+| `4694136` | docs: fix the stale handoff line and the contract prerequisite |
+| (ce commit) | docs: record the P3 review findings, their treatment and local proofs |
+
+| N° | Constat (gravité) | Traitement | Preuve |
+|---|---|---|---|
+| 1 | `claude-design` et `hermes-agent-skill-authoring` gardées alors que leur livrable exige un outil fermé ; raisons fausses ; recherche d'`arxiv` par `curl` (moyenne) | **corrigé** : les deux désactivées (46 / 8), retirées du profil web ; raisons des 8 gardées réécrites (ce qui reste fermé) ; `acp-profils` fait chercher arXiv par le web | `test_une_skill_livree_gardee_n_a_aucun_livrable_ferme_et_dit_ses_limites` (image) : **21 écarts** sur l'ancien verrou (dont les deux livrables fermés), 0 sur le nouveau ; `GET /api/skills` du vrai tableau de bord : 69 skills, 24 activées, 45 désactivées (au lieu de 26 et 43) |
+| 2 | Test d'identité affaibli par `ec43987` (moyenne) | **corrigé** : une rafale de n ne compte que si `VmHWM` monte d'au moins 3/4 × n × 64 Mio, sinon refaite (3 essais), aucun essai ⇒ échec | `test_critere_de_simultaneite_…` : refuse la rafale de 36134351025 (7,0 × 64 Mio) que « après > avant » acceptait ; local : 10,0 et 20,1 × 64 Mio, retenues au premier essai ; contrat vert |
+| 3 | « INSTALL » et « ADD SERVER » de la page MCP native rendent le démarrage suivant impossible, remède non dit (basse) | **corrigé** : l'alerte de `/v1/meta` dit le remède (supprimer depuis la page MCP avant tout redémarrage ; désactiver ne suffit pas) ; `catalogue.md` § 7.3, `railway.md` § 9 et § 10 b | `test_d8_serveur_ajoute_par_la_page_mcp_native_puis_supprime` (routes de Hermes, sans réseau : `airtable` et `deepwiki` écrits, gardes refusent, supprimés, gardes admettent) ; `test_serveur_mcp_hors_catalogue_signale` échoue sur l'ancienne alerte |
+| 4 | Onglet Catalogue dit « après Skills » (basse) | **corrigé** (documentation et test) : groupe « Plugins » sous le menu natif, limite de découvrabilité dite | test navigateur : lien exigé dans `[aria-labelledby="hermes-sidebar-plugin-nav-heading"]`, groupe « Plugins » aux deux formats ; capture `bureau-08-kanban.png` pleine hauteur |
+| 5 | Captures vides ou tronquées (basse) | **corrigé** : attente du formulaire, du lien 2FA et du consentement ; fenêtre agrandie à la hauteur des conteneurs défilants ; capture uniforme refusée ; nos pages et le portail échouent si un conteneur dépasse encore | le détecteur signale la capture du portail de la relecture (5 851 octets) et aucune des 18 autres ; `test_captures.py` (3) ; portail bureau 19 210 octets, Accueil au téléphone 1 589 px de haut (jusqu'aux Raccourcis et au pied) |
+| 6 | Décompte limité à `pages` et `components` (basse) | **corrigé** : tout `web/src` hors `i18n` et tests, par dossier ; `.ts` et textes calculés listés « non mesurés » ; CI et commande documentée extraient `web/src` entier | Vitest `decompte.test.ts` échoue sur l'ancien script ; image `p3r` : **615 dans 31 fichiers** (`pages` 548, `components` 62, `App.tsx` 5) au lieu de 610 dans 30 |
+| 7 | Reprise périmée ; prérequis `.railway` absent des commandes (basse) | **documenté** : § 1 de ce fichier, `interface.md` § 8 | — |
+| 8 | Persona contradictoire sur les skills (moyenne) | **corrigé** : les skills du catalogue guident la méthode sans lever une règle ni ouvrir un outil fermé ; web, outils et toute autre skill (dont `skill_manage`) = données ; même règle dans `acp-redaction` | `test_la_persona_distingue_les_skills_du_catalogue_des_donnees` échoue sur l'ancienne persona ; analyse d'injection de Hermes : aucun constat ; effet sur un vrai modèle **non mesuré** |
+| 9 | Décisions D1 à D18 citées, jamais consignées (moyenne) | **corrigé** : `plan.md` § 1 liste D1 à D20, choix appliqué et écarts, **non confirmés par le propriétaire**, sans valeur « font foi » ; à confirmer d'abord D1 (contraire à la recommandation d'origine), D2, D5, D12, D16 | `test_decisions_documentees.py` : toute citation D<n> des docs, du journal et du verrou doit être définie ; échoue sur l'ancien plan |
+| 10 | `skill-creator`, `mcp-builder`, `frontend-design`, `obra/superpowers` ni retenus ni exclus (basse) | **corrigé** : aux exclus avec commit relevé, licence et raison (D12) ; règle du vérificateur sur les skills recommandées par le plan | licences lues à l'amont (`anthropics/skills` `33375500` : Apache-2.0 ; `obra/superpowers` `5bf4e780` : MIT) ; collisions vérifiées contre le verrou ; 4 écarts sur l'ancien verrou, 2 tests |
+| 11 | Raison fausse de `hermes-agent-skill-authoring` (basse) | **corrigé** avec le n° 1 | idem n° 1 |
+| 12 | Figma et 10 skills annoncés « reportés à P8 », absents du plan (basse) | **corrigé** : skills `candidate-poste`, Figma `hors-v1`, Playwright seul `reporte-p8` ; libellés du Catalogue, `acp-profils`, docs | vérificateur : **11 écarts** sur l'ancien verrou, 3 tests ; Vitest (`Prévu au poste (P8)`, `Hors v1`) ; test de la route |
+| 13 | Balayage des secrets non reproductible (basse) | **corrigé** : `scripts/balayer_secrets.py` (fichiers suivis et lignes ajoutées d'une plage), en CI (`ci.yml`, travail moteur) | 17 tests (faux secrets assemblés à l'exécution) ; dépôt et `origin/main..HEAD` : aucun motif ; un faux positif trouvé et écarté (en-tête PEM cité par le `grep` d'`acp-identite-entree`) |
+| 14 | context7 activé sans lecture de ses conditions (basse) | **documenté** : prérequis du premier déploiement (`railway.md` § 2 point 6, rappelé au § 4.1) ; à défaut, PR qui retire context7 | aucune lecture juridique faite ici |
+
+Écarts au plan de correction, justifiés :
+- n° 1 : au-delà des deux skills relevées, les raisons de `competitor-news-monitor`,
+  `product-price-monitor`, `document-to-action-items`, `meeting-action-items` et `hermes-agent` ne
+  disaient pas leurs passages fermés (fichier d'état, `read_file`, navigateur) : réécrites. Elles
+  restent **gardées** pour leur usage ponctuel ; les désactiver aussi viderait le profil
+  « recherche » : choix à confirmer par le propriétaire avec D2 ;
+- n° 2 : critère de simultanéité plutôt qu'un seuil de durée (la durée dépend du processeur) ;
+  la cause du pic bas de la CI (régulation après 5 échecs, ou vérifications successives) n'est
+  pas établie ;
+- n° 3 : ACP ne masque pas les boutons de la page native (aucun emplacement de greffon ne le
+  permet sans réécrire la page) ; le remède passe par l'alerte et la documentation ;
+- n° 5 : pour une page **native**, un contenu qui dépasse encore est relevé, pas refusé
+  (`telephone-05-discussion.png` : 63 px non déroulés, conteneur de la TUI) ;
+- n° 12 : aucune skill n'a été inscrite au plan d'autonomie : c'est au propriétaire de le décider.
+
+Preuves locales (25/09/2026 ; images **reconstruites sans cache depuis le worktree** au commit
+`03873a8`, dernier à toucher l'image : `acp-hermes:p3r`, `acp-hermes-tests:p3r`, `acp-identite:p3r`,
+empreintes de `/opt/acp` et des greffons identiques à l'arbre final ; Windows 10, Docker 29.5.3,
+venv neuf Python 3.12.10 installé depuis le verrou haché, pytest 9.1.1, Node 24.19.0) :
+- **dépôt** (`python -m pytest -q`) : **368 réussis**, 0 échec, 0 ignoré (26 de plus : vérificateur
+  52 au lieu de 45, balayage des secrets 17, décisions 2) ; `generer_themes.py --check`,
+  `check_version.py`, `check_engine_frozen.py`, `check_lock.py`, `verifier_catalogue.py` et
+  `verifier_catalogue.py --amont` (« Fichiers identiques au dépôt amont ») : code 0 ;
+  `balayer_secrets.py --arbre --plage origin/main..HEAD` : aucun motif ;
+- **interface** : `tsc` sans erreur, Vitest **55 réussis** (11 fichiers) ; `npm run check` : 4
+  fichiers de greffons à jour (bundles reconstruits : libellés du poste) ;
+- **dans l'image** : **326 réussis**, 0 échec (4 min 47 s) ; `GET /api/skills` : 69 skills,
+  24 activées, 45 désactivées ;
+- **contrat** (après `npm ci --ignore-scripts --prefix .railway`) : **118 réussis**, 0 échec
+  (19 min 9 s) ; rafales d'Authelia retenues au premier essai : 10 → 0,723 Gio (10,0 × 64 Mio),
+  20 → 1,351 Gio (20,1 × 64 Mio, 54,0 % de la limite) ; témoin sous 1 Gio tué au premier essai
+  (137) ; `GET /api/skills` du vrai tableau de bord : 69, 24 activées, 45 désactivées ;
+- **navigateur** (`ACP_E2E_OBLIGATOIRE=1`) : **5 réussis** (2 min 18 s), Chromium 1234 déjà présent,
+  rien téléchargé ; aux deux formats : 26 entrées au Catalogue, groupe de navigation « Plugins »,
+  aucune violation axe, aucune requête hors de l'origine (376 et 375) ; captures (19, non
+  committées) dont `bureau-01-portail-authelia.png` `60f3e014…`, `telephone-02-accueil.png`
+  `97e0fb83…`, `telephone-03-catalogue.png` `ea94b6eb…` ;
+- **chaque correction rejouée sur l'état d'avant** : nouveaux tests contre l'image `rev3` de la
+  relecture (`96e8cf3`) ou contre l'ancien fichier (n° 1, 3, 6, 8, 9, 10, 12 : chiffres au tableau) ;
+- `git diff --check` propre ; tout en LF ; aucun `Co-Authored-By` ; aucun fichier `.claude` ; aucun
+  conteneur, volume ni réseau `acp-contrat-*` restant.
+- Les suites Docker (image, contrat, navigateur) n'ont tourné que sur l'arbre final ; chaque
+  commit intermédiaire a passé la suite du dépôt et, selon ce qu'il touchait, le vérificateur, Vitest
+  ou les tests de l'image montés sur l'image `rev3`.
+
+Intégration continue : relevée après le push de la branche, au commit de documentation suivant.
+
+Non vérifié après la relecture : l'effet de la persona corrigée sur un **vrai** modèle ; la recherche
+d'arXiv par la recherche web ; context7 depuis Railway ; la cause du pic bas de la rafale de 20 en
+CI (régulation ou vérifications successives) ; le remède de la page MCP sur un vrai tableau de bord
+(prouvé par ses routes, pas par un clic) ; la lecture des conditions de context7 (au propriétaire).
 
 ## 7. Chaîne d'outils Windows
 

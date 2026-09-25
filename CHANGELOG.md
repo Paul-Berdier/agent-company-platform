@@ -180,7 +180,8 @@ Seconde partie : réglages prêts (`docs/refonte/catalogue.md`).
   `mcp_servers.context7`, en gardant commentaires, propriétaire et mode ;
 - context7, seul serveur MCP côté Hermes, **distant** : huit épingles (managed scope à 50 clés),
   `context7` dans `platform_toolsets.cli`, deux outils de plus dans la garde (26) ; échantillonnage
-  et élicitation coupés ; `api_server` et cron sans MCP ; Playwright MCP prévu au poste en P8, Figma hors v1 ;
+  et élicitation coupés ; `api_server` et cron sans MCP ; Playwright MCP prévu au poste en P8,
+  Figma hors v1 ;
 - refus de démarrer, et de relancer le tableau de bord, sur un serveur MCP stdio ou hors catalogue
   dans la configuration du volume (décision D8) ; `diagnostiquer` le signale ;
 - `GET /api/plugins/acp-poste/v1/catalogue` et blocs `catalogue` et `interface` de `/v1/meta` ;
@@ -190,6 +191,31 @@ Limites connues (détail : `catalogue.md` § 10) : context7 non éprouvé depuis
 conditions d'utilisation non lues ; il peut manquer au premier tour d'une première session du
 tableau de bord ; profils nommés du volume sans réglages ; effet sur les workers kanban non prouvé
 par un vrai worker.
+
+Corrections de la relecture indépendante de P3 (exactitude et conformité, 14 constats ; détail :
+`docs/reprise-poste.md` § 6 ter, « Relecture indépendante de P3 ») :
+
+- `claude-design` et `hermes-agent-skill-authoring` **désactivées** (leur livrable exige un outil
+  fermé sur Railway) : 46 skills livrées désactivées, 8 gardées, chacune avec une raison qui dit ce
+  qui reste fermé (recherche d'`arxiv` par `curl`, fichier d'état, planification) ; un test de
+  l'image relit leur texte ;
+- côté poste, plus rien d'annoncé hors du plan d'autonomie : skills « candidates, non
+  planifiées », Figma « hors v1 », Playwright seul « prévu en P8 » (vérificateur, route, onglet
+  Catalogue, `acp-profils`) ;
+- `skill-creator`, `mcp-builder`, `frontend-design` et `obra/superpowers` classés aux exclus
+  (D12) ; le vérificateur exige que toute skill recommandée par le plan soit classée ;
+- persona et `acp-redaction` : les skills du catalogue guident la méthode sans lever une règle ; le
+  web, les réponses d'outils et toute autre skill restent des données ;
+- test d'identité : une rafale ne compte que si elle a chargé les trois quarts de n vérifications
+  argon2id simultanées, sinon elle est refaite (trois essais au plus) ;
+- alerte d'un serveur MCP hors catalogue : le remède est dit (le supprimer depuis la page MCP
+  avant tout redémarrage) et prouvé par les routes de Hermes ;
+- captures du navigateur : rendu attendu, page blanche refusée, contenu défilant capturé en
+  entier ; onglet Catalogue situé dans le groupe « Plugins » de Hermes (test et documentation) ;
+- décompte des chaînes restées en anglais étendu à tout `web/src` (615 textes dans 31 fichiers) ;
+- `scripts/balayer_secrets.py` (fichiers suivis et lignes ajoutées par la branche), en CI ;
+- choix par défaut D1 à D20 de P3 consignés dans `plan.md` § 1, **non confirmés** par le
+  propriétaire ; lecture des conditions de context7 exigée avant le premier déploiement.
 
 ## [Unreleased]
 
