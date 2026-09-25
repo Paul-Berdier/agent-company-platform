@@ -240,3 +240,25 @@ def test_d8_le_journal_des_gardes_le_dit(chemins, env_valide, capsys):
     ad.commande_gardes(chemins, env_valide)
     assert ("serveurs MCP du volume inspectés : aucun serveur stdio ni hors catalogue (admis : context7)."
             in capsys.readouterr().out)
+
+
+def test_temoin_d8_sans_refus_un_serveur_stdio_du_volume_est_lance(chemins, valeurs, temoins):
+    """Pourquoi D8 : la découverte MCP de Hermes lance TOUS les serveurs configurés, quelles que soient
+    les listes de plateforme (tools/mcp_tool_discovery.py:552-605). Sans le refus de démarrer, un
+    serveur stdio posé dans le volume (même absent de platform_toolsets) est un processus lancé dans
+    le conteneur : le témoin apparaît."""
+    config = ("mcp_servers:\n  outil:\n    command: /bin/sh\n"
+              f"    args: [-c, 'touch {temoins}/mcp-stdio; sleep 5']\n")
+    installer_home_de_test(chemins, valeurs, config=config)
+    with pytest.raises(ad.Refus, match="avec un « command »"):
+        ad.refuser_mcp_du_volume(chemins, ad.charger_catalogue(chemins))
+    fichier = chemins.hermes_home.parent / "sonde-stdio.json"
+    sortie = lancer_outil("sonde_surfaces.py", str(fichier), "--mcp", env=env_processus(chemins))
+    assert sortie.returncode == 0, sortie.stderr[-3000:]
+    surfaces = json.loads(fichier.read_text(encoding="utf-8"))
+    print(json.dumps(surfaces["_decouverte"], ensure_ascii=False))
+    assert (temoins / "mcp-stdio").exists(), "la découverte aurait dû lancer le serveur stdio"
+    # Aucune surface n'en offre les outils (liste blanche cli, no_mcp ailleurs) : c'est le processus
+    # lui-même, et non ses outils, que seul D8 empêche.
+    assert all(not any(o.startswith("mcp__outil__") for o in v.get("mcp") or [])
+               for k, v in surfaces.items() if not k.startswith("_"))
