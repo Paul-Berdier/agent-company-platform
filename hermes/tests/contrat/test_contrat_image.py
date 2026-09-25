@@ -24,8 +24,8 @@ from pathlib import Path
 import pytest
 
 from conftest import (
-    ENV_VALIDE, RACINE_HERMES, Conteneur, afficher, demarrer_jusqu_a_l_arret, docker, lancer,
-    lire_version_epinglee, options_env)
+    ENV_VALIDE, RACINE_HERMES, Conteneur, afficher, attendre_modele_factice, demarrer_jusqu_a_l_arret, docker,
+    lancer, lire_version_epinglee, options_env)
 
 EPINGLE = lire_version_epinglee()
 
@@ -421,6 +421,7 @@ def pile(ressources, image_tests):
     # Modèle factice en boucle locale : Hermes n'a aucun autre fournisseur de modèle.
     docker("exec", "-d", "-u", "hermes", hermes.nom, "/opt/hermes/.venv/bin/python",
            "/opt/acp-tests/outils/modele_factice.py", "--port", "18080", "--journal", "/tmp/modele-factice.jsonl")
+    attendre_modele_factice(hermes, "/tmp/modele-factice.jsonl")
     return hermes
 
 
@@ -496,9 +497,10 @@ print(c.status, c.assignee, c.claim_lock, c.worker_pid, int(time.time()) - c.cre
 """, utilisateur="hermes", env={"HERMES_HOME": "/opt/data"}, verifier=True).stdout.split()
     journal_gateway = pile.sh("grep -h 'kanban dispatcher: embedded' /opt/data/logs/gateways/default/current "
                               "/opt/data/logs/*.log 2>/dev/null | tail -1").stdout.strip()
-    # Journal absent = aucune requête reçue. Constaté localement le 25/09/2026 sur l'image P2 :
-    # aucune sonde de métadonnées pendant cette fenêtre, le fichier n'existait pas encore.
-    requetes = [json.loads(l) for l in pile.sh("cat /tmp/modele-factice.jsonl 2>/dev/null || true",
+    # Le journal existe toujours : la fixture l'a fait naître par une sonde GET /v1/models avant
+    # le test (relecture P2 : l'ancien « || true » réussissait à vide si le modèle n'avait pas
+    # démarré). Un fichier absent fait donc échouer ce test.
+    requetes = [json.loads(l) for l in pile.sh("cat /tmp/modele-factice.jsonl",
                                                 verifier=True).stdout.splitlines() if l.strip()]
     appels = [r for r in requetes if r["methode"] == "POST" and r["chemin"].endswith("/chat/completions")]
     afficher("carte en triage sur le tableau poste",
@@ -508,6 +510,8 @@ print(c.status, c.assignee, c.claim_lock, c.worker_pid, int(time.time()) - c.cre
              f"(GET …/models, POST /api/show), dont {len(appels)} appel(s) de complétion")
     assert "interval=5.0s" in journal_gateway
     assert etat[:4] == ["triage", "poste-windows", "None", "None"]
+    # Contrôle positif : le modèle factice répondait bien (au moins la sonde de la fixture).
+    assert any(r["methode"] == "GET" and r["chemin"].endswith("/models") for r in requetes), requetes
     # Aucune décomposition : aucune complétion demandée au modèle (seules des sondes de
     # métadonnées, émises par Hermes au démarrage, sont admises).
     assert appels == []

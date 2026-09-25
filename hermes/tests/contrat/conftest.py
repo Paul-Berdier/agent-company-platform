@@ -231,6 +231,24 @@ class Conteneur:
         raise AssertionError(f"api_server de la passerelle non branché après {delai} s : {dernier}")
 
 
+def attendre_modele_factice(conteneur: Conteneur, journal: str, delai: float = 60) -> None:
+    """Attend que le modèle factice (lancé par ``docker exec -d``) réponde 200 sur
+    ``/v1/models``, puis exige son journal, où cette sonde est consignée. Sans cela, un test qui
+    conclut « aucune requête reçue » réussirait à vide si le modèle n'avait pas démarré
+    (relecture P2)."""
+    limite = time.monotonic() + delai
+    code = ""
+    while time.monotonic() < limite:
+        code = conteneur.executer(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                                   "http://127.0.0.1:18080/v1/models"]).stdout.strip()
+        if code == "200":
+            break
+        time.sleep(0.5)
+    else:
+        raise AssertionError(f"le modèle factice ne répond pas sur 127.0.0.1:18080 (dernier code « {code} »)")
+    assert conteneur.sh(f"test -s {journal}").returncode == 0, f"journal du modèle factice {journal} absent"
+
+
 def lancer(ressources: Ressources, image: str, env: Dict[str, str], *, volume: Optional[str] = None,
            reseau: Optional[str] = None) -> Conteneur:
     nom = ressources.nom("hermes")
