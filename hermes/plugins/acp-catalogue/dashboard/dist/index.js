@@ -32,7 +32,9 @@
       activee: "Activ\xE9e",
       desactivee: "D\xE9sactiv\xE9e",
       absente: "Absente",
-      reportee: "Report\xE9e au poste (P8)",
+      candidate: "Candidate pour le poste, non planifi\xE9e",
+      prevueP8: "Pr\xE9vu au poste (P8)",
+      horsV1: "Hors v1",
       ambigue: "Nom ambigu",
       livree: "Livr\xE9e",
       aJour: "\xC0 jour",
@@ -93,7 +95,7 @@
       profilRecherche: "Recherche",
       profilDonnees: "Donn\xE9es",
       cibleHermes: "Hermes (Railway)",
-      ciblePoste: "Poste \u2014 report\xE9 \xE0 P8",
+      ciblePoste: "Poste Windows",
       skills: "Skills",
       mcp: "Serveurs MCP",
       nom: "Nom",
@@ -234,7 +236,9 @@
     inconnu: "neutre",
     nonConfigure: "neutre",
     horsLigne: "neutre",
-    reportee: "neutre",
+    candidate: "neutre",
+    prevueP8: "neutre",
+    horsV1: "neutre",
     desactivee: "neutre"
   };
   function Donnee(props) {
@@ -357,10 +361,16 @@
       case "absente":
       case "absent":
         return "absente";
-      case "reportee":
-      case "reportee-p8":
+      // Côté poste (relecture de P3) : rien n'est promis hors du plan d'autonomie. Une skill du
+      // poste est une candidate non planifiée ; un serveur MCP n'est « reporte-p8 » que si le plan le
+      // prévoit en P8, sinon « hors-v1 ».
+      case "candidate-poste":
+        return "candidate";
       case "reporte-p8":
-        return "reportee";
+      case "reportee-p8":
+        return "prevueP8";
+      case "hors-v1":
+        return "horsV1";
       case "ambigue":
         return "ambigue";
       case "livree":

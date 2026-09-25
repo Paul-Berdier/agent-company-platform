@@ -35,10 +35,12 @@ describe("Catalogue", () => {
       "emilkowalski/skills@d16ebe60",
       "MIT",
       "Hermes (Railway)",
-      "Poste — reporté à P8",
+      "Poste Windows",
       "Active",
       "Désactivée",
-      "Reportée au poste (P8)",
+      "Candidate pour le poste, non planifiée",
+      "Prévu au poste (P8)",
+      "Hors v1",
       "Site web",
       "Données",
       "mcp__context7__query_docs",
@@ -67,7 +69,7 @@ describe("Catalogue", () => {
     await choisir(r.racine, "acp-filtre-profil", "");
     await choisir(r.racine, "acp-filtre-cible", "poste");
     expect(noms(r.racine, "acp-catalogue-skills")).toEqual(["browser-qa"]);
-    expect(noms(r.racine, "acp-catalogue-mcp")).toEqual(["playwright"]);
+    expect(noms(r.racine, "acp-catalogue-mcp")).toEqual(["playwright", "figma"]);
     await choisir(r.racine, "acp-filtre-source", "emilkowalski/skills");
     expect(r.racine.querySelector("#acp-catalogue-skills")?.parentElement?.textContent).toContain(
       "Aucune entrée pour ces filtres.",

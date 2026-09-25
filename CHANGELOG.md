@@ -168,7 +168,7 @@ Seconde partie : réglages prêts (`docs/refonte/catalogue.md`).
   près depuis les blobs git de `emilkowalski/skills` (`d16ebe60`), `leonxlnx/taste-skill`
   (`c184364c`) et `affaan-m/ECC` (`v2.2.1`, `5064474`), toutes sous licence MIT, avec `LICENSE`,
   `PROVENANCE.md` et `hermes/THIRD_PARTY.md` ; 2 skills maison en français (`acp-redaction`,
-  `acp-profils`) ; 10 skills inscrites pour le poste (P8) ; exclusions motivées (dont
+  `acp-profils`) ; 10 skills candidates pour le poste (non planifiées) ; exclusions motivées (dont
   `literature-review`, de provenance incertaine, et les `docx`/`pdf`/`pptx`/`xlsx`
   d'`anthropics/skills`) ;
 - verrou `hermes/catalogue/catalogue.lock.json` (empreintes, blobs git, licences, profils base, web,
@@ -180,7 +180,7 @@ Seconde partie : réglages prêts (`docs/refonte/catalogue.md`).
   `mcp_servers.context7`, en gardant commentaires, propriétaire et mode ;
 - context7, seul serveur MCP côté Hermes, **distant** : huit épingles (managed scope à 50 clés),
   `context7` dans `platform_toolsets.cli`, deux outils de plus dans la garde (26) ; échantillonnage
-  et élicitation coupés ; `api_server` et cron sans MCP ; Playwright MCP et Figma reportés au poste ;
+  et élicitation coupés ; `api_server` et cron sans MCP ; Playwright MCP prévu au poste en P8, Figma hors v1 ;
 - refus de démarrer, et de relancer le tableau de bord, sur un serveur MCP stdio ou hors catalogue
   dans la configuration du volume (décision D8) ; `diagnostiquer` le signale ;
 - `GET /api/plugins/acp-poste/v1/catalogue` et blocs `catalogue` et `interface` de `/v1/meta` ;

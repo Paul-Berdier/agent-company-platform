@@ -228,7 +228,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             assert bilan["catalogue_route_v1"] == "servie"
             entrees = page.locator("#acp-catalogue-skills >> xpath=.. >> li.acp-entree")
             bilan["catalogue_entrees"] = entrees.count()
-            assert entrees.count() == 26, entrees.count()  # 16 livrées dans l'image + 10 reportées au poste
+            assert entrees.count() == 26, entrees.count()  # 16 livrées dans l'image + 10 candidates pour le poste
             texte_catalogue = page.inner_text('[data-acp-racine="catalogue"]')
             assert "acp-redaction" in texte_catalogue and "context7" in texte_catalogue
             bilan["catalogue"] = _verifier_page_acp(page, "catalogue", format_, catalogue)

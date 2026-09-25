@@ -27,7 +27,9 @@ const FAMILLES: Record<CleEtat, Famille> = {
   inconnu: "neutre",
   nonConfigure: "neutre",
   horsLigne: "neutre",
-  reportee: "neutre",
+  candidate: "neutre",
+  prevueP8: "neutre",
+  horsV1: "neutre",
   desactivee: "neutre",
 };
 

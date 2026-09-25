@@ -100,13 +100,18 @@ l'image : **16 verdicts « safe »**, installation admise ; constats de gravité
 `design-taste-frontend` (10 × `unpinned_npm_install`, exemples `npm install` du texte) et
 `python-patterns` (1 × `unpinned_pip_install`).
 
-### 3.2 Reportées au poste (étape P8), inscrites au verrou, non livrées
+### 3.2 Candidates pour le poste, inscrites au verrou, non livrées, non planifiées
 
 `find-animation-opportunities`, `improve-animations`, `review-animations`, `prototype` (Emil
 Kowalski), `redesign-existing-projects` (taste-skill), `production-audit`, `browser-qa`,
 `e2e-testing`, `canary-watch`, `benchmark` (ECC) : elles lisent le code d'un dépôt, écrivent des
-fichiers, pilotent un navigateur ou mesurent un site déployé. Le Catalogue les montre « Poste —
-reporté à P8 ».
+fichiers, pilotent un navigateur ou mesurent un site déployé. **Aucune étape du plan ne les
+prévoit** : le plan d'autonomie ([autonomie.md](autonomie.md) § 8, P8) ne met au poste que les
+serveurs MCP context7 puis Playwright. Elles sont donc au verrou à l'état `candidate-poste`, et le
+Catalogue les montre « Poste Windows » et « Candidate pour le poste, non planifiée » ; les
+inscrire au plan revient au propriétaire. Le vérificateur refuse qu'une skill du poste se dise
+« reportée à P8 » (relecture de P3 : P3 les annonçait « reportées à P8 », promesse absente du
+plan).
 
 ### 3.3 Exclues (au verrou, avec leur raison)
 
@@ -164,10 +169,10 @@ contrôle des collisions.
 Dans le verrou (`profils`), affichés par le Catalogue, cités par la skill `acp-profils` (le
 vérificateur exige qu'elle nomme chacun) ; `projet_lancer` (P4) les appliquera aux cartes.
 
-| Profil | Skills côté Hermes | MCP côté Hermes | Poste (P8, reporté) |
+| Profil | Skills côté Hermes | MCP côté Hermes | Poste (non livré) |
 |---|---|---|---|
 | `base` | `acp-redaction`, `acp-profils`, `hermes-agent` | context7 | — |
-| `web` | base + `emil-design-eng`, `apple-design`, `mobile-native`, `animate`, `animation-vocabulary`, `pick-ui-library`, `ask-sonner`, `design-taste-frontend`, `minimalist-ui`, `high-end-visual-design`, `security-review`, `accessibility` | context7 | skills du § 3.2, Playwright MCP, Figma |
+| `web` | base + `emil-design-eng`, `apple-design`, `mobile-native`, `animate`, `animation-vocabulary`, `pick-ui-library`, `ask-sonner`, `design-taste-frontend`, `minimalist-ui`, `high-end-visual-design`, `security-review`, `accessibility` | context7 | skills candidates du § 3.2 ; Playwright MCP (prévu en P8) ; Figma (hors v1) |
 | `recherche` | base + `arxiv`, `competitor-news-monitor` | context7 | — |
 | `donnees` | base + `mle-workflow`, `python-patterns` | context7 | — |
 
@@ -238,12 +243,12 @@ premier tour d'une toute première session et rejoindre la suivante (rafraîchis
 entre les tours) ; non épinglé, pour ne pas retarder chaque première réponse quand le service est
 en panne.
 
-### 7.2 Reportés au poste (P8) ou refusés
+### 7.2 Au poste (P8 ou hors v1) ou refusés
 
 | MCP | Côté Hermes | Côté poste |
 |---|---|---|
-| Playwright (`@playwright/mcp`, 0.0.82 relevé au registre) | refusé : lance un navigateur local | P8, sans `browser_run_code_unsafe` |
-| Figma (`https://mcp.figma.com/mcp`) | refusé : OAuth par enregistrement dynamique sous l'identité « Claude Code » usurpée par Hermes, jetons dans le volume | P8, après sonde |
+| Playwright (`@playwright/mcp`, 0.0.82 relevé au registre) | refusé : lance un navigateur local | prévu en P8 par le plan d'autonomie, sans `browser_run_code_unsafe` (état `reporte-p8`) |
+| Figma (`https://mcp.figma.com/mcp`) | refusé : OAuth par enregistrement dynamique sous l'identité « Claude Code » usurpée par Hermes, jetons dans le volume | **hors v1** tant qu'une sonde ne l'a pas prouvé ([plan.md](plan.md) § 8 et § 13) : état `hors-v1`, aucune étape ne le prévoit |
 | deepwiki (HTTP, sans authentification) | non retenu en P3 (D7) : un seul MCP prouvé de bout en bout | — |
 | Agent-Reach | exclu par le propriétaire | hors v1 |
 | tout serveur `command` (stdio) | **refus de démarrer** (D8) | selon `poste.toml` (P8) |
@@ -260,7 +265,8 @@ les liste. Retrait : procédure de maintenance de [railway.md](railway.md) § 10
 
 `GET /api/plugins/acp-poste/v1/catalogue` (session obligatoire, `401` sinon) : le verrou et, pour
 chaque skill côté Hermes, l'état vu par le chargeur du tableau de bord (`active`, `desactivee`,
-`absente`, `ambigue`) ; côté poste, `reportee-p8` ; pour context7, `connexion`
+`absente`, `ambigue`) ; côté poste, l'état du verrou (`candidate-poste` pour une skill,
+`reporte-p8` ou `hors-v1` pour un serveur MCP) ; pour context7, `connexion`
 (`connecte`, `hors_ligne`, `inconnu` avant la première découverte), statut de Hermes et nombre
 d'outils exposés ; `hors_catalogue`, `collisions`, `desactivations_non_appliquees`, alertes en
 français (dossier du catalogue retiré, skills livrées réactivées, collision, serveur MCP hors

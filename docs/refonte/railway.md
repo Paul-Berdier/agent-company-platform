@@ -544,7 +544,7 @@ plus l'identifiant ; Authelia, lui, peut le journaliser lors d'une tentative de 
 13. Compte rendu de la répétition de maintenance (§ 4.11), avec le résultat de
     `railway volume files` sur un service arrêté.
 14. `railway ssh keys` **vide** hors opération (sortie datée).
-15. Étape P3 : l'onglet **Catalogue** (16 skills d'ACP « Active », 10 « Poste — reporté à P8 ») et
+15. Étape P3 : l'onglet **Catalogue** (16 skills d'ACP « Active », 10 « Candidate pour le poste, non planifiée ») et
     l'Accueil (16 / 16) ; après une première discussion, context7 « Connecté » ; une question qui
     appelle la documentation d'une bibliothèque, avec la source citée ; une réponse **en français**
     du vrai modèle à une question posée en anglais. Aucun refus « serveur MCP » dans les journaux

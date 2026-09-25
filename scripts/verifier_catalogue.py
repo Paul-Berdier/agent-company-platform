@@ -34,6 +34,9 @@ listés) :
    à macOS) ; ``hermes-agent`` jamais désactivée.
 9. **Profils** : chaque nom cité existe (catalogue ou livrée gardée), chaque skill porte les profils
    qui la citent, et la skill ``acp-profils`` les nomme tous.
+10. **Côté poste**, rien de promis hors du plan d'autonomie : une skill du poste est
+   ``candidate-poste`` (non planifiée) ; un serveur MCP du poste n'est ``reporte-p8`` que si le plan
+   le prévoit en P8 (context7, Playwright), sinon ``hors-v1``.
 
 ``--amont`` (réseau) : télécharge chaque fichier vendorisé et chaque ``LICENSE`` au commit épinglé
 (``https://raw.githubusercontent.com/<dépôt>/<commit>/<chemin>``) et les compare octet pour octet ;
@@ -64,7 +67,13 @@ SCHEMA = "acp-catalogue/1"
 LICENCES_LIBRES = {"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"}
 ANTHROPIC_INTERDITES = {"docx", "pdf", "pptx", "xlsx"}
 ESSENTIELLES = {"hermes-agent"}
-ETATS_SKILL = {"hermes": {"livree"}, "poste": {"reportee-p8"}}
+# Côté poste, rien n'est promis que le plan d'autonomie (docs/refonte/autonomie.md, P8 : « MCP côté
+# poste : context7, puis Playwright ») ne prévoit : une skill du poste est une CANDIDATE, non planifiée
+# (son inscription au plan revient au propriétaire) ; un serveur MCP du poste est « reporte-p8 » s'il
+# est au plan, « hors-v1 » sinon (Figma : « hors v1 », plan.md § 8 et § 13).
+ETATS_SKILL = {"hermes": {"livree"}, "poste": {"candidate-poste"}}
+MCP_PREVUS_AU_POSTE_EN_P8 = {"context7", "playwright"}
+ETATS_MCP_POSTE = {"reporte-p8", "hors-v1"}
 PROFILS_ATTENDUS = {"base", "web", "recherche", "donnees"}
 _NOM_SKILL = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -451,8 +460,12 @@ class Verification:
                 continue
             nom = str(serveur.get("nom", ""))
             if serveur.get("cible") == "poste":
-                if serveur.get("etat") != "reporte-p8":
-                    self.erreur(f"MCP {nom} : cible poste, état « reporte-p8 » attendu en P3.")
+                if serveur.get("etat") not in ETATS_MCP_POSTE:
+                    self.erreur(f"MCP {nom} : cible poste, état « {serveur.get('etat')} » invalide (attendu : "
+                                f"{', '.join(sorted(ETATS_MCP_POSTE))}).")
+                elif serveur.get("etat") == "reporte-p8" and nom not in MCP_PREVUS_AU_POSTE_EN_P8:
+                    self.erreur(f"MCP {nom} : « reporte-p8 » promet une livraison que le plan d'autonomie (P8) ne "
+                                "prévoit pas : état « hors-v1 ».")
                 for cle in epingles:
                     if cle.startswith(f"mcp_servers.{nom}."):
                         self.erreur(f"MCP {nom} : cible poste, il ne doit pas être épinglé côté Hermes ({cle}).")
@@ -559,8 +572,8 @@ class Verification:
                 cites.setdefault(nom, set()).add(id_profil)
                 cible = (catalogue.get(nom) or mcp.get(nom) or {}).get("cible")
                 if cible != "poste":
-                    self.erreur(f"profil {id_profil} : {nom} (poste) n'est ni une skill ni un MCP reporté au poste.")
-        # Une skill du catalogue (et un MCP reporté au poste) porte exactement les profils qui la citent ;
+                    self.erreur(f"profil {id_profil} : {nom} (poste) n'est ni une skill ni un MCP du poste.")
+        # Une skill du catalogue (et un MCP du poste) porte exactement les profils qui la citent ;
         # un MCP actif côté Hermes appartient au profil « base », donc à tous les profils.
         for nom, entree in list(catalogue.items()) + list(mcp.items()):
             declares = set(entree.get("profils") or [])
@@ -661,7 +674,7 @@ def resume(verification: Verification) -> str:
     mcp = [m.get("nom") for m in verrou.get("mcp", []) if m.get("cible") == "hermes"]
     livrees = verrou.get("livrees", {})
     return (f"{len(hermes)} skills livrées dans l'image ({sum(1 for s in hermes if s.get('source') != 'acp')} "
-            f"vendorisées, {sum(1 for s in hermes if s.get('source') == 'acp')} maison), {len(poste)} reportées au poste, "
+            f"vendorisées, {sum(1 for s in hermes if s.get('source') == 'acp')} maison), {len(poste)} candidates pour le poste, "
             f"MCP côté Hermes : {', '.join(mcp) or 'aucun'} ; skills de Hermes : "
             f"{len(livrees.get('desactivees_par_acp', []))} désactivées, {len(livrees.get('gardees', []))} gardées, "
             f"{len(livrees.get('macos_seulement', []))} réservées à macOS.")

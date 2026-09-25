@@ -922,7 +922,7 @@ Même branche `refonte/hermes-p3`, empilée sur `refonte/hermes-p2` ; version 0.
   l'octet près depuis les blobs git de `emilkowalski/skills` `d16ebe60`, `leonxlnx/taste-skill`
   `c184364c` et `affaan-m/ECC` `5064474` (`v2.2.1`), toutes MIT, avec `LICENSE`, `PROVENANCE.md`
   et `hermes/THIRD_PARTY.md` ; 2 skills maison en français (`acp-redaction`, `acp-profils`) ;
-  10 skills inscrites pour le poste (P8), non livrées.
+  10 skills candidates pour le poste (non livrées, non planifiées).
 - **Verrou** `hermes/catalogue/catalogue.lock.json` et **`scripts/verifier_catalogue.py`**
   (empreintes et blobs git, licences, noms, collisions avec les 58 livrées et 150 optionnelles de
   Hermes, exclusions, texte seul, garde et managed scope ; `--amont` contre les dépôts amont), en

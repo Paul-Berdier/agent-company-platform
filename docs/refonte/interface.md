@@ -130,7 +130,8 @@ Catalogue ; pied « ACP <version> · propulsé par Hermes Agent <version> (licen
 carte « projets » ni « quotas » avant P4 et P5.
 
 **Catalogue** : filtres Profil, Source, Cible ; par entrée : nom, description française, source
-(`dépôt@commit`), licence, cible (« Hermes (Railway) » ou « Poste — reporté à P8 »), profils, état ;
+(`dépôt@commit`), licence, cible (« Hermes (Railway) » ou « Poste Windows »), profils, état (côté poste :
+« Candidate pour le poste, non planifiée », « Prévu au poste (P8) » ou « Hors v1 ») ;
 section « Écarts » ; serveurs MCP ; et, toujours, **ce que voit le tableau de bord de Hermes**
 (`/api/skills` : installées, activées, désactivées, liste repliée). **Aucun bouton** : le
 catalogue change par une PR. Sans `/v1/catalogue`, la page le dit (« Catalogue ACP indisponible »,
@@ -176,7 +177,8 @@ d'autre :
   "inconnu", "outils_hermes": [...], "raison"}`), `profils` (objet dont les clés sont les
   profils), `hors_catalogue`, `collisions`, `desactivations_non_appliquees` (listes de noms ou
   d'objets `{"nom"}`), `alertes` (liste de phrases françaises). États reconnus : `active`/`actif`,
-  `desactivee`/`desactive`, `absente`/`absent`, `reportee`/`reportee-p8`/`reporte-p8`, `ambigue`,
+  `desactivee`/`desactive`, `absente`/`absent`, `candidate-poste`, `reporte-p8`/`reportee-p8`,
+  `hors-v1`, `ambigue`,
   `livree`, `connecte`, `hors_ligne` ; tout autre état s'affiche « Inconnu » **avec** sa valeur
   brute. Profils nommés en français : `base`, `web`, `recherche`, `donnees`.
 - **bloc `catalogue` de `/v1/meta`** (facultatif) : `{"skills_actives": n, "skills_attendues": n,
@@ -185,7 +187,7 @@ d'autre :
 
 Sans la route (greffon ancien, erreur), l'onglet le dit (« Catalogue ACP indisponible ») ; depuis
 la seconde partie de P3, le test navigateur **exige** la route servie (`catalogue_route_v1:
-"servie"`), les 26 entrées du catalogue (16 livrées, 10 reportées au poste) et, sur l'Accueil,
+"servie"`), les 26 entrées du catalogue (16 livrées, 10 candidates pour le poste) et, sur l'Accueil,
 16 / 16 skills d'ACP actives.
 
 ## 7. Français

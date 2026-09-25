@@ -172,7 +172,7 @@ def test_nom_du_frontmatter_different(copie):
 def test_collision_avec_une_skill_livree(copie):
     def ajouter(v):
         v["skills"].append({"nom": "systematic-debugging", "source": "affaan-m/ECC", "chemin_amont": "skills/x",
-                            "cible": "poste", "etat": "reportee-p8", "profils": [], "description_fr": "x",
+                            "cible": "poste", "etat": "candidate-poste", "profils": [], "description_fr": "x",
                             "raison": "x"})
     _modifier_verrou(copie, ajouter)
     _un_ecart(_verifier(copie), "collision : « systematic-debugging » est aussi une skill livrée par Hermes")
@@ -183,7 +183,7 @@ def test_collision_avec_une_skill_optionnelle(copie):
 
     def ajouter(v):
         v["skills"].append({"nom": optionnelle, "source": "affaan-m/ECC", "chemin_amont": "skills/x",
-                            "cible": "poste", "etat": "reportee-p8", "profils": [], "description_fr": "x",
+                            "cible": "poste", "etat": "candidate-poste", "profils": [], "description_fr": "x",
                             "raison": "x"})
     _modifier_verrou(copie, ajouter)
     _un_ecart(_verifier(copie), f"collision : « {optionnelle} » est aussi une skill optionnelle de Hermes")
@@ -199,7 +199,7 @@ def test_collision_interne(copie):
 def test_skill_exclue_au_catalogue(copie):
     def ajouter(v):
         v["skills"].append({"nom": "agent-reach", "source": "affaan-m/ECC", "chemin_amont": "skills/x",
-                            "cible": "poste", "etat": "reportee-p8", "profils": [], "description_fr": "x",
+                            "cible": "poste", "etat": "candidate-poste", "profils": [], "description_fr": "x",
                             "raison": "x"})
     _modifier_verrou(copie, ajouter)
     _un_ecart(_verifier(copie), "« agent-reach » est au catalogue ET dans les exclus")
@@ -211,7 +211,7 @@ def test_skill_anthropic_proprietaire_refusee(copie):
                                              "licence": "MIT", "auteur": "Anthropic", "categorie": "anthropic",
                                              "vendorisee": True}
         v["skills"].append({"nom": "pptx", "source": "anthropics/skills", "chemin_amont": "skills/pptx",
-                            "cible": "poste", "etat": "reportee-p8", "profils": [], "description_fr": "x",
+                            "cible": "poste", "etat": "candidate-poste", "profils": [], "description_fr": "x",
                             "raison": "x"})
     _modifier_verrou(copie, ajouter)
     erreurs = _verifier(copie)
@@ -258,6 +258,30 @@ def test_skill_poste_livree_dans_l_image(copie):
     (copie / "hermes/skills/emil-kowalski/prototype/SKILL.md").write_text("---\nname: prototype\n---\n", encoding="utf-8")
     _modifier_verrou(copie, lambda v: _skill(v, "prototype").update(chemin="emil-kowalski/prototype"))
     _un_ecart(_verifier(copie), "skill prototype : cible poste, elle ne doit pas être livrée dans l'image")
+
+
+# ------------------------------------------------------------------------------------ règle 10
+
+
+def test_skill_poste_promise_en_p8_refusee(copie):
+    """Relecture de P3 : le plan d'autonomie ne prévoit aucune skill au poste en P8."""
+    _modifier_verrou(copie, lambda v: _skill(v, "benchmark").update(etat="reportee-p8"))
+    _un_ecart(_verifier(copie), "skill benchmark : état « reportee-p8 » invalide pour la cible poste")
+
+
+def test_mcp_poste_promis_en_p8_hors_du_plan_refuse(copie):
+    """Relecture de P3 : Figma est « hors v1 » au plan, pas une livraison de P8."""
+    def promettre(v):
+        next(m for m in v["mcp"] if m["nom"] == "figma")["etat"] = "reporte-p8"
+    _modifier_verrou(copie, promettre)
+    _un_ecart(_verifier(copie), "MCP figma : « reporte-p8 » promet une livraison que le plan d'autonomie (P8)")
+
+
+def test_mcp_poste_etat_inconnu_refuse(copie):
+    def inventer(v):
+        next(m for m in v["mcp"] if m["nom"] == "playwright")["etat"] = "livre"
+    _modifier_verrou(copie, inventer)
+    _un_ecart(_verifier(copie), "MCP playwright : cible poste, état « livre » invalide")
 
 
 # ------------------------------------------------------------------------------------ règle 7

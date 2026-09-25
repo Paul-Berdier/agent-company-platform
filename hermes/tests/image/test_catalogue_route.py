@@ -51,7 +51,10 @@ def test_catalogue_conforme(chemins, valeurs):
                      ensure_ascii=False, indent=1))
     etats = {s["nom"]: s["etat"] for s in complet["skills"]}
     assert all(etats[n] == "active" for n in NOMS_ACP), etats
-    assert all(e == "reportee-p8" for n, e in etats.items() if n not in NOMS_ACP)
+    assert all(e == "candidate-poste" for n, e in etats.items() if n not in NOMS_ACP)
+    # Côté poste, seul ce que le plan d'autonomie prévoit en P8 est « reporte-p8 » (relecture de P3).
+    assert {m["nom"]: m["etat"] for m in complet["mcp"] if m["cible"] == "poste"} == {"playwright": "reporte-p8",
+                                                                                   "figma": "hors-v1"}
     assert complet["external_dirs_conforme"] is True and complet["desactivations_conformes"] is True
     assert complet["collisions"] == [] and complet["hors_catalogue"] == [] and complet["desactivations_non_appliquees"] == []
     assert complet["verrou"]["sha256"] == ad.empreinte(Path("/opt/acp/catalogue/catalogue.lock.json").read_bytes())

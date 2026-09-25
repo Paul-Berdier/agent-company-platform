@@ -1,6 +1,6 @@
 ---
 name: acp-profils
-description: "Réglages prêts d'ACP par type de projet (base, site web, recherche, données) : quelles skills et quels serveurs MCP utiliser sur Railway, et ce qui relève du poste Windows (reporté). À charger avant de choisir des skills pour un projet."
+description: "Réglages prêts d'ACP par type de projet (base, site web, recherche, données) : quelles skills et quels serveurs MCP utiliser sur Railway, et ce qui relève du poste Windows (pas encore branché). À charger avant de choisir des skills pour un projet."
 ---
 
 # Profils de projet ACP
@@ -28,7 +28,7 @@ Base, plus :
 
 Une maquette HTML se donne en entier dans la réponse : aucun fichier ne s'écrit sur Railway.
 
-Reporté au poste (étape P8, pas encore disponible) : `find-animation-opportunities`, `improve-animations`, `review-animations`, `prototype`, `redesign-existing-projects`, `production-audit`, `browser-qa`, `e2e-testing`, `canary-watch`, `benchmark`, et les serveurs MCP Playwright et Figma. Ils lisent le code d'un dépôt, pilotent un navigateur ou mesurent un site déployé.
+Relèvent du poste, pas encore branché : `find-animation-opportunities`, `improve-animations`, `review-animations`, `prototype`, `redesign-existing-projects`, `production-audit`, `browser-qa`, `e2e-testing`, `canary-watch`, `benchmark` sont des **candidates**, qu'aucune étape du plan ne prévoit encore ; le serveur MCP Playwright est prévu au poste à l'étape P8 ; Figma est hors v1. Ces skills lisent le code d'un dépôt, pilotent un navigateur ou mesurent un site déployé : ne promets aucune date.
 
 ## Recherche
 

@@ -129,7 +129,7 @@
       "chemin": "acp/acp-profils",
       "fichiers": {
         "SKILL.md": {
-          "sha256": "9cc05781b8d327095215c85559df477fe745075c238e03d3877369dd3d19293c"
+          "sha256": "61cc8c4301fc2e209fd8bacb464d95532f813b85ddfcf70f84c323aef7d43f90"
         }
       },
       "execution": "aucune",
@@ -436,120 +436,120 @@
       "source": "emilkowalski/skills",
       "chemin_amont": "skills/find-animation-opportunities",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Chercher dans un code ou une interface les endroits qui devraient s'animer.",
-      "raison": "Parcourt le code du dépôt : exige la lecture de fichiers (poste, P8)."
+      "raison": "Parcourt le code du dépôt : exige la lecture de fichiers. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "improve-animations",
       "source": "emilkowalski/skills",
       "chemin_amont": "skills/improve-animations",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Audit du mouvement d'un code et plans d'amélioration.",
-      "raison": "Parcourt le code du dépôt : exige la lecture de fichiers (poste, P8)."
+      "raison": "Parcourt le code du dépôt : exige la lecture de fichiers. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "review-animations",
       "source": "emilkowalski/skills",
       "chemin_amont": "skills/review-animations",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Relecture des animations d'un changement selon des standards.",
-      "raison": "Relit un diff ou un fichier du dépôt : exige la lecture de fichiers (poste, P8)."
+      "raison": "Relit un diff ou un fichier du dépôt : exige la lecture de fichiers. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "prototype",
       "source": "emilkowalski/skills",
       "chemin_amont": "skills/prototype",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Construire plusieurs variantes d'une interface pour choisir.",
-      "raison": "Écrit des fichiers et lance un serveur de développement (poste, P8)."
+      "raison": "Écrit des fichiers et lance un serveur de développement. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "redesign-existing-projects",
       "source": "leonxlnx/taste-skill",
       "chemin_amont": "skills/redesign-skill",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Refaire le design d'un projet existant après audit.",
-      "raison": "Audite et modifie un projet existant : exige la lecture et l'écriture de fichiers (poste, P8)."
+      "raison": "Audite et modifie un projet existant : exige la lecture et l'écriture de fichiers. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "production-audit",
       "source": "affaan-m/ECC",
       "chemin_amont": "skills/production-audit",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Audit de mise en production sur preuves locales du dépôt.",
-      "raison": "Lit le dépôt et exécute des vérifications (poste, P8)."
+      "raison": "Lit le dépôt et exécute des vérifications. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "browser-qa",
       "source": "affaan-m/ECC",
       "chemin_amont": "skills/browser-qa",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Vérification visuelle et interactive par automatisation d'un navigateur.",
-      "raison": "Pilote un navigateur (Playwright MCP, poste, P8)."
+      "raison": "Pilote un navigateur (Playwright MCP). Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "e2e-testing",
       "source": "affaan-m/ECC",
       "chemin_amont": "skills/e2e-testing",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Tests de bout en bout d'une application web.",
-      "raison": "Exécute des tests et pilote un navigateur (poste, P8)."
+      "raison": "Exécute des tests et pilote un navigateur. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "canary-watch",
       "source": "affaan-m/ECC",
       "chemin_amont": "skills/canary-watch",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Surveillance d'une URL déployée après une mise en production.",
-      "raison": "Interroge et mesure un site déployé de façon répétée (poste, P8)."
+      "raison": "Interroge et mesure un site déployé de façon répétée. Relève du poste : candidate, non planifiée."
     },
     {
       "nom": "benchmark",
       "source": "affaan-m/ECC",
       "chemin_amont": "skills/benchmark",
       "cible": "poste",
-      "etat": "reportee-p8",
+      "etat": "candidate-poste",
       "profils": [
         "web"
       ],
       "description_fr": "Mesure de performances et détection de régressions.",
-      "raison": "Exécute des mesures (poste, P8)."
+      "raison": "Exécute des mesures. Relève du poste : candidate, non planifiée."
     }
   ],
   "livrees": {
@@ -1032,18 +1032,18 @@
         "web"
       ],
       "description_fr": "Pilotage d'un navigateur par Playwright.",
-      "raison": "Lance un navigateur local : refusé côté Hermes ; reporté au poste (P8), sans browser_run_code_unsafe."
+      "raison": "Lance un navigateur local : refusé côté Hermes ; prévu au poste en P8 (plan d'autonomie), sans browser_run_code_unsafe."
     },
     {
       "nom": "figma",
       "cible": "poste",
-      "etat": "reporte-p8",
+      "etat": "hors-v1",
       "url": "https://mcp.figma.com/mcp",
       "profils": [
         "web"
       ],
       "description_fr": "Lecture des maquettes Figma.",
-      "raison": "OAuth par enregistrement dynamique sous l'identité « Claude Code » usurpée par Hermes, jetons dans le volume : refusé côté Hermes ; reporté au poste (P8), après sonde."
+      "raison": "OAuth par enregistrement dynamique sous l'identité « Claude Code » usurpée par Hermes, jetons dans le volume : refusé côté Hermes ; côté poste, hors v1 tant qu'une sonde ne l'a pas prouvé (plan de la refonte)."
     }
   ],
   "profils": {

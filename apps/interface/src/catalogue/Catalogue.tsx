@@ -41,10 +41,16 @@ export function etatEntree(etat: unknown): CleEtat {
     case "absente":
     case "absent":
       return "absente";
-    case "reportee":
-    case "reportee-p8":
+    // Côté poste (relecture de P3) : rien n'est promis hors du plan d'autonomie. Une skill du
+    // poste est une candidate non planifiée ; un serveur MCP n'est « reporte-p8 » que si le plan le
+    // prévoit en P8, sinon « hors-v1 ».
+    case "candidate-poste":
+      return "candidate";
     case "reporte-p8":
-      return "reportee";
+    case "reportee-p8":
+      return "prevueP8";
+    case "hors-v1":
+      return "horsV1";
     case "ambigue":
       return "ambigue";
     case "livree":

@@ -134,7 +134,7 @@ def construire_catalogue(sources: SourcesCatalogue = SourcesCatalogue(),
     ``vue`` et ``mcp`` remplacent la lecture dans Hermes (tests). États d'une skill côté Hermes :
     ``active``, ``desactivee``, ``absente`` (introuvable par le chargeur), ``ambigue`` (même nom à
     plusieurs emplacements : skill_view refuse un nom ambigu, tools/skills_tool.py:515-535) ;
-    côté poste : l'état du verrou (``reportee-p8``)."""
+    côté poste : l'état du verrou (``candidate-poste`` ; pour un MCP, ``reporte-p8`` ou ``hors-v1``)."""
     alertes: List[str] = []
     verrou, empreinte = lire_verrou(sources.verrou)
     if verrou is None:

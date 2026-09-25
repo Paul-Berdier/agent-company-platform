@@ -32,7 +32,9 @@
       activee: "Activ\xE9e",
       desactivee: "D\xE9sactiv\xE9e",
       absente: "Absente",
-      reportee: "Report\xE9e au poste (P8)",
+      candidate: "Candidate pour le poste, non planifi\xE9e",
+      prevueP8: "Pr\xE9vu au poste (P8)",
+      horsV1: "Hors v1",
       ambigue: "Nom ambigu",
       livree: "Livr\xE9e",
       aJour: "\xC0 jour",
@@ -93,7 +95,7 @@
       profilRecherche: "Recherche",
       profilDonnees: "Donn\xE9es",
       cibleHermes: "Hermes (Railway)",
-      ciblePoste: "Poste \u2014 report\xE9 \xE0 P8",
+      ciblePoste: "Poste Windows",
       skills: "Skills",
       mcp: "Serveurs MCP",
       nom: "Nom",
@@ -244,7 +246,9 @@
     inconnu: "neutre",
     nonConfigure: "neutre",
     horsLigne: "neutre",
-    reportee: "neutre",
+    candidate: "neutre",
+    prevueP8: "neutre",
+    horsV1: "neutre",
     desactivee: "neutre"
   };
   function Donnee(props) {
