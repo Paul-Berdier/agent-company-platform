@@ -544,6 +544,11 @@ plus l'identifiant ; Authelia, lui, peut le journaliser lors d'une tentative de 
 13. Compte rendu de la répétition de maintenance (§ 4.11), avec le résultat de
     `railway volume files` sur un service arrêté.
 14. `railway ssh keys` **vide** hors opération (sortie datée).
+15. Étape P3 : l'onglet **Catalogue** (16 skills d'ACP « Active », 10 « Poste — reporté à P8 ») et
+    l'Accueil (16 / 16) ; après une première discussion, context7 « Connecté » ; une question qui
+    appelle la documentation d'une bibliothèque, avec la source citée ; une réponse **en français**
+    du vrai modèle à une question posée en anglais. Aucun refus « serveur MCP » dans les journaux
+    de démarrage.
 
 ---
 
@@ -656,7 +661,8 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    ```
    `diagnostiquer` est en lecture seule ; il lit l'environnement du PID 1 (`/proc/1/environ`),
    jamais celui de la session `railway ssh`, dont la doc ne dit rien ; il liste variables
-   interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml`, `lazy-packages` (code 1 si
+   interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml` (dont, depuis P3, tout serveur
+   MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8), `lazy-packages` (code 1 si
    un constat existe). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
 5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré.
 6. **Retour** : Start Command effacée, chemin de santé `/api/health` rétabli, « Deploy » : les gardes

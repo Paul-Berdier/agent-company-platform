@@ -140,7 +140,9 @@ premiers facteurs non bornée ; `vision_analyze` peut faire décrire toute image
 l'agent ; PID 1, bord, clés IaC non documentées, sort des sauvegardes posées hors IaC et coûts réels
 ne se prouvent que sur Railway.
 
-### P3 — identité, français et réglages prêts (en cours ; première partie : identité visuelle et français)
+### P3 — identité, français et réglages prêts (réalisée côté dépôt, non fusionnée)
+
+Première partie : identité visuelle et français.
 
 - thème `acp` du tableau de bord généré depuis `design/tokens` (`scripts/generer_themes.py`, même
   chargeur que le QML du desktop, `--check` pour les deux), contrastes recalculés, aucune police
@@ -159,6 +161,35 @@ ne se prouvent que sur Railway.
 Limites connues (détail : `interface.md` § 9) : titre « Sessions » sur « / » imposé par Hermes ;
 logotype visible au téléphone seulement dans le menu ; sélecteurs de thème et de police actifs
 jusqu'au rechargement ; pages natives en partie en anglais (comptées, non traduites).
+
+Seconde partie : réglages prêts (`docs/refonte/catalogue.md`).
+
+- catalogue épinglé livré dans l'image sous `/opt/acp/skills` : 14 skills vendorisées à l'octet
+  près depuis les blobs git de `emilkowalski/skills` (`d16ebe60`), `leonxlnx/taste-skill`
+  (`c184364c`) et `affaan-m/ECC` (`v2.2.1`, `5064474`), toutes sous licence MIT, avec `LICENSE`,
+  `PROVENANCE.md` et `hermes/THIRD_PARTY.md` ; 2 skills maison en français (`acp-redaction`,
+  `acp-profils`) ; 10 skills inscrites pour le poste (P8) ; exclusions motivées (dont
+  `literature-review`, de provenance incertaine, et les `docx`/`pdf`/`pptx`/`xlsx`
+  d'`anthropics/skills`) ;
+- verrou `hermes/catalogue/catalogue.lock.json` (empreintes, blobs git, licences, profils base, web,
+  recherche, données) et `scripts/verifier_catalogue.py` (empreintes, licences, noms, collisions avec
+  les 58 skills livrées et les 150 optionnelles de Hermes, texte seul, cohérence avec la garde et la
+  managed scope ; `--amont` compare chaque fichier au dépôt amont), en CI ;
+- au démarrage, `05-acp` écrit dans `/opt/data/config.yaml` (Hermes les lit sans la managed scope)
+  `skills.external_dirs`, `skills.disabled` (44 skills livrées inertes sur Railway) et une entrée
+  `mcp_servers.context7`, en gardant commentaires, propriétaire et mode ;
+- context7, seul serveur MCP côté Hermes, **distant** : huit épingles (managed scope à 50 clés),
+  `context7` dans `platform_toolsets.cli`, deux outils de plus dans la garde (26) ; échantillonnage
+  et élicitation coupés ; `api_server` et cron sans MCP ; Playwright MCP et Figma reportés au poste ;
+- refus de démarrer, et de relancer le tableau de bord, sur un serveur MCP stdio ou hors catalogue
+  dans la configuration du volume (décision D8) ; `diagnostiquer` le signale ;
+- `GET /api/plugins/acp-poste/v1/catalogue` et blocs `catalogue` et `interface` de `/v1/meta` ;
+  l'Accueil et le Catalogue affichent l'état réel.
+
+Limites connues (détail : `catalogue.md` § 10) : context7 non éprouvé depuis Railway et ses
+conditions d'utilisation non lues ; il peut manquer au premier tour d'une première session du
+tableau de bord ; profils nommés du volume sans réglages ; effet sur les workers kanban non prouvé
+par un vrai worker.
 
 ## [Unreleased]
 

@@ -76,7 +76,11 @@ serveur.
 - **Aucun outil d'exécution pour l'agent sur Railway** : ne jamais rouvrir terminal,
   fichiers, exécution de code, navigateur, cron, délégation ni connexions (managed scope,
   `.env` géré, garde `hermes/plugins/acp-poste/garde_execution.py`). Hermes ne tourne
-  jamais hors de s6 en PID 1 ; aucune Start Command dans `.railway/railway.ts`.
+  jamais hors de s6 en PID 1 ; aucune Start Command dans `.railway/railway.ts`. Côté
+  Hermes, un serveur MCP n'est admis que **distant** (HTTP), inscrit au catalogue
+  (`hermes/catalogue/catalogue.lock.json`) et ses outils nommés dans la garde ; une skill
+  vendorisée ne l'est qu'en texte seul, à un commit épinglé, sous licence libre
+  (`scripts/verifier_catalogue.py`).
 - **Railway au propriétaire seul** : `railway login`, `railway link`,
   `railway config apply` et toute action sur le compte (variables, domaines, clés SSH,
   sauvegardes) sont faits par lui, jamais par un agent ni par la CI ; aucun jeton
@@ -105,6 +109,10 @@ serveur.
 - `docs/refonte/interface.md` — interface d'ACP (P3) : thème généré depuis `design/tokens`,
   persona française, greffons `acp-interface` et `acp-catalogue` (sources `apps/interface`),
   verrou du français, décompte des chaînes restées en anglais, captures.
+- `docs/refonte/catalogue.md` — catalogue d'ACP (P3) : skills vendorisées à des commits épinglés
+  (licences, provenance), verrou `hermes/catalogue/catalogue.lock.json` et
+  `scripts/verifier_catalogue.py`, skills livrées désactivées, MCP context7 derrière la garde,
+  refus des serveurs MCP stdio, route `/v1/catalogue`.
 - `docs/refonte/identite.md` — fournisseur d'identité (Authelia) : garde, configuration,
   compatibilité OIDC avec Hermes, mémoire mesurée, limites.
 - `docs/refonte/railway.md` — infrastructure Railway (`.railway/railway.ts`) et

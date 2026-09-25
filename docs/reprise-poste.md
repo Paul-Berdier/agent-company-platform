@@ -67,7 +67,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P0 | Branche, élagage et gel du moteur | **fusionnée** dans `refonte/hermes` (PR #13, `29c95b5`) (§ 4) |
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
-| P3 | Identité, français et réglages prêts | **première partie** (identité visuelle et français) réalisée côté dépôt sur `refonte/hermes-p3`, poussée ; seconde partie (catalogue, MCP) à faire ; sans PR (§ 6 bis) |
+| P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | à faire |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
@@ -795,8 +795,7 @@ fusionnée) : tout changement de P2 en revue imposera un rebasage. Version 0.11.
 **ni PR, ni fusion, ni étiquette** ; **rien n'est déployé**. Cahier : `plan_p3.md` (brouillon de
 conception) ; référence : [`docs/refonte/interface.md`](refonte/interface.md). La seconde partie
 de P3 (skills vendorisées et verrou du catalogue, MCP context7, route `/v1/catalogue` et bloc
-`catalogue` de `/v1/meta`) reste à faire ; le contrat que l'interface en attend est au § 6 de
-`interface.md`.
+`catalogue` de `/v1/meta`) est au § 6 ter.
 
 ### Commits (aucun `Co-Authored-By`)
 
@@ -892,8 +891,133 @@ Branche poussée le 25/09/2026 (premier push : sommet `72ad97b`) :
 - Sur Railway : réponse en français d'un vrai modèle, rendu réel (bord https, cookies `Secure`).
 - Rendu sur un vrai téléphone (émulation Chromium seulement) ; accessibilité des pages natives.
 - Le Catalogue face à la vraie route `/v1/catalogue` (seconde partie de P3) : seulement des
-  réponses fixées.
+  réponses fixées. **Levé en § 6 ter** (test navigateur sur la route réelle).
 - Aucune relecture indépendante de cette première partie à ce jour.
+
+## 6 ter. P3 — catalogue et réglages prêts (seconde partie)
+
+Même branche `refonte/hermes-p3`, empilée sur `refonte/hermes-p2` ; version 0.11.0 inchangée ;
+**ni PR, ni fusion, ni étiquette** ; **rien n'est déployé**. Référence :
+[`docs/refonte/catalogue.md`](refonte/catalogue.md).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `32e2378` | feat(catalogue): vendor the pinned skill catalogue with provenance and licences |
+| `a3d63f0` | feat(hermes): admit the context7 remote MCP server behind the execution guard |
+| `456ecf6` | feat(tooling): verify the skill catalogue lock, licences and name collisions |
+| `7128416` | feat(hermes): load ACP skills and refuse stdio MCP servers at startup |
+| `8171bf7` | feat(acp-poste): expose the catalogue and interface state |
+| `165fbbf` | test(contrat): prove the catalogue and context7 on the running image and in the browser |
+| `4b3ccd5` | test(hermes): witness a stdio MCP server started by discovery without D8 |
+| `e54f8a8` | ci: check vendored skills upstream and probe the real context7 server |
+| (ce commit) | docs: document the P3 catalogue, context7 and startup settings with local proofs |
+
+### Ce qui est en place
+
+- **16 skills livrées dans l'image** (`/opt/acp/skills`, root, lecture seule) : 14 vendorisées à
+  l'octet près depuis les blobs git de `emilkowalski/skills` `d16ebe60`, `leonxlnx/taste-skill`
+  `c184364c` et `affaan-m/ECC` `5064474` (`v2.2.1`), toutes MIT, avec `LICENSE`, `PROVENANCE.md`
+  et `hermes/THIRD_PARTY.md` ; 2 skills maison en français (`acp-redaction`, `acp-profils`) ;
+  10 skills inscrites pour le poste (P8), non livrées.
+- **Verrou** `hermes/catalogue/catalogue.lock.json` et **`scripts/verifier_catalogue.py`**
+  (empreintes et blobs git, licences, noms, collisions avec les 58 livrées et 150 optionnelles de
+  Hermes, exclusions, texte seul, garde et managed scope ; `--amont` contre les dépôts amont), en
+  CI (`ci.yml` hors ligne, `image.yml` `--amont`).
+- **Au démarrage**, `05-acp` écrit dans `/opt/data/config.yaml`, hors managed scope (Hermes les lit
+  sans elle) : `skills.external_dirs`, `skills.disabled` (**44** skills livrées inertes) et une
+  entrée vide `mcp_servers.context7` (sans elle, le tableau de bord ne découvre aucun serveur MCP :
+  constaté en contrat). Commentaires, propriétaire et mode gardés ; YAML illisible : rien d'écrit,
+  alerte.
+- **context7**, seul MCP côté Hermes, distant : managed scope à **50 clés**, `context7` dans
+  `platform_toolsets.cli`, garde à **26 outils** ; échantillonnage et élicitation coupés.
+- **Décision D8** appliquée : refus de démarrer et de relancer sur un serveur MCP stdio ou hors
+  catalogue dans le volume.
+- **Route `/v1/catalogue`**, blocs `catalogue` et `interface` de `/v1/meta` ; l'Accueil et le
+  Catalogue affichent l'état réel.
+
+### Écarts au cahier, justifiés
+
+- `literature-review` (ECC) **non vendorisée** : provenance amont incertaine (« salvage »,
+  `origin: community`). Le profil « recherche » repose sur `arxiv`, `competitor-news-monitor` et
+  context7.
+- **44** skills livrées désactivées (liste du cahier, plus `grounded-citations`,
+  `email-inbox-triage`, `spike`, dont le flux principal exige un script ou un outil fermé) ;
+  10 gardées.
+- Managed scope à **50** clés et non 47 : `ssl_verify`, `tools.resources` et `tools.prompts` de
+  context7 épinglés en plus (certificat toujours vérifié, aucun outil utilitaire de ressources ni de
+  gabarits) ; `mcp_discovery_timeout` **non** épinglé (le vrai serveur a répondu en 2,46 s : context7
+  peut manquer au premier tour d'une première session du tableau de bord).
+- `05-acp` écrit **trois** clés du volume et non deux : l'entrée `mcp_servers.context7`, exigée par
+  la découverte MCP du tableau de bord (`hermes_cli/mcp_startup.py:53-65`).
+- Sonde réelle de context7 : **étape** non bloquante de `image.yml` (et non un travail séparé, qui
+  reconstruirait l'image).
+- Faux context7 : écrit avec le SDK `mcp` 2.0.0 de l'image (`MCPServer`), servi en TLS ; en
+  contrat, dans son **propre conteneur** joint par l'alias réseau `mcp.context7.com` (et non
+  `--add-host`) ; tous les autres conteneurs Hermes de test résolvent ce nom vers leur bouclage
+  local.
+- Balayage des secrets : script de motifs du brouillon (pas de gitleaks), comme la première partie.
+
+### Preuves locales (25/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
+
+Détail et commandes : [`catalogue.md`](refonte/catalogue.md) § 9. Chaque commit a été vérifié sur
+**son propre arbre** (exporté de l'index ou extrait dans un worktree jetable), pas sur le worktree :
+
+| Commit | Dépôt (`pytest -q`) | Dans l'image |
+|---|---|---|
+| `32e2378` | 297 réussis | — (fichiers copiés dans l'image, non chargés) |
+| `a3d63f0` | 297 réussis | **281** réussis |
+| `456ecf6` | **342** réussis (dont 45 du vérificateur) ; vérificateur code 0 | inchangé |
+| `7128416` | 342 réussis | **313** réussis |
+| `8171bf7` | 342 réussis | **322** réussis |
+| `165fbbf` | 342 réussis | **322** réussis ; contrat **117** ; navigateur **2** |
+| `4b3ccd5` | 342 réussis | **323** réussis |
+
+- **Contrat** (images `c6`, arbre de `165fbbf`) : **117 réussis**, 0 échec, 0 ignoré (17 min 29 s) :
+  37 image, 40 identité, 4 interface, 3 IaC, 23 sans exécution, **10 catalogue**. Relevés :
+  `GET /api/skills` du vrai tableau de bord = **69 skills, 26 activées, 43 désactivées** (54 livrées
+  visibles sous Linux moins `sdlc-review`, réservée aux workers kanban, plus les 16 d'ACP) ;
+  `config.yaml` du volume `hermes:hermes 640`, `skills.external_dirs = [/opt/acp/skills]`,
+  44 désactivées, `mcp_servers: {context7: {}}` ; discussion `/api/ws` → faux context7 (autre
+  conteneur) : `query-docs` exécuté, échantillonnage et élicitation refusés (« Sampling not
+  supported », « Elicitation not supported »), aucun processus `npx`/`uvx`/`node`/`mcp` lancé,
+  route : context7 « connecte », 2 outils ; basculement de `codex` depuis le tableau de bord signalé
+  puis corrigé au redémarrage ; deux démarrages : `config.yaml` identique (empreinte et date),
+  état « conforme » ; relance refusée (tableau de bord hors service) et démarrages refusés sur un
+  serveur stdio ou hors catalogue ; aucun conteneur, volume ni réseau `acp-contrat-*` restant.
+- **Navigateur** (même arbre) : **2 réussis** (1 min 59 s), Chromium 1234 déjà présent. Aux deux
+  formats : route `/v1/catalogue` **servie**, **26** entrées, Accueil **16 / 16** skills actives
+  (context7 « Inconnu » avant toute discussion, « Hors ligne » ensuite : son nom est résolu vers le
+  bouclage local), aucune violation axe, aucun texte hors du catalogue, aucune cible sous 44 px,
+  375 et 376 requêtes, **aucune hors de l'origine**. Captures (19, non committées), dont :
+  `bureau-02-accueil.png` `0331dd5a…`, `bureau-03-catalogue.png` `de2a003f…`,
+  `telephone-02-accueil.png` `8f57d29a…`, `telephone-03-catalogue.png` `ad22c111…`.
+- **Interface** (`npm test --prefix apps/interface`) : 55 réussis, bundles à jour (inchangés).
+- **Vérificateur** : hors ligne et `--amont` (réseau, `raw.githubusercontent.com`) : code 0, les
+  17 fichiers vendorisés et les 3 `LICENSE` identiques à l'amont, aucun `NOTICE`. Blobs de l'index
+  git = blobs amont.
+- **Analyse de sécurité de Hermes** : 16 verdicts « safe ».
+- **Sonde réelle de context7** (25/09/2026 11:05 UTC, `hermes mcp test context7` sur l'image
+  construite) : connecté en 2 459 ms, 2 outils, `resolve-library-id` et `query-docs`.
+- **Balayage des secrets** (motifs, `origin/refonte/hermes-p2..HEAD`, 16 commits) : 0 occurrence ;
+  aucun `Co-Authored-By`.
+- Constaté puis corrigé pendant la mise au point : sans entrée `mcp_servers.context7` dans le volume,
+  la discussion du tableau de bord n'obtenait jamais context7 (`tool_call` refusé par la garde) ;
+  un test de P2 attendait le schéma 2 de l'état du démarrage (passé à 3).
+
+### Intégration continue
+
+À relever après le push (section complétée par le commit suivant).
+
+### Non vérifié
+
+- context7 **depuis Railway** et son usage par un vrai modèle ; conditions du service non lues.
+- Une vraie réponse en français d'un modèle (Railway, `railway.md` § 7, point 15).
+- Premier tour d'une toute première session du tableau de bord sans context7 (délai de 1,5 s de
+  Hermes) : non mesuré sur Railway.
+- L'effet de `skills.disabled` dans un vrai worker kanban (même chargeur, surface sondée seulement).
+- Aucune relecture indépendante de la seconde partie à ce jour.
 
 ## 7. Chaîne d'outils Windows
 

@@ -423,7 +423,7 @@ Telegram permet aussi de discuter avec Hermes ; ses sessions apparaissent dans l
 - **`kanban.max_in_progress_per_profile: 2`.**
 - **`kanban.review_dispatch: false`** (`config_defaults.py:1866-1867`, V).
 - **`kanban.failure_limit: 3`** (défaut 2, `config_defaults.py:1872`, V).
-- **`skills.disabled: [claude-code, codex, opencode]`**, et `skills.external_dirs` pour les skills françaises `acp-exploration`, `acp-orchestration`, `acp-routage`, `acp-synthese` et `acp-questions`.
+- **`skills.disabled: [claude-code, codex, opencode]`**, et `skills.external_dirs` pour les skills françaises `acp-exploration`, `acp-orchestration`, `acp-routage`, `acp-synthese` et `acp-questions`. **Constat de P3** ([catalogue.md](catalogue.md) § 2) : ces deux listes ne passent PAS par la managed scope (Hermes les lit dans `/opt/data/config.yaml` brut ; une épingle serait sans effet et retirée du volume à chaque sauvegarde). Depuis P3, `05-acp` les écrit dans le volume à chaque démarrage (44 skills livrées désactivées, dont ces trois) ; les skills de P4 entreront au catalogue (`hermes/skills/acp`, verrou, `scripts/verifier_catalogue.py`).
 - **Notifications.** Aucune plateforme native n'est nécessaire pour l'émetteur. Les secrets Telegram (jeton du bot, identifiant de discussion) ou ntfy (`NTFY_TOPIC` privé, `NTFY_TOKEN`) sont en variables Railway, lues par le greffon. Si Telegram sert aussi de discussion avec Hermes : liste blanche du seul propriétaire et `allow_all_users: false` (clés exactes à relever).
 
 ### À ne pas changer
@@ -660,8 +660,9 @@ ne modifie pas le plan ci-dessus.
 - **Pas encore posé** (phases P4 et suivantes) : refus de démarrer sur une clé `hooks` non vide de
   `config.yaml` ou sur `shell-hooks-allowlist.json` (P2 les inventorie seulement par
   `diagnostiquer`) ; `kanban.max_in_progress`, `kanban.max_in_progress_per_profile`,
-  `kanban.review_dispatch`, `kanban.failure_limit` ; `skills.disabled` et `skills.external_dirs` ;
-  les outils, routes, tables, skills et l'émetteur de notifications du greffon.
+  `kanban.review_dispatch`, `kanban.failure_limit` ; les outils, routes, tables, skills et
+  l'émetteur de notifications du greffon. (`skills.disabled` et `skills.external_dirs` sont posés
+  depuis P3, hors managed scope : [catalogue.md](catalogue.md) § 6.)
 - **Mise en veille Railway coupée** (« Hors managed scope » du § 7) : déclarée dans
   `.railway/railway.ts` (`sleepApplication: false`), prise en compte à constater sur Railway
   ([railway.md](railway.md) § 3).

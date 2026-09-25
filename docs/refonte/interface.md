@@ -5,8 +5,8 @@
 greffons de tableau de bord `acp-interface` et `acp-catalogue`, verrou du français, décompte des
 chaînes de Hermes restées en anglais, test navigateur aux formats téléphone et bureau. La seconde
 partie de P3 (catalogue de skills vendorisées, verrou `catalogue.lock.json`, MCP context7, route
-`/v1/catalogue` du greffon `acp-poste`) est décrite par son propre document ; ce qui la relie à
-l'interface est fixé ici au § 6 (contrat attendu). **Rien n'est déployé.**
+`/v1/catalogue` du greffon `acp-poste`) est décrite par [catalogue.md](catalogue.md) ; ce qui la
+relie à l'interface est fixé ici au § 6 (contrat, désormais servi). **Rien n'est déployé.**
 
 Les références `fichier:ligne` sans préfixe désignent le source de Hermes Agent 0.21.5
 (étiquette `v2026.9.24`, commit `f97608f`).
@@ -21,7 +21,7 @@ Les références `fichier:ligne` sans préfixe désignent le source de Hermes Ag
 | Sources des greffons d'interface | `apps/interface/` (TypeScript, esbuild, Vitest) | — |
 | Greffon `acp-interface` | `hermes/plugins/acp-interface/dashboard/` (manifeste, bundle, style) | `/opt/hermes/plugins/acp-interface/` |
 | Greffon `acp-catalogue` | `hermes/plugins/acp-catalogue/dashboard/` | `/opt/hermes/plugins/acp-catalogue/` |
-| Épingles de P3 (managed scope) | `hermes/gere/config.yaml`, `EPINGLES_OBLIGATOIRES` | `/etc/hermes/config.yaml` (42 clés) |
+| Épingles de P3 (managed scope) | `hermes/gere/config.yaml`, `EPINGLES_OBLIGATOIRES` | `/etc/hermes/config.yaml` (42 clés à la première partie ; 50 depuis la seconde : [catalogue.md](catalogue.md) § 7) |
 | Décompte des chaînes anglaises | `apps/interface/outils/decompte-traductions.mjs` | mesuré sur les fichiers extraits de l'image |
 | Test navigateur de l'interface | `hermes/tests/e2e/test_interface_fr.py` (connexion : `parcours.py`) | — |
 
@@ -65,7 +65,9 @@ Dans l'image, la normalisation **réelle** de Hermes (`_normalise_theme_definiti
 cette définition, et un `PUT` d'un autre thème (réponse 200) ne change rien au thème actif
 (`dashboard.theme: acp`, épinglé depuis P1).
 
-## 3. Épingles de P3 dans la managed scope (42 clés)
+## 3. Épingles de P3 dans la managed scope (42 clés à la première partie)
+
+La seconde partie ajoute les huit épingles de context7 (50 clés) : [catalogue.md](catalogue.md) § 7.
 
 | Clé | Valeur | Raison |
 |---|---|---|
@@ -159,9 +161,13 @@ aucun chemin absolu) sous `hermes/plugins/<greffon>/dashboard/dist/`, **committ�
 dans `.gitignore`) ; le travail « Interface ACP » de `ci.yml` les reconstruit et refuse toute
 différence. `scripts/check_version.py` couvre les deux manifestes et `apps/interface/package.json`.
 
-## 6. Contrat attendu du greffon `acp-poste` (seconde partie de P3)
+## 6. Contrat du greffon `acp-poste` (servi depuis la seconde partie de P3)
 
-L'interface lit, sans jamais rien supposer d'autre :
+Servi par `hermes/plugins/acp-poste/catalogue.py` ([catalogue.md](catalogue.md) § 8), qui ajoute
+aux champs ci-dessous `verrou`, `racine_skills`, `livrees`, `exclus`, `external_dirs`,
+`external_dirs_conforme` et `desactivations_conformes` (non lus par l'interface), et, par entrée
+MCP côté Hermes, `statut_hermes` et `outils_exposes`. L'interface lit, sans jamais rien supposer
+d'autre :
 
 - **`GET /api/plugins/acp-poste/v1/catalogue`** : objet JSON ; champs lus s'ils existent —
   `sources` (`{"<dépôt>": {"url", "commit", "licence", "auteur"}}`), `skills` (liste de
@@ -177,8 +183,10 @@ L'interface lit, sans jamais rien supposer d'autre :
   "context7": "connecte"|"hors_ligne"|"inconnu"}` ; les écarts à signaler vont dans `alertes`
   (en français), que la bannière affiche telles quelles.
 
-Tant que la route n'existe pas, l'onglet l'affiche (`catalogue_route_v1: "indisponible"` dans la
-preuve du test navigateur).
+Sans la route (greffon ancien, erreur), l'onglet le dit (« Catalogue ACP indisponible ») ; depuis
+la seconde partie de P3, le test navigateur **exige** la route servie (`catalogue_route_v1:
+"servie"`), les 26 entrées du catalogue (16 livrées, 10 reportées au poste) et, sur l'Accueil,
+16 / 16 skills d'ACP actives.
 
 ## 7. Français
 
@@ -341,9 +349,11 @@ Vitest 55 ; décompte identique à la mesure locale ; captures en artefact).
   neuf, la page peut s'afficher brièvement en anglais avant que le greffon ne s'enregistre (non
   mesuré).
 - **Pages natives** : restent en partie en anglais ; comptées au § 7, pas traduites.
-- **Accueil** : le résumé du catalogue affiche « Inconnu » tant que `/v1/meta` n'a pas de bloc
-  `catalogue` (seconde partie de P3) ; le Catalogue n'a été rendu sur de vraies données que par
-  des réponses fixées (Vitest), pas contre la route réelle, qui n'existe pas encore.
+- **Accueil et Catalogue** : rendus sur les vraies données de `/v1/meta` et `/v1/catalogue`
+  depuis la seconde partie de P3 (test navigateur) ; context7 y apparaît « Inconnu » tant que la
+  discussion du tableau de bord n'a pas été ouverte (Hermes ne découvre les serveurs MCP qu'à la
+  première connexion `/api/ws`), et « Hors ligne » dans les tests, où son nom est résolu vers le
+  bouclage local.
 - **Non prouvé** : une réponse en français d'un **vrai** modèle (Railway seulement) ; le rendu sur un
   **vrai téléphone** (390×844 est une émulation Chromium, pas Safari iOS) ; l'accessibilité des
   pages **natives** de Hermes sous le thème `acp` (axe n'est lancé que sur nos deux pages) ; le
