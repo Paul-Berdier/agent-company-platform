@@ -15,11 +15,17 @@ scope), puis, pour chaque surface, reprend exactement la résolution de la surfa
 - enfant de délégation : _resolve_child_toolsets d'un parent « cli », qui demande terminal,
   fichiers et code.
 
-Sortie : un objet JSON {surface: {"toolsets": [...], "outils": [...]}} écrit dans le fichier
-donné en argument (Hermes détourne sys.stdout vers la sortie d'erreur à l'import de certains
+Sortie : un objet JSON {surface: {"toolsets": [...], "outils": [...], "mcp": [...]}} écrit dans le
+fichier donné en argument (Hermes détourne sys.stdout vers la sortie d'erreur à l'import de certains
 modules).
 
-Usage : python sonde_surfaces.py <fichier de sortie>
+Étape P3 : avec ``--mcp``, la sonde découvre d'abord les serveurs MCP configurés
+(discover_mcp_tools, comme la passerelle au démarrage) ; ``mcp`` donne, par surface, les outils MCP
+que ses jeux résolvent (Hermes les DIFFÈRE : l'agent les trouve par tool_search et les appelle par
+le pont tool_call), et ``_processus`` les processus enfants de la sonde après la découverte (un
+serveur stdio en serait un).
+
+Usage : python sonde_surfaces.py <fichier de sortie> [--mcp]
 """
 
 from __future__ import annotations
@@ -41,15 +47,26 @@ def main() -> int:
     from hermes_cli.tools_config import _get_platform_tools
     import model_tools
 
+    decouverts = None
+    if "--mcp" in sys.argv[2:]:
+        from tools.mcp_tool_discovery import discover_mcp_tools
+
+        decouverts = sorted(discover_mcp_tools())
+
     cfg = load_config()
     desactives = [n.strip() for n in parse_config_string_list((cfg.get("agent") or {}).get("disabled_toolsets"))
                   if str(n).strip()]
+
+    from toolsets import resolve_toolset
 
     def outils(actives, retires):
         definitions = model_tools.get_tool_definitions(
             enabled_toolsets=list(actives) if actives is not None else None,
             disabled_toolsets=list(retires) if retires else None, quiet_mode=True)
         return sorted({d["function"]["name"] for d in definitions if isinstance(d, dict) and "function" in d})
+
+    def mcp(actives):
+        return sorted({o for jeu in (actives or []) for o in resolve_toolset(jeu) if o.startswith("mcp__")})
 
     resultat = {}
     api = sorted(_get_platform_tools(cfg, "api_server"))
@@ -81,6 +98,13 @@ def main() -> int:
     parent = SimpleNamespace(enabled_toolsets=cli, disabled_toolsets=desactives)
     enfant, enfant_retires = _resolve_child_toolsets(parent, ["terminal", "file", "code_execution", "web"], "leaf")
     resultat["enfant_delegation"] = {"toolsets": enfant, "outils": outils(enfant, enfant_retires)}
+
+    for surface in resultat.values():
+        surface["mcp"] = mcp(surface["toolsets"])
+    if decouverts is not None:
+        from agent_neuf import processus_enfants
+
+        resultat["_decouverte"] = {"outils": decouverts, "processus": processus_enfants()}
 
     with open(sys.argv[1], "w", encoding="utf-8") as flux:
         json.dump(resultat, flux, ensure_ascii=False)

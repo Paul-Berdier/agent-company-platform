@@ -55,7 +55,7 @@ La refonte « Hermes au centre » se publie **étape par étape** (P0 à P9 du p
 **Hermes Agent** (épinglé sur une release par condensat d'image, déployé sur Railway
 derrière son propre fournisseur d'identité OIDC, Authelia auto-hébergé dans le service
 `identite`, un seul utilisateur) est le seul serveur, le seul orchestrateur et la seule
-source de vérité, étendu par les greffons `acp-interface` et `acp-poste` livrés dans
+source de vérité, étendu par les greffons `acp-interface`, `acp-catalogue` et `acp-poste` livrés dans
 l'image ; sur Railway, l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers,
 ni code) : tout ce qui s'exécute passe par le **poste Windows** (`apps/poste`), qui
 réclame son travail en HTTPS sortant sans écouter aucun port et y lance Codex et Claude
@@ -76,7 +76,11 @@ serveur.
 - **Aucun outil d'exécution pour l'agent sur Railway** : ne jamais rouvrir terminal,
   fichiers, exécution de code, navigateur, cron, délégation ni connexions (managed scope,
   `.env` géré, garde `hermes/plugins/acp-poste/garde_execution.py`). Hermes ne tourne
-  jamais hors de s6 en PID 1 ; aucune Start Command dans `.railway/railway.ts`.
+  jamais hors de s6 en PID 1 ; aucune Start Command dans `.railway/railway.ts`. Côté
+  Hermes, un serveur MCP n'est admis que **distant** (HTTP), inscrit au catalogue
+  (`hermes/catalogue/catalogue.lock.json`) et ses outils nommés dans la garde ; une skill
+  vendorisée ne l'est qu'en texte seul, à un commit épinglé, sous licence libre
+  (`scripts/verifier_catalogue.py`).
 - **Railway au propriétaire seul** : `railway login`, `railway link`,
   `railway config apply` et toute action sur le compte (variables, domaines, clés SSH,
   sauvegardes) sont faits par lui, jamais par un agent ni par la CI ; aucun jeton
@@ -102,6 +106,13 @@ serveur.
 - `docs/refonte/image.md` — image Hermes d'ACP : démarrage, variables Railway attendues
   et interdites, managed scope, agent sans outil d'exécution, greffon `acp-poste`, tests
   et limites.
+- `docs/refonte/interface.md` — interface d'ACP (P3) : thème généré depuis `design/tokens`,
+  persona française, greffons `acp-interface` et `acp-catalogue` (sources `apps/interface`),
+  verrou du français, décompte des chaînes restées en anglais, captures.
+- `docs/refonte/catalogue.md` — catalogue d'ACP (P3) : skills vendorisées à des commits épinglés
+  (licences, provenance), verrou `hermes/catalogue/catalogue.lock.json` et
+  `scripts/verifier_catalogue.py`, skills livrées désactivées, MCP context7 derrière la garde,
+  refus des serveurs MCP stdio, route `/v1/catalogue`.
 - `docs/refonte/identite.md` — fournisseur d'identité (Authelia) : garde, configuration,
   compatibilité OIDC avec Hermes, mémoire mesurée, limites.
 - `docs/refonte/railway.md` — infrastructure Railway (`.railway/railway.ts`) et

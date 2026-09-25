@@ -19,12 +19,20 @@ GARDE_PRESENTE = {
 }
 
 
+CATALOGUE_CONFORME = {"verrou_sha256": "0" * 64, "skills_actives": 16, "skills_attendues": 16, "context7": "connecte",
+                      "external_dirs_conforme": True, "desactivations_conformes": True, "ecarts": 0}
+INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0"}, "sdk_attendu": "1.x"}
+
+
 @pytest.fixture(autouse=True)
 def garde_presente_par_defaut(monkeypatch, tmp_path):
     """Hors des tests de la garde, l'état de la garde est simulé présent : le processus pytest
-    n'a pas découvert les greffons (et ne doit pas le faire sur /opt/data)."""
+    n'a pas découvert les greffons (et ne doit pas le faire sur /opt/data). Hors des tests du
+    catalogue (test_catalogue_route.py), le bloc catalogue est simulé conforme : ce processus n'a pas
+    de volume préparé par 05-acp."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(meta, "etat_garde_execution", lambda decouvrir=None: dict(GARDE_PRESENTE))
+    monkeypatch.setattr(meta, "bloc_catalogue", lambda: (dict(CATALOGUE_CONFORME), dict(INTERFACE), []))
 
 
 def _sources(tmp_path: Path, etat: object = None) -> "meta.SourcesMeta":
@@ -47,6 +55,7 @@ def test_la_meta_decrit_le_contrat_et_les_versions(tmp_path):
     assert donnees["openrpc"]["info_version"] == "1"
     assert donnees["openrpc"]["methodes"] == 237
     assert donnees["openrpc"]["identique"] is True
+    assert donnees["catalogue"] == CATALOGUE_CONFORME and donnees["interface"] == INTERFACE
     assert donnees["alertes"] == []
 
 
@@ -96,6 +105,7 @@ def _routeur(nom: str, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module._meta, "etat_garde_execution", lambda decouvrir=None: dict(GARDE_PRESENTE))
+    monkeypatch.setattr(module._meta, "bloc_catalogue", lambda: (dict(CATALOGUE_CONFORME), dict(INTERFACE), []))
     return module
 
 
@@ -158,7 +168,7 @@ def test_meta_garde_execution_apres_vraie_decouverte(tmp_path):
     assert garde["decouverte"] == "reussie"
     assert garde["presente_dans_le_gestionnaire"] is True and garde["enregistree"] is True
     assert garde["alerte"] is None
-    assert len(garde["outils_admis"]) == 24 and garde["outils_retires"] == ["kanban_attach_url", "kanban_create"]
+    assert len(garde["outils_admis"]) == 26 and garde["outils_retires"] == ["kanban_attach_url", "kanban_create"]
 
 
 def test_meta_reseau(tmp_path):

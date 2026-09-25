@@ -10,9 +10,11 @@ Lancé DANS le conteneur de test (bouclage local, interpréteur de Hermes, bibli
 3. ``session.create`` puis, selon le mode :
    - ``preview-restart`` : ``preview.restart`` (tui_gateway/methods_prompt.py:1075-1133), avec
      « OUTIL:terminal » dans la console de l'aperçu, jusqu'à ``preview.restart.complete`` ;
-   - ``session`` : rien de plus ; les outils de la session sont relevés dans ``session.info``.
+   - ``session`` : rien de plus ; les outils de la session sont relevés dans ``session.info`` ;
+   - ``prompt`` (étape P3) : ``prompt.submit`` avec le texte donné (tui_gateway/methods_prompt.py:564),
+     jusqu'à ``message.complete`` : un tour complet de la discussion du tableau de bord.
 
-Usage : python client_ws.py <preview-restart|session> <jeton> <fichier de sortie JSON>
+Usage : python client_ws.py <preview-restart|session|prompt> <jeton> <fichier de sortie JSON> [texte]
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ def ticket(jeton: str) -> str:
         return json.loads(reponse.read())["ticket"]
 
 
-async def dialoguer(mode: str, jeton: str) -> dict:
+async def dialoguer(mode: str, jeton: str, texte: str = "") -> dict:
     recus: list = []
     async with websockets.connect(f"ws://{BASE}/api/ws?ticket={ticket(jeton)}", max_size=None,
                                   open_timeout=30) as ws:
@@ -66,6 +68,16 @@ async def dialoguer(mode: str, jeton: str) -> dict:
                 "session_id": session, "url": "http://127.0.0.1:1", "cwd": "/tmp", "context": "OUTIL:terminal"}}))
             resultat["reponse"] = await attendre(lambda m: m.get("id") == 2)
             resultat["fin"] = await attendre(evenement("preview.restart.complete"))
+        elif mode == "prompt":
+            # Le tableau de bord ne lance la découverte MCP qu'à la première connexion /api/ws et
+            # n'attend que mcp_discovery_timeout (1,5 s) avant de figer les outils de la session ; une
+            # découverte plus lente les ajoute avant le premier tour (tui_gateway/server.py:2243-2275).
+            # On laisse ce délai passer avant d'envoyer le message.
+            await asyncio.sleep(8)
+            await ws.send(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "prompt.submit",
+                                      "params": {"session_id": session, "text": texte}}))
+            resultat["reponse"] = await attendre(lambda m: m.get("id") == 2)
+            resultat["fin"] = await attendre(evenement("message.complete"), 300)
     resultat["evenements"] = [m.get("params") for m in recus if m.get("method") == "event"
                               and (m.get("params") or {}).get("type", "").startswith("preview.restart")]
     return resultat
@@ -73,10 +85,11 @@ async def dialoguer(mode: str, jeton: str) -> dict:
 
 def main() -> int:
     mode, jeton, fichier = sys.argv[1], sys.argv[2], sys.argv[3]
-    if mode not in {"preview-restart", "session"}:
+    texte = sys.argv[4] if len(sys.argv) > 4 else ""
+    if mode not in {"preview-restart", "session", "prompt"}:
         print(f"mode inconnu : {mode}", file=sys.stderr)
         return 2
-    resultat = asyncio.run(dialoguer(mode, jeton))
+    resultat = asyncio.run(dialoguer(mode, jeton, texte))
     with open(fichier, "w", encoding="utf-8") as flux:
         json.dump(resultat, flux, ensure_ascii=False)
     return 0

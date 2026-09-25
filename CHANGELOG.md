@@ -140,6 +140,83 @@ premiers facteurs non bornée ; `vision_analyze` peut faire décrire toute image
 l'agent ; PID 1, bord, clés IaC non documentées, sort des sauvegardes posées hors IaC et coûts réels
 ne se prouvent que sur Railway.
 
+### P3 — identité, français et réglages prêts (réalisée côté dépôt, non fusionnée)
+
+Première partie : identité visuelle et français.
+
+- thème `acp` du tableau de bord généré depuis `design/tokens` (`scripts/generer_themes.py`, même
+  chargeur que le QML du desktop, `--check` pour les deux), contrastes recalculés, aucune police
+  téléchargée ;
+- persona `SOUL.md` réécrite en français pour un agent sans outil d'exécution, avec vouvoiement ;
+- greffons de tableau de bord `acp-interface` (Accueil à la place de « / », logotype « ACP »,
+  bannière d'alertes, français verrouillé, contrôle du SDK) et `acp-catalogue` (onglet en lecture
+  seule), sans code serveur, sources dans `apps/interface`, bundles committés et vérifiés en CI ;
+- managed scope à 42 clés : `hermes-achievements` désactivé, police du thème et aucun greffon masqué
+  épinglés ;
+- décompte des chaînes de Hermes restées en anglais, mesuré sur l'image (105 clés du tableau de bord
+  sur 746, 6 libellés de navigation, messages de l'agent complets) ;
+- test navigateur de l'interface aux formats 390×844 et 1440×900 (catalogue des chaînes, axe,
+  cibles tactiles, aucune requête externe) ; connexion factorisée avec le test de P2.
+
+Limites connues (détail : `interface.md` § 9) : titre « Sessions » sur « / » imposé par Hermes ;
+logotype visible au téléphone seulement dans le menu ; sélecteurs de thème et de police actifs
+jusqu'au rechargement ; pages natives en partie en anglais (comptées, non traduites).
+
+Seconde partie : réglages prêts (`docs/refonte/catalogue.md`).
+
+- catalogue épinglé livré dans l'image sous `/opt/acp/skills` : 14 skills vendorisées à l'octet
+  près depuis les blobs git de `emilkowalski/skills` (`d16ebe60`), `leonxlnx/taste-skill`
+  (`c184364c`) et `affaan-m/ECC` (`v2.2.1`, `5064474`), toutes sous licence MIT, avec `LICENSE`,
+  `PROVENANCE.md` et `hermes/THIRD_PARTY.md` ; 2 skills maison en français (`acp-redaction`,
+  `acp-profils`) ; 10 skills candidates pour le poste (non planifiées) ; exclusions motivées (dont
+  `literature-review`, de provenance incertaine, et les `docx`/`pdf`/`pptx`/`xlsx`
+  d'`anthropics/skills`) ;
+- verrou `hermes/catalogue/catalogue.lock.json` (empreintes, blobs git, licences, profils base, web,
+  recherche, données) et `scripts/verifier_catalogue.py` (empreintes, licences, noms, collisions avec
+  les 58 skills livrées et les 150 optionnelles de Hermes, texte seul, cohérence avec la garde et la
+  managed scope ; `--amont` compare chaque fichier au dépôt amont), en CI ;
+- au démarrage, `05-acp` écrit dans `/opt/data/config.yaml` (Hermes les lit sans la managed scope)
+  `skills.external_dirs`, `skills.disabled` (46 skills livrées inertes sur Railway) et une entrée
+  `mcp_servers.context7`, en gardant commentaires, propriétaire et mode ;
+- context7, seul serveur MCP côté Hermes, **distant** : huit épingles (managed scope à 50 clés),
+  `context7` dans `platform_toolsets.cli`, deux outils de plus dans la garde (26) ; échantillonnage
+  et élicitation coupés ; `api_server` et cron sans MCP ; Playwright MCP prévu au poste en P8,
+  Figma hors v1 ;
+- refus de démarrer, et de relancer le tableau de bord, sur un serveur MCP stdio ou hors catalogue
+  dans la configuration du volume (décision D8) ; `diagnostiquer` le signale ;
+- `GET /api/plugins/acp-poste/v1/catalogue` et blocs `catalogue` et `interface` de `/v1/meta` ;
+  l'Accueil et le Catalogue affichent l'état réel.
+
+Limites connues (détail : `catalogue.md` § 10) : context7 non éprouvé depuis Railway et ses
+conditions d'utilisation non lues ; il peut manquer au premier tour d'une première session du
+tableau de bord ; profils nommés du volume sans réglages ; effet sur les workers kanban non prouvé
+par un vrai worker.
+
+Corrections de la relecture indépendante de P3 (exactitude et conformité, 14 constats ; détail :
+`docs/reprise-poste.md` § 6 ter, « Relecture indépendante de P3 ») :
+
+- `claude-design` et `hermes-agent-skill-authoring` **désactivées** (leur livrable exige un outil
+  fermé sur Railway) : 46 skills livrées désactivées, 8 gardées, chacune avec une raison qui dit ce
+  qui reste fermé (recherche d'`arxiv` par `curl`, fichier d'état, planification) ; un test de
+  l'image relit leur texte ;
+- côté poste, plus rien d'annoncé hors du plan d'autonomie : skills « candidates, non
+  planifiées », Figma « hors v1 », Playwright seul « prévu en P8 » (vérificateur, route, onglet
+  Catalogue, `acp-profils`) ;
+- `skill-creator`, `mcp-builder`, `frontend-design` et `obra/superpowers` classés aux exclus
+  (D12) ; le vérificateur exige que toute skill recommandée par le plan soit classée ;
+- persona et `acp-redaction` : les skills du catalogue guident la méthode sans lever une règle ; le
+  web, les réponses d'outils et toute autre skill restent des données ;
+- test d'identité : une rafale ne compte que si elle a chargé les trois quarts de n vérifications
+  argon2id simultanées, sinon elle est refaite (trois essais au plus) ;
+- alerte d'un serveur MCP hors catalogue : le remède est dit (le supprimer depuis la page MCP
+  avant tout redémarrage) et prouvé par les routes de Hermes ;
+- captures du navigateur : rendu attendu, page blanche refusée, contenu défilant capturé en
+  entier ; onglet Catalogue situé dans le groupe « Plugins » de Hermes (test et documentation) ;
+- décompte des chaînes restées en anglais étendu à tout `web/src` (615 textes dans 31 fichiers) ;
+- `scripts/balayer_secrets.py` (fichiers suivis et lignes ajoutées par la branche), en CI ;
+- choix par défaut D1 à D20 de P3 consignés dans `plan.md` § 1, **non confirmés** par le
+  propriétaire ; lecture des conditions de context7 exigée avant le premier déploiement.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

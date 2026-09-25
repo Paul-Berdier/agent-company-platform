@@ -1,4 +1,4 @@
-# Image Hermes d'ACP — étapes P1 et P2
+# Image Hermes d'ACP — étapes P1, P2 et P3
 
 État du **25 septembre 2026**. Étape P2 du [plan de la refonte](plan.md) : sur Railway,
 l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni exécution de code, ni
@@ -15,6 +15,16 @@ signalé comme tel. Les corrections de la **relecture indépendante de P2** (sé
 exploitation) sont signalées « relecture P2 » ; leur tableau de traitement est dans
 [`docs/reprise-poste.md`](../reprise-poste.md).
 
+Étape P3 (identité visuelle et français, première partie) : thème `acp` généré depuis
+`design/tokens`, persona française réécrite, greffons de tableau de bord `acp-interface` et
+`acp-catalogue` (sans code serveur), trois épingles de plus dans la managed scope ; détail et
+preuves dans [interface.md](interface.md). Étape P3, seconde partie (réglages prêts) : catalogue
+de skills épinglé livré sous `/opt/acp/skills` et chargé par `skills.external_dirs`, skills livrées
+inertes désactivées, serveur MCP distant context7 derrière la garde (huit épingles de plus, deux
+outils admis de plus), refus de démarrer sur un serveur MCP stdio ou hors catalogue, route
+`/v1/catalogue` ; détail et preuves dans [catalogue.md](catalogue.md). Chaque ajout de P3 est
+signalé comme tel.
+
 Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiquette
 `v2026.9.24` (commit `f97608f`), sauf mention contraire.
 
@@ -28,9 +38,11 @@ Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiq
 | Logique commune, en Python | `hermes/image/acp_demarrage.py` | `/opt/acp/bin/acp_demarrage.py` |
 | Modèle de la managed scope | `hermes/gere/config.yaml` | `/opt/acp/gere/config.yaml` → `/etc/hermes/config.yaml` |
 | Contrat épinglé | `hermes/contrat/` | `/opt/acp/contrat/` |
-| Persona | `hermes/persona/SOUL.md` | `/opt/acp/persona/SOUL.md` → `/opt/data/SOUL.md` |
-| Thème (provisoire) | `hermes/theme/acp.yaml` | `/opt/acp/theme/` → `/opt/data/dashboard-themes/` |
+| Persona (française, réécrite en P3) | `hermes/persona/SOUL.md` | `/opt/acp/persona/SOUL.md` → `/opt/data/SOUL.md` |
+| Thème (généré en P3 par `scripts/generer_themes.py`) | `hermes/theme/acp.yaml` | `/opt/acp/theme/` → `/opt/data/dashboard-themes/` |
 | Greffon `acp-poste` | `hermes/plugins/acp-poste/` | `/opt/hermes/plugins/acp-poste/` |
+| Greffons d'interface (P3), sources dans `apps/interface` | `hermes/plugins/acp-interface/`, `hermes/plugins/acp-catalogue/` | `/opt/hermes/plugins/acp-interface/`, `/opt/hermes/plugins/acp-catalogue/` |
+| Catalogue de skills (P3) : skills, verrou, licences tierces | `hermes/skills/`, `hermes/catalogue/`, `hermes/THIRD_PARTY.md` | `/opt/acp/skills/`, `/opt/acp/catalogue/`, `/opt/acp/THIRD_PARTY.md` |
 | Garde d'entrée hors PID 1 (P2) | `hermes/image/acp-entree` | `/opt/acp/bin/acp-entree` (`ENTRYPOINT`) |
 | Garde d'exécution de l'agent (P2) | `hermes/plugins/acp-poste/garde_execution.py` | dans le greffon |
 | Image de test, outils | `hermes/tests/` | jamais dans l'image Railway |
@@ -268,7 +280,8 @@ rajoute lui-même `~/.local/bin`, **en fin** de `PATH`, à ses propres shells
 restent utilisables, sans jamais masquer une commande système. En revanche, un programme
 lancé par la passerelle elle-même hors du terminal (un serveur MCP stdio, par exemple) ne
 cherche plus dans `~/.local/bin` : il doit être désigné par son chemin absolu, ce que fera
-le catalogue épinglé de P3. Prouvé par
+le catalogue épinglé de P3 (qui, en fin de compte, n'admet côté Hermes aucun serveur stdio :
+[catalogue.md](catalogue.md) § 7). Prouvé par
 `test_les_scripts_root_n_executent_pas_les_binaires_de_l_agent` : sur l'ancienne image il
 échoue (quatorze traces root), sur la nouvelle aucun faux binaire ne tourne en root, ni aux
 relances du tableau de bord et de la passerelle par l'agent, ni au redémarrage.
@@ -292,10 +305,12 @@ tableau de bord (10000). Il ne peut pas modifier `/etc/hermes` ; depuis P2, il n
 outil d'exécution (ci-dessous) pour tuer le processus du tableau de bord ou écouter sur
 `0.0.0.0:9119`. Il ne le pourrait plus que par une **faille de Hermes lui-même** (§ 10).
 
-**`/etc/hermes/config.yaml`** (**40 clés** depuis P2, 28 en P1) : `kanban.auto_decompose: false`,
+**`/etc/hermes/config.yaml`** (**50 clés** depuis P3, 40 en P2, 28 en P1) : `kanban.auto_decompose: false`,
 `kanban.dispatch_profiles: [default]`, `approvals.mode: manual` (et `cron_mode`,
 `single_query_mode`, `unattended_mode` : `deny`), `plugins.enabled: []`,
-`plugins.disabled: [dashboard_auth/basic, dashboard_auth/nous, dashboard_auth/drain]`,
+`plugins.disabled: [dashboard_auth/basic, dashboard_auth/nous, dashboard_auth/drain,
+hermes-achievements]` (le dernier depuis P3, décision D13 : greffon de gamification en anglais,
+doté de sa propre API, jamais servi),
 `plugins.allow_deprecated_imports: false`, `auth.adopt_external_logins: false`,
 `security.redact_secrets: true`, `display.language: fr`, `dashboard.theme: acp`,
 `dashboard.trusted_proxies: []` (vide tant que le bord Railway n'est pas mesuré, décision P2),
@@ -315,12 +330,33 @@ gateway/config_env.py:307-315) ; et, depuis P2 :
   PyYAML ; `focus` réduirait les outils au jeu de codage, terminal compris) ;
 - `agent.service_tier: ""` (mode rapide coupé ; écart au plan P2, voir plus bas) ;
 - `platform_toolsets.api_server: [web, vision, skills, todo, memory, session_search, no_mcp]`,
-  `platform_toolsets.cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]`,
+  `platform_toolsets.cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]`
+  (en P2 ; depuis P3, `context7` y remplace `no_mcp`),
   `platform_toolsets.cron: [web, vision, skills, todo, memory, session_search, no_mcp]` ;
 - `skills.inline_shell: false`, `skills.write_approval: true`, `skills.guard_agent_created: true` ;
 - `memory.write_approval: true` (décision du propriétaire) ;
 - `hooks_auto_accept: false` ;
-- `security.allow_private_urls: false` et `security.allow_lazy_installs: false`.
+- `security.allow_private_urls: false` et `security.allow_lazy_installs: false` ;
+
+et, depuis P3 ([interface.md](interface.md) § 3) :
+
+- `dashboard.font: theme` : la police du thème, jamais une police de substitution (toute autre
+  valeur ferait charger une feuille de style de Google Fonts, web/src/themes/fonts.ts) ;
+- `dashboard.hidden_plugins: []` : aucun greffon de tableau de bord masqué, `acp-interface`,
+  `acp-catalogue` et `acp-poste` restent toujours servis ;
+
+et, depuis la seconde partie de P3 ([catalogue.md](catalogue.md) § 7) :
+
+- `platform_toolsets.cli` nomme `context7` au lieu de `no_mcp` (liste blanche des serveurs MCP ;
+  `api_server` et `cron` gardent `no_mcp`) ;
+- `mcp_servers.context7.{url: https://mcp.context7.com/mcp, enabled: true, ssl_verify: true,
+  sampling.enabled: false, elicitation.enabled: false, tools.include: [resolve-library-id,
+  query-docs], tools.resources: false, tools.prompts: false}` : serveur distant, aucun processus
+  local, ni échantillonnage ni élicitation, deux outils seulement.
+
+**Jamais épinglés** : `skills.external_dirs` et `skills.disabled`. Hermes les lit dans
+`/opt/data/config.yaml` sans la managed scope (agent/skill_utils.py:250-385) et une épingle les
+retirerait du volume à la moindre sauvegarde : `05-acp` les écrit dans le volume (§ 6).
 
 Aucun secret : une clé dont le nom évoque un secret et qui porte une valeur est refusée.
 
@@ -369,7 +405,9 @@ Aucune couche ne suffit seule ; chacune est prouvée séparément, avec son tém
    `tui_gateway.entry`. C'est la **seule** couche qui ferme `preview.restart`, dont l'agent
    caché reçoit `["terminal","file"]` codés en dur (tui_gateway/agent_callbacks.py:371-374).
 
-**Les 24 outils admis** (noms exacts) : `web_search`, `web_extract`, `vision_analyze` ;
+**Les 26 outils admis** (noms exacts ; 24 en P2) : `mcp__context7__resolve_library_id` et
+`mcp__context7__query_docs` (P3 : les deux outils du serveur MCP distant context7, sous le nom que
+leur donne Hermes ; aucun autre outil MCP), `web_search`, `web_extract`, `vision_analyze` ;
 `skills_list`, `skill_view`, `skill_manage` ; `todo_list`, `memory`, `session_search`,
 `clarify` ; `tool_search`, `tool_describe` ; `kanban_show`, `kanban_list`, `kanban_complete`,
 `kanban_block`, `kanban_request_review`, `kanban_request_changes`, `kanban_heartbeat`,
@@ -488,6 +526,13 @@ utilisateur n'est jamais importé.
 - **`/opt/data/lazy-packages` (P2)** : les installations paresseuses sont coupées (§ 5) ; un
   contenu autre que `.lock` et `.python-abi` est signalé (état du démarrage, `/v1/meta`,
   `diagnostiquer`) sans refuser le démarrage.
+- **`/opt/data/config.yaml` (P3)** : `05-acp` y garantit `skills.external_dirs` (le dossier du
+  catalogue en tête), `skills.disabled` (les 46 skills livrées inertes) et une entrée vide
+  `mcp_servers.context7`, **hors** managed scope (Hermes les lit dans ce fichier brut) ; écriture
+  seulement si quelque chose change, commentaires, propriétaire et mode conservés, rien d'autre ne
+  change ; YAML illisible : rien n'est écrit, alerte. Et **refus de démarrer** (crochet, `05-acp`,
+  relances) si ce fichier ou celui d'un profil déclare un serveur MCP doté d'un `command` ou absent
+  du catalogue (décision D8). Détail : [catalogue.md](catalogue.md) § 6 et § 7.3.
 - **Migration** : aucune (décision du propriétaire : rien n'est déployé, P2 part d'un
   volume neuf). La reprise de propriété unique du plan (`chown -R`) n'est pas écrite.
 
@@ -515,7 +560,8 @@ rassemble tout ce qui ferait refuser le démarrage ou exécuter du code depuis l
   injection en a posé ;
 - **clés exécutables** de `/opt/data/config.yaml` et `/opt/data/profiles/*/config.yaml`, lues
   sans suivre de lien : `mcp_servers.*.command`, `hooks` non vide, `quick_commands` de type
-  `exec`, fournisseurs TTS ou STT de type `command` ;
+  `exec`, fournisseurs TTS ou STT de type `command` ; depuis P3, tout serveur MCP absent du
+  catalogue (qui refuse aussi le démarrage) ;
 - contenu de `/opt/data/lazy-packages`.
 
 Chaque constat est préfixé `[acp] DIAGNOSTIC :` ; code 0 si rien n'est trouvé, 1 sinon. Aucune
@@ -569,6 +615,16 @@ liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'e
   - **`deploiement.commit`** : le SHA relevé par `05-acp` (écrit par root dans l'état du
     démarrage, schéma 2), `null` hors Railway — jamais l'environnement du tableau de bord,
     que `/opt/data/.env` peut modifier.
+
+  Blocs ajoutés en P3 ([catalogue.md](catalogue.md) § 8) : **`catalogue`** (empreinte du verrou,
+  skills d'ACP actives et attendues telles que le chargeur de Hermes les voit, état de context7,
+  conformité de `skills.external_dirs` et des désactivations, nombre d'écarts) et **`interface`**
+  (versions des greffons `acp-interface` et `acp-catalogue`, SDK attendu `1.x`), et les alertes du
+  catalogue ; l'état du démarrage passe au schéma 3 (bloc `catalogue`). Contrat `acp-poste/1`
+  inchangé : ajouts seulement.
+- `GET /api/plugins/acp-poste/v1/catalogue` (P3, session obligatoire) : le verrou et l'état de
+  chaque skill et de chaque serveur MCP vu par le chargeur du tableau de bord
+  (`catalogue.py`, seul module du greffon qui importe les internes des skills et des MCP).
 
 ## 8. Tests
 
@@ -823,7 +879,10 @@ du même commit : success.
   sauvegarde restaurée le pourrait : `diagnostiquer` l'inventorie.
 - **Chemins d'exécution pilotés par la configuration ou le volume** (`mcp_servers.*.command`,
   `hooks:`, quick_commands exec, TTS/STT « command », `lazy-packages`) : il faut écrire
-  `/opt/data`, ce que l'agent ne peut plus faire ; `diagnostiquer` les inventorie (code 1).
+  `/opt/data`, ce que l'agent ne peut plus faire ; `diagnostiquer` les inventorie (code 1). Depuis
+  P3, un serveur MCP stdio ou hors catalogue **refuse le démarrage** et la relance (D8) ; le
+  tableau de bord authentifié peut encore en lancer un **pendant** sa session (shell du
+  propriétaire, § 5).
 - **`vision_analyze` lit les images locales** (relecture P2, constat par lecture de la source,
   non exécuté) : l'outil admis accepte un chemin local ou une URL `file://`
   (tools/vision_tools.py:875) ; avec le terminal local de l'image, **tout chemin** lisible par

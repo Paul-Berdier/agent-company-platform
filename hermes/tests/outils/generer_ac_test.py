@@ -6,7 +6,10 @@ Crée, dans le répertoire donné :
 - ``bord.pem`` et ``bord.key`` : certificat du bord factice (``bord_factice.py``), qui imite le
   bord TLS de Railway pour ``hermes-acp.test`` et ``identite-acp.test``. Ces deux noms ont des
   domaines enregistrables DISTINCTS, comme deux sous-domaines de ``up.railway.app`` (suffixe
-  public) : le navigateur les traite en sites différents, exactement comme sur Railway.
+  public) : le navigateur les traite en sites différents, exactement comme sur Railway ;
+- ``mcp.pem`` et ``mcp.key`` (étape P3) : certificat du faux serveur context7 (``mcp_factice.py``)
+  pour ``mcp.context7.com``, le nom épinglé par la managed scope ; les tests le font résoudre vers
+  le faux serveur, jamais vers le vrai.
 
 Utilisé à la construction de l'image de test, qui ajoute ``ac.pem`` au magasin du système pour que
 le tableau de bord fasse confiance au faux fournisseur et au bord, exactement comme à de vrais.
@@ -27,6 +30,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 HOTE_IDP = "idp.acp.test"
 HOTES_BORD = ("hermes-acp.test", "identite-acp.test")
+HOTE_MCP = "mcp.context7.com"
 
 
 def _nom(texte: str) -> x509.Name:
@@ -76,6 +80,7 @@ def main(repertoire: str) -> int:
 
     idp, cle_idp = feuille((HOTE_IDP,))
     bord, cle_bord = feuille(HOTES_BORD)
+    mcp, cle_mcp = feuille((HOTE_MCP,))
 
     (sortie / "ac.pem").write_bytes(ac.public_bytes(serialization.Encoding.PEM))
     (sortie / "idp.pem").write_bytes(idp.public_bytes(serialization.Encoding.PEM))
@@ -84,7 +89,10 @@ def main(repertoire: str) -> int:
     (sortie / "bord.pem").write_bytes(bord.public_bytes(serialization.Encoding.PEM))
     (sortie / "bord.key").write_bytes(cle_bord.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-    print(f"AC de test et certificats {HOTE_IDP}, {', '.join(HOTES_BORD)} écrits dans {sortie}")
+    (sortie / "mcp.pem").write_bytes(mcp.public_bytes(serialization.Encoding.PEM))
+    (sortie / "mcp.key").write_bytes(cle_mcp.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    print(f"AC de test et certificats {HOTE_IDP}, {', '.join(HOTES_BORD)}, {HOTE_MCP} écrits dans {sortie}")
     return 0
 
 

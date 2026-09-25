@@ -6,12 +6,18 @@ le modèle factice (``OUTIL:<nom>`` dans le message fait demander l'outil) :
 - ``cache`` : l'agent caché de preview.restart, jeux ``["terminal", "file"]`` codés en dur,
   sans base de sessions ni mémoire (tui_gateway/agent_callbacks.py:371-374) ;
 - ``api_server`` : jeux de _get_platform_tools(cfg, "api_server"), sans disabled_toolsets
-  (gateway/platforms/api_server.py:2231-2270).
+  (gateway/platforms/api_server.py:2231-2270) ;
+- ``cli`` (étape P3) : jeux de _get_platform_tools(cfg, "cli") et agent.disabled_toolsets, APRÈS la
+  découverte des serveurs MCP (discover_mcp_tools, comme la passerelle au démarrage) : c'est la
+  surface qui reçoit context7.
+
+La sortie donne aussi les processus ENFANTS du processus de test à la fin du tour (``enfants``) :
+un serveur MCP stdio en serait un.
 
 C'est l'AIAgent qui découvre lui-même les greffons (agent/agent_init.py:1060-1065) : si la
 garde d'acp-poste n'est pas chargée par ce chemin, l'outil s'exécute.
 
-Usage : python agent_neuf.py <cache|api_server> <url du modèle factice> "<message>" <fichier de sortie>
+Usage : python agent_neuf.py <cache|api_server|cli> <url du modèle factice> "<message>" <fichier de sortie>
 Sortie : {"reponse": …, "outils_offerts": […]} en JSON dans le fichier de sortie (Hermes détourne
 sys.stdout vers la sortie d'erreur à l'import de certains modules).
 """
@@ -23,11 +29,29 @@ import os
 import sys
 
 
+def processus_enfants() -> list:
+    """Lignes de commande des processus dont le parent est CE processus (lues dans /proc)."""
+    enfants = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/stat", encoding="utf-8") as flux:
+                parent = flux.read().rsplit(")", 1)[1].split()[1]
+            if parent == str(os.getpid()):
+                with open(f"/proc/{pid}/cmdline", "rb") as flux:
+                    enfants.append(flux.read().replace(b"\0", b" ").decode("utf-8", "replace")[:200])
+        except (OSError, IndexError):
+            continue
+    return enfants
+
+
 def main() -> int:
     mode, url, message, fichier_sortie = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
     from hermes_cli.env_loader import load_hermes_dotenv
 
     load_hermes_dotenv(hermes_home=os.environ["HERMES_HOME"], load_external_secrets=False)
+    retires = []
     if mode == "cache":
         jeux = ["terminal", "file"]
         plateforme = "tui"
@@ -37,19 +61,31 @@ def main() -> int:
 
         jeux = sorted(_get_platform_tools(load_config(), "api_server"))
         plateforme = "api_server"
+    elif mode == "cli":
+        from hermes_cli.config import load_config
+        from hermes_cli.tools_config import _get_platform_tools
+        from tools.mcp_tool_discovery import discover_mcp_tools
+
+        discover_mcp_tools()
+        cfg = load_config()
+        jeux = sorted(_get_platform_tools(cfg, "cli"))
+        retires = list((cfg.get("agent") or {}).get("disabled_toolsets") or [])
+        plateforme = "cli"
     else:
         print(f"mode inconnu : {mode}", file=sys.stderr)
         return 2
     from run_agent import AIAgent
 
+    options = {"disabled_toolsets": retires} if retires else {}
     agent = AIAgent(model="acp-factice", base_url=url, api_key="factice", provider="custom",
                     enabled_toolsets=jeux, quiet_mode=True, verbose_logging=False, max_iterations=6,
-                    platform=plateforme, session_db=None, skip_memory=True, session_id=f"acp-test-{mode}")
+                    platform=plateforme, session_db=None, skip_memory=True, session_id=f"acp-test-{mode}",
+                    **options)
     resultat = agent.run_conversation(user_message=message, task_id=f"acp-test-{mode}")
     offerts = sorted({d["function"]["name"] for d in (agent.tools or []) if isinstance(d, dict) and "function" in d})
     with open(fichier_sortie, "w", encoding="utf-8") as flux:
-        json.dump({"reponse": (resultat or {}).get("final_response"), "outils_offerts": offerts}, flux,
-                  ensure_ascii=False)
+        json.dump({"reponse": (resultat or {}).get("final_response"), "outils_offerts": offerts, "jeux": jeux,
+                   "enfants": processus_enfants()}, flux, ensure_ascii=False)
     return 0
 
 
