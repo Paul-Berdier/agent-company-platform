@@ -36,7 +36,7 @@ JS_DEBORDEMENT = """() => {
   }
   return max;
 }"""
-HAUTEUR_MAXIMALE = 12_000
+HAUTEUR_MAXIMALE = 16_000
 
 
 def png_uniforme(donnees: bytes) -> bool:
