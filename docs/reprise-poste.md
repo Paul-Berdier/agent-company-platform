@@ -1,6 +1,6 @@
 # Reprise du travail sur un autre poste
 
-État du **25 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md`,
+État du **26 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md`,
 [le plan de la refonte](refonte/plan.md) et [le plan d'autonomie](refonte/autonomie.md), qui
 remplace ses phases P4 à P8.
 
@@ -9,7 +9,7 @@ remplace ses phases P4 à P8.
 ACP est en pleine **refonte « Hermes au centre »** : Hermes Agent devient le seul
 serveur, le seul orchestrateur et la seule source de vérité ; ACP ne garde que l'image
 Railway dérivée et ses greffons (`acp-poste` depuis P1, `acp-interface` et `acp-catalogue`
-livrés par P3 côté dépôt, non fusionnés), le poste Windows, le client Qt et
+livrés par P3, `acp-projets` par P4, côté dépôt, non fusionnés), le poste Windows, le client Qt et
 le tableau de bord de Hermes habillé. L'ancien backend ACP (API FastAPI, base, bus
 d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite) est retiré ;
 il reste entier sous l'étiquette annotée **`archive/acp-0.10.0-avant-hermes`**
@@ -21,7 +21,8 @@ Desktop CI `35981934226` vertes sur ce commit).
 - Une branche par étape, `refonte/hermes-pN`, PR vers `refonte/hermes`. Étiquette
   `1.0.0` seulement à la fusion finale dans `main`.
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
-  `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`.
+  `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`, pour P4
+  `.claude/worktrees/refonte-hermes-p4`.
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
@@ -68,7 +69,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
-| P4 | Projets autonomes sur Hermes (plan d'autonomie) | à faire |
+| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
@@ -1167,6 +1168,286 @@ d'arXiv par la recherche web ; context7 depuis Railway ; la cause du pic bas de 
 CI (régulation ou vérifications successives) ; le remède de la page MCP sur un vrai tableau de bord
 (prouvé par ses routes, pas par un clic) ; la lecture des conditions de context7 (au propriétaire).
 
+## 6 quater. P4 — projets autonomes sur Hermes (cœur serveur, puis page « Projets »)
+
+Branche `refonte/hermes-p4`, empilée sur `refonte/hermes-p3` (`e5e8032`, PR #16) ; version 0.11.0
+inchangée ; **ni PR, ni fusion, ni étiquette** ; **rien n'est déployé**. Référence :
+[`docs/refonte/projets.md`](refonte/projets.md) ; cahier de conception (brouillon de session
+`plan_p4.md`) ; décisions **D21 à D47** au § 1 de [`plan.md`](refonte/plan.md), **non confirmées**.
+La page « Projets » de l'interface (greffon `acp-projets`, `apps/interface`) est la seconde partie de
+P4 : voir « Seconde partie » à la fin de ce paragraphe.
+
+Une première tentative de cette partie a été coupée par une limite d'usage : elle a laissé trois
+commits locaux (`32ea6f8`, `3a7f7bb`, `e8aaad1`) et du travail non commité (routes, poste simulé, faux
+ntfy, contrat, docs). La reprise a tout inspecté, gardé, complété (tests de la méta, témoins négatifs,
+docs) et corrigé (accord de « carte » dans les notifications ; test de contrat de P2 resté à 50 clés).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `32ea6f8` | feat(contrat): share the workstation inventory contract |
+| `3a7f7bb` | feat(skills): add the project skills and tell the persona about projects |
+| `e8aaad1` | feat(acp-poste): run autonomous projects from a deterministic plugin core |
+| `2345171` | feat(acp-poste): expose projects, questions and pause routes behind the dashboard session |
+| `a710bc0` | test(acp-poste): cover the projects block and alerts of the meta route |
+| `ab7c594` | fix(acp-poste): agree card counts in French notifications |
+| `d5ce0a3` | test(contrat): prove autonomous projects with the fake model and a simulated workstation |
+| `207d9ba` | test(acp-poste): add the negative witnesses of the P4 protections |
+| `c14c263` | test(contrat): expect the 57 managed scope keys in the startup banner |
+| `de96996` | test(contrat): let the witness projects conclude instead of giving up |
+| `ff5d61f` | docs: record the P4 server core, decisions D21 to D40 and local evidence |
+| `a150f72` | test(e2e): capture the longer phone catalogue in full |
+| `a614278` | docs: record the first P4 CI runs and the capture fix |
+| `32230b2` | fix(acp-poste): describe the P4 routes in the dashboard manifest |
+| `1a57bf2` | test(contrat): time the planning start on the container clock after the exploration end |
+| `165c8e2` | docs: record the green P4 CI runs and the container clock timing |
+
+### Ce qui est en place
+
+- Greffon `acp-poste`, sous-paquet `noyau/` : chef de projet déterministe (un tableau kanban par
+  projet, base propre `plugin-data/acp-poste/data.db`), graphe [exploration par le poste] →
+  planification → implémentation et relecture croisée, ou carte Hermes → synthèse gardée par tout le
+  tour ; plafonds 3 tours, 30 cartes, 2 corrections ; pauses ; questions ; cartes `poste-*`
+  étrangères bloquées ; présence ; émetteur de notifications dans la passerelle (désactivé sans
+  `ACP_NOTIFICATIONS`).
+- Huit outils de l'agent, seuls ajouts à la garde (26 → 34 noms, **33** depuis la relecture : `kanban_link`
+  retiré) ; `kanban_create` refusé ;
+  `memory` refusé dans un worker kanban (D40). Routes `/v1/projets`, `/v1/questions`,
+  `/v1/triage/…/reprendre`, `/v1/pause`, `/v1/poste`, `/v1/notifications/test` et bloc `projets` de
+  `/v1/meta`.
+- Managed scope à **57** clés ; démarrage et relance refusés sur des crochets shell ;
+  `HERMES_KANBAN_DISPATCH_IN_GATEWAY` interdite ; cinq skills maison (21 livrées).
+- **Réalité de production en P4** (D25) : sans inventaire du poste, un projet sur dépôt est refusé en
+  français ; un projet sans dépôt avance jusqu'au bout sur Railway.
+
+### Écarts au cahier, justifiés
+
+Détail : [`projets.md`](refonte/projets.md) § 8. `memory` refusé dans un worker (D40, ajoutée) ; outils
+du greffon différés par Hermes derrière `tool_search` ; module `modeles.py` non créé ; variables de
+notification hors IaC (procédure par PR, [`railway.md`](refonte/railway.md) § 9).
+
+### Preuves locales (26/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
+
+Détail, commandes et relevés : [`projets.md`](refonte/projets.md) § 9. En bref :
+
+- dépôt **386 réussis** ; contrôles de version, de gel du moteur, du catalogue (21 skills) et des
+  secrets verts ; `hermes plugins compat` : greffon code 0, témoin code 1 ;
+- **dans l'image** (`acp-hermes-tests:p4f`) : **491 réussis**, 0 échec ;
+- **contrat complet** : 134 réussis et 1 échec (bandeau « 50 clés » d'un test de P2), corrigé par
+  `c14c263` puis `test_contrat_image.py` rejoué : 37 réussis ; **contrat P4** rejoué sur sa version
+  committée : **17 réussis** (10 min 30 s) ;
+- **navigateur** : 5 réussis après `a150f72` (capture du Catalogue au téléphone portée à 16 000 px) ;
+- **témoins négatifs** : 12 protections retirées une à une, 12 fois des tests en échec ;
+- délai fin d'exploration → planification lancée : 2,3 à 3,7 s (répartiteur à 5 s ; heure de l'hôte,
+  voir la seconde reprise ci-dessous) ; mémoire indicative : pic de 849,7 Mio avec deux workers ; aucune
+  variable `ACP_*` chez les workers ;
+- `git diff --check` propre ; tout en LF ; aucun `Co-Authored-By` ; aucun fichier `.claude`.
+- Les suites Docker n'ont tourné que sur l'arbre final de la reprise (et une première fois sur l'arbre
+  de `2345171`, outils de contrat alors non commités : 487 réussis dans l'image, 17 au contrat P4).
+  La suite du dépôt a tourné au début de la reprise (385 réussis) et sur l'arbre final (386) ; entre
+  les deux, seul le commit de documentation touche un de ses fichiers (test des décisions).
+
+### Intégration continue
+
+Branche poussée le 26/09/2026, sommet `ff5d61f` :
+
+- `ci.yml` [36226236043](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36226236043)
+  **succès** : poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (les 9 tests propres
+  à Windows) ; interface **55** ; moteur **74** ; catalogue et balayage des secrets verts.
+- `image.yml` [36226236009](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36226236009)
+  **échec** : `hermes plugins compat` vert (témoin code 1) ; sonde réelle de context7 connectée
+  (1 611 ms) ; **491** réussis dans l'image ; **135** au contrat (24 min 08 s), dont les 17 de P4
+  (réclamation de la planification 3,7 s après la fin de l'exploration) ; navigateur **1 échec sur 5** :
+  la capture du Catalogue au téléphone s'arrêtait à 12 000 px alors que la page, avec les cinq skills de
+  P4, en compte environ 13 300 (`telephone-03-catalogue.png`, 1 808 px restants). Corrigé par `a150f72`
+  (plafond de capture à 16 000 px) : témoin local à 12 000 px en échec (1 278 px restants), puis
+  **5 réussis** en local à 16 000 px (2 min 10 s ; aucune violation axe).
+- Relance sur `a614278` (sommet après `a150f72`), **verte** :
+  - `ci.yml` [36228251683](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36228251683)
+    **succès** : poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (les 9 tests
+    propres à Windows) ; interface **55** (11 fichiers) ; moteur **74** (7 fichiers) ; catalogue
+    (21 skills) et balayage des secrets verts ;
+  - `image.yml` [36228251644](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36228251644)
+    **succès** (33 min) : `hermes plugins compat` greffon vert, témoin code 1 ; sonde réelle de context7
+    connectée (2 094 ms) ; **491 réussis** dans l'image (4 min 26 s) ; **135 réussis** au contrat
+    (24 min 18 s), dont les **17** de P4 ; navigateur **5 réussis** (1 min 59 s) ;
+  - relevés du contrat en CI : une seule notification « terminé » (« Veille contrat », 4 cartes), une
+    seule « plafond de tours atteint », une « bloquée » pour la carte étrangère, deux « Poste hors
+    ligne » (deux passages) ; outils offerts au worker de planification identiques à la liste locale
+    ([`projets.md`](refonte/projets.md) § 9) ; `reasoning_effort` nul et effort `extreme` gardé dans la
+    demande ; mémoire indicative 516 à 521 Mio sans worker, pic **830,2 Mio** avec deux workers (runner
+    à 15,6 Gio), aucune variable `ACP_*` dans les 12 environnements de workers lus (2 lectures en échec :
+    `Permission denied`) ;
+  - délai fin d'exploration → planification relevé à **-0,6 s** : artefact de mesure, pas une inversion
+    (la planification était `todo` jusqu'à la fin et son `kanban_show` portait le marqueur de
+    l'exploration, deux assertions du test). Le test comparait `started_at` de Hermes (secondes
+    entières) à l'heure de l'hôte prise **après** le retour de `docker exec`. Corrigé par `1a57bf2` : fin
+    et lancement lus tous deux sur l'horloge des conteneurs (`completed_at`, `started_at`), avec
+    l'assertion `0 <= délai <= 12`.
+
+### Seconde reprise (vérification de la première partie)
+
+Une seconde tentative a été coupée par une limite d'usage après `a614278`, sans rien laisser de non
+commité. La reprise a confronté la première partie au cahier sans tout rejouer : livrables présents
+(noyau, huit outils, garde à 34 noms, routes, émetteur, managed scope, skills, tests d'image et de
+contrat, témoins, docs), sauf la description du manifeste du tableau de bord de `acp-poste`, restée
+celle de P1, corrigée par `32230b2`. Rejoués sur l'arbre de `1a57bf2` (images `acp-hermes:p4g` et
+`acp-hermes-tests:p4g`, identité `acp-identite:p4`) :
+
+- dépôt : **386 réussis** (34,9 s) ; `check_version.py`, `check_engine_frozen.py`,
+  `verifier_catalogue.py` (21 skills) et `balayer_secrets.py` verts ;
+- dans l'image : **491 réussis**, 0 échec (4 min 34 s) ;
+- contrat P4 (`test_projets_contrat.py`) : **17 réussis** (10 min 11 s) ; délai fin d'exploration →
+  planification lancée **4 s** sur l'horloge des conteneurs (à la seconde près, répartiteur à 5 s),
+  première requête du worker au modèle 20,0 s après la fin ; notifications identiques à la CI ; mémoire
+  indicative pic **863,6 Mio** avec deux workers (Docker Desktop à 7,7 Gio) ;
+- non rejoués en local : le reste du contrat (hors P4) et le navigateur, que ni le manifeste ni le test
+  ne touchent ; la CI du sommet poussé les rejoue.
+
+### Non vérifié
+
+- La qualité d'un vrai plan (modèle factice seulement) ; le scénario Railway (téléphone, notification,
+  second appareil) ; la livraison réelle par Telegram ou ntfy ; le poste réel (P5-P6) ; la tenue dans
+  2 Go avec de vrais modèles (mesure indicative : pic de 849,7 Mio avec deux workers et le modèle
+  factice).
+- Les trois commits de la première tentative n'ont pas été rejoués un par un : les suites Docker ont
+  tourné sur l'arbre final de la reprise.
+
+### Seconde partie : page « Projets » (greffon `acp-projets`)
+
+Référence : [`projets.md`](refonte/projets.md) § 4 bis et [`interface.md`](refonte/interface.md) § 10.
+Une limite d'usage a interrompu la session après la première partie ; la reprise a trouvé l'arbre propre,
+sans rien de la seconde partie commencé.
+
+| Commit | Sujet |
+|---|---|
+| `79afb4b` | feat(interface): add the mobile Projects page |
+| `589cd28` | feat(hermes): ship the Projects dashboard plugin in the image |
+| `65c89e3` | test(e2e): drive the Projects page at 390x844 and 1440x900 |
+| `609b96c` | fix(acp-poste): retry a board connection when Hermes' write check races a closing WAL |
+| `92eb74d` | test(acp-poste): prove the triage resume and test notification buttons end to end |
+| `4d8265a` | docs: record the Projects page, the WAL race and local evidence |
+| `5002285` | fix(interface): bring the Projects page back to its top when the view changes |
+| `8532ee2` | docs(acp-poste): cite the exact lines of Hermes' database write check |
+| (ce commit) | docs: record the CI of the Projects page and the scroll fix |
+
+Ce qui est en place :
+
+- greffon d'interface `acp-projets` (sans code serveur, bundle déterministe committé) : onglet
+  « Projets » avant « Catalogue » ; liste, nouveau projet, détail, questions ; pause d'un projet et
+  pause générale confirmée ; notification de test (active seulement avec un canal configuré) ;
+  raccourci sur l'Accueil ;
+- aucun bouton sans route réelle et testée ; refus du greffon affichés tels quels ; aucune donnée
+  inventée ; sondage de 15 s tant que la page est visible ;
+- image : `acp-projets` copié, root et 0644 ; `check_version.py` ; bloc `interface` de la méta ; CI
+  « Interface » sur trois bundles ;
+- tests ajoutés : Vitest (page et écritures), route de reprise d'un triage (image), notification de
+  test reçue par le faux ntfy (contrat), parcours navigateur complet (`test_projets.py`).
+
+Preuves locales (26/09/2026 ; détail et commandes : [`projets.md`](refonte/projets.md) § 9, « Seconde
+partie ») :
+
+- interface : TypeScript sans erreur ; Vitest **80 réussis** (13 fichiers, dont 25 pour la page) ; 6
+  fichiers de greffons à jour ;
+- dépôt : **386 réussis** (33,6 s) ;
+- contrôles : 0.11.0 partout (manifeste d'`acp-projets` compris) ; moteur gelé ; 21 skills ; aucun motif
+  de secret ; propre ;
+- dans l'image : **493 réussis** (4 min 31 s) : 491 de la première partie, plus la reprise d'un triage
+  par la route et la course du contrôle d'écriture ;
+- contrat P4 : **18 réussis** (10 min 21 s), dont la notification de test reçue une seule fois par le
+  faux ntfy ;
+- contrat interface et catalogue : **14 réussis** (2 min 14 s) : `acp-projets` servi, octet pour octet
+  celui du dépôt ; version dans la méta ;
+- navigateur : **6 réussis** (4 min 21 s) : les 5 de P2 et P3, plus `test_projets.py` ;
+- navigateur, page Projets : aucune violation axe, aucun texte hors du catalogue, cibles de 44 px au
+  téléphone, aucune requête hors de l'origine ; quatre projets menés jusqu'à « Terminé » (66,1 s après la
+  fin des explorations) ; question du poste simulé répondue depuis la page aux deux formats ;
+- course du contrôle d'écriture de Hermes constatée une fois au contrat P4 (`test_pause_d_un_projet`,
+  images `p4j` : 17 réussis, 1 échec), corrigée par `609b96c` puis rejouée : 18 réussis.
+
+Captures du parcours (21, `ACP_E2E_CAPTURES/projets/`, images `p4k`), empreintes SHA-256 :
+
+| Capture | SHA-256 |
+|---|---|
+| `bureau-01-projets-liste.png` | `7fbc01738fe405ae7862d558a707a2fc90f8101f2e509067a8038a4febf4d02b` |
+| `bureau-02-nouveau-projet-sans-inventaire.png` | `ab0226c20e3b22ccf3223937674e573adbfaf46b699a08633a0f7ed24f920ce9` |
+| `bureau-03-projet-detail.png` | `5af6923ff9d4a509e29f3608b09b7a982955b8c6d606a50be2206edb96d3553c` |
+| `bureau-04-projet-en-pause.png` | `9ca2c893299026d10ae5b3bc11594736a18743cad7f6cf357bf1a42931bce9dd` |
+| `bureau-05-nouveau-projet-sur-depot.png` | `c262bb0ba93804d89cdeb9d58e097d63daaa0311d9db17b83be05bfdf81b4dcd` |
+| `bureau-06-projet-sur-depot.png` | `06733561f82e65e8ed562e8beb92af0b6963d6b7327b6360fd27f04c7b2a75d9` |
+| `bureau-07-questions.png` | `c0699353532a422282d60b900219242219ecc845e5f37a0184cd9a84e2f6e843` |
+| `bureau-08-questions-repondues.png` | `ecd1abd4c5bf1cf6426721e942c6331251cc47d87710c042ec6622f046736892` |
+| `bureau-09-projets-termines.png` | `056ce01b48184a5b664b3184730f4d6d231b20dcad4ebfa4b0287689e6ea0871` |
+| `bureau-10-projet-termine.png` | `e59d46968fa2b3d0a505178018019d2b8155afefae48196c7a46fe55cf449d1e` |
+| `bureau-11-pause-generale.png` | `84b07975265f8ac35de1d873250fe133cc695c198e056ede27b32122fb743baa` |
+| `telephone-01-projets-liste.png` | `103dd702f2e42abe7d8cd8fccf29aa5b0e3b154f6f0e0b60723d0f4b43f6c0e9` |
+| `telephone-02-nouveau-projet-sans-inventaire.png` | `412343b87f3958c8bfffa62a5d9c8682be5037a56ad6bba6a4b89a2efd5dc444` |
+| `telephone-03-projet-detail.png` | `bf72d7c6e42fc65c62a9611829ea9464d4601cc00d86e28a3ea13d9543dafbf6` |
+| `telephone-04-projet-en-pause.png` | `ba6da17243779cd4441f39915280ce4b8fa60670d017c63a98101b1dd5c6f0d7` |
+| `telephone-05-nouveau-projet-sur-depot.png` | `04417a2eb4008bf622cc38ee405c53b0c3f0d2b5cc2fdff3b28f373caeb9b44f` |
+| `telephone-06-projet-sur-depot.png` | `b8206ee0066a95e3b76566a83c7af6884553a310f4f9e894ae11006d9963fef9` |
+| `telephone-07-questions.png` | `cf564e4faa0d7145733e2478f21aab843578605e61658dd5473fed1b58def26e` |
+| `telephone-08-questions-repondues.png` | `9b0a4bba10aa97d3fe2a3707c964786592892f3f87151b3ac31d3e400d0352cf` |
+| `telephone-09-projets-termines.png` | `df2c23925c7f265a78739eb7fd213b2c7ccc7344b658e4e470a22f34f86f250f` |
+| `telephone-10-projet-termine.png` | `b4033ce5a31c1df35066950e20d80d99684f372418145221814d5c8f0d0f6c0a` |
+
+Écarts au cahier (détail : [`projets.md`](refonte/projets.md) § 8) : icône `FolderOpen`, position
+`before:catalogue`, fichiers regroupés, et au navigateur « Reprendre » un triage et « Envoyer une
+notification de test » non cliqués (prouvés par Vitest, les tests d'image et le contrat).
+
+Intégration continue de la seconde partie, sommet poussé `4d8265a`, **verte** (détail :
+[`projets.md`](refonte/projets.md) § 10) :
+
+- `ci.yml` [36244812181](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36244812181) :
+  poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (propres à Windows) ; interface
+  **80** (13 fichiers), trois bundles identiques aux sources ; moteur **74** ;
+- `image.yml` [36244812049](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36244812049)
+  (35 min) : compat vert (témoin code 1) ; context7 connecté (1 940 ms) ; **493** dans l'image ; **136** au
+  contrat (24 min 24 s), dont les 18 de P4 ; navigateur **6** (4 min 25 s), dont le parcours Projets
+  (quatre projets terminés 71,1 s après la fin des explorations, aucune requête hors de l'origine).
+
+Poussés après `4d8265a` : `5002285` (la page remonte en haut à chaque changement de vue ; rejoué en local :
+Vitest 80, navigateur `test_projets.py` et `test_interface_fr.py` 2 réussis en 3 min 53 s, images `p4l`),
+`8532ee2` (lignes de Hermes citées exactement) et `463db67` (documentation) : CI de `463db67` **verte**,
+`ci.yml` [36246916733](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36246916733) et
+`image.yml` [36246916752](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36246916752).
+
+Non vérifié : le rendu sur un vrai téléphone (émulation Chromium 390×844 seulement, ni Safari iOS) ;
+le scénario Railway (téléphone, notification réelle, second appareil) ; la qualité d'un vrai plan ;
+le poste réel (P5-P6).
+
+
+### Relecture indépendante de P4 : traitement (26/09/2026)
+
+Trois relectures de `463db67` (scénario du propriétaire, garde, produit) : 21 constats, **tous réels**,
+tous corrigés ou dits ; tableau constat → traitement → preuve dans [`projets.md`](refonte/projets.md)
+§ 12 ; décisions ajoutées **D41 à D47** ([`plan.md`](refonte/plan.md) § 1, non confirmées).
+
+En bref : une planification finie sans plan et une question restée sans suite sont désormais signalées
+au propriétaire par l'émetteur (carte de décision, escalade, notification) ; au plafond, « Prolonger »
+accorde un tour (ou dix cartes) et la carte de décision planifie la suite, « Conclure » arrête le projet ;
+la surcharge d'une carte est refusée tant qu'elle ne s'applique pas ; un worker ne touche que son tableau
+et sa carte (`kanban_link` retiré : garde à **33** noms) ; l'envoi des notifications ne suit plus de
+redirection ; la pause générale ne se lève pas sur des crochets shell présents ; la page Projets dit
+quand un texte est coupé et le lit en entier, montre la raison réelle d'une carte bloquée, suit la
+réponse de l'API, garde le geste « retour » dans la page.
+
+Commits (aucun `Co-Authored-By`) : `3ebba83` (style : lignes vides en fin de fichier, test du dépôt), `8f9762f` (garde et transport des notifications), `4ef7e9e` (cœur du greffon), `353a843` (page « Projets », bundles, parcours navigateur), puis la documentation.
+
+Preuves locales (images `acp-hermes:p4r` et `acp-hermes-tests:p4r` construites depuis l'arbre corrigé,
+identité `acp-identite:p4` inchangée ; détail : [`projets.md`](refonte/projets.md) § 12) : dépôt **387**
+réussis ; Vitest **93** (14 fichiers) ; dans l'image **511** (5 min 28 s) ; témoins négatifs **24 sur 24** ;
+contrat complet **139** (32 min 48 s), plus la porte 401 sur les 13 routes P4 ; navigateur **6** (5 min
+01 s). Chaque nouveau test échoue sans sa correction : les 18 tests d'image sur le greffon de `463db67`
+(18 échecs), les 13 Vitest sur les sources de `463db67` (13 échecs).
+
+Intégration continue du sommet `8aeee20`, **verte** : `ci.yml`
+[36257679667](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679667) (Windows 387,
+Linux 378 et 9 ignorés, interface 93, moteur 74) ; `image.yml`
+[36257679694](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679694) (image 511,
+contrat 139, navigateur 6, compat vert, context7 connecté). Détail : [`projets.md`](refonte/projets.md) § 12.
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1257,5 +1538,12 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
 - **Tests navigateur** : Hermes ajoute `?profile=default` à l'URL de « / » ; comparer le chemin.
   Ils exigent Node ≥ 22 et `npm ci --ignore-scripts --prefix apps/interface` (axe-core, export du
   catalogue des chaînes).
+- **Étape P4** : Hermes **diffère** les outils de greffon derrière `tool_search` ; un worker les appelle
+  par `tool_call` (dans les scénarios du modèle factice : `appel()` de `test_projets_contrat.py`). Un
+  worker sans scénario répond sans `kanban_complete` : trois échecs, puis abandon (`gave_up`).
+- **Étape P4** : le crochet `on_kanban_dispatch_tick` est tiré une fois **par tableau** et par passage
+  du répartiteur, seulement dans la passerelle ; les réglages du répartiteur (`max_in_progress`…) sont
+  lus au démarrage de la passerelle ; le contrat P4 seul dure environ 20 minutes, le contrat complet
+  environ 30. Témoins négatifs : `IMAGE=acp-hermes-tests:<étiquette> bash scripts/temoins_negatifs_p4.sh`.
 - La CLI Railway se lance sous **WSL** (doc Railway) ; `node_modules` de `.railway/` s'installe sur
   la plateforme qui évalue le fichier (WSL pour la CLI, Windows pour `verifier.mjs` local).

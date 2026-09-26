@@ -199,6 +199,9 @@ function CarteRaccourcis(): Noeud {
     <Carte titre={T.accueil.raccourcis} id="acp-accueil-raccourcis">
       <ul className="acp-raccourcis">
         <li>
+          <Lien vers="/projets">{T.accueil.lienProjets}</Lien>
+        </li>
+        <li>
           <Lien vers="/chat">{T.accueil.discussion}</Lien>
         </li>
         <li>

@@ -3,8 +3,8 @@ name: CI
 # Refonte « Hermes au centre » : quatre volets.
 #   - moteur : gel de packages/pixel-office-engine sur l'étiquette d'archive, puis ses
 #     tests npm ;
-#   - interface (étape P3) : greffons acp-interface et acp-catalogue (apps/interface), tests
-#     et bundles committés à jour ;
+#   - interface (étapes P3 et P4) : greffons acp-interface, acp-catalogue et acp-projets
+#     (apps/interface), tests et bundles committés à jour ;
 #   - poste : pytest sur apps/poste, le contrat partagé et l'outillage, sous Linux et
 #     sous Windows ;
 #   - desktop : workflow séparé desktop-ci.yml (windows-2022).
@@ -79,9 +79,10 @@ jobs:
         run: npm run test:engine
 
   interface:
-    # Étape P3 : greffons acp-interface et acp-catalogue du tableau de bord de Hermes. Sources dans
-    # apps/interface (hors des workspaces npm de la racine), bundles COMMITTÉS sous hermes/plugins
-    # (l'image les copie tels quels) : ils doivent correspondre exactement aux sources.
+    # Étapes P3 et P4 : greffons acp-interface, acp-catalogue et acp-projets du tableau de bord de
+    # Hermes. Sources dans apps/interface (hors des workspaces npm de la racine), bundles COMMITTÉS
+    # sous hermes/plugins (l'image les copie tels quels) : ils doivent correspondre exactement aux
+    # sources.
     name: Interface ACP — greffons du tableau de bord (Node 22)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -100,8 +101,10 @@ jobs:
         run: |
           set -euo pipefail
           npm run build --prefix apps/interface
-          git diff --exit-code -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue
-          reste="$(git status --porcelain -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue)"
+          git diff --exit-code -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue \
+            hermes/plugins/acp-projets
+          reste="$(git status --porcelain -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue \
+            hermes/plugins/acp-projets)"
           if [ -n "$reste" ]; then
             echo "Fichiers de greffon non committés : ${reste}" >&2
             exit 1

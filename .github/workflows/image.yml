@@ -67,6 +67,17 @@ name: Image Hermes
 #   - sonde RÉELLE de context7 (`hermes mcp test context7` sur l'image construite) : NON BLOQUANTE
 #     (service tiers), sortie archivée en artefact.
 #
+# Étape P4, projets autonomes (docs/refonte/projets.md) :
+#   - `hermes plugins compat` couvre aussi le noyau du greffon (hermes/plugins/acp-poste/noyau) ;
+#   - tests dans l'image : base du greffon, graphe, routage, plafonds, pauses, questions, cartes
+#     poste-* étrangères, présence, émetteur de notifications, outils et garde (33 noms), routes ;
+#   - tests de contrat (test_projets_contrat.py) sur la pile s6 complète, SANS le PC : répartiteur de
+#     la passerelle, workers kanban réels joués par le modèle factice, poste SIMULÉ (API kanban et
+#     fonctions du greffon), faux serveur ntfy en HTTPS (ntfy.acp.test) ; aucune notification réelle ;
+#   - test navigateur de la page Projets (hermes/tests/e2e/test_projets.py, greffon acp-projets) aux
+#     formats 390×844 et 1440×900 : lancer un projet, répondre à une question du poste simulé, suivre
+#     l'avancement jusqu'au bout avec le modèle factice, pauses ; captures en artefact.
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -112,7 +123,9 @@ jobs:
   image:
     name: Image ACP — construction et contrat
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Étape P4 : le contrat des projets autonomes (workers kanban réels, poste simulé) ajoute environ
+    # 15 minutes ; 60 minutes ne laissaient plus de marge.
+    timeout-minutes: 90
     env:
       ACP_IMAGE: acp-hermes:ci
       ACP_IMAGE_TESTS: acp-hermes-tests:ci
@@ -260,7 +273,7 @@ jobs:
           python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
           python -m playwright install --with-deps chromium
 
-      - name: Tests navigateur (connexion, interface française ; Playwright, WebAuthn virtuel)
+      - name: Tests navigateur (connexion, interface française, page Projets ; Playwright, WebAuthn virtuel)
         env:
           ACP_E2E_OBLIGATOIRE: "1"
           ACP_E2E_CAPTURES: /tmp/captures-e2e

@@ -200,6 +200,92 @@ def bloc_catalogue() -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]
         return None, None, [f"Catalogue d'ACP illisible ({type(exc).__name__}) : état inconnu."]
 
 
+NOM_NOYAU = "acp_poste_noyau"
+PERIME_EMETTEUR_S = 600
+
+
+def module_noyau() -> ModuleType:
+    """Le sous-paquet ``noyau`` de CE greffon, chargé par son chemin sous le nom canonique
+    ``acp_poste_noyau`` (décision D22) : meta.py et dashboard/plugin_api.py sont chargés hors du
+    paquet du greffon. Ses imports internes sont relatifs ; aucun état en mémoire ne porte la
+    correction (tout est dans la base du greffon), une seconde copie du module est donc sans effet."""
+    module = sys.modules.get(NOM_NOYAU)
+    if module is not None:
+        return module
+    dossier = Path(__file__).resolve().parent / "noyau"
+    spec = importlib.util.spec_from_file_location(NOM_NOYAU, dossier / "__init__.py",
+                                                  submodule_search_locations=[str(dossier)])
+    if spec is None or spec.loader is None:
+        raise ImportError("noyau du greffon acp-poste introuvable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[NOM_NOYAU] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(NOM_NOYAU, None)
+        raise
+    return module
+
+
+def sous_module_noyau(nom: str) -> ModuleType:
+    module_noyau()
+    return importlib.import_module(f"{NOM_NOYAU}.{nom}")
+
+
+def bloc_projets() -> Tuple[Dict[str, Any], List[str]]:
+    """Bloc ``projets`` de la méta (étape P4) et ses alertes : base du greffon, projets actifs, relevé
+    factice, pause générale, émetteur (dernière passe dans la passerelle, cartes du poste en attente par
+    tableau, canal, file). Illisible : ``base: "illisible"`` et une alerte, jamais une erreur 500."""
+    try:
+        base = sous_module_noyau("base")
+        textes = sous_module_noyau("textes")
+        routage = sous_module_noyau("routage")
+        notifications = sous_module_noyau("notifications")
+        projets = sous_module_noyau("projets")
+    except Exception as exc:  # noqa: BLE001
+        return {"base": "illisible", "erreur": type(exc).__name__}, [
+            f"Noyau du greffon acp-poste illisible ({type(exc).__name__}) : projets et notifications inconnus."]
+    alertes: List[str] = []
+    try:
+        with base.connexion() as conn:
+            pause = projets.pause_generale()
+            emetteur = {cle: base.lire_emetteur(conn, cle) for cle in (
+                "derniere_passe", "processus", "derniers_ticks", "canal", "derniere_erreur", "crochets")}
+            files = notifications.compter(conn)
+            bloc: Dict[str, Any] = {
+                "base": "ok",
+                "schema": base.version_schema(conn),
+                "projets_actifs": conn.execute(
+                    "SELECT COUNT(*) FROM projets WHERE etat IN ('creation', 'actif')").fetchone()[0],
+                "releve_factice_present": routage.releve_factice_present(conn),
+                "pause_generale": pause,
+                "emetteur": {
+                    "derniere_passe": emetteur["derniere_passe"],
+                    "processus": emetteur["processus"],
+                    "derniers_ticks": emetteur["derniers_ticks"] or {},
+                    "canal": (emetteur["canal"] or {}).get("canal"),
+                    "configure": (emetteur["canal"] or {}).get("configure"),
+                    "en_attente": files.get("en_attente", 0),
+                    "echecs": files.get("echec", 0),
+                    "envoyees": files.get("envoyee", 0),
+                    "desactivees": files.get("desactivee", 0),
+                    "derniere_erreur": emetteur["derniere_erreur"],
+                },
+            }
+    except Exception as exc:  # noqa: BLE001 — valeur inconnue plutôt qu'une erreur 500
+        return {"base": "illisible", "erreur": type(exc).__name__}, [textes.ALERTE_BASE.format(type=type(exc).__name__)]
+    derniere = bloc["emetteur"]["derniere_passe"]
+    if isinstance(derniere, int) and pause is None and base.maintenant() - derniere > PERIME_EMETTEUR_S:
+        alertes.append(textes.ALERTE_EMETTEUR.format(n=(base.maintenant() - derniere) // 60))
+    if bloc["emetteur"]["echecs"]:
+        alertes.append(textes.ALERTE_ECHECS.format(n=bloc["emetteur"]["echecs"]))
+    if bloc["releve_factice_present"]:
+        alertes.append(textes.ALERTE_RELEVE_FACTICE)
+    if emetteur["crochets"]:
+        alertes.append(textes.ALERTE_CROCHETS)
+    return bloc, alertes
+
+
 ENTETES_MESURES = ("x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "x-railway-edge")
 
 
@@ -320,6 +406,9 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
     catalogue, interface, alertes_catalogue = bloc_catalogue()
     alertes.extend(alertes_catalogue)
 
+    projets, alertes_projets = bloc_projets()
+    alertes.extend(alertes_projets)
+
     environnement = etat_environnement()
     if environnement["managed_dir_conforme"] is False:
         alertes.append("Portée gérée détournée : HERMES_MANAGED_DIR est défini ou la portée gérée "
@@ -355,5 +444,7 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         # Étape P3 (ajouts, contrat acp-poste/1 inchangé) : résumé du catalogue et greffons d'interface.
         "catalogue": catalogue,
         "interface": interface,
+        # Étape P4 (ajout, contrat acp-poste/1 inchangé) : projets, pause générale et émetteur.
+        "projets": projets,
         "alertes": alertes,
     }

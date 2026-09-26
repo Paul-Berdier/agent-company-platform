@@ -7,7 +7,7 @@ description: "Réglages prêts d'ACP par type de projet (base, site web, recherc
 
 Le catalogue d'ACP est épinglé dans l'image (fichier `catalogue.lock.json`) et change seulement par une modification relue du dépôt. Cette skill dit quelles skills charger selon le type de projet. Elle ne donne accès à aucun outil.
 
-Sur Railway, tu n'as **aucun outil d'exécution** (ni terminal, ni fichiers, ni code, ni navigateur) : les skills ci-dessous servent à concevoir, relire, cadrer et rédiger. Tout ce qui exige d'exécuter, de lire un dépôt ou de piloter un navigateur relève du **poste** Windows du propriétaire, qui n'est pas encore branché : dis-le, ne le simule pas.
+Sur Railway, tu n'as **aucun outil d'exécution** (ni terminal, ni fichiers, ni code, ni navigateur) : les skills ci-dessous servent à concevoir, relire, cadrer et rédiger. Tout ce qui exige d'exécuter, de lire un dépôt ou de piloter un navigateur relève du **poste** Windows du propriétaire, qui n'est pas encore branché : dis-le, ne le simule pas. Un projet de plusieurs étapes se lance par `projet_lancer` : un projet sans dépôt (recherche, conception, rédaction) avance sur Railway avec les seules cartes de Hermes ; un projet sur dépôt attend que le poste soit connecté (étape P5).
 
 Une skill citée ici n'est utilisable que si elle figure dans ta liste de skills ; sinon, dis qu'elle est absente. Les skills vendorisées sont en anglais : tu réponds quand même en français.
 

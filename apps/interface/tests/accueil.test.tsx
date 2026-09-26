@@ -43,6 +43,7 @@ describe("Accueil", () => {
     expect(carte(r.racine, "acp-accueil-catalogue")?.textContent).toContain("Inconnu");
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
     const liens = [...r.racine.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+    expect(liens).toContain("/hermes/projets");
     expect(liens).toContain("/hermes/chat");
     expect(liens).toContain("/hermes/catalogue");
     expect(r.racine.querySelector("[data-acp-racine='accueil'] h1")?.textContent).toBe("Accueil");

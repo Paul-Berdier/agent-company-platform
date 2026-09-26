@@ -1,0 +1,13 @@
+{
+  "name": "acp-projets",
+  "label": "Projets",
+  "description": "Page Projets d'ACP (étape P4) : lancer un projet, suivre son avancement, répondre aux questions, mettre en pause. Aucune route serveur : les données et les gestes passent par les routes du greffon acp-poste.",
+  "icon": "FolderOpen",
+  "version": "0.11.0",
+  "tab": {
+    "path": "/projets",
+    "position": "before:catalogue"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css"
+}

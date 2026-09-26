@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 const ICI = process.cwd();
 const SRC = join(ICI, "src");
 const DEPOT = join(ICI, "..", "..");
-const BUNDLES = ["acp-interface", "acp-catalogue"].map((nom) =>
+const BUNDLES = ["acp-interface", "acp-catalogue", "acp-projets"].map((nom) =>
   join(DEPOT, "hermes", "plugins", nom, "dashboard", "dist", "index.js"),
 );
 

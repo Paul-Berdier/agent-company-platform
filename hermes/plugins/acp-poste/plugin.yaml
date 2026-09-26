@@ -3,15 +3,16 @@
 # Type « backend » : un greffon groupé de ce type se charge sans figurer dans
 # plugins.enabled (hermes_cli/plugins_discovery.py:264-267), que la managed scope
 # épingle vide pour qu'aucun greffon « utilisateur » ne soit jamais activé.
-# Route /api/plugins/acp-poste/v1/meta et adaptateur kanban (P1) ; depuis P2, garde
-# d'exécution de l'agent (crochet pre_tool_call en liste blanche, garde_execution.py) et
-# sentinelle qui arrête Hermes lancé hors de s6 ; depuis P3, route /v1/catalogue (catalogue.py)
-# et blocs catalogue et interface de /v1/meta. Les outils projet_*, poste_* et
-# question_* arrivent en P4, le jeton machine et les routes du poste en P5
-# (docs/refonte/autonomie.md § 8).
+# Route /api/plugins/acp-poste/v1/meta (P1) ; depuis P2, garde d'exécution de l'agent (crochet
+# pre_tool_call en liste blanche, garde_execution.py) et sentinelle qui arrête Hermes lancé hors
+# de s6 ; depuis P3, route /v1/catalogue (catalogue.py) et blocs catalogue et interface de
+# /v1/meta ; depuis P4 (noyau/), projets autonomes : un tableau kanban par projet, les huit outils
+# de l'agent (projet_*, poste_*, question_*, routage_surcharger), routes /v1/projets,
+# /v1/questions, /v1/pause, /v1/poste et /v1/notifications/test, émetteur de notifications dans la
+# passerelle. Le jeton machine et les routes du poste arrivent en P5 (docs/refonte/autonomie.md § 8).
 name: acp-poste
 version: 0.11.0
-description: "ACP — façade versionnée du poste Windows (contrat acp-poste/1) et garde d'exécution de l'agent (liste blanche pre_tool_call). Routes /v1/meta et /v1/catalogue, adaptateur kanban ; aucun outil encore."
+description: "ACP — projets autonomes sur Hermes (un tableau par projet, huit outils de l'agent, routes /v1/projets et /v1/questions, émetteur de notifications) et garde d'exécution de l'agent (liste blanche pre_tool_call). Contrat acp-poste/1."
 author: ACP
 kind: backend
 requires_hermes: ">=0.21.5"

@@ -36,6 +36,10 @@ def test_persona_utf8_sans_bom_courte_et_en_francais():
         assert attendu in texte, attendu
     # La persona de P2 parlait de « commande dangereuse approuvée » : il n'y a plus de terminal.
     assert "commande dangereuse" not in texte
+    # Étape P4 (décision D38) : les projets de plusieurs étapes passent par projet_lancer ; leurs étapes
+    # sur dépôt attendent un poste connecté, jamais simulées.
+    [ligne] = [l for l in texte.splitlines() if "projet_lancer" in l]
+    assert "Ne simule jamais son résultat" in ligne and "attendent un poste connecté (étape P5)" in ligne
 
 
 def test_la_persona_distingue_les_skills_du_catalogue_des_donnees():

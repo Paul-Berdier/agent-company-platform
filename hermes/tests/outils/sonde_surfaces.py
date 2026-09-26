@@ -15,7 +15,8 @@ scope), puis, pour chaque surface, reprend exactement la résolution de la surfa
 - enfant de délégation : _resolve_child_toolsets d'un parent « cli », qui demande terminal,
   fichiers et code.
 
-Sortie : un objet JSON {surface: {"toolsets": [...], "outils": [...], "mcp": [...]}} écrit dans le
+Sortie : un objet JSON {surface: {"toolsets": [...], "outils": [...], "catalogue": [...], "mcp": [...]}} écrit
+dans le
 fichier donné en argument (Hermes détourne sys.stdout vers la sortie d'erreur à l'import de certains
 modules).
 
@@ -59,10 +60,10 @@ def main() -> int:
 
     from toolsets import resolve_toolset
 
-    def outils(actives, retires):
+    def outils(actives, retires, brut=False):
         definitions = model_tools.get_tool_definitions(
             enabled_toolsets=list(actives) if actives is not None else None,
-            disabled_toolsets=list(retires) if retires else None, quiet_mode=True)
+            disabled_toolsets=list(retires) if retires else None, quiet_mode=True, skip_tool_search_assembly=brut)
         return sorted({d["function"]["name"] for d in definitions if isinstance(d, dict) and "function" in d})
 
     def mcp(actives):
@@ -99,6 +100,18 @@ def main() -> int:
     enfant, enfant_retires = _resolve_child_toolsets(parent, ["terminal", "file", "code_execution", "web"], "leaf")
     resultat["enfant_delegation"] = {"toolsets": enfant, "outils": outils(enfant, enfant_retires)}
 
+    # Étape P4 : catalogue COMPLET de chaque surface, avant l'assemblage de la recherche d'outils. Hermes
+    # diffère les outils des greffons et des serveurs MCP derrière tool_search / tool_describe / tool_call
+    # (tools/tool_search.py:150-162) : ils figurent ici, pas dans « outils ».
+    retraits = {"api_server": None, "cli": desactives, "cron": _resolve_cron_disabled_toolsets(cfg),
+                "tableau_de_bord_tui": None, "tableau_de_bord_desktop": None, "worker_kanban": desactives,
+                "enfant_delegation": enfant_retires}
+    os.environ["HERMES_KANBAN_TASK"] = "t_sonde"
+    resultat["worker_kanban"]["catalogue"] = outils(worker, desactives, brut=True)
+    os.environ.pop("HERMES_KANBAN_TASK", None)
+    for nom, surface in resultat.items():
+        if "catalogue" not in surface:
+            surface["catalogue"] = outils(surface["toolsets"], retraits.get(nom), brut=True)
     for surface in resultat.values():
         surface["mcp"] = mcp(surface["toolsets"])
     if decouverts is not None:

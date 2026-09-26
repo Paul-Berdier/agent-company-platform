@@ -128,7 +128,8 @@ def test_la_route_catalogue_exige_une_session_et_decrit_le_catalogue(pile):
     assert catalogue["collisions"] == [] and catalogue["alertes"] == []
     code, meta = pile.json("/api/plugins/acp-poste/v1/meta", jeton=jeton(pile))
     assert meta["catalogue"]["skills_actives"] == meta["catalogue"]["skills_attendues"] == len(NOMS_ACP)
-    assert meta["interface"] == {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0"}, "sdk_attendu": "1.x"}
+    assert meta["interface"] == {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0",
+                                              "acp-projets": "0.11.0"}, "sdk_attendu": "1.x"}
 
 
 def test_discussion_du_tableau_de_bord_appelle_context7(pile):

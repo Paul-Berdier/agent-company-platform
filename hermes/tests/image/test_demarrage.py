@@ -542,11 +542,15 @@ NOUVELLES_INTERDITES = (
 )
 
 
-def test_la_managed_scope_compte_50_cles_et_38_variables(chemins, valeurs):
+def test_la_managed_scope_compte_57_cles_et_38_variables(chemins, valeurs):
     # 40 clés en P2 ; P3 ajoute dashboard.font et dashboard.hidden_plugins, puis les huit épingles
-    # du serveur MCP context7 (mcp_servers.context7.*).
+    # du serveur MCP context7 (mcp_servers.context7.*) ; P4 ajoute cinq épingles du kanban et
+    # known_plugin_toolsets.api_server et .cron.
     resume = ad.installer_scope_geree(chemins, valeurs)
-    assert len(resume["cles_config"]) == 50, resume["cles_config"]
+    assert len(resume["cles_config"]) == 57, resume["cles_config"]
+    assert {"kanban.dispatch_in_gateway", "kanban.max_in_progress", "kanban.max_in_progress_per_profile",
+            "kanban.review_dispatch", "kanban.failure_limit", "known_plugin_toolsets.api_server",
+            "known_plugin_toolsets.cron"} <= set(resume["cles_config"])
     assert len(resume["cles_env"]) == 38, resume["cles_env"]
     assert [c for c in resume["cles_config"] if c.startswith("mcp_servers.")] == [
         "mcp_servers.context7.elicitation.enabled", "mcp_servers.context7.enabled",
@@ -566,13 +570,24 @@ def test_la_managed_scope_compte_50_cles_et_38_variables(chemins, valeurs):
     ('service_tier: ""', "service_tier: fast", "agent.service_tier"),
     ("api_server: [web, vision, skills, todo, memory, session_search, no_mcp]",
      "api_server: [hermes-api-server]", "platform_toolsets.api_server"),
-    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7]", "cli: []",
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7, acp_poste]", "cli: []",
      "platform_toolsets.cli"),
     # Étape P3 : cli sans context7 (no_mcp) ou avec un serveur de plus.
-    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7]",
-     "cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]", "platform_toolsets.cli"),
-    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7]",
-     "cli: [web, vision, skills, todo, memory, session_search, clarify, context7, autre]", "platform_toolsets.cli"),
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7, acp_poste]",
+     "cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp, acp_poste]", "platform_toolsets.cli"),
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7, acp_poste]",
+     "cli: [web, vision, skills, todo, memory, session_search, clarify, context7, acp_poste, autre]",
+     "platform_toolsets.cli"),
+    # Étape P4 : cli sans les outils du greffon, et les épingles du kanban et des jeux de greffon.
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, context7, acp_poste]",
+     "cli: [web, vision, skills, todo, memory, session_search, clarify, context7]", "platform_toolsets.cli"),
+    ("  api_server: [acp_poste]\n", "  api_server: []\n", "known_plugin_toolsets.api_server"),
+    ("  cron: [acp_poste]\n", "  cron: []\n", "known_plugin_toolsets.cron"),
+    ("  dispatch_in_gateway: true", "  dispatch_in_gateway: false", "kanban.dispatch_in_gateway"),
+    ("  max_in_progress: 4", "  max_in_progress: 40", "kanban.max_in_progress"),
+    ("  max_in_progress_per_profile: 2", "  max_in_progress_per_profile: 8", "kanban.max_in_progress_per_profile"),
+    ("  review_dispatch: false", "  review_dispatch: true", "kanban.review_dispatch"),
+    ("  failure_limit: 3", "  failure_limit: 30", "kanban.failure_limit"),
     # Étape P3 : les huit épingles de context7.
     ("url: https://mcp.context7.com/mcp", "url: https://mcp.context7.test/mcp", "mcp_servers.context7.url"),
     ("    enabled: true\n    # Certificat", "    enabled: false\n    # Certificat", "mcp_servers.context7.enabled"),
@@ -813,7 +828,7 @@ def test_journal_commit_deploye(chemins, env_valide, capsys, sha, affiche):
     ad.commande_gardes(chemins, env_valide)
     sortie = capsys.readouterr().out
     assert f"[acp] commit déployé : {affiche}\n" in sortie
-    assert "managed scope régénérée : 50 clés de configuration et 38 variables" in sortie
+    assert "managed scope régénérée : 57 clés de configuration et 38 variables" in sortie
     assert "hooks et " in sortie and "inspectés : vides." in sortie
 
 
@@ -1014,3 +1029,110 @@ def test_diagnostiquer_exige_root(capsys, monkeypatch):
     monkeypatch.setattr(ad.os, "geteuid", lambda: 10000)
     assert ad.main(["diagnostiquer"]) == 1
     assert "[acp] DIAGNOSTIC : ce script doit tourner en root" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------------ étape P4
+
+
+EPINGLES_P4 = {
+    "kanban.dispatch_in_gateway": True, "kanban.max_in_progress": 4, "kanban.max_in_progress_per_profile": 2,
+    "kanban.review_dispatch": False, "kanban.failure_limit": 3,
+    "known_plugin_toolsets.api_server": ["acp_poste"], "known_plugin_toolsets.cron": ["acp_poste"],
+}
+
+
+def test_epingles_p4_obligatoires_et_dans_le_modele():
+    epingles = dict(ad.EPINGLES_OBLIGATOIRES)
+    for cle, valeur in EPINGLES_P4.items():
+        assert epingles[cle] == valeur, cle
+    assert epingles["platform_toolsets.cli"][-1] == "acp_poste"
+    donnees = ad.charger_yaml(_modele())
+    assert donnees["kanban"]["dispatch_in_gateway"] is True and donnees["kanban"]["failure_limit"] == 3
+    assert donnees["known_plugin_toolsets"] == {"api_server": ["acp_poste"], "cron": ["acp_poste"]}
+    assert "acp_poste" not in donnees["platform_toolsets"]["api_server"]
+    assert "acp_poste" not in donnees["platform_toolsets"]["cron"]
+
+
+def test_dispatch_in_gateway_interdite(env_valide):
+    env_valide["HERMES_KANBAN_DISPATCH_IN_GATEWAY"] = "0"
+    with pytest.raises(ad.Refus) as refus:
+        ad.verifier_environnement(env_valide)
+    assert "la variable HERMES_KANBAN_DISPATCH_IN_GATEWAY est interdite : elle couperait le répartiteur kanban" in (
+        str(refus.value))
+
+
+# Faux jetons de TEST, formes hors des motifs du balayage des secrets du dépôt.
+JETON_TEST = "jeton-de-test-acp-p4"
+SUJET_TEST = "acp_sujet_de_test_0123"
+
+
+@pytest.mark.parametrize("variables", [
+    {},
+    {"ACP_NOTIFICATIONS": "aucune"},
+    {"ACP_NOTIFICATIONS": "telegram", "ACP_TELEGRAM_JETON": JETON_TEST, "ACP_TELEGRAM_DISCUSSION": "-1001234"},
+    {"ACP_NOTIFICATIONS": "ntfy", "ACP_NTFY_SUJET": SUJET_TEST, "ACP_NTFY_JETON": JETON_TEST},
+    {"ACP_NOTIFICATIONS": "ntfy", "ACP_NTFY_SERVEUR": "https://ntfy.acp.test", "ACP_NTFY_SUJET": SUJET_TEST,
+     "ACP_NTFY_JETON": JETON_TEST},
+])
+def test_variables_notifications_valides(env_valide, variables):
+    env_valide.update(variables)
+    ad.verifier_environnement(env_valide)
+
+
+@pytest.mark.parametrize("variables, motif", [
+    ({"ACP_NOTIFICATIONS": "courriel"}, "la variable ACP_NOTIFICATIONS vaut « courriel » ; valeurs admises"),
+    ({"ACP_NOTIFICATIONS": "telegram", "ACP_TELEGRAM_DISCUSSION": "12"}, "ACP_TELEGRAM_JETON est exigée"),
+    ({"ACP_NOTIFICATIONS": "telegram", "ACP_TELEGRAM_JETON": "a b", "ACP_TELEGRAM_DISCUSSION": "12"},
+     "ACP_TELEGRAM_JETON est exigée"),
+    ({"ACP_NOTIFICATIONS": "telegram", "ACP_TELEGRAM_JETON": JETON_TEST, "ACP_TELEGRAM_DISCUSSION": "salon"},
+     "ACP_TELEGRAM_DISCUSSION est exigée"),
+    ({"ACP_NOTIFICATIONS": "ntfy", "ACP_NTFY_SUJET": SUJET_TEST}, "un sujet sans jeton serait lisible par des tiers"),
+    ({"ACP_NOTIFICATIONS": "ntfy", "ACP_NTFY_SUJET": "court", "ACP_NTFY_JETON": JETON_TEST},
+     "ACP_NTFY_SUJET est exigée"),
+    ({"ACP_NOTIFICATIONS": "ntfy", "ACP_NTFY_SERVEUR": "http://ntfy.sh", "ACP_NTFY_SUJET": SUJET_TEST,
+      "ACP_NTFY_JETON": JETON_TEST}, "ACP_NTFY_SERVEUR doit être une URL en https"),
+    ({"ACP_NOTIFICATIONS": "ntfy", "ACP_NTFY_SERVEUR": "https://127.0.0.1", "ACP_NTFY_SUJET": SUJET_TEST,
+      "ACP_NTFY_JETON": JETON_TEST}, "adresse IP non publique interdite"),
+])
+def test_variables_notifications_refus(env_valide, variables, motif):
+    env_valide.update(variables)
+    with pytest.raises(ad.Refus) as refus:
+        ad.verifier_environnement(env_valide)
+    assert motif in str(refus.value)
+    assert JETON_TEST not in str(refus.value)  # un jeton n'est jamais affiché
+
+
+@pytest.mark.parametrize("ou", ["racine", "profil"])
+def test_hooks_non_vide_refuse(chemins, valeurs, ou):
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    dossier = chemins.hermes_home if ou == "racine" else chemins.hermes_home / "profiles" / "intrus"
+    _ecrire(dossier / "config.yaml", "hooks:\n  pre_tool_call:\n    - command: touch /tmp/acp-temoins/crochet\n")
+    subprocess.run(["chown", "-R", f"{UID_HERMES}:{UID_HERMES}", str(chemins.hermes_home)], check=True)
+    avant = _empreinte_arbre(chemins.hermes_home)
+    attendu = (f"{dossier / 'config.yaml'} déclare des crochets shell (hooks : pre_tool_call) ; les workers kanban "
+               "les inscriraient sans consentement (--accept-hooks). Retirez la clé hooks puis redémarrez.")
+    for refuser in (ad.refuser_crochets_du_volume, ad.commande_verifier_relance,
+                    lambda c: ad.preparer_donnees(c, scope, uid=UID_HERMES, gid=UID_HERMES)):
+        with pytest.raises(ad.Refus) as refus:
+            refuser(chemins)
+        assert attendu in str(refus.value)
+    assert _empreinte_arbre(chemins.hermes_home) == avant  # refus AVANT toute écriture
+    # Témoin : « hooks: {} » (vide) est admis.
+    _ecrire(dossier / "config.yaml", "hooks: {}\n")
+    assert ad.problemes_crochets_du_volume(chemins) == []
+
+
+@pytest.mark.parametrize("ou", ["racine", "profil"])
+def test_allowlist_crochets_refusee(chemins, valeurs, ou):
+    dossier = chemins.hermes_home if ou == "racine" else chemins.hermes_home / "profiles" / "intrus"
+    _ecrire(dossier / "shell-hooks-allowlist.json", "{}\n")
+    with pytest.raises(ad.Refus) as refus:
+        ad.refuser_crochets_du_volume(chemins)
+    assert str(refus.value) == (f"{dossier / 'shell-hooks-allowlist.json'} existe : il autoriserait des crochets "
+                                "shell. Supprimez-le puis redémarrez.")
+
+
+def test_journal_des_gardes_refuse_les_crochets(chemins, env_valide, capsys):
+    _ecrire(chemins.hermes_home / "shell-hooks-allowlist.json", "{}\n")
+    with pytest.raises(ad.Refus, match="il autoriserait des crochets shell"):
+        ad.commande_gardes(chemins, env_valide)

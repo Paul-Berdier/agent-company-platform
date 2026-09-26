@@ -121,7 +121,7 @@ def bloc_interface(sources: SourcesCatalogue = SourcesCatalogue()) -> Dict[str, 
     SDK lui-même se fait dans le navigateur, par les greffons)."""
     return {
         "greffons": {nom: _version_manifeste(sources.greffons / nom / "dashboard" / "manifest.json")
-                     for nom in ("acp-interface", "acp-catalogue")},
+                     for nom in ("acp-interface", "acp-catalogue", "acp-projets")},
         "sdk_attendu": SDK_ATTENDU,
     }
 

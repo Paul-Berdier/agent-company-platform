@@ -103,8 +103,8 @@ def test_temoin_sans_context7_dans_la_liste_cli_aucun_outil(chemins, valeurs, fa
     """Témoin de la couche 2 : cli avec no_mcp (liste de P2) : la découverte a lieu, mais aucune
     surface n'offre d'outil MCP. Prouve que la sonde voit bien cette couche."""
     surfaces = _sonder(chemins, valeurs, remplacements=[(
-        "cli: [web, vision, skills, todo, memory, session_search, clarify, context7]",
-        "cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]")])
+        "cli: [web, vision, skills, todo, memory, session_search, clarify, context7, acp_poste]",
+        "cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp, acp_poste]")])
     assert surfaces["_decouverte"]["outils"] == OUTILS_CONTEXT7
     assert all(v.get("mcp") == [] for k, v in surfaces.items() if not k.startswith("_"))
 

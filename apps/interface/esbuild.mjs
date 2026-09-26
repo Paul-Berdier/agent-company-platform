@@ -19,6 +19,7 @@ const VERSION = JSON.parse(readFileSync(join(ICI, "package.json"), "utf8")).vers
 export const GREFFONS = [
   { nom: "acp-interface", entree: "src/interface/index.ts" },
   { nom: "acp-catalogue", entree: "src/catalogue/index.ts" },
+  { nom: "acp-projets", entree: "src/projets/index.ts" },
 ];
 
 function bandeau(nom, genre) {

@@ -55,9 +55,9 @@ La refonte « Hermes au centre » se publie **étape par étape** (P0 à P9 du p
 **Hermes Agent** (épinglé sur une release par condensat d'image, déployé sur Railway
 derrière son propre fournisseur d'identité OIDC, Authelia auto-hébergé dans le service
 `identite`, un seul utilisateur) est le seul serveur, le seul orchestrateur et la seule
-source de vérité, étendu par les greffons `acp-interface`, `acp-catalogue` et `acp-poste` livrés dans
-l'image ; sur Railway, l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers,
-ni code) : tout ce qui s'exécute passe par le **poste Windows** (`apps/poste`), qui
+source de vérité, étendu par les greffons `acp-interface`, `acp-catalogue`, `acp-projets` et
+`acp-poste` livrés dans l'image ; sur Railway, l'agent n'a **aucun outil d'exécution** (ni
+terminal, ni fichiers, ni code) : tout ce qui s'exécute passe par le **poste Windows** (`apps/poste`), qui
 réclame son travail en HTTPS sortant sans écouter aucun port et y lance Codex et Claude
 Code ; le **client desktop natif** C++23 / Qt 6 / QML (`apps/desktop`) **ne parle qu'au
 Hermes authentifié du propriétaire** (tableau de bord, JSON-RPC, façade versionnée du
@@ -113,6 +113,8 @@ serveur.
   (licences, provenance), verrou `hermes/catalogue/catalogue.lock.json` et
   `scripts/verifier_catalogue.py`, skills livrées désactivées, MCP context7 derrière la garde,
   refus des serveurs MCP stdio, route `/v1/catalogue`.
+- `docs/refonte/projets.md` — projets autonomes (P4) : cœur déterministe du greffon `acp-poste`
+  (tableaux, outils, routes, émetteur de notifications) et page « Projets » (greffon `acp-projets`).
 - `docs/refonte/identite.md` — fournisseur d'identité (Authelia) : garde, configuration,
   compatibilité OIDC avec Hermes, mémoire mesurée, limites.
 - `docs/refonte/railway.md` — infrastructure Railway (`.railway/railway.ts`) et

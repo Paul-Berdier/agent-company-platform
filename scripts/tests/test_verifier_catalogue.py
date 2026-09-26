@@ -79,7 +79,12 @@ def test_le_depot_est_conforme():
     assert verification.tout() == []
     verrou = verification.verrou
     hermes = [s for s in verrou["skills"] if s["cible"] == "hermes"]
-    assert len(hermes) == 16 and sum(1 for s in hermes if s["source"] == "acp") == 2
+    # 16 en P3 ; l'étape P4 ajoute cinq skills maison des projets (acp-exploration, acp-orchestration, acp-routage,
+    # acp-synthese, acp-questions), chargées par les cartes et rattachées à aucun profil.
+    assert len(hermes) == 21 and sum(1 for s in hermes if s["source"] == "acp") == 7
+    projets = {s["nom"]: s for s in hermes if s["nom"] in {"acp-exploration", "acp-orchestration", "acp-routage",
+                                                            "acp-synthese", "acp-questions"}}
+    assert len(projets) == 5 and all(s["profils"] == [] and s["execution"] == "aucune" for s in projets.values())
     assert len(verrou["livrees"]["noms"]) == 58 and len(verrou["livrees"]["optionnelles"]) == 150
     assert [m["nom"] for m in verrou["mcp"] if m["cible"] == "hermes"] == ["context7"]
 
@@ -90,7 +95,7 @@ def test_la_copie_est_conforme(copie):
 
 def test_main_code_et_message(capsys):
     assert vc.main([]) == 0
-    assert "Catalogue conforme : 16 skills livrées dans l'image" in capsys.readouterr().out
+    assert "Catalogue conforme : 21 skills livrées dans l'image" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------------------------ règle 1
@@ -327,8 +332,9 @@ def test_nom_hermes_d_un_outil_mcp(copie):
      "mcp_servers.context7.sampling.enabled vaut True"),
     ('("mcp_servers.context7.url", "https://mcp.context7.com/mcp"),', "",
      "l'épingle mcp_servers.context7.url manque"),
-    ('"clarify",\n                               "context7"]', '"clarify",\n                               "no_mcp"]',
-     "absent de platform_toolsets.cli"),
+    # Étape P4 : la liste cli nomme aussi acp_poste (jeu des outils du greffon).
+    ('"clarify",\n                               "context7", "acp_poste"]',
+     '"clarify",\n                               "no_mcp", "acp_poste"]', "absent de platform_toolsets.cli"),
     ('("platform_toolsets.cron", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"])',
      '("platform_toolsets.cron", ["web", "vision", "skills", "todo", "memory", "session_search", "context7"])',
      "platform_toolsets.cron doit garder no_mcp"),

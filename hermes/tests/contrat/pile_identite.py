@@ -185,10 +185,20 @@ class Pile:
 
     # ------------------------------------------------------------------ hermes
 
-    def lancer_hermes(self, image_tests: str, reseau: str, env: Optional[Dict[str, str]] = None) -> str:
+    def lancer_hermes(self, image_tests: str, reseau: str, env: Optional[Dict[str, str]] = None,
+                      fichiers: Optional[Dict[str, str]] = None) -> str:
+        """``fichiers`` : fichiers déposés dans le volume jetable AVANT le démarrage (étape P4 : le
+        config.yaml du modèle factice), rendus à l'uid hermes comme sur un volume déjà utilisé."""
         nom = self.nom("hermes")
         self.conteneurs.append(nom)
         volume = self.volume()
+        for chemin, contenu in (fichiers or {}).items():
+            cible = f"/opt/data/{chemin}"
+            docker("run", "--rm", "-i", "-v", f"{volume}:/opt/data", "--entrypoint", "sh", image_tests, "-c",
+                   f'mkdir -p "$(dirname "{cible}")" && cat > "{cible}"', entree=contenu)
+        if fichiers:
+            docker("run", "--rm", "-v", f"{volume}:/opt/data", "--entrypoint", "sh", image_tests, "-c",
+                   "chown -hR 10000:10000 /opt/data")
         # Étape P3 : context7 (épinglé par la managed scope) résolu vers le bouclage local : aucun appel
         # au vrai serveur pendant les tests.
         docker("run", "-d", "--name", nom, "--network", reseau, "--network-alias", "hermes-interne",
@@ -223,12 +233,12 @@ def attendre_identite(nom: str, delai: float = 120) -> None:
 
 
 def monter_pile(pile: Pile, image_identite: str, image_tests: str, empreinte: str, *,
-                publier: bool = False) -> Dict[str, object]:
+                publier: bool = False, fichiers: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     """identite + bord + Hermes sur un réseau jetable ; rend les noms et le port publié."""
     reseau = pile.reseau()
     identite = pile.lancer_identite(image_identite, env_identite(empreinte), reseau=reseau)
     bord, port = pile.lancer_bord(image_tests, reseau, publier=publier)
-    hermes = pile.lancer_hermes(image_tests, reseau)
+    hermes = pile.lancer_hermes(image_tests, reseau, fichiers=fichiers)
     return {"reseau": reseau, "identite": identite, "bord": bord, "hermes": hermes, "port": port}
 
 

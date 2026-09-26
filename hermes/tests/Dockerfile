@@ -12,7 +12,8 @@
 #   (/etc/ssl/certs/ca-certificates.crt, celui qu'épingle la managed scope), pour que le
 #   tableau de bord fasse confiance au faux fournisseur d'identité idp.acp.test et au bord
 #   factice (hermes-acp.test, identite-acp.test) devant le vrai fournisseur Authelia, et
-#   (étape P3) au faux serveur context7 (mcp.context7.com, outils/mcp_factice.py).
+#   (étape P3) au faux serveur context7 (mcp.context7.com, outils/mcp_factice.py) et (étape P4) au
+#   faux serveur ntfy (ntfy.acp.test, outils/notif_factice.py).
 ARG IMAGE_ACP=acp-hermes:ci
 FROM ${IMAGE_ACP}
 
@@ -26,7 +27,8 @@ COPY image/ /opt/acp-tests/image/
 COPY outils/ /opt/acp-tests/outils/
 RUN set -eu; \
     /opt/hermes/.venv/bin/python -I -B /opt/acp-tests/outils/generer_ac_test.py /opt/acp-tests/ac; \
-    chmod 0644 /opt/acp-tests/ac/idp.key /opt/acp-tests/ac/bord.key /opt/acp-tests/ac/mcp.key; \
+    chmod 0644 /opt/acp-tests/ac/idp.key /opt/acp-tests/ac/bord.key /opt/acp-tests/ac/mcp.key \
+        /opt/acp-tests/ac/ntfy.key; \
     cp /opt/acp-tests/ac/ac.pem /usr/local/share/ca-certificates/acp-test-jetable.crt; \
     update-ca-certificates; \
     chown -R root:root /opt/acp-tests; \
