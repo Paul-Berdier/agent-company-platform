@@ -46,7 +46,8 @@ def test_repondre_commente_et_debloque(noyau, conn, monkeypatch):
     en_worker(monkeypatch, projet["tableau"], q["carte_repondre"])
     reponse = outil(noyau, "question_repondre", {"reponse": "Oui, garder 3.11.",
                                                   "fondement": "Décision : compatibilité 3.11."})
-    assert reponse == {"ok": True, "question": q["question"], "etat": "repondue", "carte_debloquee": True}
+    assert reponse == {"ok": True, "question": q["question"], "etat": "repondue", "carte_debloquee": True,
+                       "reprise_differee": False}
     assert carte(noyau, projet["tableau"], poste).status == "ready"
     with noyau.ka.connexion(projet["tableau"]) as kc:
         commentaires = noyau.ka.list_comments(kc, poste)
@@ -124,10 +125,58 @@ def test_reprendre_un_triage(noyau, conn, monkeypatch):
     assert [t["carte"] for t in listes["triage"]] == [carte_triage]
     resultat = noyau.questions.reprendre_triage(conn, tableau=projet["tableau"], carte=carte_triage,
                                                 consigne="Conclure avec ce qui est fait.", auteur="proprietaire:t")
-    assert resultat == {"carte": carte_triage, "reprise": True}
+    # Carte de décision au plafond de tours : « Reprendre » la PROLONGE (décision D41 ; tests dédiés plus bas).
+    assert resultat == {"carte": carte_triage, "reprise": True, "action": "prolongation",
+                        "plafond": {"genre": "tours", "avant": 3, "apres": 4}}
     tache = carte(noyau, projet["tableau"], carte_triage)
     assert tache.status in ("todo", "ready") and "Conclure avec ce qui est fait." in tache.body
     with pytest.raises(noyau.textes.RefusACP) as exc:
         noyau.questions.reprendre_triage(conn, tableau=projet["tableau"], carte=carte_triage, consigne=None, auteur="p")
     assert exc.value.code == "triage_inconnu"
     assert len([t for t in cartes_du_tableau(noyau, projet["tableau"]).values() if t.status == "triage"]) == 0
+
+
+# ============================================================ corrections de la relecture de P4
+
+RAISON_ETRANGERE = ("Refusé par ACP : carte poste-* non émise par le greffon acp-poste ; seul le greffon crée les "
+                    "cartes du poste.")
+
+
+def test_raison_connue_des_cartes_bloquees_et_en_triage(noyau, conn):
+    """Relecture de P4 (haute) : /v1/questions rendait « raison : None » (« Inconnu » à la page) pour une carte
+    bloquée avec une raison : ``block_task`` de Hermes la range dans l'événement, pas dans
+    ``last_failure_error``. Sans dépôt, bloquer avec sa raison est le SEUL moyen pour Hermes de signaler un
+    manque : la raison doit arriver jusqu'au propriétaire. Idem pour une carte passée en triage par Hermes."""
+    projet = lancer_sur_depot(noyau, conn)
+    tableau = projet["tableau"]
+    with noyau.ka.connexion(tableau) as kc:
+        etrangere = noyau.ka.create_task(kc, title="Carte à la main", body="x", assignee="poste-codex",
+                                         created_by="proprietaire", board=tableau)
+    assert noyau.etrangeres.balayer(conn) == [(tableau, etrangere)]
+    exploration = projet["cartes"]["exploration"]
+    run = reclamer(noyau, tableau, exploration)
+    with noyau.ka.connexion(tableau) as kc:
+        assert noyau.ka.block_task(kc, exploration, reason="Il manque le jeton de la base de test.",
+                                   kind="needs_input", expected_run_id=run)
+    vues = {b["carte"]: b["raison"] for b in noyau.questions.lister(conn)["bloquees"]}
+    assert vues == {etrangere: RAISON_ETRANGERE, exploration: "Il manque le jeton de la base de test."}
+    # Carte passée en triage par le disjoncteur de blocages de Hermes : sa raison, et « Reprendre » seulement.
+    with noyau.ka.connexion(tableau) as kc:
+        assert noyau.ka.unblock_task(kc, exploration)  # le propriétaire débloque ; le même manque revient
+        assert noyau.ka.block_task(kc, exploration, reason="Encore et toujours pas de jeton.", kind="needs_input")
+        assert noyau.ka.get_task(kc, exploration).status == "triage"
+    [triage] = noyau.questions.lister(conn)["triage"]
+    assert (triage["carte"], triage["raison"], triage["genre"], triage["actions"]) == (
+        exploration, "Encore et toujours pas de jeton.", None, ["reprendre"])
+
+
+def test_question_listee_avec_le_titre_de_sa_carte_et_son_contexte(noyau, conn, monkeypatch):
+    """Relecture de P4 (produit) : une question n'était rattachée qu'à l'identifiant de sa carte, et son contexte
+    (fourni par le poste, enregistré) n'était jamais rendu : le propriétaire répondait sans lui."""
+    projet, poste, run = _carte_du_poste_en_cours(noyau, conn, monkeypatch, reponses="proprietaire")
+    q = noyau.questions.poser(conn, tableau=projet["tableau"], carte=poste, run_id=run, texte="Quelle version ?",
+                              contexte="Le dépôt cible Python 3.11 et 3.12 dans sa CI.")
+    [ligne] = noyau.questions.lister(conn)["questions"]
+    assert ligne["id"] == q["question"]
+    assert ligne["carte_titre"] == "Exploration du dépôt « jetable »"
+    assert ligne["contexte"] == "Le dépôt cible Python 3.11 et 3.12 dans sa CI."

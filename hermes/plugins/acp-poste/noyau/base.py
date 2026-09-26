@@ -148,6 +148,8 @@ REGLAGES_PAR_DEFAUT: Dict[str, Any] = {
     "plafond_tours": 3,
     "plafond_cartes": 30,
     "plafond_corrections": 2,
+    # « Prolonger » une carte de décision au plafond de cartes relève ce plafond d'autant (décision D41).
+    "prolongation_cartes": 10,
     "projets_actifs_max": 3,
     "lancements_discussion_par_jour": 5,
     "etapes_par_appel_max": 12,

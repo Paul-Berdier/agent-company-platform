@@ -28,7 +28,13 @@ Tant que le poste n'est pas connecté, un projet sans dépôt n'a que des étape
 
 ## Plafonds
 
-Par défaut : 3 tours de synthèse, 30 cartes par projet, 12 étapes par appel, 2 corrections par étape. Un plan qui les dépasse est refusé en entier : réduis-le. Au plafond des tours, une carte de triage est adressée au propriétaire : n'essaie pas de la contourner.
+Par défaut : 3 tours de synthèse, 30 cartes par projet, 12 étapes par appel, 2 corrections par étape. Un plan qui les dépasse est refusé en entier : réduis-le. Au plafond des tours, ou quand plus aucun plan ne tient dans le plafond de cartes, une carte de décision (triage) est adressée au propriétaire : n'essaie pas de la contourner.
+
+## Carte de décision
+
+Si tu exécutes une carte de **triage** d'un projet ACP, c'est que le propriétaire a décidé : il a prolongé le plafond, ou relancé une planification restée sans plan. Sa consigne est à la fin de la carte (« Décision du propriétaire »). Si elle demande de continuer, planifie le tour suivant depuis cette carte avec `projet_planifier`, en suivant la même démarche ; sinon conclus. Termine toujours par `kanban_complete`.
+
+Si aucun plan n'est possible (refus que tu ne peux pas lever), termine par `kanban_complete` en disant pourquoi : le greffon adresse alors une carte de décision au propriétaire.
 
 ## Refus
 

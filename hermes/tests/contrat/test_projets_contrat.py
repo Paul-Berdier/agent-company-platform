@@ -200,9 +200,13 @@ def meta_projets(hermes: Conteneur) -> Dict[str, Any]:
 # =========================================================================== 1. routes
 
 
+# Toutes les routes P4 (relecture de P4 : la pause, la reprise et la reprise d'un triage manquaient ; lecture
+# d'une carte et « Conclure » ajoutées par les corrections).
 ROUTES = [("GET", "/v1/projets"), ("POST", "/v1/projets"), ("GET", "/v1/questions"), ("POST", "/v1/pause"),
           ("GET", "/v1/poste"), ("POST", "/v1/notifications/test"), ("GET", "/v1/projets/p_x"),
-          ("POST", "/v1/questions/q_x/reponse")]
+          ("POST", "/v1/questions/q_x/reponse"), ("POST", "/v1/projets/p_x/pause"), ("POST", "/v1/projets/p_x/reprise"),
+          ("POST", "/v1/triage/acp-x/t_x/reprendre"), ("POST", "/v1/triage/acp-x/t_x/conclure"),
+          ("GET", "/v1/projets/p_x/cartes/t_x")]
 
 
 def test_routes_sans_session_401(pile):
@@ -515,8 +519,10 @@ def test_carte_poste_etrangere_refusee(pile):
                                             f"{identifiant} --json"], utilisateur="hermes", verifier=True).stdout
     assert "Refusé par ACP : carte poste-* non émise par le greffon acp-poste ; seul le greffon crée les cartes du " \
            "poste." in evenements
-    notif = attendre(lambda: [n for n in notifications_ntfy(pile)[avant_ntfy:] if "Etrangere" in n["corps"]], 60,
-                     "aucune notification « bloquée »")
+    # Le seul « bloquée » : la planification du projet témoin conclut sans plan, ce qui adresse aussi une décision
+    # (filet de la relecture de P4, notification distincte).
+    notif = attendre(lambda: [n for n in notifications_ntfy(pile)[avant_ntfy:] if "Etrangere" in n["corps"]
+                              and "bloquée" in n["corps"]], 60, "aucune notification « bloquée »")
     afficher("carte poste-* étrangère", json.dumps({"bloquee": bloquee, "notification": notif}, ensure_ascii=False))
     assert notif[0]["corps"] == "ACP — Projet « Etrangere » : la carte « Carte à la main » est bloquée."
 
@@ -685,3 +691,133 @@ def test_memoire_mesuree(pile):
              + (f"\nlectures en échec : {erreurs_lecture[:3]}" if erreurs_lecture else ""))
     assert environnements and all(e == [] for e in environnements), (environnements, erreurs_lecture[:3])
     assert mesures and any(w >= 1 for w, _ in mesures)
+
+
+# =========================================================================== 7. corrections de la relecture de P4
+
+PLAN_UNE_RECHERCHE = {"resume": "Une recherche.", "etapes": [
+    {"ref": "e1", "titre": "Chercher", "classe": "recherche_web", "consigne": "Chercher les prix."}]}
+
+
+def _du_titre(pile, titre: str) -> List[str]:
+    return [n["corps"] for n in notifications_ntfy(pile) if f"« {titre} »" in n["corps"]]
+
+
+def _triage_du_projet(pile, projet_id: str) -> List[Dict[str, Any]]:
+    code, questions = api(pile, "GET", "/v1/questions")
+    assert code == 200
+    return [t for t in questions["triage"] if t["projet"] == projet_id]
+
+
+def test_planification_sans_plan_puis_relance(pile):
+    """Relecture de P4 (haute), sur la pile complète : le worker de planification conclut sans projet_planifier.
+    La passerelle seule adresse UNE décision et UNE notification ; « Relancer la planification » fait planifier
+    le tour 1 par la carte de décision, et le projet va au bout."""
+    titre = "Plan manquant"
+    ajouter_scenarios(pile, {
+        f"rôle « planification » — projet « {titre} »": scenario([appel("projet_etat")], "Rien à planifier."),
+        f"rôle « triage » — projet « {titre} »": scenario([appel("projet_planifier", PLAN_UNE_RECHERCHE)],
+                                                          "Tour 1 planifié."),
+        f"rôle « hermes » — projet « {titre} »": scenario([appel("projet_etat")], "Prix relevés."),
+        f"rôle « synthese » — projet « {titre} »": scenario([appel("projet_etat")], "Conclusion : prix relevés."),
+    })
+    projet = lancer_projet(pile, titre=titre, objectif="Relever les prix.", depot=None)
+    [decision] = attendre(lambda: _triage_du_projet(pile, projet["id"]), 240,
+                          "aucune décision adressée pour une planification sans plan")
+    notif = attendre(lambda: _du_titre(pile, titre), 60, "aucune notification pour la planification sans plan")
+    code, liste = api(pile, "GET", "/v1/projets")
+    [fiche] = [p for p in liste["projets"] if p["id"] == projet["id"]]
+    afficher("planification sans plan (pile complète)", json.dumps(
+        {"decision": decision, "liste": fiche, "notifications": notif}, ensure_ascii=False, indent=1))
+    assert (decision["genre"], decision["actions"]) == ("sans_plan", ["relancer", "conclure"])
+    assert decision["titre"] == "Planification sans plan — votre décision est attendue"
+    assert (fiche["etat"], fiche["etat_derive"]) == ("actif", "a_decider")
+    assert notif == [f"ACP — Projet « {titre} » : la planification s'est terminée sans plan, votre décision est "
+                     "attendue."]
+    code, reprise = api(pile, "POST", f"/v1/triage/{projet['tableau']}/{decision['carte']}/reprendre",
+                        {"consigne": "Une seule recherche suffit."})
+    assert code == 200 and reprise["action"] == "relance_planification", reprise
+    fin = attendre(lambda: detail(pile, projet["id"])["etat"] == "termine" and detail(pile, projet["id"]), 360,
+                   "le projet relancé n'est pas arrivé au bout")
+    resultats = [r["contenu"] for q in requetes_du_role(pile, "triage", titre) for r in q.get("resultats_outils") or []]
+    assert any('"ok": true, "tour": 1' in r for r in resultats), resultats
+    time.sleep(12)
+    afficher("planification relancée : fin", json.dumps({"cartes": [(c["role"], c["statut"]) for c in fin["cartes"]],
+                                                         "notifications": _du_titre(pile, titre)}, ensure_ascii=False))
+    assert _du_titre(pile, titre) == [notif[0], f"ACP — Projet « {titre} » terminé : 4 cartes faites."]
+    assert fin["resultat"]["texte"] == "Conclusion : prix relevés."
+
+
+def test_question_sans_suite_escaladee_par_la_passerelle(pile):
+    """Relecture de P4 (moyenne), sur la pile complète : la carte « répondre » conclut sans question_repondre ni
+    question_escalader. La passerelle escalade la question (UNE notification « question »), le propriétaire y
+    répond depuis la page et la carte du poste reprend."""
+    titre = "Question muette"
+    ajouter_scenarios(pile, {f"rôle « repondre » — projet « {titre} »": scenario([appel("projet_etat")],
+                                                                                  "Je ne tranche pas.")})
+    _releves(pile)
+    projet = lancer_projet(pile, titre=titre, objectif="Question témoin.", depot="jetable",
+                           exploration={"voie": "poste-claude"})
+    explo = projet["cartes"]["exploration"]
+    simule(pile, "reclamer", projet["tableau"], explo)
+    q = simule(pile, "question", projet["tableau"], explo, "Quel nom de module ?")
+    assert q["etat"] == "ouverte" and q["carte_repondre"]
+    notif = attendre(lambda: _du_titre(pile, titre), 240, "la question restée sans suite n'a pas été escaladée")
+    code, questions = api(pile, "GET", "/v1/questions")
+    [ligne] = [x for x in questions["questions"] if x["id"] == q["question"]]
+    afficher("question sans suite (pile complète)", json.dumps({"question": ligne, "notifications": notif},
+                                                               ensure_ascii=False, indent=1))
+    assert ligne["etat"] == "escaladee" and ligne["motif_escalade"].startswith("Hermes n'a ni répondu ni escaladé")
+    assert ligne["carte_titre"] == "Exploration du dépôt « jetable »"
+    assert notif == [f"ACP — Projet « {titre} » : une question attend votre réponse."]
+    code, reponse = api(pile, "POST", f"/v1/questions/{q['question']}/reponse", {"reponse": "Appelez-le outil."})
+    assert code == 200 and reponse["carte_debloquee"] is True and reponse["reprise_differee"] is False, reponse
+    assert cartes(pile, projet["tableau"])[explo]["statut"] == "ready"
+    time.sleep(12)
+    assert len(_du_titre(pile, titre)) == 1
+
+
+def test_prolonger_au_plafond_puis_conclure(pile):
+    """Relecture de P4 (haute), sur la pile complète : au plafond de tours, « Prolonger » accorde un tour de plus
+    et la carte de décision le planifie (le worker de triage appelle projet_planifier, qui l'accepte) ; au
+    nouveau plafond, UNE nouvelle décision et sa notification ; « Conclure » termine le projet sans notification
+    « terminé » (geste du propriétaire). Avant la correction, le projet passait « terminé » après « Reprendre »."""
+    titre = "Plafond prolonge"
+    ajouter_scenarios(pile, {
+        f"rôle « planification » — projet « {titre} »": scenario([appel("projet_planifier", PLAN_UNE_RECHERCHE)],
+                                                                 "Plan posé."),
+        f"rôle « hermes » — projet « {titre} »": scenario([appel("projet_etat")], "Prix relevés."),
+        f"rôle « synthese » — projet « {titre} »": scenario([appel("projet_planifier", PLAN_UNE_RECHERCHE)],
+                                                            "Un tour de plus est demandé."),
+        f"rôle « triage » — projet « {titre} »": scenario([appel("projet_planifier", PLAN_UNE_RECHERCHE)],
+                                                          "Tour suivant planifié."),
+    })
+    simule(pile, "reglage", "plafond_tours", "1")
+    try:
+        projet = lancer_projet(pile, titre=titre, objectif="Relever puis vérifier les prix.", depot=None)
+    finally:
+        simule(pile, "reglage", "plafond_tours", "3")
+    [premiere] = attendre(lambda: _triage_du_projet(pile, projet["id"]), 300, "aucune décision au plafond des tours")
+    attendre(lambda: detail(pile, projet["id"])["etat_derive"] == "plafond_atteint", 60, "plafond non affiché")
+    assert premiere["actions"] == ["prolonger", "conclure"] and premiere["genre"] == "tours"
+    code, reprise = api(pile, "POST", f"/v1/triage/{projet['tableau']}/{premiere['carte']}/reprendre",
+                        {"consigne": "Faites un tour de plus pour vérifier les prix."})
+    assert code == 200 and reprise["plafond"] == {"genre": "tours", "avant": 1, "apres": 2}, reprise
+    # Le tour 2 est planifié par la carte de décision elle-même, puis mène à un nouveau plafond (tours : 2).
+    tour2 = attendre(lambda: detail(pile, projet["id"])["tour"] == 2 and detail(pile, projet["id"]), 240,
+                     "la carte de décision prolongée n'a pas planifié le tour 2")
+    resultats = [r["contenu"] for q in requetes_du_role(pile, "triage", titre) for r in q.get("resultats_outils") or []]
+    assert any('"ok": true, "tour": 2' in r for r in resultats), resultats
+    seconde = attendre(lambda: [t for t in _triage_du_projet(pile, projet["id"]) if t["carte"] != premiere["carte"]],
+                       300, "aucune nouvelle décision au nouveau plafond")
+    attendre(lambda: all(c["statut"] in ("done", "triage") for c in cartes(pile, projet["tableau"]).values()), 120,
+             "la synthèse du tour 2 n'a pas fini")
+    code, conclusion = api(pile, "POST", f"/v1/triage/{projet['tableau']}/{seconde[0]['carte']}/conclure", {})
+    assert code == 200 and conclusion["projet"]["etat"] == "termine", conclusion
+    time.sleep(12)
+    notifs = _du_titre(pile, titre)
+    afficher("prolonger puis conclure (pile complète)", json.dumps(
+        {"tour": tour2["tour"], "notifications": notifs, "resultats_du_worker_de_triage": resultats},
+        ensure_ascii=False, indent=1))
+    assert notifs == [f"ACP — Projet « {titre} » : plafond de tours atteint, votre décision est attendue."] * 2
+    assert detail(pile, projet["id"])["etat"] == "termine"

@@ -40,7 +40,8 @@ PAR_ROLE = {
         "Votre rôle : découper l'objectif en étapes vérifiables. Lisez kanban_show (résultat de l'exploration "
         "s'il existe) et poste_catalogue, puis appelez projet_planifier UNE fois ; le greffon crée lui-même les "
         "cartes, la relecture croisée et la synthèse. Terminez par kanban_complete avec un résumé, sans "
-        "created_cards inventés. Si projet_planifier refuse, corrigez le plan d'après le message."),
+        "created_cards inventés. Si projet_planifier refuse, corrigez le plan d'après le message ; si aucun plan "
+        "n'est possible, dites pourquoi dans le résumé : le propriétaire recevra une carte de décision."),
     "synthese": (
         "Votre rôle : juger le tour sur les résumés (projet_etat, kanban_show). S'il reste un écart concret et "
         "que les plafonds le permettent, appelez projet_planifier pour le tour suivant ; sinon concluez. "
@@ -53,7 +54,10 @@ PAR_ROLE = {
         "Votre rôle : exécuter l'étape par la recherche, la lecture du web et la rédaction seulement, puis "
         "kanban_complete avec le résultat."),
     "triage": (
-        "Votre rôle : appliquer la décision du propriétaire écrite dans la carte, puis kanban_complete."),
+        "Votre rôle : le propriétaire a décidé de cette carte (plafond prolongé, ou planification à relancer) ; sa "
+        "consigne est à la fin de la carte. Lisez projet_etat et kanban_show, puis appelez projet_planifier UNE "
+        "fois pour le tour suivant si la consigne demande de continuer ; sinon concluez. Terminez toujours par "
+        "kanban_complete : ce qui est planifié, ou pourquoi rien ne l'est."),
 }
 DISCUSSION = (
     "Projets ACP : un travail de plusieurs étapes passe par projet_lancer ; son suivi, par projet_etat et "

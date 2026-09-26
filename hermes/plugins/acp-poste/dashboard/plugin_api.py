@@ -20,11 +20,15 @@ exige ``Content-Type: application/json`` (415 sinon) et refuse un ``Origin`` pr�
 - ``GET  /v1/projets``                         liste, compteurs, poste, pause générale, notifications
 - ``POST /v1/projets``                         lancement (``Idempotency-Key`` facultatif) → 201
 - ``GET  /v1/projets/{id}``                    détail et journal → 200, 404
+- ``GET  /v1/projets/{id}/cartes/{carte}``     résumé ENTIER d'une carte du projet → 200, 404
 - ``POST /v1/projets/{id}/pause`` ``/reprise`` pause et reprise d'un projet → 200, 409
 - ``GET  /v1/questions``                       questions ouvertes ; cartes en triage, bloquées, abandonnées
 - ``POST /v1/questions/{q}/reponse``           réponse du propriétaire → 200, 404, 409
-- ``POST /v1/triage/{tableau}/{carte}/reprendre`` reprise d'une carte en triage → 200, 404, 409
-- ``POST /v1/pause``                           pause générale (arrêt d'urgence de Hermes) ou reprise
+- ``POST /v1/triage/{tableau}/{carte}/reprendre`` reprise d'une carte en triage (« Prolonger » ou « Relancer »
+                                               pour une carte de décision du greffon) → 200, 404, 409
+- ``POST /v1/triage/{tableau}/{carte}/conclure``  « Conclure » une carte de décision du greffon → 200, 404, 409
+- ``POST /v1/pause``                           pause générale (arrêt d'urgence de Hermes) ou reprise (409 tant
+                                               que des crochets shell sont déclarés)
 - ``GET  /v1/poste``                           présence et catalogue du poste
 - ``POST /v1/notifications/test``              notification de test (envoyée par la passerelle) → 202, 409
 """
@@ -107,9 +111,10 @@ def _n(nom: str) -> ModuleType:
 
 
 CODES_HTTP = {
-    "projet_inconnu": 404, "question_inconnue": 404, "triage_inconnu": 404,
+    "projet_inconnu": 404, "question_inconnue": 404, "triage_inconnu": 404, "carte_inconnue": 404,
     "pause_generale": 409, "projets_actifs": 409, "lancements_jour": 409, "deja_en_pause": 409,
     "pas_en_pause": 409, "projet_fini": 409, "question_fermee": 409, "notifications": 409,
+    "projet_en_pause": 409, "cartes_ouvertes": 409, "prolongation_p6": 409, "triage_acp": 409, "crochets": 409,
 }
 
 
@@ -176,10 +181,14 @@ def _avec_base(travail: Callable[[Any], Any]) -> Callable[[], Any]:
 
 
 def _etat_notifications(conn) -> Dict[str, Any]:
+    """État PUBLIC du canal, publié par la passerelle. Tant qu'elle ne l'a pas publié, l'état est INCONNU, et le
+    message le dit (jamais « non configurées » sans le savoir)."""
     canal = _n("base").lire_emetteur(conn, "canal") or {}
-    return {"canal": canal.get("canal"), "configure": bool(canal.get("configure")),
-            "connu": bool(canal), "message": None if canal.get("configure") else
-            _n("textes").NOTIFICATIONS_NON_CONFIGUREES}
+    textes = _n("textes")
+    message = (None if canal.get("configure") else textes.NOTIFICATIONS_NON_CONFIGUREES if canal
+               else textes.NOTIFICATIONS_ETAT_INCONNU)
+    return {"canal": canal.get("canal"), "configure": bool(canal.get("configure")), "connu": bool(canal),
+            "message": message}
 
 
 @router.get("/v1/projets")
@@ -218,6 +227,15 @@ async def lire_projet(identifiant: str) -> JSONResponse:
     def travail(conn):
         projets = _n("projets")
         return {"projet": projets.etat(conn, projets.exiger_projet(conn, identifiant), avec_journal=True)}
+    return await _executer(_avec_base(travail))
+
+
+@router.get("/v1/projets/{identifiant}/cartes/{carte}")
+async def lire_carte_du_projet(identifiant: str, carte: str) -> JSONResponse:
+    """Résumé ENTIER d'une carte (le détail du projet n'en rend que 500 caractères, et le dit)."""
+    def travail(conn):
+        projets = _n("projets")
+        return {"carte": projets.lire_carte(conn, projets.exiger_projet(conn, identifiant), carte)}
     return await _executer(_avec_base(travail))
 
 
@@ -264,6 +282,16 @@ async def reprendre_triage(tableau: str, carte: str, request: Request) -> JSONRe
         conn, tableau=tableau, carte=carte, consigne=corps.get("consigne"), auteur=auteur)))
 
 
+@router.post("/v1/triage/{tableau}/{carte}/conclure")
+async def conclure_triage(tableau: str, carte: str, request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, _corps = garde
+    return await _executer(_avec_base(lambda conn: _n("questions").conclure_triage(
+        conn, tableau=tableau, carte=carte, auteur=auteur)))
+
+
 @router.post("/v1/pause")
 async def pause_generale(request: Request) -> JSONResponse:
     garde = await _garde_ecriture(request)
@@ -282,6 +310,11 @@ async def pause_generale(request: Request) -> JSONResponse:
         if generale:
             ka.engage(textes.RAISON_PAUSE_PROPRIETAIRE + (f" — {raison.strip()}" if raison and raison.strip() else ""))
         else:
+            # Relecture de P4 : la veille des crochets shell (D34) a engagé la pause ; la lever alors qu'ils sont
+            # toujours là laisserait le répartiteur lancer des workers avec --accept-hooks avant la passe suivante.
+            constats = _n("emetteur").crochets_detectes()
+            if constats:
+                raise textes.RefusACP("crochets", textes.REPRISE_CROCHETS.format(constats="; ".join(constats)[:300]))
             ka.disengage()
         base.poser_reglage(conn, "pause_reclamations", 1 if generale else 0, auteur)
         with base.transaction(conn):
@@ -305,8 +338,9 @@ async def notification_de_test(request: Request) -> JSONResponse:
 
     def travail(conn):
         base, notifications, textes = _n("base"), _n("notifications"), _n("textes")
-        if not _etat_notifications(conn)["configure"]:
-            raise textes.RefusACP("notifications", textes.NOTIFICATIONS_NON_CONFIGUREES)
+        etat = _etat_notifications(conn)
+        if not etat["configure"]:
+            raise textes.RefusACP("notifications", etat["message"])
         cle = f"test:{base.maintenant()}"
         notifications.enfiler(conn, cle=cle, genre="test", texte_notif=notifications.texte(textes.NOTIF_TEST))
         with base.transaction(conn):

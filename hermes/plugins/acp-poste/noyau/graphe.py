@@ -6,8 +6,10 @@ cartes du tour : elle ne part que quand tout le tour est fini (gating natif de H
 
 Toutes les cartes d'un tour sont créées sous UNE transaction kanban externe : si une création lève,
 rien n'est créé et la réservation est annulée. Plafonds vérifiés AVANT toute écriture (3 tours,
-30 cartes, 2 corrections par défaut) ; un plafond de tours ou de corrections atteint crée UNE carte de
-triage adressée au propriétaire.
+30 cartes, 2 corrections par défaut) ; un plafond de tours ou de corrections atteint, ou un plafond de
+cartes qui ne laisse plus aucun plan possible, crée UNE carte de décision (triage) adressée au propriétaire.
+Sa décision (décision D41) : « Prolonger » relève le plafond et laisse Hermes planifier la suite depuis cette
+carte ; « Conclure » arrête le projet (:mod:`questions`, ``decider_triage``).
 """
 
 from __future__ import annotations
@@ -209,28 +211,73 @@ def composer(conn, fiche: Dict[str, Any], tour: int, plan: Dict[str, Any]) -> Li
     return demandes
 
 
-def creer_triage_plafond(conn, fiche: Dict[str, Any], genre: str, detail: str) -> Optional[str]:
-    """UNE carte en triage par projet et par genre de plafond (clé ``acp:<p>:plafond:<genre>``), adressée
-    au propriétaire (assigné ``default`` : « Reprendre » la fait exécuter par Hermes avec sa consigne), et
-    UNE notification ``plafond:<p>:<genre>``."""
-    cle = f"{ka.PREFIXE_CLE}{fiche['id']}:plafond:{genre}"
-    libelle = {"tours": "tours", "cartes": "cartes", "corrections": "corrections"}.get(genre, genre)
+# Cartes de DÉCISION du propriétaire émises par le greffon (rôle « triage ») : leur ``ref`` dit leur genre.
+# « Prolonger » (plafond) ou « Relancer » (planification sans plan) les fait exécuter par Hermes, qui peut alors
+# planifier le tour suivant (projet_planifier) ; « Conclure » arrête le projet (décision D41).
+PLAFONDS = {"tours": "plafond_tours", "cartes": "plafond_cartes", "corrections": "plafond_corrections"}
+REF_SANS_PLAN = "sans-plan"
+REFS_PLANIFICATRICES = ("plafond-tours", "plafond-cartes", REF_SANS_PLAN)
+
+
+def genre_de_triage(demande: Optional[Dict[str, Any]]) -> Optional[str]:
+    """``tours``, ``cartes``, ``corrections`` ou ``sans_plan`` pour une carte de décision émise par le greffon,
+    None pour toute autre carte (une carte passée en triage par le disjoncteur de Hermes, par exemple)."""
+    if not demande or demande.get("role") != "triage":
+        return None
+    ref = str(demande.get("ref") or "")
+    if ref == REF_SANS_PLAN:
+        return "sans_plan"
+    genre = ref[len("plafond-"):] if ref.startswith("plafond-") else ""
+    return genre if genre in PLAFONDS else None
+
+
+def _creer_triage(conn, fiche: Dict[str, Any], *, cle: str, ref: str, titre: str, corps: str, detail: str,
+                  journal: str, cle_notif: str, genre_notif: str, texte_notif: str) -> Optional[str]:
+    """UNE carte en triage par clé, adressée au propriétaire (assigné ``default`` : sa décision la fait exécuter
+    par Hermes, avec les compétences de la planification), et UNE notification par clé."""
     existante = conn.execute("SELECT carte FROM demandes WHERE cle = ?", (cle,)).fetchone()
     if existante is None:
         with base.transaction(conn):
             cartes.reserver(conn, [dict(
                 cle=cle, projet_id=fiche["id"], tableau=fiche["tableau"], role="triage", classe="triage", voie="hermes",
-                tour=fiche["tour"], ref=f"plafond-{genre}", titre=T.TITRE_TRIAGE_PLAFOND.format(genre=libelle),
-                source_routage="sans_objet", depot_alias=fiche["depot_alias"], consigne=detail, triage=True,
-                priorite=10, corps=T.CORPS_TRIAGE_PLAFOND.format(titre=fiche["titre"], genre=libelle, detail=detail))])
+                tour=fiche["tour"], ref=ref, titre=titre, source_routage="sans_objet", depot_alias=fiche["depot_alias"],
+                consigne=detail, triage=True, priorite=10, competences=projets.COMPETENCES_PLANIFICATION,
+                duree_max=cartes.DUREE_PLANIFICATION, corps=corps)])
             conn.execute("UPDATE projets SET cartes_creees = cartes_creees + 1, maj_le = ? WHERE id = ?",
                          (base.maintenant(), fiche["id"]))
-            base.journaliser(conn, "acp-poste", "plafond", projet_id=fiche["id"], cible=genre, detail=detail)
+            base.journaliser(conn, "acp-poste", journal, projet_id=fiche["id"], cible=ref, detail=detail)
     ids = cartes.creer(conn, fiche, [d for d in cartes.demandes_non_rattachees(conn, fiche["id"]) if d["cle"] == cle])
-    notifications.enfiler(conn, cle=f"plafond:{fiche['id']}:{genre}", genre="plafond", projet_id=fiche["id"],
-                          texte_notif=notifications.texte(T.NOTIF_PLAFOND, titre=fiche["titre"], genre=libelle))
+    notifications.enfiler(conn, cle=cle_notif, genre=genre_notif, projet_id=fiche["id"], texte_notif=texte_notif)
     ligne = conn.execute("SELECT carte FROM demandes WHERE cle = ?", (cle,)).fetchone()
     return ids.get(cle) or (ligne[0] if ligne else None)
+
+
+def creer_triage_plafond(conn, fiche: Dict[str, Any], genre: str, detail: str) -> Optional[str]:
+    """UNE carte en triage par projet, par genre de plafond et par VALEUR de ce plafond (clé
+    ``acp:<p>:plafond:<genre>:<valeur>`` : après une prolongation, le nouveau plafond atteint en demande une
+    nouvelle), et UNE notification ``plafond:<p>:<genre>:<valeur>``."""
+    valeur = int(fiche[PLAFONDS[genre]])
+    prolonger = T.PROLONGER_PAR_GENRE[genre].format(n=int(base.reglage(conn, "prolongation_cartes") or 10))
+    return _creer_triage(
+        conn, fiche, cle=f"{ka.PREFIXE_CLE}{fiche['id']}:plafond:{genre}:{valeur}", ref=f"plafond-{genre}",
+        titre=T.TITRE_TRIAGE_PLAFOND.format(genre=genre), detail=detail, journal="plafond",
+        corps=T.CORPS_TRIAGE_PLAFOND.format(titre=fiche["titre"], genre=genre, detail=detail, prolonger=prolonger),
+        cle_notif=f"plafond:{fiche['id']}:{genre}:{valeur}", genre_notif="plafond",
+        texte_notif=notifications.texte(T.NOTIF_PLAFOND, titre=fiche["titre"], genre=genre))
+
+
+def creer_triage_sans_plan(conn, fiche: Dict[str, Any], detail: str) -> Optional[str]:
+    """Filet de l'émetteur (constat de la relecture de P4) : la planification — ou sa relance — s'est terminée
+    sans plan. UNE carte de décision de plus par occurrence (clé ``acp:<p>:sans-plan:<n>``) et UNE
+    notification ``sans_plan:<p>:<n>`` (genre ``triage``)."""
+    n = conn.execute("SELECT COUNT(*) FROM demandes WHERE projet_id = ? AND role = 'triage' AND ref = ?",
+                     (fiche["id"], REF_SANS_PLAN)).fetchone()[0] + 1
+    return _creer_triage(
+        conn, fiche, cle=f"{ka.PREFIXE_CLE}{fiche['id']}:sans-plan:{n}", ref=REF_SANS_PLAN,
+        titre=T.TITRE_TRIAGE_SANS_PLAN, detail=detail, journal="sans_plan",
+        corps=T.CORPS_TRIAGE_SANS_PLAN.format(titre=fiche["titre"], detail=detail),
+        cle_notif=f"sans_plan:{fiche['id']}:{n}", genre_notif="triage",
+        texte_notif=notifications.texte(T.NOTIF_SANS_PLAN, titre=fiche["titre"]))
 
 
 def _resultat(conn, fiche: Dict[str, Any], tour: int, deja: bool) -> Dict[str, Any]:
@@ -257,13 +304,28 @@ def _resultat(conn, fiche: Dict[str, Any], tour: int, deja: bool) -> Dict[str, A
 
 def planifier(conn, *, tableau: str, carte: str, resume: Any, decisions: Any, etapes: Any,
               kc_pour_tests: Optional[Any] = None) -> Dict[str, Any]:
-    """Planifie le tour suivant depuis la carte de planification (tour 1) ou de synthèse du tour ``n``
-    (tour ``n+1``). Le tableau et la carte viennent de l'ENVIRONNEMENT du worker, jamais du modèle."""
+    """Planifie le tour suivant depuis la carte de planification (tour 1), de synthèse du tour ``n``
+    (tour ``n+1``), ou de décision (triage) que le propriétaire a prolongée ou relancée (tour courant + 1).
+    Le tableau et la carte viennent de l'ENVIRONNEMENT du worker, jamais du modèle."""
     fiche = projets.projet(conn, tableau)
     demande = projets.demande_de_la_carte(conn, tableau, carte) if fiche else None
-    if fiche is None or demande is None or demande["role"] not in ("planification", "synthese"):
+    decision = demande is not None and demande["role"] == "triage" and demande["ref"] in REFS_PLANIFICATRICES
+    if fiche is None or demande is None or (demande["role"] not in ("planification", "synthese") and not decision):
         raise refus("contexte", T.CONTEXTE_PLANIFIER)
-    tour = 1 if demande["role"] == "planification" else int(demande["tour"]) + 1
+    if decision:
+        # Seulement après la décision du propriétaire (« Prolonger » ou « Relancer » : journalisée).
+        decidee = conn.execute("SELECT 1 FROM journal WHERE projet_id = ? AND cible = ? AND action IN "
+                               "('prolongation', 'relance_planification')", (fiche["id"], carte)).fetchone()
+        if decidee is None:
+            raise refus("contexte", T.CONTEXTE_PLANIFIER_TRIAGE)
+    if demande["role"] == "planification":
+        tour = 1
+    elif demande["role"] == "synthese":
+        tour = int(demande["tour"]) + 1
+    else:
+        existant_decision = conn.execute("SELECT tour FROM tours WHERE projet_id = ? AND carte_origine = ?",
+                                         (fiche["id"], carte)).fetchone()
+        tour = int(existant_decision[0]) if existant_decision else int(fiche["tour"]) + 1
     plan = valider_plan(resume, decisions, etapes, maximum=int(base.reglage(conn, "etapes_par_appel_max") or 12))
     empreinte_plan = empreinte(plan)
     existant = conn.execute("SELECT * FROM tours WHERE projet_id = ? AND tour = ?", (fiche["id"], tour)).fetchone()
@@ -286,6 +348,13 @@ def planifier(conn, *, tableau: str, carte: str, resume: Any, decisions: Any, et
         raise refus("plafond_tours", T.PLAFOND_TOURS.format(n=fiche["plafond_tours"], titre=fiche["titre"]))
     demandes = composer(conn, fiche, tour, plan)
     if int(fiche["cartes_creees"]) + len(demandes) > int(fiche["plafond_cartes"]):
+        if int(fiche["plafond_cartes"]) - int(fiche["cartes_creees"]) < 2:
+            # Plus aucun plan ne tient (une étape et sa synthèse font deux cartes) : c'est un plafond atteint,
+            # pas une fin ; la décision revient au propriétaire (relecture de P4).
+            creer_triage_plafond(conn, fiche, "cartes", f"{fiche['cartes_creees']} cartes créées sur "
+                                                         f"{fiche['plafond_cartes']}")
+            raise refus("plafond_cartes", T.PLAFOND_CARTES_ATTEINT.format(
+                titre=fiche["titre"], m=fiche["cartes_creees"], n=fiche["plafond_cartes"]))
         raise refus("plafond_cartes", T.PLAFOND_CARTES.format(k=len(demandes), m=fiche["cartes_creees"],
                                                                n=fiche["plafond_cartes"]))
     with base.transaction(conn):

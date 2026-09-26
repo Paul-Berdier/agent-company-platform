@@ -53,6 +53,8 @@ DEPOT_INCONNU = "le dépôt « {x} » ne figure pas parmi les dépôts autorisé
 EXPLORATION = "aucun exécutant disponible pour l'exploration : {raison}"
 EXPLORATION_SANS_DEPOT = "une exploration n'a de sens que sur un dépôt ; ce projet n'en a pas."
 PROJETS_ACTIFS = "{n} projets sont déjà en cours (plafond {n}) ; terminez-en un ou mettez-le en pause."
+PROJETS_ACTIFS_REPRISE = ("{n} projets sont déjà en cours (plafond {n}) ; terminez-en un ou mettez-en un en pause "
+                          "avant de reprendre « {titre} ».")
 LANCEMENTS_JOUR = ("{n} projets ont déjà été lancés depuis la discussion aujourd'hui (plafond) ; lancez celui-ci "
                    "depuis la page Projets.")
 SECRET_OBJECTIF = "l'objectif contient ce qui ressemble à un secret ({motif}) ; retirez-le."
@@ -71,6 +73,10 @@ PLAFOND_TOURS = ("plafond de {n} tours atteint pour le projet « {titre} » ; un
                  "adressée.")
 PLAFOND_CARTES = ("ce plan créerait {k} cartes, et le projet en compte déjà {m} sur {n} (plafond). Réduisez le "
                   "plan.")
+PLAFOND_CARTES_ATTEINT = ("le projet « {titre} » compte déjà {m} cartes sur {n} (plafond) : aucun plan ne tient plus "
+                          "(une étape et sa synthèse en demandent deux) ; une carte de triage vous est adressée.")
+CONTEXTE_PLANIFIER_TRIAGE = ("cette carte de triage n'a pas été prolongée ou relancée par le propriétaire : "
+                             "projet_planifier n'y est pas admis.")
 PLAN_INVALIDE = "{detail}"
 CLASSE_VOIE = "la classe « {c} » n'admet pas la voie « {v} » (voies admises : {admises})."
 INTEGRATION_P6 = "la classe « integration » (fusion locale des branches) est prévue à l'étape P6."
@@ -95,12 +101,14 @@ PROJET_INTROUVABLE = "le tableau « {t} » n'appartient à aucun projet ACP."
 
 # ------------------------------------------------------------------ autres outils (§ 8.3 à 8.8)
 ETAT_AUTRE_PROJET = "une carte ne lit que l'état de son propre projet."
+CARTE_DU_PROJET_INCONNUE = "la carte « {carte} » n'appartient pas au projet « {titre} »."
 PROJET_INCONNU = "projet « {x} » inconnu."
 CONTEXTE_QUESTION = "{outil} ne s'appelle que depuis la carte « répondre » de cette question."
 QUESTION_FERMEE = "la question {q} n'est plus ouverte ({etat})."
 CONTEXTE_SURCHARGER = "routage_surcharger ne s'appelle que depuis la discussion."
 SURCHARGE_GLOBALE = "une surcharge globale se fait depuis la page Routage (étape P5)."
-CARTE_HORS_PROJET = "la carte {id} n'appartient à aucun projet ACP."
+SURCHARGE_CARTE = ("une carte existante garde son exécutant et son modèle : la surcharge d'une carte est prévue à "
+                   "l'étape P6 ; surchargez le projet (portée « projet »), ce qui vaut pour ses prochaines cartes.")
 ECHEC_OUTIL = "Échec d'ACP : {action} n'a pas abouti ({type}) ; rien n'a été modifié."
 ECHEC_OUTIL_PARTIEL = "Échec d'ACP : {action} n'a pas abouti ({type}) ; état partiel : {detail}."
 ECHEC_OUTIL_INCERTAIN = ("Échec d'ACP : {action} n'a pas abouti ({type}) ; l'état n'est pas connu avec "
@@ -132,8 +140,30 @@ CORRECTION_CARTE = "la carte {carte} n'est pas une relecture en cours d'un proje
 TITRE_TRIAGE_PLAFOND = "Plafond atteint : {genre} — votre décision est attendue"
 CORPS_TRIAGE_PLAFOND = (
     "Le projet « {titre} » a atteint son plafond de {genre} ({detail}).\n\n"
-    "Reprendre cette carte la fait exécuter par Hermes avec votre consigne ; sans décision de votre part, "
-    "le projet reste arrêté ici.")
+    "{prolonger}« Conclure » arrête le projet ici. Sans décision de votre part, le projet reste arrêté ici.")
+# Ce que « Prolonger » fait, par genre de plafond (décision D41).
+PROLONGER_PAR_GENRE = {
+    "tours": ("« Prolonger » accorde un tour de plus (plafond de tours relevé de 1) et fait exécuter cette carte par "
+              "Hermes avec votre consigne : il planifie ce tour par projet_planifier. "),
+    "cartes": ("« Prolonger » relève le plafond de cartes de {n} et fait exécuter cette carte par Hermes avec votre "
+               "consigne : il planifie la suite par projet_planifier. "),
+    "corrections": "« Prolonger » n'est pas disponible avant l'étape P6 (corrections câblées). ",
+}
+TITRE_TRIAGE_SANS_PLAN = "Planification sans plan — votre décision est attendue"
+CORPS_TRIAGE_SANS_PLAN = (
+    "La planification du projet « {titre} » s'est terminée sans plan ({detail}).\n\n"
+    "« Relancer la planification » fait exécuter cette carte par Hermes avec votre consigne : il planifie le "
+    "tour 1 par projet_planifier. « Conclure » arrête le projet ici. Sans décision de votre part, le projet reste "
+    "arrêté ici.")
+DETAIL_SANS_PLAN = "carte {carte} finie sans appel réussi à projet_planifier"
+PROLONGATION_P6 = ("prolonger le plafond de corrections est prévu à l'étape P6 (corrections câblées) ; concluez le "
+                   "projet, ou attendez P6.")
+TRIAGE_PROJET_EN_PAUSE = "le projet « {titre} » est en pause : reprenez-le avant de décider de cette carte."
+TRIAGE_ACP_SEULEMENT = "la carte {carte} n'est pas une carte de décision émise par acp-poste : « Conclure » ne s'y applique pas."
+CONCLURE_CARTES_OUVERTES = ("{n} autre(s) carte(s) du projet « {titre} » sont encore ouvertes : concluez quand elles "
+                            "sont finies, ou mettez le projet en pause.")
+MOTIF_SANS_SUITE = ("Hermes n'a ni répondu ni escaladé : sa carte « répondre » s'est terminée sans suite ({statut}) ; "
+                    "votre réponse est attendue.")
 TITRE_REPONDRE = "Répondre à la question {q}"
 CORPS_REPONDRE = (
     "Une carte du poste pose une question dans le projet « {titre} ».\n\n"
@@ -160,7 +190,9 @@ CORPS_PLANIFICATION = (
     "## Règles\n"
     "Appelez projet_planifier UNE fois avec les étapes du tour, puis terminez par kanban_complete avec un "
     "résumé. Le greffon crée lui-même les cartes, la relecture croisée et la synthèse ; ne créez jamais de "
-    "carte autrement. Plafonds : {tours} tours, {cartes} cartes, {corrections} corrections par étape.")
+    "carte autrement. Plafonds : {tours} tours, {cartes} cartes, {corrections} corrections par étape. Si aucun "
+    "plan n'est possible, terminez par kanban_complete en disant pourquoi : une carte de décision est alors "
+    "adressée au propriétaire.")
 CORPS_SYNTHESE = (
     "Projet ACP « {titre} » — synthèse du tour {r}\n"
     "## Objectif\n{objectif}\n"
@@ -216,11 +248,16 @@ NOTIF_ABANDON = "ACP — Projet « {titre} » : la carte « {carte} » a été a
 NOTIF_TERMINE = "ACP — Projet « {titre} » terminé : {cartes}. {lien}"
 NOTIF_HORS_LIGNE = "ACP — Poste hors ligne depuis {heure} (Europe/Paris), {cartes} en attente. {lien}"
 NOTIF_PLAFOND = "ACP — Projet « {titre} » : plafond de {genre} atteint, votre décision est attendue. {lien}"
+NOTIF_SANS_PLAN = ("ACP — Projet « {titre} » : la planification s'est terminée sans plan, votre décision est "
+                   "attendue. {lien}")
 NOTIF_TEST = "ACP — Notification de test envoyée depuis la page Projets. {lien}"
 NOTIF_CROCHETS = "ACP — Crochets shell détectés : pause générale engagée. {lien}"
 RAISON_PAUSE_CROCHETS = "ACP : crochets shell détectés en cours de route"
 RAISON_PAUSE_PROPRIETAIRE = "ACP : pause du propriétaire"
 NOTIFICATIONS_NON_CONFIGUREES = "Notifications non configurées."
+NOTIFICATIONS_ETAT_INCONNU = "État du canal de notification inconnu : la passerelle ne l'a pas encore publié."
+REPRISE_CROCHETS = ("Refusé par ACP : des crochets shell sont toujours déclarés ({constats}) ; retirez-les du volume "
+                    "avant de reprendre Hermes (la veille de l'émetteur rengagerait la pause).")
 
 # ------------------------------------------------------------------ alertes de /v1/meta
 ALERTE_EMETTEUR = "L'émetteur de notifications ne tourne plus dans la passerelle (dernière passe il y a {n} min)."

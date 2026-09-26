@@ -36,6 +36,11 @@ COMPETENCES_REPONDRE = ["acp-questions"]
 COMPETENCES_HERMES = ["acp-redaction"]
 ETATS_OUVERTS = ("creation", "actif", "en_pause")
 STATUTS_OUVERTS = ("triage", "todo", "scheduled", "ready", "running", "blocked", "review")
+# Longueurs rendues : le résumé d'une carte dans le détail (coupé, et il le dit), la dernière note de la liste
+# (coupée, et elle le dit), un texte « complet » (résultat du projet, lecture d'une carte) borné très haut.
+LONGUEUR_RESUME = 500
+LONGUEUR_NOTE = 200
+LONGUEUR_TEXTE_COMPLET = 100_000
 
 
 def _texte_borne(valeur: Any, *, maximum: int, code: str, message: str) -> str:
@@ -228,16 +233,25 @@ def _statuts(fiche: Dict[str, Any], demandes: List[Dict[str, Any]]) -> Dict[str,
 
 
 def etat_derive(fiche: Dict[str, Any], demandes: List[Dict[str, Any]], taches: Dict[str, Any]) -> str:
+    """État lisible d'un projet actif. « a_decider » : une décision du propriétaire est attendue (planification
+    finie sans plan, carte passée en triage par Hermes) ; jamais « en_cours » pour un projet arrêté."""
     if fiche["etat"] in ("creation", "en_pause", "termine", "abandonne"):
         return fiche["etat"]
     statut = {d["cle"]: (taches[d["carte"]].status if d["carte"] in taches else None) for d in demandes}
     ouvertes = [d for d in demandes if statut[d["cle"]] in STATUTS_OUVERTS]
-    if any(d["role"] == "triage" and statut[d["cle"]] == "triage" for d in demandes):
+    en_triage = [d for d in demandes if statut[d["cle"]] == "triage"]
+    if any(d["role"] == "triage" and str(d["ref"] or "").startswith("plafond-") for d in en_triage):
         return "plafond_atteint"
+    if en_triage:
+        return "a_decider"
     if any(d["role"] == "exploration" and statut[d["cle"]] not in ("done", "archived") for d in demandes):
         return "exploration"
     if any(d["role"] == "planification" and statut[d["cle"]] not in ("done", "archived") for d in demandes):
         return "planification"
+    if any(d["role"] == "triage" and statut[d["cle"]] in ("todo", "ready", "running") for d in demandes):
+        return "planification"  # carte de décision prolongée ou relancée : Hermes planifie la suite
+    if int(fiche["tour"] or 0) == 0 and demandes and not ouvertes:
+        return "a_decider"  # planification finie sans plan (la passe suivante de l'émetteur adresse la décision)
     if any(d["role"] == "synthese" and d["tour"] == fiche["tour"] and statut[d["cle"]] in ("ready", "running")
            for d in demandes):
         return "synthese"
@@ -255,11 +269,17 @@ def etat(conn, fiche: Dict[str, Any], *, avec_journal: bool = False) -> Dict[str
     taches, resumes = lu["taches"], lu["resumes"]
     liste_cartes = []
     exploration = None
+    resultat_projet = None
     for d in demandes:
         tache = taches.get(d["carte"]) if d["carte"] else None
-        resume = resumes.get(d["carte"]) if d["carte"] else None
+        resume = ka.masquer(resumes.get(d["carte"])) if d["carte"] and resumes.get(d["carte"]) else None
         if d["role"] == "exploration" and resume:
-            exploration = ka.masquer(resume)[:4000]
+            exploration = resume[:4000]
+        if d["role"] == "synthese" and resume and tache is not None and tache.status == "done" and (
+                resultat_projet is None or d["tour"] >= resultat_projet["tour"]):
+            # Résultat du projet : la synthèse faite du dernier tour, EN ENTIER (borne haute dite).
+            resultat_projet = {"tour": d["tour"], "carte": d["carte"], "texte": resume[:LONGUEUR_TEXTE_COMPLET],
+                               "longueur": len(resume), "tronque": len(resume) > LONGUEUR_TEXTE_COMPLET}
         liste_cartes.append({
             "carte": d["carte"], "titre": ka.masquer(tache.title if tache else d["titre"])[:200], "role": d["role"],
             "classe": d["classe"], "tour": d["tour"], "ref": d["ref"], "voie": d["voie"],
@@ -268,7 +288,10 @@ def etat(conn, fiche: Dict[str, Any], *, avec_journal: bool = False) -> Dict[str
             "effort": d["effort"], "effort_carte": d["effort_carte"], "palier": d["palier"],
             "source_routage": d["source_routage"], "mention": d["mention"],
             "modele_servi": d["modele_servi"] or T.NON_OBSERVE,
-            "relue": d["carte_relue"], "resume": ka.masquer(resume)[:500] if resume else None,
+            "relue": d["carte_relue"], "resume": resume[:LONGUEUR_RESUME] if resume else None,
+            # Un résumé coupé le dit : longueur totale, et le texte entier par GET /v1/projets/{id}/cartes/{carte}.
+            "resume_longueur": len(resume) if resume else None,
+            "resume_tronque": bool(resume) and len(resume) > LONGUEUR_RESUME,
         })
     tours = [{"tour": t["tour"], "resume": ka.masquer(t["resume"])[:2000], "decisions": [
         ka.masquer(x) for x in json.loads(t["decisions"])]} for t in conn.execute(
@@ -289,6 +312,7 @@ def etat(conn, fiche: Dict[str, Any], *, avec_journal: bool = False) -> Dict[str
         "cartes_creees": fiche["cartes_creees"],
         "compteurs": {"faites": faites, "total": len(liste_cartes)},
         "exploration": exploration,
+        "resultat": resultat_projet,
         "tours": tours,
         "cartes": liste_cartes,
         "questions_ouvertes": questions,
@@ -314,6 +338,7 @@ def lister(conn) -> List[Dict[str, Any]]:
         compteurs: Dict[str, Any] = {"faites": None, "total": len(demandes), "en_cours": None,
                                      "en_attente_du_poste": None, "bloquees": None, "triage": None}
         derniere_note = None
+        note_tronquee = False
         etat_calcule = fiche["etat"]
         if lu is not None:
             taches = lu["taches"]
@@ -325,15 +350,33 @@ def lister(conn) -> List[Dict[str, Any]]:
             notes = [(taches[c].completed_at or 0, lu["resumes"][c]) for c in lu["resumes"] if c in taches
                      and taches[c].status == "done"]
             if notes:
-                derniere_note = ka.masquer(max(notes)[1])[:200]
+                entiere = ka.masquer(max(notes)[1])
+                derniere_note, note_tronquee = entiere[:LONGUEUR_NOTE], len(entiere) > LONGUEUR_NOTE
             etat_calcule = etat_derive(fiche, demandes, taches)
         questions = conn.execute("SELECT COUNT(*) FROM questions WHERE projet_id = ? AND etat IN ('ouverte', 'escaladee')",
                                  (fiche["id"],)).fetchone()[0]
         resultat.append({**resume_projet(conn, fiche), "etat_derive": etat_calcule, "compteurs": compteurs,
-                         "derniere_note": derniere_note, "questions_ouvertes": questions,
+                         "derniere_note": derniere_note, "derniere_note_tronquee": note_tronquee,
+                         "questions_ouvertes": questions,
                          "plafonds": {"tours": fiche["plafond_tours"], "cartes": fiche["plafond_cartes"]},
                          "cartes_creees": fiche["cartes_creees"], "cree_le": fiche["cree_le"]})
     return resultat
+
+
+def lire_carte(conn, fiche: Dict[str, Any], carte: str) -> Dict[str, Any]:
+    """Résumé ENTIER d'une carte du projet (route ``GET /v1/projets/{id}/cartes/{carte}``) : le détail n'en
+    rend que les 500 premiers caractères. Masqué ; borné à 100 000 caractères, et il le dit."""
+    demande = demande_de_la_carte(conn, fiche["tableau"], carte)
+    if demande is None:
+        raise refus("carte_inconnue", T.CARTE_DU_PROJET_INCONNUE.format(carte=carte[:40], titre=fiche["titre"]))
+    with ka.connexion(fiche["tableau"]) as kc:
+        tache = ka.get_task(kc, carte)
+        brut = ka.latest_summaries(kc, [carte]).get(carte) if tache is not None else None
+    texte = ka.masquer(brut) if brut else None
+    return {"carte": carte, "titre": ka.masquer(tache.title if tache else demande["titre"])[:200],
+            "role": demande["role"], "statut": tache.status if tache else T.INCONNU,
+            "resume": texte[:LONGUEUR_TEXTE_COMPLET] if texte else None, "longueur": len(texte) if texte else 0,
+            "tronque": bool(texte) and len(texte) > LONGUEUR_TEXTE_COMPLET}
 
 
 # ------------------------------------------------------------------ pause et reprise d'un projet
@@ -363,14 +406,21 @@ def _derniere_raison_planifiee(kc, carte: str) -> Optional[str]:
 
 
 def reprendre(conn, identifiant: str, *, auteur: str) -> Dict[str, Any]:
-    """Reprise : ``unblock_task`` sur les seules cartes planifiées PAR LA PAUSE (raison exacte) ; une
-    carte planifiée pour une question reste en attente de sa réponse."""
+    """Reprise : ``unblock_task`` sur les cartes planifiées PAR LA PAUSE (raison exacte) et sur celles dont la
+    question a reçu sa réponse pendant la pause (reprise différée) ; une carte planifiée pour une question
+    encore ouverte reste en attente de sa réponse. Le plafond de projets actifs vaut aussi à la reprise."""
     fiche = exiger_projet(conn, identifiant)
     if fiche["etat"] != "en_pause":
         raise refus("pas_en_pause", T.PROJET_PAS_EN_PAUSE.format(titre=fiche["titre"]))
+    maximum = int(base.reglage(conn, "projets_actifs_max") or 3)
     with base.transaction(conn):
+        actifs = conn.execute("SELECT COUNT(*) FROM projets WHERE etat IN ('creation', 'actif')").fetchone()[0]
+        if actifs >= maximum:
+            raise refus("projets_actifs", T.PROJETS_ACTIFS_REPRISE.format(n=maximum, titre=fiche["titre"]))
         conn.execute("UPDATE projets SET etat = 'actif', maj_le = ? WHERE id = ?", (base.maintenant(), fiche["id"]))
         base.journaliser(conn, auteur, "reprise", projet_id=fiche["id"])
+    repondues = {T.RAISON_QUESTION.format(q=q[0]) for q in conn.execute(
+        "SELECT id FROM questions WHERE projet_id = ? AND etat = 'repondue'", (fiche["id"],))}
     reveillees = []
     with ka.connexion(fiche["tableau"]) as kc:
         for d in cartes.cartes_du_projet(conn, fiche["id"]):
@@ -379,7 +429,8 @@ def reprendre(conn, identifiant: str, *, auteur: str) -> Dict[str, Any]:
             tache = ka.get_task(kc, d["carte"])
             if tache is None or tache.status != "scheduled":
                 continue
-            if _derniere_raison_planifiee(kc, d["carte"]) == T.RAISON_PAUSE_PROJET and ka.unblock_task(kc, d["carte"]):
+            raison = _derniere_raison_planifiee(kc, d["carte"])
+            if (raison == T.RAISON_PAUSE_PROJET or raison in repondues) and ka.unblock_task(kc, d["carte"]):
                 reveillees.append(d["carte"])
     if reveillees:
         with base.transaction(conn):

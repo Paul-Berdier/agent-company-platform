@@ -8,9 +8,14 @@ politique du projet :
 - ``proprietaire`` : escalade directe (notification ``question:<q>``).
 
 Hermes répond par ``question_repondre`` (commentaire + ``unblock_task``) ou escalade par
-``question_escalader`` ; le propriétaire répond par la route ``POST /v1/questions/{q}/reponse``. Poser deux
-questions de suite sur la même carte ne la fait jamais passer en triage (``schedule_task`` n'est pas un
-blocage).
+``question_escalader`` ; le propriétaire répond par la route ``POST /v1/questions/{q}/reponse``. Sur un projet
+en pause, la réponse est enregistrée et commentée, mais la carte ne reprend qu'à la reprise du projet. Poser
+deux questions de suite sur la même carte ne la fait jamais passer en triage (``schedule_task`` n'est pas un
+blocage). Filet de l'émetteur : une question dont la carte « répondre » s'est terminée sans suite est
+escaladée (:func:`questions_sans_suite`).
+
+Cartes en triage (vue Questions) : « Reprendre » ; pour une carte de décision du greffon, « Prolonger » ou
+« Relancer la planification », et « Conclure » (décision D41).
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from __future__ import annotations
 import secrets
 from typing import Any, Dict, List, Optional
 
-from . import base, cartes, notifications, projets
+from . import base, cartes, graphe, notifications, projets
 from . import kanban_adapter as ka
 from . import textes as T
 from .motifs_secrets import motif_trouve
@@ -124,16 +129,26 @@ def repondre_par_hermes(conn, *, tableau: str, carte: str, identifiant: Optional
         if motif:
             raise refus("secret", T.SECRET_TEXTE.format(motif=motif))
     fiche = projets.projet(conn, tableau)
-    with ka.connexion(tableau) as kc:
-        ka.add_comment(kc, q["carte"], AUTEUR_HERMES, f"{reponse.strip()}\n\nFondement : {fondement.strip()}")
-        debloquee = ka.unblock_task(kc, q["carte"])
+    debloquee, differee = _commenter_et_reprendre(conn, fiche, q, AUTEUR_HERMES,
+                                                  f"{reponse.strip()}\n\nFondement : {fondement.strip()}")
     with base.transaction(conn):
         conn.execute("UPDATE questions SET etat = 'repondue', reponse = ?, repondu_par = 'hermes', fondement = ?, "
                      "maj_le = ?, repondue_le = ? WHERE id = ?",
                      (reponse.strip(), fondement.strip(), base.maintenant(), base.maintenant(), q["id"]))
         base.journaliser(conn, f"carte:{carte}", "question_repondue", projet_id=fiche["id"], cible=q["id"],
-                         detail={"par": "hermes", "carte_debloquee": debloquee})
-    return {"question": q["id"], "etat": "repondue", "carte_debloquee": debloquee}
+                         detail={"par": "hermes", "carte_debloquee": debloquee, "reprise_differee": differee})
+    return {"question": q["id"], "etat": "repondue", "carte_debloquee": debloquee, "reprise_differee": differee}
+
+
+def _commenter_et_reprendre(conn, fiche: Dict[str, Any], q: Dict[str, Any], auteur: str, texte: str):
+    """Commentaire de la réponse sur la carte du poste, puis reprise de la carte — sauf si le projet est en
+    pause : la carte reste alors planifiée et ne reprendra qu'à la reprise du projet (``projets.reprendre``
+    réveille les cartes dont la question a reçu sa réponse). Rend ``(carte_debloquee, reprise_differee)``."""
+    with ka.connexion(q["tableau"]) as kc:
+        ka.add_comment(kc, q["carte"], auteur, texte)
+        if fiche is not None and fiche["etat"] == "en_pause":
+            return False, True
+        return bool(ka.unblock_task(kc, q["carte"])), False
 
 
 def escalader(conn, *, tableau: str, carte: str, identifiant: Optional[str], motif: str) -> Dict[str, Any]:
@@ -160,63 +175,188 @@ def repondre_par_proprietaire(conn, identifiant: str, *, reponse: Any, auteur: s
     motif = motif_trouve(reponse)
     if motif:
         raise refus("secret", T.SECRET_TEXTE.format(motif=motif))
-    with ka.connexion(q["tableau"]) as kc:
-        ka.add_comment(kc, q["carte"], AUTEUR_PROPRIETAIRE, reponse.strip())
-        debloquee = ka.unblock_task(kc, q["carte"])
+    debloquee, differee = _commenter_et_reprendre(conn, projets.projet(conn, q["projet_id"]), q, AUTEUR_PROPRIETAIRE,
+                                                  reponse.strip())
     with base.transaction(conn):
         conn.execute("UPDATE questions SET etat = 'repondue', reponse = ?, repondu_par = 'proprietaire', maj_le = ?, "
                      "repondue_le = ? WHERE id = ?", (reponse.strip(), base.maintenant(), base.maintenant(), q["id"]))
         base.journaliser(conn, auteur, "question_repondue", projet_id=q["projet_id"], cible=q["id"],
-                         detail={"par": "proprietaire", "carte_debloquee": debloquee})
-    return {"question": q["id"], "etat": "repondue", "carte_debloquee": debloquee}
+                         detail={"par": "proprietaire", "carte_debloquee": debloquee, "reprise_differee": differee})
+    return {"question": q["id"], "etat": "repondue", "carte_debloquee": debloquee, "reprise_differee": differee}
+
+
+def _raison(tache, evenements) -> Optional[str]:
+    """Raison lisible d'une carte bloquée ou en triage : celle du DERNIER événement ``blocked`` ou
+    ``block_loop_detected`` (``block_task`` de Hermes la range dans la charge de l'événement, jamais dans
+    ``last_failure_error`` : kanban_db.py:3302-3328) ; pour un abandon, l'erreur retenue par le disjoncteur.
+    None seulement si ni l'une ni l'autre n'existe."""
+    raison = None
+    abandon = [e for e in evenements if e.kind == "gave_up"]
+    if abandon:
+        charge = abandon[-1].payload if isinstance(abandon[-1].payload, dict) else {}
+        raison = tache.last_failure_error or charge.get("error")
+    if not raison:
+        for evenement in reversed(evenements):
+            if evenement.kind in ("blocked", "block_loop_detected"):
+                charge = evenement.payload if isinstance(evenement.payload, dict) else {}
+                raison = charge.get("reason")
+                break
+    raison = raison or tache.last_failure_error
+    return (ka.masquer(raison)[:300] or None) if raison else None
+
+
+# Gestes offerts sur une carte en triage, selon ce qu'elle est (décision D41) ; « reprendre » pour une carte
+# que Hermes a passée en triage (boucle de blocages) ou qu'une autre voie y a mise.
+ACTIONS_PAR_GENRE = {"tours": ["prolonger", "conclure"], "cartes": ["prolonger", "conclure"],
+                     "corrections": ["conclure"], "sans_plan": ["relancer", "conclure"]}
+
+
+def _titre_de_carte(conn, tableau: str, carte: str) -> Optional[str]:
+    demande = projets.demande_de_la_carte(conn, tableau, carte)
+    try:
+        with ka.connexion(tableau) as kc:
+            tache = ka.get_task(kc, carte)
+        if tache is not None:
+            return ka.masquer(tache.title)[:200] or None
+    except Exception:  # noqa: BLE001 — tableau illisible : titre de la demande, sinon inconnu (jamais inventé)
+        pass
+    return (demande or {}).get("titre") or None
 
 
 def lister(conn) -> Dict[str, Any]:
-    """Questions ouvertes et escaladées ; cartes en triage, bloquées et abandonnées des tableaux de
-    projet (lecture seule pour les bloquées et abandonnées en P4 : « Relancer » relève de P7)."""
+    """Questions ouvertes et escaladées (avec le titre de la carte qui les pose et leur contexte) ; cartes en
+    triage (avec les gestes possibles), bloquées et abandonnées des tableaux de projet (lecture seule pour
+    les bloquées et abandonnées en P4 : « Relancer » relève de P7), chacune avec sa raison connue."""
     ouvertes = []
-    for q in conn.execute("SELECT q.*, p.titre AS projet_titre FROM questions q JOIN projets p ON p.id = q.projet_id "
-                          "WHERE q.etat IN ('ouverte', 'escaladee') ORDER BY q.cree_le"):
+    titres: Dict[tuple, Optional[str]] = {}
+    for q in [base.ligne_en_dict(l) for l in conn.execute(
+            "SELECT q.*, p.titre AS projet_titre FROM questions q JOIN projets p ON p.id = q.projet_id "
+            "WHERE q.etat IN ('ouverte', 'escaladee') ORDER BY q.cree_le")]:
+        cle = (q["tableau"], q["carte"])
+        if cle not in titres:
+            titres[cle] = _titre_de_carte(conn, q["tableau"], q["carte"])
         ouvertes.append({"id": q["id"], "projet": q["projet_id"], "projet_titre": q["projet_titre"],
-                         "tableau": q["tableau"], "carte": q["carte"], "etat": q["etat"],
-                         "texte": ka.masquer(q["texte"])[:4000], "carte_repondre": q["carte_repondre"],
-                         "motif_escalade": q["motif_escalade"], "cree_le": q["cree_le"]})
+                         "tableau": q["tableau"], "carte": q["carte"], "carte_titre": titres[cle],
+                         "etat": q["etat"], "texte": ka.masquer(q["texte"])[:4000],
+                         "contexte": (ka.masquer(q["contexte"])[:1000] or None) if q["contexte"] else None,
+                         "carte_repondre": q["carte_repondre"], "motif_escalade": q["motif_escalade"],
+                         "cree_le": q["cree_le"]})
     triage: List[Dict[str, Any]] = []
     bloquees: List[Dict[str, Any]] = []
     illisibles: List[str] = []
-    for p in conn.execute("SELECT * FROM projets WHERE etat != 'abandonne' ORDER BY cree_le"):
+    for p in conn.execute("SELECT * FROM projets WHERE etat != 'abandonne' ORDER BY cree_le").fetchall():
         try:
             with ka.connexion(p["tableau"]) as kc:
                 for statut, cible in (("triage", triage), ("blocked", bloquees)):
                     for tache in ka.list_tasks(kc, status=statut):
-                        abandon = any(e.kind == "gave_up" for e in ka.list_events(kc, tache.id)) if statut == "blocked" else False
-                        cible.append({"projet": p["id"], "projet_titre": p["titre"], "tableau": p["tableau"],
-                                      "carte": tache.id, "titre": ka.masquer(tache.title)[:200],
-                                      "assigne": tache.assignee, "abandonnee": abandon,
-                                      "raison": ka.masquer(tache.last_failure_error or "")[:300] or None})
+                        evenements = ka.list_events(kc, tache.id)
+                        entree = {"projet": p["id"], "projet_titre": p["titre"], "tableau": p["tableau"],
+                                  "carte": tache.id, "titre": ka.masquer(tache.title)[:200],
+                                  "assigne": tache.assignee,
+                                  "abandonnee": statut == "blocked" and any(e.kind == "gave_up" for e in evenements),
+                                  "raison": _raison(tache, evenements)}
+                        if statut == "triage":
+                            demande = projets.demande_de_la_carte(conn, p["tableau"], tache.id)
+                            genre = graphe.genre_de_triage(demande)
+                            entree.update(genre=genre, actions=ACTIONS_PAR_GENRE.get(genre, ["reprendre"]))
+                            if genre and not entree["raison"]:
+                                entree["raison"] = ka.masquer(demande["consigne"])[:300] or None
+                        cible.append(entree)
         except Exception:  # noqa: BLE001 — tableau illisible : dit, jamais inventé
             illisibles.append(p["tableau"])
     return {"questions": ouvertes, "triage": triage, "bloquees": bloquees, "tableaux_illisibles": illisibles}
 
 
-def reprendre_triage(conn, *, tableau: str, carte: str, consigne: Optional[str], auteur: str) -> Dict[str, Any]:
-    """Bouton « Reprendre » d'une carte en triage : ``specify_triage_task`` (triage → todo), avec la
-    consigne du propriétaire si elle est donnée."""
+def _carte_en_triage(conn, tableau: str, carte: str) -> Dict[str, Any]:
     fiche = projets.projet(conn, tableau)
     if fiche is None:
         raise refus("projet_inconnu", T.PROJET_INTROUVABLE.format(t=tableau))
+    with ka.connexion(tableau) as kc:
+        tache = ka.get_task(kc, carte)
+    if tache is None or tache.status != "triage":
+        raise refus("triage_inconnu", T.TRIAGE_INCONNU.format(carte=carte, t=tableau))
+    if fiche["etat"] == "en_pause":
+        raise refus("projet_en_pause", T.TRIAGE_PROJET_EN_PAUSE.format(titre=fiche["titre"]))
+    return {"fiche": fiche, "tache": tache, "demande": projets.demande_de_la_carte(conn, tableau, carte)}
+
+
+def reprendre_triage(conn, *, tableau: str, carte: str, consigne: Optional[str], auteur: str) -> Dict[str, Any]:
+    """Bouton « Reprendre » d'une carte en triage — « Prolonger » ou « Relancer la planification » pour une
+    carte de décision du greffon (décision D41) : ``specify_triage_task`` (triage → todo) avec la consigne du
+    propriétaire ; au plafond, le plafond est d'abord relevé (tours + 1, cartes + ``prolongation_cartes``),
+    et journalisé. La carte est alors exécutée par Hermes, qui peut planifier la suite depuis elle
+    (``graphe.planifier``). Refusé sur un projet en pause (la carte partirait avant la reprise)."""
     if consigne is not None:
         if not isinstance(consigne, str) or not 1 <= len(consigne.strip()) <= 8000:
             raise refus("arguments", "la consigne doit compter de 1 à 8000 caractères.")
         motif = motif_trouve(consigne)
         if motif:
             raise refus("secret", T.SECRET_TEXTE.format(motif=motif))
+    lu = _carte_en_triage(conn, tableau, carte)
+    fiche, tache, demande = lu["fiche"], lu["tache"], lu["demande"]
+    genre = graphe.genre_de_triage(demande)
+    if genre == "corrections":
+        raise refus("prolongation_p6", T.PROLONGATION_P6)
+    action = {"tours": "prolongation", "cartes": "prolongation", "sans_plan": "relance_planification"}.get(genre,
+                                                                                                           "reprise")
+    corps = None if consigne is None else f"{tache.body or ''}\n\n## Décision du propriétaire\n{consigne.strip()}"
     with ka.connexion(tableau) as kc:
-        tache = ka.get_task(kc, carte)
-        if tache is None or tache.status != "triage":
-            raise refus("triage_inconnu", T.TRIAGE_INCONNU.format(carte=carte, t=tableau))
-        corps = None if consigne is None else f"{tache.body or ''}\n\n## Décision du propriétaire\n{consigne.strip()}"
-        fait = ka.specify_triage_task(kc, carte, body=corps, author=AUTEUR_PROPRIETAIRE)
+        fait = bool(ka.specify_triage_task(kc, carte, body=corps, author=AUTEUR_PROPRIETAIRE))
+    plafond = None
     with base.transaction(conn):
+        if fait and action == "prolongation":
+            colonne = graphe.PLAFONDS[genre]
+            pas = 1 if genre == "tours" else int(base.reglage(conn, "prolongation_cartes") or 10)
+            avant = int(conn.execute(f"SELECT {colonne} FROM projets WHERE id = ?", (fiche["id"],)).fetchone()[0])
+            conn.execute(f"UPDATE projets SET {colonne} = ?, maj_le = ? WHERE id = ?",
+                         (avant + pas, base.maintenant(), fiche["id"]))
+            plafond = {"genre": genre, "avant": avant, "apres": avant + pas}
+        if fait and action != "reprise":
+            base.journaliser(conn, auteur, action, projet_id=fiche["id"], cible=carte, detail=plafond)
         base.journaliser(conn, auteur, "triage_repris", projet_id=fiche["id"], cible=carte)
-    return {"carte": carte, "reprise": bool(fait)}
+    return {"carte": carte, "reprise": fait, "action": action if fait else None, "plafond": plafond}
+
+
+def conclure_triage(conn, *, tableau: str, carte: str, auteur: str) -> Dict[str, Any]:
+    """Bouton « Conclure » d'une carte de décision du greffon (plafond atteint, planification sans plan) :
+    la carte est archivée et le projet s'arrête — « termine » s'il a au moins un tour planifié, sinon
+    « abandonne » (rien n'a été fait : ce n'est pas un succès). Aucune notification : c'est le geste du
+    propriétaire. Refusé tant qu'une autre carte du projet est ouverte (une synthèse en cours, par exemple)."""
+    lu = _carte_en_triage(conn, tableau, carte)
+    fiche = lu["fiche"]
+    if graphe.genre_de_triage(lu["demande"]) is None:
+        raise refus("triage_acp", T.TRIAGE_ACP_SEULEMENT.format(carte=carte))
+    with ka.connexion(tableau) as kc:
+        autres = [t for t in ka.list_tasks(kc) if t.id != carte and t.status in projets.STATUTS_OUVERTS]
+        if autres:
+            raise refus("cartes_ouvertes", T.CONCLURE_CARTES_OUVERTES.format(n=len(autres), titre=fiche["titre"]))
+        archivee = bool(ka.archive_task(kc, carte))
+    etat = "termine" if int(fiche["tour"] or 0) >= 1 else "abandonne"
+    with base.transaction(conn):
+        conn.execute("UPDATE projets SET etat = ?, termine_le = ?, maj_le = ? WHERE id = ? AND etat = 'actif'",
+                     (etat, base.maintenant(), base.maintenant(), fiche["id"]))
+        base.journaliser(conn, auteur, "conclusion", projet_id=fiche["id"], cible=carte,
+                         detail={"etat": etat, "carte_archivee": archivee})
+    return {"carte": carte, "conclu": archivee,
+            "projet": projets.resume_projet(conn, projets.projet(conn, fiche["id"]))}
+
+
+def questions_sans_suite(conn) -> List[str]:
+    """Filet de l'émetteur (relecture de P4) : une question « ouverte » dont la carte « répondre » est finie,
+    archivée ou bloquée sans question_repondre ni question_escalader est escaladée au propriétaire, avec la
+    notification « question » ; sinon la carte du poste resterait planifiée en silence."""
+    escaladees = []
+    for q in [base.ligne_en_dict(l) for l in conn.execute(
+            "SELECT * FROM questions WHERE etat = 'ouverte' AND carte_repondre IS NOT NULL").fetchall()]:
+        fiche = projets.projet(conn, q["tableau"])
+        if fiche is None:
+            continue
+        with ka.connexion(q["tableau"]) as kc:
+            tache = ka.get_task(kc, q["carte_repondre"])
+        if tache is None or tache.status not in ("done", "archived", "blocked"):
+            continue
+        if question(conn, q["id"])["etat"] != "ouverte":
+            continue  # répondue ou escaladée entre-temps
+        _escalader(conn, fiche, q, T.MOTIF_SANS_SUITE.format(statut=tache.status), "acp-poste:emetteur")
+        escaladees.append(q["id"])
+    return escaladees

@@ -9,7 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from conftest import carte, en_worker, executer_python, lancer_sans_depot, outil, reclamer, terminer
+from conftest import (carte, cartes_du_tableau, en_worker, executer_python, lancer_sans_depot, lancer_sur_depot, outil,
+                      reclamer, terminer)
 from noyau.notifications import Configuration
 
 PLAN = {"resume": "r", "etapes": [
@@ -291,6 +292,141 @@ def test_passe_complete_sans_erreur(noyau, conn, monkeypatch):
     projet, tour, cartes = _projet_planifie(noyau, conn, monkeypatch)
     bilan = noyau.emetteur.passe(conn)
     assert "erreurs" not in bilan, bilan
-    assert set(bilan) >= {"reparations", "etrangeres", "pauses", "evenements", "questions", "presence", "termines",
-                          "crochets"}
+    assert set(bilan) >= {"reparations", "etrangeres", "pauses", "evenements", "sans_plan", "sans_suite", "questions",
+                          "presence", "termines", "crochets"}
     assert carte(noyau, projet["tableau"], cartes["e1"]).status == "ready"
+
+
+# ============================================================ corrections de la relecture de P4
+
+
+def _textes(conn):
+    return [tuple(l) for l in conn.execute("SELECT cle, genre, texte FROM notifications ORDER BY id")]
+
+
+def test_planification_finie_sans_plan_adresse_une_decision(noyau, conn, monkeypatch):
+    """Relecture de P4 (haute) : une planification terminée sans projet_planifier laissait le projet arrêté,
+    affiché « en cours », sans carte ouverte ni notification. Filet de l'émetteur : UNE carte de décision et
+    UNE notification ; l'état dérivé le dit ; « Relancer la planification » permet à Hermes de planifier."""
+    projet = lancer_sans_depot(noyau, conn, titre="Sans plan")
+    tableau, planif = projet["tableau"], projet["cartes"]["planification"]
+    reclamer(noyau, tableau, planif)
+    assert terminer(noyau, tableau, planif, "Rien à planifier : projet_planifier a refusé mon plan.")
+    fiche = noyau.projets.projet(conn, projet["id"])
+    assert noyau.projets.etat(conn, fiche)["etat_derive"] == "a_decider"  # avant même la passe
+    for _ in range(3):
+        bilan = noyau.emetteur.passe(conn)
+        assert "erreurs" not in bilan, bilan
+    triage = [t for t in cartes_du_tableau(noyau, tableau).values() if t.status == "triage"]
+    assert [t.title for t in triage] == ["Planification sans plan — votre décision est attendue"]
+    assert triage[0].assignee == "default" and f"carte {planif} finie sans appel réussi" in triage[0].body
+    assert _textes(conn) == [(f"sans_plan:{projet['id']}:1", "triage", "ACP — Projet « Sans plan » : la "
+                              "planification s'est terminée sans plan, votre décision est attendue.")]
+    liste = [p for p in noyau.projets.lister(conn) if p["id"] == projet["id"]][0]
+    assert (liste["etat"], liste["etat_derive"], liste["compteurs"]["triage"]) == ("actif", "a_decider", 1)
+    [entree] = noyau.questions.lister(conn)["triage"]
+    assert (entree["genre"], entree["actions"]) == ("sans_plan", ["relancer", "conclure"])
+    # Avant la décision du propriétaire, la carte de décision ne planifie pas.
+    en_worker(monkeypatch, tableau, triage[0].id)
+    assert outil(noyau, "projet_planifier", PLAN)["code"] == "contexte"
+    # « Relancer la planification » : la carte part, Hermes planifie le tour 1 depuis elle.
+    decision = noyau.questions.reprendre_triage(conn, tableau=tableau, carte=triage[0].id,
+                                                consigne="Deux recherches suffisent.", auteur="proprietaire:t")
+    assert decision == {"carte": triage[0].id, "reprise": True, "action": "relance_planification", "plafond": None}
+    tour = outil(noyau, "projet_planifier", PLAN)
+    assert tour["ok"] and tour["tour"] == 1, tour
+    assert terminer(noyau, tableau, triage[0].id, "Tour 1 planifié.")
+    noyau.emetteur.passe(conn)
+    assert len(_textes(conn)) == 1  # aucune nouvelle décision : le projet a son tour 1
+    assert noyau.projets.etat(conn, noyau.projets.projet(conn, projet["id"]))["etat_derive"] != "a_decider"
+
+
+def test_conclure_une_planification_sans_plan_abandonne_le_projet(noyau, conn):
+    """« Conclure » une planification sans plan : le projet n'a rien fait, il est « abandonné » (pas
+    « terminé »), sa carte de décision archivée, et aucune notification (c'est le geste du propriétaire)."""
+    projet = lancer_sans_depot(noyau, conn, titre="Conclu sans plan")
+    reclamer(noyau, projet["tableau"], projet["cartes"]["planification"])
+    terminer(noyau, projet["tableau"], projet["cartes"]["planification"], "Rien.")
+    noyau.emetteur.passe(conn)
+    [triage] = [t.id for t in cartes_du_tableau(noyau, projet["tableau"]).values() if t.status == "triage"]
+    resultat = noyau.questions.conclure_triage(conn, tableau=projet["tableau"], carte=triage, auteur="proprietaire:t")
+    assert resultat["conclu"] is True and resultat["projet"]["etat"] == "abandonne"
+    assert carte(noyau, projet["tableau"], triage).status == "archived"
+    noyau.emetteur.passe(conn)
+    assert [g for _c, g, _t in _textes(conn)] == ["triage"]  # celle de la décision seulement
+    assert noyau.questions.lister(conn)["triage"] == []
+
+
+def test_question_sans_suite_escaladee(noyau, conn, monkeypatch):
+    """Relecture de P4 (moyenne) : la carte « répondre » finie sans question_repondre ni question_escalader
+    laissait la question « ouverte » et la carte du poste planifiée, en silence. Filet de l'émetteur : la
+    question est escaladée, avec UNE notification « question »."""
+    projet = lancer_sur_depot(noyau, conn, titre="Question muette")
+    tableau, explo = projet["tableau"], projet["cartes"]["exploration"]
+    run = reclamer(noyau, tableau, explo)
+    q = noyau.questions.poser(conn, tableau=tableau, carte=explo, run_id=run, texte="Quel nom de module ?")
+    reclamer(noyau, tableau, q["carte_repondre"])
+    assert terminer(noyau, tableau, q["carte_repondre"], "Je ne peux pas trancher.")
+    for _ in range(3):
+        assert "erreurs" not in noyau.emetteur.passe(conn)
+    question = noyau.questions.question(conn, q["question"])
+    assert question["etat"] == "escaladee" and question["motif_escalade"] == (
+        "Hermes n'a ni répondu ni escaladé : sa carte « répondre » s'est terminée sans suite (done) ; votre "
+        "réponse est attendue.")
+    assert [(c, g) for c, g, _t in _textes(conn)] == [(f"question:{q['question']}", "question")]
+    assert carte(noyau, tableau, explo).status == "scheduled"
+    # Le propriétaire répond depuis la page : la carte du poste reprend.
+    reponse = noyau.questions.repondre_par_proprietaire(conn, q["question"], reponse="outil", auteur="proprietaire:t")
+    assert reponse["carte_debloquee"] is True and carte(noyau, tableau, explo).status == "ready"
+
+
+def test_transport_ne_suit_aucune_redirection(noyau):
+    """Relecture de P4 (basse) : l'ouvreur par défaut de urllib suivait un 302 d'un POST en gardant
+    Authorization (jeton ntfy) vers un autre hôte. Désormais un 3xx est un échec « HTTP 3xx », rien ne part
+    vers la cible de la redirection."""
+    import http.server
+    import threading
+
+    recu = []
+
+    class Cible(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            recu.append(dict(self.headers))
+            self.send_response(200)
+            self.end_headers()
+
+        do_POST = do_GET  # noqa: N815
+
+        def log_message(self, *_):
+            pass
+
+    cible = http.server.HTTPServer(("127.0.0.1", 0), Cible)
+
+    class Redirige(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            self.send_response(302)
+            self.send_header("Location", f"http://localhost:{cible.server_address[1]}/ailleurs")
+            self.end_headers()
+
+        def log_message(self, *_):
+            pass
+
+    source = http.server.HTTPServer(("127.0.0.1", 0), Redirige)
+    for serveur in (cible, source):
+        threading.Thread(target=serveur.serve_forever, daemon=True).start()
+    try:
+        config = Configuration(canal="ntfy", jeton=JETON, serveur=f"http://127.0.0.1:{source.server_address[1]}",
+                               sujet=SUJET)
+        methode, url, entetes, corps = noyau.notifications.requete(config, {"texte": "t", "genre": "test", "lien": None})
+        assert entetes["Authorization"] == f"Bearer {JETON}"
+        code, _ = noyau.notifications.transport_urllib(methode, url, entetes, corps, 5)
+        assert code == 302 and recu == []
+        # Dans la file : un échec « HTTP 302 », réessayé plus tard vers la MÊME URL, jamais vers la redirection.
+        with noyau.base.connexion() as conn:
+            noyau.notifications.enfiler(conn, cle="test:redirection", genre="test", texte_notif="ACP — essai")
+            bilan = noyau.notifications.envoyer_en_attente(conn, config)
+            ligne = conn.execute("SELECT etat, derniere_erreur FROM notifications").fetchone()
+        assert bilan["reportees"] == 1 and tuple(ligne) == ("en_attente", "HTTP 302") and recu == []
+    finally:
+        for serveur in (cible, source):
+            serveur.shutdown()

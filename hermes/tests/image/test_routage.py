@@ -6,7 +6,8 @@ import datetime as dt
 
 import pytest
 
-from conftest import en_discussion, lancer_sans_depot, lancer_sur_depot, outil, releve_factice
+from conftest import (carte, en_discussion, en_worker, lancer_sans_depot, lancer_sur_depot, outil, reclamer,
+                      releve_factice, terminer)
 
 PROJET_DEPOT = {"id": "p_essai", "titre": "Essai", "depot_alias": "jetable"}
 PROJET_SANS_DEPOT = {"id": "p_essai", "titre": "Essai", "depot_alias": None}
@@ -125,7 +126,30 @@ def test_surcharge_depuis_la_discussion(noyau, conn, monkeypatch):
     assert outil(noyau, "routage_surcharger", dict(base, effort="max"))["code"] == "effort_interdit"
     assert outil(noyau, "routage_surcharger", dict(base, portee="globale"))["message"] == (
         "Refusé par ACP : une surcharge globale se fait depuis la page Routage (étape P5).")
-    assert outil(noyau, "routage_surcharger", dict(base, portee="carte", cible="t_inconnue"))["message"] == (
-        "Refusé par ACP : la carte t_inconnue n'appartient à aucun projet ACP.")
+    # Portée « carte » : refusée en P4, même sur une carte inconnue (test suivant pour une carte existante).
+    assert outil(noyau, "routage_surcharger", dict(base, portee="carte", cible="t_inconnue"))["code"] == (
+        "surcharge_carte")
     sans_depot = lancer_sans_depot(noyau, conn, "Sans dépôt")
     assert outil(noyau, "routage_surcharger", dict(base, cible=sans_depot["id"]))["code"] == "sans_depot"
+
+
+def test_surcharge_d_une_carte_refusee_tant_qu_elle_ne_s_applique_pas(noyau, conn, monkeypatch):
+    """Relecture de P4 : routage_surcharger(portée « carte ») répondait « ok » et une résolution, alors qu'aucune
+    carte ne relit cette surcharge (ni la carte visée, ni sa correction). Refus explicite, rien d'écrit."""
+    projet = lancer_sur_depot(noyau, conn)
+    reclamer(noyau, projet["tableau"], projet["cartes"]["exploration"])
+    terminer(noyau, projet["tableau"], projet["cartes"]["exploration"], "Carte du dépôt.")
+    en_worker(monkeypatch, projet["tableau"], projet["cartes"]["planification"])
+    tour = outil(noyau, "projet_planifier", {"resume": "r", "etapes": [
+        {"ref": "e1", "titre": "t", "classe": "implementation", "consigne": "c", "voie": "poste-codex"}]})
+    impl = next(c["carte"] for c in tour["cartes"] if c["role"] == "implementation")
+    en_discussion(monkeypatch)
+    reponse = outil(noyau, "routage_surcharger", {
+        "portee": "carte", "cible": impl, "classe": "implementation", "voie": "poste-claude",
+        "modele": "factice-claude-1", "effort": "low", "motif": "Le propriétaire veut Claude pour cette carte."})
+    assert reponse == {"ok": False, "code": "surcharge_carte", "message": (
+        "Refusé par ACP : une carte existante garde son exécutant et son modèle : la surcharge d'une carte est "
+        "prévue à l'étape P6 ; surchargez le projet (portée « projet »), ce qui vaut pour ses prochaines cartes.")}
+    assert conn.execute("SELECT COUNT(*) FROM surcharges").fetchone()[0] == 0
+    assert carte(noyau, projet["tableau"], impl).assignee == "poste-codex"
+    assert noyau.outils.SCHEMAS["routage_surcharger"]["parameters"]["properties"]["portee"]["enum"] == ["projet"]

@@ -11,14 +11,16 @@ passe date de moins de ``emetteur_intervalle_s`` (plancher 5 s), et ne bloque ja
 
 **Passe** : (1) réparation des créations interrompues ; (2) cartes ``poste-*`` étrangères et cartes des
 projets en pause ; (3) événements de chaque tableau de projet depuis son curseur, par lots de 500, règles
-ci-dessous, curseur avancé dans la MÊME transaction que les notifications ; (4) questions escaladées ;
-(5) présence du poste ; (6) projets terminés ; (7) veille des crochets shell (décision D34) ; (8) état de
-l'émetteur ; (9) réveil du fil d'envoi.
+ci-dessous, curseur avancé dans la MÊME transaction que les notifications ; (3 bis) filets déterministes de
+la relecture de P4 : planification finie sans plan → carte de décision, question dont la carte « répondre »
+s'est terminée sans suite → escaladée ; (4) questions escaladées ; (5) présence du poste ; (6) projets
+terminés ; (7) veille des crochets shell (décision D34) ; (8) état de l'émetteur ; (9) réveil du fil d'envoi.
 
 **Règles** (rien d'autre) : ``blocked`` hors ``dependency`` → ``bloquee`` ; ``block_loop_detected`` →
 ``triage`` ; ``gave_up`` → ``abandon`` ; synthèse du tour courant finie et plus rien d'ouvert → ``termine``
-(une seule fois) ; question escaladée → ``question`` ; présence → ``hors_ligne`` ; plafond → ``plafond``.
-Aucune notification pour un ``completed`` intermédiaire, ``claimed`` ou ``promoted``.
+(une seule fois) ; question escaladée → ``question`` ; présence → ``hors_ligne`` ; plafond → ``plafond`` ;
+planification sans plan → ``triage``. Aucune notification pour un ``completed`` intermédiaire, ``claimed``
+ou ``promoted``.
 
 **Limite dite (D31)** : pendant la pause générale (arrêt d'urgence de Hermes), le répartiteur ne tourne
 plus : aucune passe, donc aucune NOUVELLE notification (celles déjà en file partent encore).
@@ -34,7 +36,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import base, cartes, etrangeres, notifications, presence, projets
+from . import base, cartes, etrangeres, graphe, notifications, presence, projets, questions
 from . import kanban_adapter as ka
 from . import textes as T
 
@@ -158,6 +160,30 @@ def questions_escaladees(conn) -> int:
     return n
 
 
+def planifications_sans_plan(conn) -> List[str]:
+    """Filet déterministe (relecture de P4) : un projet actif SANS aucun tour planifié dont plus aucune carte
+    n'est ouverte — la planification (ou sa relance) s'est terminée sans appel réussi à projet_planifier —
+    reçoit UNE carte de décision « Planification sans plan » et UNE notification ; sans ce filet il resterait
+    arrêté, affiché « en cours », sans que le propriétaire le sache."""
+    adresses = []
+    for fiche in [base.ligne_en_dict(l) for l in conn.execute(
+            "SELECT * FROM projets WHERE etat = 'actif' AND tour = 0").fetchall()]:
+        demandes = cartes.cartes_du_projet(conn, fiche["id"])
+        if not demandes or any(not d["carte"] for d in demandes):
+            continue  # création en cours : la réparation s'en charge
+        with ka.connexion(fiche["tableau"]) as kc:
+            statuts = {d["carte"]: getattr(ka.get_task(kc, d["carte"]), "status", None) for d in demandes}
+        if any(s is None or s not in ("done", "archived") for s in statuts.values()):
+            continue
+        derniere = [d for d in demandes if d["role"] in ("planification", "triage")][-1:]
+        if not derniere:
+            continue
+        carte = graphe.creer_triage_sans_plan(conn, fiche, T.DETAIL_SANS_PLAN.format(carte=derniere[0]["carte"]))
+        if carte:
+            adresses.append(fiche["id"])
+    return adresses
+
+
 def projets_termines(conn) -> List[str]:
     """Étape 6 : un projet actif dont la synthèse du tour courant est faite et dont plus aucune carte n'est
     ouverte passe ``termine`` ; UNE notification ``termine:<p>``."""
@@ -233,6 +259,8 @@ def passe(conn=None) -> Dict[str, Any]:
     _pas(bilan, "etrangeres", etrangeres.balayer, conn)
     _pas(bilan, "pauses", projets.replanifier_les_projets_en_pause, conn)
     _pas(bilan, "evenements", lire_evenements, conn)
+    _pas(bilan, "sans_plan", planifications_sans_plan, conn)
+    _pas(bilan, "sans_suite", questions.questions_sans_suite, conn)
     _pas(bilan, "questions", questions_escaladees, conn)
     _pas(bilan, "presence", presence.evaluer, conn)
     _pas(bilan, "termines", projets_termines, conn)

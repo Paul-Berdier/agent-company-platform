@@ -120,14 +120,14 @@ SCHEMAS: Dict[str, Dict[str, Any]] = {
     },
     "routage_surcharger": {
         "name": "routage_surcharger",
-        "description": ("Fixe, pour un projet ou une carte, l'exécutant, le modèle et l'effort d'une classe "
-                        "d'étapes, avec un motif. Ne lève jamais un interdit (effort, palier) : seul le "
-                        "propriétaire le fait."),
+        "description": ("Fixe, pour les prochaines cartes d'un projet, l'exécutant, le modèle et l'effort d'une "
+                        "classe d'étapes, avec un motif. Une carte existante garde les siens (surcharge d'une carte : "
+                        "étape P6). Ne lève jamais un interdit (effort, palier) : seul le propriétaire le fait."),
         "parameters": {"type": "object", "additionalProperties": False,
                        "required": ["portee", "cible", "classe", "voie", "motif"],
                        "properties": {
-                           "portee": {"type": "string", "enum": ["projet", "carte"]},
-                           "cible": {"type": "string", "description": "Projet (p_… ou acp-…) ou carte (t_…)."},
+                           "portee": {"type": "string", "enum": ["projet"]},
+                           "cible": {"type": "string", "description": "Projet (p_… ou acp-…)."},
                            "classe": {"type": "string", "enum": sorted(routage.VOIES_PAR_CLASSE)},
                            "voie": {"type": "string", "enum": ["poste-codex", "poste-claude", "hermes"]},
                            "modele": _CHAINE, "effort": _CHAINE,
@@ -273,20 +273,17 @@ def _routage_surcharger(args, session_id, conn) -> Dict[str, Any]:
     portee = args.get("portee")
     if portee == "globale":
         raise refus("globale", T.SURCHARGE_GLOBALE)
-    if portee not in ("projet", "carte"):
-        raise refus("arguments", T.ARGUMENTS.format(outil="routage_surcharger", detail="portée « projet » ou « carte »"))
+    if portee == "carte":
+        # Aucune carte existante ne relit sa surcharge (ni sa correction, préparée pour P6) : répondre « ok »
+        # annoncerait un changement qui n'a pas lieu (relecture de P4). Refus explicite jusqu'à P6.
+        raise refus("surcharge_carte", T.SURCHARGE_CARTE)
+    if portee != "projet":
+        raise refus("arguments", T.ARGUMENTS.format(outil="routage_surcharger", detail="portée « projet »"))
     cible = args.get("cible")
     if not isinstance(cible, str) or not cible:
         raise refus("arguments", T.ARGUMENTS.format(outil="routage_surcharger", detail="« cible » manque"))
-    if portee == "projet":
-        fiche = projets.exiger_projet(conn, cible)
-        cible_stockee = fiche["id"]
-    else:
-        ligne = conn.execute("SELECT projet_id FROM demandes WHERE carte = ?", (cible,)).fetchone()
-        if ligne is None:
-            raise refus("carte_hors_projet", T.CARTE_HORS_PROJET.format(id=cible[:40]))
-        fiche = projets.projet(conn, ligne[0])
-        cible_stockee = cible
+    fiche = projets.exiger_projet(conn, cible)
+    cible_stockee = fiche["id"]
     classe = args.get("classe")
     if classe not in routage.VOIES_PAR_CLASSE:
         raise refus("arguments", T.ARGUMENTS.format(outil="routage_surcharger", detail="classe inconnue"))

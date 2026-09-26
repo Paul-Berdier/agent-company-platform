@@ -135,7 +135,8 @@ def test_plafond_tours_carte_de_triage_unique(noyau, conn, monkeypatch):
     assert len(triage) == 1 and triage[0].assignee == "default"
     assert triage[0].title == "Plafond atteint : tours — votre décision est attendue"
     notifs = conn.execute("SELECT cle, genre FROM notifications").fetchall()
-    assert [tuple(n) for n in notifs] == [(f"plafond:{projet['id']}:tours", "plafond")]
+    # Clé de la notification par VALEUR du plafond : après une prolongation, le nouveau plafond en redemande une.
+    assert [tuple(n) for n in notifs] == [(f"plafond:{projet['id']}:tours:1", "plafond")]
 
 
 def test_effort_hors_enumeration_sans_reasoning_effort(noyau, conn, monkeypatch):
@@ -275,3 +276,116 @@ def test_synthese_relance_un_tour_dans_les_plafonds(noyau, conn, monkeypatch):
                        carte_id=tour1["synthese"])
     assert tour2["ok"] and tour2["tour"] == 2 and tour2["plafonds_restants"]["tours"] == 1
     assert tour2["synthese"] != tour1["synthese"]
+
+
+# ============================================================ corrections de la relecture de P4 (décision D41)
+
+UNE_ETAPE = {"resume": "Une recherche.", "etapes": PLAN_HERMES["etapes"][:1]}
+
+
+def _tour_fini(noyau, projet, tour):
+    for c in tour["cartes"]:
+        assert terminer(noyau, projet["tableau"], c["carte"])
+
+
+def _notifs(conn):
+    return [tuple(l) for l in conn.execute("SELECT cle, genre, texte FROM notifications ORDER BY id")]
+
+
+def test_prolonger_au_plafond_de_tours_planifie_un_tour_de_plus(noyau, conn, monkeypatch):
+    """Relecture de P4 (haute) : « Reprendre » une carte de triage au plafond la faisait exécuter par Hermes, qui
+    ne pouvait pas planifier (refus « contexte ») : le projet passait « terminé », notification comprise, alors
+    que le propriétaire demandait de continuer. « Prolonger » relève le plafond de tours de 1 (journalisé) et la
+    carte de décision planifie le tour suivant ; le nouveau plafond atteint adresse une NOUVELLE décision."""
+    noyau.base.poser_reglage(conn, "plafond_tours", 1, "test")
+    projet = lancer_sans_depot(noyau, conn, titre="Plafond prolongé")
+    tour1 = _planifier(noyau, monkeypatch, projet, UNE_ETAPE)
+    terminer(noyau, projet["tableau"], projet["cartes"]["planification"], "Plan posé.")
+    _tour_fini(noyau, projet, tour1)
+    assert _planifier(noyau, monkeypatch, projet, UNE_ETAPE, carte_id=tour1["synthese"])["code"] == "plafond_tours"
+    terminer(noyau, projet["tableau"], tour1["synthese"], "Plafond atteint, décision attendue.")
+    noyau.emetteur.passe(conn)
+    [triage] = [t.id for t in cartes_du_tableau(noyau, projet["tableau"]).values() if t.status == "triage"]
+    fiche = noyau.projets.projet(conn, projet["id"])
+    assert (fiche["etat"], noyau.projets.etat(conn, fiche)["etat_derive"]) == ("actif", "plafond_atteint")
+    assert "« Prolonger » accorde un tour de plus" in carte(noyau, projet["tableau"], triage).body
+    [entree] = noyau.questions.lister(conn)["triage"]
+    assert (entree["genre"], entree["actions"]) == ("tours", ["prolonger", "conclure"])
+    decision = noyau.questions.reprendre_triage(conn, tableau=projet["tableau"], carte=triage,
+                                                consigne="Faites un tour de plus pour vérifier.", auteur="proprietaire:t")
+    assert decision == {"carte": triage, "reprise": True, "action": "prolongation",
+                        "plafond": {"genre": "tours", "avant": 1, "apres": 2}}
+    tour2 = _planifier(noyau, monkeypatch, projet, UNE_ETAPE, carte_id=triage)
+    assert tour2["ok"] and tour2["tour"] == 2, tour2
+    assert terminer(noyau, projet["tableau"], triage, "Tour 2 planifié.")
+    noyau.emetteur.passe(conn)
+    fiche = noyau.projets.projet(conn, projet["id"])
+    assert fiche["etat"] == "actif" and not [n for n in _notifs(conn) if n[1] == "termine"]
+    journal = [tuple(l) for l in conn.execute("SELECT action, cible FROM journal WHERE action = 'prolongation'")]
+    assert journal == [("prolongation", triage)]
+    # Tour 2 fini : un 3e tour est refusé au nouveau plafond, avec UNE nouvelle décision et sa notification.
+    _tour_fini(noyau, projet, tour2)
+    assert _planifier(noyau, monkeypatch, projet, UNE_ETAPE, carte_id=tour2["synthese"])["code"] == "plafond_tours"
+    assert [(c, g) for c, g, _t in _notifs(conn)] == [(f"plafond:{projet['id']}:tours:1", "plafond"),
+                                                       (f"plafond:{projet['id']}:tours:2", "plafond")]
+    assert len([t for t in cartes_du_tableau(noyau, projet["tableau"]).values() if t.status == "triage"]) == 1
+
+
+def test_plafond_de_cartes_sans_plan_possible_adresse_une_decision(noyau, conn, monkeypatch):
+    """Relecture de P4 (moyenne) : plafond de cartes atteint quand la synthèse veut un tour de plus : refus sans
+    triage ni notification, puis « terminé ». Quand plus aucun plan ne tient (moins de deux cartes), c'est un
+    plafond : carte de décision et notification ; « Prolonger » relève le plafond de ``prolongation_cartes``."""
+    noyau.base.poser_reglage(conn, "plafond_cartes", 3, "test")
+    projet = lancer_sans_depot(noyau, conn, titre="Plafond de cartes")
+    tour1 = _planifier(noyau, monkeypatch, projet, UNE_ETAPE)
+    terminer(noyau, projet["tableau"], projet["cartes"]["planification"], "Plan posé.")
+    _tour_fini(noyau, projet, tour1)
+    refus = _planifier(noyau, monkeypatch, projet, UNE_ETAPE, carte_id=tour1["synthese"])
+    assert refus == {"ok": False, "code": "plafond_cartes", "message": (
+        "Refusé par ACP : le projet « Plafond de cartes » compte déjà 3 cartes sur 3 (plafond) : aucun plan ne tient "
+        "plus (une étape et sa synthèse en demandent deux) ; une carte de triage vous est adressée.")}
+    terminer(noyau, projet["tableau"], tour1["synthese"], "Il reste la moitié.")
+    noyau.emetteur.passe(conn)
+    fiche = noyau.projets.projet(conn, projet["id"])
+    assert (fiche["etat"], noyau.projets.etat(conn, fiche)["etat_derive"]) == ("actif", "plafond_atteint")
+    assert [t for _c, g, t in _notifs(conn)] == [
+        "ACP — Projet « Plafond de cartes » : plafond de cartes atteint, votre décision est attendue."]
+    [triage] = [t.id for t in cartes_du_tableau(noyau, projet["tableau"]).values() if t.status == "triage"]
+    decision = noyau.questions.reprendre_triage(conn, tableau=projet["tableau"], carte=triage, consigne=None,
+                                                auteur="proprietaire:t")
+    assert decision["plafond"] == {"genre": "cartes", "avant": 3, "apres": 13}
+    assert _planifier(noyau, monkeypatch, projet, UNE_ETAPE, carte_id=triage)["tour"] == 2
+    # Il reste des cartes, mais pas assez pour CE plan : refus ordinaire (« Réduisez le plan »), aucune décision.
+    noyau.base.poser_reglage(conn, "plafond_cartes", 3, "test")
+    autre = lancer_sans_depot(noyau, conn, titre="Plan trop grand")
+    assert _planifier(noyau, monkeypatch, autre, PLAN_HERMES)["message"].endswith("Réduisez le plan.")
+    assert [t.status for t in cartes_du_tableau(noyau, autre["tableau"]).values()] == ["ready"]
+
+
+def test_conclure_au_plafond_termine_sans_notification(noyau, conn, monkeypatch):
+    """« Conclure » au plafond : refusé tant qu'une autre carte est ouverte (la synthèse qui vient de demander le
+    tour), puis carte de décision archivée, projet « terminé », aucune notification « terminé » (geste du
+    propriétaire). « Prolonger » au plafond de corrections : étape P6, refusé."""
+    noyau.base.poser_reglage(conn, "plafond_tours", 1, "test")
+    projet = lancer_sans_depot(noyau, conn, titre="Conclu au plafond")
+    tour1 = _planifier(noyau, monkeypatch, projet, UNE_ETAPE)
+    terminer(noyau, projet["tableau"], projet["cartes"]["planification"], "Plan posé.")
+    _tour_fini(noyau, projet, tour1)
+    _planifier(noyau, monkeypatch, projet, UNE_ETAPE, carte_id=tour1["synthese"])
+    [triage] = [t.id for t in cartes_du_tableau(noyau, projet["tableau"]).values() if t.status == "triage"]
+    with pytest.raises(noyau.textes.RefusACP) as exc:
+        noyau.questions.conclure_triage(conn, tableau=projet["tableau"], carte=triage, auteur="proprietaire:t")
+    assert exc.value.code == "cartes_ouvertes"
+    terminer(noyau, projet["tableau"], tour1["synthese"], "Conclusion.")
+    resultat = noyau.questions.conclure_triage(conn, tableau=projet["tableau"], carte=triage, auteur="proprietaire:t")
+    assert resultat["projet"]["etat"] == "termine" and carte(noyau, projet["tableau"], triage).status == "archived"
+    noyau.emetteur.passe(conn)
+    assert [g for _c, g, _t in _notifs(conn)] == ["plafond"]
+    fiche = noyau.projets.projet(conn, projet["id"])
+    corrections = noyau.graphe.creer_triage_plafond(conn, dict(fiche, etat="actif"), "corrections", "2 corrections")
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE projets SET etat = 'actif' WHERE id = ?", (projet["id"],))
+    with pytest.raises(noyau.textes.RefusACP) as exc:
+        noyau.questions.reprendre_triage(conn, tableau=projet["tableau"], carte=corrections, consigne=None, auteur="p")
+    assert exc.value.code == "prolongation_p6"
+    assert carte(noyau, projet["tableau"], corrections).status == "triage"

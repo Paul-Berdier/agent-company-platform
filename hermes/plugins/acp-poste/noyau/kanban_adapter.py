@@ -34,6 +34,7 @@ from agent.redact import redact_sensitive_text
 from hermes_cli.kanban_db import (
     Task,
     add_comment,
+    archive_task,
     block_task,
     child_ids,
     claim_task,
@@ -86,6 +87,7 @@ MODULES_DE_DEFINITION = {
     "list_tasks": "hermes_cli.kanban_db",
     "link_tasks": "hermes_cli.kanban_db",
     "add_comment": "hermes_cli.kanban_db",
+    "archive_task": "hermes_cli.kanban_db",
     "list_comments": "hermes_cli.kanban_db",
     "list_events": "hermes_cli.kanban_db",
     "parent_ids": "hermes_cli.kanban_db",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Témoins négatifs de l'étape P4 (docs/refonte/projets.md § 8) : chaque protection du cœur serveur est
+# Témoins négatifs de l'étape P4 (docs/refonte/projets.md § 9 et § 12) : chaque protection du cœur serveur est
 # retirée, UNE à la fois, dans un conteneur jetable de l'image de TEST ; les tests qui la couvrent doivent
 # alors échouer. Rien n'est modifié hors du conteneur, qui est détruit après chaque témoin.
 #
@@ -22,9 +22,11 @@ if ancien not in texte:
 open(chemin, "w", encoding="utf-8").write(texte.replace(ancien, nouveau))
 print("mutation appliquée : " + chemin)'
 ECHECS=0
+TEMOINS=0
 
 temoin() {  # libellé ; sélection pytest ; puis triplets (fichier, ancien, nouveau)
   local libelle=$1 selection=$2 commande="" sortie code
+  TEMOINS=$((TEMOINS + 1))
   shift 2
   while [ $# -gt 0 ]; do
     commande+="$PY -c $(printf %q "$MUTER") $(printf %q "$1") $(printf %q "$2") $(printf %q "$3") || exit 99; "
@@ -85,9 +87,49 @@ temoin "memory admis dans un worker kanban (décision D40)" \
   "$T/test_sans_shell.py::test_memoire_refusee_dans_un_worker_kanban" \
   $G/garde_execution.py 'if tool_name in MOTIFS_DANS_UN_WORKER and _dans_un_worker_kanban():' 'if False:'
 
+# Corrections de la relecture indépendante de P4 (docs/refonte/projets.md § 12).
+temoin "isolation des projets dans un worker retirée (garde, D44)" \
+  "$T/test_sans_shell.py::test_un_worker_ne_touche_que_son_tableau_et_sa_carte" \
+  $G/garde_execution.py 'motif = _hors_de_sa_carte(tool_name, args)' 'motif = None'
+temoin "redirection suivie par le transport des notifications" \
+  "$T/test_emetteur.py::test_transport_ne_suit_aucune_redirection" \
+  $G/noyau/notifications.py $'def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102, N802\n        return None' \
+  $'def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102, N802\n        return super().redirect_request(req, fp, code, msg, headers, newurl)'
+temoin "reprise générale admise malgré des crochets shell" \
+  "$T/test_routes_projets.py::test_reprise_generale_refusee_tant_que_des_crochets_existent" \
+  $G/dashboard/plugin_api.py '            if constats:' '            if False:'
+temoin "filet de l'émetteur : planification finie sans plan" \
+  "$T/test_emetteur.py::test_planification_finie_sans_plan_adresse_une_decision" \
+  $G/noyau/emetteur.py '_pas(bilan, "sans_plan", planifications_sans_plan, conn)' 'pass'
+temoin "filet de l'émetteur : question restée sans suite" \
+  "$T/test_emetteur.py::test_question_sans_suite_escaladee" \
+  $G/noyau/emetteur.py '_pas(bilan, "sans_suite", questions.questions_sans_suite, conn)' 'pass'
+temoin "décision au plafond de cartes quand plus aucun plan ne tient" \
+  "$T/test_projets_planifier.py::test_plafond_de_cartes_sans_plan_possible_adresse_une_decision" \
+  $G/noyau/graphe.py 'if int(fiche["plafond_cartes"]) - int(fiche["cartes_creees"]) < 2:' 'if False:'
+temoin "« Prolonger » : la carte de décision ne planifie plus (D41)" \
+  "$T/test_projets_planifier.py::test_prolonger_au_plafond_de_tours_planifie_un_tour_de_plus" \
+  $G/noyau/graphe.py 'decision = demande is not None and demande["role"] == "triage" and demande["ref"] in REFS_PLANIFICATRICES' \
+  'decision = False'
+temoin "plafond de projets actifs ignoré à la reprise" \
+  "$T/test_pause.py::test_reprise_respecte_le_plafond_de_projets_actifs" \
+  $G/noyau/projets.py 'raise refus("projets_actifs", T.PROJETS_ACTIFS_REPRISE' 'pass  # '
+temoin "raison d'une carte bloquée lue dans last_failure_error seulement" \
+  "$T/test_questions.py::test_raison_connue_des_cartes_bloquees_et_en_triage" \
+  $G/noyau/questions.py '"raison": _raison(tache, evenements)}' '"raison": ka.masquer(tache.last_failure_error or "")[:300] or None}'
+temoin "résumé coupé sans le dire" \
+  "$T/test_routes_projets.py::test_resume_coupe_le_dit_et_se_lit_en_entier" \
+  $G/noyau/projets.py '"resume_tronque": bool(resume) and len(resume) > LONGUEUR_RESUME,' '"resume_tronque": False,'
+temoin "réponse pendant la pause : carte débloquée tout de suite" \
+  "$T/test_pause.py::test_reponse_pendant_la_pause_reprend_a_la_reprise_du_projet" \
+  $G/noyau/questions.py 'if fiche is not None and fiche["etat"] == "en_pause":' 'if False:'
+temoin "surcharge de routage de portée « carte » admise" \
+  "$T/test_routage.py::test_surcharge_d_une_carte_refusee_tant_qu_elle_ne_s_applique_pas" \
+  $G/noyau/outils.py 'if portee == "carte":' 'if False:'
+
 echo
 if [ "$ECHECS" -eq 0 ]; then
-  echo "Témoins négatifs : 12 sur 12, chaque protection retirée fait échouer ses tests."
+  echo "Témoins négatifs : $TEMOINS sur $TEMOINS, chaque protection retirée fait échouer ses tests."
   exit 0
 fi
 echo "Témoins négatifs : $ECHECS anomalie(s)."
