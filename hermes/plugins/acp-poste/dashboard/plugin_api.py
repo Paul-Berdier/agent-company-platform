@@ -348,3 +348,385 @@ async def notification_de_test(request: Request) -> JSONResponse:
         return 202, {"notification": cle, "etat": "en_attente",
                      "message": "Notification de test mise en file : la passerelle l'envoie à sa prochaine passe."}
     return await _executer(_avec_base(travail))
+
+
+# ============================================================ étape P5 : routes machine du poste (acp-machine/1)
+#
+# Trois chemins EXACTS, enregistrés comme chemins à jeton par register() (noyau/jeton_machine.py) : la couture de
+# Hermes (hermes_cli/dashboard_auth/token_auth.py:75-96) authentifie le porteur AVANT ces gestionnaires et y
+# attache ``request.state.token_principal`` ; sans porteur reconnu, elle répond elle-même 401 (anglais, ambigu)
+# ou 503. Chaque gestionnaire revérifie, dans cet ordre (cahier P5 § 4.2) : principal présent (401), fournisseur
+# acp-poste-machine (403), portée (403), JSON, taille et protocole (415, 413, 409), puis relit l'état du poste DANS
+# sa transaction (une révocation entre la couture et le gestionnaire est vue : 401 poste_revoque).
+
+import asyncio  # noqa: E402
+import hashlib  # noqa: E402
+import logging  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+_log = logging.getLogger(__name__)
+FOURNISSEUR_MACHINE = "acp-poste-machine"
+SANS_CACHE = {"Cache-Control": "no-store"}
+CODES_HTTP_MACHINE = {
+    "non_authentifie": 401, "poste_revoque": 401, "mauvais_fournisseur": 403, "code_enrolement_seulement": 403,
+    "jeton_machine_ici": 403, "poste_a_confirmer": 403, "poste_deja_enrole": 409, "protocole_incompatible": 409,
+    "trop_volumineux": 413, "json_attendu": 415, "requete_refusee": 422, "trop_frequent": 429, "echec": 500,
+}
+ATTENTE_A_CONFIRMER_S = 15
+RELECTURE_S = 2.0
+REMPLACEMENTS_ALERTE = 5
+
+
+def _contrat_machine() -> ModuleType:
+    _n("contrat_partage")
+    import acp_poste_contrat.machine as machine
+
+    return machine
+
+
+def _erreur_machine(code: str, message: str, entetes: Optional[Dict[str, str]] = None) -> JSONResponse:
+    return JSONResponse(status_code=CODES_HTTP_MACHINE.get(code, 400), content={"detail": {"code": code,
+                        "message": message}}, headers=dict(SANS_CACHE, **(entetes or {})))
+
+
+def _reponse_machine(statut: int, contenu: Dict[str, Any]) -> JSONResponse:
+    return JSONResponse(status_code=statut, content=contenu, headers=SANS_CACHE)
+
+
+def _iso(epoch: float) -> str:
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+async def _garde_machine(request: Request, portee: str, taille_max: int) -> Any:
+    """(principal, corps) d'une requête du poste, ou la réponse de refus. ``portee`` : ``enrolement`` ou ``machine``."""
+    textes = _n("textes")
+    principal = getattr(request.state, "token_principal", None)
+    if principal is None:
+        return _erreur_machine("non_authentifie", textes.MACHINE_NON_AUTHENTIFIE)
+    if getattr(principal, "provider", None) != FOURNISSEUR_MACHINE:
+        return _erreur_machine("mauvais_fournisseur", textes.MAUVAIS_FOURNISSEUR)
+    portees = tuple(getattr(principal, "scopes", ()) or ())
+    if portee == "enrolement" and "enrolement" not in portees:
+        return _erreur_machine("jeton_machine_ici", textes.JETON_MACHINE_ICI)
+    if portee == "machine" and "machine" not in portees:
+        return _erreur_machine("code_enrolement_seulement", textes.CODE_ENROLEMENT_SEULEMENT)
+    type_ = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if type_ != "application/json":
+        return _erreur_machine("json_attendu", textes.JSON_ATTENDU)
+    kio = taille_max // 1024
+    longueur = request.headers.get("content-length")
+    if longueur is not None and (not longueur.isdigit() or int(longueur) > taille_max):
+        return _erreur_machine("trop_volumineux", textes.TROP_VOLUMINEUX.format(n=kio))
+    brut = b""
+    async for morceau in request.stream():
+        brut += morceau
+        if len(brut) > taille_max:
+            return _erreur_machine("trop_volumineux", textes.TROP_VOLUMINEUX.format(n=kio))
+    try:
+        corps = json.loads(brut.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return _erreur_machine("requete_refusee", textes.REQUETE_REFUSEE.format(detail="corps JSON illisible."))
+    if not isinstance(corps, dict):
+        return _erreur_machine("requete_refusee", textes.REQUETE_REFUSEE.format(detail="un objet JSON est attendu."))
+    protocole = corps.get("protocole")
+    if isinstance(protocole, str) and _contrat_machine().majeure(protocole) not in (None, 1):
+        return _erreur_machine("protocole_incompatible", textes.PROTOCOLE_INCOMPATIBLE.format(p=protocole[:20]))
+    return principal, corps
+
+
+def _valider(modele_nom: str, corps: Dict[str, Any]) -> Any:
+    """Requête validée par le contrat partagé, ou la réponse 422 en français."""
+    machine = _contrat_machine()
+    try:
+        return machine.valider(getattr(machine, modele_nom), corps, quoi="Requête refusée")
+    except ValueError as exc:
+        detail = str(exc).removeprefix("Requête refusée : ")
+        return _erreur_machine("requete_refusee", _n("textes").REQUETE_REFUSEE.format(detail=detail[:400]))
+
+
+def _machine_du_principal(principal: Any) -> str:
+    return str(getattr(principal, "principal", "")).removeprefix("acp-poste:")
+
+
+def _refus_revoque(ligne: Optional[Dict[str, Any]]) -> JSONResponse:
+    textes, routage = _n("textes"), _n("routage")
+    if ligne is None:
+        return _erreur_machine("poste_revoque", textes.POSTE_INCONNU_MACHINE)
+    return _erreur_machine("poste_revoque", textes.POSTE_REVOQUE.format(date=routage.date_lisible(ligne["revoque_le"])))
+
+
+async def _executer_machine(fonction: Callable[..., Any], *args: Any) -> Any:
+    """``fonction`` hors de la boucle ; un refus du noyau devient l'erreur machine ; jamais une trace brute."""
+    textes = _n("textes")
+    try:
+        return await run_in_threadpool(fonction, *args)
+    except textes.RefusACP as exc:
+        entetes = {"Retry-After": str(exc.retry_after)} if hasattr(exc, "retry_after") else None
+        return _erreur_machine(exc.code, exc.message, entetes)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("acp-poste : route machine en échec (%s).", type(exc).__name__)
+        return _erreur_machine("echec", textes.ECHEC_MACHINE.format(type=type(exc).__name__))
+
+
+@router.post("/machine/v1/enrolement")
+async def machine_enrolement(request: Request) -> JSONResponse:
+    """Porteur : code d'enrôlement ``acpe_…`` (usage unique). 201 : le SEUL message qui contienne le jeton."""
+    garde = await _garde_machine(request, "enrolement", _contrat_machine().TAILLE_MAX_REQUETE)
+    if isinstance(garde, JSONResponse):
+        return garde
+    principal, corps = garde
+    requete = _valider("RequeteEnrolement", corps)
+    if isinstance(requete, JSONResponse):
+        return requete
+    porteur = request.headers.get("authorization", "").split(" ", 1)[-1].strip()
+    empreinte = hashlib.sha256(porteur.encode("ascii", "replace")).hexdigest()
+    if str(getattr(principal, "principal", "")) != f"enrolement:{empreinte[:12]}":
+        return _erreur_machine("non_authentifie", _n("textes").CODE_REFUSE)
+
+    def travail():
+        base, machines = _n("base"), _n("machines")
+        with base.connexion() as conn:
+            with base.transaction(conn):
+                return machines.enroler_dans(conn, empreinte, nom=requete.nom, version_poste=requete.version_poste,
+                                             protocole=requete.protocole)
+    resultat = await _executer_machine(travail)
+    if isinstance(resultat, JSONResponse):
+        return resultat
+    return _reponse_machine(201, resultat)
+
+
+class _Attente:
+    """Attente en cours d'un poste : sa boucle et son événement (réveil sûr depuis un fil : call_soon_threadsafe)."""
+
+    def __init__(self, boucle: asyncio.AbstractEventLoop) -> None:
+        self.boucle = boucle
+        self.evenement = asyncio.Event()
+        self.remplacee = False
+
+    def reveiller(self) -> None:
+        try:
+            self.boucle.call_soon_threadsafe(self.evenement.set)
+        except RuntimeError:  # boucle fermée : l'attente est déjà finie
+            pass
+
+
+# Attentes par poste : UNE copie de ce dictionnaire, dans ce module, que partagent les routes machine et les routes
+# du propriétaire (toutes ici). La plus récente attente gagne : elle réveille l'ancienne, qui rend « remplace ».
+_attentes: Dict[str, _Attente] = {}
+_verrou_attentes = threading.Lock()
+
+
+def reveiller_le_poste(machine_id: Optional[str]) -> bool:
+    """Réveille l'attente en cours du poste (ordre, révocation, pause) ; sûr depuis n'importe quel fil."""
+    if not machine_id:
+        return False
+    with _verrou_attentes:
+        attente = _attentes.get(machine_id)
+    if attente is None:
+        return False
+    attente.reveiller()
+    return True
+
+
+def attentes_en_cours() -> Dict[str, int]:
+    with _verrou_attentes:
+        return {m: 1 for m in _attentes}
+
+
+def ordonner(machine_id: str, genre: str, auteur: str) -> int:
+    """Crée un ordre pour le poste puis réveille son attente (appelée DANS un fil : routes du propriétaire)."""
+    base, ordres = _n("base"), _n("ordres")
+    with base.connexion() as conn:
+        identifiant = ordres.creer(conn, machine_id, genre, auteur)
+    reveiller_le_poste(machine_id)
+    return identifiant
+
+
+def revoquer(machine_id: Any, motif: Any, auteur: str) -> Dict[str, Any]:
+    """Révoque le poste puis réveille son attente, qui rend 401 ``poste_revoque`` (appelée DANS un fil)."""
+    base, machines = _n("base"), _n("machines")
+    with base.connexion() as conn:
+        etat = machines.revoquer(conn, machine_id, motif, auteur)
+    reveiller_le_poste(str(machine_id))
+    return etat
+
+
+def _premier_passage(machine_id: str, requete: Any, remplacement: bool) -> Dict[str, Any]:
+    """Sous UNE transaction : état relu, dernière requête, politique annoncée, acquittements, présence (poste
+    confirmé seulement), ordres dus livrés, compteur de remplacements."""
+    base, machines, ordres, presence = _n("base"), _n("machines"), _n("ordres"), _n("presence")
+    with base.connexion() as conn:
+        with base.transaction(conn):
+            ligne = machines.machine(conn, machine_id)
+            if ligne is None or ligne["etat"] == "revoque":
+                return {"revoque": ligne}
+            maintenant = base.maintenant()
+            depuis = ligne["remplacements_depuis"] or 0
+            compte = int(ligne["remplacements_minute"] or 0)
+            if remplacement:
+                compte, depuis = (compte + 1, depuis) if maintenant - depuis < 60 else (1, maintenant)
+            conn.execute("UPDATE machines SET derniere_requete = ?, politique_valide = ?, remplacements_minute = ?, "
+                         "remplacements_depuis = ? WHERE id = ?",
+                         (maintenant, 1 if requete.politique_valide else 0, compte, depuis, machine_id))
+            ordres.acquitter_dans(conn, machine_id, requete.ordres_acquittes)
+            pause = bool(base.reglage(conn, "pause_reclamations"))
+            if ligne["etat"] != "actif":
+                return {"etat": ligne["etat"], "ordres": [], "pause": pause}
+            presence.enregistrer_dans(conn, machine_id, "longpoll")
+            dus = ordres.dus(conn, machine_id)
+            ordres.livrer_dans(conn, [o["id"] for o in dus])
+            return {"etat": "actif", "ordres": dus, "pause": pause,
+                    "attente_s": int(base.reglage(conn, "longpoll_attente_s") or 25)}
+
+
+def _relecture(machine_id: str) -> Dict[str, Any]:
+    """Relecture périodique pendant l'attente : état (révocation) et ordres dus (écrits par un autre processus)."""
+    base, machines, ordres = _n("base"), _n("machines"), _n("ordres")
+    with base.connexion() as conn:
+        with base.transaction(conn):
+            ligne = machines.machine(conn, machine_id)
+            if ligne is None or ligne["etat"] == "revoque":
+                return {"revoque": ligne}
+            pause = bool(base.reglage(conn, "pause_reclamations"))
+            if ligne["etat"] != "actif":
+                return {"etat": ligne["etat"], "ordres": [], "pause": pause}
+            dus = ordres.dus(conn, machine_id)
+            ordres.livrer_dans(conn, [o["id"] for o in dus])
+            return {"etat": "actif", "ordres": dus, "pause": pause}
+
+
+async def _deconnecte(request: Request) -> bool:
+    """Le poste a-t-il coupé la connexion ? ``request.is_disconnected()`` seul ne le voit pas derrière les intergiciels
+    HTTP empilés de Hermes (BaseHTTPMiddleware : sa lecture pré-annulée n'atteint jamais le serveur) ; une lecture
+    bornée à 50 ms, elle, reçoit le ``http.disconnect`` du serveur (le corps est déjà lu : rien d'autre n'arrive)."""
+    if await request.is_disconnected():
+        return True
+    import anyio
+
+    try:
+        with anyio.move_on_after(0.05):
+            message = await request.receive()
+            return message.get("type") == "http.disconnect"
+    except Exception:  # noqa: BLE001 — dans le doute, l'attente reste bornée par son échéance
+        return False
+    return False
+
+
+def _reponse_reclamer(etat: str, ordres: list, pause: bool, *, remplace: bool = False,
+                      prochaine: int = 0) -> JSONResponse:
+    contenu = {"maintenant": _iso(time.time()), "etat_machine": etat, "pause_reclamations": bool(pause),
+               "ordres": ordres, "carte": None, "remplace": remplace, "prochaine_attente_s": prochaine}
+    return _reponse_machine(200, contenu)
+
+
+@router.post("/machine/v1/reclamer")
+async def machine_reclamer(request: Request) -> JSONResponse:
+    """Long-poll du poste (cahier P5 § 4.5) : présence, ordres ; ``carte`` toujours ``null`` en P5. Jamais un fil
+    tenu pendant l'attente : la boucle attend un ``asyncio.Event`` et relit la base toutes les 2 s en fil."""
+    garde = await _garde_machine(request, "machine", _contrat_machine().TAILLE_MAX_REQUETE)
+    if isinstance(garde, JSONResponse):
+        return garde
+    principal, corps = garde
+    requete = _valider("RequeteReclamer", corps)
+    if isinstance(requete, JSONResponse):
+        return requete
+    machine_id = _machine_du_principal(principal)
+    attente = _Attente(asyncio.get_running_loop())
+    with _verrou_attentes:
+        ancienne = _attentes.get(machine_id)
+        _attentes[machine_id] = attente
+    if ancienne is not None:
+        ancienne.remplacee = True
+        ancienne.reveiller()
+    try:
+        etat = await _executer_machine(_premier_passage, machine_id, requete, ancienne is not None)
+        if isinstance(etat, JSONResponse):
+            return etat
+        if "revoque" in etat:
+            return _refus_revoque(etat["revoque"])
+        if etat["etat"] != "actif":
+            return _reponse_reclamer(etat["etat"], [], etat["pause"], prochaine=ATTENTE_A_CONFIRMER_S)
+        if etat["ordres"]:
+            return _reponse_reclamer("actif", etat["ordres"], etat["pause"])
+        boucle = asyncio.get_running_loop()
+        echeance = boucle.time() + min(requete.attente_max_s, max(5, min(50, etat["attente_s"])))
+        pause = etat["pause"]
+        while True:
+            reste = echeance - boucle.time()
+            if reste <= 0:
+                return _reponse_reclamer("actif", [], pause)
+            try:
+                await asyncio.wait_for(attente.evenement.wait(), timeout=min(RELECTURE_S, reste))
+            except asyncio.TimeoutError:
+                pass
+            if attente.remplacee:
+                return _reponse_reclamer("actif", [], pause, remplace=True)
+            attente.evenement.clear()
+            if await _deconnecte(request):
+                return _reponse_reclamer("actif", [], pause)
+            etat = await _executer_machine(_relecture, machine_id)
+            if isinstance(etat, JSONResponse):
+                return etat
+            if "revoque" in etat:
+                return _refus_revoque(etat["revoque"])
+            if etat["etat"] != "actif":
+                return _reponse_reclamer(etat["etat"], [], etat["pause"], prochaine=ATTENTE_A_CONFIRMER_S)
+            pause = etat["pause"]
+            if etat["ordres"]:
+                return _reponse_reclamer("actif", etat["ordres"], pause)
+    finally:
+        with _verrou_attentes:
+            if _attentes.get(machine_id) is attente:
+                del _attentes[machine_id]
+
+
+@router.post("/machine/v1/inventaire")
+async def machine_inventaire(request: Request) -> JSONResponse:
+    """Inventaire du poste (cahier P5 § 4.3) : tout ou rien, sous UNE transaction ``IMMEDIATE``."""
+    garde = await _garde_machine(request, "machine", _contrat_machine().TAILLE_MAX_INVENTAIRE)
+    if isinstance(garde, JSONResponse):
+        return garde
+    principal, corps = garde
+    machine_id = _machine_du_principal(principal)
+    textes = _n("textes")
+
+    def valider():
+        return _n("inventaire").valider_corps(corps)
+    inventaire = await _executer_machine(valider)
+    if isinstance(inventaire, JSONResponse):
+        return inventaire
+
+    def travail():
+        base, machines, module_inventaire = _n("base"), _n("machines"), _n("inventaire")
+        with base.connexion() as conn:
+            with base.transaction(conn):
+                ligne = machines.machine(conn, machine_id)
+                if ligne is None or ligne["etat"] == "revoque":
+                    return {"revoque": ligne}
+                if ligne["etat"] == "a_confirmer":
+                    raise textes.RefusACP("poste_a_confirmer", textes.POSTE_A_CONFIRMER.format(
+                        empreinte=machines.empreinte_affichee(ligne)))
+                delai = module_inventaire.delai_avant_prochain(conn, machine_id)
+                if delai > 0:
+                    raise module_inventaire.TropFrequent(delai)
+                return module_inventaire.recevoir_dans(conn, machine_id, corps, inventaire=inventaire)
+    resultat = await _executer_machine(travail)
+    if isinstance(resultat, JSONResponse):
+        return resultat
+    if "revoque" in resultat:
+        return _refus_revoque(resultat["revoque"])
+    return _reponse_machine(200, resultat)
+
+
+def _ecrire_demarrage() -> None:
+    """Grâce de redémarrage (cahier P5 § 4.7) : date de démarrage du tableau de bord, écrite à l'import."""
+    try:
+        with _n("base").connexion() as conn:
+            _n("presence").ecrire_demarrage_tableau_de_bord(conn)
+    except Exception as exc:  # noqa: BLE001 — la passerelle se fie alors à son propre démarrage
+        _log.warning("acp-poste : date de démarrage du tableau de bord non écrite (%s).", type(exc).__name__)
+
+
+_ecrire_demarrage()
