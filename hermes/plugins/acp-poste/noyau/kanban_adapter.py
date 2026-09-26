@@ -22,7 +22,10 @@ plugins/kanban/dashboard/plugin_api.py:1698). Le schéma lu est vérifié par
 from __future__ import annotations
 
 import contextlib
+import os
+import re
 import sqlite3
+import time
 from typing import Any, Iterator, List, Optional, Tuple
 
 from agent.delegation_context import is_dispatcher_owned_worker_context, owned_kanban_task
@@ -137,11 +140,39 @@ def effort_hermes(effort: Optional[str]) -> Optional[str]:
         return None
 
 
+# Course du contrôle d'écriture de Hermes 0.21.5 (hermes_state_repair.py:549-570, appelé par
+# kanban_db_connect.connect) : il voit le fichier « -wal » (ou « -shm ») d'un tableau par is_file(), puis
+# os.access() échoue parce qu'un AUTRE processus (répartiteur, émetteur, worker) vient de refermer la
+# dernière connexion et SQLite a supprimé ce fichier ; il conclut alors à tort « read-only for this user ».
+# Constaté au contrat P4 (seconde partie) sur un poste simulé. Seul ce faux négatif est rejoué, et seulement
+# si le fichier nommé n'existe plus : un fichier vraiment en lecture seule lève tout de suite.
+_COURSE_DU_WAL = re.compile(r"file (\S+-(?:wal|shm)) is read-only for this user")
+TENTATIVES_DE_CONNEXION = 3
+
+
+def course_du_wal(exc: BaseException) -> bool:
+    """Vrai si ``exc`` est le faux « read-only » du contrôle de Hermes sur un -wal/-shm disparu depuis."""
+    trouve = _COURSE_DU_WAL.search(str(exc)) if isinstance(exc, sqlite3.OperationalError) else None
+    return bool(trouve) and not os.path.exists(trouve.group(1))
+
+
+def _connecter(tableau: str) -> sqlite3.Connection:
+    for tentative in range(1, TENTATIVES_DE_CONNEXION + 1):
+        try:
+            return connect(board=tableau)
+        except sqlite3.OperationalError as exc:
+            if tentative == TENTATIVES_DE_CONNEXION or not course_du_wal(exc):
+                raise
+            time.sleep(0.05 * tentative)
+    raise AssertionError("inatteignable")  # pragma: no cover
+
+
 @contextlib.contextmanager
 def connexion(tableau: str) -> Iterator[sqlite3.Connection]:
     """Connexion au tableau ``tableau``, toujours nommé explicitement, toujours refermée
-    (kanban_db_connect.py:739-752)."""
-    conn = connect(board=tableau)
+    (kanban_db_connect.py:739-752) ; rejouée sur la seule course du contrôle d'écriture de Hermes
+    (:func:`course_du_wal`)."""
+    conn = _connecter(tableau)
     try:
         yield conn
     finally:

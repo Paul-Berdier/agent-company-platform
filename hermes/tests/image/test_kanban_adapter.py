@@ -91,3 +91,58 @@ def test_effort_hermes_et_voies(noyau):
     assert ka.effort_hermes("high") == "high" and ka.effort_hermes("none") == "none"
     assert ka.effort_hermes("extreme") is None and ka.effort_hermes("") is None
     assert ka.est_voie_poste("poste-codex") and ka.est_voie_poste("poste-inconnu") and not ka.est_voie_poste("default")
+
+
+def test_connexion_rejoue_la_seule_course_du_controle_d_ecriture(noyau, monkeypatch, tmp_path):
+    """Course de Hermes 0.21.5 (hermes_state_repair.py:549-570) : le -wal d'un tableau disparaît entre is_file() et
+    os.access() ; le faux « read-only » est rejoué. Un -wal VRAIMENT présent et illisible lève tout de suite, et la
+    course répétée au-delà des tentatives finit par lever : rien n'est masqué."""
+    import sqlite3
+
+    import pytest
+
+    ka = noyau.ka
+    vrai_connect = ka.connect
+    disparu = tmp_path / "boards" / "acp-x" / "kanban.db-wal"
+    present = tmp_path / "present-kanban.db-wal"
+    present.write_text("", encoding="utf-8")
+
+    def refus(chemin):
+        return sqlite3.OperationalError(
+            f"kanban.db (kanban.db) is not writable: file {chemin} is read-only for this user. Hermes needs "
+            "read-write access to open the database.")
+
+    appels = []
+
+    def une_course_puis_ok(board=None):
+        appels.append(board)
+        if len(appels) == 1:
+            raise refus(disparu)
+        return vrai_connect(board=board)
+
+    monkeypatch.setattr(ka, "connect", une_course_puis_ok)
+    ka.create_board("acp-course-wal", name="Course")
+    with ka.connexion("acp-course-wal") as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+    assert appels == ["acp-course-wal", "acp-course-wal"]
+
+    def toujours(exc):
+        def connect(board=None):
+            appels.append(board)
+            raise exc
+        return connect
+
+    appels.clear()
+    monkeypatch.setattr(ka, "connect", toujours(refus(present)))
+    with pytest.raises(sqlite3.OperationalError):
+        with ka.connexion("acp-course-wal"):
+            pass
+    assert len(appels) == 1  # vraiment illisible : aucune nouvelle tentative
+    appels.clear()
+    monkeypatch.setattr(ka, "connect", toujours(refus(disparu)))
+    with pytest.raises(sqlite3.OperationalError):
+        with ka.connexion("acp-course-wal"):
+            pass
+    assert len(appels) == ka.TENTATIVES_DE_CONNEXION
+    assert not ka.course_du_wal(sqlite3.OperationalError("database is locked"))
+
