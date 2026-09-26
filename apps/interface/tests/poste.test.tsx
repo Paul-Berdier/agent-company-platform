@@ -203,6 +203,9 @@ describe("vue Routage", () => {
     expect(listes).toContain("factice-codex-1");
     expect(listes).toContain("opus[1m]");
     expect(listes).toContain("claude-opus-5-5");
+    // haiku : liste d'efforts VIDE (aucun documenté), distincte d'efforts inconnus (null).
+    expect(listes).toContain("Aucun effort documenté");
+    expect(listes).not.toContain("Efforts inconnus");
     const implementation = r.racine.querySelector("#acp-routage-implementation")?.parentElement as HTMLElement;
     expect(texteDe(implementation)).toContain("Non validée");
     await cliquer(bouton(implementation, "Appliquer la suggestion"));

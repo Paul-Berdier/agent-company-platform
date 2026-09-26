@@ -715,6 +715,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
-  background: var(--color-foreground);
+  width: 3px;
+  margin-left: -1px;
+  background: var(--color-warning, var(--color-muted-foreground));
 }

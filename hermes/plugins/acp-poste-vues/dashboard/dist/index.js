@@ -482,6 +482,7 @@
       modeles: "Mod\xE8les",
       efforts: "Efforts",
       effortsInconnus: "Efforts inconnus",
+      aucunEffort: "Aucun effort document\xE9",
       parDefaut: "par d\xE9faut",
       resolution: "R\xE9solution document\xE9e",
       accepterReleve: "Accepter ce relev\xE9 comme celui de mon compte",
@@ -492,7 +493,6 @@
       entreeAdmise: "Admise",
       entreeRefusee: "Refus\xE9e",
       aucuneEntree: "Aucune entr\xE9e\xA0: la classe n'a pas de table.",
-      suggestion: "Suggestion",
       appliquerSuggestion: "Appliquer la suggestion",
       ajouterEntree: "Ajouter une entr\xE9e",
       retirer: "Retirer",
@@ -1359,7 +1359,7 @@
         libelle: T.poste.appliquerSuggestion,
         surClic: () => props.changer((suggestion.entrees ?? []).map((e) => ({ ...e })))
       }
-    ) : null), suggestion.libelle ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.suggestion), " ", /* @__PURE__ */ h(Donnee, { valeur: suggestion.libelle })) : null, (suggestion.remarques ?? []).map((r, i) => /* @__PURE__ */ h("p", { key: i, className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: r }))));
+    ) : null), suggestion.libelle ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: suggestion.libelle })) : null, (suggestion.remarques ?? []).map((r, i) => /* @__PURE__ */ h("p", { key: i, className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: r }))));
   }
 
   // src/poste/Politique.tsx
@@ -1493,7 +1493,7 @@
       if (fait) props.apres();
     };
     const id = `acp-routage-liste-${props.voie}`;
-    return /* @__PURE__ */ h("section", { className: "acp-carte", "aria-labelledby": id }, /* @__PURE__ */ h("h3", { className: "acp-carte__titre", id }, libelleVoie(props.voie) ?? props.voie), /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleBadge(c?.badge), brut: c?.badge }), c?.releve_le ? /* @__PURE__ */ h(Horodatage, { valeur: c.releve_le }) : null, c?.version_cli ? /* @__PURE__ */ h(Donnee, { valeur: c.version_cli, mono: true }) : null), c?.detail ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: c.detail })) : null, c?.documentation_lue_le ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: c.documentation_lue_le, mono: true })) : null, modeles.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, !c || c.badge === "inconnu" ? T.poste.aucunReleve : T.poste.aucunModele) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, modeles.map((m) => /* @__PURE__ */ h("li", { key: m.id, className: "acp-groupe" }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: m.id, mono: true }), m.isDefault === true ? /* @__PURE__ */ h("span", { className: "acp-pastille acp-pastille--actif" }, T.poste.parDefaut) : null), /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.efforts), " ", Array.isArray(m.supportedReasoningEfforts) ? /* @__PURE__ */ h(Donnee, { valeur: m.supportedReasoningEfforts.join(", ") || null, mono: true }) : /* @__PURE__ */ h("span", null, T.poste.effortsInconnus)), m.resolution_documentee ? /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.resolution), " ", /* @__PURE__ */ h(Donnee, { valeur: m.resolution_documentee, mono: true })) : null))), c?.badge === "liste_de_secours_probable" && typeof c.releve_id === "number" ? /* @__PURE__ */ h("div", { className: "acp-groupe" }, /* @__PURE__ */ h("p", { className: "acp-discret", id: `${id}-accepter` }, T.poste.accepterAide), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+    return /* @__PURE__ */ h("section", { className: "acp-carte", "aria-labelledby": id }, /* @__PURE__ */ h("h3", { className: "acp-carte__titre", id }, libelleVoie(props.voie) ?? props.voie), /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleBadge(c?.badge), brut: c?.badge }), c?.releve_le ? /* @__PURE__ */ h(Horodatage, { valeur: c.releve_le }) : null, c?.version_cli ? /* @__PURE__ */ h(Donnee, { valeur: c.version_cli, mono: true }) : null), c?.detail ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: c.detail })) : null, c?.documentation_lue_le ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: c.documentation_lue_le, mono: true })) : null, modeles.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, !c || c.badge === "inconnu" ? T.poste.aucunReleve : T.poste.aucunModele) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, modeles.map((m) => /* @__PURE__ */ h("li", { key: m.id, className: "acp-groupe" }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: m.id, mono: true }), m.isDefault === true ? /* @__PURE__ */ h("span", { className: "acp-pastille acp-pastille--actif" }, T.poste.parDefaut) : null), /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.efforts), " ", Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length === 0 ? /* @__PURE__ */ h("span", null, T.poste.aucunEffort) : Array.isArray(m.supportedReasoningEfforts) ? /* @__PURE__ */ h(Donnee, { valeur: m.supportedReasoningEfforts.join(", "), mono: true }) : /* @__PURE__ */ h("span", null, T.poste.effortsInconnus)), m.resolution_documentee ? /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.resolution), " ", /* @__PURE__ */ h(Donnee, { valeur: m.resolution_documentee, mono: true })) : null))), c?.badge === "liste_de_secours_probable" && typeof c.releve_id === "number" ? /* @__PURE__ */ h("div", { className: "acp-groupe" }, /* @__PURE__ */ h("p", { className: "acp-discret", id: `${id}-accepter` }, T.poste.accepterAide), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
       Bouton,
       {
         libelle: T.poste.accepterReleve,

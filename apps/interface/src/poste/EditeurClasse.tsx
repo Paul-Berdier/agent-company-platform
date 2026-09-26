@@ -151,7 +151,7 @@ export function EditeurClasse(props: {
       </div>
       {suggestion.libelle ? (
         <p className="acp-discret">
-          <span>{T.poste.suggestion}</span> <Donnee valeur={suggestion.libelle} />
+          <Donnee valeur={suggestion.libelle} />
         </p>
       ) : null}
       {(suggestion.remarques ?? []).map((r, i) => (

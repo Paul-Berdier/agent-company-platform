@@ -58,8 +58,10 @@ function Liste(props: { voie: string; catalogue: VoieCatalogue | undefined; apre
               </span>
               <span className="acp-discret">
                 <span>{T.poste.efforts}</span>{" "}
-                {Array.isArray(m.supportedReasoningEfforts) ? (
-                  <Donnee valeur={m.supportedReasoningEfforts.join(", ") || null} mono />
+                {Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length === 0 ? (
+                  <span>{T.poste.aucunEffort}</span>
+                ) : Array.isArray(m.supportedReasoningEfforts) ? (
+                  <Donnee valeur={m.supportedReasoningEfforts.join(", ")} mono />
                 ) : (
                   <span>{T.poste.effortsInconnus}</span>
                 )}
