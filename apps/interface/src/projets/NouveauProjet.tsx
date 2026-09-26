@@ -304,4 +304,3 @@ export function NouveauProjet(props: { naviguer: Naviguer; apres: () => void }):
     </section>
   );
 }
-

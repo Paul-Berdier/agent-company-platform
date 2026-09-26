@@ -145,4 +145,3 @@ def test_connexion_rejoue_la_seule_course_du_controle_d_ecriture(noyau, monkeypa
             pass
     assert len(appels) == ka.TENTATIVES_DE_CONNEXION
     assert not ka.course_du_wal(sqlite3.OperationalError("database is locked"))
-
