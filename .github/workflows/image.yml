@@ -73,7 +73,10 @@ name: Image Hermes
 #     poste-* étrangères, présence, émetteur de notifications, outils et garde (34 noms), routes ;
 #   - tests de contrat (test_projets_contrat.py) sur la pile s6 complète, SANS le PC : répartiteur de
 #     la passerelle, workers kanban réels joués par le modèle factice, poste SIMULÉ (API kanban et
-#     fonctions du greffon), faux serveur ntfy en HTTPS (ntfy.acp.test) ; aucune notification réelle.
+#     fonctions du greffon), faux serveur ntfy en HTTPS (ntfy.acp.test) ; aucune notification réelle ;
+#   - test navigateur de la page Projets (hermes/tests/e2e/test_projets.py, greffon acp-projets) aux
+#     formats 390×844 et 1440×900 : lancer un projet, répondre à une question du poste simulé, suivre
+#     l'avancement jusqu'au bout avec le modèle factice, pauses ; captures en artefact.
 #
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
@@ -270,7 +273,7 @@ jobs:
           python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
           python -m playwright install --with-deps chromium
 
-      - name: Tests navigateur (connexion, interface française ; Playwright, WebAuthn virtuel)
+      - name: Tests navigateur (connexion, interface française, page Projets ; Playwright, WebAuthn virtuel)
         env:
           ACP_E2E_OBLIGATOIRE: "1"
           ACP_E2E_CAPTURES: /tmp/captures-e2e

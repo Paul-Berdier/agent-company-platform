@@ -35,70 +35,17 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
-import subprocess
 import time
 import urllib.parse
 from pathlib import Path
 from typing import Dict, List
 
 from conftest import CAPTURES, afficher, image, manque
-from parcours import ajouter_authentificateur, fabrique_de_captures, lancer_chromium, se_connecter
+from parcours import (AXE, FORMATS, JS_HORS_CATALOGUE, PAGES_NATIVES, ajouter_authentificateur, attendre_page_acp,
+                      catalogue_francais, fabrique_de_captures, lancer_chromium, se_connecter, verifier_page_acp)
 from pile_identite import EMETTEUR, URL_HERMES, docker, empreinte_argon2, monter_pile, spki_du_bord
 
 RACINE = Path(__file__).resolve().parents[3]
-INTERFACE = RACINE / "apps" / "interface"
-AXE = INTERFACE / "node_modules" / "axe-core" / "axe.min.js"
-
-FORMATS: Dict[str, dict] = {
-    "telephone": {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True,
-                  "device_scale_factor": 2},
-    "bureau": {"viewport": {"width": 1440, "height": 900}},
-}
-PAGES_NATIVES = (("sessions", "/sessions"), ("discussion", "/chat"), ("skills", "/skills"), ("mcp", "/mcp"),
-                 ("kanban", "/kanban"), ("configuration", "/config"))
-CIBLE_MINIMALE = 44
-
-JS_HORS_CATALOGUE = """(catalogue) => {
-  const connus = new Set(catalogue);
-  const hors = [];
-  for (const racine of document.querySelectorAll('[data-acp-racine]')) {
-    const parcours = document.createTreeWalker(racine, NodeFilter.SHOW_TEXT);
-    let noeud;
-    while ((noeud = parcours.nextNode())) {
-      const texte = (noeud.textContent || '').trim();
-      if (!texte || connus.has(texte)) continue;
-      if (noeud.parentElement && noeud.parentElement.closest('[data-acp-donnee]')) continue;
-      hors.push(texte);
-    }
-  }
-  return hors;
-}"""
-
-JS_CIBLES = """(racine) => [...document.querySelectorAll(racine + ' a, ' + racine + ' button, ' + racine
-  + ' select, ' + racine + ' summary')].filter((e) => {
-    const r = e.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden';
-  }).map((e) => {
-    const r = e.getBoundingClientRect();
-    return {texte: (e.textContent || '').trim().slice(0, 40), largeur: Math.round(r.width),
-            hauteur: Math.round(r.height)};
-  })"""
-
-JS_AXE = """async (selecteur) => {
-  const resultat = await axe.run(document.querySelector(selecteur), {resultTypes: ['violations']});
-  return resultat.violations.map((v) => ({id: v.id, impact: v.impact, noeuds: v.nodes.length, aide: v.help}));
-}"""
-
-
-def _catalogue_francais() -> List[str]:
-    node = shutil.which("node")
-    if node is None:
-        manque("Node.js est introuvable : il exporte le catalogue des chaînes (apps/interface)")
-    sortie = subprocess.run([node, "--experimental-strip-types", str(INTERFACE / "outils" / "exporter-chaines.mjs")],
-                            capture_output=True, text=True, encoding="utf-8", timeout=60)
-    assert sortie.returncode == 0, sortie.stderr
-    return sorted({v.strip() for v in json.loads(sortie.stdout).values()})
 
 
 def _primaire_des_jetons() -> str:
@@ -117,36 +64,12 @@ def _attendre_hermes(nom: str, delai: float = 300) -> None:
     raise AssertionError("tableau de bord de Hermes injoignable après redémarrage")
 
 
-def _attendre_page_acp(page, racine: str) -> None:
-    page.wait_for_selector(f'[data-acp-racine="{racine}"] h1')
-    # Plus aucun « Chargement… » : toutes les données demandées sont arrivées (ou en erreur, dit).
-    page.wait_for_function("(r) => { const e = document.querySelector('[data-acp-racine=\"' + r + '\"]');"
-                           " return e && !e.textContent.includes('Chargement'); }", arg=racine)
-
-
-def _verifier_page_acp(page, racine: str, format_: str, catalogue: List[str]) -> Dict[str, object]:
-    hors = page.evaluate(JS_HORS_CATALOGUE, catalogue)
-    if not page.evaluate("typeof window.axe !== 'undefined'"):
-        page.add_script_tag(path=str(AXE))
-    violations = page.evaluate(JS_AXE, f'[data-acp-racine="{racine}"]')
-    cibles = page.evaluate(JS_CIBLES, f'[data-acp-racine="{racine}"]')
-    petites = [c for c in cibles if c["largeur"] < CIBLE_MINIMALE or c["hauteur"] < CIBLE_MINIMALE]
-    bilan = {"textes_hors_catalogue": hors, "violations_axe": violations, "cibles": len(cibles),
-             "cibles_sous_44px": petites}
-    assert hors == [], (racine, format_, hors)
-    graves = [v for v in violations if v["impact"] in ("serious", "critical")]
-    assert graves == [], (racine, format_, graves)
-    if format_ == "telephone":
-        assert cibles and petites == [], (racine, petites)
-    return bilan
-
-
 def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
     if not AXE.is_file():
         manque(f"axe-core absent ({AXE}) : npm ci --ignore-scripts --prefix apps/interface")
     image_tests = image("ACP_IMAGE_TESTS")
     image_identite = image("ACP_IMAGE_IDENTITE")
-    catalogue = _catalogue_francais()
+    catalogue = catalogue_francais()
     primaire = _primaire_des_jetons()
     noms = monter_pile(pile, image_identite, image_tests, empreinte_argon2(image_identite), publier=True)
     identite, hermes, port = noms["identite"], noms["hermes"], noms["port"]
@@ -194,7 +117,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
 
             # Accueil sur « / », en français.
             page.goto(f"{URL_HERMES}/")
-            _attendre_page_acp(page, "accueil")
+            attendre_page_acp(page, "accueil")
             page.wait_for_function("document.documentElement.lang === 'fr' "
                                    "&& localStorage.getItem('hermes-locale') === 'fr'")
             # Hermes ajoute « ?profile=default » à l'URL ; le chemin reste « / ».
@@ -204,7 +127,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             bilan["primaire"] = page.evaluate(
                 "getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()")
             assert str(bilan["primaire"]).lower() == primaire, bilan["primaire"]
-            bilan["accueil"] = _verifier_page_acp(page, "accueil", format_, catalogue)
+            bilan["accueil"] = verifier_page_acp(page, "accueil", format_, catalogue)
             # Étape P3 (seconde partie) : résumé du catalogue servi par /v1/meta (21 skills d'ACP actives
             # depuis P4 : 16 en P3, plus les cinq skills maison des projets).
             carte_catalogue = page.inner_text("#acp-accueil-catalogue >> xpath=..")
@@ -215,7 +138,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             # Verrou : « en » forcé, page rechargée ⇒ retour au français.
             page.evaluate("localStorage.setItem('hermes-locale', 'en')")
             page.reload()
-            _attendre_page_acp(page, "accueil")
+            attendre_page_acp(page, "accueil")
             page.wait_for_function("document.documentElement.lang === 'fr' "
                                    "&& localStorage.getItem('hermes-locale') === 'fr'", timeout=15_000)
             bilan["verrou"] = "en forcé puis rechargé : retour à fr"
@@ -229,7 +152,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             assert page.locator(f'{groupe} a[href="/catalogue"]').count() == 1
             bilan["groupe_de_navigation"] = page.text_content("#hermes-sidebar-plugin-nav-heading")
             page.goto(f"{URL_HERMES}/catalogue")
-            _attendre_page_acp(page, "catalogue")
+            attendre_page_acp(page, "catalogue")
             assert page.inner_text('[data-acp-racine="catalogue"] h1') == "Catalogue"
             # Étape P3 (seconde partie) : la route /v1/catalogue d'acp-poste est servie ; chaque skill
             # d'ACP est affichée, avec son état vu par le chargeur de Hermes.
@@ -242,7 +165,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             assert entrees.count() == 31, entrees.count()  # 21 livrées dans l'image + 10 candidates pour le poste
             texte_catalogue = page.inner_text('[data-acp-racine="catalogue"]')
             assert "acp-redaction" in texte_catalogue and "context7" in texte_catalogue
-            bilan["catalogue"] = _verifier_page_acp(page, "catalogue", format_, catalogue)
+            bilan["catalogue"] = verifier_page_acp(page, "catalogue", format_, catalogue)
             capture(page, "catalogue", complete=True)
 
             # Pages natives de Hermes : capturées seulement.
@@ -269,7 +192,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
         page = page_bureau
         page.goto(f"{URL_HERMES}/")
         page.wait_for_selector('[data-acp-racine="alertes"] li')
-        _attendre_page_acp(page, "accueil")
+        attendre_page_acp(page, "accueil")
         banniere = page.inner_text('[data-acp-racine="alertes"]')
         persona = page.inner_text("#acp-accueil-persona >> xpath=..")
         preuves["banniere_persona_divergente"] = {"banniere": banniere, "carte": persona}

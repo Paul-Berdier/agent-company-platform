@@ -15,16 +15,101 @@ fenêtre est agrandie à la hauteur de ce contenu le temps de la capture, puis r
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
 import struct
+import subprocess
 import time
 import zlib
 from pathlib import Path
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
+from conftest import manque
 from pile_identite import EMETTEUR, HOTE_HERMES, HOTE_IDENTITE, MOT_DE_PASSE, URL_HERMES, UTILISATEUR, docker
 
 Capture = Callable[[str], None]
+
+# ------------------------------------------------------------------ pages d'ACP (P3, partagé en P4)
+
+RACINE = Path(__file__).resolve().parents[3]
+INTERFACE = RACINE / "apps" / "interface"
+AXE = INTERFACE / "node_modules" / "axe-core" / "axe.min.js"
+
+FORMATS: Dict[str, dict] = {
+    "telephone": {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True,
+                  "device_scale_factor": 2},
+    "bureau": {"viewport": {"width": 1440, "height": 900}},
+}
+PAGES_NATIVES = (("sessions", "/sessions"), ("discussion", "/chat"), ("skills", "/skills"), ("mcp", "/mcp"),
+                 ("kanban", "/kanban"), ("configuration", "/config"))
+CIBLE_MINIMALE = 44
+
+JS_HORS_CATALOGUE = """(catalogue) => {
+  const connus = new Set(catalogue);
+  const hors = [];
+  for (const racine of document.querySelectorAll('[data-acp-racine]')) {
+    const parcours = document.createTreeWalker(racine, NodeFilter.SHOW_TEXT);
+    let noeud;
+    while ((noeud = parcours.nextNode())) {
+      const texte = (noeud.textContent || '').trim();
+      if (!texte || connus.has(texte)) continue;
+      if (noeud.parentElement && noeud.parentElement.closest('[data-acp-donnee]')) continue;
+      hors.push(texte);
+    }
+  }
+  return hors;
+}"""
+
+JS_CIBLES = """(racine) => [...document.querySelectorAll(racine + ' a, ' + racine + ' button, ' + racine
+  + ' select, ' + racine + ' summary')].filter((e) => {
+    const r = e.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden';
+  }).map((e) => {
+    const r = e.getBoundingClientRect();
+    return {texte: (e.textContent || '').trim().slice(0, 40), largeur: Math.round(r.width),
+            hauteur: Math.round(r.height)};
+  })"""
+
+JS_AXE = """async (selecteur) => {
+  const resultat = await axe.run(document.querySelector(selecteur), {resultTypes: ['violations']});
+  return resultat.violations.map((v) => ({id: v.id, impact: v.impact, noeuds: v.nodes.length, aide: v.help}));
+}"""
+
+
+def catalogue_francais() -> List[str]:
+    node = shutil.which("node")
+    if node is None:
+        manque("Node.js est introuvable : il exporte le catalogue des chaînes (apps/interface)")
+    sortie = subprocess.run([node, "--experimental-strip-types", str(INTERFACE / "outils" / "exporter-chaines.mjs")],
+                            capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert sortie.returncode == 0, sortie.stderr
+    return sorted({v.strip() for v in json.loads(sortie.stdout).values()})
+
+
+def attendre_page_acp(page, racine: str) -> None:
+    page.wait_for_selector(f'[data-acp-racine="{racine}"] h1')
+    # Plus aucun « Chargement… » : toutes les données demandées sont arrivées (ou en erreur, dit).
+    page.wait_for_function("(r) => { const e = document.querySelector('[data-acp-racine=\"' + r + '\"]');"
+                           " return e && !e.textContent.includes('Chargement'); }", arg=racine)
+
+
+def verifier_page_acp(page, racine: str, format_: str, catalogue: List[str]) -> Dict[str, object]:
+    hors = page.evaluate(JS_HORS_CATALOGUE, catalogue)
+    if not page.evaluate("typeof window.axe !== 'undefined'"):
+        page.add_script_tag(path=str(AXE))
+    violations = page.evaluate(JS_AXE, f'[data-acp-racine="{racine}"]')
+    cibles = page.evaluate(JS_CIBLES, f'[data-acp-racine="{racine}"]')
+    petites = [c for c in cibles if c["largeur"] < CIBLE_MINIMALE or c["hauteur"] < CIBLE_MINIMALE]
+    bilan = {"textes_hors_catalogue": hors, "violations_axe": violations, "cibles": len(cibles),
+             "cibles_sous_44px": petites}
+    assert hors == [], (racine, format_, hors)
+    graves = [v for v in violations if v["impact"] in ("serious", "critical")]
+    assert graves == [], (racine, format_, graves)
+    if format_ == "telephone":
+        assert cibles and petites == [], (racine, petites)
+    return bilan
+
 
 # Plus grand débordement vertical (scrollHeight - clientHeight) des conteneurs défilants de la page.
 JS_DEBORDEMENT = """() => {
