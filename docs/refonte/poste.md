@@ -294,8 +294,17 @@ plan (D48 à D66) ; le commit de documentation n'ajoute que de la documentation 
 
 ## 13. Intégration continue
 
-Branche poussée après le commit de documentation ; résultats de `ci.yml` et `image.yml` relevés par le
-commit de documentation suivant.
+Branche `refonte/hermes-p5` poussée le 26/09/2026, sommet `0a458cd`, **verte** :
+
+- `ci.yml` [36271372881](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372881) **succès** : poste Windows (windows-2022) **437 réussis** ; poste
+  Linux **428 réussis, 9 ignorés** (les 9 tests propres à Windows) ; interface **110** (16 fichiers), bundles à
+  jour ; moteur **74**, gel du moteur et balayage des secrets verts ;
+- `image.yml` [36271372764](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372764) **succès** (37 min) : `hermes plugins compat` vert (témoin code 1) ;
+  sonde réelle de context7 connectée (1 478 ms) ; **619** réussis dans l'image (3 min 57 s ; `verify_token` p50
+  0,213 ms, p99 0,245 ms ; réveil par un ordre 57 ms ; attente libérée 2,00 s après la coupure) ; **150** au
+  contrat (26 min 54 s), dont les 11 du protocole du poste (ordre `releve` → inventaire 0,14 s ; révocation
+  vue en 0,13 s ; redémarrage : absence de 22 s au-delà d'un seuil de 10 s, aucune notification ; aucun jeton
+  ni code dans 10 949 caractères de journaux) ; **7** au navigateur (4 min 13 s), dont `test_poste.py`.
 
 ## 14. Non prouvé
 

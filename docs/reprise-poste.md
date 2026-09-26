@@ -70,7 +70,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
-| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **première partie (côté Hermes) réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) ; seconde partie (poste Windows) à part ; sans PR ; **rien de déployé** (§ 6 quinquies) |
+| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **première partie (côté Hermes) réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`), CI verte sur `0a458cd` ; seconde partie (poste Windows) à part ; sans PR ; **rien de déployé** (§ 6 quinquies) |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
@@ -1517,8 +1517,10 @@ Détail et commandes : [`poste.md`](refonte/poste.md) § 12. En bref :
 
 ### Intégration continue
 
-Branche poussée après le commit de documentation ; résultats relevés par le commit de documentation
-suivant ([`poste.md`](refonte/poste.md) § 13).
+Branche poussée le 26/09/2026, sommet `0a458cd`, **verte** : `ci.yml`
+[36271372881](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372881) (Windows 437, Linux 428 et 9 ignorés, interface 110, moteur 74) ; `image.yml`
+[36271372764](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372764) (image 619, contrat 150 dont 11 pour le protocole du poste, navigateur 7, compat
+vert, context7 connecté). Détail : [`poste.md`](refonte/poste.md) § 13.
 
 ### Non vérifié
 
