@@ -1,6 +1,7 @@
 // Pause générale (décision D31) : l'arrêt d'urgence de Hermes, par POST /v1/pause.
 // - Bandeau, tant qu'elle est engagée : « Hermes est en pause générale », sa raison, sa date, et
-//   « Reprendre » ;
+//   « Reprendre » — sauf si la veille des crochets shell l'a engagée (D34) : la reprise est alors refusée par
+//   le greffon tant qu'ils existent (409), et le bandeau dit comment en sortir, sans bouton qui échouerait ;
 // - Commande « Pause générale », avec une confirmation explicite (jamais d'un seul appui).
 import { T } from "../chaines";
 import { Carte, Donnee } from "../commun";
@@ -11,8 +12,12 @@ import { Bouton, Horodatage, RetourEnvoi } from "./briques";
 import { useEnvoi } from "./envoi";
 import type { PauseGenerale } from "./types";
 
+/** Raison posée par la veille des crochets shell de l'émetteur (noyau/textes.RAISON_PAUSE_CROCHETS). */
+export const RAISON_PAUSE_CROCHETS = "ACP : crochets shell détectés en cours de route";
+
 export function BandeauPause(props: { pause: PauseGenerale; apres: () => void }): Noeud {
   const envoi = useEnvoi();
+  const crochets = props.pause.reason === RAISON_PAUSE_CROCHETS;
   const reprendre = async () => {
     if ((await envoi.envoyer(() => pauseGenerale(false))) !== null) props.apres();
   };
@@ -36,9 +41,15 @@ export function BandeauPause(props: { pause: PauseGenerale; apres: () => void })
           </dd>
         </div>
       </dl>
-      <div className="acp-actions">
-        <Bouton libelle={T.projets.reprendreHermes} principal surClic={reprendre} desactive={envoi.etat.etat === "envoi"} />
-      </div>
+      {crochets ? (
+        <p className="acp-alerte-texte" role="note">
+          {T.projets.pauseCrochets}
+        </p>
+      ) : (
+        <div className="acp-actions">
+          <Bouton libelle={T.projets.reprendreHermes} principal surClic={reprendre} desactive={envoi.etat.etat === "envoi"} />
+        </div>
+      )}
       <RetourEnvoi etat={envoi.etat} />
     </section>
   );

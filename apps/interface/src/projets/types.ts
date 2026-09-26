@@ -51,6 +51,8 @@ export interface ResumeProjet {
   origine?: string;
   compteurs?: CompteursProjet;
   derniere_note?: string | null;
+  /** La note est un extrait (200 premiers caractères) : le détail donne les résumés en entier. */
+  derniere_note_tronquee?: boolean;
   questions_ouvertes?: number;
   plafonds?: { tours?: number; cartes?: number; corrections?: number };
   cartes_creees?: number;
@@ -84,6 +86,18 @@ export interface CarteProjet {
   modele_servi?: string | null;
   relue?: string | null;
   resume?: string | null;
+  /** Longueur du résumé entier, et vrai si « resume » n'en est qu'un extrait (500 caractères). */
+  resume_longueur?: number | null;
+  resume_tronque?: boolean;
+}
+
+/** Résultat du projet : la synthèse faite du dernier tour, en entier (borne haute dite). */
+export interface ResultatProjet {
+  tour?: number;
+  carte?: string;
+  texte?: string;
+  longueur?: number;
+  tronque?: boolean;
 }
 
 export interface TourProjet {
@@ -114,6 +128,7 @@ export interface DetailProjet extends Omit<ResumeProjet, "questions_ouvertes"> {
   objectif?: string;
   restants?: { tours?: number; cartes?: number };
   exploration?: string | null;
+  resultat?: ResultatProjet | null;
   tours?: TourProjet[];
   cartes?: CarteProjet[];
   questions_ouvertes?: QuestionDuProjet[];
@@ -131,8 +146,10 @@ export interface QuestionOuverte {
   projet_titre?: string;
   tableau?: string;
   carte?: string;
+  carte_titre?: string | null;
   etat?: string;
   texte?: string;
+  contexte?: string | null;
   carte_repondre?: string | null;
   motif_escalade?: string | null;
   cree_le?: number;
@@ -147,6 +164,45 @@ export interface CarteEnAttente {
   assigne?: string | null;
   abandonnee?: boolean;
   raison?: string | null;
+  /** Carte de décision du greffon : « tours », « cartes », « corrections », « sans_plan » ; null sinon. */
+  genre?: string | null;
+  /** Gestes offerts : « prolonger », « relancer », « conclure », « reprendre ». */
+  actions?: unknown;
+}
+
+/** POST /v1/questions/{q}/reponse. */
+export interface ResultatReponse {
+  question?: string;
+  etat?: string;
+  carte_debloquee?: boolean;
+  /** Projet en pause : la carte reprendra à la reprise du projet. */
+  reprise_differee?: boolean;
+}
+
+/** POST /v1/triage/{tableau}/{carte}/reprendre. */
+export interface ResultatTriage {
+  carte?: string;
+  reprise?: boolean;
+  action?: string | null;
+  plafond?: { genre?: string; avant?: number; apres?: number } | null;
+}
+
+/** POST /v1/triage/{tableau}/{carte}/conclure. */
+export interface ResultatConclusion {
+  carte?: string;
+  conclu?: boolean;
+  projet?: ResumeProjet;
+}
+
+/** GET /v1/projets/{id}/cartes/{carte} → { carte }. */
+export interface CarteLue {
+  carte?: string;
+  titre?: string;
+  role?: string;
+  statut?: string;
+  resume?: string | null;
+  longueur?: number;
+  tronque?: boolean;
 }
 
 /** GET /v1/questions (noyau/questions.lister). */

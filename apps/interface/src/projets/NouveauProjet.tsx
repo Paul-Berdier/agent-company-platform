@@ -1,7 +1,10 @@
 // Vue « Nouveau projet » : POST /v1/projets (clé d'idempotence par envoi : un double appui ne lance
 // qu'un projet). Les types de projet viennent du verrou du catalogue (/v1/catalogue), les dépôts et les
 // modèles de l'inventaire du poste (/v1/poste) :
-// - sans inventaire, le champ Dépôt est désactivé et le dit : seul « Sans dépôt » est possible (D25) ;
+// - sans inventaire, le champ Dépôt est désactivé et le dit : seul « Sans dépôt » est possible (D25) ; si
+//   l'inventaire est illisible (erreur de /v1/poste), il dit « Dépôts inconnus », pas « aucun inventaire » ;
+// - « Qui répond aux questions » ne se choisit qu'avec un dépôt : sans dépôt, aucune question ne naît (seules
+//   les cartes du poste en posent), et la page le dit (décision D42) ;
 // - l'exploration (exécutant, modèle, effort) ne se choisit que si un relevé existe, et seulement parmi
 //   ce qu'il contient, efforts interdits exclus ; un relevé factice est signalé comme tel ;
 // - les refus de l'API s'affichent tels quels (message français du greffon).
@@ -9,7 +12,7 @@ import type * as ReactTypes from "react";
 import { T } from "../chaines";
 import { lireCatalogue } from "../api";
 import { BlocErreur, Donnee, EnChargement, useChargement } from "../commun";
-import { h, useState, type Noeud } from "../react";
+import { Fragment, h, useState, type Noeud } from "../react";
 import { chaine, listeDeChaines, type Catalogue } from "../types";
 import { lancerProjet, lirePoste, nouvelleCle } from "./api";
 import { Bouton, RetourEnvoi, type Naviguer } from "./briques";
@@ -50,6 +53,8 @@ export function effortsAdmis(voie: VoieReleve | undefined, modele: string, inter
 function Formulaire(props: {
   catalogue: Catalogue | null;
   poste: ReponsePoste | null;
+  /** Vrai si GET /v1/poste a échoué : les dépôts sont alors INCONNUS (pas « aucun inventaire »). */
+  posteIllisible: boolean;
   naviguer: Naviguer;
   apres: () => void;
 }): Noeud {
@@ -78,6 +83,8 @@ function Formulaire(props: {
   const modeles = Array.isArray(releveVoie?.modeles) ? releveVoie.modeles.filter((m) => chaine(m.id)) : [];
   const efforts = effortsAdmis(releveVoie, modele, interdits);
   const avecExploration = depot !== "" && voies.length > 0;
+  // Sans dépôt, aucune question ne peut naître (seules les cartes du poste en posent) : le choix est sans objet.
+  const sansDepot = depot === "";
   const complet = titre.trim() !== "" && objectif.trim() !== "";
 
   const lancer = async (evenement: ReactTypes.FormEvent) => {
@@ -148,35 +155,6 @@ function Formulaire(props: {
           )}
         </select>
       </div>
-      <fieldset className="acp-groupe-choix">
-        <legend>{T.projets.champReponses}</legend>
-        <label className="acp-choix-radio">
-          <input
-            type="radio"
-            name="acp-projet-reponses"
-            value="hermes_d_abord"
-            checked={reponses === "hermes_d_abord"}
-            onChange={() => fixerReponses("hermes_d_abord")}
-          />
-          <span>
-            <span className="acp-choix-radio__titre">{T.projets.reponsesHermes}</span>
-            <span className="acp-discret">{T.projets.reponsesHermesAide}</span>
-          </span>
-        </label>
-        <label className="acp-choix-radio">
-          <input
-            type="radio"
-            name="acp-projet-reponses"
-            value="proprietaire"
-            checked={reponses === "proprietaire"}
-            onChange={() => fixerReponses("proprietaire")}
-          />
-          <span>
-            <span className="acp-choix-radio__titre">{T.projets.reponsesProprietaire}</span>
-            <span className="acp-discret">{T.projets.reponsesProprietaireAide}</span>
-          </span>
-        </label>
-      </fieldset>
       <div className="acp-champ">
         <label htmlFor="acp-projet-depot">{T.projets.champDepot}</label>
         <select
@@ -195,10 +173,47 @@ function Formulaire(props: {
         </select>
         {depots === null ? (
           <p className="acp-discret" id="acp-projet-depot-aide">
-            {T.projets.aucunDepotConnu}
+            {props.posteIllisible ? T.projets.depotsInconnus : T.projets.aucunDepotConnu}
           </p>
         ) : null}
       </div>
+      <fieldset className="acp-groupe-choix">
+        <legend>{T.projets.champReponses}</legend>
+        {sansDepot ? (
+          <p className="acp-discret" id="acp-projet-reponses-sans-objet">
+            {T.projets.reponsesSansObjet}
+          </p>
+        ) : (
+          <Fragment>
+            <label className="acp-choix-radio">
+              <input
+                type="radio"
+                name="acp-projet-reponses"
+                value="hermes_d_abord"
+                checked={reponses === "hermes_d_abord"}
+                onChange={() => fixerReponses("hermes_d_abord")}
+              />
+              <span>
+                <span className="acp-choix-radio__titre">{T.projets.reponsesHermes}</span>
+                <span className="acp-discret">{T.projets.reponsesHermesAide}</span>
+              </span>
+            </label>
+            <label className="acp-choix-radio">
+              <input
+                type="radio"
+                name="acp-projet-reponses"
+                value="proprietaire"
+                checked={reponses === "proprietaire"}
+                onChange={() => fixerReponses("proprietaire")}
+              />
+              <span>
+                <span className="acp-choix-radio__titre">{T.projets.reponsesProprietaire}</span>
+                <span className="acp-discret">{T.projets.reponsesProprietaireAide}</span>
+              </span>
+            </label>
+          </Fragment>
+        )}
+      </fieldset>
       {cataloguePoste?.releve_factice === true ? (
         <p className="acp-alerte-texte" role="note">
           {T.projets.releveFactice}
@@ -297,6 +312,7 @@ export function NouveauProjet(props: { naviguer: Naviguer; apres: () => void }):
         <Formulaire
           catalogue={catalogue.etat === "ok" ? catalogue.valeur : null}
           poste={poste.etat === "ok" ? poste.valeur : null}
+          posteIllisible={poste.etat === "erreur"}
           naviguer={props.naviguer}
           apres={props.apres}
         />

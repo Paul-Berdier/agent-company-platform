@@ -7,7 +7,7 @@
 // visible (D35).
 import { T } from "../chaines";
 import { BlocErreur, Donnee, EnChargement } from "../commun";
-import { h, useRef, useState, type Noeud } from "../react";
+import { h, useEffect, useRef, useState, type Noeud } from "../react";
 import { lireProjets } from "./api";
 import { BandeauPause } from "./BandeauPause";
 import { LienVue } from "./briques";
@@ -16,7 +16,7 @@ import { ListeProjets } from "./ListeProjets";
 import { NouveauProjet } from "./NouveauProjet";
 import { Questions } from "./Questions";
 import { useSondage } from "./sondage";
-import { memeVue, remplacerAdresse, vueDepuisAdresse, type Vue } from "./vue";
+import { memeVue, pousserAdresse, vueDepuisAdresse, type Vue } from "./vue";
 
 function Navigation(props: { vue: Vue; naviguer: (v: Vue) => void; questions: number | null }): Noeud {
   const onglets: Array<{ vue: Vue; libelle: string; compte?: number | null }> = [
@@ -55,7 +55,7 @@ export function Projets(): Noeud {
   const racine = useRef<HTMLDivElement | null>(null);
   const naviguer = (suivante: Vue) => {
     fixerVue(suivante);
-    remplacerAdresse(suivante);
+    pousserAdresse(suivante);
     rafraichir();
     // Hermes fait défiler ses pages dans un conteneur interne (pas la fenêtre) : la nouvelle vue repart du
     // haut de la page, sinon, au téléphone, le détail d'un projet lancé s'ouvrirait au niveau du bouton.
@@ -65,8 +65,22 @@ export function Projets(): Noeud {
       // Défilement impossible : sans effet sur la vue.
     }
   };
+  // Geste « retour » (ou « avancer ») : la page relit sa vue dans l'adresse.
+  useEffect(() => {
+    const surRetour = () => {
+      fixerVue(vueDepuisAdresse(window.location.search));
+      fixerJeton((j) => j + 1);
+    };
+    window.addEventListener("popstate", surRetour);
+    return () => window.removeEventListener("popstate", surRetour);
+  }, []);
   const donnees = liste.valeur;
-  const questions = typeof donnees?.questions_ouvertes === "number" ? donnees.questions_ouvertes : null;
+  // Compteur de l'onglet « Questions » : les questions en attente ET les décisions attendues (cartes en triage).
+  const decisions = Array.isArray(donnees?.projets)
+    ? donnees.projets.reduce((n, p) => n + (typeof p.compteurs?.triage === "number" ? p.compteurs.triage : 0), 0)
+    : 0;
+  const questions =
+    typeof donnees?.questions_ouvertes === "number" ? donnees.questions_ouvertes + decisions : null;
   const pause = donnees?.pause_generale && typeof donnees.pause_generale === "object" ? donnees.pause_generale : null;
 
   return (

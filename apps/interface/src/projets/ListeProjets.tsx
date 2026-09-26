@@ -33,6 +33,14 @@ export function Avancement(props: { faites: unknown; total: unknown }): Noeud {
 
 function DerniereNote(props: { projet: ResumeProjet }): Noeud {
   const note = chaine(props.projet.derniere_note);
+  if (note && props.projet.derniere_note_tronquee === true) {
+    // Un extrait le dit (relecture de P4) : le détail du projet donne les résumés en entier.
+    return (
+      <span>
+        <Donnee valeur={note} /> <span className="acp-discret">{T.projets.noteTronquee}</span>
+      </span>
+    );
+  }
   if (note) return <Donnee valeur={note} />;
   // Compteurs lisibles et aucune carte finie : c'est un fait, pas une donnée manquante.
   if (entier(props.projet.compteurs?.faites) === 0) return <span className="acp-discret">{T.projets.aucuneNote}</span>;

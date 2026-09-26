@@ -7,12 +7,16 @@
 import { envelopper, ErreurApi, lireJSON } from "../api";
 import { sdk } from "../sdk";
 import type {
+  CarteLue,
   DemandeLancement,
   ListeProjets,
   ListeQuestions,
   ReponseDetail,
   ReponseLancement,
   ReponsePoste,
+  ResultatConclusion,
+  ResultatReponse,
+  ResultatTriage,
 } from "./types";
 
 export const RACINE_POSTE = "/api/plugins/acp-poste/v1";
@@ -30,6 +34,9 @@ export const routeRepriseProjet = (id: string): string => `${routeProjet(id)}/re
 export const routeReponse = (question: string): string => `${ROUTE_QUESTIONS}/${segment(question)}/reponse`;
 export const routeReprendreTriage = (tableau: string, carte: string): string =>
   `${RACINE_POSTE}/triage/${segment(tableau)}/${segment(carte)}/reprendre`;
+export const routeConclureTriage = (tableau: string, carte: string): string =>
+  `${RACINE_POSTE}/triage/${segment(tableau)}/${segment(carte)}/conclure`;
+export const routeCarteDuProjet = (id: string, carte: string): string => `${routeProjet(id)}/cartes/${segment(carte)}`;
 
 /** POST JSON par fetchJSON ; toute erreur devient une ErreurApi (message français à l'affichage). */
 export async function ecrireJSON<T>(url: string, corps: unknown, entetes: Record<string, string> = {}): Promise<T> {
@@ -90,15 +97,19 @@ export const lireProjets = (): Promise<ListeProjets> => lireJSON<ListeProjets>(R
 export const lireProjet = (id: string): Promise<ReponseDetail> => lireJSON<ReponseDetail>(routeProjet(id));
 export const lireQuestions = (): Promise<ListeQuestions> => lireJSON<ListeQuestions>(ROUTE_QUESTIONS);
 export const lirePoste = (): Promise<ReponsePoste> => lireJSON<ReponsePoste>(ROUTE_POSTE);
+export const lireCarte = (id: string, carte: string): Promise<{ carte?: CarteLue }> =>
+  lireJSON<{ carte?: CarteLue }>(routeCarteDuProjet(id, carte));
 
 export const lancerProjet = (demande: DemandeLancement, cle: string): Promise<ReponseLancement> =>
   ecrireJSON<ReponseLancement>(ROUTE_PROJETS, demande, { "Idempotency-Key": cle });
 export const pauseProjet = (id: string): Promise<unknown> => ecrireJSON(routePauseProjet(id), {});
 export const repriseProjet = (id: string): Promise<unknown> => ecrireJSON(routeRepriseProjet(id), {});
-export const repondreQuestion = (question: string, reponse: string): Promise<unknown> =>
-  ecrireJSON(routeReponse(question), { reponse });
-export const reprendreTriage = (tableau: string, carte: string, consigne: string | null): Promise<unknown> =>
-  ecrireJSON(routeReprendreTriage(tableau, carte), consigne ? { consigne } : {});
+export const repondreQuestion = (question: string, reponse: string): Promise<ResultatReponse> =>
+  ecrireJSON<ResultatReponse>(routeReponse(question), { reponse });
+export const reprendreTriage = (tableau: string, carte: string, consigne: string | null): Promise<ResultatTriage> =>
+  ecrireJSON<ResultatTriage>(routeReprendreTriage(tableau, carte), consigne ? { consigne } : {});
+export const conclureTriage = (tableau: string, carte: string): Promise<ResultatConclusion> =>
+  ecrireJSON<ResultatConclusion>(routeConclureTriage(tableau, carte), {});
 export const pauseGenerale = (generale: boolean): Promise<{ pause_generale?: unknown }> =>
   ecrireJSON(ROUTE_PAUSE, { generale });
 export const notificationDeTest = (): Promise<{ message?: unknown }> => ecrireJSON(ROUTE_NOTIFICATION_TEST, {});

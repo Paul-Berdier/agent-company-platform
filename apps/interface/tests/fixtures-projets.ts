@@ -2,7 +2,10 @@
 // acp-hermes-tests:p4g (routes montées comme dans hermes/tests/image/test_routes_projets.py, base et
 // tableaux jetables, relevé FACTICE), puis réduites. Retouches de test, dites : l'avancement du second
 // projet de LISTE (tour 1, 2 cartes sur 4, une note) et les entrées « triage » et « bloquees » de
-// QUESTIONS (vides au relevé), écrites d'après noyau/questions.lister.
+// QUESTIONS (vides au relevé), écrites d'après noyau/questions.lister. Champs ajoutés par les corrections de
+// la relecture de P4 (26/09/2026), écrits d'après le greffon corrigé : message « état du canal inconnu »,
+// résumés « resume_longueur » et « resume_tronque », « resultat », titre de carte et contexte d'une question,
+// genre, gestes et raison des cartes en triage et bloquées.
 export const LISTE_VIDE = {
   projets: [],
   poste: {
@@ -15,7 +18,12 @@ export const LISTE_VIDE = {
     message: "Le poste n'a jamais été vu (connexion prévue à l'étape P5).",
   },
   pause_generale: null,
-  notifications: { canal: null, configure: false, connu: false, message: "Notifications non configurées." },
+  notifications: {
+    canal: null,
+    configure: false,
+    connu: false,
+    message: "État du canal de notification inconnu : la passerelle ne l'a pas encore publié.",
+  },
   questions_ouvertes: 0,
 };
 
@@ -113,6 +121,8 @@ export const DETAIL = {
         modele_servi: "Non observé",
         relue: null,
         resume: "Question ouverte (ACP) : q_b627a3c245ec",
+        resume_longueur: 38,
+        resume_tronque: false,
       },
       {
         carte: "t_342c81eb",
@@ -132,8 +142,11 @@ export const DETAIL = {
         modele_servi: "Non observé",
         relue: null,
         resume: null,
+        resume_longueur: null,
+        resume_tronque: false,
       },
     ],
+    resultat: null,
     questions_ouvertes: [
       { id: "q_b627a3c245ec", carte: "t_7aa28f61", etat: "escaladee", texte: "Quelle version de Python viser ?", carte_repondre: null },
     ],
@@ -166,8 +179,10 @@ export const QUESTIONS = {
       projet_titre: "Outil",
       tableau: "acp-outil-3dd5",
       carte: "t_7aa28f61",
+      carte_titre: "Exploration du dépôt « jetable »",
       etat: "escaladee",
       texte: "Quelle version de Python viser ?",
+      contexte: "Le dépôt cible Python 3.11 et 3.12 dans sa CI.",
       carte_repondre: null,
       motif_escalade: "politique du projet : le propriétaire répond lui-même",
       cree_le: 1790423039,
@@ -180,9 +195,11 @@ export const QUESTIONS = {
       tableau: "acp-veille-llm-b43a",
       carte: "t_0c1d2e3f",
       titre: "Plafond atteint : tours — votre décision est attendue",
-      assigne: null,
+      assigne: "default",
       abandonnee: false,
-      raison: null,
+      raison: "3 tours planifiés",
+      genre: "tours",
+      actions: ["prolonger", "conclure"],
     },
   ],
   bloquees: [
@@ -194,7 +211,7 @@ export const QUESTIONS = {
       titre: "Carte à la main",
       assigne: "poste-codex",
       abandonnee: false,
-      raison: null,
+      raison: "Refusé par ACP : carte poste-* non émise par le greffon acp-poste ; seul le greffon crée les cartes du poste.",
     },
   ],
   tableaux_illisibles: [],

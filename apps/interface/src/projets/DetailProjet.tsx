@@ -1,19 +1,23 @@
-// Vue « détail » d'un projet (GET /v1/projets/{id}) : état, tour et plafonds, cartes groupées par rôle
-// (statut, exécutant, modèle demandé, effort, palier, « Modèle servi : Non observé » avant P6, résumé
-// replié), tours et décisions, questions en attente, journal ; « Mettre en pause » et « Reprendre »
-// appellent les routes réelles.
+// Vue « détail » d'un projet (GET /v1/projets/{id}) : état, résultat du projet (synthèse du dernier tour, en
+// entier), tour et plafonds, cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier,
+// « Modèle servi : Non observé » avant P6, résumé replié : un extrait le DIT, et « Lire le résumé en entier »
+// appelle GET /v1/projets/{id}/cartes/{carte}), tours et décisions, questions en attente, journal en français
+// (détail technique replié) ; « Mettre en pause » et « Reprendre » appellent les routes réelles.
 import { T } from "../chaines";
 import { Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { nombre } from "../format";
-import { h, type Noeud } from "../react";
+import { h, useState, type Noeud } from "../react";
 import { chaine, listeDeChaines } from "../types";
-import { lireProjet, pauseProjet, repriseProjet } from "./api";
+import { lireCarte, lireProjet, pauseProjet, repriseProjet } from "./api";
 import { BlocRefus, Bouton, EtatDuPoste, Etiquette, Horodatage, LienVue, RetourEnvoi, type Naviguer } from "./briques";
 import { useEnvoi } from "./envoi";
 import {
+  libelleActeurJournal,
+  libelleActionJournal,
   libelleEtatProjet,
   libelleEtatQuestion,
   libelleOrigine,
+  libellePalier,
   libelleProfil,
   libelleReponses,
   libelleRole,
@@ -23,7 +27,7 @@ import {
 } from "./libelles";
 import { Avancement } from "./ListeProjets";
 import { useSondage } from "./sondage";
-import type { CarteProjet, DetailProjet as Detail, ListeProjets, ReponseDetail } from "./types";
+import type { CarteLue, CarteProjet, DetailProjet as Detail, ListeProjets, ReponseDetail } from "./types";
 
 function Libre(props: { texte: string | null; brut: unknown; mono?: boolean }): Noeud {
   return props.texte ? <span>{props.texte}</span> : <Donnee valeur={chaine(props.brut)} mono={props.mono} />;
@@ -110,9 +114,47 @@ function EnTete(props: { projet: Detail; liste: ListeProjets | null; apres: () =
   );
 }
 
-function CarteDuGraphe(props: { carte: CarteProjet }): Noeud {
+/** Résumé d'une carte : un extrait (500 caractères) le dit, avec la longueur entière, et se lit en entier
+ *  par la route de lecture d'une carte (texte masqué, borné à 100 000 caractères, ce qui se dit aussi). */
+function Resume(props: { projet: string | null; carte: CarteProjet }): Noeud {
+  const resume = chaine(props.carte.resume);
+  const identifiant = chaine(props.carte.carte);
+  const [entier, fixerEntier] = useState<CarteLue | null>(null);
+  const lecture = useEnvoi<{ carte?: CarteLue }>();
+  if (!resume) return null;
+  const tronque = props.carte.resume_tronque === true && entier === null;
+  const lire = async () => {
+    if (!props.projet || !identifiant) return;
+    const lu = await lecture.envoyer(() => lireCarte(props.projet as string, identifiant));
+    if (lu?.carte) fixerEntier(lu.carte);
+  };
+  return (
+    <details className="acp-details">
+      <summary>{T.projets.resume}</summary>
+      <p className="acp-texte-long">
+        <Donnee valeur={chaine(entier?.resume) ?? resume} />
+      </p>
+      {tronque ? (
+        <div>
+          <p className="acp-discret">
+            <span>{T.projets.extrait}</span> <Donnee valeur={nombre(resume.length)} />{" "}
+            <span>{T.projets.caracteresSur}</span> <Donnee valeur={nombre(props.carte.resume_longueur)} />
+          </p>
+          {props.projet && identifiant ? (
+            <div className="acp-actions">
+              <Bouton libelle={T.projets.lireEnEntier} surClic={() => void lire()} desactive={lecture.etat.etat === "envoi"} />
+            </div>
+          ) : null}
+          <RetourEnvoi etat={lecture.etat} />
+        </div>
+      ) : null}
+      {entier?.tronque === true ? <p className="acp-discret">{T.projets.texteBorne}</p> : null}
+    </details>
+  );
+}
+
+function CarteDuGraphe(props: { projet: string | null; carte: CarteProjet }): Noeud {
   const { carte } = props;
-  const resume = chaine(carte.resume);
   return (
     <li className="acp-entree">
       <h4 className="acp-entree__nom">
@@ -139,7 +181,7 @@ function CarteDuGraphe(props: { carte: CarteProjet }): Noeud {
           )}
         </Ligne>
         <Ligne libelle={T.projets.palier}>
-          <Donnee valeur={chaine(carte.palier)} mono />
+          <Libre texte={libellePalier(carte.palier)} brut={carte.palier} mono />
         </Ligne>
         <Ligne libelle={T.projets.modeleServi}>
           <Donnee valeur={chaine(carte.modele_servi)} />
@@ -155,19 +197,12 @@ function CarteDuGraphe(props: { carte: CarteProjet }): Noeud {
           </Ligne>
         ) : null}
       </dl>
-      {resume ? (
-        <details className="acp-details">
-          <summary>{T.projets.resume}</summary>
-          <p className="acp-texte-long">
-            <Donnee valeur={resume} />
-          </p>
-        </details>
-      ) : null}
+      <Resume projet={props.projet} carte={carte} />
     </li>
   );
 }
 
-function Cartes(props: { cartes: CarteProjet[] }): Noeud {
+function Cartes(props: { projet: string | null; cartes: CarteProjet[] }): Noeud {
   const groupes = new Map<string, CarteProjet[]>();
   for (const carte of props.cartes) {
     const role = chaine(carte.role) ?? "";
@@ -185,11 +220,29 @@ function Cartes(props: { cartes: CarteProjet[] }): Noeud {
           </h3>
           <ul className="acp-entrees">
             {(groupes.get(role) ?? []).map((c, rang) => (
-              <CarteDuGraphe key={chaine(c.carte) ?? `${role}-${rang}`} carte={c} />
+              <CarteDuGraphe key={chaine(c.carte) ?? `${role}-${rang}`} projet={props.projet} carte={c} />
             ))}
           </ul>
         </div>
       ))}
+    </Carte>
+  );
+}
+
+/** Résultat du projet : la synthèse FAITE du dernier tour, en entier (le livrable d'un projet sans dépôt). */
+function Resultat(props: { projet: Detail }): Noeud {
+  const resultat = props.projet.resultat;
+  const texte = chaine(resultat?.texte);
+  if (!texte) return null;
+  return (
+    <Carte titre={T.projets.resultatTitre} id="acp-projet-resultat">
+      <p className="acp-discret">
+        <span>{T.projets.resultatIntro}</span> <span>{T.projets.tour}</span> <Donnee valeur={nombre(resultat?.tour)} />
+      </p>
+      <p className="acp-texte-long">
+        <Donnee valeur={texte} />
+      </p>
+      {resultat?.tronque === true ? <p className="acp-discret">{T.projets.texteBorne}</p> : null}
     </Carte>
   );
 }
@@ -264,23 +317,26 @@ function Journal(props: { projet: Detail }): Noeud {
             <span>{T.projets.journalOuvrir}</span> <Donnee valeur={nombre(journal.length)} />
           </summary>
           <ul className="acp-journal">
-            {journal.map((j, rang) => (
-              <li key={String(rang)}>
-                <Horodatage valeur={j.quand} /> <Donnee valeur={chaine(j.action)} mono />{" "}
-                <Donnee valeur={chaine(j.acteur)} mono />
-                {chaine(j.cible) ? (
-                  <span>
-                    {" "}
-                    <Donnee valeur={chaine(j.cible)} mono />
+            {journal.map((j, rang) => {
+              const acteur = libelleActeurJournal(j.acteur);
+              return (
+                <li key={String(rang)}>
+                  <Horodatage valeur={j.quand} /> <Libre texte={libelleActionJournal(j.action)} brut={j.action} mono />{" "}
+                  <span className="acp-discret">
+                    {acteur.libelle ? <span>{acteur.libelle}</span> : null}
+                    {acteur.libelle && acteur.donnee ? " " : null}
+                    {acteur.donnee ? <Donnee valeur={acteur.donnee} mono /> : null}
                   </span>
-                ) : null}
-                {chaine(j.detail) ? (
-                  <span className="acp-journal__detail">
-                    <Donnee valeur={chaine(j.detail)} mono />
-                  </span>
-                ) : null}
-              </li>
-            ))}
+                  {chaine(j.detail) || chaine(j.cible) ? (
+                    <details className="acp-journal__detail">
+                      <summary>{T.projets.detailTechnique}</summary>
+                      {chaine(j.cible) ? <Donnee valeur={chaine(j.cible)} mono /> : null}{" "}
+                      {chaine(j.detail) ? <Donnee valeur={chaine(j.detail)} mono /> : null}
+                    </details>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}
@@ -310,7 +366,8 @@ export function DetailProjet(props: {
         <div className="acp-sections">
           <EnTete projet={projet} liste={props.liste} apres={props.apres} />
           <QuestionsDuProjet projet={projet} naviguer={props.naviguer} />
-          <Cartes cartes={Array.isArray(projet.cartes) ? projet.cartes : []} />
+          <Resultat projet={projet} />
+          <Cartes projet={chaine(projet.id)} cartes={Array.isArray(projet.cartes) ? projet.cartes : []} />
           <Tours projet={projet} />
           <Journal projet={projet} />
         </div>

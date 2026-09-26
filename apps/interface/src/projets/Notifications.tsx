@@ -1,6 +1,7 @@
 // Carte « Notifications » : canal vu par l'émetteur de la passerelle (bloc notifications de
 // GET /v1/projets) et envoi d'une notification de test (POST /v1/notifications/test, 202). Le bouton
-// n'est actif que si un canal est configuré : sinon il le dit, et rien ne fait semblant d'envoyer.
+// n'est actif que si un canal est configuré : sinon il le dit, et rien ne fait semblant d'envoyer. Tant que
+// la passerelle n'a pas publié l'état du canal, la carte dit « inconnu », jamais « non configurées ».
 import { T } from "../chaines";
 import { Carte, Donnee, Ligne } from "../commun";
 import { h, type Noeud } from "../react";
@@ -38,7 +39,7 @@ export function Notifications(props: { etat: EtatNotifications | null | undefine
       </dl>
       {configure ? null : (
         <p className="acp-discret" id="acp-notifications-note">
-          {T.projets.notificationsNonConfigurees}
+          {etat?.connu === true ? T.projets.notificationsNonConfigurees : T.projets.notificationsEtatInconnu}
         </p>
       )}
       <div className="acp-actions">

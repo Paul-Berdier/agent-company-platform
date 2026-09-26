@@ -37,6 +37,8 @@ export function libelleEtatProjet(etat: unknown, derive: unknown): Libelle | nul
           return L(e.enAttenteDuPoste, "degrade");
         case "plafond_atteint":
           return L(e.plafondAtteint, "degrade");
+        case "a_decider":
+          return L(e.aDecider, "degrade");
         default:
           return L(e.actif, "actif");
       }
@@ -159,4 +161,28 @@ export function libelleOrigine(origine: unknown): string | null {
   if (origine === "tableau_de_bord") return T.projets.origineTableau;
   if (origine === "discussion") return T.projets.origineDiscussion;
   return null;
+}
+
+/** Palier de service : « default » se dit « Standard » ; un autre palier est montré tel quel (donnée). */
+export function libellePalier(palier: unknown): string | null {
+  return palier === "default" ? T.projets.palierStandard : null;
+}
+
+/** Action du journal d'un projet, en français ; une action inconnue est montrée telle quelle (donnée). */
+export function libelleActionJournal(action: unknown): string | null {
+  const table: Record<string, string> = T.projets.actionsJournal;
+  return typeof action === "string" && Object.hasOwn(table, action) ? (table[action] ?? null) : null;
+}
+
+/** Acteur d'une entrée du journal : « Vous » (session du propriétaire), « ACP », « Poste », « Hermes
+ *  (discussion) », ou « Carte » suivi de son identifiant ; un acteur inconnu est montré tel quel. */
+export function libelleActeurJournal(acteur: unknown): { libelle: string | null; donnee: string | null } {
+  const a = T.projets.acteursJournal;
+  if (typeof acteur !== "string") return { libelle: null, donnee: null };
+  if (acteur.startsWith("proprietaire:")) return { libelle: a.vous, donnee: null };
+  if (acteur === "acp-poste" || acteur.startsWith("acp-poste:")) return { libelle: a.acp, donnee: null };
+  if (acteur === "poste") return { libelle: a.poste, donnee: null };
+  if (acteur.startsWith("discussion:")) return { libelle: a.discussion, donnee: null };
+  if (acteur.startsWith("carte:")) return { libelle: a.carte, donnee: acteur.slice("carte:".length) || null };
+  return { libelle: null, donnee: acteur };
 }

@@ -4,9 +4,12 @@
 //   /projets?vue=questions   questions et cartes en attente d'une décision
 //   /projets?vue=nouveau     formulaire « Nouveau projet »
 //
-// Le SDK du tableau de bord n'expose pas le routeur de Hermes : la page change de vue par son état
-// et met l'adresse à jour par history.replaceState, en GARDANT l'état de l'historique du routeur et les
-// autres paramètres (Hermes ajoute « ?profile=… »). Les liens restent de vrais liens (nouvel onglet).
+// Le SDK du tableau de bord n'expose pas le routeur de Hermes : la page change de vue par son état.
+// Un changement de vue voulu par le propriétaire (lien, onglet, lancement) AJOUTE une entrée d'historique
+// (history.pushState) : au téléphone, le geste « retour » ramène à la vue précédente de la page au lieu de
+// quitter la page Projets (relecture de P4) ; la page relit sa vue sur « popstate ». L'état de l'historique
+// du routeur de Hermes et les autres paramètres (« ?profile=… ») sont gardés. Les liens restent de vrais
+// liens (nouvel onglet).
 
 export type Vue =
   | { genre: "liste" }
@@ -38,10 +41,12 @@ export function rechercheDeVue(vue: Vue, recherche = ""): string {
   return texte ? `?${texte}` : "";
 }
 
-export function remplacerAdresse(vue: Vue): void {
+/** Nouvelle entrée d'historique pour la vue (geste du propriétaire) ; rien si l'adresse ne change pas. */
+export function pousserAdresse(vue: Vue): void {
   try {
     const { pathname, search } = window.location;
-    window.history.replaceState(window.history.state, "", `${pathname}${rechercheDeVue(vue, search)}`);
+    const suivante = `${pathname}${rechercheDeVue(vue, search)}`;
+    if (suivante !== `${pathname}${search}`) window.history.pushState(window.history.state, "", suivante);
   } catch {
     // Adresse non modifiable (cadre, bac à sable) : la vue change quand même.
   }

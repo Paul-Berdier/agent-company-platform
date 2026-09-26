@@ -101,7 +101,7 @@ describe("Projets : liste", () => {
       "Canal",
       "Aucun",
       "Non configurées",
-      "Notifications non configurées (variables ACP_NOTIFICATIONS… du service Hermes sur Railway).",
+      "Notifications non configurées : leur activation passe par une PR qui déclare les variables ACP_NOTIFICATIONS… dans l'IaC Railway (docs/refonte/railway.md, § 9).",
     ]) {
       expect(texte).toContain(attendu);
     }

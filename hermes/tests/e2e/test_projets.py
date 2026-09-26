@@ -6,9 +6,10 @@ Authelia, passkey virtuelle : parcours.py), avec le MODÈLE FACTICE à scénario
 Parcours « lancer un projet → questions → avancement », à chaque format :
 
 A. sans inventaire du poste : l'onglet « Projets » existe (groupe des greffons de Hermes) ; formulaire
-   « Nouveau projet » : champ Dépôt DÉSACTIVÉ avec « Aucun dépôt connu… » ; lancement d'un projet sans
-   dépôt ; détail : « Modèle servi : Non observé », « Poste : Non configuré » ; « Mettre en pause » puis
-   « Reprendre » (état relu par l'API) ;
+   « Nouveau projet » : champ Dépôt DÉSACTIVÉ avec « Aucun dépôt connu… », « Qui répond » sans objet ;
+   lancement d'un projet sans dépôt ; « retour » ramène au formulaire, « avancer » au détail ; détail :
+   « Modèle servi : Non observé », « Poste : Non configuré » ; « Mettre en pause » puis « Reprendre » (état
+   relu par l'API) ;
 B. relevé FACTICE déposé par le poste simulé, présence du poste : projet SUR DÉPÔT (exploration choisie
    dans le relevé, questions au propriétaire) ; le poste simulé réclame l'exploration et pose une
    question ; la page Questions la montre et le propriétaire y RÉPOND (question fermée et carte reprise,
@@ -176,13 +177,14 @@ def _lancer_depuis_le_formulaire(page, titre: str, objectif: str, *, profil: str
     page.fill("#acp-projet-titre-champ", titre)
     page.fill("#acp-projet-objectif", objectif)
     page.select_option("#acp-projet-profil", profil)
-    if moi:
-        page.check('input[name="acp-projet-reponses"][value="proprietaire"]')
     if depot:
         page.select_option("#acp-projet-depot", depot)
         page.wait_for_selector("#acp-projet-voie")
         if voie:
             page.select_option("#acp-projet-voie", voie)
+    # « Qui répond aux questions » ne se choisit qu'avec un dépôt (relecture de P4, décision D42).
+    if moi:
+        page.check('input[name="acp-projet-reponses"][value="proprietaire"]')
     page.click('button[type="submit"]:has-text("Lancer le projet")')
     page.wait_for_url(re.compile(r"[?&]projet=p_[0-9a-f]{12}"))
     page.wait_for_selector("#acp-projet-titre")
@@ -266,12 +268,24 @@ def test_page_projets_telephone_et_bureau(playwright_sync, pile):
             assert "Aucun dépôt connu : le poste n'a encore publié aucun inventaire (étape P5)." in \
                 page.inner_text('[data-acp-racine="projets"]').replace(" ", " ")
             assert page.locator("#acp-projet-voie").count() == 0
+            # Sans dépôt, « Qui répond » est sans objet et le dit (relecture de P4).
+            assert page.locator('input[name="acp-projet-reponses"]').count() == 0
+            assert page.is_visible("#acp-projet-reponses-sans-objet")
             verifier(format_, "nouveau_sans_inventaire", "nouveau-projet-sans-inventaire")
 
             identifiant = _lancer_depuis_le_formulaire(
                 page, titres["sans_depot"], "Recenser les modèles de langage publiés ce mois.", profil="recherche",
                 depot=None, voie=None, moi=False)
             projets[format_]["sans_depot"] = identifiant
+            # Geste « retour » (relecture de P4) : il ramène au formulaire de la page Projets, pas hors de la page ;
+            # « avancer » rouvre le détail.
+            page.go_back()
+            page.wait_for_selector("#acp-projet-titre-champ")
+            assert "vue=nouveau" in page.url and "/projets" in page.url, page.url
+            page.go_forward()
+            page.wait_for_selector("#acp-projet-titre")
+            assert f"projet={identifiant}" in page.url, page.url
+            preuves["formats"][format_]["retour_puis_avancer"] = "formulaire puis détail, dans la page Projets"
             detail = _detail(page, identifiant)
             assert (detail["titre"], detail["depot"], detail["profil"], detail["origine"]) == (
                 titres["sans_depot"], None, "recherche", "tableau_de_bord")
@@ -386,6 +400,10 @@ def test_page_projets_telephone_et_bureau(playwright_sync, pile):
             assert {c["role"] for c in fini["cartes"]} == {"exploration", "planification", "hermes", "synthese"}
             assert _valeur_de_ligne(page, "Cartes faites").replace(" ", " ").startswith(
                 f"{len(fini['cartes'])} sur {len(fini['cartes'])}")
+            # Résultat du projet : la synthèse faite, en entier (relecture de P4), relue par l'API et affichée.
+            assert fini["resultat"]["texte"] == "Conclusion : la recherche est faite.", fini["resultat"]
+            assert "Conclusion : la recherche est faite." in page.inner_text(
+                "#acp-projet-resultat >> xpath=..").replace(" ", " ")
             preuves["formats"][format_]["avancement"] = {c["role"]: c["statut"] for c in fini["cartes"]}
             verifier(format_, "detail_termine", "projet-termine")
 
