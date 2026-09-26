@@ -9,7 +9,7 @@ remplace ses phases P4 à P8.
 ACP est en pleine **refonte « Hermes au centre »** : Hermes Agent devient le seul
 serveur, le seul orchestrateur et la seule source de vérité ; ACP ne garde que l'image
 Railway dérivée et ses greffons (`acp-poste` depuis P1, `acp-interface` et `acp-catalogue`
-livrés par P3 côté dépôt, non fusionnés), le poste Windows, le client Qt et
+livrés par P3, `acp-projets` par P4, côté dépôt, non fusionnés), le poste Windows, le client Qt et
 le tableau de bord de Hermes habillé. L'ancien backend ACP (API FastAPI, base, bus
 d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite) est retiré ;
 il reste entier sous l'étiquette annotée **`archive/acp-0.10.0-avant-hermes`**
@@ -69,7 +69,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
-| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **cœur serveur réalisé côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`), poussée, CI verte sur `a614278` ; page « Projets » de l'interface (seconde partie) à faire ; sans PR ; **rien de déployé** (§ 6 quater) |
+| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, poussée ; CI : § 6 quater) ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
@@ -1168,14 +1168,14 @@ d'arXiv par la recherche web ; context7 depuis Railway ; la cause du pic bas de 
 CI (régulation ou vérifications successives) ; le remède de la page MCP sur un vrai tableau de bord
 (prouvé par ses routes, pas par un clic) ; la lecture des conditions de context7 (au propriétaire).
 
-## 6 quater. P4 — projets autonomes sur Hermes, cœur serveur (première partie)
+## 6 quater. P4 — projets autonomes sur Hermes (cœur serveur, puis page « Projets »)
 
 Branche `refonte/hermes-p4`, empilée sur `refonte/hermes-p3` (`e5e8032`, PR #16) ; version 0.11.0
 inchangée ; **ni PR, ni fusion, ni étiquette** ; **rien n'est déployé**. Référence :
 [`docs/refonte/projets.md`](refonte/projets.md) ; cahier de conception (brouillon de session
 `plan_p4.md`) ; décisions **D21 à D40** au § 1 de [`plan.md`](refonte/plan.md), **non confirmées**.
 La page « Projets » de l'interface (greffon `acp-projets`, `apps/interface`) est la seconde partie de
-P4, à faire.
+P4 : voir « Seconde partie » à la fin de ce paragraphe.
 
 Une première tentative de cette partie a été coupée par une limite d'usage : elle a laissé trois
 commits locaux (`32ea6f8`, `3a7f7bb`, `e8aaad1`) et du travail non commité (routes, poste simulé, faux
@@ -1201,7 +1201,7 @@ docs) et corrigé (accord de « carte » dans les notifications ; test de contra
 | `a614278` | docs: record the first P4 CI runs and the capture fix |
 | `32230b2` | fix(acp-poste): describe the P4 routes in the dashboard manifest |
 | `1a57bf2` | test(contrat): time the planning start on the container clock after the exploration end |
-| (ce commit) | docs: record the green P4 CI runs and the container clock timing |
+| `165c8e2` | docs: record the green P4 CI runs and the container clock timing |
 
 ### Ce qui est en place
 
@@ -1312,6 +1312,92 @@ celle de P1, corrigée par `32230b2`. Rejoués sur l'arbre de `1a57bf2` (images 
   factice).
 - Les trois commits de la première tentative n'ont pas été rejoués un par un : les suites Docker ont
   tourné sur l'arbre final de la reprise.
+
+### Seconde partie : page « Projets » (greffon `acp-projets`)
+
+Référence : [`projets.md`](refonte/projets.md) § 4 bis et [`interface.md`](refonte/interface.md) § 10.
+Une limite d'usage a interrompu la session après la première partie ; la reprise a trouvé l'arbre propre,
+sans rien de la seconde partie commencé.
+
+| Commit | Sujet |
+|---|---|
+| `79afb4b` | feat(interface): add the mobile Projects page |
+| `589cd28` | feat(hermes): ship the Projects dashboard plugin in the image |
+| `65c89e3` | test(e2e): drive the Projects page at 390x844 and 1440x900 |
+| `609b96c` | fix(acp-poste): retry a board connection when Hermes' write check races a closing WAL |
+| `92eb74d` | test(acp-poste): prove the triage resume and test notification buttons end to end |
+| (ce commit) | docs: record the Projects page, the WAL race and local evidence |
+
+Ce qui est en place :
+
+- greffon d'interface `acp-projets` (sans code serveur, bundle déterministe committé) : onglet
+  « Projets » avant « Catalogue » ; liste, nouveau projet, détail, questions ; pause d'un projet et
+  pause générale confirmée ; notification de test (active seulement avec un canal configuré) ;
+  raccourci sur l'Accueil ;
+- aucun bouton sans route réelle et testée ; refus du greffon affichés tels quels ; aucune donnée
+  inventée ; sondage de 15 s tant que la page est visible ;
+- image : `acp-projets` copié, root et 0644 ; `check_version.py` ; bloc `interface` de la méta ; CI
+  « Interface » sur trois bundles ;
+- tests ajoutés : Vitest (page et écritures), route de reprise d'un triage (image), notification de
+  test reçue par le faux ntfy (contrat), parcours navigateur complet (`test_projets.py`).
+
+Preuves locales (26/09/2026 ; détail et commandes : [`projets.md`](refonte/projets.md) § 9, « Seconde
+partie ») :
+
+- interface : TypeScript sans erreur ; Vitest **80 réussis** (13 fichiers, dont 25 pour la page) ; 6
+  fichiers de greffons à jour ;
+- dépôt : **386 réussis** (33,6 s) ;
+- contrôles : 0.11.0 partout (manifeste d'`acp-projets` compris) ; moteur gelé ; 21 skills ; aucun motif
+  de secret ; propre ;
+- dans l'image : **493 réussis** (4 min 31 s) : 491 de la première partie, plus la reprise d'un triage
+  par la route et la course du contrôle d'écriture ;
+- contrat P4 : **18 réussis** (10 min 21 s), dont la notification de test reçue une seule fois par le
+  faux ntfy ;
+- contrat interface et catalogue : **14 réussis** (2 min 14 s) : `acp-projets` servi, octet pour octet
+  celui du dépôt ; version dans la méta ;
+- navigateur : **6 réussis** (4 min 21 s) : les 5 de P2 et P3, plus `test_projets.py` ;
+- navigateur, page Projets : aucune violation axe, aucun texte hors du catalogue, cibles de 44 px au
+  téléphone, aucune requête hors de l'origine ; quatre projets menés jusqu'à « Terminé » (66,1 s après la
+  fin des explorations) ; question du poste simulé répondue depuis la page aux deux formats ;
+- course du contrôle d'écriture de Hermes constatée une fois au contrat P4 (`test_pause_d_un_projet`,
+  images `p4j` : 17 réussis, 1 échec), corrigée par `609b96c` puis rejouée : 18 réussis.
+
+Captures du parcours (21, `ACP_E2E_CAPTURES/projets/`, images `p4k`), empreintes SHA-256 :
+
+| Capture | SHA-256 |
+|---|---|
+| `bureau-01-projets-liste.png` | `7fbc01738fe405ae7862d558a707a2fc90f8101f2e509067a8038a4febf4d02b` |
+| `bureau-02-nouveau-projet-sans-inventaire.png` | `ab0226c20e3b22ccf3223937674e573adbfaf46b699a08633a0f7ed24f920ce9` |
+| `bureau-03-projet-detail.png` | `5af6923ff9d4a509e29f3608b09b7a982955b8c6d606a50be2206edb96d3553c` |
+| `bureau-04-projet-en-pause.png` | `9ca2c893299026d10ae5b3bc11594736a18743cad7f6cf357bf1a42931bce9dd` |
+| `bureau-05-nouveau-projet-sur-depot.png` | `c262bb0ba93804d89cdeb9d58e097d63daaa0311d9db17b83be05bfdf81b4dcd` |
+| `bureau-06-projet-sur-depot.png` | `06733561f82e65e8ed562e8beb92af0b6963d6b7327b6360fd27f04c7b2a75d9` |
+| `bureau-07-questions.png` | `c0699353532a422282d60b900219242219ecc845e5f37a0184cd9a84e2f6e843` |
+| `bureau-08-questions-repondues.png` | `ecd1abd4c5bf1cf6426721e942c6331251cc47d87710c042ec6622f046736892` |
+| `bureau-09-projets-termines.png` | `056ce01b48184a5b664b3184730f4d6d231b20dcad4ebfa4b0287689e6ea0871` |
+| `bureau-10-projet-termine.png` | `e59d46968fa2b3d0a505178018019d2b8155afefae48196c7a46fe55cf449d1e` |
+| `bureau-11-pause-generale.png` | `84b07975265f8ac35de1d873250fe133cc695c198e056ede27b32122fb743baa` |
+| `telephone-01-projets-liste.png` | `103dd702f2e42abe7d8cd8fccf29aa5b0e3b154f6f0e0b60723d0f4b43f6c0e9` |
+| `telephone-02-nouveau-projet-sans-inventaire.png` | `412343b87f3958c8bfffa62a5d9c8682be5037a56ad6bba6a4b89a2efd5dc444` |
+| `telephone-03-projet-detail.png` | `bf72d7c6e42fc65c62a9611829ea9464d4601cc00d86e28a3ea13d9543dafbf6` |
+| `telephone-04-projet-en-pause.png` | `ba6da17243779cd4441f39915280ce4b8fa60670d017c63a98101b1dd5c6f0d7` |
+| `telephone-05-nouveau-projet-sur-depot.png` | `04417a2eb4008bf622cc38ee405c53b0c3f0d2b5cc2fdff3b28f373caeb9b44f` |
+| `telephone-06-projet-sur-depot.png` | `b8206ee0066a95e3b76566a83c7af6884553a310f4f9e894ae11006d9963fef9` |
+| `telephone-07-questions.png` | `cf564e4faa0d7145733e2478f21aab843578605e61658dd5473fed1b58def26e` |
+| `telephone-08-questions-repondues.png` | `9b0a4bba10aa97d3fe2a3707c964786592892f3f87151b3ac31d3e400d0352cf` |
+| `telephone-09-projets-termines.png` | `df2c23925c7f265a78739eb7fd213b2c7ccc7344b658e4e470a22f34f86f250f` |
+| `telephone-10-projet-termine.png` | `b4033ce5a31c1df35066950e20d80d99684f372418145221814d5c8f0d0f6c0a` |
+
+Écarts au cahier (détail : [`projets.md`](refonte/projets.md) § 8) : icône `FolderOpen`, position
+`before:catalogue`, fichiers regroupés, et au navigateur « Reprendre » un triage et « Envoyer une
+notification de test » non cliqués (prouvés par Vitest, les tests d'image et le contrat).
+
+Intégration continue de la seconde partie : relevée après le push de ce commit, et consignée par un commit
+de documentation suivant.
+
+Non vérifié : le rendu sur un vrai téléphone (émulation Chromium 390×844 seulement, ni Safari iOS) ;
+le scénario Railway (téléphone, notification réelle, second appareil) ; la qualité d'un vrai plan ;
+le poste réel (P5-P6).
 
 ## 7. Chaîne d'outils Windows
 

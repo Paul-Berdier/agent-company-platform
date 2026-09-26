@@ -1,8 +1,9 @@
 # Projets autonomes sur Hermes (étape P4)
 
 État du **26 septembre 2026**, branche `refonte/hermes-p4`, version 0.11.0 inchangée. **Rien n'est
-déployé.** Ce document décrit le **cœur serveur** livré par P4 : ce que le greffon groupé `acp-poste`
-fait sur Railway, sans le poste Windows. Références : [plan d'autonomie](autonomie.md) (§ 8, P4),
+déployé.** Ce document décrit ce que P4 livre sur Railway, sans le poste Windows : le **cœur serveur**
+(première partie : ce que le greffon groupé `acp-poste` fait) et la **page « Projets »** (seconde
+partie : greffon d'interface `acp-projets`, § 4 bis). Références : [plan d'autonomie](autonomie.md) (§ 8, P4),
 [image](image.md), [catalogue](catalogue.md), décisions **D21 à D40** ([plan](plan.md) § 1, non confirmées).
 
 ## 1. En bref
@@ -22,6 +23,9 @@ fait sur Railway, sans le poste Windows. Références : [plan d'autonomie](auton
 - **Émetteur de notifications** dans la **passerelle** (crochet `on_kanban_dispatch_tick`), une seule
   notification par événement, canal Telegram ou ntfy, **désactivé tant que `ACP_NOTIFICATIONS` n'est pas
   posée**.
+- **Page « Projets »** (onglet du tableau de bord, pensée d'abord pour le téléphone) : lancer un projet,
+  suivre son avancement carte par carte, répondre aux questions, mettre en pause un projet ou tout
+  Hermes. Elle n'a aucune route propre : elle appelle celles du § 4.
 
 ## 2. Code (`hermes/plugins/acp-poste/noyau/`)
 
@@ -85,6 +89,42 @@ Toute route d'écriture exige `Content-Type: application/json` (415) et refuse u
 `GET /v1/meta` ajoute le bloc `projets` : base, schéma, projets actifs, relevé factice présent, pause
 générale, émetteur (dernière passe, processus, cartes du poste en attente par tableau, canal, file).
 
+## 4 bis. Page « Projets » (greffon d'interface `acp-projets`)
+
+Greffon de tableau de bord **sans code serveur** (manifeste, bundle IIFE, feuille de style), comme
+`acp-interface` et `acp-catalogue` ([interface.md](interface.md) § 10) : sources
+`apps/interface/src/projets/`, bundle committé `hermes/plugins/acp-projets/dashboard/dist/`. Onglet
+« Projets » (`/projets`), avant « Catalogue » dans le groupe des greffons de Hermes ; raccourci sur
+l'Accueil.
+
+| Vue | Adresse | Routes appelées | Contenu et gestes |
+|---|---|---|---|
+| Liste | `/projets` | `GET /v1/projets` | une carte par projet : état (dérivé : exploration, planification, en cours, en attente du poste, synthèse, plafond atteint, en pause, terminé), « Cartes faites : n sur m », poste, questions en attente, dernière note ; carte « Poste Windows » ; carte « Notifications » (canal, état, notification de test) ; carte « Pause générale » |
+| Nouveau projet | `?vue=nouveau` | `GET /v1/catalogue` (types de projet), `GET /v1/poste` (dépôts et relevés), `POST /v1/projets` | titre, objectif, type de projet, qui répond (Hermes d'abord ou moi), dépôt, exploration (exécutant, modèle, effort) |
+| Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `POST /v1/projets/{id}/pause`, `…/reprise` | état, objectif, tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier, **« Modèle servi : Non observé »** avant P6, mention, résumé replié) ; tours et décisions ; questions en attente ; journal ; **Mettre en pause** / **Reprendre** |
+| Questions | `?vue=questions` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre` | questions ouvertes ou escaladées avec **Répondre** ; cartes en triage avec **Reprendre** et une consigne facultative ; cartes bloquées ou abandonnées **en lecture seule** (« Relancer » : P7) |
+
+Règles, toutes testées (Vitest, image, navigateur) :
+
+- **Aucun bouton sans route réelle et testée.** La pause générale demande une confirmation ; la
+  notification de test n'est active que si un canal est configuré, sinon le bouton est désactivé et la
+  page dit « Notifications non configurées (variables ACP_NOTIFICATIONS… du service Hermes sur
+  Railway). ».
+- **Aucune donnée inventée** : « Inconnu » pour une valeur absente, « Non configuré » pour un poste
+  jamais vu, « Non observé » (servi par le greffon) pour le modèle réellement servi ; un code inconnu du
+  greffon est montré tel quel, comme donnée ; une actualisation ratée garde la dernière valeur lue et le
+  dit.
+- **Sans inventaire du poste** (D25), le champ Dépôt est désactivé et la page dit « Aucun dépôt connu : le
+  poste n'a encore publié aucun inventaire (étape P5). » ; seul « Sans dépôt » est possible. Avec un
+  relevé, l'exploration se choisit **seulement** parmi les exécutants, modèles et efforts relevés, efforts
+  interdits exclus (D39) ; un relevé factice est signalé comme tel.
+- **Refus de l'API affichés tels quels** (message français du greffon, code HTTP) ; le formulaire reste
+  rempli. Une clé d'idempotence par envoi : un double appui ne lance qu'un projet.
+- **Sondage** toutes les 15 s tant que la page est visible, aucune lecture quand elle est cachée (D35) ;
+  relecture immédiate après chaque geste.
+- Tout texte vient du catalogue français `apps/interface/src/chaines.ts` ; ni `fetch` direct, ni
+  `innerHTML`, ni stockage local.
+
 ## 5. Notifications
 
 Variables Railway (facultatives ; validées au démarrage, refus en français) : `ACP_NOTIFICATIONS`
@@ -124,8 +164,17 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   depuis `ready`/`running`) ; elle n'est pas réclamable entre-temps.
 - Les variables de notification ne sont pas déclarées dans `.railway/railway.ts` (canal non choisi) : leur
   pose passe d'abord par une PR, sinon le plan suivant les supprimerait ([railway.md](railway.md) § 9).
-- La page « Projets » (greffon d'interface `acp-projets`) est livrée par la seconde partie de P4 ; ce
-  document couvre le cœur serveur, dont elle n'appelle que les routes du § 4.
+- **Course du contrôle d'écriture de Hermes 0.21.5** (`hermes_state_repair.py:549-570`, appelé à chaque
+  connexion à un tableau) : si un autre processus referme la dernière connexion au moment du contrôle,
+  le fichier `-wal` disparaît entre `is_file()` et `os.access()` et Hermes conclut à tort « read-only for
+  this user ». Constatée une fois au contrat P4 (seconde partie, poste simulé, `test_pause_d_un_projet`).
+  Le greffon rejoue sa connexion (3 tentatives) sur ce seul faux négatif, quand le fichier nommé n'existe
+  plus (`kanban_adapter.connexion`, `test_connexion_rejoue_la_seule_course_du_controle_d_ecriture`) ; les
+  processus de Hermes eux-mêmes (répartiteur, workers) n'en sont pas protégés : une carte qui la
+  rencontrerait échouerait et serait relancée (`failure_limit: 3`), ce qui n'a pas été observé.
+- Page « Projets » : la file Questions complète (`open_requests`, réglage par projet) et le temps réel
+  (SSE) sont en P7 ; « Relancer » une carte bloquée ou abandonnée aussi (lecture seule en P4). Le rendu
+  n'est prouvé que dans Chromium (390×844 émulé, pas un vrai téléphone ni Safari iOS).
 
 ## 8. Écarts au cahier de conception, justifiés
 
@@ -146,6 +195,23 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   contrat partagé `acp_poste_contrat.inventaire` suffisent ; aucun comportement n'en dépend.
 - **Variables de notification hors IaC** (§ 7) : le cahier ne traitait pas la suppression par le plan
   Railway d'une variable non déclarée.
+- **Page Projets, seconde partie** :
+  - icône `FolderOpen` au lieu de `FolderKanban` : Hermes 0.21.5 ne connaît pas cette dernière et
+    afficherait l'icône générique (table `ICON_MAP`, `web/src/App.tsx:228-255`) ;
+  - position `before:catalogue` au lieu de `after:acp` : l'onglet de l'Accueil remplace « / » et n'a pas
+    d'entrée de menu (`App.tsx:265`), `after:acp` rejetterait « Projets » en fin de groupe ; la découverte
+    triée par nom (`hermes_cli/web_server_dashboard.py:558`) fait voir « Catalogue » avant (prouvé :
+    `test_interface.py`, et au navigateur l'ordre Kanban, Projets, Catalogue) ;
+  - fichiers regroupés : cartes « Poste » et « Notifications » dans `ListeProjets.tsx` et
+    `Notifications.tsx`, bandeau et commande de pause générale dans `BandeauPause.tsx`, briques
+    communes dans `briques.tsx`, libellés dans `libelles.ts`, sondage dans `sondage.ts` ; le catalogue
+    des chaînes reste unique (`src/chaines.ts`, bloc `T.projets`) au lieu d'un fichier par greffon ;
+  - au navigateur, « Reprendre » une carte en triage et « Envoyer une notification de test » ne sont pas
+    cliqués (aucune carte en triage dans le parcours ; canal non configuré dans la pile d'identité) :
+    leurs requêtes sont prouvées par Vitest, leurs routes par les tests d'image
+    (`test_reprise_d_un_triage_par_la_route`, `test_notification_de_test`) et, pour la notification de
+    test, par le contrat (`test_notification_de_test_envoyee_par_la_passerelle` : reçue une seule fois
+    par le faux ntfy).
 
 ## 9. Preuves locales (26/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1)
 
@@ -216,6 +282,41 @@ Témoins négatifs (`scripts/temoins_negatifs_p4.sh`, conteneur jetable de `acp-
 | liaisons des corrections vers la synthèse | `test_ordre_correction_liaison_puis_fin` |
 | refus de `memory` dans un worker (D40) | `test_memoire_refusee_dans_un_worker_kanban` |
 
+### Seconde partie : page « Projets » (26/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0, Playwright 1.62.0 et son Chromium déjà présent)
+
+Images `acp-hermes:p4k` et `acp-hermes-tests:p4k` (arbre final de la seconde partie, documentation
+exceptée), identité `acp-identite:p4` ; le contrat de l'interface et du catalogue a tourné sur `p4i`, le même
+arbre sans la correction de la course du § 7, qu'il ne touche pas.
+
+| Suite | Commande | Résultat |
+|---|---|---|
+| Interface | `npm test --prefix apps/interface` puis `npm run check` | TypeScript sans erreur ; Vitest **80 réussis** (13 fichiers, dont 25 pour la page) ; 6 fichiers de greffons à jour |
+| Dépôt | `python -m pytest -q` (venv Python 3.12.10 du verrou) | **386 réussis** (33,6 s) |
+| Contrôles | `check_version.py`, `check_engine_frozen.py`, `verifier_catalogue.py`, `balayer_secrets.py`, `git diff --check` | 0.11.0 partout (manifeste d'`acp-projets` compris) ; moteur gelé ; 21 skills ; aucun motif de secret ; propre |
+| Dans l'image | `docker run … acp-hermes-tests:p4k -m pytest /opt/acp-tests/image` | **493 réussis** (4 min 31 s) : 491 de la première partie, plus la reprise d'un triage par la route et la course du contrôle d'écriture |
+| Contrat P4 | `… pytest -s -v -rA hermes/tests/contrat/test_projets_contrat.py` (images `p4k`) | **18 réussis** (10 min 21 s), dont la notification de test reçue une seule fois par le faux ntfy |
+| Contrat interface et catalogue | `… test_interface_contrat.py test_catalogue_contrat.py` (images `p4i`) | **14 réussis** (2 min 14 s) : `acp-projets` servi, octet pour octet celui du dépôt ; version dans la méta |
+| Navigateur | `ACP_E2E_OBLIGATOIRE=1 … python -m pytest -s -v -rA hermes/tests/e2e` (images `p4k`) | **6 réussis** (4 min 21 s) : les 5 de P2 et P3, plus `test_projets.py` |
+
+Relevés du navigateur (`test_projets.py`) :
+
+- vues vérifiées : 9 au téléphone, 10 au bureau ; **aucune violation axe** (ni grave, ni modérée) ; aucun
+  texte hors du catalogue français ; au téléphone, 60 cibles mesurées, toutes à 44 px au moins ;
+- requêtes : 193 au téléphone et 293 au bureau, **aucune** hors de l'origine du tableau de bord ;
+- groupe des greffons de Hermes : `/kanban`, `/projets`, `/catalogue` ;
+- sans inventaire : champ Dépôt désactivé et « Aucun dépôt connu… » ; détail : « Modèle servi : Non
+  observé », « Poste : Non configuré » ; « Mettre en pause » puis « Reprendre » : `en_pause` puis `actif`
+  relus par l'API ;
+- avec le relevé factice : « Relevé factice… » affiché, efforts proposés `low` et `medium` (`max`,
+  relevé, exclu : D39) ; question du poste simulé escaladée (« Moi »), réponse donnée depuis la page :
+  question fermée et carte d'exploration `ready`, relues par l'API, aux deux formats ;
+- avancement : les quatre projets (deux par format) arrivent à « Terminé » **66,1 s** après la fin des
+  explorations par le poste simulé (modèle factice, répartiteur à 5 s) ; détail d'un projet sur dépôt :
+  exploration, planification, étape Hermes et synthèse « Faite », « 4 sur 4 » ;
+- pause générale au bureau : rien avant la confirmation, puis bandeau et « ACP : pause du propriétaire »,
+  puis reprise ; état relu par l'API ;
+- 21 captures pleine page (aucune tronquée ; jusqu'à 3 230 px de haut au téléphone).
+
 ## 10. Intégration continue
 
 Branche poussée le 26/09/2026, sommet `ff5d61f` :
@@ -238,7 +339,13 @@ Branche poussée le 26/09/2026, sommet `ff5d61f` :
   l'image, **135** au contrat dont les 17 de P4, **5** au navigateur, compat vert, context7 connecté).
   Détail et relevés : [`reprise-poste.md`](../reprise-poste.md) § 6 quater.
 
+- Seconde partie (page « Projets ») : CI relevée après le push de son commit de documentation, consignée
+  par le commit suivant.
+
 ## 11. Non prouvé
+
+- Le rendu de la page « Projets » sur un vrai téléphone : Chromium à 390×844 (émulation), ni Safari iOS
+  ni un vrai réseau mobile.
 
 - La qualité d'un vrai plan : les tests ne jouent qu'un modèle factice.
 - Le scénario Railway (téléphone, notification, second appareil), la livraison réelle par Telegram ou

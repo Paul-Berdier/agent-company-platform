@@ -664,7 +664,8 @@ de P2 à P4 ; il ne modifie pas le plan ci-dessus.
   `kanban.failure_limit: 3`, `known_plugin_toolsets.{api_server,cron}: [acp_poste]` ; variable
   `HERMES_KANBAN_DISPATCH_IN_GATEWAY` interdite ; les huit outils, les routes, les tables, les cinq skills
   et l'émetteur de notifications du greffon ; `memory` refusé dans un worker kanban (décision D40, à
-  confirmer). (`skills.disabled` et `skills.external_dirs` sont posés depuis P3, hors managed scope :
+  confirmer) ; la page mobile « Projets » (greffon d'interface `acp-projets` : lancer, suivre, répondre,
+  pauses ; [projets.md](projets.md) § 4 bis). (`skills.disabled` et `skills.external_dirs` sont posés depuis P3, hors managed scope :
   [catalogue.md](catalogue.md) § 6.)
 - **Pas encore posé** (P5 et suivantes) : routes machine `/machine/v1/*`, jeton du poste, réclamation
   réelle et exécution par le poste ; file Questions complète, `open_requests` et flux temps réel (P7).

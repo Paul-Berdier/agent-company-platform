@@ -41,7 +41,7 @@ Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiq
 | Persona (française, réécrite en P3) | `hermes/persona/SOUL.md` | `/opt/acp/persona/SOUL.md` → `/opt/data/SOUL.md` |
 | Thème (généré en P3 par `scripts/generer_themes.py`) | `hermes/theme/acp.yaml` | `/opt/acp/theme/` → `/opt/data/dashboard-themes/` |
 | Greffon `acp-poste` | `hermes/plugins/acp-poste/` | `/opt/hermes/plugins/acp-poste/` |
-| Greffons d'interface (P3), sources dans `apps/interface` | `hermes/plugins/acp-interface/`, `hermes/plugins/acp-catalogue/` | `/opt/hermes/plugins/acp-interface/`, `/opt/hermes/plugins/acp-catalogue/` |
+| Greffons d'interface (P3 ; `acp-projets` en P4), sources dans `apps/interface` | `hermes/plugins/acp-interface/`, `hermes/plugins/acp-catalogue/`, `hermes/plugins/acp-projets/` | `/opt/hermes/plugins/acp-interface/`, `/opt/hermes/plugins/acp-catalogue/`, `/opt/hermes/plugins/acp-projets/` |
 | Catalogue de skills (P3) : skills, verrou, licences tierces | `hermes/skills/`, `hermes/catalogue/`, `hermes/THIRD_PARTY.md` | `/opt/acp/skills/`, `/opt/acp/catalogue/`, `/opt/acp/THIRD_PARTY.md` |
 | Garde d'entrée hors PID 1 (P2) | `hermes/image/acp-entree` | `/opt/acp/bin/acp-entree` (`ENTRYPOINT`) |
 | Garde d'exécution de l'agent (P2) | `hermes/plugins/acp-poste/garde_execution.py` | dans le greffon |
@@ -794,6 +794,9 @@ graphe et plafonds, routage, corrections, questions, pauses, cartes `poste-*` é
 variables de notification, `HERMES_KANBAN_DISPATCH_IN_GATEWAY`). Au contrat :
 `test_projets_contrat.py` (pile complète, modèle factice, poste simulé, faux ntfy). Témoins négatifs :
 `scripts/temoins_negatifs_p4.sh` (douze protections, retirées une à une dans un conteneur jetable).
+Seconde partie de P4 : greffon d'interface `acp-projets` (page « Projets », sans code serveur) copié et
+normalisé comme les deux autres (`test_interface.py`, `test_interface_contrat.py`), et parcours complet
+au navigateur (`hermes/tests/e2e/test_projets.py`, [projets.md](projets.md) § 4 bis).
 
 ## 9. Ce qui est prouvé, ce qui ne l'est pas
 

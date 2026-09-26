@@ -8,6 +8,9 @@ partie de P3 (catalogue de skills vendorisées, verrou `catalogue.lock.json`, MC
 `/v1/catalogue` du greffon `acp-poste`) est décrite par [catalogue.md](catalogue.md) ; ce qui la
 relie à l'interface est fixé ici au § 6 (contrat, désormais servi). **Rien n'est déployé.**
 
+**Étape P4** (seconde partie, 26 septembre 2026) : troisième greffon d'interface, `acp-projets`, page
+« Projets » (§ 10 ; référence : [projets.md](projets.md) § 4 bis).
+
 Les références `fichier:ligne` sans préfixe désignent le source de Hermes Agent 0.21.5
 (étiquette `v2026.9.24`, commit `f97608f`).
 
@@ -21,9 +24,11 @@ Les références `fichier:ligne` sans préfixe désignent le source de Hermes Ag
 | Sources des greffons d'interface | `apps/interface/` (TypeScript, esbuild, Vitest) | — |
 | Greffon `acp-interface` | `hermes/plugins/acp-interface/dashboard/` (manifeste, bundle, style) | `/opt/hermes/plugins/acp-interface/` |
 | Greffon `acp-catalogue` | `hermes/plugins/acp-catalogue/dashboard/` | `/opt/hermes/plugins/acp-catalogue/` |
+| Greffon `acp-projets` (P4, page « Projets ») | `hermes/plugins/acp-projets/dashboard/` | `/opt/hermes/plugins/acp-projets/` |
 | Épingles de P3 (managed scope) | `hermes/gere/config.yaml`, `EPINGLES_OBLIGATOIRES` | `/etc/hermes/config.yaml` (42 clés à la première partie ; 50 depuis la seconde : [catalogue.md](catalogue.md) § 7) |
 | Décompte des chaînes anglaises | `apps/interface/outils/decompte-traductions.mjs` | mesuré sur les fichiers extraits de l'image |
-| Test navigateur de l'interface | `hermes/tests/e2e/test_interface_fr.py` (connexion : `parcours.py`) | — |
+| Test navigateur de l'interface | `hermes/tests/e2e/test_interface_fr.py` (connexion et vérifications communes : `parcours.py`) | — |
+| Test navigateur de la page Projets (P4) | `hermes/tests/e2e/test_projets.py` | — |
 
 ## 2. Thème `acp`
 
@@ -377,3 +382,36 @@ Vitest 55 ; décompte identique à la mesure locale ; captures en artefact).
   **vrai téléphone** (390×844 est une émulation Chromium, pas Safari iOS) ; l'accessibilité des
   pages **natives** de Hermes sous le thème `acp` (axe n'est lancé que sur nos deux pages) ; le
   thème clair (reporté, D18) ; un logo dessiné (D14).
+
+## 10. Page « Projets » (étape P4, greffon `acp-projets`)
+
+Référence fonctionnelle, vues et routes : [projets.md](projets.md) § 4 bis. Ce qui touche l'interface :
+
+- **Troisième greffon, même forme** que les deux premiers : manifeste, bundle IIFE et feuille de style,
+  sans code serveur ; sources `apps/interface/src/projets/` ; `esbuild.mjs` construit trois bundles,
+  tous déterministes et vérifiés par la CI (`npm run check`, `git diff`). Onglet « Projets »
+  (`/projets`, icône `FolderOpen`), placé **avant** « Catalogue » dans le groupe des greffons de Hermes
+  (`before:catalogue` ; l'onglet de l'Accueil remplace « / » et n'a pas d'entrée de menu, donc
+  `after:acp` le rejetterait en fin de groupe : `App.tsx:258-291`). Raccourci « Projets » ajouté à
+  l'Accueil.
+- **Règle des boutons** : le Catalogue reste en lecture seule ; la page Projets a des boutons, et
+  **chacun appelle une route réelle et testée** (lancer, mettre en pause, reprendre, répondre,
+  reprendre un triage, pause générale confirmée, notification de test). Rien d'autre : les cartes
+  bloquées ou abandonnées restent en lecture seule (« Relancer » relève de P7), et le bouton de
+  notification de test est désactivé, avec sa raison, tant que le canal n'est pas configuré.
+- **Français** : le catalogue unique compte désormais **274** chaînes (241 distinctes), dont 165 pour la
+  page Projets ; mêmes contrôles (arbre syntaxique, typographie, verrou du navigateur). Les champs de
+  saisie portent `data-acp-donnee` : ce que le propriétaire tape est une donnée, pas un libellé.
+- **Écriture** : `POST` en JSON par le `fetchJSON` du SDK (jamais un `fetch` direct : garde statique) ;
+  le refus du greffon (`{"detail": {"code", "message"}}`) est affiché tel quel ; clé d'idempotence par
+  envoi du formulaire.
+- **Adresse** : le SDK n'expose pas le routeur de Hermes ; la page change de vue par son état et met
+  l'adresse à jour par `history.replaceState` en gardant l'état du routeur et `?profile=` ; le lien
+  des notifications (`…/projets?projet=<id>`) ouvre le détail.
+- **Sondage** : 15 s tant que la page est visible (`visibilitychange`), aucune lecture quand elle est
+  cachée (D35) ; une actualisation ratée garde la dernière valeur lue et le dit.
+- **Tests** : Vitest **80** (13 fichiers), dont `projets.test.tsx` et `api-projets.test.ts` (25) sur les
+  formes relevées sur l'image ; navigateur `test_projets.py` (parcours complet aux deux formats, axe,
+  cibles de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine). Les tests Vitest
+  démontent désormais toute racine React restée montée après un test (ses minuteries de sondage
+  couraient sinon dans le test suivant).

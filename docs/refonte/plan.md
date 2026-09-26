@@ -139,8 +139,8 @@ recommandations par défaut pour avancer ; comme D1 à D20, ils **ne font pas fo
 | D32 | Contenu des notifications | Minimal : genre, titre du projet, titre de carte tronqué, lien ; jamais la consigne ni la question | — |
 | D33 | ntfy | Jeton **exigé**, sujet long, `https://ntfy.sh` par défaut | — |
 | D34 | Crochets shell apparus en cours de route | Pause générale et notification, en plus du refus au démarrage | — |
-| D35 | Rafraîchissement de la page Projets | Sondage toutes les 15 s en P4, temps réel (SSE) en P7 | page livrée par l'interface |
-| D36 | Page Projets | Greffon d'interface séparé `acp-projets` | page livrée par l'interface |
+| D35 | Rafraîchissement de la page Projets | Sondage toutes les 15 s en P4, tant que la page est visible ; temps réel (SSE) en P7 | appliqué par la page (seconde partie de P4) |
+| D36 | Page Projets | Greffon d'interface séparé `acp-projets` | livré (seconde partie de P4) ; onglet placé avant « Catalogue », icône `FolderOpen` ([projets.md](projets.md) § 8) |
 | D37 | Carte `poste-*` créée hors du greffon | **Bloquée** (`capability`), jamais archivée | une carte encore `todo` l'est dès qu'elle devient `ready` |
 | D38 | `SOUL.md` et `acp-profils` | Mis à jour (projets par `projet_lancer`, projet sur dépôt en attente du poste) | — |
 | D39 | Efforts et paliers | Efforts interdits `max`, `ultra`, `ultracode` ; palier `default` seul | plan § 11.4 : au propriétaire |

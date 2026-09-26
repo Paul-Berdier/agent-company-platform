@@ -253,8 +253,39 @@ Référence : `docs/refonte/projets.md`.
 - corrigé en cours de route : accord de « carte » dans les notifications (« 1 carte », « 0 carte ») ;
 - notifications : variables non déclarées dans `.railway/railway.ts` (canal non choisi), procédure
   d'activation par PR dans `railway.md` § 9 ;
-- page « Projets » de l'interface : seconde partie de P4 ;
+- page « Projets » de l'interface : seconde partie de P4 (ci-dessous) ;
 - choix par défaut D21 à D40 consignés dans `plan.md` § 1, **non confirmés** par le propriétaire.
+
+### P4 — page « Projets » (seconde partie ; réalisée côté dépôt, non fusionnée, non déployée)
+
+Référence : `docs/refonte/projets.md` § 4 bis, `docs/refonte/interface.md` § 10.
+
+- greffon d'interface `acp-projets` (sans code serveur ; sources `apps/interface/src/projets/`, bundle
+  déterministe committé) : onglet « Projets » avant « Catalogue », pensé d'abord pour le téléphone ;
+  liste des projets (état, cartes faites, poste, questions, dernière note), formulaire « Nouveau
+  projet » (dépôt désactivé et expliqué sans inventaire du poste ; exploration choisie seulement dans
+  le relevé, efforts interdits exclus ; relevé factice signalé), détail (cartes par rôle, « Modèle
+  servi : Non observé », tours et décisions, journal, pause et reprise), questions (réponse du
+  propriétaire, reprise d'un triage ; cartes bloquées en lecture seule jusqu'à P7), notifications
+  (test actif seulement avec un canal configuré), pause générale confirmée et son bandeau ;
+- règle des boutons : aucun bouton sans route réelle et testée ; refus du greffon affichés tels quels ;
+  clé d'idempotence par lancement ; sondage de 15 s tant que la page est visible (D35) ;
+- raccourci « Projets » sur l'Accueil ; catalogue français à 274 chaînes ; les trois bundles portent le
+  catalogue entier ;
+- image : `acp-projets` copié et normalisé (root, 0644), version vérifiée par `check_version.py`,
+  versions des greffons dans le bloc `interface` de la méta ; CI « Interface » : trois bundles vérifiés ;
+- tests : Vitest 80 (dont 25 pour la page, sur des formes relevées sur l'image) ; route de reprise d'un
+  triage et notification de test envoyée par la passerelle au faux ntfy ; navigateur
+  `test_projets.py` : parcours « lancer un projet → questions → avancement » aux formats 390×844 et
+  1440×900 avec le modèle factice et le poste simulé (axe sans violation grave, cibles de 44 px,
+  chaînes du catalogue seulement, aucune requête hors de l'origine) ;
+- corrigé en cours de route : les tests Vitest démontent toute racine React restée montée (des
+  minuteries de sondage couraient dans le test suivant) ; espaces conservées dans les pastilles et les
+  replis (conteneurs flex) ; le greffon rejoue une connexion à un tableau refusée à tort par le contrôle
+  d'écriture de Hermes 0.21.5 (un `-wal` supprimé par un autre processus pendant le contrôle ; constaté
+  une fois au contrat, trois tentatives, jamais sur un fichier vraiment illisible) ;
+- écarts dits : icône `FolderOpen` (Hermes ne connaît pas `FolderKanban`), position `before:catalogue`
+  (`after:acp` serait sans effet).
 
 ## [Unreleased]
 
