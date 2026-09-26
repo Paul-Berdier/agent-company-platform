@@ -918,8 +918,14 @@ def claude_report_payload(document: Any) -> dict[str, Any]:
 async def probe_claude_code(config: SubscriptionQuotaConfig) -> SubscriptionQuotaReport:
     """Lit le dernier relevé de la ligne d'état Claude Code ; ne lève jamais."""
 
+    return await probe_claude_snapshot(config.claude_snapshot_path)
+
+
+async def probe_claude_snapshot(path: Path) -> SubscriptionQuotaReport:
+    """Lit le fichier de la ligne d'état Claude Code ``path`` ; ne lève jamais (étape P5 : chemin de poste.toml)."""
+
     try:
-        state, data = await asyncio.to_thread(_read_snapshot_bytes, config.claude_snapshot_path)
+        state, data = await asyncio.to_thread(_read_snapshot_bytes, path)
         if state == "missing":
             return _failure("claude_code", "unavailable", CLAUDE_MISSING)
         if state == "too_large":
