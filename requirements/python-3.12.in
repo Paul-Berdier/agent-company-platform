@@ -18,6 +18,9 @@ pydantic>=2.7
 # --- Tests Python ---
 pytest>=8
 pytest-asyncio>=0.23
+# Étape P5 : autorité de certification de test du faux Hermes HTTPS (apps/poste/tests/contrat) ;
+# jamais installé sur le poste (le verrou d'exécution du poste est poste-3.12.lock.txt).
+cryptography>=42
 # pytest exige colorama sous Windows (marqueur ``sys_platform == "win32"``). Le verrou
 # est compilé sous Linux : colorama y est donc demandé sans marqueur, pour que le même
 # verrou haché installe aussi les tests du poste sous Windows (CI windows-2022).

@@ -1,26 +1,15 @@
-"""Configuration du poste chargée depuis l'environnement.
+"""Origine de service du poste : ``normalize_service_origin`` (repris de P0).
 
-Refonte « Hermes au centre » : l'API ACP a disparu, et avec elle l'enrôlement, les
-claims, la passerelle de fournisseurs et les capacités annoncées. Il reste ce que le
-poste exécute localement : les exécuteurs Codex et Claude Code, le runner local sous
-Job Object et le relevé des quotas d'abonnement.
-
-``normalize_service_origin`` impose HTTPS hors adresse de bouclage. Elle validera
-l'origine de Hermes quand la voie kanban du poste arrivera (P5, docs/refonte/plan.md) ;
-d'ici là, aucune origine réseau n'est lue.
+Étape P5 : la configuration du poste vient de ``poste.toml`` (:mod:`politique`) ; ``PosteConfig.from_env`` et les
+réglages ``ACP_WORKER_*`` ont disparu. Cette fonction canonicalise une origine sans chemin, sans ``userinfo``, sans
+requête ni fragment. Elle admet ``http://`` sur la boucle locale ; :mod:`politique` exige en plus HTTPS **partout**
+pour l'origine de Hermes (cahier P5 § 7.3).
 """
 
 import ipaddress
 import re
-from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
-from .executors import ExecutorConfig, ExecutorConfigurationError
-from .local_runner import LocalRunnerConfig
-from .subscription_quotas import (
-    SubscriptionQuotaConfig,
-    SubscriptionQuotaConfigurationError,
-)
 
 
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
@@ -90,58 +79,3 @@ def normalize_service_origin(value: str, *, setting: str) -> str:
         else f"{canonical_host}:{port}"
     )
     return f"{scheme}://{authority}"
-
-
-@dataclass(frozen=True)
-class PosteConfig:
-    """Réglages locaux du poste, fermés par défaut.
-
-    Aucun dossier d'état : plus rien ne s'y écrit depuis le retrait de l'enrôlement
-    et de la boucle de claims. Le jeton machine (DPAPI) et le journal local
-    reviendront en P5, avec la politique locale ``poste.toml`` du plan.
-    """
-
-    local_runner: LocalRunnerConfig | None = None
-    executors: ExecutorConfig = field(default_factory=ExecutorConfig.disabled)
-    subscription_quotas: SubscriptionQuotaConfig = field(
-        default_factory=SubscriptionQuotaConfig.disabled
-    )
-
-    def __post_init__(self) -> None:
-        if self.local_runner is not None and not isinstance(
-            self.local_runner, LocalRunnerConfig
-        ):
-            raise PosteConfigurationError("local_runner doit être une LocalRunnerConfig")
-        if not isinstance(self.executors, ExecutorConfig):
-            raise PosteConfigurationError("executors doit être une ExecutorConfig")
-        if not isinstance(self.subscription_quotas, SubscriptionQuotaConfig):
-            raise PosteConfigurationError(
-                "subscription_quotas doit être une SubscriptionQuotaConfig"
-            )
-
-    @classmethod
-    def from_env(cls) -> "PosteConfig":
-        try:
-            executors = ExecutorConfig.from_environ()
-        except ExecutorConfigurationError as exc:
-            raise PosteConfigurationError(str(exc)) from exc
-        try:
-            subscription_quotas = SubscriptionQuotaConfig.from_environ(executors=executors)
-        except SubscriptionQuotaConfigurationError as exc:
-            raise PosteConfigurationError(str(exc)) from exc
-        return cls(
-            local_runner=LocalRunnerConfig.from_environment(),
-            executors=executors,
-            subscription_quotas=subscription_quotas,
-        )
-
-    def diagnostic(self) -> dict[str, object]:
-        """État local, sans chemin, secret ni valeur d'environnement."""
-
-        report: dict[str, object] = {
-            "local_runner": "configured" if self.local_runner is not None else "missing",
-            "agent_executors": sorted(self.executors.enabled_executors),
-            "executor_project_roots": len(self.executors.project_roots),
-        }
-        report.update(self.subscription_quotas.doctor_report())
-        return report

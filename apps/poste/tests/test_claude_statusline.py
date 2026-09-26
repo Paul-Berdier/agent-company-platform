@@ -21,7 +21,7 @@ import pytest
 
 import acp_poste
 from acp_poste import claude_statusline as statusline
-from acp_poste.subscription_quotas import SubscriptionQuotaConfig, probe_claude_code
+from acp_poste.subscription_quotas import probe_claude_snapshot
 
 WORKER_SOURCES = Path(acp_poste.__file__).resolve().parents[1]
 PYTHON = str(Path(sys.executable).resolve())
@@ -110,9 +110,9 @@ def test_the_status_line_records_only_the_subscription_windows(tmp_path: Path):
     assert "7 j : 41,2 % utilisés" in line
 
 
-def test_the_default_location_is_the_one_the_worker_reads(tmp_path: Path):
+@pytest.mark.skipif(os.name == "nt", reason="hors Windows : le profil de l'utilisateur")
+def test_the_default_location_outside_windows_is_in_the_profile(tmp_path: Path):
     assert statusline.default_snapshot_path() == Path.home() / ".acp" / "quotas" / "claude-code.json"
-    assert SubscriptionQuotaConfig().claude_snapshot_path == statusline.default_snapshot_path()
     completed = run_statusline(
         session(), None, environment={"USERPROFILE": str(tmp_path), "HOME": str(tmp_path)}
     )
@@ -120,12 +120,21 @@ def test_the_default_location_is_the_one_the_worker_reads(tmp_path: Path):
     assert (tmp_path / ".acp" / "quotas" / "claude-code.json").is_file()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="propre à Windows (exécuté sur windows-2022)")
+def test_the_default_location_on_windows_is_the_one_the_poste_reads():
+    """Étape P5 (décision D56) : ``%ProgramData%/ACP/quotas/claude-code.json``, lu par le compte du poste, pris dans
+    les dossiers connus du système (jamais une variable d'environnement). Rien n'est écrit par ce test."""
+    from acp_poste.chemins import FOLDERID_PROGRAMDATA, _dossier_connu
+
+    attendu = _dossier_connu(FOLDERID_PROGRAMDATA) / "ACP" / "quotas" / "claude-code.json"
+    assert statusline.default_snapshot_path() == attendu
+    assert statusline.snapshot_path({}) == attendu
+
+
 async def test_the_written_file_is_read_back_by_the_worker_probe(tmp_path: Path):
     snapshot = tmp_path / "claude-code.json"
     assert run_statusline(session(), snapshot).returncode == 0
-    report = await probe_claude_code(
-        SubscriptionQuotaConfig(enabled=True, codex_home=tmp_path, claude_snapshot_path=snapshot)
-    )
+    report = await probe_claude_snapshot(snapshot)
     assert (report.status, report.limit_id) == ("ok", "default")
     assert [(w.key, w.used_percent, w.window_minutes, w.resets_at) for w in report.windows] == [
         ("five_hour", 23.5, 300, datetime.fromtimestamp(FIVE_HOUR_RESETS_AT, UTC)),
