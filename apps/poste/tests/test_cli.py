@@ -119,6 +119,7 @@ def test_hors_windows_aucun_emplacement_par_defaut(capsys):
 def test_connexion_claude_masquee(poste, capsys, monkeypatch):
     from acp_poste import connexions
 
+    poste.ecrire_politique()
     invites = []
     monkeypatch.setattr(connexions.getpass, "getpass", lambda invite: invites.append(invite) or "sk-ant-oat01-" + "j" * 30)
     assert main(["connexion", "claude"], contexte=poste.contexte()) == 0
@@ -128,6 +129,20 @@ def test_connexion_claude_masquee(poste, capsys, monkeypatch):
     assert poste.coffre.lire("jeton-claude").startswith("sk-ant-oat01-")
     monkeypatch.setattr(connexions.getpass, "getpass", lambda _i: "avec espace")
     assert main(["connexion", "claude"], contexte=poste.contexte()) == 2
+
+
+def test_gestes_du_compte_du_poste_refuses_dans_un_autre_compte(poste, capsys, monkeypatch):
+    """Mode dédié : enrôlement, connexions et preuve ne se font que dans le compte du poste (sinon jeton, profil et
+    coffre atterriraient dans le profil d'un autre compte, où le service ne les trouverait jamais)."""
+    from acp_poste import connexions
+
+    monkeypatch.setattr(connexions.getpass, "getpass", lambda _i: pytest.fail("aucune saisie dans le mauvais compte"))
+    poste.ecrire_politique(poste.toml(compte="dedie"))
+    for commande in (["enroler", "--code-stdin"], ["connexion", "claude"], ["connexion", "codex"],
+                     ["connexion", "bac-a-sable"], ["preuve", "model-list"]):
+        assert main(commande, contexte=poste.contexte(compte_courant=lambda: "Paul")) == 2
+        assert "doit tourner sous « acp-poste »" in capsys.readouterr().err
+    assert poste.coffre.valeurs == {}
 
 
 def test_connexion_bac_a_sable_refusee_hors_console(poste, capsys, tmp_path):

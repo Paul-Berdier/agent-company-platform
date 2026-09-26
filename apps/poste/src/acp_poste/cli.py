@@ -177,14 +177,24 @@ def executer(args: argparse.Namespace, contexte: Contexte) -> int:
         from .service import servir
 
         return asyncio.run(servir(contexte))
-    if commande == "connexion" and args.cible == "claude":
-        from .connexions import connexion_claude
-
-        return connexion_claude(contexte)
     politique, refus = _charger(contexte)
     if politique is None:
         print(f"Configuration du poste refusée : {refus}", file=sys.stderr)
         return 2
+    if commande in ("enroler", "connexion", "preuve"):
+        # Jeton, profil Codex et coffre appartiennent au compte du poste : lancés dans un autre compte, ils
+        # atterriraient dans son profil et le service ne les trouverait jamais.
+        from .politique import PolitiqueRefusee, verifier_compte
+
+        try:
+            verifier_compte(politique, contexte.compte_courant())
+        except PolitiqueRefusee as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    if commande == "connexion" and args.cible == "claude":
+        from .connexions import connexion_claude
+
+        return connexion_claude(contexte)
     if commande == "enroler":
         from .enrolement import enroler
 
