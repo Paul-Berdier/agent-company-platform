@@ -214,10 +214,30 @@ propriétaire, mauvais mot de passe ; relevés du noyau (pas d'échantillonnage)
 |---|---|---|---|
 | 10 simultanés | 0,726 Gio | 0,689 à 0,690 Gio | 8 à 12 s |
 | 20 simultanés | **1,346 à 1,348 Gio** | 1,311 à 1,313 Gio | 14 à 16 s |
-| 20 simultanés, **témoin sous 1 Gio** sans échange | — | — | Authelia **tué** (OOM, code 137), le bord rend 502 |
+| 20 simultanés, **témoin sous 1 Gio** sans échange (jusqu'à 3 essais) | — | — | Authelia **tué** (OOM, code 137), le bord rend 502 |
 
 Relevés du 25/09/2026 sur le poste Windows (Docker Desktop), trois exécutions concordantes ; au
 repos, Authelia occupe ~0,1 Gio. Pente mesurée : ~64 Mio par vérification simultanée.
+
+Le témoin n'est **pas déterministe** : le pic dépend de l'entrelacement des vérifications sur
+0,5 vCPU. Tué à chaque exécution sur le poste et dans les runs de P2, il a **survécu** une fois sur la
+CI (`image.yml` 36118860946, étape P3 : état « true false 0 », réponses 401). Depuis, le test fait
+jusqu'à **trois essais**, chacun sur un conteneur neuf, rapporte chacun et exige au moins une mort
+(OOM) : 1 Go ne tient donc pas **toujours**, et cela suffit à l'écarter.
+
+Une rafale n'est pas toujours simultanée : sur la CI (`image.yml` 36134351025, seconde partie de P3),
+la rafale de 20 n'a culminé qu'à **0,538 Gio**, soit ~7 vérifications de 64 Mio au-dessus du repos
+(celle de 10 : 0,725 Gio). Les vérifications s'y sont succédé, ou la régulation a banni le compte
+après 5 échecs avant que les autres ne soient hachées : ce pic ne mesure pas 20 premiers facteurs
+simultanés. Le commit `ec43987` avait remplacé l'exigence « pic à 20 > pic à 10 » par « chaque
+rafale consomme de la mémoire », qu'une seule vérification satisfait : le critère de la limite
+pouvait alors passer sans rien mesurer à 20 (relecture de P3). Depuis, une rafale de n ne compte que
+si le `VmHWM` d'Authelia a monté d'au moins **les trois quarts de n × 64 Mio**
+(`rafale_simultanee`) ; sinon elle est refaite sur un conteneur neuf, jusqu'à **trois essais**, tous
+rapportés, et aucun essai simultané fait **échouer** le test (mesure non établie). Le test
+`test_critere_de_simultaneite_…` vérifie ce critère sur les relevés réels : il refuse la rafale de
+36134351025 et accepte celles du poste (10,0 et 20,1 × 64 Mio le 25/09/2026). L'ordre des deux pics
+n'est pas exigé ; le **plus haut** des deux doit rester sous les deux tiers de la limite retenue.
 
 **Limite retenue pour `railway.ts` (service identite) : 2,5 Gio** (`limitOverride.containers.memoryBytes
 = 2684354560`). Critère du plan : le pic à 20 doit rester sous les deux tiers de la limite ; il en

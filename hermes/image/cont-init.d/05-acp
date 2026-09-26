@@ -7,8 +7,10 @@
 # crochet acp-gardes (défense en profondeur, si S6_STAGE2_HOOK avait été retiré) et
 # vérifie la managed scope installée ; rend /opt/data/plugins, /opt/data/dashboard-themes
 # et /opt/data/acp propriété de root (0755) après avoir refusé tout nom réservé acp-* ou
-# lien symbolique ; dépose le thème acp et SOUL.md selon son empreinte ; écrit l'état du
-# démarrage dans /run/acp/etat-demarrage.json.
+# lien symbolique ; dépose le thème acp et SOUL.md selon son empreinte ; depuis P3, refuse tout
+# serveur MCP stdio ou hors catalogue du volume et écrit dans /opt/data/config.yaml les réglages
+# du catalogue que Hermes lit sans la managed scope (skills.external_dirs, skills.disabled,
+# mcp_servers.context7) ; écrit l'état du démarrage dans /run/acp/etat-demarrage.json.
 #
 # Un refus (code 1, message en français) arrête le conteneur à la fin de l'étape
 # cont-init (S6_BEHAVIOUR_IF_STAGE2_FAILS=2), avant le tableau de bord ; même arrêt

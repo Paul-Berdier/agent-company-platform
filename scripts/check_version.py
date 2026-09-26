@@ -28,7 +28,14 @@ PYPROJECTS = (
     "hermes/plugins/acp-poste/contrat/pyproject.toml",
 )
 
-PACKAGE_JSONS = ("package.json", "hermes/plugins/acp-poste/dashboard/manifest.json")
+PACKAGE_JSONS = (
+    "package.json",
+    "hermes/plugins/acp-poste/dashboard/manifest.json",
+    # Étape P3 : greffons d'interface et leurs sources (hors des workspaces npm de la racine).
+    "hermes/plugins/acp-interface/dashboard/manifest.json",
+    "hermes/plugins/acp-catalogue/dashboard/manifest.json",
+    "apps/interface/package.json",
+)
 
 # Manifestes YAML des greffons groupés de l'image Hermes (champ ``version`` de premier
 # niveau, lu sans PyYAML : ce script ne dépend que de la bibliothèque standard).

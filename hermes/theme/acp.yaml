@@ -1,16 +1,92 @@
-# Thème « acp » du tableau de bord de Hermes.
-#
-# Version provisoire écrite à la main en P1 pour éprouver le dépôt du thème par
-# 05-acp (répertoire /opt/data/dashboard-themes rendu propriété de root). Les
-# couleurs reprennent design/tokens/colors.json, thème sombre : surface.canvas,
-# text.primary et accent.primary. P3 remplace ce fichier par la sortie de
-# scripts/generer_themes.py, générée depuis la même source que le QML.
-#
-# Format : _normalise_theme_definition (hermes_cli/web_server_dashboard.py:317-411).
-name: acp
-label: ACP
-description: Thème ACP provisoire (graphite, ivoire et sarcelle).
+# Fichier généré par scripts/generer_themes.py depuis design/tokens ; ne pas modifier à la main.
+# Toute correction se fait dans les jetons, puis : python scripts/generer_themes.py
+# Jetons : colors 1.1.0, semantic-status 1.0.0, typography 1.0.0, radius 1.0.0, spacing 1.1.0, motion 1.0.0 (thème dark).
+# Empreinte des jetons lus (JSON canonique) : sha256:c177fa8407e0130c3ae29a1f09a68364cf4a7af7bc9735987b62e96c1ed55c23
+# Même source que le QML du desktop (apps/desktop/qml/theme/generated), vérifié par --check.
+# Format : _normalise_theme_definition de Hermes (hermes_cli/web_server_dashboard.py:317-411).
+# Contrastes recalculés (WCAG 2.1) :
+#   15.15:1 (min 4.5) texte principal sur le canevas (#eef2e9 sur #191c1a)
+#   13.94:1 (min 4.5) texte sur une carte (#eef2e9 sur #1e2420)
+#   12.10:1 (min 4.5) texte sur une surface flottante (#eef2e9 sur #282f2a)
+#    7.78:1 (min 4.5) encre sur l'accent principal (#07271c sur #65c6ae)
+#   12.27:1 (min 4.5) texte sur la surface secondaire (#eef2e9 sur #272e29)
+#    5.71:1 (min 4.5) texte atténué sur la surface atténuée (#9aaa9d sur #272e29)
+#    7.04:1 (min 4.5) texte atténué sur le canevas (#9aaa9d sur #191c1a)
+#    6.48:1 (min 4.5) texte atténué sur une carte (#9aaa9d sur #1e2420)
+#   10.25:1 (min 4.5) texte sur l'accent atténué (#eef2e9 sur #233e32)
+#    6.40:1 (min 4.5) encre sur l'échec (#191c1a sur #f17b73)
+#    8.38:1 (min 4.5) primary employé comme texte sur le canevas (#65c6ae sur #191c1a)
+#    7.71:1 (min 4.5) primary employé comme texte sur une carte (#65c6ae sur #1e2420)
+#    6.40:1 (min 4.5) destructive employé comme texte sur le canevas (#f17b73 sur #191c1a)
+#    5.89:1 (min 4.5) destructive employé comme texte sur une carte (#f17b73 sur #1e2420)
+#    8.46:1 (min 4.5) success employé comme texte sur le canevas (#5fca91 sur #191c1a)
+#    7.79:1 (min 4.5) success employé comme texte sur une carte (#5fca91 sur #1e2420)
+#    9.79:1 (min 4.5) warning employé comme texte sur le canevas (#dcc26a sur #191c1a)
+#    9.01:1 (min 4.5) warning employé comme texte sur une carte (#dcc26a sur #1e2420)
+#    4.96:1 (min 3.0) bordure interactive sur le canevas (#7e8e80 sur #191c1a)
+#    4.57:1 (min 3.0) bordure interactive sur une carte (#7e8e80 sur #1e2420)
+#   11.63:1 (min 3.0) anneau de focus sur le canevas (#95e4c9 sur #191c1a)
+#   10.70:1 (min 3.0) anneau de focus sur une carte (#95e4c9 sur #1e2420)
+name: "acp"
+label: "ACP"
+description: "Identité ACP : graphite végétal, ivoire et sarcelle (thème sombre des jetons de design)."
 palette:
   background: "#191c1a"
   midground: "#eef2e9"
-  warmGlow: "rgba(101, 198, 174, 0.25)"
+  foreground:
+    hex: "#ffffff"
+    alpha: 0
+  warmGlow: "rgba(0, 0, 0, 0)"
+  noiseOpacity: 0
+typography:
+  fontSans: "Inter, \"Inter Variable\", \"Segoe UI Variable Text\", \"Segoe UI\", \"SF Pro Text\", \"Noto Sans\", \"DejaVu Sans\", sans-serif"
+  fontMono: "\"Cascadia Code\", \"Cascadia Mono\", \"JetBrains Mono\", \"SF Mono\", SFMono-Regular, Consolas, \"DejaVu Sans Mono\", monospace"
+  baseSize: "14px"
+  lineHeight: "1.43"
+  letterSpacing: "0"
+layout:
+  radius: "8px"
+  density: "comfortable"
+layoutVariant: "standard"
+colorOverrides:
+  card: "#1e2420"
+  cardForeground: "#eef2e9"
+  popover: "#282f2a"
+  popoverForeground: "#eef2e9"
+  primary: "#65c6ae"
+  primaryForeground: "#07271c"
+  secondary: "#272e29"
+  secondaryForeground: "#eef2e9"
+  muted: "#272e29"
+  mutedForeground: "#9aaa9d"
+  accent: "#233e32"
+  accentForeground: "#eef2e9"
+  destructive: "#f17b73"
+  destructiveForeground: "#191c1a"
+  success: "#5fca91"
+  warning: "#dcc26a"
+  border: "#3a453c"
+  input: "#7e8e80"
+  ring: "#95e4c9"
+componentStyles:
+  card:
+    boxShadow: "none"
+  header:
+    background: "#131714"
+  sidebar:
+    background: "#131714"
+customCSS: |
+  /* Généré depuis design/tokens (spacing.layout.focusRing*, colors.border.focus, motion). */
+  :focus-visible {
+    outline: 2px solid #95e4c9;
+    outline-offset: 2px;
+  }
+  /* Profil « mouvement réduit » de motion.json : aucun déplacement, aucune boucle. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }

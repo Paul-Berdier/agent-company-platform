@@ -36,10 +36,21 @@ COPY contrat/ /opt/acp/contrat/
 COPY gere/config.yaml /opt/acp/gere/config.yaml
 COPY persona/SOUL.md /opt/acp/persona/SOUL.md
 COPY theme/ /opt/acp/theme/
+# Étape P3 : catalogue épinglé. Skills en texte seul (maison et vendorisées à l'octet près, avec
+# LICENSE et PROVENANCE.md), hors du volume : 05-acp les fait charger par skills.external_dirs
+# (/opt/data/config.yaml, que Hermes lit sans la managed scope). Verrou et licences tierces.
+COPY skills/ /opt/acp/skills/
+COPY catalogue/ /opt/acp/catalogue/
+COPY THIRD_PARTY.md /opt/acp/THIRD_PARTY.md
 COPY image/acp_demarrage.py image/acp-gardes image/acp-run-dashboard image/acp-entree /opt/acp/bin/
 # Greffon groupé : /opt/hermes/plugins est la source « bundled » de Hermes
 # (hermes_cli/plugins.py:68-75), en lecture seule pour l'agent.
 COPY plugins/acp-poste/ /opt/hermes/plugins/acp-poste/
+# Étape P3 : greffons de tableau de bord SANS code serveur (manifeste, bundle IIFE, feuille de
+# style), construits depuis apps/interface et committés. Découverts en source « bundled »
+# (web_server_dashboard.py:463-560), servis tant qu'ils ne sont pas dans plugins.disabled.
+COPY plugins/acp-interface/ /opt/hermes/plugins/acp-interface/
+COPY plugins/acp-catalogue/ /opt/hermes/plugins/acp-catalogue/
 # 05-acp s'exécute après 02-reconcile-profiles (ordre lexicographique de /etc/cont-init.d).
 COPY image/cont-init.d/05-acp /etc/cont-init.d/05-acp
 
@@ -48,9 +59,12 @@ COPY image/cont-init.d/05-acp /etc/cont-init.d/05-acp
 # construction (un modèle invalide fait échouer le build) et les épingles s'appliquent
 # même à un processus lancé hors de s6.
 RUN set -eu; \
-    chown -R root:root /opt/acp /opt/hermes/plugins/acp-poste /etc/cont-init.d/05-acp; \
-    find /opt/acp /opt/hermes/plugins/acp-poste -type d -exec chmod 0755 {} +; \
-    find /opt/acp /opt/hermes/plugins/acp-poste -type f -exec chmod 0644 {} +; \
+    chown -R root:root /opt/acp /opt/hermes/plugins/acp-poste /opt/hermes/plugins/acp-interface \
+        /opt/hermes/plugins/acp-catalogue /etc/cont-init.d/05-acp; \
+    find /opt/acp /opt/hermes/plugins/acp-poste /opt/hermes/plugins/acp-interface \
+        /opt/hermes/plugins/acp-catalogue -type d -exec chmod 0755 {} +; \
+    find /opt/acp /opt/hermes/plugins/acp-poste /opt/hermes/plugins/acp-interface \
+        /opt/hermes/plugins/acp-catalogue -type f -exec chmod 0644 {} +; \
     chmod 0755 /opt/acp/bin/acp-gardes /opt/acp/bin/acp-run-dashboard /opt/acp/bin/acp-entree \
         /etc/cont-init.d/05-acp; \
     /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py construire

@@ -1,0 +1,29 @@
+{
+  "name": "@acp/interface",
+  "private": true,
+  "version": "0.11.0",
+  "description": "Greffons de tableau de bord d'ACP pour Hermes (acp-interface, acp-catalogue) : sources TypeScript, bundles IIFE déterministes committés sous hermes/plugins. Hors des workspaces npm de la racine.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "check": "node esbuild.mjs --check",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json --noEmit && vitest run",
+    "decompte": "node outils/decompte-traductions.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "axe-core": "4.13.0",
+    "esbuild": "0.28.2",
+    "happy-dom": "20.14.5",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "typescript": "6.0.3",
+    "vitest": "5.0.1"
+  }
+}

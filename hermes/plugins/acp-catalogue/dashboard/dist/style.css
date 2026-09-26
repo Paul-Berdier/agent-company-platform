@@ -1,0 +1,370 @@
+/* acp-catalogue 0.11.0 (ACP) — style généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
+/* Styles des greffons acp-interface et acp-catalogue.
+ * Uniquement des variables du thème actif (thème « acp », généré depuis design/tokens par
+ * scripts/generer_themes.py) : aucune couleur recopiée ici. Échelle d'espacement et rayons de
+ * design/tokens/spacing.json et radius.json ; cibles tactiles de 44 px au moins. */
+
+.acp-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--color-foreground, var(--midground-base));
+}
+
+.acp-entete {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.acp-titre {
+  margin: 0;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.acp-discret {
+  margin: 0;
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.acp-grille,
+.acp-entrees {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 768px) {
+  .acp-grille,
+  .acp-entrees {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .acp-grille {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.acp-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.acp-carte,
+.acp-entree {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+}
+
+.acp-entree {
+  background: var(--color-secondary, var(--color-card));
+  color: var(--color-secondary-foreground, var(--color-card-foreground));
+}
+
+.acp-carte__titre,
+.acp-sous-titre,
+.acp-entree__nom {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.acp-entree__nom {
+  overflow-wrap: anywhere;
+}
+
+.acp-carte p {
+  margin: 0;
+}
+
+.acp-liste {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.acp-ligne {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-ligne:last-child {
+  border-bottom: 0;
+}
+
+.acp-ligne dt {
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+}
+
+.acp-ligne dd {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.acp-mono {
+  font-family: var(--theme-font-mono, monospace);
+  font-size: 12px;
+}
+
+.acp-inconnu {
+  color: var(--color-muted-foreground);
+  font-style: italic;
+}
+
+.acp-pastille {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.acp-pastille--succes {
+  color: var(--color-success);
+}
+
+.acp-pastille--degrade {
+  color: var(--color-warning);
+}
+
+.acp-pastille--echec {
+  color: var(--color-destructive);
+}
+
+/* Inconnu, non configuré, hors ligne : trait pointillé, jamais plein (règle de forme des jetons). */
+.acp-pastille--neutre {
+  color: var(--color-muted-foreground);
+  border-style: dashed;
+}
+
+.acp-etat {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.acp-lien {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.acp-lien:hover {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+.acp-raccourcis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acp-raccourcis .acp-lien {
+  width: 100%;
+  justify-content: center;
+}
+
+.acp-sessions,
+.acp-noms,
+.acp-outils {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acp-session {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-session__titre {
+  overflow-wrap: anywhere;
+}
+
+.acp-session__meta {
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+
+.acp-nom-etat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.acp-details summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--color-primary);
+}
+
+.acp-filtres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+}
+
+.acp-filtres legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.acp-choix {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.acp-choix label {
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+
+.acp-choix select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+  font: inherit;
+}
+
+.acp-erreur {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-destructive);
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+}
+
+.acp-erreur p {
+  margin: 0;
+}
+
+.acp-alerte-texte {
+  color: var(--color-warning);
+}
+
+.acp-banniere {
+  margin: 8px 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-warning);
+  border-left-width: 4px;
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+}
+
+.acp-banniere--refus {
+  border-color: var(--color-destructive);
+}
+
+.acp-banniere p {
+  margin: 0;
+}
+
+.acp-banniere__titre {
+  margin: 0 0 4px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.acp-banniere__liste {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.acp-marque-racine {
+  display: inline-flex;
+}
+
+.acp-marque {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: var(--radius, 8px);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.acp-pied {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}

@@ -9,3 +9,12 @@ identite/** text=auto eol=lf
 # Infrastructure Railway (IaC, verrou npm, vérificateur) : LF, comme le reste des fichiers lus par
 # des outils Unix (CLI Railway sous WSL, CI).
 .railway/** text=auto eol=lf
+# Sources des greffons d'interface (TypeScript, verrou npm, construction) : LF, comme les bundles
+# qu'elles produisent sous hermes/plugins.
+apps/interface/** text=auto eol=lf
+# Skills vendorisées (hermes/catalogue/catalogue.lock.json) : octets amont à l'identique, fins de
+# ligne LF ; deux fichiers amont portent des espaces en fin de ligne, gardés tels quels, que
+# `git diff --check` ne doit pas signaler.
+hermes/skills/emil-kowalski/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+hermes/skills/taste-skill/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+hermes/skills/ecc/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

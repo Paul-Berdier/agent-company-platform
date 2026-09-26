@@ -83,6 +83,39 @@
   vrai tableau de bord) conditionnent la fusion de P2 ; test navigateur Playwright en CI (Chromium
   téléchargé par la CI), en local seulement si un Chromium de Playwright est déjà présent.
 
+### Étape P3 : choix par défaut D1 à D20, **à confirmer par le propriétaire**
+
+Source : cahier de conception de P3 (brouillon de session `plan_p3.md`, § 13 « Décisions à
+prendre », 25 septembre 2026), rédigé par l'agent. **Aucun de ces choix n'a été confirmé par le
+propriétaire à ce jour** : P3 applique les recommandations par défaut du cahier pour avancer, et les
+documents de P3 les citent par leur numéro. Contrairement aux blocs ci-dessus, ils **ne font pas
+foi** : là où ils s'écartent du plan (§ 8, § 15), l'écart est dit ci-dessous. Consignés ici après la
+relecture indépendante de P3, qui relevait des références D* sans définition. À confirmer en
+priorité : **D1, D2, D5, D12 et D16**.
+
+| N° | Question | Choix appliqué en P3 | Écart au plan ou remarque |
+|---|---|---|---|
+| D1 | Tutoiement ou vouvoiement de l'agent | **Vouvoiement** (`SOUL.md`, `acp-redaction`) | § 8 : « décision du propriétaire » ; § 15 recommandait le **tutoiement** : **contraire**, à confirmer |
+| D2 | Liste finale du catalogue côté Hermes | Liste du cahier (16 skills livrées) | § 8 : « décision du propriétaire » ; `literature-review` non vendorisée (provenance) ; après la relecture, `claude-design` et `hermes-agent-skill-authoring` désactivées ([catalogue.md](catalogue.md) § 3) |
+| D3 | Épingler ECC | Étiquette `v2.2.1` (`5064474`), licence MIT lue | — |
+| D4 | Noms des skills | Noms amont conservés, provenance par la catégorie ; préfixe seulement en cas de collision future | — |
+| D5 | Ajouts hors citation du propriétaire | `accessibility`, `mle-workflow`, `python-patterns` ; `literature-review` retenue par le cahier mais **non vendorisée** ; `seo`, `pytorch-patterns`, `animate-expo`, `write-swift`, `industrial-brutalist-ui` écartées | à confirmer |
+| D6 | Skills livrées par Hermes inertes sur Railway | Désactivées (`skills.disabled` du volume ; 46 depuis la relecture) | — |
+| D7 | Second serveur MCP distant (deepwiki) | Non en P3 : un seul MCP prouvé de bout en bout | — |
+| D8 | Serveur MCP stdio ou hors catalogue dans le volume | **Refus de démarrer** (échec fermé) | remède d'un ajout par la page MCP native : [catalogue.md](catalogue.md) § 7.3 |
+| D9 | Sonde réelle de context7 en CI | Non bloquante, sortie archivée | cahier : travail séparé ; appliqué comme étape d'`image.yml` |
+| D10 | Français forcé une fois ou verrouillé | **Verrouillé** (retour au français à chaque changement) | — |
+| D11 | Clé d'API context7 | Aucune (accès anonyme) | conditions d'utilisation à lire avant le premier déploiement ([railway.md](railway.md) § 2, point 6) |
+| D12 | `anthropics/skills` (`skill-creator`, `mcp-builder`, `frontend-design`), `obra/superpowers` | **Non retenus** en P3 ; au verrou, exclus avec leur raison depuis la relecture | § 8 et § 15 les recommandaient : **à confirmer** |
+| D13 | Greffon `hermes-achievements` | Désactivé | — |
+| D14 | Logo | Logotype texte « ACP » ; logo dessiné plus tard, web et QML ensemble | — |
+| D15 | Proposer en amont les traductions manquantes de `fr.ts` | Option hors chemin critique | — |
+| D16 | Traduire les skills vendorisées | **Non** : texte amont intact, métadonnées en français, réponse en français imposée par la persona | à confirmer |
+| D17 | Captures d'écran | Artefacts de la CI et empreintes dans la documentation, non committées | — |
+| D18 | Thème clair | Reporté : un seul thème (sombre), épinglé | — |
+| D19 | `skills.auto_load` | Aucune skill chargée d'office ; `acp-profils` à la demande | — |
+| D20 | `dashboard.font` | Épinglé sur la police du thème | — |
+
 ### Phases P4 à P8 remplacées par le plan d'autonomie
 
 Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
@@ -118,6 +151,14 @@ Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
   d'identité, IaC, procédure, CI verte) ; **rien n'est déployé** : le premier déploiement est fait par
   le propriétaire, selon [railway.md](railway.md), après la fusion. Preuves datées :
   `docs/reprise-poste.md`.
+- **P3** : en cours sur `refonte/hermes-p3` (empilée sur P2). Première partie, **identité visuelle
+  et français**, réalisée côté dépôt : thème `acp` généré depuis les jetons, persona française,
+  greffons `acp-interface` et `acp-catalogue`, verrou du français, décompte des chaînes restées en
+  anglais, captures 390×844 et 1440×900 ([interface.md](interface.md)). Seconde partie,
+  **réglages prêts**, réalisée côté dépôt : 16 skills livrées (14 vendorisées à des commits
+  épinglés, 2 maison), verrou et vérificateur, 46 skills livrées inertes désactivées, context7
+  seul MCP côté Hermes derrière la garde, refus des serveurs MCP stdio ou hors catalogue, route
+  `/v1/catalogue` ([catalogue.md](catalogue.md)). Aucune PR ni fusion à ce jour.
 
 ### Conséquences de P2 sur la lecture du plan
 

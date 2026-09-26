@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 CONTRAT = "acp-poste/1"
 NOM_GREFFON = "acp-poste"
@@ -168,6 +168,38 @@ def etat_garde_execution(decouvrir: Optional[Callable[[], None]] = None) -> Dict
     return bloc
 
 
+def _module_catalogue() -> ModuleType:
+    """catalogue.py de CE greffon, chargé par son chemin comme meta.py (même clé que
+    dashboard/plugin_api.py : un seul objet module)."""
+    cle = "acp_poste_greffon_catalogue"
+    module = sys.modules.get(cle)
+    if module is not None:
+        return module
+    spec = importlib.util.spec_from_file_location(cle, Path(__file__).resolve().parent / "catalogue.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("catalogue.py du greffon acp-poste introuvable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[cle] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(cle, None)
+        raise
+    return module
+
+
+def bloc_catalogue() -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], List[str]]:
+    """(bloc ``catalogue``, bloc ``interface``, alertes) de la méta, étape P3 : résumé de
+    ``/v1/catalogue`` (état vu par le chargeur de skills de CE processus) et versions des greffons
+    d'interface. Illisible : ``None`` et une alerte, jamais une erreur 500."""
+    try:
+        module = _module_catalogue()
+        complet = module.construire_catalogue()
+        return module.resume_pour_meta(complet), module.bloc_interface(), list(complet.get("alertes") or [])
+    except Exception as exc:  # noqa: BLE001 — valeur inconnue plutôt qu'une erreur 500
+        return None, None, [f"Catalogue d'ACP illisible ({type(exc).__name__}) : état inconnu."]
+
+
 ENTETES_MESURES = ("x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "x-railway-edge")
 
 
@@ -265,6 +297,14 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
             alertes.append("Paquets présents dans /opt/data/lazy-packages alors que les installations "
                            "paresseuses sont coupées : " + ", ".join(str(n) for n in paresseux[:20])
                            + ". À examiner avec « acp_demarrage.py diagnostiquer ».")
+        # Étape P3 : réglages de skills écrits par 05-acp dans le config.yaml du volume.
+        etat_catalogue = demarrage.get("catalogue") or {}
+        reglages = etat_catalogue.get("reglages_skills") or {}
+        if reglages.get("etat") == "illisible":
+            alertes.append("Réglages de skills d'ACP non appliqués au démarrage : " + str(reglages.get("detail") or
+                           "config.yaml illisible") + " Le catalogue d'ACP n'est peut-être pas chargé.")
+        for avertissement in etat_catalogue.get("avertissements_mcp") or []:
+            alertes.append(str(avertissement))
     deploiement = {"commit": _commit_du_demarrage(demarrage)}
 
     garde = etat_garde_execution(decouvrir)
@@ -276,6 +316,9 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         alertes.append(f"Le tableau de bord voit cette requête en « {bloc_reseau.get('schema_vu') or 'inconnu'} » "
                        "et non en https : ses cookies de session ne portent pas l'attribut Secure "
                        "(dashboard.trusted_proxies reste vide tant que le bord n'est pas mesuré).")
+
+    catalogue, interface, alertes_catalogue = bloc_catalogue()
+    alertes.extend(alertes_catalogue)
 
     environnement = etat_environnement()
     if environnement["managed_dir_conforme"] is False:
@@ -309,5 +352,8 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         "garde_execution": garde,
         "reseau": bloc_reseau,
         "deploiement": deploiement,
+        # Étape P3 (ajouts, contrat acp-poste/1 inchangé) : résumé du catalogue et greffons d'interface.
+        "catalogue": catalogue,
+        "interface": interface,
         "alertes": alertes,
     }

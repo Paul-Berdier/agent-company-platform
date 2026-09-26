@@ -366,7 +366,7 @@ def test_preview_restart_par_tui_gateway_temoin_negatif(chemins, valeurs, modele
 
 
 def test_garde_liste_blanche():
-    assert len(ge.OUTILS_ADMIS) == 24
+    assert len(ge.OUTILS_ADMIS) == 26
     for nom in ge.OUTILS_ADMIS:
         assert ge.garde(tool_name=nom, args={}) is None, nom
     for nom, motif in (("kanban_create", "les projets passeront par les outils du greffon acp-poste (P4)"),

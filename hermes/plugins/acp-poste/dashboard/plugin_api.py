@@ -3,9 +3,9 @@
 Hermes importe ce fichier par son chemin et monte ``router`` sous
 ``/api/plugins/acp-poste/`` au démarrage du tableau de bord
 (hermes_cli/web_server_dashboard.py:798-874) ; il ne passe PAS par le paquet du greffon,
-d'où le chargement explicite de ``meta.py`` ci-dessous. Toutes les routes sont derrière
-la porte d'authentification du tableau de bord (hermes_cli/dashboard_auth/middleware.py) :
-sans session, ``401``.
+d'où le chargement explicite de ``meta.py`` et (étape P3) de ``catalogue.py`` ci-dessous.
+Toutes les routes sont derrière la porte d'authentification du tableau de bord
+(hermes_cli/dashboard_auth/middleware.py) : sans session, ``401``.
 
 La lecture des fichiers se fait hors de la boucle d'événements : le ping des WebSocket
 de l'agent tourne sur cette boucle (web_server.py:1158-1164).
@@ -44,6 +44,7 @@ def _charger(nom: str) -> ModuleType:
 
 
 _meta = _charger("meta")
+_catalogue = _charger("catalogue")
 
 router = APIRouter()
 
@@ -67,3 +68,10 @@ async def lire_meta(request: Request) -> Dict[str, Any]:
     """Contrat, versions (greffon, Hermes en cours et testée), OpenRPC, état du démarrage, garde
     d'exécution du processus du tableau de bord, mesure réseau et commit déployé."""
     return await run_in_threadpool(_meta.construire_meta, reseau=mesurer_reseau(request))
+
+
+@router.get("/v1/catalogue")
+async def lire_catalogue() -> Dict[str, Any]:
+    """Étape P3 : verrou du catalogue livré dans l'image et état de chaque skill et serveur MCP tel
+    que le chargeur de Hermes le voit dans ce processus (lecture seule ; aucune action)."""
+    return await run_in_threadpool(_catalogue.construire_catalogue)

@@ -18,6 +18,8 @@ Commandes, exécutées en root par l'interpréteur de Hermes
     refus à ce stade arrête le conteneur (code 1) avant que ``01-hermes-setup`` ne
     consomme une variable interdite et avant que ``02-reconcile-profiles`` ne lance la
     passerelle : un script cont-init en échec, lui, n'empêche pas les suivants de tourner.
+    Depuis P3, refuse aussi tout serveur MCP stdio ou hors catalogue déclaré dans la
+    configuration du volume (décision D8).
 
 ``donnees``
     ``/etc/cont-init.d/05-acp``, APRÈS ``02-reconcile-profiles`` : refait les contrôles du
@@ -26,10 +28,14 @@ Commandes, exécutées en root par l'interpréteur de Hermes
     root (0755, fichiers 0644), dépose le thème ``acp`` et ``SOUL.md`` selon son empreinte,
     puis écrit l'état du démarrage dans ``/run/acp/etat-demarrage.json`` (lu par
     ``/api/plugins/acp-poste/v1/meta``). Depuis P2, rend aussi ``/opt/data/hooks`` et
-    ``/opt/data/scripts`` propriété de root après avoir exigé qu'ils soient vides.
+    ``/opt/data/scripts`` propriété de root après avoir exigé qu'ils soient vides. Depuis P3,
+    écrit ``skills.external_dirs``, ``skills.disabled`` et une entrée ``mcp_servers.context7``
+    dans ``/opt/data/config.yaml`` selon le catalogue (``/opt/acp/catalogue/catalogue.lock.json``) :
+    Hermes lit ces clés sans la managed scope.
 
 ``verifier-relance``
-    Garde root en tête des scripts ``run`` du tableau de bord et des passerelles.
+    Garde root en tête des scripts ``run`` du tableau de bord et des passerelles (variables
+    interdites du volume ; depuis P3, serveurs MCP stdio ou hors catalogue).
 
 ``diagnostiquer``
     Maintenance (étape P2), en LECTURE SEULE et en root : rassemble tout ce qui ferait
@@ -44,7 +50,8 @@ Tout écart lève :class:`Refus` : message en français sur la sortie d'erreur, 
 ``S6_BEHAVIOUR_IF_STAGE2_FAILS=2``, s6-overlay arrête alors le conteneur avec le code 1.
 
 Ce module n'importe rien de Hermes (il tourne en root, avant que Hermes n'ait amorcé son
-volume) : seulement la bibliothèque standard, PyYAML et python-dotenv de l'environnement
+volume) : seulement la bibliothèque standard, PyYAML, python-dotenv et (depuis P3, pour réécrire
+config.yaml sans en perdre les commentaires, comme Hermes) ruamel.yaml de l'environnement
 virtuel de l'image. Le chargeur YAML est celui de ``utils.fast_safe_load`` de Hermes
 (utils.py:613-615) : ``yaml.load`` avec le chargeur C sûr.
 """
@@ -93,6 +100,13 @@ class Chemins:
     montages: Path = Path("/proc/self/mountinfo")
     proc_pid1: Path = Path("/proc/1")
     env_s6: Path = Path("/run/s6/container_environment")
+    # Étape P3 : verrou du catalogue livré dans l'image (skills et serveurs MCP).
+    verrou_catalogue: Path = Path("/opt/acp/catalogue/catalogue.lock.json")
+
+    @property
+    def config_volume(self) -> Path:
+        """``config.yaml`` du volume, que Hermes lit SANS la managed scope pour les listes de skills."""
+        return self.hermes_home / "config.yaml"
 
     @property
     def greffons_utilisateur(self) -> Path:
@@ -496,7 +510,8 @@ EPINGLES_OBLIGATOIRES: Tuple[Tuple[str, Any], ...] = (
     ("approvals.single_query_mode", "deny"),
     ("approvals.unattended_mode", "deny"),
     ("plugins.enabled", []),
-    ("plugins.disabled", ["dashboard_auth/basic", "dashboard_auth/nous", "dashboard_auth/drain"]),
+    ("plugins.disabled", ["dashboard_auth/basic", "dashboard_auth/nous", "dashboard_auth/drain",
+                          "hermes-achievements"]),
     ("plugins.allow_deprecated_imports", False),
     ("auth.adopt_external_logins", False),
     ("security.redact_secrets", True),
@@ -509,15 +524,28 @@ EPINGLES_OBLIGATOIRES: Tuple[Tuple[str, Any], ...] = (
     ("agent.coding_context", "off"),
     ("agent.service_tier", ""),
     ("platform_toolsets.api_server", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"]),
+    # Étape P3 : cli nomme context7 (liste blanche des serveurs MCP) ; api_server et cron : no_mcp.
     ("platform_toolsets.cli", ["web", "vision", "skills", "todo", "memory", "session_search", "clarify",
-                               "no_mcp"]),
+                               "context7"]),
     ("platform_toolsets.cron", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"]),
+    # Étape P3 : context7, seul serveur MCP côté Hermes, distant en HTTP (catalogue.lock.json).
+    ("mcp_servers.context7.url", "https://mcp.context7.com/mcp"),
+    ("mcp_servers.context7.enabled", True),
+    ("mcp_servers.context7.ssl_verify", True),
+    ("mcp_servers.context7.sampling.enabled", False),
+    ("mcp_servers.context7.elicitation.enabled", False),
+    ("mcp_servers.context7.tools.include", ["resolve-library-id", "query-docs"]),
+    ("mcp_servers.context7.tools.resources", False),
+    ("mcp_servers.context7.tools.prompts", False),
     ("skills.inline_shell", False),
     ("skills.write_approval", True),
     ("skills.guard_agent_created", True),
     ("memory.write_approval", True),
     ("hooks_auto_accept", False),
     ("dashboard.theme", "acp"),
+    # Étape P3 : police du thème (aucune feuille de style distante) ; aucun greffon masqué.
+    ("dashboard.font", "theme"),
+    ("dashboard.hidden_plugins", []),
     ("dashboard.trusted_proxies", []),
     ("dashboard.oauth.client_id", ""),
     ("dashboard.oauth.portal_url", ""),
@@ -1489,15 +1517,274 @@ def contenu_paquets_paresseux(chemins: Chemins) -> Optional[List[str]]:
     return [n for n in entrees if n not in _FICHIERS_LAZY_ADMIS]
 
 
+# ---------------------------------------------------------------------------------------------
+# Catalogue (étape P3) : réglages de skills du volume et serveurs MCP du volume
+# ---------------------------------------------------------------------------------------------
+
+# Hermes 0.21.5 lit ``skills.external_dirs`` et ``skills.disabled`` dans /opt/data/config.yaml
+# BRUT, sans la managed scope (agent/skill_utils.py:250-310 et 359-385) : les épingler dans
+# /etc/hermes serait sans effet sur le chargeur de skills, et toute sauvegarde de Hermes les
+# retirerait du volume (hermes_cli/config.py:2379-2390). De même, le tableau de bord ne lance la
+# découverte MCP que si la config BRUTE déclare un serveur (hermes_cli/mcp_startup.py:53-65).
+# 05-acp écrit donc lui-même ces réglages dans le config.yaml du volume, à chaque démarrage, et
+# /v1/meta signale tout écart entre deux démarrages.
+
+
+def charger_catalogue(chemins: Chemins) -> Dict[str, Any]:
+    """Verrou du catalogue livré dans l'image ; :class:`Refus` s'il manque ou ne se lit pas."""
+    brut = lire_sans_lien(chemins.verrou_catalogue)
+    if brut is None:
+        raise Refus(f"{chemins.verrou_catalogue} est absent : l'image est incomplète.")
+    try:
+        verrou = json.loads(brut.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise Refus(f"{chemins.verrou_catalogue} ne se lit pas : {exc}.") from exc
+    if not isinstance(verrou, dict) or verrou.get("schema") != "acp-catalogue/1":
+        raise Refus(f"{chemins.verrou_catalogue} n'est pas un verrou acp-catalogue/1.")
+    try:
+        racine = verrou["racine_image"]
+        desactivees = [e["nom"] for e in verrou["livrees"]["desactivees_par_acp"]]
+        serveurs = [m["nom"] for m in verrou["mcp"] if m.get("cible") == "hermes" and m.get("etat") == "actif"]
+    except (KeyError, TypeError) as exc:
+        raise Refus(f"{chemins.verrou_catalogue} est incomplet ({exc}).") from exc
+    if not isinstance(racine, str) or not racine.startswith("/opt/acp/") or not all(
+            isinstance(n, str) and n for n in desactivees + serveurs):
+        raise Refus(f"{chemins.verrou_catalogue} porte des valeurs invalides.")
+    return verrou
+
+
+def _empreinte_catalogue(chemins: Chemins) -> Optional[str]:
+    brut = lire_sans_lien(chemins.verrou_catalogue)
+    return empreinte(brut) if brut is not None else None
+
+
+def serveurs_mcp_catalogue(catalogue: Mapping[str, Any]) -> List[str]:
+    """Serveurs MCP actifs côté Hermes selon le verrou (context7 en P3)."""
+    return [m["nom"] for m in catalogue["mcp"] if m.get("cible") == "hermes" and m.get("etat") == "actif"]
+
+
+def _liste_de_noms(valeur: Any) -> Optional[List[str]]:
+    """Liste de chaînes comme Hermes la lit (``parse_config_string_list``, agent/skill_utils.py) :
+    une chaîne « [...] » écrite par ``hermes config set`` est une liste, une chaîne simple un seul
+    nom ; ``None`` pour une valeur d'un autre type (non modifiée par ACP)."""
+    import ast
+
+    if valeur is None:
+        return []
+    if isinstance(valeur, str):
+        texte = valeur.strip()
+        if texte.startswith("["):
+            try:
+                analyse = ast.literal_eval(texte)
+            except (ValueError, SyntaxError):
+                analyse = None
+            if isinstance(analyse, list):
+                return [str(v) for v in analyse]
+        return [valeur]
+    if isinstance(valeur, list):
+        return [str(v) for v in valeur]
+    return None
+
+
+def _yaml_aller_retour():
+    """Chargeur « aller-retour » de ruamel.yaml réglé comme celui de Hermes
+    (utils.py:439-458) : commentaires, ordre, guillemets et lignes vides conservés."""
+    from ruamel.yaml import YAML
+
+    yaml_rt = YAML(typ="rt")
+    yaml_rt.width = 2**31 - 1
+    yaml_rt.preserve_quotes = True
+    yaml_rt.allow_unicode = True
+    yaml_rt.default_flow_style = False
+    yaml_rt.indent(mapping=2, sequence=4, offset=2)
+    yaml_rt.allow_duplicate_keys = True
+    return yaml_rt
+
+
+def appliquer_reglages_skills(chemins: Chemins, catalogue: Mapping[str, Any], *, uid: int, gid: int
+                              ) -> Dict[str, Any]:
+    """Réglages du catalogue que Hermes lit dans /opt/data/config.yaml SANS la managed scope :
+
+    - ``skills.external_dirs`` = le dossier du catalogue d'ACP en tête (les autres entrées du
+      propriétaire gardées) et ``skills.disabled`` ⊇ les skills livrées que le catalogue désactive
+      (agent/skill_utils.py:250-385) ;
+    - une entrée ``mcp_servers.<nom>`` pour chaque serveur MCP du catalogue (context7) : le tableau de
+      bord ne lance sa découverte MCP que si la config BRUTE du volume déclare un serveur
+      (hermes_cli/mcp_startup.py:53-65, ``read_raw_config``) ; sans elle, la discussion du tableau de
+      bord ne se connecte jamais à context7 (constaté en contrat). L'entrée est vide : tout son
+      contenu vient de la managed scope, qui l'emporte feuille par feuille ; une sauvegarde de Hermes
+      n'en retire que les feuilles épinglées, jamais l'entrée elle-même (hermes_cli/config.py:1526-1537).
+
+    N'écrit que si quelque chose change (écriture atomique, propriétaire et mode conservés,
+    commentaires conservés par le même chargeur « aller-retour » que Hermes) ; le reste du fichier
+    reste identique pour le chargeur de Hermes (vérifié avant l'écriture).
+
+    États : ``conforme`` (rien écrit), ``applique`` (écrit), ``cree`` (fichier absent, créé avec ces
+    seules clés), ``illisible`` (YAML invalide ou forme inattendue : RIEN n'est écrit, alerte dans
+    /v1/meta). Un lien symbolique ou un fichier spécial à la place du fichier refuse le démarrage."""
+    racine = str(catalogue["racine_image"])
+    requises = [str(e["nom"]) for e in catalogue["livrees"]["desactivees_par_acp"]]
+    serveurs = serveurs_mcp_catalogue(catalogue)
+    cible = chemins.config_volume
+    etat: Dict[str, Any] = {"etat": None, "fichier": str(cible), "external_dirs_ajoute": False,
+                            "desactivations_ajoutees": [], "mcp_ajoutes": [], "detail": None}
+    try:
+        st = os.lstat(cible)
+    except FileNotFoundError:
+        st = None
+    if st is not None and not stat.S_ISREG(st.st_mode):
+        raise Refus(f"{cible} n'est pas un fichier ordinaire (lien symbolique ?) : démarrage refusé "
+                    "(supprimez le lien ; Hermes le suivrait).")
+    brut = lire_sans_lien(cible) if st is not None else None
+    texte = ""
+    if brut is not None:
+        try:
+            texte = brut.decode("utf-8")
+            avant = charger_yaml(texte)
+        except (UnicodeDecodeError, yaml.YAMLError) as exc:
+            etat.update(etat="illisible", detail=f"config.yaml ne se lit pas ({type(exc).__name__}) : rien n'est écrit.")
+            return etat
+    else:
+        avant = None
+    if avant is None:
+        avant = {}
+    if not isinstance(avant, dict):
+        etat.update(etat="illisible", detail="config.yaml n'a pas de table à sa racine : rien n'est écrit.")
+        return etat
+    skills = avant.get("skills")
+    if skills is not None and not isinstance(skills, dict):
+        etat.update(etat="illisible", detail="la clé skills n'est pas une table : rien n'est écrit.")
+        return etat
+    skills = skills or {}
+    mcp = avant.get("mcp_servers")
+    if mcp is not None and not isinstance(mcp, dict):
+        etat.update(etat="illisible", detail="la clé mcp_servers n'est pas une table : rien n'est écrit.")
+        return etat
+    mcp = mcp or {}
+    dossiers = _liste_de_noms(skills.get("external_dirs"))
+    desactivees = _liste_de_noms(skills.get("disabled"))
+    if dossiers is None or desactivees is None:
+        etat.update(etat="illisible",
+                    detail="skills.external_dirs ou skills.disabled n'est ni une liste ni une chaîne : rien n'est écrit.")
+        return etat
+    autres = [d for d in dossiers if os.path.normpath(d.strip()) != racine]
+    dossiers_voulus = [racine] + autres
+    manquantes = [n for n in requises if n not in {d.strip() for d in desactivees}]
+    desactivees_voulues = desactivees + manquantes
+    mcp_manquants = [n for n in serveurs if n not in mcp]
+    if dossiers == dossiers_voulus and not manquantes and not mcp_manquants \
+            and isinstance(skills.get("disabled"), list) and isinstance(skills.get("external_dirs"), list):
+        etat["etat"] = "conforme"
+        return etat
+    # Écriture « aller-retour » : seules ces clés changent.
+    import io
+
+    yaml_rt = _yaml_aller_retour()
+    document = yaml_rt.load(texte) if texte.strip() else None
+    from ruamel.yaml.comments import CommentedMap
+
+    if document is None:
+        document = CommentedMap()
+    if not isinstance(document, CommentedMap):
+        etat.update(etat="illisible", detail="config.yaml n'a pas de table à sa racine : rien n'est écrit.")
+        return etat
+    if not isinstance(document.get("skills"), CommentedMap):
+        document["skills"] = CommentedMap()
+    document["skills"]["external_dirs"] = dossiers_voulus
+    document["skills"]["disabled"] = desactivees_voulues
+    if mcp_manquants:
+        if not isinstance(document.get("mcp_servers"), CommentedMap):
+            document["mcp_servers"] = CommentedMap()
+        for nom in mcp_manquants:
+            document["mcp_servers"][nom] = CommentedMap()
+    flux = io.StringIO()
+    yaml_rt.dump(document, flux)
+    nouveau = flux.getvalue()
+    # Contrôle avant écriture : relu par le chargeur de Hermes, le fichier ne diffère de l'ancien
+    # QUE par ces clés.
+    relu = charger_yaml(nouveau)
+    attendu = dict(avant)
+    attendu["skills"] = dict(skills, external_dirs=dossiers_voulus, disabled=desactivees_voulues)
+    if mcp_manquants:
+        attendu["mcp_servers"] = dict(mcp, **{nom: {} for nom in mcp_manquants})
+    if relu != attendu:
+        etat.update(etat="illisible", detail="la réécriture changerait d'autres clés que skills.external_dirs, "
+                                             "skills.disabled et mcp_servers (forme YAML inhabituelle) : rien n'est écrit.")
+        return etat
+    if st is None:
+        mode, proprietaire, groupe = 0o640, uid, gid
+    else:
+        mode, proprietaire, groupe = stat.S_IMODE(st.st_mode), st.st_uid, st.st_gid
+    ecrire_atomique(cible, nouveau.encode("utf-8"), mode=mode, uid=proprietaire, gid=groupe)
+    etat.update(etat="cree" if st is None else "applique", external_dirs_ajoute=dossiers != dossiers_voulus,
+                desactivations_ajoutees=manquantes, mcp_ajoutes=mcp_manquants)
+    return etat
+
+
+def problemes_mcp_du_volume(chemins: Chemins, serveurs_admis: Iterable[str]) -> Tuple[List[str], List[str]]:
+    """(refus, avertissements) pour les serveurs MCP déclarés dans le config.yaml du volume et de
+    chaque profil (décision D8 de P3).
+
+    Hermes lance TOUS les serveurs configurés à la découverte, quelles que soient les listes de
+    plateforme (tools/mcp_tool_discovery.py:552-605) : un serveur doté d'un ``command`` (stdio) est un
+    processus lancé dans le conteneur ; un serveur absent du catalogue n'a été ni relu ni admis. Les
+    deux refusent le démarrage. Un fichier illisible ne peut rien faire lancer (Hermes l'ignore) : il
+    est seulement signalé."""
+    admis = set(serveurs_admis)
+    refus: List[str] = []
+    avertissements: List[str] = []
+    for fichier in fichiers_config_du_volume(chemins):
+        try:
+            brut = lire_sans_lien(fichier)
+        except Refus as exc:
+            refus.append(str(exc))
+            continue
+        if brut is None:
+            continue
+        try:
+            donnees = charger_yaml(brut.decode("utf-8"))
+        except (UnicodeDecodeError, yaml.YAMLError) as exc:
+            avertissements.append(f"{fichier} ne se lit pas comme du YAML ({type(exc).__name__}) : ses serveurs "
+                                  "MCP n'ont pas pu être vérifiés (Hermes ne le lira pas non plus).")
+            continue
+        serveurs = donnees.get("mcp_servers") if isinstance(donnees, dict) else None
+        if not isinstance(serveurs, dict):
+            continue
+        for nom, conf in serveurs.items():
+            nom_affiche = _tronquer(str(nom), 60)
+            if isinstance(conf, dict) and conf.get("command") not in (None, "", []):
+                refus.append(f"{fichier} déclare le serveur MCP « {nom_affiche} » avec un « command » : un serveur "
+                             "stdio est un processus lancé dans le conteneur, refusé sur Railway (il relève du "
+                             "poste, étape P8).")
+            elif str(nom) not in admis:
+                refus.append(f"{fichier} déclare le serveur MCP « {nom_affiche} », absent du catalogue d'ACP "
+                             f"(admis : {', '.join(sorted(admis)) or 'aucun'}) : un serveur s'ajoute par une PR "
+                             "qui met à jour hermes/catalogue/catalogue.lock.json.")
+    return refus, avertissements
+
+
+def refuser_mcp_du_volume(chemins: Chemins, catalogue: Mapping[str, Any]) -> List[str]:
+    """Lève :class:`Refus` si le volume déclare un serveur MCP stdio ou hors catalogue ; rend les
+    avertissements."""
+    refus, avertissements = problemes_mcp_du_volume(chemins, serveurs_mcp_catalogue(catalogue))
+    if refus:
+        raise Refus("\n".join(refus) + "\nRetirez ces serveurs de mcp_servers (maintenance : "
+                    "docs/refonte/railway.md §10) avant de redémarrer.")
+    return avertissements
+
+
 def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
                      commit: Optional[str] = None) -> Dict[str, Any]:
     """Toutes les opérations de 05-acp sur /opt/data ; renvoie l'état du démarrage."""
     if not chemins.hermes_home.is_dir():
         raise Refus(f"{chemins.hermes_home} est absent : le volume n'est pas monté.")
     livres = themes_livres(chemins)
-    # 1. Inspection avant toute écriture : un refus laisse le volume intact.
+    # 1. Inspection avant toute écriture : un refus laisse le volume intact. Étape P3 : aucun
+    #    serveur MCP stdio ni hors catalogue dans la configuration du volume (décision D8).
     inspecter_donnees(chemins)
     refuser_repertoires_executes(chemins)
+    catalogue = charger_catalogue(chemins)
+    avertissements_mcp = refuser_mcp_du_volume(chemins, catalogue)
     # 2. Verrouillage, puis nouvelle inspection (rien ne doit être apparu entre-temps). Les
     #    hooks/ et scripts/ de chaque profil sont repris comme ceux de la racine.
     executes, _ = repertoires_executes(chemins)
@@ -1511,12 +1798,16 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
     # 3. Thème et persona.
     themes = deposer_theme(chemins.theme_livre, chemins.themes)
     soul = gerer_soul(chemins, uid=uid, gid=gid)
+    # 3 bis. Étape P3 : skills du catalogue chargées et skills livrées inertes désactivées, dans le
+    #    config.yaml du volume (hors managed scope : voir appliquer_reglages_skills).
+    reglages = appliquer_reglages_skills(chemins, catalogue, uid=uid, gid=gid)
     # 4. Reprise à root des services s6 : l'agent ne peut plus enregistrer un service supervisé
     #    en root ni réécrire le script d'exécution d'une passerelle (empêche l'élévation).
     services = reprendre_services_s6(chemins.scandir_s6)
     return {
-        # Schéma 2 (étape P2) : repertoires_executes, lazy_packages et deploiement.
-        "schema": 2,
+        # Schéma 2 (étape P2) : repertoires_executes, lazy_packages et deploiement. Schéma 3 (étape
+        # P3) : catalogue.
+        "schema": 3,
         "genere_le": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "deploiement": {"commit": commit},
         "repertoires_executes": {
@@ -1536,6 +1827,13 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
         "themes_deposes": themes,
         "soul": soul,
         "services_s6": services,
+        "catalogue": {
+            "verrou_sha256": _empreinte_catalogue(chemins),
+            "racine_skills": catalogue["racine_image"],
+            "reglages_skills": reglages,
+            "serveurs_mcp_admis": serveurs_mcp_catalogue(catalogue),
+            "avertissements_mcp": avertissements_mcp,
+        },
     }
 
 
@@ -1809,6 +2107,15 @@ def diagnostic(chemins: Chemins) -> Tuple[List[str], List[str]]:
         constats.append(str(exc))
     constats.extend(problemes_repertoires_executes(chemins))
     constats.extend(inventaire_cles_executables(chemins))
+    try:
+        refus_mcp, avertissements_mcp = problemes_mcp_du_volume(
+            chemins, serveurs_mcp_catalogue(charger_catalogue(chemins)))
+        # Les serveurs stdio sont déjà relevés par inventaire_cles_executables : seuls les serveurs
+        # hors catalogue s'ajoutent ici (étape P3, D8 : ils refusent le démarrage).
+        constats.extend(r for r in refus_mcp if "absent du catalogue" in r)
+        constats.extend(avertissements_mcp)
+    except Refus as exc:
+        constats.append(str(exc))
     constats.extend(taches_cron_a_script(chemins))
     try:
         paresseux = entrees_du_repertoire(chemins.paquets_paresseux)
@@ -1888,6 +2195,10 @@ def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     refuser_variables_du_volume(chemins)
     # hooks/ et scripts/ du volume sont exécutés par Hermes : inspectés avant toute écriture.
     refuser_repertoires_executes(chemins)
+    # Étape P3 (décision D8) : un serveur MCP stdio ou hors catalogue du volume serait lancé par la
+    # passerelle dès son démarrage (02-reconcile-profiles) : refusé ici, avant.
+    catalogue = charger_catalogue(chemins)
+    avertissements_mcp = refuser_mcp_du_volume(chemins, catalogue)
     resume = installer_scope_geree(chemins, valeurs)
     _informer(f"variables validées ; émetteur OIDC {valeurs.oidc_emetteur}, client {valeurs.oidc_client}, "
               f"URL publique {valeurs.url_publique}"
@@ -1903,6 +2214,10 @@ def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     _informer(f"{chemins.crochets_passerelle} et {chemins.scripts_cron} inspectés : vides"
               + (f", ainsi que hooks/ et scripts/ de {len(profils)} profil(s) ({', '.join(profils)})."
                  if profils else "."))
+    _informer("serveurs MCP du volume inspectés : aucun serveur stdio ni hors catalogue (admis : "
+              + (", ".join(serveurs_mcp_catalogue(catalogue)) or "aucun") + ").")
+    for avertissement in avertissements_mcp:
+        _informer(f"ATTENTION : {avertissement}")
 
 
 def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
@@ -1933,6 +2248,11 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
                   + " (l'agent ne peut plus enregistrer de service supervisé).")
     _informer(f"thèmes déposés : {', '.join(etat['themes_deposes']) or 'aucun'} ; "
               f"SOUL.md : {etat['soul']['etat']}.")
+    reglages = etat["catalogue"]["reglages_skills"]
+    _informer(f"catalogue : skills.external_dirs et skills.disabled de {reglages['fichier']} : {reglages['etat']}"
+              + (f" ({len(reglages['desactivations_ajoutees'])} désactivation(s) ajoutée(s))"
+                 if reglages["desactivations_ajoutees"] else "")
+              + (f" — {reglages['detail']}" if reglages["detail"] else "") + ".")
     if etat["greffons_utilisateur"]["dossiers"]:
         _informer("greffons utilisateur présents mais non activables : "
                   + ", ".join(etat["greffons_utilisateur"]["dossiers"]) + ".")
@@ -1941,9 +2261,11 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
 
 def commande_verifier_relance(chemins: Chemins) -> None:
     """Garde exécutée en root en tête des scripts `run` du tableau de bord et de la passerelle :
-    refuse la relance si l'agent a injecté une variable interdite dans un .env du volume."""
+    refuse la relance si l'agent a injecté une variable interdite dans un .env du volume, ou (étape
+    P3, D8) si la configuration du volume déclare un serveur MCP stdio ou hors catalogue."""
     _exiger_root()
     refuser_variables_du_volume(chemins)
+    refuser_mcp_du_volume(chemins, charger_catalogue(chemins))
 
 
 COMMANDES = ("construire", "gardes", "donnees", "verifier-relance", "diagnostiquer")

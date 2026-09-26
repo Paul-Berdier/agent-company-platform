@@ -1,0 +1,15 @@
+{
+  "name": "acp-interface",
+  "label": "Accueil",
+  "description": "Interface d'ACP : Accueil (remplace la page « / »), logotype, bannière d'alertes et verrou du français. Aucune route serveur : l'état vient du greffon acp-poste.",
+  "icon": "Sparkles",
+  "version": "0.11.0",
+  "tab": {
+    "path": "/acp",
+    "position": "end",
+    "override": "/"
+  },
+  "slots": ["header-left", "header-banner", "overlay"],
+  "entry": "dist/index.js",
+  "css": "dist/style.css"
+}

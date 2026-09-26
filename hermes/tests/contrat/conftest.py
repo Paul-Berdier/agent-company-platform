@@ -26,6 +26,12 @@ import pytest
 
 RACINE_HERMES = Path(__file__).resolve().parents[2]
 
+# Étape P3 : la managed scope épingle le serveur MCP distant context7 (https://mcp.context7.com/mcp) ;
+# tout conteneur Hermes de test résout ce nom vers son propre bouclage local, où rien n'écoute
+# (connexion refusée, état « hors ligne »), sauf quand un test y place le faux serveur
+# (hermes/tests/outils/mcp_factice.py). Aucun appel au vrai serveur pendant les tests.
+SANS_CONTEXT7: List[str] = ["--add-host", "mcp.context7.com:127.0.0.1"]
+
 ENV_VALIDE: Dict[str, str] = {
     "HERMES_DASHBOARD_PUBLIC_URL": "https://hermes.acp.test",
     "HERMES_DASHBOARD_OIDC_ISSUER": "https://idp.acp.test:8443",
@@ -151,7 +157,7 @@ def demarrer_jusqu_a_l_arret(ressources: Ressources, image: str, env: Dict[str, 
     nom = ressources.nom("refus")
     ressources.conteneurs.append(nom)
     volume = volume or ressources.volume(image)
-    resultat = docker("run", "--name", nom, "-v", f"{volume}:/opt/data", *options_env(env), image,
+    resultat = docker("run", "--name", nom, "-v", f"{volume}:/opt/data", *SANS_CONTEXT7, *options_env(env), image,
                       verifier=False, delai=240)
     return resultat.returncode, resultat.stdout + resultat.stderr
 
@@ -250,11 +256,13 @@ def attendre_modele_factice(conteneur: Conteneur, journal: str, delai: float = 6
 
 
 def lancer(ressources: Ressources, image: str, env: Dict[str, str], *, volume: Optional[str] = None,
-           reseau: Optional[str] = None) -> Conteneur:
+           reseau: Optional[str] = None, hotes: Optional[List[str]] = None) -> Conteneur:
+    """Conteneur Hermes complet (s6). ``hotes`` remplace la résolution de mcp.context7.com (par défaut
+    le bouclage local : SANS_CONTEXT7)."""
     nom = ressources.nom("hermes")
     ressources.conteneurs.append(nom)
     volume = volume or ressources.volume(image)
-    options = ["run", "-d", "--name", nom, "-v", f"{volume}:/opt/data"]
+    options = ["run", "-d", "--name", nom, "-v", f"{volume}:/opt/data", *(hotes if hotes is not None else SANS_CONTEXT7)]
     if reseau:
         options += ["--network", reseau]
     docker(*options, *options_env(env), image)

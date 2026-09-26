@@ -73,6 +73,10 @@ plugins:
     - dashboard_auth/basic
     - dashboard_auth/nous
     - dashboard_auth/drain
+    # Étape P3 (décision D13) : greffon groupé de gamification, en anglais et doté de sa propre
+    # API ; hors du périmètre d'ACP. Un greffon groupé désactivé n'est ni servi au navigateur ni
+    # monté (web_routers/dashboard_ui.py:109-146).
+    - hermes-achievements
   # Un greffon qui résout un ancien chemin PLUGIN-COMPAT n'est pas chargé
   # (hermes_cli/plugin_compat.py:32 et 296-312 ; COMPAT_MANIFEST.md:15-19).
   allow_deprecated_imports: false
@@ -116,11 +120,43 @@ agent:
 # hermes-cli rendrait terminal et fichiers. « cli » sert aussi au tableau de bord
 # (tui_gateway/server.py:1935-1943), aux workers kanban (kanban_db_dispatch.py:2620-2645)
 # et à `hermes -z`. ATTENTION : une liste cli VIDE ferait rendre TOUS les jeux au
-# tableau de bord (tui_gateway/server.py:1942). no_mcp : aucun serveur MCP par défaut.
+# tableau de bord (tui_gateway/server.py:1942). no_mcp : aucun serveur MCP.
+# Étape P3 : cli nomme le serveur context7 au lieu de no_mcp. Un nom de serveur dans la liste en
+# fait une LISTE BLANCHE : seuls les serveurs nommés sont offerts (tools_config.py:678-690) ;
+# api_server et cron gardent no_mcp.
 platform_toolsets:
   api_server: [web, vision, skills, todo, memory, session_search, no_mcp]
-  cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]
+  cli: [web, vision, skills, todo, memory, session_search, clarify, context7]
   cron: [web, vision, skills, todo, memory, session_search, no_mcp]
+
+# Étape P3 : un seul serveur MCP côté Hermes, context7 (entrée officielle
+# optional-mcps/context7/manifest.yaml : serveur DISTANT en HTTP, sans authentification). Aucun
+# processus n'est lancé dans le conteneur : `url` l'emporte sur un éventuel `command` posé par le
+# volume (tools/mcp_tool_server_run.py:277-279), et 05-acp refuse de démarrer sur tout serveur
+# stdio ou hors catalogue du volume. Trois couches : ces épingles (appliquées feuille par feuille
+# par-dessus le volume : tools/mcp_tool_config.py:362-381), la liste cli ci-dessus et la garde
+# d'exécution d'acp-poste, qui n'admet que les deux outils exacts
+# mcp__context7__resolve_library_id et mcp__context7__query_docs. Catalogue :
+# hermes/catalogue/catalogue.lock.json.
+mcp_servers:
+  context7:
+    url: https://mcp.context7.com/mcp
+    enabled: true
+    # Certificat du serveur toujours vérifié (magasin du système épinglé dans /etc/hermes/.env).
+    ssl_verify: true
+    # Le serveur ne peut ni faire générer le modèle de Hermes (échantillonnage, actif par défaut),
+    # ni demander une saisie (élicitation) : tools/mcp_tool_server_run.py:268-276.
+    sampling:
+      enabled: false
+    elicitation:
+      enabled: false
+    # Seuls les deux outils de documentation sont enregistrés (liste blanche,
+    # tools/mcp_tool_registration.py:211-225) ; aucun outil utilitaire de ressources ni de
+    # gabarits (tools/mcp_tool_registration.py:150-176).
+    tools:
+      include: [resolve-library-id, query-docs]
+      resources: false
+      prompts: false
 
 skills:
   # Aucun !`cmd` exécuté à la lecture d'une skill (config_defaults.py:1442-1446).
@@ -155,7 +191,15 @@ platforms:
       port: 8642
 
 dashboard:
+  # Thème généré depuis design/tokens (scripts/generer_themes.py), déposé par 05-acp.
   theme: acp
+  # Étape P3 : police du thème, jamais une police de substitution. Toute autre valeur injecterait
+  # une feuille de style distante (Google Fonts, web/src/themes/fonts.ts) ; la valeur épinglée
+  # l'emporte sur celle du navigateur au chargement suivant (web/src/themes/context.tsx:519-540).
+  font: theme
+  # Étape P3 : aucun greffon de tableau de bord masqué ; acp-interface, acp-catalogue et
+  # acp-poste restent toujours servis (web_routers/dashboard_ui.py:129-146).
+  hidden_plugins: []
   # URL publique https validée par 00-acp-gardes (HERMES_DASHBOARD_PUBLIC_URL).
   public_url: "@@ACP:HERMES_DASHBOARD_PUBLIC_URL@@"
   # Décision P2 : vide tant que la plage du bord Railway n'est pas mesurée (bloc

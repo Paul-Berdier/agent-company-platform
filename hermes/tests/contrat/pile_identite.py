@@ -189,7 +189,10 @@ class Pile:
         nom = self.nom("hermes")
         self.conteneurs.append(nom)
         volume = self.volume()
+        # Étape P3 : context7 (épinglé par la managed scope) résolu vers le bouclage local : aucun appel
+        # au vrai serveur pendant les tests.
         docker("run", "-d", "--name", nom, "--network", reseau, "--network-alias", "hermes-interne",
+               "--add-host", "mcp.context7.com:127.0.0.1",
                "-v", f"{volume}:/opt/data", *options_env(env or ENV_HERMES), image_tests)
         limite = time.monotonic() + 300
         while time.monotonic() < limite:

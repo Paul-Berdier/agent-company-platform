@@ -140,6 +140,16 @@ URL **publique** ; le domaine privé `*.railway.internal` est refusé par les de
      (`rm -rf /dev/shm/acp-cle`) et le support démonté ; jamais de copie sous `~/.ssh` ni sur le
      disque du compte des agents.
 5. **Docker Desktop** sous Windows, pour calculer l'empreinte du mot de passe (§ 5.1).
+6. **Conditions d'utilisation de context7, lues et consignées** (relecture de P3). context7 est
+   **activé par défaut** dans l'image (seul serveur MCP côté Hermes, accès anonyme, sans clé :
+   [catalogue.md](catalogue.md) § 7.1) : dès la première discussion, les questions de l'agent
+   partent chez Upstash, depuis l'adresse de sortie de Railway. **Personne ne les a lues** pendant
+   P3, et un agent ne les interprète pas pour vous. Avant le premier déploiement : lisez-les
+   (la page d'accueil de context7.com renvoie à `https://upstash.com/docs/common/help/legal`,
+   relevé le 25/09/2026), vérifiez qu'elles admettent un usage anonyme, automatisé, depuis un
+   hébergeur, et consignez la date, l'adresse lue et votre décision dans `docs/reprise-poste.md`.
+   Si elles ne l'admettent pas, ou dans le doute : **pas de déploiement** avant une PR qui retire
+   context7 du catalogue (verrou, épingles de la managed scope, liste de la plateforme cli, garde).
 
 ---
 
@@ -229,6 +239,8 @@ politique de redémarrage, limites des répliques), consignez-le dans `docs/repr
 Chaque étape se termine par un contrôle ; au moindre écart, arrêt et retour au § 10.
 
 ### 4.1 Choisir les deux libellés, puis les écrire par une PR
+
+Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues et consignées.
 
 1. Choisissez deux libellés DNS **distincts**, par exemple `acp-hermes-<6 caractères aléatoires>`
    et `acp-identite-<6 caractères aléatoires>` (a-z, 0-9, tirets ; 63 caractères au plus). Ils
@@ -544,6 +556,11 @@ plus l'identifiant ; Authelia, lui, peut le journaliser lors d'une tentative de 
 13. Compte rendu de la répétition de maintenance (§ 4.11), avec le résultat de
     `railway volume files` sur un service arrêté.
 14. `railway ssh keys` **vide** hors opération (sortie datée).
+15. Étape P3 : l'onglet **Catalogue** (16 skills d'ACP « Active », 10 « Candidate pour le poste, non planifiée ») et
+    l'Accueil (16 / 16) ; après une première discussion, context7 « Connecté » ; une question qui
+    appelle la documentation d'une bibliothèque, avec la source citée ; une réponse **en français**
+    du vrai modèle à une question posée en anglais. Aucun refus « serveur MCP » dans les journaux
+    de démarrage.
 
 ---
 
@@ -623,6 +640,12 @@ sortie 0,05 $/Go ; seul l'usage réel est facturé, rw_full.txt:4848-4892) :
 `hermes/contrat/`), CI verte, déploiement par la chaîne normale. Jamais `hermes update`, `:latest`
 ni `AUTO_UPDATE`.
 
+**Page MCP du tableau de bord** (relecture de P3) : n'y utilisez ni « INSTALL » ni « ADD SERVER » :
+un serveur MCP s'ajoute par une PR au catalogue ([catalogue.md](catalogue.md) § 7.3). Un serveur
+ajouté par erreur fait **refuser** le démarrage suivant et toute relance (D8) : supprimez-le
+depuis la même page **avant** tout redémarrage (la bannière d'alerte le nomme) ; le désactiver ne
+suffit pas. S'il a déjà provoqué un refus : § 10 b.
+
 **Modifier l'infrastructure** : PR sur `.railway/railway.ts` (et `verifier.mjs` si le graphe attendu
 change), CI verte, fusion, puis plan (« 0 to destroy » sauf décision écrite) et apply par vous.
 
@@ -656,9 +679,14 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    ```
    `diagnostiquer` est en lecture seule ; il lit l'environnement du PID 1 (`/proc/1/environ`),
    jamais celui de la session `railway ssh`, dont la doc ne dit rien ; il liste variables
-   interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml`, `lazy-packages` (code 1 si
+   interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml` (dont, depuis P3, tout serveur
+   MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8), `lazy-packages` (code 1 si
    un constat existe). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
-5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré.
+5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Un serveur MCP
+   ajouté depuis la page MCP native (« INSTALL », « ADD SERVER ») se retire en supprimant son
+   entrée `mcp_servers.<nom>` de `/opt/data/config.yaml` (jamais l'entrée `context7`, rétablie de
+   toute façon au démarrage) ; tant que le service tourne encore, la suppression depuis la page MCP
+   évite cette maintenance (§ 9).
 6. **Retour** : Start Command effacée, chemin de santé `/api/health` rétabli, « Deploy » : les gardes
    revérifient tout.
 7. `railway config plan --detailed-exit-code` → **0**.

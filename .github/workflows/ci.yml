@@ -1,8 +1,10 @@
 name: CI
 
-# Refonte « Hermes au centre » : trois volets.
+# Refonte « Hermes au centre » : quatre volets.
 #   - moteur : gel de packages/pixel-office-engine sur l'étiquette d'archive, puis ses
 #     tests npm ;
+#   - interface (étape P3) : greffons acp-interface et acp-catalogue (apps/interface), tests
+#     et bundles committés à jour ;
 #   - poste : pytest sur apps/poste, le contrat partagé et l'outillage, sous Linux et
 #     sous Windows ;
 #   - desktop : workflow séparé desktop-ci.yml (windows-2022).
@@ -55,6 +57,18 @@ jobs:
           else
             git show --check --format=fuller HEAD
           fi
+      - name: Balayer les secrets (fichiers suivis et lignes ajoutées par la branche)
+        # scripts/balayer_secrets.py : motifs de clés et de jetons, extraits masqués ; relecture de P3
+        # (la preuve « aucun secret » reposait sur un script hors dépôt). L'historique complet est
+        # là (fetch-depth: 0) : un secret committé puis retiré est trouvé aussi.
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            plage="origin/${{ github.base_ref }}..HEAD"
+          else
+            plage="origin/main..HEAD"
+          fi
+          python3 scripts/balayer_secrets.py --arbre --plage "$plage"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -63,6 +77,36 @@ jobs:
         run: npm ci
       - name: Tester le moteur
         run: npm run test:engine
+
+  interface:
+    # Étape P3 : greffons acp-interface et acp-catalogue du tableau de bord de Hermes. Sources dans
+    # apps/interface (hors des workspaces npm de la racine), bundles COMMITTÉS sous hermes/plugins
+    # (l'image les copie tels quels) : ils doivent correspondre exactement aux sources.
+    name: Interface ACP — greffons du tableau de bord (Node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/interface/package-lock.json
+      - name: Installer les dépendances (verrou, sans scripts d'installation)
+        run: npm ci --ignore-scripts --prefix apps/interface
+      - name: Types et tests (TypeScript, Vitest, chaînes, garde statique)
+        run: npm test --prefix apps/interface
+      - name: Bundles committés à jour
+        run: |
+          set -euo pipefail
+          npm run build --prefix apps/interface
+          git diff --exit-code -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue
+          reste="$(git status --porcelain -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue)"
+          if [ -n "$reste" ]; then
+            echo "Fichiers de greffon non committés : ${reste}" >&2
+            exit 1
+          fi
+          echo "Bundles des greffons identiques aux sources."
 
   poste:
     name: Poste — Python 3.12 (${{ matrix.os }})
@@ -88,6 +132,11 @@ jobs:
           cache-dependency-path: requirements/python-3.12.lock.txt
       - name: Vérifier les versions publiables
         run: python scripts/check_version.py
+      - name: Vérifier le thème généré et le QML du desktop (design/tokens)
+        run: python scripts/generer_themes.py --check
+      - name: Vérifier le catalogue de skills et de MCP (verrou, licences, collisions, garde)
+        # Hors ligne ; la comparaison avec les dépôts amont (--amont, réseau) tourne dans image.yml.
+        run: python scripts/verifier_catalogue.py
       - name: Installer les paquets Python (verrou haché)
         # Aucun résolveur : les distributions locales s'installent sans dépendances
         # ni environnement de construction téléchargé.

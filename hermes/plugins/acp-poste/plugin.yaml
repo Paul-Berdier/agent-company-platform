@@ -5,12 +5,13 @@
 # épingle vide pour qu'aucun greffon « utilisateur » ne soit jamais activé.
 # Route /api/plugins/acp-poste/v1/meta et adaptateur kanban (P1) ; depuis P2, garde
 # d'exécution de l'agent (crochet pre_tool_call en liste blanche, garde_execution.py) et
-# sentinelle qui arrête Hermes lancé hors de s6. Les outils projet_*, poste_* et
+# sentinelle qui arrête Hermes lancé hors de s6 ; depuis P3, route /v1/catalogue (catalogue.py)
+# et blocs catalogue et interface de /v1/meta. Les outils projet_*, poste_* et
 # question_* arrivent en P4, le jeton machine et les routes du poste en P5
 # (docs/refonte/autonomie.md § 8).
 name: acp-poste
 version: 0.11.0
-description: "ACP — façade versionnée du poste Windows (contrat acp-poste/1) et garde d'exécution de l'agent (liste blanche pre_tool_call). Route /v1/meta, adaptateur kanban ; aucun outil encore."
+description: "ACP — façade versionnée du poste Windows (contrat acp-poste/1) et garde d'exécution de l'agent (liste blanche pre_tool_call). Routes /v1/meta et /v1/catalogue, adaptateur kanban ; aucun outil encore."
 author: ACP
 kind: backend
 requires_hermes: ">=0.21.5"
