@@ -9,10 +9,12 @@
 # /v1/meta ; depuis P4 (noyau/), projets autonomes : un tableau kanban par projet, les huit outils
 # de l'agent (projet_*, poste_*, question_*, routage_surcharger), routes /v1/projets,
 # /v1/questions, /v1/pause, /v1/poste et /v1/notifications/test, émetteur de notifications dans la
-# passerelle. Le jeton machine et les routes du poste arrivent en P5 (docs/refonte/autonomie.md § 8).
+# passerelle ; depuis P5, poste connecté : fournisseur du jeton machine (acp-poste-machine, à jeton
+# seulement), routes /machine/v1/{enrolement,reclamer,inventaire} (protocole acp-machine/1), schéma v2,
+# routes du propriétaire (poste, routage, quotas).
 name: acp-poste
 version: 0.11.0
-description: "ACP — projets autonomes sur Hermes (un tableau par projet, huit outils de l'agent, routes /v1/projets et /v1/questions, émetteur de notifications) et garde d'exécution de l'agent (liste blanche pre_tool_call). Contrat acp-poste/1."
+description: "ACP — projets autonomes sur Hermes (un tableau par projet, huit outils de l'agent, routes /v1/projets et /v1/questions, émetteur de notifications), poste connecté (jeton machine haché, routes machine acp-machine/1, pages Poste, Routage et Quotas) et garde d'exécution de l'agent (liste blanche pre_tool_call). Contrat acp-poste/1."
 author: ACP
 kind: backend
 requires_hermes: ">=0.21.5"

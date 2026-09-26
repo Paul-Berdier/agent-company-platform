@@ -10,9 +10,10 @@ Hermes importe ce paquet dans chacun de ses processus et appelle :func:`register
 3. depuis l'étape P4 (:mod:`noyau`) : lit puis RETIRE de ``os.environ`` les variables de
    notification (le canal n'est gardé en mémoire que dans la passerelle), inscrit les huit outils de
    l'agent (jeu ``acp_poste``), la section de prompt « acp-projets » et le crochet
-   ``on_kanban_dispatch_tick`` de l'émetteur.
-
-Le jeton machine et les routes du poste arrivent en P5 (plan d'autonomie, docs/refonte/autonomie.md § 8).
+   ``on_kanban_dispatch_tick`` de l'émetteur ;
+4. depuis l'étape P5 (:mod:`noyau.jeton_machine`) : le fournisseur du jeton machine du poste
+   (``acp-poste-machine``, à jeton seulement, jamais offert sur la page de connexion) et les trois chemins exacts
+   ``/api/plugins/acp-poste/machine/v1/{enrolement,reclamer,inventaire}`` enregistrés comme chemins à jeton.
 
 La partie tableau de bord (``dashboard/plugin_api.py``) est montée indépendamment, sous
 ``/api/plugins/acp-poste/`` (hermes_cli/web_server_dashboard.py:798-874).
@@ -177,8 +178,15 @@ def _enregistrer_p4(ctx, variables: dict, argv: Optional[Sequence[str]] = None) 
             _log.warning("acp-poste : état du canal non publié (%s).", type(exc).__name__)
 
 
+def _enregistrer_p5(ctx) -> None:
+    """Étape P5 : fournisseur du jeton machine et chemins à jeton (inertes hors du tableau de bord)."""
+    from .noyau import jeton_machine
+
+    jeton_machine.enregistrer(ctx)
+
+
 def register(ctx) -> None:
-    """Point d'entrée du greffon : sentinelle hors s6, garde d'exécution, puis le noyau P4."""
+    """Point d'entrée du greffon : sentinelle hors s6, garde d'exécution, puis le noyau P4 et le jeton machine P5."""
     _sentinelle_chaine_s6()
     ctx.register_hook("pre_tool_call", garde_execution.garde)
     garde_execution.ENREGISTRE_DANS_CE_PROCESSUS = True
@@ -188,3 +196,7 @@ def register(ctx) -> None:
         _enregistrer_p4(ctx, variables)
     except Exception:  # noqa: BLE001 — la garde reste enregistrée ; l'absence des outils se voit (meta, tests)
         _log.exception("acp-poste : noyau P4 non enregistré ; la garde d'exécution reste active.")
+    try:
+        _enregistrer_p5(ctx)
+    except Exception:  # noqa: BLE001 — sans fournisseur, les routes machine répondent 401 et /v1/meta le dit
+        _log.exception("acp-poste : jeton machine non enregistré ; les routes du poste refusent tout (401).")
