@@ -164,7 +164,7 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   depuis `ready`/`running`) ; elle n'est pas réclamable entre-temps.
 - Les variables de notification ne sont pas déclarées dans `.railway/railway.ts` (canal non choisi) : leur
   pose passe d'abord par une PR, sinon le plan suivant les supprimerait ([railway.md](railway.md) § 9).
-- **Course du contrôle d'écriture de Hermes 0.21.5** (`hermes_state_repair.py:549-570`, appelé à chaque
+- **Course du contrôle d'écriture de Hermes 0.21.5** (`hermes_state_repair.py:537-573`, appelé à chaque
   connexion à un tableau) : si un autre processus referme la dernière connexion au moment du contrôle,
   le fichier `-wal` disparaît entre `is_file()` et `os.access()` et Hermes conclut à tort « read-only for
   this user ». Constatée une fois au contrat P4 (seconde partie, poste simulé, `test_pause_d_un_projet`).

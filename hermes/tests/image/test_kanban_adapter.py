@@ -94,7 +94,7 @@ def test_effort_hermes_et_voies(noyau):
 
 
 def test_connexion_rejoue_la_seule_course_du_controle_d_ecriture(noyau, monkeypatch, tmp_path):
-    """Course de Hermes 0.21.5 (hermes_state_repair.py:549-570) : le -wal d'un tableau disparaît entre is_file() et
+    """Course de Hermes 0.21.5 (hermes_state_repair.py:537-573) : le -wal d'un tableau disparaît entre is_file() et
     os.access() ; le faux « read-only » est rejoué. Un -wal VRAIMENT présent et illisible lève tout de suite, et la
     course répétée au-delà des tentatives finit par lever : rien n'est masqué."""
     import sqlite3

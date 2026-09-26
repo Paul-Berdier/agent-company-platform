@@ -140,7 +140,7 @@ def effort_hermes(effort: Optional[str]) -> Optional[str]:
         return None
 
 
-# Course du contrôle d'écriture de Hermes 0.21.5 (hermes_state_repair.py:549-570, appelé par
+# Course du contrôle d'écriture de Hermes 0.21.5 (hermes_state_repair.py:537-573, appelé par
 # kanban_db_connect.connect) : il voit le fichier « -wal » (ou « -shm ») d'un tableau par is_file(), puis
 # os.access() échoue parce qu'un AUTRE processus (répartiteur, émetteur, worker) vient de refermer la
 # dernière connexion et SQLite a supprimé ce fichier ; il conclut alors à tort « read-only for this user ».
