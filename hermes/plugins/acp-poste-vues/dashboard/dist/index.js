@@ -1293,7 +1293,7 @@
           palier: entree.palier ?? null
         })
       },
-      props.voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v }, libelleVoie(v) ?? v))
+      props.voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": libelleVoie(v) ? void 0 : "" }, libelleVoie(v) ?? v))
     )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: `${id}-modele` }, T.poste.champModele), /* @__PURE__ */ h(
       "select",
       {
@@ -1302,7 +1302,7 @@
         onChange: (e) => props.changer({ ...entree, modele: e.currentTarget.value || null, effort: null })
       },
       /* @__PURE__ */ h("option", { value: "" }, entree.voie === "hermes" ? T.poste.modeleDuProfil : T.poste.modeleParDefaut),
-      modeles.map((m) => /* @__PURE__ */ h("option", { key: m.id, value: m.id }, m.id))
+      modeles.map((m) => /* @__PURE__ */ h("option", { key: m.id, value: m.id, "data-acp-donnee": "" }, m.id))
     )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: `${id}-effort` }, T.poste.champEffort), /* @__PURE__ */ h(
       "select",
       {
@@ -1311,7 +1311,7 @@
         onChange: (e) => props.changer({ ...entree, effort: e.currentTarget.value || null })
       },
       /* @__PURE__ */ h("option", { value: "" }, T.poste.effortParDefaut),
-      efforts.map((effort) => /* @__PURE__ */ h("option", { key: effort, value: effort }, effort))
+      efforts.map((effort) => /* @__PURE__ */ h("option", { key: effort, value: effort, "data-acp-donnee": "" }, effort))
     )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: `${id}-palier` }, T.poste.champPalier), /* @__PURE__ */ h(
       "select",
       {
@@ -1320,7 +1320,7 @@
         onChange: (e) => props.changer({ ...entree, palier: e.currentTarget.value || null })
       },
       /* @__PURE__ */ h("option", { value: "" }, T.poste.palierStandard),
-      contexte.paliers.filter((p) => p !== "default").map((p) => /* @__PURE__ */ h("option", { key: p, value: p }, p))
+      contexte.paliers.filter((p) => p !== "default").map((p) => /* @__PURE__ */ h("option", { key: p, value: p, "data-acp-donnee": "" }, p))
     )), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: T.poste.retirer, surClic: props.retirer })));
   }
   function EditeurClasse(props) {
@@ -1472,7 +1472,7 @@
         surClic: () => desactiver(Number(s.id)),
         desactive: desactivation.etat.etat === "envoi"
       }
-    ))))), /* @__PURE__ */ h(RetourEnvoi, { etat: desactivation.etat, reussite: T.poste.surchargeDesactivee }), /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: envoyer }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-classe" }, T.poste.classe), /* @__PURE__ */ h("select", { id: "acp-surcharge-classe", value: classe, onChange: (e) => fixerClasse(e.currentTarget.value) }, classes.map((c) => /* @__PURE__ */ h("option", { key: c, value: c }, libelleClasse(c) ?? c)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-voie" }, T.poste.champVoie), /* @__PURE__ */ h("select", { id: "acp-surcharge-voie", value: voieChoisie, onChange: (e) => fixerVoie(e.currentTarget.value) }, voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v }, libelleVoie(v) ?? v)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-modele" }, T.poste.champModele), /* @__PURE__ */ h("input", { id: "acp-surcharge-modele", value: modele, onChange: (e) => fixerModele(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-effort" }, T.poste.champEffort), /* @__PURE__ */ h("input", { id: "acp-surcharge-effort", value: effort, onChange: (e) => fixerEffort(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-motif" }, T.poste.champMotif), /* @__PURE__ */ h("input", { id: "acp-surcharge-motif", value: motif, maxLength: 200, onChange: (e) => fixerMotif(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+    ))))), /* @__PURE__ */ h(RetourEnvoi, { etat: desactivation.etat, reussite: T.poste.surchargeDesactivee }), /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: envoyer }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-classe" }, T.poste.classe), /* @__PURE__ */ h("select", { id: "acp-surcharge-classe", value: classe, onChange: (e) => fixerClasse(e.currentTarget.value) }, classes.map((c) => /* @__PURE__ */ h("option", { key: c, value: c, "data-acp-donnee": libelleClasse(c) ? void 0 : "" }, libelleClasse(c) ?? c)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-voie" }, T.poste.champVoie), /* @__PURE__ */ h("select", { id: "acp-surcharge-voie", value: voieChoisie, onChange: (e) => fixerVoie(e.currentTarget.value) }, voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": libelleVoie(v) ? void 0 : "" }, libelleVoie(v) ?? v)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-modele" }, T.poste.champModele), /* @__PURE__ */ h("input", { id: "acp-surcharge-modele", value: modele, onChange: (e) => fixerModele(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-effort" }, T.poste.champEffort), /* @__PURE__ */ h("input", { id: "acp-surcharge-effort", value: effort, onChange: (e) => fixerEffort(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-motif" }, T.poste.champMotif), /* @__PURE__ */ h("input", { id: "acp-surcharge-motif", value: motif, maxLength: 200, onChange: (e) => fixerMotif(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
       Bouton,
       {
         type: "submit",

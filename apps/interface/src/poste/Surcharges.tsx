@@ -60,7 +60,7 @@ export function Surcharges(props: { vue: VueRoutage; apres: () => void }): Noeud
           <label htmlFor="acp-surcharge-classe">{T.poste.classe}</label>
           <select id="acp-surcharge-classe" value={classe} onChange={(e) => fixerClasse(e.currentTarget.value)}>
             {classes.map((c) => (
-              <option key={c} value={c}>
+              <option key={c} value={c} data-acp-donnee={libelleClasse(c) ? undefined : ""}>
                 {libelleClasse(c) ?? c}
               </option>
             ))}
@@ -70,7 +70,7 @@ export function Surcharges(props: { vue: VueRoutage; apres: () => void }): Noeud
           <label htmlFor="acp-surcharge-voie">{T.poste.champVoie}</label>
           <select id="acp-surcharge-voie" value={voieChoisie} onChange={(e) => fixerVoie(e.currentTarget.value)}>
             {voies.map((v) => (
-              <option key={v} value={v}>
+              <option key={v} value={v} data-acp-donnee={libelleVoie(v) ? undefined : ""}>
                 {libelleVoie(v) ?? v}
               </option>
             ))}

@@ -49,7 +49,7 @@ function LigneEntree(props: {
                 onChange={(e) => props.changer({ voie: e.currentTarget.value, modele: null, effort: null,
                                                   palier: entree.palier ?? null })}>
           {props.voies.map((v) => (
-            <option key={v} value={v}>
+            <option key={v} value={v} data-acp-donnee={libelleVoie(v) ? undefined : ""}>
               {libelleVoie(v) ?? v}
             </option>
           ))}
@@ -61,7 +61,7 @@ function LigneEntree(props: {
                 onChange={(e) => props.changer({ ...entree, modele: e.currentTarget.value || null, effort: null })}>
           <option value="">{entree.voie === "hermes" ? T.poste.modeleDuProfil : T.poste.modeleParDefaut}</option>
           {modeles.map((m) => (
-            <option key={m.id} value={m.id}>
+            <option key={m.id} value={m.id} data-acp-donnee="">
               {m.id}
             </option>
           ))}
@@ -73,7 +73,7 @@ function LigneEntree(props: {
                 onChange={(e) => props.changer({ ...entree, effort: e.currentTarget.value || null })}>
           <option value="">{T.poste.effortParDefaut}</option>
           {efforts.map((effort) => (
-            <option key={effort} value={effort}>
+            <option key={effort} value={effort} data-acp-donnee="">
               {effort}
             </option>
           ))}
@@ -85,7 +85,7 @@ function LigneEntree(props: {
                 onChange={(e) => props.changer({ ...entree, palier: e.currentTarget.value || null })}>
           <option value="">{T.poste.palierStandard}</option>
           {contexte.paliers.filter((p) => p !== "default").map((p) => (
-            <option key={p} value={p}>
+            <option key={p} value={p} data-acp-donnee="">
               {p}
             </option>
           ))}
