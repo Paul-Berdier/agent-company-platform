@@ -205,10 +205,11 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
                 "getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()")
             assert str(bilan["primaire"]).lower() == primaire, bilan["primaire"]
             bilan["accueil"] = _verifier_page_acp(page, "accueil", format_, catalogue)
-            # Étape P3 (seconde partie) : résumé du catalogue servi par /v1/meta (16 skills d'ACP actives).
+            # Étape P3 (seconde partie) : résumé du catalogue servi par /v1/meta (21 skills d'ACP actives
+            # depuis P4 : 16 en P3, plus les cinq skills maison des projets).
             carte_catalogue = page.inner_text("#acp-accueil-catalogue >> xpath=..")
             bilan["accueil_catalogue"] = carte_catalogue
-            assert re.search(r"(?<!\d)16(?!\d).*(?<!\d)16(?!\d)", carte_catalogue, re.S), carte_catalogue
+            assert re.search(r"(?<!\d)21(?!\d).*(?<!\d)21(?!\d)", carte_catalogue, re.S), carte_catalogue
             capture(page, "accueil", complete=True)
 
             # Verrou : « en » forcé, page rechargée ⇒ retour au français.
@@ -238,7 +239,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             assert bilan["catalogue_route_v1"] == "servie"
             entrees = page.locator("#acp-catalogue-skills >> xpath=.. >> li.acp-entree")
             bilan["catalogue_entrees"] = entrees.count()
-            assert entrees.count() == 26, entrees.count()  # 16 livrées dans l'image + 10 candidates pour le poste
+            assert entrees.count() == 31, entrees.count()  # 21 livrées dans l'image + 10 candidates pour le poste
             texte_catalogue = page.inner_text('[data-acp-racine="catalogue"]')
             assert "acp-redaction" in texte_catalogue and "context7" in texte_catalogue
             bilan["catalogue"] = _verifier_page_acp(page, "catalogue", format_, catalogue)

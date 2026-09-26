@@ -55,7 +55,7 @@
     "acp": {
       "fichiers": {
         "DESCRIPTION.md": {
-          "sha256": "33c4393b3f11a44fc8889156e802817940e248f49a671d69e858cb64ea7ca1e2"
+          "sha256": "7f0c5daf7e7b9c755022ec7bd860fa234b7318355c3e13e0d2a0cea532523501"
         }
       }
     },
@@ -129,7 +129,7 @@
       "chemin": "acp/acp-profils",
       "fichiers": {
         "SKILL.md": {
-          "sha256": "61cc8c4301fc2e209fd8bacb464d95532f813b85ddfcf70f84c323aef7d43f90"
+          "sha256": "0d19aa87f146c8728510916287cdcd1db636fb2603e4ca503b7f988d5d86edb4"
         }
       },
       "execution": "aucune",
@@ -138,6 +138,86 @@
       ],
       "description_fr": "Réglages prêts par type de projet (base, site web, recherche, données) et ce qui relève du poste.",
       "raison": "Skill maison : choisir les skills d'un projet ; texte seul."
+    },
+    {
+      "nom": "acp-exploration",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-exploration",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "7f807257bb730bb2612f232b37bccfbdd6dc82893a6d567491e3faaa68fe6cdc"
+        }
+      },
+      "execution": "aucune",
+      "profils": [],
+      "description_fr": "Format de la « carte du dépôt » rendue par l'exploration en lecture seule du poste, et ce que la planification en tire.",
+      "raison": "Skill maison, étape P4 : chargée par la carte de planification d'un projet sur dépôt ; texte seul."
+    },
+    {
+      "nom": "acp-orchestration",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-orchestration",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "59fe4bb18883f370ef334c8277e1992554c1c5316a25397b5c53199de7dce4a2"
+        }
+      },
+      "execution": "aucune",
+      "profils": [],
+      "description_fr": "Planifier un projet ACP : 1 à 12 étapes vérifiables, décisions écrites, projet_planifier une seule fois.",
+      "raison": "Skill maison, étape P4 : chargée par la carte de planification ; texte seul."
+    },
+    {
+      "nom": "acp-routage",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-routage",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "2357ba635dc98eb7e0a963b7ea51f08ff41ae6114284bd5857e5318855c55bae"
+        }
+      },
+      "execution": "aucune",
+      "profils": [],
+      "description_fr": "Choisir exécutant, modèle et effort d'une étape d'après le catalogue relevé du poste ; relecture par l'autre exécutant.",
+      "raison": "Skill maison, étape P4 : chargée par les cartes de planification et de synthèse ; texte seul."
+    },
+    {
+      "nom": "acp-synthese",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-synthese",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "bb4f19034ba7f9cef35418c654eccc2496740456645018bc0138e81116c486b5"
+        }
+      },
+      "execution": "aucune",
+      "profils": [],
+      "description_fr": "Synthèse d'un tour : juger les cartes, relancer un tour seulement pour un écart concret, sinon conclure.",
+      "raison": "Skill maison, étape P4 : chargée par la carte de synthèse ; texte seul."
+    },
+    {
+      "nom": "acp-questions",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-questions",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "00c90b2bb18b0afe94914eea785c4b3edc960bcbbaacdb84601f54d3ffe1b279"
+        }
+      },
+      "execution": "aucune",
+      "profils": [],
+      "description_fr": "Répondre à la question d'une carte du poste si le projet la couvre, sinon l'escalader au propriétaire.",
+      "raison": "Skill maison, étape P4 : chargée par la carte « répondre » ; texte seul."
     },
     {
       "nom": "emil-design-eng",
