@@ -1442,7 +1442,11 @@ contrat complet **139** (32 min 48 s), plus la porte 401 sur les 13 routes P4 ; 
 01 s). Chaque nouveau test échoue sans sa correction : les 18 tests d'image sur le greffon de `463db67`
 (18 échecs), les 13 Vitest sur les sources de `463db67` (13 échecs).
 
-Intégration continue : consignée après la poussée de la branche.
+Intégration continue du sommet `8aeee20`, **verte** : `ci.yml`
+[36257679667](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679667) (Windows 387,
+Linux 378 et 9 ignorés, interface 93, moteur 74) ; `image.yml`
+[36257679694](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679694) (image 511,
+contrat 139, navigateur 6, compat vert, context7 connecté). Détail : [`projets.md`](refonte/projets.md) § 12.
 
 ## 7. Chaîne d'outils Windows
 

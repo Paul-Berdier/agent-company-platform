@@ -488,4 +488,14 @@ détail ; résultat du projet affiché en entier (« Conclusion : la recherche e
 aucune requête hors de l'origine (202 au téléphone, 307 au bureau). Aucun
 conteneur, volume ni réseau de test restant (liste des volumes identique avant et après).
 
-Intégration continue de ces corrections : poussée après ce commit, consignée ensuite.
+Intégration continue de ces corrections, sommet poussé `8aeee20`, **verte** :
+
+- `ci.yml` [36257679667](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679667) :
+  poste Windows **387 réussis** ; poste Linux **378 réussis, 9 ignorés** (propres à Windows) ; interface
+  **93** (14 fichiers) et bundles identiques aux sources ; moteur **74** ;
+- `image.yml` [36257679694](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679694)
+  (40 min) : `hermes plugins compat` vert (témoin code 1) ; sonde réelle de context7 connectée (1 743 ms) ;
+  **511 réussis** dans l'image (4 min 27 s) ; **139 réussis** au contrat (28 min 37 s), dont les trois de la
+  relecture et la porte 401 sur les 13 routes P4 (planification réclamée 3 s après la fin de
+  l'exploration) ; navigateur **6 réussis** (4 min 18 s ; quatre projets « Terminé » 66,0 s après la fin
+  des explorations).
