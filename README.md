@@ -2,7 +2,8 @@
 
 Espace de travail personnel d'agents IA, en pleine **refonte « Hermes au centre »**
 (version **0.11.0**, branche `refonte/hermes`). Le plan complet et les décisions du
-propriétaire sont dans [`docs/refonte/plan.md`](docs/refonte/plan.md) ; l'état du
+propriétaire sont dans [`docs/refonte/plan.md`](docs/refonte/plan.md) (phases P4 à P8
+remplacées par [`docs/refonte/autonomie.md`](docs/refonte/autonomie.md)) ; l'état du
 chantier, étape par étape, dans [`docs/reprise-poste.md`](docs/reprise-poste.md).
 
 ## L'idée
@@ -16,7 +17,10 @@ d'API, pas de base, pas de bus d'événements, pas de CLI. Il reste quatre pièc
 1. **Une image Railway dérivée de l'image officielle de Hermes** : réglages gérés,
    greffons `acp-interface` (identité, pages, discussion mobile) et `acp-poste`
    (délégation, jeton machine, quotas), skills vendorisées, persona française.
-   *À construire à partir de P1.*
+   *Image, gardes et squelette d'`acp-poste` en place (P1, P2) ; sur Railway, l'agent n'a
+   aucun outil d'exécution. Derrière un fournisseur d'identité auto-hébergé (Authelia,
+   `identite/`), déclarée par [`.railway/railway.ts`](.railway/railway.ts) ; rien n'est
+   encore déployé ([`docs/refonte/railway.md`](docs/refonte/railway.md)).*
 2. **Le poste Windows** ([`apps/poste`](apps/poste/README.md)) : il exécute Codex CLI
    et Claude Code avec les connexions du propriétaire, sous Job Object, et réclame son
    travail en HTTPS sortant sans écouter aucun port. *Réduit en P0 ; la voie de
@@ -35,6 +39,9 @@ consultable sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
 
 | Chemin | Rôle |
 |---|---|
+| `hermes/` | image Railway de Hermes (Dockerfile, gardes, managed scope, greffon `acp-poste`, contrat épinglé, tests) |
+| `identite/` | image du fournisseur d'identité (Authelia épinglé, garde root) |
+| `.railway/` | infrastructure Railway en code (`railway.ts`, SDK isolé), appliquée par le propriétaire seul |
 | `apps/poste/` | poste Windows : exécuteurs Codex et Claude Code, runner sous Job Object, DPAPI, sondes de quotas, ligne d'état Claude Code |
 | `hermes/plugins/acp-poste/contrat/` | contrat Python partagé par le poste et le futur greffon `acp-poste` |
 | `apps/desktop/` | client Qt natif (hors service jusqu'à P8) |
@@ -58,7 +65,9 @@ npm run test:engine
 ```
 
 L'intégration continue a trois volets : le moteur (gel et tests npm), le poste
-(pytest sous Linux et Windows) et le desktop (`Desktop CI`, windows-2022).
+(pytest sous Linux et Windows) et le desktop (`Desktop CI`, windows-2022) ; `Image Hermes`
+(`image.yml`) construit les images Hermes et identité, les éprouve (dans l'image, contrat
+depuis l'hôte, navigateur) et vérifie l'infrastructure Railway.
 
 ## Règles
 

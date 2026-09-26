@@ -16,9 +16,10 @@ Définitions, à la version épinglée :
 - hermes_cli/kanban_db_dispatch.py : heartbeat_worker :610.
 
 Toute opération vise le tableau ``poste``, toujours nommé explicitement. Squelette P1 :
-création du tableau, d'une carte en triage et lecture ; la réclamation, les battements et
-la clôture par le poste arrivent en P5 (les imports sont déjà figés ici pour que la garde
-de compatibilité les couvre).
+création du tableau, d'une carte en triage et lecture ; l'extension de P4 et la réclamation,
+les battements et la clôture par le poste (P6) suivent le plan d'autonomie
+(docs/refonte/autonomie.md § 8) ; les imports sont déjà figés ici pour que la garde de
+compatibilité les couvre.
 """
 
 from __future__ import annotations
@@ -70,7 +71,8 @@ __all__ = [
     "creer_carte_triage",
     "lire_carte",
     "lister_cartes",
-    # Réexportés pour P5, figés dès P1 sous la garde de compatibilité.
+    # Réexportés pour les phases suivantes (autonomie.md § 8), figés dès P1 sous la garde de
+    # compatibilité.
     "block_task",
     "claim_task",
     "complete_task",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -68,10 +69,19 @@ def test_hermes_managed_dir_est_refuse_en_premier(env_valide):
     ("https://intrus@idp.acp.test", "caractère refusé"),
     ("https://idp.acp.test/../autre", "chemin ambigu"),
     (" https://idp.acp.test", "entourée d'espaces"),
+    ("https://identite.railway.internal", "domaine privé de Railway interdit"),
+    ("https://identite.railway.internal:9091", "domaine privé de Railway interdit"),
+    ("https://<libellé-identite>.up.railway.app", "caractère refusé"),
 ])
 def test_un_emetteur_oidc_invalide_est_refuse(env_valide, emetteur, motif):
     env_valide["HERMES_DASHBOARD_OIDC_ISSUER"] = emetteur
     with pytest.raises(ad.Refus, match=motif):
+        ad.verifier_environnement(env_valide)
+
+
+def test_une_url_publique_sur_le_domaine_prive_de_railway_est_refusee(env_valide):
+    env_valide["HERMES_DASHBOARD_PUBLIC_URL"] = "https://hermes.railway.internal"
+    with pytest.raises(ad.Refus, match="HERMES_DASHBOARD_PUBLIC_URL : domaine privé de Railway interdit"):
         ad.verifier_environnement(env_valide)
 
 
@@ -513,3 +523,461 @@ def test_main_refuse_en_francais_avec_le_code_1(capsys, monkeypatch):
     assert "[acp] REFUS : ce script doit tourner en root" in erreur
     assert "Démarrage arrêté (échec fermé)" in erreur
     assert ad.main(["inconnue"]) == 2
+
+
+# ======================================================================= étape P2
+
+
+NOUVELLES_INTERDITES = (
+    "HERMES_TUI_TOOLSETS", "HERMES_BIN", "HERMES_ACCEPT_HOOKS", "HERMES_SAFE_MODE", "HERMES_YOLO_MODE",
+    "HERMES_COPILOT_ACP_COMMAND", "HERMES_COPILOT_ACP_ARGS", "COPILOT_CLI_PATH", "HERMES_ALLOW_PRIVATE_URLS",
+    "HERMES_PORTAL_BASE_URL", "NOUS_PORTAL_BASE_URL", "NOUS_INFERENCE_BASE_URL", "HERMES_GATEWAY_BOOTSTRAP_STATE",
+)
+
+
+def test_la_managed_scope_compte_40_cles_et_38_variables(chemins, valeurs):
+    resume = ad.installer_scope_geree(chemins, valeurs)
+    assert len(resume["cles_config"]) == 40, resume["cles_config"]
+    assert len(resume["cles_env"]) == 38, resume["cles_env"]
+
+
+@pytest.mark.parametrize("remplacer, par, motif", [
+    ("[browser, terminal, file, code_execution, computer_use, connections, cronjob, delegation, setup]",
+     "[browser, file, code_execution, computer_use, connections, cronjob, delegation, setup]",
+     "agent.disabled_toolsets"),
+    ('coding_context: "off"', "coding_context: focus", "agent.coding_context"),
+    ('coding_context: "off"', "coding_context: off", "agent.coding_context"),  # booléen pour PyYAML
+    ('service_tier: ""', "service_tier: fast", "agent.service_tier"),
+    ("api_server: [web, vision, skills, todo, memory, session_search, no_mcp]",
+     "api_server: [hermes-api-server]", "platform_toolsets.api_server"),
+    ("cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]", "cli: []",
+     "platform_toolsets.cli"),
+    ("cron: [web, vision, skills, todo, memory, session_search, no_mcp]",
+     "cron: [web, vision, skills, todo, memory, session_search, terminal, no_mcp]", "platform_toolsets.cron"),
+    ("inline_shell: false", "inline_shell: true", "skills.inline_shell"),
+    ("  write_approval: true\n  # Analyse", "  write_approval: false\n  # Analyse", "skills.write_approval"),
+    ("guard_agent_created: true", "guard_agent_created: false", "skills.guard_agent_created"),
+    ("memory:\n  # Toute écriture en mémoire par l'agent attend la validation du propriétaire\n"
+     "  # (config_defaults.py:1292-1295) : la mémoire est injectée dans toutes les sessions.\n"
+     "  write_approval: true",
+     "memory:\n  write_approval: false", "memory.write_approval"),
+    ("hooks_auto_accept: false", "hooks_auto_accept: true", "hooks_auto_accept"),
+    ("allow_private_urls: false", "allow_private_urls: true", "security.allow_private_urls"),
+    ("allow_lazy_installs: false", "allow_lazy_installs: true", "security.allow_lazy_installs"),
+])
+def test_epingles_p2_obligatoires(valeurs, remplacer, par, motif):
+    modele = _modele()
+    assert remplacer in modele, remplacer
+    with pytest.raises(ad.Refus, match=re.escape(motif)):
+        ad.generer_config_geree(modele.replace(remplacer, par, 1), valeurs)
+
+
+@pytest.mark.parametrize("nom", NOUVELLES_INTERDITES)
+def test_variables_p2_interdites(env_valide, nom):
+    env_valide[nom] = ""
+    with pytest.raises(ad.Refus) as refus:
+        ad.verifier_environnement(env_valide)
+    assert f"la variable {nom} est interdite" in str(refus.value)
+    assert "Retirez-la des variables Railway" in str(refus.value)
+
+
+def test_les_variables_p2_sont_epinglees_dans_le_env_gere(chemins, valeurs):
+    ad.installer_scope_geree(chemins, valeurs)
+    relu = ad.relire_env(chemins.dossier_gere / ".env")
+    for nom in ("HERMES_TUI_TOOLSETS", "HERMES_BIN", "HERMES_ACCEPT_HOOKS", "HERMES_SAFE_MODE", "HERMES_YOLO_MODE",
+                "HERMES_COPILOT_ACP_COMMAND", "HERMES_COPILOT_ACP_ARGS", "COPILOT_CLI_PATH"):
+        assert relu[nom] == "", nom
+    assert relu["HERMES_ALLOW_PRIVATE_URLS"] == "false"
+    assert relu["HERMES_DISABLE_LAZY_INSTALLS"] == "1"
+
+
+@pytest.mark.parametrize("nom, autre", [
+    ("HERMES_WRITE_SAFE_ROOT", "/"),
+    ("HERMES_DISABLE_LAZY_INSTALLS", "0"),
+    ("HERMES_LAZY_INSTALL_TARGET", "/opt/data/.local/lib"),
+    ("HERMES_TUI_DIR", "/opt/data/ui-tui"),
+    ("XDG_RUNTIME_DIR", "/opt/data/run"),
+])
+def test_valeurs_imposees_p2(env_valide, nom, autre):
+    env_valide[nom] = autre
+    with pytest.raises(ad.Refus, match=f"la variable {nom} vaut « {re.escape(autre)} »"):
+        ad.verifier_environnement(env_valide)
+    del env_valide[nom]
+    with pytest.raises(ad.Refus, match=f"la variable {nom} manque"):
+        ad.verifier_environnement(env_valide)
+
+
+@pytest.mark.parametrize("valeur, admis", [(None, True), ("0", True), ("1000", False), ("", False), ("10000", False)])
+def test_railway_run_uid(env_valide, valeur, admis):
+    if valeur is not None:
+        env_valide["RAILWAY_RUN_UID"] = valeur
+    if admis:
+        ad.verifier_environnement(env_valide)
+    else:
+        with pytest.raises(ad.Refus, match="RAILWAY_RUN_UID"):
+            ad.verifier_environnement(env_valide)
+
+
+MOUNTINFO_AVEC = (
+    "1400 1300 0:120 / / rw,relatime - overlay overlay rw\n"
+    "1401 1400 253:1 /var/lib/docker/volumes/v/_data /opt/data rw,relatime - ext4 /dev/vda1 rw\n")
+MOUNTINFO_SANS = "1400 1300 0:120 / / rw,relatime - overlay overlay rw\n"
+MOUNTINFO_ECHAPPE = "1401 1400 253:1 / /opt/data\\040autre rw - ext4 /dev/vda1 rw\n"
+
+
+@pytest.mark.parametrize("marqueur", ["RAILWAY_ENVIRONMENT_ID", "RAILWAY_DEPLOYMENT_ID", "RAILWAY_SERVICE_ID"])
+def test_volume_railway(env_valide, tmp_path, marqueur):
+    env_valide[marqueur] = "0b3c-identifiant"
+    # Sans RAILWAY_VOLUME_MOUNT_PATH, ou avec un autre chemin : refus.
+    with pytest.raises(ad.Refus, match="le volume du service doit être monté sur /opt/data"):
+        ad.verifier_environnement(env_valide)
+    env_valide["RAILWAY_VOLUME_MOUNT_PATH"] = "/data"
+    with pytest.raises(ad.Refus, match="reçu « /data »"):
+        ad.verifier_environnement(env_valide)
+    env_valide["RAILWAY_VOLUME_MOUNT_PATH"] = "/opt/data"
+    ad.verifier_environnement(env_valide)
+    # La variable ne suffit pas : /opt/data doit être un vrai point de montage.
+    for contenu, present in ((MOUNTINFO_AVEC, True), (MOUNTINFO_SANS, False), (MOUNTINFO_ECHAPPE, False)):
+        fichier = tmp_path / "mountinfo"
+        fichier.write_text(contenu, encoding="utf-8")
+        if present:
+            ad.verifier_montage(env_valide, fichier)
+        else:
+            with pytest.raises(ad.Refus, match="n'est pas un point de montage"):
+                ad.verifier_montage(env_valide, fichier)
+    with pytest.raises(ad.Refus, match="illisible"):
+        ad.verifier_montage(env_valide, tmp_path / "absent")
+
+
+def test_hors_railway_ni_volume_ni_montage_ne_sont_exiges(env_valide, tmp_path):
+    ad.verifier_environnement(env_valide)
+    fichier = tmp_path / "mountinfo"
+    fichier.write_text(MOUNTINFO_SANS, encoding="utf-8")
+    ad.verifier_montage(env_valide, fichier)
+    assert ad.point_de_montage_present(fichier) is False
+    fichier.write_text("1 0 0:1 / /opt/data\\040x rw - x x rw\n1 0 0:1 / /opt/data rw - x x rw\n", encoding="utf-8")
+    assert ad.point_de_montage_present(fichier) is True
+
+
+@pytest.mark.parametrize("repertoire", ["hooks", "scripts"])
+def test_hooks_et_scripts_du_volume(chemins, valeurs, repertoire):
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    racine = chemins.hermes_home / repertoire
+    piege = racine / "intrus" / "handler.py" if repertoire == "hooks" else racine / "intrus.py"
+    _ecrire(piege, "import os\nos.system('id')\n")
+    os.chown(racine, UID_HERMES, UID_HERMES)
+    avant = _empreinte_arbre(chemins.hermes_home)
+    with pytest.raises(ad.Refus, match=f"{racine} n'est pas vide"):
+        ad.refuser_repertoires_executes(chemins)
+    with pytest.raises(ad.Refus, match="doit rester vide sur Railway"):
+        ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert _empreinte_arbre(chemins.hermes_home) == avant  # refus AVANT toute écriture
+    # Vide : repris par root, et l'agent ne peut plus y déposer de fichier.
+    import shutil
+
+    shutil.rmtree(racine)
+    racine.mkdir()
+    os.chown(racine, UID_HERMES, UID_HERMES)
+    etat = ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES, commit="0123abc")
+    for nom in ("hooks", "scripts"):
+        st = os.lstat(chemins.hermes_home / nom)
+        assert st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o755, nom
+        assert _comme_hermes("touch", str(chemins.hermes_home / nom / "intrus")).returncode != 0
+    assert etat["schema"] == 2 and etat["deploiement"] == {"commit": "0123abc"}
+    assert etat["repertoires_executes"]["hooks"]["vide"] is True
+    # Un lien symbolique à la place du répertoire est refusé.
+    shutil.rmtree(racine)
+    racine.symlink_to("/tmp")
+    with pytest.raises(ad.Refus, match="lien symbolique"):
+        ad.refuser_repertoires_executes(chemins)
+
+
+@pytest.mark.parametrize("relatif", ["hooks/intrus/handler.py", "scripts/tache.py"])
+def test_hooks_et_scripts_des_profils(chemins, valeurs, relatif):
+    """Correction de la relecture P2 : une seule passerelle sert tous les profils et exécute les
+    scripts cron et les crochets PROPRES à chaque profil (cron/scheduler_script.py:257-298 ;
+    gateway/hooks.py:28-35). hooks/ et scripts/ de chaque profil sont donc exigés vides, puis
+    repris par root, comme ceux de la racine."""
+    import shutil
+
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    profil = chemins.hermes_home / "profiles" / "intrus"
+    _ecrire(profil / "SOUL.md", "profil secondaire\n")
+    _ecrire(profil / relatif, "import os\nos.system('id')\n")
+    _ecrire(chemins.hermes_home / "profiles" / "sain" / "SOUL.md", "profil sain\n")
+    subprocess.run(["chown", "-R", f"{UID_HERMES}:{UID_HERMES}", str(chemins.hermes_home)], check=True)
+    repertoire = profil / relatif.split("/")[0]
+    avant = _empreinte_arbre(chemins.hermes_home)
+    with pytest.raises(ad.Refus, match=re.escape(f"{repertoire} n'est pas vide")):
+        ad.refuser_repertoires_executes(chemins)
+    with pytest.raises(ad.Refus, match="doit rester vide sur Railway"):
+        ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert _empreinte_arbre(chemins.hermes_home) == avant  # refus AVANT toute écriture
+    # Vidé : les hooks/ et scripts/ de CHAQUE profil sont repris par root et l'agent n'y écrit plus.
+    shutil.rmtree(repertoire)
+    etat = ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert etat["repertoires_executes"]["profils"] == ["intrus", "sain"]
+    for nom in ("intrus", "sain"):
+        for sous in ("hooks", "scripts"):
+            chemin = chemins.hermes_home / "profiles" / nom / sous
+            st = os.lstat(chemin)
+            assert st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o755, chemin
+            assert _comme_hermes("touch", str(chemin / "intrus")).returncode != 0, chemin
+    # Contrôle positif : le profil lui-même reste à l'agent.
+    assert _comme_hermes("touch", str(profil / "controle")).returncode == 0
+
+
+def test_un_lien_symbolique_sous_profiles_est_refuse(chemins, valeurs, tmp_path):
+    """Hermes suit un lien sous profiles/ (hermes_cli/profiles.py:349-366, is_dir()) : il
+    exécuterait les hooks/ et scripts/ de la cible. Refusé, sans rien écrire."""
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    cible = tmp_path / "ailleurs"
+    _ecrire(cible / "scripts" / "tache.py", "print('cron')\n")
+    (chemins.hermes_home / "profiles").mkdir()
+    (chemins.hermes_home / "profiles" / "detour").symlink_to(cible)
+    with pytest.raises(ad.Refus, match="profiles/detour est un lien symbolique"):
+        ad.refuser_repertoires_executes(chemins)
+    with pytest.raises(ad.Refus, match="lien symbolique"):
+        ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert (cible / "scripts" / "tache.py").is_file()
+    # profiles/ lui-même remplacé par un lien : refusé aussi.
+    (chemins.hermes_home / "profiles" / "detour").unlink()
+    (chemins.hermes_home / "profiles").rmdir()
+    (chemins.hermes_home / "profiles").symlink_to(tmp_path)
+    with pytest.raises(ad.Refus, match="profiles est un lien symbolique"):
+        ad.refuser_repertoires_executes(chemins)
+
+
+def test_journal_des_gardes_nomme_les_profils(chemins, env_valide, capsys):
+    _ecrire(chemins.hermes_home / "profiles" / "coder" / "SOUL.md", "x\n")
+    ad.commande_gardes(chemins, env_valide)
+    assert ("inspectés : vides, ainsi que hooks/ et scripts/ de 1 profil(s) (coder)."
+            in capsys.readouterr().out)
+
+
+def test_lazy_packages_non_vide_est_signale(chemins, valeurs):
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    paresseux = chemins.hermes_home / "lazy-packages"
+    paresseux.mkdir()
+    (paresseux / ".python-abi").write_text("3.12\n", encoding="utf-8")
+    (paresseux / ".lock").write_text("", encoding="utf-8")
+    assert ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)["lazy_packages"] == {"entrees": []}
+    (paresseux / "edge_tts").mkdir()
+    assert ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)["lazy_packages"] == {
+        "entrees": ["edge_tts"]}
+
+
+@pytest.mark.parametrize("sha, affiche", [
+    ("0123456789abcdef0123456789abcdef01234567", "0123456789abcdef0123456789abcdef01234567"),
+    (None, "inconnu"),
+    ("pas-un-sha; rm -rf /", "inconnu"),
+    ("0123456789abcdef\n[acp] faux message", "inconnu"),
+    ("0123456789abcdef\n", "inconnu"),
+])
+def test_journal_commit_deploye(chemins, env_valide, capsys, sha, affiche):
+    if sha is not None:
+        env_valide["RAILWAY_GIT_COMMIT_SHA"] = sha
+    ad.commande_gardes(chemins, env_valide)
+    sortie = capsys.readouterr().out
+    assert f"[acp] commit déployé : {affiche}\n" in sortie
+    assert "managed scope régénérée : 40 clés de configuration et 38 variables" in sortie
+    assert "hooks et " in sortie and "inspectés : vides." in sortie
+
+
+# ------------------------------------------------------------------ diagnostiquer
+
+
+def _empreinte_arbre(racine: Path) -> str:
+    """Empreinte d'une arborescence (chemins, types, modes, propriétaires, tailles, dates,
+    contenus), sans suivre de lien : prouve qu'une commande n'a RIEN écrit."""
+    import hashlib
+
+    h = hashlib.sha256()
+    for dossier, sous, fichiers in sorted(os.walk(racine)):
+        sous.sort()
+        for nom in sorted(sous + fichiers):
+            chemin = Path(dossier) / nom
+            st = os.lstat(chemin)
+            h.update(f"{chemin}|{st.st_mode}|{st.st_uid}|{st.st_gid}|{st.st_size}|{st.st_mtime_ns}\n".encode())
+            if stat.S_ISREG(st.st_mode):
+                h.update(chemin.read_bytes())
+            elif stat.S_ISLNK(st.st_mode):
+                h.update(os.readlink(chemin).encode())
+    return h.hexdigest()
+
+
+def _faux_pid1(racine: Path, env: dict, programme: str = "sleep") -> Path:
+    """Faux /proc/1 : cmdline et environ séparés par des octets nuls, comme le noyau."""
+    proc = racine / "proc1"
+    proc.mkdir()
+    (proc / "cmdline").write_bytes(programme.encode() + b"\0infinity\0")
+    (proc / "environ").write_bytes(b"".join(f"{k}={v}".encode() + b"\0" for k, v in env.items()))
+    return proc
+
+
+def _chemins_diagnostic(chemins, tmp_path: Path, env: dict, *, programme: str = "sleep") -> "ad.Chemins":
+    montages = tmp_path / "mountinfo"
+    montages.write_text(MOUNTINFO_AVEC, encoding="utf-8")
+    import dataclasses
+
+    return dataclasses.replace(chemins, proc_pid1=_faux_pid1(tmp_path, env, programme), montages=montages,
+                               env_s6=tmp_path / "s6-env-absent")
+
+
+# Contenus INERTES : jamais exécutés, seulement lus par le diagnostic (qui doit les signaler).
+VOLUME_PIEGE = {
+    ".env": "OPENAI_API_KEY=legitime\nHERMES_MANAGED_DIR=/opt/data/faux-gere\n",
+    "hooks/intrus/handler.py": "def handle(*a):\n    import os; os.system('id')\n",
+    "hooks/intrus/HOOK.yaml": "name: intrus\nevents: [agent:start]\n",
+    "scripts/tache.py": "print('cron')\n",
+    "config.yaml": (
+        "mcp_servers:\n  intrus:\n    command: /opt/data/bin/serveur\n    args: []\n"
+        "hooks:\n  pre_tool_call:\n    - command: /opt/data/crochet.sh\n"
+        "quick_commands:\n  shell:\n    type: exec\n    command: id\n  alias:\n    type: alias\n    target: /help\n"
+        "tts:\n  provider: voix\n  providers:\n    voix:\n      type: command\n      command: /opt/data/tts.sh\n"),
+    "profiles/coder/config.yaml": "stt:\n  maison:\n    type: command\n    command: /opt/data/stt.sh\n",
+    # Correction de la relecture P2 : scripts/ d'un profil et tâches cron à script.
+    "profiles/coder/scripts/tache.py": "print('cron du profil')\n",
+    "profiles/coder/cron/jobs.json": json.dumps({"jobs": [
+        {"id": "nettoyage", "schedule": "1m", "script": "nettoyage.sh", "no_agent": True},
+        {"id": "resume", "schedule": "1d", "prompt": "Résume la journée."}]}),
+    "cron/jobs.json": "\ufeff" + json.dumps({"jobs": {"veille": {"schedule": "5m", "monitor_script": "veille.py",
+                                                               "prompt": "x"}}}),
+    "lazy-packages/edge_tts/__init__.py": "x = 1\n",
+    "lazy-packages/.python-abi": "3.12\n",
+}
+
+
+def test_diagnostiquer_rassemble_sans_ecrire(chemins, valeurs, tmp_path, env_valide, capsys):
+    ad.installer_scope_geree(chemins, valeurs)
+    env = dict(env_valide, RAILWAY_ENVIRONMENT_ID="env", RAILWAY_VOLUME_MOUNT_PATH="/opt/data", API_SERVER_KEY="x")
+    diag = _chemins_diagnostic(chemins, tmp_path, env)
+    for relatif, contenu in VOLUME_PIEGE.items():
+        _ecrire(chemins.hermes_home / relatif, contenu)
+    avant = (_empreinte_arbre(chemins.hermes_home), _empreinte_arbre(chemins.dossier_gere),
+             _empreinte_arbre(tmp_path / "proc1"))
+    code = ad.commande_diagnostiquer(diag)
+    apres = (_empreinte_arbre(chemins.hermes_home), _empreinte_arbre(chemins.dossier_gere),
+             _empreinte_arbre(tmp_path / "proc1"))
+    sortie = capsys.readouterr().out
+    print(sortie)
+    assert code == 1
+    assert avant == apres, "diagnostiquer a modifié quelque chose"
+    assert not chemins.dossier_etat.exists()
+    constats = [l for l in sortie.splitlines() if l.startswith("[acp] DIAGNOSTIC : ")]
+    for motif in ("la variable API_SERVER_KEY est interdite",                 # environnement du PID 1
+                  "définit la variable interdite HERMES_MANAGED_DIR",         # .env du volume
+                  "/hooks n'est pas vide (« intrus »)",
+                  "/scripts n'est pas vide (« tache.py »)",
+                  "mcp_servers.intrus.command = « /opt/data/bin/serveur »",
+                  "hooks non vide (pre_tool_call)",
+                  "quick_commands.shell de type exec = « id »",
+                  "tts.providers.voix.command (fournisseur de type command)",
+                  "profiles/coder/config.yaml : stt.maison.command (fournisseur de type command)",
+                  "lazy-packages contient des paquets (edge_tts)",
+                  "profiles/coder/scripts n'est pas vide (« tache.py »)",
+                  "profiles/coder/cron/jobs.json : la tâche cron « nettoyage » exécute un script "
+                  "(script = « nettoyage.sh »)",
+                  "/cron/jobs.json : la tâche cron « veille » exécute un script (monitor_script = « veille.py »)"):
+        assert any(motif in l for l in constats), motif
+    assert not any("quick_commands.alias" in l for l in constats)
+    assert not any("« resume »" in l for l in constats)  # tâche sans script : non signalée
+    assert not any(".python-abi" in l for l in constats)
+    assert "[acp] diagnostic : source de l'environnement de référence : " in sortie
+    assert "constat(s) ; code 1." in sortie
+
+
+def test_diagnostiquer_un_volume_sain_rend_0(chemins, valeurs, tmp_path, env_valide, capsys):
+    ad.installer_scope_geree(chemins, valeurs)
+    env = dict(env_valide, RAILWAY_ENVIRONMENT_ID="env", RAILWAY_VOLUME_MOUNT_PATH="/opt/data",
+               RAILWAY_GIT_COMMIT_SHA="0123456789abcdef0123456789abcdef01234567")
+    diag = _chemins_diagnostic(chemins, tmp_path, env)
+    _ecrire(chemins.hermes_home / "config.yaml", "model:\n  provider: custom\n")
+    (chemins.hermes_home / "hooks").mkdir()
+    (chemins.hermes_home / "lazy-packages").mkdir()
+    (chemins.hermes_home / "lazy-packages" / ".python-abi").write_text("3.12\n", encoding="utf-8")
+    assert ad.commande_diagnostiquer(diag) == 0
+    sortie = capsys.readouterr().out
+    assert "aucun constat ; code 0." in sortie
+    assert "managed scope installée : déploiement." in sortie
+    assert "commit déployé : 0123456789abcdef0123456789abcdef01234567." in sortie
+
+
+def test_diagnostiquer_en_maintenance_accepte_la_scope_de_construction(chemins, tmp_path, env_valide, capsys):
+    """En maintenance (Start Command), acp-gardes n'a pas tourné : /etc/hermes porte la scope de
+    construction ; ce n'est pas un constat."""
+    ad.installer_scope_geree(chemins, ad.VALEURS_VIDES, construction=True)
+    diag = _chemins_diagnostic(chemins, tmp_path, env_valide)
+    assert ad.commande_diagnostiquer(diag) == 0
+    assert "managed scope installée : construction (valeurs de déploiement vides)." in capsys.readouterr().out
+
+
+SCRIPT_DIAGNOSTIC = r"""
+import dataclasses, sys
+from pathlib import Path
+sys.path.insert(0, "/opt/acp/bin")
+import acp_demarrage as ad
+c = ad.Chemins(dossier_gere=Path(sys.argv[1]), hermes_home=Path(sys.argv[2]), proc_pid1=Path(sys.argv[3]),
+               env_s6=Path(sys.argv[4]), montages=Path(sys.argv[5]), dossier_etat=Path(sys.argv[6]))
+raise SystemExit(ad.commande_diagnostiquer(c))
+"""
+
+
+def _diagnostiquer_sans_environnement(chemins, tmp_path: Path, proc1: Path, env_s6: Path):
+    """``env -i`` : la session qui lance le diagnostic n'a AUCUNE variable (comme une session
+    `railway ssh` dont la doc ne dit rien) ; seul l'environnement de référence compte."""
+    montages = tmp_path / "mountinfo"
+    montages.write_text(MOUNTINFO_AVEC, encoding="utf-8")
+    return subprocess.run(
+        ["env", "-i", "/opt/hermes/.venv/bin/python", "-I", "-B", "-c", SCRIPT_DIAGNOSTIC,
+         str(chemins.dossier_gere), str(chemins.hermes_home), str(proc1), str(env_s6), str(montages),
+         str(chemins.dossier_etat)], capture_output=True, text=True, timeout=120)
+
+
+def test_diagnostiquer_source_environnement(chemins, valeurs, tmp_path, env_valide):
+    ad.installer_scope_geree(chemins, valeurs)
+    # 1. Maintenance : PID 1 = sleep infinity ; /proc/1/environ porte l'environnement Railway valide.
+    proc1 = _faux_pid1(tmp_path, dict(env_valide, RAILWAY_SERVICE_ID="s", RAILWAY_VOLUME_MOUNT_PATH="/opt/data"))
+    resultat = _diagnostiquer_sans_environnement(chemins, tmp_path, proc1, tmp_path / "s6-absent")
+    print(resultat.stdout, resultat.stderr)
+    assert resultat.returncode == 0, resultat.stdout + resultat.stderr
+    assert f"source de l'environnement de référence : {proc1 / 'environ'} (PID 1 hors de s6 : sleep infinity)" \
+        in resultat.stdout
+    assert "REFUS" not in resultat.stdout + resultat.stderr
+    # 2. Sous s6 : PID 1 = s6-svscan ; l'environnement vient de /run/s6/container_environment.
+    s6 = tmp_path / "s6-env"
+    s6.mkdir()
+    for nom, valeur in env_valide.items():
+        # Comme s6-overlay : chaque fichier se termine par un saut de ligne (mesuré dans l'image,
+        # « /opt/data\n ») ; with-contenv le retire. Sans ce « \n », le test passait sur un code
+        # qui produisait 29 faux constats sur un vrai conteneur sain (relecture P2).
+        (s6 / nom).write_text(valeur + "\n", encoding="utf-8")
+    proc_s6 = tmp_path / "proc-s6"
+    proc_s6.mkdir()
+    (proc_s6 / "cmdline").write_bytes(b"/package/admin/s6/command/s6-svscan\0-d4\0--\0/run/service\0")
+    resultat = _diagnostiquer_sans_environnement(chemins, tmp_path, proc_s6, s6)
+    assert resultat.returncode == 0, resultat.stdout + resultat.stderr
+    assert f"source de l'environnement de référence : {s6} (PID 1 : " in resultat.stdout
+    # 3. Aucune source lisible : « inconnue », code 1.
+    proc_vide = tmp_path / "proc-vide"
+    proc_vide.mkdir()
+    resultat = _diagnostiquer_sans_environnement(chemins, tmp_path, proc_vide, tmp_path / "s6-absent")
+    assert resultat.returncode == 1
+    assert "source de l'environnement de référence : inconnue" in resultat.stdout
+    assert "[acp] DIAGNOSTIC : source de l'environnement inconnue" in resultat.stdout
+
+
+def test_lire_env_s6_retire_un_seul_saut_de_ligne_final(tmp_path):
+    """Comme with-contenv (s6-envdir sans -n) : exactement UN « \n » final est retiré."""
+    dossier = tmp_path / "env"
+    dossier.mkdir()
+    for nom, contenu in {"A": "/opt/data\n", "B": "deux\n\n", "C": "", "D": "\n", "E": "sans"}.items():
+        (dossier / nom).write_text(contenu, encoding="utf-8")
+    (dossier / "LIEN").symlink_to(dossier / "A")
+    assert ad.lire_env_s6(dossier) == {"A": "/opt/data", "B": "deux\n", "C": "", "D": "", "E": "sans"}
+
+
+def test_diagnostiquer_exige_root(capsys, monkeypatch):
+    monkeypatch.setattr(ad.os, "geteuid", lambda: 10000)
+    assert ad.main(["diagnostiquer"]) == 1
+    assert "[acp] DIAGNOSTIC : ce script doit tourner en root" in capsys.readouterr().err

@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -40,6 +41,12 @@ ENV_VALIDE = {
     "HERMES_DASHBOARD_PORT": "9119",
     "S6_BEHAVIOUR_IF_STAGE2_FAILS": "2",
     "S6_STAGE2_HOOK": "/opt/acp/bin/acp-gardes",
+    # Valeurs imposées depuis P2 (ENV de l'image officielle).
+    "HERMES_WRITE_SAFE_ROOT": "/opt/data",
+    "HERMES_DISABLE_LAZY_INSTALLS": "1",
+    "HERMES_LAZY_INSTALL_TARGET": "/opt/data/lazy-packages",
+    "HERMES_TUI_DIR": "/opt/hermes/ui-tui",
+    "XDG_RUNTIME_DIR": "/tmp/hermes-runtime",
     "HERMES_DASHBOARD_PUBLIC_URL": "https://hermes.acp.test",
     "HERMES_DASHBOARD_OIDC_ISSUER": "https://idp.acp.test:8443",
     "HERMES_DASHBOARD_OIDC_CLIENT_ID": "acp-tableau",
@@ -82,3 +89,147 @@ def chemins(tmp_path: Path) -> "ad.Chemins":
         soul_amont=Path("/opt/hermes/docker/SOUL.md"),
         dossier_etat=tmp_path / "run-acp",
     )
+
+
+# ------------------------------------------------------------------ processus neufs (étape P2)
+
+import json  # noqa: E402
+import shutil  # noqa: E402
+import socket  # noqa: E402
+import subprocess  # noqa: E402
+import time  # noqa: E402
+
+PYTHON_HERMES = "/opt/hermes/.venv/bin/python"
+TEMOINS = Path("/tmp/acp-temoins")
+
+# Variables jamais transmises à un processus neuf de test : elles désigneraient le vrai volume ou
+# changeraient le comportement mesuré.
+_VARIABLES_ECARTEES = ("HERMES_HOME", "HERMES_MANAGED_DIR", "HERMES_KANBAN_TASK", "HERMES_TUI_TOOLSETS",
+                       "HERMES_SAFE_MODE", "HERMES_BIN", "PYTHONPATH")
+
+
+class ModeleFactice:
+    """Modèle factice (hermes/tests/outils/modele_factice.py) dans un sous-processus."""
+
+    def __init__(self, dossier: Path) -> None:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            self.port = s.getsockname()[1]
+        self.journal = dossier / "modele-factice.jsonl"
+        self.scenarios = dossier / "scenarios.json"
+        self.processus = subprocess.Popen(
+            [PYTHON_HERMES, str(OUTILS / "modele_factice.py"), "--port", str(self.port),
+             "--journal", str(self.journal), "--scenarios", str(self.scenarios)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        limite = time.monotonic() + 30
+        while time.monotonic() < limite:
+            try:
+                with socket.create_connection(("127.0.0.1", self.port), timeout=1):
+                    return
+            except OSError:
+                time.sleep(0.2)
+        raise RuntimeError("le modèle factice n'a pas démarré")
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}/v1"
+
+    def requetes(self) -> list:
+        if not self.journal.exists():
+            return []
+        return [json.loads(l) for l in self.journal.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    def resultats_outils(self) -> list:
+        """Contenus des résultats d'outils reçus par le modèle, dans l'ordre."""
+        vus = []
+        for requete in self.requetes():
+            for resultat in requete.get("resultats_outils") or []:
+                if resultat["contenu"] not in vus:
+                    vus.append(resultat["contenu"])
+        return vus
+
+    def arreter(self) -> None:
+        self.processus.terminate()
+        try:
+            self.processus.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.processus.kill()
+
+
+@pytest.fixture
+def modele_factice(tmp_path: Path):
+    dossier = tmp_path / "factice"
+    dossier.mkdir()
+    modele = ModeleFactice(dossier)
+    yield modele
+    modele.arreter()
+
+
+@pytest.fixture
+def temoins():
+    """Répertoire des témoins, vidé avant et après le test : un fichier qui y apparaît prouve
+    qu'un outil d'exécution a réellement tourné."""
+    shutil.rmtree(TEMOINS, ignore_errors=True)
+    TEMOINS.mkdir(mode=0o777)
+    os.chmod(TEMOINS, 0o1777)
+    yield TEMOINS
+    shutil.rmtree(TEMOINS, ignore_errors=True)
+
+
+def installer_home_de_test(chemins: "ad.Chemins", valeurs: "ad.ValeursDeploiement", *, modele_url: Optional[str] = None,
+                           config: str = "", env: str = "", sans_garde: bool = False) -> None:
+    """Managed scope jetable (celle de l'image, régénérée) et volume jetable garni.
+
+    ``sans_garde`` : témoin négatif, la managed scope de test désactive acp-poste."""
+    ad.installer_scope_geree(chemins, valeurs)
+    if sans_garde:
+        fichier = chemins.dossier_gere / "config.yaml"
+        texte = fichier.read_text(encoding="utf-8")
+        assert "    - dashboard_auth/drain\n" in texte
+        fichier.write_text(texte.replace("    - dashboard_auth/drain\n",
+                                         "    - dashboard_auth/drain\n    - acp-poste\n"), encoding="utf-8")
+    contenu = config
+    if modele_url:
+        contenu = (f"model:\n  provider: custom\n  base_url: {modele_url}\n  default: acp-factice\n"
+                   f"  api_key: factice\n") + contenu
+    if contenu:
+        (chemins.hermes_home / "config.yaml").write_text(contenu, encoding="utf-8")
+    if env:
+        (chemins.hermes_home / ".env").write_text(env, encoding="utf-8")
+
+
+def env_processus(chemins: "ad.Chemins", **supplement: str) -> dict:
+    """Environnement d'un processus neuf : HERMES_HOME et managed scope jetables."""
+    env = {k: v for k, v in os.environ.items() if k not in _VARIABLES_ECARTEES}
+    env["HERMES_HOME"] = str(chemins.hermes_home)
+    env["HERMES_MANAGED_DIR"] = str(chemins.dossier_gere)
+    env["HOME"] = str(chemins.hermes_home)
+    env.update(supplement)
+    return env
+
+
+def lancer_outil(script: str, *arguments: str, env: dict, delai: int = 240) -> subprocess.CompletedProcess:
+    """Lance un outil de hermes/tests/outils dans un processus Python NEUF (interpréteur de Hermes)."""
+    return subprocess.run([PYTHON_HERMES, str(OUTILS / script), *arguments], env=env, cwd="/opt/hermes",
+                          capture_output=True, text=True, timeout=delai)
+
+
+def executer_python(code: str, *, env: Optional[dict] = None, delai: int = 180, dossier: Optional[Path] = None):
+    """Exécute ``code`` dans un processus Python NEUF (interpréteur de Hermes) ; le code range son
+    résultat dans la variable ``resultat``, relue en JSON par un fichier : Hermes détourne
+    sys.stdout vers la sortie d'erreur à l'import de certains modules."""
+    import tempfile
+
+    fd, chemin = tempfile.mkstemp(prefix="acp-resultat-", suffix=".json", dir=str(dossier) if dossier else None)
+    os.close(fd)
+    os.chmod(chemin, 0o666)
+    enveloppe = (code + "\nimport json as _acp_json\nwith open(" + repr(chemin)
+                 + ", 'w', encoding='utf-8') as _acp_f:\n    _acp_json.dump(resultat, _acp_f, ensure_ascii=False)\n")
+    try:
+        sortie = subprocess.run([PYTHON_HERMES, "-c", enveloppe], env=env, cwd="/opt/hermes", capture_output=True,
+                                text=True, timeout=delai)
+        assert sortie.returncode == 0, f"code {sortie.returncode}\n{sortie.stderr[-4000:]}"
+        with open(chemin, encoding="utf-8") as flux:
+            return json.load(flux)
+    finally:
+        os.unlink(chemin)

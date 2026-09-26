@@ -36,7 +36,7 @@ COPY contrat/ /opt/acp/contrat/
 COPY gere/config.yaml /opt/acp/gere/config.yaml
 COPY persona/SOUL.md /opt/acp/persona/SOUL.md
 COPY theme/ /opt/acp/theme/
-COPY image/acp_demarrage.py image/acp-gardes image/acp-run-dashboard /opt/acp/bin/
+COPY image/acp_demarrage.py image/acp-gardes image/acp-run-dashboard image/acp-entree /opt/acp/bin/
 # Greffon groupé : /opt/hermes/plugins est la source « bundled » de Hermes
 # (hermes_cli/plugins.py:68-75), en lecture seule pour l'agent.
 COPY plugins/acp-poste/ /opt/hermes/plugins/acp-poste/
@@ -51,7 +51,8 @@ RUN set -eu; \
     chown -R root:root /opt/acp /opt/hermes/plugins/acp-poste /etc/cont-init.d/05-acp; \
     find /opt/acp /opt/hermes/plugins/acp-poste -type d -exec chmod 0755 {} +; \
     find /opt/acp /opt/hermes/plugins/acp-poste -type f -exec chmod 0644 {} +; \
-    chmod 0755 /opt/acp/bin/acp-gardes /opt/acp/bin/acp-run-dashboard /etc/cont-init.d/05-acp; \
+    chmod 0755 /opt/acp/bin/acp-gardes /opt/acp/bin/acp-run-dashboard /opt/acp/bin/acp-entree \
+        /etc/cont-init.d/05-acp; \
     /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py construire
 
 # Enveloppe root du service s6 « dashboard » : à chaque (re)lancement, y compris quand
@@ -67,9 +68,16 @@ RUN set -eu; \
     chown root:root /opt/acp/amont/s6-dashboard-run /etc/s6-overlay/s6-rc.d/dashboard/run; \
     chmod 0755 /opt/acp/amont/s6-dashboard-run /etc/s6-overlay/s6-rc.d/dashboard/run
 
+# ENTRYPOINT (étape P2) : l'ENTRYPOINT officiel (docker/entrypoint-dispatch.sh, qui lance
+# /init d's6 quand il est PID 1) est ENVELOPPÉ par acp-entree, qui refuse de démarrer hors du
+# PID 1 : le repli officiel sans s6 tournerait sans aucune garde (hermes/image/acp-entree).
+# Une Start Command Railway remplace l'ENTRYPOINT (rw_full.txt:29497-29507) : maintenance
+# seulement, sous la forme /bin/sh -c "exec sleep infinity" (docs/refonte/railway.md §10).
+# Déclarer un ENTRYPOINT remet à vide le CMD hérité : le CMD doit donc rester APRÈS.
+ENTRYPOINT ["/opt/acp/bin/acp-entree"]
+
 # La passerelle (cron, répartiteur kanban, messagerie) est supervisée par s6 quand le
 # CMD vaut « gateway run » ; l'image officielle a CMD [] (Dockerfile:513) et son service
 # main-hermes n'est qu'un « sleep infinity » (docker/s6-rc.d/main-hermes/run ;
-# website/docs/user-guide/docker.md:61-66). L'ENTRYPOINT officiel
-# (docker/entrypoint-dispatch.sh, qui lance /init d's6 quand il est PID 1) est conservé.
+# website/docs/user-guide/docker.md:61-66).
 CMD ["gateway", "run"]

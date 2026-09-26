@@ -62,6 +62,84 @@ Sécurité, Vérifié localement, Limites connues) sera rédigée avant la PR fi
   compatible OpenAI et un faux fournisseur d'identité ; workflow `image.yml` ;
 - documentation : `docs/refonte/image.md`.
 
+### P2 — premier déploiement Railway authentifié, agent sans terminal (préparé, non déployé)
+
+Tout est prouvé en local et en CI ; **rien n'est déployé** : le premier déploiement est fait par le
+propriétaire, selon `docs/refonte/railway.md`.
+
+- **agent sans outil d'exécution sur Railway** (ni terminal, ni fichiers, ni code, ni navigateur,
+  ni cron, ni délégation, ni connexions), en trois couches : managed scope à 40 clés (jeux
+  d'outils coupés, `platform_toolsets` explicites pour api_server, CLI et cron,
+  `coding_context "off"`, `service_tier ""`, `write_approval` des skills et de la mémoire,
+  `hooks_auto_accept: false`, réseau privé et installations paresseuses fermés), `.env` géré à
+  38 variables, et garde `pre_tool_call` en **liste blanche de 24 outils** dans `acp-poste`
+  (`garde_execution.py`) ; `kanban_create` et `kanban_attach_url` refusés avec leur propre
+  message ; `preview.restart` fermé dans le processus réel (deux tests bloquants : stdio
+  `tui_gateway.entry` et `/api/ws` du vrai tableau de bord) ;
+- **gardes de plateforme** : `acp-entree` refuse de démarrer hors du PID 1 ; le greffon arrête
+  (code 78) une passerelle ou un tableau de bord lancés hors de s6 ; `/opt/data/hooks` et
+  `/opt/data/scripts` exigés vides puis rendus à root ; sur Railway, volume exigé sur `/opt/data`
+  (variable et point de montage réel) ; `RAILWAY_RUN_UID` absente ou `0` ; treize variables
+  interdites et cinq valeurs imposées de plus ; domaine privé `*.railway.internal` refusé pour
+  l'URL publique et l'émetteur ; commit déployé journalisé ;
+- `diagnostiquer` : commande de maintenance en lecture seule (environnement du PID 1, clés
+  exécutables de `config.yaml`, `lazy-packages`) ; `/v1/meta` gagne les blocs `garde_execution`,
+  `reseau` et `deploiement` ;
+- **fournisseur d'identité** `identite/` : Authelia 4.39.28 épinglé par condensat, un seul
+  utilisateur réécrit à chaque démarrage, un seul client OIDC public `hermes-acp`, politique
+  `deny` par défaut, passkeys (WebAuthn), secrets générés une fois dans le volume, garde root en
+  français (`acp-identite-entree`), administration en maintenance (`acp-identite-admin`),
+  HEALTHCHECK Docker de l'image amont retiré (élévation possible) ; limite mémoire **mesurée**
+  (2,5 Gio) ;
+- **infrastructure Railway** `.railway/railway.ts` : projet entier (services `hermes` et
+  `identite`, deux volumes), branche `refonte/hermes`, Wait for CI, constructeur Dockerfile,
+  santé, région EU West, limites, redémarrage, Serverless coupé, aucune Start Command, variables
+  du propriétaire en `preserve()` ; libellés des sous-domaines en gabarit qui font **échouer
+  fermé** plan et apply ; SDK `railway@3.11.0` isolé dans `.railway/` et épinglé par son verrou
+  haché ; `verifier.mjs` évalue le fichier comme la CLI ;
+- **procédure** du propriétaire (`docs/refonte/railway.md`) : premier déploiement pas à pas,
+  identité et enrôlement, openai-codex, preuves à relever, `trusted_proxies`, exploitation,
+  maintenance `/bin/sh -c "exec sleep infinity"`, restauration, sécurité du compte (clé SSH dédiée
+  retirée après usage) ;
+- **CI** : `image.yml` suit aussi `identite/**` et `.railway/**`, relève le condensat d'Authelia,
+  construit l'image d'identité, type et évalue l'IaC, lance les tests d'identité et le test
+  navigateur (Playwright, WebAuthn virtuel) ; hors PR, un groupe de concurrence **par
+  exécution** : aucun run poussé n'est annulé ni remplacé ;
+- tests : dans l'image (216), contrat depuis l'hôte (Hermes, identité, IaC), navigateur, et
+  contrôle statique de l'IaC dans la suite du dépôt ;
+- documentation : `docs/refonte/image.md`, `identite.md`, `railway.md` ; phases P4 à P8 du plan
+  remplacées par le plan d'autonomie (`docs/refonte/autonomie.md`) ;
+- corrections de la relecture indépendante (sécurité, exactitude, exploitation) :
+  - **sécurité** : les `hooks/` et `scripts/` de **chaque profil** de `/opt/data/profiles` sont
+    exigés vides puis rendus à root, comme ceux de la racine (un script cron de profil tournait
+    sous l'uid 10000 sans refus) ; un lien symbolique sous `profiles/` refuse le démarrage ;
+    `diagnostiquer` signale aussi les tâches cron à script ;
+  - `diagnostiquer` lit `/run/s6/container_environment` comme `with-contenv` (un « \n » final
+    retiré) : il rendait 29 faux constats sur un conteneur sain ;
+  - sentinelle hors s6 : options globales à valeur relevées dans l'analyseur de Hermes (et
+    comparées à lui par un test), `HERMES_HOME` normalisé (profils compris), `gateway` nu et
+    `serve` visés ;
+  - pont `tool_call` décrit tel que Hermes le traite (déballé avant la garde, qui juge l'outil
+    sous-jacent) et prouvé dans les deux sens ; `kanban_create` n'est plus annoncé « en P5 » :
+    les projets passent par les outils du greffon (P4) ;
+  - `acp-entree` renvoie, sur Railway, à la procédure de refus PID 1 ; `identite` ne journalise
+    plus l'identifiant du propriétaire (dépôt public) ;
+  - `railway.ts` refuse tout projet lié autre que `acp` ; Node ≥ 22.6 exigé pour `.railway/` ;
+  - CI : `ci.yml` n'annule plus de run hors PR (« Wait for CI ») ; l'étape finale d'`image.yml`
+    échoue s'il restait des ressources de test ; le modèle factice doit répondre avant tout test
+    qui conclut « aucune requête » ;
+  - procédure Railway exécutable dans l'ordre écrit : CLI installée sans configuration d'agent,
+    prérequis WSL et Node, compte GitHub relié, limites de dépense, clé SSH (mode opératoire),
+    sauvegardes hors IaC contrôlées au plan, Rollback et 72 h de rétention sur Hobby, 503 et
+    session de 7 jours décrits exactement, libellés publics et identifiant masqué, refus PID 1.
+
+Limites connues de P2 (détail : `image.md` § 10, `identite.md` § 12, `railway.md` § 12) : le
+tableau de bord authentifié reste un shell du propriétaire ; cookies de Hermes sans `Secure` tant
+que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué → 503 persistant ; rafale de
+premiers facteurs non bornée ; `vision_analyze` peut faire décrire toute image locale lisible par
+l'agent ; PID 1, bord, clés IaC non documentées, sort des sauvegardes posées hors IaC et coûts réels
+ne se prouvent que sur Railway.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

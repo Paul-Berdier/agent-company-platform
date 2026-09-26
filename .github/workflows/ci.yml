@@ -24,8 +24,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Hors PR : un groupe PAR EXÉCUTION, jamais annulée ni remplacée, comme image.yml. « Wait for CI »
+  # de Railway ignore un run annulé dès qu'un autre workflow du commit a réussi
+  # (rw_full.txt:29704-29707) : un push qui annulerait le run précédent laisserait déployer ce
+  # commit sans verdict de ci.yml (relecture P2). En PR seulement, un nouveau push remplace le run.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   moteur:

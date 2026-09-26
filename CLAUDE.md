@@ -3,7 +3,8 @@
 Ce fichier est chargé automatiquement par Claude Code. Il transmet les règles de travail
 de ce dépôt d'un poste à l'autre. **Pour l'état exact du chantier en cours, lire
 `docs/reprise-poste.md` avant toute action.** Le plan de la refonte, décisions du
-propriétaire comprises, est dans `docs/refonte/plan.md`.
+propriétaire comprises, est dans `docs/refonte/plan.md` ; ses phases P4 à P8 sont
+remplacées par `docs/refonte/autonomie.md`.
 
 ## Règles de commit
 
@@ -51,14 +52,17 @@ La refonte « Hermes au centre » se publie **étape par étape** (P0 à P9 du p
 
 ## Architecture en une phrase
 
-**Hermes Agent** (épinglé sur une release par condensat d'image, déployé sur Railway)
-est le seul serveur, le seul orchestrateur et la seule source de vérité, étendu par
-les greffons `acp-interface` et `acp-poste` livrés dans l'image ; autour de lui, le
-**poste Windows** (`apps/poste`) exécute Codex et Claude Code en réclamant son travail
-en HTTPS sortant sans écouter aucun port, et le **client desktop natif** C++23 / Qt 6 /
-QML (`apps/desktop`) **ne parle qu'au Hermes authentifié du propriétaire** (tableau de
-bord, JSON-RPC, façade versionnée du greffon), **jamais directement au PC** ni aux
-fichiers, à la base ou aux secrets du serveur.
+**Hermes Agent** (épinglé sur une release par condensat d'image, déployé sur Railway
+derrière son propre fournisseur d'identité OIDC, Authelia auto-hébergé dans le service
+`identite`, un seul utilisateur) est le seul serveur, le seul orchestrateur et la seule
+source de vérité, étendu par les greffons `acp-interface` et `acp-poste` livrés dans
+l'image ; sur Railway, l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers,
+ni code) : tout ce qui s'exécute passe par le **poste Windows** (`apps/poste`), qui
+réclame son travail en HTTPS sortant sans écouter aucun port et y lance Codex et Claude
+Code ; le **client desktop natif** C++23 / Qt 6 / QML (`apps/desktop`) **ne parle qu'au
+Hermes authentifié du propriétaire** (tableau de bord, JSON-RPC, façade versionnée du
+greffon), **jamais directement au PC** ni aux fichiers, à la base ou aux secrets du
+serveur.
 
 ## Interdits de fond
 
@@ -68,7 +72,15 @@ fichiers, à la base ou aux secrets du serveur.
   Git. Les jetons vont dans le Gestionnaire d'identification Windows ou sous DPAPI.
 - **Hermes épinglé** : image par condensat, montée de version uniquement par une PR
   qui change ce condensat. Jamais de `git pull` de Hermes, jamais de `hermes update`,
-  jamais de `:latest`, jamais d'`AUTO_UPDATE`.
+  jamais de `:latest`, jamais d'`AUTO_UPDATE`. Même règle pour l'image d'Authelia.
+- **Aucun outil d'exécution pour l'agent sur Railway** : ne jamais rouvrir terminal,
+  fichiers, exécution de code, navigateur, cron, délégation ni connexions (managed scope,
+  `.env` géré, garde `hermes/plugins/acp-poste/garde_execution.py`). Hermes ne tourne
+  jamais hors de s6 en PID 1 ; aucune Start Command dans `.railway/railway.ts`.
+- **Railway au propriétaire seul** : `railway login`, `railway link`,
+  `railway config apply` et toute action sur le compte (variables, domaines, clés SSH,
+  sauvegardes) sont faits par lui, jamais par un agent ni par la CI ; aucun jeton
+  Railway dans GitHub. Un agent prépare, teste et documente (`docs/refonte/railway.md`).
 - **Moteur Pixel Office gelé** : `packages/pixel-office-engine` reste identique octet
   pour octet à l'étiquette `archive/acp-0.10.0-avant-hermes`, avec
   `apps/web/public/assets`, `plugins/`, son bloc `.gitignore`, son workspace npm et
@@ -86,8 +98,14 @@ fichiers, à la base ou aux secrets du serveur.
 
 - `docs/reprise-poste.md` — état courant, étapes, chaîne d'outils, pièges connus.
 - `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi).
+- `docs/refonte/autonomie.md` — plan d'autonomie qui remplace les phases P4 à P8.
 - `docs/refonte/image.md` — image Hermes d'ACP : démarrage, variables Railway attendues
-  et interdites, managed scope, greffon `acp-poste`, tests et limites.
+  et interdites, managed scope, agent sans outil d'exécution, greffon `acp-poste`, tests
+  et limites.
+- `docs/refonte/identite.md` — fournisseur d'identité (Authelia) : garde, configuration,
+  compatibilité OIDC avec Hermes, mémoire mesurée, limites.
+- `docs/refonte/railway.md` — infrastructure Railway (`.railway/railway.ts`) et
+  procédure du propriétaire : premier déploiement, exploitation, récupération.
 - `apps/poste/README.md` — poste Windows : modules, configuration, limites.
 - `hermes/plugins/acp-poste/contrat/README.md` — contrat Python partagé.
 - `apps/desktop/README.md`, `docs/desktop-build.md` — client natif (hors service

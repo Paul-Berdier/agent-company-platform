@@ -6,9 +6,25 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 import meta
+from conftest import executer_python
 
 GREFFON = Path("/opt/hermes/plugins/acp-poste")
+_ETAT_GARDE_REEL = meta.etat_garde_execution
+GARDE_PRESENTE = {
+    "processus": meta.LIBELLE_PROCESSUS, "decouverte": "reussie", "erreur_decouverte": None, "enregistree": True,
+    "presente_dans_le_gestionnaire": True, "outils_admis": [], "outils_retires": [], "alerte": None,
+}
+
+
+@pytest.fixture(autouse=True)
+def garde_presente_par_defaut(monkeypatch, tmp_path):
+    """Hors des tests de la garde, l'état de la garde est simulé présent : le processus pytest
+    n'a pas découvert les greffons (et ne doit pas le faire sur /opt/data)."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(meta, "etat_garde_execution", lambda decouvrir=None: dict(GARDE_PRESENTE))
 
 
 def _sources(tmp_path: Path, etat: object = None) -> "meta.SourcesMeta":
@@ -73,13 +89,21 @@ def test_un_contrat_openrpc_different_est_signale(tmp_path):
     assert any("diffère de la copie épinglée" in a for a in donnees["alertes"])
 
 
-def test_le_routeur_du_tableau_de_bord_sert_la_meta():
+def _routeur(nom: str, monkeypatch):
+    """plugin_api.py chargé par son chemin, comme le fait le tableau de bord ; son meta.py est un
+    autre objet module que celui des tests : l'état de la garde y est simulé présent aussi."""
+    spec = importlib.util.spec_from_file_location(nom, GREFFON / "dashboard" / "plugin_api.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module._meta, "etat_garde_execution", lambda decouvrir=None: dict(GARDE_PRESENTE))
+    return module
+
+
+def test_le_routeur_du_tableau_de_bord_sert_la_meta(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    spec = importlib.util.spec_from_file_location("acp_poste_plugin_api_test", GREFFON / "dashboard" / "plugin_api.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = _routeur("acp_poste_plugin_api_test", monkeypatch)
     application = FastAPI()
     application.include_router(module.router, prefix="/api/plugins/acp-poste")
     reponse = TestClient(application).get("/api/plugins/acp-poste/v1/meta")
@@ -93,3 +117,96 @@ def test_le_manifeste_du_tableau_de_bord_monte_l_api_sans_onglet():
     assert manifeste["api"] == "plugin_api.py"
     assert manifeste["tab"]["hidden"] is True
     assert (GREFFON / "dashboard" / manifeste["entry"]).is_file()
+
+
+# ======================================================================= étape P2
+
+
+def test_meta_garde_execution_decouverte_qui_leve(tmp_path, monkeypatch):
+    """La découverte des greffons lève dans le processus du tableau de bord : alerte, jamais
+    « présente »."""
+    monkeypatch.setattr(meta, "etat_garde_execution", _ETAT_GARDE_REEL)
+
+    def decouverte_en_panne():
+        raise RuntimeError("panne de découverte")
+
+    donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}}), decouvrir=decouverte_en_panne)
+    garde = donnees["garde_execution"]
+    assert garde["processus"] == "processus du tableau de bord (sert /api/ws)"
+    assert garde["decouverte"] == "echec" and garde["erreur_decouverte"] == "RuntimeError"
+    assert garde["presente_dans_le_gestionnaire"] is not True
+    assert meta.ALERTE_GARDE_ABSENTE in donnees["alertes"]
+
+
+def test_meta_garde_execution_crochet_absent(tmp_path, monkeypatch):
+    """Découverte « réussie » mais aucun crochet dans le gestionnaire : alerte."""
+    monkeypatch.setattr(meta, "etat_garde_execution", _ETAT_GARDE_REEL)
+    donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}}), decouvrir=lambda: None)
+    assert donnees["garde_execution"]["decouverte"] == "reussie"
+    assert donnees["garde_execution"]["presente_dans_le_gestionnaire"] is False
+    assert meta.ALERTE_GARDE_ABSENTE in donnees["alertes"]
+
+
+def test_meta_garde_execution_apres_vraie_decouverte(tmp_path):
+    """Processus neuf : la route découvre elle-même les greffons (idempotent), puis lit l'état de
+    la garde dans CE processus ; aucune alerte de garde."""
+    home = tmp_path / "home-neuf"
+    home.mkdir()
+    code = ("import sys; sys.path.insert(0, '/opt/hermes/plugins/acp-poste'); import meta; "
+            "resultat = meta.etat_garde_execution()")
+    garde = executer_python(code, env={"HERMES_HOME": str(home), "PATH": "/usr/bin:/bin", "HOME": str(home)})
+    assert garde["decouverte"] == "reussie"
+    assert garde["presente_dans_le_gestionnaire"] is True and garde["enregistree"] is True
+    assert garde["alerte"] is None
+    assert len(garde["outils_admis"]) == 24 and garde["outils_retires"] == ["kanban_attach_url", "kanban_create"]
+
+
+def test_meta_reseau(tmp_path):
+    https = {"pair": "100.64.0.3", "schema_vu": "https", "hote": "hermes.up.railway.app",
+             "entetes_transmis": {"x-forwarded-for": True, "x-forwarded-proto": True, "inconnu": True},
+             "x_forwarded_proto": "https" * 10}
+    donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}}), reseau=https)
+    assert donnees["reseau"] == {
+        "pair": "100.64.0.3", "schema_vu": "https", "hote": "hermes.up.railway.app",
+        "entetes_transmis": {"x-forwarded-for": True, "x-forwarded-proto": True, "x-forwarded-host": False,
+                             "x-real-ip": False, "x-railway-edge": False},
+        "x_forwarded_proto": ("https" * 10)[:16]}
+    assert not any("Secure" in a for a in donnees["alertes"])
+    http = dict(https, schema_vu="http")
+    alertes = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}}), reseau=http)["alertes"]
+    assert any("en « http » et non en https" in a and "Secure" in a for a in alertes)
+    assert meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}}))["reseau"] is None
+
+
+def test_meta_reseau_par_la_route_sans_la_valeur_de_x_forwarded_for(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    module = _routeur("acp_poste_plugin_api_reseau", monkeypatch)
+    application = FastAPI()
+    application.include_router(module.router, prefix="/api/plugins/acp-poste")
+    reponse = TestClient(application).get("/api/plugins/acp-poste/v1/meta", headers={
+        "X-Forwarded-For": "203.0.113.77", "X-Forwarded-Proto": "https", "X-Railway-Edge": "railway/eu"})
+    assert reponse.status_code == 200
+    reseau = reponse.json()["reseau"]
+    assert reseau["entetes_transmis"]["x-forwarded-for"] is True
+    assert reseau["entetes_transmis"]["x-railway-edge"] is True
+    assert reseau["x_forwarded_proto"] == "https"
+    assert "203.0.113.77" not in reponse.text
+
+
+def test_meta_lazy_packages(tmp_path):
+    etat = {"soul": {"etat": "a_jour"}, "lazy_packages": {"entrees": ["edge_tts"]}}
+    alertes = meta.construire_meta(_sources(tmp_path, etat))["alertes"]
+    assert any("/opt/data/lazy-packages" in a and "edge_tts" in a for a in alertes)
+    etat["lazy_packages"]["entrees"] = []
+    assert not any("lazy-packages" in a for a in meta.construire_meta(_sources(tmp_path, etat))["alertes"])
+
+
+def test_meta_commit_deploye(tmp_path):
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}, "deploiement": {"commit": sha}}))
+    assert donnees["deploiement"] == {"commit": sha}
+    # Hors Railway (ou état de schéma 1) : null, jamais une valeur inventée.
+    assert meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}}))["deploiement"] == {"commit": None}
+    assert meta.construire_meta(_sources(tmp_path))["deploiement"] == {"commit": None}

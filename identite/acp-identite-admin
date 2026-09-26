@@ -1,0 +1,74 @@
+#!/bin/sh
+# ACP — administration du fournisseur d'identité, en MAINTENANCE seulement (root).
+#
+# Contexte : service identite démarré avec la Start Command /bin/sh -c "exec sleep infinity"
+# (docs/refonte/identite.md), puis `railway ssh -i <clé dédiée> --service identite`. Exemples :
+#   /opt/acp-identite/acp-identite-admin user webauthn list <utilisateur>
+#   /opt/acp-identite/acp-identite-admin user webauthn delete <utilisateur> --all
+#   /opt/acp-identite/acp-identite-admin bans user list
+#   /opt/acp-identite/acp-identite-admin bans user revoke <utilisateur>
+# (Le préfixe « storage » est accepté : « acp-identite-admin storage user … ».)
+#
+# Seules les sous-commandes « authelia storage user … » et « authelia storage bans … » sont
+# admises : ni migration, ni rotation de la clé de chiffrement, ni cache.
+# L'environnement de la session (railway ssh, docker exec) n'est JAMAIS utilisé : la documentation
+# de Railway n'en dit rien. Les trois variables ACP lues par le gabarit sont relues dans
+# /proc/1/environ (environnement du PID 1, posé par Railway) ; X_AUTHELIA_CONFIG et
+# X_AUTHELIA_CONFIG_FILTERS sont les constantes de l'image, et le PID 1 doit porter les mêmes.
+# Puis : exec env -i <ces cinq variables> su-exec 1000:1000 /app/authelia storage "$@".
+set -eu
+set -f
+PATH=/app:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+CONFIGURATION=/etc/authelia/configuration.yml
+FILTRES=template
+
+refuser() {
+    printf '[acp-identite-admin] REFUS : %s\n' "$1" >&2
+    exit 1
+}
+
+[ "$(id -u)" = 0 ] || refuser "ce script s'exécute en root (uid $(id -u))."
+[ "${1-}" = storage ] && shift
+case "${1-}" in
+    user|bans) ;;
+    *) refuser "seules les sous-commandes « user … » et « bans … » d'authelia storage sont admises (reçu « $(printf '%s' "${1-rien}" | tr -c ' -~' '?' | cut -c1-40) »)." ;;
+esac
+# Lecture réelle (et non un simple test -r, que root passe toujours) : hors maintenance, le PID 1 est
+# Authelia sous l'uid 1000 et le noyau refuse sa lecture à un root sans CAP_SYS_PTRACE.
+tr '\0' '\n' < /proc/1/environ > /dev/null 2>&1 ||
+    refuser "/proc/1/environ est illisible : environnement de référence inconnu. Ce script ne sert qu'en maintenance (Start Command /bin/sh -c \"exec sleep infinity\", PID 1 en root)."
+
+# lire NOM : valeur de NOM dans l'environnement du PID 1 (vide si absente).
+lire() {
+    tr '\0' '\n' < /proc/1/environ | sed -n "s/^$1=//p" | head -n 1
+}
+
+pid1=$(tr '\0' ' ' < /proc/1/cmdline | tr -c ' -~' '?' | sed 's/ *$//' | cut -c1-120)
+printf '[acp-identite-admin] environnement de référence : /proc/1/environ (PID 1 : %s)\n' "$pid1" >&2
+
+[ "$(lire X_AUTHELIA_CONFIG)" = "$CONFIGURATION" ] ||
+    refuser "le PID 1 ne porte pas X_AUTHELIA_CONFIG=$CONFIGURATION : environnement inattendu, rien n'est exécuté."
+[ "$(lire X_AUTHELIA_CONFIG_FILTERS)" = "$FILTRES" ] ||
+    refuser "le PID 1 ne porte pas X_AUTHELIA_CONFIG_FILTERS=$FILTRES : environnement inattendu, rien n'est exécuté."
+
+domaine=$(lire ACP_IDP_DOMAINE)
+hermes=$(lire ACP_HERMES_URL)
+utilisateur=$(lire ACP_IDP_UTILISATEUR)
+printf '%s\n' "$domaine" | grep -Eqx '([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?' ||
+    refuser "ACP_IDP_DOMAINE du PID 1 est absente ou invalide."
+printf '%s\n' "$hermes" | grep -Eqx 'https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?' ||
+    refuser "ACP_HERMES_URL du PID 1 est absente ou invalide."
+printf '%s\n' "$utilisateur" | grep -Eqx '[a-z][a-z0-9._-]{0,31}' ||
+    refuser "ACP_IDP_UTILISATEUR du PID 1 est absente ou invalide."
+[ -d /config/secrets ] && [ ! -L /config/secrets ] ||
+    refuser "/config/secrets est absent : le service n'a jamais démarré sur ce volume, rien à administrer."
+
+exec env -i \
+    X_AUTHELIA_CONFIG="$CONFIGURATION" \
+    X_AUTHELIA_CONFIG_FILTERS="$FILTRES" \
+    ACP_IDP_DOMAINE="$domaine" \
+    ACP_HERMES_URL="$hermes" \
+    ACP_IDP_UTILISATEUR="$utilisateur" \
+    /usr/sbin/su-exec 1000:1000 /app/authelia storage "$@"
