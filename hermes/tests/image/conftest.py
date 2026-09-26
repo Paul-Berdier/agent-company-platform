@@ -345,7 +345,7 @@ def noyau(tmp_path, monkeypatch):
         monkeypatch.delenv(nom, raising=False)
     monkeypatch.setenv("HERMES_HOME", str(home))
     from noyau import (base, cartes, emetteur, etrangeres, graphe, inventaire, invite, machines, notifications, ordres,
-                       outils, presence, projets, questions, routage, textes)
+                       outils, presence, projets, questions, quotas, routage, textes)
     from noyau import kanban_adapter as ka
 
     base.fixer_horloge(None)
@@ -353,7 +353,7 @@ def noyau(tmp_path, monkeypatch):
     yield SimpleNamespace(home=home, base=base, cartes=cartes, emetteur=emetteur, etrangeres=etrangeres,
                           graphe=graphe, invite=invite, notifications=notifications, outils=outils,
                           presence=presence, projets=projets, questions=questions, routage=routage, textes=textes,
-                          ka=ka, machines=machines, ordres=ordres, inventaire=inventaire)
+                          ka=ka, machines=machines, ordres=ordres, inventaire=inventaire, quotas=quotas)
     base.fixer_horloge(None)
     emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
 

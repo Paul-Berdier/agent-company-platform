@@ -21,6 +21,7 @@ L'effort exact demandé est gardé dans ``demandes.effort`` ; il n'est posé sur
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -204,6 +205,94 @@ def surcharge_applicable(conn, classe: str, projet_id: Optional[str], carte: Opt
     return None
 
 
+# ------------------------------------------------------------------ conditions de l'étape P5 (cahier P5 § 12.4)
+
+LIBELLES_VOIE = {"poste-codex": "Codex", "poste-claude": "Claude Code"}
+CLE_VERSION = {"poste-codex": "codex", "poste-claude": "claude"}
+CONNEXIONS_ADMISES = {"poste-codex": ("compte_chatgpt",),
+                      "poste-claude": ("jeton_reconnu", "jeton_present_non_verifie")}
+LISTES_DE_SECOURS = ("catalogue_embarque", "identique_au_catalogue_embarque")
+
+
+def contexte_poste(conn, releve_id: int) -> Optional[Dict[str, Any]]:
+    """Ce que l'inventaire le plus récent du poste qui a publié ce relevé dit de lui (connexions, versions,
+    politique de poste.toml), et si le propriétaire a accepté ce relevé. None pour un relevé factice (P4) :
+    aucune de ces conditions ne s'applique alors."""
+    ligne = conn.execute("SELECT machine_id, accepte_le, accepte_par FROM releves WHERE id = ?", (releve_id,)).fetchone()
+    if ligne is None or ligne["machine_id"] is None:
+        return None
+    inventaire = conn.execute("SELECT contenu, recu_le FROM inventaires WHERE machine_id = ? ORDER BY id DESC LIMIT 1",
+                              (ligne["machine_id"],)).fetchone()
+    try:
+        contenu = json.loads(inventaire["contenu"]) if inventaire is not None else {}
+    except ValueError:
+        contenu = {}
+    return {"machine_id": ligne["machine_id"], "accepte_le": ligne["accepte_le"], "accepte_par": ligne["accepte_par"],
+            "connexions": contenu.get("connexions") or {}, "versions": contenu.get("versions") or {},
+            "politique": contenu.get("politique"), "poste": contenu.get("poste") or {}}
+
+
+def raison_liste_de_secours(releve: Releve) -> str:
+    if releve.origine_liste == "identique_au_catalogue_embarque":
+        return T.RAISON_IDENTIQUE_EMBARQUE.format(v=releve.version_cli or T.INCONNU)
+    return T.RAISON_SANS_COMPTE
+
+
+def verifier_voie(conn, voie: str, releve_id: int, releve: Releve, releve_le: int) -> Optional[Dict[str, Any]]:
+    """Conditions d'une VOIE du poste, dans l'ordre du cahier : relevé en état ok (un relevé en échec remplace le
+    précédent, qui ne reste donc jamais routable), connexion au compte de l'abonnement, liste qui n'est pas de
+    secours (sauf relevé accepté par le propriétaire), version de la CLI conforme. Rend le contexte du poste."""
+    if releve.etat not in (None, "ok"):
+        raise refus("voie_indisponible", T.VOIE_INDISPONIBLE.format(
+            v=voie, date=date_lisible(releve_le), detail=releve.detail or releve.etat))
+    contexte = contexte_poste(conn, releve_id)
+    if contexte is None:
+        return None
+    etat_connexion = (contexte["connexions"] or {}).get(CLE_VERSION[voie])
+    if etat_connexion not in CONNEXIONS_ADMISES[voie]:
+        raise refus("voie_non_connectee", T.VOIE_NON_CONNECTEE.format(cli=LIBELLES_VOIE[voie],
+                                                                      etat=etat_connexion or T.INCONNU))
+    if voie == "poste-codex" and releve.origine_liste in LISTES_DE_SECOURS and not (
+            releve.origine_liste == "identique_au_catalogue_embarque" and contexte["accepte_le"]):
+        raise refus("liste_de_secours", T.LISTE_DE_SECOURS.format(date=date_lisible(releve_le),
+                                                                  raison=raison_liste_de_secours(releve)))
+    version = (contexte["versions"] or {}).get(CLE_VERSION[voie]) or {}
+    if not version.get("conforme"):
+        raise refus("cli_hors_version", T.CLI_HORS_VERSION.format(
+            cli=LIBELLES_VOIE[voie], lue=version.get("lue") or T.INCONNU, testee=version.get("testee") or T.INCONNU))
+    return contexte
+
+
+def verifier_politique_du_poste(contexte: Optional[Dict[str, Any]], voie: str, modele: str, effort: Optional[str],
+                                palier: str) -> None:
+    """Ce que poste.toml refuse, Hermes ne peut pas le lever : exécutant, modèle ou alias permis, effort interdit,
+    palier admis (cahier P5 § 12.4, décision D44). Sans contexte (relevé factice de P4) : rien à vérifier."""
+    if contexte is None:
+        return
+    politique = contexte.get("politique")
+    if not isinstance(politique, dict):
+        raise refus("interdit_par_le_poste", T.INTERDIT_PAR_LE_POSTE.format(objet="tout routage (politique inconnue)",
+                                                                             cle="executants"))
+    executant = CLE_VERSION[voie]
+    if executant not in (politique.get("executants") or []):
+        raise refus("interdit_par_le_poste", T.INTERDIT_PAR_LE_POSTE.format(
+            objet=f"l'exécutant {LIBELLES_VOIE[voie]}", cle="executants"))
+    if voie == "poste-codex":
+        permis = politique.get("modeles_codex_permis") or []
+        if permis and modele not in permis:
+            raise refus("interdit_par_le_poste", T.INTERDIT_PAR_LE_POSTE.format(
+                objet=f"le modèle « {modele} »", cle="modeles_codex_permis"))
+    elif modele not in (politique.get("alias_claude_permis") or []):
+        raise refus("interdit_par_le_poste", T.INTERDIT_PAR_LE_POSTE.format(
+            objet=f"l'alias « {modele} »", cle="alias_claude_permis"))
+    if effort and effort in (politique.get("efforts_interdits") or []):
+        raise refus("interdit_par_le_poste", T.INTERDIT_PAR_LE_POSTE.format(
+            objet=f"l'effort « {effort} »", cle="efforts_interdits"))
+    if palier not in (politique.get("paliers_admis") or []):
+        raise refus("interdit_par_le_poste", T.INTERDIT_PAR_LE_POSTE.format(
+            objet=f"le palier « {palier} »", cle="paliers_admis"))
+
+
 # ------------------------------------------------------------------ résolution
 
 
@@ -233,6 +322,8 @@ def valider_choix(conn, *, classe: str, projet: Dict[str, Any], voie: str, model
             if codex is None or codex[1].modele(modele) is None:
                 raise refus("modele_absent", T.MODELE_HERMES_ABSENT.format(
                     m=modele, date=date_lisible(codex[2]) if codex else T.INCONNU))
+            # Étape P5 : le relevé Codex qui fonde ce modèle doit être celui du compte (ni en échec, ni de secours).
+            verifier_voie(conn, "poste-codex", *codex)
             releve_id = codex[0]
         if effort and ka.effort_hermes(effort) is None:
             raise refus("effort_non_pris_en_charge", T.EFFORT_NON_PRIS.format(
@@ -244,6 +335,7 @@ def valider_choix(conn, *, classe: str, projet: Dict[str, Any], voie: str, model
     if dernier is None:
         raise RefusACP("aucun_modele", T.AUCUN_MODELE.format(c=classe, raison=T.RAISON_AUCUN_RELEVE))
     releve_id, releve, releve_le = dernier
+    contexte = verifier_voie(conn, voie, releve_id, releve, releve_le)
     if not modele:
         defaut = releve.modele_par_defaut()
         if defaut is None:
@@ -254,6 +346,13 @@ def valider_choix(conn, *, classe: str, projet: Dict[str, Any], voie: str, model
     if fiche is None:
         raise refus("modele_absent", T.MODELE_ABSENT.format(m=modele, v=voie, date=date_lisible(releve_le)))
     effort = effort or fiche.defaultReasoningEffort
+    verifier_politique_du_poste(contexte, voie, modele, effort, palier)
+    if fiche.supportedReasoningEfforts is None:
+        # Étape P5 : efforts inconnus (alias Claude hors de la plage documentée) : refusé AVANT tout usage de la
+        # liste (None), jamais une TypeError.
+        raise refus("efforts_inconnus", T.EFFORTS_INCONNUS.format(
+            alias=modele, version=releve.version_cli or T.INCONNU,
+            date=releve.documentation_lue_le.strftime("%d/%m/%Y") if releve.documentation_lue_le else T.INCONNU))
     if effort and effort in interdits:
         raise refus("effort_interdit", T.EFFORT_INTERDIT.format(e=effort))
     if effort and effort not in fiche.supportedReasoningEfforts:
@@ -363,21 +462,47 @@ def resoudre_relecture(conn, *, projet: Dict[str, Any], voie_relue: str, ref: st
 # ------------------------------------------------------------------ catalogue (outil poste_catalogue, route)
 
 
+def badge(conn, voie: str, dernier: Optional[Tuple[int, Releve, int]] = None) -> str:
+    """Badge de la page Routage pour la liste d'une voie : lu dans le relevé, jamais une appréciation."""
+    dernier = dernier if dernier is not None else dernier_releve(conn, voie)
+    if dernier is None:
+        return "inconnu"
+    releve_id, releve, releve_le = dernier
+    if releve.source == "releve_factice":
+        return "releve_factice"
+    if releve.etat not in (None, "ok"):
+        return "indisponible"
+    if releve.origine_liste == "catalogue_embarque":
+        return "liste_de_secours"
+    if releve.origine_liste == "identique_au_catalogue_embarque":
+        contexte = contexte_poste(conn, releve_id) or {}
+        return "liste_acceptee" if contexte.get("accepte_le") else "liste_de_secours_probable"
+    if base.maintenant() - releve_le > int(base.reglage(conn, "releve_perime_s") or 7200):
+        return "perime"
+    if releve.origine_liste == "alias_documentes":
+        return "alias_documentes"
+    return "releve_du_compte"
+
+
 def catalogue(conn) -> Dict[str, Any]:
-    """Ce que le greffon sait du poste : relevés par voie (datés, périmés ou non), modèle de Hermes,
-    table de routage et politique. Sans relevé : ``etat: "inconnu"`` et le message P5."""
+    """Ce que le greffon sait du poste : relevés par voie (datés, périmés ou non ; étape P5 : origine de la liste,
+    état, compteurs de quotas, badge), modèle de Hermes, table de routage et politique. Sans relevé :
+    ``etat: "inconnu"`` et le message."""
     maintenant = base.maintenant()
     perime_s = int(base.reglage(conn, "releve_perime_s") or 7200)
     voies: Dict[str, Any] = {}
     for voie in ka.VOIES_POSTE:
         dernier = dernier_releve(conn, voie)
         if dernier is None:
-            voies[voie] = {"etat": "inconnu", "releve_le": None}
+            voies[voie] = {"etat": "inconnu", "releve_le": None, "badge": "inconnu",
+                           "badge_libelle": T.BADGES["inconnu"]}
             continue
-        _id, releve, releve_le = dernier
+        releve_id, releve, releve_le = dernier
         age = maintenant - releve_le
+        genre = badge(conn, voie, dernier)
         voies[voie] = {
             "etat": "perime" if age > perime_s else "a_jour",
+            "releve_id": releve_id,
             "releve_le": releve_le,
             "releve_le_lisible": date_lisible(releve_le),
             "age_s": age,
@@ -387,6 +512,14 @@ def catalogue(conn) -> Dict[str, Any]:
             "modeles": [m.model_dump(mode="json") for m in releve.modeles],
             "quotas": releve.quotas.model_dump(mode="json") if releve.quotas else None,
             "depots": [d.alias for d in releve.depots],
+            # Étape P5.
+            "etat_releve": releve.etat,
+            "origine_liste": releve.origine_liste,
+            "detail": releve.detail,
+            "documentation_lue_le": releve.documentation_lue_le.isoformat() if releve.documentation_lue_le else None,
+            "compteurs": [c.model_dump(mode="json") for c in releve.compteurs],
+            "badge": genre,
+            "badge_libelle": T.BADGES[genre],
         }
     interdits, paliers = _politique(conn)
     routage = {l["classe"]: {"entrees": json.loads(l["entrees"]), "source": l["source"], "valide_le": l["valide_le"]}
@@ -404,3 +537,247 @@ def catalogue(conn) -> Dict[str, Any]:
     if not connu:
         resultat["message"] = T.CATALOGUE_INCONNU
     return resultat
+
+
+# ------------------------------------------------------------------ page Routage (étape P5, cahier P5 § 12.3, § 13.2)
+
+CLASSES_TABLE = tuple(c for c in VOIES_PAR_CLASSE if c != "integration")
+PROJET_DE_VALIDATION = {"id": None, "titre": "table de routage", "depot_alias": "table"}
+_VALEUR = re.compile(r"[a-z0-9][a-z0-9._\[\]-]{0,63}")
+EFFORTS_HORS_ENVELOPPE = ("max", "ultra", "ultracode")
+
+
+def admission(conn, classe: str, entree: Dict[str, Any]) -> Dict[str, Any]:
+    """Une entrée de la table est-elle admise par le dernier relevé ? ``{"admise", "code", "message"}``."""
+    try:
+        resolution = valider_choix(conn, classe=classe, projet=PROJET_DE_VALIDATION, voie=entree.get("voie"),
+                                   modele=entree.get("modele"), effort=entree.get("effort"),
+                                   palier=entree.get("palier"), source="table")
+    except RefusACP as exc:
+        return {"admise": False, "code": exc.code, "message": exc.message}
+    return {"admise": True, "code": None, "message": resolution.mention}
+
+
+def suggestion(conn, classe: str) -> Dict[str, Any]:
+    """Suggestion calculée sur les SEULS champs lus : pour chaque voie admise par la classe, le modèle
+    ``isDefault`` du relevé, son effort par défaut et le palier ``default`` ; jamais une appréciation de qualité."""
+    entrees, remarques = [], []
+    dates = []
+    for voie in VOIES_PAR_CLASSE.get(classe, ()):
+        if voie == HERMES:
+            entree = {"voie": HERMES, "modele": None, "effort": None, "palier": PALIER_PAR_DEFAUT}
+            if admission(conn, classe, entree)["admise"]:
+                entrees.append(entree)
+            continue
+        dernier = dernier_releve(conn, voie)
+        if dernier is None:
+            continue
+        defaut = dernier[1].modele_par_defaut()
+        if defaut is None:
+            remarques.append(T.SUGGESTION_SANS_DEFAUT_CLAUDE if voie == "poste-claude"
+                             else T.SUGGESTION_SANS_DEFAUT.format(v=voie))
+            continue
+        entree = {"voie": voie, "modele": defaut.id, "effort": defaut.defaultReasoningEffort,
+                  "palier": PALIER_PAR_DEFAUT}
+        verdict = admission(conn, classe, entree)
+        if verdict["admise"]:
+            entrees.append(entree)
+            dates.append(dernier[2])
+        else:
+            remarques.append(verdict["message"])
+    return {"entrees": entrees, "remarques": remarques,
+            "libelle": T.SUGGESTION_DATEE.format(date=date_lisible(max(dates))) if dates else None}
+
+
+def etat_de_la_table(conn, classe: str) -> Dict[str, Any]:
+    ligne = conn.execute("SELECT * FROM routage WHERE classe = ?", (classe,)).fetchone()
+    entrees = entrees_routage(conn, classe)
+    verdicts = [dict(e, **admission(conn, classe, e)) for e in entrees]
+    if ligne is None or ligne["source"] != "proprietaire":
+        etat = "non_validee"
+    elif any(not v["admise"] for v in verdicts):
+        etat = "a_revalider"
+    else:
+        etat = "validee"
+    return {"etat": etat, "entrees": verdicts, "source": ligne["source"] if ligne else None,
+            "valide_le": ligne["valide_le"] if ligne else None, "valide_par": ligne["valide_par"] if ligne else None}
+
+
+def surcharges_globales(conn) -> List[Dict[str, Any]]:
+    return [base.ligne_en_dict(l) for l in conn.execute(
+        "SELECT id, classe, voie, modele, effort, palier, motif, auteur, cree_le FROM surcharges WHERE active = 1 AND "
+        "portee = 'globale' ORDER BY id DESC").fetchall()]
+
+
+def vue_routage(conn) -> Dict[str, Any]:
+    """Contenu de GET /v1/routage : listes lues par voie (badges), table par classe (état, verdict de chaque entrée,
+    suggestion), politique de Hermes et politique du poste (lecture seule), surcharges globales actives."""
+    cat = catalogue(conn)
+    politique_poste = None
+    for voie in ka.VOIES_POSTE:
+        dernier = dernier_releve(conn, voie)
+        contexte = contexte_poste(conn, dernier[0]) if dernier else None
+        if contexte and contexte.get("politique"):
+            politique_poste = contexte["politique"]
+            break
+    interdits, paliers = _politique(conn)
+    return {
+        "voies": cat["voies"],
+        "releves": {v: cat["voies"][v].get("releve_id") for v in ka.VOIES_POSTE},
+        "classes": {c: dict(etat_de_la_table(conn, c), voies=list(VOIES_PAR_CLASSE[c]), suggestion=suggestion(conn, c))
+                    for c in CLASSES_TABLE},
+        "politique_hermes": {"efforts_interdits": interdits, "paliers_admis": paliers,
+                             "efforts_hors_enveloppe": list(EFFORTS_HORS_ENVELOPPE),
+                             "confirmation": T.CONFIRMATION_DEPENSE},
+        "politique_poste": politique_poste,
+        "surcharges": surcharges_globales(conn),
+        "releve_factice": cat["releve_factice"],
+    }
+
+
+def _entree_propre(entree: Any) -> Dict[str, Any]:
+    if not isinstance(entree, dict) or set(entree) - {"voie", "modele", "effort", "palier"}:
+        raise refus("table_invalide", T.TABLE_INVALIDE.format(detail="entrée {voie, modele, effort, palier} attendue"))
+    propre = {"voie": entree.get("voie"), "modele": entree.get("modele") or None, "effort": entree.get("effort") or None,
+              "palier": entree.get("palier") or None}
+    for cle in ("voie", "modele", "effort", "palier"):
+        if propre[cle] is not None and (not isinstance(propre[cle], str) or len(propre[cle]) > 128):
+            raise refus("table_invalide", T.TABLE_INVALIDE.format(detail=f"« {cle} » doit être une chaîne courte"))
+    return propre
+
+
+def valider_table(conn, *, releves: Any, classes: Any, auteur: str) -> Dict[str, Any]:
+    """Validation complète ou rien (POST /v1/routage) : les relevés vus par la page doivent être encore les derniers
+    (409 sinon), chaque entrée doit être admise ; alors chaque classe est enregistrée ``source = proprietaire``."""
+    if not isinstance(releves, dict) or not isinstance(classes, dict) or not classes:
+        raise refus("table_invalide", T.TABLE_INVALIDE.format(detail="« releves » et « classes » attendus"))
+    actuels = {v: (dernier_releve(conn, v) or (None,))[0] for v in ka.VOIES_POSTE}
+    if {v: releves.get(v) for v in ka.VOIES_POSTE} != actuels:
+        raise RefusACP("releve_change", T.RELEVE_CHANGE)
+    propres: Dict[str, List[Dict[str, Any]]] = {}
+    refus_par_entree: List[Dict[str, Any]] = []
+    for classe, entrees in classes.items():
+        if classe not in CLASSES_TABLE:
+            raise refus("table_invalide", T.CLASSE_INCONNUE.format(c=str(classe)[:40]))
+        if not isinstance(entrees, list) or not 1 <= len(entrees) <= 8:
+            raise refus("table_invalide", T.TABLE_INVALIDE.format(detail=f"de 1 à 8 entrées pour « {classe} »"))
+        propres[classe] = [_entree_propre(e) for e in entrees]
+        for rang, entree in enumerate(propres[classe]):
+            verdict = admission(conn, classe, entree)
+            if not verdict["admise"]:
+                refus_par_entree.append({"classe": classe, "rang": rang, "code": verdict["code"],
+                                         "message": verdict["message"]})
+    if refus_par_entree:
+        exc = RefusACP("table_refusee", T.TABLE_REFUSEE.format(n=len(refus_par_entree)))
+        exc.refus = refus_par_entree  # type: ignore[attr-defined]
+        raise exc
+    for classe, entrees in propres.items():
+        enregistrer_routage(conn, classe, entrees, source="proprietaire", valide_par=auteur)
+    return vue_routage(conn)
+
+
+def _liste_de_valeurs(valeur: Any, cle: str) -> List[str]:
+    if not isinstance(valeur, list) or len(valeur) > 32 or any(not isinstance(v, str) or not _VALEUR.fullmatch(v)
+                                                               for v in valeur):
+        raise refus("politique_invalide", T.POLITIQUE_INVALIDE.format(detail=f"« {cle} » : liste de valeurs courtes"))
+    if len(set(valeur)) != len(valeur):
+        raise refus("politique_invalide", T.POLITIQUE_INVALIDE.format(detail=f"« {cle} » contient un doublon"))
+    return list(valeur)
+
+
+def _motif(motif: Any) -> str:
+    if not isinstance(motif, str) or not 1 <= len(motif.strip()) <= 200:
+        raise refus("motif", T.MOTIF_REQUIS)
+    from .motifs_secrets import motif_trouve
+
+    trouve = motif_trouve(motif)
+    if trouve:
+        raise refus("secret", T.SECRET_TEXTE.format(motif=trouve))
+    return motif.strip()
+
+
+def poser_politique(conn, *, efforts_interdits: Any, paliers_admis: Any, motif: Any, confirmation: Any,
+                    auteur: str) -> Dict[str, Any]:
+    """Interdits CÔTÉ HERMES (POST /v1/routage/politique). Lever un effort hors enveloppe (max, ultra, ultracode) ou
+    admettre un palier autre que ``default`` exige la phrase de confirmation exacte. Ce que poste.toml interdit
+    reste interdit (verifier_politique_du_poste)."""
+    efforts = _liste_de_valeurs(efforts_interdits, "efforts_interdits")
+    paliers = _liste_de_valeurs(paliers_admis, "paliers_admis")
+    if not paliers:
+        raise refus("politique_invalide", T.POLITIQUE_INVALIDE.format(detail="au moins un palier admis"))
+    raison = _motif(motif)
+    anciens_efforts, anciens_paliers = _politique(conn)
+    leves = [e for e in EFFORTS_HORS_ENVELOPPE if e in anciens_efforts and e not in efforts]
+    nouveaux_paliers = [p for p in paliers if p != PALIER_PAR_DEFAUT and p not in anciens_paliers]
+    if (leves or nouveaux_paliers) and confirmation != T.CONFIRMATION_DEPENSE:
+        objet = ", ".join([f"effort « {e} » levé" for e in leves] + [f"palier « {p} » admis" for p in nouveaux_paliers])
+        raise refus("confirmation_requise", T.CONFIRMATION_REQUISE.format(objet=objet))
+    base.poser_reglage(conn, "efforts_interdits", efforts, auteur)
+    base.poser_reglage(conn, "paliers_admis", paliers, auteur)
+    with base.transaction(conn):
+        base.journaliser(conn, auteur, "politique_hermes", detail={"efforts_interdits": efforts, "paliers_admis": paliers,
+                                                                   "motif": raison, "leves": leves,
+                                                                   "paliers_ajoutes": nouveaux_paliers})
+    return vue_routage(conn)
+
+
+def creer_surcharge_globale(conn, *, classe: Any, voie: Any, modele: Any = None, effort: Any = None,
+                            palier: Any = None, motif: Any, auteur: str) -> Dict[str, Any]:
+    """Surcharge GLOBALE (POST /v1/routage/surcharges), vérifiée comme une entrée de table, puis enregistrée."""
+    if classe not in CLASSES_TABLE:
+        raise refus("table_invalide", T.CLASSE_INCONNUE.format(c=str(classe)[:40]))
+    entree = _entree_propre({"voie": voie, "modele": modele, "effort": effort, "palier": palier})
+    raison = _motif(motif)
+    resolution = valider_choix(conn, classe=classe, projet=PROJET_DE_VALIDATION, voie=entree["voie"],
+                               modele=entree["modele"], effort=entree["effort"], palier=entree["palier"],
+                               source="surcharge_globale")
+    with base.transaction(conn):
+        curseur = conn.execute(
+            "INSERT INTO surcharges (portee, cible, classe, voie, modele, effort, palier, motif, auteur, cree_le) "
+            "VALUES ('globale', NULL, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (classe, resolution.voie, entree["modele"], entree["effort"], entree["palier"], raison, auteur,
+             base.maintenant()))
+        base.journaliser(conn, auteur, "surcharge_globale", cible=classe,
+                         detail={"voie": resolution.voie, "modele": resolution.modele, "effort": resolution.effort,
+                                 "palier": resolution.palier, "motif": raison})
+    return {"surcharge": int(curseur.lastrowid), "resolution": resolution.en_dict()}
+
+
+def desactiver_surcharge(conn, identifiant: Any, auteur: str) -> Dict[str, Any]:
+    try:
+        numero = int(identifiant)
+    except (TypeError, ValueError):
+        raise refus("surcharge_inconnue", T.SURCHARGE_INCONNUE.format(i=str(identifiant)[:20])) from None
+    with base.transaction(conn):
+        if conn.execute("UPDATE surcharges SET active = 0 WHERE id = ? AND active = 1 AND portee = 'globale'",
+                        (numero,)).rowcount != 1:
+            raise refus("surcharge_inconnue", T.SURCHARGE_INCONNUE.format(i=numero))
+        base.journaliser(conn, auteur, "surcharge_desactivee", cible=str(numero))
+    return {"surcharges": surcharges_globales(conn)}
+
+
+def accepter_releve(conn, releve_id: Any, auteur: str) -> Dict[str, Any]:
+    """« Accepter ce relevé comme celui de mon compte » : un relevé Codex ``identique_au_catalogue_embarque``, encore
+    le dernier de sa voie ; vaut pour CE relevé seulement (le suivant devra l'être à son tour)."""
+    try:
+        numero = int(releve_id)
+    except (TypeError, ValueError):
+        raise refus("releve_inconnu", T.RELEVE_INCONNU.format(i=str(releve_id)[:20])) from None
+    with base.transaction(conn):
+        ligne = conn.execute("SELECT id, voie, contenu FROM releves WHERE id = ?", (numero,)).fetchone()
+        if ligne is None:
+            raise refus("releve_inconnu", T.RELEVE_INCONNU.format(i=numero))
+        try:
+            origine = json.loads(ligne["contenu"]).get("origine_liste")
+        except ValueError:
+            origine = None
+        if ligne["voie"] != "poste-codex" or origine != "identique_au_catalogue_embarque":
+            raise refus("releve_non_acceptable", T.RELEVE_NON_ACCEPTABLE.format(origine=origine or T.INCONNU))
+        dernier = conn.execute("SELECT id FROM releves WHERE voie = ? ORDER BY recu_le DESC, id DESC LIMIT 1",
+                               (ligne["voie"],)).fetchone()
+        if dernier is None or int(dernier[0]) != numero:
+            raise refus("releve_plus_le_dernier", T.RELEVE_PLUS_LE_DERNIER.format(i=numero))
+        conn.execute("UPDATE releves SET accepte_le = ?, accepte_par = ? WHERE id = ?",
+                     (base.maintenant(), auteur, numero))
+        base.journaliser(conn, auteur, "releve_accepte", cible=str(numero))
+    return vue_routage(conn)

@@ -320,3 +320,42 @@ ALERTE_DEUX_PROCESSUS = "Deux processus semblent utiliser le même jeton machine
 ALERTE_HOTE_ACP_POSTE = ("Le nom d'hôte du conteneur vaut « acp-poste » : un réclamant du poste serait pris pour un "
                          "worker local.")
 ALERTE_AUCUNE_SESSION = "Aucun fournisseur de connexion interactive : personne ne peut se connecter."
+
+# ------------------------------------------------------------------ routage de l'étape P5 (cahier P5 § 12.4)
+VOIE_INDISPONIBLE = "la voie {v} est indisponible sur le poste depuis le {date} ({detail})."
+VOIE_NON_CONNECTEE = "{cli} n'est pas connecté au compte de l'abonnement sur le poste ({etat})."
+LISTE_DE_SECOURS = ("le relevé Codex du {date} est une liste de secours ({raison}), pas celle de votre compte. "
+                    "Reconnectez Codex, ou acceptez ce relevé depuis la page Routage.")
+RAISON_IDENTIQUE_EMBARQUE = "identique au catalogue embarqué de Codex {v}"
+RAISON_SANS_COMPTE = "Codex sans compte ChatGPT : catalogue embarqué"
+CLI_HORS_VERSION = "{cli} {lue} n'est pas la version testée par le poste ({testee})."
+INTERDIT_PAR_LE_POSTE = ("le poste refuse {objet} (poste.toml, [politique] {cle}) ; seule une modification locale sur "
+                         "le PC peut le lever.")
+EFFORTS_INCONNUS = "efforts de « {alias} » inconnus pour Claude Code {version} (documentation relevée le {date})."
+SUGGESTION_SANS_DEFAUT_CLAUDE = "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+SUGGESTION_SANS_DEFAUT = "Aucune suggestion : le relevé de {v} ne désigne pas de modèle par défaut."
+SUGGESTION_DATEE = "Suggestion calculée depuis le relevé du {date}."
+RELEVE_CHANGE = "Le relevé a changé depuis l'ouverture de la page : rechargez."
+TABLE_REFUSEE = "Table de routage refusée : {n} entrée(s) refusée(s) ; rien n'a été enregistré."
+TABLE_INVALIDE = "table de routage invalide : {detail}."
+CLASSE_INCONNUE = "classe « {c} » inconnue."
+CONFIRMATION_DEPENSE = "J'accepte une dépense hors enveloppe"
+CONFIRMATION_REQUISE = ("{objet} : dépense hors enveloppe ; recopiez exactement la phrase « J'accepte une dépense hors "
+                        "enveloppe » pour confirmer.")
+POLITIQUE_INVALIDE = "politique invalide : {detail}."
+MOTIF_REQUIS = "le motif compte de 1 à 200 caractères."
+SURCHARGE_INCONNUE = "surcharge {i} inconnue ou déjà désactivée."
+RELEVE_INCONNU = "relevé {i} inconnu."
+RELEVE_NON_ACCEPTABLE = ("seul un relevé Codex identique au catalogue embarqué peut être accepté comme celui de votre "
+                         "compte (celui-ci : {origine}).")
+RELEVE_PLUS_LE_DERNIER = "le relevé {i} n'est plus le dernier de sa voie : rechargez la page Routage."
+BADGES = {
+    "releve_du_compte": "Relevé du compte", "liste_de_secours": "Liste de secours",
+    "liste_de_secours_probable": "Liste de secours probable", "liste_acceptee": "Relevé accepté par vous",
+    "alias_documentes": "Alias documentés", "perime": "Périmé", "inconnu": "Inconnu",
+    "releve_factice": "Relevé factice", "indisponible": "Indisponible",
+}
+
+# ------------------------------------------------------------------ quotas (cahier P5 § 12.5)
+QUOTAS_SOURCE_CLAUDE = "Ligne d'état de vos sessions Claude Code sur ce PC (même abonnement déclaré)"
+QUOTAS_HERMES_MEME_ENVELOPPE = "Même enveloppe que Codex (déclaré dans poste.toml)"
