@@ -15,14 +15,14 @@ Les références `fichier:ligne` sans préfixe désignent le source de Hermes Ag
 
 | Élément | Dépôt | Image |
 |---|---|---|
-| Skills livrées (16 : 14 vendorisées, 2 maison) | `hermes/skills/<catégorie>/<skill>/` | `/opt/acp/skills` (root, lecture seule) |
+| Skills livrées (21 depuis P4 : 14 vendorisées, 7 maison) | `hermes/skills/<catégorie>/<skill>/` | `/opt/acp/skills` (root, lecture seule) |
 | Licences et provenance par source | `hermes/skills/<catégorie>/{LICENSE,PROVENANCE.md}` | idem |
 | Verrou du catalogue (`acp-catalogue/1`) | `hermes/catalogue/catalogue.lock.json` | `/opt/acp/catalogue/catalogue.lock.json` |
 | Licences tierces, texte intégral | `hermes/THIRD_PARTY.md` | `/opt/acp/THIRD_PARTY.md` |
 | Vérificateur | `scripts/verifier_catalogue.py` (+ `scripts/tests/test_verifier_catalogue.py`) | — |
 | Réglages de skills et entrée MCP du volume | `hermes/image/acp_demarrage.py` (`appliquer_reglages_skills`) | écrits dans `/opt/data/config.yaml` par `05-acp` |
 | Refus d'un serveur MCP stdio ou hors catalogue (D8) | `acp_demarrage.py` (`problemes_mcp_du_volume`) | `acp-gardes`, `05-acp`, relance du tableau de bord |
-| context7 (serveur MCP distant) | `hermes/gere/config.yaml`, `EPINGLES_OBLIGATOIRES`, `garde_execution.py` | `/etc/hermes/config.yaml` (50 clés) |
+| context7 (serveur MCP distant) | `hermes/gere/config.yaml`, `EPINGLES_OBLIGATOIRES`, `garde_execution.py` | `/etc/hermes/config.yaml` (50 clés en P3 ; 57 depuis P4) |
 | Route `/v1/catalogue`, blocs `catalogue` et `interface` de `/v1/meta` | `hermes/plugins/acp-poste/catalogue.py` | `/opt/hermes/plugins/acp-poste` |
 | Faux context7 de test (TLS, SDK `mcp` 2.0.0) | `hermes/tests/outils/mcp_factice.py` | image de test seulement |
 
@@ -61,7 +61,7 @@ Les références `fichier:ligne` sans préfixe désignent le source de Hermes Ag
 
 ## 3. Skills
 
-### 3.1 Livrées dans l'image, côté Hermes (16)
+### 3.1 Livrées dans l'image, côté Hermes (21 depuis P4 ; 16 en P3)
 
 Toutes **texte seul** : Markdown uniquement, aucun `scripts/`, aucun bit exécutable, aucun
 `` !`cmd` `` (Hermes n'en exécute de toute façon aucun : `skills.inline_shell: false`). Les exemples
@@ -72,6 +72,11 @@ Texte amont **en anglais, intact** (D16) ; la persona impose la réponse en fran
 |---|---|---|---|
 | `acp-redaction` | maison | base | Conventions de rédaction françaises (vouvoiement, typographie, « Inconnu », refus, comptes rendus, cartes) |
 | `acp-profils` | maison | base | Réglages prêts par type de projet ; ce qui relève du poste |
+| `acp-exploration` (P4) | maison | aucun (carte de planification) | Format de la « carte du dépôt » de l'exploration en lecture seule |
+| `acp-orchestration` (P4) | maison | aucun (carte de planification) | Découper l'objectif, décider, `projet_planifier` une fois |
+| `acp-routage` (P4) | maison | aucun (planification, synthèse) | Exécutant, modèle et effort d'après le catalogue relevé du poste |
+| `acp-synthese` (P4) | maison | aucun (carte de synthèse) | Juger le tour, relancer ou conclure |
+| `acp-questions` (P4) | maison | aucun (carte « répondre ») | Répondre si le projet couvre la question, sinon escalader |
 | `emil-design-eng` | emilkowalski/skills `d16ebe60` | web | Finition d'interface |
 | `animation-vocabulary` | idem | web | Nommer un effet de mouvement |
 | `apple-design` | idem | web | Interaction et mouvement physiques |

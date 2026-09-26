@@ -561,6 +561,12 @@ plus l'identifiant ; Authelia, lui, peut le journaliser lors d'une tentative de 
     appelle la documentation d'une bibliothèque, avec la source citée ; une réponse **en français**
     du vrai modèle à une question posée en anglais. Aucun refus « serveur MCP » dans les journaux
     de démarrage.
+16. Étape P4 : `/api/plugins/acp-poste/v1/meta` → bloc `projets` (`base: ok`, `schema: "1"`,
+    `emetteur.processus: "passerelle"` avec une `derniere_passe` récente, aucune alerte) ; un projet
+    **sans dépôt** lancé depuis le téléphone (page Projets), suivi jusqu'à « terminé » depuis le PC ; un
+    projet **sur dépôt** refusé en français tant que le poste n'a publié aucun inventaire (P5) ; si un
+    canal est configuré (§ 9), la notification de test reçue sur le téléphone. Coût et mémoire relevés
+    pendant le projet (2 workers au plus).
 
 ---
 
@@ -648,6 +654,27 @@ suffit pas. S'il a déjà provoqué un refus : § 10 b.
 
 **Modifier l'infrastructure** : PR sur `.railway/railway.ts` (et `verifier.mjs` si le graphe attendu
 change), CI verte, fusion, puis plan (« 0 to destroy » sauf décision écrite) et apply par vous.
+
+**Notifications du propriétaire (étape P4, facultatif)** ([projets.md](projets.md) § 5). Sans rien
+poser, elles restent **désactivées** : la page Projets dit « Notifications non configurées » et les
+notifications sont gardées en base, marquées `desactivee`, jamais envoyées. Le canal reste une
+décision ouverte (plan d'autonomie § 11.3 : Telegram recommandé). Pour l'activer :
+
+1. **Ne posez pas ces variables à la main d'abord.** Le fichier de l'IaC décrit le projet entier : une
+   variable posée dans Railway mais absente de `.railway/railway.ts` apparaîtrait au plan suivant comme
+   une **suppression** (rw_full.txt:28377), qui arrête la procédure (§ 3). Aucune n'y est déclarée en P4,
+   faute de canal choisi, et parce que `preserve()` sur une variable jamais posée n'est que supposé sans
+   effet (§ 3).
+2. PR qui déclare, dans le service `hermes` de `.railway/railway.ts`, les variables du canal choisi par
+   `preserve()` (jamais leur valeur) : `ACP_NOTIFICATIONS`, puis `ACP_TELEGRAM_JETON` et
+   `ACP_TELEGRAM_DISCUSSION`, ou `ACP_NTFY_SUJET` et `ACP_NTFY_JETON` (et `ACP_NTFY_SERVEUR` hors
+   `https://ntfy.sh`) ; mêmes noms dans `verifier.mjs`, `scripts/tests/test_railway_iac.py` et
+   `hermes/tests/contrat/test_railway_iac_contrat.py` ; CI verte, fusion.
+3. Posez les valeurs dans Railway (jeton en variable **scellée**), puis plan (« 0 to destroy ») et apply.
+4. Au démarrage, une valeur invalide fait **refuser** le démarrage en français (`[acp] REFUS : …`, règles :
+   [image.md](image.md) § 4). Page Projets → « Envoyer une notification de test » : la passerelle
+   l'envoie par son fil d'envoi, réveillé toutes les 30 s (moins d'une minute en pratique) ; `/api/plugins/acp-poste/v1/meta` → `projets.emetteur`
+   (`canal`, `configure`, `envoyees`, `echecs`).
 
 ---
 

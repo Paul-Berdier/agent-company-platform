@@ -217,6 +217,45 @@ Corrections de la relecture indépendante de P3 (exactitude et conformité, 14 c
 - choix par défaut D1 à D20 de P3 consignés dans `plan.md` § 1, **non confirmés** par le
   propriétaire ; lecture des conditions de context7 exigée avant le premier déploiement.
 
+### P4 — projets autonomes sur Hermes, cœur serveur (réalisé côté dépôt, non fusionné, non déployé)
+
+Référence : `docs/refonte/projets.md`.
+
+- greffon `acp-poste`, sous-paquet `noyau/` : un tableau kanban par projet, base propre
+  (`plugin-data/acp-poste/data.db` : projets, demandes, questions, présence, curseurs et tables
+  techniques), graphe déterministe [exploration par le poste] → planification → implémentation et
+  relecture croisée par l'autre exécutant, ou carte Hermes → synthèse gardée par tout le tour ; un tour
+  créé sous une seule transaction ; plafonds (3 tours, 30 cartes, 2 corrections) avec carte de triage ;
+  corrections préparées (câblées en P6) ;
+- routage déterministe contre le relevé du poste (contrat partagé `acp_poste_contrat.inventaire`) :
+  surcharge, choix explicite, table ; efforts interdits (`max`, `ultra`, `ultracode`), palier
+  `default` seul, effort hors énumération de Hermes gardé dans la demande et jamais posé sur la carte ;
+- huit outils de l'agent (`projet_lancer`, `projet_planifier`, `projet_etat`, `poste_etat`,
+  `poste_catalogue`, `question_repondre`, `question_escalader`, `routage_surcharger`), seuls ajouts à
+  la garde (26 → 34 noms) ; `kanban_create` toujours refusé ; `memory` refusé dans un worker kanban
+  (l'invite d'approbation attendait 300 s sans personne ; décision D40, à confirmer) ; section de prompt
+  « acp-projets » ; Hermes diffère ces outils derrière `tool_search`, le modèle les appelle par
+  `tool_call` ;
+- routes `/v1/projets`, `/v1/questions`, `/v1/triage/…/reprendre`, `/v1/pause`, `/v1/poste`,
+  `/v1/notifications/test` derrière la session du tableau de bord (JSON exigé, `Origin` contrôlé) ;
+  bloc `projets` de `/v1/meta` ;
+- émetteur de notifications dans la passerelle (crochet `on_kanban_dispatch_tick`) : une notification
+  par événement, Telegram ou ntfy, désactivé sans `ACP_NOTIFICATIONS` ; variables retirées de
+  `os.environ` par `register()` ; cartes `poste-*` étrangères bloquées ; présence du poste ; pause
+  d'un projet et pause générale ; veille des crochets shell ;
+- managed scope à 57 clés (répartiteur dans la passerelle, `max_in_progress` 4 et 2 par profil,
+  `review_dispatch: false`, `failure_limit` 3, `known_plugin_toolsets`) ; démarrage refusé sur une clé
+  `hooks` ou un `shell-hooks-allowlist.json` ; `HERMES_KANBAN_DISPATCH_IN_GATEWAY` interdite ;
+- cinq skills maison des projets (`acp-exploration`, `acp-orchestration`, `acp-routage`,
+  `acp-synthese`, `acp-questions`), persona et `acp-profils` mis à jour ;
+- tests : poste simulé, faux serveur ntfy, modèle factice à scénarios ; contrat de bout en bout ;
+  douze témoins négatifs (`scripts/temoins_negatifs_p4.sh`) ;
+- corrigé en cours de route : accord de « carte » dans les notifications (« 1 carte », « 0 carte ») ;
+- notifications : variables non déclarées dans `.railway/railway.ts` (canal non choisi), procédure
+  d'activation par PR dans `railway.md` § 9 ;
+- page « Projets » de l'interface : seconde partie de P4 ;
+- choix par défaut D21 à D40 consignés dans `plan.md` § 1, **non confirmés** par le propriétaire.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

@@ -163,6 +163,9 @@ est visé. Reste une **défense en profondeur** : une commande qui ne passe pas 
 | `HERMES_DASHBOARD_OIDC_CLIENT_ID` | oui | 1 à 200 caractères `[A-Za-z0-9._:@+/-]` | `.env` géré et `dashboard.oauth.self_hosted.client_id` |
 | `HERMES_DASHBOARD_OIDC_SCOPES` | non (`openid profile email`) | portées séparées par une espace, `openid` exigé | `.env` géré et `dashboard.oauth.self_hosted.scopes` |
 | `HERMES_DASHBOARD_OIDC_CLIENT_SECRET` | non (client public, PKCE seul) | non vide, sans espace, ≤ 512 caractères ; jamais affiché | **jamais recopié** : lu directement dans l'environnement par Hermes |
+| `ACP_NOTIFICATIONS` (P4) | non (`aucune`) | `aucune`, `telegram` ou `ntfy` | greffon `acp-poste` : canal des notifications du propriétaire ([projets.md](projets.md) § 5) |
+| `ACP_TELEGRAM_JETON`, `ACP_TELEGRAM_DISCUSSION` (P4) | si `telegram` | jeton non vide, sans espace, ≤ 256 caractères, jamais affiché ; discussion `^-?\d{1,20}$` | greffon, retirées de `os.environ` par `register()` |
+| `ACP_NTFY_SUJET`, `ACP_NTFY_JETON`, `ACP_NTFY_SERVEUR` (P4) | sujet et jeton si `ntfy` (D33) | sujet de 16 à 64 caractères `[A-Za-z0-9_-]` ; jeton comme Telegram ; serveur https public (`https://ntfy.sh` par défaut) | greffon, retirées de `os.environ` par `register()` |
 
 Noms exacts relevés dans `plugins/dashboard_auth/self_hosted/__init__.py:285-310` (le
 fournisseur s'appelle `self-hosted`, sa clé de greffon `dashboard_auth/self_hosted`).
@@ -220,6 +223,7 @@ officiel (Dockerfile:427-449 de Hermes) : `HERMES_WRITE_SAFE_ROOT=/opt/data`,
 | `HERMES_ALLOW_PRIVATE_URLS` (P2) | l'accès de l'agent au réseau privé (8642, 9119, réseau Railway) reste fermé : fixée à `false` par l'image |
 | `HERMES_PORTAL_BASE_URL`, `NOUS_PORTAL_BASE_URL`, `NOUS_INFERENCE_BASE_URL` (P2) | Nous Portal écarté ; stage2-hook.sh les recopierait (stage2-hook.sh:579-610) |
 | `HERMES_GATEWAY_BOOTSTRAP_STATE` (P2) | l'état initial de la passerelle n'est jamais injecté |
+| `HERMES_KANBAN_DISPATCH_IN_GATEWAY` (P4) | couperait le répartiteur de la passerelle, qui fait avancer les projets et envoie les notifications |
 
 Le message de refus est en français, préfixé `[acp] REFUS :`, et nomme chaque variable
 fautive (toutes les erreurs d'un démarrage sont listées d'un coup).
@@ -305,8 +309,10 @@ tableau de bord (10000). Il ne peut pas modifier `/etc/hermes` ; depuis P2, il n
 outil d'exécution (ci-dessous) pour tuer le processus du tableau de bord ou écouter sur
 `0.0.0.0:9119`. Il ne le pourrait plus que par une **faille de Hermes lui-même** (§ 10).
 
-**`/etc/hermes/config.yaml`** (**50 clés** depuis P3, 40 en P2, 28 en P1) : `kanban.auto_decompose: false`,
-`kanban.dispatch_profiles: [default]`, `approvals.mode: manual` (et `cron_mode`,
+**`/etc/hermes/config.yaml`** (**57 clés** depuis P4, 50 en P3, 40 en P2, 28 en P1) : `kanban.auto_decompose: false`,
+`kanban.dispatch_profiles: [default]`, depuis P4 `kanban.dispatch_in_gateway: true`, `kanban.max_in_progress: 4`,
+`kanban.max_in_progress_per_profile: 2`, `kanban.review_dispatch: false`, `kanban.failure_limit: 3` et
+`known_plugin_toolsets.{api_server,cron}: [acp_poste]` ([projets.md](projets.md) § 6), `approvals.mode: manual` (et `cron_mode`,
 `single_query_mode`, `unattended_mode` : `deny`), `plugins.enabled: []`,
 `plugins.disabled: [dashboard_auth/basic, dashboard_auth/nous, dashboard_auth/drain,
 hermes-achievements]` (le dernier depuis P3, décision D13 : greffon de gamification en anglais,
@@ -405,7 +411,9 @@ Aucune couche ne suffit seule ; chacune est prouvée séparément, avec son tém
    `tui_gateway.entry`. C'est la **seule** couche qui ferme `preview.restart`, dont l'agent
    caché reçoit `["terminal","file"]` codés en dur (tui_gateway/agent_callbacks.py:371-374).
 
-**Les 26 outils admis** (noms exacts ; 24 en P2) : `mcp__context7__resolve_library_id` et
+**Les 34 outils admis** (noms exacts ; 26 en P3, 24 en P2) : depuis P4, les huit outils du greffon
+(`projet_lancer`, `projet_planifier`, `projet_etat`, `poste_etat`, `poste_catalogue`,
+`question_repondre`, `question_escalader`, `routage_surcharger` : [projets.md](projets.md) § 3) ; `mcp__context7__resolve_library_id` et
 `mcp__context7__query_docs` (P3 : les deux outils du serveur MCP distant context7, sous le nom que
 leur donne Hermes ; aucun autre outil MCP), `web_search`, `web_extract`, `vision_analyze` ;
 `skills_list`, `skill_view`, `skill_manage` ; `todo_list`, `memory`, `session_search`,
@@ -437,11 +445,16 @@ renommés et complétés (§ 8).
   P4), les cartes des projets sont créées par les outils du greffon (`projet_planifier`…), qui
   fixent eux-mêmes compétences, modèle, fournisseur et espace de travail. (La réadmission « en P5
   avec une liste blanche d'arguments », annoncée par la première version de P2, est abandonnée :
-  relecture P2.) Message : « Refusé par ACP : l'agent ne crée pas de carte kanban lui-même ; les
-  projets passeront par les outils du greffon acp-poste (P4), qui fixent compétences, modèle,
-  fournisseur et espace de travail. » ;
+  relecture P2.) Message (depuis P4) : « Refusé par ACP : l'agent ne crée pas de carte kanban lui-même ; les
+  projets passent par les outils du greffon acp-poste (projet_lancer, projet_planifier), qui fixent
+  compétences, modèle, effort et exécutant. » ;
 - `kanban_attach_url` : `is_safe_url` puis `httpx.stream` ordinaire, sans protection contre
   le rebinding DNS vers le réseau privé (tools/kanban_tools.py:924-958 ; url_safety.py:7-10).
+
+**Refusé dans un worker kanban seulement** (P4, `HERMES_KANBAN_TASK` posée) : `memory`. Mesuré au
+contrat : l'écriture ouvrait l'invite d'approbation en ligne du CLI, qui attendait 300 s sans personne
+avant de la mettre en attente (tools/write_approval.py:170-213, tools/approval_prompt.py:163-164). En
+discussion, `memory` reste admis et soumis à validation ([projets.md](projets.md) § 3).
 
 La garde **ne lève jamais** (`except BaseException` → « Refusé par ACP. ») : Hermes bloque
 d'ailleurs un rappel qui lève (plugins_dispatch.py:229-241), mais la couche d'appel autour
@@ -572,14 +585,16 @@ liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'e
 
 - `plugin.yaml` : `kind: backend`, `requires_hermes: ">=0.21.5"`, version `0.11.0`
   (vérifiée par `scripts/check_version.py`).
-- `register(ctx)` (P2) : sentinelle hors s6 (§ 3), puis
-  `ctx.register_hook("pre_tool_call", garde_execution.garde)` (§ 5). Toujours aucun outil : les
-  outils `projet_*`, `poste_*` et `question_*` arrivent en P4, le jeton machine et les routes du
-  poste en P5 ([autonomie.md](autonomie.md) § 8).
-- `kanban_adapter.py` : seul module qui importe l'interne kanban, chaque fonction depuis
-  son module de définition (`hermes_cli.kanban_db`, `hermes_cli.kanban_db_connect.connect`,
-  `hermes_cli.kanban_db_dispatch.heartbeat_worker`), tableau `poste` toujours nommé ;
-  crée le tableau et des cartes en `triage`.
+- `register(ctx)` : sentinelle hors s6 (§ 3), puis
+  `ctx.register_hook("pre_tool_call", garde_execution.garde)` (§ 5) ; depuis P4, retrait des variables
+  de notification de l'environnement, puis le noyau (`noyau/`) : huit outils, section de prompt
+  « acp-projets », crochet `on_kanban_dispatch_tick` de l'émetteur ([projets.md](projets.md)). Le jeton
+  machine et les routes du poste arrivent en P5 ([autonomie.md](autonomie.md) § 8).
+- `noyau/kanban_adapter.py` (P4, remplace `kanban_adapter.py` de P1) : seul module du noyau qui importe
+  Hermes, chaque nom depuis son module de définition (`hermes_cli.kanban_db`,
+  `hermes_cli.kanban_db_connect.connect` et `write_txn`, `hermes_cli.kanban_db_dispatch.heartbeat_worker`,
+  `agent.estop`, `plugins.plugin_storage`…) ; le tableau unique `poste` et l'assigné `poste-windows` sont
+  retirés : un tableau par projet.
 - `GET /api/plugins/acp-poste/v1/meta` (session du tableau de bord obligatoire) :
 
 ```json
@@ -622,6 +637,13 @@ liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'e
   (versions des greffons `acp-interface` et `acp-catalogue`, SDK attendu `1.x`), et les alertes du
   catalogue ; l'état du démarrage passe au schéma 3 (bloc `catalogue`). Contrat `acp-poste/1`
   inchangé : ajouts seulement.
+
+  Bloc ajouté en P4 ([projets.md](projets.md) § 4) : **`projets`** (base du greffon `ok` ou
+  `illisible`, schéma, projets actifs, relevé factice présent, pause générale, émetteur : dernière
+  passe, processus, cartes du poste en attente par tableau, canal, file) et ses alertes (émetteur
+  arrêté depuis plus de 10 minutes hors pause, notifications en échec, relevé factice, crochets shell
+  détectés). Routes de P4 (`/v1/projets`, `/v1/questions`, `/v1/pause`, `/v1/poste`,
+  `/v1/notifications/test`) : [projets.md](projets.md) § 4.
 - `GET /api/plugins/acp-poste/v1/catalogue` (P3, session obligatoire) : le verrou et l'état de
   chaque skill et de chaque serveur MCP vu par le chargeur du tableau de bord
   (`catalogue.py`, seul module du greffon qui importe les internes des skills et des MCP).
@@ -761,6 +783,17 @@ Comme en P1 pour le `PATH`, chaque protection principale a été retirée d'une 
 
 Script de preuve : copie de `hermes/`, protection retirée, images reconstruites, sélection
 `pytest -k` rejouée ; images supprimées ensuite.
+
+### Tests ajoutés en P4
+
+Détail et preuves : [projets.md](projets.md) § 8 et § 9. Dans l'image : base du greffon, adaptateur
+kanban étendu (modules de définition, scan de compatibilité, schéma de `task_events`), lancement,
+graphe et plafonds, routage, corrections, questions, pauses, cartes `poste-*` étrangères, présence,
+émetteur (règles, envoi unique, canaux Telegram et ntfy sur un transport factice), outils et garde
+(34 noms), routes, bloc `projets` de la méta ; gardes de démarrage (épingles P4, crochets shell,
+variables de notification, `HERMES_KANBAN_DISPATCH_IN_GATEWAY`). Au contrat :
+`test_projets_contrat.py` (pile complète, modèle factice, poste simulé, faux ntfy). Témoins négatifs :
+`scripts/temoins_negatifs_p4.sh` (douze protections, retirées une à une dans un conteneur jetable).
 
 ## 9. Ce qui est prouvé, ce qui ne l'est pas
 

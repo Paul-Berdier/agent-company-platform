@@ -645,10 +645,10 @@ Désactiver la mise en veille propre à Railway pour le service.
 
 ---
 
-## Annexe (hors plan) : état du dépôt au 25 septembre 2026
+## Annexe (hors plan) : état du dépôt au 26 septembre 2026
 
-Constat factuel, établi sur `hermes/gere/config.yaml` et `hermes/image/acp_demarrage.py` de P2 ; il
-ne modifie pas le plan ci-dessus.
+Constat factuel, établi sur `hermes/gere/config.yaml`, `hermes/image/acp_demarrage.py` et le greffon `acp-poste`
+de P2 à P4 ; il ne modifie pas le plan ci-dessus.
 
 - **Déjà posé par P2** (managed scope, [image.md](image.md) § 5) : `agent.disabled_toolsets` avec
   `browser`, `terminal`, `file`, `code_execution`, `cronjob`, `delegation`, `connections` (plus
@@ -657,12 +657,17 @@ ne modifie pas le plan ci-dessus.
   `kanban.dispatch_profiles: [default]`, `approvals` (`manual`, `deny`), `plugins.enabled: []`,
   `plugins.allow_deprecated_imports: false`, `auth.adopt_external_logins: false`. `kanban_create` et
   `kanban_attach_url` sont refusés à l'agent par la garde d'exécution d'`acp-poste`.
-- **Pas encore posé** (phases P4 et suivantes) : refus de démarrer sur une clé `hooks` non vide de
-  `config.yaml` ou sur `shell-hooks-allowlist.json` (P2 les inventorie seulement par
-  `diagnostiquer`) ; `kanban.max_in_progress`, `kanban.max_in_progress_per_profile`,
-  `kanban.review_dispatch`, `kanban.failure_limit` ; les outils, routes, tables, skills et
-  l'émetteur de notifications du greffon. (`skills.disabled` et `skills.external_dirs` sont posés
-  depuis P3, hors managed scope : [catalogue.md](catalogue.md) § 6.)
+- **Posé par P4** (branche `refonte/hermes-p4`, non fusionnée, non déployée ; [projets.md](projets.md)) :
+  refus de démarrer (et de relancer) sur une clé `hooks` non vide de `config.yaml` ou sur
+  `shell-hooks-allowlist.json`, à la racine du volume ou d'un profil ; `kanban.dispatch_in_gateway: true`,
+  `kanban.max_in_progress: 4`, `kanban.max_in_progress_per_profile: 2`, `kanban.review_dispatch: false`,
+  `kanban.failure_limit: 3`, `known_plugin_toolsets.{api_server,cron}: [acp_poste]` ; variable
+  `HERMES_KANBAN_DISPATCH_IN_GATEWAY` interdite ; les huit outils, les routes, les tables, les cinq skills
+  et l'émetteur de notifications du greffon ; `memory` refusé dans un worker kanban (décision D40, à
+  confirmer). (`skills.disabled` et `skills.external_dirs` sont posés depuis P3, hors managed scope :
+  [catalogue.md](catalogue.md) § 6.)
+- **Pas encore posé** (P5 et suivantes) : routes machine `/machine/v1/*`, jeton du poste, réclamation
+  réelle et exécution par le poste ; file Questions complète, `open_requests` et flux temps réel (P7).
 - **Mise en veille Railway coupée** (« Hors managed scope » du § 7) : déclarée dans
   `.railway/railway.ts` (`sleepApplication: false`), prise en compte à constater sur Railway
   ([railway.md](railway.md) § 3).

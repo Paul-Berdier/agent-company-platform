@@ -1,6 +1,6 @@
 # Reprise du travail sur un autre poste
 
-État du **25 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md`,
+État du **26 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md`,
 [le plan de la refonte](refonte/plan.md) et [le plan d'autonomie](refonte/autonomie.md), qui
 remplace ses phases P4 à P8.
 
@@ -21,7 +21,8 @@ Desktop CI `35981934226` vertes sur ce commit).
 - Une branche par étape, `refonte/hermes-pN`, PR vers `refonte/hermes`. Étiquette
   `1.0.0` seulement à la fusion finale dans `main`.
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
-  `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`.
+  `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`, pour P4
+  `.claude/worktrees/refonte-hermes-p4`.
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
@@ -68,7 +69,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
-| P4 | Projets autonomes sur Hermes (plan d'autonomie) | à faire |
+| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **cœur serveur réalisé côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`), poussée ; page « Projets » de l'interface (seconde partie) à faire ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
@@ -1167,6 +1168,91 @@ d'arXiv par la recherche web ; context7 depuis Railway ; la cause du pic bas de 
 CI (régulation ou vérifications successives) ; le remède de la page MCP sur un vrai tableau de bord
 (prouvé par ses routes, pas par un clic) ; la lecture des conditions de context7 (au propriétaire).
 
+## 6 quater. P4 — projets autonomes sur Hermes, cœur serveur (première partie)
+
+Branche `refonte/hermes-p4`, empilée sur `refonte/hermes-p3` (`e5e8032`, PR #16) ; version 0.11.0
+inchangée ; **ni PR, ni fusion, ni étiquette** ; **rien n'est déployé**. Référence :
+[`docs/refonte/projets.md`](refonte/projets.md) ; cahier de conception (brouillon de session
+`plan_p4.md`) ; décisions **D21 à D40** au § 1 de [`plan.md`](refonte/plan.md), **non confirmées**.
+La page « Projets » de l'interface (greffon `acp-projets`, `apps/interface`) est la seconde partie de
+P4, à faire.
+
+Une première tentative de cette partie a été coupée par une limite d'usage : elle a laissé trois
+commits locaux (`32ea6f8`, `3a7f7bb`, `e8aaad1`) et du travail non commité (routes, poste simulé, faux
+ntfy, contrat, docs). La reprise a tout inspecté, gardé, complété (tests de la méta, témoins négatifs,
+docs) et corrigé (accord de « carte » dans les notifications ; test de contrat de P2 resté à 50 clés).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `32ea6f8` | feat(contrat): share the workstation inventory contract |
+| `3a7f7bb` | feat(skills): add the project skills and tell the persona about projects |
+| `e8aaad1` | feat(acp-poste): run autonomous projects from a deterministic plugin core |
+| `2345171` | feat(acp-poste): expose projects, questions and pause routes behind the dashboard session |
+| `a710bc0` | test(acp-poste): cover the projects block and alerts of the meta route |
+| `ab7c594` | fix(acp-poste): agree card counts in French notifications |
+| `d5ce0a3` | test(contrat): prove autonomous projects with the fake model and a simulated workstation |
+| `207d9ba` | test(acp-poste): add the negative witnesses of the P4 protections |
+| `c14c263` | test(contrat): expect the 57 managed scope keys in the startup banner |
+| `de96996` | test(contrat): let the witness projects conclude instead of giving up |
+| (ce commit) | docs: record the P4 server core, decisions D21 to D40 and local evidence |
+
+### Ce qui est en place
+
+- Greffon `acp-poste`, sous-paquet `noyau/` : chef de projet déterministe (un tableau kanban par
+  projet, base propre `plugin-data/acp-poste/data.db`), graphe [exploration par le poste] →
+  planification → implémentation et relecture croisée, ou carte Hermes → synthèse gardée par tout le
+  tour ; plafonds 3 tours, 30 cartes, 2 corrections ; pauses ; questions ; cartes `poste-*`
+  étrangères bloquées ; présence ; émetteur de notifications dans la passerelle (désactivé sans
+  `ACP_NOTIFICATIONS`).
+- Huit outils de l'agent, seuls ajouts à la garde (26 → **34** noms) ; `kanban_create` refusé ;
+  `memory` refusé dans un worker kanban (D40). Routes `/v1/projets`, `/v1/questions`,
+  `/v1/triage/…/reprendre`, `/v1/pause`, `/v1/poste`, `/v1/notifications/test` et bloc `projets` de
+  `/v1/meta`.
+- Managed scope à **57** clés ; démarrage et relance refusés sur des crochets shell ;
+  `HERMES_KANBAN_DISPATCH_IN_GATEWAY` interdite ; cinq skills maison (21 livrées).
+- **Réalité de production en P4** (D25) : sans inventaire du poste, un projet sur dépôt est refusé en
+  français ; un projet sans dépôt avance jusqu'au bout sur Railway.
+
+### Écarts au cahier, justifiés
+
+Détail : [`projets.md`](refonte/projets.md) § 8. `memory` refusé dans un worker (D40, ajoutée) ; outils
+du greffon différés par Hermes derrière `tool_search` ; module `modeles.py` non créé ; variables de
+notification hors IaC (procédure par PR, [`railway.md`](refonte/railway.md) § 9).
+
+### Preuves locales (26/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
+
+Détail, commandes et relevés : [`projets.md`](refonte/projets.md) § 9. En bref :
+
+- dépôt **386 réussis** ; contrôles de version, de gel du moteur, du catalogue (21 skills) et des
+  secrets verts ; `hermes plugins compat` : greffon code 0, témoin code 1 ;
+- **dans l'image** (`acp-hermes-tests:p4f`) : **491 réussis**, 0 échec ;
+- **contrat complet** : 134 réussis et 1 échec (bandeau « 50 clés » d'un test de P2), corrigé par
+  `c14c263` puis `test_contrat_image.py` rejoué : 37 réussis ; **contrat P4** rejoué sur sa version
+  committée : **17 réussis** (10 min 30 s) ;
+- **témoins négatifs** : 12 protections retirées une à une, 12 fois des tests en échec ;
+- délai fin d'exploration → planification lancée : 2,3 à 3,7 s (répartiteur à 5 s) ; mémoire
+  indicative : pic de 849,7 Mio avec deux workers ; aucune variable `ACP_*` chez les workers ;
+- `git diff --check` propre ; tout en LF ; aucun `Co-Authored-By` ; aucun fichier `.claude`.
+- Les suites Docker n'ont tourné que sur l'arbre final de la reprise (et une première fois sur l'arbre
+  de `2345171`, outils de contrat alors non commités : 487 réussis dans l'image, 17 au contrat P4).
+  La suite du dépôt a tourné au début de la reprise (385 réussis) et sur l'arbre final (386) ; entre
+  les deux, seul le commit de documentation touche un de ses fichiers (test des décisions).
+
+### Intégration continue
+
+Branche poussée après le commit de documentation ; runs relevés par le commit suivant.
+
+### Non vérifié
+
+- La qualité d'un vrai plan (modèle factice seulement) ; le scénario Railway (téléphone, notification,
+  second appareil) ; la livraison réelle par Telegram ou ntfy ; le poste réel (P5-P6) ; la tenue dans
+  2 Go avec de vrais modèles (mesure indicative : pic de 849,7 Mio avec deux workers et le modèle
+  factice).
+- Les trois commits de la première tentative n'ont pas été rejoués un par un : les suites Docker ont
+  tourné sur l'arbre final de la reprise.
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1257,5 +1343,12 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
 - **Tests navigateur** : Hermes ajoute `?profile=default` à l'URL de « / » ; comparer le chemin.
   Ils exigent Node ≥ 22 et `npm ci --ignore-scripts --prefix apps/interface` (axe-core, export du
   catalogue des chaînes).
+- **Étape P4** : Hermes **diffère** les outils de greffon derrière `tool_search` ; un worker les appelle
+  par `tool_call` (dans les scénarios du modèle factice : `appel()` de `test_projets_contrat.py`). Un
+  worker sans scénario répond sans `kanban_complete` : trois échecs, puis abandon (`gave_up`).
+- **Étape P4** : le crochet `on_kanban_dispatch_tick` est tiré une fois **par tableau** et par passage
+  du répartiteur, seulement dans la passerelle ; les réglages du répartiteur (`max_in_progress`…) sont
+  lus au démarrage de la passerelle ; le contrat P4 seul dure environ 20 minutes, le contrat complet
+  environ 30. Témoins négatifs : `IMAGE=acp-hermes-tests:<étiquette> bash scripts/temoins_negatifs_p4.sh`.
 - La CLI Railway se lance sous **WSL** (doc Railway) ; `node_modules` de `.railway/` s'installe sur
   la plateforme qui évalue le fichier (WSL pour la CLI, Windows pour `verifier.mjs` local).

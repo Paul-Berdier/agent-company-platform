@@ -38,3 +38,13 @@ def test_les_choix_de_p3_se_disent_non_confirmes():
     bloc = plan[debut:plan.index("\n### ", debut + 1)]
     assert "à confirmer par le propriétaire" in bloc and "ne font pas\nfoi" in bloc
     assert sorted(int(n) for n in DEFINITION.findall(bloc)) == list(range(1, 21))
+
+
+def test_les_choix_de_p4_se_disent_non_confirmes():
+    """Étape P4 : D21 à D40, choix par défaut appliqués pour avancer, jamais présentés comme confirmés."""
+    plan = (RACINE / "docs" / "refonte" / "plan.md").read_text(encoding="utf-8")
+    debut = plan.index("### Étape P4 : choix par défaut D21 à D40")
+    bloc = plan[debut:plan.index("\n### ", debut + 1)]
+    assert "à confirmer par le propriétaire" in bloc and "ne font pas foi" in bloc
+    assert "Aucun de ces choix n'a été confirmé par le propriétaire" in bloc
+    assert sorted(int(n) for n in DEFINITION.findall(bloc)) == list(range(21, 41))
