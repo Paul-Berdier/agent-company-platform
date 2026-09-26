@@ -69,7 +69,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
-| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **cœur serveur réalisé côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`), poussée ; page « Projets » de l'interface (seconde partie) à faire ; sans PR ; **rien de déployé** (§ 6 quater) |
+| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **cœur serveur réalisé côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`), poussée, CI verte sur `a614278` ; page « Projets » de l'interface (seconde partie) à faire ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
@@ -1198,7 +1198,10 @@ docs) et corrigé (accord de « carte » dans les notifications ; test de contra
 | `de96996` | test(contrat): let the witness projects conclude instead of giving up |
 | `ff5d61f` | docs: record the P4 server core, decisions D21 to D40 and local evidence |
 | `a150f72` | test(e2e): capture the longer phone catalogue in full |
-| (ce commit) | docs: record the first P4 CI runs and the capture fix |
+| `a614278` | docs: record the first P4 CI runs and the capture fix |
+| `32230b2` | fix(acp-poste): describe the P4 routes in the dashboard manifest |
+| `1a57bf2` | test(contrat): time the planning start on the container clock after the exploration end |
+| (ce commit) | docs: record the green P4 CI runs and the container clock timing |
 
 ### Ce qui est en place
 
@@ -1235,8 +1238,9 @@ Détail, commandes et relevés : [`projets.md`](refonte/projets.md) § 9. En bre
   committée : **17 réussis** (10 min 30 s) ;
 - **navigateur** : 5 réussis après `a150f72` (capture du Catalogue au téléphone portée à 16 000 px) ;
 - **témoins négatifs** : 12 protections retirées une à une, 12 fois des tests en échec ;
-- délai fin d'exploration → planification lancée : 2,3 à 3,7 s (répartiteur à 5 s) ; mémoire
-  indicative : pic de 849,7 Mio avec deux workers ; aucune variable `ACP_*` chez les workers ;
+- délai fin d'exploration → planification lancée : 2,3 à 3,7 s (répartiteur à 5 s ; heure de l'hôte,
+  voir la seconde reprise ci-dessous) ; mémoire indicative : pic de 849,7 Mio avec deux workers ; aucune
+  variable `ACP_*` chez les workers ;
 - `git diff --check` propre ; tout en LF ; aucun `Co-Authored-By` ; aucun fichier `.claude`.
 - Les suites Docker n'ont tourné que sur l'arbre final de la reprise (et une première fois sur l'arbre
   de `2345171`, outils de contrat alors non commités : 487 réussis dans l'image, 17 au contrat P4).
@@ -1258,7 +1262,47 @@ Branche poussée le 26/09/2026, sommet `ff5d61f` :
   P4, en compte environ 13 300 (`telephone-03-catalogue.png`, 1 808 px restants). Corrigé par `a150f72`
   (plafond de capture à 16 000 px) : témoin local à 12 000 px en échec (1 278 px restants), puis
   **5 réussis** en local à 16 000 px (2 min 10 s ; aucune violation axe).
-- Relance après `a150f72` : résultats consignés par le commit de documentation suivant.
+- Relance sur `a614278` (sommet après `a150f72`), **verte** :
+  - `ci.yml` [36228251683](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36228251683)
+    **succès** : poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (les 9 tests
+    propres à Windows) ; interface **55** (11 fichiers) ; moteur **74** (7 fichiers) ; catalogue
+    (21 skills) et balayage des secrets verts ;
+  - `image.yml` [36228251644](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36228251644)
+    **succès** (33 min) : `hermes plugins compat` greffon vert, témoin code 1 ; sonde réelle de context7
+    connectée (2 094 ms) ; **491 réussis** dans l'image (4 min 26 s) ; **135 réussis** au contrat
+    (24 min 18 s), dont les **17** de P4 ; navigateur **5 réussis** (1 min 59 s) ;
+  - relevés du contrat en CI : une seule notification « terminé » (« Veille contrat », 4 cartes), une
+    seule « plafond de tours atteint », une « bloquée » pour la carte étrangère, deux « Poste hors
+    ligne » (deux passages) ; outils offerts au worker de planification identiques à la liste locale
+    ([`projets.md`](refonte/projets.md) § 9) ; `reasoning_effort` nul et effort `extreme` gardé dans la
+    demande ; mémoire indicative 516 à 521 Mio sans worker, pic **830,2 Mio** avec deux workers (runner
+    à 15,6 Gio), aucune variable `ACP_*` dans les 12 environnements de workers lus (2 lectures en échec :
+    `Permission denied`) ;
+  - délai fin d'exploration → planification relevé à **-0,6 s** : artefact de mesure, pas une inversion
+    (la planification était `todo` jusqu'à la fin et son `kanban_show` portait le marqueur de
+    l'exploration, deux assertions du test). Le test comparait `started_at` de Hermes (secondes
+    entières) à l'heure de l'hôte prise **après** le retour de `docker exec`. Corrigé par `1a57bf2` : fin
+    et lancement lus tous deux sur l'horloge des conteneurs (`completed_at`, `started_at`), avec
+    l'assertion `0 <= délai <= 12`.
+
+### Seconde reprise (vérification de la première partie)
+
+Une seconde tentative a été coupée par une limite d'usage après `a614278`, sans rien laisser de non
+commité. La reprise a confronté la première partie au cahier sans tout rejouer : livrables présents
+(noyau, huit outils, garde à 34 noms, routes, émetteur, managed scope, skills, tests d'image et de
+contrat, témoins, docs), sauf la description du manifeste du tableau de bord de `acp-poste`, restée
+celle de P1, corrigée par `32230b2`. Rejoués sur l'arbre de `1a57bf2` (images `acp-hermes:p4g` et
+`acp-hermes-tests:p4g`, identité `acp-identite:p4`) :
+
+- dépôt : **386 réussis** (34,9 s) ; `check_version.py`, `check_engine_frozen.py`,
+  `verifier_catalogue.py` (21 skills) et `balayer_secrets.py` verts ;
+- dans l'image : **491 réussis**, 0 échec (4 min 34 s) ;
+- contrat P4 (`test_projets_contrat.py`) : **17 réussis** (10 min 11 s) ; délai fin d'exploration →
+  planification lancée **4 s** sur l'horloge des conteneurs (à la seconde près, répartiteur à 5 s),
+  première requête du worker au modèle 20,0 s après la fin ; notifications identiques à la CI ; mémoire
+  indicative pic **863,6 Mio** avec deux workers (Docker Desktop à 7,7 Gio) ;
+- non rejoués en local : le reste du contrat (hors P4) et le navigateur, que ni le manifeste ni le test
+  ne touchent ; la CI du sommet poussé les rejoue.
 
 ### Non vérifié
 

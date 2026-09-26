@@ -178,7 +178,12 @@ Relevés du contrat (images `p4f`) :
   `poste_catalogue`, `routage_surcharger`, jamais `projet_planifier`.
 - **Délai** fin de l'exploration (poste simulé) → planification réclamée par le répartiteur : **2,9 s**,
   **3,7 s** et **2,3 s** (trois passages mesurés, répartiteur à 5 s) ; première requête du worker au
-  modèle 18,3 à 19,3 s après.
+  modèle 18,3 à 19,3 s après. Ces valeurs comparaient `started_at` de Hermes (secondes entières) à
+  l'heure de l'hôte prise après le retour de `docker exec` ; la CI de `a614278` en a tiré **-0,6 s**
+  (artefact de mesure : la planification était `todo` jusqu'à la fin de l'exploration et son
+  `kanban_show` portait le marqueur, deux assertions du test). Depuis `1a57bf2`, fin et lancement sont
+  lus sur l'horloge des conteneurs (`completed_at`, `started_at`) avec l'assertion
+  `0 <= délai <= 12` : **4 s** en local (images `p4g`), première requête au modèle 20,0 s après la fin.
 - **Faux ntfy** (une ligne par notification, jeton présent, jamais journalisé en clair) : « ACP — Projet
   « Veille contrat » terminé : 4 cartes faites. » (une seule, `Priority: 3`, `Click` vers
   `…/projets?projet=<id>`) ; « … « Graphe complet » : plafond de tours atteint, votre décision est
@@ -226,7 +231,12 @@ Branche poussée le 26/09/2026, sommet `ff5d61f` :
   P4, en compte environ 13 300 (`telephone-03-catalogue.png`, 1 808 px restants). Corrigé par `a150f72`
   (plafond de capture à 16 000 px) : témoin local à 12 000 px en échec (1 278 px restants), puis
   **5 réussis** en local à 16 000 px (2 min 10 s ; aucune violation axe).
-- Relance après `a150f72` : [`reprise-poste.md`](../reprise-poste.md) § 6 quater.
+- Relance sur `a614278`, **verte** : `ci.yml`
+  [36228251683](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36228251683) (poste
+  Windows 386, Linux 377 et 9 ignorés, interface 55, moteur 74) ; `image.yml`
+  [36228251644](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36228251644) (491 dans
+  l'image, **135** au contrat dont les 17 de P4, **5** au navigateur, compat vert, context7 connecté).
+  Détail et relevés : [`reprise-poste.md`](../reprise-poste.md) § 6 quater.
 
 ## 11. Non prouvé
 
