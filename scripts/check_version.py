@@ -36,6 +36,7 @@ PACKAGE_JSONS = (
     "hermes/plugins/acp-catalogue/dashboard/manifest.json",
     # Étape P4 : page Projets.
     "hermes/plugins/acp-projets/dashboard/manifest.json",
+    "hermes/plugins/acp-poste-vues/dashboard/manifest.json",
     "apps/interface/package.json",
 )
 

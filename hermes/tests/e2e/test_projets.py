@@ -265,7 +265,7 @@ def test_page_projets_telephone_et_bureau(playwright_sync, pile):
             page.wait_for_selector("#acp-projet-titre-champ")
             attendre_page_acp(page, "projets")
             assert page.is_disabled("#acp-projet-depot")
-            assert "Aucun dépôt connu : le poste n'a encore publié aucun inventaire (étape P5)." in \
+            assert "Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste)." in \
                 page.inner_text('[data-acp-racine="projets"]').replace(" ", " ")
             assert page.locator("#acp-projet-voie").count() == 0
             # Sans dépôt, « Qui répond » est sans objet et le dit (relecture de P4).

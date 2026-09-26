@@ -53,6 +53,8 @@ COPY plugins/acp-interface/ /opt/hermes/plugins/acp-interface/
 COPY plugins/acp-catalogue/ /opt/hermes/plugins/acp-catalogue/
 # Étape P4 : page Projets, même forme (aucune route propre : elle appelle celles d'acp-poste).
 COPY plugins/acp-projets/ /opt/hermes/plugins/acp-projets/
+# Étape P5 : page Poste (état, routage, quotas), même forme.
+COPY plugins/acp-poste-vues/ /opt/hermes/plugins/acp-poste-vues/
 # 05-acp s'exécute après 02-reconcile-profiles (ordre lexicographique de /etc/cont-init.d).
 COPY image/cont-init.d/05-acp /etc/cont-init.d/05-acp
 
@@ -62,11 +64,14 @@ COPY image/cont-init.d/05-acp /etc/cont-init.d/05-acp
 # même à un processus lancé hors de s6.
 RUN set -eu; \
     chown -R root:root /opt/acp /opt/hermes/plugins/acp-poste /opt/hermes/plugins/acp-interface \
-        /opt/hermes/plugins/acp-catalogue /opt/hermes/plugins/acp-projets /etc/cont-init.d/05-acp; \
+        /opt/hermes/plugins/acp-catalogue /opt/hermes/plugins/acp-projets /opt/hermes/plugins/acp-poste-vues \
+        /etc/cont-init.d/05-acp; \
     find /opt/acp /opt/hermes/plugins/acp-poste /opt/hermes/plugins/acp-interface \
-        /opt/hermes/plugins/acp-catalogue /opt/hermes/plugins/acp-projets -type d -exec chmod 0755 {} +; \
+        /opt/hermes/plugins/acp-catalogue /opt/hermes/plugins/acp-projets /opt/hermes/plugins/acp-poste-vues \
+        -type d -exec chmod 0755 {} +; \
     find /opt/acp /opt/hermes/plugins/acp-poste /opt/hermes/plugins/acp-interface \
-        /opt/hermes/plugins/acp-catalogue /opt/hermes/plugins/acp-projets -type f -exec chmod 0644 {} +; \
+        /opt/hermes/plugins/acp-catalogue /opt/hermes/plugins/acp-projets /opt/hermes/plugins/acp-poste-vues \
+        -type f -exec chmod 0644 {} +; \
     chmod 0755 /opt/acp/bin/acp-gardes /opt/acp/bin/acp-run-dashboard /opt/acp/bin/acp-entree \
         /etc/cont-init.d/05-acp; \
     /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py construire

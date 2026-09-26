@@ -68,7 +68,8 @@ def test_catalogue_conforme(chemins, valeurs):
                             "skills_attendues": len(NOMS_ACP), "context7": "inconnu", "external_dirs_conforme": True,
                             "desactivations_conformes": True, "ecarts": 0}
     assert lu["interface"] == {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0",
-                                            "acp-projets": "0.11.0"}, "sdk_attendu": "1.x"}
+                                            "acp-projets": "0.11.0", "acp-poste-vues": "0.11.0"},
+                               "sdk_attendu": "1.x"}
     assert lu["meta"] == [lu["resume"], lu["interface"], []]
 
 

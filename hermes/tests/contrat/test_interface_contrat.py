@@ -1,7 +1,7 @@
 """Contrat de l'interface d'ACP (étape P3), sur le conteneur complet démarré par s6, avec une
 session OIDC réelle émise par le faux fournisseur d'identité de l'image de test :
 
-- le tableau de bord sert au navigateur acp-interface, acp-catalogue, acp-projets (étape P4),
+- le tableau de bord sert au navigateur acp-interface, acp-catalogue, acp-projets (étape P4), acp-poste-vues (P5),
   acp-poste et kanban, et JAMAIS hermes-achievements (décision D13) ;
 - les bundles servis sont, octet pour octet, ceux du dépôt (construits depuis apps/interface) ;
 - le thème « acp » est actif, sa définition est celle que Hermes normalise depuis le fichier déposé
@@ -30,7 +30,8 @@ print(json.dumps(_normalise_theme_definition(brut), ensure_ascii=False, sort_key
 EMPREINTES = (
     "sha256sum /etc/hermes/config.yaml /etc/hermes/.env /opt/data/dashboard-themes/acp.yaml /opt/data/SOUL.md "
     "/opt/data/acp/soul.sha256 && find /opt/hermes/plugins/acp-interface /opt/hermes/plugins/acp-catalogue "
-    "/opt/hermes/plugins/acp-projets /opt/hermes/plugins/acp-poste /opt/acp -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum"
+    "/opt/hermes/plugins/acp-projets /opt/hermes/plugins/acp-poste-vues /opt/hermes/plugins/acp-poste /opt/acp "
+    "-type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum"
 )
 
 
@@ -68,7 +69,7 @@ def test_greffons_servis_au_navigateur(tableau):
     afficher("GET /api/dashboard/plugins", json.dumps(greffons, ensure_ascii=False, indent=1))
     assert code == 200
     par_nom = {g["name"]: g for g in greffons}
-    assert {"acp-interface", "acp-catalogue", "acp-projets", "acp-poste", "kanban"} <= set(par_nom)
+    assert {"acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-poste", "kanban"} <= set(par_nom)
     assert "hermes-achievements" not in par_nom
     assert par_nom["acp-interface"]["tab"]["override"] == "/"
     assert par_nom["acp-interface"]["label"] == "Accueil" and par_nom["acp-interface"]["has_api"] is False
@@ -76,8 +77,11 @@ def test_greffons_servis_au_navigateur(tableau):
     assert par_nom["acp-catalogue"]["label"] == "Catalogue" and par_nom["acp-catalogue"]["has_api"] is False
     assert par_nom["acp-projets"]["tab"] == {"path": "/projets", "position": "before:catalogue"}
     assert par_nom["acp-projets"]["label"] == "Projets" and par_nom["acp-projets"]["has_api"] is False
+    # Étape P5 : la page Poste, après Projets, sans route propre.
+    assert par_nom["acp-poste-vues"]["tab"] == {"path": "/poste", "position": "after:projets"}
+    assert par_nom["acp-poste-vues"]["label"] == "Poste" and par_nom["acp-poste-vues"]["has_api"] is False
     assert all(par_nom[n]["source"] == "bundled" for n in ("acp-interface", "acp-catalogue", "acp-projets",
-                                                            "acp-poste"))
+                                                            "acp-poste-vues", "acp-poste"))
 
 
 def test_bundles_servis_identiques_au_depot(tableau):
@@ -85,7 +89,7 @@ def test_bundles_servis_identiques_au_depot(tableau):
 
     cle = jeton(tableau)
     constats = []
-    for nom in ("acp-interface", "acp-catalogue", "acp-projets"):
+    for nom in ("acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues"):
         for fichier in ("dist/index.js", "dist/style.css"):
             attendu = (RACINE_HERMES / "plugins" / nom / "dashboard" / fichier).read_bytes().replace(b"\r\n", b"\n")
             servi = base64.b64decode(_octets_servis(tableau, f"/dashboard-plugins/{nom}/{fichier}", cle))

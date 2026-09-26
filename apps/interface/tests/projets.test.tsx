@@ -123,7 +123,7 @@ describe("Projets : liste", () => {
     const texte = r.texte();
     expect(texte).toContain("Aucun projet pour l'instant.");
     expect(texte).toContain("Non configuré");
-    expect(texte).toContain("Le poste n'a jamais été vu (connexion prévue à l'étape P5).");
+    expect(texte).toContain("Le poste n'a jamais été vu : enrôlez-le depuis la page Poste.");
     const notifications = r.racine.querySelector("#acp-projets-notifications")?.parentElement;
     expect(texteDe(notifications)).toContain("Inconnu");
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
@@ -202,7 +202,7 @@ describe("Projets : nouveau projet", () => {
     const depot = r.racine.querySelector("#acp-projet-depot") as HTMLSelectElement;
     expect(depot.disabled).toBe(true);
     expect(depot.getAttribute("aria-describedby")).toBe("acp-projet-depot-aide");
-    expect(r.texte()).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (étape P5).");
+    expect(r.texte()).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste).");
     expect([...depot.options].map((o) => o.textContent)).toEqual(["Sans dépôt"]);
     expect(r.racine.querySelector("#acp-projet-voie")).toBeNull();
     const profils = r.racine.querySelector("#acp-projet-profil") as HTMLSelectElement;
@@ -291,7 +291,7 @@ describe("Projets : nouveau projet", () => {
     await soumettre(r.racine.querySelector("form"));
     const alerte = r.racine.querySelector('[role="alert"]');
     expect(texteDe(alerte)).toContain(
-      "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire (étape P5).",
+      "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire.",
     );
     expect(texteDe(alerte)).toContain("400");
     expect((r.racine.querySelector("#acp-projet-titre-champ") as HTMLInputElement).value).toBe("X");
