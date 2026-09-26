@@ -85,15 +85,16 @@ SCHEMAS: Dict[str, Dict[str, Any]] = {
     },
     "poste_etat": {
         "name": "poste_etat",
-        "description": ("État du poste Windows qui exécute les étapes sur dépôt : non configuré, en ligne ou hors "
-                        "ligne, depuis quand, cartes en attente."),
+        "description": ("État du poste Windows qui exécute les étapes sur dépôt : non configuré, à confirmer, en "
+                        "ligne, hors ligne (depuis quand) ou révoqué, cartes en attente."),
         "parameters": {"type": "object", "additionalProperties": False, "properties": {}},
     },
     "poste_catalogue": {
         "name": "poste_catalogue",
         "description": ("Catalogue relevé du poste : modèles, efforts et paliers de chaque exécutant (poste-codex, "
                         "poste-claude), âge du relevé, quotas, table de routage et politique (efforts interdits, "
-                        "paliers admis, voies par classe). « Inconnu » tant que le poste n'a rien publié."),
+                        "paliers admis, voies par classe). « Inconnu » tant que le poste n'a rien publié ; l'origine "
+                        "de chaque liste est dite (relevé du compte, liste de secours, alias documentés)."),
         "parameters": {"type": "object", "additionalProperties": False, "properties": {}},
     },
     "question_repondre": {

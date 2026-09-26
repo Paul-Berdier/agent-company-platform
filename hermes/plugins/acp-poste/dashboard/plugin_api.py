@@ -29,8 +29,23 @@ exige ``Content-Type: application/json`` (415 sinon) et refuse un ``Origin`` pr�
 - ``POST /v1/triage/{tableau}/{carte}/conclure``  « Conclure » une carte de décision du greffon → 200, 404, 409
 - ``POST /v1/pause``                           pause générale (arrêt d'urgence de Hermes) ou reprise (409 tant
                                                que des crochets shell sont déclarés)
-- ``GET  /v1/poste``                           présence et catalogue du poste
+- ``GET  /v1/poste``                           présence et catalogue du poste (étape P5 : état, poste courant,
+                                               dernier inventaire, alertes, ordres en attente)
 - ``POST /v1/notifications/test``              notification de test (envoyée par la passerelle) → 202, 409
+
+Étape P5 — poste connecté (cahier P5 § 4, § 12.3) :
+
+- ``POST /machine/v1/enrolement``              porteur : code d'enrôlement → 201 (jeton machine, une fois)
+- ``POST /machine/v1/reclamer``                porteur : jeton machine ; long-poll ≤ 50 s, ordres, présence
+- ``POST /machine/v1/inventaire``              porteur : jeton machine ; inventaire tout ou rien → 200, 429
+- ``POST /v1/poste/enrolement``                code d'enrôlement (10 min), rendu une fois → 201, 409
+- ``POST /v1/poste/confirmation`` ``/revocation`` ``/releve``  confirmer l'empreinte, révoquer, relever maintenant
+- ``GET  /v1/routage`` ; ``POST /v1/routage``  vue et validation de la table (tout ou rien) → 200, 409, 422
+- ``POST /v1/routage/politique`` ``/surcharges`` ``/surcharges/{id}/desactiver`` ``/releve-accepte``
+- ``GET  /v1/quotas``                          quotas par voie (relevés, jamais estimés)
+
+Les trois routes machine ne sont jamais servies à une session de navigateur : la couture de Hermes les réserve au
+porteur d'un jeton reconnu (chemins exacts enregistrés par register()).
 """
 
 from __future__ import annotations
@@ -319,14 +334,12 @@ async def pause_generale(request: Request) -> JSONResponse:
         base.poser_reglage(conn, "pause_reclamations", 1 if generale else 0, auteur)
         with base.transaction(conn):
             base.journaliser(conn, auteur, "pause_generale" if generale else "reprise_generale")
+        # Étape P5 : le poste actif reçoit l'ordre (affichage seulement en P5 ; en P6, plus de réclamation).
+        actif = _n("machines").machine_active(conn)
+        if actif is not None:
+            ordonner(actif["id"], "pause" if generale else "reprise", auteur)
         return {"pause_generale": _n("projets").pause_generale()}
     return await _executer(_avec_base(travail))
-
-
-@router.get("/v1/poste")
-async def lire_poste() -> JSONResponse:
-    return await _executer(_avec_base(lambda conn: {"poste": _n("presence").etat_poste(conn),
-                                                    "catalogue": _n("routage").catalogue(conn)}))
 
 
 @router.post("/v1/notifications/test")
@@ -730,3 +743,213 @@ def _ecrire_demarrage() -> None:
 
 
 _ecrire_demarrage()
+
+
+# ============================================================ étape P5 : routes du propriétaire (pages Poste, Routage, Quotas)
+#
+# Session du tableau de bord et règles d'écriture de P4 (JSON exigé, Origin contrôlé : _garde_ecriture). Cahier P5
+# § 12.3. Un refus de routage d'une surcharge ou d'une table rend 422 (entrée refusée), jamais une entrée admise en
+# silence ; la table refusée rend la liste des refus, entrée par entrée.
+
+CODES_HTTP.update({
+    "machine_inconnue": 404, "releve_inconnu": 404, "surcharge_inconnue": 404,
+    "empreinte_differente": 409, "pas_a_confirmer": 409, "deja_revoque": 409, "poste_deja_enrole": 409,
+    "aucun_poste_actif": 409, "releve_change": 409, "releve_non_acceptable": 409, "releve_plus_le_dernier": 409,
+    "table_refusee": 422, "table_invalide": 422, "politique_invalide": 422, "confirmation_requise": 422,
+})
+# Refus de la résolution (routage.valider_choix) : 422 sur les routes de la page Routage.
+REFUS_DE_ROUTAGE = ("classe_voie", "sans_depot", "effort_interdit", "palier_interdit", "modele_absent",
+                    "effort_non_pris_en_charge", "aucun_modele", "voie_indisponible", "voie_non_connectee",
+                    "liste_de_secours", "cli_hors_version", "interdit_par_le_poste", "efforts_inconnus")
+
+
+def _champs(corps: Dict[str, Any], admis: set) -> Optional[JSONResponse]:
+    inconnus = sorted(set(corps) - admis)
+    if inconnus:
+        return _erreur(400, "arguments", "Refusé par ACP : champ inconnu refusé : " + ", ".join(inconnus)[:200] + ".")
+    return None
+
+
+async def _executer_routage(travail: Callable[[Any], Any], *, statut: int = 200) -> JSONResponse:
+    """Comme _executer, avec les refus de routage en 422 et la liste des refus d'une table refusée."""
+    textes = _n("textes")
+
+    def enveloppe():
+        with _n("base").connexion() as conn:
+            return travail(conn)
+    try:
+        resultat = await run_in_threadpool(enveloppe)
+    except textes.RefusACP as exc:
+        code_http = 422 if exc.code in REFUS_DE_ROUTAGE else CODES_HTTP.get(exc.code, 400)
+        contenu: Dict[str, Any] = {"code": exc.code, "message": exc.message}
+        if getattr(exc, "refus", None):
+            contenu["refus"] = exc.refus
+        return JSONResponse(status_code=code_http, content={"detail": contenu})
+    except Exception as exc:  # noqa: BLE001 — jamais une trace brute au navigateur
+        return _erreur(500, "echec", f"Échec d'ACP ({type(exc).__name__}) : consultez l'état avant de réessayer.")
+    return JSONResponse(status_code=statut, content=json.loads(json.dumps(resultat, ensure_ascii=False, default=str)))
+
+
+def _vue_poste(conn) -> Dict[str, Any]:
+    """GET /v1/poste : état (non configuré, à confirmer, en ligne, hors ligne, révoqué), poste courant, dernier
+    inventaire (sans les relevés, rangés à part), ses alertes, ordres en attente, catalogue."""
+    presence, machines, inventaire, ordres, routage = (_n("presence"), _n("machines"), _n("inventaire"), _n("ordres"),
+                                                       _n("routage"))
+    courante = machines.machine_courante(conn)
+    dernier = inventaire.dernier(conn, courante["id"]) if courante else None
+    return {"poste": presence.etat_poste(conn), "machine": machines.etat(conn),
+            "inventaire": dernier, "alertes": (dernier or {}).get("alertes") or [],
+            "ordres": ordres.en_attente(conn, courante["id"]) if courante and courante["etat"] == "actif" else [],
+            "catalogue": routage.catalogue(conn)}
+
+
+@router.get("/v1/poste")
+async def lire_poste() -> JSONResponse:
+    return await _executer(_avec_base(_vue_poste))
+
+
+@router.post("/v1/poste/enrolement")
+async def creer_code_enrolement(request: Request) -> JSONResponse:
+    """Code à usage unique (10 min) rendu UNE fois ; la base n'en garde que le SHA-256 (décision D40)."""
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, set())
+    if refus_champs is not None:
+        return refus_champs
+
+    def travail(conn):
+        cree = _n("machines").creer_code(conn, auteur)
+        return dict(cree, commande="acp-poste enroler")
+    reponse = await _executer_routage(travail, statut=201)
+    reponse.headers["Cache-Control"] = "no-store"
+    return reponse
+
+
+@router.post("/v1/poste/confirmation")
+async def confirmer_poste(request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"machine_id", "empreinte"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer_routage(lambda conn: _n("machines").confirmer(conn, corps.get("machine_id"),
+                                                                         corps.get("empreinte"), auteur))
+
+
+@router.post("/v1/poste/revocation")
+async def revoquer_poste(request: Request) -> JSONResponse:
+    """Révocation : état en base, présence supprimée, attente en cours réveillée (401 poste_revoque au poste)."""
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"machine_id", "motif"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer_routage(lambda conn: revoquer(corps.get("machine_id"), corps.get("motif"), auteur))
+
+
+@router.post("/v1/poste/releve")
+async def relever_maintenant(request: Request) -> JSONResponse:
+    """« Relever maintenant » : ordre ``releve`` au poste actif ; 202, et le dit s'il est hors ligne."""
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, set())
+    if refus_champs is not None:
+        return refus_champs
+
+    def travail(conn):
+        machines, presence, textes, base = _n("machines"), _n("presence"), _n("textes"), _n("base")
+        actif = machines.machine_active(conn)
+        if actif is None:
+            raise textes.RefusACP("aucun_poste_actif", textes.PREFIXE_REFUS + textes.AUCUN_POSTE_ACTIF)
+        hors_ligne = presence.etat_poste(conn)["etat"] != "en_ligne"
+        identifiant = ordonner(actif["id"], "releve", auteur)
+        minutes = int(base.reglage(conn, "ordre_expiration_s") or 3600) // 60
+        return {"ordre": identifiant, "en_attente_du_poste": hors_ligne,
+                "message": textes.ORDRE_RELEVE_HORS_LIGNE.format(n=minutes) if hors_ligne
+                else textes.ORDRE_RELEVE_EN_FILE}
+    return await _executer_routage(travail, statut=202)
+
+
+@router.get("/v1/routage")
+async def lire_routage() -> JSONResponse:
+    return await _executer_routage(lambda conn: _n("routage").vue_routage(conn))
+
+
+@router.post("/v1/routage")
+async def valider_routage(request: Request) -> JSONResponse:
+    """Validation de la table, complète ou rien : 409 si un relevé a changé depuis l'ouverture de la page, 422 avec
+    la liste des refus par entrée."""
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"releves", "classes"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer_routage(lambda conn: _n("routage").valider_table(
+        conn, releves=corps.get("releves"), classes=corps.get("classes"), auteur=auteur))
+
+
+@router.post("/v1/routage/politique")
+async def poser_politique(request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"efforts_interdits", "paliers_admis", "motif", "confirmation"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer_routage(lambda conn: _n("routage").poser_politique(
+        conn, efforts_interdits=corps.get("efforts_interdits"), paliers_admis=corps.get("paliers_admis"),
+        motif=corps.get("motif"), confirmation=corps.get("confirmation"), auteur=auteur))
+
+
+@router.post("/v1/routage/surcharges")
+async def creer_surcharge(request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"classe", "voie", "modele", "effort", "palier", "motif"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer_routage(lambda conn: _n("routage").creer_surcharge_globale(
+        conn, classe=corps.get("classe"), voie=corps.get("voie"), modele=corps.get("modele"),
+        effort=corps.get("effort"), palier=corps.get("palier"), motif=corps.get("motif"), auteur=auteur), statut=201)
+
+
+@router.post("/v1/routage/surcharges/{identifiant}/desactiver")
+async def desactiver_surcharge(identifiant: str, request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, set())
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer_routage(lambda conn: _n("routage").desactiver_surcharge(conn, identifiant, auteur))
+
+
+@router.post("/v1/routage/releve-accepte")
+async def accepter_releve(request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"releve_id"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer_routage(lambda conn: _n("routage").accepter_releve(conn, corps.get("releve_id"), auteur))
+
+
+@router.get("/v1/quotas")
+async def lire_quotas() -> JSONResponse:
+    return await _executer_routage(lambda conn: _n("quotas").vue(conn))

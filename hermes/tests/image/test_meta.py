@@ -21,6 +21,9 @@ GARDE_PRESENTE = {
 
 CATALOGUE_CONFORME = {"verrou_sha256": "0" * 64, "skills_actives": 16, "skills_attendues": 16, "context7": "connecte",
                       "external_dirs_conforme": True, "desactivations_conformes": True, "ecarts": 0}
+MACHINE_CONFORME = {"fournisseur": "enregistre", "chemins_a_jeton": {}, "fournisseurs_de_session": ["self_hosted"],
+                    "base": "ok", "machines": {"a_confirmer": 0, "actif": 0, "revoque": 0}, "codes_utilisables": 0,
+                    "dernier_inventaire": None}
 INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0", "acp-projets": "0.11.0"},
              "sdk_attendu": "1.x"}
 
@@ -34,6 +37,9 @@ def garde_presente_par_defaut(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(meta, "etat_garde_execution", lambda decouvrir=None: dict(GARDE_PRESENTE))
     monkeypatch.setattr(meta, "bloc_catalogue", lambda: (dict(CATALOGUE_CONFORME), dict(INTERFACE), []))
+    # Étape P5 : ce processus pytest n'a pas enregistré le fournisseur du jeton machine ; le bloc « machine » est
+    # simulé conforme ici et prouvé dans test_meta_machine.py (et au contrat, sur le vrai tableau de bord).
+    monkeypatch.setattr(meta, "bloc_machine", lambda: (dict(MACHINE_CONFORME), []))
 
 
 def _sources(tmp_path: Path, etat: object = None) -> "meta.SourcesMeta":
