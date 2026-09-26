@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Témoins négatifs de l'étape P4 (docs/refonte/projets.md § 8) : chaque protection du cœur serveur est
+# retirée, UNE à la fois, dans un conteneur jetable de l'image de TEST ; les tests qui la couvrent doivent
+# alors échouer. Rien n'est modifié hors du conteneur, qui est détruit après chaque témoin.
+#
+#   IMAGE=acp-hermes-tests:p4 bash scripts/temoins_negatifs_p4.sh
+#
+# Sortie : pour chaque protection, la mutation appliquée (refus si son motif est introuvable : un témoin
+# qui ne mute rien ne prouverait rien) et le résumé de pytest. Code 0 seulement si CHAQUE témoin a vu ses
+# tests échouer ; code 1 sinon (protection non couverte ou mutation introuvable).
+set -u
+
+IMAGE=${IMAGE:-acp-hermes-tests:p4}
+G=/opt/hermes/plugins/acp-poste
+T=/opt/acp-tests/image
+PY=/opt/hermes/.venv/bin/python
+MUTER='import sys
+chemin, ancien, nouveau = sys.argv[1:4]
+texte = open(chemin, encoding="utf-8").read()
+if ancien not in texte:
+    sys.exit("MUTATION INTROUVABLE dans " + chemin)
+open(chemin, "w", encoding="utf-8").write(texte.replace(ancien, nouveau))
+print("mutation appliquée : " + chemin)'
+ECHECS=0
+
+temoin() {  # libellé ; sélection pytest ; puis triplets (fichier, ancien, nouveau)
+  local libelle=$1 selection=$2 commande="" sortie code
+  shift 2
+  while [ $# -gt 0 ]; do
+    commande+="$PY -c $(printf %q "$MUTER") $(printf %q "$1") $(printf %q "$2") $(printf %q "$3") || exit 99; "
+    shift 3
+  done
+  commande+="PYTHONPATH=/opt/acp-tests/site $PY -m pytest -q -p no:cacheprovider $selection"
+  sortie=$(MSYS_NO_PATHCONV=1 docker run --rm --entrypoint bash "$IMAGE" -c "$commande" 2>&1)
+  code=$?
+  echo "=== $libelle"
+  printf '%s\n' "$sortie" | grep -E "^mutation appliquée|MUTATION INTROUVABLE|^FAILED|^ERROR|passed|failed|error" | tail -8
+  if [ "$code" -eq 1 ]; then
+    echo "→ tests en échec, comme attendu"
+  else
+    echo "→ ANOMALIE : code $code (1 attendu)"
+    ECHECS=$((ECHECS + 1))
+  fi
+}
+
+temoin "liste blanche de la garde : projet_etat retiré" \
+  "$T/test_sans_shell.py -k 'garde_admet_exactement or garde_liste_blanche'" \
+  $G/garde_execution.py '"projet_lancer", "projet_planifier", "projet_etat", "poste_etat",' \
+  '"projet_lancer", "projet_planifier", "poste_etat",'
+temoin "visibilité des outils par contexte (check_fn) retirée" \
+  "$T/test_outils_greffon.py::test_visibilite_discussion_worker" \
+  $G/noyau/outils.py 'if nom in DISCUSSION_SEULE:' 'if False:' \
+  $G/noyau/outils.py 'if nom in WORKER_SEUL:' 'if False:'
+temoin "known_plugin_toolsets retiré de la managed scope" \
+  "$T/test_sans_shell.py::test_outils_acp_absents_d_api_server_et_cron" \
+  /opt/acp/gere/config.yaml $'known_plugin_toolsets:\n  api_server: [acp_poste]\n  cron: [acp_poste]\n' ''
+temoin "balayage des cartes poste-* étrangères coupé" \
+  "$T/test_etrangeres.py::test_carte_poste_du_proprietaire_bloquee_avec_raison" \
+  $G/noyau/etrangeres.py 'for meta in ka.list_boards(include_archived=False):' 'for meta in []:'
+temoin "transaction kanban externe d'un tour retirée" \
+  "$T/test_projets_planifier.py::test_atomique_rien_si_une_creation_leve" \
+  $G/noyau/cartes.py 'with ka.write_txn(kconn):' 'with contextlib.nullcontext():' \
+  $G/noyau/cartes.py $'\nimport json\n' $'\nimport contextlib\nimport json\n'
+temoin "unicité des notifications par clé retirée" \
+  "$T/test_emetteur.py::test_envoi_unique_par_cle_meme_rejoue" \
+  $G/noyau/base.py 'cle TEXT NOT NULL UNIQUE,' 'cle TEXT NOT NULL,'
+temoin "plafond des tours retiré" \
+  "$T/test_projets_planifier.py::test_plafond_tours_carte_de_triage_unique" \
+  $G/noyau/graphe.py 'if tour > int(fiche["plafond_tours"]):' 'if False:'
+temoin "plafond des cartes retiré" \
+  "$T/test_projets_planifier.py::test_plafond_cartes_sans_creation_partielle" \
+  $G/noyau/graphe.py 'if int(fiche["cartes_creees"]) + len(demandes) > int(fiche["plafond_cartes"]):' 'if False:'
+temoin "refus des crochets shell au démarrage retiré" \
+  "$T/test_demarrage.py -k hooks_non_vide_refuse" \
+  /opt/acp/bin/acp_demarrage.py '        if crochets:' '        if False:'
+temoin "retrait des variables de notification de os.environ retiré" \
+  "$T/test_emetteur.py::test_secrets_retires_de_os_environ" \
+  $G/__init__.py 'variables = retirer_variables_de_notification()' \
+  'variables = {k: v for k, v in os.environ.items() if k.startswith("ACP_")}'
+temoin "ordre des corrections : liaisons vers la synthèse retirées" \
+  "$T/test_corrections.py::test_ordre_correction_liaison_puis_fin" \
+  $G/noyau/graphe.py 'ka.link_tasks(kc, ids[cle_corr], synthese["carte"])' 'pass' \
+  $G/noyau/graphe.py 'ka.link_tasks(kc, ids[cle_rel], synthese["carte"])' 'pass'
+temoin "memory admis dans un worker kanban (décision D40)" \
+  "$T/test_sans_shell.py::test_memoire_refusee_dans_un_worker_kanban" \
+  $G/garde_execution.py 'if tool_name in MOTIFS_DANS_UN_WORKER and _dans_un_worker_kanban():' 'if False:'
+
+echo
+if [ "$ECHECS" -eq 0 ]; then
+  echo "Témoins négatifs : 12 sur 12, chaque protection retirée fait échouer ses tests."
+  exit 0
+fi
+echo "Témoins négatifs : $ECHECS anomalie(s)."
+exit 1
