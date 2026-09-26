@@ -21,7 +21,8 @@ GARDE_PRESENTE = {
 
 CATALOGUE_CONFORME = {"verrou_sha256": "0" * 64, "skills_actives": 16, "skills_attendues": 16, "context7": "connecte",
                       "external_dirs_conforme": True, "desactivations_conformes": True, "ecarts": 0}
-INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0"}, "sdk_attendu": "1.x"}
+INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0", "acp-projets": "0.11.0"},
+             "sdk_attendu": "1.x"}
 
 
 @pytest.fixture(autouse=True)

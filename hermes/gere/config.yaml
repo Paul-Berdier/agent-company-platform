@@ -223,8 +223,8 @@ dashboard:
   # une feuille de style distante (Google Fonts, web/src/themes/fonts.ts) ; la valeur épinglée
   # l'emporte sur celle du navigateur au chargement suivant (web/src/themes/context.tsx:519-540).
   font: theme
-  # Étape P3 : aucun greffon de tableau de bord masqué ; acp-interface, acp-catalogue et
-  # acp-poste restent toujours servis (web_routers/dashboard_ui.py:129-146).
+  # Étape P3 : aucun greffon de tableau de bord masqué ; acp-interface, acp-catalogue,
+  # acp-projets (P4) et acp-poste restent toujours servis (web_routers/dashboard_ui.py:129-146).
   hidden_plugins: []
   # URL publique https validée par 00-acp-gardes (HERMES_DASHBOARD_PUBLIC_URL).
   public_url: "@@ACP:HERMES_DASHBOARD_PUBLIC_URL@@"

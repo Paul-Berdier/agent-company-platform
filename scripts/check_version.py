@@ -34,6 +34,8 @@ PACKAGE_JSONS = (
     # Étape P3 : greffons d'interface et leurs sources (hors des workspaces npm de la racine).
     "hermes/plugins/acp-interface/dashboard/manifest.json",
     "hermes/plugins/acp-catalogue/dashboard/manifest.json",
+    # Étape P4 : page Projets.
+    "hermes/plugins/acp-projets/dashboard/manifest.json",
     "apps/interface/package.json",
 )
 
