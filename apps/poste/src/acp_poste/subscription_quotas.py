@@ -171,6 +171,10 @@ class _Malformed(Exception):
     """Réponse ou fichier hors de la forme attendue."""
 
 
+QuotaMalForme = _Malformed
+"""Nom public (étape P5) : la sonde Codex du poste (``sondes_codex``) le rattrape sur ``account/rateLimits/read``."""
+
+
 class _Closed(Exception):
     """Le processus a fermé sa sortie avant la réponse attendue."""
 

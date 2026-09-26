@@ -2,9 +2,9 @@
 
 Ces fichiers JSON Schema (draft-07) décrivent le protocole JSON-RPC de
 `codex app-server`. Ils servent **uniquement aux tests** du poste
-(`apps/poste/tests/test_subscription_quotas.py`) : le faux app-server de test doit
-répondre exactement dans la forme que publie la version réelle du CLI, et les
-requêtes envoyées par la sonde doivent respecter les paramètres attendus.
+(`apps/poste/tests/test_sondes_codex.py` depuis l'étape P5) : le faux app-server de test
+(`faux_codex.py`) doit répondre exactement dans la forme que publie la version réelle du CLI,
+et les requêtes envoyées par la sonde doivent respecter les paramètres attendus.
 
 - **Projet d'origine** : [openai/codex](https://github.com/openai/codex), sous licence
   **Apache-2.0** (texte des conditions dans `LICENSE-APACHE-2.0.txt`, recopié à
@@ -32,10 +32,26 @@ requêtes envoyées par la sonde doivent respecter les paramètres attendus.
 | `JSONRPCErrorError.json` | corps d'une erreur | `12cc5cd5d9df9246defa609c472375020fe5250f3aeabd7d529076cecd9f541e` |
 | `JSONRPCNotification.json` | enveloppe d'une notification | `c2b43f26880db331393fe09f34bdd76dfeb4dc30d8418d1c26e18db166d6c8c8` |
 
-Les noms de méthodes `initialize`, `account/read` et `account/rateLimits/read`
-proviennent du fichier généré `ClientRequest.json` de la même version (environ
-200 Ko), qui n'est pas recopié ici ; la notification `initialized` est dans
-`ClientNotification.json`.
+**Étape P5** (27 septembre 2026) : les schémas ont été régénérés avec le même Codex CLI **0.156.1**
+(binaire natif du paquet npm, `CODEX_HOME` vide et temporaire, aucun compte) ; les fichiers ci-dessous,
+ajoutés pour les sondes du poste (configuration, bac à sable, catalogue, liste blanche des méthodes),
+sont **identiques octet pour octet** à la génération du 24 septembre, et recopiés sans modification :
+
+| Fichier | Rôle dans les sondes du poste | SHA-256 |
+|---|---|---|
+| `ClientRequest.json` | noms des méthodes admises **et** interdites (liste blanche : `test_les_methodes_admises_et_interdites_existent_dans_codex_0_156_1`) | `8e5a1b6a7103fea63a53ef96d7ab1062decbd6571701542f5a969953e23a64f5` |
+| `ServerRequest.json` | requête serveur `account/chatgptAuthTokens/refresh` (réponse `-32601`) | `f339be472737a0003efa25fba2e6e6c9237e621cd065b6d6995c51256e9dc1fb` |
+| `v2/ConfigReadParams.json` | paramètres de `config/read` | `257c54a423b47c1d209ff1076765a1564d82322fd5161670fd489a2874de1bac` |
+| `v2/ConfigReadResponse.json` | réponse de `config/read` (mode du bac à sable, couches) | `69a32e3d84e16045802dff8abf01770d759ebc758965c3258a30ea4a93159fce` |
+| `v2/ModelListParams.json` | paramètres de `model/list` | `de29a536c00a5b8f46f34dba417dabd93365305571a8ed200e33bea85db68b5a` |
+| `v2/ModelListResponse.json` | réponse de `model/list` | `bfbb3ee9f6e203e0b767587c17de94b9cb42f712d0d8168afbbbc3fcb4492f30` |
+| `v2/NullableGetAccountRateLimitsParams.json` | paramètres de `account/rateLimits/read` | `072f813ca1c696831a7f2fbd934feaa8cad228a6b3d44a4be8877547c796341b` |
+| `v2/WindowsSandboxReadinessResponse.json` | réponse de `windowsSandbox/readiness` | `077f60a3d6d1fc226c45059472b29caf675fdc3fdebb29569eaab94bd05ceb00` |
+| `v2/WindowsSandboxSetupStartParams.json` | paramètres de `windowsSandbox/setupStart` (sans `cwd`) | `8610d077fff4fc5811f2e33dea82617a15ffb82f08e55e1540aef877133f5b4f` |
+| `v2/WindowsSandboxSetupStartResponse.json` | réponse de `windowsSandbox/setupStart` | `830bf89deac3e73e36b7d9799ceed32ee25e782c30b1d25266374aa020d3bc7e` |
+| `v2/WindowsSandboxSetupCompletedNotification.json` | notification `windowsSandbox/setupCompleted` | `dc5383ae8fc2a46badbc2dab3ccd0447fed97729c2d5a177e28c4a7e2a60c329` |
+
+Les empreintes sont celles des octets générés (fins de ligne LF, comme l'index Git).
 
 Pour mettre à jour : régénérer les schémas avec la nouvelle version du CLI dans un
 dossier temporaire, recopier les mêmes fichiers dans un nouveau dossier
