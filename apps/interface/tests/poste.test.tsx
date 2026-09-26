@@ -25,6 +25,11 @@ import { ApiErrorHermes, attendre, installerSdk, rendre, textesHorsCatalogue, ty
 
 const F = JSON.parse(JSON.stringify(FORMES)) as Record<string, any>;  // eslint-disable-line @typescript-eslint/no-explicit-any
 
+/** Réponse de l'enrôlement capturée, valable 10 minutes À PARTIR DE MAINTENANT (expire_le est absolu). */
+function codeFrais(): Record<string, unknown> {
+  return { ...F.code, expire_le: Math.floor(Date.now() / 1000) + 600 };
+}
+
 function texteDe(element: Element | null | undefined): string {
   return (element?.textContent ?? "").replace(/\s+/g, " ").trim();
 }
@@ -78,7 +83,7 @@ afterEach(() => aller(""));
 
 describe("vue Poste", () => {
   it("non configuré : bandeau, enrôlement, code affiché une fois puis oublié au changement de vue", async () => {
-    const reponses: Record<string, Reponse> = { [ROUTE_POSTE]: F.poste_non_configure, [`POST ${ROUTE_ENROLEMENT}`]: F.code,
+    const reponses: Record<string, Reponse> = { [ROUTE_POSTE]: F.poste_non_configure, [`POST ${ROUTE_ENROLEMENT}`]: codeFrais(),
                                                 [ROUTE_ROUTAGE]: F.routage_vide };
     const installation = installerSdk(reponses);
     const r = await rendre(h(Poste, null));
@@ -100,8 +105,17 @@ describe("vue Poste", () => {
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
   });
 
+  it("code expiré : la page le dit et ne l'affiche plus", async () => {
+    installerSdk({ [ROUTE_POSTE]: F.poste_non_configure,
+                   [`POST ${ROUTE_ENROLEMENT}`]: { ...F.code, expire_le: Math.floor(Date.now() / 1000) - 1 } });
+    const r = await rendre(h(Poste, null));
+    await cliquer(bouton(r.racine, "Générer un code d'enrôlement"));
+    expect(r.racine.querySelector("[data-acp-code]")).toBeNull();
+    expect(r.texte()).toContain("Code expiré : générez-en un nouveau.");
+  });
+
   it("copie : le presse-papiers reçoit le code, ou la page dit que c'est impossible", async () => {
-    installerSdk({ [ROUTE_POSTE]: F.poste_non_configure, [`POST ${ROUTE_ENROLEMENT}`]: F.code });
+    installerSdk({ [ROUTE_POSTE]: F.poste_non_configure, [`POST ${ROUTE_ENROLEMENT}`]: codeFrais() });
     const copies: string[] = [];
     Object.defineProperty(globalThis.navigator, "clipboard", {
       configurable: true, value: { writeText: async (t: string) => { copies.push(t); } } });
