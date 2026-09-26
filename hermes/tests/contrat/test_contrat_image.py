@@ -201,8 +201,8 @@ def test_pid1_est_s6_et_les_gardes_ont_tourne(hermes_en_marche):
     assert "info: hook /opt/acp/bin/acp-gardes exited 0" in journal
     assert "cont-init: info: /etc/cont-init.d/05-acp exited 0" in journal
     assert "[acp] variables validées" in journal
-    # Étape P2 : bandeau de la managed scope et commit déployé (inconnu hors Railway).
-    assert "[acp] managed scope régénérée : 50 clés de configuration et 38 variables épinglées" in journal
+    # Étape P2 : bandeau de la managed scope (57 clés depuis P4) et commit déployé (inconnu hors Railway).
+    assert "[acp] managed scope régénérée : 57 clés de configuration et 38 variables épinglées" in journal
     assert "[acp] commit déployé : inconnu" in journal
 
 
