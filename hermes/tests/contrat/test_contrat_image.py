@@ -479,21 +479,27 @@ def test_la_mise_a_jour_par_le_tableau_de_bord_est_refusee_et_opt_hermes_intact(
 ADAPTATEUR = """
 import sys, time
 sys.path.insert(0, "/opt/hermes/plugins/acp-poste")
-import kanban_adapter as k
+from noyau import kanban_adapter as k
 """
 
 
-def test_une_carte_en_triage_du_tableau_poste_n_est_jamais_lancee(pile):
+def test_une_carte_en_triage_n_est_jamais_lancee(pile):
+    """Depuis P4, un tableau PAR PROJET (le tableau unique « poste » de P1 est retiré) : une carte en
+    triage adressée au profil « default » (comme la carte « plafond atteint » du greffon) n'est jamais
+    lancée par le répartiteur ; sans auto-décomposition, elle attend le propriétaire."""
     carte = pile.python(ADAPTATEUR + """
-k.assurer_tableau()
-print(k.creer_carte_triage(titre="Carte de contrat P1", corps="Doit rester en triage.",
-                           cle_idempotence="contrat-p1-triage"))
+k.create_board("acp-contrat-triage", name="Contrat triage")
+with k.connexion("acp-contrat-triage") as c:
+    print(k.create_task(c, title="Carte de contrat", body="Doit rester en triage.", assignee="default",
+                        created_by=k.CREATEUR, triage=True, idempotency_key="acp:contrat:triage",
+                        board="acp-contrat-triage"))
 """, utilisateur="hermes", env={"HERMES_HOME": "/opt/data"}, verifier=True).stdout.strip()
     debut = time.monotonic()
     time.sleep(22)  # plus de quatre ticks du répartiteur (kanban.dispatch_interval_seconds: 5)
     etat = pile.python(ADAPTATEUR + f"""
-c = k.lire_carte({carte!r})
-print(c.status, c.assignee, c.claim_lock, c.worker_pid, int(time.time()) - c.created_at)
+with k.connexion("acp-contrat-triage") as c:
+    t = k.get_task(c, {carte!r})
+print(t.status, t.assignee, t.claim_lock, t.worker_pid, int(time.time()) - t.created_at)
 """, utilisateur="hermes", env={"HERMES_HOME": "/opt/data"}, verifier=True).stdout.split()
     journal_gateway = pile.sh("grep -h 'kanban dispatcher: embedded' /opt/data/logs/gateways/default/current "
                               "/opt/data/logs/*.log 2>/dev/null | tail -1").stdout.strip()
@@ -503,13 +509,13 @@ print(c.status, c.assignee, c.claim_lock, c.worker_pid, int(time.time()) - c.cre
     requetes = [json.loads(l) for l in pile.sh("cat /tmp/modele-factice.jsonl",
                                                 verifier=True).stdout.splitlines() if l.strip()]
     appels = [r for r in requetes if r["methode"] == "POST" and r["chemin"].endswith("/chat/completions")]
-    afficher("carte en triage sur le tableau poste",
+    afficher("carte en triage d'un tableau de projet",
              f"carte {carte} après {time.monotonic() - debut:.0f} s : statut={etat[0]} assigné={etat[1]} "
              f"réclamation={etat[2]} pid={etat[3]} âge={etat[4]} s\n{journal_gateway}\n"
              f"requêtes reçues par le modèle factice : {len(requetes)} sondes de métadonnées "
              f"(GET …/models, POST /api/show), dont {len(appels)} appel(s) de complétion")
     assert "interval=5.0s" in journal_gateway
-    assert etat[:4] == ["triage", "poste-windows", "None", "None"]
+    assert etat[:4] == ["triage", "default", "None", "None"]
     # Contrôle positif : le modèle factice répondait bien (au moins la sonde de la fixture).
     assert any(r["methode"] == "GET" and r["chemin"].endswith("/models") for r in requetes), requetes
     # Aucune décomposition : aucune complétion demandée au modèle (seules des sondes de

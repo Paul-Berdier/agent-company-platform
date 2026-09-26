@@ -96,6 +96,45 @@ def test_aucune_surface_n_offre_d_outil_d_execution(chemins, valeurs, volume):
     for surface in ("api_server", "cli", "tableau_de_bord_tui", "worker_kanban"):
         assert {"web_search", "skills_list"} <= set(surfaces[surface]["outils"]), surface
     assert {"kanban_complete", "kanban_show"} <= set(surfaces["worker_kanban"]["outils"])
+    # Étape P4 (D24) : les outils du greffon sur cli, le tableau de bord et les workers ; jamais sur
+    # api_server ni cron (known_plugin_toolsets épinglé), même depuis un volume hostile.
+    # Hermes DIFFÈRE les outils de greffon derrière tool_search / tool_call (tools/tool_search.py:150-162) :
+    # ils sont dans le catalogue de la surface, pas dans sa liste directe.
+    for surface in ("cli", "tableau_de_bord_tui", "tableau_de_bord_desktop", "worker_kanban"):
+        assert "acp_poste" in surfaces[surface]["toolsets"] and "projet_etat" in surfaces[surface]["catalogue"], surface
+        assert "tool_call" in surfaces[surface]["outils"], surface
+    assert {"projet_planifier", "question_repondre"} <= set(surfaces["worker_kanban"]["catalogue"])
+    assert "projet_lancer" not in surfaces["worker_kanban"]["catalogue"]
+    assert "projet_lancer" in surfaces["cli"]["catalogue"] and "projet_planifier" not in surfaces["cli"]["catalogue"]
+    for surface in ("api_server", "cron"):
+        assert "acp_poste" not in surfaces[surface]["toolsets"], surface
+        assert not set(OUTILS_DU_GREFFON) & set(surfaces[surface]["catalogue"]), surface
+    for surface in SURFACES:
+        interdits = set(surfaces[surface]["catalogue"]) & OUTILS_INTERDITS
+        assert interdits == set(), f"{surface} diffère {interdits}"
+
+
+def _sonder_avec(chemins, valeurs, remplacements) -> dict:
+    installer_home_de_test(chemins, valeurs, remplacements=remplacements)
+    fichier = chemins.hermes_home.parent / "sonde-p4.json"
+    sortie = lancer_outil("sonde_surfaces.py", str(fichier), env=env_processus(chemins))
+    assert sortie.returncode == 0, sortie.stderr[-3000:]
+    return json.loads(fichier.read_text(encoding="utf-8"))
+
+
+def test_outils_acp_absents_d_api_server_et_cron(chemins, valeurs):
+    """Décision D24 : les outils du greffon ne sont offerts ni par l'api_server ni par le cron, grâce aux
+    épingles known_plugin_toolsets ; témoin négatif : sans elles, Hermes les active par défaut
+    (hermes_cli/tools_config.py:538-545)."""
+    avec = _sonder_avec(chemins, valeurs, ())
+    assert {"projet_etat", "poste_etat", "poste_catalogue"} <= set(avec["cli"]["catalogue"])
+    for surface in ("api_server", "cron"):
+        assert not set(OUTILS_DU_GREFFON) & set(avec[surface]["catalogue"]), surface
+    sans = _sonder_avec(chemins, valeurs, [("known_plugin_toolsets:\n  api_server: [acp_poste]\n  cron: [acp_poste]\n",
+                                            "")])
+    print(json.dumps({s: sans[s]["toolsets"] for s in ("api_server", "cron")}, ensure_ascii=False))
+    for surface in ("api_server", "cron"):
+        assert "projet_etat" in sans[surface]["catalogue"], surface
 
 
 SCOPE_P1 = """\
@@ -365,11 +404,17 @@ def test_preview_restart_par_tui_gateway_temoin_negatif(chemins, valeurs, modele
 # ============================================================ 5. la garde elle-même
 
 
+OUTILS_DU_GREFFON = ("projet_lancer", "projet_planifier", "projet_etat", "poste_etat", "poste_catalogue",
+                     "question_repondre", "question_escalader", "routage_surcharger")
+
+
 def test_garde_liste_blanche():
-    assert len(ge.OUTILS_ADMIS) == 26
+    # 26 en P2-P3, plus les huit outils du greffon (étape P4).
+    assert len(ge.OUTILS_ADMIS) == 34
     for nom in ge.OUTILS_ADMIS:
         assert ge.garde(tool_name=nom, args={}) is None, nom
-    for nom, motif in (("kanban_create", "les projets passeront par les outils du greffon acp-poste (P4)"),
+    for nom, motif in (("kanban_create", "les projets passent par les outils du greffon acp-poste (projet_lancer, "
+                                         "projet_planifier)"),
                        ("kanban_attach_url", "ne résiste pas au rebinding DNS")):
         bloc = ge.garde(tool_name=nom, args={"skills": ["x"], "workspace_path": "/opt/data"})
         assert bloc["action"] == "block" and bloc["message"].startswith("Refusé par ACP : ") and motif in bloc["message"]
@@ -381,6 +426,55 @@ def test_garde_liste_blanche():
         assert bloc["action"] == "block", nom
         assert bloc["message"].startswith("Refusé par ACP : l'outil « "), nom
         assert "L'exécution passe par le poste Windows du propriétaire." in bloc["message"]
+
+
+def test_memoire_refusee_dans_un_worker_kanban(monkeypatch):
+    """Étape P4 : dans un worker kanban (HERMES_KANBAN_TASK posée par le répartiteur), memory est refusé
+    tout de suite, au lieu d'une invite d'approbation qui attendrait 300 s ; en discussion, il reste admis."""
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    assert ge.garde(tool_name="memory", args={"action": "add"}) is None
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_abc")
+    bloc = ge.garde(tool_name="memory", args={"action": "add"})
+    assert bloc["action"] == "block" and bloc["message"].startswith("Refusé par ACP : une carte kanban n'écrit pas en "
+                                                                    "mémoire")
+    assert ge.garde(tool_name="projet_etat", args={}) is None and ge.garde(tool_name="kanban_show", args={}) is None
+    monkeypatch.setenv("HERMES_KANBAN_TASK", " ")
+    assert ge.garde(tool_name="memory", args={}) is None
+
+
+def test_garde_admet_exactement_les_outils_du_greffon():
+    """Les noms ajoutés en P4 sont EXACTEMENT les outils que le greffon enregistre (noyau/outils.py)."""
+    from noyau.outils import SCHEMAS
+
+    ajoutes = set(ge.OUTILS_ADMIS) - OUTILS_P3
+    assert ajoutes == set(SCHEMAS) == set(OUTILS_DU_GREFFON)
+
+
+def test_un_outil_du_greffon_retire_de_la_liste_est_refuse(tmp_path):
+    """Témoin : une copie de la garde privée d'un nom du greffon refuse cet outil ; la liste blanche est
+    bien la seule porte (aucune exception par préfixe ou par jeu d'outils)."""
+    import importlib.util
+
+    copie = tmp_path / "garde_copie.py"
+    source = (Path(ge.__file__)).read_text(encoding="utf-8")
+    assert source.count('"projet_planifier", ') == 1
+    copie.write_text(source.replace('"projet_planifier", ', "", 1), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("garde_copie_p4", copie)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert len(module.OUTILS_ADMIS) == 33
+    bloc = module.garde(tool_name="projet_planifier", args={})
+    assert bloc["action"] == "block" and "« projet_planifier » n'est pas autorisé" in bloc["message"]
+    assert module.garde(tool_name="projet_etat", args={}) is None
+
+
+# Les 26 outils de P2-P3 (context7 compris), pour isoler l'ajout de P4.
+OUTILS_P3 = frozenset({
+    "mcp__context7__resolve_library_id", "mcp__context7__query_docs", "web_search", "web_extract", "vision_analyze",
+    "skills_list", "skill_view", "skill_manage", "todo_list", "memory", "session_search", "clarify", "tool_search",
+    "tool_describe", "kanban_show", "kanban_list", "kanban_complete", "kanban_block", "kanban_request_review",
+    "kanban_request_changes", "kanban_heartbeat", "kanban_comment", "kanban_link", "kanban_unblock", "kanban_attach",
+    "kanban_attachments"})
 
 
 class _ChaineHostile(str):
@@ -696,12 +790,16 @@ spec.loader.exec_module(module)
 class Contexte:
     def __init__(self): self.crochets = []
     def register_hook(self, nom, rappel): self.crochets.append((nom, rappel.__name__, rappel.__module__))
+    def register_tool(self, **k): pass
+    def register_system_prompt_section(self, *a, **k): pass
 ctx = Contexte()
 module.register(ctx)
 resultat = [ctx.crochets, module.garde_execution.ENREGISTRE_DANS_CE_PROCESSUS]
 """
     crochets, enregistre = executer_python(code)
-    assert crochets == [["pre_tool_call", "garde", "acp_test_greffon.garde_execution"]]
+    # La garde d'abord ; depuis P4, le crochet de tick de l'émetteur ensuite (test_outils_greffon.py).
+    assert crochets[0] == ["pre_tool_call", "garde", "acp_test_greffon.garde_execution"]
+    assert [c[0] for c in crochets] == ["pre_tool_call", "on_kanban_dispatch_tick"]
     assert enregistre is True
 
 

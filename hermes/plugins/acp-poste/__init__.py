@@ -1,16 +1,18 @@
 """Greffon groupé acp-poste, côté agent.
 
 Hermes importe ce paquet dans chacun de ses processus et appelle :func:`register`
-(hermes_cli/plugins.py). Depuis l'étape P2, le greffon :
+(hermes_cli/plugins.py). Le greffon :
 
 1. arrête Hermes lancé HORS de la chaîne s6 d'ACP (sentinelle, :func:`_sentinelle_chaine_s6`) ;
 2. enregistre la garde d'exécution de l'agent, crochet ``pre_tool_call`` en liste blanche
-   (:mod:`garde_execution`).
+   (:mod:`garde_execution`) — TOUJOURS en premier, avant tout import du noyau : un noyau qui ne
+   se chargerait pas ne doit jamais laisser l'agent sans garde ;
+3. depuis l'étape P4 (:mod:`noyau`) : lit puis RETIRE de ``os.environ`` les variables de
+   notification (le canal n'est gardé en mémoire que dans la passerelle), inscrit les huit outils de
+   l'agent (jeu ``acp_poste``), la section de prompt « acp-projets » et le crochet
+   ``on_kanban_dispatch_tick`` de l'émetteur.
 
-Il n'enregistre encore aucun outil : les outils ``projet_*``, ``poste_*`` et ``question_*``
-arrivent en P4, le jeton machine et les routes du poste en P5 (plan d'autonomie,
-docs/refonte/autonomie.md § 8) ; les annoncer maintenant ferait croire à une délégation qui
-n'existe pas.
+Le jeton machine et les routes du poste arrivent en P5 (plan d'autonomie, docs/refonte/autonomie.md § 8).
 
 La partie tableau de bord (``dashboard/plugin_api.py``) est montée indépendamment, sous
 ``/api/plugins/acp-poste/`` (hermes_cli/web_server_dashboard.py:798-874).
@@ -127,9 +129,62 @@ def _sentinelle_chaine_s6(argv: Optional[Sequence[str]] = None, environ: Optiona
     os._exit(CODE_HORS_S6)
 
 
+def est_la_passerelle(argv: Optional[Sequence[str]] = None) -> bool:
+    """Vrai dans le processus ``hermes gateway [run]`` : le seul qui garde le canal de notification et
+    fait tourner l'émetteur (le répartiteur kanban y vit : kanban.dispatch_in_gateway)."""
+    commande = _sous_commande(sys.argv if argv is None else argv)
+    return commande[:1] == ["gateway"] and _lance_un_serveur(commande)
+
+
+# Variables du canal de notification (cahier P4 § 12.5), retirées de os.environ par register() AVANT tout
+# import du noyau : même si le noyau ne se charge pas, les workers lancés ensuite n'en héritent pas.
+# (test_variables_de_notification_identiques : même liste que noyau/notifications.VARIABLES.)
+VARIABLES_NOTIFICATION = ("ACP_NOTIFICATIONS", "ACP_TELEGRAM_JETON", "ACP_TELEGRAM_DISCUSSION", "ACP_NTFY_SERVEUR",
+                          "ACP_NTFY_SUJET", "ACP_NTFY_JETON")
+
+
+def retirer_variables_de_notification(environ: Optional[dict] = None) -> dict:
+    """Retire les variables de notification de ``environ`` et en rend une copie (en mémoire seulement)."""
+    environ = os.environ if environ is None else environ
+    copie = {nom: environ[nom] for nom in VARIABLES_NOTIFICATION if nom in environ}
+    for nom in VARIABLES_NOTIFICATION:
+        environ.pop(nom, None)
+    return copie
+
+
+def _enregistrer_p4(ctx, variables: dict, argv: Optional[Sequence[str]] = None) -> None:
+    """Étape P4 : canal de notification (passerelle seulement), outils, section de prompt, émetteur."""
+    from .noyau import emetteur, invite, notifications, outils
+
+    config, erreurs = notifications.lire_configuration(variables)
+    passerelle = est_la_passerelle(argv)
+    # Un second register() dans le même processus (rechargement) trouve l'environnement déjà vidé : il
+    # garde alors le canal lu la première fois.
+    emetteur.configurer(config, passerelle=passerelle, garder_le_canal_connu=not variables)
+    for erreur in erreurs:
+        _log.warning("acp-poste : notifications désactivées : %s", erreur)
+    outils.enregistrer(ctx)
+    ctx.register_system_prompt_section("acp-projets", invite.rendre, position="after_memory",
+                                       max_chars=invite.MAXIMUM)
+    ctx.register_hook("on_kanban_dispatch_tick", emetteur.sur_tick)
+    if passerelle:
+        try:
+            from .noyau import base
+
+            with base.connexion() as conn:
+                emetteur.ecrire_etat_du_canal(conn)
+        except Exception as exc:  # noqa: BLE001 — l'état du canal se republie à chaque passe
+            _log.warning("acp-poste : état du canal non publié (%s).", type(exc).__name__)
+
+
 def register(ctx) -> None:
-    """Point d'entrée du greffon : sentinelle hors s6, puis garde d'exécution."""
+    """Point d'entrée du greffon : sentinelle hors s6, garde d'exécution, puis le noyau P4."""
     _sentinelle_chaine_s6()
     ctx.register_hook("pre_tool_call", garde_execution.garde)
     garde_execution.ENREGISTRE_DANS_CE_PROCESSUS = True
     _log.debug("acp-poste : garde d'exécution enregistrée (%d outils admis).", len(garde_execution.OUTILS_ADMIS))
+    variables = retirer_variables_de_notification()
+    try:
+        _enregistrer_p4(ctx, variables)
+    except Exception:  # noqa: BLE001 — la garde reste enregistrée ; l'absence des outils se voit (meta, tests)
+        _log.exception("acp-poste : noyau P4 non enregistré ; la garde d'exécution reste active.")

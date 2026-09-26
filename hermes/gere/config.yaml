@@ -45,9 +45,26 @@ kanban:
   auto_decompose: false
   # Défaut None = tout profil existant est lançable ; une liste fait échouer
   # fermé tout autre assigné (config_defaults.py:1901-1906 ;
-  # kanban_db_dispatch.py:1636-1700). Un profil créé plus tard sous le nom
-  # « poste-windows » ne pourra donc pas être lancé sur Railway.
+  # kanban_db_dispatch.py:1636-1700). Les cartes des exécutants du poste
+  # (« poste-codex », « poste-claude ») ne sont jamais lancées sur Railway, même
+  # si un profil de ce nom était créé : le poste les réclame (étapes P5-P6).
   dispatch_profiles: [default]
+  # Étape P4 : le répartiteur de la passerelle fait avancer les projets sans client
+  # connecté ; la variable HERMES_KANBAN_DISPATCH_IN_GATEWAY, qui le couperait
+  # (gateway/kanban_watchers.py:215-218), est interdite au démarrage.
+  dispatch_in_gateway: true
+  # Étape P4 : plafond HÔTE de cartes « running » ; les réclamations distantes du
+  # poste comptent (kanban_db_dispatch.py:2161-2219).
+  max_in_progress: 4
+  # Étape P4 : au plus 2 workers Hermes (« default ») à la fois dans les 2 Go.
+  max_in_progress_per_profile: 2
+  # Étape P4 : aucune relecture sdlc-review automatique ; la relecture est croisée,
+  # par l'autre exécutant du poste (greffon acp-poste).
+  review_dispatch: false
+  # Étape P4 : trois échecs consécutifs avant l'abandon (plan d'autonomie § 6).
+  failure_limit: 3
+  # Ces réglages sont lus au DÉMARRAGE de la passerelle (gateway/kanban_watchers_dispatcher.py:30-117) :
+  # un changement exige une relance. dispatch_interval_seconds n'est pas épinglé (tests : 5 s).
 
 approvals:
   # Défaut « smart » : un modèle auxiliaire approuve seul (config_defaults.py:1656).
@@ -124,10 +141,19 @@ agent:
 # Étape P3 : cli nomme le serveur context7 au lieu de no_mcp. Un nom de serveur dans la liste en
 # fait une LISTE BLANCHE : seuls les serveurs nommés sont offerts (tools_config.py:678-690) ;
 # api_server et cron gardent no_mcp.
+# Étape P4 : cli nomme aussi acp_poste, le jeu des huit outils du greffon acp-poste (projets
+# autonomes) ; api_server et cron ne l'ont pas (ci-dessous, known_plugin_toolsets).
 platform_toolsets:
   api_server: [web, vision, skills, todo, memory, session_search, no_mcp]
-  cli: [web, vision, skills, todo, memory, session_search, clarify, context7]
+  cli: [web, vision, skills, todo, memory, session_search, clarify, context7, acp_poste]
   cron: [web, vision, skills, todo, memory, session_search, no_mcp]
+
+# Étape P4 (décision D24) : un jeu de greffon « connu » pour une plateforme et absent de sa liste
+# est coupé (hermes_cli/tools_config.py:538-545) ; sans ces épingles, les outils du greffon seraient
+# actifs par défaut sur api_server et cron.
+known_plugin_toolsets:
+  api_server: [acp_poste]
+  cron: [acp_poste]
 
 # Étape P3 : un seul serveur MCP côté Hermes, context7 (entrée officielle
 # optional-mcps/context7/manifest.yaml : serveur DISTANT en HTTP, sans authentification). Aucun

@@ -1,40 +1,54 @@
-"""Adaptateur kanban d'acp-poste contre le kanban de Hermes à la version épinglée."""
+"""Adaptateur Hermes du noyau d'acp-poste contre le kanban de Hermes à la version épinglée (étape P4)."""
 
 from __future__ import annotations
 
-import importlib
-import os
 from pathlib import Path
-
-import pytest
 
 GREFFON = Path("/opt/hermes/plugins/acp-poste")
 TEMOIN = Path("/opt/acp-tests/outils/temoin_compat")
 
 
-@pytest.fixture
-def adaptateur(tmp_path, monkeypatch):
-    """HERMES_HOME jetable : le kanban est créé sous tmp_path, jamais sous /opt/data."""
-    for nom in ("HERMES_KANBAN_HOME", "HERMES_KANBAN_DB", "HERMES_KANBAN_BOARD"):
-        monkeypatch.delenv(nom, raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
-    (tmp_path / "home").mkdir()
-    module = importlib.import_module("kanban_adapter")
-    return module
-
-
-def test_chaque_fonction_vient_de_son_module_de_definition(adaptateur):
-    for nom, module_attendu in adaptateur.MODULES_DE_DEFINITION.items():
-        fonction = getattr(adaptateur, nom)
-        assert fonction.__module__ == module_attendu, (nom, fonction.__module__)
+def test_chaque_fonction_vient_de_son_module_de_definition(noyau):
+    ka = noyau.ka
+    for nom, module_attendu in ka.MODULES_DE_DEFINITION.items():
+        objet = getattr(ka, nom)
+        assert objet.__module__ == module_attendu, (nom, objet.__module__)
     # Les deux pointeurs de compatibilité connus ne sont pas empruntés.
-    assert adaptateur.connect.__module__ == "hermes_cli.kanban_db_connect"
-    assert adaptateur.heartbeat_worker.__module__ == "hermes_cli.kanban_db_dispatch"
+    assert ka.connect.__module__ == "hermes_cli.kanban_db_connect"
+    assert ka.heartbeat_worker.__module__ == "hermes_cli.kanban_db_dispatch"
+    # La liste couvre tout ce que le cahier P4 § 5 exige.
+    assert {"create_board", "list_boards", "create_task", "link_tasks", "schedule_task", "unblock_task",
+            "specify_triage_task", "block_task", "claim_task", "complete_task", "write_txn", "owned_kanban_task",
+            "engage", "disengage", "get_state", "plugin_db", "redact_sensitive_text"} <= set(ka.MODULES_DE_DEFINITION)
+    from hermes_constants import VALID_REASONING_EFFORTS
+
+    assert ka.VALID_REASONING_EFFORTS is VALID_REASONING_EFFORTS
+
+
+def test_seul_l_adaptateur_importe_hermes_dans_le_noyau():
+    """Aucun autre module du noyau n'importe Hermes (ni hermes_cli, ni agent, ni tools, ni plugins…)."""
+    import ast
+
+    interdits = ("hermes_cli", "agent", "tools", "plugins", "hermes_constants", "gateway", "tui_gateway", "run_agent",
+                 "model_tools", "cron")
+    fautifs = []
+    for fichier in sorted((GREFFON / "noyau").glob("*.py")):
+        if fichier.name == "kanban_adapter.py":
+            continue
+        for noeud in ast.walk(ast.parse(fichier.read_text(encoding="utf-8"))):
+            noms = []
+            if isinstance(noeud, ast.Import):
+                noms = [a.name for a in noeud.names]
+            elif isinstance(noeud, ast.ImportFrom) and noeud.level == 0 and noeud.module:
+                noms = [noeud.module]
+            fautifs += [f"{fichier.name}: {n}" for n in noms if n.split(".")[0] in interdits]
+    assert fautifs == []
 
 
 def test_le_scan_de_compatibilite_de_hermes_ne_trouve_rien_dans_le_greffon():
     from hermes_cli.plugin_compat import scan_plugin
 
+    assert (GREFFON / "noyau" / "kanban_adapter.py").is_file()
     assert scan_plugin(GREFFON) == []
 
 
@@ -46,27 +60,34 @@ def test_le_scan_de_compatibilite_repere_le_greffon_temoin():
     assert impacts[0].new == "hermes_cli.kanban_db_connect.connect"
 
 
-def test_une_carte_creee_en_triage_sur_le_tableau_poste(adaptateur, tmp_path):
-    adaptateur.assurer_tableau()
-    identifiant = adaptateur.creer_carte_triage(
-        titre="Lire le README", corps="Consigne de test", cle_idempotence="essai-1")
-    carte = adaptateur.lire_carte(identifiant)
-    assert carte is not None
-    assert carte.status == "triage"
-    assert carte.assignee == "poste-windows"
-    assert carte.idempotency_key == "essai-1"
-    # Idempotence : la même clé rend la même carte.
-    assert adaptateur.creer_carte_triage(titre="x", corps="y", cle_idempotence="essai-1") == identifiant
-    assert [c.id for c in adaptateur.lister_cartes(statut="triage")] == [identifiant]
-    # La base du tableau « poste » est distincte de celle du tableau par défaut.
-    from hermes_cli.kanban_db import kanban_db_path
-
-    assert kanban_db_path(board="poste") != kanban_db_path(board="default")
-    assert kanban_db_path(board="poste").is_file()
-    assert str(kanban_db_path(board="poste")).startswith(str(tmp_path))
+def test_schema_des_evenements_attendu(noyau):
+    """La seule lecture SQL directe du greffon (task_events après un identifiant) suppose ce schéma."""
+    noyau.ka.create_board("acp-schema-evenements", name="Schéma")
+    with noyau.ka.connexion("acp-schema-evenements") as kc:
+        colonnes = [l[1] for l in kc.execute("PRAGMA table_info(task_events)")]
+        assert colonnes == ["id", "task_id", "run_id", "kind", "payload", "created_at"]
+        assert noyau.ka.dernier_evenement(kc) == 0
+        tache = noyau.ka.create_task(kc, title="Carte", assignee="default", created_by="test")
+        evenements = noyau.ka.evenements_apres(kc, 0)
+        assert [e[1:3] for e in evenements] == [(tache, "created")]
+        assert noyau.ka.dernier_evenement(kc) == evenements[-1][0]
+        assert noyau.ka.evenements_apres(kc, evenements[-1][0]) == []
 
 
-def test_la_cle_d_idempotence_est_obligatoire(adaptateur):
-    adaptateur.assurer_tableau()
-    with pytest.raises(ValueError, match="idempotence"):
-        adaptateur.creer_carte_triage(titre="x", corps="y", cle_idempotence="")
+def test_plus_de_tableau_poste_ni_de_poste_windows(noyau):
+    ka = noyau.ka
+    for ancien in ("TABLEAU", "ASSIGNE", "assurer_tableau", "creer_carte_triage"):
+        assert not hasattr(ka, ancien), ancien
+    assert not (GREFFON / "kanban_adapter.py").exists()
+    for fichier in GREFFON.rglob("*.py"):
+        if "tests" in fichier.parts:  # le contrat REFUSE « poste-windows » : ses tests le citent
+            continue
+        assert '"poste-windows"' not in fichier.read_text(encoding="utf-8"), fichier
+    assert ka.VOIES_POSTE == ("poste-codex", "poste-claude") and ka.CREATEUR == "acp-poste"
+
+
+def test_effort_hermes_et_voies(noyau):
+    ka = noyau.ka
+    assert ka.effort_hermes("high") == "high" and ka.effort_hermes("none") == "none"
+    assert ka.effort_hermes("extreme") is None and ka.effort_hermes("") is None
+    assert ka.est_voie_poste("poste-codex") and ka.est_voie_poste("poste-inconnu") and not ka.est_voie_poste("default")

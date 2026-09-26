@@ -34,14 +34,14 @@ n'a pas su le résoudre : outil non différable comme ``terminal``
 (tools/tool_search.py:543-571), arguments invalides, lot de connecteurs ; elle le refuse alors,
 puisque « tool_call » n'est pas dans la liste blanche.
 
-Règle d'extension (plan d'autonomie validé, docs/refonte/autonomie.md § 8) : les outils du
-greffon prévus en P4 (``projet_lancer``, ``projet_planifier``, ``projet_etat``,
-``poste_etat``, ``poste_catalogue``, ``question_repondre``, ``question_escalader``,
-``routage_surcharger``) seront ajoutés ici un par un, par leur nom exact, chacun avec ses
-tests. ``kanban_create`` n'est PAS réadmis : les cartes des projets sont créées par le greffon
-lui-même (``projet_planifier``), sur le tableau qu'il choisit, avec les compétences, le
-modèle, le fournisseur et l'espace de travail qu'il fixe ; l'agent ne les choisit jamais. (La
-règle de P2 qui prévoyait une réadmission avec liste blanche d'arguments est remplacée.)
+Extension de l'étape P4 (plan d'autonomie, docs/refonte/autonomie.md § 8) : les HUIT outils du
+greffon (``projet_lancer``, ``projet_planifier``, ``projet_etat``, ``poste_etat``,
+``poste_catalogue``, ``question_repondre``, ``question_escalader``, ``routage_surcharger``) sont
+ajoutés ici un par un, par leur nom exact ; la liste passe de 26 à 34 noms
+(``test_garde_admet_exactement_les_outils_du_greffon`` compare ces noms à ``noyau.outils.SCHEMAS``).
+``kanban_create`` n'est PAS réadmis : les cartes des projets sont créées par le greffon lui-même
+(``projet_lancer``, ``projet_planifier``), sur le tableau qu'il choisit, avec les compétences, le
+modèle et l'effort qu'il fixe ; l'agent ne les choisit jamais.
 
 Ce module n'importe rien de Hermes au chargement.
 """
@@ -52,7 +52,7 @@ import os
 import sys
 from typing import Any, Dict, FrozenSet, Optional
 
-# Les 26 seuls outils que l'agent peut appeler sur Railway (noms exacts, aucun préfixe).
+# Les 34 seuls outils que l'agent peut appeler sur Railway (noms exacts, aucun préfixe).
 OUTILS_ADMIS: FrozenSet[str] = frozenset({
     # Étape P3 : les deux outils du serveur MCP DISTANT context7 (documentation des bibliothèques),
     # sous le nom que leur donne Hermes (mcp__<serveur>__<outil>, tirets remplacés par « _ » :
@@ -72,6 +72,9 @@ OUTILS_ADMIS: FrozenSet[str] = frozenset({
     "kanban_show", "kanban_list", "kanban_complete", "kanban_block", "kanban_request_review",
     "kanban_request_changes", "kanban_heartbeat", "kanban_comment", "kanban_link", "kanban_unblock",
     "kanban_attach", "kanban_attachments",
+    # Étape P4 : les huit outils du greffon acp-poste (jeu acp_poste, noyau/outils.py), et eux seuls.
+    "projet_lancer", "projet_planifier", "projet_etat", "poste_etat", "poste_catalogue",
+    "question_repondre", "question_escalader", "routage_surcharger",
 })
 
 # Outils retirés en P2, avec la raison donnée à l'agent.
@@ -79,15 +82,33 @@ MOTIFS_DEDIES: Dict[str, str] = {
     # hermes_cli/kanban_db_dispatch.py:2676-2710 et 2820-2887 : le worker lancé recevrait les
     # skills, le modèle, le fournisseur et l'espace de travail choisis par l'agent.
     "kanban_create": (
-        "Refusé par ACP : l'agent ne crée pas de carte kanban lui-même ; les projets passeront par "
-        "les outils du greffon acp-poste (P4), qui fixent compétences, modèle, fournisseur et "
-        "espace de travail."),
+        "Refusé par ACP : l'agent ne crée pas de carte kanban lui-même ; les projets passent par "
+        "les outils du greffon acp-poste (projet_lancer, projet_planifier), qui fixent compétences, "
+        "modèle, effort et exécutant."),
     # tools/kanban_tools.py:924-958 : is_safe_url puis httpx.stream ordinaire, sans protection
     # contre le rebinding DNS (tools/url_safety.py:7-10).
     "kanban_attach_url": (
         "Refusé par ACP : ce téléchargement ne résiste pas au rebinding DNS vers le réseau privé ; "
         "joignez le fichier en base64 (kanban_attach)."),
 }
+
+# Étape P4 : outils admis, mais refusés DANS UN WORKER KANBAN (HERMES_KANBAN_TASK posée par le
+# répartiteur : kanban_db_dispatch.py:2821-2862). Mesuré au contrat de P4 : dans un worker « chat -q »,
+# une écriture en mémoire (memory.write_approval épinglé) ouvre l'invite d'approbation en ligne du CLI
+# (tools/write_approval.py:170-213), qui attend 300 s sans personne puis met l'écriture en attente de
+# validation (tools/approval_prompt.py:163-164) : la carte reste bloquée cinq minutes pour rien. En
+# discussion, l'outil reste admis (écriture mise en validation).
+MOTIFS_DANS_UN_WORKER: Dict[str, str] = {
+    "memory": (
+        "Refusé par ACP : une carte kanban n'écrit pas en mémoire (l'approbation du propriétaire attendrait "
+        "cinq minutes sans personne avant de la mettre en attente) ; mettez l'information utile dans le "
+        "résumé de la carte (kanban_complete)."),
+}
+
+
+def _dans_un_worker_kanban() -> bool:
+    return bool((os.environ.get("HERMES_KANBAN_TASK") or "").strip())
+
 
 MESSAGE_GENERAL = (
     "Refusé par ACP : l'outil « {nom} » n'est pas autorisé sur Railway (ni terminal, ni fichiers, "
@@ -111,6 +132,8 @@ def garde(tool_name: str = "", args: Any = None, **_ignores: Any) -> Optional[Di
     """Crochet ``pre_tool_call`` : None pour un outil admis, sinon un blocage. Ne lève jamais."""
     try:
         if type(tool_name) is str and tool_name in OUTILS_ADMIS:
+            if tool_name in MOTIFS_DANS_UN_WORKER and _dans_un_worker_kanban():
+                return {"action": "block", "message": MOTIFS_DANS_UN_WORKER[tool_name]}
             return None
         if type(tool_name) is str and tool_name in MOTIFS_DEDIES:
             return {"action": "block", "message": MOTIFS_DEDIES[tool_name]}

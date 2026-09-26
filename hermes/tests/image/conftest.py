@@ -302,3 +302,118 @@ def faux_context7(tmp_path: Path):
     serveur = FauxContext7(dossier)
     yield serveur
     serveur.arreter()
+
+
+# ------------------------------------------------------------------ noyau des projets (étape P4)
+
+from types import SimpleNamespace  # noqa: E402
+
+_VARIABLES_KANBAN = ("HERMES_KANBAN_HOME", "HERMES_KANBAN_DB", "HERMES_KANBAN_BOARD", "HERMES_KANBAN_TASK",
+                     "HERMES_KANBAN_RUN_ID", "HERMES_KANBAN_CLAIM_LOCK", "HERMES_KANBAN_WORKSPACE",
+                     "HERMES_DELEGATED_CHILD_CONTEXT")
+
+
+def releve_factice(voie: str = "poste-codex", *, depots=("jetable",), quota=None, releve_le=None, modeles=None) -> dict:
+    """Relevé FACTICE (identifiants manifestement factices), comme outils/releve_factice.json."""
+    import datetime as _dt
+
+    suffixe = "codex" if voie == "poste-codex" else "claude"
+    quand = releve_le or _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+    return {
+        "voie": voie, "source": "releve_factice", "version_cli": "0.0.0-factice",
+        "releve_le": quand.isoformat(),
+        "modeles": modeles or [
+            {"id": f"factice-{suffixe}-1", "displayName": f"Factice {suffixe} 1", "isDefault": True,
+             "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max", "extreme"],
+             "defaultReasoningEffort": "medium", "serviceTiers": ["default", "priority"],
+             "defaultServiceTier": "default"},
+            {"id": f"factice-{suffixe}-2", "isDefault": False, "supportedReasoningEfforts": ["low"]},
+        ],
+        "quotas": {"pourcentage_utilise": quota} if quota is not None else None,
+        "depots": [{"alias": d} for d in depots],
+    }
+
+
+@pytest.fixture
+def noyau(tmp_path, monkeypatch):
+    """Noyau du greffon acp-poste sur un HERMES_HOME jetable (base du greffon et tableaux kanban sous
+    tmp_path, jamais /opt/data), horloge réelle, émetteur hors passerelle."""
+    home = tmp_path / "home-p4"
+    home.mkdir()
+    for nom in _VARIABLES_KANBAN + ("HERMES_DASHBOARD_PUBLIC_URL",):
+        monkeypatch.delenv(nom, raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    from noyau import (base, cartes, emetteur, etrangeres, graphe, invite, notifications, outils, presence,
+                       projets, questions, routage, textes)
+    from noyau import kanban_adapter as ka
+
+    base.fixer_horloge(None)
+    emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
+    yield SimpleNamespace(home=home, base=base, cartes=cartes, emetteur=emetteur, etrangeres=etrangeres,
+                          graphe=graphe, invite=invite, notifications=notifications, outils=outils,
+                          presence=presence, projets=projets, questions=questions, routage=routage, textes=textes,
+                          ka=ka)
+    base.fixer_horloge(None)
+    emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
+
+
+@pytest.fixture
+def conn(noyau):
+    with noyau.base.connexion() as connexion:
+        yield connexion
+
+
+def en_worker(monkeypatch, tableau: str, carte: str) -> None:
+    """Contexte d'un worker kanban, tel que le répartiteur le pose (kanban_db_dispatch.py:2821-2862)."""
+    monkeypatch.setenv("HERMES_KANBAN_TASK", carte)
+    monkeypatch.setenv("HERMES_KANBAN_BOARD", tableau)
+
+
+def en_discussion(monkeypatch) -> None:
+    for nom in ("HERMES_KANBAN_TASK", "HERMES_KANBAN_BOARD"):
+        monkeypatch.delenv(nom, raising=False)
+
+
+def outil(noyau, nom: str, args, session: str = "session-test") -> dict:
+    """Appelle un outil du greffon comme Hermes (gestionnaire enregistré) et rend son JSON."""
+    return json.loads(noyau.outils.GESTIONNAIRES[nom](args, session_id=session, task_id="x", inconnu=1))
+
+
+def carte(noyau, tableau: str, identifiant: str):
+    with noyau.ka.connexion(tableau) as kc:
+        return noyau.ka.get_task(kc, identifiant)
+
+
+def cartes_du_tableau(noyau, tableau: str):
+    with noyau.ka.connexion(tableau) as kc:
+        return {t.id: t for t in noyau.ka.list_tasks(kc, include_archived=True)}
+
+
+def reclamer(noyau, tableau: str, identifiant: str):
+    """Réclamation par le poste SIMULÉ (claimer distant, comme le poste réel en P6)."""
+    with noyau.ka.connexion(tableau) as kc:
+        tache = noyau.ka.claim_task(kc, identifiant, ttl_seconds=2700, claimer="acp-poste:simule")
+    assert tache is not None, f"réclamation de {identifiant} refusée"
+    return tache.current_run_id
+
+
+def terminer(noyau, tableau: str, identifiant: str, resume: str = "fait") -> bool:
+    with noyau.ka.connexion(tableau) as kc:
+        run = noyau.ka.get_task(kc, identifiant).current_run_id
+        return noyau.ka.complete_task(kc, identifiant, summary=resume, expected_run_id=run)
+
+
+def lancer_sans_depot(noyau, conn, titre: str = "Veille LLM", **options):
+    resultat = noyau.projets.lancer(conn, titre=titre, objectif="Recenser les modèles récents.", profil="recherche",
+                                    origine="tableau_de_bord", auteur="proprietaire:test", **options)
+    return resultat["projet"]
+
+
+def lancer_sur_depot(noyau, conn, titre: str = "Outil jetable", *, voies=("poste-codex", "poste-claude"), **options):
+    for voie in voies:
+        noyau.routage.enregistrer_releve(conn, releve_factice(voie))
+    options.setdefault("exploration", {"voie": "poste-claude", "modele": "factice-claude-1", "effort": "low"})
+    resultat = noyau.projets.lancer(conn, titre=titre, objectif="Écrire un outil dans le dépôt jetable.",
+                                    profil="base", depot="jetable", origine="tableau_de_bord",
+                                    auteur="proprietaire:test", **options)
+    return resultat["projet"]

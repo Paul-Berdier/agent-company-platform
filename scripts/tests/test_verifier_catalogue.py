@@ -332,8 +332,9 @@ def test_nom_hermes_d_un_outil_mcp(copie):
      "mcp_servers.context7.sampling.enabled vaut True"),
     ('("mcp_servers.context7.url", "https://mcp.context7.com/mcp"),', "",
      "l'épingle mcp_servers.context7.url manque"),
-    ('"clarify",\n                               "context7"]', '"clarify",\n                               "no_mcp"]',
-     "absent de platform_toolsets.cli"),
+    # Étape P4 : la liste cli nomme aussi acp_poste (jeu des outils du greffon).
+    ('"clarify",\n                               "context7", "acp_poste"]',
+     '"clarify",\n                               "no_mcp", "acp_poste"]', "absent de platform_toolsets.cli"),
     ('("platform_toolsets.cron", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"])',
      '("platform_toolsets.cron", ["web", "vision", "skills", "todo", "memory", "session_search", "context7"])',
      "platform_toolsets.cron doit garder no_mcp"),

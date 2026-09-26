@@ -224,6 +224,11 @@ VARIABLES_INTERDITES: Dict[str, str] = {
         "le fournisseur Nous Portal est écarté ; stage2-hook.sh recopierait cette adresse "
         "(docker/stage2-hook.sh:579-610)"),
     "HERMES_GATEWAY_BOOTSTRAP_STATE": "l'état initial de la passerelle n'est jamais injecté au démarrage",
+    # Étape P4 : elle couperait le répartiteur kanban de la passerelle (gateway/kanban_watchers.py:215-218),
+    # donc l'avancement des projets et l'émetteur de notifications.
+    "HERMES_KANBAN_DISPATCH_IN_GATEWAY": (
+        "elle couperait le répartiteur kanban de la passerelle, qui fait avancer les projets et envoie "
+        "les notifications"),
 }
 
 PREFIXES_INTERDITS: Dict[str, str] = {
@@ -377,6 +382,44 @@ def valider_portees(nom: str, valeur: str) -> str:
     return valeur
 
 
+# Étape P4 : canal de notification du propriétaire (greffon acp-poste, noyau/notifications.py), désactivé
+# tant que ACP_NOTIFICATIONS n'est pas posée. Les jetons ne sont jamais affichés : seule leur forme est
+# contrôlée. Mêmes règles que le greffon (défense en profondeur de son côté).
+CANAUX_NOTIFICATION = ("aucune", "telegram", "ntfy")
+_JETON_NOTIFICATION = re.compile(r"^\S{1,256}$")
+_DISCUSSION_TELEGRAM = re.compile(r"^-?\d{1,20}$")
+_SUJET_NTFY = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+
+
+def erreurs_notifications(env: Mapping[str, str]) -> List[str]:
+    """Refus des variables ``ACP_NOTIFICATIONS``, ``ACP_TELEGRAM_*`` et ``ACP_NTFY_*`` invalides."""
+    canal = env.get("ACP_NOTIFICATIONS", "aucune")
+    erreurs: List[str] = []
+    if canal not in CANAUX_NOTIFICATION:
+        return [f"la variable ACP_NOTIFICATIONS vaut « {_affichable(canal, 20)} » ; valeurs admises : "
+                + ", ".join(CANAUX_NOTIFICATION) + "."]
+    if canal == "telegram":
+        if not _JETON_NOTIFICATION.match(env.get("ACP_TELEGRAM_JETON", "")):
+            erreurs.append("la variable ACP_TELEGRAM_JETON est exigée par ACP_NOTIFICATIONS=telegram : non vide, "
+                           "sans espace, 256 caractères au plus.")
+        if not _DISCUSSION_TELEGRAM.match(env.get("ACP_TELEGRAM_DISCUSSION", "")):
+            erreurs.append("la variable ACP_TELEGRAM_DISCUSSION est exigée par ACP_NOTIFICATIONS=telegram : "
+                           "identifiant numérique de la discussion (jusqu'à 20 chiffres, signe « - » admis).")
+    elif canal == "ntfy":
+        if "ACP_NTFY_SERVEUR" in env:
+            try:
+                valider_url_https("ACP_NTFY_SERVEUR", env["ACP_NTFY_SERVEUR"])
+            except Refus as exc:
+                erreurs.append(str(exc))
+        if not _SUJET_NTFY.match(env.get("ACP_NTFY_SUJET", "")):
+            erreurs.append("la variable ACP_NTFY_SUJET est exigée par ACP_NOTIFICATIONS=ntfy : 16 à 64 caractères "
+                           "parmi lettres, chiffres, « _ » et « - » (un sujet long reste privé).")
+        if not _JETON_NOTIFICATION.match(env.get("ACP_NTFY_JETON", "")):
+            erreurs.append("la variable ACP_NTFY_JETON est exigée par ACP_NOTIFICATIONS=ntfy : un sujet sans jeton "
+                           "serait lisible par des tiers (non vide, sans espace, 256 caractères au plus).")
+    return erreurs
+
+
 def sur_railway(env: Mapping[str, str]) -> bool:
     """Vrai si l'un des marqueurs posés par Railway est présent dans l'environnement."""
     return any(nom in env for nom in MARQUEURS_RAILWAY)
@@ -489,6 +532,7 @@ def verifier_environnement(env: Mapping[str, str]) -> ValeursDeploiement:
             erreurs.append(
                 "la variable HERMES_DASHBOARD_OIDC_CLIENT_SECRET est vide, trop longue ou contient "
                 "des espaces ; retirez-la pour un client public (PKCE seul) ou corrigez-la.")
+    erreurs.extend(erreurs_notifications(env))
     if erreurs:
         raise Refus("\n".join(erreurs))
     return ValeursDeploiement(url_publique=url_publique, oidc_emetteur=emetteur, oidc_client=client,
@@ -505,6 +549,13 @@ _MARQUEUR = re.compile(r'"@@ACP:([A-Z0-9_]+)@@"')
 EPINGLES_OBLIGATOIRES: Tuple[Tuple[str, Any], ...] = (
     ("kanban.auto_decompose", False),
     ("kanban.dispatch_profiles", ["default"]),
+    # Étape P4 : projets autonomes (répartiteur dans la passerelle, plafonds de concurrence, aucune
+    # relecture sdlc-review automatique, trois échecs avant l'abandon).
+    ("kanban.dispatch_in_gateway", True),
+    ("kanban.max_in_progress", 4),
+    ("kanban.max_in_progress_per_profile", 2),
+    ("kanban.review_dispatch", False),
+    ("kanban.failure_limit", 3),
     ("approvals.mode", "manual"),
     ("approvals.cron_mode", "deny"),
     ("approvals.single_query_mode", "deny"),
@@ -526,8 +577,11 @@ EPINGLES_OBLIGATOIRES: Tuple[Tuple[str, Any], ...] = (
     ("platform_toolsets.api_server", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"]),
     # Étape P3 : cli nomme context7 (liste blanche des serveurs MCP) ; api_server et cron : no_mcp.
     ("platform_toolsets.cli", ["web", "vision", "skills", "todo", "memory", "session_search", "clarify",
-                               "context7"]),
+                               "context7", "acp_poste"]),
     ("platform_toolsets.cron", ["web", "vision", "skills", "todo", "memory", "session_search", "no_mcp"]),
+    # Étape P4 (D24) : les outils du greffon acp-poste coupés sur api_server et cron.
+    ("known_plugin_toolsets.api_server", ["acp_poste"]),
+    ("known_plugin_toolsets.cron", ["acp_poste"]),
     # Étape P3 : context7, seul serveur MCP côté Hermes, distant en HTTP (catalogue.lock.json).
     ("mcp_servers.context7.url", "https://mcp.context7.com/mcp"),
     ("mcp_servers.context7.enabled", True),
@@ -1505,6 +1559,46 @@ def refuser_repertoires_executes(chemins: Chemins) -> None:
         raise Refus("\n".join(problemes))
 
 
+def problemes_crochets_du_volume(chemins: Chemins) -> List[str]:
+    """Étape P4 : crochets shell du volume. Le répartiteur kanban lance chaque worker avec
+    ``--accept-hooks`` (hermes_cli/kanban_db_dispatch.py:2687) : une clé ``hooks`` non vide dans le
+    config.yaml de la racine ou d'un profil serait inscrite sans consentement (agent/shell_hooks.py:39,
+    597-601), et un ``shell-hooks-allowlist.json`` l'autoriserait (agent/shell_hooks.py:141-165). La
+    managed scope fusionne feuille par feuille (hermes_cli/managed_scope.py:125-147) : ``hooks: {}`` n'y
+    viderait rien. D'où le refus plutôt qu'une épingle."""
+    problemes: List[str] = []
+    for fichier in fichiers_config_du_volume(chemins):
+        try:
+            brut = lire_sans_lien(fichier)
+        except Refus as exc:
+            problemes.append(str(exc))
+            continue
+        if brut is None:
+            continue
+        try:
+            donnees = charger_yaml(brut.decode("utf-8"))
+        except (UnicodeDecodeError, yaml.YAMLError):
+            continue  # illisible pour Hermes aussi : signalé par ailleurs (catalogue, diagnostiquer)
+        crochets = donnees.get("hooks") if isinstance(donnees, dict) else None
+        if crochets:
+            noms = sorted(str(n) for n in crochets) if isinstance(crochets, dict) else [type(crochets).__name__]
+            problemes.append(
+                f"{fichier} déclare des crochets shell (hooks : {', '.join(_affichable(n, 40) for n in noms[:10])}) ; "
+                "les workers kanban les inscriraient sans consentement (--accept-hooks). Retirez la clé hooks "
+                "puis redémarrez.")
+    for racine in [chemins.hermes_home, *profils_du_volume(chemins)[0]]:
+        liste = racine / "shell-hooks-allowlist.json"
+        if os.path.lexists(liste):
+            problemes.append(f"{liste} existe : il autoriserait des crochets shell. Supprimez-le puis redémarrez.")
+    return problemes
+
+
+def refuser_crochets_du_volume(chemins: Chemins) -> None:
+    problemes = problemes_crochets_du_volume(chemins)
+    if problemes:
+        raise Refus("\n".join(problemes))
+
+
 def contenu_paquets_paresseux(chemins: Chemins) -> Optional[List[str]]:
     """Entrées de /opt/data/lazy-packages hors fichiers de service ; None si le répertoire est
     absent ou illisible sans suivre de lien."""
@@ -1783,6 +1877,7 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
     #    serveur MCP stdio ni hors catalogue dans la configuration du volume (décision D8).
     inspecter_donnees(chemins)
     refuser_repertoires_executes(chemins)
+    refuser_crochets_du_volume(chemins)
     catalogue = charger_catalogue(chemins)
     avertissements_mcp = refuser_mcp_du_volume(chemins, catalogue)
     # 2. Verrouillage, puis nouvelle inspection (rien ne doit être apparu entre-temps). Les
@@ -2195,6 +2290,8 @@ def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     refuser_variables_du_volume(chemins)
     # hooks/ et scripts/ du volume sont exécutés par Hermes : inspectés avant toute écriture.
     refuser_repertoires_executes(chemins)
+    # Étape P4 : aucun crochet shell (clé hooks, shell-hooks-allowlist.json) dans le volume.
+    refuser_crochets_du_volume(chemins)
     # Étape P3 (décision D8) : un serveur MCP stdio ou hors catalogue du volume serait lancé par la
     # passerelle dès son démarrage (02-reconcile-profiles) : refusé ici, avant.
     catalogue = charger_catalogue(chemins)
@@ -2261,11 +2358,14 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
 
 def commande_verifier_relance(chemins: Chemins) -> None:
     """Garde exécutée en root en tête des scripts `run` du tableau de bord et de la passerelle :
-    refuse la relance si l'agent a injecté une variable interdite dans un .env du volume, ou (étape
-    P3, D8) si la configuration du volume déclare un serveur MCP stdio ou hors catalogue."""
+    refuse la relance si l'agent a injecté une variable interdite dans un .env du volume, (étape
+    P3, D8) si la configuration du volume déclare un serveur MCP stdio ou hors catalogue, ou (étape
+    P4) des crochets shell."""
     _exiger_root()
     refuser_variables_du_volume(chemins)
     refuser_mcp_du_volume(chemins, charger_catalogue(chemins))
+    # Étape P4 : une relance par l'agent ne doit pas inscrire des crochets shell apparus en cours de route.
+    refuser_crochets_du_volume(chemins)
 
 
 COMMANDES = ("construire", "gardes", "donnees", "verifier-relance", "diagnostiquer")
