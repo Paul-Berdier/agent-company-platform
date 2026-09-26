@@ -31,7 +31,7 @@ def fournisseur(noyau):
 def test_bloc_machine_conforme(fournisseur, noyau, conn, monkeypatch):
     jeton_machine = meta.sous_module_noyau("jeton_machine")
     monkeypatch.setattr(jeton_machine.aa, "list_session_providers",
-                        lambda: [type("S", (), {"name": "self_hosted"})()])
+                        lambda: [type("S", (), {"name": "self-hosted"})()])
     bloc, alertes = meta.bloc_machine()
     assert bloc["fournisseur"] == "enregistre" and all(bloc["chemins_a_jeton"].values())
     assert list(bloc["chemins_a_jeton"]) == ["/api/plugins/acp-poste/machine/v1/enrolement",
