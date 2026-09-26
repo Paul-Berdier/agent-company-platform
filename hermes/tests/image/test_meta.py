@@ -220,3 +220,68 @@ def test_meta_commit_deploye(tmp_path):
     # Hors Railway (ou état de schéma 1) : null, jamais une valeur inventée.
     assert meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}}))["deploiement"] == {"commit": None}
     assert meta.construire_meta(_sources(tmp_path))["deploiement"] == {"commit": None}
+
+
+# ======================================================================= étape P4
+
+
+ETAT_A_JOUR = {"soul": {"etat": "a_jour"}, "greffons_utilisateur": {}}
+
+
+def test_meta_bloc_projets_d_une_base_neuve(tmp_path):
+    """Base du greffon neuve (HERMES_HOME jetable) : schéma 1, aucun projet, émetteur jamais passé ; aucune
+    alerte des projets (la base neuve n'invente rien : ni passe, ni canal)."""
+    donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
+    projets = donnees["projets"]
+    assert projets["base"] == "ok" and projets["schema"] == "1"
+    assert (projets["projets_actifs"], projets["releve_factice_present"], projets["pause_generale"]) == (0, False, None)
+    assert projets["emetteur"] == {"derniere_passe": None, "processus": None, "derniers_ticks": {}, "canal": None,
+                                   "configure": None, "en_attente": 0, "echecs": 0, "envoyees": 0, "desactivees": 0,
+                                   "derniere_erreur": None}
+    assert donnees["alertes"] == []
+
+
+def test_meta_alertes_des_projets(tmp_path):
+    """Chaque alerte du bloc projets (cahier P4 § 11), puis leur disparition quand la cause disparaît."""
+    from conftest import releve_factice
+
+    base, textes = meta.sous_module_noyau("base"), meta.sous_module_noyau("textes")
+    notifications, routage = meta.sous_module_noyau("notifications"), meta.sous_module_noyau("routage")
+    with base.connexion() as conn:
+        with base.transaction(conn):
+            base.ecrire_emetteur(conn, "derniere_passe", base.maintenant() - 3600)
+            base.ecrire_emetteur(conn, "processus", "passerelle")
+            base.ecrire_emetteur(conn, "crochets", ["/opt/data/config.yaml : hooks"])
+            notifications.enfiler_dans(conn, cle="test:1", genre="test", texte_notif="ACP — témoin")
+            notifications.enfiler_dans(conn, cle="test:2", genre="test", texte_notif="ACP — témoin")
+            conn.execute("UPDATE notifications SET etat = 'echec'")
+        routage.enregistrer_releve(conn, releve_factice("poste-codex"))
+    donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
+    assert donnees["projets"]["releve_factice_present"] is True and donnees["projets"]["emetteur"]["echecs"] == 2
+    assert donnees["alertes"] == [textes.ALERTE_EMETTEUR.format(n=60), textes.ALERTE_ECHECS.format(n=2),
+                                  textes.ALERTE_RELEVE_FACTICE, textes.ALERTE_CROCHETS]
+    assert "L'émetteur de notifications ne tourne plus dans la passerelle (dernière passe il y a 60 min)." \
+        in donnees["alertes"]
+    # Causes retirées : plus aucune alerte des projets (passe récente, file vide, relevé et crochets retirés).
+    with base.connexion() as conn:
+        with base.transaction(conn):
+            base.ecrire_emetteur(conn, "derniere_passe", base.maintenant())
+            base.ecrire_emetteur(conn, "crochets", [])
+            conn.execute("DELETE FROM notifications")
+            conn.execute("DELETE FROM releves")
+    assert meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))["alertes"] == []
+
+
+def test_meta_base_des_projets_illisible(tmp_path, monkeypatch):
+    """Base du greffon illisible : « illisible » et une alerte française, jamais une erreur 500 ni un état
+    inventé."""
+    base = meta.sous_module_noyau("base")
+
+    def en_panne():
+        raise OSError("disque illisible")
+
+    monkeypatch.setattr(base, "connexion", en_panne)
+    donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
+    assert donnees["projets"] == {"base": "illisible", "erreur": "OSError"}
+    assert donnees["alertes"] == ["Base du greffon acp-poste illisible (OSError) : projets, questions et "
+                                  "notifications inconnus."]
