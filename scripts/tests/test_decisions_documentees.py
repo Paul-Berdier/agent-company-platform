@@ -57,3 +57,21 @@ def test_les_choix_de_p4_se_disent_non_confirmes():
         if DEFINITION.match(ligne):
             cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
             assert len(cellules) == 5 and cellules[3] not in ("", "—"), ligne[:60]
+
+
+def test_les_choix_de_p5_se_disent_non_confirmes():
+    """Étape P5 : D48 à D66 (numérotés 40 à 58 dans le cahier de P5, déjà pris par P4), choix par défaut appliqués
+    pour avancer, jamais présentés comme confirmés ; même forme que P4 (priorité, autre option et sa conséquence)."""
+    plan = (RACINE / "docs" / "refonte" / "plan.md").read_text(encoding="utf-8")
+    debut = plan.index("### Étape P5 : choix par défaut D48 à D66")
+    bloc = plan[debut:plan.index("\n### ", debut + 1)]
+    assert "à confirmer par le propriétaire" in bloc and "ne font pas foi" in bloc
+    assert "Aucun de ces choix n'a été confirmé par le propriétaire" in bloc
+    assert sorted(int(n) for n in DEFINITION.findall(bloc)) == list(range(48, 67))
+    assert "À confirmer en" in bloc and "**D48, D49, D51, D52, D58 et D60**" in bloc
+    entete = "| N° | Question | Choix appliqué en P5 | Autre option et conséquence pour vous | Écart au plan ou remarque |"
+    assert entete in bloc
+    for ligne in bloc.splitlines():
+        if DEFINITION.match(ligne):
+            cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
+            assert len(cellules) == 5 and cellules[3] not in ("", "—"), ligne[:60]

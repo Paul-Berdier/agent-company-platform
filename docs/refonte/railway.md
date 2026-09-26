@@ -401,6 +401,10 @@ Attendu : `/package/admin/s6/command/s6-svscan -d4 -- /run/service` (ou `s6-svsc
 § 5.3 (passkeys), connexion à `https://<libellé-hermes>.up.railway.app` depuis le PC **et** le
 téléphone (captures), § 6 (openai-codex).
 
+Poste Windows (étape P5, [poste.md](poste.md)) : **aucune variable Railway nouvelle**. Le poste s'enrôle
+après le premier déploiement, depuis l'onglet « Poste » (code à usage unique, empreinte à recopier) ; ses
+routes `/api/plugins/acp-poste/machine/v1/*` passent par le même domaine que le tableau de bord.
+
 ### 4.11 Répétition de maintenance, une fois, avant d'accumuler des données
 
 `railway login` d'abord (le § 5.3 s'est terminé par `railway logout`), puis § 10 b sur `hermes`

@@ -322,6 +322,44 @@ Référence : `docs/refonte/projets.md` § 12 ; décisions D41 à D47 (`plan.md`
   échec sur les sources de `463db67`), 3 au contrat sur la pile complète, parcours navigateur étendu
   (retour et avancer, résultat du projet, « Qui répond » sans dépôt) ; 24 témoins négatifs.
 
+### P5 — poste connecté, côté Hermes (première partie ; réalisée côté dépôt, non fusionnée, non déployée)
+
+Référence : `docs/refonte/poste.md` ; décisions D48 à D66 (`plan.md` § 1, non confirmées).
+
+- contrat partagé : protocole `acp-machine/1` (`acp_poste_contrat.machine` : requêtes et réponses
+  d'enrôlement, de réclamation et d'inventaire, erreurs françaises à codes fermés, empreintes) ; contrat
+  d'inventaire étendu sans rien casser de P4 (inventaire du poste, bac à sable, connexions, versions,
+  politique de `poste.toml`, alias `opus[1m]`, efforts inconnus nuls, résumé des quotas) ; garde « aucun
+  identifiant » ; motifs de secrets déplacés dans le contrat (jetons `acpm_` et `acpe_` compris), partagés
+  avec `scripts/balayer_secrets.py` ;
+- greffon `acp-poste` : base au schéma 2 (migration idempotente : postes, codes d'enrôlement, ordres,
+  inventaires ; relevés rattachés au poste et acceptables) ; fournisseur de jeton `acp-poste-machine` sur
+  trois chemins exacts (jeton haché, lecture seule, comparaison de chaque ligne, 503 sur base illisible) ;
+  routes du poste `/machine/v1/{enrolement,reclamer,inventaire}` (fournisseur et portée revérifiés, JSON
+  exigé, tailles bornées, long-poll de 25 s par événement, ordres `releve`, `pause`, `reprise`, `carte`
+  toujours nulle) ; enrôlement par code à usage unique de 10 min et empreinte à confirmer, un seul poste
+  actif, révocation ; présence persistée avec grâce de redémarrage ; inventaire tout ou rien, un par
+  minute ;
+- routage sur le relevé **et** la politique du poste : voie en échec, non connectée, liste de secours (sauf
+  relevé accepté), CLI hors version, interdit par le poste, efforts inconnus : chacun refusé en français ;
+  suggestion sur les seuls champs relevés ; table validée tout ou rien ; politique de Hermes levée seulement
+  avec la phrase de confirmation ; surcharges globales ; quotas par voie (`SubscriptionQuotaView`) ;
+- routes du propriétaire `/v1/poste` (et enrôlement, confirmation, révocation, relevé), `/v1/routage` (et
+  politique, surcharges, relevé accepté), `/v1/quotas` ; la pause générale ordonne aussi `pause` ou
+  `reprise` au poste ; bloc `machine` de `/v1/meta` et ses alertes ;
+- greffon d'interface `acp-poste-vues` : onglet « Poste » après « Projets », trois vues (Poste, Routage,
+  Quotas), code d'enrôlement affiché une fois et jamais stocké ; catalogue français à 528 chaînes ; image
+  et CI « Interface » : quatre bundles ;
+- corrigé en cours de route : attente d'un poste parti jamais libérée derrière les intergiciels de Hermes
+  (lecture bornée) ; efforts vides affichés « Inconnu » (désormais « Aucun effort documenté ») ; suggestion
+  affichée deux fois ; seuil des quotas invisible ; valeurs de l'API dans les listes de choix non marquées
+  comme données ; exemple capturé d'un code d'enrôlement qui expirait dix minutes après sa capture ;
+- tests : dans l'image 619 (511 à la base de P4) ; contrat du protocole contre un faux poste (11) ;
+  navigateur `test_poste.py` aux deux formats ; Vitest 110 ; 28 témoins négatifs
+  (`scripts/temoins_negatifs_p5.sh`) ;
+- choix par défaut D48 à D66 consignés dans `plan.md` § 1, **non confirmés** par le propriétaire (le cahier
+  les numérotait 40 à 58) ; le poste Windows lui-même (seconde partie de P5) est livré à part.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

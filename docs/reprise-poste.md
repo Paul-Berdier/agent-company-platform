@@ -9,7 +9,7 @@ remplace ses phases P4 à P8.
 ACP est en pleine **refonte « Hermes au centre »** : Hermes Agent devient le seul
 serveur, le seul orchestrateur et la seule source de vérité ; ACP ne garde que l'image
 Railway dérivée et ses greffons (`acp-poste` depuis P1, `acp-interface` et `acp-catalogue`
-livrés par P3, `acp-projets` par P4, côté dépôt, non fusionnés), le poste Windows, le client Qt et
+livrés par P3, `acp-projets` par P4, `acp-poste-vues` par P5, côté dépôt, non fusionnés), le poste Windows, le client Qt et
 le tableau de bord de Hermes habillé. L'ancien backend ACP (API FastAPI, base, bus
 d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite) est retiré ;
 il reste entier sous l'étiquette annotée **`archive/acp-0.10.0-avant-hermes`**
@@ -22,7 +22,7 @@ Desktop CI `35981934226` vertes sur ce commit).
   `1.0.0` seulement à la fusion finale dans `main`.
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
   `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`, pour P4
-  `.claude/worktrees/refonte-hermes-p4`.
+  `.claude/worktrees/refonte-hermes-p4`, pour P5 `.claude/worktrees/refonte-hermes-p5`.
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
@@ -70,7 +70,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
-| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
+| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **première partie (côté Hermes) réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) ; seconde partie (poste Windows) à part ; sans PR ; **rien de déployé** (§ 6 quinquies) |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
@@ -1448,6 +1448,83 @@ Linux 378 et 9 ignorés, interface 93, moteur 74) ; `image.yml`
 [36257679694](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679694) (image 511,
 contrat 139, navigateur 6, compat vert, context7 connecté). Détail : [`projets.md`](refonte/projets.md) § 12.
 
+## 6 quinquies. P5 — poste connecté, côté Hermes (première partie)
+
+Branche `refonte/hermes-p5`, empilée sur `refonte/hermes-p4` (`4419915`) ; version 0.11.0 inchangée ; **ni PR,
+ni fusion, ni étiquette** ; **rien n'est déployé**. Référence : [`docs/refonte/poste.md`](refonte/poste.md) ;
+cahier de conception (brouillon de session `plan_p5.md`) ; décisions **D48 à D66** au § 1 de
+[`plan.md`](refonte/plan.md), **non confirmées** (le cahier les numérotait 40 à 58, déjà pris par P4). La
+seconde partie de P5 (programme du poste `apps/poste`, installation, compte dédié) est livrée à part ; ici,
+le poste est joué par un faux poste. Aucune tentative antérieure coupée n'a été trouvée à la reprise (arbre
+propre sur `4419915`).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `e51c6a1` | feat(contrat): define the workstation inventory and machine protocol models shared with the plugin |
+| `8972503` | feat(acp-poste): store workstations, enrolment codes, orders and inventories in schema v2 |
+| `9a03014` | feat(acp-poste): authenticate the workstation by a hashed machine token on exact token routes |
+| `200b579` | feat(acp-poste): serve enrolment, long-poll orders and inventory to the workstation |
+| `74f65e9` | feat(acp-poste): route only on the recorded catalogue and the workstation's own policy |
+| `39ad0cd` | feat(acp-poste): expose workstation, routing and quota routes to the owner |
+| `4cf6795` | feat(interface): add the Workstation, Routing and Quotas views |
+| `4875f41` | fix(interface): mark recorded values in the routing selects as API data |
+| `826aba1` | test(interface): date the captured enrolment code from now |
+| `38cbadf` | fix(interface): say when no effort is documented and show the quota threshold |
+| `98284ba` | test(contrat): prove the workstation protocol against a fake workstation on the real image |
+| `088c99b` | test(e2e): drive enrolment and the workstation views at 1440x900 and 390x844 |
+| `f3eec31` | test(acp-poste): add the negative witnesses of the P5 protections |
+
+Puis la documentation (ce paragraphe, [`poste.md`](refonte/poste.md), décisions D48 à D66).
+
+### Ce qui est en place
+
+- Protocole `acp-machine/1` (contrat partagé `acp_poste_contrat.machine`) sur **trois chemins exacts**
+  `/api/plugins/acp-poste/machine/v1/{enrolement,reclamer,inventaire}`, authentifiés par le fournisseur de
+  jeton `acp-poste-machine` (jeton haché, lecture seule de la base, 503 sur base illisible), fournisseur et
+  portée revérifiés dans chaque gestionnaire.
+- Enrôlement par code à usage unique de 10 min (D48), empreinte à confirmer (D49), un seul poste actif
+  (D50), révocation vue en moins d'une seconde par un poste en attente ; long-poll de 25 s, ordres
+  `releve`, `pause`, `reprise` ; `carte` toujours nulle (P6).
+- Base du greffon au schéma 2 (migration idempotente) ; présence persistée avec grâce de redémarrage ;
+  inventaire tout ou rien, un par minute, garde « aucun identifiant » à la réception.
+- Routage sur le relevé **et** la politique du poste (liste de secours refusée sans votre acceptation,
+  efforts inconnus refusés, table tout ou rien) ; quotas ; onglet « Poste » (état, routage, quotas).
+
+### Écarts au cahier, justifiés
+
+Détail : [`poste.md`](refonte/poste.md) § 11. Décisions renumérotées D48 à D66 ; exemples du protocole sous
+`hermes/tests/outils/fixtures_machine/` ; faux poste en HTTP sur la boucle locale du conteneur (le bord TLS
+est prouvé par P2) ; déconnexion détectée par une lecture bornée ; un témoin combine suppression de la
+présence et filtre des postes actifs ; captures avec un code jetable visible.
+
+### Preuves locales (26/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
+
+Détail et commandes : [`poste.md`](refonte/poste.md) § 12. En bref :
+
+- au fil des commits de travail, dans l'image : 511 → 538 → 555 → 582 → 602 → 619 → 619 réussis
+  (provenance de chaque image : [`poste.md`](refonte/poste.md) § 12) ;
+- arbre final (images `p5o` reconstruites) : dans l'image **619 réussis** (6 min 03 s) ; **contrat complet
+  150 réussis** (35 min 58 s), dont **11** pour le protocole du poste contre un faux poste ; **navigateur 7
+  réussis** (5 min 24 s), dont `test_poste.py` (bureau puis téléphone, 10 captures) ; dépôt **437 réussis** ;
+  Vitest **110** (16 fichiers) ; version, gel du moteur, catalogue et secrets verts ; bundles à jour ;
+- mesures : ordre `releve` → inventaire 0,41 s ; révocation vue par le poste en attente en 0,37 à 0,38 s ;
+  `verify_token` p99 0,93 à 1,04 ms sur 1 000 appels ; réveil par un ordre 34 à 88 ms ; redémarrage de la
+  pile : absence de 15 à 16 s au-delà d'un seuil de 10 s, aucune notification ;
+- **témoins négatifs** : 28 protections retirées une à une, 28 fois des tests en échec ;
+- `git diff --check` propre ; tout en LF ; aucun `Co-Authored-By` ; aucun fichier `.claude`.
+
+### Intégration continue
+
+Branche poussée après le commit de documentation ; résultats relevés par le commit de documentation
+suivant ([`poste.md`](refonte/poste.md) § 13).
+
+### Non vérifié
+
+Un vrai poste, de vrais comptes Codex et Claude, les routes machine derrière le bord TLS de Railway (délais
+du proxy sur un long-poll de 25 s), Railway lui-même ([`poste.md`](refonte/poste.md) § 14).
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1545,5 +1622,17 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
   du répartiteur, seulement dans la passerelle ; les réglages du répartiteur (`max_in_progress`…) sont
   lus au démarrage de la passerelle ; le contrat P4 seul dure environ 20 minutes, le contrat complet
   environ 30. Témoins négatifs : `IMAGE=acp-hermes-tests:<étiquette> bash scripts/temoins_negatifs_p4.sh`.
+- **Étape P5** : la couture d'authentification par jeton de Hermes (`token_auth_middleware`) compare le
+  chemin **à l'identique** (`register_token_route`) : aucun paramètre de chemin sur une route machine. Son 401
+  (`{"error": "unauthenticated", "detail": "Unauthorized"}`) est en anglais et **ambigu** (jeton inconnu,
+  révoqué, fournisseur absent) : seul le greffon dit `poste_revoque`, en français. Une exception dans
+  `verify_token` devient un 401 : le fournisseur la convertit en `ProviderError` (503).
+- **Étape P5** : derrière les intergiciels HTTP de Hermes (`BaseHTTPMiddleware`), `request.is_disconnected()`
+  ne voit pas le départ du client ; une lecture bornée de `request.receive()` le voit.
+- **Étape P5** : le fournisseur OIDC de Hermes s'appelle `self-hosted` (avec un tiret) dans la liste des
+  fournisseurs (`/api/auth/providers`, bloc `machine` de la méta), alors que sa clé de configuration est
+  `dashboard.oauth.self_hosted` ; les exemples capturés sur l'image qui contiennent une date d'expiration doivent être redatés depuis
+  l'instant du test (sinon ils expirent dix minutes plus tard). Témoins négatifs :
+  `IMAGE=acp-hermes-tests:<étiquette> bash scripts/temoins_negatifs_p5.sh`.
 - La CLI Railway se lance sous **WSL** (doc Railway) ; `node_modules` de `.railway/` s'installe sur
   la plateforme qui évalue le fichier (WSL pour la CLI, Windows pour `verifier.mjs` local).
