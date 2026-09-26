@@ -468,8 +468,8 @@ identifiant lu.
 | Dépôt, sur l'arbre de **chaque** commit (worktree jetable, détaché) | `python -m pytest -q` | `a00999a` 483 ; `75e40a9` 497 et 1 ignoré ; `0fa006b` 507 et 1 ; `df6fe82` 545 et 1 ; `cbae66c` 556 et 1 ; `6306d88` 575 et 3 ; `75601d0` 586 et 3 ; `09edfb5` 586 et 3 : **0 échec** |
 | Dépôt, arbre `d9ad283`, Windows | `python -m pytest -q -rs` | **587 réussis, 3 ignorés** (tests propres à Linux : coffre hors Windows, emplacements par défaut hors Windows, ligne d'état hors Windows) ; 2 min 55 s |
 | Dépôt, arbre final `cb394b4` (après la correction de la CI), Windows, jeton standard | `python -m pytest -q -rs` | **588 réussis, 3 ignorés** (les mêmes trois) ; 2 min 55 s |
-| Dépôt, arbre final, Linux (conteneur `python:3.12-slim`, verrou haché) | idem | **572 réussis, 18 ignorés** (DPAPI réel, ACL, Job Object, dossiers connus : propres à Windows) ; 2 min 10 s |
-| dont le poste | `apps/poste/tests` | 323 tests, dont **35** de contrat contre le faux Hermes HTTPS |
+| Dépôt, arbre `d9ad283`, Linux (conteneur `python:3.12-slim`, verrou haché) | idem | **572 réussis, 18 ignorés** (DPAPI réel, ACL, Job Object, dossiers connus : propres à Windows) ; 2 min 10 s |
+| dont le poste | `apps/poste/tests` | 323 tests à `d9ad283`, 324 à `cb394b4`, dont **35** de contrat contre le faux Hermes HTTPS |
 | Installeur et désinstalleur en simulation | `packaging/poste/tests/Test-InstallationPoste.ps1` (PowerShell 7.6.6, puis 5.1) | **13 vérifications réussies, 1 cas ignoré, 0 échec** dans les deux ; cas ignoré : aucun Python 3.12 « tous utilisateurs » sur ce PC (celui de python.org y est installé « pour moi seul ») ; état du PC identique avant et après chaque cas |
 | Bout en bout local | `scripts/e2e-poste-windows.ps1` (image `acp-hermes-tests:p5o` de la première partie) | **réussi** (91 s ; détail ci-dessous) |
 | Contrôles | `check_version`, `check_lock` (dont le verrou du poste, 5 épingles), `check_engine_frozen`, `verifier_catalogue`, `balayer_secrets --arbre --plage origin/refonte/hermes-p5..HEAD`, `generer_themes --check` | tous code 0 |
