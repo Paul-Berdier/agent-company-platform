@@ -1,10 +1,10 @@
 # Contrat partagé `acp_poste_contrat`
 
-Modèles Pydantic partagés par le **poste Windows** (`apps/poste`) et le futur
-greffon Hermes **`acp-poste`** (`hermes/plugins/acp-poste`, construit à partir de P1).
-Une seule source, jamais de copie : le poste l'installe comme distribution locale
-(`pip install -e hermes/plugins/acp-poste/contrat`) ; l'image Hermes le reçoit avec
-le greffon, puisque tout `hermes/` forme le contexte de construction de l'image.
+Modèles Pydantic partagés par le **poste Windows** (`apps/poste`) et le greffon Hermes
+**`acp-poste`** (`hermes/plugins/acp-poste`). Une seule source, jamais de copie : le poste
+l'installe comme distribution locale (`pip install -e hermes/plugins/acp-poste/contrat`) ;
+l'image Hermes le reçoit avec le greffon, puisque tout `hermes/` forme le contexte de
+construction de l'image.
 
 ## Pourquoi ici
 
@@ -14,9 +14,9 @@ le greffon, puisque tout `hermes/` forme le contexte de construction de l'image.
   l'image, et deux copies finissent par diverger.
 - Le poste en dépend comme d'une distribution ordinaire ; le greffon n'a pas à
   dépendre de `apps/poste`.
-- La manière dont le greffon l'importera dans l'image (installation dans
-  l'environnement de Hermes ou chemin ajouté par le greffon) se décide en P1, avec
-  l'image réelle ; rien n'est supposé ici.
+- Dans l'image, le greffon l'importe **par son chemin** (`noyau/routage.py` et
+  `noyau/motifs_secrets.py` ajoutent `contrat/` à `sys.path`) : rien n'est installé dans
+  l'environnement de Hermes.
 
 ## Contenu
 
@@ -24,7 +24,28 @@ le greffon, puisque tout `hermes/` forme le contexte de construction de l'image.
   Code), repris **tels quels** de `acp_contracts.subscriptions` (étiquette
   `archive/acp-0.10.0-avant-hermes`). Leur réduction au schéma de
   `hermes usage --json` est l'objet de P6.
+- `acp_poste_contrat.inventaire` (P4, décision D21 ; **étendu en P5 sans rien
+  restreindre**) : relevé d'une voie (`Releve`, `ModeleReleve`, `Quotas`, `Depot`),
+  inventaire complet du poste (`InventairePoste` : relevés, bac à sable Codex,
+  connexions, versions des CLI, politique de `poste.toml`), résumé des quotas calculé
+  par le greffon (`resume_quotas`) et garde « aucun identifiant »
+  (`identifiant_trouve` : motifs de secrets, `@`, chemins de lecteur, UNC ou de profil,
+  jetons d'ACP). Tout relevé que P4 acceptait reste accepté (relevés factices et lignes
+  déjà en base).
+- `acp_poste_contrat.machine` (P5) : protocole `acp-machine/1` — requêtes et réponses
+  des trois routes machine (`enrolement`, `reclamer`, `inventaire`), forme des jetons
+  (`acpm_…`, `acpe_…`), empreintes (SHA-256 gardé par le greffon, `XXXX-XXXX` affiché),
+  forme des erreurs et corps exact du 401 de la couture de Hermes (ambigu, jamais
+  une révocation certaine).
+- `acp_poste_contrat.motifs_secrets` (déplacé du noyau du greffon en P5) : motifs de
+  secrets refusés, une seule copie pour le greffon, le poste et
+  `scripts/balayer_secrets.py` (parité testée).
 - `acp_poste_contrat._validation` : refus des NUL et des instants hors plage UTC,
   seule partie de `acp_contracts.limits` dont ces modèles avaient besoin.
+
+Les exemples de requêtes et de réponses du protocole machine
+(`hermes/tests/outils/fixtures_machine/`) servent à la fois aux tests de ce contrat, aux
+tests du greffon dans l'image et au faux Hermes des tests du poste : une divergence fait
+échouer l'un d'eux.
 
 Tests : `python -m pytest hermes/plugins/acp-poste/contrat/tests` depuis la racine.

@@ -9,7 +9,9 @@ Deux portées, cumulables :
   secret committé puis retiré soit trouvé aussi.
 
 Motifs : clé privée PEM, clés d'API OpenAI, Anthropic et Google, jetons GitHub et Slack, clé d'accès
-AWS, empreinte argon2id complète, jeton JWT. Code 1 et message en français au premier constat (tous
+AWS, empreinte argon2id complète, jeton JWT, et (étape P5) jeton machine du poste et code d'enrôlement
+d'ACP ; les mêmes que le contrat partagé (hermes/plugins/acp-poste/contrat/acp_poste_contrat/
+motifs_secrets.py, parité testée). Code 1 et message en français au premier constat (tous
 listés) ; l'extrait affiché est MASQUÉ (quatre premiers caractères), jamais le secret entier.
 
 Ce n'est pas gitleaks (aucun outil tiers épinglé dans le dépôt) : un secret d'une autre forme
@@ -45,6 +47,9 @@ MOTIFS = {
     "jeton Slack": re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
     "empreinte argon2id": re.compile(r"\$argon2id\$v=19\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/]{16,}\$[A-Za-z0-9+/]{16,}"),
     "jeton JWT": re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+    # Étape P5 : jeton machine du poste et code d'enrôlement (préfixe puis 43 caractères base64url).
+    "jeton machine ACP": re.compile(r"\bacpm_[A-Za-z0-9_-]{40,}"),
+    "code d'enrôlement ACP": re.compile(r"\bacpe_[A-Za-z0-9_-]{40,}"),
 }
 
 Constat = Tuple[str, str, str]  # (emplacement, motif, extrait masqué)

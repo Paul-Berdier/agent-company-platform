@@ -29,6 +29,8 @@ FAUX = {
     "jeton Slack": "xo" + "xb-" + "1234567890-abcdef",
     "empreinte argon2id": "$argon2id$v=19$m=65536,t=3,p=4$" + "c2VsZHVzZWxkdXNlbA" + "$" + "aGFjaGVoYWNoZWhhY2hl",
     "jeton JWT": "ey" + "JhbGciOiJIUzI1NiJ9." + "ey" + "JzdWIiOiJhY3AifQ." + "c2lnbmF0dXJlc2ln",
+    "jeton machine ACP": "Bearer " + "ac" + "pm_" + "Q7x-" * 10 + "abc",
+    "code d'enrôlement ACP": "ac" + "pe_" + "k2_Z" * 10 + "xyz",
 }
 
 
