@@ -480,6 +480,9 @@ def test_deux_reclamations_distantes_n_empechent_pas_un_autre_projet(pile):
 
 
 def test_carte_poste_etrangere_refusee(pile):
+    # Sans scénario, le worker de planification répondrait sans kanban_complete : trois échecs, puis abandon
+    # (constaté au contrat complet : notification « abandonnée » en fin de module). Il conclut ici.
+    ajouter_scenarios(pile, {"rôle « planification » — projet « Etrangere »": scenario([appel("projet_etat")], "Vu.")})
     projet = lancer_projet(pile, titre="Etrangere", objectif="Témoin.", depot=None)
     avant_ntfy = len(notifications_ntfy(pile))
     sortie = pile.executer(["sh", "-c", f"cd /opt/data && hermes kanban --board {projet['tableau']} create "
@@ -633,6 +636,8 @@ def test_memoire_mesuree(pile):
         [appel("projet_planifier", {"resume": "Deux recherches.", "etapes": [
             {"ref": "a", "titre": "A", "classe": "recherche_web", "consigne": "A."},
             {"ref": "b", "titre": "B", "classe": "recherche_web", "consigne": "B."}]})], "Plan.")})
+    # La synthèse conclut (sans scénario, elle échouerait trois fois puis serait abandonnée).
+    ajouter_scenarios(pile, {f"rôle « synthese » — projet « {titre} »": scenario([appel("projet_etat")], "Conclusion.")})
     projet = lancer_projet(pile, titre=titre, objectif="Mesurer.", depot=None)
     mesures, environnements, erreurs_lecture = [], [], []
     limite = time.monotonic() + 120
