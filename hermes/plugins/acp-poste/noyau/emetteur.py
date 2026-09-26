@@ -13,8 +13,9 @@ passe date de moins de ``emetteur_intervalle_s`` (plancher 5 s), et ne bloque ja
 projets en pause ; (3) événements de chaque tableau de projet depuis son curseur, par lots de 500, règles
 ci-dessous, curseur avancé dans la MÊME transaction que les notifications ; (3 bis) filets déterministes de
 la relecture de P4 : planification finie sans plan → carte de décision, question dont la carte « répondre »
-s'est terminée sans suite → escaladée ; (4) questions escaladées ; (5) présence du poste ; (6) projets
-terminés ; (7) veille des crochets shell (décision D34) ; (8) état de l'émetteur ; (9) réveil du fil d'envoi.
+s'est terminée sans suite → escaladée ; (4) questions escaladées ; (5) présence du poste ; (5 bis, étape P5)
+ordres au poste non acquittés depuis plus d'une heure → abandonnés ; (6) projets terminés ; (7) veille des
+crochets shell (décision D34) ; (8) état de l'émetteur ; (9) réveil du fil d'envoi.
 
 **Règles** (rien d'autre) : ``blocked`` hors ``dependency`` → ``bloquee`` ; ``block_loop_detected`` →
 ``triage`` ; ``gave_up`` → ``abandon`` ; synthèse du tour courant finie et plus rien d'ouvert → ``termine``
@@ -36,7 +37,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import base, cartes, etrangeres, graphe, notifications, presence, projets, questions
+from . import base, cartes, etrangeres, graphe, notifications, ordres, presence, projets, questions
 from . import kanban_adapter as ka
 from . import textes as T
 
@@ -263,6 +264,7 @@ def passe(conn=None) -> Dict[str, Any]:
     _pas(bilan, "sans_suite", questions.questions_sans_suite, conn)
     _pas(bilan, "questions", questions_escaladees, conn)
     _pas(bilan, "presence", presence.evaluer, conn)
+    _pas(bilan, "ordres_abandonnes", ordres.expirer, conn)
     _pas(bilan, "termines", projets_termines, conn)
     _pas(bilan, "crochets", veiller_crochets, conn)
     try:

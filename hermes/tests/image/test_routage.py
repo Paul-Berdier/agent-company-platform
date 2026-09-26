@@ -58,7 +58,7 @@ def test_aucun_modele_sans_releve(noyau, conn):
                                                    "« implementation » : catalogue du poste inconnu (aucun relevé).")
     en_catalogue = noyau.routage.catalogue(conn)
     assert en_catalogue["etat"] == "inconnu" and en_catalogue["message"] == (
-        "Catalogue du poste inconnu : aucun relevé (le poste publie son inventaire à l'étape P5).")
+        "Catalogue du poste inconnu : aucun relevé (le poste publie son inventaire une fois enrôlé et confirmé).")
     assert noyau.routage.depots_autorises(conn) is None
 
 
@@ -125,7 +125,7 @@ def test_surcharge_depuis_la_discussion(noyau, conn, monkeypatch):
     # Une surcharge ne lève jamais un interdit, et la portée globale revient au propriétaire (P5).
     assert outil(noyau, "routage_surcharger", dict(base, effort="max"))["code"] == "effort_interdit"
     assert outil(noyau, "routage_surcharger", dict(base, portee="globale"))["message"] == (
-        "Refusé par ACP : une surcharge globale se fait depuis la page Routage (étape P5).")
+        "Refusé par ACP : une surcharge globale se fait depuis la page Routage.")
     # Portée « carte » : refusée en P4, même sur une carte inconnue (test suivant pour une carte existante).
     assert outil(noyau, "routage_surcharger", dict(base, portee="carte", cible="t_inconnue"))["code"] == (
         "surcharge_carte")

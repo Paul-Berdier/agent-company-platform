@@ -27,7 +27,8 @@ if not (BIN_ACP / "acp_demarrage.py").is_file() or not GREFFON.is_dir():
     raise RuntimeError(
         "Ces tests s'exécutent dans l'image de test ACP (hermes/tests/Dockerfile), pas ailleurs.")
 
-for chemin in (BIN_ACP, GREFFON):
+# Étape P5 : le contrat partagé (acp_poste_contrat) est importé par son chemin, comme le fait le noyau.
+for chemin in (BIN_ACP, GREFFON, GREFFON / "contrat"):
     if str(chemin) not in sys.path:
         sys.path.insert(0, str(chemin))
 
@@ -343,8 +344,8 @@ def noyau(tmp_path, monkeypatch):
     for nom in _VARIABLES_KANBAN + ("HERMES_DASHBOARD_PUBLIC_URL",):
         monkeypatch.delenv(nom, raising=False)
     monkeypatch.setenv("HERMES_HOME", str(home))
-    from noyau import (base, cartes, emetteur, etrangeres, graphe, invite, notifications, outils, presence,
-                       projets, questions, routage, textes)
+    from noyau import (base, cartes, emetteur, etrangeres, graphe, inventaire, invite, machines, notifications, ordres,
+                       outils, presence, projets, questions, routage, textes)
     from noyau import kanban_adapter as ka
 
     base.fixer_horloge(None)
@@ -352,7 +353,7 @@ def noyau(tmp_path, monkeypatch):
     yield SimpleNamespace(home=home, base=base, cartes=cartes, emetteur=emetteur, etrangeres=etrangeres,
                           graphe=graphe, invite=invite, notifications=notifications, outils=outils,
                           presence=presence, projets=projets, questions=questions, routage=routage, textes=textes,
-                          ka=ka)
+                          ka=ka, machines=machines, ordres=ordres, inventaire=inventaire)
     base.fixer_horloge(None)
     emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
 
@@ -417,3 +418,46 @@ def lancer_sur_depot(noyau, conn, titre: str = "Outil jetable", *, voies=("poste
                                     profil="base", depot="jetable", origine="tableau_de_bord",
                                     auteur="proprietaire:test", **options)
     return resultat["projet"]
+
+
+# ------------------------------------------------------------------ poste connecté (étape P5)
+
+FIXTURES_MACHINE = OUTILS / "fixtures_machine"
+
+
+def fixture_machine(nom: str) -> dict:
+    """Exemple de requête ou de réponse du protocole acp-machine/1 (hermes/tests/outils/fixtures_machine), le même
+    que lisent les tests du contrat et le faux Hermes des tests du poste."""
+    return json.loads((FIXTURES_MACHINE / nom).read_text(encoding="utf-8"))
+
+
+def inventaire_factice(*, releve_le=None, depots=("jetable",), modifier=None) -> dict:
+    """Inventaire de l'exemple, daté de maintenant (ou de ``releve_le``), dépôts remplacés ; ``modifier(inv)``
+    ajuste le reste."""
+    import datetime as _dt
+
+    inventaire = fixture_machine("inventaire_requete.json")
+    quand = (releve_le or _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    inventaire["releve_le"] = quand
+    inventaire["depots"] = [{"alias": d} for d in depots]
+    for releve in inventaire["releves"]:
+        releve["releve_le"] = quand
+        releve["depots"] = [{"alias": d} for d in depots]
+        for compteur in releve["compteurs"]:
+            compteur["observed_at"] = quand
+    inventaire["bac_a_sable_codex"]["lu_le"] = quand
+    if modifier is not None:
+        modifier(inventaire)
+    return inventaire
+
+
+def poste_confirme(noyau, conn, *, nom: str = "Poste Windows"):
+    """Enrôle ET confirme un poste par les fonctions du noyau ; rend (machine_id, jeton)."""
+    from acp_poste_contrat.machine import PROTOCOLE, empreinte_jeton
+
+    code = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
+    with noyau.base.transaction(conn):
+        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom=nom, version_poste="0.11.0",
+                                              protocole=PROTOCOLE)
+    noyau.machines.confirmer(conn, reponse["machine_id"], reponse["empreinte"], "proprietaire:test")
+    return reponse["machine_id"], reponse["jeton"]

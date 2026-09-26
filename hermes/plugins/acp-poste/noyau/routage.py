@@ -21,21 +21,14 @@ L'effort exact demandé est gardé dans ``demandes.effort`` ; il n'est posé sur
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import base
+from . import base, contrat_partage  # noqa: F401 — contrat_partage met le contrat sur sys.path
 from . import kanban_adapter as ka
 from . import textes as T
 from .textes import RefusACP, refus
-
-_CONTRAT = Path(__file__).resolve().parent.parent / "contrat"
-if _CONTRAT.is_dir() and str(_CONTRAT) not in sys.path:
-    # Contrat partagé avec le poste (décision D21) : importé par son chemin dans l'image.
-    sys.path.insert(0, str(_CONTRAT))
 
 from acp_poste_contrat.inventaire import Releve, valider_releve  # noqa: E402
 
@@ -95,20 +88,44 @@ def date_lisible(epoch: Optional[int], forme: str = "%d/%m/%Y %H:%M") -> str:
 # ------------------------------------------------------------------ relevés (catalogue du poste)
 
 
-def enregistrer_releve(conn, donnees: Any, *, recu_le: Optional[int] = None) -> int:
-    """Valide le relevé (contrat partagé) puis l'enregistre ; rend son identifiant. C'est la fonction
-    qu'appellera la route P5 ``/machine/v1/inventaire`` ; en P4, les tests seuls l'appellent, avec
-    ``source: "releve_factice"``."""
+def enregistrer_releve_dans(conn, donnees: Any, *, machine_id: Optional[str] = None,
+                            recu_le: Optional[int] = None) -> int:
+    """Valide le relevé (contrat partagé) puis l'enregistre SOUS la transaction de l'appelant (route machine
+    ``/machine/v1/inventaire``, étape P5) ; rend son identifiant. ``machine_id`` : poste qui l'a publié (NULL pour
+    un relevé factice)."""
     releve = valider_releve(donnees)
     contenu = releve.model_dump(mode="json")
+    curseur = conn.execute(
+        "INSERT INTO releves (voie, source, version_cli, releve_le, recu_le, contenu, machine_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (releve.voie, releve.source, releve.version_cli, int(releve.releve_le.timestamp()),
+         int(recu_le if recu_le is not None else base.maintenant()), json.dumps(contenu, ensure_ascii=False),
+         machine_id))
+    base.journaliser(conn, f"releve:{releve.source}", "releve", cible=releve.voie,
+                     detail={"modeles": len(releve.modeles), "depots": len(releve.depots), "etat": releve.etat,
+                             "origine_liste": releve.origine_liste, "machine": machine_id})
+    return int(curseur.lastrowid)
+
+
+def enregistrer_releve(conn, donnees: Any, *, recu_le: Optional[int] = None) -> int:
+    """Comme :func:`enregistrer_releve_dans`, sous sa propre transaction ``IMMEDIATE`` (P4 : tests et poste
+    simulé, ``source: "releve_factice"``)."""
     with base.transaction(conn):
-        curseur = conn.execute(
-            "INSERT INTO releves (voie, source, version_cli, releve_le, recu_le, contenu) VALUES (?, ?, ?, ?, ?, ?)",
-            (releve.voie, releve.source, releve.version_cli, int(releve.releve_le.timestamp()),
-             int(recu_le if recu_le is not None else base.maintenant()), json.dumps(contenu, ensure_ascii=False)))
-        base.journaliser(conn, f"releve:{releve.source}", "releve", cible=releve.voie,
-                         detail={"modeles": len(releve.modeles), "depots": len(releve.depots)})
-        return int(curseur.lastrowid)
+        return enregistrer_releve_dans(conn, donnees, recu_le=recu_le)
+
+
+# Rétention des relevés (cahier P5 § 4.3) : les 50 derniers par voie, sauf les relevés cités par une demande
+# (``demandes.releve_id``, base en foreign_keys=ON : une purge naïve lèverait « FOREIGN KEY constraint failed » et
+# annulerait la réception) ou acceptés par le propriétaire.
+RELEVES_GARDES_PAR_VOIE = 50
+
+
+def purger_releves_dans(conn, voie: str, garder: int = RELEVES_GARDES_PAR_VOIE) -> int:
+    return conn.execute(
+        "DELETE FROM releves WHERE voie = ? AND accepte_le IS NULL "
+        "AND id NOT IN (SELECT id FROM releves WHERE voie = ? ORDER BY recu_le DESC, id DESC LIMIT ?) "
+        "AND id NOT IN (SELECT releve_id FROM demandes WHERE releve_id IS NOT NULL)",
+        (voie, voie, int(garder))).rowcount
 
 
 def dernier_releve(conn, voie: str) -> Optional[Tuple[int, Releve, int]]:

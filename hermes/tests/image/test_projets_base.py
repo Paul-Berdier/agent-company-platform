@@ -13,7 +13,7 @@ from conftest import lancer_sans_depot
 def test_schema_cree_et_version(noyau, conn):
     tables = {l[0] for l in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert set(noyau.base.TABLES) <= tables
-    assert noyau.base.version_schema(conn) == "1"
+    assert noyau.base.version_schema(conn) == "2"
     colonnes = {l[1] for l in conn.execute("PRAGMA table_info(demandes)")}
     # Les cinq tables du plan, et ce qu'il faut pour recréer une carte à l'identique.
     assert {"cle", "carte", "role", "voie", "modele", "effort", "effort_carte", "palier", "source_routage",
@@ -24,7 +24,7 @@ def test_migration_idempotente(noyau, conn):
     noyau.base.migrer(conn)
     noyau.base.migrer(conn)
     assert conn.execute("SELECT COUNT(*) FROM meta_schema").fetchone()[0] == 1
-    assert noyau.base.version_schema(conn) == "1"
+    assert noyau.base.version_schema(conn) == "2"
 
 
 def test_base_sous_hermes_home_en_wal(noyau, conn):
