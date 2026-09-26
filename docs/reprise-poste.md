@@ -1173,7 +1173,7 @@ CI (régulation ou vérifications successives) ; le remède de la page MCP sur u
 Branche `refonte/hermes-p4`, empilée sur `refonte/hermes-p3` (`e5e8032`, PR #16) ; version 0.11.0
 inchangée ; **ni PR, ni fusion, ni étiquette** ; **rien n'est déployé**. Référence :
 [`docs/refonte/projets.md`](refonte/projets.md) ; cahier de conception (brouillon de session
-`plan_p4.md`) ; décisions **D21 à D40** au § 1 de [`plan.md`](refonte/plan.md), **non confirmées**.
+`plan_p4.md`) ; décisions **D21 à D47** au § 1 de [`plan.md`](refonte/plan.md), **non confirmées**.
 La page « Projets » de l'interface (greffon `acp-projets`, `apps/interface`) est la seconde partie de
 P4 : voir « Seconde partie » à la fin de ce paragraphe.
 
@@ -1211,7 +1211,8 @@ docs) et corrigé (accord de « carte » dans les notifications ; test de contra
   tour ; plafonds 3 tours, 30 cartes, 2 corrections ; pauses ; questions ; cartes `poste-*`
   étrangères bloquées ; présence ; émetteur de notifications dans la passerelle (désactivé sans
   `ACP_NOTIFICATIONS`).
-- Huit outils de l'agent, seuls ajouts à la garde (26 → **34** noms) ; `kanban_create` refusé ;
+- Huit outils de l'agent, seuls ajouts à la garde (26 → 34 noms, **33** depuis la relecture : `kanban_link`
+  retiré) ; `kanban_create` refusé ;
   `memory` refusé dans un worker kanban (D40). Routes `/v1/projets`, `/v1/questions`,
   `/v1/triage/…/reprendre`, `/v1/pause`, `/v1/poste`, `/v1/notifications/test` et bloc `projets` de
   `/v1/meta`.
@@ -1407,12 +1408,41 @@ Intégration continue de la seconde partie, sommet poussé `4d8265a`, **verte** 
   (quatre projets terminés 71,1 s après la fin des explorations, aucune requête hors de l'origine).
 
 Poussés après `4d8265a` : `5002285` (la page remonte en haut à chaque changement de vue ; rejoué en local :
-Vitest 80, navigateur `test_projets.py` et `test_interface_fr.py` 2 réussis en 3 min 53 s, images `p4l`)
-et `8532ee2` (lignes de Hermes citées exactement). Leur CI suit ce commit et n'est pas consignée ici.
+Vitest 80, navigateur `test_projets.py` et `test_interface_fr.py` 2 réussis en 3 min 53 s, images `p4l`),
+`8532ee2` (lignes de Hermes citées exactement) et `463db67` (documentation) : CI de `463db67` **verte**,
+`ci.yml` [36246916733](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36246916733) et
+`image.yml` [36246916752](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36246916752).
 
 Non vérifié : le rendu sur un vrai téléphone (émulation Chromium 390×844 seulement, ni Safari iOS) ;
 le scénario Railway (téléphone, notification réelle, second appareil) ; la qualité d'un vrai plan ;
 le poste réel (P5-P6).
+
+
+### Relecture indépendante de P4 : traitement (26/09/2026)
+
+Trois relectures de `463db67` (scénario du propriétaire, garde, produit) : 21 constats, **tous réels**,
+tous corrigés ou dits ; tableau constat → traitement → preuve dans [`projets.md`](refonte/projets.md)
+§ 12 ; décisions ajoutées **D41 à D47** ([`plan.md`](refonte/plan.md) § 1, non confirmées).
+
+En bref : une planification finie sans plan et une question restée sans suite sont désormais signalées
+au propriétaire par l'émetteur (carte de décision, escalade, notification) ; au plafond, « Prolonger »
+accorde un tour (ou dix cartes) et la carte de décision planifie la suite, « Conclure » arrête le projet ;
+la surcharge d'une carte est refusée tant qu'elle ne s'applique pas ; un worker ne touche que son tableau
+et sa carte (`kanban_link` retiré : garde à **33** noms) ; l'envoi des notifications ne suit plus de
+redirection ; la pause générale ne se lève pas sur des crochets shell présents ; la page Projets dit
+quand un texte est coupé et le lit en entier, montre la raison réelle d'une carte bloquée, suit la
+réponse de l'API, garde le geste « retour » dans la page.
+
+Commits (aucun `Co-Authored-By`) : `3ebba83` (style : lignes vides en fin de fichier, test du dépôt), `8f9762f` (garde et transport des notifications), `4ef7e9e` (cœur du greffon), `353a843` (page « Projets », bundles, parcours navigateur), puis la documentation.
+
+Preuves locales (images `acp-hermes:p4r` et `acp-hermes-tests:p4r` construites depuis l'arbre corrigé,
+identité `acp-identite:p4` inchangée ; détail : [`projets.md`](refonte/projets.md) § 12) : dépôt **387**
+réussis ; Vitest **93** (14 fichiers) ; dans l'image **511** (5 min 28 s) ; témoins négatifs **24 sur 24** ;
+contrat complet **139** (32 min 48 s), plus la porte 401 sur les 13 routes P4 ; navigateur **6** (5 min
+01 s). Chaque nouveau test échoue sans sa correction : les 18 tests d'image sur le greffon de `463db67`
+(18 échecs), les 13 Vitest sur les sources de `463db67` (13 échecs).
+
+Intégration continue : consignée après la poussée de la branche.
 
 ## 7. Chaîne d'outils Windows
 

@@ -116,35 +116,44 @@ priorité : **D1, D2, D5, D12 et D16**.
 | D19 | `skills.auto_load` | Aucune skill chargée d'office ; `acp-profils` à la demande | — |
 | D20 | `dashboard.font` | Épinglé sur la police du thème | — |
 
-### Étape P4 : choix par défaut D21 à D40, **à confirmer par le propriétaire**
+### Étape P4 : choix par défaut D21 à D47, **à confirmer par le propriétaire**
 
 Source : cahier de conception de P4 (brouillon de session `plan_p4.md`, § 17, 26 septembre 2026), rédigé
-par l'agent. **Aucun de ces choix n'a été confirmé par le propriétaire à ce jour** : P4 applique les
-recommandations par défaut pour avancer ; comme D1 à D20, ils **ne font pas foi**. Détail :
-[projets.md](projets.md).
+par l'agent, puis relecture indépendante de P4 (même jour : D41 à D47).
+**Aucun de ces choix n'a été confirmé par le propriétaire à ce jour** : P4 applique les recommandations par
+défaut pour avancer ; comme D1 à D20, ils **ne font pas foi**. Détail : [projets.md](projets.md). À confirmer en priorité, parce qu'ils touchent votre
+parcours : **D25, D31, D39, D40 et D41** (recommandation par défaut : garder les choix appliqués). D21 à D24,
+D30 et D38 sont internes : ils ne changent rien à ce que vous voyez.
 
-| N° | Question | Choix appliqué en P4 | Écart au plan ou remarque |
-|---|---|---|---|
-| D21 | Contrat « inventaire du poste » | Une seule source, `acp_poste_contrat.inventaire`, importée par le greffon par son chemin | — |
-| D22 | Code du greffon | Sous-paquet `noyau/`, chargé aussi par le tableau de bord sous le nom `acp_poste_noyau` | — |
-| D23 | Visibilité des outils | Selon le contexte (discussion ou worker) par `check_fn` non mis en cache, revérifiée par chaque gestionnaire | Hermes diffère les outils de greffon derrière `tool_search` : appel par `tool_call` |
-| D24 | Outils sur `api_server` et `cron` | Coupés (`known_plugin_toolsets`) | bilan quotidien de P7 à revoir alors |
-| D25 | Projet sur dépôt sans inventaire du poste | **Refus explicite** | — |
-| D26 | Quota inconnu à la planification | Admis avec la mention « quota inconnu » ; le poste revalidera (P6) | — |
-| D27 | Relecture croisée impossible | **Refus**, jamais une relecture par le même exécutant | — |
-| D28 | Carte « répondre » et outils `question_*` | Dès P4 | le plan les rangeait en P7 |
-| D29 | Corrections | `inserer_correction` préparée et testée en P4, câblée en P6 | — |
-| D30 | Exécutants admis par classe de tâche | Table du cahier (§ 7.1) ; `integration` refusée jusqu'à P6 | — |
-| D31 | Pause générale | Arrêt d'urgence de Hermes ; aucune nouvelle notification pendant la pause | limite dite |
-| D32 | Contenu des notifications | Minimal : genre, titre du projet, titre de carte tronqué, lien ; jamais la consigne ni la question | — |
-| D33 | ntfy | Jeton **exigé**, sujet long, `https://ntfy.sh` par défaut | — |
-| D34 | Crochets shell apparus en cours de route | Pause générale et notification, en plus du refus au démarrage | — |
-| D35 | Rafraîchissement de la page Projets | Sondage toutes les 15 s en P4, tant que la page est visible ; temps réel (SSE) en P7 | appliqué par la page (seconde partie de P4) |
-| D36 | Page Projets | Greffon d'interface séparé `acp-projets` | livré (seconde partie de P4) ; onglet placé avant « Catalogue », icône `FolderOpen` ([projets.md](projets.md) § 8) |
-| D37 | Carte `poste-*` créée hors du greffon | **Bloquée** (`capability`), jamais archivée | une carte encore `todo` l'est dès qu'elle devient `ready` |
-| D38 | `SOUL.md` et `acp-profils` | Mis à jour (projets par `projet_lancer`, projet sur dépôt en attente du poste) | — |
-| D39 | Efforts et paliers | Efforts interdits `max`, `ultra`, `ultracode` ; palier `default` seul | plan § 11.4 : au propriétaire |
-| D40 | `memory` dans un worker kanban | **Refusé par la garde** dans un worker (`HERMES_KANBAN_TASK` posée), admis en discussion | ajouté pendant P4 : constaté au contrat, l'écriture ouvrait une invite d'approbation qui attendait 300 s sans personne (`approvals.timeout`) ; le plan d'autonomie ([autonomie.md](autonomie.md) § 7) laisse ce choix au propriétaire |
+| N° | Question | Choix appliqué en P4 | Autre option et conséquence pour vous | Écart au plan ou remarque |
+|---|---|---|---|---|
+| D21 | Contrat « inventaire du poste » | Une seule source, `acp_poste_contrat.inventaire`, importée par le greffon par son chemin | Une copie par composant : aucune différence visible, mais deux contrats qui peuvent diverger | interne |
+| D22 | Code du greffon | Sous-paquet `noyau/`, chargé aussi par le tableau de bord sous le nom `acp_poste_noyau` | Un seul chargement : aucune différence visible | interne |
+| D23 | Visibilité des outils | Selon le contexte (discussion ou worker) par `check_fn` non mis en cache, revérifiée par chaque gestionnaire | Tous les outils partout : la discussion verrait `projet_planifier`, refusé à l'appel | interne ; Hermes diffère les outils de greffon derrière `tool_search` : appel par `tool_call` |
+| D24 | Outils sur `api_server` et `cron` | Coupés (`known_plugin_toolsets`) | Ouverts : un travail planifié (cron) pourrait lancer des projets sans vous | interne ; bilan quotidien de P7 à revoir alors |
+| D25 | Projet sur dépôt sans inventaire du poste | **Refus explicite** | Accepté et mis en attente du poste : le projet resterait « en attente » jusqu'à P5 | — |
+| D26 | Quota inconnu à la planification | Admis avec la mention « quota inconnu » ; le poste revalidera (P6) | Refus : aucun projet sur dépôt avant que le poste publie ses quotas | — |
+| D27 | Relecture croisée impossible | **Refus**, jamais une relecture par le même exécutant | Relecture par le même exécutant : plus de projets possibles avec un seul exécutant, relecture moins sûre | — |
+| D28 | Carte « répondre » et outils `question_*` | Dès P4 | En P7 : toute question vous serait transmise | le plan les rangeait en P7 |
+| D29 | Corrections | `inserer_correction` préparée et testée en P4, câblée en P6 | Aucune avant P6 : rien de visible en P4 | — |
+| D30 | Exécutants admis par classe de tâche | Table du cahier (§ 7.1) ; `integration` refusée jusqu'à P6 | Table libre : l'agent choisirait n'importe quel exécutant | interne |
+| D31 | Pause générale | Arrêt d'urgence de Hermes : plus de nouvelle carte ni de nouvelle notification d'avancement ; la discussion reste ouverte (lancer un projet y est refusé) | Couper aussi la discussion : Hermes ne vous répondrait plus du tout pendant la pause | limite dite ; texte de la page corrigé à la relecture de P4 |
+| D32 | Contenu des notifications | Minimal : genre, titre du projet, titre de carte tronqué, lien ; jamais la consigne ni la question | Texte complet : lisible sans ouvrir la page, mais le contenu passe par un service tiers | — |
+| D33 | ntfy | Jeton **exigé**, sujet long, `https://ntfy.sh` par défaut | Sans jeton : plus simple, mais le fil serait lisible par quiconque devine le sujet | — |
+| D34 | Crochets shell apparus en cours de route | Pause générale et notification, en plus du refus au démarrage | Refus au démarrage seulement : un crochet posé en cours de route s'exécuterait | — |
+| D35 | Rafraîchissement de la page Projets | Sondage toutes les 15 s en P4, tant que la page est visible ; temps réel (SSE) en P7 | Temps réel dès P4 : plus réactif, plus de code serveur | appliqué par la page (seconde partie de P4) |
+| D36 | Page Projets | Greffon d'interface séparé `acp-projets` | Page dans `acp-interface` : un seul greffon, mais tout désactivé si l'un casse | livré (seconde partie de P4) ; onglet placé avant « Catalogue », icône `FolderOpen` ([projets.md](projets.md) § 8) |
+| D37 | Carte `poste-*` créée hors du greffon | **Bloquée** (`capability`), jamais archivée | Archivée : elle disparaîtrait sans que vous la voyiez | une carte encore `todo` l'est dès qu'elle devient `ready` |
+| D38 | `SOUL.md` et `acp-profils` | Mis à jour (projets par `projet_lancer`, projet sur dépôt en attente du poste) | Inchangés : Hermes ignorerait les projets en discussion | interne |
+| D39 | Efforts et paliers | Efforts interdits `max`, `ultra`, `ultracode` ; palier `default` seul | Tout admis : plus de puissance, dépense non bornée | plan § 11.4 : au propriétaire |
+| D40 | `memory` dans un worker kanban | **Refusé par la garde** dans un worker (`HERMES_KANBAN_TASK` posée), admis en discussion | Admis : chaque écriture bloquerait la carte 300 s sur une approbation que personne ne voit | ajouté pendant P4 : constaté au contrat, l'écriture ouvrait une invite d'approbation qui attendait 300 s sans personne (`approvals.timeout`) ; le plan d'autonomie ([autonomie.md](autonomie.md) § 7) laisse ce choix au propriétaire |
+| D41 | Plafond atteint, ou planification finie sans plan | Une carte de décision vous est adressée (et notifiée) : **« Prolonger »** (plafond de tours + 1, ou de cartes + 10 ; journalisé) ou **« Relancer la planification »**, avec une consigne, fait planifier la suite par Hermes depuis cette carte ; **« Conclure le projet »** l'arrête (« Terminé » s'il a au moins un tour, sinon « Abandonné »). « Clore » un projet quelconque : P7 | « Conclure » seulement : aucun moyen de prolonger un projet utile sans le relancer de zéro | ajouté à la relecture de P4 (le « Reprendre » d'avant faisait conclure Hermes et annonçait « terminé ») ; prolonger le plafond de corrections : P6 |
+| D42 | « Qui répond aux questions » pour un projet sans dépôt | Choix masqué : la page dit qu'il est sans objet (aucune question ne naît sans dépôt) ; un manque se dit par une carte bloquée avec sa raison | Choix affiché : il n'aurait aucun effet | ajouté à la relecture de P4 |
+| D43 | Surcharge de routage d'une carte existante | **Refusée** en P4 (message français) ; la surcharge de projet vaut pour les cartes suivantes | L'appliquer tout de suite : exige de recréer ou de relancer la carte (P6) | ajouté à la relecture de P4 : la réponse « ok » d'avant n'avait aucun effet |
+| D44 | Isolation des projets dans un worker | Un worker ne touche que son tableau ; `kanban_comment` sur sa seule carte ; `kanban_link` retiré (garde : 33 noms) | Commentaires libres entre projets : un contenu web hostile lu par un projet pourrait écrire dans un autre | ajouté à la relecture de P4 ; en P6, le poste n'exécute que le corps émis par le greffon et les commentaires du propriétaire et de `hermes (acp-questions)` |
+| D45 | Reprise de la pause générale engagée par la veille des crochets | **Refusée** (409) tant que les crochets existent ; la page dit comment en sortir | Reprise libre : un tour du répartiteur pourrait lancer des workers avec les crochets | ajouté à la relecture de P4 |
+| D46 | Filets déterministes de l'émetteur | Planification finie sans plan → carte de décision (D41) ; question dont la carte « répondre » s'est finie sans suite → escaladée et notifiée | Compter sur le modèle : un projet ou une question pourrait rester bloqué sans que vous le sachiez | ajouté à la relecture de P4 |
+| D47 | Réponse ou décision sur un projet en pause | La réponse est enregistrée, la carte reprend à la reprise du projet (la page le dit) ; une décision de triage est refusée tant que le projet est en pause | Débloquer tout de suite : la carte partirait pendant la pause | ajouté à la relecture de P4 |
 
 Décisions du plan d'autonomie (§ 11) dont P4 dépend, **toujours ouvertes** : qui répond aux questions
 (défaut : Hermes d'abord), canal de notification (défaut : aucun tant que les variables ne sont pas posées),

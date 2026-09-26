@@ -411,7 +411,8 @@ Aucune couche ne suffit seule ; chacune est prouvée séparément, avec son tém
    `tui_gateway.entry`. C'est la **seule** couche qui ferme `preview.restart`, dont l'agent
    caché reçoit `["terminal","file"]` codés en dur (tui_gateway/agent_callbacks.py:371-374).
 
-**Les 34 outils admis** (noms exacts ; 26 en P3, 24 en P2) : depuis P4, les huit outils du greffon
+**Les 33 outils admis** (noms exacts ; 34 en P4 avant sa relecture, 26 en P3, 24 en P2) : depuis P4, les
+huit outils du greffon
 (`projet_lancer`, `projet_planifier`, `projet_etat`, `poste_etat`, `poste_catalogue`,
 `question_repondre`, `question_escalader`, `routage_surcharger` : [projets.md](projets.md) § 3) ; `mcp__context7__resolve_library_id` et
 `mcp__context7__query_docs` (P3 : les deux outils du serveur MCP distant context7, sous le nom que
@@ -419,7 +420,10 @@ leur donne Hermes ; aucun autre outil MCP), `web_search`, `web_extract`, `vision
 `skills_list`, `skill_view`, `skill_manage` ; `todo_list`, `memory`, `session_search`,
 `clarify` ; `tool_search`, `tool_describe` ; `kanban_show`, `kanban_list`, `kanban_complete`,
 `kanban_block`, `kanban_request_review`, `kanban_request_changes`, `kanban_heartbeat`,
-`kanban_comment`, `kanban_link`, `kanban_unblock`, `kanban_attach`, `kanban_attachments`.
+`kanban_comment`, `kanban_unblock`, `kanban_attach`, `kanban_attachments`. Depuis la relecture de P4
+(décision D44), `kanban_link` est retiré (les dépendances d'un projet sont posées par le greffon seul), et
+dans un worker kanban un outil `kanban_*` qui nomme un autre tableau que le sien est refusé, comme un
+`kanban_comment` sur une autre carte que la sienne ([projets.md](projets.md) § 12).
 Tout autre nom est refusé : « Refusé par ACP : l'outil « … » n'est pas autorisé sur Railway
 (ni terminal, ni fichiers, ni exécution de code pour l'agent). L'exécution passe par le poste
 Windows du propriétaire. » (terminal, fichiers, `execute_code`, `desktop_project`,

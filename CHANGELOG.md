@@ -289,6 +289,39 @@ Référence : `docs/refonte/projets.md` § 4 bis, `docs/refonte/interface.md` §
 - écarts dits : icône `FolderOpen` (Hermes ne connaît pas `FolderKanban`), position `before:catalogue`
   (`after:acp` serait sans effet).
 
+### P4 — corrections de la relecture indépendante (réalisées côté dépôt, non fusionnées, non déployées)
+
+Référence : `docs/refonte/projets.md` § 12 ; décisions D41 à D47 (`plan.md` § 1, non confirmées).
+
+- corrigé (projets qui s'arrêtaient en silence ou se disaient « terminés » à tort) : une planification finie
+  sans plan adresse une carte de décision et une notification (filet de l'émetteur) ; « Reprendre » au
+  plafond devient « Prolonger » (plafond de tours + 1, de cartes + 10, journalisé) et la carte de
+  décision planifie elle-même la suite ; plafond de cartes sans plan possible → carte de décision et
+  notification ; « Conclure » (projet « terminé », ou « abandonné » sans aucun tour, sans notification) ;
+  une question dont la carte « répondre » s'est finie sans suite est escaladée et notifiée ; une carte de
+  décision par valeur de plafond ;
+- corrigé : surcharge de routage d'une carte refusée (elle ne s'appliquait pas) ; plafond de projets
+  actifs vérifié à la reprise ; réponse à une question d'un projet en pause gardée jusqu'à sa reprise
+  (la carte n'était plus réclamable « prête » entre deux passes) ; décision de triage refusée pendant la
+  pause ;
+- sécurité : un worker ne touche que le tableau de son projet et ne commente que sa carte ; `kanban_link`
+  retiré (garde : 33 noms) ; l'envoi des notifications ne suit plus aucune redirection (le jeton ntfy
+  suivait un 302 vers un autre hôte) ; reprise de la pause générale refusée tant que des crochets shell
+  sont déclarés ;
+- page « Projets » : un résumé coupé le dit et se lit en entier (route
+  `GET /v1/projets/{id}/cartes/{carte}`), résultat du projet en entier, dernière note marquée comme
+  extrait ; raison réelle des cartes bloquées (lue dans l'événement) ; « Qui répond » sans objet sans
+  dépôt ; texte exact de la pause générale (la discussion reste ouverte) ; réussites d'après la réponse de
+  l'API ; gestes « Prolonger », « Relancer la planification », « Conclure le projet » ; compteur des
+  décisions ; historique (`pushState`) : « retour » reste dans la page ; « état du canal inconnu »,
+  « dépôts inconnus » ; journal en français, palier « Standard », titre de carte et contexte des
+  questions ; catalogue français à 329 chaînes ;
+- hygiène : deux lignes vides en fin de fichier retirées (`git diff --check` n'était pas propre) et test
+  du dépôt qui l'interdit ; décisions de P4 avec une priorité et l'autre option pour chacune ;
+- tests : 18 nouveaux tests dans l'image (tous en échec sur le greffon de `463db67`), 13 Vitest (tous en
+  échec sur les sources de `463db67`), 3 au contrat sur la pile complète, parcours navigateur étendu
+  (retour et avancer, résultat du projet, « Qui répond » sans dépôt) ; 24 témoins négatifs.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

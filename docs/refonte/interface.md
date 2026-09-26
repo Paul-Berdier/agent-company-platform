@@ -399,19 +399,23 @@ Référence fonctionnelle, vues et routes : [projets.md](projets.md) § 4 bis. C
   reprendre un triage, pause générale confirmée, notification de test). Rien d'autre : les cartes
   bloquées ou abandonnées restent en lecture seule (« Relancer » relève de P7), et le bouton de
   notification de test est désactivé, avec sa raison, tant que le canal n'est pas configuré.
-- **Français** : le catalogue unique compte désormais **274** chaînes (241 distinctes), dont 165 pour la
-  page Projets ; mêmes contrôles (arbre syntaxique, typographie, verrou du navigateur). Les champs de
+- **Français** : le catalogue unique compte désormais **329** chaînes (291 distinctes), dont 220 pour la
+  page Projets (274, 241 et 165 avant la relecture de P4) ; mêmes contrôles (arbre syntaxique,
+  typographie, verrou du navigateur). Les champs de
   saisie portent `data-acp-donnee` : ce que le propriétaire tape est une donnée, pas un libellé.
 - **Écriture** : `POST` en JSON par le `fetchJSON` du SDK (jamais un `fetch` direct : garde statique) ;
   le refus du greffon (`{"detail": {"code", "message"}}`) est affiché tel quel ; clé d'idempotence par
   envoi du formulaire.
-- **Adresse** : le SDK n'expose pas le routeur de Hermes ; la page change de vue par son état et met
-  l'adresse à jour par `history.replaceState` en gardant l'état du routeur et `?profile=` ; le lien
-  des notifications (`…/projets?projet=<id>`) ouvre le détail.
+- **Adresse** : le SDK n'expose pas le routeur de Hermes ; la page change de vue par son état. Depuis la
+  relecture de P4, chaque changement de vue voulu par le propriétaire AJOUTE une entrée d'historique
+  (`history.pushState`, état du routeur et `?profile=` gardés) et la page relit sa vue sur `popstate` :
+  au téléphone, le geste « retour » ramène à la vue précédente au lieu de quitter la page (avant :
+  `history.replaceState`, et « retour » quittait la page Projets). Le lien des notifications
+  (`…/projets?projet=<id>`) ouvre le détail.
 - **Sondage** : 15 s tant que la page est visible (`visibilitychange`), aucune lecture quand elle est
   cachée (D35) ; une actualisation ratée garde la dernière valeur lue et le dit.
-- **Tests** : Vitest **80** (13 fichiers), dont `projets.test.tsx` et `api-projets.test.ts` (25) sur les
-  formes relevées sur l'image ; navigateur `test_projets.py` (parcours complet aux deux formats, axe,
+- **Tests** : Vitest **93** (14 fichiers), dont `projets.test.tsx`, `projets-relecture.test.tsx` (13, les
+  corrections de la relecture de P4) et `api-projets.test.ts` sur les formes relevées sur l'image ; navigateur `test_projets.py` (parcours complet aux deux formats, axe,
   cibles de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine). Les tests Vitest
   démontent désormais toute racine React restée montée après un test (ses minuteries de sondage
   couraient sinon dans le test suivant).

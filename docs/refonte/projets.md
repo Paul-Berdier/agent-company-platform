@@ -4,7 +4,8 @@
 déployé.** Ce document décrit ce que P4 livre sur Railway, sans le poste Windows : le **cœur serveur**
 (première partie : ce que le greffon groupé `acp-poste` fait) et la **page « Projets »** (seconde
 partie : greffon d'interface `acp-projets`, § 4 bis). Références : [plan d'autonomie](autonomie.md) (§ 8, P4),
-[image](image.md), [catalogue](catalogue.md), décisions **D21 à D40** ([plan](plan.md) § 1, non confirmées).
+[image](image.md), [catalogue](catalogue.md), décisions **D21 à D47** ([plan](plan.md) § 1, non confirmées).
+Corrections de la relecture indépendante de P4 : § 12.
 
 ## 1. En bref
 
@@ -13,11 +14,15 @@ partie : greffon d'interface `acp-projets`, § 4 bis). Références : [plan d'au
   (`<HERMES_HOME>/plugin-data/acp-poste/data.db`, WAL, `BEGIN IMMEDIATE`).
 - **L'agent ne crée jamais de carte** : `kanban_create` reste refusé par la garde. Le greffon crée les
   cartes lui-même (compétences, exécutant, modèle, effort) par ses **huit outils**, les seuls ajoutés à la
-  liste blanche de la garde (26 → **34** noms) : `projet_lancer`, `projet_planifier`, `projet_etat`,
-  `poste_etat`, `poste_catalogue`, `question_repondre`, `question_escalader`, `routage_surcharger`.
+  liste blanche de la garde (26 → 34 noms, puis **33** : `kanban_link` retiré à la relecture, D44) :
+  `projet_lancer`, `projet_planifier`, `projet_etat`, `poste_etat`, `poste_catalogue`, `question_repondre`,
+  `question_escalader`, `routage_surcharger`. Dans un worker, un outil `kanban_*` ne touche que le tableau de
+  son projet, et `kanban_comment` que sa propre carte (D44).
 - **Graphe** : [exploration par le poste, lecture seule] → planification (Hermes) → par étape,
   implémentation (poste) puis **relecture croisée** par l'autre exécutant, ou carte Hermes → **synthèse**
   (Hermes), dont les parents sont TOUTES les cartes du tour. Plafonds : 3 tours, 30 cartes, 2 corrections.
+  Au plafond, ou quand la planification finit sans plan, une **carte de décision** vous est adressée :
+  « Prolonger » / « Relancer la planification » (Hermes planifie la suite depuis elle) ou « Conclure » (D41).
 - **Réalité de production en P4 (D25)** : sans inventaire du poste, un projet **sur dépôt** est refusé en
   français ; un projet **sans dépôt** (recherche, conception, rédaction) avance jusqu'au bout sur Railway.
 - **Émetteur de notifications** dans la **passerelle** (crochet `on_kanban_dispatch_tick`), une seule
@@ -51,11 +56,11 @@ appelle par le pont `tool_call` (la garde juge l'outil sous-jacent). La section 
 | Outil | Discussion | Worker d'une carte ACP | Effet |
 |---|---|---|---|
 | `projet_lancer` | oui | non | lance un projet (idempotent par session, titre, objectif, dépôt) |
-| `projet_planifier` | non | carte de planification ou de synthèse | crée le tour suivant (tableau et carte lus dans l'environnement du worker) |
+| `projet_planifier` | non | carte de planification ou de synthèse ; carte de décision prolongée ou relancée par le propriétaire (D41) | crée le tour suivant (tableau et carte lus dans l'environnement du worker) |
 | `projet_etat` | oui | son projet seulement | état dérivé, cartes, questions, plafonds |
 | `poste_etat`, `poste_catalogue` | oui | oui | présence ; catalogue relevé (« Inconnu » sans relevé) |
 | `question_repondre`, `question_escalader` | non | carte « répondre » de la question | réponse de Hermes (commentaire + reprise) ou escalade (notification) |
-| `routage_surcharger` | oui | non | surcharge projet ou carte, jamais un interdit |
+| `routage_surcharger` | oui | non | surcharge d'un projet (ses prochaines cartes), jamais un interdit ; portée « carte » refusée jusqu'à P6 (D43) |
 
 **`memory` refusé dans un worker kanban** (garde, depuis P4) : mesuré au contrat, une écriture en
 mémoire d'un worker `chat -q` ouvrait l'invite d'approbation en ligne du CLI (`memory.write_approval`
@@ -75,16 +80,18 @@ Toute route d'écriture exige `Content-Type: application/json` (415) et refuse u
 
 | Méthode et chemin | Corps | Réponse |
 |---|---|---|
-| `GET /v1/projets` | — | `projets[]` (id, titre, tableau, état et état dérivé, compteurs `faites/total/en_cours/en_attente_du_poste/bloquees/triage`, dernière note, questions ouvertes), `poste`, `pause_generale`, `notifications {canal, configure, connu, message}`, `questions_ouvertes` |
+| `GET /v1/projets` | — | `projets[]` (id, titre, tableau, état et état dérivé — dont `a_decider` —, compteurs `faites/total/en_cours/en_attente_du_poste/bloquees/triage`, dernière note et `derniere_note_tronquee`, questions ouvertes), `poste`, `pause_generale`, `notifications {canal, configure, connu, message}` (« état du canal inconnu » tant que la passerelle ne l'a pas publié), `questions_ouvertes` |
 | `POST /v1/projets` | `titre`, `objectif`, `profil?`, `depot?`, `reponses?`, `exploration? {voie, modele, effort}` ; en-tête `Idempotency-Key` facultatif | 201 `{projet, deja_lance}` (200 au rejeu d'une clé) |
-| `GET /v1/projets/{id ou tableau}` | — | `projet` : état, plafonds, restants, tours et décisions, cartes (rôle, voie, statut, modèle demandé, effort, palier, « Modèle servi : Non observé »), questions ouvertes, journal |
-| `POST /v1/projets/{id}/pause`, `/reprise` | `{}` | `{projet, cartes_planifiees}` / `{projet, cartes_reveillees}` |
-| `GET /v1/questions` | — | `questions[]` ouvertes et escaladées ; cartes en `triage` et `bloquees` (`abandonnee` si le disjoncteur a abandonné) |
-| `POST /v1/questions/{q}/reponse` | `reponse` | `{question, etat, carte_debloquee}` |
-| `POST /v1/triage/{tableau}/{carte}/reprendre` | `consigne?` | `{carte, reprise}` |
-| `POST /v1/pause` | `{"generale": true, "raison"?}` ou `{"generale": false}` | `{pause_generale}` (arrêt d'urgence de Hermes, D31) |
+| `GET /v1/projets/{id ou tableau}` | — | `projet` : état, plafonds, restants, `resultat` (synthèse faite du dernier tour, EN ENTIER), tours et décisions, cartes (rôle, voie, statut, modèle demandé, effort, palier, « Modèle servi : Non observé », résumé de 500 caractères avec `resume_longueur` et `resume_tronque`), questions ouvertes, journal |
+| `GET /v1/projets/{id}/cartes/{carte}` | — | `carte` : résumé ENTIER (masqué, borné à 100 000 caractères, `tronque` le dit) ; 404 hors du projet |
+| `POST /v1/projets/{id}/pause`, `/reprise` | `{}` | `{projet, cartes_planifiees}` / `{projet, cartes_reveillees}` ; reprise refusée (409) au plafond de projets actifs |
+| `GET /v1/questions` | — | `questions[]` ouvertes et escaladées (titre de la carte, contexte) ; cartes en `triage` (`genre`, `actions` offertes) et `bloquees` (`abandonnee` si le disjoncteur a abandonné), avec leur `raison` connue |
+| `POST /v1/questions/{q}/reponse` | `reponse` | `{question, etat, carte_debloquee, reprise_differee}` (projet en pause : la carte reprendra à la reprise, D47) |
+| `POST /v1/triage/{tableau}/{carte}/reprendre` | `consigne?` | `{carte, reprise, action, plafond}` : « prolongation » (plafond relevé), « relance_planification » ou « reprise » ; 409 sur un projet en pause ou au plafond de corrections (P6) |
+| `POST /v1/triage/{tableau}/{carte}/conclure` | `{}` | `{carte, conclu, projet}` : carte de décision archivée, projet « termine » (ou « abandonne » sans aucun tour) ; 409 tant qu'une autre carte est ouverte (D41) |
+| `POST /v1/pause` | `{"generale": true, "raison"?}` ou `{"generale": false}` | `{pause_generale}` (arrêt d'urgence de Hermes, D31) ; la reprise est refusée (409) tant que des crochets shell sont déclarés (D45) |
 | `GET /v1/poste` | — | `{poste, catalogue}` |
-| `POST /v1/notifications/test` | `{}` | 202 (mise en file, envoyée par la passerelle) ; 409 « Notifications non configurées. » |
+| `POST /v1/notifications/test` | `{}` | 202 (mise en file, envoyée par la passerelle) ; 409 « Notifications non configurées. », ou « état du canal inconnu » tant que la passerelle ne l'a pas publié |
 
 `GET /v1/meta` ajoute le bloc `projets` : base, schéma, projets actifs, relevé factice présent, pause
 générale, émetteur (dernière passe, processus, cartes du poste en attente par tableau, canal, file).
@@ -100,22 +107,30 @@ l'Accueil.
 | Vue | Adresse | Routes appelées | Contenu et gestes |
 |---|---|---|---|
 | Liste | `/projets` | `GET /v1/projets` | une carte par projet : état (dérivé : exploration, planification, en cours, en attente du poste, synthèse, plafond atteint, en pause, terminé), « Cartes faites : n sur m », poste, questions en attente, dernière note ; carte « Poste Windows » ; carte « Notifications » (canal, état, notification de test) ; carte « Pause générale » |
-| Nouveau projet | `?vue=nouveau` | `GET /v1/catalogue` (types de projet), `GET /v1/poste` (dépôts et relevés), `POST /v1/projets` | titre, objectif, type de projet, qui répond (Hermes d'abord ou moi), dépôt, exploration (exécutant, modèle, effort) |
-| Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `POST /v1/projets/{id}/pause`, `…/reprise` | état, objectif, tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier, **« Modèle servi : Non observé »** avant P6, mention, résumé replié) ; tours et décisions ; questions en attente ; journal ; **Mettre en pause** / **Reprendre** |
-| Questions | `?vue=questions` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre` | questions ouvertes ou escaladées avec **Répondre** ; cartes en triage avec **Reprendre** et une consigne facultative ; cartes bloquées ou abandonnées **en lecture seule** (« Relancer » : P7) |
+| Nouveau projet | `?vue=nouveau` | `GET /v1/catalogue` (types de projet), `GET /v1/poste` (dépôts et relevés), `POST /v1/projets` | titre, objectif, type de projet, dépôt, qui répond (Hermes d'abord ou moi : avec un dépôt seulement, D42), exploration (exécutant, modèle, effort) |
+| Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `GET /v1/projets/{id}/cartes/{carte}`, `POST /v1/projets/{id}/pause`, `…/reprise` | état, objectif, **résultat du projet** (synthèse du dernier tour, en entier), tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier « Standard », **« Modèle servi : Non observé »** avant P6, mention, résumé replié : un extrait le dit et **Lire le résumé en entier**) ; tours et décisions ; questions en attente ; journal en français (détail technique replié) ; **Mettre en pause** / **Reprendre** |
+| Questions | `?vue=questions` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre`, `…/conclure` | questions ouvertes ou escaladées (titre de la carte, contexte) avec **Répondre** ; cartes en triage avec les gestes offerts : **Prolonger** ou **Relancer la planification** (consigne facultative) et **Conclure le projet**, ou **Reprendre** ; cartes bloquées ou abandonnées **en lecture seule** avec leur raison (« Relancer » : P7) ; le compteur de l'onglet compte questions ET décisions |
 
 Règles, toutes testées (Vitest, image, navigateur) :
 
-- **Aucun bouton sans route réelle et testée.** La pause générale demande une confirmation ; la
-  notification de test n'est active que si un canal est configuré, sinon le bouton est désactivé et la
-  page dit « Notifications non configurées (variables ACP_NOTIFICATIONS… du service Hermes sur
-  Railway). ».
+- **Aucun bouton sans route réelle et testée.** La pause générale demande une confirmation, et dit ce
+  qu'elle arrête vraiment (la discussion reste ouverte) ; engagée par la veille des crochets shell, elle
+  n'offre pas « Reprendre » (refusé tant qu'ils existent) mais la marche à suivre. La notification de test
+  n'est active que si un canal est configuré ; sinon le bouton est désactivé et la page dit « Notifications
+  non configurées : leur activation passe par une PR… (railway.md, § 9) », ou « État du canal inconnu »
+  tant que la passerelle ne l'a pas publié.
+- **Une réussite suit la réponse de l'API** : « la carte reprend », « reprendra à la reprise du projet » ou
+  « n'a pas été relancée » ; « Plafond relevé », « Planification relancée », « Carte reprise » ou « n'a pas
+  été reprise ».
+- **Historique** : chaque changement de vue voulu par le propriétaire ajoute une entrée (`pushState`) ; le
+  geste « retour » du téléphone ramène à la vue précédente de la page (relecture de P4).
 - **Aucune donnée inventée** : « Inconnu » pour une valeur absente, « Non configuré » pour un poste
   jamais vu, « Non observé » (servi par le greffon) pour le modèle réellement servi ; un code inconnu du
   greffon est montré tel quel, comme donnée ; une actualisation ratée garde la dernière valeur lue et le
   dit.
 - **Sans inventaire du poste** (D25), le champ Dépôt est désactivé et la page dit « Aucun dépôt connu : le
-  poste n'a encore publié aucun inventaire (étape P5). » ; seul « Sans dépôt » est possible. Avec un
+  poste n'a encore publié aucun inventaire (étape P5). » (« Dépôts inconnus » si l'inventaire est illisible)
+  ; seul « Sans dépôt » est possible, et « Qui répond » y est dit sans objet (D42). Avec un
   relevé, l'exploration se choisit **seulement** parmi les exécutants, modèles et efforts relevés, efforts
   interdits exclus (D39) ; un relevé factice est signalé comme tel.
 - **Refus de l'API affichés tels quels** (message français du greffon, code HTTP) ; le formulaire reste
@@ -137,7 +152,13 @@ texte d'une question.
 
 Règles : `blocked` (hors `dependency`) → « bloquée » ; `block_loop_detected` → triage ; `gave_up` →
 abandon ; synthèse du tour courant finie sans carte ouverte → « terminé » (une fois) ; question escaladée ;
-poste hors ligne (une fois par passage) ; plafond atteint ; crochets shell apparus (pause générale, D34).
+poste hors ligne (une fois par passage) ; plafond atteint (une fois par valeur du plafond : une prolongation
+puis un nouveau plafond en redemandent une) ; crochets shell apparus (pause générale, D34). Filets
+déterministes de la relecture (D46) : planification finie sans plan → carte de décision et notification
+(« …la planification s'est terminée sans plan, votre décision est attendue. ») ; question dont la carte
+« répondre » s'est finie sans suite → escaladée, notification « question ». Aucune notification quand le
+propriétaire conclut lui-même. L'envoi ne suit **aucune redirection** (le jeton ntfy ne part que vers
+l'URL configurée) ; un 3xx est un échec réessayé vers la même URL.
 
 ## 6. Managed scope et démarrage
 
@@ -156,7 +177,17 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   contre un faux serveur.
 - Poste réel (routes machine, jeton, réclamation, exécution) : P5-P6. Un poste SIMULÉ joue son rôle dans les
   tests par l'API kanban et les fonctions du greffon.
-- Pendant la pause générale, aucune passe : aucune NOUVELLE notification (D31).
+- Pendant la pause générale, aucune passe : aucune NOUVELLE notification d'avancement (D31) ; celles déjà
+  en file et la notification de test partent encore. La **discussion** avec Hermes reste ouverte (l'arrêt
+  d'urgence de Hermes n'est lu que par cron, le répartiteur kanban, la passerelle de messagerie et
+  `api_server`) ; lancer un projet y est refusé par ACP.
+- « Clore » un projet quelconque (le passer « abandonné » et archiver ses cartes) n'existe pas en P4 : une
+  carte abandonnée par le disjoncteur laisse le projet « en cours » ; seule parade, la pause (qui libère une
+  place de projet actif). « Conclure » n'existe que sur une carte de décision (D41). P7.
+- Surcharge de routage d'une carte existante : refusée jusqu'à P6 (D43). Prolonger le plafond de
+  corrections : P6 (les corrections y sont câblées).
+- Un résumé de carte n'est rendu qu'en extrait (500 caractères) dans le détail, et le dit ; « Lire le
+  résumé en entier » le lit par la route de la carte, bornée à 100 000 caractères (dit aussi).
 - Les variables de notification restent lisibles par l'uid hermes dans `/run/s6/container_environment` et
   dans l'environnement initial des processus de la passerelle et du tableau de bord (même limite que le
   secret OIDC) ; l'agent n'a aucun outil pour les lire, et les workers ne les reçoivent plus.
@@ -175,6 +206,8 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
 - Page « Projets » : la file Questions complète (`open_requests`, réglage par projet) et le temps réel
   (SSE) sont en P7 ; « Relancer » une carte bloquée ou abandonnée aussi (lecture seule en P4). Le rendu
   n'est prouvé que dans Chromium (390×844 émulé, pas un vrai téléphone ni Safari iOS).
+- Sans dépôt, aucune question ne peut naître (seules les cartes du poste en posent) : un manque se dit par
+  une carte bloquée avec sa raison, que la page Questions montre en lecture seule (D42).
 
 ## 8. Écarts au cahier de conception, justifiés
 
@@ -206,8 +239,10 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
     `Notifications.tsx`, bandeau et commande de pause générale dans `BandeauPause.tsx`, briques
     communes dans `briques.tsx`, libellés dans `libelles.ts`, sondage dans `sondage.ts` ; le catalogue
     des chaînes reste unique (`src/chaines.ts`, bloc `T.projets`) au lieu d'un fichier par greffon ;
-  - au navigateur, « Reprendre » une carte en triage et « Envoyer une notification de test » ne sont pas
-    cliqués (aucune carte en triage dans le parcours ; canal non configuré dans la pile d'identité) :
+  - au navigateur, « Reprendre » une carte en triage (et, depuis la relecture, « Prolonger », « Relancer la
+    planification » et « Conclure le projet ») et « Envoyer une notification de test » ne sont pas
+    cliqués (aucune carte en triage dans le parcours ; canal non configuré dans la pile d'identité) ; les
+    décisions sont prouvées par Vitest, les tests d'image et le contrat (§ 12) ;
     leurs requêtes sont prouvées par Vitest, leurs routes par les tests d'image
     (`test_reprise_d_un_triage_par_la_route`, `test_notification_de_test`) et, pour la notification de
     test, par le contrat (`test_notification_de_test_envoyee_par_la_passerelle` : reçue une seule fois
@@ -292,7 +327,7 @@ arbre sans la correction de la course du § 7, qu'il ne touche pas.
 |---|---|---|
 | Interface | `npm test --prefix apps/interface` puis `npm run check` | TypeScript sans erreur ; Vitest **80 réussis** (13 fichiers, dont 25 pour la page) ; 6 fichiers de greffons à jour |
 | Dépôt | `python -m pytest -q` (venv Python 3.12.10 du verrou) | **386 réussis** (33,6 s) |
-| Contrôles | `check_version.py`, `check_engine_frozen.py`, `verifier_catalogue.py`, `balayer_secrets.py`, `git diff --check` | 0.11.0 partout (manifeste d'`acp-projets` compris) ; moteur gelé ; 21 skills ; aucun motif de secret ; propre |
+| Contrôles | `check_version.py`, `check_engine_frozen.py`, `verifier_catalogue.py`, `balayer_secrets.py`, `git diff --check` | 0.11.0 partout (manifeste d'`acp-projets` compris) ; moteur gelé ; 21 skills ; aucun motif de secret ; « propre » était **faux** : `git diff --check refonte/hermes-p3..HEAD` signalait deux lignes vides en fin de fichier (79afb4b, 609b96c), relevées par la relecture et corrigées (§ 12) |
 | Dans l'image | `docker run … acp-hermes-tests:p4k -m pytest /opt/acp-tests/image` | **493 réussis** (4 min 31 s) : 491 de la première partie, plus la reprise d'un triage par la route et la course du contrôle d'écriture |
 | Contrat P4 | `… pytest -s -v -rA hermes/tests/contrat/test_projets_contrat.py` (images `p4k`) | **18 réussis** (10 min 21 s), dont la notification de test reçue une seule fois par le faux ntfy |
 | Contrat interface et catalogue | `… test_interface_contrat.py test_catalogue_contrat.py` (images `p4i`) | **14 réussis** (2 min 14 s) : `acp-projets` servi, octet pour octet celui du dépôt ; version dans la méta |
@@ -351,8 +386,10 @@ Branche poussée le 26/09/2026, sommet `ff5d61f` :
     projets « Terminé » 71,1 s après la fin des explorations, groupe des greffons Kanban, Projets,
     Catalogue, aucune requête hors de l'origine ; aucun conteneur, volume ni réseau de test restant.
   - Poussés ensuite : `5002285` (la page remonte en haut à chaque changement de vue ; Vitest 80 et
-    navigateur `test_projets.py` et `test_interface_fr.py` rejoués en local : 2 réussis, 3 min 53 s) et
-    `8532ee2` (citation des lignes de Hermes) ; leur CI n'est pas consignée ici (elle suivrait ce commit).
+    navigateur `test_projets.py` et `test_interface_fr.py` rejoués en local : 2 réussis, 3 min 53 s),
+    `8532ee2` (citation des lignes de Hermes) et `463db67` : CI de `463db67` **verte** (`ci.yml`
+    [36246916733](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36246916733),
+    `image.yml` [36246916752](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36246916752)).
 
 ## 11. Non prouvé
 
@@ -365,3 +402,90 @@ Branche poussée le 26/09/2026, sommet `ff5d61f` :
 - La course de découverte des greffons au démarrage d'un worker (`hermes_cli/cli_init_mixin.py:214-228`)
   n'a jamais été observée ; si elle survenait, la carte échouerait et serait relancée (`failure_limit: 3`),
   visiblement.
+
+## 12. Relecture indépendante de P4 : traitement (26/09/2026)
+
+Trois relectures de `463db67` (scénario du propriétaire, garde, produit) ont relevé 21 constats (deux
+identiques : `git diff --check`). Chacun a été vérifié : **tous sont réels** ; aucun n'est réfuté. Chaque
+correction a un test qui échoue sans elle (preuves en fin de section). Décisions ajoutées : **D41 à D47**
+([plan](plan.md) § 1, non confirmées).
+
+| # | Constat (lentille, gravité) | Traitement | Preuve |
+|---|---|---|---|
+| 1 | Planification finie sans `projet_planifier` : projet arrêté, affiché « en cours », sans carte ni notification (scénario, haute) | Filet de l'émetteur (`planifications_sans_plan`, D46) : UNE carte de décision « Planification sans plan » et UNE notification ; état dérivé `a_decider` (dès la fin de la carte) ; « Relancer la planification » fait planifier le tour 1 par cette carte ; « Conclure » → « abandonné ». **Écart** : la garde ne refuse pas `kanban_complete` sur une planification sans tour (complément proposé) : le modèle se rabattrait sur `kanban_block`, et une carte bloquée ne se relance pas depuis la page en P4 ; le filet couvre toutes les fins | image `test_planification_finie_sans_plan_adresse_une_decision`, `test_conclure_une_planification_sans_plan_abandonne_le_projet` ; contrat `test_planification_sans_plan_puis_relance` ; témoin |
+| 2 | « Reprendre » une carte de triage de plafond : Hermes ne peut pas planifier (refus `contexte`), le projet passe « terminé » avec sa notification (scénario, haute) | Option (a), D41 : « Prolonger » relève le plafond (tours + 1, cartes + `prolongation_cartes` = 10), journalisé ; la carte de décision peut alors appeler `projet_planifier` (tour courant + 1), jamais avant la décision ; carte, section de prompt (rôle « triage ») et skill `acp-orchestration` alignées (empreinte du verrou mise à jour) ; une carte de décision par VALEUR du plafond | image `test_prolonger_au_plafond_de_tours_planifie_un_tour_de_plus` ; contrat `test_prolonger_au_plafond_puis_conclure` ; témoin |
+| 3 | Plafond de cartes atteint quand la synthèse veut un tour : refus sans triage ni notification, puis « terminé » (scénario, moyenne) | Quand moins de deux cartes restent (aucun plan ne tient) : carte de décision « cartes » et notification « plafond » ; sinon le refus « Réduisez le plan » reste | image `test_plafond_de_cartes_sans_plan_possible_adresse_une_decision` ; témoin |
+| 4 | Question « hermes_d_abord » dont la carte « répondre » finit sans réponse ni escalade : bloquée en silence (scénario, moyenne) | Filet de l'émetteur (`questions_sans_suite`, D46) : escalade (motif dit), notification « question ». **Écart** : pas de refus de `kanban_complete` sur la carte « répondre » (même raison qu'au n° 1) | image `test_question_sans_suite_escaladee` ; contrat `test_question_sans_suite_escaladee_par_la_passerelle` ; témoin |
+| 5 | `routage_surcharger` de portée « carte » répond « ok » sans effet (scénario, moyenne) | Refus explicite `surcharge_carte` (D43), schéma réduit à la portée « projet » | image `test_surcharge_d_une_carte_refusee_tant_qu_elle_ne_s_applique_pas` ; témoin |
+| 6 | La reprise d'un projet en pause dépasse `projets_actifs_max` (scénario, basse) | Contrôle à la reprise, 409 `projets_actifs` | image `test_reprise_respecte_le_plafond_de_projets_actifs` ; témoin |
+| 7 | `git diff --check` pas propre (lignes vides en fin de fichier), et § 9 disait « propre » (scénario et garde, basse) | Lignes retirées ; § 9 corrigé ; test du dépôt `test_aucun_fichier_suivi_ne_finit_par_une_ligne_vide` | test en échec avant, réussi après ; `git diff --check refonte/hermes-p3..HEAD` : code 0 |
+| 8 | Isolation des projets non garantie : `kanban_comment` et `kanban_link` acceptent un `board` et un `task_id` choisis par le modèle (garde, moyenne) | Garde (D44) : dans un worker, tout `kanban_*` sur un autre tableau refusé ; `kanban_comment` sur sa seule carte ; `kanban_link` retiré (33 noms). En P6 : le poste n'exécute que le corps émis par le greffon et les commentaires du propriétaire et de `hermes (acp-questions)` (décision à tenir) | image `test_un_worker_ne_touche_que_son_tableau_et_sa_carte`, `test_garde_liste_blanche` ; témoin |
+| 9 | Le transport suit une redirection et y transmet le jeton ntfy (garde, basse) | Ouvreur sans redirection ; un 3xx est un échec « HTTP 3xx », réessayé vers la même URL | image `test_transport_ne_suit_aucune_redirection` (sur le greffon de `463db67` : code 200, jeton reçu par l'autre hôte) ; témoin |
+| 10 | « Reprendre » lève une pause générale engagée par la veille des crochets encore présents (garde, basse) | 409 `crochets` (D45) ; le bandeau n'offre pas « Reprendre » pour cette raison et dit la marche à suivre | image `test_reprise_generale_refusee_tant_que_des_crochets_existent` ; Vitest ; témoin |
+| 11 | Résultat coupé à 500 (détail) et 200 (liste) caractères sans le dire ni moyen de le lire (produit, haute) | `resume_longueur`, `resume_tronque`, `derniere_note_tronquee` ; route `GET /v1/projets/{id}/cartes/{carte}` (entier, borné à 100 000 et dit) ; `resultat` du projet (synthèse du dernier tour, en entier) ; page : « Extrait : 500 caractères sur N », « Lire le résumé en entier », « Résultat du projet » | image `test_resume_coupe_le_dit_et_se_lit_en_entier`, `test_resultat_du_projet_en_entier` ; Vitest ×2 ; navigateur (résultat affiché) ; témoin |
+| 12 | Raison d'une carte bloquée « Inconnu » alors qu'elle est dans l'événement (produit, haute) | Raison du dernier `blocked`/`block_loop_detected`, erreur du disjoncteur pour un abandon, détail de la décision pour une carte de décision | image `test_raison_connue_des_cartes_bloquees_et_en_triage` ; Vitest ; témoin |
+| 13 | « Qui répond » proposé sans dépôt, sans effet possible (produit, moyenne) | Choix masqué et note « sans objet » (D42), champ placé après le dépôt ; limite au § 7 | Vitest ; navigateur (aucun bouton radio sans dépôt) |
+| 14 | Texte de la pause générale inexact : la discussion continue (produit, moyenne) | Vérifié dans la source de Hermes (`agent.estop` lu par cron, `kanban_watchers_common`, `api_server`, `run_busy`, `run_inbound`, `status`, `pause` seulement) ; texte, D31 et § 7 corrigés | Vitest |
+| 15 | Réussite annoncée sans lire la réponse de l'API (produit, moyenne) ; en plus, une réponse sur un projet en pause rendait la carte « prête », donc réclamable, jusqu'à la passe suivante | Messages d'après `carte_debloquee`/`reprise_differee` et `reprise`/`action` ; sur un projet en pause, la carte reste planifiée et reprend à la reprise du projet ; décision de triage refusée pendant la pause (D47) | Vitest ×2 ; image `test_reponse_pendant_la_pause_reprend_a_la_reprise_du_projet`, `test_decision_de_triage_refusee_sur_un_projet_en_pause` ; témoin |
+| 16 | Ni prolonger ni clore un projet ; `abandonne` jamais posé ; compteur sans les décisions (produit, moyenne) | D41 : « Prolonger », « Relancer la planification », « Conclure le projet » (pose `termine` ou `abandonne`) ; compteur = questions + décisions ; « Clore » un projet quelconque : P7 (limite dite) | image (n° 1 et 2), `test_conclure_au_plafond_termine_sans_notification`, `test_conclure_par_la_route` ; Vitest |
+| 17 | Le « retour » du téléphone quitte la page (produit, moyenne) | `history.pushState` pour les gestes, relecture sur `popstate` | Vitest ; navigateur (`go_back`, `go_forward`) |
+| 18 | « Non configurées » affirmé quand l'état est inconnu ; « aucun inventaire » quand `/v1/poste` a échoué (produit, basse) | « État du canal inconnu… » (page et 409), « Dépôts inconnus… » ; renvoi à [railway.md](railway.md) § 9 (PR d'abord) | image `test_liste_vide_et_etats_inconnus`, `test_notification_de_test` ; Vitest ×2 |
+| 19 | Affichages techniques : journal brut, « Palier : default », question sans titre de carte ni contexte (produit, basse) | Journal en français (action, acteur), détail technique replié ; « Standard » ; titre de la carte et contexte rendus par `/v1/questions` et affichés. **Gardé** : les efforts `low`/`medium` sont des valeurs du relevé du poste, montrées telles quelles (donnée) | image `test_question_listee_avec_le_titre_de_sa_carte_et_son_contexte` ; Vitest |
+| 20 | Décisions de P4 moins bien posées que P3 (produit, basse) | Priorité (D25, D31, D39, D40, D41), colonne « Autre option et conséquence pour vous », D41 à D47 | `test_les_choix_de_p4_se_disent_non_confirmes` |
+
+**Chaque test échoue sans sa correction** (26/09/2026) :
+
+- les **18** nouveaux tests d'image, lancés sur le greffon de `463db67` (`git archive`, monté à la place de
+  celui de l'image `acp-hermes-tests:p4r`) : **18 échecs sur 18** (`en_cours` au lieu de `a_decider`,
+  question restée `ouverte`, code 200 et jeton reçu par l'hôte de redirection, « Réduisez le plan » sans
+  décision, 200 au lieu de 409 sur les crochets, raison `None`, surcharge « ok »…) ;
+- les **13** tests Vitest de `projets-relecture.test.tsx`, lancés sur les sources de `463db67` : **13 échecs
+  sur 13** ;
+- `test_aucun_fichier_suivi_ne_finit_par_une_ligne_vide` : en échec avant le retrait des deux lignes ;
+  `test_les_choix_de_p4_se_disent_non_confirmes` : en échec sur l'ancien tableau ;
+- `scripts/temoins_negatifs_p4.sh` : **12 témoins de plus** (24 en tout), chaque protection de la
+  relecture retirée fait échouer son test.
+
+Commits (aucun `Co-Authored-By`) : `3ebba83` style (lignes vides en fin de fichier), `8f9762f` garde et
+transport, `4ef7e9e` cœur du greffon, `353a843` page « Projets », puis cette documentation.
+
+### Preuves locales de la relecture (26/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0, Playwright 1.62.0 et son Chromium déjà présent)
+
+Images `acp-hermes:p4r` et `acp-hermes-tests:p4r` construites depuis l'arbre corrigé (greffons, bundles et
+tests d'image identiques à `353a843`, empreintes SHA-256 comparées fichier par fichier) ; identité
+`acp-identite:p4` (dossier `identite/` inchangé).
+
+| Suite | Commande | Résultat |
+|---|---|---|
+| Dépôt | `python -m pytest -q` (venv Python 3.12.10 du verrou) | **387 réussis** (39 s) : les 386 d'avant et `test_aucun_fichier_suivi_ne_finit_par_une_ligne_vide` |
+| Contrôles | `check_version.py`, `check_engine_frozen.py`, `verifier_catalogue.py`, `balayer_secrets.py --plage refonte/hermes-p3..HEAD`, `git diff --check refonte/hermes-p3..HEAD` | code 0 chacun : 0.11.0 ; moteur gelé ; 21 skills (empreinte d'`acp-orchestration` mise à jour dans le verrou) ; aucun motif de secret ; aucune erreur d'espace |
+| Interface | `npm test --prefix apps/interface` puis `npm run check` | TypeScript sans erreur ; Vitest **93 réussis** (14 fichiers, dont les 13 de `projets-relecture.test.tsx`) ; 6 fichiers de greffons à jour |
+| Dans l'image | `docker run … acp-hermes-tests:p4r -m pytest /opt/acp-tests/image` | **511 réussis** (5 min 28 s) : 493 d'avant et 18 nouveaux |
+| Témoins négatifs | `IMAGE=acp-hermes-tests:p4r bash scripts/temoins_negatifs_p4.sh` | **24 sur 24** (82 s) |
+| Contrat complet | `python -m pytest -s -v -rA hermes/tests/contrat` (images `p4r`) | **139 réussis** (32 min 48 s) : les 136 d'avant et 3 nouveaux ; puis `test_routes_sans_session_401` étendu aux 13 routes P4 : **1 réussi** (401 partout) |
+| Navigateur | `ACP_E2E_OBLIGATOIRE=1 … python -m pytest -s -v -rA hermes/tests/e2e` (images `p4r`) | **6 réussis** (5 min 01 s) |
+
+Relevés du contrat (pile complète : passerelle, répartiteur, workers kanban réels, modèle factice, faux
+ntfy, poste simulé) :
+
+- **planification sans plan** : carte de décision « Planification sans plan — votre décision est
+  attendue » (gestes `relancer`, `conclure` ; raison « carte … finie sans appel réussi à
+  projet_planifier ») ; liste `actif` / `a_decider` ; UNE notification ; après « Relancer la
+  planification », le worker de la carte de décision planifie le tour 1 (`"ok": true, "tour": 1`) et le
+  projet va au bout (planification, décision, étape Hermes, synthèse : « Faite ») ; notifications :
+  « sans plan » puis « terminé : 4 cartes faites » ;
+- **question sans suite** : escaladée par la passerelle (« Hermes n'a ni répondu ni escaladé… (done) »),
+  UNE notification « question », carte reprise après la réponse depuis la route ;
+- **prolonger puis conclure** : au plafond de 1 tour, « Prolonger » relève le plafond à 2 ; le worker de la
+  carte de décision planifie le tour 2 (`"ok": true, "tour": 2`) ; au nouveau plafond, UNE nouvelle
+  décision et sa notification ; « Conclure » termine le projet ; notifications : deux « plafond de tours
+  atteint », aucune « terminé ».
+
+Relevés du navigateur (`test_projets.py`, 390×844 et 1440×900) : aux deux formats, « Qui répond » absent
+sans dépôt et la note affichée ; « retour » ramène au formulaire de la page Projets et « avancer » au
+détail ; résultat du projet affiché en entier (« Conclusion : la recherche est faite. ») ; quatre projets
+« Terminé » 76,5 s après la fin des explorations ; aucune violation axe ; aucun texte hors du catalogue ;
+aucune requête hors de l'origine (202 au téléphone, 307 au bureau). Aucun
+conteneur, volume ni réseau de test restant (liste des volumes identique avant et après).
+
+Intégration continue de ces corrections : poussée après ce commit, consignée ensuite.
