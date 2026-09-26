@@ -2,7 +2,7 @@
   "name": "@acp/interface",
   "private": true,
   "version": "0.11.0",
-  "description": "Greffons de tableau de bord d'ACP pour Hermes (acp-interface, acp-catalogue) : sources TypeScript, bundles IIFE déterministes committés sous hermes/plugins. Hors des workspaces npm de la racine.",
+  "description": "Greffons de tableau de bord d'ACP pour Hermes (acp-interface, acp-catalogue, acp-projets) : sources TypeScript, bundles IIFE déterministes committés sous hermes/plugins. Hors des workspaces npm de la racine.",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"

@@ -41,6 +41,14 @@ export function dateAbsolue(valeur: unknown): string | null {
   return ms === null ? null : absolu.format(new Date(ms));
 }
 
+/** Horodatage ISO 8601 (« 2026-09-26T11:44:00+00:00 », arrêt d'urgence de Hermes) en
+ *  millisecondes ; null s'il est illisible. */
+export function isoVersMillisecondes(valeur: unknown): number | null {
+  if (typeof valeur !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(valeur)) return null;
+  const ms = Date.parse(valeur);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function nombre(valeur: unknown): string | null {
   return typeof valeur === "number" && Number.isFinite(valeur) ? nombres.format(valeur) : null;
 }

@@ -32,5 +32,9 @@ export function useMemo<T>(calcul: () => T, dependances: readonly unknown[]): T 
   return react().useMemo(calcul, dependances);
 }
 
+export function useRef<T>(initial: T): { current: T } {
+  return react().useRef<T>(initial);
+}
+
 export type Noeud = ReactTypes.ReactNode;
 export type Composant<P = Record<string, never>> = (props: P) => ReactTypes.ReactNode;

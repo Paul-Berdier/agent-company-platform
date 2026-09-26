@@ -24,9 +24,26 @@ export class ApiErrorHermes extends Error {
   }
 }
 
+/** Une requête vue par le fetchJSON factice : méthode, corps JSON décodé, en-têtes posés par l'appelant. */
+export interface Requete {
+  url: string;
+  methode: string;
+  corps: unknown;
+  entetes: Record<string, string>;
+}
+
 export interface Installation {
   appels: string[];
+  requetes: Requete[];
   langue: { valeur: string; changements: string[] };
+}
+
+function entetesDe(init: RequestInit | undefined): Record<string, string> {
+  const brut = init?.headers;
+  if (!brut) return {};
+  if (brut instanceof Headers) return Object.fromEntries([...brut.entries()]);
+  if (Array.isArray(brut)) return Object.fromEntries(brut);
+  return { ...(brut as Record<string, string>) };
 }
 
 const ContexteLangue = React.createContext<{ locale: string; setLocale: (l: string) => void } | null>(null);
@@ -44,19 +61,33 @@ export function FournisseurLangue(props: { installation: Installation; children?
   return React.createElement(ContexteLangue.Provider, { value: { locale, setLocale } }, props.children);
 }
 
+/** SDK factice. Une réponse est cherchée sous « <MÉTHODE> <url> » pour une écriture, sous « <url> »
+ *  pour une lecture ; la table peut être modifiée par le test entre deux requêtes (état du serveur). */
 export function installerSdk(reponses: Record<string, Reponse> = {}, options: { version?: unknown; langue?: string } = {}):
   Installation {
-  const installation: Installation = { appels: [], langue: { valeur: options.langue ?? "en", changements: [] } };
+  const installation: Installation = {
+    appels: [],
+    requetes: [],
+    langue: { valeur: options.langue ?? "en", changements: [] },
+  };
   const sdk: SdkHermes = {
     sdkVersion: "version" in options ? options.version : "1.1.0",
     React,
-    fetchJSON: (async (url: string) => {
+    fetchJSON: (async (url: string, init?: RequestInit) => {
+      const methode = (init?.method ?? "GET").toUpperCase();
       installation.appels.push(url);
-      if (!(url in reponses)) {
+      installation.requetes.push({
+        url,
+        methode,
+        corps: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        entetes: entetesDe(init),
+      });
+      const cle = methode === "GET" ? url : `${methode} ${url}`;
+      if (!(cle in reponses)) {
         throw new ApiErrorHermes("The server could not find what the dashboard asked for.", 404,
                                  '{"detail":"Not Found"}', url);
       }
-      const r = reponses[url];
+      const r = reponses[cle];
       if (r instanceof Error) throw r;
       return JSON.parse(JSON.stringify(r));
     }) as SdkHermes["fetchJSON"],
@@ -72,12 +103,17 @@ export interface Rendu {
   texte: () => string;
 }
 
+/** Racines encore montées : démontées après chaque test (tests/preparation.ts), même quand un test
+ *  échoue avant son propre démontage (sinon ses minuteries de sondage courent dans le test suivant). */
+export const racinesMontees = new Set<Root>();
+
 export async function rendre(element: React.ReactElement): Promise<Rendu> {
   const racine = document.createElement("div");
   document.body.appendChild(racine);
   let root: Root | null = null;
   await act(async () => {
     root = createRoot(racine);
+    racinesMontees.add(root);
     root.render(element);
   });
   // Laisser les promesses de chargement se résoudre.
@@ -86,9 +122,22 @@ export async function rendre(element: React.ReactElement): Promise<Rendu> {
   });
   return {
     racine,
-    demonter: () => act(() => root?.unmount()),
+    demonter: () =>
+      act(() => {
+        if (root) racinesMontees.delete(root);
+        root?.unmount();
+      }),
     texte: () => (racine.textContent ?? "").replace(/\s+/g, " ").trim(),
   };
+}
+
+/** Laisse s'enchaîner les lectures (une lecture qui en déclenche une autre, un envoi puis sa relecture). */
+export async function attendre(tours = 4): Promise<void> {
+  for (let i = 0; i < tours; i += 1) {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
 }
 
 /** Nœuds de texte non vides qui ne sont ni dans le catalogue ni sous un élément data-acp-donnee. */
