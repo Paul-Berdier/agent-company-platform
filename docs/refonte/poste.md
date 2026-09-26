@@ -466,7 +466,8 @@ identifiant lu.
 | Suite | Commande | Résultat |
 |---|---|---|
 | Dépôt, sur l'arbre de **chaque** commit (worktree jetable, détaché) | `python -m pytest -q` | `a00999a` 483 ; `75e40a9` 497 et 1 ignoré ; `0fa006b` 507 et 1 ; `df6fe82` 545 et 1 ; `cbae66c` 556 et 1 ; `6306d88` 575 et 3 ; `75601d0` 586 et 3 ; `09edfb5` 586 et 3 : **0 échec** |
-| Dépôt, arbre final (`d9ad283`), Windows | `python -m pytest -q -rs` | **587 réussis, 3 ignorés** (tests propres à Linux : coffre hors Windows, emplacements par défaut hors Windows, ligne d'état hors Windows) ; 2 min 55 s |
+| Dépôt, arbre `d9ad283`, Windows | `python -m pytest -q -rs` | **587 réussis, 3 ignorés** (tests propres à Linux : coffre hors Windows, emplacements par défaut hors Windows, ligne d'état hors Windows) ; 2 min 55 s |
+| Dépôt, arbre final `cb394b4` (après la correction de la CI), Windows, jeton standard | `python -m pytest -q -rs` | **588 réussis, 3 ignorés** (les mêmes trois) ; 2 min 55 s |
 | Dépôt, arbre final, Linux (conteneur `python:3.12-slim`, verrou haché) | idem | **572 réussis, 18 ignorés** (DPAPI réel, ACL, Job Object, dossiers connus : propres à Windows) ; 2 min 10 s |
 | dont le poste | `apps/poste/tests` | 323 tests, dont **35** de contrat contre le faux Hermes HTTPS |
 | Installeur et désinstalleur en simulation | `packaging/poste/tests/Test-InstallationPoste.ps1` (PowerShell 7.6.6, puis 5.1) | **13 vérifications réussies, 1 cas ignoré, 0 échec** dans les deux ; cas ignoré : aucun Python 3.12 « tous utilisateurs » sur ce PC (celui de python.org y est installé « pour moi seul ») ; état du PC identique avant et après chaque cas |
@@ -503,7 +504,23 @@ Rapport JSON du dernier passage (non committé, comme les captures : D17) : SHA-
 
 ## 24. Intégration continue (poste)
 
-Relevée après la poussée de la branche : voir le commit de documentation qui suit (les runs de la première partie sont au § 13).
+Branche poussée le 27/09/2026.
+
+- `ci.yml` [36279917625](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36279917625) (`1952ce8`) : **échec** du volet « Poste » sous windows-2022, les autres
+  volets verts. Deux témoins d'ACL réelles (`test_politique_remplacable_refusee`, `test_isolement_liste_refusee`)
+  échouaient : le jeton **administrateur élevé** de l'exécuteur contourne les ACL de test (écriture obtenue malgré un ACE
+  en lecture seule, liste obtenue malgré un refus). Correction `cb394b4` : ces deux témoins sont ignorés, avec la
+  raison, sous un jeton élevé, et tournent sous un jeton standard (celui du compte dédié, et celui du poste de
+  développement, où ils réussissent). Les contrôles de production échouent fermés sous un jeton élevé (tout y paraît
+  modifiable). Le même envoi portait `b59cda4` (message du mode propriétaire après `connexion bac-a-sable`).
+- `ci.yml` [36280303337](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280303337) (`cb394b4`) : **succès**. Poste windows-2022 **586 réussis, 5 ignorés** (3
+  propres à Linux, 2 témoins d'ACL sous jeton élevé) ; installeur et désinstalleur **en simulation** sur le runner :
+  **19 vérifications réussies, 0 cas ignoré, 0 échec** (le cas « installation acceptée » tourne avec le Python 3.12
+  « tous utilisateurs » de setup-python ; « rien écrit » ou « rien supprimé » vérifié à chaque cas) ; poste ubuntu **573 réussis, 18
+  ignorés** (propres à Windows) ; interface 110 (16 fichiers) ; moteur 74 ; gel du moteur, blancs, secrets, versions,
+  thèmes, catalogue et verrous verts.
+- `image.yml` ne s'est pas relancé : la seconde partie ne touche ni `hermes/` ni l'image (son dernier run vert est
+  celui de la première partie, [36271372764](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372764)).
 
 ## 25. Ce qui ne se prouve qu'avec vos vrais comptes et votre PC (§ 16 du cahier)
 

@@ -70,7 +70,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
-| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
+| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
@@ -1548,6 +1548,8 @@ aucun reste d'une tentative coupée : arbre propre sur `f3c65f4`.
 | `75601d0` | feat(packaging): install the workstation under a dedicated account and a scheduled task |
 | `09edfb5` | test(e2e): drive the real workstation against the local Hermes image on Windows |
 | `d9ad283` | fix(poste): refuse enrolment and connections outside the workstation account |
+| `b59cda4` | fix(poste): say that rights are not checked after the sandbox setup in owner mode |
+| `cb394b4` | test(poste): run the real ACL witnesses only under a non-elevated token |
 
 Puis la documentation (ce paragraphe, [`poste.md`](refonte/poste.md) § 16 à § 25, README du poste, décisions).
 
@@ -1578,8 +1580,9 @@ Détail et commandes : [`poste.md`](refonte/poste.md) § 23. En bref (27/09/2026
 python.org, pytest 9.1.1, PowerShell 7.6.6 et 5.1, Docker 29.5.3) :
 
 - suite du dépôt sur l'arbre de **chaque** commit (worktree jetable) : 483 → 497 → 507 → 545 → 556 → 575 → 586 →
-  586 réussis, 0 échec ; arbre final **587 réussis, 3 ignorés** sous Windows, **572 réussis, 18 ignorés** sous Linux
-  (conteneur `python:3.12-slim`) ; dont 323 tests du poste et 35 de contrat contre le faux Hermes HTTPS ;
+  586 réussis, 0 échec ; arbre `d9ad283` **587 réussis, 3 ignorés** sous Windows, **572 réussis, 18 ignorés** sous
+  Linux (conteneur `python:3.12-slim`) ; arbre final `cb394b4` **588 réussis, 3 ignorés** sous Windows ; dont 323
+  tests du poste (324 à `cb394b4`) et 35 de contrat contre le faux Hermes HTTPS ;
 - installeur et désinstalleur en simulation (PowerShell 7.6.6 et 5.1) : 13 vérifications réussies, 1 cas ignoré
   (aucun Python 3.12 « tous utilisateurs » sur ce PC), état du PC inchangé ;
 - bout en bout local (image `acp-hermes-tests:p5o`, vrai poste sous le compte courant, vrai Codex sur un
@@ -1591,7 +1594,11 @@ python.org, pytest 9.1.1, PowerShell 7.6.6 et 5.1, Docker 29.5.3) :
 
 #### Intégration continue
 
-Relevée après la poussée de la branche : voir le commit de documentation qui suit (les runs de la première partie sont au § 13).
+Branche poussée le 27/09/2026 : `ci.yml` [36279917625](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36279917625) (`1952ce8`) en **échec** sous
+windows-2022 (deux témoins d'ACL contournés par le jeton élevé de l'exécuteur), corrigé par `cb394b4` ; `ci.yml`
+[36280303337](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280303337) (`cb394b4`) **vert** : Windows 586 réussis et 5 ignorés, installeur en simulation
+19 vérifications réussies (cas accepté compris), Linux 573 réussis et 18 ignorés, interface 110, moteur 74.
+`image.yml` non relancé (ni `hermes/` ni l'image touchés). Détail : [`poste.md`](refonte/poste.md) § 24.
 
 #### Non vérifié
 

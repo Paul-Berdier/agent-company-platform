@@ -391,6 +391,9 @@ D64 et D66 appliquées (`plan.md` § 1, non confirmées).
   `cryptography`, ajoutée au verrou des tests), installeur en simulation (CI Windows), bout en bout local
   `scripts/e2e-poste-windows.ps1` avec l'image Hermes et le vrai poste sous le compte courant (vrai Codex sur un
   `CODEX_HOME` jetable : liste de secours ; vrai Claude Code : `cli_hors_version`, 2.1.239 installé) ;
+- corrigé en cours de route : enrôlement et connexions refusés hors du compte du poste (le jeton ou le profil
+  auraient atterri dans un autre profil) ; message du mode propriétaire après `connexion bac-a-sable` ; deux témoins
+  d'ACL réelles ignorés sous le jeton élevé de la CI Windows (qui contourne les ACL), gardés sous jeton standard ;
 - limites : aucune exécution avant P6 ; compte dédié, tâche planifiée, UAC et vrais comptes non éprouvés (§ 25 de
   `poste.md`) ; Claude Code de ce PC à mettre à jour (2.1.248 au moins).
 
