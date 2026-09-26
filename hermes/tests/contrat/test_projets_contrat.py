@@ -374,17 +374,22 @@ def test_projet_sur_depot_exploration_par_le_poste_simule(pile):
     assert etat[projet["cartes"]["planification"]]["statut"] == "todo"
     simule(pile, "reclamer", projet["tableau"], exploration)
     simule(pile, "terminer", projet["tableau"], exploration, f"Carte du dépôt : {MARQUEUR_EXPLORATION}.")
-    fin_exploration = time.time()
     planif = projet["cartes"]["planification"]
     lancee = attendre(lambda: cartes(pile, projet["tableau"])[planif]["debut"], 40,
                       "la planification n'a pas été lancée après l'exploration")
     premiere = attendre(lambda: requetes_du_role(pile, "planification", titre), 90,
                         "le worker de planification n'a pas interrogé le modèle")
+    # Fin et lancement lus sur la MÊME horloge, celle des conteneurs (completed_at et started_at de Hermes, en
+    # secondes entières) : l'heure de l'hôte, prise après le retour de « docker exec », a déjà donné un délai
+    # négatif (-0,6 s en CI) sans que l'ordre soit en cause.
+    fin_exploration = cartes(pile, projet["tableau"])[exploration]["fini_le"]
     delai = lancee - fin_exploration
     afficher("délai fin d'exploration → planification lancée",
-             f"réclamée par le répartiteur {delai:.1f} s après la fin de l'exploration (passage toutes les 5 s) ; "
-             f"première requête du worker au modèle {premiere[0]['t'] - fin_exploration:.1f} s après")
-    assert delai <= 12  # deux passages du répartiteur au plus (5 s chacun), plus la marge d'une seconde
+             f"réclamée par le répartiteur {delai} s après la fin de l'exploration (horloge des conteneurs, à la "
+             f"seconde près ; passage toutes les 5 s) ; première requête du worker au modèle "
+             f"{premiere[0]['t'] - fin_exploration:.1f} s après")
+    # Jamais avant la fin de l'exploration ; deux passages du répartiteur au plus (5 s chacun), plus une marge.
+    assert 0 <= delai <= 12, delai
     attendre(lambda: any(MARQUEUR_EXPLORATION in (r.get("marqueurs_trouves") or [])
                          for r in requetes_du_role(pile, "planification", titre)), 60,
              "le résumé de l'exploration n'est pas parvenu à la planification (kanban_show)")
