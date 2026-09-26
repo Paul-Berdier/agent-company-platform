@@ -235,6 +235,21 @@ def test_emetteur_tourne_dans_la_passerelle(pile):
     assert JETON not in json.dumps(projets)  # jamais le jeton (ni le sujet) dans une réponse
 
 
+def test_notification_de_test_envoyee_par_la_passerelle(pile):
+    """Bouton « Envoyer une notification de test » de la page Projets (seconde partie de P4) : la route la met
+    en file (202), la passerelle l'envoie au faux ntfy à sa passe suivante, une seule fois."""
+    avant = len(notifications_ntfy(pile))
+    code, reponse = api(pile, "POST", "/v1/notifications/test", {})
+    assert code == 202 and reponse["etat"] == "en_attente", (code, reponse)
+    envoyees = attendre(lambda: [n for n in notifications_ntfy(pile)[avant:] if "Notification de test" in n["corps"]],
+                        60, "la notification de test n'est pas parvenue au faux ntfy")
+    afficher("faux ntfy : notification de test", json.dumps(envoyees, ensure_ascii=False, indent=1))
+    assert [n["corps"] for n in envoyees] == ["ACP — Notification de test envoyée depuis la page Projets."]
+    assert envoyees[0]["autorisation_presente"] and envoyees[0]["title"] == "ACP"
+    time.sleep(11)  # deux passes de plus : toujours une seule
+    assert len([n for n in notifications_ntfy(pile)[avant:] if "Notification de test" in n["corps"]]) == 1
+
+
 # =========================================================================== 2. projet sans dépôt
 
 

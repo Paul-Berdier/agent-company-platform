@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from conftest import releve_factice
+from conftest import carte, lancer_sur_depot, releve_factice
 
 GREFFON = Path("/opt/hermes/plugins/acp-poste")
 P = "/api/plugins/acp-poste"
@@ -121,6 +121,23 @@ def test_questions_triage_et_poste(client, noyau):
     with noyau.base.connexion() as conn:
         noyau.routage.enregistrer_releve(conn, releve_factice("poste-codex"))
     assert client.get(f"{P}/v1/poste").json()["catalogue"]["releve_factice"] is True
+
+
+def test_reprise_d_un_triage_par_la_route(client, noyau):
+    """Bouton « Reprendre » de la page Projets (seconde partie de P4) : 200, la carte quitte le triage avec la
+    consigne du propriétaire ; rejouée, la route répond 404 (plus de carte en triage)."""
+    with noyau.base.connexion() as conn:
+        projet = lancer_sur_depot(noyau, conn)
+        fiche = noyau.projets.projet(conn, projet["id"])
+        triage = noyau.graphe.creer_triage_plafond(conn, fiche, "tours", "3 tours planifiés")
+    chemin = f"{P}/v1/triage/{projet['tableau']}/{triage}/reprendre"
+    reponse = client.post(chemin, json={"consigne": "Conclure avec ce qui est fait."})
+    assert reponse.status_code == 200 and reponse.json() == {"carte": triage, "reprise": True}
+    tache = carte(noyau, projet["tableau"], triage)
+    assert tache.status in ("todo", "ready") and "Conclure avec ce qui est fait." in tache.body
+    assert client.get(f"{P}/v1/questions").json()["triage"] == []
+    rejouee = client.post(chemin, json={})
+    assert rejouee.status_code == 404 and rejouee.json()["detail"]["code"] == "triage_inconnu"
 
 
 def test_pause_generale(client, noyau):
