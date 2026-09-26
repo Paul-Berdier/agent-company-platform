@@ -18,6 +18,15 @@ Scénarios d'appel d'outil (étape P2), pour prouver qu'aucun outil d'exécution
   un worker kanban qui n'a pas encore appelé ``kanban_complete``, un appel de
   ``kanban_complete`` d'abord.
 
+Scénarios à ÉTAPES (étape P4), pour les workers des cartes ACP : une entrée du fichier de scénarios
+peut valoir ``{"dans": "systeme"|"utilisateur", "etapes": [{"outil": …, "arguments": {…}}, …],
+"resume_final": "…"}``. La sous-chaîne est cherchée dans le PROMPT SYSTÈME complet (``systeme`` : la
+section « acp-projets » du greffon y nomme le rôle et le projet de la carte) ou dans le premier message
+utilisateur ; l'étape jouée est le nombre d'appels d'outil déjà faits dans la conversation ; après la
+dernière, un worker appelle ``kanban_complete`` (résumé ``resume_final``), puis répond « fin ». La clé
+spéciale ``_marqueurs`` (liste) fait consigner, dans ``marqueurs_trouves``, ceux qui figurent dans les
+résultats d'outils COMPLETS reçus (la troncature à 400 caractères cacherait un résumé d'exploration).
+
 Le journal consigne pour chaque complétion : les outils OFFERTS, le rôle du dernier message,
 l'outil demandé, les résultats d'outils reçus (tronqués à 400 caractères) et, depuis P3, le début
 du premier message système (6 000 caractères, champ ``systeme``) et son index des skills
@@ -72,6 +81,19 @@ ARGUMENTS_TEMOINS: Dict[str, Dict[str, Any]] = {
     "mcp__context7__query_docs": {"libraryId": "/acp/bibliotheque-factice", "query": "témoin ACP"},
     "mcp__context7__piege": {},
     "skill_view": {"name": "acp-redaction"},
+    # Étape P4 : outils du greffon acp-poste et mémoire (écriture mise en attente de validation).
+    "projet_lancer": {"titre": "Projet témoin ACP", "objectif": "Vérifier le lancement depuis la discussion.",
+                      "profil": "recherche", "depot": None},
+    "projet_planifier": {"resume": "Plan témoin", "etapes": [
+        {"ref": "e1", "titre": "Étape témoin", "classe": "recherche_web", "consigne": "Chercher un témoin."}]},
+    "projet_etat": {},
+    "poste_etat": {},
+    "poste_catalogue": {},
+    "question_repondre": {"reponse": "Réponse témoin.", "fondement": "Décision témoin."},
+    "question_escalader": {"motif": "Motif témoin."},
+    "routage_surcharger": {"portee": "projet", "cible": "p_inconnu", "classe": "recherche_web", "voie": "hermes",
+                           "motif": "témoin"},
+    "memory": {"action": "add", "target": "memory", "content": "témoin ACP P4"},
 }
 
 
@@ -94,7 +116,7 @@ def _outils_offerts(corps: Dict[str, Any]) -> List[str]:
     return sorted(noms)
 
 
-def _lire_scenarios(chemin: Optional[str]) -> Dict[str, str]:
+def _lire_scenarios(chemin: Optional[str]) -> Dict[str, Any]:
     if not chemin:
         return {}
     try:
@@ -102,16 +124,56 @@ def _lire_scenarios(chemin: Optional[str]) -> Dict[str, str]:
             donnees = json.load(flux)
     except (OSError, ValueError):
         return {}
-    return {str(k): str(v) for k, v in donnees.items()} if isinstance(donnees, dict) else {}
+    if not isinstance(donnees, dict):
+        return {}
+    return {str(k): (v if isinstance(v, (dict, list)) else str(v)) for k, v in donnees.items()}
 
 
-def decider(messages: List[Dict[str, Any]], scenarios: Dict[str, str]) -> Tuple[Optional[str], Dict[str, Any]]:
+def _scenario_a_etapes(messages: List[Dict[str, Any]], scenarios: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Premier scénario à étapes dont la sous-chaîne figure dans le prompt système ou le premier message
+    utilisateur, selon son champ « dans »."""
+    systeme = "\n".join(_texte(m.get("content")) for m in messages if m.get("role") == "system")
+    utilisateurs = [_texte(m.get("content")) for m in messages if m.get("role") == "user"]
+    premier = utilisateurs[0] if utilisateurs else ""
+    for motif, valeur in scenarios.items():
+        if not motif or motif.startswith("_") or not isinstance(valeur, dict):
+            continue
+        texte = systeme if valeur.get("dans") == "systeme" else premier
+        if motif in texte:
+            return valeur
+    return None
+
+
+def decider(messages: List[Dict[str, Any]], scenarios: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
     """(outil à appeler ou None pour une réponse texte, informations pour le journal)."""
     dernier = messages[-1] if messages else {}
     role = dernier.get("role")
     info: Dict[str, Any] = {"role_dernier": role}
     utilisateurs = [_texte(m.get("content")) for m in messages if m.get("role") == "user"]
     premier_utilisateur = utilisateurs[0] if utilisateurs else ""
+    marqueurs = scenarios.get("_marqueurs") if isinstance(scenarios.get("_marqueurs"), list) else []
+    if marqueurs:
+        complets = "\n".join(_texte(m.get("content")) for m in messages if m.get("role") == "tool")
+        info["marqueurs_trouves"] = [str(m) for m in marqueurs if str(m) in complets]
+    etapes = _scenario_a_etapes(messages, scenarios)
+    if etapes is not None and role in ("user", "tool"):
+        appels = [tc.get("function", {}).get("name") for m in messages if m.get("role") == "assistant"
+                  for tc in (m.get("tool_calls") or []) if isinstance(tc, dict)]
+        if role == "tool":
+            info["resultats_outils"] = [
+                {"nom": m.get("name"), "contenu": _texte(m.get("content"))[:400]}
+                for m in messages[-8:] if m.get("role") == "tool"]
+        liste = [e for e in (etapes.get("etapes") or []) if isinstance(e, dict) and e.get("outil")]
+        info["etape"] = len(appels)
+        if len(appels) < len(liste):
+            if liste[len(appels)].get("arguments") is not None:  # sinon : arguments témoins de l'outil
+                info["arguments_scenario"] = liste[len(appels)]["arguments"]
+            info["resume_final"] = etapes.get("resume_final")
+            return str(liste[len(appels)]["outil"]), info
+        if "work kanban task" in premier_utilisateur and "kanban_complete" not in appels:
+            info["resume_final"] = etapes.get("resume_final")
+            return "kanban_complete", info
+        return None, info
     if role == "tool":
         info["resultats_outils"] = [
             {"nom": m.get("name"), "contenu": _texte(m.get("content"))[:400]}
@@ -128,7 +190,7 @@ def decider(messages: List[Dict[str, Any]], scenarios: Dict[str, str]) -> Tuple[
     if trouve:
         return trouve[-1], info
     for motif, outil in scenarios.items():
-        if motif and motif in texte:
+        if motif and not motif.startswith("_") and isinstance(outil, str) and motif in texte:
             return outil, info
     return None, info
 
@@ -186,7 +248,15 @@ def main() -> int:
             complet = _texte(systeme[0].get("content")) if systeme else ""
             debut, fin = complet.find("<available_skills>"), complet.find("</available_skills>")
             entree["index_skills"] = complet[debut:fin + 19][:20000] if 0 <= debut < fin else None
+            # Étape P4 : section de prompt du greffon acp-poste (rôle et projet de la carte d'un worker).
+            section = complet.find("## Plugin Context: acp-projets")
+            entree["section_acp"] = complet[section:section + 2500] if section >= 0 else None
             entree["outils_offerts"] = _outils_offerts(corps)
+            # Étape P4 : Hermes diffère les outils des greffons derrière tool_search ; la description de
+            # tool_search liste ce catalogue différé (tools/tool_search.py, _search_description).
+            recherche = [o.get("function") or {} for o in corps.get("tools") or []
+                         if isinstance(o, dict) and (o.get("function") or {}).get("name") == "tool_search"]
+            entree["catalogue_differe"] = str(recherche[0].get("description") or "")[:8000] if recherche else None
             if outil is not None and not entree["outils_offerts"]:
                 # Appel auxiliaire de Hermes (titre, résumé…), sans outils : réponse texte.
                 entree["auxiliaire"] = True
@@ -202,8 +272,10 @@ def main() -> int:
                 if sous_jacent:  # « tool_call><outil> » : le pont, avec l'outil et ses arguments témoins
                     arguments_outil = {"calls": [{"name": sous_jacent,
                                                   "arguments": ARGUMENTS_TEMOINS.get(sous_jacent, {})}]}
+                if "arguments_scenario" in info:
+                    arguments_outil = info.pop("arguments_scenario")
                 if nom_outil == "kanban_complete":
-                    arguments_outil = {"summary": "fin du scénario de test ACP"}
+                    arguments_outil = {"summary": info.get("resume_final") or "fin du scénario de test ACP"}
                 appel = {"id": f"call_{uuid.uuid4().hex[:12]}", "type": "function",
                          "function": {"name": nom_outil,
                                       "arguments": json.dumps(arguments_outil, ensure_ascii=False)}}

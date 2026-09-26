@@ -67,6 +67,14 @@ name: Image Hermes
 #   - sonde RÉELLE de context7 (`hermes mcp test context7` sur l'image construite) : NON BLOQUANTE
 #     (service tiers), sortie archivée en artefact.
 #
+# Étape P4, projets autonomes (docs/refonte/projets.md) :
+#   - `hermes plugins compat` couvre aussi le noyau du greffon (hermes/plugins/acp-poste/noyau) ;
+#   - tests dans l'image : base du greffon, graphe, routage, plafonds, pauses, questions, cartes
+#     poste-* étrangères, présence, émetteur de notifications, outils et garde (34 noms), routes ;
+#   - tests de contrat (test_projets_contrat.py) sur la pile s6 complète, SANS le PC : répartiteur de
+#     la passerelle, workers kanban réels joués par le modèle factice, poste SIMULÉ (API kanban et
+#     fonctions du greffon), faux serveur ntfy en HTTPS (ntfy.acp.test) ; aucune notification réelle.
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -112,7 +120,9 @@ jobs:
   image:
     name: Image ACP — construction et contrat
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Étape P4 : le contrat des projets autonomes (workers kanban réels, poste simulé) ajoute environ
+    # 15 minutes ; 60 minutes ne laissaient plus de marge.
+    timeout-minutes: 90
     env:
       ACP_IMAGE: acp-hermes:ci
       ACP_IMAGE_TESTS: acp-hermes-tests:ci

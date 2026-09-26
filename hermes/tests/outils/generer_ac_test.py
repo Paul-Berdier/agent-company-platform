@@ -9,7 +9,9 @@ Crée, dans le répertoire donné :
   public) : le navigateur les traite en sites différents, exactement comme sur Railway ;
 - ``mcp.pem`` et ``mcp.key`` (étape P3) : certificat du faux serveur context7 (``mcp_factice.py``)
   pour ``mcp.context7.com``, le nom épinglé par la managed scope ; les tests le font résoudre vers
-  le faux serveur, jamais vers le vrai.
+  le faux serveur, jamais vers le vrai ;
+- ``ntfy.pem`` et ``ntfy.key`` (étape P4) : certificat du faux serveur ntfy (``notif_factice.py``)
+  pour ``ntfy.acp.test``, où l'émetteur de notifications d'acp-poste envoie pendant les tests.
 
 Utilisé à la construction de l'image de test, qui ajoute ``ac.pem`` au magasin du système pour que
 le tableau de bord fasse confiance au faux fournisseur et au bord, exactement comme à de vrais.
@@ -31,6 +33,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 HOTE_IDP = "idp.acp.test"
 HOTES_BORD = ("hermes-acp.test", "identite-acp.test")
 HOTE_MCP = "mcp.context7.com"
+HOTE_NTFY = "ntfy.acp.test"
 
 
 def _nom(texte: str) -> x509.Name:
@@ -81,6 +84,7 @@ def main(repertoire: str) -> int:
     idp, cle_idp = feuille((HOTE_IDP,))
     bord, cle_bord = feuille(HOTES_BORD)
     mcp, cle_mcp = feuille((HOTE_MCP,))
+    ntfy, cle_ntfy = feuille((HOTE_NTFY,))
 
     (sortie / "ac.pem").write_bytes(ac.public_bytes(serialization.Encoding.PEM))
     (sortie / "idp.pem").write_bytes(idp.public_bytes(serialization.Encoding.PEM))
@@ -92,7 +96,10 @@ def main(repertoire: str) -> int:
     (sortie / "mcp.pem").write_bytes(mcp.public_bytes(serialization.Encoding.PEM))
     (sortie / "mcp.key").write_bytes(cle_mcp.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-    print(f"AC de test et certificats {HOTE_IDP}, {', '.join(HOTES_BORD)}, {HOTE_MCP} écrits dans {sortie}")
+    (sortie / "ntfy.pem").write_bytes(ntfy.public_bytes(serialization.Encoding.PEM))
+    (sortie / "ntfy.key").write_bytes(cle_ntfy.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    print(f"AC de test et certificats {HOTE_IDP}, {', '.join(HOTES_BORD)}, {HOTE_MCP}, {HOTE_NTFY} écrits dans {sortie}")
     return 0
 
 
