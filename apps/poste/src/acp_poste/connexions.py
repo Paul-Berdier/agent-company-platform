@@ -134,6 +134,9 @@ def connexion_bac_a_sable(contexte: Contexte, politique: Politique, *, interacti
         print("Installation élevée du bac à sable terminée ; le prochain relevé lira le mode (config/read).")
     finally:
         verrou.rendre()
+    if not politique.compte_dedie:
+        print("Mode « proprietaire » (repli D51) : les droits de poste.toml et des binaires ne sont pas vérifiés.")
+        return 0
     try:
         verifier_droits(politique)
         print("Droits relus : poste.toml et les binaires des CLI restent hors d'atteinte du compte du poste.")

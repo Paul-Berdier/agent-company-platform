@@ -154,6 +154,23 @@ def test_connexion_bac_a_sable_refusee_hors_console(poste, capsys, tmp_path):
     assert not enregistrement.exists()
 
 
+def test_connexion_bac_a_sable_interactive_sans_cwd(poste, capsys, tmp_path):
+    """Console interactive : setupStart {mode: elevated} SANS cwd, attente de setupCompleted ; en mode propriétaire,
+    le poste dit qu'il ne vérifie pas les droits (jamais un « droits relus » qui n'a pas eu lieu)."""
+    from acp_poste.connexions import connexion_bac_a_sable
+    from acp_poste.politique import charger
+
+    enregistrement = tmp_path / "codex.jsonl"
+    poste.scenario_codex = {"enregistrer": str(enregistrement)}
+    poste.ecrire_politique()
+    contexte = poste.contexte()
+    assert connexion_bac_a_sable(contexte, charger(poste.emplacements), interactif=True, delai_s=30) == 0
+    sortie = capsys.readouterr().out
+    assert "Installation élevée du bac à sable terminée" in sortie and "ne sont pas vérifiés" in sortie
+    demandes = [json.loads(l) for l in enregistrement.read_text(encoding="utf-8").splitlines()]
+    assert [d["params"] for d in demandes if d.get("method") == "windowsSandbox/setupStart"] == [{"mode": "elevated"}]
+
+
 def test_connexion_codex_ecrit_le_profil_puis_lance_la_connexion(poste, capsys, tmp_path):
     enregistrement = tmp_path / "codex.jsonl"
     poste.scenario_codex = {"enregistrer": str(enregistrement)}
