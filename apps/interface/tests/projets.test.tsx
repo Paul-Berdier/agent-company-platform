@@ -462,15 +462,21 @@ describe("Projets : questions", () => {
 });
 
 describe("Projets : navigation et sondage", () => {
-  it("les onglets changent de vue sans recharger la page et mettent l'adresse à jour", async () => {
+  it("les onglets changent de vue sans recharger la page, mettent l'adresse à jour et remontent en haut", async () => {
     aller("?profile=default");
     installerSdk({ [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: QUESTIONS });
     const r = await rendre(<Projets />);
+    const page = r.racine.querySelector('[data-acp-racine="projets"]') as HTMLElement;
+    const defilements: unknown[] = [];
+    page.scrollIntoView = ((options?: unknown) => {
+      defilements.push(options);
+    }) as HTMLElement["scrollIntoView"];
     const onglet = [...r.racine.querySelectorAll(".acp-onglet")].find((a) => a.textContent?.startsWith("Questions"));
     expect(onglet?.getAttribute("href")).toBe("/projets?vue=questions");
     await cliquer(onglet);
     expect(window.location.search).toBe("?profile=default&vue=questions");
     expect(r.texte()).toContain("Quelle version de Python viser ?");
+    expect(defilements).toEqual([{ block: "start" }]);
     r.demonter();
   });
 

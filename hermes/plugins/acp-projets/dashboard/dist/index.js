@@ -1324,21 +1324,20 @@
     const [jeton, fixerJeton] = useState(0);
     const rafraichir = () => fixerJeton((j) => j + 1);
     const liste = useSondage(lireProjets, jeton);
+    const racine = useRef(null);
     const naviguer = (suivante) => {
       fixerVue(suivante);
       remplacerAdresse(suivante);
       rafraichir();
-      if (typeof window.scrollTo === "function") {
-        try {
-          window.scrollTo(0, 0);
-        } catch {
-        }
+      try {
+        racine.current?.scrollIntoView?.({ block: "start" });
+      } catch {
       }
     };
     const donnees = liste.valeur;
     const questions = typeof donnees?.questions_ouvertes === "number" ? donnees.questions_ouvertes : null;
     const pause = donnees?.pause_generale && typeof donnees.pause_generale === "object" ? donnees.pause_generale : null;
-    return /* @__PURE__ */ h("div", { className: "acp-page", "data-acp-racine": "projets" }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.projets.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.intro)), /* @__PURE__ */ h(Navigation, { vue, naviguer, questions }), pause ? /* @__PURE__ */ h(BandeauPause, { pause, apres: rafraichir }) : null, donnees === null && liste.erreur === null ? /* @__PURE__ */ h(EnChargement, null) : null, donnees === null && liste.erreur !== null ? /* @__PURE__ */ h(BlocErreur, { erreur: liste.erreur, message: T.projets.indisponible }) : null, donnees !== null && liste.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.projets.actualisationImpossible) : null, vue.genre === "liste" && donnees !== null ? /* @__PURE__ */ h(ListeProjets, { donnees, naviguer, apres: rafraichir }) : null, vue.genre === "nouveau" ? /* @__PURE__ */ h(NouveauProjet, { naviguer, apres: rafraichir }) : null, vue.genre === "detail" ? /* @__PURE__ */ h(DetailProjet, { key: vue.id, id: vue.id, jeton, liste: donnees, naviguer, apres: rafraichir }) : null, vue.genre === "questions" ? /* @__PURE__ */ h(Questions, { jeton, naviguer, apres: rafraichir }) : null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.actualisation));
+    return /* @__PURE__ */ h("div", { className: "acp-page", "data-acp-racine": "projets", ref: racine }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.projets.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.intro)), /* @__PURE__ */ h(Navigation, { vue, naviguer, questions }), pause ? /* @__PURE__ */ h(BandeauPause, { pause, apres: rafraichir }) : null, donnees === null && liste.erreur === null ? /* @__PURE__ */ h(EnChargement, null) : null, donnees === null && liste.erreur !== null ? /* @__PURE__ */ h(BlocErreur, { erreur: liste.erreur, message: T.projets.indisponible }) : null, donnees !== null && liste.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.projets.actualisationImpossible) : null, vue.genre === "liste" && donnees !== null ? /* @__PURE__ */ h(ListeProjets, { donnees, naviguer, apres: rafraichir }) : null, vue.genre === "nouveau" ? /* @__PURE__ */ h(NouveauProjet, { naviguer, apres: rafraichir }) : null, vue.genre === "detail" ? /* @__PURE__ */ h(DetailProjet, { key: vue.id, id: vue.id, jeton, liste: donnees, naviguer, apres: rafraichir }) : null, vue.genre === "questions" ? /* @__PURE__ */ h(Questions, { jeton, naviguer, apres: rafraichir }) : null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.actualisation));
   }
 
   // src/projets/index.ts

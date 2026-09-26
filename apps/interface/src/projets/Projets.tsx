@@ -7,7 +7,7 @@
 // visible (D35).
 import { T } from "../chaines";
 import { BlocErreur, Donnee, EnChargement } from "../commun";
-import { h, useState, type Noeud } from "../react";
+import { h, useRef, useState, type Noeud } from "../react";
 import { lireProjets } from "./api";
 import { BandeauPause } from "./BandeauPause";
 import { LienVue } from "./briques";
@@ -52,16 +52,17 @@ export function Projets(): Noeud {
   const [jeton, fixerJeton] = useState(0);
   const rafraichir = () => fixerJeton((j) => j + 1);
   const liste = useSondage(lireProjets, jeton);
+  const racine = useRef<HTMLDivElement | null>(null);
   const naviguer = (suivante: Vue) => {
     fixerVue(suivante);
     remplacerAdresse(suivante);
     rafraichir();
-    if (typeof window.scrollTo === "function") {
-      try {
-        window.scrollTo(0, 0);
-      } catch {
-        // Défilement impossible (environnement de test) : sans effet sur la vue.
-      }
+    // Hermes fait défiler ses pages dans un conteneur interne (pas la fenêtre) : la nouvelle vue repart du
+    // haut de la page, sinon, au téléphone, le détail d'un projet lancé s'ouvrirait au niveau du bouton.
+    try {
+      racine.current?.scrollIntoView?.({ block: "start" });
+    } catch {
+      // Défilement impossible : sans effet sur la vue.
     }
   };
   const donnees = liste.valeur;
@@ -69,7 +70,7 @@ export function Projets(): Noeud {
   const pause = donnees?.pause_generale && typeof donnees.pause_generale === "object" ? donnees.pause_generale : null;
 
   return (
-    <div className="acp-page" data-acp-racine="projets">
+    <div className="acp-page" data-acp-racine="projets" ref={racine}>
       <div className="acp-entete">
         <h1 className="acp-titre">{T.projets.titre}</h1>
         <p className="acp-discret">{T.projets.intro}</p>
