@@ -360,6 +360,40 @@ Référence : `docs/refonte/poste.md` ; décisions D48 à D66 (`plan.md` § 1, n
 - choix par défaut D48 à D66 consignés dans `plan.md` § 1, **non confirmés** par le propriétaire (le cahier
   les numérotait 40 à 58) ; le poste Windows lui-même (seconde partie de P5) est livré à part.
 
+### P5 — poste Windows (seconde partie ; réalisée côté dépôt, non fusionnée, non déployée)
+
+Référence : `docs/refonte/poste.md` § 16 à § 25 et `apps/poste/README.md` ; décisions D51 à D55, D57, D60, D61,
+D64 et D66 appliquées (`plan.md` § 1, non confirmées).
+
+- poste `apps/poste` réécrit autour de `poste.toml` (`%ProgramData%\ACP\`, lecture seule pour le compte du poste :
+  refus de démarrer s'il peut le modifier ou le remplacer) ; emplacements lus par `SHGetKnownFolderPath` ; les
+  réglages `ACP_WORKER_*` et `PosteConfig.from_env` disparaissent (reste `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT`, lu dans
+  les sessions du propriétaire) ;
+- coffre DPAPI à entropie par usage (jeton machine, jeton Claude), jetons au `repr` masqué, journal JSONL local
+  masqué avant écriture (remplace `local_log.py`), verrous d'instance et des sondes (`LockFileEx`) ;
+- client HTTPS de la bibliothèque standard (TLS vérifié, magasin de Windows, ni redirection ni mandataire, réponses
+  bornées) et protocole `acp-machine/1` validé par le contrat partagé ; commandes `servir`, `enroler`, `connexion
+  codex|claude|bac-a-sable`, `releve`, `preuve model-list`, `diagnostic [--reseau] [--isolement]`, `journal`,
+  `oublier-jeton`, `quotas` ; codes de sortie 0 à 4 ; 401 `poste_revoque` : jeton effacé ; 401 de la couture :
+  jeton gardé, arrêt code 4 ;
+- sondes Codex par une session `codex app-server` à liste blanche de méthodes (`-c windows.sandbox="elevated"`,
+  `cli_auth_credentials_store="keyring"`, `service_tier="default"` imposés ; `-32601` aux requêtes du serveur ;
+  extraction par liste blanche ; « Liste de secours » par comparaison au catalogue embarqué d'un second app-server
+  éphémère ; mode du bac à sable lu par `config/read`) ; sondes Claude (version ≥ 2.1.248, code de sortie seul de
+  `auth status`, alias et efforts documentés datés) ; inventaire balayé par la garde « aucun identifiant » avant
+  l'envoi ;
+- installation `packaging/poste` : `Installer-PosteAcp.ps1` (compte `acp-poste`, ACL par SID, poste sans venv lancé
+  en `python -I`, binaires copiés et hachés, `poste.toml` depuis le modèle, tâche `\ACP\Poste ACP` au démarrage et
+  toutes les 15 min, options système sur confirmation) et `Desinstaller-PosteAcp.ps1`, tous deux avec `-Simulation` ;
+  verrou d'exécution haché `requirements/poste-3.12.lock.txt` vérifié par `scripts/check_lock.py` ;
+- tests : unitaires Windows et Linux, faux Codex et faux Claude pilotés par scénario (schémas de Codex 0.156.1
+  régénérés, identiques), contrat du vrai poste contre un faux Hermes HTTPS (autorité de test générée par
+  `cryptography`, ajoutée au verrou des tests), installeur en simulation (CI Windows), bout en bout local
+  `scripts/e2e-poste-windows.ps1` avec l'image Hermes et le vrai poste sous le compte courant (vrai Codex sur un
+  `CODEX_HOME` jetable : liste de secours ; vrai Claude Code : `cli_hors_version`, 2.1.239 installé) ;
+- limites : aucune exécution avant P6 ; compte dédié, tâche planifiée, UAC et vrais comptes non éprouvés (§ 25 de
+  `poste.md`) ; Claude Code de ce PC à mettre à jour (2.1.248 au moins).
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

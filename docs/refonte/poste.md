@@ -1,10 +1,12 @@
-# Poste connecté côté Hermes (étape P5, première partie)
+# Poste connecté (étape P5)
 
 État du **26 septembre 2026**, branche `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`), version 0.11.0
-inchangée. **Rien n'est déployé.** Ce document décrit la **première partie** de P5 : ce que Hermes sait faire
-d'un poste Windows connecté (greffon groupé `acp-poste`, contrat partagé, greffon d'interface
-`acp-poste-vues`). La **seconde partie** (programme du poste `apps/poste`, installation, compte dédié, sondes
-Codex et Claude) est livrée à part ; ici, le poste est joué par un **faux poste** qui parle le vrai protocole.
+inchangée (seconde partie : 27 septembre 2026). **Rien n'est déployé ; rien n'est installé sur le PC du
+propriétaire.** Les § 1 à § 15 décrivent la **première partie** de P5 : ce que Hermes sait faire d'un poste Windows
+connecté (greffon groupé `acp-poste`, contrat partagé, greffon d'interface `acp-poste-vues`), prouvé avec un **faux
+poste** qui parle le vrai protocole. Les § 16 à § 25 décrivent la **seconde partie** : le programme du poste
+(`apps/poste`), son installation sous un compte dédié (`packaging/poste`), ses sondes Codex et Claude, prouvés
+contre un **faux Hermes** et, en local, contre l'image réelle.
 Références : [plan d'autonomie](autonomie.md) (§ 8, P5), [projets](projets.md) (P4), [image](image.md),
 [interface](interface.md), décisions **D48 à D66** ([plan](plan.md) § 1, **non confirmées**) ; cahier de
 conception de P5 (brouillon de session `plan_p5.md`, cité « cahier P5 § n »).
@@ -182,8 +184,9 @@ Toute valeur venue de l'API est marquée `data-acp-donnee` ; tout autre texte vi
 
 ## 10. Limites dites
 
-- Le poste réel n'existe pas encore de ce côté : tout est prouvé avec un **faux poste**
-  (`hermes/tests/outils/faux_poste.py`) qui parle le vrai protocole au vrai tableau de bord.
+- Côté Hermes, tout est prouvé avec un **faux poste** (`hermes/tests/outils/faux_poste.py`) qui parle le vrai
+  protocole au vrai tableau de bord ; le vrai poste (seconde partie) est prouvé contre un faux Hermes et, en local
+  sous Windows, contre l'image (§ 23).
 - Le 401 de la couture de Hermes est en anglais et ambigu : c'est le comportement de Hermes 0.21.5, avant le
   greffon ; le poste doit s'en accommoder (D65).
 - L'exécution (cartes, battements, résolutions observées) est réservée à P6 : `carte` vaut toujours `null`.
@@ -191,8 +194,8 @@ Toute valeur venue de l'API est marquée `data-acp-donnee` ; tout autre texte vi
   poste (D56).
 - Un seul poste actif (D50).
 - La persona (`SOUL.md`) et la skill `acp-profils` disent encore que le poste « n'est pas encore branché » et
-  qu'un projet sur dépôt attend « un poste connecté (étape P5) » : c'est vrai tant que le poste réel n'est pas
-  livré ; à revoir avec la seconde partie de P5.
+  qu'un projet sur dépôt attend « un poste connecté (étape P5) » : elles parlent d'**exécution**, qui reste en P6 ;
+  laissées telles quelles par la seconde partie (§ 22), à revoir en P6.
 
 ## 11. Écarts au cahier, justifiés
 
@@ -308,8 +311,9 @@ Branche `refonte/hermes-p5` poussée le 26/09/2026, sommet `0a458cd`, **verte** 
 
 ## 14. Non prouvé
 
-- Un **vrai poste** Windows (seconde partie de P5), un vrai Codex, un vrai Claude Code, de vrais comptes :
-  aucun ; les relevés viennent d'exemples manifestement factices.
+- De **vrais comptes** Codex et Claude, et l'**installation réelle** du poste (compte dédié, tâche planifiée, UAC)
+  sur votre PC : § 25. Le vrai poste, le vrai Codex et le vrai Claude Code n'ont tourné qu'en local, sous le compte
+  courant, sans compte connecté (§ 23).
 - Les routes machine **derrière le bord TLS** de Railway (en-têtes, délais du proxy sur un long-poll de 25 s) :
   à mesurer au premier déploiement.
 - Railway : rien n'est déployé.
@@ -320,4 +324,202 @@ Branche `refonte/hermes-p5` poussée le 26/09/2026, sommet `0a458cd`, **verte** 
 D48 à D66 ([plan.md](plan.md) § 1), **non confirmées**. Recommandation par défaut : garder les choix appliqués.
 À confirmer en priorité : **D48** (code d'enrôlement plutôt que jeton affiché), **D49** (empreinte à
 recopier), **D58** (liste de secours refusée sans votre acceptation), **D60** (écriture Codex refusée sans
-preuve du mode) ; puis **D51** et **D52**, qui touchent votre PC (seconde partie).
+preuve du mode) ; puis **D51** et **D52**, qui touchent votre PC. La seconde partie applique D51 à D55, D57, D60,
+D61, D64 et D66 (§ 16 à § 22) ; aucune n'a été confirmée.
+
+## 16. Seconde partie : le poste Windows, en bref
+
+Programme `apps/poste` (commande `acp-poste`), paquet d'installation `packaging/poste`, bout en bout local
+`scripts/e2e-poste-windows.ps1`. Mode d'emploi pour le propriétaire : [`apps/poste/README.md`](../../apps/poste/README.md).
+
+- **Sans exécution** : le poste annonce `peut_executer: false` ; il s'enrôle, attend ses ordres, relève ses catalogues
+  et ses quotas, publie son inventaire. Les exécuteurs (`executors.py`, `local_runner.py`) restent inutilisés
+  jusqu'à P6.
+- **Politique locale** `poste.toml` sous `%ProgramData%\ACP\`, en lecture seule pour le compte du poste (D52) ;
+  **compte Windows dédié** `acp-poste` et **tâche planifiée** au démarrage et toutes les 15 minutes (D51, D66) ;
+  Python python.org « tous utilisateurs » lancé en `-I`, **sans venv** (D53) ; binaires de Codex et de Claude Code
+  **copiés depuis vos installations** sous `Program Files` (D54).
+- **Coffre DPAPI** à entropie par usage (jeton machine, jeton Claude) ; jeton jamais affiché ni journalisé ;
+  **journal local masqué** (D64) ; **verrou d'instance** et verrou des sondes.
+- **Client HTTPS de la bibliothèque standard** (D61), réponses validées par le contrat partagé ; 401 explicite
+  `poste_revoque` : jeton effacé ; 401 de la couture : jeton **gardé**, arrêt code 4 (D65).
+- **Sondes Codex** par liste blanche de méthodes de `codex app-server` (jamais une méthode qui consomme un crédit,
+  envoie un e-mail, connecte un compte ou écrit la configuration), mode du bac à sable **lu par `config/read`**,
+  jamais déduit de la readiness (D60), « Liste de secours » détectée (D58) ; **sondes Claude** : version, alias et
+  efforts documentés (D59), **code de sortie seul** de `claude auth status`.
+
+## 17. Politique locale et emplacements
+
+- `chemins.py` : `%ProgramData%`, `%LOCALAPPDATA%` (du compte du poste) et `%ProgramFiles%` sont lus par
+  `SHGetKnownFolderPath`, **jamais** dans l'environnement (une variable utilisateur `PROGRAMDATA` ferait sinon lire
+  une politique écrite par un exécutant). Hors Windows, aucun emplacement par défaut : les tests injectent une racine
+  jetable.
+- `politique.py` : schéma v1, **clé inconnue refusée**, types et bornes, origine de Hermes en **HTTPS partout**
+  (boucle locale comprise : `normalize_service_origin` admettait `http://127.0.0.1`), chemins absolus sans UNC,
+  `%LOCALAPPDATA%` seulement dans `[codex] home` et `[claude] config_dir`, alias de dépôts du contrat D21, dépôt =
+  dossier avec `.git`, racines disjointes, aucun exécutable dans un dépôt, Claude Code testé ≥ 2.1.248. Refus
+  français avec la clé, jamais la valeur. Empreinte publiée : SHA-256 du fichier aux fins de ligne normalisées, 12
+  caractères.
+- **Droits** (mode `dedie`) : `CreateFileW` tenté séparément avec `GENERIC_WRITE`, `DELETE`, `WRITE_DAC`,
+  `WRITE_OWNER` sur `poste.toml`, puis `FILE_ADD_FILE`, `DELETE`, `WRITE_DAC`, `WRITE_OWNER` sur son dossier ; toute
+  ouverture réussie, tout partage refusé ou toute erreur autre que « accès refusé » refuse le démarrage. Mêmes
+  contrôles sur les binaires des CLI et `codex-windows-sandbox-setup.exe`. Le compte courant est lu par
+  `GetUserNameW` (jamais `USERNAME`). En mode `proprietaire` (repli D51), rien n'est vérifié : le diagnostic le dit.
+
+## 18. Coffre, jetons, journal, verrous
+
+- `coffre.py` : `%LOCALAPPDATA%\ACP\secrets\{jeton-machine,claude-oauth}.dpapi`, en-tête `ACPD1` + blob DPAPI de
+  portée utilisateur, entropie propre à l'usage (un blob d'un usage ne s'ouvre pas avec l'autre), écriture atomique ;
+  blob illisible : « Coffre DPAPI illisible : le mot de passe du compte a probablement été réinitialisé ; refaites les
+  connexions et l'enrôlement. ». Identité non secrète à côté : `etat\machine.json` (identifiant, empreinte, date).
+- `jeton.py` : `Jeton` et `CodeEnrolement` au `repr` masqué (`Jeton(«masqué», empreinte=3F9A-0C1B)`), sérialisation
+  refusée ; le jeton n'entre jamais dans l'argv ni l'environnement d'un enfant (seul `claude auth status` reçoit le
+  jeton **Claude**, dans son environnement).
+- `journal.py` : `%LOCALAPPDATA%\ACP\journal\poste.jsonl`, rotation (5 × 1 Mio par défaut) ; masquage **avant**
+  écriture (valeurs exactes du coffre et du code d'enrôlement, motifs de `motifs_secrets` dont `acpm_`/`acpe_`,
+  chemins de profil, adresses) ; détails limités aux scalaires et aux chaînes courtes (ni corps, ni en-têtes, ni
+  environnement) ; lignes réseau répétées au plus une par 10 minutes.
+- `verrou.py` : `LockFileEx` exclusif non bloquant ; `poste.verrou` (une instance par compte, code 3) et
+  `sondes.verrou` (service et commandes de console ne lancent jamais deux `codex app-server` sur le même profil).
+
+## 19. Service et protocole, côté poste
+
+- `client_hermes.py` : `http.client` + `ssl`, TLS 1.2 minimum, nom d'hôte vérifié, magasin de Windows ; aucune
+  redirection suivie (3xx refusé), aucun mandataire d'environnement (`HTTPS_PROXY` ignoré), réponse bornée à 64 Kio,
+  délais explicites ; refus TLS en français (« autorité de certification inconnue du magasin de Windows… lancez
+  « acp-poste diagnostic --reseau » »).
+- `protocole.py` : les trois routes, corps bornés **avant** l'envoi (4 Kio, 256 Kio), en-têtes du cahier
+  (`User-Agent: acp-poste/0.11.0 (acp-machine/1)`, `X-ACP-Protocole`), réponses validées par
+  `acp_poste_contrat.machine` ; classement des refus (§ 4.4 du cahier).
+- `service.py` (`acp-poste servir`) : verrou, politique, compte, droits, jeton ; puis **une seule boucle asyncio** et
+  deux tâches gardées (une tâche qui tombe arrête le service, code 1, au lieu de mourir en silence) :
+  - **attente** : `reclamer` (première attente de 5 s pour connaître vite l'état, puis `[hermes] attente_max_s`) ;
+    ordres `releve` → relevé, `pause`/`reprise` → journal ; ordre déjà en cours : relance au plus toutes les 5 s ;
+    repli 1, 2, 4… 60 s, gigue ±20 % ; écart d'horloge > 2 min : inventaire retenu ;
+  - **relevés** : au premier passage « actif » (jamais pendant « À confirmer »), toutes les `[sondes] intervalle_s`,
+    sur ordre `releve` et quand un binaire de CLI change ; sondes Codex et Claude en parallèle sous le verrou des
+    sondes ; inventaire construit, **validé par le contrat puis balayé** (« aucun identifiant ») ; 429 : renvoi après
+    `Retry-After` ; un ordre `releve` n'est acquitté qu'après l'inventaire (ou quand il ne peut pas être servi).
+  - `poste.toml` relu à chaque cycle : devenu invalide ou modifiable, il est annoncé (`politique_valide: false`) et
+    plus rien n'est publié.
+- `diagnostic.py` : JSON **sans chemin ni secret** (garde « aucun identifiant » appliquée au rapport lui-même) ;
+  `--reseau` (`/api/health` sans jeton), `--isolement` (liste des profils interdits attendue refusée).
+
+## 20. Sondes Codex et Claude
+
+- **Codex** (`app_server.py`, `sondes_codex.py`) : `codex app-server` lancé sous Job Object avec
+  `-c windows.sandbox="elevated" -c cli_auth_credentials_store="keyring" -c service_tier="default"`, environnement
+  sans clé d'API, dossier courant temporaire hors de tout dépôt ; `config.toml` du profil vérifié octet pour octet
+  (écrit par `connexion codex`, jamais écrasé) ; aucun `AGENTS.md` admis dans le profil. Méthodes admises :
+  `initialize`, `account/read`, `config/read`, `windowsSandbox/readiness`, `model/list` (10 pages, 64 modèles au
+  plus, refus plutôt que troncature), `account/rateLimits/read` (compte ChatGPT seulement) ; `windowsSandbox/setupStart`
+  seulement en session interactive (`connexion bac-a-sable`), **sans `cwd`**. Requête du serveur : `-32601`.
+  Extraction par liste blanche (adresse, descriptions et le reste jetés au décodage). Origine de la liste : sans
+  compte → catalogue embarqué (« Liste de secours », relevé `ok`, connexion `non_connecte`) ; clé d'API ou Bedrock →
+  refusé ; compte ChatGPT dont la liste égale celle d'un second app-server sur un `CODEX_HOME` vide en stockage
+  `ephemeral` (non connecté, gardé par version) → « Liste de secours probable ». `model_catalog_json` d'une couche
+  quelconque → refusé. Matrice du bac à sable (§ 9.5 du cahier) : écriture admise **seulement** pour readiness
+  `ready`, mode `elevated` d'origine `sessionFlags` et stockage `keyring`.
+- **Claude** (`sondes_claude.py`, `catalogue_claude.py`) : `claude --version` (≥ 2.1.248, sinon `cli_hors_version`) ;
+  `claude auth status` avec `CLAUDE_CODE_OAUTH_TOKEN` du coffre, **sorties jetées sans lecture**, 20 s : 0 →
+  `jeton_reconnu`, 1 → `refuse`, autre ou délai → `jeton_present_non_verifie` ; jeton absent → `jeton_absent`,
+  commande non lancée. Alias et efforts documentés (lus le 26/09/2026, rendus seulement à partir de 2.1.280, `isDefault`
+  nul) ; quotas : ligne d'état de **vos** sessions (`[claude] ligne_etat`, D56).
+
+## 21. Installation (compte dédié, tâche planifiée)
+
+`packaging/poste/Installer-PosteAcp.ps1` (PowerShell élevé, lancé par vous) en neuf étapes : contrôles ; compte
+`acp-poste` (mot de passe saisi par vous, jamais écrit ; groupes désignés **par SID**) ; dossiers et ACL (héritage
+coupé) ; dépendances d'exécution hachées (`requirements/poste-3.12.lock.txt`, vérifié par `scripts/check_lock.py` :
+mêmes versions que le verrou du dépôt, aucun outil de test ni de construction) et sources du poste sous
+`C:\Program Files\ACP\poste\lib` ; binaires de Codex (dossier `vendor\x86_64-pc-windows-msvc` du paquet npm) et de
+Claude Code copiés, SHA-256 consignés, `--version` relancé sur la copie ; `poste.toml` depuis le modèle s'il manque ;
+tâche `\ACP\Poste ACP` (`packaging/poste/tache-poste.xml.modele`) ; options système sur confirmation (D57) ;
+vérifications et gestes manuels restants. `-Simulation` n'écrit rien et liste tous les refus ;
+`Desinstaller-PosteAcp.ps1` a la même répétition. Gestes manuels (vous seul) : [README du poste](../../apps/poste/README.md),
+§ Installation.
+
+## 22. Écarts au cahier (poste), justifiés
+
+| Écart | Raison |
+|---|---|
+| Codex copié avec la disposition du paquet npm (`outils\codex\bin\codex.exe`, assistants sous `codex-resources\`) au lieu de `outils\codex\codex.exe` | Codex cherche `codex-windows-sandbox-setup.exe` à partir de son propre exécutable ; disposition relevée sur votre installation (point supposé du cahier, § 8.2) |
+| Sources du poste et du contrat **copiées** sous `lib\` plutôt que `pip wheel` des distributions locales | Python 3.12 de python.org n'embarque pas setuptools : construire des roues téléchargerait des outils ; les deux paquets sont du Python pur |
+| `acp-poste.cmd` généré depuis `acp-poste.cmd.modele` ; `ligne_etat.py` ajouté | le chemin de Python n'est connu qu'à l'installation ; la ligne d'état de vos sessions doit trouver `acp_poste` dans la disposition installée |
+| Installeur sans `#Requires -RunAsAdministrator` ; en simulation, **tous** les refus sont listés | la répétition à blanc doit tourner sans élévation (et en local) ; l'installation réelle refuse sans administrateur et s'arrête au premier refus |
+| Première attente longue de 5 s au démarrage | l'état du poste (confirmé ou non) est connu vite ; le premier relevé ne patiente pas une échéance entière |
+| Codex sans compte : relevé `ok`, origine `catalogue_embarque` (badge « Liste de secours ») | le relevé a bien été lu ; le refus du routage vient de la connexion `non_connecte` et de la liste de secours, et la page dit « Liste de secours » plutôt que « Indisponible » |
+| Faux Hermes fondé sur `hermes/tests/outils/fixtures_machine/` (et non `contrat/tests/fixtures/machine/`) | emplacement choisi par la première partie ; le faux et le vrai greffon partagent ainsi les mêmes exemples |
+| Vrai poste **non** lancé dans le conteneur de test (§ 14.4 du cahier, `poste_reel.py`) | la première partie prouve le greffon contre un faux poste ; la seconde prouve le vrai poste contre un faux Hermes (Linux et Windows, CI) et, en local, contre l'image réelle sous Windows (§ 23) |
+| Gestes du propriétaire du bout en bout par ses routes (session du faux fournisseur d'identité), pas par la page | la page est prouvée par `hermes/tests/e2e/test_poste.py` (première partie) ; le bout en bout local vise le poste |
+| `test_installation.py` sur toutes les plateformes | ses contrôles sont statiques (XML, SID, BOM, lanceur) ; l'installeur lui-même n'est lancé qu'en simulation, sous Windows |
+| Persona (`SOUL.md`) et skill `acp-profils` inchangées | elles parlent d'**exécution**, qui reste en P6 : « pas encore branché » y demeure exact ; à revoir en P6 |
+| `LocalRunnerConfig.from_environment` (`ACP_WORKER_RUN_*`) conservé, inutilisé | le runner sert en P6 ; sa configuration passera alors par `poste.toml` |
+
+## 23. Preuves locales (poste)
+
+Relevés du 27/09/2026 (Windows 10 19045, Python 3.12.10 de python.org, pytest 9.1.1, PowerShell 7.6.6 et Windows
+PowerShell 5.1, Docker 29.5.3 ; Codex CLI 0.156.1 et Claude Code 2.1.239 installés sur ce PC). Rien n'a été installé
+sur ce PC : aucun compte, aucune tâche planifiée, aucun réglage système ; aucune connexion à un compte, aucun
+identifiant lu.
+
+| Suite | Commande | Résultat |
+|---|---|---|
+| Dépôt, sur l'arbre de **chaque** commit (worktree jetable, détaché) | `python -m pytest -q` | `a00999a` 483 ; `75e40a9` 497 et 1 ignoré ; `0fa006b` 507 et 1 ; `df6fe82` 545 et 1 ; `cbae66c` 556 et 1 ; `6306d88` 575 et 3 ; `75601d0` 586 et 3 ; `09edfb5` 586 et 3 : **0 échec** |
+| Dépôt, arbre final (`d9ad283`), Windows | `python -m pytest -q -rs` | **587 réussis, 3 ignorés** (tests propres à Linux : coffre hors Windows, emplacements par défaut hors Windows, ligne d'état hors Windows) ; 2 min 55 s |
+| Dépôt, arbre final, Linux (conteneur `python:3.12-slim`, verrou haché) | idem | **572 réussis, 18 ignorés** (DPAPI réel, ACL, Job Object, dossiers connus : propres à Windows) ; 2 min 10 s |
+| dont le poste | `apps/poste/tests` | 323 tests, dont **35** de contrat contre le faux Hermes HTTPS |
+| Installeur et désinstalleur en simulation | `packaging/poste/tests/Test-InstallationPoste.ps1` (PowerShell 7.6.6, puis 5.1) | **13 vérifications réussies, 1 cas ignoré, 0 échec** dans les deux ; cas ignoré : aucun Python 3.12 « tous utilisateurs » sur ce PC (celui de python.org y est installé « pour moi seul ») ; état du PC identique avant et après chaque cas |
+| Bout en bout local | `scripts/e2e-poste-windows.ps1` (image `acp-hermes-tests:p5o` de la première partie) | **réussi** (91 s ; détail ci-dessous) |
+| Contrôles | `check_version`, `check_lock` (dont le verrou du poste, 5 épingles), `check_engine_frozen`, `verifier_catalogue`, `balayer_secrets --arbre --plage origin/refonte/hermes-p5..HEAD`, `generer_themes --check` | tous code 0 |
+| Schémas de Codex | `codex app-server generate-json-schema` sur un `CODEX_HOME` vide | les 11 fichiers ajoutés aux fixtures sont identiques octet pour octet à la génération du 24/09 |
+
+**Bout en bout local** (dernier passage, identique au précédent à quelques dixièmes de seconde près) :
+
+- pile prête en 27,8 s ; `acp-poste diagnostic --reseau` : Hermes joignable en HTTPS à travers le bord factice
+  (autorité de test), politique valide ;
+- enrôlement par un code créé par la route du propriétaire : poste « À confirmer », empreinte affichée par le poste
+  identique à celle de la page ; aucun inventaire pendant 8 s avant la confirmation ;
+- confirmation → « En ligne » et premier inventaire 13,4 s après (un poste à confirmer relit toutes les 15 s) ;
+  relevé du **vrai Codex** sur un `CODEX_HOME` vide : 7 modèles du catalogue embarqué, badge « Liste de secours »,
+  connexion `non_connecte` ; `config/read` : mode `elevated` d'origine `sessionFlags` (les `-c` placés avant
+  `app-server` sont acceptés) ; readiness `updateRequired` ; écriture non admise, raison affichée ; **vrai Claude
+  Code 2.1.239** : relevé `cli_hors_version` (minimum 2.1.248), jeton absent, `auth status` non lancé ; 4 alertes
+  sur la page ;
+- « Relever maintenant » → nouvel inventaire en **1,86 s** (2,02 s au passage précédent) ;
+- poste tué (`taskkill /T /F`) → « Hors ligne » 9,8 s plus tard (seuil de 10 s de la pile), **une** notification
+  au faux ntfy ;
+- relance → « En ligne » ; révocation pendant l'attente → arrêt **code 0 en 0,47 s**, jeton effacé du coffre DPAPI ;
+- balayage : ni `acpm_` ni `acpe_` dans le journal du poste (2 842 caractères), les journaux de Hermes (5 718), le
+  journal du bord (3 849) ni la base du greffon ;
+- écoute : 15 échantillons (un toutes les 1 à 1,5 s, du démarrage du service à la fin de l'ordre), **aucun écouteur
+  TCP ni UDP** sur le poste ni ses enfants. Limite dite : l'écouteur `127.0.0.1` de l'auto-réveil de la boucle
+  asyncio (quelques millisecondes, à la création de la boucle) et les app-servers de Codex, brefs (≈ 0,5 s), peuvent
+  échapper à un échantillonnage d'une seconde : l'absence d'écouteur est établie en régime établi, pas à la
+  milliseconde (au passage précédent, l'échantillonnage avait capté un app-server : 3 processus, aucun écouteur).
+
+Rapport JSON du dernier passage (non committé, comme les captures : D17) : SHA-256
+`0b4325dab1b0f14ef347ffc4eab39403e55d4687cc0e4c410cba49bdf6dc93a5`.
+
+## 24. Intégration continue (poste)
+
+Relevée après la poussée de la branche : voir le commit de documentation qui suit (les runs de la première partie sont au § 13).
+
+## 25. Ce qui ne se prouve qu'avec vos vrais comptes et votre PC (§ 16 du cahier)
+
+Aucun agent n'a ouvert ces comptes ni lu ces identifiants. État au 27/09/2026 :
+
+| N° | Preuve | État |
+|---|---|---|
+| 1 | Relevé réel de `model/list` de votre compte (« sol », « artra », paliers) | **non prouvé** : `acp-poste.cmd preuve model-list` dans la console `acp-poste`, après `connexion codex` |
+| 2 | Mode *elevated* lu par `config/read`, origine `sessionFlags` | **partiellement** : sur ce PC, avec le vrai Codex 0.156.1 et un profil **vide**, `config/read` rend `windows.sandbox = elevated` d'origine `sessionFlags` (les `-c` placés avant `app-server` sont donc acceptés) ; à refaire dans le compte `acp-poste` après `connexion bac-a-sable` |
+| 3 | Readiness `ready` après l'installation élevée sous l'UAC depuis `runas` | **non prouvé** (readiness lue ici : `updateRequired`, installation élevée non faite) |
+| 4 | Quotas réels (`account/rateLimits/read`) | non prouvé |
+| 5 | `claude auth status` rend 0 avec le seul `CLAUDE_CODE_OAUTH_TOKEN` | non prouvé ; de plus, Claude Code installé sur ce PC : **2.1.239**, antérieur au minimum 2.1.248 : à mettre à jour avant l'installation |
+| 6 | Redémarrage sans session ; relance par le déclencheur de garde | non prouvé (installation réelle) |
+| 7 | Aucun port en écoute sur le vrai poste | **en local, compte courant** : aucun écouteur vu (§ 23) ; à refaire sous `acp-poste` |
+| 8 | Révocation → 401, arrêt, jeton effacé ; révocation poste éteint → 401 de la couture, code 4 | **en local** (image de test) pour le premier cas ; le second est prouvé contre le faux Hermes |
+| 9 | PC éteint → une seule notification réelle | non prouvé (notification réelle) ; une seule notification au faux ntfy en local |
+| 10 | `acp-poste` ne liste pas votre profil | non prouvé (compte dédié) ; le contrôle est éprouvé sur une ACL de test |
+| 11 | Pas d'`auth.json` en clair après la connexion (coffre de Codex) | non prouvé |
+| 12 | Table de routage validée par vous | non prouvé |

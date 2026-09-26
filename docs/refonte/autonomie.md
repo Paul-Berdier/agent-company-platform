@@ -672,11 +672,17 @@ de P2 à P4 ; il ne modifie pas le plan ci-dessus.
   haché et code d'enrôlement à usage unique (décision D48, et non le jeton affiché de `plan.md`), empreinte
   à confirmer, un seul poste actif, révocation ; long-poll `reclamer` (présence, ordres, `carte` toujours
   nulle) ; inventaire du poste ; présence avec grâce de redémarrage ; routage sur le relevé et la politique
-  du poste ; quotas ; onglet « Poste » (greffon d'interface `acp-poste-vues`). `poste.toml` est prévu sous
-  `%ProgramData%\ACP\` et non sous `%LOCALAPPDATA%` (décision D52, seconde partie de P5).
-- **Pas encore posé** : le programme du poste et son installation (seconde partie de P5), la réclamation
-  de cartes et l'exécution par le poste (P6) ; file Questions complète, `open_requests` et flux temps réel
-  (P7).
+  du poste ; quotas ; onglet « Poste » (greffon d'interface `acp-poste-vues`).
+- **Posé par la seconde partie de P5** (même branche ; [poste.md](poste.md) § 16 à § 25,
+  [README du poste](../../apps/poste/README.md)) : le programme du poste (`acp-poste servir`, `enroler`,
+  `connexion`, `releve`, `diagnostic`…) qui s'enrôle, attend ses ordres, relève Codex et Claude Code et publie son
+  inventaire **sans rien exécuter** ; `poste.toml` sous `%ProgramData%\ACP\` en lecture seule pour le compte du
+  poste (décision D52, écart assumé à « `%LOCALAPPDATA%\ACP\poste.toml` » de ce plan) ; coffre DPAPI, journal
+  masqué, verrou d'instance ; installeur `packaging/poste` (compte dédié, tâche planifiée, sans venv), éprouvé
+  **en simulation seulement** ; bout en bout local avec l'image Hermes et le vrai poste sous le compte courant.
+- **Pas encore posé** : l'installation réelle sur votre PC et vos connexions (gestes du propriétaire), la
+  réclamation de cartes et l'exécution par le poste (P6) ; file Questions complète, `open_requests` et flux
+  temps réel (P7).
 - **Mise en veille Railway coupée** (« Hors managed scope » du § 7) : déclarée dans
   `.railway/railway.ts` (`sleepApplication: false`), prise en compte à constater sur Railway
   ([railway.md](railway.md) § 3).

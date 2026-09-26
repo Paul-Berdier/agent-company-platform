@@ -23,8 +23,10 @@ d'API, pas de base, pas de bus d'événements, pas de CLI. Il reste quatre pièc
    encore déployé ([`docs/refonte/railway.md`](docs/refonte/railway.md)).*
 2. **Le poste Windows** ([`apps/poste`](apps/poste/README.md)) : il exécute Codex CLI
    et Claude Code avec les connexions du propriétaire, sous Job Object, et réclame son
-   travail en HTTPS sortant sans écouter aucun port. *Réduit en P0 ; la voie de
-   délégation arrive en P5.*
+   travail en HTTPS sortant sans écouter aucun port. *Étape P5 (côté dépôt) : il s'enrôle,
+   attend ses ordres, relève Codex et Claude Code et publie son inventaire, sans rien
+   exécuter ; installation sous un compte Windows dédié (`packaging/poste`). L'exécution
+   arrive en P6.*
 3. **Le client desktop natif** C++23 / Qt 6 / QML ([`apps/desktop`](apps/desktop/README.md)),
    sans WebView : il ne parle qu'au Hermes authentifié du propriétaire. *Conservé
    intact, hors service jusqu'à P8 : il parle encore l'ancienne API ACP.*
@@ -42,7 +44,8 @@ consultable sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
 | `hermes/` | image Railway de Hermes (Dockerfile, gardes, managed scope, greffon `acp-poste`, contrat épinglé, tests) |
 | `identite/` | image du fournisseur d'identité (Authelia épinglé, garde root) |
 | `.railway/` | infrastructure Railway en code (`railway.ts`, SDK isolé), appliquée par le propriétaire seul |
-| `apps/poste/` | poste Windows : exécuteurs Codex et Claude Code, runner sous Job Object, DPAPI, sondes de quotas, ligne d'état Claude Code |
+| `apps/poste/` | poste Windows : `poste.toml`, coffre DPAPI, client HTTPS du protocole `acp-machine/1`, sondes Codex et Claude Code, inventaire, service ; exécuteurs sous Job Object (P6) |
+| `packaging/poste/` | installation du poste : compte dédié, tâche planifiée, poste sans venv (simulation éprouvée en CI) |
 | `hermes/plugins/acp-poste/contrat/` | contrat Python partagé par le poste et le futur greffon `acp-poste` |
 | `apps/desktop/` | client Qt natif (hors service jusqu'à P8) |
 | `packages/pixel-office-engine/` | moteur Pixel Office, **gelé** sur l'étiquette d'archive, avec `apps/web/public/assets/` et `plugins/` |
