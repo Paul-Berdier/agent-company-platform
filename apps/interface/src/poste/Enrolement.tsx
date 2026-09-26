@@ -1,4 +1,4 @@
-// Enrôlement d'un poste (décision D40) : le code à usage unique s'affiche UNE fois, avec « Copier », la commande à
+// Enrôlement d'un poste (décision D48) : le code à usage unique s'affiche UNE fois, avec « Copier », la commande à
 // lancer sur le poste et un compte à rebours ; il n'est gardé que dans l'état de ce composant (jamais stocké) et
 // disparaît quand la page change de vue ou se ferme.
 import { T } from "../chaines";

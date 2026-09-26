@@ -810,7 +810,7 @@ async def lire_poste() -> JSONResponse:
 
 @router.post("/v1/poste/enrolement")
 async def creer_code_enrolement(request: Request) -> JSONResponse:
-    """Code à usage unique (10 min) rendu UNE fois ; la base n'en garde que le SHA-256 (décision D40)."""
+    """Code à usage unique (10 min) rendu UNE fois ; la base n'en garde que le SHA-256 (décision D48)."""
     garde = await _garde_ecriture(request)
     if isinstance(garde, JSONResponse):
         return garde

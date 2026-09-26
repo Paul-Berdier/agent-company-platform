@@ -66,7 +66,7 @@ def test_confirmation_et_etats(pile_machine):
     bon = pile_machine.post(f"{P}/v1/poste/confirmation", {"machine_id": enrole["machine_id"],
                                                             "empreinte": enrole["empreinte"].lower()})
     assert bon.status_code == 200 and bon.json()["machine"]["etat"] == "actif"
-    assert pile_machine.post(f"{P}/v1/poste/enrolement", {}).status_code == 409  # un seul poste actif (D42)
+    assert pile_machine.post(f"{P}/v1/poste/enrolement", {}).status_code == 409  # un seul poste actif (D50)
 
 
 def test_releve_maintenant(pile_machine):

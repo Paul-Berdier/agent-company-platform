@@ -266,7 +266,7 @@ def verifier_voie(conn, voie: str, releve_id: int, releve: Releve, releve_le: in
 def verifier_politique_du_poste(contexte: Optional[Dict[str, Any]], voie: str, modele: str, effort: Optional[str],
                                 palier: str) -> None:
     """Ce que poste.toml refuse, Hermes ne peut pas le lever : exécutant, modèle ou alias permis, effort interdit,
-    palier admis (cahier P5 § 12.4, décision D44). Sans contexte (relevé factice de P4) : rien à vérifier."""
+    palier admis (cahier P5 § 12.4, décision D52). Sans contexte (relevé factice de P4) : rien à vérifier."""
     if contexte is None:
         return
     politique = contexte.get("politique")

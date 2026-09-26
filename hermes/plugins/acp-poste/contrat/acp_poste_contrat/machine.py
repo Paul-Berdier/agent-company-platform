@@ -15,7 +15,7 @@ hors contrat (422), le poste refuse une réponse hors contrat. Les erreurs du gr
 Jetons : ``acpm_`` ou ``acpe_`` suivi de 43 caractères base64url (256 bits d'aléa). Le greffon ne garde que leur
 SHA-256 (:func:`empreinte_jeton`) ; l'empreinte AFFICHÉE (``3F9A-0C1B``, :func:`empreinte_courte`) est tirée des
 8 premiers caractères hexadécimaux de ce condensat : le poste la recalcule depuis son jeton, le propriétaire la
-compare sur la page Poste avant de confirmer (décision D41).
+compare sur la page Poste avant de confirmer (décision D49).
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ TAILLE_MAX_INVENTAIRE = 256 * 1024
 TAILLE_MAX_REPONSE = 64 * 1024
 
 # Corps exact du 401 de la couture de Hermes (hermes_cli/dashboard_auth/token_auth.py:96) : AMBIGU (jeton
-# révoqué pendant une absence, fournisseur absent ou bogué) ; le poste ne l'efface JAMAIS (décision D57).
+# révoqué pendant une absence, fournisseur absent ou bogué) ; le poste ne l'efface JAMAIS (décision D65).
 CORPS_401_COUTURE = {"error": "unauthenticated", "detail": "Unauthorized"}
 
 GENRES_ORDRE = ("releve", "pause", "reprise")

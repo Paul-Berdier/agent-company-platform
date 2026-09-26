@@ -210,7 +210,7 @@ REGLAGES_PAR_DEFAUT: Dict[str, Any] = {
     "seuil_quota_pct": 90,
     "efforts_interdits": ["max", "ultra", "ultracode"],
     "paliers_admis": ["default"],
-    # Étape P5 (cahier P5 § 12.1, décision D55) : attente du long-poll (bornes 5-50), validité d'un code
+    # Étape P5 (cahier P5 § 12.1, décision D63) : attente du long-poll (bornes 5-50), validité d'un code
     # d'enrôlement, intervalle minimal entre deux inventaires, expiration d'un ordre non acquitté.
     "longpoll_attente_s": 25,
     "enrolement_validite_s": 600,

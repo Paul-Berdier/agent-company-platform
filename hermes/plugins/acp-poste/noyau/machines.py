@@ -1,4 +1,4 @@
-"""Postes enrôlés et codes d'enrôlement (étape P5, cahier P5 § 4.3, § 5 ; décisions D40 à D42).
+"""Postes enrôlés et codes d'enrôlement (étape P5, cahier P5 § 4.3, § 5 ; décisions D48 à D50).
 
 - Le propriétaire crée un code à usage unique (``acpe_…``, 10 min) depuis la page Poste : :func:`creer_code`. Le
   code n'est rendu qu'UNE fois ; la base n'en garde que le SHA-256.
@@ -86,7 +86,7 @@ def purger_codes_dans(conn) -> int:
 
 
 def creer_code(conn, auteur: str) -> Dict[str, Any]:
-    """Code d'enrôlement à usage unique (page Poste). Refusé si un poste est déjà actif (D42)."""
+    """Code d'enrôlement à usage unique (page Poste). Refusé si un poste est déjà actif (D50)."""
     maintenant = base.maintenant()
     validite = int(base.reglage(conn, "enrolement_validite_s") or 600)
     code = nouveau_code()
