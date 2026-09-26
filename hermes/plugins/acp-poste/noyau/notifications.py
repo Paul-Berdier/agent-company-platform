@@ -176,12 +176,23 @@ def compter(conn) -> Dict[str, int]:
 Transport = Callable[[str, str, Dict[str, str], bytes, float], Tuple[int, str]]
 
 
+class _SansRedirection(urllib.request.HTTPRedirectHandler):
+    """Aucune redirection suivie (relecture de P4) : l'ouvreur par défaut de urllib suit un 301/302/303 d'un
+    POST en gardant l'en-tête ``Authorization`` (jeton ntfy) — vers un autre hôte, voire de https vers http.
+    Ici, un 3xx reste une réponse : l'envoi échoue « HTTP 3xx » et se réessaie vers la MÊME URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102, N802
+        return None
+
+
 def transport_urllib(methode: str, url: str, entetes: Dict[str, str], corps: bytes, delai: float) -> Tuple[int, str]:
-    """POST HTTPS, certificat vérifié par le magasin du système (épinglé par l'image)."""
+    """POST HTTPS, certificat vérifié par le magasin du système (épinglé par l'image), JAMAIS de
+    redirection suivie (le jeton ne part que vers l'URL configurée)."""
     requete = urllib.request.Request(url, data=corps, method=methode, headers=entetes)
-    contexte = ssl.create_default_context()
+    ouvreur = urllib.request.build_opener(_SansRedirection(),
+                                          urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     try:
-        with urllib.request.urlopen(requete, timeout=delai, context=contexte) as reponse:  # noqa: S310
+        with ouvreur.open(requete, timeout=delai) as reponse:  # noqa: S310
             return int(reponse.status), reponse.read(2000).decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return int(exc.code), ""

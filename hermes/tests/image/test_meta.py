@@ -169,7 +169,9 @@ def test_meta_garde_execution_apres_vraie_decouverte(tmp_path):
     assert garde["decouverte"] == "reussie"
     assert garde["presente_dans_le_gestionnaire"] is True and garde["enregistree"] is True
     assert garde["alerte"] is None
-    assert len(garde["outils_admis"]) == 34 and garde["outils_retires"] == ["kanban_attach_url", "kanban_create"]
+    # 33 depuis la relecture de P4 : kanban_link rejoint les outils retirés (décision D44).
+    assert len(garde["outils_admis"]) == 33
+    assert garde["outils_retires"] == ["kanban_attach_url", "kanban_create", "kanban_link"]
 
 
 def test_meta_reseau(tmp_path):

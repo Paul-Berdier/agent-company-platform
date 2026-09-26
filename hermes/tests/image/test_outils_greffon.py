@@ -92,12 +92,12 @@ def test_une_exception_interne_rend_un_echec_francais(noyau, conn, monkeypatch):
 # Appels HTTP du noyau : SEULEMENT le transport de l'émetteur (notifications.py), jamais dans un outil.
 APPELS_HTTP_DU_NOYAU = {
     "notifications.py: requete = urllib.request.Request(url, data=corps, method=methode, headers=entetes)",
-    "notifications.py: with urllib.request.urlopen(requete, timeout=delai, context=contexte) as reponse:  # noqa: S310",
+    "notifications.py: ouvreur = urllib.request.build_opener(_SansRedirection(),",
 }
 
 
 def test_aucun_appel_http_dans_les_outils():
-    appel = re.compile(r"\bhttpx\.|\brequests\.|\burlopen\(|\burllib\.request\.(urlopen|Request)\b|\baiohttp\b"
+    appel = re.compile(r"\bhttpx\.|\brequests\.|\burlopen\(|\burllib\.request\.(urlopen|Request|build_opener)\b|\baiohttp\b"
                        r"|\bsocket\.(create_connection|socket)\b")
     trouves = set()
     for fichier in sorted((GREFFON / "noyau").glob("*.py")):
@@ -195,7 +195,8 @@ resultat = [ctx.crochets, "ACP_NTFY_JETON" in os.environ]
 
 
 def test_garde_admet_exactement_les_outils_du_greffon(noyau):
-    assert set(ge.OUTILS_ADMIS) >= HUIT and len(ge.OUTILS_ADMIS) == 34
+    # 26 de P2-P3, moins kanban_link (relecture de P4), plus les huit outils du greffon.
+    assert set(ge.OUTILS_ADMIS) >= HUIT and len(ge.OUTILS_ADMIS) == 33
     assert set(noyau.outils.SCHEMAS) == HUIT
     for nom in HUIT:
         assert ge.garde(tool_name=nom, args={}) is None
