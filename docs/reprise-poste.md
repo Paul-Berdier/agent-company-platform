@@ -69,7 +69,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
-| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, poussée ; CI : § 6 quater) ; sans PR ; **rien de déployé** (§ 6 quater) |
+| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
@@ -1326,7 +1326,10 @@ sans rien de la seconde partie commencé.
 | `65c89e3` | test(e2e): drive the Projects page at 390x844 and 1440x900 |
 | `609b96c` | fix(acp-poste): retry a board connection when Hermes' write check races a closing WAL |
 | `92eb74d` | test(acp-poste): prove the triage resume and test notification buttons end to end |
-| (ce commit) | docs: record the Projects page, the WAL race and local evidence |
+| `4d8265a` | docs: record the Projects page, the WAL race and local evidence |
+| `5002285` | fix(interface): bring the Projects page back to its top when the view changes |
+| `8532ee2` | docs(acp-poste): cite the exact lines of Hermes' database write check |
+| (ce commit) | docs: record the CI of the Projects page and the scroll fix |
 
 Ce qui est en place :
 
@@ -1392,8 +1395,20 @@ Captures du parcours (21, `ACP_E2E_CAPTURES/projets/`, images `p4k`), empreintes
 `before:catalogue`, fichiers regroupés, et au navigateur « Reprendre » un triage et « Envoyer une
 notification de test » non cliqués (prouvés par Vitest, les tests d'image et le contrat).
 
-Intégration continue de la seconde partie : relevée après le push de ce commit, et consignée par un commit
-de documentation suivant.
+Intégration continue de la seconde partie, sommet poussé `4d8265a`, **verte** (détail :
+[`projets.md`](refonte/projets.md) § 10) :
+
+- `ci.yml` [36244812181](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36244812181) :
+  poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (propres à Windows) ; interface
+  **80** (13 fichiers), trois bundles identiques aux sources ; moteur **74** ;
+- `image.yml` [36244812049](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36244812049)
+  (35 min) : compat vert (témoin code 1) ; context7 connecté (1 940 ms) ; **493** dans l'image ; **136** au
+  contrat (24 min 24 s), dont les 18 de P4 ; navigateur **6** (4 min 25 s), dont le parcours Projets
+  (quatre projets terminés 71,1 s après la fin des explorations, aucune requête hors de l'origine).
+
+Poussés après `4d8265a` : `5002285` (la page remonte en haut à chaque changement de vue ; rejoué en local :
+Vitest 80, navigateur `test_projets.py` et `test_interface_fr.py` 2 réussis en 3 min 53 s, images `p4l`)
+et `8532ee2` (lignes de Hermes citées exactement). Leur CI suit ce commit et n'est pas consignée ici.
 
 Non vérifié : le rendu sur un vrai téléphone (émulation Chromium 390×844 seulement, ni Safari iOS) ;
 le scénario Railway (téléphone, notification réelle, second appareil) ; la qualité d'un vrai plan ;

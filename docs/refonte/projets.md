@@ -339,8 +339,20 @@ Branche poussée le 26/09/2026, sommet `ff5d61f` :
   l'image, **135** au contrat dont les 17 de P4, **5** au navigateur, compat vert, context7 connecté).
   Détail et relevés : [`reprise-poste.md`](../reprise-poste.md) § 6 quater.
 
-- Seconde partie (page « Projets ») : CI relevée après le push de son commit de documentation, consignée
-  par le commit suivant.
+- Seconde partie (page « Projets »), sommet poussé `4d8265a`, **verte** :
+  - `ci.yml` [36244812181](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36244812181) :
+    poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (les 9 tests propres à Windows) ;
+    interface **80** (13 fichiers) et trois bundles identiques aux sources ; moteur **74** ;
+  - `image.yml` [36244812049](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36244812049)
+    (35 min) : `hermes plugins compat` greffon vert, témoin code 1 ; sonde réelle de context7 connectée
+    (1 940 ms) ; **493 réussis** dans l'image (4 min 15 s) ; **136 réussis** au contrat (24 min 24 s), dont
+    les 18 de P4 (notification de test reçue une fois par le faux ntfy ; planification réclamée 4 s après
+    la fin de l'exploration) ; navigateur **6 réussis** (4 min 25 s), dont `test_projets.py` : quatre
+    projets « Terminé » 71,1 s après la fin des explorations, groupe des greffons Kanban, Projets,
+    Catalogue, aucune requête hors de l'origine ; aucun conteneur, volume ni réseau de test restant.
+  - Poussés ensuite : `5002285` (la page remonte en haut à chaque changement de vue ; Vitest 80 et
+    navigateur `test_projets.py` et `test_interface_fr.py` rejoués en local : 2 réussis, 3 min 53 s) et
+    `8532ee2` (citation des lignes de Hermes) ; leur CI n'est pas consignée ici (elle suivrait ce commit).
 
 ## 11. Non prouvé
 

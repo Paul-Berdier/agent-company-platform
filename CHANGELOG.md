@@ -283,7 +283,9 @@ Référence : `docs/refonte/projets.md` § 4 bis, `docs/refonte/interface.md` §
   minuteries de sondage couraient dans le test suivant) ; espaces conservées dans les pastilles et les
   replis (conteneurs flex) ; le greffon rejoue une connexion à un tableau refusée à tort par le contrôle
   d'écriture de Hermes 0.21.5 (un `-wal` supprimé par un autre processus pendant le contrôle ; constaté
-  une fois au contrat, trois tentatives, jamais sur un fichier vraiment illisible) ;
+  une fois au contrat, trois tentatives, jamais sur un fichier vraiment illisible) ; la page remonte en
+  haut à chaque changement de vue (Hermes fait défiler un conteneur interne, pas la fenêtre : au
+  téléphone, le détail d'un projet lancé s'ouvrait au niveau du bouton) ;
 - écarts dits : icône `FolderOpen` (Hermes ne connaît pas `FolderKanban`), position `before:catalogue`
   (`after:acp` serait sans effet).
 
