@@ -65,7 +65,7 @@ def evaluer(conn) -> List[str]:
             continue
         depuis = int(ligne["derniere_vue"])
         texte = notifications.texte(T.NOTIF_HORS_LIGNE, heure=routage.date_lisible(depuis, "%H:%M"),
-                                    n=cartes_en_attente(conn))
+                                    cartes=T.cartes(cartes_en_attente(conn)))
         with base.transaction(conn):
             conn.execute("UPDATE presence SET hors_ligne_depuis = ?, hors_ligne_notifie = 1 WHERE machine_id = ?",
                          (depuis, ligne["machine_id"]))

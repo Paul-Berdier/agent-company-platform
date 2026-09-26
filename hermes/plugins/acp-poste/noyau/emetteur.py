@@ -180,7 +180,8 @@ def projets_termines(conn) -> List[str]:
                             "etat = 'actif'", (base.maintenant(), base.maintenant(), fiche["id"])).rowcount != 1:
                 continue
             notifications.enfiler_dans(conn, cle=f"termine:{fiche['id']}", genre="termine", projet_id=fiche["id"],
-                                       texte_notif=notifications.texte(T.NOTIF_TERMINE, titre=fiche["titre"], n=faites))
+                                       texte_notif=notifications.texte(T.NOTIF_TERMINE, titre=fiche["titre"],
+                                                                       cartes=T.cartes(faites, "faite")))
             base.journaliser(conn, "acp-poste:emetteur", "termine", projet_id=fiche["id"], detail={"faites": faites})
         termines.append(fiche["id"])
     return termines

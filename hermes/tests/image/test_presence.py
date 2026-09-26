@@ -34,7 +34,7 @@ def test_hors_ligne_une_notification_par_passage(noyau, conn):
     assert noyau.presence.evaluer(conn) == []  # une seule notification par passage
     assert _notifs(conn) == [("hors_ligne:poste-paul:1", "hors_ligne")]
     texte = conn.execute("SELECT texte FROM notifications").fetchone()[0]
-    assert texte.startswith("ACP — Poste hors ligne depuis ") and "(Europe/Paris), 0 cartes en attente." in texte
+    assert texte.startswith("ACP — Poste hors ligne depuis ") and "(Europe/Paris), 0 carte en attente." in texte
     etat = noyau.presence.etat_poste(conn)
     assert etat["etat"] == "hors_ligne" and etat["hors_ligne_depuis"] == int(debut)
 
@@ -59,3 +59,10 @@ def test_retour_en_ligne_nouveau_passage(noyau, conn):
 def test_enregistrer_refuse_une_entree_invalide(noyau, conn, machine, source):
     with pytest.raises(ValueError):
         noyau.presence.enregistrer(conn, machine, source)
+
+
+def test_accord_du_nombre_de_cartes(noyau):
+    """Textes des notifications : singulier sous 2 (« 0 carte », « 1 carte faite »), pluriel ensuite."""
+    cartes = noyau.textes.cartes
+    assert [cartes(0), cartes(1), cartes(2)] == ["0 carte", "1 carte", "2 cartes"]
+    assert [cartes(1, "faite"), cartes(4, "faite")] == ["1 carte faite", "4 cartes faites"]

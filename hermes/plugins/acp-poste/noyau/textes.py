@@ -32,6 +32,13 @@ def liste(noms: Iterable[str]) -> str:
     return ", ".join(valeurs) if valeurs else "aucun"
 
 
+def cartes(n: int, participe: str = "") -> str:
+    """« 0 carte », « 1 carte faite », « 4 cartes faites » : accord français (singulier sous 2)."""
+    pluriel = abs(int(n)) >= 2
+    texte = f"{n} carte{'s' if pluriel else ''}"
+    return f"{texte} {participe}{'s' if pluriel else ''}" if participe else texte
+
+
 # ------------------------------------------------------------------ projet_lancer (§ 8.1)
 CONTEXTE_LANCER = "projet_lancer ne s'appelle que depuis la discussion, jamais depuis une carte."
 PAUSE_GENERALE_LANCER = ("Hermes est en pause générale ; reprenez-la depuis la page Projets avant de lancer "
@@ -206,8 +213,8 @@ NOTIF_BLOQUEE = "ACP — Projet « {titre} » : la carte « {carte} » est bloqu
 NOTIF_BLOQUEE_HORS_PROJET = "ACP — Tableau « {tableau} » : la carte « {carte} » est bloquée. {lien}"
 NOTIF_TRIAGE = "ACP — Projet « {titre} » : la carte « {carte} » attend votre décision (triage). {lien}"
 NOTIF_ABANDON = "ACP — Projet « {titre} » : la carte « {carte} » a été abandonnée après plusieurs échecs. {lien}"
-NOTIF_TERMINE = "ACP — Projet « {titre} » terminé : {n} cartes faites. {lien}"
-NOTIF_HORS_LIGNE = "ACP — Poste hors ligne depuis {heure} (Europe/Paris), {n} cartes en attente. {lien}"
+NOTIF_TERMINE = "ACP — Projet « {titre} » terminé : {cartes}. {lien}"
+NOTIF_HORS_LIGNE = "ACP — Poste hors ligne depuis {heure} (Europe/Paris), {cartes} en attente. {lien}"
 NOTIF_PLAFOND = "ACP — Projet « {titre} » : plafond de {genre} atteint, votre décision est attendue. {lien}"
 NOTIF_TEST = "ACP — Notification de test envoyée depuis la page Projets. {lien}"
 NOTIF_CROCHETS = "ACP — Crochets shell détectés : pause générale engagée. {lien}"
