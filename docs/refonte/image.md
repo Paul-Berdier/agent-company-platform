@@ -794,10 +794,10 @@ Détail et preuves : [projets.md](projets.md) § 8 et § 9. Dans l'image : base 
 kanban étendu (modules de définition, scan de compatibilité, schéma de `task_events`), lancement,
 graphe et plafonds, routage, corrections, questions, pauses, cartes `poste-*` étrangères, présence,
 émetteur (règles, envoi unique, canaux Telegram et ntfy sur un transport factice), outils et garde
-(34 noms), routes, bloc `projets` de la méta ; gardes de démarrage (épingles P4, crochets shell,
+(33 noms), routes, bloc `projets` de la méta ; gardes de démarrage (épingles P4, crochets shell,
 variables de notification, `HERMES_KANBAN_DISPATCH_IN_GATEWAY`). Au contrat :
 `test_projets_contrat.py` (pile complète, modèle factice, poste simulé, faux ntfy). Témoins négatifs :
-`scripts/temoins_negatifs_p4.sh` (douze protections, retirées une à une dans un conteneur jetable).
+`scripts/temoins_negatifs_p4.sh` (24 protections, retirées une à une dans un conteneur jetable).
 Seconde partie de P4 : greffon d'interface `acp-projets` (page « Projets », sans code serveur) copié et
 normalisé comme les deux autres (`test_interface.py`, `test_interface_contrat.py`), et parcours complet
 au navigateur (`hermes/tests/e2e/test_projets.py`, [projets.md](projets.md) § 4 bis).
