@@ -161,6 +161,7 @@ Images construites depuis l'arbre de travail : `acp-hermes:p4f` et `acp-hermes-t
 | Dans l'image | `docker run … acp-hermes-tests:p4f -m pytest /opt/acp-tests/image` | **491 réussis**, 0 échec (4 min 41 s) |
 | Contrat complet | `python -m pytest -s -v -rA hermes/tests/contrat` (images `p4f`) | **134 réussis, 1 échec** (28 min 41 s) : `test_pid1_est_s6_et_les_gardes_ont_tourne` attendait encore « 50 clés » ; corrigé (`c14c263`), `test_contrat_image.py` rejoué : **37 réussis** (6 min 30 s). Par fichier : catalogue 10, image 37, identité 41, interface 4, **projets 17**, IaC 3, sans exécution 23 |
 | Contrat P4 seul | `… hermes/tests/contrat/test_projets_contrat.py` | **17 réussis** (10 min 30 s), sur la version committée (scénarios ajoutés) ; premier passage, avant eux : 17 réussis (19 min 38 s) |
+| Navigateur | `ACP_E2E_OBLIGATOIRE=1 … python -m pytest -s -v -rA hermes/tests/e2e` (Playwright 1.62.0, Chromium 1234 déjà présent, rien téléchargé) | **5 réussis** (2 min 10 s) après `a150f72` ; aux deux formats, aucune violation axe ; Catalogue au téléphone : 13 278 px capturés en entier |
 | Témoins négatifs | `IMAGE=acp-hermes-tests:p4f bash scripts/temoins_negatifs_p4.sh` | **12 sur 12** : chaque protection retirée fait échouer ses tests (tableau ci-dessous) |
 
 Relevés du contrat (images `p4f`) :
@@ -212,8 +213,20 @@ Témoins négatifs (`scripts/temoins_negatifs_p4.sh`, conteneur jetable de `acp-
 
 ## 10. Intégration continue
 
-Branche poussée après le commit de documentation ; runs consignés dans
-[`reprise-poste.md`](../reprise-poste.md) § 6 quater par le commit suivant.
+Branche poussée le 26/09/2026, sommet `ff5d61f` :
+
+- `ci.yml` [36226236043](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36226236043)
+  **succès** : poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (les 9 tests propres
+  à Windows) ; interface **55** ; moteur **74** ; catalogue et balayage des secrets verts.
+- `image.yml` [36226236009](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36226236009)
+  **échec** : `hermes plugins compat` vert (témoin code 1) ; sonde réelle de context7 connectée
+  (1 611 ms) ; **491** réussis dans l'image ; **135** au contrat (24 min 08 s), dont les 17 de P4
+  (réclamation de la planification 3,7 s après la fin de l'exploration) ; navigateur **1 échec sur 5** :
+  la capture du Catalogue au téléphone s'arrêtait à 12 000 px alors que la page, avec les cinq skills de
+  P4, en compte environ 13 300 (`telephone-03-catalogue.png`, 1 808 px restants). Corrigé par `a150f72`
+  (plafond de capture à 16 000 px) : témoin local à 12 000 px en échec (1 278 px restants), puis
+  **5 réussis** en local à 16 000 px (2 min 10 s ; aucune violation axe).
+- Relance après `a150f72` : [`reprise-poste.md`](../reprise-poste.md) § 6 quater.
 
 ## 11. Non prouvé
 

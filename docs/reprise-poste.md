@@ -1196,7 +1196,9 @@ docs) et corrigé (accord de « carte » dans les notifications ; test de contra
 | `207d9ba` | test(acp-poste): add the negative witnesses of the P4 protections |
 | `c14c263` | test(contrat): expect the 57 managed scope keys in the startup banner |
 | `de96996` | test(contrat): let the witness projects conclude instead of giving up |
-| (ce commit) | docs: record the P4 server core, decisions D21 to D40 and local evidence |
+| `ff5d61f` | docs: record the P4 server core, decisions D21 to D40 and local evidence |
+| `a150f72` | test(e2e): capture the longer phone catalogue in full |
+| (ce commit) | docs: record the first P4 CI runs and the capture fix |
 
 ### Ce qui est en place
 
@@ -1231,6 +1233,7 @@ Détail, commandes et relevés : [`projets.md`](refonte/projets.md) § 9. En bre
 - **contrat complet** : 134 réussis et 1 échec (bandeau « 50 clés » d'un test de P2), corrigé par
   `c14c263` puis `test_contrat_image.py` rejoué : 37 réussis ; **contrat P4** rejoué sur sa version
   committée : **17 réussis** (10 min 30 s) ;
+- **navigateur** : 5 réussis après `a150f72` (capture du Catalogue au téléphone portée à 16 000 px) ;
 - **témoins négatifs** : 12 protections retirées une à une, 12 fois des tests en échec ;
 - délai fin d'exploration → planification lancée : 2,3 à 3,7 s (répartiteur à 5 s) ; mémoire
   indicative : pic de 849,7 Mio avec deux workers ; aucune variable `ACP_*` chez les workers ;
@@ -1242,7 +1245,20 @@ Détail, commandes et relevés : [`projets.md`](refonte/projets.md) § 9. En bre
 
 ### Intégration continue
 
-Branche poussée après le commit de documentation ; runs relevés par le commit suivant.
+Branche poussée le 26/09/2026, sommet `ff5d61f` :
+
+- `ci.yml` [36226236043](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36226236043)
+  **succès** : poste Windows **386 réussis** ; poste Linux **377 réussis, 9 ignorés** (les 9 tests propres
+  à Windows) ; interface **55** ; moteur **74** ; catalogue et balayage des secrets verts.
+- `image.yml` [36226236009](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36226236009)
+  **échec** : `hermes plugins compat` vert (témoin code 1) ; sonde réelle de context7 connectée
+  (1 611 ms) ; **491** réussis dans l'image ; **135** au contrat (24 min 08 s), dont les 17 de P4
+  (réclamation de la planification 3,7 s après la fin de l'exploration) ; navigateur **1 échec sur 5** :
+  la capture du Catalogue au téléphone s'arrêtait à 12 000 px alors que la page, avec les cinq skills de
+  P4, en compte environ 13 300 (`telephone-03-catalogue.png`, 1 808 px restants). Corrigé par `a150f72`
+  (plafond de capture à 16 000 px) : témoin local à 12 000 px en échec (1 278 px restants), puis
+  **5 réussis** en local à 16 000 px (2 min 10 s ; aucune violation axe).
+- Relance après `a150f72` : résultats consignés par le commit de documentation suivant.
 
 ### Non vérifié
 
