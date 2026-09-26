@@ -1,0 +1,63 @@
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <!-- Tâche planifiée \ACP\Poste ACP du poste Windows d'ACP (cahier P5 § 8.4, décisions D51 et D66).
+       Gabarits __…__ remplis par Installer-PosteAcp.ps1 ; aucun secret ici (le mot de passe est passé à
+       Register-ScheduledTask, jamais écrit). -->
+  <RegistrationInfo>
+    <Description>Poste Windows d'ACP : attente des ordres de Hermes, relevés et inventaire (étape P5). Installé par Installer-PosteAcp.ps1.</Description>
+    <URI>\ACP\Poste ACP</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <!-- Au démarrage de Windows, que l'utilisateur soit connecté ou non, après une minute. -->
+    <BootTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT1M</Delay>
+    </BootTrigger>
+    <!-- Déclencheur de garde (décision D66) : toutes les 15 min, sans fin, sans effet si l'instance tourne
+         (IgnoreNew) ; relance le poste après un plantage, un code 4 ou un démarrage rapide. -->
+    <TimeTrigger>
+      <Repetition>
+        <Interval>PT15M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>__SID_COMPTE__</UserId>
+      <LogonType>Password</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>__PYTHON__</Command>
+      <Arguments>-I "__LANCEUR__" servir</Arguments>
+      <WorkingDirectory>__DOSSIER_TRAVAIL__</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

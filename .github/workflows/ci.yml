@@ -5,8 +5,9 @@ name: CI
 #     tests npm ;
 #   - interface (étapes P3 et P4) : greffons acp-interface, acp-catalogue et acp-projets
 #     (apps/interface), tests et bundles committés à jour ;
-#   - poste : pytest sur apps/poste, le contrat partagé et l'outillage, sous Linux et
-#     sous Windows ;
+#   - poste : pytest sur apps/poste (contrat du poste contre un faux Hermes compris), le contrat
+#     partagé et l'outillage, sous Linux et sous Windows ; installeur du poste en simulation
+#     sous Windows (étape P5) ;
 #   - desktop : workflow séparé desktop-ci.yml (windows-2022).
 # Chaque étape de la refonte arrive par une PR refonte/hermes-pN vers refonte/hermes ;
 # la PR finale va de refonte/hermes vers main.
@@ -152,4 +153,12 @@ jobs:
       - name: Vérifier les déclarations et le verrou Python
         run: python scripts/check_lock.py
       - name: Exécuter les tests Python
-        run: python -m pytest -q
+        # Étape P5 : dont le contrat du poste contre un faux Hermes HTTPS (autorité de test générée par cryptography,
+        # tests seulement) ; les tests propres à Windows sont rapportés « ignorés » sous ubuntu.
+        run: python -m pytest -q -rs
+      - name: Installeur du poste en simulation (aucun compte, aucune tâche, aucun dossier créé)
+        # Étape P5 (cahier § 8.1, § 14.1) : Installer-PosteAcp.ps1 et Desinstaller-PosteAcp.ps1 -Simulation, avec le
+        # Python 3.12 « tous utilisateurs » de setup-python ; l'état du runner est comparé avant et après chaque cas.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/poste/tests/Test-InstallationPoste.ps1 -Python (Get-Command python).Source
