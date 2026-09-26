@@ -18,6 +18,22 @@ JETON = "acpm_" + "d" * 43
 JETON_CLAUDE = "sk-ant-oat01-" + "e" * 40
 
 
+def _jeton_eleve() -> bool:
+    """Jeton administrateur élevé (exécuteurs de CI Windows) : ses privilèges contournent les ACL de test (écriture et
+    liste constatées malgré un ACE limité ou refusé, run 36279917625) ; le compte dédié du poste est un compte standard."""
+    if os.name != "nt":
+        return False
+    import ctypes
+
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())
+
+
+ACL_NON_ELEVE = pytest.mark.skipif(
+    os.name != "nt" or _jeton_eleve(),
+    reason="ACL réelles : exige Windows et un jeton NON élevé (le jeton élevé de la CI contourne les ACL) ; éprouvé sur "
+           "le poste de développement")
+
+
 async def test_sans_chemin_ni_secret(poste, capsys):
     poste.ecrire_politique()
     poste.preparer_profil_codex()
@@ -60,7 +76,7 @@ def test_commande_diagnostic(poste, capsys):
     assert rapport["service"]["verrou"] == "libre"
 
 
-@pytest.mark.skipif(os.name != "nt", reason="ACL Windows (exécuté sur windows-2022)")
+@ACL_NON_ELEVE
 def test_isolement_liste_refusee(poste, tmp_path):
     """Un dossier dont l'ACL refuse la liste au compte courant vaut « profil non lisible » ; un dossier ouvert vaut
     « lisible ». Rien n'est lu dans ces dossiers."""

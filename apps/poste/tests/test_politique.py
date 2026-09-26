@@ -21,6 +21,22 @@ from acp_poste.politique import (
 )
 
 WINDOWS_SEULEMENT = pytest.mark.skipif(os.name != "nt", reason="propre à Windows (exécuté sur windows-2022)")
+
+
+def _jeton_eleve() -> bool:
+    """Jeton administrateur élevé (exécuteurs de CI Windows) : ses privilèges contournent les ACL de test (écriture et
+    liste constatées malgré un ACE limité ou refusé, run 36279917625) ; le compte dédié du poste est un compte standard."""
+    if os.name != "nt":
+        return False
+    import ctypes
+
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())
+
+
+ACL_NON_ELEVE = pytest.mark.skipif(
+    os.name != "nt" or _jeton_eleve(),
+    reason="ACL réelles : exige Windows et un jeton NON élevé (le jeton élevé de la CI contourne les ACL) ; éprouvé sur "
+           "le poste de développement")
 RACINE = Path(__file__).resolve().parents[3]
 MODELE = RACINE / "packaging" / "poste" / "poste.toml.modele"
 
@@ -286,7 +302,7 @@ def test_politique_ecrivable_refusee(poste):
         verifier_droits(politique)
 
 
-@WINDOWS_SEULEMENT
+@ACL_NON_ELEVE
 def test_politique_remplacable_refusee(poste):
     """Vrai ``CreateFileW`` : écriture retirée par l'ACL, mais le compte PROPRIÉTAIRE du fichier garde ``WRITE_DAC``
     (droits implicites du propriétaire) : il pourrait réécrire la DACL puis le fichier. ``GENERIC_WRITE`` seul ne le
