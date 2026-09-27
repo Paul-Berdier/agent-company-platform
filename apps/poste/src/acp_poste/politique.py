@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from acp_poste_contrat.inventaire import ALIAS_DEPOT
+from acp_poste_contrat.inventaire import ALIAS_DEPOT, raison_identifiant
 
 from .chemins import Emplacements
 from .config import PosteConfigurationError, normalize_service_origin
@@ -268,6 +268,15 @@ def _chemin(lecteur: _Lecteur, cle: str, defaut: Any, emplacements: Emplacements
     return Path(os.path.normpath(chemin))
 
 
+def _fichier_si_present(section: str, cle: str, chemin: Path | None) -> Path | None:
+    """« Du bon type » (cahier P5 § 7.3) : un chemin présent doit être un fichier. Son ABSENCE reste admise ici
+    (le relevé dit alors « CLI absente », ou la ligne d'état « absente ») ; en mode dédié, :func:`verifier_droits`
+    refuse un exécutable absent avant tout contrôle de droits."""
+    if chemin is not None and chemin.exists() and not chemin.is_file():
+        raise _refus(section, cle, "un fichier (le chemin désigne un dossier)")
+    return chemin
+
+
 def _dans(candidat: Path, racine: Path) -> bool:
     a = os.path.normcase(os.path.realpath(candidat))
     b = os.path.normcase(os.path.realpath(racine))
@@ -312,6 +321,12 @@ def analyser(contenu: bytes, emplacements: Emplacements, *, chemin: Path | None 
 
     p = _Lecteur("poste", donnees.get("poste", {}))
     nom = p.texte("nom", _NOM_POSTE, "un nom de 1 à 60 caractères imprimables", "Poste Windows")
+    raison = raison_identifiant(nom) if nom else None
+    if raison:
+        # Le nom est recopié dans chaque inventaire, que la garde « aucun identifiant » refuserait : le poste
+        # s'enrôlerait puis ne publierait jamais rien (relecture de P5). Jamais la valeur dans le message.
+        raise PolitiqueRefusee(f"poste.toml : [poste] nom refusé ({raison}) : ce nom est publié dans chaque "
+                               "inventaire, qui n'admet ni adresse, ni chemin, ni secret.")
     compte = p.choix("compte", ("dedie", "proprietaire"), "dedie")
     compte_attendu = p.texte("compte_attendu", _COMPTE, "un nom de compte Windows local (1 à 20 caractères)",
                              "acp-poste")
@@ -345,7 +360,8 @@ def analyser(contenu: bytes, emplacements: Emplacements, *, chemin: Path | None 
             raise PolitiqueRefusee("poste.toml : [sondes] codex = true exige la section [codex].")
         c = _Lecteur("codex", donnees["codex"])
         codex = SectionCodex(
-            executable=_chemin(c, "executable", str(emplacements.codex_par_defaut), emplacements),
+            executable=_fichier_si_present("codex", "executable", _chemin(
+                c, "executable", str(emplacements.codex_par_defaut), emplacements)),
             home=_chemin(c, "home", r"%LOCALAPPDATA%\ACP\codex-home", emplacements, expansion=True),
             version_testee=c.texte("version_testee", _VERSION_TEXTE, "une version (ex. 0.156.1)", _OBLIGATOIRE),
             modeles_permis=c.liste("modeles_permis", _VALEUR_POLITIQUE, []),
@@ -364,11 +380,13 @@ def analyser(contenu: bytes, emplacements: Emplacements, *, chemin: Path | None 
             raise _refus("claude", "version_testee", "une version de Claude Code égale ou postérieure à 2.1.248 "
                          "(--restricted)")
         claude = SectionClaude(
-            executable=_chemin(c, "executable", str(emplacements.claude_par_defaut), emplacements),
+            executable=_fichier_si_present("claude", "executable", _chemin(
+                c, "executable", str(emplacements.claude_par_defaut), emplacements)),
             config_dir=_chemin(c, "config_dir", r"%LOCALAPPDATA%\ACP\claude-config", emplacements, expansion=True),
             version_testee=version,
             alias_permis=c.liste("alias_permis", _VALEUR_POLITIQUE, ["opus", "sonnet", "haiku", "fable"]),
-            ligne_etat=_chemin(c, "ligne_etat", None, emplacements, facultatif=True),
+            ligne_etat=_fichier_si_present("claude", "ligne_etat", _chemin(c, "ligne_etat", None, emplacements,
+                                                                            facultatif=True)),
         )
         c.fin()
 
@@ -480,12 +498,17 @@ DELETE = 0x00010000
 WRITE_DAC = 0x00040000
 WRITE_OWNER = 0x00080000
 FILE_ADD_FILE = 0x00000002
+FILE_ADD_SUBDIRECTORY = 0x00000004
 _ERREUR_ACCES_REFUSE = 5
 
 DROITS_FICHIER = (("GENERIC_WRITE", GENERIC_WRITE), ("DELETE", DELETE), ("WRITE_DAC", WRITE_DAC),
                   ("WRITE_OWNER", WRITE_OWNER))
 DROITS_DOSSIER = (("FILE_ADD_FILE", FILE_ADD_FILE), ("DELETE", DELETE), ("WRITE_DAC", WRITE_DAC),
                   ("WRITE_OWNER", WRITE_OWNER))
+# Un dossier examiné pour lui-même (bibliothèques de l'interpréteur et du poste) : y créer un sous-dossier suffit à y
+# planter un paquet (``sitecustomize/``) ; ``FILE_ADD_FILE`` suffit pour un ``.pth`` ou un module.
+DROITS_DOSSIER_SEUL = (("FILE_ADD_FILE", FILE_ADD_FILE), ("FILE_ADD_SUBDIRECTORY", FILE_ADD_SUBDIRECTORY),
+                       ("DELETE", DELETE), ("WRITE_DAC", WRITE_DAC), ("WRITE_OWNER", WRITE_OWNER))
 
 
 def _ouverture_windows(chemin: Path, acces: int, dossier: bool) -> str:
@@ -528,6 +551,18 @@ def droits_d_ecriture(fichier: Path) -> list[str]:
             if issue != "refuse":
                 quoi = "dossier" if dossier else "fichier"
                 obtenus.append(f"{nom} ({quoi}{', indéterminé' if issue == 'indetermine' else ''})")
+    return obtenus
+
+
+def droits_d_ecriture_dossier(dossier: Path) -> list[str]:
+    """Droits par lesquels le compte courant pourrait ajouter, remplacer ou réautoriser quoi que ce soit DANS
+    ``dossier`` (examiné pour lui-même, pas par son parent). Mêmes règles que :func:`droits_d_ecriture`."""
+
+    obtenus = []
+    for nom, acces in DROITS_DOSSIER_SEUL:
+        issue = _ouverture(dossier, acces, True)
+        if issue != "refuse":
+            obtenus.append(f"{nom} (dossier{', indéterminé' if issue == 'indetermine' else ''})")
     return obtenus
 
 
@@ -579,6 +614,12 @@ def verifier_droits(politique: Politique) -> None:
         if section == "codex":
             cibles.append(executable.parent.parent / "codex-resources" / "codex-windows-sandbox-setup.exe")
             cibles.append(executable.parent / "codex-windows-sandbox-setup.exe")
+        if not executable.is_file():
+            # Sans ce contrôle, le dossier absent donnait « indéterminé », donc « modifiable » : message trompeur
+            # (relecture de P5). Aucun chemin dans le message (le diagnostic le recopie).
+            raise PolitiqueRefusee(f"[{section}] executable : fichier introuvable ; réinstallez la CLI "
+                                   "(Installer-PosteAcp.ps1, étape 5) ou corrigez poste.toml : refus de démarrer "
+                                   "(décisions D54 et D70).")
         for cible in cibles:
             if not cible.exists() and cible != executable:
                 continue
@@ -586,6 +627,72 @@ def verifier_droits(politique: Politique) -> None:
             if obtenus:
                 raise PolitiqueRefusee(f"[{section}] executable : un binaire de la CLI est modifiable par le compte du "
                                        f"poste ({', '.join(obtenus[:3])}) : refus de démarrer (décision D54).")
+
+
+def cibles_de_l_interpreteur() -> list[tuple[str, Path, bool]]:
+    """(libellé, chemin, dossier ?) de ce que ``python -I lancer.py`` exécute ou importe : l'interpréteur et ses
+    bibliothèques, ``site-packages`` et ses ``.pth`` (``-I`` ne retire QUE ``PYTHONPATH``, le site utilisateur et le
+    dossier courant : les ``.pth`` de l'interpréteur s'exécutent toujours), puis les bibliothèques du poste, dossier
+    par dossier. Les fichiers de la bibliothèque standard ne sont pas examinés un à un : ils héritent des droits de
+    leur dossier (limite dite, relecture de P5)."""
+
+    import sys
+    import sysconfig
+
+    vues: set[str] = set()
+    cibles: list[tuple[str, Path, bool]] = []
+
+    def ajouter(libelle: str, chemin: Path, dossier: bool) -> None:
+        cle = os.path.normcase(os.path.abspath(chemin))
+        if cle not in vues and chemin.exists():
+            vues.add(cle)
+            cibles.append((libelle, chemin, dossier))
+
+    for prefixe in (Path(sys.base_prefix), Path(sys.prefix)):
+        ajouter("dossier de l'interpréteur Python", prefixe, True)
+        ajouter("DLLs de l'interpréteur", prefixe / "DLLs", True)
+        if prefixe.is_dir():
+            for fichier in sorted(prefixe.iterdir()):
+                if fichier.suffix.lower() in (".exe", ".dll") and fichier.is_file():
+                    ajouter(f"{fichier.name} de l'interpréteur", fichier, False)
+    ajouter("python.exe lancé", Path(sys.executable), False)
+    chemins = sysconfig.get_paths()
+    for libelle, cle in (("bibliothèque standard (Lib)", "stdlib"), ("site-packages", "purelib"),
+                         ("site-packages", "platlib")):
+        dossier = Path(chemins[cle])
+        ajouter(libelle, dossier, True)
+        ajouter(f"{libelle} (__pycache__)", dossier / "__pycache__", True)
+        if cle != "stdlib" and dossier.is_dir():
+            for fichier in sorted(dossier.iterdir()):
+                if fichier.suffix.lower() == ".pth" or fichier.stem in ("sitecustomize", "usercustomize"):
+                    ajouter(f"{fichier.name} de site-packages", fichier, fichier.is_dir())
+    lib = Path(__file__).resolve().parents[1]
+    ajouter("bibliothèques du poste", lib, True)
+    for racine, dossiers, _fichiers in os.walk(lib):
+        for nom in sorted(dossiers):
+            ajouter("bibliothèques du poste", Path(racine) / nom, True)
+    for nom in ("lancer.py", "ligne_etat.py", "acp-poste.cmd"):
+        ajouter(f"{nom} du poste", lib.parent / nom, False)
+    return cibles
+
+
+def verifier_interpreteur(politique: Politique, *,
+                          cibles: list[tuple[str, Path, bool]] | None = None) -> None:
+    """Mode ``dedie``, au démarrage du service : refus si le compte du poste peut modifier l'interpréteur Python qui
+    le lance ou une bibliothèque qu'il importe (relecture de P5, décision D67). Le service détient en mémoire le
+    jeton machine et le jeton Claude déchiffrés : un exécutant mal confiné (P6) qui y injecterait du code les
+    lirait. En mode ``proprietaire``, rien n'est vérifié (D51). Aucun chemin dans le message."""
+
+    if not politique.compte_dedie:
+        return
+    for libelle, chemin, dossier in (cibles if cibles is not None else cibles_de_l_interpreteur()):
+        obtenus = droits_d_ecriture_dossier(chemin) if dossier else droits_d_ecriture(chemin)
+        if obtenus:
+            raise PolitiqueRefusee(
+                f"Interpréteur Python ou bibliothèques du poste modifiables par le compte du poste ({libelle} : "
+                f"{', '.join(obtenus[:3])}) : un exécutant pourrait injecter du code dans le service, qui détient "
+                "les jetons déchiffrés. Installez Python 3.12 de python.org pour tous les utilisateurs, sous "
+                "Program Files, puis relancez l'installeur : refus de démarrer (décision D67).")
 
 
 def modifiable_par_le_poste(politique: Politique) -> bool | None:

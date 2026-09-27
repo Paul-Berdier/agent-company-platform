@@ -89,11 +89,14 @@ CODEX_API_KEY_ACCOUNT = (
     "Connectez un compte ChatGPT avec « acp-poste connexion codex »."
 )
 CODEX_MALFORMED = "Réponse de l'app-server Codex mal formée : quotas non relevés."
+# Publié dans l'inventaire (détail d'un compteur) : aucun chemin de lecteur, que la garde « aucun identifiant »
+# refuserait. La commande exacte (interpréteur -I et ligne_etat.py installé avec le poste) est dans le README ;
+# « python -m acp_poste.claude_statusline » échoue dans la disposition installée, sans venv (relecture de P5).
 CLAUDE_MISSING = (
     "Aucun relevé de la ligne d'état Claude Code : fichier absent. Réglez la ligne "
-    "d'état de vos sessions Claude Code sur « python -m acp_poste.claude_statusline » "
-    "(apps/poste/README.md, § Ligne d'état Claude Code), puis utilisez Claude Code "
-    "une fois."
+    "d'état de vos sessions Claude Code sur ligne_etat.py, installé avec le poste et lancé "
+    "par l'interpréteur du poste en mode -I (apps/poste/README.md, § Ligne d'état Claude "
+    "Code), puis utilisez Claude Code une fois."
 )
 CLAUDE_UNREADABLE = "Relevé de la ligne d'état Claude Code illisible : quotas non relevés."
 CLAUDE_MALFORMED = "Relevé de la ligne d'état Claude Code mal formé : quotas non relevés."

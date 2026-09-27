@@ -34,6 +34,7 @@ from acp_poste_contrat.machine import (
 )
 
 from . import __version__
+from .chemins import commande_poste
 from .client_hermes import ClientHermes, ErreurReseau, ReponseHTTP
 from .jeton import CodeEnrolement, Jeton
 
@@ -42,7 +43,7 @@ MARGE_LECTURE_S = 15
 
 JETON_REFUSE = ("Jeton machine refusé par ACP (révoqué, inconnu, ou fournisseur de jeton absent côté Hermes) : plus "
                 "aucun échange ; le jeton local est gardé. Vérifiez l'état sur la page Poste ; si le poste y est "
-                "révoqué, lancez « acp-poste enroler --remplacer ».")
+                f"révoqué, lancez « {commande_poste('enroler --remplacer')} ».")
 CODE_REFUSE = ("Code d'enrôlement refusé : inconnu, expiré ou déjà utilisé. Générez-en un nouveau depuis la page "
                "Poste.")
 HERMES_INDISPONIBLE = "Hermes indisponible (HTTP {statut}) : nouvel essai plus tard."

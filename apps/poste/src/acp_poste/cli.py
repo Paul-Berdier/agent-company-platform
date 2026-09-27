@@ -21,17 +21,67 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import sys
 
 from . import __version__
-from .chemins import EmplacementsIndisponibles
+from .chemins import EmplacementsIndisponibles, commande_poste
 from .coffre import CoffreErreur
 from .contexte import Contexte
 from .journal import lire_fin
 
 EPILOGUE = ("Poste Windows d'ACP (étape P5 : présence, catalogue, quotas ; aucune exécution de carte avant P6). "
             "Installation : packaging/poste ; documentation : apps/poste/README.md.")
+
+# Messages d'argparse (Python 3.12) en français (relecture de P5 : une saisie erronée répondait en anglais). argparse
+# les lit par son ``_`` (gettext) au moment de construire le parseur et d'analyser : ils ne sont remplacés que le
+# temps de ces deux appels (:func:`_argparse_en_francais`), jamais pour le reste du processus.
+_ARGPARSE_FR = {
+    "usage: ": "utilisation : ",
+    "%(heading)s:": "%(heading)s :",
+    " (default: %(default)s)": " (par défaut : %(default)s)",
+    "argument %(argument_name)s: %(message)s": "argument %(argument_name)s : %(message)s",
+    "show program's version number and exit": "afficher la version du poste et quitter",
+    "show this help message and exit": "afficher cette aide et quitter",
+    "positional arguments": "arguments positionnels",
+    "options": "options",
+    "subcommands": "commandes",
+    "unrecognized arguments: %s": "arguments non reconnus : %s",
+    "not allowed with argument %s": "interdit avec l'argument %s",
+    "ambiguous option: %(option)s could match %(matches)s": "option ambiguë : %(option)s peut désigner %(matches)s",
+    "ignored explicit argument %r": "argument explicite ignoré : %r",
+    "the following arguments are required: %s": "arguments obligatoires manquants : %s",
+    "one of the arguments %s is required": "l'un des arguments %s est obligatoire",
+    "expected one argument": "une valeur attendue",
+    "expected at most one argument": "au plus une valeur attendue",
+    "expected at least one argument": "au moins une valeur attendue",
+    "unexpected option string: %s": "option inattendue : %s",
+    "invalid %(type)s value: %(value)r": "valeur invalide (%(type)s attendu) : %(value)r",
+    "invalid choice: %(value)r (choose from %(choices)s)": "choix invalide : %(value)r (choix possibles : %(choices)s)",
+    "unknown parser %(parser_name)r (choices: %(choices)s)":
+        "commande inconnue %(parser_name)r (choix possibles : %(choices)s)",
+    "%(prog)s: error: %(message)s\n": "%(prog)s : commande refusée : %(message)s\n",
+}
+_ARGPARSE_FR_PLURIEL = {"expected %s argument": ("%s valeur attendue", "%s valeurs attendues")}
+
+
+@contextlib.contextmanager
+def _argparse_en_francais():
+    ancien, ancien_pluriel = argparse._, argparse.ngettext
+
+    def pluriel(singulier: str, pluriel_anglais: str, n: int) -> str:
+        francais = _ARGPARSE_FR_PLURIEL.get(singulier)
+        if francais is None:
+            return ancien_pluriel(singulier, pluriel_anglais, n)
+        return francais[0] if n == 1 else francais[1]
+
+    argparse._ = lambda message: _ARGPARSE_FR.get(message, message)
+    argparse.ngettext = pluriel
+    try:
+        yield
+    finally:
+        argparse._, argparse.ngettext = ancien, ancien_pluriel
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,7 +103,7 @@ def _parser() -> argparse.ArgumentParser:
     diagnostic.add_argument("--isolement", action="store_true",
                             help="Vérifier que les profils interdits ne sont pas listables")
     journal = commandes.add_parser("journal", help="Fin du journal local")
-    journal.add_argument("--lignes", type=int, default=40)
+    journal.add_argument("--lignes", type=int, default=40, help="Nombre de lignes à afficher (1 à 2000)")
     commandes.add_parser("oublier-jeton", help="Effacer le jeton machine local")
     commandes.add_parser("quotas", help="Relevés de quotas (Codex, ligne d'état Claude Code)")
     return parser
@@ -109,7 +159,7 @@ def _releve(contexte: Contexte, politique, *, publier: bool) -> int:
     try:
         jeton = Jeton(brut or "")
     except JetonInvalide:
-        print("Poste non enrôlé : lancez « acp-poste enroler » avant de publier.", file=sys.stderr)
+        print(f"Poste non enrôlé : lancez « {commande_poste('enroler')} » avant de publier.", file=sys.stderr)
         return 2
     try:
         reponse = Protocole(contexte.client(politique)).publier(jeton, inventaire)
@@ -228,7 +278,8 @@ def _utf8() -> None:
 
 def main(argv: list[str] | None = None, *, contexte: Contexte | None = None) -> int:
     _utf8()
-    args = _parser().parse_args(argv)
+    with _argparse_en_francais():
+        args = _parser().parse_args(argv)
     try:
         contexte = contexte or Contexte.du_compte()
     except EmplacementsIndisponibles as exc:

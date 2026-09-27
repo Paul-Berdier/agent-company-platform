@@ -26,6 +26,35 @@ def test_version(capsys):
     assert fin.value.code == 0 and capsys.readouterr().out.strip() == "acp-poste 0.11.0"
 
 
+@pytest.mark.parametrize("argv, attendu", [
+    (["connexion"], "acp-poste connexion : commande refusée : arguments obligatoires manquants : cible"),
+    (["enrole"], "acp-poste : commande refusée : argument commande : choix invalide : 'enrole' (choix possibles : "
+                 "servir, enroler"),
+    (["journal", "--lignes", "x"], "argument --lignes : valeur invalide (int attendu) : 'x'"),
+    (["releve", "--inconnu"], "acp-poste : commande refusée : arguments non reconnus : --inconnu"),
+])
+def test_saisie_erronee_refusee_en_francais(capsys, argv, attendu):
+    """Relecture de P5 : les erreurs de saisie répondaient en anglais (« error: the following arguments are
+    required »). Code 2 comme avant, message et utilisation en français ; argparse est rendu à l'anglais après."""
+    import argparse
+
+    with pytest.raises(SystemExit) as refus:
+        main(argv)
+    erreur = capsys.readouterr().err
+    assert refus.value.code == 2 and attendu in erreur and erreur.startswith("utilisation : acp-poste")
+    assert "error" not in erreur and "usage" not in erreur and "required" not in erreur
+    assert argparse._("usage: ") == "usage: "
+
+
+def test_aide_en_francais(capsys):
+    with pytest.raises(SystemExit) as fin:
+        main(["-h"])
+    sortie = capsys.readouterr().out
+    assert fin.value.code == 0 and sortie.startswith("utilisation : acp-poste")
+    assert "arguments positionnels :" in sortie and "afficher cette aide et quitter" in sortie
+    assert "show this help" not in sortie and "positional arguments" not in sortie
+
+
 def test_journal_absent_puis_present(poste, capsys):
     contexte = poste.contexte()
     assert main(["journal"], contexte=contexte) == 0
@@ -98,16 +127,60 @@ def test_servir_non_enrole_code_0_une_ligne_par_jour(poste, capsys):
     poste.ecrire_politique()
     contexte = poste.contexte()
     assert main(["servir"], contexte=contexte) == 0
-    assert "Poste non enrôlé : lancez « acp-poste enroler »" in capsys.readouterr().err
+    assert "Poste non enrôlé : lancez « & '" in capsys.readouterr().err
     assert main(["servir"], contexte=contexte) == 0
     lignes = (poste.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8").splitlines()
     assert sum(json.loads(l)["evenement"] == "non_enrole" for l in lignes) == 1
+
+
+def test_les_commandes_citees_aux_consoles_sont_executables_telles_quelles(poste, capsys):
+    """Relecture de P5 : « acp-poste enroler » n'est reconnu par aucune console (dossier hors du PATH), et un chemin
+    entre guillemets sans « & » est une erreur d'analyse de PowerShell. Les messages imprimés dans la console du
+    compte citent la forme exécutable (décision D68)."""
+    from acp_poste import enrolement, protocole, service
+    from acp_poste.chemins import commande_poste
+
+    forme = commande_poste("enroler")
+    assert forme.startswith("& '") and forme.endswith(r"\ACP\poste\acp-poste.cmd' enroler")
+    assert f"« {forme} »" in service.NON_ENROLE
+    assert f"« {commande_poste('oublier-jeton')} »" in service.JETON_ILLISIBLE
+    assert f"« {commande_poste('enroler --remplacer')} »" in enrolement.DEJA_ENROLE.format(empreinte="AAAA-BBBB")
+    assert f"« {commande_poste('enroler --remplacer')} »" in protocole.JETON_REFUSE
+    for message in (service.NON_ENROLE, service.JETON_ILLISIBLE, protocole.JETON_REFUSE):
+        assert "« acp-poste " not in message
+    poste.ecrire_politique()
+    poste.preparer_profil_codex()
+    assert main(["releve", "--publier"], contexte=poste.contexte()) == 2
+    assert f"Poste non enrôlé : lancez « {forme} » avant de publier." in capsys.readouterr().err
 
 
 def test_servir_compte_dedie_different_refuse(poste, capsys):
     poste.ecrire_politique(poste.toml(compte="dedie"))
     assert main(["servir"], contexte=poste.contexte(compte_courant=lambda: "Paul")) == 2
     assert "doit tourner sous « acp-poste »" in capsys.readouterr().err
+
+
+def test_servir_compte_dedie_refuse_un_interpreteur_modifiable(poste, capsys, monkeypatch):
+    """Relecture de P5 (D67) : le service détient les jetons déchiffrés ; si le compte du poste peut écrire dans le
+    site-packages de l'interpréteur (un .pth s'y exécute même sous -I), il refuse de démarrer (code 2), sans chemin
+    dans le message, avant de lire le coffre."""
+    import sysconfig
+    from pathlib import Path
+
+    from acp_poste import politique as module
+
+    site = Path(sysconfig.get_paths()["purelib"])
+    monkeypatch.setattr(module, "_ouverture", lambda cible, acces, dossier: (
+        "ouvert" if dossier and Path(cible) == site and acces == module.FILE_ADD_FILE else "refuse"))
+    poste.coffre.valeurs["jeton-machine"] = "illisible-mais-jamais-lu"
+    poste.ecrire_politique(poste.toml(compte="dedie"))
+    assert main(["servir"], contexte=poste.contexte(compte_courant=lambda: "acp-poste")) == 2
+    erreur = capsys.readouterr().err
+    assert "Interpréteur Python ou bibliothèques du poste modifiables par le compte du poste (site-packages : " \
+           "FILE_ADD_FILE (dossier))" in erreur and "décision D67" in erreur
+    assert str(site) not in erreur and ":\\" not in erreur
+    journal = (poste.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8")
+    assert "demarrage_refuse" in journal and "jeton_illisible" not in journal
 
 
 @pytest.mark.skipif(os.name == "nt", reason="sous Windows, les emplacements réels existent (jamais lus ici)")

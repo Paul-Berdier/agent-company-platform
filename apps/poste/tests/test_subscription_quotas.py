@@ -181,6 +181,18 @@ async def test_a_missing_status_line_snapshot_is_unavailable_with_an_explanation
     assert "ligne d'état" in report.detail
 
 
+async def test_the_missing_snapshot_explanation_names_the_installed_status_line_and_no_path(tmp_path: Path):
+    """Relecture de P5 : l'explication, affichée sur la page Quotas, demandait « python -m
+    acp_poste.claude_statusline », qui échoue dans la disposition installée (sans venv) ; elle renvoie à
+    ``ligne_etat.py`` installé avec le poste, sans chemin de lecteur (publiée dans l'inventaire)."""
+    from acp_poste_contrat.inventaire import identifiant_trouve
+
+    report = await probe_claude_snapshot(tmp_path / "absent.json")
+    assert "python -m acp_poste.claude_statusline" not in report.detail
+    assert "ligne_etat.py" in report.detail and "-I" in report.detail and "README" in report.detail
+    assert identifiant_trouve({"detail": report.detail}) is None
+
+
 @pytest.mark.parametrize(
     "content",
     [

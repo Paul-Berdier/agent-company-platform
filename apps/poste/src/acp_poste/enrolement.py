@@ -19,6 +19,7 @@ import sys
 from datetime import UTC, datetime
 from typing import Callable
 
+from .chemins import commande_poste
 from .coffre import CoffreErreur, ecrire_atomiquement
 from .contexte import Contexte
 from .jeton import CodeEnrolement, Jeton, JetonInvalide
@@ -27,7 +28,7 @@ from .politique import Politique
 from .protocole import HermesIndisponible, HorsContrat, Protocole, Refus
 
 DEJA_ENROLE = ("Poste déjà enrôlé (empreinte {empreinte}) : révoquez l'ancien poste sur la page Poste, puis lancez "
-               "« acp-poste enroler --remplacer ».")
+               f"« {commande_poste('enroler --remplacer')} ».")
 CODE_INVALIDE = ("Code d'enrôlement au format invalide : copiez-le tel quel depuis la page Poste (acpe_ suivi de 43 "
                  "caractères).")
 

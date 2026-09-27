@@ -174,6 +174,26 @@ class Emplacements:
         return True
 
 
+PROGRAMFILES_PAR_DEFAUT = r"C:\Program Files"
+
+
+def commande_poste(arguments: str) -> str:
+    r"""Forme EXÉCUTABLE d'une commande du poste dans la console du compte (``runas /user:acp-poste "powershell
+    -NoProfile"``, décision D55) : le dossier du poste n'est dans aucun PATH, et un chemin entre guillemets sans
+    l'opérateur ``&`` est une erreur d'analyse de PowerShell (relecture de P5, décision D68). Le dossier est celui où
+    l'installeur a copié le poste (``%ProgramFiles%\ACP\poste``, lu par ``SHGetKnownFolderPath`` ; hors Windows,
+    l'emplacement par défaut). Jamais dans un inventaire : la garde « aucun identifiant » y refuse les chemins."""
+
+    racine = PROGRAMFILES_PAR_DEFAUT
+    if os.name == "nt":
+        try:
+            racine = str(_dossier_connu(FOLDERID_PROGRAMFILES))
+        except (EmplacementsIndisponibles, OSError):
+            pass
+    chemin = racine.rstrip("\\") + r"\ACP\poste\acp-poste.cmd"
+    return f"& '{chemin}' {arguments}"
+
+
 def emplacements_du_compte() -> Emplacements:
     """Emplacements réels du compte courant (Windows seulement)."""
 

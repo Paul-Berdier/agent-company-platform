@@ -33,12 +33,13 @@ from typing import Any, Callable
 
 from acp_poste_contrat.machine import ACQUITTES_MAX, ATTENTE_MIN_S
 
+from .chemins import commande_poste
 from .coffre import CoffreErreur, ecrire_atomiquement
 from .contexte import Contexte
 from .inventaire import InventaireRetenu, construire, relever
 from .jeton import Jeton, JetonInvalide
 from .journal import Journal
-from .politique import Politique, PolitiqueRefusee, charger, verifier_compte, verifier_droits
+from .politique import Politique, PolitiqueRefusee, charger, verifier_compte, verifier_droits, verifier_interpreteur
 from .protocole import (
     HermesIndisponible,
     HorsContrat,
@@ -58,9 +59,10 @@ CODE_INSTANCE = 3
 CODE_JETON_REFUSE = 4
 
 AUTRE_INSTANCE = "Une autre instance du poste tourne déjà dans ce compte : arrêt."
-NON_ENROLE = "Poste non enrôlé : lancez « acp-poste enroler » dans le compte du poste."
-JETON_ILLISIBLE = ("Jeton machine du coffre au format invalide : lancez « acp-poste oublier-jeton » puis réenrôlez le "
-                   "poste.")
+NON_ENROLE = (f"Poste non enrôlé : lancez « {commande_poste('enroler')} » dans la console PowerShell du compte du "
+              "poste.")
+JETON_ILLISIBLE = (f"Jeton machine du coffre au format invalide : lancez « {commande_poste('oublier-jeton')} » puis "
+                   "réenrôlez le poste.")
 ECART_HORLOGE_MAX_S = 120
 REPLI_MAX_S = 60.0
 REVEIL_S = 30.0
@@ -462,6 +464,8 @@ async def servir(contexte: Contexte, *, duree_max_s: float | None = None,
         try:
             verifier_compte(politique, contexte.compte_courant())
             verifier_droits(politique)
+            # Au démarrage seulement : l'interpréteur ne change pas en cours de route (relecture de P5, D67).
+            verifier_interpreteur(politique)
         except PolitiqueRefusee as exc:
             journal.ecrire("erreur", "demarrage_refuse", str(exc))
             print(str(exc), file=sys.stderr)

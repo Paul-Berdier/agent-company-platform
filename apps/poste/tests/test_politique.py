@@ -319,3 +319,103 @@ def test_politique_remplacable_refusee(poste):
             verifier_droits(charger(poste.emplacements))
     finally:
         subprocess.run(["icacls", str(chemin), "/reset"], capture_output=True)
+
+
+# ------------------------------------------------------------------ relecture de P5
+
+
+@pytest.mark.parametrize("nom, raison", [
+    ("PC de paul" + "@" + "maison", "adresse électronique (« @ »)"),
+    ("Poste C:/bureau", "chemin de lecteur"),
+])
+def test_nom_de_poste_qui_ne_peut_pas_etre_publie_refuse(poste, nom, raison):
+    """Relecture de P5 : un nom que la garde « aucun identifiant » refuse dans l'inventaire était accepté ; le poste
+    s'enrôlait, puis chaque inventaire était retenu sans que Hermes le sache. Refus dès poste.toml, sans le nom."""
+    message = _refus(poste, poste.toml(sections={"poste": {"nom": nom}}))
+    assert message == (f"poste.toml : [poste] nom refusé ({raison}) : ce nom est publié dans chaque inventaire, qui "
+                       "n'admet ni adresse, ni chemin, ni secret.")
+    assert nom not in message
+    assert charger(poste.emplacements, chemin=poste.ecrire_politique(
+        poste.toml(sections={"poste": {"nom": "PC du bureau : 2e étage"}}))).poste.nom == "PC du bureau : 2e étage"
+
+
+def test_executable_qui_designe_un_dossier_refuse(poste):
+    dossier = poste.racine / "un-dossier"
+    dossier.mkdir()
+    assert _refus(poste, poste.toml(sections={"codex": {"executable": str(dossier)}})) == (
+        "poste.toml : [codex] executable doit être un fichier (le chemin désigne un dossier).")
+    assert _refus(poste, poste.toml(sections={"claude": {"ligne_etat": str(dossier)}})) == (
+        "poste.toml : [claude] ligne_etat doit être un fichier (le chemin désigne un dossier).")
+
+
+def test_executable_absent_refuse_en_dedie_sans_controle_de_droits(poste, monkeypatch):
+    """Relecture de P5 : un exécutable absent donnait « un binaire de la CLI est modifiable » (dossier absent :
+    CreateFileW « indéterminé »). Refus explicite « fichier introuvable », avant tout contrôle de droits, sans chemin.
+    En mode propriétaire, l'absence reste admise : le relevé dit « CLI absente »."""
+    appels = []
+    monkeypatch.setattr(module, "_ouverture", lambda cible, acces, dossier: appels.append(Path(cible)) or "refuse")
+    absent = poste.racine / "Program Files" / "ACP" / "outils" / "claude" / "claude.exe"
+    poste.ecrire_politique(poste.toml(compte="dedie", sections={"claude": {"executable": str(absent)}}))
+    politique = charger(poste.emplacements)
+    with pytest.raises(PolitiqueRefusee) as exc:
+        verifier_droits(politique)
+    assert str(exc.value) == ("[claude] executable : fichier introuvable ; réinstallez la CLI (Installer-PosteAcp.ps1, "
+                              "étape 5) ou corrigez poste.toml : refus de démarrer (décisions D54 et D70).")
+    assert absent.parent not in appels and absent not in appels
+    poste.ecrire_politique(poste.toml(compte="proprietaire", sections={"claude": {"executable": str(absent)}}))
+    verifier_droits(charger(poste.emplacements))  # repli D51 : rien n'est vérifié, la sonde dira « CLI absente »
+
+
+def test_cibles_de_l_interpreteur():
+    """Ce que ``python -I lancer.py`` exécute ou importe : dossier de l'interpréteur, Lib, site-packages (et ses
+    .pth), DLLs s'il existe, python.exe, puis chaque dossier des bibliothèques du poste."""
+    import sys
+    import sysconfig
+
+    cibles = module.cibles_de_l_interpreteur()
+    chemins = {(libelle, str(chemin)) for libelle, chemin, _dossier in cibles}
+    assert ("dossier de l'interpréteur Python", str(Path(sys.base_prefix))) in chemins
+    assert ("site-packages", str(Path(sysconfig.get_paths()["purelib"]))) in chemins
+    assert ("bibliothèque standard (Lib)", str(Path(sysconfig.get_paths()["stdlib"]))) in chemins
+    assert ("python.exe lancé", str(Path(sys.executable))) in chemins or any(
+        l.endswith("de l'interpréteur") and c == str(Path(sys.executable)) for l, c in chemins)
+    lib = Path(module.__file__).resolve().parents[1]
+    assert ("bibliothèques du poste", str(lib)) in chemins
+    assert ("bibliothèques du poste", str(lib / "acp_poste")) in chemins
+    assert all(chemin.exists() for _l, chemin, _d in cibles)
+    assert len({str(c).casefold() for _l, c, _d in cibles}) == len(cibles)
+
+
+@pytest.mark.parametrize("libelle", ["site-packages", "bibliothèques du poste", "dossier de l'interpréteur Python"])
+def test_interpreteur_modifiable_refuse_en_dedie_seulement(poste, monkeypatch, libelle):
+    """Relecture de P5 (D67) : un seul droit d'écriture sur l'interpréteur ou une bibliothèque importée suffit à
+    refuser ; le message nomme la cible par son libellé, jamais par son chemin. Mode propriétaire : rien (D51)."""
+    cibles = module.cibles_de_l_interpreteur()
+    visee = next(chemin for l, chemin, dossier in cibles if l == libelle and dossier)
+    monkeypatch.setattr(module, "_ouverture", lambda cible, acces, dossier: (
+        "ouvert" if Path(cible) == visee and acces == module.FILE_ADD_SUBDIRECTORY else "refuse"))
+    dedie = analyser(poste.toml(compte="dedie").encode(), poste.emplacements)
+    with pytest.raises(PolitiqueRefusee) as exc:
+        module.verifier_interpreteur(dedie)
+    assert f"({libelle} : FILE_ADD_SUBDIRECTORY (dossier))" in str(exc.value)
+    assert str(visee) not in str(exc.value)
+    module.verifier_interpreteur(analyser(poste.toml(compte="proprietaire").encode(), poste.emplacements))
+    monkeypatch.setattr(module, "_ouverture", lambda cible, acces, dossier: "refuse")
+    module.verifier_interpreteur(dedie)
+
+
+@ACL_NON_ELEVE
+def test_interpreteur_modifiable_refuse_avec_de_vraies_acl(poste, tmp_path):
+    """Vrai ``CreateFileW`` : un « interpréteur » dans un dossier que le compte courant peut modifier (le cas d'un
+    Python installé sous « C:/Python312 », qui hérite de la modification pour les Utilisateurs authentifiés) est
+    refusé ; un .pth modifiable de site-packages aussi."""
+    racine = tmp_path / "Python312"
+    site = racine / "Lib" / "site-packages"
+    site.mkdir(parents=True)
+    pth = site / "distutils-precedence.pth"
+    pth.write_text("import os\n", encoding="utf-8")
+    dedie = analyser(poste.toml(compte="dedie").encode(), poste.emplacements)
+    with pytest.raises(PolitiqueRefusee, match=r"\(site-packages : FILE_ADD_FILE \(dossier\)"):
+        module.verifier_interpreteur(dedie, cibles=[("site-packages", site, True)])
+    with pytest.raises(PolitiqueRefusee, match=r"\(distutils-precedence.pth de site-packages : GENERIC_WRITE"):
+        module.verifier_interpreteur(dedie, cibles=[("distutils-precedence.pth de site-packages", pth, False)])

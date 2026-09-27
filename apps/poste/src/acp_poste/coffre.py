@@ -21,6 +21,7 @@ import secrets
 from pathlib import Path
 from typing import Callable, Protocol
 
+from .chemins import commande_poste
 from .credentials_protection import CredentialProtectionError, protect_credentials, unprotect_credentials
 
 ENTETE = b"ACPD1"
@@ -110,7 +111,8 @@ class CoffreDPAPI:
             raise CoffreErreur(COFFRE_ILLISIBLE) from None
         if len(contenu) > TAILLE_MAX or not contenu.startswith(ENTETE):
             raise CoffreErreur(f"Coffre : fichier « {fichier.name} » au format inconnu : effacez-le "
-                               "(acp-poste oublier-jeton pour le jeton machine) puis refaites la connexion.")
+                               f"(« {commande_poste('oublier-jeton')} » pour le jeton machine) puis refaites la "
+                               "connexion.")
         try:
             clair = self._deproteger(contenu[len(ENTETE):], usage=entropie)
         except CredentialProtectionError:
