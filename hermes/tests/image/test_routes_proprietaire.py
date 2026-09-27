@@ -171,3 +171,11 @@ def test_pause_generale_ordonne_au_poste(pile_machine):
         assert pile_machine.post(f"{P}/v1/pause", {"generale": False}).status_code == 200
     assert [o["genre"] for o in pile_machine.get(f"{P}/v1/poste").json()["ordres"]] == ["pause", "reprise"]
     del machine
+
+
+@pytest.mark.parametrize("brut", [b"[" * 20_000 + b"]" * 20_000, b'{"a":' * 40 + b"1" + b"}" * 40])
+def test_ecriture_trop_imbriquee_400(pile_machine, brut):
+    """Relecture de P5 : même garde sur les routes d'écriture du propriétaire (400 en français, jamais un 500)."""
+    reponse = pile_machine.post(f"{P}/v1/routage/politique", brut=brut)
+    assert reponse.status_code == 400
+    assert reponse.json()["detail"]["message"] == "Requête refusée : corps JSON trop imbriqué (plus de 32 niveaux)."

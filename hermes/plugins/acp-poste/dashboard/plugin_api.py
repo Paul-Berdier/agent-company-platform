@@ -165,12 +165,17 @@ async def _garde_ecriture(request: Request) -> Any:
     brut = await request.body()
     if len(brut) > 64 * 1024:
         return _erreur(413, "taille", "Requête refusée : corps de plus de 64 Kio.")
+    profondeur = _contrat_machine().PROFONDEUR_MAX_CORPS
     try:
         corps = json.loads(brut.decode("utf-8") or "{}")
+    except RecursionError:  # n'hérite pas de ValueError (relecture de P5)
+        return _erreur(400, "json", "Requête refusée : " + _n("textes").CORPS_TROP_IMBRIQUE.format(n=profondeur))
     except (UnicodeDecodeError, ValueError):
         return _erreur(400, "json", "Requête refusée : corps JSON illisible.")
     if not isinstance(corps, dict):
         return _erreur(400, "json", "Requête refusée : un objet JSON est attendu.")
+    if _profondeur_depasse(corps, profondeur):
+        return _erreur(400, "json", "Requête refusée : " + _n("textes").CORPS_TROP_IMBRIQUE.format(n=profondeur))
     return auteur, corps
 
 
@@ -399,6 +404,13 @@ def _contrat_machine() -> ModuleType:
     return machine
 
 
+def _profondeur_depasse(corps: Any, maximum: int) -> bool:
+    _n("contrat_partage")
+    from acp_poste_contrat.inventaire import profondeur_depasse
+
+    return profondeur_depasse(corps, maximum)
+
+
 def _erreur_machine(code: str, message: str, entetes: Optional[Dict[str, str]] = None) -> JSONResponse:
     return JSONResponse(status_code=CODES_HTTP_MACHINE.get(code, 400), content={"detail": {"code": code,
                         "message": message}}, headers=dict(SANS_CACHE, **(entetes or {})))
@@ -437,12 +449,18 @@ async def _garde_machine(request: Request, portee: str, taille_max: int) -> Any:
         brut += morceau
         if len(brut) > taille_max:
             return _erreur_machine("trop_volumineux", textes.TROP_VOLUMINEUX.format(n=kio))
+    profondeur = _contrat_machine().PROFONDEUR_MAX_CORPS
+    trop_imbrique = textes.REQUETE_REFUSEE.format(detail=textes.CORPS_TROP_IMBRIQUE.format(n=profondeur))
     try:
         corps = json.loads(brut.decode("utf-8"))
+    except RecursionError:  # n'hérite pas de ValueError : 500 en texte brut sans ce cas (relecture de P5)
+        return _erreur_machine("requete_refusee", trop_imbrique)
     except (UnicodeDecodeError, ValueError):
         return _erreur_machine("requete_refusee", textes.REQUETE_REFUSEE.format(detail="corps JSON illisible."))
     if not isinstance(corps, dict):
         return _erreur_machine("requete_refusee", textes.REQUETE_REFUSEE.format(detail="un objet JSON est attendu."))
+    if _profondeur_depasse(corps, profondeur):  # borne AVANT le balayage et le contrat (relecture de P5)
+        return _erreur_machine("requete_refusee", trop_imbrique)
     protocole = corps.get("protocole")
     if isinstance(protocole, str) and _contrat_machine().majeure(protocole) not in (None, 1):
         return _erreur_machine("protocole_incompatible", textes.PROTOCOLE_INCOMPATIBLE.format(p=protocole[:20]))

@@ -221,3 +221,34 @@ def test_reclamer_hors_contrat_422(pile_machine):
     reponse = _reclamer(pile_machine, jeton, attente_max_s=99)
     assert reponse.status_code == 422
     assert "« attente_max_s » doit être un entier compris entre 5 et 50" in reponse.json()["detail"]["message"]
+
+
+@pytest.mark.parametrize("route, brut", [
+    # Relecture de P5 : 20 000 niveaux faisaient lever RecursionError au décodeur (500 en texte brut, en anglais).
+    ("inventaire", b"[" * 20_000 + b"]" * 20_000),
+    ("inventaire", b'{"a":' * 20_000 + b"1" + b"}" * 20_000),
+    # Décodable, mais plus imbriqué que la borne : refusé AVANT le balayage récursif et le contrat.
+    ("reclamer", b'{"a":' * (contrat.PROFONDEUR_MAX_CORPS + 1) + b"1" + b"}" * (contrat.PROFONDEUR_MAX_CORPS + 1)),
+])
+def test_corps_trop_imbrique_422(pile_machine, route, brut):
+    _machine, jeton = _poste_actif(pile_machine)
+    reponse = pile_machine.post(f"{M}/{route}", brut=brut, jeton=jeton)
+    assert reponse.status_code == 422 and reponse.headers["cache-control"] == "no-store"
+    assert reponse.headers["content-type"].startswith("application/json")
+    assert reponse.json()["detail"] == {"code": "requete_refusee", "message": (
+        f"Requête du poste refusée par le contrat : corps JSON trop imbriqué (plus de {contrat.PROFONDEUR_MAX_CORPS} "
+        "niveaux). Rien n'a été enregistré.")}
+    with pile_machine.noyau.base.connexion() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM releves").fetchone()[0] == 0
+
+
+def test_inventaire_imbrique_sous_la_borne_passe_le_balayage(pile_machine):
+    """Un champ inconnu imbriqué sous la borne n'atteint plus un balayage récursif : refus du contrat, en 422."""
+    _machine, jeton = _poste_actif(pile_machine)
+    profond: object = "rien"
+    for _ in range(contrat.PROFONDEUR_MAX_CORPS - 2):
+        profond = [profond]
+    reponse = pile_machine.post(f"{M}/inventaire", inventaire_factice(modifier=lambda i: i.update(bonus=profond)),
+                                jeton=jeton)
+    assert reponse.status_code == 422 and reponse.json()["detail"]["code"] == "requete_refusee"
+    assert "trop imbriqué" not in reponse.json()["detail"]["message"]

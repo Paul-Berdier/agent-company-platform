@@ -283,6 +283,8 @@ PROTOCOLE_INCOMPATIBLE = ("Protocole du poste « {p} » incompatible avec le gre
 TROP_VOLUMINEUX = "Requête du poste refusée : corps de plus de {n} Kio."
 JSON_ATTENDU = "Requête du poste refusée : corps JSON attendu."
 REQUETE_REFUSEE = "Requête du poste refusée par le contrat : {detail} Rien n'a été enregistré."
+# Relecture de P5 : un corps très imbriqué levait RecursionError (500 en texte brut, en anglais, trace au journal).
+CORPS_TROP_IMBRIQUE = "corps JSON trop imbriqué (plus de {n} niveaux)."
 TROP_FREQUENT = "Inventaire trop fréquent : prochain envoi possible dans {n} s."
 POSTE_REVOQUE = "Poste révoqué par le propriétaire le {date} : jeton local effacé."
 POSTE_INCONNU_MACHINE = "Poste inconnu : jeton machine sans poste enregistré."
