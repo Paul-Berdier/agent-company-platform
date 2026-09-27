@@ -27,6 +27,7 @@ Sortie : un rapport JSON (``--preuves``), sans jeton ni chemin de profil.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import shutil
@@ -45,6 +46,7 @@ sys.path[:0] = [str(RACINE_DEPOT / "hermes" / "tests" / "contrat"), str(RACINE_D
 import conftest as pile  # noqa: E402  (outillage Docker des tests de contrat de l'image)
 
 from acp_poste.chemins import Emplacements  # noqa: E402
+from acp_poste.local_runner import _windows_force_terminate_tree, _windows_process_birth  # noqa: E402
 from acp_poste.sondes_codex import ecrire_config_toml  # noqa: E402
 
 PYTHON_CONTENEUR = "/opt/hermes/.venv/bin/python"
@@ -100,6 +102,7 @@ class BoutEnBout:
         self.emplacements = Emplacements.de_test(self.racine)
         self.preuves: Dict[str, Any] = {"etapes": []}
         self.processus: List[subprocess.Popen] = []
+        self.naissances: Dict[int, Optional[int]] = {}
         self.hermes: Optional[pile.Conteneur] = None
 
     # ------------------------------------------------------------------ pile
@@ -223,10 +226,19 @@ class BoutEnBout:
         if fond:
             processus = subprocess.Popen(commande, env=self.environnement(), cwd=self.temporaire,
                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Lanceur vivant et épinglé par le handle de Popen : son instant de création est sûr.
+            self.naissances[processus.pid] = _windows_process_birth(processus.pid)
             self.processus.append(processus)
             return processus
         return subprocess.run(commande, env=self.environnement(), cwd=self.temporaire, input=entree,
                               capture_output=True, text=True, encoding="utf-8", timeout=180)
+
+    def tuer(self, processus: subprocess.Popen) -> None:
+        """Arrêt forcé de l'arbre du poste (lanceur du venv, interpréteur, enfants) par la passe vérifiée du poste :
+        seuls les processus nés après le lanceur et qui en descendent sont tués. Jamais ``taskkill /T``, qui suit un
+        parent déclaré dont le PID a pu être réattribué."""
+        asyncio.run(_windows_force_terminate_tree(processus.pid, include_root=processus.poll() is None,
+                                                  root_birth=self.naissances.get(processus.pid)))
 
     def echantillonner(self, processus: subprocess.Popen, nom: str) -> tuple[Path, Path, subprocess.Popen]:
         script = self.temporaire / "echantillonneur.ps1"
@@ -317,7 +329,7 @@ class BoutEnBout:
         echantillonneur.wait(30)
         self.preuves["ecoute_premier_service"] = self.lire_echantillons(journal_ecoute)
 
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(servir.pid)], capture_output=True)
+        self.tuer(servir)
         servir.wait(30)
         tue_a = time.monotonic()
         attendre(lambda: self.vue()["poste"]["etat"] == "hors_ligne", 90, "poste hors ligne après l'arrêt forcé")
@@ -371,7 +383,7 @@ class BoutEnBout:
     def nettoyer(self) -> None:
         for processus in self.processus:
             if processus.poll() is None:
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(processus.pid)], capture_output=True)
+                self.tuer(processus)
         self.ressources.nettoyer()
         if not self.options.garder:
             shutil.rmtree(self.temporaire, ignore_errors=True)
