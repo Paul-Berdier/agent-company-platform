@@ -131,12 +131,27 @@ class FournisseurJetonMachine(aa.DashboardAuthProvider):
         return None
 
 
-def enregistrer(ctx) -> None:
-    """Fournisseur et trois chemins exacts. Appelé dans TOUT processus par ``register()`` : idempotent, inerte hors
-    du tableau de bord ; ``/v1/meta`` vérifie dans le processus du tableau de bord que tout est en place."""
+AUCUNE_SESSION = ("acp-poste : aucun fournisseur de session (OIDC) enregistré : le fournisseur du jeton machine "
+                  "n'est PAS enregistré. Sans aucun fournisseur, Hermes refuse de servir un tableau de bord public "
+                  "(web_server.py:1134-1144) : personne ne pourrait s'y connecter. Vérifiez les variables OIDC et le "
+                  "greffon self-hosted (relecture de P5, décision D69).")
+
+
+def enregistrer(ctx) -> bool:
+    """Fournisseur et trois chemins exacts, SEULEMENT si un fournisseur de session (OIDC) est déjà enregistré
+    (relecture de P5, décision D69) : la porte de démarrage de Hermes ne refuse de servir que si AUCUN fournisseur
+    n'existe, et le nôtre, à jeton seulement, lui aurait suffi. ``plugin.yaml`` déclare ``requires_plugins:
+    [self-hosted]`` : le greffon OIDC se charge avant celui-ci (``resolve_plugin_load_order``). Sans fournisseur de
+    session, rien n'est enregistré (les routes du poste répondent 401) et Hermes refuse de démarrer, comme avant P5.
+    Appelé dans TOUT processus par ``register()`` : idempotent, inerte hors du tableau de bord ; ``/v1/meta``
+    vérifie dans le processus du tableau de bord que tout est en place. Rend vrai si le fournisseur est enregistré."""
+    if not aa.list_session_providers():
+        _log.error(AUCUNE_SESSION)
+        return False
     ctx.register_dashboard_auth_provider(FournisseurJetonMachine())
     for chemin in ROUTES:
         aa.register_token_route(chemin)
+    return True
 
 
 def etat_dans_ce_processus() -> dict:

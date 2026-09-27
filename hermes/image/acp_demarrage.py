@@ -296,8 +296,9 @@ class ValeursDeploiement:
         }
 
 
-# Valeurs vides pour la construction de l'image : aucun fournisseur ne s'enregistre, le
-# tableau de bord refuse alors de se lier hors du bouclage local (web_server.py:1135-1138).
+# Valeurs vides pour la construction de l'image : aucun fournisseur de session ne s'enregistre ;
+# celui du jeton machine d'acp-poste non plus (il exige un fournisseur de session, décision D69) ;
+# le tableau de bord refuse alors de se lier hors du bouclage local (web_server.py:1134-1144).
 VALEURS_VIDES = ValeursDeploiement(url_publique="", oidc_emetteur="", oidc_client="", oidc_portees="")
 
 

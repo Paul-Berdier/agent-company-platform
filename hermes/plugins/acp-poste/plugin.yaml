@@ -18,3 +18,7 @@ description: "ACP — projets autonomes sur Hermes (un tableau par projet, huit 
 author: ACP
 kind: backend
 requires_hermes: ">=0.21.5"
+# Relecture de P5 (décision D69) : le fournisseur OIDC (greffon groupé self-hosted) se charge AVANT acp-poste, qui
+# n'enregistre son fournisseur à jeton que si un fournisseur de session existe (noyau/jeton_machine.py, enregistrer).
+requires_plugins:
+  - self-hosted

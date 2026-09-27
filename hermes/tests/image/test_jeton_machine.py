@@ -197,9 +197,26 @@ def test_jamais_journalise(jm, noyau, conn, caplog):
     assert "acpm_" not in journal and "acpe_" not in journal
 
 
-def test_register_enregistre_le_fournisseur_et_les_chemins_exacts(noyau):
-    code = r"""
-import importlib.util, os, sys
+_CODE_REGISTER = r"""
+import importlib.util, logging, os, sys
+AVEC_SESSION = __AVEC_SESSION__
+messages = []
+class Collecteur(logging.Handler):
+    def emit(self, record): messages.append([record.levelname, record.getMessage()])
+if AVEC_SESSION:
+    # Fournisseur de session factice, enregistré comme celui du greffon self-hosted AVANT acp-poste
+    # (requires_plugins) : c'est lui que la porte de démarrage de Hermes exige.
+    from hermes_cli.dashboard_auth.base import DashboardAuthProvider
+    from hermes_cli.dashboard_auth.registry import register_global_provider
+    class Session(DashboardAuthProvider):
+        name = "session-test"
+        display_name = "Session de test"
+        def start_login(self, *, redirect_uri): raise NotImplementedError
+        def complete_login(self, *, code, state, code_verifier, redirect_uri): raise NotImplementedError
+        def verify_session(self, *, access_token): return None
+        def refresh_session(self, *, refresh_token): raise NotImplementedError
+        def revoke_session(self, *, refresh_token): return None
+    register_global_provider(Session())
 spec = importlib.util.spec_from_file_location("acp_test_p5", "/opt/hermes/plugins/acp-poste/__init__.py",
                                               submodule_search_locations=["/opt/hermes/plugins/acp-poste"])
 module = importlib.util.module_from_spec(spec)
@@ -212,6 +229,11 @@ class Contexte:
     def register_system_prompt_section(self, *a, **k): pass
     def register_dashboard_auth_provider(self, fournisseur): self.fournisseurs.append(fournisseur)
 ctx = Contexte()
+# Journal du greffon (loggers « acp_test_p5.* ») relevé juste avant register(), après tout réglage de Hermes.
+journal = logging.getLogger("acp_test_p5")
+journal.disabled = False
+journal.setLevel(logging.WARNING)
+journal.addHandler(Collecteur(level=logging.WARNING))
 module.register(ctx)
 from hermes_cli.dashboard_auth.token_auth import is_token_route
 chemins = ["/api/plugins/acp-poste/machine/v1/enrolement", "/api/plugins/acp-poste/machine/v1/reclamer",
@@ -219,11 +241,49 @@ chemins = ["/api/plugins/acp-poste/machine/v1/enrolement", "/api/plugins/acp-pos
 resultat = [[(f.name, f.supports_token, f.supports_session) for f in ctx.fournisseurs],
             [is_token_route(c) for c in chemins],
             [is_token_route(c + "/") for c in chemins] + [is_token_route("/api/plugins/acp-poste/machine/v1/battement"),
-             is_token_route("/api/plugins/acp-poste/v1/poste")]]
+             is_token_route("/api/plugins/acp-poste/v1/poste")],
+            messages]
 """
-    fournisseurs, exacts, autres = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
+
+
+def test_register_enregistre_le_fournisseur_et_les_chemins_exacts(noyau):
+    code = _CODE_REGISTER.replace("__AVEC_SESSION__", "True")
+    fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
     assert fournisseurs == [["acp-poste-machine", True, False]]
     assert exacts == [True, True, True]
     assert autres == [False] * 5  # chemin exact seulement ; routes P6 et routes du propriétaire jamais à jeton
     assert list(ROUTES) == ["/api/plugins/acp-poste/machine/v1/enrolement", "/api/plugins/acp-poste/machine/v1/reclamer",
                             "/api/plugins/acp-poste/machine/v1/inventaire"]
+    assert [m for m in messages if m[0] == "ERROR"] == []
+
+
+def test_register_sans_fournisseur_de_session_n_enregistre_rien(noyau):
+    """Relecture de P5 (décision D69) : le fournisseur à jeton seul suffisait à la porte de démarrage de Hermes
+    (web_server.py:1134-1144 : « aucun fournisseur » seulement), qui servait alors un tableau de bord où personne ne
+    peut se connecter. Sans fournisseur de session, ni fournisseur ni chemin à jeton : Hermes refuse de démarrer
+    comme avant P5, et le journal dit pourquoi, en français."""
+    code = _CODE_REGISTER.replace("__AVEC_SESSION__", "False")
+    fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
+    assert fournisseurs == [] and exacts == [False] * 3 and autres == [False] * 5
+    erreurs = [m[1] for m in messages if m[0] == "ERROR"]
+    assert len(erreurs) == 1 and erreurs[0].startswith("acp-poste : aucun fournisseur de session (OIDC) enregistré")
+    assert "refuse de servir un tableau de bord public" in erreurs[0]
+
+
+def test_le_greffon_se_charge_apres_le_fournisseur_oidc():
+    """``requires_plugins: [self-hosted]`` : Hermes charge le greffon OIDC groupé AVANT acp-poste (sans cela, l'ordre
+    alphabétique chargeait acp-poste d'abord, qui n'aurait vu aucun fournisseur de session)."""
+    code = r"""
+from pathlib import Path
+from hermes_cli.plugins_manifest import parse_manifest_file, resolve_plugin_load_order, manifest_key
+greffon = Path("/opt/hermes/plugins/acp-poste")
+oidc = Path("/opt/hermes/plugins/dashboard_auth/self_hosted")
+manifestes = [parse_manifest_file(greffon / "plugin.yaml", greffon, "bundled", ""),
+              parse_manifest_file(oidc / "plugin.yaml", oidc, "bundled", "dashboard_auth")]
+par_cle = {manifest_key(m): m for m in manifestes}
+resultat = [resolve_plugin_load_order(par_cle), sorted(par_cle), manifestes[0].requires_plugins]
+"""
+    ordre, alphabetique, dependances = executer_python(code)
+    assert alphabetique == ["acp-poste", "dashboard_auth/self_hosted"]  # l'ordre qui aurait prévalu sans dépendance
+    assert ordre == ["dashboard_auth/self_hosted", "acp-poste"]
+    assert dependances == [{"id": "self-hosted", "version_range": None}]
