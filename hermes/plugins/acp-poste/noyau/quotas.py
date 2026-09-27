@@ -4,6 +4,11 @@ Chaque compteur est celui du DERNIER relevé de la voie (``compteurs``, contrat 
 sous la forme ``SubscriptionQuotaView`` du contrat (part restante déduite de la seule part utilisée relevée). Rien
 n'est estimé : sans relevé, ``inconnu`` ; au-delà de ``releve_perime_s`` (2 h), ``perime`` ; un relevé en échec
 garde son ``detail`` français. Hermes : « même enveloppe que Codex » seulement si ``poste.toml`` le déclare.
+
+Fraîcheur PAR COMPTEUR (relecture de P5) : ``stale`` suit le contrat (``observed_at`` plus ancien que le seuil),
+pas seulement la date du relevé. Un relevé frais du poste peut recopier une ligne d'état Claude Code vieille de
+plusieurs jours (vos sessions n'ont pas tourné) : ses compteurs sont « Périmé », et la voie aussi quand TOUS ses
+compteurs le sont.
 """
 
 from __future__ import annotations
@@ -20,12 +25,14 @@ from acp_poste_contrat.quotas import SubscriptionQuotaView  # noqa: E402
 SOURCES = {"poste-codex": "codex_app_server", "poste-claude": "ligne_etat_sessions_proprietaire"}
 
 
-def _vues(releve, *, machine_id: str, nom: str, recu_le: int, perime: bool) -> List[Dict[str, Any]]:
+def _vues(releve, *, machine_id: str, nom: str, recu_le: int, perime: bool, maintenant: int,
+          perime_s: int) -> List[Dict[str, Any]]:
     recu = datetime.fromtimestamp(int(recu_le), tz=timezone.utc)
     vues = []
     for compteur in releve.compteurs:
+        observe = compteur.observed_at.timestamp()
         vue = SubscriptionQuotaView.from_report(compteur, worker_id=machine_id, worker_name=nom, received_at=recu,
-                                                stale=perime)
+                                                stale=perime or maintenant - observe > perime_s)
         vues.append(vue.model_dump(mode="json"))
     return vues
 
@@ -50,13 +57,15 @@ def vue(conn) -> Dict[str, Any]:
             if enveloppe is None and isinstance(poste.get("hermes_meme_enveloppe_que_codex"), bool):
                 enveloppe = poste["hermes_meme_enveloppe_que_codex"]
             perime = maintenant - releve_le > perime_s
-            bloc.update(etat="perime" if perime else "releve", releve_le=releve_le,
+            compteurs = _vues(releve, machine_id=(ligne["machine_id"] if ligne else None) or "releve-factice",
+                              nom=poste.get("nom") or T.INCONNU, recu_le=int(ligne["recu_le"]) if ligne
+                              else releve_le, perime=perime, maintenant=maintenant, perime_s=perime_s)
+            tous_perimes = bool(compteurs) and all(c["stale"] for c in compteurs)
+            bloc.update(etat="perime" if perime or tous_perimes else "releve", releve_le=releve_le,
                         releve_le_lisible=routage.date_lisible(releve_le), releve_id=releve_id,
                         etat_releve=releve.etat, detail=releve.detail, source_releve=releve.source,
                         resume=releve.quotas.model_dump(mode="json") if releve.quotas else None,
-                        compteurs=_vues(releve, machine_id=(ligne["machine_id"] if ligne else None) or "releve-factice",
-                                        nom=poste.get("nom") or T.INCONNU, recu_le=int(ligne["recu_le"]) if ligne
-                                        else releve_le, perime=perime))
+                        compteurs=compteurs)
         resultat[voie] = bloc
     resultat["hermes"] = ({"etat": "meme_enveloppe_que_codex", "libelle": T.QUOTAS_HERMES_MEME_ENVELOPPE}
                           if enveloppe else {"etat": "inconnu", "libelle": T.INCONNU})

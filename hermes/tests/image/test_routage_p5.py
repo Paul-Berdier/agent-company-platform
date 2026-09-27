@@ -5,11 +5,14 @@ globales, relevé accepté, vue des quotas."""
 
 from __future__ import annotations
 
+import datetime as _dt
+
 import pytest
 
 from conftest import inventaire_factice, poste_confirme, releve_factice
 
-PROJET = {"id": None, "titre": "Outil jetable", "depot_alias": "jetable"}
+_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+PROJET ={"id": None, "titre": "Outil jetable", "depot_alias": "jetable"}
 
 
 def _avancer(noyau, secondes: int) -> None:
@@ -301,3 +304,49 @@ def test_vue_des_quotas(noyau, conn):
     _avancer(noyau, 7201)
     vue = noyau.quotas.vue(conn)
     assert vue["poste-codex"]["etat"] == "perime" and vue["poste-codex"]["compteurs"][0]["stale"] is True
+
+
+def _compteur_claude(observe, *, utilise=95):
+    return {"provider": "claude_code", "status": "ok", "source": "claude_code_statusline", "plan": None,
+            "limit_id": "default", "windows": [{"key": "five_hour", "used_percent": utilise, "window_minutes": 300,
+                                                "resets_at": (observe + _dt.timedelta(hours=3)).strftime(_FORMAT)}],
+            "credits": None, "limit_reached": False, "reached_type": None, "observed_at": observe.strftime(_FORMAT),
+            "detail": None}
+
+
+def test_ligne_d_etat_claude_ancienne_dans_un_releve_frais_est_perimee(noyau, conn):
+    """Relecture de P5 : un relevé FRAIS du poste peut recopier une ligne d'état Claude Code vieille de deux jours
+    (les sessions du propriétaire n'ont pas tourné). L'état et ``stale`` se calculaient sur la date du relevé : la
+    page montrait « Relevé », 95 % utilisés et une remise à zéro passée comme actuels. ``stale`` suit désormais
+    ``observed_at`` de chaque compteur (contrat SubscriptionQuotaView) ; la voie est « perime » quand tous ses
+    compteurs le sont."""
+    maintenant = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+    ancien = maintenant - _dt.timedelta(days=2)
+
+    def claude_ancien(inventaire):
+        [releve] = [r for r in inventaire["releves"] if r["voie"] == "poste-claude"]
+        releve["compteurs"] = [_compteur_claude(ancien)]
+
+    _poste_et_inventaire(noyau, conn, claude_ancien)
+    vue = noyau.quotas.vue(conn)
+    claude, codex = vue["poste-claude"], vue["poste-codex"]
+    assert maintenant.timestamp() - claude["releve_le"] < 120  # le relevé lui-même est frais
+    assert claude["etat"] == "perime" and [c["stale"] for c in claude["compteurs"]] == [True]
+    assert claude["compteurs"][0]["windows"][0]["used_percent"] == 95  # la valeur reste lisible, datée
+    assert codex["etat"] == "releve" and [c["stale"] for c in codex["compteurs"]] == [False]
+
+
+def test_compteurs_de_fraicheurs_differentes(noyau, conn):
+    """Un compteur périmé et un compteur frais dans le même relevé : chacun garde sa fraîcheur ; la voie reste
+    « releve » tant qu'un compteur est frais."""
+    maintenant = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+
+    def deux_compteurs(inventaire):
+        [releve] = [r for r in inventaire["releves"] if r["voie"] == "poste-claude"]
+        releve["compteurs"] = [_compteur_claude(maintenant - _dt.timedelta(hours=3)),
+                               dict(_compteur_claude(maintenant - _dt.timedelta(minutes=5), utilise=10),
+                                    limit_id="autre")]
+
+    _poste_et_inventaire(noyau, conn, deux_compteurs)
+    claude = noyau.quotas.vue(conn)["poste-claude"]
+    assert claude["etat"] == "releve" and [c["stale"] for c in claude["compteurs"]] == [True, False]
