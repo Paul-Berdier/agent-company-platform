@@ -642,6 +642,7 @@ class _Win32Api:
         kernel32.IsProcessInJob.restype = wintypes.BOOL
         kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
         kernel32.TerminateJobObject.restype = wintypes.BOOL
+        _declare_get_process_times(kernel32, ctypes, wintypes)
         self.kernel32 = kernel32
 
     def last_error(self, function: str) -> OSError:
@@ -657,6 +658,47 @@ def _win32() -> _Win32Api:
     if _WIN32_API is None:
         _WIN32_API = _Win32Api()
     return _WIN32_API
+
+
+def _declare_get_process_times(kernel32: Any, ctypes_module: Any, wintypes_module: Any) -> None:
+    kernel32.GetProcessTimes.argtypes = [wintypes_module.HANDLE] + [
+        ctypes_module.POINTER(wintypes_module.FILETIME)
+    ] * 4
+    kernel32.GetProcessTimes.restype = wintypes_module.BOOL
+
+
+def _creation_filetime(kernel32: Any, ctypes_module: Any, wintypes_module: Any, handle: Any) -> int | None:
+    """Instant de création du processus (FILETIME : centaines de ns depuis 1601), ``None`` s'il est illisible."""
+
+    creation, sortie, noyau, utilisateur = (wintypes_module.FILETIME() for _ in range(4))
+    if not kernel32.GetProcessTimes(
+        handle,
+        ctypes_module.byref(creation),
+        ctypes_module.byref(sortie),
+        ctypes_module.byref(noyau),
+        ctypes_module.byref(utilisateur),
+    ):
+        return None
+    return (int(creation.dwHighDateTime) << 32) | int(creation.dwLowDateTime)
+
+
+def _windows_process_birth(process_id: int) -> int | None:
+    """Instant de création du processus ``process_id``, ``None`` s'il est illisible.
+
+    À n'appeler que sur un processus épinglé par un handle de l'appelant (enfant
+    asyncio vivant ou non encore libéré) : sinon le PID peut désigner un autre
+    processus.
+    """
+
+    api = _win32()
+    api.ctypes.set_last_error(0)
+    handle = api.kernel32.OpenProcess(api.PROCESS_QUERY_LIMITED_INFORMATION, False, process_id)
+    if not handle:
+        return None
+    try:
+        return _creation_filetime(api.kernel32, api.ctypes, api.wintypes, handle)
+    finally:
+        api.kernel32.CloseHandle(handle)
 
 
 def _windows_create_job() -> int:
@@ -839,6 +881,17 @@ def _forget_fence_job(process: asyncio.subprocess.Process) -> None:
     _FENCE_JOBS.pop(process, None)
 
 
+# Instant de création de la racine, relevé au spawn tant que le processus
+# suspendu est épinglé par son handle asyncio. Sous Windows, le parent déclaré
+# d'un processus (``th32ParentProcessID``) n'est jamais mis à jour : après la
+# mort de ce parent, son PID peut être réattribué à la racine d'un spawn. Seul
+# l'ordre des instants de création distingue alors un vrai descendant d'un
+# processus étranger plus ancien (service, lanceur de la CI, explorateur…).
+_FENCE_BIRTHS: "weakref.WeakKeyDictionary[asyncio.subprocess.Process, int]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
 async def _await_critical_section(work: Callable[[], bool]) -> bool:
     """Exécute ``work`` dans un thread sans jamais l'abandonner à une annulation.
 
@@ -974,6 +1027,9 @@ async def spawn_fenced_process(
 
     job: _WindowsJobObject | None = None
     try:
+        birth = _windows_process_birth(process.pid)
+        if birth is None:
+            raise OSError("instant de création du processus illisible")
         job = _WindowsJobObject(_windows_create_job())
         _windows_assign_process_to_job(job.handle, process.pid)
         _windows_resume_process(process.pid)
@@ -982,6 +1038,7 @@ async def spawn_fenced_process(
         if job is not None:
             job.close()
         raise FencedSpawnError("job_assignment_failed", str(exc)) from exc
+    _FENCE_BIRTHS[process] = birth
     _register_fence_job(process, job)
     return FencedProcess(process=process, job=job)
 
@@ -1002,14 +1059,20 @@ async def _wait_for_process_exit(process: asyncio.subprocess.Process) -> int:
 
 
 async def _windows_force_terminate_tree(
-    process_id: int, *, include_root: bool
+    process_id: int, *, include_root: bool, root_birth: int | None = None
 ) -> bool:
-    """Termine l'arbre Windows identifié avant de faire disparaître sa racine.
+    """Termine les descendants **prouvés** de la racine, puis la racine si demandé.
 
-    ``taskkill /T`` peut être indisponible sous un jeton Windows restreint. Le
-    snapshot Toolhelp permet d'ouvrir les processus encore vivants avant toute
-    terminaison, ce qui évite à la fois la perte de filiation et la réutilisation
-    accidentelle d'un PID entre l'énumération et l'arrêt.
+    Le snapshot Toolhelp donne le parent déclaré de chaque processus, qui n'est
+    jamais mis à jour : après la mort d'un parent, son PID peut être réattribué
+    (à la racine d'un spawn, ou à un autre processus après la sortie de la
+    racine). Un processus n'est donc tenu pour descendant que si son handle,
+    ouvert avant toute terminaison, prouve qu'il est né **après** son parent de
+    la famille (``root_birth`` pour la racine, relevé au spawn) et, si le PID de
+    la racine sortie a été réattribué, **avant** son nouveau propriétaire. Un
+    processus étranger est refermé sans être terminé ; un candidat invérifiable
+    n'est jamais tué et interdit de conclure à l'arrêt. Le Job Object du spawn
+    reste la preuve principale ; cette passe en est le repli.
     """
 
     def terminate_tree() -> bool:
@@ -1018,6 +1081,7 @@ async def _windows_force_terminate_tree(
 
         snapshot_flag = 0x00000002  # TH32CS_SNAPPROCESS
         process_terminate = 0x0001
+        query_limited = 0x1000  # PROCESS_QUERY_LIMITED_INFORMATION
         synchronize = 0x00100000
         wait_object_0 = 0x00000000
         wait_timeout = 0x00000102
@@ -1060,8 +1124,78 @@ async def _windows_force_terminate_tree(
         kernel32.WaitForSingleObject.restype = wintypes.DWORD
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
+        _declare_get_process_times(kernel32, ctypes, wintypes)
 
-        known_family_ids = {process_id}
+        def birth_of(handle: Any) -> int | None:
+            return _creation_filetime(kernel32, ctypes, wintypes, handle)
+
+        def read_birth(candidate: int) -> tuple[bool, int | None]:
+            """(présent, instant de création) du propriétaire actuel du PID, sans le garder ouvert."""
+            ctypes.set_last_error(0)
+            handle = kernel32.OpenProcess(query_limited, False, candidate)
+            if not handle:
+                return ctypes.get_last_error() != error_invalid_parameter, None
+            try:
+                return True, birth_of(handle)
+            finally:
+                kernel32.CloseHandle(handle)
+
+        births: dict[int, int] = {}
+        known_root_birth = root_birth
+        if known_root_birth is None and include_root:
+            # Racine vivante, épinglée par le handle asyncio de l'appelant.
+            _, known_root_birth = read_birth(process_id)
+        if known_root_birth is not None:
+            births[process_id] = known_root_birth
+        # Racine sortie : si son PID a un nouveau propriétaire, les processus nés
+        # depuis ce propriétaire et qui déclarent ce PID pour parent sont les siens.
+        reused_since: int | None = None
+        if not include_root and known_root_birth is not None:
+            owner_present, owner_birth = read_birth(process_id)
+            if owner_present and owner_birth is None:
+                births.pop(process_id, None)
+            elif owner_birth is not None and owner_birth != known_root_birth:
+                reused_since = owner_birth
+
+        pinned_handles: dict[int, Any] = {}
+        known_depths: dict[int, int] = {}
+        foreign: set[int] = set()
+
+        def foreign_birth(birth: int, parent: int, parent_birth: int) -> bool:
+            return birth < parent_birth or (
+                parent == process_id and reused_since is not None and birth >= reused_since
+            )
+
+        def admit(candidate: int, parent: int) -> bool | None:
+            """Vrai : descendant prouvé et épinglé ; faux : étranger ; ``None`` : invérifiable (jamais tué)."""
+            parent_birth = births.get(parent)
+            if parent_birth is None:
+                return None
+            ctypes.set_last_error(0)
+            handle = kernel32.OpenProcess(
+                process_terminate | synchronize | query_limited,
+                False,
+                candidate,
+            )
+            if not handle:
+                # Droits d'arrêt refusés (autre compte, processus protégé) : un
+                # étranger se reconnaît encore à sa naissance ; un descendant
+                # qu'on ne peut pas arrêter reste invérifiable.
+                _, birth = read_birth(candidate)
+                if birth is not None and foreign_birth(birth, parent, parent_birth):
+                    return False
+                return None
+            birth = birth_of(handle)
+            if birth is None:
+                kernel32.CloseHandle(handle)
+                return None
+            if foreign_birth(birth, parent, parent_birth):
+                # Étranger : refermé sans jamais être terminé.
+                kernel32.CloseHandle(handle)
+                return False
+            pinned_handles[candidate] = handle
+            births[candidate] = birth
+            return True
 
         def process_depths() -> tuple[bool, dict[int, int]]:
             snapshot = kernel32.CreateToolhelp32Snapshot(snapshot_flag, 0)
@@ -1084,15 +1218,23 @@ async def _windows_force_terminate_tree(
             finally:
                 kernel32.CloseHandle(snapshot)
 
-            depths = {candidate: 0 for candidate in known_family_ids}
+            # Les membres déjà prouvés restent dans l'ascendance même sortis :
+            # leur handle épinglé interdit la réattribution de leur PID.
+            depths = {process_id: 0, **known_depths}
             changed = True
             while changed:
                 changed = False
                 for candidate, parent in parents.items():
-                    if candidate not in depths and parent in depths:
-                        depths[candidate] = depths[parent] + 1
-                        changed = True
-            known_family_ids.update(depths)
+                    if candidate in depths or candidate in foreign or parent not in depths:
+                        continue
+                    verdict = True if candidate in pinned_handles else admit(candidate, parent)
+                    if verdict is False:
+                        foreign.add(candidate)
+                        continue
+                    depths[candidate] = depths[parent] + 1
+                    if verdict:
+                        known_depths[candidate] = depths[candidate]
+                    changed = True
             targets = {
                 candidate: depth
                 for candidate, depth in depths.items()
@@ -1102,21 +1244,20 @@ async def _windows_force_terminate_tree(
 
         all_stopped = True
         converged = False
-        pinned_handles: dict[int, Any] = {}
         # Les passes suivantes attrapent un descendant créé entre un snapshot et
         # l'arrêt de son parent. Les handles restent ouverts pour empêcher toute
         # réutilisation de PID pendant cette convergence bornée.
         try:
             for _ in range(4):
+                pinned_before = len(pinned_handles)
                 snapshot_ok, depths = process_depths()
                 if not snapshot_ok:
                     all_stopped = False
                     continue
                 # Un processus terminé peut rester visible dans Toolhelp tant
-                # qu'un handle le référence. Le handle épinglé et signalé prouve
-                # son arrêt sans rouvrir un PID potentiellement réutilisé. Garder
-                # son ID dans l'ascendance permet de retrouver un descendant
-                # apparu depuis la passe précédente avant de conclure.
+                # qu'un handle le référence : son handle épinglé et signalé
+                # prouve son arrêt sans rouvrir un PID potentiellement réutilisé.
+                # Un candidat invérifiable (jamais épinglé) reste en attente.
                 pending_depths = {
                     candidate: depth
                     for candidate, depth in depths.items()
@@ -1130,21 +1271,24 @@ async def _windows_force_terminate_tree(
                     reverse=True,
                 )
                 if not ordered_ids:
-                    converged = True
-                    break
-                # Ouvrir tous les handles avant de tuer la racine épingle
-                # l'identité des processus malgré leur éventuelle sortie.
-                for candidate in ordered_ids:
-                    if candidate in pinned_handles:
-                        continue
+                    # Un membre épinglé pendant cette passe a pu engendrer un
+                    # descendant après le snapshot : conclure exige une passe
+                    # de plus, sans nouvel épinglage.
+                    if len(pinned_handles) == pinned_before:
+                        converged = True
+                        break
+                    continue
+                if include_root and process_id in pending_depths and process_id not in pinned_handles:
+                    # Racine vivante et épinglée par l'appelant : seule ouverture
+                    # sans preuve d'ascendance, puisqu'elle est l'origine.
                     ctypes.set_last_error(0)
                     handle = kernel32.OpenProcess(
                         process_terminate | synchronize,
                         False,
-                        candidate,
+                        process_id,
                     )
                     if handle:
-                        pinned_handles[candidate] = handle
+                        pinned_handles[process_id] = handle
                     elif ctypes.get_last_error() != error_invalid_parameter:
                         all_stopped = False
                 handles = [
@@ -1183,55 +1327,6 @@ async def _windows_force_terminate_tree(
             result = await asyncio.shield(kill_task)
             break
         except asyncio.CancelledError:
-            cancellation_received = True
-            if kill_task.done():
-                result = kill_task.result()
-                break
-    if cancellation_received:
-        raise asyncio.CancelledError
-    return result
-
-
-async def _windows_taskkill_tree(process_id: int) -> bool:
-    system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
-    taskkill = (system_root / "System32" / "taskkill.exe").resolve(strict=False)
-    if not taskkill.is_file():
-        return False
-
-    def kill_tree() -> bool:
-        try:
-            completed = subprocess.run(
-                [str(taskkill), "/PID", str(process_id), "/T", "/F"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env={
-                    key: value
-                    for key, value in os.environ.items()
-                    if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
-                },
-                timeout=5.0,
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-        return completed.returncode == 0
-
-    # Un subprocess synchrone déporté ferme ses handles avant de rendre la main
-    # et n'ajoute pas un second transport Proactor au cycle de nettoyage. La
-    # destruction d'arbre est une section critique : si l'appelant est annulé,
-    # ``shield`` laisse le thread finir et nous l'attendons avant de poursuivre.
-    kill_task = asyncio.create_task(asyncio.to_thread(kill_tree))
-    cancellation_received = False
-    while True:
-        try:
-            result = await asyncio.shield(kill_task)
-            break
-        except asyncio.CancelledError:
-            # Une seconde annulation peut arriver pendant le nettoyage. Ne jamais
-            # abandonner le thread et ses handles : la boucle n'attend au plus que
-            # le timeout interne de ``subprocess.run``.
             cancellation_received = True
             if kill_task.done():
                 result = kill_task.result()
@@ -1296,13 +1391,13 @@ async def _terminate_process(
         # L'énumération native retrouve les descendants même lorsque la racine
         # vient de sortir. Ne jamais rouvrir le PID racine dans ce cas : son handle
         # asyncio suffit à épingler son identité jusqu'à la fermeture du transport.
-        if process.returncode is None:
-            # L'outil système bénéficie encore de la filiation vivante ; la passe
-            # native qui suit sert de repli et de vérification indépendante.
-            await _windows_taskkill_tree(process_id)
+        # Plus de ``taskkill /T`` : il suit lui aussi le parent déclaré, et rien
+        # ne garantit qu'il écarte un processus étranger plus ancien dont le
+        # parent mort portait le PID de la racine ; la passe native le vérifie.
         tree_stopped = await _windows_force_terminate_tree(
             process_id,
             include_root=process.returncode is None,
+            root_birth=_FENCE_BIRTHS.get(process),
         )
         if process.returncode is None:
             try:
