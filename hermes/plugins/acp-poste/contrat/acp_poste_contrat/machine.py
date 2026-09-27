@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError, field_validator, model_validator
 
-from .inventaire import _Contrat, _instant, _message, _texte, _VERSION, PROTOCOLE
+from .inventaire import _Contrat, _instant, _message, _texte, _VERSION, PROTOCOLE, raison_identifiant
 
 PREFIXE_ROUTES = "/api/plugins/acp-poste/machine/v1"
 ROUTE_ENROLEMENT = f"{PREFIXE_ROUTES}/enrolement"
@@ -51,6 +51,9 @@ ALERTES_MAX = 16
 TAILLE_MAX_REQUETE = 4 * 1024
 TAILLE_MAX_INVENTAIRE = 256 * 1024
 TAILLE_MAX_REPONSE = 64 * 1024
+# Profondeur d'imbrication admise d'un corps JSON (objets et listes) : un inventaire réel en compte moins de 10 ; au-delà,
+# refus 422 plutôt qu'un RecursionError du décodeur ou du balayage (relecture de P5).
+PROFONDEUR_MAX_CORPS = 32
 
 # Corps exact du 401 de la couture de Hermes (hermes_cli/dashboard_auth/token_auth.py:96) : AMBIGU (jeton
 # révoqué pendant une absence, fournisseur absent ou bogué) ; le poste ne l'efface JAMAIS (décision D65).
@@ -124,7 +127,14 @@ class RequeteEnrolement(_Contrat):
     @field_validator("nom", mode="before")
     @classmethod
     def _nom(cls, valeur: Any) -> str:
-        return _texte(valeur, champ="nom", maximum=60, motif=re.compile(r"[^\x00-\x1f\x7f]{1,60}"))
+        nom = _texte(valeur, champ="nom", maximum=60, motif=re.compile(r"[^\x00-\x1f\x7f]{1,60}"))
+        raison = raison_identifiant(nom)
+        if raison:
+            # Le nom est recopié dans chaque inventaire, dont la garde « aucun identifiant » le refuserait : le poste
+            # s'enrôlerait puis ne publierait jamais rien (relecture de P5). Jamais la valeur dans le message.
+            raise ValueError(f"« nom » : {raison} refusé dans le nom du poste, publié dans chaque inventaire ; "
+                             "choisissez un nom sans adresse, chemin ni secret ([poste] nom de poste.toml)")
+        return nom
 
 
 class ReponseEnrolement(_Contrat):

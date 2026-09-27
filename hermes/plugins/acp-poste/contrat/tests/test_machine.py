@@ -111,3 +111,18 @@ def test_reponse_hors_contrat_refusee():
         m.valider(m.ReponseReclamer, dict(_fixture("reclamer_reponse.json"), bonus=1), quoi="Réponse refusée")
     with pytest.raises(ValueError, match="« code » : valeurs admises"):
         m.valider(m.ErreurMachine, {"detail": {"code": "inconnu", "message": "x"}}, quoi="Erreur refusée")
+
+
+@pytest.mark.parametrize("nom, raison", [
+    ("PC de paul" + "@" + "maison", "adresse électronique (« @ »)"),
+    ("Poste C:/bureau", "chemin de lecteur"),
+    ("jeton acpm_ collé", "jeton machine ou code d'enrôlement d'ACP"),
+])
+def test_nom_de_poste_refuse_s_il_ne_peut_pas_etre_publie(nom, raison):
+    """Relecture de P5 : un nom que la garde « aucun identifiant » refuse dans l'inventaire était admis à
+    l'enrôlement ; le poste s'enrôlait puis ne publiait jamais rien. Refusé dès l'enrôlement, sans citer le nom."""
+    with pytest.raises(ValueError) as exc:
+        m.valider(m.RequeteEnrolement, dict(_fixture("enrolement_requete.json"), nom=nom), quoi="Requête refusée")
+    assert f"« nom » : {raison} refusé dans le nom du poste" in str(exc.value) and nom not in str(exc.value)
+    assert m.valider(m.RequeteEnrolement, dict(_fixture("enrolement_requete.json"), nom="PC du bureau : 2e étage"),
+                     quoi="Requête refusée").nom == "PC du bureau : 2e étage"

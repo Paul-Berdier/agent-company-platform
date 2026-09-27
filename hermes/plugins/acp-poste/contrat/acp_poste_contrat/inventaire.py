@@ -828,27 +828,59 @@ def _raison_valeur(texte: str, valeurs_exactes) -> Optional[str]:
     return None
 
 
+def raison_identifiant(texte: str, valeurs_exactes=()) -> Optional[str]:
+    """Raison française pour laquelle ``texte`` ne peut pas être publié (adresse, chemin, secret…), ou ``None``.
+    Sert aussi aux champs lus AVANT tout inventaire (nom du poste dans ``poste.toml`` et à l'enrôlement) : un nom
+    que la garde refuserait ensuite ferait retenir chaque inventaire sans rien dire à Hermes (relecture de P5)."""
+    return _raison_valeur(texte, valeurs_exactes)
+
+
 def identifiant_trouve(objet: Any, *, valeurs_exactes=(), _chemin: str = "") -> Optional[str]:
     """Garde « aucun identifiant » (cahier P5 § 11.3), appliquée par le poste AVANT l'envoi et par le greffon à
     la réception (422) : chaque valeur de chaîne DÉCODÉE (et chaque clé) est examinée — jamais le texte JSON, où
     « \\ » est doublé. Rend « <chemin> : <raison> » pour la première trouvée, ou ``None``. ``valeurs_exactes`` :
-    valeurs du coffre du poste (jeton machine, jeton Claude), jamais transmises au greffon."""
-    if isinstance(objet, str):
-        raison = _raison_valeur(objet, valeurs_exactes)
-        return f"{_chemin or 'valeur'} : {raison}" if raison else None
-    if isinstance(objet, Mapping):
-        for cle, valeur in objet.items():
-            chemin = f"{_chemin}.{cle}" if _chemin else str(cle)
-            raison_cle = _raison_valeur(cle, valeurs_exactes) if isinstance(cle, str) else None
+    valeurs du coffre du poste (jeton machine, jeton Claude), jamais transmises au greffon.
+
+    Parcours ITÉRATIF, en profondeur et dans l'ordre (clé, puis sa valeur, puis la clé suivante) : un objet très
+    imbriqué ne peut pas lever ``RecursionError`` (relecture de P5 : 500 au lieu d'un 422 sur la route)."""
+    pile: list = [("valeur", objet, _chemin)]
+    while pile:
+        genre, courant, chemin = pile.pop()
+        if genre == "cle":
+            raison_cle = _raison_valeur(courant, valeurs_exactes)
             if raison_cle:
                 return f"{chemin} : clé refusée ({raison_cle})"
-            trouve = identifiant_trouve(valeur, valeurs_exactes=valeurs_exactes, _chemin=chemin)
-            if trouve:
-                return trouve
-        return None
-    if isinstance(objet, (list, tuple)):
-        for i, valeur in enumerate(objet):
-            trouve = identifiant_trouve(valeur, valeurs_exactes=valeurs_exactes, _chemin=f"{_chemin}[{i}]")
-            if trouve:
-                return trouve
+            continue
+        if isinstance(courant, str):
+            raison = _raison_valeur(courant, valeurs_exactes)
+            if raison:
+                return f"{chemin or 'valeur'} : {raison}"
+        elif isinstance(courant, Mapping):
+            enfants = []
+            for cle, valeur in courant.items():
+                sous = f"{chemin}.{cle}" if chemin else str(cle)
+                if isinstance(cle, str):
+                    enfants.append(("cle", cle, sous))
+                enfants.append(("valeur", valeur, sous))
+            pile.extend(reversed(enfants))
+        elif isinstance(courant, (list, tuple)):
+            pile.extend(("valeur", valeur, f"{chemin}[{i}]") for i, valeur in reversed(list(enumerate(courant))))
     return None
+
+
+def profondeur_depasse(objet: Any, maximum: int) -> bool:
+    """Vrai si ``objet`` (JSON décodé) compte plus de ``maximum`` niveaux d'objets ou de listes imbriqués.
+    Itératif : se mesure sans récursion, quelle que soit la profondeur."""
+    pile = [(objet, 1)]
+    while pile:
+        courant, niveau = pile.pop()
+        if isinstance(courant, Mapping):
+            enfants = courant.values()
+        elif isinstance(courant, (list, tuple)):
+            enfants = courant
+        else:
+            continue
+        if niveau > maximum:
+            return True
+        pile.extend((enfant, niveau + 1) for enfant in enfants if isinstance(enfant, (Mapping, list, tuple)))
+    return False

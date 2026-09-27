@@ -249,3 +249,33 @@ def test_identifiant_sur_valeurs_decodees_et_valeurs_exactes():
         "a[1].b : valeur du coffre du poste")
     assert identifiant_trouve({"https://hermes.acp.test": 1}) is None  # une URL n'est pas un chemin de lecteur
     assert identifiant_trouve({"C:\\": 1}) == "C:\\ : clé refusée (chemin de lecteur)"
+
+
+def test_identifiant_trouve_sans_recursion_sur_un_objet_tres_imbrique():
+    """Relecture de P5 : le balayage récursif levait RecursionError sur un corps très imbriqué (500 sur la route
+    d'inventaire au lieu d'un 422) ; itératif, il rend le premier identifiant trouvé ou None, à toute profondeur."""
+    profond: object = "rien"
+    for _ in range(20_000):
+        profond = [profond]
+    assert identifiant_trouve(profond) is None
+    profond = "C:/x"
+    for _ in range(20_000):
+        profond = {"a": profond}
+    trouve = identifiant_trouve(profond)
+    assert trouve is not None and trouve.endswith(".a : chemin de lecteur") and trouve.startswith("a.a.a")
+
+
+def test_identifiant_trouve_garde_l_ordre_cle_puis_valeur():
+    assert identifiant_trouve({"a": "rien", "b": {"C:/": "x@y"}, "c": "D:/z"}) == "b.C:/ : clé refusée (chemin de lecteur)"
+    assert identifiant_trouve({"a": ["x", "y@z"], "b": "C:/"}) == "a[1] : adresse électronique (« @ »)"
+
+
+def test_profondeur_depasse():
+    from acp_poste_contrat.inventaire import profondeur_depasse
+
+    assert not profondeur_depasse(_inventaire(), 10)
+    assert not profondeur_depasse({"a": [{"b": []}]}, 4) and profondeur_depasse({"a": [{"b": []}]}, 3)
+    profond: object = {}
+    for _ in range(20_000):
+        profond = [profond]
+    assert profondeur_depasse(profond, 32) and not profondeur_depasse("texte", 0)
