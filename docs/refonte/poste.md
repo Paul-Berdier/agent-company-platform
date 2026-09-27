@@ -467,15 +467,16 @@ identifiant lu.
 |---|---|---|
 | Dépôt, sur l'arbre de **chaque** commit (worktree jetable, détaché) | `python -m pytest -q` | `a00999a` 483 ; `75e40a9` 497 et 1 ignoré ; `0fa006b` 507 et 1 ; `df6fe82` 545 et 1 ; `cbae66c` 556 et 1 ; `6306d88` 575 et 3 ; `75601d0` 586 et 3 ; `09edfb5` 586 et 3 : **0 échec** |
 | Dépôt, arbre `d9ad283`, Windows | `python -m pytest -q -rs` | **587 réussis, 3 ignorés** (tests propres à Linux : coffre hors Windows, emplacements par défaut hors Windows, ligne d'état hors Windows) ; 2 min 55 s |
-| Dépôt, arbre final `cb394b4` (après la correction de la CI), Windows, jeton standard | `python -m pytest -q -rs` | **588 réussis, 3 ignorés** (les mêmes trois) ; 2 min 55 s |
+| Dépôt, arbre `cb394b4` (après la correction des témoins d'ACL), Windows, jeton standard | `python -m pytest -q -rs` | **588 réussis, 3 ignorés** (les mêmes trois) ; 2 min 55 s |
+| Dépôt, arbre final `4988ba4` (arrêt d'arbre vérifié), Windows, jeton standard | `python -m pytest -q -rs` | **594 réussis, 3 ignorés** (les mêmes trois) ; 2 min 59 s |
 | Dépôt, arbre `d9ad283`, Linux (conteneur `python:3.12-slim`, verrou haché) | idem | **572 réussis, 18 ignorés** (DPAPI réel, ACL, Job Object, dossiers connus : propres à Windows) ; 2 min 10 s |
-| dont le poste | `apps/poste/tests` | 323 tests à `d9ad283`, 324 à `cb394b4`, dont **35** de contrat contre le faux Hermes HTTPS |
+| dont le poste | `apps/poste/tests` | 323 tests à `d9ad283`, 324 à `cb394b4`, 330 à `4988ba4`, dont **35** de contrat contre le faux Hermes HTTPS |
 | Installeur et désinstalleur en simulation | `packaging/poste/tests/Test-InstallationPoste.ps1` (PowerShell 7.6.6, puis 5.1) | **13 vérifications réussies, 1 cas ignoré, 0 échec** dans les deux ; cas ignoré : aucun Python 3.12 « tous utilisateurs » sur ce PC (celui de python.org y est installé « pour moi seul ») ; état du PC identique avant et après chaque cas |
-| Bout en bout local | `scripts/e2e-poste-windows.ps1` (image `acp-hermes-tests:p5o` de la première partie) | **réussi** (91 s ; détail ci-dessous) |
+| Bout en bout local | `scripts/e2e-poste-windows.ps1` (image `acp-hermes-tests:p5o` de la première partie) | **réussi** (91 s), puis deux fois après l'arrêt d'arbre vérifié (92 s chacun) ; détail ci-dessous |
 | Contrôles | `check_version`, `check_lock` (dont le verrou du poste, 5 épingles), `check_engine_frozen`, `verifier_catalogue`, `balayer_secrets --arbre --plage origin/refonte/hermes-p5..HEAD`, `generer_themes --check` | tous code 0 |
 | Schémas de Codex | `codex app-server generate-json-schema` sur un `CODEX_HOME` vide | les 11 fichiers ajoutés aux fixtures sont identiques octet pour octet à la génération du 24/09 |
 
-**Bout en bout local** (dernier passage, identique au précédent à quelques dixièmes de seconde près) :
+**Bout en bout local** (passage du 27/09/2026 avant l'arrêt d'arbre vérifié, identique au précédent à quelques dixièmes de seconde près) :
 
 - pile prête en 27,8 s ; `acp-poste diagnostic --reseau` : Hermes joignable en HTTPS à travers le bord factice
   (autorité de test), politique valide ;
@@ -499,8 +500,18 @@ identifiant lu.
   échapper à un échantillonnage d'une seconde : l'absence d'écouteur est établie en régime établi, pas à la
   milliseconde (au passage précédent, l'échantillonnage avait capté un app-server : 3 processus, aucun écouteur).
 
-Rapport JSON du dernier passage (non committé, comme les captures : D17) : SHA-256
+Rapport JSON de ce passage (non committé, comme les captures : D17) : SHA-256
 `0b4325dab1b0f14ef347ffc4eab39403e55d4687cc0e4c410cba49bdf6dc93a5`.
+
+**Après l'arrêt d'arbre vérifié** (`940e22e`, `4988ba4` ; deux passages le 27/09/2026, 92 s et code 0 chacun, le
+second sur le code final) : le poste n'est plus tué par `taskkill /T` mais par la passe vérifiée du poste (lanceur
+du venv, interpréteur et enfants nés après lui, § 24) ; mêmes constats : enrôlement, empreinte identique, « Liste de
+secours », `elevated` d'origine `sessionFlags`, readiness `updateRequired`, Claude `cli_hors_version`, 4 alertes ;
+pile prête en 29,4 puis 28,7 s ; premier inventaire 12,8 puis 12,6 s après la confirmation ; ordre → inventaire
+2,03 puis 2,28 s ; « Hors ligne » 8,1 puis 6,9 s après l'arrêt forcé, **une** notification ; révocation → code 0 en
+0,44 puis 0,45 s, jeton effacé ; ni `acpm_` ni `acpe_` nulle part ; écoute : 14 puis 12 échantillons (jusqu'à 4
+processus), aucun écouteur. Rapport du second passage : SHA-256
+`d999e46d01d6f1488336c9189e7a11f5d340b79aa1379c832e8c2704c4999928`.
 
 ## 24. Intégration continue (poste)
 
@@ -519,6 +530,28 @@ Branche poussée le 27/09/2026.
   « tous utilisateurs » de setup-python ; « rien écrit » ou « rien supprimé » vérifié à chaque cas) ; poste ubuntu **573 réussis, 18
   ignorés** (propres à Windows) ; interface 110 (16 fichiers) ; moteur 74 ; gel du moteur, blancs, secrets, versions,
   thèmes, catalogue et verrous verts.
+- `ci.yml` [36280862363](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280862363) (`38323ae`, documentation) : **succès** ; Windows 586 réussis, 5
+  ignorés ; installeur 19 vérifications ; ubuntu 573 réussis, 18 ignorés.
+- `ci.yml` [36280821490](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280821490) (`e6b5010`, documentation seule, même code que `cb394b4`) : volet Windows
+  **bloqué dans pytest aux deux tentatives** (délai de 20 min du job dépassé ; puis relance annulée à la main, annulation
+  aboutie en 5 min) ; **aucun journal récupérable** (`BlobNotFound`, même pour la mise en place) : l'exécuteur
+  lui-même ne répondait plus. En local, 6 passages de `apps/poste/tests` de suite sans incident.
+- **Cause la plus probable** (les journaux perdus empêchent de la prouver sur ces runs) : le repli Toolhelp de l'arrêt
+  d'arbre (`local_runner.py`, antérieur à P5 mais sollicité par les centaines de lancements des tests du poste)
+  tuait tout processus qui déclarait pour parent le PID de la racine. Windows ne met jamais à jour ce parent
+  déclaré : un processus **ancien et étranger** dont le parent mort portait le PID réattribué à la racine (un
+  processus de l'exécuteur, par exemple) était tué avec l'arbre, ce qui explique un exécuteur muet et sans journal.
+  Le **défaut** est prouvé par un témoin réel (`test_windows_tree_cleanup.py`) : sans la règle de naissance, un
+  processus né avant la racine est tué (témoin en échec), avec elle il est épargné, et tué face à sa vraie racine.
+  Correction `940e22e` : instant de création de la racine relevé au spawn ; un descendant n'est admis que si son
+  handle prouve qu'il est né après son parent de la famille (et avant le nouveau propriétaire d'un PID racine
+  réattribué) ; étranger refermé sans être terminé ; candidat invérifiable jamais tué et arrêt alors non déclaré
+  prouvé ; `taskkill /T` retiré ; le Job Object reste la preuve principale. `4988ba4` : le bout en bout arrête le
+  poste par la même passe. Limite dite : `CTRL_BREAK_EVENT` (grâce avant l'arrêt) vise un **groupe** par identifiant,
+  même famille de risque (un processus de la même console dont le groupe porte un PID réattribué), non corrigé ici.
+- `ci.yml` [36284025243](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36284025243) (`4988ba4`) : **succès** à la première tentative et à deux relances :
+  Windows **592 réussis, 5 ignorés** (2 min 28 s, 2 min 31 s, 2 min 27 s) ; installeur 19 vérifications ; ubuntu **578
+  réussis, 19 ignorés** (le témoin réel d'arbre est propre à Windows) ; interface 110 ; moteur 74.
 - `image.yml` ne s'est pas relancé : la seconde partie ne touche ni `hermes/` ni l'image (son dernier run vert est
   celui de la première partie, [36271372764](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372764)).
 

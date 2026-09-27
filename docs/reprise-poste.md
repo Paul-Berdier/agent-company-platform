@@ -1550,6 +1550,8 @@ aucun reste d'une tentative coupée : arbre propre sur `f3c65f4`.
 | `d9ad283` | fix(poste): refuse enrolment and connections outside the workstation account |
 | `b59cda4` | fix(poste): say that rights are not checked after the sandbox setup in owner mode |
 | `cb394b4` | test(poste): run the real ACL witnesses only under a non-elevated token |
+| `940e22e` | fix(poste): only stop processes proven born after their parent in a tree |
+| `4988ba4` | test(e2e): stop the workstation tree through the verified walk, not taskkill /T |
 
 Puis la documentation (ce paragraphe, [`poste.md`](refonte/poste.md) § 16 à § 25, README du poste, décisions).
 
@@ -1581,14 +1583,16 @@ python.org, pytest 9.1.1, PowerShell 7.6.6 et 5.1, Docker 29.5.3) :
 
 - suite du dépôt sur l'arbre de **chaque** commit (worktree jetable) : 483 → 497 → 507 → 545 → 556 → 575 → 586 →
   586 réussis, 0 échec ; arbre `d9ad283` **587 réussis, 3 ignorés** sous Windows, **572 réussis, 18 ignorés** sous
-  Linux (conteneur `python:3.12-slim`) ; arbre final `cb394b4` **588 réussis, 3 ignorés** sous Windows ; dont 323
-  tests du poste (324 à `cb394b4`) et 35 de contrat contre le faux Hermes HTTPS ;
+  Linux (conteneur `python:3.12-slim`) ; arbre `cb394b4` **588 réussis, 3 ignorés** et arbre final `4988ba4`
+  **594 réussis, 3 ignorés** sous Windows ; dont 323 tests du poste (330 à `4988ba4`) et 35 de contrat contre le faux
+  Hermes HTTPS ;
 - installeur et désinstalleur en simulation (PowerShell 7.6.6 et 5.1) : 13 vérifications réussies, 1 cas ignoré
   (aucun Python 3.12 « tous utilisateurs » sur ce PC), état du PC inchangé ;
 - bout en bout local (image `acp-hermes-tests:p5o`, vrai poste sous le compte courant, vrai Codex sur un
   `CODEX_HOME` jetable, vrai Claude Code) : enrôlement, empreinte identique, « Liste de secours », mode `elevated`
   lu par `config/read` (origine `sessionFlags`), ordre → inventaire 1,86 s, hors ligne et **une** notification,
-  révocation → arrêt code 0 en 0,47 s et jeton effacé, aucun jeton dans aucun journal, aucun écouteur vu ;
+  révocation → arrêt code 0 en 0,47 s et jeton effacé, aucun jeton dans aucun journal, aucun écouteur vu ; refait
+  deux fois après l'arrêt d'arbre vérifié (poste tué par la passe vérifiée, plus par `taskkill /T`) : mêmes constats ;
 - version, verrous (dont celui du poste), gel du moteur, catalogue, secrets, thèmes : code 0 ; `git diff --check`
   propre ; LF ; aucun `Co-Authored-By` ; aucun fichier `.claude`.
 
@@ -1598,7 +1602,12 @@ Branche poussée le 27/09/2026 : `ci.yml` [36279917625](https://github.com/Paul-
 windows-2022 (deux témoins d'ACL contournés par le jeton élevé de l'exécuteur), corrigé par `cb394b4` ; `ci.yml`
 [36280303337](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280303337) (`cb394b4`) **vert** : Windows 586 réussis et 5 ignorés, installeur en simulation
 19 vérifications réussies (cas accepté compris), Linux 573 réussis et 18 ignorés, interface 110, moteur 74.
-`image.yml` non relancé (ni `hermes/` ni l'image touchés). Détail : [`poste.md`](refonte/poste.md) § 24.
+Puis `e6b5010` (documentation seule, même code) : volet Windows **bloqué** dans pytest aux deux tentatives de
+[36280821490](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280821490), exécuteur muet et sans journal ; cause la plus probable : l'arrêt d'arbre tuait un
+processus étranger plus ancien dont le parent mort portait le PID de la racine (défaut prouvé par un témoin réel,
+corrigé par `940e22e` et `4988ba4`). [36284025243](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36284025243) (`4988ba4`) **vert** à la première tentative et
+à deux relances : Windows 592 réussis et 5 ignorés, installeur 19, Linux 578 réussis et 19 ignorés, interface 110,
+moteur 74. `image.yml` non relancé (ni `hermes/` ni l'image touchés). Détail : [`poste.md`](refonte/poste.md) § 24.
 
 #### Non vérifié
 
@@ -1741,6 +1750,10 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 - **Étape P5 (poste)** : un verrou `LockFileEx` est libéré quand l'objet qui tient le fichier disparaît : garder une
   référence au `Verrou` pris. Une révocation vue **hors** d'une attente longue donne le 401 de la couture (jeton
   gardé, code 4), pas `poste_revoque` : c'est le comportement voulu (D65).
+- **Étape P5 (poste)** : ne jamais arrêter un arbre de processus Windows par le seul parent déclaré (snapshot
+  Toolhelp, `taskkill /T`) : Windows ne met jamais à jour `th32ParentProcessID`, et un processus ancien dont le parent
+  mort portait le PID réattribué à la racine serait tué (cause la plus probable des blocages du runner Windows sur
+  `e6b5010`). Comparer les instants de création (`GetProcessTimes`) et garder le Job Object comme preuve principale.
 - **Étape P5 (poste)** : les tests du poste et le bout en bout n'emploient jamais les vrais emplacements : racine
   jetable (`Emplacements.de_test`), coffre en mémoire (tests) ou DPAPI sur une racine temporaire (bout en bout),
   `USERPROFILE` et `APPDATA` redirigés ; `lancer_poste.py` refuse toute racine hors du dossier temporaire.

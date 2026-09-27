@@ -394,6 +394,10 @@ D64 et D66 appliquées (`plan.md` § 1, non confirmées).
 - corrigé en cours de route : enrôlement et connexions refusés hors du compte du poste (le jeton ou le profil
   auraient atterri dans un autre profil) ; message du mode propriétaire après `connexion bac-a-sable` ; deux témoins
   d'ACL réelles ignorés sous le jeton élevé de la CI Windows (qui contourne les ACL), gardés sous jeton standard ;
+- sécurité : l'arrêt d'un arbre de processus sous Windows ne tue plus un processus étranger plus ancien dont le
+  parent mort portait le PID de la racine (parent déclaré jamais mis à jour par Windows) : instant de création de la
+  racine relevé au spawn, descendants admis sur preuve de naissance, `taskkill /T` retiré (défaut antérieur à P5,
+  cause la plus probable de deux blocages du runner Windows) ;
 - limites : aucune exécution avant P6 ; compte dédié, tâche planifiée, UAC et vrais comptes non éprouvés (§ 25 de
   `poste.md`) ; Claude Code de ce PC à mettre à jour (2.1.248 au moins).
 
