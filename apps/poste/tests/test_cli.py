@@ -273,3 +273,8 @@ def test_connexion_codex_ecrit_le_profil_puis_lance_la_connexion(poste, capsys, 
     (home / "config.toml").write_text("model = 'x'\n", encoding="utf-8")
     assert main(["connexion", "codex"], contexte=poste.contexte()) == 2
     assert "modifié hors du poste" in capsys.readouterr().err
+
+
+def test_sonde_plateforme_refusee_hors_linux(poste, capsys):
+    assert main(["sonde-plateforme", "--json"], contexte=poste.contexte()) == 2
+    assert "exécutant Linux" in capsys.readouterr().err

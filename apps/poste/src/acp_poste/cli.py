@@ -11,6 +11,7 @@
 | ``journal [--lignes N]`` | fin du journal local | aucun |
 | ``oublier-jeton`` | efface le jeton machine local | aucun |
 | ``quotas`` | relevés de quotas (Codex, ligne d'état Claude) | comme ``releve`` |
+| ``sonde-plateforme [--json]`` | exécutant Linux : sonde d'isolement (cahier P6 § 4.1), sans identifiant ni politique | aucun |
 
 Codes de sortie : 0 (normal, non enrôlé, révoqué), 1 (erreur imprévue ou Hermes injoignable), 2 (configuration
 refusée), 3 (autre instance), 4 (jeton gardé mais refusé par la couture de Hermes). Tout message est en français ;
@@ -107,6 +108,9 @@ def _parser() -> argparse.ArgumentParser:
     journal.add_argument("--lignes", type=int, default=40, help="Nombre de lignes à afficher (1 à 2000)")
     commandes.add_parser("oublier-jeton", help="Effacer le jeton machine local")
     commandes.add_parser("quotas", help="Relevés de quotas (Codex, ligne d'état Claude Code)")
+    sonde = commandes.add_parser("sonde-plateforme",
+                                 help="Exécutant Linux : sonde d'isolement (bubblewrap, UID), sans identifiant")
+    sonde.add_argument("--json", action="store_true", help="Relevé complet en JSON (publiable : aucun identifiant)")
     return parser
 
 
@@ -196,8 +200,29 @@ def _quotas(contexte: Contexte, politique) -> int:
     return 0
 
 
+def _sonde_plateforme(args: argparse.Namespace, contexte: Contexte) -> int:
+    """Sonde R0 : ni politique, ni volume, ni jeton ; sortie 0 quel que soit le régime (c'est un relevé)."""
+    if contexte.plateforme != "linux":
+        print("La sonde de plateforme ne concerne que l'exécutant Linux (bubblewrap, UID dédiés) : rien n'a été "
+              "lancé.", file=sys.stderr)
+        return 2
+    from .sonde_plateforme import imprimer, sonder
+
+    resultat = sonder(codex=str(contexte.emplacements.codex_par_defaut),
+                      claude=str(contexte.emplacements.claude_par_defaut))
+    if args.json:
+        print(imprimer(resultat))
+    else:
+        v = resultat["verdict"]
+        print(f"Régime {v['regime']} : bubblewrap {v['bwrap']}, UID séparés : {'oui' if v['uid_separes'] else 'non'}. "
+              f"{v['raison']}")
+    return 0
+
+
 def executer(args: argparse.Namespace, contexte: Contexte) -> int:
     commande = args.commande
+    if commande == "sonde-plateforme":
+        return _sonde_plateforme(args, contexte)
     if commande == "journal":
         lignes = lire_fin(contexte.emplacements.journal, max(1, min(args.lignes, 2000)))
         if lignes is None:

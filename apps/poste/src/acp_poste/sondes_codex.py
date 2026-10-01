@@ -19,6 +19,11 @@ en stockage ``ephemeral`` (jamais connecté, relevé une fois par version) est �
 Mode du bac à sable (§ 9.5) : ``ecriture_admise`` n'est vrai que si la readiness est ``ready``, le mode lu par
 ``config/read`` est ``elevated``, posé par le poste (origine ``sessionFlags``), et le stockage des identifiants
 ``keyring`` ; la readiness seule ne prouve jamais le mode élevé (décision D60).
+
+**Exécutant Linux (étape P6, cahier P6 § 1.2 et § 7.4)** : surcharges ``cli_auth_credentials_store="file"`` et
+``service_tier="default"``, sans ``windows.*`` ni ``windowsSandbox/readiness`` (le bac à sable Linux se prouve par la
+sonde de plateforme, :mod:`acp_poste.sonde_plateforme`) ; ``config.toml`` du profil sans section ``[windows]`` ; la
+sonde tourne sous l'UID ``acp-codex`` (lanceur ``setpriv`` du contexte) dans un dossier temporaire à cet UID.
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from pydantic import ValidationError
 
@@ -68,6 +73,9 @@ CONFIG_TOML = ("# Écrit par le poste ACP ; toute modification est refusée (acp
 SURCHARGES = ("-c", 'windows.sandbox="elevated"', "-c", 'cli_auth_credentials_store="keyring"',
               "-c", 'service_tier="default"')
 SURCHARGES_EMBARQUE = ("-c", 'cli_auth_credentials_store="ephemeral"')
+CONFIG_TOML_LINUX = ("# Écrit par le superviseur de l'exécutant ACP ; toute modification est refusée (acp-poste "
+                     "diagnostic).\ncli_auth_credentials_store = \"file\"\n").encode("utf-8")
+SURCHARGES_LINUX = ("-c", 'cli_auth_credentials_store="file"', "-c", 'service_tier="default"')
 VERSION_MINIMALE = (0, 100, 0)
 MODELES_MAX = 64
 PAGES_MAX = 10
@@ -95,6 +103,17 @@ CLOTURE_IMPOSSIBLE = "Isolation du processus Codex impossible (Job Object) : son
 FERME = "L'app-server Codex s'est arrêté avant de répondre : relevé refusé."
 MAL_FORME = "Réponse de l'app-server Codex mal formée : relevé refusé."
 
+# Exécutant Linux : messages publiés (aucune commande PowerShell ; geste du propriétaire dans « railway ssh »).
+MESSAGES_LINUX = {
+    "profil_absent": "Profil Codex de l'exécutant non préparé : redémarrez l'exécutant (son superviseur l'écrit).",
+    "config_modifiee": ("config.toml du profil Codex de l'exécutant modifié hors du superviseur : supprimez-le dans une "
+                        "session railway ssh puis redémarrez l'exécutant."),
+    "sans_compte": ("Codex n'est connecté à aucun compte sur l'exécutant : liste de secours (catalogue embarqué de "
+                    "Codex) ; connectez-le par code d'appareil (acp-poste connexion codex affiche la commande)."),
+    "hors_abonnement": ("Codex est connecté par clé d'API ou par Bedrock sur l'exécutant : refusé par ACP (D83, "
+                        "abonnement ChatGPT seulement) ; reconnectez-le par code d'appareil."),
+}
+
 RAISONS_BAC = {
     "illisible": "Mode du bac à sable non lisible par config/read : écriture refusée par prudence.",
     "non_configure": "Bac à sable Codex non configuré.",
@@ -115,7 +134,11 @@ def _iso(instant: datetime) -> str:
 # ============================================================ profil
 
 
-def etat_config_toml(home: Path) -> str:
+def config_toml(plateforme: str = "windows") -> bytes:
+    return CONFIG_TOML_LINUX if plateforme == "linux" else CONFIG_TOML
+
+
+def etat_config_toml(home: Path, plateforme: str = "windows") -> str:
     """« conforme », « absent » (profil ou fichier) ou « modifie » : octet pour octet (§ 9.1)."""
     try:
         contenu = (home / "config.toml").read_bytes()
@@ -123,19 +146,19 @@ def etat_config_toml(home: Path) -> str:
         return "absent"
     except OSError:
         return "modifie"
-    return "conforme" if contenu.replace(b"\r\n", b"\n") == CONFIG_TOML else "modifie"
+    return "conforme" if contenu.replace(b"\r\n", b"\n") == config_toml(plateforme) else "modifie"
 
 
-def ecrire_config_toml(home: Path) -> str:
+def ecrire_config_toml(home: Path, plateforme: str = "windows") -> str:
     """Écrit ``config.toml`` du profil s'il manque (« cree ») ; « conforme » s'il est déjà celui du poste ; lève
     ``ValueError`` (français) s'il a été modifié hors du poste (jamais écrasé)."""
-    etat = etat_config_toml(home)
+    etat = etat_config_toml(home, plateforme)
     if etat == "conforme":
         return "conforme"
     if etat == "modifie":
-        raise ValueError(CONFIG_MODIFIEE)
+        raise ValueError(MESSAGES_LINUX["config_modifiee"] if plateforme == "linux" else CONFIG_MODIFIEE)
     home.mkdir(parents=True, exist_ok=True)
-    ecrire_atomiquement(home / "config.toml", CONFIG_TOML)
+    ecrire_atomiquement(home / "config.toml", config_toml(plateforme))
     return "cree"
 
 
@@ -293,16 +316,18 @@ def bac_a_sable(readiness: str, config: dict[str, Any] | None, lu_le: datetime) 
 
 @dataclass
 class ResultatCodex:
-    """Ce que la sonde Codex rend à l'inventaire : relevé de la voie (sans les dépôts), bac à sable, connexion,
-    version, alertes (françaises, sans valeur lue brute) et mesures (durées, nombres)."""
+    """Ce que la sonde Codex rend à l'inventaire : relevé de la voie (sans les dépôts), bac à sable (Windows ; ``None``
+    sous Linux), connexion, version, stockage des identifiants lu par ``config/read``, alertes (françaises, sans
+    valeur lue brute) et mesures (durées, nombres)."""
 
     releve: dict[str, Any]
-    bac_a_sable: dict[str, Any]
+    bac_a_sable: dict[str, Any] | None
     connexion: str
     plan: str | None
     version: dict[str, Any]
     alertes: list[str] = field(default_factory=list)
     mesures: dict[str, Any] = field(default_factory=dict)
+    stockage: str | None = None
 
 
 def _releve(etat: str, origine: str, *, version: str | None, modeles: list | None = None, detail: str | None = None,
@@ -314,11 +339,12 @@ def _releve(etat: str, origine: str, *, version: str | None, modeles: list | Non
 
 def _echec(etat: str, detail: str, section: SectionCodex, *, version: str | None, instant: datetime,
            connexion: str = "inconnu", plan: str | None = None, config: dict | None = None,
-           readiness: str = "inconnu", compteurs: list | None = None) -> ResultatCodex:
+           readiness: str = "inconnu", compteurs: list | None = None, linux: bool = False) -> ResultatCodex:
     return ResultatCodex(
         releve=_releve(etat, "aucune", version=version, detail=detail, compteurs=compteurs, instant=instant),
-        bac_a_sable=bac_a_sable(readiness, config, instant), connexion=connexion, plan=plan,
-        version={"lue": version, "testee": section.version_testee, "conforme": version == section.version_testee})
+        bac_a_sable=None if linux else bac_a_sable(readiness, config, instant), connexion=connexion, plan=plan,
+        version={"lue": version, "testee": section.version_testee, "conforme": version == section.version_testee},
+        stockage=config["stockage"] if config else None)
 
 
 async def lire_version(argv: Sequence[str], env: dict[str, str], cwd: str) -> str | None:
@@ -354,7 +380,8 @@ async def lire_version(argv: Sequence[str], env: dict[str, str], cwd: str) -> st
 
 
 async def catalogue_embarque(prefixe: Sequence[str], version: str, emplacements: Emplacements, *,
-                             environnement: dict[str, str] | None = None, delai_s: float = 30.0) -> list | None:
+                             environnement: dict[str, str] | None = None, delai_s: float = 30.0,
+                             dossiers: Callable[..., Any] | None = None) -> list | None:
     """Liste de ``model/list`` d'un app-server sur un ``CODEX_HOME`` vide et temporaire, en stockage ``ephemeral``
     (jamais connecté : ``account/read`` doit rendre ``null``, sinon ``None``). Gardée par version de la CLI."""
     cache = emplacements.catalogue_embarque(version)
@@ -364,8 +391,8 @@ async def catalogue_embarque(prefixe: Sequence[str], version: str, emplacements:
             return garde["modeles"]
     except (OSError, ValueError):
         pass
-    with tempfile.TemporaryDirectory(prefix="acp-codex-vide-", ignore_cleanup_errors=True) as home, \
-            tempfile.TemporaryDirectory(prefix="acp-sonde-", ignore_cleanup_errors=True) as dossier:
+    fabrique = dossiers or _temporaire
+    with fabrique(prefix="acp-codex-vide-") as home, fabrique(prefix="acp-sonde-") as dossier:
         env = codex_environment(Path(home), source=environnement)
         async with asyncio.timeout(delai_s):
             async with Session([*prefixe, *SURCHARGES_EMBARQUE, "app-server"], env=env, cwd=dossier) as session:
@@ -386,57 +413,75 @@ def _cle(modeles: list[dict[str, Any]]) -> list[str]:
 # ============================================================ sonde
 
 
+def _temporaire(prefix: str = "acp-sonde-", **_ignore: Any):
+    return tempfile.TemporaryDirectory(prefix=prefix, ignore_cleanup_errors=True)
+
+
 async def sonder_codex(section: SectionCodex, emplacements: Emplacements, *, delai_s: float,
                        prefixe: Sequence[str] | None = None, environnement: dict[str, str] | None = None,
+                       plateforme: str = "windows", dossiers: Callable[..., Any] | None = None,
                        ) -> ResultatCodex:
     """Relevé complet de la voie Codex ; ne lève jamais (un échec devient un relevé en échec, en français).
 
     ``prefixe`` : argv de lancement de la CLI (défaut : ``[executable]``) ; les tests y placent un faux app-server,
-    jamais ``poste.toml``. ``environnement`` : environnement source (défaut : celui du processus)."""
+    jamais ``poste.toml`` ; sous Linux, ``setpriv`` vers l'UID ``acp-codex``. ``environnement`` : environnement source
+    (défaut : celui du processus). ``dossiers`` : fabrique des dossiers temporaires (Linux : à l'UID de l'agent)."""
 
     instant = datetime.now(UTC)
+    linux = plateforme == "linux"
+    messages = MESSAGES_LINUX if linux else {"profil_absent": PROFIL_ABSENT, "config_modifiee": CONFIG_MODIFIEE,
+                                             "sans_compte": SANS_COMPTE, "hors_abonnement": COMPTE_HORS_ABONNEMENT}
+    surcharges = SURCHARGES_LINUX if linux else SURCHARGES
+    fabrique = dossiers or _temporaire
+
+    def echec(etat: str, detail: str, **options: Any) -> ResultatCodex:
+        return _echec(etat, detail, section, instant=instant, linux=linux, **options)
+
     argv = list(prefixe) if prefixe else [str(section.executable)]
     if not prefixe and not section.executable.is_file():
-        return _echec("cli_absente", CODEX_ABSENT, section, version=None, instant=instant)
-    etat_profil = etat_config_toml(section.home)
+        return echec("cli_absente", CODEX_ABSENT, version=None)
+    etat_profil = etat_config_toml(section.home, plateforme)
     if etat_profil == "absent":
-        return _echec("non_connecte", PROFIL_ABSENT, section, version=None, instant=instant, connexion="non_connecte")
+        return echec("non_connecte", messages["profil_absent"], version=None, connexion="non_connecte")
     if etat_profil == "modifie":
-        return _echec("indisponible", CONFIG_MODIFIEE, section, version=None, instant=instant)
+        return echec("indisponible", messages["config_modifiee"], version=None)
     if _agents_dans(section.home):
-        return _echec("indisponible", AGENTS_DANS_LE_PROFIL, section, version=None, instant=instant)
+        return echec("indisponible", AGENTS_DANS_LE_PROFIL, version=None)
 
     env = codex_environment(section.home, source=environnement)
     mesures: dict[str, Any] = {}
     version = None
     debut = time.monotonic()
     try:
-        with tempfile.TemporaryDirectory(prefix="acp-sonde-", ignore_cleanup_errors=True) as dossier:
+        with fabrique(prefix="acp-sonde-") as dossier:
             async with asyncio.timeout(delai_s):
                 version = await lire_version(argv, env, dossier)
                 if version is None:
-                    return _echec("indisponible", VERSION_ILLISIBLE, section, version=None, instant=instant)
+                    return echec("indisponible", VERSION_ILLISIBLE, version=None)
                 if version_numerique(version) < VERSION_MINIMALE:
-                    return _echec("cli_hors_version", f"Codex CLI {version} trop ancien : le poste exige la version "
-                                  f"{'.'.join(map(str, VERSION_MINIMALE))} ou plus récente.", section,
-                                  version=version, instant=instant)
-                async with Session([*argv, *SURCHARGES, "app-server"], env=env, cwd=dossier) as session:
+                    return echec("cli_hors_version", f"Codex CLI {version} trop ancien : le poste exige la version "
+                                 f"{'.'.join(map(str, VERSION_MINIMALE))} ou plus récente.", version=version)
+                async with Session([*argv, *surcharges, "app-server"], env=env, cwd=dossier) as session:
                     await session.initialiser()
                     connexion, plan = extraire_compte(await session.appeler("account/read", {}))
                     config = extraire_config(await session.appeler("config/read", {"includeLayers": False}))
-                    avant = time.monotonic()
-                    readiness_brute = (await session.appeler("windowsSandbox/readiness", avec_params=False)).get("status")
-                    mesures["readiness_s"] = round(time.monotonic() - avant, 3)
-                    readiness = readiness_brute if readiness_brute in ("ready", "notConfigured", "updateRequired") \
-                        else "inconnu"
+                    if linux:
+                        readiness = "sans_objet"
+                    else:
+                        avant = time.monotonic()
+                        readiness_brute = (await session.appeler("windowsSandbox/readiness",
+                                                                 avec_params=False)).get("status")
+                        mesures["readiness_s"] = round(time.monotonic() - avant, 3)
+                        readiness = readiness_brute if readiness_brute in ("ready", "notConfigured",
+                                                                           "updateRequired") else "inconnu"
                     if connexion in ("cle_api", "autre"):
-                        return _echec("indisponible", COMPTE_HORS_ABONNEMENT, section, version=version,
-                                      instant=instant, connexion=connexion, config=config, readiness=readiness,
-                                      compteurs=[_failure("codex", "not_signed_in", CODEX_API_KEY_ACCOUNT)
-                                                 .model_dump(mode="json")])
+                        return echec("indisponible", messages["hors_abonnement"], version=version,
+                                     connexion=connexion, config=config, readiness=readiness,
+                                     compteurs=[_failure("codex", "not_signed_in", CODEX_API_KEY_ACCOUNT)
+                                                .model_dump(mode="json")])
                     if config["catalogue_local"]:
-                        return _echec("indisponible", CATALOGUE_LOCAL, section, version=version, instant=instant,
-                                      connexion=connexion, plan=plan, config=config, readiness=readiness)
+                        return echec("indisponible", CATALOGUE_LOCAL, version=version, connexion=connexion,
+                                     plan=plan, config=config, readiness=readiness)
                     modeles = await lister_modeles(session)
                     if connexion == "compte_chatgpt":
                         try:
@@ -452,59 +497,61 @@ async def sonder_codex(section: SectionCodex, emplacements: Emplacements, *, del
                             compteurs = [_failure("codex", "unavailable", CODEX_MALFORMED, plan=plan)
                                          .model_dump(mode="json")]
                     else:
-                        compteurs = [_failure("codex", "not_signed_in", SANS_COMPTE).model_dump(mode="json")]
+                        compteurs = [_failure("codex", "not_signed_in", messages["sans_compte"])
+                                     .model_dump(mode="json")]
                     mesures["requetes_du_serveur"] = session.requetes_du_serveur
             if connexion == "non_connecte":
-                origine, detail = "catalogue_embarque", SANS_COMPTE
+                origine, detail = "catalogue_embarque", messages["sans_compte"]
             else:
                 try:
                     embarque = await catalogue_embarque(argv, version, emplacements, environnement=environnement,
-                                                        delai_s=delai_s)
+                                                        delai_s=delai_s, dossiers=dossiers)
                 except (TimeoutError, FencedSpawnError, ErreurRpc, ArretNonConfirme, SessionFermee,
                         ReponseMalFormee, ValidationError, MethodeRefusee, ValueError, OSError):
                     embarque = None
                 if embarque is None:
-                    return _echec("indisponible", EMBARQUE_ILLISIBLE, section, version=version, instant=instant,
-                                  connexion=connexion, plan=plan, config=config, readiness=readiness,
-                                  compteurs=compteurs)
+                    return echec("indisponible", EMBARQUE_ILLISIBLE, version=version, connexion=connexion, plan=plan,
+                                 config=config, readiness=readiness, compteurs=compteurs)
                 identique = _cle(embarque) == _cle(modeles)
                 origine = "identique_au_catalogue_embarque" if identique else "compte"
                 detail = (f"Liste identique au catalogue embarqué de Codex {version} : liste de secours probable."
                           if identique else None)
     except TimeoutError:
-        return _echec("indisponible", f"L'app-server Codex n'a pas répondu dans le délai de {delai_s:g} s : relevé "
-                      "refusé.", section, version=version, instant=instant)
+        return echec("indisponible", f"L'app-server Codex n'a pas répondu dans le délai de {delai_s:g} s : relevé "
+                     "refusé.", version=version)
     except FencedSpawnError as exc:
         if exc.reason == "spawn_error":
-            return _echec("cli_absente", CODEX_ABSENT, section, version=None, instant=instant)
-        return _echec("indisponible", CLOTURE_IMPOSSIBLE, section, version=version, instant=instant)
+            return echec("cli_absente", CODEX_ABSENT, version=None)
+        return echec("indisponible", CLOTURE_IMPOSSIBLE, version=version)
     except ErreurRpc as exc:
-        return _echec("indisponible", f"L'app-server Codex a refusé la lecture ({exc.methode}, code {exc.code}) : "
-                      "relevé refusé.", section, version=version, instant=instant)
+        return echec("indisponible", f"L'app-server Codex a refusé la lecture ({exc.methode}, code {exc.code}) : "
+                     "relevé refusé.", version=version)
     except ArretNonConfirme:
-        return _echec("indisponible", ARRET_NON_CONFIRME, section, version=version, instant=instant)
+        return echec("indisponible", ARRET_NON_CONFIRME, version=version)
     except SessionFermee:
-        return _echec("indisponible", FERME, section, version=version, instant=instant)
+        return echec("indisponible", FERME, version=version)
     except (ReponseMalFormee, ValidationError, MethodeRefusee):
-        return _echec("indisponible", MAL_FORME, section, version=version, instant=instant)
+        return echec("indisponible", MAL_FORME, version=version)
     except ValueError as exc:
-        return _echec("indisponible", str(exc)[:300], section, version=version, instant=instant)
+        return echec("indisponible", str(exc)[:300], version=version)
     except OSError:
-        return _echec("indisponible", MAL_FORME, section, version=version, instant=instant)
+        return echec("indisponible", MAL_FORME, version=version)
     mesures["duree_s"] = round(time.monotonic() - debut, 3)
     mesures["modeles"] = len(modeles)
-    bac = bac_a_sable(readiness, config, instant)
+    bac = None if linux else bac_a_sable(readiness, config, instant)
+    stockage_attendu = "file" if linux else "keyring"
     alertes = []
     if config["palier"] != "default":
         alertes.append(f"Palier Codex lu : {config['palier'] or 'inconnu'} ; attendu : default.")
-    if config["stockage"] != "keyring":
-        alertes.append(f"Stockage des identifiants Codex lu : {config['stockage'] or 'inconnu'} ; attendu : keyring.")
+    if config["stockage"] != stockage_attendu:
+        alertes.append(f"Stockage des identifiants Codex lu : {config['stockage'] or 'inconnu'} ; attendu : "
+                       f"{stockage_attendu}.")
     releve = _releve("ok", origine, version=version, modeles=modeles, detail=detail, compteurs=compteurs,
                      instant=instant)
     return ResultatCodex(releve=releve, bac_a_sable=bac, connexion=connexion, plan=plan,
                          version={"lue": version, "testee": section.version_testee,
                                   "conforme": version == section.version_testee},
-                         alertes=alertes, mesures=mesures)
+                         alertes=alertes, mesures=mesures, stockage=config["stockage"])
 
 
 async def installer_bac_a_sable(argv: list[str], env: dict[str, str], dossier: str, delai_s: float) -> dict:

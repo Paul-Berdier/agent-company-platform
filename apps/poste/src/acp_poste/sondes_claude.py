@@ -25,7 +25,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .app_server import ArretNonConfirme, arreter
 from .catalogue_claude import DOCUMENTATION_LUE_LE, PLAGE_MINIMALE, dans_la_plage, modeles_documentes
@@ -92,8 +92,12 @@ async def code_auth_status(argv: Sequence[str], env: dict[str, str], cwd: str, d
 
 async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: float,
                         prefixe: Sequence[str] | None = None, environnement: Mapping[str, str] | None = None,
-                        delai_auth_s: float = DELAI_AUTH_STATUS_S) -> ResultatClaude:
-    """Relevé de la voie Claude ; ne lève jamais."""
+                        delai_auth_s: float = DELAI_AUTH_STATUS_S, dossiers: Callable[..., Any] | None = None,
+                        compteur: Callable[[], Any] | None = None) -> ResultatClaude:
+    """Relevé de la voie Claude ; ne lève jamais.
+
+    Exécutant Linux (étape P6) : ``dossiers`` fabrique des dossiers temporaires à l'UID ``acp-claude`` ; ``compteur``
+    rend le relevé de quotas tiré du dernier ``rate_limit_event`` observé (aucune ligne d'état sur Railway)."""
 
     instant = datetime.now(UTC)
     alertes: list[str] = []
@@ -126,7 +130,8 @@ async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: floa
     debut = time.monotonic()
     version = None
     try:
-        with tempfile.TemporaryDirectory(prefix="acp-sonde-", ignore_cleanup_errors=True) as dossier:
+        fabrique = dossiers or (lambda prefix: tempfile.TemporaryDirectory(prefix=prefix, ignore_cleanup_errors=True))
+        with fabrique(prefix="acp-sonde-") as dossier:
             async with asyncio.timeout(delai_s):
                 version = await lire_version(argv, env, dossier)
             if version is None:
@@ -155,13 +160,15 @@ async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: floa
     except OSError:
         return resultat(releve("indisponible", version=version, detail=VERSION_ILLISIBLE), version)
     mesures["duree_s"] = round(time.monotonic() - debut, 3)
-    if section.ligne_etat is not None:
-        compteur = await probe_claude_snapshot(section.ligne_etat)
+    if compteur is not None:
+        releve_quotas = compteur()
+    elif section.ligne_etat is not None:
+        releve_quotas = await probe_claude_snapshot(section.ligne_etat)
     else:
-        compteur = _failure("claude_code", "unavailable", LIGNE_ETAT_NON_DECLAREE)
+        releve_quotas = _failure("claude_code", "unavailable", LIGNE_ETAT_NON_DECLAREE)
     detail = None
     if not dans_la_plage(numerique):
         detail = (f"Claude Code {version} hors de la plage documentée (à partir de "
                   f"{'.'.join(map(str, PLAGE_MINIMALE))}) : alias publiés sans résolution ni efforts (Inconnu).")
     return resultat(releve("ok", version=version, detail=detail, modeles=modeles_documentes(numerique),
-                           compteurs=[compteur.model_dump(mode="json")]), version)
+                           compteurs=[releve_quotas.model_dump(mode="json")]), version)
