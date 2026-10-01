@@ -88,7 +88,7 @@ def test_uid_dedie_refuse_sous_windows():
     ({"regime": "A"}, "régime « A » : exige bubblewrap fonctionnel"),
     ({"uid_separes": False}, "aucune écriture sans identifiants séparés"),
     ({"uid_separes": None}, "aucune écriture sans identifiants séparés"),
-    ({"ecriture_admise": {"codex": True, "claude": True}}, "refusée en régime B tant que D76 vaut « refuse »"),
+    ({"ecriture_admise": {"codex": True, "claude": True}}, "refusée en régime B tant que D79 vaut « refuse »"),
     ({"raison": None}, "une écriture refusée doit dire pourquoi"),
     ({"ecriture_admise": {"claude": True}}, "un booléen pour « codex » et un pour « claude »"),
     ({"regime": "C"}, "valeurs admises : A, B, inconnu"),
@@ -106,7 +106,7 @@ def test_regime_a_et_inconnu():
                                         proc_neuf=None, ecriture_admise={"codex": False, "claude": False},
                                         raison="Sonde de plateforme pas encore faite : écriture refusée."))
     assert not any(inconnu.isolement_linux.ecriture_admise.values())
-    # D76 option (b) ou (a) : Codex admis en régime B si le propriétaire l'a décidé dans la politique.
+    # D79 option (b) ou (a) : Codex admis en régime B si le propriétaire l'a décidé dans la politique.
     edition = valider_inventaire(_linux(codex_sans_bac_a_sable="edition_seule",
                                         ecriture_admise={"codex": True, "claude": True}, raison=None))
     assert edition.isolement_linux.ecriture_admise["codex"] is True

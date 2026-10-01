@@ -375,7 +375,7 @@ class ReponseQuestionLivree(_Contrat):
 class DemandeCarte(_Contrat):
     """Carte servie à l'exécutant par ``reclamer`` (cahier P6 § 5.2). La DEMANDE enregistrée par le greffon fait foi :
     voie, modèle, effort et palier sont ceux que le routage a résolus (l'exécutant les recontrôle contre sa
-    politique) ; ``branche_base`` est ``None`` (la politique de l'exécutant la porte, jamais Hermes, D75).
+    politique) ; ``branche_base`` est ``None`` (la politique de l'exécutant la porte, jamais Hermes, D78).
 
     - ``integration`` : voie ``poste-integration``, sans modèle, effort ni palier ; ``branches_a_integrer`` non vide.
     - ``relecture`` : ``carte_relue`` désigne la carte relue (sa branche locale est ``hermes/<carte_relue>``).

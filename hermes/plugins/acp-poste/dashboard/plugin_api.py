@@ -44,7 +44,14 @@ exige ``Content-Type: application/json`` (415 sinon) et refuse un ``Origin`` pr�
 - ``POST /v1/routage/politique`` ``/surcharges`` ``/surcharges/{id}/desactiver`` ``/releve-accepte``
 - ``GET  /v1/quotas``                          quotas par voie (relevés, jamais estimés)
 
-Les trois routes machine ne sont jamais servies à une session de navigateur : la couture de Hermes les réserve au
+Étape P6 — exécution par l'exécutant Railway (cahier P6 § 5, § 9) :
+
+- ``POST /machine/v1/reclamer``                sert désormais une carte (``DemandeCarte``) à ``peut_executer: true``
+- ``POST /machine/v1/battement`` ``/terminer`` ``/question`` ``/bloquer`` ``/reprendre`` ``/arret``
+                                               porteur : jeton machine ; ``id_envoi`` idempotent ; preuve de propriété
+- ``POST /v1/revues/{tableau}/{carte}/accepter`` ``/refuser``  revue des fichiers de pilotage → 200, 404, 409, 422
+
+Les neuf routes machine ne sont jamais servies à une session de navigateur : la couture de Hermes les réserve au
 porteur d'un jeton reconnu (chemins exacts enregistrés par register()).
 """
 
@@ -279,7 +286,10 @@ async def reprise_projet(identifiant: str, request: Request) -> JSONResponse:
 
 @router.get("/v1/questions")
 async def lister_questions() -> JSONResponse:
-    return await _executer(_avec_base(lambda conn: _n("questions").lister(conn)))
+    def travail(conn):
+        # Étape P6 : section « Revues » (cartes en revue pour des fichiers de pilotage, cahier P6 § 9.3).
+        return dict(_n("questions").lister(conn), revues=_n("execution").revues_en_cours(conn))
+    return await _executer(_avec_base(travail))
 
 
 @router.post("/v1/questions/{question}/reponse")
@@ -391,6 +401,9 @@ CODES_HTTP_MACHINE = {
     "non_authentifie": 401, "poste_revoque": 401, "mauvais_fournisseur": 403, "code_enrolement_seulement": 403,
     "jeton_machine_ici": 403, "poste_a_confirmer": 403, "poste_deja_enrole": 409, "protocole_incompatible": 409,
     "trop_volumineux": 413, "json_attendu": 415, "requete_refusee": 422, "trop_frequent": 429, "echec": 500,
+    # Étape P6 (cahier P6 § 5.10).
+    "reclamation_perdue": 409, "projet_en_pause": 409, "carte_inconnue": 404, "carte_non_emise": 403,
+    "secret_detecte": 422, "issue_invalide": 422,
 }
 ATTENTE_A_CONFIRMER_S = 15
 RELECTURE_S = 2.0
@@ -602,6 +615,7 @@ def _premier_passage(machine_id: str, requete: Any, remplacement: bool) -> Dict[
                          "remplacements_depuis = ? WHERE id = ?",
                          (maintenant, 1 if requete.politique_valide else 0, compte, depuis, machine_id))
             ordres.acquitter_dans(conn, machine_id, requete.ordres_acquittes)
+            _n("execution").noter_reclamation(conn, machine_id, requete)
             pause = bool(base.reglage(conn, "pause_reclamations"))
             if ligne["etat"] != "actif":
                 return {"etat": ligne["etat"], "ordres": [], "pause": pause}
@@ -646,16 +660,29 @@ async def _deconnecte(request: Request) -> bool:
 
 
 def _reponse_reclamer(etat: str, ordres: list, pause: bool, *, remplace: bool = False,
-                      prochaine: int = 0) -> JSONResponse:
+                      prochaine: int = 0, carte: Optional[Dict[str, Any]] = None) -> JSONResponse:
     contenu = {"maintenant": _iso(time.time()), "etat_machine": etat, "pause_reclamations": bool(pause),
-               "ordres": ordres, "carte": None, "remplace": remplace, "prochaine_attente_s": prochaine}
+               "ordres": ordres, "carte": carte, "remplace": remplace, "prochaine_attente_s": prochaine}
     return _reponse_machine(200, contenu)
+
+
+async def _carte_a_servir(machine_id: str, requete: Any) -> Optional[Dict[str, Any]]:
+    """Étape P6 : une carte réclamée pour cet exécutant (``execution.servir``), ou ``None``. Un échec de la sélection
+    n'interrompt jamais l'attente (présence et ordres continuent) : il est journalisé, et aucune carte n'est servie."""
+    if not requete.peut_executer or not requete.voies_disponibles:
+        return None
+    try:
+        return await run_in_threadpool(_n("execution").servir, machine_id, requete)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("acp-poste : sélection d'une carte en échec (%s).", type(exc).__name__)
+        return None
 
 
 @router.post("/machine/v1/reclamer")
 async def machine_reclamer(request: Request) -> JSONResponse:
-    """Long-poll du poste (cahier P5 § 4.5) : présence, ordres ; ``carte`` toujours ``null`` en P5. Jamais un fil
-    tenu pendant l'attente : la boucle attend un ``asyncio.Event`` et relit la base toutes les 2 s en fil."""
+    """Long-poll du poste (cahier P5 § 4.5) : présence, ordres ; étape P6 : une carte à un exécutant qui a annoncé
+    ``peut_executer`` et ses voies (cherchée au premier passage puis à chaque relecture). Jamais un fil tenu pendant
+    l'attente : la boucle attend un ``asyncio.Event`` et relit la base toutes les 2 s en fil."""
     garde = await _garde_machine(request, "machine", _contrat_machine().TAILLE_MAX_REQUETE)
     if isinstance(garde, JSONResponse):
         return garde
@@ -681,6 +708,9 @@ async def machine_reclamer(request: Request) -> JSONResponse:
             return _reponse_reclamer(etat["etat"], [], etat["pause"], prochaine=ATTENTE_A_CONFIRMER_S)
         if etat["ordres"]:
             return _reponse_reclamer("actif", etat["ordres"], etat["pause"])
+        carte = await _carte_a_servir(machine_id, requete)
+        if carte is not None:
+            return _reponse_reclamer("actif", [], etat["pause"], carte=carte)
         boucle = asyncio.get_running_loop()
         echeance = boucle.time() + min(requete.attente_max_s, max(5, min(50, etat["attente_s"])))
         pause = etat["pause"]
@@ -707,6 +737,9 @@ async def machine_reclamer(request: Request) -> JSONResponse:
             pause = etat["pause"]
             if etat["ordres"]:
                 return _reponse_reclamer("actif", etat["ordres"], pause)
+            carte = await _carte_a_servir(machine_id, requete)
+            if carte is not None:
+                return _reponse_reclamer("actif", [], pause, carte=carte)
     finally:
         with _verrou_attentes:
             if _attentes.get(machine_id) is attente:
@@ -751,6 +784,115 @@ async def machine_inventaire(request: Request) -> JSONResponse:
     return _reponse_machine(200, resultat)
 
 
+# ============================================================ étape P6 : routes de l'exécution (cahier P6 § 5.3 à § 5.8)
+#
+# Six chemins EXACTS de plus, enregistrés comme chemins à jeton par register() (contrat ``ROUTES``). Ordre de chaque
+# gestionnaire : garde machine (principal, fournisseur, portée, JSON, borne de 8 ou 32 Kio, profondeur, protocole),
+# balayage des secrets AVANT tout effet (422 ``secret_detecte``, jamais la valeur), contrat (422), état du poste relu
+# (401 ``poste_revoque``, 403 ``poste_a_confirmer``), envoi déjà reçu (même réponse, ``deja_recu: true``), effet, puis
+# réponse gardée 7 jours. Un refus du noyau dont le code n'est pas du contrat devient ``requete_refusee`` (422).
+
+ROUTES_ISSUE = ("terminer", "question", "bloquer")
+
+
+async def _route_execution(request: Request, nom: str) -> JSONResponse:
+    contrat = _contrat_machine()
+    textes = _n("textes")
+    nom_requete, nom_reponse, borne = contrat.MODELES_P6[f"{contrat.PREFIXE_ROUTES}/{nom}"]
+    garde = await _garde_machine(request, "machine", borne)
+    if isinstance(garde, JSONResponse):
+        return garde
+    principal, corps = garde
+    motif = contrat.secret_trouve(corps)
+    if motif:
+        return _erreur_machine("secret_detecte", textes.SECRET_DETECTE.format(m=motif))
+    try:
+        requete = contrat.valider(getattr(contrat, nom_requete), corps, quoi="Requête refusée")
+    except ValueError as exc:
+        detail = str(exc).removeprefix("Requête refusée : ")
+        if nom in ROUTES_ISSUE:
+            premier = detail.split(";")[0].rstrip(".")
+            chemin, _, raison = premier.partition(" : ")
+            if not raison:
+                chemin, raison = "requête", premier
+            return _erreur_machine("issue_invalide", textes.ISSUE_INVALIDE.format(chemin=chemin[:80], raison=raison[:300]))
+        return _erreur_machine("requete_refusee", textes.REQUETE_REFUSEE.format(detail=detail[:400]))
+    machine_id = _machine_du_principal(principal)
+    execution = _n("execution")
+    empreinte = execution.empreinte_requete(corps)
+
+    def travail():
+        base, machines = _n("base"), _n("machines")
+        with execution.verrou():
+            with base.connexion() as conn:
+                ligne = machines.machine(conn, machine_id)
+                if ligne is None or ligne["etat"] == "revoque":
+                    return {"revoque": ligne}
+                if ligne["etat"] == "a_confirmer":
+                    raise textes.RefusACP("poste_a_confirmer", textes.POSTE_A_CONFIRMER.format(
+                        empreinte=machines.empreinte_affichee(ligne)))
+                if nom != "battement":
+                    connu = execution.envoi_connu(conn, id_envoi=requete.id_envoi, machine_id=machine_id, route=nom,
+                                                  empreinte=empreinte)
+                    if connu is not None:
+                        return connu
+            try:
+                reponse = execution.FONCTIONS[nom](machine_id, requete)
+            except textes.RefusACP as exc:
+                if exc.code in contrat.CODES_ERREUR:
+                    raise
+                raise textes.RefusACP("requete_refusee", textes.REQUETE_REFUSEE.format(
+                    detail=exc.message.removeprefix(textes.PREFIXE_REFUS)[:400])) from None
+            contrat.valider(getattr(contrat, nom_reponse), reponse, quoi="Réponse du greffon hors contrat")
+            if nom != "battement":
+                with base.connexion() as conn:
+                    execution.garder_envoi(conn, id_envoi=requete.id_envoi, machine_id=machine_id, route=nom,
+                                           empreinte=empreinte, requete=requete, reponse=reponse)
+            return reponse
+    resultat = await _executer_machine(travail)
+    if isinstance(resultat, JSONResponse):
+        return resultat
+    if "revoque" in resultat:
+        return _refus_revoque(resultat["revoque"])
+    return _reponse_machine(200, resultat)
+
+
+@router.post("/machine/v1/battement")
+async def machine_battement(request: Request) -> JSONResponse:
+    """Toutes les 60 s : prolonge la réclamation (``heartbeat_claim``, TTL 45 min) et note le battement."""
+    return await _route_execution(request, "battement")
+
+
+@router.post("/machine/v1/terminer")
+async def machine_terminer(request: Request) -> JSONResponse:
+    """Issue d'une carte : ``complete_task``, revue des fichiers de pilotage, ou correction après relecture."""
+    return await _route_execution(request, "terminer")
+
+
+@router.post("/machine/v1/question")
+async def machine_question(request: Request) -> JSONResponse:
+    """Question de la carte : ``questions.poser`` de P4 (planifiée, puis carte « répondre » ou escalade)."""
+    return await _route_execution(request, "question")
+
+
+@router.post("/machine/v1/bloquer")
+async def machine_bloquer(request: Request) -> JSONResponse:
+    """Blocage décidé par l'exécutant : quota (attente datée), secret (raison fixe), capacité et ses variantes."""
+    return await _route_execution(request, "bloquer")
+
+
+@router.post("/machine/v1/reprendre")
+async def machine_reprendre(request: Request) -> JSONResponse:
+    """Rend la carte (``reclaim_task``) ; ``deja_libre`` si elle n'était plus à cet exécutant."""
+    return await _route_execution(request, "reprendre")
+
+
+@router.post("/machine/v1/arret")
+async def machine_arret(request: Request) -> JSONResponse:
+    """Arrêt propre (SIGTERM, pause locale, carte annulée) : comme ``reprendre``, et la présence le note."""
+    return await _route_execution(request, "arret")
+
+
 def _ecrire_demarrage() -> None:
     """Grâce de redémarrage (cahier P5 § 4.7) : date de démarrage du tableau de bord, écrite à l'import."""
     try:
@@ -778,7 +920,9 @@ CODES_HTTP.update({
 # Refus de la résolution (routage.valider_choix) : 422 sur les routes de la page Routage.
 REFUS_DE_ROUTAGE = ("classe_voie", "sans_depot", "effort_interdit", "palier_interdit", "modele_absent",
                     "effort_non_pris_en_charge", "aucun_modele", "voie_indisponible", "voie_non_connectee",
-                    "liste_de_secours", "cli_hors_version", "interdit_par_le_poste", "efforts_inconnus")
+                    "liste_de_secours", "cli_hors_version", "interdit_par_le_poste", "efforts_inconnus",
+                    # Étape P6.
+                    "voie_fermee", "integration_sans_modele")
 
 
 def _champs(corps: Dict[str, Any], admis: set) -> Optional[JSONResponse]:
@@ -818,7 +962,9 @@ def _vue_poste(conn) -> Dict[str, Any]:
     return {"poste": presence.etat_poste(conn), "machine": machines.etat(conn),
             "inventaire": dernier, "alertes": (dernier or {}).get("alertes") or [],
             "ordres": ordres.en_attente(conn, courante["id"]) if courante and courante["etat"] == "actif" else [],
-            "catalogue": routage.catalogue(conn)}
+            "catalogue": routage.catalogue(conn),
+            # Étape P6 (cahier P6 § 9.3) : isolement, conditions, carte en cours, branches prêtes, voies fermées.
+            "executant": _n("execution").vue_executant(conn)}
 
 
 @router.get("/v1/poste")
@@ -972,3 +1118,39 @@ async def accepter_releve(request: Request) -> JSONResponse:
 @router.get("/v1/quotas")
 async def lire_quotas() -> JSONResponse:
     return await _executer_routage(lambda conn: _n("quotas").vue(conn))
+
+
+# ============================================================ étape P6 : revues des fichiers de pilotage (§ 5.4)
+#
+# Une carte dont le diff touche un fichier de pilotage des agents passe EN REVUE (``request_review``). Le propriétaire
+# l'accepte (``complete_task`` sans preuve de run : ``review → done`` admis, la revue n'a pas de réclamation vivante)
+# ou la refuse avec un motif (``add_comment`` puis ``reopen_review_task`` : la carte revient à l'exécutant, avec le
+# motif ; ``block_task`` serait sans effet sur une carte en revue). Session, JSON et ``Origin`` contrôlés (P4 § 11).
+
+CODES_HTTP.update({"revue_inconnue": 404, "revue_changee": 409, "motif": 422})
+
+
+@router.post("/v1/revues/{tableau}/{carte}/accepter")
+async def accepter_revue(tableau: str, carte: str, request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, set())
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer(_avec_base(lambda conn: _n("execution").accepter_revue(
+        conn, tableau=tableau, carte=carte, auteur=auteur)))
+
+
+@router.post("/v1/revues/{tableau}/{carte}/refuser")
+async def refuser_revue(tableau: str, carte: str, request: Request) -> JSONResponse:
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"motif"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer(_avec_base(lambda conn: _n("execution").refuser_revue(
+        conn, tableau=tableau, carte=carte, motif=corps.get("motif"), auteur=auteur)))

@@ -6,6 +6,10 @@ poste avant l'envoi), validation par le contrat partagé (``InventairePoste``), 
 (``resume_quotas``), une ligne ``inventaires`` (le reste de l'inventaire), purges bornées qui épargnent les relevés
 cités ou acceptés, acquittement des ordres ``releve`` livrés. Cadence : un inventaire par
 ``inventaire_intervalle_min_s`` au plus, sauf ordre ``releve`` en attente (sinon 429 et ``Retry-After``).
+
+Étape P6 (cahier P6 § 7.3, § 9.2) : variante Linux de l'exécutant (verdict de la sonde, ``isolement_linux``) ;
+``machines.plateforme`` et ``hote`` suivent l'inventaire ; un CHANGEMENT d'isolement (régime ou écriture admise) entre
+deux inventaires — migration de l'exécutant vers un autre hôte Railway, par exemple — enfile UNE notification.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from . import base, contrat_partage, ordres, routage  # noqa: F401 — contrat_partage met le contrat sur sys.path
+from . import base, contrat_partage, notifications, ordres, routage  # noqa: F401 — contrat_partage : sys.path
 from . import textes as T
 from .textes import RefusACP
 
@@ -90,9 +94,27 @@ def alertes_de(inventaire: InventairePoste) -> List[str]:
         if not version.conforme:
             alertes.append(T.ALERTE_VERSION_CLI.format(cli=LIBELLES_CLI.get(cle, cle), lue=version.lue or T.INCONNU,
                                                        testee=version.testee))
-    if not inventaire.bac_a_sable_codex.ecriture_admise:
+    if inventaire.bac_a_sable_codex is not None and not inventaire.bac_a_sable_codex.ecriture_admise:
         alertes.append(T.ALERTE_BAC_A_SABLE.format(raison=inventaire.bac_a_sable_codex.raison or T.INCONNU))
+    isolement = inventaire.isolement_linux
+    if isolement is not None:
+        refusees = [LIBELLES_CLI[c] for c in ("codex", "claude") if not isolement.ecriture_admise.get(c)]
+        if refusees:
+            alertes.append(T.ALERTE_ISOLEMENT.format(clis=" et ".join(refusees), regime=isolement.regime,
+                                                     raison=isolement.raison or T.INCONNU))
+    for cle, quand in sorted(inventaire.politique.conditions.items()):
+        if quand is None:
+            alertes.append(T.ALERTE_CONDITIONS.format(cli=LIBELLES_CLI.get(cle, cle)))
     return [a[:300] for a in alertes[:ALERTES_MAX]]
+
+
+def _signature_isolement(contenu: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Ce qui change la voie d'une CLI : régime et écriture admise (la date de la sonde n'en fait pas partie)."""
+    isolement = (contenu or {}).get("isolement_linux")
+    if not isinstance(isolement, dict):
+        return None
+    return json.dumps({"regime": isolement.get("regime"), "ecriture": isolement.get("ecriture_admise")},
+                      sort_keys=True)
 
 
 def recevoir_dans(conn, machine_id: str, corps: Any, *, inventaire: Optional[InventairePoste] = None) -> Dict[str, Any]:
@@ -107,6 +129,12 @@ def recevoir_dans(conn, machine_id: str, corps: Any, *, inventaire: Optional[Inv
         releves[releve.voie] = routage.enregistrer_releve_dans(conn, donnees, machine_id=machine_id, recu_le=maintenant)
         routage.purger_releves_dans(conn, releve.voie)
     alertes = alertes_de(inventaire)
+    precedent = conn.execute("SELECT id, contenu FROM inventaires WHERE machine_id = ? ORDER BY id DESC LIMIT 1",
+                             (machine_id,)).fetchone()
+    try:
+        avant = _signature_isolement(json.loads(precedent["contenu"])) if precedent is not None else None
+    except ValueError:
+        avant = None
     reste = inventaire.model_dump(mode="json")
     reste.pop("releves")
     reste["releves"] = releves
@@ -117,6 +145,18 @@ def recevoir_dans(conn, machine_id: str, corps: Any, *, inventaire: Optional[Inv
                   hashlib.sha256(contenu.encode("utf-8")).hexdigest(), contenu))
     conn.execute("DELETE FROM inventaires WHERE id NOT IN (SELECT id FROM inventaires ORDER BY id DESC LIMIT ?)",
                  (INVENTAIRES_GARDES,))
+    conn.execute("UPDATE machines SET plateforme = ?, hote = ? WHERE id = ?",
+                 (inventaire.poste.plateforme, inventaire.poste.hote, machine_id))
+    apres = _signature_isolement(reste)
+    if avant is not None and apres is not None and avant != apres:
+        isolement = inventaire.isolement_linux
+        notifications.enfiler_dans(
+            conn, cle=f"isolement:{machine_id}:{hashlib.sha256((avant + apres).encode()).hexdigest()[:12]}:"
+                      f"{maintenant}", genre="isolement",
+            texte_notif=notifications.texte(T.NOTIF_ISOLEMENT, regime=isolement.regime,
+                                            raison=isolement.raison or T.INCONNU))
+        base.journaliser(conn, f"poste:{machine_id}", "isolement_change", cible=machine_id,
+                         detail={"avant": json.loads(avant), "apres": json.loads(apres)})
     servis = ordres.acquitter_releves_livres_dans(conn, machine_id)
     base.journaliser(conn, f"poste:{machine_id}", "inventaire", cible=machine_id,
                      detail={"releves": releves, "ordres_servis": servis, "alertes": len(alertes)})

@@ -324,7 +324,7 @@ REGLAGES_PAR_DEFAUT: Dict[str, Any] = {
     "inventaire_intervalle_min_s": 60,
     "ordre_expiration_s": 3600,
     # Étape P6 (cahier P6 § 5, § 4.3, § 17) : réclamation de l'exécutant, conservation des envois, grâce d'un arrêt
-    # propre, carte prête d'une voie fermée, repli de la relecture (D88, appliqué par le propriétaire).
+    # propre, carte prête d'une voie fermée, repli de la relecture (D91, appliqué par le propriétaire).
     "reclamation_ttl_s": 2700,
     "envois_conservation_s": 7 * 24 * 3600,
     "grace_arret_propre_s": 600,

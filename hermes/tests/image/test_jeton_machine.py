@@ -253,7 +253,7 @@ def test_register_enregistre_le_fournisseur_et_les_chemins_exacts(noyau):
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
     assert fournisseurs == [["acp-poste-machine", True, False]]
     assert exacts == [True] * 9  # étape P6 : test_neuf_chemins_a_jeton
-    # Chemin exact seulement ; une route non déclarée (pousser, D79) et les routes du propriétaire jamais à jeton.
+    # Chemin exact seulement ; une route non déclarée (pousser, D82) et les routes du propriétaire jamais à jeton.
     assert autres == [False] * 12
     assert list(ROUTES) == ["/api/plugins/acp-poste/machine/v1/" + r for r in (
         "enrolement", "reclamer", "inventaire", "battement", "terminer", "question", "bloquer", "reprendre", "arret")]

@@ -163,7 +163,7 @@
       "chemin": "acp/acp-orchestration",
       "fichiers": {
         "SKILL.md": {
-          "sha256": "265e3e17404a2f077aae1b272a86e8040df4bbd2ac01d9d356d93188f6d1f2b6"
+          "sha256": "7108235d1748ec134b856c219f23a9a8a3758339f4803d44433a841d68d7374f"
         }
       },
       "execution": "aucune",
@@ -179,7 +179,7 @@
       "chemin": "acp/acp-routage",
       "fichiers": {
         "SKILL.md": {
-          "sha256": "2357ba635dc98eb7e0a963b7ea51f08ff41ae6114284bd5857e5318855c55bae"
+          "sha256": "d99a72f6c03e8e9426f5e202a7887d6669aa678892cb1cbcd4321aee844f303d"
         }
       },
       "execution": "aucune",

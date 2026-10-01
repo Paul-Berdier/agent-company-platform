@@ -16,6 +16,17 @@ s'il figure dans le dernier relevé ``poste-codex`` (abonnement ChatGPT du cerve
 
 L'effort exact demandé est gardé dans ``demandes.effort`` ; il n'est posé sur la carte
 (``reasoning_effort``) que s'il appartient à l'énumération de Hermes (kanban_db.py:115-127).
+
+Étape P6 (cahier P6 § 4.3, § 6.7, § 9.2) :
+
+- classe ``integration`` OUVERTE : voie ``poste-integration``, sans modèle, effort ni palier, toujours hors de la
+  table de routage (rien à y valider) ;
+- **voies fermées** d'après le DERNIER inventaire (:func:`voies_fermees` : isolement de l'exécutant, bac à sable du
+  poste, conditions d'usage non décidées, exécutant absent de la politique) : refus ``voie_fermee`` ;
+- **repli de la relecture** (D91, appliqué ; réglage ``relecture_repli_meme_voie``) : si l'AUTRE voie est fermée, la
+  relecture va à la même voie avec un modèle de la classe « relecture » DIFFÉRENT de celui de l'implémentation, et la
+  mention le dit ; sinon, ou si le réglage est levé, D27 s'applique (refus ``relecture_impossible``) ;
+- résolutions d'alias **observées** à l'exécution (:func:`resolutions_observees`), pour la page Routage.
 """
 
 from __future__ import annotations
@@ -46,7 +57,8 @@ VOIES_PAR_CLASSE: Dict[str, Tuple[str, ...]] = {
     "petite_tache": ("poste-codex", "poste-claude"),
     "documentation": ("poste-codex", "poste-claude", HERMES),
     "relecture": ("poste-codex", "poste-claude"),
-    "integration": (),
+    # Étape P6 (cahier P6 § 6.7) : voie dédiée, déterministe, sans modèle ; hors de la table (CLASSES_TABLE).
+    "integration": (ka.VOIE_INTEGRATION,),
 }
 CLASSES_ETAPE = ("architecture", "implementation", "debogage_tests", "documentation", "petite_tache",
                  "recherche_web", "integration")
@@ -293,6 +305,71 @@ def verifier_politique_du_poste(contexte: Optional[Dict[str, Any]], voie: str, m
             objet=f"le palier « {palier} »", cle="paliers_admis"))
 
 
+# ------------------------------------------------------------------ voies fermées (étape P6, cahier P6 § 4.3, § 6.1)
+
+
+def dernier_inventaire(conn, machine_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Contenu du dernier inventaire de la machine active (ou de ``machine_id``), ``None`` s'il n'y en a aucun."""
+    if machine_id is None:
+        actif = conn.execute("SELECT id FROM machines WHERE etat = 'actif'").fetchone()
+        if actif is None:
+            return None
+        machine_id = actif[0]
+    ligne = conn.execute("SELECT contenu FROM inventaires WHERE machine_id = ? ORDER BY id DESC LIMIT 1",
+                         (machine_id,)).fetchone()
+    if ligne is None:
+        return None
+    try:
+        contenu = json.loads(ligne[0])
+    except ValueError:
+        return None
+    return contenu if isinstance(contenu, dict) else None
+
+
+def voies_fermees(conn, inventaire: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """Voies du poste fermées d'après le dernier inventaire du poste ACTIF (jamais devinées) : ``{voie: raison}``.
+
+    - exécutant Linux : écriture non admise par le verdict de la sonde (régime, identifiants séparés, D79) ;
+    - poste Windows : écriture Codex non admise par le bac à sable (P5) ;
+    - conditions d'usage publiées sans date de décision (D83, D84).
+
+    Un exécutant absent de la politique reste refusé par :func:`verifier_politique_du_poste` (code
+    ``interdit_par_le_poste``, P5). Sans inventaire, aucune voie n'est dite fermée ici : le routage refuse déjà faute de relevé."""
+    inventaire = dernier_inventaire(conn) if inventaire is None else inventaire
+    if not inventaire:
+        return {}
+    fermees: Dict[str, str] = {}
+    isolement = inventaire.get("isolement_linux")
+    bac = inventaire.get("bac_a_sable_codex")
+    politique = inventaire.get("politique") or {}
+    conditions = politique.get("conditions") or {}
+    for voie, cle in (("poste-codex", "codex"), ("poste-claude", "claude")):
+        if isinstance(isolement, dict):
+            if not (isolement.get("ecriture_admise") or {}).get(cle):
+                fermees[voie] = T.VOIE_FERMEE_ISOLEMENT.format(
+                    regime=isolement.get("regime") or T.INCONNU, raison=isolement.get("raison") or T.INCONNU)
+                continue
+        elif cle == "codex" and isinstance(bac, dict) and not bac.get("ecriture_admise"):
+            fermees[voie] = T.VOIE_FERMEE_BAC_A_SABLE.format(raison=bac.get("raison") or T.INCONNU)
+            continue
+        if conditions and conditions.get(cle) is None:
+            fermees[voie] = T.VOIE_FERMEE_CONDITIONS.format(cli=LIBELLES_VOIE[voie])
+    return fermees
+
+
+def resolutions_observees(conn, limite: int = 20) -> List[Dict[str, Any]]:
+    """Résolutions d'alias OBSERVÉES à l'exécution (modèle servi rapporté par ``terminer``), les plus récentes
+    d'abord, une par couple (voie, alias) : D59, « résolution observée en P6 »."""
+    vues: Dict[tuple, Dict[str, Any]] = {}
+    for ligne in conn.execute("SELECT voie, modele, modele_servi, observe_le FROM demandes WHERE modele_servi IS NOT "
+                              "NULL AND observe_le IS NOT NULL ORDER BY observe_le DESC LIMIT 500").fetchall():
+        cle = (ligne["voie"], ligne["modele"])
+        if cle not in vues:
+            vues[cle] = {"voie": ligne["voie"], "alias": ligne["modele"], "modele_servi": ligne["modele_servi"],
+                         "observe_le": ligne["observe_le"], "observe_le_lisible": date_lisible(ligne["observe_le"])}
+    return list(vues.values())[:limite]
+
+
 # ------------------------------------------------------------------ résolution
 
 
@@ -315,6 +392,14 @@ def valider_choix(conn, *, classe: str, projet: Dict[str, Any], voie: str, model
         raise refus("effort_interdit", T.EFFORT_INTERDIT.format(e=effort))
     if palier not in paliers:
         raise refus("palier_interdit", T.PALIER_INTERDIT.format(p=palier))
+    if voie == ka.VOIE_INTEGRATION:
+        if modele or effort:
+            raise refus("integration_sans_modele", T.INTEGRATION_SANS_MODELE_ROUTAGE)
+        return Resolution(voie=voie, modele=None, effort=None, effort_carte=None, palier=palier,
+                          source_routage="sans_objet")
+    fermee = voies_fermees(conn).get(voie) if voie in ka.VOIES_POSTE else None
+    if fermee:
+        raise refus("voie_fermee", T.VOIE_FERMEE.format(v=voie, raison=fermee))
     if voie == HERMES:
         releve_id = None
         if modele:
@@ -375,7 +460,9 @@ def resoudre(conn, *, classe: str, projet: Dict[str, Any], voie: Optional[str] =
              effort: Optional[str] = None, carte: Optional[str] = None, ref: Optional[str] = None) -> Resolution:
     """Résolution déterministe d'une étape de ``classe`` (voir l'en-tête du module)."""
     if classe == "integration":
-        raise refus("integration_p6", T.INTEGRATION_P6)
+        # Étape P6 : déterministe, sans modèle ; aucune surcharge ni table ne s'y applique.
+        return valider_choix(conn, classe=classe, projet=projet, voie=ka.VOIE_INTEGRATION, modele=modele,
+                             effort=effort, palier=None, source="sans_objet", ref=ref)
     admises = VOIES_PAR_CLASSE.get(classe)
     if admises is None:
         raise refus("plan_invalide", f"classe « {classe} » inconnue.")
@@ -424,12 +511,49 @@ def resoudre(conn, *, classe: str, projet: Dict[str, Any], voie: Optional[str] =
     raise quota or raisons[0]
 
 
+def _relecture_de_repli(conn, *, projet: Dict[str, Any], voie_relue: str, modele_relu: Optional[str], ref: str,
+                        modele: Optional[str], raison_fermeture: str) -> Resolution:
+    """D91 (appliqué) : l'autre voie est fermée ; la relecture va à la MÊME voie avec un modèle de la classe
+    « relecture » différent de celui de l'implémentation (choix explicite, puis table pour cette voie), jamais le même.
+    Sinon, refus ``relecture_impossible`` (la planification le dit ; carte de décision par le plafond du projet)."""
+    candidats: List[Tuple[Optional[str], Optional[str], Optional[str], str]] = []
+    if modele:
+        candidats.append((modele, None, None, "choix_explicite"))
+    candidats += [(e.get("modele"), e.get("effort"), e.get("palier"), "table")
+                  for e in entrees_routage(conn, "relecture") if e.get("voie") == voie_relue]
+    raisons: List[str] = []
+    for modele_rel, effort_rel, palier_rel, source in candidats:
+        if not modele_rel or modele_rel == modele_relu:
+            raisons.append(T.REPLI_MEME_MODELE.format(m=modele_rel or T.INCONNU))
+            continue
+        try:
+            r = valider_choix(conn, classe="relecture", projet=projet, voie=voie_relue, modele=modele_rel,
+                              effort=effort_rel, palier=palier_rel, source=source, ref=ref)
+        except RefusACP as exc:
+            raisons.append(exc.message.removeprefix(T.PREFIXE_REFUS).rstrip("."))
+            continue
+        mention = T.MENTION_REPLI_MEME_VOIE.format(raison=raison_fermeture)
+        return Resolution(voie=r.voie, modele=r.modele, effort=r.effort, effort_carte=r.effort_carte, palier=r.palier,
+                          source_routage=r.source_routage, releve_id=r.releve_id,
+                          mention=", ".join(m for m in (r.mention, mention) if m))
+    raison = T.REPLI_IMPOSSIBLE.format(v=autre_voie(voie_relue), fermeture=raison_fermeture,
+                                       detail="; ".join(raisons[:3]) or T.REPLI_SANS_ENTREE.format(v=voie_relue))
+    raise refus("relecture_impossible", T.RELECTURE_IMPOSSIBLE.format(ref=ref, raison=raison))
+
+
 def resoudre_relecture(conn, *, projet: Dict[str, Any], voie_relue: str, ref: str, modele: Optional[str] = None,
-                       carte: Optional[str] = None) -> Resolution:
+                       carte: Optional[str] = None, modele_relu: Optional[str] = None) -> Resolution:
     """Relecture CROISÉE : toujours l'autre voie du poste (décision D27 : refus plutôt qu'une relecture
     par la même voie). Modèle : surcharge, choix explicite (``relecture_modele``), table, sinon le modèle
-    par défaut du relevé de l'autre voie et son effort par défaut (lus, jamais inventés)."""
+    par défaut du relevé de l'autre voie et son effort par défaut (lus, jamais inventés).
+
+    Étape P6 (D91, appliqué) : l'autre voie FERMÉE d'après le dernier inventaire, et le réglage
+    ``relecture_repli_meme_voie`` levé : :func:`_relecture_de_repli`, jamais silencieux (mention)."""
     autre = autre_voie(voie_relue)
+    fermee = voies_fermees(conn).get(autre)
+    if fermee and base.reglage(conn, "relecture_repli_meme_voie"):
+        return _relecture_de_repli(conn, projet=projet, voie_relue=voie_relue, modele_relu=modele_relu, ref=ref,
+                                   modele=modele, raison_fermeture=fermee)
     try:
         if dernier_releve(conn, autre) is None:
             raise RefusACP("aucun_modele", f"aucun relevé pour {autre}")

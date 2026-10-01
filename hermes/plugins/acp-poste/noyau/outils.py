@@ -85,8 +85,9 @@ SCHEMAS: Dict[str, Dict[str, Any]] = {
     },
     "poste_etat": {
         "name": "poste_etat",
-        "description": ("État du poste Windows qui exécute les étapes sur dépôt : non configuré, à confirmer, en "
-                        "ligne, hors ligne (depuis quand) ou révoqué, cartes en attente."),
+        "description": ("État du poste qui exécute les étapes sur dépôt (exécutant Railway ou poste Windows) : non "
+                        "configuré, à confirmer, en ligne, hors ligne (depuis quand), en redéploiement ou révoqué, "
+                        "cartes en attente ; régime d'isolement mesuré et voies fermées, avec leur raison."),
         "parameters": {"type": "object", "additionalProperties": False, "properties": {}},
     },
     "poste_catalogue": {
@@ -122,8 +123,8 @@ SCHEMAS: Dict[str, Dict[str, Any]] = {
     "routage_surcharger": {
         "name": "routage_surcharger",
         "description": ("Fixe, pour les prochaines cartes d'un projet, l'exécutant, le modèle et l'effort d'une "
-                        "classe d'étapes, avec un motif. Une carte existante garde les siens (surcharge d'une carte : "
-                        "étape P6). Ne lève jamais un interdit (effort, palier) : seul le propriétaire le fait."),
+                        "classe d'étapes, avec un motif. Une carte existante garde les siens (aucune surcharge d'une "
+                        "carte). Ne lève jamais un interdit (effort, palier) : seul le propriétaire le fait."),
         "parameters": {"type": "object", "additionalProperties": False,
                        "required": ["portee", "cible", "classe", "voie", "motif"],
                        "properties": {
@@ -241,12 +242,24 @@ def _projet_etat(args, session_id, conn) -> Dict[str, Any]:
     return {"projets": projets.lister(conn), "pause_generale": projets.pause_generale() is not None}
 
 
+def _executant(conn) -> Dict[str, Any]:
+    """Étape P6 (cahier P6 § 9.2) : plateforme, régime MESURÉ (« inconnu » sans sonde) et voies fermées avec leur
+    raison, pour que la planification ne propose pas une voie fermée (le routage la refuserait de toute façon)."""
+    inventaire = routage.dernier_inventaire(conn) or {}
+    poste = inventaire.get("poste") or {}
+    isolement = inventaire.get("isolement_linux")
+    plateforme = poste.get("plateforme") or ("windows" if inventaire else None)
+    return {"plateforme": plateforme or T.INCONNU, "hote": poste.get("hote") or T.INCONNU,
+            "regime": (isolement or {}).get("regime") or ("inconnu" if plateforme == "linux" else None),
+            "voies_fermees": routage.voies_fermees(conn)}
+
+
 def _poste_etat(args, session_id, conn) -> Dict[str, Any]:
-    return {"poste": presence.etat_poste(conn)}
+    return {"poste": presence.etat_poste(conn), "executant": _executant(conn)}
 
 
 def _poste_catalogue(args, session_id, conn) -> Dict[str, Any]:
-    return {"catalogue": routage.catalogue(conn)}
+    return {"catalogue": routage.catalogue(conn), "voies_fermees": routage.voies_fermees(conn)}
 
 
 def _question_repondre(args, session_id, conn) -> Dict[str, Any]:

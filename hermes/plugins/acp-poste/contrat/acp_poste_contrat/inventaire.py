@@ -650,7 +650,7 @@ class PolitiquePoste(_Contrat):
     Railway ne peut pas le lever.
 
     Étape P6 (à valeur par défaut, un inventaire de P5 reste valide) : ``conditions`` (date de la décision du
-    propriétaire sur les conditions d'usage de chaque CLI, D80 et D81 ; ``None`` : non décidé, voie fermée),
+    propriétaire sur les conditions d'usage de chaque CLI, D83 et D84 ; ``None`` : non décidé, voie fermée),
     ``cartes_par_jour``, ``duree_max_carte_s`` et ``concurrence``. ``conditions`` vide (inventaire P5) : la politique
     ne dit rien des conditions."""
 
@@ -814,7 +814,7 @@ class IsolementLinux(_Contrat):
     que ce qui a été MESURÉ ; ``inconnu`` sans sonde (aucune écriture admise).
 
     - régime ``A`` : bubblewrap fonctionne, réseau des commandes coupé, identifiants séparés par UID ;
-    - régime ``B`` : tout autre cas ; Codex n'écrit que si ``codex_sans_bac_a_sable`` le permet (D76) ;
+    - régime ``B`` : tout autre cas ; Codex n'écrit que si ``codex_sans_bac_a_sable`` le permet (D79) ;
     - ``uid_separes`` faux ou inconnu : AUCUNE écriture, quel que soit le régime.
 
     ``ecriture_admise`` vaut pour chaque CLI ; toute écriture refusée dit pourquoi (``raison``)."""
@@ -874,7 +874,7 @@ class IsolementLinux(_Contrat):
         if self.uid_separes is not True and any(self.ecriture_admise.values()):
             raise ValueError("« ecriture_admise » : aucune écriture sans identifiants séparés par UID prouvés")
         if self.regime == "B" and self.ecriture_admise["codex"] and self.codex_sans_bac_a_sable == "refuse":
-            raise ValueError("« ecriture_admise.codex » : refusée en régime B tant que D76 vaut « refuse »")
+            raise ValueError("« ecriture_admise.codex » : refusée en régime B tant que D79 vaut « refuse »")
         if not all(self.ecriture_admise.values()) and self.raison is None:
             raise ValueError("« raison » : une écriture refusée doit dire pourquoi")
         return self
