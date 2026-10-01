@@ -1,0 +1,1 @@
+{"id_envoi": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", "tableau": "acp-outil-jetable-3f2a", "carte": "t_ab12cd34", "run_id": 17, "texte": "Faut-il garder la compatibilité avec Python 3.10 ?", "contexte": "Le dépôt déclare requires-python >= 3.10 mais la CI ne teste que 3.12."}

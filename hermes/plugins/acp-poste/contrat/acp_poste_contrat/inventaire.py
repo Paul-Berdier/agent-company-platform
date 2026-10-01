@@ -18,6 +18,11 @@ pour ``opus[1m]``, ``isDefault`` et ``supportedReasoningEfforts`` admettent ``No
 pas », « inconnus ») ; des champs à valeur par défaut sont ajoutés (origine de la liste, état du relevé,
 compteurs de quotas…) ; :class:`InventairePoste` est le corps de ``POST /machine/v1/inventaire``.
 
+Étape P6 (cahier P6 § 7.3) : élargi de nouveau sans rien restreindre — variante Linux de l'exécutant Railway
+(``InfosPoste.plateforme``, ``hote``, ``noyau``, compte ``uid_dedie``, :class:`IsolementLinux` à la place de
+:class:`BacASableCodex`), conditions d'usage et bornes d'exécution dans :class:`PolitiquePoste`, et
+``resolutions_observees`` alimentées par les exécutions de Claude Code. Tout inventaire de P5 reste valide.
+
 Les champs des modèles gardent les noms de Codex (``displayName``, ``isDefault``,
 ``supportedReasoningEfforts``…) pour qu'un relevé se lise sans traduction. Les refus sont en français,
 y compris pour un champ inconnu ou manquant (:func:`valider_releve`).
@@ -265,9 +270,12 @@ PROVIDER_PAR_VOIE = {"poste-codex": "codex", "poste-claude": "claude_code"}
 DETAIL_MAX = 300
 
 
+RESOLUTIONS_MAX = 32
+
+
 class ResolutionObservee(_Contrat):
-    """Résolution d'un alias OBSERVÉE à l'exécution (``system/init`` de Claude Code) : étape P6. La forme est
-    réservée dès P5 pour que le contrat ne change pas ; la liste reste vide en P5."""
+    """Résolution d'un alias OBSERVÉE à l'exécution (``system/init`` de Claude Code) : étape P6 (la forme était
+    réservée dès P5 ; la liste n'est plus forcée vide)."""
 
     alias: str
     modele: str
@@ -356,8 +364,8 @@ class Releve(_Contrat):
     def _resolutions(cls, valeur: Any) -> Any:
         if not isinstance(valeur, list):
             raise ValueError("« resolutions_observees » doit être une liste")
-        if valeur:
-            raise ValueError("« resolutions_observees » : réservé à l'étape P6 (première exécution), vide en P5")
+        if len(valeur) > RESOLUTIONS_MAX:
+            raise ValueError(f"« resolutions_observees » : au plus {RESOLUTIONS_MAX} résolutions")
         return valeur
 
     @field_validator("voie", mode="before")
@@ -499,6 +507,7 @@ def resume_quotas(compteurs: List[SubscriptionQuotaReport]) -> Optional[Quotas]:
 PROTOCOLE = "acp-machine/1"
 _NOM_POSTE = re.compile(r"[^\x00-\x1f\x7f]{1,60}")
 _WINDOWS = re.compile(r"\d{1,5}\.\d{1,5}\.\d{1,6}")
+_NOYAU = re.compile(r"[0-9][0-9A-Za-z._+-]{0,63}")
 _EMPREINTE_POLITIQUE = re.compile(r"[0-9a-f]{12}")
 _VALEUR_POLITIQUE = re.compile(r"[a-z0-9][a-z0-9._\[\]-]{0,63}")
 POLITIQUE_MAX = 64
@@ -637,7 +646,13 @@ class VersionCli(_Contrat):
 
 
 class PolitiquePoste(_Contrat):
-    """Ce que ``poste.toml`` refuse toujours (cahier P5 § 7.2, [politique]) : Railway ne peut pas le lever."""
+    """Ce que ``poste.toml`` (ou ``executant.toml``, étape P6) refuse toujours (cahier P5 § 7.2, [politique]) :
+    Railway ne peut pas le lever.
+
+    Étape P6 (à valeur par défaut, un inventaire de P5 reste valide) : ``conditions`` (date de la décision du
+    propriétaire sur les conditions d'usage de chaque CLI, D80 et D81 ; ``None`` : non décidé, voie fermée),
+    ``cartes_par_jour``, ``duree_max_carte_s`` et ``concurrence``. ``conditions`` vide (inventaire P5) : la politique
+    ne dit rien des conditions."""
 
     executants: List[str]
     efforts_interdits: List[str]
@@ -645,6 +660,10 @@ class PolitiquePoste(_Contrat):
     modeles_codex_permis: List[str]
     alias_claude_permis: List[str]
     reseau_executants: bool
+    conditions: Dict[Literal["codex", "claude"], Optional[date]] = {}
+    cartes_par_jour: Optional[int] = None
+    duree_max_carte_s: Optional[int] = None
+    concurrence: Optional[int] = None
 
     @field_validator("executants", mode="before")
     @classmethod
@@ -674,16 +693,56 @@ class PolitiquePoste(_Contrat):
     def _reseau(cls, valeur: Any) -> bool:
         return _booleen(valeur, champ="reseau_executants")
 
+    @field_validator("conditions", mode="before")
+    @classmethod
+    def _conditions(cls, valeur: Any) -> Dict[str, Optional[date]]:
+        if not isinstance(valeur, Mapping):
+            raise ValueError("« conditions » doit être un objet")
+        propres: Dict[str, Optional[date]] = {}
+        for cle, quand in valeur.items():
+            if cle not in ("codex", "claude"):
+                raise ValueError(f"« conditions » : clé inconnue refusée : {str(cle)[:20]}")
+            if quand is None:
+                propres[cle] = None
+            elif isinstance(quand, str):
+                try:
+                    propres[cle] = date.fromisoformat(quand)
+                except ValueError:
+                    raise ValueError("« conditions » : date ISO 8601 (AAAA-MM-JJ) illisible") from None
+            elif isinstance(quand, date) and not isinstance(quand, datetime):
+                propres[cle] = quand
+            else:
+                raise ValueError("« conditions » : date ISO 8601 (AAAA-MM-JJ) ou null attendue")
+        return propres
+
+    @field_validator("cartes_par_jour", "duree_max_carte_s", "concurrence", mode="before")
+    @classmethod
+    def _bornes(cls, valeur: Any, info) -> Optional[int]:
+        if valeur is None:
+            return None
+        bornes = {"cartes_par_jour": (1, 1000), "duree_max_carte_s": (60, 86_400), "concurrence": (1, 8)}
+        minimum, maximum = bornes[info.field_name]
+        if type(valeur) is not int or not minimum <= valeur <= maximum:
+            raise ValueError(f"« {info.field_name} » doit être un entier compris entre {minimum} et {maximum}")
+        return valeur
+
 
 class InfosPoste(_Contrat):
-    """Le poste lui-même, sans nom réseau ni chemin (cahier P5 § 11.1)."""
+    """Le poste lui-même, sans nom réseau ni chemin (cahier P5 § 11.1).
+
+    Étape P6 (cahier P6 § 7.3) : ``plateforme`` (``windows`` par défaut), ``hote`` (``pc`` ou ``railway``), ``noyau``
+    (version du noyau Linux) ; ``windows`` n'est exigé que sous Windows ; ``compte`` admet ``uid_dedie`` sous Linux
+    seulement (``dedie`` et ``proprietaire`` y sont refusés)."""
 
     nom: str
     compte: str
-    windows: str
+    windows: Optional[str] = None
     python: str
     politique_empreinte: str
     hermes_meme_enveloppe_que_codex: bool
+    plateforme: Literal["windows", "linux"] = "windows"
+    hote: Literal["pc", "railway"] = "pc"
+    noyau: Optional[str] = None
 
     @field_validator("nom", mode="before")
     @classmethod
@@ -693,12 +752,27 @@ class InfosPoste(_Contrat):
     @field_validator("compte", mode="before")
     @classmethod
     def _compte(cls, valeur: Any) -> str:
-        return _choix(valeur, champ="compte", admis=("dedie", "proprietaire"))
+        return _choix(valeur, champ="compte", admis=("dedie", "proprietaire", "uid_dedie"))
 
     @field_validator("windows", mode="before")
     @classmethod
-    def _windows(cls, valeur: Any) -> str:
-        return _texte(valeur, champ="windows", maximum=20, motif=_WINDOWS)
+    def _windows(cls, valeur: Any) -> Optional[str]:
+        return None if valeur is None else _texte(valeur, champ="windows", maximum=20, motif=_WINDOWS)
+
+    @field_validator("plateforme", mode="before")
+    @classmethod
+    def _plateforme(cls, valeur: Any) -> str:
+        return _choix(valeur, champ="plateforme", admis=("windows", "linux"))
+
+    @field_validator("hote", mode="before")
+    @classmethod
+    def _hote(cls, valeur: Any) -> str:
+        return _choix(valeur, champ="hote", admis=("pc", "railway"))
+
+    @field_validator("noyau", mode="before")
+    @classmethod
+    def _noyau(cls, valeur: Any) -> Optional[str]:
+        return None if valeur is None else _texte(valeur, champ="noyau", maximum=64, motif=_NOYAU)
 
     @field_validator("python", mode="before")
     @classmethod
@@ -715,6 +789,96 @@ class InfosPoste(_Contrat):
     def _enveloppe(cls, valeur: Any) -> bool:
         return _booleen(valeur, champ="hermes_meme_enveloppe_que_codex")
 
+    @model_validator(mode="after")
+    def _plateforme_coherente(self) -> "InfosPoste":
+        if self.plateforme == "windows":
+            if self.windows is None:
+                raise ValueError("« windows » : version de Windows exigée pour un poste Windows")
+            if self.compte == "uid_dedie" or self.hote != "pc" or self.noyau is not None:
+                raise ValueError("« compte » « uid_dedie », « hote » « railway » et « noyau » : réservés à Linux")
+        else:
+            if self.compte != "uid_dedie":
+                raise ValueError("« compte » : sous Linux, seul « uid_dedie » est admis (un UID par agent)")
+            if self.windows is not None:
+                raise ValueError("« windows » : sans objet sous Linux")
+        return self
+
+
+REGIMES = ("A", "B", "inconnu")
+ETATS_BWRAP = ("fonctionne", "refuse", "absent", "inconnu")
+SANS_BAC_A_SABLE = ("refuse", "edition_seule", "acces_complet")
+
+
+class IsolementLinux(_Contrat):
+    """Verdict de la sonde de plateforme de l'exécutant Linux (cahier P6 § 4.1), rejouée à chaque démarrage. Ne dit
+    que ce qui a été MESURÉ ; ``inconnu`` sans sonde (aucune écriture admise).
+
+    - régime ``A`` : bubblewrap fonctionne, réseau des commandes coupé, identifiants séparés par UID ;
+    - régime ``B`` : tout autre cas ; Codex n'écrit que si ``codex_sans_bac_a_sable`` le permet (D76) ;
+    - ``uid_separes`` faux ou inconnu : AUCUNE écriture, quel que soit le régime.
+
+    ``ecriture_admise`` vaut pour chaque CLI ; toute écriture refusée dit pourquoi (``raison``)."""
+
+    regime: str
+    bwrap: str
+    proc_neuf: Optional[bool] = None
+    reseau_coupe: Optional[bool] = None
+    uid_separes: Optional[bool] = None
+    codex_sans_bac_a_sable: str = "refuse"
+    ecriture_admise: Dict[Literal["codex", "claude"], bool]
+    raison: Optional[str] = None
+    sonde_le: datetime
+
+    @field_validator("regime", mode="before")
+    @classmethod
+    def _regime(cls, valeur: Any) -> str:
+        return _choix(valeur, champ="regime", admis=REGIMES)
+
+    @field_validator("bwrap", mode="before")
+    @classmethod
+    def _bwrap(cls, valeur: Any) -> str:
+        return _choix(valeur, champ="bwrap", admis=ETATS_BWRAP)
+
+    @field_validator("proc_neuf", "reseau_coupe", "uid_separes", mode="before")
+    @classmethod
+    def _facultatifs(cls, valeur: Any, info) -> Optional[bool]:
+        return None if valeur is None else _booleen(valeur, champ=info.field_name)
+
+    @field_validator("codex_sans_bac_a_sable", mode="before")
+    @classmethod
+    def _sans(cls, valeur: Any) -> str:
+        return _choix(valeur, champ="codex_sans_bac_a_sable", admis=SANS_BAC_A_SABLE)
+
+    @field_validator("ecriture_admise", mode="before")
+    @classmethod
+    def _ecriture(cls, valeur: Any) -> Dict[str, bool]:
+        if not isinstance(valeur, Mapping) or set(valeur) != {"codex", "claude"}:
+            raise ValueError("« ecriture_admise » : un booléen pour « codex » et un pour « claude »")
+        return {cle: _booleen(v, champ=f"ecriture_admise.{cle}") for cle, v in valeur.items()}
+
+    @field_validator("raison", mode="before")
+    @classmethod
+    def _raison(cls, valeur: Any) -> Optional[str]:
+        return None if valeur is None else _texte(valeur, champ="raison", maximum=DETAIL_MAX)
+
+    @field_validator("sonde_le", mode="before")
+    @classmethod
+    def _sonde_le(cls, valeur: Any) -> datetime:
+        return _instant(valeur, champ="sonde_le")
+
+    @model_validator(mode="after")
+    def _matrice(self) -> "IsolementLinux":
+        if self.regime == "A" and not (self.bwrap == "fonctionne" and self.reseau_coupe is True
+                                       and self.uid_separes is True):
+            raise ValueError("régime « A » : exige bubblewrap fonctionnel, réseau coupé et identifiants séparés")
+        if self.uid_separes is not True and any(self.ecriture_admise.values()):
+            raise ValueError("« ecriture_admise » : aucune écriture sans identifiants séparés par UID prouvés")
+        if self.regime == "B" and self.ecriture_admise["codex"] and self.codex_sans_bac_a_sable == "refuse":
+            raise ValueError("« ecriture_admise.codex » : refusée en régime B tant que D76 vaut « refuse »")
+        if not all(self.ecriture_admise.values()) and self.raison is None:
+            raise ValueError("« raison » : une écriture refusée doit dire pourquoi")
+        return self
+
 
 class InventairePoste(_Contrat):
     """Corps de ``POST /machine/v1/inventaire`` (protocole ``acp-machine/1``) : le contrat D21 étendu, validé
@@ -727,7 +891,8 @@ class InventairePoste(_Contrat):
     poste: InfosPoste
     depots: List[Depot]
     releves: List[Releve]
-    bac_a_sable_codex: BacASableCodex
+    bac_a_sable_codex: Optional[BacASableCodex] = None
+    isolement_linux: Optional[IsolementLinux] = None
     connexions: Connexions
     versions: Dict[Literal["codex", "claude"], VersionCli]
     politique: PolitiquePoste
@@ -775,6 +940,12 @@ class InventairePoste(_Contrat):
 
     @model_validator(mode="after")
     def _coherence(self) -> "InventairePoste":
+        # Étape P6 : exactement UN bloc d'isolement, celui de la plateforme (Windows : bac à sable Codex ; Linux :
+        # verdict de la sonde).
+        if self.poste.plateforme == "windows" and (self.bac_a_sable_codex is None or self.isolement_linux is not None):
+            raise ValueError("un poste Windows publie « bac_a_sable_codex », et lui seul")
+        if self.poste.plateforme == "linux" and (self.isolement_linux is None or self.bac_a_sable_codex is not None):
+            raise ValueError("un exécutant Linux publie « isolement_linux », et lui seul")
         alias = [d.alias for d in self.depots]
         if len(set(alias)) != len(alias):
             raise ValueError("« depots » : alias en double")
