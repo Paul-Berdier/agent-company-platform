@@ -15,6 +15,7 @@ include(AcpVersion)
 include(AcpQmlModule)
 
 acp_read_product_version(ACP_DESKTOP_VERSION)
+acp_read_hermes_contract()
 
 project(acp_desktop
     VERSION ${ACP_DESKTOP_VERSION}
@@ -30,7 +31,13 @@ project(acp_desktop
 #   Qml           moteur QML, enregistrement des types, singletons ;
 #   Quick         scène graphique déclarative ;
 #   QuickControls2  SplitView, ToolTip, CheckBox, ApplicationWindow du style Basic ;
-#   Network       QNetworkAccessManager, pot de cookies, flux SSE.
+#   Network       QNetworkAccessManager (REST en porteur), écouteur de bouclage de la
+#                 connexion native (QTcpServer), flux SSE ;
+#   WebSockets    QWebSocket : passerelle JSON-RPC de Hermes (/api/ws, ticket passé en
+#                 sous-protocole) et veille du kanban. C'est la seule voie native vers
+#                 /api/ws : Hermes n'offre pas ce canal en HTTP. Module additionnel de Qt,
+#                 installé par `aqt install-qt … -m qtwebsockets` (packaging/windows/
+#                 toolchain.json, qt.modules), publié sous LGPLv3 comme les six autres.
 #
 # Modules VOLONTAIREMENT absents :
 #   Widgets       aucune fenêtre classique n'est employée ;
@@ -39,15 +46,16 @@ project(acp_desktop
 #                 l'offre open source — donc incompatibles avec une distribution binaire
 #                 propriétaire. Aucun d'eux n'est lié.
 #
-# Licence : les six modules retenus sont des modules « essentiels » de Qt, publiés sous
-# LGPLv3 ou sous licence commerciale. Une distribution binaire sous LGPLv3 impose la
+# Licence : les six premiers modules sont des modules « essentiels » de Qt, et WebSockets
+# un module additionnel ; tous sont publiés sous LGPLv3 ou sous licence commerciale (aucun
+# n'est sous GPL seule). Une distribution binaire sous LGPLv3 impose la
 # liaison DYNAMIQUE, la fourniture du code source de Qt (ou une offre écrite), la
 # possibilité pour l'utilisateur de relier une version modifiée, et la remise du texte de
 # la licence. Ces obligations sont documentées ; elles n'ont PAS été validées
 # juridiquement pour ce produit, et la question de la licence Qt reste ouverte (audit,
 # question 18). Aucune liaison statique de Qt n'est configurée ici.
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Network)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Network WebSockets)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -206,6 +214,7 @@ target_link_libraries(acp_core PUBLIC
     Qt6::Core
     Qt6::Gui
     Qt6::Network
+    Qt6::WebSockets
     Qt6::Qml
     Qt6::Quick
 )

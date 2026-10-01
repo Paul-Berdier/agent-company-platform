@@ -23,6 +23,7 @@ name: Desktop CI
     paths:
       - "apps/desktop/**"
       - "design/tokens/**"
+      - "hermes/contrat/**"
       - "packaging/windows/**"
       - "scripts/setup-desktop.ps1"
       - "scripts/dev-desktop.ps1"
@@ -38,6 +39,7 @@ name: Desktop CI
     paths:
       - "apps/desktop/**"
       - "design/tokens/**"
+      - "hermes/contrat/**"
       - "packaging/windows/**"
       - "scripts/setup-desktop.ps1"
       - "scripts/dev-desktop.ps1"

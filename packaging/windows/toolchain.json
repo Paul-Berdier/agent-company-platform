@@ -16,8 +16,8 @@
     "host": "windows",
     "target": "desktop",
     "architecture": "win64_msvc2022_64",
-    "modules": [],
-    "$description": "Qt 6.8 est la série LTS. 6.8.3 est le dernier correctif publié en source ouverte : les versions 6.8.4 et suivantes de cette série sont réservées aux licences commerciales et ne sont pas téléchargeables par aqtinstall. modules ne liste que les modules additionnels (hors modules essentiels) ; s'il manque un module exigé par apps/desktop, la configuration CMake échoue, et c'est le comportement voulu."
+    "modules": ["qtwebsockets"],
+    "$description": "Qt 6.8 est la série LTS. 6.8.3 est le dernier correctif publié en source ouverte : les versions 6.8.4 et suivantes de cette série sont réservées aux licences commerciales et ne sont pas téléchargeables par aqtinstall. modules ne liste que les modules additionnels (hors modules essentiels), sous leur nom aqtinstall : qtwebsockets porte la passerelle JSON-RPC de Hermes (/api/ws). setup-desktop.ps1 vérifie la présence de leur DLL ; s'il manque un module exigé par apps/desktop, la configuration CMake échoue, et c'est le comportement voulu."
   },
   "cmake": {
     "sourceDirectory": "apps/desktop",

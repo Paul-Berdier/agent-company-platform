@@ -320,6 +320,32 @@ function Get-AcpPrerequisites {
         -Detail $(if ($qt) { $qt } else { "Aucun répertoire Qt valide (bin\windeployqt.exe absent) parmi -QtDir, ACP_QT_DIR, QT_ROOT_DIR, Qt6_DIR et C:\Qt\$($Toolchain.qt.version)\$architecture" }) `
         -Installation "Installeur officiel Qt (https://www.qt.io/download-qt-installer) : cocher Qt $($Toolchain.qt.version) / MSVC 2022 64-bit. Sinon, en ligne de commande : pip install aqtinstall puis aqt install-qt $($Toolchain.qt.host) $($Toolchain.qt.target) $($Toolchain.qt.version) $($Toolchain.qt.architecture) --outputdir C:\Qt"))
 
+    # Modules additionnels de Qt (toolchain.json, qt.modules) : chacun doit avoir sa DLL
+    # dans bin\. Un nom sans correspondance connue est refusé plutôt que supposé présent.
+    $dllDesModules = @{ 'qtwebsockets' = 'Qt6WebSockets.dll' }
+    foreach ($module in @($Toolchain.qt.modules)) {
+        if (-not $module) { continue }
+        $installation = "aqt install-qt $($Toolchain.qt.host) $($Toolchain.qt.target) $($Toolchain.qt.version) $($Toolchain.qt.architecture) -m $module --outputdir <racine de Qt>"
+        if (-not $dllDesModules.ContainsKey($module)) {
+            $resultats.Add((New-Verdict `
+                -Nom "Module Qt additionnel « $module »" `
+                -Requis $true `
+                -Present $false `
+                -Detail "Module sans correspondance connue dans DesktopToolchain.psm1 : sa présence ne peut pas être vérifiée." `
+                -Installation "Compléter la table des DLL de Get-AcpPrerequisites, puis : $installation"))
+            continue
+        }
+        $dll = $dllDesModules[$module]
+        $chemin = if ($qt) { Join-Path $qt (Join-Path 'bin' $dll) } else { $null }
+        $present = [bool]($chemin -and (Test-Path -LiteralPath $chemin))
+        $resultats.Add((New-Verdict `
+            -Nom "Module Qt additionnel « $module » ($dll)" `
+            -Requis $true `
+            -Present $present `
+            -Detail $(if ($present) { $chemin } elseif ($qt) { "$chemin est absent" } else { 'Qt introuvable : module non vérifiable' }) `
+            -Installation $installation))
+    }
+
     # Inno Setup (empaquetage seulement)
     $iscc = Find-AcpInnoSetupCompiler
     $resultats.Add((New-Verdict `
