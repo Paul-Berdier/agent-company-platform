@@ -1,0 +1,87 @@
+# Politique de l'exécutant Railway (cahier P6 § 7.2) : versionnée dans le dépôt, copiée en lecture seule dans
+# l'image (/etc/acp/executant.toml, root, 0444). Hermes ne la fournit jamais ; toute modification passe par une PR,
+# donc par le propriétaire (décision D78). Lue par acp_poste.politique.analyser_executant : clé inconnue, valeur
+# hors borne ou gabarit restant => refus de démarrer, en français.
+version = 1
+
+[poste]
+nom = "Exécutant Railway"
+compte = "uid_dedie"                          # Linux : un UID par agent (acp-codex, acp-claude, acp-verif)
+
+[hermes]
+# Égal au libellé LIBELLE_HERMES de .railway/railway.ts (test apps/poste/tests/test_politique_executant.py). Tant
+# qu'il vaut le gabarit, l'exécutant refuse de démarrer, comme Hermes et l'IaC (échec fermé).
+origine = "https://<libellé-hermes>.up.railway.app"
+attente_max_s = 25
+delai_connexion_s = 10
+
+[conditions]
+# Décisions D83 (Codex avec le compte ChatGPT du propriétaire, dépôts privés seulement) et D84 (Claude Code avec
+# l'abonnement du propriétaire, garde-fous tenus par Hermes et l'exécutant), consignées le 1er octobre 2026
+# (docs/refonte/plan.md). Une date vide ferme la voie.
+codex_decide_le = "2026-10-01"
+claude_decide_le = "2026-10-01"
+
+[sondes]
+codex = true
+claude = true
+intervalle_s = 1800
+delai_sonde_s = 30
+
+[codex]
+executable = "/opt/acp/outils/codex/codex"
+home = "/donnees/codex"
+version_testee = "0.156.1"
+modeles_permis = []
+sans_bac_a_sable = "refuse"                   # D79 : régime B => voie Codex fermée
+
+[claude]
+executable = "/opt/acp/outils/claude/claude"
+config_dir = "/donnees/claude"
+version_testee = "2.1.283"
+alias_permis = ["opus", "sonnet"]
+authentification = "abonnement"               # D84 ; « cle_api » (dépense hors abonnement) : non prise en charge
+
+[politique]
+executants = ["codex", "claude"]
+efforts_interdits = ["max", "ultra", "ultracode"]
+paliers_admis = ["default"]
+concurrence = 1
+duree_max_carte_s = 3600
+cartes_par_jour = 20                          # D84, D85
+heures_agent_par_jour = 8                     # D84, D85
+reseau_executants = false
+
+[quotas]
+# Le cerveau de Hermes (openai-codex) et le Codex de l'exécutant puisent dans la même enveloppe ChatGPT
+# (cahier P6 § 2.1) : la page Quotas le dit.
+hermes_meme_enveloppe_que_codex = true
+
+[disque]
+seuil_libre_mio = 1024
+purge_apres_jours = 7
+
+[git]
+auteur = "ACP exécutant <executant@acp.invalid>"
+hotes_admis = ["github.com"]
+
+[journal]
+niveau = "info"
+taille_max_mo = 1
+fichiers = 5
+
+# Dépôts : aucun tant que le dépôt jetable et privé de la preuve (D87) n'existe pas (étape 3 du propriétaire,
+# cahier P6 § 16). Forme, à ajouter par une PR une fois le dépôt créé (URL HTTPS sans identifiant ; le jeton de
+# lecture est déposé sur le volume par « acp-poste connexion github --stdin », D92) :
+#
+# [depots.jetable]
+# url = "https://github.com/<propriétaire>/<dépôt-jetable>.git"
+# branche_base = "main"
+# acces = "jeton_lecture"                     # « public » : aucun jeton ; voie Codex alors fermée (D83)
+# preparation = ["uv", "sync", "--frozen"]    # argv ; réseau ouvert, hors bac à sable, sous acp-verif
+# verification = ["uv", "run", "pytest", "-q"]
+# verification_max_s = 900
+# reprises_verification = 2
+# verification_sans_bac_a_sable = false       # D80 : régime B => vérification non exécutée
+# liens_symboliques = false
+# pilotage_supplementaire = []
