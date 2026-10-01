@@ -53,6 +53,16 @@ private slots:
                      qPrintable(name + QStringLiteral(": ") + warnings.join(QLatin1Char('\n'))));
         }
         window.hide();
+
+        // La racine elle-même : fenêtre, écran de connexion (aucune session) et palette.
+        warnings.clear();
+        QVERIFY(application.load(&engine));
+        QTest::qWait(100);
+        QVERIFY2(warnings.isEmpty(), qPrintable(QStringLiteral("App : ") + warnings.join(QLatin1Char('\n'))));
+        auto *racine = qobject_cast<QQuickWindow *>(engine.rootObjects().constLast());
+        QVERIFY(racine);
+        QVERIFY(racine->findChild<QObject *>(QStringLiteral("connexion-se-connecter")));
+        racine->close();
     }
 };
 QTEST_MAIN(TestDesktopPages)

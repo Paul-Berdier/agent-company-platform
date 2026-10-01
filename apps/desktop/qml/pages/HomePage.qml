@@ -89,9 +89,50 @@ Item {
                 }
             }
 
+            SectionHeader {
+                Layout.fillWidth: true
+                title: qsTr("Session et compatibilité")
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                KeyValueRow {
+                    Layout.fillWidth: true
+                    label: qsTr("Connecté en tant que")
+                    value: Session.nomAffiche
+                    known: Session.nomAffiche !== qsTr("Inconnu")
+                }
+                KeyValueRow {
+                    Layout.fillWidth: true
+                    label: qsTr("Session")
+                    value: Session.libelleEtat
+                    known: true
+                }
+                KeyValueRow {
+                    Layout.fillWidth: true
+                    label: qsTr("Compatibilité")
+                    value: Compatibility.libelle
+                    known: Compatibility.etat !== CompatibilityStatus.NonVerifiee
+                }
+                KeyValueRow {
+                    Layout.fillWidth: true
+                    label: qsTr("Détail")
+                    value: Compatibility.explication.length > 0 ? Compatibility.explication : qsTr("Aucun")
+                    known: Compatibility.explication.length > 0
+                }
+                KeyValueRow {
+                    Layout.fillWidth: true
+                    label: qsTr("Passerelle de Hermes")
+                    value: Health.gatewayLabel
+                    known: Health.gatewayLabel !== qsTr("Inconnu")
+                }
+            }
+
             RowLayout {
                 spacing: Space.space4
                 AcpButton { label: qsTr("Vérifier le serveur"); commandId: "connection.probe" }
+                AcpButton { label: qsTr("Revérifier la compatibilité"); commandId: "connection.compatibility" }
                 AcpButton { label: qsTr("Ouvrir les diagnostics"); commandId: "navigation.diagnostics" }
             }
 

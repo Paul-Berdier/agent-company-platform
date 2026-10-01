@@ -1,12 +1,11 @@
 // Écran de connexion.
 //
-// Il sert à la première ouverture ET à chaque retour sans session. Deux étapes :
+// Il sert à la première ouverture ET à chaque retour sans session. Trois étapes :
 //   1. l'adresse du serveur Hermes, saisie ; aucune valeur par défaut n'est proposée ;
-//   2. le test du lien, qui montre l'état réel mesuré par `/api/health`.
-//
-// La connexion elle-même passe par le navigateur système (RFC 8252) : aucun mot de passe
-// n'est jamais saisi dans la station. Ce geste n'est pas encore branché dans cette version
-// de la station : l'écran le dit, et n'offre aucun bouton qui ferait semblant.
+//   2. le test du lien, qui montre l'état réel mesuré par `/api/health` ;
+//   3. la connexion par le navigateur du système (RFC 8252) : Hermes mène la connexion chez
+//      son fournisseur d'identité, puis renvoie le navigateur vers la station. Aucun mot de
+//      passe n'est jamais saisi dans la station, et aucun jeton n'atteint cet écran.
 
 import QtQuick
 import QtQuick.Controls.Basic
@@ -22,6 +21,11 @@ Rectangle {
     color: Colors.surfaceCanvas
 
     property string urlError: ""
+
+    readonly property bool lienUtilisable: Health.linkStatus === LinkStatus.Online
+        || Health.linkStatus === LinkStatus.Degraded
+    readonly property bool enAttente: Session.etat === SessionStatus.AttenteNavigateur
+        || Session.etat === SessionStatus.Echange
 
     Flickable {
         anchors.fill: parent
@@ -78,6 +82,7 @@ Rectangle {
                 placeholder: "https://exemple.invalid"
                 accessibleName: qsTr("Adresse du serveur")
                 text: Shell.serverUrl
+                enabled: !page.enAttente
                 helperText: qsTr("Exemple de forme attendue ; ce n'est pas une adresse réelle.")
                 errorText: page.urlError
                 onAccepted: page.submitUrl()
@@ -91,6 +96,7 @@ Rectangle {
                     id: loopbackBox
                     text: qsTr("Autoriser HTTP en clair sur une adresse de bouclage")
                     checked: Shell.allowsInsecureLoopback
+                    enabled: !page.enAttente
                     contentItem: Text {
                         textFormat: Text.PlainText
                         text: loopbackBox.text
@@ -106,8 +112,8 @@ Rectangle {
 
                 AcpButton {
                     label: qsTr("Enregistrer et tester")
-                    primary: true
-                    manualEnabled: urlField.text.length > 0
+                    primary: Shell.firstRun
+                    manualEnabled: urlField.text.length > 0 && !page.enAttente
                     onTriggered: page.submitUrl()
                 }
             }
@@ -156,10 +162,158 @@ Rectangle {
             SectionHeader {
                 Layout.fillWidth: true
                 title: qsTr("3. Connexion")
-                subtitle: qsTr("La connexion passera par le navigateur du système, sur la page "
-                               + "de connexion de Hermes. Elle n'est pas encore disponible dans "
-                               + "cette version de la station.")
+                subtitle: qsTr("La connexion s'ouvre dans votre navigateur, sur la page de "
+                               + "connexion de Hermes (mot de passe, clé d'accès, consentement). "
+                               + "Aucun mot de passe n'est saisi dans la station.")
             }
+
+            CheckBox {
+                id: memoriserBox
+                objectName: "connexion-memoriser"
+                text: qsTr("Mémoriser la connexion sur ce poste (coffre Windows)")
+                checked: Session.memoriser
+                enabled: !page.enAttente
+                onToggled: Session.memoriser = checked
+                contentItem: Text {
+                    textFormat: Text.PlainText
+                    text: memoriserBox.text
+                    leftPadding: memoriserBox.indicator.width + Space.space3
+                    verticalAlignment: Text.AlignVCenter
+                    color: Colors.textSecondary
+                    font.family: Type.tableCell.family
+                    font.pixelSize: Type.tableCell.pixelSize
+                }
+            }
+
+            Text {
+                textFormat: Text.PlainText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("Mémorisée, la connexion reprend au prochain lancement sans repasser "
+                           + "par le navigateur, jusqu'à son expiration chez le fournisseur "
+                           + "d'identité. Seul le jeton de renouvellement est gardé, dans le "
+                           + "Gestionnaire d'identification de Windows.")
+                color: Colors.textMuted
+                font.family: Type.metadata.family
+                font.pixelSize: Type.metadata.pixelSize
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Space.space4
+
+                StatusChip {
+                    statusKey: {
+                        switch (Session.etat) {
+                        case SessionStatus.Connectee: return "succeeded";
+                        case SessionStatus.AttenteNavigateur:
+                        case SessionStatus.Echange:
+                        case SessionStatus.Rafraichissement: return "running";
+                        case SessionStatus.Expiree:
+                        case SessionStatus.Refusee: return "failed";
+                        case SessionStatus.HorsLigne:
+                        case SessionStatus.FournisseurInjoignable: return "offline";
+                        default: return "unknown";
+                        }
+                    }
+                    label: Session.libelleEtat
+                    detail: Session.derniereErreur
+                }
+
+                Item { Layout.fillWidth: true }
+
+                AcpButton {
+                    objectName: "connexion-annuler"
+                    visible: page.enAttente
+                    label: qsTr("Annuler")
+                    onTriggered: Session.annulerConnexion()
+                }
+
+                AcpButton {
+                    objectName: "connexion-se-connecter"
+                    label: qsTr("Se connecter avec le navigateur")
+                    primary: true
+                    commandId: "session.signIn"
+                }
+            }
+
+            Text {
+                textFormat: Text.PlainText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                visible: page.enAttente
+                text: Session.etat === SessionStatus.Echange
+                    ? qsTr("Réponse reçue du navigateur : vérification de la connexion auprès de Hermes.")
+                    : qsTr("En attente de la connexion dans le navigateur — %1 s restantes. Vous "
+                           + "pouvez revenir ici une fois la page « Connexion transmise à la "
+                           + "station » affichée.").arg(Session.secondesRestantes)
+                color: Colors.textSecondary
+                font.family: Type.prose.family
+                font.pixelSize: Type.prose.pixelSize
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: Session.etat === SessionStatus.AttenteNavigateur
+                spacing: Space.space4
+
+                Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: Session.navigateurNonOuvert
+                        ? qsTr("Le navigateur ne s'est pas ouvert : copiez le lien et ouvrez-le "
+                               + "vous-même dans un navigateur de ce poste.")
+                        : qsTr("Le navigateur ne s'est pas affiché ? Copiez le lien et ouvrez-le "
+                               + "vous-même. Il ne contient ni mot de passe ni jeton.")
+                    color: Session.navigateurNonOuvert ? Status.statusFailedForeground : Colors.textMuted
+                    font.family: Type.metadata.family
+                    font.pixelSize: Type.metadata.pixelSize
+                }
+
+                AcpButton {
+                    objectName: "connexion-copier-lien"
+                    label: qsTr("Copier le lien")
+                    onTriggered: Shell.notify(Session.copierLienConnexion()
+                        ? qsTr("Lien de connexion copié dans le presse-papiers.")
+                        : qsTr("Le lien n'a pas pu être copié."))
+                }
+            }
+
+            Text {
+                textFormat: Text.PlainText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                visible: Session.derniereErreur.length > 0 && !page.enAttente
+                text: Session.derniereErreur
+                color: Status.statusFailedForeground
+                font.family: Type.prose.family
+                font.pixelSize: Type.prose.pixelSize
+            }
+
+            Text {
+                textFormat: Text.PlainText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                visible: Session.avertissement.length > 0
+                text: Session.avertissement
+                color: Colors.textSecondary
+                font.family: Type.metadata.family
+                font.pixelSize: Type.metadata.pixelSize
+            }
+
+            Text {
+                textFormat: Text.PlainText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                visible: Session.avisCoffre.length > 0
+                text: Session.avisCoffre
+                color: Colors.textSecondary
+                font.family: Type.metadata.family
+                font.pixelSize: Type.metadata.pixelSize
+            }
+
+            Item { Layout.preferredHeight: Space.space4 }
         }
     }
 

@@ -254,6 +254,49 @@ void Application::registerBuiltinCommands()
         }});
 
     m_commands->registerCommand(Command{
+        QStringLiteral("session.signIn"), QStringLiteral("Se connecter avec le navigateur"),
+        QStringLiteral("Session"), {QStringLiteral("connexion"), QStringLiteral("navigateur")}, QString(),
+        [](const CommandContext &context) {
+            if (!context.extra.value(QStringLiteral("configured")).toBool()) {
+                return CommandAvailability::NotConfigured;
+            }
+            if (context.sessionConnected || context.extra.value(QStringLiteral("sessionBusy")).toBool()) {
+                return CommandAvailability::Unavailable;
+            }
+            return context.online ? CommandAvailability::Available : CommandAvailability::Offline;
+        },
+        [this](const CommandContext &) {
+            m_session->seConnecter();
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("session.logout"), QStringLiteral("Se déconnecter"),
+        QStringLiteral("Session"), {QStringLiteral("quitter"), QStringLiteral("session")}, QString(),
+        [](const CommandContext &context) {
+            return context.extra.value(QStringLiteral("sessionPresent")).toBool()
+                ? CommandAvailability::Available
+                : CommandAvailability::NeedsSession;
+        },
+        [this](const CommandContext &) {
+            m_session->seDeconnecter();
+            return CommandResult::accept(QStringLiteral("Session fermée sur ce poste."));
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("session.retry"), QStringLiteral("Retenter le renouvellement de la session"),
+        QStringLiteral("Session"), {QStringLiteral("rafraîchir"), QStringLiteral("jeton")}, QString(),
+        [](const CommandContext &context) {
+            return context.extra.value(QStringLiteral("sessionStalled")).toBool()
+                ? CommandAvailability::Available
+                : CommandAvailability::Unavailable;
+        },
+        [this](const CommandContext &) {
+            m_session->reessayer();
+            return CommandResult::accept(QStringLiteral("Nouvel essai de renouvellement lancé."));
+        }});
+
+    m_commands->registerCommand(Command{
         QStringLiteral("connection.compatibility"),
         QStringLiteral("Revérifier la compatibilité de Hermes"), QStringLiteral("Connexion"),
         {QStringLiteral("version"), QStringLiteral("contrat"), QStringLiteral("greffon")}, QString(),

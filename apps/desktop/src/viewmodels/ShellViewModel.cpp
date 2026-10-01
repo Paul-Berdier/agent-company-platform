@@ -219,6 +219,12 @@ void ShellViewModel::refreshCommandContext()
     context.online = m_health->linkStatus() == LinkStatus::Online
         || m_health->linkStatus() == LinkStatus::Degraded;
     context.currentRoute = m_navigation->currentRoute();
+    const SessionStatus::State etat = m_session->etat();
+    context.extra.insert(QStringLiteral("configured"), m_client->isConfigured());
+    context.extra.insert(QStringLiteral("sessionBusy"), m_session->estOccupee());
+    context.extra.insert(QStringLiteral("sessionPresent"), !connectionRequired(m_client->isConfigured(), etat));
+    context.extra.insert(QStringLiteral("sessionStalled"),
+                         etat == SessionStatus::FournisseurInjoignable || etat == SessionStatus::HorsLigne);
     m_commands->setContext(context);
 }
 

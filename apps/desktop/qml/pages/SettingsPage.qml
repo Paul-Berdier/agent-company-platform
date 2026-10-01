@@ -19,6 +19,37 @@ ScrollView {
         CheckBox { id: loopback; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
         AcpButton { label: qsTr("Changer de serveur"); onTriggered: changeServer.open() }
         Label { id: serverError; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusFailedForeground }
+        Label { textFormat: Text.PlainText; text: qsTr("Session"); color: Colors.textPrimary; font.bold: true }
+        Label {
+            textFormat: Text.PlainText
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Colors.textSecondary
+            text: Session.connectee
+                ? qsTr("Connecté en tant que %1 (%2), fournisseur %3. Jeton d'accès valable jusqu'au %4.")
+                      .arg(Session.nomAffiche).arg(Session.courriel).arg(Session.fournisseur).arg(Session.expiration)
+                : qsTr("État : %1.").arg(Session.libelleEtat)
+        }
+        CheckBox {
+            objectName: "reglages-memoriser"
+            text: qsTr("Mémoriser la connexion sur ce poste (coffre Windows)")
+            checked: Session.memoriser
+            onToggled: Session.memoriser = checked
+        }
+        Label {
+            visible: text.length > 0
+            text: Session.avisCoffre
+            textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary
+        }
+        Label {
+            visible: text.length > 0
+            text: Session.bilanDeconnexion
+            textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary
+        }
+        RowLayout {
+            AcpButton { objectName: "reglages-se-deconnecter"; label: qsTr("Se déconnecter"); commandId: "session.logout" }
+            AcpButton { label: qsTr("Retenter le renouvellement"); commandId: "session.retry" }
+        }
         Label { textFormat: Text.PlainText; text: qsTr("Apparence"); color: Colors.textPrimary; font.bold: true }
         RowLayout {
             Label { textFormat: Text.PlainText; text: qsTr("Thème"); color: Colors.textSecondary }
