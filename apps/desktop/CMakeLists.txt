@@ -137,6 +137,8 @@ set(ACP_CORE_SOURCES
     src/api/IdempotencyKey.h
     src/app/Application.cpp
     src/app/Application.h
+    src/app/GardeInstance.cpp
+    src/app/GardeInstance.h
     src/app/QmlEnums.h
     src/auth/EcouteurBouclage.cpp
     src/auth/EcouteurBouclage.h
@@ -146,6 +148,8 @@ set(ACP_CORE_SOURCES
     src/auth/NativeAuthFlow.h
     src/auth/PairePkce.cpp
     src/auth/PairePkce.h
+    src/auth/SessionHermes.cpp
+    src/auth/SessionHermes.h
     src/commands/Command.h
     src/commands/CommandRegistry.cpp
     src/commands/CommandRegistry.h
@@ -166,6 +170,8 @@ set(ACP_CORE_SOURCES
     src/services/UpdateService.h
     src/storage/CredentialVault.cpp
     src/storage/CredentialVault.h
+    src/storage/JetonsCoffre.cpp
+    src/storage/JetonsCoffre.h
     src/storage/SettingsStore.cpp
     src/storage/SettingsStore.h
     src/system/SystemAppearance.cpp

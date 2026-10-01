@@ -23,7 +23,48 @@ private slots:
     void redactsJsonSecrets();
     void leavesOrdinaryTextAlone();
     void doesNotClaimToFindArbitrarySecrets();
+    void redactsHermesSessionSecrets();
+    void redactsNativeSignInParameters();
 };
+
+void TestRedaction::redactsHermesSessionSecrets()
+{
+    // Jeton de forme JWT, synthétique, assemblé à l'exécution : écrit d'un seul tenant, il
+    // serait pris pour un vrai jeton par le balayage des secrets du dépôt (balayer_secrets.py).
+    const QString jwt = QStringLiteral("eyJ") + QStringLiteral("hbGciOiJSUzI1NiJ9.")
+        + QStringLiteral("eyJ") + QStringLiteral("zdWIiOiJwcm9wcmlldGFpcmUifQ.")
+        + QStringLiteral("c2lnbmF0dXJlLWZhdXNzZQ");
+    const QString texte = QStringLiteral(
+        "porteur Bearer %1 ; cookie hermes_session_rt=authelia_rt_secretRT42 ; "
+        "__Host-hermes_session_at=valeurAT ; jeton nu %1 ; opaque authelia_at_secretAT ; "
+        "sous-protocole hermes-gateway-ticket.ticketSecret99 ; "
+        "{\"access_token\":\"A1\",\"refresh_token\":\"R1\",\"ticket\":\"T1\",\"user_id\":\"u-1\"}")
+                              .arg(jwt);
+    const QString expurge = redactSecrets(texte);
+    for (const QString &secret : {jwt, QStringLiteral("secretRT42"), QStringLiteral("valeurAT"),
+                                  QStringLiteral("secretAT"), QStringLiteral("ticketSecret99"),
+                                  QStringLiteral("\"A1\""), QStringLiteral("\"R1\""),
+                                  QStringLiteral("\"T1\"")}) {
+        QVERIFY2(!expurge.contains(secret), qPrintable(secret));
+    }
+    // L'identité n'est pas un secret : elle reste lisible pour le diagnostic.
+    QVERIFY(expurge.contains(QStringLiteral("u-1")));
+}
+
+void TestRedaction::redactsNativeSignInParameters()
+{
+    const QString expurge = redactUrl(QStringLiteral(
+        "http://127.0.0.1:51234/rappel?code=code-secret&state=etat-secret"));
+    QVERIFY(!expurge.contains(QStringLiteral("code-secret")));
+    QVERIFY(!expurge.contains(QStringLiteral("etat-secret")));
+    QVERIFY(expurge.contains(QStringLiteral("/rappel")));
+    const QString corps = redactSecrets(QStringLiteral(
+        "{\"code\":\"c-secret\",\"code_verifier\":\"v-secret\"}"));
+    QVERIFY(!corps.contains(QStringLiteral("c-secret")));
+    QVERIFY(!corps.contains(QStringLiteral("v-secret")));
+    QVERIFY(!redactSecrets(QStringLiteral("Sec-WebSocket-Protocol: hermes-gateway-v1, hermes-gateway-ticket.abc"))
+                 .contains(QStringLiteral("abc")));
+}
 
 void TestRedaction::redactsSignedDownloadToken()
 {

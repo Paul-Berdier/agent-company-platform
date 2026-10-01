@@ -48,10 +48,10 @@ public:
     [[nodiscard]] bool allowInsecureLoopback() const;
     void setAllowInsecureLoopback(bool allowed);
 
-    /*! Consentement de mémorisation dans le coffre système ; faux par défaut.
-        Cette préférence ne contient ni cookie, ni mot de passe, ni jeton. */
-    [[nodiscard]] bool rememberSession() const;
-    void setRememberSession(bool remember);
+    /*! Consentement « Mémoriser la connexion sur ce poste » (coffre Windows) ; faux par
+        défaut. Cette préférence ne contient AUCUN jeton : seulement le consentement. */
+    [[nodiscard]] bool connexionMemorisee() const;
+    void setConnexionMemorisee(bool memoriser);
 
     /*! Largeur du panneau d'inspection, en pixels logiques. Zéro = valeur par défaut. */
     [[nodiscard]] int inspectorWidth() const;
@@ -77,7 +77,7 @@ signals:
     void serverUrlChanged();
     void themePreferenceChanged();
     void motionPreferenceChanged();
-    void rememberSessionChanged();
+    void connexionMemoriseeChanged();
 
 private:
     [[nodiscard]] QVariant value(const QString &key, const QVariant &fallback) const;

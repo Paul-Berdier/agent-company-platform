@@ -4,6 +4,7 @@
 #include "api/ApiError.h"
 #include "app/BuildConfig.h"
 #include "app/QmlEnums.h"
+#include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
 #include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
@@ -53,15 +54,24 @@ Application::Application(QObject *parent)
     : QObject(parent)
     , m_settings(new SettingsStore(this))
     , m_client(new ApiClient(this))
+    , m_vault(makeCredentialVault(QStringLiteral("AgentCompanyPlatform")))
+    , m_session(new SessionHermes(m_client, m_vault.get(), m_settings, this))
     , m_health(new HealthService(m_client, this))
     , m_navigation(new NavigationModel(this))
     , m_commands(new CommandRegistry(this))
     , m_appearance(new SystemAppearance(m_settings, this))
-    , m_vault(makeCredentialVault(QStringLiteral("AgentCompanyPlatform")))
 {
     m_client->setUserAgent(userAgent());
 
-    m_shell = new ShellViewModel(m_client, m_health, m_navigation, m_commands, m_settings, this);
+    m_shell = new ShellViewModel(m_client, m_session, m_health, m_navigation, m_commands,
+                                 m_settings, this);
+    // Retour du lien : une session gardée pendant une coupure retente sa rotation.
+    connect(m_health, &HealthService::changed, this, [this] {
+        if (m_health->linkStatus() == LinkStatus::Online
+            && m_session->etat() == SessionStatus::HorsLigne) {
+            m_session->reessayer();
+        }
+    });
     m_diagnostics = new DiagnosticsViewModel(m_client, m_health, m_settings, m_appearance,
                                              m_vault.get(), version(), buildInfo(), this);
     m_updates = new UpdateService(version(), this);
@@ -111,6 +121,7 @@ void Application::registerQmlTypes()
     // Singletons d'instance : QML lit, il ne construit pas. Aucun de ces objets n'expose
     // de secret — voir les propriétés déclarées dans chaque en-tête.
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Shell", m_shell);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Session", m_session);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Health", m_health);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
@@ -150,6 +161,8 @@ void Application::start()
     if (m_client->isConfigured()) {
         m_health->probeNow();
         m_health->setPeriodicProbeEnabled(true);
+        // Jeton mémorisé pour ce serveur (et consentement donné) : rafraîchissement immédiat.
+        m_session->restaurer();
     }
 }
 

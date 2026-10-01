@@ -1,6 +1,7 @@
 #include "viewmodels/ShellViewModel.h"
 
 #include "api/ApiClient.h"
+#include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
 #include "navigation/NavigationModel.h"
 #include "services/HealthService.h"
@@ -11,11 +12,12 @@
 
 namespace acp {
 
-ShellViewModel::ShellViewModel(ApiClient *client, HealthService *health,
+ShellViewModel::ShellViewModel(ApiClient *client, SessionHermes *session, HealthService *health,
                                NavigationModel *navigation, CommandRegistry *commands,
                                SettingsStore *settings, QObject *parent)
     : QObject(parent)
     , m_client(client)
+    , m_session(session)
     , m_health(health)
     , m_navigation(navigation)
     , m_commands(commands)
@@ -31,6 +33,16 @@ ShellViewModel::ShellViewModel(ApiClient *client, HealthService *health,
     connect(m_health, &HealthService::changed, this, [this] {
         refreshCommandContext();
         emit shellStateChanged();
+    });
+    connect(m_session, &SessionHermes::etatChange, this, [this] {
+        refreshCommandContext();
+        emit shellStateChanged();
+    });
+    connect(m_session, &SessionHermes::sessionPerdue, this, [this](const QString &raison) {
+        // Aucune donnée de l'ancienne session ne reste à l'écran.
+        m_navigation->resetHistory();
+        setInspectorVisible(false);
+        notify(raison);
     });
     connect(m_navigation, &NavigationModel::currentRouteChanged, this, [this] {
         refreshCommandContext();
@@ -50,9 +62,7 @@ ShellViewModel::ShellViewModel(ApiClient *client, HealthService *health,
 
 SessionStatus::State ShellViewModel::sessionState() const
 {
-    // La connexion native arrive avec SessionHermes ; tant qu'elle n'est pas branchée,
-    // aucune session n'existe, et la station le dit.
-    return m_client->isConfigured() ? SessionStatus::Deconnectee : SessionStatus::NonConfiguree;
+    return m_session->etat();
 }
 
 bool ShellViewModel::isFirstRun() const
@@ -114,6 +124,7 @@ QString ShellViewModel::statusSummary() const
 {
     QStringList parts;
     parts << QStringLiteral("Lien : %1").arg(m_health->linkStatusLabel());
+    parts << QStringLiteral("Session : %1").arg(m_session->libelleEtat());
     parts << QStringLiteral("Hermes : %1").arg(m_health->hermesVersion());
     parts << QStringLiteral("Dernier échange : %1").arg(m_health->lastSuccessLabel());
     return parts.join(QStringLiteral("  ·  "));

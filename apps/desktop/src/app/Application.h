@@ -21,6 +21,7 @@ class CredentialVault;
 class DiagnosticsViewModel;
 class HealthService;
 class NavigationModel;
+class SessionHermes;
 class SettingsStore;
 class ShellViewModel;
 class SystemAppearance;
@@ -47,7 +48,7 @@ public:
         échoue — auquel cas l'application se termine, elle n'ouvre pas de fenêtre vide. */
     bool load(QQmlApplicationEngine *engine);
 
-    /*! Restaure les préférences et sonde le serveur. */
+    /*! Restaure les préférences, sonde le serveur et reprend la session mémorisée. */
     void start();
 
     /*! Ferme proprement : sondes arrêtées, préférences écrites. */
@@ -62,6 +63,8 @@ private:
 
     SettingsStore *m_settings = nullptr;
     ApiClient *m_client = nullptr;
+    std::unique_ptr<CredentialVault> m_vault;
+    SessionHermes *m_session = nullptr;
     HealthService *m_health = nullptr;
     NavigationModel *m_navigation = nullptr;
     CommandRegistry *m_commands = nullptr;
@@ -69,7 +72,6 @@ private:
     ShellViewModel *m_shell = nullptr;
     DiagnosticsViewModel *m_diagnostics = nullptr;
     UpdateService *m_updates = nullptr;
-    std::unique_ptr<CredentialVault> m_vault;
 };
 
 } // namespace acp

@@ -134,9 +134,10 @@ public:
     /*!
         Fin du rafraîchissement demandé par `refreshRequested()`. En cas de succès, les
         appels en attente sont réémis une fois avec le nouveau jeton ; sinon ils échouent
-        en « Session expirée ». Sans appel en attente, sans effet.
+        avec ailure (ou « Session expirée » s'il est vide). Sans appel en attente, sans
+        effet.
     */
-    void refreshFinished(bool succeeded);
+    void refreshFinished(bool succeeded, const ApiError &failure = {});
 
     //! Plafond du corps d'une écriture (garde du greffon acp-poste).
     static constexpr qsizetype kMaxWriteBodyBytes = 64 * 1024;

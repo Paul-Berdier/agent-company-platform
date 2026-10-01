@@ -179,7 +179,7 @@ void ApiClient::setBearerProvider(BearerProvider provider)
     m_bearerProvider = std::move(provider);
 }
 
-void ApiClient::refreshFinished(bool succeeded)
+void ApiClient::refreshFinished(bool succeeded, const ApiError &failure)
 {
     m_refreshPending = false;
     const QList<QPointer<ApiCall>> waiting = std::exchange(m_awaitingRefresh, {});
@@ -195,7 +195,7 @@ void ApiClient::refreshFinished(bool succeeded)
                                    QStringLiteral("la session n'a pas pu être renouvelée ; "
                                                   "reconnectez-vous"),
                                    401);
-            finishWithError(call, expired);
+            finishWithError(call, failure.isError() ? failure : expired);
         }
     }
 }

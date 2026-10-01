@@ -12,7 +12,7 @@ Q_LOGGING_CATEGORY(lcSettings, "acp.settings")
 
 constexpr char kServerUrl[] = "connection/serverUrl";
 constexpr char kAllowInsecureLoopback[] = "connection/allowInsecureLoopback";
-constexpr char kRememberSession[] = "connection/rememberSession";
+constexpr char kConnexionMemorisee[] = "connexion/memorisee";
 constexpr char kTheme[] = "appearance/theme";
 constexpr char kMotion[] = "appearance/motion";
 constexpr char kInspectorWidth[] = "layout/inspectorWidth";
@@ -27,7 +27,7 @@ const QStringList &SettingsStore::allowedKeys()
         QLatin1String(kServerUrl),      QLatin1String(kAllowInsecureLoopback),
         QLatin1String(kTheme),          QLatin1String(kMotion),
         QLatin1String(kInspectorWidth), QLatin1String(kSidebarCollapsed),
-        QLatin1String(kRememberSession),
+        QLatin1String(kConnexionMemorisee),
         QLatin1String(kSidebarWidth),
     };
     return keys;
@@ -124,16 +124,16 @@ void SettingsStore::setAllowInsecureLoopback(bool allowed)
     setValue(QLatin1String(kAllowInsecureLoopback), allowed);
 }
 
-bool SettingsStore::rememberSession() const
+bool SettingsStore::connexionMemorisee() const
 {
-    return value(QLatin1String(kRememberSession), false).toBool();
+    return value(QLatin1String(kConnexionMemorisee), false).toBool();
 }
 
-void SettingsStore::setRememberSession(bool remember)
+void SettingsStore::setConnexionMemorisee(bool memoriser)
 {
-    if (rememberSession() == remember) return;
-    setValue(QLatin1String(kRememberSession), remember);
-    emit rememberSessionChanged();
+    if (connexionMemorisee() == memoriser) return;
+    setValue(QLatin1String(kConnexionMemorisee), memoriser);
+    emit connexionMemoriseeChanged();
 }
 
 int SettingsStore::inspectorWidth() const
@@ -180,7 +180,7 @@ void SettingsStore::clear()
     emit serverUrlChanged();
     emit themePreferenceChanged();
     emit motionPreferenceChanged();
-    emit rememberSessionChanged();
+    emit connexionMemoriseeChanged();
 }
 
 QString SettingsStore::location() const

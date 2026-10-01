@@ -18,6 +18,7 @@ class ApiClient;
 class CommandRegistry;
 class HealthService;
 class NavigationModel;
+class SessionHermes;
 class SettingsStore;
 
 class ShellViewModel : public QObject
@@ -41,9 +42,9 @@ class ShellViewModel : public QObject
     Q_PROPERTY(int inspectorWidth READ inspectorWidth WRITE setInspectorWidth NOTIFY panelWidthsChanged)
 
 public:
-    ShellViewModel(ApiClient *client, HealthService *health, NavigationModel *navigation,
-                   CommandRegistry *commands, SettingsStore *settings,
-                   QObject *parent = nullptr);
+    ShellViewModel(ApiClient *client, SessionHermes *session, HealthService *health,
+                   NavigationModel *navigation, CommandRegistry *commands,
+                   SettingsStore *settings, QObject *parent = nullptr);
 
     /*! Vrai tant qu'aucune adresse de serveur n'a jamais été saisie. */
     [[nodiscard]] bool isFirstRun() const;
@@ -106,6 +107,7 @@ private:
     [[nodiscard]] SessionStatus::State sessionState() const;
 
     ApiClient *m_client = nullptr;
+    SessionHermes *m_session = nullptr;
     HealthService *m_health = nullptr;
     NavigationModel *m_navigation = nullptr;
     CommandRegistry *m_commands = nullptr;
