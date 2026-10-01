@@ -314,8 +314,12 @@ class ServiceExecutant(Service):
         if not en_main or en_main.get("etape") in ("arretee", "rendue"):
             return
         base = {"tableau": en_main["tableau"], "carte": en_main["carte"], "run_id": en_main["run_id"]}
-        oom = int(self.execution.session(en_main["carte"]).get("oom", 0)) + 1
-        self.execution._noter_session(en_main["carte"], oom=oom)
+        oom = int(self.execution.session(en_main["carte"]).get("oom", 0))
+        if en_main.get("etape") in ("agent", "verification", "preparation_dependances"):
+            # Arrêt brutal pendant que l'agent ou la vérification tournait : compté comme un arrêt mémoire (§ 6.4).
+            # Pendant la préparation git ou l'envoi d'une issue, la reprise suffit.
+            oom += 1
+            self.execution._noter_session(en_main["carte"], oom=oom)
         from .sortie import nouvel_id_envoi
 
         if oom >= 2:

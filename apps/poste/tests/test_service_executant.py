@@ -344,3 +344,17 @@ async def test_politique_modifiable_refusee_code_2(banc, capsys):
     os.chmod(banc.emplacements.politique, 0o666)
     assert await banc.servir() == 2
     assert "modifiable" in capsys.readouterr().err
+
+
+async def test_arret_brutal_pendant_la_preparation_reprend_sans_compter(banc):
+    banc.coffre.ecrire("jeton-machine", JETON)
+    _carte_en_main(banc, "preparation")
+    banc.emplacements.sessions.mkdir(parents=True, exist_ok=True)
+    (banc.emplacements.sessions / "t_ab12cd34.json").write_text(json.dumps({"oom": 1}), encoding="utf-8")
+    tache = asyncio.create_task(banc.servir())
+    assert await _jusqu_a(lambda: "reclamer" in banc.protocole.routes())
+    banc.arret.set()
+    await asyncio.wait_for(tache, 10)
+    assert "reprendre" in banc.protocole.routes() and "bloquer" not in banc.protocole.routes()
+    session = json.loads((banc.emplacements.sessions / "t_ab12cd34.json").read_text(encoding="utf-8"))
+    assert session["oom"] == 1

@@ -468,3 +468,16 @@ def test_agent_sous_son_uid_ecrit_le_worktree_sans_lire_les_secrets():
     assert set(lectures.values()) == {"refusé"}
     worktree = banc.depots.espace("jetable", "t_ab12cd34")
     assert (os.stat(worktree).st_uid, os.stat(worktree).st_mode & 0o777) == (0, 0o700)
+
+
+def test_base_perdue_retrouvee_par_l_ancetre_commun(banc):
+    banc.jouer(ECRIT)
+    premiere = banc.executer(banc.carte()).corps["metadonnees"]
+    # État local perdu (volume restauré) et branche de base avancée entre-temps.
+    (banc.emplacements.sessions / "t_ab12cd34.json").unlink()
+    (banc.distant / "README.md").write_text("Avancé\n", encoding="utf-8")
+    _git(banc.distant, "commit", "-qam", "avance")
+    banc.jouer({"ecrire": {"nouveau.py": "X = 1\n", "suite.txt": "s\n"}})
+    seconde = banc.executer(banc.carte(run_id=18)).corps["metadonnees"]
+    assert seconde["base"] == premiere["base"]
+    assert seconde["diffstat"]["fichiers"] == 2  # nouveau.py et suite.txt, jamais README.md de la base

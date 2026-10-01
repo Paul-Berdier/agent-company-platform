@@ -379,9 +379,10 @@ class Execution:
         liens = depot.liens_symboliques and self.isolement.get("regime") == "A"
         chemin = await asyncio.to_thread(self.depots.worktree, depot, nom, demande.branche, depart,
                                          liens_symboliques=liens)
-        base = connue.get("base") or self.depots.sha(self.depots.nu(depot.alias),
-                                                     f"refs/remotes/{depart}" if depart.startswith("origin/")
-                                                     else f"refs/heads/{depart}")
+        reference = f"refs/remotes/{depart}" if depart.startswith("origin/") else f"refs/heads/{depart}"
+        # Base gardée de la première tentative ; perdue (volume restauré), l'ancêtre commun avec le départ : jamais un
+        # départ qui aurait avancé depuis (le diff montrerait à tort des lignes de la branche de base).
+        base = connue.get("base") or self.depots.merge_base(depot.alias, reference, f"refs/heads/{demande.branche}")
         self._noter_session(demande.carte, base=base)
         self.depots.ouvrir_tour(chemin)
         tmp = self.lanceur.dossier(self._tmp(demande), None, 0o751)
@@ -405,7 +406,8 @@ class Execution:
             relue = self.session(demande.carte_relue)
             branche_relue = f"hermes/{demande.carte_relue}"
             tete_relue = self.depots.sha(self.depots.nu(depot.alias), f"refs/heads/{branche_relue}")
-            base_relue = relue.get("base") or self.depots.sha(self.depots.nu(depot.alias), f"refs/remotes/{base_ref}")
+            base_relue = relue.get("base") or self.depots.merge_base(depot.alias, f"refs/remotes/{base_ref}",
+                                                                     f"refs/heads/{branche_relue}")
             if tete_relue and base_relue:
                 diff = self.depots.diff_texte(depot.alias, nom, base_relue, tete_relue)
                 (lecture / "diff.patch").write_text(diff, encoding="utf-8")

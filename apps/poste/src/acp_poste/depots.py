@@ -207,6 +207,12 @@ class Depots:
                           verifier=False).decode("ascii", "replace").strip()
         return sortie if _SHA.fullmatch(sortie) else None
 
+    def merge_base(self, alias: str, gauche: str, droite: str) -> str | None:
+        """Ancêtre commun de deux références du clone nu (base d'une carte dont l'état local a été perdu)."""
+        sortie = self.git("merge-base", gauche, droite, git_dir=self.nu(alias), verifier=False)
+        texte = sortie.decode("ascii", "replace").strip()
+        return texte if _SHA.fullmatch(texte) else None
+
     def branche_existe(self, alias: str, branche: str) -> bool:
         return self.sha(self.nu(alias), f"refs/heads/{branche}") is not None
 
