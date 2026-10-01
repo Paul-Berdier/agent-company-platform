@@ -37,6 +37,8 @@
 
 class QTcpServer;
 class QTcpSocket;
+class QWebSocket;
+class QWebSocketServer;
 
 namespace acp::test {
 
@@ -125,6 +127,37 @@ public:
     /*! Révoque tous les jetons d'accès courants (le prochain appel protégé rend 401). */
     void expirerAcces() { jetonsAccesValides.clear(); }
 
+    // --- Passerelle JSON-RPC (/api/ws) ----------------------------------------------
+    //
+    // Sur le MÊME port que le HTTP, comme Hermes : la requête d'ouverture est lue (sans être
+    // consommée), journalisée avec ses en-têtes, le ticket passé en sous-protocole est
+    // consommé (usage unique) ; un ticket absent, inconnu ou déjà servi reçoit 403 avant
+    // toute acceptation, comme Hermes derrière uvicorn. Accepté, le client reçoit
+    // `gateway.ready`, puis la passerelle répond à `gateway.ping`, `client.capabilities` et
+    // `session.events.since`, et à toute méthode scriptée dans `methodes`.
+
+    void activerPasserelle();
+    QString epoque = QStringLiteral("epoque-1");
+    bool battementAnnonce = true;
+    bool envoyerReady = true;
+    QString sousProtocoleServi = QStringLiteral("hermes-gateway-v1");
+    int fermer4401 = 0; //!< Nombre de prochaines connexions acceptées puis fermées en 4401.
+    int fermer4403 = 0;
+    bool refuserPoignees = false; //!< Toute ouverture reçoit 403 (ticket ou non).
+    bool repondreAuxPings = true;
+    QHash<QString, std::function<QJsonValue(const QJsonObject &)>> methodes;
+    std::function<QJsonObject(const QJsonObject &)> rejeu; //!< Résultat de session.events.since.
+    QList<QJsonObject> tramesRecues; //!< Trames reçues des clients de la passerelle.
+    QList<RequeteRecue> ouvertures;  //!< Requêtes d'ouverture WebSocket reçues.
+    int connexionsAcceptees = 0;
+
+    /*! Envoie une trame au dernier client connecté. */
+    void envoyer(const QJsonObject &trame);
+    /*! Coupe brutalement le dernier client (perte de lien). */
+    void couperClient();
+    [[nodiscard]] int clientsConnectes() const;
+    [[nodiscard]] QList<QJsonObject> tramesDeMethode(const QString &methode) const;
+
 private:
     void accepter();
     void lire(QTcpSocket *socket);
@@ -132,7 +165,12 @@ private:
     [[nodiscard]] ReponseFaux traiter(const RequeteRecue &requete);
     [[nodiscard]] bool estPublique(const QString &chemin) const;
 
+    bool ouvrirPasserelle(QTcpSocket *socket);
+    void accepterPasserelle();
+
     QTcpServer *m_serveur = nullptr;
+    QWebSocketServer *m_passerelle = nullptr;
+    QList<QWebSocket *> m_clients;
     QHash<QString, Gestionnaire> m_routes;
     bool m_porte = false;
     int m_compteur = 0;

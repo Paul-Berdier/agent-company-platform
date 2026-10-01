@@ -7,6 +7,7 @@
 #include "app/QmlEnums.h"
 #include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
+#include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
 #include "services/CompatibiliteHermes.h"
@@ -60,6 +61,7 @@ Application::Application(QObject *parent)
     , m_session(new SessionHermes(m_client, m_vault.get(), m_settings, this))
     , m_greffon(std::make_unique<ClientGreffonPoste>(m_client))
     , m_compatibilite(new CompatibiliteHermes(m_greffon.get(), this))
+    , m_passerelle(new GatewayClient(m_client, this))
     , m_health(new HealthService(m_client, this))
     , m_navigation(new NavigationModel(this))
     , m_commands(new CommandRegistry(this))
@@ -76,12 +78,25 @@ Application::Application(QObject *parent)
             m_session->reessayer();
         }
     });
-    m_diagnostics = new DiagnosticsViewModel(m_client, m_session, m_compatibilite, m_health,
+    m_diagnostics = new DiagnosticsViewModel(m_client, m_session, m_compatibilite, m_passerelle, m_health,
                                              m_settings, m_appearance, m_vault.get(), version(),
                                              buildInfo(), this);
     // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
     connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
     connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
+    // Passerelle JSON-RPC : ouverte dès la session établie (sessions.changed, demandes de
+    // l'agent), fermée à sa perte ; coupée si le contrat JSON-RPC servi n'est pas celui de la
+    // station.
+    connect(m_session, &SessionHermes::sessionEtablie, m_passerelle, &GatewayClient::ouvrir);
+    connect(m_session, &SessionHermes::sessionPerdue, m_passerelle, &GatewayClient::fermer);
+    connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
+        const CompatibilityStatus::State etat = m_compatibilite->etat();
+        const bool verdictRendu = etat != CompatibilityStatus::NonVerifiee
+            && etat != CompatibilityStatus::Verification && etat != CompatibilityStatus::Injoignable;
+        if (verdictRendu && !m_compatibilite->discussionDisponible()) {
+            m_passerelle->fermer();
+        }
+    });
     m_updates = new UpdateService(version(), this);
     registerBuiltinCommands();
     connect(m_navigation, &NavigationModel::historyChanged, this,
@@ -135,6 +150,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Session", m_session);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Health", m_health);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Compatibility", m_compatibilite);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Gateway", m_passerelle);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
@@ -180,6 +196,7 @@ void Application::start()
 
 void Application::shutdown()
 {
+    m_passerelle->fermer();
     m_health->setPeriodicProbeEnabled(false);
     m_settings->flush();
 }

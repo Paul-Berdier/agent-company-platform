@@ -162,6 +162,8 @@ set(ACP_CORE_SOURCES
     src/events/SseEvent.h
     src/events/SseParser.cpp
     src/events/SseParser.h
+    src/gateway/GatewayClient.cpp
+    src/gateway/GatewayClient.h
     src/gateway/JsonRpcChannel.cpp
     src/gateway/JsonRpcChannel.h
     src/models/JsonListModel.cpp

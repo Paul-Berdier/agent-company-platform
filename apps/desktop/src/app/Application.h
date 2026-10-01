@@ -21,6 +21,7 @@ class CompatibiliteHermes;
 class CommandRegistry;
 class CredentialVault;
 class DiagnosticsViewModel;
+class GatewayClient;
 class HealthService;
 class NavigationModel;
 class SessionHermes;
@@ -69,6 +70,7 @@ private:
     SessionHermes *m_session = nullptr;
     std::unique_ptr<ClientGreffonPoste> m_greffon;
     CompatibiliteHermes *m_compatibilite = nullptr;
+    GatewayClient *m_passerelle = nullptr;
     HealthService *m_health = nullptr;
     NavigationModel *m_navigation = nullptr;
     CommandRegistry *m_commands = nullptr;

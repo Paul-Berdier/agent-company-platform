@@ -9,6 +9,8 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
+#include <QWebSocket>
+#include <QWebSocketServer>
 
 namespace acp::test {
 
@@ -142,6 +144,18 @@ void FauxHermes::accepter()
 
 void FauxHermes::lire(QTcpSocket *socket)
 {
+    if (m_passerelle && socket->property(kTampon).toByteArray().isEmpty()) {
+        // Une ouverture WebSocket est lue SANS être consommée, puis confiée à la passerelle.
+        const QByteArray apercu = socket->peek(16384);
+        const qsizetype fin = apercu.indexOf("\r\n\r\n");
+        if (fin < 0) {
+            return; // en-têtes incomplets : la suite arrivera
+        }
+        if (apercu.left(fin).toLower().contains("upgrade: websocket")) {
+            ouvrirPasserelle(socket);
+            return;
+        }
+    }
     QByteArray tampon = socket->property(kTampon).toByteArray() + socket->readAll();
     for (;;) {
         const qsizetype finEntetes = tampon.indexOf("\r\n\r\n");
@@ -226,6 +240,165 @@ ReponseFaux FauxHermes::traiter(const RequeteRecue &requete)
         return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
     }
     return (*route)(requete);
+}
+
+void FauxHermes::activerPasserelle()
+{
+    if (m_passerelle) {
+        return;
+    }
+    m_passerelle = new QWebSocketServer(QStringLiteral("faux-hermes"), QWebSocketServer::NonSecureMode, this);
+    m_passerelle->setSupportedSubprotocols({sousProtocoleServi});
+    connect(m_passerelle, &QWebSocketServer::newConnection, this, &FauxHermes::accepterPasserelle);
+}
+
+bool FauxHermes::ouvrirPasserelle(QTcpSocket *socket)
+{
+    const QByteArray apercu = socket->peek(16384);
+    const qsizetype fin = apercu.indexOf("\r\n\r\n");
+    const QList<QByteArray> lignes = apercu.left(fin).split('\n');
+    RequeteRecue requete;
+    const QList<QByteArray> premiere = lignes.value(0).trimmed().split(' ');
+    requete.methode = premiere.value(0);
+    const QUrl cible = QUrl::fromEncoded(premiere.value(1));
+    requete.chemin = cible.path();
+    requete.requete = QUrlQuery(cible.query(QUrl::FullyEncoded));
+    for (qsizetype index = 1; index < lignes.size(); ++index) {
+        const QByteArray ligne = lignes.at(index).trimmed();
+        const qsizetype deuxPoints = ligne.indexOf(':');
+        if (deuxPoints > 0) {
+            requete.entetes.insert(ligne.left(deuxPoints).trimmed().toLower(), ligne.mid(deuxPoints + 1).trimmed());
+        }
+    }
+    ouvertures.append(requete);
+    requetes.append(requete);
+
+    // Garde de Hermes (web_server_chat.py `_gateway_ws_ticket_from_subprotocol`, ws_tickets.py).
+    QStringList protocoles;
+    for (const QByteArray &morceau : requete.entete("sec-websocket-protocol").split(',')) {
+        if (!morceau.trimmed().isEmpty()) {
+            protocoles.append(QString::fromLatin1(morceau.trimmed()));
+        }
+    }
+    QStringList tickets;
+    for (const QString &protocole : std::as_const(protocoles)) {
+        if (protocole.startsWith(QStringLiteral("hermes-gateway-ticket."))) {
+            tickets.append(protocole.mid(22));
+        }
+    }
+    bool admis = !refuserPoignees && requete.chemin == QStringLiteral("/api/ws")
+        && protocoles.contains(QStringLiteral("hermes-gateway-v1")) && tickets.size() == 1;
+    if (admis) {
+        const QByteArray ticket = tickets.first().toUtf8();
+        admis = ticketsEmis.removeOne(ticket); // usage unique
+    }
+    disconnect(socket, &QTcpSocket::readyRead, this, nullptr);
+    if (!admis) {
+        socket->read(fin + 4);
+        repondre(socket, ReponseFaux::json(403, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Forbidden")}}));
+        return false;
+    }
+    m_passerelle->handleConnection(socket);
+    return true;
+}
+
+void FauxHermes::accepterPasserelle()
+{
+    while (m_passerelle->hasPendingConnections()) {
+        QWebSocket *client = m_passerelle->nextPendingConnection();
+        ++connexionsAcceptees;
+        m_clients.append(client);
+        connect(client, &QWebSocket::disconnected, this, [this, client] {
+            m_clients.removeAll(client);
+            client->deleteLater();
+        });
+        if (fermer4401 > 0) {
+            --fermer4401;
+            client->close(static_cast<QWebSocketProtocol::CloseCode>(4401), QStringLiteral("auth: ticket_invalid"));
+            continue;
+        }
+        if (fermer4403 > 0) {
+            --fermer4403;
+            client->close(static_cast<QWebSocketProtocol::CloseCode>(4403), QStringLiteral("host_mismatch"));
+            continue;
+        }
+        connect(client, &QWebSocket::textMessageReceived, this, [this, client](const QString &message) {
+            const QJsonObject trame = QJsonDocument::fromJson(message.toUtf8()).object();
+            tramesRecues.append(trame);
+            const QString methode = trame.value(QStringLiteral("method")).toString();
+            const QJsonValue id = trame.value(QStringLiteral("id"));
+            if (methode.isEmpty() || id.isUndefined()) {
+                return; // réponse du client à une requête serveur : journalisée seulement
+            }
+            QJsonObject reponse{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")}, {QStringLiteral("id"), id}};
+            const QJsonObject params = trame.value(QStringLiteral("params")).toObject();
+            if (methode == QStringLiteral("gateway.ping")) {
+                if (!repondreAuxPings) {
+                    return;
+                }
+                reponse.insert(QStringLiteral("result"), QJsonObject{{QStringLiteral("ok"), true}});
+            } else if (methode == QStringLiteral("client.capabilities")) {
+                reponse.insert(QStringLiteral("result"), QJsonObject{{QStringLiteral("server_requests"), true}});
+            } else if (methode == QStringLiteral("session.events.since")) {
+                QJsonObject resultat = rejeu ? rejeu(params)
+                                             : QJsonObject{{QStringLiteral("events"), QJsonArray{}},
+                                                           {QStringLiteral("latest_seq"), params.value(QStringLiteral("last_seen"))},
+                                                           {QStringLiteral("truncated"), false},
+                                                           {QStringLiteral("count"), 0},
+                                                           {QStringLiteral("epoch"), epoque},
+                                                           {QStringLiteral("open_requests"), QJsonArray{}}};
+                reponse.insert(QStringLiteral("result"), resultat);
+            } else if (methodes.contains(methode)) {
+                reponse.insert(QStringLiteral("result"), methodes.value(methode)(params));
+            } else {
+                reponse.insert(QStringLiteral("error"), QJsonObject{{QStringLiteral("code"), -32601},
+                                                                    {QStringLiteral("message"), QStringLiteral("method not found")}});
+            }
+            client->sendTextMessage(QString::fromUtf8(QJsonDocument(reponse).toJson(QJsonDocument::Compact)));
+        });
+        if (envoyerReady) {
+            const QJsonObject pret{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")},
+                                   {QStringLiteral("method"), QStringLiteral("event")},
+                                   {QStringLiteral("params"),
+                                    QJsonObject{{QStringLiteral("type"), QStringLiteral("gateway.ready")},
+                                                {QStringLiteral("payload"),
+                                                 QJsonObject{{QStringLiteral("skin"), QJsonObject{}},
+                                                             {QStringLiteral("change_events"), true},
+                                                             {QStringLiteral("heartbeat"), battementAnnonce},
+                                                             {QStringLiteral("replay_epoch"), epoque}}}}}};
+            client->sendTextMessage(QString::fromUtf8(QJsonDocument(pret).toJson(QJsonDocument::Compact)));
+        }
+    }
+}
+
+void FauxHermes::envoyer(const QJsonObject &trame)
+{
+    if (!m_clients.isEmpty()) {
+        m_clients.last()->sendTextMessage(QString::fromUtf8(QJsonDocument(trame).toJson(QJsonDocument::Compact)));
+    }
+}
+
+void FauxHermes::couperClient()
+{
+    if (!m_clients.isEmpty()) {
+        m_clients.last()->abort();
+    }
+}
+
+int FauxHermes::clientsConnectes() const
+{
+    return static_cast<int>(m_clients.size());
+}
+
+QList<QJsonObject> FauxHermes::tramesDeMethode(const QString &methode) const
+{
+    QList<QJsonObject> resultat;
+    for (const QJsonObject &trame : tramesRecues) {
+        if (trame.value(QStringLiteral("method")).toString() == methode) {
+            resultat.append(trame);
+        }
+    }
+    return resultat;
 }
 
 QJsonObject FauxHermes::emettreJetons()

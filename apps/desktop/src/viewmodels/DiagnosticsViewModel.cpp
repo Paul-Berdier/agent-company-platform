@@ -4,6 +4,8 @@
 #include "app/BuildConfig.h"
 #include "auth/SessionHermes.h"
 #include "diagnostics/Redaction.h"
+#include "gateway/GatewayClient.h"
+#include "gateway/JsonRpcChannel.h"
 #include "services/CompatibiliteHermes.h"
 #include "services/HealthService.h"
 #include "storage/CredentialVault.h"
@@ -29,6 +31,7 @@ const QString &unknownValue()
 
 DiagnosticsViewModel::DiagnosticsViewModel(ApiClient *client, SessionHermes *session,
                                            CompatibiliteHermes *compatibilite,
+                                           GatewayClient *passerelle,
                                            HealthService *health,
                                            SettingsStore *settings,
                                            SystemAppearance *appearance, CredentialVault *vault,
@@ -38,6 +41,7 @@ DiagnosticsViewModel::DiagnosticsViewModel(ApiClient *client, SessionHermes *ses
     , m_client(client)
     , m_session(session)
     , m_compatibilite(compatibilite)
+    , m_passerelle(passerelle)
     , m_health(health)
     , m_settings(settings)
     , m_appearance(appearance)
@@ -52,6 +56,7 @@ DiagnosticsViewModel::DiagnosticsViewModel(ApiClient *client, SessionHermes *ses
     connect(m_session, &SessionHermes::avisCoffreChange, this, &DiagnosticsViewModel::refresh);
     connect(m_session, &SessionHermes::memoriserChange, this, &DiagnosticsViewModel::refresh);
     connect(m_compatibilite, &CompatibiliteHermes::change, this, &DiagnosticsViewModel::refresh);
+    connect(m_passerelle, &GatewayClient::etatChange, this, &DiagnosticsViewModel::refresh);
     refresh();
 }
 
@@ -101,6 +106,7 @@ void DiagnosticsViewModel::refresh()
     const QString storage = QStringLiteral("Stockage local");
     const QString session = QStringLiteral("Session");
     const QString compatibility = QStringLiteral("Compatibilité");
+    const QString gateway = QStringLiteral("Passerelle JSON-RPC");
 
     // --- Station ------------------------------------------------------------
     entries.append({station, QStringLiteral("Version de la station"), m_clientVersion, true, true});
@@ -215,6 +221,27 @@ void DiagnosticsViewModel::refresh()
     for (const QString &alerte : alertes) {
         entries.append({compatibility, QStringLiteral("Alerte"), alerte, true, false});
     }
+
+    // --- Passerelle ---------------------------------------------------------
+    entries.append({gateway, QStringLiteral("État"), m_passerelle->libelleEtat(), true, false});
+    entries.append({gateway, QStringLiteral("Raison"),
+                    m_passerelle->raison().isEmpty() ? QStringLiteral("Aucune") : m_passerelle->raison(),
+                    true, false});
+    entries.append({gateway, QStringLiteral("Sous-protocole retenu"),
+                    m_passerelle->sousProtocoleRetenu().isEmpty() ? unknownValue()
+                                                                  : m_passerelle->sousProtocoleRetenu(),
+                    !m_passerelle->sousProtocoleRetenu().isEmpty(), true});
+    entries.append({gateway, QStringLiteral("Époque de rejeu"),
+                    m_passerelle->epoque().isEmpty() ? unknownValue() : m_passerelle->epoque(),
+                    !m_passerelle->epoque().isEmpty(), true});
+    entries.append({gateway, QStringLiteral("Dernier signe de vie"), m_passerelle->dernierSigneDeVie(),
+                    m_passerelle->dernierSigneDeVie() != QStringLiteral("Jamais"), true});
+    entries.append({gateway, QStringLiteral("Reconnexions"), QString::number(m_passerelle->reconnexions()),
+                    true, true});
+    entries.append({gateway, QStringLiteral("Requêtes de l'agent refusées (-32601)"),
+                    QString::number(m_passerelle->canal()->methodesRefusees()), true, true});
+    entries.append({gateway, QStringLiteral("Trames illisibles ignorées"),
+                    QString::number(m_passerelle->canal()->tramesIllisibles()), true, true});
 
     // --- Stockage -----------------------------------------------------------
     entries.append({storage, QStringLiteral("Coffre de secrets"), m_vault->backendName(), true,

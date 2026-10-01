@@ -17,6 +17,7 @@ namespace acp {
 class ApiClient;
 class CompatibiliteHermes;
 class CredentialVault;
+class GatewayClient;
 class HealthService;
 class SessionHermes;
 class SettingsStore;
@@ -46,7 +47,8 @@ public:
     };
 
     DiagnosticsViewModel(ApiClient *client, SessionHermes *session,
-                         CompatibiliteHermes *compatibilite, HealthService *health,
+                         CompatibiliteHermes *compatibilite, GatewayClient *passerelle,
+                         HealthService *health,
                          SettingsStore *settings, SystemAppearance *appearance,
                          CredentialVault *vault, QString clientVersion, QString buildInfo,
                          QObject *parent = nullptr);
@@ -72,6 +74,7 @@ private:
     ApiClient *m_client = nullptr;
     SessionHermes *m_session = nullptr;
     CompatibiliteHermes *m_compatibilite = nullptr;
+    GatewayClient *m_passerelle = nullptr;
     HealthService *m_health = nullptr;
     SettingsStore *m_settings = nullptr;
     SystemAppearance *m_appearance = nullptr;
