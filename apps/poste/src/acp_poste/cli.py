@@ -30,6 +30,7 @@ from .chemins import EmplacementsIndisponibles, commande_poste
 from .coffre import CoffreErreur
 from .contexte import Contexte
 from .journal import lire_fin
+from .plateforme import PlateformeIndisponible
 
 EPILOGUE = ("Poste Windows d'ACP (étape P5 : présence, catalogue, quotas ; aucune exécution de carte avant P6). "
             "Installation : packaging/poste ; documentation : apps/poste/README.md.")
@@ -282,7 +283,7 @@ def main(argv: list[str] | None = None, *, contexte: Contexte | None = None) -> 
         args = _parser().parse_args(argv)
     try:
         contexte = contexte or Contexte.du_compte()
-    except EmplacementsIndisponibles as exc:
+    except (EmplacementsIndisponibles, PlateformeIndisponible) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     try:

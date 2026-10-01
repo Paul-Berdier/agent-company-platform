@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -184,9 +185,25 @@ def test_servir_compte_dedie_refuse_un_interpreteur_modifiable(poste, capsys, mo
 
 
 @pytest.mark.skipif(os.name == "nt", reason="sous Windows, les emplacements réels existent (jamais lus ici)")
-def test_hors_windows_aucun_emplacement_par_defaut(capsys):
+def test_systeme_non_pris_en_charge_refuse(capsys, monkeypatch):
+    # Étape P6 : Windows (poste) et Linux (exécutant) ont leurs emplacements ; tout autre système est refusé, sans
+    # emplacement par défaut.
+    monkeypatch.setattr(sys, "platform", "darwin")
     assert main(["diagnostic"]) == 2
-    assert "que sous Windows" in capsys.readouterr().err
+    assert "non pris en charge" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name != "posix", reason="coffre en fichiers 0600 : Linux seulement")
+def test_contexte_linux_par_defaut_sans_toucher_le_disque(monkeypatch):
+    from acp_poste.contexte import Contexte
+    from acp_poste.plateforme.linux import CoffreFichiers, EmplacementsLinux
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    contexte = Contexte.du_compte()
+    assert contexte.plateforme == "linux"
+    assert isinstance(contexte.emplacements, EmplacementsLinux) and isinstance(contexte.coffre, CoffreFichiers)
+    assert contexte.emplacements.politique.as_posix() == "/etc/acp/executant.toml"
+    assert {outil: i.uid for outil, i in contexte.identites.items()} == {"codex": 10001, "claude": 10002}
 
 
 def test_connexion_claude_masquee(poste, capsys, monkeypatch):
