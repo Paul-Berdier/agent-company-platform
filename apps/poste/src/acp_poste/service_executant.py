@@ -72,6 +72,17 @@ def _iso(instant: datetime) -> str:
     return instant.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def console(message: str) -> None:
+    """Ligne des journaux du CONTENEUR (donc de Railway) : stderr, préfixe « [acp] », comme l'entrée. Seuls des messages
+    composés ici, sans secret, y passent (verdict de la sonde, attente d'enrôlement, révocation, suspension) : le
+    journal détaillé reste sur le volume (``acp-poste journal``). Relecture de P6 : ni le régime ni l'attente
+    n'apparaissaient dans les journaux de Railway, où les relevés R1 et R10 les cherchent."""
+    try:
+        print(f"[acp] {message}", file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
 class ServiceExecutant(Service):
     """La boucle du poste (tâches A et B), plus l'exécution des cartes (tâche C) et leurs annonces."""
 
@@ -157,6 +168,7 @@ class ServiceExecutant(Service):
             self.revoque = True
             self._ecrire_etat(etat_machine="revoque")
             self.journal.ecrire("info", "poste_revoque", f"{exc.message} Retour à l'attente d'enrôlement, sans sortie.")
+            console("Exécutant révoqué par Hermes : jeton machine effacé, retour à l'attente d'enrôlement, sans sortie.")
             self._stopper()
             return True
         if isinstance(exc, JetonRefuse):
@@ -271,6 +283,7 @@ class ServiceExecutant(Service):
         except AgentSurvivant:
             self.suspendu = SUSPENDU
             self.journal.ecrire("erreur", "execution_suspendue", SUSPENDU, carte=carte.carte)
+            console(SUSPENDU)
             return
         except Exception as exc:  # noqa: BLE001 — la carte reste réclamée jusqu'à son TTL ; jamais une trace au journal
             self.journal.ecrire("erreur", "carte_en_erreur", f"Erreur imprévue pendant la carte "
@@ -425,12 +438,13 @@ class ServiceExecutant(Service):
 # ============================================================ démarrage
 
 
-def _non_enrole_une_fois_par_jour(contexte: Contexte, journal: Journal) -> None:
+def _non_enrole_une_fois_par_jour(contexte: Contexte, journal: Journal) -> bool:
+    """Ligne de journal quotidienne ; ``True`` si elle vient d'être écrite."""
     marque = contexte.emplacements.etat / "non-enrole.jour"
     jour = datetime.now(UTC).strftime("%Y-%m-%d")
     try:
         if marque.read_text(encoding="ascii").strip() == jour:
-            return
+            return False
     except OSError:
         pass
     journal.ecrire("info", "non_enrole", NON_ENROLE)
@@ -438,6 +452,7 @@ def _non_enrole_une_fois_par_jour(contexte: Contexte, journal: Journal) -> None:
         ecrire_atomiquement(marque, jour.encode("ascii"))
     except OSError:
         pass
+    return True
 
 
 async def _dormir(arret: asyncio.Event, secondes: float) -> None:
@@ -450,7 +465,9 @@ async def _dormir(arret: asyncio.Event, secondes: float) -> None:
 async def attendre_enrolement(contexte: Contexte, journal: Journal, arret: asyncio.Event, *,
                               relecture_s: float = RELECTURE_JETON_S) -> str | None:
     """Jeton machine dès qu'``acp-poste enroler`` l'a écrit ; ``None`` si l'arrêt est demandé avant. Aucune requête
-    vers Hermes pendant l'attente ; une ligne de journal par jour."""
+    vers Hermes pendant l'attente ; une ligne de journal par jour, et dans les journaux du conteneur au début de
+    l'attente puis une fois par jour."""
+    annoncee = False
     while not arret.is_set():
         try:
             brut = contexte.coffre.lire("jeton-machine")
@@ -459,7 +476,9 @@ async def attendre_enrolement(contexte: Contexte, journal: Journal, arret: async
             brut = None
         if brut:
             return brut
-        _non_enrole_une_fois_par_jour(contexte, journal)
+        if _non_enrole_une_fois_par_jour(contexte, journal) or not annoncee:
+            console(NON_ENROLE)
+            annoncee = True
         await _dormir(arret, relecture_s)
     return None
 
@@ -495,6 +514,8 @@ def faire_sonde(contexte: Contexte, politique: Politique, journal: Journal) -> d
     verdict = resultat["verdict"]
     journal.ecrire("info", "sonde_plateforme", f"Sonde de plateforme : régime {verdict['regime']}. "
                    f"{verdict['raison']}", bwrap=verdict["bwrap"], uid_separes=verdict["uid_separes"])
+    console(f"Sonde de plateforme : régime {verdict['regime']}, bubblewrap {verdict['bwrap']}, UID séparés : "
+            f"{'oui' if verdict['uid_separes'] else 'non'}. {verdict['raison']}")
     sans = politique.codex.sans_bac_a_sable if politique.codex else "refuse"
     return bloc_isolement(resultat, sans_bac_a_sable=sans)
 

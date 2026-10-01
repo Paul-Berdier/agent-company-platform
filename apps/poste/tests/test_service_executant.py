@@ -185,12 +185,14 @@ def banc(tmp_path, poste) -> Banc:
 # ------------------------------------------------------------------ enrôlement, révocation, jeton refusé (§ 7.6)
 
 
-async def test_attente_d_enrolement_sans_sortie_ni_requete(banc):
+async def test_attente_d_enrolement_sans_sortie_ni_requete(banc, capfd):
     tache = asyncio.create_task(banc.servir())
     await asyncio.sleep(0.6)
     assert not tache.done() and banc.protocole.appels == []
     lignes = (banc.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8")
     assert lignes.count("non_enrole") == 1 and "railway ssh" in lignes
+    # Relecture de P6 : l'attente se lit AUSSI dans les journaux du conteneur (Railway), une fois au début.
+    assert capfd.readouterr().err.count("[acp] Exécutant non enrôlé") == 1
     banc.coffre.ecrire("jeton-machine", JETON)
     assert await _jusqu_a(lambda: "reclamer" in banc.protocole.routes())
     banc.arret.set()
@@ -387,3 +389,22 @@ async def test_issue_hors_contrat_en_file_ne_bloque_plus_les_reclamations(banc):
     assert len(list(banc.emplacements.sortie_refusees.iterdir())) == 1
     journal = "".join(f.read_text(encoding="utf-8") for f in banc.emplacements.journal.glob("*"))
     assert "issue_hors_contrat" in journal and "NUL" in journal
+
+
+def test_verdict_de_la_sonde_dans_les_journaux_du_conteneur(banc, capfd, monkeypatch):
+    """Relecture de P6 : le verdict de la sonde du démarrage n'allait qu'au journal du volume ; il est aussi écrit sur
+    stderr (journaux de Railway), sans secret."""
+    from acp_poste import service_executant as module
+    from acp_poste.journal import Journal
+    from acp_poste.politique import charger
+
+    contexte = banc.contexte()
+    politique = charger(contexte.emplacements)
+    verdict = {"regime": "B", "bwrap": "refuse", "proc_neuf": False, "reseau_coupe": False, "uid_separes": True,
+               "raison": "Régime B : bubblewrap refusé par la plateforme."}
+    monkeypatch.setattr(module, "sonder", lambda **_options: {"sonde_le": "2026-10-01T12:00:00Z", "verdict": verdict,
+                                                               "releves": []})
+    bloc = module.faire_sonde(contexte, politique, Journal(contexte.emplacements.journal))
+    assert bloc["regime"] == "B"
+    assert ("[acp] Sonde de plateforme : régime B, bubblewrap refuse, UID séparés : oui. Régime B : bubblewrap refusé "
+            "par la plateforme.") in capfd.readouterr().err
