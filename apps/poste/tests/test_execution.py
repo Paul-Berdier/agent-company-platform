@@ -410,19 +410,45 @@ def test_reprise_du_fil_avec_les_reponses(banc):
     assert "Reprise de la carte t_ab12cd34" in seconde["stdin"] and "Garde main." in seconde["stdin"]
 
 
+RELECTURE = {"modele": "claude-opus-5-5", "lire_texte": ["{add_dir}/diff.patch", "nouveau.py"],
+             "sortie": {"issue": "termine", "resume": "Relu.", "question": None, "verdict": "corrections",
+                        "corrections": "Ajouter un test."}}
+
+
+def _lectures_du_relecteur(banc) -> dict[str, str]:
+    return {i["texte"]: i["contenu"] for i in banc.invocations() if "texte" in i}
+
+
 def test_relecture_lit_le_diff_et_rend_des_corrections(banc):
+    """Haute (relecture de P6) : la relecture est servie par Hermes SANS branche de départ (greffon : ``None`` pour
+    une relecture) ; son worktree partait de ``origin/<base>`` et ne contenait pas le code relu. Il part désormais de
+    la branche relue, et le relecteur lit vraiment le diff ET le code relu."""
     banc.jouer(ECRIT)
     assert banc.executer(banc.carte()).route == "terminer"
-    banc.jouer({"modele": "claude-opus-5-5",
-                "sortie": {"issue": "termine", "resume": "Relu.", "question": None, "verdict": "corrections",
-                           "corrections": "Ajouter un test."}})
+    banc.jouer(RELECTURE)
     issue = banc.executer(banc.carte(carte="t_cd34ef56", role="relecture", carte_relue="t_ab12cd34",
-                                     branche_depart="hermes/t_ab12cd34", modele="opus"))
+                                     branche_depart=None, modele="opus"))
     assert issue.route == "terminer" and issue.corps["verdict"] == "corrections"
     assert issue.corps["corrections"] == "Ajouter un test."
     appel = [i for i in banc.invocations() if i.get("outil") == "claude"][-1]
     assert appel["argv"][appel["argv"].index("--tools") + 1] == "Read,Glob,Grep"
     assert "diff.patch" in appel["stdin"] and issue.corps["metadonnees"]["verification"]["etat"] == "non_executee"
+    lectures = _lectures_du_relecteur(banc)
+    assert "+X = 1" in lectures["{add_dir}/diff.patch"] and "-X = 0" in lectures["{add_dir}/diff.patch"]
+    assert lectures["nouveau.py"] == "X = 1\n"
+    # Rien n'a changé pendant la relecture : sa branche porte le code relu, sans commit de plus.
+    m = issue.corps["metadonnees"]
+    assert m["diffstat"] == {"fichiers": 0, "ajouts": 0, "retraits": 0} and m["pilotage"]["touche"] is False
+
+
+def test_relecture_d_une_branche_absente_bloquee(banc):
+    """Branche relue absente de l'exécutant : carte bloquée, avec la raison, plutôt qu'une relecture à l'aveugle."""
+    banc.jouer(RELECTURE)
+    issue = banc.executer(banc.carte(carte="t_cd34ef56", role="relecture", carte_relue="t_99999999",
+                                     branche_depart=None, modele="opus"))
+    assert issue.route == "bloquer" and issue.corps["genre"] == "capacite"
+    assert "hermes/t_99999999 absente de l'exécutant" in issue.corps["raison"]
+    assert not [i for i in banc.invocations() if i.get("outil") == "claude"]
 
 
 def test_integration_fusionne_et_bloque_sur_conflit(banc):
@@ -483,6 +509,48 @@ def test_agent_sous_son_uid_ecrit_le_worktree_sans_lire_les_secrets():
     assert set(lectures.values()) == {"refusé"}
     worktree = banc.depots.espace("jetable", "t_ab12cd34")
     assert (os.stat(worktree).st_uid, os.stat(worktree).st_mode & 0o777) == (0, 0o700)
+
+
+@RACINE_LINUX
+def test_relecture_sous_uid_lit_le_diff_et_le_code_relu():
+    """Haute (relecture de P6) : sous les VRAIS UID, ``diff.patch`` était écrit par root en 0640 root:root dans un
+    dossier root:acp-travail 0750 : illisible par acp-claude (10002) et acp-codex (10001). Il appartient désormais au
+    groupe acp-travail ; l'agent, lancé sous son UID par setpriv, le lit, ainsi que le code relu."""
+    from acp_poste.plateforme.linux import IDENTITES, CoffreFichiers
+
+    racine = Path(tempfile.mkdtemp(prefix="acp-uid-", dir="/tmp"))
+    os.chmod(racine, 0o755)
+    banc = Banc(racine / "banc")
+    os.chmod(racine / "banc", 0o755)
+    banc.depots.droits = True
+    banc.execution.lanceur = LanceurAgents(identites=dict(IDENTITES), droits=True)
+    coffre = CoffreFichiers(banc.emplacements.secrets)
+    coffre.ecrire("jeton-claude", "sk-ant-oat01-" + "c" * 40)
+    banc.execution.coffre = coffre
+    for chemin in (banc.emplacements.donnees, banc.emplacements.tmp.parent, banc.emplacements.tmp):
+        chemin.mkdir(parents=True, exist_ok=True)
+        os.chmod(chemin, 0o755)
+    os.chmod(banc.emplacements.acp, 0o700)
+
+    def jouer(*executions):
+        banc.jouer(*executions)
+        os.chmod(banc.scenario, 0o644)
+        for fichier in (banc.journal_agents, banc.racine / "compteur"):
+            if not fichier.exists():
+                fichier.write_text("", encoding="utf-8")
+            os.chmod(fichier, 0o666)
+
+    jouer(ECRIT)
+    assert banc.executer(banc.carte()).route == "terminer"
+    jouer(RELECTURE)
+    issue = banc.executer(banc.carte(carte="t_cd34ef56", role="relecture", carte_relue="t_ab12cd34",
+                                     branche_depart=None, modele="opus"))
+    assert issue.route == "terminer", issue.corps.get("raison")
+    appel = [i for i in banc.invocations() if i.get("outil") == "claude"][-1]
+    assert appel["uid"] == 10002
+    lectures = _lectures_du_relecteur(banc)
+    assert "+X = 1" in lectures["{add_dir}/diff.patch"], lectures
+    assert lectures["nouveau.py"] == "X = 1\n"
 
 
 def test_base_perdue_retrouvee_par_l_ancetre_commun(banc):

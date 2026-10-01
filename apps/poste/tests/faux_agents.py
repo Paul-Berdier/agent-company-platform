@@ -9,8 +9,9 @@ Scénario (JSON) : ``{"executions": [<exécution>…], "journal": "<fichier>", "
 invocation d'agent joue la n-ième exécution (la dernière se répète). Une exécution :
 
 - ``ecrire`` (``{chemin relatif: contenu}``), ``supprimer`` (``[chemins]``), ``lire`` (``[chemins absolus]`` : le
-  résultat de chaque lecture, « lu » ou « refusé », va au journal), ``attendre_s``, ``bloquer`` (ne finit jamais),
-  ``code`` (code de sortie) ;
+  résultat de chaque lecture, « lu » ou « refusé », va au journal), ``lire_texte`` (``[chemins]``, relatifs au
+  dossier courant ou préfixés par ``{add_dir}``, le dossier passé à ``--add-dir`` : le DÉBUT du contenu lu, ou
+  « refusé », va au journal), ``attendre_s``, ``bloquer`` (ne finit jamais), ``code`` (code de sortie) ;
 - ``sortie`` (objet structuré ; défaut : ``termine``), ``sans_sortie`` ;
 - ``session`` ; Claude : ``modele`` (servi, dans ``system/init``), ``outils``, ``limite`` (``rate_limit_info``) ;
   Codex : ``limite`` (vrai : ``turn.failed`` « usage limit »).
@@ -51,7 +52,7 @@ def _rang(scenario: dict) -> int:
     return rang
 
 
-def _agir(execution: dict, scenario: dict) -> None:
+def _agir(execution: dict, scenario: dict, arguments: list[str]) -> None:
     for chemin, contenu in (execution.get("ecrire") or {}).items():
         dossier = os.path.dirname(chemin)
         if dossier:
@@ -68,6 +69,15 @@ def _agir(execution: dict, scenario: dict) -> None:
         except OSError:
             issue = "refusé"
         _journal(scenario, {"lecture": chemin, "issue": issue})
+    ajout = arguments[arguments.index("--add-dir") + 1] if "--add-dir" in arguments else ""
+    for modele in execution.get("lire_texte") or []:
+        chemin = modele.replace("{add_dir}", ajout)
+        try:
+            with open(chemin, encoding="utf-8") as flux:
+                contenu = flux.read(2000)
+        except OSError as exc:
+            contenu = f"refusé ({type(exc).__name__})"
+        _journal(scenario, {"texte": modele, "contenu": contenu})
     if execution.get("bloquer"):
         while True:
             time.sleep(1)
@@ -100,7 +110,7 @@ def main(argv: list[str]) -> int:
     if outil == "codex":
         _emettre({"type": "thread.started", "thread_id": session})
         _emettre({"type": "turn.started"})
-        _agir(execution, scenario)
+        _agir(execution, scenario, arguments)
         if execution.get("limite"):
             _emettre({"type": "turn.failed", "error": {"message": "You've hit your usage limit."}})
             return 1
@@ -116,7 +126,7 @@ def main(argv: list[str]) -> int:
     _emettre({"type": "system", "subtype": "init", "session_id": session,
               "model": execution.get("modele", "claude-sonnet-5"),
               "tools": execution.get("outils", ["Read", "Glob", "Grep", "Edit", "Write"])})
-    _agir(execution, scenario)
+    _agir(execution, scenario, arguments)
     if execution.get("limite"):
         _emettre({"type": "rate_limit_event", "rate_limit_info": execution["limite"]})
     resultat = {"type": "result", "subtype": "success", "is_error": False, "session_id": session, "result": "fini",

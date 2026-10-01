@@ -164,6 +164,22 @@ class LanceurAgents:
         os.chmod(chemin, mode)
         return chemin
 
+    def fichier(self, chemin: Path, contenu: bytes, mode: int) -> Path:
+        """Fichier écrit par le superviseur POUR les agents (``diff.patch`` d'une relecture) : root, groupe
+        ``acp-travail`` (sinon root:root, illisible par les UID des agents : relecture de P6), lien final jamais suivi."""
+        descripteur = os.open(chemin, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), mode)
+        try:
+            os.write(descripteur, contenu)
+            if self.droits:
+                os.fchown(descripteur, 0, 10100)
+            if hasattr(os, "fchmod"):
+                os.fchmod(descripteur, mode)
+        finally:
+            os.close(descripteur)
+        if not hasattr(os, "fchmod"):
+            os.chmod(chemin, mode)
+        return chemin
+
 
 @dataclass
 class Execution:
@@ -372,6 +388,14 @@ class Execution:
         await asyncio.to_thread(self.depots.recuperer, depot)
         base_ref = f"origin/{depot.branche_base}"
         depart = demande.branche_depart or base_ref
+        if demande.role == "relecture" and demande.carte_relue and not demande.branche_depart:
+            # Le greffon sert une relecture SANS branche de départ : son worktree partait de la branche de base et ne
+            # contenait pas le code relu (relecture de P6). Il part de la branche RELUE ; absente : refus, jamais une
+            # relecture à l'aveugle.
+            depart = f"hermes/{demande.carte_relue}"
+            if not self.depots.branche_existe(depot.alias, depart):
+                raise CarteRefusee("capacite", f"Branche relue {depart} absente de l'exécutant : relecture impossible "
+                                               "(jamais à l'aveugle).")
         if demande.branche_depart and not self.depots.branche_existe(depot.alias, demande.branche_depart):
             raise CarteRefusee("politique", f"Branche de départ {demande.branche_depart} absente de l'exécutant : "
                                             "carte non préparée.")
@@ -408,10 +432,11 @@ class Execution:
             tete_relue = self.depots.sha(self.depots.nu(depot.alias), f"refs/heads/{branche_relue}")
             base_relue = relue.get("base") or self.depots.merge_base(depot.alias, f"refs/remotes/{base_ref}",
                                                                      f"refs/heads/{branche_relue}")
-            if tete_relue and base_relue:
-                diff = self.depots.diff_texte(depot.alias, nom, base_relue, tete_relue)
-                (lecture / "diff.patch").write_text(diff, encoding="utf-8")
-                os.chmod(lecture / "diff.patch", 0o640)
+            if not (tete_relue and base_relue):
+                raise CarteRefusee("capacite", f"Diff de la carte relue {demande.carte_relue} impossible à établir "
+                                               "sur l'exécutant : relecture impossible (jamais à l'aveugle).")
+            diff = self.depots.diff_texte(depot.alias, nom, base_relue, tete_relue)
+            self.lanceur.fichier(lecture / "diff.patch", diff.encode("utf-8"), 0o640)
 
         consigne = self._consigne(demande, lecture)
         session = connue.get("session") if demande.reprise else None
