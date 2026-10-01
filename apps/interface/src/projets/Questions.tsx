@@ -5,18 +5,28 @@
 // - cartes en triage : les gestes que le greffon offre (« Prolonger » ou « Relancer la planification » avec
 //   une consigne facultative, « Conclure le projet » ; « Reprendre » pour une autre carte en triage) ;
 // - cartes bloquées ou abandonnées : LECTURE SEULE en P4 (« Relancer » relève de P7 : aucun bouton), avec
-//   leur raison connue.
+//   leur raison connue ;
+// - étape P6 : cartes EN REVUE pour des fichiers de pilotage des agents (chemins, modification, résumé), avec
+//   « Accepter » et « Refuser » (motif exigé) ; le diff reste sur l'exécutant, et la page le dit (aucun faux aperçu).
 import type * as ReactTypes from "react";
 import { T } from "../chaines";
 import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { h, useState, type Noeud } from "../react";
 import { chaine, listeDeChaines } from "../types";
-import { conclureTriage, lireQuestions, repondreQuestion, reprendreTriage } from "./api";
+import { accepterRevue, conclureTriage, lireQuestions, refuserRevue, repondreQuestion, reprendreTriage } from "./api";
 import { BlocRefus, Bouton, Etiquette, Horodatage, LienVue, RetourEnvoi, type Naviguer } from "./briques";
 import { useEnvoi } from "./envoi";
 import { libelleEtatQuestion } from "./libelles";
 import { useSondage } from "./sondage";
-import type { CarteEnAttente, ListeQuestions, QuestionOuverte, ResultatReponse, ResultatTriage } from "./types";
+import type {
+  CarteEnAttente,
+  ListeQuestions,
+  QuestionOuverte,
+  ResultatReponse,
+  ResultatRevue,
+  ResultatTriage,
+  RevuePilotage,
+} from "./types";
 
 type Saisie = ReactTypes.ChangeEvent<HTMLTextAreaElement>;
 
@@ -219,6 +229,106 @@ function Triage(props: { carte: CarteEnAttente; naviguer: Naviguer; apres: () =>
   );
 }
 
+function Revue(props: { revue: RevuePilotage; naviguer: Naviguer; apres: () => void }): Noeud {
+  const { revue } = props;
+  const tableau = chaine(revue.tableau);
+  const identifiant = chaine(revue.carte);
+  const chemins = listeDeChaines(revue.chemins);
+  const [motif, fixerMotif] = useState("");
+  const acceptation = useEnvoi<ResultatRevue>();
+  const refus = useEnvoi<ResultatRevue>();
+  const champ = `acp-motif-revue-${identifiant ?? "inconnue"}`;
+  const accepter = async () => {
+    if (!tableau || !identifiant) return;
+    if ((await acceptation.envoyer(() => accepterRevue(tableau, identifiant))) !== null) props.apres();
+  };
+  const refuser = async (evenement: ReactTypes.FormEvent) => {
+    evenement.preventDefault();
+    if (!tableau || !identifiant || !motif.trim()) return;
+    if ((await refus.envoyer(() => refuserRevue(tableau, identifiant, motif.trim()))) !== null) {
+      fixerMotif("");
+      props.apres();
+    }
+  };
+  const d = revue.diffstat;
+  const occupe = acceptation.etat.etat === "envoi" || refus.etat.etat === "envoi";
+  return (
+    <li className="acp-entree">
+      <h3 className="acp-entree__nom">
+        <Donnee valeur={chaine(revue.titre)} />
+      </h3>
+      <dl className="acp-liste">
+        <Ligne libelle={T.projets.projet}>
+          <LienProjet id={revue.projet} titre={revue.projet_titre} naviguer={props.naviguer} />
+        </Ligne>
+        <Ligne libelle={T.projets.chemins}>
+          {chemins.length === 0 ? (
+            <Donnee valeur={null} />
+          ) : (
+            <ul className="acp-noms">
+              {chemins.map((c) => (
+                <li key={c}>
+                  <Donnee valeur={c} mono />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Ligne>
+        <Ligne libelle={T.projets.diffstat}>
+          {d ? (
+            <span className="acp-etat">
+              <span>
+                <Donnee valeur={d.fichiers ?? null} /> {T.projets.fichiers}
+              </span>
+              <span>
+                <Donnee valeur={d.ajouts ?? null} /> {T.projets.ajouts}
+              </span>
+              <span>
+                <Donnee valeur={d.retraits ?? null} /> {T.projets.retraits}
+              </span>
+            </span>
+          ) : (
+            <Donnee valeur={null} />
+          )}
+        </Ligne>
+        <Ligne libelle={T.projets.branche}>
+          <Donnee valeur={chaine(revue.branche)} mono />
+        </Ligne>
+        <Ligne libelle={T.projets.tete}>
+          <Donnee valeur={chaine(revue.tete)} mono />
+        </Ligne>
+        <Ligne libelle={T.projets.resume}>
+          <Donnee valeur={chaine(revue.resume)} />
+        </Ligne>
+      </dl>
+      <p className="acp-discret">
+        <Donnee valeur={chaine(revue.diff)} />
+      </p>
+      {tableau && identifiant ? (
+        <form className="acp-formulaire" onSubmit={(e: ReactTypes.FormEvent) => void refuser(e)}>
+          <div className="acp-champ">
+            <label htmlFor={champ}>{T.projets.motifRefus}</label>
+            <textarea
+              id={champ}
+              data-acp-donnee=""
+              rows={2}
+              maxLength={1000}
+              value={motif}
+              onChange={(e: Saisie) => fixerMotif(e.target.value)}
+            />
+          </div>
+          <div className="acp-actions">
+            <Bouton principal libelle={T.projets.accepterRevue} surClic={() => void accepter()} desactive={occupe} />
+            <Bouton type="submit" danger libelle={T.projets.refuserRevue} desactive={occupe || !motif.trim()} />
+          </div>
+          <RetourEnvoi etat={acceptation.etat} reussite={T.projets.revueAcceptee} />
+          <RetourEnvoi etat={refus.etat} reussite={T.projets.revueRefusee} />
+        </form>
+      ) : null}
+    </li>
+  );
+}
+
 function Bloquee(props: { carte: CarteEnAttente; naviguer: Naviguer }): Noeud {
   const { carte } = props;
   return (
@@ -257,6 +367,7 @@ export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () 
   const questions = Array.isArray(donnees.questions) ? donnees.questions : [];
   const triage = Array.isArray(donnees.triage) ? donnees.triage : [];
   const bloquees = Array.isArray(donnees.bloquees) ? donnees.bloquees : [];
+  const revues = Array.isArray(donnees.revues) ? donnees.revues : [];
   const illisibles = listeDeChaines(donnees.tableaux_illisibles);
   return (
     <div className="acp-sections">
@@ -279,6 +390,18 @@ export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () 
           <ul className="acp-entrees acp-entrees--une">
             {triage.map((c, rang) => (
               <Triage key={chaine(c.carte) ?? String(rang)} carte={c} naviguer={props.naviguer} apres={props.apres} />
+            ))}
+          </ul>
+        )}
+      </Carte>
+      <Carte titre={T.projets.revuesTitre} id="acp-questions-revues">
+        <p className="acp-discret">{T.projets.revuesIntro}</p>
+        {revues.length === 0 ? (
+          <p className="acp-discret">{T.projets.aucuneRevue}</p>
+        ) : (
+          <ul className="acp-entrees acp-entrees--une">
+            {revues.map((r, rang) => (
+              <Revue key={chaine(r.carte) ?? String(rang)} revue={r} naviguer={props.naviguer} apres={props.apres} />
             ))}
           </ul>
         )}

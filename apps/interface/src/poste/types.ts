@@ -15,6 +15,9 @@ export interface MachineVue {
   motif_revocation?: string | null;
   derniere_requete?: number | null;
   politique_valide?: boolean;
+  // Étape P6 : plateforme et hôte publiés par l'inventaire.
+  plateforme?: string;
+  hote?: string;
 }
 
 export interface EtatMachines {
@@ -71,6 +74,9 @@ export interface ContenuInventaire {
     python?: string;
     politique_empreinte?: string;
     hermes_meme_enveloppe_que_codex?: boolean;
+    plateforme?: string;
+    hote?: string;
+    noyau?: string | null;
   };
   depots?: Array<{ alias?: string }>;
   bac_a_sable_codex?: BacASable;
@@ -95,12 +101,84 @@ export interface OrdreVue {
   livre?: boolean;
 }
 
+// ------------------------------------------------------------------ exécutant (étape P6, cahier P6 § 4.4, § 9.3)
+
+export interface IsolementLinux {
+  regime?: string;
+  bwrap?: string;
+  proc_neuf?: boolean | null;
+  reseau_coupe?: boolean | null;
+  uid_separes?: boolean | null;
+  codex_sans_bac_a_sable?: string;
+  ecriture_admise?: Record<string, boolean>;
+  raison?: string | null;
+  sonde_le?: string;
+}
+
+export interface CarteEnMain {
+  tableau?: string;
+  carte?: string;
+  run_id?: number;
+  connue?: boolean;
+  projet?: string;
+  projet_titre?: string;
+  titre?: string;
+  role?: string;
+  voie?: string;
+  modele_demande?: string | null;
+  modele_servi?: string | null;
+  effort?: string | null;
+  statut?: string | null;
+  dernier_battement?: number | null;
+  a_nous?: boolean;
+}
+
+export interface BranchePrete {
+  projet?: string;
+  projet_titre?: string;
+  depot?: string;
+  branche?: string;
+  tete?: string | null;
+  termine_le?: number | null;
+  commande?: string;
+}
+
+export interface CarteVoieFermee {
+  projet?: string;
+  tableau?: string;
+  carte?: string;
+  voie?: string;
+  titre?: string;
+  depuis?: number | null;
+  raison?: string | null;
+}
+
+export interface VueExecutant {
+  connu?: boolean;
+  plateforme?: string;
+  hote?: string;
+  noyau?: string | null;
+  isolement?: IsolementLinux | null;
+  bac_a_sable_codex?: BacASable | null;
+  conditions?: Record<string, string | null> | null;
+  bornes?: { cartes_par_jour?: number | null; duree_max_carte_s?: number | null; concurrence?: number | null };
+  peut_executer?: boolean | null;
+  voies_disponibles?: string[] | null;
+  espace_libre_mio?: number | null;
+  voies_fermees?: Record<string, string>;
+  cartes_en_attente_de_voie?: CarteVoieFermee[];
+  carte_en_cours?: CarteEnMain | null;
+  branches_pretes?: BranchePrete[];
+  revues?: number;
+}
+
 export interface ReponsePostePage {
   poste?: EtatDuPoste;
   machine?: EtatMachines;
   inventaire?: Inventaire | null;
   alertes?: string[];
   ordres?: OrdreVue[];
+  executant?: VueExecutant;
 }
 
 export interface CodeEnrolement {

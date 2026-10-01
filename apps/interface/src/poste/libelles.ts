@@ -16,6 +16,8 @@ export function libelleEtatDuPoste(etat: unknown): Libelle | null {
       return L(e.enLigne, "succes");
     case "hors_ligne":
       return L(e.horsLigne, "neutre");
+    case "redeploiement":
+      return L(e.redeploiement, "degrade");
     case "revoque":
       return L(e.revoque, "echec");
     default:
