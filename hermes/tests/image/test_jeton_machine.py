@@ -236,12 +236,14 @@ journal.setLevel(logging.WARNING)
 journal.addHandler(Collecteur(level=logging.WARNING))
 module.register(ctx)
 from hermes_cli.dashboard_auth.token_auth import is_token_route
-chemins = ["/api/plugins/acp-poste/machine/v1/enrolement", "/api/plugins/acp-poste/machine/v1/reclamer",
-           "/api/plugins/acp-poste/machine/v1/inventaire"]
+# Étape P6 : neuf chemins exacts (les trois de P5, puis les six de l'exécution).
+chemins = ["/api/plugins/acp-poste/machine/v1/" + r for r in ("enrolement", "reclamer", "inventaire", "battement",
+                                                            "terminer", "question", "bloquer", "reprendre", "arret")]
 resultat = [[(f.name, f.supports_token, f.supports_session) for f in ctx.fournisseurs],
             [is_token_route(c) for c in chemins],
-            [is_token_route(c + "/") for c in chemins] + [is_token_route("/api/plugins/acp-poste/machine/v1/battement"),
-             is_token_route("/api/plugins/acp-poste/v1/poste")],
+            [is_token_route(c + "/") for c in chemins] + [is_token_route("/api/plugins/acp-poste/machine/v1/pousser"),
+             is_token_route("/api/plugins/acp-poste/v1/poste"),
+             is_token_route("/api/plugins/acp-poste/v1/revues/acp-x/t_0001/accepter")],
             messages]
 """
 
@@ -250,22 +252,23 @@ def test_register_enregistre_le_fournisseur_et_les_chemins_exacts(noyau):
     code = _CODE_REGISTER.replace("__AVEC_SESSION__", "True")
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
     assert fournisseurs == [["acp-poste-machine", True, False]]
-    assert exacts == [True, True, True]
-    assert autres == [False] * 5  # chemin exact seulement ; routes P6 et routes du propriétaire jamais à jeton
-    assert list(ROUTES) == ["/api/plugins/acp-poste/machine/v1/enrolement", "/api/plugins/acp-poste/machine/v1/reclamer",
-                            "/api/plugins/acp-poste/machine/v1/inventaire"]
+    assert exacts == [True] * 9  # étape P6 : test_neuf_chemins_a_jeton
+    # Chemin exact seulement ; une route non déclarée (pousser, D79) et les routes du propriétaire jamais à jeton.
+    assert autres == [False] * 12
+    assert list(ROUTES) == ["/api/plugins/acp-poste/machine/v1/" + r for r in (
+        "enrolement", "reclamer", "inventaire", "battement", "terminer", "question", "bloquer", "reprendre", "arret")]
     assert [m for m in messages if m[0] == "ERROR"] == []
 
 
 def test_register_sans_fournisseur_de_session_enregistre_quand_meme(noyau):
     """Relecture de P5 (décision D69, révisée) : à l'appel de register(), le fournisseur OIDC n'est JAMAIS encore là
     (acp-poste se charge avant lui, test suivant). Subordonner l'enregistrement à sa présence retirait le jeton
-    machine de tout déploiement réel : le fournisseur et ses trois chemins s'enregistrent donc sans condition, sans
-    erreur au journal."""
+    machine de tout déploiement réel : le fournisseur et ses neuf chemins (P6) s'enregistrent donc sans condition,
+    sans erreur au journal."""
     code = _CODE_REGISTER.replace("__AVEC_SESSION__", "False")
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
     assert fournisseurs == [["acp-poste-machine", True, False]]
-    assert exacts == [True, True, True] and autres == [False] * 5
+    assert exacts == [True] * 9 and autres == [False] * 12
     assert [m for m in messages if m[0] == "ERROR"] == []
 
 

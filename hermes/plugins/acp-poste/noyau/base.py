@@ -19,6 +19,16 @@ d'enrôlement (``enrolements``, SHA-256 seulement), ordres au poste (``ordres``)
 est idempotente, y compris entre processus (passerelle, tableau de bord et workers peuvent la lancer en même
 temps) : chaque colonne n'est ajoutée qu'après lecture de ``PRAGMA table_info``, sous la transaction
 ``IMMEDIATE`` de :func:`migrer`, et la version passe à ``'2'`` par un ``UPDATE``.
+
+Schéma v3 (étape P6, cahier P6 § 9.1) : envois idempotents de l'exécutant (``envois``, 7 jours), attentes de quota
+(``attentes``) ; ``demandes`` reçoit la réclamation, l'issue et la revue d'une carte du poste, et ses contraintes
+admettent le rôle ``integration`` et la voie ``poste-integration`` ; ``notifications`` admet les genres ``revue``,
+``secret``, ``conflit``, ``integration`` et ``isolement`` ; ``questions.livree_le``, ``machines.plateforme`` et
+``hote``, ``presence.arret_propre_le``. Une contrainte ``CHECK`` ne se modifie pas en SQLite : ``demandes`` et
+``notifications`` sont RECONSTRUITES, une seule fois (repérée par le texte de leur contrainte dans
+``sqlite_master``), sous la même transaction ``IMMEDIATE`` ; aucune table ne les référence, ``foreign_keys=ON``
+reste donc sans effet sur le ``DROP``. Une base neuve suit exactement les mêmes étapes (schéma v2, puis v3) : base
+neuve et base migrée ont le même schéma, colonne pour colonne.
 """
 
 from __future__ import annotations
@@ -34,7 +44,7 @@ from typing import Any, Callable, Dict, Iterator, Optional
 from . import kanban_adapter as ka
 
 NOM_GREFFON = "acp-poste"
-VERSION_SCHEMA = "2"
+VERSION_SCHEMA = "3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta_schema (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);
@@ -187,10 +197,107 @@ COLONNES_V2 = (
     ("releves", "accepte_par", "TEXT"),
 )
 
+# ------------------------------------------------------------------ schéma v3 (étape P6, cahier P6 § 9.1)
+
+SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS envois (
+  id_envoi TEXT PRIMARY KEY CHECK (length(id_envoi) = 36),
+  machine_id TEXT NOT NULL,
+  route TEXT NOT NULL CHECK (route IN ('battement','terminer','question','bloquer','reprendre','arret')),
+  tableau TEXT NOT NULL, carte TEXT NOT NULL, run_id INTEGER NOT NULL,
+  empreinte TEXT NOT NULL CHECK (length(empreinte) = 64),
+  statut INTEGER NOT NULL, reponse TEXT NOT NULL CHECK (length(reponse) <= 8192),
+  recu_le INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS envois_par_date ON envois (recu_le);
+CREATE TABLE IF NOT EXISTS attentes (
+  tableau TEXT NOT NULL, carte TEXT NOT NULL,
+  motif TEXT NOT NULL CHECK (motif IN ('quota')),
+  reprise_le INTEGER NOT NULL, machine_id TEXT, raison TEXT, cree_le INTEGER NOT NULL,
+  PRIMARY KEY (tableau, carte)
+);
+"""
+
+# Colonnes ajoutées par v3 (même mécanique que v2 : PRAGMA table_info, puis ALTER), AVANT la reconstruction.
+COLONNES_V3 = (
+    ("demandes", "machine_id", "TEXT"),           # machine qui a réclamé la carte (reprise sur la même machine)
+    ("demandes", "reclamee_le", "INTEGER"),
+    ("demandes", "session_locale", "INTEGER"),    # 0/1 : l'exécutant garde le fil local de la session
+    ("demandes", "issue", "TEXT"),                # dernière issue reçue (terminer, question, bloquer…)
+    ("demandes", "branche", "TEXT"),
+    ("demandes", "tete", "TEXT"),
+    ("demandes", "verification", "TEXT"),         # JSON borné (contrat Verification)
+    ("demandes", "pilotage", "TEXT"),             # JSON : chemins de pilotage touchés (revue)
+    ("demandes", "diffstat", "TEXT"),             # JSON : fichiers, ajouts, retraits
+    ("demandes", "revue_refusee_le", "INTEGER"),
+    ("demandes", "motif_refus", "TEXT"),
+    ("demandes", "refus_livre_le", "INTEGER"),
+    ("demandes", "voie_fermee_depuis", "INTEGER"),  # carte prête d'une voie fermée vue depuis (§ 4.3)
+    ("questions", "livree_le", "INTEGER"),
+    ("machines", "plateforme", "TEXT NOT NULL DEFAULT 'windows'"),
+    ("machines", "hote", "TEXT NOT NULL DEFAULT 'pc'"),
+    # Dernière réclamation de l'exécutant (page Poste) : peut-il exécuter, voies annoncées, carte en main, disque.
+    ("machines", "peut_executer", "INTEGER"),
+    ("machines", "voies_disponibles", "TEXT"),
+    ("machines", "carte_en_cours", "TEXT"),
+    ("machines", "espace_libre_mio", "INTEGER"),
+    ("presence", "arret_propre_le", "INTEGER"),
+)
+
+# Tables reconstruites par v3 (contrainte CHECK élargie) : forme complète, colonnes v3 comprises, dans l'ordre que
+# l'ALTER leur a données ; ``{nom}`` est le nom de la table créée.
+DEMANDES_V3 = """CREATE TABLE {nom} (
+  cle        TEXT PRIMARY KEY,
+  projet_id  TEXT NOT NULL REFERENCES projets(id),
+  tableau    TEXT NOT NULL,
+  carte      TEXT,
+  role       TEXT NOT NULL CHECK (role IN ('exploration','planification','implementation','relecture',
+                                           'correction','hermes','synthese','repondre','triage','integration')),
+  classe     TEXT NOT NULL,
+  voie       TEXT NOT NULL CHECK (voie IN ('poste-codex','poste-claude','hermes','poste-integration')),
+  tour       INTEGER NOT NULL, ref TEXT, titre TEXT NOT NULL DEFAULT '',
+  modele TEXT, effort TEXT, palier TEXT,
+  modele_carte TEXT, effort_carte TEXT,
+  source_routage TEXT NOT NULL CHECK (source_routage IN ('surcharge_carte','surcharge_projet',
+                  'surcharge_globale','choix_explicite','table','profil','sans_objet')),
+  releve_id  INTEGER REFERENCES releves(id),
+  depot_alias TEXT, consigne TEXT NOT NULL,
+  carte_relue TEXT, correction_n INTEGER NOT NULL DEFAULT 0,
+  modele_servi TEXT, palier_servi TEXT, observe_le INTEGER,
+  mention TEXT,
+  parents TEXT NOT NULL DEFAULT '[]', competences TEXT, priorite INTEGER NOT NULL DEFAULT 0,
+  duree_max INTEGER, triage INTEGER NOT NULL DEFAULT 0, corps TEXT NOT NULL DEFAULT '',
+  cree_le INTEGER NOT NULL,
+  machine_id TEXT, reclamee_le INTEGER, session_locale INTEGER, issue TEXT, branche TEXT, tete TEXT,
+  verification TEXT, pilotage TEXT, diffstat TEXT, revue_refusee_le INTEGER, motif_refus TEXT,
+  refus_livre_le INTEGER, voie_fermee_depuis INTEGER,
+  UNIQUE (tableau, carte)
+)"""
+NOTIFICATIONS_V3 = """CREATE TABLE {nom} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cle TEXT NOT NULL UNIQUE,
+  genre TEXT NOT NULL CHECK (genre IN ('question','bloquee','triage','abandon','termine','hors_ligne',
+                                       'plafond','test','crochets','revue','secret','conflit','integration',
+                                       'isolement')),
+  projet_id TEXT, texte TEXT NOT NULL CHECK (length(texte) <= 500), lien TEXT,
+  etat TEXT NOT NULL CHECK (etat IN ('en_attente','envoyee','desactivee','echec')),
+  tentatives INTEGER NOT NULL DEFAULT 0, prochaine_tentative INTEGER, derniere_erreur TEXT,
+  cree_le INTEGER NOT NULL, envoyee_le INTEGER
+)"""
+# (table, forme v3, marqueur présent dans la contrainte v3 seulement, index à recréer)
+RECONSTRUCTIONS_V3 = (
+    ("demandes", DEMANDES_V3, "'integration'",
+     ("CREATE INDEX IF NOT EXISTS demandes_par_projet ON demandes (projet_id, tour)",)),
+    ("notifications", NOTIFICATIONS_V3, "'isolement'",
+     ("CREATE INDEX IF NOT EXISTS notifications_par_etat ON notifications (etat, prochaine_tentative)",)),
+)
+
 TABLES = ("meta_schema", "projets", "releves", "tours", "demandes", "questions", "presence", "curseurs",
           "notifications", "routage", "surcharges", "reglages", "journal", "emetteur",
           # Schéma v2 (étape P5).
-          "machines", "enrolements", "ordres", "inventaires")
+          "machines", "enrolements", "ordres", "inventaires",
+          # Schéma v3 (étape P6).
+          "envois", "attentes")
 
 # Réglages par défaut (table ``reglages``) : lus à chaque usage, modifiables par le propriétaire
 # (P5, P7) ; les tests les posent par la même fonction (:func:`poser_reglage`).
@@ -216,6 +323,13 @@ REGLAGES_PAR_DEFAUT: Dict[str, Any] = {
     "enrolement_validite_s": 600,
     "inventaire_intervalle_min_s": 60,
     "ordre_expiration_s": 3600,
+    # Étape P6 (cahier P6 § 5, § 4.3, § 17) : réclamation de l'exécutant, conservation des envois, grâce d'un arrêt
+    # propre, carte prête d'une voie fermée, repli de la relecture (D88, appliqué par le propriétaire).
+    "reclamation_ttl_s": 2700,
+    "envois_conservation_s": 7 * 24 * 3600,
+    "grace_arret_propre_s": 600,
+    "voie_fermee_delai_s": 1800,
+    "relecture_repli_meme_voie": True,
 }
 PLANCHER_EMETTEUR_S = 5
 
@@ -285,11 +399,30 @@ def _colonnes(conn: sqlite3.Connection, table: str) -> set:
     return {str(ligne[1]) for ligne in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
+def _sql_de_la_table(conn: sqlite3.Connection, table: str) -> str:
+    ligne = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    return str(ligne[0]) if ligne and ligne[0] else ""
+
+
+def reconstruire_dans(conn: sqlite3.Connection, table: str, forme: str, index: tuple) -> None:
+    """Reconstruit ``table`` selon ``forme`` (contrainte ``CHECK`` élargie), SOUS la transaction de l'appelant :
+    table neuve, copie de toutes les lignes colonne par colonne, ``DROP``, ``RENAME``, index recréés."""
+    neuve = f"{table}_v3"
+    conn.execute(f"DROP TABLE IF EXISTS {neuve}")
+    conn.execute(forme.format(nom=neuve))
+    colonnes = ", ".join(str(l[1]) for l in conn.execute(f"PRAGMA table_info({neuve})").fetchall())
+    conn.execute(f"INSERT INTO {neuve} ({colonnes}) SELECT {colonnes} FROM {table}")
+    conn.execute(f"DROP TABLE {table}")
+    conn.execute(f"ALTER TABLE {neuve} RENAME TO {table}")
+    for instruction in index:
+        conn.execute(instruction)
+
+
 def migrer(conn: sqlite3.Connection) -> None:
-    """Schéma v2, idempotent (``IF NOT EXISTS``, colonnes ajoutées après lecture de ``PRAGMA table_info``), le
-    tout sous UNE transaction ``IMMEDIATE`` : deux processus qui migrent en même temps se succèdent, le second
-    trouve tout en place. Une base v1 passe à ``'2'`` par un ``UPDATE`` (l'``INSERT OR IGNORE`` seul laisserait
-    ``'1'``) ; une base neuve reçoit directement ``'2'``."""
+    """Schéma v3, idempotent (``IF NOT EXISTS``, colonnes ajoutées après lecture de ``PRAGMA table_info``,
+    reconstructions repérées par leur contrainte), le tout sous UNE transaction ``IMMEDIATE`` : deux processus qui
+    migrent en même temps se succèdent, le second trouve tout en place. Une base v1 ou v2 passe à ``'3'`` par un
+    ``UPDATE`` (l'``INSERT OR IGNORE`` seul laisserait l'ancienne version) ; une base neuve reçoit ``'3'``."""
     with transaction(conn):
         for instruction in SCHEMA.split(";"):
             if instruction.strip():
@@ -297,8 +430,19 @@ def migrer(conn: sqlite3.Connection) -> None:
         for table, colonne, genre in COLONNES_V2:
             if colonne not in _colonnes(conn, table):
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {genre}")
+        # Étape P6 : tables, colonnes, puis reconstructions (une seule fois chacune).
+        for instruction in SCHEMA_V3.split(";"):
+            if instruction.strip():
+                conn.execute(instruction)
+        for table, colonne, genre in COLONNES_V3:
+            if colonne not in _colonnes(conn, table):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {genre}")
+        for table, forme, marqueur, index in RECONSTRUCTIONS_V3:
+            if marqueur not in _sql_de_la_table(conn, table):
+                reconstruire_dans(conn, table, forme, index)
         conn.execute("INSERT OR IGNORE INTO meta_schema (cle, valeur) VALUES ('version', ?)", (VERSION_SCHEMA,))
-        conn.execute("UPDATE meta_schema SET valeur = ? WHERE cle = 'version' AND valeur = '1'", (VERSION_SCHEMA,))
+        conn.execute("UPDATE meta_schema SET valeur = ? WHERE cle = 'version' AND valeur IN ('1', '2')",
+                     (VERSION_SCHEMA,))
 
 
 def version_schema(conn: sqlite3.Connection) -> Optional[str]:
