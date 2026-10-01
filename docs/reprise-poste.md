@@ -1615,7 +1615,35 @@ Tout ce qui exige vos vrais comptes ou l'installation réelle sur votre PC ([`po
 compte dédié, tâche planifiée, UAC du bac à sable, redémarrage sans session, relevé réel de `model/list`, quotas
 réels, `claude auth status` avec le seul jeton d'environnement, notification réelle, isolement du profil, coffre de
 Codex. Claude Code installé sur ce PC : **2.1.239**, antérieur au minimum 2.1.248 exigé par le poste (`--restricted`) :
-à mettre à jour avant l'installation.
+à mettre à jour avant l'installation (l'installeur le refuse désormais dès la répétition à blanc, D71).
+
+### Relecture indépendante de P5 : traitement (27/09 au 01/10/2026)
+
+Trois relectures de `6aa569f` (exactitude, sécurité, exploitation) : aucun constat critique ; un haut, quatre
+moyens, onze bas, **tous réels**, tous corrigés avec un test qui échoue sans la correction, ou déclarés. Tableau
+constat → traitement → preuve : [`poste.md`](refonte/poste.md) § 26 ; décisions ajoutées **D67 à D73**
+([`plan.md`](refonte/plan.md) § 1, non confirmées ; recommandation par défaut : les garder).
+
+En bref : l'installeur ne vide plus la clé `UserList` (les comptes `CodexSandbox*` restent masqués), lit la version
+de Claude Code dès la répétition à blanc (refus sous 2.1.248, avertissement sous 2.1.280), refuse un Python que le
+compte du poste pourrait modifier, compare `poste.toml` en UTF-8 et imprime des commandes que la console du compte
+exécute telles quelles ; le désinstalleur retire `C:\ACP\espaces` et la seule valeur `acp-poste` de `UserList` ;
+Hermes et l'inventaire donnent les commandes sous une forme exécutable et publiable ; un corps JSON trop imbriqué
+est refusé en français (422), plus jamais un 500 ; les quotas Claude se périment selon leur propre date
+d'observation ; l'interface exige un modèle quand le relevé n'en désigne aucun par défaut (Claude) ; le poste refuse
+un nom inpubliable, un exécutable absent (« fichier introuvable ») et un interpréteur modifiable.
+
+**Piège évité, à retenir** : subordonner l'enregistrement du fournisseur du jeton machine à la présence du
+fournisseur OIDC (`04f20bd`) est impossible : Hermes charge les greffons groupés de type backend dès leur tri, par
+ordre alphabétique (`acp-poste` avant `dashboard_auth/self_hosted`), et `requires_plugins` n'y change rien. La CI
+image l'a montré ([36297538482](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36297538482)) ;
+retiré par `f69dcce`, écart déclaré ([`poste.md`](refonte/poste.md) § 11, D69).
+
+Commits (aucun `Co-Authored-By`) : `559d363`, `00a812d`, `04f20bd`, `a428867`, `d051e05` (27/09), puis `f69dcce`,
+`4735966`, `daf5aaa`, `1ee8ae1`, `11b1d52`, `ee0e4a0`, `c5cb6dc` et la documentation (01/10).
+
+Hors P5, non corrigé : le client desktop cite encore `ACP_WORKER_SUBSCRIPTION_QUOTAS=1`
+(`apps/desktop/src/viewmodels/SubscriptionQuotasViewModel.cpp:932`), disparu en P5 : à revoir en P8.
 
 ## 7. Chaîne d'outils Windows
 
