@@ -58,6 +58,22 @@ struct ApiRequest
     */
     bool publicEndpoint = false;
 
+    /*!
+        Vrai pour le seul appel dont une redirection est la réponse nominale :
+        `POST /auth/logout` rend 302 vers `/login` (routes.py). La redirection n'est PAS
+        suivie ; elle est tenue pour un succès de CET appel. Partout ailleurs, une
+        redirection reste une anomalie.
+    */
+    bool redirectionAttendue = false;
+
+    /*!
+        Jeton de rafraîchissement présenté à `POST /auth/logout` dans le cookie
+        `hermes_session_rt`, seule voie par laquelle Hermes révoque le jeton chez son
+        fournisseur (routes.py, `auth_logout`). Seul usage d'un cookie par la station ;
+        jamais journalisé, effacé après l'envoi.
+    */
+    QByteArray cookieDeconnexion;
+
     //! Vrai si la méthode est sûre au sens HTTP : elle ne modifie rien côté serveur.
     [[nodiscard]] bool isSafeMethod() const
     {

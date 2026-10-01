@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QRegularExpression>
 #include <QStringList>
 
 namespace acp {
@@ -23,6 +24,28 @@ QString clamp(QString text)
         text.append(QStringLiteral(" […]"));
     }
     return text;
+}
+
+QJsonObject objetJson(const QByteArray &body)
+{
+    if (body.isEmpty()) {
+        return {};
+    }
+    QJsonParseError parseError{};
+    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        return {};
+    }
+    return document.object();
+}
+
+bool estFournisseurInjoignable(const QString &detailBrut)
+{
+    // routes.py `/auth/native/refresh` et request_utils.unreachable_response :
+    // « Auth provider '<nom>' unreachable ».
+    static const QRegularExpression motif(
+        QStringLiteral("^Auth provider .* unreachable$"));
+    return motif.match(detailBrut.trimmed()).hasMatch();
 }
 
 } // namespace
@@ -76,6 +99,33 @@ ApiError ApiError::fromHttpStatus(int httpStatus, const QString &serverDetail)
     return ApiError(kind, serverDetail, httpStatus);
 }
 
+ApiError ApiError::fromResponse(int httpStatus, const QByteArray &body)
+{
+    const QJsonObject objet = objetJson(body);
+    ApiError error = fromHttpStatus(httpStatus, extractProblemDetail(body));
+    error.m_body = body;
+
+    const QJsonValue detail = objet.value(QStringLiteral("detail"));
+    if (detail.isObject()) {
+        // Greffon acp-poste : {"detail": {"code", "message", "refus"?}}.
+        const QJsonObject contenu = detail.toObject();
+        error.m_code = contenu.value(QStringLiteral("code")).toString();
+        error.m_refusals = contenu.value(QStringLiteral("refus")).toArray();
+    }
+    const QJsonValue gateError = objet.value(QStringLiteral("error"));
+    if (gateError.isString() && error.m_code.isEmpty()) {
+        error.m_code = gateError.toString();
+    }
+    const QJsonValue reason = objet.value(QStringLiteral("reason"));
+    if (httpStatus == 401 && reason.isString() && !reason.toString().isEmpty()) {
+        error.m_gateReason = reason.toString();
+    }
+    if (httpStatus == 503 && detail.isString() && estFournisseurInjoignable(detail.toString())) {
+        error.m_kind = ApiFailure::IdentityProviderUnavailable;
+    }
+    return error;
+}
+
 ApiError ApiError::refusal(QString reason)
 {
     return ApiError(ApiFailure::ClientRefusal, std::move(reason), 0);
@@ -114,6 +164,8 @@ QString ApiError::title() const
         return QStringLiteral("Version incompatible");
     case ApiFailure::InvalidResponse:
         return QStringLiteral("Réponse inexploitable");
+    case ApiFailure::IdentityProviderUnavailable:
+        return QStringLiteral("Fournisseur d'identité injoignable");
     }
     // Aucune valeur d'énumération ne doit manquer ; si l'on arrive ici, le dire.
     return QStringLiteral("Erreur non classée");
@@ -135,6 +187,7 @@ bool ApiError::isRetryable() const
     case ApiFailure::RateLimited:
     case ApiFailure::ServerError:
     case ApiFailure::ServiceUnavailable:
+    case ApiFailure::IdentityProviderUnavailable:
         return true;
     case ApiFailure::None:
     case ApiFailure::ClientRefusal:
@@ -151,19 +204,60 @@ bool ApiError::isRetryable() const
     return false;
 }
 
+QString traduireMessageHermes(const QString &message)
+{
+    const QString brut = message.trimmed();
+    // Messages fixes de hermes_cli/dashboard_auth (routes.py, middleware.py), Hermes 0.21.5.
+    static const QList<QPair<QString, QString>> fixes = {
+        {QStringLiteral("Unauthorized"), QStringLiteral("non autorisé par la porte de Hermes")},
+        {QStringLiteral("Refresh token expired or invalid; start a new sign-in."),
+         QStringLiteral("jeton de rafraîchissement expiré ou invalide ; reconnectez-vous")},
+        {QStringLiteral("Invalid or expired authorization code."),
+         QStringLiteral("code de connexion invalide ou expiré")},
+        {QStringLiteral("refresh_token required"),
+         QStringLiteral("jeton de rafraîchissement manquant")},
+        {QStringLiteral("no auth providers registered"),
+         QStringLiteral("aucun fournisseur de connexion n'est enregistré sur ce serveur")},
+        {QStringLiteral("Native login expired or unknown; restart sign-in."),
+         QStringLiteral("connexion native expirée ou inconnue ; recommencez")},
+        {QStringLiteral("too many pending native authorizations from this address"),
+         QStringLiteral("trop de connexions en attente depuis cette adresse ; réessayez dans "
+                        "10 minutes")},
+        {QStringLiteral("native-flow authorization store at capacity"),
+         QStringLiteral("trop de connexions en attente sur ce serveur ; réessayez plus tard")},
+        {QStringLiteral("code_challenge_method must be S256"),
+         QStringLiteral("méthode PKCE refusée : S256 est exigée")},
+        {QStringLiteral("code_challenge required"), QStringLiteral("défi PKCE manquant")},
+        {QStringLiteral("redirect_uri required"), QStringLiteral("adresse de retour manquante")},
+    };
+    for (const auto &[anglais, francais] : fixes) {
+        if (brut == anglais) {
+            return francais;
+        }
+    }
+    static const QRegularExpression injoignable(
+        QStringLiteral("^Auth provider '?(.*?)'? unreachable$"));
+    const QRegularExpressionMatch correspondance = injoignable.match(brut);
+    if (correspondance.hasMatch()) {
+        return QStringLiteral("fournisseur d'identité « %1 » injoignable")
+            .arg(correspondance.captured(1));
+    }
+    return message;
+}
+
 QString extractProblemDetail(const QByteArray &body)
 {
-    if (body.isEmpty()) {
+    const QJsonObject objet = objetJson(body);
+    if (objet.isEmpty()) {
         return {};
     }
-    QJsonParseError parseError{};
-    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        return {};
-    }
-    const QJsonValue detail = document.object().value(QStringLiteral("detail"));
+    const QJsonValue detail = objet.value(QStringLiteral("detail"));
     if (detail.isString()) {
-        return detail.toString();
+        return traduireMessageHermes(detail.toString());
+    }
+    if (detail.isObject()) {
+        // Greffon acp-poste : le message est déjà en français.
+        return detail.toObject().value(QStringLiteral("message")).toString();
     }
     if (detail.isArray()) {
         // Forme de validation FastAPI : on assemble les messages en conservant leur

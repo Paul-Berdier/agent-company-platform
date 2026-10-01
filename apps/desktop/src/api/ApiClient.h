@@ -6,8 +6,16 @@
 //    appel est refusé en français.
 //  - HTTPS imposé. Le bouclage en clair n'est accepté que sur autorisation explicite.
 //  - Aucun cookie : le pot de cookies de Qt est neutralisé, et aucun `Set-Cookie` n'est
-//    jamais appliqué ni relu. La session de Hermes voyage en porteur (`Authorization`),
-//    jamais dans un cookie.
+//    jamais appliqué ni relu. La session de Hermes voyage en porteur (`Authorization:
+//    Bearer`), posé au moment de CHAQUE tentative depuis la session en mémoire ; il n'est
+//    jamais stocké dans la requête.
+//  - Sur le 401 de la PORTE de Hermes (enveloppe portant `reason`, middleware.py), un
+//    seul rafraîchissement est demandé à la session, puis l'appel est réémis UNE fois,
+//    mutation comprise : la porte répond avant tout gestionnaire, rien n'a été exécuté.
+//    Tout autre 401 (greffon, second refus) termine l'appel.
+//  - Toute écriture porte `Content-Type: application/json` (garde 415 du greffon) et un
+//    corps de 64 Kio au plus, contrôlé avant l'envoi ; aucun en-tête `Origin` n'est posé
+//    (garde 403 du greffon).
 //  - Réessai SÉMANTIQUE : les lectures peuvent être rejouées, une mutation ne l'est
 //    jamais sans clé d'idempotence.
 //  - Aucune redirection suivie, aucun proxy implicite.
@@ -23,6 +31,7 @@
 #include <QUrl>
 
 #include <chrono>
+#include <functional>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -67,6 +76,8 @@ private:
     int m_maxAttempts = 1;
     bool m_finished = false;
     bool m_aborted = false;
+    bool m_bearerPresented = false; //!< La dernière tentative portait un jeton d'accès.
+    bool m_replayedAfterRefresh = false; //!< Déjà réémis une fois après rafraîchissement.
     quint64 m_sessionGeneration = 0;
     QUrl m_url;
     QPointer<QNetworkReply> m_reply;
@@ -109,6 +120,26 @@ public:
 
     /*! Chaîne d'agent utilisateur, incluant la version du produit. */
     void setUserAgent(const QByteArray &userAgent);
+
+    // --- Session en porteur --------------------------------------------------
+
+    /*!
+        Rend le jeton d'accès courant (sans le préfixe « Bearer »), ou un tableau vide hors
+        session. Appelé au moment de chaque tentative ; la valeur rendue est effacée dès
+        que l'en-tête est posé.
+    */
+    using BearerProvider = std::function<QByteArray()>;
+    void setBearerProvider(BearerProvider provider);
+
+    /*!
+        Fin du rafraîchissement demandé par `refreshRequested()`. En cas de succès, les
+        appels en attente sont réémis une fois avec le nouveau jeton ; sinon ils échouent
+        en « Session expirée ». Sans appel en attente, sans effet.
+    */
+    void refreshFinished(bool succeeded);
+
+    //! Plafond du corps d'une écriture (garde du greffon acp-poste).
+    static constexpr qsizetype kMaxWriteBodyBytes = 64 * 1024;
 
     // --- Émission ------------------------------------------------------------
 
@@ -162,9 +193,16 @@ signals:
     void baseUrlChanged();
     void inFlightCountChanged();
 
+    /*! Un appel a reçu le 401 de la porte : la session doit tourner ses jetons. */
+    void refreshRequested();
+
+    /*! Un appel porteur a reçu un 401 définitif : la session n'est plus acceptée. */
+    void bearerRejected(const acp::ApiError &error);
+
 private:
     void startAttempt(ApiCall *call);
     void handleReply(ApiCall *call, QNetworkReply *reply);
+    void handleUnauthorized(ApiCall *call, const ApiError &error);
     void finishWithError(ApiCall *call, const ApiError &error);
     void finishWithResponse(ApiCall *call, const ApiResponse &response);
     void releaseCall(ApiCall *call);
@@ -178,6 +216,9 @@ private:
     QByteArray m_userAgent;
 
     QList<QPointer<ApiCall>> m_inFlight;
+    QList<QPointer<ApiCall>> m_awaitingRefresh;
+    bool m_refreshPending = false;
+    BearerProvider m_bearerProvider;
     quint64 m_sessionGeneration = 0;
     bool m_invalidating = false;
 };

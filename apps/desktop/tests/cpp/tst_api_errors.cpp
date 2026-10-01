@@ -7,6 +7,7 @@
 #include "api/ApiError.h"
 #include "api/IdempotencyKey.h"
 
+#include <QJsonObject>
 #include <QSet>
 #include <QTest>
 
@@ -30,7 +31,86 @@ private slots:
     void idempotencyKeyValidation();
     void generatedKeysAreValid();
     void truncatesOverlongDetail();
+    void readsPluginEnvelope();
+    void readsGateEnvelope();
+    void readsRoutingRefusals();
+    void classifiesUnreachableIdentityProvider();
+    void translatesOnlyFixedHermesMessages();
 };
+
+void TestApiErrors::readsPluginEnvelope()
+{
+    // Greffon acp-poste : {"detail": {"code", "message"}}, message déjà en français.
+    const QByteArray body = QByteArrayLiteral(
+        "{\"detail\":{\"code\":\"question_fermee\",\"message\":\"Cette question est déjà fermée.\"}}");
+    const ApiError error = ApiError::fromResponse(409, body);
+    QCOMPARE(error.kind(), ApiFailure::Conflict);
+    QCOMPARE(error.code(), QStringLiteral("question_fermee"));
+    QCOMPARE(error.detail(), QStringLiteral("Cette question est déjà fermée."));
+    QVERIFY(!error.isGateRejection());
+    QCOMPARE(error.body(), body);
+}
+
+void TestApiErrors::readsGateEnvelope()
+{
+    // Porte de Hermes (middleware.py `_unauth_response`).
+    const ApiError error = ApiError::fromResponse(401, QByteArrayLiteral(
+        "{\"error\":\"session_expired\",\"detail\":\"Unauthorized\","
+        "\"reason\":\"invalid_or_expired_session\",\"login_url\":\"/login\"}"));
+    QCOMPARE(error.kind(), ApiFailure::Unauthorized);
+    QCOMPARE(error.code(), QStringLiteral("session_expired"));
+    QCOMPARE(error.gateReason(), QStringLiteral("invalid_or_expired_session"));
+    QVERIFY(error.isGateRejection());
+    QCOMPARE(error.detail(), QStringLiteral("non autorisé par la porte de Hermes"));
+
+    // La même forme sans `reason` (refus de /auth/native/refresh) n'est pas la porte.
+    const ApiError refresh = ApiError::fromResponse(401, QByteArrayLiteral(
+        "{\"error\":\"session_expired\",\"detail\":\"Refresh token expired or invalid; start a new sign-in.\"}"));
+    QVERIFY(!refresh.isGateRejection());
+    QCOMPARE(refresh.code(), QStringLiteral("session_expired"));
+    QCOMPARE(refresh.detail(),
+             QStringLiteral("jeton de rafraîchissement expiré ou invalide ; reconnectez-vous"));
+}
+
+void TestApiErrors::readsRoutingRefusals()
+{
+    const ApiError error = ApiError::fromResponse(422, QByteArrayLiteral(
+        "{\"detail\":{\"code\":\"table_refusee\",\"message\":\"Table refusée.\","
+        "\"refus\":[{\"classe\":\"a\",\"code\":\"aucun_modele\"},{\"classe\":\"b\",\"code\":\"voie_indisponible\"}]}}"));
+    QCOMPARE(error.kind(), ApiFailure::Unprocessable);
+    QCOMPARE(error.code(), QStringLiteral("table_refusee"));
+    QCOMPARE(error.detail(), QStringLiteral("Table refusée."));
+    QCOMPARE(error.refusals().size(), 2);
+    QCOMPARE(error.refusals().at(1).toObject().value(QStringLiteral("code")).toString(),
+             QStringLiteral("voie_indisponible"));
+}
+
+void TestApiErrors::classifiesUnreachableIdentityProvider()
+{
+    const ApiError error = ApiError::fromResponse(503, QByteArrayLiteral(
+        "{\"detail\":\"Auth provider 'self-hosted' unreachable\"}"));
+    QCOMPARE(error.kind(), ApiFailure::IdentityProviderUnavailable);
+    QVERIFY(error.isRetryable());
+    QCOMPARE(error.title(), QStringLiteral("Fournisseur d'identité injoignable"));
+    QCOMPARE(error.detail(), QStringLiteral("fournisseur d'identité « self-hosted » injoignable"));
+
+    // Un autre 503 reste un service indisponible ordinaire.
+    const ApiError other = ApiError::fromResponse(503, QByteArrayLiteral(
+        "{\"detail\":\"no auth providers registered\"}"));
+    QCOMPARE(other.kind(), ApiFailure::ServiceUnavailable);
+    QCOMPARE(other.detail(),
+             QStringLiteral("aucun fournisseur de connexion n'est enregistré sur ce serveur"));
+}
+
+void TestApiErrors::translatesOnlyFixedHermesMessages()
+{
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Invalid or expired authorization code.")),
+             QStringLiteral("code de connexion invalide ou expiré"));
+    // Un message inconnu est rendu tel quel : la station n'invente jamais une cause.
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Something unexpected")),
+             QStringLiteral("Something unexpected"));
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Requête refusée")), QStringLiteral("Requête refusée"));
+}
 
 void TestApiErrors::mapsHttpStatusToFamily_data()
 {
@@ -88,6 +168,7 @@ void TestApiErrors::titlesAreFrenchAndDistinct()
         ApiFailure::NotFound,      ApiFailure::Conflict,     ApiFailure::Unprocessable,
         ApiFailure::RateLimited,   ApiFailure::ServerError,  ApiFailure::ServiceUnavailable,
         ApiFailure::Incompatible,  ApiFailure::InvalidResponse,
+        ApiFailure::IdentityProviderUnavailable,
     };
     for (const ApiFailure::Kind kind : kinds) {
         const QString title = ApiError(kind, QString()).title();

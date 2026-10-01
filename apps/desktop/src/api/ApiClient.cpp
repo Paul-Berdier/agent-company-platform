@@ -1,6 +1,7 @@
 #include "api/ApiClient.h"
 
 #include "api/IdempotencyKey.h"
+#include "storage/CredentialVault.h"
 
 #include <QHostAddress>
 #include <QJsonParseError>
@@ -173,11 +174,39 @@ void ApiClient::setUserAgent(const QByteArray &userAgent)
     m_userAgent = userAgent;
 }
 
+void ApiClient::setBearerProvider(BearerProvider provider)
+{
+    m_bearerProvider = std::move(provider);
+}
+
+void ApiClient::refreshFinished(bool succeeded)
+{
+    m_refreshPending = false;
+    const QList<QPointer<ApiCall>> waiting = std::exchange(m_awaitingRefresh, {});
+    for (const QPointer<ApiCall> &call : waiting) {
+        if (!call || call->m_finished) {
+            continue;
+        }
+        if (succeeded) {
+            // Réémission UNIQUE, avec le jeton que la session vient de recevoir.
+            startAttempt(call);
+        } else {
+            const ApiError expired(ApiFailure::Unauthorized,
+                                   QStringLiteral("la session n'a pas pu être renouvelée ; "
+                                                  "reconnectez-vous"),
+                                   401);
+            finishWithError(call, expired);
+        }
+    }
+}
+
 void ApiClient::invalidatePendingCalls()
 {
     ++m_sessionGeneration;
     const bool alreadyInvalidating = m_invalidating;
     m_invalidating = true;
+    m_awaitingRefresh.clear();
+    m_refreshPending = false;
     const auto calls = m_inFlight;
     for (const QPointer<ApiCall> &call : calls) {
         if (call && !call->m_finished) {
@@ -278,10 +307,14 @@ ApiError ApiClient::validateBeforeSend(const ApiRequest &request) const
         return ApiError::refusal(QStringLiteral(
             "Clé d'idempotence invalide : 1 à 200 caractères ASCII visibles sont attendus."));
     }
-    if (!request.publicEndpoint) {
-        // Aucune session n'existe encore dans cette version de la station : une route
-        // protégée part en refus local, sans appel réseau.
+    if (!request.publicEndpoint && (!m_bearerProvider || m_bearerProvider().isEmpty())) {
+        // Hors session, une route protégée part en refus local, sans appel réseau.
         return ApiError::refusal(QStringLiteral("Aucune session : connectez-vous."));
+    }
+    if (!request.isSafeMethod() && !request.body.isNull()
+        && request.body.toJson(QJsonDocument::Compact).size() > kMaxWriteBodyBytes) {
+        return ApiError::refusal(QStringLiteral(
+            "Corps de plus de 64 Kio : refusé par la station avant l'envoi."));
     }
     return {};
 }
@@ -338,9 +371,31 @@ void ApiClient::startAttempt(ApiCall *call)
     if (!m_userAgent.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("User-Agent"), m_userAgent);
     }
-    if (!request.body.isNull()) {
+    const bool isWrite = !request.isSafeMethod();
+    const bool bodyless = request.method == QByteArrayLiteral("DELETE") && request.body.isNull();
+    if (isWrite && !bodyless) {
+        // Toute écriture est JSON, même sans champ : la garde du greffon rend 415 sinon.
         networkRequest.setHeader(QNetworkRequest::ContentTypeHeader,
                                  QStringLiteral("application/json"));
+    }
+    call->m_bearerPresented = false;
+    if (!request.publicEndpoint) {
+        QByteArray token = m_bearerProvider ? m_bearerProvider() : QByteArray();
+        if (token.isEmpty()) {
+            finishWithError(call, ApiError::refusal(QStringLiteral("Aucune session : connectez-vous.")));
+            return;
+        }
+        networkRequest.setRawHeader(QByteArrayLiteral("Authorization"),
+                                    QByteArrayLiteral("Bearer ") + token);
+        CredentialVault::wipe(token);
+        call->m_bearerPresented = true;
+    }
+    if (!request.cookieDeconnexion.isEmpty()) {
+        // Seul cookie jamais émis par la station : la révocation par POST /auth/logout.
+        networkRequest.setRawHeader(QByteArrayLiteral("Cookie"),
+                                    QByteArrayLiteral("hermes_session_rt=")
+                                        + request.cookieDeconnexion);
+        CredentialVault::wipe(call->m_request.cookieDeconnexion);
     }
     if (!request.idempotencyKey.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("Idempotency-Key"),
@@ -351,7 +406,12 @@ void ApiClient::startAttempt(ApiCall *call)
                                 QVariant::fromValue(QNetworkRequest::ManualRedirectPolicy));
     networkRequest.setTransferTimeout(request.timeout);
 
-    const QByteArray payload = request.body.isNull() ? QByteArray() : request.body.toJson(QJsonDocument::Compact);
+    QByteArray payload;
+    if (!request.body.isNull()) {
+        payload = request.body.toJson(QJsonDocument::Compact);
+    } else if (isWrite && !bodyless) {
+        payload = QByteArrayLiteral("{}");
+    }
 
     QNetworkReply *reply = nullptr;
     if (request.method == QByteArrayLiteral("GET")) {
@@ -416,7 +476,12 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
         return;
     }
 
-    // --- Redirection : anomalie, jamais suivie ------------------------------
+    // --- Redirection : jamais suivie ----------------------------------------
+    if (httpStatus >= 300 && httpStatus < 400 && call->m_request.redirectionAttendue) {
+        // POST /auth/logout : le 302 vers /login est la réponse nominale de CET appel.
+        finishWithResponse(call, response);
+        return;
+    }
     if (httpStatus >= 300 && httpStatus < 400) {
         finishWithError(call,
                         ApiError(ApiFailure::InvalidResponse,
@@ -427,14 +492,17 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
 
     // --- Erreur applicative -------------------------------------------------
     if (httpStatus >= 400) {
-        ApiError error = ApiError::fromHttpStatus(httpStatus, extractProblemDetail(body));
-        error.setBody(body);
+        ApiError error = ApiError::fromResponse(httpStatus, body);
         if (response.headers.contains(QByteArrayLiteral("retry-after"))) {
             bool parsed = false;
             const int seconds = response.header(QByteArrayLiteral("retry-after")).toInt(&parsed);
             if (parsed) {
                 error.setRetryAfterSeconds(seconds);
             }
+        }
+        if (httpStatus == 401) {
+            handleUnauthorized(call, error);
+            return;
         }
         if (shouldRetry(call->m_request, error, call->m_attempt)) {
             const auto delay = retryDelay(error, call->m_attempt);
@@ -459,6 +527,28 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
         }
     }
     finishWithResponse(call, response);
+}
+
+void ApiClient::handleUnauthorized(ApiCall *call, const ApiError &error)
+{
+    // Un 401 de la porte sur un appel porteur, jamais encore réémis : un rafraîchissement
+    // puis UNE réémission. La porte répond avant tout gestionnaire (middleware.py) : même
+    // une mutation n'a rien exécuté, la réémettre ne fait pas de double effet.
+    if (call->m_bearerPresented && error.isGateRejection() && !call->m_replayedAfterRefresh
+        && m_bearerProvider) {
+        call->m_replayedAfterRefresh = true;
+        m_awaitingRefresh.append(call);
+        if (!m_refreshPending) {
+            m_refreshPending = true;
+            emit refreshRequested();
+        }
+        return;
+    }
+    const bool bearer = call->m_bearerPresented;
+    finishWithError(call, error);
+    if (bearer) {
+        emit bearerRejected(error);
+    }
 }
 
 void ApiClient::finishWithError(ApiCall *call, const ApiError &error)

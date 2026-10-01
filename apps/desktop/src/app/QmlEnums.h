@@ -81,9 +81,10 @@ public:
         Unprocessable,      //!< 422 : le corps envoyé est refusé par le contrat.
         RateLimited,        //!< 429 : trop de flux ou trop d'appels ; Retry-After est lu.
         ServerError,        //!< 5xx hors 503.
-        ServiceUnavailable, //!< 503 : dépendance indisponible (fournisseur d'identité compris).
+        ServiceUnavailable, //!< 503 : dépendance indisponible.
         Incompatible,       //!< Version de contrat refusée par le service de compatibilité.
         InvalidResponse,    //!< Réponse hors contrat : rien n'est rendu partiellement.
+        IdentityProviderUnavailable, //!< 503 de Hermes « Auth provider … unreachable ».
     };
     Q_ENUM(Kind)
 
