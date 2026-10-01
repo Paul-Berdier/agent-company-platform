@@ -71,7 +71,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
-| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | **en cours** sur `refonte/hermes-p6` (empilée sur `refonte/hermes-p5`) : côté Hermes (première partie) **réalisé côté dépôt**, poussé, sans PR ; exécutant et sonde R0 à faire ; **rien de déployé** (§ 6 sexies) |
+| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | **en cours** sur `refonte/hermes-p6` (empilée sur `refonte/hermes-p5`) : côté Hermes (première partie) et client Linux de l'exécutant (deuxième partie) **réalisés côté dépôt**, poussés, sans PR ; image `executant/` et IaC à faire ; sonde R0 prête, non lancée ; **rien de déployé** (§ 6 sexies, § 6 septies) |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
 | P9 | Exploitation, montée de version et publication | à faire |
@@ -1735,6 +1735,108 @@ Les sept échecs locaux de la suite du dépôt ne se produisent donc pas sur l'e
 Le vrai exécutant (client Linux, image `executant/`, bac à sable), Railway, les vrais comptes (Codex par code
 d'appareil, `claude setup-token`), la sonde R0 et ses régimes réels, la récupération par `git bundle` et
 `railway ssh` : parties suivantes de P6, puis le propriétaire.
+
+## 6 septies. P6 — client multiplateforme et exécution d'une carte (deuxième partie)
+
+Même branche, empilée sur la première partie (`a8bf5da`) ; version 0.11.0 inchangée ; ni PR, ni fusion, ni
+étiquette ; **rien n'est déployé**, aucune action sur Railway, aucun compte connecté, la sonde R0 n'est **pas**
+lancée (elle est prête : `acp-poste sonde-plateforme --json`). Décisions appliquées : D74 à D92 (numéros décalés de
+trois, § 6 sexies) ; D83 et D84 datées du 1er octobre 2026 dans `executant/politique/executant.toml`.
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `7d75983` | feat(poste): add a platform layer with a Linux runner side |
+| `e219311` | feat(poste): read the versioned runner policy executant.toml |
+| `4431705` | feat(poste): probe the platform sandbox and publish the isolation regime |
+| `29843c4` | feat(poste): prepare repositories and worktrees and commit locally without hooks |
+| `ace31cc` | feat(poste): detect agent-steering files and scan secrets before any outcome |
+| `4e1f0e1` | feat(poste): build the imposed agent commands and read their streams |
+| `ce05ae1` | feat(poste): speak the six execution routes and keep a persistent outbox |
+| `089fc23` | feat(poste): run Codex and Claude cards with imposed options, verification and resume |
+| `ac9c5ad` | feat(poste): serve cards on Linux, wait for enrolment without exiting and stop cleanly on SIGTERM |
+| `9fedda1` | fix(poste): keep the outbox order when two outcomes share a clock tick |
+| `953a216` | fix(poste): find a lost card base by merge-base and count only agent crashes as OOM |
+
+### Ce qui est en place
+
+Résumé dans [`apps/poste/README.md`](../apps/poste/README.md) (« Exécutant Linux ») : couche `plateforme/` (choix par
+`sys.platform` ; Windows inchangé derrière une façade ; Linux : `/donnees`, coffre en fichiers 0600 de root,
+`setpriv` vers l'UID de chaque agent, arrêt par groupe puis par UID), politique `executant.toml` versionnée et
+refusée tant que son origine vaut le gabarit, sonde de plateforme (régime A ou B, inventaire `isolement_linux`),
+dépôts (clone nu, jeton de lecture par `GIT_ASKPASS`, worktree `hermes/<carte>`, commit sans crochets ni `fsmonitor`
+avec `--git-dir` explicite), fichiers de pilotage et balayage des secrets, commandes imposées de `codex exec` et
+`claude -p`, garde de quota et plafonds du jour, six routes et file de sortie persistante, exécution d'une carte,
+boucle de l'exécutant (attente d'enrôlement sans sortie, `peut_executer`, SIGTERM) et gestes du propriétaire
+(`connexion claude|github --stdin`, `connexion codex`, `bundle`, `pause`, `reprise`, `cartes`).
+
+### Écarts au cahier, justifiés
+
+- Code Windows **laissé en place** derrière `plateforme/windows.py` (le cahier parlait de déplacement) : rien à gagner,
+  et les tests P5 restent inchangés.
+- `--reset-env` retiré de `setpriv` : il remplacerait l'environnement calculé (perte de `CODEX_HOME`, de
+  `CLAUDE_CONFIG_DIR` et du jeton de Claude). L'environnement passé à `setpriv` est calculé et rien n'est hérité.
+- Consigne des agents par l'**entrée standard** (`-` pour Codex, `-p` sans invite pour Claude) : `/proc/<pid>/cmdline`
+  est lisible par tous les UID du conteneur.
+- `codex exec --json` (0.156.1) ne publie ni le modèle servi ni le palier : rapportés `null` (« inconnu »), jamais
+  supposés ; le contrôle « modèle servi = résolution documentée » vaut pour Claude (`system/init`).
+- Options (a) et (b) de D79 (`sans_bac_a_sable`) et `authentification = "cle_api"` : **refusées** par le lecteur de
+  la politique (non mises en œuvre en P6) plutôt que des réglages qui feraient semblant.
+- Commandes des agents dans `commandes_agents.py` (et non `executors.py`, héritage du worker utilisé par aucun chemin
+  de P5 ou P6, inchangé) ; un seul module `evenements.py` pour les deux flux.
+- Ajouts de sécurité : `--git-dir` et `--work-tree` explicites et `core.fsmonitor=false` (un agent qui réécrit `.git`
+  ne fait rien exécuter au superviseur, test dédié) ; balayage par UID qui ignore les zombies (attendant `tini`) ;
+  carte annoncée dans `carte_en_cours` dès sa réception (aucune autre servie pendant l'envoi d'un refus) ; base
+  d'une carte perdue retrouvée par `merge-base`.
+- Un arrêt brutal au redémarrage compte comme arrêt mémoire seulement si l'agent ou la vérification tournait.
+- Sans sonde de Claude, la voie Claude reste fermée ; l'intégration (aucune CLI d'agent) est annoncée dès que les UID
+  sont séparés.
+- La forme du profil de permissions de `codex sandbox` est **supposée** (`sonde_plateforme.profil_codex_toml`) : seul
+  le binaire réel la confirme (image, puis R0) ; en régime B elle ne sert pas.
+
+### Preuves locales (01/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10 python.org)
+
+- Windows : `apps/poste`, contrat partagé et `scripts/tests` : **871 réussis, 35 ignorés, 0 échec** (216,62 s, sur
+  l'arbre de `ac9c5ad` avant les deux correctifs ; les tests propres à Linux et à root y sont ignorés et dits) ;
+  `test_execution.py`, `test_depots.py`, `test_service_executant.py` refaits sur `953a216` : 35 réussis, 17 ignorés ;
+- Linux, conteneur jetable **en root** (`python:3.12-slim` local, git et bubblewrap des dépôts signés Debian, verrou
+  haché du dépôt ; script hors dépôt) : `apps/poste` **536 réussis, 20 ignorés** (Windows seulement) sur `953a216` ;
+  avec le contrat : 742 réussis, 20 ignorés (`ac9c5ad`) ; dont les tests qui changent d'UID : agent sous `acp-claude`
+  qui écrit le worktree et ne lit ni `/donnees/acp/secrets/jeton-machine` ni `/proc/1/environ`, balayage par UID qui
+  rattrape un `setsid`, worktree d'une autre carte inaccessible hors de son tour ;
+- Linux **sans root** (comme la CI) : 731 réussis, 28 ignorés, puis 3 échecs corrigés (propriétaire attendu de la
+  politique transmis à la relecture périodique) ;
+- sonde réelle dans le conteneur Docker au seccomp par défaut : **régime B**, `bwrap` refusé (« No permissions to
+  create a new namespace »), `unshare -Ur` refusé, UID séparés (`id -u` = 10003, `/proc/1/environ`, fichier 0600
+  de root et `kill -0 1` refusés). Ce n'est **pas** une preuve pour Railway : seule R0 le sera ;
+- version, gel du moteur, catalogue, verrou : code 0 ; balayage des secrets de l'arbre et des lignes ajoutées depuis
+  `refonte/hermes-p5` : aucun motif ; `git diff --check` propre avant chaque commit.
+
+### Intégration continue
+
+`ci.yml` vert sur chaque commit sauf `ce05ae1` et `ac9c5ad` : sur `windows-2022`, deux dépôts de la file de sortie
+tombaient dans la même tranche d'horloge et l'identifiant aléatoire décidait de leur ordre ; corrigé par `9fedda1`
+(rang strictement croissant, test dédié), vert :
+[36881513939](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36881513939) — Windows 869 réussis
+et 38 ignorés, Linux 879 réussis et 28 ignorés, interface 120, moteur 74. Dernier commit de code, `953a216` :
+[36882172134](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36882172134) **vert** — Windows
+870 réussis et 39 ignorés, Linux 881 réussis et 28 ignorés (dont les 8 tests root, ignorés et dits). `image.yml` ne
+se déclenche pas (aucun fichier de l'image Hermes touché).
+
+### Non fait dans cette partie (dit)
+
+- Purge des worktrees et des bundles après `purge_apres_jours` ; alerte à J-30 du jeton Claude ;
+- tests root dans la CI : la CI Linux tourne sans root et les ignore ; ils sont prévus dans l'image de l'exécutant
+  (partie 3) ;
+- image `executant/` (Dockerfile, binaires vérifiés, entrée `acp-entree-executant`, `claude-settings.json`,
+  `gitconfig`), IaC, bout en bout Docker Compose : partie 3.
+
+### Non vérifié
+
+Les vraies CLI (Codex 0.156.1, Claude Code 2.1.283) sous leur UID, le profil de `codex sandbox`, bubblewrap et les
+espaces de noms sur Railway (R0), les vrais comptes, la récupération par `scp` : les faux CLI ne prouvent que la
+plomberie.
 
 ## 7. Chaîne d'outils Windows
 
