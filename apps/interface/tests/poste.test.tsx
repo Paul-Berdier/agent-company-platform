@@ -94,7 +94,7 @@ describe("vue Poste", () => {
     expect(ecritures(installation)).toEqual([["POST", ROUTE_ENROLEMENT, {}]]);
     const code = r.racine.querySelector("[data-acp-code]");
     expect(texteDe(code)).toContain("acpe_CODE-DE-TEST");
-    expect(texteDe(code)).toContain("acp-poste enroler");
+    expect(texteDe(code)).toContain('& "$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd" enroler');
     expect(texteDe(code)).toContain("Ce code ne s'affiche qu'une fois");
     expect(bouton(r.racine, "Copier le code")).toBeTruthy();
     // Changement de vue, puis retour : le code a disparu (jamais stocké).
@@ -215,6 +215,23 @@ describe("vue Routage", () => {
     expect(corps).toMatchObject({ releves: F.routage.releves, classes: { implementation: [
       { voie: "poste-codex", modele: "factice-codex-1", effort: "medium", palier: "default" }] } });
     expect(r.texte()).toContain("Table validée.");
+  });
+
+  it("voie Claude : aucun « Modèle par défaut du relevé » offert, un choix explicite est exigé", async () => {
+    // Relecture de P5 (D73) : le relevé Claude ne désigne aucun modèle par défaut (D59) ; le serveur refuserait
+    // toujours une entrée sans modèle sur cette voie.
+    aller("?vue=routage");
+    installerSdk({ [ROUTE_ROUTAGE]: F.routage });
+    const r = await rendre(h(Poste, null));
+    const implementation = r.racine.querySelector("#acp-routage-implementation")?.parentElement as HTMLElement;
+    await cliquer(bouton(implementation, "Ajouter une entrée"));
+    const premiere = () => (r.racine.querySelector("#acp-routage-implementation-0-modele") as HTMLSelectElement).options[0];
+    expect(premiere()?.textContent?.trim()).toBe("Modèle par défaut du relevé");  // Codex : factice-codex-1 l'est
+    expect(premiere()?.disabled).toBe(false);
+    await saisir(r.racine.querySelector("#acp-routage-implementation-0-voie"), "poste-claude");
+    expect(premiere()?.textContent?.trim()).toBe("Choisissez un modèle (le relevé n'en désigne aucun par défaut)");
+    expect(premiere()?.disabled).toBe(true);
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
   });
 
   it("table refusée : les refus de l'API sont rendus tels quels, entrée par entrée", async () => {

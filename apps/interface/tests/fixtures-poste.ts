@@ -393,7 +393,7 @@ export const FORMES = {
     "expire_le": 1790452215,
     "validite_s": 600,
     "protocole": "acp-machine/1",
-    "commande": "acp-poste enroler"
+    "commande": "& \"$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd\" enroler"
   },
   "poste_a_confirmer": {
     "poste": {

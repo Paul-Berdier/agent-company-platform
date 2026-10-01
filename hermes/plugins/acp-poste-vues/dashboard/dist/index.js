@@ -200,6 +200,8 @@
       champVoie: "Ex\xE9cutant",
       champModele: "Mod\xE8le",
       modeleParDefaut: "Mod\xE8le par d\xE9faut du relev\xE9",
+      modeleAChoisir: "Choisissez un mod\xE8le (le relev\xE9 n'en d\xE9signe aucun par d\xE9faut)",
+      modeleExige: "Choisissez un mod\xE8le pour l'exploration\xA0: le relev\xE9 de cet ex\xE9cutant n'en d\xE9signe aucun par d\xE9faut.",
       champEffort: "Effort",
       effortParDefaut: "Par d\xE9faut",
       releveDu: "Relev\xE9 du",
@@ -379,7 +381,7 @@
       pauseReclamations: "Pause g\xE9n\xE9rale\xA0: le poste n'ex\xE9cutera rien.",
       cartesEnAttente: "Cartes du poste en attente",
       enrolerTitre: "Enr\xF4ler un poste",
-      enrolerAide: "G\xE9n\xE8re un code \xE0 usage unique, valable 10 minutes, \xE0 coller dans \xAB\xA0acp-poste enroler\xA0\xBB sur le poste, dans le compte du poste. Le jeton du poste n'est jamais affich\xE9.",
+      enrolerAide: "G\xE9n\xE8re un code \xE0 usage unique, valable 10 minutes, \xE0 coller dans la commande d'enr\xF4lement ci-dessous, lanc\xE9e dans la console du compte du poste. Le jeton du poste n'est jamais affich\xE9.",
       enroler: "G\xE9n\xE9rer un code d'enr\xF4lement",
       codeTitre: "Code d'enr\xF4lement",
       codeUneFois: "Ce code ne s'affiche qu'une fois\xA0: il dispara\xEEt quand vous quittez la page.",
@@ -392,7 +394,7 @@
       codeExpire: "Code expir\xE9\xA0: g\xE9n\xE9rez-en un nouveau.",
       confirmerTitre: "Confirmer le poste",
       empreinteAnnoncee: "Empreinte annonc\xE9e par le poste",
-      empreinteAide: "Comparez-la \xE0 celle qu'affiche \xAB\xA0acp-poste enroler\xA0\xBB sur le poste, puis recopiez-la. Si elles diff\xE8rent, r\xE9voquez ce poste.",
+      empreinteAide: "Comparez-la \xE0 celle qu'affiche la commande d'enr\xF4lement sur le poste, puis recopiez-la. Si elles diff\xE8rent, r\xE9voquez ce poste.",
       champEmpreinte: "Empreinte affich\xE9e par le poste",
       confirmer: "Confirmer le poste",
       confirme: "Poste confirm\xE9\xA0: il compte d\xE9sormais.",
@@ -502,6 +504,7 @@
       champPalier: "Palier",
       modeleDuProfil: "Mod\xE8le par d\xE9faut du profil",
       modeleParDefaut: "Mod\xE8le par d\xE9faut du relev\xE9",
+      modeleAChoisir: "Choisissez un mod\xE8le (le relev\xE9 n'en d\xE9signe aucun par d\xE9faut)",
       effortParDefaut: "Effort par d\xE9faut du mod\xE8le",
       palierStandard: "Standard (default)",
       validerTable: "Valider la table",
@@ -1271,6 +1274,9 @@
     const modeles = cle ? contexte.voies[cle]?.modeles : void 0;
     return Array.isArray(modeles) ? modeles : [];
   }
+  function avecModeleParDefaut(modeles) {
+    return modeles.some((m) => m.isDefault === true);
+  }
   function effortsDe(contexte, entree) {
     if (entree.voie === "hermes") return [];
     const modele = modelesDe(contexte, entree.voie).find((m) => m.id === entree.modele);
@@ -1281,6 +1287,8 @@
     const id = `acp-routage-${classe}-${rang}`;
     const modeles = modelesDe(contexte, entree.voie);
     const efforts = effortsDe(contexte, entree);
+    const hermes = entree.voie === "hermes";
+    const choixExige = !hermes && !avecModeleParDefaut(modeles);
     return /* @__PURE__ */ h("div", { className: "acp-entree-routage", role: "group", "aria-labelledby": `${id}-titre` }, /* @__PURE__ */ h("p", { className: "acp-discret", id: `${id}-titre` }, /* @__PURE__ */ h("span", null, T.poste.rang), " ", /* @__PURE__ */ h(Donnee, { valeur: rang + 1 })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: `${id}-voie` }, T.poste.champVoie), /* @__PURE__ */ h(
       "select",
       {
@@ -1301,7 +1309,7 @@
         value: entree.modele ?? "",
         onChange: (e) => props.changer({ ...entree, modele: e.currentTarget.value || null, effort: null })
       },
-      /* @__PURE__ */ h("option", { value: "" }, entree.voie === "hermes" ? T.poste.modeleDuProfil : T.poste.modeleParDefaut),
+      /* @__PURE__ */ h("option", { value: "", disabled: choixExige }, hermes ? T.poste.modeleDuProfil : choixExige ? T.poste.modeleAChoisir : T.poste.modeleParDefaut),
       modeles.map((m) => /* @__PURE__ */ h("option", { key: m.id, value: m.id, "data-acp-donnee": "" }, m.id))
     )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: `${id}-effort` }, T.poste.champEffort), /* @__PURE__ */ h(
       "select",

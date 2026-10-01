@@ -19,6 +19,12 @@ function modelesDe(contexte: ContexteEditeur, voie: string | undefined): ModeleR
   return Array.isArray(modeles) ? modeles : [];
 }
 
+/** Un modèle du relevé est-il marqué par défaut ? Jamais pour Claude (isDefault nul, D59) : sans lui, le serveur
+ *  refuse une entrée sans modèle ; la liste n'offre alors pas « Modèle par défaut du relevé » (D73). */
+function avecModeleParDefaut(modeles: ModeleReleve[]): boolean {
+  return modeles.some((m) => m.isDefault === true);
+}
+
 function effortsDe(contexte: ContexteEditeur, entree: Entree): string[] {
   if (entree.voie === "hermes") return [];
   const modele = modelesDe(contexte, entree.voie).find((m) => m.id === entree.modele);
@@ -38,6 +44,8 @@ function LigneEntree(props: {
   const id = `acp-routage-${classe}-${rang}`;
   const modeles = modelesDe(contexte, entree.voie);
   const efforts = effortsDe(contexte, entree);
+  const hermes = entree.voie === "hermes";
+  const choixExige = !hermes && !avecModeleParDefaut(modeles);
   return (
     <div className="acp-entree-routage" role="group" aria-labelledby={`${id}-titre`}>
       <p className="acp-discret" id={`${id}-titre`}>
@@ -59,7 +67,9 @@ function LigneEntree(props: {
         <label htmlFor={`${id}-modele`}>{T.poste.champModele}</label>
         <select id={`${id}-modele`} value={entree.modele ?? ""}
                 onChange={(e) => props.changer({ ...entree, modele: e.currentTarget.value || null, effort: null })}>
-          <option value="">{entree.voie === "hermes" ? T.poste.modeleDuProfil : T.poste.modeleParDefaut}</option>
+          <option value="" disabled={choixExige}>
+            {hermes ? T.poste.modeleDuProfil : choixExige ? T.poste.modeleAChoisir : T.poste.modeleParDefaut}
+          </option>
           {modeles.map((m) => (
             <option key={m.id} value={m.id} data-acp-donnee="">
               {m.id}
