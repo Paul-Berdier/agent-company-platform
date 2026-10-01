@@ -634,3 +634,13 @@ Intégration continue (01/10/2026), **verte** au sommet :
   (cas « installation acceptée » exigé, Python copié sous Program Files) ; ubuntu **602 réussis, 20 ignorés** ;
   interface **112** ; moteur **74**. Les runs `ci.yml` de `f69dcce` et `4735966` étaient rouges (décisions D67 à D73
   citées avant d'être définies), corrigé par `daf5aaa`.
+
+## 27. Étape P6 : le même client, sur l'exécutant Railway
+
+Le client `apps/poste` devient multiplateforme (couche `plateforme/`, choix par `sys.platform`, D76) : le code
+Windows de P5 reste en place et ses tests inchangés ; la variante Linux tourne dans l'image `executant/` (service
+Railway `executant`) et **exécute** les cartes (six routes `battement`, `terminer`, `question`, `bloquer`,
+`reprendre`, `arret` ; `reclamer` sert une carte). Une seule machine active (D77) : quand l'exécutant est enrôlé, le
+poste Windows est révoqué et sa tâche désactivée (pas désinstallée) ; il reste prêt pour une bascule (railway.md
+§ 13.8) et n'exécute aucune carte en P6 (`peut_executer: false`). Détail : [executant.md](executant.md) et
+[`apps/poste/README.md`](../../apps/poste/README.md) (« Exécutant Linux »).

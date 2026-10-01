@@ -213,6 +213,9 @@ appliqués.
 
 ### Étape P6 : décisions D74 à D92, **appliquées**
 
+État livré (1er octobre 2026, côté dépôt, rien de déployé) : [executant.md](executant.md) ; gestes du propriétaire,
+sonde R0 comprise : [railway.md § 13](railway.md#13-exécutant-étape-p6).
+
 Décision du propriétaire (27 septembre et 1er octobre 2026) : l'exécution principale se fait sur un service Railway
 séparé, l'« exécutant » ; le propriétaire **fournit les comptes** et laisse Hermes gérer l'exploitation. Les
 recommandations du cahier de conception P6 (§ 17) sont donc **appliquées**, et non « à confirmer ».

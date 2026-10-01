@@ -1,4 +1,4 @@
-# Déploiement Railway d'ACP — procédure du propriétaire (étape P2)
+# Déploiement Railway d'ACP — procédure du propriétaire (étapes P2 et P6)
 
 État du **25 septembre 2026**. Étape P2 du [plan de la refonte](plan.md). **Rien n'est déployé**,
 aucun compte n'a été utilisé : tout ce qui suit est **préparé et prouvé côté dépôt**, puis
@@ -12,6 +12,10 @@ Conventions :
 - **supposé** : à prouver sur Railway, au premier déploiement. Rien de supposé n'est présenté comme
   acquis.
 
+**Étape P6 (1er octobre 2026)** : un troisième service, l'**exécutant** (`executant`), porte Codex CLI et Claude Code ;
+sa conception est dans [executant.md](executant.md), ses gestes au **§ 13**. Toujours **rien de déployé** ; la sonde
+R0 (§ 13.2) est le premier geste, dans un projet jetable.
+
 Relecture indépendante de P2 (exploitation) : ordre des étapes rendu exécutable à la lettre,
 installation de la CLI sans configuration d'agent, prérequis WSL, sauvegardes hors IaC, refus PID 1,
 Rollback, dépôt public ; chaque correction est signalée « relecture P2 », et le tableau de
@@ -20,7 +24,7 @@ traitement est dans [`docs/reprise-poste.md`](../reprise-poste.md).
 Sommaire : § 1 ce qui est déployé · § 2 prérequis · § 3 règles de l'IaC · § 4 premier déploiement ·
 § 5 identité · § 6 cerveau (openai-codex) · § 7 preuves à relever · § 8 relais et
 `trusted_proxies` · § 9 exploitation · § 10 récupération · § 11 sécurité du compte · § 12 prouvé en
-local, seulement sur Railway, limites.
+local, seulement sur Railway, limites · § 13 exécutant (étape P6).
 
 ---
 
@@ -63,6 +67,10 @@ Ce que `railway.ts` **ne décrit pas**, et que la procédure couvre à la main :
   Railway (§ 12) ;
 - les **valeurs** des quatre variables d'identité ;
 - les limites de dépense, les clés SSH, l'autorisation de l'application GitHub de Railway.
+
+**Étape P6** : un troisième service, `executant` (racine `/`, `executant/Dockerfile`, volume `executant-donnees`
+sur `/donnees`, 2 vCPU et 4 Gio, ni domaine, ni port, ni santé, aucune variable secrète) ; tableau et gestes au
+§ 13. Le fichier décrit alors **trois services et trois volumes**.
 
 Parcours d'une connexion : navigateur → `https://<libellé-hermes>.up.railway.app` (bord de
 Railway, TLS) → Hermes renvoie vers `https://<libellé-identite>.up.railway.app` (Authelia : mot de
@@ -250,7 +258,9 @@ Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues 
    aucun secret, seulement l'absence de collision. La sécurité repose sur l'OIDC, les passkeys et
    le bannissement, jamais sur un nom caché.
 2. Branche depuis `refonte/hermes`, remplacement des deux constantes `LIBELLE_HERMES` et
-   `LIBELLE_IDENTITE` de `.railway/railway.ts`, puis :
+   `LIBELLE_IDENTITE` de `.railway/railway.ts` et, **depuis P6, dans la même PR**, de l'origine de Hermes dans
+   `executant/politique/executant.toml` (`origine = "https://<LIBELLE_HERMES>.up.railway.app"` ; un test exige
+   l'égalité, et l'exécutant refuse de démarrer tant qu'elle vaut le gabarit), puis :
    ```sh
    npm run --prefix .railway verifier     # « graphe du fichier committé conforme »
    ```
@@ -286,8 +296,9 @@ railway config plan --verbose
 ```
 
 Contrôlez le plan, ligne à ligne :
-- création de **2 services** (`hermes`, `identite`) et **2 volumes** (`hermes-donnees`,
-  `identite-donnees`), **0 to destroy** ;
+- création de **3 services** (`hermes`, `identite`, `executant`) et **3 volumes** (`hermes-donnees`,
+  `identite-donnees`, `executant-donnees`), **0 to destroy** ; si P2 a été appliqué avant P6, le plan de P6 n'ajoute
+  que l'exécutant : **« 2 to create, 0 to destroy »** (§ 13.3) ;
 - région, répertoires racines, constructeur, `sleepApplication`, politique de redémarrage, limites,
   santé, **aucune Start Command** ;
 - variables : les valeurs sont masquées par défaut (« «hidden» ») ; n'utilisez `--show-values` que
@@ -400,6 +411,8 @@ Attendu : `/package/admin/s6/command/s6-svscan -d4 -- /run/service` (ou `s6-svsc
 
 § 5.3 (passkeys), connexion à `https://<libellé-hermes>.up.railway.app` depuis le PC **et** le
 téléphone (captures), § 6 (openai-codex).
+
+Exécutant (étape P6) : enrôlement et connexions dans une session `railway ssh`, § 13.4 à 13.6.
 
 Poste Windows (étape P5, [poste.md](poste.md)) : **aucune variable Railway nouvelle**. Le poste s'enrôle
 après le premier déploiement, depuis l'onglet « Poste » (code à usage unique, empreinte à recopier) ; ses
@@ -872,3 +885,148 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
   dans les journaux versés au dépôt protège contre le bannissement ciblé (§ 7).
 - L'identifiant du projet Railway n'est pas vérifié par l'IaC (seul son nom l'est) : la lecture de
   chaque ligne du plan reste obligatoire.
+
+---
+
+## 13. Exécutant (étape P6)
+
+Conception, preuves et limites : [executant.md](executant.md). Décisions appliquées : D74 à D92 ([plan.md](plan.md)).
+Vous fournissez les comptes ; Hermes gère l'exploitation (cartes, voies, modèles, gardes). Rien de ce qui suit n'a été
+exécuté : chaque étape est **votre** geste.
+
+### 13.1 Ce qui est ajouté
+
+| | `executant` |
+|---|---|
+| Rôle | client `apps/poste` en mode Linux ; Codex CLI 0.156.1 (UID 10001) et Claude Code 2.1.283 (UID 10002) ; vérification sous l'UID 10003 |
+| Source | GitHub, branche `refonte/hermes`, **racine `/`** (l'image embarque `apps/poste` et le contrat), « Wait for CI » |
+| Dockerfile | `RAILWAY_DOCKERFILE_PATH=executant/Dockerfile` (relatif à la racine : supposé, prouvé au premier build) |
+| Motifs surveillés | `/executant/**`, `/apps/poste/src/**`, `/packaging/poste/lancer.py`, `/hermes/plugins/acp-poste/contrat/**`, `/requirements/poste-3.12.lock.txt`, sauf `/executant/tests/**` et `/executant/factice/**` |
+| Volume | `executant-donnees` sur `/donnees` (5 Go, maximum de l'offre Hobby) |
+| Port, domaine, santé | **aucun** (Railway le marque Active dès le démarrage) |
+| Limites | 2 vCPU, 4 Gio ; une carte à la fois ; 8 h d'agent et 20 cartes par jour (politique) |
+| Redémarrage | `ON_FAILURE`, 10 relances ; l'exécutant ne sort **jamais** en 0 (non enrôlé ou révoqué : il attend) |
+| Arrêt | `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` : arrêt de l'agent, commit « wip », `arret(sigterm)` |
+| Variables | les deux ci-dessus ; **aucun secret** : jetons déposés sur le volume (§ 13.5) |
+
+### 13.2 Sonde R0 (projet jetable `acp-sonde`)
+
+**Avant tout apply** et sans aucun identifiant (D88). Elle mesure si le conteneur Railway permet les espaces de noms
+utilisateur (bubblewrap, régime A) ou non (régime B, probable), et si la séparation par UID tient. Coût : quelques
+minutes de conteneur. Le projet `acp-sonde` est **distinct** de `acp` (l'IaC décrit `acp` en entier).
+
+1. Commit de P6 dont `executant.yml` est **vert**, dans un **clone propre** (jamais le dossier principal, sale) :
+   ```sh
+   git clone https://github.com/Paul-Berdier/agent-company-platform.git acp-sonde-r0
+   cd acp-sonde-r0 && git checkout <sha de P6>
+   gh run list --workflow executant.yml --commit "$(git rev-parse HEAD)"     # success exigé
+   ```
+2. Projet et service, depuis la **racine** du clone (`railway up` téléverse le dossier courant) :
+   ```sh
+   railway login
+   railway init --name acp-sonde
+   railway add --service sonde --variables "RAILWAY_DOCKERFILE_PATH=executant/Dockerfile"
+   ```
+3. Dans le tableau de bord, service `sonde` → **Settings** :
+   - **Region** : EU West (Amsterdam), comme `acp` ;
+   - **Custom Start Command** : `/usr/local/bin/acp-poste sonde-plateforme --json` (elle remplace l'ENTRYPOINT :
+     la sonde tourne en PID 1, root, sans `tini` ni l'entrée, qui refuserait sans `/donnees`) ;
+   - **Restart Policy** : *Never* (une sortie 0 donne « Completed ») ;
+   - ni volume, ni domaine, ni autre variable.
+4. Déploiement et relevé :
+   ```sh
+   railway up --service sonde --detach
+   railway logs --service sonde --build        # « [acp] Codex 0.156.1 vérifié », « [acp] Claude Code 2.1.283 vérifié … »
+   railway logs --service sonde > releve-r0.txt
+   python scripts/verifier_releve_r0.py releve-r0.txt --sortie docs/refonte/preuves/r0-sonde.json
+   ```
+   Le contrôleur refuse un relevé tronqué, retouché (verdict incohérent avec ses mesures) ou qui porterait un
+   identifiant ; sinon il affiche le verdict et écrit le relevé à publier. Si `railway logs` mêle d'autres lignes,
+   copiez le bloc JSON depuis le tableau de bord (Deployments → View logs) dans `releve-r0.txt`.
+5. Suppression : `railway delete --project acp-sonde` (confirmation, code de double authentification), puis
+   `railway logout`. Remettez `docs/refonte/preuves/r0-sonde.json` (aucun secret) pour qu'il soit publié par une PR.
+
+Lecture du verdict : **B** ⇒ D79 s'applique d'elle-même (voie Codex fermée sur l'exécutant, Claude seul en écriture,
+relecture de repli par un autre modèle, D91) ; **A** ⇒ la voie Codex s'ouvrira après vos connexions (§ 13.5).
+`uid_separes: false` ⇒ **aucune écriture** : arrêtez et transmettez le relevé.
+
+### 13.3 Plan et apply
+
+Après la fusion de P6 dans `refonte/hermes` (CI verte : `ci.yml`, `image.yml`, `executant.yml`), selon le § 4.3 :
+le plan doit afficher le service `executant` et le volume `executant-donnees`, **0 to destroy** (« 2 to create » si
+P2 est déjà appliqué). Après `railway config apply` :
+- build : les lignes « [acp] … vérifié » de `verifier-binaires` (une empreinte ou une signature fausse fait échouer le
+  build, en français) ;
+- démarrage : `[acp] commit déployé : <sha>`, `[acp] volume prêt (/donnees)`, puis l'exécutant **attend
+  l'enrôlement** sans sortir (une ligne de journal par jour) ; s'il refuse (`executant.toml : … gabarit …`), l'origine
+  de Hermes n'a pas été écrite dans la politique (§ 4.1).
+- R1 (preuve) : `railway config pull --json` conforme ; aucune socket à l'écoute (§ 13.6, `diagnostic --isolement`).
+
+### 13.4 Enrôlement, dans une session `railway ssh`
+
+1. Si le poste Windows est actif : révoquez-le d'abord sur la page Poste (une seule machine active, D77).
+2. Page Poste → **Enrôler un poste** : code à usage unique (10 min).
+3. Clé SSH dédiée (§ 11) : `railway ssh keys add --key <clé dédiée>.pub --name acp-operation`, puis
+   `railway ssh -i <clé dédiée> --service executant` (jamais `--session` : Railway installerait tmux).
+4. Dans la session : `acp-poste enroler` (code en saisie masquée) → « Poste enrôlé (<machine>). Empreinte :
+   XXXX-XXXX » → recopiez l'empreinte sur la page Poste et **Confirmez**.
+
+### 13.5 Connexions : Claude, GitHub, Codex (même session)
+
+```sh
+acp-poste pause                       # aucune sonde ni carte pendant les connexions
+acp-poste connexion claude            # jeton de « claude setup-token » (lancé sur votre PC), saisie masquée
+acp-poste connexion github            # jeton à portée fine : dépôts choisis, Contents: read, expiration datée
+acp-poste connexion codex             # code d'appareil : lien et code affichés ICI, à saisir sur votre téléphone
+acp-poste reprise
+acp-poste diagnostic                  # jetons « present », versions conformes, régime, connexion Codex
+acp-poste diagnostic --isolement      # aucune socket à l'écoute, profils non listables
+exit
+```
+- Avant `connexion codex` : activez la connexion par code d'appareil dans les réglages de sécurité de votre compte
+  ChatGPT. Le code ne transite **jamais** par Hermes ; `auth.json` est écrit sous `acp-codex` (0600, stockage
+  `file`), jamais copié depuis le PC.
+- Chaque jeton est écrit de façon atomique en `root 0600` sous `/donnees/acp/secrets/` ; seule son empreinte courte
+  est affichée ; aucun redémarrage. Effacez ensuite le presse-papiers de Windows (et son historique, Win+V).
+- Clôture : `railway ssh keys remove --2fa-code <code>` (preuve : `railway ssh keys` vide), puis `railway logout`.
+
+### 13.6 Routage, budget, premier projet
+
+- Page Routage : acceptez le relevé Codex (D58) si la voie est ouverte ; validez la table, y compris la classe
+  « relecture » (repli D91). La classe « intégration » n'y figure pas (aucun modèle).
+- Railway : alerte d'usage à **15 $**, limite dure gardée à **30 $** ; relevé hebdomadaire `railway usage`
+  (exécutant compris). La limite dure éteint **tout**, Hermes et l'identité compris.
+- Dépôt de preuve **jetable et privé** (D87) : ajoutez-le à `executant/politique/executant.toml` (`[depots.<alias>]`,
+  forme commentée dans le fichier) par une PR, CI verte, puis lancez un projet depuis le téléphone (R5).
+
+### 13.7 Récupérer une branche prête (`git bundle`, aucun push)
+
+La page Poste (« Branches prêtes ») affiche la commande. Depuis votre PC, avec la clé dédiée enregistrée :
+```sh
+railway ssh -i <clé dédiée> --service executant -- acp-poste bundle <alias> hermes/projet-<slug>
+scp -i <clé dédiée> <identifiant d'instance>@ssh.railway.com:/donnees/acp/bundles/<fichier> .
+git bundle verify <fichier>
+git fetch <fichier> hermes/projet-<slug>:hermes/projet-<slug>
+```
+L'identifiant d'instance se copie dans la palette de commandes (« Copy Service Instance ID ») ; OpenSSH 9.0 ou plus
+(sinon `scp -s`). Comparez la tête avec celle de l'onglet Poste, puis poussez, ouvrez la PR et fusionnez **vous-même**.
+Retirez la clé ensuite (§ 11).
+
+### 13.8 Exploitation
+
+- **Pause** : `acp-poste pause` / `reprise` (session `railway ssh`), ou la pause générale de la page Projets.
+- **Révocation** (page Poste) : le jeton est effacé, l'exécutant reste Active en attente d'enrôlement, sans requête
+  vers Hermes ; aucune notification « hors ligne » ne suit.
+- **Bascule vers le PC** (Railway en panne) : pause générale, attendre la fin de la carte en cours, révoquer
+  l'exécutant, réactiver la tâche du poste Windows, `acp-poste enroler --remplacer`, confirmer, reprise. Le PC
+  n'exécute aucune carte en P6 (il annonce `peut_executer: false`).
+- **Redéploiement** : SIGTERM, arrêt de l'agent, commit « wip », `arret(sigterm)` ; au redémarrage, la sonde est
+  rejouée et la carte en main reprise (`reprendre`).
+
+### 13.9 Après une restauration du volume `executant-donnees`
+
+Hermes fait foi : l'exécutant rejoue sa file de sortie (les `reclamation_perdue` sont rangées sans effet), abandonne
+les worktrees des cartes qu'il ne détient plus et **garde les branches**. Lancez `acp-poste diagnostic` : si la
+connexion Codex est périmée (jeton déjà tourné), refaites `acp-poste connexion codex`. Les sauvegardes contiennent
+`auth.json`, le jeton machine, les jetons Claude et GitHub et le code des dépôts : la frontière reste le compte
+Railway (§ 11).

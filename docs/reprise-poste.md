@@ -22,7 +22,8 @@ Desktop CI `35981934226` vertes sur ce commit).
   `1.0.0` seulement à la fusion finale dans `main`.
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
   `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`, pour P4
-  `.claude/worktrees/refonte-hermes-p4`, pour P5 `.claude/worktrees/refonte-hermes-p5`.
+  `.claude/worktrees/refonte-hermes-p4`, pour P5 `.claude/worktrees/refonte-hermes-p5`, pour P6
+  `.claude/worktrees/refonte-hermes-p6`.
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
@@ -71,7 +72,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
-| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | **en cours** sur `refonte/hermes-p6` (empilée sur `refonte/hermes-p5`) : côté Hermes (première partie) et client Linux de l'exécutant (deuxième partie) **réalisés côté dépôt**, poussés, sans PR ; image `executant/` et IaC à faire ; sonde R0 prête, non lancée ; **rien de déployé** (§ 6 sexies, § 6 septies) |
+| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie), **sur l'exécutant Railway** | **réalisée côté dépôt** sur `refonte/hermes-p6` (empilée sur `refonte/hermes-p5`) : côté Hermes, client Linux, image `executant/`, IaC, bout en bout local ; poussée, sans PR ; sonde R0 prête, **non lancée** ; **rien de déployé** (§ 6 sexies, § 6 septies, § 6 octies) |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
 | P9 | Exploitation, montée de version et publication | à faire |
@@ -1838,6 +1839,90 @@ Les vraies CLI (Codex 0.156.1, Claude Code 2.1.283) sous leur UID, le profil de 
 espaces de noms sur Railway (R0), les vrais comptes, la récupération par `scp` : les faux CLI ne prouvent que la
 plomberie.
 
+## 6 octies. P6 — image de l'exécutant, IaC, sonde R0 et bout en bout (troisième partie)
+
+Même branche, empilée sur la deuxième partie (`57be7a8`) ; version 0.11.0 inchangée ; ni PR, ni fusion, ni
+étiquette ; **rien n'est déployé**, aucune action sur Railway, aucun compte connecté, aucun identifiant lu. Les seuls
+téléchargements sont ceux du build de l'image, depuis les sources officielles, aux versions et empreintes du cahier,
+vérifiés (échec fermé). La sonde R0 est **prête** (image, commande, contrôleur du relevé, procédure) et **non
+lancée**. Conception, preuves et limites : [`docs/refonte/executant.md`](refonte/executant.md) ; gestes du
+propriétaire : [`docs/refonte/railway.md` § 13](refonte/railway.md).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `6486a2e` | feat(executant): pin Codex and Claude Code and verify them before install |
+| `3b763ac` | fix(poste): accept only a date suffix on the served Claude model |
+| `de42c8e` | feat(executant): build the pinned runner image with verified Codex and Claude binaries |
+| `3c63bec` | ci: build the runner image and prove it without any account |
+| `10dc18e` | feat(railway): declare the executant service and volume |
+| `c20124d` | fix(executant): show the real probe refusals and unmask /proc for the regime A witness |
+| `f9b5032` | test(executant): run the real runner end to end against the Hermes image with fake CLIs |
+| `32f7f85` | fix(poste): compare the runner's Codex config.toml with the Linux variant |
+| `8a51108` | feat(executant): check the R0 probe report before it is published |
+
+### Ce qui est en place
+
+- `executant/` : `Dockerfile` (base `python:3.12-slim-trixie@sha256:f77ac9e4…`, paquets Debian fixés, étapes
+  `binaires`, `roues`, `commun`, `factice`, `finale`), `binaires.toml`, `cles/claude-code.asc`,
+  `bin/verifier-binaires`, `bin/acp-entree-executant`, `bin/acp-poste`, `gitconfig`, `claude-settings.json`,
+  `factice/` (faux Codex et faux Claude), `tests/` (statiques, image construite, image d'essais), `README.md` ;
+- `.railway/railway.ts` : service `executant` et volume `executant-donnees` ; `verifier.mjs` : trois services, volumes
+  disjoints, aucune référence entre services ;
+- `scripts/verifier_releve_r0.py` ; `hermes/tests/outils/depot_factice.py` (dépôt git distant factice en HTTPS,
+  lecture seule) et certificat `git.acp.test` de l'autorité de test ; `hermes/tests/contrat/test_executant_bout_en_bout.py` ;
+- CI : `executant.yml` (nouveau) ; `image.yml` construit la cible factice et lance le bout en bout.
+
+### Écarts au cahier, justifiés
+
+Détail : [`executant.md` § 14](refonte/executant.md). Verrou du poste utilisé tel quel pour les roues ; lanceur en
+`/opt/acp/lancer.py` ; sonde dans `apps/poste` (contrôleur de relevé ajouté) ; bout en bout dans la suite de contrat
+(quatre scénarios, sans Docker Compose) ; workflow séparé pour l'image de production ; témoin A avec
+`systempaths=unconfined` ; umask 002 posé par l'entrée ; trois correctifs du client (modèle servi, `config.toml` du
+diagnostic, sortie de la sonde).
+
+### Preuves locales (01/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10 python.org, Node 24.19.0)
+
+- build de la cible finale : « [acp] Codex 0.156.1 vérifié », « [acp] Claude Code 2.1.283 vérifié (manifeste signé
+  par 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE…) », « signature cosign de Codex non vérifiée », empreintes
+  recontrôlées ; signature du manifeste vérifiée aussi à la main avant d'écrire `binaires.toml` (« Good signature ») ;
+- `verifier-binaires` (conteneur Linux jetable avec gpg) : 10 réussis ;
+- `executant/tests` contre `acp-executant:p6` : 28 réussis (8 statiques, 20 sur l'image) ; sous Windows sans image :
+  tests de l'image ignorés avec leur raison ;
+- suite `apps/poste` et contrat **en root dans l'image d'essais** : 745 réussis, 20 ignorés (propres à Windows) ;
+- sonde (Start Command de R0, en local) : régime **B** sous le seccomp par défaut ; témoin **A** (vrai `codex sandbox
+  -P acp_verif` : écriture hors du dossier, réseau et faux `auth.json` refusés) ; les deux relevés passent
+  `scripts/verifier_releve_r0.py` ;
+- vraies CLI sans compte : commande exacte du superviseur acceptée par Codex 0.156.1 (fil ouvert) et Claude Code
+  2.1.283 (`system/init` : outils demandés plus `StructuredOutput`, aucun MCP, `--add-dir` admis avec
+  `--restricted`, `opus` → `claude-opus-5-5`) ; fonction ou option inconnue refusée ; `claude update` refusé ;
+- **bout en bout** (`ACP_IMAGE_TESTS=acp-hermes-tests:p6i ACP_IMAGE_EXECUTANT_FACTICE=acp-executant:p6factice
+  python -m pytest hermes/tests/contrat/test_executant_bout_en_bout.py`) : **6 réussis** en 106,84 s (scénarios dans
+  `executant.md` § 11) ;
+- `.railway` : `verifier.mjs` conforme (refus des gabarits, graphe d'essai à 3 services et 3 volumes), `tsc` sans
+  erreur ; `scripts/tests` : 159 réussis ; `git diff --check` propre avant chaque commit ; `check_version` vert.
+
+### Intégration continue
+
+- `executant.yml` [36889016245](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36889016245) sur
+  `c20124d` : **vert** — 38 tests de l'image, sonde B et témoin A (restriction AppArmor du lanceur 1 → 0, consignée),
+  suite en root dans l'image **750 réussis, 20 ignorés**. Premier run (`3c63bec`) rouge : témoin A en B sur le
+  lanceur GitHub (`/proc` neuf refusé, cause masquée par un avertissement de Codex) ; corrigé par `c20124d`.
+- `ci.yml` vert sur chaque commit de cette partie ; `image.yml` (bout en bout compris) : voir la note de fin de partie
+  ci-dessous.
+
+### Non fait (dit)
+
+Purge des worktrees et des bundles, alerte J-30 du jeton Claude ; option B de push (conçue, non activée) ; les dix
+scénarios du cahier § 14.3 qui ne sont pas dans le bout en bout (couverts en partie par les faux agents de la
+deuxième partie).
+
+### Non vérifié
+
+Tout ce qui exige Railway ou vos comptes : R0 à R10 (`executant.md` § 12), vraies CLI connectées, `railway ssh`,
+`scp`, coût réel, prise en compte par Railway des clés non documentées et du `Dockerfile.dockerignore`.
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1884,6 +1969,15 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 ```
 
 ## 8. Pièges connus
+
+- **Étape P6** : Codex 0.156.1 avertit « could not create PATH aliases » quand son `CODEX_HOME` est sous `/tmp` ;
+  sans conséquence, mais la sonde le retire de ses relevés (il masquait la vraie cause d'un refus).
+- **Étape P6** : un journal partagé entre UID dans un dossier 1777 n'est inscriptible que par son créateur : un
+  fichier par UID (faux CLI du bout en bout).
+- **Étape P6** : l'`/etc/gitconfig` de l'exécutant ferme tout protocole sauf `https` ; un test qui simule le PC du
+  propriétaire (clone d'un bundle) rouvre `file` pour lui seul.
+- **Étape P6** : l'URL d'un dépôt de la politique doit être `https://<hôte>/<propriétaire>/<dépôt>` ; le plafond de 3
+  projets actifs du greffon bloque un banc à quatre scénarios (réglage `projets_actifs_max`).
 
 - `core.autocrlf=true` sur ce poste : l'arbre de travail est en CRLF, l'index en LF.
   Vérifier `git diff --cached --check` et l'absence de `\r` dans les blobs indexés.

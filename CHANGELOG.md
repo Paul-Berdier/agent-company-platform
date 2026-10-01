@@ -401,6 +401,87 @@ D64 et D66 appliquées (`plan.md` § 1, non confirmées).
 - limites : aucune exécution avant P6 ; compte dédié, tâche planifiée, UAC et vrais comptes non éprouvés (§ 25 de
   `poste.md`) ; Claude Code de ce PC à mettre à jour (2.1.248 au moins).
 
+### P6 — exécution autonome sur l'exécutant Railway (réalisée côté dépôt, non fusionnée, non déployée)
+
+Référence : `docs/refonte/executant.md`, `docs/refonte/railway.md` § 13, `docs/reprise-poste.md` § 6 sexies à
+§ 6 octies ; décisions D74 à D92 **appliquées** (`plan.md` : le propriétaire fournit les comptes, Hermes gère
+l'exploitation ; numérotation du cahier décalée de trois). Rien n'est déployé ; la sonde R0 est prête, non lancée.
+
+#### Ajouté
+
+- côté Hermes (première partie) : contrat `acp-machine/1` de P6 (six routes `battement`, `terminer`, `question`,
+  `bloquer`, `reprendre`, `arret` ; `reclamer` sert une carte ; inventaire Linux `isolement_linux`) ; base du greffon
+  au schéma 3 ; cycle de carte (revue des fichiers de pilotage, intégration, voies fermées, attentes de quota,
+  relecture de repli D91) ; onglet Poste (isolement, conditions, carte en cours, branches prêtes) et revues dans la
+  page Questions ; résolutions de modèles observées dans la vue Routage ;
+- client multiplateforme (deuxième partie) : couche `plateforme/` (Windows inchangé ; Linux : `/donnees`, coffre en
+  fichiers 0600 de root, un UID par agent par `setpriv`, arrêt par groupe puis par UID), politique versionnée
+  `executant/politique/executant.toml`, sonde de plateforme (régime A ou B), dépôts (clone nu, worktree, commit local
+  sans crochets, quarantaine, intégration, `git bundle`), fichiers de pilotage et balayage des secrets, commandes
+  imposées de `codex exec` et `claude -p`, garde de quota et plafonds du jour, file de sortie persistante, exécution
+  d'une carte, boucle de l'exécutant et gestes (`connexion claude|github|codex`, `bundle`, `pause`, `reprise`,
+  `cartes`, `sonde-plateforme`) ;
+- image de l'exécutant (troisième partie) : `executant/Dockerfile` (base `python:3.12-slim-trixie` épinglée par
+  condensat, paquets Debian fixés, Codex 0.156.1 et Claude Code 2.1.283 vérifiés au build par
+  `executant/bin/verifier-binaires` et `executant/binaires.toml`, clé de publication de Claude Code, comptes
+  `acp-codex`, `acp-claude`, `acp-verif`, entrée root `acp-entree-executant` sous `tini`, `/etc/gitconfig`,
+  `/etc/acp/claude-settings.json`, commande `acp-poste` sur le `PATH`, cible de test `factice`) ;
+- service `executant` et volume `executant-donnees` dans `.railway/railway.ts` (trois services, trois volumes ;
+  `verifier.mjs` et `test_railway_iac.py` étendus) ;
+- `scripts/verifier_releve_r0.py` : contrôle du relevé de la sonde R0 avant publication ;
+- CI : workflow `executant.yml` (image réelle, tests de l'image, sonde locale, suite `apps/poste` en root dans
+  l'image) ; `image.yml` construit la cible factice et lance le bout en bout ;
+- documentation : `docs/refonte/executant.md`, `executant/README.md`, `railway.md` § 13 (sonde R0, apply,
+  enrôlement et connexions par `railway ssh`, bundle, exploitation, restauration), annexe « P6 transposée à
+  Railway » d'`autonomie.md`, § 27 de `poste.md`.
+
+#### Modifié
+
+- l'exécution principale passe du PC Windows au service Railway `executant` (D74) ; le poste Windows devient
+  facultatif et n'exécute aucune carte en P6 ;
+- `pytest.ini` collecte `executant/tests` (tests de l'image ignorés, avec leur raison, sans image construite).
+
+#### Corrigé
+
+- côté Hermes : message de revue refusée perdu au rechargement de la page Questions ; trois tests de contrat P5 qui
+  faisaient échouer la CI de l'image ;
+- client : ordre de la file de sortie quand deux envois tombent dans la même tranche d'horloge (vu sur
+  `windows-2022`) ; base d'une carte retrouvée par `merge-base` si l'état local est perdu ; un modèle servi n'est
+  pris pour la résolution documentée de l'alias qu'avec un suffixe de **date** (`claude-sonnet-5-5` n'est plus pris
+  pour `claude-sonnet-5`) ; diagnostic du `config.toml` de Codex comparé à la variante Linux ; sortie de la sonde
+  débarrassée de l'avertissement de Codex qui masquait la cause d'un refus.
+
+#### Sécurité
+
+- aucun outil d'exécution sur Hermes (inchangé) ; l'exécutant n'écoute aucun port et n'a aucune variable secrète :
+  jetons déposés sur le volume (root, 0600) par `railway ssh` (D92) ; le jeton Claude n'entre que dans
+  l'environnement du processus `claude` ; consignes par l'entrée standard (jamais l'argv) ;
+- binaires des agents vérifiés au build (SHA-256, taille, signature GPG du manifeste de Claude Code), échec fermé ;
+  tout ce que lit ou exécute le superviseur est non inscriptible par les agents (transposition de D67, testé dans
+  l'image) ; `--git-dir` explicite et `core.fsmonitor=false` ; crochets git coupés ; `https` seul ;
+- aucun push (D82) ; fichiers de pilotage ⇒ revue du propriétaire ; secret ⇒ quarantaine, rien n'est envoyé.
+
+#### Vérifié localement
+
+- image construite avec les binaires réels ; tests de l'image ; suite `apps/poste` et contrat en root dans l'image
+  (745 réussis, 20 ignorés, propres à Windows) ; sonde : régime B sous le seccomp Docker par défaut, régime A en
+  témoin (le vrai `codex sandbox -P` accepte le profil du superviseur) ; options imposées admises par les vraies CLI
+  sans compte ;
+- bout en bout avec l'image Hermes et le vrai exécutant (CLI factices) : 6 réussis — carte exécutée, committée
+  localement et terminée, question et reprise, secret en quarantaine, revue refusée puis corrigée, références
+  distantes inchangées, aucun jeton dans les journaux ;
+- détail, commandes et CI : `docs/refonte/executant.md` § 11 et `docs/reprise-poste.md` § 6 octies.
+
+#### Limites connues
+
+- régime A ou B **sur Railway** inconnu tant que R0 n'est pas lancée ; régime B probable : voie Codex fermée sur
+  l'exécutant, Claude seul en écriture ;
+- signature cosign de Codex non vérifiée (identité non établie) ; versions apt fixées : une version intermédiaire de
+  Debian peut faire échouer le build (montée par PR) ;
+- vraies CLI connectées, `railway ssh`, `scp`, coût réel et prise en compte des clés non documentées de l'IaC : non
+  prouvés (R0 à R10) ; purge des worktrees et alerte J-30 du jeton Claude : non faites ;
+- les faux CLI ne prouvent que la plomberie.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

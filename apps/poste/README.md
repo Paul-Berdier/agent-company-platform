@@ -41,6 +41,8 @@ superviseur (root, sous `tini`) lit `/etc/acp/executant.toml` (versionné : `exe
 D78), rejoue la **sonde de plateforme** à chaque démarrage, attend son enrôlement **sans sortir**, puis réclame des
 cartes et les exécute une à une, chaque agent sous **son UID** (`acp-codex` 10001, `acp-claude` 10002,
 `acp-verif` 10003). Rien n'est poussé : la branche intégrée se récupère par `acp-poste bundle` (§ 12.2).
+Image, binaires vérifiés et entrée : [`executant/README.md`](../../executant/README.md) ; conception et preuves :
+[`docs/refonte/executant.md`](../../docs/refonte/executant.md).
 
 | Module | Rôle |
 |---|---|
