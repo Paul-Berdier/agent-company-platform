@@ -660,6 +660,30 @@ liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'e
   (`contrat/acp_poste_contrat`, avec `machine.py` et `motifs_secrets.py`) est copié dans l'image avec le
   greffon ; le greffon d'interface `acp-poste-vues` (onglet « Poste ») l'est comme les trois autres (root,
   0644).
+
+  Ajouts de P6, côté Hermes (cahier P6 § 5, § 9 et § 22 ; décisions D74 à D92 de [plan.md](plan.md)) : six
+  chemins à jeton de plus, `/machine/v1/{battement,terminer,question,bloquer,reprendre,arret}` (neuf en tout,
+  chacun inscrit par `register_token_route`), et `reclamer` qui **sert une carte** (`DemandeCarte` du contrat,
+  60 Kio au plus : résumés des parents puis consigne tronqués, et dit) seulement au poste qui annonce
+  `peut_executer` et des voies, **une carte à la fois**, réclamée `acp-poste:<machine>` pour 2 700 s, et
+  seulement parmi les cartes que le greffon a émises. Chaque envoi porte un `id_envoi` : un envoi rejoué rend la
+  même réponse sans second effet (table `envois`, gardée 7 jours). Le cycle de carte passe par l'API kanban de
+  Hermes, jamais par la base : `complete_task` (preuve de propriété par `expected_run_id`), `request_review` quand
+  des fichiers de pilotage sont touchés (D90), refus du propriétaire par `add_comment` puis
+  `reopen_review_task` (routes `/v1/revues/{tableau}/{carte}/{accepter,refuser}`, motif livré à la carte
+  resservie), `schedule_task` pour une question (jamais de triage à la seconde question), `block_task` pour un
+  blocage (attente de quota levée à l'heure dite, table `attentes`), `reclaim_task` pour rendre une carte.
+  Base du greffon au **schéma 3** (tables `envois` et `attentes`, colonnes d'exécution, reconstruction des
+  tables dont les contraintes `CHECK` changent ; migration idempotente). Routage : classe « intégration »
+  (voie `poste-integration`, sans modèle), **voies fermées** d'après l'inventaire (régime B sans bac à sable
+  Codex, conditions d'usage non décidées : refus `voie_fermee` ; une carte déjà composée attend 30 minutes
+  puis est bloquée), relecture de repli par la même voie et un autre modèle quand l'autre voie est fermée
+  (D91, réglage `relecture_repli_meme_voie`), **résolutions observées** (modèle servi rapporté par l'exécutant,
+  par alias, dans `/v1/routage`). `/v1/poste` ajoute le bloc **`executant`** (isolement mesuré, conditions,
+  carte en cours, voies fermées, branches prêtes avec la commande de récupération par `git bundle` et
+  `railway ssh`, D82 : aucun push) et `/v1/questions` les **revues** ; `/v1/meta` résume l'exécutant. Aucun
+  de ces ajouts ne donne d'outil d'exécution à l'agent : tout s'exécute sur l'exécutant (seconde partie de
+  P6).
 - `GET /api/plugins/acp-poste/v1/catalogue` (P3, session obligatoire) : le verrou et l'état de
   chaque skill et de chaque serveur MCP vu par le chargeur du tableau de bord
   (`catalogue.py`, seul module du greffon qui importe les internes des skills et des MCP).
@@ -826,6 +850,26 @@ sur un vrai serveur uvicorn **derrière l'intergiciel de jeton de Hermes** (`pil
 poste `hermes/tests/outils/faux_poste.py`, exemples `hermes/tests/outils/fixtures_machine/`). Au
 navigateur : `hermes/tests/e2e/test_poste.py`. Témoins négatifs : `scripts/temoins_negatifs_p5.sh` (28
 protections).
+
+### Tests ajoutés en P6
+
+Dans l'image : `test_execution_p6.py` (36 tests : réclamation et service des cartes, preuve de propriété,
+idempotence, battement, fin, revue, corrections dans l'ordre, questions, blocages et attentes de quota, reprise,
+arrêt propre, taille de la carte, intégration, vues), `test_routage_p6.py` (11 : intégration, voies fermées,
+repli de relecture D91), `test_migration_v3.py` (5) ; tests de P4 et P5 mis à jour (schéma 3, neuf chemins à
+jeton, bloc `executant`). Au contrat : `test_execution_contrat.py` (8 tests sur la pile s6 complète, faux
+exécutant `hermes/tests/outils/faux_executant.py`, exemples `hermes/tests/outils/fixtures_machine/*`).
+Au navigateur : `hermes/tests/e2e/test_executant.py` (onglet Poste avec l'exécutant, revue refusée avec motif). Témoins
+négatifs : `scripts/temoins_negatifs_p6.sh` (27 protections, retirées une à une dans un conteneur jetable).
+
+Résultats locaux du 1er octobre 2026 (Windows 10, Docker 29.5.3) sur des images construites depuis l'arbre de
+travail de `refonte/hermes-p6` : suite de l'image **681 réussis**, 0 échec, 0 ignoré (450,80 s, arbre de
+`c8b0887`) ; témoins négatifs **27 témoins, 0 anomalie** ; contrat : `test_execution_contrat.py` 8,
+`test_machine_contrat.py` 11 et `test_interface_contrat.py` 4 réussis (241,87 s), `test_projets_contrat.py` 21
+réussis (896,64 s), `test_interface_contrat.py` refait sur l'arbre de `c8b0887` : 4 réussis ; navigateur
+`test_executant.py` 1 réussi (45,81 s) ; contrat partagé 209 réussis. Le reste de la suite de contrat (catalogue,
+image, identité, connexion, sans shell) n'a pas été relancé localement : la CI le passe. Le vrai exécutant,
+Railway et les vrais comptes ne sont pas couverts par ces tests (cahier P6 § 16).
 
 ## 9. Ce qui est prouvé, ce qui ne l'est pas
 

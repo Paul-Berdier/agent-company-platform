@@ -71,7 +71,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
-| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
+| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | **en cours** sur `refonte/hermes-p6` (empilée sur `refonte/hermes-p5`) : côté Hermes (première partie) **réalisé côté dépôt**, poussé, sans PR ; exécutant et sonde R0 à faire ; **rien de déployé** (§ 6 sexies) |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
 | P9 | Exploitation, montée de version et publication | à faire |
@@ -1645,6 +1645,89 @@ Commits (aucun `Co-Authored-By`) : `559d363`, `00a812d`, `04f20bd`, `a428867`, `
 Hors P5, non corrigé : le client desktop cite encore `ACP_WORKER_SUBSCRIPTION_QUOTAS=1`
 (`apps/desktop/src/viewmodels/SubscriptionQuotasViewModel.cpp:932`), disparu en P5 : à revoir en P8.
 
+## 6 sexies. P6 — exécution, côté Hermes (première partie)
+
+Branche `refonte/hermes-p6`, empilée sur `refonte/hermes-p5` (`4f351bc`) ; version 0.11.0 inchangée ; **ni PR, ni
+fusion, ni étiquette** ; **rien n'est déployé**, aucune action sur Railway, aucun compte connecté, la sonde R0 n'est
+pas lancée. Décision du propriétaire : il **fournit les comptes**, Hermes gère ; les recommandations du cahier P6
+(§ 17) sont donc **appliquées** : décisions **D74 à D92** de [`plan.md`](refonte/plan.md) (le cahier les numérote 71
+à 89 ; D67 à D73 étaient déjà prises par la relecture de P5 : **décalage de trois**, à garder dans les parties
+suivantes). Ici l'exécutant est joué par un faux exécutant ; le client Linux (`apps/poste`), l'image `executant/` et
+la sonde R0 sont les parties suivantes de P6.
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `0111385` | feat(contrat): add execution routes and the Linux isolation inventory to acp-machine/1 |
+| `9d09776` | feat(acp-poste): migrate the plugin base to schema v3 for execution, sends and waits |
+| `ae066a5` | feat(acp-poste): serve cards to the runner and record heartbeats, outcomes, questions and blocks |
+| `d5a95af` | feat(interface): show isolation, current card, ready branches and reviews |
+| `64083b0` | feat(acp-poste): show the model actually served per alias in the routing view |
+| `579a220` | test(acp-poste): add the P6 negative witnesses and the tests they showed missing |
+
+Puis `d5a120b` (tests de contrat et faux exécutant), `c8b0887` (message d'une revue gardé après le rechargement),
+`8bc54bf` (navigateur) et ce commit de documentation.
+
+### Ce qui est en place
+
+Résumé dans [`image.md`](refonte/image.md) § 7 (« Ajouts de P6 ») et [`interface.md`](refonte/interface.md) § 12 :
+neuf chemins à jeton (`reclamer` sert une carte ; `battement`, `terminer`, `question`, `bloquer`, `reprendre`,
+`arret`), idempotence par `id_envoi`, cycle de carte par l'API kanban de Hermes (fin, revue des fichiers de pilotage
+et refus par `add_comment` puis `reopen_review_task`, question planifiée, blocage, reprise), schéma 3 de la base du
+greffon, classe « intégration », voies fermées d'après l'inventaire (régime B), repli de relecture D91, résolutions
+observées, bloc `executant` de `/v1/poste` et de `/v1/meta`, onglet Poste et page Questions.
+
+### Écarts au cahier, justifiés
+
+- Décisions renumérotées D74 à D92 (ci-dessus) ; le code cite ces numéros.
+- Les points 3 à 5 du § 19 du cahier (routes, cycle de carte, routage) sont livrés en un seul commit (`ae066a5`) :
+  leurs tests partagent le même faux exécutant et la même pile.
+- Résolutions observées : lues dans les demandes terminées (modèle servi rapporté par l'exécutant), pas recopiées
+  dans le relevé du catalogue : le relevé reste ce que le poste a publié.
+- Carte d'une voie fermée après sa composition : bloquée au bout de 30 minutes (motif dit), sans carte de triage
+  séparée.
+- Intégration de fin de projet créée seulement quand l'exécutant a rapporté des branches (les projets simulés de P4
+  se terminent sans intégration).
+- `VOIES_POSTE` gardée telle quelle, `poste-integration` à part (`VOIE_INTEGRATION`) : le routage de P5 ne change pas.
+- Persona (`SOUL.md`) et messages de la garde non retouchés : l'agent n'a toujours aucun outil d'exécution.
+- Code d'erreur `projet_en_pause` défini au contrat mais non émis : la pause est rendue par le battement (`pause`).
+
+### Preuves locales (01/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10 python.org, Node 24)
+
+- suite de l'image construite depuis l'arbre : **681 réussis**, 0 échec, 0 ignoré (450,80 s, arbre de `c8b0887` ;
+  même total sur l'arbre de `579a220`) ;
+- témoins négatifs `scripts/temoins_negatifs_p6.sh` : **27 témoins, 0 anomalie** (les premières passes ont montré
+  des tests trop faibles, resserrés par `579a220`) ;
+- tests de contrat sur la pile s6 complète (`test_execution_contrat.py`, `test_machine_contrat.py`,
+  `test_interface_contrat.py`) : **23 réussis** (8 + 11 + 4, 241,87 s), puis `test_projets_contrat.py` **21 réussis**
+  (896,64 s) et `test_interface_contrat.py` refait sur l'arbre de `c8b0887` (4 réussis : bundles servis identiques au
+  dépôt) ; le reste de la suite de contrat n'a pas été relancé localement ;
+- Vitest **120 réussis** (17 fichiers), `npm run check` : 8 fichiers de greffons à jour ; navigateur
+  `test_executant.py` : 1 réussi (45,81 s ; axe sans violation grave, aucun texte hors du catalogue, cibles de 44 px,
+  aucune requête hors de l'origine, 4 captures). Une passe précédente avait échoué : le message « Revue refusée »
+  disparaissait avec la carte au rechargement ; corrigé par `c8b0887`, avec un test Vitest qui échouait avant ;
+- contrat partagé 209 réussis ; suite du dépôt **691 réussis, 3 ignorés, 7 échecs d'environnement** : les cinq tests
+  d'arrêt d'arbre de `apps/poste/tests/test_local_runner.py` et `test_ordre_releve_moins_de_3_s` (5,1 s au lieu de
+  3 s) échouent **à l'identique sur l'export de `4f351bc`** (pointe de P5, `apps/poste` inchangé depuis) dans cette
+  session ; `test_arret_d_arbre_confirme` réussit seul (3 fois sur 3). À refaire sur un poste au repos ;
+- version, gel du moteur, catalogue, secrets : code 0 ; `git diff --check` propre avant chaque commit.
+
+### Intégration continue
+
+`ci.yml` vert sur chacun des quatre premiers commits. `image.yml` en **échec** sur ces quatre commits : sur
+`0111385`, trois tests de l'image écrits pour trois chemins à jeton (mis à jour par `9d09776`) ; sur les trois
+suivants, l'étape des tests de contrat (`ae066a5` et `d5a95af` : 147 réussis, 3 échecs ; journal de `9d09776`
+tronqué) : deux tests de contrat de P5 qui attendaient trois chemins à jeton et un 401 sur une route de P6, et
+`test_projets_contrat.py` qui attendait le schéma « 2 » ; corrigés par les commits de tests ci-dessus.
+Résultat sur la pointe de la branche : à relever dans l'onglet Actions avant toute PR.
+
+### Non vérifié
+
+Le vrai exécutant (client Linux, image `executant/`, bac à sable), Railway, les vrais comptes (Codex par code
+d'appareil, `claude setup-token`), la sonde R0 et ses régimes réels, la récupération par `git bundle` et
+`railway ssh` : parties suivantes de P6, puis le propriétaire.
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1785,3 +1868,8 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 - **Étape P5 (poste)** : les tests du poste et le bout en bout n'emploient jamais les vrais emplacements : racine
   jetable (`Emplacements.de_test`), coffre en mémoire (tests) ou DPAPI sur une racine temporaire (bout en bout),
   `USERPROFILE` et `APPDATA` redirigés ; `lancer_poste.py` refuse toute racine hors du dossier temporaire.
+- **Étape P6** : dans les tests de l'image, les routes servies par `pile_machine` appellent la copie **canonique** du
+  noyau (`meta.sous_module_noyau("execution")`), pas `pile.noyau` : un `monkeypatch` sur `pile.noyau.<module>` ne
+  les touche pas.
+- **Étape P6** : sous le Bash de l'outil d'agent, un heredoc avale les antislashs (un antislash suivi de « n »
+  devient un vrai saut de ligne) : écrire les scripts de modification avec un éditeur, pas par heredoc.

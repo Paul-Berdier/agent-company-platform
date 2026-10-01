@@ -211,6 +211,38 @@ appliqués.
 | D72 | Fraîcheur des quotas | Chaque compteur est « Périmé » selon **sa** date d'observation ; la voie l'est quand tous ses compteurs le sont | La date du relevé : une ligne d'état vieille de plusieurs jours s'affichait « Relevé » | relecture d'exploitation ; contrat `SubscriptionQuotaView` |
 | D73 | Modèle d'une étape poste-claude (routage, nouveau projet) | **Choix explicite exigé** : l'option « Modèle par défaut du relevé » n'est proposée que si un modèle du relevé est marqué par défaut (jamais pour Claude, D59) | La proposer quand même : un choix toujours refusé par le serveur | relecture d'exactitude |
 
+### Étape P6 : décisions D74 à D92, **appliquées**
+
+Décision du propriétaire (27 septembre et 1er octobre 2026) : l'exécution principale se fait sur un service Railway
+séparé, l'« exécutant » ; le propriétaire **fournit les comptes** et laisse Hermes gérer l'exploitation. Les
+recommandations du cahier de conception P6 (§ 17) sont donc **appliquées**, et non « à confirmer ».
+
+**Numérotation.** Le cahier P6 numérote ses décisions 71 à 89 ; la relecture de P5 avait entre-temps pris
+**D67 à D73** (section précédente, dette de P5 déjà inscrite). Les décisions de P6 sont donc décalées de trois :
+n° 71 du cahier → **D74**, …, n° 89 du cahier → **D92**. Le code et la documentation de P6 citent les numéros de
+ce tableau.
+
+| N° | Question | Choix appliqué en P6 | Autre option et conséquence | Remarque (n° du cahier P6) |
+|---|---|---|---|---|
+| D74 | Hôte d'exécution principal | Service Railway `executant`, séparé de Hermes, qui garde son conteneur sans terminal | PC Windows (plan d'autonomie) : facultatif désormais | n° 71 du cahier ; décision du propriétaire du 27/09 |
+| D75 | Voie de l'exécutant vers Hermes | **URL publique HTTPS**, sans changement de protocole ni de règle | Réseau privé en http : exception de la politique, nouvelle surface | n° 72 du cahier ; cahier § 10.3 |
+| D76 | Client de l'exécutant | **`apps/poste` multiplateforme** (couche `plateforme/`) | Second client Linux : deux codes pour un protocole | n° 73 du cahier ; cahier § 7.1 |
+| D77 | Machines actives | **Une seule, l'exécutant** ; bascule manuelle vers le PC (révocation, puis réenrôlement) | Deux machines avec affinité par carte : index unique retiré | n° 74 du cahier ; cahier § 18 |
+| D78 | Politique de l'exécutant | **Fichier versionné** `executant/politique/executant.toml`, copié en lecture seule dans l'image ; toute modification passe par une PR ; Hermes ne la fournit jamais (la carte servie porte `branche_base: null`) | Variable Railway, fichier du volume : modifiables sans revue | n° 75 du cahier ; cahier § 7.2 |
+| D79 | Si la sonde donne le régime B | **(c)** Claude seul en écriture, voie Codex **fermée** (« Indisponible : bac à sable Linux refusé par la plateforme ») | (b) Codex sans shell, seulement si un essai le prouve ; (a) `danger-full-access` ; (d) Railway Sandboxes, écartée | n° 76 du cahier ; cahier § 4.3 ; le greffon ferme la voie d'après l'inventaire (`isolement_linux`) |
+| D80 | Vérification sans bac à sable (régime B) | **Par dépôt**, `verification_sans_bac_a_sable = false` par défaut ; la CI du dépôt reste juge | Toujours ; jamais | n° 77 du cahier ; cahier § 4.3 |
+| D81 | Identifiants Codex et sauvegardes | Stockage `file` sur le volume ; sauvegardes quotidienne et hebdomadaire gardées | Sans sauvegarde : branches locales perdues au premier incident | n° 78 du cahier ; cahier § 11 |
+| D82 | Push | **Aucun en P6** : récupération par `git bundle` et `railway ssh` (commande affichée par la page Poste, « Branches prêtes ») ; option B conçue, activée sur décision ultérieure | Jeton du propriétaire en écriture : contournerait les règles | n° 79 du cahier ; cahier § 12 ; aucun bouton « Pousser » |
+| D83 | Codex avec le compte ChatGPT du propriétaire | **Accepté**, dépôts **privés** seulement, un seul `auth.json` créé par code d'appareil **sur** l'exécutant | Clé d'API OpenAI ; voie Codex fermée | n° 80 du cahier ; cahier § 2.1 ; date consignée dans `[conditions] codex_decide_le` de la politique, sans quoi la voie reste fermée |
+| D84 | Claude Code avec l'abonnement du propriétaire (`setup-token`) | **Accepté**, garde-fous tenus par Hermes et l'exécutant : une carte à la fois, 20 cartes et 8 h d'agent par jour, arrêt à 90 % du quota | Clé d'API Console ; voie Claude fermée | n° 81 du cahier ; cahier § 2.2 ; date dans `[conditions] claude_decide_le` |
+| D85 | Budget | Une carte ; 2 vCPU, 4 Gio ; 8 h d'agent et 20 cartes par jour ; alerte à 15 $, limite dure à 30 $ ; réévaluation après une semaine | Relever la limite ; fenêtres horaires | n° 82 du cahier ; cahier § 13 |
+| D86 | Versions | Codex **0.156.1**, Claude Code **2.1.283** ; SHA-256 obligatoires, GPG pour Claude | Codex 0.157.1 : lot dédié | n° 83 du cahier ; cahier § 8.2 |
+| D87 | Dépôt de preuve | **Jetable et privé** | Public : voie Codex fermée | n° 84 du cahier ; cahier § 2.1 |
+| D88 | Sonde R0 | **Projet Railway jetable** `acp-sonde`, préparée par ACP, lancée par le propriétaire | Service temporaire dans `acp` | n° 85 du cahier ; cahier § 4.1 |
+| D89 | Réseau des commandes des agents | **Coupé** en régime A ; en régime B, aucune commande Codex, vérification selon D80 | Autorisé par dépôt | n° 86 du cahier ; cahier § 4 |
+| D90 | Fichiers de pilotage | **Liste étendue** (`.github/` entier, `.gitattributes`, `.gitmodules`, `.husky/`, `.mcp.json`, liens ajoutés…) → la carte passe **en revue** ; refus du propriétaire par `add_comment` puis `reopen_review_task` | Liste du plan d'autonomie seule | n° 87 du cahier ; cahier § 6.6, § 5.4 |
+| D91 | Relecture quand la voie de l'autre exécutant est fermée | **Même voie, autre modèle** (classe « relecture »), décidé automatiquement par le routage de Hermes, et dit (mention) ; jamais le modèle de l'implémentation ; sinon refus `relecture_impossible` | Garder D27 tel quel | n° 88 du cahier ; **lève D27 dans ce cas seulement** ; réglage `relecture_repli_meme_voie` (vrai par défaut) : levé, D27 s'applique |
+| D92 | Rangement du jeton Claude et du jeton GitHub de lecture | **Fichiers 0600 root sur le volume**, déposés par `railway ssh` (`acp-poste connexion … --stdin`) | Variables scellées : présentes dans l'environnement du PID 1 | n° 89 du cahier ; cahier § 11 |
 ### Phases P4 à P8 remplacées par le plan d'autonomie
 
 Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
