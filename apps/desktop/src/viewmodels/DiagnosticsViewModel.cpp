@@ -2,7 +2,9 @@
 
 #include "api/ApiClient.h"
 #include "app/BuildConfig.h"
+#include "auth/SessionHermes.h"
 #include "diagnostics/Redaction.h"
+#include "services/CompatibiliteHermes.h"
 #include "services/HealthService.h"
 #include "storage/CredentialVault.h"
 #include "storage/SettingsStore.h"
@@ -25,13 +27,17 @@ const QString &unknownValue()
 
 } // namespace
 
-DiagnosticsViewModel::DiagnosticsViewModel(ApiClient *client, HealthService *health,
+DiagnosticsViewModel::DiagnosticsViewModel(ApiClient *client, SessionHermes *session,
+                                           CompatibiliteHermes *compatibilite,
+                                           HealthService *health,
                                            SettingsStore *settings,
                                            SystemAppearance *appearance, CredentialVault *vault,
                                            QString clientVersion, QString buildInfo,
                                            QObject *parent)
     : QAbstractListModel(parent)
     , m_client(client)
+    , m_session(session)
+    , m_compatibilite(compatibilite)
     , m_health(health)
     , m_settings(settings)
     , m_appearance(appearance)
@@ -41,6 +47,11 @@ DiagnosticsViewModel::DiagnosticsViewModel(ApiClient *client, HealthService *hea
 {
     connect(m_health, &HealthService::changed, this, &DiagnosticsViewModel::refresh);
     connect(m_client, &ApiClient::baseUrlChanged, this, &DiagnosticsViewModel::refresh);
+    connect(m_session, &SessionHermes::etatChange, this, &DiagnosticsViewModel::refresh);
+    connect(m_session, &SessionHermes::identiteChange, this, &DiagnosticsViewModel::refresh);
+    connect(m_session, &SessionHermes::avisCoffreChange, this, &DiagnosticsViewModel::refresh);
+    connect(m_session, &SessionHermes::memoriserChange, this, &DiagnosticsViewModel::refresh);
+    connect(m_compatibilite, &CompatibiliteHermes::change, this, &DiagnosticsViewModel::refresh);
     refresh();
 }
 
@@ -88,6 +99,8 @@ void DiagnosticsViewModel::refresh()
     const QString station = QStringLiteral("Station");
     const QString connection = QStringLiteral("Connexion");
     const QString storage = QStringLiteral("Stockage local");
+    const QString session = QStringLiteral("Session");
+    const QString compatibility = QStringLiteral("Compatibilité");
 
     // --- Station ------------------------------------------------------------
     entries.append({station, QStringLiteral("Version de la station"), m_clientVersion, true, true});
@@ -130,8 +143,78 @@ void DiagnosticsViewModel::refresh()
                     true, false});
     entries.append({connection, QStringLiteral("Version de Hermes annoncée"),
                     m_health->hermesVersion(), m_health->hermesVersion() != unknownValue(), true});
+    entries.append({connection, QStringLiteral("Passerelle de Hermes"), m_health->gatewayLabel(),
+                    m_health->gatewayLabel() != unknownValue(), false});
+    entries.append({connection, QStringLiteral("Sessions actives sur Hermes"),
+                    m_health->activeSessionsLabel(), m_health->activeSessionsLabel() != unknownValue(),
+                    true});
     entries.append({connection, QStringLiteral("Appels en vol"),
                     QString::number(m_client->inFlightCount()), true, true});
+
+    // --- Session ------------------------------------------------------------
+    // Aucune valeur de jeton n'apparaît ici, seulement des faits sur la session.
+    entries.append({session, QStringLiteral("État"), m_session->libelleEtat(), true, false});
+    entries.append({session, QStringLiteral("Dernière erreur"),
+                    m_session->derniereErreur().isEmpty() ? QStringLiteral("Aucune")
+                                                          : m_session->derniereErreur(),
+                    true, false});
+    entries.append({session, QStringLiteral("Identité"), m_session->identifiant(),
+                    m_session->identifiant() != unknownValue(), true});
+    entries.append({session, QStringLiteral("Nom affiché"), m_session->nomAffiche(),
+                    m_session->nomAffiche() != unknownValue(), false});
+    entries.append({session, QStringLiteral("Fournisseur d'identité"), m_session->fournisseur(),
+                    m_session->fournisseur() != unknownValue(), true});
+    entries.append({session, QStringLiteral("Échéance du jeton d'accès"), m_session->expiration(),
+                    m_session->expiration() != unknownValue(), true});
+    entries.append({session, QStringLiteral("Connexion mémorisée sur ce poste"),
+                    m_session->memoriser() ? QStringLiteral("Oui (consentement donné)")
+                                           : QStringLiteral("Non"),
+                    true, false});
+    entries.append({session, QStringLiteral("Entrée au coffre pour ce serveur"),
+                    m_session->entreeAuCoffre() ? QStringLiteral("Présente (valeur jamais affichée)")
+                                                : QStringLiteral("Absente"),
+                    true, false});
+    entries.append({session, QStringLiteral("Avis du coffre"),
+                    m_session->avisCoffre().isEmpty() ? QStringLiteral("Aucun") : m_session->avisCoffre(),
+                    true, false});
+    entries.append({session, QStringLiteral("Dernière déconnexion"),
+                    m_session->bilanDeconnexion().isEmpty() ? QStringLiteral("Aucune")
+                                                            : m_session->bilanDeconnexion(),
+                    true, false});
+
+    // --- Compatibilité ------------------------------------------------------
+    entries.append({compatibility, QStringLiteral("Verdict"), m_compatibilite->libelle(),
+                    m_compatibilite->etat() != CompatibilityStatus::NonVerifiee, false});
+    entries.append({compatibility, QStringLiteral("Explication"),
+                    m_compatibilite->explication().isEmpty() ? QStringLiteral("Aucune")
+                                                             : m_compatibilite->explication(),
+                    true, false});
+    entries.append({compatibility, QStringLiteral("Hermes servi"), m_compatibilite->versionHermes(),
+                    m_compatibilite->versionHermes() != unknownValue(), true});
+    entries.append({compatibility, QStringLiteral("Contrat du greffon"), m_compatibilite->contratRecu(),
+                    m_compatibilite->contratRecu() != unknownValue(), true});
+    entries.append({compatibility, QStringLiteral("Contrat attendu"),
+                    QString::fromLatin1(ACP_CONTRAT_ACP_POSTE), true, true});
+    entries.append({compatibility, QStringLiteral("Version du greffon"), m_compatibilite->versionGreffon(),
+                    m_compatibilite->versionGreffon() != unknownValue(), true});
+    entries.append({compatibility, QStringLiteral("Empreinte OpenRPC servie"),
+                    m_compatibilite->empreinteOpenRpc(),
+                    m_compatibilite->empreinteOpenRpc() != unknownValue(), true});
+    entries.append({compatibility, QStringLiteral("Empreinte OpenRPC épinglée"),
+                    QString::fromLatin1(ACP_OPENRPC_SHA256), true, true});
+    entries.append({compatibility, QStringLiteral("Exécutant Railway (P6)"),
+                    m_compatibilite->etat() == CompatibilityStatus::NonVerifiee
+                        ? unknownValue()
+                        : (m_compatibilite->executantPresent() ? QStringLiteral("Annoncé par Hermes")
+                                                               : QStringLiteral("Non disponible sur ce serveur")),
+                    m_compatibilite->etat() != CompatibilityStatus::NonVerifiee, false});
+    const QStringList alertes = m_compatibilite->alertes();
+    entries.append({compatibility, QStringLiteral("Alertes de Hermes"),
+                    QString::number(alertes.size()),
+                    m_compatibilite->etat() != CompatibilityStatus::NonVerifiee, true});
+    for (const QString &alerte : alertes) {
+        entries.append({compatibility, QStringLiteral("Alerte"), alerte, true, false});
+    }
 
     // --- Stockage -----------------------------------------------------------
     entries.append({storage, QStringLiteral("Coffre de secrets"), m_vault->backendName(), true,

@@ -2,12 +2,14 @@
 
 #include "api/ApiClient.h"
 #include "api/ApiError.h"
+#include "api/ClientGreffonPoste.h"
 #include "app/BuildConfig.h"
 #include "app/QmlEnums.h"
 #include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
 #include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
+#include "services/CompatibiliteHermes.h"
 #include "services/HealthService.h"
 #include "services/UpdateService.h"
 #include "storage/CredentialVault.h"
@@ -56,6 +58,8 @@ Application::Application(QObject *parent)
     , m_client(new ApiClient(this))
     , m_vault(makeCredentialVault(QStringLiteral("AgentCompanyPlatform")))
     , m_session(new SessionHermes(m_client, m_vault.get(), m_settings, this))
+    , m_greffon(std::make_unique<ClientGreffonPoste>(m_client))
+    , m_compatibilite(new CompatibiliteHermes(m_greffon.get(), this))
     , m_health(new HealthService(m_client, this))
     , m_navigation(new NavigationModel(this))
     , m_commands(new CommandRegistry(this))
@@ -72,8 +76,12 @@ Application::Application(QObject *parent)
             m_session->reessayer();
         }
     });
-    m_diagnostics = new DiagnosticsViewModel(m_client, m_health, m_settings, m_appearance,
-                                             m_vault.get(), version(), buildInfo(), this);
+    m_diagnostics = new DiagnosticsViewModel(m_client, m_session, m_compatibilite, m_health,
+                                             m_settings, m_appearance, m_vault.get(), version(),
+                                             buildInfo(), this);
+    // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
+    connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
+    connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
     m_updates = new UpdateService(version(), this);
     registerBuiltinCommands();
     connect(m_navigation, &NavigationModel::historyChanged, this,
@@ -103,6 +111,9 @@ void Application::registerQmlTypes()
     qmlRegisterUncreatableType<SessionStatus>(kQmlUri, 1, 0, "SessionStatus",
                                               QStringLiteral("SessionStatus n'expose que des "
                                                              "énumérations."));
+    qmlRegisterUncreatableType<CompatibilityStatus>(kQmlUri, 1, 0, "CompatibilityStatus",
+                                                    QStringLiteral("CompatibilityStatus n'expose "
+                                                                   "que des énumérations."));
     qmlRegisterUncreatableType<ApiFailure>(kQmlUri, 1, 0, "ApiFailure",
                                            QStringLiteral("ApiFailure n'expose que des "
                                                           "énumérations."));
@@ -123,6 +134,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Shell", m_shell);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Session", m_session);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Health", m_health);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Compatibility", m_compatibilite);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
@@ -239,6 +251,19 @@ void Application::registerBuiltinCommands()
         [this](const CommandContext &) {
             m_health->probeNow();
             return CommandResult::accept(QStringLiteral("Vérification du serveur lancée."));
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("connection.compatibility"),
+        QStringLiteral("Revérifier la compatibilité de Hermes"), QStringLiteral("Connexion"),
+        {QStringLiteral("version"), QStringLiteral("contrat"), QStringLiteral("greffon")}, QString(),
+        [](const CommandContext &context) {
+            return context.sessionConnected ? CommandAvailability::Available
+                                            : CommandAvailability::NeedsSession;
+        },
+        [this](const CommandContext &) {
+            m_compatibilite->verifier();
+            return CommandResult::accept(QStringLiteral("Vérification de compatibilité lancée."));
         }});
 
     m_commands->registerCommand(Command{

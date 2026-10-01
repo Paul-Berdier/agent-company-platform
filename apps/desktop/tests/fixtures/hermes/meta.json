@@ -1,0 +1,33 @@
+{
+  "contrat": "acp-poste/1",
+  "greffon": {"nom": "acp-poste", "version": "0.11.0"},
+  "hermes": {
+    "version": "0.21.5",
+    "version_testee": "0.21.5",
+    "conforme": true,
+    "etiquette": "v2026.9.24",
+    "commit": "f97608f178d1ffeca59860195ab7da295f7c8e5f"
+  },
+  "image": {
+    "base": "nousresearch/hermes-agent",
+    "condensat_index": "sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7"
+  },
+  "openrpc": {
+    "info_version": "1",
+    "info_version_epinglee": "1",
+    "methodes": 237,
+    "empreinte_installee": "c89a203e853c285c4af204a229d4d804a36847efdcb6d223da8d3d22017f184d",
+    "empreinte_epinglee": "c89a203e853c285c4af204a229d4d804a36847efdcb6d223da8d3d22017f184d",
+    "identique": true
+  },
+  "demarrage": null,
+  "environnement": {"managed_dir_conforme": true},
+  "garde_execution": {"alerte": null},
+  "reseau": null,
+  "deploiement": {"commit": null},
+  "catalogue": {},
+  "interface": {},
+  "projets": {"base": "ok"},
+  "machine": {"fournisseur": "enregistre"},
+  "alertes": []
+}

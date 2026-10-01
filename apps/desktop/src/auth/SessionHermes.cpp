@@ -159,6 +159,11 @@ QString SessionHermes::expiration() const
         : QStringLiteral("Inconnu");
 }
 
+QString SessionHermes::nomDuCoffre() const
+{
+    return m_coffre.coffre() ? m_coffre.coffre()->backendName() : QStringLiteral("Aucun coffre");
+}
+
 bool SessionHermes::memoriser() const
 {
     return m_reglages && m_reglages->connexionMemorisee();

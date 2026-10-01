@@ -101,6 +101,10 @@ public:
 
     /*! Jeton d'accès courant, pour le transport seulement. Jamais vers QML. */
     [[nodiscard]] QByteArray jetonAcces() const { return m_jetons.acces; }
+    /*! Vrai si une entrée existe au coffre pour ce serveur (sans la lire). */
+    [[nodiscard]] bool entreeAuCoffre() const { return m_coffre.contient(m_serveur); }
+    /*! Nom du coffre employé, pour les diagnostics. */
+    [[nodiscard]] QString nomDuCoffre() const;
     /*! Échéance du jeton d'accès (UTC), invalide hors session. */
     [[nodiscard]] QDateTime echeanceAcces() const { return m_jetons.expireLe; }
 

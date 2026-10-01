@@ -166,6 +166,8 @@ set(ACP_CORE_SOURCES
     src/models/JsonListModel.h
     src/navigation/NavigationModel.cpp
     src/navigation/NavigationModel.h
+    src/services/CompatibiliteHermes.cpp
+    src/services/CompatibiliteHermes.h
     src/services/HealthService.cpp
     src/services/HealthService.h
     src/services/UpdateService.cpp

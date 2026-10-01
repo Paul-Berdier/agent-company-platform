@@ -62,6 +62,26 @@ public:
     using QObject::QObject;
 };
 
+/*! Compatibilité de la station avec le Hermes et le greffon acp-poste servis. */
+class CompatibilityStatus : public QObject
+{
+    Q_OBJECT
+
+public:
+    enum State {
+        NonVerifiee,   //!< Aucune lecture de /v1/meta encore.
+        Verification,  //!< Lecture en cours.
+        Compatible,    //!< Contrat, OpenRPC et version de Hermes conformes.
+        Avertissement, //!< Utilisable, mais un écart est signalé (version, empreinte, alertes).
+        Incompatible,  //!< Contrat du greffon d'une autre majeure : pages du greffon bloquées.
+        GreffonAbsent, //!< /v1/meta en 404 : seules Discussion et Diagnostics restent.
+        Injoignable,   //!< Lecture impossible : rien n'est supposé.
+    };
+    Q_ENUM(State)
+
+    using QObject::QObject;
+};
+
 /*! Familles d'échec d'un appel d'API. La couleur ne les distingue pas, le libellé si. */
 class ApiFailure : public QObject
 {

@@ -41,6 +41,12 @@ acp_add_cpp_test(tst_session_hermes cpp/support/FauxHermes.cpp cpp/support/FauxH
     cpp/support/NavigateurTest.h cpp/support/CoffreMemoire.h)
 acp_add_cpp_test(tst_jetons_coffre cpp/support/CoffreMemoire.h)
 acp_add_cpp_test(tst_instance_unique)
+acp_add_cpp_test(tst_compatibilite_hermes cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+# Documents de référence du greffon (forme de meta.py, voir fixtures/hermes/README.md).
+target_compile_definitions(tst_compatibilite_hermes PRIVATE
+    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
+acp_add_cpp_test(tst_sante cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)

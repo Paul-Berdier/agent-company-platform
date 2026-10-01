@@ -20,6 +20,9 @@ HealthService::HealthService(ApiClient *client, QObject *parent)
     connect(m_client, &ApiClient::baseUrlChanged, this, [this] {
         m_hermesVersion.clear();
         m_authRequired.reset();
+        m_gatewayRunning.reset();
+        m_gatewayState.clear();
+        m_activeSessions.reset();
         m_lastSuccessAt = QDateTime();
         setStatus(LinkStatus::Unknown, QString());
         emit changed();
@@ -55,6 +58,46 @@ QString HealthService::lastSuccessLabel() const
 QString HealthService::hermesVersion() const
 {
     return m_hermesVersion.isEmpty() ? QStringLiteral("Inconnu") : m_hermesVersion;
+}
+
+QString HealthService::gatewayLabel() const
+{
+    if (!m_gatewayRunning.has_value()) {
+        return QStringLiteral("Inconnu");
+    }
+    const QString etat = m_gatewayState.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(m_gatewayState);
+    return (*m_gatewayRunning ? QStringLiteral("En marche") : QStringLiteral("Arrêtée")) + etat;
+}
+
+QString HealthService::activeSessionsLabel() const
+{
+    return m_activeSessions.has_value() ? QString::number(*m_activeSessions) : QStringLiteral("Inconnu");
+}
+
+void HealthService::probeStatus()
+{
+    ApiRequest request;
+    request.path = QStringLiteral("/api/status");
+    request.publicEndpoint = true;
+    request.timeout = std::chrono::milliseconds(20000);
+    ApiCall *call = m_client->send(request);
+    connect(call, &ApiCall::succeeded, this, [this](const ApiResponse &response) {
+        const QJsonObject payload = response.json.object();
+        const QJsonValue running = payload.value(QStringLiteral("gateway_running"));
+        const QJsonValue state = payload.value(QStringLiteral("gateway_state"));
+        const QJsonValue sessions = payload.value(QStringLiteral("active_sessions"));
+        m_gatewayRunning = running.isBool() ? std::optional<bool>(running.toBool()) : std::nullopt;
+        m_gatewayState = state.isString() ? state.toString() : QString();
+        m_activeSessions = sessions.isDouble() ? std::optional<int>(sessions.toInt()) : std::nullopt;
+        emit changed();
+    });
+    connect(call, &ApiCall::failed, this, [this](const ApiError &) {
+        // Données datées gardées ailleurs ; ici, une lecture échouée redevient « Inconnu ».
+        m_gatewayRunning.reset();
+        m_gatewayState.clear();
+        m_activeSessions.reset();
+        emit changed();
+    });
 }
 
 void HealthService::setStatus(LinkStatus::State status, const QString &detail)
@@ -115,6 +158,7 @@ void HealthService::probeNow()
         m_lastSuccessAt = QDateTime::currentDateTimeUtc();
         setStatus(LinkStatus::Online, QString());
         emit changed();
+        probeStatus();
     });
     connect(call, &ApiCall::failed, this, [this](const ApiError &error) {
         if (error.httpStatus() > 0) {
