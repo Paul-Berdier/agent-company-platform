@@ -194,6 +194,23 @@ votre PC (compte `acp-poste`, tâche planifiée, réglages système) ne sont ép
 | D65 | 401 générique de la couture de Hermes | **Jeton gardé**, plus aucun échange, arrêt (code 4), nouvel essai par le déclencheur de garde ; effacement seulement sur le 401 explicite `poste_revoque` | Effacer sur tout 401 : une panne du fournisseur côté Hermes ferait réenrôler physiquement le poste | cahier : n° 57 ; le greffon ne rend `poste_revoque` que s'il a relu la révocation |
 | D66 | Relance du poste par Windows | Déclencheur de garde toutes les 15 min, en plus du démarrage | « Redémarrer en cas d'échec » seul : non prouvé sur un code de sortie non nul | cahier : n° 58 ; appliqué (`tache-poste.xml.modele` : `BootTrigger` et `TimeTrigger` répété toutes les 15 min sans fin, `IgnoreNew`) |
 
+### Relecture de P5 : choix par défaut D67 à D73, **à confirmer par le propriétaire**
+
+Trois relectures indépendantes de P5 (exactitude, sécurité, exploitation ; 27 septembre 2026) ont relevé seize
+constats ; leurs corrections ont exigé ces choix, appliqués par défaut et **non confirmés** (ils **ne font pas foi**).
+Tableau constat → traitement → preuve : [poste.md](poste.md) § 26. Recommandation par défaut : garder les choix
+appliqués.
+
+| N° | Question | Choix appliqué | Autre option et conséquence pour vous | Écart au plan ou remarque |
+|---|---|---|---|---|
+| D67 | Interpréteur Python modifiable par le compte du poste | **Refus** : de l'installeur (étape 1, ACL de `python.exe`, de son dossier, de `Lib`, `Lib\site-packages` et `DLLs` pour les groupes du compte) et du service au démarrage | Le laisser : un exécutant mal confiné (P6) planterait un `.pth` lu par `python -I` et lirait les jetons déchiffrés en mémoire | relecture de sécurité ; un Python installé directement sous `C:\` hérite du droit Modification des Utilisateurs authentifiés |
+| D68 | Forme des commandes du poste données au propriétaire | Forme exécutable dans la console `runas` : `& 'C:\Program Files\ACP\poste\acp-poste.cmd' …` sur le poste ; `& "$env:ProgramFiles\ACP\poste\acp-poste.cmd" …` dans ce que Hermes affiche (sans lettre de lecteur, la garde « aucun identifiant » refusant les chemins) | Ajouter le dossier au PATH du compte : un réglage de plus, et la forme courte ne marcherait toujours pas dans votre session | relecture d'exploitation : « acp-poste enroler » n'était reconnu par aucune console |
+| D69 | Contrôle « un fournisseur de session existe » (cahier § 20) | **Non fait dans le greffon** : le fournisseur du jeton machine s'enregistre sans condition ; l'OIDC est exigé au démarrage par `acp_demarrage gardes` (variables obligatoires) ; écart déclaré | Le subordonner à l'OIDC dans `register()` : impossible, `acp-poste` se charge avant le greffon OIDC (tri alphabétique des greffons groupés) ; tenté en 04f20bd, cela retirait le jeton machine de tout déploiement réel | [poste.md](poste.md) § 11 |
+| D70 | Exécutable d'une CLI absent ou qui est un dossier | Refus « fichier introuvable » **avant** le contrôle des droits (mode dédié) ; dossier refusé dans tous les modes | Contrôle des droits sur le dossier absent : refus trompeur « binaire modifiable » | relecture d'exactitude ; cahier § 7.3 |
+| D71 | Version de Claude Code à l'installation | Lue sur la source dès l'étape 1 (simulation comprise) : **refus** sous 2.1.248, **avertissement** sous 2.1.280 (voie refusée au routage, efforts inconnus) | Refus sous 2.1.280 : la voie Codex resterait inutilisable tant que Claude n'est pas à jour | relecture d'exploitation : votre Claude Code est en 2.1.239 |
+| D72 | Fraîcheur des quotas | Chaque compteur est « Périmé » selon **sa** date d'observation ; la voie l'est quand tous ses compteurs le sont | La date du relevé : une ligne d'état vieille de plusieurs jours s'affichait « Relevé » | relecture d'exploitation ; contrat `SubscriptionQuotaView` |
+| D73 | Modèle d'une étape poste-claude (routage, nouveau projet) | **Choix explicite exigé** : l'option « Modèle par défaut du relevé » n'est proposée que si un modèle du relevé est marqué par défaut (jamais pour Claude, D59) | La proposer quand même : un choix toujours refusé par le serveur | relecture d'exactitude |
+
 ### Phases P4 à P8 remplacées par le plan d'autonomie
 
 Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
