@@ -133,8 +133,10 @@ identifiant ni secret) avant d'être publié dans `docs/refonte/preuves/`.
 
 Détail : [`apps/poste/README.md`](../../apps/poste/README.md) (« Exécutant Linux ») et cahier § 6. En bref :
 `reclamer` (long-poll, `peut_executer` et voies annoncées) → clone nu et `git fetch` en lecture seule → worktree
-`hermes/<carte>` → agent sous son UID avec les options imposées (Codex : `codex exec --json … --sandbox
-workspace-write|read-only`, fonctions coupées ; Claude : `claude -p --restricted --tools … --strict-mcp-config
+`hermes/<carte>` → agent sous son UID avec les options imposées (Codex : `codex exec --json …` sous un profil de
+permissions nommé, `acp_agent` ou `acp_lecture`, qui interdit `/donnees/codex`, `/donnees/claude`, `/donnees/acp` et
+`/etc/acp` et coupe le réseau, **sans** `--sandbox`, qui le ferait ignorer ; fonctions coupées ; Claude :
+`claude -p --restricted --tools … --strict-mcp-config
 --disallowedTools "mcp__*" --settings /etc/acp/claude-settings.json --json-schema …`) → battements → vérification
 sous `acp-verif` (régime A : sous `codex sandbox`, réseau coupé ; régime B : seulement si le dépôt le déclare) →
 **commit local par le superviseur** (auteur « ACP exécutant », sans crochets) → fichiers de pilotage (⇒ revue) et
@@ -147,6 +149,13 @@ par `--json-schema` ; aucun serveur MCP ; `--add-dir` admis avec `--restricted`,
 ou une fonction inconnue est refusée ; Claude 2.1.283 sert `claude-opus-5-5` pour l'alias `opus` (la résolution
 documentée) ; seul un suffixe de date à huit chiffres est désormais admis entre le modèle servi et la résolution
 documentée.
+
+Mesuré avec le vrai `codex exec` 0.156.1 et un **faux fournisseur de modèle** (boucle locale, aucun identifiant ;
+`executant/tests/faux_fournisseur.py`), témoin du régime A : avec l'ancienne commande (`--sandbox workspace-write`
+ou `read-only`), une commande de Codex lisait le faux `auth.json` et son contenu repartait vers le modèle ; avec le
+profil nommé, la lecture est refusée (« Permission denied »), `/etc/acp` aussi, le réseau est coupé, `/tmp` hors de
+`$TMPDIR` est en lecture seule, le worktree reste inscriptible (commande et `apply_patch`) en implémentation et ne
+l'est pas en relecture (`test_codex_exec_profil_interdit_les_identifiants`, relecture de P6).
 
 ## 7. Infrastructure Railway
 

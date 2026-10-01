@@ -7,11 +7,20 @@ plaçait la consigne en dernier argument). La forme ``-`` est documentée par ``
 
 **Codex** (UID ``acp-codex``) :
 ``codex exec --json -C <worktree> -m <modèle> -c model_reasoning_effort="<effort>" -c service_tier="default"
--c cli_auth_credentials_store="file" --ignore-user-config --ignore-rules --sandbox workspace-write|read-only
+-c cli_auth_credentials_store="file" --ignore-user-config --ignore-rules -c default_permissions="acp_agent|acp_lecture"
+-c permissions.<profil>.filesystem={…} -c permissions.<profil>.network.enabled=false
 -c sandbox_workspace_write.network_access=false -c web_search="disabled" --disable <fonction>…
 --output-schema <schema.json> -o <reponse.json> [resume <session>] -`` ; jamais ``--ephemeral`` (il rendrait la
 reprise impossible). Environnement : ``CODEX_HOME``, ``HOME`` de l'agent, ``TMPDIR`` de la tentative, ``PATH``
 minimal ; aucune autre variable.
+
+**Profil de permissions imposé** (cahier P6 § 4.2, régime A) : les commandes de Codex tournent sous le même UID que
+Codex, propriétaire de ``auth.json`` ; seul le bac à sable peut leur en interdire la lecture. Le profil nommé lit
+toute la racine, écrit le worktree et ``$TMPDIR`` (implémentation, correction ; rien pour la relecture et
+l'exploration), coupe le réseau et INTERDIT ``/donnees/codex``, ``/donnees/claude``, ``/donnees/acp`` et
+``/etc/acp``. **Sans** ``--sandbox`` : avec lui, Codex 0.156.1 ignore ``default_permissions`` et applique son profil
+intégré, qui lit toute la racine, ``auth.json`` compris (relecture de P6, reproduit dans l'image avec un faux
+fournisseur de modèle : ``executant/tests/test_image.py::test_codex_exec_profil_interdit_les_identifiants``).
 
 **Claude** (UID ``acp-claude``) :
 ``claude -p --restricted --model <alias|id> --effort <effort> --tools Read,Glob,Grep,Edit,Write
@@ -22,7 +31,8 @@ minimal ; aucune autre variable.
 ``DISABLE_UPDATES``, ``DISABLE_AUTOUPDATER``, ``DISABLE_TELEMETRY``, ``HOME`` et ``TMPDIR`` propres, **sans**
 ``CLAUDE_CODE_SKIP_PROMPT_HISTORY`` (une session ainsi lancée ne serait pas reprenable, C4).
 
-Relecture et exploration : Codex en ``--sandbox read-only``, Claude avec ``--tools Read,Glob,Grep``.
+Relecture et exploration : Codex sous le profil ``acp_lecture`` (aucune écriture), Claude avec
+``--tools Read,Glob,Grep``.
 """
 
 from __future__ import annotations
@@ -33,6 +43,7 @@ from pathlib import Path, PurePosixPath
 from typing import Sequence
 
 from .evenements import SCHEMA_SORTIE
+from .sonde_plateforme import CHEMINS_INTERDITS
 
 FONCTIONS_CODEX_COUPEES = ("apps", "plugins", "hooks", "multi_agent", "browser_use", "computer_use",
                            "image_generation", "worktrees", "workspace_dependencies", "skill_mcp_dependency_install",
@@ -42,6 +53,8 @@ OUTILS_CLAUDE_LECTURE = "Read,Glob,Grep"
 SETTINGS_CLAUDE = "/etc/acp/claude-settings.json"
 ROLES_LECTURE = ("relecture", "exploration")
 PATH_AGENTS = "/usr/local/bin:/usr/bin:/bin"
+PROFIL_AGENT = "acp_agent"
+PROFIL_LECTURE = "acp_lecture"
 
 
 @dataclass(frozen=True)
@@ -59,6 +72,21 @@ def _base_env(home: PurePosixPath | str, tmpdir: Path) -> dict[str, str]:
             "TMPDIR": Path(tmpdir).as_posix()}
 
 
+def surcharges_permissions(role: str, interdits: Sequence[str] = CHEMINS_INTERDITS) -> list[str]:
+    """Surcharges ``-c`` du profil de permissions de l'agent Codex : lecture de la racine, écriture du worktree et de
+    ``$TMPDIR`` (rôles d'écriture seulement), identifiants INTERDITS, réseau coupé (forme éprouvée par le vrai Codex
+    0.156.1 dans l'image, témoin du régime A)."""
+    lecture = role in ROLES_LECTURE
+    nom = PROFIL_LECTURE if lecture else PROFIL_AGENT
+    regles = {":root": "read"}
+    if not lecture:
+        regles.update({":project_roots": "write", ":tmpdir": "write"})
+    regles.update({chemin: "deny" for chemin in interdits})
+    table = "{" + ", ".join(f'"{chemin}"="{acces}"' for chemin, acces in regles.items()) + "}"
+    return ["-c", f'default_permissions="{nom}"', "-c", f"permissions.{nom}.filesystem={table}",
+            "-c", f"permissions.{nom}.network.enabled=false"]
+
+
 def commande_codex(*, prefixe: Sequence[str], executable: str, worktree: Path, modele: str, effort: str | None,
                    role: str, schema: Path, reponse: Path, codex_home: Path, home: PurePosixPath | str,
                    tmpdir: Path, session: str | None = None) -> CommandeAgent:
@@ -66,8 +94,7 @@ def commande_codex(*, prefixe: Sequence[str], executable: str, worktree: Path, m
     if effort:
         argv += ["-c", f'model_reasoning_effort="{effort}"']
     argv += ["-c", 'service_tier="default"', "-c", 'cli_auth_credentials_store="file"',
-             "--ignore-user-config", "--ignore-rules",
-             "--sandbox", "read-only" if role in ROLES_LECTURE else "workspace-write",
+             "--ignore-user-config", "--ignore-rules", *surcharges_permissions(role),
              "-c", "sandbox_workspace_write.network_access=false", "-c", 'web_search="disabled"']
     for fonction in FONCTIONS_CODEX_COUPEES:
         argv += ["--disable", fonction]

@@ -9,6 +9,9 @@ Ce qui est prouvé ici, sur l'image réellement construite (cible finale, binair
   refusée (échec fermé) ;
 - options imposées admises par les VRAIES CLI (sans compte, réseau coupé) et nom inconnu refusé ; fonctions Codex
   actives = liste blanche versionnée ; mises à jour de Claude coupées ;
+- vrai ``codex exec`` contre un FAUX fournisseur de modèle (faux_fournisseur.py, boucle locale) : sous le profil de
+  permissions imposé, ses commandes ne lisent pas ``auth.json`` (témoin du régime A) ;
+- commandes du propriétaire lancées en root, puis redémarrage accepté (alias de Codex retirés par l'entrée) ;
 - bubblewrap de Debian seul, avec --as-pid-1 et --perms ; safe.directory « chemin/* » ;
 - sonde R0 telle que lancée sur Railway (Start Command) sous le seccomp Docker par défaut, et témoin du régime A
   (seccomp et AppArmor levés). Ni l'un ni l'autre n'est une preuve pour Railway : seule R0 sur Railway tranche.
@@ -295,10 +298,7 @@ def test_codex_fonctions_coupees(image):
     assert inconnue.returncode != 0 and "Unknown feature flag: fonction_inconnue" in inconnue.stderr + inconnue.stdout
 
 
-def test_codex_options_imposees_admises(image):
-    """La commande EXACTE du superviseur (acp_poste.commandes_agents.commande_codex) est acceptée par Codex 0.156.1 :
-    il ouvre son fil (« thread.started ») puis échoue faute de réseau et de compte ; une option inconnue est refusée."""
-    sortie = _python(image, """
+CODEX_OPTIONS = """
 import json, subprocess, os
 from pathlib import Path
 from acp_poste.commandes_agents import commande_codex, schema_json
@@ -314,10 +314,100 @@ try:
 except subprocess.TimeoutExpired as exc:
     sortie, erreur = exc.stdout or b'', exc.stderr or b''
 print(json.dumps({'sortie': sortie.decode()[:2000], 'erreur': erreur.decode()[-2000:]}))
-""", "--network", "none")
+"""
+
+
+def test_codex_options_imposees_admises(image):
+    """La commande EXACTE du superviseur (acp_poste.commandes_agents.commande_codex) est acceptée par Codex 0.156.1 en
+    régime A (témoin) : il ouvre son fil (« thread.started ») puis échoue faute de réseau et de compte. En régime B
+    (seccomp Docker par défaut), le profil de permissions imposé exige bubblewrap dès l'ouverture du fil : Codex REFUSE
+    de démarrer (échec fermé, en plus de la voie Codex fermée par D79) ; aucune option n'est refusée."""
+    temoin_a = json.loads(_python(image, CODEX_OPTIONS, *TEMOIN_A, "--network", "none").strip().splitlines()[-1])
+    assert '"type":"thread.started"' in temoin_a["sortie"], temoin_a
+    regime_b = json.loads(_python(image, CODEX_OPTIONS, "--network", "none").strip().splitlines()[-1])
+    assert '"type":"thread.started"' not in regime_b["sortie"], regime_b
+    assert "bwrap: No permissions to create a new namespace" in regime_b["erreur"], regime_b
+    for resultat in (temoin_a, regime_b):
+        assert "unexpected argument" not in resultat["erreur"] and "Unknown feature" not in resultat["erreur"]
+
+
+PROFIL_CODEX_EXEC = """
+import json, os, subprocess, sys, time
+from pathlib import Path
+from acp_poste.commandes_agents import commande_codex, schema_json
+from acp_poste.plateforme.linux import IDENTITES, prefixe_setpriv
+
+role, scenario = sys.argv[1], json.loads(sys.argv[2])
+os.makedirs('/donnees/codex', exist_ok=True)
+Path('/donnees/codex/auth.json').write_text('{"refresh_token":"FAUX-SECRET-DE-SESSION-0123"}')
+for chemin in ('/donnees/codex', '/donnees/codex/auth.json'):
+    os.chown(chemin, 10001, 10001)
+os.chmod('/donnees/codex', 0o700); os.chmod('/donnees/codex/auth.json', 0o600)
+w, tmp = Path('/tmp/acp/w'), Path('/tmp/acp/t')
+subprocess.run(['git', 'init', '-q', str(w)], check=True)
+(w / 'a.txt').write_text('a\\n')
+tmp.mkdir(parents=True)
+subprocess.run(['chown', '-R', '10001:10001', '/tmp/acp'], check=True)
+os.chmod(tmp, 0o700)
+schema = Path('/tmp/schema.json'); schema.write_text(schema_json()); os.chmod(schema, 0o644)
+Path('/tmp/scenario.json').write_text(json.dumps({'reponses': scenario}))
+serveur = subprocess.Popen([sys.executable, '-I', '/tests/faux_fournisseur.py', '18090', '/tmp/scenario.json',
+                            '/tmp/fournisseur.jsonl'])
+time.sleep(1)
+c = commande_codex(prefixe=prefixe_setpriv(IDENTITES['acp-codex']), executable='/opt/acp/outils/codex/codex',
+                   worktree=w, modele='gpt-5.5', effort='low', role=role, schema=schema, reponse=tmp / 'reponse.json',
+                   codex_home=Path('/donnees/codex'), home='/home/acp-codex', tmpdir=tmp)
+# Seul ajout : le faux fournisseur (aucun identifiant, boucle locale) à la place d'OpenAI.
+i = c.argv.index('exec') + 1
+argv = c.argv[:i] + ['-c', 'model_provider="faux"', '-c', 'model_providers.faux={name="faux", '
+                     'base_url="http://127.0.0.1:18090/v1", wire_api="responses"}'] + c.argv[i:]
+r = subprocess.run(argv, input=b'Consigne de test.', capture_output=True, env=c.env, cwd=str(w), timeout=120)
+serveur.terminate()
+sorties = []
+for ligne in Path('/tmp/fournisseur.jsonl').read_text().splitlines():
+    corps = json.loads(ligne).get('corps') or {}
+    for item in corps.get('input', []):
+        if item.get('type') in ('function_call_output', 'custom_tool_call_output'):
+            sorties.append(item['output'] if isinstance(item['output'], str) else json.dumps(item['output']))
+print(json.dumps({'code': r.returncode, 'sorties': sorties, 'fichiers': sorted(os.listdir(w)),
+                  'reponse': (tmp / 'reponse.json').read_text() if (tmp / 'reponse.json').exists() else None,
+                  'sans_bac': '--sandbox' not in c.argv, 'erreur': r.stderr.decode()[-1500:]}))
+"""
+SORTIE_FINALE = {"message": json.dumps({"issue": "termine", "resume": "fini", "question": None, "verdict": None,
+                                        "corrections": None})}
+COMMANDE_INTERDITE = ("cat /donnees/codex/auth.json; echo cat=$?; cat /etc/acp/executant.toml >/dev/null; "
+                      "echo etc=$?; echo ok > dans-le-worktree.txt; echo ecrit=$?; touch /tmp/hors; echo hors=$?; "
+                      "getent hosts example.com; echo dns=$?")
+
+
+@pytest.mark.parametrize("role", ["implementation", "relecture"])
+def test_codex_exec_profil_interdit_les_identifiants(image, role):
+    """Haute (relecture de P6) : en régime A, les commandes que Codex lance tournent sous SON UID, propriétaire de
+    ``auth.json`` ; avec ``--sandbox workspace-write``, Codex 0.156.1 applique son profil intégré, qui lit toute la
+    racine : une commande lisait la session ChatGPT et son contenu repartait vers le modèle. La commande EXACTE du
+    superviseur (commande_codex) impose désormais un profil nommé : identifiants interdits, réseau coupé, écriture du
+    worktree seulement (aucune en relecture). Vrai ``codex exec`` 0.156.1, FAUX fournisseur de modèle (boucle locale,
+    aucun identifiant), témoin du régime A (bubblewrap admis). CE N'EST PAS UNE PREUVE POUR RAILWAY (régime mesuré par R0)."""
+    tests = Path(__file__).resolve().parent.as_posix()
+    patch = "*** Begin Patch\n*** Add File: par-apply-patch.txt\n+bonjour\n*** End Patch\n"
+    scenario = [{"appel": {"name": "exec_command", "arguments": {"cmd": COMMANDE_INTERDITE}}},
+                {"libre": {"name": "apply_patch", "input": patch}}, SORTIE_FINALE]
+    sortie = _python(image, PROFIL_CODEX_EXEC.replace("sys.argv[1]", repr(role)).replace(
+        "json.loads(sys.argv[2])", repr(scenario)), *TEMOIN_A, "--network", "none", "-v", f"{tests}:/tests:ro")
     resultat = json.loads(sortie.strip().splitlines()[-1])
-    assert '"type":"thread.started"' in resultat["sortie"], resultat
-    assert "unexpected argument" not in resultat["erreur"] and "Unknown feature" not in resultat["erreur"]
+    afficher(f"codex exec ({role}) : sorties des outils renvoyées au modèle", json.dumps(
+        {k: resultat[k] for k in ("code", "sorties", "fichiers", "sans_bac")}, ensure_ascii=False, indent=1))
+    assert resultat["code"] == 0 and resultat["sans_bac"], resultat["erreur"]
+    commande = resultat["sorties"][0]
+    assert "FAUX-SECRET-DE-SESSION" not in json.dumps(resultat)
+    assert "cat=1" in commande and "etc=1" in commande and "dns=2" in commande and "hors=1" in commande
+    if role == "implementation":
+        assert "ecrit=0" in commande
+        assert {"dans-le-worktree.txt", "par-apply-patch.txt"} <= set(resultat["fichiers"])
+    else:
+        assert "ecrit=1" in commande
+        assert "dans-le-worktree.txt" not in resultat["fichiers"] and "par-apply-patch.txt" not in resultat["fichiers"]
+    assert json.loads(resultat["reponse"])["issue"] == "termine"
 
 
 def test_claude_options_imposees_admises(image):

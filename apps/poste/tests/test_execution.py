@@ -380,7 +380,10 @@ def test_codex_regime_a_commandes_et_verification_sous_codex_sandbox(tmp_path):
     agent, sandbox = [i for i in banc.invocations() if i["outil"] == "codex"][0], \
         [i for i in banc.invocations() if i["outil"] == "codex-sandbox"][0]
     assert agent["argv"][:2] == ["exec", "--json"] and agent["argv"][-1] == "-"
-    assert agent["argv"][agent["argv"].index("--sandbox") + 1] == "workspace-write"
+    # Profil nommé imposé, SANS --sandbox (qui le ferait ignorer par Codex 0.156.1) : identifiants interdits.
+    assert "--sandbox" not in agent["argv"] and 'default_permissions="acp_agent"' in agent["argv"]
+    profil = next(a for a in agent["argv"] if a.startswith("permissions.acp_agent.filesystem="))
+    assert '"/donnees/codex"="deny"' in profil and '":project_roots"="write"' in profil
     assert 'model_reasoning_effort="high"' in agent["argv"] and "CODEX_HOME" in agent["noms"]
     assert agent["jeton"] is False and "Ajouter la commande" in agent["stdin"]
     assert sandbox["argv"][:5] == ["sandbox", "-P", "acp_verif", "-C", sandbox["argv"][4]]

@@ -134,14 +134,21 @@ def test_commande_codex_ecriture_puis_reprise():
                     'cli_auth_credentials_store="file"', "sandbox_workspace_write.network_access=false",
                     'web_search="disabled"', 'model_reasoning_effort="medium"'):
         assert attendu in argv
-    assert argv[argv.index("--sandbox") + 1] == "workspace-write" and argv[-1] == "-"
+    # Profil nommé, SANS --sandbox (avec lui, Codex 0.156.1 ignore default_permissions : relecture de P6).
+    assert "--sandbox" not in argv and argv[-1] == "-"
+    assert argv[argv.index('default_permissions="acp_agent"') - 1] == "-c"
+    assert ('permissions.acp_agent.filesystem={":root"="read", ":project_roots"="write", ":tmpdir"="write", '
+            '"/donnees/codex"="deny", "/donnees/claude"="deny", "/donnees/acp"="deny", "/etc/acp"="deny"}') in argv
+    assert "permissions.acp_agent.network.enabled=false" in argv
     assert "--ephemeral" not in argv and "resume" not in argv
     assert [argv[i + 1] for i, a in enumerate(argv) if a == "--disable"] == list(FONCTIONS_CODEX_COUPEES)
     assert commande.env == {"HOME": "/home/acp-codex", "PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8",
                             "LC_ALL": "C.UTF-8", "TMPDIR": "/tmp/acp/t_abcd/codex", "CODEX_HOME": "/donnees/codex"}
     reprise = commande_codex(**{**base, "session": "0199-session", "role": "relecture"}).argv
     assert reprise[-3:] == ["resume", "0199-session", "-"]
-    assert reprise[reprise.index("--sandbox") + 1] == "read-only"
+    assert "--sandbox" not in reprise and 'default_permissions="acp_lecture"' in reprise
+    lecture = next(a for a in reprise if a.startswith("permissions.acp_lecture.filesystem="))
+    assert '"write"' not in lecture and '"/donnees/codex"="deny"' in lecture
 
 
 def test_commande_claude_sans_bare_ni_historique():
