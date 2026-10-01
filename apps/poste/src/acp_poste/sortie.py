@@ -1,7 +1,7 @@
 """File de sortie persistante de l'exécutant (cahier P6 § 5.9).
 
 Toute requête ``terminer``, ``question``, ``bloquer``, ``reprendre`` ou ``arret`` est d'abord écrite de façon atomique
-dans ``/donnees/acp/sortie/<horodatage>-<id_envoi>.json`` (root, 0600), **puis** envoyée. Chaque requête porte un
+dans ``/donnees/acp/sortie/<horodatage>-<rang>-<id_envoi>.json`` (root, 0600), **puis** envoyée. Chaque requête porte un
 ``id_envoi`` (UUID v4) : un renvoi après une coupure rend la même réponse (``deja_recu``), sans double effet.
 
 - 2xx : retrait du fichier ;
@@ -58,7 +58,14 @@ class FileSortie:
         instant = (maintenant or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S%fZ")
         self.dossier.mkdir(parents=True, exist_ok=True)
         os.chmod(self.dossier, 0o700)
-        fichier = self.dossier / f"{instant}-{corps['id_envoi']}.json"
+        # Clé d'ordre « <instant>-<rang> » strictement croissante : deux dépôts dans la même tranche d'horloge (la
+        # résolution de l'horloge varie selon les machines) ou après un recul de l'horloge gardent leur ORDRE.
+        cle = f"{instant}-000000"
+        existants = [f.name[:len(cle)] for f in self.en_attente()]
+        if existants and existants[-1] >= cle:
+            precedent, rang = existants[-1].rsplit("-", 1)
+            cle = f"{precedent}-{int(rang) + 1:06d}" if rang.isdigit() else cle
+        fichier = self.dossier / f"{cle}-{corps['id_envoi']}.json"
         ecrire_atomiquement(fichier, json.dumps({"route": route, "corps": corps}, ensure_ascii=False).encode("utf-8"))
         return fichier
 

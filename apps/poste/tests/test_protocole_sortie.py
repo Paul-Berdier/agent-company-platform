@@ -180,3 +180,14 @@ def test_rejeu_dans_l_ordre_et_issues(tmp_path):
     resultats, arret = file.rejouer(lambda route, corps: protocole.envoyer(JETON, route, corps))
     assert arret is None and resultats[0].route == "reprendre" and file.en_attente() == []
     assert client.vus[-1][1]["id_envoi"] == client.vus[-2][1]["id_envoi"]
+
+
+def test_ordre_garde_dans_la_meme_tranche_d_horloge_et_apres_un_recul(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    file = FileSortie(tmp_path / "sortie")
+    instant = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    deposes = [file.deposer("arret", _corps("arret_requete"), maintenant=instant) for _ in range(3)]
+    deposes.append(file.deposer("bloquer", _corps("bloquer_requete"), maintenant=instant - timedelta(hours=1)))
+    assert file.en_attente() == deposes
+    assert [f.name.split("-")[1] for f in deposes] == ["000000", "000001", "000002", "000003"]
