@@ -1720,7 +1720,15 @@ observées, bloc `executant` de `/v1/poste` et de `/v1/meta`, onglet Poste et pa
 suivants, l'étape des tests de contrat (`ae066a5` et `d5a95af` : 147 réussis, 3 échecs ; journal de `9d09776`
 tronqué) : deux tests de contrat de P5 qui attendaient trois chemins à jeton et un 401 sur une route de P6, et
 `test_projets_contrat.py` qui attendait le schéma « 2 » ; corrigés par les commits de tests ci-dessus.
-Résultat sur la pointe de la branche : à relever dans l'onglet Actions avant toute PR.
+
+Pointe de la branche, 01/10/2026 : `image.yml`
+[36862238194](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36862238194) (`8bc54bf`, dernier
+commit qui touche l'image ; un commit de documentation seule ne le relance pas) **vert** : pytest dans l'image réussi
+(le journal de GitHub est tronqué après l'identifiant géant d'un test paramétré : total non lisible, 681 en local),
+tests de contrat **158 réussis** (1 936,84 s), tests navigateur **8 réussis** dont `test_executant.py` ; `ci.yml`
+[36863391435](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36863391435) (`15be032`) **vert** :
+poste Windows (windows-2022) 695 réussis et 6 ignorés, Linux 681 réussis et 20 ignorés, interface 120, moteur 74.
+Les sept échecs locaux de la suite du dépôt ne se produisent donc pas sur l'exécuteur Windows de la CI.
 
 ### Non vérifié
 
