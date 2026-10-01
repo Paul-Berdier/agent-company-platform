@@ -229,7 +229,14 @@ function Triage(props: { carte: CarteEnAttente; naviguer: Naviguer; apres: () =>
   );
 }
 
-function Revue(props: { revue: RevuePilotage; naviguer: Naviguer; apres: () => void }): Noeud {
+/** Une revue de fichiers de pilotage. Le message de réussite est annoncé par la section (``annoncer``) : la revue
+ *  quitte la liste dès le rechargement, et son propre message disparaîtrait avec elle. */
+function Revue(props: {
+  revue: RevuePilotage;
+  naviguer: Naviguer;
+  apres: () => void;
+  annoncer: (message: string | null) => void;
+}): Noeud {
   const { revue } = props;
   const tableau = chaine(revue.tableau);
   const identifiant = chaine(revue.carte);
@@ -240,13 +247,19 @@ function Revue(props: { revue: RevuePilotage; naviguer: Naviguer; apres: () => v
   const champ = `acp-motif-revue-${identifiant ?? "inconnue"}`;
   const accepter = async () => {
     if (!tableau || !identifiant) return;
-    if ((await acceptation.envoyer(() => accepterRevue(tableau, identifiant))) !== null) props.apres();
+    props.annoncer(null);
+    if ((await acceptation.envoyer(() => accepterRevue(tableau, identifiant))) !== null) {
+      props.annoncer(T.projets.revueAcceptee);
+      props.apres();
+    }
   };
   const refuser = async (evenement: ReactTypes.FormEvent) => {
     evenement.preventDefault();
     if (!tableau || !identifiant || !motif.trim()) return;
+    props.annoncer(null);
     if ((await refus.envoyer(() => refuserRevue(tableau, identifiant, motif.trim()))) !== null) {
       fixerMotif("");
+      props.annoncer(T.projets.revueRefusee);
       props.apres();
     }
   };
@@ -321,8 +334,8 @@ function Revue(props: { revue: RevuePilotage; naviguer: Naviguer; apres: () => v
             <Bouton principal libelle={T.projets.accepterRevue} surClic={() => void accepter()} desactive={occupe} />
             <Bouton type="submit" danger libelle={T.projets.refuserRevue} desactive={occupe || !motif.trim()} />
           </div>
-          <RetourEnvoi etat={acceptation.etat} reussite={T.projets.revueAcceptee} />
-          <RetourEnvoi etat={refus.etat} reussite={T.projets.revueRefusee} />
+          <RetourEnvoi etat={acceptation.etat} />
+          <RetourEnvoi etat={refus.etat} />
         </form>
       ) : null}
     </li>
@@ -360,6 +373,7 @@ function Bloquee(props: { carte: CarteEnAttente; naviguer: Naviguer }): Noeud {
 
 export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () => void }): Noeud {
   const sondage = useSondage<ListeQuestions>(lireQuestions, props.jeton);
+  const [annonceRevue, fixerAnnonceRevue] = useState<string | null>(null);
   const donnees = sondage.valeur;
   if (donnees === null) {
     return sondage.erreur ? <BlocErreur erreur={sondage.erreur} message={T.projets.questionsIndisponibles} /> : <EnChargement />;
@@ -396,12 +410,23 @@ export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () 
       </Carte>
       <Carte titre={T.projets.revuesTitre} id="acp-questions-revues">
         <p className="acp-discret">{T.projets.revuesIntro}</p>
+        {annonceRevue ? (
+          <p className="acp-succes" role="status">
+            {annonceRevue}
+          </p>
+        ) : null}
         {revues.length === 0 ? (
           <p className="acp-discret">{T.projets.aucuneRevue}</p>
         ) : (
           <ul className="acp-entrees acp-entrees--une">
             {revues.map((r, rang) => (
-              <Revue key={chaine(r.carte) ?? String(rang)} revue={r} naviguer={props.naviguer} apres={props.apres} />
+              <Revue
+                key={chaine(r.carte) ?? String(rang)}
+                revue={r}
+                naviguer={props.naviguer}
+                apres={props.apres}
+                annoncer={fixerAnnonceRevue}
+              />
             ))}
           </ul>
         )}

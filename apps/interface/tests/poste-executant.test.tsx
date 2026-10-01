@@ -169,10 +169,11 @@ describe("page Questions : revues des fichiers de pilotage (P6)", () => {
   it("liste la revue sans faux aperçu du diff ; « Accepter » appelle la route", async () => {
     aller("/projets?vue=questions");
     const revue = F.questions_revue.revues[0];
-    const installation = installerSdk({
+    const reponses: Record<string, unknown> = {
       [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: F.questions_revue,
       [`POST ${routeAccepterRevue(revue.tableau, revue.carte)}`]: F.revue_acceptee,
-    });
+    };
+    const installation = installerSdk(reponses as Parameters<typeof installerSdk>[0]);
     const r = await rendre(h(Projets, null));
     const texte = texteDe(zone(r.racine, "acp-questions-revues"));
     expect(texte).toContain(".github/workflows/ci.yml");
@@ -181,20 +182,26 @@ describe("page Questions : revues des fichiers de pilotage (P6)", () => {
     expect(valeur(r.racine, "acp-questions-revues", "Modification")).toBe("1 fichier(s)12 ajout(s)0 retrait(s)");
     // « Refuser » exige un motif.
     expect(bouton(r.racine, "Refuser").disabled).toBe(true);
+    // Après l'acceptation, la liste rechargée ne porte plus la revue : le message de réussite doit survivre.
+    reponses[ROUTE_QUESTIONS] = { ...F.questions_revue, revues: [] };
     await cliquer(bouton(r.racine, "Accepter"));
+    await attendre();
     expect(ecritures(installation)).toEqual([["POST", routeAccepterRevue(revue.tableau, revue.carte), {}]]);
-    expect(r.texte()).toContain("Revue acceptée : la carte est terminée.");
+    expect(texteDe(zone(r.racine, "acp-questions-revues"))).not.toContain(".github/workflows/ci.yml");
+    expect(texteDe(zone(r.racine, "acp-questions-revues"))).toContain("Revue acceptée : la carte est terminée.");
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
   });
 
   it("« Refuser » envoie le motif", async () => {
     aller("/projets?vue=questions");
     const revue = F.questions_revue.revues[0];
-    const installation = installerSdk({
+    const reponses: Record<string, unknown> = {
       [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: F.questions_revue,
       [`POST ${routeRefuserRevue(revue.tableau, revue.carte)}`]: { carte: revue.carte, etat: "ready" },
-    });
+    };
+    const installation = installerSdk(reponses as Parameters<typeof installerSdk>[0]);
     const r = await rendre(h(Projets, null));
+    reponses[ROUTE_QUESTIONS] = { ...F.questions_revue, revues: [] };  // la carte refusée quitte la liste
     await saisir(r.racine.querySelector(`#acp-motif-revue-${revue.carte}`), "Ne touche pas au workflow de CI.");
     await act(async () => {
       r.racine.querySelector(`#acp-motif-revue-${revue.carte}`)?.closest("form")
@@ -203,6 +210,9 @@ describe("page Questions : revues des fichiers de pilotage (P6)", () => {
     await attendre();
     expect(ecritures(installation)).toEqual([["POST", routeRefuserRevue(revue.tableau, revue.carte),
                                               { motif: "Ne touche pas au workflow de CI." }]]);
-    expect(r.texte()).toContain("Revue refusée : la carte revient à l'exécutant avec votre motif.");
+    await attendre();
+    expect(texteDe(zone(r.racine, "acp-questions-revues"))).toContain("Aucune carte en revue.");
+    expect(texteDe(zone(r.racine, "acp-questions-revues"))).toContain(
+      "Revue refusée : la carte revient à l'exécutant avec votre motif.");
   });
 });

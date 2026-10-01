@@ -1755,13 +1755,19 @@
     const champ = `acp-motif-revue-${identifiant ?? "inconnue"}`;
     const accepter = async () => {
       if (!tableau || !identifiant) return;
-      if (await acceptation.envoyer(() => accepterRevue(tableau, identifiant)) !== null) props.apres();
+      props.annoncer(null);
+      if (await acceptation.envoyer(() => accepterRevue(tableau, identifiant)) !== null) {
+        props.annoncer(T.projets.revueAcceptee);
+        props.apres();
+      }
     };
     const refuser = async (evenement) => {
       evenement.preventDefault();
       if (!tableau || !identifiant || !motif.trim()) return;
+      props.annoncer(null);
       if (await refus.envoyer(() => refuserRevue(tableau, identifiant, motif.trim())) !== null) {
         fixerMotif("");
+        props.annoncer(T.projets.revueRefusee);
         props.apres();
       }
     };
@@ -1777,7 +1783,7 @@
         value: motif,
         onChange: (e) => fixerMotif(e.target.value)
       }
-    )), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { principal: true, libelle: T.projets.accepterRevue, surClic: () => void accepter(), desactive: occupe }), /* @__PURE__ */ h(Bouton, { type: "submit", danger: true, libelle: T.projets.refuserRevue, desactive: occupe || !motif.trim() })), /* @__PURE__ */ h(RetourEnvoi, { etat: acceptation.etat, reussite: T.projets.revueAcceptee }), /* @__PURE__ */ h(RetourEnvoi, { etat: refus.etat, reussite: T.projets.revueRefusee })) : null);
+    )), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { principal: true, libelle: T.projets.accepterRevue, surClic: () => void accepter(), desactive: occupe }), /* @__PURE__ */ h(Bouton, { type: "submit", danger: true, libelle: T.projets.refuserRevue, desactive: occupe || !motif.trim() })), /* @__PURE__ */ h(RetourEnvoi, { etat: acceptation.etat }), /* @__PURE__ */ h(RetourEnvoi, { etat: refus.etat })) : null);
   }
   function Bloquee(props) {
     const { carte } = props;
@@ -1785,6 +1791,7 @@
   }
   function Questions(props) {
     const sondage = useSondage(lireQuestions, props.jeton);
+    const [annonceRevue, fixerAnnonceRevue] = useState(null);
     const donnees = sondage.valeur;
     if (donnees === null) {
       return sondage.erreur ? /* @__PURE__ */ h(BlocErreur, { erreur: sondage.erreur, message: T.projets.questionsIndisponibles }) : /* @__PURE__ */ h(EnChargement, null);
@@ -1794,7 +1801,16 @@
     const bloquees = Array.isArray(donnees.bloquees) ? donnees.bloquees : [];
     const revues = Array.isArray(donnees.revues) ? donnees.revues : [];
     const illisibles = listeDeChaines(donnees.tableaux_illisibles);
-    return /* @__PURE__ */ h("div", { className: "acp-sections" }, sondage.erreur ? /* @__PURE__ */ h(BlocRefus, { erreur: sondage.erreur }) : null, /* @__PURE__ */ h(Carte, { titre: T.projets.questionsTitre, id: "acp-questions-ouvertes" }, questions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneQuestion) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, questions.map((q, rang) => /* @__PURE__ */ h(Question, { key: chaine(q.id) ?? String(rang), question: q, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.triageTitre, id: "acp-questions-triage" }, triage.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucunTriage) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, triage.map((c, rang) => /* @__PURE__ */ h(Triage, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.revuesTitre, id: "acp-questions-revues" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.revuesIntro), revues.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneRevue) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, revues.map((r, rang) => /* @__PURE__ */ h(Revue, { key: chaine(r.carte) ?? String(rang), revue: r, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.bloqueesTitre, id: "acp-questions-bloquees" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.bloqueesNote), bloquees.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneBloquee) : /* @__PURE__ */ h("ul", { className: "acp-entrees" }, bloquees.map((c, rang) => /* @__PURE__ */ h(Bloquee, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer })))), illisibles.length > 0 ? /* @__PURE__ */ h(Carte, { titre: T.projets.tableauxIllisibles, id: "acp-questions-illisibles" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, illisibles.map((t) => /* @__PURE__ */ h("li", { key: t }, /* @__PURE__ */ h(Donnee, { valeur: t, mono: true }))))) : null);
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, sondage.erreur ? /* @__PURE__ */ h(BlocRefus, { erreur: sondage.erreur }) : null, /* @__PURE__ */ h(Carte, { titre: T.projets.questionsTitre, id: "acp-questions-ouvertes" }, questions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneQuestion) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, questions.map((q, rang) => /* @__PURE__ */ h(Question, { key: chaine(q.id) ?? String(rang), question: q, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.triageTitre, id: "acp-questions-triage" }, triage.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucunTriage) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, triage.map((c, rang) => /* @__PURE__ */ h(Triage, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.revuesTitre, id: "acp-questions-revues" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.revuesIntro), annonceRevue ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, annonceRevue) : null, revues.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneRevue) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, revues.map((r, rang) => /* @__PURE__ */ h(
+      Revue,
+      {
+        key: chaine(r.carte) ?? String(rang),
+        revue: r,
+        naviguer: props.naviguer,
+        apres: props.apres,
+        annoncer: fixerAnnonceRevue
+      }
+    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.bloqueesTitre, id: "acp-questions-bloquees" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.bloqueesNote), bloquees.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneBloquee) : /* @__PURE__ */ h("ul", { className: "acp-entrees" }, bloquees.map((c, rang) => /* @__PURE__ */ h(Bloquee, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer })))), illisibles.length > 0 ? /* @__PURE__ */ h(Carte, { titre: T.projets.tableauxIllisibles, id: "acp-questions-illisibles" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, illisibles.map((t) => /* @__PURE__ */ h("li", { key: t }, /* @__PURE__ */ h(Donnee, { valeur: t, mono: true }))))) : null);
   }
 
   // src/projets/Projets.tsx
