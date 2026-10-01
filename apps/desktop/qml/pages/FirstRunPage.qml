@@ -1,16 +1,12 @@
-// Écran de connexion : point d'entrée, test de connexion, authentification.
+// Écran de connexion.
 //
-// Il sert à la première ouverture ET à chaque retour sans session (déconnexion, session
-// expirée ou révoquée) : l'adresse déjà acceptée est alors pré-remplie.
+// Il sert à la première ouverture ET à chaque retour sans session. Deux étapes :
+//   1. l'adresse du serveur Hermes, saisie ; aucune valeur par défaut n'est proposée ;
+//   2. le test du lien, qui montre l'état réel mesuré par `/api/health`.
 //
-// Trois étapes, dans cet ordre, et pas d'étape sautée :
-//   1. l'adresse du serveur, saisie ; aucune valeur par défaut n'est proposée, parce que
-//      le projet n'a décidé aucun domaine (audit, section 5.2) ;
-//   2. le test de connexion, qui montre l'état réel du lien et de la compatibilité ;
-//   3. l'authentification, disponible seulement une fois le serveur joignable.
-//
-// L'amorçage du propriétaire de plateforme est signalé quand `/auth/status` l'indique.
-// Le jeton d'amorçage est saisi en champ masqué et n'est JAMAIS persisté.
+// La connexion elle-même passe par le navigateur système (RFC 8252) : aucun mot de passe
+// n'est jamais saisi dans la station. Ce geste n'est pas encore branché dans cette version
+// de la station : l'écran le dit, et n'offre aucun bouton qui ferait semblant.
 
 import QtQuick
 import QtQuick.Controls.Basic
@@ -26,10 +22,6 @@ Rectangle {
     color: Colors.surfaceCanvas
 
     property string urlError: ""
-
-    //! Vrai après un envoi d'identifiants : seul un refus consécutif à une tentative est
-    //! une erreur. « Aucune session mémorisée » au démarrage est un état, pas un échec.
-    property bool loginAttempted: false
 
     Flickable {
         anchors.fill: parent
@@ -61,11 +53,9 @@ Rectangle {
                 wrapMode: Text.WordWrap
                 text: Shell.firstRun
                     ? qsTr("Aucune adresse de serveur n'est configurée. La station ne "
-                           + "propose aucune adresse par défaut : aucun domaine n'a été "
-                           + "décidé pour ce produit, et en inventer un ferait échouer la "
-                           + "connexion sans le dire.")
-                    : qsTr("Aucune session n'est ouverte sur ce poste. Vérifiez l'adresse "
-                           + "du serveur, puis connectez-vous.")
+                           + "propose aucune adresse par défaut : saisissez celle de votre "
+                           + "Hermes.")
+                    : qsTr("Aucune session n'est ouverte sur ce poste.")
                 color: Colors.textSecondary
                 lineHeight: Type.prose.lineHeight
                 lineHeightMode: Text.FixedHeight
@@ -76,7 +66,7 @@ Rectangle {
             // --- Étape 1 : adresse ------------------------------------------
             SectionHeader {
                 Layout.fillWidth: true
-                title: qsTr("1. Adresse du serveur")
+                title: qsTr("1. Adresse de Hermes")
                 subtitle: qsTr("HTTPS est imposé. Le HTTP en clair n'est accepté que sur une "
                                + "adresse de bouclage, et seulement si vous l'autorisez "
                                + "explicitement ci-dessous.")
@@ -87,8 +77,6 @@ Rectangle {
                 Layout.fillWidth: true
                 placeholder: "https://exemple.invalid"
                 accessibleName: qsTr("Adresse du serveur")
-                // Adresse déjà acceptée : reprise telle quelle, jamais inventée. Liaison et non
-                // copie : la page existe avant que les réglages ne soient relus.
                 text: Shell.serverUrl
                 helperText: qsTr("Exemple de forme attendue ; ce n'est pas une adresse réelle.")
                 errorText: page.urlError
@@ -124,10 +112,10 @@ Rectangle {
                 }
             }
 
-            // --- Étape 2 : test de connexion --------------------------------
+            // --- Étape 2 : test du lien -------------------------------------
             SectionHeader {
                 Layout.fillWidth: true
-                title: qsTr("2. Test de connexion")
+                title: qsTr("2. Test du lien")
                 subtitle: qsTr("Les valeurs ci-dessous sont mesurées. Tant qu'aucune mesure "
                                + "n'a eu lieu, elles affichent « Inconnu ».")
             }
@@ -144,118 +132,38 @@ Rectangle {
                 }
                 KeyValueRow {
                     Layout.fillWidth: true
-                    label: qsTr("Dernier échange réussi")
-                    value: Health.lastSuccessLabel
-                    known: Health.lastSuccessAt !== undefined
-                        && Health.lastSuccessLabel !== qsTr("Jamais")
+                    label: qsTr("Version de Hermes")
+                    value: Health.hermesVersion
+                    known: Health.hermesVersion !== qsTr("Inconnu")
                     monospace: true
                 }
                 KeyValueRow {
                     Layout.fillWidth: true
-                    label: qsTr("Compatibilité")
-                    value: Compatibility.stateLabel
-                    known: Compatibility.state !== CompatibilityStatus.NotChecked
+                    label: qsTr("Dernier échange réussi")
+                    value: Health.lastSuccessLabel
+                    known: Health.lastSuccessLabel !== qsTr("Jamais")
+                    monospace: true
                 }
                 KeyValueRow {
                     Layout.fillWidth: true
                     label: qsTr("Détail")
-                    value: Compatibility.explanation.length > 0
-                        ? Compatibility.explanation
-                        : qsTr("Aucun")
-                    known: Compatibility.explanation.length > 0
+                    value: Health.detail.length > 0 ? Health.detail : qsTr("Aucun")
+                    known: Health.detail.length > 0
                 }
             }
 
-            // --- Étape 3 : authentification ---------------------------------
+            // --- Étape 3 : connexion ----------------------------------------
             SectionHeader {
                 Layout.fillWidth: true
-                title: qsTr("3. Authentification")
-                subtitle: Session.bootstrapRequired
-                    ? qsTr("Ce serveur n'a pas encore de propriétaire de plateforme. "
-                           + "L'amorçage n'est pas livré par cette fondation : utilisez le "
-                           + "client web ou la ligne de commande pour créer le premier "
-                           + "compte.")
-                    : qsTr("La session est portée par un cookie posé par le serveur. Aucun "
-                           + "mot de passe n'est mémorisé sur ce poste par cette fondation.")
-            }
-
-            AcpTextField {
-                id: emailField
-                Layout.fillWidth: true
-                enabled: Health.linkStatus === LinkStatus.Online
-                    || Health.linkStatus === LinkStatus.Degraded
-                placeholder: qsTr("Identifiant")
-            }
-
-            AcpTextField {
-                id: passwordField
-                Layout.fillWidth: true
-                enabled: emailField.enabled
-                masked: true
-                placeholder: qsTr("Mot de passe")
-                errorText: (page.loginAttempted && Session.state === SessionStatus.Disconnected)
-                        || Session.state === SessionStatus.Expired
-                        || Session.state === SessionStatus.Revoked
-                    ? Session.lastError
-                    : ""
-                onAccepted: page.submitLogin()
-            }
-
-            CheckBox {
-                text: qsTr("Mémoriser la session dans le coffre Windows")
-                checked: SessionStorage.rememberSession
-                onToggled: SessionStorage.rememberSession = checked
-            }
-            Label {
-                Layout.fillWidth: true
-                text: SessionStorage.error || SessionStorage.status
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                color: Colors.textSecondary
-            }
-            AcpButton { label: qsTr("Retenter la session mémorisée"); commandId: "session.resume" }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Space.space4
-
-                StatusChip {
-                    statusKey: {
-                        switch (Session.state) {
-                        case SessionStatus.Connected: return "succeeded";
-                        case SessionStatus.Connecting: return "running";
-                        case SessionStatus.Expired:
-                        case SessionStatus.Revoked: return "failed";
-                        case SessionStatus.Offline: return "offline";
-                        default: return "unknown";
-                        }
-                    }
-                    label: Session.stateLabel
-                    detail: Session.lastError
-                }
-
-                Item { Layout.fillWidth: true }
-
-                AcpButton {
-                    label: qsTr("Se connecter")
-                    primary: true
-                    manualEnabled: emailField.enabled && !Session.busy
-                        && emailField.text.length > 0 && passwordField.text.length > 0
-                    onTriggered: page.submitLogin()
-                }
+                title: qsTr("3. Connexion")
+                subtitle: qsTr("La connexion passera par le navigateur du système, sur la page "
+                               + "de connexion de Hermes. Elle n'est pas encore disponible dans "
+                               + "cette version de la station.")
             }
         }
     }
 
     function submitUrl() {
         page.urlError = Shell.applyServerUrl(urlField.text, loopbackBox.checked);
-    }
-
-    function submitLogin() {
-        page.loginAttempted = true;
-        Session.logIn(emailField.text, passwordField.text);
-        // Le champ est vidé immédiatement après l'envoi : la valeur ne doit pas rester
-        // dans la scène graphique plus longtemps que nécessaire.
-        passwordField.text = "";
     }
 }

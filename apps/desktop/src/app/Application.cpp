@@ -4,30 +4,18 @@
 #include "api/ApiError.h"
 #include "app/BuildConfig.h"
 #include "app/QmlEnums.h"
-#include "auth/AuthManager.h"
 #include "commands/CommandRegistry.h"
-#include "events/EventStreamService.h"
+#include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
-#include "services/CompatibilityService.h"
 #include "services/HealthService.h"
+#include "services/UpdateService.h"
 #include "storage/CredentialVault.h"
 #include "storage/SettingsStore.h"
 #include "system/SystemAppearance.h"
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/ShellViewModel.h"
-#include "viewmodels/WorkspaceViewModel.h"
-#include "viewmodels/ConversationsViewModel.h"
-#include "viewmodels/MissionsViewModel.h"
-#include "viewmodels/ArtifactsViewModel.h"
-#include "services/ArtifactDownload.h"
-#include "viewmodels/PlatformViewModel.h"
-#include "viewmodels/OperationsViewModel.h"
-#include "viewmodels/SubscriptionQuotasViewModel.h"
-#include "services/SessionPersistence.h"
-#include "services/UpdateService.h"
 
 #include <QCoreApplication>
-#include <QLibraryInfo>
 #include <QMetaType>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -65,10 +53,7 @@ Application::Application(QObject *parent)
     : QObject(parent)
     , m_settings(new SettingsStore(this))
     , m_client(new ApiClient(this))
-    , m_auth(new AuthManager(m_client, this))
     , m_health(new HealthService(m_client, this))
-    , m_compatibility(new CompatibilityService(m_client, version(), this))
-    , m_streams(new EventStreamService(m_client, this))
     , m_navigation(new NavigationModel(this))
     , m_commands(new CommandRegistry(this))
     , m_appearance(new SystemAppearance(m_settings, this))
@@ -76,50 +61,21 @@ Application::Application(QObject *parent)
 {
     m_client->setUserAgent(userAgent());
 
-    m_shell = new ShellViewModel(m_client, m_auth, m_health, m_compatibility, m_streams,
-                                 m_navigation, m_commands, m_settings, this);
-    m_diagnostics =
-        new DiagnosticsViewModel(m_client, m_auth, m_health, m_compatibility, m_streams,
-                                 m_settings, m_appearance, m_vault.get(), version(), buildInfo(),
-                                 this);
-
-    m_workspace = new WorkspaceViewModel(m_client, m_auth, this);
-    m_conversations = new ConversationsViewModel(m_client, m_auth, this);
-    m_missions = new MissionsViewModel(m_client, m_auth, m_streams, this);
-    m_artifacts = new ArtifactsViewModel(m_client, m_auth, this);
-    m_platform = new PlatformViewModel(m_client, m_auth, this);
-    m_operations = new OperationsViewModel(m_client, m_auth, this);
-    // Hors contexte de projet : les quotas d'abonnement appartiennent au propriétaire de
-    // la plateforme, pas à un projet ; aucun changement de projet ne les recharge.
-    m_quotas = new SubscriptionQuotasViewModel(m_client, m_auth, this);
-    m_sessionStorage = new SessionPersistence(m_client, m_auth, m_vault.get(), m_settings, this);
+    m_shell = new ShellViewModel(m_client, m_health, m_navigation, m_commands, m_settings, this);
+    m_diagnostics = new DiagnosticsViewModel(m_client, m_health, m_settings, m_appearance,
+                                             m_vault.get(), version(), buildInfo(), this);
     m_updates = new UpdateService(version(), this);
-    connect(m_workspace, &WorkspaceViewModel::projectChanged, this, [this, previousId = QString()]() mutable {
-        const auto id = m_workspace->projectId();
-        // Renommer/recharger le même projet ne déplace pas une conversation générale.
-        // Les titres QML suivent projectChanged ; seuls les changements d'identité
-        // sélectionnent un autre contexte dans les vues métier.
-        if (id == previousId) return;
-        previousId = id;
-        m_conversations->setProjectId(id);
-        m_missions->setProjectId(id);
-        m_artifacts->setProjectId(id);
-        m_platform->setProjectId(id);
-        m_operations->setProjectId(id);
-    });
     registerBuiltinCommands();
-    const auto updateCommands = [this] { m_commands->setContext(m_commands->context()); };
-    connect(m_conversations, &ConversationsViewModel::changed, this, updateCommands);
-    connect(m_workspace, &WorkspaceViewModel::changed, this, updateCommands);
-    connect(m_navigation, &NavigationModel::historyChanged, this, updateCommands);
+    connect(m_navigation, &NavigationModel::historyChanged, this,
+            [this] { m_commands->setContext(m_commands->context()); });
 }
 
 Application::~Application()
 {
     shutdown();
-    // Les vues dépendent du transport et des flux créés avant elles. QObject détruit
-    // normalement ses enfants dans l'ordre de création : les vues doivent ici partir
-    // en premier, pendant que leurs services et le coffre sont encore disponibles.
+    // Les vues dépendent du transport créé avant elles. QObject détruit normalement ses
+    // enfants dans l'ordre de création : les vues doivent ici partir en premier, pendant
+    // que leurs services et le coffre sont encore disponibles.
     while (!children().isEmpty()) delete children().last();
 }
 
@@ -128,8 +84,6 @@ void Application::registerQmlTypes()
     qRegisterMetaType<acp::ApiError>("acp::ApiError");
     qmlRegisterUncreatableType<JsonListModel>(kQmlUri, 1, 0, "JsonListModel",
         QStringLiteral("Le modèle est fourni par la station."));
-    qmlRegisterUncreatableType<ArtifactDownload>(kQmlUri, 1, 0, "ArtifactDownload",
-        QStringLiteral("Le téléchargement est fourni par la station."));
 
     // Énumérations : types non instanciables, exposés pour que QML puisse comparer des
     // états sans recopier des chaînes magiques.
@@ -139,12 +93,6 @@ void Application::registerQmlTypes()
     qmlRegisterUncreatableType<SessionStatus>(kQmlUri, 1, 0, "SessionStatus",
                                               QStringLiteral("SessionStatus n'expose que des "
                                                              "énumérations."));
-    qmlRegisterUncreatableType<CompatibilityStatus>(kQmlUri, 1, 0, "CompatibilityStatus",
-                                                    QStringLiteral("CompatibilityStatus n'expose "
-                                                                   "que des énumérations."));
-    qmlRegisterUncreatableType<StreamStatus>(kQmlUri, 1, 0, "StreamStatus",
-                                             QStringLiteral("StreamStatus n'expose que des "
-                                                            "énumérations."));
     qmlRegisterUncreatableType<ApiFailure>(kQmlUri, 1, 0, "ApiFailure",
                                            QStringLiteral("ApiFailure n'expose que des "
                                                           "énumérations."));
@@ -163,21 +111,11 @@ void Application::registerQmlTypes()
     // Singletons d'instance : QML lit, il ne construit pas. Aucun de ces objets n'expose
     // de secret — voir les propriétés déclarées dans chaque en-tête.
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Shell", m_shell);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Session", m_auth);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Health", m_health);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Compatibility", m_compatibility);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Diagnostics", m_diagnostics);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Workspace", m_workspace);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Conversations", m_conversations);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Missions", m_missions);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Artifacts", m_artifacts);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Platform", m_platform);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Operations", m_operations);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "SubscriptionQuotas", m_quotas);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "SessionStorage", m_sessionStorage);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Updates", m_updates);
 }
 
@@ -212,20 +150,11 @@ void Application::start()
     if (m_client->isConfigured()) {
         m_health->probeNow();
         m_health->setPeriodicProbeEnabled(true);
-        m_compatibility->check();
-        m_auth->refreshBootstrapStatus();
-        // La reprise de session s'appuie sur le cookie ; sans cookie détenu elle échoue
-        // immédiatement, sans appel réseau.
-        m_sessionStorage->restore();
-        m_auth->resumeSession();
     }
 }
 
 void Application::shutdown()
 {
-    // Ordre voulu : fermer les flux AVANT de perdre la session, pour que le serveur
-    // libère ses jetons de connexion tout de suite plutôt qu'au bout de 900 secondes.
-    m_streams->closeAll();
     m_health->setPeriodicProbeEnabled(false);
     m_settings->flush();
 }
@@ -235,40 +164,7 @@ void Application::registerBuiltinCommands()
     const auto alwaysAvailable = [](const CommandContext &) {
         return CommandAvailability::Available;
     };
-    const auto needsSession = [](const CommandContext &context) {
-        return context.sessionConnected ? CommandAvailability::Available
-                                        : CommandAvailability::NeedsSession;
-    };
 
-    m_commands->registerCommand(Command{
-        QStringLiteral("conversation.new"), QStringLiteral("Nouvelle conversation générale"),
-        QStringLiteral("Conversations"), {QStringLiteral("chat"), QStringLiteral("nouveau")},
-        QStringLiteral("Ctrl+N"),
-        [this](const CommandContext &context) {
-            if (!context.sessionConnected) return CommandAvailability::NeedsSession;
-            return m_conversations->busy() || m_conversations->pendingSubmission()
-                ? CommandAvailability::Unavailable : CommandAvailability::Available;
-        }, [this](const CommandContext &) {
-            if (!m_conversations->startConversation(QString()))
-                return CommandResult::reject(m_conversations->error());
-            m_navigation->setCurrentRoute(QStringLiteral("conversations"));
-            return CommandResult::accept();
-        }});
-    m_commands->registerCommand(Command{
-        QStringLiteral("project.new"), QStringLiteral("Créer un projet"),
-        QStringLiteral("Projets"), {QStringLiteral("nouveau"), QStringLiteral("codage")},
-        QStringLiteral("Ctrl+Shift+N"),
-        [this](const CommandContext &context) {
-            if (!context.sessionConnected) return CommandAvailability::NeedsSession;
-            if (m_conversations->busy() || m_conversations->pendingSubmission())
-                return CommandAvailability::Unavailable;
-            return m_workspace->canCreateProject() ? CommandAvailability::Available
-                                                   : CommandAvailability::NeedsRole;
-        }, [this](const CommandContext &) {
-            m_workspace->requestProjectCreation();
-            m_navigation->setCurrentRoute(QStringLiteral("projects"));
-            return CommandResult::accept();
-        }});
     m_commands->registerCommand(Command{
         QStringLiteral("navigation.back"), QStringLiteral("Revenir à l'écran précédent"),
         QStringLiteral("Navigation"), {}, QStringLiteral("Alt+Left"),
@@ -282,44 +178,11 @@ void Application::registerBuiltinCommands()
             ? CommandAvailability::Available : CommandAvailability::NeedsSelection; },
         [this](const CommandContext &) { m_navigation->goForward(); return CommandResult::accept(); }});
 
-    const QList<QPair<QString, QString>> workspaceRoutes = {
-        {QStringLiteral("projects"), QStringLiteral("Projets")},
-        {QStringLiteral("conversations"), QStringLiteral("Conversations")},
-        {QStringLiteral("missions"), QStringLiteral("Missions et runs")},
-        {QStringLiteral("library"), QStringLiteral("Livrables")},
-        {QStringLiteral("studio"), QStringLiteral("Studio en direct")},
-        {QStringLiteral("platform"), QStringLiteral("Agents et workers")},
-        {QStringLiteral("extensions"), QStringLiteral("Extensions MCP et skills")},
-        {QStringLiteral("approvals"), QStringLiteral("Opérations")},
-        {QStringLiteral("quotas"), QStringLiteral("Quotas d'abonnement")},
-    };
-    for (const auto &route : workspaceRoutes) {
-        m_commands->registerCommand(Command{
-            QStringLiteral("navigation.") + route.first, route.second,
-            QStringLiteral("Navigation"), {route.second},
-            route.first == QLatin1String("projects") ? QStringLiteral("Ctrl+P") : QString(), needsSession,
-            [this, destination = route.first](const CommandContext &) {
-                m_navigation->setCurrentRoute(destination);
-                return CommandResult::accept();
-            }});
-    }
-
     m_commands->registerCommand(Command{
         QStringLiteral("navigation.settings"), QStringLiteral("Réglages et mises à jour"),
         QStringLiteral("Navigation"), {}, QString(), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("settings"));
-            return CommandResult::accept();
-        }});
-
-    m_commands->registerCommand(Command{
-        QStringLiteral("session.resume"), QStringLiteral("Reprendre la session"),
-        QStringLiteral("Session"), {}, QString(),
-        [this](const CommandContext &) {
-            return m_client->isConfigured() && !m_auth->isBusy()
-                ? CommandAvailability::Available : CommandAvailability::NotConfigured;
-        }, [this](const CommandContext &) {
-            m_auth->resumeSession();
             return CommandResult::accept();
         }});
 
@@ -344,7 +207,7 @@ void Application::registerBuiltinCommands()
     m_commands->registerCommand(Command{
         QStringLiteral("navigation.diagnostics"), QStringLiteral("Ouvrir les diagnostics"),
         QStringLiteral("Navigation"),
-        {QStringLiteral("santé"), QStringLiteral("état"), QStringLiteral("readiness")},
+        {QStringLiteral("santé"), QStringLiteral("état"), QStringLiteral("version")},
         QStringLiteral("Ctrl+2"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("diagnostics"));
@@ -354,7 +217,7 @@ void Application::registerBuiltinCommands()
     m_commands->registerCommand(Command{
         QStringLiteral("connection.probe"), QStringLiteral("Vérifier l'état du serveur"),
         QStringLiteral("Connexion"),
-        {QStringLiteral("health"), QStringLiteral("ready"), QStringLiteral("ping")},
+        {QStringLiteral("santé"), QStringLiteral("health"), QStringLiteral("ping")},
         QStringLiteral("Ctrl+R"),
         [this](const CommandContext &) {
             return m_client->isConfigured() ? CommandAvailability::Available
@@ -363,29 +226,6 @@ void Application::registerBuiltinCommands()
         [this](const CommandContext &) {
             m_health->probeNow();
             return CommandResult::accept(QStringLiteral("Vérification du serveur lancée."));
-        }});
-
-    m_commands->registerCommand(Command{
-        QStringLiteral("connection.compatibility"),
-        QStringLiteral("Revérifier la compatibilité du serveur"), QStringLiteral("Connexion"),
-        {QStringLiteral("version"), QStringLiteral("contrat")}, QString(),
-        [this](const CommandContext &) {
-            return m_client->isConfigured() ? CommandAvailability::Available
-                                            : CommandAvailability::NotConfigured;
-        },
-        [this](const CommandContext &) {
-            m_compatibility->check();
-            return CommandResult::accept(QStringLiteral("Vérification de compatibilité lancée."));
-        }});
-
-    m_commands->registerCommand(Command{
-        QStringLiteral("session.logout"), QStringLiteral("Se déconnecter"),
-        QStringLiteral("Session"), {QStringLiteral("quitter"), QStringLiteral("session")},
-        QString(), alwaysAvailable,
-        [this](const CommandContext &) {
-            m_streams->closeAll();
-            m_auth->logOut();
-            return CommandResult::accept();
         }});
 
     m_commands->registerCommand(Command{
@@ -417,7 +257,7 @@ void Application::registerBuiltinCommands()
         QStringLiteral("diagnostics.copyReport"),
         QStringLiteral("Copier le rapport de diagnostic"), QStringLiteral("Diagnostics"),
         {QStringLiteral("support"), QStringLiteral("ticket")}, QString(), alwaysAvailable,
-        [this](const CommandContext &) {
+        [](const CommandContext &) {
             // Le rapport est expurgé par DiagnosticsViewModel::buildReport() ; la copie
             // effective est faite par QML, qui seul dispose du presse-papiers.
             return CommandResult::accept(

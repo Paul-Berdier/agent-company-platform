@@ -128,43 +128,16 @@ endif()
 # fenêtre.
 
 set(ACP_CORE_SOURCES
-    src/viewmodels/PlatformViewModel.cpp
-    src/viewmodels/PlatformViewModel.h
-    src/viewmodels/OperationsViewModel.cpp
-    src/viewmodels/OperationsViewModel.h
-    src/viewmodels/SubscriptionQuotasViewModel.cpp
-    src/viewmodels/SubscriptionQuotasViewModel.h
-    src/services/SessionPersistence.cpp
-    src/services/SessionPersistence.h
-    src/services/UpdateService.cpp
-    src/services/UpdateService.h
-    src/models/JsonListModel.cpp
-    src/models/JsonListModel.h
-    src/viewmodels/WorkspaceViewModel.cpp
-    src/viewmodels/WorkspaceViewModel.h
-    src/viewmodels/ConversationsViewModel.cpp
-    src/viewmodels/ConversationsViewModel.h
-    src/viewmodels/MissionsViewModel.cpp
-    src/viewmodels/MissionsViewModel.h
-    src/viewmodels/ArtifactsViewModel.cpp
-    src/viewmodels/ArtifactsViewModel.h
-    src/services/ArtifactDownload.cpp
-    src/services/ArtifactDownload.h
     src/api/ApiClient.cpp
     src/api/ApiClient.h
     src/api/ApiError.cpp
     src/api/ApiError.h
     src/api/ApiRequest.h
-    src/api/Cursors.h
     src/api/IdempotencyKey.cpp
     src/api/IdempotencyKey.h
-    src/api/SessionCookieJar.cpp
-    src/api/SessionCookieJar.h
     src/app/Application.cpp
     src/app/Application.h
     src/app/QmlEnums.h
-    src/auth/AuthManager.cpp
-    src/auth/AuthManager.h
     src/commands/Command.h
     src/commands/CommandRegistry.cpp
     src/commands/CommandRegistry.h
@@ -172,18 +145,17 @@ set(ACP_CORE_SOURCES
     src/diagnostics/Redaction.h
     src/events/Backoff.cpp
     src/events/Backoff.h
-    src/events/EventStreamService.cpp
-    src/events/EventStreamService.h
     src/events/SseEvent.h
     src/events/SseParser.cpp
     src/events/SseParser.h
-    src/events/StreamScope.h
+    src/models/JsonListModel.cpp
+    src/models/JsonListModel.h
     src/navigation/NavigationModel.cpp
     src/navigation/NavigationModel.h
-    src/services/CompatibilityService.cpp
-    src/services/CompatibilityService.h
     src/services/HealthService.cpp
     src/services/HealthService.h
+    src/services/UpdateService.cpp
+    src/services/UpdateService.h
     src/storage/CredentialVault.cpp
     src/storage/CredentialVault.h
     src/storage/SettingsStore.cpp
@@ -195,7 +167,6 @@ set(ACP_CORE_SOURCES
     src/viewmodels/ShellViewModel.cpp
     src/viewmodels/ShellViewModel.h
 )
-
 if(WIN32)
     list(APPEND ACP_CORE_SOURCES
         src/storage/WindowsCredentialVault.cpp

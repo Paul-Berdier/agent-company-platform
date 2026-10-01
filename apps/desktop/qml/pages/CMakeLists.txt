@@ -1,4 +1,4 @@
-# Acp.Pages — écrans natifs utilisant les contrats réels de l'API.
+# Acp.Pages — écrans natifs de la station, alimentés par les API de Hermes.
 
 acp_add_qml_module(
     TARGET acp_pages
@@ -7,15 +7,5 @@ acp_add_qml_module(
         DiagnosticsPage.qml
         FirstRunPage.qml
         HomePage.qml
-        ProjectsPage.qml
-        ConversationsPage.qml
-        MissionsPage.qml
-        RunPage.qml
-        ArtifactsPage.qml
-        PlatformPage.qml
-        ExtensionsPage.qml
-        OperationsPage.qml
         SettingsPage.qml
-        StudioPage.qml
-        QuotasPage.qml
 )

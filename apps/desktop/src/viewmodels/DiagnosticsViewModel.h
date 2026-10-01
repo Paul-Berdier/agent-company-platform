@@ -15,10 +15,7 @@
 namespace acp {
 
 class ApiClient;
-class AuthManager;
-class CompatibilityService;
 class CredentialVault;
-class EventStreamService;
 class HealthService;
 class SettingsStore;
 class SystemAppearance;
@@ -46,8 +43,7 @@ public:
         bool monospace = false;
     };
 
-    DiagnosticsViewModel(ApiClient *client, AuthManager *auth, HealthService *health,
-                         CompatibilityService *compatibility, EventStreamService *streams,
+    DiagnosticsViewModel(ApiClient *client, HealthService *health,
                          SettingsStore *settings, SystemAppearance *appearance,
                          CredentialVault *vault, QString clientVersion, QString buildInfo,
                          QObject *parent = nullptr);
@@ -71,10 +67,7 @@ private:
     QList<Entry> m_entries;
 
     ApiClient *m_client = nullptr;
-    AuthManager *m_auth = nullptr;
     HealthService *m_health = nullptr;
-    CompatibilityService *m_compatibility = nullptr;
-    EventStreamService *m_streams = nullptr;
     SettingsStore *m_settings = nullptr;
     SystemAppearance *m_appearance = nullptr;
     CredentialVault *m_vault = nullptr;

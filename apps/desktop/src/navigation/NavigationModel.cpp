@@ -22,32 +22,32 @@ QString readinessLabel(NavigationModel::Readiness readiness)
 NavigationModel::NavigationModel(QObject *parent)
     : QAbstractListModel(parent)
 {
-    // Seuls les écrans effectivement livrés sont navigables.
+    // Seuls les écrans effectivement livrés sont navigables. Les pages de pilotage de
+    // Hermes sont déclarées « Indisponible pour l'instant » tant qu'elles ne sont pas
+    // livrées : visibles, jamais navigables, jamais simulées.
+    const QString aVenir = QStringLiteral(
+        "Indisponible pour l'instant : cette page arrive avec l'étape P8 de la station.");
     m_destinations = {
         {QStringLiteral("home"), QStringLiteral("Accueil"), QStringLiteral("home"),
          Readiness::Ready, QString()},
         {QStringLiteral("projects"), QStringLiteral("Projets"), QStringLiteral("folder"),
-         Readiness::Ready, QString()},
+         Readiness::Planned, aVenir},
+        {QStringLiteral("questions"), QStringLiteral("Questions"), QStringLiteral("hand-raised"),
+         Readiness::Planned, aVenir},
+        {QStringLiteral("chat"), QStringLiteral("Discussion"), QStringLiteral("message"),
+         Readiness::Planned, aVenir},
+        {QStringLiteral("station"), QStringLiteral("Poste"), QStringLiteral("building"),
+         Readiness::Planned, aVenir},
+        {QStringLiteral("quotas"), QStringLiteral("Quotas"), QStringLiteral("gauge"),
+         Readiness::Planned, aVenir},
+        {QStringLiteral("routing"), QStringLiteral("Routage"), QStringLiteral("target"),
+         Readiness::Planned, aVenir},
         {QStringLiteral("diagnostics"), QStringLiteral("Diagnostics"),
          QStringLiteral("stethoscope"), Readiness::Ready, QString()},
-        {QStringLiteral("missions"), QStringLiteral("Missions"), QStringLiteral("target"),
-         Readiness::Ready, QString()},
-        {QStringLiteral("approvals"), QStringLiteral("Opérations"),
-         QStringLiteral("hand-raised"), Readiness::Ready, QString()},
-        {QStringLiteral("studio"), QStringLiteral("Studio en direct"),
-         QStringLiteral("target"), Readiness::Ready, QString()},
-        {QStringLiteral("platform"), QStringLiteral("Agents et workers"),
-         QStringLiteral("building"), Readiness::Ready, QString()},
+        {QStringLiteral("backup"), QStringLiteral("Sauvegarde"), QStringLiteral("archive"),
+         Readiness::Planned, aVenir},
         {QStringLiteral("settings"), QStringLiteral("Réglages"),
          QStringLiteral("settings"), Readiness::Ready, QString()},
-        {QStringLiteral("library"), QStringLiteral("Bibliothèque"), QStringLiteral("archive"),
-         Readiness::Ready, QString()},
-        {QStringLiteral("conversations"), QStringLiteral("Conversations"),
-         QStringLiteral("message"), Readiness::Ready, QString()},
-        {QStringLiteral("extensions"), QStringLiteral("Extensions"), QStringLiteral("plug"),
-         Readiness::Ready, QString()},
-        {QStringLiteral("quotas"), QStringLiteral("Quotas"), QStringLiteral("gauge"),
-         Readiness::Ready, QString()},
         {QStringLiteral("office"), QStringLiteral("Bureau de département"),
          QStringLiteral("building"), Readiness::OutOfScope,
          QStringLiteral("Hors périmètre : les ressources graphiques du bureau ne sont pas "

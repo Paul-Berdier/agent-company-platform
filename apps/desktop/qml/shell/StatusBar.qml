@@ -15,11 +15,11 @@ Rectangle {
         spacing: Space.space4
         Rectangle {
             width: 5; height: 5; radius: 3
-            color: Health.linkStatus === LinkStatus.Online && Session.state === SessionStatus.Connected
+            color: Health.linkStatus === LinkStatus.Online && Shell.authenticated
                 ? Colors.accentPrimary : Colors.textMuted
         }
         Text {
-            text: Session.state === SessionStatus.Offline ? Session.stateLabel : Health.linkStatusLabel
+            text: Health.linkStatusLabel
             textFormat: Text.PlainText
             color: Colors.textSecondary
             font.family: Type.metadata.family
@@ -51,7 +51,7 @@ Rectangle {
             }
         }
         Text {
-            text: Session.userDisplayName || Session.stateLabel
+            text: Shell.authenticated ? qsTr("Connecté") : qsTr("Non connecté")
             textFormat: Text.PlainText
             color: Colors.textMuted
             font.family: Type.metadata.family

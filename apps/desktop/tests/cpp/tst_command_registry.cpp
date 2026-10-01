@@ -249,34 +249,40 @@ void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
     QVERIFY(!navigation.canGoForward());
     navigation.goBack();
     QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
-    navigation.setCurrentRoute(QStringLiteral("projects"));
-    navigation.setCurrentRoute(QStringLiteral("conversations"));
+    navigation.setCurrentRoute(QStringLiteral("diagnostics"));
+    navigation.setCurrentRoute(QStringLiteral("settings"));
     navigation.goBack();
-    QCOMPARE(navigation.currentRoute(), QStringLiteral("projects"));
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("diagnostics"));
     QVERIFY(navigation.canGoForward());
     QSignalSpy refused(&navigation, &NavigationModel::navigationRefused);
+    // Hors périmètre, inconnue, et page de pilotage pas encore livrée : trois refus, et la
+    // route courante ne bouge pas.
     navigation.setCurrentRoute(QStringLiteral("office"));
     navigation.setCurrentRoute(QStringLiteral("unknown"));
-    QCOMPARE(refused.count(), 2);
-    // Les quotas d'abonnement sont une destination livrée, hors contexte de projet.
-    QVERIFY(navigation.isNavigable(QStringLiteral("quotas")));
-    QVERIFY(navigation.detailFor(QStringLiteral("quotas")).isEmpty());
+    navigation.setCurrentRoute(QStringLiteral("questions"));
+    QCOMPARE(refused.count(), 3);
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("diagnostics"));
+    QVERIFY(!navigation.isNavigable(QStringLiteral("questions")));
+    QVERIFY(navigation.detailFor(QStringLiteral("questions"))
+                .startsWith(QStringLiteral("Indisponible pour l'instant")));
+    QVERIFY(navigation.isNavigable(QStringLiteral("settings")));
+    QVERIFY(navigation.detailFor(QStringLiteral("settings")).isEmpty());
     QVERIFY(navigation.canGoForward());
     navigation.goForward();
-    QCOMPARE(navigation.currentRoute(), QStringLiteral("conversations"));
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("settings"));
     navigation.goBack();
-    navigation.setCurrentRoute(QStringLiteral("missions"));
+    navigation.setCurrentRoute(QStringLiteral("home"));
     QVERIFY(!navigation.canGoForward());
-    navigation.setCurrentRoute(QStringLiteral("missions")); // Pas de doublon adjacent.
+    navigation.setCurrentRoute(QStringLiteral("home")); // Pas de doublon adjacent.
     navigation.goBack();
-    QCOMPARE(navigation.currentRoute(), QStringLiteral("projects"));
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("diagnostics"));
 }
 
 void TestCommandRegistry::navigationHistoryIsBoundedAndResettable()
 {
     NavigationModel navigation;
     for (int i = 0; i < 80; ++i)
-        navigation.setCurrentRoute(i % 2 ? QStringLiteral("projects") : QStringLiteral("conversations"));
+        navigation.setCurrentRoute(i % 2 ? QStringLiteral("diagnostics") : QStringLiteral("settings"));
     int backwards = 0;
     while (navigation.canGoBack()) { navigation.goBack(); ++backwards; }
     QCOMPARE(backwards, 31);
@@ -288,7 +294,6 @@ void TestCommandRegistry::navigationHistoryIsBoundedAndResettable()
     navigation.goForward();
     QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
 }
-
 QTEST_APPLESS_MAIN(TestCommandRegistry)
 
 #include "tst_command_registry.moc"

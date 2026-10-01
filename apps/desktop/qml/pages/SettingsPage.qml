@@ -14,19 +14,11 @@ ScrollView {
         y: Space.space6
         spacing: Space.space5
         Label { textFormat: Text.PlainText; text: qsTr("Réglages"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
-        Label { textFormat: Text.PlainText; text: qsTr("Serveur et session"); color: Colors.textPrimary; font.bold: true }
-        AcpTextField { id: server; Layout.fillWidth: true; text: Shell.serverUrl; placeholder: qsTr("Adresse HTTPS de l’API ACP") }
+        Label { textFormat: Text.PlainText; text: qsTr("Serveur"); color: Colors.textPrimary; font.bold: true }
+        AcpTextField { id: server; Layout.fillWidth: true; text: Shell.serverUrl; placeholder: qsTr("Adresse HTTPS de Hermes") }
         CheckBox { id: loopback; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
         AcpButton { label: qsTr("Changer de serveur"); onTriggered: changeServer.open() }
         Label { id: serverError; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusFailedForeground }
-        CheckBox {
-            text: qsTr("Mémoriser la session dans le coffre Windows")
-            checked: SessionStorage.rememberSession
-            onToggled: SessionStorage.rememberSession = checked
-        }
-        Label { text: SessionStorage.error || SessionStorage.status; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary }
-        AcpButton { label: qsTr("Se déconnecter"); commandId: "session.logout" }
-        AcpButton { label: qsTr("Reprendre la session"); commandId: "session.resume" }
         Label { textFormat: Text.PlainText; text: qsTr("Apparence"); color: Colors.textPrimary; font.bold: true }
         RowLayout {
             Label { textFormat: Text.PlainText; text: qsTr("Thème"); color: Colors.textSecondary }
