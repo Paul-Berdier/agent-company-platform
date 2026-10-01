@@ -88,6 +88,13 @@ name: Image Hermes
 #     s6 complète : enrôlement, révocation pendant l'attente, notification « hors ligne » unique, redémarrage de
 #     Hermes sans notification, aucun jeton dans les journaux ;
 #   - test navigateur de la page Poste (hermes/tests/e2e/test_poste.py, greffon acp-poste-vues).
+# Étape P6 (côté Hermes) : même travail, mêmes jobs ; s'y ajoutent :
+#   - pytest dans l'image : exécution des cartes (test_execution_p6.py), routage de P6 (test_routage_p6.py),
+#     migration du schéma 3 (test_migration_v3.py) ;
+#   - tests de contrat (test_execution_contrat.py) avec un FAUX EXÉCUTANT (hermes/tests/outils/faux_executant.py)
+#     sur la pile s6 complète : carte servie, battement, fin, question, blocage, reprise, arrêt, idempotence ;
+#   - test navigateur de l'exécutant (hermes/tests/e2e/test_executant.py) : onglet Poste et revue des fichiers de
+#     pilotage.
 #
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
