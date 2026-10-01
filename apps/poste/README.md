@@ -1,6 +1,6 @@
 # Poste Windows d'ACP (`apps/poste`)
 
-Étape P5 de la refonte « Hermes au centre » (cahier de conception P5, décisions **D48 à D66** de
+Étape P5 de la refonte « Hermes au centre » (cahier de conception P5, décisions **D48 à D73** de
 [`docs/refonte/plan.md`](../../docs/refonte/plan.md) § 1, **non confirmées**). Le poste **se connecte à Hermes sans
 rien exécuter** : il s'enrôle, garde son jeton sous DPAPI, attend ses ordres en HTTPS sortant (attente longue de
 25 s, jamais un port en écoute), relève ce que Codex CLI et Claude Code déclarent (modèles, efforts, connexion, mode
@@ -41,14 +41,28 @@ isolé, **sans venv** (D53). `poste.toml` vit sous `%ProgramData%\ACP\`, en **le
 poste (D52). Les binaires de Codex et de Claude Code sont **copiés depuis vos installations** sous
 `C:\Program Files\ACP\outils\` (D54), hors d'atteinte du compte du poste.
 
+**À savoir avant de commencer.** Le chemin réel de l'installeur (création du compte, ACL, `pip --target`, tâche
+planifiée, `secedit`) n'a **jamais été exécuté**, ni sur votre PC ni en CI : la répétition à blanc et la CI ne
+lancent que `-Simulation`, qui ne couvre ni le compte, ni les ACL, ni la tâche. Vous serez le premier à l'exécuter.
+En cas d'échec, corrigez la cause dite en français et relancez l'installeur : le compte existant est conservé (son
+mot de passe vous est redemandé), les dossiers sont recréés à l'identique, `poste.toml` n'est jamais remplacé.
+
 ### a. Prérequis
 
-1. Python **3.12** de python.org, installé **pour tous les utilisateurs** (option de l'installeur ; par exemple
+1. **Hermes déployé sur Railway avec l'étape P5** : l'onglet **Poste** est visible dans votre tableau de bord. Sans
+   lui, les gestes « Réseau » et « Enrôlement » échouent (rien n'est déployé à ce jour : premier déploiement,
+   [`docs/refonte/railway.md`](../../docs/refonte/railway.md)).
+2. Python **3.12** de python.org, installé **pour tous les utilisateurs** (option de l'installeur ; par exemple
    `C:\Program Files\Python312\python.exe`). Un Python « pour moi seul » (sous votre profil) ou celui du Microsoft
-   Store est refusé : le compte du poste ne pourrait pas l'exécuter, ou son interpréteur sortirait du Job Object.
-2. Codex CLI (paquet npm `@openai/codex`) et Claude Code (binaire natif `claude.exe`, **2.1.248 ou plus récent** :
-   `--restricted`) installés dans votre session.
-3. Un checkout de ce dépôt.
+   Store est refusé : le compte du poste ne pourrait pas l'exécuter, ou son interpréteur sortirait du Job Object. Un
+   Python que le compte du poste ou l'un de ses groupes peut **modifier** (par exemple installé directement sous
+   `C:\`, qui accorde la modification aux Utilisateurs authentifiés) est refusé aussi : le service détient les jetons
+   déchiffrés, et `python -I` exécute encore les `.pth` de `site-packages` (D67).
+3. Codex CLI (paquet npm `@openai/codex`) et Claude Code (binaire natif `claude.exe`) installés dans votre session.
+   Claude Code **2.1.280 ou plus récent** recommandé : en dessous de **2.1.248** (`--restricted`), l'installeur refuse
+   (simulation comprise) ; entre les deux, il avertit que la voie Claude sera refusée au routage (efforts inconnus,
+   D71). Mettez-le à jour par `claude update` dans votre session avant d'installer.
+4. Un checkout de ce dépôt.
 
 ### b. Répétition à blanc (aucun effet)
 
@@ -62,14 +76,16 @@ Dans un PowerShell (élevé ou non), depuis la racine du dépôt :
     -ClaudeSource "$env:USERPROFILE\.local\bin\claude.exe"
 ```
 
-Elle imprime les neuf étapes et **tous** les refus, sans rien écrire (code 2 s'il y a un refus).
+Elle imprime les neuf étapes et **tous** les refus, sans rien écrire (code 2 s'il y a un refus). Elle lance seulement
+`--version` sur vos sources de Codex et de Claude Code (profil jetable sous `%TEMP%`, supprimé aussitôt) pour en
+contrôler la version.
 
 ### c. Installation
 
 Même commande **sans** `-Simulation`, dans un PowerShell **élevé** (Windows PowerShell 5.1 recommandé :
 `New-LocalUser` y est natif). L'installeur :
 
-1. contrôle Python, le dépôt, l'origine HTTPS et les sources ;
+1. contrôle Python (y compris ses droits), le dépôt, l'origine HTTPS, les sources et leur version ;
 2. crée le compte `acp-poste` (mot de passe **saisi par vous**, deux fois, jamais écrit ; il n'expire pas et le
    compte ne peut pas le changer), membre du seul groupe Utilisateurs, groupes désignés par SID ;
 3. crée `C:\Program Files\ACP\{poste,outils}`, `C:\ProgramData\ACP\{,quotas}`, `C:\ACP\{depots,espaces}` avec des ACL
@@ -80,11 +96,18 @@ Même commande **sans** `-Simulation`, dans un PowerShell **élevé** (Windows P
 5. copie Codex (dossier `vendor\x86_64-pc-windows-msvc` entier : `bin\codex.exe` et ses assistants) et
    `claude.exe`, consigne leurs SHA-256 dans `C:\ProgramData\ACP\installation.jsonl`, relance `--version` sur les
    copies ;
-6. écrit `C:\ProgramData\ACP\poste.toml` depuis le modèle s'il n'existe pas (sinon affiche la différence) ;
+6. écrit `C:\ProgramData\ACP\poste.toml` depuis le modèle s'il n'existe pas (sinon affiche la différence et signale
+   chaque `version_testee` qui ne correspond plus à la CLI copiée) ;
 7. enregistre la tâche `\ACP\Poste ACP` (compte `acp-poste`, mot de passe enregistré, niveau limité) ;
 8. propose, **chacune sur confirmation**, de couper le démarrage rapide, de désactiver la veille sur secteur et de
-   masquer `acp-poste` de l'écran d'accueil (D57) ;
+   masquer `acp-poste` de l'écran d'accueil (D57 ; seule la valeur `acp-poste` est ajoutée à la clé `UserList`, dont
+   les autres valeurs, comme les comptes `CodexSandbox*` masqués par Codex, restent) ;
 9. vérifie la tâche et le droit « Ouvrir une session en tant que tâche », puis imprime les gestes restants.
+
+**Mettre à jour une CLI** (Codex ou Claude Code) : mettez-la à jour dans votre session, relancez l'installeur (il
+recopie les binaires et relit leur version), puis, comme `poste.toml` n'est jamais remplacé, ouvrez-le dans un
+éditeur **lancé en administrateur** et reportez la nouvelle version dans `[codex] version_testee` ou
+`[claude] version_testee` (l'installeur affiche l'écart à l'étape 6). Sans cela, le poste déclare la CLI hors version.
 
 **Mot de passe définitif** : une réinitialisation par un administrateur rend illisibles pour ce compte ses blobs
 DPAPI et son Gestionnaire d'identifiants (jeton machine, jeton Claude, clé du coffre de Codex) : il faut alors
@@ -92,21 +115,27 @@ refaire les connexions, l'enrôlement, et réenregistrer la tâche (refus : « C
 
 ### d. Gestes manuels (dans l'ordre)
 
+Le dossier du poste n'est dans aucun PATH : dans la console du compte (un PowerShell, qui démarre dans `System32`),
+chaque commande s'écrit **avec l'opérateur `&`** et le chemin complet entre apostrophes, comme ci-dessous (D68). La page
+Poste donne la même commande sous la forme `& "$env:ProgramFiles\ACP\poste\acp-poste.cmd" …`, équivalente.
+
 | Étape | Où | Commande |
 |---|---|---|
 | Console du compte du poste | votre session | `runas /user:acp-poste "powershell -NoProfile"` (D55 ; le profil se crée au premier usage) |
 | Connexion par code d'appareil | navigateur | activez-la dans les réglages de sécurité de votre compte ChatGPT (prérequis de `codex login --device-auth`) |
 | Connexion de Codex | console `acp-poste` | `& 'C:\Program Files\ACP\poste\acp-poste.cmd' connexion codex` : écrit le `config.toml` du profil dédié, puis `codex login --device-auth` (code à valider avec **votre** compte ChatGPT) ; le poste ne lit rien de ce dialogue |
-| Jeton de Claude Code | votre session, puis console `acp-poste` | `claude setup-token` dans **votre** session ; copiez le jeton ; `acp-poste.cmd connexion claude` (collage masqué) ; puis `cls`, videz le presse-papiers et, si l'historique du presse-papiers de Windows (Win+V) est actif, supprimez-y l'entrée |
-| Bac à sable de Codex | console `acp-poste` + UAC | `acp-poste.cmd connexion bac-a-sable` : `windowsSandbox/setupStart {mode: "elevated"}` **sans dossier de travail** ; l'UAC demande des identifiants administrateur ; Codex crée ses comptes `CodexSandboxOffline` et `CodexSandboxOnline` |
-| Réseau | console `acp-poste` | `acp-poste.cmd diagnostic --reseau` : `GET /api/health` en HTTPS ; un refus TLS se dit en français (racine absente du magasin de Windows) |
-| Enrôlement | navigateur + console | page **Poste** → « Enrôler un poste » ; `acp-poste.cmd enroler` ; collez le code (saisie masquée) ; comparez l'empreinte affichée à celle de la page ; « Confirmer » |
+| Jeton de Claude Code | votre session, puis console `acp-poste` | `claude setup-token` dans **votre** session ; copiez le jeton ; `& 'C:\Program Files\ACP\poste\acp-poste.cmd' connexion claude` (collage masqué) ; puis `cls`, videz le presse-papiers et, si l'historique du presse-papiers de Windows (Win+V) est actif, supprimez-y l'entrée |
+| Bac à sable de Codex | console `acp-poste` + UAC | `& 'C:\Program Files\ACP\poste\acp-poste.cmd' connexion bac-a-sable` : `windowsSandbox/setupStart {mode: "elevated"}` **sans dossier de travail** ; l'UAC demande des identifiants administrateur ; Codex crée ses comptes `CodexSandboxOffline` et `CodexSandboxOnline` |
+| Réseau | console `acp-poste` | `& 'C:\Program Files\ACP\poste\acp-poste.cmd' diagnostic --reseau` : `GET /api/health` en HTTPS ; un refus TLS se dit en français (racine absente du magasin de Windows) |
+| Enrôlement | navigateur + console | page **Poste**, section « Enrôler un poste » : bouton « Générer un code d'enrôlement » ; `& 'C:\Program Files\ACP\poste\acp-poste.cmd' enroler` ; collez le code (saisie masquée) ; comparez l'empreinte affichée à celle de la page ; recopiez-la puis « Confirmer le poste » |
 | Démarrage | PowerShell élevé | `Start-ScheduledTask -TaskPath '\ACP\' -TaskName 'Poste ACP'` (ou redémarrez) |
 | Facultatif : quotas Claude | votre session | ligne d'état de **vos** sessions Claude Code vers `C:\ProgramData\ACP\quotas\claude-code.json` (ci-dessous, D56) |
 
 Désinstallation : `.\packaging\poste\Desinstaller-PosteAcp.ps1` (élevé ; `-Simulation` pour la répétition) retire la
-tâche puis, chacun sur confirmation, les dossiers et le compte ; `C:\ACP\depots` n'est supprimé qu'après une
-confirmation **nominative**. Révoquez aussi le poste sur la page Poste.
+tâche puis, chacun sur confirmation, les dossiers (dont `C:\ACP\espaces`, puis `C:\ACP` s'il est vide), la seule
+valeur `acp-poste` des comptes masqués de l'écran d'accueil et le compte ; `C:\ACP\depots` n'est supprimé qu'après
+une confirmation **nominative**. Révoquez aussi le poste sur la page Poste, et retirez la ligne d'état (`statusLine`)
+de votre `~/.claude/settings.json` : elle appelait `ligne_etat.py`, supprimé avec le poste.
 
 ## `poste.toml`
 
@@ -123,6 +152,8 @@ il est annoncé (`politique_valide: false`) et plus rien n'est publié. En mode 
 de démarrer s'il peut modifier ou remplacer `poste.toml` ou un binaire de CLI.
 
 ## Commandes
+
+Dans la console du compte, `acp-poste` ci-dessous s'écrit `& 'C:\Program Files\ACP\poste\acp-poste.cmd'` (D68).
 
 | Commande | Rôle | Réseau |
 |---|---|---|
@@ -186,7 +217,7 @@ Le venv de développement doit être bâti sur le Python de **python.org**, jama
 ```powershell
 ./scripts/setup.ps1
 .venv\Scripts\python.exe -m pytest -q                          # poste, contrat du poste, outillage
-pwsh -File packaging/poste/tests/Test-InstallationPoste.ps1    # installeur en simulation (Windows)
+pwsh -File packaging/poste/tests/Test-InstallationPoste.ps1    # installeur en simulation (Windows ; aussi sous powershell.exe 5.1)
 $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 ./scripts/e2e-poste-windows.ps1                                # bout en bout local (Docker Desktop)
 ```
