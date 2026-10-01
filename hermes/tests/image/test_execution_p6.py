@@ -112,12 +112,20 @@ def _jusqu_a_l_implementation(pile, executant, projet, monkeypatch):
 
 
 def test_reclamer_peut_executer_faux_jamais_de_carte(pile_machine, executant, projet):
-    """Un poste P5 (peut_executer: false) ne reçoit jamais de carte, même prête et de sa voie."""
+    """Un poste P5 (peut_executer: false) ne reçoit jamais de carte, même prête et de sa voie ; un poste qui annonce
+    une voie SANS pouvoir exécuter est refusé par le contrat (422), rien n'est réclamé."""
     reponse = executant.reclamer(peut_executer=False)
     assert reponse.carte is None
     assert _tache(pile_machine, projet["tableau"], projet["cartes"]["exploration"]).status == "ready"
     # Aucune voie annoncée : rien non plus.
     assert executant.reclamer(voies=()).carte is None
+    incoherent = {"protocole": "acp-machine/1", "version_poste": "0.11.0", "peut_executer": False,
+                  "ordres_acquittes": [], "attente_max_s": 5, "politique_valide": True,
+                  "voies_disponibles": ["poste-claude"]}
+    reponse = pile_machine.post(f"{M}/reclamer", incoherent, jeton=executant.jeton)
+    assert reponse.status_code == 422, reponse.text
+    assert "un poste qui ne peut pas exécuter n'annonce aucune voie" in reponse.json()["detail"]["message"]
+    assert _tache(pile_machine, projet["tableau"], projet["cartes"]["exploration"]).status == "ready"
 
 
 def test_reclamer_sert_seulement_les_cartes_emises(pile_machine, executant, projet):
@@ -152,11 +160,18 @@ def test_carte_servie_conforme(pile_machine, executant, projet):
 
 
 def test_une_carte_a_la_fois(pile_machine, executant, projet, monkeypatch):
-    """Concurrence 1 : tant que l'exécutant annonce une carte en main, rien d'autre ne lui est servi."""
+    """Concurrence 1 : tant que l'exécutant annonce une carte en main, rien d'autre ne lui est servi, même une carte
+    prête d'un autre projet."""
     tour = _jusqu_a_l_implementation(pile_machine, executant, projet, monkeypatch)
     impl = executant.carte(("poste-codex", "poste-claude"))
+    with pile_machine.noyau.base.connexion() as conn:
+        autre = lancer_sur_depot(pile_machine.noyau, conn, titre="Autre projet")
+    assert _tache(pile_machine, autre["tableau"], autre["cartes"]["exploration"]).status == "ready"
     en_main = {"tableau": impl["tableau"], "carte": impl["carte"], "run_id": impl["run_id"]}
     assert executant.reclamer(("poste-codex", "poste-claude"), en_cours=en_main).carte is None
+    assert _tache(pile_machine, autre["tableau"], autre["cartes"]["exploration"]).status == "ready"
+    # Sans carte en main, l'autre projet est servi : la concurrence 1 est bien ce qui l'empêchait.
+    assert executant.carte(("poste-claude",))["carte"] == autre["cartes"]["exploration"]
     del tour
 
 
@@ -211,6 +226,10 @@ def test_terminer_complete(pile_machine, executant, projet):
     demande = _demande(pile_machine, projet["tableau"], servie["carte"])
     assert (demande["modele_servi"], demande["issue"], demande["tete"]) == ("factice-servi-1", "termine", "2" * 40)
     assert json.loads(demande["verification"])["etat"] == "reussie"
+    # Résolution observée (D59) : visible sur la page Routage, jamais supposée.
+    resolutions = pile_machine.get("/api/plugins/acp-poste/v1/routage").json()["resolutions_observees"]
+    assert [(r["voie"], r["alias"], r["modele_servi"]) for r in resolutions] == [
+        ("poste-claude", "factice-claude-1", "factice-servi-1")]
     # La planification (Hermes) est désormais prête : la fin de l'exploration l'a libérée.
     assert _tache(pile_machine, projet["tableau"], projet["cartes"]["planification"]).status == "ready"
 
@@ -530,6 +549,57 @@ def test_carte_tient_dans_64_kio(pile_machine, executant, projet, monkeypatch):
     assert reponse.carte is not None
     corps = json.dumps(reponse.model_dump(mode="json"), ensure_ascii=False).encode("utf-8")
     assert len(corps) <= contrat.TAILLE_MAX_REPONSE
+
+
+GRAND = "\U0001d54f"  # 4 octets en UTF-8 : le pire cas pour la taille du JSON servi
+
+
+def _implementation_planifiee(pile, executant, projet, monkeypatch, consigne="Écrire outil.py."):
+    exploration = executant.carte(("poste-claude",))
+    executant.terminer(exploration, "Exploré.")
+    en_worker(monkeypatch, projet["tableau"], projet["cartes"]["planification"])
+    plan = {"resume": "Une étape.", "etapes": [{"ref": "e1", "titre": "Écrire", "classe": "implementation",
+                                                "consigne": consigne, "voie": "poste-codex"}]}
+    assert outil(pile.noyau, "projet_planifier", plan)["ok"]
+    with pile.noyau.base.connexion() as conn:
+        return conn.execute("SELECT carte FROM demandes WHERE tableau = ? AND role = 'implementation'",
+                            (projet["tableau"],)).fetchone()["carte"]
+
+
+def test_carte_resumes_des_parents_reduits_sous_60_kio(pile_machine, executant, projet, monkeypatch):
+    """Douze parents aux résumés de 2 000 caractères de 4 octets (96 Kio) : la carte est SERVIE (jamais bloquée),
+    résumés réduits et marqués tronqués, et tient dans 60 Kio ; la consigne, elle, reste entière."""
+    import meta
+
+    servie_par_les_routes = meta.sous_module_noyau("execution")  # la copie du noyau que les routes appellent
+    _implementation_planifiee(pile_machine, executant, projet, monkeypatch, consigne="ü" * 8000)
+
+    def gonfles(conn, kc, fiche, carte_id):
+        return [{"carte": f"t_{rang + 1:04x}abcd", "role": "exploration", "resume": GRAND * contrat.RESUME_PARENT_MAX,
+                 "tronque": False, "branche": None, "_cree_le": rang} for rang in range(contrat.PARENTS_MAX)]
+
+    monkeypatch.setattr(servie_par_les_routes, "_parents", gonfles)
+    servie = executant.reclamer(("poste-codex",)).carte
+    assert servie is not None, "carte bloquée au lieu d'être réduite"
+    assert contrat.taille_json(servie.model_dump(mode="json")) <= contrat.TAILLE_MAX_CARTE
+    assert len(servie.parents) == contrat.PARENTS_MAX
+    assert all(p.tronque and (p.resume is None or len(p.resume) <= 1000) for p in servie.parents)
+    assert servie.consigne == "ü" * 8000 and servie.consigne_tronquee is False
+
+
+def test_carte_consigne_tronquee_et_dite_sous_60_kio(pile_machine, executant, projet, monkeypatch):
+    """Consigne de 16 000 caractères de 4 octets (64 Kio, une correction démesurée) : servie tronquée AVEC la mention,
+    jamais en silence, et la carte tient dans 60 Kio."""
+    noyau = pile_machine.noyau
+    impl = _implementation_planifiee(pile_machine, executant, projet, monkeypatch)
+    with noyau.base.connexion() as conn:
+        conn.execute("UPDATE demandes SET consigne = ? WHERE tableau = ? AND carte = ?",
+                     (GRAND * contrat.CONSIGNE_MAX, projet["tableau"], impl))
+    servie = executant.reclamer(("poste-codex",)).carte
+    assert servie is not None and servie.carte == impl, "carte bloquée au lieu d'être tronquée"
+    assert contrat.taille_json(servie.model_dump(mode="json")) <= contrat.TAILLE_MAX_CARTE
+    assert servie.consigne_tronquee is True
+    assert servie.consigne.startswith(GRAND * 200) and servie.consigne.endswith(noyau.textes.MENTION_TRONQUE)
 
 
 # ------------------------------------------------------------------ intégration (cahier P6 § 6.7)
