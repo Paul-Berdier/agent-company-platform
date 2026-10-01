@@ -736,8 +736,10 @@ class Execution:
                     ") : exécution arrêtée.")
         documentee = next((r for a, r, _e, _d in TABLE_CLAUDE if a == demande.modele), None)
         servi = flux.modele_servi
-        if documentee and servi and servi != documentee and not (
-                servi.startswith(documentee + "-") and servi[len(documentee) + 1:].isdigit()):
+        # Seul un suffixe de DATE (AAAAMMJJ, huit chiffres) est admis : « claude-sonnet-5-5 » n'est pas
+        # « claude-sonnet-5 » (Claude Code 2.1.283 sert « claude-opus-5-5 » pour l'alias opus : relevé dans l'image).
+        suffixe = servi[len(documentee) + 1:] if documentee and servi and servi.startswith(documentee + "-") else ""
+        if documentee and servi and servi != documentee and not (len(suffixe) == 8 and suffixe.isdigit()):
             return (f"Modèle servi {servi} différent de la résolution documentée {documentee} pour l'alias "
                     f"{demande.modele} : exécution arrêtée.")
         return None

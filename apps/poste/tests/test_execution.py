@@ -269,6 +269,18 @@ def test_modele_servi_different_de_la_resolution(banc):
     assert "Modèle servi claude-opus-5-5 différent de la résolution documentée claude-sonnet-5" in issue.corps["raison"]
 
 
+@pytest.mark.parametrize("servi, bloquee", [("claude-sonnet-5-5", True), ("claude-sonnet-5-1", True),
+                                            ("claude-sonnet-5-20260915", False), ("claude-sonnet-5", False)])
+def test_seul_un_suffixe_de_date_est_admis(banc, servi, bloquee):
+    """Un modèle d'une autre version (« -5-5 ») n'est jamais pris pour un identifiant daté de l'alias documenté."""
+    banc.jouer(dict(ECRIT, modele=servi))
+    issue = banc.executer(banc.carte())
+    if bloquee:
+        assert issue.route == "bloquer" and f"Modèle servi {servi} différent" in issue.corps["raison"]
+    else:
+        assert issue.route == "terminer", issue.corps
+
+
 def test_outil_d_execution_refuse(banc):
     banc.jouer(dict(ECRIT, outils=["Read", "Bash"], attendre_s=5))
     issue = banc.executer(banc.carte())
