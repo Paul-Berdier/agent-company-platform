@@ -49,6 +49,7 @@ target_compile_definitions(tst_compatibilite_hermes PRIVATE
 acp_add_cpp_test(tst_sante cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_reglages_sans_secret cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
     cpp/support/NavigateurTest.h cpp/support/CoffreMemoire.h)
+acp_add_cpp_test(tst_canal_jsonrpc)
 acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)
