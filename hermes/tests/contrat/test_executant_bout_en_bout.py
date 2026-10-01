@@ -17,7 +17,9 @@ Scénarios (mot ``[scenario:…]`` dans l'objectif du projet, lu par le faux Cla
 2. une question → réponse du propriétaire → carte resservie, fil repris (``--resume``) → terminée ;
 3. un secret dans le diff → branche ``quarantaine/<carte>``, carte bloquée, rien du secret chez Hermes ;
 4. un fichier de pilotage (``.github/workflows``) → revue → refus du propriétaire → carte resservie avec le motif →
-   corrigée → terminée.
+   corrigée → terminée ;
+5. (relecture de P6) planification par le modèle factice de Hermes, implémentation par l'exécutant, puis relecture de
+   REPLI par la même voie avec un autre modèle (D91) : le relecteur, sous son UID, lit le diff ET le code relus.
 Puis : références du dépôt distant inchangées et aucune requête d'écriture ; aucun jeton dans les journaux (Hermes,
 exécutant) ni dans la base du greffon. Les faux CLI ne prouvent que la plomberie, jamais la qualité d'un modèle.
 """
@@ -396,6 +398,61 @@ def test_revue_de_pilotage_refusee_puis_corrigee(banc):
     assert [a["phase"] for a in appels] == ["premiere", "reprise"]
     fichiers = banc.depot_nu("ls-tree", "-r", "--name-only", f"hermes/{carte['id']}").split()
     assert ".github/workflows/acp.yml" not in fichiers and "NOTES-acp.md" in fichiers
+
+
+# =========================================================================== 4 bis. relecture (relecture de P6)
+
+
+def test_relecture_lit_le_code_relu_et_son_diff(banc):
+    """Haute (relecture de P6) : le greffon sert une relecture SANS branche de départ ; son worktree partait de la
+    branche de base, et son diff, écrit root:root 0640, était illisible par l'agent : relecture à l'aveugle. Ici, de
+    bout en bout : planification par le modèle factice de Hermes, implémentation par l'exécutant (voie Claude, régime
+    B), puis relecture de REPLI par la même voie avec un autre modèle (D91) ; le faux Claude relecteur, sous l'UID
+    10002, lit le diff et le code relus."""
+    titre = "Bout en bout — relecture"
+    # Modèles choisis par le plan (implémentation « sonnet », relecture « opus ») : la voie Codex étant fermée (régime
+    # B), la relecture va à la même voie avec cet autre modèle (repli D91).
+    plan = {"resume": "Écrire un fichier, puis le relire.", "decisions": ["Fichier texte"], "etapes": [
+        {"ref": "e1", "titre": "Écrire relu.txt", "classe": "implementation", "voie": "poste-claude",
+         "modele": "sonnet", "relecture_modele": "opus", "consigne": "Écrire le fichier relu.txt. [scenario:relu]",
+         "effort": "low"}]}
+    appel_plan = {"outil": "tool_call", "arguments": {"calls": [{"name": "projet_planifier", "arguments": plan}]}}
+    appel_etat = {"outil": "tool_call", "arguments": {"calls": [{"name": "projet_etat", "arguments": {}}]}}
+    scenarios = json.loads(banc.hermes.executer(["cat", "/tmp/acp-scenarios.json"], verifier=True).stdout or "{}")
+    scenarios.update({
+        f"rôle « planification » — projet « {titre} »": {"dans": "systeme", "etapes": [appel_plan],
+                                                           "resume_final": "Plan posé."},
+        f"rôle « synthese » — projet « {titre} »": {"dans": "systeme", "etapes": [appel_etat],
+                                                      "resume_final": "Conclusion."}})
+    banc.hermes.executer(["sh", "-c", "cat > /tmp/acp-scenarios.json"], utilisateur="hermes",
+                         entree=json.dumps(scenarios, ensure_ascii=False), verifier=True)
+    projet = banc.lancer_projet(titre, "relu-explo")
+
+    def relecture():
+        code, detail = banc.api("GET", f"/v1/projets/{projet['id']}")
+        cartes = (detail or {}).get("projet", {}).get("cartes", []) if code == 200 else []
+        return next((c for c in cartes if c.get("role") == "relecture"), None)
+
+    try:
+        carte = attendre(relecture, 300, "relecture jamais planifiée")
+    except AssertionError as exc:
+        _code, detail = banc.api("GET", f"/v1/projets/{projet['id']}")
+        brut = banc.hermes.executer(["cat", "/tmp/modele-factice.jsonl"], verifier=False).stdout
+        resultats = [r.get("resultats_outils") for r in (json.loads(l) for l in brut.splitlines() if l.strip())
+                     if f"projet « {titre} »" in (r.get("section_acp") or "")]
+        raise AssertionError(f"{exc} ; outils de la planification : {json.dumps(resultats, ensure_ascii=False)[:3000]}"
+                             f" ; projet : {json.dumps(detail, ensure_ascii=False)[:1500]} ; journal : "
+                             f"{banc.fin_journal()}") from None
+    afficher("carte de relecture planifiée", json.dumps(carte, ensure_ascii=False, indent=1))
+    banc.attendre_statut(projet["tableau"], carte["carte"], "done", delai=300)
+    appel = next(f for f in banc.faux() if f.get("scenario") == "relecteur")
+    afficher("faux Claude relecteur : identité, outils, textes lus",
+             json.dumps({k: appel[k] for k in ("uid", "textes")}, ensure_ascii=False, indent=1))
+    assert appel["uid"] == 10002 and "--add-dir" in appel["argv"]
+    assert appel["argv"][appel["argv"].index("--tools") + 1] == "Read,Glob,Grep"
+    assert appel["argv"][appel["argv"].index("--model") + 1] == "opus"  # repli D91 : autre modèle que « sonnet »
+    assert "+contenu relu ACP-RELU-7C2B" in appel["textes"]["{add_dir}/diff.patch"], appel["textes"]
+    assert appel["textes"]["relu.txt"] == "contenu relu ACP-RELU-7C2B\n", appel["textes"]
 
 
 # =========================================================================== 5. aucun push, aucun jeton

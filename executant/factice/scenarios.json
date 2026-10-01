@@ -1,42 +1,9 @@
 {
-  "simple": {
-    "premiere": {
-      "ecrire": {"NOTES-acp.md": "# Notes de l'exploration factice\n\nLe dépôt contient un module et ses tests.\n"},
-      "lire_interdit": ["/donnees/acp/secrets/jeton-machine", "/donnees/acp/secrets/claude-oauth",
-                        "/donnees/codex/auth.json", "/proc/1/environ"],
-      "sortie": {"issue": "termine", "resume": "## Structure\nUn module et ses tests ; notes écrites dans NOTES-acp.md.",
-                 "question": null, "verdict": null, "corrections": null}
-    }
-  },
-  "question": {
-    "premiere": {
-      "sortie": {"issue": "question", "resume": "Le dépôt exige Python 3.10 (requires-python).",
-                 "question": "Faut-il garder la compatibilité avec Python 3.10 ?", "verdict": null, "corrections": null}
-    },
-    "reprise": {
-      "ecrire": {"NOTES-acp.md": "# Notes\n\nCompatibilité Python 3.10 gardée, comme demandé.\n"},
-      "sortie": {"issue": "termine", "resume": "Réponse reçue : compatibilité Python 3.10 gardée.",
-                 "question": null, "verdict": null, "corrections": null}
-    }
-  },
-  "secret": {
-    "premiere": {
-      "ecrire": {"config-locale.txt": "cle = {secret_factice}\n"},
-      "sortie": {"issue": "termine", "resume": "Configuration locale ajoutée.", "question": null, "verdict": null,
-                 "corrections": null}
-    }
-  },
-  "pilotage": {
-    "premiere": {
-      "ecrire": {".github/workflows/acp.yml": "name: ajout factice\non: push\njobs: {}\n"},
-      "sortie": {"issue": "termine", "resume": "Ajout d'un workflow de CI.", "question": null, "verdict": null,
-                 "corrections": null}
-    },
-    "reprise": {
-      "supprimer": [".github/workflows/acp.yml"],
-      "ecrire": {"NOTES-acp.md": "# Notes\n\nWorkflow retiré à la demande du propriétaire.\n"},
-      "sortie": {"issue": "termine", "resume": "Workflow retiré ; notes écrites à la place.", "question": null,
-                 "verdict": null, "corrections": null}
-    }
-  }
+  "relecteur": {"premiere": {"lire_texte": ["{add_dir}/diff.patch", "relu.txt"], "sortie": {"issue": "termine", "resume": "Relu : le fichier relu.txt est conforme.", "question": null, "verdict": "accepte", "corrections": null}}},
+  "relu": {"premiere": {"ecrire": {"relu.txt": "contenu relu ACP-RELU-7C2B\n"}, "sortie": {"issue": "termine", "resume": "Fichier relu.txt écrit. [scenario:relecteur]", "question": null, "verdict": null, "corrections": null}}},
+  "relu-explo": {"premiere": {"sortie": {"issue": "termine", "resume": "Dépôt exploré : un README, aucun test.", "question": null, "verdict": null, "corrections": null}}},
+  "simple": {"premiere": {"ecrire": {"NOTES-acp.md": "# Notes de l'exploration factice\n\nLe dépôt contient un module et ses tests.\n"}, "lire_interdit": ["/donnees/acp/secrets/jeton-machine", "/donnees/acp/secrets/claude-oauth", "/donnees/codex/auth.json", "/proc/1/environ"], "sortie": {"issue": "termine", "resume": "## Structure\nUn module et ses tests ; notes écrites dans NOTES-acp.md.", "question": null, "verdict": null, "corrections": null}}},
+  "question": {"premiere": {"sortie": {"issue": "question", "resume": "Le dépôt exige Python 3.10 (requires-python).", "question": "Faut-il garder la compatibilité avec Python 3.10 ?", "verdict": null, "corrections": null}}, "reprise": {"ecrire": {"NOTES-acp.md": "# Notes\n\nCompatibilité Python 3.10 gardée, comme demandé.\n"}, "sortie": {"issue": "termine", "resume": "Réponse reçue : compatibilité Python 3.10 gardée.", "question": null, "verdict": null, "corrections": null}}},
+  "secret": {"premiere": {"ecrire": {"config-locale.txt": "cle = {secret_factice}\n"}, "sortie": {"issue": "termine", "resume": "Configuration locale ajoutée.", "question": null, "verdict": null, "corrections": null}}},
+  "pilotage": {"premiere": {"ecrire": {".github/workflows/acp.yml": "name: ajout factice\non: push\njobs: {}\n"}, "sortie": {"issue": "termine", "resume": "Ajout d'un workflow de CI.", "question": null, "verdict": null, "corrections": null}}, "reprise": {"supprimer": [".github/workflows/acp.yml"], "ecrire": {"NOTES-acp.md": "# Notes\n\nWorkflow retiré à la demande du propriétaire.\n"}, "sortie": {"issue": "termine", "resume": "Workflow retiré ; notes écrites à la place.", "question": null, "verdict": null, "corrections": null}}}
 }
