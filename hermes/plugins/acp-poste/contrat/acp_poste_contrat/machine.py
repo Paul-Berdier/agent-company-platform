@@ -62,6 +62,18 @@ CORPS_401_COUTURE = {"error": "unauthenticated", "detail": "Unauthorized"}
 GENRES_ORDRE = ("releve", "pause", "reprise")
 ETATS_MACHINE = ("a_confirmer", "actif")
 
+# Forme EXÉCUTABLE d'une commande du poste dans la console du compte (``runas /user:acp-poste "powershell
+# -NoProfile"``), telle que Hermes et l'inventaire l'affichent : le dossier du poste n'est dans aucun PATH, un chemin
+# entre guillemets sans ``&`` est une erreur d'analyse de PowerShell, et la garde « aucun identifiant » refuse une
+# lettre de lecteur, d'où ``$env:ProgramFiles`` (relecture de P5, décision D68). Sur le poste, les messages locaux
+# donnent le chemin réel (``acp_poste.chemins.commande_poste``).
+COMMANDE_POSTE_PUBLIEE = '& "$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd"'
+
+
+def commande_publiee(arguments: str) -> str:
+    """``& "$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd" <arguments>`` (décision D68)."""
+    return f"{COMMANDE_POSTE_PUBLIEE} {arguments}"
+
 
 def empreinte_jeton(jeton: str) -> str:
     """SHA-256 hexadécimal (64 caractères) d'un jeton ou d'un code : seule forme gardée par le greffon."""

@@ -35,6 +35,7 @@ from typing import Any, Sequence
 from pydantic import ValidationError
 
 from acp_poste_contrat.inventaire import ModeleReleve
+from acp_poste_contrat.machine import commande_publiee
 from acp_poste_contrat.quotas import SubscriptionQuotaReport
 
 from .app_server import (
@@ -74,15 +75,17 @@ VERSION_OCTETS_MAX = 4096
 CLES_CONFIG = ("windows.sandbox", "service_tier", "cli_auth_credentials_store")
 
 CODEX_ABSENT = "Codex CLI introuvable : [codex] executable de poste.toml ne désigne aucun fichier."
-PROFIL_ABSENT = "Profil Codex non préparé : lancez « acp-poste connexion codex » dans le compte du poste."
-CONFIG_MODIFIEE = ("config.toml du profil Codex modifié hors du poste : supprimez-le puis relancez « acp-poste "
-                   "connexion codex ».")
+# Textes publiés dans l'inventaire : commandes sous la forme exécutable SANS lettre de lecteur (décision D68).
+PROFIL_ABSENT = f"Profil Codex non préparé : lancez « {commande_publiee('connexion codex')} » dans le compte du poste."
+CONFIG_MODIFIEE = ("config.toml du profil Codex modifié hors du poste : supprimez-le puis relancez "
+                   f"« {commande_publiee('connexion codex')} ».")
 AGENTS_DANS_LE_PROFIL = "Le profil Codex contient un fichier AGENTS.md : relevé refusé (instructions hors du poste)."
 VERSION_ILLISIBLE = "Version de Codex CLI illisible : relevé refusé."
 SANS_COMPTE = ("Codex n'est connecté à aucun compte sur le poste : liste de secours (catalogue embarqué de Codex) ; "
-               "connectez-le (acp-poste connexion codex).")
+               f"connectez-le ({commande_publiee('connexion codex')}).")
 COMPTE_HORS_ABONNEMENT = ("Codex est connecté par clé d'API ou par Bedrock : refusé par ACP (facturation hors "
-                          "abonnement) ; reconnectez-le avec votre compte ChatGPT (acp-poste connexion codex).")
+                          "abonnement) ; reconnectez-le avec votre compte ChatGPT "
+                          f"({commande_publiee('connexion codex')}).")
 CATALOGUE_LOCAL = "Un catalogue de modèles local (model_catalog_json) remplace celui du compte : relevé refusé."
 TROP_DE_MODELES = f"Codex liste plus de {MODELES_MAX} modèles : relevé refusé plutôt que tronqué."
 EMBARQUE_ILLISIBLE = ("Catalogue embarqué de Codex non relevé : impossible de distinguer la liste du compte d'une "
@@ -97,7 +100,7 @@ RAISONS_BAC = {
     "non_configure": "Bac à sable Codex non configuré.",
     "mxc": "Implémentation MXC non retenue par ACP.",
     "unelevated": "Bac à sable Codex non élevé (unelevated) : l'écriture est refusée.",
-    "installation": "Installation élevée du bac à sable à faire : acp-poste connexion bac-a-sable (UAC).",
+    "installation": f"Installation élevée du bac à sable à faire : {commande_publiee('connexion bac-a-sable')} (UAC).",
     "readiness": "Readiness du bac à sable Codex illisible : écriture refusée par prudence.",
     "couche": "Mode du bac à sable fixé par une couche {type} et non par le poste : écriture refusée.",
     "stockage": "Stockage des identifiants Codex lu : {valeur} ; attendu : keyring : écriture refusée.",

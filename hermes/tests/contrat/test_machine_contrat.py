@@ -189,7 +189,8 @@ def test_enrolement_confirmation_bout_en_bout(pile):
     code, vue = api(pile, "GET", "/v1/poste")
     assert code == 200 and vue["poste"]["etat"] == "non_configure"
     code, cree = api(pile, "POST", "/v1/poste/enrolement", {})
-    assert code == 201 and cree["code"].startswith("acpe_") and cree["commande"] == "acp-poste enroler"
+    assert code == 201 and cree["code"].startswith("acpe_")
+    assert cree["commande"] == '& "$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd" enroler'  # décision D68
     enrole = faux(pile, "enroler", cree["code"], "--nom", "Poste de contrat")
     assert enrole["statut"] == 201 and enrole["etat"] == "a_confirmer" and enrole["cache_control"] == "no-store"
     assert enrole["empreinte"] == enrole["empreinte_recalculee"]  # le poste recalcule la même empreinte

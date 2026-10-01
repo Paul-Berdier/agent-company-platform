@@ -126,3 +126,15 @@ def test_nom_de_poste_refuse_s_il_ne_peut_pas_etre_publie(nom, raison):
     assert f"« nom » : {raison} refusé dans le nom du poste" in str(exc.value) and nom not in str(exc.value)
     assert m.valider(m.RequeteEnrolement, dict(_fixture("enrolement_requete.json"), nom="PC du bureau : 2e étage"),
                      quoi="Requête refusée").nom == "PC du bureau : 2e étage"
+
+
+def test_commande_publiee_executable_et_publiable():
+    """Relecture de P5 (décision D68) : « acp-poste enroler » n'est reconnu par aucune console (dossier du poste hors
+    du PATH). Ce que Hermes et l'inventaire affichent est la forme exécutable de PowerShell, sans lettre de lecteur
+    que la garde « aucun identifiant » refuserait."""
+    from acp_poste_contrat.inventaire import raison_identifiant
+
+    forme = m.commande_publiee("enroler")
+    assert forme == '& "$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd" enroler'
+    assert raison_identifiant(forme) is None
+    assert raison_identifiant('& "C:\\Program Files\\ACP\\poste\\acp-poste.cmd" enroler') == "chemin de lecteur"

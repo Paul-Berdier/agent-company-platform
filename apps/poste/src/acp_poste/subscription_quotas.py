@@ -42,6 +42,7 @@ from acp_poste_contrat import (
     QUOTA_SOURCE_BY_PROVIDER,
     SubscriptionQuotaReport,
 )
+from acp_poste_contrat.machine import commande_publiee
 
 from .claude_statusline import SNAPSHOT_SOURCE as CLAUDE_SNAPSHOT_SOURCE
 from .claude_statusline import SNAPSHOT_WINDOW_MINUTES as CLAUDE_WINDOW_MINUTES
@@ -86,7 +87,7 @@ _WINDOW_KEYS = ("primary", "secondary")
 
 CODEX_API_KEY_ACCOUNT = (
     "Profil Codex connecté par clé d'API : aucun quota d'abonnement ChatGPT à relever. "
-    "Connectez un compte ChatGPT avec « acp-poste connexion codex »."
+    f"Connectez un compte ChatGPT avec « {commande_publiee('connexion codex')} »."
 )
 CODEX_MALFORMED = "Réponse de l'app-server Codex mal formée : quotas non relevés."
 # Publié dans l'inventaire (détail d'un compteur) : aucun chemin de lecteur, que la garde « aucun identifiant »

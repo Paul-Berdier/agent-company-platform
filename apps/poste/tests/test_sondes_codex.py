@@ -470,3 +470,21 @@ async def test_releve_conforme_au_contrat(poste):
     valider_releve(dict(resultat.releve, depots=[]))
     for echec in (await sonder(poste, compte={"type": "apiKey"}), await sonder(poste, version=None)):
         valider_releve(dict(echec.releve, depots=[]))
+
+
+def test_commandes_des_textes_publies_executables_et_publiables():
+    """Relecture de P5 (décision D68) : les textes publiés dans l'inventaire citaient « acp-poste connexion codex »,
+    qu'aucune console ne reconnaît. Ils citent la forme exécutable sans lettre de lecteur, que la garde admet."""
+    from acp_poste_contrat.inventaire import raison_identifiant
+    from acp_poste_contrat.machine import commande_publiee
+
+    from acp_poste.subscription_quotas import CODEX_API_KEY_ACCOUNT
+
+    textes = {sc.PROFIL_ABSENT: "connexion codex", sc.CONFIG_MODIFIEE: "connexion codex",
+              sc.SANS_COMPTE: "connexion codex", sc.COMPTE_HORS_ABONNEMENT: "connexion codex",
+              sc.RAISONS_BAC["installation"]: "connexion bac-a-sable", CODEX_API_KEY_ACCOUNT: "connexion codex"}
+    for texte, arguments in textes.items():
+        assert commande_publiee(arguments) in texte, texte
+        assert raison_identifiant(texte) is None, texte
+        assert "« acp-poste " not in texte and "(acp-poste " not in texte and ": acp-poste " not in texte, texte
+        assert len(texte) <= 300, texte

@@ -138,7 +138,7 @@ def test_page_poste_bureau_et_telephone(playwright_sync, pile):
         page.wait_for_selector("[data-acp-code]")
         code = page.inner_text("[data-acp-code] .acp-code__valeur").strip()
         assert code.startswith("acpe_") and len(code) == 48
-        assert "acp-poste enroler" in texte_de(page, "[data-acp-code]")
+        assert '& "$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd" enroler' in texte_de(page, "[data-acp-code]")  # décision D68
         verifier("bureau", "code_enrolement", "poste-code")
         page.click(f'{RACINE} a.acp-onglet:has-text("Quotas")')
         attendre_page_acp(page, "poste")

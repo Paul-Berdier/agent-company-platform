@@ -839,7 +839,8 @@ async def creer_code_enrolement(request: Request) -> JSONResponse:
 
     def travail(conn):
         cree = _n("machines").creer_code(conn, auteur)
-        return dict(cree, commande="acp-poste enroler")
+        # Forme exécutable dans la console du compte du poste, sans lettre de lecteur (décision D68).
+        return dict(cree, commande=_contrat_machine().commande_publiee("enroler"))
     reponse = await _executer_routage(travail, statut=201)
     reponse.headers["Cache-Control"] = "no-store"
     return reponse

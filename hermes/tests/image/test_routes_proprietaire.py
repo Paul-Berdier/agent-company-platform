@@ -47,7 +47,8 @@ def test_poste_non_configure_puis_code_rendu_une_fois(pile_machine):
     corps = reponse.json()
     assert reponse.headers["cache-control"] == "no-store"
     assert corps["code"].startswith("acpe_") and len(corps["code"]) == 48 and corps["validite_s"] == 600
-    assert corps["commande"] == "acp-poste enroler" and corps["protocole"] == "acp-machine/1"
+    # Forme exécutable dans la console du compte, sans lettre de lecteur (relecture de P5, décision D68).
+    assert corps["commande"] == '& "$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd" enroler' and corps["protocole"] == "acp-machine/1"
     # Le code n'est plus jamais rendu : la vue du poste n'en montre que le nombre.
     vue = pile_machine.get(f"{P}/v1/poste").json()
     assert corps["code"] not in str(vue) and vue["machine"]["codes_utilisables"] == 1

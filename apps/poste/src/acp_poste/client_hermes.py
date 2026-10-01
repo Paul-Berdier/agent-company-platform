@@ -26,6 +26,8 @@ from urllib.parse import urlsplit
 
 from acp_poste_contrat.machine import TAILLE_MAX_REPONSE
 
+from .chemins import commande_poste
+
 
 class ErreurReseau(Exception):
     """Échange impossible avec Hermes (réseau, TLS, délai, réponse illisible) : message français."""
@@ -75,7 +77,7 @@ def _message_tls(exc: ssl.SSLError) -> str:
             raison = "certificat expiré ou pas encore valide"
         else:
             raison = "certificat refusé"
-        return (f"Certificat de Hermes refusé ({raison}) : aucun échange. Lancez « acp-poste diagnostic --reseau » "
+        return (f"Certificat de Hermes refusé ({raison}) : aucun échange. Lancez « {commande_poste('diagnostic --reseau')} » "
                 "dans le compte du poste (racines TLS du magasin de Windows).")
     return "Négociation TLS avec Hermes impossible : aucun échange."
 
