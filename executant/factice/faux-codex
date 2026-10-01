@@ -3,7 +3,7 @@
 de production. Il répond seulement à ``--version`` (« codex-cli 0.156.1 ») ; tout le reste, ``sandbox`` compris,
 échoue en français (code 1) : le bout en bout factice tourne sous le seccomp par défaut de Docker (régime B), où la
 voie Codex est FERMÉE sur l'exécutant (décision D79 du dépôt). Chaque invocation est journalisée dans
-``/var/tmp/acp-factice/journal.jsonl``.
+``/var/tmp/acp-factice/journal-<uid>.jsonl``.
 """
 
 import json
@@ -13,7 +13,7 @@ import sys
 
 def main(argv):
     try:
-        with open("/var/tmp/acp-factice/journal.jsonl", "a", encoding="utf-8") as flux:
+        with open(f"/var/tmp/acp-factice/journal-{os.getuid()}.jsonl", "a", encoding="utf-8") as flux:
             flux.write(json.dumps({"outil": "codex", "uid": os.getuid(), "argv": argv}, ensure_ascii=False) + "\n")
     except OSError:
         pass

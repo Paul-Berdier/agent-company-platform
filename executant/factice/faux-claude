@@ -10,8 +10,9 @@ l'image de production (cible « finale ») ; il ne prouve que la PLOMBERIE, jama
   worktree de la carte), tente les lectures interdites listées, puis émet ``system/init``, ``result`` et la sortie
   structurée du scénario (``/opt/acp/outils/scenarios-factices.json``).
 
-Chaque invocation est journalisée dans ``/var/tmp/acp-factice/journal.jsonl`` : argv, UID, noms des variables
-d'environnement, présence du jeton (jamais sa valeur), issue de chaque lecture interdite.
+Chaque invocation est journalisée dans ``/var/tmp/acp-factice/journal-<uid>.jsonl`` (un fichier par UID : un fichier
+créé par un autre UID ne lui serait pas inscriptible) : argv, UID, noms des variables d'environnement, présence du
+jeton (jamais sa valeur), issue de chaque lecture interdite.
 """
 
 import json
@@ -20,7 +21,7 @@ import sys
 import uuid
 
 SCENARIOS = "/opt/acp/outils/scenarios-factices.json"
-JOURNAL = "/var/tmp/acp-factice/journal.jsonl"
+JOURNAL = f"/var/tmp/acp-factice/journal-{os.getuid()}.jsonl"
 
 
 def journal(entree):
@@ -70,8 +71,12 @@ def main(argv):
     journal({"outil": "claude", "scenario": nom, "phase": phase, "uid": os.getuid(), "argv": argv,
              "noms": sorted(os.environ), "jeton": bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")), "cwd": os.getcwd(),
              "consigne_octets": len(consigne.encode("utf-8")), "lectures": lectures})
-    emettre({"type": "system", "subtype": "init", "session_id": session, "model": etape.get("modele", "claude-opus-5"),
-             "tools": ["Read", "Glob", "Grep", "Edit", "Write"]})
+    # Modèle servi : celui que Claude Code 2.1.283 sert réellement pour l'alias demandé (relevé sans compte dans
+    # l'image : opus → claude-opus-5-5), sauf si le scénario impose un écart.
+    demande = argv[argv.index("--model") + 1] if "--model" in argv else "opus"
+    servi = etape.get("modele") or {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5"}.get(demande, demande)
+    emettre({"type": "system", "subtype": "init", "session_id": session, "model": servi,
+             "tools": ["Read", "Glob", "Grep", "Edit", "Write", "StructuredOutput"]})
     for chemin in etape.get("supprimer", []):
         try:
             os.remove(chemin)

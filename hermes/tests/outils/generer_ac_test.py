@@ -11,7 +11,9 @@ Crée, dans le répertoire donné :
   pour ``mcp.context7.com``, le nom épinglé par la managed scope ; les tests le font résoudre vers
   le faux serveur, jamais vers le vrai ;
 - ``ntfy.pem`` et ``ntfy.key`` (étape P4) : certificat du faux serveur ntfy (``notif_factice.py``)
-  pour ``ntfy.acp.test``, où l'émetteur de notifications d'acp-poste envoie pendant les tests.
+  pour ``ntfy.acp.test``, où l'émetteur de notifications d'acp-poste envoie pendant les tests ;
+- ``depot.pem`` et ``depot.key`` (étape P6) : certificat du faux dépôt git distant (``depot_factice.py``)
+  pour ``git.acp.test``, que l'exécutant clone pendant le bout en bout (jamais GitHub).
 
 Utilisé à la construction de l'image de test, qui ajoute ``ac.pem`` au magasin du système pour que
 le tableau de bord fasse confiance au faux fournisseur et au bord, exactement comme à de vrais.
@@ -34,6 +36,7 @@ HOTE_IDP = "idp.acp.test"
 HOTES_BORD = ("hermes-acp.test", "identite-acp.test")
 HOTE_MCP = "mcp.context7.com"
 HOTE_NTFY = "ntfy.acp.test"
+HOTE_DEPOT = "git.acp.test"
 
 
 def _nom(texte: str) -> x509.Name:
@@ -85,6 +88,7 @@ def main(repertoire: str) -> int:
     bord, cle_bord = feuille(HOTES_BORD)
     mcp, cle_mcp = feuille((HOTE_MCP,))
     ntfy, cle_ntfy = feuille((HOTE_NTFY,))
+    depot, cle_depot = feuille((HOTE_DEPOT,))
 
     (sortie / "ac.pem").write_bytes(ac.public_bytes(serialization.Encoding.PEM))
     (sortie / "idp.pem").write_bytes(idp.public_bytes(serialization.Encoding.PEM))
@@ -99,7 +103,11 @@ def main(repertoire: str) -> int:
     (sortie / "ntfy.pem").write_bytes(ntfy.public_bytes(serialization.Encoding.PEM))
     (sortie / "ntfy.key").write_bytes(cle_ntfy.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-    print(f"AC de test et certificats {HOTE_IDP}, {', '.join(HOTES_BORD)}, {HOTE_MCP}, {HOTE_NTFY} écrits dans {sortie}")
+    (sortie / "depot.pem").write_bytes(depot.public_bytes(serialization.Encoding.PEM))
+    (sortie / "depot.key").write_bytes(cle_depot.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    print(f"AC de test et certificats {HOTE_IDP}, {', '.join(HOTES_BORD)}, {HOTE_MCP}, {HOTE_NTFY}, {HOTE_DEPOT} "
+          f"écrits dans {sortie}")
     return 0
 
 
