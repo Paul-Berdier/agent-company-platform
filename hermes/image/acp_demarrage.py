@@ -296,9 +296,10 @@ class ValeursDeploiement:
         }
 
 
-# Valeurs vides pour la construction de l'image : aucun fournisseur de session ne s'enregistre ;
-# celui du jeton machine d'acp-poste non plus (il exige un fournisseur de session, décision D69) ;
-# le tableau de bord refuse alors de se lier hors du bouclage local (web_server.py:1134-1144).
+# Valeurs vides pour la construction de l'image seulement (le tableau de bord n'y tourne pas) : aucun
+# fournisseur de session ne s'enregistre. Celui du jeton machine d'acp-poste, à jeton seulement, s'enregistre
+# toujours et suffirait à la porte de Hermes (web_server.py:1134-1144) : ce qui exige l'OIDC au démarrage est
+# verifier_environnement (variables HERMES_DASHBOARD_OIDC_* obligatoires) ; voir docs/refonte/poste.md § 11, D69.
 VALEURS_VIDES = ValeursDeploiement(url_publique="", oidc_emetteur="", oidc_client="", oidc_portees="")
 
 

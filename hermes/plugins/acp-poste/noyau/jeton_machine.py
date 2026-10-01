@@ -131,27 +131,23 @@ class FournisseurJetonMachine(aa.DashboardAuthProvider):
         return None
 
 
-AUCUNE_SESSION = ("acp-poste : aucun fournisseur de session (OIDC) enregistré : le fournisseur du jeton machine "
-                  "n'est PAS enregistré. Sans aucun fournisseur, Hermes refuse de servir un tableau de bord public "
-                  "(web_server.py:1134-1144) : personne ne pourrait s'y connecter. Vérifiez les variables OIDC et le "
-                  "greffon self-hosted (relecture de P5, décision D69).")
+def enregistrer(ctx) -> None:
+    """Fournisseur et trois chemins exacts, enregistrés SANS condition. Appelé dans TOUT processus par
+    ``register()`` : idempotent, inerte hors du tableau de bord ; ``/v1/meta`` vérifie dans le processus du tableau
+    de bord que tout est en place.
 
-
-def enregistrer(ctx) -> bool:
-    """Fournisseur et trois chemins exacts, SEULEMENT si un fournisseur de session (OIDC) est déjà enregistré
-    (relecture de P5, décision D69) : la porte de démarrage de Hermes ne refuse de servir que si AUCUN fournisseur
-    n'existe, et le nôtre, à jeton seulement, lui aurait suffi. ``plugin.yaml`` déclare ``requires_plugins:
-    [self-hosted]`` : le greffon OIDC se charge avant celui-ci (``resolve_plugin_load_order``). Sans fournisseur de
-    session, rien n'est enregistré (les routes du poste répondent 401) et Hermes refuse de démarrer, comme avant P5.
-    Appelé dans TOUT processus par ``register()`` : idempotent, inerte hors du tableau de bord ; ``/v1/meta``
-    vérifie dans le processus du tableau de bord que tout est en place. Rend vrai si le fournisseur est enregistré."""
-    if not aa.list_session_providers():
-        _log.error(AUCUNE_SESSION)
-        return False
+    Relecture de P5 (décision D69) : n'enregistrer ce fournisseur qu'à côté d'un fournisseur de session est
+    IMPOSSIBLE à ce moment. Hermes charge les greffons groupés de type ``backend`` dès leur tri
+    (``plugins_discovery.gate_manifest`` rend ``load_now``), dans l'ordre alphabétique des dossiers :
+    ``acp-poste`` passe avant ``dashboard_auth/self_hosted``, et ``requires_plugins`` n'ordonne que les greffons
+    activés par configuration (``resolve_plugin_load_order``), pas ceux-là. Un tel contrôle ne verrait donc jamais le
+    fournisseur OIDC et retirerait le jeton machine de tout déploiement réel (constaté en CI, image du 27/09/2026).
+    Ce qui exige l'OIDC : ``acp_demarrage.verifier_environnement`` refuse de démarrer sans
+    ``HERMES_DASHBOARD_OIDC_ISSUER`` ni ``HERMES_DASHBOARD_OIDC_CLIENT_ID`` ; l'écart restant est dit dans
+    docs/refonte/poste.md § 11."""
     ctx.register_dashboard_auth_provider(FournisseurJetonMachine())
     for chemin in ROUTES:
         aa.register_token_route(chemin)
-    return True
 
 
 def etat_dans_ce_processus() -> dict:

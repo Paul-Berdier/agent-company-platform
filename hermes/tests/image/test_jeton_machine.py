@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from conftest import executer_python, poste_confirme
+from conftest import env_processus, executer_python, installer_home_de_test, poste_confirme
 
 from acp_poste_contrat.machine import PROTOCOLE, ROUTES, empreinte_jeton  # noqa: E402
 
@@ -204,8 +204,8 @@ messages = []
 class Collecteur(logging.Handler):
     def emit(self, record): messages.append([record.levelname, record.getMessage()])
 if AVEC_SESSION:
-    # Fournisseur de session factice, enregistré comme celui du greffon self-hosted AVANT acp-poste
-    # (requires_plugins) : c'est lui que la porte de démarrage de Hermes exige.
+    # Fournisseur de session factice, comme celui du greffon self-hosted quand il se charge avant (cas d'école :
+    # en vrai, acp-poste se charge AVANT lui, voir test_decouverte_reelle_charge_acp_poste_avant_l_oidc).
     from hermes_cli.dashboard_auth.base import DashboardAuthProvider
     from hermes_cli.dashboard_auth.registry import register_global_provider
     class Session(DashboardAuthProvider):
@@ -257,33 +257,50 @@ def test_register_enregistre_le_fournisseur_et_les_chemins_exacts(noyau):
     assert [m for m in messages if m[0] == "ERROR"] == []
 
 
-def test_register_sans_fournisseur_de_session_n_enregistre_rien(noyau):
-    """Relecture de P5 (décision D69) : le fournisseur à jeton seul suffisait à la porte de démarrage de Hermes
-    (web_server.py:1134-1144 : « aucun fournisseur » seulement), qui servait alors un tableau de bord où personne ne
-    peut se connecter. Sans fournisseur de session, ni fournisseur ni chemin à jeton : Hermes refuse de démarrer
-    comme avant P5, et le journal dit pourquoi, en français."""
+def test_register_sans_fournisseur_de_session_enregistre_quand_meme(noyau):
+    """Relecture de P5 (décision D69, révisée) : à l'appel de register(), le fournisseur OIDC n'est JAMAIS encore là
+    (acp-poste se charge avant lui, test suivant). Subordonner l'enregistrement à sa présence retirait le jeton
+    machine de tout déploiement réel : le fournisseur et ses trois chemins s'enregistrent donc sans condition, sans
+    erreur au journal."""
     code = _CODE_REGISTER.replace("__AVEC_SESSION__", "False")
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
-    assert fournisseurs == [] and exacts == [False] * 3 and autres == [False] * 5
-    erreurs = [m[1] for m in messages if m[0] == "ERROR"]
-    assert len(erreurs) == 1 and erreurs[0].startswith("acp-poste : aucun fournisseur de session (OIDC) enregistré")
-    assert "refuse de servir un tableau de bord public" in erreurs[0]
+    assert fournisseurs == [["acp-poste-machine", True, False]]
+    assert exacts == [True, True, True] and autres == [False] * 5
+    assert [m for m in messages if m[0] == "ERROR"] == []
 
 
-def test_le_greffon_se_charge_apres_le_fournisseur_oidc():
-    """``requires_plugins: [self-hosted]`` : Hermes charge le greffon OIDC groupé AVANT acp-poste (sans cela, l'ordre
-    alphabétique chargeait acp-poste d'abord, qui n'aurait vu aucun fournisseur de session)."""
+def test_decouverte_reelle_charge_acp_poste_avant_l_oidc(chemins, valeurs):
+    """Pourquoi aucun contrôle « fournisseur de session présent » n'est possible dans register() : Hermes charge les
+    greffons groupés de type backend dès leur tri (gate_manifest → load_now), dans l'ordre alphabétique des dossiers,
+    sans passer par resolve_plugin_load_order (requires_plugins n'y change rien). Vraie découverte, managed scope
+    d'ACP avec l'OIDC configuré : les deux fournisseurs sont là au bout du compte, acp-poste-machine enregistré le
+    premier, et les chemins du poste sont à jeton."""
+    installer_home_de_test(chemins, valeurs)
     code = r"""
+import sys
 from pathlib import Path
-from hermes_cli.plugins_manifest import parse_manifest_file, resolve_plugin_load_order, manifest_key
+from hermes_cli.plugins import discover_plugins
+from hermes_cli.plugins_discovery import gate_manifest
+from hermes_cli.plugins_manifest import parse_manifest_file
+discover_plugins()
+from hermes_cli.dashboard_auth.registry import list_providers
+from hermes_cli.dashboard_auth.token_auth import is_token_route
 greffon = Path("/opt/hermes/plugins/acp-poste")
 oidc = Path("/opt/hermes/plugins/dashboard_auth/self_hosted")
 manifestes = [parse_manifest_file(greffon / "plugin.yaml", greffon, "bundled", ""),
               parse_manifest_file(oidc / "plugin.yaml", oidc, "bundled", "dashboard_auth")]
-par_cle = {manifest_key(m): m for m in manifestes}
-resultat = [resolve_plugin_load_order(par_cle), sorted(par_cle), manifestes[0].requires_plugins]
+resultat = [[[p.name, bool(getattr(p, "supports_session", True))] for p in list_providers()],
+            [is_token_route(c) for c in ("/api/plugins/acp-poste/machine/v1/enrolement",
+                                         "/api/plugins/acp-poste/machine/v1/reclamer",
+                                         "/api/plugins/acp-poste/machine/v1/inventaire")],
+            [gate_manifest(m, set(), None).action for m in manifestes],
+            [m.requires_plugins for m in manifestes]]
 """
-    ordre, alphabetique, dependances = executer_python(code)
-    assert alphabetique == ["acp-poste", "dashboard_auth/self_hosted"]  # l'ordre qui aurait prévalu sans dépendance
-    assert ordre == ["dashboard_auth/self_hosted", "acp-poste"]
-    assert dependances == [{"id": "self-hosted", "version_range": None}]
+    fournisseurs, chemins_a_jeton, actions, dependances = executer_python(code, env=env_processus(chemins))
+    noms = [nom for nom, _ in fournisseurs]
+    sessions = [nom for nom, session in fournisseurs if session]
+    assert "acp-poste-machine" in noms and sessions == ["self-hosted"], fournisseurs
+    assert noms.index("acp-poste-machine") < noms.index("self-hosted")
+    assert chemins_a_jeton == [True, True, True]
+    assert actions == ["load_now", "load_now"]
+    assert not dependances[0]  # requires_plugins retiré : il n'ordonnait rien pour un greffon groupé
