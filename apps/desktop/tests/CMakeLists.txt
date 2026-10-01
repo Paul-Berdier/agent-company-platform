@@ -33,6 +33,8 @@ target_link_libraries(tst_desktop_pages PRIVATE Qt6::QuickControls2
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 acp_add_cpp_test(tst_api_errors)
 acp_add_cpp_test(tst_api_porteur cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_pkce)
+acp_add_cpp_test(tst_flux_natif cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)

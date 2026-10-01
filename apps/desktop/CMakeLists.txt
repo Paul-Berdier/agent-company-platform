@@ -138,6 +138,14 @@ set(ACP_CORE_SOURCES
     src/app/Application.cpp
     src/app/Application.h
     src/app/QmlEnums.h
+    src/auth/EcouteurBouclage.cpp
+    src/auth/EcouteurBouclage.h
+    src/auth/JetonsHermes.cpp
+    src/auth/JetonsHermes.h
+    src/auth/NativeAuthFlow.cpp
+    src/auth/NativeAuthFlow.h
+    src/auth/PairePkce.cpp
+    src/auth/PairePkce.h
     src/commands/Command.h
     src/commands/CommandRegistry.cpp
     src/commands/CommandRegistry.h
