@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -123,6 +124,23 @@ class FileSortie:
             return ResultatEnvoi(route, corps, refus=exc, retire=True)
         fichier.unlink(missing_ok=True)
         return ResultatEnvoi(route, corps, reponse=reponse, retire=True)
+
+    def purger_refusees(self, *, age_s: float, maintenant: float) -> int:
+        """Requêtes rangées dans ``refusees/`` (diagnostic) plus anciennes que ``age_s`` : retirées (purge du disque)."""
+        retirees = 0
+        try:
+            fichiers = list(self.refusees.iterdir())
+        except OSError:
+            return 0
+        for fichier in fichiers:
+            try:
+                etat = os.lstat(fichier)
+            except OSError:
+                continue
+            if stat.S_ISREG(etat.st_mode) and etat.st_mtime < maintenant - age_s:
+                fichier.unlink(missing_ok=True)
+                retirees += 1
+        return retirees
 
     def rejouer(self, envoi: Callable[[str, dict[str, Any]], Any]) -> tuple[list[ResultatEnvoi], Refus | None]:
         """Rejoue la file dans l'ordre ; s'arrête au premier refus transitoire (rendu)."""

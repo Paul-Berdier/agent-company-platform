@@ -408,3 +408,43 @@ def test_verdict_de_la_sonde_dans_les_journaux_du_conteneur(banc, capfd, monkeyp
     assert bloc["regime"] == "B"
     assert ("[acp] Sonde de plateforme : régime B, bubblewrap refuse, UID séparés : oui. Régime B : bubblewrap refusé "
             "par la plateforme.") in capfd.readouterr().err
+
+
+
+async def test_purge_quotidienne_sans_toucher_la_carte_en_main(banc):
+    """Relecture de P6 : la purge du disque est faite par l'exécutant lui-même (une fois par 24 h, hors carte) ;
+    le worktree de la carte en main est gardé."""
+    import time
+
+    banc.coffre.ecrire("jeton-machine", JETON)
+    _carte_en_main(banc, "rendue")
+    espaces = banc.emplacements.espaces / "jetable"
+    for nom in ("t_ancien01", "t_ab12cd34"):
+        (espaces / nom).mkdir(parents=True)
+        os.utime(espaces / nom, (time.time() - 30 * 86400,) * 2)
+    tache = asyncio.create_task(banc.servir())
+    assert await _jusqu_a(lambda: "reclamer" in banc.protocole.routes())
+    banc.arret.set()
+    await asyncio.wait_for(tache, 10)
+    assert not (espaces / "t_ancien01").exists() and (espaces / "t_ab12cd34").exists()
+    journal = (banc.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8")
+    assert "Purge du disque : 1 worktree(s)" in journal
+
+
+
+async def test_echeance_du_jeton_claude_publiee_et_annoncee(banc, capfd):
+    """Relecture de P6 : rien ne prévenait de l'expiration du jeton Claude (setup-token : un an). L'exécutant publie
+    l'échéance ESTIMÉE (dépôt + 365 jours) dans son inventaire et l'annonce dans ses journaux à 30 jours."""
+    import time
+    from datetime import UTC, datetime, timedelta
+
+    banc.coffre.ecrire("jeton-machine", JETON)
+    depose = time.time() - 340 * 86400
+    os.utime(banc.emplacements.secrets / "claude-oauth", (depose, depose))
+    tache = asyncio.create_task(banc.servir())
+    assert await _jusqu_a(lambda: banc.protocole.inventaires, 30)
+    banc.arret.set()
+    await asyncio.wait_for(tache, 10)
+    attendue = (datetime.fromtimestamp(depose, UTC) + timedelta(days=365)).date().isoformat()
+    assert banc.protocole.inventaires[0]["connexions"]["claude_echeance"] == attendue
+    assert f"[acp] Jeton Claude de l'exécutant : expiration estimée le {attendue}" in capfd.readouterr().err

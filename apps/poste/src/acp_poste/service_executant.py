@@ -29,12 +29,13 @@ import json
 import os
 import signal
 import sys
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
 
 from .coffre import CoffreErreur, ecrire_atomiquement
 from .contexte import Contexte
-from .depots import Depots, espace_libre_mio
+from .depots import Depots, ErreurDepot, espace_libre_mio
 from .execution import AgentSurvivant, Execution, IssueCarte, LanceurAgents
 from .garde_quota import Budget, QuotasClaude
 from .inventaire import construire, relever
@@ -61,6 +62,9 @@ NON_ENROLE = ("Exécutant non enrôlé : créez un code sur la page Poste, puis 
 JETON_ILLISIBLE = ("Jeton machine de l'exécutant au format invalide : lancez « acp-poste oublier-jeton » puis "
                    "réenrôlez l'exécutant.")
 JETON_REFUSE_ATTENTE_S = 15 * 60
+PURGE_INTERVALLE_S = 24 * 3600
+DUREE_JETON_CLAUDE = timedelta(days=365)
+PREAVIS_JETON_CLAUDE_JOURS = 30
 RELECTURE_JETON_S = 10.0
 ARRET_CARTE_MAX_S = 80.0
 SUSPENDU = "Processus de l'agent impossibles à arrêter : exécution suspendue jusqu'au redémarrage de l'exécutant."
@@ -125,6 +129,7 @@ class ServiceExecutant(Service):
         self.suspendu: str | None = None
         self.demarrage_fait = False
         self.annonce: dict[str, Any] = {}
+        self.prochaine_purge = 0.0  # monotone : la première au premier tour, puis toutes les 24 h
 
     @staticmethod
     def _verif(contexte: Contexte) -> dict[str, Any]:
@@ -321,7 +326,35 @@ class ServiceExecutant(Service):
         if not self.demarrage_fait:
             self.demarrage_fait = True
             await self._reprendre_au_demarrage()
+        await self._purger_si_du()
         return True
+
+    async def _purger_si_du(self) -> None:
+        """Purge du disque (``[disque] purge_apres_jours``) une fois par 24 h, jamais pendant une carte : worktrees et
+        bundles anciens (branches gardées), requêtes refusées anciennes. Rien n'est demandé au propriétaire."""
+        if self.politique.disque is None or time.monotonic() < self.prochaine_purge:
+            return
+        if self.tache_carte is not None and not self.tache_carte.done():
+            return
+        self.prochaine_purge = time.monotonic() + PURGE_INTERVALLE_S
+        en_main = self.execution.carte_en_main() or {}
+        # Worktree de la carte en main (nommé par sa branche : hermes/<carte> ou hermes/projet-<slug>) : jamais purgé.
+        garder = {str(en_main.get("carte") or ""), str(en_main.get("branche") or "").removeprefix("hermes/")} - {""}
+        age_s = self.politique.disque.purge_apres_jours * 86400
+        try:
+            retires = await asyncio.to_thread(self.execution.depots.purger, age_s=age_s, garder=garder)
+            retires["refusees"] = await asyncio.to_thread(self.sortie.purger_refusees, age_s=age_s,
+                                                           maintenant=time.time())
+        except (OSError, ErreurDepot) as exc:
+            self.journal.ecrire("erreur", "purge", f"Purge du disque interrompue ({type(exc).__name__}) : nouvel "
+                                "essai dans 24 h.")
+            return
+        if any(retires.values()):
+            message = (f"Purge du disque : {retires['worktrees']} worktree(s), {retires['bundles']} bundle(s) et "
+                       f"{retires['refusees']} requête(s) refusée(s) de plus de {self.politique.disque.purge_apres_jours}"
+                       " jours retirés (branches gardées).")
+            self.journal.ecrire("info", "purge", message, **retires)
+            console(message)
 
     async def _reprendre_au_demarrage(self) -> None:
         """Carte en main au démarrage (§ 6.4) : rendue proprement (``arret``/``reprendre`` déjà envoyé) → rien ;
@@ -379,9 +412,29 @@ class ServiceExecutant(Service):
             self.compteurs_codex = codex.releve.get("compteurs")
         return codex, claude
 
+    def echeance_jeton_claude(self) -> Any:
+        """Expiration ESTIMÉE du jeton Claude : dépôt (mtime du fichier, écrit par « acp-poste connexion claude ») + un
+        an, durée documentée de « claude setup-token » ; ``None`` sans jeton. Relecture de P6 : rien ne prévenait."""
+        premiere_vue = getattr(self.contexte.coffre, "premiere_vue", None)
+        try:
+            depose = premiere_vue("jeton-claude") if premiere_vue is not None else None
+        except OSError:
+            depose = None
+        if depose is None:
+            return None
+        return (datetime.fromtimestamp(depose, UTC) + DUREE_JETON_CLAUDE).date()
+
     def _inventaire(self, codex: Any, claude: Any) -> dict[str, Any]:
+        echeance = self.echeance_jeton_claude()
+        if echeance is not None and (echeance - self.horloge().date()).days <= PREAVIS_JETON_CLAUDE_JOURS:
+            message = (f"Jeton Claude de l'exécutant : expiration estimée le {echeance.isoformat()} (setup-token "
+                       "valable un an) ; renouvelez-le (« claude setup-token » sur votre PC, puis « acp-poste "
+                       "connexion claude --stdin » dans une session railway ssh).")
+            if self.journal.ecrire_au_plus("echeance_jeton_claude", 86400, "avertissement", "echeance_jeton",
+                                           message):
+                console(message)
         return construire(self.politique, codex, claude, valeurs_exactes=self.journal.valeurs_masquees(),
-                          infos=self.contexte.infos(), isolement=self.isolement)
+                          infos=self.contexte.infos(), isolement=self.isolement, echeance_claude=echeance)
 
     # ------------------------------------------------------------------ vie du service
     async def _surveiller(self) -> None:

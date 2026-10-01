@@ -415,6 +415,9 @@ POSTE_ETAT_REDEPLOIEMENT = ("Exécutant en redéploiement depuis {heure} (arrêt
 # Inventaire de l'exécutant Linux (cahier P6 § 4.4, § 7.3).
 ALERTE_ISOLEMENT = "Écriture {clis} non admise sur l'exécutant (régime {regime}) : {raison}"
 ALERTE_CONDITIONS = "Conditions d'usage de {cli} non décidées dans la politique de l'exécutant : voie fermée."
+ALERTE_JETON_CLAUDE = ("Jeton Claude de l'exécutant : expiration estimée le {date} (setup-token valable un an) ; "
+                       "renouvelez-le : « claude setup-token » sur votre PC, puis « acp-poste connexion claude --stdin » "
+                       "dans une session railway ssh.")
 NOTIF_ISOLEMENT = "ACP — Isolement de l'exécutant changé (régime {regime}) : {raison} {lien}"
 # Notifications de l'exécution (cahier P6 § 9.2) : contenu minimal (D32), jamais la consigne ni un diff.
 NOTIF_REVUE = ("ACP — Projet « {titre} » : la carte « {carte} » touche des fichiers de pilotage et attend votre revue. "

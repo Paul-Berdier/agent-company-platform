@@ -591,7 +591,11 @@ class BacASableCodex(_Contrat):
 
 
 class Connexions(_Contrat):
-    """Connexion de chaque CLI au compte de l'abonnement, sans aucun identifiant (cahier P5 § 9.4, § 10.2)."""
+    """Connexion de chaque CLI au compte de l'abonnement, sans aucun identifiant (cahier P5 § 9.4, § 10.2).
+
+    ``claude_echeance`` (relecture de P6, facultatif : un inventaire antérieur reste valide) : date d'expiration
+    ESTIMÉE du jeton Claude de l'exécutant (dépôt du jeton + un an, durée documentée de ``claude setup-token``) ; le
+    greffon en tire une alerte à 30 jours. Jamais le jeton, seulement une date."""
 
     CODEX: ClassVar[tuple] = ("compte_chatgpt", "cle_api", "autre", "non_connecte", "inconnu")
     CLAUDE: ClassVar[tuple] = ("jeton_reconnu", "jeton_present_non_verifie", "refuse", "jeton_absent", "inconnu")
@@ -599,6 +603,7 @@ class Connexions(_Contrat):
     codex: str
     plan_codex: Optional[str] = None
     claude: str
+    claude_echeance: Optional[date] = None
 
     @field_validator("codex", mode="before")
     @classmethod
@@ -614,6 +619,22 @@ class Connexions(_Contrat):
     @classmethod
     def _plan(cls, valeur: Any) -> Optional[str]:
         return None if valeur is None else _texte(valeur, champ="plan_codex", maximum=40)
+
+    @field_validator("claude_echeance", mode="before")
+    @classmethod
+    def _echeance(cls, valeur: Any) -> Optional[date]:
+        if valeur is None:
+            return None
+        if isinstance(valeur, str):
+            try:
+                valeur = date.fromisoformat(valeur)
+            except ValueError:
+                raise ValueError("« claude_echeance » : date ISO 8601 (AAAA-MM-JJ) illisible") from None
+        if not isinstance(valeur, date) or isinstance(valeur, datetime):
+            raise ValueError("« claude_echeance » : date ISO 8601 (AAAA-MM-JJ) ou null attendue")
+        if not date(2026, 1, 1) <= valeur <= date(2100, 1, 1):
+            raise ValueError("« claude_echeance » : date hors bornes")
+        return valeur
 
 
 class VersionCli(_Contrat):

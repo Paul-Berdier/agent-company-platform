@@ -164,3 +164,20 @@ def test_carte_voie_fermee_apres_composition_signalee(noyau, conn, monkeypatch):
         raison = [e.payload for e in noyau.ka.list_events(kc, impl) if e.kind == "blocked"][-1]["reason"]
     assert tache.status == "blocked" and raison.startswith("Voie poste-codex fermée depuis plus de 30 min")
     assert noyau.execution.cartes_en_attente_de_voie(conn) == []
+
+
+
+def test_alerte_a_trente_jours_de_l_echeance_du_jeton_claude(noyau, conn):
+    """Relecture de P6 : l'exécutant publie la date d'expiration estimée de son jeton Claude ; la page Poste l'annonce
+    à 30 jours (alerte de l'inventaire), sans jamais rien du jeton."""
+    from datetime import date
+
+    inventaire = noyau.inventaire.valider_corps(inventaire_linux(
+        modifier=lambda i: i["connexions"].update(claude_echeance="2027-09-30")))
+    loin = noyau.inventaire.alertes_de(inventaire, aujourdhui=date(2027, 8, 30))
+    proche = noyau.inventaire.alertes_de(inventaire, aujourdhui=date(2027, 9, 1))
+    assert not any("Jeton Claude" in a for a in loin)
+    assert ("Jeton Claude de l'exécutant : expiration estimée le 2027-09-30 (setup-token valable un an) ; renouvelez-le"
+            in " ".join(proche))
+    machine, _reponse = _executant(noyau, conn, modifier=lambda i: i["connexions"].update(claude_echeance="2026-10-15"))
+    assert any("expiration estimée le 2026-10-15" in a for a in noyau.inventaire.dernier(conn, machine)["alertes"])

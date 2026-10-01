@@ -49,7 +49,8 @@ BAC_NON_SONDE = "Sonde Codex désactivée par poste.toml ([sondes] codex = false
 
 def construire(politique: Politique, codex: ResultatCodex | None, claude: ResultatClaude | None, *,
                windows: str | None = None, valeurs_exactes: list[str], maintenant: datetime | None = None,
-               infos: dict[str, Any] | None = None, isolement: dict[str, Any] | None = None) -> dict[str, Any]:
+               infos: dict[str, Any] | None = None, isolement: dict[str, Any] | None = None,
+               echeance_claude: Any = None) -> dict[str, Any]:
     """Inventaire validé et balayé, prêt à l'envoi ; lève :class:`InventaireRetenu` sinon. Sous Linux, ``infos``
     (plateforme, hôte, noyau) et ``isolement`` (bloc ``isolement_linux``) remplacent ``windows`` et le bac à sable."""
 
@@ -84,7 +85,8 @@ def construire(politique: Politique, codex: ResultatCodex | None, claude: Result
         "isolement_linux": None,
         "connexions": {"codex": codex.connexion if codex is not None else "inconnu",
                        "plan_codex": codex.plan if codex is not None else None,
-                       "claude": claude.connexion if claude is not None else "inconnu"},
+                       "claude": claude.connexion if claude is not None else "inconnu",
+                       "claude_echeance": echeance_claude.isoformat() if echeance_claude else None},
         "versions": versions,
         "politique": politique.resume_contrat(),
     }
