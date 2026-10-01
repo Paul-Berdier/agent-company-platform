@@ -412,7 +412,7 @@ Attendu : `/package/admin/s6/command/s6-svscan -d4 -- /run/service` (ou `s6-svsc
 § 5.3 (passkeys), connexion à `https://<libellé-hermes>.up.railway.app` depuis le PC **et** le
 téléphone (captures), § 6 (openai-codex).
 
-Exécutant (étape P6) : enrôlement et connexions dans une session `railway ssh`, § 13.4 à 13.6.
+Exécutant (étape P6) : dépôt de preuve, enrôlement et connexions, § 13.3 bis à 13.6.
 
 Poste Windows (étape P5, [poste.md](poste.md)) : **aucune variable Railway nouvelle**. Le poste s'enrôle
 après le premier déploiement, depuis l'onglet « Poste » (code à usage unique, empreinte à recopier) ; ses
@@ -653,11 +653,15 @@ confiance est le compte Railway (§ 11).
 
 **Coûts** (Hobby : 5 $ déduits de l'usage, RAM 10 $/Go/mois, CPU 20 $/vCPU/mois, volume 0,15 $/Go/mois,
 sortie 0,05 $/Go ; seul l'usage réel est facturé, rw_full.txt:4848-4892) :
-- usage normal **estimé** 6 à 16 $/mois (Hermes mesuré à 415-440 Mio au repos, Authelia ~0,1 Gio) ;
+- usage normal **estimé**, trois services (depuis P6) : `hermes` et `identite` 6 à 16 $/mois (Hermes mesuré à
+  415-440 Mio au repos, Authelia ~0,1 Gio) ; `executant` ≈ 2,6 $ au repos et jusqu'à ≈ 16 $ avec la garde de la
+  politique (8 h d'agent et 20 cartes par jour ; **supposé**, aucune mesure de Codex ni de Claude, R8 tranche,
+  [executant.md](executant.md) § 9) ; **total ≈ 9 à 32 $** ;
 - pire cas **théorique** aux limites : Hermes 2 × 10 + 1 × 20 = 40 $ ; identite 2,5 × 10 + 0,5 × 20
-  = 35 $ ; total 75 $ ;
-- la limite dure de **30 $ coupe tout avant**, identité comprise. Relevé hebdomadaire :
-  `railway usage` et `railway usage projects --project acp`.
+  = 35 $ ; executant 2 × 20 + 4 Gio (≈ 4,3 Go) × 10 + 5 Go × 0,15 ≈ 84 $ ; **total ≈ 159 $** ;
+- la limite dure de **30 $ coupe tout avant**, identité comprise ; le **haut** de l'estimation (≈ 32 $) la
+  **dépasse** : tout serait éteint avant la fin du mois. D'où l'alerte à 15 $, le relevé hebdomadaire
+  (`railway usage` et `railway usage projects --project acp`) et la réévaluation datée du § 13.6 (D85).
 
 **Montée de version de Hermes ou d'Authelia** : PR qui change le `FROM` épinglé (et
 `hermes/contrat/`), CI verte, déploiement par la chaîne normale. Jamais `hermes update`, `:latest`
@@ -915,11 +919,16 @@ exécuté : chaque étape est **votre** geste.
 utilisateur (bubblewrap, régime A) ou non (régime B, probable), et si la séparation par UID tient. Coût : quelques
 minutes de conteneur. Le projet `acp-sonde` est **distinct** de `acp` (l'IaC décrit `acp` en entier).
 
-1. Commit de P6 dont `executant.yml` est **vert**, dans un **clone propre** (jamais le dossier principal, sale) :
+1. Commit à sonder, dans un **clone propre** (jamais le dossier principal, sale) : le **dernier commit qui touche
+   l'image de l'exécutant**. `executant.yml` ne tourne que pour ces chemins (un commit de documentation seule, comme
+   la pointe de P6, n'a aucun run) ; ce workflow doit y être **vert** :
    ```sh
    git clone https://github.com/Paul-Berdier/agent-company-platform.git acp-sonde-r0
-   cd acp-sonde-r0 && git checkout <sha de P6>
-   gh run list --workflow executant.yml --commit "$(git rev-parse HEAD)"     # success exigé
+   cd acp-sonde-r0 && git checkout refonte/hermes
+   sha="$(git log -1 --format=%H -- executant apps/poste hermes/plugins/acp-poste/contrat packaging/poste/lancer.py \
+          requirements/poste-3.12.lock.txt requirements/python-3.12.lock.txt pytest.ini .github/workflows/executant.yml)"
+   git checkout "$sha"
+   gh run list --workflow executant.yml --commit "$sha"     # « success » exigé ; liste vide : mauvais commit
    ```
 2. Projet et service, depuis la **racine** du clone (`railway up` téléverse le dossier courant) :
    ```sh
@@ -952,21 +961,40 @@ relecture de repli par un autre modèle, D91) ; **A** ⇒ la voie Codex s'ouvrir
 
 ### 13.3 Plan et apply
 
+La CLI doit être connectée et liée au projet `acp` (le § 13.2 s'est terminé par `railway logout` ; une autre
+session Windows, § 2.4, n'est liée à rien) :
+```sh
+railway login
+railway link --project acp --environment production
+```
 Après la fusion de P6 dans `refonte/hermes` (CI verte : `ci.yml`, `image.yml`, `executant.yml`), selon le § 4.3 :
 le plan doit afficher le service `executant` et le volume `executant-donnees`, **0 to destroy** (« 2 to create » si
 P2 est déjà appliqué). Après `railway config apply` :
 - build : les lignes « [acp] … vérifié » de `verifier-binaires` (une empreinte ou une signature fausse fait échouer le
   build, en français) ;
-- démarrage : `[acp] commit déployé : <sha>`, `[acp] volume prêt (/donnees)`, puis l'exécutant **attend
-  l'enrôlement** sans sortir (une ligne de journal par jour) ; s'il refuse (`executant.toml : … gabarit …`), l'origine
-  de Hermes n'a pas été écrite dans la politique (§ 4.1).
-- R1 (preuve) : `railway config pull --json` conforme ; aucune socket à l'écoute (§ 13.6, `diagnostic --isolement`).
+- démarrage, dans les journaux du service : `[acp] commit déployé : <sha>`, `[acp] volume prêt (/donnees)`,
+  `[acp] Sonde de plateforme : régime A|B, …` (le régime mesuré à ce démarrage), puis
+  `[acp] Exécutant non enrôlé : …` : il **attend l'enrôlement** sans sortir (cette ligne revient une fois par jour) ;
+  s'il refuse (`executant.toml : … gabarit …`), l'origine de Hermes n'a pas été écrite dans la politique (§ 4.1). Le
+  journal détaillé reste sur le volume : `railway ssh --service executant -- acp-poste journal` ;
+- R1 (preuve) : `railway config pull --json` conforme ; aucune socket à l'écoute (§ 13.5, `diagnostic --isolement`).
+
+### 13.3 bis Dépôt de preuve jetable et privé (D87)
+
+Avant les connexions (le jeton GitHub du § 13.5 se limite à ce dépôt) :
+1. sur GitHub, créez un dépôt **privé**, jetable (rien de précieux), avec une branche `main` et une petite suite de
+   tests que l'image sait lancer sans rien installer : `tests/test_exemple.py` lu par
+   `python3.12 -m unittest discover -s tests -q` (outils de l'image : § 13.6) ;
+2. créez un jeton GitHub **à portée fine** : ce seul dépôt, permission `Contents: read` et rien d'autre,
+   **expiration datée** (notez la date : son renouvellement est un geste du § 13.8) ;
+3. gardez le jeton pour le § 13.5 (il n'est collé que dans la session `railway ssh`, jamais ailleurs).
 
 ### 13.4 Enrôlement, dans une session `railway ssh`
 
 1. Si le poste Windows est actif : révoquez-le d'abord sur la page Poste (une seule machine active, D77).
 2. Page Poste → **Enrôler un poste** : code à usage unique (10 min).
-3. Clé SSH dédiée (§ 11) : `railway ssh keys add --key <clé dédiée>.pub --name acp-operation`, puis
+3. CLI connectée et liée (`railway login`, puis `railway link --project acp --environment production`, comme au
+   § 13.3), clé SSH dédiée (§ 11) : `railway ssh keys add --key <clé dédiée>.pub --name acp-operation`, puis
    `railway ssh -i <clé dédiée> --service executant` (jamais `--session` : Railway installerait tmux).
 4. Dans la session : `acp-poste enroler` (code en saisie masquée) → « Poste enrôlé (<machine>). Empreinte :
    XXXX-XXXX » → recopiez l'empreinte sur la page Poste et **Confirmez**.
@@ -976,13 +1004,17 @@ P2 est déjà appliqué). Après `railway config apply` :
 ```sh
 acp-poste pause                       # aucune sonde ni carte pendant les connexions
 acp-poste connexion claude            # jeton de « claude setup-token » (lancé sur votre PC), saisie masquée
-acp-poste connexion github            # jeton à portée fine : dépôts choisis, Contents: read, expiration datée
+acp-poste connexion github            # jeton du § 13.3 bis : ce seul dépôt, Contents: read, expiration datée
 acp-poste connexion codex             # code d'appareil : lien et code affichés ICI, à saisir sur votre téléphone
 acp-poste reprise
+# attendre une à deux minutes : le relevé suivant (repoussé pendant la pause) lit la nouvelle connexion Codex
 acp-poste diagnostic                  # jetons « present », versions conformes, régime, connexion Codex
-acp-poste diagnostic --isolement      # aucune socket à l'écoute, profils non listables
+acp-poste diagnostic --isolement      # « executant.sockets_a_l_ecoute » vaut 0 (le bloc « isolement » vaut null
+                                      # sous Linux : il ne concerne que les profils du poste Windows)
 exit
 ```
+- Ces commandes tournent en root dans la session, mais lancent Codex et Claude **sous leur UID**, comme le service
+  (relecture de P6) : elles ne laissent aucun fichier de root dans `/donnees/codex` ni `/donnees/claude`.
 - Avant `connexion codex` : activez la connexion par code d'appareil dans les réglages de sécurité de votre compte
   ChatGPT. Le code ne transite **jamais** par Hermes ; `auth.json` est écrit sous `acp-codex` (0600, stockage
   `file`), jamais copié depuis le PC.
@@ -994,14 +1026,27 @@ exit
 
 - Page Routage : acceptez le relevé Codex (D58) si la voie est ouverte ; validez la table, y compris la classe
   « relecture » (repli D91). La classe « intégration » n'y figure pas (aucun modèle).
-- Railway : alerte d'usage à **15 $**, limite dure gardée à **30 $** ; relevé hebdomadaire `railway usage`
-  (exécutant compris). La limite dure éteint **tout**, Hermes et l'identité compris.
-- Dépôt de preuve **jetable et privé** (D87) : ajoutez-le à `executant/politique/executant.toml` (`[depots.<alias>]`,
-  forme commentée dans le fichier) par une PR, CI verte, puis lancez un projet depuis le téléphone (R5).
+- Railway : alerte d'usage à **15 $**, limite dure gardée à **30 $**. Le **haut** de l'estimation à trois services
+  (≈ 32 $ par mois avec la garde de 8 h d'agent par jour, § 9) **dépasse** cette limite, qui éteint **tout**,
+  Hermes et l'identité compris. Étapes datées (D85), à partir du jour du premier projet (J) : relevé
+  `railway usage` à J+7, J+14, J+21 et J+28 ; à **J+7**, réévaluation : si la projection du mois dépasse 30 $,
+  baissez `heures_agent_par_jour` ou `cartes_par_jour` par une PR sur `executant.toml`, ou relevez la limite dure
+  (votre décision, consignée dans `plan.md`).
+- Dépôt de preuve **jetable et privé** (§ 13.3 bis) : ajoutez-le à `executant/politique/executant.toml`
+  (`[depots.<alias>]`, forme commentée dans le fichier, éprouvée dans l'image) par une PR, CI verte, puis lancez un
+  projet depuis le téléphone (R5).
+- **Outils de l'image** pour `preparation` et `verification` : `python3.12` (avec `pip`, `venv`, `unittest`),
+  `git`, `sh`, `bash` et les outils de base. **Ni `uv`, ni `pytest`, ni `node` ou `npm`** : une commande absente
+  rend le code 127, que la carte annonce « Vérification impossible (outil introuvable sur l'exécutant) », sans
+  relancer l'agent. Une dépendance peut être installée par la préparation (réseau ouvert, hors bac à sable), par
+  exemple `python3.12 -m pip install --user --require-hashes -r requirements-dev.txt` : forme **non éprouvée** ici
+  (aucun téléchargement hors construction de l'image). Les fichiers non suivis qu'une vérification laisse dans le
+  worktree sont committés avec la carte s'ils ne sont pas ignorés par le `.gitignore` du dépôt (limite dite).
 
 ### 13.7 Récupérer une branche prête (`git bundle`, aucun push)
 
-La page Poste (« Branches prêtes ») affiche la commande. Depuis votre PC, avec la clé dédiée enregistrée :
+La page Poste (« Branches prêtes ») affiche la commande. Depuis votre PC, CLI connectée et liée (`railway login`,
+`railway link --project acp --environment production`), avec la clé dédiée enregistrée :
 ```sh
 railway ssh -i <clé dédiée> --service executant -- acp-poste bundle <alias> hermes/projet-<slug>
 scp -i <clé dédiée> <identifiant d'instance>@ssh.railway.com:/donnees/acp/bundles/<fichier> .
@@ -1017,9 +1062,35 @@ Retirez la clé ensuite (§ 11).
 - **Pause** : `acp-poste pause` / `reprise` (session `railway ssh`), ou la pause générale de la page Projets.
 - **Révocation** (page Poste) : le jeton est effacé, l'exécutant reste Active en attente d'enrôlement, sans requête
   vers Hermes ; aucune notification « hors ligne » ne suit.
-- **Bascule vers le PC** (Railway en panne) : pause générale, attendre la fin de la carte en cours, révoquer
-  l'exécutant, réactiver la tâche du poste Windows, `acp-poste enroler --remplacer`, confirmer, reprise. Le PC
-  n'exécute aucune carte en P6 (il annonce `peut_executer: false`).
+- **Ce que l'exécutant fait seul** (aucun geste) : purge du disque une fois par jour, hors carte — worktrees sans
+  activité depuis `purge_apres_jours` (7 jours ; leurs **branches** restent, une carte reprise recrée son worktree),
+  bundles et requêtes refusées plus anciens (journal : « Purge du disque : … ») ; échéance estimée du jeton Claude
+  publiée à Hermes, qui l'annonce sur la page Poste **30 jours avant** (et l'exécutant dans ses journaux, chaque
+  jour) ; alias temporaires de Codex retirés au démarrage.
+- **Espace disque** : sous `seuil_libre_mio` (1 024 Mio), l'exécutant cesse de réclamer des cartes (page Poste :
+  « Espace libre du volume sous le seuil »). La purge quotidienne y pourvoit d'ordinaire ; sinon, dans une session
+  `railway ssh` : `du -sh /donnees/* /donnees/acp/*` pour voir ; on peut retirer sans risque les bundles
+  (`/donnees/acp/bundles/*.bundle`, rapatriés ou non), les requêtes refusées (`/donnees/acp/sortie/refusees/`) et
+  un worktree d'une carte qui n'est **pas** en main (`acp-poste cartes`), par
+  `git --git-dir=/donnees/depots/<alias>.git worktree remove --force /donnees/espaces/<alias>/<carte>` (la branche
+  reste). Jamais `/donnees/codex`, `/donnees/claude`, `/donnees/acp/secrets` ni `/donnees/acp/etat`. Les
+  historiques des CLI (`/donnees/codex/sessions`, `/donnees/claude/projects`) ne sont pas purgés (limite dite).
+- **Jetons à renouveler** :
+  - **Claude** (`claude setup-token` : valable un an) : à l'alerte de la page Poste, relancez
+    `claude setup-token` sur votre PC, puis, dans une session `railway ssh`, `acp-poste connexion claude --stdin`
+    (empreinte affichée, aucun redémarrage) ;
+  - **GitHub** (expiration choisie au § 13.3 bis) : avant cette date, créez-en un nouveau aux mêmes droits, puis
+    `acp-poste connexion github --stdin`. Expiré, la récupération du dépôt échoue et la carte est bloquée
+    (« Opération git en échec ») ;
+  - **Codex** (session ChatGPT, rafraîchie par Codex lui-même) : si la page Poste dit la connexion Codex perdue,
+    `acp-poste pause`, `acp-poste connexion codex`, `acp-poste reprise`.
+- **Exécutant indisponible, Hermes joignable** (déploiement de l'exécutant en échec, volume à restaurer) : pause
+  générale, attendre la fin de la carte en cours, révoquer l'exécutant, réactiver la tâche du poste Windows, puis,
+  dans la console `runas` du compte du poste (D68),
+  `& 'C:\Program Files\ACP\poste\acp-poste.cmd' enroler --remplacer`, confirmer, reprise. **En P6, cette bascule
+  ne rend aucune exécution** : le PC n'exécute aucune carte (il annonce `peut_executer: false`) ; elle garde
+  seulement les relevés et la présence. Si **Railway** est en panne, Hermes et l'identité le sont aussi : aucune
+  bascule n'est possible ni utile, on attend le retour de Railway.
 - **Redéploiement** : SIGTERM, arrêt de l'agent, commit « wip », `arret(sigterm)` ; au redémarrage, la sonde est
   rejouée et la carte en main reprise (`reprendre`).
 - **Refus au démarrage** (`[acp] REFUS : … dans /donnees/codex …` ou `/donnees/claude`, service « Crashed » après dix

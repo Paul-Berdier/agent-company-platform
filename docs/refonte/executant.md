@@ -138,10 +138,14 @@ permissions nommé, `acp_agent` ou `acp_lecture`, qui interdit `/donnees/codex`,
 `/etc/acp` et coupe le réseau, **sans** `--sandbox`, qui le ferait ignorer ; fonctions coupées ; Claude :
 `claude -p --restricted --tools … --strict-mcp-config
 --disallowedTools "mcp__*" --settings /etc/acp/claude-settings.json --json-schema …`) → battements → vérification
-sous `acp-verif` (régime A : sous `codex sandbox`, réseau coupé ; régime B : seulement si le dépôt le déclare) →
+sous `acp-verif` (régime A : sous `codex sandbox`, réseau coupé ; régime B : seulement si le dépôt le déclare ;
+une commande absente de l'image, code 127, rend « vérification impossible » sans relancer l'agent) →
 **commit local par le superviseur** (auteur « ACP exécutant », sans crochets) → fichiers de pilotage (⇒ revue) et
 balayage des secrets (⇒ branche `quarantaine/<carte>`, rien n'est envoyé) → `terminer`, `question` ou `bloquer` par la
-file de sortie persistante.
+file de sortie persistante. Une **relecture** part de la branche relue (`hermes/<carte relue>`, que le greffon ne
+sert pas comme branche de départ) et lit son diff, écrit par le superviseur pour le groupe des agents ; branche ou
+diff absents : carte bloquée, jamais une relecture à l'aveugle. Une requête que le contrat refuse avant l'envoi est
+rangée dans `sortie/refusees` (la file continue) et la carte est bloquée avec une raison composée par l'exécutant.
 
 Mesuré sur les vraies CLI sans compte (§ 11) : la commande exacte du superviseur est acceptée par Codex 0.156.1 (il
 ouvre son fil) et par Claude Code 2.1.283 (`system/init` : outils demandés seulement, plus `StructuredOutput` ajouté
@@ -181,7 +185,7 @@ Supposé, prouvé au premier build (R1) : `rootDirectory: "/"` avec `RAILWAY_DOC
 
 Jamais dans Git, l'image, une variable Railway, un journal, l'inventaire, la base du greffon, un résumé ni l'argv
 d'un processus. Le code d'appareil de Codex ne transite **jamais** par Hermes. Gestes exacts : [railway.md
-§ 13.4 à 13.6](railway.md#134-enrôlement-dans-une-session-railway-ssh).
+§ 13.3 bis à 13.6](railway.md#133-bis-dépôt-de-preuve-jetable-et-privé-d87) ; renouvellements : § 13.8.
 
 ## 9. Coût et plafond (D85)
 
@@ -286,5 +290,5 @@ Intégration continue :
   modèle servi et résolution documentée (`3b763ac`) ; diagnostic du `config.toml` de Codex comparé à la variante
   Linux (`32f7f85`) ; sortie de la sonde débarrassée de l'avertissement de Codex qui masquait la cause d'un refus
   (`c20124d`).
-- **Non fait** : purge des worktrees et des bundles après N jours, alerte à J-30 du jeton Claude (déjà dit en
-  deuxième partie) ; option B de push (D82) conçue, non activée.
+- **Non fait** : option B de push (D82) conçue, non activée. La purge des worktrees et des bundles et l'alerte à
+  J-30 du jeton Claude, annoncées « non faites » ici, sont faites depuis la relecture (§ 15).
