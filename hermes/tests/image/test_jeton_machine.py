@@ -274,7 +274,7 @@ def test_decouverte_reelle_charge_acp_poste_avant_l_oidc(chemins, valeurs):
     greffons groupés de type backend dès leur tri (gate_manifest → load_now), dans l'ordre alphabétique des dossiers,
     sans passer par resolve_plugin_load_order (requires_plugins n'y change rien). Vraie découverte, managed scope
     d'ACP avec l'OIDC configuré : les deux fournisseurs sont là au bout du compte, acp-poste-machine enregistré le
-    premier, et les chemins du poste sont à jeton."""
+    premier, et les chemins du poste sont les SEULS chemins à jeton."""
     installer_home_de_test(chemins, valeurs)
     code = r"""
 import sys
@@ -284,6 +284,7 @@ from hermes_cli.plugins_discovery import gate_manifest
 from hermes_cli.plugins_manifest import parse_manifest_file
 discover_plugins()
 from hermes_cli.dashboard_auth.registry import list_providers
+from hermes_cli.dashboard_auth import token_auth
 from hermes_cli.dashboard_auth.token_auth import is_token_route
 greffon = Path("/opt/hermes/plugins/acp-poste")
 oidc = Path("/opt/hermes/plugins/dashboard_auth/self_hosted")
@@ -294,9 +295,10 @@ resultat = [[[p.name, bool(getattr(p, "supports_session", True))] for p in list_
                                          "/api/plugins/acp-poste/machine/v1/reclamer",
                                          "/api/plugins/acp-poste/machine/v1/inventaire")],
             [gate_manifest(m, set(), None).action for m in manifestes],
-            [m.requires_plugins for m in manifestes]]
+            [m.requires_plugins for m in manifestes],
+            sorted(token_auth._token_routes)]
 """
-    fournisseurs, chemins_a_jeton, actions, dependances = executer_python(code, env=env_processus(chemins))
+    fournisseurs, chemins_a_jeton, actions, dependances, tous = executer_python(code, env=env_processus(chemins))
     noms = [nom for nom, _ in fournisseurs]
     sessions = [nom for nom, session in fournisseurs if session]
     assert "acp-poste-machine" in noms and sessions == ["self-hosted"], fournisseurs
@@ -304,3 +306,7 @@ resultat = [[[p.name, bool(getattr(p, "supports_session", True))] for p in list_
     assert chemins_a_jeton == [True, True, True]
     assert actions == ["load_now", "load_now"]
     assert not dependances[0]  # requires_plugins retiré : il n'ordonnait rien pour un greffon groupé
+    # Relecture de sécurité de P5 : le jeton machine vaut pour TOUT chemin à jeton de Hermes. Dans l'image épinglée,
+    # les seuls chemins à jeton sont les trois du poste (drain désactivé) ; une montée de version qui en ajouterait
+    # un ferait échouer ce test, à revoir alors (le fournisseur accepterait le jeton machine sur ce chemin).
+    assert tous == sorted(ROUTES)
