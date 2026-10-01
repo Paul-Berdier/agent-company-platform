@@ -171,17 +171,22 @@ def test_aucune_start_command(code):
 
 
 @pytest.mark.parametrize(("motif", "nombre"), [
-    (r'builder: "DOCKERFILE"', 2),
-    (r"sleepApplication: false", 2),
-    (r'restartPolicyType: "ON_FAILURE"', 2),
-    (r"restartPolicyMaxRetries: 10,", 1),
+    (r'builder: "DOCKERFILE"', 3),
+    (r"sleepApplication: false", 3),
+    (r'restartPolicyType: "ON_FAILURE"', 3),
+    (r"restartPolicyMaxRetries: 10,", 2),
     (r"restartPolicyMaxRetries: 100,", 1),
     (r"limitOverride: \{ containers: \{ cpu: 1, memoryBytes: MEMOIRE_HERMES \} \}", 1),
     (r"limitOverride: \{ containers: \{ cpu: 0\.5, memoryBytes: MEMOIRE_IDENTITE \} \}", 1),
-    (r"checkSuites: true", 2),
+    (r"limitOverride: \{ containers: \{ cpu: 2, memoryBytes: MEMOIRE_EXECUTANT \} \}", 1),
+    (r"checkSuites: true", 3),
     (r'healthcheck: "/api/health"', 2),
-    (r"replicas: \{ \[REGION\]: 1 \}", 2),
-    (r'volume\("[a-z-]+", \{ region: REGION \}\)', 2),
+    (r"replicas: \{ \[REGION\]: 1 \}", 3),
+    (r'volume\("[a-z-]+", \{ region: REGION \}\)', 3),
+    (r'rootDirectory: "/"', 1),
+    (r'RAILWAY_DOCKERFILE_PATH: "executant/Dockerfile"', 1),
+    (r'RAILWAY_DEPLOYMENT_DRAINING_SECONDS: "90"', 1),
+    (r'volumeMounts: \{ "/donnees": donneesExecutant \}', 1),
     (r'rootDirectory: "/hermes"', 1),
     (r'rootDirectory: "/identite"', 1),
     (r'PORT: "9119"', 1),
@@ -191,12 +196,12 @@ def test_aucune_start_command(code):
     (r'volumeMounts: \{ "/config": donneesIdentite \}', 1),
     (r'HERMES_DASHBOARD_OIDC_CLIENT_ID: "hermes-acp"', 1),
     (r'HERMES_DASHBOARD_OIDC_SCOPES: "openid profile email offline_access"', 1),
-    (r"resources: \[hermes, identite, donneesHermes, donneesIdentite\]", 1),
+    (r"resources: \[hermes, identite, executant, donneesHermes, donneesIdentite, donneesExecutant\]", 1),
     (r"HERMES_DASHBOARD_PUBLIC_URL: urlHermes,", 1),
     (r"HERMES_DASHBOARD_OIDC_ISSUER: urlIdentite,", 1),
     (r"ACP_IDP_DOMAINE: domaineIdentite,", 1),
     (r"ACP_HERMES_URL: urlHermes,", 1),
-    (r"source: github\(DEPOT, \{ branch: BRANCHE, ", 2),
+    (r"source: github\(DEPOT, \{ branch: BRANCHE, ", 3),
 ])
 def test_reglages_declares(code, motif, nombre):
     assert len(re.findall(motif, code)) == nombre, f"« {motif} » attendu {nombre} fois dans railway.ts."
@@ -292,6 +297,22 @@ def test_coherence_avec_les_images(code):
     assert evaluer_arithmetique(ts.group(1), {"GIO": gio}) == evaluer_arithmetique(py.group(1), {"GIO": gio}) == 2684354560
     hermes = re.search(r"^const MEMOIRE_HERMES = (.+);$", code, flags=re.M)
     assert hermes and evaluer_arithmetique(hermes.group(1), {"GIO": gio}) == 2 * gio
+
+
+def test_executant_sans_port_ni_secret_ni_reference(code):
+    """Étape P6 (cahier § 10.2) : le service « executant » n'a ni santé, ni PORT, ni preserve(), ni variable qui
+    nomme un secret, ni référence vers un autre service ; son Dockerfile existe là où l'indique la variable, et la
+    politique de l'exécutant vise l'origine publique de Hermes déclarée ici (même libellé)."""
+    bloc = code.split('service("executant", {', 1)[1].split("\n  });", 1)[0]
+    assert "healthcheck" not in bloc and "PORT" not in bloc and "preserve(" not in bloc
+    assert not re.search(r"^\s*[A-Z_]*(?:JETON|TOKEN|SECRET|KEY|CLE|PASSWORD|OAUTH)[A-Z_]*:", bloc, flags=re.M)
+    assert "${{" not in code, "aucune référence de variable entre services"
+    assert (RACINE / "executant" / "Dockerfile").is_file()
+    assert re.search(r'^ENTRYPOINT \["/usr/bin/tini", "--", "/opt/acp/bin/acp-entree-executant"\]$',
+                     lire(RACINE / "executant" / "Dockerfile"), flags=re.M)
+    assert re.search(r"^const MEMOIRE_EXECUTANT = 4 \* GIO;$", code, flags=re.M)
+    politique = lire(RACINE / "executant" / "politique" / "executant.toml")
+    assert f'origine = "https://{constante(code, "LIBELLE_HERMES")}.up.railway.app"' in politique
 
 
 def test_aucun_fichier_config_as_code():
