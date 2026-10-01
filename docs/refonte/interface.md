@@ -11,6 +11,10 @@ relie à l'interface est fixé ici au § 6 (contrat, désormais servi). **Rien n
 **Étape P4** (seconde partie, 26 septembre 2026) : troisième greffon d'interface, `acp-projets`, page
 « Projets » (§ 10 ; référence : [projets.md](projets.md) § 4 bis).
 
+**Étape P5** (première partie, 26 septembre 2026) : quatrième greffon d'interface, `acp-poste-vues`,
+onglet « Poste » à trois vues : état du poste, routage, quotas (§ 11 ; référence :
+[poste.md](poste.md) § 9).
+
 Les références `fichier:ligne` sans préfixe désignent le source de Hermes Agent 0.21.5
 (étiquette `v2026.9.24`, commit `f97608f`).
 
@@ -25,10 +29,12 @@ Les références `fichier:ligne` sans préfixe désignent le source de Hermes Ag
 | Greffon `acp-interface` | `hermes/plugins/acp-interface/dashboard/` (manifeste, bundle, style) | `/opt/hermes/plugins/acp-interface/` |
 | Greffon `acp-catalogue` | `hermes/plugins/acp-catalogue/dashboard/` | `/opt/hermes/plugins/acp-catalogue/` |
 | Greffon `acp-projets` (P4, page « Projets ») | `hermes/plugins/acp-projets/dashboard/` | `/opt/hermes/plugins/acp-projets/` |
+| Greffon `acp-poste-vues` (P5, onglet « Poste ») | `hermes/plugins/acp-poste-vues/dashboard/` | `/opt/hermes/plugins/acp-poste-vues/` |
 | Épingles de P3 (managed scope) | `hermes/gere/config.yaml`, `EPINGLES_OBLIGATOIRES` | `/etc/hermes/config.yaml` (42 clés à la première partie ; 50 depuis la seconde : [catalogue.md](catalogue.md) § 7) |
 | Décompte des chaînes anglaises | `apps/interface/outils/decompte-traductions.mjs` | mesuré sur les fichiers extraits de l'image |
 | Test navigateur de l'interface | `hermes/tests/e2e/test_interface_fr.py` (connexion et vérifications communes : `parcours.py`) | — |
 | Test navigateur de la page Projets (P4) | `hermes/tests/e2e/test_projets.py` | — |
+| Test navigateur de l'onglet Poste (P5) | `hermes/tests/e2e/test_poste.py` | — |
 
 ## 2. Thème `acp`
 
@@ -419,3 +425,31 @@ Référence fonctionnelle, vues et routes : [projets.md](projets.md) § 4 bis. C
   cibles de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine). Les tests Vitest
   démontent désormais toute racine React restée montée après un test (ses minuteries de sondage
   couraient sinon dans le test suivant).
+
+## 11. Onglet « Poste » (étape P5, greffon `acp-poste-vues`)
+
+Référence fonctionnelle, routes et preuves : [poste.md](poste.md) § 8, § 9 et § 12. Ce qui touche l'interface :
+
+- **Quatrième greffon, même forme** que les trois premiers (manifeste, bundle IIFE, feuille de style, sans
+  code serveur) ; sources `apps/interface/src/poste/` ; `esbuild.mjs` construit quatre bundles, tous
+  déterministes et vérifiés par la CI (`npm run check`). Onglet « Poste » (`/poste`, icône `Monitor`), placé
+  après « Projets » (D62). Une seule page, trois vues : **Poste**, **Routage**, **Quotas**.
+- **Règle des boutons** : chaque bouton appelle une route réelle et testée (générer un code d'enrôlement,
+  copier, confirmer l'empreinte, révoquer avec motif, relever maintenant, appliquer la suggestion, valider la
+  table, poser la politique, créer ou désactiver une surcharge, accepter un relevé). Le code d'enrôlement
+  n'est gardé que dans l'état du composant : jamais stocké, absent du DOM dès que la vue change ; « Copier »
+  dit quand le presse-papiers est indisponible.
+- **Aucune donnée inventée** : une valeur absente s'affiche « Inconnu », un relevé ancien « Périmé », un
+  modèle sans effort documenté « Aucun effort documenté » ; la suggestion n'est proposée que sur des champs
+  relevés ; un refus de l'API (table refusée, empreinte différente, relevé changé) est affiché tel quel,
+  entrée par entrée. Les valeurs de l'API, y compris celles des listes de choix, portent `data-acp-donnee`.
+- **Français** : le catalogue unique compte désormais **528** chaînes (456 distinctes), dont **199** pour
+  l'onglet Poste (329 avant P5) ; mêmes contrôles (arbre syntaxique, typographie avec espaces insécables,
+  verrou du navigateur).
+- **Écriture** : `fetchJSON` du SDK seulement (garde statique : aucun `fetch` direct, aucun stockage
+  local) ; sondage de 15 s tant que la page est visible, comme la page Projets.
+- **Tests** : Vitest **110** (16 fichiers), dont `poste.test.tsx` et `api-poste.test.ts` sur des formes
+  relevées sur l'image (`tests/fixtures-poste.ts` ; le code d'enrôlement y est remplacé par un code factice
+  daté depuis l'instant du test) ; navigateur `test_poste.py` (enrôlement par un faux poste, confirmation,
+  inventaire, routage validé, quotas, aux formats 1440×900 puis 390×844 ; axe sans violation grave, cibles
+  de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine).

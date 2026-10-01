@@ -27,7 +27,8 @@ if not (BIN_ACP / "acp_demarrage.py").is_file() or not GREFFON.is_dir():
     raise RuntimeError(
         "Ces tests s'exécutent dans l'image de test ACP (hermes/tests/Dockerfile), pas ailleurs.")
 
-for chemin in (BIN_ACP, GREFFON):
+# Étape P5 : le contrat partagé (acp_poste_contrat) est importé par son chemin, comme le fait le noyau.
+for chemin in (BIN_ACP, GREFFON, GREFFON / "contrat"):
     if str(chemin) not in sys.path:
         sys.path.insert(0, str(chemin))
 
@@ -343,8 +344,8 @@ def noyau(tmp_path, monkeypatch):
     for nom in _VARIABLES_KANBAN + ("HERMES_DASHBOARD_PUBLIC_URL",):
         monkeypatch.delenv(nom, raising=False)
     monkeypatch.setenv("HERMES_HOME", str(home))
-    from noyau import (base, cartes, emetteur, etrangeres, graphe, invite, notifications, outils, presence,
-                       projets, questions, routage, textes)
+    from noyau import (base, cartes, emetteur, etrangeres, graphe, inventaire, invite, machines, notifications, ordres,
+                       outils, presence, projets, questions, quotas, routage, textes)
     from noyau import kanban_adapter as ka
 
     base.fixer_horloge(None)
@@ -352,7 +353,7 @@ def noyau(tmp_path, monkeypatch):
     yield SimpleNamespace(home=home, base=base, cartes=cartes, emetteur=emetteur, etrangeres=etrangeres,
                           graphe=graphe, invite=invite, notifications=notifications, outils=outils,
                           presence=presence, projets=projets, questions=questions, routage=routage, textes=textes,
-                          ka=ka)
+                          ka=ka, machines=machines, ordres=ordres, inventaire=inventaire, quotas=quotas)
     base.fixer_horloge(None)
     emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
 
@@ -417,3 +418,145 @@ def lancer_sur_depot(noyau, conn, titre: str = "Outil jetable", *, voies=("poste
                                     profil="base", depot="jetable", origine="tableau_de_bord",
                                     auteur="proprietaire:test", **options)
     return resultat["projet"]
+
+
+# ------------------------------------------------------------------ poste connecté (étape P5)
+
+FIXTURES_MACHINE = OUTILS / "fixtures_machine"
+
+
+def fixture_machine(nom: str) -> dict:
+    """Exemple de requête ou de réponse du protocole acp-machine/1 (hermes/tests/outils/fixtures_machine), le même
+    que lisent les tests du contrat et le faux Hermes des tests du poste."""
+    return json.loads((FIXTURES_MACHINE / nom).read_text(encoding="utf-8"))
+
+
+def inventaire_factice(*, releve_le=None, depots=("jetable",), modifier=None) -> dict:
+    """Inventaire de l'exemple, daté de maintenant (ou de ``releve_le``), dépôts remplacés ; ``modifier(inv)``
+    ajuste le reste."""
+    import datetime as _dt
+
+    inventaire = fixture_machine("inventaire_requete.json")
+    quand = (releve_le or _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    inventaire["releve_le"] = quand
+    inventaire["depots"] = [{"alias": d} for d in depots]
+    for releve in inventaire["releves"]:
+        releve["releve_le"] = quand
+        releve["depots"] = [{"alias": d} for d in depots]
+        for compteur in releve["compteurs"]:
+            compteur["observed_at"] = quand
+    inventaire["bac_a_sable_codex"]["lu_le"] = quand
+    if modifier is not None:
+        modifier(inventaire)
+    return inventaire
+
+
+def poste_confirme(noyau, conn, *, nom: str = "Poste Windows"):
+    """Enrôle ET confirme un poste par les fonctions du noyau ; rend (machine_id, jeton)."""
+    from acp_poste_contrat.machine import PROTOCOLE, empreinte_jeton
+
+    code = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
+    with noyau.base.transaction(conn):
+        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom=nom, version_poste="0.11.0",
+                                              protocole=PROTOCOLE)
+    noyau.machines.confirmer(conn, reponse["machine_id"], reponse["empreinte"], "proprietaire:test")
+    return reponse["machine_id"], reponse["jeton"]
+
+
+class PileMachine:
+    """Routes du greffon servies par un VRAI serveur uvicorn (fil de test), derrière la VRAIE couture
+    d'authentification par jeton de Hermes (token_auth_middleware) où le fournisseur du greffon est enregistré,
+    plus une session factice pour les routes du propriétaire (la porte OIDC réelle est prouvée au contrat)."""
+
+    def __init__(self, noyau, module, url: str, serveur, fil, fournisseurs) -> None:
+        self.noyau, self.module, self.url, self._serveur, self._fil = noyau, module, url, serveur, fil
+        self._fournisseurs = fournisseurs
+        import meta
+
+        self.base_routes = meta.sous_module_noyau("base")  # copie du noyau servie par les routes
+
+    def post(self, chemin: str, corps=None, *, jeton=None, entetes=None, brut=None, delai: float = 70):
+        import httpx
+
+        envoyes = {"Content-Type": "application/json"}
+        if jeton:
+            envoyes["Authorization"] = f"Bearer {jeton}"
+        envoyes.update(entetes or {})
+        contenu = brut if brut is not None else json.dumps(corps if corps is not None else {}).encode("utf-8")
+        return httpx.post(self.url + chemin, content=contenu, headers=envoyes, timeout=delai)
+
+    def get(self, chemin: str, *, delai: float = 30):
+        import httpx
+
+        return httpx.get(self.url + chemin, timeout=delai)
+
+    def arreter(self) -> None:
+        from hermes_cli.dashboard_auth.registry import unregister_global_provider
+
+        self._serveur.should_exit = True
+        self._fil.join(15)
+        for fournisseur in self._fournisseurs:
+            unregister_global_provider(fournisseur.name, fournisseur)
+
+
+@pytest.fixture
+def pile_machine(noyau, monkeypatch):
+    import importlib.util
+    import threading
+
+    import uvicorn
+    from fastapi import FastAPI, Request
+    from hermes_cli.dashboard_auth.registry import register_global_provider
+    from hermes_cli.dashboard_auth.token_auth import register_token_route, token_auth_middleware
+
+    monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "https://hermes.acp.test")
+    spec = importlib.util.spec_from_file_location("acp_poste_plugin_api_p5", GREFFON / "dashboard" / "plugin_api.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    import meta
+
+    jeton_machine = meta.sous_module_noyau("jeton_machine")
+    fournisseur = jeton_machine.FournisseurJetonMachine()
+    register_global_provider(fournisseur)
+    from acp_poste_contrat.machine import ROUTES
+
+    for chemin in ROUTES:
+        register_token_route(chemin)
+    application = FastAPI()
+
+    @application.middleware("http")
+    async def session_factice(request: Request, suivant):
+        if request.headers.get("x-test-sans-session") is None and not request.url.path.startswith(
+                "/api/plugins/acp-poste/machine/"):
+            request.state.session = SimpleNamespace(user_id="proprietaire-test")
+        return await suivant(request)
+
+    @application.middleware("http")
+    async def couture(request: Request, suivant):
+        return await token_auth_middleware(request, suivant)
+
+    @application.get("/test/fils-occupes")
+    async def fils_occupes():
+        import anyio
+
+        return {"occupes": anyio.to_thread.current_default_thread_limiter().borrowed_tokens}
+
+    application.include_router(module.router, prefix="/api/plugins/acp-poste")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    serveur = uvicorn.Server(uvicorn.Config(application, host="127.0.0.1", port=port, log_level="warning",
+                                           lifespan="off"))
+    fil = threading.Thread(target=serveur.run, name="uvicorn-test-p5", daemon=True)
+    fil.start()
+    limite = time.monotonic() + 20
+    while not serveur.started:
+        if time.monotonic() > limite or not fil.is_alive():
+            raise RuntimeError("le serveur de test des routes machine n'a pas démarré")
+        time.sleep(0.05)
+    pile = PileMachine(noyau, module, f"http://127.0.0.1:{port}", serveur, fil, [fournisseur])
+    try:
+        yield pile
+    finally:
+        pile.arreter()
+        pile.base_routes.fixer_horloge(None)

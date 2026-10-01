@@ -286,6 +286,57 @@ def bloc_projets() -> Tuple[Dict[str, Any], List[str]]:
     return bloc, alertes
 
 
+def bloc_machine() -> Tuple[Dict[str, Any], List[str]]:
+    """Bloc ``machine`` de la méta (étape P5, cahier P5 § 12.6) et ses alertes : fournisseur du jeton machine et
+    chemins à jeton DANS CE PROCESSUS (le tableau de bord), fournisseurs de connexion interactive, postes par état,
+    dernier inventaire. Illisible : ``base: "illisible"`` et une alerte, jamais une erreur 500."""
+    import socket
+    import time
+
+    alertes: List[str] = []
+    try:
+        textes = sous_module_noyau("textes")
+        jeton_machine = sous_module_noyau("jeton_machine")
+        base = sous_module_noyau("base")
+        machines = sous_module_noyau("machines")
+        inventaire = sous_module_noyau("inventaire")
+    except Exception as exc:  # noqa: BLE001
+        return {"fournisseur": None, "erreur": type(exc).__name__}, [
+            f"Jeton machine du poste illisible ({type(exc).__name__}) : routes du poste inconnues."]
+    try:
+        bloc: Dict[str, Any] = dict(jeton_machine.etat_dans_ce_processus())
+    except Exception as exc:  # noqa: BLE001
+        bloc = {"fournisseur": None, "chemins_a_jeton": None, "fournisseurs_de_session": None,
+                "erreur": type(exc).__name__}
+    if bloc.get("fournisseur") != "enregistre":
+        alertes.append(textes.ALERTE_FOURNISSEUR_ABSENT)
+    chemins = bloc.get("chemins_a_jeton")
+    if isinstance(chemins, dict) and not all(chemins.values()):
+        alertes.append(textes.ALERTE_CHEMINS_ABSENTS.format(chemins=", ".join(c for c, v in chemins.items() if not v)))
+    if bloc.get("fournisseurs_de_session") == []:
+        alertes.append(textes.ALERTE_AUCUNE_SESSION)
+    try:
+        if socket.gethostname() == "acp-poste":
+            alertes.append(textes.ALERTE_HOTE_ACP_POSTE)
+    except OSError:
+        pass
+    try:
+        with base.connexion() as conn:
+            etat = machines.etat(conn)
+            dernier = inventaire.dernier(conn)
+            remplacements = conn.execute(
+                "SELECT MAX(remplacements_minute) FROM machines WHERE etat = 'actif' AND remplacements_depuis >= ?",
+                (int(time.time()) - 60,)).fetchone()[0]
+        bloc.update(base="ok", machines=etat["machines"], codes_utilisables=etat["codes_utilisables"],
+                    dernier_inventaire=dernier["recu_le"] if dernier else None)
+        if remplacements is not None and int(remplacements) > 5:
+            alertes.append(textes.ALERTE_DEUX_PROCESSUS)
+    except Exception as exc:  # noqa: BLE001 — valeur inconnue plutôt qu'une erreur 500
+        bloc.update(base="illisible", machines=None, dernier_inventaire=None)
+        alertes.append(textes.ALERTE_BASE.format(type=type(exc).__name__))
+    return bloc, alertes
+
+
 ENTETES_MESURES = ("x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "x-railway-edge")
 
 
@@ -409,6 +460,9 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
     projets, alertes_projets = bloc_projets()
     alertes.extend(alertes_projets)
 
+    machine, alertes_machine = bloc_machine()
+    alertes.extend(alertes_machine)
+
     environnement = etat_environnement()
     if environnement["managed_dir_conforme"] is False:
         alertes.append("Portée gérée détournée : HERMES_MANAGED_DIR est défini ou la portée gérée "
@@ -446,5 +500,7 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         "interface": interface,
         # Étape P4 (ajout, contrat acp-poste/1 inchangé) : projets, pause générale et émetteur.
         "projets": projets,
+        # Étape P5 (ajout, contrat acp-poste/1 inchangé) : jeton machine, chemins à jeton, postes, inventaire.
+        "machine": machine,
         "alertes": alertes,
     }

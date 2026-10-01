@@ -1,7 +1,7 @@
 {
   "name": "acp-poste",
   "label": "Poste ACP",
-  "description": "Façade versionnée du greffon acp-poste (contrat acp-poste/1) : méta, catalogue, projets autonomes, questions, pause, poste et notification de test. Aucune page : les pages viennent des greffons d'interface.",
+  "description": "Façade versionnée du greffon acp-poste (contrat acp-poste/1) : méta, catalogue, projets autonomes, questions, pause, poste, notification de test et, depuis P5, routes machine du poste (jeton machine), enrôlement, routage et quotas. Aucune page : les pages viennent des greffons d'interface.",
   "icon": "Puzzle",
   "version": "0.11.0",
   "tab": {

@@ -9,7 +9,7 @@ remplace ses phases P4 à P8.
 ACP est en pleine **refonte « Hermes au centre »** : Hermes Agent devient le seul
 serveur, le seul orchestrateur et la seule source de vérité ; ACP ne garde que l'image
 Railway dérivée et ses greffons (`acp-poste` depuis P1, `acp-interface` et `acp-catalogue`
-livrés par P3, `acp-projets` par P4, côté dépôt, non fusionnés), le poste Windows, le client Qt et
+livrés par P3, `acp-projets` par P4, `acp-poste-vues` par P5, côté dépôt, non fusionnés), le poste Windows, le client Qt et
 le tableau de bord de Hermes habillé. L'ancien backend ACP (API FastAPI, base, bus
 d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite) est retiré ;
 il reste entier sous l'étiquette annotée **`archive/acp-0.10.0-avant-hermes`**
@@ -22,7 +22,7 @@ Desktop CI `35981934226` vertes sur ce commit).
   `1.0.0` seulement à la fusion finale dans `main`.
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
   `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`, pour P4
-  `.claude/worktrees/refonte-hermes-p4`.
+  `.claude/worktrees/refonte-hermes-p4`, pour P5 `.claude/worktrees/refonte-hermes-p5`.
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
@@ -70,7 +70,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
-| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | à faire |
+| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
@@ -1448,6 +1448,203 @@ Linux 378 et 9 ignorés, interface 93, moteur 74) ; `image.yml`
 [36257679694](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36257679694) (image 511,
 contrat 139, navigateur 6, compat vert, context7 connecté). Détail : [`projets.md`](refonte/projets.md) § 12.
 
+## 6 quinquies. P5 — poste connecté, côté Hermes (première partie)
+
+Branche `refonte/hermes-p5`, empilée sur `refonte/hermes-p4` (`4419915`) ; version 0.11.0 inchangée ; **ni PR,
+ni fusion, ni étiquette** ; **rien n'est déployé**. Référence : [`docs/refonte/poste.md`](refonte/poste.md) ;
+cahier de conception (brouillon de session `plan_p5.md`) ; décisions **D48 à D66** au § 1 de
+[`plan.md`](refonte/plan.md), **non confirmées** (le cahier les numérotait 40 à 58, déjà pris par P4). La
+seconde partie de P5 (programme du poste `apps/poste`, installation, compte dédié) est livrée à part ; ici,
+le poste est joué par un faux poste. Aucune tentative antérieure coupée n'a été trouvée à la reprise (arbre
+propre sur `4419915`).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `e51c6a1` | feat(contrat): define the workstation inventory and machine protocol models shared with the plugin |
+| `8972503` | feat(acp-poste): store workstations, enrolment codes, orders and inventories in schema v2 |
+| `9a03014` | feat(acp-poste): authenticate the workstation by a hashed machine token on exact token routes |
+| `200b579` | feat(acp-poste): serve enrolment, long-poll orders and inventory to the workstation |
+| `74f65e9` | feat(acp-poste): route only on the recorded catalogue and the workstation's own policy |
+| `39ad0cd` | feat(acp-poste): expose workstation, routing and quota routes to the owner |
+| `4cf6795` | feat(interface): add the Workstation, Routing and Quotas views |
+| `4875f41` | fix(interface): mark recorded values in the routing selects as API data |
+| `826aba1` | test(interface): date the captured enrolment code from now |
+| `38cbadf` | fix(interface): say when no effort is documented and show the quota threshold |
+| `98284ba` | test(contrat): prove the workstation protocol against a fake workstation on the real image |
+| `088c99b` | test(e2e): drive enrolment and the workstation views at 1440x900 and 390x844 |
+| `f3eec31` | test(acp-poste): add the negative witnesses of the P5 protections |
+
+Puis la documentation (ce paragraphe, [`poste.md`](refonte/poste.md), décisions D48 à D66).
+
+### Ce qui est en place
+
+- Protocole `acp-machine/1` (contrat partagé `acp_poste_contrat.machine`) sur **trois chemins exacts**
+  `/api/plugins/acp-poste/machine/v1/{enrolement,reclamer,inventaire}`, authentifiés par le fournisseur de
+  jeton `acp-poste-machine` (jeton haché, lecture seule de la base, 503 sur base illisible), fournisseur et
+  portée revérifiés dans chaque gestionnaire.
+- Enrôlement par code à usage unique de 10 min (D48), empreinte à confirmer (D49), un seul poste actif
+  (D50), révocation vue en moins d'une seconde par un poste en attente ; long-poll de 25 s, ordres
+  `releve`, `pause`, `reprise` ; `carte` toujours nulle (P6).
+- Base du greffon au schéma 2 (migration idempotente) ; présence persistée avec grâce de redémarrage ;
+  inventaire tout ou rien, un par minute, garde « aucun identifiant » à la réception.
+- Routage sur le relevé **et** la politique du poste (liste de secours refusée sans votre acceptation,
+  efforts inconnus refusés, table tout ou rien) ; quotas ; onglet « Poste » (état, routage, quotas).
+
+### Écarts au cahier, justifiés
+
+Détail : [`poste.md`](refonte/poste.md) § 11. Décisions renumérotées D48 à D66 ; exemples du protocole sous
+`hermes/tests/outils/fixtures_machine/` ; faux poste en HTTP sur la boucle locale du conteneur (le bord TLS
+est prouvé par P2) ; déconnexion détectée par une lecture bornée ; un témoin combine suppression de la
+présence et filtre des postes actifs ; captures avec un code jetable visible.
+
+### Preuves locales (26/09/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0)
+
+Détail et commandes : [`poste.md`](refonte/poste.md) § 12. En bref :
+
+- au fil des commits de travail, dans l'image : 511 → 538 → 555 → 582 → 602 → 619 → 619 réussis
+  (provenance de chaque image : [`poste.md`](refonte/poste.md) § 12) ;
+- arbre final (images `p5o` reconstruites) : dans l'image **619 réussis** (6 min 03 s) ; **contrat complet
+  150 réussis** (35 min 58 s), dont **11** pour le protocole du poste contre un faux poste ; **navigateur 7
+  réussis** (5 min 24 s), dont `test_poste.py` (bureau puis téléphone, 10 captures) ; dépôt **437 réussis** ;
+  Vitest **110** (16 fichiers) ; version, gel du moteur, catalogue et secrets verts ; bundles à jour ;
+- mesures : ordre `releve` → inventaire 0,41 s ; révocation vue par le poste en attente en 0,37 à 0,38 s ;
+  `verify_token` p99 0,93 à 1,04 ms sur 1 000 appels ; réveil par un ordre 34 à 88 ms ; redémarrage de la
+  pile : absence de 15 à 16 s au-delà d'un seuil de 10 s, aucune notification ;
+- **témoins négatifs** : 28 protections retirées une à une, 28 fois des tests en échec ;
+- `git diff --check` propre ; tout en LF ; aucun `Co-Authored-By` ; aucun fichier `.claude`.
+
+### Intégration continue
+
+Branche poussée le 26/09/2026, sommet `0a458cd`, **verte** : `ci.yml`
+[36271372881](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372881) (Windows 437, Linux 428 et 9 ignorés, interface 110, moteur 74) ; `image.yml`
+[36271372764](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36271372764) (image 619, contrat 150 dont 11 pour le protocole du poste, navigateur 7, compat
+vert, context7 connecté). Détail : [`poste.md`](refonte/poste.md) § 13.
+
+### Non vérifié
+
+Un vrai poste, de vrais comptes Codex et Claude, les routes machine derrière le bord TLS de Railway (délais
+du proxy sur un long-poll de 25 s), Railway lui-même ([`poste.md`](refonte/poste.md) § 14).
+
+### Seconde partie : poste Windows (`apps/poste`, `packaging/poste`)
+
+Même branche, empilée sur la première partie (`f3c65f4`) ; version 0.11.0 inchangée ; **ni PR, ni fusion, ni
+étiquette** ; **rien n'est déployé** ; **rien n'a été installé sur ce PC** (aucun compte, aucune tâche planifiée,
+aucun réglage système : l'installeur n'a tourné qu'en simulation). Références : [`docs/refonte/poste.md`](refonte/poste.md)
+§ 16 à § 25 et [`apps/poste/README.md`](../apps/poste/README.md) (mode d'emploi du propriétaire). À la reprise,
+aucun reste d'une tentative coupée : arbre propre sur `f3c65f4`.
+
+#### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `a00999a` | feat(poste): load and validate the local policy from a read-only poste.toml |
+| `75e40a9` | feat(poste): keep the machine and Claude tokens under per-purpose DPAPI |
+| `0fa006b` | feat(poste): mask the local log and hold single-instance and probe locks |
+| `df6fe82` | feat(poste): probe Codex through an allowlisted app-server session with elevated sandbox overrides |
+| `cbae66c` | feat(poste): probe Claude Code version, sign-in exit code and documented aliases |
+| `6306d88` | feat(poste): enrol, wait for orders and publish the inventory over outbound HTTPS |
+| `75601d0` | feat(packaging): install the workstation under a dedicated account and a scheduled task |
+| `09edfb5` | test(e2e): drive the real workstation against the local Hermes image on Windows |
+| `d9ad283` | fix(poste): refuse enrolment and connections outside the workstation account |
+| `b59cda4` | fix(poste): say that rights are not checked after the sandbox setup in owner mode |
+| `cb394b4` | test(poste): run the real ACL witnesses only under a non-elevated token |
+| `940e22e` | fix(poste): only stop processes proven born after their parent in a tree |
+| `4988ba4` | test(e2e): stop the workstation tree through the verified walk, not taskkill /T |
+
+Puis la documentation (ce paragraphe, [`poste.md`](refonte/poste.md) § 16 à § 25, README du poste, décisions).
+
+#### Ce qui est en place
+
+- `acp-poste servir|enroler|connexion|releve|preuve|diagnostic|journal|oublier-jeton|quotas` : politique `poste.toml`
+  (`%ProgramData%\ACP\`, lecture seule pour le compte du poste, D52), coffre DPAPI par usage, journal masqué,
+  verrous, client HTTPS de la bibliothèque standard (D61), protocole `acp-machine/1` validé par le contrat, service à
+  une seule boucle asyncio, jeton gardé sur le 401 de la couture (code 4, D65) et effacé sur `poste_revoque`.
+- Sondes Codex par une session `codex app-server` à liste blanche de méthodes, mode du bac à sable lu par
+  `config/read` (D60), liste de secours ; sondes Claude (version, code de sortie d'`auth status`, alias documentés) ;
+  inventaire balayé avant l'envoi.
+- Installation `packaging/poste` (compte `acp-poste`, ACL par SID, poste sans venv en `python -I`, binaires copiés,
+  tâche `\ACP\Poste ACP` au démarrage et toutes les 15 min, options sur confirmation), désinstallation ; verrou
+  d'exécution `requirements/poste-3.12.lock.txt`.
+
+#### Écarts au cahier, justifiés
+
+Détail : [`poste.md`](refonte/poste.md) § 22. Codex copié avec la disposition du paquet npm (`bin\codex.exe`) ;
+sources du poste copiées plutôt que construites ; `acp-poste.cmd` généré et `ligne_etat.py` ajouté ; installeur
+utilisable en simulation sans élévation ; première attente de 5 s ; Codex sans compte publié `ok` avec origine
+« catalogue embarqué » ; vrai poste non lancé dans le conteneur de test (prouvé contre un faux Hermes et, en local,
+contre l'image) ; persona et `acp-profils` inchangées (l'exécution reste P6).
+
+#### Preuves locales
+
+Détail et commandes : [`poste.md`](refonte/poste.md) § 23. En bref (27/09/2026, Windows 10, Python 3.12.10
+python.org, pytest 9.1.1, PowerShell 7.6.6 et 5.1, Docker 29.5.3) :
+
+- suite du dépôt sur l'arbre de **chaque** commit (worktree jetable) : 483 → 497 → 507 → 545 → 556 → 575 → 586 →
+  586 réussis, 0 échec ; arbre `d9ad283` **587 réussis, 3 ignorés** sous Windows, **572 réussis, 18 ignorés** sous
+  Linux (conteneur `python:3.12-slim`) ; arbre `cb394b4` **588 réussis, 3 ignorés** et arbre final `4988ba4`
+  **594 réussis, 3 ignorés** sous Windows ; dont 323 tests du poste (330 à `4988ba4`) et 35 de contrat contre le faux
+  Hermes HTTPS ;
+- installeur et désinstalleur en simulation (PowerShell 7.6.6 et 5.1) : 13 vérifications réussies, 1 cas ignoré
+  (aucun Python 3.12 « tous utilisateurs » sur ce PC), état du PC inchangé ;
+- bout en bout local (image `acp-hermes-tests:p5o`, vrai poste sous le compte courant, vrai Codex sur un
+  `CODEX_HOME` jetable, vrai Claude Code) : enrôlement, empreinte identique, « Liste de secours », mode `elevated`
+  lu par `config/read` (origine `sessionFlags`), ordre → inventaire 1,86 s, hors ligne et **une** notification,
+  révocation → arrêt code 0 en 0,47 s et jeton effacé, aucun jeton dans aucun journal, aucun écouteur vu ; refait
+  deux fois après l'arrêt d'arbre vérifié (poste tué par la passe vérifiée, plus par `taskkill /T`) : mêmes constats ;
+- version, verrous (dont celui du poste), gel du moteur, catalogue, secrets, thèmes : code 0 ; `git diff --check`
+  propre ; LF ; aucun `Co-Authored-By` ; aucun fichier `.claude`.
+
+#### Intégration continue
+
+Branche poussée le 27/09/2026 : `ci.yml` [36279917625](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36279917625) (`1952ce8`) en **échec** sous
+windows-2022 (deux témoins d'ACL contournés par le jeton élevé de l'exécuteur), corrigé par `cb394b4` ; `ci.yml`
+[36280303337](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280303337) (`cb394b4`) **vert** : Windows 586 réussis et 5 ignorés, installeur en simulation
+19 vérifications réussies (cas accepté compris), Linux 573 réussis et 18 ignorés, interface 110, moteur 74.
+Puis `e6b5010` (documentation seule, même code) : volet Windows **bloqué** dans pytest aux deux tentatives de
+[36280821490](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36280821490), exécuteur muet et sans journal ; cause la plus probable : l'arrêt d'arbre tuait un
+processus étranger plus ancien dont le parent mort portait le PID de la racine (défaut prouvé par un témoin réel,
+corrigé par `940e22e` et `4988ba4`). [36284025243](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36284025243) (`4988ba4`) **vert** à la première tentative et
+à deux relances : Windows 592 réussis et 5 ignorés, installeur 19, Linux 578 réussis et 19 ignorés, interface 110,
+moteur 74. `image.yml` non relancé (ni `hermes/` ni l'image touchés). Détail : [`poste.md`](refonte/poste.md) § 24.
+
+#### Non vérifié
+
+Tout ce qui exige vos vrais comptes ou l'installation réelle sur votre PC ([`poste.md`](refonte/poste.md) § 25) :
+compte dédié, tâche planifiée, UAC du bac à sable, redémarrage sans session, relevé réel de `model/list`, quotas
+réels, `claude auth status` avec le seul jeton d'environnement, notification réelle, isolement du profil, coffre de
+Codex. Claude Code installé sur ce PC : **2.1.239**, antérieur au minimum 2.1.248 exigé par le poste (`--restricted`) :
+à mettre à jour avant l'installation (l'installeur le refuse désormais dès la répétition à blanc, D71).
+
+### Relecture indépendante de P5 : traitement (27/09 au 01/10/2026)
+
+Trois relectures de `6aa569f` (exactitude, sécurité, exploitation) : aucun constat critique ; un haut, quatre
+moyens, onze bas, **tous réels**, tous corrigés avec un test qui échoue sans la correction, ou déclarés. Tableau
+constat → traitement → preuve : [`poste.md`](refonte/poste.md) § 26 ; décisions ajoutées **D67 à D73**
+([`plan.md`](refonte/plan.md) § 1, non confirmées ; recommandation par défaut : les garder).
+
+En bref : l'installeur ne vide plus la clé `UserList` (les comptes `CodexSandbox*` restent masqués), lit la version
+de Claude Code dès la répétition à blanc (refus sous 2.1.248, avertissement sous 2.1.280), refuse un Python que le
+compte du poste pourrait modifier, compare `poste.toml` en UTF-8 et imprime des commandes que la console du compte
+exécute telles quelles ; le désinstalleur retire `C:\ACP\espaces` et la seule valeur `acp-poste` de `UserList` ;
+Hermes et l'inventaire donnent les commandes sous une forme exécutable et publiable ; un corps JSON trop imbriqué
+est refusé en français (422), plus jamais un 500 ; les quotas Claude se périment selon leur propre date
+d'observation ; l'interface exige un modèle quand le relevé n'en désigne aucun par défaut (Claude) ; le poste refuse
+un nom inpubliable, un exécutable absent (« fichier introuvable ») et un interpréteur modifiable.
+
+**Piège évité, à retenir** : subordonner l'enregistrement du fournisseur du jeton machine à la présence du
+fournisseur OIDC (`04f20bd`) est impossible : Hermes charge les greffons groupés de type backend dès leur tri, par
+ordre alphabétique (`acp-poste` avant `dashboard_auth/self_hosted`), et `requires_plugins` n'y change rien. La CI
+image l'a montré ([36297538482](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36297538482)) ;
+retiré par `f69dcce`, écart déclaré ([`poste.md`](refonte/poste.md) § 11, D69).
+
+Commits (aucun `Co-Authored-By`) : `559d363`, `00a812d`, `04f20bd`, `a428867`, `d051e05` (27/09), puis `f69dcce`,
+`4735966`, `daf5aaa`, `1ee8ae1`, `11b1d52`, `ee0e4a0`, `c5cb6dc` et la documentation (01/10).
+
+Hors P5, non corrigé : le client desktop cite encore `ACP_WORKER_SUBSCRIPTION_QUOTAS=1`
+(`apps/desktop/src/viewmodels/SubscriptionQuotasViewModel.cpp:932`), disparu en P5 : à revoir en P8.
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1482,7 +1679,16 @@ npm ci ; npm run test:engine
 ```
 
 Le verrou Python se recompile dans un conteneur `python:3.12-slim`
-(`scripts/lock_python.ps1`), jamais sur le poste.
+(`scripts/lock_python.ps1`), jamais sur le poste ; il produit aussi le verrou d'exécution du poste
+(`requirements/poste-3.12.lock.txt`, étape P5).
+
+Étape P5, poste Windows :
+
+```powershell
+pwsh -File packaging/poste/tests/Test-InstallationPoste.ps1    # installeur en simulation, rien n'est écrit
+$env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
+./scripts/e2e-poste-windows.ps1 -Python .venv\Scripts\python.exe   # bout en bout local (Docker Desktop)
+```
 
 ## 8. Pièges connus
 
@@ -1545,5 +1751,37 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
   du répartiteur, seulement dans la passerelle ; les réglages du répartiteur (`max_in_progress`…) sont
   lus au démarrage de la passerelle ; le contrat P4 seul dure environ 20 minutes, le contrat complet
   environ 30. Témoins négatifs : `IMAGE=acp-hermes-tests:<étiquette> bash scripts/temoins_negatifs_p4.sh`.
+- **Étape P5** : la couture d'authentification par jeton de Hermes (`token_auth_middleware`) compare le
+  chemin **à l'identique** (`register_token_route`) : aucun paramètre de chemin sur une route machine. Son 401
+  (`{"error": "unauthenticated", "detail": "Unauthorized"}`) est en anglais et **ambigu** (jeton inconnu,
+  révoqué, fournisseur absent) : seul le greffon dit `poste_revoque`, en français. Une exception dans
+  `verify_token` devient un 401 : le fournisseur la convertit en `ProviderError` (503).
+- **Étape P5** : derrière les intergiciels HTTP de Hermes (`BaseHTTPMiddleware`), `request.is_disconnected()`
+  ne voit pas le départ du client ; une lecture bornée de `request.receive()` le voit.
+- **Étape P5** : le fournisseur OIDC de Hermes s'appelle `self-hosted` (avec un tiret) dans la liste des
+  fournisseurs (`/api/auth/providers`, bloc `machine` de la méta), alors que sa clé de configuration est
+  `dashboard.oauth.self_hosted` ; les exemples capturés sur l'image qui contiennent une date d'expiration doivent être redatés depuis
+  l'instant du test (sinon ils expirent dix minutes plus tard). Témoins négatifs :
+  `IMAGE=acp-hermes-tests:<étiquette> bash scripts/temoins_negatifs_p5.sh`.
 - La CLI Railway se lance sous **WSL** (doc Railway) ; `node_modules` de `.railway/` s'installe sur
   la plateforme qui évalue le fichier (WSL pour la CLI, Windows pour `verifier.mjs` local).
+- **Étape P5 (poste)** : l'installeur exige un Python 3.12 de python.org installé **pour tous les utilisateurs** ;
+  celui de ce PC l'est « pour moi seul » (sous le profil) : la simulation locale ignore donc le cas « installation
+  acceptée », prouvé sur windows-2022. Les scripts PowerShell du poste sont en UTF-8 **avec BOM** (Windows
+  PowerShell 5.1 lit sinon les accents en ANSI).
+- **Étape P5 (poste)** : Claude Code installé sur ce PC : 2.1.239, antérieur au minimum 2.1.248 (`--restricted`) :
+  `poste.toml` refuse une version testée plus ancienne, et le relevé Claude est `cli_hors_version` tant que la CLI
+  n'est pas mise à jour.
+- **Étape P5 (poste)** : Codex s'appelle directement par son binaire natif
+  (`…\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe`), jamais par `codex.cmd` ; sur un
+  `CODEX_HOME` temporaire, il avertit « Refusing to create helper binaries under temporary dir » : sans effet.
+- **Étape P5 (poste)** : un verrou `LockFileEx` est libéré quand l'objet qui tient le fichier disparaît : garder une
+  référence au `Verrou` pris. Une révocation vue **hors** d'une attente longue donne le 401 de la couture (jeton
+  gardé, code 4), pas `poste_revoque` : c'est le comportement voulu (D65).
+- **Étape P5 (poste)** : ne jamais arrêter un arbre de processus Windows par le seul parent déclaré (snapshot
+  Toolhelp, `taskkill /T`) : Windows ne met jamais à jour `th32ParentProcessID`, et un processus ancien dont le parent
+  mort portait le PID réattribué à la racine serait tué (cause la plus probable des blocages du runner Windows sur
+  `e6b5010`). Comparer les instants de création (`GetProcessTimes`) et garder le Job Object comme preuve principale.
+- **Étape P5 (poste)** : les tests du poste et le bout en bout n'emploient jamais les vrais emplacements : racine
+  jetable (`Emplacements.de_test`), coffre en mémoire (tests) ou DPAPI sur une racine temporaire (bout en bout),
+  `USERPROFILE` et `APPDATA` redirigés ; `lancer_poste.py` refuse toute racine hors du dossier temporaire.

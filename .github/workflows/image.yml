@@ -78,6 +78,17 @@ name: Image Hermes
 #     formats 390×844 et 1440×900 : lancer un projet, répondre à une question du poste simulé, suivre
 #     l'avancement jusqu'au bout avec le modèle factice, pauses ; captures en artefact.
 #
+# Étape P5, poste connecté (docs/refonte/poste.md) :
+#   - tests dans l'image : schéma v2 et migration concurrente, fournisseur du jeton machine (protocole de Hermes,
+#     comparaison à temps constant, panne en 503), routes machine derrière la VRAIE couture par jeton sur un vrai
+#     serveur (portées, 401, 403, 409, 413, 415, 422, 429), long-poll (réveil depuis un fil en moins d'une
+#     seconde, déconnexion, aucun fil tenu), présence (grâce de redémarrage), routage (liste de secours, politique
+#     du poste), routes du propriétaire, bloc « machine » de /v1/meta ;
+#   - tests de contrat (test_machine_contrat.py) avec un FAUX POSTE (hermes/tests/outils/faux_poste.py) sur la pile
+#     s6 complète : enrôlement, révocation pendant l'attente, notification « hors ligne » unique, redémarrage de
+#     Hermes sans notification, aucun jeton dans les journaux ;
+#   - test navigateur de la page Poste (hermes/tests/e2e/test_poste.py, greffon acp-poste-vues).
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -273,7 +284,7 @@ jobs:
           python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
           python -m playwright install --with-deps chromium
 
-      - name: Tests navigateur (connexion, interface française, page Projets ; Playwright, WebAuthn virtuel)
+      - name: Tests navigateur (connexion, interface française, pages Projets et Poste ; Playwright, WebAuthn virtuel)
         env:
           ACP_E2E_OBLIGATOIRE: "1"
           ACP_E2E_CAPTURES: /tmp/captures-e2e

@@ -43,10 +43,12 @@ export function depotsConnus(catalogue: CatalogueDuPoste | null | undefined): st
   return [...alias].sort();
 }
 
-/** Efforts relevés d'un modèle, moins les efforts interdits par la politique (D39). */
+/** Efforts relevés d'un modèle, moins les efforts interdits par la politique (D39). Sans modèle choisi, ceux du
+ *  modèle marqué par défaut, et AUCUN si le relevé n'en marque pas (Claude, D59) : le premier modèle n'est pas un
+ *  défaut (relecture de P5, D73). */
 export function effortsAdmis(voie: VoieReleve | undefined, modele: string, interdits: string[]): string[] {
   const modeles = Array.isArray(voie?.modeles) ? voie.modeles : [];
-  const choisi = modele ? modeles.find((m) => m.id === modele) : (modeles.find((m) => m.isDefault) ?? modeles[0]);
+  const choisi = modele ? modeles.find((m) => m.id === modele) : modeles.find((m) => m.isDefault === true);
   return listeDeChaines(choisi?.supportedReasoningEfforts).filter((e) => !interdits.includes(e));
 }
 
@@ -83,9 +85,12 @@ function Formulaire(props: {
   const modeles = Array.isArray(releveVoie?.modeles) ? releveVoie.modeles.filter((m) => chaine(m.id)) : [];
   const efforts = effortsAdmis(releveVoie, modele, interdits);
   const avecExploration = depot !== "" && voies.length > 0;
+  // Sans modèle marqué par défaut dans le relevé (Claude, D59), le serveur refuse une exploration sans modèle : le
+  // choix est exigé avant le lancement (D73).
+  const modeleExige = avecExploration && voie !== "" && modele === "" && !modeles.some((m) => m.isDefault === true);
   // Sans dépôt, aucune question ne peut naître (seules les cartes du poste en posent) : le choix est sans objet.
   const sansDepot = depot === "";
-  const complet = titre.trim() !== "" && objectif.trim() !== "";
+  const complet = titre.trim() !== "" && objectif.trim() !== "" && !modeleExige;
 
   const lancer = async (evenement: ReactTypes.FormEvent) => {
     evenement.preventDefault();
@@ -257,7 +262,9 @@ function Formulaire(props: {
                 fixerEffort("");
               }}
             >
-              <option value="">{T.projets.modeleParDefaut}</option>
+              <option value="" disabled={!modeles.some((m) => m.isDefault === true)}>
+                {modeles.some((m) => m.isDefault === true) ? T.projets.modeleParDefaut : T.projets.modeleAChoisir}
+              </option>
               {modeles.map((m) => (
                 <option key={String(m.id)} value={String(m.id)} data-acp-donnee="">
                   {String(m.id)}
@@ -280,6 +287,7 @@ function Formulaire(props: {
             <span>{T.projets.releveDu}</span> <Donnee valeur={chaine(releveVoie?.releve_le_lisible)} />
           </p>
           {releveVoie?.perime === true ? <p className="acp-alerte-texte">{T.projets.relevePerime}</p> : null}
+          {modeleExige ? <p className="acp-alerte-texte">{T.projets.modeleExige}</p> : null}
         </fieldset>
       ) : null}
       <div className="acp-actions">

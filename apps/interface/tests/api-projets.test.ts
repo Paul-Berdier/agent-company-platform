@@ -52,8 +52,8 @@ describe("écritures de la page Projets", () => {
     const erreur = await ecrireJSON(ROUTE_PROJETS, {}).catch((e: unknown) => e);
     expect(erreur).toBeInstanceOf(ErreurApi);
     expect(messageDuRefus(erreur as ErreurApi)).toBe(
-      "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire (étape P5). " +
-        "Lancez le projet sans dépôt, ou connectez le poste.",
+      "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire. " +
+        "Lancez le projet sans dépôt, ou enrôlez le poste depuis la page Poste.",
     );
     expect(codeDuRefus(erreur as ErreurApi)).toBe("aucun_inventaire");
   });

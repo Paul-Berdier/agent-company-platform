@@ -159,6 +159,58 @@ Décisions du plan d'autonomie (§ 11) dont P4 dépend, **toujours ouvertes** : 
 (défaut : Hermes d'abord), canal de notification (défaut : aucun tant que les variables ne sont pas posées),
 budgets (défauts des réglages du greffon).
 
+### Étape P5 : choix par défaut D48 à D66, **à confirmer par le propriétaire**
+
+Source : cahier de conception de P5 (brouillon de session `plan_p5.md`, § 17, 26 septembre 2026), rédigé par l'agent
+et contre-vérifié (§ 21 du cahier). Le cahier les numérote 40 à 58 ; D40 à D47 étaient déjà pris par P4
+(ci-dessus) : ils deviennent **D48 à D66**, dans le même ordre (le numéro du cahier est rappelé en remarque).
+**Aucun de ces choix n'a été confirmé par le propriétaire à ce jour** : P5 applique les recommandations par défaut
+pour avancer ; comme les précédents, ils **ne font pas foi**. Détail : [poste.md](poste.md). À confirmer en
+priorité, parce qu'ils touchent votre parcours ou votre poste : **D48, D49, D51, D52, D58 et D60** (recommandation
+par défaut : garder les choix appliqués). La première partie de P5 (côté Hermes) applique D48 à D50, D56, D58,
+D59, D62, D63 et D65 ; la seconde (poste Windows, `apps/poste` et `packaging/poste`) applique D51 à D55, D57,
+D60, D61, D64 et D66, et prend sa part de D48, D49, D56, D58, D59 et D65 côté poste. Les étapes qui touchent
+votre PC (compte `acp-poste`, tâche planifiée, réglages système) ne sont éprouvées qu'en simulation.
+
+| N° | Question | Choix appliqué en P5 | Autre option et conséquence pour vous | Écart au plan ou remarque |
+|---|---|---|---|---|
+| D48 | Enrôlement du poste | **Code à usage unique de 10 min** créé sur la page Poste et collé dans `acp-poste enroler` ; le jeton machine (256 bits) n'est jamais affiché ; Railway n'en garde que le SHA-256 | Jeton affiché une fois sur la page (`plan.md`, P5) : il passerait par l'écran et le presse-papiers | cahier : n° 40 ; écart au plan dit |
+| D49 | Confirmation de l'empreinte avant que le poste compte | **Oui** : le poste reste « À confirmer » (ni présence, ni inventaire) tant que vous n'avez pas recopié son empreinte `XXXX-XXXX` | Aucune confirmation : un code volé pendant ses 10 minutes suffirait à faire compter un faux poste | cahier : n° 41 |
+| D50 | Nombre de postes actifs | **Un seul** ; un nouveau exige la révocation de l'ancien (index unique en base) ; un enrôlement remplace un poste encore « À confirmer » | Plusieurs : un second PC pourrait prendre des cartes sans que vous le voyiez | cahier : n° 42 |
+| D51 | Compte d'exécution du poste | **Compte Windows dédié `acp-poste`** ; repli « compte du propriétaire » seulement s'il est déclaré dans `poste.toml` | Votre compte : un exécutant mal confiné lirait votre profil | cahier : n° 43 ; appliqué par la seconde partie de P5 : `Installer-PosteAcp.ps1`, contrôle du compte au démarrage du service ; repli `compte = "proprietaire"` éprouvé par le bout en bout local |
+| D52 | Emplacement de `poste.toml` | **`%ProgramData%\ACP\`, en lecture seule pour le poste** | `%LOCALAPPDATA%` du compte (plan d'autonomie) : un exécutant pourrait réécrire sa propre politique | cahier : n° 44 ; écart à `autonomie.md` ; le greffon applique déjà ses interdits (« Interdit par le poste ») ; le poste refuse de démarrer s'il peut modifier ou remplacer le fichier (`GENERIC_WRITE`, `DELETE`, `WRITE_DAC`, `WRITE_OWNER`, dossier) |
+| D53 | Installation Python du poste | Sans venv, interpréteur python.org « tous utilisateurs » lancé en `-I` | venv : son lanceur laisse vivre l'interpréteur réel hors du Job Object | cahier : n° 45 ; appliqué (`lancer.py`, verrou d'exécution `requirements/poste-3.12.lock.txt`) ; sources du poste copiées plutôt que construites (setuptools absent de Python 3.12) |
+| D54 | Provenance des binaires Codex et Claude | Copie de vos installations sous `Program Files`, version vérifiée, SHA-256 consignés | Installation par le poste : téléchargement non maîtrisé, binaires modifiables par le compte | cahier : n° 46 ; appliqué ; Codex copié avec la disposition du paquet npm (`outils\codex\bin\codex.exe`) |
+| D55 | Ouverture du compte pour les connexions | `runas /user:acp-poste` (console) | Session Windows complète : plus lourd, mêmes gestes | cahier : n° 47 ; appliqué (gestes du README du poste) |
+| D56 | Quotas Claude en P5 | Ligne d'état de **vos** sessions Claude Code, « même abonnement » déclaré par vous ; sinon « Inconnu » jusqu'à P6 | Aucun quota Claude avant P6 | cahier : n° 48 ; la page Quotas affiche la source déclarée |
+| D57 | Réglages système proposés par l'installeur | Démarrage rapide coupé, veille jamais sur secteur, chacun sur confirmation | Aucun : chaque veille de plus de 3 min notifie « Poste hors ligne » | cahier : n° 49 ; appliqué : trois questions de l'installeur, aucune posée en simulation |
+| D58 | « Liste de secours » de Codex | Comparaison au catalogue embarqué ; routage **refusé** sans votre acceptation explicite, par relevé (« Accepter ce relevé comme celui de mon compte ») | Acceptée d'office : le routage pourrait viser des modèles que votre compte n'a pas | cahier : n° 50 |
+| D59 | Catalogue Claude | Alias et efforts **documentés**, datés, liés à une plage de versions ; `isDefault` nul (aucune suggestion Claude) ; résolution observée en P6 | Inventer une résolution : aucune donnée observée ne la fonde | cahier : n° 51 ; le contrat admet `opus[1m]` et des efforts inconnus (`null`) |
+| D60 | Si `config/read` n'expose pas le mode du bac à sable | Écriture Codex **refusée** (échec fermé) ; P6 limité à Codex en lecture seule et à Claude | Déduire le mode de la readiness : elle rend `ready` aussi en mode non élevé | cahier : n° 52 ; le contrat refuse `ecriture_admise` vrai hors de ce cas ; le poste lit le mode par `config/read` (constaté en local : `elevated`, origine `sessionFlags`, sur un profil vide) |
+| D61 | Client HTTP du poste | Bibliothèque standard (`http.client`, `ssl`, magasin Windows) | `httpx` : une dépendance de plus sur le poste | cahier : n° 53 ; appliqué (`client_hermes.py`) ; `cryptography` seulement pour l'autorité de test des tests |
+| D62 | Pages P5 | **Un onglet « Poste »** à trois vues (état, routage, quotas), greffon `acp-poste-vues` | Trois onglets : plus visibles, navigation plus chargée au téléphone | cahier : n° 54 ; onglet après « Projets », icône `Monitor` |
+| D63 | Seuils | Attente 25 s ; relevé toutes les 30 min ; hors ligne à 180 s avec grâce de redémarrage ; « Périmé » à 2 h (P4) ; code valable 10 min ; un inventaire par minute au plus, sauf ordre « releve » | Seuils plus courts : plus de trafic et de fausses alertes | cahier : n° 55 ; réglages du greffon (`longpoll_attente_s`, `enrolement_validite_s`, `inventaire_intervalle_min_s`, `ordre_expiration_s`) |
+| D64 | Journal du poste | Local seulement, 5 × 1 Mio | Envoyé à Hermes : le journal sortirait du PC | cahier : n° 56 ; appliqué (`journal.py`, masquage avant écriture) |
+| D65 | 401 générique de la couture de Hermes | **Jeton gardé**, plus aucun échange, arrêt (code 4), nouvel essai par le déclencheur de garde ; effacement seulement sur le 401 explicite `poste_revoque` | Effacer sur tout 401 : une panne du fournisseur côté Hermes ferait réenrôler physiquement le poste | cahier : n° 57 ; le greffon ne rend `poste_revoque` que s'il a relu la révocation |
+| D66 | Relance du poste par Windows | Déclencheur de garde toutes les 15 min, en plus du démarrage | « Redémarrer en cas d'échec » seul : non prouvé sur un code de sortie non nul | cahier : n° 58 ; appliqué (`tache-poste.xml.modele` : `BootTrigger` et `TimeTrigger` répété toutes les 15 min sans fin, `IgnoreNew`) |
+
+### Relecture de P5 : choix par défaut D67 à D73, **à confirmer par le propriétaire**
+
+Trois relectures indépendantes de P5 (exactitude, sécurité, exploitation ; 27 septembre 2026) ont relevé seize
+constats ; leurs corrections ont exigé ces choix, appliqués par défaut et **non confirmés** (ils **ne font pas foi**).
+Tableau constat → traitement → preuve : [poste.md](poste.md) § 26. Recommandation par défaut : garder les choix
+appliqués.
+
+| N° | Question | Choix appliqué | Autre option et conséquence pour vous | Écart au plan ou remarque |
+|---|---|---|---|---|
+| D67 | Interpréteur Python modifiable par le compte du poste | **Refus** : de l'installeur (étape 1, ACL de `python.exe`, de son dossier, de `Lib`, `Lib\site-packages` et `DLLs` pour les groupes du compte) et du service au démarrage | Le laisser : un exécutant mal confiné (P6) planterait un `.pth` lu par `python -I` et lirait les jetons déchiffrés en mémoire | relecture de sécurité ; un Python installé directement sous `C:\` hérite du droit Modification des Utilisateurs authentifiés |
+| D68 | Forme des commandes du poste données au propriétaire | Forme exécutable dans la console `runas` : `& 'C:\Program Files\ACP\poste\acp-poste.cmd' …` sur le poste ; `& "$env:ProgramFiles\ACP\poste\acp-poste.cmd" …` dans ce que Hermes affiche (sans lettre de lecteur, la garde « aucun identifiant » refusant les chemins) | Ajouter le dossier au PATH du compte : un réglage de plus, et la forme courte ne marcherait toujours pas dans votre session | relecture d'exploitation : « acp-poste enroler » n'était reconnu par aucune console |
+| D69 | Contrôle « un fournisseur de session existe » (cahier § 20) | **Non fait dans le greffon** : le fournisseur du jeton machine s'enregistre sans condition ; l'OIDC est exigé au démarrage par `acp_demarrage gardes` (variables obligatoires) ; écart déclaré | Le subordonner à l'OIDC dans `register()` : impossible, `acp-poste` se charge avant le greffon OIDC (tri alphabétique des greffons groupés) ; tenté en 04f20bd, cela retirait le jeton machine de tout déploiement réel | [poste.md](poste.md) § 11 |
+| D70 | Exécutable d'une CLI absent ou qui est un dossier | Refus « fichier introuvable » **avant** le contrôle des droits (mode dédié) ; dossier refusé dans tous les modes | Contrôle des droits sur le dossier absent : refus trompeur « binaire modifiable » | relecture d'exactitude ; cahier § 7.3 |
+| D71 | Version de Claude Code à l'installation | Lue sur la source dès l'étape 1 (simulation comprise) : **refus** sous 2.1.248, **avertissement** sous 2.1.280 (voie refusée au routage, efforts inconnus) | Refus sous 2.1.280 : la voie Codex resterait inutilisable tant que Claude n'est pas à jour | relecture d'exploitation : votre Claude Code est en 2.1.239 |
+| D72 | Fraîcheur des quotas | Chaque compteur est « Périmé » selon **sa** date d'observation ; la voie l'est quand tous ses compteurs le sont | La date du relevé : une ligne d'état vieille de plusieurs jours s'affichait « Relevé » | relecture d'exploitation ; contrat `SubscriptionQuotaView` |
+| D73 | Modèle d'une étape poste-claude (routage, nouveau projet) | **Choix explicite exigé** : l'option « Modèle par défaut du relevé » n'est proposée que si un modèle du relevé est marqué par défaut (jamais pour Claude, D59) | La proposer quand même : un choix toujours refusé par le serveur | relecture d'exactitude |
+
 ### Phases P4 à P8 remplacées par le plan d'autonomie
 
 Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans

@@ -1,0 +1,13 @@
+{
+  "name": "acp-poste-vues",
+  "label": "Poste",
+  "description": "Page Poste d'ACP (étape P5) : enrôler et confirmer le poste Windows, suivre son état, régler le routage des exécutants, lire les quotas relevés. Aucune route serveur : les données et les gestes passent par les routes du greffon acp-poste.",
+  "icon": "Monitor",
+  "version": "0.11.0",
+  "tab": {
+    "path": "/poste",
+    "position": "after:projets"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css"
+}

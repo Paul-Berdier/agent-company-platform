@@ -63,7 +63,7 @@ DISCUSSION = (
     "Projets ACP : un travail de plusieurs étapes passe par projet_lancer ; son suivi, par projet_etat et "
     "poste_etat (outils chargés à la demande : tool_describe puis tool_call).\n"
     "Ne présentez jamais un résultat du poste avant qu'il existe.\n"
-    "Un projet sur dépôt exige un poste connecté (étape P5) ; sans lui, lancez-le sans dépôt.\n"
+    "Un projet sur dépôt exige l'inventaire du poste ; ses étapes sur le poste attendent l'exécution (étape P6).\n"
     "Vous ne créez jamais de carte kanban vous-même.")
 
 

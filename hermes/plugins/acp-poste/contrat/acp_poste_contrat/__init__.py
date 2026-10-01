@@ -1,9 +1,14 @@
 """Contrat Python partagé entre le poste Windows (apps/poste) et le greffon acp-poste.
 
-Aujourd'hui : les modèles des quotas d'abonnement (Codex CLI, Claude Code), repris
-tels quels de ``acp_contracts.subscriptions`` (étiquette archive/acp-0.10.0-avant-hermes).
-Leur réduction au schéma de ``hermes usage --json`` est prévue en P6
-(docs/refonte/plan.md).
+- :mod:`quotas` : modèles des quotas d'abonnement (Codex CLI, Claude Code), repris tels quels de
+  ``acp_contracts.subscriptions`` (étiquette archive/acp-0.10.0-avant-hermes) ; leur réduction au schéma de
+  ``hermes usage --json`` est prévue en P6 (docs/refonte/plan.md) ;
+- :mod:`inventaire` (étape P4, décision D21 ; étendu en P5 sans rien restreindre) : relevé d'une voie du poste
+  et inventaire complet publié sur ``/machine/v1/inventaire``, garde « aucun identifiant » ;
+- :mod:`machine` (étape P5) : protocole ``acp-machine/1`` (requêtes et réponses des routes machine, formes des
+  jetons, empreintes) ;
+- :mod:`motifs_secrets` (étape P5, déplacé depuis le noyau du greffon) : motifs de secrets refusés, une seule
+  copie pour le greffon, le poste et ``scripts/balayer_secrets.py``.
 """
 
 from .quotas import (  # noqa: F401

@@ -41,16 +41,12 @@ _PROJECT_ID = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,34}[A-Za-z0-9])?")
 _EXECUTOR_IDS = frozenset({"codex_cli", "claude_code"})
 PROJECT_WORKSPACE_RESOURCE_KIND = "project_workspace"
 
-CODEX_ENABLED_ENV = "ACP_WORKER_CODEX_ENABLED"
-CODEX_EXECUTABLE_ENV = "ACP_WORKER_CODEX_EXECUTABLE"
-CODEX_HOME_ENV = "ACP_WORKER_CODEX_HOME"
-CLAUDE_ENABLED_ENV = "ACP_WORKER_CLAUDE_ENABLED"
-CLAUDE_EXECUTABLE_ENV = "ACP_WORKER_CLAUDE_EXECUTABLE"
-CLAUDE_CONFIG_DIR_ENV = "ACP_WORKER_CLAUDE_CONFIG_DIR"
-PROJECTS_ENV = "ACP_WORKER_EXECUTOR_PROJECTS_JSON"
-TOOL_PATH_ENV = "ACP_WORKER_EXECUTOR_PATH"
-TIMEOUT_ENV = "ACP_WORKER_EXECUTOR_TIMEOUT_SECONDS"
-TERMINATE_GRACE_ENV = "ACP_WORKER_EXECUTOR_TERMINATE_GRACE_SECONDS"
+# Étape P5 : les réglages viennent de poste.toml (ExecutorConfig.depuis_politique) ; ces libellés ne servent qu'aux
+# messages de refus (les anciens ACP_WORKER_* ont disparu).
+REGLAGE_DEPOTS = "poste.toml [depots]"
+REGLAGE_OUTILS = "chemin des outils des exécuteurs"
+REGLAGE_DUREE = "poste.toml [politique] duree_max_carte_s"
+REGLAGE_GRACE = "délai de grâce d'arrêt des exécuteurs"
 
 
 class ExecutorConfigurationError(ValueError):
@@ -59,15 +55,6 @@ class ExecutorConfigurationError(ValueError):
 
 class ExecutorCleanupError(RuntimeError):
     """Le worker n'a pas pu confirmer l'arrêt et le drainage du processus."""
-
-
-def _strict_flag(source: Mapping[str, str], setting: str) -> bool:
-    value = source.get(setting, "0")
-    if value == "1":
-        return True
-    if value == "0":
-        return False
-    raise ExecutorConfigurationError(f"{setting} accepte uniquement 0 ou 1")
 
 
 def _absolute_path(
@@ -121,46 +108,6 @@ def _bounded_float(
             f"{setting} doit être compris entre {minimum} et {maximum}"
         )
     return parsed
-
-
-def _load_project_roots(source: Mapping[str, str]) -> dict[str, Path]:
-    raw = source.get(PROJECTS_ENV)
-    if raw is None:
-        return {}
-
-    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        result: dict[str, object] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ExecutorConfigurationError(
-                    f"{PROJECTS_ENV} contient un identifiant dupliqué"
-                )
-            result[key] = value
-        return result
-
-    try:
-        payload = json.loads(raw, object_pairs_hook=unique_object)
-    except ExecutorConfigurationError:
-        raise
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise ExecutorConfigurationError(
-            f"{PROJECTS_ENV} doit être un objet JSON"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ExecutorConfigurationError(f"{PROJECTS_ENV} doit être un objet JSON")
-
-    roots: dict[str, Path] = {}
-    for project_id, value in payload.items():
-        if not isinstance(project_id, str) or _PROJECT_ID.fullmatch(project_id) is None:
-            raise ExecutorConfigurationError(
-                f"{PROJECTS_ENV} contient un identifiant de projet invalide"
-            )
-        roots[project_id] = _absolute_path(
-            value,
-            setting=f"{PROJECTS_ENV}[{project_id!r}]",
-            directory=True,
-        )
-    return roots
 
 
 @dataclass(frozen=True)
@@ -228,13 +175,13 @@ class ExecutorConfig:
                     )
 
         normalized_tools = tuple(
-            _absolute_path(path, setting=TOOL_PATH_ENV, directory=True)
+            _absolute_path(path, setting=REGLAGE_OUTILS, directory=True)
             for path in self.tool_path
         )
         specs = tuple(spec for spec in (self.codex, self.claude) if spec is not None)
         if specs and not normalized_roots:
             raise ExecutorConfigurationError(
-                f"{PROJECTS_ENV} doit autoriser au moins un projet"
+                f"{REGLAGE_DEPOTS} doit autoriser au moins un projet"
             )
         for project_id, root in roots:
             for spec in specs:
@@ -251,7 +198,7 @@ class ExecutorConfig:
             for tool_directory in normalized_tools:
                 if _is_within(tool_directory, root) or _is_within(root, tool_directory):
                     raise ExecutorConfigurationError(
-                        f"{TOOL_PATH_ENV} chevauche le projet {project_id!r}"
+                        f"{REGLAGE_OUTILS} chevauche le projet {project_id!r}"
                     )
         if self.codex is not None:
             for instruction_name in ("AGENTS.override.md", "AGENTS.md"):
@@ -263,13 +210,13 @@ class ExecutorConfig:
 
         timeout = _bounded_float(
             self.timeout_seconds,
-            setting=TIMEOUT_ENV,
+            setting=REGLAGE_DUREE,
             minimum=0.01,
             maximum=MAX_TIMEOUT_SECONDS,
         )
         grace = _bounded_float(
             self.terminate_grace_seconds,
-            setting=TERMINATE_GRACE_ENV,
+            setting=REGLAGE_GRACE,
             minimum=0.0,
             maximum=MAX_TERMINATE_GRACE_SECONDS,
         )
@@ -292,75 +239,21 @@ class ExecutorConfig:
         return cls()
 
     @classmethod
-    def from_environ(
-        cls, source: Mapping[str, str] | None = None
-    ) -> "ExecutorConfig":
-        values = os.environ if source is None else source
-        roots = _load_project_roots(values)
+    def depuis_politique(cls, politique: Any) -> "ExecutorConfig":
+        """Exécuteurs et racines de dépôts tirés de ``poste.toml`` (étape P5 ; P6 s'en sert pour exécuter).
 
-        def load_spec(
-            *,
-            enabled_setting: str,
-            executable_setting: str,
-            auth_setting: str,
-        ) -> ExecutorSpec | None:
-            enabled = _strict_flag(values, enabled_setting)
-            configured_settings = tuple(
-                setting
-                for setting in (executable_setting, auth_setting)
-                if values.get(setting)
-            )
-            if not enabled:
-                if configured_settings:
-                    raise ExecutorConfigurationError(
-                        f"{enabled_setting}=1 est requis avec {configured_settings[0]}"
-                    )
-                return None
-            executable = values.get(executable_setting)
-            auth_directory = values.get(auth_setting)
-            if executable is None or auth_directory is None:
-                raise ExecutorConfigurationError(
-                    f"{enabled_setting}=1 exige {executable_setting} et {auth_setting}"
-                )
-            return ExecutorSpec(
-                executable=_absolute_path(
-                    executable,
-                    setting=executable_setting,
-                    directory=False,
-                ),
-                auth_directory=_absolute_path(
-                    auth_directory,
-                    setting=auth_setting,
-                    directory=True,
-                ),
-            )
+        Un exécutant n'est activé que s'il figure dans ``[politique] executants`` ; son profil est ``[codex] home``
+        ou ``[claude] config_dir`` ; les racines sont les ``[depots.<alias>] chemin``. Les réglages
+        ``ACP_WORKER_*`` ont disparu avec ``from_environ``."""
 
-        tool_path: tuple[Path, ...] = ()
-        raw_tool_path = values.get(TOOL_PATH_ENV)
-        if raw_tool_path is not None:
-            parts = raw_tool_path.split(os.pathsep)
-            if not raw_tool_path or any(not part for part in parts):
-                raise ExecutorConfigurationError(
-                    f"{TOOL_PATH_ENV} doit contenir uniquement des dossiers absolus"
-                )
-            tool_path = tuple(Path(part) for part in parts)
-
-        return cls(
-            codex=load_spec(
-                enabled_setting=CODEX_ENABLED_ENV,
-                executable_setting=CODEX_EXECUTABLE_ENV,
-                auth_setting=CODEX_HOME_ENV,
-            ),
-            claude=load_spec(
-                enabled_setting=CLAUDE_ENABLED_ENV,
-                executable_setting=CLAUDE_EXECUTABLE_ENV,
-                auth_setting=CLAUDE_CONFIG_DIR_ENV,
-            ),
-            project_roots=roots,
-            tool_path=tool_path,
-            timeout_seconds=values.get(TIMEOUT_ENV, "1800"),
-            terminate_grace_seconds=values.get(TERMINATE_GRACE_ENV, "1"),
-        )
+        executants = set(politique.politique.executants)
+        codex = (ExecutorSpec(executable=politique.codex.executable, auth_directory=politique.codex.home)
+                 if politique.codex is not None and "codex" in executants else None)
+        claude = (ExecutorSpec(executable=politique.claude.executable, auth_directory=politique.claude.config_dir)
+                  if politique.claude is not None and "claude" in executants else None)
+        return cls(codex=codex, claude=claude,
+                   project_roots={depot.alias: depot.chemin for depot in politique.depots},
+                   timeout_seconds=float(politique.politique.duree_max_carte_s))
 
     @property
     def enabled_executors(self) -> frozenset[str]:

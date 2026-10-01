@@ -12,6 +12,13 @@ il n'a aucun outil de fichiers sur Railway.
 
 Schéma v1 : les cinq tables du plan (projets, demandes, questions, présence, curseurs) et huit tables
 techniques (tours, notifications, releves, routage, surcharges, reglages, journal, emetteur).
+
+Schéma v2 (étape P5, cahier P5 § 12.1) : postes enrôlés (``machines``, SHA-256 du jeton seulement), codes
+d'enrôlement (``enrolements``, SHA-256 seulement), ordres au poste (``ordres``), inventaires reçus
+(``inventaires``) ; ``releves`` reçoit ``machine_id``, ``accepte_le`` et ``accepte_par``. La migration v1 → v2
+est idempotente, y compris entre processus (passerelle, tableau de bord et workers peuvent la lancer en même
+temps) : chaque colonne n'est ajoutée qu'après lecture de ``PRAGMA table_info``, sous la transaction
+``IMMEDIATE`` de :func:`migrer`, et la version passe à ``'2'`` par un ``UPDATE``.
 """
 
 from __future__ import annotations
@@ -27,7 +34,7 @@ from typing import Any, Callable, Dict, Iterator, Optional
 from . import kanban_adapter as ka
 
 NOM_GREFFON = "acp-poste"
-VERSION_SCHEMA = "1"
+VERSION_SCHEMA = "2"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta_schema (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);
@@ -137,10 +144,53 @@ CREATE INDEX IF NOT EXISTS demandes_par_projet ON demandes (projet_id, tour);
 CREATE INDEX IF NOT EXISTS questions_par_etat ON questions (etat);
 CREATE INDEX IF NOT EXISTS notifications_par_etat ON notifications (etat, prochaine_tentative);
 CREATE INDEX IF NOT EXISTS journal_par_projet ON journal (projet_id, id);
+CREATE TABLE IF NOT EXISTS machines (
+  id TEXT PRIMARY KEY CHECK (length(id) = 12 AND substr(id, 1, 1) = 'm' AND substr(id, 2) NOT GLOB '*[^0-9a-f]*'),
+  nom TEXT NOT NULL CHECK (length(nom) BETWEEN 1 AND 60),
+  empreinte_jeton TEXT NOT NULL UNIQUE CHECK (length(empreinte_jeton) = 64),
+  etat TEXT NOT NULL CHECK (etat IN ('a_confirmer','actif','revoque')),
+  protocole TEXT NOT NULL, version_poste TEXT NOT NULL,
+  cree_le INTEGER NOT NULL, confirme_le INTEGER, confirme_par TEXT,
+  revoque_le INTEGER, revoque_par TEXT, motif_revocation TEXT,
+  derniere_requete INTEGER, politique_valide INTEGER NOT NULL DEFAULT 1,
+  remplacements_minute INTEGER NOT NULL DEFAULT 0, remplacements_depuis INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS un_seul_poste_actif ON machines(etat) WHERE etat = 'actif';
+CREATE TABLE IF NOT EXISTS enrolements (
+  empreinte_code TEXT PRIMARY KEY CHECK (length(empreinte_code) = 64),
+  cree_le INTEGER NOT NULL, expire_le INTEGER NOT NULL, cree_par TEXT NOT NULL,
+  utilise_le INTEGER, machine_id TEXT REFERENCES machines(id)
+);
+CREATE TABLE IF NOT EXISTS ordres (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  machine_id TEXT NOT NULL REFERENCES machines(id),
+  genre TEXT NOT NULL CHECK (genre IN ('releve','pause','reprise')),
+  cree_le INTEGER NOT NULL, cree_par TEXT NOT NULL,
+  livre_le INTEGER, acquitte_le INTEGER, abandonne_le INTEGER
+);
+CREATE TABLE IF NOT EXISTS inventaires (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  machine_id TEXT NOT NULL REFERENCES machines(id),
+  recu_le INTEGER NOT NULL, releve_le INTEGER NOT NULL,
+  empreinte TEXT NOT NULL, contenu TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS releves_par_voie ON releves (voie, recu_le);
+CREATE INDEX IF NOT EXISTS ordres_par_machine ON ordres (machine_id, acquitte_le, abandonne_le);
 """
 
+# Colonnes ajoutées à une table v1 (SQLite n'a pas de « ADD COLUMN IF NOT EXISTS ») : relevées par
+# PRAGMA table_info avant chaque ALTER, sous la transaction de migrer() (modèle : add_column_if_missing de
+# Hermes, hermes_cli/sqlite_util.py:82-95, réécrit ici : le noyau n'importe Hermes que par kanban_adapter).
+COLONNES_V2 = (
+    ("releves", "machine_id", "TEXT"),        # NULL pour un relevé factice (P4)
+    ("releves", "accepte_le", "INTEGER"),     # « Accepter ce relevé comme celui de mon compte » (P5 § 12.3)
+    ("releves", "accepte_par", "TEXT"),
+)
+
 TABLES = ("meta_schema", "projets", "releves", "tours", "demandes", "questions", "presence", "curseurs",
-          "notifications", "routage", "surcharges", "reglages", "journal", "emetteur")
+          "notifications", "routage", "surcharges", "reglages", "journal", "emetteur",
+          # Schéma v2 (étape P5).
+          "machines", "enrolements", "ordres", "inventaires")
 
 # Réglages par défaut (table ``reglages``) : lus à chaque usage, modifiables par le propriétaire
 # (P5, P7) ; les tests les posent par la même fonction (:func:`poser_reglage`).
@@ -160,6 +210,12 @@ REGLAGES_PAR_DEFAUT: Dict[str, Any] = {
     "seuil_quota_pct": 90,
     "efforts_interdits": ["max", "ultra", "ultracode"],
     "paliers_admis": ["default"],
+    # Étape P5 (cahier P5 § 12.1, décision D63) : attente du long-poll (bornes 5-50), validité d'un code
+    # d'enrôlement, intervalle minimal entre deux inventaires, expiration d'un ordre non acquitté.
+    "longpoll_attente_s": 25,
+    "enrolement_validite_s": 600,
+    "inventaire_intervalle_min_s": 60,
+    "ordre_expiration_s": 3600,
 }
 PLANCHER_EMETTEUR_S = 5
 
@@ -225,13 +281,24 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
         conn.execute("COMMIT")
 
 
+def _colonnes(conn: sqlite3.Connection, table: str) -> set:
+    return {str(ligne[1]) for ligne in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def migrer(conn: sqlite3.Connection) -> None:
-    """Schéma v1, idempotent (``IF NOT EXISTS``), version dans ``meta_schema``."""
+    """Schéma v2, idempotent (``IF NOT EXISTS``, colonnes ajoutées après lecture de ``PRAGMA table_info``), le
+    tout sous UNE transaction ``IMMEDIATE`` : deux processus qui migrent en même temps se succèdent, le second
+    trouve tout en place. Une base v1 passe à ``'2'`` par un ``UPDATE`` (l'``INSERT OR IGNORE`` seul laisserait
+    ``'1'``) ; une base neuve reçoit directement ``'2'``."""
     with transaction(conn):
         for instruction in SCHEMA.split(";"):
             if instruction.strip():
                 conn.execute(instruction)
+        for table, colonne, genre in COLONNES_V2:
+            if colonne not in _colonnes(conn, table):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {genre}")
         conn.execute("INSERT OR IGNORE INTO meta_schema (cle, valeur) VALUES ('version', ?)", (VERSION_SCHEMA,))
+        conn.execute("UPDATE meta_schema SET valeur = ? WHERE cle = 'version' AND valeur = '1'", (VERSION_SCHEMA,))
 
 
 def version_schema(conn: sqlite3.Connection) -> Optional[str]:

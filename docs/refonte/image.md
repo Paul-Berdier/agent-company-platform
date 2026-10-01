@@ -592,8 +592,10 @@ liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'e
 - `register(ctx)` : sentinelle hors s6 (§ 3), puis
   `ctx.register_hook("pre_tool_call", garde_execution.garde)` (§ 5) ; depuis P4, retrait des variables
   de notification de l'environnement, puis le noyau (`noyau/`) : huit outils, section de prompt
-  « acp-projets », crochet `on_kanban_dispatch_tick` de l'émetteur ([projets.md](projets.md)). Le jeton
-  machine et les routes du poste arrivent en P5 ([autonomie.md](autonomie.md) § 8).
+  « acp-projets », crochet `on_kanban_dispatch_tick` de l'émetteur ([projets.md](projets.md)). Depuis P5,
+  dans un bloc séparé (un échec n'empêche pas le reste) : fournisseur de jeton `acp-poste-machine` par
+  `ctx.register_dashboard_auth_provider` et trois chemins exacts par `register_token_route`
+  ([poste.md](poste.md) § 2).
 - `noyau/kanban_adapter.py` (P4, remplace `kanban_adapter.py` de P1) : seul module du noyau qui importe
   Hermes, chaque nom depuis son module de définition (`hermes_cli.kanban_db`,
   `hermes_cli.kanban_db_connect.connect` et `write_txn`, `hermes_cli.kanban_db_dispatch.heartbeat_worker`,
@@ -648,6 +650,16 @@ liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'e
   arrêté depuis plus de 10 minutes hors pause, notifications en échec, relevé factice, crochets shell
   détectés). Routes de P4 (`/v1/projets`, `/v1/questions`, `/v1/pause`, `/v1/poste`,
   `/v1/notifications/test`) : [projets.md](projets.md) § 4.
+
+  Ajouts de P5 ([poste.md](poste.md)) : bloc **`machine`** (fournisseur du jeton machine et chemins à jeton
+  **dans le processus du tableau de bord**, fournisseurs de connexion, postes par état, codes utilisables,
+  dernier inventaire) et ses alertes ; base du greffon au **schéma 2** (migration idempotente de P4) ;
+  routes du poste `/machine/v1/{enrolement,reclamer,inventaire}` (jeton machine, jamais la session) ;
+  routes du propriétaire `/v1/poste` (remplace celle de P4), `/v1/poste/{enrolement,confirmation,
+  revocation,releve}`, `/v1/routage` et ses sous-routes, `/v1/quotas`. Le contrat partagé
+  (`contrat/acp_poste_contrat`, avec `machine.py` et `motifs_secrets.py`) est copié dans l'image avec le
+  greffon ; le greffon d'interface `acp-poste-vues` (onglet « Poste ») l'est comme les trois autres (root,
+  0644).
 - `GET /api/plugins/acp-poste/v1/catalogue` (P3, session obligatoire) : le verrou et l'état de
   chaque skill et de chaque serveur MCP vu par le chargeur du tableau de bord
   (`catalogue.py`, seul module du greffon qui importe les internes des skills et des MCP).
@@ -801,6 +813,19 @@ variables de notification, `HERMES_KANBAN_DISPATCH_IN_GATEWAY`). Au contrat :
 Seconde partie de P4 : greffon d'interface `acp-projets` (page « Projets », sans code serveur) copié et
 normalisé comme les deux autres (`test_interface.py`, `test_interface_contrat.py`), et parcours complet
 au navigateur (`hermes/tests/e2e/test_projets.py`, [projets.md](projets.md) § 4 bis).
+
+### Tests ajoutés en P5
+
+Détail et preuves : [poste.md](poste.md) § 12. Dans l'image : migration v1 → v2 (idempotente, relevés de P4
+relus), postes, codes et ordres en base, présence et grâce de redémarrage, fournisseur du jeton machine
+(forme, lecture seule, 503 sur base illisible, comparaison de chaque ligne, p50 et p99 mesurés),
+adaptateur d'authentification (modules de définition de Hermes), routes du poste et routes du propriétaire
+sur un vrai serveur uvicorn **derrière l'intergiciel de jeton de Hermes** (`pile_machine`), long-poll
+(réveil, remplacement, déconnexion), routage de P5, bloc `machine` de la méta ; tests de P4 mis à jour
+(schéma 2, quatrième greffon d'interface). Au contrat : `test_machine_contrat.py` (pile s6 complète, faux
+poste `hermes/tests/outils/faux_poste.py`, exemples `hermes/tests/outils/fixtures_machine/`). Au
+navigateur : `hermes/tests/e2e/test_poste.py`. Témoins négatifs : `scripts/temoins_negatifs_p5.sh` (28
+protections).
 
 ## 9. Ce qui est prouvé, ce qui ne l'est pas
 

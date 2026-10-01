@@ -17,7 +17,7 @@ def test_jamais_vu_non_configure_sans_notification(noyau, conn, monkeypatch):
     en_discussion(monkeypatch)
     etat = outil(noyau, "poste_etat", {})["poste"]
     assert etat["etat"] == "non_configure" and etat["derniere_vue"] is None
-    assert etat["message"] == "Le poste n'a jamais été vu (connexion prévue à l'étape P5)."
+    assert etat["message"] == "Le poste n'a jamais été vu : enrôlez-le depuis la page Poste."
     assert noyau.presence.evaluer(conn) == [] and _notifs(conn) == []
 
 

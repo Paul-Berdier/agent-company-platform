@@ -250,7 +250,7 @@ describe("relecture de P4 : formulaire, pause, notifications", () => {
     installerSdk({ [ROUTE_PROJETS]: LISTE_VIDE, [ROUTE_CATALOGUE]: CATALOGUE_PROFILS, [ROUTE_POSTE]: POSTE_VIDE });
     const s = await rendre(<Projets />);
     await attendre();
-    expect(s.texte().replace(NBSP, " ")).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (étape P5).");
+    expect(s.texte().replace(NBSP, " ")).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste).");
     s.demonter();
   });
 

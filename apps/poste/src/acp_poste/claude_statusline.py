@@ -7,8 +7,10 @@ réponse de l'API dans la session, ce JSON contient ``rate_limits.five_hour`` et
 Unix). Ce module :
 
 - recopie ces deux fenêtres, et elles seules, dans le fichier que lit le poste
-  (``~/.acp/quotas/claude-code.json``, ou le chemin absolu de
-  ``ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT``) : ni identifiant de session, ni chemin, ni
+  (sous Windows ``%ProgramData%\\ACP\\quotas\\claude-code.json``, lisible par le compte du poste, étape P5,
+  décision D56 ; ailleurs ``~/.acp/quotas/claude-code.json`` ; ou le chemin absolu de
+  ``ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT``, seul réglage ``ACP_WORKER_*`` gardé, lu dans les sessions du
+  titulaire et non par le poste) : ni identifiant de session, ni chemin, ni
   modèle, ni coût, ni ``spend_limit`` (limite de dépense d'une passerelle, qui n'est
   pas un quota d'abonnement) ;
 - écrit dans un fichier temporaire du même dossier puis le substitue par
@@ -77,6 +79,13 @@ BAD_ARGUMENT = "argument refusé : « -- commande existante » attendu"
 
 
 def default_snapshot_path() -> Path:
+    """Sous Windows (étape P5) : ``%ProgramData%\\ACP\\quotas\\claude-code.json`` (dossier connu du système, jamais
+    l'environnement), que lit le compte du poste ; ailleurs ``~/.acp/quotas/claude-code.json``."""
+
+    if os.name == "nt":
+        from .chemins import FOLDERID_PROGRAMDATA, _dossier_connu
+
+        return _dossier_connu(FOLDERID_PROGRAMDATA) / "ACP" / "quotas" / "claude-code.json"
     return Path.home() / ".acp" / "quotas" / "claude-code.json"
 
 
@@ -85,7 +94,10 @@ def snapshot_path(environ: Mapping[str, str] | None = None) -> Path | None:
 
     value = (os.environ if environ is None else environ).get(SNAPSHOT_ENV)
     if value is None:
-        return default_snapshot_path()
+        try:
+            return default_snapshot_path()
+        except Exception:  # noqa: BLE001 - la ligne d'état ne tombe jamais
+            return None
     if not value or value != value.strip() or not Path(value).is_absolute():
         return None
     return Path(value)

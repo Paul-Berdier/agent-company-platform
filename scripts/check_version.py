@@ -36,6 +36,7 @@ PACKAGE_JSONS = (
     "hermes/plugins/acp-catalogue/dashboard/manifest.json",
     # Étape P4 : page Projets.
     "hermes/plugins/acp-projets/dashboard/manifest.json",
+    "hermes/plugins/acp-poste-vues/dashboard/manifest.json",
     "apps/interface/package.json",
 )
 
@@ -43,6 +44,10 @@ PACKAGE_JSONS = (
 # niveau, lu sans PyYAML : ce script ne dépend que de la bibliothèque standard).
 PLUGIN_YAMLS = ("hermes/plugins/acp-poste/plugin.yaml",)
 _VERSION_YAML = re.compile(r'^version:\s*"?([^"\s#]+)"?\s*(?:#.*)?$', re.MULTILINE)
+
+# Étape P5 : version annoncée par le poste Windows à Hermes (``version_poste``, en-tête ``User-Agent``).
+PYTHON_MODULES = ("apps/poste/src/acp_poste/__init__.py",)
+_VERSION_PYTHON = re.compile(r'^__version__ = "([^"]+)"$', re.MULTILINE)
 
 # Seul le paquet racine est versionné par le produit dans le verrou npm.
 LOCK_PACKAGES = ("",)
@@ -66,6 +71,10 @@ def main() -> int:
 
     for relative in PLUGIN_YAMLS:
         found = _VERSION_YAML.findall((ROOT / relative).read_text(encoding="utf-8"))
+        report(errors, relative, found[0] if len(found) == 1 else None)
+
+    for relative in PYTHON_MODULES:
+        found = _VERSION_PYTHON.findall((ROOT / relative).read_text(encoding="utf-8"))
         report(errors, relative, found[0] if len(found) == 1 else None)
 
     lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))

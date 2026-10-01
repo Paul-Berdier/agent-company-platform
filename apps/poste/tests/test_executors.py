@@ -6,10 +6,6 @@ import pytest
 
 from acp_poste import executors as executor_module
 from acp_poste.executors import (
-    CODEX_ENABLED_ENV,
-    CODEX_EXECUTABLE_ENV,
-    CODEX_HOME_ENV,
-    PROJECTS_ENV,
     ExecutorCleanupError,
     ExecutorConfig,
     ExecutorConfigurationError,
@@ -181,26 +177,28 @@ def test_project_path_cannot_escape_root(tmp_path: Path):
         resolve_project_path(root, "../")
 
 
-def test_executor_configuration_is_strictly_opt_in(tmp_path: Path):
-    project = tmp_path / "project"
+def test_executor_configuration_comes_from_the_local_policy(tmp_path: Path):
+    """Étape P5 : ``ExecutorConfig.depuis_politique`` (``poste.toml``) remplace ``from_environ`` ; un exécutant n'est
+    activé que s'il figure dans ``[politique] executants``."""
+    from acp_poste.chemins import Emplacements
+    from acp_poste.politique import analyser
+
+    emplacements = Emplacements.de_test(tmp_path / "racine")
+    project = tmp_path / "depots" / "project-1"
+    (project / ".git").mkdir(parents=True)
     executable = tmp_path / "bin" / "codex.exe"
-    auth = tmp_path / "auth"
-    project.mkdir()
     executable.parent.mkdir()
     executable.write_bytes(b"test")
-    auth.mkdir()
-    environment = {
-        CODEX_EXECUTABLE_ENV: str(executable),
-        CODEX_HOME_ENV: str(auth),
-        PROJECTS_ENV: json.dumps({"project-1": str(project)}),
-    }
-
-    with pytest.raises(ExecutorConfigurationError, match="ENABLED=1"):
-        ExecutorConfig.from_environ(environment)
-
-    environment[CODEX_ENABLED_ENV] = "1"
-    config = ExecutorConfig.from_environ(environment)
+    home = emplacements.localappdata / "ACP" / "codex-home"
+    home.mkdir(parents=True)
+    texte = "\n".join([
+        "version = 1", "[hermes]", "origine = 'https://h.test'", "[sondes]", "claude = false",
+        "[codex]", f"executable = '{executable}'", f"home = '{home}'", "version_testee = '0.156.1'",
+        "[politique]", "executants = ['claude']", "[depots.project-1]", f"chemin = '{project}'", ""])
+    assert ExecutorConfig.depuis_politique(analyser(texte.encode(), emplacements)).enabled_executors == frozenset()
+    config = ExecutorConfig.depuis_politique(analyser(texte.replace("['claude']", "['codex']").encode(), emplacements))
     assert config.enabled_executors == frozenset({"codex_cli"})
+    assert config.timeout_seconds == 3600.0
     assert config.project_path("project-1") == project.resolve()
     write_lock = config.project_write_lock_path("project-1")
     assert write_lock.parent == project.resolve().parent

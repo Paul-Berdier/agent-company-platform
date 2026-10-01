@@ -652,3 +652,70 @@
 .acp-choix-radio__titre {
   font-weight: 600;
 }
+
+/* Étape P5 : page Poste (greffon acp-poste-vues). */
+.acp-code {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+}
+
+.acp-code__valeur {
+  font-size: 15px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.acp-entree-routage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+@media (min-width: 900px) {
+  .acp-entree-routage {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    align-items: end;
+  }
+}
+
+.acp-jauge-bloc {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.acp-jauge {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-secondary, var(--color-border));
+}
+
+.acp-jauge__plein {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+}
+
+.acp-jauge--depasse .acp-jauge__plein {
+  background: var(--color-destructive, var(--color-primary));
+}
+
+.acp-jauge__seuil {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--color-warning, var(--color-muted-foreground));
+}

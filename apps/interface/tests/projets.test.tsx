@@ -123,7 +123,7 @@ describe("Projets : liste", () => {
     const texte = r.texte();
     expect(texte).toContain("Aucun projet pour l'instant.");
     expect(texte).toContain("Non configuré");
-    expect(texte).toContain("Le poste n'a jamais été vu (connexion prévue à l'étape P5).");
+    expect(texte).toContain("Le poste n'a jamais été vu : enrôlez-le depuis la page Poste.");
     const notifications = r.racine.querySelector("#acp-projets-notifications")?.parentElement;
     expect(texteDe(notifications)).toContain("Inconnu");
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
@@ -202,7 +202,7 @@ describe("Projets : nouveau projet", () => {
     const depot = r.racine.querySelector("#acp-projet-depot") as HTMLSelectElement;
     expect(depot.disabled).toBe(true);
     expect(depot.getAttribute("aria-describedby")).toBe("acp-projet-depot-aide");
-    expect(r.texte()).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (étape P5).");
+    expect(r.texte()).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste).");
     expect([...depot.options].map((o) => o.textContent)).toEqual(["Sans dépôt"]);
     expect(r.racine.querySelector("#acp-projet-voie")).toBeNull();
     const profils = r.racine.querySelector("#acp-projet-profil") as HTMLSelectElement;
@@ -276,6 +276,33 @@ describe("Projets : nouveau projet", () => {
     r.demonter();
   });
 
+  it("relevé sans modèle par défaut (Claude) : aucun effort supposé, modèle exigé avant le lancement", async () => {
+    // Relecture de P5 (D73) : un relevé Claude ne désigne jamais de modèle par défaut (isDefault nul, D59) ; le
+    // premier modèle n'en est pas un, et « Modèle par défaut du relevé » serait toujours refusé par le serveur.
+    aller("?vue=nouveau");
+    const poste = JSON.parse(JSON.stringify(POSTE_RELEVE));
+    for (const m of poste.catalogue.voies["poste-claude"].modeles) m.isDefault = null;
+    installerSdk({ [ROUTE_PROJETS]: LISTE, [ROUTE_CATALOGUE]: CATALOGUE_PROFILS, [ROUTE_POSTE]: poste });
+    const r = await rendre(<Projets />);
+    await attendre();
+    await saisir(r.racine.querySelector("#acp-projet-depot"), "jetable");
+    await saisir(r.racine.querySelector("#acp-projet-titre-champ"), "Outil");
+    await saisir(r.racine.querySelector("#acp-projet-objectif"), "Écrire outil.py.");
+    const modele = r.racine.querySelector("#acp-projet-modele") as HTMLSelectElement;
+    expect(modele.options[0]?.textContent).toBe("Choisissez un modèle (le relevé n'en désigne aucun par défaut)");
+    expect(modele.options[0]?.disabled).toBe(true);
+    expect([...(r.racine.querySelector("#acp-projet-effort") as HTMLSelectElement).options].map((o) => o.value)).toEqual([""]);
+    expect(r.texte()).toContain("Choisissez un modèle pour l'exploration : le relevé de cet exécutant n'en désigne aucun par défaut.");
+    expect(boutons(r.racine).get("Lancer le projet")?.disabled).toBe(true);
+    await saisir(modele, "factice-claude-2");
+    expect([...(r.racine.querySelector("#acp-projet-effort") as HTMLSelectElement).options].map((o) => o.value))
+      .toEqual(["", "low"]);
+    expect(r.texte()).not.toContain("Choisissez un modèle pour l'exploration");
+    expect(boutons(r.racine).get("Lancer le projet")?.disabled).toBe(false);
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    r.demonter();
+  });
+
   it("un refus du greffon s'affiche tel quel, et le formulaire reste rempli", async () => {
     aller("?vue=nouveau");
     installerSdk({
@@ -291,7 +318,7 @@ describe("Projets : nouveau projet", () => {
     await soumettre(r.racine.querySelector("form"));
     const alerte = r.racine.querySelector('[role="alert"]');
     expect(texteDe(alerte)).toContain(
-      "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire (étape P5).",
+      "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire.",
     );
     expect(texteDe(alerte)).toContain("400");
     expect((r.racine.querySelector("#acp-projet-titre-champ") as HTMLInputElement).value).toBe("X");

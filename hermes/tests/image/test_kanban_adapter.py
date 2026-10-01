@@ -26,14 +26,16 @@ def test_chaque_fonction_vient_de_son_module_de_definition(noyau):
 
 
 def test_seul_l_adaptateur_importe_hermes_dans_le_noyau():
-    """Aucun autre module du noyau n'importe Hermes (ni hermes_cli, ni agent, ni tools, ni plugins…)."""
+    """Aucun autre module du noyau n'importe Hermes (ni hermes_cli, ni agent, ni tools, ni plugins…), hormis
+    l'adaptateur d'authentification de l'étape P5 (auth_adapter.py, hermes_cli.dashboard_auth seulement :
+    test_auth_adapter.py)."""
     import ast
 
     interdits = ("hermes_cli", "agent", "tools", "plugins", "hermes_constants", "gateway", "tui_gateway", "run_agent",
                  "model_tools", "cron")
     fautifs = []
     for fichier in sorted((GREFFON / "noyau").glob("*.py")):
-        if fichier.name == "kanban_adapter.py":
+        if fichier.name in ("kanban_adapter.py", "auth_adapter.py"):
             continue
         for noeud in ast.walk(ast.parse(fichier.read_text(encoding="utf-8"))):
             noms = []

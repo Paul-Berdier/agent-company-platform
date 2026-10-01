@@ -105,8 +105,8 @@ def test_refus_pause_generale(noyau, conn):
     ({"objectif": " "}, "objectif", "Refusé par ACP : l'objectif doit compter de 1 à 4000 caractères."),
     ({"profil": "jeux"}, "profil", "Refusé par ACP : type de projet « jeux » inconnu (base, web, recherche ou donnees)."),
     ({"depot": "jetable"}, "aucun_inventaire",
-     "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire (étape P5). "
-     "Lancez le projet sans dépôt, ou connectez le poste."),
+     "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire. Lancez le "
+     "projet sans dépôt, ou enrôlez le poste depuis la page Poste."),
     # Faux secret assemblé à l'exécution : le balayage des secrets du dépôt ne doit rien trouver ici.
     ({"objectif": "clé " + "sk-" + "proj-" + "ABCDEFGHIJKLMNOPQRSTUVWX"}, "secret",
      "Refusé par ACP : l'objectif contient ce qui ressemble à un secret (clé d'API OpenAI) ; retirez-le."),

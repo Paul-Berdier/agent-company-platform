@@ -41,6 +41,14 @@ PROJECT_PATTERNS = (
     "hermes/plugins/*/contrat/pyproject.toml",
 )
 
+# Étape P5 : verrou d'EXÉCUTION du poste Windows, le seul que l'installeur applique (Installer-PosteAcp.ps1,
+# pip --require-hashes --target). Mêmes versions que le verrou du dépôt, et rien d'autre que les dépendances
+# d'exécution du poste et de son contrat : aucun outil de test ni de construction n'est installé sur le poste.
+POSTE_LOCK_PATH = ROOT / "requirements" / "poste-3.12.lock.txt"
+POSTE_PROJECTS = ("apps/poste/pyproject.toml", "hermes/plugins/acp-poste/contrat/pyproject.toml")
+POSTE_INTERDITS = frozenset({"pytest", "pytest-asyncio", "cryptography", "cffi", "pycparser", "setuptools", "wheel",
+                             "colorama", "pygments", "iniconfig", "pluggy", "packaging", "pip"})
+
 CONSTRAINTS_HEADER = (
     "# Contraintes de versions pour le poste local (Python 3.13 compris).\n"
     "# Généré depuis requirements/python-3.12.lock.txt par\n"
@@ -242,6 +250,40 @@ def check(
     return errors
 
 
+def check_poste(poste_lock_text: str, lock_pins: dict[str, str], project_files: dict[str, str]) -> list[str]:
+    """Verrou d'exécution du poste : hachés, versions du verrou du dépôt, dépendances directes présentes, aucun outil."""
+
+    errors: list[str] = []
+    try:
+        pins = parse_pins(poste_lock_text)
+    except ValueError as exc:
+        return [f"verrou du poste illisible : {exc}"]
+    if not pins:
+        return ["le verrou du poste ne contient aucune épingle"]
+    blocs = [bloc for bloc in re.split(r"\n(?=[A-Za-z0-9])", poste_lock_text) if _PIN_PATTERN.match(bloc.strip())]
+    for bloc in blocs:
+        if "--hash=sha256:" not in bloc:
+            errors.append(f"verrou du poste : {bloc.split()[0]} sans haché")
+    for name, version in sorted(pins.items()):
+        if name in POSTE_INTERDITS:
+            errors.append(f"verrou du poste : {name} n'a rien à faire sur le poste (outil de test ou de construction)")
+        if lock_pins.get(name) != version:
+            errors.append(f"verrou du poste : {name}=={version} diffère du verrou du dépôt "
+                          f"({lock_pins.get(name) or 'absent'})")
+    locaux = set()
+    documents = {}
+    for path in POSTE_PROJECTS:
+        if path in project_files:
+            documents[path] = tomllib.loads(project_files[path])
+            locaux.add(normalize_name(documents[path]["project"]["name"]))
+    for path, document in documents.items():
+        for declaration in document.get("project", {}).get("dependencies", []):
+            name = normalize_name(Requirement(declaration).name)
+            if name not in locaux and name not in pins:
+                errors.append(f"verrou du poste : {name} (dépendance de {path}) absent")
+    return errors
+
+
 def _force_utf8_streams() -> None:
     """Écrit en UTF-8 quelle que soit la console : la sortie est lue par des tests
     et des scripts qui la décodent en UTF-8, et une console Windows en cp1252
@@ -297,7 +339,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     count = len(parse_pins(lock_text))
-    print(f"Verrou et contraintes cohérents ({count} épingles).")
+    if not POSTE_LOCK_PATH.is_file():
+        print(f"Verrou du poste introuvable : {POSTE_LOCK_PATH.relative_to(ROOT).as_posix()}", file=sys.stderr)
+        return 1
+    poste_errors = check_poste(POSTE_LOCK_PATH.read_text(encoding="utf-8"), parse_pins(lock_text), project_files)
+    if poste_errors:
+        print("Verrou du poste incohérent :", file=sys.stderr)
+        for error in poste_errors:
+            print(f"- {error}", file=sys.stderr)
+        return 1
+    poste_count = len(parse_pins(POSTE_LOCK_PATH.read_text(encoding="utf-8")))
+    print(f"Verrou et contraintes cohérents ({count} épingles) ; verrou du poste cohérent ({poste_count} épingles).")
     return 0
 
 

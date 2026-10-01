@@ -15,7 +15,7 @@ export const LISTE_VIDE = {
     derniere_vue: null,
     hors_ligne_depuis: null,
     machine: null,
-    message: "Le poste n'a jamais été vu (connexion prévue à l'étape P5).",
+    message: "Le poste n'a jamais été vu : enrôlez-le depuis la page Poste.",
   },
   pause_generale: null,
   notifications: {
@@ -232,7 +232,7 @@ export const POSTE_VIDE = {
     routage: { valide: false, classes: {} },
     politique: POLITIQUE,
     releve_factice: false,
-    message: "Catalogue du poste inconnu : aucun relevé (le poste publie son inventaire à l'étape P5).",
+    message: "Catalogue du poste inconnu : aucun relevé (le poste publie son inventaire une fois enrôlé et confirmé).",
   },
 };
 
@@ -310,4 +310,4 @@ export const LANCEMENT = {
 /** Refus réel du greffon (400, projet sur dépôt sans inventaire). */
 export const REFUS_AUCUN_INVENTAIRE =
   '{"detail": {"code": "aucun_inventaire", "message": "Refusé par ACP : aucun dépôt autorisé n\'est connu : le poste ' +
-  "n'a encore publié aucun inventaire (étape P5). Lancez le projet sans dépôt, ou connectez le poste.\"}}";
+  "n'a encore publié aucun inventaire. Lancez le projet sans dépôt, ou enrôlez le poste depuis la page Poste.\"}}";

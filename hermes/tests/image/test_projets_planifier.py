@@ -154,8 +154,7 @@ def test_effort_hors_enumeration_sans_reasoning_effort(noyau, conn, monkeypatch)
 
 @pytest.mark.parametrize("etape, code, message", [
     ({"voie": "poste-codex", "effort": "max"}, "effort_interdit",
-     "Refusé par ACP : l'effort « max » est interdit par défaut ; seul le propriétaire peut le lever (page Routage, "
-     "étape P5)."),
+     "Refusé par ACP : l'effort « max » est interdit par défaut ; seul le propriétaire peut le lever (page Routage)."),
     ({"voie": "poste-codex", "modele": "factice-codex-2", "effort": "high"}, "effort_non_pris_en_charge",
      "Refusé par ACP : l'effort « high » n'est pas pris en charge par « factice-codex-2 » (efforts relevés : low)."),
     ({"voie": "poste-codex", "modele": "gpt-imaginaire"}, "modele_absent", "Refusé par ACP : le modèle "
