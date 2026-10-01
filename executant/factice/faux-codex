@@ -1,0 +1,28 @@
+#!/usr/local/bin/python3.12 -I
+"""FAUX Codex CLI de la cible de test « factice » de l'image de l'exécutant (cahier P6 § 14.3). Jamais dans l'image
+de production. Il répond seulement à ``--version`` (« codex-cli 0.156.1 ») ; tout le reste, ``sandbox`` compris,
+échoue en français (code 1) : le bout en bout factice tourne sous le seccomp par défaut de Docker (régime B), où la
+voie Codex est FERMÉE sur l'exécutant (décision D79 du dépôt). Chaque invocation est journalisée dans
+``/var/tmp/acp-factice/journal.jsonl``.
+"""
+
+import json
+import os
+import sys
+
+
+def main(argv):
+    try:
+        with open("/var/tmp/acp-factice/journal.jsonl", "a", encoding="utf-8") as flux:
+            flux.write(json.dumps({"outil": "codex", "uid": os.getuid(), "argv": argv}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    if argv == ["--version"]:
+        print("codex-cli 0.156.1")
+        return 0
+    print("faux Codex : commande non simulée (voie Codex fermée en régime B).", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -276,8 +276,10 @@ def test_integration_fusionne_puis_bundle(distant, depots, tmp_path):
     if os.name == "posix":
         assert (fichier.stat().st_mode & 0o777) == 0o600
     clone = tmp_path / "pc"
-    subprocess.run(["git", "clone", "-q", str(fichier), str(clone), "-b", "hermes/projet-demo"], check=True,
-                   capture_output=True)
+    # Le PC du propriétaire n'a pas le /etc/gitconfig de l'exécutant (protocol.allow=never, https seul) : dans l'image
+    # d'essais, ce git-là le lirait et refuserait le bundle local ; le transport « file » est donc rouvert ici seulement.
+    subprocess.run(["git", "-c", "protocol.file.allow=always", "clone", "-q", str(fichier), str(clone), "-b",
+                    "hermes/projet-demo"], check=True, capture_output=True)
     assert _git(clone, "rev-parse", "HEAD") == tete
     with pytest.raises(ErreurDepot, match="refusée"):
         depots.bundle("jetable", "main")

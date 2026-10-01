@@ -1,0 +1,18 @@
+# Contexte de construction de executant/Dockerfile (racine du dépôt) : LISTE BLANCHE. Rien d'autre n'entre dans le
+# contexte : ni .git, ni docs/, ni .env*, ni .claude/, ni les tests (executant/tests/test_image.py le vérifie dans
+# l'image construite). Lue par BuildKit à côté du Dockerfile ; que le constructeur de Railway la lise est supposé
+# (cahier P6 § 10.1), d'où le contrôle sur l'image elle-même.
+*
+!executant/binaires.toml
+!executant/cles
+!executant/bin
+!executant/politique/executant.toml
+!executant/claude-settings.json
+!executant/gitconfig
+!executant/factice
+!apps/poste/src/acp_poste
+!hermes/plugins/acp-poste/contrat/acp_poste_contrat
+!packaging/poste/lancer.py
+!requirements/poste-3.12.lock.txt
+**/__pycache__
+**/*.pyc
