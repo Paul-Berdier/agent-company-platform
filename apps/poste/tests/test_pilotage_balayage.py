@@ -21,6 +21,8 @@ def _c(statut: str, *chemins: str, avant: str = "100644", apres: str = "100644")
     ".GitHub/Workflows/x.yml", ".github/actions/a/action.yml", "hermes/gere/projet.toml", "sous\\.husky\\pre-commit",
     ".gitmodules", ".gitattributes", "lib/.gitattributes", ".pre-commit-config.yaml", ".devcontainer/devcontainer.json",
     ".vscode/settings.json", ".mcp.json", ".npmrc", "web/.npmrc", ".envrc",
+    # Relecture de P6 : instructions lues par les CLI de l'image (Codex 0.156.1, Claude Code 2.1.283).
+    "AGENTS.override.md", "sous/AGENTS.override.md", "Agents.Override.MD.", "CLAUDE.local.md", "a/b/claude.LOCAL.md",
     "CLAUDÉ.md".replace("CLAUDÉ", "CLAUDE"),
 ])
 def test_chemins_vises_a_toute_profondeur(chemin):

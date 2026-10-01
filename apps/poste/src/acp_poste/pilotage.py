@@ -4,7 +4,9 @@ Un seul chemin touché ⇒ la carte passe **en revue** (``request_review`` côt�
 refuse depuis la page Questions. Claude Code ne protège ni ``CLAUDE.md``, ni ``AGENTS.md``, ni ``.github/workflows``
 (cahier § 1.3, C2) : cette détection est la vraie protection.
 
-Chemins visés, **à toute profondeur** : ``CLAUDE.md``, ``AGENTS.md``, ``.claude/``, ``.codex/``, ``.agents/``,
+Chemins visés, **à toute profondeur** : ``CLAUDE.md``, ``CLAUDE.local.md`` (lu par Claude Code 2.1.283),
+``AGENTS.md``, ``AGENTS.override.md`` (lu par Codex 0.156.1, prioritaire sur ``AGENTS.md``), ``.claude/``, ``.codex/``,
+``.agents/``,
 ``.github/`` entier (les actions composites s'exécutent aussi), ``hermes/gere/``, ``.gitmodules``, ``.gitattributes``
 (ses filtres s'exécutent), ``.husky/``, ``.pre-commit-config.yaml``, ``.devcontainer/``, ``.vscode/``, ``.mcp.json``,
 ``.npmrc``, ``.envrc``, plus ``pilotage_supplementaire`` de la politique du dépôt.
@@ -24,8 +26,10 @@ from acp_poste_contrat.machine import CHEMINS_PILOTAGE_MAX
 
 from .depots import Changement, mode_gitlink, mode_lien
 
-FICHIERS = ("claude.md", "agents.md", ".gitmodules", ".gitattributes", ".pre-commit-config.yaml", ".mcp.json",
-            ".npmrc", ".envrc")
+# Relecture de P6 : « agents.override.md » et « claude.local.md » manquaient ; ce sont des instructions que les
+# CLI de l'image lisent (chaînes relevées dans les binaires de Codex 0.156.1 et de Claude Code 2.1.283).
+FICHIERS = ("claude.md", "claude.local.md", "agents.md", "agents.override.md", ".gitmodules", ".gitattributes",
+            ".pre-commit-config.yaml", ".mcp.json", ".npmrc", ".envrc")
 DOSSIERS = ((".claude",), (".codex",), (".agents",), (".github",), ("hermes", "gere"), (".husky",),
             (".devcontainer",), (".vscode",))
 
