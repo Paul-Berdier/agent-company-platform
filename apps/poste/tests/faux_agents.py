@@ -14,7 +14,8 @@ invocation d'agent joue la n-ième exécution (la dernière se répète). Une ex
   « refusé », va au journal), ``attendre_s``, ``bloquer`` (ne finit jamais), ``code`` (code de sortie) ;
 - ``sortie`` (objet structuré ; défaut : ``termine``), ``sans_sortie`` ;
 - ``session`` ; Claude : ``modele`` (servi, dans ``system/init``), ``outils``, ``limite`` (``rate_limit_info``) ;
-  Codex : ``limite`` (vrai : ``turn.failed`` « usage limit »).
+  Codex : ``limite`` (vrai : ``turn.failed`` « usage limit »), ``reponse_lien`` (un lien vers ce chemin à la place
+  du fichier ``-o``).
 
 ``codex sandbox -P <profil> -C <dossier> -- <argv>`` lance simplement ``argv`` (aucune clôture : test seulement).
 Chaque invocation est journalisée : outil, argv, entrée standard, noms des variables, présence du jeton.
@@ -116,7 +117,10 @@ def main(argv: list[str]) -> int:
             return 1
         if sortie is not None:
             texte = json.dumps(sortie, ensure_ascii=False)
-            if "-o" in arguments:
+            if "-o" in arguments and execution.get("reponse_lien"):
+                # Piège : un LIEN à la place de reponse.json (le superviseur root ne doit jamais le suivre).
+                os.symlink(execution["reponse_lien"], arguments[arguments.index("-o") + 1])
+            elif "-o" in arguments:
                 with open(arguments[arguments.index("-o") + 1], "w", encoding="utf-8") as flux:
                     flux.write(texte)
             _emettre({"type": "item.completed", "item": {"id": "i1", "type": "agent_message", "text": texte}})

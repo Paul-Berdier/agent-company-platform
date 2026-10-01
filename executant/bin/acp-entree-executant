@@ -6,7 +6,7 @@
 # 2. /donnees doit être un point de montage (volume « executant-donnees ») ;
 # 3. dossiers du volume créés ou remis aux propriétaires et modes attendus ; un lien symbolique à leur place, ou un
 #    fichier d'un autre propriétaire dans un dossier d'identifiants, est refusé ;
-# 4. /tmp/acp (disque éphémère) : root:acp-travail, 1770 ;
+# 4. /tmp/acp (disque éphémère) : root:acp-travail, 1770 ; /tmp/acp/caches et /tmp/acp/sondes : 0751 ;
 # 5. exec du superviseur : python -I lancer.py servir --plateforme linux (la sonde de plateforme tourne à son
 #    démarrage, acp_poste.service_executant).
 set -eu
@@ -84,6 +84,10 @@ nettoyer_alias_codex
 proprietaire_seul /donnees/codex 10001
 proprietaire_seul /donnees/claude 10002
 dossier /tmp/acp root:acp-travail 1770
+# Chemins FIXES sous /tmp/acp, créés ici avant tout agent : un agent ne peut plus les occuper le premier (lien, dossier
+# à lui), ce qui bloquerait chaque carte ; le superviseur les reprend sans suivre de lien (relecture de P6).
+dossier /tmp/acp/caches root:acp-travail 0751
+dossier /tmp/acp/sondes root:acp-travail 0751
 
 commit="${RAILWAY_GIT_COMMIT_SHA:-}"
 case "$commit" in

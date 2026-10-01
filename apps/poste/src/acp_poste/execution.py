@@ -156,13 +156,27 @@ class LanceurAgents:
         return await terminate_process_tree(processus, grace_s)
 
     def dossier(self, chemin: Path, nom: str | None, mode: int) -> Path:
-        """Dossier de la tentative, à l'UID de l'identité ``nom`` (root si ``None``), groupe ``acp-travail``."""
-        chemin.mkdir(parents=True, exist_ok=True)
-        if self.droits:
-            identite = self.identites.get(nom) if nom else None
-            os.chown(chemin, identite.uid if identite else 0, 10100)
-        os.chmod(chemin, mode)
-        return chemin
+        """Dossier de la tentative, à l'UID de l'identité ``nom`` (root si ``None``), groupe ``acp-travail``, créé ou
+        repris SANS suivre de lien (:func:`acp_poste.plateforme.linux.preparer_dossier`) ; piégé : carte refusée."""
+        from .plateforme.linux import DossierPiege, preparer_dossier
+
+        identite = self.identites.get(nom) if nom else None
+        try:
+            return preparer_dossier(chemin, uid=identite.uid if identite else 0, gid=10100, mode=mode,
+                                    droits=self.droits)
+        except DossierPiege as exc:
+            raise CarteRefusee("capacite", f"Dossier de travail piégé sous /tmp/acp ({exc.strerror}) : carte "
+                                           "refusée, rien n'a été suivi.") from None
+        except OSError as exc:
+            raise CarteRefusee("capacite", "Dossier de travail impossible à préparer sous /tmp/acp "
+                                           f"({exc.strerror or type(exc).__name__}) : carte refusée.") from None
+
+    def lire_sortie(self, chemin: Path, nom: str, maximum: int) -> bytes | None:
+        """Fichier écrit par l'agent ``nom`` (``reponse.json`` de Codex), lu sans suivre de lien et borné."""
+        from .plateforme.linux import lire_fichier_agent
+
+        identite = self.identites.get(nom) if self.droits else None
+        return lire_fichier_agent(chemin, uid=identite.uid if identite else None, maximum=maximum)
 
     def fichier(self, chemin: Path, contenu: bytes, mode: int) -> Path:
         """Fichier écrit par le superviseur POUR les agents (``diff.patch`` d'une relecture) : root, groupe
@@ -735,8 +749,11 @@ class Execution:
         if outil == "codex":
             flux = lire_flux_codex(lignes)
             sortie = None
-            if reponse is not None and reponse.is_file():
-                sortie = reponse.read_text(encoding="utf-8", errors="replace")[: 64 * 1024]
+            if reponse is not None and os.path.lexists(reponse):
+                # Dossier de l'agent : jamais suivi par root (lien, tube, autre propriétaire ⇒ sortie refusée) ; 64 Kio
+                # au plus, lus depuis le descripteur (relecture de P6).
+                brut = self.lanceur.lire_sortie(reponse, identite, 64 * 1024)
+                sortie = brut.decode("utf-8", "replace") if brut is not None else None
             elif flux.dernier_message:
                 sortie = flux.dernier_message
             return ResultatAgent(code=code, sortie=sortie, session=flux.session, jetons=flux.jetons,

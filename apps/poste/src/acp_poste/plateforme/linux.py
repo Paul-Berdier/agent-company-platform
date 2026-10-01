@@ -82,6 +82,68 @@ def prefixe_setpriv(ident: Identite) -> list[str]:
             "--no-new-privs", "--"]
 
 
+class DossierPiege(OSError):
+    """Chemin préparé par le superviseur root déjà occupé par un lien, un non-dossier ou un autre propriétaire."""
+
+
+def preparer_dossier(chemin: Path, *, uid: int, gid: int, mode: int, droits: bool) -> Path:
+    """Crée (ou reprend) un dossier pour le superviseur root SANS suivre de lien (relecture de P6) : ``/tmp/acp`` est
+    inscriptible par le groupe ``acp-travail``, donc par les trois UID d'agents ; ``mkdir(exist_ok=True)`` puis
+    ``chown``/``chmod`` auraient suivi un lien posé par un agent. Le dossier existant doit être un VRAI dossier, à root
+    ou à ``uid`` (reprise) ; propriétaire et mode sont posés sur un descripteur ouvert sans suivre de lien.
+    ``droits`` faux (tests sans root) : ni propriétaire exigé, ni ``chown``."""
+    if not chemin.parent.exists():  # parent absent (tests, premier usage) : rien n'a pu y être posé
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.mkdir(chemin, 0o700)
+    except FileExistsError:
+        pass
+    etat = os.lstat(chemin)
+    if stat.S_ISLNK(etat.st_mode) or not stat.S_ISDIR(etat.st_mode):
+        raise DossierPiege(errno.ELOOP, f"{chemin.name} n'est pas un dossier ordinaire (lien ou fichier)")
+    if droits and etat.st_uid not in (0, uid):
+        raise DossierPiege(errno.EPERM, f"{chemin.name} appartient à un autre compte (UID {etat.st_uid})")
+    drapeaux = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if not hasattr(os, "fchown"):  # Windows (tests seulement)
+        os.chmod(chemin, mode)
+        return chemin
+    descripteur = os.open(chemin, drapeaux)
+    try:
+        if not stat.S_ISDIR(os.fstat(descripteur).st_mode):
+            raise DossierPiege(errno.ENOTDIR, f"{chemin.name} n'est pas un dossier")
+        if droits:
+            os.fchown(descripteur, uid, gid)
+        os.fchmod(descripteur, mode)
+    finally:
+        os.close(descripteur)
+    return chemin
+
+
+def lire_fichier_agent(chemin: Path, *, uid: int | None, maximum: int) -> bytes | None:
+    """Lit AU PLUS ``maximum`` octets d'un fichier écrit par un agent (``reponse.json`` de Codex), sans suivre de lien :
+    fichier ordinaire exigé, appartenant à ``uid`` (si donné) ; ``None`` sinon (absent, lien, tube, autre
+    propriétaire). Ouvert en non bloquant (un tube nommé posé à sa place ne bloque pas le superviseur)."""
+    drapeaux = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        descripteur = os.open(chemin, drapeaux)
+    except OSError:
+        return None
+    try:
+        etat = os.fstat(descripteur)
+        if not stat.S_ISREG(etat.st_mode) or (uid is not None and etat.st_uid != uid):
+            return None
+        morceaux, total = [], 0
+        while total < maximum:
+            morceau = os.read(descripteur, min(65536, maximum - total))
+            if not morceau:
+                break
+            morceaux.append(morceau)
+            total += len(morceau)
+        return b"".join(morceaux)
+    finally:
+        os.close(descripteur)
+
+
 def environnement_agent(ident: Identite, *, tmpdir: Path | None = None, **variables: str) -> dict[str, str]:
     """Environnement calculé d'un agent : ``HOME``, ``PATH`` minimal, ``LANG``, ``TMPDIR``, puis les seules
     variables de l'outil (``variables``). Rien n'est hérité du superviseur."""

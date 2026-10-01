@@ -267,3 +267,20 @@ def test_quotas_et_releve_comme_le_service(tmp_path, capsys, monkeypatch, comman
         assert "Une sonde ou une carte est en cours" in capsys.readouterr().err
     finally:
         verrou.rendre()
+
+
+@POSIX
+def test_dossiers_des_sondes_jamais_par_un_lien(tmp_path):
+    """Moyenne (relecture de P6) : la racine des dossiers des sondes (/tmp/acp/sondes) était créée par
+    ``mkdir(exist_ok=True)`` : un lien posé par un agent y était suivi. Il est désormais refusé (DossierPiege)."""
+    from acp_poste.plateforme.linux import IDENTITES
+
+    contexte = _contexte(tmp_path / "racine", identites={"codex": IDENTITES["acp-codex"]})
+    cible = tmp_path / "cible"
+    cible.mkdir()
+    contexte.emplacements.tmp.mkdir(parents=True, exist_ok=True)
+    (contexte.emplacements.tmp / "sondes").symlink_to(cible, target_is_directory=True)
+    with pytest.raises(OSError):  # DossierPiege
+        with contexte.dossiers_pour("codex")():
+            pass
+    assert list(cible.iterdir()) == []

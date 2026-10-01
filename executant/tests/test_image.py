@@ -233,6 +233,11 @@ def test_commandes_root_du_proprietaire_puis_redemarrage_accepte(image, ressourc
     ressources.conteneurs.append(nom)
     docker("run", "-d", "--name", nom, "--network", "none", "-v", f"{volume}:/donnees", image_test, verifier=True)
     _attendre_journal(nom, "[acp] volume prêt", 1)
+    # Chemins FIXES de /tmp/acp créés par l'entrée avant tout agent (relecture de P6 : aucun agent ne peut les poser).
+    temporaires = docker("exec", nom, "stat", "-c", "%n %U:%G %a", "/tmp/acp", "/tmp/acp/caches",
+                         "/tmp/acp/sondes").stdout.splitlines()
+    assert temporaires == ["/tmp/acp root:acp-travail 1770", "/tmp/acp/caches root:acp-travail 751",
+                           "/tmp/acp/sondes root:acp-travail 751"], temporaires
     codes = {}
     for commande in (("diagnostic",), ("quotas",), ("releve",), ("preuve", "model-list")):
         resultat = docker("exec", nom, "acp-poste", *commande, delai=240)

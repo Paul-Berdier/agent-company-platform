@@ -131,7 +131,11 @@ class Contexte:
 
         @contextlib.contextmanager
         def fabrique(prefix: str = "acp-sonde-", **_ignore: Any) -> Iterator[str]:
-            racine.mkdir(parents=True, exist_ok=True)
+            from .plateforme.linux import preparer_dossier
+
+            # /tmp/acp est inscriptible par le groupe des agents : la racine des sondes est reprise sans suivre de lien
+            # (root, 0751) ; mkdtemp crée ensuite un dossier neuf, exclusif (relecture de P6).
+            preparer_dossier(racine, uid=0, gid=10100, mode=0o751, droits=hasattr(os, "geteuid") and os.geteuid() == 0)
             dossier = tempfile.mkdtemp(prefix=prefix, dir=racine)
             try:
                 os.chown(dossier, ident.uid, ident.gid)

@@ -11,6 +11,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,7 @@ ICI = Path(__file__).resolve().parent
 RACINE_DEPOT = ICI.parents[2]
 PYTHON = str(Path(sys.executable).resolve())
 FAUX = str(ICI / "faux_agents.py")
+POSIX = pytest.mark.skipif(os.name != "posix", reason="liens symboliques et droits POSIX")
 RACINE_LINUX = pytest.mark.skipif(
     not (sys.platform.startswith("linux") and hasattr(os, "geteuid") and os.geteuid() == 0),
     reason="exige Linux et root (agent sous son UID par setpriv) : conteneur de test de P6 seulement")
@@ -551,6 +553,43 @@ def test_relecture_sous_uid_lit_le_diff_et_le_code_relu():
     lectures = _lectures_du_relecteur(banc)
     assert "+X = 1" in lectures["{add_dir}/diff.patch"], lectures
     assert lectures["nouveau.py"] == "X = 1\n"
+
+
+# ------------------------------------------------------------------ chemins posés par un agent (relecture de P6)
+
+
+@POSIX
+def test_dossier_de_tentative_piege_par_un_lien_refuse(banc, tmp_path):
+    """Moyenne (relecture de P6) : /tmp/acp est inscriptible par le groupe des agents. Un lien posé à la place du
+    dossier d'une carte était SUIVI par root (``mkdir(exist_ok=True)``, ``chown``, ``chmod``) : mode de la cible changé,
+    dossiers créés dedans. Il est désormais refusé ; rien n'est suivi ni lancé."""
+    cible = tmp_path / "cible"
+    cible.mkdir()
+    os.chmod(cible, 0o700)
+    banc.emplacements.tmp.mkdir(parents=True, exist_ok=True)
+    (banc.emplacements.tmp / "t_ab12cd34").symlink_to(cible, target_is_directory=True)
+    banc.jouer(ECRIT)
+    issue = banc.executer(banc.carte())
+    assert issue.route == "bloquer" and issue.corps["genre"] == "capacite", issue.corps
+    assert "piégé" in issue.corps["raison"]
+    assert stat.S_IMODE(os.stat(cible).st_mode) == 0o700 and list(cible.iterdir()) == []
+    assert not [i for i in banc.invocations() if i.get("outil")]
+
+
+@POSIX
+def test_reponse_de_codex_en_lien_jamais_suivie(tmp_path):
+    """Basse (relecture de P6) : root lisait ``reponse.json`` (dossier de acp-codex) par ``read_text`` : un lien y
+    était suivi, et le fichier visé devenait la sortie de la carte. Il est désormais refusé (fichier ordinaire exigé,
+    lu sans suivre de lien, 64 Kio au plus) : carte bloquée, rien du fichier visé n'est envoyé."""
+    banc = Banc(tmp_path / "banc", isolement=ISOLEMENT_A, depot={"acces": "jeton_lecture"})
+    banc.depots.jeton_lecture = lambda: "github_pat_" + "f" * 30
+    piege = tmp_path / "piege.json"
+    piege.write_text(json.dumps({"issue": "termine", "resume": "Lu par root au travers d'un lien.", "question": None,
+                                 "verdict": None, "corrections": None}), encoding="utf-8")
+    banc.jouer(dict(ECRIT, reponse_lien=str(piege)))
+    issue = banc.executer(banc.carte(voie="poste-codex", modele="gpt-test", effort="high"))
+    assert issue.route == "bloquer" and issue.corps["genre"] == "capacite", issue.corps
+    assert "Lu par root" not in json.dumps(banc.hermes.envois, ensure_ascii=False)
 
 
 def test_base_perdue_retrouvee_par_l_ancetre_commun(banc):
