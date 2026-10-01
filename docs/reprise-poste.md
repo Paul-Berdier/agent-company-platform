@@ -1909,8 +1909,26 @@ diagnostic, sortie de la sonde).
   `c20124d` : **vert** — 38 tests de l'image, sonde B et témoin A (restriction AppArmor du lanceur 1 → 0, consignée),
   suite en root dans l'image **750 réussis, 20 ignorés**. Premier run (`3c63bec`) rouge : témoin A en B sur le
   lanceur GitHub (`/proc` neuf refusé, cause masquée par un avertissement de Codex) ; corrigé par `c20124d`.
-- `ci.yml` vert sur chaque commit de cette partie ; `image.yml` (bout en bout compris) : voir la note de fin de partie
-  ci-dessous.
+- `image.yml` [36892387102](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36892387102) sur
+  `f9b5032` : **vert** — contrat **164 réussis** (158 + les 6 du bout en bout avec le vrai exécutant), navigateur 8 ;
+  [36892623742](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36892623742) sur `32f7f85`, dernier
+  commit qui déclenche `image.yml` : vert, 164 et 8 ;
+  [36888645780](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36888645780) sur `10dc18e` (IaC à
+  trois services, `test_railway_iac_contrat.py` compris) : vert, contrat 158, navigateur 8 ;
+- `ci.yml` vert sur chaque commit de cette partie ; sur `eb55afa`
+  ([36894084340](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36894084340)) : Windows 898
+  réussis et 69 ignorés, Linux 919 réussis et 48 ignorés, interface 120, moteur 74 ; `executant.yml` sur `eb55afa`
+  ([36894084716](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36894084716)) : vert, 38 et 750
+  réussis (20 ignorés).
+- Suite complète en local sous Windows (`python -m pytest`, venv sans `cryptography`) : 867 réussis, 66 ignorés,
+  5 échecs et 29 erreurs **d'environnement** — les 29 erreurs sont l'absence de `cryptography` dans ce venv (les mêmes
+  tests de contrat, relancés dans un venv qui l'a : 33 réussis, 2 échecs de délai : `test_reponse_hors_contrat_refusee`
+  réussit seul, `test_ordre_releve_moins_de_3_s` échoue aussi seul, 6,3 s pour 3 s attendues, comme sur la pointe de
+  P5 relevé en première partie) ; les 5 échecs
+  sont des tests temporisés d'arbre de processus (`test_local_runner.py`, `test_arret_d_arbre_confirme`), dont ni le
+  code ni les tests n'ont changé depuis `57be7a8` : ils échouent aussi sur un export de `57be7a8` (deux des quatre de
+  `test_local_runner.py` au même essai, `test_arret_d_arbre_confirme` deux fois sur deux) sur ce PC chargé ; la CI
+  Windows les passe.
 
 ### Non fait (dit)
 

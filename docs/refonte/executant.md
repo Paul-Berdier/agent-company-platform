@@ -212,7 +212,18 @@ Intégration continue :
   consignée) ; suite en root dans l'image : **750 réussis, 20 ignorés**. Les tests propres à root, ignorés par la CI
   Linux sans root depuis la deuxième partie, tournent donc en CI ici. Premier run (`3c63bec`) rouge : témoin A en B
   sur le lanceur GitHub (`/proc` neuf refusé), cause masquée par un avertissement de Codex ; corrigé par `c20124d`.
-- `ci.yml` et `image.yml` : voir [reprise-poste.md § 6 octies](../reprise-poste.md).
+- `image.yml` run [36892387102](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36892387102)
+  sur `f9b5032` : **vert** — contrat **164 réussis** (dont les 6 du bout en bout avec le vrai exécutant), navigateur
+  8 réussis ; même résultat sur `32f7f85`, dernier commit qui déclenche `image.yml` (run
+  [36892623742](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36892623742) : 164 et 8) ; sur
+  `10dc18e` (IaC à trois services) : run
+  [36888645780](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36888645780) vert, contrat 158.
+- `ci.yml` vert sur chaque commit de la troisième partie ; sur `eb55afa`, run
+  [36894084340](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36894084340) : Windows 898 réussis
+  et 69 ignorés, Linux 919 réussis et 48 ignorés (tests de l'image et de `verifier-binaires` sous Windows : ignorés,
+  avec leur raison), interface 120, moteur 74 ; `executant.yml` sur `eb55afa` :
+  [36894084716](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36894084716) vert, 38 tests de
+  l'image et 750 réussis, 20 ignorés en root dans l'image.
 
 ## 12. Sur Railway, avec vos gestes (à faire)
 
