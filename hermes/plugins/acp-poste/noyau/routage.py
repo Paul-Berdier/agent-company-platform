@@ -756,6 +756,8 @@ def vue_routage(conn) -> Dict[str, Any]:
         "politique_poste": politique_poste,
         "surcharges": surcharges_globales(conn),
         "releve_factice": cat["releve_factice"],
+        # Étape P6 (D59, « résolution observée en P6 ») : modèle servi rapporté par l'exécutant, par alias.
+        "resolutions_observees": resolutions_observees(conn),
     }
 
 

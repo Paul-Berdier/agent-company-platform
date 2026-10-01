@@ -269,6 +269,15 @@ export interface VueRoutage {
   politique_poste?: PolitiquePoste | null;
   surcharges?: Surcharge[];
   releve_factice?: boolean;
+  resolutions_observees?: ResolutionObservee[];
+}
+
+/** Modèle servi observé à l'exécution pour un alias (étape P6, D59). */
+export interface ResolutionObservee {
+  voie?: string;
+  alias?: string | null;
+  modele_servi?: string;
+  observe_le?: number;
 }
 
 // ------------------------------------------------------------------ quotas

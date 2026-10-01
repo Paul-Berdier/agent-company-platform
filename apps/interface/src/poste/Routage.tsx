@@ -4,7 +4,7 @@
 // seule, surcharges globales, « Accepter ce relevé comme celui de mon compte ». Les refus de l'API sont rendus tels
 // quels, entrée par entrée.
 import { T } from "../chaines";
-import { BlocErreur, Carte, Donnee, EnChargement } from "../commun";
+import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { h, useState, type Noeud } from "../react";
 import { Bouton, Etiquette, Horodatage, RetourEnvoi } from "../projets/briques";
 import { useEnvoi } from "../projets/envoi";
@@ -14,7 +14,7 @@ import { EditeurClasse } from "./EditeurClasse";
 import { libelleBadge, libelleClasse, libelleVoie } from "./libelles";
 import { PolitiqueDuPoste, PolitiqueHermes } from "./Politique";
 import { Surcharges } from "./Surcharges";
-import type { Entree, VoieCatalogue, VueRoutage } from "./types";
+import type { Entree, ResolutionObservee, VoieCatalogue, VueRoutage } from "./types";
 
 function Liste(props: { voie: string; catalogue: VoieCatalogue | undefined; apres: () => void }): Noeud {
   const c = props.catalogue;
@@ -144,6 +144,35 @@ function Table(props: { vue: VueRoutage; apres: () => void }): Noeud {
   );
 }
 
+/** Étape P6 : modèle servi observé par alias (jamais supposé : vide tant qu'aucune carte n'est terminée). */
+function Resolutions(props: { resolutions: ResolutionObservee[] }): Noeud {
+  return (
+    <Carte titre={T.poste.resolutionsTitre} id="acp-poste-resolutions">
+      <p className="acp-discret">{T.poste.resolutionsAide}</p>
+      {props.resolutions.length === 0 ? (
+        <p className="acp-discret">{T.poste.aucuneResolution}</p>
+      ) : (
+        props.resolutions.map((r, rang) => (
+          <dl key={`${r.voie ?? ""}-${r.alias ?? rang}`} className="acp-liste">
+            <Ligne libelle={T.poste.executant.voie}>
+              <Donnee valeur={r.voie} mono />
+            </Ligne>
+            <Ligne libelle={T.poste.aliasObserve}>
+              <Donnee valeur={r.alias} mono />
+            </Ligne>
+            <Ligne libelle={T.poste.executant.modeleServi}>
+              <Donnee valeur={r.modele_servi} mono />
+            </Ligne>
+            <Ligne libelle={T.poste.observeeLe}>
+              <Horodatage valeur={r.observe_le} />
+            </Ligne>
+          </dl>
+        ))
+      )}
+    </Carte>
+  );
+}
+
 export function Routage(props: { jeton: number; apres: () => void }): Noeud {
   const lecture = useSondage(lireRoutage, props.jeton);
   const vue = lecture.valeur;
@@ -169,6 +198,7 @@ export function Routage(props: { jeton: number; apres: () => void }): Noeud {
           ))}
         </div>
       </Carte>
+      <Resolutions resolutions={Array.isArray(vue.resolutions_observees) ? vue.resolutions_observees : []} />
       <Table key={cleTable} vue={vue} apres={props.apres} />
       <PolitiqueHermes vue={vue} apres={props.apres} />
       <PolitiqueDuPoste politique={vue.politique_poste} />

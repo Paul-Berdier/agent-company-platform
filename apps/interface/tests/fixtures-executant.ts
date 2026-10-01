@@ -2,22 +2,23 @@
 // l'image de test construite depuis l'arbre de refonte/hermes-p6 (routeur du greffon, couture par jeton de Hermes,
 // session factice, HERMES_HOME jetable) : exécutant Railway enrôlé avec l'inventaire Linux de l'exemple partagé
 // (hermes/tests/outils/fixtures_machine/inventaire_requete_linux.json, régime B), sans carte, avec une carte en
-// main (battement puis réclamation), carte en revue pour des fichiers de pilotage (GET /v1/questions), revue
-// acceptée, puis branche intégrée prête. Rien n'est modifié à la main.
+// main (battement puis réclamation), routage après la première carte terminée (résolution observée), carte en
+// revue pour des fichiers de pilotage (GET /v1/questions), revue acceptée, puis branche intégrée prête. Rien n'est
+// modifié à la main.
 export const FORMES_EXECUTANT = {
   "poste_executant_sans_carte": {
     "poste": {
       "pause_reclamations": false,
       "cartes_en_attente": 0,
       "poste": {
-        "id": "mf068d54bcfa",
+        "id": "m3b7783ebfe4",
         "nom": "Exécutant Railway",
         "etat": "actif",
-        "empreinte": "4417-C95E",
+        "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
         "version_poste": "0.11.0",
-        "cree_le": 1790851674,
-        "confirme_le": 1790851674,
+        "cree_le": 1790853175,
+        "confirme_le": 1790853175,
         "revoque_le": null,
         "motif_revocation": null,
         "derniere_requete": null,
@@ -26,21 +27,21 @@ export const FORMES_EXECUTANT = {
         "hote": "railway"
       },
       "etat": "hors_ligne",
-      "machine": "mf068d54bcfa",
+      "machine": "m3b7783ebfe4",
       "message": "Poste confirmé mais jamais vu depuis : démarrez son service (tâche planifiée).",
       "derniere_vue": null,
       "hors_ligne_depuis": null
     },
     "machine": {
       "machine": {
-        "id": "mf068d54bcfa",
+        "id": "m3b7783ebfe4",
         "nom": "Exécutant Railway",
         "etat": "actif",
-        "empreinte": "4417-C95E",
+        "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
         "version_poste": "0.11.0",
-        "cree_le": 1790851674,
-        "confirme_le": 1790851674,
+        "cree_le": 1790853175,
+        "confirme_le": 1790853175,
         "revoque_le": null,
         "motif_revocation": null,
         "derniere_requete": null,
@@ -57,9 +58,9 @@ export const FORMES_EXECUTANT = {
     },
     "inventaire": {
       "id": 1,
-      "machine_id": "mf068d54bcfa",
-      "recu_le": 1790851674,
-      "releve_le": 1790851674,
+      "machine_id": "m3b7783ebfe4",
+      "recu_le": 1790853175,
+      "releve_le": 1790853175,
       "contenu": {
         "alertes": [
           "Écriture Codex non admise sur l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture."
@@ -86,7 +87,7 @@ export const FORMES_EXECUTANT = {
           "raison": "Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
           "regime": "B",
           "reseau_coupe": false,
-          "sonde_le": "2026-10-01T10:47:54Z",
+          "sonde_le": "2026-10-01T11:12:55Z",
           "uid_separes": true
         },
         "politique": {
@@ -128,7 +129,7 @@ export const FORMES_EXECUTANT = {
           "windows": null
         },
         "protocole": "acp-machine/1",
-        "releve_le": "2026-10-01T10:47:54Z",
+        "releve_le": "2026-10-01T11:12:55Z",
         "releves": {
           "poste-claude": 2,
           "poste-codex": 1
@@ -161,8 +162,8 @@ export const FORMES_EXECUTANT = {
         "poste-codex": {
           "etat": "a_jour",
           "releve_id": 1,
-          "releve_le": 1790851674,
-          "releve_le_lisible": "01/10/2026 12:47",
+          "releve_le": 1790853175,
+          "releve_le_lisible": "01/10/2026 13:12",
           "age_s": 0,
           "perime": false,
           "source": "poste",
@@ -248,7 +249,7 @@ export const FORMES_EXECUTANT = {
               "credits": null,
               "limit_reached": false,
               "reached_type": null,
-              "observed_at": "2026-10-01T10:47:54Z",
+              "observed_at": "2026-10-01T11:12:55Z",
               "detail": null
             }
           ],
@@ -258,8 +259,8 @@ export const FORMES_EXECUTANT = {
         "poste-claude": {
           "etat": "a_jour",
           "releve_id": 2,
-          "releve_le": 1790851674,
-          "releve_le_lisible": "01/10/2026 12:47",
+          "releve_le": 1790853175,
+          "releve_le_lisible": "01/10/2026 13:12",
           "age_s": 0,
           "perime": false,
           "source": "poste",
@@ -421,7 +422,7 @@ export const FORMES_EXECUTANT = {
         "raison": "Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
         "regime": "B",
         "reseau_coupe": false,
-        "sonde_le": "2026-10-01T10:47:54Z",
+        "sonde_le": "2026-10-01T11:12:55Z",
         "uid_separes": true
       },
       "bac_a_sable_codex": null,
@@ -451,42 +452,42 @@ export const FORMES_EXECUTANT = {
       "pause_reclamations": false,
       "cartes_en_attente": 0,
       "poste": {
-        "id": "mf068d54bcfa",
+        "id": "m3b7783ebfe4",
         "nom": "Exécutant Railway",
         "etat": "actif",
-        "empreinte": "4417-C95E",
+        "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
         "version_poste": "0.11.0",
-        "cree_le": 1790851674,
-        "confirme_le": 1790851674,
+        "cree_le": 1790853175,
+        "confirme_le": 1790853175,
         "revoque_le": null,
         "motif_revocation": null,
-        "derniere_requete": 1790851676,
+        "derniere_requete": 1790853176,
         "politique_valide": true,
         "plateforme": "linux",
         "hote": "railway"
       },
-      "machine": "mf068d54bcfa",
+      "machine": "m3b7783ebfe4",
       "message": null,
       "etat": "en_ligne",
-      "derniere_vue": 1790851676,
-      "derniere_vue_lisible": "01/10/2026 12:47",
+      "derniere_vue": 1790853176,
+      "derniere_vue_lisible": "01/10/2026 13:12",
       "hors_ligne_depuis": null,
       "source": "longpoll"
     },
     "machine": {
       "machine": {
-        "id": "mf068d54bcfa",
+        "id": "m3b7783ebfe4",
         "nom": "Exécutant Railway",
         "etat": "actif",
-        "empreinte": "4417-C95E",
+        "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
         "version_poste": "0.11.0",
-        "cree_le": 1790851674,
-        "confirme_le": 1790851674,
+        "cree_le": 1790853175,
+        "confirme_le": 1790853175,
         "revoque_le": null,
         "motif_revocation": null,
-        "derniere_requete": 1790851676,
+        "derniere_requete": 1790853176,
         "politique_valide": true,
         "plateforme": "linux",
         "hote": "railway"
@@ -500,9 +501,9 @@ export const FORMES_EXECUTANT = {
     },
     "inventaire": {
       "id": 1,
-      "machine_id": "mf068d54bcfa",
-      "recu_le": 1790851674,
-      "releve_le": 1790851674,
+      "machine_id": "m3b7783ebfe4",
+      "recu_le": 1790853175,
+      "releve_le": 1790853175,
       "contenu": {
         "alertes": [
           "Écriture Codex non admise sur l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture."
@@ -529,7 +530,7 @@ export const FORMES_EXECUTANT = {
           "raison": "Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
           "regime": "B",
           "reseau_coupe": false,
-          "sonde_le": "2026-10-01T10:47:54Z",
+          "sonde_le": "2026-10-01T11:12:55Z",
           "uid_separes": true
         },
         "politique": {
@@ -571,7 +572,7 @@ export const FORMES_EXECUTANT = {
           "windows": null
         },
         "protocole": "acp-machine/1",
-        "releve_le": "2026-10-01T10:47:54Z",
+        "releve_le": "2026-10-01T11:12:55Z",
         "releves": {
           "poste-claude": 2,
           "poste-codex": 1
@@ -604,9 +605,9 @@ export const FORMES_EXECUTANT = {
         "poste-codex": {
           "etat": "a_jour",
           "releve_id": 1,
-          "releve_le": 1790851674,
-          "releve_le_lisible": "01/10/2026 12:47",
-          "age_s": 7,
+          "releve_le": 1790853175,
+          "releve_le_lisible": "01/10/2026 13:12",
+          "age_s": 6,
           "perime": false,
           "source": "poste",
           "version_cli": "0.156.1",
@@ -691,7 +692,7 @@ export const FORMES_EXECUTANT = {
               "credits": null,
               "limit_reached": false,
               "reached_type": null,
-              "observed_at": "2026-10-01T10:47:54Z",
+              "observed_at": "2026-10-01T11:12:55Z",
               "detail": null
             }
           ],
@@ -701,9 +702,9 @@ export const FORMES_EXECUTANT = {
         "poste-claude": {
           "etat": "a_jour",
           "releve_id": 2,
-          "releve_le": 1790851674,
-          "releve_le_lisible": "01/10/2026 12:47",
-          "age_s": 7,
+          "releve_le": 1790853175,
+          "releve_le_lisible": "01/10/2026 13:12",
+          "age_s": 6,
           "perime": false,
           "source": "poste",
           "version_cli": "2.1.283",
@@ -864,7 +865,7 @@ export const FORMES_EXECUTANT = {
         "raison": "Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
         "regime": "B",
         "reseau_coupe": false,
-        "sonde_le": "2026-10-01T10:47:54Z",
+        "sonde_le": "2026-10-01T11:12:55Z",
         "uid_separes": true
       },
       "bac_a_sable_codex": null,
@@ -888,11 +889,11 @@ export const FORMES_EXECUTANT = {
       },
       "cartes_en_attente_de_voie": [],
       "carte_en_cours": {
-        "tableau": "acp-outil-jetable-23d7",
-        "carte": "t_316c7363",
+        "tableau": "acp-outil-jetable-478d",
+        "carte": "t_26154e05",
         "run_id": 1,
         "connue": true,
-        "projet": "p_a883da9cebb3",
+        "projet": "p_5f53c3fba1f3",
         "projet_titre": "Outil jetable",
         "titre": "Exploration du dépôt « jetable »",
         "role": "exploration",
@@ -901,12 +902,493 @@ export const FORMES_EXECUTANT = {
         "modele_servi": null,
         "effort": "low",
         "statut": "running",
-        "dernier_battement": 1790851676,
+        "dernier_battement": 1790853176,
         "a_nous": true
       },
       "branches_pretes": [],
       "revues": 0
     }
+  },
+  "routage_resolution": {
+    "voies": {
+      "poste-codex": {
+        "etat": "a_jour",
+        "releve_id": 1,
+        "releve_le": 1790853175,
+        "releve_le_lisible": "01/10/2026 13:12",
+        "age_s": 7,
+        "perime": false,
+        "source": "poste",
+        "version_cli": "0.156.1",
+        "modeles": [
+          {
+            "id": "factice-codex-1",
+            "displayName": "Factice 1",
+            "isDefault": true,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [
+              "default",
+              "priority"
+            ],
+            "defaultServiceTier": "default",
+            "modele": "factice-codex-1",
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "catalogue_compte",
+            "resolution_documentee": null,
+            "source_efforts": "releve"
+          },
+          {
+            "id": "factice-codex-2",
+            "displayName": "Factice 2",
+            "isDefault": false,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium"
+            ],
+            "defaultReasoningEffort": "low",
+            "serviceTiers": [
+              "default"
+            ],
+            "defaultServiceTier": "default",
+            "modele": "factice-codex-2",
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "catalogue_compte",
+            "resolution_documentee": null,
+            "source_efforts": "releve"
+          }
+        ],
+        "quotas": {
+          "pourcentage_utilise": 41.0,
+          "remise_a_zero": "2026-09-26T12:00:00Z"
+        },
+        "depots": [
+          "jetable"
+        ],
+        "etat_releve": "ok",
+        "origine_liste": "compte",
+        "detail": null,
+        "documentation_lue_le": null,
+        "compteurs": [
+          {
+            "provider": "codex",
+            "status": "ok",
+            "source": "codex_app_server",
+            "plan": "prolite",
+            "limit_id": "codex",
+            "windows": [
+              {
+                "key": "primary",
+                "used_percent": 41,
+                "window_minutes": 300,
+                "resets_at": "2026-09-26T12:00:00Z"
+              },
+              {
+                "key": "secondary",
+                "used_percent": 12,
+                "window_minutes": 10080,
+                "resets_at": "2026-09-30T08:00:00Z"
+              }
+            ],
+            "credits": null,
+            "limit_reached": false,
+            "reached_type": null,
+            "observed_at": "2026-10-01T11:12:55Z",
+            "detail": null
+          }
+        ],
+        "badge": "releve_du_compte",
+        "badge_libelle": "Relevé du compte"
+      },
+      "poste-claude": {
+        "etat": "a_jour",
+        "releve_id": 2,
+        "releve_le": 1790853175,
+        "releve_le_lisible": "01/10/2026 13:12",
+        "age_s": 7,
+        "perime": false,
+        "source": "poste",
+        "version_cli": "2.1.283",
+        "modeles": [
+          {
+            "id": "opus",
+            "displayName": "opus",
+            "isDefault": null,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [],
+            "defaultServiceTier": null,
+            "modele": null,
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "alias_documente",
+            "resolution_documentee": "claude-opus-5-5",
+            "source_efforts": "documentation"
+          },
+          {
+            "id": "opus[1m]",
+            "displayName": "opus[1m]",
+            "isDefault": null,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [],
+            "defaultServiceTier": null,
+            "modele": null,
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "alias_documente",
+            "resolution_documentee": "claude-opus-5-5",
+            "source_efforts": "documentation"
+          },
+          {
+            "id": "haiku",
+            "displayName": "haiku",
+            "isDefault": null,
+            "supportedReasoningEfforts": [],
+            "defaultReasoningEffort": null,
+            "serviceTiers": [],
+            "defaultServiceTier": null,
+            "modele": null,
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "alias_documente",
+            "resolution_documentee": null,
+            "source_efforts": "documentation"
+          }
+        ],
+        "quotas": null,
+        "depots": [
+          "jetable"
+        ],
+        "etat_releve": "ok",
+        "origine_liste": "alias_documentes",
+        "detail": null,
+        "documentation_lue_le": "2026-09-26",
+        "compteurs": [],
+        "badge": "alias_documentes",
+        "badge_libelle": "Alias documentés"
+      }
+    },
+    "releves": {
+      "poste-codex": 1,
+      "poste-claude": 2
+    },
+    "classes": {
+      "exploration": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "poste-claude",
+          "poste-codex"
+        ],
+        "suggestion": {
+          "entrees": [],
+          "remarques": [
+            "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut.",
+            "Refusé par ACP : la voie poste-codex est fermée sur l'exécutant : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture."
+          ],
+          "libelle": null
+        }
+      },
+      "planification": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "hermes"
+        ],
+        "suggestion": {
+          "entrees": [
+            {
+              "voie": "hermes",
+              "modele": null,
+              "effort": null,
+              "palier": "default"
+            }
+          ],
+          "remarques": [],
+          "libelle": null
+        }
+      },
+      "synthese": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "hermes"
+        ],
+        "suggestion": {
+          "entrees": [
+            {
+              "voie": "hermes",
+              "modele": null,
+              "effort": null,
+              "palier": "default"
+            }
+          ],
+          "remarques": [],
+          "libelle": null
+        }
+      },
+      "repondre": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "hermes"
+        ],
+        "suggestion": {
+          "entrees": [
+            {
+              "voie": "hermes",
+              "modele": null,
+              "effort": null,
+              "palier": "default"
+            }
+          ],
+          "remarques": [],
+          "libelle": null
+        }
+      },
+      "recherche_web": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "hermes"
+        ],
+        "suggestion": {
+          "entrees": [
+            {
+              "voie": "hermes",
+              "modele": null,
+              "effort": null,
+              "palier": "default"
+            }
+          ],
+          "remarques": [],
+          "libelle": null
+        }
+      },
+      "architecture": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "poste-codex",
+          "poste-claude",
+          "hermes"
+        ],
+        "suggestion": {
+          "entrees": [
+            {
+              "voie": "hermes",
+              "modele": null,
+              "effort": null,
+              "palier": "default"
+            }
+          ],
+          "remarques": [
+            "Refusé par ACP : la voie poste-codex est fermée sur l'exécutant : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
+            "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+          ],
+          "libelle": null
+        }
+      },
+      "implementation": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "suggestion": {
+          "entrees": [],
+          "remarques": [
+            "Refusé par ACP : la voie poste-codex est fermée sur l'exécutant : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
+            "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+          ],
+          "libelle": null
+        }
+      },
+      "debogage_tests": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "suggestion": {
+          "entrees": [],
+          "remarques": [
+            "Refusé par ACP : la voie poste-codex est fermée sur l'exécutant : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
+            "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+          ],
+          "libelle": null
+        }
+      },
+      "petite_tache": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "suggestion": {
+          "entrees": [],
+          "remarques": [
+            "Refusé par ACP : la voie poste-codex est fermée sur l'exécutant : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
+            "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+          ],
+          "libelle": null
+        }
+      },
+      "documentation": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "poste-codex",
+          "poste-claude",
+          "hermes"
+        ],
+        "suggestion": {
+          "entrees": [
+            {
+              "voie": "hermes",
+              "modele": null,
+              "effort": null,
+              "palier": "default"
+            }
+          ],
+          "remarques": [
+            "Refusé par ACP : la voie poste-codex est fermée sur l'exécutant : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
+            "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+          ],
+          "libelle": null
+        }
+      },
+      "relecture": {
+        "etat": "non_validee",
+        "entrees": [],
+        "source": null,
+        "valide_le": null,
+        "valide_par": null,
+        "voies": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "suggestion": {
+          "entrees": [],
+          "remarques": [
+            "Refusé par ACP : la voie poste-codex est fermée sur l'exécutant : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
+            "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+          ],
+          "libelle": null
+        }
+      }
+    },
+    "politique_hermes": {
+      "efforts_interdits": [
+        "max",
+        "ultra",
+        "ultracode"
+      ],
+      "paliers_admis": [
+        "default"
+      ],
+      "efforts_hors_enveloppe": [
+        "max",
+        "ultra",
+        "ultracode"
+      ],
+      "confirmation": "J'accepte une dépense hors enveloppe"
+    },
+    "politique_poste": {
+      "alias_claude_permis": [
+        "opus",
+        "sonnet"
+      ],
+      "cartes_par_jour": 20,
+      "concurrence": 1,
+      "conditions": {
+        "claude": "2026-10-01",
+        "codex": "2026-10-01"
+      },
+      "duree_max_carte_s": 3600,
+      "efforts_interdits": [
+        "max",
+        "ultra",
+        "ultracode"
+      ],
+      "executants": [
+        "codex",
+        "claude"
+      ],
+      "modeles_codex_permis": [],
+      "paliers_admis": [
+        "default"
+      ],
+      "reseau_executants": false
+    },
+    "surcharges": [],
+    "releve_factice": false,
+    "resolutions_observees": [
+      {
+        "voie": "poste-claude",
+        "alias": "opus",
+        "modele_servi": "factice-servi-1",
+        "observe_le": 1790853181,
+        "observe_le_lisible": "01/10/2026 13:13"
+      }
+    ]
   },
   "questions_revue": {
     "questions": [],
@@ -915,10 +1397,10 @@ export const FORMES_EXECUTANT = {
     "tableaux_illisibles": [],
     "revues": [
       {
-        "projet": "p_a883da9cebb3",
+        "projet": "p_5f53c3fba1f3",
         "projet_titre": "Outil jetable",
-        "tableau": "acp-outil-jetable-23d7",
-        "carte": "t_8d8689bd",
+        "tableau": "acp-outil-jetable-478d",
+        "carte": "t_6f644e87",
         "titre": "Implémentation — e1 : Écrire",
         "role": "implementation",
         "voie": "poste-claude",
@@ -931,7 +1413,7 @@ export const FORMES_EXECUTANT = {
           "fichiers": 1,
           "retraits": 0
         },
-        "branche": "hermes/t_8d8689bd",
+        "branche": "hermes/t_6f644e87",
         "tete": "2222222222222222222222222222222222222222",
         "resume": "Ajout d'un contrôle de CI.",
         "diff": "Le diff reste sur l'exécutant (branche locale) : ACP n'en affiche aucun aperçu ; récupérez la branche pour le lire."
@@ -939,7 +1421,7 @@ export const FORMES_EXECUTANT = {
     ]
   },
   "revue_acceptee": {
-    "carte": "t_8d8689bd",
+    "carte": "t_6f644e87",
     "etat": "done"
   },
   "poste_executant_branche": {
@@ -947,42 +1429,42 @@ export const FORMES_EXECUTANT = {
       "pause_reclamations": false,
       "cartes_en_attente": 0,
       "poste": {
-        "id": "mf068d54bcfa",
+        "id": "m3b7783ebfe4",
         "nom": "Exécutant Railway",
         "etat": "actif",
-        "empreinte": "4417-C95E",
+        "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
         "version_poste": "0.11.0",
-        "cree_le": 1790851674,
-        "confirme_le": 1790851674,
+        "cree_le": 1790853175,
+        "confirme_le": 1790853175,
         "revoque_le": null,
         "motif_revocation": null,
-        "derniere_requete": 1790851682,
+        "derniere_requete": 1790853182,
         "politique_valide": true,
         "plateforme": "linux",
         "hote": "railway"
       },
-      "machine": "mf068d54bcfa",
+      "machine": "m3b7783ebfe4",
       "message": null,
       "etat": "en_ligne",
-      "derniere_vue": 1790851682,
-      "derniere_vue_lisible": "01/10/2026 12:48",
+      "derniere_vue": 1790853182,
+      "derniere_vue_lisible": "01/10/2026 13:13",
       "hors_ligne_depuis": null,
       "source": "longpoll"
     },
     "machine": {
       "machine": {
-        "id": "mf068d54bcfa",
+        "id": "m3b7783ebfe4",
         "nom": "Exécutant Railway",
         "etat": "actif",
-        "empreinte": "4417-C95E",
+        "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
         "version_poste": "0.11.0",
-        "cree_le": 1790851674,
-        "confirme_le": 1790851674,
+        "cree_le": 1790853175,
+        "confirme_le": 1790853175,
         "revoque_le": null,
         "motif_revocation": null,
-        "derniere_requete": 1790851682,
+        "derniere_requete": 1790853182,
         "politique_valide": true,
         "plateforme": "linux",
         "hote": "railway"
@@ -996,9 +1478,9 @@ export const FORMES_EXECUTANT = {
     },
     "inventaire": {
       "id": 1,
-      "machine_id": "mf068d54bcfa",
-      "recu_le": 1790851674,
-      "releve_le": 1790851674,
+      "machine_id": "m3b7783ebfe4",
+      "recu_le": 1790853175,
+      "releve_le": 1790853175,
       "contenu": {
         "alertes": [
           "Écriture Codex non admise sur l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture."
@@ -1025,7 +1507,7 @@ export const FORMES_EXECUTANT = {
           "raison": "Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
           "regime": "B",
           "reseau_coupe": false,
-          "sonde_le": "2026-10-01T10:47:54Z",
+          "sonde_le": "2026-10-01T11:12:55Z",
           "uid_separes": true
         },
         "politique": {
@@ -1067,7 +1549,7 @@ export const FORMES_EXECUTANT = {
           "windows": null
         },
         "protocole": "acp-machine/1",
-        "releve_le": "2026-10-01T10:47:54Z",
+        "releve_le": "2026-10-01T11:12:55Z",
         "releves": {
           "poste-claude": 2,
           "poste-codex": 1
@@ -1100,9 +1582,9 @@ export const FORMES_EXECUTANT = {
         "poste-codex": {
           "etat": "a_jour",
           "releve_id": 1,
-          "releve_le": 1790851674,
-          "releve_le_lisible": "01/10/2026 12:47",
-          "age_s": 8,
+          "releve_le": 1790853175,
+          "releve_le_lisible": "01/10/2026 13:12",
+          "age_s": 7,
           "perime": false,
           "source": "poste",
           "version_cli": "0.156.1",
@@ -1187,7 +1669,7 @@ export const FORMES_EXECUTANT = {
               "credits": null,
               "limit_reached": false,
               "reached_type": null,
-              "observed_at": "2026-10-01T10:47:54Z",
+              "observed_at": "2026-10-01T11:12:55Z",
               "detail": null
             }
           ],
@@ -1197,9 +1679,9 @@ export const FORMES_EXECUTANT = {
         "poste-claude": {
           "etat": "a_jour",
           "releve_id": 2,
-          "releve_le": 1790851674,
-          "releve_le_lisible": "01/10/2026 12:47",
-          "age_s": 8,
+          "releve_le": 1790853175,
+          "releve_le_lisible": "01/10/2026 13:12",
+          "age_s": 7,
           "perime": false,
           "source": "poste",
           "version_cli": "2.1.283",
@@ -1360,7 +1842,7 @@ export const FORMES_EXECUTANT = {
         "raison": "Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture.",
         "regime": "B",
         "reseau_coupe": false,
-        "sonde_le": "2026-10-01T10:47:54Z",
+        "sonde_le": "2026-10-01T11:12:55Z",
         "uid_separes": true
       },
       "bac_a_sable_codex": null,
@@ -1385,13 +1867,13 @@ export const FORMES_EXECUTANT = {
       "carte_en_cours": null,
       "branches_pretes": [
         {
-          "projet": "p_a883da9cebb3",
+          "projet": "p_5f53c3fba1f3",
           "projet_titre": "Outil jetable",
           "depot": "jetable",
-          "branche": "hermes/projet-outil-jetable-23d7",
+          "branche": "hermes/projet-outil-jetable-478d",
           "tete": "2222222222222222222222222222222222222222",
-          "termine_le": 1790851682,
-          "commande": "railway ssh -i <clé dédiée> --service executant -- acp-poste bundle jetable hermes/projet-outil-jetable-23d7"
+          "termine_le": 1790853182,
+          "commande": "railway ssh -i <clé dédiée> --service executant -- acp-poste bundle jetable hermes/projet-outil-jetable-478d"
         }
       ],
       "revues": 0

@@ -1,13 +1,14 @@
 // Page Poste et page Questions de l'étape P6 sur les formes RÉELLES des routes (tests/fixtures-executant.ts) :
 // isolement mesuré (« Inconnu » sans sonde), conditions d'usage, carte en cours, voies fermées, branches prêtes avec
 // la commande de récupération (aucun bouton « Pousser »), revues des fichiers de pilotage (« Accepter », « Refuser »
-// avec un motif exigé) ; chaque bouton appelle la route réelle ; aucun texte hors du catalogue.
+// avec un motif exigé), résolutions observées du routage ; chaque bouton appelle la route réelle ; aucun texte hors du
+// catalogue.
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { h } from "../src/react";
 import { Poste } from "../src/poste/Poste";
 import { Projets } from "../src/projets/Projets";
-import { ROUTE_POSTE } from "../src/poste/api";
+import { ROUTE_POSTE, ROUTE_ROUTAGE } from "../src/poste/api";
 import { ROUTE_PROJETS, ROUTE_QUESTIONS, routeAccepterRevue, routeRefuserRevue } from "../src/projets/api";
 import { CATALOGUE } from "./catalogue-chaines";
 import { FORMES_EXECUTANT } from "./fixtures-executant";
@@ -135,6 +136,32 @@ describe("page Poste : exécutant Railway (P6)", () => {
     expect(texteDe(zone(r.racine, "acp-poste-etat"))).toContain("État du poste");
     expect(texteDe(zone(r.racine, "acp-poste-conditions"))).toContain(
       "Non publiées par ce poste (inventaire de l'étape P5).");
+  });
+});
+
+describe("vue Routage : résolutions observées (P6, D59)", () => {
+  it("modèle servi rapporté par l'exécutant pour l'alias, tel que l'API le renvoie", async () => {
+    aller("/poste?vue=routage");
+    installerSdk({ [ROUTE_ROUTAGE]: F.routage_resolution });
+    const r = await rendre(h(Poste, null));
+    const [observee] = F.routage_resolution.resolutions_observees;
+    const R = "acp-poste-resolutions";
+    expect(valeur(r.racine, R, "Voie")).toBe(observee.voie);
+    expect(valeur(r.racine, R, "Alias demandé")).toBe(observee.alias);
+    expect(valeur(r.racine, R, "Modèle servi")).toBe(observee.modele_servi);
+    expect(valeur(r.racine, R, "Observée le")).not.toBe("Inconnu");
+    expect(texteDe(zone(r.racine, R))).not.toContain("Aucune résolution observée");
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+  });
+
+  it("aucune carte terminée : rien n'est supposé", async () => {
+    aller("/poste?vue=routage");
+    const vide = JSON.parse(JSON.stringify(F.routage_resolution));
+    vide.resolutions_observees = [];
+    installerSdk({ [ROUTE_ROUTAGE]: vide });
+    const r = await rendre(h(Poste, null));
+    expect(texteDe(zone(r.racine, "acp-poste-resolutions"))).toContain(
+      "Aucune résolution observée : l'exécutant n'a encore terminé aucune carte.");
   });
 });
 

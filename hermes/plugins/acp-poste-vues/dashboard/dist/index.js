@@ -379,7 +379,7 @@
     },
     poste: {
       titre: "Poste",
-      intro: "Le poste Windows qui ex\xE9cutera vos projets sur d\xE9p\xF4t\xA0: enr\xF4lement, \xE9tat, routage des ex\xE9cutants et quotas relev\xE9s.",
+      intro: "Le poste qui ex\xE9cute vos projets sur d\xE9p\xF4t (ex\xE9cutant Railway, ou poste Windows)\xA0: enr\xF4lement, \xE9tat, isolement, carte en cours, routage des ex\xE9cutants et quotas relev\xE9s.",
       navigation: "Vues du poste",
       vueEtat: "Poste",
       vueRoutage: "Routage",
@@ -440,7 +440,7 @@
       compteUidDedie: "Un compte Linux d\xE9di\xE9 par agent (ex\xE9cutant Railway)",
       windows: "Windows",
       python: "Python",
-      empreintePolitique: "Empreinte de poste.toml",
+      empreintePolitique: "Empreinte de la politique (poste.toml ou executant.toml)",
       versionsTitre: "Versions des CLI",
       lue: "Lue",
       testee: "Test\xE9e",
@@ -562,6 +562,11 @@
       },
       routageIntro: "Chaque \xE9tape d'un projet part vers la premi\xE8re entr\xE9e admise de sa classe. Les listes viennent du relev\xE9 du poste\xA0; rien n'est devin\xE9, et ce que le poste interdit reste interdit.",
       listesTitre: "Listes relev\xE9es",
+      resolutionsTitre: "R\xE9solutions observ\xE9es",
+      resolutionsAide: "Mod\xE8le r\xE9ellement servi pour chaque alias, rapport\xE9 par l'ex\xE9cutant \xE0 la fin de ses cartes.",
+      aucuneResolution: "Aucune r\xE9solution observ\xE9e\xA0: l'ex\xE9cutant n'a encore termin\xE9 aucune carte.",
+      aliasObserve: "Alias demand\xE9",
+      observeeLe: "Observ\xE9e le",
       aucunReleve: "Aucun relev\xE9\xA0: le poste n'a encore rien publi\xE9.",
       aucunModele: "Aucun mod\xE8le dans ce relev\xE9.",
       modeles: "Mod\xE8les",
@@ -1711,6 +1716,9 @@
       }
     ))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: T.poste.validerTable, principal: true, surClic: valider, desactive: envoi.etat.etat === "envoi" || vide })), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat, reussite: T.poste.tableValidee }), refus.length > 0 ? /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert" }, /* @__PURE__ */ h("p", null, T.poste.refusDeLaTable), /* @__PURE__ */ h("ul", { className: "acp-liste" }, refus.map((r, i) => /* @__PURE__ */ h("li", { key: i }, /* @__PURE__ */ h(Donnee, { valeur: libelleClasse(r.classe) ?? r.classe }), " ", /* @__PURE__ */ h("span", null, T.poste.rang), " ", /* @__PURE__ */ h(Donnee, { valeur: typeof r.rang === "number" ? r.rang + 1 : null }), " ", /* @__PURE__ */ h(Donnee, { valeur: r.message }))))) : null);
   }
+  function Resolutions(props) {
+    return /* @__PURE__ */ h(Carte, { titre: T.poste.resolutionsTitre, id: "acp-poste-resolutions" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.resolutionsAide), props.resolutions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucuneResolution) : props.resolutions.map((r, rang) => /* @__PURE__ */ h("dl", { key: `${r.voie ?? ""}-${r.alias ?? rang}`, className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.voie }, /* @__PURE__ */ h(Donnee, { valeur: r.voie, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.aliasObserve }, /* @__PURE__ */ h(Donnee, { valeur: r.alias, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.modeleServi }, /* @__PURE__ */ h(Donnee, { valeur: r.modele_servi, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.observeeLe }, /* @__PURE__ */ h(Horodatage, { valeur: r.observe_le })))));
+  }
   function Routage(props) {
     const lecture = useSondage(lireRoutage, props.jeton);
     const vue = lecture.valeur;
@@ -1719,7 +1727,7 @@
     }
     const voies = vue.voies ?? {};
     const cleTable = JSON.stringify(vue.releves ?? {});
-    return /* @__PURE__ */ h("div", { className: "acp-sections" }, lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.actualisationImpossible) : null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.routageIntro), /* @__PURE__ */ h(Carte, { titre: T.poste.listesTitre, id: "acp-poste-listes" }, /* @__PURE__ */ h("div", { className: "acp-grille" }, ["poste-codex", "poste-claude"].map((voie) => /* @__PURE__ */ h(Liste, { key: voie, voie, catalogue: voies[voie], apres: props.apres })))), /* @__PURE__ */ h(Table, { key: cleTable, vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueHermes, { vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueDuPoste, { politique: vue.politique_poste }), /* @__PURE__ */ h(Surcharges, { vue, apres: props.apres }));
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.actualisationImpossible) : null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.routageIntro), /* @__PURE__ */ h(Carte, { titre: T.poste.listesTitre, id: "acp-poste-listes" }, /* @__PURE__ */ h("div", { className: "acp-grille" }, ["poste-codex", "poste-claude"].map((voie) => /* @__PURE__ */ h(Liste, { key: voie, voie, catalogue: voies[voie], apres: props.apres })))), /* @__PURE__ */ h(Resolutions, { resolutions: Array.isArray(vue.resolutions_observees) ? vue.resolutions_observees : [] }), /* @__PURE__ */ h(Table, { key: cleTable, vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueHermes, { vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueDuPoste, { politique: vue.politique_poste }), /* @__PURE__ */ h(Surcharges, { vue, apres: props.apres }));
   }
 
   // src/poste/vue.ts
