@@ -220,3 +220,18 @@ def test_budget_du_jour(tmp_path):
     budget.compter(secondes=1800, maintenant=MAINTENANT)
     assert budget.ouvert(MAINTENANT)[0] is False and "1 h" in budget.ouvert(MAINTENANT)[1]
     assert budget.ouvert(MAINTENANT + timedelta(days=1)) == (True, None)
+
+
+def test_caracteres_de_controle_retires_de_la_sortie():
+    """Relecture de P6 : un NUL dans le résumé, la question ou la consigne de correction était refusé par le contrat
+    (file de sortie bloquée) ou faisait échouer le commit (« embedded null byte »). Les caractères de contrôle sont
+    retirés ; tabulation, saut de ligne et retour chariot sont gardés."""
+    sortie = valider_sortie({"issue": "question", "resume": "Fait\x00.\nSuite\tici\x1b[31m", "question": "Base ?\x00\x07",
+                             "verdict": None, "corrections": None}, relecture=False)
+    assert sortie.resume == "Fait.\nSuite\tici[31m" and sortie.question == "Base ?"
+    relue = valider_sortie({"issue": "termine", "resume": "Relu.", "question": None, "verdict": "corrections",
+                            "corrections": "Ajouter\x00 un test.\x7f"}, relecture=True)
+    assert relue.corrections == "Ajouter un test."
+    with pytest.raises(SortieInvalide, match="résumé vide"):
+        valider_sortie({"issue": "termine", "resume": "\x00\x01", "question": None, "verdict": None,
+                        "corrections": None}, relecture=False)

@@ -28,7 +28,7 @@ from acp_poste.garde_quota import Budget, QuotasClaude
 from acp_poste.journal import Journal
 from acp_poste.plateforme.linux import EmplacementsLinux
 from acp_poste.politique import analyser_executant
-from acp_poste.protocole import HermesIndisponible
+from acp_poste.protocole import HermesIndisponible, RefusAvantEnvoi
 from acp_poste.sortie import FileSortie
 from acp_poste_contrat import machine as contrat
 
@@ -603,3 +603,33 @@ def test_base_perdue_retrouvee_par_l_ancetre_commun(banc):
     seconde = banc.executer(banc.carte(run_id=18)).corps["metadonnees"]
     assert seconde["base"] == premiere["base"]
     assert seconde["diffstat"]["fichiers"] == 2  # nouveau.py et suite.txt, jamais README.md de la base
+
+
+def test_nul_dans_la_sortie_de_l_agent_retire_avant_commit_et_envoi(banc):
+    """Relecture de P6 : un NUL dans le résumé faisait lever ValueError au commit (titre tiré du résumé), hors de toute
+    reprise : la carte restait réclamée jusqu'à son échéance, puis était resservie. Retiré à la validation."""
+    banc.jouer(dict(ECRIT, sortie={"issue": "termine", "resume": "Travail fait.\x00", "question": None,
+                                   "verdict": None, "corrections": None}))
+    issue = banc.executer(banc.carte())
+    assert issue.route == "terminer" and issue.envoyee and issue.corps["resume"] == "Travail fait."
+    sujet = _git(banc.depots.nu("jetable"), "log", "-1", "--format=%s", "hermes/t_ab12cd34")
+    assert sujet == "implementation(t_ab12cd34): Travail fait."
+
+
+def test_issue_refusee_avant_l_envoi_devient_un_blocage(banc):
+    """Une issue que le contrat refuse côté exécutant (cas résiduel) est rangée dans sortie/refusees et Hermes reçoit
+    un ``bloquer(capacite)`` composé ici, sans rien du contenu refusé, au lieu d'attendre l'échéance."""
+    banc.jouer(ECRIT)
+    envoyer = banc.execution.envoyer
+
+    def refuser_terminer(route, corps):
+        if route == "terminer":
+            raise RefusAvantEnvoi("Envoi « terminer » refusé par le contrat : test. Rien n'a été envoyé.")
+        return envoyer(route, corps)
+
+    banc.execution.envoyer = refuser_terminer
+    issue = banc.executer(banc.carte())
+    assert issue.route == "bloquer" and issue.envoyee and issue.corps["genre"] == "capacite"
+    assert "refusée par le contrat de l'exécutant avant l'envoi" in issue.corps["raison"]
+    assert banc.execution.sortie.en_attente() == []
+    assert len(list((banc.emplacements.sortie / "refusees").iterdir())) == 1

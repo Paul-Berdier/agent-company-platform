@@ -291,6 +291,10 @@ class ServiceExecutant(Service):
             return False
         resultats, refus = await asyncio.to_thread(self.sortie.rejouer, self._envoyer)
         for resultat in resultats:
+            if resultat.deplace and resultat.refus is not None and resultat.refus.code != "reclamation_perdue":
+                self.journal.ecrire("erreur", "issue_hors_contrat", f"Issue « {resultat.route} » de la file refusée "
+                                    f"par le contrat avant l'envoi, rangée dans sortie/refusees : "
+                                    f"{resultat.refus.message[:300]}", carte=resultat.corps.get("carte"))
             if resultat.route in ("reprendre", "arret") and getattr(resultat.reponse, "etat", None) == "deja_libre":
                 en_main = self.execution.carte_en_main()
                 if en_main and en_main.get("carte") == resultat.corps.get("carte"):

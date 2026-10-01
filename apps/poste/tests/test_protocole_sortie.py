@@ -14,7 +14,7 @@ import pytest
 
 from acp_poste.client_hermes import ErreurReseau, ReponseHTTP
 from acp_poste.jeton import Jeton
-from acp_poste.protocole import HermesIndisponible, HorsContrat, JetonRefuse, Protocole, Refus
+from acp_poste.protocole import HermesIndisponible, HorsContrat, JetonRefuse, Protocole, Refus, RefusAvantEnvoi
 from acp_poste.sortie import FileSortie, nouvel_id_envoi
 from acp_poste_contrat import machine as contrat
 
@@ -191,3 +191,24 @@ def test_ordre_garde_dans_la_meme_tranche_d_horloge_et_apres_un_recul(tmp_path):
     deposes.append(file.deposer("bloquer", _corps("bloquer_requete"), maintenant=instant - timedelta(hours=1)))
     assert file.en_attente() == deposes
     assert [f.name.split("-")[1] for f in deposes] == ["000000", "000001", "000002", "000003"]
+
+
+def test_refus_avant_envoi_range_et_la_file_continue(tmp_path):
+    """Relecture de P6 : une requête que le contrat refuse CÔTÉ EXÉCUTANT (ici un NUL dans la question) restait en tête
+    de la file, et chaque rejeu s'arrêtait sur elle (plus aucune réclamation). Ce refus est définitif : la requête est
+    rangée dans sortie/refusees, la suivante part."""
+    file = FileSortie(tmp_path / "sortie")
+    question = _corps("question_requete")
+    question["texte"] = "Quelle base ?\x00"
+    a = file.deposer("question", question)
+    b = file.deposer("terminer", _corps("terminer_requete"))
+    client = FauxClient((200, exemple("terminer_reponse")))
+    protocole = Protocole(client)
+    with pytest.raises(RefusAvantEnvoi, match="NUL"):
+        protocole.envoyer(JETON, "question", question)
+    resultats, arret = file.rejouer(lambda route, corps: protocole.envoyer(JETON, route, corps))
+    assert arret is None and [r.route for r in resultats] == ["question", "terminer"]
+    assert resultats[0].deplace and isinstance(resultats[0].refus, RefusAvantEnvoi)
+    assert resultats[1].retire and file.en_attente() == []
+    assert [p.name for p in (tmp_path / "sortie" / "refusees").iterdir()] == [a.name] and not b.exists()
+    assert [vu[0] for vu in client.vus] == [f"{contrat.PREFIXE_ROUTES}/terminer"]

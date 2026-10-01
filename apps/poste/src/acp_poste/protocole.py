@@ -95,6 +95,11 @@ class HorsContrat(Refus):
     """Réponse de Hermes hors du contrat partagé : rien n'est fait."""
 
 
+class RefusAvantEnvoi(Refus):
+    """Requête refusée CÔTÉ POSTE, avant tout envoi (contrat, borne de taille, route inconnue) : DÉFINITIF, la même
+    requête serait refusée à chaque essai (relecture de P6 : la file de sortie s'y bloquait)."""
+
+
 def _json(reponse: ReponseHTTP) -> Any:
     try:
         return json.loads(reponse.corps.decode("utf-8"))
@@ -159,7 +164,7 @@ class Protocole:
                 delai_lecture_s: float) -> ReponseHTTP:
         donnees = json.dumps(corps, ensure_ascii=False).encode("utf-8")
         if len(donnees) > limite:
-            raise Refus(f"Requête du poste refusée avant l'envoi : corps de plus de {limite // 1024} Kio.")
+            raise RefusAvantEnvoi(f"Requête du poste refusée avant l'envoi : corps de plus de {limite // 1024} Kio.")
         entetes = {"Authorization": porteur, "Content-Type": "application/json", "Accept": "application/json",
                    "User-Agent": USER_AGENT, "X-ACP-Protocole": PROTOCOLE}
         try:
@@ -202,12 +207,12 @@ class Protocole:
         """Une des six routes de l'exécution (P6) : requête validée par le contrat AVANT l'envoi, réponse après."""
         chemin = f"{PREFIXE_ROUTES}/{route}"
         if chemin not in MODELES_P6:
-            raise Refus(f"Route machine inconnue : {route}.")
+            raise RefusAvantEnvoi(f"Route machine inconnue : {route}.")
         requete, reponse_modele, borne = MODELES_P6[chemin]
         try:
             valider(getattr(contrat, requete), corps, quoi=f"Envoi « {route} » refusé par le contrat")
         except ValueError as exc:
-            raise Refus(f"{exc} Rien n'a été envoyé.") from None
+            raise RefusAvantEnvoi(f"{exc} Rien n'a été envoyé.") from None
         reponse = self._poster(chemin, corps, jeton.en_tete(), limite=borne, delai_lecture_s=60)
         return _valide(getattr(contrat, reponse_modele), classer(reponse, 200), f"Réponse à « {route} » refusée")
 

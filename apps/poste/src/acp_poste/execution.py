@@ -53,7 +53,7 @@ from .evenements import SortieInvalide, lire_flux_claude, lire_flux_codex, sorti
 from .garde_quota import Budget, QuotasClaude, codex_ouverte
 from .journal import masquer
 from .local_runner import FencedSpawnError, spawn_fenced_process, terminate_process_tree
-from .protocole import HermesIndisponible, HorsContrat, JetonRefuse, Refus, TropFrequent
+from .protocole import HermesIndisponible, HorsContrat, JetonRefuse, Refus, RefusAvantEnvoi, TropFrequent
 from .sonde_plateforme import PROFIL, profil_codex_toml
 from .sortie import FileSortie, nouvel_id_envoi
 from .verrou import Verrou, VerrouOccupe
@@ -273,6 +273,19 @@ class Execution:
             return IssueCarte(route, corps)
         if resultat is None:
             return IssueCarte(route, corps)
+        if isinstance(resultat.refus, RefusAvantEnvoi):
+            # Refusée par le contrat AVANT l'envoi (rangée dans sortie/refusees) : Hermes est prévenu par un blocage
+            # composé ici, sans rien du contenu refusé, plutôt que d'attendre l'échéance de la réclamation.
+            self.journal.ecrire("erreur", "issue_hors_contrat", f"Issue « {route} » refusée par le contrat avant "
+                                f"l'envoi, rangée dans sortie/refusees : {resultat.refus.message[:300]}",
+                                carte=corps.get("carte"))
+            if route == "bloquer":
+                return IssueCarte(route, corps, envoyee=False)
+            repli = {"id_envoi": nouvel_id_envoi(), "tableau": corps.get("tableau"), "carte": corps.get("carte"),
+                     "run_id": corps.get("run_id"), "genre": "capacite",
+                     "raison": f"Issue « {route} » refusée par le contrat de l'exécutant avant l'envoi : carte "
+                               "bloquée, rien de son contenu n'est transmis."}
+            return self.emettre("bloquer", repli)
         if resultat.refus is not None:
             self.journal.ecrire("erreur", "issue_refusee", f"Issue « {route} » refusée par Hermes : "
                                 f"{resultat.refus.message}", carte=corps.get("carte"), code=resultat.refus.code)

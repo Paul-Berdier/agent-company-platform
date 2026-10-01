@@ -24,7 +24,7 @@ import pytest
 from acp_poste.contexte import Contexte
 from acp_poste.depots import Depots
 from acp_poste.plateforme.linux import CoffreFichiers, EmplacementsLinux
-from acp_poste.protocole import JetonRefuse, PosteRevoque
+from acp_poste.protocole import JetonRefuse, PosteRevoque, Protocole
 from acp_poste.service import Repli
 from acp_poste.service_executant import ServiceExecutant, servir_executant
 from acp_poste.sortie import FileSortie, nouvel_id_envoi
@@ -358,3 +358,32 @@ async def test_arret_brutal_pendant_la_preparation_reprend_sans_compter(banc):
     assert "reprendre" in banc.protocole.routes() and "bloquer" not in banc.protocole.routes()
     session = json.loads((banc.emplacements.sessions / "t_ab12cd34.json").read_text(encoding="utf-8"))
     assert session["oom"] == 1
+
+
+async def test_issue_hors_contrat_en_file_ne_bloque_plus_les_reclamations(banc):
+    """Relecture de P6 (reproduction de la relecture) : une question avec un NUL, refusée par le contrat AVANT l'envoi
+    (vrai ``Protocole.envoyer``), restait en tête de la file : plus aucun ``reclamer``. Elle est rangée dans
+    sortie/refusees, journalisée, et les réclamations reprennent."""
+
+    class ClientJamaisAppele:
+        def echanger(self, *_a, **_k):
+            raise AssertionError("le contrat aurait dû refuser avant l'envoi")
+
+        def interrompre(self):
+            pass
+
+    banc.coffre.ecrire("jeton-machine", JETON)
+    banc.protocole.envoyer = Protocole(ClientJamaisAppele()).envoyer
+    corps = json.loads((EXEMPLES / "question_requete.json").read_text(encoding="utf-8"))
+    corps["id_envoi"] = nouvel_id_envoi()
+    corps["texte"] = "Quelle base ?\x00"
+    FileSortie(banc.emplacements.sortie).deposer("question", corps)
+    tache = asyncio.create_task(banc.servir())
+    reclame = await _jusqu_a(lambda: "reclamer" in banc.protocole.routes(), delai_s=15.0)
+    banc.arret.set()
+    await asyncio.wait_for(tache, 10)
+    assert reclame
+    assert FileSortie(banc.emplacements.sortie).en_attente() == []
+    assert len(list(banc.emplacements.sortie_refusees.iterdir())) == 1
+    journal = "".join(f.read_text(encoding="utf-8") for f in banc.emplacements.journal.glob("*"))
+    assert "issue_hors_contrat" in journal and "NUL" in journal

@@ -32,6 +32,10 @@ TEXTE_MAX = 4000
 ISSUES = ("termine", "question", "echec")
 OUTILS_CLAUDE_INTERDITS = ("Bash", "BashOutput", "KillShell", "WebFetch", "WebSearch", "Task", "NotebookEdit")
 _LIMITE = re.compile(r"(?i)usage limit|rate limit|quota|too many requests|429")
+# Caractères de contrôle retirés des textes de l'agent (tabulation, saut de ligne et retour chariot gardés) : le NUL est
+# refusé par le contrat, et il faisait échouer le commit (« embedded null byte ») ; les autres n'ont aucun sens dans un
+# résumé ni dans un message de commit (relecture de P6).
+_CONTROLES = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 SCHEMA_SORTIE = {
     "type": "object",
@@ -65,7 +69,7 @@ def _texte(valeur: Any, maximum: int) -> str | None:
         return None
     if not isinstance(valeur, str):
         raise SortieInvalide("Sortie structurée de l'agent : champ texte attendu.")
-    valeur = valeur.strip()
+    valeur = _CONTROLES.sub("", valeur).strip()
     if len(valeur) > maximum:
         valeur = valeur[: maximum - 12].rstrip() + " [tronqué]"
     return valeur or None

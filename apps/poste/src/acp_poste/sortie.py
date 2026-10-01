@@ -6,6 +6,9 @@ dans ``/donnees/acp/sortie/<horodatage>-<rang>-<id_envoi>.json`` (root, 0600), *
 
 - 2xx : retrait du fichier ;
 - 409 ``reclamation_perdue`` : déplacé dans ``sortie/refusees/`` (diagnostic), sans effet dans ACP ;
+- refus du contrat CÔTÉ EXÉCUTANT, avant l'envoi (:class:`acp_poste.protocole.RefusAvantEnvoi`) : déplacé dans
+  ``sortie/refusees/`` ; la file continue (relecture de P6 : le fichier restait en tête et plus rien n'était
+  réclamé) ;
 - autre 4xx définitif (contrat, carte inconnue, secret détecté…) : retrait, journalisé par l'appelant ;
 - réseau, 5xx, 429, 401 ambigu de la couture : le fichier reste ; le rejeu s'arrête là pour garder l'ORDRE.
 
@@ -24,7 +27,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .coffre import ecrire_atomiquement
-from .protocole import HermesIndisponible, HorsContrat, JetonRefuse, PosteRevoque, Refus, TropFrequent
+from .protocole import (HermesIndisponible, HorsContrat, JetonRefuse, PosteRevoque, Refus, RefusAvantEnvoi,
+                        TropFrequent)
 
 ROUTES_FILE = ("terminer", "question", "bloquer", "reprendre", "arret")
 FICHIERS_MAX = 1000
@@ -105,6 +109,10 @@ class FileSortie:
             reponse = envoi(route, corps)
         except (HermesIndisponible, TropFrequent, JetonRefuse, PosteRevoque, HorsContrat):
             raise
+        except RefusAvantEnvoi as exc:
+            # Définitif : jamais envoyable tel quel. Rangé pour le diagnostic ; la file continue.
+            self._ranger(fichier)
+            return ResultatEnvoi(route, corps, refus=exc, deplace=True)
         except Refus as exc:
             if exc.statut is None or not 400 <= exc.statut < 500:
                 raise
