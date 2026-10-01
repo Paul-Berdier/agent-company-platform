@@ -611,10 +611,26 @@ ajouterait un fait échouer ce test, à revoir alors.
 Validation locale (01/10/2026, Windows 10, Python 3.12.10 python.org, pwsh 7.6.6 et Windows PowerShell
 5.1.19041.6456 ; Docker arrêté sur ce PC, tests d'image, de contrat et navigateur confiés à la CI « Image Hermes ») :
 
-- dépôt (`pytest -q -rs`) : **616 réussis, 3 ignorés** (propres à Linux), **1 échec environnemental** connu
-  (`test_ordre_releve_moins_de_3_s` : 5,64 s sur ce PC chargé ; il échoue aussi sur `6aa569f` ici, vert en CI) ;
 - installeur et désinstalleur en simulation : **42 vérifications réussies, 1 cas ignoré** (aucun Python 3.12 « tous
   utilisateurs » ici), 0 échec, sous pwsh 7.6.6 **et** sous Windows PowerShell 5.1 ; état du PC identique ;
 - Vitest **112** (16 fichiers), `tsc` vert, bundles régénérés et identiques aux sources ;
 - version, verrous (17 et 5 épingles), gel du moteur, catalogue, thèmes, secrets (arbre et plage `6aa569f..HEAD`) :
-  code 0 ; `git diff --check` propre sur la plage et sur chaque commit ; LF ; aucun `Co-Authored-By`.
+  code 0 ; `git diff --check` propre sur la plage et sur chaque commit ; LF ; aucun `Co-Authored-By` ;
+- dépôt au sommet `a6b62ff` : **619 réussis, 3 ignorés, 0 échec** (178 s). Un passage précédent, PC chargé, avait
+  donné 5 échecs de délai ou d'arrêt d'arbre (`test_ordre_releve_moins_de_3_s`, quatre tests de `test_local_runner.py`
+  en 26 s au lieu de 3 s) : **les mêmes** échouaient au même moment avec les sources de `6aa569f`, puis tous ont
+  réussi trois fois de suite ; aucun de ces fichiers n'est touché par les corrections.
+
+Intégration continue (01/10/2026), **verte** au sommet :
+
+- `image.yml` [36801621751](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36801621751) (`f69dcce`, correction du constat 1) : image **629** réussis (dont
+  `test_decouverte_des_greffons_reussit`, rouge sur `a428867` et `d051e05`), contrat **150**, navigateur **7** ;
+  [36803236279](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36803236279) (`1ee8ae1`) et [36803251876](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36803251876) (`11b1d52`) : verts ;
+  [36803742778](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36803742778) (`c5cb6dc`, dernier état de `hermes/` et de l'interface) : image **629**, contrat
+  **150** (dont `test_machine_contrat` 11 sur 11, nouvelle forme de la commande), navigateur **7** (page Poste au bureau
+  et au téléphone) ;
+- `ci.yml` [36803850929](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36803850929) (`a6b62ff`) : Windows **616 réussis, 6 ignorés** ; installeur en
+  simulation **56 vérifications réussies, 0 cas ignoré, 0 échec** sous PowerShell 7 **et** sous Windows PowerShell 5.1
+  (cas « installation acceptée » exigé, Python copié sous Program Files) ; ubuntu **602 réussis, 20 ignorés** ;
+  interface **112** ; moteur **74**. Les runs `ci.yml` de `f69dcce` et `4735966` étaient rouges (décisions D67 à D73
+  citées avant d'être définies), corrigé par `daf5aaa`.
