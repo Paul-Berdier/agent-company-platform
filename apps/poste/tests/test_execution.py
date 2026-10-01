@@ -633,3 +633,29 @@ def test_issue_refusee_avant_l_envoi_devient_un_blocage(banc):
     assert "refusée par le contrat de l'exécutant avant l'envoi" in issue.corps["raison"]
     assert banc.execution.sortie.en_attente() == []
     assert len(list((banc.emplacements.sortie / "refusees").iterdir())) == 1
+
+
+def test_commande_de_verification_introuvable_sans_reprise_de_l_agent(tmp_path):
+    """Relecture de P6 : avec la forme « uv » de executant.toml (uv absent de l'image), chaque carte finissait en
+    « Vérification en échec » après deux reprises inutiles de l'agent (quota consommé), raison vide. Code 127 : état
+    dit, raison donnée, aucune reprise."""
+    banc = Banc(tmp_path / "banc", depot={"verification": ("outil-absent-acp", "run", "-q")})
+    banc.jouer(ECRIT)
+    issue = banc.executer(banc.carte())
+    v = issue.corps["metadonnees"]["verification"]
+    assert issue.route == "terminer" and (v["etat"], v["code"], v["tentatives"]) == ("echouee", 127, 1), v
+    assert v["raison"].startswith("Commande de vérification introuvable sur l'exécutant (code 127)")
+    assert issue.corps["resume"].startswith("Vérification impossible (outil introuvable sur l'exécutant) : ")
+    assert len([i for i in banc.invocations() if i.get("outil") == "claude"]) == 1
+
+
+def test_preparation_introuvable_dite_sans_verification_ni_reprise(tmp_path):
+    banc = Banc(tmp_path / "banc", depot={"preparation": ("outil-absent-acp", "sync", "--frozen")})
+    banc.jouer(ECRIT)
+    issue = banc.executer(banc.carte())
+    v = issue.corps["metadonnees"]["verification"]
+    assert (v["etat"], v["code"], v["tentatives"]) == ("echouee", 127, 0), v
+    assert v["raison"].startswith("Préparation des dépendances introuvable sur l'exécutant (code 127)")
+    assert len([i for i in banc.invocations() if i.get("outil") == "claude"]) == 1
+    # Préparation non marquée faite : elle sera retentée à la reprise, après correction de la politique.
+    assert not banc.execution.session("t_ab12cd34").get("prepare")

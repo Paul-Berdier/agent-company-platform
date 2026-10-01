@@ -209,3 +209,24 @@ def test_droits_du_fichier_et_des_binaires(tmp_path):
     emplacements.codex_par_defaut.unlink()
     with pytest.raises(PolitiqueRefusee, match=r"\[codex\] executable : fichier introuvable"):
         verifier_droits(politique, proprietaire=moi)
+
+
+def forme_commentee() -> str:
+    """Bloc ``[depots.jetable]`` commenté de la politique versionnée, décommenté, gabarits remplacés."""
+    texte = (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8")
+    lignes = texte.split("# [depots.jetable]", 1)[1].splitlines()
+    bloc = ["[depots.jetable]"] + [l[2:] for l in lignes if l.startswith("# ")]
+    return "\n".join(bloc).replace("<propriétaire>", "proprietaire").replace("<dépôt-jetable>", "jetable") + "\n"
+
+
+def test_forme_commentee_du_depot_acceptee(tmp_path):
+    """La forme commentée que railway.md § 13.6 fait reprendre est acceptée par la politique ; sa vérification
+    n'exige que des outils de l'image (ni uv, ni pytest : relecture de P6), éprouvée dans l'image par
+    executant/tests/test_image.py::test_forme_commentee_du_depot_dans_l_image."""
+    emplacements = EmplacementsLinux.de_test(tmp_path)
+    texte = (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8").replace(
+        'origine = "https://<libellé-hermes>.up.railway.app"', 'origine = "https://hermes-acp-test.up.railway.app"')
+    politique = analyser_executant((texte + "\n" + forme_commentee()).encode("utf-8"), emplacements)
+    depot = politique.depot("jetable")
+    assert depot.verification[0] == "python3.12" and depot.preparation == ()
+    assert not {"uv", "pytest", "npm", "node"} & set(depot.verification)

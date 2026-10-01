@@ -81,6 +81,14 @@ CONSIGNE_RELECTURE = ("Tu RELIS la carte {relue} : son diff est dans {lecture}/d
 CONSIGNE_EXPLORATION = "Lecture seule : explore et décris le dépôt pour la planification ; ne modifie rien."
 SUITE_VERIF = ("La vérification a échoué (code {code}). Fin de la sortie :\n{fin}\nCorrige puis termine par l'objet "
                "JSON imposé.")
+CODE_INTROUVABLE = 127
+# Code 127 : commande absente de l'image (relecture de P6 : la forme « uv » de executant.toml finissait en trois appels
+# de l'agent sommé de « corriger » un outil absent). Ni reprise de l'agent, ni succès simulé : la raison est dite.
+VERIF_INTROUVABLE = ("Commande de vérification introuvable sur l'exécutant (code 127) : outil absent de l'image ; "
+                     "corrigez [depots.<alias>] verification dans executant.toml (outils de l'image : railway.md § 13.6).")
+PREPARATION_INTROUVABLE = ("Préparation des dépendances introuvable sur l'exécutant (code 127) : outil absent de "
+                           "l'image ; corrigez [depots.<alias>] preparation dans executant.toml (outils de l'image : "
+                           "railway.md § 13.6).")
 SUITE_REPRISE = "Reprise de la carte {carte}.{reponses}\nTermine par l'objet JSON imposé."
 
 
@@ -445,13 +453,17 @@ class Execution:
         verification_raison = None if demande.role not in ROLES_LECTURE else "Lecture seule : aucune vérification."
         if verification_raison is None:
             verification_raison = self._verification_possible(depot)
+        introuvable = None
         if verification_raison is None and depot.preparation and not connue.get("prepare"):
             self._noter_carte(demande, "preparation_dependances")
             code, _fin = await self._commande_verif(demande, depot, chemin, tmp, depot.preparation, bac=False,
                                                     reseau=True)
-            self._noter_session(demande.carte, prepare=True)
-            self.journal.ecrire("info", "preparation", f"Préparation des dépendances : code {code}.",
-                                carte=demande.carte)
+            if code == CODE_INTROUVABLE:
+                introuvable = PREPARATION_INTROUVABLE
+            else:
+                self._noter_session(demande.carte, prepare=True)
+            self.journal.ecrire("avertissement" if introuvable else "info", "preparation",
+                                introuvable or f"Préparation des dépendances : code {code}.", carte=demande.carte)
         lecture = self.lanceur.dossier(tmp / "lecture", None, 0o750)
         if demande.role == "relecture" and demande.carte_relue:
             relue = self.session(demande.carte_relue)
@@ -501,13 +513,17 @@ class Execution:
                 raise CarteRefusee("capacite", f"{exc} (code de sortie {resultat.code}) : carte bloquée.") from None
             if sortie.issue != "termine" or demande.role in ROLES_LECTURE or verification_raison is not None:
                 break
+            if introuvable:
+                verification = {"etat": "echouee", "code": CODE_INTROUVABLE, "tentatives": 0, "raison": introuvable}
+                break
             tentatives += 1
             self._noter_carte(demande, "verification", tentative=tentatives)
             code, fin, duree = await self._verifier(demande, depot, chemin, tmp)
             verification = {"etat": "reussie" if code == 0 else "echouee", "code": code, "duree_s": duree,
                             "tentatives": tentatives, "raison": None if code == 0 else
-                            ("Délai de vérification dépassé." if code is None else None)}
-            if code == 0 or tentatives > depot.reprises_verification:
+                            ("Délai de vérification dépassé." if code is None else
+                             VERIF_INTROUVABLE if code == CODE_INTROUVABLE else None)}
+            if code in (0, CODE_INTROUVABLE) or tentatives > depot.reprises_verification:
                 break
             consigne = SUITE_VERIF.format(code=code, fin=fin or "(aucune sortie)")
         if verification["etat"] == "non_executee":
@@ -516,6 +532,8 @@ class Execution:
             verification = {"etat": "non_executee", "raison": raison, "tentatives": 0}
         if sortie.issue == "echec":
             resume = f"Échec déclaré par l'agent : {sortie.resume}"
+        elif verification["etat"] == "echouee" and verification.get("code") == CODE_INTROUVABLE:
+            resume = f"Vérification impossible (outil introuvable sur l'exécutant) : {sortie.resume}"
         elif verification["etat"] == "echouee":
             resume = f"Vérification en échec : {sortie.resume}"
         else:
@@ -573,7 +591,8 @@ class Execution:
         if raison is None:
             code, _fin, duree = await self._verifier(demande, depot, chemin, tmp)
             verification = {"etat": "reussie" if code == 0 else "echouee", "code": code, "duree_s": duree,
-                            "tentatives": 1, "raison": None if code is not None else "Délai de vérification dépassé."}
+                            "tentatives": 1, "raison": "Délai de vérification dépassé." if code is None else
+                            (VERIF_INTROUVABLE if code == CODE_INTROUVABLE else None)}
         else:
             verification = {"etat": "non_executee", "raison": raison, "tentatives": 0}
         branches = ", ".join(demande.branches_a_integrer)

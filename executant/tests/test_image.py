@@ -452,6 +452,39 @@ print(json.dumps(resultats))
     assert "unknown option '--option-inconnue'" in resultat["inconnue"]
 
 
+def test_forme_commentee_du_depot_dans_l_image(image):
+    """Relecture de P6 : la forme commentée de executant.toml (que railway.md § 13.6 fait reprendre) exigeait uv et
+    pytest, absents de l'image : chaque carte finissait en « Vérification en échec » (code 127). Sa vérification tourne
+    désormais dans l'image, sous acp-verif comme le superviseur la lance : code 0 sur un dépôt dont les tests passent,
+    1 s'ils échouent ; uv, pytest, node et npm sont bien absents (dit dans railway.md § 13.6)."""
+    import shlex
+
+    texte = (EXECUTANT / "politique" / "executant.toml").read_text(encoding="utf-8")
+    lignes = texte.split("# [depots.jetable]", 1)[1].splitlines()
+    depot = tomllib.loads("\n".join(l[2:] for l in lignes if l.startswith("# ")))
+    assert depot["preparation"] == []
+    verification = " ".join(shlex.quote(a) for a in depot["verification"])
+    script = f"""
+set -u
+mkdir -p /tmp/w/tests && cd /tmp/w && git init -q .
+printf 'import unittest\\n\\nclass T(unittest.TestCase):\\n    def test_ok(self):\\n        self.assertEqual(1 + 1, 2)\\n' \\
+    > tests/test_ok.py
+chown -R 10003:10003 /tmp/w
+lancer() {{ env -i HOME=/home/acp-verif PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 setpriv --reuid=10003 \\
+    --regid=10003 --groups=10100 --no-new-privs -- {verification} >/dev/null 2>&1; echo $?; }}
+echo "reussie=$(lancer)"
+printf 'import unittest\\n\\nclass U(unittest.TestCase):\\n    def test_ko(self):\\n        self.fail("non")\\n' \\
+    > tests/test_ko.py && chown 10003:10003 tests/test_ko.py
+echo "echouee=$(lancer)"
+for outil in uv pytest node npm; do command -v "$outil" >/dev/null && echo "present=$outil"; done
+python3.12 -c 'import pytest' 2>/dev/null && echo present=module-pytest
+echo fin
+"""
+    resultat = lancer(image, "-c", script, options=("--network", "none"))
+    afficher("forme commentée du dépôt, vérification dans l'image", resultat.stdout + resultat.stderr[-1000:])
+    assert resultat.stdout.split() == ["reussie=0", "echouee=1", "fin"], resultat.stdout + resultat.stderr
+
+
 def test_mises_a_jour_coupees(image):
     resultat = lancer(image, "-c", "mkdir -p /tmp/c && HOME=/tmp/c CLAUDE_CONFIG_DIR=/tmp/c "
                       "/opt/acp/outils/claude/claude update; echo code=$?", options=("--network", "none"))

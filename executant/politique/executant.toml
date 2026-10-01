@@ -70,16 +70,20 @@ niveau = "info"
 taille_max_mo = 1
 fichiers = 5
 
-# Dépôts : aucun tant que le dépôt jetable et privé de la preuve (D87) n'existe pas (étape 3 du propriétaire,
-# cahier P6 § 16). Forme, à ajouter par une PR une fois le dépôt créé (URL HTTPS sans identifiant ; le jeton de
-# lecture est déposé sur le volume par « acp-poste connexion github --stdin », D92) :
+# Dépôts : aucun tant que le dépôt jetable et privé de la preuve (D87) n'existe pas (docs/refonte/railway.md § 13.4 :
+# le créer, avec une petite suite de tests exécutable dans l'image). Forme, à ajouter par une PR une fois le dépôt créé
+# (URL HTTPS sans identifiant ; le jeton de lecture est déposé sur le volume par « acp-poste connexion github
+# --stdin », D92). Outils de l'image pour la préparation et la vérification : python3.12 (pip, venv, unittest), git,
+# sh, bash et les outils de base ; NI uv, NI pytest, NI node ou npm (railway.md § 13.6). Une commande absente rend le
+# code 127 : « vérification impossible », sans reprise de l'agent. Forme éprouvée dans l'image
+# (executant/tests/test_image.py::test_forme_commentee_du_depot_dans_l_image) :
 #
 # [depots.jetable]
 # url = "https://github.com/<propriétaire>/<dépôt-jetable>.git"
 # branche_base = "main"
 # acces = "jeton_lecture"                     # « public » : aucun jeton ; voie Codex alors fermée (D83)
-# preparation = ["uv", "sync", "--frozen"]    # argv ; réseau ouvert, hors bac à sable, sous acp-verif
-# verification = ["uv", "run", "pytest", "-q"]
+# preparation = []                            # argv ; réseau ouvert, hors bac à sable, sous acp-verif
+# verification = ["python3.12", "-m", "unittest", "discover", "-s", "tests", "-q"]
 # verification_max_s = 900
 # reprises_verification = 2
 # verification_sans_bac_a_sable = false       # D80 : régime B => vérification non exécutée
