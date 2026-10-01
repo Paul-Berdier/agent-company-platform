@@ -203,6 +203,75 @@ def test_entree_refuse_un_identifiant_etranger(image, ressources):
     assert resultat.returncode == 2 and "dans /donnees/claude" in resultat.stderr
 
 
+def _attendre_journal(nom: str, marque: str, fois: int, delai: float = 90) -> str:
+    import time
+
+    limite = time.monotonic() + delai
+    while time.monotonic() < limite:
+        journaux = docker("logs", nom)
+        texte = journaux.stdout + journaux.stderr
+        etat = docker("inspect", "-f", "{{.State.Running}}", nom).stdout.strip()
+        if texte.count(marque) >= fois or etat == "false":
+            return texte
+        time.sleep(1)
+    raise AssertionError(f"« {marque} » jamais vu {fois} fois dans les journaux de {nom}")
+
+
+def test_commandes_root_du_proprietaire_puis_redemarrage_accepte(image, ressources):
+    """Relecture de P6 (critique) : ``diagnostic``, ``quotas``, ``releve`` et ``preuve model-list``, lancés en ROOT comme
+    dans « railway ssh » (§ 13.5 et 13.9 de railway.md), lançaient Codex et Claude en root : fichiers et liens de root
+    sous /donnees/codex, puis REFUS de démarrer au redémarrage suivant (code 2, dix relances, « Crashed »). Ils passent
+    désormais par le lanceur du service (UID de l'outil). Codex laisse en outre, même sous son UID, des liens sous
+    $CODEX_HOME/tmp/arg0 (alias de son propre binaire) : l'entrée les retire avant son contrôle. Le redémarrage est
+    accepté. Vrais binaires, aucun compte, réseau coupé."""
+    image_test = ressources.image_politique_de_test(image)
+    volume = ressources.volume()
+    nom = ressources.nom()
+    ressources.conteneurs.append(nom)
+    docker("run", "-d", "--name", nom, "--network", "none", "-v", f"{volume}:/donnees", image_test, verifier=True)
+    _attendre_journal(nom, "[acp] volume prêt", 1)
+    codes = {}
+    for commande in (("diagnostic",), ("quotas",), ("releve",), ("preuve", "model-list")):
+        resultat = docker("exec", nom, "acp-poste", *commande, delai=240)
+        codes[" ".join(commande)] = resultat.returncode
+        assert "Traceback" not in resultat.stderr, resultat.stderr[-2000:]
+    # Dernière commande : « codex --version » sous l'UID de l'outil, qui sort sans retirer ses alias.
+    diagnostic = json.loads(docker("exec", nom, "acp-poste", "diagnostic", delai=120).stdout)
+    etrangers = docker("exec", nom, "sh", "-c", "find /donnees/codex ! -uid 10001 -printf '%u %p\\n'; "
+                       "find /donnees/claude ! -uid 10002 -printf '%u %p\\n'").stdout
+    alias = docker("exec", nom, "sh", "-c", "find /donnees/codex/tmp/arg0 -type l -uid 10001 | wc -l").stdout
+    afficher("commandes du propriétaire en root", json.dumps({"codes": codes, "etrangers": etrangers,
+                                                             "liens_de_codex": alias.strip(),
+                                                             "versions": [diagnostic["codex"]["version"],
+                                                                          diagnostic["claude"]["version"]]},
+                                                            ensure_ascii=False, indent=1))
+    assert codes["diagnostic"] == 0 and codes["quotas"] == 0 and codes["releve"] == 0
+    assert etrangers == "", etrangers
+    # Versions lues sous l'UID de l'outil (le lanceur du service), pas « absent » ni une lecture en root.
+    assert diagnostic["codex"]["version"] == "0.156.1" and diagnostic["claude"]["version"] == "2.1.283"
+    # Codex a bien laissé ses alias (sans eux, ce test ne prouverait rien du nettoyage par l'entrée).
+    assert int(alias.strip()) > 0
+    docker("restart", "-t", "30", nom, delai=120, verifier=True)
+    journaux = _attendre_journal(nom, "[acp] volume prêt", 2)
+    etat = docker("inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", nom).stdout.split()
+    assert etat == ["true", "0"], journaux[-2000:]
+    assert "REFUS" not in journaux, journaux[-2000:]
+    restants = docker("exec", nom, "sh", "-c", "find /donnees/codex -type l | wc -l").stdout.strip()
+    assert restants == "0"
+
+
+def test_entree_refuse_un_lien_a_la_place_des_alias_de_codex(image, ressources):
+    volume = ressources.volume()
+    lancer(image, "-c", "mkdir -p /donnees/codex/tmp && ln -s / /donnees/codex/tmp/arg0 && chown -R -h 10001:10001 "
+           "/donnees/codex", options=("-v", f"{volume}:/donnees"))
+    resultat = docker("run", "--rm", "-v", f"{volume}:/donnees", image)
+    assert resultat.returncode == 2
+    assert "/donnees/codex/tmp/arg0 est un lien symbolique : refus de démarrer." in resultat.stderr
+    # Rien n'a été suivi ni retiré : le lien est encore là, tel quel (diagnostic du propriétaire).
+    lien = lancer(image, "-c", "readlink /donnees/codex/tmp/arg0", options=("-v", f"{volume}:/donnees"))
+    assert lien.stdout.strip() == "/"
+
+
 # ============================================================ CLI réelles, sans compte
 
 

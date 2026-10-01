@@ -103,6 +103,24 @@ class Contexte:
     def environnements(self) -> dict[str, dict[str, str] | None]:
         return {outil: self.environnement_pour(outil) for outil in ("codex", "claude")}
 
+    def lanceur_outil(self, politique: Politique, outil: str) -> list[str] | None:
+        """argv de lancement d'UNE CLI hors des sondes (diagnostic, preuve) : celui du service. Sous Linux, ``setpriv``
+        vers l'UID de l'outil, ou ``None`` (CLI absente), JAMAIS l'exécutable nu en root : un Codex lancé en root avec
+        ``CODEX_HOME=/donnees/codex`` y écrit des fichiers de root, que l'entrée de l'exécutant refuse au redémarrage
+        (relevé par la relecture de P6). Ailleurs (poste Windows, tests sans identité), l'exécutable de la politique."""
+        lanceur = self.lanceurs_pour(politique).get(outil)
+        if lanceur or outil in self.identites:
+            return lanceur
+        section = getattr(politique, outil, None)
+        return [str(section.executable)] if section is not None and section.executable.is_file() else None
+
+    def parametres_releve(self, politique: Politique) -> dict[str, Any]:
+        """Arguments de :func:`acp_poste.inventaire.relever` : lanceurs, environnements et dossiers du SERVICE (sous
+        Linux, l'UID de chaque outil), partagés par ``acp-poste releve`` et ``quotas``, lancés en root dans une session
+        ``railway ssh`` : ils ne doivent jamais lancer une CLI sous un autre compte que le service."""
+        return {"lanceurs": self.lanceurs_pour(politique), "environnements": self.environnements(),
+                "dossiers": {outil: self.dossiers_pour(outil) for outil in ("codex", "claude")}}
+
     def dossiers_pour(self, outil: str) -> Callable[..., contextlib.AbstractContextManager[str]] | None:
         """Fabrique de dossiers temporaires des sondes d'un outil : sous Linux, propriété de l'UID de l'outil (le
         processus de l'agent doit pouvoir y entrer et y écrire) ; ``None`` ailleurs (``TemporaryDirectory``)."""

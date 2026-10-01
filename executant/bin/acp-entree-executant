@@ -50,7 +50,24 @@ dossier() {
 proprietaire_seul() {
     autre="$(find "$1" \( ! -uid "$2" -o -type l \) -print -quit)"
     if [ -n "$autre" ]; then
-        refuser "Fichier d'un autre propriétaire ou lien symbolique dans $1 (dossier d'identifiants) : refus de démarrer. Corrigez-le dans une session railway ssh (le propriétaire attendu est l'UID $2)."
+        refuser "Fichier d'un autre propriétaire ou lien symbolique dans $1 (dossier d'identifiants) : refus de démarrer. Le conteneur ne démarre pas : remise en état par la Start Command de maintenance, docs/refonte/railway.md § 13.8 (le propriétaire attendu est l'UID $2)."
+    fi
+}
+
+# Alias temporaires de Codex : à CHAQUE lancement (« --version » compris), Codex crée sous $CODEX_HOME/tmp/arg0 un
+# dossier de liens symboliques vers son propre binaire, qu'il ne retire pas quand il sort par « --version » ou qu'il
+# est arrêté (relevé dans l'image, Codex 0.156.1, 01/10/2026 ; son lancement suivant les remplace). Sans ce
+# nettoyage, le premier redémarrage après un relevé de quotas était refusé par proprietaire_seul. Ils sont retirés
+# ici, AVANT le contrôle, sans suivre aucun lien : aucun agent ne tourne encore, et chaque composant du chemin est
+# vérifié (un lien à la place de tmp ou de arg0 est refusé).
+nettoyer_alias_codex() {
+    for chemin in /donnees/codex/tmp /donnees/codex/tmp/arg0; do
+        if [ -L "$chemin" ]; then
+            refuser "$chemin est un lien symbolique : refus de démarrer."
+        fi
+    done
+    if [ -d /donnees/codex/tmp/arg0 ]; then
+        rm -rf /donnees/codex/tmp/arg0
     fi
 }
 
@@ -63,6 +80,7 @@ dossier /donnees/claude acp-claude:acp-claude 0700
 dossier /donnees/depots root:root 0755
 dossier /donnees/espaces root:acp-travail 0751
 proprietaire_seul /donnees/acp 0
+nettoyer_alias_codex
 proprietaire_seul /donnees/codex 10001
 proprietaire_seul /donnees/claude 10002
 dossier /tmp/acp root:acp-travail 1770

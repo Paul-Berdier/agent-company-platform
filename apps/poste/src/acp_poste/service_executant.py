@@ -350,12 +350,10 @@ class ServiceExecutant(Service):
                 verrou.rendre()
             return None, None
         try:
-            identites = {outil: self.contexte.dossiers_pour(outil) for outil in ("codex", "claude")}
             codex, claude = await relever(self.politique, emplacements=self.contexte.emplacements,
                                           coffre=self.contexte.coffre,
-                                          lanceurs=self.contexte.lanceurs_pour(self.politique),
-                                          environnements=self.contexte.environnements(), dossiers=identites,
-                                          compteur_claude=self.quotas_claude.releve)
+                                          compteur_claude=self.quotas_claude.releve,
+                                          **self.contexte.parametres_releve(self.politique))
         finally:
             for verrou in verrous:
                 verrou.rendre()

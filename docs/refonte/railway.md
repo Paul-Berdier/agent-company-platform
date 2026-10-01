@@ -1022,6 +1022,20 @@ Retirez la clé ensuite (§ 11).
   n'exécute aucune carte en P6 (il annonce `peut_executer: false`).
 - **Redéploiement** : SIGTERM, arrêt de l'agent, commit « wip », `arret(sigterm)` ; au redémarrage, la sonde est
   rejouée et la carte en main reprise (`reprendre`).
+- **Refus au démarrage** (`[acp] REFUS : … dans /donnees/codex …` ou `/donnees/claude`, service « Crashed » après dix
+  relances) : le conteneur ne démarre pas, donc aucune session `railway ssh` n'est possible dans cet état. Les
+  commandes `acp-poste` de ce document lancent Codex et Claude sous leur UID, jamais en root, et l'entrée retire
+  elle-même les alias temporaires que Codex laisse sous `/donnees/codex/tmp/arg0` : ce refus ne vient donc que d'un
+  geste fait à la main en root, ou d'un lien posé par un agent. Remise en état, comme le § 10 b :
+  1. sauvegarde manuelle du volume `executant-donnees` ;
+  2. service `executant` → **Custom Start Command** : `/bin/sh -c "exec sleep infinity"`, puis « Deploy » ;
+  3. `railway ssh -i <clé dédiée> --service executant`, puis
+     `find /donnees/codex /donnees/claude \( ! -uid 10001 ! -uid 10002 -o -type l \) -ls` pour voir ce qui est en
+     cause ;
+  4. un fichier de root créé à la main : `chown -h 10001:10001 <fichier>` sous `/donnees/codex` (10002 sous
+     `/donnees/claude`) ; un lien inattendu : `rm <lien>` (le lien seul, jamais sa cible), en consignant ce qui a été
+     retiré ;
+  5. Start Command effacée, « Deploy » : l'entrée revérifie tout.
 
 ### 13.9 Après une restauration du volume `executant-donnees`
 

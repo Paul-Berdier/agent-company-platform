@@ -16,6 +16,7 @@ import itertools
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -50,11 +51,12 @@ def docker(*arguments: str, entree: bytes | None = None, delai: float = 300,
 
 
 class Ressources:
-    """Conteneurs et volumes d'un test, toujours supprimés à la fin."""
+    """Conteneurs, volumes et images dérivées d'un test, toujours supprimés à la fin."""
 
     def __init__(self) -> None:
         self.conteneurs: list[str] = []
         self.volumes: list[str] = []
+        self.images: list[str] = []
 
     def nom(self, genre: str = "c") -> str:
         return f"acp-contrat-exec-{os.getpid()}-{genre}{next(_COMPTEUR)}"
@@ -70,6 +72,28 @@ class Ressources:
             docker("rm", "-f", "-v", nom)
         for nom in self.volumes:
             docker("volume", "rm", "-f", nom)
+        for nom in self.images:
+            docker("rmi", "-f", nom)
+
+    def image_politique_de_test(self, image: str) -> str:
+        """Image dérivée JETABLE : la même image, avec la politique versionnée dont l'origine de Hermes ne vaut plus
+        le gabarit (le superviseur démarre alors et attend l'enrôlement, sans aucune requête). Rien d'autre."""
+        texte = (EXECUTANT / "politique" / "executant.toml").read_text(encoding="utf-8")
+        gabarit = 'origine = "https://<libellé-hermes>.up.railway.app"'
+        assert texte.count(gabarit) == 1
+        texte = texte.replace(gabarit, 'origine = "https://hermes-acp-test.up.railway.app"')
+        nom = f"acp-contrat-exec-{os.getpid()}-politique{next(_COMPTEUR)}"
+        with tempfile.TemporaryDirectory(prefix="acp-exec-politique-") as dossier:
+            contexte = Path(dossier)
+            (contexte / "executant.toml").write_text(texte, encoding="utf-8", newline="\n")
+            (contexte / "Dockerfile").write_text(
+                "ARG IMAGE\nFROM ${IMAGE}\nCOPY executant.toml /etc/acp/executant.toml\n"
+                "RUN chown root:root /etc/acp/executant.toml && chmod 0444 /etc/acp/executant.toml\n",
+                encoding="utf-8", newline="\n")
+            docker("build", "-q", "--build-arg", f"IMAGE={image}", "-t", nom, str(contexte), delai=600,
+                   verifier=True)
+        self.images.append(nom)
+        return nom
 
 
 def lancer(image: str, *commande: str, entree: bytes | None = None, options: tuple[str, ...] = (),

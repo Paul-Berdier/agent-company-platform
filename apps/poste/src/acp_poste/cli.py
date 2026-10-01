@@ -148,25 +148,61 @@ def _valeurs(contexte: Contexte) -> list[str]:
     return valeurs
 
 
+@contextlib.contextmanager
+def _verrous_des_sondes(contexte: Contexte):
+    """Verrou des sondes et, sur l'exécutant Linux, ceux de Codex et de Claude, comme les relevés du service : une
+    commande lancée dans « railway ssh » pendant une carte ne lance jamais un second processus de l'outil (un seul
+    Codex à la fois, cahier P6 § 2.1). Rend ``False`` (message dit) si l'un est tenu."""
+    from .verrou import Verrou, VerrouOccupe
+
+    chemins = [contexte.emplacements.verrou_sondes]
+    if contexte.plateforme == "linux":
+        chemins += [contexte.emplacements.verrou_codex, contexte.emplacements.verrou_claude]
+    verrous = []
+    try:
+        for chemin in chemins:
+            verrous.append(Verrou(chemin).prendre())
+    except VerrouOccupe:
+        for verrou in verrous:
+            verrou.rendre()
+        print("Une sonde ou une carte est en cours dans le service : réessayez dans une minute." if contexte.plateforme
+              == "linux" else "Une sonde est en cours dans le service : réessayez dans une minute.", file=sys.stderr)
+        yield False
+        return
+    try:
+        yield True
+    finally:
+        for verrou in verrous:
+            verrou.rendre()
+
+
 def _releve(contexte: Contexte, politique, *, publier: bool) -> int:
     from .inventaire import InventaireRetenu, construire, relever
     from .jeton import Jeton, JetonInvalide
     from .protocole import Protocole, Refus
-    from .verrou import Verrou, VerrouOccupe
 
-    try:
-        verrou = Verrou(contexte.emplacements.verrou_sondes).prendre()
-    except VerrouOccupe:
-        print("Une sonde est en cours dans le service : réessayez dans une minute.", file=sys.stderr)
-        return 2
-    try:
+    with _verrous_des_sondes(contexte) as pris:
+        if not pris:
+            return 2
         codex, claude = asyncio.run(relever(politique, emplacements=contexte.emplacements, coffre=contexte.coffre,
-                                            lanceurs=contexte.lanceurs, environnement=contexte.environnement))
-    finally:
-        verrou.rendre()
+                                            **contexte.parametres_releve(politique)))
     valeurs = _valeurs(contexte)
+    if contexte.plateforme == "linux":
+        # Exécutant : plateforme, hôte et noyau, et l'isolement mesuré par la sonde du DÉMARRAGE (rangée par le service),
+        # comme l'inventaire du service ; « version_windows » levait une trace sous Linux (relecture de P6).
+        from .sonde_plateforme import isolement as bloc_isolement
+
+        try:
+            sonde = json.loads(contexte.emplacements.sonde_isolement.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            sonde = None
+        sans = politique.codex.sans_bac_a_sable if politique.codex else "refuse"
+        options = {"infos": contexte.infos(), "isolement": bloc_isolement(sonde if isinstance(sonde, dict) else None,
+                                                                          sans_bac_a_sable=sans)}
+    else:
+        options = {"windows": contexte.version_windows()}
     try:
-        inventaire = construire(politique, codex, claude, windows=contexte.version_windows(), valeurs_exactes=valeurs)
+        inventaire = construire(politique, codex, claude, valeurs_exactes=valeurs, **options)
     except InventaireRetenu as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -191,22 +227,16 @@ def _releve(contexte: Contexte, politique, *, publier: bool) -> int:
 
 def _quotas(contexte: Contexte, politique) -> int:
     from .inventaire import relever
-    from .verrou import Verrou, VerrouOccupe
 
     if not (politique.sondes.codex or politique.sondes.claude):
         print("Relevé des quotas refusé : aucune sonde autorisée par poste.toml ([sondes] codex et claude à false) ; "
               "rien n'a été lancé ni lu.", file=sys.stderr)
         return 2
-    try:
-        verrou = Verrou(contexte.emplacements.verrou_sondes).prendre()
-    except VerrouOccupe:
-        print("Une sonde est en cours dans le service : réessayez dans une minute.", file=sys.stderr)
-        return 2
-    try:
+    with _verrous_des_sondes(contexte) as pris:
+        if not pris:
+            return 2
         codex, claude = asyncio.run(relever(politique, emplacements=contexte.emplacements, coffre=contexte.coffre,
-                                            lanceurs=contexte.lanceurs, environnement=contexte.environnement))
-    finally:
-        verrou.rendre()
+                                            **contexte.parametres_releve(politique)))
     rapport = {r.releve["voie"]: {"etat": r.releve["etat"], "detail": r.releve["detail"],
                                   "compteurs": r.releve["compteurs"]} for r in (codex, claude) if r is not None}
     print(json.dumps(rapport, ensure_ascii=False, indent=2))

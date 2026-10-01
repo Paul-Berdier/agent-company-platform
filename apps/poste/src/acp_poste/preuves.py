@@ -33,10 +33,13 @@ def preuve_model_list(contexte: Contexte, politique: Politique, valeurs_exactes:
         print("Une sonde est en cours dans le service : réessayez dans une minute.", file=sys.stderr)
         return 2
     try:
+        # Lanceur, environnement et dossiers du SERVICE (Linux : l'UID acp-codex, jamais root ; relecture de P6).
         resultat = asyncio.run(sonder_codex(politique.codex, contexte.emplacements,
                                             delai_s=float(politique.sondes.delai_sonde_s),
-                                            prefixe=contexte.lanceurs.get("codex"),
-                                            environnement=contexte.environnement))
+                                            prefixe=contexte.lanceurs_pour(politique).get("codex"),
+                                            environnement=contexte.environnement_pour("codex"),
+                                            plateforme=politique.plateforme,
+                                            dossiers=contexte.dossiers_pour("codex")))
     finally:
         verrou.rendre()
     releve = resultat.releve

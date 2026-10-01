@@ -55,9 +55,11 @@ def _lire_json(chemin: Path) -> dict[str, Any] | None:
         return None
 
 
-def _version(argv: list[str], env: dict[str, str]) -> str | None:
+def _version(argv: list[str], env: dict[str, str], dossiers: Any = None) -> str | None:
+    """``--version`` de la CLI ; ``dossiers`` : fabrique du dossier courant (exécutant Linux : à l'UID de l'outil)."""
+    fabrique = dossiers or (lambda **options: tempfile.TemporaryDirectory(ignore_cleanup_errors=True, **options))
     try:
-        with tempfile.TemporaryDirectory(prefix="acp-sonde-", ignore_cleanup_errors=True) as dossier:
+        with fabrique(prefix="acp-sonde-") as dossier:
             return asyncio.run(asyncio.wait_for(lire_version(argv, env, dossier), timeout=20))
     except Exception:  # noqa: BLE001 - « inconnue » plutôt qu'une trace
         return None
@@ -219,8 +221,11 @@ def diagnostic(contexte: Contexte, *, reseau: bool = False, isolement: bool = Fa
 
     if politique is not None and politique.codex is not None:
         section = politique.codex
-        lanceur = contexte.lanceurs.get("codex") or ([str(section.executable)] if section.executable.is_file() else None)
-        lue = _version(lanceur, codex_environment(section.home, source=contexte.environnement)) if lanceur else None
+        # Lanceur du SERVICE (Linux : setpriv vers acp-codex) : lancé en root par « railway ssh », Codex écrivait des
+        # fichiers de root dans /donnees/codex, et l'entrée refusait ensuite de démarrer (relecture de P6).
+        lanceur = contexte.lanceur_outil(politique, "codex")
+        lue = _version(lanceur, codex_environment(section.home, source=contexte.environnement_pour("codex")),
+                       contexte.dossiers_pour("codex")) if lanceur else None
         releve = releves.get("poste-codex") or {}
         rapport["codex"] = {
             "executable": "present" if lanceur else "absent", "version": lue, "version_testee": section.version_testee,
@@ -238,8 +243,9 @@ def diagnostic(contexte: Contexte, *, reseau: bool = False, isolement: bool = Fa
         rapport["codex"] = None
     if politique is not None and politique.claude is not None:
         section = politique.claude
-        lanceur = contexte.lanceurs.get("claude") or ([str(section.executable)] if section.executable.is_file() else None)
-        lue = _version(lanceur, environnement_claude(section, source=contexte.environnement)) if lanceur else None
+        lanceur = contexte.lanceur_outil(politique, "claude")
+        lue = _version(lanceur, environnement_claude(section, source=contexte.environnement_pour("claude")),
+                       contexte.dossiers_pour("claude")) if lanceur else None
         try:
             jeton = contexte.coffre.present("jeton-claude")
         except CoffreErreur:
