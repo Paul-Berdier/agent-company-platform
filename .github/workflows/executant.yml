@@ -9,8 +9,9 @@ name: Image de l'exécutant
 #     minimal, chemins du superviseur non inscriptibles par les agents, refus de l'entrée, options imposées admises par
 #     les vraies CLI, fonctions Codex actives en liste blanche, bubblewrap de Debian, safe.directory ;
 #   - sonde de plateforme (répétition LOCALE de R0) sous le seccomp Docker par défaut (régime B attendu), puis témoin du
-#     régime A (seccomp et AppArmor levés ; sur ubuntu-24.04, kernel.apparmor_restrict_unprivileged_userns est passé à 0
-#     avant, et c'est écrit au journal). Ni l'un ni l'autre n'est une preuve pour Railway ;
+#     régime A (seccomp, AppArmor et chemins système de /proc levés ; sur ubuntu-24.04,
+#     kernel.apparmor_restrict_unprivileged_userns est passé à 0 avant, et c'est écrit au journal). Ni l'un ni l'autre
+#     n'est une preuve pour Railway ;
 #   - suite apps/poste et contrat partagé EN ROOT dans l'image d'essais (executant/tests/Dockerfile) : les tests propres
 #     à root (changements d'UID réels, balayage par UID, worktrees hors tour), ignorés par la CI Linux sans root ;
 #   - verifier-binaires : refus d'une empreinte fausse et d'un manifeste non signé (clé GPG d'essai, hors ligne).
@@ -112,7 +113,7 @@ jobs:
           docker run --rm --entrypoint /usr/local/bin/acp-poste "$ACP_IMAGE_EXECUTANT" sonde-plateforme --json \
             > /tmp/sonde/seccomp-defaut.json
           docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
-            --entrypoint /usr/local/bin/acp-poste "$ACP_IMAGE_EXECUTANT" sonde-plateforme --json \
+            --security-opt systempaths=unconfined --entrypoint /usr/local/bin/acp-poste "$ACP_IMAGE_EXECUTANT" sonde-plateforme --json \
             > /tmp/sonde/temoin-regime-a.json
           python - <<'EOF'
           import json

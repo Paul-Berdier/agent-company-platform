@@ -134,6 +134,13 @@ def test_sortie_filtree_sans_adresse_ni_profil():
     assert len(sp._filtrer("x" * 500)) == 200
 
 
+def test_sortie_filtree_sans_l_avertissement_des_alias_de_codex():
+    """L'avertissement de Codex sur son CODEX_HOME sous /tmp ne masque plus la vraie cause d'un refus."""
+    brut = ('WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries '
+            'under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/x"))\nbwrap: Can\'t mount proc on /newroot/proc')
+    assert sp._filtrer(brut) == "bwrap: Can't mount proc on /newroot/proc"
+
+
 # ------------------------------------------------------------------ sonde réelle (conteneur de test, root)
 
 

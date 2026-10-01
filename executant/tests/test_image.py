@@ -347,14 +347,21 @@ def test_sonde_regime_docker_defaut(image):
     assert codes["7.id"] == 0 and codes["9.codex_version"] == 0 and codes["9.claude_version"] == 0
 
 
+# Témoin du régime A : seccomp et AppArmor levés, et chemins système de /proc démasqués (sans cela, le lanceur
+# ubuntu-24.04 de GitHub refuse le /proc neuf de bubblewrap, et Codex ne lance plus rien : relevé en CI le 01/10/2026).
+TEMOIN_A = ("--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined", "--security-opt",
+            "systempaths=unconfined")
+
+
 def test_sonde_regime_a_temoin(image):
-    """Même sonde, seccomp et AppArmor levés : chemin A exercé avec le VRAI « codex sandbox -P » et le profil du
-    superviseur (forme supposée par le cahier, § 4.1 point 6). Sur un lanceur Ubuntu 24.04, la CI passe d'abord
-    kernel.apparmor_restrict_unprivileged_userns à 0 et le dit. CE N'EST PAS UNE PREUVE POUR RAILWAY."""
-    releve = _sonde(image, "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined")
+    """Même sonde, protections du conteneur levées (TEMOIN_A) : chemin A exercé avec le VRAI « codex sandbox -P » et le
+    profil du superviseur (forme supposée par le cahier, § 4.1 point 6). Sur un lanceur Ubuntu 24.04, la CI passe
+    d'abord kernel.apparmor_restrict_unprivileged_userns à 0 et le dit. CE N'EST PAS UNE PREUVE POUR RAILWAY."""
+    releve = _sonde(image, *TEMOIN_A)
     restriction = releve["plateforme"]["sysctl"].get("apparmor_restrict_unprivileged_userns")
     afficher("sonde, témoin du régime A", json.dumps({"verdict": releve["verdict"], "apparmor_restrict": restriction,
-                                                      "releves": [(r["point"], r["code"]) for r in releve["releves"]]},
+                                                      "releves": [(r["point"], r["code"], r["sortie"])
+                                                                  for r in releve["releves"]]},
                                                      ensure_ascii=False, indent=1))
     if restriction == "1":
         pytest.fail("kernel.apparmor_restrict_unprivileged_userns vaut 1 sur cet hôte : le témoin du régime A n'est pas "

@@ -114,8 +114,14 @@ class Mesures:
     releves: list[Releve] = field(default_factory=list)
 
 
+# Avertissement de Codex 0.156.1 quand son CODEX_HOME est sous /tmp (cas de la sonde, sans volume) : sans objet pour
+# le verdict, il occupait les 200 caractères gardés et masquait la vraie cause d'un refus (relevé en CI, 01/10/2026).
+_BRUIT = ("WARNING: proceeding, even though we could not create PATH aliases",)
+
+
 def _filtrer(texte: str) -> str:
-    propre = " ".join(masquer(texte or "").split())
+    lignes = [l for l in (texte or "").splitlines() if not l.strip().startswith(_BRUIT)]
+    propre = " ".join(masquer("\n".join(lignes)).split())
     return propre[:SORTIE_MAX]
 
 
