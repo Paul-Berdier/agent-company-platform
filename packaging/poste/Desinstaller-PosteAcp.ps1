@@ -5,12 +5,14 @@
 
 .DESCRIPTION
     À lancer PAR LE PROPRIÉTAIRE dans un PowerShell élevé. Retire la tâche planifiée \ACP\Poste ACP ; puis, chacun sur
-    confirmation : C:\Program Files\ACP, C:\ProgramData\ACP (poste.toml compris), et le compte « acp-poste » avec son
-    profil (donc son coffre DPAPI et ses jetons). C:\ACP\depots n'est jamais supprimé sans une seconde confirmation
-    NOMINATIVE (retaper le chemin exact).
+    confirmation : C:\Program Files\ACP, C:\ProgramData\ACP (poste.toml compris), C:\ACP\espaces (puis C:\ACP s'il
+    est vide), la valeur « acp-poste » des comptes masqués de l'écran d'accueil (la clé UserList et ses autres valeurs
+    restent), et le compte « acp-poste » avec son profil (donc son coffre DPAPI et ses jetons). C:\ACP\depots n'est
+    jamais supprimé sans une seconde confirmation NOMINATIVE (retaper le chemin exact).
 
-    Rappels imprimés : révoquer le poste sur la page Poste (la révocation est un geste côté Hermes) ; les comptes
-    locaux CodexSandboxOffline et CodexSandboxOnline appartiennent à Codex et restent.
+    Rappels imprimés : révoquer le poste sur la page Poste (la révocation est un geste côté Hermes) ; retirer la ligne
+    d'état (statusLine) de ~/.claude/settings.json, qui appelait ligne_etat.py ; les comptes locaux CodexSandboxOffline
+    et CodexSandboxOnline appartiennent à Codex et restent.
 
     -Simulation n'écrit ni ne supprime rien et ne pose aucune question : il imprime ce qui serait fait.
 #>
@@ -25,12 +27,20 @@ $ErrorActionPreference = 'Stop'
 if ([Console]::IsOutputRedirected) {
     [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 }
+$Fonctions = Join-Path $PSScriptRoot 'Fonctions-PosteAcp.ps1'
+if (-not (Test-Path -LiteralPath $Fonctions -PathType Leaf)) {
+    Write-Host "Refusé : Fonctions-PosteAcp.ps1 est introuvable à côté du désinstalleur ; lancez-le depuis le dépôt." -ForegroundColor Red
+    exit 2
+}
+. $Fonctions
 
 $ProgramFiles = [Environment]::GetFolderPath('ProgramFiles')
 $ProgramData = [Environment]::GetFolderPath('CommonApplicationData')
 $AcpProgramFiles = Join-Path $ProgramFiles 'ACP'
 $AcpProgramData = Join-Path $ProgramData 'ACP'
-$DossierDepots = Join-Path (Join-Path $env:SystemDrive 'ACP') 'depots'
+$RacineAcp = Join-Path $env:SystemDrive 'ACP'
+$DossierDepots = Join-Path $RacineAcp 'depots'
+$DossierEspaces = Join-Path $RacineAcp 'espaces'
 
 function Confirmer([string] $Question) {
     if ($Simulation) {
@@ -83,9 +93,40 @@ if (Test-Path -LiteralPath $DossierDepots) {
         Write-Host "  $DossierDepots conservé."
     }
 }
+# Espaces de travail des cartes (P6) : créés par l'installeur, avec une ACE pour le compte du poste.
+if (Test-Path -LiteralPath $DossierEspaces) {
+    if (Confirmer "Supprimer $DossierEspaces (espaces de travail des cartes) ?") {
+        Remove-Item -LiteralPath $DossierEspaces -Recurse -Force
+        Write-Host "  $DossierEspaces supprimé."
+    } else {
+        Write-Host "  $DossierEspaces conservé."
+    }
+} else {
+    Write-Host "  $DossierEspaces : absent."
+}
+if ((Test-Path -LiteralPath $RacineAcp) -and -not (Get-ChildItem -LiteralPath $RacineAcp -Force | Select-Object -First 1)) {
+    if ($Simulation) {
+        Write-Host "  [simulation] $RacineAcp, vide, serait retiré."
+    } else {
+        Remove-Item -LiteralPath $RacineAcp -Force
+        Write-Host "  $RacineAcp, vide, retiré."
+    }
+}
 
 Write-Host ''
-Write-Host "3. Compte « $Compte »"
+Write-Host "3. Écran d'accueil (comptes masqués)"
+$masque = (Test-Path -LiteralPath $CleComptesMasques) -and
+          (@((Get-Item -LiteralPath $CleComptesMasques).GetValueNames()) -contains $Compte)
+if (-not $masque) {
+    Write-Host "  $Compte n'y est pas masqué."
+} elseif (Confirmer "Retirer la seule valeur « $Compte » des comptes masqués (les autres valeurs, dont celles de Codex, restent) ?") {
+    if (Retirer-CompteAccueil $CleComptesMasques $Compte) { Write-Host '  valeur retirée ; la clé et ses autres valeurs restent.' }
+} else {
+    Write-Host '  valeur conservée.'
+}
+
+Write-Host ''
+Write-Host "4. Compte « $Compte »"
 $utilisateur = Get-LocalUser -Name $Compte -ErrorAction SilentlyContinue
 if (-not $utilisateur) {
     Write-Host '  absent.'
@@ -101,5 +142,6 @@ if (-not $utilisateur) {
 Write-Host ''
 Write-Host 'Rappels :'
 Write-Host "  - révoquez le poste sur la page Poste d'ACP (la désinstallation ne touche pas Hermes) ;"
+Write-Host '  - retirez la ligne d''état (clé statusLine) de votre ~/.claude/settings.json : elle appelait ligne_etat.py, supprimé avec le poste ;'
 Write-Host '  - les comptes locaux CodexSandboxOffline et CodexSandboxOnline appartiennent à Codex et restent.'
 exit 0

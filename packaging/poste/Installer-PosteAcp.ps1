@@ -8,22 +8,25 @@
     « acp-poste » est saisi par lui (jamais écrit nulle part), chaque réglage système optionnel demande sa
     confirmation. Neuf étapes, chacune refusée en français si sa condition manque :
 
-      1. contrôles (administrateur, Windows 10/11, Python 3.12 de python.org « pour tous les utilisateurs », dépôt,
-         origine HTTPS, sources de Codex et de Claude Code) ;
+      1. contrôles (administrateur, Windows 10/11, Python 3.12 de python.org « pour tous les utilisateurs » et non
+         modifiable par le compte du poste, dépôt, origine HTTPS, sources de Codex et de Claude Code avec leur
+         version : Claude Code 2.1.248 au moins, avertissement sous 2.1.280) ;
       2. compte local « acp-poste » (membre du seul groupe Utilisateurs, désigné par SID) ;
       3. dossiers et ACL (héritage coupé, groupes désignés par SID : le PC est en français, les runners en anglais) ;
       4. poste installé SANS venv (décision D53) : dépendances d'exécution hachées (requirements/poste-3.12.lock.txt)
          et sources du poste copiées sous Program Files\ACP\poste\lib, lanceur python -I ;
       5. binaires de Codex et de Claude Code copiés depuis vos installations (décision D54), SHA-256 consignés,
          --version relancé sur la copie ;
-      6. poste.toml écrit depuis le modèle s'il n'existe pas (jamais remplacé : différence affichée) ;
+      6. poste.toml écrit depuis le modèle s'il n'existe pas (jamais remplacé : différence affichée, écarts de
+         version_testee signalés) ;
       7. tâche planifiée \ACP\Poste ACP (au démarrage + garde toutes les 15 min, mot de passe enregistré) ;
       8. options système, chacune sur confirmation explicite (décision D57) ;
       9. vérifications finales et liste des gestes manuels restants.
 
     -Simulation n'écrit RIEN (ni fichier, ni compte, ni tâche, ni réglage) et ne demande aucun mot de passe : il
-    imprime le plan des neuf étapes et TOUS les refus (code 2 s'il y en a, 0 sinon). C'est ce que vérifie
-    packaging/poste/tests/Test-InstallationPoste.ps1.
+    imprime le plan des neuf étapes et TOUS les refus (code 2 s'il y en a, 0 sinon). Seul « --version » est lancé sur
+    les sources de Codex et de Claude Code, dans un profil jetable sous %TEMP% supprimé aussitôt. C'est ce que vérifie
+    packaging/poste/tests/Test-InstallationPoste.ps1. Les fonctions communes sont dans Fonctions-PosteAcp.ps1, à côté.
 
 .EXAMPLE
     # PowerShell élevé, depuis la racine du dépôt :
@@ -50,6 +53,12 @@ if ([Console]::IsOutputRedirected) {
     # Sortie capturée (test à blanc, journal) : UTF-8, sans toucher à la page de code d'une console interactive.
     [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 }
+$Fonctions = Join-Path $PSScriptRoot 'Fonctions-PosteAcp.ps1'
+if (-not (Test-Path -LiteralPath $Fonctions -PathType Leaf)) {
+    Write-Host "Refusé : Fonctions-PosteAcp.ps1 est introuvable à côté de l'installeur ; lancez-le depuis le dépôt." -ForegroundColor Red
+    exit 2
+}
+. $Fonctions
 
 # Groupes et comptes désignés par SID, jamais par leur nom localisé.
 $SID_ADMINISTRATEURS = 'S-1-5-32-544'
@@ -134,6 +143,10 @@ if ($Simulation) { Write-Host " : SIMULATION, rien ne sera écrit." } else { Wri
 
 # ============================================================ 1. contrôles
 Etape 1 'contrôles'
+# Compte déjà présent (réinstallation) : son SID compte aussi pour les droits sur l'interpréteur.
+$existant = Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount=True AND Name='$Compte'" -ErrorAction SilentlyContinue
+$sidsDuPoste = @($SidsDuComptePoste)
+if ($existant) { $sidsDuPoste += $existant.SID }
 $identite = [Security.Principal.WindowsIdentity]::GetCurrent()
 $administrateur = ([Security.Principal.WindowsPrincipal] $identite).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($administrateur) {
@@ -160,12 +173,15 @@ if ($Python -match '[^\x20-\x7E]') {
     Refuser "Python installé « pour moi seul » (sous un profil) : le compte $Compte ne pourra pas l'exécuter. Installez Python 3.12 de python.org pour tous les utilisateurs."
 } elseif (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
     Refuser "-Python ne désigne aucun fichier."
+} elseif (($modifiables = @(Interpreteur-Modifiable $Python $sidsDuPoste)).Count -gt 0) {
+    # Décision D67 : le service détient les jetons déchiffrés ; « python -I » exécute encore les .pth de site-packages.
+    Refuser ("Python modifiable par le compte $Compte ou l'un de ses groupes ({0}) : un exécutant pourrait injecter du code dans le service, qui détient les jetons déchiffrés. Installez Python 3.12 de python.org pour tous les utilisateurs, sous Program Files (décision D67)." -f $modifiables[0])
 } else {
     $versionPython = (& $Python -I -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null | Select-Object -First 1)
     if ($versionPython -ne '3.12') {
         Refuser "Python 3.12 exigé (le verrou du poste est compilé pour CPython 3.12) ; version lue : $versionPython."
     } else {
-        Write-Host '  Python : 3.12, « tous utilisateurs », hors WindowsApps'
+        Write-Host '  Python : 3.12, « tous utilisateurs », hors WindowsApps, non modifiable par le compte du poste'
         $pythonAdmis = $true
     }
 }
@@ -182,15 +198,31 @@ foreach ($attendu in @('apps\poste\src\acp_poste\cli.py', 'hermes\plugins\acp-po
 
 $codexExe = Join-Path $CodexSource 'bin\codex.exe'
 $codexAide = Join-Path $CodexSource 'codex-resources\codex-windows-sandbox-setup.exe'
+$versionCodex = '<lue sur la source>'
+$versionClaude = '<lue sur la source>'
 if (-not (Test-Path -LiteralPath $codexExe -PathType Leaf) -or -not (Test-Path -LiteralPath $codexAide -PathType Leaf)) {
     Refuser "-CodexSource doit désigner le dossier vendor\x86_64-pc-windows-msvc du paquet npm @openai/codex (bin\codex.exe et codex-resources\codex-windows-sandbox-setup.exe)."
 } else {
-    Write-Host "  Codex (source) : codex.exe SHA-256 $(Empreinte $codexExe)"
+    $lue = Lire-VersionCli $codexExe 'codex'
+    if (-not $lue) {
+        Refuser "codex.exe --version illisible : l'exécutable désigné par -CodexSource ne démarre pas."
+    } else {
+        $versionCodex = $lue
+        Write-Host "  Codex (source) : $versionCodex, codex.exe SHA-256 $(Empreinte $codexExe)"
+    }
 }
 if (-not (Test-Path -LiteralPath $ClaudeSource -PathType Leaf) -or [IO.Path]::GetFileName($ClaudeSource) -ne 'claude.exe') {
     Refuser '-ClaudeSource doit désigner le binaire natif claude.exe de votre installation de Claude Code.'
 } else {
-    Write-Host "  Claude Code (source) : claude.exe SHA-256 $(Empreinte $ClaudeSource)"
+    $lue = Lire-VersionCli $ClaudeSource 'claude'
+    $verdict = Verdict-VersionClaude $lue
+    if ($verdict.ContainsKey('Refus')) {
+        Refuser $verdict.Refus
+    } else {
+        $versionClaude = $lue
+        Write-Host "  Claude Code (source) : $versionClaude, claude.exe SHA-256 $(Empreinte $ClaudeSource)"
+        if ($verdict.ContainsKey('Avertissement')) { Write-Host "  ATTENTION : $($verdict.Avertissement)" }
+    }
 }
 if (-not (Test-Path -LiteralPath $ProfilProprietaire -PathType Container)) {
     Refuser '-ProfilProprietaire ne désigne aucun dossier.'
@@ -198,8 +230,7 @@ if (-not (Test-Path -LiteralPath $ProfilProprietaire -PathType Container)) {
 
 # ============================================================ 2. compte dédié
 Etape 2 "compte local « $Compte »"
-# Détection par CIM (Windows PowerShell 5.1 et PowerShell 7) ; création par New-LocalUser en installation réelle.
-$existant = Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount=True AND Name='$Compte'" -ErrorAction SilentlyContinue
+# Détection par CIM à l'étape 1 (Windows PowerShell 5.1 et PowerShell 7) ; création par New-LocalUser en installation réelle.
 $sidCompte = if ($existant) { $existant.SID } else { '<SID du compte créé>' }
 $motDePasse = $null
 if ($existant) {
@@ -287,8 +318,6 @@ Faire "copie des sources acp_poste et acp_poste_contrat (sans __pycache__) dans 
 
 # ============================================================ 5. binaires des CLI
 Etape 5 'binaires de Codex et de Claude Code copiés depuis vos installations (décision D54)'
-$versionCodex = '<lue sur la copie>'
-$versionClaude = '<lue sur la copie>'
 Faire "copie de $CodexSource vers $DossierOutils\codex et de claude.exe vers $DossierOutils\claude, SHA-256 consignés, --version relancé sur chaque copie" {
     $cibleCodex = Join-Path $DossierOutils 'codex'
     $cibleClaude = Join-Path $DossierOutils 'claude'
@@ -296,20 +325,13 @@ Faire "copie de $CodexSource vers $DossierOutils\codex et de claude.exe vers $Do
     Copy-Item -LiteralPath $CodexSource -Destination $cibleCodex -Recurse
     New-Item -ItemType Directory -Force -Path $cibleClaude | Out-Null
     Copy-Item -LiteralPath $ClaudeSource -Destination (Join-Path $cibleClaude 'claude.exe') -Force
-    $vide = Join-Path ([IO.Path]::GetTempPath()) ('acp-installation-' + [Guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $vide | Out-Null
-    try {
-        $env:CODEX_HOME = $vide
-        $script:versionCodex = ((& (Join-Path $cibleCodex 'bin\codex.exe') --version) -replace '^codex-cli\s+', '').Trim()
-        $env:CLAUDE_CONFIG_DIR = $vide
-        $env:DISABLE_UPDATES = '1'
-        $script:versionClaude = ((& (Join-Path $cibleClaude 'claude.exe') --version) -replace '\s*\(Claude Code\)', '').Trim()
-    } finally {
-        Remove-Item Env:CODEX_HOME, Env:CLAUDE_CONFIG_DIR, Env:DISABLE_UPDATES -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $vide -Recurse -Force -ErrorAction SilentlyContinue
+    $copieCodex = Lire-VersionCli (Join-Path $cibleCodex 'bin\codex.exe') 'codex'
+    $copieClaude = Lire-VersionCli (Join-Path $cibleClaude 'claude.exe') 'claude'
+    if (-not $copieCodex) { throw "codex --version illisible sur la copie : l'exécutable ne démarre pas hors de son dossier d'installation." }
+    if (-not $copieClaude) { throw "claude --version illisible sur la copie." }
+    if ($copieCodex -ne $script:versionCodex -or $copieClaude -ne $script:versionClaude) {
+        throw "la version d'une copie diffère de sa source (Codex $copieCodex, Claude Code $copieClaude) : une CLI a été mise à jour pendant l'installation ; relancez l'installeur."
     }
-    if ($script:versionCodex -notmatch '^\d+\.\d+\.\d+$') { throw "codex --version illisible sur la copie : l'exécutable ne démarre pas hors de son dossier d'installation." }
-    if ($script:versionClaude -notmatch '^\d+\.\d+\.\d+$') { throw "claude --version illisible sur la copie." }
     Consigner @{ etape = 5; codex = (Empreinte (Join-Path $cibleCodex 'bin\codex.exe')); codex_version = $script:versionCodex;
                  aide_bac_a_sable = (Empreinte (Join-Path $cibleCodex 'codex-resources\codex-windows-sandbox-setup.exe'));
                  claude = (Empreinte (Join-Path $cibleClaude 'claude.exe')); claude_version = $script:versionClaude }
@@ -323,9 +345,15 @@ $contenu = $modele.Replace('__ORIGINE__', $Origine.TrimEnd('/')).Replace('__PROG
     Replace('__PROGRAMDATA_ACP__', $AcpProgramData).Replace('__VERSION_CODEX__', $versionCodex).
     Replace('__VERSION_CLAUDE__', $versionClaude).Replace('__PROFIL_PROPRIETAIRE__', $ProfilProprietaire)
 if (Test-Path -LiteralPath $Politique) {
-    Write-Host '  poste.toml existe déjà : rien n''est écrit. Différence avec le modèle rempli :'
-    Compare-Object (Get-Content -LiteralPath $Politique) ($contenu -split "`r?`n") | ForEach-Object {
-        Write-Host ("    {0} {1}" -f $_.SideIndicator, $_.InputObject)
+    $differences = @(Differences-Politique $Politique $contenu)
+    if ($differences.Count -eq 0) {
+        Write-Host '  poste.toml existe déjà : rien n''est écrit ; il est identique au modèle rempli.'
+    } else {
+        Write-Host ("  poste.toml existe déjà : rien n'est écrit. {0} ligne(s) diffèrent du modèle rempli (<= votre fichier, => le modèle) :" -f $differences.Count)
+        $differences | ForEach-Object { Write-Host ("    {0} {1}" -f $_.SideIndicator, $_.InputObject) }
+    }
+    foreach ($ecart in @(Ecarts-VersionTestee $Politique @{ codex = $versionCodex; claude = $versionClaude })) {
+        Write-Host "  ATTENTION : $ecart"
     }
 } else {
     $lignes = ($contenu -split "`n").Count
@@ -361,9 +389,8 @@ $options = @(
        Action = { & powercfg.exe /change standby-timeout-ac 0 } },
     @{ Question = "Masquer $Compte de l'écran d'accueil ?";
        Action = {
-           $cle = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'
-           New-Item -Path $cle -Force | Out-Null
-           New-ItemProperty -Path $cle -Name $Compte -Value 0 -PropertyType DWord -Force | Out-Null } }
+           # Clé créée seulement si elle manque ; les valeurs déjà présentes (comptes CodexSandbox*) restent.
+           Masquer-CompteAccueil $CleComptesMasques $Compte } }
 )
 foreach ($option in $options) {
     if ($Simulation) {
@@ -401,11 +428,11 @@ Write-Host ''
 Write-Host 'Gestes manuels restants (vous seul, apps/poste/README.md) :'
 Write-Host "  c. console du compte : runas /user:$Compte `"powershell -NoProfile`""
 Write-Host '  d0. activer la « connexion par code d''appareil » dans les réglages de sécurité de votre compte ChatGPT'
-Write-Host "  d. `"$CommandePoste`" connexion codex   (codex login --device-auth, dans la console du compte)"
-Write-Host "  e. claude setup-token (dans VOTRE session), puis `"$CommandePoste`" connexion claude (collage masqué)"
-Write-Host "  f. `"$CommandePoste`" connexion bac-a-sable   (UAC : identifiants administrateur)"
-Write-Host "  g0. `"$CommandePoste`" diagnostic --reseau"
-Write-Host "  g. page Poste → « Enrôler un poste » ; `"$CommandePoste`" enroler ; comparer l'empreinte ; « Confirmer »"
+Write-Host "  d. $(Commande-Poste $CommandePoste 'connexion codex')   (codex login --device-auth, dans la console du compte)"
+Write-Host "  e. claude setup-token (dans VOTRE session), puis $(Commande-Poste $CommandePoste 'connexion claude') (collage masqué)"
+Write-Host "  f. $(Commande-Poste $CommandePoste 'connexion bac-a-sable')   (UAC : identifiants administrateur)"
+Write-Host "  g0. $(Commande-Poste $CommandePoste 'diagnostic --reseau')"
+Write-Host "  g. page Poste, section « Enrôler un poste » : « Générer un code d'enrôlement » ; $(Commande-Poste $CommandePoste 'enroler') ; comparer l'empreinte ; « Confirmer le poste »"
 Write-Host "  h. Start-ScheduledTask -TaskPath '$CheminTache' -TaskName '$Tache' (ou redémarrer)"
 Write-Host "  i. facultatif : ligne d'état de vos sessions Claude Code vers $DossierQuotas\claude-code.json"
 

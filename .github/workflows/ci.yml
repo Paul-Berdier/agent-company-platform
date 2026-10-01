@@ -156,9 +156,25 @@ jobs:
         # Étape P5 : dont le contrat du poste contre un faux Hermes HTTPS (autorité de test générée par cryptography,
         # tests seulement) ; les tests propres à Windows sont rapportés « ignorés » sous ubuntu.
         run: python -m pytest -q -rs
-      - name: Installeur du poste en simulation (aucun compte, aucune tâche, aucun dossier créé)
-        # Étape P5 (cahier § 8.1, § 14.1) : Installer-PosteAcp.ps1 et Desinstaller-PosteAcp.ps1 -Simulation, avec le
-        # Python 3.12 « tous utilisateurs » de setup-python ; l'état du runner est comparé avant et après chaque cas.
+      - name: Python « tous utilisateurs » non modifiable pour l'installeur (copie sous Program Files)
+        # Relecture de P5 (décision D67) : l'installeur refuse un Python que les groupes du compte du poste peuvent
+        # modifier ; celui de setup-python (C:\hostedtoolcache) hérite des droits de C:\. Sa copie sous Program Files
+        # hérite des droits standard (Utilisateurs en lecture et exécution seulement).
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./packaging/poste/tests/Test-InstallationPoste.ps1 -Python (Get-Command python).Source
+        run: |
+          $source = Split-Path -Parent (Get-Command python).Source
+          $cible = Join-Path $env:ProgramFiles 'Python312-acp-ci'
+          Copy-Item -LiteralPath $source -Destination $cible -Recurse
+          & icacls.exe $cible
+          "ACP_PYTHON_TOUS=$(Join-Path $cible 'python.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Installeur du poste en simulation, PowerShell 7 (aucun compte, aucune tâche, aucun dossier créé)
+        # Étape P5 (cahier § 8.1, § 14.1) : Installer-PosteAcp.ps1 et Desinstaller-PosteAcp.ps1 -Simulation ; l'état du
+        # runner est comparé avant et après chaque cas ; fonctions communes sur des clés et des dossiers jetables.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/poste/tests/Test-InstallationPoste.ps1 -Python $env:ACP_PYTHON_TOUS -ExigerInstallationAcceptee
+      - name: Installeur du poste en simulation, Windows PowerShell 5.1 (celle que le README recommande)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./packaging/poste/tests/Test-InstallationPoste.ps1 -Python $env:ACP_PYTHON_TOUS -ExigerInstallationAcceptee
