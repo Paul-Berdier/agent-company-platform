@@ -341,6 +341,13 @@ ApiCall *ApiClient::send(const ApiRequest &request)
     return call;
 }
 
+ApiCall *ApiClient::reject(const ApiError &error)
+{
+    auto *call = new ApiCall(ApiRequest{}, this);
+    QTimer::singleShot(0, call, [this, call, error] { finishWithError(call, error); });
+    return call;
+}
+
 void ApiClient::startAttempt(ApiCall *call)
 {
     if (!call || call->m_finished) {

@@ -150,6 +150,12 @@ public:
     */
     ApiCall *send(const ApiRequest &request);
 
+    /*!
+        Appel déjà refusé par la station (identifiant illisible, champ inconnu…) : il échoue
+        avec `error`, de façon asynchrone comme tout appel, sans rien émettre sur le réseau.
+    */
+    ApiCall *reject(const ApiError &error);
+
     /*! Nombre d'appels en vol, pour la barre d'état et l'écran de diagnostics. */
     [[nodiscard]] int inFlightCount() const;
 

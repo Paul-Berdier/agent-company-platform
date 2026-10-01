@@ -133,6 +133,8 @@ set(ACP_CORE_SOURCES
     src/api/ApiError.cpp
     src/api/ApiError.h
     src/api/ApiRequest.h
+    src/api/ClientGreffonPoste.cpp
+    src/api/ClientGreffonPoste.h
     src/api/IdempotencyKey.cpp
     src/api/IdempotencyKey.h
     src/app/Application.cpp

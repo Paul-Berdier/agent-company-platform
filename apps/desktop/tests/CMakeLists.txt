@@ -34,6 +34,7 @@ target_link_libraries(tst_desktop_pages PRIVATE Qt6::QuickControls2
 acp_add_cpp_test(tst_api_errors)
 acp_add_cpp_test(tst_api_porteur cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_pkce)
+acp_add_cpp_test(tst_client_greffon cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_flux_natif cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
     cpp/support/NavigateurTest.h)
 acp_add_cpp_test(tst_session_hermes cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
