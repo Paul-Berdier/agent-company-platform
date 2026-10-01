@@ -183,6 +183,7 @@ class Execution:
     grace_s: float = GRACE_S
     horloge: Callable[[], datetime] = lambda: datetime.now(UTC)
     compteurs_codex: Callable[[], list[dict[str, Any]] | None] = lambda: None
+    motif_arret: str = "sigterm"
 
     # ================================================================== état persistant
     def _ecrire_json(self, chemin: Path, donnees: dict[str, Any]) -> None:
@@ -317,20 +318,23 @@ class Execution:
             depot = self.controler(demande)
         except CarteRefusee as exc:
             self.journal.ecrire("avertissement", "carte_refusee", exc.raison, carte=demande.carte)
-            return self.bloquer(demande, exc.genre, exc.raison)
+            return await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison)
         self._noter_carte(demande, "preparation")
         nom = demande.branche.removeprefix("hermes/")
         try:
             issue = await self._executer(demande, depot, nom, arret)
         except CarteRefusee as exc:
             self._commit_wip(demande, depot, nom, "wip: blocage")
-            issue = self.bloquer(demande, exc.genre, exc.raison, exc.reprise_le)
+            issue = await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison, exc.reprise_le)
         except Interruption as exc:
             self._commit_wip(demande, depot, nom, f"wip: {exc.motif}")
+            # Carte rendue proprement : un redémarrage ne la compte pas comme un arrêt mémoire.
+            self._noter_carte(demande, "arretee" if exc.route == "arret" else "rendue")
             corps = dict(self._base(demande), motif=exc.motif)
-            issue = self.emettre(exc.route, corps)
+            issue = await asyncio.to_thread(self.emettre, exc.route, corps)
         except ErreurDepot as exc:
-            issue = self.bloquer(demande, "capacite", f"Opération git en échec sur l'exécutant : {exc}")
+            issue = await asyncio.to_thread(self.bloquer, demande, "capacite",
+                                            f"Opération git en échec sur l'exécutant : {exc}")
         finally:
             try:
                 self.depots.fermer_tour(self.depots.espace(demande.depot_alias, nom))
@@ -484,10 +488,10 @@ class Execution:
             self.depots.quarantaine(depot.alias, nom, demande.branche)
             self.journal.ecrire("erreur", "secret_detecte", f"Secret détecté ({trouve}) : branche en quarantaine, rien "
                                 "n'est envoyé.", carte=demande.carte)
-            return self.bloquer(demande, "secret", RAISON_SECRET)
+            return await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
         if sortie is not None and sortie.issue == "question":
             corps = dict(self._base(demande), texte=sortie.question, contexte=sortie.resume[:4000])
-            return self.emettre("question", corps)
+            return await asyncio.to_thread(self.emettre, "question", corps)
         diffstat = self.depots.diffstat(depot.alias, nom, base, tete) if base and tete else None
         palier = None if demande.role == "integration" else (demande.palier or "default")
         metadonnees = {
@@ -501,7 +505,7 @@ class Execution:
         corps = dict(self._base(demande), issue="termine", resume=resume[:4000], verdict=verdict,
                      corrections=getattr(sortie, "corrections", None) if verdict == "corrections" else None,
                      metadonnees=metadonnees)
-        return self.emettre("terminer", corps)
+        return await asyncio.to_thread(self.emettre, "terminer", corps)
 
     # ================================================================== intégration (§ 6.7)
     async def _integrer(self, demande: DemandeCarte, depot: Any, nom: str, chemin: Path, base: str | None,
@@ -658,7 +662,7 @@ class Execution:
                 if verdict_init:
                     break
                 if arret.is_set():
-                    interruption = Interruption("arret", "sigterm")
+                    interruption = Interruption("arret", self.motif_arret)
                     break
                 if time.monotonic() - debut > duree_max:
                     depasse = True

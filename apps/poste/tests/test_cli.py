@@ -127,8 +127,10 @@ def test_releve_publier_exige_l_enrolement(poste, capsys):
 def test_servir_non_enrole_code_0_une_ligne_par_jour(poste, capsys):
     poste.ecrire_politique()
     contexte = poste.contexte()
+    from acp_poste.chemins import commande_poste
+
     assert main(["servir"], contexte=contexte) == 0
-    assert "Poste non enrôlé : lancez « & '" in capsys.readouterr().err
+    assert f"Poste non enrôlé : lancez « {commande_poste('enroler')} »" in capsys.readouterr().err
     assert main(["servir"], contexte=contexte) == 0
     lignes = (poste.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8").splitlines()
     assert sum(json.loads(l)["evenement"] == "non_enrole" for l in lignes) == 1
@@ -142,13 +144,18 @@ def test_les_commandes_citees_aux_consoles_sont_executables_telles_quelles(poste
     from acp_poste.chemins import commande_poste
 
     forme = commande_poste("enroler")
-    assert forme.startswith("& '") and forme.endswith(r"\ACP\poste\acp-poste.cmd' enroler")
+    if sys.platform.startswith("linux"):
+        # Étape P6 : sur l'exécutant Linux, l'enveloppe /usr/local/bin/acp-poste est sur le PATH de railway ssh.
+        assert forme == "acp-poste enroler"
+    else:
+        assert forme.startswith("& '") and forme.endswith(r"\ACP\poste\acp-poste.cmd' enroler")
     assert f"« {forme} »" in service.NON_ENROLE
     assert f"« {commande_poste('oublier-jeton')} »" in service.JETON_ILLISIBLE
     assert f"« {commande_poste('enroler --remplacer')} »" in enrolement.DEJA_ENROLE.format(empreinte="AAAA-BBBB")
     assert f"« {commande_poste('enroler --remplacer')} »" in protocole.JETON_REFUSE
-    for message in (service.NON_ENROLE, service.JETON_ILLISIBLE, protocole.JETON_REFUSE):
-        assert "« acp-poste " not in message
+    if not sys.platform.startswith("linux"):
+        for message in (service.NON_ENROLE, service.JETON_ILLISIBLE, protocole.JETON_REFUSE):
+            assert "« acp-poste " not in message
     poste.ecrire_politique()
     poste.preparer_profil_codex()
     assert main(["releve", "--publier"], contexte=poste.contexte()) == 2

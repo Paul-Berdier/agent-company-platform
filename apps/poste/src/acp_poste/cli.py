@@ -12,6 +12,9 @@
 | ``oublier-jeton`` | efface le jeton machine local | aucun |
 | ``quotas`` | relevés de quotas (Codex, ligne d'état Claude) | comme ``releve`` |
 | ``sonde-plateforme [--json]`` | exécutant Linux : sonde d'isolement (cahier P6 § 4.1), sans identifiant ni politique | aucun |
+| ``connexion claude|github --stdin`` | exécutant Linux : jeton déposé en 0600 root sur le volume (D92) | aucun |
+| ``bundle <alias> <branche>`` | exécutant Linux : ``git bundle`` d'une branche prête (§ 12.2) | aucun |
+| ``pause`` / ``reprise`` / ``cartes`` | exécutant Linux : pause locale, état local des cartes | aucun |
 
 Codes de sortie : 0 (normal, non enrôlé, révoqué), 1 (erreur imprévue ou Hermes injoignable), 2 (configuration
 refusée), 3 (autre instance), 4 (jeton gardé mais refusé par la couture de Hermes). Tout message est en français ;
@@ -90,12 +93,16 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="acp-poste", epilog=EPILOGUE)
     parser.add_argument("--version", action="version", version=f"acp-poste {__version__}")
     commandes = parser.add_subparsers(dest="commande", required=True)
-    commandes.add_parser("servir", help="Boucle du service : attente des ordres, relevés, inventaire")
+    servir = commandes.add_parser("servir", help="Boucle du service : attente des ordres, relevés, inventaire")
+    servir.add_argument("--plateforme", choices=("windows", "linux"),
+                        help="Assertion de la plateforme (l'entrée de l'image passe « linux ») ; jamais un choix")
     enroler = commandes.add_parser("enroler", help="Enrôler ce poste auprès de Hermes (code de la page Poste)")
     enroler.add_argument("--code-stdin", action="store_true", help="Lire le code sur l'entrée standard")
     enroler.add_argument("--remplacer", action="store_true", help="Remplacer le jeton d'un enrôlement précédent")
     connexion = commandes.add_parser("connexion", help="Connexions manuelles du compte du poste")
-    connexion.add_argument("cible", choices=("codex", "claude", "bac-a-sable"))
+    connexion.add_argument("cible", choices=("codex", "claude", "github", "bac-a-sable"))
+    connexion.add_argument("--stdin", action="store_true", help="Lire le jeton sur l'entrée standard (jamais en "
+                           "argument)")
     releve = commandes.add_parser("releve", help="Relever maintenant (sondes) et imprimer l'inventaire")
     releve.add_argument("--publier", action="store_true", help="Publier aussi l'inventaire sur Hermes")
     preuve = commandes.add_parser("preuve", help="Archiver une preuve (cahier P5 § 16)")
@@ -108,6 +115,12 @@ def _parser() -> argparse.ArgumentParser:
     journal.add_argument("--lignes", type=int, default=40, help="Nombre de lignes à afficher (1 à 2000)")
     commandes.add_parser("oublier-jeton", help="Effacer le jeton machine local")
     commandes.add_parser("quotas", help="Relevés de quotas (Codex, ligne d'état Claude Code)")
+    bundle = commandes.add_parser("bundle", help="Exécutant : git bundle d'une branche prête (railway ssh)")
+    bundle.add_argument("alias", help="Alias du dépôt dans executant.toml")
+    bundle.add_argument("branche", help="hermes/projet-<slug> ou hermes/<carte>")
+    commandes.add_parser("pause", help="Exécutant : pause locale (aucune carte ni sonde)")
+    commandes.add_parser("reprise", help="Exécutant : lever la pause locale")
+    commandes.add_parser("cartes", help="Exécutant : état local des cartes (sans contenu ni secret)")
     sonde = commandes.add_parser("sonde-plateforme",
                                  help="Exécutant Linux : sonde d'isolement (bubblewrap, UID), sans identifiant")
     sonde.add_argument("--json", action="store_true", help="Relevé complet en JSON (publiable : aucun identifiant)")
@@ -223,6 +236,18 @@ def executer(args: argparse.Namespace, contexte: Contexte) -> int:
     commande = args.commande
     if commande == "sonde-plateforme":
         return _sonde_plateforme(args, contexte)
+    linux = contexte.plateforme == "linux"
+    if commande in ("pause", "reprise", "cartes", "bundle") and not linux:
+        print(f"« {commande} » ne concerne que l'exécutant Linux : sans objet sur le poste Windows.", file=sys.stderr)
+        return 2
+    if commande in ("pause", "reprise"):
+        from .gestes_executant import pause
+
+        return pause(contexte, commande == "pause")
+    if commande == "cartes":
+        from .gestes_executant import cartes
+
+        return cartes(contexte)
     if commande == "journal":
         lignes = lire_fin(contexte.emplacements.journal, max(1, min(args.lignes, 2000)))
         if lignes is None:
@@ -250,8 +275,14 @@ def executer(args: argparse.Namespace, contexte: Contexte) -> int:
                          indent=2))
         return 0
     if commande == "servir":
+        from .plateforme import PlateformeIndisponible, verifier_annonce
         from .service import servir
 
+        try:
+            verifier_annonce(args.plateforme)
+        except PlateformeIndisponible as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
         return asyncio.run(servir(contexte))
     politique, refus = _charger(contexte)
     if politique is None:
@@ -267,10 +298,25 @@ def executer(args: argparse.Namespace, contexte: Contexte) -> int:
         except PolitiqueRefusee as exc:
             print(str(exc), file=sys.stderr)
             return 2
+    if commande == "connexion" and linux:
+        from .gestes_executant import connexion_codex_linux, deposer_jeton
+
+        if args.cible == "bac-a-sable":
+            print("« connexion bac-a-sable » ne concerne que le poste Windows : l'exécutant Linux mesure son bac à "
+                  "sable par la sonde de plateforme.", file=sys.stderr)
+            return 2
+        if args.cible == "codex":
+            return connexion_codex_linux(contexte, politique)
+        return deposer_jeton(contexte, "jeton-claude" if args.cible == "claude" else "jeton-github",
+                             stdin=args.stdin)
+    if commande == "connexion" and args.cible == "github":
+        print("« connexion github » ne concerne que l'exécutant Linux (dépôts distants) : sans objet sur le poste "
+              "Windows.", file=sys.stderr)
+        return 2
     if commande == "connexion" and args.cible == "claude":
         from .connexions import connexion_claude
 
-        return connexion_claude(contexte)
+        return connexion_claude(contexte, lire=(lambda _invite: sys.stdin.readline()) if args.stdin else None)
     if commande == "enroler":
         from .enrolement import enroler
 
@@ -289,6 +335,10 @@ def executer(args: argparse.Namespace, contexte: Contexte) -> int:
         return preuve_model_list(contexte, politique, _valeurs(contexte))
     if commande == "quotas":
         return _quotas(contexte, politique)
+    if commande == "bundle":
+        from .gestes_executant import bundle
+
+        return bundle(contexte, politique, args.alias, args.branche)
     raise AssertionError(commande)
 
 

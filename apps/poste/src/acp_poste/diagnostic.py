@@ -11,6 +11,12 @@ bac à sable, connexion), service (verrou tenu, tâche planifiée).
   compte dédié.
 
 Aucune valeur n'est inventée : ce qui n'est pas su vaut ``null`` ou « inconnu ».
+
+Exécutant Linux (étape P6) : bloc ``executant`` — verdict de la sonde de plateforme du démarrage, état de
+l'exécution (``peut_executer`` et sa raison, voies, carte en main), file de sortie (en attente, refusées), pause
+locale, espace libre du volume, plafonds du jour, jeton GitHub de lecture (présence seulement) ; ``--isolement`` y
+ajoute le nombre de sockets à l'écoute lu dans ``/proc/net/tcp`` et ``/proc/net/tcp6`` (état ``0A`` ; preuve R1 :
+l'exécutant n'écoute aucun port), ``ss`` n'étant pas dans l'image.
 """
 
 from __future__ import annotations
@@ -109,6 +115,62 @@ def _isolement(politique: Politique) -> dict[str, Any]:
             "refuses": refuses, "absents": absents}
 
 
+def sockets_a_l_ecoute(racine: Path = Path("/proc/net")) -> int | None:
+    """Nombre de sockets TCP à l'écoute (état ``0A``) d'après ``/proc/net/tcp`` et ``tcp6`` ; ``None`` si illisible."""
+    total, lu = 0, False
+    for nom in ("tcp", "tcp6"):
+        try:
+            lignes = (racine / nom).read_text(encoding="ascii", errors="replace").splitlines()[1:]
+        except OSError:
+            continue
+        lu = True
+        total += sum(1 for ligne in lignes if len(ligne.split()) > 3 and ligne.split()[3] == "0A")
+    return total if lu else None
+
+
+def _executant(contexte: Contexte, politique: Politique | None, isolement: bool) -> dict[str, Any]:
+    from .depots import espace_libre_mio
+    from .garde_quota import Budget
+    from .sortie import FileSortie
+
+    e = contexte.emplacements
+    sonde = _lire_json(e.sonde_isolement) or {}
+    verdict = sonde.get("verdict") or {}
+    etat = (_lire_json(e.etat_service) or {}).get("execution") or {}
+    en_main = _lire_json(e.carte) or {}
+    file = FileSortie(e.sortie, e.sortie_refusees)
+    try:
+        refusees = len([f for f in e.sortie_refusees.iterdir() if f.suffix == ".json"])
+    except OSError:
+        refusees = 0
+    try:
+        github = contexte.coffre.present("jeton-github")
+    except CoffreErreur:
+        github = None
+    budget = None
+    if politique is not None:
+        jour = Budget(e.compteurs, politique.politique.cartes_par_jour,
+                      politique.politique.heures_agent_par_jour).etat()
+        budget = {"cartes": jour["cartes"], "cartes_max": politique.politique.cartes_par_jour,
+                  "heures_agent": round(jour["secondes_agent"] / 3600, 2),
+                  "heures_max": politique.politique.heures_agent_par_jour}
+    return {
+        "sonde": {"regime": verdict.get("regime", "inconnu"), "bwrap": verdict.get("bwrap"),
+                  "uid_separes": verdict.get("uid_separes"), "raison": verdict.get("raison"),
+                  "sonde_le": sonde.get("sonde_le")} if verdict else None,
+        "execution": {"peut_executer": etat.get("peut_executer"), "raison": etat.get("raison"),
+                      "voies": etat.get("voies")} if etat else None,
+        "carte_en_main": {"carte": en_main.get("carte"), "role": en_main.get("role"), "etape": en_main.get("etape")}
+        if en_main else None,
+        "file_de_sortie": {"en_attente": len(file.en_attente()), "refusees": refusees},
+        "pause_locale": e.pause_locale.exists(),
+        "espace_libre_mio": espace_libre_mio(e.donnees) if e.donnees.exists() else None,
+        "plafonds_du_jour": budget,
+        "jeton_github": "present" if github else ("absent" if github is False else "illisible"),
+        "sockets_a_l_ecoute": sockets_a_l_ecoute() if isolement else None,
+    }
+
+
 def diagnostic(contexte: Contexte, *, reseau: bool = False, isolement: bool = False) -> dict[str, Any]:
     emplacements = contexte.emplacements
     rapport: dict[str, Any] = {"version_poste": __version__, "protocole": PROTOCOLE}
@@ -189,9 +251,12 @@ def diagnostic(contexte: Contexte, *, reseau: bool = False, isolement: bool = Fa
     else:
         rapport["claude"] = None
     rapport["versions_publiees"] = versions or None
+    linux = contexte.plateforme == "linux"
     rapport["service"] = {"verrou": "tenu" if est_tenu(emplacements.verrou_instance) else "libre",
-                          "tache_planifiee": _tache_planifiee()}
-    rapport["isolement"] = _isolement(politique) if (isolement and politique is not None) else None
+                          "tache_planifiee": None if linux else _tache_planifiee()}
+    rapport["isolement"] = _isolement(politique) if (isolement and politique is not None and not linux) else None
+    if linux:
+        rapport["executant"] = _executant(contexte, politique, isolement)
     trouve = identifiant_trouve(rapport)
     if trouve:  # garde : un diagnostic ne porte jamais de chemin ni d'identifiant
         rapport = {"version_poste": __version__, "erreur": f"Diagnostic retenu par la garde « aucun identifiant » "

@@ -20,6 +20,7 @@ emplacement par défaut : les tests (et le bout en bout local) injectent une rac
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -184,6 +185,9 @@ def commande_poste(arguments: str) -> str:
     l'installeur a copié le poste (``%ProgramFiles%\ACP\poste``, lu par ``SHGetKnownFolderPath`` ; hors Windows,
     l'emplacement par défaut). Jamais dans un inventaire : la garde « aucun identifiant » y refuse les chemins."""
 
+    if sys.platform.startswith("linux"):
+        # Exécutant Linux (étape P6) : enveloppe /usr/local/bin/acp-poste, sur le PATH de « railway ssh ».
+        return f"acp-poste {arguments}"
     racine = PROGRAMFILES_PAR_DEFAUT
     if os.name == "nt":
         try:
