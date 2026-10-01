@@ -225,7 +225,10 @@ def diagnostic(contexte: Contexte, *, reseau: bool = False, isolement: bool = Fa
         rapport["codex"] = {
             "executable": "present" if lanceur else "absent", "version": lue, "version_testee": section.version_testee,
             "version_conforme": lue == section.version_testee if lue else None,
-            "profil": "present" if section.home.is_dir() else "absent", "config_toml": etat_config_toml(section.home),
+            "profil": "present" if section.home.is_dir() else "absent",
+            # Variante de la plateforme (Linux : stockage « file », sans réglage Windows) : sans elle, l'exécutant
+            # affichait « modifie » pour le config.toml qu'il venait d'écrire (relevé dans l'image, 01/10/2026).
+            "config_toml": etat_config_toml(section.home, politique.plateforme),
             "connexion": connexions.get("codex"), "dernier_releve": releve.get("releve_le"),
             "origine_liste": releve.get("origine_liste"), "etat_releve": releve.get("etat"),
             "bac_a_sable": {k: (inventaire.get("bac_a_sable_codex") or {}).get(k) for k in

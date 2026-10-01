@@ -157,5 +157,13 @@ def test_cartes_et_diagnostic_linux(tmp_path, capsys):
     assert bloc["sonde"]["regime"] == "B" and bloc["carte_en_main"]["etape"] == "agent"
     assert bloc["file_de_sortie"] == {"en_attente": 0, "refusees": 0} and bloc["jeton_github"] == "absent"
     assert bloc["plafonds_du_jour"]["cartes_max"] == 20 and rapport["service"]["tache_planifiee"] is None
+    assert rapport["codex"]["config_toml"] == "absent"
+    from acp_poste.politique import charger
+    from acp_poste.sondes_codex import ecrire_config_toml
+
+    politique = charger(e)
+    assert ecrire_config_toml(politique.codex.home, "linux") == "cree"
+    assert main(["diagnostic"], contexte=contexte) == 0
+    assert json.loads(capsys.readouterr().out)["codex"]["config_toml"] == "conforme"
     if sys.platform.startswith("linux"):
         assert isinstance(bloc["sockets_a_l_ecoute"], int)
