@@ -252,7 +252,7 @@ void JsonRpcChannel::traiterReponse(const QJsonObject &trame)
     const QJsonValue brut = trame.value(QStringLiteral("id"));
     const QString identifiant = brut.isString() ? brut.toString()
                                                 : QString::number(static_cast<qint64>(brut.toDouble()));
-    if (m_pingsEnVol.remove(identifiant)) {
+    if (m_pingsEnVol.removeOne(identifiant)) {
         return;
     }
     QTimer *delai = m_delais.take(identifiant);
@@ -336,9 +336,9 @@ void JsonRpcChannel::tic()
         return;
     }
     const QString identifiant = QStringLiteral("battement-%1").arg(++m_compteurBattement);
-    m_pingsEnVol.insert(identifiant);
+    m_pingsEnVol.append(identifiant);
     if (m_pingsEnVol.size() > kPingsEnVolMax) {
-        m_pingsEnVol.erase(m_pingsEnVol.begin());
+        m_pingsEnVol.removeFirst(); // le plus ancien, jamais le dernier émis
     }
     envoyerTrame(QJsonObject{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")},
                              {QStringLiteral("id"), identifiant},

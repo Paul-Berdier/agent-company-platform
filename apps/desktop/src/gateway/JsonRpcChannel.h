@@ -25,6 +25,7 @@
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QList>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QObject>
@@ -159,7 +160,7 @@ private:
     QHash<QString, QTimer *> m_delais;
     QHash<QString, Gestionnaire> m_gestionnaires;
     QSet<QString> m_ouvertes;
-    QSet<QString> m_pingsEnVol;
+    QList<QString> m_pingsEnVol; //!< Du plus ancien au plus récent.
     quint64 m_compteur = 0;
     quint64 m_compteurBattement = 0;
     std::chrono::milliseconds m_delaiRequete{120000};
