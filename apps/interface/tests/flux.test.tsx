@@ -132,19 +132,21 @@ describe("AnalyseurSse", () => {
     }
   });
 
-  it("lit les trames exemples publiées pour le desktop (hermes/tests/outils/fixtures_flux)", () => {
-    const dossier = join(process.cwd(), "..", "..", "hermes", "tests", "outils", "fixtures_flux");
-    const lire = (nom: string) => new AnalyseurSse().pousser(readFileSync(join(dossier, nom), "utf8"));
-    const [ouverture] = lire("ouverture.txt");
+  it("lit les trames exemples publiées pour le desktop (hermes/tests/outils/fixtures_flux/trames.json)", () => {
+    const chemin = join(process.cwd(), "..", "..", "hermes", "tests", "outils", "fixtures_flux", "trames.json");
+    const exemples = (JSON.parse(readFileSync(chemin, "utf8")) as { trames: Record<string, string> }).trames;
+    expect(Object.keys(exemples).sort()).toEqual(["battement", "changement", "fin", "illisible", "ouverture", "reprise"]);
+    const lire = (nom: string) => new AnalyseurSse().pousser(exemples[nom]);
+    const [ouverture] = lire("ouverture");
     expect(ouverture.evenement).toBe("etat");
     expect(JSON.parse(ouverture.donnees)).toEqual({ revision: "1727791200.41", sujets: [...SUJETS],
                                                     discussions_suivies: true });
-    expect(JSON.parse(lire("reprise.txt")[0].donnees).sujets).toEqual([]);
-    expect(lire("changement.txt")).toEqual([{ id: "1727791200.42", evenement: "changement",
+    expect(JSON.parse(lire("reprise")[0].donnees).sujets).toEqual([]);
+    expect(lire("changement")).toEqual([{ id: "1727791200.42", evenement: "changement",
                                               donnees: '{"sujets":["projets","questions"]}' }]);
-    expect(JSON.parse(lire("illisible.txt")[0].donnees).illisibles).toEqual(["projets", "questions"]);
-    expect(lire("battement.txt")).toEqual([]);
-    expect(lire("fin.txt")[0].evenement).toBe("fin");
+    expect(JSON.parse(lire("illisible")[0].donnees).illisibles).toEqual(["projets", "questions"]);
+    expect(lire("battement")).toEqual([]);
+    expect(lire("fin")[0].evenement).toBe("fin");
   });
 });
 

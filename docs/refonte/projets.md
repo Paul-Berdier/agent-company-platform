@@ -106,8 +106,10 @@ sujets). Annoncé par `GET /v1/meta`, clé `flux` : `{chemin, version: 1, sujets
 (battement et durée `null` si la base est illisible).
 
 - Réponse `text/event-stream; charset=utf-8`, `Cache-Control: no-store`, `X-Accel-Buffering: no`.
-- Trames (exemples octet pour octet : `hermes/tests/outils/fixtures_flux/*.txt`, comparés au greffon par
-  `test_trames_exemples_partagees_avec_le_desktop`) :
+- Trames (exemples octet pour octet, une fois encodés en UTF-8 : chaînes JSON de
+  `hermes/tests/outils/fixtures_flux/trames.json`, comparées au greffon par
+  `test_trames_exemples_partagees_avec_le_desktop` ; en JSON parce qu'une trame finit par une ligne vide,
+  qu'aucun fichier suivi ne doit porter en fin de fichier, `scripts/tests/test_fins_de_fichier.py`) :
 
 ```
 retry: 3000

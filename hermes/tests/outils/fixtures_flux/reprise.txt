@@ -1,6 +1,0 @@
-retry: 3000
-
-id: 1727791200.41
-event: etat
-data: {"revision":"1727791200.41","sujets":[],"discussions_suivies":true}
-

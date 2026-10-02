@@ -301,18 +301,20 @@ def test_trames_au_format_sse(flux):
 
 
 def test_trames_exemples_partagees_avec_le_desktop(flux):
-    """Les trames exemples publiées pour le desktop P8 (hermes/tests/outils/fixtures_flux) sont exactement celles que
-    produit le greffon."""
-    dossier = Path("/opt/acp-tests/outils/fixtures_flux")
-    assert (dossier / "ouverture.txt").read_bytes() == flux.trame_ouverture(
-        "1727791200.41", SUJETS, [], True)
-    assert (dossier / "reprise.txt").read_bytes() == flux.trame_ouverture("1727791200.41", [], [], True)
-    assert (dossier / "changement.txt").read_bytes() == flux.trame_changement(
-        "1727791200.42", ["questions", "projets"], [])
-    assert (dossier / "illisible.txt").read_bytes() == flux.trame_changement(
-        "1727791200.43", ["projets", "questions"], ["projets", "questions"])
-    assert (dossier / "battement.txt").read_bytes() == flux.TRAME_BATTEMENT
-    assert (dossier / "fin.txt").read_bytes() == flux.trame_fin()
+    """Les trames exemples publiées pour le desktop P8 (hermes/tests/outils/fixtures_flux/trames.json, chaînes JSON :
+    une trame SSE finit par une ligne vide, qu'aucun fichier suivi ne doit porter en fin de fichier) sont, encodées en
+    UTF-8, exactement celles que produit le greffon."""
+    chemin = Path("/opt/acp-tests/outils/fixtures_flux/trames.json")
+    trames = {nom: texte.encode("utf-8") for nom, texte in
+              json.loads(chemin.read_text(encoding="utf-8"))["trames"].items()}
+    assert trames == {
+        "ouverture": flux.trame_ouverture("1727791200.41", SUJETS, [], True),
+        "reprise": flux.trame_ouverture("1727791200.41", [], [], True),
+        "changement": flux.trame_changement("1727791200.42", ["questions", "projets"], []),
+        "illisible": flux.trame_changement("1727791200.43", ["projets", "questions"], ["projets", "questions"]),
+        "battement": flux.TRAME_BATTEMENT,
+        "fin": flux.trame_fin(),
+    }
 
 
 # ============================================================ route, servie par un vrai serveur uvicorn
