@@ -190,10 +190,16 @@ set(ACP_CORE_SOURCES
     src/storage/SettingsStore.h
     src/system/SystemAppearance.cpp
     src/system/SystemAppearance.h
+    src/viewmodels/AccueilViewModel.cpp
+    src/viewmodels/AccueilViewModel.h
     src/viewmodels/DiagnosticsViewModel.cpp
     src/viewmodels/DiagnosticsViewModel.h
     src/viewmodels/Libelles.cpp
     src/viewmodels/Libelles.h
+    src/viewmodels/PageViewModel.cpp
+    src/viewmodels/PageViewModel.h
+    src/viewmodels/ProjetsViewModel.cpp
+    src/viewmodels/ProjetsViewModel.h
     src/viewmodels/ShellViewModel.cpp
     src/viewmodels/ShellViewModel.h
 )

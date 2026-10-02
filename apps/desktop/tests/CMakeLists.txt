@@ -27,10 +27,11 @@ endfunction()
 
 acp_add_cpp_test(tst_sse_parser)
 acp_add_cpp_test(tst_updates)
-acp_add_cpp_test(tst_desktop_pages)
-target_link_libraries(tst_desktop_pages PRIVATE Qt6::QuickControls2
+acp_add_cpp_test(tst_pages_bureau cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_link_libraries(tst_pages_bureau PRIVATE Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+target_compile_definitions(tst_pages_bureau PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_api_errors)
 acp_add_cpp_test(tst_api_porteur cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_pkce)
@@ -52,6 +53,10 @@ acp_add_cpp_test(tst_reglages_sans_secret cpp/support/FauxHermes.cpp cpp/support
 acp_add_cpp_test(tst_canal_jsonrpc)
 acp_add_cpp_test(tst_client_passerelle cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_temps_reel cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_accueil cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_accueil PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_projets cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_projets PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_openrpc_conformite)
 # Contrat JSON-RPC épinglé, lu à sa place dans hermes/contrat (jamais recopié).
 target_compile_definitions(tst_openrpc_conformite PRIVATE ACP_OPENRPC_FILE="${ACP_OPENRPC_FILE}")

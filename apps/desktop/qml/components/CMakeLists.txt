@@ -4,7 +4,11 @@ acp_add_qml_module(
     TARGET acp_components
     URI Acp.Components
     QML_FILES
+        BandeauMessage.qml
+        BlocTexte.qml
+        Carte.qml
         EmptyState.qml
+        EtatLecture.qml
         KeyValueRow.qml
         QuotaGauge.qml
         SectionHeader.qml

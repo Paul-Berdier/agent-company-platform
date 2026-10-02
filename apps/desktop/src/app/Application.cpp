@@ -17,7 +17,9 @@
 #include "storage/CredentialVault.h"
 #include "storage/SettingsStore.h"
 #include "system/SystemAppearance.h"
+#include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiagnosticsViewModel.h"
+#include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/ShellViewModel.h"
 
 #include <QCoreApplication>
@@ -90,6 +92,9 @@ Application::Application(QObject *parent)
                                              m_settings, m_appearance, m_vault.get(), version(),
                                              buildInfo(), this);
     m_diagnostics->setFlux(m_flux);
+    // Pages de pilotage : elles lisent seulement quand elles sont affichées et la session établie.
+    m_accueil = new AccueilViewModel(m_client, m_greffon.get(), m_flux, this);
+    m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
     // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
     connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
     connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
@@ -164,6 +169,8 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Compatibility", m_compatibilite);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Gateway", m_passerelle);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Streams", m_flux);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Accueil", m_accueil);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
@@ -257,6 +264,27 @@ void Application::registerBuiltinCommands()
         alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("home"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.projects"), QStringLiteral("Aller aux projets"),
+        QStringLiteral("Navigation"), {QStringLiteral("projets"), QStringLiteral("kanban")},
+        QStringLiteral("Ctrl+3"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("projects"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("projects.new"), QStringLiteral("Lancer un nouveau projet"),
+        QStringLiteral("Projets"), {QStringLiteral("nouveau"), QStringLiteral("lancer")}, QString(),
+        [](const CommandContext &context) {
+            return context.sessionConnected ? CommandAvailability::Available : CommandAvailability::NeedsSession;
+        },
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("projects"));
+            m_projets->afficherNouveau();
             return CommandResult::accept();
         }});
 

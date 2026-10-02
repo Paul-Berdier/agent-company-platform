@@ -7,5 +7,6 @@ acp_add_qml_module(
         DiagnosticsPage.qml
         FirstRunPage.qml
         HomePage.qml
+        ProjectsPage.qml
         SettingsPage.qml
 )

@@ -21,6 +21,7 @@ Rectangle {
         sourceComponent: {
             switch (Navigation.currentRoute) {
             case "home": return homeComponent;
+            case "projects": return projectsComponent;
             case "diagnostics": return diagnosticsComponent;
             case "settings": return settingsComponent;
             default: return unknownComponent;
@@ -29,6 +30,7 @@ Rectangle {
     }
 
     Component { id: homeComponent; HomePage {} }
+    Component { id: projectsComponent; ProjectsPage {} }
     Component { id: diagnosticsComponent; DiagnosticsPage {} }
     Component { id: settingsComponent; SettingsPage {} }
 

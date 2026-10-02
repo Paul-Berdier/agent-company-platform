@@ -42,6 +42,8 @@ public:
 
     // --- Lectures --------------------------------------------------------------
     ApiCall *meta();
+    /*! Verrou du catalogue (`/v1/catalogue`) : types de projet offerts au lancement. */
+    ApiCall *catalogue();
     ApiCall *projets();
     ApiCall *projet(const QString &identifiant);
     ApiCall *carteDuProjet(const QString &identifiant, const QString &carte);

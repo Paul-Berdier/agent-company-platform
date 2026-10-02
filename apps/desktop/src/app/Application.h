@@ -15,6 +15,7 @@ class QQmlApplicationEngine;
 
 namespace acp {
 
+class AccueilViewModel;
 class ApiClient;
 class ClientGreffonPoste;
 class CompatibiliteHermes;
@@ -25,6 +26,7 @@ class EventStreamService;
 class GatewayClient;
 class HealthService;
 class NavigationModel;
+class ProjetsViewModel;
 class SessionHermes;
 class SettingsStore;
 class ShellViewModel;
@@ -79,6 +81,8 @@ private:
     SystemAppearance *m_appearance = nullptr;
     ShellViewModel *m_shell = nullptr;
     DiagnosticsViewModel *m_diagnostics = nullptr;
+    AccueilViewModel *m_accueil = nullptr;
+    ProjetsViewModel *m_projets = nullptr;
     UpdateService *m_updates = nullptr;
 };
 

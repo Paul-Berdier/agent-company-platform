@@ -38,6 +38,11 @@ inline const QString kInconnu = QStringLiteral("Inconnu");
 [[nodiscard]] bool estNombre(const QJsonValue &valeur);
 /*! Horodatage en secondes depuis l'époque → « 26/09/2026 13:43 » (heure locale), sinon « Inconnu ». */
 [[nodiscard]] QString date(const QJsonValue &secondes);
+/*! Date ISO 8601 (« 2026-09-26T11:44:00.073871+00:00 ») → « 26/09/2026 13:44 » (heure locale) ;
+    une chaîne illisible est rendue telle quelle (donnée), une absence vaut « Inconnu ». */
+[[nodiscard]] QString dateIso(const QJsonValue &iso);
+/*! Pourcentage → « 41 % » (espace insécable), sinon « Inconnu ». */
+[[nodiscard]] QString pourcentage(const QJsonValue &valeur);
 
 // --- États --------------------------------------------------------------------------
 

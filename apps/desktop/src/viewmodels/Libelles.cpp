@@ -2,6 +2,8 @@
 
 #include <QDateTime>
 #include <QHash>
+#include <QLocale>
+#include <QRegularExpression>
 
 #include <cmath>
 
@@ -47,10 +49,40 @@ QString nombre(const QJsonValue &valeur)
 
 QString date(const QJsonValue &secondes)
 {
-    if (!estNombre(secondes) || secondes.toInteger() == 0) {
+    // Horodatages de Hermes : secondes, parfois fractionnaires (time.time() en Python).
+    if (!secondes.isDouble() || secondes.toDouble() <= 0) {
         return kInconnu;
     }
-    return QDateTime::fromSecsSinceEpoch(secondes.toInteger()).toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm"));
+    return QDateTime::fromSecsSinceEpoch(static_cast<qint64>(secondes.toDouble()))
+        .toLocalTime()
+        .toString(QStringLiteral("dd/MM/yyyy HH:mm"));
+}
+
+QString dateIso(const QJsonValue &iso)
+{
+    if (!estTexte(iso)) {
+        return kInconnu;
+    }
+    const QString brut = iso.toString().trimmed();
+    QDateTime instant = QDateTime::fromString(brut, Qt::ISODateWithMs);
+    if (!instant.isValid()) {
+        // Fractions de seconde au-delà de la milliseconde (Python les écrit en microsecondes).
+        static const QRegularExpression fraction(QStringLiteral("\\.\\d+"));
+        QString sansFraction = brut;
+        sansFraction.remove(fraction);
+        instant = QDateTime::fromString(sansFraction, Qt::ISODate);
+    }
+    return instant.isValid() ? instant.toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm")) : brut;
+}
+
+QString pourcentage(const QJsonValue &valeur)
+{
+    if (!valeur.isDouble() || valeur.toDouble() < 0) {
+        return kInconnu;
+    }
+    // \u00C9criture fran\u00E7aise : virgule d\u00E9cimale, espace ins\u00E9cable avant le signe.
+    const double nombre = valeur.toDouble();
+    return QStringLiteral("%1\u00A0%").arg(QLocale(QLocale::French).toString(nombre, 'f', nombre == std::floor(nombre) ? 0 : 1));
 }
 
 Libelle etatProjet(const QJsonValue &etat, const QJsonValue &derive)

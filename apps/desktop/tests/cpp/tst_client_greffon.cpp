@@ -72,6 +72,7 @@ void TestClientGreffon::lecturesSurLesBonsChemins()
 {
     Banc banc;
     Banc::attendre(banc.greffon.meta());
+    Banc::attendre(banc.greffon.catalogue());
     Banc::attendre(banc.greffon.projets());
     Banc::attendre(banc.greffon.projet(QStringLiteral("prj_42")));
     Banc::attendre(banc.greffon.carteDuProjet(QStringLiteral("prj_42"), QStringLiteral("t_9f2c")));
@@ -80,7 +81,7 @@ void TestClientGreffon::lecturesSurLesBonsChemins()
     Banc::attendre(banc.greffon.routage());
     Banc::attendre(banc.greffon.quotas());
     const QStringList attendus = {
-        kP + QStringLiteral("/v1/meta"), kP + QStringLiteral("/v1/projets"),
+        kP + QStringLiteral("/v1/meta"), kP + QStringLiteral("/v1/catalogue"), kP + QStringLiteral("/v1/projets"),
         kP + QStringLiteral("/v1/projets/prj_42"), kP + QStringLiteral("/v1/projets/prj_42/cartes/t_9f2c"),
         kP + QStringLiteral("/v1/questions"), kP + QStringLiteral("/v1/poste"),
         kP + QStringLiteral("/v1/routage"), kP + QStringLiteral("/v1/quotas"),

@@ -49,6 +49,7 @@ ApiCall *ClientGreffonPoste::ecrire(const QString &relatif, const QJsonObject &c
 }
 
 ApiCall *ClientGreffonPoste::meta() { return lire(QStringLiteral("/v1/meta")); }
+ApiCall *ClientGreffonPoste::catalogue() { return lire(QStringLiteral("/v1/catalogue")); }
 ApiCall *ClientGreffonPoste::projets() { return lire(QStringLiteral("/v1/projets")); }
 ApiCall *ClientGreffonPoste::questions() { return lire(QStringLiteral("/v1/questions")); }
 ApiCall *ClientGreffonPoste::poste() { return lire(QStringLiteral("/v1/poste")); }
