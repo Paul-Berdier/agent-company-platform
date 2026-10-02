@@ -73,7 +73,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
-| P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | volet desktop **réalisé côté dépôt** sur `refonte/hermes-p8` (partie de `b3faac0`) : connexion native, JSON-RPC, neuf pages, bout en bout local ; Desktop CI verte ; sans PR ; **rien de déployé** ; MCP côté poste reporté après P6 (§ 6 sexies) |
+| P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | volet desktop **réalisé côté dépôt** sur `refonte/hermes-p8` (partie de `b3faac0`) : connexion native, JSON-RPC, neuf pages, bout en bout local ; 16 constats de relecture corrigés ; Desktop CI verte ; sans PR ; **rien de déployé** ; MCP côté poste reporté après P6 (§ 6 sexies) |
 | P9 | Exploitation, montée de version et publication | à faire |
 
 Les anciennes P4 à P8 du plan (discussion mobile, poste en lecture, quotas, écritures signées,
@@ -1716,6 +1716,29 @@ lecture seule ; agrégat des demandes de l'agent attendu de P7.
   connexion de la station vers Authelia, 9 documents de référence (434 clés) conformes à
   la forme servie. Captures relues ([`desktop-build.md`](desktop-build.md), § 12).
 
+### Corrections après relecture (2 octobre 2026)
+
+Seize constats d'une relecture indépendante, chacun corrigé avec un test qui échoue sans la
+correction (témoin de mutation relevé, puis code restauré), en onze commits poussés un à
+un : `7b82c7c` (listes relues par identifiant, brouillons de réponse et de consigne gardés,
+défilement gardé), `54714ab` (verdict de compatibilité appliqué : client du greffon bloqué),
+`ee70e9f` (pages oubliées à la session perdue, au changement de serveur, au blocage),
+`da7081a` (rotation refusée localement : entrée du coffre effacée ; échéance jugée contre
+l'en-tête `Date`), `72f2a5b` (exécutant `null` de P6), `ba206b4` (préfixe de chemin des
+liens), `4ac1de4` (erreurs réseau en français), `c22c8b9` (raccourcis de la palette, copie
+du rapport, vrais contrôles au bout en bout), `9c76c54` (carte « Hermes » relue),
+`de46e69` (dialogue des réglages), `1f3696a` (jauge des quotas). Détail :
+[`refonte/desktop.md`](refonte/desktop.md).
+
+Preuves : `test-desktop.ps1` **100 % de 34 suites** (trois nouvelles : `tst_pages_interactions`,
+`tst_oubli_local`, `tst_modele_liste`), totaux Qt des suites inscrites **464 réussis, 0 échec,
+0 ignoré** ; `check_layout` : les 13 constats connus ; `check_version`, `check_engine_frozen`,
+`balayer_secrets.py --arbre --plage origin/main..HEAD` : verts ; `scripts/tests` : 143 réussis ;
+bout en bout local **réussi, 0 écart**, contre `acp-hermes-tests:p8` et `acp-hermes-tests:rv8p6`
+(P6 fusionnée), avec la réponse et le message tapés dans les vrais champs et envoyés par les
+vrais boutons ; sur le serveur P6, la page Poste affiche « Aucun exécutant connu pour
+l'instant ».
+
 ### Intégration continue
 
 | Commit | CI | Desktop CI |
@@ -1732,6 +1755,17 @@ lecture seule ; agrégat des demandes de l'agent attendu de P7.
 | `834a920` | `36971280474` verte | `36971280439` verte |
 | `aaf4242` | `36973661359` verte | `36973661335` verte |
 | `1b28374` | `36974403555` verte | `36974403544` verte |
+| `67c7820` | `36975250744` verte | `36975250741` verte |
+| `7b82c7c` | `36980296362` verte | `36980296381` verte |
+| `54714ab` | `36980983960` verte | `36980983860` verte |
+| `ee70e9f` | `36982272310` verte | `36982272343` annulée (poussée suivante) |
+| `da7081a` | `36982992735` verte | `36982992750` annulée (poussée suivante) |
+| `72f2a5b` | `36983538687` verte | `36983538622` annulée (poussée suivante) |
+| `ba206b4` | `36984025684` verte | `36984025895` annulée (poussée suivante) |
+| `4ac1de4` | `36984717624` verte | `36984717715` verte |
+| `c22c8b9` | `36985873177` verte | `36985873325` verte |
+| `9c76c54` | `36986744845` verte | `36986744802` verte |
+| `1f3696a` | `36987435529` verte | `36987435638` verte |
 
 Exécuteur `windows-2022` ; le journal de la Desktop CI ne donne que le résumé de CTest
 (« 100% tests passed »), pas les totaux de Qt Test, relevés localement. Un run en cours est
@@ -1796,7 +1830,7 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 
 ```powershell
 ./scripts/build-desktop.ps1 -Configuration Release
-./scripts/test-desktop.ps1 -Configuration Release                  # 31 suites ; lire aussi les totaux Qt
+./scripts/test-desktop.ps1 -Configuration Release                  # 34 suites ; lire aussi les totaux Qt
 python apps/desktop/cmake/check_layout.py                          # 13 constats connus (README du desktop)
 # Bout en bout local : venv python.org avec hermes/tests/requirements-e2e.txt (Playwright, Chromium)
 ./scripts/e2e-desktop-windows.ps1 -Python <venv-e2e>\Scripts\python.exe `
@@ -1913,3 +1947,11 @@ python apps/desktop/cmake/check_layout.py                          # 13 constats
   pas le nom d'utilisateur ; le rejeu d'un jeton de rafraîchissement révoqué donne 503 (Authelia 500).
 - **Étape P8** : la station ne joint `hermes-acp.test` que par le mandataire CONNECT du script (Qt n'a pas de
   règle de résolution comme Chromium) ; ses WebSockets suivent la règle de proxy du REST.
+- **Étape P8 (relecture)** : une liste relue dont les délégués portent un état (champ de saisie, défilement)
+  doit déclarer sa clé (`JsonListModel::setCle`) ; sans clé, `setItems` réinitialise le modèle et le Repeater
+  détruit les délégués (texte tapé perdu toutes les 15 s).
+- **Étape P8 (relecture)** : Qt Test n'a pas de `keyClicks` pour une `QWindow` : une touche par caractère
+  (`keyClick`), ou `sendKeyEvent` avec le texte pour les accents ; cliquer après avoir fait défiler la page
+  jusqu'au contrôle (`contentY` du Flickable parent), sinon le centre du contrôle est hors de la fenêtre.
+- **Étape P8 (relecture)** : les tests QML existants contiennent des espaces insécables (« 58 % ») : une
+  édition par remplacement exact doit les reprendre tels quels.

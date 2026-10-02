@@ -9,8 +9,8 @@ relevés de l'ancien client (0.10.0, ancienne API ACP) restent sous l'étiquette
 
 ## État des preuves
 
-Sur la branche `refonte/hermes-p8` : compilation Release (`/W4 /WX`) et **31 suites**
-déclarées à CTest, totaux Qt relevés sans échec ni test ignoré, localement et par la
+Sur la branche `refonte/hermes-p8` : compilation Release (`/W4 /WX`) et **34 suites**
+déclarées à CTest (31 avant les corrections de la relecture, 34 depuis), totaux Qt relevés sans échec ni test ignoré, localement et par la
 **Desktop CI** sur `windows-2022` (identifiants des runs dans
 [`reprise-poste.md`](reprise-poste.md), § 6 sexies). Un **bout en bout local** contre la
 pile de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi (§ 12). Ni
@@ -136,7 +136,7 @@ Qt Test et Qt Quick Test sont ceux que le préréglage de test déclare. Un test
 échec fait échouer le script avec le code `5`. Aucun résultat n'est converti en
 avertissement, aucune suite n'est ignorée silencieusement.
 
-Depuis P8, 31 suites :
+Depuis P8 et ses corrections après relecture, 34 suites :
 
 | Domaine | Suites |
 |---|---|
@@ -144,6 +144,7 @@ Depuis P8, 31 suites :
 | Transport, compatibilité, santé | `tst_api_porteur`, `tst_api_errors`, `tst_client_greffon`, `tst_compatibilite_hermes`, `tst_sante` |
 | JSON-RPC et temps réel | `tst_canal_jsonrpc`, `tst_client_passerelle`, `tst_openrpc_conformite`, `tst_temps_reel`, `tst_sse_parser`, `tst_backoff` |
 | Pages | `tst_accueil`, `tst_projets`, `tst_questions`, `tst_discussion`, `tst_poste`, `tst_quotas`, `tst_routage`, `tst_sauvegarde`, `tst_diagnostics`, `tst_pages_bureau` |
+| Gestes réels et oubli | `tst_pages_interactions` (frappes et clics de souris sur les vrais contrôles QML : réponse à une question, consigne, message de la discussion, raccourcis de la palette, dialogue des réglages), `tst_oubli_local` (session perdue, changement de serveur, greffon bloqué), `tst_modele_liste` (mise à jour des listes par identifiant) |
 | Socle | `tst_command_registry`, `tst_redaction`, `tst_updates`, `tst_qml_shell` (Qt Quick Test) |
 
 CTest compte « Passed » un test ignoré par `QSKIP` : lire les totaux de Qt Test
@@ -240,7 +241,7 @@ Premiers contrôles historiques du 18 septembre 2026, avant installation des out
   nommant précisément le fichier attendu.
 
 Depuis ce premier relevé, CMake, CTest, `windeployqt` et Inno Setup ont été
-exécutés, en local et en CI. Pour P8 : la suite complète (31 suites) et le bout en bout
+exécutés, en local et en CI. Pour P8 : la suite complète (34 suites) et le bout en bout
 local (§ 12). `signtool` avec un certificat de production, l'installation sur un
 Windows propre et Railway restent non prouvés.
 
@@ -322,12 +323,17 @@ la branche), **réussi, 0 écart** :
 | JSON-RPC | passerelle prête (sous-protocole `hermes-gateway-v1`), `session.create`, `prompt.submit` → « Réponse du modèle factice ACP. » ; 4 événements hors du sous-ensemble comptés, ignorés |
 | Projet | lancé depuis la page Projets (dépôt `jetable`, exécutant poste Claude, « Moi » répond) : « Projet lancé : Hermes le planifie. », état `actif` relu par l'API |
 | Veille du kanban | carte réclamée par le poste simulé : invalidation reçue, détail relu 44 ms après elle |
-| **Question** | posée par le poste simulé (escaladée), vue dans la page Questions, **répondue depuis la station** (« Réponse envoyée : la carte reprend. ») ; relue par l'API : plus ouverte, carte `ready` ; captures avant et après |
+| **Question** | posée par le poste simulé (escaladée), vue dans la page Questions, **répondue depuis la station** (« Réponse envoyée : la carte reprend. ») ; relue par l'API : plus ouverte, carte `ready` ; captures avant et après. Depuis les corrections de la relecture, la réponse est **tapée dans le champ de la carte et envoyée par un clic réel sur « Répondre »**, et le message de la discussion par le champ et le bouton « Envoyer » (`par_le_bouton` exigé par le script) |
 | Sauvegarde | 15,8 Mio exportés, chiffrés (`ACPB1`), déchiffrés à l'identique (SHA-256), archive **supprimée** du volume de Hermes ; 7 s |
 | Redémarrage | session reprise du coffre **sans navigateur** en 0,24 s, jeton tourné |
 | Déconnexion | `POST /auth/logout` → 302, coffre vidé ; rejeu de l'ancien jeton → **503** (Authelia rend 500 pour un jeton révoqué) |
 | Hygiène | aucune forme de secret dans le journal de la station, l'export du registre de la portée, le journal du bord ni celui de Hermes ; aucune entrée de coffre de test restante ; 57 tunnels du mandataire, tous vers `hermes-acp.test`, **aucun** vers le fournisseur d'identité, aucun refus ; WebSockets `/api/ws` et `/api/plugins/kanban/events` sous l'hôte public |
 | Documents de référence | 9 documents des tests natifs, 434 clés, servis par l'image avec le même type (voir `apps/desktop/tests/fixtures/hermes/README.md`) |
+
+Rejoué après les corrections de la relecture (2 octobre 2026, `c22c8b9` puis `1f3696a`) :
+**réussi, 0 écart**, contre `acp-hermes-tests:p8` et contre `acp-hermes-tests:rv8p6`
+(construite depuis `7697a1c`, P6 fusionnée) ; la page Poste de ce second serveur affiche
+« Aucun exécutant connu pour l'instant : l'étape P6 est en place sur ce serveur… ».
 
 Captures relues (pages réelles dans une fenêtre construite comme `App.qml`) : rappel du
 navigateur, discussion, nouveau projet, questions avant et après, sauvegarde, accueil,

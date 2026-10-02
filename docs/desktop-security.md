@@ -118,7 +118,7 @@ préférences, un mandataire et une autorité **de test** ; il refuse de démarr
 - `tst_pkce`, `tst_flux_natif`, `tst_session_hermes`, `tst_jetons_coffre` (aller-retour
   réel dans le coffre Windows), `tst_instance_unique`, `tst_api_porteur`,
   `tst_canal_jsonrpc`, `tst_client_passerelle`, `tst_reglages_sans_secret`,
-  `tst_redaction`, `tst_diagnostics`, `tst_sauvegarde`, `tst_pages_bureau` (aucune
+  `tst_redaction`, `tst_diagnostics`, `tst_sauvegarde`, `tst_oubli_local`, `tst_pages_bureau` (aucune
   propriété d'aucun objet ne contient le jeton ni un ticket après le parcours).
 - Bout en bout local : aucune forme de secret dans le journal de la station, l'export du
   registre de la portée de test, le journal du bord ni celui de Hermes ; entrée de coffre

@@ -428,11 +428,20 @@ Référence : `docs/refonte/desktop.md`, `docs/native-desktop-architecture.md`, 
 - corrigé en cours de route : pings sans réponse évincés du plus ancien ; discussion et code d'enrôlement oubliés à
   la perte de session (aussi fenêtre réduite) ; export de sauvegarde arrêté à la perte de session sans couper une
   suppression en vol ;
+- corrigé après relecture (16 constats, chacun avec un test qui échoue sans la correction) : brouillons de réponse
+  et de consigne et défilement des listes gardés aux relectures (listes mises à jour par identifiant) ; verdict
+  « contrat incompatible » ou « greffon absent » appliqué (client du greffon bloqué, rien n'est émis) ; pages
+  oubliées à la session perdue, au changement de serveur et au blocage du greffon ; exécutant `null` de P6 distingué
+  de l'étape absente ; liens du navigateur sous le préfixe du serveur ; erreurs réseau en français ; Ctrl+6 à Ctrl+9
+  et copie du rapport par la palette effectifs ; carte « Hermes » de l'accueil relue et datée ; dialogue des
+  réglages en français ; jauge des quotas sur la part utilisée avec le repère du seuil, comme le web ;
 - sécurité : aucun secret en QML ni dans `QSettings` (liste blanche et contrôle) ; journaux et rapports expurgés
   (jetons de Hermes et d'Authelia, ticket, code et état, `acpm_`/`acpe_`) ; archive de sauvegarde jamais en clair
-  sur le disque du PC ;
-- vérifié localement : 31 suites, 0 échec, 0 ignoré (totaux Qt) ; Desktop CI verte sur windows-2022 ; bout en bout
-  local réussi le 02/10/2026 ;
+  sur le disque du PC ; une rotation acceptée par Hermes mais refusée par la station efface l'entrée du coffre (le
+  jeton consommé n'est jamais rejoué) et l'échéance d'un jeton est jugée contre l'en-tête `Date` de Hermes ;
+- vérifié localement : 34 suites, 0 échec, 0 ignoré (totaux Qt) ; Desktop CI verte sur windows-2022 ; bout en bout
+  local réussi le 02/10/2026, rejoué après les corrections contre les images `p8` et `rv8p6` (P6 fusionnée) avec la
+  réponse et le message tapés dans les vrais champs et envoyés par les vrais boutons ;
 - limites : rien n'est déployé (ni Railway ni vraie passkey) ; aucune installation sur Windows propre ; binaires non
   signés ; flux SSE, agrégat des demandes et gestes des revues attendent P6 et P7 ; MCP côté poste reporté après P6.
 

@@ -147,7 +147,7 @@ dit que le fichier chiffré est lié au profil Windows.
 
 ## Tests et preuves
 
-- **31 suites** déclarées à CTest (Qt Test et Qt Quick Test), totaux Qt relevés : 0
+- **34 suites** déclarées à CTest (Qt Test et Qt Quick Test), totaux Qt relevés : 0
   échec, 0 ignoré. Le banc `tests/cpp/support/FauxHermes` sert HTTP et WebSocket sur le
   même port de bouclage (flux natif, rotation, passerelle, kanban, routes du greffon).
 - **Desktop CI** sur `windows-2022` : compilation Release (`/W4 /WX`), suites, empaquetage
