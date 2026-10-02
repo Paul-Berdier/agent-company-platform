@@ -26,6 +26,10 @@ Sommaire : § 1 ce qui est déployé · § 2 prérequis · § 3 règles de l'IaC
 `trusted_proxies` · § 9 exploitation · § 10 récupération · § 11 sécurité du compte · § 12 prouvé en
 local, seulement sur Railway, limites · § 13 exécutant (étape P6).
 
+**Étape P9** : le calendrier, les sauvegardes, la restauration (arbre de décision, ordre des volumes, reconnexions,
+répétition) et la montée de version sont dans le [manuel d'exploitation](../exploitation.md), qui renvoie ici pour
+les commandes.
+
 ---
 
 ## 1. Ce qui est déployé
@@ -425,6 +429,11 @@ routes `/api/plugins/acp-poste/machine/v1/*` passent par le même domaine que le
 (`railway volume files` sur un service arrêté), retour à la normale, puis
 `railway config plan --detailed-exit-code` → 0. Compte rendu écrit.
 
+### 4.11 bis Répétition de restauration, une fois, avant d'y mettre des données
+
+Étape P9 : à la suite du § 4.11, restauration des trois volumes à une sauvegarde manuelle, en douze étapes, avec les
+constats à relever (openai-codex, sessions, sauvegardes postérieures) : [exploitation.md](../exploitation.md) § 5.
+
 ### 4.12 Clôture
 
 `railway ssh keys remove --2fa-code <code>` (preuve : `railway ssh keys` vide), puis
@@ -532,7 +541,8 @@ seulement ; il relit l'environnement du PID 1, jamais celui de la session) :
    d'exécution sur Railway ([image.md](image.md) § 5).
 
 Les jetons (tournants) vivent dans `/opt/data` : ils sont dans les sauvegardes du volume ; une
-restauration impose de reconnecter openai-codex.
+restauration impose **probablement** de reconnecter openai-codex (supposé, jamais constaté : constat c de la
+répétition, [exploitation.md](../exploitation.md) § 5).
 
 ---
 
@@ -649,7 +659,8 @@ maintenance. Limites (rw_full.txt:32452-32464) : une sauvegarde manuelle est lim
 taille du volume ; **effacer un volume efface ses sauvegardes** ; restauration dans le même projet
 et le même environnement seulement. Les sauvegardes d'`identite` contiennent ses secrets et sa clé
 de signature ; celles de `hermes` contiennent `auth.json` (jetons openai-codex) : la frontière de
-confiance est le compte Railway (§ 11).
+confiance est le compte Railway (§ 11). Contenu de chaque volume, export chiffré de Hermes, pertes au pire et
+calendrier : [exploitation.md](../exploitation.md) § 1 à 3.
 
 **Coûts** (Hobby : 5 $ déduits de l'usage, RAM 10 $/Go/mois, CPU 20 $/vCPU/mois, volume 0,15 $/Go/mois,
 sortie 0,05 $/Go ; seul l'usage réel est facturé, rw_full.txt:4848-4892) :
@@ -665,7 +676,9 @@ sortie 0,05 $/Go ; seul l'usage réel est facturé, rw_full.txt:4848-4892) :
 
 **Montée de version de Hermes ou d'Authelia** : PR qui change le `FROM` épinglé (et
 `hermes/contrat/`), CI verte, déploiement par la chaîne normale. Jamais `hermes update`, `:latest`
-ni `AUTO_UPDATE`.
+ni `AUTO_UPDATE`. Étape P9 : veille mensuelle et PR de montée par `scripts/monter_hermes.py`, vos gestes, point
+de non-retour et retour arrière (Rollback ne restaure pas le volume, supposé) :
+[exploitation.md](../exploitation.md) § 6.
 
 **Page MCP du tableau de bord** (relecture de P3) : n'y utilisez ni « INSTALL » ni « ADD SERVER » :
 un serveur MCP s'ajoute par une PR au catalogue ([catalogue.md](catalogue.md) § 7.3). Un serveur
@@ -772,7 +785,10 @@ Déplacer un volume vers un autre environnement pour l'examiner n'est pas docume
 **Aucun `railway config apply` entre la restauration et cette PR** : le fichier désignerait encore
 l'ancien volume, et un apply pourrait détacher le volume restauré. Même traitement pour `/config`
 d'`identite`. Les sauvegardes plus récentes que celle restaurée restent sur l'ancien volume
-(rw_full.txt:32438).
+(rw_full.txt:32438) ; une autre page de la documentation dit au contraire que la restauration les supprime
+(rw_full.txt:42610) : ne supprimez jamais l'ancien volume avant validation (constat g de la répétition). Plusieurs
+volumes, ordre entre eux (exécutant et Hermes restaurés à des instants différents), effets à la reprise et
+reconnexions : [exploitation.md](../exploitation.md) § 4.
 
 ### e) Identité
 
@@ -794,6 +810,12 @@ conseille de retirer `--init`) :
 4. la suite est une **décision de conception**, prise par une PR (par exemple : lancer s6-overlay
    autrement, avec une nouvelle preuve que les gardes s'appliquent), relue et testée comme P2,
    jamais un réglage fait dans Railway.
+
+### g) Hermes depuis son propre export (étape P9)
+
+Volume de Hermes effacé avec ses sauvegardes : réimport de l'export chiffré de la station Qt dans un volume vide.
+Forme du geste à mesurer par le test de restauration local de P9 avant tout usage ; déroulé prévu et messages de
+Hermes à ignorer : [exploitation.md](../exploitation.md) § 4.5.
 
 ---
 
@@ -861,7 +883,8 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
 4. Environnement et utilisateur d'une session `railway ssh` ; `railway volume files` sur un service
    arrêté.
 5. **Restauration** : mise en attente combinable avec une Start Command dans le même lot ; renommage
-   des volumes avec un plan à « 0 to destroy ».
+   des volumes avec un plan à « 0 to destroy » ; sort des sauvegardes postérieures (documentation
+   contradictoire, § 10 d) ; reconnexion d'openai-codex. Tous relevés par la répétition du § 4.11 bis.
 6. **Déploiements hors automatisme** : « Deploy Latest Commit » et premier déploiement créé par
    l'apply face à « Wait for CI ».
 7. « Wait for CI » avec les workflows réels et des groupes de concurrence par exécution.
@@ -1114,4 +1137,5 @@ Hermes fait foi : l'exécutant rejoue sa file de sortie (les `reclamation_perdue
 les worktrees des cartes qu'il ne détient plus et **garde les branches**. Lancez `acp-poste diagnostic` : si la
 connexion Codex est périmée (jeton déjà tourné), refaites `acp-poste connexion codex`. Les sauvegardes contiennent
 `auth.json`, le jeton machine, les jetons Claude et GitHub et le code des dépôts : la frontière reste le compte
-Railway (§ 11).
+Railway (§ 11). Exécutant restauré à un instant différent de Hermes (règle d'ordre provisoire, en attente de la
+mesure de P9) : [exploitation.md](../exploitation.md) § 4.3.
