@@ -45,7 +45,13 @@ class Application : public QObject
     Q_OBJECT
 
 public:
-    explicit Application(QObject *parent = nullptr);
+    /*!
+        `nomCoffre` : préfixe des entrées du coffre Windows. Le produit garde la valeur par
+        défaut ; seul l'exécutable du bout en bout local (jamais installé) en passe un autre,
+        pour ne jamais toucher l'entrée réelle du poste.
+    */
+    explicit Application(QObject *parent = nullptr,
+                         const QString &nomCoffre = QStringLiteral("AgentCompanyPlatform"));
     ~Application() override;
 
     /*!

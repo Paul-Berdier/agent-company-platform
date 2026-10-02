@@ -76,6 +76,18 @@ acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)
 
+# --- Pilote du bout en bout local (cahier P8 § 10) ---------------------------------
+#
+# Compilé avec les tests (la CI prouve qu'il compile), mais JAMAIS déclaré à CTest ni
+# installé : seul apps/desktop/tests/e2e/e2e_desktop_windows.py le lance, contre la pile
+# locale (Authelia, Hermes de test, bord TLS factice). Il refuse de démarrer sans coffre et
+# portée de préférences DE TEST.
+qt_add_executable(acp_desktop_e2e e2e/acp_desktop_e2e.cpp)
+target_link_libraries(acp_desktop_e2e PRIVATE acp_core Qt6::QuickControls2
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+set_target_properties(acp_desktop_e2e PROPERTIES WIN32_EXECUTABLE FALSE)
+
 # --- Tests QML ----------------------------------------------------------------
 #
 # QUICK_TEST_SOURCE_DIR indique au harnais où chercher les fichiers « tst_*.qml ».

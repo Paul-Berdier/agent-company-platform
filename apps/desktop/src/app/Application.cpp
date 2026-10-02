@@ -64,11 +64,11 @@ QByteArray Application::userAgent()
     return QByteArrayLiteral("acp-desktop/") + ACP_DESKTOP_VERSION;
 }
 
-Application::Application(QObject *parent)
+Application::Application(QObject *parent, const QString &nomCoffre)
     : QObject(parent)
     , m_settings(new SettingsStore(this))
     , m_client(new ApiClient(this))
-    , m_vault(makeCredentialVault(QStringLiteral("AgentCompanyPlatform")))
+    , m_vault(makeCredentialVault(nomCoffre))
     , m_session(new SessionHermes(m_client, m_vault.get(), m_settings, this))
     , m_greffon(std::make_unique<ClientGreffonPoste>(m_client))
     , m_compatibilite(new CompatibiliteHermes(m_greffon.get(), this))
