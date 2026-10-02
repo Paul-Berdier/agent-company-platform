@@ -25,6 +25,11 @@ ApplicationWindow {
     color: Colors.surfaceCanvas
     palette: NativePalette {}
 
+    // Fenêtre réduite : les pages cessent de sonder Hermes (cahier P8 § 6.1). Le sondage
+    // léger de la barre d'état, lui, continue.
+    onVisibilityChanged: Streams.fenetreActive = root.visibility !== Window.Minimized
+        && root.visibility !== Window.Hidden
+
     // Les singletons générés portent le thème actif. La sélection vient de la couche C++
     // (préférence de l'opérateur, puis thème système) et jamais d'une décision prise ici.
     ThemeBridge {}

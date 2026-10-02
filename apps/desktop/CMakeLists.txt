@@ -159,9 +159,15 @@ set(ACP_CORE_SOURCES
     src/diagnostics/Redaction.h
     src/events/Backoff.cpp
     src/events/Backoff.h
+    src/events/EventStreamService.cpp
+    src/events/EventStreamService.h
+    src/events/Sondage.cpp
+    src/events/Sondage.h
     src/events/SseEvent.h
     src/events/SseParser.cpp
     src/events/SseParser.h
+    src/events/VeilleKanban.cpp
+    src/events/VeilleKanban.h
     src/gateway/GatewayClient.cpp
     src/gateway/GatewayClient.h
     src/gateway/JsonRpcChannel.cpp
@@ -186,6 +192,8 @@ set(ACP_CORE_SOURCES
     src/system/SystemAppearance.h
     src/viewmodels/DiagnosticsViewModel.cpp
     src/viewmodels/DiagnosticsViewModel.h
+    src/viewmodels/Libelles.cpp
+    src/viewmodels/Libelles.h
     src/viewmodels/ShellViewModel.cpp
     src/viewmodels/ShellViewModel.h
 )

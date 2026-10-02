@@ -4,6 +4,7 @@
 #include "app/BuildConfig.h"
 #include "auth/SessionHermes.h"
 #include "diagnostics/Redaction.h"
+#include "events/EventStreamService.h"
 #include "gateway/GatewayClient.h"
 #include "gateway/JsonRpcChannel.h"
 #include "services/CompatibiliteHermes.h"
@@ -243,6 +244,16 @@ void DiagnosticsViewModel::refresh()
     entries.append({gateway, QStringLiteral("Trames illisibles ignorées"),
                     QString::number(m_passerelle->canal()->tramesIllisibles()), true, true});
 
+    // --- Temps réel --------------------------------------------------------
+    if (m_flux) {
+        const QString temps = QStringLiteral("Temps réel");
+        entries.append({temps, QStringLiteral("Passerelle JSON-RPC"), m_flux->etatPasserelle(), true, false});
+        entries.append({temps, QStringLiteral("Veille du kanban"), m_flux->etatVeille(), true, false});
+        entries.append({temps, QStringLiteral("Sondage de /v1/projets"), m_flux->etatSondage(), true, false});
+        entries.append({temps, QStringLiteral("Flux d'événements du greffon"), EventStreamService::etatFluxGreffon(),
+                        false, false});
+    }
+
     // --- Stockage -----------------------------------------------------------
     entries.append({storage, QStringLiteral("Coffre de secrets"), m_vault->backendName(), true,
                     false});
@@ -256,6 +267,15 @@ void DiagnosticsViewModel::refresh()
     beginResetModel();
     m_entries = entries;
     endResetModel();
+}
+
+void DiagnosticsViewModel::setFlux(EventStreamService *flux)
+{
+    m_flux = flux;
+    if (m_flux) {
+        connect(m_flux, &EventStreamService::sourcesChange, this, &DiagnosticsViewModel::refresh);
+    }
+    refresh();
 }
 
 QString DiagnosticsViewModel::buildReport() const

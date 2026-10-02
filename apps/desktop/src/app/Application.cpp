@@ -7,6 +7,7 @@
 #include "app/QmlEnums.h"
 #include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
+#include "events/EventStreamService.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
@@ -62,6 +63,7 @@ Application::Application(QObject *parent)
     , m_greffon(std::make_unique<ClientGreffonPoste>(m_client))
     , m_compatibilite(new CompatibiliteHermes(m_greffon.get(), this))
     , m_passerelle(new GatewayClient(m_client, this))
+    , m_flux(new EventStreamService(m_client, m_greffon.get(), m_passerelle, this))
     , m_health(new HealthService(m_client, this))
     , m_navigation(new NavigationModel(this))
     , m_commands(new CommandRegistry(this))
@@ -77,10 +79,17 @@ Application::Application(QObject *parent)
             && m_session->etat() == SessionStatus::HorsLigne) {
             m_session->reessayer();
         }
+        // Retour du lien : les pages visibles relisent tout de suite (cahier P8 § 6.1).
+        if (m_health->linkStatus() == LinkStatus::Online) {
+            m_flux->signalerLien(true);
+        } else if (m_health->linkStatus() == LinkStatus::Offline) {
+            m_flux->signalerLien(false);
+        }
     });
     m_diagnostics = new DiagnosticsViewModel(m_client, m_session, m_compatibilite, m_passerelle, m_health,
                                              m_settings, m_appearance, m_vault.get(), version(),
                                              buildInfo(), this);
+    m_diagnostics->setFlux(m_flux);
     // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
     connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
     connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
@@ -89,6 +98,9 @@ Application::Application(QObject *parent)
     // station.
     connect(m_session, &SessionHermes::sessionEtablie, m_passerelle, &GatewayClient::ouvrir);
     connect(m_session, &SessionHermes::sessionPerdue, m_passerelle, &GatewayClient::fermer);
+    // Temps réel : sondage léger, veille du kanban et pages actives suivent la session.
+    connect(m_session, &SessionHermes::sessionEtablie, m_flux, &EventStreamService::demarrer);
+    connect(m_session, &SessionHermes::sessionPerdue, m_flux, &EventStreamService::arreter);
     connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
         const CompatibilityStatus::State etat = m_compatibilite->etat();
         const bool verdictRendu = etat != CompatibilityStatus::NonVerifiee
@@ -151,6 +163,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Health", m_health);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Compatibility", m_compatibilite);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Gateway", m_passerelle);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Streams", m_flux);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
@@ -196,6 +209,7 @@ void Application::start()
 
 void Application::shutdown()
 {
+    m_flux->arreter();
     m_passerelle->fermer();
     m_health->setPeriodicProbeEnabled(false);
     m_settings->flush();

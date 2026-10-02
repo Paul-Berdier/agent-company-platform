@@ -158,6 +158,22 @@ public:
     [[nodiscard]] int clientsConnectes() const;
     [[nodiscard]] QList<QJsonObject> tramesDeMethode(const QString &methode) const;
 
+    // --- Veille du kanban (/api/plugins/kanban/events) ------------------------------
+    //
+    // Même port, comme `stream_events` de Hermes (plugins/kanban/dashboard/plugin_api.py) :
+    // la garde `_ws_auth_ok` lit le ticket dans le sous-protocole (avec `hermes-gateway-v1`,
+    // un seul ticket) ou, à défaut, dans `?ticket=` ; un ticket absent, inconnu ou déjà servi
+    // reçoit 403 avant toute acceptation ; accepté, le serveur ne choisit AUCUN sous-protocole
+    // (`ws.accept()` nu). `GET /api/plugins/kanban/board` est une route ordinaire (route()).
+
+    void activerKanban();
+    /*! Envoie un lot `{events, cursor}` au dernier client du kanban. */
+    void envoyerKanban(const QJsonObject &lot);
+    void couperKanban();
+    [[nodiscard]] int clientsKanban() const;
+    QList<RequeteRecue> ouverturesKanban;
+    bool refuserKanban = false; //!< Toute ouverture du kanban reçoit 403.
+
 private:
     void accepter();
     void lire(QTcpSocket *socket);
@@ -166,10 +182,13 @@ private:
     [[nodiscard]] bool estPublique(const QString &chemin) const;
 
     bool ouvrirPasserelle(QTcpSocket *socket);
+    bool ouvrirKanban(QTcpSocket *socket, const RequeteRecue &requete, qsizetype finEntetes);
     void accepterPasserelle();
 
     QTcpServer *m_serveur = nullptr;
     QWebSocketServer *m_passerelle = nullptr;
+    QWebSocketServer *m_kanban = nullptr;
+    QList<QWebSocket *> m_clientsKanban;
     QList<QWebSocket *> m_clients;
     QHash<QString, Gestionnaire> m_routes;
     bool m_porte = false;

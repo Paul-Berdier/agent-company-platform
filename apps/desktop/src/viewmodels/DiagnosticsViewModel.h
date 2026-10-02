@@ -17,6 +17,7 @@ namespace acp {
 class ApiClient;
 class CompatibiliteHermes;
 class CredentialVault;
+class EventStreamService;
 class GatewayClient;
 class HealthService;
 class SessionHermes;
@@ -57,6 +58,9 @@ public:
     [[nodiscard]] QVariant data(const QModelIndex &index, int role) const override;
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
 
+    /*! Sources du temps réel (passerelle, veille du kanban, sondage, flux du greffon). */
+    void setFlux(EventStreamService *flux);
+
     /*! Recalcule toutes les lignes depuis les services. */
     Q_INVOKABLE void refresh();
 
@@ -75,6 +79,7 @@ private:
     SessionHermes *m_session = nullptr;
     CompatibiliteHermes *m_compatibilite = nullptr;
     GatewayClient *m_passerelle = nullptr;
+    EventStreamService *m_flux = nullptr;
     HealthService *m_health = nullptr;
     SettingsStore *m_settings = nullptr;
     SystemAppearance *m_appearance = nullptr;

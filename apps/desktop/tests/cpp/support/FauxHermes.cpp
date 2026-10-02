@@ -144,7 +144,7 @@ void FauxHermes::accepter()
 
 void FauxHermes::lire(QTcpSocket *socket)
 {
-    if (m_passerelle && socket->property(kTampon).toByteArray().isEmpty()) {
+    if ((m_passerelle || m_kanban) && socket->property(kTampon).toByteArray().isEmpty()) {
         // Une ouverture WebSocket est lue SANS être consommée, puis confiée à la passerelle.
         const QByteArray apercu = socket->peek(16384);
         const qsizetype fin = apercu.indexOf("\r\n\r\n");
@@ -270,6 +270,16 @@ bool FauxHermes::ouvrirPasserelle(QTcpSocket *socket)
             requete.entetes.insert(ligne.left(deuxPoints).trimmed().toLower(), ligne.mid(deuxPoints + 1).trimmed());
         }
     }
+    if (requete.chemin == QStringLiteral("/api/plugins/kanban/events")) {
+        return ouvrirKanban(socket, requete, fin);
+    }
+    if (!m_passerelle) {
+        requetes.append(requete);
+        disconnect(socket, &QTcpSocket::readyRead, this, nullptr);
+        socket->read(fin + 4);
+        repondre(socket, ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}}));
+        return false;
+    }
     ouvertures.append(requete);
     requetes.append(requete);
 
@@ -369,6 +379,82 @@ void FauxHermes::accepterPasserelle()
             client->sendTextMessage(QString::fromUtf8(QJsonDocument(pret).toJson(QJsonDocument::Compact)));
         }
     }
+}
+
+void FauxHermes::activerKanban()
+{
+    if (m_kanban) {
+        return;
+    }
+    // Aucun sous-protocole pris en charge : l'acceptation n'en choisit aucun, comme
+    // `ws.accept()` dans `stream_events`.
+    m_kanban = new QWebSocketServer(QStringLiteral("faux-kanban"), QWebSocketServer::NonSecureMode, this);
+    connect(m_kanban, &QWebSocketServer::newConnection, this, [this] {
+        while (m_kanban->hasPendingConnections()) {
+            QWebSocket *client = m_kanban->nextPendingConnection();
+            m_clientsKanban.append(client);
+            connect(client, &QWebSocket::disconnected, this, [this, client] {
+                m_clientsKanban.removeAll(client);
+                client->deleteLater();
+            });
+        }
+    });
+}
+
+bool FauxHermes::ouvrirKanban(QTcpSocket *socket, const RequeteRecue &requete, qsizetype finEntetes)
+{
+    ouverturesKanban.append(requete);
+    requetes.append(requete);
+    // web_server_chat.py `_ws_auth_reason` : ticket du sous-protocole (avec hermes-gateway-v1,
+    // un seul), sinon `?ticket=`.
+    QStringList protocoles;
+    for (const QByteArray &morceau : requete.entete("sec-websocket-protocol").split(',')) {
+        if (!morceau.trimmed().isEmpty()) {
+            protocoles.append(QString::fromLatin1(morceau.trimmed()));
+        }
+    }
+    QStringList tickets;
+    for (const QString &protocole : std::as_const(protocoles)) {
+        if (protocole.startsWith(QStringLiteral("hermes-gateway-ticket."))) {
+            tickets.append(protocole.mid(22));
+        }
+    }
+    QByteArray ticket;
+    bool forme = true;
+    if (!tickets.isEmpty()) {
+        forme = protocoles.contains(QStringLiteral("hermes-gateway-v1")) && tickets.size() == 1;
+        ticket = tickets.value(0).toUtf8();
+    } else {
+        ticket = requete.requete.queryItemValue(QStringLiteral("ticket")).toUtf8();
+    }
+    const bool admis = m_kanban && !refuserKanban && forme && !ticket.isEmpty() && ticketsEmis.removeOne(ticket);
+    disconnect(socket, &QTcpSocket::readyRead, this, nullptr);
+    if (!admis) {
+        socket->read(finEntetes + 4);
+        repondre(socket, ReponseFaux::json(403, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Forbidden")}}));
+        return false;
+    }
+    m_kanban->handleConnection(socket);
+    return true;
+}
+
+void FauxHermes::envoyerKanban(const QJsonObject &lot)
+{
+    if (!m_clientsKanban.isEmpty()) {
+        m_clientsKanban.last()->sendTextMessage(QString::fromUtf8(QJsonDocument(lot).toJson(QJsonDocument::Compact)));
+    }
+}
+
+void FauxHermes::couperKanban()
+{
+    if (!m_clientsKanban.isEmpty()) {
+        m_clientsKanban.last()->abort();
+    }
+}
+
+int FauxHermes::clientsKanban() const
+{
+    return static_cast<int>(m_clientsKanban.size());
 }
 
 void FauxHermes::envoyer(const QJsonObject &trame)

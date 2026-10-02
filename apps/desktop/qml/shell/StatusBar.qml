@@ -50,6 +50,19 @@ Rectangle {
                 contentItem: Text { text: noticeTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
             }
         }
+        // Résumé du sondage léger de /v1/projets (60 s) : état du poste, questions ouvertes,
+        // pause générale. Vide hors session ; « Inconnu » tant que rien n'a été lu.
+        Text {
+            objectName: "barre-etat-resume"
+            visible: Streams.libelleResume.length > 0
+            Layout.maximumWidth: statusBar.width * 0.34
+            text: Streams.libelleResume
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            color: Streams.pauseGenerale === 1 ? Status.statusDegradedForeground : Colors.textSecondary
+            font.family: Type.metadata.family
+            font.pixelSize: Type.metadata.pixelSize
+        }
         Text {
             text: Session.connectee ? Session.nomAffiche : Session.libelleEtat
             textFormat: Text.PlainText
