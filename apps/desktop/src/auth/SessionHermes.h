@@ -13,6 +13,11 @@
 //    jeton d'accès ; si l'écriture échoue, l'ancienne entrée (désormais périmée) est effacée
 //    et l'écran le dit ;
 //  - 401 `session_expired` au rafraîchissement : entrée effacée, « Session expirée » ;
+//  - réponse 200 au rafraîchissement mais REFUSÉE par la station (fournisseur, identité,
+//    type ou échéance) : Hermes a déjà fait tourner le jeton, celui du coffre est consommé ;
+//    l'entrée est effacée, pour qu'il ne soit jamais rejoué au démarrage suivant ;
+//  - l'échéance d'un jeton est jugée contre l'en-tête `Date` de Hermes (horloge du poste
+//    décalée sans effet), puis ramenée à l'horloge du poste pour planifier la rotation ;
 //  - 503 : AMBIGU (fournisseur injoignable OU jeton réutilisé) ; le jeton est GARDÉ, nouvel
 //    essai avec recul ; après 3 échecs sur au moins 2 minutes, l'écran propose de se
 //    reconnecter. Jamais d'effacement automatique sur un 503 ;

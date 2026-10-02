@@ -210,7 +210,7 @@ void NativeAuthFlow::echanger(QByteArray code)
         JetonsHermes jetons;
         const QString refus = JetonsHermes::lire(reponse.json.object(),
                                                  QString::fromLatin1(kFournisseur), maintenant(),
-                                                 jetons);
+                                                 jetons, JetonsHermes::dateHttp(reponse.header("date")));
         if (!refus.isEmpty()) {
             echouer(refus);
             return;

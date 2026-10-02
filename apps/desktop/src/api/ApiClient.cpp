@@ -26,6 +26,7 @@ const QList<QByteArray> kRetainedHeaders = {
     QByteArrayLiteral("content-length"),
     QByteArrayLiteral("content-range"),
     QByteArrayLiteral("retry-after"),
+    QByteArrayLiteral("date"), // heure du serveur : échéance des jetons jugée contre elle
     QByteArrayLiteral("etag"),
     QByteArrayLiteral("last-event-id"),
 };

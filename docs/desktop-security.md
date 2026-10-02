@@ -43,6 +43,13 @@ fichier en clair de remplacement.
 - 503 au rafraîchissement : ambigu (fournisseur injoignable ou jeton rejoué) ; le jeton
   est gardé, aucun effacement automatique ; message après trois échecs consécutifs sur au
   moins deux minutes.
+- Réponse 200 au rafraîchissement refusée par la station (fournisseur, identité, type de
+  jeton, échéance) : Hermes a déjà fait tourner le jeton, celui du coffre est donc
+  consommé ; l'entrée est **effacée** et l'écran demande de se reconnecter, pour qu'aucun
+  jeton consommé ne soit rejoué au démarrage suivant (Authelia révoquerait toute la
+  famille). L'échéance d'un jeton est jugée contre l'en-tête `Date` de Hermes, pas contre
+  l'horloge du poste : une horloge en avance de plus d'une heure ne fait plus refuser une
+  connexion ni une rotation (`tst_session_hermes`).
 - Déconnexion : révocation demandée à Hermes (`POST /auth/logout` avec le cookie
   `hermes_session_rt`), puis oubli local complet, quoi que réponde le serveur ; le bilan
   de la demande est affiché dans les réglages et les diagnostics.

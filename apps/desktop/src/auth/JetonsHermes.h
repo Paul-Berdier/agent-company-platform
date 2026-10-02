@@ -36,9 +36,19 @@ struct JetonsHermes
         fournisseur attendu, `access_token` non vide, `expires_at` dans le futur,
         `user_id` présent. Un `refresh_token` vide est admis : la session ne vaut alors que
         pour cette ouverture de la station.
+
+        `dateServeur` : l'en-tête `Date` de la réponse, s'il est lisible. L'échéance est alors
+        jugée contre l'heure de HERMES, pas contre celle du poste (une horloge du poste en
+        avance ne fait plus refuser un jeton valable), et `expireLe` est ramenée à l'horloge
+        du poste avec la même durée restante, pour que le renouvellement soit planifié au bon
+        moment. Sans en-tête lisible, l'horloge du poste fait foi.
     */
     [[nodiscard]] static QString lire(const QJsonObject &reponse, const QString &fournisseurAttendu,
-                                      const QDateTime &maintenant, JetonsHermes &sortie);
+                                      const QDateTime &maintenant, JetonsHermes &sortie,
+                                      const QDateTime &dateServeur = {});
+
+    /*! Date d'un en-tête HTTP `Date` (IMF-fixdate, RFC 9110 § 5.6.7), en UTC ; invalide sinon. */
+    [[nodiscard]] static QDateTime dateHttp(const QByteArray &valeur);
 };
 
 } // namespace acp

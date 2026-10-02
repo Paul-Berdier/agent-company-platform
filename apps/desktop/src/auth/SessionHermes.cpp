@@ -416,10 +416,15 @@ void SessionHermes::rafraichir()
         m_rafraichissementEnVol = false;
         JetonsHermes nouveaux;
         const QString refus = JetonsHermes::lire(reponse.json.object(), fournisseurAttendu(),
-                                                 maintenant(), nouveaux);
+                                                 maintenant(), nouveaux,
+                                                 JetonsHermes::dateHttp(reponse.header("date")));
         if (!refus.isEmpty()) {
-            m_client->refreshFinished(false, ApiError(ApiFailure::InvalidResponse, refus));
-            perdre(SessionStatus::Refusee, refus, false);
+            // Réponse 200 : Hermes a DÉJÀ fait tourner le jeton, celui du coffre est consommé.
+            // Le garder le ferait rejouer au prochain démarrage (Authelia révoquerait la
+            // famille de jetons, Hermes rendrait 503 en boucle) : l'entrée est effacée.
+            const QString raison = refus + QStringLiteral(" Le jeton mémorisé est effacé : reconnectez-vous.");
+            m_client->refreshFinished(false, ApiError(ApiFailure::InvalidResponse, raison));
+            perdre(SessionStatus::Refusee, raison, true);
             return;
         }
         if (!m_jetons.utilisateur.isEmpty() && nouveaux.utilisateur != m_jetons.utilisateur) {

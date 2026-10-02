@@ -7,9 +7,12 @@
 // recul, message après 3 échecs sur 2 minutes ; échec d'écriture du coffre ⇒ session en
 // mémoire et message ; démarrage avec jeton mémorisé ⇒ rafraîchissement immédiat ;
 // déconnexion ⇒ cookie `hermes_session_rt` envoyé une fois, coffre vidé. Les propriétés
-// publiées vers QML ne portent jamais un jeton.
+// publiées vers QML ne portent jamais un jeton. Une rotation acceptée par Hermes (200) mais
+// refusée par la station efface l'entrée (le jeton du coffre est consommé : jamais rejoué) ;
+// l'échéance d'un jeton est jugée contre l'en-tête `Date` de Hermes, pas l'horloge du poste.
 
 #include "api/ApiClient.h"
+#include "auth/JetonsHermes.h"
 #include "auth/NativeAuthFlow.h"
 #include "auth/SessionHermes.h"
 #include "storage/JetonsCoffre.h"
@@ -24,6 +27,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimeZone>
 #include <QUuid>
 
 #include <memory>
@@ -110,6 +114,10 @@ private slots:
     void consentementRetireEffaceLEntree();
     void changementDeServeurPurgeLAncienneEntree();
     void aucunSecretDansLesProprietes();
+    void rotationRefuseeLocalementEffaceLeCoffre();
+    void horlogeDuPosteEnAvanceJugeeParLaDateDeHermes();
+    void sansEnTeteDateLHorlogeDuPosteDecide();
+    void dateHttpLue();
 
 private:
     QTemporaryDir m_reglages;
@@ -369,6 +377,84 @@ void TestSessionHermes::aucunSecretDansLesProprietes()
         QVERIFY2(!valeur.contains(QString::fromUtf8(connecte.serveur.jetonRafraichissementCourant)),
                  meta->property(index).name());
     }
+}
+
+// Constat de relecture P8 (sécurité) : une rotation acceptée par Hermes mais refusée par la
+// station laissait au coffre l'ancien jeton, déjà consommé ; il était rejoué au démarrage
+// suivant (Authelia révoque alors toute la famille, Hermes rend 503 en boucle).
+void TestSessionHermes::rotationRefuseeLocalementEffaceLeCoffre()
+{
+    Banc banc;
+    QVERIFY(banc.connecter());
+    const QByteArray premier = banc.serveur.jetonRafraichissementCourant;
+    QCOMPARE(banc.jetonAuCoffre(), premier);
+
+    // Hermes fait tourner le jeton (200) mais rend un autre fournisseur : refus de la station.
+    banc.serveur.fournisseur = QStringLiteral("autre-fournisseur");
+    QSignalSpy perdue(banc.session.get(), &SessionHermes::sessionPerdue);
+    banc.session->rafraichir();
+    QVERIFY(perdue.wait(5000) || perdue.count() == 1);
+    QCOMPARE(banc.session->etat(), SessionStatus::Refusee);
+    QVERIFY(banc.session->derniereErreur().contains(QStringLiteral("fournisseur « autre-fournisseur »")));
+    QVERIFY(banc.session->derniereErreur().contains(QStringLiteral("Le jeton mémorisé est effacé")));
+    QVERIFY(banc.serveur.jetonsRafraichissementTournes.contains(premier)); // consommé chez Hermes
+    QVERIFY2(!banc.coffre.entrees.contains(banc.cle()), "le coffre garde un jeton déjà tourné par Hermes");
+
+    // Redémarrage de la station sur le même coffre : rien n'est rejoué.
+    banc.serveur.fournisseur = QStringLiteral("self-hosted");
+    banc.session.reset();
+    auto relance = std::make_unique<SessionHermes>(&banc.client, &banc.coffre, &banc.reglages);
+    relance->restaurer();
+    QTest::qWait(300);
+    QCOMPARE(banc.refreshAvec(premier), 1);
+    QCOMPARE(relance->etat(), SessionStatus::Deconnectee);
+}
+
+// Horloge du poste en avance de 2 h (au-delà de la durée du jeton d'accès, 1 h) : la connexion
+// et la rotation restent acceptées, l'échéance étant jugée contre l'heure de Hermes ; le
+// renouvellement est planifié sur l'horloge du poste, avec la durée restante servie.
+void TestSessionHermes::horlogeDuPosteEnAvanceJugeeParLaDateDeHermes()
+{
+    Banc banc;
+    const QDateTime enAvance = QDateTime::currentDateTimeUtc().addSecs(2 * 3600);
+    banc.session->setHorloge([] { return QDateTime::currentDateTimeUtc().addSecs(2 * 3600); });
+    QVERIFY(banc.connecter());
+    QCOMPARE(banc.session->etat(), SessionStatus::Connectee);
+    QVERIFY(qAbs(banc.session->echeanceAcces().secsTo(enAvance.addSecs(3600))) < 60);
+
+    const QByteArray premier = banc.serveur.jetonRafraichissementCourant;
+    QSignalSpy renouveles(banc.session.get(), &SessionHermes::jetonsRenouveles);
+    banc.session->rafraichir();
+    QVERIFY(renouveles.wait(5000) || renouveles.count() == 1);
+    QCOMPARE(banc.session->etat(), SessionStatus::Connectee);
+    QVERIFY(banc.serveur.jetonRafraichissementCourant != premier);
+    QCOMPARE(banc.jetonAuCoffre(), banc.serveur.jetonRafraichissementCourant);
+    QVERIFY(qAbs(banc.session->echeanceAcces().secsTo(QDateTime::currentDateTimeUtc().addSecs(2 * 3600 + 3600))) < 60);
+}
+
+// Sans en-tête `Date`, l'horloge du poste fait foi : la rotation est refusée, et le jeton
+// consommé quitte quand même le coffre.
+void TestSessionHermes::sansEnTeteDateLHorlogeDuPosteDecide()
+{
+    Banc banc;
+    QVERIFY(banc.connecter());
+    banc.serveur.sansDate = true;
+    banc.session->setHorloge([] { return QDateTime::currentDateTimeUtc().addSecs(2 * 3600); });
+    QSignalSpy perdue(banc.session.get(), &SessionHermes::sessionPerdue);
+    banc.session->rafraichir();
+    QVERIFY(perdue.wait(5000) || perdue.count() == 1);
+    QCOMPARE(banc.session->etat(), SessionStatus::Refusee);
+    QVERIFY(banc.session->derniereErreur().contains(QStringLiteral("jeton déjà expiré")));
+    QVERIFY(!banc.coffre.entrees.contains(banc.cle()));
+}
+
+void TestSessionHermes::dateHttpLue()
+{
+    const QDateTime date = JetonsHermes::dateHttp(QByteArrayLiteral("Fri, 02 Oct 2026 09:30:05 GMT"));
+    QVERIFY(date.isValid());
+    QCOMPARE(date.toSecsSinceEpoch(), QDateTime(QDate(2026, 10, 2), QTime(9, 30, 5), QTimeZone::utc()).toSecsSinceEpoch());
+    QVERIFY(!JetonsHermes::dateHttp(QByteArrayLiteral("demain")).isValid());
+    QVERIFY(!JetonsHermes::dateHttp(QByteArray()).isValid());
 }
 
 QTEST_GUILESS_MAIN(TestSessionHermes)

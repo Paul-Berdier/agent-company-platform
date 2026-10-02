@@ -99,6 +99,8 @@ public:
     QByteArray etatForce;
     //! Vrai : la redirection de /authorize omet le paramètre `state`.
     bool omettreEtat = false;
+    //! Vrai : les réponses n'ont pas d'en-tête `Date` (que uvicorn pose toujours).
+    bool sansDate = false;
     //! Vrai : /auth/native/token rend un `token_type` autre que Bearer.
     bool typeJetonFaux = false;
     //! Vrai : /auth/native/token rend un jeton de rafraîchissement vide.

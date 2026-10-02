@@ -3,6 +3,7 @@
 #include "storage/CredentialVault.h"
 
 #include <QJsonValue>
+#include <QLocale>
 #include <QTimeZone>
 
 namespace acp {
@@ -16,8 +17,20 @@ void JetonsHermes::effacer()
     utilisateur.clear();
 }
 
+QDateTime JetonsHermes::dateHttp(const QByteArray &valeur)
+{
+    // « Sun, 06 Nov 1994 08:49:37 GMT » : noms anglais fixes, d'où la locale C.
+    QDateTime date = QLocale::c().toDateTime(QString::fromLatin1(valeur.trimmed()),
+                                             QStringLiteral("ddd, dd MMM yyyy HH:mm:ss 'GMT'"));
+    if (!date.isValid()) {
+        return {};
+    }
+    date.setTimeZone(QTimeZone::utc());
+    return date;
+}
+
 QString JetonsHermes::lire(const QJsonObject &reponse, const QString &fournisseurAttendu,
-                           const QDateTime &maintenant, JetonsHermes &sortie)
+                           const QDateTime &maintenant, JetonsHermes &sortie, const QDateTime &dateServeur)
 {
     const QJsonValue type = reponse.value(QStringLiteral("token_type"));
     if (!type.isString() || type.toString().compare(QStringLiteral("Bearer"), Qt::CaseInsensitive) != 0) {
@@ -38,7 +51,8 @@ QString JetonsHermes::lire(const QJsonObject &reponse, const QString &fournisseu
     }
     const QDateTime expireLe =
         QDateTime::fromSecsSinceEpoch(static_cast<qint64>(expiration.toDouble()), QTimeZone::utc());
-    if (!expireLe.isValid() || expireLe <= maintenant) {
+    const QDateTime reference = dateServeur.isValid() ? dateServeur : maintenant;
+    if (!expireLe.isValid() || expireLe <= reference) {
         return QStringLiteral("Réponse de jetons refusée : jeton déjà expiré.");
     }
     const QJsonValue utilisateur = reponse.value(QStringLiteral("user_id"));
@@ -53,7 +67,8 @@ QString JetonsHermes::lire(const QJsonObject &reponse, const QString &fournisseu
     sortie.effacer();
     sortie.acces = acces.toString().toUtf8();
     sortie.rafraichissement = rafraichissement.toString().toUtf8();
-    sortie.expireLe = expireLe;
+    // Échéance ramenée à l'horloge du poste : même durée restante que pour Hermes.
+    sortie.expireLe = dateServeur.isValid() ? maintenant.addSecs(dateServeur.secsTo(expireLe)) : expireLe;
     sortie.fournisseur = fournisseur.toString();
     sortie.utilisateur = utilisateur.toString();
     return {};

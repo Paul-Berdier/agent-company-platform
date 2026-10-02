@@ -5,6 +5,7 @@
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLocale>
 #include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -200,6 +201,12 @@ void FauxHermes::repondre(QTcpSocket *socket, const ReponseFaux &reponse)
         + libelleStatut(reponse.statut) + "\r\n";
     for (const auto &[nom, valeur] : reponse.entetes) {
         brut += nom + ": " + valeur + "\r\n";
+    }
+    if (!sansDate) {
+        // Comme uvicorn : l'heure du serveur, au format IMF-fixdate.
+        brut += "Date: "
+            + QLocale::c().toString(QDateTime::currentDateTimeUtc(), QStringLiteral("ddd, dd MMM yyyy HH:mm:ss 'GMT'")).toLatin1()
+            + "\r\n";
     }
     brut += "Content-Length: " + QByteArray::number(reponse.corps.size()) + "\r\n";
     brut += "Connection: close\r\n\r\n";
