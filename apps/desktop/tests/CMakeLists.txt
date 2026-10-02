@@ -57,6 +57,8 @@ acp_add_cpp_test(tst_accueil cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
 target_compile_definitions(tst_accueil PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_projets cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_projets PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_questions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_questions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_openrpc_conformite)
 # Contrat JSON-RPC épinglé, lu à sa place dans hermes/contrat (jamais recopié).
 target_compile_definitions(tst_openrpc_conformite PRIVATE ACP_OPENRPC_FILE="${ACP_OPENRPC_FILE}")

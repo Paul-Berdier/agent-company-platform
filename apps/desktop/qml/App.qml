@@ -77,6 +77,10 @@ ApplicationWindow {
         onActivated: Commands.execute("navigation.projects")
     }
     Shortcut {
+        sequence: "Ctrl+4"
+        onActivated: Commands.execute("navigation.questions")
+    }
+    Shortcut {
         sequence: "Ctrl+R"
         onActivated: Commands.execute("connection.probe")
     }

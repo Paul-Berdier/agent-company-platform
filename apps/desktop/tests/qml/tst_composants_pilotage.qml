@@ -19,6 +19,7 @@ TestCase {
     Component { id: etatComponent; EtatLecture {} }
     Component { id: bandeauComponent; BandeauMessage {} }
     Component { id: blocComponent; BlocTexte {} }
+    Component { id: compteurComponent; PastilleCompteur {} }
     Component {
         id: carteComponent
         Carte {
@@ -94,6 +95,22 @@ TestCase {
         compare(valeur.textFormat, TextEdit.PlainText);
         compare(valeur.text, "<b>gras</b> <a href='x'>lien</a>");
         verify(valeur.readOnly);
+    }
+
+    function test_compteur_invisible_a_zero_ou_inconnu() {
+        verify(!createTemporaryObject(compteurComponent, testCase, { nombre: 0 }).visible);
+        // Un nombre inconnu (négatif) n'est jamais affiché comme « 0 ».
+        verify(!createTemporaryObject(compteurComponent, testCase, { nombre: -1 }).visible);
+    }
+
+    function test_compteur_borne_et_nom_accessible() {
+        const trois = createTemporaryObject(compteurComponent, testCase, { nombre: 3, description: "questions ouvertes" });
+        verify(trois.visible);
+        compare(trois.texte, "3");
+        compare(trois.Accessible.name, "3 questions ouvertes");
+        const beaucoup = createTemporaryObject(compteurComponent, testCase, { nombre: 140, description: "questions ouvertes" });
+        compare(beaucoup.texte, "99+");
+        compare(beaucoup.Accessible.name, "140 questions ouvertes");
     }
 
     function test_carte_sans_pastille_et_avec_contenu() {

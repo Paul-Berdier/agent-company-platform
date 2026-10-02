@@ -8,5 +8,6 @@ acp_add_qml_module(
         FirstRunPage.qml
         HomePage.qml
         ProjectsPage.qml
+        QuestionsPage.qml
         SettingsPage.qml
 )

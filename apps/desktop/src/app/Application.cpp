@@ -20,6 +20,7 @@
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
+#include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/ShellViewModel.h"
 
 #include <QCoreApplication>
@@ -95,6 +96,7 @@ Application::Application(QObject *parent)
     // Pages de pilotage : elles lisent seulement quand elles sont affichées et la session établie.
     m_accueil = new AccueilViewModel(m_client, m_greffon.get(), m_flux, this);
     m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
+    m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
     // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
     connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
     connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
@@ -171,6 +173,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Streams", m_flux);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Accueil", m_accueil);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Questions", m_questions);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
@@ -273,6 +276,15 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Ctrl+3"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("projects"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.questions"), QStringLiteral("Répondre aux questions des projets"),
+        QStringLiteral("Navigation"), {QStringLiteral("questions"), QStringLiteral("triage"), QStringLiteral("décision")},
+        QStringLiteral("Ctrl+4"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("questions"));
             return CommandResult::accept();
         }});
 

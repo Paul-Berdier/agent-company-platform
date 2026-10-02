@@ -10,6 +10,7 @@ acp_add_qml_module(
         EmptyState.qml
         EtatLecture.qml
         KeyValueRow.qml
+        PastilleCompteur.qml
         QuotaGauge.qml
         SectionHeader.qml
         StatusChip.qml

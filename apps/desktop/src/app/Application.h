@@ -27,6 +27,7 @@ class GatewayClient;
 class HealthService;
 class NavigationModel;
 class ProjetsViewModel;
+class QuestionsViewModel;
 class SessionHermes;
 class SettingsStore;
 class ShellViewModel;
@@ -83,6 +84,7 @@ private:
     DiagnosticsViewModel *m_diagnostics = nullptr;
     AccueilViewModel *m_accueil = nullptr;
     ProjetsViewModel *m_projets = nullptr;
+    QuestionsViewModel *m_questions = nullptr;
     UpdateService *m_updates = nullptr;
 };
 

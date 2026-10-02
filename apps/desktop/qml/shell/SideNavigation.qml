@@ -6,6 +6,7 @@ import QtQuick.Layouts
 import Acp.Design
 import Acp.Runtime
 import Acp.Controls
+import Acp.Components
 
 Rectangle {
     id: navigation
@@ -19,6 +20,9 @@ Rectangle {
         property string explanation: ""
         property bool selected: false
         property bool actionable: true
+        //! Compteur affiché à droite (questions ouvertes) ; 0 ou inconnu (négatif) : rien.
+        property int compteur: 0
+        property string compteurDescription: ""
         signal activated()
         implicitHeight: Math.max(Space.densityHitTargetMinimum, Space.densityRowHeightComfortable)
         activeFocusOnTab: visible
@@ -43,7 +47,7 @@ Rectangle {
             Text {
                 anchors.left: icon.right
                 anchors.leftMargin: Space.space4
-                anchors.right: parent.right
+                anchors.right: compteurEntree.visible ? compteurEntree.left : parent.right
                 anchors.rightMargin: Space.space3
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !navigation.collapsed
@@ -54,6 +58,14 @@ Rectangle {
                 font.family: Type.tableCell.family
                 font.pixelSize: Type.tableCell.pixelSize
                 font.weight: entry.selected ? Type.tableCellEmphasis.weight : Type.tableCell.weight
+            }
+            PastilleCompteur {
+                id: compteurEntree
+                anchors.right: parent.right
+                anchors.rightMargin: Space.space3
+                anchors.verticalCenter: parent.verticalCenter
+                nombre: navigation.collapsed ? 0 : entry.compteur
+                description: entry.compteurDescription
             }
             Rectangle {
                 visible: entry.selected
@@ -68,7 +80,8 @@ Rectangle {
         Keys.onReturnPressed: if (entry.actionable) entry.activated()
         Keys.onSpacePressed: if (entry.actionable) entry.activated()
         Accessible.role: Accessible.Button
-        Accessible.name: entry.label
+        Accessible.name: entry.compteur > 0 && entry.compteurDescription.length > 0
+            ? entry.label + " (" + entry.compteur + " " + entry.compteurDescription + ")" : entry.label
         Accessible.description: entry.explanation
         Accessible.focusable: true
         Accessible.onPressAction: if (entry.actionable) entry.activated()
@@ -135,6 +148,8 @@ Rectangle {
                         label: modelData.label; iconName: modelData.icon
                         selected: Navigation.currentRoute === modelData.route
                         actionable: Navigation.isNavigable(modelData.route)
+                        compteur: modelData.route === "questions" ? Streams.questionsOuvertes : 0
+                        compteurDescription: modelData.route === "questions" ? qsTr("questions ouvertes") : ""
                         explanation: actionable ? "" : Navigation.detailFor(modelData.route)
                         onActivated: Navigation.setCurrentRoute(modelData.route)
                     }

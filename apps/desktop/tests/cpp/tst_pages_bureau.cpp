@@ -15,6 +15,7 @@
 #include "support/Fixtures.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
+#include "viewmodels/QuestionsViewModel.h"
 
 #include <QJsonArray>
 #include <QQmlApplicationEngine>
@@ -125,6 +126,9 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json"))); });
     serveur.route("GET", kP + QStringLiteral("/poste"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("poste-releve.json"))); });
+    QJsonObject questions = fixture(QStringLiteral("questions.json"));
+    serveur.route("GET", kP + QStringLiteral("/questions"),
+                  [&questions](const RequeteRecue &) { return ReponseFaux::json(200, questions); });
     serveur.route("GET", QStringLiteral("/api/sessions"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("sessions.json"))); });
     serveur.route("GET", QStringLiteral("/api/plugins/kanban/board"), [](const RequeteRecue &) {
@@ -137,7 +141,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     auto *flux = application.findChild<EventStreamService *>();
     auto *accueil = application.findChild<AccueilViewModel *>();
     auto *pageProjets = application.findChild<ProjetsViewModel *>();
-    QVERIFY(client && flux && accueil && pageProjets);
+    auto *pageQuestions = application.findChild<QuestionsViewModel *>();
+    QVERIFY(client && flux && accueil && pageProjets && pageQuestions);
     client->setAllowInsecureLoopback(true);
     QVERIFY(!client->setBaseUrl(serveur.url()).isError());
     client->setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
@@ -242,6 +247,27 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QVERIFY(contientTexte(item, QStringLiteral("Aucun projet pour l'instant")));
     }
     QTRY_VERIFY(!pageProjets->actif());
+
+    // --- Questions : questions, triage, bloquées ; puis tout vide -----------------------------------
+    {
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("QuestionsPage"));
+        QVERIFY(page);
+        auto *item = qobject_cast<QQuickItem *>(page.get());
+        QTRY_VERIFY_WITH_TIMEOUT(pageQuestions->lue(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Questions"));
+        QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
+        QVERIFY(contientTexte(item, QStringLiteral("3 tours planifiés")));
+        QVERIFY(contientTexte(item, QStringLiteral("Lecture seule")));
+
+        questions = QJsonObject{{QStringLiteral("questions"), QJsonArray{}}, {QStringLiteral("triage"), QJsonArray{}},
+                                {QStringLiteral("bloquees"), QJsonArray{}}, {QStringLiteral("tableaux_illisibles"), QJsonArray{}}};
+        pageQuestions->actualiser();
+        QTRY_COMPARE_WITH_TIMEOUT(pageQuestions->questions()->count(), 0, 5000);
+        VERIFIER(page.get(), QStringLiteral("Questions vides"));
+        QVERIFY(contientTexte(item, QStringLiteral("Aucune question en attente.")));
+        QVERIFY(contientTexte(item, QStringLiteral("Aucune carte en triage.")));
+    }
+    QTRY_VERIFY(!pageQuestions->actif());
 
     // --- Pages sans données de Hermes -------------------------------------------------------------
     for (const QString &nom : {QStringLiteral("FirstRunPage"), QStringLiteral("DiagnosticsPage"), QStringLiteral("SettingsPage")}) {

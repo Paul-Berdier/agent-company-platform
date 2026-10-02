@@ -33,7 +33,7 @@ NavigationModel::NavigationModel(QObject *parent)
         {QStringLiteral("projects"), QStringLiteral("Projets"), QStringLiteral("folder"),
          Readiness::Ready, QString()},
         {QStringLiteral("questions"), QStringLiteral("Questions"), QStringLiteral("hand-raised"),
-         Readiness::Planned, aVenir},
+         Readiness::Ready, QString()},
         {QStringLiteral("chat"), QStringLiteral("Discussion"), QStringLiteral("message"),
          Readiness::Planned, aVenir},
         {QStringLiteral("station"), QStringLiteral("Poste"), QStringLiteral("building"),

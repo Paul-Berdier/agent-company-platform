@@ -196,6 +196,10 @@ Item {
                         font.family: Type.tableCell.family
                         font.pixelSize: Type.tableCell.pixelSize
                     }
+                    AcpButton {
+                        label: qsTr("Ouvrir les questions")
+                        commandId: "navigation.questions"
+                    }
                 }
 
                 // --- Poste ----------------------------------------------------------------------
