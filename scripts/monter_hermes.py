@@ -296,6 +296,11 @@ def _docker_dans_image(executer: Executeur, reference: str, *arguments: str, ent
                     delai)
 
 
+def _condensat_valide(valeur: object) -> Optional[str]:
+    """La valeur si c'est un condensat « sha256:<64 hex> », sinon None."""
+    return valeur if isinstance(valeur, str) and FORME_CONDENSAT.fullmatch(valeur) else None
+
+
 def decrire_openrpc(brut: bytes, origine: str) -> Tuple[str, str, int, List[str]]:
     """(SHA-256, info.version, nombre de méthodes, noms des méthodes) ; refus si le document est illisible."""
     try:
@@ -319,26 +324,32 @@ def relever(etiquette: str, executer: Executeur, image: str = IMAGE) -> Releve:
                     f"{inspect.code}) : {inspect.erreur.decode('utf-8', 'replace').strip()[:300]}")
     try:
         manifeste = json.loads(inspect.sortie)
-        index = manifeste["digest"]
+        index_lu: object = manifeste["digest"]
         # Les attestations portent os « unknown » ; une variante (arm64 « v8 ») est admise ; à architecture
         # répétée, la première entrée de l'index fait foi (comme le choix de Docker au tirage).
-        plates_formes: Dict[str, str] = {}
+        plates_formes: Dict[str, object] = {}
         for m in manifeste.get("manifests", []):
             plate_forme = m.get("platform") or {}
             if plate_forme.get("os") == "linux" and plate_forme.get("architecture"):
                 plates_formes.setdefault(plate_forme["architecture"], m["digest"])
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise Refus(f"Manifeste de {image}:{etiquette} illisible ({type(exc).__name__}).")
-    amd64, arm64 = plates_formes.get("amd64"), plates_formes.get("arm64")
     # Chaque condensat est réécrit dans HERMES_VERSION et passé à docker : forme exacte exigée, jamais « non vide ».
-    if not all(isinstance(c, str) and FORME_CONDENSAT.fullmatch(c) for c in (index, amd64, arm64)):
+    index, amd64, arm64 = (_condensat_valide(c) for c in (index_lu, plates_formes.get("amd64"),
+                                                          plates_formes.get("arm64")))
+    if index is None or amd64 is None or arm64 is None:
         raise Refus(f"Condensat d'index ou de plate-forme (linux/amd64, linux/arm64) introuvable ou hors forme pour "
                     f"{image}:{etiquette}.")
     journal.append(f"index {index} ; linux/amd64 {amd64} ; linux/arm64 {arm64}")
 
     distant = executer(["git", "ls-remote", DEPOT_AMONT, f"refs/tags/{etiquette}", f"refs/tags/{etiquette}^{{}}"],
                        120)
-    refs = dict(reversed(l.split("\t", 1)) for l in distant.texte.splitlines() if "\t" in l)
+    # Lignes « <commit>\t<référence> » : référence -> commit (l'étiquette annotée déréférencée « ^{} » fait foi).
+    refs: Dict[str, str] = {}
+    for ligne in distant.texte.splitlines():
+        sha, tabulation, nom = ligne.partition("\t")
+        if tabulation:
+            refs[nom] = sha
     commit = refs.get(f"refs/tags/{etiquette}^{{}}") or refs.get(f"refs/tags/{etiquette}")
     if distant.code != 0 or not commit or not FORME_COMMIT.fullmatch(commit):
         raise Refus(f"Étiquette {etiquette} introuvable dans {DEPOT_AMONT} (git ls-remote, code {distant.code}).")
@@ -395,12 +406,20 @@ def relever(etiquette: str, executer: Executeur, image: str = IMAGE) -> Releve:
                     openrpc.sortie, licence.sortie, journal=journal, remarques=remarques)
     commande = f"cd /opt/hermes && {PYTHON_IMAGE} -c \"$0\" >/dev/null 2>&1 && cat /tmp/acp-skills.json"
     skills = _docker_dans_image(executer, reference, "-c", commande, PROGRAMME_SKILLS, entree="sh")
+    erreur = f"noms des skills livrées illisibles dans l'image (code {skills.code})"
+    if skills.code != 0:
+        releve.erreur_skills = erreur
+        return releve
     try:
-        noms = json.loads(skills.sortie) if skills.code == 0 else None
-        releve.skills_livrees = sorted(str(n) for n in noms["livrees"])
-        releve.skills_optionnelles = sorted(str(n) for n in noms["optionnelles"])
+        noms = json.loads(skills.sortie)
+        livrees, optionnelles = noms["livrees"], noms["optionnelles"]
+        if not isinstance(livrees, list) or not isinstance(optionnelles, list):
+            raise TypeError("listes attendues")
     except (ValueError, KeyError, TypeError):
-        releve.erreur_skills = f"noms des skills livrées illisibles dans l'image (code {skills.code})"
+        releve.erreur_skills = erreur
+        return releve
+    releve.skills_livrees = sorted(str(n) for n in livrees)
+    releve.skills_optionnelles = sorted(str(n) for n in optionnelles)
     return releve
 
 
@@ -845,7 +864,9 @@ def main(argv: Optional[Sequence[str]] = None, racine: Path = RACINE, executer: 
             flux.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
         except (AttributeError, ValueError):
             pass
-    analyseur = argparse.ArgumentParser(prog="monter_hermes.py", description=__doc__.split("\n\n")[0])
+    # Sous « python -OO », les docstrings sont retirées et __doc__ vaut None : l'aide garde alors une phrase fixe.
+    description = (__doc__ or "Montée de version de Hermes Agent.").split("\n\n")[0]
+    analyseur = argparse.ArgumentParser(prog="monter_hermes.py", description=description)
     sous = analyseur.add_subparsers(dest="commande", required=True)
     p_verifier = sous.add_parser("verifier", help="relève et compare, sans rien écrire")
     p_verifier.add_argument("--etiquette", help="release à relever (défaut : HERMES_TAG épinglé)")

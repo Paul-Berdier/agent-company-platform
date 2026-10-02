@@ -114,8 +114,8 @@ def test_les_decisions_de_p6_sont_appliquees():
     entete = "| N° | Question | Choix appliqué en P6 | Autre option et conséquence | Remarque (n° du cahier P6) |"
     assert entete in bloc
     for ligne in bloc.splitlines():
-        if DEFINITION.match(ligne):
+        if definition := DEFINITION.match(ligne):
             cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
-            numero = int(DEFINITION.match(ligne).group(1))
+            numero = int(definition.group(1))
             assert len(cellules) == 5 and cellules[3] not in ("", "—"), ligne[:60]
             assert cellules[4].startswith(f"n° {numero - 3} du cahier"), ligne[:60]

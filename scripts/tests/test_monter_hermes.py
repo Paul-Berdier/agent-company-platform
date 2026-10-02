@@ -14,6 +14,7 @@ import importlib.util
 import json
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -51,6 +52,7 @@ class FauxAmont:
         self.livrees, self.optionnelles = livrees, optionnelles
         self.racine = racine
         self.modifies: List[str] = []
+        self.retiree = ""  # méthode OpenRPC retirée par _release_suivante (rapport attendu)
         self.version_affichee: Optional[str] = None
         self.provenance: Optional[Dict] = None  # None : celle de la release ; {} : absente
         self.inspect_code = 0
@@ -61,7 +63,8 @@ class FauxAmont:
         self.avec_arm64 = True
         self.appels: List[List[str]] = []
 
-    def __call__(self, arguments: Sequence[str], delai: int) -> "mh.Resultat":
+    # Pas d'annotation de retour : ``mh`` est chargé par importlib, son type Resultat n'existe qu'à l'exécution.
+    def __call__(self, arguments: Sequence[str], delai: int):
         a = list(arguments)
         self.appels.append(a)
         v = self.valeurs
@@ -238,6 +241,7 @@ def test_verifier_signale_une_borne_requires_hermes_qui_exclut_la_release(depot,
 def _release_suivante(amont: FauxAmont) -> FauxAmont:
     """Une release fictive postérieure : autre version, commit, condensats ; OpenRPC avec une méthode retirée, une
     ajoutée et info.version 2 ; une skill livrée de plus."""
+    assert amont.openrpc is not None and amont.licence is not None, "release de départ complète"
     contrat = json.loads(amont.openrpc)
     retiree = contrat["methods"].pop(0)["name"]
     contrat["methods"].append({"name": "acp.essai.ajoutee", "params": [], "result": {"name": "r", "schema": {}}})
@@ -249,7 +253,7 @@ def _release_suivante(amont: FauxAmont) -> FauxAmont:
                 openrpc_methodes=len(contrat["methods"]))
     suivante = FauxAmont(v, openrpc, amont.licence, sorted([*amont.livrees, "zz-nouvelle"]), amont.optionnelles,
                          amont.racine)
-    suivante.retiree = retiree  # type: ignore[attr-defined]
+    suivante.retiree = retiree
     return suivante
 
 
@@ -325,6 +329,7 @@ def test_ecrire_la_meme_release_ne_change_rien(depot, amont):
 def test_ecrire_une_autre_release_suit_les_gabarits_et_la_concordance(depot, amont):
     ancien = mh.lire_epingle(depot)
     suivante = _release_suivante(amont)
+    assert suivante.openrpc is not None
     attendus = _gabarits(depot, ancien, suivante.valeurs, "15 octobre 2026", suivante.openrpc)
     greffon_avant = (depot / mh.GREFFON).read_bytes()
     suivante.grep = (f"{mh.FIXTURE_INTERFACE}:7:  hermes: {{ version: \"{ancien.valeurs.version}\" }}\n"
@@ -338,7 +343,7 @@ def test_ecrire_une_autre_release_suit_les_gabarits_et_la_concordance(depot, amo
     # Implémentation indépendante : la concordance statique du dépôt accepte l'ensemble écrit.
     assert concordance.ecarts(depot) == []
     # Rapport.
-    assert f"retirées : {suivante.retiree}" in journal  # type: ignore[attr-defined]
+    assert suivante.retiree and f"retirées : {suivante.retiree}" in journal
     assert "ajoutées : acp.essai.ajoutee" in journal
     assert "info.version de l'OpenRPC passe de 1 à 2" in journal
     assert "Skills livrées face à livrees.noms du verrou : ajoutées zz-nouvelle" in journal
@@ -543,6 +548,15 @@ def test_un_champ_de_fixture_disparu_est_une_structure_inattendue_nommee(depot, 
     chemin.write_text(texte, encoding="utf-8", newline="\n")
     with pytest.raises(mh.StructureInattendue, match=r"meta\.json : champ openrpc\.methodes trouvé 0 fois"):
         _lancer(mh.verifier, depot, amont)
+
+
+def test_la_ligne_de_commande_demarre_sans_docstrings():
+    """Relecture P9 : l'aide d'argparse était tirée de ``__doc__.split(…)`` ; sous ``python -OO`` (docstrings
+    retirées), ``__doc__`` vaut None et l'outil sortait en AttributeError avant toute sous-commande."""
+    fini = subprocess.run([sys.executable, "-OO", str(RACINE / "scripts" / "monter_hermes.py"), "--help"],
+                          capture_output=True, timeout=60)
+    assert fini.returncode == 0, fini.stderr.decode("utf-8", "replace")
+    assert b"verifier" in fini.stdout and b"derniere" in fini.stdout
 
 
 def test_refus_docker_ou_git_absents():
