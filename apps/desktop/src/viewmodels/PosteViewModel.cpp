@@ -100,7 +100,9 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
             oublierCode();
         }
     });
-    connect(flux, &EventStreamService::pagesActivesChange, this, [this] {
+    // `sourcesChange` est émis à chaque ouverture et fermeture de session, même fenêtre réduite
+    // (où `pagesActivesChange` ne l'est plus : les pages sont déjà inactives).
+    connect(flux, &EventStreamService::sourcesChange, this, [this] {
         if (!this->flux()->sessionOuverte()) {
             oublierCode();
         }

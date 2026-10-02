@@ -118,6 +118,7 @@ private slots:
     void pageLueSeulementAffichee();
     void codeUneFoisPuisOublie();
     void codeEffaceALaPerteDeSessionEtAExpiration();
+    void codeEffaceALaPerteDeSessionFenetreReduite();
     void confirmationCorpsExactEtRefusTelQuel();
     void revocationCorpsExactEtBornes();
     void releveMessageDuGreffon();
@@ -316,6 +317,23 @@ void TestPoste::codeUneFoisPuisOublie()
     banc.poste.copierCode();
     QCOMPARE(banc.copies.size(), 1);
     QCOMPARE(banc.poste.messageCopie(), QStringLiteral("Copie impossible : sélectionnez le code à la main."));
+}
+
+void TestPoste::codeEffaceALaPerteDeSessionFenetreReduite()
+{
+    // Fenêtre réduite : les pages sont déjà inactives, la perte de session ne change plus
+    // `pagesActives`. Le code doit quand même quitter la mémoire de la page.
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-non-configure.json"));
+    banc.poste.enroler();
+    QTRY_COMPARE(banc.poste.code(), QStringLiteral("acpe_CODE-DE-TEST"));
+    banc.flux.setFenetreActive(false);
+    QCOMPARE(banc.poste.code(), QStringLiteral("acpe_CODE-DE-TEST"));
+    banc.flux.arreter(); // session perdue, fenêtre réduite
+    QCOMPARE(banc.poste.code(), QString());
+    QCOMPARE(banc.poste.commande(), QString());
+    banc.flux.setFenetreActive(true);
+    QCOMPARE(banc.poste.code(), QString());
 }
 
 void TestPoste::codeEffaceALaPerteDeSessionEtAExpiration()
