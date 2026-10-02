@@ -1,0 +1,13 @@
+{
+  "name": "acp-discussion",
+  "label": "Discussion",
+  "description": "Discussion réduite d'ACP (étape P7) : liste, reprise, envoi, texte en flux, réponse aux questions de Hermes, interruption, sur le JSON-RPC natif du tableau de bord (/api/ws). Aucune route serveur ; aucune approbation, aucun mot de passe, aucun secret.",
+  "icon": "MessageSquare",
+  "version": "0.11.0",
+  "tab": {
+    "path": "/discussion",
+    "position": "before:catalogue"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css"
+}

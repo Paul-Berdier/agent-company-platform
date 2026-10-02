@@ -25,7 +25,7 @@ MACHINE_CONFORME = {"fournisseur": "enregistre", "chemins_a_jeton": {}, "fournis
                     "base": "ok", "machines": {"a_confirmer": 0, "actif": 0, "revoque": 0}, "codes_utilisables": 0,
                     "dernier_inventaire": None}
 INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0", "acp-projets": "0.11.0",
-                          "acp-poste-vues": "0.11.0"},
+                          "acp-poste-vues": "0.11.0", "acp-discussion": "0.11.0"},
              "sdk_attendu": "1.x"}
 
 

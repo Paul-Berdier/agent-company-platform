@@ -1,4 +1,4 @@
-/* acp-interface 0.11.0 (ACP) — bundle généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
+/* acp-discussion 0.11.0 (ACP) — bundle généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
 
 "use strict";
 (() => {
@@ -874,8 +874,6 @@
   }
 
   // src/api.ts
-  var ROUTE_META = "/api/plugins/acp-poste/v1/meta";
-  var ROUTE_SESSIONS = "/api/sessions?limit=5&offset=0&order=recent";
   var ErreurApi = class extends Error {
     constructor(genre, statut, detail) {
       super(`${genre}${statut === null ? "" : ` ${statut}`}`);
@@ -912,17 +910,6 @@
       throw envelopper(erreur);
     }
   }
-  var enCours = null;
-  function lireMeta(maintenant = Date.now()) {
-    if (enCours && maintenant - enCours.quand < 15e3) return enCours.promesse;
-    const promesse = lireJSON(ROUTE_META);
-    enCours = { quand: maintenant, promesse };
-    promesse.catch(() => {
-      if (enCours?.promesse === promesse) enCours = null;
-    });
-    return promesse;
-  }
-  var lireSessions = () => lireJSON(ROUTE_SESSIONS);
 
   // src/react.ts
   function react() {
@@ -945,28 +932,6 @@
   }
 
   // src/commun.tsx
-  var FAMILLES = {
-    conforme: "succes",
-    connecte: "succes",
-    active: "succes",
-    activee: "succes",
-    aJour: "succes",
-    deposee: "succes",
-    livree: "succes",
-    presente: "succes",
-    nonConforme: "degrade",
-    divergente: "degrade",
-    ambigue: "degrade",
-    absente: "echec",
-    nonOrdinaire: "echec",
-    inconnu: "neutre",
-    nonConfigure: "neutre",
-    horsLigne: "neutre",
-    candidate: "neutre",
-    prevueP8: "neutre",
-    horsV1: "neutre",
-    desactivee: "neutre"
-  };
   function Donnee(props) {
     const { valeur, mono } = props;
     if (valeur === null || valeur === void 0 || valeur === "") {
@@ -974,40 +939,16 @@
     }
     return /* @__PURE__ */ h("span", { "data-acp-donnee": "", className: mono ? "acp-donnee acp-mono" : "acp-donnee" }, String(valeur));
   }
-  function Pastille(props) {
-    return /* @__PURE__ */ h("span", { className: `acp-pastille acp-pastille--${FAMILLES[props.etat]}` }, T.etats[props.etat]);
-  }
   function Carte(props) {
     return /* @__PURE__ */ h("section", { className: "acp-carte", "aria-labelledby": props.id }, /* @__PURE__ */ h("h2", { className: "acp-carte__titre", id: props.id }, props.titre), props.children);
   }
   function Ligne(props) {
     return /* @__PURE__ */ h("div", { className: "acp-ligne" }, /* @__PURE__ */ h("dt", null, props.libelle), /* @__PURE__ */ h("dd", null, props.children));
   }
-  function Lien(props) {
-    return /* @__PURE__ */ h("a", { className: "acp-lien", href: `${cheminDeBase()}${props.vers}`, "aria-label": props.ariaLabel }, props.children);
-  }
   function BlocErreur(props) {
     const erreur = props.erreur instanceof ErreurApi ? props.erreur : envelopper(props.erreur);
     const message = props.message ?? (erreur.genre === "reseau" ? T.erreurs.reseau : erreur.genre === "requete" ? T.erreurs.requete : T.erreurs.inattendue);
     return /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert" }, /* @__PURE__ */ h("p", null, message), erreur.statut !== null ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.erreurs.code), " ", /* @__PURE__ */ h(Donnee, { valeur: erreur.statut, mono: true })) : null, erreur.detail ? /* @__PURE__ */ h("details", { className: "acp-details" }, /* @__PURE__ */ h("summary", null, T.commun.detailTechnique), /* @__PURE__ */ h(Donnee, { valeur: erreur.detail, mono: true })) : null);
-  }
-  function useChargement(charger) {
-    const [etat, fixer] = useState({ etat: "chargement" });
-    useEffect(() => {
-      let actif = true;
-      charger().then(
-        (valeur) => {
-          if (actif) fixer({ etat: "ok", valeur });
-        },
-        (erreur) => {
-          if (actif) fixer({ etat: "erreur", erreur: envelopper(erreur) });
-        }
-      );
-      return () => {
-        actif = false;
-      };
-    }, []);
-    return etat;
   }
   function EnChargement() {
     return /* @__PURE__ */ h("p", { className: "acp-discret", "aria-live": "polite", "aria-busy": "true" }, T.commun.chargement);
@@ -1362,7 +1303,7 @@
       const liste = empreinteSujets ? empreinteSujets.split(",") : [];
       const flux = fluxPartage();
       let actif = true;
-      let enCours2 = false;
+      let enCours = false;
       let aRelire = false;
       let minuterie = null;
       let regroupement = null;
@@ -1375,16 +1316,16 @@
       const planifier = () => {
         if (minuterie !== null) clearTimeout(minuterie);
         minuterie = null;
-        if (actif && !enCours2 && visible2()) minuterie = setTimeout(lire, intervalleDeRelecture(flux.etat(), liste));
+        if (actif && !enCours && visible2()) minuterie = setTimeout(lire, intervalleDeRelecture(flux.etat(), liste));
       };
       function lire() {
         arreter();
         if (!actif || !visible2()) return;
-        if (enCours2) {
+        if (enCours) {
           aRelire = true;
           return;
         }
-        enCours2 = true;
+        enCours = true;
         lecteur.current().then(
           (valeur) => {
             if (actif) fixer({ valeur, erreur: null, luLe: Date.now() });
@@ -1393,7 +1334,7 @@
             if (actif) fixer((avant) => ({ ...avant, erreur: envelopper(erreur) }));
           }
         ).finally(() => {
-          enCours2 = false;
+          enCours = false;
           if (!actif) return;
           if (aRelire) {
             aRelire = false;
@@ -1489,13 +1430,42 @@
     const ms = Date.parse(valeur);
     return Number.isFinite(ms) ? ms : null;
   }
-  function nombre(valeur) {
-    return typeof valeur === "number" && Number.isFinite(valeur) ? nombres.format(valeur) : null;
+
+  // src/projets/api.ts
+  var RACINE_POSTE = "/api/plugins/acp-poste/v1";
+  var ROUTE_PROJETS = `${RACINE_POSTE}/projets`;
+  var ROUTE_QUESTIONS = `${RACINE_POSTE}/questions`;
+  var ROUTE_POSTE = `${RACINE_POSTE}/poste`;
+  var ROUTE_PAUSE = `${RACINE_POSTE}/pause`;
+  var ROUTE_NOTIFICATION_TEST = `${RACINE_POSTE}/notifications/test`;
+
+  // src/projets/briques.tsx
+  function Etiquette(props) {
+    if (props.libelle) {
+      return /* @__PURE__ */ h("span", { className: `acp-pastille acp-pastille--${props.libelle.famille}` }, props.libelle.texte);
+    }
+    return /* @__PURE__ */ h(Donnee, { valeur: typeof props.brut === "string" ? props.brut : null, mono: true });
   }
-  function court(valeur, longueur = 12) {
-    if (typeof valeur !== "string" || !valeur) return null;
-    const sans = valeur.includes(":") ? valeur.slice(valeur.indexOf(":") + 1) : valeur;
-    return sans.slice(0, longueur);
+  function Horodatage(props) {
+    const ms = versMillisecondes(props.valeur) ?? isoVersMillisecondes(props.valeur);
+    if (ms === null) return /* @__PURE__ */ h(Donnee, { valeur: null });
+    return /* @__PURE__ */ h("time", { dateTime: new Date(ms).toISOString() }, /* @__PURE__ */ h(Donnee, { valeur: props.relative ? dateRelative(ms) : dateAbsolue(ms) }));
+  }
+  function Bouton(props) {
+    const classes = ["acp-bouton"];
+    if (props.principal) classes.push("acp-bouton--principal");
+    if (props.danger) classes.push("acp-bouton--danger");
+    return /* @__PURE__ */ h(
+      "button",
+      {
+        type: props.type ?? "button",
+        className: classes.join(" "),
+        onClick: props.surClic,
+        disabled: props.desactive,
+        "aria-describedby": props.decritPar
+      },
+      props.libelle
+    );
   }
 
   // src/jsonrpc/canal.ts
@@ -1635,10 +1605,10 @@
         }
       }
     }
-    envoyerBrut(objet) {
+    envoyerBrut(objet2) {
       if (this.ferme) return false;
       try {
-        this.socket.send(`${JSON.stringify(objet)}
+        this.socket.send(`${JSON.stringify(objet2)}
 `);
         return true;
       } catch {
@@ -1796,11 +1766,532 @@
     return canal;
   }
 
+  // src/discussion/conversation.ts
+  var DELAIS_RECONNEXION_MS = [1e3, 2e3, 5e3, 1e4];
+  var DELAI_REPRISE_MS = 6e4;
+  var TEXTE_MAX = 2e4;
+  var MARQUE_RECOMMANDE = "(Recommended)";
+  function chaine(valeur) {
+    return typeof valeur === "string" && valeur.trim() ? valeur : null;
+  }
+  function objet(valeur) {
+    return valeur && typeof valeur === "object" && !Array.isArray(valeur) ? valeur : null;
+  }
+  function detailDe(erreur) {
+    if (erreur instanceof ErreurCanal) return erreur.code === null ? erreur.detail || erreur.genre : `${erreur.code} ${erreur.detail}`.trim();
+    return erreur instanceof Error ? erreur.message : null;
+  }
+  function choixDe(brut) {
+    if (!Array.isArray(brut)) return [];
+    const choix = [];
+    for (const valeur of brut) {
+      if (typeof valeur !== "string" || !valeur.trim()) continue;
+      const net = valeur.trim();
+      const recommande = net.toLowerCase().endsWith(MARQUE_RECOMMANDE.toLowerCase());
+      const libelle = recommande ? net.slice(0, -MARQUE_RECOMMANDE.length).trim() : net;
+      choix.push({ valeur: net, libelle: libelle || net, recommande });
+    }
+    return choix;
+  }
+  function demandeDe(requete) {
+    const p = requete.params;
+    const verrouillees = objet(p.answers) ?? {};
+    if (Array.isArray(p.questions) && p.questions.length > 0) {
+      const questions = [];
+      for (const brut of p.questions) {
+        const q = objet(brut);
+        const qid = chaine(q?.qid);
+        const texte2 = chaine(q?.question);
+        if (!q || !qid || !texte2) return null;
+        const deja = verrouillees[qid];
+        questions.push({
+          qid,
+          texte: texte2,
+          choix: choixDe(q.choices),
+          multiple: q.multi_select === true,
+          dejaRepondu: typeof deja === "string" ? deja : null
+        });
+      }
+      return { id: requete.id, lot: true, questions };
+    }
+    const texte = chaine(p.question);
+    if (!texte) return null;
+    return {
+      id: requete.id,
+      lot: false,
+      questions: [{ qid: null, texte, choix: choixDe(p.choices), multiple: p.multi_select === true, dejaRepondu: null }]
+    };
+  }
+  function texteDeReponse(question, saisie) {
+    const libre = (saisie?.libre ?? "").trim();
+    const choix = (saisie?.choix ?? []).filter((c) => question.choix.some((x) => x.valeur === c));
+    if (question.multiple) {
+      const tous = libre ? [...choix, libre] : choix;
+      return tous.length > 0 ? JSON.stringify(tous) : "";
+    }
+    if (libre) return libre;
+    return choix[0] ?? "";
+  }
+  function reponseDe(demande, saisies) {
+    if (!demande.lot) return { answer: texteDeReponse(demande.questions[0], saisies["0"]) };
+    const answers = {};
+    demande.questions.forEach((q, rang) => {
+      answers[q.qid] = texteDeReponse(q, saisies[String(rang)]);
+    });
+    return { answers };
+  }
+  function messageDeHistorique(brut, rang) {
+    const m = objet(brut);
+    if (!m || m.display_kind === "hidden") return null;
+    const id = `h-${rang}`;
+    if (m.role === "tool") {
+      const nom = chaine(m.name);
+      return nom ? { id, role: "outil", texte: nom, enCours: false, fin: null } : null;
+    }
+    const texte = chaine(m.text) ?? chaine(m.content);
+    if (!texte) return null;
+    if (m.role === "user") return { id, role: "utilisateur", texte, enCours: false, fin: null };
+    if (m.role === "assistant") return { id, role: "hermes", texte, enCours: false, fin: "complete" };
+    return null;
+  }
+  function etatInitial(cle) {
+    return {
+      connexion: "repos",
+      tentativeDans: null,
+      cle,
+      sessionId: null,
+      titre: null,
+      messages: [],
+      enCours: false,
+      ligneEtat: null,
+      demandes: [],
+      refusees: [],
+      retirees: [],
+      erreur: null
+    };
+  }
+  var Conversation = class {
+    constructor(options) {
+      __publicField(this, "options", options);
+      __publicField(this, "etatCourant");
+      __publicField(this, "ecouteurs", /* @__PURE__ */ new Set());
+      __publicField(this, "canal", null);
+      __publicField(this, "generation", 0);
+      __publicField(this, "tentatives", 0);
+      __publicField(this, "arrete", false);
+      __publicField(this, "minuterie", null);
+      /** Événements reçus pendant une reprise (session.resume en vol) : rejoués après l'instantané (voir reprendre). */
+      __publicField(this, "tampon", null);
+      __publicField(this, "compteur", 0);
+      __publicField(this, "ouvrir");
+      __publicField(this, "delais");
+      this.etatCourant = etatInitial(options.cle);
+      this.ouvrir = options.ouvrir ?? ((o) => ouvrirCanal(o));
+      this.delais = options.delais ?? DELAIS_RECONNEXION_MS;
+    }
+    etat() {
+      return this.etatCourant;
+    }
+    abonner(ecouteur) {
+      this.ecouteurs.add(ecouteur);
+      return () => this.ecouteurs.delete(ecouteur);
+    }
+    poser(changement) {
+      this.etatCourant = { ...this.etatCourant, ...changement };
+      for (const ecouteur of [...this.ecouteurs]) ecouteur(this.etatCourant);
+    }
+    nouvelId(prefixe) {
+      this.compteur += 1;
+      return `${prefixe}-${this.compteur}`;
+    }
+    demarrer() {
+      this.arrete = false;
+      void this.connecter();
+    }
+    arreter() {
+      this.arrete = true;
+      this.generation += 1;
+      if (this.minuterie !== null) clearTimeout(this.minuterie);
+      this.minuterie = null;
+      this.canal?.fermer();
+      this.canal = null;
+    }
+    /** Retour de la page (téléphone réveillé) : une reconnexion en attente est tentée aussitôt. */
+    reveiller() {
+      if (this.arrete || this.etatCourant.connexion !== "reconnexion") return;
+      if (this.minuterie !== null) clearTimeout(this.minuterie);
+      this.minuterie = null;
+      void this.connecter();
+    }
+    async connecter() {
+      const generation = ++this.generation;
+      this.poser({ connexion: this.tentatives > 0 ? "reconnexion" : "connexion", tentativeDans: null });
+      let canal;
+      try {
+        canal = await this.ouvrir({
+          capacites: true,
+          surEvenement: (e) => {
+            if (generation !== this.generation) return;
+            if (this.tampon) this.tampon.push(e);
+            else this.surEvenement(e);
+          },
+          surClarify: (r) => {
+            if (generation === this.generation) this.surClarify(r);
+          },
+          surRefus: (methode) => {
+            if (generation === this.generation) this.poser({ refusees: [...this.etatCourant.refusees, methode] });
+          },
+          surFermeture: (volontaire) => {
+            if (generation === this.generation && !volontaire) this.perdue();
+          }
+        });
+      } catch (erreur) {
+        if (generation !== this.generation) return;
+        if (erreur instanceof ErreurCanal && erreur.genre === "sdk") {
+          this.poser({ connexion: "indisponible" });
+          return;
+        }
+        this.planifier();
+        return;
+      }
+      if (generation !== this.generation || this.arrete) {
+        canal.fermer();
+        return;
+      }
+      this.canal = canal;
+      if (this.etatCourant.cle) {
+        try {
+          await this.reprendre(canal, this.etatCourant.cle);
+        } catch (erreur) {
+          if (generation !== this.generation) return;
+          canal.fermer();
+          this.canal = null;
+          if (erreur instanceof ErreurCanal && erreur.genre === "refus" && erreur.code === 4007) {
+            this.poser({ connexion: "introuvable", erreur: { genre: "reprise", detail: detailDe(erreur) } });
+            return;
+          }
+          this.poser({ erreur: { genre: "reprise", detail: detailDe(erreur) } });
+          this.planifier();
+          return;
+        }
+      }
+      if (generation !== this.generation) return;
+      this.tentatives = 0;
+      this.poser({ connexion: "prete", tentativeDans: null });
+    }
+    perdue() {
+      this.canal = null;
+      if (this.arrete) return;
+      this.generation += 1;
+      this.planifier();
+    }
+    planifier() {
+      if (this.arrete) return;
+      const delai = this.delais[Math.min(this.tentatives, this.delais.length - 1)] ?? 1e4;
+      this.tentatives += 1;
+      this.poser({ connexion: "reconnexion", tentativeDans: Math.round(delai / 1e3) });
+      if (this.minuterie !== null) clearTimeout(this.minuterie);
+      this.minuterie = setTimeout(() => {
+        this.minuterie = null;
+        void this.connecter();
+      }, delai);
+    }
+    async reprendre(canal, cle) {
+      this.poser({ demandes: [] });
+      this.tampon = [];
+      let brut;
+      try {
+        brut = objet(await canal.appeler("session.resume", { session_id: cle }, DELAI_REPRISE_MS));
+      } catch (erreur) {
+        this.tampon = null;
+        throw erreur;
+      }
+      const tampon = this.tampon ?? [];
+      this.tampon = null;
+      if (!brut) throw new ErreurCanal("reponse", "session.resume");
+      const sessionId = chaine(brut.session_id);
+      if (!sessionId) throw new ErreurCanal("reponse", "session.resume sans session_id");
+      const messages = [];
+      (Array.isArray(brut.messages) ? brut.messages : []).forEach((m, rang) => {
+        const message = messageDeHistorique(m, rang);
+        if (message) messages.push(message);
+      });
+      const enCours = brut.running === true;
+      const inflight = objet(brut.inflight);
+      if (enCours && inflight) {
+        const utilisateur = chaine(inflight.user);
+        const dernier = messages[messages.length - 1];
+        if (utilisateur && !(dernier && dernier.role === "utilisateur" && dernier.texte === utilisateur)) {
+          messages.push({ id: this.nouvelId("u"), role: "utilisateur", texte: utilisateur, enCours: false, fin: null });
+        }
+        messages.push({ id: this.nouvelId("r"), role: "hermes", texte: typeof inflight.assistant === "string" ? inflight.assistant : "", enCours: true, fin: null });
+      }
+      const info = objet(brut.info);
+      this.poser({
+        sessionId,
+        messages,
+        enCours,
+        ligneEtat: null,
+        erreur: null,
+        titre: chaine(info?.title) ?? this.etatCourant.titre
+      });
+      for (const ouverte of Array.isArray(brut.open_requests) ? brut.open_requests : []) {
+        const o = objet(ouverte);
+        const id = chaine(o?.id);
+        const methode = chaine(o?.method);
+        if (!o || !id || !methode) continue;
+        if (methode === "clarify") this.surClarify({ id, methode, params: objet(o.params) ?? {} });
+      }
+      for (const e of tampon) {
+        if (e.type !== "message.start" && e.type !== "message.delta" && e.type !== "message.interim") this.surEvenement(e);
+      }
+    }
+    surClarify(requete) {
+      const demande = demandeDe(requete);
+      if (!demande) {
+        this.canal?.refuserClarify(requete.id);
+        this.poser({ refusees: [...this.etatCourant.refusees, requete.methode] });
+        return;
+      }
+      if (this.etatCourant.demandes.some((d) => d.id === demande.id)) return;
+      this.poser({ demandes: [...this.etatCourant.demandes, demande] });
+    }
+    surEvenement(e) {
+      const etat = this.etatCourant;
+      if (e.sessionId !== null && etat.sessionId !== null && e.sessionId !== etat.sessionId) return;
+      const payload = objet(e.payload) ?? {};
+      switch (e.type) {
+        case "message.start": {
+          this.poser({ enCours: true, messages: [...etat.messages, {
+            id: this.nouvelId("r"),
+            role: "hermes",
+            texte: "",
+            enCours: true,
+            fin: null
+          }] });
+          return;
+        }
+        case "message.delta": {
+          const texte = typeof payload.text === "string" ? payload.text : "";
+          if (!texte) return;
+          this.poser({ messages: this.ajouterAuFlux(texte) });
+          return;
+        }
+        case "message.interim": {
+          const texte = typeof payload.text === "string" ? payload.text : "";
+          if (texte && payload.already_streamed === false) this.poser({ messages: this.ajouterAuFlux(texte) });
+          return;
+        }
+        case "message.complete": {
+          const fin = payload.status === "interrupted" || payload.status === "error" ? payload.status : "complete";
+          const final = typeof payload.text === "string" && payload.text.trim() ? payload.text : null;
+          const messages = [...this.etatCourant.messages];
+          const rang = messages.map((m) => m.role === "hermes" && m.enCours).lastIndexOf(true);
+          const dernier = messages[messages.length - 1];
+          if (rang >= 0) {
+            const courant = messages[rang];
+            messages[rang] = { ...courant, texte: final ?? courant.texte, enCours: false, fin };
+          } else if (final && !(dernier && dernier.role === "hermes" && dernier.texte === final)) {
+            messages.push({ id: this.nouvelId("r"), role: "hermes", texte: final, enCours: false, fin });
+          }
+          const erreurTour = fin === "error" ? chaine(payload.error) ?? chaine(payload.failure_reason) : null;
+          this.poser({
+            messages,
+            enCours: false,
+            ligneEtat: null,
+            erreur: fin === "error" ? { genre: "tour", detail: erreurTour } : this.etatCourant.erreur
+          });
+          return;
+        }
+        case "status.update": {
+          const texte = chaine(payload.text);
+          if (texte) this.poser({ ligneEtat: texte.slice(0, 300) });
+          return;
+        }
+        case "error": {
+          const texte = chaine(payload.message);
+          if (texte) this.poser({ messages: [...etat.messages, {
+            id: this.nouvelId("e"),
+            role: "erreur",
+            texte: texte.slice(0, 2e3),
+            enCours: false,
+            fin: null
+          }] });
+          return;
+        }
+        case "tool.start": {
+          const nom = chaine(payload.name);
+          if (nom) this.poser({ messages: [...etat.messages, {
+            id: this.nouvelId("o"),
+            role: "outil",
+            texte: nom.slice(0, 120),
+            enCours: false,
+            fin: null
+          }] });
+          return;
+        }
+        case "session.title": {
+          const titre = chaine(payload.title);
+          if (titre) this.poser({ titre: titre.slice(0, 200) });
+          return;
+        }
+        case "request.cancel": {
+          const id = chaine(payload.id);
+          if (!id || !etat.demandes.some((d) => d.id === id)) return;
+          this.canal?.oublierClarify(id);
+          this.poser({
+            demandes: etat.demandes.filter((d) => d.id !== id),
+            retirees: [...etat.retirees, chaine(payload.reason)]
+          });
+          return;
+        }
+        default:
+          return;
+      }
+    }
+    ajouterAuFlux(texte) {
+      const messages = [...this.etatCourant.messages];
+      const rang = messages.map((m) => m.role === "hermes" && m.enCours).lastIndexOf(true);
+      if (rang >= 0) {
+        const courant = messages[rang];
+        messages[rang] = { ...courant, texte: courant.texte + texte };
+      } else {
+        messages.push({ id: this.nouvelId("r"), role: "hermes", texte, enCours: true, fin: null });
+      }
+      return messages;
+    }
+    /** Envoie un message ; rend vrai s'il a été accepté (la page vide alors le champ). */
+    async envoyer(texte) {
+      const propre = texte.trim();
+      const canal = this.canal;
+      if (!propre || propre.length > TEXTE_MAX || !canal || this.etatCourant.connexion !== "prete" || this.etatCourant.enCours) {
+        return false;
+      }
+      let sessionId = this.etatCourant.sessionId;
+      if (!sessionId) {
+        try {
+          const cree = objet(await canal.appeler("session.create", {}));
+          sessionId = chaine(cree?.session_id);
+          const cle = chaine(cree?.stored_session_id) ?? sessionId;
+          if (!sessionId || !cle) throw new ErreurCanal("reponse", "session.create");
+          this.poser({ sessionId, cle });
+          this.options.surCle?.(cle);
+        } catch (erreur) {
+          this.poser({ erreur: { genre: "creation", detail: detailDe(erreur) } });
+          return false;
+        }
+      }
+      this.poser({ enCours: true, erreur: null });
+      try {
+        await canal.appeler("prompt.submit", { session_id: sessionId, text: propre });
+      } catch (erreur) {
+        this.poser({ enCours: false, erreur: { genre: "envoi", detail: detailDe(erreur) } });
+        return false;
+      }
+      const messages = [...this.etatCourant.messages];
+      const rang = messages.findIndex((m) => m.role === "hermes" && m.enCours);
+      const utilisateur = { id: this.nouvelId("u"), role: "utilisateur", texte: propre, enCours: false, fin: null };
+      if (rang >= 0) messages.splice(rang, 0, utilisateur);
+      else messages.push(utilisateur);
+      this.poser({ messages });
+      return true;
+    }
+    async interrompre() {
+      const canal = this.canal;
+      const sessionId = this.etatCourant.sessionId;
+      if (!canal || !sessionId) return;
+      try {
+        await canal.appeler("session.interrupt", { session_id: sessionId });
+      } catch (erreur) {
+        this.poser({ erreur: { genre: "interruption", detail: detailDe(erreur) } });
+      }
+    }
+    /** Répond à une demande « clarify » ; rend vrai si la réponse est partie. */
+    repondre(id, saisies) {
+      const demande = this.etatCourant.demandes.find((d) => d.id === id);
+      const canal = this.canal;
+      if (!demande || !canal) return false;
+      try {
+        canal.repondreClarify(id, reponseDe(demande, saisies));
+      } catch (erreur) {
+        this.poser({ erreur: { genre: "reponse", detail: detailDe(erreur) } });
+        return false;
+      }
+      this.poser({ demandes: this.etatCourant.demandes.filter((d) => d.id !== id), erreur: null });
+      return true;
+    }
+  };
+
+  // src/discussion/Clarify.tsx
+  function idDe(demande, rang, suffixe) {
+    return `acp-clarify-${demande.id.replace(/[^A-Za-z0-9_-]/g, "_")}-${rang}-${suffixe}`;
+  }
+  function Question(props) {
+    const { demande, question, rang, saisie } = props;
+    const basculer = (valeur) => {
+      const deja = saisie.choix.includes(valeur);
+      const choix = question.multiple ? deja ? saisie.choix.filter((c) => c !== valeur) : [...saisie.choix, valeur] : deja ? [] : [valeur];
+      props.changer({ ...saisie, choix });
+    };
+    const aide = idDe(demande, rang, "aide");
+    return /* @__PURE__ */ h("fieldset", { className: "acp-groupe-choix acp-clarify__question" }, /* @__PURE__ */ h("legend", null, /* @__PURE__ */ h(Donnee, { valeur: question.texte })), question.dejaRepondu !== null ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.discussion.dejaRepondu), " ", /* @__PURE__ */ h(Donnee, { valeur: question.dejaRepondu })) : null, question.choix.length > 0 ? /* @__PURE__ */ h("div", { className: "acp-actions" }, question.choix.map((c) => /* @__PURE__ */ h(
+      "button",
+      {
+        key: c.valeur,
+        type: "button",
+        className: "acp-bouton acp-choix-bouton",
+        "aria-pressed": saisie.choix.includes(c.valeur) ? "true" : "false",
+        onClick: () => basculer(c.valeur)
+      },
+      /* @__PURE__ */ h(Donnee, { valeur: c.libelle }),
+      c.recommande ? /* @__PURE__ */ h("span", { className: "acp-discret" }, T.discussion.recommande) : null
+    ))) : null, question.multiple && question.choix.length > 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.choixMultiple) : null, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: idDe(demande, rang, "libre") }, T.discussion.reponseLibre), /* @__PURE__ */ h(
+      "textarea",
+      {
+        id: idDe(demande, rang, "libre"),
+        rows: 2,
+        maxLength: 4e3,
+        value: saisie.libre,
+        "aria-describedby": question.choix.length > 0 ? aide : void 0,
+        onChange: (e) => props.changer({ ...saisie, libre: e.target.value })
+      }
+    ), question.choix.length > 0 ? /* @__PURE__ */ h("p", { className: "acp-discret", id: aide }, T.discussion.reponseLibreAide) : null));
+  }
+  function Clarify(props) {
+    const { demande } = props;
+    const [saisies, fixer] = useState(() => {
+      const initiales = {};
+      demande.questions.forEach((q, rang) => {
+        initiales[String(rang)] = { choix: [], libre: q.dejaRepondu ?? "" };
+      });
+      return initiales;
+    });
+    const [envoyee, fixerEnvoyee] = useState(false);
+    const vide = demande.questions.every((q, rang) => texteDeReponse(q, saisies[String(rang)]) === "");
+    const titre = demande.questions.length > 1 ? T.discussion.questionsTitre : T.discussion.questionTitre;
+    const surEnvoi = (evenement) => {
+      evenement.preventDefault();
+      if (vide || envoyee || !props.actif) return;
+      fixerEnvoyee(props.repondre(demande.id, saisies));
+    };
+    return /* @__PURE__ */ h(Carte, { titre, id: idDe(demande, 0, "titre") }, /* @__PURE__ */ h("form", { className: "acp-formulaire acp-clarify", onSubmit: surEnvoi, "data-acp-clarify": demande.id }, demande.questions.map((q, rang) => /* @__PURE__ */ h(
+      Question,
+      {
+        key: `${demande.id}-${rang}`,
+        demande,
+        question: q,
+        rang,
+        saisie: saisies[String(rang)] ?? { choix: [], libre: "" },
+        changer: (saisie) => fixer((avant) => ({ ...avant, [String(rang)]: saisie }))
+      }
+    )), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: T.discussion.repondre, type: "submit", principal: true, desactive: vide || envoyee || !props.actif }))));
+  }
+
   // src/jsonrpc/discussions.ts
   var METHODE_LISTE = "session.active_list";
   var DELAI_LECTURE_MS = 5e3;
   var APERCU_MAX = 160;
-  function chaine(valeur, max = 200) {
+  function chaine2(valeur, max = 200) {
     return typeof valeur === "string" && valeur.trim() ? valeur.trim().slice(0, max) : null;
   }
   function sessionsEnAttente(resultat) {
@@ -1810,12 +2301,12 @@
     for (const brut of sessions) {
       if (!brut || typeof brut !== "object") continue;
       const s = brut;
-      const cle = chaine(s.session_key, 200);
+      const cle = chaine2(s.session_key, 200);
       if (s.status !== "waiting" || !cle) continue;
       garde.push({
         cle,
-        titre: chaine(s.title),
-        apercu: chaine(s.preview, APERCU_MAX),
+        titre: chaine2(s.title),
+        apercu: chaine2(s.preview, APERCU_MAX),
         derniereActivite: typeof s.last_active === "number" && Number.isFinite(s.last_active) ? s.last_active : null
       });
     }
@@ -1858,526 +2349,209 @@
   }
 
   // src/types.ts
-  function chaine2(valeur) {
+  function chaine3(valeur) {
     return typeof valeur === "string" && valeur.trim() ? valeur : null;
   }
-  function listeDeChaines(valeur) {
-    return Array.isArray(valeur) ? valeur.filter((v) => typeof v === "string" && v.trim() !== "") : [];
-  }
 
-  // src/projets/api.ts
-  var RACINE_POSTE = "/api/plugins/acp-poste/v1";
-  var ROUTE_PROJETS = `${RACINE_POSTE}/projets`;
-  var ROUTE_QUESTIONS = `${RACINE_POSTE}/questions`;
-  var ROUTE_POSTE = `${RACINE_POSTE}/poste`;
-  var ROUTE_PAUSE = `${RACINE_POSTE}/pause`;
-  var ROUTE_NOTIFICATION_TEST = `${RACINE_POSTE}/notifications/test`;
-  async function ecrireJSON(url, corps, entetes = {}) {
-    const fetchJSON = sdk().fetchJSON;
-    if (typeof fetchJSON !== "function") throw new ErreurApi("inattendue", null, "fetchJSON absent du SDK");
-    try {
-      return await fetchJSON(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...entetes },
-        body: JSON.stringify(corps ?? {})
-      });
-    } catch (erreur) {
-      throw envelopper(erreur);
-    }
+  // src/discussion/vue.ts
+  var CHEMIN_DISCUSSION = "/discussion";
+  var NOUVELLE = "nouvelle";
+  var CLE = /^[A-Za-z0-9_.:-]{1,200}$/;
+  function vueDepuisAdresse(recherche) {
+    const session = new URLSearchParams(recherche).get("session");
+    if (session === NOUVELLE) return { genre: "fil", cle: null };
+    if (session && CLE.test(session)) return { genre: "fil", cle: session };
+    return { genre: "liste" };
   }
-  function messageDuRefus(erreur) {
-    const texte = erreur.detail.trim();
-    if (!texte.startsWith("{")) return null;
+  function rechercheDeVue2(vue, recherche = "") {
+    const parametres = new URLSearchParams(recherche);
+    parametres.delete("session");
+    if (vue.genre === "fil") parametres.set("session", vue.cle ?? NOUVELLE);
+    const texte = parametres.toString();
+    return texte ? `?${texte}` : "";
+  }
+  function adresseDeVue(vue) {
+    return `${cheminDeBase()}${CHEMIN_DISCUSSION}${rechercheDeVue2(vue)}`;
+  }
+  function changerAdresse(vue, remplacer) {
     try {
-      const corps = JSON.parse(texte);
-      const detail = corps?.detail;
-      if (typeof detail === "string" && detail.trim()) return detail.trim();
-      if (detail && typeof detail === "object") {
-        const message = detail.message;
-        if (typeof message === "string" && message.trim()) return message.trim();
-      }
+      const { pathname, search } = window.location;
+      const suivante = `${pathname}${rechercheDeVue2(vue, search)}`;
+      if (suivante === `${pathname}${search}`) return;
+      if (remplacer) window.history.replaceState(window.history.state, "", suivante);
+      else window.history.pushState(window.history.state, "", suivante);
     } catch {
-      return null;
     }
-    return null;
-  }
-  var pauseGenerale = (generale) => ecrireJSON(ROUTE_PAUSE, { generale });
-  var notificationDeTest = () => ecrireJSON(ROUTE_NOTIFICATION_TEST, {});
-
-  // src/projets/libelles.ts
-  var L = (texte, famille) => ({ texte, famille });
-  function libelleEtatProjet(etat, derive) {
-    const e = T.projets.etats;
-    switch (etat) {
-      case "creation":
-        return L(e.creation, "neutre");
-      case "en_pause":
-        return L(e.enPause, "neutre");
-      case "termine":
-        return L(e.termine, "succes");
-      case "abandonne":
-        return L(e.abandonne, "echec");
-      case "actif":
-        switch (derive) {
-          case "exploration":
-            return L(e.exploration, "actif");
-          case "planification":
-            return L(e.planification, "actif");
-          case "synthese":
-            return L(e.synthese, "actif");
-          case "en_cours":
-            return L(e.enCours, "actif");
-          case "en_attente_du_poste":
-            return L(e.enAttenteDuPoste, "degrade");
-          case "plafond_atteint":
-            return L(e.plafondAtteint, "degrade");
-          case "a_decider":
-            return L(e.aDecider, "degrade");
-          default:
-            return L(e.actif, "actif");
-        }
-      default:
-        return null;
-    }
-  }
-  function libelleStatut(statut) {
-    const s = T.projets.statuts;
-    switch (statut) {
-      case "triage":
-        return L(s.triage, "degrade");
-      case "todo":
-        return L(s.todo, "neutre");
-      case "scheduled":
-        return L(s.scheduled, "neutre");
-      case "ready":
-        return L(s.ready, "neutre");
-      case "running":
-        return L(s.running, "actif");
-      case "blocked":
-        return L(s.blocked, "echec");
-      case "review":
-        return L(s.review, "actif");
-      case "done":
-        return L(s.done, "succes");
-      case "archived":
-        return L(s.archived, "neutre");
-      case "a_creer":
-        return L(s.aCreer, "neutre");
-      default:
-        return null;
-    }
-  }
-  function libelleCanal(canal) {
-    if (canal === "aucune") return T.projets.canalAucun;
-    if (canal === "telegram") return T.projets.canalTelegram;
-    if (canal === "ntfy") return T.projets.canalNtfy;
-    return null;
   }
 
-  // src/projets/briques.tsx
-  function Etiquette(props) {
-    if (props.libelle) {
-      return /* @__PURE__ */ h("span", { className: `acp-pastille acp-pastille--${props.libelle.famille}` }, props.libelle.texte);
+  // src/discussion/Liste.tsx
+  var ROUTE_DISCUSSIONS = "/api/sessions?limit=20&offset=0&order=recent&source=tui";
+  var lireDiscussions = () => lireJSON(ROUTE_DISCUSSIONS);
+  function LienDiscussion(props) {
+    const surClic = (evenement) => {
+      if (evenement.defaultPrevented || evenement.button !== 0) return;
+      if (evenement.metaKey || evenement.ctrlKey || evenement.shiftKey || evenement.altKey) return;
+      evenement.preventDefault();
+      props.naviguer(props.vue);
+    };
+    return /* @__PURE__ */ h("a", { className: props.className ?? "acp-lien", href: adresseDeVue(props.vue), onClick: surClic }, props.children);
+  }
+  function Liste(props) {
+    const lecture = useDonnees(lireDiscussions, 0, ["discussions"]);
+    const attente = useDonnees(lireDiscussionsEnAttente, 0, ["discussions"]);
+    const enAttente = new Set(attente.valeur?.connu ? attente.valeur.sessions.map((s) => s.cle) : []);
+    const sessions = (lecture.valeur?.sessions ?? []).filter((s) => chaine3(s.id) !== null);
+    let contenu;
+    if (lecture.valeur === null) {
+      contenu = lecture.erreur ? /* @__PURE__ */ h(BlocErreur, { erreur: lecture.erreur, message: T.discussion.listeIndisponible }) : /* @__PURE__ */ h(EnChargement, null);
+    } else if (sessions.length === 0) {
+      contenu = /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.aucune);
+    } else {
+      contenu = /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, sessions.map((s) => {
+        const cle = s.id;
+        return /* @__PURE__ */ h("li", { key: cle, className: "acp-entree" }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, chaine3(s.title) ? /* @__PURE__ */ h(Donnee, { valeur: s.title }) : /* @__PURE__ */ h("span", null, T.discussion.sansTitre)), /* @__PURE__ */ h("dl", { className: "acp-liste" }, enAttente.has(cle) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionEtat }, /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.discussion.enAttente, famille: "degrade" } })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.discussion.activite }, /* @__PURE__ */ h(Horodatage, { valeur: s.last_active ?? s.started_at, relative: true })), /* @__PURE__ */ h(Ligne, { libelle: T.discussion.messages }, /* @__PURE__ */ h(Donnee, { valeur: typeof s.message_count === "number" ? s.message_count : null }))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(LienDiscussion, { vue: { genre: "fil", cle }, naviguer: props.naviguer, className: "acp-bouton" }, T.discussion.ouvrir)));
+      }));
     }
-    return /* @__PURE__ */ h(Donnee, { valeur: typeof props.brut === "string" ? props.brut : null, mono: true });
-  }
-  function BlocRefus(props) {
-    const message = messageDuRefus(props.erreur);
-    if (!message) return /* @__PURE__ */ h(BlocErreur, { erreur: props.erreur });
-    return /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert" }, /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: message })), props.erreur.statut !== null ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.erreurs.code), " ", /* @__PURE__ */ h(Donnee, { valeur: props.erreur.statut, mono: true })) : null);
-  }
-  function RetourEnvoi(props) {
-    const { etat } = props;
-    if (etat.etat === "envoi") {
-      return /* @__PURE__ */ h("p", { className: "acp-discret", role: "status" }, T.projets.envoi);
-    }
-    if (etat.etat === "erreur") return /* @__PURE__ */ h(BlocRefus, { erreur: etat.erreur });
-    if (etat.etat === "ok" && props.reussite) {
-      return /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, props.reussite);
-    }
-    return null;
-  }
-  function Horodatage(props) {
-    const ms = versMillisecondes(props.valeur) ?? isoVersMillisecondes(props.valeur);
-    if (ms === null) return /* @__PURE__ */ h(Donnee, { valeur: null });
-    return /* @__PURE__ */ h("time", { dateTime: new Date(ms).toISOString() }, /* @__PURE__ */ h(Donnee, { valeur: props.relative ? dateRelative(ms) : dateAbsolue(ms) }));
-  }
-  function Bouton(props) {
-    const classes = ["acp-bouton"];
-    if (props.principal) classes.push("acp-bouton--principal");
-    if (props.danger) classes.push("acp-bouton--danger");
-    return /* @__PURE__ */ h(
-      "button",
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+      LienDiscussion,
       {
-        type: props.type ?? "button",
-        className: classes.join(" "),
-        onClick: props.surClic,
-        disabled: props.desactive,
-        "aria-describedby": props.decritPar
+        vue: { genre: "fil", cle: null },
+        naviguer: props.naviguer,
+        className: "acp-bouton acp-bouton--principal"
       },
-      props.libelle
+      T.discussion.nouvelle
+    )), /* @__PURE__ */ h(Carte, { titre: T.discussion.listeTitre, id: "acp-discussion-liste" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.listeIntro), lecture.valeur !== null && lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.discussion.listeIndisponible) : null, contenu));
+  }
+
+  // src/discussion/Fil.tsx
+  function useConversation(cle, surCle, ouvrir) {
+    const conversation = useRef(null);
+    const [etat, fixer] = useState(null);
+    const rappel = useRef(surCle);
+    rappel.current = surCle;
+    useEffect(() => {
+      const c = new Conversation({ cle, surCle: (k) => rappel.current(k), ouvrir });
+      conversation.current = c;
+      fixer(c.etat());
+      const desabonner = c.abonner(fixer);
+      c.demarrer();
+      const surVisibilite = () => {
+        if (document.visibilityState !== "hidden") c.reveiller();
+      };
+      document.addEventListener("visibilitychange", surVisibilite);
+      return () => {
+        document.removeEventListener("visibilitychange", surVisibilite);
+        desabonner();
+        c.arreter();
+        conversation.current = null;
+      };
+    }, [cle]);
+    return [etat ?? conversation.current?.etat() ?? etatInitial(cle), conversation.current];
+  }
+  function Connexion(props) {
+    const { etat } = props;
+    if (etat.connexion === "indisponible") {
+      return /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "alert", "data-acp-connexion": etat.connexion }, T.discussion.indisponible);
+    }
+    if (etat.connexion === "introuvable") {
+      return /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert", "data-acp-connexion": etat.connexion }, /* @__PURE__ */ h("p", null, T.discussion.introuvable), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(LienDiscussion, { vue: { genre: "liste" }, naviguer: props.naviguer }, T.discussion.retourListe)));
+    }
+    if (etat.connexion === "reconnexion") {
+      return /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status", "data-acp-connexion": etat.connexion }, /* @__PURE__ */ h("span", null, T.discussion.reconnexion), " ", /* @__PURE__ */ h(Donnee, { valeur: etat.tentativeDans }), " ", /* @__PURE__ */ h("span", null, T.discussion.secondes));
+    }
+    return /* @__PURE__ */ h("p", { className: "acp-discret", role: "status", "data-acp-connexion": etat.connexion }, etat.connexion === "prete" ? T.discussion.prete : T.discussion.connexion);
+  }
+  function Bulle(props) {
+    const m = props.message;
+    if (m.role === "outil") {
+      return /* @__PURE__ */ h("li", { className: "acp-bulle acp-bulle--outil" }, /* @__PURE__ */ h("span", null, T.discussion.outil), " ", /* @__PURE__ */ h(Donnee, { valeur: m.texte, mono: true }));
+    }
+    const auteur = m.role === "utilisateur" ? T.discussion.vous : m.role === "hermes" ? T.discussion.hermes : T.discussion.erreurHermes;
+    return /* @__PURE__ */ h(
+      "li",
+      {
+        className: `acp-bulle acp-bulle--${m.role}`,
+        "aria-busy": m.enCours ? "true" : void 0,
+        "data-acp-message": m.role
+      },
+      /* @__PURE__ */ h("span", { className: "acp-bulle__auteur" }, auteur),
+      m.texte ? /* @__PURE__ */ h("p", { className: "acp-bulle__texte" }, /* @__PURE__ */ h(Donnee, { valeur: m.texte })) : m.enCours ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.enCours) : null,
+      m.fin === "interrupted" ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.interrompu) : null,
+      m.fin === "error" ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.discussion.echoue) : null
     );
   }
-
-  // src/projets/envoi.ts
-  function useEnvoi() {
-    const [etat, fixer] = useState({ etat: "repos" });
-    const enCours2 = useRef(false);
-    const envoyer = async (travail) => {
-      if (enCours2.current) return null;
-      enCours2.current = true;
-      fixer({ etat: "envoi" });
+  function Fil(props) {
+    const [etat, conversation] = useConversation(props.cle, props.surCle, props.ouvrir);
+    const [texte, fixerTexte] = useState("");
+    const [envoi, fixerEnvoi] = useState(false);
+    const fin = useRef(null);
+    const nombre = etat.messages.length + etat.demandes.length;
+    useEffect(() => {
       try {
-        const resultat = await travail();
-        fixer({ etat: "ok", resultat });
-        return resultat;
-      } catch (erreur) {
-        fixer({ etat: "erreur", erreur: envelopper(erreur) });
-        return null;
-      } finally {
-        enCours2.current = false;
+        fin.current?.scrollIntoView?.({ block: "nearest" });
+      } catch {
       }
+    }, [nombre]);
+    const prete = etat.connexion === "prete";
+    const peutEnvoyer = prete && !etat.enCours && !envoi && texte.trim() !== "";
+    const surEnvoi = async (evenement) => {
+      evenement.preventDefault();
+      if (!conversation || !peutEnvoyer) return;
+      fixerEnvoi(true);
+      const accepte = await conversation.envoyer(texte);
+      fixerEnvoi(false);
+      if (accepte) fixerTexte("");
     };
-    return { etat, envoyer, oublier: () => fixer({ etat: "repos" }) };
-  }
-
-  // src/projets/BandeauPause.tsx
-  var RAISON_PAUSE_CROCHETS = "ACP : crochets shell d\xE9tect\xE9s en cours de route";
-  function BandeauPause(props) {
-    const envoi = useEnvoi();
-    const crochets = props.pause.reason === RAISON_PAUSE_CROCHETS;
-    const reprendre = async () => {
-      if (await envoi.envoyer(() => pauseGenerale(false)) !== null) props.apres();
-    };
-    return /* @__PURE__ */ h("section", { className: "acp-banniere acp-banniere--pause", "aria-labelledby": "acp-pause-titre", "data-acp-pause": "" }, /* @__PURE__ */ h("h2", { className: "acp-banniere__titre", id: "acp-pause-titre" }, T.projets.pauseEnCours), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.pauseEffet), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h("div", { className: "acp-ligne" }, /* @__PURE__ */ h("dt", null, T.projets.raison), /* @__PURE__ */ h("dd", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(props.pause.reason) }))), /* @__PURE__ */ h("div", { className: "acp-ligne" }, /* @__PURE__ */ h("dt", null, T.projets.depuisLe), /* @__PURE__ */ h("dd", null, /* @__PURE__ */ h(Horodatage, { valeur: props.pause.engaged_at })))), crochets ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "note" }, T.projets.pauseCrochets) : /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: T.projets.reprendreHermes, principal: true, surClic: reprendre, desactive: envoi.etat.etat === "envoi" })), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat }));
-  }
-
-  // src/projets/Notifications.tsx
-  function Notifications(props) {
-    const etat = props.etat ?? null;
-    const envoi = useEnvoi();
-    const configure = etat?.configure === true;
-    const canal = etat?.connu ? etat.canal : null;
-    const libelle = libelleCanal(canal);
-    const message = envoi.etat.etat === "ok" ? chaine2(envoi.etat.resultat?.message) : null;
-    return /* @__PURE__ */ h(Carte, { titre: T.projets.notificationsTitre, id: "acp-projets-notifications" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.canal }, libelle ? /* @__PURE__ */ h("span", null, libelle) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(canal), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.etatNotifications }, /* @__PURE__ */ h(
-      Etiquette,
+    const refusees = [...new Set(etat.refusees)];
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("nav", { className: "acp-actions", "aria-label": T.discussion.navigation }, /* @__PURE__ */ h(LienDiscussion, { vue: { genre: "liste" }, naviguer: props.naviguer }, T.discussion.retourListe)), /* @__PURE__ */ h("section", { className: "acp-carte", "aria-labelledby": "acp-discussion-titre" }, /* @__PURE__ */ h("h2", { className: "acp-carte__titre acp-carte__titre--grand", id: "acp-discussion-titre" }, etat.titre ? /* @__PURE__ */ h(Donnee, { valeur: etat.titre }) : /* @__PURE__ */ h("span", null, etat.cle ? T.discussion.sansTitre : T.discussion.nouvelle)), /* @__PURE__ */ h(Connexion, { etat, naviguer: props.naviguer }), etat.cle === null && etat.messages.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.nouvelleIntro) : null, etat.messages.length > 0 ? /* @__PURE__ */ h("ol", { className: "acp-fil", "aria-label": T.discussion.fil }, etat.messages.map((m) => /* @__PURE__ */ h(Bulle, { key: m.id, message: m }))) : null, etat.ligneEtat ? /* @__PURE__ */ h("p", { className: "acp-discret", role: "status" }, /* @__PURE__ */ h("span", null, T.discussion.etat), " ", /* @__PURE__ */ h(Donnee, { valeur: etat.ligneEtat })) : null, refusees.map((methode) => /* @__PURE__ */ h("p", { key: `refus-${methode}`, className: "acp-alerte-texte", role: "alert" }, /* @__PURE__ */ h("span", null, T.discussion.refusee), " ", /* @__PURE__ */ h("span", null, T.discussion.demande), " ", /* @__PURE__ */ h(Donnee, { valeur: methode, mono: true }))), etat.retirees.length > 0 ? /* @__PURE__ */ h("p", { className: "acp-discret", role: "status" }, /* @__PURE__ */ h("span", null, T.discussion.retiree), " ", /* @__PURE__ */ h("span", null, T.discussion.raison), " ", /* @__PURE__ */ h(Donnee, { valeur: etat.retirees[etat.retirees.length - 1], mono: true })) : null), etat.demandes.map((d) => /* @__PURE__ */ h(
+      Clarify,
       {
-        libelle: etat?.connu !== true ? null : configure ? { texte: T.projets.notificationsActives, famille: "succes" } : { texte: T.projets.notificationsInactives, famille: "neutre" }
+        key: d.id,
+        demande: d,
+        actif: prete,
+        repondre: (id, saisies) => conversation?.repondre(id, saisies) ?? false
       }
-    ))), configure ? null : /* @__PURE__ */ h("p", { className: "acp-discret", id: "acp-notifications-note" }, etat?.connu === true ? T.projets.notificationsNonConfigurees : T.projets.notificationsEtatInconnu), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+    )), etat.erreur ? /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert" }, /* @__PURE__ */ h("p", null, T.discussion.erreurs[etat.erreur.genre]), etat.erreur.detail ? /* @__PURE__ */ h("details", { className: "acp-details" }, /* @__PURE__ */ h("summary", null, T.commun.detailTechnique), /* @__PURE__ */ h(Donnee, { valeur: etat.erreur.detail, mono: true })) : null) : null, /* @__PURE__ */ h("form", { className: "acp-carte acp-formulaire", onSubmit: surEnvoi }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-discussion-message" }, T.discussion.message), /* @__PURE__ */ h(
+      "textarea",
+      {
+        id: "acp-discussion-message",
+        rows: 3,
+        maxLength: TEXTE_MAX,
+        value: texte,
+        onChange: (e) => fixerTexte(e.target.value)
+      }
+    )), etat.enCours ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.tourEnCours) : null, /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: T.discussion.envoyer, type: "submit", principal: true, desactive: !peutEnvoyer }), etat.enCours && etat.sessionId ? /* @__PURE__ */ h(
       Bouton,
       {
-        libelle: T.projets.envoyerTest,
-        desactive: !configure || envoi.etat.etat === "envoi",
-        decritPar: configure ? void 0 : "acp-notifications-note",
-        surClic: () => void envoi.envoyer(notificationDeTest)
+        libelle: T.discussion.interrompre,
+        danger: true,
+        desactive: !prete,
+        surClic: () => void conversation?.interrompre()
       }
-    )), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat }), message ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, /* @__PURE__ */ h(Donnee, { valeur: message })) : null);
+    ) : null)), /* @__PURE__ */ h("div", { ref: fin }));
   }
 
-  // src/projets/ListeProjets.tsx
-  var entier = (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
-  function Avancement(props) {
-    const faites = entier(props.faites);
-    const total = entier(props.total);
-    const part = faites !== null && total !== null && total > 0 ? Math.min(100, Math.round(100 * faites / total)) : 0;
-    return /* @__PURE__ */ h("span", { className: "acp-avancement" }, /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: nombre(faites) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, T.projets.sur), " ", /* @__PURE__ */ h(Donnee, { valeur: nombre(total) })), /* @__PURE__ */ h("span", { className: "acp-barre", "aria-hidden": "true" }, /* @__PURE__ */ h("span", { className: "acp-barre__plein", style: { width: `${part}%` } })));
-  }
-
-  // src/interface/accueil-api.ts
-  var ROUTE_ACCUEIL = "/api/plugins/acp-poste/v1/accueil";
-  var ROUTE_CRON = "/api/cron/jobs";
-  var SCRIPT_BILAN = "acp-bilan.py";
-  var TACHE_BILAN = {
-    name: "Bilan ACP",
-    schedule: "0 8 * * *",
-    prompt: "",
-    no_agent: true,
-    script: SCRIPT_BILAN,
-    deliver: "local"
-  };
-  var lireAccueil = () => lireJSON(ROUTE_ACCUEIL);
-  async function lireTachesCron() {
-    const brut = await lireJSON(ROUTE_CRON);
-    const liste = Array.isArray(brut) ? brut : brut?.jobs;
-    return Array.isArray(liste) ? liste.filter((t) => t && typeof t === "object") : [];
-  }
-  function tachesDuBilan(taches) {
-    return taches.filter((t) => t.script === SCRIPT_BILAN && t.no_agent === true);
-  }
-  var creerBilanQuotidien = () => ecrireJSON(ROUTE_CRON, TACHE_BILAN);
-
-  // src/interface/CarteATraiter.tsx
-  var CIBLE = /^\/projets\?vue=questions(&(q|carte)=[A-Za-z0-9_\-/%]+)?$/;
-  function libelleGenre(genre) {
-    switch (genre) {
-      case "question":
-        return T.accueil.genreQuestion;
-      case "decision":
-        return T.accueil.genreDecision;
-      case "revue":
-        return T.accueil.genreRevue;
-      case "arretee":
-        return T.accueil.genreArretee;
-      default:
-        return null;
-    }
-  }
-  function CarteATraiter(props) {
-    const bloc = props.aTraiter ?? null;
-    const connues = props.discussions !== null && props.discussions.connu;
-    const nbDiscussions = connues && props.discussions?.connu ? props.discussions.sessions.length : null;
-    const total = bloc && typeof bloc.total === "number" ? bloc.total + (nbDiscussions ?? 0) : null;
-    const premieres = Array.isArray(bloc?.premieres) ? bloc.premieres : [];
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.aTraiterTitre, id: "acp-accueil-a-traiter" }, bloc === null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h("span", null, T.accueil.blocIllisible), " ", /* @__PURE__ */ h(Donnee, { valeur: props.illisible })) : /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("p", { className: "acp-chiffre" }, /* @__PURE__ */ h(Donnee, { valeur: total })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.questions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.questions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.decisions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.decisions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.revues }, /* @__PURE__ */ h(Donnee, { valeur: bloc.revues ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.arretees }, /* @__PURE__ */ h(Donnee, { valeur: bloc.arretees ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.discussionsEnAttente }, nbDiscussions === null ? /* @__PURE__ */ h("span", null, T.accueil.inconnues) : /* @__PURE__ */ h(Donnee, { valeur: nbDiscussions })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.chezHermes }, /* @__PURE__ */ h(Donnee, { valeur: typeof props.chezHermes === "number" ? props.chezHermes : null }))), premieres.length > 0 ? /* @__PURE__ */ h("ul", { className: "acp-noms" }, premieres.map((d, rang) => {
-      const cible = chaine2(d.cible);
-      const genre = libelleGenre(d.genre);
-      return /* @__PURE__ */ h("li", { key: `${cible ?? rang}` }, genre ? /* @__PURE__ */ h("span", { className: "acp-discret" }, genre, " ") : null, cible && CIBLE.test(cible) ? /* @__PURE__ */ h(Lien, { vers: cible }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.titre) })) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.projet_titre) })));
-    })) : total === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.rienATraiter) : null), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/projets?vue=questions" }, T.accueil.ouvrirQuestions)));
-  }
-
-  // src/interface/CarteBilan.tsx
-  function bilanEnPause(tache) {
-    return tache.enabled === false || tache.state === "paused";
-  }
-  function CarteBilan(props) {
-    const lecture = useDonnees(lireTachesCron, props.jeton, []);
-    const creation = useEnvoi();
-    const taches = lecture.valeur === null ? null : tachesDuBilan(lecture.valeur);
-    const tache = taches && taches.length > 0 ? taches[0] : null;
-    const creer = async () => {
-      if (await creation.envoyer(creerBilanQuotidien) !== null) props.apres();
+  // src/discussion/Discussion.tsx
+  function Discussion() {
+    const [vue, fixerVue] = useState(() => vueDepuisAdresse(window.location.search));
+    const [ouverture, fixerOuverture] = useState(0);
+    const naviguer = (suivante) => {
+      fixerVue(suivante);
+      fixerOuverture((n) => n + 1);
+      changerAdresse(suivante, false);
     };
-    const notif = props.notifications ?? null;
-    let contenu;
-    if (taches === null) {
-      contenu = lecture.erreur ? /* @__PURE__ */ h(BlocErreur, { erreur: lecture.erreur, message: T.accueil.bilanIllisible }) : /* @__PURE__ */ h(EnChargement, null);
-    } else if (tache === null) {
-      contenu = /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.accueil.bilanNonCree, famille: "neutre" } })), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.bilanExplication), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
-        Bouton,
-        {
-          libelle: T.accueil.creerBilan,
-          principal: true,
-          surClic: () => void creer(),
-          desactive: creation.etat.etat === "envoi"
-        }
-      )), /* @__PURE__ */ h(RetourEnvoi, { etat: creation.etat }));
-    } else {
-      const pause = bilanEnPause(tache);
-      contenu = /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: pause ? { texte: T.accueil.bilanEnPause, famille: "neutre" } : { texte: T.accueil.bilanActif, famille: "succes" } })), pause ? null : /* @__PURE__ */ h(Ligne, { libelle: T.accueil.prochainEnvoi }, /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.next_run_at) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.dernierEnvoi }, tache.last_run_at ? /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.last_run_at) }) : /* @__PURE__ */ h("span", null, T.accueil.jamais))), taches.length > 1 ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanPlusieurs) : null, creation.etat.etat === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, T.accueil.bilanCree) : null);
-    }
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.bilanTitre, id: "acp-accueil-bilan" }, contenu, notif?.connu === true && notif.configure !== true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanSansCanal) : null, /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/cron" }, T.accueil.ouvrirCron)));
-  }
-
-  // src/poste/libelles.ts
-  var L2 = (texte, famille) => ({ texte, famille });
-  function libelleEtatDuPoste(etat) {
-    const e = T.poste.etats;
-    switch (etat) {
-      case "non_configure":
-        return L2(e.nonConfigure, "neutre");
-      case "a_confirmer":
-        return L2(e.aConfirmer, "degrade");
-      case "en_ligne":
-        return L2(e.enLigne, "succes");
-      case "hors_ligne":
-        return L2(e.horsLigne, "neutre");
-      case "redeploiement":
-        return L2(e.redeploiement, "degrade");
-      case "revoque":
-        return L2(e.revoque, "echec");
-      default:
-        return null;
-    }
-  }
-  function libelleEtatQuotas(etat) {
-    const e = T.poste.etatsQuotas;
-    switch (etat) {
-      case "releve":
-        return L2(e.releve, "succes");
-      case "perime":
-        return L2(e.perime, "degrade");
-      case "inconnu":
-        return L2(e.inconnu, "neutre");
-      default:
-        return null;
-    }
-  }
-  var CLASSES = {
-    exploration: T.poste.classes.exploration,
-    planification: T.poste.classes.planification,
-    synthese: T.poste.classes.synthese,
-    repondre: T.poste.classes.repondre,
-    recherche_web: T.poste.classes.rechercheWeb,
-    architecture: T.poste.classes.architecture,
-    implementation: T.poste.classes.implementation,
-    debogage_tests: T.poste.classes.debogageTests,
-    petite_tache: T.poste.classes.petiteTache,
-    documentation: T.poste.classes.documentation,
-    relecture: T.poste.classes.relecture
-  };
-  function libelleVoie(voie) {
-    const v = T.projets.voies;
-    return voie === "hermes" ? v.hermes : voie === "poste-codex" ? v.posteCodex : voie === "poste-claude" ? v.posteClaude : null;
-  }
-
-  // src/interface/CarteExecutant.tsx
-  function Illisible(props) {
-    return /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h("span", null, T.accueil.blocIllisible), " ", /* @__PURE__ */ h(Donnee, { valeur: props.raison }));
-  }
-  function CarteExecutant(props) {
-    const e = props.executant ?? null;
-    const fermees = e?.voies_fermees && typeof e.voies_fermees === "object" ? Object.entries(e.voies_fermees) : [];
-    const enCours2 = e?.carte_en_cours ?? null;
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.executantTitre, id: "acp-accueil-executant" }, e === null ? /* @__PURE__ */ h(Illisible, { raison: props.illisible }) : /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatDuPoste(e.etat), brut: e.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.machine }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(e.nom) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.plateforme }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(e.plateforme), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.derniereVue }, /* @__PURE__ */ h(Horodatage, { valeur: e.derniere_vue, relative: true })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.carteEnCours }, enCours2 ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(enCours2.titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(enCours2.projet_titre) })), " ", /* @__PURE__ */ h(Etiquette, { libelle: libelleStatut(enCours2.statut), brut: enCours2.statut })) : /* @__PURE__ */ h("span", null, T.accueil.aucuneCarteEnCours))), chaine2(e.message) ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(e.message) })) : null, fermees.length > 0 ? /* @__PURE__ */ h("div", null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.voiesFermees), /* @__PURE__ */ h("ul", { className: "acp-noms" }, fermees.map(([voie, raison]) => /* @__PURE__ */ h("li", { key: voie }, libelleVoie(voie) ? /* @__PURE__ */ h("span", null, libelleVoie(voie)) : /* @__PURE__ */ h(Donnee, { valeur: voie, mono: true }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: typeof raison === "string" ? raison : null })))))) : null), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/poste" }, T.accueil.ouvrirPoste)));
-  }
-  var VOIES_QUOTAS = ["poste-codex", "poste-claude"];
-  function pourcentage(valeur) {
-    return typeof valeur === "number" && Number.isFinite(valeur) && valeur >= 0 && valeur <= 100 ? `${valeur} %` : null;
-  }
-  function CarteQuotas(props) {
-    const quotas = props.quotas ?? null;
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.quotasTitre, id: "acp-accueil-quotas" }, quotas === null ? /* @__PURE__ */ h(Illisible, { raison: props.illisible }) : /* @__PURE__ */ h("div", { className: "acp-sections" }, VOIES_QUOTAS.map((voie) => {
-      const q = quotas[voie] ?? {};
-      return /* @__PURE__ */ h("div", { key: voie, className: "acp-groupe" }, /* @__PURE__ */ h("h3", { className: "acp-sous-titre" }, libelleVoie(voie)), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuotas(q.etat), brut: q.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.utilise }, /* @__PURE__ */ h(Donnee, { valeur: pourcentage(q.resume?.pourcentage_utilise) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.remiseAZero }, /* @__PURE__ */ h(Horodatage, { valeur: q.resume?.remise_a_zero })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.source }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(q.source_libelle) ?? chaine2(q.source) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: q.releve_le }))));
-    }), /* @__PURE__ */ h("div", { className: "acp-groupe" }, /* @__PURE__ */ h("h3", { className: "acp-sous-titre" }, T.accueil.quotasHermes), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(quotas.hermes?.libelle) })))), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/poste?vue=quotas" }, T.accueil.ouvrirQuotas)));
-  }
-
-  // src/interface/Accueil.tsx
-  function etatPersona(meta) {
-    switch (meta?.demarrage?.soul?.etat) {
-      case "a_jour":
-        return "aJour";
-      case "depose":
-        return "deposee";
-      case "divergent":
-        return "divergente";
-      case "non_ordinaire":
-        return "nonOrdinaire";
-      default:
-        return "inconnu";
-    }
-  }
-  function etatConformite(conforme) {
-    return conforme === true ? "conforme" : conforme === false ? "nonConforme" : "inconnu";
-  }
-  function etatContext7(valeur) {
-    return valeur === "connecte" ? "connecte" : valeur === "hors_ligne" ? "horsLigne" : "inconnu";
-  }
-  function CarteHermes(props) {
-    const { hermes, image, deploiement } = props.meta;
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.hermes, id: "acp-accueil-hermes" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.version }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(hermes?.version), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.versionTestee }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(hermes?.version_testee), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.conformite }, /* @__PURE__ */ h(Pastille, { etat: etatConformite(hermes?.conforme) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.image }, /* @__PURE__ */ h(Donnee, { valeur: court(image?.condensat_index), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.commit }, /* @__PURE__ */ h(Donnee, { valeur: court(deploiement?.commit), mono: true }))));
-  }
-  function CarteGarde(props) {
-    const garde = props.meta.garde_execution;
-    const presente = garde?.presente_dans_le_gestionnaire;
-    const admis = Array.isArray(garde?.outils_admis) ? garde.outils_admis.length : null;
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.garde, id: "acp-accueil-garde" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.gardeEtat }, presente === true ? /* @__PURE__ */ h(Pastille, { etat: "active" }) : presente === false ? /* @__PURE__ */ h(Pastille, { etat: "absente" }) : /* @__PURE__ */ h(Pastille, { etat: "inconnu" })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.outilsAdmis }, /* @__PURE__ */ h(Donnee, { valeur: nombre(admis) }))), chaine2(garde?.alerte) ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(garde?.alerte) })) : null);
-  }
-  function CartePersona(props) {
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.persona, id: "acp-accueil-persona" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.personaEtat }, /* @__PURE__ */ h(Pastille, { etat: etatPersona(props.meta) }))));
-  }
-  function CarteCatalogue(props) {
-    const resume = props.meta.catalogue ?? null;
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.catalogue, id: "acp-accueil-catalogue" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.skillsAcp }, /* @__PURE__ */ h(Donnee, { valeur: nombre(resume?.skills_actives) }), /* @__PURE__ */ h("span", { className: "acp-discret" }, " ", T.commun.separateur, " "), /* @__PURE__ */ h(Donnee, { valeur: nombre(resume?.skills_attendues) }), /* @__PURE__ */ h("span", { className: "acp-discret" }, " ", T.accueil.skillsAttendues)), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.context7 }, /* @__PURE__ */ h(Pastille, { etat: etatContext7(resume?.context7) }))), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/catalogue" }, T.accueil.ouvrirCatalogue)));
-  }
-  function Horodatage2(props) {
-    const ms = versMillisecondes(props.valeur);
-    if (ms === null) return /* @__PURE__ */ h(Donnee, { valeur: null });
-    return /* @__PURE__ */ h("time", { dateTime: new Date(ms).toISOString() }, /* @__PURE__ */ h(Donnee, { valeur: dateRelative(ms) }));
-  }
-  function CarteSessions() {
-    const chargement = useChargement(lireSessions);
-    let contenu;
-    if (chargement.etat === "chargement") {
-      contenu = /* @__PURE__ */ h(EnChargement, null);
-    } else if (chargement.etat === "erreur") {
-      contenu = /* @__PURE__ */ h(BlocErreur, { erreur: chargement.erreur });
-    } else {
-      const sessions = Array.isArray(chargement.valeur.sessions) ? chargement.valeur.sessions.slice(0, 5) : [];
-      contenu = sessions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.aucuneSession) : /* @__PURE__ */ h("ul", { className: "acp-sessions" }, sessions.map((session, rang) => /* @__PURE__ */ h("li", { key: session.id ?? String(rang), className: "acp-session" }, /* @__PURE__ */ h("span", { className: "acp-session__titre" }, chaine2(session.title) ? /* @__PURE__ */ h(Donnee, { valeur: chaine2(session.title) }) : /* @__PURE__ */ h("span", null, T.accueil.sansTitre)), /* @__PURE__ */ h("span", { className: "acp-session__meta" }, /* @__PURE__ */ h(Horodatage2, { valeur: session.last_active }), /* @__PURE__ */ h("span", { className: "acp-discret" }, " ", T.commun.separateur, " "), /* @__PURE__ */ h(Donnee, { valeur: nombre(session.message_count) }), /* @__PURE__ */ h("span", { className: "acp-discret" }, " ", T.accueil.messages)))));
-    }
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.sessions, id: "acp-accueil-sessions" }, contenu, /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/sessions" }, T.accueil.toutesSessions)));
-  }
-  function CarteProjets(props) {
-    const bloc = props.bloc ?? null;
-    const liste = Array.isArray(bloc?.liste) ? bloc.liste : [];
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.projetsTitre, id: "acp-accueil-projets" }, bloc === null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h("span", null, T.accueil.blocIllisible), " ", /* @__PURE__ */ h(Donnee, { valeur: props.illisible })) : /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.projetsEnCours }, /* @__PURE__ */ h(Donnee, { valeur: nombre(bloc.en_cours) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.projetsEnPause }, /* @__PURE__ */ h(Donnee, { valeur: nombre(bloc.en_pause) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.projetsTermines7j }, /* @__PURE__ */ h(Donnee, { valeur: nombre(bloc.termines_7j) }))), liste.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.aucunProjetOuvert) : /* @__PURE__ */ h("ul", { className: "acp-noms" }, liste.map((p, rang) => {
-      const id = chaine2(p.id);
-      return /* @__PURE__ */ h("li", { key: id ?? String(rang), className: "acp-projet-court" }, /* @__PURE__ */ h("p", { className: "acp-etat" }, id ? /* @__PURE__ */ h(Lien, { vers: `/projets?projet=${encodeURIComponent(id)}` }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(p.titre) })) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(p.titre) }), " ", /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatProjet(p.etat, p.etat_derive), brut: p.etat })), /* @__PURE__ */ h(Avancement, { faites: p.faites, total: p.total }), chaine2(p.derniere_note) ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(p.derniere_note) })) : null);
-    }))), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/projets" }, T.accueil.ouvrirProjets)));
-  }
-  function CarteRaccourcis() {
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.raccourcis, id: "acp-accueil-raccourcis" }, /* @__PURE__ */ h("ul", { className: "acp-raccourcis" }, /* @__PURE__ */ h("li", null, /* @__PURE__ */ h(Lien, { vers: "/projets" }, T.accueil.lienProjets)), /* @__PURE__ */ h("li", null, /* @__PURE__ */ h(Lien, { vers: "/discussion" }, T.accueil.discussion)), /* @__PURE__ */ h("li", null, /* @__PURE__ */ h(Lien, { vers: "/sessions" }, T.accueil.lienSessions)), /* @__PURE__ */ h("li", null, /* @__PURE__ */ h(Lien, { vers: "/kanban" }, T.accueil.kanban)), /* @__PURE__ */ h("li", null, /* @__PURE__ */ h(Lien, { vers: "/catalogue" }, T.accueil.lienCatalogue))));
-  }
-  function Pied(props) {
-    return /* @__PURE__ */ h("div", { className: "acp-pied" }, /* @__PURE__ */ h("span", null, T.accueil.piedAcp), " ", /* @__PURE__ */ h(Donnee, { valeur: chaine2(props.meta?.greffon?.version), mono: true }), " ", /* @__PURE__ */ h("span", null, T.commun.separateur), " ", /* @__PURE__ */ h("span", null, T.accueil.piedPropulse), " ", /* @__PURE__ */ h(Donnee, { valeur: chaine2(props.meta?.hermes?.version), mono: true }), " ", /* @__PURE__ */ h("span", null, T.accueil.piedLicence));
-  }
-  function Accueil() {
-    const meta = useChargement(() => lireMeta());
-    const [jeton, fixerJeton] = useState(0);
-    const apres = () => fixerJeton((j) => j + 1);
-    const lecture = useDonnees(lireAccueil, jeton, SUJETS);
-    const discussions = useDonnees(lireDiscussionsEnAttente, jeton, ["discussions"]);
-    const accueil = lecture.valeur;
-    const illisibles = accueil?.illisibles ?? {};
-    const raison = (bloc) => typeof illisibles[bloc] === "string" ? illisibles[bloc] : null;
-    const pause = accueil?.pause_generale && typeof accueil.pause_generale === "object" ? accueil.pause_generale : null;
-    return /* @__PURE__ */ h("div", { className: "acp-page", "data-acp-racine": "accueil" }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.accueil.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.intro)), pause ? /* @__PURE__ */ h(BandeauPause, { pause, apres }) : null, accueil === null && lecture.erreur === null ? /* @__PURE__ */ h(EnChargement, null) : null, accueil === null && lecture.erreur !== null ? /* @__PURE__ */ h(BlocErreur, { erreur: lecture.erreur, message: T.accueil.accueilIndisponible }) : null, accueil !== null && lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.accueil.actualisationImpossible) : null, /* @__PURE__ */ h("div", { className: "acp-grille acp-grille--accueil" }, accueil !== null ? /* @__PURE__ */ h(
-      CarteATraiter,
-      {
-        aTraiter: accueil.a_traiter,
-        chezHermes: accueil.chez_hermes,
-        discussions: discussions.valeur,
-        illisible: raison("a_traiter")
-      }
-    ) : null, accueil !== null ? /* @__PURE__ */ h(CarteProjets, { bloc: accueil.projets, illisible: raison("projets") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteExecutant, { executant: accueil.executant, illisible: raison("executant") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteQuotas, { quotas: accueil.quotas, illisible: raison("quotas") }) : null, accueil !== null ? /* @__PURE__ */ h(Notifications, { etat: accueil.notifications }) : null, accueil !== null ? /* @__PURE__ */ h(CarteBilan, { notifications: accueil.notifications, jeton, apres }) : null, /* @__PURE__ */ h(CarteSessions, null), meta.etat === "ok" ? /* @__PURE__ */ h(CarteHermes, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteGarde, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CartePersona, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteCatalogue, { meta: meta.valeur }) : null, /* @__PURE__ */ h(CarteRaccourcis, null)), meta.etat === "chargement" ? /* @__PURE__ */ h(EnChargement, null) : null, meta.etat === "erreur" ? /* @__PURE__ */ h(BlocErreur, { erreur: meta.erreur, message: T.accueil.metaIndisponible }) : null, /* @__PURE__ */ h(EtatActualisation, null), /* @__PURE__ */ h(Pied, { meta: meta.etat === "ok" ? meta.valeur : null }));
-  }
-
-  // src/interface/Alertes.tsx
-  function Alertes() {
-    const meta = useChargement(() => lireMeta());
-    if (meta.etat === "chargement") return null;
-    if (meta.etat === "erreur") {
-      return /* @__PURE__ */ h("div", { "data-acp-racine": "alertes", className: "acp-banniere" }, /* @__PURE__ */ h(BlocErreur, { erreur: meta.erreur, message: T.accueil.metaIndisponible }));
-    }
-    const alertes = listeDeChaines(meta.valeur.alertes);
-    if (alertes.length === 0) return null;
-    return /* @__PURE__ */ h("section", { "data-acp-racine": "alertes", className: "acp-banniere", "aria-labelledby": "acp-alertes-titre" }, /* @__PURE__ */ h("h2", { className: "acp-banniere__titre", id: "acp-alertes-titre" }, T.alertes.titre), /* @__PURE__ */ h("ul", { className: "acp-banniere__liste" }, alertes.map((alerte, rang) => /* @__PURE__ */ h("li", { key: String(rang) }, /* @__PURE__ */ h(Donnee, { valeur: alerte })))));
-  }
-
-  // src/interface/Marque.tsx
-  function Marque() {
-    return /* @__PURE__ */ h("span", { "data-acp-racine": "marque", className: "acp-marque-racine" }, /* @__PURE__ */ h("a", { className: "acp-marque", href: `${cheminDeBase()}/`, "aria-label": T.marque.lienAccueil }, /* @__PURE__ */ h("span", { "aria-hidden": "true" }, T.marque.sigle)));
-  }
-
-  // src/interface/VerrouFrancais.tsx
-  var LANGUE = "fr";
-  function forcerFrancais(i18n) {
-    const valeur = i18n;
-    if (!valeur || typeof valeur.setLocale !== "function" || valeur.locale === LANGUE) return false;
-    valeur.setLocale(LANGUE);
-    return true;
-  }
-  function VerrouFrancais() {
-    const useI18n = sdk().useI18n;
-    const i18n = typeof useI18n === "function" ? useI18n() : null;
-    const langue = i18n?.locale;
     useEffect(() => {
-      forcerFrancais(i18n);
-    }, [langue]);
-    return null;
+      const surRetour = () => {
+        fixerVue(vueDepuisAdresse(window.location.search));
+        fixerOuverture((n) => n + 1);
+      };
+      window.addEventListener("popstate", surRetour);
+      return () => window.removeEventListener("popstate", surRetour);
+    }, []);
+    const surCle = (cle) => changerAdresse({ genre: "fil", cle }, true);
+    return /* @__PURE__ */ h("div", { className: "acp-page acp-discussion", "data-acp-racine": "discussion" }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.discussion.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.intro)), vue.genre === "liste" ? /* @__PURE__ */ h(Liste, { naviguer }) : /* @__PURE__ */ h(Fil, { key: `${vue.cle ?? NOUVELLE}-${ouverture}`, cle: vue.cle, naviguer, surCle }), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.limites), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.persistance), vue.genre === "liste" ? /* @__PURE__ */ h(EtatActualisation, null) : null);
   }
 
-  // src/interface/index.ts
-  installer({
-    nom: "acp-interface",
-    page: Accueil,
-    emplacements: [
-      ["header-left", Marque],
-      ["header-banner", Alertes],
-      ["overlay", VerrouFrancais]
-    ]
-  });
+  // src/discussion/index.ts
+  installer({ nom: "acp-discussion", page: Discussion });
 })();

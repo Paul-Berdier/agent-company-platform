@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 const ICI = process.cwd();
 const SRC = join(ICI, "src");
 const DEPOT = join(ICI, "..", "..");
-const BUNDLES = ["acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues"].map((nom) =>
+const BUNDLES = ["acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-discussion"].map((nom) =>
   join(DEPOT, "hermes", "plugins", nom, "dashboard", "dist", "index.js"),
 );
 

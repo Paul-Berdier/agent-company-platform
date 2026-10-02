@@ -9,7 +9,8 @@
 // 4. Cartes arrêtées (bloquées ou abandonnées) : « Relancer » avec une consigne facultative
 //    (POST /v1/cartes/{tableau}/{carte}/relancer), ou la raison pour laquelle la carte ne se relance pas ;
 // 5. Discussions en attente : sessions du tableau de bord dont une requête au client est ouverte, lues par le JSON-RPC
-//    natif (jsonrpc/discussions.ts), en lecture seule ; « inconnu » tant qu'elles n'ont pas pu être lues.
+//    natif (jsonrpc/discussions.ts), en lecture seule ; « inconnu » tant qu'elles n'ont pas pu être lues ; « Ouvrir la
+//    discussion » mène à la page de discussion (greffon acp-discussion), qui reprend la session et y rejoue la question.
 // En tête : « À traiter par vous » (sections 1 à 5, questions « à vous » seulement) et « Chez Hermes ».
 //
 // Cible d'un lien profond (?vue=questions&q=<id> ou &carte=<tableau>/<carte>, correction K2) : la page fait défiler
@@ -21,6 +22,7 @@ import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
 import type { Lecture } from "../donnees";
 import type { LectureDiscussions } from "../jsonrpc/discussions";
 import { h, useEffect, useRef, useState, type Noeud } from "../react";
+import { cheminDeBase } from "../sdk";
 import { chaine, listeDeChaines } from "../types";
 import {
   accepterRevue,
@@ -530,6 +532,13 @@ function Discussions(props: { lecture: Lecture<LectureDiscussions>; serveur: Lis
                 <Donnee valeur={s.cle} mono />
               </Ligne>
             </dl>
+            <div className="acp-actions">
+              {/* Étape P7, part D : la page de discussion reprend la session et y rejoue la question (open_requests). */}
+              <a className="acp-bouton acp-bouton--principal"
+                 href={`${cheminDeBase()}/discussion?session=${encodeURIComponent(s.cle)}`}>
+                {T.discussion.ouvrirDiscussion}
+              </a>
+            </div>
           </li>
         ))}
       </ul>

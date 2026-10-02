@@ -550,4 +550,52 @@ La carte « Poste » de P3, figée sur « Non configuré », a disparu : depuis 
 générale engagée : le bandeau de la page Projets s'affiche en tête. Chaque bloc illisible dit « Bloc illisible » et
 sa raison (champ `illisibles` de la route). Temps réel par le flux (tous les sujets), sondage de 15 s en repli. La
 notification de test dit désormais « envoyée depuis le tableau de bord » (elle part de l'Accueil comme de la page
-Projets).
+Projets). Partie D : le raccourci « Discussion » mène à la discussion réduite (§ 15).
+
+## 15. Discussion réduite (étape P7, partie D : cahier P7 § 9, décision P7-8)
+
+Greffon `acp-discussion` (onglet **Discussion**, `/discussion`, avant « Projets » dans le groupe des greffons ; sans
+code serveur, comme les quatre autres). Pourquoi une page à nous : la discussion native `/chat` est un terminal sur un
+PTY ; ses questions vivent dans ce processus et ne se retrouvent pas depuis un autre appareil. Une session ouverte par
+le JSON-RPC natif `/api/ws` vit au contraire **dans le processus du tableau de bord** : téléphone fermé, le tour
+continue, et la question en attente est rejouée à la reprise depuis le PC.
+
+- **Liste** : les vingt dernières sessions `tui` (`/api/sessions?…&source=tui` : celles d'`/api/ws` et de `/chat` ;
+  jamais celles des workers kanban, du cron ni d'une messagerie, dont la reprise changerait de plateforme, donc de
+  jeux d'outils) ; une session dont une question attend est marquée « En attente d'une réponse » ; **Nouvelle
+  discussion**.
+- **Discussion** (`/discussion?session=<clé stockée>`) : `client.capabilities {server_requests: true}`, puis
+  `session.resume` : messages (texte brut, retours à la ligne gardés, aucun HTML interprété ; un outil = une ligne
+  « Outil : nom »), tour en cours et **requêtes ouvertes rejouées**. Une nouvelle discussion n'est créée
+  (`session.create {}`) qu'au premier envoi, et l'adresse prend alors sa clé. **Envoyer** (`prompt.submit`, un tour à
+  la fois), **Interrompre** (`session.interrupt`), une ligne d'état (`status.update`).
+- **Question de Hermes** (`clarify`, seule ou en lot) : choix en boutons (la marque « (Recommended) » de Hermes est
+  dite « recommandé »), choix multiples si Hermes le permet, réponse libre qui l'emporte si elle est remplie ;
+  **Répondre** envoie toute la demande en une fois (`{answer}` ou `{answers}`).
+- **Reconnexion** : fermeture non voulue → nouvelle tentative après 1, 2, 5 puis 10 s (et aussitôt au retour de la
+  page), qui refait `session.resume`. Ping de vie toutes les 30 s.
+- **File Questions** : chaque discussion en attente porte **Ouvrir la discussion**, qui mène à cette page.
+
+**Garde (correction K14), dans `apps/interface/src/jsonrpc/canal.ts`, seul chemin vers `/api/ws`** (la lecture des
+discussions en attente y passe aussi) : liste blanche des méthodes émises ET de leurs paramètres —
+`client.capabilities`, `session.create` (sans aucun paramètre : jamais `fast`, `model`, `provider`,
+`close_on_disconnect`, `cwd` ni `source`), `session.resume` (`session_id` seul), `session.active_list`,
+`prompt.submit` (`session_id`, `text`), `session.interrupt`, `ping` ; tout le reste est refusé avant l'envoi
+(`clarify.lock` n'est pas employé). Toute requête du serveur autre que `clarify` (`approval`, `sudo`, `secret`,
+`vault.*`…) reçoit `-32601` aussitôt, y compris rejouée par `session.resume` ; la page dit « Demande refusée
+automatiquement : ACP ne traite ni approbation, ni mot de passe, ni secret », **sans lien vers `/chat`** (la requête
+est déjà close, et `/chat` est un autre processus). Une réponse ne part que pour une `clarify` ouverte sur ce canal.
+L'URL vient toujours de `await sdk().buildWsUrl("/api/ws")` (ticket neuf à chaque connexion). SDK sans `buildWsUrl` :
+« Discussion indisponible », dit.
+
+**Non fait, et dit dans la page** : détail des outils, pièces jointes, commandes `/`, changement de modèle, mise en
+forme riche. **Limites** : une question posée ici attend une heure au plus (`agent.clarify_timeout`) et disparaît au
+redémarrage de Hermes (elle vit en mémoire) ; ce qui doit attendre passe par un projet. Aucune notification pour une
+discussion en attente (P7-12). Une session détachée en plein tour est interrompue par Hermes après 600 s sans
+activité (l'outil `clarify` bat pendant l'attente : une question n'est pas coupée par ce délai).
+
+Preuves : Vitest `tests/discussion.test.tsx` (liste blanche et témoins, `-32601`, formes de réponse, reprise,
+reconnexion 1-2-5-10 s, page) ; contrat `hermes/tests/contrat/test_discussion_contrat.py` (question survivant à la
+déconnexion, `waiting` vu par un second client, même requête rejouée, réponse, tour fini ; interruption) ; navigateur
+`hermes/tests/e2e/test_discussion.py` (390×844, page fermée, 1440×900 sans session par la file Questions puis la page de
+discussion).

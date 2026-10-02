@@ -772,6 +772,68 @@
         inconnu: "Inconnu"
       }
     },
+    // Étape P7, part D : discussion réduite (greffon acp-discussion, cahier P7 § 9), section à part.
+    discussion: {
+      titre: "Discussion",
+      intro: "Discussion avec Hermes pens\xE9e pour le t\xE9l\xE9phone. La session vit dans le tableau de bord\xA0: fermez la page, reprenez-la depuis un autre appareil, la question en attente vous y attend.",
+      limites: "Non pris en charge ici\xA0: d\xE9tail des outils (une ligne par outil), pi\xE8ces jointes, commandes \xAB\xA0/\xA0\xBB, changement de mod\xE8le, mise en forme riche.",
+      persistance: "Une question pos\xE9e ici attend une heure au plus et dispara\xEEt si Hermes red\xE9marre\xA0; ce qui doit attendre passe par un projet.",
+      navigation: "Navigation de la discussion",
+      liste: "Discussions",
+      nouvelle: "Nouvelle discussion",
+      retourListe: "Toutes les discussions",
+      listeTitre: "Discussions r\xE9centes",
+      listeIntro: "Les vingt derni\xE8res discussions du tableau de bord, la plus r\xE9cente d'abord.",
+      aucune: "Aucune discussion pour l'instant.",
+      sansTitre: "Sans titre",
+      messages: "Messages",
+      activite: "Derni\xE8re activit\xE9",
+      enAttente: "En attente d'une r\xE9ponse",
+      ouvrir: "Ouvrir",
+      ouvrirDiscussion: "Ouvrir la discussion",
+      listeIndisponible: "La liste des discussions n'a pas pu \xEAtre lue.",
+      indisponible: "Discussion indisponible\xA0: ce tableau de bord n'expose pas buildWsUrl (contrat 1.1 du SDK).",
+      introuvable: "Discussion introuvable\xA0: Hermes ne la conna\xEEt plus (ferm\xE9e, ou perdue au red\xE9marrage).",
+      connexion: "Connexion \xE0 Hermes\u2026",
+      prete: "Connect\xE9 \xE0 Hermes.",
+      reconnexion: "Connexion perdue. Nouvelle tentative dans",
+      secondes: "s",
+      nouvelleIntro: "\xC9crivez votre premier message\xA0: la discussion est cr\xE9\xE9e \xE0 l'envoi.",
+      fil: "Messages de la discussion",
+      vous: "Vous",
+      hermes: "Hermes",
+      outil: "Outil\xA0:",
+      erreurHermes: "Erreur signal\xE9e par Hermes\xA0:",
+      enCours: "R\xE9ponse en cours\u2026",
+      interrompu: "Tour interrompu.",
+      echoue: "Tour en \xE9chec.",
+      etat: "\xC9tat\xA0:",
+      message: "Votre message",
+      envoyer: "Envoyer",
+      interrompre: "Interrompre",
+      tourEnCours: "Un tour est en cours\xA0: l'envoi reprend \xE0 sa fin, ou interrompez-le.",
+      questionTitre: "Hermes vous pose une question",
+      questionsTitre: "Hermes vous pose des questions",
+      recommande: "recommand\xE9",
+      choixMultiple: "Plusieurs choix possibles.",
+      reponseLibre: "R\xE9ponse libre",
+      reponseLibreAide: "Remplie, elle l'emporte sur le choix.",
+      dejaRepondu: "R\xE9ponse d\xE9j\xE0 enregistr\xE9e\xA0:",
+      repondre: "R\xE9pondre",
+      refusee: "Demande refus\xE9e automatiquement\xA0: ACP ne traite ni approbation, ni mot de passe, ni secret.",
+      demande: "Demande\xA0:",
+      retiree: "Question retir\xE9e par Hermes.",
+      raison: "Raison\xA0:",
+      detail: "D\xE9tail\xA0:",
+      erreurs: {
+        envoi: "Le message n'a pas \xE9t\xE9 envoy\xE9.",
+        creation: "La discussion n'a pas pu \xEAtre cr\xE9\xE9e.",
+        reprise: "La discussion n'a pas pu \xEAtre reprise.",
+        interruption: "L'interruption a \xE9chou\xE9.",
+        reponse: "La r\xE9ponse n'a pas \xE9t\xE9 envoy\xE9e.",
+        tour: "Le tour s'est termin\xE9 en erreur."
+      }
+    },
     refus: {
       sdk: "Interface ACP d\xE9sactiv\xE9e\xA0: SDK du tableau de bord incompatible.",
       attendu: "Attendu\xA0:",
@@ -1355,6 +1417,304 @@
     );
   }
 
+  // src/jsonrpc/canal.ts
+  var METHODES_PERMISES = {
+    "client.capabilities": ["server_requests"],
+    "session.create": [],
+    "session.resume": ["session_id"],
+    "session.active_list": [],
+    "prompt.submit": ["session_id", "text"],
+    "session.interrupt": ["session_id"],
+    ping: []
+  };
+  var CODE_NON_TRAITEE = -32601;
+  var DELAI_OUVERTURE_MS = 1e4;
+  var DELAI_APPEL_MS = 3e4;
+  var INTERVALLE_PING_MS = 3e4;
+  var ErreurCanal = class extends Error {
+    constructor(genre, detail = "", code = null) {
+      super(code === null ? genre : `${genre} ${code}`);
+      __publicField(this, "genre");
+      __publicField(this, "code");
+      __publicField(this, "detail");
+      this.name = "ErreurCanal";
+      this.genre = genre;
+      this.code = code;
+      this.detail = detail.slice(0, 2e3);
+    }
+  };
+  function verifierAppel(methode, params) {
+    if (!Object.prototype.hasOwnProperty.call(METHODES_PERMISES, methode)) {
+      throw new ErreurCanal("methode", methode);
+    }
+    const permis = METHODES_PERMISES[methode];
+    const etrangers = Object.keys(params).filter((cle) => !permis.includes(cle));
+    if (etrangers.length > 0) throw new ErreurCanal("parametre", `${methode} : ${etrangers.join(", ")}`);
+  }
+  function reponseClarifyValide(reponse) {
+    if (!reponse || typeof reponse !== "object" || Array.isArray(reponse)) return false;
+    const cles = Object.keys(reponse);
+    if (cles.length !== 1) return false;
+    const r = reponse;
+    if (cles[0] === "answer") return typeof r.answer === "string";
+    if (cles[0] !== "answers" || !r.answers || typeof r.answers !== "object" || Array.isArray(r.answers)) return false;
+    return Object.values(r.answers).every((v) => typeof v === "string");
+  }
+  function texteErreur(erreur) {
+    if (!erreur || typeof erreur !== "object") return { code: null, message: "" };
+    const e = erreur;
+    return {
+      code: typeof e.code === "number" && Number.isInteger(e.code) ? e.code : null,
+      message: typeof e.message === "string" ? e.message : ""
+    };
+  }
+  var Canal = class {
+    constructor(socket, options) {
+      __publicField(this, "socket", socket);
+      __publicField(this, "options", options);
+      __publicField(this, "attentes", /* @__PURE__ */ new Map());
+      /** Requêtes « clarify » du serveur encore ouvertes sur ce canal. */
+      __publicField(this, "clarifyOuvertes", /* @__PURE__ */ new Set());
+      __publicField(this, "compteur", 0);
+      __publicField(this, "ferme", false);
+      __publicField(this, "volontaire", false);
+      /** Faux tant que l'ouverture n'a pas abouti : un échec d'ouverture n'est pas annoncé comme une fermeture. */
+      __publicField(this, "actif", false);
+      __publicField(this, "ping", null);
+    }
+    /** Une trame reçue (une ou plusieurs lignes JSON). */
+    recevoir(donnees) {
+      if (typeof donnees !== "string") return;
+      for (const ligne of donnees.split("\n")) {
+        if (!ligne.trim()) continue;
+        let message;
+        try {
+          message = JSON.parse(ligne);
+        } catch {
+          continue;
+        }
+        if (message && typeof message === "object") this.traiter(message);
+      }
+    }
+    traiter(message) {
+      const methode = message.method;
+      if (methode === "event") {
+        const params = message.params && typeof message.params === "object" ? message.params : {};
+        if (typeof params.type !== "string") return;
+        this.options.surEvenement?.({
+          type: params.type,
+          sessionId: typeof params.session_id === "string" ? params.session_id : null,
+          payload: params.payload
+        });
+        return;
+      }
+      if (typeof methode === "string") {
+        const id2 = message.id;
+        if (typeof id2 !== "string" && typeof id2 !== "number") return;
+        const params = message.params && typeof message.params === "object" && !Array.isArray(message.params) ? message.params : {};
+        if (methode === "clarify" && this.options.capacites && typeof id2 === "string" && this.options.surClarify) {
+          this.clarifyOuvertes.add(id2);
+          this.options.surClarify({ id: id2, methode, params });
+          return;
+        }
+        this.envoyerBrut({ jsonrpc: "2.0", id: id2, error: { code: CODE_NON_TRAITEE, message: "M\xE9thode non trait\xE9e par ACP" } });
+        this.options.surRefus?.(methode);
+        return;
+      }
+      const id = message.id;
+      if (typeof id !== "string") return;
+      const attente = this.attentes.get(id);
+      if (!attente) return;
+      this.attentes.delete(id);
+      clearTimeout(attente.minuterie);
+      if ("error" in message) {
+        const { code, message: texte } = texteErreur(message.error);
+        attente.rejeter(new ErreurCanal("refus", texte, code));
+      } else if ("result" in message) {
+        if (attente.methode === "session.resume") this.adopterRequetesOuvertes(message.result);
+        attente.resoudre(message.result);
+      } else {
+        attente.rejeter(new ErreurCanal("reponse"));
+      }
+    }
+    /** Requêtes encore ouvertes rejouées par session.resume (open_requests) : une « clarify » devient répondable sur ce
+     *  canal ; toute autre reçoit -32601, comme si elle venait d'arriver. */
+    adopterRequetesOuvertes(resultat) {
+      const ouvertes = resultat && typeof resultat === "object" ? resultat.open_requests : void 0;
+      if (!Array.isArray(ouvertes)) return;
+      for (const brut of ouvertes) {
+        if (!brut || typeof brut !== "object") continue;
+        const { id, method } = brut;
+        if (typeof id !== "string" || typeof method !== "string") continue;
+        if (method === "clarify" && this.options.capacites && this.options.surClarify) {
+          this.clarifyOuvertes.add(id);
+        } else {
+          this.envoyerBrut({ jsonrpc: "2.0", id, error: { code: CODE_NON_TRAITEE, message: "M\xE9thode non trait\xE9e par ACP" } });
+          this.options.surRefus?.(method);
+        }
+      }
+    }
+    envoyerBrut(objet) {
+      if (this.ferme) return false;
+      try {
+        this.socket.send(`${JSON.stringify(objet)}
+`);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    appeler(methode, params = {}, delaiMs) {
+      try {
+        verifierAppel(methode, params);
+      } catch (erreur) {
+        return Promise.reject(erreur);
+      }
+      if (this.ferme) return Promise.reject(new ErreurCanal("ferme"));
+      this.compteur += 1;
+      const id = `acp-${this.compteur}`;
+      return new Promise((resoudre, rejeter) => {
+        const minuterie = setTimeout(() => {
+          this.attentes.delete(id);
+          rejeter(new ErreurCanal("delai", methode));
+        }, delaiMs ?? this.options.delaiAppelMs ?? DELAI_APPEL_MS);
+        this.attentes.set(id, { methode, resoudre, rejeter, minuterie });
+        if (!this.envoyerBrut({ jsonrpc: "2.0", id, method: methode, params })) {
+          clearTimeout(minuterie);
+          this.attentes.delete(id);
+          rejeter(new ErreurCanal("ferme", methode));
+        }
+      });
+    }
+    repondreClarify(id, reponse) {
+      if (!this.clarifyOuvertes.has(id)) throw new ErreurCanal("reponse", `requ\xEAte ${id} non ouverte sur ce canal`);
+      if (!reponseClarifyValide(reponse)) throw new ErreurCanal("reponse", "forme de r\xE9ponse refus\xE9e");
+      this.clarifyOuvertes.delete(id);
+      if (!this.envoyerBrut({ jsonrpc: "2.0", id, result: reponse })) throw new ErreurCanal("ferme", "r\xE9ponse non envoy\xE9e");
+    }
+    refuserClarify(id) {
+      if (!this.clarifyOuvertes.delete(id)) return;
+      this.envoyerBrut({ jsonrpc: "2.0", id, error: { code: CODE_NON_TRAITEE, message: "M\xE9thode non trait\xE9e par ACP" } });
+    }
+    oublierClarify(id) {
+      this.clarifyOuvertes.delete(id);
+    }
+    demarrerPing() {
+      const intervalle = this.options.intervallePingMs ?? INTERVALLE_PING_MS;
+      if (intervalle <= 0 || this.ping !== null) return;
+      this.ping = setInterval(() => {
+        this.appeler("ping", {}, Math.min(intervalle, 15e3)).catch((erreur) => {
+          if (erreur instanceof ErreurCanal && erreur.genre === "delai") this.couper();
+        });
+      }, intervalle);
+    }
+    activer() {
+      this.actif = true;
+    }
+    /** Fermeture constatée (socket fermé par le serveur ou le réseau). */
+    surFermetureSocket() {
+      if (this.ferme) return;
+      this.ferme = true;
+      this.liberer();
+      if (this.actif) this.options.surFermeture?.(this.volontaire);
+    }
+    couper() {
+      try {
+        this.socket.close();
+      } catch {
+      }
+      this.surFermetureSocket();
+    }
+    liberer() {
+      if (this.ping !== null) clearInterval(this.ping);
+      this.ping = null;
+      for (const [, attente] of this.attentes) {
+        clearTimeout(attente.minuterie);
+        attente.rejeter(new ErreurCanal("ferme"));
+      }
+      this.attentes.clear();
+      this.clarifyOuvertes.clear();
+    }
+    fermer() {
+      this.volontaire = true;
+      this.couper();
+    }
+  };
+  async function ouvrirCanal(options = {}) {
+    let construire;
+    try {
+      construire = sdk().buildWsUrl;
+    } catch {
+      construire = void 0;
+    }
+    if (typeof construire !== "function") throw new ErreurCanal("sdk");
+    let url;
+    try {
+      url = await construire("/api/ws");
+    } catch (erreur) {
+      throw new ErreurCanal("ticket", erreur instanceof Error ? erreur.message : String(erreur));
+    }
+    const fabrique = options.fabrique ?? ((adresse) => new WebSocket(adresse));
+    const canal = await new Promise((resoudre, rejeter) => {
+      let pret = false;
+      let socket;
+      try {
+        socket = fabrique(url);
+      } catch (erreur) {
+        rejeter(new ErreurCanal("connexion", erreur instanceof Error ? erreur.message : String(erreur)));
+        return;
+      }
+      const instance = new Canal(socket, options);
+      const echouer = (erreur) => {
+        if (pret) return;
+        pret = true;
+        clearTimeout(minuterie);
+        instance.fermer();
+        rejeter(erreur);
+      };
+      const minuterie = setTimeout(
+        () => echouer(new ErreurCanal("delai", "gateway.ready")),
+        options.delaiOuvertureMs ?? DELAI_OUVERTURE_MS
+      );
+      socket.onerror = () => echouer(new ErreurCanal("connexion"));
+      socket.onclose = () => {
+        if (!pret) echouer(new ErreurCanal("ferme", "avant gateway.ready"));
+        else instance.surFermetureSocket();
+      };
+      socket.onmessage = (evenement) => {
+        if (!pret && typeof evenement.data === "string" && /"gateway\.ready"/.test(evenement.data)) {
+          const lignes = evenement.data.split("\n").filter((l) => l.trim());
+          const prete = lignes.some((l) => {
+            try {
+              const m = JSON.parse(l);
+              return m.method === "event" && m.params?.type === "gateway.ready";
+            } catch {
+              return false;
+            }
+          });
+          if (prete) {
+            pret = true;
+            clearTimeout(minuterie);
+            resoudre(instance);
+            return;
+          }
+        }
+        instance.recevoir(evenement.data);
+      };
+    });
+    if (options.capacites) {
+      try {
+        await canal.appeler("client.capabilities", { server_requests: true }, options.delaiOuvertureMs ?? DELAI_OUVERTURE_MS);
+      } catch (erreur) {
+        canal.fermer();
+        throw erreur instanceof ErreurCanal ? erreur : new ErreurCanal("reponse");
+      }
+    }
+    canal.activer();
+    canal.demarrerPing();
+    return canal;
+  }
+
   // src/jsonrpc/discussions.ts
   var METHODE_LISTE = "session.active_list";
   var DELAI_LECTURE_MS = 5e3;
@@ -1380,71 +1740,40 @@
     }
     return garde;
   }
+  var RAISONS = {
+    sdk: "sdk",
+    ticket: "ticket",
+    connexion: "connexion",
+    delai: "delai",
+    ferme: "fermee"
+  };
   async function lireDiscussionsEnAttente(delaiMs = DELAI_LECTURE_MS, fabrique = (url) => new WebSocket(url)) {
-    let construire;
-    try {
-      construire = sdk().buildWsUrl;
-    } catch {
-      construire = void 0;
-    }
-    if (typeof construire !== "function") return { connu: false, raison: "sdk" };
-    let url;
-    try {
-      url = await construire("/api/ws");
-    } catch {
-      return { connu: false, raison: "ticket" };
-    }
-    return new Promise((resoudre) => {
-      let fini = false;
-      let socket = null;
-      const terminer = (resultat) => {
-        if (fini) return;
-        fini = true;
-        clearTimeout(minuterie);
-        try {
-          socket?.close();
-        } catch {
-        }
-        resoudre(resultat);
-      };
-      const minuterie = setTimeout(() => terminer({ connu: false, raison: "delai" }), delaiMs);
-      try {
-        socket = fabrique(url);
-      } catch {
-        terminer({ connu: false, raison: "connexion" });
-        return;
-      }
-      let tampon = "";
-      socket.onerror = () => terminer({ connu: false, raison: "connexion" });
-      socket.onclose = () => terminer({ connu: false, raison: "fermee" });
-      socket.onmessage = (evenement) => {
-        if (typeof evenement.data !== "string") return;
-        tampon += evenement.data;
-        const lignes = tampon.split("\n");
-        tampon = lignes.pop() ?? "";
-        if (tampon.trim()) {
-          lignes.push(tampon);
-          tampon = "";
-        }
-        for (const ligne of lignes) {
-          if (!ligne.trim()) continue;
-          let message;
-          try {
-            message = JSON.parse(ligne);
-          } catch {
-            continue;
-          }
-          const params = message.params;
-          if (message.method === "event" && params?.type === "gateway.ready") {
-            socket?.send(`${JSON.stringify({ jsonrpc: "2.0", id: "acp-1", method: METHODE_LISTE, params: {} })}
-`);
-          } else if (message.id === "acp-1") {
-            const sessions = "result" in message ? sessionsEnAttente(message.result) : null;
-            terminer(sessions === null ? { connu: false, raison: "reponse" } : { connu: true, sessions });
-          }
-        }
-      };
+    let canal = null;
+    let minuterie = null;
+    const delai = new Promise((resoudre) => {
+      minuterie = setTimeout(() => resoudre({ connu: false, raison: "delai" }), delaiMs);
     });
+    const lecture = (async () => {
+      try {
+        canal = await ouvrirCanal({
+          capacites: false,
+          intervallePingMs: 0,
+          fabrique,
+          delaiOuvertureMs: delaiMs,
+          delaiAppelMs: delaiMs
+        });
+        const sessions = sessionsEnAttente(await canal.appeler(METHODE_LISTE, {}));
+        return sessions === null ? { connu: false, raison: "reponse" } : { connu: true, sessions };
+      } catch (erreur) {
+        const genre = erreur instanceof ErreurCanal ? erreur.genre : "reponse";
+        return { connu: false, raison: RAISONS[genre] ?? "reponse" };
+      }
+    })();
+    const resultat = await Promise.race([lecture, delai]);
+    if (minuterie !== null) clearTimeout(minuterie);
+    void lecture.then(() => canal?.fermer());
+    canal?.fermer();
+    return resultat;
   }
 
   // src/projets/api.ts
@@ -2496,7 +2825,14 @@
     } else if (valeur.sessions.length === 0) {
       contenu = /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneDiscussion);
     } else {
-      contenu = /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, valeur.sessions.map((s) => /* @__PURE__ */ h("li", { key: s.cle, className: "acp-entree" }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, s.titre ? /* @__PURE__ */ h(Donnee, { valeur: s.titre }) : /* @__PURE__ */ h("span", null, T.projets.discussionSansTitre)), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionEtat }, /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.discussionEnAttente, famille: "degrade" } })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionActivite }, /* @__PURE__ */ h(Horodatage, { valeur: s.derniereActivite, relative: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionApercu }, /* @__PURE__ */ h(Donnee, { valeur: s.apercu })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionCle }, /* @__PURE__ */ h(Donnee, { valeur: s.cle, mono: true }))))));
+      contenu = /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, valeur.sessions.map((s) => /* @__PURE__ */ h("li", { key: s.cle, className: "acp-entree" }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, s.titre ? /* @__PURE__ */ h(Donnee, { valeur: s.titre }) : /* @__PURE__ */ h("span", null, T.projets.discussionSansTitre)), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionEtat }, /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.discussionEnAttente, famille: "degrade" } })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionActivite }, /* @__PURE__ */ h(Horodatage, { valeur: s.derniereActivite, relative: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionApercu }, /* @__PURE__ */ h(Donnee, { valeur: s.apercu })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.discussionCle }, /* @__PURE__ */ h(Donnee, { valeur: s.cle, mono: true }))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+        "a",
+        {
+          className: "acp-bouton acp-bouton--principal",
+          href: `${cheminDeBase()}/discussion?session=${encodeURIComponent(s.cle)}`
+        },
+        T.discussion.ouvrirDiscussion
+      )))));
     }
     return /* @__PURE__ */ h(Carte, { titre: T.projets.discussionsTitre, id: "acp-questions-discussions" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.discussionsIntro), contenu, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.discussionsLimite));
   }

@@ -274,7 +274,7 @@ function CarteRaccourcis(): Noeud {
           <Lien vers="/projets">{T.accueil.lienProjets}</Lien>
         </li>
         <li>
-          <Lien vers="/chat">{T.accueil.discussion}</Lien>
+          <Lien vers="/discussion">{T.accueil.discussion}</Lien>
         </li>
         <li>
           <Lien vers="/sessions">{T.accueil.lienSessions}</Lien>

@@ -210,8 +210,10 @@ Règles, toutes testées (Vitest, image, navigateur) :
   `gateway.ready`, puis la SEULE méthode `session.active_list`, sans `client.capabilities` (aucune requête ne lui est
   adressée, aucune session n'est rattachée) ; les entrées `waiting` sont gardées et la connexion fermée ; délai 5 s,
   échec : « état inconnu ». Seules les sessions ouvertes par `/api/ws` y figurent : les questions d'une discussion
-  `/chat` (terminal) vivent dans le processus de son PTY, et la page le dit. L'ouverture d'une discussion depuis
-  cette section relève de la page Discussion (partie D).
+  `/chat` (terminal) vivent dans le processus de son PTY, et la page le dit. Partie D : chaque discussion en attente
+  porte **Ouvrir la discussion**, qui mène à la page Discussion ([interface.md](interface.md) § 15) ; la session y
+  est reprise et la question rejouée. Depuis la partie D, la lecture passe par le canal commun
+  (`jsonrpc/canal.ts`, liste blanche des méthodes émises).
 - Tout texte vient du catalogue français `apps/interface/src/chaines.ts` ; ni `fetch` direct, ni
   `innerHTML`, ni stockage local.
 

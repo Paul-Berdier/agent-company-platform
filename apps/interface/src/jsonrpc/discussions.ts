@@ -10,9 +10,9 @@
 // 4. garde les entrées status == "waiting", ferme la connexion.
 // Délai 5 s. Échec, refus ou SDK sans buildWsUrl : « inconnu » (connu: false), jamais zéro.
 //
-// Protocole « newline-delimited » identique au stdio (tui_gateway/ws.py de Hermes) : une trame texte par message JSON.
-// La seule méthode émise ici est session.active_list.
-import { sdk } from "../sdk";
+// Étape P7, part D : la connexion passe par le canal commun (canal.ts, liste blanche des méthodes émises) ; la seule
+// méthode émise ici reste session.active_list.
+import { ErreurCanal, ouvrirCanal, type CanalJsonRpc, type GenreErreurCanal } from "./canal";
 
 export const METHODE_LISTE = "session.active_list";
 export const DELAI_LECTURE_MS = 5_000;
@@ -55,74 +55,40 @@ export function sessionsEnAttente(resultat: unknown): DiscussionEnAttente[] | nu
 
 type FabriqueSocket = (url: string) => WebSocket;
 
-/** Lit les discussions en attente ; ne rejette jamais (un échec rend { connu: false }). */
+const RAISONS: Partial<Record<GenreErreurCanal, string>> = {
+  sdk: "sdk",
+  ticket: "ticket",
+  connexion: "connexion",
+  delai: "delai",
+  ferme: "fermee",
+};
+
+/** Lit les discussions en attente ; ne rejette jamais (un échec rend { connu: false }). Par le canal commun
+ *  (canal.ts : liste blanche), sans client.capabilities ni ping : la seule méthode émise est session.active_list. */
 export async function lireDiscussionsEnAttente(
   delaiMs: number = DELAI_LECTURE_MS,
   fabrique: FabriqueSocket = (url) => new WebSocket(url),
 ): Promise<LectureDiscussions> {
-  let construire: unknown;
-  try {
-    construire = sdk().buildWsUrl;
-  } catch {
-    construire = undefined;
-  }
-  if (typeof construire !== "function") return { connu: false, raison: "sdk" };
-  let url: string;
-  try {
-    url = await (construire as (chemin: string) => Promise<string>)("/api/ws");
-  } catch {
-    return { connu: false, raison: "ticket" };
-  }
-  return new Promise<LectureDiscussions>((resoudre) => {
-    let fini = false;
-    let socket: WebSocket | null = null;
-    const terminer = (resultat: LectureDiscussions) => {
-      if (fini) return;
-      fini = true;
-      clearTimeout(minuterie);
-      try {
-        socket?.close();
-      } catch {
-        // Fermeture impossible : la connexion se fermera d'elle-même.
-      }
-      resoudre(resultat);
-    };
-    const minuterie = setTimeout(() => terminer({ connu: false, raison: "delai" }), delaiMs);
-    try {
-      socket = fabrique(url);
-    } catch {
-      terminer({ connu: false, raison: "connexion" });
-      return;
-    }
-    let tampon = "";
-    socket.onerror = () => terminer({ connu: false, raison: "connexion" });
-    socket.onclose = () => terminer({ connu: false, raison: "fermee" });
-    socket.onmessage = (evenement: MessageEvent) => {
-      if (typeof evenement.data !== "string") return;
-      tampon += evenement.data;
-      const lignes = tampon.split("\n");
-      tampon = lignes.pop() ?? "";
-      // Une trame sans saut de ligne final est un message entier (une trame WebSocket par message).
-      if (tampon.trim()) {
-        lignes.push(tampon);
-        tampon = "";
-      }
-      for (const ligne of lignes) {
-        if (!ligne.trim()) continue;
-        let message: Record<string, unknown>;
-        try {
-          message = JSON.parse(ligne) as Record<string, unknown>;
-        } catch {
-          continue;
-        }
-        const params = message.params as { type?: unknown } | undefined;
-        if (message.method === "event" && params?.type === "gateway.ready") {
-          socket?.send(`${JSON.stringify({ jsonrpc: "2.0", id: "acp-1", method: METHODE_LISTE, params: {} })}\n`);
-        } else if (message.id === "acp-1") {
-          const sessions = "result" in message ? sessionsEnAttente(message.result) : null;
-          terminer(sessions === null ? { connu: false, raison: "reponse" } : { connu: true, sessions });
-        }
-      }
-    };
+  let canal: CanalJsonRpc | null = null;
+  let minuterie: ReturnType<typeof setTimeout> | null = null;
+  const delai = new Promise<LectureDiscussions>((resoudre) => {
+    minuterie = setTimeout(() => resoudre({ connu: false, raison: "delai" }), delaiMs);
   });
+  const lecture = (async (): Promise<LectureDiscussions> => {
+    try {
+      canal = await ouvrirCanal({ capacites: false, intervallePingMs: 0, fabrique, delaiOuvertureMs: delaiMs,
+                                  delaiAppelMs: delaiMs });
+      const sessions = sessionsEnAttente(await canal.appeler(METHODE_LISTE, {}));
+      return sessions === null ? { connu: false, raison: "reponse" } : { connu: true, sessions };
+    } catch (erreur) {
+      const genre = erreur instanceof ErreurCanal ? erreur.genre : "reponse";
+      return { connu: false, raison: RAISONS[genre] ?? "reponse" };
+    }
+  })();
+  const resultat = await Promise.race([lecture, delai]);
+  if (minuterie !== null) clearTimeout(minuterie);
+  // Fermée dans tous les cas, y compris quand le délai l'emporte sur une lecture encore en cours.
+  void lecture.then(() => (canal as CanalJsonRpc | null)?.fermer());
+  (canal as CanalJsonRpc | null)?.fermer();
+  return resultat;
 }
