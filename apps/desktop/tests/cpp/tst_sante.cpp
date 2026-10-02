@@ -107,7 +107,10 @@ void TestSante::horsLignePuisRetour()
     sante.probeNow();
     QTRY_COMPARE_WITH_TIMEOUT(sante.linkStatus(), LinkStatus::Offline, 30000);
     QCOMPARE(sante.linkStatusLabel(), QStringLiteral("Hors ligne"));
-    QVERIFY(!sante.detail().isEmpty());
+    // Constat de relecture P8 : le détail montré à l'écran de connexion était le texte anglais
+    // de Qt (« Connection refused »).
+    QCOMPARE(sante.detail(), QStringLiteral("Serveur injoignable : connexion refusée : aucun service n'écoute à "
+                                            "cette adresse (erreur réseau 1)"));
     QCOMPARE(sante.lastSuccessLabel(), QStringLiteral("Jamais"));
 
     FauxHermes serveur;

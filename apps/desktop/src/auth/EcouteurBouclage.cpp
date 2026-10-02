@@ -1,5 +1,6 @@
 #include "auth/EcouteurBouclage.h"
 
+#include "api/ApiError.h"
 #include "auth/PairePkce.h"
 #include "storage/CredentialVault.h"
 
@@ -75,7 +76,7 @@ bool EcouteurBouclage::ouvrir(const QByteArray &etatAttendu, QString *raison)
     if (!m_serveur->listen(adresseBouclage(), 0)) {
         if (raison) {
             *raison = QStringLiteral("Écoute sur 127.0.0.1 impossible : %1.")
-                          .arg(m_serveur->errorString());
+                          .arg(libelleErreurSocket(m_serveur->serverError()));
         }
         return false;
     }

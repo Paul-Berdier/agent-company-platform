@@ -8,6 +8,7 @@
 #include "api/IdempotencyKey.h"
 
 #include <QJsonObject>
+#include <QMetaEnum>
 #include <QSet>
 #include <QTest>
 
@@ -36,6 +37,7 @@ private slots:
     void readsRoutingRefusals();
     void classifiesUnreachableIdentityProvider();
     void translatesOnlyFixedHermesMessages();
+    void networkErrorsAreFrench();
 };
 
 void TestApiErrors::readsPluginEnvelope()
@@ -284,6 +286,40 @@ void TestApiErrors::truncatesOverlongDetail()
     const ApiError error(ApiFailure::ServerError, huge, 500);
     QVERIFY(error.detail().size() < 1100);
     QVERIFY(error.detail().endsWith(QStringLiteral("[…]")));
+}
+
+// Constat de relecture P8 : les erreurs de transport montraient le texte anglais de Qt.
+void TestApiErrors::networkErrorsAreFrench()
+{
+    const QStringList anglais = {QStringLiteral("refused"), QStringLiteral("not found"), QStringLiteral("timed out"),
+                                 QStringLiteral("Host "), QStringLiteral("Connection"), QStringLiteral("Unknown"),
+                                 QStringLiteral("error")};
+    const QMetaEnum reseau = QMetaEnum::fromType<QNetworkReply::NetworkError>();
+    for (int index = 0; index < reseau.keyCount(); ++index) {
+        const auto code = static_cast<QNetworkReply::NetworkError>(reseau.value(index));
+        if (code == QNetworkReply::NoError) {
+            continue;
+        }
+        const QString libelle = libelleErreurReseau(code);
+        QVERIFY2(libelle.endsWith(QStringLiteral("(erreur réseau %1)").arg(static_cast<int>(code))), qPrintable(libelle));
+        for (const QString &mot : anglais) {
+            QVERIFY2(!libelle.contains(mot, Qt::CaseInsensitive), qPrintable(libelle));
+        }
+    }
+    QCOMPARE(libelleErreurReseau(QNetworkReply::HostNotFoundError),
+             QStringLiteral("hôte introuvable : vérifiez l'adresse du serveur (erreur réseau 3)"));
+    const QMetaEnum socket = QMetaEnum::fromType<QAbstractSocket::SocketError>();
+    for (int index = 0; index < socket.keyCount(); ++index) {
+        const QString libelle = libelleErreurSocket(static_cast<QAbstractSocket::SocketError>(socket.value(index)));
+        for (const QString &mot : anglais) {
+            QVERIFY2(!libelle.contains(mot, Qt::CaseInsensitive), qPrintable(libelle));
+        }
+    }
+    QCOMPARE(libelleErreurSocket(QAbstractSocket::ConnectionRefusedError),
+             QStringLiteral("connexion refusée : aucun service n'écoute à cette adresse (erreur de socket 0)"));
+    // Le transport s'en sert : l'erreur d'un appel vers un port fermé est française.
+    const ApiError erreur(ApiFailure::Network, libelleErreurReseau(QNetworkReply::ConnectionRefusedError));
+    QVERIFY(erreur.message().startsWith(QStringLiteral("Serveur injoignable : connexion refusée")));
 }
 
 QTEST_APPLESS_MAIN(TestApiErrors)

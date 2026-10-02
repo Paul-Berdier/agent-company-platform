@@ -204,6 +204,103 @@ bool ApiError::isRetryable() const
     return false;
 }
 
+QString libelleErreurReseau(QNetworkReply::NetworkError code)
+{
+    QString libelle;
+    switch (code) {
+    case QNetworkReply::ConnectionRefusedError:
+        libelle = QStringLiteral("connexion refusée : aucun service n'écoute à cette adresse");
+        break;
+    case QNetworkReply::RemoteHostClosedError:
+        libelle = QStringLiteral("le serveur a fermé la connexion");
+        break;
+    case QNetworkReply::HostNotFoundError:
+        libelle = QStringLiteral("hôte introuvable : vérifiez l'adresse du serveur");
+        break;
+    case QNetworkReply::TimeoutError:
+        libelle = QStringLiteral("délai de connexion dépassé");
+        break;
+    case QNetworkReply::OperationCanceledError:
+        libelle = QStringLiteral("opération interrompue avant la réponse");
+        break;
+    case QNetworkReply::SslHandshakeFailedError:
+        libelle = QStringLiteral("connexion sécurisée (TLS) impossible : certificat refusé ou négociation échouée");
+        break;
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::NetworkSessionFailedError:
+        libelle = QStringLiteral("réseau du poste indisponible");
+        break;
+    case QNetworkReply::TooManyRedirectsError:
+    case QNetworkReply::InsecureRedirectError:
+        libelle = QStringLiteral("redirection refusée");
+        break;
+    case QNetworkReply::ProxyConnectionRefusedError:
+    case QNetworkReply::ProxyConnectionClosedError:
+    case QNetworkReply::ProxyNotFoundError:
+    case QNetworkReply::ProxyTimeoutError:
+    case QNetworkReply::ProxyAuthenticationRequiredError:
+    case QNetworkReply::UnknownProxyError:
+        libelle = QStringLiteral("mandataire (proxy) injoignable ou refusant la connexion");
+        break;
+    case QNetworkReply::ProtocolUnknownError:
+    case QNetworkReply::ProtocolInvalidOperationError:
+    case QNetworkReply::ProtocolFailure:
+        libelle = QStringLiteral("réponse du serveur illisible (protocole HTTP)");
+        break;
+    default:
+        libelle = QStringLiteral("erreur réseau");
+        break;
+    }
+    return QStringLiteral("%1 (erreur réseau %2)").arg(libelle).arg(static_cast<int>(code));
+}
+
+QString libelleErreurSocket(QAbstractSocket::SocketError code)
+{
+    QString libelle;
+    switch (code) {
+    case QAbstractSocket::ConnectionRefusedError:
+        libelle = QStringLiteral("connexion refusée : aucun service n'écoute à cette adresse");
+        break;
+    case QAbstractSocket::RemoteHostClosedError:
+        libelle = QStringLiteral("le serveur a fermé la connexion");
+        break;
+    case QAbstractSocket::HostNotFoundError:
+        libelle = QStringLiteral("hôte introuvable : vérifiez l'adresse du serveur");
+        break;
+    case QAbstractSocket::SocketTimeoutError:
+    case QAbstractSocket::ProxyConnectionTimeoutError:
+        libelle = QStringLiteral("délai de connexion dépassé");
+        break;
+    case QAbstractSocket::SslHandshakeFailedError:
+    case QAbstractSocket::SslInternalError:
+    case QAbstractSocket::SslInvalidUserDataError:
+        libelle = QStringLiteral("connexion sécurisée (TLS) impossible : certificat refusé ou négociation échouée");
+        break;
+    case QAbstractSocket::NetworkError:
+    case QAbstractSocket::TemporaryError:
+        libelle = QStringLiteral("réseau du poste indisponible");
+        break;
+    case QAbstractSocket::AddressInUseError:
+    case QAbstractSocket::SocketAddressNotAvailableError:
+        libelle = QStringLiteral("adresse locale indisponible");
+        break;
+    case QAbstractSocket::SocketAccessError:
+        libelle = QStringLiteral("accès réseau refusé par le système");
+        break;
+    case QAbstractSocket::ProxyAuthenticationRequiredError:
+    case QAbstractSocket::ProxyConnectionRefusedError:
+    case QAbstractSocket::ProxyConnectionClosedError:
+    case QAbstractSocket::ProxyNotFoundError:
+    case QAbstractSocket::ProxyProtocolError:
+        libelle = QStringLiteral("mandataire (proxy) injoignable ou refusant la connexion");
+        break;
+    default:
+        libelle = QStringLiteral("erreur réseau");
+        break;
+    }
+    return QStringLiteral("%1 (erreur de socket %2)").arg(libelle).arg(static_cast<int>(code));
+}
+
 QString traduireMessageHermes(const QString &message)
 {
     const QString brut = message.trimmed();

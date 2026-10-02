@@ -18,9 +18,11 @@
 
 #include "app/QmlEnums.h"
 
+#include <QAbstractSocket>
 #include <QByteArray>
 #include <QJsonArray>
 #include <QMetaType>
+#include <QNetworkReply>
 #include <QString>
 
 #include <optional>
@@ -147,6 +149,16 @@ private:
     inconnu est rendu tel quel : le client n'invente jamais une cause.
 */
 [[nodiscard]] QString traduireMessageHermes(const QString &message);
+
+/*!
+    Libellé FRANÇAIS fixe d'une erreur de transport de Qt (connexion refusée, hôte introuvable,
+    délai dépassé, TLS…), suivi de son numéro. Le texte de Qt (`errorString()`) est en anglais
+    faute de traducteur chargé : il n'est jamais montré au propriétaire.
+*/
+[[nodiscard]] QString libelleErreurReseau(QNetworkReply::NetworkError code);
+
+/*! Même règle pour une socket : WebSockets de la passerelle et du kanban, écouteur de bouclage. */
+[[nodiscard]] QString libelleErreurSocket(QAbstractSocket::SocketError code);
 
 } // namespace acp
 

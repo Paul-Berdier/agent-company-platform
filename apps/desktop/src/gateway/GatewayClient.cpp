@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QNetworkProxy>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QWebSocket>
 #include <QWebSocketHandshakeOptions>
@@ -259,11 +260,16 @@ void GatewayClient::surErreur()
             demanderTicket();
             return;
         }
-        refuser(QStringLiteral("Hermes refuse l'ouverture de la passerelle (%1).").arg(texte));
+        // Texte de Qt (anglais) lu pour reconnaître le refus, jamais affiché : seul le code
+        // HTTP de la poignée de main est repris.
+        const QRegularExpressionMatch statut = QRegularExpression(QStringLiteral("\\b([1-5][0-9]{2})\\b")).match(texte);
+        refuser(statut.hasMatch()
+                    ? QStringLiteral("Hermes refuse l'ouverture de la passerelle (poignée de main refusée, code HTTP %1).")
+                          .arg(statut.captured(1))
+                    : QStringLiteral("Hermes refuse l'ouverture de la passerelle (poignée de main refusée)."));
         return;
     }
-    Q_UNUSED(code)
-    programmerReconnexion(QStringLiteral("Passerelle injoignable : %1").arg(texte));
+    programmerReconnexion(QStringLiteral("Passerelle injoignable : %1").arg(libelleErreurSocket(code)));
 }
 
 void GatewayClient::surFermeture()

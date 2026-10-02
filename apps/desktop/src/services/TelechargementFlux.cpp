@@ -113,7 +113,7 @@ void TelechargementFlux::finir()
         echouer(ApiError::fromResponse(code, m_corpsErreur).message());
         return;
     }
-    echouer(QStringLiteral("Téléchargement interrompu : %1").arg(m_reponse->errorString()));
+    echouer(QStringLiteral("Téléchargement interrompu : %1").arg(libelleErreurReseau(erreurReseau)));
 }
 
 void TelechargementFlux::annuler()

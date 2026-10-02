@@ -494,7 +494,6 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
     const QVariant statusAttribute = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
     const int httpStatus = statusAttribute.isValid() ? statusAttribute.toInt() : 0;
     const QNetworkReply::NetworkError networkError = reply->error();
-    const QString networkErrorText = reply->errorString();
 
     ApiResponse response;
     response.httpStatus = httpStatus;
@@ -511,7 +510,7 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
         ApiError error = networkError == QNetworkReply::OperationCanceledError
             ? ApiError(ApiFailure::Timeout,
                        QStringLiteral("Le serveur n'a pas répondu dans le délai imparti."))
-            : ApiError(ApiFailure::Network, networkErrorText);
+            : ApiError(ApiFailure::Network, libelleErreurReseau(networkError));
         if (shouldRetry(call->m_request, error, call->m_attempt)) {
             const auto delay = retryDelay(error, call->m_attempt);
             QTimer::singleShot(delay, call, [this, call] { startAttempt(call); });

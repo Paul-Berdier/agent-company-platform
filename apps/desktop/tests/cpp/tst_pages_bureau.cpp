@@ -52,6 +52,8 @@ const QStringList kInterdits = {
     QStringLiteral("undefined"), QStringLiteral("NaN"), QStringLiteral("[object Object]"),
     QStringLiteral("Loading"), QStringLiteral("Error"), QStringLiteral("Unknown"),
     QStringLiteral("Cancel"), QStringLiteral("Submit"), QStringLiteral("Retry"), QStringLiteral("Close"),
+    // Textes de transport de Qt, en anglais faute de traducteur (constat de relecture P8).
+    QStringLiteral("Connection refused"), QStringLiteral("not found"), QStringLiteral("timed out"),
 };
 
 void textesVisibles(QQuickItem *item, QStringList &textes, QStringList &boutonsSansNom)
