@@ -8,8 +8,9 @@ import re
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
-CITATION = re.compile(r"\bD(\d{1,2})\b")
-DEFINITION = re.compile(r"^\| D(\d{1,2}) \|", re.M)
+# Étape P9 : trois chiffres (D100 et au-delà échappaient au contrôle, décision P9-11).
+CITATION = re.compile(r"\bD(\d{1,3})\b")
+DEFINITION = re.compile(r"^\| D(\d{1,3}) \|", re.M)
 
 
 def _sources():
@@ -17,19 +18,43 @@ def _sources():
     yield RACINE / "docs" / "reprise-poste.md"
     yield RACINE / "CHANGELOG.md"
     yield RACINE / "hermes" / "catalogue" / "catalogue.lock.json"
+    # Étape P9 : manuel d'exploitation du propriétaire (écrit en part D de P9 ; contrôlé dès qu'il existe).
+    exploitation = RACINE / "docs" / "exploitation.md"
+    if exploitation.is_file():
+        yield exploitation
+
+
+def _citations_non_definies(plan: str, sources):
+    """``sources`` : couples (nom, texte). Rend « nom:ligne cite Dn » pour chaque citation sans définition."""
+    definies = {int(n) for n in DEFINITION.findall(plan)}
+    manquantes = []
+    for nom, texte in sources:
+        for numero, ligne in enumerate(texte.splitlines(), 1):
+            for n in CITATION.findall(ligne):
+                if int(n) not in definies:
+                    manquantes.append(f"{nom}:{numero} cite D{n}")
+    return manquantes
 
 
 def test_chaque_decision_citee_est_definie_dans_le_plan():
     plan = (RACINE / "docs" / "refonte" / "plan.md").read_text(encoding="utf-8")
-    definies = {int(n) for n in DEFINITION.findall(plan)}
-    assert definies, "aucune décision D<n> définie dans docs/refonte/plan.md"
-    manquantes = []
-    for chemin in _sources():
-        for numero, ligne in enumerate(chemin.read_text(encoding="utf-8").splitlines(), 1):
-            for n in CITATION.findall(ligne):
-                if int(n) not in definies:
-                    manquantes.append(f"{chemin.relative_to(RACINE).as_posix()}:{numero} cite D{n}")
+    assert DEFINITION.findall(plan), "aucune décision D<n> définie dans docs/refonte/plan.md"
+    sources = ((c.relative_to(RACINE).as_posix(), c.read_text(encoding="utf-8")) for c in _sources())
+    manquantes = _citations_non_definies(plan, sources)
     assert manquantes == [], "\n".join(manquantes)
+
+
+def test_une_decision_a_trois_chiffres_est_controlee_comme_les_autres():
+    """Étape P9 (décision P9-11) : le plan est à D92 et P7 et P9 numérotent à la suite ; avec « \\d{1,2} », une
+    citation D100 non définie passait sans bruit et une définition « | D100 | » n'était pas reconnue."""
+    plan_sans_d100 = "| D7 | choix |\n| D99 | choix |\n"
+    citation = [("docs/exemple.md", "Voir D7, D99 et D100, puis D101.")]
+    assert _citations_non_definies(plan_sans_d100, citation) == [
+        "docs/exemple.md:1 cite D100", "docs/exemple.md:1 cite D101"]
+    plan_avec_d100 = plan_sans_d100 + "| D100 | choix |\n| D101 | choix |\n"
+    assert _citations_non_definies(plan_avec_d100, citation) == []
+    # Quatre chiffres ou un identifiant collé ne sont pas des décisions (« D1000 », « ID100 », « D100a »).
+    assert _citations_non_definies(plan_sans_d100, [("x", "D1000 ID100 D100a")]) == []
 
 
 def test_les_choix_de_p3_se_disent_non_confirmes():
