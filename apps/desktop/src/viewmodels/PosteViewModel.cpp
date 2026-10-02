@@ -201,9 +201,9 @@ bool PosteViewModel::peutRevoquer() const
 QVariantMap PosteViewModel::executant() const
 {
     if (!m_compatibilite) {
-        return construireExecutant(false, {});
+        return construireExecutant(QStringLiteral("inconnu"), {});
     }
-    return construireExecutant(m_compatibilite->executantPresent(), m_compatibilite->executant());
+    return construireExecutant(m_compatibilite->etatExecutant(), m_compatibilite->executant());
 }
 
 QVariantMap PosteViewModel::construireEtat(const QJsonObject &vue)
@@ -320,14 +320,28 @@ QJsonArray PosteViewModel::construireOrdres(const QJsonObject &vue)
     return ordres;
 }
 
-QVariantMap PosteViewModel::construireExecutant(bool present, const QJsonObject &executant)
+QVariantMap PosteViewModel::construireExecutant(const QString &etat, const QJsonObject &executant)
 {
-    if (!present) {
-        return QVariantMap{{QStringLiteral("present"), false}};
+    if (etat != QLatin1String("annonce")) {
+        QString message;
+        if (etat == QLatin1String("aucun")) {
+            message = QStringLiteral("Aucun exécutant connu pour l'instant : l'étape P6 est en place sur ce serveur, "
+                                     "mais aucun exécutant ne s'est encore annoncé.");
+        } else if (etat == QLatin1String("absent")) {
+            message = QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6).");
+        } else if (etat == QLatin1String("illisible")) {
+            message = QStringLiteral("Exécutant : inconnu, la base du greffon est illisible.");
+        } else {
+            message = QStringLiteral("Exécutant : inconnu, la description du greffon n'a pas été lue.");
+        }
+        return QVariantMap{{QStringLiteral("present"), false}, {QStringLiteral("etat"), etat},
+                           {QStringLiteral("message"), message}};
     }
     // Étape P6 : seules les clés servies sont lues ; une absence vaut « Inconnu ».
     return QVariantMap{
         {QStringLiteral("present"), true},
+        {QStringLiteral("etat"), etat},
+        {QStringLiteral("message"), QString()},
         {QStringLiteral("plateforme"), libelles::texte(executant.value(QStringLiteral("plateforme")))},
         {QStringLiteral("hote"), libelles::texte(executant.value(QStringLiteral("hote")))},
         {QStringLiteral("regime"), libelles::texte(executant.value(QStringLiteral("regime")))},

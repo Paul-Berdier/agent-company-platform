@@ -19,8 +19,11 @@
 // lève, l'oubli (session perdue, serveur changé) aussi ; une revérification en cours ou un
 // `/v1/meta` injoignable laissent le verdict précédent en place.
 //
-// Les étapes déployées se détectent sans supposition : `machine.executant` présent signale
-// l'exécutant Railway (P6). Une clé absente reste « Inconnu », jamais devinée.
+// Les étapes déployées se détectent sans supposition, d'après `machine.executant` (étape P6,
+// meta.py `_resume_executant`) : clé ABSENTE = étape non déployée (« absent »), sauf base du
+// greffon illisible (`machine.base` = « illisible » : « illisible ») ; `null` = étape en place
+// mais aucun exécutant connu pour l'instant (« aucun ») ; objet = exécutant annoncé
+// (« annonce »). Avant toute lecture de /v1/meta : « inconnu ».
 
 #pragma once
 
@@ -68,6 +71,8 @@ public:
         QStringList avertissements;
         QStringList alertes;
         bool executantPresent = false;
+        //! « inconnu », « absent », « illisible », « aucun » ou « annonce » (voir l'en-tête).
+        QString etatExecutant = QStringLiteral("inconnu");
         //! Bloc `machine.executant` tel que servi (étape P6), vide s'il est absent.
         QJsonObject executant;
     };
@@ -97,6 +102,7 @@ public:
     [[nodiscard]] const QStringList &avertissements() const { return m_evaluation.avertissements; }
     [[nodiscard]] const QStringList &alertes() const { return m_evaluation.alertes; }
     [[nodiscard]] bool executantPresent() const { return m_evaluation.executantPresent; }
+    [[nodiscard]] const QString &etatExecutant() const { return m_evaluation.etatExecutant; }
     [[nodiscard]] const QJsonObject &executant() const { return m_evaluation.executant; }
 
 signals:

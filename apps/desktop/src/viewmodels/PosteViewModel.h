@@ -8,7 +8,8 @@
 //  - poste enrôlé, dernier inventaire (compte, versions des CLI, bac à sable Codex, connexions,
 //    dépôts), alertes, ordres en attente ;
 //  - exécutant Railway (étape P6) : lu de `machine.executant` de `/v1/meta` SEULEMENT s'il y
-//    figure, sinon « Non disponible sur ce serveur ».
+//    figure ; sinon l'état exact : étape non déployée (« non disponible sur ce serveur »),
+//    étape en place sans exécutant connu (`null`), base illisible, ou description non lue.
 //
 // Gestes, chacun sur une route réelle du greffon, résultat rendu tel que le serveur l'a dit :
 //  - « Générer un code d'enrôlement » → `POST /v1/poste/enrolement {}`. Le code est rendu UNE
@@ -107,7 +108,8 @@ public:
     [[nodiscard]] static QVariantMap construireMachine(const QJsonObject &vue);
     [[nodiscard]] static QVariantMap construireInventaire(const QJsonObject &vue);
     [[nodiscard]] static QJsonArray construireOrdres(const QJsonObject &vue);
-    [[nodiscard]] static QVariantMap construireExecutant(bool present, const QJsonObject &executant);
+    /*! `etat` : CompatibiliteHermes::etatExecutant() (« annonce », « aucun », « absent »…). */
+    [[nodiscard]] static QVariantMap construireExecutant(const QString &etat, const QJsonObject &executant);
 
 signals:
     void posteChange();

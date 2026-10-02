@@ -327,8 +327,9 @@ Item {
                 Layout.fillWidth: true
                 titre: qsTr("Exécutant Railway")
                 Discret {
+                    objectName: "poste-executant-etat"
                     visible: !Poste.executant.present
-                    text: qsTr("Exécutant : non disponible sur ce serveur (étape P6).")
+                    text: Poste.executant.message || ""
                 }
                 ColumnLayout {
                     Layout.fillWidth: true

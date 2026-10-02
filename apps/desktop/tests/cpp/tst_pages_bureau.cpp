@@ -337,7 +337,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_VERIFY_WITH_TIMEOUT(pagePoste->lue() && pagePoste->peutRelever(), 5000);
         VERIFIER(page.get(), QStringLiteral("Poste en ligne"));
         QVERIFY(contientTexte(item, QStringLiteral("Compte dédié acp-poste")));
-        QVERIFY(contientTexte(item, QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6).")));
+        // Compatibilité jamais lue dans ce banc : l'exécutant est inconnu, jamais « non disponible ».
+        QVERIFY(contientTexte(item, QStringLiteral("Exécutant : inconnu, la description du greffon n'a pas été lue.")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucun ordre en attente.")));
 
         poste = fixture(QStringLiteral("poste-non-configure.json"));

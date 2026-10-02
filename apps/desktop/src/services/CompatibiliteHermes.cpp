@@ -66,9 +66,18 @@ CompatibiliteHermes::Evaluation CompatibiliteHermes::evaluer(const QJsonObject &
         }
     }
     const QJsonObject machine = meta.value(QStringLiteral("machine")).toObject();
-    resultat.executantPresent = machine.contains(QStringLiteral("executant"))
-        && !machine.value(QStringLiteral("executant")).isNull();
-    resultat.executant = machine.value(QStringLiteral("executant")).toObject();
+    const QJsonValue executant = machine.value(QStringLiteral("executant"));
+    if (executant.isObject()) {
+        resultat.etatExecutant = QStringLiteral("annonce");
+    } else if (executant.isNull()) {
+        resultat.etatExecutant = QStringLiteral("aucun"); // étape P6 en place, aucun exécutant connu
+    } else if (machine.value(QStringLiteral("base")) == QJsonValue(QStringLiteral("illisible"))) {
+        resultat.etatExecutant = QStringLiteral("illisible");
+    } else {
+        resultat.etatExecutant = QStringLiteral("absent"); // clé absente : étape non déployée
+    }
+    resultat.executantPresent = executant.isObject();
+    resultat.executant = executant.toObject();
 
     // Contrat du greffon : une autre majeure bloque toutes les pages du greffon.
     const auto [nomRecu, majeureRecue] = contrat(resultat.contratRecu);

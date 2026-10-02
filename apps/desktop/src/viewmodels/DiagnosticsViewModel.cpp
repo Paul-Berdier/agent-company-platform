@@ -211,12 +211,14 @@ void DiagnosticsViewModel::refresh()
                     m_compatibilite->empreinteOpenRpc() != unknownValue(), true});
     entries.append({compatibility, QStringLiteral("Empreinte OpenRPC épinglée"),
                     QString::fromLatin1(ACP_OPENRPC_SHA256), true, true});
+    const QString executant = m_compatibilite->etatExecutant();
     entries.append({compatibility, QStringLiteral("Exécutant Railway (P6)"),
-                    m_compatibilite->etat() == CompatibilityStatus::NonVerifiee
-                        ? unknownValue()
-                        : (m_compatibilite->executantPresent() ? QStringLiteral("Annoncé par Hermes")
-                                                               : QStringLiteral("Non disponible sur ce serveur")),
-                    m_compatibilite->etat() != CompatibilityStatus::NonVerifiee, false});
+                    executant == QLatin1String("annonce")      ? QStringLiteral("Annoncé par Hermes")
+                    : executant == QLatin1String("aucun")      ? QStringLiteral("Aucun exécutant connu pour l'instant")
+                    : executant == QLatin1String("absent")     ? QStringLiteral("Non disponible sur ce serveur")
+                    : executant == QLatin1String("illisible")  ? QStringLiteral("Inconnu (base du greffon illisible)")
+                                                               : unknownValue(),
+                    executant != QLatin1String("inconnu"), false});
     const QStringList alertes = m_compatibilite->alertes();
     entries.append({compatibility, QStringLiteral("Alertes de Hermes"),
                     QString::number(alertes.size()),

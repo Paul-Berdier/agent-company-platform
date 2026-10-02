@@ -269,14 +269,28 @@ void TestCompatibiliteHermes::alertesComptees()
 
 void TestCompatibiliteHermes::executantDetecteSansSupposition()
 {
-    QVERIFY(!CompatibiliteHermes::evaluer(metaDeReference()).executantPresent);
+    // Clé absente (Hermes sans l'étape P6) : « absent ».
+    const auto sansP6 = CompatibiliteHermes::evaluer(metaDeReference());
+    QVERIFY(!sansP6.executantPresent);
+    QCOMPARE(sansP6.etatExecutant, QStringLiteral("absent"));
+    // Objet : exécutant annoncé.
     const auto evaluation = CompatibiliteHermes::evaluer(
         avec(metaDeReference(), QStringLiteral("machine"), QStringLiteral("executant"),
              QJsonObject{{QStringLiteral("plateforme"), QStringLiteral("railway")}}));
     QVERIFY(evaluation.executantPresent);
-    QVERIFY(!CompatibiliteHermes::evaluer(avec(metaDeReference(), QStringLiteral("machine"),
-                                                QStringLiteral("executant"), QJsonValue::Null))
-                 .executantPresent);
+    QCOMPARE(evaluation.etatExecutant, QStringLiteral("annonce"));
+    // Constat de relecture P8 : `null` (P6 en place, aucun exécutant connu, meta.py
+    // `_resume_executant`) n'est PAS une clé absente.
+    const auto aucun = CompatibiliteHermes::evaluer(
+        avec(metaDeReference(), QStringLiteral("machine"), QStringLiteral("executant"), QJsonValue::Null));
+    QVERIFY(!aucun.executantPresent);
+    QCOMPARE(aucun.etatExecutant, QStringLiteral("aucun"));
+    // Base du greffon illisible : la clé manque, l'état est inconnu, pas « non déployé ».
+    const auto illisible = CompatibiliteHermes::evaluer(
+        avec(metaDeReference(), QStringLiteral("machine"), QStringLiteral("base"), QStringLiteral("illisible")));
+    QCOMPARE(illisible.etatExecutant, QStringLiteral("illisible"));
+    // Rien de lu : inconnu.
+    QCOMPARE(CompatibiliteHermes::Evaluation{}.etatExecutant, QStringLiteral("inconnu"));
 }
 
 void TestCompatibiliteHermes::lectureContreLeFauxHermes()

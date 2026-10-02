@@ -442,8 +442,18 @@ void TestPoste::releveMessageDuGreffon()
 
 void TestPoste::executantSeulementSiPublie()
 {
-    QCOMPARE(PosteViewModel::construireExecutant(false, {}).value(QStringLiteral("present")).toBool(), false);
-    const QVariantMap executant = PosteViewModel::construireExecutant(true, QJsonObject{
+    // Constat de relecture P8 : `null` (étape P6 en place, aucun exécutant connu) était confondu
+    // avec une clé absente, et la page affirmait l'étape non déployée.
+    const QVariantMap aucun = PosteViewModel::construireExecutant(QStringLiteral("aucun"), {});
+    QCOMPARE(aucun.value(QStringLiteral("present")).toBool(), false);
+    QVERIFY(aucun.value(QStringLiteral("message")).toString().startsWith(QStringLiteral("Aucun exécutant connu pour l'instant")));
+    const QVariantMap absent = PosteViewModel::construireExecutant(QStringLiteral("absent"), {});
+    QCOMPARE(absent.value(QStringLiteral("message")).toString(), QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6)."));
+    QVERIFY(PosteViewModel::construireExecutant(QStringLiteral("illisible"), {}).value(QStringLiteral("message")).toString()
+                .contains(QStringLiteral("base du greffon est illisible")));
+    QVERIFY(PosteViewModel::construireExecutant(QStringLiteral("inconnu"), {}).value(QStringLiteral("message")).toString()
+                .contains(QStringLiteral("n'a pas été lue")));
+    const QVariantMap executant = PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
         {QStringLiteral("plateforme"), QStringLiteral("linux")},
         {QStringLiteral("hote"), QStringLiteral("acp-executant")},
         {QStringLiteral("regime"), QStringLiteral("inconnu")},
@@ -459,16 +469,17 @@ void TestPoste::executantSeulementSiPublie()
     QCOMPARE(executant.value(QStringLiteral("voiesFermees")).toString(), QStringLiteral("Aucune"));
     QCOMPARE(executant.value(QStringLiteral("carteEnCours")).toString(), QStringLiteral("Non"));
     // Forme non conforme : « Inconnu », jamais une liste devinée.
-    const QVariantMap illisible = PosteViewModel::construireExecutant(true, QJsonObject{
+    const QVariantMap illisible = PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
         {QStringLiteral("voies_disponibles"), QJsonArray{QJsonObject{{QStringLiteral("voie"), QStringLiteral("x")}}}},
         {QStringLiteral("erreur"), QStringLiteral("OperationalError")}});
     QCOMPARE(illisible.value(QStringLiteral("voiesDisponibles")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(illisible.value(QStringLiteral("hote")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(illisible.value(QStringLiteral("erreur")).toString(), QStringLiteral("OperationalError"));
 
-    // Sans compatibilité lue : « non disponible ».
+    // Sans compatibilité lue : « inconnu », jamais « non disponible sur ce serveur ».
     Banc banc;
     QCOMPARE(banc.poste.executant().value(QStringLiteral("present")).toBool(), false);
+    QVERIFY(banc.poste.executant().value(QStringLiteral("message")).toString().contains(QStringLiteral("n'a pas été lue")));
 }
 
 QTEST_MAIN(TestPoste)
