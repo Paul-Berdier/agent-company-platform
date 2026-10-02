@@ -17,7 +17,7 @@ ScrollView {
         Label { textFormat: Text.PlainText; text: qsTr("Serveur"); color: Colors.textPrimary; font.bold: true }
         AcpTextField { id: server; Layout.fillWidth: true; text: Shell.serverUrl; placeholder: qsTr("Adresse HTTPS de Hermes") }
         CheckBox { id: loopback; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
-        AcpButton { label: qsTr("Changer de serveur"); onTriggered: changeServer.open() }
+        AcpButton { objectName: "reglages-changer-serveur"; label: qsTr("Changer de serveur"); onTriggered: changeServer.open() }
         Label { id: serverError; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusFailedForeground }
         Label { textFormat: Text.PlainText; text: qsTr("Session"); color: Colors.textPrimary; font.bold: true }
         Label {
@@ -88,13 +88,40 @@ ScrollView {
         TextArea { visible: Updates.notes.length > 0; text: Updates.notes; textFormat: TextEdit.PlainText; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: Colors.textPrimary; Layout.fillWidth: true }
         Item { Layout.preferredHeight: Space.space8 }
     }
+    // Boutons explicites, en français (les boutons standard de Qt s'afficheraient en anglais :
+    // aucun traducteur Qt n'est chargé), comme les autres confirmations de la station.
     Dialog {
         id: changeServer
+        objectName: "reglages-changer-serveur-confirmation"
         anchors.centerIn: parent
         title: qsTr("Changer de serveur ?")
         modal: true
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        Label { textFormat: Text.PlainText; text: qsTr("La session courante sera oubliée sur ce poste. Vous devrez vous reconnecter.") }
-        onAccepted: serverError.text = Shell.applyServerUrl(server.text, loopback.checked)
+        width: Math.min(page.width - Space.space8 * 2, 520)
+        contentItem: ColumnLayout {
+            spacing: Space.space4
+            Label {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: qsTr("La session courante sera oubliée sur ce poste. Vous devrez vous reconnecter.")
+            }
+            RowLayout {
+                spacing: Space.space4
+                AcpButton {
+                    objectName: "reglages-changer-serveur-confirmer"
+                    primary: true
+                    label: qsTr("Changer de serveur")
+                    onTriggered: {
+                        changeServer.close();
+                        serverError.text = Shell.applyServerUrl(server.text, loopback.checked);
+                    }
+                }
+                AcpButton {
+                    objectName: "reglages-changer-serveur-annuler"
+                    label: qsTr("Annuler")
+                    onTriggered: changeServer.close()
+                }
+            }
+        }
     }
 }

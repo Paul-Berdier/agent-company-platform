@@ -29,6 +29,7 @@
 #include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -81,6 +82,7 @@ private slots:
     void brouillonDeReponseGardeAuSondageEtAuRefus();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
+    void dialogueDeChangementDeServeurEnFrancais();
     void copieDuRapportParLaPalette();
     // En dernier : charge la fenêtre racine (App.qml).
     void chaqueRaccourciDeLaPaletteAgit();
@@ -388,6 +390,48 @@ void TestPagesInteractions::messageEnvoyeParLeBoutonDeLaDiscussion()
     page.reset();
     discussion->quitter();
     passerelle->fermer();
+}
+
+// Constat de relecture P8 : le dialogue « Changer de serveur ? » affichait « Cancel » (boutons
+// standard de Qt, sans traducteur). Ouvert par un clic réel, il n'a que des libellés français ;
+// « Annuler » le ferme sans rien changer.
+void TestPagesInteractions::dialogueDeChangementDeServeurEnFrancais()
+{
+    auto page = charger(QStringLiteral("SettingsPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("reglages-changer-serveur"))));
+    QObject *dialogue = page->findChild<QObject *>(QStringLiteral("reglages-changer-serveur-confirmation"));
+    QVERIFY(dialogue);
+    QTRY_VERIFY(dialogue->property("opened").toBool());
+    QStringList textes;
+    QList<QQuickItem *> elements;
+    for (const char *partie : {"header", "contentItem", "footer"}) {
+        tous(dialogue->property(partie).value<QQuickItem *>(), elements);
+    }
+    for (QQuickItem *element : std::as_const(elements)) {
+        if (!element->isVisible()) {
+            continue;
+        }
+        for (const char *nom : {"text", "label", "title"}) {
+            const QString texte = element->property(nom).toString();
+            if (!texte.isEmpty()) {
+                textes.append(texte);
+            }
+        }
+    }
+    const QString tout = textes.join(QStringLiteral(" | "));
+    QVERIFY2(tout.contains(QStringLiteral("Annuler")) && tout.contains(QStringLiteral("Changer de serveur")), qPrintable(tout));
+    for (const QString &anglais : {QStringLiteral("Cancel"), QStringLiteral("OK")}) {
+        QVERIFY2(!QRegularExpression(QStringLiteral("\\b%1\\b").arg(anglais)).match(tout).hasMatch(), qPrintable(tout));
+    }
+    const QUrl avant = m_client->baseUrl();
+    QVERIFY(cliquer(parNom(dialogue->property("contentItem").value<QQuickItem *>(),
+                           QStringLiteral("reglages-changer-serveur-annuler"))));
+    QTRY_VERIFY(!dialogue->property("opened").toBool());
+    QCOMPARE(m_client->baseUrl(), avant);
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
 }
 
 // Constat de relecture P8 : la commande de palette « Copier le rapport de diagnostic »
