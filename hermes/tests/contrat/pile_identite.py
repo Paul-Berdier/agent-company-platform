@@ -12,13 +12,16 @@ Sur un réseau Docker JETABLE :
 
 hermes-acp.test et identite-acp.test ont des domaines enregistrables DISTINCTS, comme deux
 sous-domaines de up.railway.app (suffixe public) : le navigateur les traite en sites différents.
-Tout ce qui est créé porte le préfixe ``acp-contrat-<aléa>`` et est supprimé par ``nettoyer()``.
+Tout ce qui est créé porte le préfixe ``acp-contrat-<aléa>`` (``acp-contrat-<étiquette>-<aléa>`` si
+``ACP_CONTRAT_ETIQUETTE`` est posée : voir ``prefixe_jetable``) et est supprimé par ``nettoyer()``.
 Le mot de passe ci-dessous n'existe que pour ces tests.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import time
 import uuid
@@ -26,6 +29,19 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 RACINE_DEPOT = Path(__file__).resolve().parents[3]
+
+
+def prefixe_jetable() -> str:
+    """Préfixe des conteneurs, volumes et réseaux d'une pile de test : ``acp-contrat-<aléa>``.
+
+    Étape P9 : sur un poste dont le Docker est partagé par plusieurs suites lancées en même temps,
+    ``ACP_CONTRAT_ETIQUETTE`` (1 à 12 caractères parmi a-z et 0-9) donne ``acp-contrat-<étiquette>-<aléa>`` : chaque
+    suite reconnaît et nettoie ses ressources sans toucher à celles des autres. Les filtres de nettoyage de la CI
+    (« name=acp-contrat- ») les couvrent toujours. Toute autre valeur est refusée : jamais un nom imprévu."""
+    etiquette = os.environ.get("ACP_CONTRAT_ETIQUETTE", "").strip()
+    if etiquette and not re.fullmatch(r"[a-z0-9]{1,12}", etiquette):
+        raise ValueError(f"ACP_CONTRAT_ETIQUETTE refusée : {etiquette!r} (1 à 12 caractères parmi a-z et 0-9).")
+    return f"acp-contrat-{etiquette + '-' if etiquette else ''}{uuid.uuid4().hex[:8]}"
 
 HOTE_HERMES = "hermes-acp.test"
 HOTE_IDENTITE = "identite-acp.test"
@@ -106,7 +122,7 @@ class Pile:
     """Conteneurs, volumes et réseaux créés ; tout est supprimé par nettoyer()."""
 
     def __init__(self) -> None:
-        self.prefixe = f"acp-contrat-{uuid.uuid4().hex[:8]}"
+        self.prefixe = prefixe_jetable()
         self.conteneurs: List[str] = []
         self.volumes: List[str] = []
         self.reseaux: List[str] = []
