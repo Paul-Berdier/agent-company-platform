@@ -44,7 +44,11 @@ def test_version_de_hermes_et_condensat_epingle(image):
     assert ligne_from == attendu
     version = docker("run", "--rm", "--entrypoint", "/opt/hermes/.venv/bin/hermes", image, "--version").stdout
     afficher("hermes --version", version)
-    assert f"Hermes Agent v{EPINGLE['HERMES_VERSION']} (2026.9.24) · upstream {EPINGLE['HERMES_COMMIT'][:8]}" in version
+    # Étape P9 : la date de release affichée par Hermes est celle de l'étiquette épinglée (vAAAA.M.J), lue dans
+    # HERMES_VERSION comme le reste (aucune épingle en dur : scripts/tests/test_epingles_hermes.py).
+    date_de_release = EPINGLE["HERMES_TAG"].removeprefix("v")
+    assert (f"Hermes Agent v{EPINGLE['HERMES_VERSION']} ({date_de_release}) · upstream {EPINGLE['HERMES_COMMIT'][:8]}"
+            in version)
     provenance = json.loads(docker("run", "--rm", "--entrypoint", "cat", image,
                                    "/etc/hermes/image-provenance.json").stdout)
     assert provenance["version"] == EPINGLE["HERMES_VERSION"]
@@ -213,7 +217,7 @@ def test_passerelle_et_tableau_de_bord_tournent_sous_l_uid_hermes(hermes_en_marc
     assert any(l.startswith("hermes") and "hermes dashboard --host 0.0.0.0 --port 9119" in l for l in lignes)
     assert any(l.startswith("hermes") and "hermes gateway run" in l for l in lignes)
     code, statut = hermes_en_marche.json("/api/status")
-    assert code == 200 and statut["version"] == "0.21.5"
+    assert code == 200 and statut["version"] == EPINGLE["HERMES_VERSION"]
     assert statut["gateway_running"] is True
     assert statut["gateway_platforms"]["api_server"]["listener_base"] == "http://127.0.0.1:8642"
 
@@ -438,9 +442,9 @@ def test_la_meta_repond_avec_une_session_oidc(pile):
     assert code == 200
     assert meta["contrat"] == "acp-poste/1"
     assert meta["greffon"] == {"nom": "acp-poste", "version": "0.11.0"}
-    assert meta["hermes"]["version"] == meta["hermes"]["version_testee"] == "0.21.5"
+    assert meta["hermes"]["version"] == meta["hermes"]["version_testee"] == EPINGLE["HERMES_VERSION"]
     assert meta["hermes"]["conforme"] is True
-    assert meta["openrpc"]["identique"] is True and meta["openrpc"]["info_version"] == "1"
+    assert meta["openrpc"]["identique"] is True and meta["openrpc"]["info_version"] == EPINGLE["OPENRPC_INFO_VERSION"]
     assert meta["image"]["condensat_index"] == EPINGLE["HERMES_IMAGE_INDEX"]
     assert meta["demarrage"]["soul"]["etat"] == "depose"
     # Étape P2 : garde d'exécution présente dans le processus du tableau de bord ; en bouclage
