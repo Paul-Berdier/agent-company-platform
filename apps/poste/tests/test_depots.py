@@ -253,6 +253,28 @@ def test_quarantaine(distant, depots):
     assert depots.branche_existe("jetable", "quarantaine/t_abcd")
 
 
+def test_worktree_en_quarantaine_jamais_repris(distant, depots):
+    """Étape P7 (K25) : le worktree d'une carte mise en quarantaine est posé sur ``quarantaine/<carte>`` ; à la carte
+    suivante, il n'est PAS repris : retiré, puis recréé depuis le départ sur une branche neuve, sans le commit fautif."""
+    depot = _depot(distant)
+    depots.recuperer(depot)
+    chemin = depots.worktree(depot, "t_abcd", "hermes/t_abcd", "origin/main")
+    (chemin / "fuite.txt").write_text("secret\n", encoding="utf-8")
+    fautif = depots.committer("jetable", "t_abcd", "implementation(t_abcd): fuite")
+    depots.quarantaine("jetable", "t_abcd", "hermes/t_abcd")
+    assert depots.branche_du_worktree("jetable", "t_abcd") == "quarantaine/t_abcd"
+    chemin = depots.worktree(depot, "t_abcd", "hermes/t_abcd", "origin/main")
+    assert depots.branche_du_worktree("jetable", "t_abcd") == "hermes/t_abcd"
+    assert not (chemin / "fuite.txt").exists()
+    nu = depots.nu("jetable")
+    assert depots.tete("jetable", "t_abcd") == depots.sha(nu, "refs/remotes/origin/main")
+    assert depots.sha(nu, "refs/heads/quarantaine/t_abcd") == fautif
+    # Un worktree posé sur SA branche est gardé tel quel (reprise ordinaire).
+    (chemin / "en_cours.txt").write_text("x\n", encoding="utf-8")
+    assert depots.worktree(depot, "t_abcd", "hermes/t_abcd", "origin/main") == chemin
+    assert (chemin / "en_cours.txt").exists()
+
+
 # ------------------------------------------------------------------ intégration et bundle (§ 6.7, § 12.2)
 
 

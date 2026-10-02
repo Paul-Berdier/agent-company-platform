@@ -2,7 +2,11 @@
 
 1. **Contrôle** de la carte contre la politique de l'IMAGE (jamais contre Hermes) : dépôt connu, voie ouverte
    (régime, conditions D83/D84, garde de quota), modèle, effort et palier permis, Codex sur dépôt privé seulement
-   (D83). Écart : ``bloquer`` (``politique`` ou ``capacite``), rien n'est lancé.
+   (D83). Écart : ``bloquer`` (``politique`` ou ``capacite``), rien n'est lancé. Étape P7 (cahier P7 § 11.2,
+   décision P7-11) : le « privé » est MESURÉ, pas déclaré — avant CHAQUE carte Codex, :meth:`Depots.visibilite`
+   refait la mesure (accès anonyme refusé ET lecture avec le jeton réussie) ; toute autre issue ferme Codex pour
+   cette carte (Claude reste ouvert sur un dépôt public, D84). Un dépôt déclaré ``public`` est remesuré avant chacune
+   de ses cartes : mesuré privé, il est refusé (la politique se trompe : un jeton est requis).
 2. **Préparation** (superviseur, root) : clone nu et ``fetch`` en lecture seule, worktree et branche
    ``hermes/<carte>`` depuis la branche de la carte parente ou ``origin/<base>`` (gardé à la reprise), dossiers de la
    tentative sous ``/tmp/acp/<carte>`` à l'UID de chaque agent, diff de la carte relue pour Claude (qui n'a pas de
@@ -48,7 +52,7 @@ from .balayage import RAISON_SECRET, secret_dans, valeurs_exactes
 from .catalogue_claude import TABLE as TABLE_CLAUDE
 from .coffre import ecrire_atomiquement
 from .commandes_agents import ROLES_LECTURE, commande_claude, commande_codex, schema_json
-from .depots import Depots, ErreurDepot
+from .depots import Depots, ErreurDepot, Visibilite
 from .evenements import SortieInvalide, lire_flux_claude, lire_flux_codex, sortie_claude, valider_sortie
 from .garde_quota import Budget, QuotasClaude, codex_ouverte
 from .journal import masquer
@@ -90,6 +94,14 @@ PREPARATION_INTROUVABLE = ("Préparation des dépendances introuvable sur l'exé
                            "l'image ; corrigez [depots.<alias>] preparation dans executant.toml (outils de l'image : "
                            "railway.md § 13.6).")
 SUITE_REPRISE = "Reprise de la carte {carte}.{reponses}\nTermine par l'objet JSON imposé."
+# Étape P7 (cahier P7 § 11.2) : refus composés ici, en français, sans l'URL ni le jeton.
+CODEX_NON_PROUVE_PRIVE = ("Voie Codex fermée pour le dépôt « {alias} » : il n'est pas prouvé privé (visibilité mesurée "
+                          "{visibilite}, lecture avec le jeton {lecture}) ; Codex ne travaille qu'avec le compte "
+                          "ChatGPT sur un dépôt privé lu avec le jeton (D83). {raison}")
+DEPOT_DECLARE_PUBLIC_MESURE_PRIVE = ("Dépôt « {alias} » refusé : la politique dit public, GitHub refuse l'accès anonyme "
+                                     ": jeton requis (acces = \"jeton_lecture\" dans executant.toml, par une PR).")
+QUARANTAINE_ECARTEE = ("Branche {branche} absente (mise en quarantaine après un secret, ou clone perdu) : la carte repart "
+                       "de {depart} sur une branche neuve, en session neuve ; le travail en quarantaine n'est pas repris.")
 
 
 class CarteRefusee(Exception):
@@ -222,6 +234,8 @@ class Execution:
     horloge: Callable[[], datetime] = lambda: datetime.now(UTC)
     compteurs_codex: Callable[[], list[dict[str, Any]] | None] = lambda: None
     motif_arret: str = "sigterm"
+    # Étape P7 : dernière visibilité mesurée par dépôt (inventaire et contrôle avant chaque carte Codex).
+    mesures: dict[str, Visibilite] = field(default_factory=dict)
 
     # ================================================================== état persistant
     def _ecrire_json(self, chemin: Path, donnees: dict[str, Any]) -> None:
@@ -241,6 +255,11 @@ class Execution:
         donnees = self.session(carte)
         donnees.update({k: v for k, v in valeurs.items() if v is not None})
         self._ecrire_json(self.emplacements.sessions / f"{carte}.json", donnees)
+
+    def _oublier_session(self, carte: str, *cles: str) -> dict[str, Any]:
+        donnees = {k: v for k, v in self.session(carte).items() if k not in cles}
+        self._ecrire_json(self.emplacements.sessions / f"{carte}.json", donnees)
+        return donnees
 
     def carte_en_main(self) -> dict[str, Any] | None:
         return self._lire_json(self.emplacements.carte)
@@ -333,8 +352,28 @@ class Execution:
             "Identifiants séparés par UID non prouvés : aucune écriture."
         return fermetures
 
+    # ================================================================== visibilité mesurée (étape P7, § 11.2)
+    def mesurer(self, depot: Any) -> Visibilite:
+        """Mesure FRAÎCHE de la visibilité de ``depot`` (réseau : jamais dans la boucle asyncio), gardée pour
+        l'inventaire et journalisée (phrase composée ici, sans URL ni jeton)."""
+        mesure = self.depots.visibilite(depot, horloge=self.horloge)
+        self.mesures[depot.alias] = mesure
+        self.journal.ecrire("info" if mesure.visibilite != "inconnue" else "avertissement", "visibilite_depot",
+                            f"Dépôt « {depot.alias} » : visibilité mesurée {mesure.visibilite}, lecture "
+                            f"{mesure.lecture} ({mesure.raison})", depot=depot.alias, visibilite=mesure.visibilite,
+                            lecture=mesure.lecture)
+        return mesure
+
+    def mesurer_depots(self) -> dict[str, Visibilite]:
+        """Visibilité de chaque dépôt DISTANT de la politique (inventaire : au démarrage, puis à chaque relevé)."""
+        for depot in self.politique.depots:
+            if getattr(depot, "url", None):
+                self.mesurer(depot)
+        return dict(self.mesures)
+
     def controler(self, demande: DemandeCarte) -> Any:
-        """Dépôt de la politique, ou :class:`CarteRefusee`."""
+        """Dépôt de la politique, ou :class:`CarteRefusee`. Fait une mesure réseau (étape P7) : appelée hors de la
+        boucle asyncio (:meth:`executer`)."""
         depot = self.politique.depot(demande.depot_alias)
         if depot is None:
             raise CarteRefusee("politique", f"Dépôt « {demande.depot_alias} » absent de la politique de l'exécutant "
@@ -342,6 +381,14 @@ class Execution:
         raison = self.voies_ouvertes().get(demande.voie)
         if raison:
             raise CarteRefusee("capacite", f"Voie {demande.voie} fermée sur l'exécutant : {raison}")
+        codex = demande.role != "integration" and VOIE_OUTIL.get(demande.voie) == "codex"
+        mesure = None
+        if codex or depot.acces == "public":
+            # Avant CHAQUE carte Codex (la visibilité peut changer entre deux inventaires) et avant chaque carte d'un
+            # dépôt déclaré public (une politique fausse se voit aussitôt).
+            mesure = self.mesurer(depot)
+            if depot.acces == "public" and mesure.visibilite == "prive":
+                raise CarteRefusee("politique", DEPOT_DECLARE_PUBLIC_MESURE_PRIVE.format(alias=depot.alias))
         if demande.role == "integration":
             return depot
         outil = VOIE_OUTIL[demande.voie]
@@ -350,6 +397,11 @@ class Execution:
             if depot.acces == "public":
                 raise CarteRefusee("politique", "Voie Codex fermée pour un dépôt public (D83 : dépôts privés "
                                                 "seulement avec le compte ChatGPT).")
+            if mesure is None or not mesure.codex_admis:
+                raise CarteRefusee("politique", CODEX_NON_PROUVE_PRIVE.format(
+                    alias=depot.alias, visibilite=getattr(mesure, "visibilite", "inconnue"),
+                    lecture=getattr(mesure, "lecture", "inconnue"),
+                    raison=(mesure.raison[:1].upper() + mesure.raison[1:]) if mesure else ""))
             permis = self.politique.codex.modeles_permis
             if permis and demande.modele not in permis:
                 raise CarteRefusee("capacite", f"Modèle Codex {demande.modele} hors de la politique de l'exécutant.")
@@ -367,7 +419,7 @@ class Execution:
         arret = arret or asyncio.Event()
         debut = time.monotonic()
         try:
-            depot = self.controler(demande)
+            depot = await asyncio.to_thread(self.controler, demande)
         except CarteRefusee as exc:
             self.journal.ecrire("avertissement", "carte_refusee", exc.raison, carte=demande.carte)
             return await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison)
@@ -436,6 +488,14 @@ class Execution:
             raise CarteRefusee("politique", f"Branche de départ {demande.branche_depart} absente de l'exécutant : "
                                             "carte non préparée.")
         connue = self.session(demande.carte)
+        if not self.depots.branche_existe(depot.alias, demande.branche) and connue:
+            # Étape P7 (K25) : branche de la carte absente alors que la carte a déjà tourné — renommée en
+            # quarantaine/<carte> après un secret (P6 § 6.6), ou clone perdu. La carte repart de son départ sur une
+            # branche neuve : sa base, sa session d'agent (dont la transcription a vu le travail fautif) et sa
+            # préparation sont oubliées ; Depots.worktree retire le worktree posé sur la quarantaine.
+            connue = self._oublier_session(demande.carte, "base", "session", "prepare")
+            self.journal.ecrire("avertissement", "branche_neuve", QUARANTAINE_ECARTEE.format(
+                branche=demande.branche, depart=depart), carte=demande.carte)
         liens = depot.liens_symboliques and self.isolement.get("regime") == "A"
         chemin = await asyncio.to_thread(self.depots.worktree, depot, nom, demande.branche, depart,
                                          liens_symboliques=liens)

@@ -22,7 +22,7 @@ import pytest
 
 from acp_poste import execution as module_execution
 from acp_poste.balayage import RAISON_SECRET
-from acp_poste.depots import Depots
+from acp_poste.depots import Depots, Visibilite
 from acp_poste.execution import VERIF_NON_EXECUTEE, Execution, LanceurAgents
 from acp_poste.garde_quota import Budget, QuotasClaude
 from acp_poste.journal import Journal
@@ -105,6 +105,12 @@ class Banc:
         self.politique = dataclasses.replace(politique, depots=(depot_politique,))
         self.depots = Depots(racine_depots=self.emplacements.depots, racine_espaces=self.emplacements.espaces,
                              racine_bundles=self.emplacements.bundles, protocoles=("https", "file"), droits=False)
+        # Étape P7 : le dépôt « distant » du banc est un chemin local, qu'un ls-remote anonyme lit (« public ») ; la
+        # visibilité est donc FACTICE ici (celle que dit la déclaration, ou ``self.mesure``), et prouvée à part contre
+        # un faux serveur HTTPS (test_visibilite.py, et test_codex_mesure_reelle_contre_le_faux_serveur ci-dessous).
+        self.mesure: tuple[str, str] | None = None
+        self.mesures_faites: list[str] = []
+        self.depots.visibilite = self._mesure_factice
         self.coffre = _Coffre({"jeton-claude": "sk-ant-oat01-" + "c" * 40})
         self.hermes = Hermes()
         self.scenario = racine / "scenario.json"
@@ -119,6 +125,11 @@ class Banc:
             executables={"codex": [PYTHON, "-I", FAUX, str(self.scenario), "codex"],
                          "claude": [PYTHON, "-I", FAUX, str(self.scenario), "claude"]},
             intervalle_battement_s=0.2, grace_s=1.0)
+
+    def _mesure_factice(self, depot, **_options) -> Visibilite:
+        self.mesures_faites.append(depot.alias)
+        visibilite, lecture = self.mesure or (("public", "ok") if depot.acces == "public" else ("prive", "ok"))
+        return Visibilite(visibilite, lecture, datetime.now(UTC), "mesure factice du banc")
 
     def jouer(self, *executions: dict) -> None:
         self.scenario.write_text(json.dumps({"executions": list(executions), "journal": str(self.journal_agents),
@@ -395,6 +406,137 @@ def test_codex_refuse_sur_un_depot_public(tmp_path):
     banc = Banc(tmp_path / "banc", isolement=ISOLEMENT_A)
     issue = banc.executer(banc.carte(voie="poste-codex", modele="gpt-test"))
     assert issue.corps["genre"] == "politique" and "D83" in issue.corps["raison"]
+
+
+# ------------------------------------------------------------------ étape P7 : visibilité mesurée (cahier P7 § 11.2)
+
+
+def _banc_codex(racine: Path, **depot) -> Banc:
+    banc = Banc(racine, isolement=ISOLEMENT_A, depot={"acces": "jeton_lecture", **depot})
+    banc.depots.jeton_lecture = lambda: "github_pat_" + "f" * 30
+    return banc
+
+
+@pytest.mark.parametrize("mesure", [("public", "ok"), ("public", "refusee"), ("inconnue", "inconnue"),
+                                    ("inconnue", "ok"), ("prive", "refusee"), ("prive", "inconnue")])
+def test_codex_ferme_sauf_prive_et_ok_mesure(tmp_path, mesure):
+    """Déclaré « jeton_lecture », mais mesuré autrement que « prive » + « ok » : Codex refusé AVANT toute préparation,
+    rien n'est lancé (échec fermé)."""
+    banc = _banc_codex(tmp_path / "banc")
+    banc.mesure = mesure
+    banc.jouer(ECRIT)
+    issue = banc.executer(banc.carte(voie="poste-codex", modele="gpt-test", effort="high"))
+    assert issue.route == "bloquer" and issue.corps["genre"] == "politique", issue.corps
+    raison = issue.corps["raison"]
+    assert "n'est pas prouvé privé" in raison and "D83" in raison
+    assert f"visibilité mesurée {mesure[0]}, lecture avec le jeton {mesure[1]}" in raison
+    assert banc.invocations() == [] and banc.mesures_faites == ["jetable"]
+    assert not banc.depots.nu("jetable").exists()  # aucun clone : refusé avant la récupération
+
+
+def test_mesure_refaite_avant_chaque_carte_codex(tmp_path):
+    banc = _banc_codex(tmp_path / "banc")
+    banc.jouer(dict(ECRIT, session="thread-1"))
+    assert banc.executer(banc.carte(voie="poste-codex", modele="gpt-test", effort="high")).route == "terminer"
+    banc.mesure = ("public", "ok")  # le dépôt est devenu public entre deux cartes, sans nouvel inventaire
+    issue = banc.executer(banc.carte(carte="t_ef56ab78", voie="poste-codex", modele="gpt-test", effort="high"))
+    assert issue.route == "bloquer" and "visibilité mesurée public" in issue.corps["raison"]
+    assert banc.mesures_faites == ["jetable", "jetable"]
+    assert banc.execution.mesures["jetable"].visibilite == "public"
+
+
+def test_claude_ouvert_sur_un_depot_public_mesure(tmp_path):
+    """D84 : Claude travaille sur un dépôt public ; un dépôt déclaré public est remesuré avant chacune de ses cartes,
+    un dépôt « jeton_lecture » ne l'est que pour Codex."""
+    public = Banc(tmp_path / "public")
+    public.jouer(ECRIT)
+    assert public.executer(public.carte()).route == "terminer" and public.mesures_faites == ["jetable"]
+    prive = _banc_codex(tmp_path / "prive")
+    prive.jouer(ECRIT)
+    assert prive.executer(prive.carte()).route == "terminer" and prive.mesures_faites == []
+
+
+def test_depot_declare_public_mais_mesure_prive_refuse(banc):
+    banc.mesure = ("prive", "refusee")
+    banc.jouer(ECRIT)
+    issue = banc.executer(banc.carte())
+    assert issue.route == "bloquer" and issue.corps["genre"] == "politique"
+    assert ("la politique dit public, GitHub refuse l'accès anonyme : jeton requis" in issue.corps["raison"])
+    assert banc.invocations() == []
+
+
+def test_codex_mesure_reelle_contre_le_faux_serveur(tmp_path, faux_depot, avec_autorite):
+    """Sans mesure factice : Execution.controler → Depots.visibilite → git → faux serveur HTTPS. Seul le dépôt privé lu
+    avec le jeton passe la garde (puis la récupération échoue : le faux serveur ne sert que l'annonce)."""
+    attendus = {"public": "visibilité mesurée public, lecture avec le jeton ok",
+                "panne": "visibilité mesurée inconnue, lecture avec le jeton inconnue",
+                "hors-portee": "visibilité mesurée prive, lecture avec le jeton refusee"}
+    for nom, attendu in attendus.items():
+        banc = _banc_codex(tmp_path / nom, url=faux_depot.url(nom))
+        del banc.depots.visibilite  # la vraie mesure
+        banc.depots.jeton_lecture = lambda: faux_depot.jeton
+        banc.depots.askpass = (RACINE_DEPOT / "executant" / "bin" / "acp-askpass").as_posix()
+        issue = banc.executer(banc.carte(voie="poste-codex", modele="gpt-test", effort="high"))
+        assert issue.route == "bloquer" and issue.corps["genre"] == "politique" and attendu in issue.corps["raison"]
+        assert faux_depot.jeton not in json.dumps(banc.hermes.envois)
+    banc = _banc_codex(tmp_path / "prive", url=faux_depot.url("prive"))
+    del banc.depots.visibilite
+    banc.depots.jeton_lecture = lambda: faux_depot.jeton
+    banc.depots.askpass = (RACINE_DEPOT / "executant" / "bin" / "acp-askpass").as_posix()
+    issue = banc.executer(banc.carte(voie="poste-codex", modele="gpt-test", effort="high"))
+    assert issue.route == "bloquer" and issue.corps["genre"] == "capacite"
+    assert "Opération git en échec" in issue.corps["raison"]
+    assert banc.execution.mesures["jetable"].codex_admis
+
+
+# ------------------------------------------------------------------ étape P7 (K25) : relance d'une carte bloquée pour secret
+
+
+SECRET = "sk-ant-api03-" + "s" * 40
+
+
+def test_relance_apres_secret_branche_neuve_sans_le_commit_fautif(banc):
+    """K25 : la relance d'une carte bloquée pour un secret repart de son départ, sur une branche NEUVE : la branche
+    servie ne contient pas le commit fautif, gardé seul sur ``quarantaine/<carte>`` ; l'agent ne voit plus le fichier."""
+    banc.jouer({"ecrire": {"nouveau.py": "X = 1\n", "config.py": f"CLE = '{SECRET}'\n"}, "session": "s-fautive"},
+               {"ecrire": {"nouveau.py": "X = 1\n"}, "lire_texte": ["config.py"], "session": "s-neuve"})
+    premiere = banc.executer(banc.carte())
+    assert premiere.route == "bloquer" and premiere.corps["genre"] == "secret"
+    nu = banc.depots.nu("jetable")
+    fautif = banc.depots.sha(nu, "refs/heads/quarantaine/t_ab12cd34")
+    assert fautif and banc.depots.branche_du_worktree("jetable", "t_ab12cd34") == "quarantaine/t_ab12cd34"
+    # La branche de base avance pendant que la carte attend sa relance.
+    (banc.distant / "README.md").write_text("Avancé\n", encoding="utf-8")
+    _git(banc.distant, "commit", "-qam", "avance")
+    # Relance du propriétaire : le greffon la sert en session neuve (issue « relancee » → reprise: false).
+    issue = banc.executer(banc.carte(run_id=18, reprise=False))
+    assert issue.route == "terminer", issue.corps
+    m = issue.corps["metadonnees"]
+    servie = banc.depots.sha(nu, "refs/heads/hermes/t_ab12cd34")
+    assert servie == m["tete"] and banc.depots.branche_du_worktree("jetable", "t_ab12cd34") == "hermes/t_ab12cd34"
+    assert subprocess.run(["git", f"--git-dir={nu}", "merge-base", "--is-ancestor", fautif, servie]).returncode == 1
+    assert banc.depots.sha(nu, "refs/heads/quarantaine/t_ab12cd34") == fautif  # quarantaine intacte
+    assert m["base"] == banc.depots.sha(nu, "refs/remotes/origin/main")  # départ actuel, jamais l'ancienne base
+    assert m["diffstat"] == {"fichiers": 1, "ajouts": 1, "retraits": 1}  # nouveau.py seul : ni config.py ni README
+    assert {"texte": "config.py", "contenu": "refusé (FileNotFoundError)"} in banc.invocations()
+    agents = [i for i in banc.invocations() if i.get("outil") == "claude"]
+    assert len(agents) == 2 and "--resume" not in agents[1]["argv"]
+    assert SECRET not in json.dumps(banc.hermes.envois)
+    journal = (banc.racine / "journal" / "poste.jsonl").read_text(encoding="utf-8")
+    assert "branche_neuve" in journal and SECRET not in journal
+
+
+def test_relance_apres_secret_jamais_l_ancienne_session(banc):
+    """Défense en profondeur : servie avec ``reprise: true`` (un greffon de P6), la carte relancée ne reprend PAS la
+    session d'agent qui a vu le secret : la consigne entière est envoyée à une session neuve."""
+    banc.jouer({"ecrire": {"nouveau.py": "X = 1\n", "config.py": f"CLE = '{SECRET}'\n"}, "session": "s-fautive"},
+               dict(ECRIT, session="s-neuve"))
+    assert banc.executer(banc.carte()).corps["genre"] == "secret"
+    issue = banc.executer(banc.carte(run_id=18, reprise=True))
+    assert issue.route == "terminer", issue.corps
+    seconde = [i for i in banc.invocations() if i.get("outil") == "claude"][1]
+    assert "--resume" not in seconde["argv"] and "Reprise de la carte" not in seconde["stdin"]
+    assert "Ajouter la commande « compter »" in seconde["stdin"]
 
 
 def test_reprise_du_fil_avec_les_reponses(banc):

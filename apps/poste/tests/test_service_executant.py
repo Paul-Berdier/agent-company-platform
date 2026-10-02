@@ -141,6 +141,10 @@ class Banc:
             def recuperer(self, depot):
                 return super().recuperer(dataclasses.replace(depot, url=str(distant)))
 
+            def visibilite(self, depot, **options):
+                # Étape P7 : mesure contre le dépôt LOCAL (aucun appel réseau ; lu sans identifiant : « public »).
+                return super().visibilite(dataclasses.replace(depot, url=str(distant)), **options)
+
         self.fabrique_depots = lambda pol: DepotsLocaux(
             racine_depots=self.emplacements.depots, racine_espaces=self.emplacements.espaces,
             racine_bundles=self.emplacements.bundles, protocoles=("https", "file"), droits=False)
@@ -239,6 +243,12 @@ async def test_sondes_puis_carte_claude_executee(banc):
     assert servie["espace_libre_mio"] is not None and servie["carte_en_cours"] is None
     inventaire = banc.protocole.inventaires[0]
     assert inventaire["poste"]["plateforme"] == "linux" and inventaire["isolement_linux"]["regime"] == "B"
+    # Étape P7 : visibilité MESURÉE du dépôt publiée dès le premier inventaire (dépôt local lu sans identifiant).
+    depot = inventaire["depots"][0]
+    assert {k: depot[k] for k in ("alias", "visibilite", "lecture")} == {"alias": "jetable", "visibilite": "public",
+                                                                         "lecture": "ok"}
+    assert depot["verifie_le"].endswith("Z") and all(r["depots"] == inventaire["depots"]
+                                                     for r in inventaire["releves"])
     claude = next(r for r in inventaire["releves"] if r["voie"] == "poste-claude")
     assert claude["compteurs"][0]["source"] == "claude_code_rate_limit_event"
     terminer = next(c for r, c in banc.protocole.appels if r == "terminer")

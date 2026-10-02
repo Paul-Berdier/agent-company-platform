@@ -144,3 +144,58 @@ class Poste:
 @pytest.fixture
 def poste(tmp_path: Path) -> Poste:
     return Poste(tmp_path / "racine")
+
+
+# ------------------------------------------------------------------ faux dépôt git HTTPS (étape P7, visibilité mesurée)
+
+
+def _module_faux_depot():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("faux_depot_https", ICI / "faux_depot_https.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="session")
+def autorite_depot(tmp_path_factory):
+    """Autorité de certification jetable du faux serveur git (jamais committée, détruite avec la session)."""
+    return _module_faux_depot().autorite_de_test(tmp_path_factory.mktemp("autorite-depot"))
+
+
+@pytest.fixture(scope="session")
+def faux_depot(autorite_depot, tmp_path_factory):
+    """Faux serveur git HTTPS local (``faux_depot_https.py``) : public, privé, hors de portée, pannes, délai."""
+    import subprocess
+
+    module = _module_faux_depot()
+    depot = tmp_path_factory.mktemp("depot-annonce")
+    for argv in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "initial"]):
+        if argv[0] == "add":
+            (depot / "README.md").write_text("annonce\n", encoding="utf-8")
+        subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c",
+                        "commit.gpgsign=false", "-c", "init.defaultBranch=main", *argv], cwd=depot,
+                       capture_output=True, check=True)
+    faux = module.FauxDepotHttps(autorite_depot, module.annonce_de(depot / ".git")).demarrer()
+    try:
+        yield faux
+    finally:
+        faux.arreter()
+
+
+@pytest.fixture
+def avec_autorite(autorite_depot, monkeypatch):
+    """Ajoute l'autorité de test aux options IMPOSÉES de git (jamais en production : le magasin du système fait foi)."""
+    from acp_poste import depots as module_depots
+
+    originale = module_depots.options_git
+
+    def options(*args, **kwargs):
+        supplement = ["-c", f"http.sslCAInfo={autorite_depot.fichier_ac.as_posix()}"]
+        if os.name == "nt":
+            supplement += ["-c", "http.sslBackend=openssl"]
+        return originale(*args, **kwargs) + supplement
+
+    monkeypatch.setattr(module_depots, "options_git", options)
+    return autorite_depot

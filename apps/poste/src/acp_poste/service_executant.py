@@ -12,7 +12,8 @@ après une migration Railway). Puis, sur la même boucle asyncio :
   ``peut_executer`` (§ 6.1 : politique valide, sonde faite et UID séparés, une voie au moins, espace libre, plafonds
   du jour, aucune pause locale ni suspension), ``voies_disponibles``, ``carte_en_cours`` et ``espace_libre_mio`` ;
 - **tâche B** : relevés (sondes Codex et Claude sous l'UID de chaque outil, jamais pendant une carte ni en pause),
-  inventaire Linux (isolement mesuré, quotas Claude du dernier ``rate_limit_event``) ;
+  inventaire Linux (isolement mesuré, quotas Claude du dernier ``rate_limit_event``, visibilité mesurée de chaque
+  dépôt : étape P7) ;
 - **tâche C** : une carte à la fois (:mod:`acp_poste.execution`).
 
 401 ``poste_revoque`` : jeton effacé, retour à l'attente d'enrôlement, **sans sortie** (aucune notification « hors
@@ -410,6 +411,9 @@ class ServiceExecutant(Service):
         self.resultats_sondes = {"codex": codex, "claude": claude}
         if codex is not None:
             self.compteurs_codex = codex.releve.get("compteurs")
+        # Étape P7 (cahier P7 § 11.2) : visibilité mesurée de chaque dépôt, publiée avec l'inventaire (au démarrage,
+        # puis à chaque relevé). Réseau : hors de la boucle asyncio.
+        await asyncio.to_thread(self.execution.mesurer_depots)
         return codex, claude
 
     def echeance_jeton_claude(self) -> Any:
@@ -434,7 +438,8 @@ class ServiceExecutant(Service):
                                            message):
                 console(message)
         return construire(self.politique, codex, claude, valeurs_exactes=self.journal.valeurs_masquees(),
-                          infos=self.contexte.infos(), isolement=self.isolement, echeance_claude=echeance)
+                          infos=self.contexte.infos(), isolement=self.isolement, echeance_claude=echeance,
+                          mesures=dict(self.execution.mesures))
 
     # ------------------------------------------------------------------ vie du service
     async def _surveiller(self) -> None:
