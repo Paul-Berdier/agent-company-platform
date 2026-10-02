@@ -28,6 +28,7 @@ from conftest import lancer_sans_depot, lancer_sur_depot, poste_confirme, reclam
 
 SUJETS = ["projets", "questions", "poste", "quotas", "notifications", "pause", "discussions"]
 CHEMIN = "/api/plugins/acp-poste/v1/flux"
+CHEMIN_POSTE = "/api/plugins/acp-poste"
 
 
 @pytest.fixture
@@ -453,6 +454,31 @@ def test_route_battement_et_fin(pile_machine):
         assert lecteur.trame(10)[1] is None  # le serveur ferme le flux après « fin »
     finally:
         lecteur.fermer()
+
+
+def test_aller_retour_entre_deux_passes_publie_quand_meme(pile_machine, flux):
+    """Correction (CI « Image Hermes » 36976430592, test_projets.py) : une pause générale posée puis levée par la route
+    ENTRE deux passes du veilleur laissait l'empreinte « pause » identique ; le téléphone, qui avait relu l'état en
+    pause entre-temps, gardait le bandeau. La ligne du journal de chaque geste (identifiant croissant) publie le sujet.
+    Même chose pour la politique de routage (Routage, Quotas)."""
+    suivi = Suivi(flux)
+
+    def pause_puis_reprise():
+        assert pile_machine.post(f"{CHEMIN_POSTE}/v1/pause", {"generale": True}).status_code == 200
+        assert pile_machine.post(f"{CHEMIN_POSTE}/v1/pause", {"generale": False}).status_code == 200
+    assert suivi.muter(pause_puis_reprise) == {"pause"}
+    # Le même aller-retour de l'arrêt d'urgence fait HORS d'ACP (aucune ligne du journal) ne se voit pas : limite dite
+    # (docs/refonte/projets.md § 4 ter), couverte par la relecture de sûreté des pages (120 s).
+    ka = pile_machine.noyau.ka
+    assert suivi.muter(lambda: (ka.engage("hors ACP"), ka.disengage())) == set()
+    base = pile_machine.noyau.base
+    with base.connexion() as conn:
+        avant = base.reglage(conn, "efforts_interdits")
+
+        def politique_aller_retour():
+            base.poser_reglage(conn, "efforts_interdits", ["max"], "proprietaire:test")
+            base.poser_reglage(conn, "efforts_interdits", avant, "proprietaire:test")
+        assert suivi.muter(politique_aller_retour) == {"quotas"}
 
 
 def _place_rendue(pile, delai: float) -> float:

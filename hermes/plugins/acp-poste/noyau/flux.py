@@ -13,10 +13,11 @@ Sujets (:data:`SUJETS`) et ce que leur empreinte relit, en lecture seule :
 - ``poste`` : postes (état, conditions annoncées à la réclamation, carte en main, disque, politique), présence ÉVALUÉE
   MAINTENANT (en ligne ou hors ligne au seuil ``seuil_hors_ligne_s``, redéploiement annoncé), inventaires reçus, ordres
   en attente ;
-- ``quotas`` : relevés (reçus, acceptés), attentes de quota, table de routage, surcharges et politique (la page
-  Routage lit les mêmes relevés que la page Quotas) ;
+- ``quotas`` : relevés (reçus, acceptés), attentes de quota, table de routage, surcharges et politique, dont la
+  dernière ligne du journal d'un changement de politique (la page Routage lit les mêmes relevés que la page Quotas) ;
 - ``notifications`` : canal publié par la passerelle, notifications par état ;
-- ``pause`` : arrêt d'urgence de Hermes, réglage ``pause_reclamations``, projets en pause ;
+- ``pause`` : arrêt d'urgence de Hermes, réglage ``pause_reclamations``, projets en pause, et la dernière ligne du
+  journal d'une pause ou d'une reprise générale (un aller-retour entre deux passes est publié quand même) ;
 - ``discussions`` : nombre de requêtes du serveur au client ouvertes dans CE processus (``ka.requetes_ouvertes``) ;
   inconnu (``None``) : ``discussions_suivies: false``, le sujet n'est alors jamais publié et le client relit la
   section lui-même.
@@ -140,6 +141,16 @@ def derniers_evenements(conn) -> Tuple[Tuple[Tuple[str, Any], ...], bool]:
 
 # Les dates sont à la seconde : deux écritures dans la même seconde ne changeraient pas un MAX. Chaque empreinte
 # porte donc aussi des comptes par état et des identifiants croissants (journal, ordres, notifications).
+#
+# Aller-retour entre deux passes (A → B → A) : une pause générale posée puis levée dans le même intervalle laisse un
+# état identique à celui de la passe précédente, alors qu'une page a pu relire l'état B entre-temps (elle garderait
+# un bandeau périmé jusqu'à sa relecture de sûreté). Les gestes d'ACP sur un état réversible sont donc aussi suivis
+# par le DERNIER IDENTIFIANT de leurs lignes du journal (strictement croissant), lu par l'index (projet_id, id) sur
+# les seules lignes sans projet.
+_JOURNAL_PAUSE = ("SELECT MAX(id) FROM journal WHERE projet_id IS NULL AND (action IN ('pause_generale', "
+                  "'reprise_generale', 'crochets') OR (action = 'reglage' AND cible = 'pause_reclamations'))")
+_JOURNAL_POLITIQUE = ("SELECT MAX(id) FROM journal WHERE projet_id IS NULL AND action = 'reglage' AND cible IN "
+                      "('efforts_interdits', 'paliers_admis', 'relecture_repli_meme_voie')")
 
 
 def _projets(conn, tableaux) -> Any:
@@ -180,7 +191,8 @@ def _quotas(conn, _tableaux) -> Any:
             _lignes(conn, "SELECT classe, entrees, valide_le, valide_par, source FROM routage ORDER BY classe"),
             _ligne(conn, "SELECT COUNT(*), MAX(id), SUM(active) FROM surcharges"),
             _lignes(conn, "SELECT cle, valeur FROM reglages WHERE cle IN ('efforts_interdits', 'paliers_admis', "
-                          "'relecture_repli_meme_voie') ORDER BY cle"))
+                          "'relecture_repli_meme_voie') ORDER BY cle"),
+            _ligne(conn, _JOURNAL_POLITIQUE))
 
 
 def _notifications(conn, _tableaux) -> Any:
@@ -192,7 +204,8 @@ def _pause(conn, _tableaux) -> Any:
     arret = ka.get_state()
     return (json.dumps(arret, sort_keys=True, ensure_ascii=False, default=str),
             bool(base.reglage(conn, "pause_reclamations")),
-            _lignes(conn, "SELECT id FROM projets WHERE etat = 'en_pause' ORDER BY id"))
+            _lignes(conn, "SELECT id FROM projets WHERE etat = 'en_pause' ORDER BY id"),
+            _ligne(conn, _JOURNAL_PAUSE))
 
 
 LECTEURS: Dict[str, Callable[[Any, Any], Any]] = {

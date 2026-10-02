@@ -433,6 +433,9 @@ def test_page_projets_telephone_et_bureau(playwright_sync, pile):
         for p in (page, page_tel):
             p.wait_for_selector('[data-acp-temps-reel="temps_reel"]', timeout=20_000)
         assert "temps réel" in page_tel.inner_text('[data-acp-temps-reel]')
+        # La trame « etat » de l'ouverture fait relire la page 300 ms plus tard : on laisse passer cette relecture,
+        # pour que le bandeau vu au téléphone ne puisse venir que d'une trame « changement ».
+        page_tel.wait_for_timeout(1_500)
         debut = time.monotonic()
         page.click('#acp-projets-pause >> xpath=.. >> button:has-text("Pause générale")')
         page.click('button:has-text("Confirmer la pause générale")')
@@ -442,6 +445,7 @@ def test_page_projets_telephone_et_bureau(playwright_sync, pile):
         page.click("[data-acp-pause] button:has-text(\"Reprendre\")")
         page_tel.wait_for_selector("[data-acp-pause]", state="detached", timeout=10_000)
         disparition = time.monotonic() - debut
+        assert api(page, "/v1/projets")["corps"]["pause_generale"] is None
         flux = {f: sum(1 for u in requetes[f] if u.endswith("/api/plugins/acp-poste/v1/flux")) for f in FORMATS}
         assert all(n >= 1 for n in flux.values()), flux
         preuves["temps_reel"] = {"pause_vue_au_telephone_s": round(apparition, 2),

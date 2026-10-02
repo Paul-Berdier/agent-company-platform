@@ -141,6 +141,13 @@ data: {"raison":"duree_max"}
   file par état) ; `pause` (arrêt d'urgence, `pause_reclamations`, projets en pause) ; `discussions` (requêtes du
   serveur au client ouvertes dans le processus du tableau de bord ; `discussions_suivies: false` si Hermes ne publie
   pas ce compteur : le sujet n'est alors jamais publié et le client relit la section lui-même).
+- **Aller-retour entre deux passes** (A → B → A en moins de 2 s, par exemple une pause générale posée puis levée) :
+  l'état relu serait identique à celui de la passe précédente, alors qu'une page a pu relire B entre-temps. `pause`
+  et `quotas` portent donc aussi le dernier identifiant (strictement croissant) des lignes du journal de leurs gestes
+  (pause et reprise générales, veille des crochets, réglage `pause_reclamations` ; réglages de la politique de
+  routage) : le sujet est publié quand même (`test_aller_retour_entre_deux_passes_publie_quand_meme`, défaut trouvé
+  par la CI « Image Hermes » de `4c4282b`). **Limite** : un aller-retour de l'arrêt d'urgence fait hors d'ACP (CLI de
+  Hermes) dans le même intervalle n'est pas vu ; la relecture de sûreté des pages (120 s) le rattrape.
 - **Battement** (commentaire) toutes les `flux_battement_s` (15 s : le bord Railway coupe une requête après 5 min
   sans octet) ; **fin** propre après `flux_duree_max_s` (600 s : le bord coupe à 15 min), le client rouvre aussitôt
   avec `Last-Event-ID`.
