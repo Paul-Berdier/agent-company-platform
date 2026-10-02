@@ -33,6 +33,7 @@ class ProjetsViewModel;
 class QuestionsViewModel;
 class QuotasViewModel;
 class RoutageViewModel;
+class SauvegardeViewModel;
 class SessionHermes;
 class SettingsStore;
 class ShellViewModel;
@@ -93,6 +94,7 @@ private:
     PosteViewModel *m_poste = nullptr;
     QuotasViewModel *m_quotas = nullptr;
     RoutageViewModel *m_routage = nullptr;
+    SauvegardeViewModel *m_sauvegarde = nullptr;
     DemandesAgent *m_demandes = nullptr;
     DiscussionViewModel *m_discussion = nullptr;
     UpdateService *m_updates = nullptr;

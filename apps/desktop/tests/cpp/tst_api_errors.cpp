@@ -110,6 +110,15 @@ void TestApiErrors::translatesOnlyFixedHermesMessages()
     QCOMPARE(traduireMessageHermes(QStringLiteral("Something unexpected")),
              QStringLiteral("Something unexpected"));
     QCOMPARE(traduireMessageHermes(QStringLiteral("Requête refusée")), QStringLiteral("Requête refusée"));
+    // Sauvegarde et fichiers gérés : messages fixes, et préfixes fixes suivis d'un détail rendu tel quel.
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Backup not found")),
+             QStringLiteral("archive de sauvegarde introuvable sur le serveur"));
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Path outside managed files root")),
+             QStringLiteral("chemin hors de la racine des fichiers gérés par Hermes"));
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Could not delete path: [Errno 13] Permission denied")),
+             QStringLiteral("suppression impossible sur le volume de Hermes : [Errno 13] Permission denied"));
+    const ApiError introuvable = ApiError::fromResponse(404, QByteArrayLiteral("{\"detail\":\"Backup not found\"}"));
+    QCOMPARE(introuvable.detail(), QStringLiteral("archive de sauvegarde introuvable sur le serveur"));
 }
 
 void TestApiErrors::mapsHttpStatusToFamily_data()

@@ -15,6 +15,7 @@
 #include "services/CompatibiliteHermes.h"
 #include "services/HealthService.h"
 #include "services/UpdateService.h"
+#include "storage/ChiffrementSauvegarde.h"
 #include "storage/CredentialVault.h"
 #include "storage/SettingsStore.h"
 #include "system/SystemAppearance.h"
@@ -26,6 +27,7 @@
 #include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/QuotasViewModel.h"
 #include "viewmodels/RoutageViewModel.h"
+#include "viewmodels/SauvegardeViewModel.h"
 #include "viewmodels/ShellViewModel.h"
 
 #include <QCoreApplication>
@@ -105,6 +107,8 @@ Application::Application(QObject *parent)
     m_poste = new PosteViewModel(m_greffon.get(), m_compatibilite, m_flux, this);
     m_quotas = new QuotasViewModel(m_greffon.get(), m_flux, this);
     m_routage = new RoutageViewModel(m_client, m_greffon.get(), m_flux, this);
+    // Sauvegarde : chiffrée par DPAPI pour la session Windows courante (format ACPB1).
+    m_sauvegarde = new SauvegardeViewModel(m_client, m_flux, makeProtecteurUtilisateur(), this);
     // Demandes de l'agent (approval, clarify) et discussion : sur la passerelle JSON-RPC.
     m_demandes = new DemandesAgent(m_passerelle, this);
     m_discussion = new DiscussionViewModel(m_passerelle, m_flux, this);
@@ -192,6 +196,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Poste", m_poste);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Quotas", m_quotas);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Routage", m_routage);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Sauvegarde", m_sauvegarde);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Demandes", m_demandes);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Discussion", m_discussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
@@ -332,6 +337,15 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Ctrl+8"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("routing"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.backup"), QStringLiteral("Exporter une sauvegarde chiffrée de Hermes"),
+        QStringLiteral("Navigation"), {QStringLiteral("sauvegarde"), QStringLiteral("export"), QStringLiteral("archive")},
+        QStringLiteral("Ctrl+9"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("backup"));
             return CommandResult::accept();
         }});
 

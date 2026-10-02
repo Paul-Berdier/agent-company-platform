@@ -134,7 +134,7 @@ public:
     /*!
         Fin du rafraîchissement demandé par `refreshRequested()`. En cas de succès, les
         appels en attente sont réémis une fois avec le nouveau jeton ; sinon ils échouent
-        avec ailure (ou « Session expirée » s'il est vide). Sans appel en attente, sans
+        avec `failure` (ou « Session expirée » s'il est vide). Sans appel en attente, sans
         effet.
     */
     void refreshFinished(bool succeeded, const ApiError &failure = {});
@@ -155,6 +155,18 @@ public:
         avec `error`, de façon asynchrone comme tout appel, sans rien émettre sur le réseau.
     */
     ApiCall *reject(const ApiError &error);
+
+    /*!
+        Ouvre une LECTURE en flux d'une route protégée (`GET`), pour un corps trop grand pour
+        la mémoire (archive de sauvegarde) : la réponse est rendue à l'appelant, qui la lit au
+        fil de l'eau (`readyRead`) et la détruit. Mêmes garanties que send() : porteur posé au
+        moment de l'envoi puis effacé, aucun cookie, aucune redirection suivie, aucun proxy
+        implicite. Sans rafraîchissement ni réémission : un 401 est rendu tel quel.
+
+        Rend nullptr et remplit `refus` si l'adresse ou la session manque.
+    */
+    [[nodiscard]] QNetworkReply *ouvrirFlux(const QString &path, const QUrlQuery &query, ApiError *refus,
+                                            const QByteArray &accept = QByteArrayLiteral("application/octet-stream"));
 
     /*! Nombre d'appels en vol, pour la barre d'état et l'écran de diagnostics. */
     [[nodiscard]] int inFlightCount() const;

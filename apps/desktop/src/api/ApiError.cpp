@@ -229,10 +229,34 @@ QString traduireMessageHermes(const QString &message)
          QStringLiteral("méthode PKCE refusée : S256 est exigée")},
         {QStringLiteral("code_challenge required"), QStringLiteral("défi PKCE manquant")},
         {QStringLiteral("redirect_uri required"), QStringLiteral("adresse de retour manquante")},
+        // Sauvegarde et fichiers gérés (hermes_cli/web_routers/ops.py, files.py, web_server_files.py).
+        {QStringLiteral("Backup not found"), QStringLiteral("archive de sauvegarde introuvable sur le serveur")},
+        {QStringLiteral("Invalid backup path"), QStringLiteral("chemin d'archive refusé par Hermes")},
+        {QStringLiteral("Backup is outside the dashboard backup directory"),
+         QStringLiteral("archive hors du répertoire des sauvegardes de Hermes")},
+        {QStringLiteral("Path not found"), QStringLiteral("fichier introuvable sur le volume de Hermes")},
+        {QStringLiteral("Path outside managed files root"),
+         QStringLiteral("chemin hors de la racine des fichiers gérés par Hermes")},
+        {QStringLiteral("Cannot delete the managed files root"),
+         QStringLiteral("la racine des fichiers gérés ne peut pas être supprimée")},
+        {QStringLiteral("Path must be absolute"), QStringLiteral("chemin absolu exigé")},
+        {QStringLiteral("Path cannot contain '..'"), QStringLiteral("chemin contenant « .. » refusé")},
     };
     for (const auto &[anglais, francais] : fixes) {
         if (brut == anglais) {
             return francais;
+        }
+    }
+    // Messages à préfixe fixe suivi d'un détail du système (rendu tel quel, comme donnée).
+    static const QList<QPair<QString, QString>> prefixes = {
+        {QStringLiteral("Could not delete path: "), QStringLiteral("suppression impossible sur le volume de Hermes : ")},
+        {QStringLiteral("Failed to run backup: "), QStringLiteral("lancement de la sauvegarde impossible : ")},
+        {QStringLiteral("Could not create backup directory: "),
+         QStringLiteral("répertoire des sauvegardes impossible à créer : ")},
+    };
+    for (const auto &[anglais, francais] : prefixes) {
+        if (brut.startsWith(anglais)) {
+            return francais + brut.mid(anglais.size());
         }
     }
     static const QRegularExpression injoignable(

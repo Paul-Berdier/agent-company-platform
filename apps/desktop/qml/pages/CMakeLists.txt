@@ -14,5 +14,6 @@ acp_add_qml_module(
         QuestionsPage.qml
         QuotasPage.qml
         RoutagePage.qml
+        SauvegardePage.qml
         SettingsPage.qml
 )

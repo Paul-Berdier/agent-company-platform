@@ -182,8 +182,12 @@ set(ACP_CORE_SOURCES
     src/services/CompatibiliteHermes.h
     src/services/HealthService.cpp
     src/services/HealthService.h
+    src/services/TelechargementFlux.cpp
+    src/services/TelechargementFlux.h
     src/services/UpdateService.cpp
     src/services/UpdateService.h
+    src/storage/ChiffrementSauvegarde.cpp
+    src/storage/ChiffrementSauvegarde.h
     src/storage/CredentialVault.cpp
     src/storage/CredentialVault.h
     src/storage/JetonsCoffre.cpp
@@ -212,6 +216,8 @@ set(ACP_CORE_SOURCES
     src/viewmodels/QuotasViewModel.h
     src/viewmodels/RoutageViewModel.cpp
     src/viewmodels/RoutageViewModel.h
+    src/viewmodels/SauvegardeViewModel.cpp
+    src/viewmodels/SauvegardeViewModel.h
     src/viewmodels/ShellViewModel.cpp
     src/viewmodels/ShellViewModel.h
 )
@@ -241,7 +247,9 @@ target_link_libraries(acp_core PUBLIC
 if(WIN32)
     # CredWriteW, CredReadW, CredDeleteW et CredFree vivent dans Advapi32.
     # https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-credwritew
-    target_link_libraries(acp_core PRIVATE Advapi32)
+    # CryptProtectData et CryptUnprotectData (sauvegarde chiffrée, DPAPI) vivent dans Crypt32.
+    # https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata
+    target_link_libraries(acp_core PRIVATE Advapi32 Crypt32)
 endif()
 
 # Les conversions implicites de QString depuis un littéral ASCII sont désactivées : elles

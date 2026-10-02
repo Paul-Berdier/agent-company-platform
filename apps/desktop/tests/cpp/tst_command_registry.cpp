@@ -255,18 +255,17 @@ void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
     QCOMPARE(navigation.currentRoute(), QStringLiteral("diagnostics"));
     QVERIFY(navigation.canGoForward());
     QSignalSpy refused(&navigation, &NavigationModel::navigationRefused);
-    // Hors périmètre, inconnue, et page de pilotage pas encore livrée : trois refus, et la
-    // route courante ne bouge pas.
+    // Hors périmètre et inconnue : deux refus, et la route courante ne bouge pas.
     navigation.setCurrentRoute(QStringLiteral("office"));
     navigation.setCurrentRoute(QStringLiteral("unknown"));
-    navigation.setCurrentRoute(QStringLiteral("backup"));
-    QCOMPARE(refused.count(), 3);
+    QCOMPARE(refused.count(), 2);
     QCOMPARE(navigation.currentRoute(), QStringLiteral("diagnostics"));
-    QVERIFY(!navigation.isNavigable(QStringLiteral("backup")));
-    QVERIFY(navigation.detailFor(QStringLiteral("backup"))
-                .startsWith(QStringLiteral("Indisponible pour l'instant")));
-    // Pages de pilotage livrées : navigables, sans explication d'indisponibilité.
-    for (const char *route : {"projects", "questions", "chat", "station", "quotas", "routing"}) {
+    QVERIFY(!navigation.isNavigable(QStringLiteral("office")));
+    QVERIFY(navigation.detailFor(QStringLiteral("office")).startsWith(QStringLiteral("Hors périmètre")));
+    // Toutes les pages de pilotage de l'étape P8 sont livrées : navigables, sans explication
+    // d'indisponibilité, et aucune destination n'est plus « Indisponible pour l'instant ».
+    for (const char *route : {"home", "projects", "questions", "chat", "station", "quotas", "routing", "diagnostics",
+                              "backup", "settings"}) {
         QVERIFY2(navigation.isNavigable(QString::fromLatin1(route)), route);
         QVERIFY2(navigation.detailFor(QString::fromLatin1(route)).isEmpty(), route);
     }

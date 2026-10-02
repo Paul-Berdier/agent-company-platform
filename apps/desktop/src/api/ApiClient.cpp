@@ -235,6 +235,39 @@ QUrl ApiClient::resolve(const QString &path, const QUrlQuery &query) const
     return url;
 }
 
+QNetworkReply *ApiClient::ouvrirFlux(const QString &path, const QUrlQuery &query, ApiError *refus,
+                                     const QByteArray &accept)
+{
+    const QUrl url = resolve(path, query);
+    if (url.isEmpty()) {
+        if (refus) {
+            *refus = ApiError::refusal(QStringLiteral("Aucune adresse de serveur n'est configurée."));
+        }
+        return nullptr;
+    }
+    QByteArray token = m_bearerProvider ? m_bearerProvider() : QByteArray();
+    if (token.isEmpty()) {
+        if (refus) {
+            *refus = ApiError::refusal(QStringLiteral("Aucune session : connectez-vous."));
+        }
+        return nullptr;
+    }
+    QNetworkRequest networkRequest(url);
+    networkRequest.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
+    networkRequest.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
+    networkRequest.setRawHeader(QByteArrayLiteral("Accept"), accept);
+    if (!m_userAgent.isEmpty()) {
+        networkRequest.setRawHeader(QByteArrayLiteral("User-Agent"), m_userAgent);
+    }
+    networkRequest.setRawHeader(QByteArrayLiteral("Authorization"), QByteArrayLiteral("Bearer ") + token);
+    CredentialVault::wipe(token);
+    networkRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                                QVariant::fromValue(QNetworkRequest::ManualRedirectPolicy));
+    // Délai d'INACTIVITÉ : un flux long reste vivant tant que des octets arrivent.
+    networkRequest.setTransferTimeout(std::chrono::milliseconds(120000));
+    return m_manager->get(networkRequest);
+}
+
 int ApiClient::inFlightCount() const
 {
     int count = 0;

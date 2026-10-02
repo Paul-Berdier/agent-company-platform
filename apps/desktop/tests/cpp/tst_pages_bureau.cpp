@@ -23,6 +23,7 @@
 #include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/QuotasViewModel.h"
 #include "viewmodels/RoutageViewModel.h"
+#include "viewmodels/SauvegardeViewModel.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -33,6 +34,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <memory>
@@ -157,6 +159,25 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     });
     QJsonObject routage = fixture(QStringLiteral("routage.json"));
     serveur.route("GET", kP + QStringLiteral("/routage"), [&routage](const RequeteRecue &) { return ReponseFaux::json(200, routage); });
+    // Sauvegarde : lancement, fin, archive servie, suppression (formes de hermes_cli/web_routers).
+    const QString archiveDistante = QStringLiteral("/opt/data/backups/hermes-backup-essai.zip");
+    serveur.route("POST", QStringLiteral("/api/ops/backup"), [&archiveDistante](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("pid"), 7},
+                                                  {QStringLiteral("name"), QStringLiteral("backup")},
+                                                  {QStringLiteral("archive"), archiveDistante}});
+    });
+    serveur.route("GET", QStringLiteral("/api/actions/backup/status"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("running"), false}, {QStringLiteral("exit_code"), 0},
+                                                  {QStringLiteral("lines"), QJsonArray{}}});
+    });
+    serveur.route("GET", QStringLiteral("/api/ops/backup/download"), [](const RequeteRecue &) {
+        ReponseFaux reponse;
+        reponse.corps = QByteArray(200 * 1024, 'z');
+        return reponse;
+    });
+    serveur.route("DELETE", QStringLiteral("/api/files"), [](const RequeteRecue &) {
+        return ReponseFaux::json(403, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Path outside managed files root")}});
+    });
     QJsonObject questions = fixture(QStringLiteral("questions.json"));
     serveur.route("GET", kP + QStringLiteral("/questions"),
                   [&questions](const RequeteRecue &) { return ReponseFaux::json(200, questions); });
@@ -176,10 +197,11 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     auto *pagePoste = application.findChild<PosteViewModel *>();
     auto *pageQuotas = application.findChild<QuotasViewModel *>();
     auto *pageRoutage = application.findChild<RoutageViewModel *>();
+    auto *pageSauvegarde = application.findChild<SauvegardeViewModel *>();
     auto *discussion = application.findChild<DiscussionViewModel *>();
     auto *demandes = application.findChild<DemandesAgent *>();
     auto *passerelle = application.findChild<GatewayClient *>();
-    QVERIFY(client && flux && accueil && pageProjets && pageQuestions && pagePoste && pageQuotas && pageRoutage && discussion && demandes && passerelle);
+    QVERIFY(client && flux && accueil && pageProjets && pageQuestions && pagePoste && pageQuotas && pageRoutage && pageSauvegarde && discussion && demandes && passerelle);
     client->setAllowInsecureLoopback(true);
     QVERIFY(!client->setBaseUrl(serveur.url()).isError());
     client->setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
@@ -364,6 +386,25 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QVERIFY(contientTexte(item, QStringLiteral("Accepter ce relevé comme celui de mon compte")));
     }
     QTRY_VERIFY(!pageRoutage->actif());
+
+    // --- Sauvegarde : au repos, puis un export réel (DPAPI) dont la suppression est refusée --------
+    {
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("SauvegardePage"));
+        QVERIFY(page);
+        auto *item = qobject_cast<QQuickItem *>(page.get());
+        VERIFIER(page.get(), QStringLiteral("Sauvegarde au repos"));
+        QVERIFY(contientTexte(item, QStringLiteral("Aucun export en cours")));
+        QTemporaryDir dossier;
+        pageSauvegarde->setIntervalleSuivi(std::chrono::milliseconds(20));
+        pageSauvegarde->exporter(dossier.filePath(QStringLiteral("essai.acpb")));
+        QTRY_VERIFY_WITH_TIMEOUT(pageSauvegarde->phase() == SauvegardeViewModel::Phase::Termine
+                                     || pageSauvegarde->phase() == SauvegardeViewModel::Phase::Echec,
+                                 10000);
+        QCOMPARE(pageSauvegarde->phase(), SauvegardeViewModel::Phase::Termine);
+        VERIFIER(page.get(), QStringLiteral("Sauvegarde exportée, archive restante"));
+        QVERIFY(contientTexte(item, QStringLiteral("Export terminé")));
+        QVERIFY(contientTexte(item, archiveDistante));
+    }
 
     // --- Discussion : sessions, transcription, puis une demande d'autorisation de l'agent --------
     {

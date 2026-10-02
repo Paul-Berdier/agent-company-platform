@@ -22,11 +22,10 @@ QString readinessLabel(NavigationModel::Readiness readiness)
 NavigationModel::NavigationModel(QObject *parent)
     : QAbstractListModel(parent)
 {
-    // Seuls les écrans effectivement livrés sont navigables. Les pages de pilotage de
-    // Hermes sont déclarées « Indisponible pour l'instant » tant qu'elles ne sont pas
-    // livrées : visibles, jamais navigables, jamais simulées.
-    const QString aVenir = QStringLiteral(
-        "Indisponible pour l'instant : cette page arrive avec l'étape P8 de la station.");
+    // Seuls les écrans effectivement livrés sont navigables. Une destination prévue mais
+    // non livrée serait déclarée « Indisponible pour l'instant » (Readiness::Planned) :
+    // visible, jamais navigable, jamais simulée. Depuis l'étape P8, toutes les pages de
+    // pilotage sont livrées ; seule « office » reste hors périmètre.
     m_destinations = {
         {QStringLiteral("home"), QStringLiteral("Accueil"), QStringLiteral("home"),
          Readiness::Ready, QString()},
@@ -45,7 +44,7 @@ NavigationModel::NavigationModel(QObject *parent)
         {QStringLiteral("diagnostics"), QStringLiteral("Diagnostics"),
          QStringLiteral("stethoscope"), Readiness::Ready, QString()},
         {QStringLiteral("backup"), QStringLiteral("Sauvegarde"), QStringLiteral("archive"),
-         Readiness::Planned, aVenir},
+         Readiness::Ready, QString()},
         {QStringLiteral("settings"), QStringLiteral("Réglages"),
          QStringLiteral("settings"), Readiness::Ready, QString()},
         {QStringLiteral("office"), QStringLiteral("Bureau de département"),
