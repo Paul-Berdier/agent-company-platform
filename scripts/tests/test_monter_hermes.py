@@ -594,6 +594,61 @@ def test_derniere_refuse_une_page_de_docker_hub_qui_n_est_pas_un_objet(depot, am
         mh.derniere(depot, amont, lambda _url: page, sortie=lambda _l: None)
 
 
+# =========================================================================== relecture : lectures réseau bornées
+
+
+@pytest.mark.parametrize("suivante", [
+    "file:///etc/passwd", "http://hub.docker.com/v2/repositories/nousresearch/hermes-agent/tags?page=2",
+    "https://hub.docker.com.exemple.test/v2/repositories/nousresearch/hermes-agent/tags?page=2",
+    "https://hub.docker.com/v2/repositories/autre/image/tags?page=2", 5])
+def test_derniere_ne_suit_que_les_pages_de_l_api_de_docker_hub(depot, amont, suivante):
+    """Relecture P9 : le lien « next » d'une page était suivi tel quel (urllib ouvre aussi file:// et http://) ;
+    seule une page suivante de la même API, en https, est lue."""
+    amont.tags_git = ["v2026.9.24"]
+    lus: List[object] = []
+
+    def lire(url: str) -> bytes:
+        lus.append(url)
+        return json.dumps({"results": [{"name": "v2026.9.24"}], "next": suivante}).encode()
+
+    with pytest.raises(mh.Refus, match="page suivante"):
+        mh.derniere(depot, amont, lire, sortie=lambda _l: None)
+    assert lus == [mh.API_DOCKER_HUB]
+
+
+def test_lire_url_reel_borne_la_lecture_et_ne_lit_que_l_api_de_docker_hub(monkeypatch):
+    """Relecture P9 : ``reponse.read()`` lisait le corps entier, sans borne ; la lecture est arrêtée au-delà de
+    LIMITE_PAGE octets (une page réelle de 100 étiquettes pèse de l'ordre de 100 Ko)."""
+    ouvertes: List[str] = []
+    tailles_lues: List[int] = []
+
+    class Reponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read(self, n: int = -1) -> bytes:
+            tailles_lues.append(n)
+            corps = 16 * 1024 * 1024
+            return b" " * (corps if n is None or n < 0 else min(n, corps))
+
+    def ouvrir(requete, timeout):
+        ouvertes.append(requete.full_url)
+        return Reponse()
+
+    monkeypatch.setattr(mh.urllib.request, "urlopen", ouvrir)
+    with pytest.raises(mh.Refus, match="octets"):
+        mh.lire_url_reel(mh.API_DOCKER_HUB)
+    assert tailles_lues and all(0 < n <= 16 * 1024 * 1024 for n in tailles_lues), tailles_lues
+    for url in ("file:///etc/passwd", "http://hub.docker.com/v2/repositories/nousresearch/hermes-agent/tags",
+                "https://exemple.test/v2/repositories/nousresearch/hermes-agent/tags"):
+        with pytest.raises(mh.Refus, match="hors de l'API"):
+            mh.lire_url_reel(url)
+    assert ouvertes == [mh.API_DOCKER_HUB]
+
+
 # =========================================================================== inventaire et derniere
 
 
@@ -627,10 +682,12 @@ def test_inventaire_regroupe_les_lignes_de_git_grep(depot, amont):
 
 def test_derniere_release_commune_a_git_et_docker_hub(depot, amont):
     amont.tags_git = ["v2026.9.7", "v2026.9.21", "v2026.9.24", "v2026.10.2", "v2026.10.1", "nightly"]
+    # Forme réelle du lien « next » de l'API (relevée le 02/10/2026, page_size=2).
+    page2 = "https://hub.docker.com/v2/repositories/nousresearch/hermes-agent/tags?name=v&page=2&page_size=100"
     pages = {
         mh.API_DOCKER_HUB: {"results": [{"name": "latest"}, {"name": "v2026.10.1"}, {"name": "v2026.9.24-desktop"}],
-                            "next": "https://hub.docker.com/page2"},
-        "https://hub.docker.com/page2": {"results": [{"name": "v2026.9.24"}, {"name": "main"}], "next": None},
+                            "next": page2},
+        page2: {"results": [{"name": "v2026.9.24"}, {"name": "main"}], "next": None},
     }
     lus: List[str] = []
 
@@ -641,7 +698,7 @@ def test_derniere_release_commune_a_git_et_docker_hub(depot, amont):
     lignes: List[str] = []
     assert mh.derniere(depot, amont, lire, sortie=lignes.append) == 0
     journal = "\n".join(lignes)
-    assert lus == [mh.API_DOCKER_HUB, "https://hub.docker.com/page2"]
+    assert lus == [mh.API_DOCKER_HUB, page2]
     assert "Dernière release publiée (git et Docker Hub) : v2026.10.1." in journal
     assert "Étiquette git sans image sur Docker Hub (ignorée) : v2026.10.2." in journal
     assert "Une release plus récente existe : préparer la PR de montée (ecrire v2026.10.1)." in journal

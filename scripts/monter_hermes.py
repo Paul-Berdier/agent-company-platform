@@ -46,6 +46,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,7 +56,11 @@ RACINE = Path(__file__).resolve().parents[1]
 
 IMAGE = "nousresearch/hermes-agent"
 DEPOT_AMONT = "https://github.com/NousResearch/hermes-agent"
-API_DOCKER_HUB = "https://hub.docker.com/v2/repositories/nousresearch/hermes-agent/tags?page_size=100&name=v"
+HOTE_DOCKER_HUB = "hub.docker.com"
+CHEMIN_API_DOCKER_HUB = "/v2/repositories/nousresearch/hermes-agent/tags"
+API_DOCKER_HUB = f"https://{HOTE_DOCKER_HUB}{CHEMIN_API_DOCKER_HUB}?page_size=100&name=v"
+# Une page réelle de 100 étiquettes pèse de l'ordre de 100 Ko (relevé du 02/10/2026) : borne large, mais une borne.
+LIMITE_PAGE = 4 * 1024 * 1024
 CHEMIN_OPENRPC_IMAGE = "/opt/hermes/apps/shared/src/gateway-contract.openrpc.json"
 CHEMIN_LICENCE_IMAGE = "/opt/hermes/LICENSE"
 CHEMIN_PROVENANCE_IMAGE = "/etc/hermes/image-provenance.json"
@@ -144,10 +149,25 @@ def executer_reel(arguments: Sequence[str], delai: int) -> Resultat:
     return Resultat(fini.returncode, fini.stdout, fini.stderr)
 
 
+def est_page_de_l_api(url: object) -> bool:
+    """Vrai seulement pour une page de l'API publique des étiquettes de l'image, en https (la première, ou le lien
+    « next » qu'elle donne : ``…/tags?name=v&page=2&page_size=100``)."""
+    if not isinstance(url, str):
+        return False
+    morceaux = urllib.parse.urlsplit(url)
+    return (morceaux.scheme, morceaux.netloc, morceaux.path) == ("https", HOTE_DOCKER_HUB, CHEMIN_API_DOCKER_HUB)
+
+
 def lire_url_reel(url: str) -> bytes:
+    """Lecture d'une page de l'API de Docker Hub : adresse contrôlée, délai de 60 s, au plus LIMITE_PAGE octets."""
+    if not est_page_de_l_api(url):
+        raise Refus(f"Adresse hors de l'API publique de Docker Hub refusée : {url!r}.")
     requete = urllib.request.Request(url, headers={"User-Agent": "acp-monter-hermes"})
-    with urllib.request.urlopen(requete, timeout=60) as reponse:  # noqa: S310 (URL fixe, https)
-        return reponse.read()
+    with urllib.request.urlopen(requete, timeout=60) as reponse:  # noqa: S310 (adresse contrôlée ci-dessus, https)
+        brut = reponse.read(LIMITE_PAGE + 1)
+    if len(brut) > LIMITE_PAGE:
+        raise Refus(f"Page de l'API de Docker Hub au-delà de {LIMITE_PAGE} octets : lecture arrêtée, rien n'est conclu.")
+    return brut
 
 
 # =========================================================================== valeurs épinglées et relevé
@@ -745,6 +765,9 @@ def derniere(racine: Path, executer: Executeur, lire_url: LecteurUrl, sortie: Ca
             url = page.get("next")
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise Refus(f"API publique de Docker Hub illisible ({type(exc).__name__}).")
+        # Le lien « next » vient de la réponse : seule une page de la même API, en https, est suivie.
+        if url is not None and not est_page_de_l_api(url):
+            raise Refus(f"API de Docker Hub : page suivante hors de l'API publique des étiquettes refusée : {url!r}.")
         pages += 1
     if url:
         raise Refus("API de Docker Hub : plus de 20 pages d'étiquettes, liste incomplète ; rien n'est conclu.")
