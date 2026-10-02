@@ -134,8 +134,9 @@ def declared_files(findings: Findings) -> set[Path]:
                 )
 
         # Les tests C++ sont déclarés par leur nom via la fonction acp_add_cpp_test, qui
-        # dérive le chemin « cpp/<nom>.cpp ». L'indirection est suivie ici.
-        for name in re.findall(r"acp_add_cpp_test\(\s*([A-Za-z0-9_]+)\s*\)", body):
+        # dérive le chemin « cpp/<nom>.cpp ». L'indirection est suivie ici : le nom est le
+        # PREMIER argument, éventuellement suivi des fichiers de support du banc de test.
+        for name in re.findall(r"acp_add_cpp_test\(\s*([A-Za-z0-9_]+)\b", body):
             candidate = (base / "cpp" / f"{name}.cpp").resolve()
             declared.add(candidate)
             if not candidate.exists():
