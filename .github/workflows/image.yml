@@ -3,7 +3,8 @@ name: Image Hermes
 # Refonte « Hermes au centre », étape P1 : construit l'image Railway d'ACP, dérivée de
 # l'image officielle de Hermes Agent épinglée par condensat, et prouve son contrat :
 #   - condensat de la base relevé par `docker buildx imagetools inspect` et comparé à
-#     hermes/contrat/HERMES_VERSION ;
+#     hermes/contrat/HERMES_VERSION ; depuis P9, répétition à blanc de la montée de version
+#     (scripts/monter_hermes.py verifier : tout l'épinglage reproduit à l'octet près) ;
 #   - `hermes --version`, `hermes plugins compat` (greffon acp-poste accepté, témoin
 #     refusé) ;
 #   - pytest DANS l'image de test (gardes de démarrage, managed scope, adaptateur kanban,
@@ -118,6 +119,8 @@ name: Image Hermes
       - ".railway/**"
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
+      # Étape P9 : la répétition à blanc de la montée de Hermes (outil seul modifié) relance ce workflow.
+      - "scripts/monter_hermes.py"
       - "executant/**"
       - "apps/poste/src/**"
       - "packaging/poste/lancer.py"
@@ -133,6 +136,7 @@ name: Image Hermes
       - ".railway/**"
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
+      - "scripts/monter_hermes.py"
       - "executant/**"
       - "apps/poste/src/**"
       - "packaging/poste/lancer.py"
@@ -180,18 +184,17 @@ jobs:
           npm ci --ignore-scripts --prefix .railway
           npm run --prefix .railway verifier
 
-      - name: Relever le condensat de l'image officielle
+      - name: Répétition à blanc de la montée de Hermes (épinglage reproduit à l'octet près)
+        # Étape P9 (cahier § 5.4) : remplace le seul relevé du condensat d'index, dont elle est un sur-ensemble.
+        # scripts/monter_hermes.py verifier relève ce que l'amont publie pour l'étiquette épinglée (condensat
+        # d'index et par plate-forme, commit de l'étiquette ; dans l'image tirée PAR CONDENSAT : hermes --version,
+        # provenance, OpenRPC, LICENSE, skills livrées), rend chaque épingle forte depuis ce relevé et la compare
+        # octet pour octet au dépôt (ligne FROM, HERMES_VERSION, copie de l'OpenRPC, provenances, verrou du
+        # catalogue, fixtures). N'écrit rien. Exigés : code 0 et « Aucun écart » dans le journal.
         run: |
           set -euo pipefail
-          attendu="$(sed -n 's/^HERMES_IMAGE_INDEX=//p' hermes/contrat/HERMES_VERSION)"
-          etiquette="$(sed -n 's/^HERMES_TAG=//p' hermes/contrat/HERMES_VERSION)"
-          docker buildx imagetools inspect "nousresearch/hermes-agent:${etiquette}" | tee /tmp/imagetools.txt
-          if ! grep -Eq "^Digest: +${attendu}$" /tmp/imagetools.txt; then
-            echo "Le condensat publié de ${etiquette} ne correspond plus à ${attendu} : refus." >&2
-            exit 1
-          fi
-          grep -q "FROM nousresearch/hermes-agent:${etiquette}@${attendu}" hermes/image/Dockerfile
-          echo "Condensat épinglé confirmé : ${etiquette}@${attendu}"
+          python3 scripts/monter_hermes.py verifier | tee /tmp/repetition-montee.txt
+          grep -q "^Aucun écart : " /tmp/repetition-montee.txt
 
       - name: Relever le condensat de l'image Authelia
         run: |

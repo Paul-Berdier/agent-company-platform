@@ -535,3 +535,21 @@ def test_derniere_refuse_une_api_illisible(depot, amont):
 
     with pytest.raises(mh.Refus, match="Docker Hub illisible"):
         mh.derniere(depot, amont, illisible, sortie=lambda _l: None)
+
+
+# =========================================================================== intégration continue
+
+
+def test_image_yml_repete_la_montee_a_blanc_a_chaque_construction():
+    """Cahier P9 § 5.4 (A5) : l'étape qui relevait le seul condensat d'index est remplacée par ``verifier``, son
+    sur-ensemble ; code 0 ET « Aucun écart » exigés ; l'outil seul modifié relance le workflow (deux filtres)."""
+    flux = (RACINE / ".github" / "workflows" / "image.yml").read_text(encoding="utf-8")
+    assert flux.count('- "scripts/monter_hermes.py"') == 2, "pull_request ET push"
+    debut = flux.index("      - name: Répétition à blanc de la montée de Hermes")
+    etape = flux[debut:flux.index("\n      - name: ", debut + 1)]
+    assert "set -euo pipefail" in etape
+    assert "python3 scripts/monter_hermes.py verifier | tee /tmp/repetition-montee.txt" in etape
+    assert 'grep -q "^Aucun écart : " /tmp/repetition-montee.txt' in etape
+    # Avant la construction de l'image (la base est tirée par condensat une seule fois).
+    assert debut < flux.index("      - name: Construire l'image ACP")
+    assert "Relever le condensat de l'image officielle" not in flux
