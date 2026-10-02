@@ -8,9 +8,8 @@ mêmes clés de premier niveau, mêmes sous-clés pour `hermes`, `openrpc`, `gre
 `machine`. Les VALEURS sont synthétiques, alignées sur `hermes/contrat/HERMES_VERSION`
 (Hermes 0.21.5, OpenRPC version 1 et son empreinte, contrat `acp-poste/1`).
 
-Limite dite : ce document n'est pas encore capturé sur l'image de test. Le test de contrat
-qui comparera la forme servie à ce fichier (`hermes/tests/contrat/test_fixtures_desktop.py`,
-cahier P8 § 9.3) arrive avec le bout en bout local de la station.
+Sa forme est comparée à celle que sert l'image de test par le bout en bout local de la
+station (voir « Forme vérifiée sur l'image » plus bas).
 
 ## Documents des pages de pilotage
 
@@ -45,5 +44,25 @@ dans l'image construite depuis `39ad0cd` (seul le code d'enrôlement y est facti
 `SESSIONS` de `fixtures.ts` est écrit d'après les types du tableau de bord de Hermes.
 
 Conversion : `node --experimental-strip-types` importe les trois modules et écrit chaque
-constante telle quelle (`JSON.stringify(valeur, null, 2)`). Le test de contrat sur l'image
-(§ 9.3 du cahier) remplacera ces copies par des captures directes.
+constante telle quelle (`JSON.stringify(valeur, null, 2)`).
+
+## Forme vérifiée sur l'image
+
+Le bout en bout local de la station (`apps/desktop/tests/e2e/e2e_desktop_windows.py`,
+étape 9) lit chaque route avec le porteur de la station, aux états où la pile de test
+ressemble au document, et exige que CHAQUE clé du document soit servie par l'image avec le
+même type JSON (un `null` d'un côté ou de l'autre est accepté ; pour un tableau, le premier
+élément est comparé). Les clés en plus côté serveur ne sont pas des écarts.
+
+| Document | État de la pile | Route |
+|---|---|---|
+| `meta.json`, `projets-vide.json`, `poste-non-configure.json`, `quotas-vides.json`, `routage-vide.json`, `catalogue-profils.json` | au départ, aucun projet ni relevé | `/v1/meta`, `/v1/projets`, `/v1/poste`, `/v1/quotas`, `/v1/routage`, `/v1/catalogue` |
+| `projets.json`, `projet-detail.json` | après le lancement d'un projet sur dépôt | `/v1/projets`, `/v1/projets/{id}` |
+| `questions.json` | une question ouverte | `/v1/questions` |
+
+Relevé du 02/10/2026 sur `acp-hermes-tests:p8` (construite depuis cette branche) : 9 documents,
+434 clés comparées, aucun écart. Limites dites : ce contrôle n'est pas en CI (les exécuteurs
+Windows ne font pas tourner les conteneurs Linux) ; il compare des FORMES, pas des valeurs ; les
+documents des états qu'il ne monte pas (poste à confirmer ou en ligne, relevé, routage rempli ou
+de secours, quotas relevés, refus, code d'enrôlement, sessions) restent ceux des tests de
+l'interface web, capturés sur l'image par eux.

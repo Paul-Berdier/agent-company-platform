@@ -259,6 +259,7 @@ private:
         if (nom == QLatin1String("repondre")) return repondre(c);
         if (nom == QLatin1String("sauvegarde")) return sauvegarder(c);
         if (nom == QLatin1String("capture")) return capturerCommande(c);
+        if (nom == QLatin1String("lire")) return lireRoute(c);
         if (nom == QLatin1String("deconnecter")) return deconnecter();
         if (nom == QLatin1String("hygiene")) return hygiene(c);
         if (nom == QLatin1String("quitter")) return {{QStringLiteral("ok"), true}};
@@ -657,6 +658,17 @@ private:
         reponse.insert(QStringLiteral("ok"), termine && conforme);
         m_sauvegarde->reinitialiser();
         return reponse;
+    }
+
+    // --- Lecture brute d'une route du greffon (forme servie, pour comparer les fixtures) -------
+
+    QJsonObject lireRoute(const QJsonObject &c)
+    {
+        ApiRequest requete;
+        requete.path = ClientGreffonPoste::chemin(c.value(QStringLiteral("chemin")).toString());
+        const Lecture lecture = lireSync(m_client->send(requete));
+        return {{QStringLiteral("ok"), lecture.ok}, {QStringLiteral("statut"), lecture.statut},
+                {QStringLiteral("erreur"), lecture.erreur}, {QStringLiteral("corps"), lecture.json}};
     }
 
     // --- Captures hors écran des vraies pages ---------------------------------------------------

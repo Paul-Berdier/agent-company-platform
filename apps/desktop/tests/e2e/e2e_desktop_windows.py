@@ -22,7 +22,10 @@ Parcours :
  6. redémarrage de la station : la session revient du coffre SANS navigateur (rotation au démarrage) ;
  7. déconnexion : POST /auth/logout avec le cookie, puis rejeu de l'ancien jeton : statut consigné tel quel ;
  8. hygiène : préférences et journal de la station sans jeton, entrée du coffre absente (cmdkey), export du
-    registre de la portée balayé, journal du bord balayé ; portée de test supprimée.
+    registre de la portée balayé, journal du bord balayé ; portée de test supprimée ;
+ 9. forme des documents de référence des tests natifs (apps/desktop/tests/fixtures/hermes) : chaque clé qu'un
+    document contient est servie par l'image, avec le même type JSON (lecture en porteur par la station, aux états
+    où la pile ressemble au document : vide au départ, après le lancement, question ouverte).
 
 Rapport JSON sans jeton ni URL d'autorisation ; captures PNG avec empreintes. Code ≠ 0 au moindre écart.
 
@@ -79,6 +82,41 @@ FORMES_DE_SECRET = re.compile(
     r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|authelia_[a-z]{2}_[A-Za-z0-9._~-]{6,}|Bearer\s+[A-Za-z0-9._~+/=-]{8,}"
     r"|hermes_session_(?:rt|at)=[^;\s\[]{6,}|hermes-gateway-ticket\.[A-Za-z0-9._~-]{6,}|acp[em]_[A-Za-z0-9_-]{20,}"
     r"|[?&](?:code|state|ticket|code_verifier)=[^&\s\[]{6,}")
+FIXTURES = RACINE / "apps" / "desktop" / "tests" / "fixtures" / "hermes"
+
+
+def ecarts_de_forme(attendu: Any, servi: Any, chemin: str = "$") -> List[str]:
+    """Clés du document de référence absentes de la réponse servie, ou servies avec un autre type JSON. Un
+    ``null`` d'un côté ou de l'autre est accepté (champ facultatif) ; pour un tableau, le premier élément de
+    chaque côté est comparé quand les deux en ont un."""
+    if attendu is None or servi is None:
+        return []
+    if isinstance(attendu, dict):
+        if not isinstance(servi, dict):
+            return [f"{chemin} : objet attendu, {type(servi).__name__} servi"]
+        ecarts: List[str] = []
+        for cle, valeur in attendu.items():
+            if cle not in servi:
+                ecarts.append(f"{chemin}.{cle} : absent de la réponse servie")
+            else:
+                ecarts += ecarts_de_forme(valeur, servi[cle], f"{chemin}.{cle}")
+        return ecarts
+    if isinstance(attendu, list):
+        if not isinstance(servi, list):
+            return [f"{chemin} : tableau attendu, {type(servi).__name__} servi"]
+        return ecarts_de_forme(attendu[0], servi[0], f"{chemin}[0]") if attendu and servi else []
+    def famille(valeur: Any) -> str:
+        if isinstance(valeur, bool):
+            return "booléen"
+        if isinstance(valeur, (int, float)):
+            return "nombre"
+        if isinstance(valeur, str):
+            return "texte"
+        return type(valeur).__name__
+
+    if famille(attendu) == famille(servi):
+        return []
+    return [f"{chemin} : {famille(attendu)} attendu, {famille(servi)} servi"]
 
 
 # ----------------------------------------------------------------------------------------- outils
@@ -483,6 +521,27 @@ def parcours(options: argparse.Namespace) -> int:
         verifier(discussion.get("ok") is True and discussion.get("reponse") == REPONSE_FACTICE,
                  f"réponse du modèle factice : {discussion.get('reponse')!r} {discussion.get('erreur')!r}", ecarts)
 
+        # ---------------------------------------------------------------- 9. formes (état initial)
+        formes: Dict[str, Any] = {}
+        etapes["formes_des_documents_de_reference"] = formes
+
+        def comparer(fichier: str, chemin: str) -> None:
+            attendu = json.loads((FIXTURES / fichier).read_text(encoding="utf-8"))
+            lu = station.commande("lire", 60, chemin=chemin)
+            if lu.get("ok"):
+                trouves = ecarts_de_forme(attendu, lu.get("corps"))
+            else:
+                trouves = [f"lecture refusée : {lu.get('statut')} {lu.get('erreur')}"]
+            formes[fichier] = {"route": chemin.split("/p_")[0] + ("/{id}" if "/p_" in chemin else ""),
+                               "ecarts": trouves}
+            verifier(not trouves, f"forme de {fichier} : {trouves[:6]}", ecarts)
+
+        afficher("9. Formes des documents de référence (état initial)…")
+        for fichier, chemin in (("meta.json", "/v1/meta"), ("projets-vide.json", "/v1/projets"),
+                                ("poste-non-configure.json", "/v1/poste"), ("quotas-vides.json", "/v1/quotas"),
+                                ("routage-vide.json", "/v1/routage"), ("catalogue-profils.json", "/v1/catalogue")):
+            comparer(fichier, chemin)
+
         # ---------------------------------------------------------------- 4. projet, veille, question
         afficher("4. Projet, veille du kanban, question…")
         releve = {"voie": "poste-claude", "source": "releve_factice", "version_cli": "0.0.0-factice",
@@ -498,6 +557,9 @@ def parcours(options: argparse.Namespace) -> int:
         etapes["projet"] = projet
         verifier(projet.get("ok") is True and bool(projet.get("exploration")), f"lancement : {projet}", ecarts)
         verifier(projet.get("origine") == "tableau_de_bord" or bool(projet.get("origine")), "origine du projet", ecarts)
+        if projet.get("projet"):
+            comparer("projets.json", "/v1/projets")
+            comparer("projet-detail.json", f"/v1/projets/{projet['projet']}")
         if projet.get("exploration"):
             marque = station.commande("marquer_veille", 60)
             reclame = simule(hermes, "reclamer", projet["tableau"], projet["exploration"])
@@ -512,6 +574,7 @@ def parcours(options: argparse.Namespace) -> int:
             etapes["question_vue"] = {"ok": vue.get("ok"), "texte": vue.get("question", {}).get("texte")
                                       or vue.get("question", {}).get("question"), "capture": Path(vue.get("capture") or "-").name}
             verifier(vue.get("ok") is True, "question visible dans la page Questions", ecarts)
+            comparer("questions.json", "/v1/questions")
             reponse = station.commande("repondre", 120, question=posee.get("question"), reponse=REPONSE)
             etapes["question_repondue"] = {k: v for k, v in reponse.items() if k != "capture"}
             etapes["question_repondue"]["capture"] = Path(reponse.get("capture") or "-").name
