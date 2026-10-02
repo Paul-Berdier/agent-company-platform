@@ -5,8 +5,13 @@
 - **Envoi** : SEULEMENT dans la passerelle, par le fil de l'émetteur (:mod:`emetteur`), qui seul garde la
   configuration du canal en mémoire.
 - **Contenu minimal** (décision D32) : genre, titre du projet, titre de carte tronqué à 80 caractères,
-  lien vers la page Projets ; jamais la consigne ni le texte d'une question ; texte masqué, 300
-  caractères au plus.
+  lien profond ; jamais la consigne ni le texte d'une question ; texte masqué, 300 caractères au plus.
+- **Liens profonds** (étape P7, cahier P7 § 6.2, corrections K2 et K3) : la ligne garde un CHEMIN RELATIF en
+  paramètres de requête (:func:`lien` : une question ouvre ``/projets?vue=questions&q=<id>``, une carte
+  ``…&carte=<tableau>/<carte>``), jamais un fragment, que la porte d'authentification perdrait au retour de la
+  connexion ; l'URL publique n'est préfixée qu'à l'ENVOI, dans la passerelle (:func:`lien_a_envoyer`) : une ligne
+  enfilée par un sous-processus à l'environnement assaini (bilan du cron) n'a pas à la connaître. Une ligne
+  antérieure à P7 (lien déjà absolu) part telle quelle.
 - **Canal désactivé tant que rien n'est configuré** : ``ACP_NOTIFICATIONS`` vaut ``aucune`` par défaut ;
   une notification enfilée sans canal passe ``desactivee`` (la ligne existe, rien n'est envoyé).
 
@@ -133,11 +138,49 @@ def url_publique() -> Optional[str]:
     return valeur if valeur and valider_url_https(valeur) is None else None
 
 
-def lien_projets(projet_id: Optional[str] = None) -> Optional[str]:
+# Cible de chaque genre (cahier P7 § 6.2) : la vue Questions pour ce qui attend un geste sur une carte ou une
+# question, le détail du projet pour une fin, la page Poste pour l'exécutant, l'Accueil pour le bilan.
+GENRES_CARTE = frozenset({"bloquee", "triage", "abandon", "revue", "secret", "conflit", "plafond"})
+GENRES_POSTE = frozenset({"hors_ligne", "isolement"})
+CHEMIN_PROJETS = "/projets"
+CHEMIN_QUESTIONS = "/projets?vue=questions"
+
+
+def _requete(**parametres: str) -> str:
+    # « / » reste lisible dans la cible d'une carte (« tableau/carte ») ; tout le reste est encodé.
+    return urllib.parse.urlencode(parametres, safe="/")
+
+
+def lien(genre: str, projet_id: Optional[str] = None, cible: Optional[str] = None) -> str:
+    """Chemin RELATIF du lien profond d'une notification (cahier P7 § 6.2, corrections K2 et K3) : en paramètres de
+    requête, jamais en fragment. ``cible`` : l'identifiant de la question (genre ``question``) ou ``tableau/carte``
+    (genres de :data:`GENRES_CARTE`). Une cible absente mène à la liste (jamais une cible inventée)."""
+    if genre == "question":
+        return f"{CHEMIN_QUESTIONS}&{_requete(q=cible)}" if cible else CHEMIN_QUESTIONS
+    if genre in GENRES_CARTE:
+        if cible:
+            return f"{CHEMIN_QUESTIONS}&{_requete(carte=cible)}"
+        return CHEMIN_QUESTIONS if projet_id else CHEMIN_PROJETS
+    if genre in GENRES_POSTE:
+        return "/poste"
+    if genre == "bilan":
+        return "/"
+    # Fin d'un projet (``termine``, ``integration``) et tout autre genre rattaché à un projet : son détail.
+    return f"{CHEMIN_PROJETS}?{_requete(projet=projet_id)}" if projet_id else CHEMIN_PROJETS
+
+
+def lien_a_envoyer(notif: Mapping[str, Any]) -> Optional[str]:
+    """Lien ABSOLU d'une ligne au moment de l'envoi (passerelle) : chemin relatif préfixé par l'URL publique ; lien
+    déjà absolu (ligne antérieure à P7) gardé tel quel ; sans URL publique valide, aucun lien (jamais une adresse
+    inventée)."""
+    brut = str(notif.get("lien") or "").strip()
+    if brut.startswith("https://"):
+        return brut
     racine = url_publique()
     if not racine:
         return None
-    return f"{racine}/projets" + (f"?projet={projet_id}" if projet_id else "")
+    chemin = brut if brut.startswith("/") else lien(str(notif.get("genre") or ""), notif.get("projet_id"))
+    return f"{racine}{chemin}"
 
 
 def texte(modele: str, **valeurs: Any) -> str:
@@ -150,19 +193,20 @@ def texte(modele: str, **valeurs: Any) -> str:
 
 
 def enfiler(conn, *, cle: str, genre: str, texte_notif: str, projet_id: Optional[str] = None,
-            lien: Optional[str] = None) -> bool:
-    """Enfile UNE notification par clé ; rend True si elle est nouvelle."""
+            cible: Optional[str] = None) -> bool:
+    """Enfile UNE notification par clé ; rend True si elle est nouvelle. ``cible`` : voir :func:`lien`."""
     with base.transaction(conn):
-        return enfiler_dans(conn, cle=cle, genre=genre, texte_notif=texte_notif, projet_id=projet_id, lien=lien)
+        return enfiler_dans(conn, cle=cle, genre=genre, texte_notif=texte_notif, projet_id=projet_id, cible=cible)
 
 
 def enfiler_dans(conn, *, cle: str, genre: str, texte_notif: str, projet_id: Optional[str] = None,
-                 lien: Optional[str] = None) -> bool:
-    """Comme :func:`enfiler`, DANS une transaction ouverte par l'appelant."""
+                 cible: Optional[str] = None) -> bool:
+    """Comme :func:`enfiler`, DANS une transaction ouverte par l'appelant. La ligne garde le chemin RELATIF du lien
+    profond (:func:`lien`) ; l'URL publique n'est ajoutée qu'à l'envoi."""
     curseur = conn.execute(
         "INSERT OR IGNORE INTO notifications (cle, genre, projet_id, texte, lien, etat, tentatives, "
         "prochaine_tentative, cree_le) VALUES (?, ?, ?, ?, ?, 'en_attente', 0, ?, ?)",
-        (cle[:300], genre, projet_id, texte_notif[:LONGUEUR_TEXTE], lien or lien_projets(projet_id),
+        (cle[:300], genre, projet_id, texte_notif[:LONGUEUR_TEXTE], lien(genre, projet_id, cible),
          base.maintenant(), base.maintenant()))
     return curseur.rowcount == 1
 
@@ -246,8 +290,7 @@ def envoyer_en_attente(conn, config: Configuration, transport: Transport = trans
                              (notif["id"],))
             bilan["desactivees"] += 1
             continue
-        if not notif.get("lien"):
-            notif["lien"] = lien_projets(notif.get("projet_id"))
+        notif["lien"] = lien_a_envoyer(notif)  # K3 : URL publique préfixée ici, dans la passerelle
         erreur: Optional[str] = None
         try:
             methode, url, entetes, corps = requete(config, notif)

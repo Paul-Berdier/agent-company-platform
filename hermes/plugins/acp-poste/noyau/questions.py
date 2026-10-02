@@ -47,7 +47,7 @@ def _escalader(conn, fiche: Dict[str, Any], q: Dict[str, Any], motif: str, acteu
         conn.execute("UPDATE questions SET etat = 'escaladee', motif_escalade = ?, maj_le = ? WHERE id = ?",
                      (ka.masquer(motif)[:1000], base.maintenant(), q["id"]))
         notifications.enfiler_dans(conn, cle=f"question:{q['id']}", genre="question", projet_id=fiche["id"],
-                                   texte_notif=notifications.texte(T.NOTIF_QUESTION, titre=fiche["titre"]))
+                                   cible=q["id"], texte_notif=notifications.texte(T.NOTIF_QUESTION, titre=fiche["titre"]))
         base.journaliser(conn, acteur, "question_escaladee", projet_id=fiche["id"], cible=q["id"], detail=motif)
 
 

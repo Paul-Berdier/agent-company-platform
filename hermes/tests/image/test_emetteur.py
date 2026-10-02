@@ -174,14 +174,17 @@ def test_telegram_forme_de_la_requete(noyau, conn, monkeypatch):
 
 def test_ntfy_forme_et_jeton(noyau, conn, monkeypatch):
     monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "https://hermes.acp.test")
-    noyau.notifications.enfiler(conn, cle="question:q_1", genre="question", projet_id="p_x", texte_notif="ACP — Q")
+    noyau.notifications.enfiler(conn, cle="question:q_1", genre="question", projet_id="p_x", texte_notif="ACP — Q",
+                                cible="q_1")
     noyau.notifications.enfiler(conn, cle="termine:p_x", genre="termine", projet_id="p_x", texte_notif="ACP — T")
     requetes = []
     noyau.notifications.envoyer_en_attente(conn, _config("ntfy"), lambda *a: requetes.append(a) or (200, "{}"))
     (m1, u1, e1, c1, _), (m2, u2, e2, c2, _) = requetes
     assert (m1, u1, c1) == ("POST", f"https://ntfy.acp.test/{SUJET}", "ACP — Q".encode("utf-8"))
     assert e1 == {"Authorization": f"Bearer {JETON}", "Title": "ACP", "Priority": "4",
-                  "Content-Type": "text/plain; charset=utf-8", "Click": "https://hermes.acp.test/projets?projet=p_x"}
+                  "Content-Type": "text/plain; charset=utf-8",
+                  # Étape P7 (cahier P7 § 6.2) : une question ouvre la question, en paramètres de requête.
+                  "Click": "https://hermes.acp.test/projets?vue=questions&q=q_1"}
     assert e2["Priority"] == "3" and c2 == "ACP — T".encode("utf-8")
 
 

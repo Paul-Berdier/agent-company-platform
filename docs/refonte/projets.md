@@ -211,8 +211,27 @@ Variables Railway (facultatives ; validées au démarrage, refus en français) :
 `ACP_TELEGRAM_DISCUSSION` ; pour ntfy `ACP_NTFY_SUJET` (16 à 64 caractères) et `ACP_NTFY_JETON` (exigé,
 D33), `ACP_NTFY_SERVEUR` facultatif (`https://ntfy.sh`). `register()` les lit puis les **retire de
 `os.environ` dans chaque processus** ; seule la passerelle garde le canal en mémoire. Contenu minimal (D32) :
-genre, titre du projet, titre de carte tronqué, lien vers `…/projets?projet=<id>` ; jamais la consigne ni le
-texte d'une question.
+genre, titre du projet, titre de carte tronqué, lien profond ; jamais la consigne ni le texte d'une question.
+
+**Liens profonds (étape P7, cahier P7 § 6.2, décision P7-5).** Chaque lien ouvre ce qu'il annonce, en **paramètres
+de requête, jamais en fragment** : la porte d'authentification de Hermes ne garde, pour le retour après la connexion,
+que le chemin et la requête (`next`) ; au téléphone, dont la session a souvent expiré, un fragment serait perdu et le
+lien n'ouvrirait que la liste (correction K2).
+
+| Genre | Cible |
+|---|---|
+| `question` | `/projets?vue=questions&q=<question>` |
+| `bloquee`, `triage`, `abandon`, `revue`, `secret`, `conflit`, `plafond` | `/projets?vue=questions&carte=<tableau>/<carte>` |
+| `termine`, `integration` | `/projets?projet=<id>` |
+| `hors_ligne`, `isolement` | `/poste` |
+| `bilan` | `/` (Accueil) |
+| `test`, `crochets`, carte bloquée hors tableau de projet | `/projets` |
+
+La ligne en base garde le **chemin relatif** ; l'URL publique (`HERMES_DASHBOARD_PUBLIC_URL`) n'est préfixée qu'à
+l'**envoi**, dans la passerelle (correction K3) : une ligne enfilée par un sous-processus à l'environnement assaini
+(script du bilan quotidien lancé par le cron) n'a pas à la connaître. Une ligne antérieure à P7 (lien déjà absolu)
+part telle quelle ; sans URL publique valide, la notification part sans lien (jamais une adresse inventée). La vue
+Questions fait défiler jusqu'à la cible et la met en évidence ; une cible déjà traitée le dit.
 
 Règles : `blocked` (hors `dependency`) → « bloquée » ; `block_loop_detected` → triage ; `gave_up` →
 abandon ; synthèse du tour courant finie sans carte ouverte → « terminé » (une fois) ; question escaladée ;
