@@ -611,3 +611,61 @@ Intégration continue de ces corrections, sommet poussé `8aeee20`, **verte** :
   relecture et la porte 401 sur les 13 routes P4 (planification réclamée 3 s après la fin de
   l'exploration) ; navigateur **6 réussis** (4 min 18 s ; quatre projets « Terminé » 66,0 s après la fin
   des explorations).
+
+## 13. Étape P7, partie C : preuves locales (02/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0, Playwright 1.62.0 et son Chromium déjà présent)
+
+Images construites depuis le worktree `refonte-hermes-p7` (étiquettes locales `c1`, `c2`, `c3`), fournisseur d'identité
+`acp-identite:p7b` (inchangé depuis), exécutant factice `acp-executant:p7bfactice` (inchangé). Commits : `5e281dd`
+(liens profonds), `26ea837` (bilan quotidien, garde K1, fuseau), `6be09bc` (interface), puis les deux preuves
+ci-dessous.
+
+| Suite | Résultat |
+|---|---|
+| Image `c1` (liens profonds) | **760 réussis** (8 min 30) |
+| Image `c2` (+ bilan, garde, fuseau) | **777 réussis** (8 min 23) |
+| Image `c3` (+ interface, texte de la notification de test) | **777 réussis** (8 min 20) |
+| Dépôt (`pytest -q`, Windows), à chaque commit | **925 réussis, 79 ignorés** (≈ 3 min 50) |
+| Vitest (`apps/interface`) | **150 réussis** (19 fichiers) ; bundles identiques aux sources (`npm run check`) |
+| Contrat `c2` : bilan, image, sans shell, catalogue, projets, exécution | **107 réussis** (33 min 22) |
+| Contrat `c3` : interface, projets, parcours P7, flux | **32 réussis** (19 min 36) ; délai réponse → trame 0,99 s |
+| Navigateur `c3` (tous les tests, dont le parcours P7) | **9 réussis** (8 min 08) |
+
+**Bilan quotidien** (`test_bilan_contrat.py`, pile complète) : `/opt/data/scripts/acp-bilan.py` déposé par root
+(`root:root 644`, identique à la copie de l'image) ; tâche créée par la route native `POST /api/cron/jobs` avec la
+session du propriétaire (`no_agent: true`, script `acp-bilan.py`), prochaine exécution `2026-10-03T08:00:00+02:00` ;
+`POST /api/cron/jobs/{id}/trigger` : `last_status: ok`, UNE ligne `bilan:2026-10-02` (lien `/`), reçue par le faux
+ntfy (« ACP — Bilan du 02/10 : aucun projet en cours, rien n'attend votre décision, exécutant non configuré. »,
+`Click: https://hermes.acp.test/`) ; seconde exécution le même jour : aucune ligne de plus ; `diagnostiquer` : aucun
+constat, code 0 ; second démarrage sur le même volume : « vides (hors acp-bilan.py, admis par son empreinte) ».
+Les deux S du cahier sont tranchés : la page Cron accepte le script du dossier de root, et le noyau s'importe dans
+le sous-processus du cron à l'environnement assaini.
+
+**Redéploiement pendant une question** (`test_parcours_p7_contrat.py`, faux exécutant, modèle factice) : question
+`escaladee`, notification « question » avec `Click: https://hermes.acp.test/projets?vue=questions&q=<id>` ; le
+conteneur Hermes est arrêté, un nouveau démarre sur le MÊME volume (le jeton de l'exécutant, son propre stockage,
+recopié) : gardes passées (« admis par son empreinte »), même question (identifiant, texte, état, `chez`), carte
+toujours `scheduled`, long-poll repris sans carte, aucune notification en double ; réponse par la route → carte
+resservie avec `reprise: true` et la réponse → exploration, planification (une implémentation sur poste-claude),
+implémentation, synthèse, **intégration** servie sur `poste-integration` → projet `termine`, notification
+« … branche hermes/projet-… prête sur l'exécutant. » (`Click` vers le projet), aucune « terminé : n cartes faites »
+(K12). Deux passages verts (2 min 02 seul ; puis dans le contrat `c3`).
+
+**Parcours téléphone → bureau** (`test_parcours_p7.py`, deux passages verts) : au téléphone (390×844), enrôlement de
+l'exécutant, projet lancé depuis le formulaire (modèle `opus` choisi : le relevé de Claude n'en désigne aucun par
+défaut), page fermée ; notification « question » reçue, `Click` = `https://hermes-acp.test/projets?vue=questions&q=…`
+(ni fragment, ni texte de la question) ; au bureau (1440×900), contexte NEUF sans cookie de session, authentificateur
+portant une copie de la passkey : portail Authelia, second facteur par la passkey, consentement, puis **arrivée sur la
+question** (cible gardée par `next`), marquée `aria-current` ; « Répondre » ; la question quitte la file (« Cette
+demande a déjà été traitée ») ; onglet Projets puis le projet, dans la page ; le projet passe « Terminé » **4,9 s**
+après la fin de l'intégration (5,9 s au premier passage), sans rechargement (aucune nouvelle navigation) : les 11
+lectures du détail suivent chacune une trame du flux (`etat` ou `changement` de `projets`) de moins de 2 s, aucune
+n'est un sondage (relecture de sûreté portée à 30 min par le réglage de diagnostic, K23) ; le téléphone, rouvert,
+montre « Terminé ». Aucune violation axe « serious » ou « critical », aucun texte hors du catalogue, aucune cible
+sous 44 px au téléphone, aucune requête hors de l'origine (hors le portail d'identité). Captures (empreintes
+SHA-256) : `telephone-01-nouveau-projet.png` `8ce76654…`, `telephone-02-projet-lance.png` `96bc4903…`,
+`bureau-01-question-ciblee.png` `49b401d1…`, `bureau-02-projet-termine.png` `9817eb80…`,
+`telephone-03-projet-termine.png` `851031f0…`.
+
+Non prouvé ici, dit tel quel : un vrai téléphone, un vrai canal (Telegram ou ntfy réel) et le vrai exécutant (preuves
+sur Railway, cahier P7 § 13.6, après la fusion et le déploiement de P6) ; l'ouverture d'une discussion en attente
+depuis la file (page Discussion, partie D).
