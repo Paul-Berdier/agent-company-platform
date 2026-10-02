@@ -138,6 +138,9 @@ QJsonObject QuotasViewModel::construireFenetre(const QJsonObject &fenetre, const
         {QStringLiteral("utilise"), estPart(utilise) ? libelles::pourcentage(utilise) : libelles::kInconnu},
         {QStringLiteral("restant"), estPart(restant) ? libelles::pourcentage(restant) : libelles::kInconnu},
         {QStringLiteral("restantPct"), estPart(restant) ? restant : QJsonValue(QJsonValue::Null)},
+        // Jauge : part UTILISÉE et repère du seuil, comme la page web ; absents ⇒ null.
+        {QStringLiteral("utilisePct"), estPart(utilise) ? utilise : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("seuilPct"), estPart(seuil) ? seuil : QJsonValue(QJsonValue::Null)},
         {QStringLiteral("remise"), libelles::dateIso(fenetre.value(QStringLiteral("resets_at")))},
         {QStringLiteral("niveau"), niveau},
         {QStringLiteral("seuilAtteint"), niveau == QLatin1String("critical")},

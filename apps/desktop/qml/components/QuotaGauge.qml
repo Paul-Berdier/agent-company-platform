@@ -1,9 +1,11 @@
-// Jauge de quota : part RESTANTE d'une fenêtre d'abonnement.
+// Jauge de quota : part UTILISÉE d'une fenêtre d'abonnement, avec un repère au seuil du
+// routage — le même sens que la jauge de la page web (apps/interface/src/poste/Quotas.tsx) :
+// une barre presque pleine veut dire « presque épuisé » dans les deux interfaces.
 //
 // Dessinée en Qt Quick pur : Qt Charts est exclu pour raison de licence (voir
 // apps/desktop/CMakeLists.txt). Une part inconnue n'est jamais dessinée comme zéro : la
-// piste reste vide et le texte dit « Inconnu ». La couleur accompagne toujours un texte,
-// elle ne porte jamais seule l'information.
+// piste reste vide et le texte dit « Inconnu » ; un seuil inconnu n'a pas de repère. La
+// couleur accompagne toujours un texte, elle ne porte jamais seule l'information.
 
 import QtQuick
 import Acp.Design
@@ -12,8 +14,10 @@ Item {
     id: gauge
 
     property string label: ""
-    //! Part restante, de 0 à 100 ; `null` quand la source ne la donne pas.
-    property var remainingPercent: null
+    //! Part utilisée, de 0 à 100 ; `null` quand la source ne la donne pas.
+    property var usedPercent: null
+    //! Seuil du routage, de 0 à 100 ; `null` sans seuil connu (aucun repère dessiné).
+    property var thresholdPercent: null
     property string remainingText: "Inconnu"
     property string usedText: "Inconnu"
     property string resetText: "Inconnu"
@@ -22,10 +26,15 @@ Item {
     //! « normal », « warning », « critical » ou « unknown ».
     property string level: "unknown"
 
-    readonly property bool known: typeof gauge.remainingPercent === "number"
-        && isFinite(gauge.remainingPercent)
+    readonly property bool known: typeof gauge.usedPercent === "number"
+        && isFinite(gauge.usedPercent)
     readonly property real ratio: gauge.known
-        ? Math.max(0, Math.min(100, gauge.remainingPercent)) / 100
+        ? Math.max(0, Math.min(100, gauge.usedPercent)) / 100
+        : 0
+    readonly property bool thresholdKnown: typeof gauge.thresholdPercent === "number"
+        && isFinite(gauge.thresholdPercent)
+    readonly property real thresholdRatio: gauge.thresholdKnown
+        ? Math.max(0, Math.min(100, gauge.thresholdPercent)) / 100
         : 0
     readonly property color fillColor: gauge.level === "critical" ? Status.statusFailedForeground
         : gauge.level === "warning" ? Status.statusDegradedForeground
@@ -33,8 +42,8 @@ Item {
     readonly property string resetLine: gauge.resetText
         + (gauge.countdownText.length > 0 ? " (" + gauge.countdownText + ")" : "")
     readonly property string summary: gauge.label + " : "
-        + (gauge.known ? qsTr("%1 restant, %2 utilisé").arg(gauge.remainingText).arg(gauge.usedText)
-                       : qsTr("reste Inconnu"))
+        + (gauge.known ? qsTr("%1 utilisé, %2 restant").arg(gauge.usedText).arg(gauge.remainingText)
+                       : qsTr("part utilisée Inconnue"))
         + qsTr(", remise à zéro %1").arg(gauge.resetLine)
 
     implicitWidth: 240
@@ -68,8 +77,8 @@ Item {
                 id: valueText
                 anchors.right: parent.right
                 text: gauge.known
-                    ? qsTr("%1 restant · %2 utilisé").arg(gauge.remainingText).arg(gauge.usedText)
-                    : qsTr("Restant : Inconnu")
+                    ? qsTr("%1 utilisé · %2 restant").arg(gauge.usedText).arg(gauge.remainingText)
+                    : qsTr("Utilisé : Inconnu")
                 textFormat: Text.PlainText
                 color: gauge.known ? Colors.textPrimary : Colors.textMuted
                 font.family: Type.tableCell.family
@@ -96,6 +105,17 @@ Item {
                 width: parent.width * gauge.ratio
                 radius: track.radius
                 color: gauge.fillColor
+            }
+
+            // Repère du seuil du routage : au-delà, la voie est écartée.
+            Rectangle {
+                objectName: "quotaGaugeThreshold"
+                visible: gauge.thresholdKnown
+                x: Math.min(parent.width - width, Math.max(0, parent.width * gauge.thresholdRatio - width / 2))
+                anchors.verticalCenter: parent.verticalCenter
+                width: 2
+                height: parent.height + 6
+                color: Colors.textPrimary
             }
         }
 

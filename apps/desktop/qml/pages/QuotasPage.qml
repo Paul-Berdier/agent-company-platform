@@ -130,7 +130,8 @@ Item {
                                     QuotaGauge {
                                         Layout.fillWidth: true
                                         label: fenetre.modelData.libelle
-                                        remainingPercent: fenetre.modelData.restantPct
+                                        usedPercent: fenetre.modelData.utilisePct
+                                        thresholdPercent: fenetre.modelData.seuilPct
                                         remainingText: fenetre.modelData.restant
                                         usedText: fenetre.modelData.utilise
                                         resetText: fenetre.modelData.remise

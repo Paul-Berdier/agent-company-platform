@@ -96,6 +96,8 @@ void TestQuotas::voiesLibellees()
     QCOMPARE(primaire.value(QStringLiteral("utilise")).toString(), QStringLiteral("41") + kNbsp + QStringLiteral("%"));
     QCOMPARE(primaire.value(QStringLiteral("restant")).toString(), QStringLiteral("59") + kNbsp + QStringLiteral("%"));
     QCOMPARE(primaire.value(QStringLiteral("restantPct")).toDouble(), 59.0);
+    // Jauge : part utilisée et seuil, comme la page web (constat de relecture P8).
+    QCOMPARE(primaire.value(QStringLiteral("utilisePct")).toDouble(), 41.0);
     QCOMPARE(primaire.value(QStringLiteral("niveau")).toString(), QStringLiteral("normal"));
     QCOMPARE(fenetres.at(1).toObject().value(QStringLiteral("libelle")).toString(), QStringLiteral("Fenêtre secondary · 10080 min"));
 
@@ -115,6 +117,9 @@ void TestQuotas::seuilEtValeursAbsentes()
     QCOMPARE(sansUtilise.value(QStringLiteral("utilise")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(sansUtilise.value(QStringLiteral("restant")).toString(), QStringLiteral("Inconnu"));
     QVERIFY(sansUtilise.value(QStringLiteral("restantPct")).isNull());
+    QVERIFY(sansUtilise.value(QStringLiteral("utilisePct")).isNull());
+    QCOMPARE(sansUtilise.value(QStringLiteral("seuilPct")).toDouble(), 90.0);
+    QVERIFY(QuotasViewModel::construireFenetre(fenetre(95, 5), QJsonValue::Null).value(QStringLiteral("seuilPct")).isNull());
     QCOMPARE(sansUtilise.value(QStringLiteral("niveau")).toString(), QStringLiteral("unknown"));
     const QJsonObject restantAbsent = QuotasViewModel::construireFenetre(fenetre(41, QJsonValue::Undefined), seuil);
     QCOMPARE(restantAbsent.value(QStringLiteral("utilise")).toString(), QStringLiteral("41") + kNbsp + QStringLiteral("%"));
