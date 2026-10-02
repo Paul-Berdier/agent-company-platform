@@ -99,6 +99,6 @@ comptes et tranche l'irréversible » :
 `3f7e56d`, `ed3735d`, `fc6c6e2`, `1987a84` (première partie : fondations) ; `22a2d90`,
 `83101cf`, `22e4c42`, `9c44b7a`, `039aadb`, `857baae` (seconde partie : JSON-RPC, temps réel,
 Accueil, Projets, Questions, Discussion) ; `6a068a5`, `b748194`, `b3b9e0f`, `75a73f6`,
-`834a920`, `bfccf52`, `c66bc0b`, `aaf4242`, `1b28374` et la documentation (troisième
+`834a920`, `bfccf52`, `c66bc0b`, `aaf4242`, `1b28374`, `b68f645` et la documentation (troisième
 partie : Poste, Quotas, Routage, Sauvegarde, Diagnostics, bout en bout). Aucun
 `Co-Authored-By`.

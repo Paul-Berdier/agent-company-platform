@@ -73,7 +73,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
 | P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
-| P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
+| P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | volet desktop **réalisé côté dépôt** sur `refonte/hermes-p8` (partie de `b3faac0`) : connexion native, JSON-RPC, neuf pages, bout en bout local ; Desktop CI verte ; sans PR ; **rien de déployé** ; MCP côté poste reporté après P6 (§ 6 sexies) |
 | P9 | Exploitation, montée de version et publication | à faire |
 
 Les anciennes P4 à P8 du plan (discussion mobile, poste en lecture, quotas, écritures signées,
@@ -247,7 +247,7 @@ le contrat, `CHANGELOG.md` et ce document diffèrent de `805ca4c`).
   la PR vers `refonte/hermes`.
 - `apps/desktop/cmake/check_layout.py` sort en code 1 sur 10 constats hérités de
   l'étiquette (origines codées en dur, chemin absolu dans un test) : non traités, le
-  code du client n'est pas modifié en P0.
+  code du client n'est pas modifié en P0 (13 constats connus depuis P8, § 6 sexies).
 - La tenue sous charge des tests temporisés du poste (ci-dessus) : ils bornent des
   délais de 0,15 à 3 s qui comptent le démarrage d'un interpréteur Python. À durcir
   (attendre le fichier témoin avant de le lire, délais relatifs) dans une PR dédiée.
@@ -1645,6 +1645,108 @@ Commits (aucun `Co-Authored-By`) : `559d363`, `00a812d`, `04f20bd`, `a428867`, `
 Hors P5, non corrigé : le client desktop cite encore `ACP_WORKER_SUBSCRIPTION_QUOTAS=1`
 (`apps/desktop/src/viewmodels/SubscriptionQuotasViewModel.cpp:932`), disparu en P5 : à revoir en P8.
 
+## 6 sexies. P8 — station de travail Qt rebranchée sur Hermes
+
+Branche `refonte/hermes-p8` (worktree `.claude/worktrees/refonte-hermes-p8`), partie de
+`refonte/hermes` `b3faac0` (P0 à P5 fusionnées), réalisée en trois parts du 1er au
+2 octobre 2026. Document d'étape : [`refonte/desktop.md`](refonte/desktop.md) ; guides :
+[architecture](native-desktop-architecture.md), [sécurité](desktop-security.md),
+[construction et bout en bout](desktop-build.md). Sans PR, fusion ni étiquette ;
+`VERSION` reste 0.11.0. P6 et P7 avancent en parallèle sur leurs branches : aucun de leurs
+fichiers n'est touché.
+
+### Commits (aucun `Co-Authored-By`)
+
+| Part | Commits |
+|---|---|
+| 1. fondations | `530aa37` Qt WebSockets ; `13f2428` retrait du cookie et des pages de l'ancienne API ; `b727da6` porteur et erreurs ; `e216d6b` flux natif RFC 8252 ; `0543ae9` coffre et rotation ; `8d18f87` client du greffon ; `14b58f3` compatibilité et santé ; `9761693` page de connexion ; `3f7e56d` canal JSON-RPC ; `ed3735d` éviction des pings ; `fc6c6e2` passerelle WebSocket ; `1987a84` style |
+| 2. pilotage | `22a2d90` temps réel ; `83101cf` Accueil et Projets ; `22e4c42` Questions ; `9c44b7a` Discussion ; `039aadb` `check_layout` (tests à fichiers de support) ; `857baae` discussion oubliée à la perte de session |
+| 3. poste, quotas, sauvegarde, bout en bout | `6a068a5` Poste ; `b748194` Quotas et Routage ; `b3b9e0f` sauvegarde chiffrée ; `75a73f6` code d'enrôlement oublié fenêtre réduite ; `834a920` Diagnostics ; `bfccf52` règle de proxy des WebSockets ; `c66bc0b` bout en bout local ; `aaf4242` `check_layout` (domaine `.test`) ; `1b28374` forme des documents de référence ; `862f0bf` guides ; `b68f645` captures des pages de la part 3 au bout en bout ; puis ces notes |
+
+Incident de la part 1 : la CI « CI » était rouge depuis `1ab010c` parce que
+`balayer_secrets.py` prenait le JWT **synthétique** de `tst_redaction.cpp` pour un secret ;
+littéral assemblé à l'exécution, historique de la branche rejoué (poussée
+`--force-with-lease`, branche à moi seul, aucune PR).
+
+### Ce qui est en place
+
+Connexion native RFC 8252 (fournisseur `self-hosted`), jeton de rafraîchissement au coffre
+Windows sur consentement et rotation écrite avant usage, porteur sur le tableau de bord et
+la façade `acp-poste`, compatibilité par `/v1/meta`, JSON-RPC `/api/ws` (-32601,
+`approval`/`clarify`), sondages et veille du kanban ; pages Accueil, Projets, Questions,
+Discussion, Poste, Quotas, Routage, Diagnostics (contrôle des préférences), Sauvegarde
+(DPAPI `ACPB1`), Réglages ; bout en bout local `scripts/e2e-desktop-windows.ps1`.
+
+### Écarts au cahier, justifiés
+
+Détail : [`refonte/desktop.md`](refonte/desktop.md). En bref : MCP côté poste non construit
+(dépend des fichiers de P6) ; aucun transport SSE ouvert (aucun contrat fusionné, « Non
+disponible sur ce serveur (étape P7) ») ; contrôle des documents de référence fait dans le
+bout en bout local et non dans `image.yml` (que P6 et P7 modifient) ; revues de P6 en
+lecture seule ; agrégat des demandes de l'agent attendu de P7.
+
+### Preuves locales (02/10/2026, Windows 10, Qt 6.8.3, MSVC 2022, Docker 29.5.3, Python 3.12.10)
+
+- `./scripts/build-desktop.ps1 -Configuration Release` puis `./scripts/test-desktop.ps1
+  -Configuration Release` : **100 % de 31 suites** ; totaux Qt relevés exécutable par
+  exécutable : 0 échec, **0 ignoré** (dont `tst_sauvegarde` 15/15 et `tst_jetons_coffre`
+  10/10 sur le vrai DPAPI et le vrai coffre Windows, `tst_diagnostics` 6/6, `tst_poste`
+  14/14, `tst_api_porteur` 13/13, `tst_redaction` 13/13).
+- Témoins de mutation de la part 3 (chaque défaut introduit fait échouer sa suite, puis le
+  code est restauré) : oubli du code d'enrôlement à la sortie de page retiré ; brouillon
+  du routage rebâti à chaque lecture ; rang du morceau forcé à 0 dans l'entropie `ACPB1`
+  (permutation acceptée) ; arrêt de l'export à la perte de session retiré et annulation
+  d'une suppression en vol permise ; expurgation des valeurs affichées retirée, valeurs des
+  préférences non contrôlées, motif `acp[em]_` retiré.
+- `check_version`, `check_engine_frozen`, `git diff --check` : verts ;
+  `balayer_secrets.py --arbre --plage origin/main..HEAD` : aucun motif.
+- **Bout en bout local** (images `acp-hermes:p8`, `acp-hermes-tests:p8`, `acp-identite:p8`
+  construites depuis la branche) : sept passes ; la première a trouvé une attente fausse
+  du script (`/api/auth/me` rend le `sub` UUID d'Authelia, pas le nom d'utilisateur), les
+  six suivantes sont **réussies sans écart**. Relevé de la dernière : connexion native par
+  Chromium et passkey virtuelle (S256, retour `127.0.0.1/rappel`, aucun vérificateur dans
+  l'URL), trois empreintes de jeton distinctes après deux rotations, discussion JSON-RPC
+  (« Réponse du modèle factice ACP. »), projet lancé depuis la station, détail relu 44 ms
+  après l'invalidation du kanban, **question posée par le poste simulé et répondue depuis
+  la station** (relue fermée par l'API, carte `ready`), sauvegarde de 15,8 Mio chiffrée,
+  déchiffrée à l'identique et archive supprimée du volume, session reprise du coffre sans
+  navigateur au redémarrage (0,24 s), déconnexion (302) puis rejeu de l'ancien jeton refusé
+  en **503**, aucune forme de secret dans les journaux (station, bord, Hermes) ni dans
+  l'export du registre de la portée de test, aucune entrée de coffre restante, aucune
+  connexion de la station vers Authelia, 9 documents de référence (434 clés) conformes à
+  la forme servie. Captures relues ([`desktop-build.md`](desktop-build.md), § 12).
+
+### Intégration continue
+
+| Commit | CI | Desktop CI |
+|---|---|---|
+| `530aa37` | — | `36916556708` verte |
+| `1987a84` (fin de part 1) | `36927586932` verte | `36927587351` verte |
+| `22a2d90` | `36948212697` verte | `36948212687` verte |
+| `83101cf` | `36950654599` verte | `36950654608` verte |
+| `22e4c42` | `36951706452` verte | `36951706571` verte |
+| `9c44b7a` | `36953313808` verte | `36953313787` verte |
+| `857baae` (fin de part 2) | `36953883934` verte | `36953883927` verte |
+| `b748194` | `36957106978` verte | `36957106964` verte |
+| `b3b9e0f` | `36970326181` verte | `36970326170` verte |
+| `834a920` | `36971280474` verte | `36971280439` verte |
+| `aaf4242` | `36973661359` verte | `36973661335` verte |
+| `1b28374` | `36974403555` verte | `36974403544` verte |
+
+Exécuteur `windows-2022` ; le journal de la Desktop CI ne donne que le résumé de CTest
+(« 100% tests passed »), pas les totaux de Qt Test, relevés localement. Un run en cours est
+annulé par une poussée suivante sur la même branche (`cancel-in-progress`) : attendre la
+fin d'un run avant de pousser.
+
+### Non vérifié
+
+- Connexion à Railway et vraie passkey : rien n'est déployé.
+- Navigateur du système réel : remplacé par Chromium au bout en bout.
+- Installation de l'installeur sur un Windows propre ; signature (aucun certificat).
+- Flux SSE du greffon, agrégat des demandes de l'agent, gestes des revues : contrats de P6
+  et P7 non fusionnés.
+- Restauration d'une sauvegarde (P9) ; seul le déchiffrement à l'identique est prouvé.
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1661,7 +1763,7 @@ Installation de Qt dans un environnement d'outillage séparé :
 ```powershell
 python -m venv "$env:USERPROFILE\.acp-tools\aqt-venv"
 & "$env:USERPROFILE\.acp-tools\aqt-venv\Scripts\python.exe" -m pip install aqtinstall
-& "$env:USERPROFILE\.acp-tools\aqt-venv\Scripts\python.exe" -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 --outputdir "$env:USERPROFILE\Qt"
+& "$env:USERPROFILE\.acp-tools\aqt-venv\Scripts\python.exe" -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtwebsockets --outputdir "$env:USERPROFILE\Qt"
 $env:QT_ROOT_DIR = "$env:USERPROFILE\Qt\6.8.3\msvc2022_64"
 ```
 
@@ -1688,6 +1790,18 @@ Le verrou Python se recompile dans un conteneur `python:3.12-slim`
 pwsh -File packaging/poste/tests/Test-InstallationPoste.ps1    # installeur en simulation, rien n'est écrit
 $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 ./scripts/e2e-poste-windows.ps1 -Python .venv\Scripts\python.exe   # bout en bout local (Docker Desktop)
+```
+
+Étape P8, station de travail (Qt WebSockets requis, voir ci-dessus) :
+
+```powershell
+./scripts/build-desktop.ps1 -Configuration Release
+./scripts/test-desktop.ps1 -Configuration Release                  # 31 suites ; lire aussi les totaux Qt
+python apps/desktop/cmake/check_layout.py                          # 13 constats connus (README du desktop)
+# Bout en bout local : venv python.org avec hermes/tests/requirements-e2e.txt (Playwright, Chromium)
+./scripts/e2e-desktop-windows.ps1 -Python <venv-e2e>\Scripts\python.exe `
+    -ImageTests acp-hermes-tests:<étiquette> -ImageIdentite acp-identite:<étiquette> `
+    -QtDir "$env:USERPROFILE\Qt\6.8.3\msvc2022_64"
 ```
 
 ## 8. Pièges connus
@@ -1785,3 +1899,17 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 - **Étape P5 (poste)** : les tests du poste et le bout en bout n'emploient jamais les vrais emplacements : racine
   jetable (`Emplacements.de_test`), coffre en mémoire (tests) ou DPAPI sur une racine temporaire (bout en bout),
   `USERPROFILE` et `APPDATA` redirigés ; `lancer_poste.py` refuse toute racine hors du dossier temporaire.
+- **Étape P8** : l'outil Bash des agents réduit les barres obliques inverses dans les heredocs : un `\\b` de
+  C++ y devient `\b` (retour arrière), un `\\n` un vrai saut de ligne, un `\failure` de commentaire un saut de
+  page. Écrire le C++ et les expressions régulières par un éditeur, puis balayer les caractères de contrôle
+  des fichiers modifiés (`xxd` sur la ligne suspecte).
+- **Étape P8** : un témoin de mutation laissé actif par une session interrompue est un piège ; le marquer
+  (`// TEMOIN`) pendant l'essai et chercher ce marqueur à la reprise.
+- **Étape P8** : captures hors écran des pages QML : `QT_QPA_FONTDIR` vers les polices du système (sinon des
+  carrés), et une fenêtre construite comme `App.qml` (`palette: NativePalette {}`, `ThemeBridge`, fond
+  `Colors.surfaceCanvas`) ; dans une fenêtre nue, les contrôles Basic (listes, boutons radio) gardent leurs
+  couleurs claires par défaut et paraissent illisibles alors que l'application est correcte.
+- **Étape P8** : au bout en bout, `/api/auth/me` rend le `sub` d'Authelia (UUID opaque) comme identifiant,
+  pas le nom d'utilisateur ; le rejeu d'un jeton de rafraîchissement révoqué donne 503 (Authelia 500).
+- **Étape P8** : la station ne joint `hermes-acp.test` que par le mandataire CONNECT du script (Qt n'a pas de
+  règle de résolution comme Chromium) ; ses WebSockets suivent la règle de proxy du REST.

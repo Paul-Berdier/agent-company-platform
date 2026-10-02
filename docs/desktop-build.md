@@ -331,5 +331,5 @@ la branche), **réussi, 0 écart** :
 
 Captures relues (pages réelles dans une fenêtre construite comme `App.qml`) : rappel du
 navigateur, discussion, nouveau projet, questions avant et après, sauvegarde, accueil,
-diagnostics. Ce parcours ne prouve ni Railway, ni une vraie passkey, ni le navigateur du
+détail du projet, poste, quotas, routage, diagnostics. Ce parcours ne prouve ni Railway, ni une vraie passkey, ni le navigateur du
 système (remplacé par Chromium), ni une installation sur un Windows propre.
