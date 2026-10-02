@@ -119,8 +119,10 @@ name: Image Hermes
       - ".railway/**"
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
-      # Étape P9 : la répétition à blanc de la montée de Hermes (outil seul modifié) relance ce workflow.
+      # Étape P9 : la répétition à blanc de la montée de Hermes relance ce workflow quand l'outil ou une épingle
+      # forte hors des chemins ci-dessus change (fixture /v1/meta du desktop).
       - "scripts/monter_hermes.py"
+      - "apps/desktop/tests/fixtures/hermes/meta.json"
       - "executant/**"
       - "apps/poste/src/**"
       - "packaging/poste/lancer.py"
@@ -137,6 +139,7 @@ name: Image Hermes
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
       - "scripts/monter_hermes.py"
+      - "apps/desktop/tests/fixtures/hermes/meta.json"
       - "executant/**"
       - "apps/poste/src/**"
       - "packaging/poste/lancer.py"

@@ -817,3 +817,45 @@ def test_image_yml_repete_la_montee_a_blanc_a_chaque_construction():
     # Avant la construction de l'image (la base est tirée par condensat une seule fois).
     assert debut < flux.index("      - name: Construire l'image ACP")
     assert "Relever le condensat de l'image officielle" not in flux
+
+
+def _filtres_de_chemins(flux: str, declencheur: str) -> List[str]:
+    """Motifs ``paths`` d'un déclencheur d'image.yml, lus ligne à ligne (bibliothèque standard, sans YAML)."""
+    lignes = flux.splitlines()
+    debut = lignes.index(f"  {declencheur}:")
+    motifs: List[str] = []
+    dans_paths = False
+    for ligne in lignes[debut + 1:]:
+        if ligne and not ligne.startswith("   "):
+            break
+        if ligne.strip() == "paths:":
+            dans_paths = True
+        elif dans_paths and ligne.strip().startswith("- "):
+            motifs.append(ligne.strip()[2:].strip('"'))
+        elif dans_paths and ligne.strip() and not ligne.strip().startswith("#"):
+            break
+    return motifs
+
+
+def _correspond(motif: str, chemin: str) -> bool:
+    """Motif de filtre de GitHub Actions : « ** » traverse les dossiers, « * » non."""
+    expression = "".join(".*" if morceau == "**" else "[^/]*" if morceau == "*" else re.escape(morceau)
+                         for morceau in re.split(r"(\*\*|\*)", motif))
+    return re.fullmatch(expression, chemin) is not None
+
+
+def test_image_yml_se_declenche_pour_chaque_fichier_lu_par_la_repetition():
+    """Relecture P9 : la répétition à blanc compare chaque épingle forte au dépôt ; la fixture /v1/meta du desktop
+    (apps/desktop/tests/fixtures/hermes/meta.json) n'était dans aucun filtre : une PR qui ne changeait qu'elle (un
+    bloc imbriqué que « verifier » refuse, par exemple) ne relançait pas la répétition, et le rouge tombait plus tard
+    sur une PR sans rapport."""
+    flux = (RACINE / ".github" / "workflows" / "image.yml").read_text(encoding="utf-8")
+    lus = (*mh.EPINGLES_FORTES, mh.GREFFON, "scripts/monter_hermes.py")
+    for declencheur in ("pull_request", "push"):
+        motifs = _filtres_de_chemins(flux, declencheur)
+        assert "hermes/**" in motifs and "apps/interface/**" in motifs, (declencheur, motifs)
+        assert [f for f in lus if not any(_correspond(m, f) for m in motifs)] == [], declencheur
+    # Témoins du lecteur de motifs.
+    assert _correspond("hermes/**", "hermes/contrat/HERMES_VERSION")
+    assert not _correspond("apps/poste/src/**", "apps/desktop/tests/fixtures/hermes/meta.json")
+    assert not _correspond("scripts/*.py", "scripts/tests/test_x.py")
