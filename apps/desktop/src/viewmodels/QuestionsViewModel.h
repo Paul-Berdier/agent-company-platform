@@ -14,6 +14,10 @@
 //    lecture seule tant que leur contrat n'est pas fusionné dans `refonte/hermes` ; elles se
 //    traitent dans le navigateur.
 //  - Tableaux illisibles : signalés tels quels.
+//  - Brouillons : le texte d'une réponse (« q:<question> ») ou d'une consigne de triage
+//    (« t:<tableau>/<carte> ») est gardé ici à chaque frappe, pas dans le champ seul : il survit
+//    aux relectures, à un envoi refusé et à un changement de page ; il n'est effacé qu'après la
+//    réussite du geste (signal brouillonEfface).
 
 #pragma once
 
@@ -26,6 +30,7 @@
 #include <QStringList>
 #include <QUrl>
 
+#include <chrono>
 #include <functional>
 
 namespace acp {
@@ -54,6 +59,8 @@ public:
 
     using Ouvreur = std::function<bool(const QUrl &)>;
     void setOuvreur(Ouvreur ouvreur) { m_ouvreur = std::move(ouvreur); }
+    /*! Intervalle du sondage de la page (15 s ; réglable pour les tests). */
+    void setIntervalle(std::chrono::milliseconds intervalle);
 
     [[nodiscard]] JsonListModel *questions() const { return m_questions; }
     [[nodiscard]] JsonListModel *triage() const { return m_triage; }
@@ -77,6 +84,12 @@ public:
     /*! Ouvre la page Questions du tableau de bord (revues de P6) dans le navigateur. */
     Q_INVOKABLE bool traiterDansLeNavigateur();
 
+    /*! Brouillon gardé pour « q:<question> » ou « t:<tableau>/<carte> » (vide s'il n'y en a pas). */
+    Q_INVOKABLE QString brouillon(const QString &cle) const { return m_brouillons.value(cle); }
+    /*! Mémorise le texte en cours de frappe ; un texte vide retire le brouillon. */
+    Q_INVOKABLE void setBrouillon(const QString &cle, const QString &texte);
+    [[nodiscard]] int nombreBrouillons() const { return static_cast<int>(m_brouillons.size()); }
+
     // --- Fonctions pures (tests) ------------------------------------------------------------
     [[nodiscard]] static QJsonObject construireQuestion(const QJsonObject &question);
     [[nodiscard]] static QJsonObject construireTriage(const QJsonObject &carte);
@@ -90,6 +103,8 @@ public:
 signals:
     void listeChange();
     void lectureChange();
+    /*! Le geste a réussi : le champ de ce brouillon se vide. */
+    void brouillonEfface(const QString &cle);
 
 protected:
     void surActivite(bool actif) override;
@@ -98,6 +113,7 @@ protected:
 private:
     void lire(const QJsonObject &liste);
     void apresGeste();
+    void effacerBrouillon(const QString &cle);
 
     ClientGreffonPoste *m_greffon = nullptr;
     ApiClient *m_client = nullptr;
@@ -111,6 +127,7 @@ private:
     bool m_revuesPresentes = false;
     QStringList m_illisibles;
     QHash<QString, QStringList> m_gestes; //!< « tableau/carte » → gestes offerts par le greffon.
+    QHash<QString, QString> m_brouillons; //!< « q:<question> » ou « t:<tableau>/<carte> » → texte.
 };
 
 } // namespace acp

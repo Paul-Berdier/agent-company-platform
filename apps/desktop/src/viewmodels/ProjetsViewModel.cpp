@@ -86,6 +86,8 @@ ProjetsViewModel::ProjetsViewModel(ApiClient *client, ClientGreffonPoste *greffo
     , m_journal(new JsonListModel(this))
     , m_ouvreur([](const QUrl &url) { return QDesktopServices::openUrl(url); })
 {
+    // Liste relue par identifiant : la liste garde son défilement et ses délégués.
+    m_projets->setCle({QStringLiteral("id")});
     m_pause = AccueilViewModel::construireCartePause({});
     viderDetail();
     majFormulaire();

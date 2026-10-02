@@ -31,6 +31,8 @@ DiscussionViewModel::DiscussionViewModel(GatewayClient *passerelle, EventStreamS
     , m_sessions(new JsonListModel(this))
     , m_transcription(new JsonListModel(this))
 {
+    // Liste des sessions relue par identifiant : elle garde son défilement et sa sélection.
+    m_sessions->setCle({QStringLiteral("id")});
     connect(m_passerelle, &GatewayClient::evenement, this, &DiscussionViewModel::surEvenement);
     connect(m_passerelle, &GatewayClient::etatChange, this, &DiscussionViewModel::passerelleChange);
     connect(m_passerelle, &GatewayClient::relectureRequise, this, [this](const QString &sessionId, const QString &raison) {

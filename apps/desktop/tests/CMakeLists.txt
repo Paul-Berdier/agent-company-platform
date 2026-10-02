@@ -32,6 +32,12 @@ target_link_libraries(tst_pages_bureau PRIVATE Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 target_compile_definitions(tst_pages_bureau PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+# Gestes réels (souris, clavier) sur les contrôles des pages, contre le faux Hermes.
+acp_add_cpp_test(tst_pages_interactions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_link_libraries(tst_pages_interactions PRIVATE Qt6::QuickControls2
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+target_compile_definitions(tst_pages_interactions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_api_errors)
 acp_add_cpp_test(tst_api_porteur cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_pkce)
@@ -75,6 +81,7 @@ target_compile_definitions(tst_openrpc_conformite PRIVATE ACP_OPENRPC_FILE="${AC
 acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)
+acp_add_cpp_test(tst_modele_liste)
 
 # --- Pilote du bout en bout local (cahier P8 § 10) ---------------------------------
 #

@@ -44,6 +44,8 @@ DemandesAgent::DemandesAgent(GatewayClient *passerelle, QObject *parent)
     , m_passerelle(passerelle)
     , m_demandes(new JsonListModel(this))
 {
+    // Par identifiant : une nouvelle demande ne détruit pas le champ d'une autre carte.
+    m_demandes->setCle({QStringLiteral("id")});
     JsonRpcChannel *canal = m_passerelle->canal();
     canal->definirGestionnaire(QStringLiteral("approval"), [this](const RequeteServeur &requete) { recevoir(requete); });
     canal->definirGestionnaire(QStringLiteral("clarify"), [this](const RequeteServeur &requete) { recevoir(requete); });

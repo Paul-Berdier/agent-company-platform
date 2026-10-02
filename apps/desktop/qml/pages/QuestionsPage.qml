@@ -30,7 +30,22 @@ Item {
         font.pixelSize: Type.metadata.pixelSize
     }
 
+    // Champ dont le texte est un brouillon gardé par la station (QuestionsViewModel) : il survit
+    // aux relectures de la liste, à un envoi refusé et à un changement de page, et ne se vide
+    // qu'après la réussite du geste.
     component ChampLong: TextArea {
+        id: champ
+        property string cleBrouillon: ""
+        Component.onCompleted: text = Questions.brouillon(champ.cleBrouillon)
+        onTextChanged: Questions.setBrouillon(champ.cleBrouillon, text)
+        Connections {
+            target: Questions
+            function onBrouillonEfface(cle) {
+                if (cle === champ.cleBrouillon) {
+                    champ.text = "";
+                }
+            }
+        }
         Layout.fillWidth: true
         Layout.preferredHeight: 84
         wrapMode: TextEdit.Wrap
@@ -146,6 +161,7 @@ Item {
                         ChampLong {
                             id: reponse
                             objectName: "questions-reponse-" + question.item.id
+                            cleBrouillon: "q:" + question.item.id
                             visible: question.item.peutRepondre
                             Accessible.name: qsTr("Votre réponse")
                         }
@@ -231,6 +247,8 @@ Item {
                         Discret { visible: triage.item.avecConsigne; text: qsTr("Consigne (facultative, 8 000 caractères au plus)"); color: Colors.textSecondary }
                         ChampLong {
                             id: consigne
+                            objectName: "questions-consigne-" + triage.item.carte
+                            cleBrouillon: "t:" + triage.item.tableau + "/" + triage.item.carte
                             visible: triage.item.avecConsigne
                             Accessible.name: qsTr("Consigne")
                         }

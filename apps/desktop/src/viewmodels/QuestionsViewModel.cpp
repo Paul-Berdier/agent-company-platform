@@ -48,11 +48,20 @@ QuestionsViewModel::QuestionsViewModel(ApiClient *client, ClientGreffonPoste *gr
     , m_revues(new JsonListModel(this))
     , m_ouvreur([](const QUrl &url) { return QDesktopServices::openUrl(url); })
 {
+    // Mise à jour par identifiant : une relecture ne détruit jamais le champ où le propriétaire
+    // écrit sa réponse ou sa consigne (le délégué de la ligne est conservé).
+    m_questions->setCle({QStringLiteral("id")});
+    m_triage->setCle({QStringLiteral("tableau"), QStringLiteral("carte")});
     connect(m_sondage, &Sondage::etatChange, this, &QuestionsViewModel::lectureChange);
     connect(m_sondage, &Sondage::lu, this, [this](const ApiResponse &reponse) { lire(reponse.json.object()); });
 }
 
 QuestionsViewModel::~QuestionsViewModel() = default;
+
+void QuestionsViewModel::setIntervalle(std::chrono::milliseconds intervalle)
+{
+    m_sondage->setIntervalle(intervalle);
+}
 
 QString QuestionsViewModel::lecture() const { return m_sondage->libelleLuA(); }
 QString QuestionsViewModel::erreur() const { return m_sondage->derniereErreur(); }
@@ -249,6 +258,24 @@ QString QuestionsViewModel::messageTriage(const QJsonObject &resultat)
     return QStringLiteral("Carte reprise : elle repart dans le graphe du projet.");
 }
 
+void QuestionsViewModel::setBrouillon(const QString &cle, const QString &texte)
+{
+    if (cle.isEmpty()) {
+        return;
+    }
+    if (texte.isEmpty()) {
+        m_brouillons.remove(cle);
+    } else {
+        m_brouillons.insert(cle, texte);
+    }
+}
+
+void QuestionsViewModel::effacerBrouillon(const QString &cle)
+{
+    m_brouillons.remove(cle);
+    emit brouillonEfface(cle);
+}
+
 void QuestionsViewModel::apresGeste()
 {
     m_sondage->lireMaintenant();
@@ -268,8 +295,9 @@ void QuestionsViewModel::repondre(const QString &question, const QString &repons
     }
     debuterGeste();
     ApiCall *appel = m_greffon->repondre(question, texte);
-    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &reponseServeur) {
+    connect(appel, &ApiCall::succeeded, this, [this, question](const ApiResponse &reponseServeur) {
         terminerGeste(messageReponse(reponseServeur.json.object()));
+        effacerBrouillon(QStringLiteral("q:") + question);
         apresGeste();
     });
     connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
@@ -308,7 +336,7 @@ void QuestionsViewModel::agirTriage(const QString &tableau, const QString &carte
     debuterGeste();
     ApiCall *appel = conclure ? m_greffon->conclureTriage(tableau, carte)
                               : m_greffon->reprendreTriage(tableau, carte, consigne.trimmed());
-    connect(appel, &ApiCall::succeeded, this, [this, conclure](const ApiResponse &reponse) {
+    connect(appel, &ApiCall::succeeded, this, [this, conclure, tableau, carte](const ApiResponse &reponse) {
         const QJsonObject resultat = reponse.json.object();
         if (conclure) {
             terminerGeste(resultat.value(QStringLiteral("conclu")) == QJsonValue(true)
@@ -317,6 +345,7 @@ void QuestionsViewModel::agirTriage(const QString &tableau, const QString &carte
         } else {
             terminerGeste(messageTriage(resultat));
         }
+        effacerBrouillon(QStringLiteral("t:") + cle(tableau, carte));
         apresGeste();
     });
     connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
