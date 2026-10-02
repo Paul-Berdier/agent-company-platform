@@ -18,6 +18,7 @@ import pytest
 import acp_demarrage as ad
 
 CONFIG_PIEGEE = """\
+timezone: America/New_York
 approvals:
   mode: "off"
 kanban:
@@ -140,6 +141,27 @@ def test_la_config_geree_gagne_sur_la_config_du_volume(volume_piege):
     oidc = config["dashboard"]["oauth"]["self_hosted"]
     assert (oidc["issuer"], oidc["client_id"], oidc["client_secret"]) == (
         "https://idp.acp.test:8443", "acp-tableau", "")
+
+
+def test_le_fuseau_de_paris_gagne_sur_celui_du_volume(volume_piege, monkeypatch):
+    """Étape P7 (cahier P7 § 7.1, correction K15) : la clé de premier niveau ``timezone`` de la managed scope est celle
+    que lit Hermes (hermes_time.py:83-103, configuration effective) et donc le cron (cron/jobs.py:37-38) : « 0 8 * * * »
+    du bilan quotidien veut dire 8 h à Paris, même si le volume dit autre chose. Contrôle : sans la scope, le volume
+    l'emporterait."""
+    import hermes_time
+    from hermes_cli import managed_scope
+
+    monkeypatch.delenv("HERMES_TIMEZONE", raising=False)
+    hermes_time.reset_cache()
+    assert hermes_time.get_timezone_name() == "Europe/Paris"
+    assert str(hermes_time.get_timezone()) == "Europe/Paris"
+    monkeypatch.delenv("HERMES_MANAGED_DIR")
+    managed_scope.invalidate_managed_cache()
+    hermes_time.reset_cache()
+    try:
+        assert hermes_time.get_timezone_name() == "America/New_York"
+    finally:
+        hermes_time.reset_cache()
 
 
 def test_l_api_server_reste_en_boucle_locale_malgre_la_config_du_volume(volume_piege):

@@ -46,6 +46,7 @@ def inventaire(regime: str) -> int:
         releve["releve_le"] = quand
         for compteur in releve["compteurs"]:
             compteur["observed_at"] = quand
+    fp.mesurer_depots(corps, quand)  # étape P7 : visibilité mesurée de chaque dépôt (cahier P7 § 11.2)
     if regime == "A":
         corps["isolement_linux"].update(regime="A", bwrap="fonctionne", reseau_coupe=True,
                                         ecriture_admise={"codex": True, "claude": True}, raison=None)

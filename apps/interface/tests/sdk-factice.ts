@@ -63,7 +63,9 @@ export function FournisseurLangue(props: { installation: Installation; children?
 
 /** SDK factice. Une réponse est cherchée sous « <MÉTHODE> <url> » pour une écriture, sous « <url> »
  *  pour une lecture ; la table peut être modifiée par le test entre deux requêtes (état du serveur). */
-export function installerSdk(reponses: Record<string, Reponse> = {}, options: { version?: unknown; langue?: string } = {}):
+export function installerSdk(reponses: Record<string, Reponse> = {},
+                             options: { version?: unknown; langue?: string; authedFetch?: SdkHermes["authedFetch"];
+                                        buildWsUrl?: SdkHermes["buildWsUrl"] } = {}):
   Installation {
   const installation: Installation = {
     appels: [],
@@ -93,6 +95,12 @@ export function installerSdk(reponses: Record<string, Reponse> = {}, options: { 
     }) as SdkHermes["fetchJSON"],
     useI18n: () => React.useContext(ContexteLangue),
   };
+  // Étape P7 : authedFetch (contrat 1.1) seulement si le test le fournit ; sans lui, le flux est « indisponible » et
+  // les pages sondent toutes les 15 s (comportement de P4).
+  if (options.authedFetch) sdk.authedFetch = options.authedFetch;
+  // Étape P7 : buildWsUrl (contrat 1.1) seulement si le test le fournit ; sans lui, les discussions en attente sont
+  // « inconnues ».
+  if (options.buildWsUrl) sdk.buildWsUrl = options.buildWsUrl;
   window.__HERMES_PLUGIN_SDK__ = sdk;
   return installation;
 }

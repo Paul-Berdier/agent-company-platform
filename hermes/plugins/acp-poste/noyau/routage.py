@@ -326,18 +326,51 @@ def dernier_inventaire(conn, machine_id: Optional[str] = None) -> Optional[Dict[
     return contenu if isinstance(contenu, dict) else None
 
 
-def voies_fermees(conn, inventaire: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+def _visibilite_mesuree(inventaire: Dict[str, Any], depot_alias: str) -> Optional[str]:
+    """Raison pour laquelle le dépôt ``depot_alias`` n'est PAS prouvé privé par le dernier inventaire, ou ``None`` s'il
+    l'est (visibilité mesurée ``prive`` ET lecture avec le jeton ``ok`` : cahier P7 § 11.2, décision D83)."""
+    depots = inventaire.get("depots")
+    depot = next((d for d in depots if isinstance(d, dict) and d.get("alias") == depot_alias), None) if isinstance(
+        depots, list) else None
+    if depot is None:
+        return T.DEPOT_ABSENT_INVENTAIRE
+    visibilite, lecture = depot.get("visibilite"), depot.get("lecture")
+    if visibilite is None and lecture is None:
+        return T.VISIBILITE_NON_MESUREE
+    if visibilite != "prive":
+        return T.VISIBILITE_MESUREE.format(v=visibilite or T.INCONNU)
+    if lecture != "ok":
+        return T.LECTURE_MESUREE.format(l=lecture or T.INCONNU)
+    return None
+
+
+def voies_fermees(conn, inventaire: Optional[Dict[str, Any]] = None,
+                  depot_alias: Optional[str] = None) -> Dict[str, str]:
     """Voies du poste fermées d'après le dernier inventaire du poste ACTIF (jamais devinées) : ``{voie: raison}``.
 
     - exécutant Linux : écriture non admise par le verdict de la sonde (régime, identifiants séparés, D79) ;
     - poste Windows : écriture Codex non admise par le bac à sable (P5) ;
-    - conditions d'usage publiées sans date de décision (D83, D84).
+    - conditions d'usage publiées sans date de décision (D83, D84) ;
+    - étape P7 (cahier P7 § 11.2, correction K24), pour le dépôt ``depot_alias`` seulement : Codex n'est admis que sur
+      un dépôt MESURÉ privé (accès anonyme refusé) et lu avec le jeton de lecture ; non mesuré, public, inconnu ou absent
+      de l'inventaire → ``poste-codex`` fermée pour ce dépôt, en échec fermé (garde côté greffon ; l'exécutant revérifie
+      de son côté).
 
     Un exécutant absent de la politique reste refusé par :func:`verifier_politique_du_poste` (code
     ``interdit_par_le_poste``, P5). Sans inventaire, aucune voie n'est dite fermée ici : le routage refuse déjà faute de relevé."""
     inventaire = dernier_inventaire(conn) if inventaire is None else inventaire
     if not inventaire:
         return {}
+    fermees = _voies_fermees_du_poste(inventaire)
+    if depot_alias and "poste-codex" not in fermees:
+        raison = _visibilite_mesuree(inventaire, depot_alias)
+        if raison is not None:
+            fermees["poste-codex"] = T.VOIE_FERMEE_DEPOT.format(d=depot_alias, raison=raison)
+    return fermees
+
+
+def _voies_fermees_du_poste(inventaire: Dict[str, Any]) -> Dict[str, str]:
+    """Fermetures qui valent pour TOUT dépôt (isolement, bac à sable, conditions d'usage)."""
     fermees: Dict[str, str] = {}
     isolement = inventaire.get("isolement_linux")
     bac = inventaire.get("bac_a_sable_codex")
@@ -397,7 +430,10 @@ def valider_choix(conn, *, classe: str, projet: Dict[str, Any], voie: str, model
             raise refus("integration_sans_modele", T.INTEGRATION_SANS_MODELE_ROUTAGE)
         return Resolution(voie=voie, modele=None, effort=None, effort_carte=None, palier=palier,
                           source_routage="sans_objet")
-    fermee = voies_fermees(conn).get(voie) if voie in ka.VOIES_POSTE else None
+    # Étape P7 (K24) : le dépôt du projet compte aussi (Codex sur un dépôt prouvé privé seulement) ; une entrée de table
+    # ou une surcharge globale, valables pour tout dépôt, ne sont pas jugées sur un dépôt fictif.
+    depot = None if projet.get("sans_depot_reel") else projet.get("depot_alias")
+    fermee = voies_fermees(conn, depot_alias=depot).get(voie) if voie in ka.VOIES_POSTE else None
     if fermee:
         raise refus("voie_fermee", T.VOIE_FERMEE.format(v=voie, raison=fermee))
     if voie == HERMES:
@@ -550,7 +586,7 @@ def resoudre_relecture(conn, *, projet: Dict[str, Any], voie_relue: str, ref: st
     Étape P6 (D91, appliqué) : l'autre voie FERMÉE d'après le dernier inventaire, et le réglage
     ``relecture_repli_meme_voie`` levé : :func:`_relecture_de_repli`, jamais silencieux (mention)."""
     autre = autre_voie(voie_relue)
-    fermee = voies_fermees(conn).get(autre)
+    fermee = voies_fermees(conn, depot_alias=projet.get("depot_alias")).get(autre)
     if fermee and base.reglage(conn, "relecture_repli_meme_voie"):
         return _relecture_de_repli(conn, projet=projet, voie_relue=voie_relue, modele_relu=modele_relu, ref=ref,
                                    modele=modele, raison_fermeture=fermee)
@@ -666,7 +702,9 @@ def catalogue(conn) -> Dict[str, Any]:
 # ------------------------------------------------------------------ page Routage (étape P5, cahier P5 § 12.3, § 13.2)
 
 CLASSES_TABLE = tuple(c for c in VOIES_PAR_CLASSE if c != "integration")
-PROJET_DE_VALIDATION = {"id": None, "titre": "table de routage", "depot_alias": "table"}
+# Pseudo-projet de la validation d'une entrée de table ou de surcharge globale : elles valent pour TOUT dépôt ; la garde
+# « dépôt privé » (étape P7) s'applique à la résolution, pour le dépôt réel du projet, jamais ici.
+PROJET_DE_VALIDATION = {"id": None, "titre": "table de routage", "depot_alias": "table", "sans_depot_reel": True}
 _VALEUR = re.compile(r"[a-z0-9][a-z0-9._\[\]-]{0,63}")
 EFFORTS_HORS_ENVELOPPE = ("max", "ultra", "ultracode")
 

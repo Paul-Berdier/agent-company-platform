@@ -91,8 +91,9 @@ docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP=acp-hermes:dev -t 
    - inspecte `/opt/data/plugins`, `/opt/data/dashboard-themes` et `/opt/data/acp`
      (noms réservés, liens symboliques) sans rien écrire ;
    - (P2) exige que `/opt/data/hooks`, `/opt/data/scripts` et, depuis la relecture P2, les
-     `hooks/` et `scripts/` de **chaque profil** de `/opt/data/profiles` soient **vides**, et
-     refuse un lien symbolique sous `profiles/` (§ 6) ;
+     `hooks/` et `scripts/` de **chaque profil** de `/opt/data/profiles` soient **vides** (depuis
+     P7, sauf `/opt/data/scripts/acp-bilan.py` d'empreinte connue, § 6), et refuse un lien
+     symbolique sous `profiles/` (§ 6) ;
    - (P2) sur Railway, exige le volume du service monté sur `/opt/data` (§ 4) ;
    - (P2) journalise `[acp] commit déployé : <RAILWAY_GIT_COMMIT_SHA ou « inconnu »>`, même
      en cas de refus, pour relier chaque déploiement à son run `image.yml`.
@@ -109,6 +110,7 @@ docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP=acp-hermes:dev -t 
    `/opt/data/scripts` et les `hooks/` et `scripts/` de chaque profil (P2, vides, root 0755),
    **reprend à root le répertoire de
    services s6 `/run/service` et les scripts des passerelles dynamiques** (§ 4.4), dépose
+   (P7) le script du bilan quotidien dans `/opt/data/scripts` (root 0644, § 6), dépose
    le thème et `SOUL.md`, écrit `/run/acp/etat-demarrage.json` (tmpfs, root 0644).
 4. Services s6 : tableau de bord (`hermes dashboard --host 0.0.0.0 --port 9119`, uid
    hermes) et `main-hermes`. Le script `run` du tableau de bord est **enveloppé par une
@@ -309,7 +311,8 @@ tableau de bord (10000). Il ne peut pas modifier `/etc/hermes` ; depuis P2, il n
 outil d'exécution (ci-dessous) pour tuer le processus du tableau de bord ou écouter sur
 `0.0.0.0:9119`. Il ne le pourrait plus que par une **faille de Hermes lui-même** (§ 10).
 
-**`/etc/hermes/config.yaml`** (**57 clés** depuis P4, 50 en P3, 40 en P2, 28 en P1) : `kanban.auto_decompose: false`,
+**`/etc/hermes/config.yaml`** (**58 clés** depuis P7, 57 en P4, 50 en P3, 40 en P2, 28 en P1) : depuis P7
+`timezone: Europe/Paris` (8 h du bilan quotidien = 8 h à Paris), `kanban.auto_decompose: false`,
 `kanban.dispatch_profiles: [default]`, depuis P4 `kanban.dispatch_in_gateway: true`, `kanban.max_in_progress: 4`,
 `kanban.max_in_progress_per_profile: 2`, `kanban.review_dispatch: false`, `kanban.failure_limit: 3` et
 `known_plugin_toolsets.{api_server,cron}: [acp_poste]` ([projets.md](projets.md) § 6), `approvals.mode: manual` (et `cron_mode`,
@@ -527,6 +530,24 @@ utilisateur n'est jamais importé.
   entrée (ou un lien symbolique à leur place) **refuse le démarrage** en les nommant ; ensuite
   ils deviennent root 0755. `stage2-hook.sh` ne les rend pas à l'agent tant que `/opt/data`
   lui appartient (stage2-hook.sh:228-254).
+- **Seule exception, le script du bilan quotidien (étape P7, cahier P7 § 7.1, correction K1)** :
+  `/opt/data/scripts/acp-bilan.py`, à la **racine seulement**, est admis s'il est un fichier
+  ordinaire (lu sans suivre de lien, par un seul descripteur), `root:root`, mode `0644`, et
+  si son SHA-256 figure dans `EMPREINTES_BILAN_ADMISES` (`acp_demarrage.py` : l'empreinte de la
+  copie de l'image `/opt/acp/scripts/acp-bilan.py`, plus celles des versions déjà livrées, pour
+  qu'une montée de version ne soit pas refusée). `05-acp` le **recopie** à chaque démarrage, après
+  le second contrôle (fichier temporaire écrit dans `/opt/data/acp`, puis renommé : une
+  interruption ne laisse aucune entrée en trop dans `scripts/`) ; jamais un lien, que Hermes
+  refuserait (`cron/scheduler_script.py:257-298`). Sans cette exception, le fichier déposé au
+  premier démarrage aurait fait **refuser tout démarrage suivant**, donc tout redéploiement. Tout
+  autre contenu, mode, propriétaire ou entrée, et ce même fichier dans le `scripts/` d'un profil :
+  refus inchangé. La construction échoue si la copie de l'image n'a pas une empreinte admise.
+  Pourquoi c'est sans risque pour la garde « aucun outil d'exécution » : le dossier reste à root,
+  seul ce contenu exact est admis, le script n'accepte **aucune entrée** (arguments, entrée
+  standard et environnement ignorés, sauf `HERMES_HOME`) et l'agent ne peut pas créer de tâche
+  cron (`cronjob` coupé) : seule une tâche créée par le propriétaire l'exécute. Le journal du
+  démarrage dit « vides (hors acp-bilan.py, admis par son empreinte) » et le dépôt ; l'état du
+  démarrage (schéma 4) porte `bilan_depose`.
 - **`hooks/` et `scripts/` de chaque profil (relecture P2)** : une seule passerelle sert tous les
   profils (hermes_cli/container_boot.py:100-110 ; hermes_cli/profiles.py:1050-1075) ; elle
   exécute les scripts cron du `scripts/` **propre** à chaque profil (cron/scheduler_script.py:257-298,
@@ -574,7 +595,8 @@ rassemble tout ce qui ferait refuser le démarrage ou exécuter du code depuis l
   `cron/jobs.json` de la racine et de chaque profil (lecture tolérante comme Hermes : BOM,
   dictionnaire par identifiant). Sans script dans les `scripts/` exigés vides, elles échouent ;
   elles sont signalées parce que leur présence dit qu'une sauvegarde restaurée ou une ancienne
-  injection en a posé ;
+  injection en a posé. Seule exception (étape P7) : la tâche du bilan quotidien de la racine,
+  `script` = `acp-bilan.py`, `no_agent` exactement vrai, sans `monitor_script` ;
 - **clés exécutables** de `/opt/data/config.yaml` et `/opt/data/profiles/*/config.yaml`, lues
   sans suivre de lien : `mcp_servers.*.command`, `hooks` non vide, `quick_commands` de type
   `exec`, fournisseurs TTS ou STT de type `command` ; depuis P3, tout serveur MCP absent du

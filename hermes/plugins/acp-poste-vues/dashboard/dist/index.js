@@ -45,7 +45,7 @@
     },
     accueil: {
       titre: "Accueil",
-      intro: "\xC9tat de votre agent Hermes et de la plateforme ACP, relev\xE9 \xE0 l'ouverture de la page.",
+      intro: "Ce qui vous attend, vos projets, l'ex\xE9cutant et les quotas, tenus \xE0 jour tant que la page est visible.",
       hermes: "Hermes",
       version: "Version en service",
       versionTestee: "Version test\xE9e par ACP",
@@ -69,8 +69,60 @@
       sansTitre: "Sans titre",
       messages: "messages",
       toutesSessions: "Toutes les sessions",
-      poste: "Poste Windows",
-      posteNote: "Enr\xF4lement, \xE9tat, routage et quotas du poste\xA0: page Poste. L'ex\xE9cution de vos projets sur d\xE9p\xF4t passe par l'ex\xE9cutant (page Poste\xA0: isolement, carte en cours, branches pr\xEAtes).",
+      // Étape P7 : Accueil agrégé (cahier P7 § 8) et bilan quotidien (§ 7).
+      aTraiterTitre: "\xC0 traiter par vous",
+      blocIllisible: "Bloc illisible\xA0:",
+      questions: "Questions",
+      decisions: "D\xE9cisions",
+      revues: "Revues",
+      arretees: "Cartes arr\xEAt\xE9es",
+      discussionsEnAttente: "Discussions en attente",
+      inconnues: "Inconnues",
+      chezHermes: "Chez Hermes",
+      rienATraiter: "Rien n'attend votre d\xE9cision.",
+      ouvrirQuestions: "Ouvrir la file Questions",
+      genreQuestion: "Question\xA0:",
+      genreDecision: "D\xE9cision\xA0:",
+      genreRevue: "Revue\xA0:",
+      genreArretee: "Carte arr\xEAt\xE9e\xA0:",
+      projetsTitre: "Projets en cours",
+      projetsEnCours: "En cours",
+      projetsEnPause: "En pause",
+      projetsTermines7j: "Termin\xE9s ces 7 derniers jours",
+      aucunProjetOuvert: "Aucun projet ouvert.",
+      ouvrirProjets: "Ouvrir les projets",
+      executantTitre: "Ex\xE9cutant",
+      etat: "\xC9tat",
+      machine: "Machine",
+      plateforme: "Plateforme",
+      derniereVue: "Vu pour la derni\xE8re fois",
+      carteEnCours: "Carte en cours",
+      aucuneCarteEnCours: "Aucune",
+      voiesFermees: "Voies ferm\xE9es\xA0:",
+      ouvrirPoste: "Ouvrir la page Poste",
+      quotasTitre: "Quotas",
+      utilise: "Utilis\xE9",
+      remiseAZero: "Remise \xE0 z\xE9ro",
+      source: "Source",
+      releveLe: "Relev\xE9",
+      quotasHermes: "Hermes",
+      ouvrirQuotas: "Ouvrir les quotas",
+      bilanTitre: "Bilan quotidien",
+      bilanIllisible: "\xC9tat du bilan inconnu\xA0: la liste des t\xE2ches cron de Hermes ne r\xE9pond pas.",
+      bilanNonCree: "Non cr\xE9\xE9",
+      bilanExplication: "Une notification par jour, \xE0 8 h (heure de Paris)\xA0: des compteurs seulement, sans mod\xE8le ni jeton. Vous seul pouvez la cr\xE9er.",
+      creerBilan: "Cr\xE9er le bilan quotidien (8 h)",
+      bilanActif: "Actif",
+      bilanEnPause: "En pause",
+      prochainEnvoi: "Prochain envoi",
+      dernierEnvoi: "Dernier envoi",
+      jamais: "Jamais",
+      bilanPlusieurs: "Plusieurs t\xE2ches du bilan existent\xA0: gardez-en une depuis la page Cron.",
+      bilanCree: "Bilan quotidien cr\xE9\xE9.",
+      bilanSansCanal: "Le bilan ne partira pas\xA0: notifications non configur\xE9es.",
+      ouvrirCron: "Pause et suppression\xA0: page Cron",
+      accueilIndisponible: "L'accueil est indisponible\xA0: le greffon acp-poste ne r\xE9pond pas sur /v1/accueil.",
+      actualisationImpossible: "Derni\xE8re actualisation impossible\xA0: les donn\xE9es affich\xE9es sont celles de la lecture pr\xE9c\xE9dente.",
       raccourcis: "Raccourcis",
       lienProjets: "Projets",
       discussion: "Discussion",
@@ -122,6 +174,12 @@
     alertes: {
       titre: "Alertes ACP"
     },
+    tempsReel: {
+      actif: "Page actualis\xE9e en temps r\xE9el tant qu'elle est visible.",
+      connexion: "Connexion au temps r\xE9el en cours\xA0: actualisation toutes les 15 secondes en attendant.",
+      repli: "Temps r\xE9el indisponible\xA0: actualisation toutes les 15 secondes tant que la page est visible.",
+      sansFlux: "Temps r\xE9el non pris en charge par ce tableau de bord\xA0: actualisation toutes les 15 secondes tant que la page est visible."
+    },
     projets: {
       titre: "Projets",
       intro: "Les projets que vous confiez \xE0 Hermes\xA0: il les planifie, les fait avancer carte par carte et vous pose ici ses questions.",
@@ -129,7 +187,6 @@
       vueListe: "Projets",
       vueQuestions: "Questions",
       vueNouveau: "Nouveau projet",
-      actualisation: "Page actualis\xE9e toutes les 15 secondes tant qu'elle est visible.",
       actualisationImpossible: "Derni\xE8re actualisation impossible\xA0: les donn\xE9es affich\xE9es sont celles de la lecture pr\xE9c\xE9dente.",
       indisponible: "Les projets sont indisponibles\xA0: le greffon acp-poste ne r\xE9pond pas sur /v1/projets.",
       questionsIndisponibles: "Les questions sont indisponibles\xA0: le greffon acp-poste ne r\xE9pond pas sur /v1/questions.",
@@ -291,7 +348,55 @@
       revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
       revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
       bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
-      bloqueesNote: "Lecture seule\xA0: relancer une carte depuis cette page arrivera \xE0 l'\xE9tape P7\xA0; en attendant, le kanban de Hermes le permet.",
+      // Étape P7 : file Questions, « Qui répond », « Clore » (cahier P7 § 3, § 4.2, § 10).
+      fileTitre: "\xC0 traiter",
+      aTraiterParVous: "\xC0 traiter par vous",
+      chezHermesCompte: "Chez Hermes",
+      discussionsNonComptees: "(discussions en attente\xA0: \xE9tat inconnu, non compt\xE9es)",
+      cibleTraitee: "Cette demande a d\xE9j\xE0 \xE9t\xE9 trait\xE9e\xA0: elle n'est plus dans la file.",
+      quiRepondQuestion: "Qui r\xE9pond",
+      chezHermes: "Hermes y r\xE9pond",
+      aVous: "\xC0 vous",
+      carteRepondre: "Carte \xAB\xA0r\xE9pondre\xA0\xBB\xA0:",
+      chezHermesAide: "Hermes pr\xE9pare la r\xE9ponse par sa carte \xAB\xA0r\xE9pondre\xA0\xBB\xA0; vous pouvez r\xE9pondre vous-m\xEAme avant lui.",
+      bloqueesIntro: "\xAB\xA0Relancer\xA0\xBB remet la carte en route, avec votre consigne si vous en donnez une. Une carte qui rebloque pour la m\xEAme raison revient en d\xE9cision.",
+      relancerCarte: "Relancer",
+      relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
+      relancee: "La carte repart.",
+      relanceeSessionNeuve: "La carte repart\xA0: l'agent reprend d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
+      nonRelancee: "La carte n'a pas \xE9t\xE9 relanc\xE9e.",
+      statutApres: "Statut\xA0:",
+      nonRelancable: "Relance impossible\xA0:",
+      discussionsTitre: "Discussions en attente",
+      discussionsIntro: "Discussions du tableau de bord dont une demande attend votre r\xE9ponse, en lecture seule.",
+      discussionsInconnues: "Discussions\xA0: \xE9tat inconnu (le tableau de bord n'a pas pu \xEAtre interrog\xE9).",
+      requetesOuvertes: "Requ\xEAtes ouvertes dans le tableau de bord\xA0:",
+      aucuneDiscussion: "Aucune discussion en attente.",
+      discussionSansTitre: "Sans titre",
+      discussionEtat: "\xC9tat",
+      discussionEnAttente: "En attente d'une r\xE9ponse",
+      discussionActivite: "Derni\xE8re activit\xE9",
+      discussionApercu: "Aper\xE7u",
+      discussionCle: "Session",
+      discussionsLimite: "Les questions pos\xE9es dans la discussion en terminal (/chat) ne sont visibles que dans cette discussion.",
+      reponsesSansObjetCourt: "Sans objet (projet sans d\xE9p\xF4t)",
+      changerQuiRepond: "Changer qui r\xE9pond",
+      quiRepondSuivantes: "Qui r\xE9pond aux questions suivantes",
+      quiRepondAide: "Le changement vaut pour les questions suivantes\xA0; les questions d\xE9j\xE0 ouvertes gardent leur traitement, et vous pouvez toujours y r\xE9pondre vous-m\xEAme.",
+      enregistrer: "Enregistrer",
+      reglageEnregistre: "R\xE9glage enregistr\xE9 pour les questions suivantes. Questions ouvertes qui gardent leur traitement\xA0:",
+      clore: "Clore le projet",
+      cloreQuestion: "Clore ce projet\xA0?",
+      clorePoint1: "Les cartes ouvertes du projet sont archiv\xE9es\xA0; un travail en cours est arr\xEAt\xE9.",
+      clorePoint2: "Ses questions ouvertes sont annul\xE9es.",
+      clorePoint3: "Le projet passe \xAB\xA0Termin\xE9\xA0\xBB si la synth\xE8se du tour en cours est faite, sinon \xAB\xA0Abandonn\xE9\xA0\xBB.",
+      clorePoint4: "Aucune notification n'est envoy\xE9e\xA0; les branches d\xE9j\xE0 rapport\xE9es restent sur l'ex\xE9cutant jusqu'\xE0 leur purge (7 jours).",
+      cloreConfirmer: "Confirmer la cl\xF4ture",
+      closTermine: "Projet clos\xA0: termin\xE9.",
+      closAbandonne: "Projet clos\xA0: abandonn\xE9 (la synth\xE8se du tour en cours n'\xE9tait pas faite).",
+      cartesArchivees: "Cartes archiv\xE9es\xA0:",
+      questionsAnnulees: "Questions annul\xE9es\xA0:",
+      branchesRestent: "Branches rest\xE9es sur l'ex\xE9cutant (purg\xE9es apr\xE8s 7 jours)\xA0:",
       aucuneBloquee: "Aucune carte bloqu\xE9e.",
       abandonnee: "Abandonn\xE9e apr\xE8s plusieurs \xE9checs",
       assigne: "Assign\xE9e \xE0",
@@ -386,7 +491,6 @@
       vueQuotas: "Quotas",
       indisponible: "\xC9tat du poste indisponible.",
       actualisationImpossible: "Actualisation impossible\xA0: derni\xE8res valeurs lues affich\xE9es.",
-      actualisation: "Actualis\xE9 toutes les 15 secondes tant que la page est visible.",
       envoi: "Envoi\u2026",
       etatTitre: "\xC9tat du poste",
       etatTitreExecutant: "\xC9tat de l'ex\xE9cutant Railway",
@@ -668,6 +772,68 @@
         inconnu: "Inconnu"
       }
     },
+    // Étape P7, part D : discussion réduite (greffon acp-discussion, cahier P7 § 9), section à part.
+    discussion: {
+      titre: "Discussion",
+      intro: "Discussion avec Hermes pens\xE9e pour le t\xE9l\xE9phone. La session vit dans le tableau de bord\xA0: fermez la page, reprenez-la depuis un autre appareil, la question en attente vous y attend.",
+      limites: "Non pris en charge ici\xA0: d\xE9tail des outils (une ligne par outil), pi\xE8ces jointes, commandes \xAB\xA0/\xA0\xBB, changement de mod\xE8le, mise en forme riche.",
+      persistance: "Une question pos\xE9e ici attend une heure au plus et dispara\xEEt si Hermes red\xE9marre\xA0; ce qui doit attendre passe par un projet.",
+      navigation: "Navigation de la discussion",
+      liste: "Discussions",
+      nouvelle: "Nouvelle discussion",
+      retourListe: "Toutes les discussions",
+      listeTitre: "Discussions r\xE9centes",
+      listeIntro: "Les vingt derni\xE8res discussions du tableau de bord, la plus r\xE9cente d'abord.",
+      aucune: "Aucune discussion pour l'instant.",
+      sansTitre: "Sans titre",
+      messages: "Messages",
+      activite: "Derni\xE8re activit\xE9",
+      enAttente: "En attente d'une r\xE9ponse",
+      ouvrir: "Ouvrir",
+      ouvrirDiscussion: "Ouvrir la discussion",
+      listeIndisponible: "La liste des discussions n'a pas pu \xEAtre lue.",
+      indisponible: "Discussion indisponible\xA0: ce tableau de bord n'expose pas buildWsUrl (contrat 1.1 du SDK).",
+      introuvable: "Discussion introuvable\xA0: Hermes ne la conna\xEEt plus (ferm\xE9e, ou perdue au red\xE9marrage).",
+      connexion: "Connexion \xE0 Hermes\u2026",
+      prete: "Connect\xE9 \xE0 Hermes.",
+      reconnexion: "Connexion perdue. Nouvelle tentative dans",
+      secondes: "s",
+      nouvelleIntro: "\xC9crivez votre premier message\xA0: la discussion est cr\xE9\xE9e \xE0 l'envoi.",
+      fil: "Messages de la discussion",
+      vous: "Vous",
+      hermes: "Hermes",
+      outil: "Outil\xA0:",
+      erreurHermes: "Erreur signal\xE9e par Hermes\xA0:",
+      enCours: "R\xE9ponse en cours\u2026",
+      interrompu: "Tour interrompu.",
+      echoue: "Tour en \xE9chec.",
+      etat: "\xC9tat\xA0:",
+      message: "Votre message",
+      envoyer: "Envoyer",
+      interrompre: "Interrompre",
+      tourEnCours: "Un tour est en cours\xA0: l'envoi reprend \xE0 sa fin, ou interrompez-le.",
+      questionTitre: "Hermes vous pose une question",
+      questionsTitre: "Hermes vous pose des questions",
+      recommande: "recommand\xE9",
+      choixMultiple: "Plusieurs choix possibles.",
+      reponseLibre: "R\xE9ponse libre",
+      reponseLibreAide: "Remplie, elle l'emporte sur le choix.",
+      dejaRepondu: "R\xE9ponse d\xE9j\xE0 enregistr\xE9e\xA0:",
+      repondre: "R\xE9pondre",
+      refusee: "Demande refus\xE9e automatiquement\xA0: ACP ne traite ni approbation, ni mot de passe, ni secret.",
+      demande: "Demande\xA0:",
+      retiree: "Question retir\xE9e par Hermes.",
+      raison: "Raison\xA0:",
+      detail: "D\xE9tail\xA0:",
+      erreurs: {
+        envoi: "Le message n'a pas \xE9t\xE9 envoy\xE9.",
+        creation: "La discussion n'a pas pu \xEAtre cr\xE9\xE9e.",
+        reprise: "La discussion n'a pas pu \xEAtre reprise.",
+        interruption: "L'interruption a \xE9chou\xE9.",
+        reponse: "La r\xE9ponse n'a pas \xE9t\xE9 envoy\xE9e.",
+        tour: "Le tour s'est termin\xE9 en erreur."
+      }
+    },
     refus: {
       sdk: "Interface ACP d\xE9sactiv\xE9e\xA0: SDK du tableau de bord incompatible.",
       attendu: "Attendu\xA0:",
@@ -695,7 +861,7 @@
     if (!s.React || typeof s.React.createElement !== "function" || typeof s.fetchJSON !== "function") {
       return { ok: false, trouve: `${brut} incomplet` };
     }
-    return { ok: true, version: brut };
+    return { ok: true, version: brut, tempsReel: typeof s.authedFetch === "function" };
   }
   function sdk() {
     const valeur = window.__HERMES_PLUGIN_SDK__;
@@ -814,6 +980,418 @@
       registre.registerSlot(enregistrement.nom, emplacement, composant);
     }
     return verdict;
+  }
+
+  // src/flux.ts
+  var ROUTE_FLUX = "/api/plugins/acp-poste/v1/flux";
+  var SUJETS = ["projets", "questions", "poste", "quotas", "notifications", "pause", "discussions"];
+  var VERSION_PARTAGE = 1;
+  var REPRISES_MS = [1e3, 2e3, 5e3, 1e4, 3e4];
+  var FENETRE_ECHECS_MS = 12e4;
+  var ECHECS_AVANT_REPLI = 3;
+  var NOUVEL_ESSAI_MS = 3e5;
+  var FERMETURE_DIFFEREE_MS = 5e3;
+  var TRAMES_GARDEES = 200;
+  var AnalyseurSse = class {
+    constructor() {
+      __publicField(this, "dernierId", null);
+      __publicField(this, "retry", null);
+      __publicField(this, "commentaires", 0);
+      __publicField(this, "reste", "");
+      __publicField(this, "crEnSuspens", false);
+      __publicField(this, "evenement", "");
+      __publicField(this, "donnees", []);
+      __publicField(this, "idTampon", null);
+    }
+    pousser(morceau) {
+      let texte = morceau;
+      if (this.crEnSuspens && texte.startsWith("\n")) texte = texte.slice(1);
+      if (texte.length > 0) this.crEnSuspens = false;
+      const tampon = this.reste + texte;
+      const trames = [];
+      let debut = 0;
+      for (let i = 0; i < tampon.length; i += 1) {
+        const c = tampon[i];
+        if (c !== "\n" && c !== "\r") continue;
+        const ligne = tampon.slice(debut, i);
+        if (c === "\r") {
+          if (i + 1 < tampon.length) {
+            if (tampon[i + 1] === "\n") i += 1;
+          } else {
+            this.crEnSuspens = true;
+          }
+        }
+        debut = i + 1;
+        const trame = this.ligne(ligne);
+        if (trame) trames.push(trame);
+      }
+      this.reste = tampon.slice(debut);
+      return trames;
+    }
+    ligne(ligne) {
+      if (ligne === "") return this.expedier();
+      if (ligne.startsWith(":")) {
+        this.commentaires += 1;
+        return null;
+      }
+      const deuxPoints = ligne.indexOf(":");
+      const champ = deuxPoints === -1 ? ligne : ligne.slice(0, deuxPoints);
+      let valeur = deuxPoints === -1 ? "" : ligne.slice(deuxPoints + 1);
+      if (valeur.startsWith(" ")) valeur = valeur.slice(1);
+      if (champ === "event") this.evenement = valeur;
+      else if (champ === "data") this.donnees.push(valeur);
+      else if (champ === "id" && !valeur.includes("\0")) this.idTampon = valeur;
+      else if (champ === "retry" && /^\d+$/.test(valeur)) this.retry = Number(valeur);
+      return null;
+    }
+    expedier() {
+      this.dernierId = this.idTampon;
+      if (this.donnees.length === 0) {
+        this.evenement = "";
+        return null;
+      }
+      const trame = { id: this.dernierId, evenement: this.evenement || "message", donnees: this.donnees.join("\n") };
+      this.donnees = [];
+      this.evenement = "";
+      return trame;
+    }
+  };
+  function estSujet(valeur) {
+    return typeof valeur === "string" && SUJETS.includes(valeur);
+  }
+  function visible() {
+    return typeof document === "undefined" || document.visibilityState !== "hidden";
+  }
+  var FluxPartage = class {
+    constructor() {
+      __publicField(this, "version", VERSION_PARTAGE);
+      __publicField(this, "abonnes", /* @__PURE__ */ new Map());
+      __publicField(this, "ecouteurs", /* @__PURE__ */ new Set());
+      __publicField(this, "compteur", 0);
+      __publicField(this, "courant", { mode: "connexion", discussionsSuivies: null });
+      __publicField(this, "controleur", null);
+      __publicField(this, "generation", 0);
+      __publicField(this, "reprise", null);
+      __publicField(this, "fermeture", null);
+      __publicField(this, "echecs", []);
+      __publicField(this, "repliJusqua", 0);
+      __publicField(this, "dernierId", null);
+      __publicField(this, "recues", []);
+      __publicField(this, "arrete", false);
+      __publicField(this, "surVisibilite", () => visible() ? this.ouvrir() : this.fermer());
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.surVisibilite);
+    }
+    /** S'abonne aux sujets ; rend la fonction de désabonnement. Le flux s'ouvre au premier abonné. */
+    abonner(sujets, rappel) {
+      this.compteur += 1;
+      const numero = this.compteur;
+      this.abonnes.set(numero, { sujets: new Set(sujets), rappel });
+      if (this.fermeture !== null) {
+        clearTimeout(this.fermeture);
+        this.fermeture = null;
+      }
+      this.ouvrir();
+      return () => {
+        if (!this.abonnes.delete(numero) || this.abonnes.size > 0) return;
+        if (this.fermeture !== null) clearTimeout(this.fermeture);
+        this.fermeture = setTimeout(() => {
+          this.fermeture = null;
+          if (this.abonnes.size === 0) this.fermer();
+        }, FERMETURE_DIFFEREE_MS);
+      };
+    }
+    /** Suit les changements d'état (mode, discussions suivies) ; rend la fonction d'arrêt. */
+    ecouter(rappel) {
+      this.ecouteurs.add(rappel);
+      return () => {
+        this.ecouteurs.delete(rappel);
+      };
+    }
+    etat() {
+      return this.courant;
+    }
+    /** Dernières trames reçues (« etat », « changement », « fin »), pour le diagnostic et la preuve du parcours P7 (une
+     *  relecture de la page suit-elle une trame ?). Aucune donnée : des noms de sujets. */
+    trames() {
+      return this.recues.map((r) => ({ ...r, sujets: [...r.sujets] }));
+    }
+    /** Nombre d'abonnés (tests et diagnostic). */
+    abonnements() {
+      return this.abonnes.size;
+    }
+    /** Ferme tout et oublie les écouteurs (tests). */
+    detruire() {
+      this.abonnes.clear();
+      this.ecouteurs.clear();
+      if (this.fermeture !== null) clearTimeout(this.fermeture);
+      this.fermeture = null;
+      this.fermer();
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.surVisibilite);
+    }
+    poser(etat) {
+      const suivant = { ...this.courant, ...etat };
+      if (suivant.mode === this.courant.mode && suivant.discussionsSuivies === this.courant.discussionsSuivies) return;
+      this.courant = suivant;
+      for (const ecouteur of [...this.ecouteurs]) ecouteur(suivant);
+    }
+    diffuser(sujets) {
+      if (sujets.length === 0) return;
+      for (const abonnement of [...this.abonnes.values()]) {
+        const vises = sujets.filter((s) => abonnement.sujets.has(s));
+        if (vises.length > 0) abonnement.rappel(vises);
+      }
+    }
+    ouvrir() {
+      if (this.abonnes.size === 0 || !visible() || this.controleur !== null || this.reprise !== null) return;
+      let authedFetch;
+      try {
+        authedFetch = sdk().authedFetch;
+      } catch {
+        authedFetch = void 0;
+      }
+      if (typeof authedFetch !== "function") {
+        this.poser({ mode: "indisponible" });
+        return;
+      }
+      if (this.arrete) {
+        this.poser({ mode: "sondage" });
+        return;
+      }
+      const attente = this.repliJusqua - Date.now();
+      if (attente > 0) {
+        this.poser({ mode: "sondage" });
+        this.planifier(attente);
+        return;
+      }
+      void this.connecter(authedFetch);
+    }
+    fermer() {
+      this.generation += 1;
+      if (this.reprise !== null) clearTimeout(this.reprise);
+      this.reprise = null;
+      const controleur = this.controleur;
+      this.controleur = null;
+      controleur?.abort();
+    }
+    planifier(delai) {
+      if (this.reprise !== null) clearTimeout(this.reprise);
+      this.reprise = setTimeout(() => {
+        this.reprise = null;
+        this.ouvrir();
+      }, delai);
+    }
+    async connecter(authedFetch) {
+      this.generation += 1;
+      const generation = this.generation;
+      const controleur = new AbortController();
+      this.controleur = controleur;
+      let fin = false;
+      try {
+        const entetes = { Accept: "text/event-stream" };
+        if (this.dernierId !== null) entetes["Last-Event-ID"] = this.dernierId;
+        const reponse = await authedFetch(ROUTE_FLUX, { headers: entetes, signal: controleur.signal, cache: "no-store" });
+        if (generation !== this.generation) return;
+        if (reponse.status === 401) {
+          this.arrete = true;
+          this.controleur = null;
+          this.poser({ mode: "sondage" });
+          return;
+        }
+        if (!reponse.ok || reponse.body === null) throw new Error(`flux ${reponse.status}`);
+        const lecteur = reponse.body.getReader();
+        const decodeur = new TextDecoder();
+        const analyseur = new AnalyseurSse();
+        for (; ; ) {
+          const { value, done } = await lecteur.read();
+          if (generation !== this.generation) {
+            void lecteur.cancel().catch(() => void 0);
+            return;
+          }
+          if (done) break;
+          for (const trame of analyseur.pousser(decodeur.decode(value, { stream: true }))) {
+            if (trame.id !== null) this.dernierId = trame.id;
+            fin = this.traiter(trame) || fin;
+          }
+        }
+      } catch {
+        if (generation !== this.generation) return;
+      }
+      if (generation !== this.generation) return;
+      this.controleur = null;
+      if (fin) {
+        this.ouvrir();
+        return;
+      }
+      this.echec();
+    }
+    /** Traite une trame ; rend vrai pour « fin ». */
+    noter(evenement, sujets) {
+      const t = typeof performance !== "undefined" ? performance.now() : Date.now();
+      this.recues.push({ t, evenement, sujets });
+      if (this.recues.length > TRAMES_GARDEES) this.recues.splice(0, this.recues.length - TRAMES_GARDEES);
+    }
+    traiter(trame) {
+      if (trame.evenement === "fin") {
+        this.noter("fin", []);
+        return true;
+      }
+      if (trame.evenement !== "etat" && trame.evenement !== "changement") return false;
+      let donnees;
+      try {
+        donnees = JSON.parse(trame.donnees);
+      } catch {
+        return false;
+      }
+      const brut = donnees && typeof donnees === "object" ? donnees : {};
+      const sujets = Array.isArray(brut.sujets) ? brut.sujets.filter(estSujet) : [];
+      this.noter(trame.evenement, sujets);
+      if (trame.evenement === "etat") {
+        this.echecs = [];
+        this.repliJusqua = 0;
+        const suivies = typeof brut.discussions_suivies === "boolean" ? brut.discussions_suivies : null;
+        this.poser({ mode: "temps_reel", discussionsSuivies: suivies });
+      }
+      this.diffuser(sujets);
+      return false;
+    }
+    echec() {
+      const maintenant = Date.now();
+      this.echecs = [...this.echecs.filter((t) => maintenant - t <= FENETRE_ECHECS_MS), maintenant];
+      if (this.echecs.length >= ECHECS_AVANT_REPLI) {
+        this.echecs = [];
+        this.repliJusqua = maintenant + NOUVEL_ESSAI_MS;
+        this.poser({ mode: "sondage" });
+        this.planifier(NOUVEL_ESSAI_MS);
+        return;
+      }
+      this.planifier(REPRISES_MS[Math.min(this.echecs.length - 1, REPRISES_MS.length - 1)]);
+    }
+  };
+  function fluxPartage() {
+    const registre = window.__ACP_FLUX__ ?? (window.__ACP_FLUX__ = {});
+    const cle = `v${VERSION_PARTAGE}`;
+    const existant = registre[cle];
+    if (existant && typeof existant.abonner === "function" && existant.version === VERSION_PARTAGE) return existant;
+    const flux = new FluxPartage();
+    registre[cle] = flux;
+    return flux;
+  }
+
+  // src/donnees.ts
+  var INTERVALLE_SONDAGE_MS = 15e3;
+  var RELECTURE_SURETE_MS = 12e4;
+  var RELECTURE_DISCUSSIONS_MS = 6e4;
+  var REGROUPEMENT_MS = 300;
+  function visible2() {
+    return typeof document === "undefined" || document.visibilityState !== "hidden";
+  }
+  function relectureDeSurete() {
+    const demande = typeof window !== "undefined" ? window.__ACP_FLUX_REGLAGES__?.relectureSureteMs : void 0;
+    return typeof demande === "number" && Number.isFinite(demande) && demande >= RELECTURE_SURETE_MS ? demande : RELECTURE_SURETE_MS;
+  }
+  function intervalleDeRelecture(etat, sujets) {
+    if (etat.mode !== "temps_reel") return INTERVALLE_SONDAGE_MS;
+    if (sujets.includes("discussions") && etat.discussionsSuivies === false) return RELECTURE_DISCUSSIONS_MS;
+    return relectureDeSurete();
+  }
+  function useDonnees(charger, cle, sujets) {
+    const [etat, fixer] = useState({ valeur: null, erreur: null, luLe: null });
+    const lecteur = useRef(charger);
+    lecteur.current = charger;
+    const empreinteSujets = sujets.join(",");
+    useEffect(() => {
+      const liste2 = empreinteSujets ? empreinteSujets.split(",") : [];
+      const flux = fluxPartage();
+      let actif = true;
+      let enCours = false;
+      let aRelire = false;
+      let minuterie = null;
+      let regroupement = null;
+      const arreter = () => {
+        if (minuterie !== null) clearTimeout(minuterie);
+        if (regroupement !== null) clearTimeout(regroupement);
+        minuterie = null;
+        regroupement = null;
+      };
+      const planifier = () => {
+        if (minuterie !== null) clearTimeout(minuterie);
+        minuterie = null;
+        if (actif && !enCours && visible2()) minuterie = setTimeout(lire, intervalleDeRelecture(flux.etat(), liste2));
+      };
+      function lire() {
+        arreter();
+        if (!actif || !visible2()) return;
+        if (enCours) {
+          aRelire = true;
+          return;
+        }
+        enCours = true;
+        lecteur.current().then(
+          (valeur) => {
+            if (actif) fixer({ valeur, erreur: null, luLe: Date.now() });
+          },
+          (erreur) => {
+            if (actif) fixer((avant) => ({ ...avant, erreur: envelopper(erreur) }));
+          }
+        ).finally(() => {
+          enCours = false;
+          if (!actif) return;
+          if (aRelire) {
+            aRelire = false;
+            lire();
+          } else {
+            planifier();
+          }
+        });
+      }
+      const surSignal = () => {
+        if (!actif || !visible2() || regroupement !== null) return;
+        regroupement = setTimeout(() => {
+          regroupement = null;
+          lire();
+        }, REGROUPEMENT_MS);
+      };
+      const surVisibilite = () => {
+        if (visible2()) lire();
+        else arreter();
+      };
+      lire();
+      const desabonner = flux.abonner(liste2, surSignal);
+      const arreterEcoute = flux.ecouter(() => planifier());
+      document.addEventListener("visibilitychange", surVisibilite);
+      return () => {
+        actif = false;
+        arreter();
+        desabonner();
+        arreterEcoute();
+        document.removeEventListener("visibilitychange", surVisibilite);
+      };
+    }, [cle, empreinteSujets]);
+    return etat;
+  }
+  function useEtatFlux() {
+    const [etat, fixer] = useState(() => fluxPartage().etat());
+    useEffect(() => {
+      const flux = fluxPartage();
+      fixer(flux.etat());
+      return flux.ecouter(fixer);
+    }, []);
+    return etat;
+  }
+
+  // src/actualisation.tsx
+  function EtatActualisation() {
+    const etat = useEtatFlux();
+    const texte = etat.mode === "temps_reel" ? T.tempsReel.actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
+    return /* @__PURE__ */ h(
+      "p",
+      {
+        className: etat.mode === "sondage" ? "acp-alerte-texte" : "acp-discret",
+        role: "status",
+        "data-acp-temps-reel": etat.mode
+      },
+      texte
+    );
   }
 
   // src/format.ts
@@ -955,56 +1533,6 @@
       }
     };
     return { etat, envoyer, oublier: () => fixer({ etat: "repos" }) };
-  }
-
-  // src/projets/sondage.ts
-  var INTERVALLE_SONDAGE_MS = 15e3;
-  function visible() {
-    return typeof document === "undefined" || document.visibilityState !== "hidden";
-  }
-  function useSondage(charger, cle, intervalle = INTERVALLE_SONDAGE_MS) {
-    const [etat, fixer] = useState({ valeur: null, erreur: null, luLe: null });
-    const lecteur = useRef(charger);
-    lecteur.current = charger;
-    useEffect(() => {
-      let actif = true;
-      let numero = 0;
-      let minuterie = null;
-      const arreter = () => {
-        if (minuterie !== null) clearTimeout(minuterie);
-        minuterie = null;
-      };
-      const planifier = () => {
-        arreter();
-        if (actif && visible()) minuterie = setTimeout(lire, intervalle);
-      };
-      function lire() {
-        arreter();
-        const ce = numero += 1;
-        lecteur.current().then(
-          (valeur) => {
-            if (actif && ce === numero) fixer({ valeur, erreur: null, luLe: Date.now() });
-          },
-          (erreur) => {
-            if (actif && ce === numero) fixer((avant) => ({ ...avant, erreur: envelopper(erreur) }));
-          }
-        ).finally(() => {
-          if (ce === numero) planifier();
-        });
-      }
-      const surVisibilite = () => {
-        if (visible()) lire();
-        else arreter();
-      };
-      lire();
-      document.addEventListener("visibilitychange", surVisibilite);
-      return () => {
-        actif = false;
-        arreter();
-        document.removeEventListener("visibilitychange", surVisibilite);
-      };
-    }, [cle, intervalle]);
-    return etat;
   }
 
   // src/poste/api.ts
@@ -1373,7 +1901,7 @@
     return /* @__PURE__ */ h("div", { className: "acp-grille" }, /* @__PURE__ */ h(Carte, { titre: T.poste.inventaireTitre, id: "acp-poste-inventaire" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.recuLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.recu_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.releve_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.versionPoste }, /* @__PURE__ */ h(Donnee, { valeur: c.version_poste, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.compteTitre, id: "acp-poste-compte" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.compte }, c.poste?.compte === "dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteDedie) : c.poste?.compte === "proprietaire" ? /* @__PURE__ */ h("span", null, T.poste.compteProprietaire) : c.poste?.compte === "uid_dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteUidDedie) : /* @__PURE__ */ h(Donnee, { valeur: c.poste?.compte })), c.poste?.plateforme === "linux" ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.noyau }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.noyau, mono: true })) : /* @__PURE__ */ h(Ligne, { libelle: T.poste.windows }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.windows, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.python }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.python, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.empreintePolitique }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.politique_empreinte, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.versionsTitre, id: "acp-poste-versions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, ["codex", "claude"].map((cle) => /* @__PURE__ */ h(Ligne, { key: cle, libelle: cle === "codex" ? T.poste.codex : T.poste.claude }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.lue), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.lue, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.testee), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.testee, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.conformite), " ", /* @__PURE__ */ h(OuiNon2, { valeur: versions[cle]?.conforme })))))), c.poste?.plateforme === "linux" ? null : /* @__PURE__ */ h(Carte, { titre: T.poste.bacTitre, id: "acp-poste-bac" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.readiness }, /* @__PURE__ */ h(Donnee, { valeur: bac.readiness, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.modeLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.mode_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.origineMode }, /* @__PURE__ */ h(Donnee, { valeur: bac.origine_mode, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.palierLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.palier_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.stockage }, /* @__PURE__ */ h(Donnee, { valeur: bac.stockage_identifiants_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.ecritureAdmise }, /* @__PURE__ */ h(OuiNon2, { valeur: bac.ecriture_admise })), bac.raison ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.raison }, /* @__PURE__ */ h(Donnee, { valeur: bac.raison })) : null)), /* @__PURE__ */ h(Carte, { titre: T.poste.connexionsTitre, id: "acp-poste-connexions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.codex }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionCodex(c.connexions?.codex), brut: c.connexions?.codex })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.offre }, /* @__PURE__ */ h(Donnee, { valeur: c.connexions?.plan_codex, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.claude }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionClaude(c.connexions?.claude), brut: c.connexions?.claude })))), /* @__PURE__ */ h(Carte, { titre: T.poste.depotsTitre, id: "acp-poste-depots" }, depots.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunDepot) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, depots.map((d, i) => /* @__PURE__ */ h("li", { key: `${d.alias ?? i}` }, /* @__PURE__ */ h(Donnee, { valeur: d.alias, mono: true }))))));
   }
   function EtatPoste(props) {
-    const lecture = useSondage(lirePostePage, props.jeton);
+    const lecture = useDonnees(lirePostePage, props.jeton, ["poste", "projets", "pause", "quotas"]);
     const donnees = lecture.valeur;
     if (donnees === null) {
       return lecture.erreur === null ? /* @__PURE__ */ h(EnChargement, null) : /* @__PURE__ */ h(BlocErreur, { erreur: lecture.erreur, message: T.poste.indisponible });
@@ -1420,7 +1948,7 @@
     return /* @__PURE__ */ h(Carte, { titre: libelleVoie(props.voie) ?? props.voie, id }, /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuotas(q.etat), brut: q.etat }), q.releve_le ? /* @__PURE__ */ h(Horodatage, { valeur: q.releve_le }) : null), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.seuil }, /* @__PURE__ */ h(Donnee, { valeur: seuil === null ? null : `${seuil} %` }))), q.source_libelle ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: q.source_libelle })) : null, q.detail ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: q.detail })) : null, compteurs.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunCompteur) : compteurs.map((c, i) => /* @__PURE__ */ h(Compteur, { key: `${c.limit_id ?? i}`, compteur: c, seuil, prefixe: id })));
   }
   function Quotas(props) {
-    const lecture = useSondage(lireQuotas, props.jeton);
+    const lecture = useDonnees(lireQuotas, props.jeton, ["quotas", "poste"]);
     const envoi = useEnvoi();
     const vue = lecture.valeur;
     if (vue === null) {
@@ -1720,7 +2248,7 @@
     return /* @__PURE__ */ h(Carte, { titre: T.poste.resolutionsTitre, id: "acp-poste-resolutions" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.resolutionsAide), props.resolutions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucuneResolution) : props.resolutions.map((r, rang) => /* @__PURE__ */ h("dl", { key: `${r.voie ?? ""}-${r.alias ?? rang}`, className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.voie }, /* @__PURE__ */ h(Donnee, { valeur: r.voie, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.aliasObserve }, /* @__PURE__ */ h(Donnee, { valeur: r.alias, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.modeleServi }, /* @__PURE__ */ h(Donnee, { valeur: r.modele_servi, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.observeeLe }, /* @__PURE__ */ h(Horodatage, { valeur: r.observe_le })))));
   }
   function Routage(props) {
-    const lecture = useSondage(lireRoutage, props.jeton);
+    const lecture = useDonnees(lireRoutage, props.jeton, ["quotas", "poste"]);
     const vue = lecture.valeur;
     if (vue === null) {
       return lecture.erreur === null ? /* @__PURE__ */ h(EnChargement, null) : /* @__PURE__ */ h(BlocErreur, { erreur: lecture.erreur, message: T.poste.indisponible });
@@ -1800,7 +2328,7 @@
       window.addEventListener("popstate", surRetour);
       return () => window.removeEventListener("popstate", surRetour);
     }, []);
-    return /* @__PURE__ */ h("div", { className: "acp-page", "data-acp-racine": "poste", ref: racine }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.poste.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.intro)), /* @__PURE__ */ h("nav", { className: "acp-onglets", "aria-label": T.poste.navigation }, VUES.map((v) => /* @__PURE__ */ h(Onglet, { key: v, vue: v, courante: vue, naviguer }))), vue === "etat" ? /* @__PURE__ */ h(EtatPoste, { jeton, apres: rafraichir }) : null, vue === "routage" ? /* @__PURE__ */ h(Routage, { jeton, apres: rafraichir }) : null, vue === "quotas" ? /* @__PURE__ */ h(Quotas, { jeton, apres: rafraichir }) : null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.actualisation));
+    return /* @__PURE__ */ h("div", { className: "acp-page", "data-acp-racine": "poste", ref: racine }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.poste.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.intro)), /* @__PURE__ */ h("nav", { className: "acp-onglets", "aria-label": T.poste.navigation }, VUES.map((v) => /* @__PURE__ */ h(Onglet, { key: v, vue: v, courante: vue, naviguer }))), vue === "etat" ? /* @__PURE__ */ h(EtatPoste, { jeton, apres: rafraichir }) : null, vue === "routage" ? /* @__PURE__ */ h(Routage, { jeton, apres: rafraichir }) : null, vue === "quotas" ? /* @__PURE__ */ h(Quotas, { jeton, apres: rafraichir }) : null, /* @__PURE__ */ h(EtatActualisation, null));
   }
 
   // src/poste/index.ts

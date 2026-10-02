@@ -258,9 +258,12 @@ def _creer_triage(conn, fiche: Dict[str, Any], *, cle: str, ref: str, titre: str
                          (base.maintenant(), fiche["id"]))
             base.journaliser(conn, "acp-poste", journal, projet_id=fiche["id"], cible=ref, detail=detail)
     ids = cartes.creer(conn, fiche, [d for d in cartes.demandes_non_rattachees(conn, fiche["id"]) if d["cle"] == cle])
-    notifications.enfiler(conn, cle=cle_notif, genre=genre_notif, projet_id=fiche["id"], texte_notif=texte_notif)
     ligne = conn.execute("SELECT carte FROM demandes WHERE cle = ?", (cle,)).fetchone()
-    return ids.get(cle) or (ligne[0] if ligne else None)
+    carte = ids.get(cle) or (ligne[0] if ligne else None)
+    # Lien profond vers la carte de décision (cahier P7 § 6.2) ; carte pas encore créée : la vue Questions.
+    notifications.enfiler(conn, cle=cle_notif, genre=genre_notif, projet_id=fiche["id"], texte_notif=texte_notif,
+                          cible=f"{fiche['tableau']}/{carte}" if carte else None)
+    return carte
 
 
 def creer_triage_plafond(conn, fiche: Dict[str, Any], genre: str, detail: str) -> Optional[str]:

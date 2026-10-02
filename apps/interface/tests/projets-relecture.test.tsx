@@ -175,8 +175,8 @@ describe("relecture de P4 : questions et décisions", () => {
     const installation = installerSdk(reponses);
     const r = await rendre(<Projets />);
     await attendre();
-    // 1 question + 1 décision attendue.
-    expect(r.racine.querySelector('.acp-onglet[aria-current="page"]')?.textContent).toBe("Questions2");
+    // Étape P7 : « À traiter par vous » = 1 question + 1 décision + 1 carte arrêtée (compteurs de /v1/questions).
+    expect(r.racine.querySelector('.acp-onglet[aria-current="page"]')?.textContent).toBe("Questions3");
     const triage = r.racine.querySelector("#acp-questions-triage")?.parentElement;
     expect(texteDe(triage)).toContain("« Prolonger » accorde un tour de plus : Hermes planifie la suite avec votre consigne.");
     expect(texteDe(triage)).toContain("3 tours planifiés");

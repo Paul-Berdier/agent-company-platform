@@ -7,7 +7,7 @@ import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { h, type Noeud } from "../react";
 import { Bouton, Etiquette, Horodatage, RetourEnvoi } from "../projets/briques";
 import { useEnvoi } from "../projets/envoi";
-import { useSondage } from "../projets/sondage";
+import { useDonnees } from "../donnees";
 import { lireQuotas, releverMaintenant } from "./api";
 import { libelleEtatQuotas, libelleVoie } from "./libelles";
 import type { CompteurQuota, FenetreQuota, QuotasVoie } from "./types";
@@ -119,7 +119,7 @@ function Voie(props: { voie: string; quotas: QuotasVoie | undefined }): Noeud {
 }
 
 export function Quotas(props: { jeton: number; apres: () => void }): Noeud {
-  const lecture = useSondage(lireQuotas, props.jeton);
+  const lecture = useDonnees(lireQuotas, props.jeton, ["quotas", "poste"]);
   const envoi = useEnvoi<{ message?: string }>();
   const vue = lecture.valeur;
   if (vue === null) {

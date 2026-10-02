@@ -35,7 +35,10 @@ construction de l'image.
   déjà en base). **Étendu en P6** (cahier P6 § 7.3) : variante Linux de l'exécutant
   (`InfosPoste.plateforme`, `hote`, `noyau`, compte `uid_dedie`, `IsolementLinux` à la place de
   `BacASableCodex`, un seul bloc par plateforme), conditions d'usage et bornes d'exécution de la
-  politique, résolutions observées admises. Tout inventaire de P5 reste valide.
+  politique, résolutions observées admises. Tout inventaire de P5 reste valide. **Étendu en P7** (cahier P7
+  § 11.2) : visibilité MESURÉE de chaque dépôt (`Depot.visibilite`, `lecture`, `verifie_le`, facultatifs ; un dépôt
+  non mesuré se sérialise toujours `{"alias": …}`, forme inchangée pour un greffon de P6) ; le greffon ne prête la
+  voie Codex qu'à un dépôt mesuré `prive` et lu `ok`.
 - `acp_poste_contrat.machine` (P5, **étendu en P6**) : protocole `acp-machine/1` — requêtes et
   réponses des neuf routes machine (`enrolement`, `reclamer`, `inventaire` ; en P6 `battement`,
   `terminer`, `question`, `bloquer`, `reprendre`, `arret`, chacune avec un `id_envoi` idempotent),

@@ -1,27 +1,45 @@
-// Vue « Questions » (GET /v1/questions) :
-// - questions ouvertes ou escaladées : texte, contexte, projet, carte (titre), et une réponse du propriétaire
-//   (POST /v1/questions/{q}/reponse : commentaire sur la carte, puis reprise — différée si le projet est en
-//   pause) ; le message de réussite suit la RÉPONSE de l'API, jamais une supposition ;
-// - cartes en triage : les gestes que le greffon offre (« Prolonger » ou « Relancer la planification » avec
-//   une consigne facultative, « Conclure le projet » ; « Reprendre » pour une autre carte en triage) ;
-// - cartes bloquées ou abandonnées : LECTURE SEULE en P4 (« Relancer » relève de P7 : aucun bouton), avec
-//   leur raison connue ;
-// - étape P6 : cartes EN REVUE pour des fichiers de pilotage des agents (chemins, modification, résumé), avec
-//   « Accepter » et « Refuser » (motif exigé) ; le diff reste sur l'exécutant, et la page le dit (aucun faux aperçu).
+// File « Questions » (étape P7, cahier P7 § 3) : cinq sections sur une page, dans cet ordre.
+// 1. Questions ouvertes ou escaladées (GET /v1/questions) : texte, contexte, projet, carte, QUI y répond (règle unique
+//    du greffon, ``chez`` : « Hermes y répond » si sa carte « répondre » existe, « À vous » sinon ; jamais d'après le
+//    réglage courant du projet), et la réponse du propriétaire (POST /v1/questions/{q}/reponse), toujours possible ;
+// 2. Décisions (cartes en triage) : « Prolonger » ou « Relancer la planification » avec une consigne facultative,
+//    « Conclure le projet » ; « Reprendre » pour une autre carte en triage ;
+// 3. Revues des fichiers de pilotage (étape P6) : « Accepter », « Refuser » (motif exigé) ; le diff reste sur
+//    l'exécutant, et la page le dit ;
+// 4. Cartes arrêtées (bloquées ou abandonnées) : « Relancer » avec une consigne facultative
+//    (POST /v1/cartes/{tableau}/{carte}/relancer), ou la raison pour laquelle la carte ne se relance pas ;
+// 5. Discussions en attente : sessions du tableau de bord dont une requête au client est ouverte, lues par le JSON-RPC
+//    natif (jsonrpc/discussions.ts), en lecture seule ; « inconnu » tant qu'elles n'ont pas pu être lues ; « Ouvrir la
+//    discussion » mène à la page de discussion (greffon acp-discussion), qui reprend la session et y rejoue la question.
+// En tête : « À traiter par vous » (sections 1 à 5, questions « à vous » seulement) et « Chez Hermes ».
+//
+// Cible d'un lien profond (?vue=questions&q=<id> ou &carte=<tableau>/<carte>, correction K2) : la page fait défiler
+// jusqu'à la demande et la marque (aria-current) ; une cible absente de la file le dit (« déjà traitée »).
+// Chaque message de réussite suit la RÉPONSE de l'API, jamais une supposition.
 import type * as ReactTypes from "react";
 import { T } from "../chaines";
 import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
-import { h, useState, type Noeud } from "../react";
+import type { Lecture } from "../donnees";
+import type { LectureDiscussions } from "../jsonrpc/discussions";
+import { h, useEffect, useRef, useState, type Noeud } from "../react";
+import { cheminDeBase } from "../sdk";
 import { chaine, listeDeChaines } from "../types";
-import { accepterRevue, conclureTriage, lireQuestions, refuserRevue, repondreQuestion, reprendreTriage } from "./api";
+import {
+  accepterRevue,
+  conclureTriage,
+  refuserRevue,
+  relancerCarte,
+  repondreQuestion,
+  reprendreTriage,
+} from "./api";
 import { BlocRefus, Bouton, Etiquette, Horodatage, LienVue, RetourEnvoi, type Naviguer } from "./briques";
 import { useEnvoi } from "./envoi";
-import { libelleEtatQuestion } from "./libelles";
-import { useSondage } from "./sondage";
+import { libelleEtatQuestion, libelleStatut } from "./libelles";
 import type {
   CarteEnAttente,
   ListeQuestions,
   QuestionOuverte,
+  ResultatRelance,
   ResultatReponse,
   ResultatRevue,
   ResultatTriage,
@@ -29,6 +47,18 @@ import type {
 } from "./types";
 
 type Saisie = ReactTypes.ChangeEvent<HTMLTextAreaElement>;
+
+/** Cible d'un lien profond : une question, ou une carte « tableau/carte ». */
+export interface Cible {
+  q?: string;
+  carte?: string;
+}
+
+const cleCarte = (tableau: unknown, carte: unknown): string | null => {
+  const t = chaine(tableau);
+  const c = chaine(carte);
+  return t && c ? `${t}/${c}` : null;
+};
 
 function LienProjet(props: { id: unknown; titre: unknown; naviguer: Naviguer }): Noeud {
   const id = chaine(props.id);
@@ -39,6 +69,16 @@ function LienProjet(props: { id: unknown; titre: unknown; naviguer: Naviguer }):
     </LienVue>
   ) : (
     titre
+  );
+}
+
+/** Élément de liste d'une demande, marqué s'il est la cible du lien profond. */
+function Entree(props: { cible: boolean; classe?: string; children?: Noeud }): Noeud {
+  const classes = ["acp-entree", props.classe, props.cible ? "acp-entree--cible" : null].filter(Boolean).join(" ");
+  return (
+    <li className={classes} aria-current={props.cible ? "true" : undefined} data-acp-cible={props.cible ? "" : undefined}>
+      {props.children}
+    </li>
   );
 }
 
@@ -57,7 +97,26 @@ export function messageTriage(resultat: ResultatTriage | null | undefined): stri
   return T.projets.carteReprise;
 }
 
-function Question(props: { question: QuestionOuverte; naviguer: Naviguer; apres: () => void }): Noeud {
+function QuiRepond(props: { question: QuestionOuverte }): Noeud {
+  const { question } = props;
+  if (question.chez === "hermes") {
+    const statut = libelleStatut(question.carte_repondre_statut);
+    return (
+      <span className="acp-etat">
+        <Etiquette libelle={{ texte: T.projets.chezHermes, famille: "actif" }} />
+        {statut ? (
+          <span className="acp-discret">
+            <span>{T.projets.carteRepondre}</span> <Etiquette libelle={statut} />
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+  if (question.chez === "proprietaire") return <Etiquette libelle={{ texte: T.projets.aVous, famille: "degrade" }} />;
+  return <Donnee valeur={chaine(question.chez)} mono />;
+}
+
+function Question(props: { question: QuestionOuverte; cible: boolean; naviguer: Naviguer; apres: () => void }): Noeud {
   const { question } = props;
   const id = chaine(question.id);
   const [reponse, fixerReponse] = useState("");
@@ -72,7 +131,7 @@ function Question(props: { question: QuestionOuverte; naviguer: Naviguer; apres:
     }
   };
   return (
-    <li className="acp-entree acp-question">
+    <Entree cible={props.cible} classe="acp-question">
       <p className="acp-question__texte">
         <Donnee valeur={chaine(question.texte)} />
       </p>
@@ -82,6 +141,9 @@ function Question(props: { question: QuestionOuverte; naviguer: Naviguer; apres:
         </Ligne>
         <Ligne libelle={T.projets.etat}>
           <Etiquette libelle={libelleEtatQuestion(question.etat)} brut={question.etat} />
+        </Ligne>
+        <Ligne libelle={T.projets.quiRepondQuestion}>
+          <QuiRepond question={question} />
         </Ligne>
         {chaine(question.contexte) ? (
           <Ligne libelle={T.projets.contexte}>
@@ -109,6 +171,7 @@ function Question(props: { question: QuestionOuverte; naviguer: Naviguer; apres:
           <Horodatage valeur={question.cree_le} relative />
         </Ligne>
       </dl>
+      {question.chez === "hermes" ? <p className="acp-discret">{T.projets.chezHermesAide}</p> : null}
       {id ? (
         <form className="acp-formulaire" onSubmit={(e: ReactTypes.FormEvent) => void repondre(e)}>
           <div className="acp-champ">
@@ -136,11 +199,11 @@ function Question(props: { question: QuestionOuverte; naviguer: Naviguer; apres:
           />
         </form>
       ) : null}
-    </li>
+    </Entree>
   );
 }
 
-function Triage(props: { carte: CarteEnAttente; naviguer: Naviguer; apres: () => void }): Noeud {
+function Triage(props: { carte: CarteEnAttente; cible: boolean; naviguer: Naviguer; apres: () => void }): Noeud {
   const { carte } = props;
   const tableau = chaine(carte.tableau);
   const identifiant = chaine(carte.carte);
@@ -181,7 +244,7 @@ function Triage(props: { carte: CarteEnAttente; naviguer: Naviguer; apres: () =>
             : null;
   const occupe = envoi.etat.etat === "envoi" || conclusion.etat.etat === "envoi";
   return (
-    <li className="acp-entree">
+    <Entree cible={props.cible}>
       <h3 className="acp-entree__nom">
         <Donnee valeur={chaine(carte.titre)} />
       </h3>
@@ -225,7 +288,7 @@ function Triage(props: { carte: CarteEnAttente; naviguer: Naviguer; apres: () =>
           <RetourEnvoi etat={conclusion.etat} reussite={T.projets.conclusionFaite} />
         </form>
       ) : null}
-    </li>
+    </Entree>
   );
 }
 
@@ -233,6 +296,7 @@ function Triage(props: { carte: CarteEnAttente; naviguer: Naviguer; apres: () =>
  *  quitte la liste dès le rechargement, et son propre message disparaîtrait avec elle. */
 function Revue(props: {
   revue: RevuePilotage;
+  cible: boolean;
   naviguer: Naviguer;
   apres: () => void;
   annoncer: (message: string | null) => void;
@@ -266,7 +330,7 @@ function Revue(props: {
   const d = revue.diffstat;
   const occupe = acceptation.etat.etat === "envoi" || refus.etat.etat === "envoi";
   return (
-    <li className="acp-entree">
+    <Entree cible={props.cible}>
       <h3 className="acp-entree__nom">
         <Donnee valeur={chaine(revue.titre)} />
       </h3>
@@ -338,14 +402,46 @@ function Revue(props: {
           <RetourEnvoi etat={refus.etat} />
         </form>
       ) : null}
-    </li>
+    </Entree>
   );
 }
 
-function Bloquee(props: { carte: CarteEnAttente; naviguer: Naviguer }): Noeud {
+/** Message d'une relance, d'après la réponse de l'API seulement (cahier P7 § 3.4). */
+export function messageRelance(resultat: ResultatRelance | null | undefined): string {
+  if (resultat?.relancee === true) {
+    return resultat.session_neuve === true ? T.projets.relanceeSessionNeuve : T.projets.relancee;
+  }
+  return T.projets.nonRelancee;
+}
+
+/** Une carte arrêtée (bloquée ou abandonnée) : « Relancer » avec une consigne facultative, ou la raison du refus. Le
+ *  message de la relance est annoncé par la section : la carte quitte la liste dès le rechargement. */
+function Arretee(props: {
+  carte: CarteEnAttente;
+  cible: boolean;
+  naviguer: Naviguer;
+  apres: () => void;
+  annoncer: (message: { texte: string; statut: string | null } | null) => void;
+}): Noeud {
   const { carte } = props;
+  const tableau = chaine(carte.tableau);
+  const identifiant = chaine(carte.carte);
+  const [consigne, fixerConsigne] = useState("");
+  const envoi = useEnvoi<ResultatRelance>();
+  const champ = `acp-relance-${identifiant ?? "inconnue"}`;
+  const relancer = async (evenement: ReactTypes.FormEvent) => {
+    evenement.preventDefault();
+    if (!tableau || !identifiant) return;
+    props.annoncer(null);
+    const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, consigne.trim() || null));
+    if (resultat !== null) {
+      fixerConsigne("");
+      props.annoncer({ texte: messageRelance(resultat), statut: chaine(resultat.statut_apres) });
+      props.apres();
+    }
+  };
   return (
-    <li className="acp-entree">
+    <Entree cible={props.cible}>
       <h3 className="acp-entree__nom">
         <Donnee valeur={chaine(carte.titre)} />
       </h3>
@@ -367,32 +463,196 @@ function Bloquee(props: { carte: CarteEnAttente; naviguer: Naviguer }): Noeud {
           <Donnee valeur={chaine(carte.raison)} />
         </Ligne>
       </dl>
-    </li>
+      {carte.relancable === true && tableau && identifiant ? (
+        <form className="acp-formulaire" onSubmit={(e: ReactTypes.FormEvent) => void relancer(e)}>
+          {carte.executant === true ? <p className="acp-discret">{T.projets.relanceExecutantAide}</p> : null}
+          <div className="acp-champ">
+            <label htmlFor={champ}>{T.projets.consigne}</label>
+            <textarea
+              id={champ}
+              data-acp-donnee=""
+              rows={3}
+              maxLength={4000}
+              value={consigne}
+              onChange={(e: Saisie) => fixerConsigne(e.target.value)}
+            />
+          </div>
+          <div className="acp-actions">
+            <Bouton type="submit" principal libelle={T.projets.relancerCarte} desactive={envoi.etat.etat === "envoi"} />
+          </div>
+          <RetourEnvoi etat={envoi.etat} />
+        </form>
+      ) : (
+        <p className="acp-discret">
+          <span>{T.projets.nonRelancable}</span> <Donnee valeur={chaine(carte.refus_relance)} />
+        </p>
+      )}
+    </Entree>
   );
 }
 
-export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () => void }): Noeud {
-  const sondage = useSondage<ListeQuestions>(lireQuestions, props.jeton);
-  const [annonceRevue, fixerAnnonceRevue] = useState<string | null>(null);
-  const donnees = sondage.valeur;
-  if (donnees === null) {
-    return sondage.erreur ? <BlocErreur erreur={sondage.erreur} message={T.projets.questionsIndisponibles} /> : <EnChargement />;
+function Discussions(props: { lecture: Lecture<LectureDiscussions>; serveur: ListeQuestions["discussions"] }): Noeud {
+  const valeur = props.lecture.valeur;
+  let contenu: Noeud;
+  if (valeur === null) {
+    contenu = props.lecture.erreur ? <p className="acp-discret">{T.projets.discussionsInconnues}</p> : <EnChargement />;
+  } else if (!valeur.connu) {
+    const requetes = props.serveur?.suivies === true ? props.serveur.requetes_ouvertes : null;
+    contenu = (
+      <div>
+        <p className="acp-discret">{T.projets.discussionsInconnues}</p>
+        {typeof requetes === "number" ? (
+          <p className="acp-discret">
+            <span>{T.projets.requetesOuvertes}</span> <Donnee valeur={requetes} />
+          </p>
+        ) : null}
+      </div>
+    );
+  } else if (valeur.sessions.length === 0) {
+    contenu = <p className="acp-discret">{T.projets.aucuneDiscussion}</p>;
+  } else {
+    contenu = (
+      <ul className="acp-entrees acp-entrees--une">
+        {valeur.sessions.map((s) => (
+          <li key={s.cle} className="acp-entree">
+            <h3 className="acp-entree__nom">
+              {s.titre ? <Donnee valeur={s.titre} /> : <span>{T.projets.discussionSansTitre}</span>}
+            </h3>
+            <dl className="acp-liste">
+              <Ligne libelle={T.projets.discussionEtat}>
+                <Etiquette libelle={{ texte: T.projets.discussionEnAttente, famille: "degrade" }} />
+              </Ligne>
+              <Ligne libelle={T.projets.discussionActivite}>
+                <Horodatage valeur={s.derniereActivite} relative />
+              </Ligne>
+              <Ligne libelle={T.projets.discussionApercu}>
+                <Donnee valeur={s.apercu} />
+              </Ligne>
+              <Ligne libelle={T.projets.discussionCle}>
+                <Donnee valeur={s.cle} mono />
+              </Ligne>
+            </dl>
+            <div className="acp-actions">
+              {/* Étape P7, part D : la page de discussion reprend la session et y rejoue la question (open_requests). */}
+              <a className="acp-bouton acp-bouton--principal"
+                 href={`${cheminDeBase()}/discussion?session=${encodeURIComponent(s.cle)}`}>
+                {T.discussion.ouvrirDiscussion}
+              </a>
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
   }
-  const questions = Array.isArray(donnees.questions) ? donnees.questions : [];
-  const triage = Array.isArray(donnees.triage) ? donnees.triage : [];
-  const bloquees = Array.isArray(donnees.bloquees) ? donnees.bloquees : [];
-  const revues = Array.isArray(donnees.revues) ? donnees.revues : [];
-  const illisibles = listeDeChaines(donnees.tableaux_illisibles);
+  return (
+    <Carte titre={T.projets.discussionsTitre} id="acp-questions-discussions">
+      <p className="acp-discret">{T.projets.discussionsIntro}</p>
+      {contenu}
+      <p className="acp-discret">{T.projets.discussionsLimite}</p>
+    </Carte>
+  );
+}
+
+/** « À traiter par vous » : compteurs du greffon plus les discussions en attente lues par le client ; ``null`` tant
+ *  que la file n'est pas lue. ``discussionsConnues`` faux : le total ne compte pas les discussions, et la page le dit. */
+export function aTraiter(
+  file: ListeQuestions | null,
+  discussions: LectureDiscussions | null,
+): { total: number; chezHermes: number | null; discussionsConnues: boolean } | null {
+  const compteurs = file?.compteurs;
+  if (!compteurs || typeof compteurs.a_traiter !== "number") return null;
+  const connues = discussions !== null && discussions.connu;
+  return {
+    total: compteurs.a_traiter + (connues ? discussions.sessions.length : 0),
+    chezHermes: typeof compteurs.chez_hermes === "number" ? compteurs.chez_hermes : null,
+    discussionsConnues: connues,
+  };
+}
+
+function Resume(props: { file: ListeQuestions; discussions: LectureDiscussions | null }): Noeud {
+  const compte = aTraiter(props.file, props.discussions);
+  if (compte === null) return null;
+  return (
+    <section className="acp-carte" aria-labelledby="acp-questions-resume">
+      <h2 className="acp-carte__titre" id="acp-questions-resume">
+        {T.projets.fileTitre}
+      </h2>
+      <dl className="acp-liste">
+        <Ligne libelle={T.projets.aTraiterParVous}>
+          <span>
+            <Donnee valeur={compte.total} />
+            {compte.discussionsConnues ? null : <span className="acp-discret"> {T.projets.discussionsNonComptees}</span>}
+          </span>
+        </Ligne>
+        <Ligne libelle={T.projets.chezHermesCompte}>
+          <Donnee valeur={compte.chezHermes} />
+        </Ligne>
+      </dl>
+    </section>
+  );
+}
+
+export function Questions(props: {
+  lecture: Lecture<ListeQuestions>;
+  discussions: Lecture<LectureDiscussions>;
+  cible: Cible;
+  naviguer: Naviguer;
+  apres: () => void;
+}): Noeud {
+  const [annonceRevue, fixerAnnonceRevue] = useState<string | null>(null);
+  const [annonceRelance, fixerAnnonceRelance] = useState<{ texte: string; statut: string | null } | null>(null);
+  const defile = useRef<string | null>(null);
+  const donnees = props.lecture.valeur;
+  const questions = Array.isArray(donnees?.questions) ? donnees.questions : [];
+  const triage = Array.isArray(donnees?.triage) ? donnees.triage : [];
+  const bloquees = Array.isArray(donnees?.bloquees) ? donnees.bloquees : [];
+  const revues = Array.isArray(donnees?.revues) ? donnees.revues : [];
+  const illisibles = listeDeChaines(donnees?.tableaux_illisibles);
+  const estQuestion = (q: QuestionOuverte) => Boolean(props.cible.q) && chaine(q.id) === props.cible.q;
+  const estCarte = (c: { tableau?: unknown; carte?: unknown }) =>
+    Boolean(props.cible.carte) && cleCarte(c.tableau, c.carte) === props.cible.carte;
+  const cibleVoulue = props.cible.q ? `q:${props.cible.q}` : props.cible.carte ? `carte:${props.cible.carte}` : null;
+  const cibleTrouvee =
+    questions.some(estQuestion) || triage.some(estCarte) || revues.some(estCarte) || bloquees.some(estCarte);
+  // Défilement jusqu'à la cible, UNE fois par cible (une actualisation ne ramène pas la page sur elle).
+  useEffect(() => {
+    if (!cibleVoulue || !cibleTrouvee || defile.current === cibleVoulue) return;
+    defile.current = cibleVoulue;
+    try {
+      document.querySelector("[data-acp-cible]")?.scrollIntoView?.({ block: "center" });
+    } catch {
+      // Défilement impossible : la cible reste marquée.
+    }
+  }, [cibleVoulue, cibleTrouvee]);
+  if (donnees === null) {
+    return props.lecture.erreur ? (
+      <BlocErreur erreur={props.lecture.erreur} message={T.projets.questionsIndisponibles} />
+    ) : (
+      <EnChargement />
+    );
+  }
   return (
     <div className="acp-sections">
-      {sondage.erreur ? <BlocRefus erreur={sondage.erreur} /> : null}
+      {props.lecture.erreur ? <BlocRefus erreur={props.lecture.erreur} /> : null}
+      {cibleVoulue && !cibleTrouvee ? (
+        <p className="acp-alerte-texte" role="status">
+          {T.projets.cibleTraitee}
+        </p>
+      ) : null}
+      <Resume file={donnees} discussions={props.discussions.valeur} />
       <Carte titre={T.projets.questionsTitre} id="acp-questions-ouvertes">
         {questions.length === 0 ? (
           <p className="acp-discret">{T.projets.aucuneQuestion}</p>
         ) : (
           <ul className="acp-entrees acp-entrees--une">
             {questions.map((q, rang) => (
-              <Question key={chaine(q.id) ?? String(rang)} question={q} naviguer={props.naviguer} apres={props.apres} />
+              <Question
+                key={chaine(q.id) ?? String(rang)}
+                question={q}
+                cible={estQuestion(q)}
+                naviguer={props.naviguer}
+                apres={props.apres}
+              />
             ))}
           </ul>
         )}
@@ -403,7 +663,13 @@ export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () 
         ) : (
           <ul className="acp-entrees acp-entrees--une">
             {triage.map((c, rang) => (
-              <Triage key={chaine(c.carte) ?? String(rang)} carte={c} naviguer={props.naviguer} apres={props.apres} />
+              <Triage
+                key={chaine(c.carte) ?? String(rang)}
+                carte={c}
+                cible={estCarte(c)}
+                naviguer={props.naviguer}
+                apres={props.apres}
+              />
             ))}
           </ul>
         )}
@@ -423,6 +689,7 @@ export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () 
               <Revue
                 key={chaine(r.carte) ?? String(rang)}
                 revue={r}
+                cible={estCarte(r)}
                 naviguer={props.naviguer}
                 apres={props.apres}
                 annoncer={fixerAnnonceRevue}
@@ -432,17 +699,36 @@ export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () 
         )}
       </Carte>
       <Carte titre={T.projets.bloqueesTitre} id="acp-questions-bloquees">
-        <p className="acp-discret">{T.projets.bloqueesNote}</p>
+        <p className="acp-discret">{T.projets.bloqueesIntro}</p>
+        {annonceRelance ? (
+          <p className={annonceRelance.texte === T.projets.nonRelancee ? "acp-alerte-texte" : "acp-succes"} role="status">
+            <span>{annonceRelance.texte}</span>
+            {annonceRelance.statut ? (
+              <span>
+                {" "}
+                <span>{T.projets.statutApres}</span> <Donnee valeur={annonceRelance.statut} mono />
+              </span>
+            ) : null}
+          </p>
+        ) : null}
         {bloquees.length === 0 ? (
           <p className="acp-discret">{T.projets.aucuneBloquee}</p>
         ) : (
           <ul className="acp-entrees">
             {bloquees.map((c, rang) => (
-              <Bloquee key={chaine(c.carte) ?? String(rang)} carte={c} naviguer={props.naviguer} />
+              <Arretee
+                key={chaine(c.carte) ?? String(rang)}
+                carte={c}
+                cible={estCarte(c)}
+                naviguer={props.naviguer}
+                apres={props.apres}
+                annoncer={fixerAnnonceRelance}
+              />
             ))}
           </ul>
         )}
       </Carte>
+      <Discussions lecture={props.discussions} serveur={donnees.discussions} />
       {illisibles.length > 0 ? (
         <Carte titre={T.projets.tableauxIllisibles} id="acp-questions-illisibles">
           <ul className="acp-noms">

@@ -16,7 +16,9 @@ avec l'interne de Hermes, couvert par ``hermes plugins compat``). Modules :
 - :mod:`cartes`, :mod:`projets`, :mod:`graphe` : création des cartes, projets, tours, corrections ;
 - :mod:`questions`, :mod:`presence`, :mod:`etrangeres` : questions, présence du poste, cartes refusées ;
 - :mod:`notifications`, :mod:`emetteur` : file, canaux Telegram et ntfy, passe de la passerelle ;
-- :mod:`outils`, :mod:`invite` : les huit outils de l'agent et la section de prompt.
+- :mod:`outils`, :mod:`invite` : les huit outils de l'agent et la section de prompt ;
+- :mod:`accueil` (étape P7) : route agrégée de l'Accueil, composée des fonctions des autres modules.
+- :mod:`bilan` (étape P7) : bilan quotidien enfilé par le script ``acp-bilan.py`` d'une tâche cron du propriétaire.
 """
 
 from __future__ import annotations

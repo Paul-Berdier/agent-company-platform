@@ -50,11 +50,11 @@ def test_v1_vers_v2_idempotente(noyau):
     _base_v1(noyau, chemin)
     noyau.base._initialisees.clear()
     with noyau.base.connexion() as conn:
-        assert noyau.base.version_schema(conn) == "3"  # schéma courant (v3 depuis P6)
+        assert noyau.base.version_schema(conn) == "4"  # schéma courant (v4 depuis P7)
         noyau.base.migrer(conn)
         noyau.base.migrer(conn)
         assert conn.execute("SELECT COUNT(*) FROM meta_schema").fetchone()[0] == 1
-        assert noyau.base.version_schema(conn) == "3"  # schéma courant (v3 depuis P6)
+        assert noyau.base.version_schema(conn) == "4"  # schéma courant (v4 depuis P7)
         colonnes = _colonnes(conn, "releves")
         assert colonnes[-3:] == ["machine_id", "accepte_le", "accepte_par"] and len(colonnes) == len(set(colonnes))
         tables = {l[0] for l in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -97,7 +97,7 @@ def test_migration_par_deux_processus_concurrents(noyau, tmp_path):
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
     sorties = [p.communicate(timeout=120) for p in processus]
     assert [p.returncode for p in processus] == [0, 0], [s[1][-2000:] for s in sorties]
-    assert [s[0].strip().splitlines()[-1] for s in sorties] == ["3", "3"]
+    assert [s[0].strip().splitlines()[-1] for s in sorties] == ["4", "4"]  # schéma courant (v4 depuis P7)
     conn = sqlite3.connect(chemin)
     try:
         assert _colonnes(conn, "releves").count("machine_id") == 1

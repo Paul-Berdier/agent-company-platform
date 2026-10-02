@@ -102,6 +102,8 @@ class Chemins:
     env_s6: Path = Path("/run/s6/container_environment")
     # Étape P3 : verrou du catalogue livré dans l'image (skills et serveurs MCP).
     verrou_catalogue: Path = Path("/opt/acp/catalogue/catalogue.lock.json")
+    # Étape P7 : script du bilan quotidien livré par l'image, recopié dans scripts/ à chaque démarrage.
+    script_bilan_livre: Path = Path("/opt/acp/scripts/acp-bilan.py")
 
     @property
     def config_volume(self) -> Path:
@@ -571,6 +573,8 @@ EPINGLES_OBLIGATOIRES: Tuple[Tuple[str, Any], ...] = (
     ("security.allow_private_urls", False),
     ("security.allow_lazy_installs", False),
     ("display.language", "fr"),
+    # Étape P7 (correction K15) : 8 h du bilan quotidien = 8 h à Paris (cron/jobs.py:37-38).
+    ("timezone", "Europe/Paris"),
     # Étape P2 : aucun outil d'exécution pour l'agent (docs/refonte/image.md §5).
     ("agent.disabled_toolsets", ["browser", "terminal", "file", "code_execution", "computer_use",
                                  "connections", "cronjob", "delegation", "setup"]),
@@ -1471,8 +1475,89 @@ REPERTOIRES_EXECUTES_PAR_PROFIL: Tuple[Tuple[str, str], ...] = (
     ("scripts", "les tâches cron du profil y exécutent leurs scripts (cron/scheduler_script.py:257-298)"),
 )
 
+# Étape P7 (cahier P7 § 7.1, correction K1) : SEUL fichier admis dans le scripts/ de la RACINE du volume, le script du
+# bilan quotidien qu'une tâche cron ``no_agent`` créée par le propriétaire exécute. Root le dépose à chaque démarrage
+# (copie de l'image, jamais un lien : Hermes refuse un script qui résout hors de scripts/,
+# cron/scheduler_script.py:257-298). Il n'est admis que fichier ordinaire (lu sans suivre de lien), root:root, mode
+# 0644, et d'une empreinte SHA-256 de la liste : celle de la copie de l'image, plus celles des versions déjà livrées
+# (une montée de version ne doit pas faire refuser le démarrage qui précède le nouveau dépôt). Toute autre entrée, tout
+# autre contenu, mode ou propriétaire, et ce même fichier dans le scripts/ d'un profil : refus inchangé. Le script
+# n'accepte aucune entrée et l'agent ne peut pas créer de tâche cron (``cronjob`` coupé) : une tâche ne peut rien lui
+# faire faire d'autre qu'enfiler son bilan.
+SCRIPT_BILAN = "acp-bilan.py"
+EMPREINTES_BILAN_ADMISES = frozenset({
+    # 0.11.0, étape P7 (hermes/image/scripts/acp-bilan.py).
+    "313e67391acbc28049ce8abb4ab368c6987297b066efd41342a2b77cefc296d5",
+})
+_LIMITE_SCRIPT_BILAN = 256 * 1024
+
 # Fichiers de service d'une cible d'installation paresseuse (tools/lazy_deps.py:248-285).
 _FICHIERS_LAZY_ADMIS = {".lock", ".python-abi"}
+
+
+def raison_refus_bilan(chemin: Path) -> Optional[str]:
+    """``None`` si ``chemin`` est le script du bilan ADMIS (fichier ordinaire, root:root, 0644, empreinte connue), sinon
+    la raison du refus, en français. Un seul descripteur, ouvert sans suivre de lien : le type, le propriétaire, le
+    mode et le contenu contrôlés sont ceux du même fichier."""
+    try:
+        fd = os.open(chemin, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return "est absent"
+    except OSError:
+        return "n'est pas un fichier ordinaire (lien symbolique ou fichier spécial)"
+    with os.fdopen(fd, "rb") as flux:
+        st = os.fstat(flux.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            return "n'est pas un fichier ordinaire"
+        if (st.st_uid, st.st_gid) != (0, 0):
+            return f"appartient à {st.st_uid}:{st.st_gid} (root:root attendu)"
+        if stat.S_IMODE(st.st_mode) != 0o644:
+            return f"a le mode {stat.S_IMODE(st.st_mode):04o} (0644 attendu)"
+        contenu = flux.read(_LIMITE_SCRIPT_BILAN + 1)
+    empreinte = hashlib.sha256(contenu).hexdigest()
+    if len(contenu) > _LIMITE_SCRIPT_BILAN or empreinte not in EMPREINTES_BILAN_ADMISES:
+        return f"a l'empreinte {empreinte[:16]}…, qui n'est celle d'aucune version livrée par l'image"
+    return None
+
+
+def empreinte_script_bilan_livre(chemins: "Chemins") -> str:
+    """Empreinte de la copie de l'image ; refus si elle manque ou n'est pas dans la liste admise (image incohérente)."""
+    contenu = lire_sans_lien(chemins.script_bilan_livre, limite=_LIMITE_SCRIPT_BILAN)
+    if contenu is None:
+        raise Refus(f"{chemins.script_bilan_livre} est absent de l'image : construction incomplète.")
+    empreinte = hashlib.sha256(contenu).hexdigest()
+    if empreinte not in EMPREINTES_BILAN_ADMISES:
+        raise Refus(f"{chemins.script_bilan_livre} a l'empreinte {empreinte} absente de EMPREINTES_BILAN_ADMISES "
+                    "(acp_demarrage.py) : image incohérente, démarrage refusé.")
+    return empreinte
+
+
+def deposer_script_bilan(chemins: "Chemins") -> str:
+    """Dépose (copie atomique, root:root 0644) le script du bilan de l'image dans ``<HERMES_HOME>/scripts/``, APRÈS les
+    contrôles des répertoires exécutés ; rend son empreinte. Le fichier temporaire est écrit dans ``/opt/data/acp``
+    (même volume, à root) : une interruption ne laisse aucune entrée en trop dans scripts/."""
+    empreinte = empreinte_script_bilan_livre(chemins)
+    contenu = lire_sans_lien(chemins.script_bilan_livre, limite=_LIMITE_SCRIPT_BILAN)
+    cible = chemins.scripts_cron / SCRIPT_BILAN
+    if raison_refus_bilan(cible) is None and lire_sans_lien(cible, limite=_LIMITE_SCRIPT_BILAN) == contenu:
+        return empreinte
+    assurer_repertoire_root(chemins.donnees_acp)
+    descripteur, temporaire = tempfile.mkstemp(prefix=f".{SCRIPT_BILAN}.", dir=chemins.donnees_acp)
+    try:
+        with os.fdopen(descripteur, "wb") as flux:
+            flux.write(contenu)
+            flux.flush()
+            os.fchmod(flux.fileno(), 0o644)
+            os.fchown(flux.fileno(), 0, 0)
+            os.fsync(flux.fileno())
+        os.replace(temporaire, cible)
+    except BaseException:
+        try:
+            os.unlink(temporaire)
+        except FileNotFoundError:
+            pass
+        raise
+    return empreinte
 
 
 def entrees_du_repertoire(racine: Path) -> Optional[List[str]]:
@@ -1546,6 +1631,15 @@ def problemes_repertoires_executes(chemins: Chemins) -> List[str]:
         except Refus as exc:
             problemes.append(str(exc))
             continue
+        if racine == chemins.scripts_cron and entrees and SCRIPT_BILAN in entrees:
+            # Étape P7 (correction K1) : le script du bilan, à la racine seulement, d'empreinte connue.
+            entrees = [nom for nom in entrees if nom != SCRIPT_BILAN]
+            refus_bilan = raison_refus_bilan(racine / SCRIPT_BILAN)
+            if refus_bilan is not None:
+                problemes.append(
+                    f"{racine / SCRIPT_BILAN} {refus_bilan} : seul le script du bilan quotidien livré par l'image est "
+                    "admis dans ce répertoire ; supprimez ce fichier, root le redéposera au démarrage (maintenance : "
+                    "docs/refonte/railway.md §10).")
         if entrees:
             montre = ", ".join(f"« {_affichable(n)} »" for n in entrees[:20])
             reste = f" et {len(entrees) - 20} autre(s)" if len(entrees) > 20 else ""
@@ -1889,6 +1983,8 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
                    *(r for r, _ in executes)):
         verrouiller(racine)
     refuser_repertoires_executes(chemins)
+    # 2 bis. Étape P7 (correction K1) : script du bilan quotidien déposé APRÈS le second contrôle, à root.
+    bilan = deposer_script_bilan(chemins)
     profils = sorted(_affichable(p.name, 60) for p in profils_du_volume(chemins)[0])
     greffons = inspecter(chemins.greffons_utilisateur)
     inspecter(chemins.themes, themes_livres=livres)
@@ -1903,13 +1999,14 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
     services = reprendre_services_s6(chemins.scandir_s6)
     return {
         # Schéma 2 (étape P2) : repertoires_executes, lazy_packages et deploiement. Schéma 3 (étape
-        # P3) : catalogue.
-        "schema": 3,
+        # P3) : catalogue. Schéma 4 (étape P7) : scripts/ porte le script du bilan (bilan_depose).
+        "schema": 4,
         "genere_le": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "deploiement": {"commit": commit},
+        "bilan_depose": bilan,
         "repertoires_executes": {
             "hooks": {"vide": True, "proprietaire": "root", "mode": "0755"},
-            "scripts": {"vide": True, "proprietaire": "root", "mode": "0755"},
+            "scripts": {"vide": False, "entrees_admises": [SCRIPT_BILAN], "proprietaire": "root", "mode": "0755"},
             # Profils dont hooks/ et scripts/ ont été inspectés vides puis repris par root.
             "profils": profils,
         },
@@ -2109,11 +2206,20 @@ def inventaire_cles_executables(chemins: Chemins) -> List[str]:
     return constats
 
 
+def tache_du_bilan(tache: Mapping[str, Any]) -> bool:
+    """Étape P7 (correction K1) : la tâche du bilan quotidien, SANS agent (``no_agent`` vaut exactement ``True``), qui
+    exécute ``acp-bilan.py`` et aucun script de surveillance ; toute autre tâche à script reste un constat."""
+    surveillance = tache.get("monitor_script")
+    return (tache.get("script") == SCRIPT_BILAN and tache.get("no_agent") is True
+            and not (isinstance(surveillance, str) and surveillance.strip()))
+
+
 def taches_cron_a_script(chemins: Chemins) -> List[str]:
     """Tâches cron qui exécutent un script (champs ``script`` et ``monitor_script`` :
     cron/scheduler.py:1498, cron/monitor.py:109-114), dans ``cron/jobs.json`` de la racine et de
-    chaque profil. Sans script dans les ``scripts/`` (exigés vides), elles échouent ; elles restent
-    signalées : leur présence dit qu'une sauvegarde restaurée ou une ancienne injection en a posé.
+    chaque profil. Sans script dans les ``scripts/`` (exigés vides, hors le bilan), elles échouent ; elles
+    restent signalées : leur présence dit qu'une sauvegarde restaurée ou une ancienne injection en a posé.
+    Seule exception (étape P7) : la tâche du bilan quotidien de la racine (:func:`tache_du_bilan`).
     Lecture tolérante comme Hermes (BOM, caractères de contrôle, liste nue ou dictionnaire par
     identifiant : cron/jobs.py:1322-1375), sans suivre de lien."""
     constats: List[str] = []
@@ -2142,9 +2248,12 @@ def taches_cron_a_script(chemins: Chemins) -> List[str]:
         if not isinstance(taches, list):
             constats.append(f"{fichier} n'a pas la forme attendue ({{\"jobs\": [...]}}) : à examiner.")
             continue
+        racine = fichier == chemins.hermes_home / "cron" / "jobs.json"
         for tache in taches:
             if not isinstance(tache, dict):
                 continue
+            if racine and tache_du_bilan(tache):
+                continue  # étape P7 (correction K1) : le bilan quotidien du propriétaire, sans agent
             for champ in ("script", "monitor_script"):
                 valeur = tache.get(champ)
                 if isinstance(valeur, str) and valeur.strip():
@@ -2279,6 +2388,10 @@ def commande_construire(chemins: Chemins) -> None:
     resume = installer_scope_geree(chemins, VALEURS_VIDES, construction=True)
     _informer(f"managed scope de base installée ({len(resume['cles_config'])} clés épinglées, "
               f"config {resume['config_sha256'][:12]}).")
+    # Étape P7 (correction K1) : une copie du script du bilan d'empreinte non admise ferait refuser chaque démarrage ;
+    # la construction échoue d'abord.
+    _informer(f"script du bilan quotidien livré : {chemins.script_bilan_livre} (empreinte "
+              f"{empreinte_script_bilan_livre(chemins)[:16]}…, admise).")
 
 
 def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
@@ -2310,7 +2423,9 @@ def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
               + (f" ({len(greffons.dossiers_premier_niveau)} dossier(s) utilisateur, jamais activés)."
                  if greffons.dossiers_premier_niveau else "."))
     profils = [_affichable(p.name, 60) for p in profils_du_volume(chemins)[0]]
+    bilan_present = raison_refus_bilan(chemins.scripts_cron / SCRIPT_BILAN) is None
     _informer(f"{chemins.crochets_passerelle} et {chemins.scripts_cron} inspectés : vides"
+              + (f" (hors {SCRIPT_BILAN}, admis par son empreinte)" if bilan_present else "")
               + (f", ainsi que hooks/ et scripts/ de {len(profils)} profil(s) ({', '.join(profils)})."
                  if profils else "."))
     _informer("serveurs MCP du volume inspectés : aucun serveur stdio ni hors catalogue (admis : "
@@ -2345,6 +2460,8 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
         _informer("services s6 repris par root : /run/service et "
                   + (", ".join(services.get("passerelles") or []) or "aucune passerelle")
                   + " (l'agent ne peut plus enregistrer de service supervisé).")
+    _informer(f"script du bilan quotidien déposé : {chemins.scripts_cron / SCRIPT_BILAN} (root 0644, empreinte "
+              f"{etat['bilan_depose'][:16]}…) ; seule une tâche cron créée par le propriétaire l'exécute.")
     _informer(f"thèmes déposés : {', '.join(etat['themes_deposes']) or 'aucun'} ; "
               f"SOUL.md : {etat['soul']['etat']}.")
     reglages = etat["catalogue"]["reglages_skills"]

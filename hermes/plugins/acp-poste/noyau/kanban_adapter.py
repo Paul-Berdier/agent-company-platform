@@ -13,9 +13,9 @@ L'héritage de P1 (tableau unique « poste », assigné « poste-windows », car
 retiré, comme le plan le demande (§ 9).
 
 Lecture SQL directe, en lecture seule, UNIQUEMENT pour les événements d'un tableau
-(:func:`evenements_apres`, :func:`dernier_evenement`) : Hermes n'expose aucune fonction publique
-qui lise ``task_events`` par tableau après un identifiant (le greffon kanban natif le fait en SQL :
-plugins/kanban/dashboard/plugin_api.py:1698). Le schéma lu est vérifié par
+(:func:`evenements_apres`, :func:`dernier_evenement`, :func:`dernier_evenement_lecture_seule`) : Hermes
+n'expose aucune fonction publique qui lise ``task_events`` par tableau après un identifiant (le greffon
+kanban natif le fait en SQL : plugins/kanban/dashboard/plugin_api.py:1698). Le schéma lu est vérifié par
 ``test_schema_des_evenements_attendu``.
 """
 
@@ -26,6 +26,7 @@ import os
 import re
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Iterator, List, Optional, Tuple
 
 from agent.delegation_context import is_dispatcher_owned_worker_context, owned_kanban_task
@@ -65,6 +66,15 @@ from hermes_cli.kanban_db_dispatch import heartbeat_worker
 from hermes_constants import VALID_REASONING_EFFORTS, get_hermes_home
 from plugins.plugin_storage import plugin_db
 from tools.registry import no_cache_check_fn
+
+# Étape P7 (cahier P7 § 3.5, § 5.3 ; correction K9) : nombre de requêtes du serveur au client (clarify, approval,
+# sudo, secret…) encore sans réponse dans CE processus — celui du tableau de bord, où vivent les sessions ouvertes par
+# /api/ws. Fonction PUBLIQUE de son module (tui_gateway/server_requests.py:283-287), importée ici seulement, en lecture ;
+# absente d'une autre version de Hermes : ``None``, et la file Questions dit « inconnu », jamais zéro.
+try:
+    from tui_gateway.server_requests import open_request_count
+except Exception:  # noqa: BLE001 — module absent ou renommé : la section « discussions » le dit
+    open_request_count = None  # type: ignore[assignment]
 
 # Voies du poste Windows : ce ne sont PAS des profils de Hermes. Le répartiteur range leurs cartes
 # en « skipped_nonspawnable » (hermes_cli/kanban_db_dispatch.py:2011-2017) ; seul le poste les
@@ -125,13 +135,27 @@ MODULES_DE_DEFINITION = {
     "redact_sensitive_text": "agent.redact",
     "get_hermes_home": "hermes_constants",
     "no_cache_check_fn": "tools.registry",
+    # Étape P7 : lecture seule, dans un try (voir plus haut).
+    "open_request_count": "tui_gateway.server_requests",
 }
 
 __all__ = [
     "CREATEUR", "MODULES_DE_DEFINITION", "PREFIXE_CLE", "PREFIXE_VOIE_POSTE", "PROFIL_HERMES",
     "VALID_REASONING_EFFORTS", "VOIES_POSTE", "VOIE_INTEGRATION", "VOIES_EXECUTION", "connexion", "dernier_evenement", "est_voie_poste",
-    "evenements_apres", "effort_hermes", "masquer", *MODULES_DE_DEFINITION,
+    "dernier_evenement_lecture_seule", "evenements_apres", "effort_hermes", "masquer", "requetes_ouvertes",
+    *MODULES_DE_DEFINITION,
 ]
+
+
+def requetes_ouvertes() -> Optional[int]:
+    """Requêtes du serveur au client sans réponse dans ce processus (``open_request_count`` de Hermes), ou ``None``
+    si la fonction manque ou échoue : jamais un zéro inventé."""
+    if open_request_count is None:
+        return None
+    try:
+        return int(open_request_count())
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def est_voie_poste(assigne: Optional[str]) -> bool:
@@ -201,6 +225,22 @@ def evenements_apres(conn: sqlite3.Connection, apres: int, limite: int = 500) ->
 def dernier_evenement(conn: sqlite3.Connection) -> int:
     """Identifiant du dernier événement du tableau (0 s'il n'y en a aucun)."""
     return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM task_events").fetchone()[0])
+
+
+def dernier_evenement_lecture_seule(tableau: str) -> Optional[int]:
+    """Comme :func:`dernier_evenement`, sur une connexion SQLite ouverte en LECTURE SEULE (``mode=ro``) au fichier du
+    tableau, sans la connexion de Hermes (étape P7, cahier P7 § 5.3) : le veilleur du flux la relit toutes les 2 s, et
+    la connexion de Hermes fait à chaque ouverture le contrôle d'écriture dont la course est décrite plus haut.
+    ``None`` si le fichier du tableau n'existe pas (encore) ; toute autre erreur est levée (tableau illisible : jamais
+    une fausse stabilité)."""
+    chemin = Path(kanban_db_path(tableau))
+    if not chemin.is_file():
+        return None
+    conn = sqlite3.connect(f"{chemin.resolve().as_uri()}?mode=ro", uri=True, timeout=1.0)
+    try:
+        return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM task_events").fetchone()[0])
+    finally:
+        conn.close()
 
 
 def masquer(texte: Any) -> str:

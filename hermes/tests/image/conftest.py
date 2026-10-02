@@ -344,8 +344,8 @@ def noyau(tmp_path, monkeypatch):
     for nom in _VARIABLES_KANBAN + ("HERMES_DASHBOARD_PUBLIC_URL",):
         monkeypatch.delenv(nom, raising=False)
     monkeypatch.setenv("HERMES_HOME", str(home))
-    from noyau import (attentes, base, cartes, emetteur, etrangeres, execution, graphe, inventaire, invite, machines,
-                       notifications, ordres, outils, presence, projets, questions, quotas, routage, textes)
+    from noyau import (attentes, base, bilan, cartes, emetteur, etrangeres, execution, graphe, inventaire, invite,
+                       machines, notifications, ordres, outils, presence, projets, questions, quotas, routage, textes)
     from noyau import kanban_adapter as ka
 
     base.fixer_horloge(None)
@@ -355,7 +355,9 @@ def noyau(tmp_path, monkeypatch):
                           presence=presence, projets=projets, questions=questions, routage=routage, textes=textes,
                           ka=ka, machines=machines, ordres=ordres, inventaire=inventaire, quotas=quotas,
                           # Étape P6.
-                          execution=execution, attentes=attentes)
+                          execution=execution, attentes=attentes,
+                          # Étape P7.
+                          bilan=bilan)
     base.fixer_horloge(None)
     emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
 
@@ -433,18 +435,28 @@ def fixture_machine(nom: str) -> dict:
     return json.loads((FIXTURES_MACHINE / nom).read_text(encoding="utf-8"))
 
 
-def inventaire_factice(*, releve_le=None, depots=("jetable",), modifier=None) -> dict:
-    """Inventaire de l'exemple, daté de maintenant (ou de ``releve_le``), dépôts remplacés ; ``modifier(inv)``
-    ajuste le reste."""
+def depots_mesures(depots, quand: str, mesure) -> list:
+    """Dépôts de l'inventaire. Étape P7 (cahier P7 § 11.2) : un exécutant de P7 publie la visibilité MESURÉE de chaque
+    dépôt ; par défaut ``prive`` + ``ok`` (dépôt jetable privé, lu avec le jeton), ``mesure=None`` : alias seul (forme
+    de P5-P6), ou ``(visibilite, lecture)``."""
+    if mesure is None:
+        return [{"alias": d} for d in depots]
+    visibilite, lecture = ("prive", "ok") if mesure is True else mesure
+    return [{"alias": d, "visibilite": visibilite, "lecture": lecture, "verifie_le": quand} for d in depots]
+
+
+def inventaire_factice(*, releve_le=None, depots=("jetable",), modifier=None, mesure=True) -> dict:
+    """Inventaire de l'exemple, daté de maintenant (ou de ``releve_le``), dépôts remplacés (visibilité mesurée : voir
+    :func:`depots_mesures`) ; ``modifier(inv)`` ajuste le reste."""
     import datetime as _dt
 
     inventaire = fixture_machine("inventaire_requete.json")
     quand = (releve_le or _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)).strftime("%Y-%m-%dT%H:%M:%SZ")
     inventaire["releve_le"] = quand
-    inventaire["depots"] = [{"alias": d} for d in depots]
+    inventaire["depots"] = depots_mesures(depots, quand, mesure)
     for releve in inventaire["releves"]:
         releve["releve_le"] = quand
-        releve["depots"] = [{"alias": d} for d in depots]
+        releve["depots"] = depots_mesures(depots, quand, mesure)
         for compteur in releve["compteurs"]:
             compteur["observed_at"] = quand
     inventaire["bac_a_sable_codex"]["lu_le"] = quand
@@ -453,18 +465,19 @@ def inventaire_factice(*, releve_le=None, depots=("jetable",), modifier=None) ->
     return inventaire
 
 
-def inventaire_linux(*, releve_le=None, depots=("jetable",), modifier=None) -> dict:
+def inventaire_linux(*, releve_le=None, depots=("jetable",), modifier=None, mesure=True) -> dict:
     """Étape P6 : inventaire de l'exécutant Railway (exemple partagé ``inventaire_requete_linux.json``, régime B, voie
-    Codex fermée en écriture), daté de maintenant (ou de ``releve_le``), dépôts remplacés ; ``modifier(inv)``."""
+    Codex fermée en écriture), daté de maintenant (ou de ``releve_le``), dépôts remplacés (étape P7 : visibilité
+    mesurée, :func:`depots_mesures`) ; ``modifier(inv)``."""
     import datetime as _dt
 
     inventaire = fixture_machine("inventaire_requete_linux.json")
     quand = (releve_le or _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)).strftime("%Y-%m-%dT%H:%M:%SZ")
     inventaire["releve_le"] = quand
-    inventaire["depots"] = [{"alias": d} for d in depots]
+    inventaire["depots"] = depots_mesures(depots, quand, mesure)
     for releve in inventaire["releves"]:
         releve["releve_le"] = quand
-        releve["depots"] = [{"alias": d} for d in depots]
+        releve["depots"] = depots_mesures(depots, quand, mesure)
         for compteur in releve["compteurs"]:
             compteur["observed_at"] = quand
     inventaire["isolement_linux"]["sonde_le"] = quand
