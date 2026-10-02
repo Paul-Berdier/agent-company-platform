@@ -249,10 +249,13 @@ def relever(etiquette: str, executer: Executeur, image: str = IMAGE) -> Releve:
     try:
         manifeste = json.loads(inspect.sortie)
         index = manifeste["digest"]
-        plates_formes = {(m.get("platform") or {}).get("architecture"): m["digest"]
-                         for m in manifeste.get("manifests", [])
-                         if (m.get("platform") or {}).get("os") == "linux"
-                         and not (m.get("platform") or {}).get("variant")}
+        # Les attestations portent os « unknown » ; une variante (arm64 « v8 ») est admise ; à architecture
+        # répétée, la première entrée de l'index fait foi (comme le choix de Docker au tirage).
+        plates_formes: Dict[str, str] = {}
+        for m in manifeste.get("manifests", []):
+            plate_forme = m.get("platform") or {}
+            if plate_forme.get("os") == "linux" and plate_forme.get("architecture"):
+                plates_formes.setdefault(plate_forme["architecture"], m["digest"])
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise Refus(f"Manifeste de {image}:{etiquette} illisible ({type(exc).__name__}).")
     amd64, arm64 = plates_formes.get("amd64"), plates_formes.get("arm64")

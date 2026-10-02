@@ -56,6 +56,8 @@ class FauxAmont:
         self.inspect_code = 0
         self.grep = ""
         self.tags_git: List[str] = []
+        self.variante_arm64: Dict[str, str] = {}
+        self.avec_arm64 = True
         self.appels: List[List[str]] = []
 
     def __call__(self, arguments: Sequence[str], delai: int) -> "mh.Resultat":
@@ -65,10 +67,11 @@ class FauxAmont:
         if a[:4] == ["docker", "buildx", "imagetools", "inspect"]:
             if a[4] != f"{v.image}:{v.etiquette}" or self.inspect_code:
                 return mh.Resultat(1, b"", b"ERROR: not found")
+            arm64 = {"digest": v.arm64, "platform": {"architecture": "arm64", "os": "linux", **self.variante_arm64}}
             manifeste = {"digest": v.index, "manifests": [
                 {"digest": v.amd64, "platform": {"architecture": "amd64", "os": "linux"}},
                 {"digest": "sha256:" + "e" * 64, "platform": {"architecture": "unknown", "os": "unknown"}},
-                {"digest": v.arm64, "platform": {"architecture": "arm64", "os": "linux"}}]}
+                *([arm64] if self.avec_arm64 else [])]}
             return mh.Resultat(0, json.dumps(manifeste).encode())
         if a[:2] == ["git", "ls-remote"] and "--tags" in a:
             lignes = "".join(f"{'0' * 40}\trefs/tags/{t}\n{'1' * 40}\trefs/tags/{t}^{{}}\n" for t in self.tags_git)
@@ -411,6 +414,14 @@ def test_refus_condensat_introuvable(depot, amont, capsys):
     amont.inspect_code = 1
     assert mh.main(["verifier"], racine=depot, executer=amont) == 2
     assert "Condensat introuvable pour nousresearch/hermes-agent:" in capsys.readouterr().err
+
+
+def test_une_variante_arm64_est_admise_une_plate_forme_absente_refusee(depot, amont, capsys):
+    amont.variante_arm64 = {"variant": "v8"}
+    assert _lancer(mh.verifier, depot, amont)[0] == 0
+    amont.avec_arm64 = False
+    assert mh.main(["verifier"], racine=depot, executer=amont) == 2
+    assert "plate-forme (linux/amd64, linux/arm64) introuvable" in capsys.readouterr().err
 
 
 def test_refus_commit_de_hermes_version_different_de_l_etiquette(depot, amont, capsys):
