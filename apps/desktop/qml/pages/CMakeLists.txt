@@ -9,6 +9,7 @@ acp_add_qml_module(
         DiscussionPage.qml
         FirstRunPage.qml
         HomePage.qml
+        PostePage.qml
         ProjectsPage.qml
         QuestionsPage.qml
         SettingsPage.qml

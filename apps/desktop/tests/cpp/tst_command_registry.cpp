@@ -259,14 +259,14 @@ void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
     // route courante ne bouge pas.
     navigation.setCurrentRoute(QStringLiteral("office"));
     navigation.setCurrentRoute(QStringLiteral("unknown"));
-    navigation.setCurrentRoute(QStringLiteral("station"));
+    navigation.setCurrentRoute(QStringLiteral("backup"));
     QCOMPARE(refused.count(), 3);
     QCOMPARE(navigation.currentRoute(), QStringLiteral("diagnostics"));
-    QVERIFY(!navigation.isNavigable(QStringLiteral("station")));
-    QVERIFY(navigation.detailFor(QStringLiteral("station"))
+    QVERIFY(!navigation.isNavigable(QStringLiteral("backup")));
+    QVERIFY(navigation.detailFor(QStringLiteral("backup"))
                 .startsWith(QStringLiteral("Indisponible pour l'instant")));
     // Pages de pilotage livrées : navigables, sans explication d'indisponibilité.
-    for (const char *route : {"projects", "questions"}) {
+    for (const char *route : {"projects", "questions", "chat", "station"}) {
         QVERIFY2(navigation.isNavigable(QString::fromLatin1(route)), route);
         QVERIFY2(navigation.detailFor(QString::fromLatin1(route)).isEmpty(), route);
     }

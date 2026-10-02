@@ -202,6 +202,8 @@ set(ACP_CORE_SOURCES
     src/viewmodels/Libelles.h
     src/viewmodels/PageViewModel.cpp
     src/viewmodels/PageViewModel.h
+    src/viewmodels/PosteViewModel.cpp
+    src/viewmodels/PosteViewModel.h
     src/viewmodels/ProjetsViewModel.cpp
     src/viewmodels/ProjetsViewModel.h
     src/viewmodels/QuestionsViewModel.cpp

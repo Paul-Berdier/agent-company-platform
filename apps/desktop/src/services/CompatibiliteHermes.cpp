@@ -68,6 +68,7 @@ CompatibiliteHermes::Evaluation CompatibiliteHermes::evaluer(const QJsonObject &
     const QJsonObject machine = meta.value(QStringLiteral("machine")).toObject();
     resultat.executantPresent = machine.contains(QStringLiteral("executant"))
         && !machine.value(QStringLiteral("executant")).isNull();
+    resultat.executant = machine.value(QStringLiteral("executant")).toObject();
 
     // Contrat du greffon : une autre majeure bloque toutes les pages du greffon.
     const auto [nomRecu, majeureRecue] = contrat(resultat.contratRecu);

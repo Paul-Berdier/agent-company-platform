@@ -28,6 +28,7 @@ class EventStreamService;
 class GatewayClient;
 class HealthService;
 class NavigationModel;
+class PosteViewModel;
 class ProjetsViewModel;
 class QuestionsViewModel;
 class SessionHermes;
@@ -87,6 +88,7 @@ private:
     AccueilViewModel *m_accueil = nullptr;
     ProjetsViewModel *m_projets = nullptr;
     QuestionsViewModel *m_questions = nullptr;
+    PosteViewModel *m_poste = nullptr;
     DemandesAgent *m_demandes = nullptr;
     DiscussionViewModel *m_discussion = nullptr;
     UpdateService *m_updates = nullptr;

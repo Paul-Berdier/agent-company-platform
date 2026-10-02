@@ -12,6 +12,7 @@
 
 #include <QJsonValue>
 #include <QString>
+#include <QStringList>
 
 namespace acp::libelles {
 
@@ -43,6 +44,8 @@ inline const QString kInconnu = QStringLiteral("Inconnu");
 [[nodiscard]] QString dateIso(const QJsonValue &iso);
 /*! Pourcentage → « 41 % » (espace insécable), sinon « Inconnu ». */
 [[nodiscard]] QString pourcentage(const QJsonValue &valeur);
+/*! Booléen → « Oui » ou « Non », sinon « Inconnu ». */
+[[nodiscard]] QString ouiNon(const QJsonValue &valeur);
 
 // --- États --------------------------------------------------------------------------
 
@@ -50,6 +53,13 @@ inline const QString kInconnu = QStringLiteral("Inconnu");
 [[nodiscard]] Libelle statutCarte(const QJsonValue &statut);
 [[nodiscard]] Libelle etatPoste(const QJsonValue &etat);
 [[nodiscard]] Libelle etatQuestion(const QJsonValue &etat);
+// Étape P5 (apps/interface/src/poste/libelles.ts) : connexions du poste, badges des listes
+// relevées, états de la table de routage et des quotas.
+[[nodiscard]] Libelle connexionCodex(const QJsonValue &etat);
+[[nodiscard]] Libelle connexionClaude(const QJsonValue &etat);
+[[nodiscard]] Libelle badgeListe(const QJsonValue &badge);
+[[nodiscard]] Libelle etatTable(const QJsonValue &etat);
+[[nodiscard]] Libelle etatQuotas(const QJsonValue &etat);
 
 // --- Codes -----------------------------------------------------------------------------
 
@@ -64,5 +74,11 @@ inline const QString kInconnu = QStringLiteral("Inconnu");
 [[nodiscard]] QString acteurJournal(const QJsonValue &acteur);
 /*! Geste offert sur une carte en triage : « Prolonger », « Relancer la planification »… */
 [[nodiscard]] QString actionTriage(const QString &action);
+/*! Ordre envoyé au poste : « Relevé », « Pause », « Reprise ». */
+[[nodiscard]] QString genreOrdre(const QJsonValue &genre);
+/*! Classe de routage : « Exploration du dépôt », « Implémentation »… */
+[[nodiscard]] QString classe(const QJsonValue &classe);
+/*! Classes de routage dans l'ordre de la page web (les classes inconnues suivent). */
+[[nodiscard]] const QStringList &ordreDesClasses();
 
 } // namespace acp::libelles

@@ -1,0 +1,378 @@
+{
+  "poste": {
+    "pause_reclamations": false,
+    "cartes_en_attente": 0,
+    "poste": {
+      "id": "m1563c2ef174",
+      "nom": "Poste Windows",
+      "etat": "actif",
+      "empreinte": "6093-5536",
+      "protocole": "acp-machine/1",
+      "version_poste": "0.11.0",
+      "cree_le": 1790451615,
+      "confirme_le": 1790451615,
+      "revoque_le": null,
+      "motif_revocation": null,
+      "derniere_requete": 1790451615,
+      "politique_valide": true
+    },
+    "machine": "m1563c2ef174",
+    "message": null,
+    "etat": "en_ligne",
+    "derniere_vue": 1790451615,
+    "derniere_vue_lisible": "26/09/2026 21:40",
+    "hors_ligne_depuis": null,
+    "source": "longpoll"
+  },
+  "machine": {
+    "machine": {
+      "id": "m1563c2ef174",
+      "nom": "Poste Windows",
+      "etat": "actif",
+      "empreinte": "6093-5536",
+      "protocole": "acp-machine/1",
+      "version_poste": "0.11.0",
+      "cree_le": 1790451615,
+      "confirme_le": 1790451615,
+      "revoque_le": null,
+      "motif_revocation": null,
+      "derniere_requete": 1790451615,
+      "politique_valide": true
+    },
+    "machines": {
+      "a_confirmer": 0,
+      "actif": 1,
+      "revoque": 0
+    },
+    "codes_utilisables": 0
+  },
+  "inventaire": {
+    "id": 1,
+    "machine_id": "m1563c2ef174",
+    "recu_le": 1790451620,
+    "releve_le": 1790451620,
+    "contenu": {
+      "alertes": [],
+      "bac_a_sable_codex": {
+        "ecriture_admise": true,
+        "lu_le": "2026-09-26T19:40:20Z",
+        "mode_lu": "elevated",
+        "origine_mode": "sessionFlags",
+        "palier_lu": "default",
+        "raison": null,
+        "readiness": "ready",
+        "stockage_identifiants_lu": "keyring"
+      },
+      "connexions": {
+        "claude": "jeton_reconnu",
+        "codex": "compte_chatgpt",
+        "plan_codex": "prolite"
+      },
+      "depots": [
+        {
+          "alias": "jetable"
+        }
+      ],
+      "politique": {
+        "alias_claude_permis": [
+          "opus",
+          "opus[1m]",
+          "sonnet",
+          "haiku"
+        ],
+        "efforts_interdits": [
+          "max",
+          "ultra",
+          "ultracode"
+        ],
+        "executants": [
+          "codex",
+          "claude"
+        ],
+        "modeles_codex_permis": [],
+        "paliers_admis": [
+          "default"
+        ],
+        "reseau_executants": false
+      },
+      "poste": {
+        "compte": "dedie",
+        "hermes_meme_enveloppe_que_codex": false,
+        "nom": "Poste Windows",
+        "politique_empreinte": "9c2e41ab07d3",
+        "python": "3.12.10",
+        "windows": "10.0.19045"
+      },
+      "protocole": "acp-machine/1",
+      "releve_le": "2026-09-26T19:40:20Z",
+      "releves": {
+        "poste-claude": 2,
+        "poste-codex": 1
+      },
+      "version_poste": "0.11.0",
+      "versions": {
+        "claude": {
+          "conforme": true,
+          "lue": "2.1.280",
+          "testee": "2.1.280"
+        },
+        "codex": {
+          "conforme": true,
+          "lue": "0.156.1",
+          "testee": "0.156.1"
+        }
+      }
+    },
+    "alertes": []
+  },
+  "alertes": [],
+  "ordres": [],
+  "catalogue": {
+    "etat": "connu",
+    "voies": {
+      "poste-codex": {
+        "etat": "a_jour",
+        "releve_id": 1,
+        "releve_le": 1790451620,
+        "releve_le_lisible": "26/09/2026 21:40",
+        "age_s": 0,
+        "perime": false,
+        "source": "poste",
+        "version_cli": "0.156.1",
+        "modeles": [
+          {
+            "id": "factice-codex-1",
+            "displayName": "Factice 1",
+            "isDefault": true,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [
+              "default",
+              "priority"
+            ],
+            "defaultServiceTier": "default",
+            "modele": "factice-codex-1",
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "catalogue_compte",
+            "resolution_documentee": null,
+            "source_efforts": "releve"
+          },
+          {
+            "id": "factice-codex-2",
+            "displayName": "Factice 2",
+            "isDefault": false,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium"
+            ],
+            "defaultReasoningEffort": "low",
+            "serviceTiers": [
+              "default"
+            ],
+            "defaultServiceTier": "default",
+            "modele": "factice-codex-2",
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "catalogue_compte",
+            "resolution_documentee": null,
+            "source_efforts": "releve"
+          }
+        ],
+        "quotas": {
+          "pourcentage_utilise": 41,
+          "remise_a_zero": "2026-09-26T12:00:00Z"
+        },
+        "depots": [
+          "jetable"
+        ],
+        "etat_releve": "ok",
+        "origine_liste": "compte",
+        "detail": null,
+        "documentation_lue_le": null,
+        "compteurs": [
+          {
+            "provider": "codex",
+            "status": "ok",
+            "source": "codex_app_server",
+            "plan": "prolite",
+            "limit_id": "codex",
+            "windows": [
+              {
+                "key": "primary",
+                "used_percent": 41,
+                "window_minutes": 300,
+                "resets_at": "2026-09-26T12:00:00Z"
+              },
+              {
+                "key": "secondary",
+                "used_percent": 12,
+                "window_minutes": 10080,
+                "resets_at": "2026-09-30T08:00:00Z"
+              }
+            ],
+            "credits": null,
+            "limit_reached": false,
+            "reached_type": null,
+            "observed_at": "2026-09-26T19:40:20Z",
+            "detail": null
+          }
+        ],
+        "badge": "releve_du_compte",
+        "badge_libelle": "Relevé du compte"
+      },
+      "poste-claude": {
+        "etat": "a_jour",
+        "releve_id": 2,
+        "releve_le": 1790451620,
+        "releve_le_lisible": "26/09/2026 21:40",
+        "age_s": 0,
+        "perime": false,
+        "source": "poste",
+        "version_cli": "2.1.280",
+        "modeles": [
+          {
+            "id": "opus",
+            "displayName": "opus",
+            "isDefault": null,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [],
+            "defaultServiceTier": null,
+            "modele": null,
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "alias_documente",
+            "resolution_documentee": "claude-opus-5-5",
+            "source_efforts": "documentation"
+          },
+          {
+            "id": "opus[1m]",
+            "displayName": "opus[1m]",
+            "isDefault": null,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [],
+            "defaultServiceTier": null,
+            "modele": null,
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "alias_documente",
+            "resolution_documentee": "claude-opus-5-5",
+            "source_efforts": "documentation"
+          },
+          {
+            "id": "haiku",
+            "displayName": "haiku",
+            "isDefault": null,
+            "supportedReasoningEfforts": [],
+            "defaultReasoningEffort": null,
+            "serviceTiers": [],
+            "defaultServiceTier": null,
+            "modele": null,
+            "cache": false,
+            "remplace_par": null,
+            "retrait_le": null,
+            "nature": "alias_documente",
+            "resolution_documentee": null,
+            "source_efforts": "documentation"
+          }
+        ],
+        "quotas": null,
+        "depots": [
+          "jetable"
+        ],
+        "etat_releve": "ok",
+        "origine_liste": "alias_documentes",
+        "detail": null,
+        "documentation_lue_le": "2026-09-26",
+        "compteurs": [],
+        "badge": "alias_documentes",
+        "badge_libelle": "Alias documentés"
+      }
+    },
+    "hermes": {
+      "modele": "modèle par défaut du profil"
+    },
+    "routage": {
+      "valide": false,
+      "classes": {}
+    },
+    "politique": {
+      "efforts_interdits": [
+        "max",
+        "ultra",
+        "ultracode"
+      ],
+      "paliers_admis": [
+        "default"
+      ],
+      "voies_par_classe": {
+        "exploration": [
+          "poste-claude",
+          "poste-codex"
+        ],
+        "planification": [
+          "hermes"
+        ],
+        "synthese": [
+          "hermes"
+        ],
+        "repondre": [
+          "hermes"
+        ],
+        "recherche_web": [
+          "hermes"
+        ],
+        "architecture": [
+          "poste-codex",
+          "poste-claude",
+          "hermes"
+        ],
+        "implementation": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "debogage_tests": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "petite_tache": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "documentation": [
+          "poste-codex",
+          "poste-claude",
+          "hermes"
+        ],
+        "relecture": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "integration": []
+      }
+    },
+    "releve_factice": false
+  }
+}

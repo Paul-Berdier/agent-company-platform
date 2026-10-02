@@ -18,9 +18,11 @@
 #include "support/Fixtures.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
@@ -144,8 +146,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("quotas.json"))); });
     serveur.route("GET", kP + QStringLiteral("/catalogue"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json"))); });
-    serveur.route("GET", kP + QStringLiteral("/poste"),
-                  [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("poste-releve.json"))); });
+    QJsonObject poste = fixture(QStringLiteral("poste-releve.json"));
+    serveur.route("GET", kP + QStringLiteral("/poste"), [&poste](const RequeteRecue &) { return ReponseFaux::json(200, poste); });
+    serveur.route("POST", kP + QStringLiteral("/poste/enrolement"), [](const RequeteRecue &) {
+        QJsonObject code = fixture(QStringLiteral("code-enrolement.json"));
+        code.insert(QStringLiteral("expire_le"), QDateTime::currentSecsSinceEpoch() + 600);
+        return ReponseFaux::json(201, code);
+    });
     QJsonObject questions = fixture(QStringLiteral("questions.json"));
     serveur.route("GET", kP + QStringLiteral("/questions"),
                   [&questions](const RequeteRecue &) { return ReponseFaux::json(200, questions); });
@@ -162,10 +169,11 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     auto *accueil = application.findChild<AccueilViewModel *>();
     auto *pageProjets = application.findChild<ProjetsViewModel *>();
     auto *pageQuestions = application.findChild<QuestionsViewModel *>();
+    auto *pagePoste = application.findChild<PosteViewModel *>();
     auto *discussion = application.findChild<DiscussionViewModel *>();
     auto *demandes = application.findChild<DemandesAgent *>();
     auto *passerelle = application.findChild<GatewayClient *>();
-    QVERIFY(client && flux && accueil && pageProjets && pageQuestions && discussion && demandes && passerelle);
+    QVERIFY(client && flux && accueil && pageProjets && pageQuestions && pagePoste && discussion && demandes && passerelle);
     client->setAllowInsecureLoopback(true);
     QVERIFY(!client->setBaseUrl(serveur.url()).isError());
     client->setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
@@ -292,6 +300,31 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     }
     QTRY_VERIFY(!pageQuestions->actif());
 
+    // --- Poste : en ligne avec son inventaire ; puis non configuré, avec un code d'enrôlement ------
+    {
+        poste = fixture(QStringLiteral("poste-en-ligne.json"));
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("PostePage"));
+        QVERIFY(page);
+        auto *item = qobject_cast<QQuickItem *>(page.get());
+        QTRY_VERIFY_WITH_TIMEOUT(pagePoste->lue() && pagePoste->peutRelever(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Poste en ligne"));
+        QVERIFY(contientTexte(item, QStringLiteral("Compte dédié acp-poste")));
+        QVERIFY(contientTexte(item, QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6).")));
+        QVERIFY(contientTexte(item, QStringLiteral("Aucun ordre en attente.")));
+
+        poste = fixture(QStringLiteral("poste-non-configure.json"));
+        pagePoste->actualiser();
+        QTRY_VERIFY_WITH_TIMEOUT(pagePoste->peutEnroler(), 5000);
+        pagePoste->enroler();
+        QTRY_COMPARE_WITH_TIMEOUT(pagePoste->code(), QStringLiteral("acpe_CODE-DE-TEST"), 5000);
+        VERIFIER(page.get(), QStringLiteral("Poste non configuré, code d'enrôlement"));
+        QVERIFY(contientTexte(item, QStringLiteral("acpe_CODE-DE-TEST")));
+        QVERIFY(contientTexte(item, QStringLiteral("Aucun inventaire reçu.")));
+    }
+    // Page quittée : le code d'enrôlement a quitté la mémoire de la station.
+    QTRY_VERIFY(!pagePoste->actif());
+    QCOMPARE(pagePoste->code(), QString());
+
     // --- Discussion : sessions, transcription, puis une demande d'autorisation de l'agent --------
     {
         passerelle->ouvrir();
@@ -340,8 +373,9 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     window.hide();
 
     // --- Aucun secret exposé à QML ------------------------------------------------------------------
-    // Après le parcours complet (porteur, tickets de la passerelle et du kanban émis), aucune
-    // propriété d'aucun objet de l'application ne contient le jeton ni un ticket.
+    // Après le parcours complet (porteur, tickets de la passerelle et du kanban émis, code
+    // d'enrôlement rendu), aucune propriété d'aucun objet de l'application ne contient le jeton,
+    // un ticket ni le code.
     {
         QList<QObject *> objets = application.findChildren<QObject *>();
         objets.prepend(&application);
@@ -356,7 +390,9 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                 }
                 ++lues;
                 const QString texte = valeur.toString();
-                QVERIFY2(!texte.contains(QStringLiteral("jeton-a")) && !texte.contains(QStringLiteral("ticket-faux-")),
+                // Ni le porteur, ni un ticket, ni le code d'enrôlement (page Poste quittée).
+                QVERIFY2(!texte.contains(QStringLiteral("jeton-a")) && !texte.contains(QStringLiteral("ticket-faux-"))
+                             && !texte.contains(QStringLiteral("acpe_CODE-DE-TEST")),
                          qPrintable(QStringLiteral("%1.%2").arg(QString::fromLatin1(meta->className()),
                                                                 QString::fromLatin1(propriete.name()))));
             }

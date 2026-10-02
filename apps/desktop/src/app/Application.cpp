@@ -21,6 +21,7 @@
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/ShellViewModel.h"
@@ -99,6 +100,7 @@ Application::Application(QObject *parent)
     m_accueil = new AccueilViewModel(m_client, m_greffon.get(), m_flux, this);
     m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
+    m_poste = new PosteViewModel(m_greffon.get(), m_compatibilite, m_flux, this);
     // Demandes de l'agent (approval, clarify) et discussion : sur la passerelle JSON-RPC.
     m_demandes = new DemandesAgent(m_passerelle, this);
     m_discussion = new DiscussionViewModel(m_passerelle, m_flux, this);
@@ -183,6 +185,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Accueil", m_accueil);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Questions", m_questions);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Poste", m_poste);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Demandes", m_demandes);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Discussion", m_discussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
@@ -296,6 +299,15 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Ctrl+4"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("questions"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.station"), QStringLiteral("Voir l'état du poste Windows"),
+        QStringLiteral("Navigation"), {QStringLiteral("poste"), QStringLiteral("enrôlement"), QStringLiteral("inventaire")},
+        QStringLiteral("Ctrl+6"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("station"));
             return CommandResult::accept();
         }});
 

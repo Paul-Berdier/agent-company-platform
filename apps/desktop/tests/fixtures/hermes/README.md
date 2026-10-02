@@ -23,12 +23,18 @@ l'interface web utilisent déjà (même dépôt, aucune valeur retouchée par la
 | `projets.json` | `fixtures-projets.ts`, `LISTE` | `GET /v1/projets` |
 | `projet-detail.json` | `fixtures-projets.ts`, `DETAIL` | `GET /v1/projets/{id}` |
 | `questions.json` | `fixtures-projets.ts`, `QUESTIONS` | `GET /v1/questions` |
-| `poste-vide.json`, `poste-releve.json` | `fixtures-projets.ts`, `POSTE_VIDE`, `POSTE_RELEVE` | `GET /v1/poste` |
+| `poste-vide.json`, `poste-releve.json` | `fixtures-projets.ts`, `POSTE_VIDE`, `POSTE_RELEVE` | `GET /v1/poste` (forme de l'étape P4 : `poste` et `catalogue` seulement) |
 | `catalogue-profils.json` | `fixtures-projets.ts`, `CATALOGUE_PROFILS` | `GET /v1/catalogue` |
 | `lancement.json` | `fixtures-projets.ts`, `LANCEMENT` | `POST /v1/projets` |
 | `pause-generale.json` | `fixtures-projets.ts`, `PAUSE_GENERALE` | `pause_generale` de `GET /v1/projets` |
 | `refus-aucun-inventaire.json` | `fixtures-projets.ts`, `REFUS_AUCUN_INVENTAIRE` | refus 400 de `POST /v1/projets` |
 | `quotas.json`, `quotas-vides.json` | `apps/interface/tests/fixtures-poste.ts`, `FORMES.quotas`, `FORMES.quotas_vides` | `GET /v1/quotas` |
+| `poste-non-configure.json`, `poste-a-confirmer.json`, `poste-en-ligne.json` | `fixtures-poste.ts`, `FORMES.poste_non_configure`, `FORMES.poste_a_confirmer`, `FORMES.poste_en_ligne` | `GET /v1/poste` (forme de l'étape P5) |
+| `code-enrolement.json` | `fixtures-poste.ts`, `FORMES.code` (code factice) | `POST /v1/poste/enrolement` |
+| `refus-empreinte.json` | `fixtures-poste.ts`, `FORMES.refus_empreinte` | refus 409 de `POST /v1/poste/confirmation` |
+| `releve-demande.json` | `fixtures-poste.ts`, `FORMES.releve_demande` | `POST /v1/poste/releve` |
+| `routage.json`, `routage-vide.json`, `routage-secours.json` | `fixtures-poste.ts`, `FORMES.routage`, `FORMES.routage_vide`, `FORMES.routage_secours` | `GET /v1/routage` |
+| `refus-table.json` | `fixtures-poste.ts`, `FORMES.refus_table` | refus 422 de `POST /v1/routage` |
 | `sessions.json` | `apps/interface/tests/fixtures.ts`, `SESSIONS` | `GET /api/sessions` de Hermes |
 
 Provenance de ces sources, telle que leurs en-têtes la décrivent : `fixtures-projets.ts` est

@@ -85,6 +85,14 @@ QString pourcentage(const QJsonValue &valeur)
     return QStringLiteral("%1\u00A0%").arg(QLocale(QLocale::French).toString(nombre, 'f', nombre == std::floor(nombre) ? 0 : 1));
 }
 
+QString ouiNon(const QJsonValue &valeur)
+{
+    if (!valeur.isBool()) {
+        return kInconnu;
+    }
+    return valeur.toBool() ? QStringLiteral("Oui") : QStringLiteral("Non");
+}
+
 Libelle etatProjet(const QJsonValue &etat, const QJsonValue &derive)
 {
     const QString e = chaine(etat);
@@ -138,6 +146,66 @@ Libelle etatQuestion(const QJsonValue &etat)
     const QString e = chaine(etat);
     if (e == QLatin1String("ouverte")) return {QStringLiteral("Hermes cherche la réponse"), QStringLiteral("running")};
     if (e == QLatin1String("escaladee")) return {QStringLiteral("Votre réponse est attendue"), QStringLiteral("approvalRequired")};
+    return {};
+}
+
+// Familles de la page web → pastilles de la station : succès « succeeded », échec « failed »,
+// dégradé « degraded », neutre « pending », actif « running », inconnu « unknown ».
+
+Libelle connexionCodex(const QJsonValue &etat)
+{
+    const QString e = chaine(etat);
+    if (e == QLatin1String("compte_chatgpt")) return {QStringLiteral("Compte ChatGPT"), QStringLiteral("succeeded")};
+    if (e == QLatin1String("cle_api")) return {QStringLiteral("Clé d'API (refusée)"), QStringLiteral("failed")};
+    if (e == QLatin1String("autre")) return {QStringLiteral("Autre"), QStringLiteral("degraded")};
+    if (e == QLatin1String("non_connecte")) return {QStringLiteral("Non connecté"), QStringLiteral("pending")};
+    if (e == QLatin1String("inconnu")) return {kInconnu, QStringLiteral("unknown")};
+    return {};
+}
+
+Libelle connexionClaude(const QJsonValue &etat)
+{
+    const QString e = chaine(etat);
+    if (e == QLatin1String("jeton_reconnu")) return {QStringLiteral("Jeton reconnu"), QStringLiteral("succeeded")};
+    if (e == QLatin1String("jeton_present_non_verifie"))
+        return {QStringLiteral("Jeton présent, non vérifié"), QStringLiteral("degraded")};
+    if (e == QLatin1String("refuse")) return {QStringLiteral("Refusé"), QStringLiteral("failed")};
+    if (e == QLatin1String("jeton_absent")) return {QStringLiteral("Jeton absent"), QStringLiteral("pending")};
+    if (e == QLatin1String("inconnu")) return {kInconnu, QStringLiteral("unknown")};
+    return {};
+}
+
+Libelle badgeListe(const QJsonValue &badge)
+{
+    const QString b = chaine(badge);
+    if (b == QLatin1String("releve_du_compte")) return {QStringLiteral("Relevé du compte"), QStringLiteral("succeeded")};
+    if (b == QLatin1String("liste_de_secours")) return {QStringLiteral("Liste de secours"), QStringLiteral("failed")};
+    if (b == QLatin1String("liste_de_secours_probable"))
+        return {QStringLiteral("Liste de secours probable"), QStringLiteral("degraded")};
+    if (b == QLatin1String("liste_acceptee")) return {QStringLiteral("Relevé accepté par vous"), QStringLiteral("succeeded")};
+    if (b == QLatin1String("alias_documentes")) return {QStringLiteral("Alias documentés"), QStringLiteral("running")};
+    if (b == QLatin1String("perime")) return {QStringLiteral("Périmé"), QStringLiteral("degraded")};
+    if (b == QLatin1String("inconnu")) return {kInconnu, QStringLiteral("unknown")};
+    if (b == QLatin1String("releve_factice")) return {QStringLiteral("Relevé factice"), QStringLiteral("degraded")};
+    if (b == QLatin1String("indisponible")) return {QStringLiteral("Indisponible"), QStringLiteral("failed")};
+    return {};
+}
+
+Libelle etatTable(const QJsonValue &etat)
+{
+    const QString e = chaine(etat);
+    if (e == QLatin1String("non_validee")) return {QStringLiteral("Non validée"), QStringLiteral("pending")};
+    if (e == QLatin1String("validee")) return {QStringLiteral("Validée"), QStringLiteral("succeeded")};
+    if (e == QLatin1String("a_revalider")) return {QStringLiteral("À revalider"), QStringLiteral("degraded")};
+    return {};
+}
+
+Libelle etatQuotas(const QJsonValue &etat)
+{
+    const QString e = chaine(etat);
+    if (e == QLatin1String("releve")) return {QStringLiteral("Relevé"), QStringLiteral("succeeded")};
+    if (e == QLatin1String("perime")) return {QStringLiteral("Périmé"), QStringLiteral("degraded")};
+    if (e == QLatin1String("inconnu")) return {kInconnu, QStringLiteral("unknown")};
     return {};
 }
 
@@ -252,6 +320,45 @@ QString actionTriage(const QString &action)
     if (action == QLatin1String("reprendre")) return QStringLiteral("Reprendre");
     if (action == QLatin1String("conclure")) return QStringLiteral("Conclure le projet");
     return {};
+}
+
+QString genreOrdre(const QJsonValue &genre)
+{
+    static const QHash<QString, QString> table = {
+        {QStringLiteral("releve"), QStringLiteral("Relevé")},
+        {QStringLiteral("pause"), QStringLiteral("Pause")},
+        {QStringLiteral("reprise"), QStringLiteral("Reprise")},
+    };
+    return depuisTable(table, genre);
+}
+
+QString classe(const QJsonValue &valeur)
+{
+    static const QHash<QString, QString> table = {
+        {QStringLiteral("exploration"), QStringLiteral("Exploration du dépôt")},
+        {QStringLiteral("planification"), QStringLiteral("Planification")},
+        {QStringLiteral("synthese"), QStringLiteral("Synthèse")},
+        {QStringLiteral("repondre"), QStringLiteral("Réponses aux questions")},
+        {QStringLiteral("recherche_web"), QStringLiteral("Recherche web")},
+        {QStringLiteral("architecture"), QStringLiteral("Architecture")},
+        {QStringLiteral("implementation"), QStringLiteral("Implémentation")},
+        {QStringLiteral("debogage_tests"), QStringLiteral("Débogage et tests")},
+        {QStringLiteral("petite_tache"), QStringLiteral("Petite tâche")},
+        {QStringLiteral("documentation"), QStringLiteral("Documentation")},
+        {QStringLiteral("relecture"), QStringLiteral("Relecture croisée")},
+    };
+    return depuisTable(table, valeur);
+}
+
+const QStringList &ordreDesClasses()
+{
+    static const QStringList ordre = {
+        QStringLiteral("exploration"), QStringLiteral("planification"), QStringLiteral("synthese"),
+        QStringLiteral("repondre"), QStringLiteral("recherche_web"), QStringLiteral("architecture"),
+        QStringLiteral("implementation"), QStringLiteral("debogage_tests"), QStringLiteral("petite_tache"),
+        QStringLiteral("documentation"), QStringLiteral("relecture"),
+    };
+    return ordre;
 }
 
 } // namespace acp::libelles

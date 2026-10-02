@@ -61,6 +61,8 @@ public:
         QStringList avertissements;
         QStringList alertes;
         bool executantPresent = false;
+        //! Bloc `machine.executant` tel que servi (étape P6), vide s'il est absent.
+        QJsonObject executant;
     };
 
     explicit CompatibiliteHermes(ClientGreffonPoste *greffon, QObject *parent = nullptr);
@@ -88,6 +90,7 @@ public:
     [[nodiscard]] const QStringList &avertissements() const { return m_evaluation.avertissements; }
     [[nodiscard]] const QStringList &alertes() const { return m_evaluation.alertes; }
     [[nodiscard]] bool executantPresent() const { return m_evaluation.executantPresent; }
+    [[nodiscard]] const QJsonObject &executant() const { return m_evaluation.executant; }
 
 signals:
     void change();
