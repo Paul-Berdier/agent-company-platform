@@ -31,3 +31,21 @@ Une montée de Hermes change, dans une seule PR : la ligne `FROM` de
 `hermes/image/Dockerfile`, `HERMES_VERSION` et la copie de l'OpenRPC (relevée dans la
 nouvelle image). Jamais de `hermes update`, de `git pull` de Hermes, d'étiquette
 `:latest` ni d'`AUTO_UPDATE`.
+
+Outil (étape P9) : `scripts/monter_hermes.py` (bibliothèque standard, `docker` et `git`).
+
+- `derniere` : dernière release publiée à la fois en étiquette git amont et sur Docker Hub
+  (veille mensuelle) ; n'écrit rien.
+- `ecrire vAAAA.M.J` : relève la release (condensats, commit, image tirée par condensat) et
+  réécrit toutes les épingles fortes, dont ce dossier, le bloc `hermes` et
+  `livrees.instantane_hermes` du verrou du catalogue, `hermes/THIRD_PARTY.md` et les fixtures
+  `/v1/meta` du desktop et de l'interface ; rapporte les méthodes OpenRPC ajoutées et retirées,
+  les skills livrées à classer et l'inventaire des anciennes valeurs. Ne touche jamais la borne
+  `requires_hermes` du greffon.
+- `verifier` : relève sans rien écrire et compare chaque épingle forte, octet pour octet ;
+  `image.yml` le lance à chaque construction (répétition à blanc : « Aucun écart »).
+- `inventaire` : fixtures de faux serveur et citations « Hermes X.Y.Z … fichier:ligne » à
+  revérifier à la main dans la PR de montée.
+
+La concordance de toutes ces copies est vérifiée hors ligne par
+`scripts/tests/test_epingles_hermes.py` (CI, Linux et Windows).
