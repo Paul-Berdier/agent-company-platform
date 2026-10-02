@@ -9,12 +9,13 @@
 
 #include "api/ApiClient.h"
 #include "app/Application.h"
+#include "auth/SessionHermes.h"
 #include "events/EventStreamService.h"
+#include "gateway/DemandesAgent.h"
+#include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
-#include "gateway/DemandesAgent.h"
-#include "gateway/GatewayClient.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
@@ -363,9 +364,23 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QVERIFY(lues > 100); // le contrôle a bien parcouru les objets de la station
     }
 
+    // --- Session perdue : passerelle fermée, temps réel arrêté, discussion oubliée -----------------
+    {
+        auto *session = application.findChild<SessionHermes *>();
+        QVERIFY(session);
+        QCOMPARE(discussion->sessionVivante(), QStringLiteral("rt-s1"));
+        const auto fermeturesAvant = serveur.tramesDeMethode(QStringLiteral("session.close")).size();
+        QVERIFY(QMetaObject::invokeMethod(session, "sessionPerdue", Q_ARG(QString, QStringLiteral("essai"))));
+        QCOMPARE(passerelle->etat(), GatewayClient::Etat::Deconnecte);
+        QVERIFY(!flux->sessionOuverte());
+        QCOMPARE(discussion->sessionVivante(), QString());
+        QCOMPARE(discussion->transcription()->count(), 0);
+        QCOMPARE(demandes->nombre(), 0);
+        QTest::qWait(100);
+        QCOMPARE(serveur.tramesDeMethode(QStringLiteral("session.close")).size(), fermeturesAvant);
+    }
+
     // --- La racine : fenêtre, écran de connexion (aucune session) et palette -----------------------
-    passerelle->fermer();
-    flux->arreter();
     warnings.clear();
     QVERIFY(application.load(&engine));
     QTest::qWait(100);

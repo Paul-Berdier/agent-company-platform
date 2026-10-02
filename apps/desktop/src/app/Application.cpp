@@ -113,6 +113,10 @@ Application::Application(QObject *parent)
     // Temps réel : sondage léger, veille du kanban et pages actives suivent la session.
     connect(m_session, &SessionHermes::sessionEtablie, m_flux, &EventStreamService::demarrer);
     connect(m_session, &SessionHermes::sessionPerdue, m_flux, &EventStreamService::arreter);
+    // Session perdue (déconnexion, jeton refusé) : la discussion affichée est oubliée. Connexion
+    // faite APRÈS celle de la passerelle (ordre d'appel des slots) : la passerelle est déjà
+    // fermée, aucune fermeture n'est émise vers Hermes.
+    connect(m_session, &SessionHermes::sessionPerdue, m_discussion, &DiscussionViewModel::quitter);
     connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
         const CompatibilityStatus::State etat = m_compatibilite->etat();
         const bool verdictRendu = etat != CompatibilityStatus::NonVerifiee
