@@ -49,7 +49,10 @@ _VERSION_YAML = re.compile(r'^version:\s*"?([^"\s#]+)"?\s*(?:#.*)?$', re.MULTILI
 PYTHON_MODULES = ("apps/poste/src/acp_poste/__init__.py",)
 _VERSION_PYTHON = re.compile(r'^__version__ = "([^"]+)"$', re.MULTILINE)
 
-# Seul le paquet racine est versionné par le produit dans le verrou npm.
+# Verrous npm qui portent la version du produit ; seul leur paquet racine est versionné par le produit.
+# Étape P9 : le verrou des sources de l'interface, oublié jusqu'ici (aucun contrôle ne le comparait à
+# apps/interface/package.json), est contrôlé comme celui de la racine (scripts/tests/test_version_complete.py).
+LOCKS = ("package-lock.json", "apps/interface/package-lock.json")
 LOCK_PACKAGES = ("",)
 
 
@@ -77,14 +80,15 @@ def main() -> int:
         found = _VERSION_PYTHON.findall((ROOT / relative).read_text(encoding="utf-8"))
         report(errors, relative, found[0] if len(found) == 1 else None)
 
-    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
-    report(errors, "package-lock.json", lock.get("version"))
-    for package in LOCK_PACKAGES:
-        report(
-            errors,
-            f"package-lock.json#packages/{package or '<root>'}",
-            lock.get("packages", {}).get(package, {}).get("version"),
-        )
+    for relative in LOCKS:
+        lock = json.loads((ROOT / relative).read_text(encoding="utf-8"))
+        report(errors, relative, lock.get("version"))
+        for package in LOCK_PACKAGES:
+            report(
+                errors,
+                f"{relative}#packages/{package or '<root>'}",
+                lock.get("packages", {}).get(package, {}).get("version"),
+            )
 
     if errors:
         print("Dérive de version détectée :", file=sys.stderr)
