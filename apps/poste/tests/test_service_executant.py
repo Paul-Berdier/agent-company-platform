@@ -185,12 +185,14 @@ def banc(tmp_path, poste) -> Banc:
 # ------------------------------------------------------------------ enrôlement, révocation, jeton refusé (§ 7.6)
 
 
-async def test_attente_d_enrolement_sans_sortie_ni_requete(banc):
+async def test_attente_d_enrolement_sans_sortie_ni_requete(banc, capfd):
     tache = asyncio.create_task(banc.servir())
     await asyncio.sleep(0.6)
     assert not tache.done() and banc.protocole.appels == []
     lignes = (banc.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8")
     assert lignes.count("non_enrole") == 1 and "railway ssh" in lignes
+    # Relecture de P6 : l'attente se lit AUSSI dans les journaux du conteneur (Railway), une fois au début.
+    assert capfd.readouterr().err.count("[acp] Exécutant non enrôlé") == 1
     banc.coffre.ecrire("jeton-machine", JETON)
     assert await _jusqu_a(lambda: "reclamer" in banc.protocole.routes())
     banc.arret.set()
@@ -387,3 +389,62 @@ async def test_issue_hors_contrat_en_file_ne_bloque_plus_les_reclamations(banc):
     assert len(list(banc.emplacements.sortie_refusees.iterdir())) == 1
     journal = "".join(f.read_text(encoding="utf-8") for f in banc.emplacements.journal.glob("*"))
     assert "issue_hors_contrat" in journal and "NUL" in journal
+
+
+def test_verdict_de_la_sonde_dans_les_journaux_du_conteneur(banc, capfd, monkeypatch):
+    """Relecture de P6 : le verdict de la sonde du démarrage n'allait qu'au journal du volume ; il est aussi écrit sur
+    stderr (journaux de Railway), sans secret."""
+    from acp_poste import service_executant as module
+    from acp_poste.journal import Journal
+    from acp_poste.politique import charger
+
+    contexte = banc.contexte()
+    politique = charger(contexte.emplacements)
+    verdict = {"regime": "B", "bwrap": "refuse", "proc_neuf": False, "reseau_coupe": False, "uid_separes": True,
+               "raison": "Régime B : bubblewrap refusé par la plateforme."}
+    monkeypatch.setattr(module, "sonder", lambda **_options: {"sonde_le": "2026-10-01T12:00:00Z", "verdict": verdict,
+                                                               "releves": []})
+    bloc = module.faire_sonde(contexte, politique, Journal(contexte.emplacements.journal))
+    assert bloc["regime"] == "B"
+    assert ("[acp] Sonde de plateforme : régime B, bubblewrap refuse, UID séparés : oui. Régime B : bubblewrap refusé "
+            "par la plateforme.") in capfd.readouterr().err
+
+
+
+async def test_purge_quotidienne_sans_toucher_la_carte_en_main(banc):
+    """Relecture de P6 : la purge du disque est faite par l'exécutant lui-même (une fois par 24 h, hors carte) ;
+    le worktree de la carte en main est gardé."""
+    import time
+
+    banc.coffre.ecrire("jeton-machine", JETON)
+    _carte_en_main(banc, "rendue")
+    espaces = banc.emplacements.espaces / "jetable"
+    for nom in ("t_ancien01", "t_ab12cd34"):
+        (espaces / nom).mkdir(parents=True)
+        os.utime(espaces / nom, (time.time() - 30 * 86400,) * 2)
+    tache = asyncio.create_task(banc.servir())
+    assert await _jusqu_a(lambda: "reclamer" in banc.protocole.routes())
+    banc.arret.set()
+    await asyncio.wait_for(tache, 10)
+    assert not (espaces / "t_ancien01").exists() and (espaces / "t_ab12cd34").exists()
+    journal = (banc.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8")
+    assert "Purge du disque : 1 worktree(s)" in journal
+
+
+
+async def test_echeance_du_jeton_claude_publiee_et_annoncee(banc, capfd):
+    """Relecture de P6 : rien ne prévenait de l'expiration du jeton Claude (setup-token : un an). L'exécutant publie
+    l'échéance ESTIMÉE (dépôt + 365 jours) dans son inventaire et l'annonce dans ses journaux à 30 jours."""
+    import time
+    from datetime import UTC, datetime, timedelta
+
+    banc.coffre.ecrire("jeton-machine", JETON)
+    depose = time.time() - 340 * 86400
+    os.utime(banc.emplacements.secrets / "claude-oauth", (depose, depose))
+    tache = asyncio.create_task(banc.servir())
+    assert await _jusqu_a(lambda: banc.protocole.inventaires, 30)
+    banc.arret.set()
+    await asyncio.wait_for(tache, 10)
+    attendue = (datetime.fromtimestamp(depose, UTC) + timedelta(days=365)).date().isoformat()
+    assert banc.protocole.inventaires[0]["connexions"]["claude_echeance"] == attendue
+    assert f"[acp] Jeton Claude de l'exécutant : expiration estimée le {attendue}" in capfd.readouterr().err

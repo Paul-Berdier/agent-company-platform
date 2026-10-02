@@ -404,7 +404,7 @@ D64 et D66 appliquées (`plan.md` § 1, non confirmées).
 ### P6 — exécution autonome sur l'exécutant Railway (réalisée côté dépôt, non fusionnée, non déployée)
 
 Référence : `docs/refonte/executant.md`, `docs/refonte/railway.md` § 13, `docs/reprise-poste.md` § 6 sexies à
-§ 6 octies ; décisions D74 à D92 **appliquées** (`plan.md` : le propriétaire fournit les comptes, Hermes gère
+§ 6 nonies ; décisions D74 à D92 **appliquées** (`plan.md` : le propriétaire fournit les comptes, Hermes gère
 l'exploitation ; numérotation du cahier décalée de trois). Rien n'est déployé ; la sonde R0 est prête, non lancée.
 
 #### Ajouté
@@ -479,8 +479,121 @@ l'exploitation ; numérotation du cahier décalée de trois). Rien n'est déploy
 - signature cosign de Codex non vérifiée (identité non établie) ; versions apt fixées : une version intermédiaire de
   Debian peut faire échouer le build (montée par PR) ;
 - vraies CLI connectées, `railway ssh`, `scp`, coût réel et prise en compte des clés non documentées de l'IaC : non
-  prouvés (R0 à R10) ; purge des worktrees et alerte J-30 du jeton Claude : non faites ;
+  prouvés (R0 à R10) ; purge des worktrees et alerte J-30 du jeton Claude : faites depuis la relecture (ci-dessous) ;
 - les faux CLI ne prouvent que la plomberie.
+
+### P6 — corrections de la relecture indépendante (réalisées côté dépôt, non fusionnées, non déployées)
+
+Référence : `docs/refonte/executant.md` § 15 (tableau constat → correction → preuve), `docs/reprise-poste.md`
+§ 6 nonies. Relecture de `35c94af` en trois lentilles : 19 constats (un critique, quatre hauts dont deux recoupés),
+tous vérifiés et réels ; trois défauts de plus trouvés en les vérifiant. Chaque correction de code a un test qui
+échoue sur le commit d'avant.
+
+#### Corrigé
+
+- `acp-poste diagnostic`, `quotas`, `releve` et `preuve`, lancés en root dans `railway ssh`, lancent Codex et Claude
+  sous leur UID, avec les verrous du service : ils laissaient des fichiers de root sous `/donnees/codex`, et
+  l'exécutant refusait ensuite de redémarrer ; l'entrée retire les alias temporaires que Codex laisse, **même sous
+  son UID**, sous `/donnees/codex/tmp/arg0` (trouvé en vérifiant) ; `acp-poste releve` ne lève plus de trace sous
+  Linux (trouvé) ;
+- la relecture lit enfin ce qu'elle relit : worktree sur la branche relue, diff lisible par le groupe des agents ;
+  branche ou diff absents : carte bloquée ;
+- une requête refusée par le contrat avant l'envoi ne bloque plus la file de sortie (rangée dans `sortie/refusees`,
+  carte bloquée avec une raison composée) ; caractères de contrôle retirés des textes de l'agent (un NUL faisait
+  échouer le commit) ;
+- forme de dépôt de la politique éprouvée dans l'image (`python3.12 -m unittest`) ; une commande absente (code 127)
+  rend « vérification impossible », sans relancer l'agent ;
+- `scripts/verifier_releve_r0.py` tourne avec la seule bibliothèque standard (Python du PC du propriétaire) ; motifs
+  introuvables : code 2 en français ;
+- verdict de la sonde et attente d'enrôlement écrits aussi dans les journaux du conteneur (donc de Railway) ;
+- procédure (`railway.md` § 9 et § 13) : coûts à trois services (≈ 9 à 32 $ par mois, pire cas ≈ 159 $), commit à
+  sonder, `railway login` et `link`, dépôt jetable et privé (§ 13.3 bis), outils de l'image, commentaires du
+  diagnostic, exploitation et renouvellement des jetons, bascule vers le PC requalifiée, remise en état après un
+  refus au démarrage.
+
+#### Ajouté
+
+- purge automatique, une fois par jour et hors carte, des worktrees inactifs depuis `purge_apres_jours` (branches
+  gardées), des bundles et des requêtes refusées anciens, sans suivre aucun lien ;
+- échéance estimée du jeton Claude (dépôt + un an) publiée dans l'inventaire (`connexions.claude_echeance`,
+  facultatif), alerte de la page Poste à 30 jours et ligne quotidienne des journaux ;
+- scénario de relecture dans le bout en bout (7 scénarios) ; faux fournisseur de modèle pour éprouver le vrai
+  `codex exec` (`executant/tests/faux_fournisseur.py`).
+
+#### Sécurité
+
+- régime A : `codex exec` reçoit un profil de permissions nommé (`acp_agent`, `acp_lecture`), **sans** `--sandbox`
+  (qui le faisait ignorer) : lecture de `/donnees/codex`, `/donnees/claude`, `/donnees/acp` et `/etc/acp` interdite,
+  réseau coupé ; avant, une commande de Codex lisait `auth.json` et son contenu repartait vers le modèle (mesuré
+  avec le vrai Codex 0.156.1 et un faux fournisseur, témoin A) ;
+- le superviseur ne suit plus aucun lien posé par un agent sous `/tmp/acp` (dossiers repris sur descripteur
+  `O_NOFOLLOW`, propriétaire exigé) ni dans la réponse de Codex (fichier ordinaire de `acp-codex`, 64 Kio au plus) ;
+- `AGENTS.override.md` (Codex) et `CLAUDE.local.md` (Claude Code) sont des fichiers de pilotage, à toute profondeur
+  (D90 complétée) ;
+- `acp-poste quotas` et `releve` prennent les verrous de Codex et de Claude : plus de second processus Codex sur le
+  `CODEX_HOME` d'une carte en cours (trouvé).
+
+#### Vérifié localement
+
+- rejeu complet sur la pointe `815ae6f` (export LF, images reconstruites) : Windows 927 réussis ; `executant/tests`
+  33 et 18 ; `apps/poste` et contrat en root dans l'image 777 réussis, 20 ignorés ; image Hermes 682 ; contrat 162
+  sur l'export, plus les 3 tests IaC dans le worktree ; navigateur 8 ; témoins négatifs 27 sans
+  anomalie ; contrôles du dépôt à 0 ;
+- CI verte sur `815ae6f` : `ci.yml` 36925637152, `executant.yml` 36925637270, `image.yml` 36925637269 (contrat 165,
+  navigateur 8).
+
+#### Limites connues
+
+- profil de Codex éprouvé en témoin A local et en CI seulement ; sur Railway, R0 dit si la voie Codex s'ouvre ;
+- alerte du jeton Claude : page Poste et journaux, pas de notification téléphone (un nouveau genre de notification
+  exige une migration du schéma du greffon, non faite) ; échéance estimée ; celle du jeton GitHub n'est pas connue
+  de l'exécutant ;
+- historiques des CLI non purgés ; `uv` non ajouté à l'image (version et empreinte hors du cahier) ; forme `pip`
+  de la préparation non éprouvée ; les fichiers non suivis laissés par une vérification sont committés s'ils ne sont
+  pas ignorés par le dépôt.
+### P8 — station de travail Qt rebranchée sur Hermes (réalisée côté dépôt, non fusionnée, non déployée)
+
+Référence : `docs/refonte/desktop.md`, `docs/native-desktop-architecture.md`, `docs/desktop-security.md`,
+`docs/desktop-build.md` ; décisions D8-1 à D8-12 appliquées (recommandations du cahier).
+
+- ajouté : connexion native RFC 8252 contre le fournisseur `self-hosted` (PKCE S256, état, écouteur `127.0.0.1` à
+  port éphémère, page de rappel statique) ; jeton de rafraîchissement au coffre Windows sur consentement (décoché par
+  défaut), rotation écrite au coffre avant usage, un seul rafraîchissement en vol, une seule station par session
+  Windows (code 3) ; déconnexion par `POST /auth/logout` ;
+- ajouté : porteur sur les API du tableau de bord et la façade `acp-poste` ; compatibilité par `/v1/meta` (contrat,
+  OpenRPC épinglé, Hermes testé, alertes, exécutant P6 s'il est annoncé) ; santé par `/api/health` et `/api/status` ;
+- ajouté : passerelle JSON-RPC `/api/ws` sur Qt WebSockets (ticket en sous-protocole, sans `Origin`, rejeu,
+  -32601 aux requêtes serveur non gérées, réponses `approval`/`clarify`) ; sondages, veille du kanban ;
+- ajouté : pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics (contrôle des
+  préférences, valeurs expurgées), Sauvegarde (export chiffré DPAPI au format `ACPB1`, archive retirée du volume) ;
+- ajouté : bout en bout local `scripts/e2e-desktop-windows.ps1` (pilote de test `acp_desktop_e2e`, jamais installé)
+  contre Authelia et l'image de test : connexion par Chromium et passkey virtuelle, question posée par le poste
+  simulé et répondue depuis la station, sauvegarde, reprise de session, déconnexion, hygiène, forme des documents de
+  référence ;
+- retiré : `AuthManager`, cookie `acp_session`, `SessionPersistence`, `CompatibilityService`, l'ancien
+  `EventStreamService`, `ArtifactDownload` et les pages de l'ancienne API (archive : `archive/acp-0.10.0-avant-hermes`) ;
+- modifié : `qtwebsockets` dans `packaging/windows/toolchain.json`, CMake et la Desktop CI (déclencheur
+  `hermes/contrat/**`) ; les WebSockets suivent la règle de proxy du REST ; `check_layout.py` tolère le domaine
+  réservé `.test` ;
+- corrigé en cours de route : pings sans réponse évincés du plus ancien ; discussion et code d'enrôlement oubliés à
+  la perte de session (aussi fenêtre réduite) ; export de sauvegarde arrêté à la perte de session sans couper une
+  suppression en vol ;
+- corrigé après relecture (16 constats, chacun avec un test qui échoue sans la correction) : brouillons de réponse
+  et de consigne et défilement des listes gardés aux relectures (listes mises à jour par identifiant) ; verdict
+  « contrat incompatible » ou « greffon absent » appliqué (client du greffon bloqué, rien n'est émis) ; pages
+  oubliées à la session perdue, au changement de serveur et au blocage du greffon ; exécutant `null` de P6 distingué
+  de l'étape absente ; liens du navigateur sous le préfixe du serveur ; erreurs réseau en français ; Ctrl+6 à Ctrl+9
+  et copie du rapport par la palette effectifs ; carte « Hermes » de l'accueil relue et datée ; dialogue des
+  réglages en français ; jauge des quotas sur la part utilisée avec le repère du seuil, comme le web ;
+- sécurité : aucun secret en QML ni dans `QSettings` (liste blanche et contrôle) ; journaux et rapports expurgés
+  (jetons de Hermes et d'Authelia, ticket, code et état, `acpm_`/`acpe_`) ; archive de sauvegarde jamais en clair
+  sur le disque du PC ; une rotation acceptée par Hermes mais refusée par la station efface l'entrée du coffre (le
+  jeton consommé n'est jamais rejoué) et l'échéance d'un jeton est jugée contre l'en-tête `Date` de Hermes ;
+- vérifié localement : 34 suites, 0 échec, 0 ignoré (totaux Qt) ; Desktop CI verte sur windows-2022 ; bout en bout
+  local réussi le 02/10/2026, rejoué après les corrections contre les images `p8` et `rv8p6` (P6 fusionnée) avec la
+  réponse et le message tapés dans les vrais champs et envoyés par les vrais boutons ;
+- limites : rien n'est déployé (ni Railway ni vraie passkey) ; aucune installation sur Windows propre ; binaires non
+  signés ; flux SSE, agrégat des demandes et gestes des revues attendent P6 et P7 ; MCP côté poste reporté après P6.
 
 ## [Unreleased]
 

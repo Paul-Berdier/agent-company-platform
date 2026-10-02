@@ -12,12 +12,7 @@ Rectangle {
     property bool navigationCompact: false
     signal toggleNavigation()
     color: Colors.surfaceCanvas
-    readonly property bool conversation: Navigation.currentRoute === "conversations"
-    readonly property string contextLabel: conversation
-        ? (Conversations.projectId.length === 0 ? qsTr("Conversation générale")
-            : (Conversations.projectId === Workspace.projectId ? Workspace.projectName : qsTr("Conversation de projet")))
-        : (["missions", "studio", "library", "approvals", "platform", "extensions"].indexOf(Navigation.currentRoute) >= 0
-            ? Workspace.projectName || qsTr("Aucun projet sélectionné") : "")
+    readonly property string contextLabel: ""
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: Space.space4
@@ -61,7 +56,7 @@ Rectangle {
         Text {
             objectName: "shell-context-title"
             Layout.fillWidth: true
-            text: bar.conversation ? Conversations.currentTitle || qsTr("Conversations") : Navigation.currentTitle
+            text: Navigation.currentTitle
             textFormat: Text.PlainText
             color: Colors.textPrimary
             elide: Text.ElideRight

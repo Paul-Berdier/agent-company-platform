@@ -1,221 +1,427 @@
-// Entrée du poste ACP : conversation libre ou projet de travail, avec données réelles.
+// Accueil de la station (cahier P8 § 7.1).
+//
+// Des cartes de faits : Hermes (compatibilité lue dans /v1/meta), projets, questions, poste,
+// quotas, pause générale et discussions récentes. Chaque carte dit quand elle a été lue et,
+// si la dernière lecture a échoué, l'erreur à côté de la valeur gardée. Une valeur absente
+// vaut « Inconnu » ; aucune n'est inventée.
+
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Acp.Design
 import Acp.Runtime
+import Acp.Components
 import Acp.Controls
 
 Item {
     id: page
-    function newChat() {
-        if (Conversations.startConversation("")) Navigation.currentRoute = "conversations";
-    }
-    function newProject() {
-        Workspace.requestProjectCreation();
-        Navigation.currentRoute = "projects";
-    }
+
+    Component.onCompleted: Accueil.pageVisible = true
+    Component.onDestruction: Accueil.pageVisible = false
+
     ScrollView {
+        id: defilement
         anchors.fill: parent
         clip: true
         contentWidth: availableWidth
+
         ColumnLayout {
-            width: Math.min(page.width - Space.space8 * 2, 760)
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: Space.space8
-            Item { Layout.preferredHeight: Math.max(Space.space8, page.height * 0.065) }
+            width: Math.min(defilement.availableWidth - Space.space8 * 2, Space.layoutContentMaxWidth)
+            x: Math.max(Space.space8, (defilement.availableWidth - width) / 2)
+            spacing: Space.space6
+
+            Item { Layout.preferredHeight: Space.space4 }
+
             RowLayout {
-                spacing: Space.space4
-                Rectangle { width: 24; height: 3; radius: 1; color: Colors.accentPrimary }
-                Label {
-                    text: qsTr("Agent Company Platform")
-                    textFormat: Text.PlainText
-                    color: Colors.textSecondary
-                    font.family: Type.metadata.family
-                    font.pixelSize: Type.metadata.pixelSize
-                }
-            }
-            ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Space.space5
-                Label {
+                Text {
                     Layout.fillWidth: true
-                    text: qsTr("Une idée. Un échange. Un projet.")
+                    text: qsTr("Accueil")
                     textFormat: Text.PlainText
-                    wrapMode: Text.WordWrap
                     color: Colors.textPrimary
-                    font.family: Type.emptyStateTitle.family
-                    font.pixelSize: Type.emptyStateTitle.pixelSize
-                    font.weight: Type.emptyStateTitle.weight
+                    font.family: Type.pageTitle.family
+                    font.pixelSize: Type.pageTitle.pixelSize
+                    font.weight: Type.pageTitle.weight
                 }
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Échangez librement ou ouvrez un projet pour coder, organiser le travail et produire des livrables.")
-                    textFormat: Text.PlainText
-                    wrapMode: Text.WordWrap
-                    color: Colors.textSecondary
-                    font.family: Type.prose.family
-                    font.pixelSize: Type.prose.pixelSize
+                AcpButton {
+                    objectName: "accueil-actualiser"
+                    label: qsTr("Actualiser")
+                    onTriggered: Accueil.actualiser()
                 }
             }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("État de votre agent Hermes et de la plateforme ACP, relu toutes les 15 secondes "
+                           + "tant que cette page est affichée.")
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Colors.textSecondary
+                font.family: Type.prose.family
+                font.pixelSize: Type.prose.pixelSize
+            }
+
+            BandeauMessage {
+                Layout.fillWidth: true
+                message: Accueil.messageGeste
+                erreur: Accueil.erreurGeste
+            }
+
             GridLayout {
                 Layout.fillWidth: true
-                columns: width < 550 ? 1 : 2
-                columnSpacing: Space.space8
-                rowSpacing: Space.space7
-                ColumnLayout {
+                columns: width > 820 ? 2 : 1
+                columnSpacing: Space.space6
+                rowSpacing: Space.space6
+
+                // --- Hermes ---------------------------------------------------------------
+                Carte {
+                    objectName: "accueil-carte-hermes"
                     Layout.fillWidth: true
-                    spacing: Space.space5
-                    AcpIcon { name: "chat"; size: 24; color: Colors.accentPrimary }
-                    Label {
-                        text: qsTr("Simplement discuter")
-                        textFormat: Text.PlainText
-                        color: Colors.textPrimary
-                        font.family: Type.objectTitle.family
-                        font.pixelSize: Type.objectTitle.pixelSize
-                        font.weight: Type.objectTitle.weight
-                    }
-                    Label {
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Hermes")
+                    lecture: Compatibility.lecture
+                    erreurLecture: Compatibility.erreurLecture
+                    cle: Compatibility.etat === CompatibilityStatus.Compatible ? "succeeded"
+                        : Compatibility.etat === CompatibilityStatus.Avertissement ? "degraded"
+                        : Compatibility.etat === CompatibilityStatus.Incompatible
+                          || Compatibility.etat === CompatibilityStatus.GreffonAbsent ? "failed" : "unknown"
+                    libelleEtat: Compatibility.libelle
+                    KeyValueRow {
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 290
-                        text: qsTr("Une question, une recherche, une idée à clarifier. Aucun projet à créer.")
+                        label: qsTr("Version en service")
+                        value: Compatibility.versionHermes
+                        known: Compatibility.versionHermes !== qsTr("Inconnu")
+                        monospace: true
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Version testée par la station")
+                        value: Compatibility.versionTestee
+                        monospace: true
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Alertes du greffon")
+                        value: Compatibility.etat === CompatibilityStatus.NonVerifiee ? qsTr("Inconnu")
+                            : Compatibility.alertes.length === 0 ? qsTr("Aucune") : String(Compatibility.alertes.length)
+                        known: Compatibility.etat !== CompatibilityStatus.NonVerifiee
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Passerelle de discussion")
+                        value: Gateway.libelleEtat
+                    }
+                    BlocTexte {
+                        Layout.fillWidth: true
+                        visible: Compatibility.explication.length > 0
+                        texte: Compatibility.explication
+                    }
+                }
+
+                // --- Projets ----------------------------------------------------------------
+                Carte {
+                    objectName: "accueil-carte-projets"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Projets")
+                    lecture: Accueil.lectureProjets
+                    erreurLecture: Accueil.erreurProjets
+                    Text {
+                        Layout.fillWidth: true
+                        visible: Accueil.carteProjets.aucunProjet
+                        text: qsTr("Aucun projet pour l'instant. Lancez-en un depuis la page Projets, ou "
+                                   + "demandez-le à Hermes dans la discussion.")
                         textFormat: Text.PlainText
                         wrapMode: Text.WordWrap
                         color: Colors.textSecondary
-                        font.pixelSize: Type.prose.pixelSize
+                        font.family: Type.tableCell.family
+                        font.pixelSize: Type.tableCell.pixelSize
                     }
-                    AcpButton {
-                        objectName: "homeNewConversationButton"
-                        label: qsTr("Nouvelle conversation")
-                        iconName: "plus"
-                        primary: true
-                        Layout.preferredHeight: Space.densityControlHeightLarge
-                        manualEnabled: Conversations.available && !Conversations.busy
-                            && !Conversations.loading && !Conversations.pendingSubmission
-                        onTriggered: page.newChat()
-                    }
-                }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Space.space5
-                    AcpIcon { name: "folder"; size: 24; color: Colors.textSecondary }
-                    Label {
-                        text: qsTr("Construire quelque chose")
-                        textFormat: Text.PlainText
-                        color: Colors.textPrimary
-                        font.family: Type.objectTitle.family
-                        font.pixelSize: Type.objectTitle.pixelSize
-                        font.weight: Type.objectTitle.weight
-                    }
-                    Label {
+                    KeyValueRow {
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 290
-                        text: qsTr("Un contexte partagé, des conversations et des missions pour avancer avec vos agents.")
-                        textFormat: Text.PlainText
-                        wrapMode: Text.WordWrap
-                        color: Colors.textSecondary
-                        font.pixelSize: Type.prose.pixelSize
+                        label: qsTr("Projets actifs")
+                        value: Accueil.carteProjets.actifs
+                        known: Accueil.carteProjets.lisible
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("En pause")
+                        value: Accueil.carteProjets.enPause
+                        known: Accueil.carteProjets.lisible
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Cartes faites")
+                        value: Accueil.carteProjets.cartesFaites
+                        known: Accueil.carteProjets.cartesFaites !== qsTr("Inconnu")
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Cartes en attente du poste")
+                        value: Accueil.carteProjets.attentePoste
+                        known: Accueil.carteProjets.attentePoste !== qsTr("Inconnu")
+                    }
+                    BlocTexte {
+                        Layout.fillWidth: true
+                        visible: Accueil.carteProjets.lisible && !Accueil.carteProjets.aucunProjet
+                        libelle: Accueil.carteProjets.derniereNoteProjet.length > 0
+                            ? qsTr("Dernière note (projet « %1 »)").arg(Accueil.carteProjets.derniereNoteProjet)
+                            : qsTr("Dernière note")
+                        texte: Accueil.carteProjets.derniereNote
+                            + (Accueil.carteProjets.derniereNoteTronquee ? qsTr(" […] (extrait)") : "")
+                        vide: qsTr("Aucune carte finie pour l'instant.")
                     }
                     AcpButton {
-                        objectName: "homeNewProjectButton"
-                        label: qsTr("Nouveau projet")
-                        iconName: "plus"
-                        Layout.preferredHeight: Space.densityControlHeightLarge
-                        manualEnabled: Workspace.canCreateProject && !Conversations.busy && !Conversations.pendingSubmission
-                        onTriggered: page.newProject()
-                    }
-                }
-            }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Colors.borderDefault }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Space.space4
-                RowLayout {
-                    Layout.fillWidth: true
-                    Label {
-                        text: qsTr("Reprendre un projet")
-                        textFormat: Text.PlainText
-                        color: Colors.textPrimary
-                        font.family: Type.panelTitle.family
-                        font.pixelSize: Type.panelTitle.pixelSize
-                        font.weight: Type.panelTitle.weight
-                    }
-                    Item { Layout.fillWidth: true }
-                    AcpButton {
-                        label: qsTr("Tous les projets")
-                        iconName: "chevronRight"
+                        label: qsTr("Ouvrir les projets")
                         commandId: "navigation.projects"
                     }
                 }
-                Repeater {
-                    model: Workspace.projects
-                    delegate: ItemDelegate {
-                        required property var item
-                        required property int index
-                        enabled: !Conversations.busy && !Conversations.pendingSubmission
+
+                // --- Questions ----------------------------------------------------------------
+                Carte {
+                    objectName: "accueil-carte-questions"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Questions")
+                    cle: !Accueil.carteQuestions.connu ? "unknown"
+                        : Accueil.carteQuestions.attente ? "approvalRequired" : "succeeded"
+                    libelleEtat: Accueil.carteQuestions.nombre
+                    lecture: Accueil.lectureProjets
+                    erreurLecture: Accueil.erreurProjets
+                    Text {
                         Layout.fillWidth: true
-                        visible: index < 5
-                        Layout.preferredHeight: visible ? 58 : 0
-                        Accessible.name: qsTr("Reprendre le projet %1").arg(item.name)
-                        onClicked: {
-                            Workspace.selectProject(item.id);
-                            Navigation.currentRoute = "projects";
+                        text: Accueil.carteQuestions.libelle
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Accueil.carteQuestions.connu ? Colors.textPrimary : Colors.textMuted
+                        font.family: Type.tableCell.family
+                        font.pixelSize: Type.tableCell.pixelSize
+                    }
+                    AcpButton {
+                        label: qsTr("Ouvrir les questions")
+                        commandId: "navigation.questions"
+                    }
+                }
+
+                // --- Poste ----------------------------------------------------------------------
+                Carte {
+                    objectName: "accueil-carte-poste"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Poste Windows")
+                    cle: Accueil.cartePoste.cle
+                    libelleEtat: Accueil.cartePoste.etat
+                    lecture: Accueil.lectureProjets
+                    erreurLecture: Accueil.erreurProjets
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Machine")
+                        value: Accueil.cartePoste.machine
+                        known: Accueil.cartePoste.machine !== qsTr("Inconnu")
+                        monospace: true
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Vu pour la dernière fois")
+                        value: Accueil.cartePoste.vuA
+                        known: Accueil.cartePoste.vuA !== qsTr("Inconnu")
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        visible: Accueil.cartePoste.horsLigneDepuis.length > 0
+                        label: qsTr("Hors ligne depuis")
+                        value: Accueil.cartePoste.horsLigneDepuis
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        label: qsTr("Cartes du poste en attente")
+                        value: Accueil.cartePoste.cartesEnAttente
+                        known: Accueil.cartePoste.cartesEnAttente !== qsTr("Inconnu")
+                    }
+                    BlocTexte {
+                        Layout.fillWidth: true
+                        visible: Accueil.cartePoste.message.length > 0
+                        texte: Accueil.cartePoste.message
+                    }
+                }
+
+                // --- Quotas -------------------------------------------------------------------
+                Carte {
+                    objectName: "accueil-carte-quotas"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Quotas (voie la plus entamée)")
+                    cle: Accueil.carteQuotas.cle
+                    libelleEtat: Accueil.carteQuotas.etat
+                    lecture: Accueil.lectureQuotas
+                    erreurLecture: Accueil.erreurQuotas
+                    Text {
+                        Layout.fillWidth: true
+                        text: Accueil.carteQuotas.libelle
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Accueil.carteQuotas.connu ? Colors.textPrimary : Colors.textMuted
+                        font.family: Type.tableCell.family
+                        font.pixelSize: Type.tableCell.pixelSize
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: text.length > 0
+                        text: [Accueil.carteQuotas.remise, Accueil.carteQuotas.detail].filter(t => t.length > 0).join(" · ")
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Colors.textMuted
+                        font.family: Type.metadata.family
+                        font.pixelSize: Type.metadata.pixelSize
+                    }
+                }
+
+                // --- Pause générale ---------------------------------------------------------------
+                Carte {
+                    objectName: "accueil-carte-pause"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Pause générale")
+                    cle: Accueil.cartePause.etat === 1 ? "degraded" : Accueil.cartePause.etat === 0 ? "succeeded" : "unknown"
+                    libelleEtat: Accueil.cartePause.libelle
+                    lecture: Accueil.lectureProjets
+                    erreurLecture: Accueil.erreurProjets
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Arrête le travail autonome de Hermes : aucune nouvelle carte ne part, les cartes en "
+                                   + "cours finissent. La discussion reste ouverte ; lancer un projet y est refusé.")
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Colors.textSecondary
+                        font.family: Type.metadata.family
+                        font.pixelSize: Type.metadata.pixelSize
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        visible: Accueil.cartePause.etat === 1
+                        label: qsTr("Raison")
+                        value: Accueil.cartePause.raison
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        visible: Accueil.cartePause.etat === 1
+                        label: qsTr("Depuis")
+                        value: Accueil.cartePause.depuis
+                    }
+                    BlocTexte {
+                        Layout.fillWidth: true
+                        visible: Accueil.cartePause.crochets
+                        texte: qsTr("Pause engagée par la veille des crochets shell : retirez la clé hooks du "
+                                    + "config.yaml (et tout shell-hooks-allowlist.json) du volume de Hermes ; la "
+                                    + "reprise est refusée tant qu'ils existent.")
+                    }
+                    RowLayout {
+                        spacing: Space.space4
+                        AcpButton {
+                            objectName: "accueil-pause-engager"
+                            visible: Accueil.cartePause.pausePossible
+                            label: qsTr("Mettre Hermes en pause générale")
+                            manualEnabled: !Accueil.gesteEnCours
+                            onTriggered: confirmationPause.open()
                         }
-                        contentItem: RowLayout {
-                            spacing: Space.space5
-                            AcpIcon { name: "folder"; size: 20 }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Space.space1
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: item.name
-                                    textFormat: Text.PlainText
-                                    elide: Text.ElideRight
-                                    color: Colors.textPrimary
-                                    font.pixelSize: Type.tableCell.pixelSize
-                                    font.weight: Type.tableCellEmphasis.weight
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: item.description || qsTr("Ouvrir les conversations et le travail du projet")
-                                    textFormat: Text.PlainText
-                                    elide: Text.ElideRight
-                                    color: Colors.textSecondary
-                                    font.pixelSize: Type.metadata.pixelSize
-                                }
-                            }
-                            AcpIcon { name: "chevronRight"; size: 16 }
-                        }
-                        background: Rectangle {
-                            radius: 0
-                            color: parent.hovered ? Colors.stateHover : "transparent"
-                            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Colors.borderSubtle }
+                        AcpButton {
+                            objectName: "accueil-pause-reprendre"
+                            visible: Accueil.cartePause.reprisePossible
+                            primary: true
+                            label: qsTr("Reprendre")
+                            manualEnabled: !Accueil.gesteEnCours
+                            onTriggered: Accueil.basculerPause(false, "")
                         }
                     }
                 }
-                Label {
+
+                // --- Discussions récentes ------------------------------------------------------------
+                Carte {
+                    objectName: "accueil-carte-sessions"
                     Layout.fillWidth: true
-                    visible: Workspace.projects.count === 0 && !Workspace.busy
-                    text: Workspace.canCreateProject
-                        ? qsTr("Vos projets apparaîtront ici. Créez-en un pour retrouver vos échanges et vos livrables au même endroit.")
-                        : qsTr("Aucun projet accessible. Ouvrez les projets pour configurer un espace de travail ou consulter vos droits.")
-                    textFormat: Text.PlainText
-                    wrapMode: Text.WordWrap
-                    color: Colors.textSecondary
-                    font.pixelSize: Type.prose.pixelSize
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Discussions récentes")
+                    lecture: Accueil.lectureSessions
+                    erreurLecture: Accueil.erreurSessions
+                    Text {
+                        Layout.fillWidth: true
+                        visible: Accueil.sessionsLues && Accueil.sessions.count === 0
+                        text: qsTr("Aucune session pour l'instant.")
+                        textFormat: Text.PlainText
+                        color: Colors.textSecondary
+                        font.family: Type.tableCell.family
+                        font.pixelSize: Type.tableCell.pixelSize
+                    }
+                    Repeater {
+                        model: Accueil.sessions
+                        delegate: RowLayout {
+                            id: ligneSession
+                            required property var item
+                            Layout.fillWidth: true
+                            KeyValueRow {
+                                Layout.fillWidth: true
+                                label: ligneSession.item.titre
+                                value: qsTr("%1 · %2 messages · %3").arg(ligneSession.item.actifA).arg(ligneSession.item.messages)
+                                    .arg(ligneSession.item.source)
+                            }
+                            AcpButton {
+                                label: qsTr("Ouvrir")
+                                onTriggered: {
+                                    Discussion.ouvrir(ligneSession.item.id);
+                                    Navigation.setCurrentRoute("chat");
+                                }
+                            }
+                        }
+                    }
                 }
-                Label {
-                    Layout.fillWidth: true
-                    visible: Workspace.error.length > 0 || Conversations.error.length > 0
-                    text: Workspace.error || Conversations.error
-                    textFormat: Text.PlainText
-                    wrapMode: Text.WordWrap
-                    color: Status.statusFailedForeground
-                }
-                BusyIndicator { running: Workspace.busy; visible: running; Layout.preferredHeight: 28 }
             }
+
             Item { Layout.preferredHeight: Space.space8 }
+        }
+    }
+
+    Dialog {
+        id: confirmationPause
+        objectName: "accueil-pause-confirmation"
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Mettre Hermes en pause générale ?")
+        width: Math.min(page.width - Space.space8 * 2, 520)
+        onOpened: raisonPause.text = ""
+        contentItem: ColumnLayout {
+            spacing: Space.space4
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Aucune nouvelle carte ne partira tant que vous ne reprendrez pas.")
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Colors.textSecondary
+                font.family: Type.tableCell.family
+                font.pixelSize: Type.tableCell.pixelSize
+            }
+            AcpTextField {
+                id: raisonPause
+                Layout.fillWidth: true
+                placeholder: qsTr("Raison (facultative, 200 caractères au plus)")
+                accessibleName: qsTr("Raison de la pause générale")
+            }
+            RowLayout {
+                spacing: Space.space4
+                AcpButton {
+                    objectName: "accueil-pause-confirmer"
+                    primary: true
+                    label: qsTr("Confirmer la pause générale")
+                    onTriggered: {
+                        Accueil.basculerPause(true, raisonPause.text);
+                        confirmationPause.close();
+                    }
+                }
+                AcpButton {
+                    label: qsTr("Annuler")
+                    onTriggered: confirmationPause.close()
+                }
+            }
         }
     }
 }

@@ -333,3 +333,60 @@ def test_droits_du_tour_et_du_clone(distant):
     lire = ["/usr/bin/setpriv", "--reuid=10003", "--regid=10003", "--groups=10100", "--", "cat",
             f"{chemin}/README.md"]
     assert subprocess.run(lire, capture_output=True).returncode != 0
+
+
+# ------------------------------------------------------------------ purge du disque (relecture de P6)
+
+
+def _vieillir(depots: Depots, alias: str, nom: str, jours: float) -> None:
+    import time
+
+    instant = time.time() - jours * 86400
+    for chemin in (depots.espace(alias, nom), depots.gitdir_du_worktree(alias, nom) / "index",
+                   depots.gitdir_du_worktree(alias, nom) / "HEAD"):
+        if chemin.exists():
+            os.utime(chemin, (instant, instant))
+
+
+def test_purge_des_worktrees_et_bundles_anciens_branches_gardees(depots, distant):
+    """``[disque] purge_apres_jours`` était lu et jamais appliqué : les worktrees et les bundles s'accumulaient sur le
+    volume de 5 Go. Purge : worktrees sans activité depuis N jours (branches GARDÉES), bundles plus anciens ; jamais
+    une carte gardée (en main)."""
+    import time
+
+    depot = _depot(distant)
+    depots.recuperer(depot)
+    for nom in ("t_aaaa0001", "t_bbbb0001", "t_cccc0001"):
+        chemin = depots.worktree(depot, nom, f"hermes/{nom}", "origin/main")
+        (chemin / f"{nom}.txt").write_text("travail\n", encoding="utf-8")
+        depots.committer("jetable", nom, f"implementation({nom}): travail")
+    _vieillir(depots, "jetable", "t_aaaa0001", 8)
+    _vieillir(depots, "jetable", "t_cccc0001", 30)
+    fichier, _empreinte, _tete = depots.bundle("jetable", "hermes/t_aaaa0001")
+    recent, _e, _t = depots.bundle("jetable", "hermes/t_bbbb0001")
+    os.utime(fichier, (time.time() - 9 * 86400,) * 2)
+    retires = depots.purger(age_s=7 * 86400, garder={"t_cccc0001"})
+    assert retires == {"worktrees": 1, "bundles": 1}
+    assert not depots.espace("jetable", "t_aaaa0001").exists()
+    assert depots.espace("jetable", "t_bbbb0001").exists() and depots.espace("jetable", "t_cccc0001").exists()
+    assert not fichier.exists() and recent.exists()
+    # La branche reste : une reprise recrée le worktree depuis elle, travail committé compris.
+    assert depots.branche_existe("jetable", "hermes/t_aaaa0001")
+    repris = depots.worktree(depot, "t_aaaa0001", "hermes/t_aaaa0001", "origin/main")
+    assert (repris / "t_aaaa0001.txt").read_text(encoding="utf-8") == "travail\n"
+    assert depots.purger(age_s=7 * 86400, garder={"t_cccc0001"}) == {"worktrees": 0, "bundles": 0}
+
+
+@POSIX
+def test_purge_ne_suit_aucun_lien(depots, distant, tmp_path):
+    depot = _depot(distant)
+    depots.recuperer(depot)
+    depots.worktree(depot, "t_dddd0001", "hermes/t_dddd0001", "origin/main")
+    cible = tmp_path / "cible"
+    cible.mkdir()
+    (cible / "precieux.txt").write_text("x", encoding="utf-8")
+    (depots.racine_espaces / "jetable" / "t_eeee0001").symlink_to(cible, target_is_directory=True)
+    (depots.racine_espaces / "autre").symlink_to(cible, target_is_directory=True)
+    os.utime(cible, (0, 0))
+    assert depots.purger(age_s=1, maintenant=4_000_000_000)["worktrees"] == 1  # le vrai seulement
+    assert (cible / "precieux.txt").exists()

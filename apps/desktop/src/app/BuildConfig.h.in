@@ -4,6 +4,9 @@
 // JAMAIS saisie une seconde fois : l'audit rappelle que `scripts/check_version.py` devra
 // couvrir la station, « sans quoi le client dérivera silencieusement de VERSION ».
 //
+// Les constantes de Hermes viennent de hermes/contrat/HERMES_VERSION, source unique de
+// l'épinglage (version testée, contrat JSON-RPC épinglé, contrat du greffon acp-poste).
+//
 // Fichier généré à la configuration — ne pas modifier à la main, ne pas versionner.
 
 #pragma once
@@ -11,3 +14,8 @@
 #define ACP_DESKTOP_VERSION "@ACP_DESKTOP_VERSION@"
 #define ACP_DESKTOP_QT_VERSION "@ACP_DESKTOP_QT_VERSION@"
 #define ACP_DESKTOP_BUILD_TYPE "@ACP_DESKTOP_BUILD_TYPE@"
+
+#define ACP_HERMES_VERSION "@ACP_HERMES_VERSION@"
+#define ACP_OPENRPC_INFO_VERSION "@ACP_OPENRPC_INFO_VERSION@"
+#define ACP_OPENRPC_SHA256 "@ACP_OPENRPC_SHA256@"
+#define ACP_CONTRAT_ACP_POSTE "@ACP_CONTRAT_ACP_POSTE@"

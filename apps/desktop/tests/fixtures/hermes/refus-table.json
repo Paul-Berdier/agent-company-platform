@@ -1,0 +1,14 @@
+{
+  "detail": {
+    "code": "table_refusee",
+    "message": "Table de routage refusée : 1 entrée(s) refusée(s) ; rien n'a été enregistré.",
+    "refus": [
+      {
+        "classe": "implementation",
+        "rang": 0,
+        "code": "modele_absent",
+        "message": "Refusé par ACP : le modèle « inexistant » ne figure pas dans le relevé de la voie poste-codex (relevé du 26/09/2026 21:40)."
+      }
+    ]
+  }
+}

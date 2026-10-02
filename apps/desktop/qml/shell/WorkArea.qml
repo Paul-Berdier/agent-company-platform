@@ -20,46 +20,31 @@ Rectangle {
         anchors.fill: parent
         sourceComponent: {
             switch (Navigation.currentRoute) {
-            case "home":
-                return homeComponent;
-            case "diagnostics":
-                return diagnosticsComponent;
+            case "home": return homeComponent;
             case "projects": return projectsComponent;
-            case "conversations": return conversationsComponent;
-            case "missions": return missionsComponent;
-            case "library": return artifactsComponent;
-            case "platform": return platformComponent;
-            case "extensions": return extensionsComponent;
-            case "approvals": return operationsComponent;
-            case "settings": return settingsComponent;
-            case "studio": return studioComponent;
+            case "questions": return questionsComponent;
+            case "chat": return discussionComponent;
+            case "station": return posteComponent;
             case "quotas": return quotasComponent;
-            default:
-                return unknownComponent;
+            case "routing": return routageComponent;
+            case "backup": return sauvegardeComponent;
+            case "diagnostics": return diagnosticsComponent;
+            case "settings": return settingsComponent;
+            default: return unknownComponent;
             }
         }
     }
 
-    Component {
-        id: homeComponent
-        HomePage {}
-    }
-
-    Component {
-        id: diagnosticsComponent
-        DiagnosticsPage {}
-    }
-
+    Component { id: homeComponent; HomePage {} }
     Component { id: projectsComponent; ProjectsPage {} }
-    Component { id: conversationsComponent; ConversationsPage {} }
-    Component { id: missionsComponent; MissionsPage {} }
-    Component { id: artifactsComponent; ArtifactsPage {} }
-    Component { id: platformComponent; PlatformPage {} }
-    Component { id: extensionsComponent; ExtensionsPage {} }
-    Component { id: operationsComponent; OperationsPage {} }
-    Component { id: settingsComponent; SettingsPage {} }
-    Component { id: studioComponent; StudioPage {} }
+    Component { id: questionsComponent; QuestionsPage {} }
+    Component { id: discussionComponent; DiscussionPage {} }
+    Component { id: posteComponent; PostePage {} }
     Component { id: quotasComponent; QuotasPage {} }
+    Component { id: routageComponent; RoutagePage {} }
+    Component { id: sauvegardeComponent; SauvegardePage {} }
+    Component { id: diagnosticsComponent; DiagnosticsPage {} }
+    Component { id: settingsComponent; SettingsPage {} }
 
     Component {
         id: unknownComponent

@@ -25,11 +25,14 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
+from acp_poste_contrat.inventaire import ALIAS_DEPOT as ALIAS
 from acp_poste_contrat.machine import BRANCHE_CARTE, BRANCHE_PROJET, branche_git_valide
 
 GIT = "git"
@@ -371,6 +374,57 @@ class Depots:
         return fichier, empreinte, tete
 
     # ------------------------------------------------------------------ purge et espace
+    def _activite(self, alias: str, nom: str, chemin: Path) -> float | None:
+        """Dernière activité d'un worktree : le plus récent des mtime du dossier et de son gitdir (index, HEAD : chaque
+        commit du superviseur les touche) ; ``None`` si illisible (jamais purgé alors)."""
+        instants = []
+        for candidat in (chemin, self.gitdir_du_worktree(alias, nom) / "index",
+                         self.gitdir_du_worktree(alias, nom) / "HEAD"):
+            try:
+                instants.append(os.lstat(candidat).st_mtime)
+            except OSError:
+                continue
+        return max(instants) if instants else None
+
+    def purger(self, *, age_s: float, garder: Iterable[str] = (), maintenant: float | None = None) -> dict[str, int]:
+        """Purge de ``[disque] purge_apres_jours`` (relecture de P6 : lu, jamais appliqué ; sur un volume de 5 Go,
+        l'exécutant aurait fini par refuser toute carte sous le seuil d'espace libre). Retire les WORKTREES sans activité
+        depuis ``age_s`` (leurs BRANCHES sont gardées : une carte reprise recrée son worktree depuis sa branche, où son
+        travail est committé) et les bundles plus anciens. Jamais le worktree d'une carte en main (``garder``) ; aucun
+        lien n'est suivi (entrées racine, ``lstat``). Rend les nombres retirés."""
+        limite = (time.time() if maintenant is None else maintenant) - age_s
+        garder = set(garder)
+        retires = {"worktrees": 0, "bundles": 0}
+        try:
+            alias_trouves = sorted(self.racine_espaces.iterdir())
+        except OSError:
+            alias_trouves = []
+        for dossier_alias in alias_trouves:
+            if dossier_alias.is_symlink() or not dossier_alias.is_dir() or not ALIAS.fullmatch(dossier_alias.name):
+                continue
+            for chemin in sorted(dossier_alias.iterdir()):
+                nom = chemin.name
+                if nom in garder or chemin.is_symlink() or not chemin.is_dir() or \
+                        not re.fullmatch(r"[a-z0-9_-]{1,80}", nom):
+                    continue
+                activite = self._activite(dossier_alias.name, nom, chemin)
+                if activite is not None and activite < limite:
+                    self.retirer_worktree(dossier_alias.name, nom)
+                    retires["worktrees"] += 1
+        try:
+            bundles = sorted(self.racine_bundles.iterdir())
+        except OSError:
+            bundles = []
+        for fichier in bundles:
+            try:
+                etat = os.lstat(fichier)
+            except OSError:
+                continue
+            if stat.S_ISREG(etat.st_mode) and fichier.suffix == ".bundle" and etat.st_mtime < limite:
+                fichier.unlink(missing_ok=True)
+                retires["bundles"] += 1
+        return retires
+
     def retirer_worktree(self, alias: str, nom: str) -> None:
         """Retire le worktree (la BRANCHE reste)."""
         chemin = self.espace(alias, nom)

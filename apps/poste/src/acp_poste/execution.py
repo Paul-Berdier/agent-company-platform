@@ -250,6 +250,7 @@ class Execution:
         if etat.get("carte") != demande.carte or etat.get("run_id") != demande.run_id:
             etat = {"tableau": demande.tableau, "carte": demande.carte, "run_id": demande.run_id,
                     "voie": demande.voie, "role": demande.role, "depot_alias": demande.depot_alias,
+                    "branche": demande.branche,
                     "oom": self.session(demande.carte).get("oom", 0), "debut": self.horloge().isoformat()}
         etat.update(etape=etape, **valeurs)
         self._ecrire_json(self.emplacements.carte, etat)

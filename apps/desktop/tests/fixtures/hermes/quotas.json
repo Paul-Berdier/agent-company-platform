@@ -1,0 +1,69 @@
+{
+  "poste-codex": {
+    "etat": "releve",
+    "releve_le": 1790451620,
+    "compteurs": [
+      {
+        "provider": "codex",
+        "status": "ok",
+        "source": "codex_app_server",
+        "plan": "prolite",
+        "limit_id": "codex",
+        "windows": [
+          {
+            "key": "primary",
+            "used_percent": 41,
+            "window_minutes": 300,
+            "resets_at": "2026-09-26T12:00:00Z",
+            "remaining_percent": 59
+          },
+          {
+            "key": "secondary",
+            "used_percent": 12,
+            "window_minutes": 10080,
+            "resets_at": "2026-09-30T08:00:00Z",
+            "remaining_percent": 88
+          }
+        ],
+        "credits": null,
+        "limit_reached": false,
+        "reached_type": null,
+        "observed_at": "2026-09-26T19:40:20Z",
+        "detail": null,
+        "worker_id": "m1563c2ef174",
+        "worker_name": "Poste Windows",
+        "received_at": "2026-09-26T19:40:20Z",
+        "stale": false
+      }
+    ],
+    "seuil_pct": 90,
+    "source": "codex_app_server",
+    "releve_le_lisible": "26/09/2026 21:40",
+    "releve_id": 1,
+    "etat_releve": "ok",
+    "detail": null,
+    "source_releve": "poste",
+    "resume": {
+      "pourcentage_utilise": 41,
+      "remise_a_zero": "2026-09-26T12:00:00Z"
+    }
+  },
+  "poste-claude": {
+    "etat": "releve",
+    "releve_le": 1790451620,
+    "compteurs": [],
+    "seuil_pct": 90,
+    "source": "ligne_etat_sessions_proprietaire",
+    "source_libelle": "Ligne d'état de vos sessions Claude Code sur ce PC (même abonnement déclaré)",
+    "releve_le_lisible": "26/09/2026 21:40",
+    "releve_id": 2,
+    "etat_releve": "ok",
+    "detail": null,
+    "source_releve": "poste",
+    "resume": null
+  },
+  "hermes": {
+    "etat": "inconnu",
+    "libelle": "Inconnu"
+  }
+}

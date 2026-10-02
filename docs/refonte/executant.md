@@ -16,7 +16,8 @@ numérotation du cahier, D71 à D89, est décalée de trois).
 
 Sommaire : § 1 en bref · § 2 architecture et identités · § 3 image · § 4 politique · § 5 sonde et régimes · § 6 une
 carte · § 7 infrastructure · § 8 secrets et gestes · § 9 coût · § 10 conditions d'usage · § 11 prouvé en local et en CI
-· § 12 sur Railway · § 13 non prouvé · § 14 écarts au cahier.
+· § 12 sur Railway · § 13 non prouvé · § 14 écarts au cahier · § 15 corrections après la relecture
+indépendante.
 
 ---
 
@@ -37,7 +38,9 @@ carte · § 7 infrastructure · § 8 secrets et gestes · § 9 coût · § 10 co
 - **Aucun push** (D82) : la branche intégrée se récupère par `git bundle` et `railway ssh`.
 - **Preuves locales** : image construite et testée (binaires réels, sans compte) ; suite `apps/poste` en root dans
   l'image ; bout en bout avec le VRAI exécutant (cible factice) contre l'image Hermes : carte exécutée, committée,
-  terminée ; question et reprise ; secret en quarantaine ; revue refusée puis corrigée (§ 11).
+  terminée ; question et reprise ; secret en quarantaine ; revue refusée puis corrigée ; relecture qui lit le code
+  relu et son diff (§ 11). Une relecture indépendante de cette pointe a donné 19 constats, tous réels et corrigés
+  ou dits (§ 15).
 
 ## 2. Architecture et identités
 
@@ -92,8 +95,10 @@ place `/opt/acp/lib` en tête de `sys.path`) ; `DISABLE_UPDATES`, `DISABLE_AUTOU
 **Entrée** `acp-entree-executant` (root, sous `tini`) : refus (code 2, en français) hors `tini` en PID 1, hors root,
 sans `/donnees` monté, sur un lien symbolique à la place d'un dossier du volume ou sur un fichier d'un autre
 propriétaire (ou un lien) dans `/donnees/acp`, `/donnees/codex` ou `/donnees/claude` ; dossiers du volume créés et
-remis aux propriétaires et modes attendus ; `/tmp/acp` en `root:acp-travail 1770` ; journal « [acp] commit déployé :
-<RAILWAY_GIT_COMMIT_SHA ou inconnu> » ; puis `exec python3.12 -I /opt/acp/lancer.py servir --plateforme linux`.
+remis aux propriétaires et modes attendus ; alias temporaires que Codex laisse sous `/donnees/codex/tmp/arg0`
+retirés avant ce contrôle, sans suivre de lien (un lien à la place de `tmp` ou de `arg0` est refusé) ; `/tmp/acp` en
+`root:acp-travail 1770`, `/tmp/acp/caches` et `/tmp/acp/sondes` créés en 0751 avant tout agent ; journal « [acp]
+commit déployé : <RAILWAY_GIT_COMMIT_SHA ou inconnu> » ; puis `exec python3.12 -I /opt/acp/lancer.py servir --plateforme linux`.
 
 ## 4. Politique `executant/politique/executant.toml`
 
@@ -138,10 +143,14 @@ permissions nommé, `acp_agent` ou `acp_lecture`, qui interdit `/donnees/codex`,
 `/etc/acp` et coupe le réseau, **sans** `--sandbox`, qui le ferait ignorer ; fonctions coupées ; Claude :
 `claude -p --restricted --tools … --strict-mcp-config
 --disallowedTools "mcp__*" --settings /etc/acp/claude-settings.json --json-schema …`) → battements → vérification
-sous `acp-verif` (régime A : sous `codex sandbox`, réseau coupé ; régime B : seulement si le dépôt le déclare) →
+sous `acp-verif` (régime A : sous `codex sandbox`, réseau coupé ; régime B : seulement si le dépôt le déclare ;
+une commande absente de l'image, code 127, rend « vérification impossible » sans relancer l'agent) →
 **commit local par le superviseur** (auteur « ACP exécutant », sans crochets) → fichiers de pilotage (⇒ revue) et
 balayage des secrets (⇒ branche `quarantaine/<carte>`, rien n'est envoyé) → `terminer`, `question` ou `bloquer` par la
-file de sortie persistante.
+file de sortie persistante. Une **relecture** part de la branche relue (`hermes/<carte relue>`, que le greffon ne
+sert pas comme branche de départ) et lit son diff, écrit par le superviseur pour le groupe des agents ; branche ou
+diff absents : carte bloquée, jamais une relecture à l'aveugle. Une requête que le contrat refuse avant l'envoi est
+rangée dans `sortie/refusees` (la file continue) et la carte est bloquée avec une raison composée par l'exécutant.
 
 Mesuré sur les vraies CLI sans compte (§ 11) : la commande exacte du superviseur est acceptée par Codex 0.156.1 (il
 ouvre son fil) et par Claude Code 2.1.283 (`system/init` : outils demandés seulement, plus `StructuredOutput` ajouté
@@ -181,7 +190,7 @@ Supposé, prouvé au premier build (R1) : `rootDirectory: "/"` avec `RAILWAY_DOC
 
 Jamais dans Git, l'image, une variable Railway, un journal, l'inventaire, la base du greffon, un résumé ni l'argv
 d'un processus. Le code d'appareil de Codex ne transite **jamais** par Hermes. Gestes exacts : [railway.md
-§ 13.4 à 13.6](railway.md#134-enrôlement-dans-une-session-railway-ssh).
+§ 13.3 bis à 13.6](railway.md#133-bis-dépôt-de-preuve-jetable-et-privé-d87) ; renouvellements : § 13.8.
 
 ## 9. Coût et plafond (D85)
 
@@ -213,6 +222,7 @@ Windows 10, Docker 29.5.3 (Docker Desktop, noyau WSL2 6.18), Python 3.12.10 pyth
 | Suite `apps/poste` et contrat **en root dans l'image** | `docker run --rm --entrypoint /usr/bin/tini acp-executant-essais:p6 -- python3.12 -m pytest apps/poste/tests hermes/plugins/acp-poste/contrat/tests` | 745 réussis, 20 ignorés (propres à Windows) |
 | Sonde (répétition de R0) | `docker run --rm --entrypoint /usr/local/bin/acp-poste acp-executant:p6 sonde-plateforme --json` | régime B (seccomp par défaut), régime A (témoin) : § 5 ; les deux relevés passent `scripts/verifier_releve_r0.py` |
 | **Bout en bout** avec Hermes | `ACP_IMAGE_TESTS=acp-hermes-tests:p6i ACP_IMAGE_EXECUTANT_FACTICE=acp-executant:p6factice pytest hermes/tests/contrat/test_executant_bout_en_bout.py` | **6 réussis** (106,84 s) : mise en service (jeton Claude déposé, enrôlement par code, empreinte confirmée, régime B, voie Codex fermée) ; carte exécutée, **committée localement** (« ACP exécutant »), vérifiée sous `acp-verif`, terminée ; le faux agent (UID 10002, environnement limité à 10 variables) ne lit ni `jeton-machine`, ni `claude-oauth`, ni `/donnees/codex/auth.json`, ni `/proc/1/environ` ; question → réponse → fil repris (`--resume`) → terminée ; secret ⇒ `quarantaine/<carte>`, carte bloquée, notification « secret » ; revue de `.github/workflows` refusée → reprise avec le motif → terminée sans le fichier ; références distantes inchangées, 25 requêtes GET/HEAD seulement vers le dépôt, aucun jeton ni secret factice dans les journaux de Hermes, de l'exécutant, sa file de sortie et la base du greffon |
+| **Relecture** de bout en bout (ajoutée par la relecture, § 15) | même commande, `test_relecture_lit_le_code_relu_et_son_diff` | planification, implémentation, puis relecture de repli par la même voie (D91, régime B) : le relecteur, sous l'UID 10002, lit le diff (« +contenu relu ACP-RELU-7C2B ») et le fichier relu dans son worktree ; **témoin** : le même banc avec `execution.py` d'avant la correction échoue (diff « refusé (PermissionError) », fichier relu « (FileNotFoundError) ») ; sur la pointe `815ae6f`, les **7** scénarios réussissent (contrat complet ci-dessous) |
 
 Intégration continue :
 - `executant.yml` (nouveau), run [36889016245](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36889016245)
@@ -233,6 +243,13 @@ Intégration continue :
   avec leur raison), interface 120, moteur 74 ; `executant.yml` sur `eb55afa` :
   [36894084716](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36894084716) vert, 38 tests de
   l'image et 750 réussis, 20 ignorés en root dans l'image.
+- Après les corrections de la relecture (§ 15), pointe `815ae6f` : `ci.yml`
+  [36925637152](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36925637152) vert (Windows 927
+  réussis et 86 ignorés, Linux 959 réussis et 54 ignorés, interface 120, moteur 74) ; `executant.yml`
+  [36925637270](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36925637270) vert (43 tests de
+  l'image, suite en root dans l'image 777 réussis et 20 ignorés) ; `image.yml`
+  [36925637269](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36925637269) vert (682 tests dans
+  l'image Hermes, contrat **165 réussis** dont les 7 du bout en bout, navigateur 8).
 
 ## 12. Sur Railway, avec vos gestes (à faire)
 
@@ -256,6 +273,8 @@ Intégration continue :
 - Les **vraies CLI connectées** sous leur UID (aucun compte n'a été utilisé) ; la tenue de `setup-token` après une
   montée de version de Claude Code ; `claude -p "/usage"` comme source de quotas.
 - **Signature cosign de Codex** : non vérifiée (identité non établie).
+- Le **profil de permissions** imposé à `codex exec` (`acp_agent`, `acp_lecture`) n'est éprouvé qu'en témoin A local
+  et en CI, avec un faux fournisseur de modèle (§ 6, § 15) ; sur Railway, R0 dit si la voie Codex s'ouvre.
 - Prise en compte par Railway de `rootDirectory: "/"`, `RAILWAY_DOCKERFILE_PATH`, `Dockerfile.dockerignore` et des
   clés typées non documentées (`sleepApplication`, `limitOverride`, `checkSuites`, `watchPatterns`).
 - `railway ssh` vers l'exécutant en attente d'enrôlement, `scp` du bundle, coupure d'un redéploiement sous 90 s.
@@ -273,7 +292,8 @@ Intégration continue :
   contrôleur de relevé (`scripts/verifier_releve_r0.py`) est ajouté pour la publication.
 - **Bout en bout** dans la suite de contrat de l'image Hermes (`image.yml`), sans Docker Compose : même outillage que
   les autres tests de contrat (réseau, bord TLS factice, nettoyage vérifié) ; quatre scénarios (carte complète,
-  question, secret, revue refusée) au lieu des quatorze du cahier ; les autres sont couverts par les tests de la
+  question, secret, revue refusée), cinq depuis la relecture (relecture de repli, § 15), au lieu des quatorze du
+  cahier ; les autres sont couverts par les tests de la
   deuxième partie (faux agents) ou restent à faire. Le dépôt distant factice sert le protocole git « bête » en HTTPS
   (lecture seule) ; le plafond de projets actifs est relevé à 6 pour le banc (dit dans le test).
 - **Workflow séparé** `executant.yml` pour l'image de production (au lieu d'un travail de plus dans `image.yml`) :
@@ -286,5 +306,57 @@ Intégration continue :
   modèle servi et résolution documentée (`3b763ac`) ; diagnostic du `config.toml` de Codex comparé à la variante
   Linux (`32f7f85`) ; sortie de la sonde débarrassée de l'avertissement de Codex qui masquait la cause d'un refus
   (`c20124d`).
-- **Non fait** : purge des worktrees et des bundles après N jours, alerte à J-30 du jeton Claude (déjà dit en
-  deuxième partie) ; option B de push (D82) conçue, non activée.
+- **Non fait** : option B de push (D82) conçue, non activée. La purge des worktrees et des bundles et l'alerte à
+  J-30 du jeton Claude, annoncées « non faites » ici, sont faites depuis la relecture (§ 15).
+
+## 15. Corrections après la relecture indépendante (1er octobre 2026)
+
+Relecture de la pointe `35c94af` en trois lentilles (exactitude, sécurité, exploitation) : 19 constats, dont deux
+recoupés (profil de Codex, forme `uv`). Tous ont été **vérifiés et trouvés réels** ; trois défauts de plus ont été
+trouvés en les vérifiant (marqués « trouvé »). Chaque correction de code porte un test qui échoue sans elle, rejoué
+sur le code d'avant (témoin) ; la procédure du propriétaire a été reprise (railway.md § 9 et § 13).
+
+| Constat | Gravité | Correction | Preuve | Commit |
+|---|---|---|---|---|
+| `diagnostic`, `quotas`, `releve`, `preuve` lancés en root dans `railway ssh` lançaient Codex et Claude **en root** : fichiers de root sous `/donnees/codex`, puis refus de démarrer au redémarrage suivant | critique | lanceur du service (UID de l'outil, son environnement, ses dossiers), verrous de Codex et de Claude pris ; remise en état documentée (railway.md § 13.8) | test d'image : ces commandes en root, puis redémarrage **accepté** (échoue sur l'image d'avant) ; tests POSIX | `a7620ac` |
+| **trouvé** : Codex laisse, **même sous son UID**, des liens sous `$CODEX_HOME/tmp/arg0` (sortie par `--version`, arrêt) : l'entrée refusait tout redémarrage après un relevé | critique | l'entrée retire ces alias avant son contrôle, sans suivre de lien | même test d'image (4 liens présents, redémarrage accepté) ; un lien à la place de `arg0` reste refusé | `a7620ac` |
+| **trouvé** : `acp-poste releve` levait une trace (`version_windows`) sous Linux | moyenne | inventaire Linux (isolement de la sonde du démarrage) | test ; test d'image (aucune trace, code 0) | `a7620ac` |
+| **trouvé** : `quotas` et `releve` ne prenaient pas les verrous de Codex et de Claude : pendant une carte, un second processus Codex pouvait tourner sur le `CODEX_HOME` de l'agent | moyenne | verrous de Codex et de Claude pris par la CLI sous Linux | test (verrou tenu : refus, code 2) | `a7620ac` |
+| Régime A : les commandes de Codex lisaient `auth.json` (même UID ; avec `--sandbox`, Codex 0.156.1 ignore `default_permissions` et lit toute la racine) | haute | profil nommé `acp_agent` / `acp_lecture` imposé par `-c`, **sans** `--sandbox` : identifiants interdits, réseau coupé, écriture du worktree et de `$TMPDIR` seulement ; sans bubblewrap (régime B), Codex refuse alors de démarrer | vrai `codex exec` contre un faux fournisseur de modèle, témoin A : contenu de `auth.json` renvoyé au modèle avant (implémentation **et** relecture), « Permission denied » après | `7dab6aa` |
+| Relecture à l'aveugle : diff écrit `root:root 0640`, illisible par les agents ; worktree parti de la branche de base | haute | worktree de la relecture sur `hermes/<carte relue>`, diff au groupe `acp-travail` ; branche ou diff absents : carte bloquée | test sous les vrais UID ; **bout en bout** (planification, implémentation, relecture de repli D91) : témoin avec le code d'avant « refusé (PermissionError) » et « (FileNotFoundError) », corrigé : diff et code lus | `86e1829`, `815ae6f` |
+| Root suivait un lien posé sous `/tmp/acp` (inscriptible par le groupe des agents) ; `reponse.json` lu en suivant les liens, sans borne | moyenne, basse | dossiers créés ou repris sans suivre de lien (vrai dossier, propriétaire attendu, `chown`/`chmod` sur descripteur), `/tmp/acp/caches` et `/tmp/acp/sondes` créés par l'entrée ; `reponse.json` : fichier ordinaire de `acp-codex`, `O_NOFOLLOW`, 64 Kio | tests POSIX (cible intacte, carte bloquée ; lien jamais suivi) ; modes vérifiés dans l'image | `8fa1be6` |
+| Une requête refusée par le contrat **côté exécutant** (un NUL) restait en tête de la file : plus aucune réclamation ; un NUL dans le résumé faisait échouer le commit | moyenne | refus définitif (`RefusAvantEnvoi`) rangé dans `sortie/refusees`, la file continue, repli `bloquer(capacite)` ; caractères de contrôle retirés des textes de l'agent | reproduction de la relecture devenue test (aucun `reclamer` en 15 s avant) ; tests de la file et de l'exécution | `9c8f66a` |
+| `AGENTS.override.md` (Codex) et `CLAUDE.local.md` (Claude Code) hors des fichiers de pilotage | moyenne | ajoutés à toute profondeur ; D90 complétée | tests ; chaînes relevées dans les binaires de l'image | `bed1b70` |
+| Forme `uv` de la politique inutilisable (ni uv ni pytest dans l'image) ; code 127 traité en échec ordinaire, avec deux reprises de l'agent | moyenne | forme `python3.12 -m unittest …`, outils de l'image listés ; 127 : « vérification impossible », raison donnée, aucune reprise | tests ; forme commentée éprouvée dans l'image (0 si les tests passent, 1 sinon) | `a65ec13` |
+| Contrôleur du relevé R0 exigeant pydantic (trace anglaise, code 1) | haute | bibliothèque standard seulement (motifs chargés depuis leur fichier, garde copiée en parité vérifiée) ; code 2 en français si les motifs manquent | lancé sans paquet tiers (`-S -I`) ; réel : Python 3.13 du Store du PC et `python:3.12-slim` nu, code 0 | `23a169e` |
+| Verdict de la sonde et attente d'enrôlement absents des journaux de Railway | basse | lignes `[acp] …` sur stderr (sonde, attente au début puis chaque jour, révocation, suspension) | tests ; `docker logs` dans le test d'image | `6d363a4` |
+| `purge_apres_jours` jamais appliqué ; aucune alerte avant l'expiration du jeton Claude | moyenne | purge **automatique** une fois par jour, hors carte (branches gardées) ; échéance estimée du jeton (dépôt + un an) publiée à Hermes, alerte de la page Poste à 30 jours, ligne quotidienne des journaux | tests (poste, contrat, image Hermes) | `197a8ea` |
+| Procédure : coûts à deux services, commit de la sonde ambigu, `railway login`/`link` absents, aucune étape pour le dépôt jetable, commentaires du diagnostic inexacts, bascule vers le PC impossible si Railway est en panne | moyenne, basse | railway.md § 9 (trois services, ≈ 9 à 32 $, pire cas ≈ 159 $) et § 13 (commit à sonder, connexions, § 13.3 bis, outils de l'image, exploitation, renouvellements, bascule requalifiée, forme D68) | relecture ; commande du commit à sonder rejouée (`35c94af` → `eb55afa`) | `6c6bd6d` |
+
+**Limites restantes, dites.**
+- Le profil de Codex n'est éprouvé qu'en **témoin A local** ; sur Railway, R0 tranche (régime B probable : voie Codex
+  fermée par D79, et Codex refuse maintenant de démarrer sous ce profil sans bubblewrap).
+- L'alerte du jeton Claude passe par la page Poste et les journaux, **pas** par une notification téléphone (un genre
+  de notification nouveau exige une migration du schéma du greffon, non faite) ; l'échéance est **estimée** (dépôt
+  + un an). L'échéance du jeton GitHub n'est pas connue de l'exécutant.
+- Les historiques des CLI (`/donnees/codex/sessions`, `/donnees/claude/projects`) ne sont pas purgés.
+- Les fichiers non suivis qu'une vérification laisse dans le worktree sont committés s'ils ne sont pas ignorés par le
+  `.gitignore` du dépôt.
+- `uv` n'est pas ajouté à l'image : sa version et son empreinte ne sont pas dans le cahier (aucun téléchargement non
+  prévu) ; la forme pip de railway.md § 13.6 n'est pas éprouvée.
+
+**Rejeu final** (pointe `815ae6f`, export LF par `git archive`, images reconstruites depuis cet export ; Windows 10,
+Docker 29.5.3, Python 3.12.10 python.org) :
+- suite Windows (`python -m pytest`, venv avec `cryptography`) : 927 réussis, 83 ignorés, 3 échecs « not a git
+  repository » propres à l'export, rejoués dans le worktree : 3 réussis ;
+- `executant/tests` sur l'hôte (image finale et cible factice) : 33 réussis ; `verifier-binaires` et
+  `test_dockerfile` dans un conteneur Linux avec gpg : 18 réussis ;
+- `apps/poste` et contrat **en root dans l'image d'essais** : 777 réussis, 20 ignorés (propres à Windows) ;
+- tests dans l'image Hermes : 682 réussis ;
+- contrat `hermes/tests/contrat` (bout en bout compris) : 162 réussis et 3 erreurs d'environnement (l'export n'a pas
+  le SDK de `.railway`), rejoués dans le worktree propre (SDK présent) : 3 réussis ; navigateur : 8 réussis dans le
+  worktree propre (sur l'export : 4 échecs d'environnement, « axe-core absent », jamais ignorés) ;
+- témoins négatifs de P6 : 27, aucune anomalie ;
+- contrôles du dépôt (`check_version`, `generer_themes --check`, `verifier_catalogue`, `check_lock`,
+  `check_engine_frozen`) : code 0 ; `.railway/verifier.mjs` conforme ; Vitest 120 réussis ;
+- CI : trois workflows verts sur `815ae6f` (§ 11).

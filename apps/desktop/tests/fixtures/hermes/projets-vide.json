@@ -1,0 +1,20 @@
+{
+  "projets": [],
+  "poste": {
+    "pause_reclamations": false,
+    "cartes_en_attente": 0,
+    "etat": "non_configure",
+    "derniere_vue": null,
+    "hors_ligne_depuis": null,
+    "machine": null,
+    "message": "Le poste n'a jamais été vu : enrôlez-le depuis la page Poste."
+  },
+  "pause_generale": null,
+  "notifications": {
+    "canal": null,
+    "configure": false,
+    "connu": false,
+    "message": "État du canal de notification inconnu : la passerelle ne l'a pas encore publié."
+  },
+  "questions_ouvertes": 0
+}

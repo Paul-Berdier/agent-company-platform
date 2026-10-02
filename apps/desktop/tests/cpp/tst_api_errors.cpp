@@ -7,6 +7,8 @@
 #include "api/ApiError.h"
 #include "api/IdempotencyKey.h"
 
+#include <QJsonObject>
+#include <QMetaEnum>
 #include <QSet>
 #include <QTest>
 
@@ -30,7 +32,96 @@ private slots:
     void idempotencyKeyValidation();
     void generatedKeysAreValid();
     void truncatesOverlongDetail();
+    void readsPluginEnvelope();
+    void readsGateEnvelope();
+    void readsRoutingRefusals();
+    void classifiesUnreachableIdentityProvider();
+    void translatesOnlyFixedHermesMessages();
+    void networkErrorsAreFrench();
 };
+
+void TestApiErrors::readsPluginEnvelope()
+{
+    // Greffon acp-poste : {"detail": {"code", "message"}}, message déjà en français.
+    const QByteArray body = QByteArrayLiteral(
+        "{\"detail\":{\"code\":\"question_fermee\",\"message\":\"Cette question est déjà fermée.\"}}");
+    const ApiError error = ApiError::fromResponse(409, body);
+    QCOMPARE(error.kind(), ApiFailure::Conflict);
+    QCOMPARE(error.code(), QStringLiteral("question_fermee"));
+    QCOMPARE(error.detail(), QStringLiteral("Cette question est déjà fermée."));
+    QVERIFY(!error.isGateRejection());
+    QCOMPARE(error.body(), body);
+}
+
+void TestApiErrors::readsGateEnvelope()
+{
+    // Porte de Hermes (middleware.py `_unauth_response`).
+    const ApiError error = ApiError::fromResponse(401, QByteArrayLiteral(
+        "{\"error\":\"session_expired\",\"detail\":\"Unauthorized\","
+        "\"reason\":\"invalid_or_expired_session\",\"login_url\":\"/login\"}"));
+    QCOMPARE(error.kind(), ApiFailure::Unauthorized);
+    QCOMPARE(error.code(), QStringLiteral("session_expired"));
+    QCOMPARE(error.gateReason(), QStringLiteral("invalid_or_expired_session"));
+    QVERIFY(error.isGateRejection());
+    QCOMPARE(error.detail(), QStringLiteral("non autorisé par la porte de Hermes"));
+
+    // La même forme sans `reason` (refus de /auth/native/refresh) n'est pas la porte.
+    const ApiError refresh = ApiError::fromResponse(401, QByteArrayLiteral(
+        "{\"error\":\"session_expired\",\"detail\":\"Refresh token expired or invalid; start a new sign-in.\"}"));
+    QVERIFY(!refresh.isGateRejection());
+    QCOMPARE(refresh.code(), QStringLiteral("session_expired"));
+    QCOMPARE(refresh.detail(),
+             QStringLiteral("jeton de rafraîchissement expiré ou invalide ; reconnectez-vous"));
+}
+
+void TestApiErrors::readsRoutingRefusals()
+{
+    const ApiError error = ApiError::fromResponse(422, QByteArrayLiteral(
+        "{\"detail\":{\"code\":\"table_refusee\",\"message\":\"Table refusée.\","
+        "\"refus\":[{\"classe\":\"a\",\"code\":\"aucun_modele\"},{\"classe\":\"b\",\"code\":\"voie_indisponible\"}]}}"));
+    QCOMPARE(error.kind(), ApiFailure::Unprocessable);
+    QCOMPARE(error.code(), QStringLiteral("table_refusee"));
+    QCOMPARE(error.detail(), QStringLiteral("Table refusée."));
+    QCOMPARE(error.refusals().size(), 2);
+    QCOMPARE(error.refusals().at(1).toObject().value(QStringLiteral("code")).toString(),
+             QStringLiteral("voie_indisponible"));
+}
+
+void TestApiErrors::classifiesUnreachableIdentityProvider()
+{
+    const ApiError error = ApiError::fromResponse(503, QByteArrayLiteral(
+        "{\"detail\":\"Auth provider 'self-hosted' unreachable\"}"));
+    QCOMPARE(error.kind(), ApiFailure::IdentityProviderUnavailable);
+    QVERIFY(error.isRetryable());
+    QCOMPARE(error.title(), QStringLiteral("Fournisseur d'identité injoignable"));
+    QCOMPARE(error.detail(), QStringLiteral("fournisseur d'identité « self-hosted » injoignable"));
+
+    // Un autre 503 reste un service indisponible ordinaire.
+    const ApiError other = ApiError::fromResponse(503, QByteArrayLiteral(
+        "{\"detail\":\"no auth providers registered\"}"));
+    QCOMPARE(other.kind(), ApiFailure::ServiceUnavailable);
+    QCOMPARE(other.detail(),
+             QStringLiteral("aucun fournisseur de connexion n'est enregistré sur ce serveur"));
+}
+
+void TestApiErrors::translatesOnlyFixedHermesMessages()
+{
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Invalid or expired authorization code.")),
+             QStringLiteral("code de connexion invalide ou expiré"));
+    // Un message inconnu est rendu tel quel : la station n'invente jamais une cause.
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Something unexpected")),
+             QStringLiteral("Something unexpected"));
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Requête refusée")), QStringLiteral("Requête refusée"));
+    // Sauvegarde et fichiers gérés : messages fixes, et préfixes fixes suivis d'un détail rendu tel quel.
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Backup not found")),
+             QStringLiteral("archive de sauvegarde introuvable sur le serveur"));
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Path outside managed files root")),
+             QStringLiteral("chemin hors de la racine des fichiers gérés par Hermes"));
+    QCOMPARE(traduireMessageHermes(QStringLiteral("Could not delete path: [Errno 13] Permission denied")),
+             QStringLiteral("suppression impossible sur le volume de Hermes : [Errno 13] Permission denied"));
+    const ApiError introuvable = ApiError::fromResponse(404, QByteArrayLiteral("{\"detail\":\"Backup not found\"}"));
+    QCOMPARE(introuvable.detail(), QStringLiteral("archive de sauvegarde introuvable sur le serveur"));
+}
 
 void TestApiErrors::mapsHttpStatusToFamily_data()
 {
@@ -88,6 +179,7 @@ void TestApiErrors::titlesAreFrenchAndDistinct()
         ApiFailure::NotFound,      ApiFailure::Conflict,     ApiFailure::Unprocessable,
         ApiFailure::RateLimited,   ApiFailure::ServerError,  ApiFailure::ServiceUnavailable,
         ApiFailure::Incompatible,  ApiFailure::InvalidResponse,
+        ApiFailure::IdentityProviderUnavailable,
     };
     for (const ApiFailure::Kind kind : kinds) {
         const QString title = ApiError(kind, QString()).title();
@@ -194,6 +286,40 @@ void TestApiErrors::truncatesOverlongDetail()
     const ApiError error(ApiFailure::ServerError, huge, 500);
     QVERIFY(error.detail().size() < 1100);
     QVERIFY(error.detail().endsWith(QStringLiteral("[…]")));
+}
+
+// Constat de relecture P8 : les erreurs de transport montraient le texte anglais de Qt.
+void TestApiErrors::networkErrorsAreFrench()
+{
+    const QStringList anglais = {QStringLiteral("refused"), QStringLiteral("not found"), QStringLiteral("timed out"),
+                                 QStringLiteral("Host "), QStringLiteral("Connection"), QStringLiteral("Unknown"),
+                                 QStringLiteral("error")};
+    const QMetaEnum reseau = QMetaEnum::fromType<QNetworkReply::NetworkError>();
+    for (int index = 0; index < reseau.keyCount(); ++index) {
+        const auto code = static_cast<QNetworkReply::NetworkError>(reseau.value(index));
+        if (code == QNetworkReply::NoError) {
+            continue;
+        }
+        const QString libelle = libelleErreurReseau(code);
+        QVERIFY2(libelle.endsWith(QStringLiteral("(erreur réseau %1)").arg(static_cast<int>(code))), qPrintable(libelle));
+        for (const QString &mot : anglais) {
+            QVERIFY2(!libelle.contains(mot, Qt::CaseInsensitive), qPrintable(libelle));
+        }
+    }
+    QCOMPARE(libelleErreurReseau(QNetworkReply::HostNotFoundError),
+             QStringLiteral("hôte introuvable : vérifiez l'adresse du serveur (erreur réseau 3)"));
+    const QMetaEnum socket = QMetaEnum::fromType<QAbstractSocket::SocketError>();
+    for (int index = 0; index < socket.keyCount(); ++index) {
+        const QString libelle = libelleErreurSocket(static_cast<QAbstractSocket::SocketError>(socket.value(index)));
+        for (const QString &mot : anglais) {
+            QVERIFY2(!libelle.contains(mot, Qt::CaseInsensitive), qPrintable(libelle));
+        }
+    }
+    QCOMPARE(libelleErreurSocket(QAbstractSocket::ConnectionRefusedError),
+             QStringLiteral("connexion refusée : aucun service n'écoute à cette adresse (erreur de socket 0)"));
+    // Le transport s'en sert : l'erreur d'un appel vers un port fermé est française.
+    const ApiError erreur(ApiFailure::Network, libelleErreurReseau(QNetworkReply::ConnectionRefusedError));
+    QVERIFY(erreur.message().startsWith(QStringLiteral("Serveur injoignable : connexion refusée")));
 }
 
 QTEST_APPLESS_MAIN(TestApiErrors)

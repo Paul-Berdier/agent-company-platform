@@ -91,3 +91,49 @@ def test_releve_a_coherent_admis_et_secret_ou_identifiant_refuses():
         abime["releves"][0]["sortie"] = valeur
         with pytest.raises(script.Refus, match=fragment):
             script.verifier(abime)
+
+
+# ------------------------------------------------------------------ relecture de P6 : bibliothèque standard seulement
+
+
+def test_lance_sans_paquet_tiers_comme_sur_le_pc_du_proprietaire(tmp_path):
+    """Haute (relecture de P6) : le contrôleur importait le contrat, donc pydantic, absent du Python du propriétaire
+    et de tout clone neuf : trace en anglais et code 1 (« relevé refusé »). Lancé ici SANS aucun paquet tiers
+    (``-S -I`` : ni site-packages ni environnement), il rend 0 sur un relevé valide."""
+    import subprocess
+    import sys
+
+    sans_tiers = [sys.executable, "-S", "-I"]
+    assert subprocess.run([*sans_tiers, "-c", "import pydantic"], capture_output=True).returncode != 0
+    colle = tmp_path / "releve-r0.txt"
+    colle.write_text(json.dumps(_releve("B"), ensure_ascii=False, indent=2), encoding="utf-8")
+    resultat = subprocess.run([*sans_tiers, str(RACINE / "scripts" / "verifier_releve_r0.py"), str(colle)],
+                              capture_output=True)
+    sortie, erreur = resultat.stdout.decode("utf-8"), resultat.stderr.decode("utf-8")
+    assert resultat.returncode == 0, erreur
+    assert "Relevé R0 publiable" in sortie and "Traceback" not in erreur
+
+
+def test_motifs_du_contrat_introuvables_code_2(tmp_path, capsys, monkeypatch):
+    colle = tmp_path / "releve-r0.txt"
+    colle.write_text(json.dumps(_releve("B")), encoding="utf-8")
+    monkeypatch.setattr(script, "MOTIFS_SECRETS", tmp_path / "absent.py")
+    assert script.main([str(colle)]) == 2
+    assert "Motifs de secrets du contrat introuvables" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("objet", [
+    "rien", r"C:\Users\paul\x", r"\\serveur\partage", "/home/x/users/y", "a@b", "acpm_" + "a" * 43, "acpe_x",
+    "sk-ant-" + "b" * 30, {"cle@": "v"}, {"a": ["ok", {"b": "D:/x"}]}, ["ok", 3, None, {"c": "github_pat_" + "c" * 31}],
+    {"profond": [[[["eyJ" + "a" * 12 + ".eyJ" + "b" * 12 + "." + "c" * 12]]]]},
+])
+def test_garde_en_parite_avec_le_contrat(objet):
+    """La garde copiée (bibliothèque standard) rend EXACTEMENT ce que rend le contrat."""
+    from acp_poste_contrat.inventaire import _LECTEUR, _PROFIL, _UNC, identifiant_trouve
+    from acp_poste_contrat.machine import secret_trouve
+    from acp_poste_contrat.motifs_secrets import motif_trouve
+
+    assert script.identifiant_trouve(objet, motif_trouve) == identifiant_trouve(objet)
+    assert script.secret_trouve(objet, motif_trouve) == secret_trouve(objet)
+    assert (script._LECTEUR.pattern, script._UNC.pattern, script._PROFIL.pattern) == (
+        _LECTEUR.pattern, _UNC.pattern, _PROFIL.pattern)

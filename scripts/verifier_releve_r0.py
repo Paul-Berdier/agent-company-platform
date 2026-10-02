@@ -13,7 +13,13 @@ Ce script, lancé sur le PC du propriétaire (ou par un agent sur le fichier qu'
 5. affiche le verdict en français et, avec ``--sortie``, écrit le relevé normalisé (JSON trié, LF) à publier tel quel
    dans ``docs/refonte/preuves/`` (le document docs/refonte/executant.md renvoie à ce fichier).
 
-Codes : 0 relevé publiable ; 1 relevé refusé (raison en français) ; 2 utilisation.
+**Bibliothèque standard seulement** (relecture de P6) : lancé par le propriétaire avec le Python de son PC, depuis un
+clone neuf, sans environnement virtuel. Les motifs de secrets sont ceux du contrat, chargés depuis leur fichier
+(``acp_poste_contrat/motifs_secrets.py``, sans dépendance) ; la garde « aucun identifiant » en est la copie, tenue
+en parité avec ``acp_poste_contrat.inventaire.identifiant_trouve`` par ``scripts/tests/test_verifier_releve_r0.py``.
+
+Codes : 0 relevé publiable ; 1 relevé refusé (raison en français) ; 2 utilisation (fichier illisible, motifs du
+contrat introuvables).
 
 Usage :
     python scripts/verifier_releve_r0.py <fichier collé | -> [--sortie docs/refonte/preuves/r0-sonde.json]
@@ -22,17 +28,16 @@ Usage :
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 RACINE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RACINE / "hermes" / "plugins" / "acp-poste" / "contrat"))
-
-from acp_poste_contrat.inventaire import identifiant_trouve  # noqa: E402
-from acp_poste_contrat.machine import secret_trouve  # noqa: E402
+MOTIFS_SECRETS = RACINE / "hermes" / "plugins" / "acp-poste" / "contrat" / "acp_poste_contrat" / "motifs_secrets.py"
 
 PROTOCOLE = "acp-sonde-plateforme/1"
 POINTS_ATTENDUS = {"4.unshare_root", "4.unshare_10003", "7.id", "7.environ_pid1", "7.fichier_root", "7.kill_pid1",
@@ -43,6 +48,92 @@ HORODATAGE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 class Refus(Exception):
     """Relevé non publiable (message français)."""
+
+
+class MotifsIntrouvables(Exception):
+    """Le fichier des motifs du contrat manque (clone incomplet) : utilisation, code 2."""
+
+
+def _motif_trouve():
+    """``motif_trouve`` du contrat, chargé depuis son FICHIER (sans le paquet, dont ``__init__`` importe pydantic)."""
+    try:
+        spec = importlib.util.spec_from_file_location("acp_motifs_secrets", MOTIFS_SECRETS)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except (OSError, ImportError, AttributeError) as exc:
+        raise MotifsIntrouvables(f"Motifs de secrets du contrat introuvables ({type(exc).__name__}) : lancez ce "
+                                 "script depuis un clone complet du dépôt.") from None
+    return module.motif_trouve
+
+
+# Garde « aucun identifiant » : COPIE de acp_poste_contrat.inventaire (_raison_valeur, identifiant_trouve), en parité
+# vérifiée par les tests ; ne lit que des chaînes décodées.
+_LECTEUR = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]")
+_UNC = re.compile(r"(?:^|\s)\\\\[^\\\s]")
+_PROFIL = re.compile(r"[\\/]users[\\/]", re.IGNORECASE)
+
+
+def raison_identifiant(texte: str, motif_trouve) -> str | None:
+    nom = motif_trouve(texte)
+    if nom is not None:
+        return f"ce qui ressemble à un secret ({nom})"
+    if "acpm_" in texte or "acpe_" in texte:
+        return "jeton machine ou code d'enrôlement d'ACP"
+    if "@" in texte:
+        return "adresse électronique (« @ »)"
+    if _LECTEUR.search(texte):
+        return "chemin de lecteur"
+    if _UNC.search(texte):
+        return "chemin réseau (UNC)"
+    if _PROFIL.search(texte):
+        return "chemin de profil utilisateur"
+    return None
+
+
+def identifiant_trouve(objet: Any, motif_trouve) -> str | None:
+    """« <chemin> : <raison> » pour la première chaîne (ou clé) refusée, ou ``None`` ; parcours itératif."""
+    pile: list = [("valeur", objet, "")]
+    while pile:
+        genre, courant, chemin = pile.pop()
+        if genre == "cle":
+            raison = raison_identifiant(courant, motif_trouve)
+            if raison:
+                return f"{chemin} : clé refusée ({raison})"
+            continue
+        if isinstance(courant, str):
+            raison = raison_identifiant(courant, motif_trouve)
+            if raison:
+                return f"{chemin or 'valeur'} : {raison}"
+        elif isinstance(courant, Mapping):
+            enfants = []
+            for cle, valeur in courant.items():
+                sous = f"{chemin}.{cle}" if chemin else str(cle)
+                if isinstance(cle, str):
+                    enfants.append(("cle", cle, sous))
+                enfants.append(("valeur", valeur, sous))
+            pile.extend(reversed(enfants))
+        elif isinstance(courant, (list, tuple)):
+            pile.extend(("valeur", valeur, f"{chemin}[{i}]") for i, valeur in reversed(list(enumerate(courant))))
+    return None
+
+
+def secret_trouve(objet: Any, motif_trouve) -> str | None:
+    """Nom du premier motif de secret dans une chaîne ou une clé, ou ``None`` (comme ``machine.secret_trouve``)."""
+    pile: list = [objet]
+    while pile:
+        courant = pile.pop()
+        if isinstance(courant, str):
+            nom = motif_trouve(courant)
+            if nom:
+                return nom
+        elif isinstance(courant, Mapping):
+            for cle, valeur in courant.items():
+                pile.append(valeur)
+                if isinstance(cle, str):
+                    pile.append(cle)
+        elif isinstance(courant, (list, tuple)):
+            pile.extend(courant)
+    return None
 
 
 def extraire(texte: str) -> dict[str, Any]:
@@ -64,7 +155,8 @@ def _code(releves: dict[str, Any], point: str) -> int | None:
     return releves[point]["code"] if point in releves else None
 
 
-def verifier(releve: dict[str, Any]) -> dict[str, Any]:
+def verifier(releve: dict[str, Any], motif_trouve=None) -> dict[str, Any]:
+    motif_trouve = motif_trouve or _motif_trouve()
     if releve.get("protocole") != PROTOCOLE:
         raise Refus(f"Protocole « {releve.get('protocole')} » : « {PROTOCOLE} » attendu (acp-poste sonde-plateforme).")
     if not isinstance(releve.get("sonde_le"), str) or not HORODATAGE.match(releve["sonde_le"]):
@@ -94,16 +186,23 @@ def verifier(releve: dict[str, Any]) -> dict[str, Any]:
     if (verdict["regime"] == "A") is not regime_a or verdict["regime"] not in ("A", "B"):
         raise Refus(f"Régime « {verdict['regime']} » incohérent avec les relevés des points 4 à 7 : relevé refusé.")
 
-    raison = identifiant_trouve(releve)
+    raison = identifiant_trouve(releve, motif_trouve)
     if raison:
         raise Refus(f"Identifiant dans le relevé ({raison}) : rien n'est publié.")
-    motif = secret_trouve(releve)
+    motif = secret_trouve(releve, motif_trouve)
     if motif:
         raise Refus(f"Motif de secret dans le relevé ({motif}) : rien n'est publié.")
     return verdict
 
 
 def main(argv: list[str] | None = None) -> int:
+    for flux in (sys.stdout, sys.stderr):  # console Windows : accents garantis
+        reconfigurer = getattr(flux, "reconfigure", None)
+        if reconfigurer is not None:
+            try:
+                reconfigurer(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
     analyseur = argparse.ArgumentParser(prog="verifier_releve_r0")
     analyseur.add_argument("fichier", help="texte collé depuis les journaux de Railway, ou « - » (entrée standard)")
     analyseur.add_argument("--sortie", type=Path, help="relevé normalisé à publier (JSON trié, LF)")
@@ -114,8 +213,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Lecture impossible ({type(exc).__name__}).", file=sys.stderr)
         return 2
     try:
+        motif_trouve = _motif_trouve()
+    except MotifsIntrouvables as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
         releve = extraire(texte)
-        verdict = verifier(releve)
+        verdict = verifier(releve, motif_trouve)
     except Refus as exc:
         print(f"Relevé R0 refusé : {exc}", file=sys.stderr)
         return 1

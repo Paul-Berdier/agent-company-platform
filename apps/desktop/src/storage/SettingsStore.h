@@ -31,6 +31,22 @@ public:
     //! Clés autorisées. Toute autre clé est refusée.
     static const QStringList &allowedKeys();
 
+    /*! Résultat du contrôle des préférences réellement présentes (jamais leurs valeurs). */
+    struct Controle
+    {
+        int cles = 0;
+        QStringList horsListe; //!< Clés présentes hors de la liste blanche.
+        QStringList suspectes; //!< Clés dont la valeur ressemble à un jeton.
+        [[nodiscard]] bool conforme() const { return horsListe.isEmpty() && suspectes.isEmpty(); }
+    };
+
+    /*!
+        Énumère TOUTES les clés présentes (pas seulement celles que la station écrit) : une clé
+        hors liste blanche, ou une valeur qui ressemble à un jeton (acp::ressembleAUnSecret),
+        est signalée par son nom. La valeur n'est jamais rendue.
+    */
+    [[nodiscard]] Controle controler() const;
+
     /*! Adresse du serveur mémorisée. URL vide si aucune n'a jamais été saisie : la
         station affiche alors son écran de première ouverture, elle n'invente rien. */
     [[nodiscard]] QUrl serverUrl() const;
@@ -48,10 +64,10 @@ public:
     [[nodiscard]] bool allowInsecureLoopback() const;
     void setAllowInsecureLoopback(bool allowed);
 
-    /*! Consentement de mémorisation dans le coffre système ; faux par défaut.
-        Cette préférence ne contient ni cookie, ni mot de passe, ni jeton. */
-    [[nodiscard]] bool rememberSession() const;
-    void setRememberSession(bool remember);
+    /*! Consentement « Mémoriser la connexion sur ce poste » (coffre Windows) ; faux par
+        défaut. Cette préférence ne contient AUCUN jeton : seulement le consentement. */
+    [[nodiscard]] bool connexionMemorisee() const;
+    void setConnexionMemorisee(bool memoriser);
 
     /*! Largeur du panneau d'inspection, en pixels logiques. Zéro = valeur par défaut. */
     [[nodiscard]] int inspectorWidth() const;
@@ -77,7 +93,7 @@ signals:
     void serverUrlChanged();
     void themePreferenceChanged();
     void motionPreferenceChanged();
-    void rememberSessionChanged();
+    void connexionMemoriseeChanged();
 
 private:
     [[nodiscard]] QVariant value(const QString &key, const QVariant &fallback) const;

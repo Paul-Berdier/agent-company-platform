@@ -10,60 +10,12 @@ Item {
     readonly property bool narrow: width < Space.breakpointRegular
     property bool expandedInNarrow: false
     readonly property bool navigationCompact: Shell.sidebarCollapsed || (narrow && !expandedInNarrow)
-    readonly property bool missionContext: Navigation.currentRoute === "missions" || Navigation.currentRoute === "studio"
-    readonly property string inspectionKind: Navigation.currentRoute === "conversations" && Conversations.currentId.length > 0
-        ? "conversation" : Navigation.currentRoute === "projects" && Workspace.projectId.length > 0
-        ? "project" : missionContext && Missions.selectedMissionId.length > 0
-        ? "mission" : Navigation.currentRoute === "library" && Artifacts.selected.id ? "artifact" : ""
+    // Aucune page livrée n'a encore d'objet à inspecter : le panneau de détails reste
+    // fermé et son bouton absent, plutôt que d'afficher des champs vides.
+    readonly property string inspectionKind: ""
     readonly property bool inspectorAvailable: inspectionKind.length > 0
-    readonly property string inspectionTitle: inspectionKind === "conversation" ? qsTr("Conversation")
-        : inspectionKind === "project" ? qsTr("Projet")
-        : inspectionKind === "mission" ? qsTr("Mission et tentative")
-        : qsTr("Livrable")
-    readonly property var inspectionFields: {
-        switch (inspectionKind) {
-        case "conversation":
-            return [
-                {label: qsTr("Titre"), value: Conversations.currentTitle},
-                {label: qsTr("Contexte"), value: Conversations.projectId.length === 0 ? qsTr("Général")
-                    : Conversations.projectId === Workspace.projectId ? Workspace.projectName : Conversations.projectId},
-                {label: qsTr("Identifiant du fil"), value: Conversations.currentId},
-                {label: qsTr("État"), value: Conversations.archived ? qsTr("Archivée") : qsTr("Active")},
-                {label: qsTr("Réponse en cours"), value: Conversations.polling ? qsTr("Oui") : qsTr("Non")}
-            ];
-        case "project":
-            return [
-                {label: qsTr("Nom"), value: Workspace.projectName},
-                {label: qsTr("Description"), value: Workspace.project.description},
-                {label: qsTr("Identifiant"), value: Workspace.projectId},
-                {label: qsTr("Espace"), value: Workspace.project.workspace_id},
-                {label: qsTr("État"), value: Workspace.project.status}
-            ];
-        case "mission":
-            return [
-                {label: qsTr("Titre"), value: Missions.mission.title},
-                {label: qsTr("Identifiant de mission"), value: Missions.selectedMissionId},
-                {label: qsTr("État de mission"), value: Missions.mission.status},
-                {label: qsTr("Tentative"), value: Missions.run.attempt_number},
-                {label: qsTr("Identifiant de tentative"), value: Missions.selectedRunId},
-                {label: qsTr("État de tentative"), value: Missions.run.status},
-                {label: qsTr("Validation technique"), value: Missions.run.technical_validation ? Missions.run.technical_validation.status : ""},
-                {label: qsTr("Acceptation"), value: Missions.run.user_acceptance ? Missions.run.user_acceptance.status : ""},
-                {label: qsTr("Flux"), value: Missions.streamStatus}
-            ];
-        case "artifact":
-            return [
-                {label: qsTr("Nom"), value: Artifacts.selected.original_name},
-                {label: qsTr("Identifiant"), value: Artifacts.selected.id},
-                {label: qsTr("Type"), value: Artifacts.selected.content_type},
-                {label: qsTr("Taille (octets)"), value: Artifacts.selected.size_bytes},
-                {label: qsTr("SHA-256"), value: Artifacts.selected.checksum},
-                {label: qsTr("Contenu"), value: Artifacts.selected.has_content ? qsTr("Disponible") : qsTr("Non disponible")}
-            ];
-        default: return [];
-        }
-    }
-
+    readonly property string inspectionTitle: ""
+    readonly property var inspectionFields: []
     function toggleNavigation() {
         if (navigationCompact) {
             Shell.sidebarCollapsed = false
@@ -86,9 +38,6 @@ Item {
         function onPanelWidthsChanged() { if (!split.resizing) shell.applyNavigationWidth() }
     }
 
-    Shortcut { sequence: "Ctrl+N"; enabled: !Shell.commandPaletteOpen; onActivated: Commands.execute("conversation.new") }
-    Shortcut { sequence: "Ctrl+Shift+N"; enabled: !Shell.commandPaletteOpen; onActivated: Commands.execute("project.new") }
-    Shortcut { sequence: "Ctrl+P"; enabled: !Shell.commandPaletteOpen; onActivated: Commands.execute("navigation.projects") }
     Shortcut { sequence: "Alt+Left"; enabled: !Shell.commandPaletteOpen; onActivated: Commands.execute("navigation.back") }
     Shortcut { sequence: "Alt+Right"; enabled: !Shell.commandPaletteOpen; onActivated: Commands.execute("navigation.forward") }
     Shortcut { sequence: "Escape"; enabled: Shell.inspectorVisible && !Shell.commandPaletteOpen; onActivated: Shell.inspectorVisible = false }
@@ -135,8 +84,6 @@ Item {
                 visible: shell.inspectorAvailable && Shell.inspectorVisible && !shell.narrow
                 heading: shell.inspectionTitle
                 fields: shell.inspectionFields
-                actionRoute: shell.inspectionKind === "project" ? "missions" : ""
-                actionLabel: qsTr("Ouvrir les missions")
                 SplitView.preferredWidth: Shell.inspectorWidth || Space.layoutInspectorWidthDefault
                 SplitView.minimumWidth: Space.layoutInspectorWidthMin
                 SplitView.maximumWidth: 600
@@ -163,8 +110,6 @@ Item {
             anchors.margins: 1
             heading: shell.inspectionTitle
             fields: shell.inspectionFields
-            actionRoute: shell.inspectionKind === "project" ? "missions" : ""
-            actionLabel: qsTr("Ouvrir les missions")
         }
     }
 }

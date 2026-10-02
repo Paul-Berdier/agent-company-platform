@@ -1,0 +1,6 @@
+{
+  "detail": {
+    "code": "empreinte_differente",
+    "message": "L'empreinte saisie ne correspond pas à celle du poste enrôlé : n'activez pas ce poste ; révoquez-le et recommencez."
+  }
+}

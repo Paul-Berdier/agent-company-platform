@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import base, contrat_partage, notifications, ordres, routage  # noqa: F401 — contrat_partage : sys.path
@@ -32,6 +32,7 @@ from acp_poste_contrat.inventaire import (  # noqa: E402
 
 INVENTAIRES_GARDES = 200
 ALERTES_MAX = 16
+PREAVIS_JETON_CLAUDE_JOURS = 30  # alerte à J-30 de l'expiration estimée du jeton Claude (relecture de P6)
 LIBELLES_CLI = {"codex": "Codex", "claude": "Claude Code"}
 
 
@@ -79,7 +80,7 @@ def valider_corps(corps: Any) -> InventairePoste:
         raise refus_contrat(str(exc)) from None
 
 
-def alertes_de(inventaire: InventairePoste) -> List[str]:
+def alertes_de(inventaire: InventairePoste, aujourdhui: Optional[date] = None) -> List[str]:
     """Ce que la page Poste doit dire de cet inventaire (liste de secours, échecs, versions, bac à sable)."""
     alertes: List[str] = []
     for releve in inventaire.releves:
@@ -105,6 +106,9 @@ def alertes_de(inventaire: InventairePoste) -> List[str]:
     for cle, quand in sorted(inventaire.politique.conditions.items()):
         if quand is None:
             alertes.append(T.ALERTE_CONDITIONS.format(cli=LIBELLES_CLI.get(cle, cle)))
+    echeance = inventaire.connexions.claude_echeance
+    if echeance is not None and (echeance - (aujourdhui or datetime.now(timezone.utc).date())).days <= PREAVIS_JETON_CLAUDE_JOURS:
+        alertes.append(T.ALERTE_JETON_CLAUDE.format(date=echeance.isoformat()))
     return [a[:300] for a in alertes[:ALERTES_MAX]]
 
 

@@ -1,0 +1,52 @@
+{
+  "poste": {
+    "pause_reclamations": false,
+    "cartes_en_attente": 0,
+    "etat": "non_configure",
+    "derniere_vue": null,
+    "hors_ligne_depuis": null,
+    "machine": null,
+    "message": "Le poste n'a jamais été vu : enrôlez-le depuis la page Poste."
+  },
+  "catalogue": {
+    "etat": "inconnu",
+    "voies": {
+      "poste-codex": {
+        "etat": "inconnu",
+        "releve_le": null
+      },
+      "poste-claude": {
+        "etat": "inconnu",
+        "releve_le": null
+      }
+    },
+    "hermes": {
+      "modele": "modèle par défaut du profil"
+    },
+    "routage": {
+      "valide": false,
+      "classes": {}
+    },
+    "politique": {
+      "efforts_interdits": [
+        "max",
+        "ultra",
+        "ultracode"
+      ],
+      "paliers_admis": [
+        "default"
+      ],
+      "voies_par_classe": {
+        "exploration": [
+          "poste-claude",
+          "poste-codex"
+        ],
+        "planification": [
+          "hermes"
+        ]
+      }
+    },
+    "releve_factice": false,
+    "message": "Catalogue du poste inconnu : aucun relevé (le poste publie son inventaire une fois enrôlé et confirmé)."
+  }
+}

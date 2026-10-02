@@ -70,7 +70,7 @@ niveau = "info"
 taille_max_mo = 1
 fichiers = 5
 
-# Dépôts : aucun tant que le dépôt jetable et privé de la preuve (D87) n'existe pas (docs/refonte/railway.md § 13.4 :
+# Dépôts : aucun tant que le dépôt jetable et privé de la preuve (D87) n'existe pas (docs/refonte/railway.md § 13.3 bis :
 # le créer, avec une petite suite de tests exécutable dans l'image). Forme, à ajouter par une PR une fois le dépôt créé
 # (URL HTTPS sans identifiant ; le jeton de lecture est déposé sur le volume par « acp-poste connexion github
 # --stdin », D92). Outils de l'image pour la préparation et la vérification : python3.12 (pip, venv, unittest), git,

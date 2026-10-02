@@ -7,8 +7,9 @@ l'image de production (cible « finale ») ; il ne prouve que la PLOMBERIE, jama
 - ``-p … --output-format stream-json`` : consigne lue sur l'entrée standard ; le SCÉNARIO est le mot
   ``[scenario:<nom>]`` trouvé dans la consigne (objectif du projet), ou, sur une reprise (``--resume <session>``), le
   nom porté par la session (``factice-<nom>-…``) ; il écrit ou supprime des fichiers dans le dossier courant (le
-  worktree de la carte), tente les lectures interdites listées, puis émet ``system/init``, ``result`` et la sortie
-  structurée du scénario (``/opt/acp/outils/scenarios-factices.json``).
+  worktree de la carte), tente les lectures interdites listées, lit les textes listés (``lire_texte`` : chemins du
+  dossier courant ou préfixés par ``{add_dir}``, le dossier de ``--add-dir`` ; relecture : diff et code relus), puis
+  émet ``system/init``, ``result`` et la sortie structurée du scénario (``/opt/acp/outils/scenarios-factices.json``).
 
 Chaque invocation est journalisée dans ``/var/tmp/acp-factice/journal-<uid>.jsonl`` (un fichier par UID : un fichier
 créé par un autre UID ne lui serait pas inscriptible) : argv, UID, noms des variables d'environnement, présence du
@@ -35,6 +36,14 @@ def journal(entree):
 def emettre(objet):
     sys.stdout.buffer.write((json.dumps(objet, ensure_ascii=False) + "\n").encode("utf-8"))
     sys.stdout.buffer.flush()
+
+
+def lire_texte(chemin):
+    try:
+        with open(chemin, encoding="utf-8") as flux:
+            return flux.read(4000)
+    except OSError as exc:
+        return f"refusé ({type(exc).__name__})"
 
 
 def lire_interdit(chemin):
@@ -68,9 +77,11 @@ def main(argv):
         phase, session = "premiere", f"factice-{nom}-{uuid.uuid4().hex[:12]}"
     etape = scenarios[nom].get(phase) or scenarios[nom]["premiere"]
     lectures = {chemin: lire_interdit(chemin) for chemin in etape.get("lire_interdit", [])}
+    ajout = argv[argv.index("--add-dir") + 1] if "--add-dir" in argv else ""
+    textes = {modele: lire_texte(modele.replace("{add_dir}", ajout)) for modele in etape.get("lire_texte", [])}
     journal({"outil": "claude", "scenario": nom, "phase": phase, "uid": os.getuid(), "argv": argv,
              "noms": sorted(os.environ), "jeton": bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")), "cwd": os.getcwd(),
-             "consigne_octets": len(consigne.encode("utf-8")), "lectures": lectures})
+             "consigne_octets": len(consigne.encode("utf-8")), "lectures": lectures, "textes": textes})
     # Modèle servi : celui que Claude Code 2.1.283 sert réellement pour l'alias demandé (relevé sans compte dans
     # l'image : opus → claude-opus-5-5), sauf si le scénario impose un écart.
     demande = argv[argv.index("--model") + 1] if "--model" in argv else "opus"

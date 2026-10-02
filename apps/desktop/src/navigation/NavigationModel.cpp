@@ -22,32 +22,31 @@ QString readinessLabel(NavigationModel::Readiness readiness)
 NavigationModel::NavigationModel(QObject *parent)
     : QAbstractListModel(parent)
 {
-    // Seuls les écrans effectivement livrés sont navigables.
+    // Seuls les écrans effectivement livrés sont navigables. Une destination prévue mais
+    // non livrée serait déclarée « Indisponible pour l'instant » (Readiness::Planned) :
+    // visible, jamais navigable, jamais simulée. Depuis l'étape P8, toutes les pages de
+    // pilotage sont livrées ; seule « office » reste hors périmètre.
     m_destinations = {
         {QStringLiteral("home"), QStringLiteral("Accueil"), QStringLiteral("home"),
          Readiness::Ready, QString()},
         {QStringLiteral("projects"), QStringLiteral("Projets"), QStringLiteral("folder"),
          Readiness::Ready, QString()},
-        {QStringLiteral("diagnostics"), QStringLiteral("Diagnostics"),
-         QStringLiteral("stethoscope"), Readiness::Ready, QString()},
-        {QStringLiteral("missions"), QStringLiteral("Missions"), QStringLiteral("target"),
+        {QStringLiteral("questions"), QStringLiteral("Questions"), QStringLiteral("hand-raised"),
          Readiness::Ready, QString()},
-        {QStringLiteral("approvals"), QStringLiteral("Opérations"),
-         QStringLiteral("hand-raised"), Readiness::Ready, QString()},
-        {QStringLiteral("studio"), QStringLiteral("Studio en direct"),
-         QStringLiteral("target"), Readiness::Ready, QString()},
-        {QStringLiteral("platform"), QStringLiteral("Agents et workers"),
-         QStringLiteral("building"), Readiness::Ready, QString()},
-        {QStringLiteral("settings"), QStringLiteral("Réglages"),
-         QStringLiteral("settings"), Readiness::Ready, QString()},
-        {QStringLiteral("library"), QStringLiteral("Bibliothèque"), QStringLiteral("archive"),
+        {QStringLiteral("chat"), QStringLiteral("Discussion"), QStringLiteral("message"),
          Readiness::Ready, QString()},
-        {QStringLiteral("conversations"), QStringLiteral("Conversations"),
-         QStringLiteral("message"), Readiness::Ready, QString()},
-        {QStringLiteral("extensions"), QStringLiteral("Extensions"), QStringLiteral("plug"),
+        {QStringLiteral("station"), QStringLiteral("Poste"), QStringLiteral("building"),
          Readiness::Ready, QString()},
         {QStringLiteral("quotas"), QStringLiteral("Quotas"), QStringLiteral("gauge"),
          Readiness::Ready, QString()},
+        {QStringLiteral("routing"), QStringLiteral("Routage"), QStringLiteral("target"),
+         Readiness::Ready, QString()},
+        {QStringLiteral("diagnostics"), QStringLiteral("Diagnostics"),
+         QStringLiteral("stethoscope"), Readiness::Ready, QString()},
+        {QStringLiteral("backup"), QStringLiteral("Sauvegarde"), QStringLiteral("archive"),
+         Readiness::Ready, QString()},
+        {QStringLiteral("settings"), QStringLiteral("Réglages"),
+         QStringLiteral("settings"), Readiness::Ready, QString()},
         {QStringLiteral("office"), QStringLiteral("Bureau de département"),
          QStringLiteral("building"), Readiness::OutOfScope,
          QStringLiteral("Hors périmètre : les ressources graphiques du bureau ne sont pas "

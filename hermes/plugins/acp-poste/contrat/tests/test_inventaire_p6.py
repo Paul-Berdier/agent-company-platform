@@ -130,3 +130,17 @@ def test_conditions_non_decidees():
     inventaire = _fixture("inventaire_requete_linux.json")
     inventaire["politique"]["conditions"] = {"codex": None, "claude": "2026-10-01"}
     assert valider_inventaire(inventaire).politique.conditions["codex"] is None
+
+
+
+def test_echeance_du_jeton_claude_facultative():
+    """Relecture de P6 : date d'expiration ESTIMÉE du jeton Claude de l'exécutant, facultative (un inventaire antérieur
+    reste valide), jamais autre chose qu'une date."""
+    inventaire = _fixture("inventaire_requete_linux.json")
+    assert valider_inventaire(inventaire).connexions.claude_echeance is None
+    inventaire["connexions"]["claude_echeance"] = "2027-09-30"
+    assert valider_inventaire(inventaire).connexions.claude_echeance.isoformat() == "2027-09-30"
+    for valeur, motif in (("30/09/2027", "illisible"), ("2027-09-30T00:00:00Z", "illisible"), (20270930, "attendue"),
+                          ("1999-01-01", "hors bornes")):
+        inventaire["connexions"]["claude_echeance"] = valeur
+        assert motif in _refus(inventaire), valeur

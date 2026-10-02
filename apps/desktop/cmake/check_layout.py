@@ -134,8 +134,9 @@ def declared_files(findings: Findings) -> set[Path]:
                 )
 
         # Les tests C++ sont déclarés par leur nom via la fonction acp_add_cpp_test, qui
-        # dérive le chemin « cpp/<nom>.cpp ». L'indirection est suivie ici.
-        for name in re.findall(r"acp_add_cpp_test\(\s*([A-Za-z0-9_]+)\s*\)", body):
+        # dérive le chemin « cpp/<nom>.cpp ». L'indirection est suivie ici : le nom est le
+        # PREMIER argument, éventuellement suivi des fichiers de support du banc de test.
+        for name in re.findall(r"acp_add_cpp_test\(\s*([A-Za-z0-9_]+)\b", body):
             candidate = (base / "cpp" / f"{name}.cpp").resolve()
             declared.add(candidate)
             if not candidate.exists():
@@ -307,8 +308,9 @@ def check_no_hardcoded_origin(findings: Findings) -> None:
     """Aucune origine réseau réelle ne doit être codée en dur.
 
     Les seules URL tolérées sont celles des documentations citées en commentaire, les
-    adresses de bouclage des tests, et le domaine réservé ``.invalid`` employé par les
-    exemples — qui, par définition, ne résout jamais.
+    adresses de bouclage des tests, et les domaines réservés ``.invalid`` (exemples) et
+    ``.test`` (pile de test : ``hermes-acp.test``, ``identite-acp.test``), réservés par
+    RFC 2606 et RFC 6761 — qui, par définition, ne résolvent jamais publiquement.
     """
 
     url_pattern = re.compile(r"https?://([A-Za-z0-9.-]+)")
@@ -326,7 +328,7 @@ def check_no_hardcoded_origin(findings: Findings) -> None:
         relative = path.relative_to(REPO_ROOT).as_posix()
         for match in url_pattern.finditer(path.read_text(encoding="utf-8")):
             host = match.group(1)
-            if host in allowed_hosts or host.endswith(".invalid"):
+            if host in allowed_hosts or host.lower().endswith((".invalid", ".test")):
                 continue
             findings.add(f"{relative} : origine réseau codée en dur ({host})")
 

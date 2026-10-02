@@ -233,6 +233,9 @@ def test_commandes_root_du_proprietaire_puis_redemarrage_accepte(image, ressourc
     ressources.conteneurs.append(nom)
     docker("run", "-d", "--name", nom, "--network", "none", "-v", f"{volume}:/donnees", image_test, verifier=True)
     _attendre_journal(nom, "[acp] volume prêt", 1)
+    # Relecture de P6 : régime et attente d'enrôlement lisibles dans les journaux du conteneur (donc de Railway).
+    journaux = _attendre_journal(nom, "[acp] Exécutant non enrôlé", 1)
+    assert "[acp] Sonde de plateforme : régime B, bubblewrap refuse, UID séparés : oui." in journaux, journaux
     # Chemins FIXES de /tmp/acp créés par l'entrée avant tout agent (relecture de P6 : aucun agent ne peut les poser).
     temporaires = docker("exec", nom, "stat", "-c", "%n %U:%G %a", "/tmp/acp", "/tmp/acp/caches",
                          "/tmp/acp/sondes").stdout.splitlines()

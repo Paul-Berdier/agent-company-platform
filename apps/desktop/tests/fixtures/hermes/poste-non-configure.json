@@ -1,0 +1,105 @@
+{
+  "poste": {
+    "pause_reclamations": false,
+    "cartes_en_attente": 0,
+    "poste": null,
+    "etat": "non_configure",
+    "machine": null,
+    "message": "Le poste n'a jamais été vu : enrôlez-le depuis la page Poste.",
+    "derniere_vue": null,
+    "hors_ligne_depuis": null
+  },
+  "machine": {
+    "machine": null,
+    "machines": {
+      "a_confirmer": 0,
+      "actif": 0,
+      "revoque": 0
+    },
+    "codes_utilisables": 0
+  },
+  "inventaire": null,
+  "alertes": [],
+  "ordres": [],
+  "catalogue": {
+    "etat": "inconnu",
+    "voies": {
+      "poste-codex": {
+        "etat": "inconnu",
+        "releve_le": null,
+        "badge": "inconnu",
+        "badge_libelle": "Inconnu"
+      },
+      "poste-claude": {
+        "etat": "inconnu",
+        "releve_le": null,
+        "badge": "inconnu",
+        "badge_libelle": "Inconnu"
+      }
+    },
+    "hermes": {
+      "modele": "modèle par défaut du profil"
+    },
+    "routage": {
+      "valide": false,
+      "classes": {}
+    },
+    "politique": {
+      "efforts_interdits": [
+        "max",
+        "ultra",
+        "ultracode"
+      ],
+      "paliers_admis": [
+        "default"
+      ],
+      "voies_par_classe": {
+        "exploration": [
+          "poste-claude",
+          "poste-codex"
+        ],
+        "planification": [
+          "hermes"
+        ],
+        "synthese": [
+          "hermes"
+        ],
+        "repondre": [
+          "hermes"
+        ],
+        "recherche_web": [
+          "hermes"
+        ],
+        "architecture": [
+          "poste-codex",
+          "poste-claude",
+          "hermes"
+        ],
+        "implementation": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "debogage_tests": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "petite_tache": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "documentation": [
+          "poste-codex",
+          "poste-claude",
+          "hermes"
+        ],
+        "relecture": [
+          "poste-codex",
+          "poste-claude"
+        ],
+        "integration": []
+      }
+    },
+    "releve_factice": false,
+    "message": "Catalogue du poste inconnu : aucun relevé (le poste publie son inventaire une fois enrôlé et confirmé)."
+  }
+}

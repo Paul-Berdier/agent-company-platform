@@ -1,10 +1,9 @@
 # Publier une version du client desktop Windows
 
-> **Refonte « Hermes au centre ».** Le client desktop est conservé intact mais hors
-> service jusqu'à P8 : il parle encore l'ancienne API ACP, retirée
-> (`docs/refonte/plan.md`). Ce document décrit le client tel qu'il est avant P8.
-> Les relevés datés qu'il cite (validation du 23 septembre 2026, matrice de parité,
-> constats Lot H) restent consultables sous l'étiquette
+> **Refonte « Hermes au centre ».** Depuis l'étape P8 (2 octobre 2026), le client est
+> rebranché sur Hermes ([`refonte/desktop.md`](refonte/desktop.md)). Ce processus n'a pas
+> changé avec P8 ; ses relevés datés (validation du 23 septembre 2026, 0.10.0) visent le
+> client d'avant la refonte et restent consultables sous l'étiquette
 > `archive/acp-0.10.0-avant-hermes`.
 
 Public : mainteneur du dépôt. État du 23 septembre 2026, **0.10.0 en préparation**.
