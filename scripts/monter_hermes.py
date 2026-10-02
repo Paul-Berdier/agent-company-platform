@@ -32,7 +32,8 @@ AVANT d'être passée à ``docker`` ou ``git`` ou d'être écrite ; un fichier a
 refus nommé.
 
 Codes de sortie : 0 (aucun écart, ou écriture faite), 1 (écarts constatés), 2 (refus). N'exécute JAMAIS
-``hermes update``, ne pousse rien, ne touche ni Railway ni les tests. Bibliothèque standard, ``docker`` et ``git``
+``hermes update``, ne pousse rien, ne touche pas Railway, ne modifie aucun code de test (parmi les fichiers de
+test, seules les deux fixtures ``/v1/meta``, épingles fortes, sont réécrites). Bibliothèque standard, ``docker`` et ``git``
 sur l'hôte ; refus en français. Les commandes externes passent par un exécuteur injectable
 (``scripts/tests/test_monter_hermes.py`` n'appelle ni Docker ni le réseau).
 """
