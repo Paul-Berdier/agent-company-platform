@@ -192,7 +192,7 @@ void GatewayClient::ouvrirSocket(QByteArray ticket)
     // Origine VIDE : un client natif n'en envoie pas ; la garde de Hermes n'exige l'Origin
     // que s'il est présent (web_server_chat.py, `_ws_host_origin_reason`).
     m_socket = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
-    m_socket->setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+    m_socket->setProxy(m_client->proxyDesSockets());
     QPointer<QWebSocket> socket(m_socket);
     connect(m_socket, &QWebSocket::connected, this, &GatewayClient::surConnexion);
     connect(m_socket, &QWebSocket::disconnected, this, &GatewayClient::surFermeture);

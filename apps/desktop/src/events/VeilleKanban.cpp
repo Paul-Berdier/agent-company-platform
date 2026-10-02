@@ -193,7 +193,7 @@ void VeilleKanban::ouvrir(QByteArray ticket)
     fermerSocket();
     // Origine VIDE, comme la passerelle : un client natif n'envoie pas d'en-tête Origin.
     m_socket = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
-    m_socket->setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+    m_socket->setProxy(m_client->proxyDesSockets());
     connect(m_socket, &QWebSocket::connected, this, [this] {
         if (!m_socket) {
             return;

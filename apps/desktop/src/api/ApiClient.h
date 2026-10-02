@@ -26,6 +26,7 @@
 #include "api/ApiRequest.h"
 
 #include <QList>
+#include <QNetworkProxy>
 #include <QObject>
 #include <QPointer>
 #include <QUrl>
@@ -117,6 +118,11 @@ public:
     /*! Faux par défaut : aucun proxy implicite. */
     void setUseSystemProxy(bool enabled);
     [[nodiscard]] bool usesSystemProxy() const { return m_useSystemProxy; }
+    /*!
+        Proxy des WebSockets (passerelle JSON-RPC, veille du kanban) : la MÊME règle que les
+        requêtes REST, pour qu'un lien ne sorte jamais par un autre chemin que l'autre.
+    */
+    [[nodiscard]] QNetworkProxy proxyDesSockets() const;
 
     /*! Chaîne d'agent utilisateur, incluant la version du produit. */
     void setUserAgent(const QByteArray &userAgent);

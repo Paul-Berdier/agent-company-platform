@@ -91,6 +91,7 @@ private slots:
     void ecrituresEnJsonEtPlafond();
     void deconnexionCookieEtRedirectionAttendue();
     void fournisseurInjoignableClasse();
+    void proxyDesSocketsSuitLaRegleDuClient();
 };
 
 void TestApiPorteur::porteurSurLesRoutesProtegeesSeulement()
@@ -345,6 +346,18 @@ void TestApiPorteur::fournisseurInjoignableClasse()
     QCOMPARE(pause->erreur.detail(), QStringLiteral("fournisseur d'identité « self-hosted » injoignable"));
     // Mutation sans clé d'idempotence : une seule tentative, jamais rejouée.
     QCOMPARE(serveur.compter("POST", kPause), 1);
+}
+
+void TestApiPorteur::proxyDesSocketsSuitLaRegleDuClient()
+{
+    // Les WebSockets (passerelle, veille du kanban) prennent la MÊME règle que le REST : aucun
+    // proxy implicite par défaut, le proxy du système seulement s'il est demandé.
+    ApiClient client;
+    QCOMPARE(client.proxyDesSockets().type(), QNetworkProxy::NoProxy);
+    client.setUseSystemProxy(true);
+    QCOMPARE(client.proxyDesSockets().type(), QNetworkProxy::DefaultProxy);
+    client.setUseSystemProxy(false);
+    QCOMPARE(client.proxyDesSockets().type(), QNetworkProxy::NoProxy);
 }
 
 QTEST_GUILESS_MAIN(TestApiPorteur)

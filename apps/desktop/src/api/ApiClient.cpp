@@ -165,8 +165,12 @@ void ApiClient::setUseSystemProxy(bool enabled)
         return;
     }
     m_useSystemProxy = enabled;
-    m_manager->setProxy(enabled ? QNetworkProxy(QNetworkProxy::DefaultProxy)
-                                : QNetworkProxy(QNetworkProxy::NoProxy));
+    m_manager->setProxy(proxyDesSockets());
+}
+
+QNetworkProxy ApiClient::proxyDesSockets() const
+{
+    return m_useSystemProxy ? QNetworkProxy(QNetworkProxy::DefaultProxy) : QNetworkProxy(QNetworkProxy::NoProxy);
 }
 
 void ApiClient::setUserAgent(const QByteArray &userAgent)
