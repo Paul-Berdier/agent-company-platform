@@ -16,6 +16,10 @@ import Acp.Controls
 Item {
     id: page
 
+    // Les compteurs (trames, refus -32601) et le contrôle des préférences n'émettent aucun
+    // signal : ils sont relus à l'ouverture de la page, sur demande et avant chaque rapport.
+    Component.onCompleted: Diagnostics.refresh()
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Space.space8
@@ -43,9 +47,16 @@ Item {
             }
 
             AcpButton {
+                objectName: "diagnostics-actualiser"
+                label: qsTr("Actualiser")
+                onTriggered: Diagnostics.refresh()
+            }
+
+            AcpButton {
                 label: qsTr("Copier le rapport")
                 onTriggered: {
                     // Le rapport est expurgé par la couche C++ avant de sortir.
+                    Diagnostics.refresh();
                     reportField.text = Diagnostics.buildReport();
                     reportField.selectAll();
                     reportField.copy();

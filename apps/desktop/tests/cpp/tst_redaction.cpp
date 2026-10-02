@@ -25,7 +25,40 @@ private slots:
     void doesNotClaimToFindArbitrarySecrets();
     void redactsHermesSessionSecrets();
     void redactsNativeSignInParameters();
+    void redactsPluginMachineSecrets();
+    void ressembleAUnSecretSuitLeFiltre();
 };
+
+void TestRedaction::redactsPluginMachineSecrets()
+{
+    // Jeton de machine et code d'enrôlement du greffon : préfixe puis 43 caractères base64url.
+    // Assemblés à l'exécution, pour que le balayage des secrets du dépôt ne les prenne pas
+    // pour de vrais jetons.
+    const QString jetonMachine = QStringLiteral("acpm_") + QString(43, QLatin1Char('Q'));
+    const QString codeEnrolement = QStringLiteral("acpe_") + QString(40, QLatin1Char('z')) + QStringLiteral("_-9");
+    const QString expurge = redactSecrets(
+        QStringLiteral("poste enrôlé avec %1 ; code %2 affiché ; commande acp-poste enroler --code %2")
+            .arg(jetonMachine, codeEnrolement));
+    QVERIFY(!expurge.contains(jetonMachine));
+    QVERIFY(!expurge.contains(codeEnrolement));
+    QVERIFY(!expurge.contains(QStringLiteral("QQQQQQQQ")));
+    QVERIFY(expurge.contains(QStringLiteral("poste enrôlé avec")));
+    // Le préfixe seul, ou au milieu d'un mot, n'est pas un secret.
+    QCOMPARE(redactSecrets(QStringLiteral("préfixe acpe_ documenté")), QStringLiteral("préfixe acpe_ documenté"));
+    QCOMPARE(redactSecrets(QStringLiteral("xacpm_ABCDEFGHIJ")), QStringLiteral("xacpm_ABCDEFGHIJ"));
+}
+
+void TestRedaction::ressembleAUnSecretSuitLeFiltre()
+{
+    QVERIFY(ressembleAUnSecret(QStringLiteral("Authorization: Bearer abc.def")));
+    QVERIFY(ressembleAUnSecret(QStringLiteral("authelia_rt_secretRT42")));
+    QVERIFY(ressembleAUnSecret(QStringLiteral("https://hermes.test/?ticket=t-1")));
+    QVERIFY(ressembleAUnSecret(QStringLiteral("acpe_") + QString(43, QLatin1Char('a'))));
+    QVERIFY(!ressembleAUnSecret(QString()));
+    QVERIFY(!ressembleAUnSecret(QStringLiteral("https://hermes-acp.test")));
+    QVERIFY(!ressembleAUnSecret(QStringLiteral("dark")));
+    QVERIFY(!ressembleAUnSecret(QStringLiteral("true")));
+}
 
 void TestRedaction::redactsHermesSessionSecrets()
 {

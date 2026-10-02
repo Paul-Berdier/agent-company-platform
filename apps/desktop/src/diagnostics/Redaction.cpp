@@ -58,6 +58,11 @@ QString redactSecrets(const QString &text)
     static const QRegularExpression authelia(QStringLiteral("authelia_[a-z]{2}_[A-Za-z0-9._~-]+"));
     result.replace(authelia, placeholder());
 
+    // Jeton de machine et code d'enrôlement du greffon acp-poste (préfixe puis base64url ;
+    // acp_poste_contrat/machine.py).
+    static const QRegularExpression machine(QStringLiteral("\\bacp[em]_[A-Za-z0-9_-]{8,}"));
+    result.replace(machine, placeholder());
+
     // Champs JSON sensibles.
     static const QRegularExpression jsonSecret(
         QStringLiteral("(\"(?:password|secret|csrf_token|token|bootstrap_token|access_token|"
@@ -67,6 +72,11 @@ QString redactSecrets(const QString &text)
     result.replace(jsonSecret, QStringLiteral("\\1\"") + placeholder() + QStringLiteral("\""));
 
     return result;
+}
+
+bool ressembleAUnSecret(const QString &text)
+{
+    return !text.isEmpty() && redactSecrets(text) != text;
 }
 
 QString redactUrl(const QString &url)

@@ -1,5 +1,7 @@
 #include "storage/SettingsStore.h"
 
+#include "diagnostics/Redaction.h"
+
 #include <QLoggingCategory>
 #include <QSettings>
 #include <QVariant>
@@ -181,6 +183,28 @@ void SettingsStore::clear()
     emit themePreferenceChanged();
     emit motionPreferenceChanged();
     emit connexionMemoriseeChanged();
+}
+
+SettingsStore::Controle SettingsStore::controler() const
+{
+    Controle controle;
+    // Relit le stockage : une clé écrite par un autre programme doit aussi être vue.
+    m_settings->sync();
+    const QStringList cles = m_settings->allKeys();
+    controle.cles = static_cast<int>(cles.size());
+    for (const QString &cle : cles) {
+        if (!allowedKeys().contains(cle)) {
+            controle.horsListe.append(cle);
+        }
+        const QVariant valeur = m_settings->value(cle);
+        const QString texte = valeur.typeId() == QMetaType::QStringList
+            ? valeur.toStringList().join(QLatin1Char(' '))
+            : valeur.toString();
+        if (ressembleAUnSecret(texte) || ressembleAUnSecret(cle)) {
+            controle.suspectes.append(cle);
+        }
+    }
+    return controle;
 }
 
 QString SettingsStore::location() const

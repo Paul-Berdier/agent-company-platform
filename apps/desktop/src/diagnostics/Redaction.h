@@ -13,6 +13,7 @@
 //     Sec-WebSocket-Protocol (qui porte le ticket de la passerelle) ;
 //   - tout jeton `Bearer …`, tout JWT (`eyJ….….…`), tout jeton opaque d'Authelia
 //     (`authelia_xx_…`), le sous-protocole `hermes-gateway-ticket.…` ;
+//   - le jeton de machine (`acpm_…`) et le code d'enrôlement (`acpe_…`) du greffon acp-poste ;
 //   - les cookies acp_session, hermes_session_rt et hermes_session_at ;
 //   - les champs JSON password, secret, csrf_token, token, bootstrap_token, access_token,
 //     refresh_token, id_token, ticket, code, code_verifier et state.
@@ -29,6 +30,12 @@ namespace acp {
 
 /*! Remplace toute occurrence reconnue d'un secret par « […expurgé] ». */
 [[nodiscard]] QString redactSecrets(const QString &text);
+
+/*!
+    Vrai si `text` contient une forme de secret reconnue par redactSecrets() : contrôle des
+    préférences (aucune valeur ne doit ressembler à un jeton) et des diagnostics.
+*/
+[[nodiscard]] bool ressembleAUnSecret(const QString &text);
 
 /*! Expurge une URL : le paramètre `token` est remplacé, le reste est conservé. */
 [[nodiscard]] QString redactUrl(const QString &url);

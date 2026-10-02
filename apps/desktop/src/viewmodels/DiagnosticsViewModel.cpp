@@ -116,6 +116,8 @@ void DiagnosticsViewModel::refresh()
                     QString::fromLatin1(ACP_HERMES_VERSION), true, true});
     entries.append({station, QStringLiteral("Version de Qt (exécution)"),
                     QLibraryInfo::version().toString(), true, true});
+    entries.append({station, QStringLiteral("Version de Qt (compilation)"),
+                    QString::fromLatin1(QT_VERSION_STR), true, true});
     entries.append({station, QStringLiteral("Système"), QSysInfo::prettyProductName(), true, false});
     entries.append({station, QStringLiteral("Architecture"), QSysInfo::currentCpuArchitecture(),
                     true, true});
@@ -263,6 +265,34 @@ void DiagnosticsViewModel::refresh()
                     true, false});
     entries.append({storage, QStringLiteral("Préférences (aucun secret)"), m_settings->location(),
                     true, true});
+    // Contrôle réel de ce qui est présent (toutes les clés, pas seulement celles que la station
+    // écrit) : clé hors liste blanche, ou valeur qui ressemble à un jeton. Seuls les NOMS des
+    // clés en écart sont dits ; une valeur n'est jamais affichée.
+    const SettingsStore::Controle controle = m_settings->controler();
+    entries.append({storage, QStringLiteral("Clés de préférences présentes"), QString::number(controle.cles), true,
+                    true});
+    QString verdict;
+    if (controle.conforme()) {
+        verdict = QStringLiteral("Conforme : toutes les clés sont dans la liste blanche, aucune valeur ne "
+                                 "ressemble à un jeton");
+    } else {
+        QStringList ecarts;
+        if (!controle.horsListe.isEmpty()) {
+            ecarts.append(QStringLiteral("clé(s) hors liste blanche : %1").arg(controle.horsListe.join(QStringLiteral(", "))));
+        }
+        if (!controle.suspectes.isEmpty()) {
+            ecarts.append(QStringLiteral("valeur ressemblant à un jeton sous : %1 (valeur jamais affichée)")
+                              .arg(controle.suspectes.join(QStringLiteral(", "))));
+        }
+        verdict = QStringLiteral("Écart — %1").arg(ecarts.join(QStringLiteral(" ; ")));
+    }
+    entries.append({storage, QStringLiteral("Contrôle des préférences"), verdict, true, false});
+
+    // Rien de ce qui est affiché ne porte un secret reconnu, même venu du serveur (alertes,
+    // explications, raisons) : l'écran se capture aussi facilement qu'un rapport se copie.
+    for (Entry &entry : entries) {
+        entry.value = redactSecrets(entry.value);
+    }
 
     beginResetModel();
     m_entries = entries;
