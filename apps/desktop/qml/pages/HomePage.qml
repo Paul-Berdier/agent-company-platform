@@ -80,6 +80,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignTop
                     titre: qsTr("Hermes")
+                    lecture: Compatibility.lecture
+                    erreurLecture: Compatibility.erreurLecture
                     cle: Compatibility.etat === CompatibilityStatus.Compatible ? "succeeded"
                         : Compatibility.etat === CompatibilityStatus.Avertissement ? "degraded"
                         : Compatibility.etat === CompatibilityStatus.Incompatible

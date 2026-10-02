@@ -11,6 +11,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
 #include "models/JsonListModel.h"
+#include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
 #include "viewmodels/AccueilViewModel.h"
@@ -85,6 +86,7 @@ private slots:
     void neLitRienSansSessionNiHorsDeLaPage();
     void echecGardeLaDerniereValeur();
     void pauseGeneraleCorpsExactEtRefusTelQuel();
+    void carteHermesRelueAvecLaPage();
 };
 
 void TestAccueil::carteProjetsDepuisLaListe()
@@ -347,6 +349,55 @@ void TestAccueil::pauseGeneraleCorpsExactEtRefusTelQuel()
     QTRY_VERIFY(!banc.accueil.gesteEnCours());
     QVERIFY(banc.accueil.erreurGeste().contains(QStringLiteral("200 caractères")));
     QCOMPARE(banc.serveur.filtrer("POST", kP + QStringLiteral("/pause")).size(), 2);
+}
+
+// Constat de relecture P8 : la carte « Hermes » (version, verdict, alertes) n'était relue ni
+// par le sondage de la page ni par « Actualiser », alors que la page l'annonçait relue.
+void TestAccueil::carteHermesRelueAvecLaPage()
+{
+    Banc banc;
+    CompatibiliteHermes compatibilite(&banc.greffon);
+    banc.accueil.setCompatibilite(&compatibilite);
+    QJsonObject meta = fixture(QStringLiteral("meta.json"));
+    int statutMeta = 200;
+    banc.serveur.route("GET", kP + QStringLiteral("/meta"), [&meta, &statutMeta](const RequeteRecue &) {
+        return statutMeta == 200 ? ReponseFaux::json(200, meta)
+                                 : ReponseFaux::json(statutMeta, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Indisponible")}});
+    });
+    const auto avecVersion = [&meta](const QString &version, const QJsonArray &alertes) {
+        QJsonObject hermes = meta.value(QStringLiteral("hermes")).toObject();
+        hermes.insert(QStringLiteral("version"), version);
+        meta.insert(QStringLiteral("hermes"), hermes);
+        meta.insert(QStringLiteral("alertes"), alertes);
+    };
+    QCOMPARE(compatibilite.lecture(), QStringLiteral("Jamais lu"));
+    banc.flux.demarrer();
+    banc.accueil.setPageVisible(true);
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    QVERIFY(compatibilite.lecture().startsWith(QStringLiteral("Lu à ")));
+
+    // Hermes redéployé : « Actualiser » relit /v1/meta.
+    avecVersion(QStringLiteral("0.22.0"), QJsonArray{QStringLiteral("Hermes redéployé en 0.22.0")});
+    banc.accueil.actualiser();
+    QTRY_COMPARE(compatibilite.versionHermes(), QStringLiteral("0.22.0"));
+    QCOMPARE(compatibilite.alertes().size(), 1);
+    QCOMPARE(compatibilite.etat(), CompatibilityStatus::Avertissement);
+
+    // Puis le sondage de la page, sans geste.
+    banc.accueil.setIntervalle(std::chrono::milliseconds(100));
+    avecVersion(QStringLiteral("0.22.1"), QJsonArray{});
+    QTRY_COMPARE(compatibilite.versionHermes(), QStringLiteral("0.22.1"));
+
+    // Lecture en échec : le dernier verdict reste, daté, l'erreur à côté.
+    statutMeta = 403;
+    QTRY_VERIFY(!compatibilite.erreurLecture().isEmpty());
+    QCOMPARE(compatibilite.versionHermes(), QStringLiteral("0.22.1"));
+    QVERIFY(compatibilite.lecture().startsWith(QStringLiteral("Lu à ")));
+    // 404 : greffon absent, verdict rendu (et appliqué au client du greffon).
+    statutMeta = 404;
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::GreffonAbsent);
+    QVERIFY(banc.greffon.bloque());
+    banc.accueil.setPageVisible(false);
 }
 
 QTEST_MAIN(TestAccueil)

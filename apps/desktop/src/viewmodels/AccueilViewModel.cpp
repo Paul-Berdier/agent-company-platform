@@ -1,5 +1,7 @@
 #include "viewmodels/AccueilViewModel.h"
 
+#include "services/CompatibiliteHermes.h"
+
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
@@ -71,9 +73,38 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
 
 AccueilViewModel::~AccueilViewModel() = default;
 
+QList<Sondage *> AccueilViewModel::sondages() const
+{
+    QList<Sondage *> liste{m_projets, m_quotas, m_sondageSessions};
+    if (m_meta) {
+        liste.append(m_meta);
+    }
+    return liste;
+}
+
+void AccueilViewModel::setCompatibilite(CompatibiliteHermes *compatibilite)
+{
+    if (m_meta || !compatibilite) {
+        return;
+    }
+    m_compatibilite = compatibilite;
+    m_meta = new Sondage([this] { return m_greffon->meta(); }, m_projets->intervalle(), this);
+    connect(m_meta, &Sondage::lu, this,
+            [this](const ApiResponse &reponse) { m_compatibilite->appliquerLecture(reponse.json.object()); });
+    connect(m_meta, &Sondage::echec, this, [this](const ApiError &erreur) { m_compatibilite->appliquerEchec(erreur); });
+    m_meta->setActif(actif());
+}
+
+void AccueilViewModel::setIntervalle(std::chrono::milliseconds intervalle)
+{
+    for (Sondage *sondage : sondages()) {
+        sondage->setIntervalle(intervalle);
+    }
+}
+
 void AccueilViewModel::surActivite(bool actif)
 {
-    for (Sondage *sondage : {m_projets, m_quotas, m_sondageSessions}) {
+    for (Sondage *sondage : sondages()) {
         sondage->setActif(actif);
     }
 }
@@ -85,7 +116,7 @@ void AccueilViewModel::surLienRetabli()
 
 void AccueilViewModel::surOubli()
 {
-    for (Sondage *sondage : {m_projets, m_quotas, m_sondageSessions}) {
+    for (Sondage *sondage : sondages()) {
         sondage->oublier();
     }
     lireProjets({});
@@ -98,7 +129,7 @@ void AccueilViewModel::surOubli()
 
 void AccueilViewModel::actualiser()
 {
-    for (Sondage *sondage : {m_projets, m_quotas, m_sondageSessions}) {
+    for (Sondage *sondage : sondages()) {
         sondage->lireMaintenant();
     }
 }

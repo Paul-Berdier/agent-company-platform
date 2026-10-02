@@ -14,6 +14,7 @@
 #include "gateway/DemandesAgent.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
+#include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
 #include "viewmodels/AccueilViewModel.h"
@@ -150,6 +151,9 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projet-detail.json"))); });
     serveur.route("GET", kP + QStringLiteral("/quotas"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("quotas.json"))); });
+    // Description du greffon (forme de b3faac0, sans exécutant) : relue par l'accueil.
+    serveur.route("GET", kP + QStringLiteral("/meta"),
+                  [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("meta.json"))); });
     serveur.route("GET", kP + QStringLiteral("/catalogue"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json"))); });
     QJsonObject poste = fixture(QStringLiteral("poste-releve.json"));
@@ -269,6 +273,7 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_VERIFY_WITH_TIMEOUT(accueil->carteProjets().value(QStringLiteral("lisible")).toBool(), 5000);
         QTRY_COMPARE_WITH_TIMEOUT(accueil->sessions()->count(), 2, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(accueil->carteQuotas().value(QStringLiteral("connu")).toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(application.findChild<CompatibiliteHermes *>()->lecture().startsWith(QStringLiteral("Lu à")), 5000);
         VERIFIER(page.get(), QStringLiteral("Accueil"));
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QVERIFY(contientTexte(item, QStringLiteral("Plan posé : deux recherches.")));
@@ -339,8 +344,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_VERIFY_WITH_TIMEOUT(pagePoste->lue() && pagePoste->peutRelever(), 5000);
         VERIFIER(page.get(), QStringLiteral("Poste en ligne"));
         QVERIFY(contientTexte(item, QStringLiteral("Compte dédié acp-poste")));
-        // Compatibilité jamais lue dans ce banc : l'exécutant est inconnu, jamais « non disponible ».
-        QVERIFY(contientTexte(item, QStringLiteral("Exécutant : inconnu, la description du greffon n'a pas été lue.")));
+        // /v1/meta lu par l'accueil, sans `machine.executant` (Hermes sans l'étape P6).
+        QVERIFY(contientTexte(item, QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6).")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucun ordre en attente.")));
 
         poste = fixture(QStringLiteral("poste-non-configure.json"));

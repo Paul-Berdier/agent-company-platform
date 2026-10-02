@@ -150,6 +150,8 @@ void CompatibiliteHermes::verifier()
     ApiCall *appel = m_greffon->meta();
     connect(appel, &ApiCall::succeeded, this, [this, generation](const ApiResponse &reponse) {
         if (generation == m_generation) {
+            m_luA = QDateTime::currentDateTimeUtc();
+            m_erreurLecture.clear();
             publier(evaluer(reponse.json.object()));
         }
     });
@@ -166,6 +168,7 @@ void CompatibiliteHermes::verifier()
         } else {
             echec.etat = CompatibilityStatus::Injoignable;
             echec.explication = QStringLiteral("Compatibilité non vérifiée : %1").arg(erreur.message());
+            m_erreurLecture = erreur.message();
         }
         publier(echec);
     });
@@ -174,7 +177,43 @@ void CompatibiliteHermes::verifier()
 void CompatibiliteHermes::oublier()
 {
     ++m_generation;
+    m_luA = QDateTime();
+    m_erreurLecture.clear();
     publier(Evaluation{});
+}
+
+void CompatibiliteHermes::appliquerLecture(const QJsonObject &meta)
+{
+    ++m_generation; // une vérification plus ancienne encore en vol ne l'écrasera pas
+    m_luA = QDateTime::currentDateTimeUtc();
+    m_erreurLecture.clear();
+    publier(evaluer(meta));
+}
+
+void CompatibiliteHermes::appliquerEchec(const ApiError &erreur)
+{
+    if (erreur.kind() == ApiFailure::Cancelled) {
+        return;
+    }
+    if (erreur.httpStatus() == 404) {
+        ++m_generation;
+        Evaluation absent;
+        absent.etat = CompatibilityStatus::GreffonAbsent;
+        absent.discussionDisponible = true;
+        absent.explication = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la "
+                                            "Discussion et les Diagnostics restent disponibles.");
+        m_erreurLecture.clear();
+        publier(absent);
+        return;
+    }
+    m_erreurLecture = erreur.message();
+    emit change();
+}
+
+QString CompatibiliteHermes::lecture() const
+{
+    return m_luA.isValid() ? QStringLiteral("Lu à %1").arg(m_luA.toLocalTime().toString(QStringLiteral("HH:mm:ss")))
+                           : QStringLiteral("Jamais lu");
 }
 
 void CompatibiliteHermes::publier(Evaluation evaluation)

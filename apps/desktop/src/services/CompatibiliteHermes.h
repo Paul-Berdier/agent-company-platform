@@ -29,6 +29,7 @@
 
 #include "app/QmlEnums.h"
 
+#include <QDateTime>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -55,6 +56,8 @@ class CompatibiliteHermes : public QObject
     Q_PROPERTY(QStringList avertissements READ avertissements NOTIFY change)
     Q_PROPERTY(QStringList alertes READ alertes NOTIFY change)
     Q_PROPERTY(bool executantPresent READ executantPresent NOTIFY change)
+    Q_PROPERTY(QString lecture READ lecture NOTIFY change)
+    Q_PROPERTY(QString erreurLecture READ erreurLecture NOTIFY change)
 
 public:
     /*! Résultat de l'évaluation d'un document /v1/meta : fonction pure, testable seule. */
@@ -88,6 +91,21 @@ public:
     /*! Revient à « Non vérifiée » (session perdue, serveur changé). */
     void oublier();
 
+    /*!
+        Lecture de /v1/meta faite par un sondage (page d'accueil, relue toutes les 15 s) : le
+        verdict suit, sans passer par « Vérification ».
+    */
+    void appliquerLecture(const QJsonObject &meta);
+    /*!
+        Échec d'une lecture de fond : 404 ⇒ greffon absent ; sinon le dernier verdict RESTE,
+        daté, et l'erreur est publiée à côté (comme toute lecture de page).
+    */
+    void appliquerEchec(const ApiError &erreur);
+
+    /*! « Lu à HH:MM:SS » (dernière lecture réussie de /v1/meta) ou « Jamais lu ». */
+    [[nodiscard]] QString lecture() const;
+    [[nodiscard]] const QString &erreurLecture() const { return m_erreurLecture; }
+
     [[nodiscard]] CompatibilityStatus::State etat() const { return m_evaluation.etat; }
     [[nodiscard]] int etatValeur() const { return static_cast<int>(m_evaluation.etat); }
     [[nodiscard]] QString libelle() const;
@@ -114,6 +132,8 @@ private:
     ClientGreffonPoste *m_greffon = nullptr;
     Evaluation m_evaluation;
     quint64 m_generation = 0;
+    QDateTime m_luA;
+    QString m_erreurLecture;
 };
 
 } // namespace acp

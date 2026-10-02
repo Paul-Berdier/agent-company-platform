@@ -104,6 +104,7 @@ private:
     DemandesAgent *m_demandes = nullptr;
     DiscussionViewModel *m_discussion = nullptr;
     UpdateService *m_updates = nullptr;
+    bool m_greffonBloque = false; //!< Dernier état du blocage du greffon (verdict de compatibilité).
 };
 
 } // namespace acp

@@ -40,6 +40,8 @@
 #include <QUrl>
 #include <QtQml>
 
+#include <utility>
+
 namespace acp {
 
 namespace {
@@ -105,6 +107,8 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     m_diagnostics->setFlux(m_flux);
     // Pages de pilotage : elles lisent seulement quand elles sont affichées et la session établie.
     m_accueil = new AccueilViewModel(m_client, m_greffon.get(), m_flux, this);
+    // La carte « Hermes » de l'accueil relit /v1/meta avec la page (version, verdict, alertes).
+    m_accueil->setCompatibilite(m_compatibilite);
     m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_poste = new PosteViewModel(m_greffon.get(), m_compatibilite, m_flux, this);
@@ -146,13 +150,17 @@ Application::Application(QObject *parent, const QString &nomCoffre)
         // perdue par SessionHermes ; ceci couvre aussi un canal ouvert sans elle).
         m_passerelle->fermer();
         m_flux->veille()->arreter();
+        m_compatibilite->oublier(); // un verdict n'appartient qu'au serveur qui l'a rendu
         m_flux->oublierResume();
         oublierLesPages();
     });
     // Greffon bloqué par le verdict de compatibilité : les pages du greffon oublient ce
     // qu'elles en avaient lu, et le résumé redevient « Inconnu ».
+    // Seulement au PASSAGE au blocage : l'accueil relit /v1/meta toutes les 15 s, et chaque
+    // verdict republié ne doit pas refaire oublier (puis relire) les pages.
     connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
-        if (!m_greffon->bloque()) {
+        const bool avant = std::exchange(m_greffonBloque, m_greffon->bloque());
+        if (!m_greffonBloque || avant) {
             return;
         }
         m_flux->oublierResume();

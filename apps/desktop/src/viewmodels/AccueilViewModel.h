@@ -5,7 +5,9 @@
 //   - `GET /v1/quotas` du greffon : la voie la plus entamée ;
 //   - `GET /api/sessions?limit=5&offset=0&order=recent` de Hermes : discussions récentes
 //     (même appel que la page d'accueil web).
-// La carte « Hermes » lit la compatibilité déjà évaluée (/v1/meta), sans nouvel appel.
+//   - `GET /v1/meta` du greffon (dès que la compatibilité est branchée, setCompatibilite) : la
+//     carte « Hermes » (version en service, verdict, alertes) est relue au même rythme, par
+//     « Actualiser » et au retour du lien, et datée « Lu à » comme les autres cartes.
 //
 // Chaque carte est une table de valeurs DÉJÀ libellées en français, aux clés fixes : une
 // valeur absente ou d'un autre type vaut « Inconnu », le poste jamais vu « Non configuré ».
@@ -21,12 +23,16 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QList>
 #include <QVariantMap>
+
+#include <chrono>
 
 namespace acp {
 
 class ApiClient;
 class ClientGreffonPoste;
+class CompatibiliteHermes;
 class Sondage;
 
 class AccueilViewModel : public PageViewModel
@@ -50,6 +56,11 @@ public:
     AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffon, EventStreamService *flux,
                      QObject *parent = nullptr);
     ~AccueilViewModel() override;
+
+    /*! Branche la compatibilité : `/v1/meta` est alors relu avec les autres sources. */
+    void setCompatibilite(CompatibiliteHermes *compatibilite);
+    /*! Intervalle des lectures de la page (15 s ; réglable pour les tests). */
+    void setIntervalle(std::chrono::milliseconds intervalle);
 
     [[nodiscard]] const QVariantMap &carteProjets() const { return m_carteProjets; }
     [[nodiscard]] const QVariantMap &carteQuestions() const { return m_carteQuestions; }
@@ -91,12 +102,15 @@ protected:
 
 private:
     void lireProjets(const QJsonObject &liste);
+    [[nodiscard]] QList<Sondage *> sondages() const;
 
     ApiClient *m_client = nullptr;
     ClientGreffonPoste *m_greffon = nullptr;
     Sondage *m_projets = nullptr;
     Sondage *m_quotas = nullptr;
     Sondage *m_sondageSessions = nullptr;
+    Sondage *m_meta = nullptr; //!< `/v1/meta`, une fois la compatibilité branchée.
+    CompatibiliteHermes *m_compatibilite = nullptr;
     JsonListModel *m_sessions = nullptr;
     QVariantMap m_carteProjets;
     QVariantMap m_carteQuestions;

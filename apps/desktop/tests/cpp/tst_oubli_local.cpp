@@ -238,10 +238,9 @@ void TestOubliLocal::changementDeServeurNAfficheRienDeLAncien()
     QTest::qWait(50);
     QVERIFY(!m_client->setBaseUrl(m_b->url()).isError());
     QVERIFY2(donneesRestantes().isEmpty(), qPrintable(donneesRestantes().join(QStringLiteral(", "))));
-    // Les pages, toujours affichées, lisent B (greffon absent : 404) : rien de A ne revient.
-    const int lecturesB = m_b->compter("GET", kP + QStringLiteral("/questions"));
+    // Les pages, toujours affichées, relisent : B n'a pas le greffon (404, puis greffon bloqué
+    // par le verdict de l'accueil) ; l'erreur s'affiche, rien de A ne revient.
     m_questions->actualiser();
-    QTRY_VERIFY_WITH_TIMEOUT(m_b->compter("GET", kP + QStringLiteral("/questions")) > lecturesB, 5000);
     QTRY_VERIFY_WITH_TIMEOUT(!m_questions->erreur().isEmpty(), 5000);
     QTest::qWait(600);
     QCOMPARE(m_questions->questions()->count(), 0);
@@ -281,6 +280,12 @@ void TestOubliLocal::greffonBloqueOublieSesPages()
         restes.removeAll(permis);
     }
     QVERIFY2(restes.isEmpty(), qPrintable(restes.join(QStringLiteral(", "))));
+    // Aucune boucle : l'accueil relit /v1/meta à son rythme (15 s), le verdict republié ne fait
+    // pas oublier puis relire les pages en continu.
+    const int lecturesMeta = m_a->compter("GET", kP + QStringLiteral("/meta"));
+    QTest::qWait(600);
+    QVERIFY2(m_a->compter("GET", kP + QStringLiteral("/meta")) - lecturesMeta <= 1,
+             qPrintable(QString::number(m_a->compter("GET", kP + QStringLiteral("/meta")) - lecturesMeta)));
     m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
 }
 
