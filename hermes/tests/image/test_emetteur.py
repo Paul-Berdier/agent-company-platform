@@ -168,7 +168,7 @@ def test_telegram_forme_de_la_requete(noyau, conn, monkeypatch):
     assert (methode, url, delai) == ("POST", f"https://api.telegram.org/bot123456:{JETON}/sendMessage", 10)
     assert entetes == {"Content-Type": "application/json"}
     assert json.loads(corps) == {"chat_id": "-1001234", "disable_web_page_preview": True, "text": (
-        "ACP — Notification de test envoyée depuis la page Projets. https://hermes.acp.test/projets?projet=p_x")}
+        "ACP — Notification de test envoyée depuis le tableau de bord. https://hermes.acp.test/projets?projet=p_x")}
     assert conn.execute("SELECT etat, tentatives FROM notifications").fetchone()[:] == ("envoyee", 1)
 
 

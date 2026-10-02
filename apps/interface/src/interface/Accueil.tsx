@@ -1,10 +1,21 @@
-// Page d'accueil d'ACP : remplace la page « / » du tableau de bord (tab.override), qui
-// redirigeait vers /sessions. Pensée d'abord pour le téléphone (une colonne, cibles de 44 px).
-// Aucune donnée inventée : une valeur illisible s'affiche « Inconnu », le poste « Non configuré ».
-// Aucun repère <header>/<footer> : le tableau de bord porte déjà les siens (axe :
+// Page d'accueil d'ACP : remplace la page « / » du tableau de bord (tab.override), qui redirigeait vers /sessions.
+// Étape P7 (cahier P7 § 8, décision P7-7) : UNE lecture agrégée (GET /v1/accueil), la même au téléphone, dans le
+// navigateur du PC et, s'il le veut, pour le desktop ; MÊME ORDRE et MÊMES TEXTES à toutes les largeurs (une colonne
+// à 390 px, trois au bureau) :
+//   1. À traiter par vous (compte, trois premières demandes, discussions en attente comptées par le client) ;
+//   2. Projets en cours (avancement « n sur m », dernière note) ;
+//   3. Exécutant (état réel, carte en cours, voies fermées et leur raison) ;
+//   4. Quotas (par voie, source et date du relevé) ;
+//   5. Notifications (canal, notification de test) et bilan quotidien (tâche cron du propriétaire) ;
+//   6. Discussions (cinq dernières sessions) ;
+//   7. Système (Hermes, garde, persona, catalogue), puis les raccourcis.
+// Temps réel par le flux d'invalidation (tous les sujets), sondage de 15 s en repli. Aucune donnée inventée : un bloc
+// illisible le dit avec sa raison ; la carte « Poste » figée sur « Non configuré » de P3 a disparu (elle était fausse
+// depuis que l'exécutant existe). Aucun repère <header>/<footer> : le tableau de bord porte déjà les siens (axe :
 // landmark-no-duplicate-banner, relevé au format téléphone).
 import { T } from "../chaines";
 import { lireMeta, lireSessions } from "../api";
+import { EtatActualisation } from "../actualisation";
 import {
   BlocErreur,
   Carte,
@@ -16,9 +27,21 @@ import {
   useChargement,
   type CleEtat,
 } from "../commun";
+import { useDonnees } from "../donnees";
+import { SUJETS } from "../flux";
 import { court, dateRelative, nombre, versMillisecondes } from "../format";
-import { h, type Noeud } from "../react";
+import { lireDiscussionsEnAttente } from "../jsonrpc/discussions";
+import { h, useState, type Noeud } from "../react";
 import { chaine, type Meta, type PageSessions } from "../types";
+import { BandeauPause } from "../projets/BandeauPause";
+import { Etiquette } from "../projets/briques";
+import { libelleEtatProjet } from "../projets/libelles";
+import { Avancement } from "../projets/ListeProjets";
+import { Notifications } from "../projets/Notifications";
+import { lireAccueil, type Accueil as DonneesAccueil, type ProjetAccueil } from "./accueil-api";
+import { CarteATraiter } from "./CarteATraiter";
+import { CarteBilan } from "./CarteBilan";
+import { CarteExecutant, CarteQuotas } from "./CarteExecutant";
 
 export function etatPersona(meta: Meta | null): CleEtat {
   switch (meta?.demarrage?.soul?.etat) {
@@ -183,13 +206,62 @@ function CarteSessions(): Noeud {
   );
 }
 
-function CartePoste(): Noeud {
+function CarteProjets(props: { bloc: DonneesAccueil["projets"]; illisible: string | null }): Noeud {
+  const bloc = props.bloc ?? null;
+  const liste = Array.isArray(bloc?.liste) ? bloc.liste : [];
   return (
-    <Carte titre={T.accueil.poste} id="acp-accueil-poste">
+    <Carte titre={T.accueil.projetsTitre} id="acp-accueil-projets">
+      {bloc === null ? (
+        <p className="acp-alerte-texte">
+          <span>{T.accueil.blocIllisible}</span> <Donnee valeur={props.illisible} />
+        </p>
+      ) : (
+        <div className="acp-sections">
+          <dl className="acp-liste">
+            <Ligne libelle={T.accueil.projetsEnCours}>
+              <Donnee valeur={nombre(bloc.en_cours)} />
+            </Ligne>
+            <Ligne libelle={T.accueil.projetsEnPause}>
+              <Donnee valeur={nombre(bloc.en_pause)} />
+            </Ligne>
+            <Ligne libelle={T.accueil.projetsTermines7j}>
+              <Donnee valeur={nombre(bloc.termines_7j)} />
+            </Ligne>
+          </dl>
+          {liste.length === 0 ? (
+            <p className="acp-discret">{T.accueil.aucunProjetOuvert}</p>
+          ) : (
+            <ul className="acp-noms">
+              {liste.map((p: ProjetAccueil, rang) => {
+                const id = chaine(p.id);
+                return (
+                  <li key={id ?? String(rang)} className="acp-projet-court">
+                    <p className="acp-etat">
+                      {id ? (
+                        <Lien vers={`/projets?projet=${encodeURIComponent(id)}`}>
+                          <Donnee valeur={chaine(p.titre)} />
+                        </Lien>
+                      ) : (
+                        <Donnee valeur={chaine(p.titre)} />
+                      )}{" "}
+                      <Etiquette libelle={libelleEtatProjet(p.etat, p.etat_derive)} brut={p.etat} />
+                    </p>
+                    <Avancement faites={p.faites} total={p.total} />
+                    {chaine(p.derniere_note) ? (
+                      <p className="acp-discret">
+                        <Donnee valeur={chaine(p.derniere_note)} />
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
       <p>
-        <Pastille etat="nonConfigure" />
+        <Lien vers="/projets">{T.accueil.ouvrirProjets}</Lien>
       </p>
-      <p className="acp-discret">{T.accueil.posteNote}</p>
     </Carte>
   );
 }
@@ -230,23 +302,51 @@ function Pied(props: { meta: Meta | null }): Noeud {
 
 export function Accueil(): Noeud {
   const meta = useChargement<Meta>(() => lireMeta());
+  // Incrémenté après chaque geste (pause levée, bilan créé) : les lectures se refont aussitôt.
+  const [jeton, fixerJeton] = useState(0);
+  const apres = () => fixerJeton((j) => j + 1);
+  const lecture = useDonnees(lireAccueil, jeton, SUJETS);
+  const discussions = useDonnees(lireDiscussionsEnAttente, jeton, ["discussions"]);
+  const accueil = lecture.valeur;
+  const illisibles = accueil?.illisibles ?? {};
+  const raison = (bloc: string): string | null => (typeof illisibles[bloc] === "string" ? illisibles[bloc] : null);
+  const pause = accueil?.pause_generale && typeof accueil.pause_generale === "object" ? accueil.pause_generale : null;
   return (
     <div className="acp-page" data-acp-racine="accueil">
       <div className="acp-entete">
         <h1 className="acp-titre">{T.accueil.titre}</h1>
         <p className="acp-discret">{T.accueil.intro}</p>
       </div>
-      {meta.etat === "chargement" ? <EnChargement /> : null}
-      {meta.etat === "erreur" ? <BlocErreur erreur={meta.erreur} message={T.accueil.metaIndisponible} /> : null}
-      <div className="acp-grille">
+      {pause ? <BandeauPause pause={pause} apres={apres} /> : null}
+      {accueil === null && lecture.erreur === null ? <EnChargement /> : null}
+      {accueil === null && lecture.erreur !== null ? (
+        <BlocErreur erreur={lecture.erreur} message={T.accueil.accueilIndisponible} />
+      ) : null}
+      {accueil !== null && lecture.erreur !== null ? (
+        <p className="acp-alerte-texte" role="status">
+          {T.accueil.actualisationImpossible}
+        </p>
+      ) : null}
+      <div className="acp-grille acp-grille--accueil">
+        {accueil !== null ? (
+          <CarteATraiter aTraiter={accueil.a_traiter} chezHermes={accueil.chez_hermes} discussions={discussions.valeur}
+                         illisible={raison("a_traiter")} />
+        ) : null}
+        {accueil !== null ? <CarteProjets bloc={accueil.projets} illisible={raison("projets")} /> : null}
+        {accueil !== null ? <CarteExecutant executant={accueil.executant} illisible={raison("executant")} /> : null}
+        {accueil !== null ? <CarteQuotas quotas={accueil.quotas} illisible={raison("quotas")} /> : null}
+        {accueil !== null ? <Notifications etat={accueil.notifications} /> : null}
+        {accueil !== null ? <CarteBilan notifications={accueil.notifications} jeton={jeton} apres={apres} /> : null}
+        <CarteSessions />
         {meta.etat === "ok" ? <CarteHermes meta={meta.valeur} /> : null}
         {meta.etat === "ok" ? <CarteGarde meta={meta.valeur} /> : null}
         {meta.etat === "ok" ? <CartePersona meta={meta.valeur} /> : null}
         {meta.etat === "ok" ? <CarteCatalogue meta={meta.valeur} /> : null}
-        <CarteSessions />
-        <CartePoste />
         <CarteRaccourcis />
       </div>
+      {meta.etat === "chargement" ? <EnChargement /> : null}
+      {meta.etat === "erreur" ? <BlocErreur erreur={meta.erreur} message={T.accueil.metaIndisponible} /> : null}
+      <EtatActualisation />
       <Pied meta={meta.etat === "ok" ? meta.valeur : null} />
     </div>
   );

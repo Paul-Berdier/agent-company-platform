@@ -434,7 +434,7 @@ describe("Projets : détail", () => {
 });
 
 describe("Projets : questions", () => {
-  it("répondre à une question, reprendre un triage ; les cartes bloquées restent en lecture seule", async () => {
+  it("répondre à une question, reprendre un triage ; une carte étrangère arrêtée dit pourquoi elle ne se relance pas", async () => {
     aller("?vue=questions");
     const reponses: Record<string, Reponse> = {
       [ROUTE_PROJETS]: LISTE,
@@ -453,12 +453,18 @@ describe("Projets : questions", () => {
       "Plafond atteint : tours — votre décision est attendue",
       "Carte à la main",
       "poste-codex",
-      "Lecture seule : relancer une carte depuis cette page arrivera à l'étape P7 ; en attendant, le kanban de Hermes le permet.",
+      "Relance impossible : Carte non émise par ACP : ACP ne la relance pas.",
+      "À vous",
+      "À traiter par vous",
+      "Chez Hermes",
     ]) {
       expect(texte).toContain(attendu);
     }
-    // Le compteur de l'onglet « Questions » vient de /v1/projets.
-    expect(r.racine.querySelector('.acp-onglet[aria-current="page"]')?.textContent).toBe("Questions1");
+    // Étape P7 : le compteur de l'onglet « Questions » est « À traiter par vous » (compteurs de /v1/questions ; les
+    // discussions en attente, illisibles ici : SDK sans buildWsUrl, ne sont pas comptées, et la page le dit).
+    expect(r.racine.querySelector('.acp-onglet[aria-current="page"]')?.textContent).toBe("Questions3");
+    expect(texte).toContain("(discussions en attente : état inconnu, non comptées)");
+    expect(texte).toContain("Discussions : état inconnu (le tableau de bord n'a pas pu être interrogé).");
     expect(r.racine.querySelector("#acp-questions-bloquees")?.parentElement?.querySelector("button")).toBeNull();
     const repondre = boutons(r.racine).get("Répondre");
     expect(repondre?.disabled).toBe(true);

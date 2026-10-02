@@ -45,7 +45,7 @@
     },
     accueil: {
       titre: "Accueil",
-      intro: "\xC9tat de votre agent Hermes et de la plateforme ACP, relev\xE9 \xE0 l'ouverture de la page.",
+      intro: "Ce qui vous attend, vos projets, l'ex\xE9cutant et les quotas, tenus \xE0 jour tant que la page est visible.",
       hermes: "Hermes",
       version: "Version en service",
       versionTestee: "Version test\xE9e par ACP",
@@ -69,8 +69,60 @@
       sansTitre: "Sans titre",
       messages: "messages",
       toutesSessions: "Toutes les sessions",
-      poste: "Poste Windows",
-      posteNote: "Enr\xF4lement, \xE9tat, routage et quotas du poste\xA0: page Poste. L'ex\xE9cution de vos projets sur d\xE9p\xF4t passe par l'ex\xE9cutant (page Poste\xA0: isolement, carte en cours, branches pr\xEAtes).",
+      // Étape P7 : Accueil agrégé (cahier P7 § 8) et bilan quotidien (§ 7).
+      aTraiterTitre: "\xC0 traiter par vous",
+      blocIllisible: "Bloc illisible\xA0:",
+      questions: "Questions",
+      decisions: "D\xE9cisions",
+      revues: "Revues",
+      arretees: "Cartes arr\xEAt\xE9es",
+      discussionsEnAttente: "Discussions en attente",
+      inconnues: "Inconnues",
+      chezHermes: "Chez Hermes",
+      rienATraiter: "Rien n'attend votre d\xE9cision.",
+      ouvrirQuestions: "Ouvrir la file Questions",
+      genreQuestion: "Question\xA0:",
+      genreDecision: "D\xE9cision\xA0:",
+      genreRevue: "Revue\xA0:",
+      genreArretee: "Carte arr\xEAt\xE9e\xA0:",
+      projetsTitre: "Projets en cours",
+      projetsEnCours: "En cours",
+      projetsEnPause: "En pause",
+      projetsTermines7j: "Termin\xE9s ces 7 derniers jours",
+      aucunProjetOuvert: "Aucun projet ouvert.",
+      ouvrirProjets: "Ouvrir les projets",
+      executantTitre: "Ex\xE9cutant",
+      etat: "\xC9tat",
+      machine: "Machine",
+      plateforme: "Plateforme",
+      derniereVue: "Vu pour la derni\xE8re fois",
+      carteEnCours: "Carte en cours",
+      aucuneCarteEnCours: "Aucune",
+      voiesFermees: "Voies ferm\xE9es\xA0:",
+      ouvrirPoste: "Ouvrir la page Poste",
+      quotasTitre: "Quotas",
+      utilise: "Utilis\xE9",
+      remiseAZero: "Remise \xE0 z\xE9ro",
+      source: "Source",
+      releveLe: "Relev\xE9",
+      quotasHermes: "Hermes",
+      ouvrirQuotas: "Ouvrir les quotas",
+      bilanTitre: "Bilan quotidien",
+      bilanIllisible: "\xC9tat du bilan inconnu\xA0: la liste des t\xE2ches cron de Hermes ne r\xE9pond pas.",
+      bilanNonCree: "Non cr\xE9\xE9",
+      bilanExplication: "Une notification par jour, \xE0 8 h (heure de Paris)\xA0: des compteurs seulement, sans mod\xE8le ni jeton. Vous seul pouvez la cr\xE9er.",
+      creerBilan: "Cr\xE9er le bilan quotidien (8 h)",
+      bilanActif: "Actif",
+      bilanEnPause: "En pause",
+      prochainEnvoi: "Prochain envoi",
+      dernierEnvoi: "Dernier envoi",
+      jamais: "Jamais",
+      bilanPlusieurs: "Plusieurs t\xE2ches du bilan existent\xA0: gardez-en une depuis la page Cron.",
+      bilanCree: "Bilan quotidien cr\xE9\xE9.",
+      bilanSansCanal: "Le bilan ne partira pas\xA0: notifications non configur\xE9es.",
+      ouvrirCron: "Pause et suppression\xA0: page Cron",
+      accueilIndisponible: "L'accueil est indisponible\xA0: le greffon acp-poste ne r\xE9pond pas sur /v1/accueil.",
+      actualisationImpossible: "Derni\xE8re actualisation impossible\xA0: les donn\xE9es affich\xE9es sont celles de la lecture pr\xE9c\xE9dente.",
       raccourcis: "Raccourcis",
       lienProjets: "Projets",
       discussion: "Discussion",
@@ -296,7 +348,55 @@
       revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
       revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
       bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
-      bloqueesNote: "Lecture seule\xA0: relancer une carte depuis cette page arrivera \xE0 l'\xE9tape P7\xA0; en attendant, le kanban de Hermes le permet.",
+      // Étape P7 : file Questions, « Qui répond », « Clore » (cahier P7 § 3, § 4.2, § 10).
+      fileTitre: "\xC0 traiter",
+      aTraiterParVous: "\xC0 traiter par vous",
+      chezHermesCompte: "Chez Hermes",
+      discussionsNonComptees: "(discussions en attente\xA0: \xE9tat inconnu, non compt\xE9es)",
+      cibleTraitee: "Cette demande a d\xE9j\xE0 \xE9t\xE9 trait\xE9e\xA0: elle n'est plus dans la file.",
+      quiRepondQuestion: "Qui r\xE9pond",
+      chezHermes: "Hermes y r\xE9pond",
+      aVous: "\xC0 vous",
+      carteRepondre: "Carte \xAB\xA0r\xE9pondre\xA0\xBB\xA0:",
+      chezHermesAide: "Hermes pr\xE9pare la r\xE9ponse par sa carte \xAB\xA0r\xE9pondre\xA0\xBB\xA0; vous pouvez r\xE9pondre vous-m\xEAme avant lui.",
+      bloqueesIntro: "\xAB\xA0Relancer\xA0\xBB remet la carte en route, avec votre consigne si vous en donnez une. Une carte qui rebloque pour la m\xEAme raison revient en d\xE9cision.",
+      relancerCarte: "Relancer",
+      relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
+      relancee: "La carte repart.",
+      relanceeSessionNeuve: "La carte repart\xA0: l'agent reprend d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
+      nonRelancee: "La carte n'a pas \xE9t\xE9 relanc\xE9e.",
+      statutApres: "Statut\xA0:",
+      nonRelancable: "Relance impossible\xA0:",
+      discussionsTitre: "Discussions en attente",
+      discussionsIntro: "Discussions du tableau de bord dont une demande attend votre r\xE9ponse, en lecture seule.",
+      discussionsInconnues: "Discussions\xA0: \xE9tat inconnu (le tableau de bord n'a pas pu \xEAtre interrog\xE9).",
+      requetesOuvertes: "Requ\xEAtes ouvertes dans le tableau de bord\xA0:",
+      aucuneDiscussion: "Aucune discussion en attente.",
+      discussionSansTitre: "Sans titre",
+      discussionEtat: "\xC9tat",
+      discussionEnAttente: "En attente d'une r\xE9ponse",
+      discussionActivite: "Derni\xE8re activit\xE9",
+      discussionApercu: "Aper\xE7u",
+      discussionCle: "Session",
+      discussionsLimite: "Les questions pos\xE9es dans la discussion en terminal (/chat) ne sont visibles que dans cette discussion.",
+      reponsesSansObjetCourt: "Sans objet (projet sans d\xE9p\xF4t)",
+      changerQuiRepond: "Changer qui r\xE9pond",
+      quiRepondSuivantes: "Qui r\xE9pond aux questions suivantes",
+      quiRepondAide: "Le changement vaut pour les questions suivantes\xA0; les questions d\xE9j\xE0 ouvertes gardent leur traitement, et vous pouvez toujours y r\xE9pondre vous-m\xEAme.",
+      enregistrer: "Enregistrer",
+      reglageEnregistre: "R\xE9glage enregistr\xE9 pour les questions suivantes. Questions ouvertes qui gardent leur traitement\xA0:",
+      clore: "Clore le projet",
+      cloreQuestion: "Clore ce projet\xA0?",
+      clorePoint1: "Les cartes ouvertes du projet sont archiv\xE9es\xA0; un travail en cours est arr\xEAt\xE9.",
+      clorePoint2: "Ses questions ouvertes sont annul\xE9es.",
+      clorePoint3: "Le projet passe \xAB\xA0Termin\xE9\xA0\xBB si la synth\xE8se du tour en cours est faite, sinon \xAB\xA0Abandonn\xE9\xA0\xBB.",
+      clorePoint4: "Aucune notification n'est envoy\xE9e\xA0; les branches d\xE9j\xE0 rapport\xE9es restent sur l'ex\xE9cutant jusqu'\xE0 leur purge (7 jours).",
+      cloreConfirmer: "Confirmer la cl\xF4ture",
+      closTermine: "Projet clos\xA0: termin\xE9.",
+      closAbandonne: "Projet clos\xA0: abandonn\xE9 (la synth\xE8se du tour en cours n'\xE9tait pas faite).",
+      cartesArchivees: "Cartes archiv\xE9es\xA0:",
+      questionsAnnulees: "Questions annul\xE9es\xA0:",
+      branchesRestent: "Branches rest\xE9es sur l'ex\xE9cutant (purg\xE9es apr\xE8s 7 jours)\xA0:",
       aucuneBloquee: "Aucune carte bloqu\xE9e.",
       abandonnee: "Abandonn\xE9e apr\xE8s plusieurs \xE9checs",
       assigne: "Assign\xE9e \xE0",
@@ -829,6 +929,7 @@
   var ECHECS_AVANT_REPLI = 3;
   var NOUVEL_ESSAI_MS = 3e5;
   var FERMETURE_DIFFEREE_MS = 5e3;
+  var TRAMES_GARDEES = 200;
   var AnalyseurSse = class {
     constructor() {
       __publicField(this, "dernierId", null);
@@ -913,6 +1014,7 @@
       __publicField(this, "echecs", []);
       __publicField(this, "repliJusqua", 0);
       __publicField(this, "dernierId", null);
+      __publicField(this, "recues", []);
       __publicField(this, "arrete", false);
       __publicField(this, "surVisibilite", () => visible() ? this.ouvrir() : this.fermer());
       if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.surVisibilite);
@@ -945,6 +1047,11 @@
     }
     etat() {
       return this.courant;
+    }
+    /** Dernières trames reçues (« etat », « changement », « fin »), pour le diagnostic et la preuve du parcours P7 (une
+     *  relecture de la page suit-elle une trame ?). Aucune donnée : des noms de sujets. */
+    trames() {
+      return this.recues.map((r) => ({ ...r, sujets: [...r.sujets] }));
     }
     /** Nombre d'abonnés (tests et diagnostic). */
     abonnements() {
@@ -1056,8 +1163,16 @@
       this.echec();
     }
     /** Traite une trame ; rend vrai pour « fin ». */
+    noter(evenement, sujets) {
+      const t = typeof performance !== "undefined" ? performance.now() : Date.now();
+      this.recues.push({ t, evenement, sujets });
+      if (this.recues.length > TRAMES_GARDEES) this.recues.splice(0, this.recues.length - TRAMES_GARDEES);
+    }
     traiter(trame) {
-      if (trame.evenement === "fin") return true;
+      if (trame.evenement === "fin") {
+        this.noter("fin", []);
+        return true;
+      }
       if (trame.evenement !== "etat" && trame.evenement !== "changement") return false;
       let donnees;
       try {
@@ -1067,6 +1182,7 @@
       }
       const brut = donnees && typeof donnees === "object" ? donnees : {};
       const sujets = Array.isArray(brut.sujets) ? brut.sujets.filter(estSujet) : [];
+      this.noter(trame.evenement, sujets);
       if (trame.evenement === "etat") {
         this.echecs = [];
         this.repliJusqua = 0;
@@ -1107,10 +1223,14 @@
   function visible2() {
     return typeof document === "undefined" || document.visibilityState !== "hidden";
   }
+  function relectureDeSurete() {
+    const demande = typeof window !== "undefined" ? window.__ACP_FLUX_REGLAGES__?.relectureSureteMs : void 0;
+    return typeof demande === "number" && Number.isFinite(demande) && demande >= RELECTURE_SURETE_MS ? demande : RELECTURE_SURETE_MS;
+  }
   function intervalleDeRelecture(etat, sujets) {
     if (etat.mode !== "temps_reel") return INTERVALLE_SONDAGE_MS;
     if (sujets.includes("discussions") && etat.discussionsSuivies === false) return RELECTURE_DISCUSSIONS_MS;
-    return RELECTURE_SURETE_MS;
+    return relectureDeSurete();
   }
   function useDonnees(charger, cle, sujets) {
     const [etat, fixer] = useState({ valeur: null, erreur: null, luLe: null });

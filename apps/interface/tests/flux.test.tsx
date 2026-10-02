@@ -8,7 +8,14 @@ import { join } from "node:path";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EtatActualisation } from "../src/actualisation";
-import { INTERVALLE_SONDAGE_MS, intervalleDeRelecture, RELECTURE_DISCUSSIONS_MS, RELECTURE_SURETE_MS, useDonnees } from "../src/donnees";
+import {
+  INTERVALLE_SONDAGE_MS,
+  intervalleDeRelecture,
+  RELECTURE_DISCUSSIONS_MS,
+  RELECTURE_SURETE_MS,
+  relectureDeSurete,
+  useDonnees,
+} from "../src/donnees";
 import {
   AnalyseurSse,
   ECHECS_AVANT_REPLI,
@@ -226,6 +233,23 @@ describe("flux partagé de l'onglet", () => {
     expect(serveur.appels.length).toBe(3);
   });
 
+  it("garde les dernières trames pour le diagnostic : événement et sujets, rien d'autre", async () => {
+    const serveur = serveurFlux();
+    installerSdk({}, { authedFetch: serveur.authedFetch });
+    const flux = fluxPartage();
+    flux.abonner(["questions"], () => undefined);
+    await vider();
+    serveur.dernier().corps.envoyer(ETAT("9.1", ["projets"]) + CHANGEMENT("9.2", ["questions", "inconnu"]) + FIN);
+    await vider();
+    const trames = flux.trames();
+    expect(trames.map((t) => [t.evenement, t.sujets])).toEqual([
+      ["etat", ["projets"]], ["changement", ["questions"]], ["fin", []]]);
+    expect(trames.every((t) => typeof t.t === "number" && Object.keys(t).sort().join() === "evenement,sujets,t"))
+      .toBe(true);
+    trames[0].sujets.push("pause");  // une copie : le journal du flux ne bouge pas
+    expect(flux.trames()[0].sujets).toEqual(["projets"]);
+  });
+
   it("trois échecs de suite en 2 min : repli sur le sondage, nouvel essai toutes les 5 min", async () => {
     const serveur = serveurFlux([503, 429, 502, 200]);
     installerSdk({}, { authedFetch: serveur.authedFetch });
@@ -320,6 +344,15 @@ describe("useDonnees", () => {
 
   it("intervalles : 120 s en temps réel, 60 s pour des discussions non suivies, 15 s sinon", () => {
     expect(intervalleDeRelecture({ mode: "temps_reel", discussionsSuivies: true }, ["projets"])).toBe(RELECTURE_SURETE_MS);
+    // Réglage de diagnostic (preuve du parcours P7, K23) : PLUS LONG seulement ; plus court ou illisible : ignoré.
+    for (const [demande, attendu] of [[1_800_000, 1_800_000], [1_000, RELECTURE_SURETE_MS], ["long", RELECTURE_SURETE_MS],
+                                      [Number.NaN, RELECTURE_SURETE_MS]] as Array<[unknown, number]>) {
+      window.__ACP_FLUX_REGLAGES__ = { relectureSureteMs: demande };
+      expect(relectureDeSurete()).toBe(attendu);
+      expect(intervalleDeRelecture({ mode: "temps_reel", discussionsSuivies: true }, ["projets"])).toBe(attendu);
+      expect(intervalleDeRelecture({ mode: "sondage", discussionsSuivies: true }, ["projets"])).toBe(INTERVALLE_SONDAGE_MS);
+    }
+    delete window.__ACP_FLUX_REGLAGES__;
     expect(intervalleDeRelecture({ mode: "temps_reel", discussionsSuivies: false }, ["discussions"])).toBe(
       RELECTURE_DISCUSSIONS_MS);
     expect(intervalleDeRelecture({ mode: "temps_reel", discussionsSuivies: false }, ["projets"])).toBe(

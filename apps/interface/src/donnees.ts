@@ -29,11 +29,27 @@ function visible(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
 }
 
+declare global {
+  interface Window {
+    /** Réglage de DIAGNOSTIC (preuve du parcours P7, correction K23) : relecture de sûreté plus LONGUE seulement ;
+     *  une valeur plus courte que la normale, ou illisible, est ignorée (jamais plus de requêtes). */
+    __ACP_FLUX_REGLAGES__?: { relectureSureteMs?: unknown };
+  }
+}
+
+/** Relecture de sûreté en temps réel : 120 s, ou plus si le réglage de diagnostic le demande (jamais moins). */
+export function relectureDeSurete(): number {
+  const demande = typeof window !== "undefined" ? window.__ACP_FLUX_REGLAGES__?.relectureSureteMs : undefined;
+  return typeof demande === "number" && Number.isFinite(demande) && demande >= RELECTURE_SURETE_MS
+    ? demande
+    : RELECTURE_SURETE_MS;
+}
+
 /** Intervalle de relecture selon l'état du flux et les sujets de la page. */
 export function intervalleDeRelecture(etat: EtatFlux, sujets: readonly Sujet[]): number {
   if (etat.mode !== "temps_reel") return INTERVALLE_SONDAGE_MS;
   if (sujets.includes("discussions") && etat.discussionsSuivies === false) return RELECTURE_DISCUSSIONS_MS;
-  return RELECTURE_SURETE_MS;
+  return relectureDeSurete();
 }
 
 export function useDonnees<V>(charger: () => Promise<V>, cle: unknown, sujets: readonly Sujet[]): Lecture<V> {

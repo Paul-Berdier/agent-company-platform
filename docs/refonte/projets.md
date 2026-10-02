@@ -172,8 +172,8 @@ l'Accueil.
 |---|---|---|---|
 | Liste | `/projets` | `GET /v1/projets` | une carte par projet : état (dérivé : exploration, planification, en cours, en attente du poste, synthèse, plafond atteint, en pause, terminé), « Cartes faites : n sur m », poste, questions en attente, dernière note ; carte « Poste Windows » ; carte « Notifications » (canal, état, notification de test) ; carte « Pause générale » |
 | Nouveau projet | `?vue=nouveau` | `GET /v1/catalogue` (types de projet), `GET /v1/poste` (dépôts et relevés), `POST /v1/projets` | titre, objectif, type de projet, dépôt, qui répond (Hermes d'abord ou moi : avec un dépôt seulement, D42), exploration (exécutant, modèle, effort) |
-| Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `GET /v1/projets/{id}/cartes/{carte}`, `POST /v1/projets/{id}/pause`, `…/reprise` | état, objectif, **résultat du projet** (synthèse du dernier tour, en entier), tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier « Standard », **« Modèle servi : Non observé »** avant P6, mention, résumé replié : un extrait le dit et **Lire le résumé en entier**) ; tours et décisions ; questions en attente ; journal en français (détail technique replié) ; **Mettre en pause** / **Reprendre** |
-| Questions | `?vue=questions` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre`, `…/conclure` | questions ouvertes ou escaladées (titre de la carte, contexte) avec **Répondre** ; cartes en triage avec les gestes offerts : **Prolonger** ou **Relancer la planification** (consigne facultative) et **Conclure le projet**, ou **Reprendre** ; cartes bloquées ou abandonnées **en lecture seule** avec leur raison (« Relancer » : P7) ; le compteur de l'onglet compte questions ET décisions |
+| Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `GET /v1/projets/{id}/cartes/{carte}`, `POST /v1/projets/{id}/pause`, `…/reprise`, (P7) `POST /v1/projets/{id}/reponses`, `POST /v1/projets/{id}/clore` | état, objectif, **résultat du projet** (synthèse du dernier tour, en entier), tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier « Standard », **« Modèle servi : Non observé »** avant P6, mention, résumé replié : un extrait le dit et **Lire le résumé en entier**) ; tours et décisions ; questions en attente ; journal en français (détail technique replié) ; **Mettre en pause** / **Reprendre** ; (P7) **Changer qui répond** (projet sur dépôt, pas fini ; vaut pour les questions suivantes, rien ne change avant la réponse de l'API) et **Clore le projet** (confirmation qui dit les quatre effets ; résultat de l'API : état atteint, cartes archivées, questions annulées, branches restées sur l'exécutant) |
+| Questions | `?vue=questions`, (P7) `&q=<question>` ou `&carte=<tableau>/<carte>` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre`, `…/conclure`, (P6) `POST /v1/revues/…`, (P7) `POST /v1/cartes/{tableau}/{carte}/relancer`, JSON-RPC natif `session.active_list` | file à **cinq sections** (étape P7, cahier P7 § 3) : questions ouvertes ou escaladées (titre de la carte, contexte, **qui y répond** : « Hermes y répond » ou « À vous », règle unique du greffon) avec **Répondre** ; décisions (cartes en triage) : **Prolonger** ou **Relancer la planification** (consigne facultative) et **Conclure le projet**, ou **Reprendre** ; revues des fichiers de pilotage (P6) ; cartes arrêtées (bloquées ou abandonnées) avec **Relancer** (consigne facultative ; « l'agent repart d'une session neuve » pour une carte de l'exécutant) ou la raison du refus ; discussions en attente (lecture seule). En tête : **À traiter par vous** et **Chez Hermes**. Une cible de lien profond est défilée et marquée (`aria-current`) ; absente, la page dit « Cette demande a déjà été traitée » |
 
 Règles, toutes testées (Vitest, image, navigateur) :
 
@@ -200,7 +200,18 @@ Règles, toutes testées (Vitest, image, navigateur) :
 - **Refus de l'API affichés tels quels** (message français du greffon, code HTTP) ; le formulaire reste
   rempli. Une clé d'idempotence par envoi : un double appui ne lance qu'un projet.
 - **Sondage** toutes les 15 s tant que la page est visible, aucune lecture quand elle est cachée (D35) ;
-  relecture immédiate après chaque geste.
+  relecture immédiate après chaque geste. Depuis P7 : relecture sur signal du flux d'invalidation, sondage en
+  repli ([interface.md](interface.md) § 13).
+- **Compteur de l'onglet « Questions » (P7)** : « À traiter par vous » = compteurs de `GET /v1/questions`
+  (questions à vous, décisions, revues, cartes arrêtées) plus les discussions en attente quand elles ont pu être
+  lues ; sinon la page dit qu'elles ne sont pas comptées, jamais zéro.
+- **Discussions en attente (P7, cahier P7 § 3.5)** : lues par le JSON-RPC NATIF du tableau de bord
+  (`apps/interface/src/jsonrpc/discussions.ts`) : `await sdk().buildWsUrl("/api/ws")` (ticket de la session),
+  `gateway.ready`, puis la SEULE méthode `session.active_list`, sans `client.capabilities` (aucune requête ne lui est
+  adressée, aucune session n'est rattachée) ; les entrées `waiting` sont gardées et la connexion fermée ; délai 5 s,
+  échec : « état inconnu ». Seules les sessions ouvertes par `/api/ws` y figurent : les questions d'une discussion
+  `/chat` (terminal) vivent dans le processus de son PTY, et la page le dit. L'ouverture d'une discussion depuis
+  cette section relève de la page Discussion (partie D).
 - Tout texte vient du catalogue français `apps/interface/src/chaines.ts` ; ni `fetch` direct, ni
   `innerHTML`, ni stockage local.
 
@@ -236,9 +247,10 @@ Questions fait défiler jusqu'à la cible et la met en évidence ; une cible dé
 **Bilan quotidien facultatif (étape P7, cahier P7 § 7, décision P7-6).** Une tâche cron **native** de Hermes en mode
 `no_agent` (aucun modèle, aucun jeton) lance chaque jour le script de l'image `acp-bilan.py`, déposé par root dans
 `/opt/data/scripts/` (garde de démarrage élargie à ce seul fichier, d'empreinte connue : [image.md](image.md) § 6). Seul
-le **propriétaire** crée la tâche, avec sa session, par la page Cron native ou la route native `POST /api/cron/jobs`
+le **propriétaire** crée la tâche, avec sa session : bouton « Créer le bilan quotidien (8 h) » de l'Accueil
+([interface.md](interface.md) § 14), qui appelle la route native `POST /api/cron/jobs`
 (`{"name": "Bilan ACP", "schedule": "0 8 * * *", "prompt": "", "no_agent": true, "script": "acp-bilan.py",
-"deliver": "local"}`) ; l'agent ne le peut pas (`cronjob` coupé) et le jeu
+"deliver": "local"}`), ou la page Cron native ; l'agent ne le peut pas (`cronjob` coupé) et le jeu
 `acp_poste` reste coupé sur la plateforme `cron` (D24) : un cron ne peut pas lancer de projet. Le fuseau de Hermes est
 épinglé à `Europe/Paris` (clé `timezone` de la managed scope) : 8 h veut dire 8 h à Paris. Le script n'accepte aucune
 entrée (arguments, entrée standard et environnement ignorés, sauf `HERMES_HOME`), charge le noyau comme le tableau de
@@ -279,9 +291,10 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   en file et la notification de test partent encore. La **discussion** avec Hermes reste ouverte (l'arrêt
   d'urgence de Hermes n'est lu que par cron, le répartiteur kanban, la passerelle de messagerie et
   `api_server`) ; lancer un projet y est refusé par ACP.
-- « Clore » un projet quelconque (le passer « abandonné » et archiver ses cartes) n'existe pas en P4 : une
-  carte abandonnée par le disjoncteur laisse le projet « en cours » ; seule parade, la pause (qui libère une
-  place de projet actif). « Conclure » n'existe que sur une carte de décision (D41). P7.
+- « Clore » un projet quelconque n'existait pas en P4 (une carte abandonnée par le disjoncteur laissait le
+  projet « en cours ») : depuis P7, **Clore le projet** (détail) archive ses cartes ouvertes, annule ses questions
+  et pose « terminé » seulement si la synthèse du tour est faite, sinon « abandonné ». « Conclure » reste propre
+  aux cartes de décision (D41).
 - Surcharge de routage d'une carte existante : refusée jusqu'à P6 (D43). Prolonger le plafond de
   corrections : P6 (les corrections y sont câblées).
 - Un résumé de carte n'est rendu qu'en extrait (500 caractères) dans le détail, et le dit ; « Lire le
@@ -301,11 +314,12 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   plus (`kanban_adapter.connexion`, `test_connexion_rejoue_la_seule_course_du_controle_d_ecriture`) ; les
   processus de Hermes eux-mêmes (répartiteur, workers) n'en sont pas protégés : une carte qui la
   rencontrerait échouerait et serait relancée (`failure_limit: 3`), ce qui n'a pas été observé.
-- Page « Projets » : la file Questions complète (`open_requests`, réglage par projet) et le temps réel
-  (SSE) sont en P7 ; « Relancer » une carte bloquée ou abandonnée aussi (lecture seule en P4). Le rendu
-  n'est prouvé que dans Chromium (390×844 émulé, pas un vrai téléphone ni Safari iOS).
+- Page « Projets » : depuis P7, file Questions à cinq sections, « Relancer » une carte arrêtée, « Qui répond »
+  modifiable et temps réel (SSE). Les discussions en attente ne listent que les sessions ouvertes par `/api/ws`
+  (jamais celles du terminal `/chat`) ; les ouvrir relève de la page Discussion (partie D). Le rendu n'est prouvé
+  que dans Chromium (390×844 émulé, pas un vrai téléphone ni Safari iOS).
 - Sans dépôt, aucune question ne peut naître (seules les cartes du poste en posent) : un manque se dit par
-  une carte bloquée avec sa raison, que la page Questions montre en lecture seule (D42).
+  une carte bloquée avec sa raison, que la page Questions montre avec « Relancer » (consigne facultative ; D42).
 
 ## 8. Écarts au cahier de conception, justifiés
 

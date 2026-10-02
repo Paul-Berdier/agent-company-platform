@@ -14,7 +14,10 @@ import type {
   ReponseDetail,
   ReponseLancement,
   ReponsePoste,
+  ResultatCloture,
   ResultatConclusion,
+  ResultatRelance,
+  ResultatReglageReponses,
   ResultatReponse,
   ResultatRevue,
   ResultatTriage,
@@ -43,6 +46,11 @@ export const routeAccepterRevue = (tableau: string, carte: string): string =>
   `${RACINE_POSTE}/revues/${segment(tableau)}/${segment(carte)}/accepter`;
 export const routeRefuserRevue = (tableau: string, carte: string): string =>
   `${RACINE_POSTE}/revues/${segment(tableau)}/${segment(carte)}/refuser`;
+// Étape P7 : relancer une carte arrêtée, « qui répond » par projet, clore un projet (cahier P7 § 3.4, § 4.2, § 10).
+export const routeRelancerCarte = (tableau: string, carte: string): string =>
+  `${RACINE_POSTE}/cartes/${segment(tableau)}/${segment(carte)}/relancer`;
+export const routeReponsesProjet = (id: string): string => `${routeProjet(id)}/reponses`;
+export const routeClore = (id: string): string => `${routeProjet(id)}/clore`;
 
 /** POST JSON par fetchJSON ; toute erreur devient une ErreurApi (message français à l'affichage). */
 export async function ecrireJSON<T>(url: string, corps: unknown, entetes: Record<string, string> = {}): Promise<T> {
@@ -123,3 +131,11 @@ export const accepterRevue = (tableau: string, carte: string): Promise<ResultatR
   ecrireJSON<ResultatRevue>(routeAccepterRevue(tableau, carte), {});
 export const refuserRevue = (tableau: string, carte: string, motif: string): Promise<ResultatRevue> =>
   ecrireJSON<ResultatRevue>(routeRefuserRevue(tableau, carte), { motif });
+export const relancerCarte = (tableau: string, carte: string, consigne: string | null): Promise<ResultatRelance> =>
+  ecrireJSON<ResultatRelance>(routeRelancerCarte(tableau, carte), { consigne });
+export const changerReponses = (
+  id: string,
+  reponses: "hermes_d_abord" | "proprietaire",
+): Promise<ResultatReglageReponses> => ecrireJSON<ResultatReglageReponses>(routeReponsesProjet(id), { reponses });
+export const clore = (id: string): Promise<ResultatCloture> =>
+  ecrireJSON<ResultatCloture>(routeClore(id), { confirmation: true });

@@ -186,6 +186,9 @@ export const QUESTIONS = {
       carte_repondre: null,
       motif_escalade: "politique du projet : le propriétaire répond lui-même",
       cree_le: 1790423039,
+      // Étape P7 (noyau/questions.lister) : règle unique « chez », statut de la carte « répondre ».
+      chez: "proprietaire",
+      carte_repondre_statut: null,
     },
   ],
   triage: [
@@ -212,9 +215,37 @@ export const QUESTIONS = {
       assigne: "poste-codex",
       abandonnee: false,
       raison: "Refusé par ACP : carte poste-* non émise par le greffon acp-poste ; seul le greffon crée les cartes du poste.",
+      // Étape P7 (noyau/questions.refus_de_relance) : une carte étrangère ne se relance pas, et la raison le dit.
+      relancable: false,
+      refus_relance: "Carte non émise par ACP : ACP ne la relance pas.",
+      executant: false,
     },
   ],
   tableaux_illisibles: [],
+  // Étape P7 (cahier P7 § 3.2) : revues (P6), discussions en attente (compteur du tableau de bord), compteurs.
+  revues: [],
+  discussions: {
+    suivies: true,
+    requetes_ouvertes: 0,
+    message: null,
+    limite: "Les questions posées dans la discussion en terminal (/chat) ne sont visibles que dans cette discussion.",
+  },
+  compteurs: { questions: 1, decisions: 1, revues: 0, arretees: 1, chez_hermes: 0, a_traiter: 3 },
+};
+
+/** Carte de l'exécutant arrêtée, qui se relance (étape P7). */
+export const ARRETEE_RELANCABLE = {
+  projet: "p_367e23fd51b7",
+  projet_titre: "Outil",
+  tableau: "acp-outil-3dd5",
+  carte: "t_5e6f7a8b",
+  titre: "Implémentation — e1 : Écrire outil.py",
+  assigne: "poste-claude",
+  abandonnee: true,
+  raison: "Refusé par ACP au moment de la réclamation : effort « low » interdit par la politique.",
+  relancable: true,
+  refus_relance: null,
+  executant: true,
 };
 
 const POLITIQUE = {

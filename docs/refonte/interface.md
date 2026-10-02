@@ -500,8 +500,8 @@ Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté inter
   attente), toutes les 15 s sinon ; page cachée : flux fermé, aucune lecture ; une erreur garde la dernière
   valeur lue et le dit. Branché sur Projets (liste : `projets`, `questions`, `poste`, `notifications`, `pause` ;
   détail : `projets`, `questions`, `pause` ; Questions : `questions`, `projets`, `discussions`) et Poste
-  (état : `poste`, `projets`, `pause`, `quotas` ; Routage et Quotas : `quotas`, `poste`). L'Accueil, relu une
-  fois depuis la méta, est réécrit sur `GET /v1/accueil` en partie C, qui le branche.
+  (état : `poste`, `projets`, `pause`, `quotas` ; Routage et Quotas : `quotas`, `poste`). Depuis la partie C :
+  l'Accueil (`GET /v1/accueil`, tous les sujets) et les discussions en attente (sujet `discussions`), § 14.
 - **Reprise** : aussitôt après `fin`, avec `Last-Event-ID` ; sinon 1 s, 2 s, 5 s, 10 s puis 30 s ; trois échecs
   de suite en 2 min : repli sur le sondage de 15 s, nouvel essai toutes les 5 min. Un **401** n'est jamais
   réessayé (`authedFetch` ne redirige pas vers `/login`) : les pages sondent par `fetchJSON`, dont la lecture
@@ -514,3 +514,40 @@ Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté inter
   avec le desktop, singleton partagé par deux copies du module, fermeture différée, `Last-Event-ID`, reprise,
   repli après trois échecs et nouvel essai, 401, page cachée, SDK sans flux, regroupement, intervalles, erreur
   gardée ; chacun contrôlé par une mutation du code (Last-Event-ID, `\r\n` coupé, regroupement, 401).
+- **Diagnostic (partie C)** : le flux garde ses 200 dernières trames (instant `performance.now()`, événement,
+  sujets : aucune donnée), lues par `window.__ACP_FLUX__.v1.trames()` ; la preuve du parcours P7 s'en sert pour
+  montrer que chaque relecture suit une trame. Réglage de diagnostic `window.__ACP_FLUX_REGLAGES__.relectureSureteMs`
+  (correction K23 : la preuve porte la relecture de sûreté à 30 min) : admis seulement PLUS LONG que 120 s, jamais
+  plus court ; il ne peut qu'espacer les requêtes.
+
+## 14. Accueil (étape P7, partie C : cahier P7 § 8, décision P7-7)
+
+L'Accueil (`apps/interface/src/interface/Accueil.tsx`) lit UNE route agrégée, `GET /v1/accueil`
+([projets.md](projets.md) § 4), la même au téléphone, dans le navigateur du PC et, s'il le veut, pour le desktop
+(fixture partagée `hermes/tests/outils/fixtures_accueil/accueil.json`, lue telle quelle par le test d'image et par
+Vitest). **Même ordre, mêmes textes** à toutes les largeurs : grille `repeat(auto-fit, minmax(min(20rem, 100%),
+1fr))`, une colonne à 390 px, trois au bureau.
+
+1. **À traiter par vous** (`CarteATraiter.tsx`) : total (questions à vous, décisions, revues, cartes arrêtées, plus
+   les discussions en attente lues par le client ; « Inconnues » sinon, jamais zéro), « Chez Hermes », les trois
+   premières demandes en liens profonds vers la file Questions ;
+2. **Projets en cours** : en cours, en pause, terminés ces 7 jours ; par projet ouvert, son état, « n sur m » et la
+   dernière note ;
+3. **Exécutant** (`CarteExecutant.tsx`) : état réel (non configuré, à confirmer, en ligne, hors ligne,
+   redéploiement, révoqué), nom de la machine enregistrée (jamais un libellé écrit en dur), plateforme, dernière
+   vue, carte en cours, voies fermées et leur raison ;
+4. **Quotas** : par voie, état du relevé, part utilisée, remise à zéro, source et date ; Hermes : le libellé servi ;
+5. **Notifications** (canal, notification de test) et **Bilan quotidien** (`CarteBilan.tsx`) : la carte lit
+   `GET /api/cron/jobs` (route NATIVE de Hermes) et dit « Actif » avec le prochain envoi, « En pause » ou « Non
+   créé » ; le bouton **Créer le bilan quotidien (8 h)** appelle, avec la session du propriétaire, la route native
+   `POST /api/cron/jobs` (`no_agent`, script `acp-bilan.py`, `0 8 * * *`, livraison `local`) ; seule une tâche SANS
+   agent qui exécute ce script est reconnue comme le bilan. Pause et suppression : page Cron de Hermes (lien).
+   Canal non configuré : « Le bilan ne partira pas » ;
+6. **Sessions récentes** (cinq dernières) ;
+7. **Système** (Hermes, garde, persona, catalogue : cartes de P3), puis les raccourcis.
+
+La carte « Poste » de P3, figée sur « Non configuré », a disparu : depuis P5-P6, c'était une donnée fausse. Pause
+générale engagée : le bandeau de la page Projets s'affiche en tête. Chaque bloc illisible dit « Bloc illisible » et
+sa raison (champ `illisibles` de la route). Temps réel par le flux (tous les sujets), sondage de 15 s en repli. La
+notification de test dit désormais « envoyée depuis le tableau de bord » (elle part de l'Accueil comme de la page
+Projets).

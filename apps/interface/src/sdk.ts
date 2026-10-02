@@ -16,6 +16,9 @@ export interface SdkHermes {
   fetchJSON?: <T = unknown>(url: string, init?: RequestInit) => Promise<T>;
   /** Contrat 1.1 : réponse BRUTE (flux lisible), même authentification que fetchJSON, sans redirection d'un 401. */
   authedFetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  /** Contrat 1.1 : URL d'un WebSocket du tableau de bord, ASYNCHRONE (ticket à usage unique de 30 s en mode protégé,
+   *  jeton en bouclage local ; web/src/lib/api.ts de Hermes). Sans elle : discussions en attente « inconnues ». */
+  buildWsUrl?: (chemin: string, parametres?: Record<string, string>) => Promise<string>;
   api?: Record<string, unknown>;
   useI18n?: () => unknown;
 }

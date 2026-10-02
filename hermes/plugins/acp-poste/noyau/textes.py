@@ -251,7 +251,7 @@ NOTIF_HORS_LIGNE = "ACP — Poste hors ligne depuis {heure} (Europe/Paris), {car
 NOTIF_PLAFOND = "ACP — Projet « {titre} » : plafond de {genre} atteint, votre décision est attendue. {lien}"
 NOTIF_SANS_PLAN = ("ACP — Projet « {titre} » : la planification s'est terminée sans plan, votre décision est "
                    "attendue. {lien}")
-NOTIF_TEST = "ACP — Notification de test envoyée depuis la page Projets. {lien}"
+NOTIF_TEST = "ACP — Notification de test envoyée depuis le tableau de bord. {lien}"
 NOTIF_CROCHETS = "ACP — Crochets shell détectés : pause générale engagée. {lien}"
 RAISON_PAUSE_CROCHETS = "ACP : crochets shell détectés en cours de route"
 RAISON_PAUSE_PROPRIETAIRE = "ACP : pause du propriétaire"

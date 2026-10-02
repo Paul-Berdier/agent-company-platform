@@ -31,6 +31,15 @@ export const FENETRE_ECHECS_MS = 120_000;
 export const ECHECS_AVANT_REPLI = 3;
 export const NOUVEL_ESSAI_MS = 300_000;
 export const FERMETURE_DIFFEREE_MS = 5_000;
+/** Trames gardées pour le diagnostic (noms de sujets seulement, jamais de donnée) : FluxPartage.trames(). */
+export const TRAMES_GARDEES = 200;
+
+/** Une trame reçue, pour le diagnostic : instant (performance.now() de l'onglet), événement, sujets. */
+export interface TrameRecue {
+  t: number;
+  evenement: string;
+  sujets: Sujet[];
+}
 
 // ------------------------------------------------------------------ analyseur SSE (spécification HTML, « event stream »)
 
@@ -148,6 +157,7 @@ export class FluxPartage {
   private echecs: number[] = [];
   private repliJusqua = 0;
   private dernierId: string | null = null;
+  private readonly recues: TrameRecue[] = [];
   private arrete = false;
   private readonly surVisibilite = () => (visible() ? this.ouvrir() : this.fermer());
 
@@ -185,6 +195,12 @@ export class FluxPartage {
 
   etat(): EtatFlux {
     return this.courant;
+  }
+
+  /** Dernières trames reçues (« etat », « changement », « fin »), pour le diagnostic et la preuve du parcours P7 (une
+   *  relecture de la page suit-elle une trame ?). Aucune donnée : des noms de sujets. */
+  trames(): TrameRecue[] {
+    return this.recues.map((r) => ({ ...r, sujets: [...r.sujets] }));
   }
 
   /** Nombre d'abonnés (tests et diagnostic). */
@@ -308,8 +324,17 @@ export class FluxPartage {
   }
 
   /** Traite une trame ; rend vrai pour « fin ». */
+  private noter(evenement: string, sujets: Sujet[]): void {
+    const t = typeof performance !== "undefined" ? performance.now() : Date.now();
+    this.recues.push({ t, evenement, sujets });
+    if (this.recues.length > TRAMES_GARDEES) this.recues.splice(0, this.recues.length - TRAMES_GARDEES);
+  }
+
   private traiter(trame: TrameSse): boolean {
-    if (trame.evenement === "fin") return true;
+    if (trame.evenement === "fin") {
+      this.noter("fin", []);
+      return true;
+    }
     if (trame.evenement !== "etat" && trame.evenement !== "changement") return false;
     let donnees: unknown;
     try {
@@ -319,6 +344,7 @@ export class FluxPartage {
     }
     const brut = donnees && typeof donnees === "object" ? (donnees as Record<string, unknown>) : {};
     const sujets = Array.isArray(brut.sujets) ? brut.sujets.filter(estSujet) : [];
+    this.noter(trame.evenement, sujets);
     if (trame.evenement === "etat") {
       this.echecs = [];
       this.repliJusqua = 0;

@@ -251,7 +251,7 @@ def test_notification_de_test_envoyee_par_la_passerelle(pile):
     envoyees = attendre(lambda: [n for n in notifications_ntfy(pile)[avant:] if "Notification de test" in n["corps"]],
                         60, "la notification de test n'est pas parvenue au faux ntfy")
     afficher("faux ntfy : notification de test", json.dumps(envoyees, ensure_ascii=False, indent=1))
-    assert [n["corps"] for n in envoyees] == ["ACP — Notification de test envoyée depuis la page Projets."]
+    assert [n["corps"] for n in envoyees] == ["ACP — Notification de test envoyée depuis le tableau de bord."]
     assert envoyees[0]["autorisation_presente"] and envoyees[0]["title"] == "ACP"
     time.sleep(11)  # deux passes de plus : toujours une seule
     assert len([n for n in notifications_ntfy(pile)[avant:] if "Notification de test" in n["corps"]]) == 1

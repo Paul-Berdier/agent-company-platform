@@ -56,6 +56,36 @@
   }
 }
 
+/* Étape P7 : Accueil, même ordre à toutes les largeurs (une colonne à 390 px, trois au bureau). */
+.acp-grille--accueil {
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+
+@media (min-width: 768px) {
+  .acp-grille--accueil {
+    grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+  }
+}
+
+.acp-chiffre {
+  margin: 0;
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 700;
+}
+
+.acp-projet-court {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-projet-court:last-child {
+  border-bottom: 0;
+}
+
 .acp-sections {
   display: flex;
   flex-direction: column;
@@ -78,6 +108,13 @@
 .acp-entree {
   background: var(--color-secondary, var(--color-card));
   color: var(--color-secondary-foreground, var(--color-card-foreground));
+}
+
+/* Étape P7 : demande ciblée par le lien profond d'une notification (aria-current), marquée sans dépendre de la
+   couleur seule : bordure épaissie. */
+.acp-entree--cible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
 }
 
 .acp-carte__titre,
