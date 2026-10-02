@@ -31,7 +31,9 @@
 #include "viewmodels/SauvegardeViewModel.h"
 #include "viewmodels/ShellViewModel.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QMetaType>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -526,11 +528,18 @@ void Application::registerBuiltinCommands()
         QStringLiteral("diagnostics.copyReport"),
         QStringLiteral("Copier le rapport de diagnostic"), QStringLiteral("Diagnostics"),
         {QStringLiteral("support"), QStringLiteral("ticket")}, QString(), alwaysAvailable,
-        [](const CommandContext &) {
-            // Le rapport est expurgé par DiagnosticsViewModel::buildReport() ; la copie
-            // effective est faite par QML, qui seul dispose du presse-papiers.
+        [this](const CommandContext &) {
+            // Le rapport est expurgé par DiagnosticsViewModel::buildReport(), puis COPIÉ : le
+            // message ne l'annonce qu'une fois le presse-papiers écrit.
+            auto *application = qobject_cast<QGuiApplication *>(QCoreApplication::instance());
+            QClipboard *presse = application ? QGuiApplication::clipboard() : nullptr;
+            if (!presse) {
+                return CommandResult::reject(QStringLiteral("Presse-papiers indisponible : rapport non copié."));
+            }
+            m_diagnostics->refresh();
+            presse->setText(m_diagnostics->buildReport());
             return CommandResult::accept(
-                QStringLiteral("Rapport de diagnostic préparé (valeurs sensibles expurgées)."));
+                QStringLiteral("Rapport de diagnostic copié dans le presse-papiers (valeurs sensibles expurgées)."));
         }});
 }
 

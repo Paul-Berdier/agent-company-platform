@@ -16,6 +16,10 @@
 // seulement des empreintes (16 premiers caractères hexadécimaux du SHA-256). L'URL
 // d'autorisation (défi PKCE et état, jamais le vérificateur) est émise une fois, pour que le
 // script l'ouvre dans Chromium à la place du navigateur du système.
+//
+// Gestes du propriétaire : la réponse à une question et le message de la discussion passent
+// par les VRAIS contrôles de leur page QML (texte tapé touche par touche dans le champ, clic de
+// souris sur le bouton), jamais par un appel direct du ViewModel.
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
@@ -60,11 +64,13 @@
 #include <QSettings>
 #include <QSslCertificate>
 #include <QSslConfiguration>
+#include <QTest>
 #include <QTimer>
 
 #include <atomic>
 #include <cstdio>
 #include <deque>
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -417,7 +423,21 @@ private:
             reponse.insert(QStringLiteral("erreur"), m_discussion->erreurSession());
             return reponse;
         }
-        const bool envoye = m_discussion->envoyer(c.value(QStringLiteral("texte")).toString());
+        // Message tapé dans le vrai champ de la page, puis bouton « Envoyer ».
+        const QString texte = c.value(QStringLiteral("texte")).toString();
+        std::unique_ptr<QObject> page = poser(QStringLiteral("DiscussionPage"));
+        auto *racine = qobject_cast<QQuickItem *>(page.get());
+        QQuickItem *saisie = nullptr;
+        attendre([&] { return (saisie = parNom(racine, QStringLiteral("discussion-saisie"))) != nullptr && saisie->isVisible(); },
+                 30000);
+        const int lignesAvant = m_discussion->transcription()->count();
+        const bool tape = saisie && taper(saisie, texte);
+        const bool clique = tape && cliquer(parNom(racine, QStringLiteral("discussion-envoyer")));
+        const bool envoye = clique && attendre([&] { return m_discussion->transcription()->count() > lignesAvant; }, 10000);
+        reponse.insert(QStringLiteral("par_le_bouton"), clique);
+        reponse.insert(QStringLiteral("champ_vide_apres_envoi"), saisie && saisie->property("text").toString().isEmpty());
+        page.reset();
+        m_discussion->setPageVisible(true);
         const auto reponseRendue = [this]() -> QString {
             JsonListModel *lignes = m_discussion->transcription();
             for (int rang = lignes->count() - 1; rang >= 0; --rang) {
@@ -574,11 +594,20 @@ private:
     QJsonObject repondre(const QJsonObject &c)
     {
         const QString question = c.value(QStringLiteral("question")).toString();
-        m_questions->setPageVisible(true);
-        m_questions->repondre(question, c.value(QStringLiteral("reponse")).toString());
+        // Réponse tapée dans le vrai champ de la carte, puis bouton « Répondre » de la page.
+        std::unique_ptr<QObject> page = poser(QStringLiteral("QuestionsPage"));
+        auto *racine = qobject_cast<QQuickItem *>(page.get());
+        QQuickItem *champ = nullptr;
+        attendre([&] { return (champ = parNom(racine, QStringLiteral("questions-reponse-") + question)) != nullptr; }, 60000);
+        const bool tape = champ && taper(champ, c.value(QStringLiteral("reponse")).toString());
+        const bool clique = tape && cliquer(parNom(racine, QStringLiteral("questions-repondre-") + question));
+        attendre([this] { return !m_questions->messageGeste().isEmpty() || !m_questions->erreurGeste().isEmpty(); }, 60000);
         attendre([this] { return !m_questions->gesteEnCours(); }, 60000);
         QJsonObject reponse{{QStringLiteral("message"), m_questions->messageGeste()},
-                            {QStringLiteral("erreur"), m_questions->erreurGeste()}};
+                            {QStringLiteral("erreur"), m_questions->erreurGeste()},
+                            {QStringLiteral("par_le_bouton"), clique}};
+        page.reset();
+        m_questions->setPageVisible(true);
         // Relecture indépendante : la question n'est plus ouverte, la carte est reprise.
         const Lecture questions = lireSync(m_greffon->questions());
         bool encoreOuverte = false;
@@ -601,7 +630,7 @@ private:
             }
         }
         reponse.insert(QStringLiteral("capture"), capturer(QStringLiteral("QuestionsPage"), QStringLiteral("questions-apres")));
-        reponse.insert(QStringLiteral("ok"), m_questions->erreurGeste().isEmpty() && !encoreOuverte && questions.ok);
+        reponse.insert(QStringLiteral("ok"), clique && m_questions->erreurGeste().isEmpty() && !encoreOuverte && questions.ok);
         return reponse;
     }
 
@@ -679,11 +708,9 @@ private:
         return {{QStringLiteral("ok"), !chemin.isEmpty()}, {QStringLiteral("capture"), chemin}};
     }
 
-    QString capturer(const QString &page, const QString &nom)
+    //! Fenêtre hôte des pages (gestes et captures), construite une fois.
+    QQuickWindow *hote()
     {
-        if (m_captures.isEmpty()) {
-            return {};
-        }
         if (!m_moteur) {
             m_application.registerQmlTypes();
             m_moteur = std::make_unique<QQmlApplicationEngine>();
@@ -691,35 +718,114 @@ private:
             // contrôles Basic, pont du thème) : la page y est posée comme dans l'application,
             // et non dans une fenêtre nue dont les contrôles Basic garderaient leurs couleurs
             // par défaut.
-            QQmlComponent hote(m_moteur.get());
-            hote.setData(QByteArrayLiteral("import QtQuick\nimport QtQuick.Controls.Basic\nimport Acp.Design\n"
+            QQmlComponent composantHote(m_moteur.get());
+            composantHote.setData(QByteArrayLiteral("import QtQuick\nimport QtQuick.Controls.Basic\nimport Acp.Design\n"
                                            "import Acp.Theme\n"
                                            "ApplicationWindow { width: 1280; height: 860; visible: true;\n"
                                            "  color: Colors.surfaceCanvas; palette: NativePalette {}\n"
                                            "  ThemeBridge {} }\n"),
                          QUrl::fromLocalFile(QDir::temp().filePath(QStringLiteral("HoteCapture.qml"))));
-            attendre([&hote] { return hote.status() != QQmlComponent::Loading; }, 10000);
-            m_fenetre.reset(hote.isReady() ? qobject_cast<QQuickWindow *>(hote.create()) : nullptr);
+            attendre([&composantHote] { return composantHote.status() != QQmlComponent::Loading; }, 10000);
+            m_fenetre.reset(composantHote.isReady() ? qobject_cast<QQuickWindow *>(composantHote.create()) : nullptr);
             if (!m_fenetre) {
-                qWarning("fenêtre des captures indisponible : %s", qPrintable(hote.errorString()));
+                qWarning("fenêtre des pages indisponible : %s", qPrintable(composantHote.errorString()));
                 m_moteur.reset();
-                return {};
+                return nullptr;
             }
+            m_fenetre->requestActivate();
+            if (!QTest::qWaitForWindowExposed(m_fenetre.get())) {
+                qWarning("fenêtre des pages non exposée");
+            }
+        }
+        return m_fenetre.get();
+    }
+
+    //! Pose une page de la station dans la fenêtre hôte, comme dans l'application.
+    std::unique_ptr<QObject> poser(const QString &page)
+    {
+        if (!hote()) {
+            return nullptr;
         }
         QQmlComponent composant(m_moteur.get());
         composant.loadFromModule(QStringLiteral("Acp.Pages"), page);
         attendre([&composant] { return composant.status() != QQmlComponent::Loading; }, 10000);
         if (!composant.isReady()) {
-            qWarning("capture %s impossible : %s", qPrintable(page), qPrintable(composant.errorString()));
-            return {};
+            qWarning("page %s impossible : %s", qPrintable(page), qPrintable(composant.errorString()));
+            return nullptr;
         }
         std::unique_ptr<QObject> objet(composant.create());
         auto *element = qobject_cast<QQuickItem *>(objet.get());
         if (!element) {
-            return {};
+            return nullptr;
         }
         element->setParentItem(m_fenetre->contentItem());
         element->setSize(QSizeF(1280, 860));
+        return objet;
+    }
+
+    static QQuickItem *parNom(QQuickItem *racine, const QString &nom)
+    {
+        if (!racine) {
+            return nullptr;
+        }
+        if (racine->objectName() == nom) {
+            return racine;
+        }
+        for (QQuickItem *enfant : racine->childItems()) {
+            if (QQuickItem *trouve = parNom(enfant, nom)) {
+                return trouve;
+            }
+        }
+        return nullptr;
+    }
+
+    //! Clic gauche réel au centre de l'élément, après avoir fait défiler la page jusqu'à lui.
+    bool cliquer(QQuickItem *item)
+    {
+        if (!item || !item->isVisible() || !item->isEnabled() || !m_fenetre) {
+            return false;
+        }
+        for (QQuickItem *parent = item->parentItem(); parent; parent = parent->parentItem()) {
+            if (parent->inherits("QQuickFlickable")) {
+                auto *contenu = parent->property("contentItem").value<QQuickItem *>();
+                const double haut = item->mapToItem(contenu, QPointF(0, 0)).y();
+                const double maximum = std::max(0.0, parent->property("contentHeight").toDouble() - parent->height());
+                parent->setProperty("contentY", std::clamp(haut - 40.0, 0.0, maximum));
+                break;
+            }
+        }
+        patienter(50);
+        const QPointF centre = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+        if (!QRectF(QPointF(0, 0), m_fenetre->size()).contains(centre)) {
+            return false;
+        }
+        QTest::mouseClick(m_fenetre.get(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+        return true;
+    }
+
+    //! Focus par un clic réel, puis le texte tapé caractère par caractère (accents compris).
+    bool taper(QQuickItem *champ, const QString &texte)
+    {
+        if (!cliquer(champ) || !attendre([champ] { return champ->hasActiveFocus(); }, 5000)) {
+            return false;
+        }
+        for (const QChar caractere : texte) {
+            QTest::sendKeyEvent(QTest::Press, m_fenetre.get(), Qt::Key_unknown, QString(caractere), Qt::NoModifier);
+            QTest::sendKeyEvent(QTest::Release, m_fenetre.get(), Qt::Key_unknown, QString(caractere), Qt::NoModifier);
+        }
+        patienter(50);
+        return champ->property("text").toString() == texte;
+    }
+
+    QString capturer(const QString &page, const QString &nom)
+    {
+        if (m_captures.isEmpty()) {
+            return {};
+        }
+        std::unique_ptr<QObject> objet = poser(page);
+        if (!objet) {
+            return {};
+        }
         patienter(1500);
         QDir().mkpath(m_captures);
         const QString chemin = QDir(m_captures).filePath(QStringLiteral("%1-%2.png")

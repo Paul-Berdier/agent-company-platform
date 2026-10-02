@@ -7,14 +7,22 @@
 
 #include "api/ApiClient.h"
 #include "app/Application.h"
+#include "commands/CommandRegistry.h"
 #include "events/EventStreamService.h"
+#include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
+#include "navigation/NavigationModel.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
+#include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
+#include "viewmodels/ShellViewModel.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
+#include <QKeySequence>
 #include <QJsonArray>
 #include <QPointer>
 #include <QQmlApplicationEngine>
@@ -22,6 +30,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
@@ -71,6 +80,10 @@ private slots:
     void cleanupTestCase();
     void brouillonDeReponseGardeAuSondageEtAuRefus();
     void listeDesProjetsGardeSonDefilement();
+    void messageEnvoyeParLeBoutonDeLaDiscussion();
+    void copieDuRapportParLaPalette();
+    // En dernier : charge la fenêtre racine (App.qml).
+    void chaqueRaccourciDeLaPaletteAgit();
 
 private:
     std::unique_ptr<QObject> charger(const QString &nom);
@@ -107,6 +120,21 @@ void TestPagesInteractions::initTestCase()
     m_serveur->installerAuthentification();
     m_serveur->activerKanban();
     m_serveur->jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    m_serveur->activerPasserelle();
+    m_serveur->methodes.insert(QStringLiteral("session.list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("s1")}, {QStringLiteral("title"), QStringLiteral("Plan du site")},
+            {QStringLiteral("started_at"), 1790300000}, {QStringLiteral("message_count"), 0}}}}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("session.resume"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("message_count"), 0},
+                           {QStringLiteral("messages"), QJsonArray{}},
+                           {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), QStringLiteral("Plan du site")}}},
+                           {QStringLiteral("running"), false}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("prompt.submit"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("status"), QStringLiteral("streaming")}};
+    });
     m_listeQuestions = fixture(QStringLiteral("questions.json"));
     m_serveur->route("GET", kP + QStringLiteral("/questions"),
                      [this](const RequeteRecue &) { return ReponseFaux::json(200, m_listeQuestions); });
@@ -319,6 +347,114 @@ void TestPagesInteractions::listeDesProjetsGardeSonDefilement()
     page.reset();
     m_fenetre->resize(1280, 850);
     QTRY_VERIFY(!m_projets->actif());
+}
+
+// Constat de relecture P8 : aucune preuve ne passait par les contrôles de la Discussion. Le
+// message est tapé au clavier puis envoyé par le bouton « Envoyer », puis par Ctrl+Entrée.
+void TestPagesInteractions::messageEnvoyeParLeBoutonDeLaDiscussion()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *discussion = m_application->findChild<DiscussionViewModel *>();
+    QVERIFY(passerelle && discussion);
+    passerelle->ouvrir();
+    QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    auto page = charger(QStringLiteral("DiscussionPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY_WITH_TIMEOUT(discussion->sessionsLues(), 5000);
+    discussion->ouvrir(QStringLiteral("s1"));
+    QTRY_COMPARE_WITH_TIMEOUT(discussion->sessionVivante(), QStringLiteral("rt-s1"), 5000);
+    QTest::qWait(100);
+
+    QQuickItem *saisie = parNom(racine, QStringLiteral("discussion-saisie"));
+    QVERIFY(saisie);
+    QVERIFY(taper(saisie, QStringLiteral("Fais le plan du site")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-envoyer"))));
+    QTRY_COMPARE_WITH_TIMEOUT(m_serveur->tramesDeMethode(QStringLiteral("prompt.submit")).size(), 1, 5000);
+    QCOMPARE(m_serveur->tramesDeMethode(QStringLiteral("prompt.submit")).constFirst().value(QStringLiteral("params")).toObject(),
+             (QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-s1")},
+                          {QStringLiteral("text"), QStringLiteral("Fais le plan du site")}}));
+    QCOMPARE(saisie->property("text").toString(), QString()); // parti : le champ se vide
+
+    // Ctrl+Entrée dans le champ : même envoi.
+    QTRY_VERIFY_WITH_TIMEOUT(!discussion->gesteEnCours(), 5000);
+    QVERIFY(taper(saisie, QStringLiteral("Et le budget")));
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Return, Qt::ControlModifier);
+    QTRY_COMPARE_WITH_TIMEOUT(m_serveur->tramesDeMethode(QStringLiteral("prompt.submit")).size(), 2, 5000);
+    QCOMPARE(m_serveur->tramesDeMethode(QStringLiteral("prompt.submit")).constLast().value(QStringLiteral("params")).toObject()
+                 .value(QStringLiteral("text")).toString(),
+             QStringLiteral("Et le budget"));
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
+    discussion->quitter();
+    passerelle->fermer();
+}
+
+// Constat de relecture P8 : la commande de palette « Copier le rapport de diagnostic »
+// annonçait une copie sans rien écrire dans le presse-papiers.
+void TestPagesInteractions::copieDuRapportParLaPalette()
+{
+    auto *registre = m_application->findChild<CommandRegistry *>();
+    QVERIFY(registre);
+    QClipboard *presse = QGuiApplication::clipboard(); // presse-papiers de la plateforme hors écran
+    presse->setText(QStringLiteral("SENTINELLE-AVANT"));
+    const QString message = registre->execute(QStringLiteral("diagnostics.copyReport"));
+    QCOMPARE(message, QStringLiteral("Rapport de diagnostic copié dans le presse-papiers (valeurs sensibles expurgées)."));
+    QVERIFY2(presse->text().contains(QStringLiteral("== Station ==")), qPrintable(presse->text().left(80)));
+    QVERIFY(presse->text().contains(QStringLiteral("Version de la station")));
+    QVERIFY(!presse->text().contains(QStringLiteral("jeton-a"))); // expurgé, jamais le porteur
+}
+
+// Constat de relecture P8 : la palette affichait Ctrl+6 à Ctrl+9, qu'aucun Shortcut n'installait.
+// Chaque raccourci DÉCLARÉ au registre, pressé au clavier sur la vraie fenêtre racine, exécute sa
+// commande (les commandes de navigation changent la route affichée).
+void TestPagesInteractions::chaqueRaccourciDeLaPaletteAgit()
+{
+    auto *registre = m_application->findChild<CommandRegistry *>();
+    auto *navigation = m_application->findChild<NavigationModel *>();
+    auto *coquille = m_application->findChild<ShellViewModel *>();
+    QVERIFY(registre && navigation && coquille);
+    m_fenetre->hide();
+    m_avertissements.clear();
+    QVERIFY(m_application->load(m_moteur.get()));
+    auto *racine = qobject_cast<QQuickWindow *>(m_moteur->rootObjects().constLast());
+    QVERIFY(racine);
+    racine->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(racine));
+
+    const QStringList raccourcis = registre->raccourcis();
+    for (const QString &attendu : {QStringLiteral("Ctrl+1"), QStringLiteral("Ctrl+2"), QStringLiteral("Ctrl+3"),
+                                   QStringLiteral("Ctrl+4"), QStringLiteral("Ctrl+5"), QStringLiteral("Ctrl+6"),
+                                   QStringLiteral("Ctrl+7"), QStringLiteral("Ctrl+8"), QStringLiteral("Ctrl+9"),
+                                   QStringLiteral("Ctrl+K"), QStringLiteral("Ctrl+R")}) {
+        QVERIFY2(raccourcis.contains(attendu), qPrintable(attendu));
+    }
+    const QHash<QString, QString> routes = {
+        {QStringLiteral("navigation.home"), QStringLiteral("home")},
+        {QStringLiteral("navigation.diagnostics"), QStringLiteral("diagnostics")},
+        {QStringLiteral("navigation.projects"), QStringLiteral("projects")},
+        {QStringLiteral("navigation.questions"), QStringLiteral("questions")},
+        {QStringLiteral("navigation.chat"), QStringLiteral("chat")},
+        {QStringLiteral("navigation.station"), QStringLiteral("station")},
+        {QStringLiteral("navigation.quotas"), QStringLiteral("quotas")},
+        {QStringLiteral("navigation.routing"), QStringLiteral("routing")},
+        {QStringLiteral("navigation.backup"), QStringLiteral("backup")},
+    };
+    QSignalSpy executees(registre, &CommandRegistry::commandExecuted);
+    for (const QString &raccourci : raccourcis) {
+        const QString commande = registre->commandForShortcut(raccourci);
+        executees.clear();
+        QTest::keySequence(racine, QKeySequence(raccourci));
+        QTRY_VERIFY2(!executees.isEmpty(), qPrintable(raccourci + QStringLiteral(" n'exécute rien")));
+        QCOMPARE(executees.constFirst().at(0).toString(), commande);
+        if (routes.contains(commande)) {
+            QCOMPARE(navigation->currentRoute(), routes.value(commande));
+        }
+        coquille->setCommandPaletteOpen(false);
+        QTest::qWait(20);
+    }
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    racine->close();
 }
 
 QTEST_MAIN(TestPagesInteractions)

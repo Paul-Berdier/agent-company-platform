@@ -520,6 +520,8 @@ def parcours(options: argparse.Namespace) -> int:
         etapes["discussion"] = discussion
         verifier(discussion.get("ok") is True and discussion.get("reponse") == REPONSE_FACTICE,
                  f"réponse du modèle factice : {discussion.get('reponse')!r} {discussion.get('erreur')!r}", ecarts)
+        verifier(discussion.get("par_le_bouton") is True and discussion.get("champ_vide_apres_envoi") is True,
+                 f"message tapé dans le champ et envoyé par le bouton de la page : {discussion}", ecarts)
 
         # ---------------------------------------------------------------- 9. formes (état initial)
         formes: Dict[str, Any] = {}
@@ -580,6 +582,8 @@ def parcours(options: argparse.Namespace) -> int:
             etapes["question_repondue"]["capture"] = Path(reponse.get("capture") or "-").name
             verifier(reponse.get("ok") is True and reponse.get("encore_ouverte") is False,
                      f"question fermée après la réponse : {reponse}", ecarts)
+            verifier(reponse.get("par_le_bouton") is True,
+                     f"réponse tapée dans le champ de la carte et envoyée par le bouton « Répondre » : {reponse}", ecarts)
             verifier(reponse.get("exploration_statut") == "ready", f"carte reprise : {reponse.get('exploration_statut')}",
                      ecarts)
 

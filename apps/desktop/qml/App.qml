@@ -59,34 +59,15 @@ ApplicationWindow {
 
     // Raccourcis globaux. Ils exécutent des COMMANDES du registre, jamais une action
     // câblée directement : la disponibilité est ainsi calculée au même endroit que pour
-    // un bouton ou pour la palette.
-    Shortcut {
-        sequence: "Ctrl+K"
-        onActivated: Commands.execute("palette.open")
-    }
-    Shortcut {
-        sequence: "Ctrl+1"
-        onActivated: Commands.execute("navigation.home")
-    }
-    Shortcut {
-        sequence: "Ctrl+2"
-        onActivated: Commands.execute("navigation.diagnostics")
-    }
-    Shortcut {
-        sequence: "Ctrl+3"
-        onActivated: Commands.execute("navigation.projects")
-    }
-    Shortcut {
-        sequence: "Ctrl+4"
-        onActivated: Commands.execute("navigation.questions")
-    }
-    Shortcut {
-        sequence: "Ctrl+5"
-        onActivated: Commands.execute("navigation.chat")
-    }
-    Shortcut {
-        sequence: "Ctrl+R"
-        onActivated: Commands.execute("connection.probe")
+    // un bouton ou pour la palette. Un Shortcut par raccourci DÉCLARÉ au registre : tout
+    // raccourci que la palette affiche fonctionne (Ctrl+1 à Ctrl+9, Ctrl+K, Ctrl+R, Alt+←/→).
+    Instantiator {
+        model: Commands.raccourcis()
+        delegate: Shortcut {
+            required property string modelData
+            sequence: modelData
+            onActivated: Commands.execute(Commands.commandForShortcut(modelData))
+        }
     }
     Shortcut {
         sequence: "Escape"

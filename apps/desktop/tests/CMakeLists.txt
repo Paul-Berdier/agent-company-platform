@@ -92,7 +92,8 @@ target_compile_definitions(tst_oubli_local PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE
 # locale (Authelia, Hermes de test, bord TLS factice). Il refuse de démarrer sans coffre et
 # portée de préférences DE TEST.
 qt_add_executable(acp_desktop_e2e e2e/acp_desktop_e2e.cpp)
-target_link_libraries(acp_desktop_e2e PRIVATE acp_core Qt6::QuickControls2
+# Qt Test : clics et frappes sur les vrais contrôles des pages (réponse, discussion).
+target_link_libraries(acp_desktop_e2e PRIVATE acp_core Qt6::QuickControls2 Qt6::Test
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 set_target_properties(acp_desktop_e2e PROPERTIES WIN32_EXECUTABLE FALSE)
