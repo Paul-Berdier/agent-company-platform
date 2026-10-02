@@ -206,7 +206,10 @@ ROUTES = [("GET", "/v1/projets"), ("POST", "/v1/projets"), ("GET", "/v1/question
           ("GET", "/v1/poste"), ("POST", "/v1/notifications/test"), ("GET", "/v1/projets/p_x"),
           ("POST", "/v1/questions/q_x/reponse"), ("POST", "/v1/projets/p_x/pause"), ("POST", "/v1/projets/p_x/reprise"),
           ("POST", "/v1/triage/acp-x/t_x/reprendre"), ("POST", "/v1/triage/acp-x/t_x/conclure"),
-          ("GET", "/v1/projets/p_x/cartes/t_x")]
+          ("GET", "/v1/projets/p_x/cartes/t_x"),
+          # Étape P7 : relance, « qui répond », clôture, Accueil.
+          ("POST", "/v1/cartes/acp-x/t_x/relancer"), ("POST", "/v1/projets/p_x/reponses"),
+          ("POST", "/v1/projets/p_x/clore"), ("GET", "/v1/accueil")]
 
 
 def test_routes_sans_session_401(pile):
@@ -235,7 +238,7 @@ def test_emetteur_tourne_dans_la_passerelle(pile):
     emetteur = projets["emetteur"]
     assert time.time() - emetteur["derniere_passe"] < 60
     assert emetteur["canal"] == "ntfy" and emetteur["configure"] is True
-    assert projets["base"] == "ok" and projets["schema"] == "3" and projets["pause_generale"] is None
+    assert projets["base"] == "ok" and projets["schema"] == "4" and projets["pause_generale"] is None
     assert JETON not in json.dumps(projets)  # jamais le jeton (ni le sujet) dans une réponse
 
 
@@ -821,3 +824,70 @@ def test_prolonger_au_plafond_puis_conclure(pile):
         ensure_ascii=False, indent=1))
     assert notifs == [f"ACP — Projet « {titre} » : plafond de tours atteint, votre décision est attendue."] * 2
     assert detail(pile, projet["id"])["etat"] == "termine"
+
+
+# =========================================================================== étape P7 : file Questions, relance, clôture
+
+
+def test_p7_relance_qui_repond_accueil_et_cloture(pile):
+    """Étape P7 sur la pile complète (vraie porte d'authentification, six intergiciels, passerelle) : une carte du
+    poste simulé bloquée apparaît « arrêtée » et relançable dans la file ; « Relancer » la remet en jeu ; « qui répond »
+    passe au propriétaire et la question SUIVANTE est escaladée (notification envoyée) ; l'Accueil agrégé la compte ;
+    « Clore » archive tout, annule la question, ne notifie rien."""
+    titre = "Relance contrat P7"
+    ajouter_scenarios(pile, {f"rôle « planification » — projet « {titre} »": scenario([appel("projet_etat")], "Vu.")})
+    _releves(pile)
+    projet = lancer_projet(pile, titre=titre, objectif="Relancer une carte arrêtée.", depot="jetable",
+                           exploration={"voie": "poste-claude"})
+    tableau, exploration = projet["tableau"], projet["cartes"]["exploration"]
+    simule(pile, "reclamer", tableau, exploration)
+    assert simule(pile, "bloquer", tableau, exploration, "Il manque le jeton de la base de test.") == {
+        "bloquee": True, "statut": "blocked"}
+    code, file = api(pile, "GET", "/v1/questions")
+    assert code == 200 and set(file) >= {"questions", "triage", "revues", "bloquees", "discussions", "compteurs"}
+    [arretee] = [b for b in file["bloquees"] if b["carte"] == exploration]
+    assert (arretee["relancable"], arretee["refus_relance"], arretee["raison"]) == (
+        True, None, "Il manque le jeton de la base de test.")
+    # Le compteur des requêtes ouvertes est celui du processus du tableau de bord (import réel de Hermes).
+    assert file["discussions"]["suivies"] is True and isinstance(file["discussions"]["requetes_ouvertes"], int)
+    code, relance = api(pile, "POST", f"/v1/cartes/{tableau}/{exploration}/relancer",
+                        {"consigne": "Le jeton est posé : reprends."})
+    assert code == 200 and relance == {"carte": exploration, "relancee": True, "statut_apres": "ready",
+                                       "session_neuve": True}, relance
+    assert cartes(pile, tableau)[exploration]["statut"] == "ready"
+    code, reglage = api(pile, "POST", f"/v1/projets/{projet['id']}/reponses", {"reponses": "proprietaire"})
+    assert code == 200 and (reglage["avant"], reglage["apres"]) == ("hermes_d_abord", "proprietaire")
+    simule(pile, "reclamer", tableau, exploration)
+    question = simule(pile, "question", tableau, exploration, "Quel nom donner au module ?")
+    assert (question["etat"], question["carte_repondre"]) == ("escaladee", None)
+
+    def du_projet() -> List[str]:
+        return [n["corps"] for n in notifications_ntfy(pile) if f"« {titre} »" in n["corps"]]
+
+    # Deux notifications de ce projet, et deux seulement : le blocage décidé par l'exécutant (P6 : la passe de
+    # l'émetteur lit l'événement « blocked », même si la carte a été relancée depuis) et la question escaladée
+    # directement (« qui répond » = propriétaire). La passe qui enfile la question a déjà lu les événements du tableau
+    # (étape 3 avant l'étape 4) : attendre les deux est déterministe.
+    recues = attendre(lambda: (lambda c: c if any("une question attend votre réponse" in x for x in c)
+                               and any("est bloquée" in x for x in c) else None)(du_projet()), 60,
+                      "le blocage et la question escaladée n'ont pas été notifiés")
+    assert len(recues) == 2, recues
+    code, file = api(pile, "GET", "/v1/questions")
+    [ligne] = [q for q in file["questions"] if q["id"] == question["question"]]
+    assert (ligne["etat"], ligne["chez"]) == ("escaladee", "proprietaire")
+    code, accueil = api(pile, "GET", "/v1/accueil")
+    assert code == 200 and accueil["illisibles"] == {}
+    assert accueil["a_traiter"]["questions"] >= 1 and accueil["a_traiter"]["premieres"]
+    assert all(p["cible"].startswith("/projets?vue=questions&") for p in accueil["a_traiter"]["premieres"])
+    assert accueil["notifications"]["configure"] is True and accueil["discussions"]["suivies"] is True
+    afficher("GET /v1/accueil (extrait)", json.dumps({k: accueil[k] for k in ("a_traiter", "chez_hermes",
+                                                                                 "discussions")},
+                                                      ensure_ascii=False, indent=1)[:2500])
+    code, clos = api(pile, "POST", f"/v1/projets/{projet['id']}/clore", {"confirmation": True})
+    assert code == 200 and (clos["clos"], clos["etat"], clos["questions_annulees"]) == (True, "abandonne", 1), clos
+    assert {c["statut"] for c in cartes(pile, tableau).values()} == {"archived"}
+    assert detail(pile, projet["id"])["questions_ouvertes"] == []
+    # Deux passes de l'émetteur : la clôture ne notifie rien pour ce projet (la pile est partagée : d'autres projets
+    # ou la présence d'un poste d'un test précédent peuvent notifier entre-temps, d'où le filtre sur le titre).
+    time.sleep(11)
+    assert du_projet() == recues

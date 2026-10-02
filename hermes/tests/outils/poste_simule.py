@@ -15,6 +15,8 @@ Sous-commandes (sortie : un objet JSON sur la sortie standard, code 0 ; refus : 
   terminer <tableau> <carte> <résumé>     complete_task(expected_run_id = run courant)
   question <tableau> <carte> <texte>      questions.poser (run courant)
   corriger <tableau> <relecture> <consigne>  graphe.inserer_correction (run courant de la relecture)
+  bloquer <tableau> <carte> <raison>      block_task(kind « capability », expected_run_id = run courant), comme un
+                                          blocage décidé par l'exécutant (étape P7 : « Relancer »)
   reglage <clé> <valeur JSON>             réglage du greffon
   cartes <tableau>                        cartes du tableau (lecture : statut, assigné, effort…)
 """
@@ -92,6 +94,11 @@ def main(argv) -> int:
                 return _sortie({"terminee": fini}, 0 if fini else 3)
             if commande == "question":
                 return _sortie(questions.poser(conn, tableau=tableau, carte=carte, run_id=run, texte=arguments[2]))
+            if commande == "bloquer":
+                with ka.connexion(tableau) as kc:
+                    fait = ka.block_task(kc, carte, kind="capability", reason=arguments[2], expected_run_id=run)
+                    statut = ka.get_task(kc, carte).status
+                return _sortie({"bloquee": bool(fait), "statut": statut}, 0 if fait else 3)
             if commande == "corriger":
                 return _sortie(graphe.inserer_correction(conn, tableau=tableau, carte_relecture=carte,
                                                          run_id_relecture=run, consigne=arguments[2]))

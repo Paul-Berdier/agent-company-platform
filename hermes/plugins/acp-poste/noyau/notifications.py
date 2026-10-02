@@ -171,6 +171,19 @@ def compter(conn) -> Dict[str, int]:
     return {etat: n for etat, n in conn.execute("SELECT etat, COUNT(*) FROM notifications GROUP BY etat")}
 
 
+def etat_public(conn) -> Dict[str, Any]:
+    """État PUBLIC du canal, publié par la passerelle (seule à garder la configuration). Tant qu'elle ne l'a pas
+    publié, l'état est INCONNU, et le message le dit (jamais « non configurées » sans le savoir). Étape P7 (correction
+    K18) : descendu de ``dashboard/plugin_api.py`` dans le noyau, pour la route agrégée de l'Accueil."""
+    from . import textes as T
+
+    canal = base.lire_emetteur(conn, "canal") or {}
+    message = (None if canal.get("configure") else T.NOTIFICATIONS_NON_CONFIGUREES if canal
+               else T.NOTIFICATIONS_ETAT_INCONNU)
+    return {"canal": canal.get("canal"), "configure": bool(canal.get("configure")), "connu": bool(canal),
+            "message": message}
+
+
 # ------------------------------------------------------------------ envoi (passerelle seulement)
 
 Transport = Callable[[str, str, Dict[str, str], bytes, float], Tuple[int, str]]

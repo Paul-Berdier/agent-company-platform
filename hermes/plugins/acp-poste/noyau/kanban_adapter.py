@@ -66,6 +66,15 @@ from hermes_constants import VALID_REASONING_EFFORTS, get_hermes_home
 from plugins.plugin_storage import plugin_db
 from tools.registry import no_cache_check_fn
 
+# Étape P7 (cahier P7 § 3.5, § 5.3 ; correction K9) : nombre de requêtes du serveur au client (clarify, approval,
+# sudo, secret…) encore sans réponse dans CE processus — celui du tableau de bord, où vivent les sessions ouvertes par
+# /api/ws. Fonction PUBLIQUE de son module (tui_gateway/server_requests.py:283-287), importée ici seulement, en lecture ;
+# absente d'une autre version de Hermes : ``None``, et la file Questions dit « inconnu », jamais zéro.
+try:
+    from tui_gateway.server_requests import open_request_count
+except Exception:  # noqa: BLE001 — module absent ou renommé : la section « discussions » le dit
+    open_request_count = None  # type: ignore[assignment]
+
 # Voies du poste Windows : ce ne sont PAS des profils de Hermes. Le répartiteur range leurs cartes
 # en « skipped_nonspawnable » (hermes_cli/kanban_db_dispatch.py:2011-2017) ; seul le poste les
 # réclame (P6).
@@ -125,13 +134,26 @@ MODULES_DE_DEFINITION = {
     "redact_sensitive_text": "agent.redact",
     "get_hermes_home": "hermes_constants",
     "no_cache_check_fn": "tools.registry",
+    # Étape P7 : lecture seule, dans un try (voir plus haut).
+    "open_request_count": "tui_gateway.server_requests",
 }
 
 __all__ = [
     "CREATEUR", "MODULES_DE_DEFINITION", "PREFIXE_CLE", "PREFIXE_VOIE_POSTE", "PROFIL_HERMES",
     "VALID_REASONING_EFFORTS", "VOIES_POSTE", "VOIE_INTEGRATION", "VOIES_EXECUTION", "connexion", "dernier_evenement", "est_voie_poste",
-    "evenements_apres", "effort_hermes", "masquer", *MODULES_DE_DEFINITION,
+    "evenements_apres", "effort_hermes", "masquer", "requetes_ouvertes", *MODULES_DE_DEFINITION,
 ]
+
+
+def requetes_ouvertes() -> Optional[int]:
+    """Requêtes du serveur au client sans réponse dans ce processus (``open_request_count`` de Hermes), ou ``None``
+    si la fonction manque ou échoue : jamais un zéro inventé."""
+    if open_request_count is None:
+        return None
+    try:
+        return int(open_request_count())
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def est_voie_poste(assigne: Optional[str]) -> bool:

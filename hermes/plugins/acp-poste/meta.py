@@ -520,5 +520,8 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         "projets": projets,
         # Étape P5 (ajout, contrat acp-poste/1 inchangé) : jeton machine, chemins à jeton, postes, inventaire.
         "machine": machine,
+        # Étape P7 (ajout, contrat acp-poste/1 inchangé) : la route agrégée GET /v1/accueil existe (cahier P7 § 5.2,
+        # § 8.2) ; un client (desktop P8) la détecte ici avant de la lire.
+        "accueil": True,
         "alertes": alertes,
     }

@@ -16,6 +16,10 @@ escaladée (:func:`questions_sans_suite`).
 
 Cartes en triage (vue Questions) : « Reprendre » ; pour une carte de décision du greffon, « Prolonger » ou
 « Relancer la planification », et « Conclure » (décision D41).
+
+Étape P7 (cahier P7 § 3) : file Questions à cinq sections (:func:`file_questions` : questions avec ``chez``, décisions,
+revues, cartes arrêtées avec « Relancer », discussions en attente en lecture seule) et ses compteurs ; « Relancer » une
+carte bloquée ou abandonnée (:func:`relancer_carte`).
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from __future__ import annotations
 import secrets
 from typing import Any, Dict, List, Optional
 
-from . import base, cartes, graphe, notifications, projets
+from . import base, cartes, graphe, notifications, projets, routage
 from . import kanban_adapter as ka
 from . import textes as T
 from .motifs_secrets import motif_trouve
@@ -223,10 +227,70 @@ def _titre_de_carte(conn, tableau: str, carte: str) -> Optional[str]:
     return (demande or {}).get("titre") or None
 
 
+def chez(q: Dict[str, Any]) -> str:
+    """Qui doit répondre à une question ouverte ou escaladée — RÈGLE UNIQUE (cahier P7 § 3.1, correction K6) :
+    ``hermes`` si elle est ``ouverte`` ET que sa carte « répondre » existe, sinon ``proprietaire``. Jamais d'après le
+    réglage courant du projet : les questions ouvertes gardent leur traitement quand il change. Une question ouverte
+    sans carte « répondre » (création interrompue) n'est pas rattrapée par le filet :func:`questions_sans_suite`, qui
+    ne lit que ``carte_repondre IS NOT NULL`` : elle est donc comptée « à vous », jamais cachée."""
+    return "hermes" if q.get("etat") == "ouverte" and q.get("carte_repondre") else "proprietaire"
+
+
+def _statut_de_carte(tableau: str, carte: Optional[str]) -> Optional[str]:
+    if not carte:
+        return None
+    try:
+        with ka.connexion(tableau) as kc:
+            tache = ka.get_task(kc, carte)
+    except Exception:  # noqa: BLE001 — tableau illisible : statut inconnu, jamais inventé
+        return None
+    return tache.status if tache is not None else None
+
+
+def _emise_par_acp(demande: Optional[Dict[str, Any]], tache: Any) -> bool:
+    """Carte émise par le greffon : sa demande existe, et la carte kanban porte la clé et le créateur du greffon."""
+    return (demande is not None and tache is not None and getattr(tache, "idempotency_key", None) == demande["cle"]
+            and getattr(tache, "created_by", None) == ka.CREATEUR)
+
+
+def _bloquee_pour_secret(demande: Optional[Dict[str, Any]], evenements: List[Any]) -> bool:
+    if demande is not None and demande.get("issue") == "bloquee:secret":
+        return True
+    for evenement in reversed(evenements):
+        if evenement.kind in ("blocked", "block_loop_detected"):
+            charge = evenement.payload if isinstance(evenement.payload, dict) else {}
+            return charge.get("reason") == T.RAISON_SECRET_EXECUTANT
+    return False
+
+
+def refus_de_relance(fiche: Dict[str, Any], demande: Optional[Dict[str, Any]], tache: Any,
+                     evenements: List[Any]) -> Optional[tuple]:
+    """``(code, message, raison lisible)`` qui interdit de relancer une carte arrêtée, dans l'ordre du cahier P7
+    § 3.4 (carte émise par ACP, projet actif, carte arrêtée, revue, secret) ; ``None`` si elle se relance."""
+    carte = getattr(tache, "id", None) or (demande or {}).get("carte") or "?"
+    if not _emise_par_acp(demande, tache):
+        return ("carte_non_acp", T.CARTE_NON_ACP.format(carte=carte, t=fiche["tableau"]), T.REFUS_RELANCE_NON_ACP)
+    if fiche["etat"] == "en_pause":
+        return ("projet_en_pause", T.RELANCE_PROJET_EN_PAUSE.format(titre=fiche["titre"]), T.REFUS_RELANCE_PAUSE)
+    if fiche["etat"] != "actif":
+        etat = T.ETATS_LISIBLES.get(fiche["etat"], fiche["etat"])
+        return ("projet_fini", T.PROJET_FINI.format(titre=fiche["titre"], etat=etat),
+                T.REFUS_RELANCE_FINI.format(etat=etat))
+    if tache.status == "review":
+        return ("carte_en_revue", T.CARTE_EN_REVUE.format(carte=carte), T.REFUS_RELANCE_REVUE)
+    if tache.status != "blocked":
+        return ("carte_non_arretee", T.CARTE_NON_ARRETEE.format(carte=carte, statut=tache.status),
+                T.CARTE_NON_ARRETEE.format(carte=carte, statut=tache.status))
+    if _bloquee_pour_secret(demande, evenements):
+        return ("carte_secret", T.CARTE_SECRET.format(carte=carte), T.REFUS_RELANCE_SECRET)
+    return None
+
+
 def lister(conn) -> Dict[str, Any]:
-    """Questions ouvertes et escaladées (avec le titre de la carte qui les pose et leur contexte) ; cartes en
-    triage (avec les gestes possibles), bloquées et abandonnées des tableaux de projet (lecture seule pour
-    les bloquées et abandonnées en P4 : « Relancer » relève de P7), chacune avec sa raison connue."""
+    """Questions ouvertes et escaladées (avec le titre de la carte qui les pose, leur contexte, ``chez`` et le statut de
+    leur carte « répondre ») ; cartes en triage (avec les gestes possibles), bloquées et abandonnées des tableaux de
+    projet, chacune avec sa raison connue — étape P7 : une carte arrêtée dit si elle se relance (``relancable``) ou
+    pourquoi non (``refus_relance``)."""
     ouvertes = []
     titres: Dict[tuple, Optional[str]] = {}
     for q in [base.ligne_en_dict(l) for l in conn.execute(
@@ -240,31 +304,165 @@ def lister(conn) -> Dict[str, Any]:
                          "etat": q["etat"], "texte": ka.masquer(q["texte"])[:4000],
                          "contexte": (ka.masquer(q["contexte"])[:1000] or None) if q["contexte"] else None,
                          "carte_repondre": q["carte_repondre"], "motif_escalade": q["motif_escalade"],
-                         "cree_le": q["cree_le"]})
+                         "cree_le": q["cree_le"], "chez": chez(q),
+                         "carte_repondre_statut": _statut_de_carte(q["tableau"], q["carte_repondre"])})
     triage: List[Dict[str, Any]] = []
     bloquees: List[Dict[str, Any]] = []
     illisibles: List[str] = []
-    for p in conn.execute("SELECT * FROM projets WHERE etat != 'abandonne' ORDER BY cree_le").fetchall():
+    for p in [base.ligne_en_dict(l) for l in conn.execute(
+            "SELECT * FROM projets WHERE etat != 'abandonne' ORDER BY cree_le").fetchall()]:
         try:
             with ka.connexion(p["tableau"]) as kc:
                 for statut, cible in (("triage", triage), ("blocked", bloquees)):
                     for tache in ka.list_tasks(kc, status=statut):
                         evenements = ka.list_events(kc, tache.id)
+                        demande = projets.demande_de_la_carte(conn, p["tableau"], tache.id)
                         entree = {"projet": p["id"], "projet_titre": p["titre"], "tableau": p["tableau"],
                                   "carte": tache.id, "titre": ka.masquer(tache.title)[:200],
                                   "assigne": tache.assignee,
                                   "abandonnee": statut == "blocked" and any(e.kind == "gave_up" for e in evenements),
                                   "raison": _raison(tache, evenements)}
                         if statut == "triage":
-                            demande = projets.demande_de_la_carte(conn, p["tableau"], tache.id)
                             genre = graphe.genre_de_triage(demande)
                             entree.update(genre=genre, actions=ACTIONS_PAR_GENRE.get(genre, ["reprendre"]))
                             if genre and not entree["raison"]:
                                 entree["raison"] = ka.masquer(demande["consigne"])[:300] or None
+                        else:
+                            refus_ = refus_de_relance(p, demande, tache, evenements)
+                            entree.update(relancable=refus_ is None, refus_relance=refus_[2] if refus_ else None,
+                                          executant=bool(demande) and demande["voie"] != "hermes")
                         cible.append(entree)
         except Exception:  # noqa: BLE001 — tableau illisible : dit, jamais inventé
             illisibles.append(p["tableau"])
     return {"questions": ouvertes, "triage": triage, "bloquees": bloquees, "tableaux_illisibles": illisibles}
+
+
+def discussions_en_attente() -> Dict[str, Any]:
+    """Cinquième section de la file (cahier P7 § 3.5), en LECTURE SEULE : nombre de requêtes du serveur au client
+    encore sans réponse dans le processus du tableau de bord (sessions ouvertes par /api/ws). Le détail (titre, clé,
+    aperçu) se lit côté client par ``session.active_list`` ; rien n'est rattaché ici. Inconnu → ``None`` et le
+    message, jamais zéro."""
+    n = ka.requetes_ouvertes()
+    return {"suivies": n is not None, "requetes_ouvertes": n,
+            "message": None if n is not None else T.DISCUSSIONS_NON_SUIVIES, "limite": T.DISCUSSIONS_LIMITE}
+
+
+def compteurs(file: Dict[str, Any]) -> Dict[str, int]:
+    """« À traiter par vous » (questions dont ``chez`` vaut ``proprietaire``, décisions, revues, cartes arrêtées) et
+    « Chez Hermes » ; les discussions en attente sont comptées à part (section 5, ``discussions``)."""
+    questions = [q for q in file["questions"] if q["chez"] == "proprietaire"]
+    resultat = {"questions": len(questions), "decisions": len(file["triage"]), "revues": len(file.get("revues") or []),
+                "arretees": len(file["bloquees"]),
+                "chez_hermes": sum(1 for q in file["questions"] if q["chez"] == "hermes")}
+    resultat["a_traiter"] = resultat["questions"] + resultat["decisions"] + resultat["revues"] + resultat["arretees"]
+    return resultat
+
+
+def file_questions(conn) -> Dict[str, Any]:
+    """Route ``GET /v1/questions`` (cahier P7 § 3.2) : les cinq sections — questions, décisions (triage), revues
+    (P6), cartes arrêtées, discussions en attente (lecture seule) — et les compteurs ; aucun champ de P4-P6 retiré."""
+    from . import execution  # import différé : execution importe ce module
+
+    file = lister(conn)
+    file["revues"] = execution.revues_en_cours(conn)
+    file["discussions"] = discussions_en_attente()
+    file["compteurs"] = compteurs(file)
+    return file
+
+
+# ------------------------------------------------------------------ « Relancer » une carte arrêtée (étape P7)
+
+
+def _composer_consigne(initiale: str, consigne: str, quand: int) -> str:
+    """Consigne servie à l'exécutant après une relance (correction K4) : la section du propriétaire EN TÊTE (la
+    réduction à 60 Kio de ``execution.construire_carte`` coupe la FIN de la consigne : la section n'est jamais la
+    première coupée), puis la consigne d'origine tronquée pour que le tout tienne dans ``CONSIGNE_MAX`` (16 000
+    caractères, contrat ``DemandeCarte``) ; une carte trop longue serait refusée par le contrat, puis rebloquée."""
+    from . import contrat_partage  # noqa: F401 — met le contrat sur sys.path
+    from acp_poste_contrat.machine import CONSIGNE_MAX
+
+    section = T.SECTION_RELANCE.format(date=routage.date_lisible(quand, "%d/%m à %H:%M"), consigne=consigne)
+    place = CONSIGNE_MAX - MARGE_MASQUAGE - len(section)
+    if len(initiale) > place:
+        mention = T.MENTION_TRONQUE_RELANCE.format(n=f"{CONSIGNE_MAX:,}".replace(",", " "))
+        initiale = initiale[:max(0, place - len(mention))] + mention
+    return section + initiale
+
+
+# Marge laissée sous CONSIGNE_MAX : le masquage des secrets de Hermes, appliqué à la construction de la carte, peut
+# allonger un texte de quelques caractères.
+MARGE_MASQUAGE = 200
+
+
+def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str) -> Dict[str, Any]:
+    """Bouton « Relancer » d'une carte bloquée ou abandonnée (cahier P7 § 3.4, décision P7-2 ; corrections K4, K5,
+    K25). Contrôles dans l'ordre : projet ACP connu, carte émise par le greffon, projet ACTIF, carte arrêtée (une carte
+    en revue se traite par Accepter ou Refuser), carte non bloquée pour un secret (avant la partie E). Aucune carte
+    n'est créée : le plafond de cartes du projet n'est pas touché.
+
+    Effet : carte Hermes → la consigne éventuelle en commentaire (le worker la lit par ``build_worker_context``) ;
+    carte de l'exécutant → ``issue = 'relancee'`` (hors ``ISSUES_REPRISE`` : l'exécutant repart d'une SESSION NEUVE,
+    qui lit la consigne entière, sur la branche gardée) et, avec une consigne, la consigne servie recomposée
+    (:func:`_composer_consigne`) ; puis ``unblock_task`` (compteur d'échecs remis à zéro ; ``block_recurrences``
+    gardé : un second blocage de même raison repart en triage). Journal ``relance`` ; aucune notification."""
+    if consigne is not None:
+        if not isinstance(consigne, str) or not 1 <= len(consigne.strip()) <= 4000:
+            raise refus("arguments", T.CONSIGNE_RELANCE)
+        motif = motif_trouve(consigne)
+        if motif:
+            raise refus("secret", T.SECRET_TEXTE.format(motif=motif))
+        consigne = consigne.strip()
+    fiche = projets.projet(conn, tableau)
+    if fiche is None or fiche["tableau"] != tableau:
+        raise refus("projet_inconnu", T.PROJET_INTROUVABLE.format(t=tableau))
+    from . import execution  # import différé : execution importe ce module
+
+    with execution.verrou():  # aucune carte servie à l'exécutant entre la relecture de la demande et le déblocage
+        demande = projets.demande_de_la_carte(conn, tableau, carte)
+        with ka.connexion(tableau) as kc:
+            tache = ka.get_task(kc, carte)
+            evenements = ka.list_events(kc, carte) if tache is not None else []
+        if tache is None and demande is None:
+            raise refus("carte_inconnue", T.CARTE_DU_PROJET_INCONNUE.format(carte=carte[:40], titre=fiche["titre"]))
+        refus_ = refus_de_relance(fiche, demande, tache, evenements)
+        if refus_ is not None:
+            raise refus(refus_[0], refus_[1])
+        executant = demande["voie"] != "hermes"
+        maintenant = base.maintenant()
+        avant = {c: demande.get(c) for c in ("issue", "consigne", "consigne_relance", "relancee_le",
+                                             "consigne_initiale")}
+        apres: Dict[str, Any] = {"relancee_le": maintenant}
+        if consigne is not None:
+            apres["consigne_relance"] = consigne
+        if executant:
+            apres["issue"] = "relancee"
+            if consigne is not None:
+                initiale = demande.get("consigne_initiale") or demande["consigne"]
+                apres.update(consigne_initiale=initiale, consigne=_composer_consigne(initiale, consigne, maintenant))
+        _ecrire_demande(conn, demande["cle"], apres)
+        try:
+            with ka.connexion(tableau) as kc:
+                if consigne is not None and not executant:
+                    ka.add_comment(kc, carte, AUTEUR_PROPRIETAIRE, T.COMMENTAIRE_RELANCE.format(consigne=consigne))
+                relancee = bool(ka.unblock_task(kc, carte))
+                statut_apres = getattr(ka.get_task(kc, carte), "status", None)
+        except BaseException:
+            _ecrire_demande(conn, demande["cle"], avant)
+            raise
+        if not relancee:
+            _ecrire_demande(conn, demande["cle"], avant)
+        with base.transaction(conn):
+            base.journaliser(conn, auteur, "relance", projet_id=fiche["id"], cible=carte,
+                             detail={"avec_consigne": consigne is not None, "executant": executant,
+                                     "relancee": relancee, "statut_apres": statut_apres})
+    return {"carte": carte, "relancee": relancee, "statut_apres": statut_apres,
+            "session_neuve": relancee and executant}
+
+
+def _ecrire_demande(conn, cle: str, colonnes: Dict[str, Any]) -> None:
+    affectations = ", ".join(f"{nom} = ?" for nom in colonnes)
+    with base.transaction(conn):
+        conn.execute(f"UPDATE demandes SET {affectations} WHERE cle = ?", (*colonnes.values(), cle))
 
 
 def _carte_en_triage(conn, tableau: str, carte: str) -> Dict[str, Any]:

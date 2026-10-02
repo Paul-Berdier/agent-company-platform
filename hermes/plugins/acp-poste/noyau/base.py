@@ -29,6 +29,14 @@ admettent le rôle ``integration`` et la voie ``poste-integration`` ; ``notifica
 ``sqlite_master``), sous la même transaction ``IMMEDIATE`` ; aucune table ne les référence, ``foreign_keys=ON``
 reste donc sans effet sur le ``DROP``. Une base neuve suit exactement les mêmes étapes (schéma v2, puis v3) : base
 neuve et base migrée ont le même schéma, colonne pour colonne.
+
+Schéma v4 (étape P7, cahier P7 § 12.1, correction K21) : ``notifications`` admet le genre ``bilan`` (reconstruite une
+fois, même mécanique que v3, marqueur ``'bilan'``) ; ``demandes`` reçoit la relance d'une carte arrêtée par le
+propriétaire (``consigne_relance``, ``relancee_le``) et la consigne d'origine gardée à la première relance
+(``consigne_initiale``). Les colonnes v4 s'ajoutent APRÈS les reconstructions v3 : la reconstruction v3 de
+``demandes`` ne recopie que les colonnes de sa forme explicite (``DEMANDES_V3``) et perdrait une colonne ajoutée avant
+elle. La forme v4 de ``notifications`` est complète (aucune colonne nouvelle) ; aucune reconstruction v4 de
+``demandes`` (aucune contrainte élargie).
 """
 
 from __future__ import annotations
@@ -44,7 +52,7 @@ from typing import Any, Callable, Dict, Iterator, Optional
 from . import kanban_adapter as ka
 
 NOM_GREFFON = "acp-poste"
-VERSION_SCHEMA = "3"
+VERSION_SCHEMA = "4"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta_schema (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);
@@ -292,6 +300,30 @@ RECONSTRUCTIONS_V3 = (
      ("CREATE INDEX IF NOT EXISTS notifications_par_etat ON notifications (etat, prochaine_tentative)",)),
 )
 
+# ------------------------------------------------------------------ schéma v4 (étape P7, cahier P7 § 12.1)
+
+# Colonnes ajoutées par v4, APRÈS les reconstructions v3 (correction K21 : voir l'en-tête du module).
+COLONNES_V4 = (
+    ("demandes", "consigne_relance", "TEXT"),     # dernière consigne de relance du propriétaire (« Relancer »)
+    ("demandes", "relancee_le", "INTEGER"),       # date de la dernière relance
+    ("demandes", "consigne_initiale", "TEXT"),    # consigne d'origine, gardée à la première relance d'une carte du poste
+)
+NOTIFICATIONS_V4 = """CREATE TABLE {nom} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cle TEXT NOT NULL UNIQUE,
+  genre TEXT NOT NULL CHECK (genre IN ('question','bloquee','triage','abandon','termine','hors_ligne',
+                                       'plafond','test','crochets','revue','secret','conflit','integration',
+                                       'isolement','bilan')),
+  projet_id TEXT, texte TEXT NOT NULL CHECK (length(texte) <= 500), lien TEXT,
+  etat TEXT NOT NULL CHECK (etat IN ('en_attente','envoyee','desactivee','echec')),
+  tentatives INTEGER NOT NULL DEFAULT 0, prochaine_tentative INTEGER, derniere_erreur TEXT,
+  cree_le INTEGER NOT NULL, envoyee_le INTEGER
+)"""
+RECONSTRUCTIONS_V4 = (
+    ("notifications", NOTIFICATIONS_V4, "'bilan'",
+     ("CREATE INDEX IF NOT EXISTS notifications_par_etat ON notifications (etat, prochaine_tentative)",)),
+)
+
 TABLES = ("meta_schema", "projets", "releves", "tours", "demandes", "questions", "presence", "curseurs",
           "notifications", "routage", "surcharges", "reglages", "journal", "emetteur",
           # Schéma v2 (étape P5).
@@ -419,10 +451,10 @@ def reconstruire_dans(conn: sqlite3.Connection, table: str, forme: str, index: t
 
 
 def migrer(conn: sqlite3.Connection) -> None:
-    """Schéma v3, idempotent (``IF NOT EXISTS``, colonnes ajoutées après lecture de ``PRAGMA table_info``,
+    """Schéma v4, idempotent (``IF NOT EXISTS``, colonnes ajoutées après lecture de ``PRAGMA table_info``,
     reconstructions repérées par leur contrainte), le tout sous UNE transaction ``IMMEDIATE`` : deux processus qui
-    migrent en même temps se succèdent, le second trouve tout en place. Une base v1 ou v2 passe à ``'3'`` par un
-    ``UPDATE`` (l'``INSERT OR IGNORE`` seul laisserait l'ancienne version) ; une base neuve reçoit ``'3'``."""
+    migrent en même temps se succèdent, le second trouve tout en place. Une base v1, v2 ou v3 passe à ``'4'`` par un
+    ``UPDATE`` (l'``INSERT OR IGNORE`` seul laisserait l'ancienne version) ; une base neuve reçoit ``'4'``."""
     with transaction(conn):
         for instruction in SCHEMA.split(";"):
             if instruction.strip():
@@ -440,8 +472,15 @@ def migrer(conn: sqlite3.Connection) -> None:
         for table, forme, marqueur, index in RECONSTRUCTIONS_V3:
             if marqueur not in _sql_de_la_table(conn, table):
                 reconstruire_dans(conn, table, forme, index)
+        # Étape P7 : colonnes APRÈS les reconstructions v3 (K21), puis la reconstruction de ``notifications``.
+        for table, colonne, genre in COLONNES_V4:
+            if colonne not in _colonnes(conn, table):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {genre}")
+        for table, forme, marqueur, index in RECONSTRUCTIONS_V4:
+            if marqueur not in _sql_de_la_table(conn, table):
+                reconstruire_dans(conn, table, forme, index)
         conn.execute("INSERT OR IGNORE INTO meta_schema (cle, valeur) VALUES ('version', ?)", (VERSION_SCHEMA,))
-        conn.execute("UPDATE meta_schema SET valeur = ? WHERE cle = 'version' AND valeur IN ('1', '2')",
+        conn.execute("UPDATE meta_schema SET valeur = ? WHERE cle = 'version' AND valeur IN ('1', '2', '3')",
                      (VERSION_SCHEMA,))
 
 

@@ -243,7 +243,8 @@ def test_meta_bloc_projets_d_une_base_neuve(tmp_path):
     alerte des projets (la base neuve n'invente rien : ni passe, ni canal)."""
     donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
     projets = donnees["projets"]
-    assert projets["base"] == "ok" and projets["schema"] == "3"
+    assert projets["base"] == "ok" and projets["schema"] == "4"
+    assert donnees["accueil"] is True  # étape P7 : la route agrégée GET /v1/accueil est annoncée
     assert (projets["projets_actifs"], projets["releve_factice_present"], projets["pause_generale"]) == (0, False, None)
     assert projets["emetteur"] == {"derniere_passe": None, "processus": None, "derniers_ticks": {}, "canal": None,
                                    "configure": None, "en_attente": 0, "echecs": 0, "envoyees": 0, "desactivees": 0,

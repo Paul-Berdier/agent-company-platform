@@ -51,6 +51,17 @@ exige ``Content-Type: application/json`` (415 sinon) et refuse un ``Origin`` pr�
                                                porteur : jeton machine ; ``id_envoi`` idempotent ; preuve de propriété
 - ``POST /v1/revues/{tableau}/{carte}/accepter`` ``/refuser``  revue des fichiers de pilotage → 200, 404, 409, 422
 
+Étape P7 — questions, continuité (cahier P7 § 3, § 4, § 8, § 10) :
+
+- ``GET  /v1/questions``                       cinq sections : questions (``chez``), décisions, revues, cartes
+                                               arrêtées (``relancable``), discussions en attente (lecture seule) ;
+                                               ``compteurs``
+- ``POST /v1/cartes/{tableau}/{carte}/relancer`` relancer une carte bloquée ou abandonnée (consigne facultative)
+                                               → 200, 403, 404, 409
+- ``POST /v1/projets/{id}/reponses``           « qui répond » : ``hermes_d_abord`` ou ``proprietaire`` → 200, 404, 409
+- ``POST /v1/projets/{id}/clore``              clore un projet (``confirmation: true``) → 200, 404, 409, 422
+- ``GET  /v1/accueil``                         accueil agrégé : à traiter, projets, exécutant, quotas, canal, pause
+
 Les neuf routes machine ne sont jamais servies à une session de navigateur : la couture de Hermes les réserve au
 porteur d'un jeton reconnu (chemins exacts enregistrés par register()).
 """
@@ -208,14 +219,8 @@ def _avec_base(travail: Callable[[Any], Any]) -> Callable[[], Any]:
 
 
 def _etat_notifications(conn) -> Dict[str, Any]:
-    """État PUBLIC du canal, publié par la passerelle. Tant qu'elle ne l'a pas publié, l'état est INCONNU, et le
-    message le dit (jamais « non configurées » sans le savoir)."""
-    canal = _n("base").lire_emetteur(conn, "canal") or {}
-    textes = _n("textes")
-    message = (None if canal.get("configure") else textes.NOTIFICATIONS_NON_CONFIGUREES if canal
-               else textes.NOTIFICATIONS_ETAT_INCONNU)
-    return {"canal": canal.get("canal"), "configure": bool(canal.get("configure")), "connu": bool(canal),
-            "message": message}
+    """État PUBLIC du canal (étape P7 : calculé dans le noyau, ``notifications.etat_public``, correction K18)."""
+    return _n("notifications").etat_public(conn)
 
 
 @router.get("/v1/projets")
@@ -286,10 +291,8 @@ async def reprise_projet(identifiant: str, request: Request) -> JSONResponse:
 
 @router.get("/v1/questions")
 async def lister_questions() -> JSONResponse:
-    def travail(conn):
-        # Étape P6 : section « Revues » (cartes en revue pour des fichiers de pilotage, cahier P6 § 9.3).
-        return dict(_n("questions").lister(conn), revues=_n("execution").revues_en_cours(conn))
-    return await _executer(_avec_base(travail))
+    # Étape P6 : section « Revues » ; étape P7 : cinq sections et compteurs (cahier P7 § 3.2), même lecture.
+    return await _executer(_avec_base(lambda conn: _n("questions").file_questions(conn)))
 
 
 @router.post("/v1/questions/{question}/reponse")
@@ -1154,3 +1157,62 @@ async def refuser_revue(tableau: str, carte: str, request: Request) -> JSONRespo
         return refus_champs
     return await _executer(_avec_base(lambda conn: _n("execution").refuser_revue(
         conn, tableau=tableau, carte=carte, motif=corps.get("motif"), auteur=auteur)))
+
+
+# ============================================================ étape P7 : file Questions, relance, réglage, clôture, Accueil
+#
+# Routes du propriétaire (cahier P7 § 3.4, § 4.2, § 8.2, § 10) : session, JSON et ``Origin`` contrôlés (P4 § 11). Chaque
+# code de refus a son statut (correction K19 : sans entrée ici, 400 par défaut).
+
+CODES_HTTP.update({"carte_non_acp": 403, "carte_non_arretee": 409, "carte_en_revue": 409, "carte_secret": 409,
+                   "reponses_sans_objet": 409, "confirmation": 422})
+
+
+@router.post("/v1/cartes/{tableau}/{carte}/relancer")
+async def relancer_carte(tableau: str, carte: str, request: Request) -> JSONResponse:
+    """« Relancer » une carte bloquée ou abandonnée d'un projet actif, avec une consigne facultative (1 à 4000
+    caractères) ; aucune notification (geste du propriétaire). Réponse : ``{carte, relancee, statut_apres,
+    session_neuve}`` — l'interface ne dit « La carte repart » que d'après ``relancee``."""
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"consigne"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer(_avec_base(lambda conn: _n("questions").relancer_carte(
+        conn, tableau=tableau, carte=carte, consigne=corps.get("consigne"), auteur=auteur)))
+
+
+@router.post("/v1/projets/{identifiant}/reponses")
+async def changer_reponses(identifiant: str, request: Request) -> JSONResponse:
+    """« Qui répond » : ``{"reponses": "hermes_d_abord" | "proprietaire"}`` ; vaut pour les questions SUIVANTES."""
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"reponses"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer(_avec_base(lambda conn: _n("projets").changer_reponses(
+        conn, identifiant, reponses=corps.get("reponses"), auteur=auteur)))
+
+
+@router.post("/v1/projets/{identifiant}/clore")
+async def clore_projet(identifiant: str, request: Request) -> JSONResponse:
+    """« Clore le projet » : ``{"confirmation": true}`` exigé (422 sinon) ; projet actif ou en pause (409 sinon)."""
+    garde = await _garde_ecriture(request)
+    if isinstance(garde, JSONResponse):
+        return garde
+    auteur, corps = garde
+    refus_champs = _champs(corps, {"confirmation"})
+    if refus_champs is not None:
+        return refus_champs
+    return await _executer(_avec_base(lambda conn: _n("projets").clore(
+        conn, identifiant, confirmation=corps.get("confirmation"), auteur=auteur)))
+
+
+@router.get("/v1/accueil")
+async def lire_accueil() -> JSONResponse:
+    """Accueil agrégé : une seule lecture pour la page, au téléphone comme au bureau (cahier P7 § 8.2)."""
+    return await _executer(_avec_base(lambda conn: _n("accueil").construire(conn)))

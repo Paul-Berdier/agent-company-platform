@@ -432,7 +432,58 @@ CONSIGNE_INTEGRATION = (
     "secrets) sur le diff cumulé. Aucun push. Conflit : abandon de la fusion et blocage avec la liste des fichiers.")
 # Routage de l'étape P6 (cahier P6 § 4.3, § 6.7).
 INTEGRATION_SANS_MODELE_ROUTAGE = "la classe « integration » n'a ni modèle ni effort (fusion locale déterministe)."
+# Étape P7 (cahier P7 § 11.2, D83) : la voie Codex n'est prêtée qu'à un dépôt MESURÉ privé et lu avec le jeton.
+VOIE_FERMEE_DEPOT = ("dépôt « {d} » non prouvé privé ({raison}) : Codex n'y travaille que sur un dépôt privé lu avec le "
+                     "jeton de lecture (D83)")
+DEPOT_ABSENT_INVENTAIRE = "absent du dernier inventaire de l'exécutant"
+VISIBILITE_NON_MESUREE = "visibilité non mesurée par l'exécutant"
+VISIBILITE_MESUREE = "visibilité mesurée : {v}"
+LECTURE_MESUREE = "lecture avec le jeton : {l}"
 REPLI_MEME_MODELE = "le modèle « {m} » est celui de l'implémentation"
 REPLI_SANS_ENTREE = "aucune entrée de la table « relecture » pour {v}"
 REPLI_IMPOSSIBLE = "la voie {v} est fermée ({fermeture}) et aucun autre modèle de la même voie n'est admis ({detail})"
 MENTION_REPLI_MEME_VOIE = "relecture de repli par la même voie, autre modèle (D91) : {raison}"
+
+# ------------------------------------------------------------------ file Questions, relance, réglage, clôture (étape P7)
+# « Relancer » une carte arrêtée (cahier P7 § 3.4, décision P7-2 ; corrections K4, K5, K25).
+CARTE_NON_ACP = "la carte {carte} du tableau « {t} » n'a pas été émise par ACP : ACP ne la relance pas."
+CARTE_NON_ARRETEE = ("la carte {carte} n'est pas arrêtée (statut : {statut}) : seule une carte bloquée ou abandonnée se "
+                     "relance.")
+CARTE_EN_REVUE = "la carte {carte} est en revue : acceptez-la ou refusez-la depuis la section Revues."
+CARTE_SECRET = ("la carte {carte} a été bloquée pour un secret détecté dans la production de l'exécutant : sa relance "
+                "reste refusée tant que la mise à l'écart du travail fautif n'est pas vérifiée sur l'exécutant (étape "
+                "P7, partie E) ; récupérez la branche pour l'examiner.")
+RELANCE_PROJET_EN_PAUSE = "le projet « {titre} » est en pause : reprenez d'abord le projet."
+CONSIGNE_RELANCE = "la consigne de relance doit compter de 1 à 4000 caractères."
+# Section ajoutée EN TÊTE de la consigne d'une carte de l'exécutant (la réduction à 60 Kio coupe la fin : K4).
+SECTION_RELANCE = "## Consigne du propriétaire (relance du {date})\n{consigne}\n\n## Consigne initiale\n"
+MENTION_TRONQUE_RELANCE = ("\n\n[… consigne initiale tronquée par ACP pour tenir, avec la relance, dans les {n} caractères "
+                           "d'une carte]")
+COMMENTAIRE_RELANCE = "Relance par le propriétaire — consigne :\n{consigne}"
+# Raisons rendues par GET /v1/questions pour une carte arrêtée qui ne se relance pas (sans « Refusé par ACP : »).
+REFUS_RELANCE_PAUSE = "Projet en pause : reprenez d'abord le projet."
+REFUS_RELANCE_FINI = "Projet {etat} : la carte ne serait plus servie."
+REFUS_RELANCE_NON_ACP = "Carte non émise par ACP : ACP ne la relance pas."
+REFUS_RELANCE_SECRET = ("Bloquée pour un secret : relance refusée tant que la mise à l'écart du travail fautif n'est pas "
+                        "vérifiée sur l'exécutant.")
+REFUS_RELANCE_REVUE = "Carte en revue : acceptez-la ou refusez-la depuis la section Revues."
+ETATS_LISIBLES = {"creation": "en création", "actif": "en cours", "en_pause": "en pause", "termine": "terminé",
+                  "abandonne": "abandonné"}
+
+# « Qui répond » modifiable (cahier P7 § 4.2, décision P7-3).
+REPONSES_SANS_OBJET = "Sans dépôt, aucune question ne peut naître : ce réglage est sans objet."
+
+# « Clore le projet » (cahier P7 § 10, décision P7-9).
+CONFIRMATION_CLORE = ("« confirmation » doit valoir true : clore archive les cartes ouvertes du projet, annule ses "
+                      "questions et l'arrête.")
+CLORE_COURSE = ("le projet « {titre} » a changé d'état pendant la clôture ({etat}) : rien n'a été modifié ; rechargez "
+                "la page.")
+
+# Discussions en attente (cahier P7 § 3.5) : lecture seule du compteur du tableau de bord.
+DISCUSSIONS_NON_SUIVIES = ("Discussions : état inconnu (le tableau de bord ne publie pas le nombre de requêtes ouvertes "
+                           "dans cette version de Hermes).")
+DISCUSSIONS_LIMITE = ("Les questions posées dans la discussion en terminal (/chat) ne sont visibles que dans cette "
+                      "discussion.")
+
+# Accueil agrégé (cahier P7 § 8.2) : un bloc illisible vaut null avec sa raison, jamais une valeur par défaut.
+BLOC_ILLISIBLE = "Bloc illisible ({type}) : rechargez la page ; si l'erreur reste, consultez /v1/meta."
