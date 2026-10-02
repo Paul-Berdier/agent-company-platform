@@ -2,37 +2,45 @@
 
 #include "api/ApiClient.h"
 #include "api/ApiError.h"
+#include "api/ClientGreffonPoste.h"
 #include "app/BuildConfig.h"
 #include "app/QmlEnums.h"
-#include "auth/AuthManager.h"
+#include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
 #include "events/EventStreamService.h"
+#include "events/VeilleKanban.h"
+#include "gateway/DemandesAgent.h"
+#include "gateway/GatewayClient.h"
+#include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
-#include "services/CompatibilityService.h"
+#include "services/CompatibiliteHermes.h"
 #include "services/HealthService.h"
+#include "services/UpdateService.h"
+#include "storage/ChiffrementSauvegarde.h"
 #include "storage/CredentialVault.h"
 #include "storage/SettingsStore.h"
 #include "system/SystemAppearance.h"
+#include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiagnosticsViewModel.h"
+#include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/PosteViewModel.h"
+#include "viewmodels/ProjetsViewModel.h"
+#include "viewmodels/QuestionsViewModel.h"
+#include "viewmodels/QuotasViewModel.h"
+#include "viewmodels/RoutageViewModel.h"
+#include "viewmodels/SauvegardeViewModel.h"
 #include "viewmodels/ShellViewModel.h"
-#include "viewmodels/WorkspaceViewModel.h"
-#include "viewmodels/ConversationsViewModel.h"
-#include "viewmodels/MissionsViewModel.h"
-#include "viewmodels/ArtifactsViewModel.h"
-#include "services/ArtifactDownload.h"
-#include "viewmodels/PlatformViewModel.h"
-#include "viewmodels/OperationsViewModel.h"
-#include "viewmodels/SubscriptionQuotasViewModel.h"
-#include "services/SessionPersistence.h"
-#include "services/UpdateService.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
-#include <QLibraryInfo>
+#include <QGuiApplication>
 #include <QMetaType>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QUrl>
 #include <QtQml>
+
+#include <utility>
 
 namespace acp {
 
@@ -61,65 +69,126 @@ QByteArray Application::userAgent()
     return QByteArrayLiteral("acp-desktop/") + ACP_DESKTOP_VERSION;
 }
 
-Application::Application(QObject *parent)
+Application::Application(QObject *parent, const QString &nomCoffre)
     : QObject(parent)
     , m_settings(new SettingsStore(this))
     , m_client(new ApiClient(this))
-    , m_auth(new AuthManager(m_client, this))
+    , m_vault(makeCredentialVault(nomCoffre))
+    , m_session(new SessionHermes(m_client, m_vault.get(), m_settings, this))
+    , m_greffon(std::make_unique<ClientGreffonPoste>(m_client))
+    , m_compatibilite(new CompatibiliteHermes(m_greffon.get(), this))
+    , m_passerelle(new GatewayClient(m_client, this))
+    , m_flux(new EventStreamService(m_client, m_greffon.get(), m_passerelle, this))
     , m_health(new HealthService(m_client, this))
-    , m_compatibility(new CompatibilityService(m_client, version(), this))
-    , m_streams(new EventStreamService(m_client, this))
     , m_navigation(new NavigationModel(this))
     , m_commands(new CommandRegistry(this))
     , m_appearance(new SystemAppearance(m_settings, this))
-    , m_vault(makeCredentialVault(QStringLiteral("AgentCompanyPlatform")))
 {
     m_client->setUserAgent(userAgent());
 
-    m_shell = new ShellViewModel(m_client, m_auth, m_health, m_compatibility, m_streams,
-                                 m_navigation, m_commands, m_settings, this);
-    m_diagnostics =
-        new DiagnosticsViewModel(m_client, m_auth, m_health, m_compatibility, m_streams,
-                                 m_settings, m_appearance, m_vault.get(), version(), buildInfo(),
-                                 this);
-
-    m_workspace = new WorkspaceViewModel(m_client, m_auth, this);
-    m_conversations = new ConversationsViewModel(m_client, m_auth, this);
-    m_missions = new MissionsViewModel(m_client, m_auth, m_streams, this);
-    m_artifacts = new ArtifactsViewModel(m_client, m_auth, this);
-    m_platform = new PlatformViewModel(m_client, m_auth, this);
-    m_operations = new OperationsViewModel(m_client, m_auth, this);
-    // Hors contexte de projet : les quotas d'abonnement appartiennent au propriétaire de
-    // la plateforme, pas à un projet ; aucun changement de projet ne les recharge.
-    m_quotas = new SubscriptionQuotasViewModel(m_client, m_auth, this);
-    m_sessionStorage = new SessionPersistence(m_client, m_auth, m_vault.get(), m_settings, this);
-    m_updates = new UpdateService(version(), this);
-    connect(m_workspace, &WorkspaceViewModel::projectChanged, this, [this, previousId = QString()]() mutable {
-        const auto id = m_workspace->projectId();
-        // Renommer/recharger le même projet ne déplace pas une conversation générale.
-        // Les titres QML suivent projectChanged ; seuls les changements d'identité
-        // sélectionnent un autre contexte dans les vues métier.
-        if (id == previousId) return;
-        previousId = id;
-        m_conversations->setProjectId(id);
-        m_missions->setProjectId(id);
-        m_artifacts->setProjectId(id);
-        m_platform->setProjectId(id);
-        m_operations->setProjectId(id);
+    m_shell = new ShellViewModel(m_client, m_session, m_health, m_navigation, m_commands,
+                                 m_settings, this);
+    // Retour du lien : une session gardée pendant une coupure retente sa rotation.
+    connect(m_health, &HealthService::changed, this, [this] {
+        if (m_health->linkStatus() == LinkStatus::Online
+            && m_session->etat() == SessionStatus::HorsLigne) {
+            m_session->reessayer();
+        }
+        // Retour du lien : les pages visibles relisent tout de suite (cahier P8 § 6.1).
+        if (m_health->linkStatus() == LinkStatus::Online) {
+            m_flux->signalerLien(true);
+        } else if (m_health->linkStatus() == LinkStatus::Offline) {
+            m_flux->signalerLien(false);
+        }
     });
+    m_diagnostics = new DiagnosticsViewModel(m_client, m_session, m_compatibilite, m_passerelle, m_health,
+                                             m_settings, m_appearance, m_vault.get(), version(),
+                                             buildInfo(), this);
+    m_diagnostics->setFlux(m_flux);
+    // Pages de pilotage : elles lisent seulement quand elles sont affichées et la session établie.
+    m_accueil = new AccueilViewModel(m_client, m_greffon.get(), m_flux, this);
+    // La carte « Hermes » de l'accueil relit /v1/meta avec la page (version, verdict, alertes).
+    m_accueil->setCompatibilite(m_compatibilite);
+    m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
+    m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
+    m_poste = new PosteViewModel(m_greffon.get(), m_compatibilite, m_flux, this);
+    m_quotas = new QuotasViewModel(m_greffon.get(), m_flux, this);
+    m_routage = new RoutageViewModel(m_client, m_greffon.get(), m_flux, this);
+    // Sauvegarde : chiffrée par DPAPI pour la session Windows courante (format ACPB1).
+    m_sauvegarde = new SauvegardeViewModel(m_client, m_flux, makeProtecteurUtilisateur(), this);
+    // Demandes de l'agent (approval, clarify) et discussion : sur la passerelle JSON-RPC.
+    m_demandes = new DemandesAgent(m_passerelle, this);
+    m_discussion = new DiscussionViewModel(m_passerelle, m_flux, this);
+    // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
+    connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
+    connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
+    // Passerelle JSON-RPC : ouverte dès la session établie (sessions.changed, demandes de
+    // l'agent), fermée à sa perte ; coupée si le contrat JSON-RPC servi n'est pas celui de la
+    // station.
+    connect(m_session, &SessionHermes::sessionEtablie, m_passerelle, &GatewayClient::ouvrir);
+    connect(m_session, &SessionHermes::sessionPerdue, m_passerelle, &GatewayClient::fermer);
+    // Temps réel : sondage léger, veille du kanban et pages actives suivent la session.
+    connect(m_session, &SessionHermes::sessionEtablie, m_flux, &EventStreamService::demarrer);
+    connect(m_session, &SessionHermes::sessionPerdue, m_flux, &EventStreamService::arreter);
+    // Session perdue (déconnexion, jeton refusé) : la discussion affichée est oubliée. Connexion
+    // faite APRÈS celle de la passerelle (ordre d'appel des slots) : la passerelle est déjà
+    // fermée, aucune fermeture n'est émise vers Hermes.
+    connect(m_session, &SessionHermes::sessionPerdue, m_discussion, &DiscussionViewModel::quitter);
+    // Oubli local complet (docs/desktop-security.md) : session perdue ou serveur changé, chaque
+    // page vide ce qu'elle a lu (modèles, « Lu à », brouillons) ; aucune ligne d'un serveur ne
+    // reste affichée sous un autre. Connexions faites APRÈS l'arrêt du temps réel : plus aucune
+    // lecture ne repart avant l'oubli.
+    const auto oublierLesPages = [this] {
+        for (PageViewModel *page : std::initializer_list<PageViewModel *>{
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde, m_discussion}) {
+            page->oublier();
+        }
+    };
+    connect(m_session, &SessionHermes::sessionPerdue, this, oublierLesPages);
+    connect(m_client, &ApiClient::baseUrlChanged, this, [this, oublierLesPages] {
+        // Aucun canal ne reste ouvert vers l'ancien serveur (une session ouverte y est déjà
+        // perdue par SessionHermes ; ceci couvre aussi un canal ouvert sans elle).
+        m_passerelle->fermer();
+        m_flux->veille()->arreter();
+        m_compatibilite->oublier(); // un verdict n'appartient qu'au serveur qui l'a rendu
+        m_flux->oublierResume();
+        oublierLesPages();
+    });
+    // Greffon bloqué par le verdict de compatibilité : les pages du greffon oublient ce
+    // qu'elles en avaient lu, et le résumé redevient « Inconnu ».
+    // Seulement au PASSAGE au blocage : l'accueil relit /v1/meta toutes les 15 s, et chaque
+    // verdict republié ne doit pas refaire oublier (puis relire) les pages.
+    connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
+        const bool avant = std::exchange(m_greffonBloque, m_greffon->bloque());
+        if (!m_greffonBloque || avant) {
+            return;
+        }
+        m_flux->oublierResume();
+        for (PageViewModel *page : std::initializer_list<PageViewModel *>{
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage}) {
+            page->oublier();
+        }
+    });
+    connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
+        const CompatibilityStatus::State etat = m_compatibilite->etat();
+        const bool verdictRendu = etat != CompatibilityStatus::NonVerifiee
+            && etat != CompatibilityStatus::Verification && etat != CompatibilityStatus::Injoignable;
+        if (verdictRendu && !m_compatibilite->discussionDisponible()) {
+            m_passerelle->fermer();
+        }
+    });
+    m_updates = new UpdateService(version(), this);
     registerBuiltinCommands();
-    const auto updateCommands = [this] { m_commands->setContext(m_commands->context()); };
-    connect(m_conversations, &ConversationsViewModel::changed, this, updateCommands);
-    connect(m_workspace, &WorkspaceViewModel::changed, this, updateCommands);
-    connect(m_navigation, &NavigationModel::historyChanged, this, updateCommands);
+    connect(m_navigation, &NavigationModel::historyChanged, this,
+            [this] { m_commands->setContext(m_commands->context()); });
 }
 
 Application::~Application()
 {
     shutdown();
-    // Les vues dépendent du transport et des flux créés avant elles. QObject détruit
-    // normalement ses enfants dans l'ordre de création : les vues doivent ici partir
-    // en premier, pendant que leurs services et le coffre sont encore disponibles.
+    // Les vues dépendent du transport créé avant elles. QObject détruit normalement ses
+    // enfants dans l'ordre de création : les vues doivent ici partir en premier, pendant
+    // que leurs services et le coffre sont encore disponibles.
     while (!children().isEmpty()) delete children().last();
 }
 
@@ -128,8 +197,6 @@ void Application::registerQmlTypes()
     qRegisterMetaType<acp::ApiError>("acp::ApiError");
     qmlRegisterUncreatableType<JsonListModel>(kQmlUri, 1, 0, "JsonListModel",
         QStringLiteral("Le modèle est fourni par la station."));
-    qmlRegisterUncreatableType<ArtifactDownload>(kQmlUri, 1, 0, "ArtifactDownload",
-        QStringLiteral("Le téléchargement est fourni par la station."));
 
     // Énumérations : types non instanciables, exposés pour que QML puisse comparer des
     // états sans recopier des chaînes magiques.
@@ -142,9 +209,6 @@ void Application::registerQmlTypes()
     qmlRegisterUncreatableType<CompatibilityStatus>(kQmlUri, 1, 0, "CompatibilityStatus",
                                                     QStringLiteral("CompatibilityStatus n'expose "
                                                                    "que des énumérations."));
-    qmlRegisterUncreatableType<StreamStatus>(kQmlUri, 1, 0, "StreamStatus",
-                                             QStringLiteral("StreamStatus n'expose que des "
-                                                            "énumérations."));
     qmlRegisterUncreatableType<ApiFailure>(kQmlUri, 1, 0, "ApiFailure",
                                            QStringLiteral("ApiFailure n'expose que des "
                                                           "énumérations."));
@@ -163,21 +227,24 @@ void Application::registerQmlTypes()
     // Singletons d'instance : QML lit, il ne construit pas. Aucun de ces objets n'expose
     // de secret — voir les propriétés déclarées dans chaque en-tête.
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Shell", m_shell);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Session", m_auth);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Session", m_session);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Health", m_health);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Compatibility", m_compatibility);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Compatibility", m_compatibilite);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Gateway", m_passerelle);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Streams", m_flux);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Accueil", m_accueil);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Questions", m_questions);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Poste", m_poste);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Quotas", m_quotas);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Routage", m_routage);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Sauvegarde", m_sauvegarde);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Demandes", m_demandes);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Discussion", m_discussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Diagnostics", m_diagnostics);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Workspace", m_workspace);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Conversations", m_conversations);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Missions", m_missions);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Artifacts", m_artifacts);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Platform", m_platform);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Operations", m_operations);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "SubscriptionQuotas", m_quotas);
-    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "SessionStorage", m_sessionStorage);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Updates", m_updates);
 }
 
@@ -212,20 +279,15 @@ void Application::start()
     if (m_client->isConfigured()) {
         m_health->probeNow();
         m_health->setPeriodicProbeEnabled(true);
-        m_compatibility->check();
-        m_auth->refreshBootstrapStatus();
-        // La reprise de session s'appuie sur le cookie ; sans cookie détenu elle échoue
-        // immédiatement, sans appel réseau.
-        m_sessionStorage->restore();
-        m_auth->resumeSession();
+        // Jeton mémorisé pour ce serveur (et consentement donné) : rafraîchissement immédiat.
+        m_session->restaurer();
     }
 }
 
 void Application::shutdown()
 {
-    // Ordre voulu : fermer les flux AVANT de perdre la session, pour que le serveur
-    // libère ses jetons de connexion tout de suite plutôt qu'au bout de 900 secondes.
-    m_streams->closeAll();
+    m_flux->arreter();
+    m_passerelle->fermer();
     m_health->setPeriodicProbeEnabled(false);
     m_settings->flush();
 }
@@ -235,40 +297,7 @@ void Application::registerBuiltinCommands()
     const auto alwaysAvailable = [](const CommandContext &) {
         return CommandAvailability::Available;
     };
-    const auto needsSession = [](const CommandContext &context) {
-        return context.sessionConnected ? CommandAvailability::Available
-                                        : CommandAvailability::NeedsSession;
-    };
 
-    m_commands->registerCommand(Command{
-        QStringLiteral("conversation.new"), QStringLiteral("Nouvelle conversation générale"),
-        QStringLiteral("Conversations"), {QStringLiteral("chat"), QStringLiteral("nouveau")},
-        QStringLiteral("Ctrl+N"),
-        [this](const CommandContext &context) {
-            if (!context.sessionConnected) return CommandAvailability::NeedsSession;
-            return m_conversations->busy() || m_conversations->pendingSubmission()
-                ? CommandAvailability::Unavailable : CommandAvailability::Available;
-        }, [this](const CommandContext &) {
-            if (!m_conversations->startConversation(QString()))
-                return CommandResult::reject(m_conversations->error());
-            m_navigation->setCurrentRoute(QStringLiteral("conversations"));
-            return CommandResult::accept();
-        }});
-    m_commands->registerCommand(Command{
-        QStringLiteral("project.new"), QStringLiteral("Créer un projet"),
-        QStringLiteral("Projets"), {QStringLiteral("nouveau"), QStringLiteral("codage")},
-        QStringLiteral("Ctrl+Shift+N"),
-        [this](const CommandContext &context) {
-            if (!context.sessionConnected) return CommandAvailability::NeedsSession;
-            if (m_conversations->busy() || m_conversations->pendingSubmission())
-                return CommandAvailability::Unavailable;
-            return m_workspace->canCreateProject() ? CommandAvailability::Available
-                                                   : CommandAvailability::NeedsRole;
-        }, [this](const CommandContext &) {
-            m_workspace->requestProjectCreation();
-            m_navigation->setCurrentRoute(QStringLiteral("projects"));
-            return CommandResult::accept();
-        }});
     m_commands->registerCommand(Command{
         QStringLiteral("navigation.back"), QStringLiteral("Revenir à l'écran précédent"),
         QStringLiteral("Navigation"), {}, QStringLiteral("Alt+Left"),
@@ -282,44 +311,11 @@ void Application::registerBuiltinCommands()
             ? CommandAvailability::Available : CommandAvailability::NeedsSelection; },
         [this](const CommandContext &) { m_navigation->goForward(); return CommandResult::accept(); }});
 
-    const QList<QPair<QString, QString>> workspaceRoutes = {
-        {QStringLiteral("projects"), QStringLiteral("Projets")},
-        {QStringLiteral("conversations"), QStringLiteral("Conversations")},
-        {QStringLiteral("missions"), QStringLiteral("Missions et runs")},
-        {QStringLiteral("library"), QStringLiteral("Livrables")},
-        {QStringLiteral("studio"), QStringLiteral("Studio en direct")},
-        {QStringLiteral("platform"), QStringLiteral("Agents et workers")},
-        {QStringLiteral("extensions"), QStringLiteral("Extensions MCP et skills")},
-        {QStringLiteral("approvals"), QStringLiteral("Opérations")},
-        {QStringLiteral("quotas"), QStringLiteral("Quotas d'abonnement")},
-    };
-    for (const auto &route : workspaceRoutes) {
-        m_commands->registerCommand(Command{
-            QStringLiteral("navigation.") + route.first, route.second,
-            QStringLiteral("Navigation"), {route.second},
-            route.first == QLatin1String("projects") ? QStringLiteral("Ctrl+P") : QString(), needsSession,
-            [this, destination = route.first](const CommandContext &) {
-                m_navigation->setCurrentRoute(destination);
-                return CommandResult::accept();
-            }});
-    }
-
     m_commands->registerCommand(Command{
         QStringLiteral("navigation.settings"), QStringLiteral("Réglages et mises à jour"),
         QStringLiteral("Navigation"), {}, QString(), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("settings"));
-            return CommandResult::accept();
-        }});
-
-    m_commands->registerCommand(Command{
-        QStringLiteral("session.resume"), QStringLiteral("Reprendre la session"),
-        QStringLiteral("Session"), {}, QString(),
-        [this](const CommandContext &) {
-            return m_client->isConfigured() && !m_auth->isBusy()
-                ? CommandAvailability::Available : CommandAvailability::NotConfigured;
-        }, [this](const CommandContext &) {
-            m_auth->resumeSession();
             return CommandResult::accept();
         }});
 
@@ -342,9 +338,99 @@ void Application::registerBuiltinCommands()
         }});
 
     m_commands->registerCommand(Command{
+        QStringLiteral("navigation.projects"), QStringLiteral("Aller aux projets"),
+        QStringLiteral("Navigation"), {QStringLiteral("projets"), QStringLiteral("kanban")},
+        QStringLiteral("Ctrl+3"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("projects"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.questions"), QStringLiteral("Répondre aux questions des projets"),
+        QStringLiteral("Navigation"), {QStringLiteral("questions"), QStringLiteral("triage"), QStringLiteral("décision")},
+        QStringLiteral("Ctrl+4"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("questions"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.station"), QStringLiteral("Voir l'état du poste Windows"),
+        QStringLiteral("Navigation"), {QStringLiteral("poste"), QStringLiteral("enrôlement"), QStringLiteral("inventaire")},
+        QStringLiteral("Ctrl+6"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("station"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.quotas"), QStringLiteral("Voir les quotas relevés"),
+        QStringLiteral("Navigation"), {QStringLiteral("quotas"), QStringLiteral("abonnement"), QStringLiteral("limite")},
+        QStringLiteral("Ctrl+7"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("quotas"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.routing"), QStringLiteral("Voir la table de routage"),
+        QStringLiteral("Navigation"), {QStringLiteral("routage"), QStringLiteral("modèle"), QStringLiteral("exécutant")},
+        QStringLiteral("Ctrl+8"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("routing"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.backup"), QStringLiteral("Exporter une sauvegarde chiffrée de Hermes"),
+        QStringLiteral("Navigation"), {QStringLiteral("sauvegarde"), QStringLiteral("export"), QStringLiteral("archive")},
+        QStringLiteral("Ctrl+9"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("backup"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.chat"), QStringLiteral("Discuter avec Hermes"),
+        QStringLiteral("Navigation"), {QStringLiteral("discussion"), QStringLiteral("chat"), QStringLiteral("hermes")},
+        QStringLiteral("Ctrl+5"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("chat"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("chat.new"), QStringLiteral("Nouvelle discussion avec Hermes"),
+        QStringLiteral("Discussion"), {QStringLiteral("nouvelle"), QStringLiteral("session")}, QString(),
+        [this](const CommandContext &context) {
+            if (!context.sessionConnected) {
+                return CommandAvailability::NeedsSession;
+            }
+            return m_discussion->passerellePrete() ? CommandAvailability::Available : CommandAvailability::Offline;
+        },
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("chat"));
+            m_discussion->nouvelle();
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("projects.new"), QStringLiteral("Lancer un nouveau projet"),
+        QStringLiteral("Projets"), {QStringLiteral("nouveau"), QStringLiteral("lancer")}, QString(),
+        [](const CommandContext &context) {
+            return context.sessionConnected ? CommandAvailability::Available : CommandAvailability::NeedsSession;
+        },
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("projects"));
+            m_projets->afficherNouveau();
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
         QStringLiteral("navigation.diagnostics"), QStringLiteral("Ouvrir les diagnostics"),
         QStringLiteral("Navigation"),
-        {QStringLiteral("santé"), QStringLiteral("état"), QStringLiteral("readiness")},
+        {QStringLiteral("santé"), QStringLiteral("état"), QStringLiteral("version")},
         QStringLiteral("Ctrl+2"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("diagnostics"));
@@ -354,7 +440,7 @@ void Application::registerBuiltinCommands()
     m_commands->registerCommand(Command{
         QStringLiteral("connection.probe"), QStringLiteral("Vérifier l'état du serveur"),
         QStringLiteral("Connexion"),
-        {QStringLiteral("health"), QStringLiteral("ready"), QStringLiteral("ping")},
+        {QStringLiteral("santé"), QStringLiteral("health"), QStringLiteral("ping")},
         QStringLiteral("Ctrl+R"),
         [this](const CommandContext &) {
             return m_client->isConfigured() ? CommandAvailability::Available
@@ -366,26 +452,59 @@ void Application::registerBuiltinCommands()
         }});
 
     m_commands->registerCommand(Command{
-        QStringLiteral("connection.compatibility"),
-        QStringLiteral("Revérifier la compatibilité du serveur"), QStringLiteral("Connexion"),
-        {QStringLiteral("version"), QStringLiteral("contrat")}, QString(),
-        [this](const CommandContext &) {
-            return m_client->isConfigured() ? CommandAvailability::Available
-                                            : CommandAvailability::NotConfigured;
+        QStringLiteral("session.signIn"), QStringLiteral("Se connecter avec le navigateur"),
+        QStringLiteral("Session"), {QStringLiteral("connexion"), QStringLiteral("navigateur")}, QString(),
+        [](const CommandContext &context) {
+            if (!context.extra.value(QStringLiteral("configured")).toBool()) {
+                return CommandAvailability::NotConfigured;
+            }
+            if (context.sessionConnected || context.extra.value(QStringLiteral("sessionBusy")).toBool()) {
+                return CommandAvailability::Unavailable;
+            }
+            return context.online ? CommandAvailability::Available : CommandAvailability::Offline;
         },
         [this](const CommandContext &) {
-            m_compatibility->check();
-            return CommandResult::accept(QStringLiteral("Vérification de compatibilité lancée."));
+            m_session->seConnecter();
+            return CommandResult::accept();
         }});
 
     m_commands->registerCommand(Command{
         QStringLiteral("session.logout"), QStringLiteral("Se déconnecter"),
-        QStringLiteral("Session"), {QStringLiteral("quitter"), QStringLiteral("session")},
-        QString(), alwaysAvailable,
+        QStringLiteral("Session"), {QStringLiteral("quitter"), QStringLiteral("session")}, QString(),
+        [](const CommandContext &context) {
+            return context.extra.value(QStringLiteral("sessionPresent")).toBool()
+                ? CommandAvailability::Available
+                : CommandAvailability::NeedsSession;
+        },
         [this](const CommandContext &) {
-            m_streams->closeAll();
-            m_auth->logOut();
-            return CommandResult::accept();
+            m_session->seDeconnecter();
+            return CommandResult::accept(QStringLiteral("Session fermée sur ce poste."));
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("session.retry"), QStringLiteral("Retenter le renouvellement de la session"),
+        QStringLiteral("Session"), {QStringLiteral("rafraîchir"), QStringLiteral("jeton")}, QString(),
+        [](const CommandContext &context) {
+            return context.extra.value(QStringLiteral("sessionStalled")).toBool()
+                ? CommandAvailability::Available
+                : CommandAvailability::Unavailable;
+        },
+        [this](const CommandContext &) {
+            m_session->reessayer();
+            return CommandResult::accept(QStringLiteral("Nouvel essai de renouvellement lancé."));
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("connection.compatibility"),
+        QStringLiteral("Revérifier la compatibilité de Hermes"), QStringLiteral("Connexion"),
+        {QStringLiteral("version"), QStringLiteral("contrat"), QStringLiteral("greffon")}, QString(),
+        [](const CommandContext &context) {
+            return context.sessionConnected ? CommandAvailability::Available
+                                            : CommandAvailability::NeedsSession;
+        },
+        [this](const CommandContext &) {
+            m_compatibilite->verifier();
+            return CommandResult::accept(QStringLiteral("Vérification de compatibilité lancée."));
         }});
 
     m_commands->registerCommand(Command{
@@ -418,10 +537,17 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Copier le rapport de diagnostic"), QStringLiteral("Diagnostics"),
         {QStringLiteral("support"), QStringLiteral("ticket")}, QString(), alwaysAvailable,
         [this](const CommandContext &) {
-            // Le rapport est expurgé par DiagnosticsViewModel::buildReport() ; la copie
-            // effective est faite par QML, qui seul dispose du presse-papiers.
+            // Le rapport est expurgé par DiagnosticsViewModel::buildReport(), puis COPIÉ : le
+            // message ne l'annonce qu'une fois le presse-papiers écrit.
+            auto *application = qobject_cast<QGuiApplication *>(QCoreApplication::instance());
+            QClipboard *presse = application ? QGuiApplication::clipboard() : nullptr;
+            if (!presse) {
+                return CommandResult::reject(QStringLiteral("Presse-papiers indisponible : rapport non copié."));
+            }
+            m_diagnostics->refresh();
+            presse->setText(m_diagnostics->buildReport());
             return CommandResult::accept(
-                QStringLiteral("Rapport de diagnostic préparé (valeurs sensibles expurgées)."));
+                QStringLiteral("Rapport de diagnostic copié dans le presse-papiers (valeurs sensibles expurgées)."));
         }});
 }
 

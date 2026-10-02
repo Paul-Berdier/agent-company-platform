@@ -551,6 +551,49 @@ tous vérifiés et réels ; trois défauts de plus trouvés en les vérifiant. C
 - historiques des CLI non purgés ; `uv` non ajouté à l'image (version et empreinte hors du cahier) ; forme `pip`
   de la préparation non éprouvée ; les fichiers non suivis laissés par une vérification sont committés s'ils ne sont
   pas ignorés par le dépôt.
+### P8 — station de travail Qt rebranchée sur Hermes (réalisée côté dépôt, non fusionnée, non déployée)
+
+Référence : `docs/refonte/desktop.md`, `docs/native-desktop-architecture.md`, `docs/desktop-security.md`,
+`docs/desktop-build.md` ; décisions D8-1 à D8-12 appliquées (recommandations du cahier).
+
+- ajouté : connexion native RFC 8252 contre le fournisseur `self-hosted` (PKCE S256, état, écouteur `127.0.0.1` à
+  port éphémère, page de rappel statique) ; jeton de rafraîchissement au coffre Windows sur consentement (décoché par
+  défaut), rotation écrite au coffre avant usage, un seul rafraîchissement en vol, une seule station par session
+  Windows (code 3) ; déconnexion par `POST /auth/logout` ;
+- ajouté : porteur sur les API du tableau de bord et la façade `acp-poste` ; compatibilité par `/v1/meta` (contrat,
+  OpenRPC épinglé, Hermes testé, alertes, exécutant P6 s'il est annoncé) ; santé par `/api/health` et `/api/status` ;
+- ajouté : passerelle JSON-RPC `/api/ws` sur Qt WebSockets (ticket en sous-protocole, sans `Origin`, rejeu,
+  -32601 aux requêtes serveur non gérées, réponses `approval`/`clarify`) ; sondages, veille du kanban ;
+- ajouté : pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics (contrôle des
+  préférences, valeurs expurgées), Sauvegarde (export chiffré DPAPI au format `ACPB1`, archive retirée du volume) ;
+- ajouté : bout en bout local `scripts/e2e-desktop-windows.ps1` (pilote de test `acp_desktop_e2e`, jamais installé)
+  contre Authelia et l'image de test : connexion par Chromium et passkey virtuelle, question posée par le poste
+  simulé et répondue depuis la station, sauvegarde, reprise de session, déconnexion, hygiène, forme des documents de
+  référence ;
+- retiré : `AuthManager`, cookie `acp_session`, `SessionPersistence`, `CompatibilityService`, l'ancien
+  `EventStreamService`, `ArtifactDownload` et les pages de l'ancienne API (archive : `archive/acp-0.10.0-avant-hermes`) ;
+- modifié : `qtwebsockets` dans `packaging/windows/toolchain.json`, CMake et la Desktop CI (déclencheur
+  `hermes/contrat/**`) ; les WebSockets suivent la règle de proxy du REST ; `check_layout.py` tolère le domaine
+  réservé `.test` ;
+- corrigé en cours de route : pings sans réponse évincés du plus ancien ; discussion et code d'enrôlement oubliés à
+  la perte de session (aussi fenêtre réduite) ; export de sauvegarde arrêté à la perte de session sans couper une
+  suppression en vol ;
+- corrigé après relecture (16 constats, chacun avec un test qui échoue sans la correction) : brouillons de réponse
+  et de consigne et défilement des listes gardés aux relectures (listes mises à jour par identifiant) ; verdict
+  « contrat incompatible » ou « greffon absent » appliqué (client du greffon bloqué, rien n'est émis) ; pages
+  oubliées à la session perdue, au changement de serveur et au blocage du greffon ; exécutant `null` de P6 distingué
+  de l'étape absente ; liens du navigateur sous le préfixe du serveur ; erreurs réseau en français ; Ctrl+6 à Ctrl+9
+  et copie du rapport par la palette effectifs ; carte « Hermes » de l'accueil relue et datée ; dialogue des
+  réglages en français ; jauge des quotas sur la part utilisée avec le repère du seuil, comme le web ;
+- sécurité : aucun secret en QML ni dans `QSettings` (liste blanche et contrôle) ; journaux et rapports expurgés
+  (jetons de Hermes et d'Authelia, ticket, code et état, `acpm_`/`acpe_`) ; archive de sauvegarde jamais en clair
+  sur le disque du PC ; une rotation acceptée par Hermes mais refusée par la station efface l'entrée du coffre (le
+  jeton consommé n'est jamais rejoué) et l'échéance d'un jeton est jugée contre l'en-tête `Date` de Hermes ;
+- vérifié localement : 34 suites, 0 échec, 0 ignoré (totaux Qt) ; Desktop CI verte sur windows-2022 ; bout en bout
+  local réussi le 02/10/2026, rejoué après les corrections contre les images `p8` et `rv8p6` (P6 fusionnée) avec la
+  réponse et le message tapés dans les vrais champs et envoyés par les vrais boutons ;
+- limites : rien n'est déployé (ni Railway ni vraie passkey) ; aucune installation sur Windows propre ; binaires non
+  signés ; flux SSE, agrégat des demandes et gestes des revues attendent P6 et P7 ; MCP côté poste reporté après P6.
 
 ## [Unreleased]
 

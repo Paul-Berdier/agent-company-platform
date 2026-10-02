@@ -15,11 +15,12 @@
 namespace acp {
 
 class ApiClient;
-class AuthManager;
-class CompatibilityService;
+class CompatibiliteHermes;
 class CredentialVault;
 class EventStreamService;
+class GatewayClient;
 class HealthService;
+class SessionHermes;
 class SettingsStore;
 class SystemAppearance;
 
@@ -46,8 +47,9 @@ public:
         bool monospace = false;
     };
 
-    DiagnosticsViewModel(ApiClient *client, AuthManager *auth, HealthService *health,
-                         CompatibilityService *compatibility, EventStreamService *streams,
+    DiagnosticsViewModel(ApiClient *client, SessionHermes *session,
+                         CompatibiliteHermes *compatibilite, GatewayClient *passerelle,
+                         HealthService *health,
                          SettingsStore *settings, SystemAppearance *appearance,
                          CredentialVault *vault, QString clientVersion, QString buildInfo,
                          QObject *parent = nullptr);
@@ -55,6 +57,9 @@ public:
     [[nodiscard]] int rowCount(const QModelIndex &parent = {}) const override;
     [[nodiscard]] QVariant data(const QModelIndex &index, int role) const override;
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
+
+    /*! Sources du temps réel (passerelle, veille du kanban, sondage, flux du greffon). */
+    void setFlux(EventStreamService *flux);
 
     /*! Recalcule toutes les lignes depuis les services. */
     Q_INVOKABLE void refresh();
@@ -71,10 +76,11 @@ private:
     QList<Entry> m_entries;
 
     ApiClient *m_client = nullptr;
-    AuthManager *m_auth = nullptr;
+    SessionHermes *m_session = nullptr;
+    CompatibiliteHermes *m_compatibilite = nullptr;
+    GatewayClient *m_passerelle = nullptr;
+    EventStreamService *m_flux = nullptr;
     HealthService *m_health = nullptr;
-    CompatibilityService *m_compatibility = nullptr;
-    EventStreamService *m_streams = nullptr;
     SettingsStore *m_settings = nullptr;
     SystemAppearance *m_appearance = nullptr;
     CredentialVault *m_vault = nullptr;

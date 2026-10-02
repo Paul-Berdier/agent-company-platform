@@ -1,0 +1,6 @@
+{
+  "detail": {
+    "code": "aucun_inventaire",
+    "message": "Refusé par ACP : aucun dépôt autorisé n'est connu : le poste n'a encore publié aucun inventaire. Lancez le projet sans dépôt, ou enrôlez le poste depuis la page Poste."
+  }
+}

@@ -1,5 +1,7 @@
 #include "storage/SettingsStore.h"
 
+#include "diagnostics/Redaction.h"
+
 #include <QLoggingCategory>
 #include <QSettings>
 #include <QVariant>
@@ -12,7 +14,7 @@ Q_LOGGING_CATEGORY(lcSettings, "acp.settings")
 
 constexpr char kServerUrl[] = "connection/serverUrl";
 constexpr char kAllowInsecureLoopback[] = "connection/allowInsecureLoopback";
-constexpr char kRememberSession[] = "connection/rememberSession";
+constexpr char kConnexionMemorisee[] = "connexion/memorisee";
 constexpr char kTheme[] = "appearance/theme";
 constexpr char kMotion[] = "appearance/motion";
 constexpr char kInspectorWidth[] = "layout/inspectorWidth";
@@ -27,7 +29,7 @@ const QStringList &SettingsStore::allowedKeys()
         QLatin1String(kServerUrl),      QLatin1String(kAllowInsecureLoopback),
         QLatin1String(kTheme),          QLatin1String(kMotion),
         QLatin1String(kInspectorWidth), QLatin1String(kSidebarCollapsed),
-        QLatin1String(kRememberSession),
+        QLatin1String(kConnexionMemorisee),
         QLatin1String(kSidebarWidth),
     };
     return keys;
@@ -124,16 +126,16 @@ void SettingsStore::setAllowInsecureLoopback(bool allowed)
     setValue(QLatin1String(kAllowInsecureLoopback), allowed);
 }
 
-bool SettingsStore::rememberSession() const
+bool SettingsStore::connexionMemorisee() const
 {
-    return value(QLatin1String(kRememberSession), false).toBool();
+    return value(QLatin1String(kConnexionMemorisee), false).toBool();
 }
 
-void SettingsStore::setRememberSession(bool remember)
+void SettingsStore::setConnexionMemorisee(bool memoriser)
 {
-    if (rememberSession() == remember) return;
-    setValue(QLatin1String(kRememberSession), remember);
-    emit rememberSessionChanged();
+    if (connexionMemorisee() == memoriser) return;
+    setValue(QLatin1String(kConnexionMemorisee), memoriser);
+    emit connexionMemoriseeChanged();
 }
 
 int SettingsStore::inspectorWidth() const
@@ -180,7 +182,29 @@ void SettingsStore::clear()
     emit serverUrlChanged();
     emit themePreferenceChanged();
     emit motionPreferenceChanged();
-    emit rememberSessionChanged();
+    emit connexionMemoriseeChanged();
+}
+
+SettingsStore::Controle SettingsStore::controler() const
+{
+    Controle controle;
+    // Relit le stockage : une clé écrite par un autre programme doit aussi être vue.
+    m_settings->sync();
+    const QStringList cles = m_settings->allKeys();
+    controle.cles = static_cast<int>(cles.size());
+    for (const QString &cle : cles) {
+        if (!allowedKeys().contains(cle)) {
+            controle.horsListe.append(cle);
+        }
+        const QVariant valeur = m_settings->value(cle);
+        const QString texte = valeur.typeId() == QMetaType::QStringList
+            ? valeur.toStringList().join(QLatin1Char(' '))
+            : valeur.toString();
+        if (ressembleAUnSecret(texte) || ressembleAUnSecret(cle)) {
+            controle.suspectes.append(cle);
+        }
+    }
+    return controle;
 }
 
 QString SettingsStore::location() const

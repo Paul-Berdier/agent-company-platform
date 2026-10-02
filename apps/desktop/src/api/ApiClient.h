@@ -2,25 +2,23 @@
 //
 // Ce qu'il garantit, et pourquoi :
 //
-//  - URL de base CONFIGURABLE, jamais codée en dur. L'audit constate qu'aucun domaine
-//    n'est décidé (section 5.2) ; une origine en dur serait une invention. Tant que
-//    l'URL n'est pas posée, tout appel est refusé en français.
-//  - HTTPS imposé. Le bouclage en clair n'est accepté que sur autorisation explicite,
-//    parce que la question « le desktop doit-il fonctionner contre une pile locale ? »
-//    est ouverte (audit, question 14) et qu'un repli silencieux serait le pire choix.
-//  - Un seul pot de cookies, partagé par les requêtes courtes ET par les flux longs.
-//  - En-tête X-CSRF-Token injecté automatiquement sur POST, PUT, PATCH et DELETE, et sur
-//    elles seules — c'est exactement ce que `require_csrf` exige côté serveur.
-//  - Sérialisation stricte de l'appel qui fait TOURNER le jeton CSRF. GET /auth/session
-//    appelle rotate_csrf_token : deux appels concurrents produisent des 403 sporadiques
-//    et non reproductibles (audit, sections 9.2 et 10.3). Un seul appel rotatif est en
-//    vol à la fois, et aucune méthode non sûre n'est émise pendant ce vol.
+//  - URL de base CONFIGURABLE, jamais codée en dur. Tant que l'URL n'est pas posée, tout
+//    appel est refusé en français.
+//  - HTTPS imposé. Le bouclage en clair n'est accepté que sur autorisation explicite.
+//  - Aucun cookie : le pot de cookies de Qt est neutralisé, et aucun `Set-Cookie` n'est
+//    jamais appliqué ni relu. La session de Hermes voyage en porteur (`Authorization:
+//    Bearer`), posé au moment de CHAQUE tentative depuis la session en mémoire ; il n'est
+//    jamais stocké dans la requête.
+//  - Sur le 401 de la PORTE de Hermes (enveloppe portant `reason`, middleware.py), un
+//    seul rafraîchissement est demandé à la session, puis l'appel est réémis UNE fois,
+//    mutation comprise : la porte répond avant tout gestionnaire, rien n'a été exécuté.
+//    Tout autre 401 (greffon, second refus) termine l'appel.
+//  - Toute écriture porte `Content-Type: application/json` (garde 415 du greffon) et un
+//    corps de 64 Kio au plus, contrôlé avant l'envoi ; aucun en-tête `Origin` n'est posé
+//    (garde 403 du greffon).
 //  - Réessai SÉMANTIQUE : les lectures peuvent être rejouées, une mutation ne l'est
-//    jamais sans clé d'idempotence. Le protocole interdit le rejeu ; une mission
-//    relancée deux fois est un dégât réel.
-//  - Aucune redirection suivie, aucun proxy implicite : le CLI, client non-navigateur
-//    déjà en production, fait exactement cela (`follow_redirects=False`,
-//    `trust_env=False`).
+//    jamais sans clé d'idempotence.
+//  - Aucune redirection suivie, aucun proxy implicite.
 
 #pragma once
 
@@ -28,20 +26,18 @@
 #include "api/ApiRequest.h"
 
 #include <QList>
+#include <QNetworkProxy>
 #include <QObject>
 #include <QPointer>
-#include <QQueue>
 #include <QUrl>
 
 #include <chrono>
+#include <functional>
 
 class QNetworkAccessManager;
 class QNetworkReply;
-class QTimer;
 
 namespace acp {
-
-class SessionCookieJar;
 
 /*!
     Un appel en cours. Vit le temps de l'appel, se détruit tout seul ensuite.
@@ -81,6 +77,8 @@ private:
     int m_maxAttempts = 1;
     bool m_finished = false;
     bool m_aborted = false;
+    bool m_bearerPresented = false; //!< La dernière tentative portait un jeton d'accès.
+    bool m_replayedAfterRefresh = false; //!< Déjà réémis une fois après rafraîchissement.
     quint64 m_sessionGeneration = 0;
     QUrl m_url;
     QPointer<QNetworkReply> m_reply;
@@ -91,7 +89,6 @@ class ApiClient : public QObject
     Q_OBJECT
     Q_PROPERTY(QUrl baseUrl READ baseUrl WRITE setBaseUrl NOTIFY baseUrlChanged)
     Q_PROPERTY(bool configured READ isConfigured NOTIFY baseUrlChanged)
-    Q_PROPERTY(bool hasCsrfToken READ hasCsrfToken NOTIFY csrfTokenChanged)
     Q_PROPERTY(int inFlightCount READ inFlightCount NOTIFY inFlightCountChanged)
 
 public:
@@ -102,8 +99,8 @@ public:
 
     /*!
         Pose l'URL de base du serveur. Toute URL acceptée est normalisée sans chemin
-        final ni paramètre. Un changement d'URL purge le pot de cookies et le jeton
-        CSRF : une session n'appartient jamais à deux serveurs.
+        final ni paramètre. Un changement d'URL invalide les appels en cours : une
+        session n'appartient jamais à deux serveurs.
 
         Renvoie une erreur vide en cas de succès, ou un refus explicite en français.
     */
@@ -113,65 +110,78 @@ public:
 
     /*!
         Autorise le schéma `http` sur une adresse de bouclage (localhost, 127.0.0.0/8,
-        ::1) et sur elle seule. Faux par défaut : l'audit laisse la question ouverte, et
-        un repli silencieux vers du clair serait un faux succès.
+        ::1) et sur elle seule. Faux par défaut.
     */
     void setAllowInsecureLoopback(bool allowed);
     [[nodiscard]] bool allowsInsecureLoopback() const { return m_allowInsecureLoopback; }
 
-    /*! Faux par défaut, comme `trust_env=False` côté CLI : aucun proxy implicite. */
+    /*! Faux par défaut : aucun proxy implicite. */
     void setUseSystemProxy(bool enabled);
     [[nodiscard]] bool usesSystemProxy() const { return m_useSystemProxy; }
+    /*!
+        Proxy des WebSockets (passerelle JSON-RPC, veille du kanban) : la MÊME règle que les
+        requêtes REST, pour qu'un lien ne sorte jamais par un autre chemin que l'autre.
+    */
+    [[nodiscard]] QNetworkProxy proxyDesSockets() const;
 
     /*! Chaîne d'agent utilisateur, incluant la version du produit. */
     void setUserAgent(const QByteArray &userAgent);
 
-    // --- Jeton CSRF ----------------------------------------------------------
+    // --- Session en porteur --------------------------------------------------
 
     /*!
-        Pose le jeton CSRF détenu par le processus. Un seul jeton existe pour toute
-        l'application ; il est fourni par POST /auth/login puis renouvelé par
-        GET /auth/session.
-
-        La VALEUR n'est jamais publiée : ni propriété QML, ni journal, ni diagnostic.
+        Rend le jeton d'accès courant (sans le préfixe « Bearer »), ou un tableau vide hors
+        session. Appelé au moment de chaque tentative ; la valeur rendue est effacée dès
+        que l'en-tête est posé.
     */
-    void setCsrfToken(const QString &token);
-    [[nodiscard]] bool hasCsrfToken() const { return !m_csrfToken.isEmpty(); }
-    void clearCsrfToken();
+    using BearerProvider = std::function<QByteArray()>;
+    void setBearerProvider(BearerProvider provider);
+
+    /*!
+        Fin du rafraîchissement demandé par `refreshRequested()`. En cas de succès, les
+        appels en attente sont réémis une fois avec le nouveau jeton ; sinon ils échouent
+        avec `failure` (ou « Session expirée » s'il est vide). Sans appel en attente, sans
+        effet.
+    */
+    void refreshFinished(bool succeeded, const ApiError &failure = {});
+
+    //! Plafond du corps d'une écriture (garde du greffon acp-poste).
+    static constexpr qsizetype kMaxWriteBodyBytes = 64 * 1024;
 
     // --- Émission ------------------------------------------------------------
 
     /*!
-        Émet un appel ordinaire. L'objet renvoyé appartient au client et se détruit
-        après son signal terminal ; il n'est jamais nul.
+        Émet un appel. L'objet renvoyé appartient au client et se détruit après son
+        signal terminal ; il n'est jamais nul.
     */
     ApiCall *send(const ApiRequest &request);
 
     /*!
-        Émet un appel dont le serveur fait TOURNER le jeton CSRF — aujourd'hui, et
-        uniquement, GET /auth/session.
-
-        Garanties : un seul appel rotatif en vol ; les appels rotatifs suivants sont mis
-        en file ; toute méthode non sûre demandée pendant le vol attend la fin de la
-        rotation, pour ne jamais partir avec un jeton périmé. C'est la parade exacte au
-        « 403 Requête refusée intermittent, indiscernable d'un vrai refus de droits »
-        décrit par l'audit.
+        Appel déjà refusé par la station (identifiant illisible, champ inconnu…) : il échoue
+        avec `error`, de façon asynchrone comme tout appel, sans rien émettre sur le réseau.
     */
-    ApiCall *sendCsrfRotating(const ApiRequest &request);
+    ApiCall *reject(const ApiError &error);
+
+    /*!
+        Ouvre une LECTURE en flux d'une route protégée (`GET`), pour un corps trop grand pour
+        la mémoire (archive de sauvegarde) : la réponse est rendue à l'appelant, qui la lit au
+        fil de l'eau (`readyRead`) et la détruit. Mêmes garanties que send() : porteur posé au
+        moment de l'envoi puis effacé, aucun cookie, aucune redirection suivie, aucun proxy
+        implicite. Sans rafraîchissement ni réémission : un 401 est rendu tel quel.
+
+        Rend nullptr et remplit `refus` si l'adresse ou la session manque.
+    */
+    [[nodiscard]] QNetworkReply *ouvrirFlux(const QString &path, const QUrlQuery &query, ApiError *refus,
+                                            const QByteArray &accept = QByteArrayLiteral("application/octet-stream"));
 
     /*! Nombre d'appels en vol, pour la barre d'état et l'écran de diagnostics. */
     [[nodiscard]] int inFlightCount() const;
 
-    // --- Accès partagé pour les flux longs -----------------------------------
-
     /*!
-        Le gestionnaire réseau unique. Le service de flux SSE l'utilise directement pour
-        obtenir le QNetworkReply et lire au fil de l'eau : il DOIT être le même, sinon
-        le cookie de session ne voyage pas avec le flux.
+        Le gestionnaire réseau unique, pour les flux longs qui lisent au fil de l'eau.
+        Il ne porte aucun cookie.
     */
     [[nodiscard]] QNetworkAccessManager *networkAccessManager() const { return m_manager; }
-
-    [[nodiscard]] SessionCookieJar *cookieJar() const { return m_cookieJar; }
 
     /*!
         Construit l'URL absolue d'un chemin. Renvoie une URL vide si l'URL de base n'est
@@ -179,11 +189,7 @@ public:
     */
     [[nodiscard]] QUrl resolve(const QString &path, const QUrlQuery &query = {}) const;
 
-    /*! Purge le pot de cookies et le jeton CSRF. Déconnexion, expiration, révocation. */
-    void clearSessionState();
-
-    /*! Invalide les appels et leurs réessais, sans effacer le cookie nécessaire au
-        dernier POST /auth/logout. Aucun ancien appel ne change de serveur. */
+    /*! Invalide les appels et leurs réessais. Aucun ancien appel ne change de serveur. */
     void invalidatePendingCalls();
     [[nodiscard]] quint64 sessionGeneration() const { return m_sessionGeneration; }
 
@@ -193,8 +199,7 @@ public:
         Nombre de tentatives autorisé pour cette requête.
 
         - méthode sûre : jusqu'à kMaxAttempts ;
-        - méthode non sûre AVEC clé d'idempotence : jusqu'à kMaxAttempts, parce que le
-          serveur reconnaît le rejeu et refuse un corps différent ;
+        - méthode non sûre AVEC clé d'idempotence : jusqu'à kMaxAttempts ;
         - méthode non sûre SANS clé : exactement 1. Aucune exception.
     */
     [[nodiscard]] static int plannedAttempts(const ApiRequest &request);
@@ -211,42 +216,34 @@ public:
 
 signals:
     void baseUrlChanged();
-    void csrfTokenChanged();
     void inFlightCountChanged();
 
-    /*! Émis dès qu'un appel reçoit un 401. AuthManager y réagit, pas les écrans. */
-    void unauthorizedObserved();
+    /*! Un appel a reçu le 401 de la porte : la session doit tourner ses jetons. */
+    void refreshRequested();
 
-    /*! Émis dès qu'un appel reçoit un 403. Peut signaler un droit manquant OU un jeton
-        CSRF périmé : seul AuthManager sait trancher, en tentant une reprise de session. */
-    void forbiddenObserved();
-    void sessionStateCleared();
+    /*! Un appel porteur a reçu un 401 définitif : la session n'est plus acceptée. */
+    void bearerRejected(const acp::ApiError &error);
 
 private:
-    void dispatch(ApiCall *call);
     void startAttempt(ApiCall *call);
     void handleReply(ApiCall *call, QNetworkReply *reply);
+    void handleUnauthorized(ApiCall *call, const ApiError &error);
     void finishWithError(ApiCall *call, const ApiError &error);
     void finishWithResponse(ApiCall *call, const ApiResponse &response);
     void releaseCall(ApiCall *call);
-    void drainPending();
     [[nodiscard]] ApiError validateBeforeSend(const ApiRequest &request) const;
 
     QNetworkAccessManager *m_manager = nullptr;
-    SessionCookieJar *m_cookieJar = nullptr;
 
     QUrl m_baseUrl;
     bool m_allowInsecureLoopback = false;
     bool m_useSystemProxy = false;
     QByteArray m_userAgent;
-    QString m_csrfToken;
 
     QList<QPointer<ApiCall>> m_inFlight;
-
-    // Portail de rotation du jeton CSRF.
-    QPointer<ApiCall> m_rotatingCall;            //!< Appel rotatif actuellement en vol.
-    QQueue<QPointer<ApiCall>> m_pendingRotating; //!< Appels rotatifs en attente.
-    QQueue<QPointer<ApiCall>> m_pendingUnsafe;   //!< Mutations retenues pendant une rotation.
+    QList<QPointer<ApiCall>> m_awaitingRefresh;
+    bool m_refreshPending = false;
+    BearerProvider m_bearerProvider;
     quint64 m_sessionGeneration = 0;
     bool m_invalidating = false;
 };

@@ -1,0 +1,18 @@
+{
+  "projet": {
+    "id": "p_a35a8b99fb0e",
+    "titre": "Veille LLM",
+    "tableau": "acp-veille-llm-b43a",
+    "etat": "actif",
+    "profil": "recherche",
+    "depot": null,
+    "reponses": "hermes_d_abord",
+    "tour": 0,
+    "origine": "tableau_de_bord",
+    "cartes": {
+      "exploration": null,
+      "planification": "t_948b1e24"
+    }
+  },
+  "deja_lance": false
+}

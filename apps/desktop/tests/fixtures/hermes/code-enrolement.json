@@ -1,0 +1,7 @@
+{
+  "code": "acpe_CODE-DE-TEST",
+  "expire_le": 1790452215,
+  "validite_s": 600,
+  "protocole": "acp-machine/1",
+  "commande": "& \"$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd\" enroler"
+}

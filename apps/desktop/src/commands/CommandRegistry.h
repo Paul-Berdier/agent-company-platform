@@ -67,6 +67,13 @@ public:
     /*! Identifiant de la commande portant ce raccourci, ou chaîne vide. */
     [[nodiscard]] Q_INVOKABLE QString commandForShortcut(const QString &shortcut) const;
 
+    /*!
+        Tous les raccourcis déclarés, dans l'ordre d'enregistrement : App.qml installe un
+        Shortcut pour CHACUN, de sorte qu'un raccourci affiché par la palette fonctionne
+        toujours (aucun raccourci qui fait semblant).
+    */
+    [[nodiscard]] Q_INVOKABLE QStringList raccourcis() const;
+
     // QAbstractListModel
     [[nodiscard]] int rowCount(const QModelIndex &parent = {}) const override;
     [[nodiscard]] QVariant data(const QModelIndex &index, int role) const override;
