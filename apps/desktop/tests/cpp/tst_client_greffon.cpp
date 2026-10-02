@@ -142,8 +142,8 @@ void TestClientGreffon::ecrituresAvecLesCorpsExacts()
          kP + QStringLiteral("/v1/routage"),
          QJsonObject{{QStringLiteral("releves"), QJsonArray{QStringLiteral("r1")}},
                      {QStringLiteral("classes"), QJsonObject{{QStringLiteral("codage"), QJsonArray{}}}}}},
-        {suivre(banc.greffon.accepterReleve(QStringLiteral("r1"))), kP + QStringLiteral("/v1/routage/releve-accepte"),
-         QJsonObject{{QStringLiteral("releve_id"), QStringLiteral("r1")}}},
+        {suivre(banc.greffon.accepterReleve(3)), kP + QStringLiteral("/v1/routage/releve-accepte"),
+         QJsonObject{{QStringLiteral("releve_id"), 3}}},
         {suivre(banc.greffon.desactiverSurcharge(QStringLiteral("s_5"))),
          kP + QStringLiteral("/v1/routage/surcharges/s_5/desactiver"), {}},
     };

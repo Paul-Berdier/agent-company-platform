@@ -24,6 +24,8 @@
 #include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
+#include "viewmodels/QuotasViewModel.h"
+#include "viewmodels/RoutageViewModel.h"
 #include "viewmodels/ShellViewModel.h"
 
 #include <QCoreApplication>
@@ -101,6 +103,8 @@ Application::Application(QObject *parent)
     m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_poste = new PosteViewModel(m_greffon.get(), m_compatibilite, m_flux, this);
+    m_quotas = new QuotasViewModel(m_greffon.get(), m_flux, this);
+    m_routage = new RoutageViewModel(m_client, m_greffon.get(), m_flux, this);
     // Demandes de l'agent (approval, clarify) et discussion : sur la passerelle JSON-RPC.
     m_demandes = new DemandesAgent(m_passerelle, this);
     m_discussion = new DiscussionViewModel(m_passerelle, m_flux, this);
@@ -186,6 +190,8 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Questions", m_questions);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Poste", m_poste);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Quotas", m_quotas);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Routage", m_routage);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Demandes", m_demandes);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Discussion", m_discussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
@@ -308,6 +314,24 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Ctrl+6"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("station"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.quotas"), QStringLiteral("Voir les quotas relevés"),
+        QStringLiteral("Navigation"), {QStringLiteral("quotas"), QStringLiteral("abonnement"), QStringLiteral("limite")},
+        QStringLiteral("Ctrl+7"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("quotas"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.routing"), QStringLiteral("Voir la table de routage"),
+        QStringLiteral("Navigation"), {QStringLiteral("routage"), QStringLiteral("modèle"), QStringLiteral("exécutant")},
+        QStringLiteral("Ctrl+8"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("routing"));
             return CommandResult::accept();
         }});
 

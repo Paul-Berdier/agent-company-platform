@@ -266,7 +266,7 @@ void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
     QVERIFY(navigation.detailFor(QStringLiteral("backup"))
                 .startsWith(QStringLiteral("Indisponible pour l'instant")));
     // Pages de pilotage livrées : navigables, sans explication d'indisponibilité.
-    for (const char *route : {"projects", "questions", "chat", "station"}) {
+    for (const char *route : {"projects", "questions", "chat", "station", "quotas", "routing"}) {
         QVERIFY2(navigation.isNavigable(QString::fromLatin1(route)), route);
         QVERIFY2(navigation.detailFor(QString::fromLatin1(route)).isEmpty(), route);
     }

@@ -21,6 +21,8 @@
 #include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
+#include "viewmodels/QuotasViewModel.h"
+#include "viewmodels/RoutageViewModel.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -153,6 +155,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         code.insert(QStringLiteral("expire_le"), QDateTime::currentSecsSinceEpoch() + 600);
         return ReponseFaux::json(201, code);
     });
+    QJsonObject routage = fixture(QStringLiteral("routage.json"));
+    serveur.route("GET", kP + QStringLiteral("/routage"), [&routage](const RequeteRecue &) { return ReponseFaux::json(200, routage); });
     QJsonObject questions = fixture(QStringLiteral("questions.json"));
     serveur.route("GET", kP + QStringLiteral("/questions"),
                   [&questions](const RequeteRecue &) { return ReponseFaux::json(200, questions); });
@@ -170,10 +174,12 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     auto *pageProjets = application.findChild<ProjetsViewModel *>();
     auto *pageQuestions = application.findChild<QuestionsViewModel *>();
     auto *pagePoste = application.findChild<PosteViewModel *>();
+    auto *pageQuotas = application.findChild<QuotasViewModel *>();
+    auto *pageRoutage = application.findChild<RoutageViewModel *>();
     auto *discussion = application.findChild<DiscussionViewModel *>();
     auto *demandes = application.findChild<DemandesAgent *>();
     auto *passerelle = application.findChild<GatewayClient *>();
-    QVERIFY(client && flux && accueil && pageProjets && pageQuestions && pagePoste && discussion && demandes && passerelle);
+    QVERIFY(client && flux && accueil && pageProjets && pageQuestions && pagePoste && pageQuotas && pageRoutage && discussion && demandes && passerelle);
     client->setAllowInsecureLoopback(true);
     QVERIFY(!client->setBaseUrl(serveur.url()).isError());
     client->setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
@@ -324,6 +330,40 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     // Page quittée : le code d'enrôlement a quitté la mémoire de la station.
     QTRY_VERIFY(!pagePoste->actif());
     QCOMPARE(pagePoste->code(), QString());
+
+    // --- Quotas : compteurs et fenêtres relevés ------------------------------------------------------
+    {
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("QuotasPage"));
+        QVERIFY(page);
+        auto *item = qobject_cast<QQuickItem *>(page.get());
+        QTRY_VERIFY_WITH_TIMEOUT(pageQuotas->lue(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Quotas"));
+        QVERIFY(contientTexte(item, QStringLiteral("Fenêtre primary · 300 min")));
+        QVERIFY(contientTexte(item, QStringLiteral("Aucun compteur relevé.")));
+    }
+    QTRY_VERIFY(!pageQuotas->actif());
+
+    // --- Routage : table, brouillon d'une suggestion, puis liste de secours à accepter ---------------
+    {
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("RoutagePage"));
+        QVERIFY(page);
+        auto *item = qobject_cast<QQuickItem *>(page.get());
+        QTRY_VERIFY_WITH_TIMEOUT(pageRoutage->lue(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Routage"));
+        QVERIFY(contientTexte(item, QStringLiteral("Exploration du dépôt")));
+        QVERIFY(contientTexte(item, QStringLiteral("Aucune surcharge active.")));
+        pageRoutage->appliquerSuggestion(QStringLiteral("exploration"));
+        VERIFIER(page.get(), QStringLiteral("Routage, brouillon"));
+        QVERIFY(contientTexte(item, QStringLiteral("Brouillon modifié")));
+        QVERIFY(contientTexte(item, QStringLiteral("À valider")));
+
+        routage = fixture(QStringLiteral("routage-secours.json"));
+        pageRoutage->actualiser();
+        QTRY_VERIFY_WITH_TIMEOUT(pageRoutage->listes()->itemAt(0).value(QStringLiteral("peutAccepter")).toBool(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Routage, liste de secours"));
+        QVERIFY(contientTexte(item, QStringLiteral("Accepter ce relevé comme celui de mon compte")));
+    }
+    QTRY_VERIFY(!pageRoutage->actif());
 
     // --- Discussion : sessions, transcription, puis une demande d'autorisation de l'agent --------
     {

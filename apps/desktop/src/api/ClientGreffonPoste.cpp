@@ -189,8 +189,9 @@ ApiCall *ClientGreffonPoste::validerRoutage(const QJsonValue &releves, const QJs
                   QJsonObject{{QStringLiteral("releves"), releves}, {QStringLiteral("classes"), classes}});
 }
 
-ApiCall *ClientGreffonPoste::accepterReleve(const QString &releveId)
+ApiCall *ClientGreffonPoste::accepterReleve(qint64 releveId)
 {
+    // Nombre, comme la page web (accepterReleve de apps/interface/src/poste/api.ts).
     return ecrire(QStringLiteral("/v1/routage/releve-accepte"),
                   QJsonObject{{QStringLiteral("releve_id"), releveId}});
 }

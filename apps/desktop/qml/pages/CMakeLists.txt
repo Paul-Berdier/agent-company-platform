@@ -12,5 +12,7 @@ acp_add_qml_module(
         PostePage.qml
         ProjectsPage.qml
         QuestionsPage.qml
+        QuotasPage.qml
+        RoutagePage.qml
         SettingsPage.qml
 )

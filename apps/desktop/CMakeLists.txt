@@ -208,6 +208,10 @@ set(ACP_CORE_SOURCES
     src/viewmodels/ProjetsViewModel.h
     src/viewmodels/QuestionsViewModel.cpp
     src/viewmodels/QuestionsViewModel.h
+    src/viewmodels/QuotasViewModel.cpp
+    src/viewmodels/QuotasViewModel.h
+    src/viewmodels/RoutageViewModel.cpp
+    src/viewmodels/RoutageViewModel.h
     src/viewmodels/ShellViewModel.cpp
     src/viewmodels/ShellViewModel.h
 )

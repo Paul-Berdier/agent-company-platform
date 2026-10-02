@@ -81,7 +81,8 @@ public:
     // --- Routage ------------------------------------------------------------------
     /*! Validation « tout ou rien » de la table affichée : relevés et classes tels que lus. */
     ApiCall *validerRoutage(const QJsonValue &releves, const QJsonValue &classes);
-    ApiCall *accepterReleve(const QString &releveId);
+    /*! « Accepter ce relevé comme celui de mon compte » : identifiant numérique du relevé. */
+    ApiCall *accepterReleve(qint64 releveId);
     ApiCall *desactiverSurcharge(const QString &identifiant);
 
 private:
