@@ -8,7 +8,7 @@ import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { h, useState, type Noeud } from "../react";
 import { Bouton, Etiquette, Horodatage, RetourEnvoi } from "../projets/briques";
 import { useEnvoi } from "../projets/envoi";
-import { useSondage } from "../projets/sondage";
+import { useDonnees } from "../donnees";
 import { confirmer, lirePostePage, releverMaintenant, revoquer } from "./api";
 import { Enrolement } from "./Enrolement";
 import { Executant } from "./Executant";
@@ -320,7 +320,7 @@ function Inventaire(props: { donnees: ReponsePostePage }): Noeud {
 }
 
 export function EtatPoste(props: { jeton: number; apres: () => void }): Noeud {
-  const lecture = useSondage(lirePostePage, props.jeton);
+  const lecture = useDonnees(lirePostePage, props.jeton, ["poste", "projets", "pause", "quotas"]);
   const donnees = lecture.valeur;
   if (donnees === null) {
     return lecture.erreur === null ? <EnChargement /> : <BlocErreur erreur={lecture.erreur} message={T.poste.indisponible} />;

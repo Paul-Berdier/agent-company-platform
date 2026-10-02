@@ -17,7 +17,7 @@ import { accepterRevue, conclureTriage, lireQuestions, refuserRevue, repondreQue
 import { BlocRefus, Bouton, Etiquette, Horodatage, LienVue, RetourEnvoi, type Naviguer } from "./briques";
 import { useEnvoi } from "./envoi";
 import { libelleEtatQuestion } from "./libelles";
-import { useSondage } from "./sondage";
+import { useDonnees } from "../donnees";
 import type {
   CarteEnAttente,
   ListeQuestions,
@@ -372,7 +372,7 @@ function Bloquee(props: { carte: CarteEnAttente; naviguer: Naviguer }): Noeud {
 }
 
 export function Questions(props: { jeton: number; naviguer: Naviguer; apres: () => void }): Noeud {
-  const sondage = useSondage<ListeQuestions>(lireQuestions, props.jeton);
+  const sondage = useDonnees<ListeQuestions>(lireQuestions, props.jeton, ["questions", "projets", "discussions"]);
   const [annonceRevue, fixerAnnonceRevue] = useState<string | null>(null);
   const donnees = sondage.valeur;
   if (donnees === null) {

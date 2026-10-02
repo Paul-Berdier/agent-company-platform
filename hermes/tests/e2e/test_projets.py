@@ -17,6 +17,9 @@ B. relevé FACTICE déposé par le poste simulé, présence du poste : projet SU
 C. le poste simulé termine les explorations : chaque projet avance jusqu'à « Terminé » (planification,
    étape Hermes et synthèse jouées par le modèle factice) ; liste et détail montrent l'avancement.
 Puis, au format bureau : pause générale avec confirmation, bandeau, « Reprendre » (relu par l'API).
+Étape P7 (temps réel) : les deux pages disent « temps réel » (trame « etat » reçue) ; une pause générale posée
+depuis le bureau apparaît sur le téléphone, puis sa levée, SANS rechargement et en moins de 10 s, alors que la
+page en temps réel ne relit d'elle-même que toutes les 120 s : seul le flux d'invalidation peut l'expliquer.
 
 À chaque vue : chaque nœud de texte vient du catalogue français ou d'une donnée de l'API, axe-core sans
 violation « serious » ni « critical », au téléphone chaque cible mesure 44 px au moins, et aucune
@@ -423,6 +426,26 @@ def test_page_projets_telephone_et_bureau(playwright_sync, pile):
         page.wait_for_selector("[data-acp-pause]", state="detached")
         assert api(page, "/v1/projets")["corps"]["pause_generale"] is None
         preuves["pause_generale"] = "confirmée, bandeau, puis reprise (relues par l'API)"
+
+        # ------------------------------------------------------------ temps réel entre deux appareils (étape P7)
+        page_tel.goto(f"{URL_HERMES}/projets")
+        attendre_page_acp(page_tel, "projets")
+        for p in (page, page_tel):
+            p.wait_for_selector('[data-acp-temps-reel="temps_reel"]', timeout=20_000)
+        assert "temps réel" in page_tel.inner_text('[data-acp-temps-reel]')
+        debut = time.monotonic()
+        page.click('#acp-projets-pause >> xpath=.. >> button:has-text("Pause générale")')
+        page.click('button:has-text("Confirmer la pause générale")')
+        page_tel.wait_for_selector("[data-acp-pause]", timeout=10_000)
+        apparition = time.monotonic() - debut
+        debut = time.monotonic()
+        page.click("[data-acp-pause] button:has-text(\"Reprendre\")")
+        page_tel.wait_for_selector("[data-acp-pause]", state="detached", timeout=10_000)
+        disparition = time.monotonic() - debut
+        flux = {f: sum(1 for u in requetes[f] if u.endswith("/api/plugins/acp-poste/v1/flux")) for f in FORMATS}
+        assert all(n >= 1 for n in flux.values()), flux
+        preuves["temps_reel"] = {"pause_vue_au_telephone_s": round(apparition, 2),
+                                 "reprise_vue_au_telephone_s": round(disparition, 2), "requetes_de_flux": flux}
 
         for format_ in FORMATS:
             etrangeres = sorted({u for u in requetes[format_]

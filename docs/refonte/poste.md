@@ -180,7 +180,9 @@ onglet « Poste » après « Projets », icône `Monitor` (D62) ; détail : [int
 - **Quotas** : jauges, seuil de 90 %, source, « Inconnu » ou « Périmé » sinon.
 
 Toute valeur venue de l'API est marquée `data-acp-donnee` ; tout autre texte vient du catalogue français
-(`src/chaines.ts`). Sondage de 15 s tant que la page est visible ; aucun `fetch` direct, aucun stockage local.
+(`src/chaines.ts`). Sondage de 15 s tant que la page est visible (étape P7 : relecture sur signal du flux
+d'invalidation, sondage en repli annoncé : [interface.md](interface.md) § 13) ; aucun `fetch` direct, aucun
+stockage local.
 
 ## 10. Limites dites
 

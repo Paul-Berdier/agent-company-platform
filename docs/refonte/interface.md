@@ -419,7 +419,8 @@ Référence fonctionnelle, vues et routes : [projets.md](projets.md) § 4 bis. C
   `history.replaceState`, et « retour » quittait la page Projets). Le lien des notifications
   (`…/projets?projet=<id>`) ouvre le détail.
 - **Sondage** : 15 s tant que la page est visible (`visibilitychange`), aucune lecture quand elle est
-  cachée (D35) ; une actualisation ratée garde la dernière valeur lue et le dit.
+  cachée (D35) ; une actualisation ratée garde la dernière valeur lue et le dit. **Étape P7** : remplacé par
+  le temps réel (§ 13), le sondage reste le repli annoncé.
 - **Tests** : Vitest **93** (14 fichiers), dont `projets.test.tsx`, `projets-relecture.test.tsx` (13, les
   corrections de la relecture de P4) et `api-projets.test.ts` sur les formes relevées sur l'image ; navigateur `test_projets.py` (parcours complet aux deux formats, axe,
   cibles de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine). Les tests Vitest
@@ -447,7 +448,7 @@ Référence fonctionnelle, routes et preuves : [poste.md](poste.md) § 8, § 9 e
   l'onglet Poste (329 avant P5) ; mêmes contrôles (arbre syntaxique, typographie avec espaces insécables,
   verrou du navigateur).
 - **Écriture** : `fetchJSON` du SDK seulement (garde statique : aucun `fetch` direct, aucun stockage
-  local) ; sondage de 15 s tant que la page est visible, comme la page Projets.
+  local) ; sondage de 15 s tant que la page est visible, comme la page Projets (étape P7 : temps réel, § 13).
 - **Tests** : Vitest **110** (16 fichiers), dont `poste.test.tsx` et `api-poste.test.ts` sur des formes
   relevées sur l'image (`tests/fixtures-poste.ts` ; le code d'enrôlement y est remplacé par un code factice
   daté depuis l'instant du test) ; navigateur `test_poste.py` (enrôlement par un faux poste, confirmation,
@@ -482,3 +483,34 @@ aucun bouton nouveau qui ne soit servi et testé. Référence des routes : [imag
   `hermes/tests/e2e/test_executant.py` (faux exécutant enrôlé, inventaire Linux en régime B, carte en main,
   revue de fichiers de pilotage refusée avec un motif reçu par l'exécutant, aux formats 1440×900 puis 390×844 ;
   axe sans violation grave, cibles de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine).
+
+## 13. Temps réel (étape P7, partie B : flux d'invalidation)
+
+Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté interface :
+
+- **Un seul flux par onglet** (`src/flux.ts`, correction K7 du cahier P7) : chaque greffon est un bundle IIFE
+  qui embarque sa propre copie du module ; le flux est donc un objet posé sur `window.__ACP_FLUX__`, sous la clé
+  de sa version de partage (`v1`), compté par abonnés et fermé 5 s après le dernier (aucune reconnexion à chaque
+  changement de vue). Lu par `authedFetch` du SDK (contrat 1.1) puis `response.body.getReader()` et un analyseur
+  SSE incrémental (trames coupées n'importe où, `\r\n`, `\r`, multi-lignes, commentaires, `retry`) :
+  `EventSource` ne sait pas envoyer l'en-tête du jeton de session du bouclage local.
+- **`useDonnees(charger, cle, sujets)`** (`src/donnees.ts`) remplace `useSondage` : lecture au montage et à chaque
+  geste, relecture sur signal d'un de SES sujets regroupée sur 300 ms, relecture de sûreté toutes les 120 s
+  en temps réel (60 s pour la file Questions si le tableau de bord ne publie pas le nombre de discussions en
+  attente), toutes les 15 s sinon ; page cachée : flux fermé, aucune lecture ; une erreur garde la dernière
+  valeur lue et le dit. Branché sur Projets (liste : `projets`, `questions`, `poste`, `notifications`, `pause` ;
+  détail : `projets`, `questions`, `pause` ; Questions : `questions`, `projets`, `discussions`) et Poste
+  (état : `poste`, `projets`, `pause`, `quotas` ; Routage et Quotas : `quotas`, `poste`). L'Accueil, relu une
+  fois depuis la méta, est réécrit sur `GET /v1/accueil` en partie C, qui le branche.
+- **Reprise** : aussitôt après `fin`, avec `Last-Event-ID` ; sinon 1 s, 2 s, 5 s, 10 s puis 30 s ; trois échecs
+  de suite en 2 min : repli sur le sondage de 15 s, nouvel essai toutes les 5 min. Un **401** n'est jamais
+  réessayé (`authedFetch` ne redirige pas vers `/login`) : les pages sondent par `fetchJSON`, dont la lecture
+  suivante redirige.
+- **La page dit ce qui est vrai** (`EtatActualisation`, `data-acp-temps-reel`) : « Page actualisée en temps
+  réel… » seulement après une trame `etat` reçue ; « Connexion au temps réel en cours… », « Temps réel
+  indisponible : actualisation toutes les 15 secondes… » (repli), « Temps réel non pris en charge par ce
+  tableau de bord… » (SDK sans `authedFetch`, que `verifierSdk` annonce par `tempsReel`).
+- **Tests** : Vitest `tests/flux.test.tsx` (14) : analyseur sur tous les découpages, trames exemples partagées
+  avec le desktop, singleton partagé par deux copies du module, fermeture différée, `Last-Event-ID`, reprise,
+  repli après trois échecs et nouvel essai, 401, page cachée, SDK sans flux, regroupement, intervalles, erreur
+  gardée ; chacun contrôlé par une mutation du code (Last-Event-ID, `\r\n` coupé, regroupement, 401).

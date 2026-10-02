@@ -122,6 +122,12 @@
     alertes: {
       titre: "Alertes ACP"
     },
+    tempsReel: {
+      actif: "Page actualis\xE9e en temps r\xE9el tant qu'elle est visible.",
+      connexion: "Connexion au temps r\xE9el en cours\xA0: actualisation toutes les 15 secondes en attendant.",
+      repli: "Temps r\xE9el indisponible\xA0: actualisation toutes les 15 secondes tant que la page est visible.",
+      sansFlux: "Temps r\xE9el non pris en charge par ce tableau de bord\xA0: actualisation toutes les 15 secondes tant que la page est visible."
+    },
     projets: {
       titre: "Projets",
       intro: "Les projets que vous confiez \xE0 Hermes\xA0: il les planifie, les fait avancer carte par carte et vous pose ici ses questions.",
@@ -129,7 +135,6 @@
       vueListe: "Projets",
       vueQuestions: "Questions",
       vueNouveau: "Nouveau projet",
-      actualisation: "Page actualis\xE9e toutes les 15 secondes tant qu'elle est visible.",
       actualisationImpossible: "Derni\xE8re actualisation impossible\xA0: les donn\xE9es affich\xE9es sont celles de la lecture pr\xE9c\xE9dente.",
       indisponible: "Les projets sont indisponibles\xA0: le greffon acp-poste ne r\xE9pond pas sur /v1/projets.",
       questionsIndisponibles: "Les questions sont indisponibles\xA0: le greffon acp-poste ne r\xE9pond pas sur /v1/questions.",
@@ -386,7 +391,6 @@
       vueQuotas: "Quotas",
       indisponible: "\xC9tat du poste indisponible.",
       actualisationImpossible: "Actualisation impossible\xA0: derni\xE8res valeurs lues affich\xE9es.",
-      actualisation: "Actualis\xE9 toutes les 15 secondes tant que la page est visible.",
       envoi: "Envoi\u2026",
       etatTitre: "\xC9tat du poste",
       etatTitreExecutant: "\xC9tat de l'ex\xE9cutant Railway",
@@ -695,7 +699,7 @@
     if (!s.React || typeof s.React.createElement !== "function" || typeof s.fetchJSON !== "function") {
       return { ok: false, trouve: `${brut} incomplet` };
     }
-    return { ok: true, version: brut };
+    return { ok: true, version: brut, tempsReel: typeof s.authedFetch === "function" };
   }
   function sdk() {
     const valeur = window.__HERMES_PLUGIN_SDK__;

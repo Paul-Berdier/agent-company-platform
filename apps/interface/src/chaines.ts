@@ -124,6 +124,12 @@ export const T = {
   alertes: {
     titre: "Alertes ACP",
   },
+  tempsReel: {
+    actif: "Page actualisée en temps réel tant qu'elle est visible.",
+    connexion: "Connexion au temps réel en cours : actualisation toutes les 15 secondes en attendant.",
+    repli: "Temps réel indisponible : actualisation toutes les 15 secondes tant que la page est visible.",
+    sansFlux: "Temps réel non pris en charge par ce tableau de bord : actualisation toutes les 15 secondes tant que la page est visible.",
+  },
   projets: {
     titre: "Projets",
     intro: "Les projets que vous confiez à Hermes : il les planifie, les fait avancer carte par carte et vous pose ici ses questions.",
@@ -131,7 +137,6 @@ export const T = {
     vueListe: "Projets",
     vueQuestions: "Questions",
     vueNouveau: "Nouveau projet",
-    actualisation: "Page actualisée toutes les 15 secondes tant qu'elle est visible.",
     actualisationImpossible: "Dernière actualisation impossible : les données affichées sont celles de la lecture précédente.",
     indisponible: "Les projets sont indisponibles : le greffon acp-poste ne répond pas sur /v1/projets.",
     questionsIndisponibles: "Les questions sont indisponibles : le greffon acp-poste ne répond pas sur /v1/questions.",
@@ -388,7 +393,6 @@ export const T = {
     vueQuotas: "Quotas",
     indisponible: "État du poste indisponible.",
     actualisationImpossible: "Actualisation impossible : dernières valeurs lues affichées.",
-    actualisation: "Actualisé toutes les 15 secondes tant que la page est visible.",
     envoi: "Envoi…",
     etatTitre: "État du poste",
     etatTitreExecutant: "État de l'exécutant Railway",

@@ -3,10 +3,12 @@
 //
 // Aucune route propre : tout passe par les routes d'acp-poste (docs/refonte/projets.md § 4), derrière la
 // session du tableau de bord. Chaque bouton appelle une route réelle et testée ; aucune donnée
-// inventée (« Inconnu », « Non configuré », « Non observé ») ; sondage de 15 s tant que la page est
-// visible (D35).
+// inventée (« Inconnu », « Non configuré », « Non observé ») ; étape P7 : relecture sur signal du flux
+// d'invalidation (donnees.ts), sondage de 15 s en repli, rien tant que la page est cachée (D35).
 import { T } from "../chaines";
 import { BlocErreur, Donnee, EnChargement } from "../commun";
+import { EtatActualisation } from "../actualisation";
+import { useDonnees } from "../donnees";
 import { h, useEffect, useRef, useState, type Noeud } from "../react";
 import { lireProjets } from "./api";
 import { BandeauPause } from "./BandeauPause";
@@ -15,7 +17,6 @@ import { DetailProjet } from "./DetailProjet";
 import { ListeProjets } from "./ListeProjets";
 import { NouveauProjet } from "./NouveauProjet";
 import { Questions } from "./Questions";
-import { useSondage } from "./sondage";
 import { memeVue, pousserAdresse, vueDepuisAdresse, type Vue } from "./vue";
 
 function Navigation(props: { vue: Vue; naviguer: (v: Vue) => void; questions: number | null }): Noeud {
@@ -51,7 +52,7 @@ export function Projets(): Noeud {
   // Incrémenté après chaque geste : toutes les lectures de la page se refont aussitôt.
   const [jeton, fixerJeton] = useState(0);
   const rafraichir = () => fixerJeton((j) => j + 1);
-  const liste = useSondage(lireProjets, jeton);
+  const liste = useDonnees(lireProjets, jeton, ["projets", "questions", "poste", "notifications", "pause"]);
   const racine = useRef<HTMLDivElement | null>(null);
   const naviguer = (suivante: Vue) => {
     fixerVue(suivante);
@@ -106,7 +107,7 @@ export function Projets(): Noeud {
         <DetailProjet key={vue.id} id={vue.id} jeton={jeton} liste={donnees} naviguer={naviguer} apres={rafraichir} />
       ) : null}
       {vue.genre === "questions" ? <Questions jeton={jeton} naviguer={naviguer} apres={rafraichir} /> : null}
-      <p className="acp-discret">{T.projets.actualisation}</p>
+      <EtatActualisation />
     </div>
   );
 }

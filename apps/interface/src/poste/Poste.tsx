@@ -2,10 +2,12 @@
 // — l'état du poste (enrôlement, confirmation, révocation, relevé), le routage des exécutants, les quotas relevés.
 //
 // Aucune route propre : tout passe par les routes d'acp-poste derrière la session du tableau de bord. Chaque bouton
-// appelle une route réelle et testée ; aucune donnée inventée (« Inconnu », « Non configuré ») ; sondage de 15 s
-// tant que la page est visible ; le code d'enrôlement n'est jamais stocké (état du composant seulement).
+// appelle une route réelle et testée ; aucune donnée inventée (« Inconnu », « Non configuré ») ; relecture sur
+// signal du flux d'invalidation (étape P7, donnees.ts), sondage de 15 s en repli, rien tant que la page est cachée ;
+// le code d'enrôlement n'est jamais stocké (état du composant seulement).
 import type * as ReactTypes from "react";
 import { T } from "../chaines";
+import { EtatActualisation } from "../actualisation";
 import { h, useEffect, useRef, useState, type Noeud } from "../react";
 import { cheminDeBase } from "../sdk";
 import { EtatPoste } from "./EtatPoste";
@@ -69,7 +71,7 @@ export function Poste(): Noeud {
       {vue === "etat" ? <EtatPoste jeton={jeton} apres={rafraichir} /> : null}
       {vue === "routage" ? <Routage jeton={jeton} apres={rafraichir} /> : null}
       {vue === "quotas" ? <Quotas jeton={jeton} apres={rafraichir} /> : null}
-      <p className="acp-discret">{T.poste.actualisation}</p>
+      <EtatActualisation />
     </div>
   );
 }

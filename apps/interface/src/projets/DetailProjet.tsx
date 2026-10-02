@@ -26,7 +26,7 @@ import {
   ORDRE_DES_ROLES,
 } from "./libelles";
 import { Avancement } from "./ListeProjets";
-import { useSondage } from "./sondage";
+import { useDonnees } from "../donnees";
 import type { CarteLue, CarteProjet, DetailProjet as Detail, ListeProjets, ReponseDetail } from "./types";
 
 function Libre(props: { texte: string | null; brut: unknown; mono?: boolean }): Noeud {
@@ -351,7 +351,7 @@ export function DetailProjet(props: {
   naviguer: Naviguer;
   apres: () => void;
 }): Noeud {
-  const sondage = useSondage<ReponseDetail>(() => lireProjet(props.id), props.jeton);
+  const sondage = useDonnees<ReponseDetail>(() => lireProjet(props.id), props.jeton, ["projets", "questions", "pause"]);
   const projet = sondage.valeur?.projet ?? null;
   return (
     <div className="acp-sections">

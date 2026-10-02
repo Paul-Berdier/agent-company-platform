@@ -14,6 +14,8 @@ export interface SdkHermes {
   sdkVersion?: unknown;
   React?: typeof ReactTypes;
   fetchJSON?: <T = unknown>(url: string, init?: RequestInit) => Promise<T>;
+  /** Contrat 1.1 : réponse BRUTE (flux lisible), même authentification que fetchJSON, sans redirection d'un 401. */
+  authedFetch?: (url: string, init?: RequestInit) => Promise<Response>;
   api?: Record<string, unknown>;
   useI18n?: () => unknown;
 }
@@ -37,7 +39,9 @@ declare global {
 export const MAJEURE_ATTENDUE = 1;
 export const SDK_ATTENDU = `${MAJEURE_ATTENDUE}.x`;
 
-export type VerdictSdk = { ok: true; version: string } | { ok: false; trouve: string };
+/** ``tempsReel`` : le SDK expose authedFetch (contrat 1.1), seul moyen de lire le flux d'invalidation ; sans lui, les
+ *  pages sondent toutes les 15 s et le disent (flux.ts, mode « indisponible »). */
+export type VerdictSdk = { ok: true; version: string; tempsReel: boolean } | { ok: false; trouve: string };
 
 /** Accepte seulement un SDK dont la version est une chaîne « 1.x.y » ET qui expose ce que les
  *  greffons emploient (React, fetchJSON). Tout le reste est refusé : on ne devine jamais. */
@@ -52,7 +56,7 @@ export function verifierSdk(sdk: unknown): VerdictSdk {
   if (!s.React || typeof s.React.createElement !== "function" || typeof s.fetchJSON !== "function") {
     return { ok: false, trouve: `${brut} incomplet` };
   }
-  return { ok: true, version: brut };
+  return { ok: true, version: brut, tempsReel: typeof s.authedFetch === "function" };
 }
 
 /** SDK courant, ou une erreur explicite (jamais un objet inventé). */
