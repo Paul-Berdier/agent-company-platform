@@ -1,136 +1,164 @@
-# Architecture du client desktop natif
+# Architecture du client desktop natif (station de travail)
 
-> **Refonte « Hermes au centre ».** Le client desktop est conservé intact mais hors
-> service jusqu'à P8 : il parle encore l'ancienne API ACP, retirée
-> (`docs/refonte/plan.md`). Ce document décrit le client tel qu'il est avant P8.
-> Les relevés datés qu'il cite (validation du 23 septembre 2026, matrice de parité,
-> constats Lot H) restent consultables sous l'étiquette
-> `archive/acp-0.10.0-avant-hermes`.
+État du 2 octobre 2026, version **0.11.0**, refonte « Hermes au centre », étape **P8**
+(branche `refonte/hermes-p8`, non fusionnée). Cahier de l'étape et journal d'avancement :
+voir [`docs/reprise-poste.md`](reprise-poste.md), § 6 sexies. Le client d'avant la refonte
+(cookie `acp_session`, ancienne API ACP) reste consultable sous l'étiquette
+`archive/acp-0.10.0-avant-hermes`.
 
-État du 23 septembre 2026, **0.10.0 en préparation**. Le client existe sous
-`apps/desktop` et comprend les écrans métier. La fondation a été compilée,
-testée et empaquetée sur Windows avant cette extension ; la validation de l'arbre
-0.10.0 est suivie dans le relevé daté (sous l'étiquette d'archive).
-L'implémentation d'un écran ne constitue pas à elle seule une preuve de parcours réel.
+## Rôle et frontière
 
-## Architecture et responsabilité
+La station est un client natif **C++23, Qt 6.8.3 et QML** (Qt Quick, contrôles Basic
+habillés par les jetons du produit). Elle n'embarque ni Electron, ni Tauri, ni Chromium,
+ni Qt WebEngine, ni WebView.
 
-Le client utilise **C++23, Qt 6.8.3 et QML**, avec les composants Qt Quick natifs.
-Il ne contient ni Electron, ni Tauri, ni WebEngine, ni WebView. Le desktop parle à
-l'API métier et ne se connecte directement ni à PostgreSQL, ni à Hermes, ni aux
-workers, ni au provider-gateway. Les droits, baux, budgets et décisions finales
-des mutations restent côté serveur.
+Elle ne parle **qu'au Hermes du propriétaire**, par ses API :
+
+| Surface | Routes | Authentification |
+|---|---|---|
+| Connexion native (RFC 8252) | `GET /auth/native/authorize` (navigateur), `POST /auth/native/token`, `POST /auth/native/refresh`, `POST /auth/logout` | publiques ; jeton de rafraîchissement dans le corps, cookie seulement pour la déconnexion |
+| Santé | `GET /api/health`, `GET /api/status` | publiques |
+| Tableau de bord | `GET /api/auth/me`, `POST /api/auth/ws-ticket`, `POST /api/ops/backup`, `GET /api/actions/backup/status`, `GET /api/ops/backup/download`, `DELETE /api/files` | porteur |
+| JSON-RPC | `wss://…/api/ws` (contrat épinglé `hermes/contrat/gateway-contract.openrpc.json`) | ticket à usage unique en sous-protocole |
+| Veille du kanban | `wss://…/api/plugins/kanban/events` | ticket en sous-protocole |
+| Greffon `acp-poste` | `/api/plugins/acp-poste/v1/*` (méta, projets, questions, triage, poste, routage, quotas, pause) | porteur |
+
+Elle ne parle **jamais** au fournisseur d'identité (Authelia) : seul le navigateur du
+système le fait pendant la connexion. Le bout en bout local le prouve (aucune connexion de
+la station vers `identite-acp.test`). Elle ne touche ni le poste Windows, ni les fichiers,
+la base ou les secrets du serveur. Le seul autre transport est `UpdateService` (GitHub, à
+la demande, sans identifiant ACP).
+
+## Couches
 
 | Couche | Code | Responsabilité |
 |---|---|---|
-| Assemblage | `src/app/Application.*` | Services, singletons QML et propagation du projet sélectionné |
-| Transport | `src/api/` | URL, TLS, cookies, CSRF, annulation, réponses et réessais |
-| Session | `src/auth/`, `src/services/SessionPersistence.*` | Identité serveur, expiration et mémorisation facultative |
-| Stockage local | `src/storage/` | Préférences non secrètes et coffre système |
-| Temps réel | `src/events/` | Analyse SSE, portées, curseurs, reconnexion |
-| Métier | `src/viewmodels/`, `src/models/JsonListModel.*` | Contrats, validation des réponses et état des écrans |
-| Présentation | `qml/pages/`, `qml/shell/` | Formulaires, listes, navigation, confirmations et accessibilité |
-| Distribution | `packaging/windows/`, `scripts/*desktop.ps1` | Construction, tests, portable et installeur Windows |
+| Assemblage | `src/app/Application.*`, `GardeInstance.*` | composition des services, singletons QML (`Acp.Runtime`), commandes, instance unique (code de sortie 3) |
+| Connexion | `src/auth/` : `PairePkce`, `EcouteurBouclage`, `NativeAuthFlow`, `JetonsHermes`, `SessionHermes` | flux RFC 8252, jetons, rotation, déconnexion, états de session |
+| Transport REST | `src/api/` : `ApiClient`, `ApiError`, `ClientGreffonPoste`, `IdempotencyKey` | porteur, réémission après rafraîchissement, trois formes d'erreur, routes du greffon |
+| JSON-RPC | `src/gateway/` : `JsonRpcChannel`, `GatewayClient`, `DemandesAgent` | canal sans réseau testable seul, passerelle `/api/ws`, demandes `approval`/`clarify` |
+| Temps réel | `src/events/` : `EventStreamService`, `Sondage`, `VeilleKanban`, `Backoff`, `SseParser` | sondages, invalidation par le kanban, état des sources ; `SseParser` est gardé pour le flux de l'étape P7 |
+| Services | `src/services/` : `CompatibiliteHermes`, `HealthService`, `TelechargementFlux`, `UpdateService` | `/v1/meta`, santé du lien, lecture en flux, mises à jour |
+| Stockage | `src/storage/` : `WindowsCredentialVault`, `JetonsCoffre`, `SettingsStore`, `ChiffrementSauvegarde` | coffre Windows, préférences sans secret et leur contrôle, sauvegarde `ACPB1` |
+| Métier | `src/viewmodels/`, `src/models/JsonListModel.*` | une `PageViewModel` par page, libellés français (`Libelles`) |
+| Présentation | `qml/pages`, `qml/shell`, `qml/components`, `qml/controls`, `qml/theme` | pages, coquille, composants, jetons générés depuis `design/tokens/` |
+| Distribution | `packaging/windows/`, `scripts/*desktop.ps1` | compilation, tests, archive portable et installeur |
 
-`Acp.Runtime` expose les singletons C++ ; QML ne construit pas de client réseau.
-Les modules visuels sont `Acp.Design`, `Acp.Theme`, `Acp.Controls`,
-`Acp.Components`, `Acp.Pages`, `Acp.Station` et `Acp.Desktop`. Les jetons
-partagés viennent de `design/tokens/` via `cmake/generate_design_tokens.py`.
+QML ne construit aucun client réseau et ne reçoit aucun secret : ni jeton, ni ticket, ni
+vérificateur PKCE, ni état (seule exception assumée : le code d'enrôlement du poste,
+affiché une fois et effacé en quittant la page ou à la perte de session).
 
-## Surface métier
+## Connexion native (RFC 8252)
 
-La matrice de parité (sous l'étiquette d'archive) décrit les actions et leurs limites.
+1. Prérequis lus sans session : `/api/health` (`auth_required` exigé) et la liste des
+   fournisseurs (`self-hosted` choisi explicitement).
+2. Paire PKCE (vérificateur de 64 octets aléatoires, défi S256) et état de 32 octets,
+   effacés à la fin du flux quelle qu'elle soit.
+3. Écouteur `QTcpServer` sur **127.0.0.1** (jamais `localhost` ni `::1`), port éphémère,
+   chemin `/rappel`, 600 s au plus ; un état différent ou absent abandonne le flux ; la
+   page rendue est statique (`Content-Security-Policy: default-src 'none'`) et ne recopie
+   aucun paramètre.
+4. Navigateur du système sur `/auth/native/authorize` ; « Copier le lien » s'il ne
+   s'ouvre pas (le lien ne contient ni code ni vérificateur).
+5. Échange `POST /auth/native/token {code, code_verifier}`, contrôles du type, du
+   fournisseur et de l'échéance, puis identité par `/api/auth/me`.
 
-- `WorkspaceViewModel` : organisations, espaces, création et sélection de projets.
-- `ConversationsViewModel` : historique, création, tours, renommage, archivage et export consultable.
-- `MissionsViewModel` : composition, détail, tentatives, arrêt, relance, commentaires, acceptation et Studio.
-- `ArtifactsViewModel` : liste paginée, filtres, détail et téléchargement explicite.
-- `PlatformViewModel` : agents/workers, fournisseurs, MCP, compétences et liaisons au projet.
-- `OperationsViewModel` : approbations, alertes, budgets, automatisations et historique.
-- `SubscriptionQuotasViewModel` : quotas réels d'abonnement lus par `GET /subscription-quotas`,
-  réservés au propriétaire, validés en échec fermé et relus toutes les 60 s pendant l'affichage ;
-  hors contexte de projet.
+**Rotation.** `POST /auth/native/refresh` : le nouveau jeton de rafraîchissement est
+écrit au coffre **avant** le signal de session renouvelée ; un seul rafraîchissement en
+vol ; 401 `session_expired` efface l'entrée ; 503 (fournisseur injoignable ou jeton
+rejoué, indiscernables) garde le jeton et réessaie avec recul, jamais d'effacement
+automatique. Une seule station par session Windows (verrou), pour ne jamais rejouer le
+même jeton.
 
-Les listes utilisent `JsonListModel`. Les configurations d'agents, métadonnées
-privées de workers, secrets et cookies ne doivent pas être transmis globalement
-à QML. Les textes serveur sont présentés en texte brut.
+**Déconnexion.** `POST /auth/logout` avec l'en-tête `Cookie: hermes_session_rt=…` (la
+route par laquelle Hermes révoque chez le fournisseur ; 302 attendu), puis coffre vidé,
+jetons effacés, WebSockets fermés, sondages arrêtés, discussion et demandes oubliées.
 
-## Transport et changements de contexte
+## Porteur, erreurs, compatibilité
 
-`ApiClient` normalise l'adresse de base. HTTPS est requis ; HTTP est limité au
-bouclage après activation explicite. Les redirections sont refusées. Le proxy
-système est une option explicite, désactivée par défaut. Un seul gestionnaire
-réseau et un seul pot de cookies portent la session API et ses flux métier.
+`ApiClient` pose `Authorization: Bearer` au moment de chaque tentative puis efface sa
+copie ; un 401 de la porte de Hermes déclenche un rafraîchissement et une seule
+réémission (mutation comprise) ; un 401 du greffon n'est jamais réémis. Écritures en
+JSON, plafond de 64 Kio ; aucune redirection suivie ; aucun cookie hors déconnexion ;
+aucun proxy implicite, et la même règle pour les WebSockets. `ApiError` lit les trois
+formes de refus (porte, greffon, table de routage) et traduit les messages fixes connus
+de Hermes ; un message inconnu est rendu tel quel.
 
-Le CSRF est injecté en C++ sur les mutations non publiques ; les appels qui le
-renouvellent sont sérialisés. Les lectures peuvent être retentées ; une mutation
-n'est rejouée automatiquement que si sa clé d'idempotence correspond au contrat
-serveur. Les mutations MCP/skills ne portent pas artificiellement une telle clé.
+`CompatibiliteHermes` lit `/v1/meta` : contrat `acp-poste/1` exigé (sinon les pages du
+greffon sont refusées), empreinte de l'OpenRPC servi comparée à celle épinglée (sinon
+la discussion est coupée), Hermes testé (`hermes/contrat/HERMES_VERSION`, 0.21.5),
+alertes, et l'exécutant de l'étape P6 seulement s'il est annoncé.
 
-Une génération de session invalide les appels et réessais anciens. Les réponses
-tardives ne doivent pas rétablir de cookies après déconnexion ou changement
-d'origine. Les viewmodels invalident aussi le projet et la sélection. Une reprise
-transitoire de session et une perte d'identité sont des situations distinctes.
+## JSON-RPC et temps réel
 
-Une conversation conserve le `client_request_id` de l'envoi incertain et se
-rapproche de l'historique avec cette même clé. Le polling d'un tour est séquentiel,
-lié à l'écran actif et borné ; atteindre sa limite demande une actualisation
-sans inventer un état terminal.
+`GatewayClient` demande un ticket (`/api/auth/ws-ticket`, porteur), ouvre
+`wss://<serveur>/api/ws` avec les sous-protocoles `hermes-gateway-v1` et
+`hermes-gateway-ticket.<ticket>` (le ticket ne passe jamais dans l'URL) et **sans en-tête
+Origin** ; attend `gateway.ready`, rejoue `session.events.since` après une coupure ;
+4401 ⇒ un nouveau ticket, 4403 ⇒ refus définitif. `JsonRpcChannel` répond **-32601** à
+toute requête serveur sans gestionnaire (`secret`, `sudo`, méthode inconnue), répond
+aux demandes `approval` et `clarify` avec le même identifiant et seulement par les choix
+offerts, bat toutes les 15 s (échéance 45 s), n'en rejoue aucune requête.
 
-## Studio et fichiers
+`EventStreamService` : sondage des pages affichées toutes les 15 s, seulement fenêtre
+non réduite et session ouverte ; sondage léger de 60 s pour la barre d'état ;
+`VeilleKanban` suit le tableau du projet ouvert (`since=latest_event_id`, regroupement
+d'1 s) et déclenche une relecture du détail ; le flux SSE du greffon est affiché « Non
+disponible sur ce serveur (étape P7) » et rien n'est ouvert.
 
-Le suivi des tentatives lit l'historique et les flux authentifiés de l'API.
-Les curseurs de projet et de tentative restent séparés. La fin d'un flux ne
-prouve pas la fin d'une mission. Le Studio consulte événements, preuves et tests ;
-il ne lance ni navigateur distant, ni agent, ni moteur 3D dans la fenêtre.
+## Pages
 
-`ArtifactDownload` reçoit des blocs, écrit dans `QSaveFile`, contrôle la taille
-et l'empreinte annoncées, puis valide le fichier atomiquement. La limite locale
-est de 512 Mio. Annulation et erreur conservent la destination précédente.
-Le contenu n'est pas exécuté ni rendu comme HTML/SVG dans l'application.
+| Route | Page | Ce qu'elle fait |
+|---|---|---|
+| `home` | Accueil | état de Hermes, projets, questions, poste, quotas (pire voie contre le seuil), pause générale avec confirmation, sessions récentes |
+| `projects` | Projets | liste, détail (cartes dans l'ordre du graphe, journal, carte entière), pause et reprise, nouveau projet (mêmes règles que la page web, clé d'idempotence gardée après un refus), kanban dans le navigateur |
+| `questions` | Questions | répondre (1 à 4 000 caractères), gestes de triage construits depuis `actions`, cartes bloquées en lecture seule, revues de P6 en lecture seule si la clé `revues` existe, demandes de l'agent des discussions ouvertes |
+| `chat` | Discussion | sessions, transcription, tour en flux, outils sans arguments ni sortie bruts, demandes `approval`/`clarify` |
+| `station` | Poste | enrôlement (code affiché une fois), empreinte, révocation, relevé, inventaire, alertes, exécutant P6 s'il est annoncé |
+| `quotas` | Quotas | voies, compteurs, fenêtres ; jauge seulement sur une part restante servie |
+| `routing` | Routage | table par classe, brouillon, validation, relevé de secours, surcharges ; édition complète dans le navigateur |
+| `diagnostics` | Diagnostics | versions, lien, session, compatibilité, passerelle et compteurs, temps réel, coffre, contrôle des préférences ; rapport copiable expurgé |
+| `backup` | Sauvegarde | export chiffré (ci-dessous) et déchiffrement pour une restauration |
+| `settings` | Réglages | thème, mouvement, mémorisation, déconnexion |
 
-Le réseau repose sur les signaux Qt. L'écriture et l'empreinte des blocs restent
-sur le fil d'interface : la mémoire est bornée, mais la fluidité sur un disque
-lent ou sur le fichier maximal reste à mesurer séparément.
+`office` (bureau de département) reste hors périmètre, visible et jamais navigable.
+Chaque valeur jamais lue dit « Inconnu » ou « Non configuré » ; aucun geste ne fait
+semblant.
 
-## Session mémorisée et mise à jour
+## Sauvegarde chiffrée
 
-Par défaut la session ne survit pas à la fermeture. L'option explicite de
-mémorisation confie le cookie, sa portée et son échéance au coffre Windows.
-`QSettings` ne conserve que des préférences, dont le consentement. Le cookie
-restauré ne fournit aucun droit local : `/auth/session` confirme l'identité,
-les permissions et un nouveau CSRF. Un coffre indisponible refuse la mémorisation,
-sans fichier en clair de remplacement. Voir [la sécurité](desktop-security.md).
+`POST /api/ops/backup` puis suivi de `/api/actions/backup/status` toutes les 2 s (30 min
+au plus) ; l'archive est lue en flux (`TelechargementFlux`, statut 200 seul livré,
+plafond 4 Gio) et **chiffrée au fil de l'eau** par DPAPI pour l'utilisateur Windows
+courant, au format `ACPB1` : en-tête (`ACPB1`, version, identifiant d'export de 16 octets
+aléatoires), puis des morceaux de 1 Mio, chacun avec son drapeau final et sa longueur ;
+l'entropie de chaque bloc lie l'identifiant, le rang et le drapeau, si bien qu'un morceau
+déplacé, retiré, rejoué d'une autre sauvegarde ou tronqué est refusé au déchiffrement.
+`QSaveFile` : un échec, une annulation ou une perte de session ne laissent aucun fichier.
+Puis `DELETE /api/files {path}` retire l'archive en clair du volume ; un refus est dit
+avec le chemin restant. L'archive contient `.env` et `auth.json` : la page le dit, et
+dit que le fichier chiffré est lié au profil Windows.
 
-`VERSION` fournit la version du produit, vérifiée avec les copies du dépôt par
-`scripts/check_version.py`. `UpdateService` possède un transport GitHub séparé,
-sans identifiants ACP. Sur demande, il compare les publications, affiche leurs
-notes brutes et ouvre la publication officielle admissible. Il ne télécharge
-ni n'installe de paquet. Voir [le processus de mise à jour](desktop-update-process.md).
+## Tests et preuves
 
-## Construction, preuves et limites
+- **31 suites** déclarées à CTest (Qt Test et Qt Quick Test), totaux Qt relevés : 0
+  échec, 0 ignoré. Le banc `tests/cpp/support/FauxHermes` sert HTTP et WebSocket sur le
+  même port de bouclage (flux natif, rotation, passerelle, kanban, routes du greffon).
+- **Desktop CI** sur `windows-2022` : compilation Release (`/W4 /WX`), suites, empaquetage
+  à blanc ; installeur **non signé** (aucun certificat), et dit tel quel.
+- **Bout en bout local** (`scripts/e2e-desktop-windows.ps1`, jamais en CI) contre la pile
+  de test (vrai Authelia, Hermes de test, bord TLS) : connexion native par Chromium et
+  passkey virtuelle, rotation, discussion JSON-RPC, projet lancé et **question répondue
+  depuis la station**, veille du kanban, sauvegarde, reprise de session au redémarrage,
+  déconnexion, hygiène, et forme des documents de référence comparée à l'image. Détail et
+  chiffres : [`docs/desktop-build.md`](desktop-build.md), § 12.
 
-Les scripts lisent `packaging/windows/toolchain.json` : Qt 6.8.3, MSVC 2022,
-CMake/Ninja et exécuteur Windows CI épinglé. Release traite les avertissements
-du compilateur comme des erreurs. Les tests Qt Test exercent services et modèles ;
-Qt Quick Test contrôle les composants QML. Les nouveaux tests métier utilisent
-des échanges HTTP sur des serveurs locaux de test, sans prouver Hermes ou Railway.
+## Limites connues
 
-Le relevé final 0.10.0 donne **21 suites natives sur 21 en 54,82 s**. Les
-**24 tests de session passent sans ignoré hors sandbox**, y compris le cycle
-réel du coffre Windows.
-La suite Python combinée a donné **2 896 réussis, 70 ignorés, 835 s**.
-Les preuves finales appartiennent au relevé daté (sous l'étiquette d'archive).
-
-Le parcours Qt du 23 septembre contre l'API réelle sur SQLite jetable a réussi :
-cookie/CSRF, projets, conversation sans réponse fournisseur inventée, mission,
-budget, automatisation en pause et export authentifié exact de 180 224 octets.
-Le rapport Qt donne 3 réussis, 0 échec, 0 ignoré en 1 663 ms ; le lanceur complet
-a pris 9,7 secondes. Les rapports sont sous
-`.test-tmp/desktop-journey-e9c4c89486b240f49017bb16aae70c47/` dans le worktree.
-Ce parcours ne remplace ni la suite complète ni la recette visuelle.
-
-Restent l'installation sur Windows propre, la signature, le parcours sur l'URL
-Railway réelle non fournie et les **26 constats ouverts du Lot H** dans
-le suivi de revue (sous l'étiquette d'archive). Une CI antérieure verte ne valide
-pas automatiquement le nouvel arbre. Le bureau pixel reste conservé hors périmètre.
+- Rien n'est déployé : aucun essai contre Railway ni avec une vraie passkey.
+- Le jeton de rafraîchissement rejoué après la déconnexion obtient **503** (Authelia
+  rend 500 pour un jeton révoqué) : indiscernable d'une panne, d'où la règle « 503 garde
+  le jeton ».
+- Le flux SSE du greffon, l'agrégat des demandes de toutes les sessions et les gestes
+  des revues dépendent des étapes P6 et P7 : affichés « Non disponible sur ce serveur ».
+- Installation sur un Windows propre et signature : non faites.

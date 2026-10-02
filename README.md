@@ -28,8 +28,10 @@ d'API, pas de base, pas de bus d'événements, pas de CLI. Il reste quatre pièc
    exécuter ; installation sous un compte Windows dédié (`packaging/poste`). L'exécution
    arrive en P6.*
 3. **Le client desktop natif** C++23 / Qt 6 / QML ([`apps/desktop`](apps/desktop/README.md)),
-   sans WebView : il ne parle qu'au Hermes authentifié du propriétaire. *Conservé
-   intact, hors service jusqu'à P8 : il parle encore l'ancienne API ACP.*
+   sans WebView : il ne parle qu'au Hermes authentifié du propriétaire. *Étape P8 (côté
+   dépôt) : connexion native RFC 8252, JSON-RPC, pages Accueil, Projets, Questions,
+   Discussion, Poste, Quotas, Routage, Diagnostics et Sauvegarde ; éprouvé en local contre
+   Authelia et l'image de test.*
 4. **Le navigateur et le téléphone** : le tableau de bord de Hermes habillé, plus les
    pages du greffon, sur la même URL. *À partir de P3.*
 
@@ -47,7 +49,7 @@ consultable sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
 | `apps/poste/` | poste Windows : `poste.toml`, coffre DPAPI, client HTTPS du protocole `acp-machine/1`, sondes Codex et Claude Code, inventaire, service ; exécuteurs sous Job Object (P6) |
 | `packaging/poste/` | installation du poste : compte dédié, tâche planifiée, poste sans venv (simulation éprouvée en CI) |
 | `hermes/plugins/acp-poste/contrat/` | contrat Python partagé par le poste et le futur greffon `acp-poste` |
-| `apps/desktop/` | client Qt natif (hors service jusqu'à P8) |
+| `apps/desktop/` | client Qt natif, rebranché sur Hermes en P8 |
 | `packages/pixel-office-engine/` | moteur Pixel Office, **gelé** sur l'étiquette d'archive, avec `apps/web/public/assets/` et `plugins/` |
 | `design/tokens/` | jetons de design, source du thème QML |
 | `packaging/windows/` | chaîne d'outils et installeur du desktop |
