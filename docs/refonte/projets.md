@@ -96,6 +96,61 @@ Toute route d'écriture exige `Content-Type: application/json` (415) et refuse u
 `GET /v1/meta` ajoute le bloc `projets` : base, schéma, projets actifs, relevé factice présent, pause
 générale, émetteur (dernière passe, processus, cartes du poste en attente par tableau, canal, file).
 
+## 4 ter. Flux d'invalidation `GET /v1/flux` (étape P7, cahier P7 § 5)
+
+Le flux **signale** qu'un sujet a changé ; la page relit alors la route REST du sujet. Il ne porte **aucune donnée
+métier** : un client qui rate une trame retombe sur l'état exact à la relecture suivante. Même porte
+d'authentification que les autres routes de lecture (401 sans session) ; la session n'est contrôlée qu'à
+l'ouverture, un flux ouvert survit donc au plus `flux_duree_max_s` à son expiration (il ne porte que des noms de
+sujets). Annoncé par `GET /v1/meta`, clé `flux` : `{chemin, version: 1, sujets, battement_s, duree_max_s}`
+(battement et durée `null` si la base est illisible).
+
+- Réponse `text/event-stream; charset=utf-8`, `Cache-Control: no-store`, `X-Accel-Buffering: no`.
+- Trames (exemples octet pour octet : `hermes/tests/outils/fixtures_flux/*.txt`, comparés au greffon par
+  `test_trames_exemples_partagees_avec_le_desktop`) :
+
+```
+retry: 3000
+
+id: 1727791200.41
+event: etat
+data: {"revision":"1727791200.41","sujets":["projets","questions","poste","quotas","notifications","pause","discussions"],"discussions_suivies":true}
+
+: battement
+
+id: 1727791200.42
+event: changement
+data: {"sujets":["projets","questions"]}
+
+event: fin
+data: {"raison":"duree_max"}
+```
+
+- **Révision** `<époque>.<numéro>` : l'époque est l'heure de démarrage du tableau de bord, le numéro croît à chaque
+  publication. Première trame `etat` : sujets vides si `Last-Event-ID` vaut la révision courante, **tous** sinon
+  (absent, autre époque, révision dépassée). Un sujet illisible (base ou tableau) est publié **une fois**, nommé
+  dans `illisibles` ; jamais une fausse stabilité.
+- **Sujets** et ce que leur empreinte relit, en lecture seule, toutes les `flux_intervalle_s` (2 s, plancher 1),
+  dans un fil, seulement tant qu'un flux est ouvert (veilleur arrêté 60 s après le dernier) : `projets` (projets par
+  état, demandes, journal des projets, tours, dernier événement de chaque tableau non terminé, lu en `mode=ro` sans
+  la connexion de Hermes) ; `questions` (questions par état, mêmes tableaux) ; `poste` (postes, présence **évaluée
+  maintenant** au seuil `seuil_hors_ligne_s`, inventaires, ordres en attente) ; `quotas` (relevés reçus et acceptés,
+  attentes de quota, table de routage, surcharges, politique) ; `notifications` (canal publié par la passerelle,
+  file par état) ; `pause` (arrêt d'urgence, `pause_reclamations`, projets en pause) ; `discussions` (requêtes du
+  serveur au client ouvertes dans le processus du tableau de bord ; `discussions_suivies: false` si Hermes ne publie
+  pas ce compteur : le sujet n'est alors jamais publié et le client relit la section lui-même).
+- **Battement** (commentaire) toutes les `flux_battement_s` (15 s : le bord Railway coupe une requête après 5 min
+  sans octet) ; **fin** propre après `flux_duree_max_s` (600 s : le bord coupe à 15 min), le client rouvre aussitôt
+  avec `Last-Event-ID`.
+- Au plus `flux_max` flux (8) : au-delà, **429** `trop_de_flux` (« Trop de pages ouvertes en temps réel : fermez-en
+  une ou attendez. », `Retry-After: 30`). La place d'un client parti est rendue aussitôt : la réponse en flux de
+  Starlette voit la déconnexion et annule le flux ; `_deconnecte` est lu en plus à chaque tour (2 s au plus), après
+  la lecture du corps vide du GET (correction K10). uvicorn ignore une écriture vers un client parti : le battement
+  ne sert pas à la détection.
+- Mesures : 0,41 et 0,67 s entre la réponse de `POST /v1/questions/{q}/reponse` et la trame `changement`, à travers
+  les six intergiciels du vrai tableau de bord (battement à 15 s, veilleur à 2 s) ; place rendue en moins d'une
+  seconde après la déconnexion d'un client, avant son premier battement (`test_flux_contrat.py`).
+
 ## 4 bis. Page « Projets » (greffon d'interface `acp-projets`)
 
 Greffon de tableau de bord **sans code serveur** (manifeste, bundle IIFE, feuille de style), comme

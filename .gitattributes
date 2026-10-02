@@ -20,3 +20,6 @@ apps/interface/** text=auto eol=lf
 hermes/skills/emil-kowalski/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
 hermes/skills/taste-skill/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
 hermes/skills/ecc/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+# Trames exemples du flux d'invalidation (étape P7) : une trame SSE se termine par une ligne vide, octets comparés
+# à ceux du greffon ; `git diff --check` ne doit pas signaler cette ligne vide finale.
+hermes/tests/outils/fixtures_flux/** text eol=lf whitespace=-blank-at-eof

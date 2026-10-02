@@ -296,3 +296,25 @@ def test_meta_base_des_projets_illisible(tmp_path, monkeypatch):
     assert donnees["projets"] == {"base": "illisible", "erreur": "OSError"}
     assert donnees["alertes"] == ["Base du greffon acp-poste illisible (OSError) : projets, questions et "
                                   "notifications inconnus."]
+    # Étape P7 : le flux reste annoncé, mais son battement et sa durée sont inconnus (jamais une valeur supposée).
+    assert donnees["flux"] == {"chemin": "/api/plugins/acp-poste/v1/flux", "version": 1, "sujets": list(SUJETS_FLUX),
+                               "battement_s": None, "duree_max_s": None}
+
+
+# ======================================================================= étape P7
+
+SUJETS_FLUX = ("projets", "questions", "poste", "quotas", "notifications", "pause", "discussions")
+
+
+def test_meta_annonce_le_flux(tmp_path):
+    """Clé ``flux`` de /v1/meta (cahier P7 § 5.2, correction K8) : le nom attendu par le desktop P8, le chemin, la
+    version, les sept sujets et les réglages tels que la base les porte (bornés)."""
+    donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
+    assert donnees["flux"] == {"chemin": "/api/plugins/acp-poste/v1/flux", "version": 1, "sujets": list(SUJETS_FLUX),
+                               "battement_s": 15, "duree_max_s": 600}
+    base = meta.sous_module_noyau("base")
+    with base.connexion() as conn:
+        base.poser_reglage(conn, "flux_battement_s", 1, "test")
+        base.poser_reglage(conn, "flux_duree_max_s", 99999, "test")
+    donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
+    assert (donnees["flux"]["battement_s"], donnees["flux"]["duree_max_s"]) == (1, 840)

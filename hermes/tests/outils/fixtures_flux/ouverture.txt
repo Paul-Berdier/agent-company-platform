@@ -1,0 +1,6 @@
+retry: 3000
+
+id: 1727791200.41
+event: etat
+data: {"revision":"1727791200.41","sujets":["projets","questions","poste","quotas","notifications","pause","discussions"],"discussions_suivies":true}
+

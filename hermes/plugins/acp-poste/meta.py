@@ -397,6 +397,26 @@ def _info_openrpc(chemin: Path) -> Dict[str, Any]:
         return {"info_version": None, "methodes": None}
 
 
+def bloc_flux() -> Dict[str, Any]:
+    """Annonce du flux d'invalidation ``GET /v1/flux`` (étape P7, cahier P7 § 5.2, correction K8) : chemin, version,
+    sujets, battement et durée d'un flux tels que la base les règle. Un client (desktop P8) le détecte ici. Base ou
+    noyau illisibles : battement et durée ``None`` (jamais une valeur supposée), le flux reste annoncé."""
+    try:
+        flux = sous_module_noyau("flux")
+    except Exception:  # noqa: BLE001 — sans noyau, pas de flux : l'annonce le dit
+        return {"chemin": None, "version": None, "sujets": [], "battement_s": None, "duree_max_s": None}
+    bloc: Dict[str, Any] = {"chemin": flux.CHEMIN, "version": flux.VERSION, "sujets": list(flux.SUJETS),
+                            "battement_s": None, "duree_max_s": None}
+    try:
+        base = sous_module_noyau("base")
+        with base.connexion() as conn:
+            reglages = flux.reglages(conn)
+        bloc.update(battement_s=reglages["flux_battement_s"], duree_max_s=reglages["flux_duree_max_s"])
+    except Exception:  # noqa: BLE001
+        pass
+    return bloc
+
+
 def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mapping[str, Any]] = None,
                     decouvrir: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
     """Contenu de la route. ``reseau`` est mesuré par la route sur la requête elle-même
@@ -523,5 +543,8 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         # Étape P7 (ajout, contrat acp-poste/1 inchangé) : la route agrégée GET /v1/accueil existe (cahier P7 § 5.2,
         # § 8.2) ; un client (desktop P8) la détecte ici avant de la lire.
         "accueil": True,
+        # Étape P7 (ajout, contrat acp-poste/1 inchangé) : flux d'invalidation (cahier P7 § 5.2, correction K8 : le nom
+        # « flux » est celui qu'attend le desktop P8).
+        "flux": bloc_flux(),
         "alertes": alertes,
     }

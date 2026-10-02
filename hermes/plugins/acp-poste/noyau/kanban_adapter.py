@@ -13,9 +13,9 @@ L'héritage de P1 (tableau unique « poste », assigné « poste-windows », car
 retiré, comme le plan le demande (§ 9).
 
 Lecture SQL directe, en lecture seule, UNIQUEMENT pour les événements d'un tableau
-(:func:`evenements_apres`, :func:`dernier_evenement`) : Hermes n'expose aucune fonction publique
-qui lise ``task_events`` par tableau après un identifiant (le greffon kanban natif le fait en SQL :
-plugins/kanban/dashboard/plugin_api.py:1698). Le schéma lu est vérifié par
+(:func:`evenements_apres`, :func:`dernier_evenement`, :func:`dernier_evenement_lecture_seule`) : Hermes
+n'expose aucune fonction publique qui lise ``task_events`` par tableau après un identifiant (le greffon
+kanban natif le fait en SQL : plugins/kanban/dashboard/plugin_api.py:1698). Le schéma lu est vérifié par
 ``test_schema_des_evenements_attendu``.
 """
 
@@ -26,6 +26,7 @@ import os
 import re
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Iterator, List, Optional, Tuple
 
 from agent.delegation_context import is_dispatcher_owned_worker_context, owned_kanban_task
@@ -141,7 +142,8 @@ MODULES_DE_DEFINITION = {
 __all__ = [
     "CREATEUR", "MODULES_DE_DEFINITION", "PREFIXE_CLE", "PREFIXE_VOIE_POSTE", "PROFIL_HERMES",
     "VALID_REASONING_EFFORTS", "VOIES_POSTE", "VOIE_INTEGRATION", "VOIES_EXECUTION", "connexion", "dernier_evenement", "est_voie_poste",
-    "evenements_apres", "effort_hermes", "masquer", "requetes_ouvertes", *MODULES_DE_DEFINITION,
+    "dernier_evenement_lecture_seule", "evenements_apres", "effort_hermes", "masquer", "requetes_ouvertes",
+    *MODULES_DE_DEFINITION,
 ]
 
 
@@ -223,6 +225,22 @@ def evenements_apres(conn: sqlite3.Connection, apres: int, limite: int = 500) ->
 def dernier_evenement(conn: sqlite3.Connection) -> int:
     """Identifiant du dernier événement du tableau (0 s'il n'y en a aucun)."""
     return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM task_events").fetchone()[0])
+
+
+def dernier_evenement_lecture_seule(tableau: str) -> Optional[int]:
+    """Comme :func:`dernier_evenement`, sur une connexion SQLite ouverte en LECTURE SEULE (``mode=ro``) au fichier du
+    tableau, sans la connexion de Hermes (étape P7, cahier P7 § 5.3) : le veilleur du flux la relit toutes les 2 s, et
+    la connexion de Hermes fait à chaque ouverture le contrôle d'écriture dont la course est décrite plus haut.
+    ``None`` si le fichier du tableau n'existe pas (encore) ; toute autre erreur est levée (tableau illisible : jamais
+    une fausse stabilité)."""
+    chemin = Path(kanban_db_path(tableau))
+    if not chemin.is_file():
+        return None
+    conn = sqlite3.connect(f"{chemin.resolve().as_uri()}?mode=ro", uri=True, timeout=1.0)
+    try:
+        return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM task_events").fetchone()[0])
+    finally:
+        conn.close()
 
 
 def masquer(texte: Any) -> str:

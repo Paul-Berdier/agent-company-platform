@@ -487,3 +487,6 @@ DISCUSSIONS_LIMITE = ("Les questions posées dans la discussion en terminal (/ch
 
 # Accueil agrégé (cahier P7 § 8.2) : un bloc illisible vaut null avec sa raison, jamais une valeur par défaut.
 BLOC_ILLISIBLE = "Bloc illisible ({type}) : rechargez la page ; si l'erreur reste, consultez /v1/meta."
+
+# Flux d'invalidation (cahier P7 § 5.2) : au-delà de ``flux_max`` flux simultanés.
+TROP_DE_FLUX = "Trop de pages ouvertes en temps réel : fermez-en une ou attendez."

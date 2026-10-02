@@ -362,6 +362,13 @@ REGLAGES_PAR_DEFAUT: Dict[str, Any] = {
     "grace_arret_propre_s": 600,
     "voie_fermee_delai_s": 1800,
     "relecture_repli_meme_voie": True,
+    # Étape P7 (cahier P7 § 5.2, § 5.3) : flux d'invalidation GET /v1/flux — intervalle du veilleur (plancher 1 s),
+    # battement (le bord Railway coupe une requête après 5 min sans octet), durée d'un flux (le bord coupe à 15 min),
+    # nombre de flux simultanés (au-delà : 429 trop_de_flux).
+    "flux_intervalle_s": 2,
+    "flux_battement_s": 15,
+    "flux_duree_max_s": 600,
+    "flux_max": 8,
 }
 PLANCHER_EMETTEUR_S = 5
 

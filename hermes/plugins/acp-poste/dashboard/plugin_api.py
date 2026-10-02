@@ -61,6 +61,8 @@ exige ``Content-Type: application/json`` (415 sinon) et refuse un ``Origin`` pr�
 - ``POST /v1/projets/{id}/reponses``           « qui répond » : ``hermes_d_abord`` ou ``proprietaire`` → 200, 404, 409
 - ``POST /v1/projets/{id}/clore``              clore un projet (``confirmation: true``) → 200, 404, 409, 422
 - ``GET  /v1/accueil``                         accueil agrégé : à traiter, projets, exécutant, quotas, canal, pause
+- ``GET  /v1/flux``                            flux SSE d'invalidation (noms de sujets seulement), battement 15 s,
+                                               fin après 10 min, 8 flux au plus (429 ``trop_de_flux``)
 
 Les neuf routes machine ne sont jamais servies à une session de navigateur : la couture de Hermes les réserve au
 porteur d'un jeton reconnu (chemins exacts enregistrés par register()).
@@ -1216,3 +1218,72 @@ async def clore_projet(identifiant: str, request: Request) -> JSONResponse:
 async def lire_accueil() -> JSONResponse:
     """Accueil agrégé : une seule lecture pour la page, au téléphone comme au bureau (cahier P7 § 8.2)."""
     return await _executer(_avec_base(lambda conn: _n("accueil").construire(conn)))
+
+
+# ============================================================ étape P7 : flux d'invalidation GET /v1/flux (§ 5.2)
+#
+# Le flux SIGNALE qu'un sujet a changé (``noyau/flux.py``) ; la page relit la route REST du sujet. Derrière la porte
+# d'authentification du tableau de bord comme toute route de lecture : la session n'est contrôlée qu'à l'ouverture, un
+# flux ouvert peut donc survivre au plus ``flux_duree_max_s`` à son expiration (il ne porte que des noms de sujets).
+#
+# Déconnexion : uvicorn ignore une écriture vers un client parti (aucune « écriture en échec ») ; la réponse en flux
+# de Starlette écoute la déconnexion (ASGI 2.3) et annule le générateur, dont le ``finally`` rend la place ; en plus,
+# ``_deconnecte`` est lu à chaque tour (au plus toutes les ``TOUR_FLUX_S`` secondes), après la lecture du corps vide
+# du GET (correction K10 : sans elle, le premier ``receive()`` rendrait la requête, pas la déconnexion).
+
+from starlette.responses import Response, StreamingResponse  # noqa: E402
+
+TOUR_FLUX_S = 2.0
+ENTETES_FLUX = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+CODES_HTTP.update({"trop_de_flux": 429})
+
+
+@router.get("/v1/flux")
+async def flux_d_invalidation(request: Request) -> Response:
+    """Flux SSE : ``retry`` puis trame ``etat`` (révision, sujets à relire, ``discussions_suivies``), trames
+    ``changement`` (sujets changés), battement en commentaire, ``fin`` après la durée maximale ; 429 au-delà de
+    ``flux_max`` flux ouverts."""
+    await request.body()  # K10 : le corps (vide) d'abord ; ensuite, seul ``http.disconnect`` peut arriver
+    flux = _n("flux")
+    reglages = await run_in_threadpool(flux.lire_reglages)
+    diffuseur = flux.diffuseur()
+    await diffuseur.assurer()
+    abonne = diffuseur.abonner(reglages["flux_max"])
+    if abonne is None:
+        reponse = _erreur(429, "trop_de_flux", _n("textes").TROP_DE_FLUX)
+        reponse.headers.update({"Retry-After": "30", "Cache-Control": "no-store"})
+        return reponse
+    ouverture = flux.trame_ouverture(diffuseur.revision, diffuseur.sujets_a_l_ouverture(
+        request.headers.get("last-event-id")), diffuseur.illisibles, diffuseur.discussions_suivies)
+    boucle = asyncio.get_running_loop()
+
+    async def trames():
+        abonne.demarre = True
+        try:
+            yield ouverture
+            debut = boucle.time()
+            fin = debut + reglages["flux_duree_max_s"]
+            battement = debut + reglages["flux_battement_s"]
+            while True:
+                maintenant = boucle.time()
+                if maintenant >= fin:
+                    yield flux.trame_fin("duree_max")
+                    return
+                attente = max(0.0, min(battement, fin, maintenant + TOUR_FLUX_S) - maintenant)
+                try:
+                    await asyncio.wait_for(abonne.evenement.wait(), timeout=attente)
+                except asyncio.TimeoutError:
+                    pass
+                if await _deconnecte(request):
+                    return
+                signal = abonne.prendre()
+                if signal is not None:
+                    sujets, illisibles, revision = signal
+                    yield flux.trame_changement(revision, sujets, illisibles)
+                if boucle.time() >= battement:
+                    yield flux.TRAME_BATTEMENT
+                    battement = boucle.time() + reglages["flux_battement_s"]
+        finally:
+            diffuseur.desabonner(abonne)
+
+    return StreamingResponse(trames(), media_type="text/event-stream", headers=ENTETES_FLUX)
