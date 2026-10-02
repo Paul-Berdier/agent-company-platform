@@ -601,8 +601,13 @@ def parcours(options: argparse.Namespace) -> int:
 
         # ---------------------------------------------------------------- 6. redémarrage
         afficher("6. Redémarrage : session reprise du coffre, sans navigateur…")
-        etapes["capture_accueil"] = station.commande("capture", 60, page="HomePage", nom="accueil")
-        etapes["capture_diagnostics"] = station.commande("capture", 60, page="DiagnosticsPage", nom="diagnostics")
+        captures_finales = {}
+        for page, nom in (("HomePage", "accueil"), ("ProjectsPage", "projet-detail"), ("PostePage", "poste"),
+                          ("QuotasPage", "quotas"), ("RoutagePage", "routage"), ("DiagnosticsPage", "diagnostics")):
+            capture = station.commande("capture", 60, page=page, nom=nom)
+            captures_finales[nom] = Path(capture.get("capture") or "-").name
+            verifier(capture.get("ok") is True, f"capture de la page {page}", ecarts)
+        etapes["captures_finales"] = captures_finales
         code = station.quitter()
         verifier(code == 0, f"code de sortie de la station : {code}", ecarts)
         station = lancer_station()
