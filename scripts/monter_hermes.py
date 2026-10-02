@@ -11,8 +11,9 @@ Source unique de l'épinglage : ``hermes/contrat/HERMES_VERSION``. Sous-commande
     octet pour octet, au fichier du dépôt : c'est la répétition à blanc de la montée (« Aucun écart » sur la
     version épinglée prouve que ``ecrire`` ne changerait rien).
 ``ecrire vAAAA.M.J [--date "2 octobre 2026"]``
-    Refuse si un fichier cible porte des changements non committés ; réécrit les épingles fortes (liste
-    ``EPINGLES_FORTES``) en LF ; rapporte les méthodes OpenRPC ajoutées et retirées, le changement
+    Refuse si un fichier cible porte des changements non committés ; contrôle tout ce qu'il lit, puis réécrit les
+    épingles fortes (liste ``EPINGLES_FORTES``) en LF, tout ou rien (fichiers temporaires, puis remplacements) ;
+    rapporte les méthodes OpenRPC ajoutées et retirées, le changement
     d'``info.version`` (il coupe la Discussion du desktop), les skills livrées à classer à la main face à
     ``livrees.noms`` du verrou du catalogue, la borne ``requires_hermes`` du greffon (jamais modifiée ici), puis
     l'inventaire des anciennes valeurs. Idempotent : un second passage ne change rien. La date du relevé n'est
@@ -43,7 +44,9 @@ import datetime as _dt
 import difflib
 import hashlib
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -653,41 +656,89 @@ def ecrire(racine: Path, executer: Executeur, etiquette: str, date: Optional[str
     # La date écrite est relue par la provenance du README et par la concordance : même conservée, sa forme est exigée.
     date_ecrite = valider_date(ancien.date if inchange else (date or date_du_jour()))
     nouveau = rendre(racine, releve.valeurs, date_ecrite, releve.openrpc, releve.licence)
-    ecrits = []
-    for relatif, contenu in nouveau.items():
-        if _lire_octets(racine, relatif) != contenu:
-            (racine / relatif).write_bytes(contenu)
-            ecrits.append(relatif)
+    # Tout ce que le rapport lit est lu et contrôlé AVANT la première écriture : aucun refus de ces lectures ne peut
+    # tomber sur un dépôt déjà réécrit.
+    _, info_avant, _, noms_avant = decrire_openrpc(openrpc_avant, "la copie d'avant")
+    _, info_apres, _, noms_apres = decrire_openrpc(releve.openrpc, "l'image relevée")
+    skills = None if releve.erreur_skills else comparer_skills(racine, releve)
+    borne = borne_requires_hermes(racine)
+
+    ecrits = _ecrire_tout(racine, nouveau)
     sortie(f"Épingles fortes réécrites pour {etiquette} : {', '.join(ecrits) if ecrits else 'aucun changement'}.")
     for remarque in releve.remarques:
         sortie(f"ATTENTION : {remarque}.")
 
     # Rapport.
-    _, info_avant, _, noms_avant = decrire_openrpc(openrpc_avant, "la copie d'avant")
-    _, info_apres, _, noms_apres = decrire_openrpc(releve.openrpc, "l'image relevée")
     ajoutees, retirees = sorted(set(noms_apres) - set(noms_avant)), sorted(set(noms_avant) - set(noms_apres))
     sortie(f"OpenRPC : {len(noms_avant)} -> {len(noms_apres)} méthodes ; ajoutées : {', '.join(ajoutees) or 'aucune'}"
            f" ; retirées : {', '.join(retirees) or 'aucune'}.")
     if info_avant != info_apres:
         sortie(f"ATTENTION : info.version de l'OpenRPC passe de {info_avant} à {info_apres} : la Discussion du desktop "
                "se coupe (docs/refonte/desktop.md) tant qu'il n'est pas adapté.")
-    if releve.erreur_skills:
+    if skills is None:
         sortie(f"Skills livrées : {releve.erreur_skills} ; à relever à la main.")
     else:
-        for libelle, cle, ajout, retrait in comparer_skills(racine, releve):
+        for libelle, cle, ajout, retrait in skills:
             sortie(f"Skills {libelle} face à livrees.{cle} du verrou : ajoutées {', '.join(ajout) or 'aucune'} ; "
                    f"retirées {', '.join(retrait) or 'aucune'}"
                    + (" (à classer à la main : hermes/tests/image/test_catalogue.py échouera d'ici là)."
                       if ajout or retrait else "."))
-    borne = borne_requires_hermes(racine)
     if _version_tuple(borne) > _version_tuple(releve.valeurs.version):
         sortie(f"ATTENTION : {GREFFON} déclare requires_hermes \">={borne}\", qui exclut Hermes "
                f"{releve.valeurs.version}. Borne NON modifiée par cet outil : à trancher à la main, jamais pour "
                "« faire passer ».")
     sortie("")
     sortie(f"Inventaire des anciennes valeurs (Hermes {ancien.valeurs.version}, {ancien.valeurs.etiquette}) :")
-    afficher_inventaire(racine, executer, ancien.valeurs, sortie)
+    try:
+        afficher_inventaire(racine, executer, ancien.valeurs, sortie)
+    except Refus as refus:
+        raise Refus(f"{refus} Les épingles fortes ont pourtant été écrites ({', '.join(ecrits) or 'aucun changement'})"
+                    " ; l'inventaire des anciennes valeurs reste à faire (git grep de l'ancienne version, de "
+                    f"l'étiquette, du commit et du condensat : {ancien.valeurs.version}, {ancien.valeurs.etiquette}, "
+                    f"{ancien.valeurs.commit[:7]}, {ancien.valeurs.index}).")
     return 0
+
+
+SUFFIXE_TEMPORAIRE = ".monter-hermes.tmp"
+
+
+def _effacer(chemins: Sequence[Path]) -> None:
+    for chemin in chemins:
+        try:
+            chemin.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _ecrire_tout(racine: Path, contenus: Dict[str, bytes]) -> List[str]:
+    """Écrit les épingles fortes en deux temps, tout ou rien autant que le système de fichiers le permet : chaque
+    contenu changé va d'abord dans un fichier temporaire voisin ; seulement quand TOUS sont écrits, chacun remplace sa
+    cible (``os.replace``, atomique par fichier). Un échec du premier temps ne change rien au dépôt ; un échec du
+    second, rare (fichier ouvert ailleurs sous Windows), nomme ce qui est déjà réécrit. Aucun temporaire ne reste."""
+    a_ecrire = [relatif for relatif, contenu in contenus.items() if _lire_octets(racine, relatif) != contenu]
+    temporaires: Dict[str, Path] = {}
+    try:
+        for relatif in a_ecrire:
+            cible = racine / relatif
+            temporaire = cible.with_name(cible.name + SUFFIXE_TEMPORAIRE)
+            temporaires[relatif] = temporaire
+            temporaire.write_bytes(contenus[relatif])
+            shutil.copymode(cible, temporaire)
+    except OSError as exc:
+        _effacer(list(temporaires.values()))
+        raise Refus(f"Écriture impossible ({type(exc).__name__} : {exc}) ; aucun fichier du dépôt n'a été modifié.")
+    remplaces: List[str] = []
+    try:
+        for relatif in a_ecrire:
+            os.replace(temporaires[relatif], racine / relatif)
+            remplaces.append(relatif)
+    except OSError as exc:
+        _effacer(list(temporaires.values()))
+        restants = [r for r in a_ecrire if r not in remplaces]
+        raise Refus(f"Remplacement interrompu ({type(exc).__name__} : {exc}) : déjà réécrits : "
+                    f"{', '.join(remplaces) or 'aucun'} ; non réécrits : {', '.join(restants)}. Revenez à l'état "
+                    f"committé (git checkout -- {' '.join(a_ecrire)}) puis relancez.")
+    return remplaces
 
 
 def classer(relatif: str) -> str:

@@ -55,6 +55,7 @@ class FauxAmont:
         self.provenance: Optional[Dict] = None  # None : celle de la release ; {} : absente
         self.inspect_code = 0
         self.grep = ""
+        self.grep_code: Optional[int] = None
         self.tags_git: List[str] = []
         self.variante_arm64: Dict[str, str] = {}
         self.avec_arm64 = True
@@ -103,6 +104,8 @@ class FauxAmont:
         if a[:2] == ["git", "-C"] and a[3] == "status":
             return mh.Resultat(0, "".join(f" M {f}\n" for f in self.modifies).encode())
         if a[:2] == ["git", "-C"] and a[3] == "grep":
+            if self.grep_code is not None:
+                return mh.Resultat(self.grep_code, b"", b"fatal: erreur simulee")
             return mh.Resultat(0 if self.grep else 1, self.grep.encode())
         raise AssertionError(f"commande inattendue : {a}")
 
@@ -388,6 +391,82 @@ def test_ecrire_refuse_des_changements_non_committes(depot, amont):
     statut = next(a for a in suivante.appels if "status" in a)
     assert statut[statut.index("--") + 1:] == list(mh.EPINGLES_FORTES)
     assert not any("docker" in a for a in suivante.appels), "refus avant tout relevé"
+
+
+def _fichiers(racine: Path) -> List[str]:
+    return sorted(p.relative_to(racine).as_posix() for p in racine.rglob("*") if p.is_file())
+
+
+def test_ecrire_un_echec_d_ecriture_ne_modifie_aucun_fichier_du_depot(depot, amont, monkeypatch):
+    """Relecture P9 : les épingles étaient écrites une à une ; un échec au troisième fichier (disque plein, droit
+    refusé) laissait deux fichiers réécrits sur neuf et sortait en trace Python, sans dire lesquels."""
+    suivante = _release_suivante(amont)
+    avant, fichiers_avant = _instantane(depot), _fichiers(depot)
+    ecrire_octets = Path.write_bytes
+    appels: List[Path] = []
+
+    def ecrire_puis_echouer(self, donnees):
+        appels.append(self)
+        if len(appels) == 3:
+            raise OSError(28, "No space left on device")
+        return ecrire_octets(self, donnees)
+
+    monkeypatch.setattr(Path, "write_bytes", ecrire_puis_echouer)
+    with pytest.raises(mh.Refus, match="aucun fichier du dépôt n'a été modifié"):
+        _lancer(mh.ecrire, depot, suivante, "v2026.10.15", date="15 octobre 2026")
+    monkeypatch.undo()
+    assert len(appels) == 3
+    assert _instantane(depot) == avant
+    assert _fichiers(depot) == fichiers_avant, "aucun fichier temporaire laissé"
+
+
+def test_ecrire_un_remplacement_interrompu_nomme_les_fichiers_deja_reecrits(depot, amont, monkeypatch):
+    """Au second temps (remplacements), un échec (fichier ouvert ailleurs sous Windows) nomme ce qui est déjà
+    réécrit et ce qui ne l'est pas, et dit comment revenir à l'état committé ; aucun temporaire ne reste."""
+    suivante = _release_suivante(amont)
+    fichiers_avant = _fichiers(depot)
+    remplacer = mh.os.replace
+    faits: List[object] = []
+
+    def remplacer_puis_echouer(source, cible):
+        if len(faits) == 1:
+            raise PermissionError(13, "fichier ouvert par un autre programme")
+        faits.append(cible)
+        return remplacer(source, cible)
+
+    monkeypatch.setattr(mh.os, "replace", remplacer_puis_echouer)
+    with pytest.raises(mh.Refus, match=rf"déjà réécrits : {mh.EPINGLE} ; non réécrits : {mh.DOCKERFILE}, .*"
+                                       r"git checkout -- "):
+        _lancer(mh.ecrire, depot, suivante, "v2026.10.15", date="15 octobre 2026")
+    assert _fichiers(depot) == fichiers_avant
+
+
+@pytest.mark.parametrize("alteration", ["borne", "openrpc_avant"])
+def test_ecrire_controle_tout_ce_que_le_rapport_lit_avant_la_premiere_ecriture(depot, amont, alteration):
+    """Relecture P9 : la borne requires_hermes et la copie d'avant de l'OpenRPC étaient lues APRÈS l'écriture : leur
+    refus (code 2, « rien n'est écrit » pour l'utilisateur) tombait sur un dépôt déjà réécrit."""
+    suivante = _release_suivante(amont)
+    if alteration == "borne":
+        chemin = depot / mh.GREFFON
+        texte, n = re.subn(r"^requires_hermes: .*\n", "", chemin.read_text(encoding="utf-8"), flags=re.M)
+        assert n == 1
+        chemin.write_text(texte, encoding="utf-8", newline="\n")
+    else:
+        (depot / mh.OPENRPC).write_bytes(b"{}\n")
+    avant = _instantane(depot)
+    with pytest.raises(mh.Refus):
+        _lancer(mh.ecrire, depot, suivante, "v2026.10.15", date="15 octobre 2026")
+    assert _instantane(depot) == avant
+
+
+def test_ecrire_un_inventaire_impossible_apres_l_ecriture_le_dit(depot, amont):
+    """Seul l'inventaire (git grep des anciennes valeurs) vient après l'écriture : s'il échoue, le refus dit que les
+    épingles fortes, elles, sont écrites (et l'ensemble écrit concorde)."""
+    suivante = _release_suivante(amont)
+    suivante.grep_code = 128
+    with pytest.raises(mh.Refus, match="épingles fortes ont pourtant été écrites"):
+        _lancer(mh.ecrire, depot, suivante, "v2026.10.15", date="15 octobre 2026")
+    assert concordance.ecarts(depot) == []
 
 
 def test_ecrire_refuse_une_structure_inattendue_sans_rien_ecrire(depot, amont):
