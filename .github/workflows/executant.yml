@@ -1,0 +1,159 @@
+name: Image de l'exécutant
+
+# Refonte « Hermes au centre », étape P6 (docs/refonte/executant.md) : construit l'image Railway du service
+# « executant » (executant/Dockerfile, contexte = racine du dépôt) et prouve, SANS AUCUN COMPTE :
+#   - téléchargement et contrôle des binaires au build : Codex 0.156.1 (taille, SHA-256 de l'archive) et Claude Code
+#     2.1.283 (manifeste signé, vérifié par gpg contre executant/cles/claude-code.asc, puis SHA-256 du binaire) ; la
+#     signature cosign de Codex n'est PAS vérifiée (identité non établie : le journal de build le dit) ;
+#   - tests de l'image construite (executant/tests/test_image.py) : versions, empreintes, aucun secret, contexte
+#     minimal, chemins du superviseur non inscriptibles par les agents, refus de l'entrée, options imposées admises par
+#     les vraies CLI, fonctions Codex actives en liste blanche, bubblewrap de Debian, safe.directory ;
+#   - sonde de plateforme (répétition LOCALE de R0) sous le seccomp Docker par défaut (régime B attendu), puis témoin du
+#     régime A (seccomp, AppArmor et chemins système de /proc levés ; sur ubuntu-24.04,
+#     kernel.apparmor_restrict_unprivileged_userns est passé à 0 avant, et c'est écrit au journal). Ni l'un ni l'autre
+#     n'est une preuve pour Railway ;
+#   - suite apps/poste et contrat partagé EN ROOT dans l'image d'essais (executant/tests/Dockerfile) : les tests propres
+#     à root (changements d'UID réels, balayage par UID, worktrees hors tour), ignorés par la CI Linux sans root ;
+#   - verifier-binaires : refus d'une empreinte fausse et d'un manifeste non signé (clé GPG d'essai, hors ligne).
+# Le bout en bout avec Hermes (CLI factices) tourne dans image.yml, qui construit aussi la cible « factice ».
+#
+# Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même executant/Dockerfile avec « Wait for
+# CI ». Ne JAMAIS annuler ce workflow à la main sur la branche déployée (même raison qu'image.yml).
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - "refonte/hermes"
+    paths:
+      - "executant/**"
+      - "apps/poste/**"
+      - "hermes/plugins/acp-poste/contrat/**"
+      - "packaging/poste/lancer.py"
+      - "requirements/poste-3.12.lock.txt"
+      - "requirements/python-3.12.lock.txt"
+      - "pytest.ini"
+      - ".github/workflows/executant.yml"
+  push:
+    branches:
+      - main
+      - "refonte/**"
+    paths:
+      - "executant/**"
+      - "apps/poste/**"
+      - "hermes/plugins/acp-poste/contrat/**"
+      - "packaging/poste/lancer.py"
+      - "requirements/poste-3.12.lock.txt"
+      - "requirements/python-3.12.lock.txt"
+      - "pytest.ini"
+      - ".github/workflows/executant.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  # Comme image.yml : hors PR, un groupe par exécution, jamais annulée (« Wait for CI » de Railway).
+  group: executant-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  executant:
+    name: Exécutant — image, sonde locale et suite en root
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ACP_IMAGE_EXECUTANT: acp-executant:ci
+      ACP_IMAGE_EXECUTANT_FACTICE: acp-executant:factice
+      ACP_IMAGE_EXECUTANT_ESSAIS: acp-executant-essais:ci
+      ACP_EXECUTANT_OBLIGATOIRE: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Paquets Python des tests (verrou haché)
+        run: python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
+
+      - name: Construire l'image de l'exécutant (binaires téléchargés et vérifiés)
+        run: |
+          set -euo pipefail
+          docker build --progress=plain -f executant/Dockerfile -t "$ACP_IMAGE_EXECUTANT" . 2>&1 | tee /tmp/build-executant.log
+          grep -F "[acp] Codex 0.156.1 vérifié" /tmp/build-executant.log
+          grep -F "[acp] Claude Code 2.1.283 vérifié (manifeste signé par 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE" /tmp/build-executant.log
+          grep -F "[acp] signature cosign de Codex non vérifiée" /tmp/build-executant.log
+
+      - name: Construire la cible factice et l'image d'essais
+        run: |
+          set -euo pipefail
+          docker build -f executant/Dockerfile --target factice -t "$ACP_IMAGE_EXECUTANT_FACTICE" .
+          docker build -f executant/tests/Dockerfile --build-arg IMAGE_EXECUTANT="$ACP_IMAGE_EXECUTANT" \
+            -t "$ACP_IMAGE_EXECUTANT_ESSAIS" .
+
+      - name: Témoin du régime A — restriction AppArmor des espaces de noms (consignée, puis levée sur le lanceur)
+        run: |
+          set -euo pipefail
+          valeur="$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absente)"
+          echo "kernel.apparmor_restrict_unprivileged_userns sur le lanceur : ${valeur}"
+          if [ "$valeur" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            echo "Passée à 0 sur CE lanceur pour le seul témoin du régime A (jamais sur Railway)."
+          fi
+
+      - name: Tests de l'image (statiques, verifier-binaires, image construite, sonde locale)
+        run: python -m pytest -s -v -rA executant/tests
+
+      - name: Sonde de plateforme — relevés locaux (artefact)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sonde
+          docker run --rm --entrypoint /usr/local/bin/acp-poste "$ACP_IMAGE_EXECUTANT" sonde-plateforme --json \
+            > /tmp/sonde/seccomp-defaut.json
+          docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            --security-opt systempaths=unconfined --entrypoint /usr/local/bin/acp-poste "$ACP_IMAGE_EXECUTANT" sonde-plateforme --json \
+            > /tmp/sonde/temoin-regime-a.json
+          python - <<'EOF'
+          import json
+          for nom in ("seccomp-defaut", "temoin-regime-a"):
+              with open(f"/tmp/sonde/{nom}.json", encoding="utf-8") as flux:
+                  print(nom, json.dumps(json.load(flux)["verdict"], ensure_ascii=False))
+          EOF
+
+      - name: Sonde de plateforme (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonde-plateforme-locale
+          path: /tmp/sonde
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Suite apps/poste et contrat partagé EN ROOT dans l'image d'essais
+        run: |
+          docker run --rm --entrypoint /usr/bin/tini "$ACP_IMAGE_EXECUTANT_ESSAIS" -- \
+            python3.12 -m pytest -q -rs -p no:cacheprovider apps/poste/tests hermes/plugins/acp-poste/contrat/tests
+
+      - name: Aucun conteneur ni volume de test ne reste
+        if: always()
+        run: |
+          restes=0
+          reste="$(docker ps -a --filter name=acp-contrat-exec- --format '{{.Names}}')"
+          if [ -n "$reste" ]; then
+            echo "Conteneurs restants : ${reste}" >&2
+            docker rm -f -v $reste >/dev/null
+            restes=1
+          fi
+          volumes="$(docker volume ls -q --filter name=acp-contrat-exec-)"
+          if [ -n "$volumes" ]; then
+            echo "Volumes restants : ${volumes}" >&2
+            docker volume rm -f $volumes >/dev/null
+            restes=1
+          fi
+          if [ "$restes" -ne 0 ]; then
+            echo "Des ressources acp-contrat-exec-* restaient après les tests : nettoyées, mais la CI échoue." >&2
+            exit 1
+          fi
+          echo "Aucun conteneur ni volume acp-contrat-exec-* ne restait."

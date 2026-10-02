@@ -206,11 +206,34 @@ export interface CarteLue {
 }
 
 /** GET /v1/questions (noyau/questions.lister). */
+/** Carte en revue pour des fichiers de pilotage des agents (étape P6, cahier P6 § 5.4, § 9.3). */
+export interface RevuePilotage {
+  projet?: string;
+  projet_titre?: string;
+  tableau?: string;
+  carte?: string;
+  titre?: string;
+  role?: string;
+  voie?: string;
+  chemins?: unknown;
+  diffstat?: { fichiers?: number; ajouts?: number; retraits?: number } | null;
+  branche?: string | null;
+  tete?: string | null;
+  resume?: string | null;
+  diff?: string;
+}
+
+export interface ResultatRevue {
+  carte?: string;
+  etat?: string | null;
+}
+
 export interface ListeQuestions {
   questions?: QuestionOuverte[];
   triage?: CarteEnAttente[];
   bloquees?: CarteEnAttente[];
   tableaux_illisibles?: unknown;
+  revues?: RevuePilotage[];
 }
 
 export interface ModeleReleve {

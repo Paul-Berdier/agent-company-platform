@@ -11,9 +11,11 @@
 //    committé refuse, en français ; des libellés invalides, identiques, un autre environnement
 //    que « production », un autre projet lié que « acp » (ou aucun) sont refusés de même ;
 // 2. avec des libellés d'ESSAI (copie temporaire du fichier, supprimée ensuite), le graphe compte
-//    exactement deux services et deux volumes, avec les réglages attendus (source, Wait for CI,
-//    constructeur, santé, région, limites, politique de redémarrage, variables déclarées ou
-//    preserve()), et AUCUNE Start Command, commande de pré-déploiement, domaine ni secret.
+//    exactement trois services et trois volumes (étape P6 : « executant »), volumes disjoints, avec
+//    les réglages attendus (source, Wait for CI, constructeur, santé, région, limites, politique de
+//    redémarrage, variables déclarées ou preserve()), et AUCUNE Start Command, commande de
+//    pré-déploiement, domaine ni secret ; l'exécutant n'a ni santé, ni PORT, ni preserve(), ni
+//    référence vers un autre service (et réciproquement).
 // --graphe écrit le graphe d'essai en JSON : hermes/tests/contrat/test_railway_iac_contrat.py
 // démarre les deux images avec ses variables.
 //
@@ -75,6 +77,31 @@ const ATTENDU = {
       ACP_HERMES_URL: `https://${h}.up.railway.app`,
     }),
     preservees: ["ACP_IDP_UTILISATEUR", "ACP_IDP_NOM", "ACP_IDP_EMAIL", "ACP_IDP_MOT_DE_PASSE_ARGON2"],
+  },
+  // Étape P6 (docs/refonte/executant.md) : aucun healthcheck (delaiSante null), aucun PORT, aucun secret en
+  // variable (décision D92 : jetons déposés sur le volume par railway ssh).
+  executant: {
+    racine: "/",
+    surveillance: [
+      "/executant/**",
+      "/apps/poste/src/**",
+      "/packaging/poste/lancer.py",
+      "/hermes/plugins/acp-poste/contrat/**",
+      "/requirements/poste-3.12.lock.txt",
+      "!/executant/tests/**",
+      "!/executant/factice/**",
+    ],
+    relances: 10,
+    cpu: 2,
+    memoire: 4 * GIO,
+    delaiSante: null,
+    volume: "executant-donnees",
+    montage: "/donnees",
+    litterales: () => ({
+      RAILWAY_DOCKERFILE_PATH: "executant/Dockerfile",
+      RAILWAY_DEPLOYMENT_DRAINING_SECONDS: "90",
+    }),
+    preservees: [],
   },
 };
 
@@ -195,9 +222,12 @@ function verifierService(noeud, nom, h, i) {
   exiger(memes(b.watchPatterns, a.surveillance), `${ici} : motifs surveillés ${JSON.stringify(b.watchPatterns)}.`);
 
   const d = noeud.deploy ?? {};
-  exiger(memes(cles(d), [...CLES_DEPLOY].sort()), `${ici} : clés de déploiement ${JSON.stringify(cles(d))}, attendu ${JSON.stringify(CLES_DEPLOY)} (aucune Start Command ni pré-déploiement).`);
-  exiger(d.healthcheckPath === "/api/health", `${ici} : chemin de santé « ${d.healthcheckPath} ».`);
-  exiger(d.healthcheckTimeout === a.delaiSante, `${ici} : délai de santé ${d.healthcheckTimeout}, attendu ${a.delaiSante}.`);
+  const clesDeploy = a.delaiSante === null ? CLES_DEPLOY.filter((c) => !c.startsWith("healthcheck")) : CLES_DEPLOY;
+  exiger(memes(cles(d), [...clesDeploy].sort()), `${ici} : clés de déploiement ${JSON.stringify(cles(d))}, attendu ${JSON.stringify(clesDeploy)} (aucune Start Command ni pré-déploiement).`);
+  if (a.delaiSante !== null) {
+    exiger(d.healthcheckPath === "/api/health", `${ici} : chemin de santé « ${d.healthcheckPath} ».`);
+    exiger(d.healthcheckTimeout === a.delaiSante, `${ici} : délai de santé ${d.healthcheckTimeout}, attendu ${a.delaiSante}.`);
+  }
   exiger(d.sleepApplication === false, `${ici} : sleepApplication (Serverless) doit valoir false.`);
   exiger(d.restartPolicyType === "ON_FAILURE", `${ici} : politique de redémarrage « ${d.restartPolicyType} ».`);
   exiger(d.restartPolicyMaxRetries === a.relances, `${ici} : ${d.restartPolicyMaxRetries} relances, attendu ${a.relances}.`);
@@ -223,6 +253,18 @@ function verifierService(noeud, nom, h, i) {
   for (const [cle, valeur] of Object.entries(variables)) {
     const texte = JSON.stringify(valeur);
     for (const motif of SECRETS) exiger(!motif.test(texte), `${ici} : ${cle} ressemble à un secret (${motif}).`);
+    // Aucune référence de variable entre services (${{ service.VAR }}), ni variable partagée.
+    exiger(!texte.includes("${{"), `${ici} : ${cle} référence une autre ressource (${texte}).`);
+    exiger(valeur?.type === "literal" || valeur?.type === "preserve", `${ici} : ${cle} de type « ${valeur?.type} ».`);
+  }
+  if (nom === "executant") {
+    exiger(!("PORT" in variables), `${ici} : aucun PORT (l'exécutant n'écoute sur aucun port).`);
+    exiger(!Object.keys(variables).some((c) => /JETON|TOKEN|SECRET|KEY|CLE|PASSWORD|OAUTH/i.test(c)),
+      `${ici} : aucun secret en variable (décision D92 : jetons déposés sur le volume).`);
+  } else {
+    for (const valeur of Object.values(variables)) {
+      exiger(!JSON.stringify(valeur).toLowerCase().includes("executant"), `${ici} : référence à l'exécutant interdite.`);
+    }
   }
 }
 
@@ -232,14 +274,18 @@ function verifierGraphe(definition, h, i) {
   const ressources = definition?.resources ?? [];
   const adresses = ressources.map((r) => r.address).sort();
   exiger(
-    memes(adresses, ["service.hermes", "service.identite", "volume.hermes-donnees", "volume.identite-donnees"]),
-    `ressources ${JSON.stringify(adresses)} : exactement deux services et deux volumes attendus (toute ressource omise serait SUPPRIMÉE à l'apply).`,
+    memes(adresses, ["service.executant", "service.hermes", "service.identite", "volume.executant-donnees",
+      "volume.hermes-donnees", "volume.identite-donnees"]),
+    `ressources ${JSON.stringify(adresses)} : exactement trois services et trois volumes attendus (toute ressource omise serait SUPPRIMÉE à l'apply).`,
   );
+  // Volumes disjoints : chacun monté sur un seul service.
+  const montages = ressources.filter((r) => r.type === "service").flatMap((r) => Object.keys(r.volumeAttachments ?? {}));
+  exiger(montages.length === new Set(montages).size, `volumes montés sur plusieurs services : ${JSON.stringify(montages)}.`);
   for (const r of ressources) {
     if (r.type === "volume") {
       exiger(memes(r.config, { region: REGION }), `volume ${r.name} : configuration ${JSON.stringify(r.config)}, attendu la région ${REGION}.`);
     }
-    if (r.type === "service" && (r.name === "hermes" || r.name === "identite")) verifierService(r, r.name, h, i);
+    if (r.type === "service" && r.name in ATTENDU) verifierService(r, r.name, h, i);
   }
   return erreurs.length === avant;
 }
@@ -288,7 +334,7 @@ async function principal() {
   const graphe = await evaluerCopie(ESSAI);
   if (verifierGraphe(graphe, ESSAI.LIBELLE_HERMES, ESSAI.LIBELLE_IDENTITE)) {
     constats.push(
-      `graphe d'essai conforme (${ESSAI.LIBELLE_HERMES}, ${ESSAI.LIBELLE_IDENTITE}) : 2 services, 2 volumes, ` +
+      `graphe d'essai conforme (${ESSAI.LIBELLE_HERMES}, ${ESSAI.LIBELLE_IDENTITE}) : 3 services, 3 volumes, ` +
         `région ${REGION}, branche ${BRANCHE}, Wait for CI, DOCKERFILE, aucune Start Command.`,
     );
   }

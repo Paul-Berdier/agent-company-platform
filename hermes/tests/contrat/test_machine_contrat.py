@@ -8,8 +8,9 @@ Pile : faux fournisseur d'identité (session OIDC du propriétaire), faux serveu
 
 Ce qui est prouvé ici, sur l'image réellement construite :
 - les trois chemins machine ne répondent qu'au jeton machine (401 de la couture sans porteur, avec la session OIDC
-  du propriétaire, avec un jeton d'une autre forme) ; une route P6 non enregistrée reste fermée ;
-- /v1/meta voit, dans le tableau de bord, le fournisseur enregistré et les trois chemins à jeton ;
+  du propriétaire, avec un jeton d'une autre forme) ; étape P6 : les six routes de l'exécution sont des chemins à
+  jeton (le gestionnaire répond, 422 sur un corps vide) — leur parcours est prouvé par test_execution_contrat.py ;
+- /v1/meta voit, dans le tableau de bord, le fournisseur enregistré et les neuf chemins à jeton (P6) ;
 - enrôlement par code à usage unique, empreinte recalculée identique, confirmation par la page, présence ;
 - inventaire visible dans le poste, le routage et les quotas ; un projet sur dépôt n'est plus refusé ;
 - ordre « Relever maintenant » servi en moins de 3 s ; révocation pendant l'attente : 401 poste_revoque aussitôt,
@@ -176,7 +177,7 @@ def test_meta_bloc_machine(pile):
     machine = meta["machine"]
     afficher("/v1/meta : bloc machine", json.dumps(machine, ensure_ascii=False, indent=1))
     assert machine["fournisseur"] == "enregistre" and all(machine["chemins_a_jeton"].values())
-    assert len(machine["chemins_a_jeton"]) == 3 and machine["base"] == "ok"
+    assert len(machine["chemins_a_jeton"]) == 9 and machine["base"] == "ok"  # étape P6 : neuf chemins exacts
     assert "self-hosted" in machine["fournisseurs_de_session"]
     assert not any("jeton machine" in a or "chemins machine" in a.lower() or "connexion interactive" in a
                    for a in meta["alertes"]), meta["alertes"]
@@ -214,13 +215,14 @@ def test_enrolement_confirmation_bout_en_bout(pile):
     assert vue["poste"]["etat"] == "en_ligne" and vue["poste"]["source"] == "longpoll"
 
 
-def test_route_p6_non_enregistree_401(pile):
-    """Une route machine de P6 (battement) n'est pas un chemin à jeton : la porte OIDC la voit et refuse."""
+def test_route_p6_enregistree_avec_le_jeton(pile):
+    """Étape P6 : le battement est un chemin à jeton ; avec le jeton machine, la couture laisse passer et le
+    gestionnaire refuse un corps vide par le contrat (422), jamais un 401."""
     code = pile.executer(["sh", "-c", "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' "
                           f"-H \"Authorization: Bearer $(cat /tmp/faux-poste/jeton)\" --data '{{}}' "
                           f"http://127.0.0.1:9119{P}/machine/v1/battement"], utilisateur="hermes",
                          verifier=True).stdout.strip()
-    assert code == "401"
+    assert code == "422"
 
 
 def test_inventaire_visible_dans_poste_routage_quotas(pile):

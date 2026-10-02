@@ -112,7 +112,7 @@ def test_detail_pause_reprise(client):
 
 def test_questions_triage_et_poste(client, noyau):
     assert client.get(f"{P}/v1/questions").json() == {"questions": [], "triage": [], "bloquees": [],
-                                                       "tableaux_illisibles": []}
+                                                       "tableaux_illisibles": [], "revues": []}  # revues : P6
     reponse = client.post(f"{P}/v1/questions/q_inconnue/reponse", json={"reponse": "oui"})
     assert reponse.status_code == 404
     projet = _lancer(client).json()["projet"]
@@ -120,6 +120,7 @@ def test_questions_triage_et_poste(client, noyau):
     assert reponse.status_code == 404 and reponse.json()["detail"]["code"] == "triage_inconnu"
     poste = client.get(f"{P}/v1/poste").json()
     assert poste["poste"]["etat"] == "non_configure" and poste["catalogue"]["etat"] == "inconnu"
+    assert poste["executant"] == {"connu": False}  # étape P6 : aucun poste enrôlé, rien d'inventé
     with noyau.base.connexion() as conn:
         noyau.routage.enregistrer_releve(conn, releve_factice("poste-codex"))
     assert client.get(f"{P}/v1/poste").json()["catalogue"]["releve_factice"] is True

@@ -70,7 +70,7 @@
       messages: "messages",
       toutesSessions: "Toutes les sessions",
       poste: "Poste Windows",
-      posteNote: "Enr\xF4lement, \xE9tat, routage et quotas du poste\xA0: page Poste. L'ex\xE9cution de vos projets sur d\xE9p\xF4t arrive \xE0 l'\xE9tape P6.",
+      posteNote: "Enr\xF4lement, \xE9tat, routage et quotas du poste\xA0: page Poste. L'ex\xE9cution de vos projets sur d\xE9p\xF4t passe par l'ex\xE9cutant (page Poste\xA0: isolement, carte en cours, branches pr\xEAtes).",
       raccourcis: "Raccourcis",
       lienProjets: "Projets",
       discussion: "Discussion",
@@ -270,11 +270,26 @@
       prolongerAideCartes: "\xAB\xA0Prolonger\xA0\xBB rel\xE8ve le plafond de cartes\xA0: Hermes planifie la suite avec votre consigne.",
       relancerAide: "\xAB\xA0Relancer la planification\xA0\xBB fait replanifier Hermes avec votre consigne.",
       conclureAide: "\xAB\xA0Conclure le projet\xA0\xBB l'arr\xEAte ici\xA0: \xAB\xA0Termin\xE9\xA0\xBB s'il a au moins un tour, sinon \xAB\xA0Abandonn\xE9\xA0\xBB.",
-      prolongerP6: "Prolonger le plafond de corrections arrivera \xE0 l'\xE9tape P6.",
+      prolongerP6: "Le plafond de corrections ne se prolonge pas\xA0: la relecture qui l'a atteint est close\xA0; concluez depuis cette carte.",
       prolongationFaite: "Plafond relev\xE9\xA0: Hermes planifie la suite avec votre consigne.",
       relanceFaite: "Planification relanc\xE9e\xA0: Hermes planifie avec votre consigne.",
       conclusionFaite: "Projet conclu.",
       noteTronquee: "Extrait\xA0; le d\xE9tail du projet donne les r\xE9sum\xE9s en entier.",
+      revuesTitre: "Revues des fichiers de pilotage",
+      revuesIntro: "Une carte de l'ex\xE9cutant a modifi\xE9 des fichiers qui pilotent les agents (CLAUDE.md, AGENTS.md, .github\u2026). Acceptez-la, ou refusez-la avec un motif\xA0: elle revient alors \xE0 l'ex\xE9cutant, qui retire la modification.",
+      aucuneRevue: "Aucune carte en revue.",
+      chemins: "Fichiers de pilotage touch\xE9s",
+      diffstat: "Modification",
+      fichiers: "fichier(s)",
+      ajouts: "ajout(s)",
+      retraits: "retrait(s)",
+      branche: "Branche",
+      tete: "T\xEAte",
+      accepterRevue: "Accepter",
+      refuserRevue: "Refuser",
+      motifRefus: "Motif du refus",
+      revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
+      revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
       bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
       bloqueesNote: "Lecture seule\xA0: relancer une carte depuis cette page arrivera \xE0 l'\xE9tape P7\xA0; en attendant, le kanban de Hermes le permet.",
       aucuneBloquee: "Aucune carte bloqu\xE9e.",
@@ -364,7 +379,7 @@
     },
     poste: {
       titre: "Poste",
-      intro: "Le poste Windows qui ex\xE9cutera vos projets sur d\xE9p\xF4t\xA0: enr\xF4lement, \xE9tat, routage des ex\xE9cutants et quotas relev\xE9s.",
+      intro: "Le poste qui ex\xE9cute vos projets sur d\xE9p\xF4t (ex\xE9cutant Railway, ou poste Windows)\xA0: enr\xF4lement, \xE9tat, isolement, carte en cours, routage des ex\xE9cutants et quotas relev\xE9s.",
       navigation: "Vues du poste",
       vueEtat: "Poste",
       vueRoutage: "Routage",
@@ -374,6 +389,7 @@
       actualisation: "Actualis\xE9 toutes les 15 secondes tant que la page est visible.",
       envoi: "Envoi\u2026",
       etatTitre: "\xC9tat du poste",
+      etatTitreExecutant: "\xC9tat de l'ex\xE9cutant Railway",
       depuis: "depuis",
       vu: "Vu",
       revoqueLe: "R\xE9voqu\xE9 le",
@@ -421,9 +437,10 @@
       compte: "Compte",
       compteDedie: "Compte d\xE9di\xE9 acp-poste",
       compteProprietaire: "Compte du propri\xE9taire (repli d\xE9clar\xE9)",
+      compteUidDedie: "Un compte Linux d\xE9di\xE9 par agent (ex\xE9cutant Railway)",
       windows: "Windows",
       python: "Python",
-      empreintePolitique: "Empreinte de poste.toml",
+      empreintePolitique: "Empreinte de la politique (poste.toml ou executant.toml)",
       versionsTitre: "Versions des CLI",
       lue: "Lue",
       testee: "Test\xE9e",
@@ -434,7 +451,7 @@
       origineMode: "Origine du mode",
       palierLu: "Palier lu",
       stockage: "Stockage des identifiants",
-      ecritureAdmise: "\xC9criture admise (P6)",
+      ecritureAdmise: "\xC9criture admise",
       raison: "Raison",
       connexionsTitre: "Connexions",
       codex: "Codex",
@@ -456,7 +473,73 @@
         aConfirmer: "\xC0 confirmer",
         enLigne: "En ligne",
         horsLigne: "Hors ligne",
-        revoque: "R\xE9voqu\xE9"
+        revoque: "R\xE9voqu\xE9",
+        redeploiement: "En red\xE9ploiement"
+      },
+      executant: {
+        titrePoste: "Poste Windows",
+        titreExecutant: "Ex\xE9cutant Railway",
+        plateforme: "Plateforme",
+        noyau: "Noyau Linux",
+        isolementTitre: "Isolement de l'ex\xE9cutant",
+        isolementInconnu: "Inconnu\xA0: aucune sonde de plateforme publi\xE9e\xA0; l'\xE9criture est refus\xE9e.",
+        regime: "R\xE9gime",
+        regimeA: "A\xA0: bac \xE0 sable Linux (bubblewrap) en place",
+        regimeB: "B\xA0: bac \xE0 sable Linux refus\xE9 par la plateforme",
+        regimeInconnu: "Inconnu",
+        sondeLe: "Sonde du",
+        reseau: "R\xE9seau des commandes",
+        reseauCoupe: "Coup\xE9",
+        reseauNonCoupe: "Non coup\xE9",
+        processus: "Processus visibles dans le bac \xE0 sable",
+        identifiants: "Identifiants s\xE9par\xE9s par compte",
+        identifiantsProuves: "Prouv\xE9 par la sonde",
+        identifiantsNonProuves: "Non prouv\xE9",
+        ecritureCodex: "\xC9criture Codex",
+        ecritureClaude: "\xC9criture Claude",
+        admise: "Admise",
+        refusee: "Refus\xE9e",
+        conditionsTitre: "Conditions d'usage",
+        conditionsAide: "Date de votre d\xE9cision \xE9crite (D83, D84), consign\xE9e dans la politique de l'ex\xE9cutant\xA0; sans elle, la voie reste ferm\xE9e.",
+        conditionsNonPubliees: "Non publi\xE9es par ce poste (inventaire de l'\xE9tape P5).",
+        decideLe: "D\xE9cid\xE9 le",
+        nonDecide: "Non d\xE9cid\xE9\xA0: voie ferm\xE9e",
+        bornesTitre: "Bornes de la politique",
+        cartesParJour: "Cartes par jour",
+        dureeMax: "Dur\xE9e maximale d'une carte (s)",
+        concurrence: "Cartes \xE0 la fois",
+        annonceTitre: "Derni\xE8re r\xE9clamation",
+        peutExecuter: "Peut ex\xE9cuter",
+        voiesAnnoncees: "Voies annonc\xE9es",
+        aucuneVoie: "Aucune voie annonc\xE9e.",
+        espaceLibre: "Espace libre du volume (Mio)",
+        carteTitre: "Carte en cours",
+        aucuneCarte: "Aucune carte en main.",
+        carteInconnue: "Carte annonc\xE9e par l'ex\xE9cutant, inconnue du greffon.",
+        projet: "Projet",
+        carte: "Carte",
+        role: "R\xF4le",
+        voie: "Voie",
+        modeleDemande: "Mod\xE8le demand\xE9",
+        modeleServi: "Mod\xE8le servi",
+        statut: "Statut",
+        dernierBattement: "Dernier battement",
+        tenueParExecutant: "R\xE9clam\xE9e par l'ex\xE9cutant",
+        voiesFermeesTitre: "Voies ferm\xE9es",
+        aucuneVoieFermee: "Aucune voie ferm\xE9e d'apr\xE8s le dernier inventaire.",
+        enAttenteDeVoie: "Cartes en attente d'une voie ferm\xE9e (jamais r\xE9assign\xE9es\xA0; bloqu\xE9es au-del\xE0 de 30 minutes)",
+        depuis: "Depuis",
+        branchesTitre: "Branches pr\xEAtes",
+        branchesAide: "Branche int\xE9gr\xE9e sur l'ex\xE9cutant. Aucun push\xA0: r\xE9cup\xE9rez-la par un bundle avec la commande ci-dessous (railway ssh), puis v\xE9rifiez la t\xEAte sur votre PC.",
+        aucuneBranche: "Aucune branche pr\xEAte.",
+        branche: "Branche",
+        tete: "T\xEAte",
+        termineLe: "Int\xE9gr\xE9e",
+        commande: "Commande de r\xE9cup\xE9ration",
+        copier: "Copier la commande",
+        copie: "Commande copi\xE9e.",
+        copieImpossible: "Copie impossible\xA0: s\xE9lectionnez la commande \xE0 la main.",
+        revuesEnAttente: "Cartes en revue (page Questions)"
       },
       genresOrdre: {
         releve: "Relev\xE9",
@@ -479,6 +562,11 @@
       },
       routageIntro: "Chaque \xE9tape d'un projet part vers la premi\xE8re entr\xE9e admise de sa classe. Les listes viennent du relev\xE9 du poste\xA0; rien n'est devin\xE9, et ce que le poste interdit reste interdit.",
       listesTitre: "Listes relev\xE9es",
+      resolutionsTitre: "R\xE9solutions observ\xE9es",
+      resolutionsAide: "Mod\xE8le r\xE9ellement servi pour chaque alias, rapport\xE9 par l'ex\xE9cutant \xE0 la fin de ses cartes.",
+      aucuneResolution: "Aucune r\xE9solution observ\xE9e\xA0: l'ex\xE9cutant n'a encore termin\xE9 aucune carte.",
+      aliasObserve: "Alias demand\xE9",
+      observeeLe: "Observ\xE9e le",
       aucunReleve: "Aucun relev\xE9\xA0: le poste n'a encore rien publi\xE9.",
       aucunModele: "Aucun mod\xE8le dans ce relev\xE9.",
       modeles: "Mod\xE8les",
@@ -1002,6 +1090,81 @@
     )), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat }), code && !expire ? /* @__PURE__ */ h("div", { className: "acp-code", "data-acp-code": "" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.codeTitre), /* @__PURE__ */ h("p", { className: "acp-code__valeur" }, /* @__PURE__ */ h(Donnee, { valeur: code.code, mono: true })), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.codeUneFois), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: T.poste.copier, surClic: copier })), copie === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, T.poste.copie) : null, copie === "impossible" ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.copieImpossible) : null, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h("div", { className: "acp-ligne" }, /* @__PURE__ */ h("dt", null, T.poste.commande), /* @__PURE__ */ h("dd", null, /* @__PURE__ */ h(Donnee, { valeur: code.commande, mono: true }))), /* @__PURE__ */ h("div", { className: "acp-ligne" }, /* @__PURE__ */ h("dt", null, T.poste.expireDans), /* @__PURE__ */ h("dd", null, /* @__PURE__ */ h(Donnee, { valeur: restant }), " ", /* @__PURE__ */ h("span", null, T.poste.secondes))))) : null, code && expire ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.codeExpire) : null);
   }
 
+  // src/poste/Executant.tsx
+  var X = T.poste.executant;
+  function OuiNon(props) {
+    if (typeof props.valeur !== "boolean") return /* @__PURE__ */ h(Donnee, { valeur: null });
+    return /* @__PURE__ */ h("span", null, props.valeur ? T.commun.oui : T.commun.non);
+  }
+  function libelleRegime(regime) {
+    if (regime === "A") return X.regimeA;
+    if (regime === "B") return X.regimeB;
+    return X.regimeInconnu;
+  }
+  function Ecriture(props) {
+    if (typeof props.valeur !== "boolean") return /* @__PURE__ */ h(Donnee, { valeur: null });
+    return /* @__PURE__ */ h(Etiquette, { libelle: { texte: props.valeur ? X.admise : X.refusee, famille: props.valeur ? "succes" : "echec" } });
+  }
+  function Isolement(props) {
+    const i = props.isolement;
+    if (!i) {
+      return /* @__PURE__ */ h(Carte, { titre: X.isolementTitre, id: "acp-poste-isolement" }, /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, X.isolementInconnu));
+    }
+    const ecriture = i.ecriture_admise ?? {};
+    const reseau = i.reseau_coupe === true ? X.reseauCoupe : i.reseau_coupe === false ? X.reseauNonCoupe : null;
+    const processus = typeof i.proc_neuf === "boolean" ? !i.proc_neuf : null;
+    return /* @__PURE__ */ h(Carte, { titre: X.isolementTitre, id: "acp-poste-isolement" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: X.regime }, /* @__PURE__ */ h(
+      Etiquette,
+      {
+        libelle: { texte: libelleRegime(i.regime), famille: i.regime === "A" ? "succes" : "degrade" },
+        brut: i.regime
+      }
+    )), /* @__PURE__ */ h(Ligne, { libelle: X.sondeLe }, /* @__PURE__ */ h(Donnee, { valeur: i.sonde_le, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.raison }, /* @__PURE__ */ h(Donnee, { valeur: i.raison })), /* @__PURE__ */ h(Ligne, { libelle: X.reseau }, /* @__PURE__ */ h(Donnee, { valeur: reseau })), /* @__PURE__ */ h(Ligne, { libelle: X.processus }, /* @__PURE__ */ h(OuiNon, { valeur: processus })), /* @__PURE__ */ h(Ligne, { libelle: X.identifiants }, i.uid_separes === true ? /* @__PURE__ */ h("span", null, X.identifiantsProuves) : /* @__PURE__ */ h("span", null, X.identifiantsNonProuves)), /* @__PURE__ */ h(Ligne, { libelle: X.ecritureCodex }, /* @__PURE__ */ h(Ecriture, { valeur: ecriture.codex })), /* @__PURE__ */ h(Ligne, { libelle: X.ecritureClaude }, /* @__PURE__ */ h(Ecriture, { valeur: ecriture.claude }))));
+  }
+  function Conditions(props) {
+    const conditions = props.executant.conditions;
+    const bornes = props.executant.bornes ?? {};
+    return /* @__PURE__ */ h(Carte, { titre: X.conditionsTitre, id: "acp-poste-conditions" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, X.conditionsAide), conditions === null || conditions === void 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, X.conditionsNonPubliees) : /* @__PURE__ */ h("dl", { className: "acp-liste" }, ["codex", "claude"].map((cle) => /* @__PURE__ */ h(Ligne, { key: cle, libelle: cle === "codex" ? T.poste.codex : T.poste.claude }, typeof conditions[cle] === "string" ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", { className: "acp-discret" }, X.decideLe), " ", /* @__PURE__ */ h(Donnee, { valeur: conditions[cle], mono: true })) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: X.nonDecide, famille: "echec" } }))), /* @__PURE__ */ h(Ligne, { libelle: X.cartesParJour }, /* @__PURE__ */ h(Donnee, { valeur: bornes.cartes_par_jour ?? null })), /* @__PURE__ */ h(Ligne, { libelle: X.dureeMax }, /* @__PURE__ */ h(Donnee, { valeur: bornes.duree_max_carte_s ?? null })), /* @__PURE__ */ h(Ligne, { libelle: X.concurrence }, /* @__PURE__ */ h(Donnee, { valeur: bornes.concurrence ?? null }))));
+  }
+  function CarteEnCours(props) {
+    const c = props.carte;
+    const voies = Array.isArray(props.executant.voies_disponibles) ? props.executant.voies_disponibles : null;
+    return /* @__PURE__ */ h(Carte, { titre: X.carteTitre, id: "acp-poste-carte-en-cours" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: X.peutExecuter }, /* @__PURE__ */ h(OuiNon, { valeur: props.executant.peut_executer })), /* @__PURE__ */ h(Ligne, { libelle: X.voiesAnnoncees }, voies === null ? /* @__PURE__ */ h(Donnee, { valeur: null }) : voies.length === 0 ? /* @__PURE__ */ h("span", null, X.aucuneVoie) : /* @__PURE__ */ h(Donnee, { valeur: voies.join(", "), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.espaceLibre }, /* @__PURE__ */ h(Donnee, { valeur: props.executant.espace_libre_mio ?? null }))), !c ? /* @__PURE__ */ h("p", { className: "acp-discret" }, X.aucuneCarte) : c.connue === false ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, X.carteInconnue) : /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: X.projet }, /* @__PURE__ */ h(Donnee, { valeur: c.projet_titre })), /* @__PURE__ */ h(Ligne, { libelle: X.carte }, /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: c.titre }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: c.carte, mono: true })))), /* @__PURE__ */ h(Ligne, { libelle: X.role }, /* @__PURE__ */ h(Donnee, { valeur: c.role })), /* @__PURE__ */ h(Ligne, { libelle: X.voie }, /* @__PURE__ */ h(Donnee, { valeur: c.voie, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.modeleDemande }, /* @__PURE__ */ h(Donnee, { valeur: c.modele_demande, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.modeleServi }, /* @__PURE__ */ h(Donnee, { valeur: c.modele_servi, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.statut }, /* @__PURE__ */ h(Donnee, { valeur: c.statut, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.tenueParExecutant }, /* @__PURE__ */ h(OuiNon, { valeur: c.a_nous })), /* @__PURE__ */ h(Ligne, { libelle: X.dernierBattement }, /* @__PURE__ */ h(Horodatage, { valeur: c.dernier_battement, relative: true }))));
+  }
+  function VoiesFermees(props) {
+    const fermees = Object.entries(props.executant.voies_fermees ?? {});
+    const attente = Array.isArray(props.executant.cartes_en_attente_de_voie) ? props.executant.cartes_en_attente_de_voie : [];
+    return /* @__PURE__ */ h(Carte, { titre: X.voiesFermeesTitre, id: "acp-poste-voies-fermees" }, fermees.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, X.aucuneVoieFermee) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, fermees.map(([voie, raison]) => /* @__PURE__ */ h("li", { key: voie, className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: voie, mono: true }), " ", /* @__PURE__ */ h(Donnee, { valeur: raison })))), attente.length > 0 ? /* @__PURE__ */ h("div", { className: "acp-groupe" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, X.enAttenteDeVoie), /* @__PURE__ */ h("ul", { className: "acp-liste" }, attente.map((a, rang) => /* @__PURE__ */ h("li", { key: a.carte ?? String(rang), className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: a.titre }), " ", /* @__PURE__ */ h(Donnee, { valeur: a.voie, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, X.depuis), " ", /* @__PURE__ */ h(Horodatage, { valeur: a.depuis, relative: true }))))) : null);
+  }
+  function Branche(props) {
+    const b = props.branche;
+    const [copie, fixerCopie] = useState(null);
+    const copier = async () => {
+      const presse = globalThis.navigator?.clipboard;
+      if (!b.commande || !presse || typeof presse.writeText !== "function") {
+        fixerCopie("impossible");
+        return;
+      }
+      try {
+        await presse.writeText(b.commande);
+        fixerCopie("ok");
+      } catch {
+        fixerCopie("impossible");
+      }
+    };
+    return /* @__PURE__ */ h("li", { className: "acp-entree" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: X.projet }, /* @__PURE__ */ h(Donnee, { valeur: b.projet_titre })), /* @__PURE__ */ h(Ligne, { libelle: X.branche }, /* @__PURE__ */ h(Donnee, { valeur: b.branche, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.tete }, /* @__PURE__ */ h(Donnee, { valeur: b.tete, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.termineLe }, /* @__PURE__ */ h(Horodatage, { valeur: b.termine_le })), /* @__PURE__ */ h(Ligne, { libelle: X.commande }, /* @__PURE__ */ h(Donnee, { valeur: b.commande, mono: true }))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: X.copier, surClic: copier })), copie === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, X.copie) : null, copie === "impossible" ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, X.copieImpossible) : null);
+  }
+  function BranchesPretes(props) {
+    return /* @__PURE__ */ h(Carte, { titre: X.branchesTitre, id: "acp-poste-branches" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, X.branchesAide), props.branches.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, X.aucuneBranche) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, props.branches.map((b, rang) => /* @__PURE__ */ h(Branche, { key: `${b.branche ?? rang}`, branche: b }))));
+  }
+  function Executant(props) {
+    const e = props.executant;
+    if (!e || e.connu !== true) return null;
+    const linux = e.plateforme === "linux";
+    const branches = Array.isArray(e.branches_pretes) ? e.branches_pretes : [];
+    return /* @__PURE__ */ h("div", { className: "acp-grille" }, linux ? /* @__PURE__ */ h(Isolement, { isolement: e.isolement }) : null, /* @__PURE__ */ h(Conditions, { executant: e }), /* @__PURE__ */ h(CarteEnCours, { carte: e.carte_en_cours, executant: e }), /* @__PURE__ */ h(VoiesFermees, { executant: e }), /* @__PURE__ */ h(BranchesPretes, { branches }), typeof e.revues === "number" && e.revues > 0 ? /* @__PURE__ */ h(Carte, { titre: X.revuesEnAttente, id: "acp-poste-revues" }, /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: e.revues }))) : null);
+  }
+
   // src/poste/libelles.ts
   var L = (texte, famille) => ({ texte, famille });
   function libelleEtatDuPoste(etat) {
@@ -1015,6 +1178,8 @@
         return L(e.enLigne, "succes");
       case "hors_ligne":
         return L(e.horsLigne, "neutre");
+      case "redeploiement":
+        return L(e.redeploiement, "degrade");
       case "revoque":
         return L(e.revoque, "echec");
       default:
@@ -1132,14 +1297,15 @@
   }
 
   // src/poste/EtatPoste.tsx
-  function OuiNon(props) {
+  function OuiNon2(props) {
     if (typeof props.valeur !== "boolean") return /* @__PURE__ */ h(Donnee, { valeur: null });
     return /* @__PURE__ */ h("span", null, props.valeur ? T.commun.oui : T.commun.non);
   }
   function Bandeau(props) {
     const etat = props.donnees.poste;
     const machine = props.donnees.machine?.machine;
-    return /* @__PURE__ */ h(Carte, { titre: T.poste.etatTitre, id: "acp-poste-etat" }, /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatDuPoste(etat?.etat), brut: etat?.etat }), etat?.etat === "a_confirmer" ? /* @__PURE__ */ h(Donnee, { valeur: machine?.empreinte, mono: true }) : null, etat?.etat === "en_ligne" ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.vu), " ", /* @__PURE__ */ h(Horodatage, { valeur: etat.derniere_vue, relative: true })) : null, etat?.etat === "hors_ligne" && etat.hors_ligne_depuis ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.depuis), " ", /* @__PURE__ */ h(Horodatage, { valeur: etat.hors_ligne_depuis })) : null, etat?.etat === "revoque" ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.revoqueLe), " ", /* @__PURE__ */ h(Horodatage, { valeur: machine?.revoque_le })) : null), etat?.message ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: etat.message })) : null, machine && machine.politique_valide === false ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.poste.politiqueInvalide) : null, etat?.pause_reclamations ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.poste.pauseReclamations) : null, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.cartesEnAttente }, /* @__PURE__ */ h(Donnee, { valeur: typeof etat?.cartes_en_attente === "number" ? etat.cartes_en_attente : null }))));
+    const executant = props.donnees.executant?.hote === "railway";
+    return /* @__PURE__ */ h(Carte, { titre: executant ? T.poste.etatTitreExecutant : T.poste.etatTitre, id: "acp-poste-etat" }, /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatDuPoste(etat?.etat), brut: etat?.etat }), etat?.etat === "a_confirmer" ? /* @__PURE__ */ h(Donnee, { valeur: machine?.empreinte, mono: true }) : null, etat?.etat === "en_ligne" ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.vu), " ", /* @__PURE__ */ h(Horodatage, { valeur: etat.derniere_vue, relative: true })) : null, (etat?.etat === "hors_ligne" || etat?.etat === "redeploiement") && etat.hors_ligne_depuis ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.depuis), " ", /* @__PURE__ */ h(Horodatage, { valeur: etat.hors_ligne_depuis })) : null, etat?.etat === "revoque" ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.revoqueLe), " ", /* @__PURE__ */ h(Horodatage, { valeur: machine?.revoque_le })) : null), etat?.message ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: etat.message })) : null, machine && machine.politique_valide === false ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.poste.politiqueInvalide) : null, etat?.pause_reclamations ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.poste.pauseReclamations) : null, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.cartesEnAttente }, /* @__PURE__ */ h(Donnee, { valeur: typeof etat?.cartes_en_attente === "number" ? etat.cartes_en_attente : null }))));
   }
   function Confirmation(props) {
     const [saisie, fixerSaisie] = useState("");
@@ -1204,7 +1370,7 @@
     const bac = c.bac_a_sable_codex ?? {};
     const versions = c.versions ?? {};
     const depots = Array.isArray(c.depots) ? c.depots : [];
-    return /* @__PURE__ */ h("div", { className: "acp-grille" }, /* @__PURE__ */ h(Carte, { titre: T.poste.inventaireTitre, id: "acp-poste-inventaire" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.recuLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.recu_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.releve_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.versionPoste }, /* @__PURE__ */ h(Donnee, { valeur: c.version_poste, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.compteTitre, id: "acp-poste-compte" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.compte }, c.poste?.compte === "dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteDedie) : c.poste?.compte === "proprietaire" ? /* @__PURE__ */ h("span", null, T.poste.compteProprietaire) : /* @__PURE__ */ h(Donnee, { valeur: c.poste?.compte })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.windows }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.windows, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.python }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.python, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.empreintePolitique }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.politique_empreinte, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.versionsTitre, id: "acp-poste-versions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, ["codex", "claude"].map((cle) => /* @__PURE__ */ h(Ligne, { key: cle, libelle: cle === "codex" ? T.poste.codex : T.poste.claude }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.lue), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.lue, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.testee), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.testee, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.conformite), " ", /* @__PURE__ */ h(OuiNon, { valeur: versions[cle]?.conforme })))))), /* @__PURE__ */ h(Carte, { titre: T.poste.bacTitre, id: "acp-poste-bac" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.readiness }, /* @__PURE__ */ h(Donnee, { valeur: bac.readiness, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.modeLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.mode_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.origineMode }, /* @__PURE__ */ h(Donnee, { valeur: bac.origine_mode, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.palierLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.palier_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.stockage }, /* @__PURE__ */ h(Donnee, { valeur: bac.stockage_identifiants_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.ecritureAdmise }, /* @__PURE__ */ h(OuiNon, { valeur: bac.ecriture_admise })), bac.raison ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.raison }, /* @__PURE__ */ h(Donnee, { valeur: bac.raison })) : null)), /* @__PURE__ */ h(Carte, { titre: T.poste.connexionsTitre, id: "acp-poste-connexions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.codex }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionCodex(c.connexions?.codex), brut: c.connexions?.codex })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.offre }, /* @__PURE__ */ h(Donnee, { valeur: c.connexions?.plan_codex, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.claude }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionClaude(c.connexions?.claude), brut: c.connexions?.claude })))), /* @__PURE__ */ h(Carte, { titre: T.poste.depotsTitre, id: "acp-poste-depots" }, depots.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunDepot) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, depots.map((d, i) => /* @__PURE__ */ h("li", { key: `${d.alias ?? i}` }, /* @__PURE__ */ h(Donnee, { valeur: d.alias, mono: true }))))));
+    return /* @__PURE__ */ h("div", { className: "acp-grille" }, /* @__PURE__ */ h(Carte, { titre: T.poste.inventaireTitre, id: "acp-poste-inventaire" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.recuLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.recu_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.releve_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.versionPoste }, /* @__PURE__ */ h(Donnee, { valeur: c.version_poste, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.compteTitre, id: "acp-poste-compte" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.compte }, c.poste?.compte === "dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteDedie) : c.poste?.compte === "proprietaire" ? /* @__PURE__ */ h("span", null, T.poste.compteProprietaire) : c.poste?.compte === "uid_dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteUidDedie) : /* @__PURE__ */ h(Donnee, { valeur: c.poste?.compte })), c.poste?.plateforme === "linux" ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.noyau }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.noyau, mono: true })) : /* @__PURE__ */ h(Ligne, { libelle: T.poste.windows }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.windows, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.python }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.python, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.empreintePolitique }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.politique_empreinte, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.versionsTitre, id: "acp-poste-versions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, ["codex", "claude"].map((cle) => /* @__PURE__ */ h(Ligne, { key: cle, libelle: cle === "codex" ? T.poste.codex : T.poste.claude }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.lue), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.lue, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.testee), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.testee, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.conformite), " ", /* @__PURE__ */ h(OuiNon2, { valeur: versions[cle]?.conforme })))))), c.poste?.plateforme === "linux" ? null : /* @__PURE__ */ h(Carte, { titre: T.poste.bacTitre, id: "acp-poste-bac" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.readiness }, /* @__PURE__ */ h(Donnee, { valeur: bac.readiness, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.modeLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.mode_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.origineMode }, /* @__PURE__ */ h(Donnee, { valeur: bac.origine_mode, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.palierLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.palier_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.stockage }, /* @__PURE__ */ h(Donnee, { valeur: bac.stockage_identifiants_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.ecritureAdmise }, /* @__PURE__ */ h(OuiNon2, { valeur: bac.ecriture_admise })), bac.raison ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.raison }, /* @__PURE__ */ h(Donnee, { valeur: bac.raison })) : null)), /* @__PURE__ */ h(Carte, { titre: T.poste.connexionsTitre, id: "acp-poste-connexions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.codex }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionCodex(c.connexions?.codex), brut: c.connexions?.codex })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.offre }, /* @__PURE__ */ h(Donnee, { valeur: c.connexions?.plan_codex, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.claude }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionClaude(c.connexions?.claude), brut: c.connexions?.claude })))), /* @__PURE__ */ h(Carte, { titre: T.poste.depotsTitre, id: "acp-poste-depots" }, depots.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunDepot) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, depots.map((d, i) => /* @__PURE__ */ h("li", { key: `${d.alias ?? i}` }, /* @__PURE__ */ h(Donnee, { valeur: d.alias, mono: true }))))));
   }
   function EtatPoste(props) {
     const lecture = useSondage(lirePostePage, props.jeton);
@@ -1216,7 +1382,7 @@
     const machine = donnees.machine?.machine ?? null;
     const alertes = Array.isArray(donnees.alertes) ? donnees.alertes : [];
     const ordres = Array.isArray(donnees.ordres) ? donnees.ordres : [];
-    return /* @__PURE__ */ h("div", { className: "acp-sections" }, lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.actualisationImpossible) : null, /* @__PURE__ */ h(Bandeau, { donnees }), etat === "non_configure" || etat === "revoque" || etat === "a_confirmer" ? /* @__PURE__ */ h(Carte, { titre: T.poste.enrolerTitre, id: "acp-poste-enroler" }, /* @__PURE__ */ h(Enrolement, { apres: props.apres })) : null, etat === "a_confirmer" && machine ? /* @__PURE__ */ h(Confirmation, { machine, apres: props.apres }) : null, machine && machine.etat !== "revoque" ? /* @__PURE__ */ h(Machine, { machine }) : null, machine && machine.etat === "actif" ? /* @__PURE__ */ h(Releve, { apres: props.apres }) : null, alertes.length > 0 ? /* @__PURE__ */ h(Carte, { titre: T.poste.alertesTitre, id: "acp-poste-alertes" }, /* @__PURE__ */ h("ul", { className: "acp-liste" }, alertes.map((a, i) => /* @__PURE__ */ h("li", { key: i }, /* @__PURE__ */ h(Donnee, { valeur: a }))))) : null, machine && machine.etat === "actif" ? /* @__PURE__ */ h(Carte, { titre: T.poste.ordresTitre, id: "acp-poste-ordres" }, ordres.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunOrdre) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, ordres.map((o) => /* @__PURE__ */ h("li", { key: o.id, className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: libelleGenreOrdre(o.genre) ?? o.genre }), /* @__PURE__ */ h(Horodatage, { valeur: o.cree_le, relative: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, o.livre ? T.poste.livre : T.poste.nonLivre))))) : null, /* @__PURE__ */ h(Inventaire, { donnees }), machine && machine.etat !== "revoque" ? /* @__PURE__ */ h(Revocation, { machine, apres: props.apres }) : null);
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.actualisationImpossible) : null, /* @__PURE__ */ h(Bandeau, { donnees }), etat === "non_configure" || etat === "revoque" || etat === "a_confirmer" ? /* @__PURE__ */ h(Carte, { titre: T.poste.enrolerTitre, id: "acp-poste-enroler" }, /* @__PURE__ */ h(Enrolement, { apres: props.apres })) : null, etat === "a_confirmer" && machine ? /* @__PURE__ */ h(Confirmation, { machine, apres: props.apres }) : null, machine && machine.etat !== "revoque" ? /* @__PURE__ */ h(Machine, { machine }) : null, machine && machine.etat === "actif" ? /* @__PURE__ */ h(Releve, { apres: props.apres }) : null, /* @__PURE__ */ h(Executant, { executant: donnees.executant }), alertes.length > 0 ? /* @__PURE__ */ h(Carte, { titre: T.poste.alertesTitre, id: "acp-poste-alertes" }, /* @__PURE__ */ h("ul", { className: "acp-liste" }, alertes.map((a, i) => /* @__PURE__ */ h("li", { key: i }, /* @__PURE__ */ h(Donnee, { valeur: a }))))) : null, machine && machine.etat === "actif" ? /* @__PURE__ */ h(Carte, { titre: T.poste.ordresTitre, id: "acp-poste-ordres" }, ordres.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunOrdre) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, ordres.map((o) => /* @__PURE__ */ h("li", { key: o.id, className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: libelleGenreOrdre(o.genre) ?? o.genre }), /* @__PURE__ */ h(Horodatage, { valeur: o.cree_le, relative: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, o.livre ? T.poste.livre : T.poste.nonLivre))))) : null, /* @__PURE__ */ h(Inventaire, { donnees }), machine && machine.etat !== "revoque" ? /* @__PURE__ */ h(Revocation, { machine, apres: props.apres }) : null);
   }
 
   // src/poste/Quotas.tsx
@@ -1550,6 +1716,9 @@
       }
     ))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: T.poste.validerTable, principal: true, surClic: valider, desactive: envoi.etat.etat === "envoi" || vide })), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat, reussite: T.poste.tableValidee }), refus.length > 0 ? /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert" }, /* @__PURE__ */ h("p", null, T.poste.refusDeLaTable), /* @__PURE__ */ h("ul", { className: "acp-liste" }, refus.map((r, i) => /* @__PURE__ */ h("li", { key: i }, /* @__PURE__ */ h(Donnee, { valeur: libelleClasse(r.classe) ?? r.classe }), " ", /* @__PURE__ */ h("span", null, T.poste.rang), " ", /* @__PURE__ */ h(Donnee, { valeur: typeof r.rang === "number" ? r.rang + 1 : null }), " ", /* @__PURE__ */ h(Donnee, { valeur: r.message }))))) : null);
   }
+  function Resolutions(props) {
+    return /* @__PURE__ */ h(Carte, { titre: T.poste.resolutionsTitre, id: "acp-poste-resolutions" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.resolutionsAide), props.resolutions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucuneResolution) : props.resolutions.map((r, rang) => /* @__PURE__ */ h("dl", { key: `${r.voie ?? ""}-${r.alias ?? rang}`, className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.voie }, /* @__PURE__ */ h(Donnee, { valeur: r.voie, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.aliasObserve }, /* @__PURE__ */ h(Donnee, { valeur: r.alias, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.modeleServi }, /* @__PURE__ */ h(Donnee, { valeur: r.modele_servi, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.observeeLe }, /* @__PURE__ */ h(Horodatage, { valeur: r.observe_le })))));
+  }
   function Routage(props) {
     const lecture = useSondage(lireRoutage, props.jeton);
     const vue = lecture.valeur;
@@ -1558,7 +1727,7 @@
     }
     const voies = vue.voies ?? {};
     const cleTable = JSON.stringify(vue.releves ?? {});
-    return /* @__PURE__ */ h("div", { className: "acp-sections" }, lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.actualisationImpossible) : null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.routageIntro), /* @__PURE__ */ h(Carte, { titre: T.poste.listesTitre, id: "acp-poste-listes" }, /* @__PURE__ */ h("div", { className: "acp-grille" }, ["poste-codex", "poste-claude"].map((voie) => /* @__PURE__ */ h(Liste, { key: voie, voie, catalogue: voies[voie], apres: props.apres })))), /* @__PURE__ */ h(Table, { key: cleTable, vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueHermes, { vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueDuPoste, { politique: vue.politique_poste }), /* @__PURE__ */ h(Surcharges, { vue, apres: props.apres }));
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.poste.actualisationImpossible) : null, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.routageIntro), /* @__PURE__ */ h(Carte, { titre: T.poste.listesTitre, id: "acp-poste-listes" }, /* @__PURE__ */ h("div", { className: "acp-grille" }, ["poste-codex", "poste-claude"].map((voie) => /* @__PURE__ */ h(Liste, { key: voie, voie, catalogue: voies[voie], apres: props.apres })))), /* @__PURE__ */ h(Resolutions, { resolutions: Array.isArray(vue.resolutions_observees) ? vue.resolutions_observees : [] }), /* @__PURE__ */ h(Table, { key: cleTable, vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueHermes, { vue, apres: props.apres }), /* @__PURE__ */ h(PolitiqueDuPoste, { politique: vue.politique_poste }), /* @__PURE__ */ h(Surcharges, { vue, apres: props.apres }));
   }
 
   // src/poste/vue.ts

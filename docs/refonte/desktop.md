@@ -8,7 +8,7 @@ inchangée.
 Guides : [architecture](../native-desktop-architecture.md),
 [sécurité](../desktop-security.md), [construction et bout en bout](../desktop-build.md).
 Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste.md),
-§ 6 sexies.
+§ 6 decies.
 
 ## Ce qui est livré
 
@@ -109,7 +109,7 @@ poussés :
 
 Preuves : 34 suites, totaux Qt sans échec ni test ignoré ; bout en bout local réussi
 (0 écart) contre les images `p8` et `rv8p6` ; Desktop CI et CI vertes (runs dans
-[`reprise-poste.md`](../reprise-poste.md), § 6 sexies).
+[`reprise-poste.md`](../reprise-poste.md), § 6 decies).
 
 ## Non prouvé
 

@@ -107,7 +107,7 @@ def test_releve_factice_etiquete(noyau, conn):
     assert catalogue["voies"]["poste-claude"]["source"] == "releve_factice"
     assert [m["id"] for m in catalogue["voies"]["poste-claude"]["modeles"]] == ["factice-claude-1", "factice-claude-2"]
     assert catalogue["politique"]["efforts_interdits"] == ["max", "ultra", "ultracode"]
-    assert catalogue["politique"]["voies_par_classe"]["integration"] == []
+    assert catalogue["politique"]["voies_par_classe"]["integration"] == ["poste-integration"]  # ouverte en P6
     assert noyau.routage.depots_autorises(conn) == ["b", "jetable"]
     with pytest.raises(ValueError, match="Relevé refusé"):
         noyau.routage.enregistrer_releve(conn, dict(releve_factice(), voie="poste-windows"))
@@ -148,8 +148,8 @@ def test_surcharge_d_une_carte_refusee_tant_qu_elle_ne_s_applique_pas(noyau, con
         "portee": "carte", "cible": impl, "classe": "implementation", "voie": "poste-claude",
         "modele": "factice-claude-1", "effort": "low", "motif": "Le propriétaire veut Claude pour cette carte."})
     assert reponse == {"ok": False, "code": "surcharge_carte", "message": (
-        "Refusé par ACP : une carte existante garde son exécutant et son modèle : la surcharge d'une carte est "
-        "prévue à l'étape P6 ; surchargez le projet (portée « projet »), ce qui vaut pour ses prochaines cartes.")}
+        "Refusé par ACP : une carte existante garde son exécutant et son modèle : la surcharge d'une carte n'est "
+        "pas proposée ; surchargez le projet (portée « projet »), ce qui vaut pour ses prochaines cartes.")}
     assert conn.execute("SELECT COUNT(*) FROM surcharges").fetchone()[0] == 0
     assert carte(noyau, projet["tableau"], impl).assignee == "poste-codex"
     assert noyau.outils.SCHEMAS["routage_surcharger"]["parameters"]["properties"]["portee"]["enum"] == ["projet"]

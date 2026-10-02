@@ -235,7 +235,7 @@ def test_emetteur_tourne_dans_la_passerelle(pile):
     emetteur = projets["emetteur"]
     assert time.time() - emetteur["derniere_passe"] < 60
     assert emetteur["canal"] == "ntfy" and emetteur["configure"] is True
-    assert projets["base"] == "ok" and projets["schema"] == "2" and projets["pause_generale"] is None
+    assert projets["base"] == "ok" and projets["schema"] == "3" and projets["pause_generale"] is None
     assert JETON not in json.dumps(projets)  # jamais le jeton (ni le sujet) dans une réponse
 
 

@@ -16,6 +16,7 @@ import type {
   ReponsePoste,
   ResultatConclusion,
   ResultatReponse,
+  ResultatRevue,
   ResultatTriage,
 } from "./types";
 
@@ -37,6 +38,11 @@ export const routeReprendreTriage = (tableau: string, carte: string): string =>
 export const routeConclureTriage = (tableau: string, carte: string): string =>
   `${RACINE_POSTE}/triage/${segment(tableau)}/${segment(carte)}/conclure`;
 export const routeCarteDuProjet = (id: string, carte: string): string => `${routeProjet(id)}/cartes/${segment(carte)}`;
+// Étape P6 : revue des fichiers de pilotage (accepter, refuser avec un motif).
+export const routeAccepterRevue = (tableau: string, carte: string): string =>
+  `${RACINE_POSTE}/revues/${segment(tableau)}/${segment(carte)}/accepter`;
+export const routeRefuserRevue = (tableau: string, carte: string): string =>
+  `${RACINE_POSTE}/revues/${segment(tableau)}/${segment(carte)}/refuser`;
 
 /** POST JSON par fetchJSON ; toute erreur devient une ErreurApi (message français à l'affichage). */
 export async function ecrireJSON<T>(url: string, corps: unknown, entetes: Record<string, string> = {}): Promise<T> {
@@ -113,3 +119,7 @@ export const conclureTriage = (tableau: string, carte: string): Promise<Resultat
 export const pauseGenerale = (generale: boolean): Promise<{ pause_generale?: unknown }> =>
   ecrireJSON(ROUTE_PAUSE, { generale });
 export const notificationDeTest = (): Promise<{ message?: unknown }> => ecrireJSON(ROUTE_NOTIFICATION_TEST, {});
+export const accepterRevue = (tableau: string, carte: string): Promise<ResultatRevue> =>
+  ecrireJSON<ResultatRevue>(routeAccepterRevue(tableau, carte), {});
+export const refuserRevue = (tableau: string, carte: string, motif: string): Promise<ResultatRevue> =>
+  ecrireJSON<ResultatRevue>(routeRefuserRevue(tableau, carte), { motif });

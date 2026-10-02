@@ -23,6 +23,12 @@ Appelle `poste_catalogue`. Pour chaque exécutant du poste (`poste-codex`, `post
 
 Chaque étape du poste est relue par **l'autre** exécutant (`poste-codex` relu par `poste-claude`, et inversement). Si l'autre exécutant n'a pas de relevé, l'étape est refusée : ne contourne pas en demandant la même voie. `relecture_modele` choisit le modèle de la relecture, parmi ceux relevés de l'autre exécutant.
 
+Exception décidée par le propriétaire (D91) : quand la voie de l'autre exécutant est **fermée** sur l'exécutant (`poste_catalogue` et `poste_etat` donnent les voies fermées et leur raison, par exemple un bac à sable refusé), le greffon confie lui-même la relecture à la même voie avec un **autre modèle** de la table « relecture », et le dit. N'essaie pas de l'obtenir autrement ; s'il n'y en a aucun, la relecture est refusée.
+
+## Voies fermées
+
+Une voie fermée (isolement de l'exécutant, conditions d'usage non décidées par le propriétaire) est refusée par le routage : ne la propose pas. Choisis l'autre exécutant, ou une étape Hermes si la classe l'admet.
+
 ## Lire un refus
 
 Un refus du greffon nomme la valeur fautive et ce qui est admis (efforts relevés, voies admises par la classe). Corrige le plan d'après lui plutôt que de réessayer la même chose.

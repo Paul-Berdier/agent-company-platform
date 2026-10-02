@@ -75,3 +75,22 @@ def test_les_choix_de_p5_se_disent_non_confirmes():
         if DEFINITION.match(ligne):
             cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
             assert len(cellules) == 5 and cellules[3] not in ("", "—"), ligne[:60]
+
+
+def test_les_decisions_de_p6_sont_appliquees():
+    """Étape P6 : D74 à D92 (numérotées 71 à 89 dans le cahier de P6, D67 à D73 déjà prises par la relecture de P5),
+    APPLIQUÉES sur décision du propriétaire (il fournit les comptes, Hermes gère) : jamais présentées « à confirmer » ;
+    pour chaque décision l'autre option et sa conséquence, et le numéro du cahier."""
+    plan = (RACINE / "docs" / "refonte" / "plan.md").read_text(encoding="utf-8")
+    debut = plan.index("### Étape P6 : décisions D74 à D92, **appliquées**")
+    bloc = plan[debut:plan.index("\n### ", debut + 1)]
+    assert "**appliquées**, et non « à confirmer »" in bloc
+    assert sorted(int(n) for n in DEFINITION.findall(bloc)) == list(range(74, 93))
+    entete = "| N° | Question | Choix appliqué en P6 | Autre option et conséquence | Remarque (n° du cahier P6) |"
+    assert entete in bloc
+    for ligne in bloc.splitlines():
+        if DEFINITION.match(ligne):
+            cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
+            numero = int(DEFINITION.match(ligne).group(1))
+            assert len(cellules) == 5 and cellules[3] not in ("", "—"), ligne[:60]
+            assert cellules[4].startswith(f"n° {numero - 3} du cahier"), ligne[:60]

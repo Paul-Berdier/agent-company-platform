@@ -34,9 +34,8 @@ def test_bloc_machine_conforme(fournisseur, noyau, conn, monkeypatch):
                         lambda: [type("S", (), {"name": "self-hosted"})()])
     bloc, alertes = meta.bloc_machine()
     assert bloc["fournisseur"] == "enregistre" and all(bloc["chemins_a_jeton"].values())
-    assert list(bloc["chemins_a_jeton"]) == ["/api/plugins/acp-poste/machine/v1/enrolement",
-                                             "/api/plugins/acp-poste/machine/v1/reclamer",
-                                             "/api/plugins/acp-poste/machine/v1/inventaire"]
+    assert list(bloc["chemins_a_jeton"]) == ["/api/plugins/acp-poste/machine/v1/" + r for r in (
+        "enrolement", "reclamer", "inventaire", "battement", "terminer", "question", "bloquer", "reprendre", "arret")]
     assert bloc["base"] == "ok" and bloc["machines"] == {"a_confirmer": 0, "actif": 0, "revoque": 0}
     assert bloc["dernier_inventaire"] is None and alertes == []
     machine, _jeton = poste_confirme(noyau, conn)

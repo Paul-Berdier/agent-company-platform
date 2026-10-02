@@ -12,7 +12,7 @@ relevés de l'ancien client (0.10.0, ancienne API ACP) restent sous l'étiquette
 Sur la branche `refonte/hermes-p8` : compilation Release (`/W4 /WX`) et **34 suites**
 déclarées à CTest (31 avant les corrections de la relecture, 34 depuis), totaux Qt relevés sans échec ni test ignoré, localement et par la
 **Desktop CI** sur `windows-2022` (identifiants des runs dans
-[`reprise-poste.md`](reprise-poste.md), § 6 sexies). Un **bout en bout local** contre la
+[`reprise-poste.md`](reprise-poste.md), § 6 decies). Un **bout en bout local** contre la
 pile de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi (§ 12). Ni
 Railway, ni une vraie passkey, ni une installation sur un Windows propre ne sont prouvés.
 

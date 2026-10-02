@@ -199,6 +199,8 @@ def vue(ligne: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         "confirme_le": ligne["confirme_le"], "revoque_le": ligne["revoque_le"],
         "motif_revocation": ligne["motif_revocation"], "derniere_requete": ligne["derniere_requete"],
         "politique_valide": bool(ligne["politique_valide"]),
+        # Étape P6 : plateforme et hôte publiés par l'inventaire (« Exécutant Railway » ou « Poste Windows »).
+        "plateforme": ligne.get("plateforme") or "windows", "hote": ligne.get("hote") or "pc",
     }
 
 

@@ -13,6 +13,10 @@ route ``/v1/poste``).
   le tableau de bord).
 - Jamais vu : ``non_configure``, AUCUNE notification. ``stranded_in_ready`` n'émet aucun événement : la
   présence est la seule source (plan § 6).
+- Étape P6 (cahier P6 § 5.3, § 5.8) : le ``battement`` de l'exécutant vaut présence ; un ``arret`` propre (SIGTERM d'un
+  redéploiement) retarde la notification de ``grace_arret_propre_s`` (10 min) et l'état se lit « Exécutant en
+  redéploiement » ; tout retour (long-poll ou battement) efface la marque. Libellé « Exécutant Railway » quand
+  l'inventaire dit ``hote = railway``.
 """
 
 from __future__ import annotations
@@ -41,6 +45,8 @@ def enregistrer_dans(conn, machine_id: str, source: str) -> Dict[str, Any]:
         raise ValueError(f"source de présence inconnue : {source}")
     maintenant = base.maintenant()
     ligne = conn.execute("SELECT * FROM presence WHERE machine_id = ?", (machine_id,)).fetchone()
+    if ligne is not None and ligne["arret_propre_le"] is not None:
+        conn.execute("UPDATE presence SET arret_propre_le = NULL WHERE machine_id = ?", (machine_id,))
     if ligne is None:
         conn.execute("INSERT INTO presence (machine_id, derniere_vue, source, passage) VALUES (?, ?, ?, 1)",
                      (machine_id, maintenant, source))
@@ -91,6 +97,18 @@ def _lignes_evaluees(conn) -> List[Any]:
         "WHERE (m.etat = 'actif') OR (m.id IS NULL AND p.source = 'simule')").fetchall()
 
 
+def en_redeploiement(conn, ligne) -> bool:
+    """Arrêt propre annoncé (route ``arret``) depuis moins de ``grace_arret_propre_s`` (étape P6, § 5.8)."""
+    arret = ligne["arret_propre_le"] if "arret_propre_le" in ligne.keys() else None
+    grace = int(base.reglage(conn, "grace_arret_propre_s") or 600)
+    return arret is not None and base.maintenant() - int(arret) <= grace
+
+
+def est_executant_railway(conn, machine_id: str) -> bool:
+    ligne = conn.execute("SELECT hote FROM machines WHERE id = ?", (machine_id,)).fetchone()
+    return ligne is not None and ligne["hote"] == "railway"
+
+
 def evaluer(conn) -> List[str]:
     """Passe les postes actifs silencieux en ``hors_ligne`` et enfile UNE notification par passage."""
     maintenant = base.maintenant()
@@ -100,8 +118,12 @@ def evaluer(conn) -> List[str]:
     for ligne in _lignes_evaluees(conn):
         if ligne["hors_ligne_notifie"] or maintenant - max(int(ligne["derniere_vue"]), grace) <= seuil:
             continue
+        if en_redeploiement(conn, ligne):
+            continue  # arrêt propre : la notification attend la fin de la grâce (P6 § 5.8)
         depuis = int(ligne["derniere_vue"])
-        texte = notifications.texte(T.NOTIF_HORS_LIGNE, heure=routage.date_lisible(depuis, "%H:%M"),
+        modele = (T.NOTIF_HORS_LIGNE_EXECUTANT if est_executant_railway(conn, ligne["machine_id"])
+                  else T.NOTIF_HORS_LIGNE)
+        texte = notifications.texte(modele, heure=routage.date_lisible(depuis, "%H:%M"),
                                     cartes=T.cartes(cartes_en_attente(conn)))
         with base.transaction(conn):
             # Relu dans la transaction : une révocation ou un retour entre la lecture et l'écriture est vu.
@@ -146,6 +168,9 @@ def etat_poste(conn) -> Dict[str, Any]:
             resultat.update(etat="hors_ligne", machine=courante["id"], message=T.POSTE_JAMAIS_VU_DEPUIS, **vide)
         else:
             resultat.update(machine=courante["id"], message=None, **_etat_presence(conn, ligne))
+            if resultat["etat"] == "hors_ligne" and en_redeploiement(conn, ligne):
+                resultat.update(etat="redeploiement", message=T.POSTE_ETAT_REDEPLOIEMENT.format(
+                    heure=routage.date_lisible(ligne["arret_propre_le"], "%H:%M")))
         if not courante["politique_valide"]:
             resultat["message"] = T.POSTE_ETAT_POLITIQUE_INVALIDE
         return resultat

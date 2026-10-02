@@ -453,3 +453,32 @@ Référence fonctionnelle, routes et preuves : [poste.md](poste.md) § 8, § 9 e
   daté depuis l'instant du test) ; navigateur `test_poste.py` (enrôlement par un faux poste, confirmation,
   inventaire, routage validé, quotas, aux formats 1440×900 puis 390×844 ; axe sans violation grave, cibles
   de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine).
+
+## 12. Onglet « Poste » et page « Questions » avec l'exécutant (étape P6, côté Hermes)
+
+Même greffon (`acp-poste-vues`, sources `apps/interface/src/poste/`) et même page « Projets » ; aucune route ni
+aucun bouton nouveau qui ne soit servi et testé. Référence des routes : [image.md](image.md) § 7, « Ajouts de P6 ».
+
+- **Onglet Poste** (`src/poste/Executant.tsx`) : titre « État de l'exécutant Railway » quand le poste annonce la
+  plateforme Linux, et blocs **Isolement** (régime mesuré par la sonde, réseau des commandes, processus visibles,
+  identifiants séparés, écriture Codex et Claude ; « Inconnu : aucune sonde de plateforme publiée ; l'écriture
+  est refusée. » sans sonde), **Conditions d'usage** (dates de décision de la politique, plafonds par jour),
+  **Carte en cours** (modèle demandé, modèle servi « Inconnu » tant que rien n'est observé, statut, dernier
+  battement), **Voies fermées** et cartes en attente d'une voie fermée, **Branches prêtes** avec la commande de
+  récupération (`git bundle` par `railway ssh`) et « Copier la commande » : **aucun bouton « Pousser »** (D82).
+  Le bloc du bac à sable Windows ne s'affiche que pour un poste Windows ; « Redéploiement » s'affiche pendant la
+  grâce d'un arrêt propre.
+- **Vue Routage** : bloc **Résolutions observées** (voie, alias demandé, modèle servi, date), rempli seulement
+  par ce que l'exécutant rapporte à la fin de ses cartes (« Aucune résolution observée » sinon ; D59 : jamais
+  supposé).
+- **Page Questions** : section **Revues** des cartes qui ont touché des fichiers de pilotage (D90) : chemins
+  touchés et taille du diff, qui reste sur l'exécutant (aucun faux aperçu) ; « Accepter » et « Refuser » (motif
+  exigé, livré à la carte resservie) appellent `/v1/revues/{tableau}/{carte}/{accepter,refuser}` ; le résultat est
+  annoncé par la section elle-même, car la carte quitte la liste dès le rechargement (`c8b0887`).
+- **Français** : le catalogue compte **617** chaînes (532 distinctes), dont **271** sous `T.poste` (décompte
+  des feuilles de `T` par `tests/catalogue-chaines.ts`, 1er octobre 2026).
+- **Tests** : Vitest **120** réussis (17 fichiers), dont `poste-executant.test.tsx` (8 tests) sur des formes
+  relevées dans l'image (`tests/fixtures-executant.ts`, capturées sans retouche) ; navigateur
+  `hermes/tests/e2e/test_executant.py` (faux exécutant enrôlé, inventaire Linux en régime B, carte en main,
+  revue de fichiers de pilotage refusée avec un motif reçu par l'exécutant, aux formats 1440×900 puis 390×844 ;
+  axe sans violation grave, cibles de 44 px, chaînes du catalogue seulement, aucune requête hors de l'origine).

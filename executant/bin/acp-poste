@@ -1,0 +1,5 @@
+#!/bin/sh
+# Commande « acp-poste » de l'exécutant (cahier P6 § 8.2), copiée en /usr/local/bin/acp-poste (root, 0755) : pour
+# « railway ssh -- acp-poste … » et pour la Start Command de la sonde R0 (« /usr/local/bin/acp-poste
+# sonde-plateforme --json »). « python -I » ignore PYTHONPATH : le lanceur de P5 place /opt/acp/lib en tête de sys.path.
+exec /usr/local/bin/python3.12 -I /opt/acp/lancer.py "$@"

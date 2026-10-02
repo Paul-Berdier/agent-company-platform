@@ -57,8 +57,9 @@ derrière son propre fournisseur d'identité OIDC, Authelia auto-hébergé dans 
 `identite`, un seul utilisateur) est le seul serveur, le seul orchestrateur et la seule
 source de vérité, étendu par les greffons `acp-interface`, `acp-catalogue`, `acp-projets` et
 `acp-poste` livrés dans l'image ; sur Railway, l'agent n'a **aucun outil d'exécution** (ni
-terminal, ni fichiers, ni code) : tout ce qui s'exécute passe par le **poste Windows** (`apps/poste`), qui
-réclame son travail en HTTPS sortant sans écouter aucun port et y lance Codex et Claude
+terminal, ni fichiers, ni code) : tout ce qui s'exécute passe par l'**exécutant** (depuis P6 : service Railway
+`executant`, image `executant/`, client `apps/poste` en mode Linux, un UID par agent ; le **poste Windows** P5
+devient facultatif), qui réclame son travail en HTTPS sortant sans écouter aucun port et y lance Codex et Claude
 Code ; le **client desktop natif** C++23 / Qt 6 / QML (`apps/desktop`) **ne parle qu'au
 Hermes authentifié du propriétaire** (tableau de bord, JSON-RPC, façade versionnée du
 greffon), **jamais directement au PC** ni aux fichiers, à la base ou aux secrets du
@@ -69,7 +70,9 @@ serveur.
 - Pas d'Electron, Tauri, Chromium embarqué, Qt WebEngine ni WebView pour **notre**
   client desktop (le desktop officiel de Hermes, en Electron, n'est pas repris).
 - Aucun secret dans `QSettings`, un JSON, QML, une base non chiffrée, un journal ou
-  Git. Les jetons vont dans le Gestionnaire d'identification Windows ou sous DPAPI.
+  Git. Les jetons vont dans le Gestionnaire d'identification Windows ou sous DPAPI ; sur
+  l'exécutant Railway, en fichiers 0600 de root sur son volume, déposés par `railway ssh`
+  (D92), jamais en variable Railway.
 - **Hermes épinglé** : image par condensat, montée de version uniquement par une PR
   qui change ce condensat. Jamais de `git pull` de Hermes, jamais de `hermes update`,
   jamais de `:latest`, jamais d'`AUTO_UPDATE`. Même règle pour l'image d'Authelia.
@@ -119,7 +122,9 @@ serveur.
   compatibilité OIDC avec Hermes, mémoire mesurée, limites.
 - `docs/refonte/railway.md` — infrastructure Railway (`.railway/railway.ts`) et
   procédure du propriétaire : premier déploiement, exploitation, récupération.
-- `apps/poste/README.md` — poste Windows : modules, configuration, limites.
+- `docs/refonte/executant.md` — exécutant Railway (P6) : image, binaires vérifiés, identités par UID, sonde R0,
+  régimes A et B, preuves et limites ; gestes du propriétaire dans `docs/refonte/railway.md` § 13.
+- `apps/poste/README.md` — poste Windows et exécutant Linux : modules, configuration, limites.
 - `hermes/plugins/acp-poste/contrat/README.md` — contrat Python partagé.
 - `apps/desktop/README.md`, `docs/desktop-build.md` — client natif (hors service
   jusqu'à P8).

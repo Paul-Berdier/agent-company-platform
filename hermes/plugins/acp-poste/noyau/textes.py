@@ -79,7 +79,6 @@ CONTEXTE_PLANIFIER_TRIAGE = ("cette carte de triage n'a pas été prolongée ou 
                              "projet_planifier n'y est pas admis.")
 PLAN_INVALIDE = "{detail}"
 CLASSE_VOIE = "la classe « {c} » n'admet pas la voie « {v} » (voies admises : {admises})."
-INTEGRATION_P6 = "la classe « integration » (fusion locale des branches) est prévue à l'étape P6."
 SANS_DEPOT = ("le projet « {titre} » n'a pas de dépôt ; l'étape « {ref} » exige le poste et un dépôt "
               "autorisé.")
 MODELE_ABSENT = "le modèle « {m} » ne figure pas dans le relevé de la voie {v} (relevé du {date})."
@@ -106,8 +105,8 @@ CONTEXTE_QUESTION = "{outil} ne s'appelle que depuis la carte « répondre » de
 QUESTION_FERMEE = "la question {q} n'est plus ouverte ({etat})."
 CONTEXTE_SURCHARGER = "routage_surcharger ne s'appelle que depuis la discussion."
 SURCHARGE_GLOBALE = "une surcharge globale se fait depuis la page Routage."
-SURCHARGE_CARTE = ("une carte existante garde son exécutant et son modèle : la surcharge d'une carte est prévue à "
-                   "l'étape P6 ; surchargez le projet (portée « projet »), ce qui vaut pour ses prochaines cartes.")
+SURCHARGE_CARTE = ("une carte existante garde son exécutant et son modèle : la surcharge d'une carte n'est pas "
+                   "proposée ; surchargez le projet (portée « projet »), ce qui vaut pour ses prochaines cartes.")
 ECHEC_OUTIL = "Échec d'ACP : {action} n'a pas abouti ({type}) ; rien n'a été modifié."
 ECHEC_OUTIL_PARTIEL = "Échec d'ACP : {action} n'a pas abouti ({type}) ; état partiel : {detail}."
 ECHEC_OUTIL_INCERTAIN = ("Échec d'ACP : {action} n'a pas abouti ({type}) ; l'état n'est pas connu avec "
@@ -148,7 +147,8 @@ PROLONGER_PAR_GENRE = {
               "Hermes avec votre consigne : il planifie ce tour par projet_planifier. "),
     "cartes": ("« Prolonger » relève le plafond de cartes de {n} et fait exécuter cette carte par Hermes avec votre "
                "consigne : il planifie la suite par projet_planifier. "),
-    "corrections": "« Prolonger » n'est pas disponible avant l'étape P6 (corrections câblées). ",
+    "corrections": ("« Prolonger » n'est pas proposé pour le plafond de corrections : la relecture qui l'a atteint est "
+                    "close. "),
 }
 TITRE_TRIAGE_SANS_PLAN = "Planification sans plan — votre décision est attendue"
 CORPS_TRIAGE_SANS_PLAN = (
@@ -157,8 +157,8 @@ CORPS_TRIAGE_SANS_PLAN = (
     "tour 1 par projet_planifier. « Conclure » arrête le projet ici. Sans décision de votre part, le projet reste "
     "arrêté ici.")
 DETAIL_SANS_PLAN = "carte {carte} finie sans appel réussi à projet_planifier"
-PROLONGATION_P6 = ("prolonger le plafond de corrections est prévu à l'étape P6 (corrections câblées) ; concluez le "
-                   "projet, ou attendez P6.")
+PROLONGATION_P6 = ("le plafond de corrections ne se prolonge pas : la relecture qui l'a atteint est close ; concluez "
+                   "le projet depuis cette carte.")
 TRIAGE_PROJET_EN_PAUSE = "le projet « {titre} » est en pause : reprenez-le avant de décider de cette carte."
 TRIAGE_ACP_SEULEMENT = "la carte {carte} n'est pas une carte de décision émise par acp-poste : « Conclure » ne s'y applique pas."
 CONCLURE_CARTES_OUVERTES = ("{n} autre(s) carte(s) du projet « {titre} » sont encore ouvertes : concluez quand elles "
@@ -361,3 +361,81 @@ BADGES = {
 # ------------------------------------------------------------------ quotas (cahier P5 § 12.5)
 QUOTAS_SOURCE_CLAUDE = "Ligne d'état de vos sessions Claude Code sur ce PC (même abonnement déclaré)"
 QUOTAS_HERMES_MEME_ENVELOPPE = "Même enveloppe que Codex (déclaré dans poste.toml)"
+
+# ------------------------------------------------------------------ exécution par l'exécutant (étape P6, cahier P6 § 5)
+# Erreurs des six routes de l'exécution (cahier P6 § 5.10), même forme que P5.
+RECLAMATION_PERDUE = ("La carte {c} (run {n}) n'est plus réclamée par cet exécutant : rien n'a été écrit dans ACP ; le "
+                      "travail reste sur la branche locale.")
+PROJET_EN_PAUSE_MACHINE = "Projet {p} en pause : la carte sera reprise à la reprise du projet."
+CARTE_INCONNUE_MACHINE = "Carte {c} inconnue du greffon sur le tableau {t}."
+CARTE_NON_EMISE = "Carte {c} refusée : elle n'a pas été émise par ACP."
+SECRET_DETECTE = "Envoi refusé : la requête contient un secret (motif {m}) ; rien n'a été enregistré."
+ISSUE_INVALIDE = "Issue refusée par le contrat : champ « {chemin} » ({raison})."
+ENVOI_REEMPLOYE = ("identifiant d'envoi déjà employé pour un autre envoi (autre corps, route ou machine) ; chaque envoi "
+                   "porte son propre id_envoi.")
+VERDICT_RESERVE = "un verdict ne se rend que pour une carte de relecture"
+VERDICT_EXIGE = "une relecture rend un verdict : accepte ou corrections"
+BRANCHE_INATTENDUE = "hermes/projet-<slug> pour une intégration, hermes/<carte> sinon"
+VERDICTS = {"accepte": "Verdict de la relecture : accepté.", "corrections": "Verdict de la relecture : corrections."}
+CORRECTIONS_DEMANDEES = "## Corrections demandées\n{corrections}"
+MENTION_TRONQUE = "\n\n[… tronqué par ACP pour tenir dans la réponse de 64 Kio]"
+CONSIGNE_REFUS_REVUE = "Le propriétaire a refusé la modification des fichiers de pilotage : {motif}. Retire-la."
+# Blocages décidés par l'exécutant (cahier P6 § 5.6) : raisons lues sur la carte et dans la page Questions.
+RAISON_SECRET_EXECUTANT = ("Secret détecté dans la production de l'exécutant : rien n'a été envoyé ; la branche locale est "
+                           "gardée pour examen.")
+RAISON_BLOCAGE_EXECUTANT = "Exécutant — {genre} : {raison}"
+RAISON_QUOTA_ATTENTE = "Quota de l'abonnement (ACP) : reprise prévue le {heure}. {raison}"
+GENRES_BLOCAGE = {"capacite": "capacité", "quota": "quota", "secret": "secret", "memoire": "mémoire insuffisante",
+                  "disque": "disque insuffisant", "duree": "durée maximale dépassée", "politique": "politique"}
+RAISON_ECART_QUADRUPLET = ("Refusé par ACP au moment de la réclamation : {raison} La demande ne correspond plus au "
+                           "relevé ni à la politique publiés ; débloquez après avoir revu le routage.")
+RAISON_CARTE_NON_CONSTRUITE = ("Refusé par ACP : la carte n'a pas pu être construite pour l'exécutant ({type}) ; "
+                               "rien n'a été servi.")
+INTEGRATION_SANS_MODELE = "une carte d'intégration n'a ni modèle ni effort."
+INTEGRATION_SANS_BRANCHE = "aucune branche terminée à intégrer dans ce projet."
+# Voies fermées d'après le dernier inventaire (cahier P6 § 4.3, § 6.1).
+VOIE_FERMEE = "la voie {v} est fermée sur l'exécutant : {raison}"
+VOIE_FERMEE_ISOLEMENT = "isolement de l'exécutant (régime {regime}) : {raison}"
+VOIE_FERMEE_BAC_A_SABLE = "écriture Codex non admise : {raison}"
+VOIE_FERMEE_CONDITIONS = "conditions d'usage de {cli} non décidées par le propriétaire (politique de l'exécutant)"
+RAISON_VOIE_FERMEE_CARTE = ("Voie {v} fermée depuis plus de {n} min ({raison}) : la carte attend ; débloquez-la quand la "
+                            "voie rouvre, ou concluez.")
+# Revues des fichiers de pilotage (cahier P6 § 5.4, § 9.3).
+REVUE_INCONNUE = "la carte {c} du tableau « {t} » n'est pas en revue pour des fichiers de pilotage."
+REVUE_CHANGEE = "la carte {c} n'est plus en revue (statut : {s}) : rechargez la page Questions."
+REVUE_ACCEPTEE = "Revue des fichiers de pilotage acceptée par le propriétaire."
+MOTIF_REFUS_REVUE = "le motif du refus compte de 1 à 1000 caractères."
+COMMENTAIRE_REFUS_REVUE = "Revue des fichiers de pilotage refusée par le propriétaire : {motif}"
+DIFF_SUR_L_EXECUTANT = ("Le diff reste sur l'exécutant (branche locale) : ACP n'en affiche aucun aperçu ; récupérez la "
+                        "branche pour le lire.")
+# Présence de l'exécutant (cahier P6 § 5.8).
+NOTIF_HORS_LIGNE_EXECUTANT = "ACP — Exécutant Railway hors ligne depuis {heure} (Europe/Paris), {cartes} en attente. {lien}"
+POSTE_ETAT_REDEPLOIEMENT = ("Exécutant en redéploiement depuis {heure} (arrêt propre annoncé) : la notification « hors "
+                            "ligne » attend 10 minutes.")
+# Inventaire de l'exécutant Linux (cahier P6 § 4.4, § 7.3).
+ALERTE_ISOLEMENT = "Écriture {clis} non admise sur l'exécutant (régime {regime}) : {raison}"
+ALERTE_CONDITIONS = "Conditions d'usage de {cli} non décidées dans la politique de l'exécutant : voie fermée."
+ALERTE_JETON_CLAUDE = ("Jeton Claude de l'exécutant : expiration estimée le {date} (setup-token valable un an) ; "
+                       "renouvelez-le : « claude setup-token » sur votre PC, puis « acp-poste connexion claude --stdin » "
+                       "dans une session railway ssh.")
+NOTIF_ISOLEMENT = "ACP — Isolement de l'exécutant changé (régime {regime}) : {raison} {lien}"
+# Notifications de l'exécution (cahier P6 § 9.2) : contenu minimal (D32), jamais la consigne ni un diff.
+NOTIF_REVUE = ("ACP — Projet « {titre} » : la carte « {carte} » touche des fichiers de pilotage et attend votre revue. "
+               "{lien}")
+NOTIF_SECRET = ("ACP — Projet « {titre} » : secret détecté dans la production de la carte « {carte} » ; rien n'a été "
+                "envoyé. {lien}")
+NOTIF_CONFLIT = "ACP — Projet « {titre} » : conflit d'intégration sur la carte « {carte} », votre décision est attendue. {lien}"
+NOTIF_INTEGRATION = "ACP — Projet « {titre} » terminé : branche {branche} prête sur l'exécutant. {lien}"
+# Carte d'intégration émise par le greffon à la fin d'un projet sur dépôt (cahier P6 § 6.7).
+TITRE_INTEGRATION = "Intégration — {titre}"
+CONSIGNE_INTEGRATION = (
+    "Projet ACP « {titre} » — intégration locale (déterministe, sans modèle).\n"
+    "Créer {branche} depuis la branche de base, y fusionner une par une (git merge --no-ff) les branches des cartes "
+    "terminées du projet, dans l'ordre donné, lancer la vérification puis les contrôles (fichiers de pilotage, "
+    "secrets) sur le diff cumulé. Aucun push. Conflit : abandon de la fusion et blocage avec la liste des fichiers.")
+# Routage de l'étape P6 (cahier P6 § 4.3, § 6.7).
+INTEGRATION_SANS_MODELE_ROUTAGE = "la classe « integration » n'a ni modèle ni effort (fusion locale déterministe)."
+REPLI_MEME_MODELE = "le modèle « {m} » est celui de l'implémentation"
+REPLI_SANS_ENTREE = "aucune entrée de la table « relecture » pour {v}"
+REPLI_IMPOSSIBLE = "la voie {v} est fermée ({fermeture}) et aucun autre modèle de la même voie n'est admis ({detail})"
+MENTION_REPLI_MEME_VOIE = "relecture de repli par la même voie, autre modèle (D91) : {raison}"
