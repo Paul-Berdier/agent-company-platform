@@ -26,6 +26,10 @@ Source unique de l'épinglage : ``hermes/contrat/HERMES_VERSION``. Sous-commande
     Dernière release publiée à la fois en étiquette git amont et en étiquette Docker Hub (API publique), au
     format ``vAAAA.M.J[.N]`` ; n'écrit rien (veille mensuelle).
 
+Toute valeur (lue dans HERMES_VERSION, relevée chez l'amont, ou passée par ``--date``) est validée dans sa forme
+AVANT d'être passée à ``docker`` ou ``git`` ou d'être écrite ; un fichier absent, non UTF-8 ou un JSON abîmé est un
+refus nommé.
+
 Codes de sortie : 0 (aucun écart, ou écriture faite), 1 (écarts constatés), 2 (refus). N'exécute JAMAIS
 ``hermes update``, ne pousse rien, ne touche ni Railway ni les tests. Bibliothèque standard, ``docker`` et ``git``
 sur l'hôte ; refus en français. Les commandes externes passent par un exécuteur injectable
@@ -58,13 +62,28 @@ CHEMIN_PROVENANCE_IMAGE = "/etc/hermes/image-provenance.json"
 HERMES_IMAGE_BIN = "/opt/hermes/.venv/bin/hermes"
 PYTHON_IMAGE = "/opt/hermes/.venv/bin/python"
 
-FORME_ETIQUETTE = re.compile(r"v(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?")
-FORME_VERSION = re.compile(r"\d+\.\d+\.\d+")
+# Formes exigées AVANT tout usage d'une valeur (argument de docker ou de git, ou texte réécrit dans un fichier) :
+# chiffres ASCII seulement (re.ASCII), aucun espace, aucun saut de ligne, jamais de tiret en tête.
+FORME_ETIQUETTE = re.compile(r"v(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?", re.ASCII)
+FORME_VERSION = re.compile(r"\d+\.\d+\.\d+", re.ASCII)
 FORME_CONDENSAT = re.compile(r"sha256:[0-9a-f]{64}")
 FORME_COMMIT = re.compile(r"[0-9a-f]{40}")
+FORME_IMAGE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+")
+# info.version de l'OpenRPC : écrite entre guillemets (fixture JSON), entre accents graves (README) et après « = ».
+FORME_INFO_VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+-]{0,31}")
 SORTIE_VERSION = re.compile(r"Hermes Agent v(?P<version>\S+) \((?P<date>[^)]+)\)(?: · upstream (?P<amont>[0-9a-f]+))?")
 MOIS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre",
         "décembre")
+# Date du relevé, en toutes lettres comme date_du_jour() l'écrit (« 2 octobre 2026 ») : c'est la seule forme que
+# relisent la provenance du README du contrat (rendre) et la concordance (scripts/tests/test_epingles_hermes.py).
+FORME_DATE = re.compile(rf"(?:[1-9]|[12][0-9]|3[01]) (?:{'|'.join(MOIS)}) [0-9]{{4}}")
+FORMES_EPINGLE = {
+    "HERMES_VERSION": FORME_VERSION, "HERMES_TAG": FORME_ETIQUETTE, "HERMES_COMMIT": FORME_COMMIT,
+    "HERMES_IMAGE": FORME_IMAGE, "HERMES_IMAGE_INDEX": FORME_CONDENSAT, "HERMES_IMAGE_LINUX_AMD64": FORME_CONDENSAT,
+    "HERMES_IMAGE_LINUX_ARM64": FORME_CONDENSAT, "OPENRPC_INFO_VERSION": FORME_INFO_VERSION,
+    "OPENRPC_METHODES": re.compile(r"[1-9][0-9]*"), "OPENRPC_SHA256": re.compile(r"[0-9a-f]{64}"),
+    "CONTRAT_ACP_POSTE": re.compile(r"acp-poste/[0-9]+"),
+}
 
 EPINGLE = "hermes/contrat/HERMES_VERSION"
 DOCKERFILE = "hermes/image/Dockerfile"
@@ -184,35 +203,64 @@ def valider_etiquette(etiquette: str) -> str:
 
 def cle_etiquette(etiquette: str) -> Tuple[int, ...]:
     m = FORME_ETIQUETTE.fullmatch(etiquette)
-    assert m is not None
+    if m is None:
+        raise Refus(f"Étiquette « {etiquette} » hors format : attendu vAAAA.M.J ou vAAAA.M.J.N.")
     return tuple(int(g or 0) for g in m.groups())
 
 
-def _lire_cles(texte: str) -> Dict[str, str]:
-    valeurs: Dict[str, str] = {}
+def valider_date(date: str) -> str:
+    if not FORME_DATE.fullmatch(date):
+        raise Refus(f"Date du relevé « {date} » hors format : attendu « J mois AAAA » en toutes lettres (par exemple "
+                    "« 2 octobre 2026 »), seule forme relue par l'outil et par la concordance des épingles.")
+    return date
+
+
+# --------------------------------------------------------------------------- lectures : tout illisible est un refus
+
+
+def _lire_octets(racine: Path, relatif: str) -> bytes:
+    try:
+        return (racine / relatif).read_bytes()
+    except OSError as exc:
+        raise Refus(f"{relatif} illisible ({type(exc).__name__}) ; rien n'est écrit.")
+
+
+def _lire_texte(racine: Path, relatif: str) -> str:
+    """Texte UTF-8 du fichier, fins de ligne ramenées à LF."""
+    try:
+        return _lire_octets(racine, relatif).decode("utf-8").replace("\r\n", "\n")
+    except UnicodeDecodeError:
+        raise Refus(f"{relatif} n'est pas en UTF-8 ; rien n'est écrit.")
+
+
+def _lire_cles(texte: str) -> Dict[str, List[str]]:
+    valeurs: Dict[str, List[str]] = {}
     for ligne in texte.splitlines():
         ligne = ligne.strip()
         if ligne and not ligne.startswith("#") and "=" in ligne:
             cle, _, valeur = ligne.partition("=")
-            valeurs[cle] = valeur
+            valeurs.setdefault(cle, []).append(valeur)
     return valeurs
 
 
 def lire_epingle(racine: Path) -> Epingle:
-    chemin = racine / EPINGLE
-    try:
-        texte = chemin.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise Refus(f"{EPINGLE} illisible ({type(exc).__name__}).")
-    c = _lire_cles(texte)
-    manquantes = [k for k in ("HERMES_VERSION", "HERMES_TAG", "HERMES_COMMIT", "HERMES_IMAGE", "HERMES_IMAGE_INDEX",
-                              "HERMES_IMAGE_LINUX_AMD64", "HERMES_IMAGE_LINUX_ARM64", "OPENRPC_INFO_VERSION",
-                              "OPENRPC_METHODES", "OPENRPC_SHA256", "CONTRAT_ACP_POSTE") if k not in c]
+    """Lit HERMES_VERSION et valide la forme de CHAQUE valeur avant tout usage (argument de docker ou de git, texte
+    réécrit) : une valeur hors forme ou une clé en double est un refus."""
+    texte = _lire_texte(racine, EPINGLE)
+    lues = _lire_cles(texte)
+    manquantes = [k for k in FORMES_EPINGLE if k not in lues]
     if manquantes:
         raise Refus(f"{EPINGLE} : clés absentes : {', '.join(manquantes)}.")
+    doubles = [k for k in FORMES_EPINGLE if len(lues[k]) > 1]
+    if doubles:
+        raise Refus(f"{EPINGLE} : clés en double : {', '.join(doubles)}.")
+    c = {k: lues[k][0] for k in FORMES_EPINGLE}
+    hors_forme = [f"{k}={c[k]!r}" for k, forme in FORMES_EPINGLE.items() if not forme.fullmatch(c[k])]
+    if hors_forme:
+        raise Refus(f"{EPINGLE} : valeurs hors forme : {', '.join(hors_forme)}.")
     date = re.search(r"^# Condensats relevés le (.+) par$", texte, re.M)
-    if not date or not c["OPENRPC_METHODES"].isdigit():
-        raise Refus(f"{EPINGLE} : ligne de date du relevé ou nombre de méthodes OpenRPC illisible.")
+    if not date:
+        raise Refus(f"{EPINGLE} : ligne de date du relevé illisible.")
     return Epingle(Valeurs(c["HERMES_VERSION"], c["HERMES_TAG"], c["HERMES_COMMIT"], c["HERMES_IMAGE"],
                            c["HERMES_IMAGE_INDEX"], c["HERMES_IMAGE_LINUX_AMD64"], c["HERMES_IMAGE_LINUX_ARM64"],
                            c["OPENRPC_SHA256"], c["OPENRPC_INFO_VERSION"], int(c["OPENRPC_METHODES"])),
@@ -259,8 +307,9 @@ def relever(etiquette: str, executer: Executeur, image: str = IMAGE) -> Releve:
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise Refus(f"Manifeste de {image}:{etiquette} illisible ({type(exc).__name__}).")
     amd64, arm64 = plates_formes.get("amd64"), plates_formes.get("arm64")
-    if not (isinstance(index, str) and FORME_CONDENSAT.fullmatch(index)) or not amd64 or not arm64:
-        raise Refus(f"Condensat d'index ou de plate-forme (linux/amd64, linux/arm64) introuvable pour "
+    # Chaque condensat est réécrit dans HERMES_VERSION et passé à docker : forme exacte exigée, jamais « non vide ».
+    if not all(isinstance(c, str) and FORME_CONDENSAT.fullmatch(c) for c in (index, amd64, arm64)):
+        raise Refus(f"Condensat d'index ou de plate-forme (linux/amd64, linux/arm64) introuvable ou hors forme pour "
                     f"{image}:{etiquette}.")
     journal.append(f"index {index} ; linux/amd64 {amd64} ; linux/arm64 {arm64}")
 
@@ -314,6 +363,9 @@ def relever(etiquette: str, executer: Executeur, image: str = IMAGE) -> Releve:
     if licence.code != 0 or not licence.sortie:
         raise Refus(f"LICENSE absent de l'image ({CHEMIN_LICENCE_IMAGE}).")
     sha, info, methodes, _ = decrire_openrpc(openrpc.sortie, reference)
+    if not FORME_INFO_VERSION.fullmatch(info) or methodes < 1:
+        raise Refus(f"OpenRPC de {reference} : info.version {info!r} hors forme ou aucune méthode ({methodes}) ; "
+                    "rien n'est écrit.")
     journal.append(f"OpenRPC : SHA-256 {sha}, info.version {info}, {methodes} méthodes")
 
     releve = Releve(Valeurs(version, etiquette, commit, image, index, amd64, arm64, sha, info, methodes),
@@ -361,13 +413,13 @@ def _dans_bloc(texte: str, motif_bloc: str, champs: Sequence[Tuple[str, str]], f
 
 
 def _lf(brut: bytes) -> str:
-    return brut.decode("utf-8").replace("\r\n", "\n")
+    return brut.decode("utf-8", errors="replace").replace("\r\n", "\n")
 
 
 def rendre(racine: Path, v: Valeurs, date: str, openrpc: bytes, licence: bytes) -> Dict[str, bytes]:
     """Contenu attendu de chaque épingle forte pour les valeurs ``v`` (fins de ligne LF). Seuls les champs
     épinglés changent ; tout le reste du fichier est gardé à l'octet près."""
-    lire = {rel: _lf((racine / rel).read_bytes()) for rel in EPINGLES_FORTES if rel not in (OPENRPC, LICENCE)}
+    lire = {rel: _lire_texte(racine, rel) for rel in EPINGLES_FORTES if rel not in (OPENRPC, LICENCE)}
     sortie: Dict[str, bytes] = {}
 
     t = lire[EPINGLE]
@@ -452,8 +504,8 @@ def rendre(racine: Path, v: Valeurs, date: str, openrpc: bytes, licence: bytes) 
 
 
 def borne_requires_hermes(racine: Path) -> str:
-    bornes = re.findall(r'^requires_hermes:\s*"?>=\s*(\d+\.\d+\.\d+)"?\s*$',
-                        (racine / GREFFON).read_text(encoding="utf-8"), re.M)
+    bornes = re.findall(r'^requires_hermes:\s*"?>=\s*([0-9]+\.[0-9]+\.[0-9]+)"?\s*$', _lire_texte(racine, GREFFON),
+                        re.M)
     if len(bornes) != 1:
         raise StructureInattendue(f"{GREFFON} : requires_hermes absent ou hors de la forme \">=X.Y.Z\".")
     return bornes[0]
@@ -498,11 +550,17 @@ def comparer_valeurs(epinglees: Valeurs, relevees: Valeurs) -> List[str]:
 def comparer_skills(racine: Path, releve: Releve) -> List[Tuple[str, str, List[str], List[str]]]:
     """(libellé, clé du verrou, ajoutées, retirées) pour les skills livrées et optionnelles de l'image relevée face
     à ``livrees.noms`` et ``livrees.optionnelles`` du verrou du catalogue."""
-    livrees = json.loads((racine / VERROU).read_text(encoding="utf-8")).get("livrees") or {}
+    try:
+        verrou = json.loads(_lire_texte(racine, VERROU))
+    except ValueError as exc:
+        raise Refus(f"{VERROU} : JSON illisible ({type(exc).__name__}) ; rien n'est écrit.")
+    livrees = verrou.get("livrees") if isinstance(verrou, dict) else None
+    if not isinstance(livrees, dict) or not all(isinstance(livrees.get(c), list) for c in ("noms", "optionnelles")):
+        raise Refus(f"{VERROU} : livrees.noms et livrees.optionnelles (listes) illisibles ; rien n'est écrit.")
     resultat = []
     for libelle, cle, reels in (("livrées", "noms", releve.skills_livrees),
                                 ("optionnelles", "optionnelles", releve.skills_optionnelles)):
-        connues, vues = set(livrees.get(cle) or []), set(reels or [])
+        connues, vues = {str(n) for n in livrees[cle]}, set(reels or [])
         resultat.append((libelle, cle, sorted(vues - connues), sorted(connues - vues)))
     return resultat
 
@@ -522,7 +580,7 @@ def verifier(racine: Path, executer: Executeur, etiquette: Optional[str] = None,
     # relevé est celle du dépôt (elle ne change qu'à une écriture qui change une valeur).
     attendu = rendre(racine, releve.valeurs, ancien.date, releve.openrpc, releve.licence)
     for relatif, contenu in attendu.items():
-        actuel = (racine / relatif).read_bytes()
+        actuel = _lire_octets(racine, relatif)
         if actuel != contenu:
             ecarts.append(f"{relatif} : diffère du rendu depuis le relevé")
             ecarts.extend(_diff(relatif, actuel, contenu))
@@ -559,6 +617,8 @@ def _modifies(racine: Path, executer: Executeur, fichiers: Sequence[str]) -> Lis
 def ecrire(racine: Path, executer: Executeur, etiquette: str, date: Optional[str] = None,
            sortie: Callable[[str], None] = print) -> int:
     valider_etiquette(etiquette)
+    if date is not None:
+        valider_date(date)
     modifies = _modifies(racine, executer, EPINGLES_FORTES)
     if modifies:
         raise Refus("Changements non committés dans des fichiers que l'écriture réécrirait : " + ", ".join(modifies)
@@ -567,14 +627,15 @@ def ecrire(racine: Path, executer: Executeur, etiquette: str, date: Optional[str
     releve = relever(etiquette, executer, ancien.valeurs.image)
     for ligne in releve.journal:
         sortie(f"  {ligne}")
-    openrpc_avant = (racine / OPENRPC).read_bytes()
+    openrpc_avant = _lire_octets(racine, OPENRPC)
     inchange = (releve.valeurs == ancien.valeurs and releve.openrpc == openrpc_avant
-                and releve.licence == (racine / LICENCE).read_bytes())
-    date_ecrite = ancien.date if inchange else (date or date_du_jour())
+                and releve.licence == _lire_octets(racine, LICENCE))
+    # La date écrite est relue par la provenance du README et par la concordance : même conservée, sa forme est exigée.
+    date_ecrite = valider_date(ancien.date if inchange else (date or date_du_jour()))
     nouveau = rendre(racine, releve.valeurs, date_ecrite, releve.openrpc, releve.licence)
     ecrits = []
     for relatif, contenu in nouveau.items():
-        if (racine / relatif).read_bytes() != contenu:
+        if _lire_octets(racine, relatif) != contenu:
             (racine / relatif).write_bytes(contenu)
             ecrits.append(relatif)
     sortie(f"Épingles fortes réécrites pour {etiquette} : {', '.join(ecrits) if ecrits else 'aucun changement'}.")
@@ -665,6 +726,7 @@ def inventaire(racine: Path, executer: Executeur, sortie: Callable[[str], None] 
 
 
 def derniere(racine: Path, executer: Executeur, lire_url: LecteurUrl, sortie: Callable[[str], None] = print) -> int:
+    epinglee = lire_epingle(racine).valeurs.etiquette
     distant = executer(["git", "ls-remote", "--tags", DEPOT_AMONT], 120)
     if distant.code != 0:
         raise Refus(f"git ls-remote --tags {DEPOT_AMONT} a échoué (code {distant.code}).")
@@ -676,7 +738,10 @@ def derniere(racine: Path, executer: Executeur, lire_url: LecteurUrl, sortie: Ca
     while url and pages < 20:
         try:
             page = json.loads(lire_url(url))
-            hub |= {str(r["name"]) for r in page.get("results", [])}
+            resultats = page["results"] if isinstance(page, dict) else None
+            if not isinstance(resultats, list) or not all(isinstance(r, dict) for r in resultats):
+                raise TypeError("page sans liste « results » d'objets")
+            hub |= {str(r["name"]) for r in resultats}
             url = page.get("next")
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise Refus(f"API publique de Docker Hub illisible ({type(exc).__name__}).")
@@ -686,7 +751,6 @@ def derniere(racine: Path, executer: Executeur, lire_url: LecteurUrl, sortie: Ca
     releases = sorted((t for t in git & hub if FORME_ETIQUETTE.fullmatch(t)), key=cle_etiquette)
     if not releases:
         raise Refus("Aucune release vAAAA.M.J publiée à la fois en étiquette git et sur Docker Hub.")
-    epinglee = lire_epingle(racine).valeurs.etiquette
     plus_recente = releases[-1]
     sortie(f"Dernière release publiée (git et Docker Hub) : {plus_recente}.")
     sortie(f"Release épinglée : {epinglee}.")

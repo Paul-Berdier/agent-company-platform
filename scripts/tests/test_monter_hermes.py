@@ -477,6 +477,123 @@ def test_ecarts_constates_rendent_le_code_1_par_la_ligne_de_commande(depot, amon
     assert "HERMES_IMAGE_LINUX_ARM64" in capsys.readouterr().out
 
 
+# =========================================================================== relecture : forme vérifiée avant usage
+
+
+def _poser_cle(racine: Path, cle: str, valeur: str) -> None:
+    chemin = racine / mh.EPINGLE
+    texte, n = re.subn(rf"^{cle}=.*$", lambda _m: f"{cle}={valeur}", chemin.read_text(encoding="utf-8"), flags=re.M)
+    assert n == 1, cle
+    chemin.write_text(texte, encoding="utf-8", newline="\n")
+
+
+@pytest.mark.parametrize("cle, valeur", [
+    ("HERMES_IMAGE", "-v/:/hote"), ("HERMES_IMAGE", "nousresearch/hermes-agent --privileged"),
+    ("HERMES_TAG", "latest-v2026.9.24"), ("HERMES_COMMIT", ""), ("HERMES_VERSION", "0.21.5 ; x"),
+    ("HERMES_IMAGE_INDEX", "sha256:court"), ("HERMES_IMAGE_LINUX_ARM64", "sha256:" + "a" * 63),
+    ("OPENRPC_METHODES", "²"), ("OPENRPC_SHA256", "z" * 64), ("OPENRPC_INFO_VERSION", '1"'),
+    ("CONTRAT_ACP_POSTE", "acp-poste/")])
+def test_une_epingle_hors_forme_est_refusee_avant_toute_commande_externe(depot, amont, capsys, cle, valeur):
+    """Relecture P9 : chaque valeur de HERMES_VERSION est validée AVANT d'être passée à docker ou git (une image
+    « -v/:/hote » devenait une option de « docker run ») ou réécrite dans un fichier."""
+    _poser_cle(depot, cle, valeur)
+    amont.tags_git = [amont.valeurs.etiquette]
+    page = json.dumps({"results": [{"name": amont.valeurs.etiquette}], "next": None}).encode()
+    for commande in (["verifier"], ["inventaire"], ["ecrire", "v2026.10.15"], ["derniere"]):
+        amont.appels.clear()
+        assert mh.main(commande, racine=depot, executer=amont, lire_url=lambda _url: page) == 2, commande
+        assert f"{cle}" in capsys.readouterr().err, commande
+        # Seul « git status » (liste fixe de fichiers) précède la lecture de l'épingle dans « ecrire ».
+        assert all(a[:4] == ["git", "-C", str(depot), "status"] for a in amont.appels), (commande, amont.appels)
+
+
+def test_une_cle_en_double_dans_l_epingle_est_refusee(depot, amont, capsys):
+    chemin = depot / mh.EPINGLE
+    chemin.write_bytes(chemin.read_bytes() + b"HERMES_TAG=v2026.9.21\n")
+    assert mh.main(["verifier"], racine=depot, executer=amont) == 2
+    assert "HERMES_TAG" in capsys.readouterr().err and amont.appels == []
+
+
+@pytest.mark.parametrize("champ, valeur", [
+    ("arm64", "sha256:" + "f" * 64 + "\nHERMES_TAG=latest"), ("amd64", "sha256:abc"), ("amd64", 12)])
+def test_un_condensat_de_plate_forme_hors_forme_est_refuse_sans_rien_ecrire(depot, amont, champ, valeur):
+    """Relecture P9 : les condensats par plate-forme lus dans le manifeste du registre étaient seulement « non
+    vides » ; un saut de ligne y injectait une clé dans HERMES_VERSION à l'écriture."""
+    suivante = _release_suivante(amont)
+    suivante.valeurs = replace(suivante.valeurs, **{champ: valeur})
+    avant = _instantane(depot)
+    with pytest.raises(mh.Refus, match="plate-forme"):
+        _lancer(mh.ecrire, depot, suivante, "v2026.10.15", date="15 octobre 2026")
+    assert _instantane(depot) == avant
+
+
+@pytest.mark.parametrize("info", ['1"', "1`", "", "1\n2", "x" * 65])
+def test_une_info_version_de_l_openrpc_hors_forme_est_refusee_sans_rien_ecrire(depot, amont, info):
+    """Relecture P9 : info.version est écrite telle quelle dans une chaîne JSON (fixture du desktop), entre
+    accents graves (README du contrat) et dans HERMES_VERSION ; « 1\" » cassait la fixture JSON."""
+    suivante = _release_suivante(amont)
+    assert suivante.openrpc is not None
+    contrat = json.loads(suivante.openrpc)
+    contrat["info"]["version"] = info
+    suivante.openrpc = (json.dumps(contrat, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    avant = _instantane(depot)
+    with pytest.raises(mh.Refus, match="info.version"):
+        _lancer(mh.ecrire, depot, suivante, "v2026.10.15", date="15 octobre 2026")
+    assert _instantane(depot) == avant
+
+
+@pytest.mark.parametrize("date", ["1er octobre 2026", "le 2 octobre 2026", "2 oct. 2026", "32 octobre 2026",
+                                  "2 octobre 2026\nHERMES_TAG=latest", "2 Octobre 2026", ""])
+def test_une_date_hors_forme_est_refusee_avant_tout_releve(depot, amont, capsys, date):
+    """Relecture P9 : « --date » était écrit tel quel ; « 1er octobre 2026 » produisait un README de contrat que
+    l'outil lui-même refusait ensuite (motif « J mois AAAA ») et que la concordance déclarait illisible."""
+    suivante = _release_suivante(amont)
+    avant = _instantane(depot)
+    assert mh.main(["ecrire", "v2026.10.15", "--date", date], racine=depot, executer=suivante) == 2
+    assert "Date" in capsys.readouterr().err
+    assert _instantane(depot) == avant
+    assert not any(a[0] == "docker" for a in suivante.appels), "refus avant tout relevé"
+
+
+def test_une_date_en_toutes_lettres_est_acceptee(depot, amont):
+    suivante = _release_suivante(amont)
+    assert _lancer(mh.ecrire, depot, suivante, "v2026.10.15", date="1 octobre 2026")[0] == 0
+    assert concordance.ecarts(depot) == []
+
+
+# =========================================================================== relecture : données illisibles
+
+
+@pytest.mark.parametrize("relatif, alteration", [
+    (mh.EPINGLE, "absent"), (mh.EPINGLE, "non_utf8"), (mh.FIXTURE_DESKTOP, "absent"),
+    (mh.FIXTURE_DESKTOP, "non_utf8"), (mh.OPENRPC, "absent"), (mh.LICENCE, "absent"), (mh.GREFFON, "absent"),
+    (mh.GREFFON, "non_utf8"), (mh.VERROU, "json"), (mh.VERROU, "liste")])
+def test_un_fichier_illisible_est_un_refus_nomme_code_2(depot, amont, capsys, relatif, alteration):
+    """Relecture P9 : un fichier absent, non UTF-8 ou un verrou JSON abîmé sortait en trace Python anglaise, code 1
+    (celui des « écarts ») ; c'est un refus nommé, code 2, en français."""
+    chemin = depot / relatif
+    if alteration == "absent":
+        chemin.unlink()
+    elif alteration == "non_utf8":
+        chemin.write_bytes(b"\xff" + chemin.read_bytes())
+    elif alteration == "json":
+        chemin.write_bytes(chemin.read_bytes() + b"}\n")
+    else:
+        chemin.write_bytes(b"[]\n" if relatif == mh.VERROU else b"")
+    for commande in (["verifier"], ["ecrire", "v2026.10.15"]):
+        assert mh.main(commande, racine=depot, executer=_release_suivante(amont) if commande[0] == "ecrire"
+                       else amont) == 2, commande
+        erreur = capsys.readouterr().err
+        assert erreur.startswith("Refus : ") and relatif in erreur, (commande, erreur)
+
+
+@pytest.mark.parametrize("page", [b"[]", b'"texte"', b'{"results": {"name": "v2026.9.24"}, "next": null}'])
+def test_derniere_refuse_une_page_de_docker_hub_qui_n_est_pas_un_objet(depot, amont, page):
+    amont.tags_git = ["v2026.9.24"]
+    with pytest.raises(mh.Refus, match="Docker Hub illisible"):
+        mh.derniere(depot, amont, lambda _url: page, sortie=lambda _l: None)
+
+
 # =========================================================================== inventaire et derniere
 
 
