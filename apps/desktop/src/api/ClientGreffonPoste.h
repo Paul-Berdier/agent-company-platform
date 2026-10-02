@@ -12,6 +12,11 @@
 //
 // Les routes des étapes suivantes (revues de P6, flux et agrégats de P7) ne sont pas
 // déclarées ici tant que leur contrat n'est pas fusionné dans `refonte/hermes`.
+//
+// Échec fermé (cahier P8 § 4.2) : tant que le verdict de compatibilité dit le greffon
+// incompatible (contrat d'une autre majeure) ou absent (`/v1/meta` en 404), CompatibiliteHermes
+// le BLOQUE : toute lecture et toute écriture est refusée par la station, sans rien émettre,
+// avec l'explication du verdict. Seul `/v1/meta` reste lisible, pour revérifier.
 
 #pragma once
 
@@ -39,6 +44,14 @@ public:
 
     /*! Chemin complet d'une route relative du greffon (« /v1/meta »). */
     [[nodiscard]] static QString chemin(const QString &relatif);
+
+    // --- Verdict de compatibilité ---------------------------------------------------
+    /*! Refuse désormais toute route du greffon sauf `/v1/meta`, avec cette raison. */
+    void bloquer(const QString &raison);
+    /*! Lève le blocage (verdict compatible, session ou serveur oubliés). */
+    void debloquer() { m_blocage.clear(); }
+    [[nodiscard]] bool bloque() const { return !m_blocage.isEmpty(); }
+    [[nodiscard]] const QString &raisonBlocage() const { return m_blocage; }
 
     // --- Lectures --------------------------------------------------------------
     ApiCall *meta();
@@ -91,6 +104,7 @@ private:
     ApiCall *refuserIdentifiant(const QString &nature);
 
     ApiClient *m_client = nullptr;
+    QString m_blocage;
 };
 
 } // namespace acp

@@ -84,10 +84,16 @@ aucun proxy implicite, et la même règle pour les WebSockets. `ApiError` lit le
 formes de refus (porte, greffon, table de routage) et traduit les messages fixes connus
 de Hermes ; un message inconnu est rendu tel quel.
 
-`CompatibiliteHermes` lit `/v1/meta` : contrat `acp-poste/1` exigé (sinon les pages du
-greffon sont refusées), empreinte de l'OpenRPC servi comparée à celle épinglée (sinon
-la discussion est coupée), Hermes testé (`hermes/contrat/HERMES_VERSION`, 0.21.5),
-alertes, et l'exécutant de l'étape P6 seulement s'il est annoncé.
+`CompatibiliteHermes` lit `/v1/meta` : contrat `acp-poste/1` exigé ; une autre majeure,
+ou un `/v1/meta` en 404 (greffon absent), **bloque le client du greffon** :
+`ClientGreffonPoste` refuse alors toute lecture et toute écriture sans rien émettre, avec
+l'explication du verdict, et seul `/v1/meta` reste lisible pour revérifier (seules la
+Discussion et les Diagnostics restent utilisables). Contrat JSON-RPC : une **version
+d'information** (`openrpc.info_version`) différente de celle épinglée coupe la
+Discussion ; une **empreinte** différente ne donne qu'un avertissement, la Discussion
+restant ouverte. Hermes testé (`hermes/contrat/HERMES_VERSION`, 0.21.5) : une autre version
+avertit. Alertes publiées telles quelles ; l'exécutant de l'étape P6 seulement s'il est
+annoncé.
 
 ## JSON-RPC et temps réel
 

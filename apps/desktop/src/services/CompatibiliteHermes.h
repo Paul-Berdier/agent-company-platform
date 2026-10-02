@@ -4,13 +4,20 @@
 // (version de Hermes testée, version et empreinte du contrat JSON-RPC épinglé, contrat du
 // greffon). Règles (cahier P8 § 4.2) :
 //
-//   - `contrat` d'une autre majeure que `acp-poste/1` : REFUS, pages du greffon bloquées ;
+//   - `contrat` d'une autre majeure que `acp-poste/1` : REFUS, pages du greffon bloquées :
+//     le verdict est APPLIQUÉ au client du greffon (ClientGreffonPoste::bloquer), qui refuse
+//     alors toute lecture et toute écriture sans rien émettre ;
 //   - `openrpc.info_version` différent de la version épinglée : REFUS de la Discussion seule ;
 //   - `openrpc.identique` faux, ou empreinte installée différente de l'empreinte épinglée par
 //     la station : avertissement, Discussion maintenue ;
 //   - `hermes.version` différente de la version testée : avertissement ;
 //   - `alertes` non vide : nombre et détail publiés ;
-//   - `/v1/meta` en 404 : greffon absent, seules Discussion et Diagnostics restent.
+//   - `/v1/meta` en 404 : greffon absent, client du greffon bloqué de même : seules Discussion
+//     et Diagnostics restent.
+//
+// Le blocage suit le dernier verdict rendu : « Compatible » ou « Compatible avec réserves » le
+// lève, l'oubli (session perdue, serveur changé) aussi ; une revérification en cours ou un
+// `/v1/meta` injoignable laissent le verdict précédent en place.
 //
 // Les étapes déployées se détectent sans supposition : `machine.executant` présent signale
 // l'exécutant Railway (P6). Une clé absente reste « Inconnu », jamais devinée.

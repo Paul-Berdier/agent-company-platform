@@ -76,7 +76,8 @@ CompatibiliteHermes::Evaluation CompatibiliteHermes::evaluer(const QJsonObject &
     if (resultat.contratRecu.isEmpty() || nomRecu != nomAttendu || majeureRecue != majeureAttendue) {
         resultat.etat = CompatibilityStatus::Incompatible;
         resultat.greffonDisponible = false;
-        resultat.explication = QStringLiteral("Contrat du greffon incompatible : %1, attendu %2.")
+        resultat.explication = QStringLiteral("Contrat du greffon incompatible : %1, attendu %2. Pages "
+                                              "du greffon bloquées par la station.")
                                    .arg(resultat.contratRecu.isEmpty() ? QStringLiteral("Inconnu")
                                                                        : resultat.contratRecu,
                                         contratAttendu);
@@ -170,6 +171,21 @@ void CompatibiliteHermes::oublier()
 void CompatibiliteHermes::publier(Evaluation evaluation)
 {
     m_evaluation = std::move(evaluation);
+    // Échec fermé : le verdict rendu s'applique au client du greffon, pas seulement à l'écran.
+    switch (m_evaluation.etat) {
+    case CompatibilityStatus::Incompatible:
+    case CompatibilityStatus::GreffonAbsent:
+        m_greffon->bloquer(m_evaluation.explication);
+        break;
+    case CompatibilityStatus::Compatible:
+    case CompatibilityStatus::Avertissement:
+    case CompatibilityStatus::NonVerifiee:
+        m_greffon->debloquer();
+        break;
+    case CompatibilityStatus::Verification:
+    case CompatibilityStatus::Injoignable:
+        break; // le verdict précédent reste appliqué
+    }
     emit change();
 }
 

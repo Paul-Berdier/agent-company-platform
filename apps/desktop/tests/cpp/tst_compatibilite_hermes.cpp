@@ -1,15 +1,18 @@
 // Compatibilité de la station avec le Hermes servi (/v1/meta du greffon acp-poste).
 //
-// Contrat incompatible ⇒ refus des pages du greffon ; OpenRPC d'une autre version ⇒
+// Contrat incompatible ⇒ refus des pages du greffon, APPLIQUÉ : aucune lecture ni écriture du
+// greffon ne part plus (seul /v1/meta, pour revérifier) ; OpenRPC d'une autre version ⇒
 // Discussion coupée ; empreinte différente ⇒ avertissement ; Hermes non testé ⇒
-// avertissement ; /v1/meta en 404 ⇒ greffon absent ; exécutant de P6 détecté par
-// `machine.executant`, jamais supposé.
+// avertissement ; /v1/meta en 404 ⇒ greffon absent, bloqué de même ; exécutant de P6 détecté
+// par `machine.executant`, jamais supposé.
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "app/BuildConfig.h"
+#include "events/EventStreamService.h"
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
+#include "viewmodels/QuestionsViewModel.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -31,6 +34,38 @@ QJsonObject metaDeReference()
     return QJsonDocument::fromJson(fichier.readAll()).object();
 }
 
+const QString kP = QStringLiteral("/api/plugins/acp-poste/v1");
+
+//! Chaque route du greffon, appelée une fois : lectures et écritures du propriétaire.
+QList<ApiCall *> toutesLesRoutes(ClientGreffonPoste &greffon)
+{
+    return {greffon.catalogue(), greffon.projets(), greffon.projet(QStringLiteral("p_367e23fd51b7")),
+            greffon.carteDuProjet(QStringLiteral("p_367e23fd51b7"), QStringLiteral("t_7aa28f61")),
+            greffon.questions(), greffon.poste(), greffon.routage(), greffon.quotas(),
+            greffon.lancerProjet(QJsonObject{{QStringLiteral("titre"), QStringLiteral("Essai")}}, QStringLiteral("cle-1")),
+            greffon.mettreProjetEnPause(QStringLiteral("p_367e23fd51b7")), greffon.reprendreProjet(QStringLiteral("p_367e23fd51b7")),
+            greffon.repondre(QStringLiteral("q_b627a3c245ec"), QStringLiteral("Python 3.12")),
+            greffon.reprendreTriage(QStringLiteral("acp-veille"), QStringLiteral("t_0c1d2e3f"), QString()),
+            greffon.conclureTriage(QStringLiteral("acp-veille"), QStringLiteral("t_0c1d2e3f")),
+            greffon.pauseGenerale(true, QString()), greffon.enrolerPoste(),
+            greffon.confirmerEmpreinte(QStringLiteral("m1"), QStringLiteral("e1")),
+            greffon.revoquerPoste(QStringLiteral("m1"), QStringLiteral("essai")), greffon.releverPoste(),
+            greffon.validerRoutage(QJsonArray{}, QJsonArray{}), greffon.accepterReleve(1),
+            greffon.desactiverSurcharge(QStringLiteral("s1"))};
+}
+
+//! Requêtes reçues par le faux Hermes sur le greffon, hors /v1/meta.
+int requetesDuGreffon(const FauxHermes &serveur)
+{
+    int total = 0;
+    for (const RequeteRecue &requete : serveur.requetes) {
+        if (requete.chemin.startsWith(kP) && requete.chemin != kP + QStringLiteral("/meta")) {
+            ++total;
+        }
+    }
+    return total;
+}
+
 QJsonObject avec(QJsonObject meta, const QString &bloc, const QString &cle, const QJsonValue &valeur)
 {
     QJsonObject sous = meta.value(bloc).toObject();
@@ -47,7 +82,9 @@ class TestCompatibiliteHermes : public QObject
 
 private slots:
     void referenceConforme();
-    void contratIncompatibleBloqueLeGreffon();
+    void contratIncompatibleRefuse();
+    void contratIncompatibleBloqueToutesLesRoutesDuGreffon();
+    void greffonAbsentBloqueToutesLesRoutesDuGreffon();
     void openRpcDUneAutreVersionCoupeLaDiscussion();
     void empreinteDifferenteAvertit();
     void hermesNonTesteAvertit();
@@ -69,7 +106,7 @@ void TestCompatibiliteHermes::referenceConforme()
     QVERIFY(!evaluation.executantPresent);
 }
 
-void TestCompatibiliteHermes::contratIncompatibleBloqueLeGreffon()
+void TestCompatibiliteHermes::contratIncompatibleRefuse()
 {
     for (const QString &contrat : {QStringLiteral("acp-poste/2"), QStringLiteral("autre/1"), QString()}) {
         QJsonObject meta = metaDeReference();
@@ -84,6 +121,107 @@ void TestCompatibiliteHermes::contratIncompatibleBloqueLeGreffon()
     QJsonObject mineure = metaDeReference();
     mineure.insert(QStringLiteral("contrat"), QStringLiteral("acp-poste/1.3"));
     QVERIFY(CompatibiliteHermes::evaluer(mineure).greffonDisponible);
+}
+
+// Constat de relecture P8 (haute) : le verdict « Incompatible » n'était qu'affiché ; les pages
+// lisaient et écrivaient encore vers le greffon. Il est désormais appliqué au client du greffon.
+void TestCompatibiliteHermes::contratIncompatibleBloqueToutesLesRoutesDuGreffon()
+{
+    FauxHermes serveur;
+    serveur.installerAuthentification();
+    serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    QJsonObject meta = metaDeReference();
+    meta.insert(QStringLiteral("contrat"), QStringLiteral("acp-poste/2"));
+    serveur.route("GET", kP + QStringLiteral("/meta"), [&meta](const RequeteRecue &) { return ReponseFaux::json(200, meta); });
+    // Toute autre route du greffon répondrait : seule la station peut empêcher l'envoi.
+    serveur.route("GET", kP + QStringLiteral("/questions"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("questions"), QJsonArray{}}});
+    });
+    serveur.route("POST", kP + QStringLiteral("/questions/q_b627a3c245ec/reponse"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte_debloquee"), true}});
+    });
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(serveur.url()).isError());
+    client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
+    ClientGreffonPoste greffon(&client);
+    CompatibiliteHermes compatibilite(&greffon);
+    EventStreamService flux(&client, &greffon, nullptr);
+    QuestionsViewModel questions(&client, &greffon, &flux);
+
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Incompatible);
+    QVERIFY(greffon.bloque());
+
+    // 1. Chaque route du greffon, lecture comme écriture : refusée par la station, rien n'est émis.
+    int refusees = 0;
+    QStringList messages;
+    for (ApiCall *appel : toutesLesRoutes(greffon)) {
+        connect(appel, &ApiCall::failed, this, [&refusees, &messages](const ApiError &erreur) {
+            if (erreur.kind() == ApiFailure::Incompatible) {
+                ++refusees;
+                messages.append(erreur.message());
+            }
+        });
+    }
+    QTRY_COMPARE(refusees, 22);
+    QVERIFY(messages.first().contains(QStringLiteral("Contrat du greffon incompatible : acp-poste/2, attendu acp-poste/1.")));
+    QVERIFY(messages.first().contains(QStringLiteral("Pages du greffon bloquées par la station.")));
+
+    // 2. La page Questions : ni lecture, ni réponse ; l'explication est affichée.
+    flux.demarrer();
+    questions.setPageVisible(true);
+    QTRY_VERIFY(questions.erreur().contains(QStringLiteral("Contrat du greffon incompatible")));
+    questions.repondre(QStringLiteral("q_b627a3c245ec"), QStringLiteral("Python 3.12"));
+    QTRY_VERIFY(questions.erreurGeste().contains(QStringLiteral("Pages du greffon bloquées")));
+    QVERIFY(questions.messageGeste().isEmpty());
+    QTest::qWait(100);
+    QCOMPARE(requetesDuGreffon(serveur), 0);
+
+    // 3. Hermes redéployé avec le bon contrat : la revérification lève le blocage.
+    meta.insert(QStringLiteral("contrat"), QString::fromLatin1(ACP_CONTRAT_ACP_POSTE));
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    QVERIFY(!greffon.bloque());
+    questions.actualiser();
+    QTRY_VERIFY(serveur.compter("GET", kP + QStringLiteral("/questions")) >= 1);
+
+    // 4. Oubli (session perdue, serveur changé) : plus de verdict, plus de blocage.
+    meta.insert(QStringLiteral("contrat"), QStringLiteral("acp-poste/2"));
+    compatibilite.verifier();
+    QTRY_VERIFY(greffon.bloque());
+    compatibilite.oublier();
+    QVERIFY(!greffon.bloque());
+}
+
+void TestCompatibiliteHermes::greffonAbsentBloqueToutesLesRoutesDuGreffon()
+{
+    FauxHermes serveur; // aucune route du greffon : /v1/meta rend 404
+    serveur.installerAuthentification();
+    serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(serveur.url()).isError());
+    client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
+    ClientGreffonPoste greffon(&client);
+    CompatibiliteHermes compatibilite(&greffon);
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::GreffonAbsent);
+    QVERIFY(greffon.bloque());
+    int refusees = 0;
+    for (ApiCall *appel : toutesLesRoutes(greffon)) {
+        connect(appel, &ApiCall::failed, this, [&refusees](const ApiError &erreur) {
+            refusees += erreur.kind() == ApiFailure::Incompatible
+                && erreur.detail().contains(QStringLiteral("Greffon acp-poste absent")) ? 1 : 0;
+        });
+    }
+    QTRY_COMPARE(refusees, 22);
+    QTest::qWait(50);
+    QCOMPARE(requetesDuGreffon(serveur), 0);
+    // /v1/meta reste lisible : c'est par elle que le blocage se lève.
+    const int lectures = serveur.compter("GET", kP + QStringLiteral("/meta"));
+    compatibilite.verifier();
+    QTRY_VERIFY(serveur.compter("GET", kP + QStringLiteral("/meta")) > lectures);
 }
 
 void TestCompatibiliteHermes::openRpcDUneAutreVersionCoupeLaDiscussion()

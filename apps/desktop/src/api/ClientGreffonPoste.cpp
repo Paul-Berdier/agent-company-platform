@@ -31,8 +31,16 @@ ApiCall *ClientGreffonPoste::refuserIdentifiant(const QString &nature)
         QStringLiteral("Identifiant de %1 illisible : requête refusée par la station.").arg(nature)));
 }
 
+void ClientGreffonPoste::bloquer(const QString &raison)
+{
+    m_blocage = raison.isEmpty() ? QStringLiteral("Greffon acp-poste incompatible avec la station.") : raison;
+}
+
 ApiCall *ClientGreffonPoste::lire(const QString &relatif)
 {
+    if (bloque()) {
+        return m_client->reject(ApiError(ApiFailure::Incompatible, m_blocage));
+    }
     ApiRequest requete;
     requete.path = chemin(relatif);
     return m_client->send(requete);
@@ -40,6 +48,9 @@ ApiCall *ClientGreffonPoste::lire(const QString &relatif)
 
 ApiCall *ClientGreffonPoste::ecrire(const QString &relatif, const QJsonObject &corps, const QString &cle)
 {
+    if (bloque()) {
+        return m_client->reject(ApiError(ApiFailure::Incompatible, m_blocage));
+    }
     ApiRequest requete;
     requete.method = QByteArrayLiteral("POST");
     requete.path = chemin(relatif);
@@ -48,7 +59,14 @@ ApiCall *ClientGreffonPoste::ecrire(const QString &relatif, const QJsonObject &c
     return m_client->send(requete);
 }
 
-ApiCall *ClientGreffonPoste::meta() { return lire(QStringLiteral("/v1/meta")); }
+ApiCall *ClientGreffonPoste::meta()
+{
+    // Jamais bloquée : c'est par elle qu'un verdict incompatible peut être levé.
+    ApiRequest requete;
+    requete.path = chemin(QStringLiteral("/v1/meta"));
+    return m_client->send(requete);
+}
+
 ApiCall *ClientGreffonPoste::catalogue() { return lire(QStringLiteral("/v1/catalogue")); }
 ApiCall *ClientGreffonPoste::projets() { return lire(QStringLiteral("/v1/projets")); }
 ApiCall *ClientGreffonPoste::questions() { return lire(QStringLiteral("/v1/questions")); }
