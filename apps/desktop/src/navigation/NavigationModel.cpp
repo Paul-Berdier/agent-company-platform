@@ -35,7 +35,7 @@ NavigationModel::NavigationModel(QObject *parent)
         {QStringLiteral("questions"), QStringLiteral("Questions"), QStringLiteral("hand-raised"),
          Readiness::Ready, QString()},
         {QStringLiteral("chat"), QStringLiteral("Discussion"), QStringLiteral("message"),
-         Readiness::Planned, aVenir},
+         Readiness::Ready, QString()},
         {QStringLiteral("station"), QStringLiteral("Poste"), QStringLiteral("building"),
          Readiness::Planned, aVenir},
         {QStringLiteral("quotas"), QStringLiteral("Quotas"), QStringLiteral("gauge"),

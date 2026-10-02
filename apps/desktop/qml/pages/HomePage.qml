@@ -353,11 +353,23 @@ Item {
                     }
                     Repeater {
                         model: Accueil.sessions
-                        delegate: KeyValueRow {
+                        delegate: RowLayout {
+                            id: ligneSession
                             required property var item
                             Layout.fillWidth: true
-                            label: item.titre
-                            value: qsTr("%1 · %2 messages · %3").arg(item.actifA).arg(item.messages).arg(item.source)
+                            KeyValueRow {
+                                Layout.fillWidth: true
+                                label: ligneSession.item.titre
+                                value: qsTr("%1 · %2 messages · %3").arg(ligneSession.item.actifA).arg(ligneSession.item.messages)
+                                    .arg(ligneSession.item.source)
+                            }
+                            AcpButton {
+                                label: qsTr("Ouvrir")
+                                onTriggered: {
+                                    Discussion.ouvrir(ligneSession.item.id);
+                                    Navigation.setCurrentRoute("chat");
+                                }
+                            }
                         }
                     }
                 }

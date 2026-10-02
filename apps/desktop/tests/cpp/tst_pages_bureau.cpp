@@ -13,7 +13,10 @@
 #include "models/JsonListModel.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
+#include "gateway/DemandesAgent.h"
+#include "gateway/GatewayClient.h"
 #include "viewmodels/AccueilViewModel.h"
+#include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
 
@@ -115,6 +118,22 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     FauxHermes serveur;
     serveur.installerAuthentification();
     serveur.activerKanban();
+    serveur.activerPasserelle();
+    serveur.methodes.insert(QStringLiteral("session.list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{
+            QJsonObject{{QStringLiteral("id"), QStringLiteral("s1")}, {QStringLiteral("title"), QStringLiteral("Plan du site")},
+                        {QStringLiteral("preview"), QStringLiteral("Faisons le plan")}, {QStringLiteral("started_at"), 1790300000},
+                        {QStringLiteral("message_count"), 2}, {QStringLiteral("source"), QStringLiteral("tui")}}}}};
+    });
+    serveur.methodes.insert(QStringLiteral("session.resume"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("message_count"), 2},
+                           {QStringLiteral("messages"), QJsonArray{
+                               QJsonObject{{QStringLiteral("role"), QStringLiteral("user")}, {QStringLiteral("text"), QStringLiteral("Bonjour Hermes")}},
+                               QJsonObject{{QStringLiteral("role"), QStringLiteral("assistant")},
+                                           {QStringLiteral("text"), QStringLiteral("Bonjour, que puis-je faire ?")}}}},
+                           {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), QStringLiteral("Plan du site")}}},
+                           {QStringLiteral("running"), false}};
+    });
     serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
     QJsonObject projets = fixture(QStringLiteral("projets.json"));
     serveur.route("GET", kP + QStringLiteral("/projets"), [&projets](const RequeteRecue &) { return ReponseFaux::json(200, projets); });
@@ -142,7 +161,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     auto *accueil = application.findChild<AccueilViewModel *>();
     auto *pageProjets = application.findChild<ProjetsViewModel *>();
     auto *pageQuestions = application.findChild<QuestionsViewModel *>();
-    QVERIFY(client && flux && accueil && pageProjets && pageQuestions);
+    auto *discussion = application.findChild<DiscussionViewModel *>();
+    auto *demandes = application.findChild<DemandesAgent *>();
+    auto *passerelle = application.findChild<GatewayClient *>();
+    QVERIFY(client && flux && accueil && pageProjets && pageQuestions && discussion && demandes && passerelle);
     client->setAllowInsecureLoopback(true);
     QVERIFY(!client->setBaseUrl(serveur.url()).isError());
     client->setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
@@ -269,6 +291,40 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     }
     QTRY_VERIFY(!pageQuestions->actif());
 
+    // --- Discussion : sessions, transcription, puis une demande d'autorisation de l'agent --------
+    {
+        passerelle->ouvrir();
+        QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("DiscussionPage"));
+        QVERIFY(page);
+        auto *item = qobject_cast<QQuickItem *>(page.get());
+        QTRY_VERIFY_WITH_TIMEOUT(discussion->sessionsLues(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Discussion, liste"));
+        QVERIFY(contientTexte(item, QStringLiteral("Choisissez une discussion")));
+        discussion->ouvrir(QStringLiteral("s1"));
+        QTRY_COMPARE_WITH_TIMEOUT(discussion->transcription()->count(), 2, 5000);
+        VERIFIER(page.get(), QStringLiteral("Discussion, session ouverte"));
+        QVERIFY(contientTexte(item, QStringLiteral("Bonjour, que puis-je faire ?")));
+        serveur.envoyer(QJsonObject{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")}, {QStringLiteral("id"), QStringLiteral("srq-1")},
+                                    {QStringLiteral("method"), QStringLiteral("approval")},
+                                    {QStringLiteral("params"), QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-s1")},
+                                                                           {QStringLiteral("request_id"), QStringLiteral("r1")},
+                                                                           {QStringLiteral("command"), QStringLiteral("rm -rf /tmp/essai")},
+                                                                           {QStringLiteral("description"), QStringLiteral("Suppression")},
+                                                                           {QStringLiteral("choices"), QJsonArray{QStringLiteral("once"), QStringLiteral("deny")}}}}});
+        QTRY_COMPARE_WITH_TIMEOUT(demandes->nombre(), 1, 5000);
+        VERIFIER(page.get(), QStringLiteral("Discussion, demande d'autorisation"));
+        QVERIFY(contientTexte(item, QStringLiteral("rm -rf /tmp/essai")));
+    }
+    {
+        // La même demande, dans la section « Demandes de vos discussions » des Questions.
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("QuestionsPage"));
+        QVERIFY(page);
+        QTRY_VERIFY_WITH_TIMEOUT(pageQuestions->lue(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Questions avec demande de l'agent"));
+        QVERIFY(contientTexte(qobject_cast<QQuickItem *>(page.get()), QStringLiteral("Suppression")));
+    }
+
     // --- Pages sans données de Hermes -------------------------------------------------------------
     for (const QString &nom : {QStringLiteral("FirstRunPage"), QStringLiteral("DiagnosticsPage"), QStringLiteral("SettingsPage")}) {
         auto page = charger(QStringLiteral("Acp.Pages"), nom);
@@ -282,7 +338,33 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     }
     window.hide();
 
+    // --- Aucun secret exposé à QML ------------------------------------------------------------------
+    // Après le parcours complet (porteur, tickets de la passerelle et du kanban émis), aucune
+    // propriété d'aucun objet de l'application ne contient le jeton ni un ticket.
+    {
+        QList<QObject *> objets = application.findChildren<QObject *>();
+        objets.prepend(&application);
+        int lues = 0;
+        for (QObject *objet : std::as_const(objets)) {
+            const QMetaObject *meta = objet->metaObject();
+            for (int index = 0; index < meta->propertyCount(); ++index) {
+                const QMetaProperty propriete = meta->property(index);
+                const QVariant valeur = propriete.read(objet);
+                if (!valeur.canConvert<QString>()) {
+                    continue;
+                }
+                ++lues;
+                const QString texte = valeur.toString();
+                QVERIFY2(!texte.contains(QStringLiteral("jeton-a")) && !texte.contains(QStringLiteral("ticket-faux-")),
+                         qPrintable(QStringLiteral("%1.%2").arg(QString::fromLatin1(meta->className()),
+                                                                QString::fromLatin1(propriete.name()))));
+            }
+        }
+        QVERIFY(lues > 100); // le contrôle a bien parcouru les objets de la station
+    }
+
     // --- La racine : fenêtre, écran de connexion (aucune session) et palette -----------------------
+    passerelle->fermer();
     flux->arreter();
     warnings.clear();
     QVERIFY(application.load(&engine));

@@ -20,6 +20,7 @@ TestCase {
     Component { id: bandeauComponent; BandeauMessage {} }
     Component { id: blocComponent; BlocTexte {} }
     Component { id: compteurComponent; PastilleCompteur {} }
+    Component { id: bulleComponent; BulleMessage { width: 400 } }
     Component {
         id: carteComponent
         Carte {
@@ -111,6 +112,35 @@ TestCase {
         const beaucoup = createTemporaryObject(compteurComponent, testCase, { nombre: 140, description: "questions ouvertes" });
         compare(beaucoup.texte, "99+");
         compare(beaucoup.Accessible.name, "140 questions ouvertes");
+    }
+
+    function test_bulle_texte_brut_et_nom_accessible() {
+        const bulle = createTemporaryObject(bulleComponent, testCase,
+                                            { auteur: "Hermes", role: "assistant", texte: "<b>Plan</b> & suite" });
+        const texte = enfantNomme(bulle, "bulle-texte");
+        compare(texte.textFormat, TextEdit.PlainText);
+        compare(texte.text, "<b>Plan</b> & suite");
+        compare(bulle.Accessible.name, "Hermes : <b>Plan</b> & suite");
+        verify(!enfantNomme(bulle, "bulle-indication").visible);
+    }
+
+    function test_bulle_en_cours_le_dit_par_le_texte() {
+        const bulle = createTemporaryObject(bulleComponent, testCase, { auteur: "Hermes", role: "assistant", enCours: true });
+        const indication = enfantNomme(bulle, "bulle-indication");
+        verify(indication.visible);
+        compare(indication.text, "Hermes écrit…");
+        const outil = createTemporaryObject(bulleComponent, testCase, { auteur: "Outil", role: "outil", enCours: true });
+        compare(enfantNomme(outil, "bulle-indication").text, "en cours");
+    }
+
+    function test_bulle_statut_et_avertissement() {
+        const bulle = createTemporaryObject(bulleComponent, testCase,
+                                            { auteur: "Vous", role: "utilisateur", texte: "Bonjour", statut: "Non envoyé",
+                                              avertissement: "Contexte presque plein" });
+        verify(bulle.deVous);
+        compare(enfantNomme(bulle, "bulle-statut").text, "Non envoyé");
+        compare(enfantNomme(bulle, "bulle-avertissement").text, "Avertissement : Contexte presque plein");
+        compare(bulle.Accessible.name, "Vous : Bonjour (Non envoyé)");
     }
 
     function test_carte_sans_pastille_et_avec_contenu() {

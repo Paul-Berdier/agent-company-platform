@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "models/JsonListModel.h"
 #include "viewmodels/PageViewModel.h"
 
 #include <QJsonArray>
@@ -26,7 +27,6 @@ namespace acp {
 
 class ApiClient;
 class ClientGreffonPoste;
-class JsonListModel;
 class Sondage;
 
 class AccueilViewModel : public PageViewModel

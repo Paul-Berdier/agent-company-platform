@@ -8,6 +8,7 @@
 #include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
 #include "events/EventStreamService.h"
+#include "gateway/DemandesAgent.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
@@ -19,6 +20,7 @@
 #include "system/SystemAppearance.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiagnosticsViewModel.h"
+#include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/ShellViewModel.h"
@@ -97,6 +99,9 @@ Application::Application(QObject *parent)
     m_accueil = new AccueilViewModel(m_client, m_greffon.get(), m_flux, this);
     m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
+    // Demandes de l'agent (approval, clarify) et discussion : sur la passerelle JSON-RPC.
+    m_demandes = new DemandesAgent(m_passerelle, this);
+    m_discussion = new DiscussionViewModel(m_passerelle, m_flux, this);
     // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
     connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
     connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
@@ -174,6 +179,8 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Accueil", m_accueil);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Questions", m_questions);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Demandes", m_demandes);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Discussion", m_discussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
@@ -285,6 +292,30 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Ctrl+4"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("questions"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.chat"), QStringLiteral("Discuter avec Hermes"),
+        QStringLiteral("Navigation"), {QStringLiteral("discussion"), QStringLiteral("chat"), QStringLiteral("hermes")},
+        QStringLiteral("Ctrl+5"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("chat"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("chat.new"), QStringLiteral("Nouvelle discussion avec Hermes"),
+        QStringLiteral("Discussion"), {QStringLiteral("nouvelle"), QStringLiteral("session")}, QString(),
+        [this](const CommandContext &context) {
+            if (!context.sessionConnected) {
+                return CommandAvailability::NeedsSession;
+            }
+            return m_discussion->passerellePrete() ? CommandAvailability::Available : CommandAvailability::Offline;
+        },
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("chat"));
+            m_discussion->nouvelle();
             return CommandResult::accept();
         }});
 

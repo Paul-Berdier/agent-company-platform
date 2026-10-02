@@ -168,6 +168,8 @@ set(ACP_CORE_SOURCES
     src/events/SseParser.h
     src/events/VeilleKanban.cpp
     src/events/VeilleKanban.h
+    src/gateway/DemandesAgent.cpp
+    src/gateway/DemandesAgent.h
     src/gateway/GatewayClient.cpp
     src/gateway/GatewayClient.h
     src/gateway/JsonRpcChannel.cpp
@@ -193,6 +195,8 @@ set(ACP_CORE_SOURCES
     src/viewmodels/AccueilViewModel.cpp
     src/viewmodels/AccueilViewModel.h
     src/viewmodels/DiagnosticsViewModel.cpp
+    src/viewmodels/DiscussionViewModel.cpp
+    src/viewmodels/DiscussionViewModel.h
     src/viewmodels/DiagnosticsViewModel.h
     src/viewmodels/Libelles.cpp
     src/viewmodels/Libelles.h

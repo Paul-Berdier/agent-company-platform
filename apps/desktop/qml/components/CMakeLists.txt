@@ -6,6 +6,7 @@ acp_add_qml_module(
     QML_FILES
         BandeauMessage.qml
         BlocTexte.qml
+        BulleMessage.qml
         Carte.qml
         EmptyState.qml
         EtatLecture.qml

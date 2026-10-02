@@ -23,6 +23,7 @@ Rectangle {
             case "home": return homeComponent;
             case "projects": return projectsComponent;
             case "questions": return questionsComponent;
+            case "chat": return discussionComponent;
             case "diagnostics": return diagnosticsComponent;
             case "settings": return settingsComponent;
             default: return unknownComponent;
@@ -33,6 +34,7 @@ Rectangle {
     Component { id: homeComponent; HomePage {} }
     Component { id: projectsComponent; ProjectsPage {} }
     Component { id: questionsComponent; QuestionsPage {} }
+    Component { id: discussionComponent; DiscussionPage {} }
     Component { id: diagnosticsComponent; DiagnosticsPage {} }
     Component { id: settingsComponent; SettingsPage {} }
 

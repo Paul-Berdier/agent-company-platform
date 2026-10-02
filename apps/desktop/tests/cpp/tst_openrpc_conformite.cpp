@@ -69,6 +69,7 @@ private slots:
     void requetesServeurGereesPresentes();
     void notificationsTraiteesPresentes();
     void champsLusEtEnvoyes();
+    void champsDeLaDiscussion();
     void battementHorsContrat();
 };
 
@@ -136,6 +137,60 @@ void TestOpenRpcConformite::champsLusEtEnvoyes()
     const QJsonObject pret = schema(racine, QStringLiteral("GatewayReadyPayload"));
     QVERIFY(requis(pret).contains(QStringLiteral("replay_epoch")));
     QVERIFY(proprietes(pret).contains(QStringLiteral("heartbeat")));
+}
+
+void TestOpenRpcConformite::champsDeLaDiscussion()
+{
+    // Champs que DiscussionViewModel et DemandesAgent envoient ou lisent : présents dans le
+    // contrat épinglé, sinon une montée de version de Hermes casserait la discussion en silence.
+    const QJsonObject racine = contrat();
+    const auto exiger = [&racine](const char *nomSchema, std::initializer_list<const char *> champs) {
+        const QSet<QString> presentes = proprietes(schema(racine, QString::fromLatin1(nomSchema)));
+        for (const char *champ : champs) {
+            QVERIFY2(presentes.contains(QString::fromLatin1(champ)),
+                     qPrintable(QStringLiteral("%1.%2").arg(QString::fromLatin1(nomSchema), QString::fromLatin1(champ))));
+        }
+    };
+    exiger("SessionListParams", {"limit"});
+    exiger("SessionListResult", {"sessions"});
+    exiger("SessionListRow", {"id", "title", "preview", "started_at", "message_count", "source"});
+    exiger("SessionResumeParams", {"session_id"});
+    exiger("SessionResumeResult", {"session_id", "messages", "info", "running", "inflight", "stored_session_id"});
+    exiger("SessionCreateResult", {"session_id", "stored_session_id", "messages", "info"});
+    exiger("SessionLiveInfo", {"title"});
+    exiger("TranscriptMessage", {"role", "text", "timestamp", "name"});
+    exiger("InflightTurn", {"assistant"});
+    exiger("PromptSubmitParams", {"session_id", "text"});
+    exiger("PromptSubmitResult", {"status"});
+    exiger("SessionInterruptParams", {"session_id"});
+    exiger("SessionCloseParams", {"session_id"});
+    exiger("StreamDeltaPayload", {"text"});
+    exiger("MessageCompletePayload", {"text", "status", "warning", "error", "failure_reason"});
+    exiger("ToolStartPayload", {"tool_id", "name"});
+    exiger("ToolCompletePayload", {"tool_id", "name", "summary", "duration_s"});
+    exiger("StatusUpdatePayload", {"text"});
+    exiger("ErrorPayload", {"message"});
+    exiger("NoticePayload", {"message"});
+    exiger("SessionTitlePayload", {"session_id", "title"});
+    exiger("RequestCancelPayload", {"id", "reason"});
+    exiger("ApprovalRequestParams", {"session_id", "command", "description", "choices", "tool_name"});
+    exiger("ApprovalResult", {"choice"});
+    exiger("ClarifyRequestParams", {"session_id", "question", "choices", "multi_select", "questions", "answers"});
+    exiger("ClarifyQuestion", {"qid", "question", "choices", "multi_select"});
+    exiger("ClarifyResult", {"answer", "answers"});
+    // Valeurs énumérées interprétées par la station.
+    QJsonArray statuts = schema(racine, QStringLiteral("PromptSubmitStatus")).value(QStringLiteral("enum")).toArray();
+    for (const char *statut : {"streaming", "queued", "steered", "redirected"}) {
+        QVERIFY2(statuts.contains(QString::fromLatin1(statut)), statut);
+    }
+    statuts = schema(racine, QStringLiteral("TurnStatus")).value(QStringLiteral("enum")).toArray();
+    for (const char *statut : {"complete", "error", "interrupted"}) {
+        QVERIFY2(statuts.contains(QString::fromLatin1(statut)), statut);
+    }
+    const QJsonArray choix = schema(racine, QStringLiteral("ApprovalChoice")).value(QStringLiteral("enum")).toArray();
+    for (const char *valeur : {"once", "session", "always", "deny"}) {
+        QVERIFY2(choix.contains(QString::fromLatin1(valeur)), valeur);
+    }
 }
 
 void TestOpenRpcConformite::battementHorsContrat()

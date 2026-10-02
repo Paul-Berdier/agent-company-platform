@@ -21,7 +21,9 @@ class ClientGreffonPoste;
 class CompatibiliteHermes;
 class CommandRegistry;
 class CredentialVault;
+class DemandesAgent;
 class DiagnosticsViewModel;
+class DiscussionViewModel;
 class EventStreamService;
 class GatewayClient;
 class HealthService;
@@ -85,6 +87,8 @@ private:
     AccueilViewModel *m_accueil = nullptr;
     ProjetsViewModel *m_projets = nullptr;
     QuestionsViewModel *m_questions = nullptr;
+    DemandesAgent *m_demandes = nullptr;
+    DiscussionViewModel *m_discussion = nullptr;
     UpdateService *m_updates = nullptr;
 };
 

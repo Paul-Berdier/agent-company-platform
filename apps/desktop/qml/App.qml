@@ -81,6 +81,10 @@ ApplicationWindow {
         onActivated: Commands.execute("navigation.questions")
     }
     Shortcut {
+        sequence: "Ctrl+5"
+        onActivated: Commands.execute("navigation.chat")
+    }
+    Shortcut {
         sequence: "Ctrl+R"
         onActivated: Commands.execute("connection.probe")
     }

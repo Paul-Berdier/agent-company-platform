@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QVariantMap>
 
 namespace acp {
@@ -21,6 +22,11 @@ public:
     Q_INVOKABLE QVariantMap get(int index) const;
     void setItems(const QJsonArray &items);
     void clear() { setItems({}); }
+    //! Ajoute une ligne à la fin (insertion signalée, sans réinitialiser le modèle).
+    void appendItem(const QJsonObject &item);
+    //! Remplace une ligne existante (changement signalé) ; sans effet hors bornes.
+    void setItem(int index, const QJsonObject &item);
+    [[nodiscard]] QJsonObject itemAt(int index) const;
 signals:
     void countChanged();
 private:

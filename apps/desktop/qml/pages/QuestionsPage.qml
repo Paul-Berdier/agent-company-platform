@@ -169,6 +169,30 @@ Item {
                 }
             }
 
+            // --- Demandes de vos discussions (approval, clarify) ---------------------------------------
+            Carte {
+                objectName: "questions-demandes"
+                Layout.fillWidth: true
+                titre: qsTr("Demandes de vos discussions")
+                sousTitre: qsTr("Autorisations et précisions demandées par Hermes dans les discussions ouvertes sur ce "
+                                + "poste. Non durables : elles disparaissent si Hermes est redéployé. Les demandes des "
+                                + "autres sessions de Hermes ne sont pas disponibles sur ce serveur (étape P7).")
+                BandeauMessage {
+                    Layout.fillWidth: true
+                    message: Demandes.message
+                    erreur: Demandes.erreur
+                }
+                Discret { visible: Demandes.nombre === 0; text: qsTr("Aucune demande en attente.") }
+                Repeater {
+                    model: Demandes.demandes
+                    delegate: CarteDemande {
+                        required property var item
+                        Layout.fillWidth: true
+                        demande: item
+                    }
+                }
+            }
+
             // --- Cartes en triage ---------------------------------------------------------------------
             Carte {
                 objectName: "questions-triage"
