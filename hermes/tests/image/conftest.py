@@ -344,8 +344,8 @@ def noyau(tmp_path, monkeypatch):
     for nom in _VARIABLES_KANBAN + ("HERMES_DASHBOARD_PUBLIC_URL",):
         monkeypatch.delenv(nom, raising=False)
     monkeypatch.setenv("HERMES_HOME", str(home))
-    from noyau import (attentes, base, cartes, emetteur, etrangeres, execution, graphe, inventaire, invite, machines,
-                       notifications, ordres, outils, presence, projets, questions, quotas, routage, textes)
+    from noyau import (attentes, base, bilan, cartes, emetteur, etrangeres, execution, graphe, inventaire, invite,
+                       machines, notifications, ordres, outils, presence, projets, questions, quotas, routage, textes)
     from noyau import kanban_adapter as ka
 
     base.fixer_horloge(None)
@@ -355,7 +355,9 @@ def noyau(tmp_path, monkeypatch):
                           presence=presence, projets=projets, questions=questions, routage=routage, textes=textes,
                           ka=ka, machines=machines, ordres=ordres, inventaire=inventaire, quotas=quotas,
                           # Étape P6.
-                          execution=execution, attentes=attentes)
+                          execution=execution, attentes=attentes,
+                          # Étape P7.
+                          bilan=bilan)
     base.fixer_horloge(None)
     emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
 

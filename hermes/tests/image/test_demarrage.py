@@ -542,12 +542,13 @@ NOUVELLES_INTERDITES = (
 )
 
 
-def test_la_managed_scope_compte_57_cles_et_38_variables(chemins, valeurs):
+def test_la_managed_scope_compte_58_cles_et_38_variables(chemins, valeurs):
     # 40 clés en P2 ; P3 ajoute dashboard.font et dashboard.hidden_plugins, puis les huit épingles
     # du serveur MCP context7 (mcp_servers.context7.*) ; P4 ajoute cinq épingles du kanban et
-    # known_plugin_toolsets.api_server et .cron.
+    # known_plugin_toolsets.api_server et .cron ; P7 ajoute le fuseau (timezone).
     resume = ad.installer_scope_geree(chemins, valeurs)
-    assert len(resume["cles_config"]) == 57, resume["cles_config"]
+    assert len(resume["cles_config"]) == 58, resume["cles_config"]
+    assert "timezone" in resume["cles_config"]
     assert {"kanban.dispatch_in_gateway", "kanban.max_in_progress", "kanban.max_in_progress_per_profile",
             "kanban.review_dispatch", "kanban.failure_limit", "known_plugin_toolsets.api_server",
             "known_plugin_toolsets.cron"} <= set(resume["cles_config"])
@@ -730,14 +731,127 @@ def test_hooks_et_scripts_du_volume(chemins, valeurs, repertoire):
         st = os.lstat(chemins.hermes_home / nom)
         assert st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o755, nom
         assert _comme_hermes("touch", str(chemins.hermes_home / nom / "intrus")).returncode != 0
-    # Schéma 2 en P2 ; 3 depuis P3 (bloc catalogue ajouté, rien de retiré).
-    assert etat["schema"] == 3 and etat["deploiement"] == {"commit": "0123abc"}
+    # Schéma 2 en P2 ; 3 depuis P3 (bloc catalogue ajouté, rien de retiré) ; 4 depuis P7 (script du bilan).
+    assert etat["schema"] == 4 and etat["deploiement"] == {"commit": "0123abc"}
     assert etat["repertoires_executes"]["hooks"]["vide"] is True
     # Un lien symbolique à la place du répertoire est refusé.
     shutil.rmtree(racine)
     racine.symlink_to("/tmp")
     with pytest.raises(ad.Refus, match="lien symbolique"):
         ad.refuser_repertoires_executes(chemins)
+
+
+# ------------------------------------------------------------------ script du bilan quotidien (étape P7, K1)
+
+LIVRE = Path("/opt/acp/scripts/acp-bilan.py")
+
+
+def _sha(contenu: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(contenu).hexdigest()
+
+
+def test_la_copie_de_l_image_a_une_empreinte_admise(chemins):
+    st = os.lstat(LIVRE)
+    assert stat.S_ISREG(st.st_mode) and (st.st_uid, stat.S_IMODE(st.st_mode)) == (0, 0o644)
+    assert ad.empreinte_script_bilan_livre(chemins) == _sha(LIVRE.read_bytes())
+    assert _sha(LIVRE.read_bytes()) in ad.EMPREINTES_BILAN_ADMISES
+
+
+def test_une_copie_de_l_image_inconnue_fait_echouer_la_construction(chemins, tmp_path):
+    import dataclasses
+
+    autre = tmp_path / "acp-bilan.py"
+    autre.write_bytes(LIVRE.read_bytes() + b"# un octet de plus\n")
+    modifie = dataclasses.replace(chemins, script_bilan_livre=autre)
+    with pytest.raises(ad.Refus, match="absente de EMPREINTES_BILAN_ADMISES"):
+        ad.commande_construire(modifie)
+    with pytest.raises(ad.Refus, match="absent de l'image"):
+        ad.empreinte_script_bilan_livre(dataclasses.replace(chemins, script_bilan_livre=tmp_path / "absent.py"))
+
+
+def test_le_bilan_depose_passe_le_demarrage_suivant(chemins, valeurs, capsys, env_valide):
+    """Correction K1 : sans l'élargissement de la garde, le fichier déposé au premier démarrage ferait refuser TOUT
+    démarrage suivant (un redéploiement). Premier démarrage : dépôt root 0644 ; second : admis par son empreinte."""
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    etat = ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    depose = chemins.hermes_home / "scripts" / "acp-bilan.py"
+    st = os.lstat(depose)
+    assert stat.S_ISREG(st.st_mode) and (st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode)) == (0, 0, 0o644)
+    assert depose.read_bytes() == LIVRE.read_bytes()
+    assert etat["schema"] == 4 and etat["bilan_depose"] == _sha(depose.read_bytes())
+    assert etat["repertoires_executes"]["scripts"] == {"vide": False, "entrees_admises": ["acp-bilan.py"],
+                                                      "proprietaire": "root", "mode": "0755"}
+    assert sorted(os.listdir(chemins.hermes_home / "scripts")) == ["acp-bilan.py"]  # aucun fichier temporaire
+    assert _comme_hermes("sh", "-c", f"echo x >> {depose}").returncode != 0  # l'agent ne le modifie pas
+    # Second démarrage sur le même volume : les gardes (crochet, puis 05-acp) l'admettent par son empreinte.
+    assert ad.problemes_repertoires_executes(chemins) == []
+    ad.commande_gardes(chemins, env_valide)
+    assert "inspectés : vides (hors acp-bilan.py, admis par son empreinte)." in capsys.readouterr().out
+    encore = ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert encore["bilan_depose"] == etat["bilan_depose"]
+
+
+@pytest.mark.parametrize("piege, motif", [
+    ("octet", "a l'empreinte "),
+    ("lien", "n'est pas un fichier ordinaire"),
+    ("mode", "a le mode 0666 (0644 attendu)"),
+    ("proprietaire", "appartient à 10000:10000 (root:root attendu)"),
+])
+def test_un_bilan_altere_est_refuse_sans_rien_ecrire(chemins, valeurs, piege, motif):
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    depose = chemins.hermes_home / "scripts" / "acp-bilan.py"
+    if piege == "octet":
+        depose.write_bytes(depose.read_bytes().replace(b"bilan enfil", b"bilan ENFIL", 1))
+    elif piege == "lien":
+        depose.unlink()
+        depose.symlink_to(LIVRE)  # même contenu, mais par un lien
+    elif piege == "mode":
+        os.chmod(depose, 0o666)
+    else:
+        os.chown(depose, UID_HERMES, UID_HERMES)
+    avant = _empreinte_arbre(chemins.hermes_home)
+    with pytest.raises(ad.Refus, match=re.escape(f"{depose} {motif}")):
+        ad.refuser_repertoires_executes(chemins)
+    with pytest.raises(ad.Refus, match="seul le script du bilan quotidien livré par l'image est admis"):
+        ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    assert _empreinte_arbre(chemins.hermes_home) == avant  # refus AVANT toute écriture
+
+
+def test_le_bilan_n_ouvre_pas_la_porte_aux_autres_fichiers(chemins, valeurs):
+    scope = ad.preparer_scope_geree(chemins, valeurs)
+    ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
+    intrus = chemins.hermes_home / "scripts" / "tache.py"
+    _ecrire(intrus, "print('cron')\n")
+    problemes = ad.problemes_repertoires_executes(chemins)
+    assert len(problemes) == 1 and "n'est pas vide (« tache.py »)" in problemes[0], problemes
+    intrus.unlink()
+    # Le même fichier, octet pour octet, dans le scripts/ d'un PROFIL : refus inchangé.
+    profil = chemins.hermes_home / "profiles" / "intrus"
+    _ecrire(profil / "SOUL.md", "profil\n")
+    (profil / "scripts").mkdir()
+    (profil / "scripts" / "acp-bilan.py").write_bytes(LIVRE.read_bytes())
+    os.chmod(profil / "scripts" / "acp-bilan.py", 0o644)
+    with pytest.raises(ad.Refus, match=re.escape(f"{profil / 'scripts'} n'est pas vide (« acp-bilan.py »)")):
+        ad.refuser_repertoires_executes(chemins)
+
+
+def test_diagnostic_n_admet_que_la_tache_du_bilan_sans_agent(chemins):
+    taches = {"jobs": [
+        {"id": "bilan", "name": "Bilan ACP", "schedule": "0 8 * * *", "script": "acp-bilan.py", "no_agent": True},
+        {"id": "bilan-agent", "schedule": "0 9 * * *", "script": "acp-bilan.py", "no_agent": False},
+        {"id": "bilan-surveille", "schedule": "0 9 * * *", "script": "acp-bilan.py", "no_agent": True,
+         "monitor_script": "veille.py"},
+        {"id": "autre", "schedule": "1m", "script": "autre.py", "no_agent": True}]}
+    _ecrire(chemins.hermes_home / "cron" / "jobs.json", json.dumps(taches))
+    _ecrire(chemins.hermes_home / "profiles" / "coder" / "SOUL.md", "x\n")
+    _ecrire(chemins.hermes_home / "profiles" / "coder" / "cron" / "jobs.json", json.dumps({"jobs": [
+        {"id": "bilan-profil", "schedule": "0 8 * * *", "script": "acp-bilan.py", "no_agent": True}]}))
+    constats = ad.taches_cron_a_script(chemins)
+    signalees = sorted({c.split("la tâche cron « ")[1].split(" »")[0] for c in constats})
+    assert signalees == ["autre", "bilan-agent", "bilan-profil", "bilan-surveille"], constats
 
 
 @pytest.mark.parametrize("relatif", ["hooks/intrus/handler.py", "scripts/tache.py"])
@@ -828,7 +942,7 @@ def test_journal_commit_deploye(chemins, env_valide, capsys, sha, affiche):
     ad.commande_gardes(chemins, env_valide)
     sortie = capsys.readouterr().out
     assert f"[acp] commit déployé : {affiche}\n" in sortie
-    assert "managed scope régénérée : 57 clés de configuration et 38 variables" in sortie
+    assert "managed scope régénérée : 58 clés de configuration et 38 variables" in sortie
     assert "hooks et " in sortie and "inspectés : vides." in sortie
 
 

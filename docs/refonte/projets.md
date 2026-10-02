@@ -233,6 +233,21 @@ l'**envoi**, dans la passerelle (correction K3) : une ligne enfilée par un sous
 part telle quelle ; sans URL publique valide, la notification part sans lien (jamais une adresse inventée). La vue
 Questions fait défiler jusqu'à la cible et la met en évidence ; une cible déjà traitée le dit.
 
+**Bilan quotidien facultatif (étape P7, cahier P7 § 7, décision P7-6).** Une tâche cron **native** de Hermes en mode
+`no_agent` (aucun modèle, aucun jeton) lance chaque jour le script de l'image `acp-bilan.py`, déposé par root dans
+`/opt/data/scripts/` (garde de démarrage élargie à ce seul fichier, d'empreinte connue : [image.md](image.md) § 6). Seul
+le **propriétaire** crée la tâche, avec sa session, par la page Cron native ou la route native `POST /api/cron/jobs`
+(`{"name": "Bilan ACP", "schedule": "0 8 * * *", "prompt": "", "no_agent": true, "script": "acp-bilan.py",
+"deliver": "local"}`) ; l'agent ne le peut pas (`cronjob` coupé) et le jeu
+`acp_poste` reste coupé sur la plateforme `cron` (D24) : un cron ne peut pas lancer de projet. Le fuseau de Hermes est
+épinglé à `Europe/Paris` (clé `timezone` de la managed scope) : 8 h veut dire 8 h à Paris. Le script n'accepte aucune
+entrée (arguments, entrée standard et environnement ignorés, sauf `HERMES_HOME`), charge le noyau comme le tableau de
+bord et enfile UNE notification `bilan:<AAAA-MM-JJ>` (jour de Paris : deux exécutions le même jour n'en font qu'une),
+**compteurs seulement**, même quand rien n'a bougé : « ACP — Bilan du 02/10 : 2 projets en cours (5 cartes faites sur
+12), 1 question et 1 décision pour vous, exécutant en ligne. » Aucun titre de carte ni question ; ce qui ne se lit pas
+est dit « inconnu ». Canal absent : la ligne passe `desactivee`. Limite (correction K22) : l'envoi part du fil de la
+passerelle ; après un redémarrage pendant une pause générale, le bilan reste en file jusqu'à la reprise.
+
 Règles : `blocked` (hors `dependency`) → « bloquée » ; `block_loop_detected` → triage ; `gave_up` →
 abandon ; synthèse du tour courant finie sans carte ouverte → « terminé » (une fois) ; question escaladée ;
 poste hors ligne (une fois par passage) ; plafond atteint (une fois par valeur du plafond : une prolongation

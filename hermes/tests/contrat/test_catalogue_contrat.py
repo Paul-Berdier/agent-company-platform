@@ -96,7 +96,7 @@ def test_05_acp_a_ecrit_les_reglages_de_skills(pile):
     assert config["mcp_servers"] == {"context7": {}}
     # Le reste vient du volume (modèle factice) et de la graine de l'image : rien d'autre n'est imposé.
     assert config["model"]["base_url"] == "http://127.0.0.1:18080/v1"
-    assert etat["schema"] == 3 and etat["catalogue"]["reglages_skills"]["etat"] in ("applique", "cree")
+    assert etat["schema"] == 4 and etat["catalogue"]["reglages_skills"]["etat"] in ("applique", "cree")
     assert etat["catalogue"]["serveurs_mcp_admis"] == ["context7"]
     proprietaire = pile.sh("stat -c '%U:%G %a' /opt/data/config.yaml", verifier=True).stdout.strip()
     assert proprietaire == "hermes:hermes 640"

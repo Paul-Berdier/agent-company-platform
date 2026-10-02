@@ -490,3 +490,15 @@ BLOC_ILLISIBLE = "Bloc illisible ({type}) : rechargez la page ; si l'erreur rest
 
 # Flux d'invalidation (cahier P7 § 5.2) : au-delà de ``flux_max`` flux simultanés.
 TROP_DE_FLUX = "Trop de pages ouvertes en temps réel : fermez-en une ou attendez."
+
+# Bilan quotidien (cahier P7 § 7, décision P7-6) : compteurs seulement, jamais un titre de carte ni une question.
+NOTIF_BILAN = "ACP — Bilan du {jour} : {projets}, {demandes}, {executant}. {lien}"
+BILAN_AUCUN_PROJET = "aucun projet en cours"
+BILAN_PROJETS_INCONNUS = "projets : état inconnu"
+BILAN_DEMANDES_INCONNUES = "demandes en attente : état inconnu"
+BILAN_RIEN_POUR_VOUS = "rien n'attend votre décision"
+BILAN_EXECUTANT_INCONNU = "état de l'exécutant inconnu"
+BILAN_EXECUTANT_HORS_LIGNE_DEPUIS = "exécutant hors ligne depuis {heure}"
+BILAN_EXECUTANT = {"en_ligne": "exécutant en ligne", "hors_ligne": "exécutant hors ligne",
+                   "redeploiement": "exécutant en redéploiement", "non_configure": "exécutant non configuré",
+                   "a_confirmer": "exécutant à confirmer", "revoque": "exécutant révoqué"}

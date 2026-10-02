@@ -43,6 +43,10 @@ COPY skills/ /opt/acp/skills/
 COPY catalogue/ /opt/acp/catalogue/
 COPY THIRD_PARTY.md /opt/acp/THIRD_PARTY.md
 COPY image/acp_demarrage.py image/acp-gardes image/acp-run-dashboard image/acp-entree /opt/acp/bin/
+# Étape P7 : script du bilan quotidien (tâche cron « no_agent » créée par le propriétaire). 05-acp le RECOPIE à chaque
+# démarrage dans /opt/data/scripts (root, 0644) ; les gardes n'admettent dans ce répertoire que ce fichier, d'empreinte
+# connue (acp_demarrage.py, EMPREINTES_BILAN_ADMISES, vérifiée dès la construction ci-dessous).
+COPY image/scripts/acp-bilan.py /opt/acp/scripts/acp-bilan.py
 # Greffon groupé : /opt/hermes/plugins est la source « bundled » de Hermes
 # (hermes_cli/plugins.py:68-75), en lecture seule pour l'agent.
 COPY plugins/acp-poste/ /opt/hermes/plugins/acp-poste/

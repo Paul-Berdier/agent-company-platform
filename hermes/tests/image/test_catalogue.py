@@ -312,7 +312,7 @@ def test_reglages_lien_symbolique_refuse(chemins, tmp_path):
 def test_preparer_donnees_ecrit_les_reglages_et_l_etat(chemins, valeurs):
     scope = ad.preparer_scope_geree(chemins, valeurs)
     etat = ad.preparer_donnees(chemins, scope, uid=UID_HERMES, gid=UID_HERMES)
-    assert etat["schema"] == 3
+    assert etat["schema"] == 4  # 3 depuis P3, 4 depuis P7 (script du bilan)
     bloc = etat["catalogue"]
     assert bloc["reglages_skills"]["etat"] == "cree"
     assert bloc["racine_skills"] == "/opt/acp/skills" and bloc["serveurs_mcp_admis"] == ["context7"]
