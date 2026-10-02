@@ -344,6 +344,10 @@ void TestProjets::resumeEntierPauseRepriseEtKanban()
     QCOMPARE(banc.ouvertes.size(), 1);
     QCOMPARE(banc.ouvertes.first(), QUrl(banc.serveur.url().toString() + QStringLiteral("/kanban")));
     QVERIFY(banc.projets.messageGeste().contains(QStringLiteral("acp-outil-3dd5")));
+    // Constat de relecture P8 : derrière un sous-chemin, le lien gardait la racine du domaine.
+    QVERIFY(!banc.client.setBaseUrl(QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes/"))).isError());
+    QVERIFY(banc.projets.ouvrirKanban());
+    QCOMPARE(banc.ouvertes.last(), QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes/kanban")));
 }
 
 void TestProjets::formulaireSansInventaireOuPosteIllisible()

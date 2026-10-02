@@ -7,6 +7,7 @@
 #include "viewmodels/Libelles.h"
 
 #include <QDesktopServices>
+#include <QUrlQuery>
 
 #include <algorithm>
 #include <cmath>
@@ -558,14 +559,15 @@ void RoutageViewModel::desactiverSurcharge(const QString &identifiant)
 
 bool RoutageViewModel::modifierDansLeNavigateur()
 {
-    QUrl url = m_client->baseUrl();
+    // Page Poste du tableau de bord, vue « routage » (apps/interface/src/poste/vue.ts), sous le
+    // préfixe éventuel du serveur, comme l'API (ApiClient::resolve).
+    QUrlQuery vue;
+    vue.addQueryItem(QStringLiteral("vue"), QStringLiteral("routage"));
+    const QUrl url = m_client->resolve(QStringLiteral("/poste"), vue);
     if (url.isEmpty()) {
         echouerGeste(QStringLiteral("Aucune adresse de serveur n'est configurée."));
         return false;
     }
-    // Page Poste du tableau de bord, vue « routage » (apps/interface/src/poste/vue.ts).
-    url.setPath(QStringLiteral("/poste"));
-    url.setQuery(QStringLiteral("vue=routage"));
     if (!m_ouvreur || !m_ouvreur(url)) {
         echouerGeste(QStringLiteral("Le navigateur du système n'a pas pu être ouvert : %1").arg(url.toString()));
         return false;

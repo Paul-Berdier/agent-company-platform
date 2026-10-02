@@ -583,12 +583,12 @@ void ProjetsViewModel::reprendre()
 
 bool ProjetsViewModel::ouvrirKanban()
 {
-    QUrl url = m_client->baseUrl();
+    // Sous le préfixe éventuel du serveur, comme l'API (ApiClient::resolve).
+    const QUrl url = m_client->resolve(QStringLiteral("/kanban"));
     if (url.isEmpty()) {
         echouerGeste(QStringLiteral("Aucune adresse de serveur n'est configurée."));
         return false;
     }
-    url.setPath(QStringLiteral("/kanban"));
     if (!m_ouvreur || !m_ouvreur(url)) {
         echouerGeste(QStringLiteral("Le navigateur du système n'a pas pu être ouvert : %1").arg(url.toString()));
         return false;

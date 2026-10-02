@@ -405,6 +405,11 @@ void TestRoutage::modifierDansLeNavigateur()
     QCOMPARE(banc.ouvertes.first().path(), QStringLiteral("/poste"));
     QCOMPARE(banc.ouvertes.first().query(), QStringLiteral("vue=routage"));
     QCOMPARE(banc.ouvertes.first().host(), QStringLiteral("127.0.0.1"));
+    // Constat de relecture P8 : derrière un sous-chemin, le lien gardait la racine du domaine.
+    QVERIFY(!banc.client.setBaseUrl(QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes"))).isError());
+    QVERIFY(banc.routage.modifierDansLeNavigateur());
+    QCOMPARE(banc.ouvertes.last().path(), QStringLiteral("/hermes/poste"));
+    QCOMPARE(banc.ouvertes.last().query(), QStringLiteral("vue=routage"));
 }
 
 QTEST_MAIN(TestRoutage)

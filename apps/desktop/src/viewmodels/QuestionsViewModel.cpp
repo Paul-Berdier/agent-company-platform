@@ -8,6 +8,7 @@
 #include "viewmodels/Libelles.h"
 
 #include <QDesktopServices>
+#include <QUrlQuery>
 
 namespace acp {
 
@@ -374,14 +375,15 @@ void QuestionsViewModel::agirTriage(const QString &tableau, const QString &carte
 
 bool QuestionsViewModel::traiterDansLeNavigateur()
 {
-    QUrl url = m_client->baseUrl();
+    // Page Projets du tableau de bord, vue « questions » (apps/interface/src/projets/vue.ts),
+    // sous le préfixe éventuel du serveur, comme l'API (ApiClient::resolve).
+    QUrlQuery vue;
+    vue.addQueryItem(QStringLiteral("vue"), QStringLiteral("questions"));
+    const QUrl url = m_client->resolve(QStringLiteral("/projets"), vue);
     if (url.isEmpty()) {
         echouerGeste(QStringLiteral("Aucune adresse de serveur n'est configurée."));
         return false;
     }
-    // Page Projets du tableau de bord, vue « questions » (apps/interface/src/projets/vue.ts).
-    url.setPath(QStringLiteral("/projets"));
-    url.setQuery(QStringLiteral("vue=questions"));
     if (!m_ouvreur || !m_ouvreur(url)) {
         echouerGeste(QStringLiteral("Le navigateur du système n'a pas pu être ouvert : %1").arg(url.toString()));
         return false;

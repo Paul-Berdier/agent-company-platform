@@ -341,6 +341,10 @@ void TestQuestions::revuesTraiteesDansLeNavigateur()
     QVERIFY(banc.questions.traiterDansLeNavigateur());
     QCOMPARE(banc.ouvertes.size(), 1);
     QCOMPARE(banc.ouvertes.first(), QUrl(banc.serveur.url().toString() + QStringLiteral("/projets?vue=questions")));
+    // Constat de relecture P8 : derrière un sous-chemin, le lien gardait la racine du domaine.
+    QVERIFY(!banc.client.setBaseUrl(QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes"))).isError());
+    QVERIFY(banc.questions.traiterDansLeNavigateur());
+    QCOMPARE(banc.ouvertes.last(), QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes/projets?vue=questions")));
 }
 
 QTEST_MAIN(TestQuestions)
