@@ -210,7 +210,7 @@ describe("relecture de P4 : questions et décisions", () => {
     const zone = r.racine.querySelector("#acp-questions-triage")?.parentElement as HTMLElement;
     const noms = [...zone.querySelectorAll("button")].map((b) => b.textContent);
     expect(noms).toEqual(["Relancer la planification", "Conclure le projet", "Conclure le projet"]);
-    expect(texteDe(zone)).toContain("Prolonger le plafond de corrections arrivera à l'étape P6.");
+    expect(texteDe(zone)).toContain("Le plafond de corrections ne se prolonge pas : la relecture qui l'a atteint est close ; concluez depuis cette carte.");
     await soumettre(r.racine.querySelector("#acp-consigne-t_1")?.closest("form"));
     expect(texteDe(zone)).toContain("La carte n'a pas été reprise (voir le kanban de Hermes).");
     expect(texteDe(zone)).not.toContain("Carte reprise");

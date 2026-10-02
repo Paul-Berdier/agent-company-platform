@@ -5,7 +5,11 @@ d'une source officielle relevée par un worker sur le poste du titulaire :
 
 - Codex : ``codex app-server`` (JSON-RPC), réponse de ``account/rateLimits/read`` ;
 - Claude Code : le fichier écrit par la ligne d'état, qui recopie
-  ``rate_limits.five_hour`` et ``rate_limits.seven_day`` reçus de Claude Code.
+  ``rate_limits.five_hour`` et ``rate_limits.seven_day`` reçus de Claude Code ;
+- Claude Code, étape P6 (exécutant Railway, sans session interactive ni ligne d'état) : le
+  ``rate_limit_event`` des exécutions ``claude -p`` (source ``claude_code_rate_limit_event``) ;
+  il décrit AU PLUS la fenêtre qui s'applique (clé = son type s'il est donné, sinon
+  ``sans_type``), jamais toutes : affichage « partiel » côté greffon.
 
 Une valeur que la source ne donne pas reste ``None`` et s'affiche « Inconnu ».
 L'usage d'un abonnement est personnel à son titulaire : l'API ne montre ces relevés
@@ -29,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from ._validation import ContratValide
 
 SubscriptionProvider = Literal["codex", "claude_code"]
-QuotaSource = Literal["codex_app_server", "claude_code_statusline"]
+QuotaSource = Literal["codex_app_server", "claude_code_statusline", "claude_code_rate_limit_event"]
 ProbeStatus = Literal["ok", "not_signed_in", "cli_missing", "cli_too_old", "unavailable"]
 
 SUBSCRIPTION_PROVIDERS: tuple[str, ...] = get_args(SubscriptionProvider)
@@ -39,6 +43,12 @@ QUOTA_SOURCE_BY_PROVIDER: dict[str, str] = {
     "codex": "codex_app_server",
     "claude_code": "claude_code_statusline",
 }
+"""Source PAR DÉFAUT de chaque fournisseur (celle du poste Windows de P5)."""
+QUOTA_SOURCES_BY_PROVIDER: dict[str, tuple[str, ...]] = {
+    "codex": ("codex_app_server",),
+    "claude_code": ("claude_code_statusline", "claude_code_rate_limit_event"),
+}
+"""Sources ADMISES par fournisseur (étape P6, cahier P6 § 7.3) : une source d'un autre fournisseur reste refusée."""
 
 QUOTA_WINDOW_KEY_MAX = 32
 QUOTA_WINDOW_MINUTES_MAX = 527_040
@@ -337,11 +347,11 @@ class _QuotaReportFields(_QuotaContract):
 
     @model_validator(mode="after")
     def _coherent(self):
-        expected_source = QUOTA_SOURCE_BY_PROVIDER[self.provider]
-        if self.source != expected_source:
+        admitted = QUOTA_SOURCES_BY_PROVIDER[self.provider]
+        if self.source not in admitted:
             raise ValueError(
                 f"« source » : le fournisseur {self.provider} se relève uniquement "
-                f"par {expected_source}"
+                f"par {' ou '.join(admitted)}"
             )
         keys = [window.key for window in self.windows]
         duplicated = sorted({key for key in keys if keys.count(key) > 1})

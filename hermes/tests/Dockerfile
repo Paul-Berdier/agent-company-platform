@@ -13,7 +13,8 @@
 #   tableau de bord fasse confiance au faux fournisseur d'identité idp.acp.test et au bord
 #   factice (hermes-acp.test, identite-acp.test) devant le vrai fournisseur Authelia, et
 #   (étape P3) au faux serveur context7 (mcp.context7.com, outils/mcp_factice.py) et (étape P4) au
-#   faux serveur ntfy (ntfy.acp.test, outils/notif_factice.py).
+#   faux serveur ntfy (ntfy.acp.test, outils/notif_factice.py) et (étape P6) au faux dépôt git distant
+#   (git.acp.test, outils/depot_factice.py) que clone l'exécutant du bout en bout.
 ARG IMAGE_ACP=acp-hermes:ci
 FROM ${IMAGE_ACP}
 
@@ -28,7 +29,7 @@ COPY outils/ /opt/acp-tests/outils/
 RUN set -eu; \
     /opt/hermes/.venv/bin/python -I -B /opt/acp-tests/outils/generer_ac_test.py /opt/acp-tests/ac; \
     chmod 0644 /opt/acp-tests/ac/idp.key /opt/acp-tests/ac/bord.key /opt/acp-tests/ac/mcp.key \
-        /opt/acp-tests/ac/ntfy.key; \
+        /opt/acp-tests/ac/ntfy.key /opt/acp-tests/ac/depot.key; \
     cp /opt/acp-tests/ac/ac.pem /usr/local/share/ca-certificates/acp-test-jetable.crt; \
     update-ca-certificates; \
     chown -R root:root /opt/acp-tests; \

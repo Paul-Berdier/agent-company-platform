@@ -166,6 +166,17 @@ def composer(conn, fiche: Dict[str, Any], tour: int, plan: Dict[str, Any]) -> Li
         commun = dict(projet_id=fiche["id"], tableau=fiche["tableau"], classe=e["classe"], tour=tour, ref=e["ref"],
                       depot_alias=fiche["depot_alias"], consigne=e["consigne"])
         libelle = LIBELLES_CLASSE.get(e["classe"], e["classe"])
+        if r.voie == ka.VOIE_INTEGRATION:
+            # Étape P6 (cahier P6 § 6.7) : fusion locale déterministe par l'exécutant, sans modèle ni relecture.
+            cle = _cle(fiche["id"], tour, f"{e['ref']}:integration")
+            demandes.append(dict(
+                commun, cle=cle, role="integration", voie=r.voie, titre=f"{libelle} — {e['ref']} : {e['titre']}",
+                modele=None, effort=None, palier=None, modele_carte=None, effort_carte=None,
+                source_routage=r.source_routage, releve_id=None, mention=r.mention, parents=parents, duree_max=3600,
+                corps=T.CONSIGNE_INTEGRATION.format(titre=fiche["titre"], branche="hermes/projet-…")
+                + f"\n\n## Consigne de l'étape\n{e['consigne']}"))
+            terminales[e["ref"]] = [cle]
+            continue
         if r.voie == "hermes":
             cle = _cle(fiche["id"], tour, f"{e['ref']}:hermes")
             demandes.append(dict(
@@ -188,7 +199,7 @@ def composer(conn, fiche: Dict[str, Any], tour: int, plan: Dict[str, Any]) -> Li
         terminales[e["ref"]] = [cle_impl]
         if e["relecture"]:
             rr = routage.resoudre_relecture(conn, projet=fiche, voie_relue=r.voie, ref=e["ref"],
-                                            modele=e["relecture_modele"])
+                                            modele=e["relecture_modele"], modele_relu=r.modele)
             cle_rel = _cle(fiche["id"], tour, f"{e['ref']}:relecture")
             demandes.append(dict(
                 commun, cle=cle_rel, role="relecture", classe="relecture", voie=rr.voie,
@@ -390,6 +401,10 @@ def planifier(conn, *, tableau: str, carte: str, resume: Any, decisions: Any, et
 
 
 # ------------------------------------------------------------------ corrections (préparées en P4, câblées en P6)
+#
+# Étape P6 : appelée par la route ``terminer`` de l'exécutant (relecture au verdict « corrections »). Rejouable pour UNE
+# même relecture : une correction déjà réservée pour elle est reprise telle quelle (mêmes clés, même rang), jamais une
+# seconde ; création, liens et ``complete_task`` sont eux-mêmes idempotents ou gardés par ``expected_run_id``.
 
 
 def inserer_correction(conn, *, tableau: str, carte_relecture: str, run_id_relecture: Optional[int], consigne: str,
@@ -420,12 +435,15 @@ def inserer_correction(conn, *, tableau: str, carte_relecture: str, run_id_relec
                             (fiche["id"], tour)).fetchone()
     if impl is None or synthese is None or not synthese["carte"]:
         raise refus("contexte", T.CORRECTION_CARTE.format(carte=carte_relecture))
-    n = conn.execute("SELECT COUNT(*) FROM demandes WHERE projet_id = ? AND tour = ? AND ref = ? AND role = 'correction'",
-                     (fiche["id"], tour, ref)).fetchone()[0] + 1
-    if n > int(fiche["plafond_corrections"]):
+    deja = conn.execute("SELECT correction_n FROM demandes WHERE projet_id = ? AND role = 'correction' AND carte_relue = ?",
+                        (fiche["id"], relecture["cle"])).fetchone()
+    n = int(deja[0]) if deja is not None else conn.execute(
+        "SELECT COUNT(*) FROM demandes WHERE projet_id = ? AND tour = ? AND ref = ? AND role = 'correction'",
+        (fiche["id"], tour, ref)).fetchone()[0] + 1
+    if deja is None and n > int(fiche["plafond_corrections"]):
         creer_triage_plafond(conn, fiche, "corrections", f"{fiche['plafond_corrections']} corrections pour « {ref} »")
         raise refus("plafond_corrections", T.CORRECTIONS_PLAFOND.format(n=fiche["plafond_corrections"], ref=ref))
-    if int(fiche["cartes_creees"]) + 2 > int(fiche["plafond_cartes"]):
+    if deja is None and int(fiche["cartes_creees"]) + 2 > int(fiche["plafond_cartes"]):
         creer_triage_plafond(conn, fiche, "cartes", f"{fiche['cartes_creees']} cartes créées")
         raise refus("plafond_cartes", T.PLAFOND_CARTES.format(k=2, m=fiche["cartes_creees"], n=fiche["plafond_cartes"]))
     if sonde:
@@ -453,12 +471,20 @@ def inserer_correction(conn, *, tableau: str, carte_relecture: str, run_id_relec
                                             depot=fiche["depot_alias"], relue=f"correction {n}",
                                             voie_relue=impl["voie"], consigne=consigne)),
     ]
-    with base.transaction(conn):
-        cartes.reserver(conn, demandes)
-        conn.execute("UPDATE projets SET cartes_creees = cartes_creees + 2, maj_le = ? WHERE id = ?",
-                     (base.maintenant(), fiche["id"]))
-        base.journaliser(conn, "poste", "correction", projet_id=fiche["id"], cible=carte_relecture, detail={"n": n})
+    if deja is None:
+        with base.transaction(conn):
+            cartes.reserver(conn, demandes)
+            conn.execute("UPDATE projets SET cartes_creees = cartes_creees + 2, maj_le = ? WHERE id = ?",
+                         (base.maintenant(), fiche["id"]))
+            base.journaliser(conn, "poste", "correction", projet_id=fiche["id"], cible=carte_relecture,
+                             detail={"n": n})
     ids = cartes.creer(conn, fiche, cartes.demandes_non_rattachees(conn, fiche["id"], [cle_corr, cle_rel]))
+    for cle in (cle_corr, cle_rel):
+        if cle not in ids:
+            ligne = conn.execute("SELECT carte FROM demandes WHERE cle = ?", (cle,)).fetchone()
+            if ligne is None or not ligne[0]:
+                raise RefusACP("echec_creation", T.ECHEC_CREATION.format(type="CorrectionIncomplete"))
+            ids[cle] = ligne[0]
     if sonde:
         sonde("cartes")
     with ka.connexion(tableau) as kc:

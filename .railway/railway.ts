@@ -1,9 +1,12 @@
-// Infrastructure as Code (IaC) du déploiement Railway d'ACP — étape P2 de la refonte.
+// Infrastructure as Code (IaC) du déploiement Railway d'ACP — étapes P2 et P6 de la refonte.
 //
-// Un projet « acp », un environnement « production », deux services construits depuis ce dépôt,
+// Un projet « acp », un environnement « production », trois services construits depuis ce dépôt,
 // chacun avec son volume :
-//   - « hermes »   : hermes/image/Dockerfile (contexte hermes/), volume « hermes-donnees » sur /opt/data ;
-//   - « identite » : identite/Dockerfile (contexte identite/), volume « identite-donnees » sur /config.
+//   - « hermes »    : hermes/image/Dockerfile (contexte hermes/), volume « hermes-donnees » sur /opt/data ;
+//   - « identite »  : identite/Dockerfile (contexte identite/), volume « identite-donnees » sur /config ;
+//   - « executant » (P6) : executant/Dockerfile (contexte : racine du dépôt), volume « executant-donnees » sur
+//     /donnees ; ni domaine, ni port, ni healthcheck ; Codex CLI et Claude Code sous des UID dédiés
+//     (docs/refonte/executant.md). Hermes garde son conteneur sans terminal.
 // Procédure complète, en français, pour le propriétaire : docs/refonte/railway.md.
 //
 // Appliqué UNIQUEMENT par le propriétaire, depuis son poste ; jamais par la CI ni par un agent :
@@ -77,6 +80,9 @@ const GIO = 1024 * 1024 * 1024;
 // tué (OOM) dans le témoin. 0,5 vCPU : décision du propriétaire.
 const MEMOIRE_HERMES = 2 * GIO;
 const MEMOIRE_IDENTITE = (5 * GIO) / 2;
+// Exécutant (P6, décision D85 du dépôt, cahier D82) : une carte à la fois, 2 vCPU et 4 Gio ; au-delà, OOM (code 137)
+// et, au deuxième sur la même carte, blocage « mémoire ». Valeurs SUPPOSÉES, à remesurer (R8, une semaine de mesure).
+const MEMOIRE_EXECUTANT = 4 * GIO;
 
 const LIBELLE_DNS = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -196,5 +202,49 @@ export default defineRailway((ctx) => {
     },
   });
 
-  return project(PROJET, { resources: [hermes, identite, donneesHermes, donneesIdentite] });
+  // Étape P6 : l'exécutant Railway. Volume de 5 Go (maximum par service sur Hobby, docs/refonte/executant.md § 13),
+  // sans sizeMB (railway.md § 4.8). Ni domaine, ni PORT, ni healthcheck, ni Start Command : Railway le marque Active
+  // dès le démarrage du conteneur ; il ne reçoit aucun trafic (il joint Hermes par son URL PUBLIQUE, en HTTPS
+  // sortant, décision D75 du dépôt) et n'a aucune variable partagée ni référence vers les autres services.
+  // AUCUN secret en variable (décision D92 du dépôt) : jeton machine, jeton Claude et jeton GitHub de lecture sont
+  // déposés sur le volume (fichiers 0600 de root) par « railway ssh » ; aucun preserve() ici.
+  const donneesExecutant = volume("executant-donnees", { region: REGION });
+
+  const executant = service("executant", {
+    // Racine du dépôt : l'image embarque apps/poste et le contrat du greffon (supposé au premier build :
+    // RAILWAY_DOCKERFILE_PATH relatif à la racine, executant/Dockerfile.dockerignore lu par le constructeur).
+    source: github(DEPOT, { branch: BRANCHE, rootDirectory: "/", checkSuites: true }),
+    build: {
+      builder: "DOCKERFILE",
+      watchPatterns: [
+        "/executant/**",
+        "/apps/poste/src/**",
+        "/packaging/poste/lancer.py",
+        "/hermes/plugins/acp-poste/contrat/**",
+        "/requirements/poste-3.12.lock.txt",
+        "!/executant/tests/**",
+        "!/executant/factice/**",
+      ],
+    },
+    deploy: {
+      // Aucun trafic entrant ne le réveillerait (Serverless coupé).
+      sleepApplication: false,
+      // Une sortie 0 n'est jamais relancée : l'exécutant ne sort pas, même non enrôlé ou révoqué (il attend
+      // l'enrôlement, sinon plus aucun railway ssh) ; 10 sorties non nulles le passent en « Crashed ».
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 10,
+      limitOverride: { containers: { cpu: 2, memoryBytes: MEMOIRE_EXECUTANT } },
+    },
+    replicas: { [REGION]: 1 },
+    volumeMounts: { "/donnees": donneesExecutant },
+    env: {
+      RAILWAY_DOCKERFILE_PATH: "executant/Dockerfile",
+      // Défaut 0 s : SIGKILL immédiat au redéploiement. 90 s : arrêt de l'agent, commit « wip » et arret(sigterm).
+      RAILWAY_DEPLOYMENT_DRAINING_SECONDS: "90",
+    },
+  });
+
+  return project(PROJET, {
+    resources: [hermes, identite, executant, donneesHermes, donneesIdentite, donneesExecutant],
+  });
 });

@@ -11,6 +11,12 @@ Classement des réponses (§ 4.4 et § 4.5) :
 - 409 ``protocole_incompatible`` → :class:`ProtocoleIncompatible` (code 2) ; 429 → :class:`TropFrequent`
   (``Retry-After``) ; 5xx et réseau → :class:`HermesIndisponible` (repli exponentiel) ; 3xx → refus (jamais suivi) ;
   réponse hors contrat → :class:`HorsContrat`.
+
+Étape P6 (cahier P6 § 5) : ``reclamer`` annonce, pour l'exécutant, ``peut_executer``, ses voies, sa carte en main et
+l'espace libre (le corps du poste Windows de P5 ne change pas), et sa réponse peut porter une carte — refusée si le
+poste ne l'a pas demandée ; les six routes de l'exécution (:meth:`Protocole.envoyer`) valident la requête par le
+contrat AVANT l'envoi (bornes de 8 et 32 Kio) et la réponse après ; 409 ``reclamation_perdue`` et les autres refus
+du greffon restent des :class:`Refus` portant leur code.
 """
 
 from __future__ import annotations
@@ -19,8 +25,11 @@ import json
 from typing import Any
 
 from acp_poste_contrat.inventaire import PROTOCOLE
+from acp_poste_contrat import machine as contrat
 from acp_poste_contrat.machine import (
     CORPS_401_COUTURE,
+    MODELES_P6,
+    PREFIXE_ROUTES,
     ROUTE_ENROLEMENT,
     ROUTE_INVENTAIRE,
     ROUTE_RECLAMER,
@@ -84,6 +93,11 @@ class HermesIndisponible(Refus):
 
 class HorsContrat(Refus):
     """Réponse de Hermes hors du contrat partagé : rien n'est fait."""
+
+
+class RefusAvantEnvoi(Refus):
+    """Requête refusée CÔTÉ POSTE, avant tout envoi (contrat, borne de taille, route inconnue) : DÉFINITIF, la même
+    requête serait refusée à chaque essai (relecture de P6 : la file de sortie s'y bloquait)."""
 
 
 def _json(reponse: ReponseHTTP) -> Any:
@@ -150,7 +164,7 @@ class Protocole:
                 delai_lecture_s: float) -> ReponseHTTP:
         donnees = json.dumps(corps, ensure_ascii=False).encode("utf-8")
         if len(donnees) > limite:
-            raise Refus(f"Requête du poste refusée avant l'envoi : corps de plus de {limite // 1024} Kio.")
+            raise RefusAvantEnvoi(f"Requête du poste refusée avant l'envoi : corps de plus de {limite // 1024} Kio.")
         entetes = {"Authorization": porteur, "Content-Type": "application/json", "Accept": "application/json",
                    "User-Agent": USER_AGENT, "X-ACP-Protocole": PROTOCOLE}
         try:
@@ -166,13 +180,41 @@ class Protocole:
         return _valide(ReponseEnrolement, classer(reponse, 201, enrolement=True), "Réponse d'enrôlement refusée")
 
     def reclamer(self, jeton: Jeton, *, acquittes: list[int], attente_max_s: int,
-                 politique_valide: bool) -> ReponseReclamer:
+                 politique_valide: bool, execution: dict[str, Any] | None = None) -> ReponseReclamer:
+        """``execution`` (exécutant, étape P6) : ``peut_executer``, ``voies_disponibles``, ``carte_en_cours`` et
+        ``espace_libre_mio`` ; absent (poste Windows), le corps de P5 est envoyé tel quel."""
         corps = {"protocole": PROTOCOLE, "version_poste": __version__, "peut_executer": False,
                  "ordres_acquittes": list(acquittes), "attente_max_s": attente_max_s,
                  "politique_valide": politique_valide}
+        if execution:
+            corps.update({cle: execution[cle] for cle in ("peut_executer", "voies_disponibles", "carte_en_cours",
+                                                          "espace_libre_mio") if cle in execution})
+            try:
+                valider(contrat.RequeteReclamer, corps, quoi="Réclamation refusée par le contrat")
+            except ValueError as exc:
+                raise Refus(f"{exc} Rien n'a été envoyé.") from None
         reponse = self._poster(ROUTE_RECLAMER, corps, jeton.en_tete(), limite=TAILLE_MAX_REQUETE,
                                delai_lecture_s=attente_max_s + MARGE_LECTURE_S)
-        return _valide(ReponseReclamer, classer(reponse, 200), "Réponse de réclamation refusée")
+        resultat = _valide(ReponseReclamer, classer(reponse, 200), "Réponse de réclamation refusée")
+        if resultat.carte is not None:
+            voies = corps.get("voies_disponibles") or []
+            if not corps["peut_executer"] or resultat.carte.voie not in voies:
+                raise HorsContrat("Carte servie sans avoir été demandée (voie non annoncée ou exécution non "
+                                  "admise) : refusée, rien n'a été fait.")
+        return resultat
+
+    def envoyer(self, jeton: Jeton, route: str, corps: dict[str, Any]) -> Any:
+        """Une des six routes de l'exécution (P6) : requête validée par le contrat AVANT l'envoi, réponse après."""
+        chemin = f"{PREFIXE_ROUTES}/{route}"
+        if chemin not in MODELES_P6:
+            raise RefusAvantEnvoi(f"Route machine inconnue : {route}.")
+        requete, reponse_modele, borne = MODELES_P6[chemin]
+        try:
+            valider(getattr(contrat, requete), corps, quoi=f"Envoi « {route} » refusé par le contrat")
+        except ValueError as exc:
+            raise RefusAvantEnvoi(f"{exc} Rien n'a été envoyé.") from None
+        reponse = self._poster(chemin, corps, jeton.en_tete(), limite=borne, delai_lecture_s=60)
+        return _valide(getattr(contrat, reponse_modele), classer(reponse, 200), f"Réponse à « {route} » refusée")
 
     def publier(self, jeton: Jeton, inventaire: dict[str, Any]) -> ReponseInventaire:
         reponse = self._poster(ROUTE_INVENTAIRE, inventaire, jeton.en_tete(), limite=TAILLE_MAX_INVENTAIRE,

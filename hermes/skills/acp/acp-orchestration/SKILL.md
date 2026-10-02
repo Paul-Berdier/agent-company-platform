@@ -20,7 +20,7 @@ Cette skill guide la **carte de planification** d'un projet ACP. Tu travailles s
 
 - `recherche_web`, et `architecture` ou `documentation` sans dépôt : exécutées par Hermes (recherche, lecture du web, rédaction).
 - `implementation`, `debogage_tests`, `petite_tache` : exécutées par le poste, **sur dépôt seulement** ; chacune reçoit une relecture croisée par l'autre exécutant.
-- `integration` (fusion locale des branches) : prévue à l'étape P6, refusée aujourd'hui.
+- `integration` (fusion locale des branches) : exécutée par l'exécutant du poste (voie `poste-integration`), sans modèle ni relecture, **sur dépôt seulement**. Le greffon en émet déjà une à la fin d'un projet sur dépôt : n'en planifie une que si une étape intermédiaire doit partir d'une branche intégrée.
 
 ## Sans poste
 

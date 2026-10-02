@@ -23,6 +23,13 @@ crochets shell (décision D34) ; (8) état de l'émetteur ; (9) réveil du fil d
 planification sans plan → ``triage``. Aucune notification pour un ``completed`` intermédiaire, ``claimed``
 ou ``promoted``.
 
+**Étape P6** (cahier P6 § 5.4, § 5.6, § 6.7, § 9.2) : (2 bis) attentes de quota échues → ``unblock_task`` ;
+(2 ter) cartes prêtes d'une voie fermée → notées, puis bloquées après 30 min ; règles ajoutées :
+``review_requested`` → ``revue`` (fichiers de pilotage) ; ``blocked`` à la raison fixe du secret → ``secret`` ;
+``blocked`` d'une carte d'intégration → ``conflit`` ; (6) un projet SUR DÉPÔT dont des branches ont été rapportées
+par l'exécutant reçoit, à sa fin, UNE carte d'intégration (voie ``poste-integration``) ; il n'est ``termine`` qu'une
+fois elle faite, avec la notification ``integration`` (« branche prête sur l'exécutant »).
+
 **Limite dite (D31)** : pendant la pause générale (arrêt d'urgence de Hermes), le répartiteur ne tourne
 plus : aucune passe, donc aucune NOUVELLE notification (celles déjà en file partent encore).
 """
@@ -35,9 +42,9 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional  # noqa: F401
 
-from . import base, cartes, etrangeres, graphe, notifications, ordres, presence, projets, questions
+from . import attentes, base, cartes, etrangeres, execution, graphe, notifications, ordres, presence, projets, questions
 from . import kanban_adapter as ka
 from . import textes as T
 
@@ -126,7 +133,16 @@ def lire_evenements(conn) -> Dict[str, int]:
                         donnees = {}
                     donnees = donnees if isinstance(donnees, dict) else {}
                     if genre == "blocked" and donnees.get("kind") != "dependency":
-                        a_notifier.append(("bloquee", T.NOTIF_BLOQUEE, identifiant, _texte_carte(kc, carte)))
+                        # Étape P6 : secret de l'exécutant (raison fixe) et conflit d'intégration, nommés.
+                        demande = projets.demande_de_la_carte(conn, fiche["tableau"], carte)
+                        if donnees.get("reason") == T.RAISON_SECRET_EXECUTANT:
+                            a_notifier.append(("secret", T.NOTIF_SECRET, identifiant, _texte_carte(kc, carte)))
+                        elif demande is not None and demande["role"] == "integration":
+                            a_notifier.append(("conflit", T.NOTIF_CONFLIT, identifiant, _texte_carte(kc, carte)))
+                        else:
+                            a_notifier.append(("bloquee", T.NOTIF_BLOQUEE, identifiant, _texte_carte(kc, carte)))
+                    elif genre == "review_requested":
+                        a_notifier.append(("revue", T.NOTIF_REVUE, identifiant, _texte_carte(kc, carte)))
                     elif genre == "block_loop_detected":
                         a_notifier.append(("triage", T.NOTIF_TRIAGE, identifiant, _texte_carte(kc, carte)))
                     elif genre == "gave_up":
@@ -185,9 +201,37 @@ def planifications_sans_plan(conn) -> List[str]:
     return adresses
 
 
+def _integration(conn, fiche: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Étape P6 (cahier P6 § 6.7) : demande d'intégration du tour courant, créée UNE fois si le projet a un dépôt et
+    des branches rapportées par l'exécutant ; ``None`` s'il n'y a rien à intégrer."""
+    cle = f"{ka.PREFIXE_CLE}{fiche['id']}:t{fiche['tour']}:integration"
+    existante = conn.execute("SELECT * FROM demandes WHERE cle = ?", (cle,)).fetchone()
+    if existante is not None:
+        return base.ligne_en_dict(existante)
+    if not fiche["depot_alias"] or not execution.branches_a_integrer(conn, fiche):
+        return None
+    synthese = conn.execute("SELECT cle FROM demandes WHERE projet_id = ? AND tour = ? AND role = 'synthese'",
+                            (fiche["id"], fiche["tour"])).fetchone()
+    with base.transaction(conn):
+        cartes.reserver(conn, [dict(
+            cle=cle, projet_id=fiche["id"], tableau=fiche["tableau"], role="integration", classe="integration",
+            voie=ka.VOIE_INTEGRATION, tour=fiche["tour"], ref="integration",
+            titre=T.TITRE_INTEGRATION.format(titre=fiche["titre"])[:200], source_routage="sans_objet",
+            depot_alias=fiche["depot_alias"], consigne=T.CONSIGNE_INTEGRATION.format(
+                titre=fiche["titre"], branche=execution.branche_projet(fiche)),
+            parents=[synthese[0]] if synthese else [], priorite=10, duree_max=3600,
+            corps=T.CONSIGNE_INTEGRATION.format(titre=fiche["titre"], branche=execution.branche_projet(fiche)))])
+        conn.execute("UPDATE projets SET cartes_creees = cartes_creees + 1, maj_le = ? WHERE id = ?",
+                     (base.maintenant(), fiche["id"]))
+        base.journaliser(conn, "acp-poste:emetteur", "integration", projet_id=fiche["id"], cible=cle)
+    cartes.creer(conn, fiche, cartes.demandes_non_rattachees(conn, fiche["id"], [cle]))
+    return base.ligne_en_dict(conn.execute("SELECT * FROM demandes WHERE cle = ?", (cle,)).fetchone())
+
+
 def projets_termines(conn) -> List[str]:
     """Étape 6 : un projet actif dont la synthèse du tour courant est faite et dont plus aucune carte n'est
-    ouverte passe ``termine`` ; UNE notification ``termine:<p>``."""
+    ouverte passe ``termine`` ; UNE notification ``termine:<p>`` (étape P6 : après l'intégration, s'il y en a une,
+    notification ``integration``)."""
     termines = []
     for fiche in [base.ligne_en_dict(l) for l in conn.execute("SELECT * FROM projets WHERE etat = 'actif' AND tour > 0")]:
         synthese = conn.execute("SELECT carte FROM demandes WHERE projet_id = ? AND tour = ? AND role = 'synthese'",
@@ -201,14 +245,23 @@ def projets_termines(conn) -> List[str]:
             toutes = ka.list_tasks(kc)
         if any(t.status not in ("done", "archived") for t in toutes):
             continue
+        integration = _integration(conn, fiche)
+        if integration is not None and integration["carte"] not in {t.id for t in toutes if t.status == "done"}:
+            continue  # intégration créée à l'instant (ou en cours de création) : le projet attend sa fin
         faites = sum(1 for t in toutes if t.status == "done")
         with base.transaction(conn):
             if conn.execute("UPDATE projets SET etat = 'termine', termine_le = ?, maj_le = ? WHERE id = ? AND "
                             "etat = 'actif'", (base.maintenant(), base.maintenant(), fiche["id"])).rowcount != 1:
                 continue
-            notifications.enfiler_dans(conn, cle=f"termine:{fiche['id']}", genre="termine", projet_id=fiche["id"],
-                                       texte_notif=notifications.texte(T.NOTIF_TERMINE, titre=fiche["titre"],
-                                                                       cartes=T.cartes(faites, "faite")))
+            if integration is not None:
+                notifications.enfiler_dans(conn, cle=f"integration:{fiche['id']}", genre="integration",
+                                           projet_id=fiche["id"], texte_notif=notifications.texte(
+                                               T.NOTIF_INTEGRATION, titre=fiche["titre"],
+                                               branche=integration["branche"] or execution.branche_projet(fiche)))
+            else:
+                notifications.enfiler_dans(conn, cle=f"termine:{fiche['id']}", genre="termine", projet_id=fiche["id"],
+                                           texte_notif=notifications.texte(T.NOTIF_TERMINE, titre=fiche["titre"],
+                                                                           cartes=T.cartes(faites, "faite")))
             base.journaliser(conn, "acp-poste:emetteur", "termine", projet_id=fiche["id"], detail={"faites": faites})
         termines.append(fiche["id"])
     return termines
@@ -259,6 +312,8 @@ def passe(conn=None) -> Dict[str, Any]:
     _pas(bilan, "reparations", cartes.reparer, conn)
     _pas(bilan, "etrangeres", etrangeres.balayer, conn)
     _pas(bilan, "pauses", projets.replanifier_les_projets_en_pause, conn)
+    _pas(bilan, "attentes", attentes.debloquer, conn)
+    _pas(bilan, "voies_fermees", execution.signaler_voies_fermees, conn)
     _pas(bilan, "evenements", lire_evenements, conn)
     _pas(bilan, "sans_plan", planifications_sans_plan, conn)
     _pas(bilan, "sans_suite", questions.questions_sans_suite, conn)

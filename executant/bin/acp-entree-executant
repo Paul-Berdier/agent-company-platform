@@ -1,0 +1,102 @@
+#!/bin/sh
+# Entrée root de l'exécutant (cahier P6 § 8.3), lancée par tini (ENTRYPOINT de executant/Dockerfile). Échec fermé :
+# tout écart arrête le démarrage avec un message français et le code 2 (Railway relance ON_FAILURE, 10 fois au plus).
+#
+# 1. tini doit être le PID 1 ; root exigé ;
+# 2. /donnees doit être un point de montage (volume « executant-donnees ») ;
+# 3. dossiers du volume créés ou remis aux propriétaires et modes attendus ; un lien symbolique à leur place, ou un
+#    fichier d'un autre propriétaire dans un dossier d'identifiants, est refusé ;
+# 4. /tmp/acp (disque éphémère) : root:acp-travail, 1770 ; /tmp/acp/caches et /tmp/acp/sondes : 0751 ;
+# 5. exec du superviseur : python -I lancer.py servir --plateforme linux (la sonde de plateforme tourne à son
+#    démarrage, acp_poste.service_executant).
+set -eu
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+# Hérité par le superviseur, donc par chaque agent (setpriv ne le change pas) : les agents écrivent avec un umask 002
+# (cahier P6 § 3.3), pour que la vérification (acp-verif) lise et écrive ce qu'un agent a créé dans le worktree de la
+# carte (root:acp-travail, 2770 pendant son tour). Les secrets et l'état sont protégés par des modes EXPLICITES
+# (fichiers 0600, /donnees/acp en 0700), jamais par l'umask.
+umask 002
+
+refuser() {
+    printf '[acp] REFUS : %s\n' "$1" >&2
+    exit 2
+}
+
+if [ "$(cat /proc/1/comm 2>/dev/null || true)" != "tini" ]; then
+    refuser "tini n'est pas le PID 1 : l'exécutant ne démarre que sous son entrée (ENTRYPOINT de l'image), jamais sans superviseur de processus."
+fi
+if [ "$(id -u)" != "0" ]; then
+    refuser "l'entrée de l'exécutant tourne en root (elle prépare le volume et change d'UID pour chaque agent)."
+fi
+if ! mountpoint -q /donnees; then
+    refuser "Volume absent : l'exécutant refuse de démarrer sans /donnees."
+fi
+
+# dossier <chemin> <propriétaire:groupe> <mode>
+dossier() {
+    if [ -L "$1" ]; then
+        refuser "$1 est un lien symbolique : refus de démarrer."
+    fi
+    if [ -e "$1" ] && [ ! -d "$1" ]; then
+        refuser "$1 n'est pas un dossier : refus de démarrer."
+    fi
+    mkdir -p "$1"
+    chown "$2" "$1"
+    chmod "$3" "$1"
+}
+
+# proprietaire_seul <dossier> <uid> : tout ce qui est dessous appartient à <uid>, sans lien symbolique.
+proprietaire_seul() {
+    autre="$(find "$1" \( ! -uid "$2" -o -type l \) -print -quit)"
+    if [ -n "$autre" ]; then
+        refuser "Fichier d'un autre propriétaire ou lien symbolique dans $1 (dossier d'identifiants) : refus de démarrer. Le conteneur ne démarre pas : remise en état par la Start Command de maintenance, docs/refonte/railway.md § 13.8 (le propriétaire attendu est l'UID $2)."
+    fi
+}
+
+# Alias temporaires de Codex : à CHAQUE lancement (« --version » compris), Codex crée sous $CODEX_HOME/tmp/arg0 un
+# dossier de liens symboliques vers son propre binaire, qu'il ne retire pas quand il sort par « --version » ou qu'il
+# est arrêté (relevé dans l'image, Codex 0.156.1, 01/10/2026 ; son lancement suivant les remplace). Sans ce
+# nettoyage, le premier redémarrage après un relevé de quotas était refusé par proprietaire_seul. Ils sont retirés
+# ici, AVANT le contrôle, sans suivre aucun lien : aucun agent ne tourne encore, et chaque composant du chemin est
+# vérifié (un lien à la place de tmp ou de arg0 est refusé).
+nettoyer_alias_codex() {
+    for chemin in /donnees/codex/tmp /donnees/codex/tmp/arg0; do
+        if [ -L "$chemin" ]; then
+            refuser "$chemin est un lien symbolique : refus de démarrer."
+        fi
+    done
+    if [ -d /donnees/codex/tmp/arg0 ]; then
+        rm -rf /donnees/codex/tmp/arg0
+    fi
+}
+
+dossier /donnees/acp root:root 0700
+for sous in secrets etat sortie verrous journal bundles preuves; do
+    dossier "/donnees/acp/$sous" root:root 0700
+done
+dossier /donnees/codex acp-codex:acp-codex 0700
+dossier /donnees/claude acp-claude:acp-claude 0700
+dossier /donnees/depots root:root 0755
+dossier /donnees/espaces root:acp-travail 0751
+proprietaire_seul /donnees/acp 0
+nettoyer_alias_codex
+proprietaire_seul /donnees/codex 10001
+proprietaire_seul /donnees/claude 10002
+dossier /tmp/acp root:acp-travail 1770
+# Chemins FIXES sous /tmp/acp, créés ici avant tout agent : un agent ne peut plus les occuper le premier (lien, dossier
+# à lui), ce qui bloquerait chaque carte ; le superviseur les reprend sans suivre de lien (relecture de P6).
+dossier /tmp/acp/caches root:acp-travail 0751
+dossier /tmp/acp/sondes root:acp-travail 0751
+
+commit="${RAILWAY_GIT_COMMIT_SHA:-}"
+case "$commit" in
+    *[!0-9a-f]*|"") commit="inconnu" ;;
+esac
+if [ "$commit" != "inconnu" ] && [ "${#commit}" -ne 40 ]; then
+    commit="inconnu"
+fi
+printf '[acp] commit déployé : %s\n' "$commit"
+printf '[acp] volume prêt (/donnees) : démarrage du superviseur.\n'
+
+exec /usr/local/bin/python3.12 -I /opt/acp/lancer.py servir --plateforme linux

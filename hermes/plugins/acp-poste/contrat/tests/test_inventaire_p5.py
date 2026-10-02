@@ -184,11 +184,13 @@ def test_version_conforme_coherente():
     assert valider_inventaire(donnees).versions["claude"].lue is None
 
 
-def test_resolutions_observees_reservees_a_p6():
-    donnees = _releve_poste(resolutions_observees=[{"alias": "opus", "modele": "claude-opus-5-5",
-                                                   "observe_le": "2026-09-26T09:00:00Z"}])
-    with pytest.raises(ValueError, match="réservé à l'étape P6"):
-        valider_releve(donnees)
+def test_resolutions_observees_admises_en_p6():
+    """Réservées en P5, alimentées en P6 par les exécutions de Claude Code (cahier P6 § 7.3) ; bornées."""
+    resolution = {"alias": "opus", "modele": "claude-opus-5-5", "observe_le": "2026-09-26T09:00:00Z"}
+    releve = valider_releve(_releve_poste(resolutions_observees=[resolution]))
+    assert releve.resolutions_observees[0].modele == "claude-opus-5-5"
+    with pytest.raises(ValueError, match="au plus 32 résolutions"):
+        valider_releve(_releve_poste(resolutions_observees=[resolution] * 33))
 
 
 def test_messages_en_francais_meme_pour_les_types():

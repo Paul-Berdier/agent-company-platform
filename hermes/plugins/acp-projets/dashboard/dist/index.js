@@ -70,7 +70,7 @@
       messages: "messages",
       toutesSessions: "Toutes les sessions",
       poste: "Poste Windows",
-      posteNote: "Enr\xF4lement, \xE9tat, routage et quotas du poste\xA0: page Poste. L'ex\xE9cution de vos projets sur d\xE9p\xF4t arrive \xE0 l'\xE9tape P6.",
+      posteNote: "Enr\xF4lement, \xE9tat, routage et quotas du poste\xA0: page Poste. L'ex\xE9cution de vos projets sur d\xE9p\xF4t passe par l'ex\xE9cutant (page Poste\xA0: isolement, carte en cours, branches pr\xEAtes).",
       raccourcis: "Raccourcis",
       lienProjets: "Projets",
       discussion: "Discussion",
@@ -270,11 +270,26 @@
       prolongerAideCartes: "\xAB\xA0Prolonger\xA0\xBB rel\xE8ve le plafond de cartes\xA0: Hermes planifie la suite avec votre consigne.",
       relancerAide: "\xAB\xA0Relancer la planification\xA0\xBB fait replanifier Hermes avec votre consigne.",
       conclureAide: "\xAB\xA0Conclure le projet\xA0\xBB l'arr\xEAte ici\xA0: \xAB\xA0Termin\xE9\xA0\xBB s'il a au moins un tour, sinon \xAB\xA0Abandonn\xE9\xA0\xBB.",
-      prolongerP6: "Prolonger le plafond de corrections arrivera \xE0 l'\xE9tape P6.",
+      prolongerP6: "Le plafond de corrections ne se prolonge pas\xA0: la relecture qui l'a atteint est close\xA0; concluez depuis cette carte.",
       prolongationFaite: "Plafond relev\xE9\xA0: Hermes planifie la suite avec votre consigne.",
       relanceFaite: "Planification relanc\xE9e\xA0: Hermes planifie avec votre consigne.",
       conclusionFaite: "Projet conclu.",
       noteTronquee: "Extrait\xA0; le d\xE9tail du projet donne les r\xE9sum\xE9s en entier.",
+      revuesTitre: "Revues des fichiers de pilotage",
+      revuesIntro: "Une carte de l'ex\xE9cutant a modifi\xE9 des fichiers qui pilotent les agents (CLAUDE.md, AGENTS.md, .github\u2026). Acceptez-la, ou refusez-la avec un motif\xA0: elle revient alors \xE0 l'ex\xE9cutant, qui retire la modification.",
+      aucuneRevue: "Aucune carte en revue.",
+      chemins: "Fichiers de pilotage touch\xE9s",
+      diffstat: "Modification",
+      fichiers: "fichier(s)",
+      ajouts: "ajout(s)",
+      retraits: "retrait(s)",
+      branche: "Branche",
+      tete: "T\xEAte",
+      accepterRevue: "Accepter",
+      refuserRevue: "Refuser",
+      motifRefus: "Motif du refus",
+      revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
+      revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
       bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
       bloqueesNote: "Lecture seule\xA0: relancer une carte depuis cette page arrivera \xE0 l'\xE9tape P7\xA0; en attendant, le kanban de Hermes le permet.",
       aucuneBloquee: "Aucune carte bloqu\xE9e.",
@@ -364,7 +379,7 @@
     },
     poste: {
       titre: "Poste",
-      intro: "Le poste Windows qui ex\xE9cutera vos projets sur d\xE9p\xF4t\xA0: enr\xF4lement, \xE9tat, routage des ex\xE9cutants et quotas relev\xE9s.",
+      intro: "Le poste qui ex\xE9cute vos projets sur d\xE9p\xF4t (ex\xE9cutant Railway, ou poste Windows)\xA0: enr\xF4lement, \xE9tat, isolement, carte en cours, routage des ex\xE9cutants et quotas relev\xE9s.",
       navigation: "Vues du poste",
       vueEtat: "Poste",
       vueRoutage: "Routage",
@@ -374,6 +389,7 @@
       actualisation: "Actualis\xE9 toutes les 15 secondes tant que la page est visible.",
       envoi: "Envoi\u2026",
       etatTitre: "\xC9tat du poste",
+      etatTitreExecutant: "\xC9tat de l'ex\xE9cutant Railway",
       depuis: "depuis",
       vu: "Vu",
       revoqueLe: "R\xE9voqu\xE9 le",
@@ -421,9 +437,10 @@
       compte: "Compte",
       compteDedie: "Compte d\xE9di\xE9 acp-poste",
       compteProprietaire: "Compte du propri\xE9taire (repli d\xE9clar\xE9)",
+      compteUidDedie: "Un compte Linux d\xE9di\xE9 par agent (ex\xE9cutant Railway)",
       windows: "Windows",
       python: "Python",
-      empreintePolitique: "Empreinte de poste.toml",
+      empreintePolitique: "Empreinte de la politique (poste.toml ou executant.toml)",
       versionsTitre: "Versions des CLI",
       lue: "Lue",
       testee: "Test\xE9e",
@@ -434,7 +451,7 @@
       origineMode: "Origine du mode",
       palierLu: "Palier lu",
       stockage: "Stockage des identifiants",
-      ecritureAdmise: "\xC9criture admise (P6)",
+      ecritureAdmise: "\xC9criture admise",
       raison: "Raison",
       connexionsTitre: "Connexions",
       codex: "Codex",
@@ -456,7 +473,73 @@
         aConfirmer: "\xC0 confirmer",
         enLigne: "En ligne",
         horsLigne: "Hors ligne",
-        revoque: "R\xE9voqu\xE9"
+        revoque: "R\xE9voqu\xE9",
+        redeploiement: "En red\xE9ploiement"
+      },
+      executant: {
+        titrePoste: "Poste Windows",
+        titreExecutant: "Ex\xE9cutant Railway",
+        plateforme: "Plateforme",
+        noyau: "Noyau Linux",
+        isolementTitre: "Isolement de l'ex\xE9cutant",
+        isolementInconnu: "Inconnu\xA0: aucune sonde de plateforme publi\xE9e\xA0; l'\xE9criture est refus\xE9e.",
+        regime: "R\xE9gime",
+        regimeA: "A\xA0: bac \xE0 sable Linux (bubblewrap) en place",
+        regimeB: "B\xA0: bac \xE0 sable Linux refus\xE9 par la plateforme",
+        regimeInconnu: "Inconnu",
+        sondeLe: "Sonde du",
+        reseau: "R\xE9seau des commandes",
+        reseauCoupe: "Coup\xE9",
+        reseauNonCoupe: "Non coup\xE9",
+        processus: "Processus visibles dans le bac \xE0 sable",
+        identifiants: "Identifiants s\xE9par\xE9s par compte",
+        identifiantsProuves: "Prouv\xE9 par la sonde",
+        identifiantsNonProuves: "Non prouv\xE9",
+        ecritureCodex: "\xC9criture Codex",
+        ecritureClaude: "\xC9criture Claude",
+        admise: "Admise",
+        refusee: "Refus\xE9e",
+        conditionsTitre: "Conditions d'usage",
+        conditionsAide: "Date de votre d\xE9cision \xE9crite (D83, D84), consign\xE9e dans la politique de l'ex\xE9cutant\xA0; sans elle, la voie reste ferm\xE9e.",
+        conditionsNonPubliees: "Non publi\xE9es par ce poste (inventaire de l'\xE9tape P5).",
+        decideLe: "D\xE9cid\xE9 le",
+        nonDecide: "Non d\xE9cid\xE9\xA0: voie ferm\xE9e",
+        bornesTitre: "Bornes de la politique",
+        cartesParJour: "Cartes par jour",
+        dureeMax: "Dur\xE9e maximale d'une carte (s)",
+        concurrence: "Cartes \xE0 la fois",
+        annonceTitre: "Derni\xE8re r\xE9clamation",
+        peutExecuter: "Peut ex\xE9cuter",
+        voiesAnnoncees: "Voies annonc\xE9es",
+        aucuneVoie: "Aucune voie annonc\xE9e.",
+        espaceLibre: "Espace libre du volume (Mio)",
+        carteTitre: "Carte en cours",
+        aucuneCarte: "Aucune carte en main.",
+        carteInconnue: "Carte annonc\xE9e par l'ex\xE9cutant, inconnue du greffon.",
+        projet: "Projet",
+        carte: "Carte",
+        role: "R\xF4le",
+        voie: "Voie",
+        modeleDemande: "Mod\xE8le demand\xE9",
+        modeleServi: "Mod\xE8le servi",
+        statut: "Statut",
+        dernierBattement: "Dernier battement",
+        tenueParExecutant: "R\xE9clam\xE9e par l'ex\xE9cutant",
+        voiesFermeesTitre: "Voies ferm\xE9es",
+        aucuneVoieFermee: "Aucune voie ferm\xE9e d'apr\xE8s le dernier inventaire.",
+        enAttenteDeVoie: "Cartes en attente d'une voie ferm\xE9e (jamais r\xE9assign\xE9es\xA0; bloqu\xE9es au-del\xE0 de 30 minutes)",
+        depuis: "Depuis",
+        branchesTitre: "Branches pr\xEAtes",
+        branchesAide: "Branche int\xE9gr\xE9e sur l'ex\xE9cutant. Aucun push\xA0: r\xE9cup\xE9rez-la par un bundle avec la commande ci-dessous (railway ssh), puis v\xE9rifiez la t\xEAte sur votre PC.",
+        aucuneBranche: "Aucune branche pr\xEAte.",
+        branche: "Branche",
+        tete: "T\xEAte",
+        termineLe: "Int\xE9gr\xE9e",
+        commande: "Commande de r\xE9cup\xE9ration",
+        copier: "Copier la commande",
+        copie: "Commande copi\xE9e.",
+        copieImpossible: "Copie impossible\xA0: s\xE9lectionnez la commande \xE0 la main.",
+        revuesEnAttente: "Cartes en revue (page Questions)"
       },
       genresOrdre: {
         releve: "Relev\xE9",
@@ -479,6 +562,11 @@
       },
       routageIntro: "Chaque \xE9tape d'un projet part vers la premi\xE8re entr\xE9e admise de sa classe. Les listes viennent du relev\xE9 du poste\xA0; rien n'est devin\xE9, et ce que le poste interdit reste interdit.",
       listesTitre: "Listes relev\xE9es",
+      resolutionsTitre: "R\xE9solutions observ\xE9es",
+      resolutionsAide: "Mod\xE8le r\xE9ellement servi pour chaque alias, rapport\xE9 par l'ex\xE9cutant \xE0 la fin de ses cartes.",
+      aucuneResolution: "Aucune r\xE9solution observ\xE9e\xA0: l'ex\xE9cutant n'a encore termin\xE9 aucune carte.",
+      aliasObserve: "Alias demand\xE9",
+      observeeLe: "Observ\xE9e le",
       aucunReleve: "Aucun relev\xE9\xA0: le poste n'a encore rien publi\xE9.",
       aucunModele: "Aucun mod\xE8le dans ce relev\xE9.",
       modeles: "Mod\xE8les",
@@ -766,6 +854,8 @@
   var routeReprendreTriage = (tableau, carte) => `${RACINE_POSTE}/triage/${segment(tableau)}/${segment(carte)}/reprendre`;
   var routeConclureTriage = (tableau, carte) => `${RACINE_POSTE}/triage/${segment(tableau)}/${segment(carte)}/conclure`;
   var routeCarteDuProjet = (id, carte) => `${routeProjet(id)}/cartes/${segment(carte)}`;
+  var routeAccepterRevue = (tableau, carte) => `${RACINE_POSTE}/revues/${segment(tableau)}/${segment(carte)}/accepter`;
+  var routeRefuserRevue = (tableau, carte) => `${RACINE_POSTE}/revues/${segment(tableau)}/${segment(carte)}/refuser`;
   async function ecrireJSON(url, corps, entetes = {}) {
     const fetchJSON = sdk().fetchJSON;
     if (typeof fetchJSON !== "function") throw new ErreurApi("inattendue", null, "fetchJSON absent du SDK");
@@ -816,6 +906,8 @@
   var conclureTriage = (tableau, carte) => ecrireJSON(routeConclureTriage(tableau, carte), {});
   var pauseGenerale = (generale) => ecrireJSON(ROUTE_PAUSE, { generale });
   var notificationDeTest = () => ecrireJSON(ROUTE_NOTIFICATION_TEST, {});
+  var accepterRevue = (tableau, carte) => ecrireJSON(routeAccepterRevue(tableau, carte), {});
+  var refuserRevue = (tableau, carte, motif) => ecrireJSON(routeRefuserRevue(tableau, carte), { motif });
 
   // src/types.ts
   function chaine(valeur) {
@@ -1652,12 +1744,54 @@
       }
     ), /* @__PURE__ */ h(RetourEnvoi, { etat: conclusion.etat, reussite: T.projets.conclusionFaite })) : null);
   }
+  function Revue(props) {
+    const { revue } = props;
+    const tableau = chaine(revue.tableau);
+    const identifiant = chaine(revue.carte);
+    const chemins = listeDeChaines(revue.chemins);
+    const [motif, fixerMotif] = useState("");
+    const acceptation = useEnvoi();
+    const refus = useEnvoi();
+    const champ = `acp-motif-revue-${identifiant ?? "inconnue"}`;
+    const accepter = async () => {
+      if (!tableau || !identifiant) return;
+      props.annoncer(null);
+      if (await acceptation.envoyer(() => accepterRevue(tableau, identifiant)) !== null) {
+        props.annoncer(T.projets.revueAcceptee);
+        props.apres();
+      }
+    };
+    const refuser = async (evenement) => {
+      evenement.preventDefault();
+      if (!tableau || !identifiant || !motif.trim()) return;
+      props.annoncer(null);
+      if (await refus.envoyer(() => refuserRevue(tableau, identifiant, motif.trim())) !== null) {
+        fixerMotif("");
+        props.annoncer(T.projets.revueRefusee);
+        props.apres();
+      }
+    };
+    const d = revue.diffstat;
+    const occupe = acceptation.etat.etat === "envoi" || refus.etat.etat === "envoi";
+    return /* @__PURE__ */ h("li", { className: "acp-entree" }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine(revue.titre) })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: revue.projet, titre: revue.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.chemins }, chemins.length === 0 ? /* @__PURE__ */ h(Donnee, { valeur: null }) : /* @__PURE__ */ h("ul", { className: "acp-noms" }, chemins.map((c) => /* @__PURE__ */ h("li", { key: c }, /* @__PURE__ */ h(Donnee, { valeur: c, mono: true }))))), /* @__PURE__ */ h(Ligne, { libelle: T.projets.diffstat }, d ? /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: d.fichiers ?? null }), " ", T.projets.fichiers), /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: d.ajouts ?? null }), " ", T.projets.ajouts), /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: d.retraits ?? null }), " ", T.projets.retraits)) : /* @__PURE__ */ h(Donnee, { valeur: null })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.branche }, /* @__PURE__ */ h(Donnee, { valeur: chaine(revue.branche), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.tete }, /* @__PURE__ */ h(Donnee, { valeur: chaine(revue.tete), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.resume }, /* @__PURE__ */ h(Donnee, { valeur: chaine(revue.resume) }))), /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine(revue.diff) })), tableau && identifiant ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void refuser(e) }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.motifRefus), /* @__PURE__ */ h(
+      "textarea",
+      {
+        id: champ,
+        "data-acp-donnee": "",
+        rows: 2,
+        maxLength: 1e3,
+        value: motif,
+        onChange: (e) => fixerMotif(e.target.value)
+      }
+    )), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { principal: true, libelle: T.projets.accepterRevue, surClic: () => void accepter(), desactive: occupe }), /* @__PURE__ */ h(Bouton, { type: "submit", danger: true, libelle: T.projets.refuserRevue, desactive: occupe || !motif.trim() })), /* @__PURE__ */ h(RetourEnvoi, { etat: acceptation.etat }), /* @__PURE__ */ h(RetourEnvoi, { etat: refus.etat })) : null);
+  }
   function Bloquee(props) {
     const { carte } = props;
     return /* @__PURE__ */ h("li", { className: "acp-entree" }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine(carte.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, carte.abandonnee === true ? /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.abandonnee, famille: "echec" } }) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.statuts.blocked, famille: "echec" } })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: carte.projet, titre: carte.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.assigne }, /* @__PURE__ */ h(Donnee, { valeur: chaine(carte.assigne), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.raison }, /* @__PURE__ */ h(Donnee, { valeur: chaine(carte.raison) }))));
   }
   function Questions(props) {
     const sondage = useSondage(lireQuestions, props.jeton);
+    const [annonceRevue, fixerAnnonceRevue] = useState(null);
     const donnees = sondage.valeur;
     if (donnees === null) {
       return sondage.erreur ? /* @__PURE__ */ h(BlocErreur, { erreur: sondage.erreur, message: T.projets.questionsIndisponibles }) : /* @__PURE__ */ h(EnChargement, null);
@@ -1665,8 +1799,18 @@
     const questions = Array.isArray(donnees.questions) ? donnees.questions : [];
     const triage = Array.isArray(donnees.triage) ? donnees.triage : [];
     const bloquees = Array.isArray(donnees.bloquees) ? donnees.bloquees : [];
+    const revues = Array.isArray(donnees.revues) ? donnees.revues : [];
     const illisibles = listeDeChaines(donnees.tableaux_illisibles);
-    return /* @__PURE__ */ h("div", { className: "acp-sections" }, sondage.erreur ? /* @__PURE__ */ h(BlocRefus, { erreur: sondage.erreur }) : null, /* @__PURE__ */ h(Carte, { titre: T.projets.questionsTitre, id: "acp-questions-ouvertes" }, questions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneQuestion) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, questions.map((q, rang) => /* @__PURE__ */ h(Question, { key: chaine(q.id) ?? String(rang), question: q, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.triageTitre, id: "acp-questions-triage" }, triage.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucunTriage) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, triage.map((c, rang) => /* @__PURE__ */ h(Triage, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.bloqueesTitre, id: "acp-questions-bloquees" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.bloqueesNote), bloquees.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneBloquee) : /* @__PURE__ */ h("ul", { className: "acp-entrees" }, bloquees.map((c, rang) => /* @__PURE__ */ h(Bloquee, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer })))), illisibles.length > 0 ? /* @__PURE__ */ h(Carte, { titre: T.projets.tableauxIllisibles, id: "acp-questions-illisibles" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, illisibles.map((t) => /* @__PURE__ */ h("li", { key: t }, /* @__PURE__ */ h(Donnee, { valeur: t, mono: true }))))) : null);
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, sondage.erreur ? /* @__PURE__ */ h(BlocRefus, { erreur: sondage.erreur }) : null, /* @__PURE__ */ h(Carte, { titre: T.projets.questionsTitre, id: "acp-questions-ouvertes" }, questions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneQuestion) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, questions.map((q, rang) => /* @__PURE__ */ h(Question, { key: chaine(q.id) ?? String(rang), question: q, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.triageTitre, id: "acp-questions-triage" }, triage.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucunTriage) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, triage.map((c, rang) => /* @__PURE__ */ h(Triage, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer, apres: props.apres })))), /* @__PURE__ */ h(Carte, { titre: T.projets.revuesTitre, id: "acp-questions-revues" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.revuesIntro), annonceRevue ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, annonceRevue) : null, revues.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneRevue) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, revues.map((r, rang) => /* @__PURE__ */ h(
+      Revue,
+      {
+        key: chaine(r.carte) ?? String(rang),
+        revue: r,
+        naviguer: props.naviguer,
+        apres: props.apres,
+        annoncer: fixerAnnonceRevue
+      }
+    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.bloqueesTitre, id: "acp-questions-bloquees" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.bloqueesNote), bloquees.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneBloquee) : /* @__PURE__ */ h("ul", { className: "acp-entrees" }, bloquees.map((c, rang) => /* @__PURE__ */ h(Bloquee, { key: chaine(c.carte) ?? String(rang), carte: c, naviguer: props.naviguer })))), illisibles.length > 0 ? /* @__PURE__ */ h(Carte, { titre: T.projets.tableauxIllisibles, id: "acp-questions-illisibles" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, illisibles.map((t) => /* @__PURE__ */ h("li", { key: t }, /* @__PURE__ */ h(Donnee, { valeur: t, mono: true }))))) : null);
   }
 
   // src/projets/Projets.tsx

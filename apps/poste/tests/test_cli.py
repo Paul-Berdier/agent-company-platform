@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -126,8 +127,10 @@ def test_releve_publier_exige_l_enrolement(poste, capsys):
 def test_servir_non_enrole_code_0_une_ligne_par_jour(poste, capsys):
     poste.ecrire_politique()
     contexte = poste.contexte()
+    from acp_poste.chemins import commande_poste
+
     assert main(["servir"], contexte=contexte) == 0
-    assert "Poste non enrôlé : lancez « & '" in capsys.readouterr().err
+    assert f"Poste non enrôlé : lancez « {commande_poste('enroler')} »" in capsys.readouterr().err
     assert main(["servir"], contexte=contexte) == 0
     lignes = (poste.emplacements.journal / "poste.jsonl").read_text(encoding="utf-8").splitlines()
     assert sum(json.loads(l)["evenement"] == "non_enrole" for l in lignes) == 1
@@ -141,13 +144,18 @@ def test_les_commandes_citees_aux_consoles_sont_executables_telles_quelles(poste
     from acp_poste.chemins import commande_poste
 
     forme = commande_poste("enroler")
-    assert forme.startswith("& '") and forme.endswith(r"\ACP\poste\acp-poste.cmd' enroler")
+    if sys.platform.startswith("linux"):
+        # Étape P6 : sur l'exécutant Linux, l'enveloppe /usr/local/bin/acp-poste est sur le PATH de railway ssh.
+        assert forme == "acp-poste enroler"
+    else:
+        assert forme.startswith("& '") and forme.endswith(r"\ACP\poste\acp-poste.cmd' enroler")
     assert f"« {forme} »" in service.NON_ENROLE
     assert f"« {commande_poste('oublier-jeton')} »" in service.JETON_ILLISIBLE
     assert f"« {commande_poste('enroler --remplacer')} »" in enrolement.DEJA_ENROLE.format(empreinte="AAAA-BBBB")
     assert f"« {commande_poste('enroler --remplacer')} »" in protocole.JETON_REFUSE
-    for message in (service.NON_ENROLE, service.JETON_ILLISIBLE, protocole.JETON_REFUSE):
-        assert "« acp-poste " not in message
+    if not sys.platform.startswith("linux"):
+        for message in (service.NON_ENROLE, service.JETON_ILLISIBLE, protocole.JETON_REFUSE):
+            assert "« acp-poste " not in message
     poste.ecrire_politique()
     poste.preparer_profil_codex()
     assert main(["releve", "--publier"], contexte=poste.contexte()) == 2
@@ -184,9 +192,25 @@ def test_servir_compte_dedie_refuse_un_interpreteur_modifiable(poste, capsys, mo
 
 
 @pytest.mark.skipif(os.name == "nt", reason="sous Windows, les emplacements réels existent (jamais lus ici)")
-def test_hors_windows_aucun_emplacement_par_defaut(capsys):
+def test_systeme_non_pris_en_charge_refuse(capsys, monkeypatch):
+    # Étape P6 : Windows (poste) et Linux (exécutant) ont leurs emplacements ; tout autre système est refusé, sans
+    # emplacement par défaut.
+    monkeypatch.setattr(sys, "platform", "darwin")
     assert main(["diagnostic"]) == 2
-    assert "que sous Windows" in capsys.readouterr().err
+    assert "non pris en charge" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name != "posix", reason="coffre en fichiers 0600 : Linux seulement")
+def test_contexte_linux_par_defaut_sans_toucher_le_disque(monkeypatch):
+    from acp_poste.contexte import Contexte
+    from acp_poste.plateforme.linux import CoffreFichiers, EmplacementsLinux
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    contexte = Contexte.du_compte()
+    assert contexte.plateforme == "linux"
+    assert isinstance(contexte.emplacements, EmplacementsLinux) and isinstance(contexte.coffre, CoffreFichiers)
+    assert contexte.emplacements.politique.as_posix() == "/etc/acp/executant.toml"
+    assert {outil: i.uid for outil, i in contexte.identites.items()} == {"codex": 10001, "claude": 10002}
 
 
 def test_connexion_claude_masquee(poste, capsys, monkeypatch):
@@ -256,3 +280,8 @@ def test_connexion_codex_ecrit_le_profil_puis_lance_la_connexion(poste, capsys, 
     (home / "config.toml").write_text("model = 'x'\n", encoding="utf-8")
     assert main(["connexion", "codex"], contexte=poste.contexte()) == 2
     assert "modifié hors du poste" in capsys.readouterr().err
+
+
+def test_sonde_plateforme_refusee_hors_linux(poste, capsys):
+    assert main(["sonde-plateforme", "--json"], contexte=poste.contexte()) == 2
+    assert "exécutant Linux" in capsys.readouterr().err

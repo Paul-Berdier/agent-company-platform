@@ -18,6 +18,7 @@ from acp_poste_contrat import (
     DEFAULT_QUOTA_STALE_SECONDS,
     QUOTA_BATCH_MAX,
     QUOTA_SOURCE_BY_PROVIDER,
+    QUOTA_SOURCES_BY_PROVIDER,
     QUOTA_WINDOWS_MAX,
     QuotaCredits,
     QuotaWindow,
@@ -149,14 +150,37 @@ def test_a_failed_reading_never_takes_the_identity_of_a_counter():
 
 
 def test_source_is_bound_to_its_provider():
+    # Source PAR DÉFAUT (poste Windows de P5), inchangée ; sources ADMISES par fournisseur (étape P6).
     assert QUOTA_SOURCE_BY_PROVIDER == {
         "codex": "codex_app_server",
         "claude_code": "claude_code_statusline",
     }
+    assert QUOTA_SOURCES_BY_PROVIDER == {
+        "codex": ("codex_app_server",),
+        "claude_code": ("claude_code_statusline", "claude_code_rate_limit_event"),
+    }
+    for source in ("claude_code_statusline", "claude_code_rate_limit_event"):
+        with pytest.raises(ValidationError) as caught:
+            SubscriptionQuotaReport.model_validate(_report(source=source))
+        assert "source" in _messages(caught.value)
+        assert "codex_app_server" in _messages(caught.value)
     with pytest.raises(ValidationError) as caught:
-        SubscriptionQuotaReport.model_validate(_report(source="claude_code_statusline"))
-    assert "source" in _messages(caught.value)
-    assert "codex_app_server" in _messages(caught.value)
+        SubscriptionQuotaReport.model_validate(_report(provider="claude_code", plan=None, limit_id="default",
+                                                      credits=None, source="codex_app_server"))
+    assert "claude_code_rate_limit_event" in _messages(caught.value)
+
+
+def test_quota_claude_source_rate_limit_event():
+    """Étape P6 (cahier P6 § 7.3) : un relevé Claude tiré du ``rate_limit_event`` d'une exécution est admis ; il porte
+    au plus la fenêtre qui s'applique (``sans_type`` si l'événement ne la nomme pas), de durée inconnue."""
+    releve = SubscriptionQuotaReport.model_validate(_report(
+        provider="claude_code", source="claude_code_rate_limit_event", plan=None, limit_id="default", credits=None,
+        windows=[_window(key="sans_type", used_percent=37.0, window_minutes=None)], limit_reached=False))
+    assert releve.source == "claude_code_rate_limit_event" and releve.windows[0].window_minutes is None
+    nomme = SubscriptionQuotaReport.model_validate(_report(
+        provider="claude_code", source="claude_code_rate_limit_event", plan=None, limit_id="default", credits=None,
+        windows=[_window(key="five_hour", used_percent=91.0, window_minutes=None)], limit_reached=True))
+    assert nomme.windows[0].key == "five_hour" and nomme.limit_reached is True
 
 
 # --- Refus explicites en français ------------------------------------------

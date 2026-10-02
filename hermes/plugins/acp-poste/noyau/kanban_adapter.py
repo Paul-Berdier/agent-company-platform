@@ -54,6 +54,7 @@ from hermes_cli.kanban_db import (
     normalize_reasoning_effort,
     parent_ids,
     reclaim_task,
+    reopen_review_task,
     request_review,
     schedule_task,
     specify_triage_task,
@@ -69,6 +70,11 @@ from tools.registry import no_cache_check_fn
 # en « skipped_nonspawnable » (hermes_cli/kanban_db_dispatch.py:2011-2017) ; seul le poste les
 # réclame (P6).
 VOIES_POSTE: Tuple[str, str] = ("poste-codex", "poste-claude")
+# Étape P6 (cahier P6 § 6.7) : voie de la carte d'intégration, déterministe et sans modèle. Assigné ``poste-*`` sans
+# profil Hermes (sauté par le répartiteur, gardé par etrangeres.py) mais SANS relevé : elle n'est donc pas dans
+# VOIES_POSTE, que le catalogue, les quotas et la page Routage parcourent voie par voie.
+VOIE_INTEGRATION = "poste-integration"
+VOIES_EXECUTION: Tuple[str, str, str] = (*VOIES_POSTE, VOIE_INTEGRATION)
 PREFIXE_VOIE_POSTE = "poste-"
 # Créateur inscrit sur chaque carte émise par le greffon (tasks.created_by).
 CREATEUR = "acp-poste"
@@ -96,6 +102,8 @@ MODULES_DE_DEFINITION = {
     "unblock_task": "hermes_cli.kanban_db",
     "schedule_task": "hermes_cli.kanban_db",
     "reclaim_task": "hermes_cli.kanban_db",
+    # Étape P6 : refus d'une revue des fichiers de pilotage par le propriétaire (cahier P6 § 5.4).
+    "reopen_review_task": "hermes_cli.kanban_db",
     "specify_triage_task": "hermes_cli.kanban_db",
     "claim_task": "hermes_cli.kanban_db",
     "heartbeat_claim": "hermes_cli.kanban_db",
@@ -121,7 +129,7 @@ MODULES_DE_DEFINITION = {
 
 __all__ = [
     "CREATEUR", "MODULES_DE_DEFINITION", "PREFIXE_CLE", "PREFIXE_VOIE_POSTE", "PROFIL_HERMES",
-    "VALID_REASONING_EFFORTS", "VOIES_POSTE", "connexion", "dernier_evenement", "est_voie_poste",
+    "VALID_REASONING_EFFORTS", "VOIES_POSTE", "VOIE_INTEGRATION", "VOIES_EXECUTION", "connexion", "dernier_evenement", "est_voie_poste",
     "evenements_apres", "effort_hermes", "masquer", *MODULES_DE_DEFINITION,
 ]
 

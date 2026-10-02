@@ -88,6 +88,18 @@ name: Image Hermes
 #     s6 complète : enrôlement, révocation pendant l'attente, notification « hors ligne » unique, redémarrage de
 #     Hermes sans notification, aucun jeton dans les journaux ;
 #   - test navigateur de la page Poste (hermes/tests/e2e/test_poste.py, greffon acp-poste-vues).
+# Étape P6 (côté Hermes) : même travail, mêmes jobs ; s'y ajoutent :
+#   - pytest dans l'image : exécution des cartes (test_execution_p6.py), routage de P6 (test_routage_p6.py),
+#     migration du schéma 3 (test_migration_v3.py) ;
+#   - tests de contrat (test_execution_contrat.py) avec un FAUX EXÉCUTANT (hermes/tests/outils/faux_executant.py)
+#     sur la pile s6 complète : carte servie, battement, fin, question, blocage, reprise, arrêt, idempotence ;
+#   - test navigateur de l'exécutant (hermes/tests/e2e/test_executant.py) : onglet Poste et revue des fichiers de
+#     pilotage.
+# Étape P6 (exécutant) : la cible « factice » de executant/Dockerfile (Codex et Claude Code remplacés par des CLI de
+# test) est construite ici, et le BOUT EN BOUT (hermes/tests/contrat/test_executant_bout_en_bout.py) fait tourner le
+# VRAI exécutant contre l'image Hermes de test : enrôlement, carte exécutée, committée localement et terminée,
+# question et reprise du fil, secret en quarantaine, revue refusée puis corrigée, aucun push, aucun jeton dans les
+# journaux. L'image de production de l'exécutant (binaires réels) est prouvée par executant.yml.
 #
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
@@ -106,6 +118,10 @@ name: Image Hermes
       - ".railway/**"
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
+      - "executant/**"
+      - "apps/poste/src/**"
+      - "packaging/poste/lancer.py"
+      - "requirements/poste-3.12.lock.txt"
       - ".github/workflows/image.yml"
   push:
     branches:
@@ -117,6 +133,10 @@ name: Image Hermes
       - ".railway/**"
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
+      - "executant/**"
+      - "apps/poste/src/**"
+      - "packaging/poste/lancer.py"
+      - "requirements/poste-3.12.lock.txt"
       - ".github/workflows/image.yml"
 
 permissions:
@@ -141,6 +161,7 @@ jobs:
       ACP_IMAGE: acp-hermes:ci
       ACP_IMAGE_TESTS: acp-hermes-tests:ci
       ACP_IMAGE_IDENTITE: acp-identite:ci
+      ACP_IMAGE_EXECUTANT_FACTICE: acp-executant:factice
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
@@ -194,6 +215,9 @@ jobs:
 
       - name: Construire l'image de test
         run: docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+
+      - name: Construire la cible factice de l'exécutant (bout en bout ; aucun binaire réel téléchargé)
+        run: docker build -f executant/Dockerfile --target factice -t "$ACP_IMAGE_EXECUTANT_FACTICE" .
 
       - name: Construire l'image du fournisseur d'identité
         run: docker build --pull -t "$ACP_IMAGE_IDENTITE" identite

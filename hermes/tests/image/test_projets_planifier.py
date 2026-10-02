@@ -163,8 +163,9 @@ def test_effort_hors_enumeration_sans_reasoning_effort(noyau, conn, monkeypatch)
      "Refusé par ACP : le modèle « gpt-imaginaire » ne figure pas dans le dernier relevé poste-codex ("),
     ({"classe": "recherche_web", "voie": "poste-codex"}, "classe_voie",
      "Refusé par ACP : la classe « recherche_web » n'admet pas la voie « poste-codex » (voies admises : hermes)."),
-    ({"classe": "integration"}, "integration_p6",
-     "Refusé par ACP : la classe « integration » (fusion locale des branches) est prévue à l'étape P6."),
+    # Étape P6 : la classe « integration » est ouverte (voie poste-integration), mais jamais avec un modèle.
+    ({"classe": "integration", "modele": "factice-codex-1"}, "integration_sans_modele",
+     "Refusé par ACP : la classe « integration » n'a ni modèle ni effort (fusion locale déterministe)."),
     # Faux jeton assemblé à l'exécution (le balayage des secrets du dépôt ne doit rien trouver ici).
     ({"voie": "poste-codex", "consigne": "jeton " + "gh" + "p_" + "A" * 36}, "secret",
      "Refusé par ACP : la consigne de l'étape « e1 » contient ce qui ressemble à un secret (jeton GitHub)."),

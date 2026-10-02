@@ -327,14 +327,32 @@ def bloc_machine() -> Tuple[Dict[str, Any], List[str]]:
             remplacements = conn.execute(
                 "SELECT MAX(remplacements_minute) FROM machines WHERE etat = 'actif' AND remplacements_depuis >= ?",
                 (int(time.time()) - 60,)).fetchone()[0]
+            executant = _resume_executant(conn)
         bloc.update(base="ok", machines=etat["machines"], codes_utilisables=etat["codes_utilisables"],
-                    dernier_inventaire=dernier["recu_le"] if dernier else None)
+                    dernier_inventaire=dernier["recu_le"] if dernier else None, executant=executant)
         if remplacements is not None and int(remplacements) > 5:
             alertes.append(textes.ALERTE_DEUX_PROCESSUS)
     except Exception as exc:  # noqa: BLE001 — valeur inconnue plutôt qu'une erreur 500
         bloc.update(base="illisible", machines=None, dernier_inventaire=None)
         alertes.append(textes.ALERTE_BASE.format(type=type(exc).__name__))
     return bloc, alertes
+
+
+def _resume_executant(conn) -> Optional[Dict[str, Any]]:
+    """Étape P6 (cahier P6 § 9.2) : ce que l'exécutant a publié et annoncé — plateforme, hôte, régime MESURÉ (« inconnu »
+    sans sonde), peut-il exécuter, voies annoncées et voies fermées, carte en main ; ``None`` sans poste enrôlé."""
+    try:
+        vue = sous_module_noyau("execution").vue_executant(conn)
+    except Exception as exc:  # noqa: BLE001 — valeur inconnue plutôt qu'une erreur 500
+        return {"erreur": type(exc).__name__}
+    if not vue.get("connu"):
+        return None
+    isolement = vue.get("isolement") or {}
+    return {"plateforme": vue.get("plateforme"), "hote": vue.get("hote"),
+            "regime": isolement.get("regime") or ("inconnu" if vue.get("plateforme") == "linux" else None),
+            "peut_executer": vue.get("peut_executer"), "voies_disponibles": vue.get("voies_disponibles"),
+            "voies_fermees": vue.get("voies_fermees"), "carte_en_cours": vue.get("carte_en_cours") is not None,
+            "revues": vue.get("revues")}
 
 
 ENTETES_MESURES = ("x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "x-railway-edge")

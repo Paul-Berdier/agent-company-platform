@@ -1,0 +1,14 @@
+#!/bin/sh
+# GIT_ASKPASS de l'exécutant (cahier P6 § 6.2, décision D92) : rend le jeton GitHub de LECTURE au seul « git fetch »
+# du superviseur (root), qui le lui transmet dans ACP_JETON_LECTURE. Jamais dans l'URL ni dans l'argv ; jamais dans
+# l'environnement d'un agent. Aucune autre invite n'est servie (refus, code 1).
+case "$1" in
+  Username*) printf '%s\n' "x-access-token" ;;
+  Password*)
+    if [ -z "${ACP_JETON_LECTURE:-}" ]; then
+      exit 1
+    fi
+    printf '%s\n' "$ACP_JETON_LECTURE"
+    ;;
+  *) exit 1 ;;
+esac

@@ -52,8 +52,13 @@ def test_protocole_et_majeure():
 
 
 def test_routes_exactes():
-    assert m.ROUTES == ("/api/plugins/acp-poste/machine/v1/enrolement", "/api/plugins/acp-poste/machine/v1/reclamer",
-                        "/api/plugins/acp-poste/machine/v1/inventaire")
+    """Étape P6 (cahier P6 § 5.1) : neuf chemins exacts, les trois de P5 puis les six réservés par P5 § 4.8."""
+    prefixe = "/api/plugins/acp-poste/machine/v1/"
+    assert m.ROUTES_P5 == tuple(prefixe + r for r in ("enrolement", "reclamer", "inventaire"))
+    assert m.ROUTES_P6 == tuple(prefixe + r for r in ("battement", "terminer", "question", "bloquer", "reprendre",
+                                                      "arret"))
+    assert m.ROUTES == m.ROUTES_P5 + m.ROUTES_P6 and len(set(m.ROUTES)) == 9
+    assert set(m.MODELES_P6) == set(m.ROUTES_P6)
 
 
 def test_exemples_valides():
@@ -84,10 +89,12 @@ def test_empreinte_incoherente_refusee_sans_citer_le_jeton():
     assert "jeton machine au format invalide" in str(exc.value) and jeton[:-2] not in str(exc.value)
 
 
-def test_carte_toujours_nulle_en_p5():
+def test_carte_hors_contrat_refusee():
+    """Étape P6 : la carte n'est plus toujours nulle, mais une carte hors contrat reste refusée en français."""
     reponse = dict(_fixture("reclamer_reponse.json"), carte={"id": "t_1"})
-    with pytest.raises(ValueError, match="aucune carte n'est servie à l'étape P5"):
+    with pytest.raises(ValueError, match="champ inconnu refusé : « id »"):
         m.valider(m.ReponseReclamer, reponse, quoi="Réponse refusée")
+    assert m.valider(m.ReponseReclamer, _fixture("reclamer_reponse.json"), quoi="Réponse refusée").carte is None
 
 
 @pytest.mark.parametrize("modifs, motif", [

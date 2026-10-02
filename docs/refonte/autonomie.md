@@ -494,6 +494,10 @@ Désactiver la mise en veille propre à Railway pour le service.
 
 ### P6 : exécution autonome sur un dépôt jetable
 
+> **Transposée à Railway** (décision du propriétaire du 27/09/2026, D74) : l'exécution se fait dans le service
+> Railway **`executant`**, pas sur le PC. Ce qui change est résumé dans l'annexe « P6 transposée à Railway » en fin de
+> document ; l'état livré est dans [executant.md](executant.md). Le texte ci-dessous (PC Windows) reste pour mémoire.
+
 **Livrable.**
 - Réclamation avec claimer stable et TTL de 45 min.
 - Battements ; routes `terminer`, `question`, `bloquer`, `reprendre`.
@@ -686,3 +690,24 @@ de P2 à P4 ; il ne modifie pas le plan ci-dessus.
 - **Mise en veille Railway coupée** (« Hors managed scope » du § 7) : déclarée dans
   `.railway/railway.ts` (`sleepApplication: false`), prise en compte à constater sur Railway
   ([railway.md](railway.md) § 3).
+
+## Annexe : P6 transposée à Railway (1er octobre 2026)
+
+Décision du propriétaire du 27 septembre 2026 (D74) : l'exécution principale passe du PC Windows à un **troisième
+service Railway, `executant`** ; le PC devient facultatif. Le reste du plan tient (Hermes orchestre, aucun outil
+d'exécution sur Hermes, aucune signature par tâche, aucun push). État livré, preuves et limites :
+[executant.md](executant.md) ; gestes du propriétaire : [railway.md § 13](railway.md#13-exécutant-étape-p6).
+
+| Livrable du § 8 (P6) | Sur l'exécutant Railway |
+|---|---|
+| Codex *elevated* imposé (Windows) | **Bac à sable Linux** (bubblewrap) en régime A ; en régime B, voie Codex **fermée** (D79), mesuré à chaque démarrage par la sonde de plateforme |
+| Claude `--restricted`, comparaison à `system/init` | inchangé ; **seul un suffixe de date** est admis entre modèle servi et résolution documentée |
+| Comptes et coffre Windows (DPAPI, Job Object) | **un UID par agent** (`setpriv`), secrets en fichiers 0600 de root sur le volume, arrêt par groupe puis par UID |
+| Réclamation, battements, file de sortie, worktree, commit, pilotage, balayage, garde de quota | inchangés (code commun `apps/poste`) ; commit **local** par le superviseur, sans crochets |
+| Relecture croisée | repli par **un autre modèle de la même voie** quand l'autre voie est fermée, décidé par le routage de Hermes (D91) |
+| Exfiltration visant les vrais chemins | `jeton-machine`, `claude-oauth`, `/donnees/codex/auth.json`, `/proc/1/environ` **refusés** au faux agent du bout en bout local ; à rejouer sur Railway (R4) |
+| Preuve « projet depuis le téléphone » | R5, avec vos comptes (D83, D84) ; récupération par `git bundle` et `railway ssh` (D82) |
+
+Corrections du plan, portées par le cahier P6 : `codex sandbox linux` n'existe pas en 0.156.1 (`codex sandbox -P …
+-C … -- argv`) ; un non-enrôlement ou une révocation ne fait **pas** sortir l'exécutant (sinon plus de `railway ssh`) ;
+les jetons Claude et GitHub vont sur le volume, pas en variable scellée (D92).

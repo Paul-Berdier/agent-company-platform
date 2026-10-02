@@ -33,6 +33,39 @@ l'exécution arrivent en **P6**. Référence côté Hermes et preuves : [`docs/r
 Le contrat partagé avec le greffon est `hermes/plugins/acp-poste/contrat` (`acp_poste_contrat.machine`,
 `inventaire`, `quotas`, `motifs_secrets`).
 
+## Exécutant Linux (étape P6)
+
+Le même paquet sert l'**exécutant Railway** (cahier P6 § 7, décision D76) : la plateforme est choisie par
+`sys.platform`, jamais par une variable. Le poste Windows reste celui de P5 (`peut_executer: false`). Sous Linux, le
+superviseur (root, sous `tini`) lit `/etc/acp/executant.toml` (versionné : `executant/politique/executant.toml`,
+D78), rejoue la **sonde de plateforme** à chaque démarrage, attend son enrôlement **sans sortir**, puis réclame des
+cartes et les exécute une à une, chaque agent sous **son UID** (`acp-codex` 10001, `acp-claude` 10002,
+`acp-verif` 10003). Rien n'est poussé : la branche intégrée se récupère par `acp-poste bundle` (§ 12.2).
+Image, binaires vérifiés et entrée : [`executant/README.md`](../../executant/README.md) ; conception et preuves :
+[`docs/refonte/executant.md`](../../docs/refonte/executant.md).
+
+| Module | Rôle |
+|---|---|
+| `plateforme/` | choix Windows ou Linux ; Linux : emplacements sous `/donnees`, coffre en fichiers 0600 de root (`CoffreFichiers`), `setpriv` vers l'UID de l'agent avec un environnement calculé, arrêt par groupe puis **par UID** (balayage de `/proc`, cahier § 7.5) ; dossiers de travail et fichiers écrits par un agent repris **sans suivre de lien** (`preparer_dossier`, `lire_fichier_agent`) |
+| `politique.py` | aussi `executant.toml` : `uid_dedie`, origine au gabarit refusée, conditions D83/D84 datées, dépôts distants HTTPS sur hôte admis, droits root vérifiés au démarrage |
+| `sonde_plateforme.py` | sonde R0 (§ 4.1) : espaces de noms, bubblewrap, `codex sandbox`, séparation par UID ; verdict régime A ou B → `isolement_linux` |
+| `depots.py` | clone nu, `fetch` en lecture seule (jeton par `GIT_ASKPASS`), worktree et branche `hermes/<carte>`, commit local sans crochets ni `fsmonitor` avec `--git-dir` explicite, diff brut, quarantaine, intégration `--no-ff`, `git bundle` ; purge des worktrees inactifs depuis `purge_apres_jours` (branches gardées) sans suivre de lien |
+| `pilotage.py`, `balayage.py` | fichiers de pilotage touchés (→ revue, D90 ; `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `CLAUDE.local.md` à toute profondeur, entre autres) ; secrets (valeurs exactes du coffre et d'`auth.json`, puis motifs du contrat) |
+| `commandes_agents.py`, `evenements.py`, `garde_quota.py` | commandes imposées de `codex exec` (profil de permissions nommé `acp_agent` ou `acp_lecture`, sans `--sandbox`) et `claude -p` (consigne par l'entrée standard) ; caractères de contrôle retirés des textes de l'agent ; lecture des flux ; garde à 90 % et plafonds du jour |
+| `execution.py` | une carte : contrôle, préparation, agent, battements, vérification et reprise du fil, commit, contrôles, issue ; une relecture part de la branche relue et lit son diff ; commande de vérification absente (127) : « vérification impossible », sans reprise |
+| `sortie.py` | file de sortie persistante (§ 5.9) : écrite avant l'envoi, rejouée dans l'ordre avant toute réclamation ; une requête refusée par le contrat avant l'envoi est rangée dans `sortie/refusees` (la file continue) |
+| `service_executant.py` | boucle de l'exécutant : attente d'enrôlement, `peut_executer`, tâches A/B/C, SIGTERM, reprise après un redémarrage ; purge quotidienne hors carte ; échéance estimée du jeton Claude ; lignes `[acp] …` sur stderr (verdict de la sonde, attente d'enrôlement) |
+| `gestes_executant.py` | `connexion claude|github --stdin`, `connexion codex` (code d'appareil), `bundle`, `pause`, `reprise`, `cartes` |
+
+Commandes de l'exécutant (dans une session `railway ssh`, `acp-poste` est sur le `PATH`) :
+`acp-poste sonde-plateforme --json`, `acp-poste enroler`, `acp-poste pause`, `acp-poste connexion codex`,
+`acp-poste connexion claude --stdin`, `acp-poste connexion github --stdin`, `acp-poste reprise`,
+`acp-poste diagnostic --isolement`, `acp-poste cartes`, `acp-poste bundle <alias> <branche>`. Sans jeton ou après
+une révocation, l'exécutant attend sans sortir ; un 401 ambigu garde le jeton et retente toutes les 15 min ; SIGTERM
+arrête la carte proprement (`arret`) et sort en 0. Lancées en root, `diagnostic`, `quotas`, `releve` et `preuve`
+lancent Codex et Claude sous leur UID, avec les verrous du service (relecture de P6 : en root, elles laissaient
+sous `/donnees/codex` des fichiers qui empêchaient le redémarrage).
+
 ## Installation (vous seul, sous l'UAC)
 
 Le poste tourne sous un **compte Windows local dédié** `acp-poste` (D51), lancé par une **tâche planifiée** au
@@ -228,11 +261,21 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 - `tests/contrat/` : le vrai poste contre un **faux Hermes HTTPS** (autorité de test générée par `cryptography`,
   jamais installé sur le poste) qui applique le contrat partagé et répond depuis les mêmes exemples que le vrai
   greffon ;
-- `tests/e2e/` : bout en bout **local** avec l'image Hermes (jamais en CI).
+- `tests/e2e/` : bout en bout **local** avec l'image Hermes (jamais en CI) ;
+- étape P6 : `faux_agents.py` (faux `codex exec`/`codex sandbox` et faux `claude -p` pilotés par scénario) et des
+  dépôts « distants » locaux ; les tests qui changent d'UID (`setpriv`, `chown`) exigent Linux et **root** : ils
+  sont ignorés, et dits, ailleurs ; ils tournent dans un conteneur Linux jetable (Python 3.12, git, bubblewrap,
+  verrou haché du dépôt) lancé en root.
 
 ## Limites
 
-- **Aucune exécution** avant P6 : `peut_executer: false`, `carte` toujours nulle.
+- **Poste Windows : aucune exécution** (`peut_executer: false`, P6 § 18) ; l'exécution vit sur l'exécutant Linux.
+- Exécutant Linux : sans bubblewrap (régime B, probable sur Railway), la voie Codex est fermée (D79) et la
+  vérification ne tourne que si le dépôt l'accepte sans bac à sable (D80, réseau ouvert) ; les profils de
+  permissions de `codex sandbox` et de `codex exec` (0.156.1) ne sont éprouvés qu'en témoin A local et en CI
+  (vrai binaire, faux fournisseur de modèle), pas sur Railway ; `codex exec
+  --json` ne publie ni le modèle servi ni le palier (rapportés « inconnus ») ; les faux CLI ne prouvent que la
+  plomberie.
 - Le Job Object est une frontière d'arrêt, pas une sandbox. Le compte `acp-poste` lit son propre coffre DPAPI :
   un exécutant mal confiné (P6) le pourrait aussi ; il ne peut ni réécrire `poste.toml` ni remplacer les CLI.
 - Les bacs à sable de Codex et de Claude Code sous Windows natif ne sont pas prouvés avec de vrais comptes ; le

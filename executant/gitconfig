@@ -1,0 +1,21 @@
+# /etc/gitconfig de l'exécutant (cahier P6 § 3.3 et § 6.2), root, 0444. Le superviseur repasse ces réglages en
+# « -c » à chaque commande (acp_poste.depots.options_git) ; ce fichier couvre aussi le git qu'un agent lancerait.
+[core]
+	# Aucun crochet, aucun moniteur de fichiers : rien du dépôt ne s'exécute par git.
+	hooksPath = /dev/null
+	fsmonitor = false
+	# Un lien symbolique du dépôt devient un fichier texte (sauf dépôt déclaré « liens_symboliques », régime A).
+	symlinks = false
+[protocol]
+	allow = never
+[protocol "https"]
+	allow = always
+[submodule]
+	recurse = false
+[credential]
+	helper =
+[safe]
+	# Clones nus (root) et worktrees (root:acp-travail) lus par les UID des agents : sans cela, git refuse un
+	# dépôt d'un autre propriétaire. Forme « chemin/* » admise depuis git 2.46 (image : 2.47.3).
+	directory = /donnees/depots/*
+	directory = /donnees/espaces/*

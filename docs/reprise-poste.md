@@ -22,7 +22,8 @@ Desktop CI `35981934226` vertes sur ce commit).
   `1.0.0` seulement à la fusion finale dans `main`.
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
   `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`, pour P4
-  `.claude/worktrees/refonte-hermes-p4`, pour P5 `.claude/worktrees/refonte-hermes-p5`.
+  `.claude/worktrees/refonte-hermes-p4`, pour P5 `.claude/worktrees/refonte-hermes-p5`, pour P6
+  `.claude/worktrees/refonte-hermes-p6`.
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
@@ -71,7 +72,7 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 | P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
 | P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
 | P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
-| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie) | à faire |
+| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie), **sur l'exécutant Railway** | **réalisée côté dépôt** sur `refonte/hermes-p6` (empilée sur `refonte/hermes-p5`) : côté Hermes, client Linux, image `executant/`, IaC, bout en bout local ; poussée, sans PR ; sonde R0 prête, **non lancée** ; **rien de déployé** (§ 6 sexies, § 6 septies, § 6 octies) |
 | P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
 | P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | à faire |
 | P9 | Exploitation, montée de version et publication | à faire |
@@ -1645,6 +1646,379 @@ Commits (aucun `Co-Authored-By`) : `559d363`, `00a812d`, `04f20bd`, `a428867`, `
 Hors P5, non corrigé : le client desktop cite encore `ACP_WORKER_SUBSCRIPTION_QUOTAS=1`
 (`apps/desktop/src/viewmodels/SubscriptionQuotasViewModel.cpp:932`), disparu en P5 : à revoir en P8.
 
+## 6 sexies. P6 — exécution, côté Hermes (première partie)
+
+Branche `refonte/hermes-p6`, empilée sur `refonte/hermes-p5` (`4f351bc`) ; version 0.11.0 inchangée ; **ni PR, ni
+fusion, ni étiquette** ; **rien n'est déployé**, aucune action sur Railway, aucun compte connecté, la sonde R0 n'est
+pas lancée. Décision du propriétaire : il **fournit les comptes**, Hermes gère ; les recommandations du cahier P6
+(§ 17) sont donc **appliquées** : décisions **D74 à D92** de [`plan.md`](refonte/plan.md) (le cahier les numérote 71
+à 89 ; D67 à D73 étaient déjà prises par la relecture de P5 : **décalage de trois**, à garder dans les parties
+suivantes). Ici l'exécutant est joué par un faux exécutant ; le client Linux (`apps/poste`), l'image `executant/` et
+la sonde R0 sont les parties suivantes de P6.
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `0111385` | feat(contrat): add execution routes and the Linux isolation inventory to acp-machine/1 |
+| `9d09776` | feat(acp-poste): migrate the plugin base to schema v3 for execution, sends and waits |
+| `ae066a5` | feat(acp-poste): serve cards to the runner and record heartbeats, outcomes, questions and blocks |
+| `d5a95af` | feat(interface): show isolation, current card, ready branches and reviews |
+| `64083b0` | feat(acp-poste): show the model actually served per alias in the routing view |
+| `579a220` | test(acp-poste): add the P6 negative witnesses and the tests they showed missing |
+
+Puis `d5a120b` (tests de contrat et faux exécutant), `c8b0887` (message d'une revue gardé après le rechargement),
+`8bc54bf` (navigateur) et ce commit de documentation.
+
+### Ce qui est en place
+
+Résumé dans [`image.md`](refonte/image.md) § 7 (« Ajouts de P6 ») et [`interface.md`](refonte/interface.md) § 12 :
+neuf chemins à jeton (`reclamer` sert une carte ; `battement`, `terminer`, `question`, `bloquer`, `reprendre`,
+`arret`), idempotence par `id_envoi`, cycle de carte par l'API kanban de Hermes (fin, revue des fichiers de pilotage
+et refus par `add_comment` puis `reopen_review_task`, question planifiée, blocage, reprise), schéma 3 de la base du
+greffon, classe « intégration », voies fermées d'après l'inventaire (régime B), repli de relecture D91, résolutions
+observées, bloc `executant` de `/v1/poste` et de `/v1/meta`, onglet Poste et page Questions.
+
+### Écarts au cahier, justifiés
+
+- Décisions renumérotées D74 à D92 (ci-dessus) ; le code cite ces numéros.
+- Les points 3 à 5 du § 19 du cahier (routes, cycle de carte, routage) sont livrés en un seul commit (`ae066a5`) :
+  leurs tests partagent le même faux exécutant et la même pile.
+- Résolutions observées : lues dans les demandes terminées (modèle servi rapporté par l'exécutant), pas recopiées
+  dans le relevé du catalogue : le relevé reste ce que le poste a publié.
+- Carte d'une voie fermée après sa composition : bloquée au bout de 30 minutes (motif dit), sans carte de triage
+  séparée.
+- Intégration de fin de projet créée seulement quand l'exécutant a rapporté des branches (les projets simulés de P4
+  se terminent sans intégration).
+- `VOIES_POSTE` gardée telle quelle, `poste-integration` à part (`VOIE_INTEGRATION`) : le routage de P5 ne change pas.
+- Persona (`SOUL.md`) et messages de la garde non retouchés : l'agent n'a toujours aucun outil d'exécution.
+- Code d'erreur `projet_en_pause` défini au contrat mais non émis : la pause est rendue par le battement (`pause`).
+
+### Preuves locales (01/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10 python.org, Node 24)
+
+- suite de l'image construite depuis l'arbre : **681 réussis**, 0 échec, 0 ignoré (450,80 s, arbre de `c8b0887` ;
+  même total sur l'arbre de `579a220`) ;
+- témoins négatifs `scripts/temoins_negatifs_p6.sh` : **27 témoins, 0 anomalie** (les premières passes ont montré
+  des tests trop faibles, resserrés par `579a220`) ;
+- tests de contrat sur la pile s6 complète (`test_execution_contrat.py`, `test_machine_contrat.py`,
+  `test_interface_contrat.py`) : **23 réussis** (8 + 11 + 4, 241,87 s), puis `test_projets_contrat.py` **21 réussis**
+  (896,64 s) et `test_interface_contrat.py` refait sur l'arbre de `c8b0887` (4 réussis : bundles servis identiques au
+  dépôt) ; le reste de la suite de contrat n'a pas été relancé localement ;
+- Vitest **120 réussis** (17 fichiers), `npm run check` : 8 fichiers de greffons à jour ; navigateur
+  `test_executant.py` : 1 réussi (45,81 s ; axe sans violation grave, aucun texte hors du catalogue, cibles de 44 px,
+  aucune requête hors de l'origine, 4 captures). Une passe précédente avait échoué : le message « Revue refusée »
+  disparaissait avec la carte au rechargement ; corrigé par `c8b0887`, avec un test Vitest qui échouait avant ;
+- contrat partagé 209 réussis ; suite du dépôt **691 réussis, 3 ignorés, 7 échecs d'environnement** : les cinq tests
+  d'arrêt d'arbre de `apps/poste/tests/test_local_runner.py` et `test_ordre_releve_moins_de_3_s` (5,1 s au lieu de
+  3 s) échouent **à l'identique sur l'export de `4f351bc`** (pointe de P5, `apps/poste` inchangé depuis) dans cette
+  session ; `test_arret_d_arbre_confirme` réussit seul (3 fois sur 3). À refaire sur un poste au repos ;
+- version, gel du moteur, catalogue, secrets : code 0 ; `git diff --check` propre avant chaque commit.
+
+### Intégration continue
+
+`ci.yml` vert sur chacun des quatre premiers commits. `image.yml` en **échec** sur ces quatre commits : sur
+`0111385`, trois tests de l'image écrits pour trois chemins à jeton (mis à jour par `9d09776`) ; sur les trois
+suivants, l'étape des tests de contrat (`ae066a5` et `d5a95af` : 147 réussis, 3 échecs ; journal de `9d09776`
+tronqué) : deux tests de contrat de P5 qui attendaient trois chemins à jeton et un 401 sur une route de P6, et
+`test_projets_contrat.py` qui attendait le schéma « 2 » ; corrigés par les commits de tests ci-dessus.
+
+Pointe de la branche, 01/10/2026 : `image.yml`
+[36862238194](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36862238194) (`8bc54bf`, dernier
+commit qui touche l'image ; un commit de documentation seule ne le relance pas) **vert** : pytest dans l'image réussi
+(le journal de GitHub est tronqué après l'identifiant géant d'un test paramétré : total non lisible, 681 en local),
+tests de contrat **158 réussis** (1 936,84 s), tests navigateur **8 réussis** dont `test_executant.py` ; `ci.yml`
+[36863391435](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36863391435) (`15be032`) **vert** :
+poste Windows (windows-2022) 695 réussis et 6 ignorés, Linux 681 réussis et 20 ignorés, interface 120, moteur 74.
+Les sept échecs locaux de la suite du dépôt ne se produisent donc pas sur l'exécuteur Windows de la CI.
+
+### Non vérifié
+
+Le vrai exécutant (client Linux, image `executant/`, bac à sable), Railway, les vrais comptes (Codex par code
+d'appareil, `claude setup-token`), la sonde R0 et ses régimes réels, la récupération par `git bundle` et
+`railway ssh` : parties suivantes de P6, puis le propriétaire.
+
+## 6 septies. P6 — client multiplateforme et exécution d'une carte (deuxième partie)
+
+Même branche, empilée sur la première partie (`a8bf5da`) ; version 0.11.0 inchangée ; ni PR, ni fusion, ni
+étiquette ; **rien n'est déployé**, aucune action sur Railway, aucun compte connecté, la sonde R0 n'est **pas**
+lancée (elle est prête : `acp-poste sonde-plateforme --json`). Décisions appliquées : D74 à D92 (numéros décalés de
+trois, § 6 sexies) ; D83 et D84 datées du 1er octobre 2026 dans `executant/politique/executant.toml`.
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `7d75983` | feat(poste): add a platform layer with a Linux runner side |
+| `e219311` | feat(poste): read the versioned runner policy executant.toml |
+| `4431705` | feat(poste): probe the platform sandbox and publish the isolation regime |
+| `29843c4` | feat(poste): prepare repositories and worktrees and commit locally without hooks |
+| `ace31cc` | feat(poste): detect agent-steering files and scan secrets before any outcome |
+| `4e1f0e1` | feat(poste): build the imposed agent commands and read their streams |
+| `ce05ae1` | feat(poste): speak the six execution routes and keep a persistent outbox |
+| `089fc23` | feat(poste): run Codex and Claude cards with imposed options, verification and resume |
+| `ac9c5ad` | feat(poste): serve cards on Linux, wait for enrolment without exiting and stop cleanly on SIGTERM |
+| `9fedda1` | fix(poste): keep the outbox order when two outcomes share a clock tick |
+| `953a216` | fix(poste): find a lost card base by merge-base and count only agent crashes as OOM |
+
+### Ce qui est en place
+
+Résumé dans [`apps/poste/README.md`](../apps/poste/README.md) (« Exécutant Linux ») : couche `plateforme/` (choix par
+`sys.platform` ; Windows inchangé derrière une façade ; Linux : `/donnees`, coffre en fichiers 0600 de root,
+`setpriv` vers l'UID de chaque agent, arrêt par groupe puis par UID), politique `executant.toml` versionnée et
+refusée tant que son origine vaut le gabarit, sonde de plateforme (régime A ou B, inventaire `isolement_linux`),
+dépôts (clone nu, jeton de lecture par `GIT_ASKPASS`, worktree `hermes/<carte>`, commit sans crochets ni `fsmonitor`
+avec `--git-dir` explicite), fichiers de pilotage et balayage des secrets, commandes imposées de `codex exec` et
+`claude -p`, garde de quota et plafonds du jour, six routes et file de sortie persistante, exécution d'une carte,
+boucle de l'exécutant (attente d'enrôlement sans sortie, `peut_executer`, SIGTERM) et gestes du propriétaire
+(`connexion claude|github --stdin`, `connexion codex`, `bundle`, `pause`, `reprise`, `cartes`).
+
+### Écarts au cahier, justifiés
+
+- Code Windows **laissé en place** derrière `plateforme/windows.py` (le cahier parlait de déplacement) : rien à gagner,
+  et les tests P5 restent inchangés.
+- `--reset-env` retiré de `setpriv` : il remplacerait l'environnement calculé (perte de `CODEX_HOME`, de
+  `CLAUDE_CONFIG_DIR` et du jeton de Claude). L'environnement passé à `setpriv` est calculé et rien n'est hérité.
+- Consigne des agents par l'**entrée standard** (`-` pour Codex, `-p` sans invite pour Claude) : `/proc/<pid>/cmdline`
+  est lisible par tous les UID du conteneur.
+- `codex exec --json` (0.156.1) ne publie ni le modèle servi ni le palier : rapportés `null` (« inconnu »), jamais
+  supposés ; le contrôle « modèle servi = résolution documentée » vaut pour Claude (`system/init`).
+- Options (a) et (b) de D79 (`sans_bac_a_sable`) et `authentification = "cle_api"` : **refusées** par le lecteur de
+  la politique (non mises en œuvre en P6) plutôt que des réglages qui feraient semblant.
+- Commandes des agents dans `commandes_agents.py` (et non `executors.py`, héritage du worker utilisé par aucun chemin
+  de P5 ou P6, inchangé) ; un seul module `evenements.py` pour les deux flux.
+- Ajouts de sécurité : `--git-dir` et `--work-tree` explicites et `core.fsmonitor=false` (un agent qui réécrit `.git`
+  ne fait rien exécuter au superviseur, test dédié) ; balayage par UID qui ignore les zombies (attendant `tini`) ;
+  carte annoncée dans `carte_en_cours` dès sa réception (aucune autre servie pendant l'envoi d'un refus) ; base
+  d'une carte perdue retrouvée par `merge-base`.
+- Un arrêt brutal au redémarrage compte comme arrêt mémoire seulement si l'agent ou la vérification tournait.
+- Sans sonde de Claude, la voie Claude reste fermée ; l'intégration (aucune CLI d'agent) est annoncée dès que les UID
+  sont séparés.
+- La forme du profil de permissions de `codex sandbox` est **supposée** (`sonde_plateforme.profil_codex_toml`) : seul
+  le binaire réel la confirme (image, puis R0) ; en régime B elle ne sert pas.
+
+### Preuves locales (01/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10 python.org)
+
+- Windows : `apps/poste`, contrat partagé et `scripts/tests` : **871 réussis, 35 ignorés, 0 échec** (216,62 s, sur
+  l'arbre de `ac9c5ad` avant les deux correctifs ; les tests propres à Linux et à root y sont ignorés et dits) ;
+  `test_execution.py`, `test_depots.py`, `test_service_executant.py` refaits sur `953a216` : 35 réussis, 17 ignorés ;
+- Linux, conteneur jetable **en root** (`python:3.12-slim` local, git et bubblewrap des dépôts signés Debian, verrou
+  haché du dépôt ; script hors dépôt) : `apps/poste` **536 réussis, 20 ignorés** (Windows seulement) sur `953a216` ;
+  avec le contrat : 742 réussis, 20 ignorés (`ac9c5ad`) ; dont les tests qui changent d'UID : agent sous `acp-claude`
+  qui écrit le worktree et ne lit ni `/donnees/acp/secrets/jeton-machine` ni `/proc/1/environ`, balayage par UID qui
+  rattrape un `setsid`, worktree d'une autre carte inaccessible hors de son tour ;
+- Linux **sans root** (comme la CI) : 731 réussis, 28 ignorés, puis 3 échecs corrigés (propriétaire attendu de la
+  politique transmis à la relecture périodique) ;
+- sonde réelle dans le conteneur Docker au seccomp par défaut : **régime B**, `bwrap` refusé (« No permissions to
+  create a new namespace »), `unshare -Ur` refusé, UID séparés (`id -u` = 10003, `/proc/1/environ`, fichier 0600
+  de root et `kill -0 1` refusés). Ce n'est **pas** une preuve pour Railway : seule R0 le sera ;
+- version, gel du moteur, catalogue, verrou : code 0 ; balayage des secrets de l'arbre et des lignes ajoutées depuis
+  `refonte/hermes-p5` : aucun motif ; `git diff --check` propre avant chaque commit.
+
+### Intégration continue
+
+`ci.yml` vert sur chaque commit sauf `ce05ae1` et `ac9c5ad` : sur `windows-2022`, deux dépôts de la file de sortie
+tombaient dans la même tranche d'horloge et l'identifiant aléatoire décidait de leur ordre ; corrigé par `9fedda1`
+(rang strictement croissant, test dédié), vert :
+[36881513939](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36881513939) — Windows 869 réussis
+et 38 ignorés, Linux 879 réussis et 28 ignorés, interface 120, moteur 74. Dernier commit de code, `953a216` :
+[36882172134](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36882172134) **vert** — Windows
+870 réussis et 39 ignorés, Linux 881 réussis et 28 ignorés (dont les 8 tests root, ignorés et dits). `image.yml` ne
+se déclenche pas (aucun fichier de l'image Hermes touché).
+
+### Non fait dans cette partie (dit)
+
+- Purge des worktrees et des bundles après `purge_apres_jours` ; alerte à J-30 du jeton Claude (faites depuis,
+  § 6 nonies) ;
+- tests root dans la CI : la CI Linux tourne sans root et les ignore ; ils sont prévus dans l'image de l'exécutant
+  (partie 3) ;
+- image `executant/` (Dockerfile, binaires vérifiés, entrée `acp-entree-executant`, `claude-settings.json`,
+  `gitconfig`), IaC, bout en bout Docker Compose : partie 3.
+
+### Non vérifié
+
+Les vraies CLI (Codex 0.156.1, Claude Code 2.1.283) sous leur UID, le profil de `codex sandbox`, bubblewrap et les
+espaces de noms sur Railway (R0), les vrais comptes, la récupération par `scp` : les faux CLI ne prouvent que la
+plomberie.
+
+## 6 octies. P6 — image de l'exécutant, IaC, sonde R0 et bout en bout (troisième partie)
+
+Même branche, empilée sur la deuxième partie (`57be7a8`) ; version 0.11.0 inchangée ; ni PR, ni fusion, ni
+étiquette ; **rien n'est déployé**, aucune action sur Railway, aucun compte connecté, aucun identifiant lu. Les seuls
+téléchargements sont ceux du build de l'image, depuis les sources officielles, aux versions et empreintes du cahier,
+vérifiés (échec fermé). La sonde R0 est **prête** (image, commande, contrôleur du relevé, procédure) et **non
+lancée**. Conception, preuves et limites : [`docs/refonte/executant.md`](refonte/executant.md) ; gestes du
+propriétaire : [`docs/refonte/railway.md` § 13](refonte/railway.md).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `6486a2e` | feat(executant): pin Codex and Claude Code and verify them before install |
+| `3b763ac` | fix(poste): accept only a date suffix on the served Claude model |
+| `de42c8e` | feat(executant): build the pinned runner image with verified Codex and Claude binaries |
+| `3c63bec` | ci: build the runner image and prove it without any account |
+| `10dc18e` | feat(railway): declare the executant service and volume |
+| `c20124d` | fix(executant): show the real probe refusals and unmask /proc for the regime A witness |
+| `f9b5032` | test(executant): run the real runner end to end against the Hermes image with fake CLIs |
+| `32f7f85` | fix(poste): compare the runner's Codex config.toml with the Linux variant |
+| `8a51108` | feat(executant): check the R0 probe report before it is published |
+
+### Ce qui est en place
+
+- `executant/` : `Dockerfile` (base `python:3.12-slim-trixie@sha256:f77ac9e4…`, paquets Debian fixés, étapes
+  `binaires`, `roues`, `commun`, `factice`, `finale`), `binaires.toml`, `cles/claude-code.asc`,
+  `bin/verifier-binaires`, `bin/acp-entree-executant`, `bin/acp-poste`, `gitconfig`, `claude-settings.json`,
+  `factice/` (faux Codex et faux Claude), `tests/` (statiques, image construite, image d'essais), `README.md` ;
+- `.railway/railway.ts` : service `executant` et volume `executant-donnees` ; `verifier.mjs` : trois services, volumes
+  disjoints, aucune référence entre services ;
+- `scripts/verifier_releve_r0.py` ; `hermes/tests/outils/depot_factice.py` (dépôt git distant factice en HTTPS,
+  lecture seule) et certificat `git.acp.test` de l'autorité de test ; `hermes/tests/contrat/test_executant_bout_en_bout.py` ;
+- CI : `executant.yml` (nouveau) ; `image.yml` construit la cible factice et lance le bout en bout.
+
+### Écarts au cahier, justifiés
+
+Détail : [`executant.md` § 14](refonte/executant.md). Verrou du poste utilisé tel quel pour les roues ; lanceur en
+`/opt/acp/lancer.py` ; sonde dans `apps/poste` (contrôleur de relevé ajouté) ; bout en bout dans la suite de contrat
+(quatre scénarios, sans Docker Compose) ; workflow séparé pour l'image de production ; témoin A avec
+`systempaths=unconfined` ; umask 002 posé par l'entrée ; trois correctifs du client (modèle servi, `config.toml` du
+diagnostic, sortie de la sonde).
+
+### Preuves locales (01/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10 python.org, Node 24.19.0)
+
+- build de la cible finale : « [acp] Codex 0.156.1 vérifié », « [acp] Claude Code 2.1.283 vérifié (manifeste signé
+  par 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE…) », « signature cosign de Codex non vérifiée », empreintes
+  recontrôlées ; signature du manifeste vérifiée aussi à la main avant d'écrire `binaires.toml` (« Good signature ») ;
+- `verifier-binaires` (conteneur Linux jetable avec gpg) : 10 réussis ;
+- `executant/tests` contre `acp-executant:p6` : 28 réussis (8 statiques, 20 sur l'image) ; sous Windows sans image :
+  tests de l'image ignorés avec leur raison ;
+- suite `apps/poste` et contrat **en root dans l'image d'essais** : 745 réussis, 20 ignorés (propres à Windows) ;
+- sonde (Start Command de R0, en local) : régime **B** sous le seccomp par défaut ; témoin **A** (vrai `codex sandbox
+  -P acp_verif` : écriture hors du dossier, réseau et faux `auth.json` refusés) ; les deux relevés passent
+  `scripts/verifier_releve_r0.py` ;
+- vraies CLI sans compte : commande exacte du superviseur acceptée par Codex 0.156.1 (fil ouvert) et Claude Code
+  2.1.283 (`system/init` : outils demandés plus `StructuredOutput`, aucun MCP, `--add-dir` admis avec
+  `--restricted`, `opus` → `claude-opus-5-5`) ; fonction ou option inconnue refusée ; `claude update` refusé ;
+- **bout en bout** (`ACP_IMAGE_TESTS=acp-hermes-tests:p6i ACP_IMAGE_EXECUTANT_FACTICE=acp-executant:p6factice
+  python -m pytest hermes/tests/contrat/test_executant_bout_en_bout.py`) : **6 réussis** en 106,84 s (scénarios dans
+  `executant.md` § 11) ;
+- `.railway` : `verifier.mjs` conforme (refus des gabarits, graphe d'essai à 3 services et 3 volumes), `tsc` sans
+  erreur ; `scripts/tests` : 159 réussis ; `git diff --check` propre avant chaque commit ; `check_version` vert.
+
+### Intégration continue
+
+- `executant.yml` [36889016245](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36889016245) sur
+  `c20124d` : **vert** — 38 tests de l'image, sonde B et témoin A (restriction AppArmor du lanceur 1 → 0, consignée),
+  suite en root dans l'image **750 réussis, 20 ignorés**. Premier run (`3c63bec`) rouge : témoin A en B sur le
+  lanceur GitHub (`/proc` neuf refusé, cause masquée par un avertissement de Codex) ; corrigé par `c20124d`.
+- `image.yml` [36892387102](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36892387102) sur
+  `f9b5032` : **vert** — contrat **164 réussis** (158 + les 6 du bout en bout avec le vrai exécutant), navigateur 8 ;
+  [36892623742](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36892623742) sur `32f7f85`, dernier
+  commit qui déclenche `image.yml` : vert, 164 et 8 ;
+  [36888645780](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36888645780) sur `10dc18e` (IaC à
+  trois services, `test_railway_iac_contrat.py` compris) : vert, contrat 158, navigateur 8 ;
+- `ci.yml` vert sur chaque commit de cette partie ; sur `eb55afa`
+  ([36894084340](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36894084340)) : Windows 898
+  réussis et 69 ignorés, Linux 919 réussis et 48 ignorés, interface 120, moteur 74 ; `executant.yml` sur `eb55afa`
+  ([36894084716](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36894084716)) : vert, 38 et 750
+  réussis (20 ignorés).
+- Suite complète en local sous Windows (`python -m pytest`, venv sans `cryptography`) : 867 réussis, 66 ignorés,
+  5 échecs et 29 erreurs **d'environnement** — les 29 erreurs sont l'absence de `cryptography` dans ce venv (les mêmes
+  tests de contrat, relancés dans un venv qui l'a : 33 réussis, 2 échecs de délai : `test_reponse_hors_contrat_refusee`
+  réussit seul, `test_ordre_releve_moins_de_3_s` échoue aussi seul, 6,3 s pour 3 s attendues, comme sur la pointe de
+  P5 relevé en première partie) ; les 5 échecs
+  sont des tests temporisés d'arbre de processus (`test_local_runner.py`, `test_arret_d_arbre_confirme`), dont ni le
+  code ni les tests n'ont changé depuis `57be7a8` : ils échouent aussi sur un export de `57be7a8` (deux des quatre de
+  `test_local_runner.py` au même essai, `test_arret_d_arbre_confirme` deux fois sur deux) sur ce PC chargé ; la CI
+  Windows les passe.
+
+### Non fait (dit)
+
+Purge des worktrees et des bundles, alerte J-30 du jeton Claude (faites depuis, § 6 nonies) ; option B de push
+(conçue, non activée) ; les dix scénarios du cahier § 14.3 qui ne sont pas dans le bout en bout (neuf depuis le
+scénario de relecture du § 6 nonies ; couverts en partie par les faux agents de la deuxième partie).
+
+### Non vérifié
+
+Tout ce qui exige Railway ou vos comptes : R0 à R10 (`executant.md` § 12), vraies CLI connectées, `railway ssh`,
+`scp`, coût réel, prise en compte par Railway des clés non documentées et du `Dockerfile.dockerignore`.
+
+## 6 nonies. P6 — corrections de la relecture indépendante
+
+Même branche, empilée sur `35c94af` ; version 0.11.0 inchangée ; ni PR, ni fusion, ni étiquette ; **rien n'est
+déployé**, aucune action sur Railway, aucun compte connecté, aucun identifiant lu, aucun téléchargement hors du build
+de l'image (versions et empreintes du cahier, vérifiées). Relecture de `35c94af` en trois lentilles (exactitude,
+sécurité, exploitation) : 19 constats, tous vérifiés et **réels** ; trois défauts de plus trouvés en les vérifiant.
+Tableau constat → correction → preuve : [`executant.md` § 15](refonte/executant.md#15-corrections-après-la-relecture-indépendante-1er-octobre-2026).
+
+### Commits (aucun `Co-Authored-By`)
+
+| Commit | Sujet |
+|---|---|
+| `a7620ac` | fix(executant): run owner commands under the tool UIDs and clear Codex aliases at entry |
+| `7dab6aa` | fix(poste): impose a named Codex permission profile that denies the credential folders |
+| `86e1829` | fix(poste): let the reviewer read the reviewed code and its diff |
+| `8fa1be6` | fix(poste): never follow an agent-planted link under /tmp/acp or in the Codex answer |
+| `9c8f66a` | fix(poste): keep the outbound queue moving when the contract refuses a request |
+| `bed1b70` | fix(poste): treat AGENTS.override.md and CLAUDE.local.md as steering files |
+| `a65ec13` | fix(executant): give a repository form that runs in the image and report a missing command |
+| `23a169e` | fix(tooling): let the R0 report checker run with the owner's plain Python |
+| `6d363a4` | fix(poste): show the probe verdict and the enrolment wait in the container logs |
+| `197a8ea` | feat(executant): purge old worktrees and warn before the Claude token expires |
+| `6c6bd6d` | docs(railway): bring the runner procedure in line with what the owner can follow |
+| `815ae6f` | test(executant): review a card end to end and prove the reviewer reads the diff and the code |
+
+### Ce qui change pour le propriétaire
+
+- les commandes `acp-poste` de la procédure (diagnostic, quotas, relevé, preuve), lancées en root dans
+  `railway ssh`, ne peuvent plus empêcher l'exécutant de redémarrer ; une remise en état documentée existe pour un
+  geste fait à la main (railway.md § 13.8) ;
+- `scripts/verifier_releve_r0.py` se lance avec le Python du PC, sans environnement virtuel ;
+- l'exécutant purge son disque lui-même et annonce l'échéance du jeton Claude (page Poste, 30 jours avant) ;
+- railway.md § 9 et § 13 : coûts à trois services, commit à sonder, `railway login`/`link`, dépôt jetable (§ 13.3
+  bis), outils de l'image, renouvellements, bascule requalifiée.
+
+### Preuves locales (1er octobre 2026, Windows 10, Docker 29.5.3, Python 3.12.10 python.org)
+
+- suite Windows (`python -m pytest`, export LF de `815ae6f`, venv avec `cryptography`) : 927 réussis, 83 ignorés,
+  3 échecs « not a git repository » propres à l'export, rejoués dans le worktree : 3 réussis ;
+- `executant/tests` sur l'hôte, contre l'image finale et la cible factice reconstruites depuis l'export : 33 réussis ;
+  `verifier-binaires` et `test_dockerfile` dans un conteneur Linux avec gpg : 18 réussis ;
+- `apps/poste` et contrat **en root dans l'image d'essais** : 777 réussis, 20 ignorés (propres à Windows) ;
+- tests dans l'image Hermes : 682 réussis ;
+- contrat `hermes/tests/contrat`, bout en bout compris (7 scénarios, dont la relecture) : 162 réussis et 3 erreurs
+  d'environnement (l'export n'a pas le SDK de `.railway`), rejoués dans le worktree propre (SDK présent) : 3
+  réussis ; navigateur : 8 réussis dans le worktree propre (sur l'export : 4 échecs d'environnement, « axe-core
+  absent », jamais ignorés) ;
+- témoins négatifs de P6 : 27, aucune anomalie ;
+- chaque correction de code a un test qui échoue sur le commit d'avant (témoin : les tests de la pointe rejoués sur
+  les sources de ce commit), dont un témoin du bout en bout pour la relecture (diff « refusé (PermissionError) » avec
+  le code d'avant) ; le profil de Codex est éprouvé avec le **vrai** `codex exec` 0.156.1 et un faux fournisseur de modèle
+  (`executant/tests/faux_fournisseur.py`), en témoin A ;
+- contrôles du dépôt (`check_version`, `generer_themes --check`, `verifier_catalogue`, `check_lock`,
+  `check_engine_frozen`) : code 0 ; `.railway/verifier.mjs` conforme ; Vitest 120 réussis ; `git diff --check`
+  propre avant chaque commit.
+
+### Intégration continue
+
+Trois workflows **verts** sur la pointe `815ae6f` :
+- `ci.yml` [36925637152](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36925637152) : Windows
+  927 réussis et 86 ignorés, Linux 959 réussis et 54 ignorés, interface 120, moteur 74 ;
+- `executant.yml` [36925637270](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36925637270) :
+  43 tests de l'image (dont le profil de Codex en témoin A et les commandes du propriétaire suivies d'un
+  redémarrage), suite en root dans l'image 777 réussis, 20 ignorés ;
+- `image.yml` [36925637269](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36925637269) : 682
+  tests dans l'image Hermes, contrat **165 réussis** (dont les 7 du bout en bout), navigateur 8.
+
+Chaque commit de la passe a été poussé et tous ses runs sont verts : les trois workflows pour chacun, sauf `23a169e`
+(script seul : `ci.yml` seulement, les deux autres ne se déclenchent que sur leurs chemins).
+
+### Non fait, non vérifié (dit)
+
+- Profil de Codex éprouvé en témoin A local et en CI seulement ; sur Railway, R0 tranche.
+- Alerte du jeton Claude : page Poste et journaux, pas de notification téléphone (migration du schéma non faite) ;
+  échéance estimée. Historiques des CLI non purgés. `uv` non ajouté à l'image ; forme pip non éprouvée.
+- Tout ce qui exige Railway ou les comptes : R0 à R10 (`executant.md` § 12).
+
 ## 7. Chaîne d'outils Windows
 
 La référence est `packaging/windows/toolchain.json` : Qt **6.8.3**
@@ -1691,6 +2065,15 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 ```
 
 ## 8. Pièges connus
+
+- **Étape P6** : Codex 0.156.1 avertit « could not create PATH aliases » quand son `CODEX_HOME` est sous `/tmp` ;
+  sans conséquence, mais la sonde le retire de ses relevés (il masquait la vraie cause d'un refus).
+- **Étape P6** : un journal partagé entre UID dans un dossier 1777 n'est inscriptible que par son créateur : un
+  fichier par UID (faux CLI du bout en bout).
+- **Étape P6** : l'`/etc/gitconfig` de l'exécutant ferme tout protocole sauf `https` ; un test qui simule le PC du
+  propriétaire (clone d'un bundle) rouvre `file` pour lui seul.
+- **Étape P6** : l'URL d'un dépôt de la politique doit être `https://<hôte>/<propriétaire>/<dépôt>` ; le plafond de 3
+  projets actifs du greffon bloque un banc à quatre scénarios (réglage `projets_actifs_max`).
 
 - `core.autocrlf=true` sur ce poste : l'arbre de travail est en CRLF, l'index en LF.
   Vérifier `git diff --cached --check` et l'absence de `\r` dans les blobs indexés.
@@ -1785,3 +2168,8 @@ $env:ACP_IMAGE_TESTS = 'acp-hermes-tests:<étiquette>'
 - **Étape P5 (poste)** : les tests du poste et le bout en bout n'emploient jamais les vrais emplacements : racine
   jetable (`Emplacements.de_test`), coffre en mémoire (tests) ou DPAPI sur une racine temporaire (bout en bout),
   `USERPROFILE` et `APPDATA` redirigés ; `lancer_poste.py` refuse toute racine hors du dossier temporaire.
+- **Étape P6** : dans les tests de l'image, les routes servies par `pile_machine` appellent la copie **canonique** du
+  noyau (`meta.sous_module_noyau("execution")`), pas `pile.noyau` : un `monkeypatch` sur `pile.noyau.<module>` ne
+  les touche pas.
+- **Étape P6** : sous le Bash de l'outil d'agent, un heredoc avale les antislashs (un antislash suivi de « n »
+  devient un vrai saut de ligne) : écrire les scripts de modification avec un éditeur, pas par heredoc.

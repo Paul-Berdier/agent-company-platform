@@ -1,7 +1,7 @@
 # Contrat partagé `acp_poste_contrat`
 
-Modèles Pydantic partagés par le **poste Windows** (`apps/poste`) et le greffon Hermes
-**`acp-poste`** (`hermes/plugins/acp-poste`). Une seule source, jamais de copie : le poste
+Modèles Pydantic partagés par le **poste** (`apps/poste` : poste Windows de P5, exécutant Railway Linux de P6)
+et le greffon Hermes **`acp-poste`** (`hermes/plugins/acp-poste`). Une seule source, jamais de copie : le poste
 l'installe comme distribution locale (`pip install -e hermes/plugins/acp-poste/contrat`) ;
 l'image Hermes le reçoit avec le greffon, puisque tout `hermes/` forme le contexte de
 construction de l'image.
@@ -21,9 +21,10 @@ construction de l'image.
 ## Contenu
 
 - `acp_poste_contrat.quotas` : relevés de quotas d'abonnement (Codex CLI, Claude
-  Code), repris **tels quels** de `acp_contracts.subscriptions` (étiquette
-  `archive/acp-0.10.0-avant-hermes`). Leur réduction au schéma de
-  `hermes usage --json` est l'objet de P6.
+  Code), repris de `acp_contracts.subscriptions` (étiquette
+  `archive/acp-0.10.0-avant-hermes`) ; P6 admet une seconde source Claude,
+  `claude_code_rate_limit_event` (exécutions `claude -p` de l'exécutant, une fenêtre à la fois),
+  par l'ensemble `QUOTA_SOURCES_BY_PROVIDER`.
 - `acp_poste_contrat.inventaire` (P4, décision D21 ; **étendu en P5 sans rien
   restreindre**) : relevé d'une voie (`Releve`, `ModeleReleve`, `Quotas`, `Depot`),
   inventaire complet du poste (`InventairePoste` : relevés, bac à sable Codex,
@@ -31,9 +32,15 @@ construction de l'image.
   par le greffon (`resume_quotas`) et garde « aucun identifiant »
   (`identifiant_trouve` : motifs de secrets, `@`, chemins de lecteur, UNC ou de profil,
   jetons d'ACP). Tout relevé que P4 acceptait reste accepté (relevés factices et lignes
-  déjà en base).
-- `acp_poste_contrat.machine` (P5) : protocole `acp-machine/1` — requêtes et réponses
-  des trois routes machine (`enrolement`, `reclamer`, `inventaire`), forme des jetons
+  déjà en base). **Étendu en P6** (cahier P6 § 7.3) : variante Linux de l'exécutant
+  (`InfosPoste.plateforme`, `hote`, `noyau`, compte `uid_dedie`, `IsolementLinux` à la place de
+  `BacASableCodex`, un seul bloc par plateforme), conditions d'usage et bornes d'exécution de la
+  politique, résolutions observées admises. Tout inventaire de P5 reste valide.
+- `acp_poste_contrat.machine` (P5, **étendu en P6**) : protocole `acp-machine/1` — requêtes et
+  réponses des neuf routes machine (`enrolement`, `reclamer`, `inventaire` ; en P6 `battement`,
+  `terminer`, `question`, `bloquer`, `reprendre`, `arret`, chacune avec un `id_envoi` idempotent),
+  carte servie par `reclamer` (`DemandeCarte`, 60 Kio au plus), bornes des corps (4, 8, 32 et 256 Kio),
+  balayage des secrets d'un corps (`secret_trouve`), forme des jetons
   (`acpm_…`, `acpe_…`), empreintes (SHA-256 gardé par le greffon, `XXXX-XXXX` affiché),
   forme des erreurs et corps exact du 401 de la couture de Hermes (ambigu, jamais
   une révocation certaine).

@@ -20,6 +20,11 @@ Windows, chaque boucle ouvre brièvement un écouteur ``127.0.0.1`` pour son aut
 
 ``poste.toml`` est relu à chaque cycle : devenu invalide (ou modifiable par le compte du poste), il est annoncé
 (``politique_valide: false``) et plus rien n'est publié.
+
+Étape P6 : l'exécutant Linux réutilise cette boucle par :class:`acp_poste.service_executant.ServiceExecutant`, qui
+remplace les points d'accroche (:meth:`Service._annonce_execution`, :meth:`Service._carte_recue`,
+:meth:`Service._avant_reclamer`, :meth:`Service._sondes`, :meth:`Service._inventaire`) ; le poste Windows garde
+exactement le comportement de P5 (aucune carte, corps de ``reclamer`` inchangé).
 """
 
 from __future__ import annotations
@@ -126,6 +131,8 @@ class Service:
                                      "politique_valide": True}
         self.publications = 0
         self.releves = 0
+        # Propriétaire attendu de la politique de l'exécutant Linux (root ; les tests sans root passent le leur).
+        self.proprietaire = 0
 
     # ------------------------------------------------------------------ état et arrêt
     def _ecrire_etat(self, **maj: Any) -> None:
@@ -184,7 +191,7 @@ class Service:
     def _relire_politique(self) -> None:
         try:
             nouvelle = charger(self.contexte.emplacements, chemin=self.politique.chemin)
-            verifier_droits(nouvelle)
+            verifier_droits(nouvelle, proprietaire=self.proprietaire)
         except PolitiqueRefusee as exc:
             if self.politique_valide:
                 self.journal.ecrire("erreur", "politique_invalide", f"{exc} Plus rien n'est publié.")
@@ -213,6 +220,29 @@ class Service:
             if section is not None:
                 self.signatures[nom] = _signature(section.executable)
 
+    # ------------------------------------------------------------------ points d'accroche (exécutant, étape P6)
+    def _annonce_execution(self) -> dict[str, Any] | None:
+        """Champs d'exécution de ``reclamer`` ; ``None`` : corps de P5 (poste Windows, aucune carte)."""
+        return None
+
+    def _carte_recue(self, carte: Any) -> None:
+        """Carte servie par Hermes (jamais pour le poste Windows : le protocole la refuse avant)."""
+
+    async def _avant_reclamer(self) -> bool:
+        """``False`` : pas de réclamation à ce tour (file de sortie non vidée…)."""
+        return True
+
+    def _releves_permis(self) -> bool:
+        return True
+
+    async def _sondes(self) -> tuple[Any, Any]:
+        return await relever(self.politique, emplacements=self.contexte.emplacements, coffre=self.contexte.coffre,
+                             lanceurs=self.contexte.lanceurs, environnement=self.contexte.environnement)
+
+    def _inventaire(self, codex: Any, claude: Any) -> dict[str, Any]:
+        return construire(self.politique, codex, claude, windows=self.contexte.version_windows(),
+                          valeurs_exactes=self.journal.valeurs_masquees())
+
     # ------------------------------------------------------------------ attente (long-poll)
     async def _attendre(self) -> None:
         repli = self.fabrique_repli()
@@ -222,11 +252,17 @@ class Service:
         while self.arret is None:
             await asyncio.to_thread(self._relire_politique)
             self._ecrire_etat(politique_valide=self.politique_valide)
+            if not await self._avant_reclamer():
+                if self.arret is not None:
+                    return
+                await self._dormir(repli.suivant())
+                continue
             lot = self.acquittes[:ACQUITTES_MAX]
             try:
                 reponse = await asyncio.to_thread(
                     self.protocole.reclamer, self.jeton, acquittes=lot,
-                    attente_max_s=attente, politique_valide=self.politique_valide)
+                    attente_max_s=attente, politique_valide=self.politique_valide,
+                    execution=self._annonce_execution())
             except Refus as exc:
                 if self.arret is not None or self._refus_definitif(exc):
                     return
@@ -277,6 +313,8 @@ class Service:
                     self.acquittes.append(ordre.id)
             self._ecrire_etat(dernier_echange=_iso(maintenant), etat_machine=reponse.etat_machine,
                               ecart_horloge_s=round(ecart), joignable=True, pause=reponse.pause_reclamations)
+            if reponse.carte is not None:
+                self._carte_recue(reponse.carte)
             if reponse.ordres and nouveaux == 0:
                 await self._dormir(ORDRE_EN_COURS_S)
             elif reponse.prochaine_attente_s:
@@ -303,6 +341,9 @@ class Service:
                 # Poste à confirmer (ou pas encore joint) : rien n'est publié ; la confirmation relance un relevé.
                 prochain = boucle.time() + REVEIL_S
                 continue
+            if not self._releves_permis():
+                prochain = boucle.time() + 60
+                continue
             servis = list(self.releves_a_servir)
             if not self.politique_valide:
                 self.journal.ecrire_au_plus("politique_releve", PERIODE_JOURNAL_S, "avertissement", "releve_suspendu",
@@ -318,9 +359,7 @@ class Service:
                 prochain = boucle.time() + 60
                 continue
             try:
-                codex, claude = await relever(self.politique, emplacements=self.contexte.emplacements,
-                                              coffre=self.contexte.coffre, lanceurs=self.contexte.lanceurs,
-                                              environnement=self.contexte.environnement)
+                codex, claude = await self._sondes()
             finally:
                 verrou.rendre()
             self._noter_signatures()
@@ -333,8 +372,7 @@ class Service:
                     self.journal.ecrire("info", f"sonde_{nom}", f"Sonde {nom} : relevé {resultat.releve['etat']}.",
                                         **details)
             try:
-                inventaire = construire(self.politique, codex, claude, windows=self.contexte.version_windows(),
-                                        valeurs_exactes=self.journal.valeurs_masquees())
+                inventaire = self._inventaire(codex, claude)
             except InventaireRetenu as exc:
                 self.journal.ecrire("erreur", "inventaire_retenu", str(exc))
                 self._servir(servis)
@@ -445,7 +483,11 @@ async def servir(contexte: Contexte, *, duree_max_s: float | None = None,
                  repli: Callable[[], Repli] = Repli,
                  horloge: Callable[[], datetime] = lambda: datetime.now(UTC)) -> int:
     """``duree_max_s``, ``repli`` et ``horloge`` servent aux tests (arrêt borné, repli accéléré, horloge décalée) ; la
-    tâche planifiée n'en passe aucun."""
+    tâche planifiée n'en passe aucun. L'exécutant Linux a sa propre boucle (:mod:`acp_poste.service_executant`)."""
+    if contexte.plateforme == "linux":
+        from .service_executant import servir_executant
+
+        return await servir_executant(contexte, duree_max_s=duree_max_s, repli=repli, horloge=horloge)
     verrou = Verrou(contexte.emplacements.verrou_instance)
     try:
         verrou.prendre()

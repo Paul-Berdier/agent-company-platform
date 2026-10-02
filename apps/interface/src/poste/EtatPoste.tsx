@@ -1,7 +1,8 @@
-// Vue « Poste » : bandeau d'état (Non configuré / À confirmer + empreinte / En ligne / Hors ligne depuis / Révoqué),
-// enrôlement, confirmation de l'empreinte, révocation, « Relever maintenant », puis ce que dit le dernier inventaire
-// (compte, versions, bac à sable Codex, connexions, dépôts, alertes) et les ordres en attente. Tout vient de
-// GET /v1/poste ; rien n'est deviné.
+// Vue « Poste » : bandeau d'état (Non configuré / À confirmer + empreinte / En ligne / Hors ligne depuis / En
+// redéploiement / Révoqué), enrôlement, confirmation de l'empreinte, révocation, « Relever maintenant », puis (étape P6)
+// les blocs de l'exécutant (isolement, conditions d'usage, carte en cours, voies fermées, branches prêtes) et ce que dit
+// le dernier inventaire (compte, versions, bac à sable Codex, connexions, dépôts, alertes) et les ordres en attente.
+// Tout vient de GET /v1/poste ; rien n'est deviné.
 import { T } from "../chaines";
 import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { h, useState, type Noeud } from "../react";
@@ -10,6 +11,7 @@ import { useEnvoi } from "../projets/envoi";
 import { useSondage } from "../projets/sondage";
 import { confirmer, lirePostePage, releverMaintenant, revoquer } from "./api";
 import { Enrolement } from "./Enrolement";
+import { Executant } from "./Executant";
 import {
   libelleConnexionClaude,
   libelleConnexionCodex,
@@ -26,8 +28,10 @@ function OuiNon(props: { valeur: unknown }): Noeud {
 function Bandeau(props: { donnees: ReponsePostePage }): Noeud {
   const etat = props.donnees.poste;
   const machine = props.donnees.machine?.machine;
+  // Étape P6 : « Exécutant Railway » quand l'inventaire dit hote = railway, sinon le titre du poste.
+  const executant = props.donnees.executant?.hote === "railway";
   return (
-    <Carte titre={T.poste.etatTitre} id="acp-poste-etat">
+    <Carte titre={executant ? T.poste.etatTitreExecutant : T.poste.etatTitre} id="acp-poste-etat">
       <p className="acp-etat">
         <Etiquette libelle={libelleEtatDuPoste(etat?.etat)} brut={etat?.etat} />
         {etat?.etat === "a_confirmer" ? <Donnee valeur={machine?.empreinte} mono /> : null}
@@ -36,7 +40,7 @@ function Bandeau(props: { donnees: ReponsePostePage }): Noeud {
             <span className="acp-discret">{T.poste.vu}</span> <Horodatage valeur={etat.derniere_vue} relative />
           </span>
         ) : null}
-        {etat?.etat === "hors_ligne" && etat.hors_ligne_depuis ? (
+        {(etat?.etat === "hors_ligne" || etat?.etat === "redeploiement") && etat.hors_ligne_depuis ? (
           <span>
             <span className="acp-discret">{T.poste.depuis}</span> <Horodatage valeur={etat.hors_ligne_depuis} />
           </span>
@@ -225,11 +229,18 @@ function Inventaire(props: { donnees: ReponsePostePage }): Noeud {
           <Ligne libelle={T.poste.compte}>
             {c.poste?.compte === "dedie" ? <span>{T.poste.compteDedie}</span>
               : c.poste?.compte === "proprietaire" ? <span>{T.poste.compteProprietaire}</span>
+              : c.poste?.compte === "uid_dedie" ? <span>{T.poste.compteUidDedie}</span>
               : <Donnee valeur={c.poste?.compte} />}
           </Ligne>
-          <Ligne libelle={T.poste.windows}>
-            <Donnee valeur={c.poste?.windows} mono />
-          </Ligne>
+          {c.poste?.plateforme === "linux" ? (
+            <Ligne libelle={T.poste.executant.noyau}>
+              <Donnee valeur={c.poste?.noyau} mono />
+            </Ligne>
+          ) : (
+            <Ligne libelle={T.poste.windows}>
+              <Donnee valeur={c.poste?.windows} mono />
+            </Ligne>
+          )}
           <Ligne libelle={T.poste.python}>
             <Donnee valeur={c.poste?.python} mono />
           </Ligne>
@@ -251,7 +262,7 @@ function Inventaire(props: { donnees: ReponsePostePage }): Noeud {
           ))}
         </dl>
       </Carte>
-      <Carte titre={T.poste.bacTitre} id="acp-poste-bac">
+      {c.poste?.plateforme === "linux" ? null : <Carte titre={T.poste.bacTitre} id="acp-poste-bac">
         <dl className="acp-liste">
           <Ligne libelle={T.poste.readiness}>
             <Donnee valeur={bac.readiness} mono />
@@ -277,7 +288,7 @@ function Inventaire(props: { donnees: ReponsePostePage }): Noeud {
             </Ligne>
           ) : null}
         </dl>
-      </Carte>
+      </Carte>}
       <Carte titre={T.poste.connexionsTitre} id="acp-poste-connexions">
         <dl className="acp-liste">
           <Ligne libelle={T.poste.codex}>
@@ -334,6 +345,7 @@ export function EtatPoste(props: { jeton: number; apres: () => void }): Noeud {
       {etat === "a_confirmer" && machine ? <Confirmation machine={machine} apres={props.apres} /> : null}
       {machine && machine.etat !== "revoque" ? <Machine machine={machine} /> : null}
       {machine && machine.etat === "actif" ? <Releve apres={props.apres} /> : null}
+      <Executant executant={donnees.executant} />
       {alertes.length > 0 ? (
         <Carte titre={T.poste.alertesTitre} id="acp-poste-alertes">
           <ul className="acp-liste">

@@ -344,8 +344,8 @@ def noyau(tmp_path, monkeypatch):
     for nom in _VARIABLES_KANBAN + ("HERMES_DASHBOARD_PUBLIC_URL",):
         monkeypatch.delenv(nom, raising=False)
     monkeypatch.setenv("HERMES_HOME", str(home))
-    from noyau import (base, cartes, emetteur, etrangeres, graphe, inventaire, invite, machines, notifications, ordres,
-                       outils, presence, projets, questions, quotas, routage, textes)
+    from noyau import (attentes, base, cartes, emetteur, etrangeres, execution, graphe, inventaire, invite, machines,
+                       notifications, ordres, outils, presence, projets, questions, quotas, routage, textes)
     from noyau import kanban_adapter as ka
 
     base.fixer_horloge(None)
@@ -353,7 +353,9 @@ def noyau(tmp_path, monkeypatch):
     yield SimpleNamespace(home=home, base=base, cartes=cartes, emetteur=emetteur, etrangeres=etrangeres,
                           graphe=graphe, invite=invite, notifications=notifications, outils=outils,
                           presence=presence, projets=projets, questions=questions, routage=routage, textes=textes,
-                          ka=ka, machines=machines, ordres=ordres, inventaire=inventaire, quotas=quotas)
+                          ka=ka, machines=machines, ordres=ordres, inventaire=inventaire, quotas=quotas,
+                          # Étape P6.
+                          execution=execution, attentes=attentes)
     base.fixer_horloge(None)
     emetteur.configurer(notifications.Configuration(), passerelle=False, transport=notifications.transport_urllib)
 
@@ -446,6 +448,26 @@ def inventaire_factice(*, releve_le=None, depots=("jetable",), modifier=None) ->
         for compteur in releve["compteurs"]:
             compteur["observed_at"] = quand
     inventaire["bac_a_sable_codex"]["lu_le"] = quand
+    if modifier is not None:
+        modifier(inventaire)
+    return inventaire
+
+
+def inventaire_linux(*, releve_le=None, depots=("jetable",), modifier=None) -> dict:
+    """Étape P6 : inventaire de l'exécutant Railway (exemple partagé ``inventaire_requete_linux.json``, régime B, voie
+    Codex fermée en écriture), daté de maintenant (ou de ``releve_le``), dépôts remplacés ; ``modifier(inv)``."""
+    import datetime as _dt
+
+    inventaire = fixture_machine("inventaire_requete_linux.json")
+    quand = (releve_le or _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    inventaire["releve_le"] = quand
+    inventaire["depots"] = [{"alias": d} for d in depots]
+    for releve in inventaire["releves"]:
+        releve["releve_le"] = quand
+        releve["depots"] = [{"alias": d} for d in depots]
+        for compteur in releve["compteurs"]:
+            compteur["observed_at"] = quand
+    inventaire["isolement_linux"]["sonde_le"] = quand
     if modifier is not None:
         modifier(inventaire)
     return inventaire
