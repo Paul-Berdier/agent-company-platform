@@ -83,6 +83,19 @@ void AccueilViewModel::surLienRetabli()
     actualiser();
 }
 
+void AccueilViewModel::surOubli()
+{
+    for (Sondage *sondage : {m_projets, m_quotas, m_sondageSessions}) {
+        sondage->oublier();
+    }
+    lireProjets({});
+    m_carteQuotas = construireCarteQuotas({});
+    emit quotasChange();
+    m_sessions->clear();
+    m_sessionsLues = false;
+    emit lectureChange();
+}
+
 void AccueilViewModel::actualiser()
 {
     for (Sondage *sondage : {m_projets, m_quotas, m_sondageSessions}) {

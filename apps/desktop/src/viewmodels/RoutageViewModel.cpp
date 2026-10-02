@@ -96,6 +96,24 @@ void RoutageViewModel::surLienRetabli()
     actualiser();
 }
 
+void RoutageViewModel::surOubli()
+{
+    m_sondage->oublier();
+    m_vue = {};
+    m_relevesDuBrouillon = {};
+    m_brouillon.clear();
+    m_refus.clear();
+    m_refusTexte.clear();
+    m_rebatir = true;
+    m_listes->clear();
+    m_classes->clear();
+    m_surcharges->clear();
+    m_politiqueHermes = construirePolitiqueHermes({});
+    m_politiquePoste = construirePolitiquePoste({});
+    m_lue = false;
+    emit routageChange();
+}
+
 void RoutageViewModel::actualiser()
 {
     m_sondage->lireMaintenant();

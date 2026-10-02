@@ -46,6 +46,13 @@ fichier en clair de remplacement.
 - Déconnexion : révocation demandée à Hermes (`POST /auth/logout` avec le cookie
   `hermes_session_rt`), puis oubli local complet, quoi que réponde le serveur ; le bilan
   de la demande est affiché dans les réglages et les diagnostics.
+- Oubli local complet : à la session perdue (déconnexion, jeton refusé) et au changement
+  de serveur, chaque page (`PageViewModel::oublier`) vide ses modèles, revient à « Jamais
+  lu », abandonne ses lectures en vol et efface ses brouillons (réponses, consignes,
+  routage, code d'enrôlement, rapport d'export) ; le résumé de la barre d'état redevient
+  « Inconnu », la passerelle et la veille du kanban se ferment. Aucune ligne d'un serveur
+  n'est affichée sous un autre (`tst_oubli_local`). Un greffon bloqué par le verdict de
+  compatibilité fait de même oublier ses pages.
 
 Bout en bout local du 2 octobre 2026 : après la déconnexion, le rejeu de l'ancien jeton
 de rafraîchissement obtient **503** (« Auth provider 'self-hosted' unreachable » : Authelia

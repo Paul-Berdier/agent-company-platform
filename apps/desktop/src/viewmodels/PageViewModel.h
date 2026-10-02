@@ -7,6 +7,10 @@
 //
 // Les gestes d'écriture publient leur résultat tel que le serveur l'a rendu : `messageGeste`
 // (réussite, en français) ou `erreurGeste` (message du greffon ou de Hermes, tel quel).
+//
+// Oubli (Application l'appelle à la session perdue, au changement de serveur et au blocage du
+// greffon) : la page vide ses modèles, revient à « Jamais lu », abandonne ses lectures en vol et
+// efface ses brouillons ; aucune donnée d'une session ou d'un serveur ne reste affichée ensuite.
 
 #pragma once
 
@@ -43,6 +47,9 @@ public:
     /*! Message à montrer pour une erreur : celui du greffon tel quel, sinon famille et détail. */
     [[nodiscard]] static QString messageDuRefus(const ApiError &erreur);
 
+    /*! Oublie tout ce que la page a lu ou préparé (voir l'en-tête). */
+    void oublier();
+
 signals:
     void pageVisibleChange();
     void actifChange();
@@ -52,6 +59,7 @@ protected:
     [[nodiscard]] EventStreamService *flux() const { return m_flux; }
     virtual void surActivite(bool actif) = 0;
     virtual void surLienRetabli() {}
+    virtual void surOubli() = 0;
 
     void debuterGeste();
     void terminerGeste(const QString &message);

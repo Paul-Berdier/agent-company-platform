@@ -53,6 +53,12 @@ public:
     /*! Lecture immédiate, actif ou non (geste du propriétaire, retour du lien). */
     void lireMaintenant();
 
+    /*!
+        Oublie la lecture : l'appel en vol est abandonné (sa réponse ne sera jamais publiée),
+        « Jamais lu » et aucune erreur. Actif, le sondage relit aussitôt.
+    */
+    void oublier();
+
     [[nodiscard]] bool enCours() const { return !m_appel.isNull(); }
     [[nodiscard]] const QDateTime &luA() const { return m_luA; }
     /*! « Lu à HH:MM:SS », ou « Jamais lu ». */

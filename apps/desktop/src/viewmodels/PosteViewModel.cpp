@@ -127,6 +127,20 @@ void PosteViewModel::surLienRetabli()
     actualiser();
 }
 
+void PosteViewModel::surOubli()
+{
+    m_sondage->oublier();
+    oublierCode();
+    m_vue = {};
+    m_etat = construireEtat({});
+    m_machine = construireMachine({});
+    m_inventaire = construireInventaire({});
+    m_alertes.clear();
+    m_ordres->clear();
+    m_lue = false;
+    emit posteChange();
+}
+
 void PosteViewModel::actualiser()
 {
     m_sondage->lireMaintenant();

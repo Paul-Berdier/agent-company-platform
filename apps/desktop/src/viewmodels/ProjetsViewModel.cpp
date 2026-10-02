@@ -186,6 +186,31 @@ void ProjetsViewModel::changerVue(const QString &vue)
     majVeille();
 }
 
+void ProjetsViewModel::surOubli()
+{
+    m_liste->oublier();
+    m_detailSondage->oublier();
+    m_projets->clear();
+    m_listeLue = false;
+    m_pause = AccueilViewModel::construireCartePause({});
+    viderDetail();
+    m_projetOuvert.clear();
+    // Formulaire : catalogue, relevé du poste, choix et clé d'idempotence de l'ancien serveur.
+    m_cle.clear();
+    m_catalogue = {};
+    m_poste = {};
+    m_catalogueLu = false;
+    m_posteLu = false;
+    m_erreurCatalogue.clear();
+    m_erreurPoste.clear();
+    m_depot.clear();
+    m_voie.clear();
+    m_modele.clear();
+    majFormulaire();
+    changerVue(QStringLiteral("liste"));
+    emit listeChange();
+}
+
 void ProjetsViewModel::afficherListe()
 {
     effacerGeste();

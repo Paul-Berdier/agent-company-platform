@@ -42,6 +42,12 @@ void PageViewModel::majActivite()
     surActivite(m_actif);
 }
 
+void PageViewModel::oublier()
+{
+    effacerGeste();
+    surOubli();
+}
+
 void PageViewModel::effacerGeste()
 {
     if (m_messageGeste.isEmpty() && m_erreurGeste.isEmpty()) {

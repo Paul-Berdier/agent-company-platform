@@ -8,6 +8,7 @@
 #include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
 #include "events/EventStreamService.h"
+#include "events/VeilleKanban.h"
 #include "gateway/DemandesAgent.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
@@ -127,6 +128,37 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // faite APRÈS celle de la passerelle (ordre d'appel des slots) : la passerelle est déjà
     // fermée, aucune fermeture n'est émise vers Hermes.
     connect(m_session, &SessionHermes::sessionPerdue, m_discussion, &DiscussionViewModel::quitter);
+    // Oubli local complet (docs/desktop-security.md) : session perdue ou serveur changé, chaque
+    // page vide ce qu'elle a lu (modèles, « Lu à », brouillons) ; aucune ligne d'un serveur ne
+    // reste affichée sous un autre. Connexions faites APRÈS l'arrêt du temps réel : plus aucune
+    // lecture ne repart avant l'oubli.
+    const auto oublierLesPages = [this] {
+        for (PageViewModel *page : std::initializer_list<PageViewModel *>{
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde, m_discussion}) {
+            page->oublier();
+        }
+    };
+    connect(m_session, &SessionHermes::sessionPerdue, this, oublierLesPages);
+    connect(m_client, &ApiClient::baseUrlChanged, this, [this, oublierLesPages] {
+        // Aucun canal ne reste ouvert vers l'ancien serveur (une session ouverte y est déjà
+        // perdue par SessionHermes ; ceci couvre aussi un canal ouvert sans elle).
+        m_passerelle->fermer();
+        m_flux->veille()->arreter();
+        m_flux->oublierResume();
+        oublierLesPages();
+    });
+    // Greffon bloqué par le verdict de compatibilité : les pages du greffon oublient ce
+    // qu'elles en avaient lu, et le résumé redevient « Inconnu ».
+    connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
+        if (!m_greffon->bloque()) {
+            return;
+        }
+        m_flux->oublierResume();
+        for (PageViewModel *page : std::initializer_list<PageViewModel *>{
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage}) {
+            page->oublier();
+        }
+    });
     connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
         const CompatibilityStatus::State etat = m_compatibilite->etat();
         const bool verdictRendu = etat != CompatibilityStatus::NonVerifiee

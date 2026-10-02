@@ -98,6 +98,7 @@ signals:
 protected:
     void surActivite(bool actif) override;
     void surLienRetabli() override;
+    void surOubli() override;
 
 private:
     void surEvenement(const QString &type, const QString &sessionId, qint64 seq, const QJsonValue &payload);

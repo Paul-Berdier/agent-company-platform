@@ -76,6 +76,24 @@ void QuestionsViewModel::surLienRetabli()
     actualiser();
 }
 
+void QuestionsViewModel::surOubli()
+{
+    m_sondage->oublier();
+    for (JsonListModel *modele : {m_questions, m_triage, m_bloquees, m_revues}) {
+        modele->clear();
+    }
+    m_lue = false;
+    m_revuesPresentes = false;
+    m_illisibles.clear();
+    m_gestes.clear();
+    const QStringList brouillons = m_brouillons.keys();
+    m_brouillons.clear();
+    for (const QString &cle : brouillons) {
+        emit brouillonEfface(cle);
+    }
+    emit listeChange();
+}
+
 void QuestionsViewModel::actualiser()
 {
     m_sondage->lireMaintenant();

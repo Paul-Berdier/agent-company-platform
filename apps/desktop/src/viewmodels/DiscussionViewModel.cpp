@@ -80,6 +80,15 @@ void DiscussionViewModel::surActivite(bool actif)
     }
 }
 
+void DiscussionViewModel::surOubli()
+{
+    quitter();
+    m_sessions->clear();
+    m_sessionsLues = false;
+    m_erreurSessions.clear();
+    emit sessionsChange();
+}
+
 void DiscussionViewModel::surLienRetabli()
 {
     actualiserSessions();

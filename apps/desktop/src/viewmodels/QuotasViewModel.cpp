@@ -51,6 +51,15 @@ void QuotasViewModel::surLienRetabli()
     actualiser();
 }
 
+void QuotasViewModel::surOubli()
+{
+    m_sondage->oublier();
+    m_voies->clear();
+    m_hermes = libelles::kInconnu;
+    m_lue = false;
+    emit quotasChange();
+}
+
 void QuotasViewModel::actualiser()
 {
     m_sondage->lireMaintenant();

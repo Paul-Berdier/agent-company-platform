@@ -82,6 +82,8 @@ acp_add_cpp_test(tst_command_registry)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)
 acp_add_cpp_test(tst_modele_liste)
+acp_add_cpp_test(tst_oubli_local cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_oubli_local PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
 # --- Pilote du bout en bout local (cahier P8 § 10) ---------------------------------
 #

@@ -82,6 +82,8 @@ public:
 
     /*! Une page vient de lire `GET /v1/projets` : le résumé suit sans attendre. */
     void noterProjets(const QJsonObject &liste);
+    /*! Le résumé redevient « Inconnu » (session perdue, serveur changé, greffon bloqué). */
+    void oublierResume();
 
     // --- Résumé ----------------------------------------------------------------------
     /*! Nombre de questions ouvertes, ou -1 si inconnu. */
@@ -113,7 +115,6 @@ signals:
 
 private:
     void lireResume(const QJsonObject &liste);
-    void oublierResume();
 
     ClientGreffonPoste *m_greffon = nullptr;
     GatewayClient *m_passerelle = nullptr;

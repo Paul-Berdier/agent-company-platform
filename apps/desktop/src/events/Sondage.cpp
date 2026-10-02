@@ -60,6 +60,26 @@ void Sondage::lireMaintenant()
     lancer();
 }
 
+void Sondage::oublier()
+{
+    if (m_appel) {
+        ApiCall *appel = m_appel;
+        m_appel = nullptr;
+        appel->disconnect(this);
+        appel->abort();
+    }
+    m_relire = false;
+    m_luA = QDateTime();
+    m_derniereErreur.clear();
+    m_minuterie->stop();
+    if (m_actif) {
+        // Toujours affichée : la page relit aussitôt (le nouveau serveur, ou le refus du greffon
+        // bloqué, qui s'affiche alors à la place des données oubliées).
+        m_minuterie->start(0);
+    }
+    emit etatChange();
+}
+
 QString Sondage::libelleLuA() const
 {
     return m_luA.isValid() ? QStringLiteral("Lu à %1").arg(m_luA.toLocalTime().toString(QStringLiteral("HH:mm:ss")))

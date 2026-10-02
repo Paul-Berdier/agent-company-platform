@@ -103,6 +103,13 @@ signals:
 
 protected:
     void surActivite(bool) override {}
+    //! Rapport d'export oublié, sauf pendant la suppression de l'archive (laissée finir).
+    void surOubli() override
+    {
+        if (!enCours()) {
+            reinitialiser();
+        }
+    }
 
 private:
     void passer(Phase phase);
