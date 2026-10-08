@@ -9,7 +9,12 @@
 //   - `GET /api/sessions?limit=5&offset=0&order=recent` de Hermes : discussions récentes
 //     (même appel que la page d'accueil web) ;
 //   - `GET /v1/meta` du greffon (dès que la compatibilité est branchée, setCompatibilite) : la
-//     carte « Hermes » (version en service, verdict, alertes), datée « Lu à » comme les autres.
+//     carte « Hermes » (version en service, verdict, alertes), datée « Lu à » comme les autres ;
+//   - `GET /api/cron/jobs` de Hermes (route NATIVE, session du propriétaire) : carte « Bilan
+//     quotidien » (cahier P7 § 7.1, décision P7-6), comme CarteBilan.tsx : la tâche sans agent qui
+//     lance `acp-bilan.py` à 8 h ; « Actif », « En pause », « En erreur » ou « Non créé »,
+//     prochaine et dernière EXÉCUTION, issue de la dernière d'après `last_status` (jamais un
+//     échec supposé), canal non configuré dit.
 //
 // Chaque carte est une table de valeurs DÉJÀ libellées en français, aux clés fixes : une
 // valeur absente ou d'un autre type vaut « Inconnu ». Un échec de lecture garde la dernière
@@ -18,7 +23,9 @@
 // Gestes : « Mettre en pause » / « Reprendre » Hermes (pause générale) → `POST /v1/pause` après
 // confirmation de la page ; « Envoyer une notification de test » → `POST /v1/notifications/test`,
 // offert seulement si un canal est configuré. Le refus du greffon (409 `crochets`,
-// `notifications`…) est rendu tel quel.
+// `notifications`…) est rendu tel quel. « Créer le bilan quotidien (8 h) » → `POST /api/cron/jobs`
+// avec la tâche du bilan (offert seulement s'il n'existe pas) ; pause et suppression restent dans
+// la page Cron de Hermes (ouverte dans le navigateur).
 
 #pragma once
 
@@ -28,9 +35,12 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
+#include <QUrl>
 #include <QVariantMap>
 
 #include <chrono>
+#include <functional>
+#include <optional>
 
 namespace acp {
 
@@ -50,6 +60,9 @@ class AccueilViewModel : public PageViewModel
     Q_PROPERTY(QVariantMap carteQuotas READ carteQuotas NOTIFY accueilChange)
     Q_PROPERTY(QVariantMap carteNotifications READ carteNotifications NOTIFY accueilChange)
     Q_PROPERTY(QVariantMap cartePause READ cartePause NOTIFY accueilChange)
+    Q_PROPERTY(QVariantMap carteBilan READ carteBilan NOTIFY accueilChange)
+    Q_PROPERTY(QString lectureBilan READ lectureBilan NOTIFY lectureChange)
+    Q_PROPERTY(QString erreurBilan READ erreurBilan NOTIFY lectureChange)
     Q_PROPERTY(JsonListModel *sessions READ sessions CONSTANT)
     Q_PROPERTY(QString lectureAccueil READ lectureAccueil NOTIFY lectureChange)
     Q_PROPERTY(QString erreurAccueil READ erreurAccueil NOTIFY lectureChange)
@@ -75,6 +88,11 @@ public:
     [[nodiscard]] const QVariantMap &carteQuotas() const { return m_carteQuotas; }
     [[nodiscard]] const QVariantMap &carteNotifications() const { return m_carteNotifications; }
     [[nodiscard]] const QVariantMap &cartePause() const { return m_cartePause; }
+    [[nodiscard]] const QVariantMap &carteBilan() const { return m_carteBilan; }
+    [[nodiscard]] QString lectureBilan() const;
+    [[nodiscard]] QString erreurBilan() const;
+    /*! Ouvreur de liens (tests) ; par défaut le navigateur du système. */
+    void setOuvreur(std::function<bool(const QUrl &)> ouvreur) { m_ouvreur = std::move(ouvreur); }
     [[nodiscard]] JsonListModel *sessions() const { return m_sessions; }
 
     [[nodiscard]] QString lectureAccueil() const;
@@ -89,6 +107,10 @@ public:
     Q_INVOKABLE void basculerPause(bool generale, const QString &raison);
     /*! « Envoyer une notification de test » (canal configuré seulement). */
     Q_INVOKABLE void envoyerNotificationDeTest();
+    /*! « Créer le bilan quotidien (8 h) » : seulement si la liste lue n'en contient aucun. */
+    Q_INVOKABLE void creerBilanQuotidien();
+    /*! « Pause et suppression : page Cron » de Hermes, dans le navigateur. */
+    Q_INVOKABLE bool ouvrirCron();
 
     // --- Fonctions pures (tests) : chacune lit le document entier de `GET /v1/accueil` ----------
     /*!
@@ -104,6 +126,16 @@ public:
     [[nodiscard]] static QVariantMap construireCarteNotifications(const QJsonObject &accueil);
     [[nodiscard]] static QVariantMap construireCartePause(const QJsonObject &accueil);
     [[nodiscard]] static QJsonArray construireSessions(const QJsonObject &page);
+    /*! Tâche du bilan (accueil-api.ts, TACHE_BILAN) : sans agent, 8 h, livrée en local. */
+    [[nodiscard]] static QJsonObject tacheBilan();
+    /*! Tâches du bilan dans une réponse de `GET /api/cron/jobs` (liste, ou `{jobs}`) : nullopt si illisible. */
+    [[nodiscard]] static std::optional<QJsonArray> tachesDuBilan(const QJsonValue &reponse);
+    /*!
+        Carte « Bilan quotidien » : `taches` (nullopt tant que rien n'est lu ; `erreur` : la lecture
+        a échoué) et le bloc `notifications` de `/v1/accueil` (canal non configuré : dit).
+    */
+    [[nodiscard]] static QVariantMap construireCarteBilan(const std::optional<QJsonArray> &taches, const QJsonObject &accueil,
+                                                          const QString &erreur);
 
 signals:
     void accueilChange();
@@ -116,6 +148,7 @@ protected:
 
 private:
     void lireAccueil(const QJsonObject &accueil);
+    void majBilan();
     [[nodiscard]] QList<Sondage *> sondages() const;
 
     ApiClient *m_client = nullptr;
@@ -123,6 +156,8 @@ private:
     Sondage *m_accueil = nullptr;
     Sondage *m_sondageSessions = nullptr;
     Sondage *m_meta = nullptr; //!< `/v1/meta`, une fois la compatibilité branchée.
+    Sondage *m_sondageBilan = nullptr; //!< `GET /api/cron/jobs` (route native de Hermes).
+    std::optional<QJsonArray> m_tachesBilan;
     CompatibiliteHermes *m_compatibilite = nullptr;
     JsonListModel *m_projetsEnCours = nullptr;
     JsonListModel *m_sessions = nullptr;
@@ -134,7 +169,9 @@ private:
     QVariantMap m_carteQuotas;
     QVariantMap m_carteNotifications;
     QVariantMap m_cartePause;
+    QVariantMap m_carteBilan;
     bool m_sessionsLues = false;
+    std::function<bool(const QUrl &)> m_ouvreur;
 };
 
 } // namespace acp

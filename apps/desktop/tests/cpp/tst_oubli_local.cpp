@@ -9,6 +9,7 @@
 #include "app/Application.h"
 #include "auth/SessionHermes.h"
 #include "events/EventStreamService.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
 #include "services/CompatibiliteHermes.h"
@@ -58,6 +59,16 @@ void servirLeGreffon(FauxHermes &serveur, QJsonObject *meta)
     }
     serveur.route("GET", QStringLiteral("/api/sessions"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("sessions.json"))); });
+    // Étape P8b : bilan quotidien (route native) et discussions en attente (passerelle).
+    serveur.route("GET", QStringLiteral("/api/cron/jobs"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonArray{QJsonObject{{QStringLiteral("script"), QStringLiteral("acp-bilan.py")},
+                                                             {QStringLiteral("no_agent"), true}, {QStringLiteral("enabled"), true}}});
+    });
+    serveur.methodes.insert(QStringLiteral("session.active_list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{
+            {QStringLiteral("session_key"), QStringLiteral("s1")}, {QStringLiteral("status"), QStringLiteral("waiting")},
+            {QStringLiteral("title"), QStringLiteral("Plan du site")}}}}};
+    });
     serveur.route("GET", kP + QStringLiteral("/meta"), [meta](const RequeteRecue &) { return ReponseFaux::json(200, *meta); });
     // Accueil agrégé (étape P7) : la fixture partagée avec le greffon et la page web.
     serveur.route("GET", kP + QStringLiteral("/accueil"), [](const RequeteRecue &) {
@@ -165,6 +176,9 @@ void TestOubliLocal::ouvrirEtLireA()
     QTRY_VERIFY_WITH_TIMEOUT(m_routage->lue(), 10000);
     QTRY_COMPARE_WITH_TIMEOUT(m_discussion->sessions()->count(), 1, 10000);
     QTRY_VERIFY(m_flux->aTraiter() >= 0);
+    QTRY_VERIFY_WITH_TIMEOUT(m_accueil->carteBilan().value(QStringLiteral("lu")).toBool(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(m_flux->discussions()->connues(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(m_questions->discussions().value(QStringLiteral("connues")).toBool(), 10000);
     m_questions->setBrouillon(QStringLiteral("q:q_b627a3c245ec"), QStringLiteral("Brouillon tapé sur A"));
     m_routage->appliquerSuggestion(QStringLiteral("exploration"));
     QVERIFY(m_routage->brouillonModifie());
@@ -210,6 +224,10 @@ QStringList TestOubliLocal::donneesRestantes() const
     si(m_discussion->sessions()->count() > 0, "discussion.sessions");
     si(m_discussion->sessionsLues(), "discussion.sessionsLues");
     si(m_flux->aTraiter() >= 0, "resume.aTraiter");
+    si(m_accueil->carteBilan().value(QStringLiteral("lu")).toBool(), "accueil.carteBilan");
+    si(m_accueil->lectureBilan() != kJamaisLu, "accueil.lectureBilan");
+    si(m_flux->discussions()->connues(), "resume.discussions");
+    si(m_questions->discussions().value(QStringLiteral("connues")).toBool(), "questions.discussions");
     return restes;
 }
 
@@ -275,6 +293,10 @@ void TestOubliLocal::greffonBloqueOublieSesPages()
     restes.removeAll(QStringLiteral("accueil.sessions"));
     restes.removeAll(QStringLiteral("accueil.sessionsLues"));
     restes.removeAll(QStringLiteral("accueil.lectureSessions"));
+    // Le bilan quotidien vient de /api/cron/jobs (route native de Hermes) : relu aussitôt aussi (carte cachée tant que
+    // l'accueil du greffon n'est pas lu).
+    restes.removeAll(QStringLiteral("accueil.carteBilan"));
+    restes.removeAll(QStringLiteral("accueil.lectureBilan"));
     // Les pages du greffon, encore affichées, essaient de relire : refus de la station, sans
     // donnée ; leur « Lu à » reste « Jamais lu ».
     QVERIFY2(restes.isEmpty(), qPrintable(restes.join(QStringLiteral(", "))));
@@ -282,7 +304,8 @@ void TestOubliLocal::greffonBloqueOublieSesPages()
     restes = donneesRestantes();
     for (const QString &permis : {QStringLiteral("discussion.sessions"), QStringLiteral("discussion.sessionsLues"),
                                   QStringLiteral("accueil.sessions"), QStringLiteral("accueil.sessionsLues"),
-                                  QStringLiteral("accueil.lectureSessions")}) {
+                                  QStringLiteral("accueil.lectureSessions"), QStringLiteral("accueil.carteBilan"),
+                                  QStringLiteral("accueil.lectureBilan")}) {
         restes.removeAll(permis);
     }
     QVERIFY2(restes.isEmpty(), qPrintable(restes.join(QStringLiteral(", "))));

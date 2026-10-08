@@ -6,12 +6,14 @@
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
 #include "events/FluxInvalidation.h"
-#include "gateway/DiscussionsEnAttente.h"
 #include "events/Sondage.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "models/JsonListModel.h"
 #include "viewmodels/Libelles.h"
 
+#include <QDesktopServices>
 #include <QJsonArray>
+#include <QUrl>
 
 namespace acp {
 
@@ -79,9 +81,26 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
               return m_client->send(requete);
           },
           Sondage::kIntervallePage, this))
+    , m_sondageBilan(new Sondage(
+          [this] {
+              // Route NATIVE de Hermes (accueil-api.ts, ROUTE_CRON), avec la session du propriétaire.
+              ApiRequest requete;
+              requete.path = QStringLiteral("/api/cron/jobs");
+              return m_client->send(requete);
+          },
+          Sondage::kIntervallePage, this))
     , m_projetsEnCours(new JsonListModel(this))
     , m_sessions(new JsonListModel(this))
+    , m_ouvreur([](const QUrl &url) { return QDesktopServices::openUrl(url); })
 {
+    // Comme la page web (useDonnees(lireTachesCron, …, [])) : aucun sujet du flux ; relecture de sûreté en temps réel.
+    m_sondageBilan->suivre(flux->invalidation(), {});
+    connect(m_sondageBilan, &Sondage::etatChange, this, &AccueilViewModel::lectureChange);
+    connect(m_sondageBilan, &Sondage::lu, this, [this](const ApiResponse &reponse) {
+        m_tachesBilan = tachesDuBilan(reponse.json.isArray() ? QJsonValue(reponse.json.array()) : QJsonValue(reponse.json.object()));
+        majBilan();
+    });
+    connect(m_sondageBilan, &Sondage::echec, this, [this](const ApiError &) { majBilan(); });
     m_projetsEnCours->setCle({QStringLiteral("id")});
     connect(flux->discussions(), &DiscussionsEnAttente::change, this, [this] {
         m_carteATraiter = construireCarteATraiter(m_dernierAccueil, this->flux()->discussions()->nombre());
@@ -115,7 +134,7 @@ AccueilViewModel::~AccueilViewModel() = default;
 
 QList<Sondage *> AccueilViewModel::sondages() const
 {
-    QList<Sondage *> liste{m_accueil, m_sondageSessions};
+    QList<Sondage *> liste{m_accueil, m_sondageSessions, m_sondageBilan};
     if (m_meta) {
         liste.append(m_meta);
     }
@@ -159,6 +178,7 @@ void AccueilViewModel::surOubli()
     for (Sondage *sondage : sondages()) {
         sondage->oublier();
     }
+    m_tachesBilan.reset();
     lireAccueil({});
     m_lue = false;
     emit accueilChange();
@@ -179,9 +199,59 @@ QString AccueilViewModel::erreurAccueil() const { return m_accueil->derniereErre
 QString AccueilViewModel::lectureSessions() const { return m_sondageSessions->libelleLuA(); }
 QString AccueilViewModel::erreurSessions() const { return m_sondageSessions->derniereErreur(); }
 
+void AccueilViewModel::majBilan()
+{
+    m_carteBilan = construireCarteBilan(m_tachesBilan, m_dernierAccueil, m_sondageBilan->derniereErreur());
+    emit accueilChange();
+}
+
+QString AccueilViewModel::lectureBilan() const { return m_sondageBilan->libelleLuA(); }
+QString AccueilViewModel::erreurBilan() const { return m_sondageBilan->derniereErreur(); }
+
+void AccueilViewModel::creerBilanQuotidien()
+{
+    if (gesteEnCours()) {
+        return;
+    }
+    // Jamais un doublon : offert seulement si la liste LUE n'en contient aucun.
+    if (!m_tachesBilan || !m_tachesBilan->isEmpty()) {
+        echouerGeste(m_tachesBilan ? QStringLiteral("Le bilan quotidien existe déjà : rien n'est créé.")
+                                   : QStringLiteral("État du bilan inconnu : rien n'est créé tant que la liste des tâches "
+                                                    "cron de Hermes n'est pas lue."));
+        return;
+    }
+    debuterGeste();
+    ApiRequest requete;
+    requete.method = QByteArrayLiteral("POST");
+    requete.path = QStringLiteral("/api/cron/jobs");
+    requete.body = QJsonDocument(tacheBilan());
+    ApiCall *appel = m_client->send(requete);
+    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &) {
+        terminerGeste(QStringLiteral("Bilan quotidien créé."));
+        m_sondageBilan->lireMaintenant();
+    });
+    connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+        // La route native répond en anglais : refus dit en français, le détail de Hermes à la suite.
+        echouerGeste(QStringLiteral("Le bilan n'a pas été créé : Hermes a refusé la tâche (%1).").arg(messageDuRefus(erreur)));
+        m_sondageBilan->lireMaintenant();
+    });
+}
+
+bool AccueilViewModel::ouvrirCron()
+{
+    const QUrl url = m_client->resolve(QStringLiteral("/cron"));
+    if (url.isEmpty() || !m_ouvreur || !m_ouvreur(url)) {
+        echouerGeste(QStringLiteral("La page Cron de Hermes n'a pas pu être ouverte dans le navigateur."));
+        return false;
+    }
+    terminerGeste(QStringLiteral("Page Cron de Hermes ouverte dans le navigateur."));
+    return true;
+}
+
 void AccueilViewModel::lireAccueil(const QJsonObject &accueil)
 {
     m_dernierAccueil = accueil;
+    m_carteBilan = construireCarteBilan(m_tachesBilan, accueil, m_sondageBilan->derniereErreur());
     m_carteATraiter = construireCarteATraiter(accueil, flux()->discussions()->nombre());
     m_carteProjets = construireCarteProjets(accueil);
     m_projetsEnCours->setItems(construireProjetsEnCours(accueil));
@@ -443,6 +513,97 @@ QVariantMap AccueilViewModel::construireCarteNotifications(const QJsonObject &ac
         // Message du greffon (canal non configuré, ou état inconnu tant que la passerelle ne l'a pas publié).
         {QStringLiteral("note"), texteOuVide(n.value(QStringLiteral("message")))},
     };
+}
+
+QJsonObject AccueilViewModel::tacheBilan()
+{
+    return QJsonObject{{QStringLiteral("name"), QStringLiteral("Bilan ACP")},
+                       {QStringLiteral("schedule"), QStringLiteral("0 8 * * *")},
+                       {QStringLiteral("prompt"), QString()},
+                       {QStringLiteral("no_agent"), true},
+                       {QStringLiteral("script"), QStringLiteral("acp-bilan.py")},
+                       {QStringLiteral("deliver"), QStringLiteral("local")}};
+}
+
+std::optional<QJsonArray> AccueilViewModel::tachesDuBilan(const QJsonValue &reponse)
+{
+    const QJsonValue liste = reponse.isArray() ? reponse : reponse.toObject().value(QStringLiteral("jobs"));
+    if (!liste.isArray()) {
+        return std::nullopt;
+    }
+    QJsonArray taches;
+    for (const QJsonValue &element : liste.toArray()) {
+        const QJsonObject tache = element.toObject();
+        // Le script de l'image, SANS agent (comme le diagnostic de l'image les admet).
+        if (tache.value(QStringLiteral("script")).toString() == QLatin1String("acp-bilan.py")
+            && tache.value(QStringLiteral("no_agent")) == QJsonValue(true)) {
+            taches.append(tache);
+        }
+    }
+    return taches;
+}
+
+QVariantMap AccueilViewModel::construireCarteBilan(const std::optional<QJsonArray> &taches, const QJsonObject &accueil,
+                                                   const QString &erreur)
+{
+    const QJsonObject notifications = accueil.value(QStringLiteral("notifications")).toObject();
+    const bool sansCanal = notifications.value(QStringLiteral("connu")) == QJsonValue(true)
+        && notifications.value(QStringLiteral("configure")) != QJsonValue(true);
+    QVariantMap carte{
+        {QStringLiteral("lu"), taches.has_value()},
+        {QStringLiteral("illisible"), !taches && !erreur.isEmpty()
+                                          ? QStringLiteral("État du bilan inconnu : la liste des tâches cron de Hermes ne répond pas.")
+                                          : QString()},
+        {QStringLiteral("sansCanal"), sansCanal ? QStringLiteral("Le bilan ne partira pas : notifications non configurées.") : QString()},
+        {QStringLiteral("peutCreer"), false},
+        {QStringLiteral("etat"), libelles::kInconnu},
+        {QStringLiteral("cle"), QStringLiteral("unknown")},
+        {QStringLiteral("explication"), QString()},
+        {QStringLiteral("prochaine"), QString()},
+        {QStringLiteral("derniere"), QString()},
+        {QStringLiteral("alerte"), QString()},
+        {QStringLiteral("statut"), QString()},
+        {QStringLiteral("message"), QString()},
+        {QStringLiteral("plusieurs"), QString()},
+    };
+    if (!taches) {
+        return carte;
+    }
+    if (taches->isEmpty()) {
+        carte.insert(QStringLiteral("etat"), QStringLiteral("Non créé"));
+        carte.insert(QStringLiteral("cle"), QStringLiteral("notConfigured"));
+        carte.insert(QStringLiteral("peutCreer"), true);
+        carte.insert(QStringLiteral("explication"),
+                     QStringLiteral("Une notification par jour, à 8 h (heure de Paris) : des compteurs seulement, sans "
+                                    "modèle ni jeton. Vous seul pouvez la créer."));
+        return carte;
+    }
+    const QJsonObject tache = taches->first().toObject();
+    const bool pause = tache.value(QStringLiteral("enabled")) == QJsonValue(false)
+        || tache.value(QStringLiteral("state")).toString() == QLatin1String("paused");
+    const bool enErreur = !pause && tache.value(QStringLiteral("state")).toString() == QLatin1String("error");
+    // Hermes date last_run_at même en échec : seule une issue PUBLIÉE autre que « ok » est un échec (jamais supposé).
+    const QJsonValue statut = tache.value(QStringLiteral("last_status"));
+    const bool executee = libelles::estTexte(tache.value(QStringLiteral("last_run_at")));
+    const bool echec = executee && statut.isString() && statut.toString() != QLatin1String("ok");
+    carte.insert(QStringLiteral("etat"), pause ? QStringLiteral("En pause") : enErreur ? QStringLiteral("En erreur") : QStringLiteral("Actif"));
+    carte.insert(QStringLiteral("cle"), pause ? QStringLiteral("pending") : enErreur ? QStringLiteral("failed") : QStringLiteral("succeeded"));
+    carte.insert(QStringLiteral("prochaine"), pause || enErreur ? QString() : libelles::dateIso(tache.value(QStringLiteral("next_run_at"))));
+    carte.insert(QStringLiteral("derniere"), executee ? libelles::dateIso(tache.value(QStringLiteral("last_run_at"))) : QStringLiteral("Jamais"));
+    carte.insert(QStringLiteral("alerte"),
+                 enErreur ? QStringLiteral("Hermes a mis la tâche en erreur : elle ne s'exécutera plus d'elle-même. Détail "
+                                           "ci-dessous et sur la page Cron.")
+                 : echec  ? QStringLiteral("Dernière exécution en échec : le bilan de ce jour n'est pas garanti. Détail "
+                                           "ci-dessous et sur la page Cron.")
+                          : QString());
+    if (enErreur || echec) {
+        carte.insert(QStringLiteral("statut"), libelles::texte(statut));
+        carte.insert(QStringLiteral("message"), libelles::texte(tache.value(QStringLiteral("last_error"))));
+    }
+    if (taches->size() > 1) {
+        carte.insert(QStringLiteral("plusieurs"), QStringLiteral("Plusieurs tâches du bilan existent : gardez-en une depuis la page Cron."));
+    }
+    return carte;
 }
 
 QVariantMap AccueilViewModel::construireCartePause(const QJsonObject &accueil)

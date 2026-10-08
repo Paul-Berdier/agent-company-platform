@@ -333,6 +333,93 @@ Item {
                     }
                 }
 
+                // --- 5 bis. Bilan quotidien (tâche cron NATIVE de Hermes, comme CarteBilan.tsx) ---------
+                Carte {
+                    objectName: "accueil-carte-bilan"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    visible: Accueil.lue
+                    titre: qsTr("Bilan quotidien")
+                    cle: Accueil.carteBilan.cle || "unknown"
+                    libelleEtat: Accueil.carteBilan.lu === true ? Accueil.carteBilan.etat : ""
+                    lecture: Accueil.lectureBilan
+                    erreurLecture: Accueil.erreurBilan
+                    Text {
+                        objectName: "accueil-bilan-illisible"
+                        Layout.fillWidth: true
+                        visible: text.length > 0
+                        text: Accueil.carteBilan.illisible || ""
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Status.statusDegradedForeground
+                        font.family: Type.tableCell.family
+                        font.pixelSize: Type.tableCell.pixelSize
+                    }
+                    Discret {
+                        visible: (Accueil.carteBilan.explication || "").length > 0
+                        text: Accueil.carteBilan.explication || ""
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        visible: (Accueil.carteBilan.prochaine || "").length > 0
+                        label: qsTr("Prochaine exécution")
+                        value: Accueil.carteBilan.prochaine || ""
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        visible: (Accueil.carteBilan.derniere || "").length > 0
+                        label: qsTr("Dernière exécution")
+                        value: Accueil.carteBilan.derniere || ""
+                    }
+                    Text {
+                        objectName: "accueil-bilan-alerte"
+                        Layout.fillWidth: true
+                        visible: text.length > 0
+                        text: Accueil.carteBilan.alerte || ""
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Status.statusDegradedForeground
+                        font.family: Type.tableCell.family
+                        font.pixelSize: Type.tableCell.pixelSize
+                        Accessible.role: Accessible.AlertMessage
+                        Accessible.name: text
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        visible: (Accueil.carteBilan.statut || "").length > 0
+                        label: qsTr("Issue de la dernière exécution (Hermes)")
+                        value: Accueil.carteBilan.statut || ""
+                    }
+                    KeyValueRow {
+                        Layout.fillWidth: true
+                        visible: (Accueil.carteBilan.message || "").length > 0
+                        label: qsTr("Message de Hermes")
+                        value: Accueil.carteBilan.message || ""
+                    }
+                    Discret { visible: (Accueil.carteBilan.plusieurs || "").length > 0; text: Accueil.carteBilan.plusieurs || "" }
+                    Discret {
+                        objectName: "accueil-bilan-sans-canal"
+                        visible: (Accueil.carteBilan.sansCanal || "").length > 0
+                        text: Accueil.carteBilan.sansCanal || ""
+                    }
+                    RowLayout {
+                        spacing: Space.space4
+                        AcpButton {
+                            objectName: "accueil-bilan-creer"
+                            visible: Accueil.carteBilan.peutCreer === true
+                            primary: true
+                            label: qsTr("Créer le bilan quotidien (8 h)")
+                            manualEnabled: !Accueil.gesteEnCours
+                            onTriggered: Accueil.creerBilanQuotidien()
+                        }
+                        AcpButton {
+                            objectName: "accueil-bilan-cron"
+                            label: qsTr("Pause et suppression : page Cron")
+                            onTriggered: Accueil.ouvrirCron()
+                        }
+                    }
+                }
+
                 // --- 6. Pause générale ---------------------------------------------------------------
                 Carte {
                     objectName: "accueil-carte-pause"

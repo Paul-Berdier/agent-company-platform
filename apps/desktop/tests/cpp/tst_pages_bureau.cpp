@@ -156,6 +156,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("meta.json"))); });
     serveur.route("GET", kP + QStringLiteral("/catalogue"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json"))); });
+    // Route NATIVE de Hermes : la tâche du bilan quotidien, active (carte « Bilan quotidien » de l'Accueil).
+    serveur.route("GET", QStringLiteral("/api/cron/jobs"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonArray{QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("j1")}, {QStringLiteral("script"), QStringLiteral("acp-bilan.py")},
+            {QStringLiteral("no_agent"), true}, {QStringLiteral("enabled"), true}, {QStringLiteral("state"), QStringLiteral("scheduled")},
+            {QStringLiteral("next_run_at"), QStringLiteral("2026-10-09T06:00:00+00:00")}}});
+    });
     QJsonObject poste = fixture(QStringLiteral("poste-releve.json"));
     serveur.route("GET", kP + QStringLiteral("/poste"), [&poste](const RequeteRecue &) { return ReponseFaux::json(200, poste); });
     serveur.route("POST", kP + QStringLiteral("/poste/enrolement"), [](const RequeteRecue &) {
@@ -287,6 +294,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QVERIFY(contientTexte(item, QStringLiteral("Même enveloppe que Codex (déclaré dans poste.toml)")));
         QVERIFY(contientTexte(item, QStringLiteral("Configurées")));
         QVERIFY(contientTexte(item, QStringLiteral("Sans titre"))); // session s2 sans titre
+        // Étape P8b : bilan quotidien (tâche cron native de Hermes), comme la carte du navigateur.
+        QTRY_VERIFY_WITH_TIMEOUT(accueil->carteBilan().value(QStringLiteral("lu")).toBool(), 5000);
+        QTest::qWait(50);
+        VERIFIER(page.get(), QStringLiteral("Accueil, bilan quotidien"));
+        QVERIFY(contientTexte(item, QStringLiteral("Bilan quotidien")));
+        QVERIFY(contientTexte(item, QStringLiteral("Prochaine exécution")));
+        QVERIFY(contientTexte(item, QStringLiteral("Pause et suppression : page Cron")));
     }
     QTRY_VERIFY(!accueil->actif());
 
