@@ -10,7 +10,9 @@ Il répond à ``GET /proprietaire/<dépôt>.git/info/refs?service=git-upload-pac
 - ``introuvable`` : 404 « Repository not found. » à tous ;
 - ``panne`` (500), ``interdit`` (403), ``lent`` (annonce après ``lent_s``) ;
 - ``faux-refus`` : 500 dont le corps imite les messages de git (« fatal: Authentication failed… ») : git les préfixe
-  de « remote: », ils ne doivent jamais passer pour un refus.
+  de « remote: », ils ne doivent jamais passer pour un refus ;
+- ``bascule`` : 401 sans identifiant tant qu'aucune lecture avec le jeton n'a eu lieu, puis annonce à tous (dépôt
+  devenu lisible sans identifiant pendant la mesure : « prive » exige deux refus anonymes).
 
 L'autorité de certification est celle, jetable, du faux Hermes (``contrat/faux_hermes.py``) ; l'annonce est produite par
 ``git upload-pack --advertise-refs`` sur un vrai dépôt local (protocole v0 : le client v2 s'y replie). Aucun appel
@@ -32,7 +34,7 @@ from typing import Any
 
 ICI = Path(__file__).resolve().parent
 JETON = "github_pat_" + "f4ux" * 10
-DEPOTS = ("public", "prive", "hors-portee", "introuvable", "panne", "interdit", "lent", "faux-refus")
+DEPOTS = ("public", "prive", "hors-portee", "introuvable", "panne", "interdit", "lent", "faux-refus", "bascule")
 _CHEMIN = re.compile(r"/proprietaire/([a-z0-9-]+)\.git/info/refs")
 CORPS_FAUX_REFUS = (b"fatal: Authentication failed for 'https://github.com/x/y.git/'\n"
                     b"fatal: could not read Username for 'https://github.com': terminal prompts disabled\n"
@@ -71,6 +73,7 @@ class FauxDepotHttps:
         self.annonce = annonce
         self.lent_s = lent_s
         self.jeton = JETON
+        self.bascule_lue = False
         self.requetes: list[dict[str, Any]] = []
         self.verrou = threading.Lock()
         self.serveur: ThreadingHTTPServer | None = None
@@ -166,5 +169,13 @@ class _Gestionnaire(BaseHTTPRequestHandler):
                 self._annonce()
             except OSError:
                 pass
+        elif depot == "bascule":
+            if identifiants == ("x-access-token", JETON):
+                self.faux.bascule_lue = True
+                self._annonce()
+            elif identifiants is None and self.faux.bascule_lue:
+                self._annonce()
+            else:
+                self._repondre(401, b"Authentication required\n", entetes=demande_auth)
         else:  # faux-refus
             self._repondre(500, CORPS_FAUX_REFUS)

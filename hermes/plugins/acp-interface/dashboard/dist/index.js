@@ -255,6 +255,9 @@
       exploration: "Exploration du d\xE9p\xF4t",
       explorationAide: "Le poste lit le d\xE9p\xF4t, sans rien y modifier, avant la planification.",
       champVoie: "Ex\xE9cutant",
+      // Partie E (cahier P7 § 11.2) : voie fermée pour le dépôt choisi (visibilité mesurée), avec la raison du greffon.
+      voiesFermeesPourDepot: "Ferm\xE9 pour ce d\xE9p\xF4t (gris\xE9 dans la liste)",
+      aucunExecutantOuvert: "Aucun ex\xE9cutant ouvert pour ce d\xE9p\xF4t. Le projet part sans exploration du d\xE9p\xF4t.",
       champModele: "Mod\xE8le",
       modeleParDefaut: "Mod\xE8le par d\xE9faut du relev\xE9",
       modeleAChoisir: "Choisissez un mod\xE8le (le relev\xE9 n'en d\xE9signe aucun par d\xE9faut)",
@@ -363,6 +366,9 @@
       relancerCarte: "Relancer",
       relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       relancee: "La carte repart.",
+      // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
+      relanceQuarantaineAide: "Bloqu\xE9e pour un secret d\xE9tect\xE9. Le travail fautif reste en quarantaine sur l'ex\xE9cutant, jamais int\xE9gr\xE9 ni pouss\xE9. La relance repart du d\xE9part de la carte, sur une branche neuve et en session neuve.",
+      relanceeBrancheNeuve: "La carte repart sur une branche neuve, en session neuve. Le travail en quarantaine n'est pas repris.",
       relanceeSessionNeuve: "La carte repart\xA0: l'agent reprend d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       nonRelancee: "La carte n'a pas \xE9t\xE9 relanc\xE9e.",
       statutApres: "Statut\xA0:",
@@ -563,6 +569,27 @@
       offre: "Offre",
       depotsTitre: "D\xE9p\xF4ts autoris\xE9s",
       aucunDepot: "Aucun d\xE9p\xF4t d\xE9clar\xE9 par le poste.",
+      // Étape P7, partie E (cahier P7 § 11.2) : visibilité mesurée par l'exécutant, voies ouvertes par dépôt.
+      depots: {
+        aide: "Visibilit\xE9 mesur\xE9e par l'ex\xE9cutant \xE0 chaque inventaire et avant chaque carte Codex. Priv\xE9 veut dire acc\xE8s anonyme refus\xE9 et lecture avec le jeton r\xE9ussie. Codex ne travaille que sur un d\xE9p\xF4t prouv\xE9 priv\xE9 (D83), Claude sur tout d\xE9p\xF4t (D84).",
+        visibilite: "Visibilit\xE9 mesur\xE9e",
+        lecture: "Lecture par l'ex\xE9cutant",
+        verifieLe: "Mesur\xE9e",
+        voies: "Voies pour ce d\xE9p\xF4t",
+        ouverte: "Ouverte",
+        fermee: "Ferm\xE9e",
+        nonMesure: "Jamais mesur\xE9e par l'ex\xE9cutant (Codex ferm\xE9)",
+        visibilites: {
+          prive: "Priv\xE9",
+          public: "Public",
+          inconnue: "Inconnue (Codex ferm\xE9)"
+        },
+        lectures: {
+          ok: "R\xE9ussie",
+          refusee: "Refus\xE9e",
+          inconnue: "Inconnue"
+        }
+      },
       inventaireTitre: "Dernier inventaire",
       aucunInventaire: "Aucun inventaire re\xE7u.",
       recuLe: "Re\xE7u",

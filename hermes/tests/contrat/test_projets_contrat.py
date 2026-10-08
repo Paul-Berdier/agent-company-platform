@@ -853,7 +853,7 @@ def test_p7_relance_qui_repond_accueil_et_cloture(pile):
     code, relance = api(pile, "POST", f"/v1/cartes/{tableau}/{exploration}/relancer",
                         {"consigne": "Le jeton est posé : reprends."})
     assert code == 200 and relance == {"carte": exploration, "relancee": True, "statut_apres": "ready",
-                                       "session_neuve": True}, relance
+                                       "session_neuve": True, "branche_neuve": False}, relance
     assert cartes(pile, tableau)[exploration]["statut"] == "ready"
     code, reglage = api(pile, "POST", f"/v1/projets/{projet['id']}/reponses", {"reponses": "proprietaire"})
     assert code == 200 and (reglage["avant"], reglage["apres"]) == ("hermes_d_abord", "proprietaire")

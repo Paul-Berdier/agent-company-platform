@@ -258,6 +258,9 @@ export const T = {
     exploration: "Exploration du dépôt",
     explorationAide: "Le poste lit le dépôt, sans rien y modifier, avant la planification.",
     champVoie: "Exécutant",
+    // Partie E (cahier P7 § 11.2) : voie fermée pour le dépôt choisi (visibilité mesurée), avec la raison du greffon.
+    voiesFermeesPourDepot: "Fermé pour ce dépôt (grisé dans la liste)",
+    aucunExecutantOuvert: "Aucun exécutant ouvert pour ce dépôt. Le projet part sans exploration du dépôt.",
     champModele: "Modèle",
     modeleParDefaut: "Modèle par défaut du relevé",
     modeleAChoisir: "Choisissez un modèle (le relevé n'en désigne aucun par défaut)",
@@ -366,6 +369,9 @@ export const T = {
     relancerCarte: "Relancer",
     relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche déjà commencée.",
     relancee: "La carte repart.",
+    // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
+    relanceQuarantaineAide: "Bloquée pour un secret détecté. Le travail fautif reste en quarantaine sur l'exécutant, jamais intégré ni poussé. La relance repart du départ de la carte, sur une branche neuve et en session neuve.",
+    relanceeBrancheNeuve: "La carte repart sur une branche neuve, en session neuve. Le travail en quarantaine n'est pas repris.",
     relanceeSessionNeuve: "La carte repart : l'agent reprend d'une session neuve, sur la branche déjà commencée.",
     nonRelancee: "La carte n'a pas été relancée.",
     statutApres: "Statut :",
@@ -566,6 +572,27 @@ export const T = {
     offre: "Offre",
     depotsTitre: "Dépôts autorisés",
     aucunDepot: "Aucun dépôt déclaré par le poste.",
+    // Étape P7, partie E (cahier P7 § 11.2) : visibilité mesurée par l'exécutant, voies ouvertes par dépôt.
+    depots: {
+      aide: "Visibilité mesurée par l'exécutant à chaque inventaire et avant chaque carte Codex. Privé veut dire accès anonyme refusé et lecture avec le jeton réussie. Codex ne travaille que sur un dépôt prouvé privé (D83), Claude sur tout dépôt (D84).",
+      visibilite: "Visibilité mesurée",
+      lecture: "Lecture par l'exécutant",
+      verifieLe: "Mesurée",
+      voies: "Voies pour ce dépôt",
+      ouverte: "Ouverte",
+      fermee: "Fermée",
+      nonMesure: "Jamais mesurée par l'exécutant (Codex fermé)",
+      visibilites: {
+        prive: "Privé",
+        public: "Public",
+        inconnue: "Inconnue (Codex fermé)",
+      },
+      lectures: {
+        ok: "Réussie",
+        refusee: "Refusée",
+        inconnue: "Inconnue",
+      },
+    },
     inventaireTitre: "Dernier inventaire",
     aucunInventaire: "Aucun inventaire reçu.",
     recuLe: "Reçu",

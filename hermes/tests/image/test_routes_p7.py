@@ -37,7 +37,7 @@ def test_relancer_codes_et_reponse(client, noyau):  # noqa: F811
     assert reponse.status_code == 403 and reponse.json()["detail"]["code"] == "carte_non_acp"
     reponse = client.post(chemin, json={"consigne": "Sources officielles seulement."})
     assert reponse.status_code == 200 and reponse.json() == {"carte": planif, "relancee": True, "statut_apres": "ready",
-                                                             "session_neuve": False}
+                                                             "session_neuve": False, "branche_neuve": False}
     with noyau.base.connexion() as conn:
         auteur = conn.execute("SELECT acteur FROM journal WHERE action = 'relance'").fetchone()[0]
     assert auteur == "proprietaire:proprietaire-test"

@@ -7,7 +7,9 @@
 // 3. Revues des fichiers de pilotage (étape P6) : « Accepter », « Refuser » (motif exigé) ; le diff reste sur
 //    l'exécutant, et la page le dit ;
 // 4. Cartes arrêtées (bloquées ou abandonnées) : « Relancer » avec une consigne facultative
-//    (POST /v1/cartes/{tableau}/{carte}/relancer), ou la raison pour laquelle la carte ne se relance pas ;
+//    (POST /v1/cartes/{tableau}/{carte}/relancer), ou la raison pour laquelle la carte ne se relance pas ; une carte
+//    bloquée pour un secret (partie E, K25) dit que son travail reste en quarantaine et que la relance repart d'une
+//    branche neuve ;
 // 5. Discussions en attente : sessions du tableau de bord dont une requête au client est ouverte, lues par le JSON-RPC
 //    natif (jsonrpc/discussions.ts), en lecture seule ; « inconnu » tant qu'elles n'ont pas pu être lues ; « Ouvrir la
 //    discussion » mène à la page de discussion (greffon acp-discussion), qui reprend la session et y rejoue la question.
@@ -409,6 +411,8 @@ function Revue(props: {
 /** Message d'une relance, d'après la réponse de l'API seulement (cahier P7 § 3.4). */
 export function messageRelance(resultat: ResultatRelance | null | undefined): string {
   if (resultat?.relancee === true) {
+    // Partie E (K25) : carte bloquée pour un secret, repartie sur une branche neuve sans le travail en quarantaine.
+    if (resultat.branche_neuve === true) return T.projets.relanceeBrancheNeuve;
     return resultat.session_neuve === true ? T.projets.relanceeSessionNeuve : T.projets.relancee;
   }
   return T.projets.nonRelancee;
@@ -465,7 +469,11 @@ function Arretee(props: {
       </dl>
       {carte.relancable === true && tableau && identifiant ? (
         <form className="acp-formulaire" onSubmit={(e: ReactTypes.FormEvent) => void relancer(e)}>
-          {carte.executant === true ? <p className="acp-discret">{T.projets.relanceExecutantAide}</p> : null}
+          {carte.quarantaine === true ? (
+            <p className="acp-alerte-texte">{T.projets.relanceQuarantaineAide}</p>
+          ) : carte.executant === true ? (
+            <p className="acp-discret">{T.projets.relanceExecutantAide}</p>
+          ) : null}
           <div className="acp-champ">
             <label htmlFor={champ}>{T.projets.consigne}</label>
             <textarea

@@ -479,6 +479,8 @@ def test_codex_mesure_reelle_contre_le_faux_serveur(tmp_path, faux_depot, avec_a
         issue = banc.executer(banc.carte(voie="poste-codex", modele="gpt-test", effort="high"))
         assert issue.route == "bloquer" and issue.corps["genre"] == "politique" and attendu in issue.corps["raison"]
         assert faux_depot.jeton not in json.dumps(banc.hermes.envois)
+        journal = (banc.racine / "journal" / "poste.jsonl").read_text(encoding="utf-8")
+        assert "visibilite_depot" in journal and faux_depot.jeton not in journal and faux_depot.url(nom) not in journal
     banc = _banc_codex(tmp_path / "prive", url=faux_depot.url("prive"))
     del banc.depots.visibilite
     banc.depots.jeton_lecture = lambda: faux_depot.jeton

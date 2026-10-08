@@ -255,6 +255,9 @@
       exploration: "Exploration du d\xE9p\xF4t",
       explorationAide: "Le poste lit le d\xE9p\xF4t, sans rien y modifier, avant la planification.",
       champVoie: "Ex\xE9cutant",
+      // Partie E (cahier P7 § 11.2) : voie fermée pour le dépôt choisi (visibilité mesurée), avec la raison du greffon.
+      voiesFermeesPourDepot: "Ferm\xE9 pour ce d\xE9p\xF4t (gris\xE9 dans la liste)",
+      aucunExecutantOuvert: "Aucun ex\xE9cutant ouvert pour ce d\xE9p\xF4t. Le projet part sans exploration du d\xE9p\xF4t.",
       champModele: "Mod\xE8le",
       modeleParDefaut: "Mod\xE8le par d\xE9faut du relev\xE9",
       modeleAChoisir: "Choisissez un mod\xE8le (le relev\xE9 n'en d\xE9signe aucun par d\xE9faut)",
@@ -363,6 +366,9 @@
       relancerCarte: "Relancer",
       relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       relancee: "La carte repart.",
+      // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
+      relanceQuarantaineAide: "Bloqu\xE9e pour un secret d\xE9tect\xE9. Le travail fautif reste en quarantaine sur l'ex\xE9cutant, jamais int\xE9gr\xE9 ni pouss\xE9. La relance repart du d\xE9part de la carte, sur une branche neuve et en session neuve.",
+      relanceeBrancheNeuve: "La carte repart sur une branche neuve, en session neuve. Le travail en quarantaine n'est pas repris.",
       relanceeSessionNeuve: "La carte repart\xA0: l'agent reprend d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       nonRelancee: "La carte n'a pas \xE9t\xE9 relanc\xE9e.",
       statutApres: "Statut\xA0:",
@@ -563,6 +569,27 @@
       offre: "Offre",
       depotsTitre: "D\xE9p\xF4ts autoris\xE9s",
       aucunDepot: "Aucun d\xE9p\xF4t d\xE9clar\xE9 par le poste.",
+      // Étape P7, partie E (cahier P7 § 11.2) : visibilité mesurée par l'exécutant, voies ouvertes par dépôt.
+      depots: {
+        aide: "Visibilit\xE9 mesur\xE9e par l'ex\xE9cutant \xE0 chaque inventaire et avant chaque carte Codex. Priv\xE9 veut dire acc\xE8s anonyme refus\xE9 et lecture avec le jeton r\xE9ussie. Codex ne travaille que sur un d\xE9p\xF4t prouv\xE9 priv\xE9 (D83), Claude sur tout d\xE9p\xF4t (D84).",
+        visibilite: "Visibilit\xE9 mesur\xE9e",
+        lecture: "Lecture par l'ex\xE9cutant",
+        verifieLe: "Mesur\xE9e",
+        voies: "Voies pour ce d\xE9p\xF4t",
+        ouverte: "Ouverte",
+        fermee: "Ferm\xE9e",
+        nonMesure: "Jamais mesur\xE9e par l'ex\xE9cutant (Codex ferm\xE9)",
+        visibilites: {
+          prive: "Priv\xE9",
+          public: "Public",
+          inconnue: "Inconnue (Codex ferm\xE9)"
+        },
+        lectures: {
+          ok: "R\xE9ussie",
+          refusee: "Refus\xE9e",
+          inconnue: "Inconnue"
+        }
+      },
       inventaireTitre: "Dernier inventaire",
       aucunInventaire: "Aucun inventaire re\xE7u.",
       recuLe: "Re\xE7u",
@@ -2460,6 +2487,13 @@
     for (const v of relevees) for (const d of listeDeChaines(v.depots)) alias.add(d);
     return [...alias].sort();
   }
+  function voiesFermeesPourDepot(poste, depot) {
+    if (!depot) return {};
+    const depots = Array.isArray(poste?.executant?.depots) ? poste.executant.depots : [];
+    const trouve = depots.find((d) => d.alias === depot);
+    const fermees = trouve?.voies_fermees;
+    return fermees && typeof fermees === "object" ? fermees : {};
+  }
   function effortsAdmis(voie, modele, interdits) {
     const modeles = Array.isArray(voie?.modeles) ? voie.modeles : [];
     const choisi = modele ? modeles.find((m) => m.id === modele) : modeles.find((m) => m.isDefault === true);
@@ -2484,11 +2518,13 @@
     const [effort, fixerEffort] = useState("");
     const [cle, fixerCle] = useState(nouvelleCle);
     const envoi = useEnvoi();
-    const releveVoie = voie ? cataloguePoste?.voies?.[voie] : void 0;
+    const fermees = voiesFermeesPourDepot(props.poste, depot);
+    const voieChoisie = voie !== "" && !fermees[voie] ? voie : voies.find((v) => !fermees[v]) ?? "";
+    const releveVoie = voieChoisie ? cataloguePoste?.voies?.[voieChoisie] : void 0;
     const modeles = Array.isArray(releveVoie?.modeles) ? releveVoie.modeles.filter((m) => chaine2(m.id)) : [];
     const efforts = effortsAdmis(releveVoie, modele, interdits);
     const avecExploration = depot !== "" && voies.length > 0;
-    const modeleExige = avecExploration && voie !== "" && modele === "" && !modeles.some((m) => m.isDefault === true);
+    const modeleExige = avecExploration && voieChoisie !== "" && modele === "" && !modeles.some((m) => m.isDefault === true);
     const sansDepot = depot === "";
     const complet = titre.trim() !== "" && objectif.trim() !== "" && !modeleExige;
     const lancer = async (evenement) => {
@@ -2501,8 +2537,8 @@
         depot: depot || null,
         reponses
       };
-      if (avecExploration && voie) {
-        demande.exploration = { voie, ...modele ? { modele } : {}, ...effort ? { effort } : {} };
+      if (avecExploration && voieChoisie) {
+        demande.exploration = { voie: voieChoisie, ...modele ? { modele } : {}, ...effort ? { effort } : {} };
       }
       const resultat = await envoi.envoyer(() => lancerProjet(demande, cle));
       const id = chaine2(resultat?.projet?.id);
@@ -2544,7 +2580,12 @@
         value: depot,
         disabled: depots === null,
         "aria-describedby": depots === null ? "acp-projet-depot-aide" : void 0,
-        onChange: (e) => fixerDepot(valeurDe(e))
+        onChange: (e) => {
+          fixerDepot(valeurDe(e));
+          fixerVoie("");
+          fixerModele("");
+          fixerEffort("");
+        }
       },
       /* @__PURE__ */ h("option", { value: "" }, T.projets.sansDepot),
       (depots ?? []).map((d) => /* @__PURE__ */ h("option", { key: d, value: d, "data-acp-donnee": "" }, d))
@@ -2570,7 +2611,8 @@
       "select",
       {
         id: "acp-projet-voie",
-        value: voie,
+        value: voieChoisie,
+        "aria-describedby": voies.some((v) => fermees[v]) ? "acp-projet-voie-fermee" : void 0,
         onChange: (e) => {
           fixerVoie(valeurDe(e));
           fixerModele("");
@@ -2578,9 +2620,9 @@
         }
       },
       voies.map(
-        (v) => libelleVoie(v) ? /* @__PURE__ */ h("option", { key: v, value: v }, libelleVoie(v)) : /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": "" }, v)
+        (v) => libelleVoie(v) ? /* @__PURE__ */ h("option", { key: v, value: v, disabled: Boolean(fermees[v]) }, libelleVoie(v)) : /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": "", disabled: Boolean(fermees[v]) }, v)
       )
-    )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-modele" }, T.projets.champModele), /* @__PURE__ */ h(
+    ), voies.some((v) => fermees[v]) ? /* @__PURE__ */ h("ul", { className: "acp-liste", id: "acp-projet-voie-fermee" }, voies.filter((v) => fermees[v]).map((v) => /* @__PURE__ */ h("li", { key: v, className: "acp-discret" }, /* @__PURE__ */ h("span", null, libelleVoie(v) ?? v), " ", /* @__PURE__ */ h("span", null, T.projets.voiesFermeesPourDepot), " ", /* @__PURE__ */ h(Donnee, { valeur: fermees[v] })))) : null), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-modele" }, T.projets.champModele), /* @__PURE__ */ h(
       "select",
       {
         id: "acp-projet-modele",
@@ -2592,7 +2634,7 @@
       },
       /* @__PURE__ */ h("option", { value: "", disabled: !modeles.some((m) => m.isDefault === true) }, modeles.some((m) => m.isDefault === true) ? T.projets.modeleParDefaut : T.projets.modeleAChoisir),
       modeles.map((m) => /* @__PURE__ */ h("option", { key: String(m.id), value: String(m.id), "data-acp-donnee": "" }, String(m.id)))
-    )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-effort" }, T.projets.champEffort), /* @__PURE__ */ h("select", { id: "acp-projet-effort", value: effort, onChange: (e) => fixerEffort(valeurDe(e)) }, /* @__PURE__ */ h("option", { value: "" }, T.projets.effortParDefaut), efforts.map((x) => /* @__PURE__ */ h("option", { key: x, value: x, "data-acp-donnee": "" }, x)))), /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.projets.releveDu), " ", /* @__PURE__ */ h(Donnee, { valeur: chaine2(releveVoie?.releve_le_lisible) })), releveVoie?.perime === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relevePerime) : null, modeleExige ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.modeleExige) : null) : null, /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+    )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-effort" }, T.projets.champEffort), /* @__PURE__ */ h("select", { id: "acp-projet-effort", value: effort, onChange: (e) => fixerEffort(valeurDe(e)) }, /* @__PURE__ */ h("option", { value: "" }, T.projets.effortParDefaut), efforts.map((x) => /* @__PURE__ */ h("option", { key: x, value: x, "data-acp-donnee": "" }, x)))), /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.projets.releveDu), " ", /* @__PURE__ */ h(Donnee, { valeur: chaine2(releveVoie?.releve_le_lisible) })), releveVoie?.perime === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relevePerime) : null, modeleExige ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.modeleExige) : null, voieChoisie === "" ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "note", id: "acp-projet-sans-exploration" }, T.projets.aucunExecutantOuvert) : null) : null, /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
       Bouton,
       {
         type: "submit",
@@ -2780,6 +2822,7 @@
   }
   function messageRelance(resultat) {
     if (resultat?.relancee === true) {
+      if (resultat.branche_neuve === true) return T.projets.relanceeBrancheNeuve;
       return resultat.session_neuve === true ? T.projets.relanceeSessionNeuve : T.projets.relancee;
     }
     return T.projets.nonRelancee;
@@ -2802,7 +2845,7 @@
         props.apres();
       }
     };
-    return /* @__PURE__ */ h(Entree, { cible: props.cible }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, carte.abandonnee === true ? /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.abandonnee, famille: "echec" } }) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.statuts.blocked, famille: "echec" } })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: carte.projet, titre: carte.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.assigne }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.assigne), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.raison }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.raison) }))), carte.relancable === true && tableau && identifiant ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void relancer(e) }, carte.executant === true ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceExecutantAide) : null, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.consigne), /* @__PURE__ */ h(
+    return /* @__PURE__ */ h(Entree, { cible: props.cible }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, carte.abandonnee === true ? /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.abandonnee, famille: "echec" } }) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.statuts.blocked, famille: "echec" } })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: carte.projet, titre: carte.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.assigne }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.assigne), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.raison }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.raison) }))), carte.relancable === true && tableau && identifiant ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void relancer(e) }, carte.quarantaine === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relanceQuarantaineAide) : carte.executant === true ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceExecutantAide) : null, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.consigne), /* @__PURE__ */ h(
       "textarea",
       {
         id: champ,

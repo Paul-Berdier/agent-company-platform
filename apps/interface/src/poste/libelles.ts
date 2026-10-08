@@ -143,3 +143,33 @@ export function libelleVoie(voie: unknown): string | null {
   return voie === "hermes" ? v.hermes : voie === "poste-codex" ? v.posteCodex : voie === "poste-claude" ? v.posteClaude
     : null;
 }
+
+/** Étape P7 (cahier P7 § 11.2) : visibilité MESURÉE d'un dépôt ; seul « prive » ouvre Codex. */
+export function libelleVisibilite(visibilite: unknown): Libelle | null {
+  const v = T.poste.depots.visibilites;
+  switch (visibilite) {
+    case "prive":
+      return L(v.prive, "succes");
+    case "public":
+      return L(v.public, "neutre");
+    case "inconnue":
+      return L(v.inconnue, "degrade");
+    default:
+      return null;
+  }
+}
+
+/** Lecture du dépôt par l'exécutant (avec le jeton pour un dépôt privé). */
+export function libelleLecture(lecture: unknown): Libelle | null {
+  const l = T.poste.depots.lectures;
+  switch (lecture) {
+    case "ok":
+      return L(l.ok, "succes");
+    case "refusee":
+      return L(l.refusee, "echec");
+    case "inconnue":
+      return L(l.inconnue, "degrade");
+    default:
+      return null;
+  }
+}

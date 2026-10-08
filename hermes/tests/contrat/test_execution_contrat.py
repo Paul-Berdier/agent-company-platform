@@ -371,7 +371,7 @@ def test_p7_relance_apres_un_ecart_session_neuve(pile):
     code, relance = api(pile, "POST", f"/v1/cartes/{carte['tableau']}/{carte['carte']}/relancer",
                         {"consigne": "La politique est rétablie : reprends l'exploration depuis le début."})
     assert code == 200 and relance == {"carte": carte["carte"], "relancee": True, "statut_apres": "ready",
-                                       "session_neuve": True}, relance
+                                       "session_neuve": True, "branche_neuve": False}, relance
     resservie = carte_servie(pile, en_cours=en_cours)
     extrait = {k: resservie[k] for k in ("carte", "run_id", "reprise")}
     afficher("P7 : carte relancée servie", json.dumps(extrait, ensure_ascii=False) + " ; " + resservie["consigne"][:400])

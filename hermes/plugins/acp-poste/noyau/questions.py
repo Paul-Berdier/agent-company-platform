@@ -254,6 +254,8 @@ def _emise_par_acp(demande: Optional[Dict[str, Any]], tache: Any) -> bool:
 
 
 def _bloquee_pour_secret(demande: Optional[Dict[str, Any]], evenements: List[Any]) -> bool:
+    """Carte de l'exécutant bloquée pour un secret détecté : son travail fautif est en quarantaine sur l'exécutant
+    (branche ``quarantaine/<carte>``, P6 § 6.6)."""
     if demande is not None and demande.get("issue") == "bloquee:secret":
         return True
     for evenement in reversed(evenements):
@@ -263,10 +265,27 @@ def _bloquee_pour_secret(demande: Optional[Dict[str, Any]], evenements: List[Any
     return False
 
 
+def quarantaine_ecartee_par_l_executant(conn) -> bool:
+    """Partie E (K25) : l'exécutant actif fait-il repartir une carte relancée SANS le travail en quarantaine ? Prouvé
+    par ce qu'il publie : seul un exécutant de la partie E publie la visibilité MESURÉE de ses dépôts (même commit que la
+    correction K25, ``apps/poste/src/acp_poste/{depots,execution}.py``). Sans inventaire, ou inventaire sans mesure
+    (exécutant de P6, poste Windows) : non prouvé, la relance d'une carte bloquée pour secret reste refusée."""
+    inventaire = routage.dernier_inventaire(conn) or {}
+    depots = inventaire.get("depots")
+    return isinstance(depots, list) and any(isinstance(d, dict) and d.get("visibilite") is not None for d in depots)
+
+
 def refus_de_relance(fiche: Dict[str, Any], demande: Optional[Dict[str, Any]], tache: Any,
-                     evenements: List[Any]) -> Optional[tuple]:
+                     evenements: List[Any], *, quarantaine_ecartee: bool = False) -> Optional[tuple]:
     """``(code, message, raison lisible)`` qui interdit de relancer une carte arrêtée, dans l'ordre du cahier P7
-    § 3.4 (carte émise par ACP, projet actif, carte arrêtée, revue, secret) ; ``None`` si elle se relance."""
+    § 3.4 (carte émise par ACP, projet actif, carte arrêtée, revue) ; ``None`` si elle se relance.
+
+    Une carte bloquée pour un SECRET se relance (correction K25, prouvée par la partie E côté exécutant :
+    ``apps/poste/tests/test_execution.py::test_relance_apres_secret_branche_neuve_sans_le_commit_fautif``) :
+    l'exécutant ne reprend jamais le worktree posé sur ``quarantaine/<carte>`` ; la carte repart de son départ sur
+    une branche neuve, en session neuve, et la quarantaine reste, jamais intégrée ni poussée — À CONDITION que
+    l'exécutant actif soit de la partie E (``quarantaine_ecartee`` : :func:`quarantaine_ecartee_par_l_executant`) ;
+    sinon refus ``carte_secret`` (échec fermé : un exécutant de P6 reprendrait le worktree en quarantaine)."""
     carte = getattr(tache, "id", None) or (demande or {}).get("carte") or "?"
     if not _emise_par_acp(demande, tache):
         return ("carte_non_acp", T.CARTE_NON_ACP.format(carte=carte, t=fiche["tableau"]), T.REFUS_RELANCE_NON_ACP)
@@ -281,7 +300,7 @@ def refus_de_relance(fiche: Dict[str, Any], demande: Optional[Dict[str, Any]], t
     if tache.status != "blocked":
         return ("carte_non_arretee", T.CARTE_NON_ARRETEE.format(carte=carte, statut=tache.status),
                 T.CARTE_NON_ARRETEE.format(carte=carte, statut=tache.status))
-    if _bloquee_pour_secret(demande, evenements):
+    if not quarantaine_ecartee and _bloquee_pour_secret(demande, evenements):
         return ("carte_secret", T.CARTE_SECRET.format(carte=carte), T.REFUS_RELANCE_SECRET)
     return None
 
@@ -290,7 +309,8 @@ def lister(conn) -> Dict[str, Any]:
     """Questions ouvertes et escaladées (avec le titre de la carte qui les pose, leur contexte, ``chez`` et le statut de
     leur carte « répondre ») ; cartes en triage (avec les gestes possibles), bloquées et abandonnées des tableaux de
     projet, chacune avec sa raison connue — étape P7 : une carte arrêtée dit si elle se relance (``relancable``) ou
-    pourquoi non (``refus_relance``)."""
+    pourquoi non (``refus_relance``), et si son travail est en quarantaine sur l'exécutant (``quarantaine`` : bloquée
+    pour un secret ; sa relance repart d'une branche neuve, K25)."""
     ouvertes = []
     titres: Dict[tuple, Optional[str]] = {}
     for q in [base.ligne_en_dict(l) for l in conn.execute(
@@ -309,6 +329,7 @@ def lister(conn) -> Dict[str, Any]:
     triage: List[Dict[str, Any]] = []
     bloquees: List[Dict[str, Any]] = []
     illisibles: List[str] = []
+    ecartee = quarantaine_ecartee_par_l_executant(conn)
     for p in [base.ligne_en_dict(l) for l in conn.execute(
             "SELECT * FROM projets WHERE etat != 'abandonne' ORDER BY cree_le").fetchall()]:
         try:
@@ -328,9 +349,11 @@ def lister(conn) -> Dict[str, Any]:
                             if genre and not entree["raison"]:
                                 entree["raison"] = ka.masquer(demande["consigne"])[:300] or None
                         else:
-                            refus_ = refus_de_relance(p, demande, tache, evenements)
+                            refus_ = refus_de_relance(p, demande, tache, evenements, quarantaine_ecartee=ecartee)
+                            executant = bool(demande) and demande["voie"] != "hermes"
                             entree.update(relancable=refus_ is None, refus_relance=refus_[2] if refus_ else None,
-                                          executant=bool(demande) and demande["voie"] != "hermes")
+                                          executant=executant,
+                                          quarantaine=executant and _bloquee_pour_secret(demande, evenements))
                         cible.append(entree)
         except Exception:  # noqa: BLE001 — tableau illisible : dit, jamais inventé
             illisibles.append(p["tableau"])
@@ -397,8 +420,9 @@ MARGE_MASQUAGE = 200
 def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str) -> Dict[str, Any]:
     """Bouton « Relancer » d'une carte bloquée ou abandonnée (cahier P7 § 3.4, décision P7-2 ; corrections K4, K5,
     K25). Contrôles dans l'ordre : projet ACP connu, carte émise par le greffon, projet ACTIF, carte arrêtée (une carte
-    en revue se traite par Accepter ou Refuser), carte non bloquée pour un secret (avant la partie E). Aucune carte
-    n'est créée : le plafond de cartes du projet n'est pas touché.
+    en revue se traite par Accepter ou Refuser). Une carte bloquée pour un secret se relance depuis la partie E : son
+    travail reste en quarantaine sur l'exécutant, qui la fait repartir d'une branche NEUVE (``branche_neuve`` dans la
+    réponse). Aucune carte n'est créée : le plafond de cartes du projet n'est pas touché.
 
     Effet : carte Hermes → la consigne éventuelle en commentaire (le worker la lit par ``build_worker_context``) ;
     carte de l'exécutant → ``issue = 'relancee'`` (hors ``ISSUES_REPRISE`` : l'exécutant repart d'une SESSION NEUVE,
@@ -424,10 +448,12 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
             evenements = ka.list_events(kc, carte) if tache is not None else []
         if tache is None and demande is None:
             raise refus("carte_inconnue", T.CARTE_DU_PROJET_INCONNUE.format(carte=carte[:40], titre=fiche["titre"]))
-        refus_ = refus_de_relance(fiche, demande, tache, evenements)
+        refus_ = refus_de_relance(fiche, demande, tache, evenements,
+                                  quarantaine_ecartee=quarantaine_ecartee_par_l_executant(conn))
         if refus_ is not None:
             raise refus(refus_[0], refus_[1])
         executant = demande["voie"] != "hermes"
+        quarantaine = executant and _bloquee_pour_secret(demande, evenements)
         maintenant = base.maintenant()
         avant = {c: demande.get(c) for c in ("issue", "consigne", "consigne_relance", "relancee_le",
                                              "consigne_initiale")}
@@ -454,9 +480,10 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
         with base.transaction(conn):
             base.journaliser(conn, auteur, "relance", projet_id=fiche["id"], cible=carte,
                              detail={"avec_consigne": consigne is not None, "executant": executant,
-                                     "relancee": relancee, "statut_apres": statut_apres})
+                                     "quarantaine": quarantaine, "relancee": relancee,
+                                     "statut_apres": statut_apres})
     return {"carte": carte, "relancee": relancee, "statut_apres": statut_apres,
-            "session_neuve": relancee and executant}
+            "session_neuve": relancee and executant, "branche_neuve": relancee and quarantaine}
 
 
 def _ecrire_demande(conn, cle: str, colonnes: Dict[str, Any]) -> None:

@@ -175,6 +175,8 @@ export interface CarteEnAttente {
   relancable?: boolean;
   refus_relance?: string | null;
   executant?: boolean;
+  /** Partie E (K25) : bloquée pour un secret ; le travail fautif reste en quarantaine sur l'exécutant. */
+  quarantaine?: boolean;
 }
 
 /** POST /v1/questions/{q}/reponse. */
@@ -269,6 +271,8 @@ export interface ResultatRelance {
   relancee?: boolean;
   statut_apres?: string | null;
   session_neuve?: boolean;
+  /** Partie E (K25) : la carte repart sur une branche neuve, sans le travail en quarantaine. */
+  branche_neuve?: boolean;
 }
 
 /** POST /v1/projets/{id}/reponses. */
@@ -317,9 +321,21 @@ export interface CatalogueDuPoste {
   message?: string | null;
 }
 
+/** Étape P7 (cahier P7 § 11.2) : un dépôt du dernier inventaire, sa visibilité MESURÉE par l'exécutant (null :
+ *  jamais mesurée) et les voies du poste fermées pour lui (calcul du routage du greffon, raison française). */
+export interface DepotMesure {
+  alias?: string;
+  visibilite?: string | null;
+  lecture?: string | null;
+  verifie_le?: string | null;
+  voies_fermees?: Record<string, string>;
+}
+
 export interface ReponsePoste {
   poste?: EtatPoste;
   catalogue?: CatalogueDuPoste;
+  /** Étape P7 : visibilité des dépôts (grisage de Codex dans « Nouveau projet »). */
+  executant?: { connu?: boolean; depots?: DepotMesure[] };
 }
 
 /** Corps de POST /v1/projets. */

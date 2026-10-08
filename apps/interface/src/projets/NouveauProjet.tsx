@@ -7,6 +7,8 @@
 //   les cartes du poste en posent), et la page le dit (décision D42) ;
 // - l'exploration (exécutant, modèle, effort) ne se choisit que si un relevé existe, et seulement parmi
 //   ce qu'il contient, efforts interdits exclus ; un relevé factice est signalé comme tel ;
+// - étape P7, partie E : un exécutant fermé POUR LE DÉPÔT CHOISI (Codex sur un dépôt non prouvé privé, D83) est
+//   grisé, avec la raison du greffon (GET /v1/poste, bloc executant.depots : même calcul que le routage) ;
 // - les refus de l'API s'affichent tels quels (message français du greffon).
 import type * as ReactTypes from "react";
 import { T } from "../chaines";
@@ -41,6 +43,16 @@ export function depotsConnus(catalogue: CatalogueDuPoste | null | undefined): st
   const alias = new Set<string>();
   for (const v of relevees) for (const d of listeDeChaines(v.depots)) alias.add(d);
   return [...alias].sort();
+}
+
+/** Étape P7 (cahier P7 § 11.2) : voies fermées pour ``depot`` d'après le greffon (raison française) ; aucun dépôt
+ *  choisi ou dépôt inconnu de la vue : aucune fermeture DITE ici (le greffon refuse de toute façon un choix fermé). */
+export function voiesFermeesPourDepot(poste: ReponsePoste | null | undefined, depot: string): Record<string, string> {
+  if (!depot) return {};
+  const depots = Array.isArray(poste?.executant?.depots) ? poste.executant.depots : [];
+  const trouve = depots.find((d) => d.alias === depot);
+  const fermees = trouve?.voies_fermees;
+  return fermees && typeof fermees === "object" ? fermees : {};
 }
 
 /** Efforts relevés d'un modèle, moins les efforts interdits par la politique (D39). Sans modèle choisi, ceux du
@@ -81,13 +93,17 @@ function Formulaire(props: {
   const [cle, fixerCle] = useState(nouvelleCle);
   const envoi = useEnvoi<ReponseLancement>();
 
-  const releveVoie: VoieReleve | undefined = voie ? cataloguePoste?.voies?.[voie] : undefined;
+  // Étape P7 : un exécutant fermé pour le dépôt choisi n'est jamais retenu ; le premier ouvert le remplace.
+  const fermees = voiesFermeesPourDepot(props.poste, depot);
+  const voieChoisie = voie !== "" && !fermees[voie] ? voie : (voies.find((v) => !fermees[v]) ?? "");
+  const releveVoie: VoieReleve | undefined = voieChoisie ? cataloguePoste?.voies?.[voieChoisie] : undefined;
   const modeles = Array.isArray(releveVoie?.modeles) ? releveVoie.modeles.filter((m) => chaine(m.id)) : [];
   const efforts = effortsAdmis(releveVoie, modele, interdits);
   const avecExploration = depot !== "" && voies.length > 0;
   // Sans modèle marqué par défaut dans le relevé (Claude, D59), le serveur refuse une exploration sans modèle : le
   // choix est exigé avant le lancement (D73).
-  const modeleExige = avecExploration && voie !== "" && modele === "" && !modeles.some((m) => m.isDefault === true);
+  const modeleExige = avecExploration && voieChoisie !== "" && modele === "" &&
+    !modeles.some((m) => m.isDefault === true);
   // Sans dépôt, aucune question ne peut naître (seules les cartes du poste en posent) : le choix est sans objet.
   const sansDepot = depot === "";
   const complet = titre.trim() !== "" && objectif.trim() !== "" && !modeleExige;
@@ -102,8 +118,8 @@ function Formulaire(props: {
       depot: depot || null,
       reponses,
     };
-    if (avecExploration && voie) {
-      demande.exploration = { voie, ...(modele ? { modele } : {}), ...(effort ? { effort } : {}) };
+    if (avecExploration && voieChoisie) {
+      demande.exploration = { voie: voieChoisie, ...(modele ? { modele } : {}), ...(effort ? { effort } : {}) };
     }
     const resultat = await envoi.envoyer(() => lancerProjet(demande, cle));
     const id = chaine(resultat?.projet?.id);
@@ -167,7 +183,12 @@ function Formulaire(props: {
           value={depot}
           disabled={depots === null}
           aria-describedby={depots === null ? "acp-projet-depot-aide" : undefined}
-          onChange={(e: Evenement) => fixerDepot(valeurDe(e))}
+          onChange={(e: Evenement) => {
+            fixerDepot(valeurDe(e));
+            fixerVoie("");
+            fixerModele("");
+            fixerEffort("");
+          }}
         >
           <option value="">{T.projets.sansDepot}</option>
           {(depots ?? []).map((d) => (
@@ -232,7 +253,8 @@ function Formulaire(props: {
             <label htmlFor="acp-projet-voie">{T.projets.champVoie}</label>
             <select
               id="acp-projet-voie"
-              value={voie}
+              value={voieChoisie}
+              aria-describedby={voies.some((v) => fermees[v]) ? "acp-projet-voie-fermee" : undefined}
               onChange={(e: Evenement) => {
                 fixerVoie(valeurDe(e));
                 fixerModele("");
@@ -241,16 +263,26 @@ function Formulaire(props: {
             >
               {voies.map((v) =>
                 libelleVoie(v) ? (
-                  <option key={v} value={v}>
+                  <option key={v} value={v} disabled={Boolean(fermees[v])}>
                     {libelleVoie(v)}
                   </option>
                 ) : (
-                  <option key={v} value={v} data-acp-donnee="">
+                  <option key={v} value={v} data-acp-donnee="" disabled={Boolean(fermees[v])}>
                     {v}
                   </option>
                 ),
               )}
             </select>
+            {voies.some((v) => fermees[v]) ? (
+              <ul className="acp-liste" id="acp-projet-voie-fermee">
+                {voies.filter((v) => fermees[v]).map((v) => (
+                  <li key={v} className="acp-discret">
+                    <span>{libelleVoie(v) ?? v}</span> <span>{T.projets.voiesFermeesPourDepot}</span>{" "}
+                    <Donnee valeur={fermees[v]} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
           <div className="acp-champ">
             <label htmlFor="acp-projet-modele">{T.projets.champModele}</label>
@@ -288,6 +320,11 @@ function Formulaire(props: {
           </p>
           {releveVoie?.perime === true ? <p className="acp-alerte-texte">{T.projets.relevePerime}</p> : null}
           {modeleExige ? <p className="acp-alerte-texte">{T.projets.modeleExige}</p> : null}
+          {voieChoisie === "" ? (
+            <p className="acp-alerte-texte" role="note" id="acp-projet-sans-exploration">
+              {T.projets.aucunExecutantOuvert}
+            </p>
+          ) : null}
         </fieldset>
       ) : null}
       <div className="acp-actions">
