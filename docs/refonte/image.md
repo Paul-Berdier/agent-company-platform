@@ -1123,6 +1123,15 @@ Aucune commande Docker locale : tout passe par la CI GitHub. Les runs « jetable
   republiant sept clés), `.op.env` (portée gérée déplacée vers `/opt/data/faux`), `secrets.command` (témoin
   créé par l'uid 10000) ; réussis : `test_volume_piege_apres_relance` (la course ne se produit pas sans
   rechargeur) et `test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu` (§ 5).
+- **Vert avec le correctif** (`373b047`, branche jetable, run
+  [37832691849](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37832691849), conclusion
+  **success**) : suite COMPLÈTE dans l'image **834 réussis**, 0 échec (dont les 36 de `test_secu_env.py`) ;
+  `test_sans_shell_contrat.py` et `test_contrat_image.py` **64 réussis**, 0 échec. Mesures : dans le vrai
+  conteneur, aucune clé épinglée au point fixe, **0 résolution sur 1 224** avec terminal (103 rechargements),
+  `reload_env` sans écart (il supprime `API_SERVER_HOST`, `API_SERVER_PORT` et les trois clés copilot, § 10) ;
+  dans l'image, 0 sur 697 (395 rechargements) ; journal `[acp] SECU-1 (relance) : /opt/data/.env portait 7
+  clé(s)…` et `/opt/data/.op.env portait 4 clé(s)…`, sans valeur ; `.op.env` avec `HERMES_MANAGED_DIR` et
+  `secrets.command` refusent le démarrage (code 1, message français, témoin absent).
 
 ## 10. Limites connues
 
