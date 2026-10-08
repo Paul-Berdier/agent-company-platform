@@ -140,7 +140,7 @@ void QuestionsViewModel::lire(const QJsonObject &liste)
 QJsonObject QuestionsViewModel::construireQuestion(const QJsonObject &question)
 {
     const QJsonValue etat = question.value(QStringLiteral("etat"));
-    const libelles::Libelle libelle = libelles::etatQuestion(etat);
+    const libelles::Libelle libelle = libelles::etatQuestion(etat, question.value(QStringLiteral("chez")));
     const QString identifiant = question.value(QStringLiteral("id")).toString();
     const QString carte = texteOuVide(question.value(QStringLiteral("carte")));
     const QString carteTitre = texteOuVide(question.value(QStringLiteral("carte_titre")));
@@ -189,7 +189,9 @@ QJsonObject QuestionsViewModel::construireTriage(const QJsonObject &carte)
     } else if (genre == QLatin1String("sans_plan")) {
         aide = QStringLiteral("« Relancer la planification » fait replanifier Hermes avec votre consigne.");
     } else if (genre == QLatin1String("corrections")) {
-        aide = QStringLiteral("Prolonger le plafond de corrections arrivera à l'étape P6.");
+        // Relecture finale de P7 : le greffon refuse cette prolongation pour de bon (textes.PROLONGATION_P6).
+        aide = QStringLiteral("Le plafond de corrections ne se prolonge pas : la relecture qui l'a atteint est close ; "
+                              "concluez le projet depuis cette carte.");
     }
     QStringList inconnus;
     for (const QString &geste : gestes) {

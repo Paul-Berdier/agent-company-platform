@@ -459,7 +459,9 @@ void TestPoste::executantSeulementSiPublie()
         {QStringLiteral("regime"), QStringLiteral("inconnu")},
         {QStringLiteral("peut_executer"), true},
         {QStringLiteral("voies_disponibles"), QJsonArray{QStringLiteral("poste-codex"), QStringLiteral("poste-claude")}},
-        {QStringLiteral("voies_fermees"), QJsonArray{}},
+        // Forme RÉELLEMENT servie (routage.voies_fermees : objet {voie: raison}, relecture finale de P7, constat
+        // desktop-3 : le test passait un tableau, forme jamais servie).
+        {QStringLiteral("voies_fermees"), QJsonObject{}},
         {QStringLiteral("carte_en_cours"), false},
     });
     QCOMPARE(executant.value(QStringLiteral("present")).toBool(), true);
@@ -467,6 +469,21 @@ void TestPoste::executantSeulementSiPublie()
     QCOMPARE(executant.value(QStringLiteral("peutExecuter")).toString(), QStringLiteral("Oui"));
     QCOMPARE(executant.value(QStringLiteral("voiesDisponibles")).toString(), QStringLiteral("Poste (Codex), Poste (Claude)"));
     QCOMPARE(executant.value(QStringLiteral("voiesFermees")).toString(), QStringLiteral("Aucune"));
+    const QVariantMap regimeB = PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
+        {QStringLiteral("voies_fermees"), QJsonObject{
+            {QStringLiteral("poste-codex"), QStringLiteral("isolement de l'exécutant (régime B) : Bac à sable Linux "
+                                                           "refusé par la plateforme (régime B)")}}}});
+    QCOMPARE(regimeB.value(QStringLiteral("voiesFermees")).toString(),
+             QStringLiteral("Poste (Codex) : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la "
+                            "plateforme (régime B)"));
+    // Forme jamais servie (tableau) ou raison illisible : « Inconnu », jamais une liste devinée.
+    QCOMPARE(PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
+                 {QStringLiteral("voies_fermees"), QJsonArray{}}}).value(QStringLiteral("voiesFermees")).toString(),
+             QStringLiteral("Inconnu"));
+    QCOMPARE(PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
+                 {QStringLiteral("voies_fermees"), QJsonObject{{QStringLiteral("poste-codex"), 3}}}})
+                 .value(QStringLiteral("voiesFermees")).toString(),
+             QStringLiteral("Inconnu"));
     QCOMPARE(executant.value(QStringLiteral("carteEnCours")).toString(), QStringLiteral("Non"));
     // Forme non conforme : « Inconnu », jamais une liste devinée.
     const QVariantMap illisible = PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{

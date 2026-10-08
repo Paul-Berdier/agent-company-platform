@@ -78,6 +78,12 @@ public:
         QString etatExecutant = QStringLiteral("inconnu");
         //! Bloc `machine.executant` tel que servi (étape P6), vide s'il est absent.
         QJsonObject executant;
+        /*!
+            Flux d'invalidation du greffon (clé `flux` de /v1/meta, étape P7) : « annonce » (objet avec
+            un chemin), « absent » (clé absente), « illisible », « inconnu » (rien de lu). La station ne
+            l'ouvre pas : elle le DIT (relecture finale de P7, constat desktop-1).
+        */
+        QString etatFlux = QStringLiteral("inconnu");
     };
 
     explicit CompatibiliteHermes(ClientGreffonPoste *greffon, QObject *parent = nullptr);
@@ -122,6 +128,7 @@ public:
     [[nodiscard]] bool executantPresent() const { return m_evaluation.executantPresent; }
     [[nodiscard]] const QString &etatExecutant() const { return m_evaluation.etatExecutant; }
     [[nodiscard]] const QJsonObject &executant() const { return m_evaluation.executant; }
+    [[nodiscard]] const QString &etatFlux() const { return m_evaluation.etatFlux; }
 
 signals:
     void change();

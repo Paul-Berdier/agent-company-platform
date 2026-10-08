@@ -66,8 +66,11 @@ comptes et tranche l'irréversible » :
 
 - **MCP côté poste** (volet P8 du plan d'autonomie) : non construit ici ; il dépend des
   fichiers de P6 (`executant/`, `apps/poste`) que cette branche ne modifie pas (D8-11).
-- **Flux SSE du greffon** : aucun contrat de flux n'est fusionné ; la station n'ouvre rien
-  et affiche « Non disponible sur ce serveur (étape P7) ». `SseParser` est gardé pour lui.
+- **Flux SSE du greffon** : la station ne l'ouvre pas et relit ses pages par sondage ;
+  `SseParser` est gardé pour lui. Depuis la relecture finale de P7, le diagnostic dit ce que
+  `/v1/meta` annonce (clé `flux`) : « Annoncé par le serveur ; non utilisé par cette
+  station », « Non disponible sur ce serveur » (clé absente), ou « Inconnu » tant que rien
+  n'est lu — jamais une étape à venir.
 - **Test de contrat des documents de référence** : prévu dans
   `hermes/tests/contrat/test_fixtures_desktop.py` et `image.yml` ; fait à la place dans le
   bout en bout local (lecture en porteur, comparaison de forme de 9 documents), pour ne pas
@@ -75,7 +78,9 @@ comptes et tranche l'irréversible » :
 - **Quotas** : `SubscriptionQuotasViewModel` (ancienne route) retiré puis réécrit en
   `QuotasViewModel` sur `/v1/quotas`.
 - **Demandes de l'agent** : seules celles des discussions ouvertes dans la station sont
-  affichées ; l'agrégat de toutes les sessions vivantes attend P7.
+  affichées ; l'agrégat de toutes les sessions vivantes, servi depuis P7 (section
+  `discussions` de `GET /v1/questions`, `session.active_list`), n'est pas lu par la station,
+  qui le dit (« la page Questions du navigateur les compte »).
 - **`session.close`** : envoyé seulement pour une session sans tour en cours, pour ne
   jamais interrompre un travail de l'agent.
 - **Proxy des WebSockets** : ils prennent désormais la même règle que le REST (aucun proxy
@@ -116,7 +121,25 @@ Preuves : 34 suites, totaux Qt sans échec ni test ignoré ; bout en bout local 
 - Aucun essai contre Railway ni avec une vraie passkey (rien n'est déployé).
 - Navigateur du système réel (Chromium de Playwright le remplace au bout en bout).
 - Installation sur un Windows propre ; signature.
-- Gestes des revues de P6, flux SSE et agrégat des demandes de P7 (contrats non fusionnés).
+- Gestes et lectures servis par P6 et P7 que la station n'emploie pas : les contrats sont
+  désormais sur la branche (P6 fusionnée, P7 sur `refonte/hermes-p7`), mais ces gestes
+  restent dans le navigateur, hors du périmètre de P7 (cahier P7 § 5.5 : « aucune
+  dépendance ») : **Relancer** une carte arrêtée, **Qui répond**, **Clore le projet**,
+  **Accepter / Refuser** une revue de fichiers de pilotage (la station renvoie au
+  navigateur et le dit) ; ouverture du flux SSE ; Accueil agrégé `GET /v1/accueil`
+  (« À traiter par vous », « Chez Hermes », canal de notifications : la carte Questions de
+  l'Accueil de la station le dit) ; compteurs de `GET /v1/questions` (le badge Questions et
+  la barre d'état comptent les questions ouvertes de `/v1/projets`, sans les décisions,
+  revues ni cartes arrêtées) ; section des discussions en attente de la file ; visibilité
+  mesurée des dépôts (`executant.depots`) : la page Poste n'en montre que les alias, et
+  « Nouveau projet » propose Codex même pour un dépôt non prouvé privé, que le greffon
+  refuse alors (`voie_fermee`, sans faux succès).
+- Constats de la relecture finale de P7 corrigés dans la station : voies fermées de
+  l'exécutant (objet `{voie: raison}` servi par le greffon, lu comme un tableau : toujours
+  « Inconnu ») ; état d'une question d'après `chez` ; aide du plafond de corrections
+  (prolongation refusée pour de bon par le greffon) ; titre de la carte de la machine
+  d'après l'hôte publié ; textes qui promettaient des gestes « à l'étape P7 » ou
+  renvoyaient au kanban de Hermes (qui débloquerait une carte sans les gardes d'ACP).
 - Restauration d'une sauvegarde (étape P9) ; seul le déchiffrement à l'identique est prouvé.
 - Durée réelle de la session chez Authelia (7 jours, fenêtre glissante supposée).
 - Garde de transition du blocage du greffon (pages oubliées seulement au passage au

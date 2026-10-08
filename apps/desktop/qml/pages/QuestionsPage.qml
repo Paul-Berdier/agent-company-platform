@@ -192,7 +192,8 @@ Item {
                 titre: qsTr("Demandes de vos discussions")
                 sousTitre: qsTr("Autorisations et précisions demandées par Hermes dans les discussions ouvertes sur ce "
                                 + "poste. Non durables : elles disparaissent si Hermes est redéployé. Les demandes des "
-                                + "autres sessions de Hermes ne sont pas disponibles sur ce serveur (étape P7).")
+                                + "autres sessions de Hermes ne sont pas affichées par cette station : la page Questions "
+                                + "du navigateur les compte.")
                 BandeauMessage {
                     Layout.fillWidth: true
                     message: Demandes.message
@@ -285,8 +286,9 @@ Item {
                 Layout.fillWidth: true
                 visible: Questions.lue
                 titre: qsTr("Cartes bloquées ou abandonnées")
-                sousTitre: qsTr("Lecture seule : relancer une carte depuis la station arrivera à l'étape P7 ; en "
-                                + "attendant, le kanban de Hermes le permet.")
+                sousTitre: qsTr("Lecture seule dans cette station : « Relancer » se fait depuis la page Questions du "
+                                + "navigateur, avec les gardes et la consigne d'ACP — jamais depuis le kanban de Hermes, "
+                                + "qui débloquerait la carte sans elles.")
                 Discret { visible: Questions.bloquees.count === 0; text: qsTr("Aucune carte bloquée.") }
                 Repeater {
                     model: Questions.bloquees

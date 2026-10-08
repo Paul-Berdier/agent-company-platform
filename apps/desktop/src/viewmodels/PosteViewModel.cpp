@@ -46,6 +46,29 @@ QString listeDeVoies(const QJsonValue &valeur)
     return voies.isEmpty() ? QStringLiteral("Aucune") : voies.join(QStringLiteral(", "));
 }
 
+/*!
+    Voies fermées telles que le greffon les SERT : objet {voie: raison} (routage.voies_fermees), lu
+    « Poste (Codex) : raison ; … » ; objet vide : « Aucune » ; toute autre forme ou une raison
+    illisible : « Inconnu » (relecture finale de P7, constat desktop-3 : la station lisait un tableau,
+    forme jamais servie, et disait toujours « Inconnu »).
+*/
+QString voiesFermees(const QJsonValue &valeur)
+{
+    if (!valeur.isObject()) {
+        return libelles::kInconnu;
+    }
+    const QJsonObject fermees = valeur.toObject();
+    QStringList lignes;
+    for (auto it = fermees.constBegin(); it != fermees.constEnd(); ++it) {
+        if (!libelles::estTexte(it.value())) {
+            return libelles::kInconnu;
+        }
+        const QString libelle = libelles::voie(QJsonValue(it.key()));
+        lignes.append(QStringLiteral("%1 : %2").arg(libelle.isEmpty() ? it.key() : libelle, it.value().toString()));
+    }
+    return lignes.isEmpty() ? QStringLiteral("Aucune") : lignes.join(QStringLiteral(" ; "));
+}
+
 QVariantMap version(const QString &nom, const QJsonObject &version)
 {
     return QVariantMap{
@@ -347,7 +370,7 @@ QVariantMap PosteViewModel::construireExecutant(const QString &etat, const QJson
         {QStringLiteral("regime"), libelles::texte(executant.value(QStringLiteral("regime")))},
         {QStringLiteral("peutExecuter"), libelles::ouiNon(executant.value(QStringLiteral("peut_executer")))},
         {QStringLiteral("voiesDisponibles"), listeDeVoies(executant.value(QStringLiteral("voies_disponibles")))},
-        {QStringLiteral("voiesFermees"), listeDeVoies(executant.value(QStringLiteral("voies_fermees")))},
+        {QStringLiteral("voiesFermees"), voiesFermees(executant.value(QStringLiteral("voies_fermees")))},
         {QStringLiteral("carteEnCours"), libelles::ouiNon(executant.value(QStringLiteral("carte_en_cours")))},
         {QStringLiteral("erreur"), texteOuVide(executant.value(QStringLiteral("erreur")))},
     };

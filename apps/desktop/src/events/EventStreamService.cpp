@@ -183,10 +183,20 @@ QString EventStreamService::etatSondage() const
     return texte;
 }
 
-QString EventStreamService::etatFluxGreffon()
+QString EventStreamService::etatFluxGreffon(const QString &etatFlux)
 {
-    return QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce aucun flux "
-                          "d'événements (prévu à l'étape P7) ; les pages sont relues par sondage.");
+    if (etatFlux == QLatin1String("annonce")) {
+        return QStringLiteral("Annoncé par le serveur ; non utilisé par cette station : les pages sont relues par "
+                              "sondage (le navigateur, lui, l'emploie).");
+    }
+    if (etatFlux == QLatin1String("absent")) {
+        return QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce aucun flux "
+                              "d'événements ; les pages sont relues par sondage.");
+    }
+    if (etatFlux == QLatin1String("illisible")) {
+        return QStringLiteral("Annonce illisible dans /v1/meta ; les pages sont relues par sondage.");
+    }
+    return QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu ; les pages sont relues par sondage.");
 }
 
 } // namespace acp

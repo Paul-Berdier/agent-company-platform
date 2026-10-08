@@ -78,6 +78,14 @@ CompatibiliteHermes::Evaluation CompatibiliteHermes::evaluer(const QJsonObject &
     }
     resultat.executantPresent = executant.isObject();
     resultat.executant = executant.toObject();
+    const QJsonValue flux = meta.value(QStringLiteral("flux"));
+    if (flux.isUndefined()) {
+        resultat.etatFlux = QStringLiteral("absent");
+    } else if (flux.isObject() && flux.toObject().value(QStringLiteral("chemin")).isString()) {
+        resultat.etatFlux = QStringLiteral("annonce");
+    } else {
+        resultat.etatFlux = QStringLiteral("illisible");
+    }
 
     // Contrat du greffon : une autre majeure bloque toutes les pages du greffon.
     const auto [nomRecu, majeureRecue] = contrat(resultat.contratRecu);

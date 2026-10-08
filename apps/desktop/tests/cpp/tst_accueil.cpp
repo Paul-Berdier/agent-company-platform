@@ -172,6 +172,17 @@ void TestAccueil::cartePoste()
     QCOMPARE(inconnu.value(QStringLiteral("connu")).toBool(), false);
     QCOMPARE(inconnu.value(QStringLiteral("machine")).toString(), QStringLiteral("Inconnu"));
 
+    // Relecture finale de P7 (constats produit-10 et desktop-5) : titre d'après l'hôte publié par la machine
+    // (`poste.poste.hote`), jamais « Poste Windows » pour l'exécutant Railway.
+    QCOMPARE(enLigne.value(QStringLiteral("titre")).toString(), QStringLiteral("Exécutant"));  // poste simulé
+    for (const auto &[hote, titre] : {std::pair{QStringLiteral("railway"), QStringLiteral("Exécutant Railway")},
+                                      std::pair{QStringLiteral("pc"), QStringLiteral("Poste Windows")}}) {
+        const QVariantMap carte = AccueilViewModel::construireCartePoste(QJsonObject{{QStringLiteral("poste"), QJsonObject{
+            {QStringLiteral("etat"), QStringLiteral("en_ligne")},
+            {QStringLiteral("poste"), QJsonObject{{QStringLiteral("hote"), hote}}}}}});
+        QCOMPARE(carte.value(QStringLiteral("titre")).toString(), titre);
+    }
+
     const QVariantMap absent = AccueilViewModel::construireCartePoste({});
     QCOMPARE(absent.value(QStringLiteral("etat")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(absent.value(QStringLiteral("vuA")).toString(), QStringLiteral("Inconnu"));
