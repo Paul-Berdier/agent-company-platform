@@ -275,18 +275,69 @@ async def test_arret_pendant_une_carte(banc):
     assert en_main["etape"] == "arretee"
 
 
+def _raisons_annoncees(banc: Banc) -> list[str]:
+    """Raison écrite dans l'état du service au moment de CHAQUE réclamation (l'annonce de ``reclamer`` ne porte que
+    ``peut_executer`` : sa raison est écrite par ``calculer_annonce``, juste avant l'appel)."""
+    raisons: list[str] = []
+    reclamer = banc.protocole.reclamer
+
+    def reclamer_et_noter(jeton, **options):
+        etat = json.loads(banc.emplacements.etat_service.read_text(encoding="utf-8"))
+        raisons.append(etat["execution"]["raison"])
+        return reclamer(jeton, **options)
+
+    banc.protocole.reclamer = reclamer_et_noter
+    return raisons
+
+
+def _annonces(banc: Banc) -> list[dict]:
+    return [e for r, e in banc.protocole.appels if r == "reclamer" and e is not None]
+
+
 async def test_pause_locale_aucune_execution(banc):
+    """Relecture finale de P7 (constat tests-2, échec de la CI 36996679349) : la raison est lue AVANT l'arrêt. Lue après,
+    elle dépendait du moment où l'arrêt tombait : pendant la file de sortie, l'annonce suivante dit — à raison —
+    « Arrêt de l'exécutant en cours. » (l'arrêt prime sur la pause locale)."""
     banc.coffre.ecrire("jeton-machine", JETON)
     banc.emplacements.pause_locale.parent.mkdir(parents=True, exist_ok=True)
     banc.emplacements.pause_locale.write_text("pause", encoding="utf-8")
+    raisons = _raisons_annoncees(banc)
     tache = asyncio.create_task(banc.servir())
     assert await _jusqu_a(lambda: len(banc.protocole.routes()) >= 3)
+    avant = list(raisons)
+    assert len(avant) >= 3 and all(r.startswith("Pause locale") for r in avant)
     banc.arret.set()
     await asyncio.wait_for(tache, 10)
-    assert all(e["peut_executer"] is False for r, e in banc.protocole.appels if r == "reclamer")
-    etat = json.loads(banc.emplacements.etat_service.read_text(encoding="utf-8"))
-    assert etat["execution"]["raison"].startswith("Pause locale")
+    assert all(e["peut_executer"] is False for e in _annonces(banc))
     assert banc.protocole.inventaires == []  # aucune sonde en pause
+
+
+async def test_pause_locale_puis_arret_pendant_la_file_de_sortie(banc, monkeypatch):
+    """Le cas exact de la CI 36996679349, rendu déterministe : l'arrêt tombe PENDANT la file de sortie (après le test
+    d'arrêt d'entrée de la boucle). Aucune carte n'est demandée ; les réclamations d'avant disent la pause, et celle qui
+    suit éventuellement dit l'arrêt, qui prime sur la pause locale."""
+    banc.coffre.ecrire("jeton-machine", JETON)
+    banc.emplacements.pause_locale.parent.mkdir(parents=True, exist_ok=True)
+    banc.emplacements.pause_locale.write_text("pause", encoding="utf-8")
+    raisons = _raisons_annoncees(banc)
+    boucle = asyncio.get_running_loop()
+    rejouer = FileSortie.rejouer
+
+    def rejouer_puis_arreter(self, envoi):
+        resultat = rejouer(self, envoi)
+        if len(raisons) >= 3 and not banc.arret.is_set():
+            boucle.call_soon_threadsafe(banc.arret.set)  # rejouer tourne dans un fil (asyncio.to_thread)
+            time.sleep(0.2)  # l'arrêt est posé avant la fin de la file de sortie
+        return resultat
+
+    monkeypatch.setattr(FileSortie, "rejouer", rejouer_puis_arreter)
+    tache = asyncio.create_task(banc.servir())
+    await asyncio.wait_for(tache, 20)
+    assert len(raisons) >= 3 and all(e["peut_executer"] is False for e in _annonces(banc))
+    pause = [r for r in raisons if r.startswith("Pause locale")]
+    arret = [r for r in raisons if r == "Arrêt de l'exécutant en cours."]
+    assert len(pause) >= 3 and len(arret) <= 1 and pause + arret == raisons
+    assert banc.protocole.inventaires == []
 
 
 # ------------------------------------------------------------------ redémarrage et file de sortie (§ 5.9, § 6.4)
