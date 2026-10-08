@@ -177,6 +177,8 @@ export interface CarteEnAttente {
   executant?: boolean;
   /** Partie E (K25) : bloquée pour un secret ; le travail fautif reste en quarantaine sur l'exécutant. */
   quarantaine?: boolean;
+  /** Relecture finale de P7 : carte d'intégration, sans agent ; sa relance rejoue la même fusion, sans consigne. */
+  integration?: boolean;
 }
 
 /** POST /v1/questions/{q}/reponse. */

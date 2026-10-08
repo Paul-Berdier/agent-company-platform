@@ -99,6 +99,12 @@ triage au second blocage). Journal `relance` ; **aucune notification** (c'est vo
   consigne servie est recomposée : section « Consigne du propriétaire (relance du JJ/MM à HH:MM) » **en tête**, puis
   la consigne d'origine, tronquée et dite telle pour que le tout tienne dans la borne du contrat (16 000 caractères) ;
   l'origine est gardée (`demandes.consigne_initiale`) : une seconde relance repart d'elle.
+- **Carte d'intégration** (relecture finale de P7, D117) : elle n'a **pas d'agent**. L'exécutant rejoue la même fusion
+  déterministe des branches et ne lit aucune consigne : une consigne est refusée (400 `consigne_sans_objet`, rien
+  n'est écrit), la file le dit (`integration`, ni champ de consigne ni « session neuve »), et la réponse rend
+  `session_neuve: false`. Un conflit revient donc tant qu'aucune branche ne change : la raison du blocage et la page
+  disent ce que vous pouvez réellement faire — relancer (utile après un échec passager), récupérer les branches sur
+  l'exécutant (`git bundle`) pour trancher vous-même, ou clôturer le projet.
 - Réponse : `{"carte", "relancee", "statut_apres", "session_neuve"}` ; la page dit « La carte repart » ou « La carte
   n'a pas été relancée (statut : …) » d'après cette réponse seulement.
 
@@ -232,9 +238,9 @@ inconnu refusé (400 `arguments`). Erreurs : `{"detail": {"code", "message"}}`, 
 
 | Méthode et chemin | Corps | Réponse | Refus propres |
 |---|---|---|---|
-| `GET /v1/questions` | — | `questions[]` (dont `chez`, `carte_repondre_statut`), `triage[]`, `revues[]`, `bloquees[]` (dont `relancable`, `refus_relance`), `discussions` (`suivies`, `requetes_ouvertes`), `compteurs` (`a_traiter`, `chez_hermes`, `questions`, `decisions`, `revues`, `arretees`) | — |
+| `GET /v1/questions` | — | `questions[]` (dont `chez`, `carte_repondre_statut`), `triage[]`, `revues[]`, `bloquees[]` (dont `relancable`, `refus_relance`, `executant`, `integration`, `quarantaine`), `discussions` (`suivies`, `requetes_ouvertes`), `compteurs` (`a_traiter`, `chez_hermes`, `questions`, `decisions`, `revues`, `arretees`) | — |
 | `POST /v1/questions/{q}/reponse` | `reponse` | `{question, etat, carte_debloquee, reprise_differee}` | 404 `question_inconnue`, 409 `question_fermee` |
-| `POST /v1/cartes/{tableau}/{carte}/relancer` | `consigne?` | `{carte, relancee, statut_apres, session_neuve}` | 404 `projet_inconnu` / `carte_inconnue`, 403 `carte_non_acp`, 409 `projet_en_pause` / `projet_fini` / `carte_en_revue` / `carte_non_arretee` / `carte_secret`, 400 `arguments` / `secret` |
+| `POST /v1/cartes/{tableau}/{carte}/relancer` | `consigne?` | `{carte, relancee, statut_apres, session_neuve}` | 404 `projet_inconnu` / `carte_inconnue`, 403 `carte_non_acp`, 409 `projet_en_pause` / `projet_fini` / `carte_en_revue` / `carte_non_arretee` / `carte_secret`, 400 `arguments` / `secret` / `consigne_sans_objet` (carte d'intégration) |
 | `POST /v1/projets/{id}/reponses` | `reponses` | `{projet, avant, apres, questions_ouvertes_inchangees}` | 404 `projet_inconnu`, 409 `projet_fini` / `reponses_sans_objet`, 400 `reponses` |
 | `POST /v1/projets/{id}/clore` | `{"confirmation": true}` | `{projet, clos, etat, cartes_archivees, cartes_non_archivees, questions_annulees, branches_rapportees}` | 422 `confirmation`, 404 `projet_inconnu`, 409 `projet_fini` |
 | `GET /v1/accueil` | — | `a_traiter`, `chez_hermes`, `discussions`, `projets`, `executant`, `quotas`, `notifications`, `pause_generale`, `genere_le`, `illisibles` (ni sessions, ni système, ni bilan : § 10) | — |

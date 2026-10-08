@@ -646,8 +646,12 @@ class Execution:
         self._noter_carte(demande, "integration")
         conflits = await asyncio.to_thread(self.depots.fusionner, depot.alias, nom, demande.branches_a_integrer)
         if conflits:
-            raise CarteRefusee("capacite", "Conflit d'intégration : " + ", ".join(conflits[:20]) + " : aucune "
-                                           "résolution automatique ; tranchez, ou demandez une correction.")
+            # Relecture finale de P7 : aucune consigne n'est lue ici (pas d'agent) ; la raison dit ce que le
+            # propriétaire peut réellement faire. Noms bornés : la raison est coupée à 500 caractères.
+            noms = ", ".join(conflits[:5]) + (f" et {len(conflits) - 5} autre(s)" if len(conflits) > 5 else "")
+            raise CarteRefusee("capacite", f"Conflit d'intégration : {noms[:200]} : aucune résolution automatique ; "
+                                           "« Relancer » rejoue la même fusion. Récupérez les branches (git bundle) "
+                                           "pour trancher, ou clôturez le projet.")
         raison = self._verification_possible(depot)
         if raison is None:
             code, _fin, duree = await self._verifier(demande, depot, chemin, tmp)

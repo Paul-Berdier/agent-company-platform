@@ -618,6 +618,11 @@ def test_integration_fusionne_et_bloque_sur_conflit(banc):
                                               branches_a_integrer=["hermes/t_dddd4444", "hermes/t_eeee5555"])))
     assert conflit.route == "bloquer" and conflit.corps["genre"] == "capacite"
     assert "Conflit d'intégration : README.md" in conflit.corps["raison"]
+    # Relecture finale de P7 (constat scenario-2) : la carte d'intégration n'a pas d'agent, aucune consigne n'y est lue ;
+    # la raison dit ce que le propriétaire peut réellement faire, jamais « tranchez » par une consigne.
+    assert "« Relancer » rejoue la même fusion" in conflit.corps["raison"]
+    assert "git bundle" in conflit.corps["raison"] and "clôturez le projet" in conflit.corps["raison"]
+    assert "tranchez" not in conflit.corps["raison"]
 
 
 # ------------------------------------------------------------------ UID dédiés (conteneur, root)

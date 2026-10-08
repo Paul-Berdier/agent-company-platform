@@ -371,3 +371,56 @@ def test_carte_abandonnee_relancee_par_la_route_puis_servie_en_session_neuve(pil
     assert resservie["consigne"].startswith("## Consigne du propriétaire (relance du ")
     assert "Repars de zéro : le lanceur est réparé." in resservie["consigne"]
     assert resservie["consigne"].endswith(servie["consigne"])  # la consigne d'origine suit, entière
+
+
+def _integration_bloquee_par_un_conflit(pile, monkeypatch):
+    """Carte d'intégration (voie ``poste-integration``, SANS agent) bloquée par un conflit, comme l'exécutant la bloque
+    (``Execution._integrer`` : ``CarteRefusee("capacite", "Conflit d'intégration : …")``)."""
+    from test_execution_p6 import Executant, _finir_la_synthese, _jusqu_a_l_implementation, _poste_actif
+
+    noyau = pile.noyau
+    machine, jeton = _poste_actif(pile)
+    executant = Executant(pile, machine, jeton)
+    with noyau.base.connexion() as conn:
+        projet = lancer_sur_depot(noyau, conn)
+    tour = _jusqu_a_l_implementation(pile, executant, projet, monkeypatch)
+    executant.terminer(executant.carte(("poste-codex",)), "Implémenté.")
+    executant.terminer(executant.carte(("poste-claude",)), "Conforme.", verdict="accepte")
+    _finir_la_synthese(pile, projet, tour["synthese"])
+    with noyau.base.connexion() as conn:
+        noyau.emetteur.passe(conn)
+    servie = executant.carte(("poste-integration",))
+    assert servie["role"] == "integration"
+    reponse = executant.envoyer("bloquer", servie, genre="capacite",
+                                raison="Conflit d'intégration : README.md : aucune résolution automatique.")
+    assert reponse.status_code == 200, reponse.text
+    assert carte(noyau, projet["tableau"], servie["carte"]).status == "blocked"
+    return projet, servie
+
+
+def test_carte_d_integration_relancee_sans_consigne_ni_session(pile_machine, monkeypatch):
+    """Relecture finale de P7 (constat scenario-2) : une carte d'intégration n'a pas d'agent ; l'exécutant rejoue la
+    même fusion déterministe sans jamais lire de consigne. La file le dit (``integration``) ; une consigne est
+    refusée (``consigne_sans_objet`` : rien n'est écrit, la carte reste bloquée) ; la relance sans consigne rejoue la
+    fusion, et la réponse ne promet aucune « session neuve »."""
+    noyau = pile_machine.noyau
+    projet, servie = _integration_bloquee_par_un_conflit(pile_machine, monkeypatch)
+    url = f"/api/plugins/acp-poste/v1/cartes/{projet['tableau']}/{servie['carte']}/relancer"
+    file = pile_machine.get("/api/plugins/acp-poste/v1/questions").json()
+    [arretee] = [b for b in file["bloquees"] if b["carte"] == servie["carte"]]
+    assert (arretee["relancable"], arretee["executant"], arretee["integration"]) == (True, True, True)
+    with noyau.base.connexion() as conn:
+        avant = noyau.projets.demande_de_la_carte(conn, projet["tableau"], servie["carte"])
+    refus = pile_machine.post(url, {"consigne": "Garde la version de la branche de l'implémentation."})
+    assert refus.status_code == 400, refus.text
+    assert refus.json()["detail"]["code"] == "consigne_sans_objet"
+    assert "rejoue la même fusion" in refus.json()["detail"]["message"]
+    with noyau.base.connexion() as conn:
+        assert noyau.projets.demande_de_la_carte(conn, projet["tableau"], servie["carte"]) == avant
+    assert carte(noyau, projet["tableau"], servie["carte"]).status == "blocked"
+    reponse = pile_machine.post(url, {"consigne": None})
+    assert reponse.status_code == 200 and reponse.json() == {
+        "carte": servie["carte"], "relancee": True, "statut_apres": "ready", "session_neuve": False,
+        "branche_neuve": False}, reponse.text
+    file = pile_machine.get("/api/plugins/acp-poste/v1/questions").json()
+    assert servie["carte"] not in [b["carte"] for b in file["bloquees"]]  # repartie : elle a quitté la liste

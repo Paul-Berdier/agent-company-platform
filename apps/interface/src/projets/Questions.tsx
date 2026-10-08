@@ -459,18 +459,21 @@ function Revue(props: { revue: RevuePilotage; cible: boolean } & Gestes): Noeud 
   );
 }
 
-/** Message d'une relance, d'après la réponse de l'API seulement (cahier P7 § 3.4). */
-export function messageRelance(resultat: ResultatRelance | null | undefined): string {
+/** Message d'une relance, d'après la réponse de l'API (cahier P7 § 3.4) ; ``integration`` : la carte relancée est une
+ *  carte d'intégration, sans agent (relecture finale de P7) — elle rejoue la même fusion, jamais une « session neuve ». */
+export function messageRelance(resultat: ResultatRelance | null | undefined, integration = false): string {
   if (resultat?.relancee === true) {
     // Partie E (K25) : carte bloquée pour un secret, repartie sur une branche neuve sans le travail en quarantaine.
     if (resultat.branche_neuve === true) return T.projets.relanceeBrancheNeuve;
+    if (integration) return T.projets.relanceeFusion;
     return resultat.session_neuve === true ? T.projets.relanceeSessionNeuve : T.projets.relancee;
   }
   return T.projets.nonRelancee;
 }
 
 /** Une carte arrêtée (bloquée ou abandonnée) : « Relancer » avec une consigne facultative, ou la raison du refus. Le
- *  message de la relance est annoncé par la section : la carte quitte la liste dès le rechargement. */
+ *  message de la relance est annoncé par la section : la carte quitte la liste dès le rechargement. Une carte
+ *  d'intégration n'a pas d'agent : ni consigne, ni « session neuve » (la relance rejoue la même fusion). */
 function Arretee(props: { carte: CarteEnAttente; cible: boolean } & Gestes): Noeud {
   const { carte } = props;
   const tableau = chaine(carte.tableau);
@@ -478,14 +481,16 @@ function Arretee(props: { carte: CarteEnAttente; cible: boolean } & Gestes): Noe
   const [consigne, fixerConsigne] = useState("");
   const envoi = useEnvoi<ResultatRelance>();
   const champ = `acp-relance-${identifiant ?? "inconnue"}`;
+  const integration = carte.integration === true;
   const relancer = async (evenement: ReactTypes.FormEvent) => {
     evenement.preventDefault();
     if (!tableau || !identifiant) return;
     props.annoncer(null);
-    const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, consigne.trim() || null));
+    const envoyee = integration ? null : consigne.trim() || null;
+    const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, envoyee));
     if (resultat !== null) {
       fixerConsigne("");
-      const texte = messageRelance(resultat);
+      const texte = messageRelance(resultat, integration);
       props.annoncer({ texte, alerte: texte === T.projets.nonRelancee, statut: chaine(resultat.statut_apres) });
       props.traitee(`carte:${tableau}/${identifiant}`);
       props.apres();
@@ -518,20 +523,24 @@ function Arretee(props: { carte: CarteEnAttente; cible: boolean } & Gestes): Noe
         <form className="acp-formulaire" onSubmit={(e: ReactTypes.FormEvent) => void relancer(e)}>
           {carte.quarantaine === true ? (
             <p className="acp-alerte-texte">{T.projets.relanceQuarantaineAide}</p>
+          ) : integration ? (
+            <p className="acp-discret">{T.projets.relanceIntegrationAide}</p>
           ) : carte.executant === true ? (
             <p className="acp-discret">{T.projets.relanceExecutantAide}</p>
           ) : null}
-          <div className="acp-champ">
-            <label htmlFor={champ}>{T.projets.consigne}</label>
-            <textarea
-              id={champ}
-              data-acp-donnee=""
-              rows={3}
-              maxLength={4000}
-              value={consigne}
-              onChange={(e: Saisie) => fixerConsigne(e.target.value)}
-            />
-          </div>
+          {integration ? null : (
+            <div className="acp-champ">
+              <label htmlFor={champ}>{T.projets.consigne}</label>
+              <textarea
+                id={champ}
+                data-acp-donnee=""
+                rows={3}
+                maxLength={4000}
+                value={consigne}
+                onChange={(e: Saisie) => fixerConsigne(e.target.value)}
+              />
+            </div>
+          )}
           <div className="acp-actions">
             <Bouton type="submit" principal libelle={T.projets.relancerCarte} desactive={envoi.etat.etat === "envoi"} />
           </div>

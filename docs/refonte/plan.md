@@ -247,7 +247,7 @@ ce tableau.
 | D91 | Relecture quand la voie de l'autre exécutant est fermée | **Même voie, autre modèle** (classe « relecture »), décidé automatiquement par le routage de Hermes, et dit (mention) ; jamais le modèle de l'implémentation ; sinon refus `relecture_impossible` | Garder D27 tel quel | n° 88 du cahier ; **lève D27 dans ce cas seulement** ; réglage `relecture_repli_meme_voie` (vrai par défaut) : levé, D27 s'applique |
 | D92 | Rangement du jeton Claude et du jeton GitHub de lecture | **Fichiers 0600 root sur le volume**, déposés par `railway ssh` (`acp-poste connexion … --stdin`) | Variables scellées : présentes dans l'environnement du PID 1 | n° 89 du cahier ; cahier § 11 |
 
-### Étape P7 : décisions D93 à D116, **appliquées**
+### Étape P7 : décisions D93 à D117, **appliquées**
 
 État livré (8 octobre 2026, côté dépôt, rien de déployé) : [questions.md](questions.md) (file Questions, notifications,
 continuité téléphone ↔ bureau), [executant.md](executant.md) § 16 (garde « dépôt privé » mesurée, relance après un
@@ -266,7 +266,9 @@ documentation de la décision.
 
 **Numérotation.** Le cahier P7 numérote ses décisions P7-1 à P7-13 ; la partie E en a ajouté dix (P7-E-1 à P7-E-10)
 et la partie F une (P7-F-1), au journal de P7. Elles prennent la suite de D92, sans trou : P7-n → **D(92 + n)** (D93 à
-D105), P7-E-n → **D(105 + n)** (D106 à D115), P7-F-1 → **D116**. P8 n'a pris aucun numéro Dnn (ses décisions,
+D105), P7-E-n → **D(105 + n)** (D106 à D115), P7-F-1 → **D116** ; la relecture finale du 8 octobre 2026 (constats
+corrigés sur `refonte/hermes-p7`, journal des corrections de P7) numérote les siennes P7-R-n → **D(116 + n)**, à la
+suite. P8 n'a pris aucun numéro Dnn (ses décisions,
 numérotées à part, sont dans [desktop.md](desktop.md)). La documentation écrite avant cette numérotation cite
 « P7-n » : la colonne « Remarque » donne la correspondance.
 
@@ -296,6 +298,7 @@ numérotées à part, sont dans [desktop.md](desktop.md)). La documentation écr
 | D114 | Garde de la relance après un secret | Admise seulement si le dernier inventaire de l'exécutant actif porte la visibilité mesurée de ses dépôts (seul un exécutant de la partie E la publie) ; sinon 409 `carte_secret`, en échec fermé | Un champ de capacité de plus dans le contrat (refusé par `extra="forbid"` : nouvelle fenêtre d'inventaires refusés) ; aucune garde : un exécutant de P6, servi pendant la fenêtre de déploiement, reprendrait le worktree en quarantaine | P7-E-9 du journal ; relecture indépendante de la partie E ; code : `e85c7e3` |
 | D115 | Clone nu d'un dépôt | Lié à l'URL de la politique : un alias réaffecté à une autre URL fait refuser la récupération (carte bloquée) ; le propriétaire retire l'ancien clone après en avoir récupéré les branches | `remote set-url` automatique : mêlerait les branches de deux dépôts dans un même clone | P7-E-10 du journal ; relecture indépendante de la partie E ; code : `3b1cac9` |
 | D116 | Variables du canal dans l'IaC | Les **six** variables du canal (`ACP_NOTIFICATIONS`, `ACP_TELEGRAM_JETON`, `ACP_TELEGRAM_DISCUSSION`, `ACP_NTFY_SERVEUR`, `ACP_NTFY_SUJET`, `ACP_NTFY_JETON`) déclarées par `preserve()` dans le service `hermes`, Telegram **et** ntfy, avant le choix du propriétaire ; jamais un littéral (le vérificateur refuse tout littéral pour un nom de secret, et s'éprouve sur des copies altérées). Raison : le propriétaire choisit son canal et pose ses valeurs sans autre PR ; un littéral imposerait un canal et ferait refuser le démarrage avant la pose du jeton | Attendre son choix pour déclarer le seul canal retenu (cahier § 14) : une PR de plus, et d'ici là aucune variable posable sans qu'un plan la supprime | P7-F-1 du journal ; correction K13 ; repose sur une hypothèse **non vérifiée** : `preserve()` sur une variable jamais posée ne crée rien et n'est pas refusé par le plan. Plus exposée que pour l'identité : celle-ci n'est absente que jusqu'à sa pose (§ 5.2 de [railway.md](railway.md)), alors que les variables du canal non choisi restent absentes **pour toujours** (les six si aucun canal n'est choisi) ; si le plan refusait ce `preserve()`, tout plan du projet serait bloqué jusqu'à la PR de repli de [railway.md](railway.md) § 14.1 (retrait des `preserve()` des variables qui resteront absentes) |
+| D117 | Relancer une carte d'intégration | La carte d'intégration n'a **pas d'agent** : l'exécutant rejoue la même fusion déterministe et ne lit aucune consigne. Une consigne y est refusée (400 `consigne_sans_objet`, rien n'est écrit) ; la file le dit (`integration` : ni champ de consigne ni « session neuve ») ; la réponse rend `session_neuve: false` ; la raison d'un conflit dit ce que le propriétaire peut réellement faire (relancer, récupérer les branches par `git bundle` pour trancher, ou clôturer). Raison : une consigne acceptée puis jamais lue est un faux succès, et la relance consomme l'unique récurrence avant le triage | Recomposer la consigne comme pour une carte d'agent (comportement de P7 avant la relecture) : la consigne est jetée en silence, la même fusion rejoue le même conflit, et la page annonce un agent qui n'existe pas ; donner un agent à l'intégration : hors du périmètre de P7 (une résolution de conflit par agent demande sa propre relecture) | P7-R-1 de la relecture finale ; constat scenario-2 ; code : greffon (`questions.relancer_carte`, `lister`), page (`Arretee`), exécutant (raison du conflit) |
 
 ### Phases P4 à P8 remplacées par le plan d'autonomie
 

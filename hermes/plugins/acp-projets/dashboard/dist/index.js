@@ -366,6 +366,8 @@
       bloqueesIntro: "\xAB\xA0Relancer\xA0\xBB remet la carte en route, avec votre consigne si vous en donnez une. Une carte qui rebloque pour la m\xEAme raison revient en d\xE9cision.",
       relancerCarte: "Relancer",
       relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
+      relanceIntegrationAide: "Carte d'int\xE9gration, sans agent\xA0: \xAB\xA0Relancer\xA0\xBB rejoue la m\xEAme fusion des branches, sans consigne. Un conflit revient tant qu'aucune branche ne change\xA0: r\xE9cup\xE9rez les branches sur l'ex\xE9cutant (git bundle) pour trancher, ou cl\xF4turez le projet.",
+      relanceeFusion: "La carte repart\xA0: l'ex\xE9cutant rejoue la m\xEAme fusion.",
       relancee: "La carte repart.",
       // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
       relanceQuarantaineAide: "Bloqu\xE9e pour un secret d\xE9tect\xE9. Le travail fautif reste en quarantaine sur l'ex\xE9cutant, jamais int\xE9gr\xE9 ni pouss\xE9. La relance repart du d\xE9part de la carte, sur une branche neuve et en session neuve.",
@@ -2837,9 +2839,10 @@
       }
     )), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { principal: true, libelle: T.projets.accepterRevue, surClic: () => void accepter(), desactive: occupe }), /* @__PURE__ */ h(Bouton, { type: "submit", danger: true, libelle: T.projets.refuserRevue, desactive: occupe || !motif.trim() })), /* @__PURE__ */ h(RetourEnvoi, { etat: acceptation.etat }), /* @__PURE__ */ h(RetourEnvoi, { etat: refus.etat })) : null);
   }
-  function messageRelance(resultat) {
+  function messageRelance(resultat, integration = false) {
     if (resultat?.relancee === true) {
       if (resultat.branche_neuve === true) return T.projets.relanceeBrancheNeuve;
+      if (integration) return T.projets.relanceeFusion;
       return resultat.session_neuve === true ? T.projets.relanceeSessionNeuve : T.projets.relancee;
     }
     return T.projets.nonRelancee;
@@ -2851,20 +2854,22 @@
     const [consigne, fixerConsigne] = useState("");
     const envoi = useEnvoi();
     const champ = `acp-relance-${identifiant ?? "inconnue"}`;
+    const integration = carte.integration === true;
     const relancer = async (evenement) => {
       evenement.preventDefault();
       if (!tableau || !identifiant) return;
       props.annoncer(null);
-      const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, consigne.trim() || null));
+      const envoyee = integration ? null : consigne.trim() || null;
+      const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, envoyee));
       if (resultat !== null) {
         fixerConsigne("");
-        const texte = messageRelance(resultat);
+        const texte = messageRelance(resultat, integration);
         props.annoncer({ texte, alerte: texte === T.projets.nonRelancee, statut: chaine2(resultat.statut_apres) });
         props.traitee(`carte:${tableau}/${identifiant}`);
         props.apres();
       }
     };
-    return /* @__PURE__ */ h(Entree, { cible: props.cible }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, carte.abandonnee === true ? /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.abandonnee, famille: "echec" } }) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.statuts.blocked, famille: "echec" } })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: carte.projet, titre: carte.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.assigne }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.assigne), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.raison }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.raison) }))), carte.relancable === true && tableau && identifiant ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void relancer(e) }, carte.quarantaine === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relanceQuarantaineAide) : carte.executant === true ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceExecutantAide) : null, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.consigne), /* @__PURE__ */ h(
+    return /* @__PURE__ */ h(Entree, { cible: props.cible }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, carte.abandonnee === true ? /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.abandonnee, famille: "echec" } }) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.statuts.blocked, famille: "echec" } })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: carte.projet, titre: carte.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.assigne }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.assigne), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.raison }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.raison) }))), carte.relancable === true && tableau && identifiant ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void relancer(e) }, carte.quarantaine === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relanceQuarantaineAide) : integration ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceIntegrationAide) : carte.executant === true ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceExecutantAide) : null, integration ? null : /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.consigne), /* @__PURE__ */ h(
       "textarea",
       {
         id: champ,

@@ -265,6 +265,12 @@ def _bloquee_pour_secret(demande: Optional[Dict[str, Any]], evenements: List[Any
     return False
 
 
+def _sans_agent(demande: Optional[Dict[str, Any]]) -> bool:
+    """Carte d'intégration (relecture finale de P7, constat scenario-2) : aucun agent ; l'exécutant rejoue la même
+    fusion déterministe des branches (``Execution._integrer``) sans jamais lire de consigne ni de session."""
+    return bool(demande) and demande.get("role") == "integration"
+
+
 def quarantaine_ecartee_par_l_executant(conn) -> bool:
     """Partie E (K25) : l'exécutant actif fait-il repartir une carte relancée SANS le travail en quarantaine ? Prouvé
     par ce qu'il publie : seul un exécutant de la partie E publie la visibilité MESURÉE de ses dépôts (même commit que la
@@ -352,7 +358,7 @@ def lister(conn) -> Dict[str, Any]:
                             refus_ = refus_de_relance(p, demande, tache, evenements, quarantaine_ecartee=ecartee)
                             executant = bool(demande) and demande["voie"] != "hermes"
                             entree.update(relancable=refus_ is None, refus_relance=refus_[2] if refus_ else None,
-                                          executant=executant,
+                                          executant=executant, integration=_sans_agent(demande),
                                           quarantaine=executant and _bloquee_pour_secret(demande, evenements))
                         cible.append(entree)
         except Exception:  # noqa: BLE001 — tableau illisible : dit, jamais inventé
@@ -422,7 +428,9 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
     K25). Contrôles dans l'ordre : projet ACP connu, carte émise par le greffon, projet ACTIF, carte arrêtée (une carte
     en revue se traite par Accepter ou Refuser). Une carte bloquée pour un secret se relance depuis la partie E : son
     travail reste en quarantaine sur l'exécutant, qui la fait repartir d'une branche NEUVE (``branche_neuve`` dans la
-    réponse). Aucune carte n'est créée : le plafond de cartes du projet n'est pas touché.
+    réponse). Aucune carte n'est créée : le plafond de cartes du projet n'est pas touché. Une carte d'INTÉGRATION n'a
+    pas d'agent (relecture finale de P7) : une consigne y est refusée (``consigne_sans_objet``), et sa relance rejoue la
+    même fusion, sans « session neuve ».
 
     Effet : carte Hermes → la consigne éventuelle en commentaire (le worker la lit par ``build_worker_context``) ;
     carte de l'exécutant → ``issue = 'relancee'`` (hors ``ISSUES_REPRISE`` : l'exécutant repart d'une SESSION NEUVE,
@@ -452,6 +460,9 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
                                   quarantaine_ecartee=quarantaine_ecartee_par_l_executant(conn))
         if refus_ is not None:
             raise refus(refus_[0], refus_[1])
+        integration = _sans_agent(demande)
+        if integration and consigne is not None:
+            raise refus("consigne_sans_objet", T.CONSIGNE_SANS_OBJET_INTEGRATION.format(carte=carte))
         executant = demande["voie"] != "hermes"
         quarantaine = executant and _bloquee_pour_secret(demande, evenements)
         maintenant = base.maintenant()
@@ -483,7 +494,7 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
                                      "quarantaine": quarantaine, "relancee": relancee,
                                      "statut_apres": statut_apres})
     return {"carte": carte, "relancee": relancee, "statut_apres": statut_apres,
-            "session_neuve": relancee and executant, "branche_neuve": relancee and quarantaine}
+            "session_neuve": relancee and executant and not integration, "branche_neuve": relancee and quarantaine}
 
 
 def _ecrire_demande(conn, cle: str, colonnes: Dict[str, Any]) -> None:

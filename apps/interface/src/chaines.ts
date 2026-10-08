@@ -369,6 +369,8 @@ export const T = {
     bloqueesIntro: "« Relancer » remet la carte en route, avec votre consigne si vous en donnez une. Une carte qui rebloque pour la même raison revient en décision.",
     relancerCarte: "Relancer",
     relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche déjà commencée.",
+    relanceIntegrationAide: "Carte d'intégration, sans agent : « Relancer » rejoue la même fusion des branches, sans consigne. Un conflit revient tant qu'aucune branche ne change : récupérez les branches sur l'exécutant (git bundle) pour trancher, ou clôturez le projet.",
+    relanceeFusion: "La carte repart : l'exécutant rejoue la même fusion.",
     relancee: "La carte repart.",
     // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
     relanceQuarantaineAide: "Bloquée pour un secret détecté. Le travail fautif reste en quarantaine sur l'exécutant, jamais intégré ni poussé. La relance repart du départ de la carte, sur une branche neuve et en session neuve.",

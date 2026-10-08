@@ -98,12 +98,14 @@ def test_les_decisions_de_p6_sont_appliquees():
             assert cellules[4].startswith(f"n° {numero - 3} du cahier"), ligne[:60]
 
 
-ORIGINE_P7 = re.compile(r"^P7-(?:(\d+) du cahier|E-(\d+) du journal|F-(\d+) du journal)\b")
+ORIGINE_P7 = re.compile(r"^P7-(?:(\d+) du cahier|E-(\d+) du journal|F-(\d+) du journal|"
+                        r"R-(\d+) de la relecture finale)\b")
 
 
 def test_les_decisions_de_p7_sont_appliquees():
     """Étape P7 : décisions du cahier (P7-1 à P7-13), puis celles prises en cours de route et consignées au journal de
-    P7 (partie E : P7-E-n ; partie F : P7-F-n), numérotées À LA SUITE de D92, sans trou, dans cet ordre ; APPLIQUÉES
+    P7 (partie E : P7-E-n ; partie F : P7-F-n), puis celles de la relecture finale (P7-R-n, journal des corrections),
+    numérotées À LA SUITE de D92, sans trou, dans cet ordre ; APPLIQUÉES
     (le propriétaire fournit les comptes, Hermes gère), jamais « à confirmer » ; pour chacune l'autre option et sa
     conséquence, et son origine (numéro du cahier ou du journal) en tête de la remarque."""
     plan = (RACINE / "docs" / "refonte" / "plan.md").read_text(encoding="utf-8")
@@ -122,9 +124,11 @@ def test_les_decisions_de_p7_sont_appliquees():
             assert len(cellules) == 5 and cellules[2] and cellules[3] not in ("", "—"), ligne[:60]
             trouve = ORIGINE_P7.match(cellules[4])
             assert trouve, ligne[:60]
-            origines.append(next((genre, int(n)) for genre, n in zip("CEF", trouve.groups()) if n))
-    # Le cahier d'abord (P7-1 à P7-13, dans l'ordre), puis la partie E (P7-E-1…), puis la partie F (P7-F-1…).
+            origines.append(next((genre, int(n)) for genre, n in zip("CEFR", trouve.groups()) if n))
+    # Le cahier d'abord (P7-1 à P7-13, dans l'ordre), puis la partie E (P7-E-1…), la partie F (P7-F-1…), puis la
+    # relecture finale (P7-R-1…).
     attendu = [("C", n) for n in range(1, 14)]
     attendu += [("E", n) for n in range(1, sum(1 for g, _ in origines if g == "E") + 1)]
     attendu += [("F", n) for n in range(1, sum(1 for g, _ in origines if g == "F") + 1)]
+    attendu += [("R", n) for n in range(1, sum(1 for g, _ in origines if g == "R") + 1)]
     assert origines == attendu

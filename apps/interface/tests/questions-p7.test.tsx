@@ -312,6 +312,37 @@ describe("cartes arrêtées : Relancer", () => {
     r.demonter();
   });
 
+  it("une carte d'intégration (sans agent) se relance sans consigne ; aucune session neuve promise", async () => {
+    // Relecture finale de P7 (constat scenario-2) : l'exécutant rejoue la même fusion sans lire de consigne.
+    aller("?vue=questions");
+    const integration = {
+      ...ARRETEE_RELANCABLE, carte: "t_1a2b3c4d", titre: "Intégration des branches du projet", assigne: "poste-integration",
+      abandonnee: false, raison: "Conflit d'intégration : README.md : aucune résolution automatique.", integration: true,
+      quarantaine: false,
+    };
+    const route = routeRelancerCarte("acp-outil-3dd5", "t_1a2b3c4d");
+    const reponses: Record<string, Reponse> = {
+      [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: { ...QUESTIONS, bloquees: [integration] },
+      [`POST ${route}`]: { carte: "t_1a2b3c4d", relancee: true, statut_apres: "ready", session_neuve: false,
+                           branche_neuve: false },
+    };
+    const installation = installerSdk(reponses);
+    const r = await rendre(<Projets />);
+    await attendre();
+    const section = () => texteDe(r.racine.querySelector("#acp-questions-bloquees")?.parentElement);
+    expect(section()).toContain(
+      "Carte d'intégration, sans agent : « Relancer » rejoue la même fusion des branches, sans consigne.");
+    expect(section()).not.toContain("session neuve");
+    expect(r.racine.querySelector("#acp-relance-t_1a2b3c4d")).toBeNull();
+    reponses[ROUTE_QUESTIONS] = { ...QUESTIONS, bloquees: [] };
+    await cliquer(boutons(r.racine).get("Relancer"));
+    expect(ecritures(installation)).toEqual([["POST", route, { consigne: null }]]);
+    expect(section()).toContain("La carte repart : l'exécutant rejoue la même fusion.");
+    expect(section()).not.toContain("session neuve");
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    r.demonter();
+  });
+
   it("sans consigne : null ; une relance refusée par Hermes le dit ; un refus de l'API est rendu tel quel", async () => {
     aller("?vue=questions");
     const route = routeRelancerCarte("acp-outil-3dd5", "t_5e6f7a8b");

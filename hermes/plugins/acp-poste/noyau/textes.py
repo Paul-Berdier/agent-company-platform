@@ -458,6 +458,12 @@ CARTE_SECRET = ("la carte {carte} a été bloquée pour un secret : sa relance a
                 "(« Relever maintenant » sur la page Poste).")
 RELANCE_PROJET_EN_PAUSE = "le projet « {titre} » est en pause : reprenez d'abord le projet."
 CONSIGNE_RELANCE = "la consigne de relance doit compter de 1 à 4000 caractères."
+# Relecture finale de P7 (constat scenario-2) : la carte d'intégration n'a pas d'agent ; l'exécutant rejoue la même
+# fusion déterministe (apps/poste, Execution._integrer) et ne lit aucune consigne.
+CONSIGNE_SANS_OBJET_INTEGRATION = ("la carte d'intégration {carte} n'a pas d'agent : aucune consigne n'y serait lue. "
+                                   "« Relancer » rejoue la même fusion des branches ; un conflit revient tant "
+                                   "qu'aucune branche ne change. Relancez sans consigne, ou clôturez le projet : les "
+                                   "branches restent sur l'exécutant, récupérables par git bundle.")
 # Section ajoutée EN TÊTE de la consigne d'une carte de l'exécutant (la réduction à 60 Kio coupe la fin : K4).
 SECTION_RELANCE = "## Consigne du propriétaire (relance du {date})\n{consigne}\n\n## Consigne initiale\n"
 MENTION_TRONQUE_RELANCE = ("\n\n[… consigne initiale tronquée par ACP pour tenir, avec la relance, dans les {n} caractères "
