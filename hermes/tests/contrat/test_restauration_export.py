@@ -22,7 +22,8 @@ docs Railway). Banc partagé (banc.py) : Hermes de test et vrai exécutant en ci
    la garde prescrit elle-même (supprimer le fichier, root le redépose) est appliqué en maintenance, puis le démarrage
    est mesuré à nouveau ;
 6. couche 2 : empreintes logiques des bases de l'archive et du volume importé égales ; couche 3 : lectures égales à la
-   référence ;
+   référence, dont les cartes des projets RELUES PAR L'API (``GET /v1/projets/{id}`` : chaque carte, son rôle et sa
+   voie ; rôle, voie et statut de la carte d'exploration) ;
 7. l'exécutant, dont le volume n'a pas bougé, continue avec ce Hermes (jeton machine de la base importée) : projet E
    → terminé.
 """
@@ -97,6 +98,7 @@ class Export:
         self.question_b: Dict[str, Any] = {}
         self.inventaire: Dict[str, Any] = {}
         self.geste_au_demarrage: List[str] = []
+        self.statuts_export: Dict[str, Dict[str, Any]] = {}
 
     def requete(self, methode: str, chemin: str, corps=None):
         b = self.banc
@@ -110,6 +112,33 @@ class Export:
             return code, json.loads(contenu)
         except ValueError:
             return code, contenu
+
+    def cartes_lues(self) -> Dict[str, Any]:
+        """Cartes des projets A et B RELUES PAR L'API (``GET /v1/projets/{id}``) : identifiant, rôle et voie de
+        chaque carte du projet (aucune perdue, aucune en trop), et statut de la carte d'exploration du poste. Le statut
+        des cartes de Hermes lui-même (modèle factice) est seulement imprimé : son répartiteur reprend au démarrage une
+        carte qu'un processus disparu tenait."""
+        lues: Dict[str, Any] = {}
+        for lettre in "AB":
+            code, detail = self.banc.api("GET", f"/v1/projets/{self.projets[lettre]['id']}")
+            cartes = (((detail or {}).get("projet") or {}).get("cartes") or []) if code == 200 else []
+            lues[lettre] = {
+                "code": code,
+                "cartes": sorted([str(c.get("carte")), str(c.get("role")), str(c.get("voie"))]
+                                 for c in cartes if c.get("carte")),
+                "exploration": next(({k: c.get(k) for k in ("role", "voie", "statut")} for c in cartes
+                                     if c.get("carte") == self.cartes[lettre]), "absente")}
+        return lues
+
+    def statuts_des_cartes(self) -> Dict[str, Dict[str, Any]]:
+        """Statut de chaque carte des projets A et B (API), pour l'impression seulement."""
+        statuts: Dict[str, Dict[str, Any]] = {}
+        for lettre in "AB":
+            code, detail = self.banc.api("GET", f"/v1/projets/{self.projets[lettre]['id']}")
+            statuts[lettre] = {str(c.get("carte")): c.get("statut") for c in
+                               (((detail or {}).get("projet") or {}).get("cartes") or [])} if code == 200 else {
+                "code": code}
+        return statuts
 
     def releve_reference(self) -> Dict[str, Any]:
         b = self.banc
@@ -125,6 +154,7 @@ class Export:
                       if s["id"] == self.session_discussion] if code_s == 200 else f"code {code_s}"
         return {
             "projets": {p["id"]: p["titre"] for p in projets["projets"]},
+            "cartes": self.cartes_lues(),
             "pause_generale": projets.get("pause_generale"),
             "questions_ouvertes": sorted((q["id"], q["carte"], q["texte"]) for q in questions["questions"]),
             "machine": {k: machine.get(k) for k in ("id", "etat", "empreinte")},
@@ -206,6 +236,7 @@ def test_r4_peuplement_pause_et_export_comme_le_desktop(export):
     etat = attendre(fini, 600, "la sauvegarde de Hermes ne se termine pas", pas=2.0)
     assert etat.get("exit_code") == 0, etat
     e.reference = e.releve_reference()
+    e.statuts_export = e.statuts_des_cartes()
     telecharge = b.hermes.executer(["curl", "-s", "-o", "/tmp/acp-export.zip", "-w", "%{http_code}",
                                     "http://127.0.0.1:9119/api/ops/backup/download?archive=" +
                                     urllib.parse.quote(chemin, safe=""),
@@ -222,9 +253,15 @@ def test_r4_peuplement_pause_et_export_comme_le_desktop(export):
                  "duree_s": round(time.monotonic() - debut, 1), "archive_restee_sur_le_volume": reste == 0}
     afficher("R4 — export comme la station Qt", _json({
         "archive": e.archive, "journal_de_la_sauvegarde": (etat.get("lines") or [])[-12:],
-        "reference": e.reference, "volume": resume_manifeste(e.manifeste_avant)}))
+        "reference": e.reference, "statuts_des_cartes": e.statuts_export,
+        "volume": resume_manifeste(e.manifeste_avant)}))
     assert reste != 0, "l'archive en clair est restée sur le volume de Hermes"
     assert e.reference["session_discussion"] and e.reference["taches_cron"] == [e.tache_bilan]
+    # Relecture des cartes non vide : chaque projet lu (200), sa carte d'exploration présente, celle de A terminée.
+    cartes = e.reference["cartes"]
+    assert {x: cartes[x]["code"] for x in "AB"} == {"A": 200, "B": 200}, cartes
+    assert cartes["A"]["exploration"] == {"role": "exploration", "voie": "poste-claude", "statut": "done"}, cartes
+    assert cartes["B"]["exploration"] != "absente", cartes
 
 
 def test_r4_inventaire_de_l_archive(export):
@@ -357,7 +394,10 @@ def test_r4_demarrage_normal_couche_3_et_reprise(export):
     assert "[acp] REFUS" not in journal
     lu = e.releve_reference()
     ecarts = {k: {"export": e.reference[k], "importé": lu[k]} for k in e.reference if lu[k] != e.reference[k]}
-    afficher("R4 — couche 3 : lectures après import face à la référence de l'export", _json(ecarts or "aucun écart"))
+    afficher("R4 — couche 3 : lectures après import face à la référence de l'export", _json({
+        "ecarts": ecarts or "aucun écart", "cartes_relues": lu["cartes"],
+        # Statut de CHAQUE carte, relevé et imprimé, non comparé : seules les cartes d'exploration le sont (ci-dessus).
+        "statuts_des_cartes": {"export": e.statuts_export, "importé": e.statuts_des_cartes()}}))
     assert ecarts == {}, ecarts
     # Pause levée ; l'exécutant (volume inchangé) continue avec ce Hermes : jeton machine de la base importée.
     code, reprise = b.api("POST", "/v1/pause", {"generale": False})
