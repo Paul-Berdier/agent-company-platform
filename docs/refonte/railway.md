@@ -839,8 +839,9 @@ conseille de retirer `--init`) :
 ### g) Hermes depuis son propre export (étape P9)
 
 Volume de Hermes effacé avec ses sauvegardes : réimport de l'export chiffré de la station Qt dans un volume vide.
-Forme du geste à mesurer par le test de restauration local de P9 avant tout usage ; déroulé prévu et messages de
-Hermes à ignorer : [exploitation.md](../exploitation.md) § 4.5.
+Forme du geste mesurée par le test de restauration de P9 (R4 : racine du volume rendue à l'utilisateur de Hermes avant
+l'import, sortie contrôlée, script du bilan importé supprimé) ; déroulé et messages de Hermes à ignorer :
+[exploitation.md](../exploitation.md) § 4.5.
 
 ---
 
@@ -1162,8 +1163,8 @@ Hermes fait foi : l'exécutant rejoue sa file de sortie (les `reclamation_perdue
 les worktrees des cartes qu'il ne détient plus et **garde les branches**. Lancez `acp-poste diagnostic` : si la
 connexion Codex est périmée (jeton déjà tourné), refaites `acp-poste connexion codex`. Les sauvegardes contiennent
 `auth.json`, le jeton machine, les jetons Claude et GitHub et le code des dépôts : la frontière reste le compte
-Railway (§ 11). Exécutant restauré à un instant différent de Hermes (règle d'ordre provisoire, en attente de la
-mesure de P9) : [exploitation.md](../exploitation.md) § 4.3.
+Railway (§ 11). Exécutant restauré à un instant différent de Hermes (règle d'ordre mesurée par le test de
+restauration de P9 : exécutant antérieur ou égal à Hermes) : [exploitation.md](../exploitation.md) § 4.3.
 
 ---
 
