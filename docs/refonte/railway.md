@@ -657,6 +657,17 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
   **Hobby**, l'image d'un déploiement retiré n'est gardée que **72 heures** (rw_full.txt:4938) ;
   au-delà, plus de Rollback : « Redeploy » reconstruit depuis la source avec les **variables
   d'origine** de ce déploiement (rw_full.txt:4944-4946), mêmes réserves.
+  Troisième avertissement (relecture finale de P7, D121) : depuis P7, **chaque démarrage** de `hermes` dépose
+  `/opt/data/scripts/acp-bilan.py` sur le volume, même si le bilan n'a jamais été créé. Une image **antérieure à P7**
+  refuse alors de démarrer (« /opt/data/scripts n'est pas vide (« acp-bilan.py ») », code 1, échec fermé : rien
+  n'est perdu). Avant un Rollback ou un « Redeploy » de `hermes` vers un déploiement d'avant P7 : supprimez d'abord
+  la tâche du bilan si elle existe (page Cron, P7 encore en service), puis passez en maintenance (§ 10 b, points 1 à
+  4), retirez `/opt/data/scripts/acp-bilan.py`, et seulement alors faites le Rollback, au lieu du « Retour » du
+  point 6 (qui redéploierait P7 et redéposerait le fichier) ; Start Command effacée et chemin de santé rétabli comme
+  au point 6, puis vérifiez au journal que l'image démarrée est bien celle visée (que le Rollback garde ou non ces
+  réglages du service n'est pas documenté : supposé gardés). Même conduite entre deux versions de P7 si le script a
+  changé entre elles : `EMPREINTES_BILAN_ADMISES` (`hermes/image/acp_demarrage.py`) ne connaît que les empreintes
+  livrées jusqu'à l'image démarrée (montée de version seulement).
 - Chaque déploiement : preuve du § 7 point 2.
 
 **Sauvegardes.** Quotidienne (6 jours) et hebdomadaire (27 jours), plus une manuelle avant toute
@@ -742,7 +753,9 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml` (dont, depuis P3, tout serveur
    MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8), `lazy-packages` (code 1 si
    un constat existe). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
-5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Un serveur MCP
+5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Exception : `acp-bilan.py` dans
+   `/opt/data/scripts/` est déposé par l'image depuis P7 et admis par son empreinte ; ne le retirez que pour revenir
+   à une image antérieure à P7 (§ 9, Rollback) — sinon le démarrage suivant le redépose. Un serveur MCP
    ajouté depuis la page MCP native (« INSTALL », « ADD SERVER ») se retire en supprimant son
    entrée `mcp_servers.<nom>` de `/opt/data/config.yaml` (jamais l'entrée `context7`, rétablie de
    toute façon au démarrage) ; tant que le service tourne encore, la suppression depuis la page MCP
@@ -1244,7 +1257,8 @@ Un clic, une fois, si vous le voulez : Accueil → carte « Bilan quotidien » �
 page Cron de Hermes, script `acp-bilan.py`, sans agent). Aucun modèle, aucun jeton ; 8 h heure de Paris ; une
 notification par jour, compteurs seulement, même quand rien n'a bougé. Pause ou suppression : page Cron. Sans canal
 configuré, la carte dit « Le bilan ne partira pas ». Preuve sur Railway seulement : bilan reçu à 8 h (cahier P7 § 13.6,
-n° 6).
+n° 6). Le script est déposé à **chaque** démarrage de P7, même sans tâche (Hermes exige le script à la création de la
+tâche, D121) : avant tout retour à une image antérieure à P7, voir § 9 (Rollback, troisième avertissement).
 
 ### 14.6 Dépôts réels, un par un
 
