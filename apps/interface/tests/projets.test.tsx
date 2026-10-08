@@ -101,7 +101,7 @@ describe("Projets : liste", () => {
       "Canal",
       "Aucun",
       "Non configurées",
-      "Notifications non configurées : leur activation passe par une PR qui déclare les variables ACP_NOTIFICATIONS… dans l'IaC Railway (docs/refonte/railway.md, § 9).",
+      "Notifications non configurées : les variables du canal sont déjà déclarées dans l'IaC Railway ; posez dans Railway celles de Telegram ou de ntfy, ACP_NOTIFICATIONS comprise, puis plan, apply et redéploiement (docs/refonte/railway.md, § 14).",
     ]) {
       expect(texte).toContain(attendu);
     }
@@ -342,7 +342,7 @@ describe("Projets : détail", () => {
       "0 sur 3",
       "2 sur 30",
       "jetable",
-      "Moi",
+      "Qui répondVous",  // relecture finale de P7 (produit-9) : le réglage se lit « Vous »
       "Non configuré",
       "la page Projets",
       "Planification",

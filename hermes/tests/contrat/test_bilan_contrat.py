@@ -188,6 +188,10 @@ def test_diagnostiquer_admet_la_seule_tache_du_bilan(pile):
     afficher(f"diagnostiquer avec la tâche du bilan : code {resultat.returncode}", resultat.stdout + resultat.stderr)
     constats = [l for l in resultat.stdout.splitlines() if l.startswith("[acp] DIAGNOSTIC : ")]
     assert not any("tâche cron" in l or "/scripts n'est pas vide" in l or "acp-bilan" in l for l in constats), constats
+    # Relecture finale de P7 (constat tests-5) : un diagnostic qui échouerait AVANT d'avoir lu les tâches (exception,
+    # refus de _exiger_root, interpréteur absent) n'écrirait aucune ligne DIAGNOSTIC et passait ce test à vide.
+    assert resultat.returncode == 0, resultat.stdout + resultat.stderr
+    assert "[acp] diagnostic : aucun constat ; code 0." in resultat.stdout.splitlines(), resultat.stdout
 
 
 def test_second_demarrage_sur_le_meme_volume(pile, ressources, image_tests):

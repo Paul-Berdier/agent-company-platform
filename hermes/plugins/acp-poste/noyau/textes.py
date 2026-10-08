@@ -360,6 +360,11 @@ BADGES = {
 
 # ------------------------------------------------------------------ quotas (cahier P5 § 12.5)
 QUOTAS_SOURCE_CLAUDE = "Ligne d'état de vos sessions Claude Code sur ce PC (même abonnement déclaré)"
+# Relecture finale de P7 (constat produit-8) : la source dite d'après l'HÔTE du relevé ; jamais « sur ce PC » pour
+# l'exécutant Railway, jamais un code seul (« codex_app_server ») à l'écran.
+QUOTAS_SOURCE_CLAUDE_EXECUTANT = ("Dernier événement de limite des cartes Claude de l'exécutant Railway (inconnu tant "
+                                  "qu'aucune carte Claude n'y a tourné)")
+QUOTAS_SOURCE_CODEX = "Compteurs de votre compte ChatGPT, lus par Codex (app-server) sur la machine qui exécute"
 QUOTAS_HERMES_MEME_ENVELOPPE = "Même enveloppe que Codex (déclaré dans poste.toml)"
 
 # ------------------------------------------------------------------ exécution par l'exécutant (étape P6, cahier P6 § 5)
@@ -453,11 +458,17 @@ CARTE_NON_ACP = "la carte {carte} du tableau « {t} » n'a pas été émise par 
 CARTE_NON_ARRETEE = ("la carte {carte} n'est pas arrêtée (statut : {statut}) : seule une carte bloquée ou abandonnée se "
                      "relance.")
 CARTE_EN_REVUE = "la carte {carte} est en revue : acceptez-la ou refusez-la depuis la section Revues."
-CARTE_SECRET = ("la carte {carte} a été bloquée pour un secret détecté dans la production de l'exécutant : sa relance "
-                "reste refusée tant que la mise à l'écart du travail fautif n'est pas vérifiée sur l'exécutant (étape "
-                "P7, partie E) ; récupérez la branche pour l'examiner.")
+CARTE_SECRET = ("la carte {carte} a été bloquée pour un secret : sa relance attend un exécutant à jour (étape P7, "
+                "partie E), qui la fait repartir sans le travail en quarantaine ; son dernier inventaire ne le dit pas "
+                "(« Relever maintenant » sur la page Poste).")
 RELANCE_PROJET_EN_PAUSE = "le projet « {titre} » est en pause : reprenez d'abord le projet."
 CONSIGNE_RELANCE = "la consigne de relance doit compter de 1 à 4000 caractères."
+# Relecture finale de P7 (constat scenario-2) : la carte d'intégration n'a pas d'agent ; l'exécutant rejoue la même
+# fusion déterministe (apps/poste, Execution._integrer) et ne lit aucune consigne.
+CONSIGNE_SANS_OBJET_INTEGRATION = ("la carte d'intégration {carte} n'a pas d'agent : aucune consigne n'y serait lue. "
+                                   "« Relancer » rejoue la même fusion des branches ; un conflit revient tant "
+                                   "qu'aucune branche ne change. Relancez sans consigne, ou clôturez le projet : les "
+                                   "branches restent sur l'exécutant, récupérables par git bundle.")
 # Section ajoutée EN TÊTE de la consigne d'une carte de l'exécutant (la réduction à 60 Kio coupe la fin : K4).
 SECTION_RELANCE = "## Consigne du propriétaire (relance du {date})\n{consigne}\n\n## Consigne initiale\n"
 MENTION_TRONQUE_RELANCE = ("\n\n[… consigne initiale tronquée par ACP pour tenir, avec la relance, dans les {n} caractères "
@@ -467,9 +478,16 @@ COMMENTAIRE_RELANCE = "Relance par le propriétaire — consigne :\n{consigne}"
 REFUS_RELANCE_PAUSE = "Projet en pause : reprenez d'abord le projet."
 REFUS_RELANCE_FINI = "Projet {etat} : la carte ne serait plus servie."
 REFUS_RELANCE_NON_ACP = "Carte non émise par ACP : ACP ne la relance pas."
-REFUS_RELANCE_SECRET = ("Bloquée pour un secret : relance refusée tant que la mise à l'écart du travail fautif n'est pas "
-                        "vérifiée sur l'exécutant.")
+REFUS_RELANCE_SECRET = ("Bloquée pour un secret : relance possible dès que l'exécutant à jour (étape P7, partie E) a "
+                        "publié son inventaire.")
 REFUS_RELANCE_REVUE = "Carte en revue : acceptez-la ou refusez-la depuis la section Revues."
+# Relecture finale de P7 (constat scenario-6) : la carte « répondre » de Hermes dont la question n'est plus « ouverte »
+# (escaladée par le filet de l'émetteur, ou répondue) ne peut plus rien faire : question_repondre et question_escalader
+# exigent une question ouverte.
+QUESTION_ADRESSEE = ("la carte {carte} devait répondre à une question qui vous a été adressée : relancée, elle ne "
+                     "pourrait plus rien faire ; répondez à la question dans la section Questions.")
+REFUS_RELANCE_QUESTION_ADRESSEE = ("La question de cette carte vous a été adressée : répondez-y dans la section "
+                                   "Questions.")
 ETATS_LISIBLES = {"creation": "en création", "actif": "en cours", "en_pause": "en pause", "termine": "terminé",
                   "abandonne": "abandonné"}
 

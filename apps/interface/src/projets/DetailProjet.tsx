@@ -451,7 +451,7 @@ function QuestionsDuProjet(props: { projet: Detail; naviguer: Naviguer }): Noeud
       <ul className="acp-noms">
         {questions.map((q, rang) => (
           <li key={chaine(q.id) ?? String(rang)} className="acp-question-courte">
-            <Etiquette libelle={libelleEtatQuestion(q.etat)} brut={q.etat} />
+            <Etiquette libelle={libelleEtatQuestion(q.etat, q.chez)} brut={q.etat} />
             <p className="acp-texte-long">
               <Donnee valeur={chaine(q.texte)} />
             </p>

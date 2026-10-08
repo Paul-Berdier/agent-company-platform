@@ -296,8 +296,11 @@ def etat(conn, fiche: Dict[str, Any], *, avec_journal: bool = False) -> Dict[str
     tours = [{"tour": t["tour"], "resume": ka.masquer(t["resume"])[:2000], "decisions": [
         ka.masquer(x) for x in json.loads(t["decisions"])]} for t in conn.execute(
         "SELECT * FROM tours WHERE projet_id = ? ORDER BY tour", (fiche["id"],))]
+    from . import questions as file_questions  # import différé : questions importe ce module
+
+    # ``chez`` : RÈGLE UNIQUE de la file (questions.chez), servie aussi ici (relecture finale de P7, constat produit-11).
     questions = [{"id": q["id"], "carte": q["carte"], "etat": q["etat"], "texte": ka.masquer(q["texte"])[:1000],
-                  "carte_repondre": q["carte_repondre"]}
+                  "carte_repondre": q["carte_repondre"], "chez": file_questions.chez(dict(q))}
                  for q in conn.execute("SELECT * FROM questions WHERE projet_id = ? AND etat IN ('ouverte', 'escaladee') "
                                        "ORDER BY cree_le", (fiche["id"],))]
     faites = sum(1 for c in liste_cartes if c["statut"] == "done")

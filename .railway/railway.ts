@@ -1,4 +1,4 @@
-// Infrastructure as Code (IaC) du déploiement Railway d'ACP — étapes P2 et P6 de la refonte.
+// Infrastructure as Code (IaC) du déploiement Railway d'ACP — étapes P2, P6 et P7 de la refonte.
 //
 // Un projet « acp », un environnement « production », trois services construits depuis ce dépôt,
 // chacun avec son volume :
@@ -25,7 +25,9 @@
 // refusent aussi de démarrer sur une valeur de gabarit ou sur un domaine privé.
 //
 // Aucun secret : l'identité du propriétaire est posée dans Railway (empreinte Argon2 SCELLÉE) et
-// déclarée ici par preserve(), « garder la valeur déjà posée dans Railway ».
+// déclarée ici par preserve(), « garder la valeur déjà posée dans Railway » ; de même, depuis P7, les
+// six variables du canal de notification de Hermes (jetons Telegram et ntfy SCELLÉS). Toute variable
+// dont le nom désigne un secret est preserve(), jamais un littéral (.railway/verifier.mjs le refuse).
 //
 // Clés typées par le SDK railway@3.11.0 mais absentes de la documentation de l'IaC : checkSuites
 // (Wait for CI), build.builder, build.watchPatterns, deploy.sleepApplication,
@@ -170,6 +172,20 @@ export default defineRailway((ctx) => {
       HERMES_DASHBOARD_OIDC_ISSUER: urlIdentite,
       HERMES_DASHBOARD_OIDC_CLIENT_ID: "hermes-acp",
       HERMES_DASHBOARD_OIDC_SCOPES: "openid profile email offline_access",
+      // Étape P7 : canal de notification du propriétaire, Telegram OU ntfy (docs/refonte/railway.md § 14). Toutes
+      // déclarées par preserve() (cahier P7, correction K13) : la valeur est celle que le propriétaire pose dans
+      // Railway, jamais écrite ici ; le choix du canal ne demande donc aucune autre PR, et les variables du canal non
+      // choisi restent simplement absentes. ACP_NOTIFICATIONS absente vaut « aucune » (notifications gardées en
+      // base, jamais envoyées). Jamais un littéral : ACP_NOTIFICATIONS: "telegram", appliqué avant la pose du jeton,
+      // ferait refuser le démarrage de Hermes (erreurs_notifications, hermes/image/acp_demarrage.py) et imposerait
+      // Telegram. Ordre : cette déclaration fusionnée, PUIS les valeurs posées, PUIS plan (« 0 to destroy ») et
+      // apply ; une variable posée sans être déclarée ici apparaîtrait au plan comme une suppression.
+      ACP_NOTIFICATIONS: preserve(),
+      ACP_TELEGRAM_JETON: preserve(), // variable SCELLÉE
+      ACP_TELEGRAM_DISCUSSION: preserve(),
+      ACP_NTFY_SERVEUR: preserve(),
+      ACP_NTFY_SUJET: preserve(),
+      ACP_NTFY_JETON: preserve(), // variable SCELLÉE
     },
   });
 

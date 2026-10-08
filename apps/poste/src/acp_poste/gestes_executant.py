@@ -107,10 +107,15 @@ def bundle(contexte: Contexte, politique: Politique, alias: str, branche: str) -
     if politique.depot(alias) is None:
         print(f"Dépôt « {alias} » absent de la politique de l'exécutant.", file=sys.stderr)
         return 2
+    from .balayage import valeurs_exactes
+
     e = contexte.emplacements
     depots = Depots(racine_depots=e.depots, racine_espaces=e.espaces, racine_bundles=e.bundles)
     try:
-        fichier, empreinte, tete = depots.bundle(alias, branche)
+        # Relecture finale de P7 : l'historique emballé est balayé (motifs et valeurs exactes du coffre) ; un secret,
+        # même retiré depuis, fait refuser le bundle.
+        valeurs = valeurs_exactes(contexte.coffre, getattr(politique.codex, "home", None))
+        fichier, empreinte, tete = depots.bundle(alias, branche, valeurs_exactes=valeurs)
     except ErreurDepot as exc:
         print(str(exc), file=sys.stderr)
         return 2

@@ -2,7 +2,11 @@
 
 1. **Contrôle** de la carte contre la politique de l'IMAGE (jamais contre Hermes) : dépôt connu, voie ouverte
    (régime, conditions D83/D84, garde de quota), modèle, effort et palier permis, Codex sur dépôt privé seulement
-   (D83). Écart : ``bloquer`` (``politique`` ou ``capacite``), rien n'est lancé.
+   (D83). Écart : ``bloquer`` (``politique`` ou ``capacite``), rien n'est lancé. Étape P7 (cahier P7 § 11.2,
+   décision P7-11) : le « privé » est MESURÉ, pas déclaré — avant CHAQUE carte Codex, :meth:`Depots.visibilite`
+   refait la mesure (accès anonyme refusé ET lecture avec le jeton réussie) ; toute autre issue ferme Codex pour
+   cette carte (Claude reste ouvert sur un dépôt public, D84). Un dépôt déclaré ``public`` est remesuré avant chacune
+   de ses cartes : mesuré privé, il est refusé (la politique se trompe : un jeton est requis).
 2. **Préparation** (superviseur, root) : clone nu et ``fetch`` en lecture seule, worktree et branche
    ``hermes/<carte>`` depuis la branche de la carte parente ou ``origin/<base>`` (gardé à la reprise), dossiers de la
    tentative sous ``/tmp/acp/<carte>`` à l'UID de chaque agent, diff de la carte relue pour Claude (qui n'a pas de
@@ -39,7 +43,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from acp_poste_contrat.machine import DemandeCarte
 
@@ -48,7 +52,7 @@ from .balayage import RAISON_SECRET, secret_dans, valeurs_exactes
 from .catalogue_claude import TABLE as TABLE_CLAUDE
 from .coffre import ecrire_atomiquement
 from .commandes_agents import ROLES_LECTURE, commande_claude, commande_codex, schema_json
-from .depots import Depots, ErreurDepot
+from .depots import Depots, ErreurDepot, Visibilite
 from .evenements import SortieInvalide, lire_flux_claude, lire_flux_codex, sortie_claude, valider_sortie
 from .garde_quota import Budget, QuotasClaude, codex_ouverte
 from .journal import masquer
@@ -90,6 +94,18 @@ PREPARATION_INTROUVABLE = ("Préparation des dépendances introuvable sur l'exé
                            "l'image ; corrigez [depots.<alias>] preparation dans executant.toml (outils de l'image : "
                            "railway.md § 13.6).")
 SUITE_REPRISE = "Reprise de la carte {carte}.{reponses}\nTermine par l'objet JSON imposé."
+# Étape P7 (cahier P7 § 11.2) : refus composés ici, en français, sans l'URL ni le jeton.
+CODEX_NON_PROUVE_PRIVE = ("Voie Codex fermée pour le dépôt « {alias} » : il n'est pas prouvé privé (visibilité mesurée "
+                          "{visibilite}, lecture avec le jeton {lecture}) ; Codex ne travaille qu'avec le compte "
+                          "ChatGPT sur un dépôt privé lu avec le jeton (D83). {raison}")
+DEPOT_DECLARE_PUBLIC_MESURE_PRIVE = ("Dépôt « {alias} » refusé : la politique dit public, GitHub refuse l'accès anonyme "
+                                     ": jeton requis (acces = \"jeton_lecture\" dans executant.toml, par une PR).")
+QUARANTAINE_IMPOSSIBLE = ("Secret détecté ({trouve}) : renommage de {branche} en quarantaine impossible ({erreur}) ; rien "
+                          "n'est envoyé, la carte est bloquée pour un secret et ne repartira pas de cette branche.")
+QUARANTAINE_DIFFEREE = ("Branche {branche} mise en quarantaine au service suivant (renommage en échec lors de la "
+                        "détection du secret).")
+QUARANTAINE_ECARTEE = ("Branche {branche} absente (mise en quarantaine après un secret, ou clone perdu) : la carte repart "
+                       "de {depart} sur une branche neuve, en session neuve ; le travail en quarantaine n'est pas repris.")
 
 
 class CarteRefusee(Exception):
@@ -222,6 +238,8 @@ class Execution:
     horloge: Callable[[], datetime] = lambda: datetime.now(UTC)
     compteurs_codex: Callable[[], list[dict[str, Any]] | None] = lambda: None
     motif_arret: str = "sigterm"
+    # Étape P7 : dernière visibilité mesurée par dépôt (inventaire et contrôle avant chaque carte Codex).
+    mesures: dict[str, Visibilite] = field(default_factory=dict)
 
     # ================================================================== état persistant
     def _ecrire_json(self, chemin: Path, donnees: dict[str, Any]) -> None:
@@ -241,6 +259,11 @@ class Execution:
         donnees = self.session(carte)
         donnees.update({k: v for k, v in valeurs.items() if v is not None})
         self._ecrire_json(self.emplacements.sessions / f"{carte}.json", donnees)
+
+    def _oublier_session(self, carte: str, *cles: str) -> dict[str, Any]:
+        donnees = {k: v for k, v in self.session(carte).items() if k not in cles}
+        self._ecrire_json(self.emplacements.sessions / f"{carte}.json", donnees)
+        return donnees
 
     def carte_en_main(self) -> dict[str, Any] | None:
         return self._lire_json(self.emplacements.carte)
@@ -333,8 +356,28 @@ class Execution:
             "Identifiants séparés par UID non prouvés : aucune écriture."
         return fermetures
 
+    # ================================================================== visibilité mesurée (étape P7, § 11.2)
+    def mesurer(self, depot: Any) -> Visibilite:
+        """Mesure FRAÎCHE de la visibilité de ``depot`` (réseau : jamais dans la boucle asyncio), gardée pour
+        l'inventaire et journalisée (phrase composée ici, sans URL ni jeton)."""
+        mesure = self.depots.visibilite(depot, horloge=self.horloge)
+        self.mesures[depot.alias] = mesure
+        self.journal.ecrire("info" if mesure.visibilite != "inconnue" else "avertissement", "visibilite_depot",
+                            f"Dépôt « {depot.alias} » : visibilité mesurée {mesure.visibilite}, lecture "
+                            f"{mesure.lecture} ({mesure.raison})", depot=depot.alias, visibilite=mesure.visibilite,
+                            lecture=mesure.lecture)
+        return mesure
+
+    def mesurer_depots(self) -> dict[str, Visibilite]:
+        """Visibilité de chaque dépôt DISTANT de la politique (inventaire : au démarrage, puis à chaque relevé)."""
+        for depot in self.politique.depots:
+            if getattr(depot, "url", None):
+                self.mesurer(depot)
+        return dict(self.mesures)
+
     def controler(self, demande: DemandeCarte) -> Any:
-        """Dépôt de la politique, ou :class:`CarteRefusee`."""
+        """Dépôt de la politique, ou :class:`CarteRefusee`. Fait une mesure réseau (étape P7) : appelée hors de la
+        boucle asyncio (:meth:`executer`)."""
         depot = self.politique.depot(demande.depot_alias)
         if depot is None:
             raise CarteRefusee("politique", f"Dépôt « {demande.depot_alias} » absent de la politique de l'exécutant "
@@ -342,6 +385,14 @@ class Execution:
         raison = self.voies_ouvertes().get(demande.voie)
         if raison:
             raise CarteRefusee("capacite", f"Voie {demande.voie} fermée sur l'exécutant : {raison}")
+        codex = demande.role != "integration" and VOIE_OUTIL.get(demande.voie) == "codex"
+        mesure = None
+        if codex or depot.acces == "public":
+            # Avant CHAQUE carte Codex (la visibilité peut changer entre deux inventaires) et avant chaque carte d'un
+            # dépôt déclaré public (une politique fausse se voit aussitôt).
+            mesure = self.mesurer(depot)
+            if depot.acces == "public" and mesure.visibilite == "prive":
+                raise CarteRefusee("politique", DEPOT_DECLARE_PUBLIC_MESURE_PRIVE.format(alias=depot.alias))
         if demande.role == "integration":
             return depot
         outil = VOIE_OUTIL[demande.voie]
@@ -350,6 +401,11 @@ class Execution:
             if depot.acces == "public":
                 raise CarteRefusee("politique", "Voie Codex fermée pour un dépôt public (D83 : dépôts privés "
                                                 "seulement avec le compte ChatGPT).")
+            if mesure is None or not mesure.codex_admis:
+                raise CarteRefusee("politique", CODEX_NON_PROUVE_PRIVE.format(
+                    alias=depot.alias, visibilite=getattr(mesure, "visibilite", "inconnue"),
+                    lecture=getattr(mesure, "lecture", "inconnue"),
+                    raison=(mesure.raison[:1].upper() + mesure.raison[1:]) if mesure else ""))
             permis = self.politique.codex.modeles_permis
             if permis and demande.modele not in permis:
                 raise CarteRefusee("capacite", f"Modèle Codex {demande.modele} hors de la politique de l'exécutant.")
@@ -367,23 +423,36 @@ class Execution:
         arret = arret or asyncio.Event()
         debut = time.monotonic()
         try:
-            depot = self.controler(demande)
+            depot = await asyncio.to_thread(self.controler, demande)
         except CarteRefusee as exc:
             self.journal.ecrire("avertissement", "carte_refusee", exc.raison, carte=demande.carte)
             return await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison)
         self._noter_carte(demande, "preparation")
         nom = demande.branche.removeprefix("hermes/")
+        if not await asyncio.to_thread(self._quarantaine_en_attente, demande, depot, nom):
+            # Relecture finale de P7 (défaut (b) de P6) : la branche qui porte un secret n'a pas pu être mise en
+            # quarantaine ; tant que le renommage échoue, la carte est refusée AVANT tout tour d'agent.
+            self.oublier_carte()
+            return await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
         try:
             issue = await self._executer(demande, depot, nom, arret)
         except CarteRefusee as exc:
             self._commit_wip(demande, depot, nom, "wip: blocage")
-            issue = await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison, exc.reprise_le)
+            if await asyncio.to_thread(self._secret_apres_wip, demande, depot, nom):
+                issue = await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
+            else:
+                issue = await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison, exc.reprise_le)
         except Interruption as exc:
             self._commit_wip(demande, depot, nom, f"wip: {exc.motif}")
-            # Carte rendue proprement : un redémarrage ne la compte pas comme un arrêt mémoire.
-            self._noter_carte(demande, "arretee" if exc.route == "arret" else "rendue")
-            corps = dict(self._base(demande), motif=exc.motif)
-            issue = await asyncio.to_thread(self.emettre, exc.route, corps)
+            if await asyncio.to_thread(self._secret_apres_wip, demande, depot, nom):
+                # Jamais rendue sur une branche fautive : bloquée pour un secret (si la réclamation est perdue, Hermes
+                # refuse ce blocage ; la branche est déjà en quarantaine et la carte repartira d'une branche neuve).
+                issue = await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
+            else:
+                # Carte rendue proprement : un redémarrage ne la compte pas comme un arrêt mémoire.
+                self._noter_carte(demande, "arretee" if exc.route == "arret" else "rendue")
+                corps = dict(self._base(demande), motif=exc.motif)
+                issue = await asyncio.to_thread(self.emettre, exc.route, corps)
         except ErreurDepot as exc:
             issue = await asyncio.to_thread(self.bloquer, demande, "capacite",
                                             f"Opération git en échec sur l'exécutant : {exc}")
@@ -412,6 +481,66 @@ class Execution:
             self.journal.ecrire("erreur", "wip_impossible", f"Commit « wip » impossible : {exc}", carte=demande.carte)
             return None
 
+    def _secret_non_pousse(self, demande: DemandeCarte, depot: Any, nom: str, textes: Sequence[str | None] = ()
+                           ) -> str | None:
+        """Nature du premier secret trouvé dans l'historique non poussé de la carte (chaque commit, « wip » compris :
+        :meth:`Depots.lignes_ajoutees_non_poussees`) et dans ``textes`` ; ``None`` sinon."""
+        historique = self.depots.lignes_ajoutees_non_poussees(depot.alias, nom)
+        return secret_dans([historique, *textes],
+                           valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None)))
+
+    def _mettre_en_quarantaine(self, demande: DemandeCarte, depot: Any, nom: str, trouve: str) -> None:
+        """Branche de la carte renommée ``quarantaine/<carte>`` (jamais intégrée, jamais emballée, jamais reprise).
+        Relecture finale de P7 (défaut (b) de P6) : un renommage en échec ne change pas l'issue (la carte est QUAND MÊME
+        bloquée pour un secret) ; la session de la carte garde ``quarantaine_en_attente``, et le service suivant retente
+        le renommage avant tout tour d'agent (:meth:`_quarantaine_en_attente`)."""
+        try:
+            self.depots.quarantaine(depot.alias, nom, demande.branche)
+        except ErreurDepot as exc:
+            self._noter_session(demande.carte, quarantaine_en_attente=True)
+            self.journal.ecrire("erreur", "secret_detecte", f"Secret détecté ({trouve}) : rien n'est envoyé.",
+                                carte=demande.carte)
+            self.journal.ecrire("erreur", "quarantaine_impossible", QUARANTAINE_IMPOSSIBLE.format(
+                trouve=trouve, branche=demande.branche, erreur=exc), carte=demande.carte)
+            return
+        self.journal.ecrire("erreur", "secret_detecte", f"Secret détecté ({trouve}) : branche en quarantaine, rien "
+                            "n'est envoyé.", carte=demande.carte)
+
+    def _secret_apres_wip(self, demande: DemandeCarte, depot: Any, nom: str) -> bool:
+        """Après un commit « wip » (blocage, quota, interruption) : balayage de l'historique non poussé ; un secret met
+        la branche en quarantaine (vrai). Un balayage impossible est dit au journal et ne change pas l'issue : la
+        conclusion et ``git bundle`` balaient de nouveau tout l'historique."""
+        try:
+            if not self.depots.gitdir_du_worktree(depot.alias, nom).is_dir():
+                return False
+            trouve = self._secret_non_pousse(demande, depot, nom)
+        except ErreurDepot as exc:
+            self.journal.ecrire("erreur", "balayage_wip_impossible", f"Balayage du commit « wip » impossible : {exc}",
+                                carte=demande.carte)
+            return False
+        if trouve:
+            self._mettre_en_quarantaine(demande, depot, nom, trouve)
+            return True
+        return False
+
+    def _quarantaine_en_attente(self, demande: DemandeCarte, depot: Any, nom: str) -> bool:
+        """Faux tant qu'une branche porteuse d'un secret attend sa quarantaine (renommage en échec) ; le renommage est
+        retenté ici. Réussi (ou branche déjà absente) : la marque est levée, et la carte repart d'une branche neuve
+        (K25)."""
+        if not self.session(demande.carte).get("quarantaine_en_attente"):
+            return True
+        try:
+            if self.depots.branche_existe(depot.alias, demande.branche):
+                self.depots.quarantaine(depot.alias, nom, demande.branche)
+                self.journal.ecrire("avertissement", "quarantaine_differee", QUARANTAINE_DIFFEREE.format(
+                    branche=demande.branche), carte=demande.carte)
+        except ErreurDepot as exc:
+            self.journal.ecrire("erreur", "quarantaine_impossible", f"Renommage de {demande.branche} en "
+                                f"quarantaine encore impossible ({exc}) : carte refusée.", carte=demande.carte)
+            return False
+        self._oublier_session(demande.carte, "quarantaine_en_attente")
+        return True
+
     def _verification_possible(self, depot: Any) -> str | None:
         """``None`` si la vérification peut tourner, sinon la raison de « non exécutée »."""
         if self.isolement.get("regime") == "A":
@@ -436,6 +565,14 @@ class Execution:
             raise CarteRefusee("politique", f"Branche de départ {demande.branche_depart} absente de l'exécutant : "
                                             "carte non préparée.")
         connue = self.session(demande.carte)
+        if not self.depots.branche_existe(depot.alias, demande.branche) and connue:
+            # Étape P7 (K25) : branche de la carte absente alors que la carte a déjà tourné — renommée en
+            # quarantaine/<carte> après un secret (P6 § 6.6), ou clone perdu. La carte repart de son départ sur une
+            # branche neuve : sa base, sa session d'agent (dont la transcription a vu le travail fautif) et sa
+            # préparation sont oubliées ; Depots.worktree retire le worktree posé sur la quarantaine.
+            connue = self._oublier_session(demande.carte, "base", "session", "prepare")
+            self.journal.ecrire("avertissement", "branche_neuve", QUARANTAINE_ECARTEE.format(
+                branche=demande.branche, depart=depart), carte=demande.carte)
         liens = depot.liens_symboliques and self.isolement.get("regime") == "A"
         chemin = await asyncio.to_thread(self.depots.worktree, depot, nom, demande.branche, depart,
                                          liens_symboliques=liens)
@@ -555,12 +692,11 @@ class Execution:
         changements = self.depots.changements(depot.alias, nom, base) if base else []
         chemins = pilotage.chemins_de_pilotage(changements, depot.pilotage_supplementaire)
         ajoutees = self.depots.lignes_ajoutees(depot.alias, nom, base) if base else ""
+        # Relecture finale de P7 (défaut (a) de P6) : le diff cumulé ET chaque commit absent du dépôt distant.
         textes = [ajoutees, resume, getattr(sortie, "question", None), getattr(sortie, "corrections", None)]
-        trouve = secret_dans(textes, valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None)))
+        trouve = self._secret_non_pousse(demande, depot, nom, textes)
         if trouve:
-            self.depots.quarantaine(depot.alias, nom, demande.branche)
-            self.journal.ecrire("erreur", "secret_detecte", f"Secret détecté ({trouve}) : branche en quarantaine, rien "
-                                "n'est envoyé.", carte=demande.carte)
+            self._mettre_en_quarantaine(demande, depot, nom, trouve)
             return await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
         if sortie is not None and sortie.issue == "question":
             corps = dict(self._base(demande), texte=sortie.question, contexte=sortie.resume[:4000])
@@ -586,8 +722,12 @@ class Execution:
         self._noter_carte(demande, "integration")
         conflits = await asyncio.to_thread(self.depots.fusionner, depot.alias, nom, demande.branches_a_integrer)
         if conflits:
-            raise CarteRefusee("capacite", "Conflit d'intégration : " + ", ".join(conflits[:20]) + " : aucune "
-                                           "résolution automatique ; tranchez, ou demandez une correction.")
+            # Relecture finale de P7 : aucune consigne n'est lue ici (pas d'agent) ; la raison dit ce que le
+            # propriétaire peut réellement faire. Noms bornés : la raison est coupée à 500 caractères.
+            noms = ", ".join(conflits[:5]) + (f" et {len(conflits) - 5} autre(s)" if len(conflits) > 5 else "")
+            raise CarteRefusee("capacite", f"Conflit d'intégration : {noms[:200]} : aucune résolution automatique ; "
+                                           "« Relancer » rejoue la même fusion. Récupérez les branches (git bundle) "
+                                           "pour trancher, ou clôturez le projet.")
         raison = self._verification_possible(depot)
         if raison is None:
             code, _fin, duree = await self._verifier(demande, depot, chemin, tmp)

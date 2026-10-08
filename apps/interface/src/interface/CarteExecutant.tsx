@@ -116,7 +116,7 @@ export function CarteQuotas(props: { quotas: Record<string, QuotaAccueil> | null
                     <Horodatage valeur={q.resume?.remise_a_zero} />
                   </Ligne>
                   <Ligne libelle={T.accueil.source}>
-                    <Donnee valeur={chaine(q.source_libelle) ?? chaine(q.source)} />
+                    <Donnee valeur={chaine(q.source_libelle)} />
                   </Ligne>
                   <Ligne libelle={T.accueil.releveLe}>
                     <Horodatage valeur={q.releve_le} />

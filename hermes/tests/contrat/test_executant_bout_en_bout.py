@@ -184,7 +184,10 @@ def test_relecture_lit_le_code_relu_et_son_diff(banc):
     def relecture():
         code, detail = banc.api("GET", f"/v1/projets/{projet['id']}")
         cartes = (detail or {}).get("projet", {}).get("cartes", []) if code == 200 else []
-        return next((c for c in cartes if c.get("role") == "relecture"), None)
+        # Carte CRÉÉE seulement : le détail sert aussi une carte réservée « à créer » (``carte`` nulle) entre la
+        # réservation de sa demande et la création kanban ; la prendre faisait échouer la suite (StopIteration, CI
+        # 37742327967 sur a16f00b, relecture finale de P7).
+        return next((c for c in cartes if c.get("role") == "relecture" and c.get("carte")), None)
 
     try:
         carte = attendre(relecture, 300, "relecture jamais planifiée")

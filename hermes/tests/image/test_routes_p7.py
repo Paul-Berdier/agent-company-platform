@@ -4,7 +4,7 @@ statut HTTP (jamais le 400 par défaut). La porte d'authentification réelle (40
 
 from __future__ import annotations
 
-from conftest import lancer_sans_depot, lancer_sur_depot
+from conftest import lancer_sans_depot, lancer_sur_depot, reclamer
 from test_routes_projets import JSON, P, client  # noqa: F401 — fixture des routes (session factice)
 
 ECRITURES = ("/v1/cartes/acp-x/t_x/relancer", "/v1/projets/p_x/reponses", "/v1/projets/p_x/clore")
@@ -37,7 +37,7 @@ def test_relancer_codes_et_reponse(client, noyau):  # noqa: F811
     assert reponse.status_code == 403 and reponse.json()["detail"]["code"] == "carte_non_acp"
     reponse = client.post(chemin, json={"consigne": "Sources officielles seulement."})
     assert reponse.status_code == 200 and reponse.json() == {"carte": planif, "relancee": True, "statut_apres": "ready",
-                                                             "session_neuve": False}
+                                                             "session_neuve": False, "branche_neuve": False}
     with noyau.base.connexion() as conn:
         auteur = conn.execute("SELECT acteur FROM journal WHERE action = 'relance'").fetchone()[0]
     assert auteur == "proprietaire:proprietaire-test"
@@ -47,6 +47,23 @@ def test_relancer_codes_et_reponse(client, noyau):  # noqa: F811
     assert client.post(f"{P}/v1/projets/{projet['id']}/pause", json={}).status_code == 200
     reponse = client.post(chemin, json={})
     assert reponse.status_code == 409 and reponse.json()["detail"]["code"] == "projet_en_pause"
+
+
+def test_relancer_une_carte_repondre_dont_la_question_est_adressee(client, noyau):  # noqa: F811
+    """Relecture finale de P7 (constat scenario-6) : 409 ``question_adressee``, jamais le 400 par défaut."""
+    with noyau.base.connexion() as conn:
+        projet = lancer_sur_depot(noyau, conn)
+        exploration = projet["cartes"]["exploration"]
+        run = reclamer(noyau, projet["tableau"], exploration)
+        q = noyau.questions.poser(conn, tableau=projet["tableau"], carte=exploration, run_id=run, texte="Quel nom ?")
+    reclamer(noyau, projet["tableau"], q["carte_repondre"])
+    with noyau.ka.connexion(projet["tableau"]) as kc:
+        assert noyau.ka.block_task(kc, q["carte_repondre"], kind="capability", reason="Hermes n'a pas pu conclure.")
+    with noyau.base.connexion() as conn:
+        assert noyau.questions.questions_sans_suite(conn) == [q["question"]]
+    reponse = client.post(f"{P}/v1/cartes/{projet['tableau']}/{q['carte_repondre']}/relancer", json={})
+    assert reponse.status_code == 409 and reponse.json()["detail"]["code"] == "question_adressee"
+    assert "répondez à la question dans la section Questions" in reponse.json()["detail"]["message"]
 
 
 def test_reponses_codes(client, noyau):  # noqa: F811

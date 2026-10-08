@@ -247,6 +247,23 @@ def _statut_de_carte(tableau: str, carte: Optional[str]) -> Optional[str]:
     return tache.status if tache is not None else None
 
 
+def demande_de(conn, tableau: str, tache: Any) -> Optional[Dict[str, Any]]:
+    """Demande d'une carte du greffon : par son rattachement (``demandes.carte``), sinon par sa CLÉ. ``cartes.creer``
+    valide la carte kanban PUIS rattache la demande, dans une autre base (cartes.py : « reconnue à sa clé même avant
+    le rattachement ») ; entre les deux, une lecture par le seul rattachement voyait une carte de décision sans son
+    genre, offerte à « Reprendre » (relecture finale de P7, constat tests-1)."""
+    identifiant = getattr(tache, "id", None)
+    if identifiant:
+        demande = projets.demande_de_la_carte(conn, tableau, identifiant)
+        if demande is not None:
+            return demande
+    cle = getattr(tache, "idempotency_key", None)
+    if not cle or not str(cle).startswith(ka.PREFIXE_CLE) or getattr(tache, "created_by", None) != ka.CREATEUR:
+        return None
+    return base.ligne_en_dict(conn.execute(
+        "SELECT * FROM demandes WHERE cle = ? AND tableau = ? AND carte IS NULL", (cle, tableau)).fetchone())
+
+
 def _emise_par_acp(demande: Optional[Dict[str, Any]], tache: Any) -> bool:
     """Carte émise par le greffon : sa demande existe, et la carte kanban porte la clé et le créateur du greffon."""
     return (demande is not None and tache is not None and getattr(tache, "idempotency_key", None) == demande["cle"]
@@ -254,6 +271,8 @@ def _emise_par_acp(demande: Optional[Dict[str, Any]], tache: Any) -> bool:
 
 
 def _bloquee_pour_secret(demande: Optional[Dict[str, Any]], evenements: List[Any]) -> bool:
+    """Carte de l'exécutant bloquée pour un secret détecté : son travail fautif est en quarantaine sur l'exécutant
+    (branche ``quarantaine/<carte>``, P6 § 6.6)."""
     if demande is not None and demande.get("issue") == "bloquee:secret":
         return True
     for evenement in reversed(evenements):
@@ -263,10 +282,43 @@ def _bloquee_pour_secret(demande: Optional[Dict[str, Any]], evenements: List[Any
     return False
 
 
+def question_adressee(conn, tableau: str, carte: Optional[str], demande: Optional[Dict[str, Any]]) -> bool:
+    """Carte « répondre » de Hermes dont la question n'est plus « ouverte » (escaladée par le filet de l'émetteur, ou
+    répondue) : relancée, elle ne pourrait plus rien (relecture finale de P7, constat scenario-6)."""
+    if not demande or demande.get("role") != "repondre" or not carte:
+        return False
+    ligne = conn.execute("SELECT etat FROM questions WHERE tableau = ? AND carte_repondre = ?", (tableau, carte)).fetchone()
+    return ligne is not None and ligne["etat"] != "ouverte"
+
+
+def _sans_agent(demande: Optional[Dict[str, Any]]) -> bool:
+    """Carte d'intégration (relecture finale de P7, constat scenario-2) : aucun agent ; l'exécutant rejoue la même
+    fusion déterministe des branches (``Execution._integrer``) sans jamais lire de consigne ni de session."""
+    return bool(demande) and demande.get("role") == "integration"
+
+
+def quarantaine_ecartee_par_l_executant(conn) -> bool:
+    """Partie E (K25) : l'exécutant actif fait-il repartir une carte relancée SANS le travail en quarantaine ? Prouvé
+    par ce qu'il publie : seul un exécutant de la partie E publie la visibilité MESURÉE de ses dépôts (même commit que la
+    correction K25, ``apps/poste/src/acp_poste/{depots,execution}.py``). Sans inventaire, ou inventaire sans mesure
+    (exécutant de P6, poste Windows) : non prouvé, la relance d'une carte bloquée pour secret reste refusée."""
+    inventaire = routage.dernier_inventaire(conn) or {}
+    depots = inventaire.get("depots")
+    return isinstance(depots, list) and any(isinstance(d, dict) and d.get("visibilite") is not None for d in depots)
+
+
 def refus_de_relance(fiche: Dict[str, Any], demande: Optional[Dict[str, Any]], tache: Any,
-                     evenements: List[Any]) -> Optional[tuple]:
+                     evenements: List[Any], *, quarantaine_ecartee: bool = False,
+                     adressee: bool = False) -> Optional[tuple]:
     """``(code, message, raison lisible)`` qui interdit de relancer une carte arrêtée, dans l'ordre du cahier P7
-    § 3.4 (carte émise par ACP, projet actif, carte arrêtée, revue, secret) ; ``None`` si elle se relance."""
+    § 3.4 (carte émise par ACP, projet actif, carte arrêtée, revue) ; ``None`` si elle se relance.
+
+    Une carte bloquée pour un SECRET se relance (correction K25, prouvée par la partie E côté exécutant :
+    ``apps/poste/tests/test_execution.py::test_relance_apres_secret_branche_neuve_sans_le_commit_fautif``) :
+    l'exécutant ne reprend jamais le worktree posé sur ``quarantaine/<carte>`` ; la carte repart de son départ sur
+    une branche neuve, en session neuve, et la quarantaine reste, jamais intégrée ni poussée — À CONDITION que
+    l'exécutant actif soit de la partie E (``quarantaine_ecartee`` : :func:`quarantaine_ecartee_par_l_executant`) ;
+    sinon refus ``carte_secret`` (échec fermé : un exécutant de P6 reprendrait le worktree en quarantaine)."""
     carte = getattr(tache, "id", None) or (demande or {}).get("carte") or "?"
     if not _emise_par_acp(demande, tache):
         return ("carte_non_acp", T.CARTE_NON_ACP.format(carte=carte, t=fiche["tableau"]), T.REFUS_RELANCE_NON_ACP)
@@ -281,8 +333,10 @@ def refus_de_relance(fiche: Dict[str, Any], demande: Optional[Dict[str, Any]], t
     if tache.status != "blocked":
         return ("carte_non_arretee", T.CARTE_NON_ARRETEE.format(carte=carte, statut=tache.status),
                 T.CARTE_NON_ARRETEE.format(carte=carte, statut=tache.status))
-    if _bloquee_pour_secret(demande, evenements):
+    if not quarantaine_ecartee and _bloquee_pour_secret(demande, evenements):
         return ("carte_secret", T.CARTE_SECRET.format(carte=carte), T.REFUS_RELANCE_SECRET)
+    if adressee:  # :func:`question_adressee`
+        return ("question_adressee", T.QUESTION_ADRESSEE.format(carte=carte), T.REFUS_RELANCE_QUESTION_ADRESSEE)
     return None
 
 
@@ -290,7 +344,8 @@ def lister(conn) -> Dict[str, Any]:
     """Questions ouvertes et escaladées (avec le titre de la carte qui les pose, leur contexte, ``chez`` et le statut de
     leur carte « répondre ») ; cartes en triage (avec les gestes possibles), bloquées et abandonnées des tableaux de
     projet, chacune avec sa raison connue — étape P7 : une carte arrêtée dit si elle se relance (``relancable``) ou
-    pourquoi non (``refus_relance``)."""
+    pourquoi non (``refus_relance``), et si son travail est en quarantaine sur l'exécutant (``quarantaine`` : bloquée
+    pour un secret ; sa relance repart d'une branche neuve, K25)."""
     ouvertes = []
     titres: Dict[tuple, Optional[str]] = {}
     for q in [base.ligne_en_dict(l) for l in conn.execute(
@@ -309,6 +364,7 @@ def lister(conn) -> Dict[str, Any]:
     triage: List[Dict[str, Any]] = []
     bloquees: List[Dict[str, Any]] = []
     illisibles: List[str] = []
+    ecartee = quarantaine_ecartee_par_l_executant(conn)
     for p in [base.ligne_en_dict(l) for l in conn.execute(
             "SELECT * FROM projets WHERE etat != 'abandonne' ORDER BY cree_le").fetchall()]:
         try:
@@ -316,7 +372,7 @@ def lister(conn) -> Dict[str, Any]:
                 for statut, cible in (("triage", triage), ("blocked", bloquees)):
                     for tache in ka.list_tasks(kc, status=statut):
                         evenements = ka.list_events(kc, tache.id)
-                        demande = projets.demande_de_la_carte(conn, p["tableau"], tache.id)
+                        demande = demande_de(conn, p["tableau"], tache)
                         entree = {"projet": p["id"], "projet_titre": p["titre"], "tableau": p["tableau"],
                                   "carte": tache.id, "titre": ka.masquer(tache.title)[:200],
                                   "assigne": tache.assignee,
@@ -328,9 +384,14 @@ def lister(conn) -> Dict[str, Any]:
                             if genre and not entree["raison"]:
                                 entree["raison"] = ka.masquer(demande["consigne"])[:300] or None
                         else:
-                            refus_ = refus_de_relance(p, demande, tache, evenements)
+                            adressee = question_adressee(conn, p["tableau"], tache.id, demande)
+                            refus_ = refus_de_relance(p, demande, tache, evenements, quarantaine_ecartee=ecartee,
+                                                      adressee=adressee)
+                            executant = bool(demande) and demande["voie"] != "hermes"
                             entree.update(relancable=refus_ is None, refus_relance=refus_[2] if refus_ else None,
-                                          executant=bool(demande) and demande["voie"] != "hermes")
+                                          executant=executant, integration=_sans_agent(demande),
+                                          question_adressee=adressee,
+                                          quarantaine=executant and _bloquee_pour_secret(demande, evenements))
                         cible.append(entree)
         except Exception:  # noqa: BLE001 — tableau illisible : dit, jamais inventé
             illisibles.append(p["tableau"])
@@ -349,10 +410,13 @@ def discussions_en_attente() -> Dict[str, Any]:
 
 def compteurs(file: Dict[str, Any]) -> Dict[str, int]:
     """« À traiter par vous » (questions dont ``chez`` vaut ``proprietaire``, décisions, revues, cartes arrêtées) et
-    « Chez Hermes » ; les discussions en attente sont comptées à part (section 5, ``discussions``)."""
+    « Chez Hermes » ; les discussions en attente sont comptées à part (section 5, ``discussions``). Une carte
+    « répondre » dont la question vous a été adressée n'est pas comptée : la question l'est déjà (relecture finale de
+    P7, constat scenario-6)."""
     questions = [q for q in file["questions"] if q["chez"] == "proprietaire"]
+    arretees = [b for b in file["bloquees"] if not b.get("question_adressee")]
     resultat = {"questions": len(questions), "decisions": len(file["triage"]), "revues": len(file.get("revues") or []),
-                "arretees": len(file["bloquees"]),
+                "arretees": len(arretees),
                 "chez_hermes": sum(1 for q in file["questions"] if q["chez"] == "hermes")}
     resultat["a_traiter"] = resultat["questions"] + resultat["decisions"] + resultat["revues"] + resultat["arretees"]
     return resultat
@@ -397,8 +461,11 @@ MARGE_MASQUAGE = 200
 def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str) -> Dict[str, Any]:
     """Bouton « Relancer » d'une carte bloquée ou abandonnée (cahier P7 § 3.4, décision P7-2 ; corrections K4, K5,
     K25). Contrôles dans l'ordre : projet ACP connu, carte émise par le greffon, projet ACTIF, carte arrêtée (une carte
-    en revue se traite par Accepter ou Refuser), carte non bloquée pour un secret (avant la partie E). Aucune carte
-    n'est créée : le plafond de cartes du projet n'est pas touché.
+    en revue se traite par Accepter ou Refuser). Une carte bloquée pour un secret se relance depuis la partie E : son
+    travail reste en quarantaine sur l'exécutant, qui la fait repartir d'une branche NEUVE (``branche_neuve`` dans la
+    réponse). Aucune carte n'est créée : le plafond de cartes du projet n'est pas touché. Une carte d'INTÉGRATION n'a
+    pas d'agent (relecture finale de P7) : une consigne y est refusée (``consigne_sans_objet``), et sa relance rejoue la
+    même fusion, sans « session neuve ».
 
     Effet : carte Hermes → la consigne éventuelle en commentaire (le worker la lit par ``build_worker_context``) ;
     carte de l'exécutant → ``issue = 'relancee'`` (hors ``ISSUES_REPRISE`` : l'exécutant repart d'une SESSION NEUVE,
@@ -418,16 +485,23 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
     from . import execution  # import différé : execution importe ce module
 
     with execution.verrou():  # aucune carte servie à l'exécutant entre la relecture de la demande et le déblocage
-        demande = projets.demande_de_la_carte(conn, tableau, carte)
         with ka.connexion(tableau) as kc:
             tache = ka.get_task(kc, carte)
             evenements = ka.list_events(kc, carte) if tache is not None else []
+        demande = (demande_de(conn, tableau, tache) if tache is not None
+                   else projets.demande_de_la_carte(conn, tableau, carte))
         if tache is None and demande is None:
             raise refus("carte_inconnue", T.CARTE_DU_PROJET_INCONNUE.format(carte=carte[:40], titre=fiche["titre"]))
-        refus_ = refus_de_relance(fiche, demande, tache, evenements)
+        refus_ = refus_de_relance(fiche, demande, tache, evenements,
+                                  quarantaine_ecartee=quarantaine_ecartee_par_l_executant(conn),
+                                  adressee=question_adressee(conn, tableau, carte, demande))
         if refus_ is not None:
             raise refus(refus_[0], refus_[1])
+        integration = _sans_agent(demande)
+        if integration and consigne is not None:
+            raise refus("consigne_sans_objet", T.CONSIGNE_SANS_OBJET_INTEGRATION.format(carte=carte))
         executant = demande["voie"] != "hermes"
+        quarantaine = executant and _bloquee_pour_secret(demande, evenements)
         maintenant = base.maintenant()
         avant = {c: demande.get(c) for c in ("issue", "consigne", "consigne_relance", "relancee_le",
                                              "consigne_initiale")}
@@ -454,9 +528,10 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
         with base.transaction(conn):
             base.journaliser(conn, auteur, "relance", projet_id=fiche["id"], cible=carte,
                              detail={"avec_consigne": consigne is not None, "executant": executant,
-                                     "relancee": relancee, "statut_apres": statut_apres})
+                                     "quarantaine": quarantaine, "relancee": relancee,
+                                     "statut_apres": statut_apres})
     return {"carte": carte, "relancee": relancee, "statut_apres": statut_apres,
-            "session_neuve": relancee and executant}
+            "session_neuve": relancee and executant and not integration, "branche_neuve": relancee and quarantaine}
 
 
 def _ecrire_demande(conn, cle: str, colonnes: Dict[str, Any]) -> None:
@@ -475,7 +550,7 @@ def _carte_en_triage(conn, tableau: str, carte: str) -> Dict[str, Any]:
         raise refus("triage_inconnu", T.TRIAGE_INCONNU.format(carte=carte, t=tableau))
     if fiche["etat"] == "en_pause":
         raise refus("projet_en_pause", T.TRIAGE_PROJET_EN_PAUSE.format(titre=fiche["titre"]))
-    return {"fiche": fiche, "tache": tache, "demande": projets.demande_de_la_carte(conn, tableau, carte)}
+    return {"fiche": fiche, "tache": tache, "demande": demande_de(conn, tableau, tache)}
 
 
 def reprendre_triage(conn, *, tableau: str, carte: str, consigne: Optional[str], auteur: str) -> Dict[str, Any]:

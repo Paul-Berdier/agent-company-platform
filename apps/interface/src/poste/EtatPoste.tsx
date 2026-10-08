@@ -2,12 +2,15 @@
 // redéploiement / Révoqué), enrôlement, confirmation de l'empreinte, révocation, « Relever maintenant », puis (étape P6)
 // les blocs de l'exécutant (isolement, conditions d'usage, carte en cours, voies fermées, branches prêtes) et ce que dit
 // le dernier inventaire (compte, versions, bac à sable Codex, connexions, dépôts, alertes) et les ordres en attente.
+// Étape P7, partie E : carte « Dépôts » avec la visibilité MESURÉE par l'exécutant et les voies ouvertes par dépôt.
 // Tout vient de GET /v1/poste ; rien n'est deviné.
 import { T } from "../chaines";
 import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
-import { h, useState, type Noeud } from "../react";
+import { Fragment, h, useState, type Noeud } from "../react";
 import { Bouton, Etiquette, Horodatage, RetourEnvoi } from "../projets/briques";
 import { useEnvoi } from "../projets/envoi";
+import { libelleVoie } from "../projets/libelles";
+import type { DepotMesure } from "../projets/types";
 import { useDonnees } from "../donnees";
 import { confirmer, lirePostePage, releverMaintenant, revoquer } from "./api";
 import { Enrolement } from "./Enrolement";
@@ -17,8 +20,12 @@ import {
   libelleConnexionCodex,
   libelleEtatDuPoste,
   libelleGenreOrdre,
+  libelleLecture,
+  libelleVisibilite,
 } from "./libelles";
 import type { ContenuInventaire, MachineVue, ReponsePostePage, ResultatReleve } from "./types";
+
+const VOIES_DU_POSTE = ["poste-codex", "poste-claude"] as const;
 
 function OuiNon(props: { valeur: unknown }): Noeud {
   if (typeof props.valeur !== "boolean") return <Donnee valeur={null} />;
@@ -209,6 +216,9 @@ function Inventaire(props: { donnees: ReponsePostePage }): Noeud {
   const bac = c.bac_a_sable_codex ?? {};
   const versions = c.versions ?? {};
   const depots = Array.isArray(c.depots) ? c.depots : [];
+  // Étape P7 : la vue de l'exécutant porte la mesure et les voies par dépôt ; absente, la mesure publiée dans
+  // l'inventaire (voies « Inconnu » : le greffon seul les calcule).
+  const mesures = Array.isArray(props.donnees.executant?.depots) ? props.donnees.executant.depots : null;
   return (
     <div className="acp-grille">
       <Carte titre={T.poste.inventaireTitre} id="acp-poste-inventaire">
@@ -302,20 +312,72 @@ function Inventaire(props: { donnees: ReponsePostePage }): Noeud {
           </Ligne>
         </dl>
       </Carte>
-      <Carte titre={T.poste.depotsTitre} id="acp-poste-depots">
-        {depots.length === 0 ? (
-          <p className="acp-discret">{T.poste.aucunDepot}</p>
-        ) : (
-          <ul className="acp-liste">
-            {depots.map((d, i) => (
-              <li key={`${d.alias ?? i}`}>
-                <Donnee valeur={d.alias} mono />
-              </li>
-            ))}
-          </ul>
-        )}
-      </Carte>
+      <Depots depots={mesures ?? depots.map((d) => ({ alias: d.alias, visibilite: d.visibilite ?? null,
+                                                     lecture: d.lecture ?? null, verifie_le: d.verifie_le ?? null }))} />
     </div>
+  );
+}
+
+/** Étape P7, partie E (cahier P7 § 11.2) : chaque dépôt, sa visibilité MESURÉE par l'exécutant (jamais devinée :
+ *  « Jamais mesurée » sinon), la lecture, la date de la mesure et les voies ouvertes ou fermées pour lui, avec la
+ *  raison du greffon (même calcul que le routage). */
+function Depots(props: { depots: DepotMesure[] }): Noeud {
+  const D = T.poste.depots;
+  return (
+    <Carte titre={T.poste.depotsTitre} id="acp-poste-depots">
+      <p className="acp-discret">{D.aide}</p>
+      {props.depots.length === 0 ? (
+        <p className="acp-discret">{T.poste.aucunDepot}</p>
+      ) : (
+        <ul className="acp-liste">
+          {props.depots.map((d, i) => {
+            const mesure = d.visibilite != null || d.lecture != null;
+            const fermees = d.voies_fermees && typeof d.voies_fermees === "object" ? d.voies_fermees : null;
+            return (
+              <li key={`${d.alias ?? i}`} data-acp-depot={d.alias ?? ""}>
+                <p className="acp-etat">
+                  <Donnee valeur={d.alias} mono />
+                </p>
+                <dl className="acp-liste">
+                  <Ligne libelle={D.visibilite}>
+                    {mesure ? <Etiquette libelle={libelleVisibilite(d.visibilite)} brut={d.visibilite} />
+                      : <span>{D.nonMesure}</span>}
+                  </Ligne>
+                  <Ligne libelle={D.lecture}>
+                    {mesure ? <Etiquette libelle={libelleLecture(d.lecture)} brut={d.lecture} />
+                      : <Donnee valeur={null} />}
+                  </Ligne>
+                  <Ligne libelle={D.verifieLe}>
+                    <Horodatage valeur={d.verifie_le} />
+                  </Ligne>
+                  <Ligne libelle={D.voies}>
+                    {fermees === null ? (
+                      <Donnee valeur={null} />
+                    ) : (
+                      <ul className="acp-liste">
+                        {VOIES_DU_POSTE.map((voie) => (
+                          <li key={voie} className="acp-etat" data-acp-voie={voie}>
+                            <span>{libelleVoie(voie)}</span>{" "}
+                            {fermees[voie] ? (
+                              <Fragment>
+                                <Etiquette libelle={{ texte: D.fermee, famille: "echec" }} />{" "}
+                                <Donnee valeur={fermees[voie]} />
+                              </Fragment>
+                            ) : (
+                              <Etiquette libelle={{ texte: D.ouverte, famille: "succes" }} />
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Ligne>
+                </dl>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Carte>
   );
 }
 

@@ -52,7 +52,6 @@ class EventStreamService : public QObject
     Q_PROPERTY(QString etatPasserelle READ etatPasserelle NOTIFY sourcesChange)
     Q_PROPERTY(QString etatVeille READ etatVeille NOTIFY sourcesChange)
     Q_PROPERTY(QString etatSondage READ etatSondage NOTIFY sourcesChange)
-    Q_PROPERTY(QString etatFluxGreffon READ etatFluxGreffon CONSTANT)
 
 public:
     //! Valeur de `pauseGenerale` quand l'état n'a pas encore été lu.
@@ -99,7 +98,12 @@ public:
     [[nodiscard]] QString etatPasserelle() const;
     [[nodiscard]] QString etatVeille() const;
     [[nodiscard]] QString etatSondage() const;
-    [[nodiscard]] static QString etatFluxGreffon();
+    /*!
+        Ce que la station dit du flux d'invalidation du greffon, d'après `etatFlux` de l'évaluation de
+        /v1/meta (« annonce », « absent », « illisible », « inconnu ») : elle ne l'ouvre pas et relit ses
+        pages par sondage (relecture finale de P7 : jamais « n'annonce aucun flux » devant une annonce).
+    */
+    [[nodiscard]] static QString etatFluxGreffon(const QString &etatFlux);
 
 signals:
     void fenetreActiveChange();

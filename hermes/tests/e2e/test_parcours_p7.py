@@ -31,7 +31,7 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from conftest import CAPTURES, afficher, image, manque
 from parcours import (AXE, FORMATS, ajouter_authentificateur, attendre_page_acp, catalogue_francais,
@@ -80,7 +80,23 @@ JS_TRAMES = "() => { const f = window.__ACP_FLUX__ && window.__ACP_FLUX__.v1; re
 JS_MODE = "() => { const f = window.__ACP_FLUX__ && window.__ACP_FLUX__.v1; return f ? f.etat().mode : null; }"
 JS_LECTURES = """(chemin) => performance.getEntriesByType('resource')
   .filter((e) => new URL(e.name).pathname === chemin)
-  .map((e) => ({t: e.startTime, nom: e.name}))"""
+  .map((e) => ({t: e.startTime, fin: e.responseEnd, nom: e.name}))"""
+
+
+def lectures_sans_trame(lectures: List[Dict[str, Any]], trames: List[Dict[str, Any]], sujets: Set[str],
+                        gestes: List[float]) -> List[Dict[str, Any]]:
+    """Lectures (après la première, le montage) qui ne suivent ni une trame du flux de moins de 2 s (« etat », ou
+    « changement » d'un sujet suivi), ni un geste du propriétaire de moins de 2 s (fin de sa requête d'écriture) : un
+    sondage déguisé. Relecture finale de P7 (constat tests-4 c) : appliqué aussi à la liste et à la file."""
+    sans_trame = []
+    for rang, lecture in enumerate(lectures[1:], 1):
+        t = lecture["t"]
+        if any(0 <= t - g <= 2_000 for g in gestes):
+            continue
+        if not any(x["t"] <= t and t - x["t"] <= 2_000 and (x["evenement"] == "etat" or sujets & set(x["sujets"]))
+                   for x in trames):
+            sans_trame.append({"rang": rang, "t": round(t)})
+    return sans_trame
 
 
 def _appel(nom: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -303,11 +319,19 @@ def test_parcours_telephone_question_bureau_projet_termine(playwright_sync, pile
         page.wait_for_selector('[data-acp-temps-reel="temps_reel"]', timeout=20_000)
         page.fill(f"#acp-reponse-{question}", REPONSE)
         page.click(f'form:has(#acp-reponse-{question}) button[type="submit"]')
-        # La question répondue quitte la file à la relecture ; la cible le dit (« déjà traitée »).
+        # La question répondue quitte la file à la relecture ; le message tiré de la réponse de l'API reste annoncé par
+        # la section, et la cible que la page vient de traiter n'est pas « déjà traitée » (relecture finale de P7).
         page.wait_for_selector(f"#acp-reponse-{question}", state="detached")
-        page.wait_for_selector('[data-acp-racine="projets"] [role="status"]:has-text("déjà été traitée")')
-        # Vers le détail du projet, DANS la page (aucun rechargement) : onglet « Projets », puis le projet.
+        annonce = page.wait_for_selector('section:has(#acp-questions-ouvertes) [role="status"]:has-text("Réponse envoyée")')
+        preuves["message_de_la_reponse"] = " ".join(annonce.inner_text().replace(" ", " ").split())
+        assert preuves["message_de_la_reponse"] == "Réponse envoyée : la carte reprend.", preuves["message_de_la_reponse"]
+        assert page.locator('[data-acp-racine="projets"] [role="status"]:has-text("déjà été traitée")').count() == 0
+        # Vers le détail du projet, DANS la page (aucun rechargement) : onglet « Projets », puis le projet. Chaque
+        # changement de vue est un geste qui relit la page (instant noté pour le relevé des lectures, plus bas).
+        clics = [page.evaluate("() => performance.now()")]
         page.click('.acp-onglet >> nth=0')
+        page.wait_for_selector("#acp-projets-poste")
+        clics.append(page.evaluate("() => performance.now()"))
         page.click(f'[data-acp-racine="projets"] a[href$="projet={identifiant}"]')
         page.wait_for_selector("#acp-projet-titre")
         navigation = page.evaluate("() => performance.getEntriesByType('navigation').length")
@@ -349,6 +373,17 @@ def test_parcours_telephone_question_bureau_projet_termine(playwright_sync, pile
             "lectures_du_detail": len(lectures), "lectures_sans_trame": sans_trame,
             "trames": [{"t": round(t["t"]), "evenement": t["evenement"], "sujets": t["sujets"]} for t in trames[-40:]]}
         assert len(lectures) >= 2 and sans_trame == [], preuves["releve_temps_reel"]
+        # Relecture finale de P7 (constat tests-4 c) : la liste des projets et la file Questions, relues sur la même page,
+        # ne sondent pas non plus ; seuls la trame d'un de leurs sujets ou le geste « Répondre » les font relire.
+        reponses = [g["fin"] for g in page.evaluate(JS_LECTURES, f"{P}/v1/questions/{question}/reponse")]
+        gestes = reponses + clics
+        listes = {}
+        for chemin, sujets in ((f"{P}/v1/projets", {"projets", "questions", "poste", "notifications", "pause"}),
+                               (f"{P}/v1/questions", {"questions", "projets", "discussions"})):
+            vues = page.evaluate(JS_LECTURES, chemin)
+            listes[chemin] = {"lectures": len(vues), "sans_trame": lectures_sans_trame(vues, trames, sujets, gestes)}
+        preuves["releve_temps_reel"]["listes"] = listes
+        assert reponses and all(v["lectures"] >= 2 and v["sans_trame"] == [] for v in listes.values()), listes
         verifier(page, "bureau", "projets", "projet_termine", capture_bureau, "projet-termine")
 
         # ------------------------------------------------------------ 5. le téléphone, rouvert, montre « Terminé »

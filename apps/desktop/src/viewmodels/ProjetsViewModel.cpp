@@ -349,7 +349,8 @@ void ProjetsViewModel::lireDetail(const QJsonObject &reponse)
     QJsonArray questions;
     for (const QJsonValue &element : projet.value(QStringLiteral("questions_ouvertes")).toArray()) {
         const QJsonObject question = element.toObject();
-        const libelles::Libelle etat = libelles::etatQuestion(question.value(QStringLiteral("etat")));
+        const libelles::Libelle etat = libelles::etatQuestion(question.value(QStringLiteral("etat")),
+                                                              question.value(QStringLiteral("chez")));
         questions.append(QJsonObject{
             {QStringLiteral("id"), libelles::texte(question.value(QStringLiteral("id")))},
             {QStringLiteral("texte"), libelles::texte(question.value(QStringLiteral("texte")))},

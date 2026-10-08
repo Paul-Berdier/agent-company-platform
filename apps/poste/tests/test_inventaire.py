@@ -46,6 +46,28 @@ async def test_depots_recopies(poste):
     assert "depots" not in codex.releve, "le relevé de la sonde n'est pas modifié"
 
 
+async def test_visibilite_mesuree_publiee_par_depot(poste):
+    """Étape P7 (cahier P7 § 11.2) : un dépôt mesuré porte ``visibilite``, ``lecture`` et ``verifie_le`` (dans
+    l'inventaire et dans chaque relevé) ; un dépôt NON mesuré reste ``{"alias"}`` (jamais une mesure inventée) ; une
+    mesure d'un alias hors de la politique n'est pas publiée."""
+    from datetime import UTC, datetime
+
+    from acp_poste.depots import Visibilite
+
+    politique, codex, claude = await _resultats(poste, depots=True)
+    instant = datetime(2026, 10, 2, 12, 30, tzinfo=UTC)
+    mesures = {"jetable": Visibilite("prive", "ok", instant, "accès anonyme refusé"),
+               "absent": Visibilite("public", "ok", instant, "")}
+    inventaire = construire(politique, codex, claude, windows="10.0.19045", valeurs_exactes=[], mesures=mesures)
+    attendu = [{"alias": "jetable", "visibilite": "prive", "lecture": "ok", "verifie_le": "2026-10-02T12:30:00Z"}]
+    assert inventaire["depots"] == attendu and all(r["depots"] == attendu for r in inventaire["releves"])
+    assert "accès anonyme" not in str(inventaire), "la raison reste au journal de l'exécutant"
+    valide = valider_inventaire(inventaire)
+    assert valide.depots[0].visibilite == "prive" and valide.depots[0].lecture == "ok"
+    sans = construire(politique, codex, claude, windows="10.0.19045", valeurs_exactes=[], mesures={})
+    assert sans["depots"] == [{"alias": "jetable"}]
+
+
 @pytest.mark.parametrize("injection, raison", [
     ("titulaire@example.com", "adresse électronique"),
     ("C:\\Users\\Paul\\AppData", "chemin de lecteur"),

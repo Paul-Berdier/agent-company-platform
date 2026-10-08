@@ -89,8 +89,12 @@ export function libelleEtatPoste(etat: unknown): Libelle | null {
   }
 }
 
-export function libelleEtatQuestion(etat: unknown): Libelle | null {
+/** État d'une question ; ``chez`` (règle unique du greffon) : une question « ouverte » qui attend le propriétaire
+ *  (carte « répondre » jamais créée) se dit « Votre réponse est attendue », jamais « Hermes cherche la réponse »
+ *  (relecture finale de P7, constat produit-11). */
+export function libelleEtatQuestion(etat: unknown, chez?: unknown): Libelle | null {
   const q = T.projets.etatsQuestion;
+  if (etat === "ouverte" && chez === "proprietaire") return L(q.escaladee, "degrade");
   if (etat === "ouverte") return L(q.ouverte, "actif");
   if (etat === "escaladee") return L(q.escaladee, "degrade");
   return null;
@@ -146,7 +150,7 @@ export function libelleProfil(profil: unknown): string | null {
 
 export function libelleReponses(reponses: unknown): string | null {
   if (reponses === "hermes_d_abord") return T.projets.reponsesHermes;
-  if (reponses === "proprietaire") return T.projets.reponsesProprietaire;
+  if (reponses === "proprietaire") return T.projets.reponsesVous;
   return null;
 }
 

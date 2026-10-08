@@ -346,7 +346,7 @@ export function Accueil(): Noeud {
       </div>
       {meta.etat === "chargement" ? <EnChargement /> : null}
       {meta.etat === "erreur" ? <BlocErreur erreur={meta.erreur} message={T.accueil.metaIndisponible} /> : null}
-      <EtatActualisation />
+      <EtatActualisation portee="accueil" />
       <Pied meta={meta.etat === "ok" ? meta.valeur : null} />
     </div>
   );

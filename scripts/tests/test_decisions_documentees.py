@@ -8,7 +8,8 @@ import re
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
-# Étape P9 : trois chiffres (D100 et au-delà échappaient au contrôle, décision P9-11).
+# Étapes P7 et P9 (même motif, élargi de chaque côté) : les numéros dépassent 99 (P7 : D93 à D121) ; un motif à
+# deux chiffres ne voyait ni « D100 » cité, ni sa définition (décision P9-11).
 CITATION = re.compile(r"\bD(\d{1,3})\b")
 DEFINITION = re.compile(r"^\| D(\d{1,3}) \|", re.M)
 
@@ -45,8 +46,9 @@ def test_chaque_decision_citee_est_definie_dans_le_plan():
 
 
 def test_une_decision_a_trois_chiffres_est_controlee_comme_les_autres():
-    """Étape P9 (décision P9-11) : le plan est à D92 et P7 et P9 numérotent à la suite ; avec « \\d{1,2} », une
-    citation D100 non définie passait sans bruit et une définition « | D100 | » n'était pas reconnue."""
+    """Étape P9 (décision P9-11) : le plan s'arrêtait à D92 avant P7, et P7 puis P9 numérotent à la suite ; avec
+    « \\d{1,2} », une citation D100 non définie passait sans bruit et une définition « | D100 | » n'était pas
+    reconnue."""
     plan_sans_d100 = "| D7 | choix |\n| D99 | choix |\n"
     citation = [("docs/exemple.md", "Voir D7, D99 et D100, puis D101.")]
     assert _citations_non_definies(plan_sans_d100, citation) == [
@@ -119,3 +121,39 @@ def test_les_decisions_de_p6_sont_appliquees():
             numero = int(definition.group(1))
             assert len(cellules) == 5 and cellules[3] not in ("", "—"), ligne[:60]
             assert cellules[4].startswith(f"n° {numero - 3} du cahier"), ligne[:60]
+
+
+ORIGINE_P7 = re.compile(r"^P7-(?:(\d+) du cahier|E-(\d+) du journal|F-(\d+) du journal|"
+                        r"R-(\d+) de la relecture finale)\b")
+
+
+def test_les_decisions_de_p7_sont_appliquees():
+    """Étape P7 : décisions du cahier (P7-1 à P7-13), puis celles prises en cours de route et consignées au journal de
+    P7 (partie E : P7-E-n ; partie F : P7-F-n), puis celles de la relecture finale (P7-R-n, journal des corrections),
+    numérotées À LA SUITE de D92, sans trou, dans cet ordre ; APPLIQUÉES
+    (le propriétaire fournit les comptes, Hermes gère), jamais « à confirmer » ; pour chacune l'autre option et sa
+    conséquence, et son origine (numéro du cahier ou du journal) en tête de la remarque."""
+    plan = (RACINE / "docs" / "refonte" / "plan.md").read_text(encoding="utf-8")
+    debut = plan.index("### Étape P7 : décisions D93 à D")
+    bloc = plan[debut:plan.index("\n### ", debut + 1)]
+    assert "**appliquées**, et non « à confirmer »" in bloc
+    numeros = [int(n) for n in DEFINITION.findall(bloc)]
+    assert numeros == list(range(93, 93 + len(numeros))) and len(numeros) >= 13
+    assert bloc.splitlines()[0] == f"### Étape P7 : décisions D93 à D{numeros[-1]}, **appliquées**"
+    entete = "| N° | Question | Choix appliqué en P7 | Autre option et conséquence | Remarque (origine) |"
+    assert entete in bloc
+    origines = []
+    for ligne in bloc.splitlines():
+        if DEFINITION.match(ligne):
+            cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
+            assert len(cellules) == 5 and cellules[2] and cellules[3] not in ("", "—"), ligne[:60]
+            trouve = ORIGINE_P7.match(cellules[4])
+            assert trouve, ligne[:60]
+            origines.append(next((genre, int(n)) for genre, n in zip("CEFR", trouve.groups()) if n))
+    # Le cahier d'abord (P7-1 à P7-13, dans l'ordre), puis la partie E (P7-E-1…), la partie F (P7-F-1…), puis la
+    # relecture finale (P7-R-1…).
+    attendu = [("C", n) for n in range(1, 14)]
+    attendu += [("E", n) for n in range(1, sum(1 for g, _ in origines if g == "E") + 1)]
+    attendu += [("F", n) for n in range(1, sum(1 for g, _ in origines if g == "F") + 1)]
+    attendu += [("R", n) for n in range(1, sum(1 for g, _ in origines if g == "R") + 1)]
+    assert origines == attendu

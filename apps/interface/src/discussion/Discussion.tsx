@@ -44,7 +44,7 @@ export function Discussion(): Noeud {
       )}
       <p className="acp-discret">{T.discussion.limites}</p>
       <p className="acp-discret">{T.discussion.persistance}</p>
-      {vue.genre === "liste" ? <EtatActualisation /> : null}
+      {vue.genre === "liste" ? <EtatActualisation portee="discussions" /> : null}
     </div>
   );
 }

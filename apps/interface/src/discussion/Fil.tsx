@@ -6,7 +6,15 @@ import { Donnee } from "../commun";
 import { Bouton } from "../projets/briques";
 import { h, useEffect, useRef, useState, type Noeud } from "../react";
 import { Clarify } from "./Clarify";
-import { Conversation, etatInitial, TEXTE_MAX, type EtatConversation, type MessageFil, type OuvrirCanal } from "./conversation";
+import {
+  Conversation,
+  etatInitial,
+  TEXTE_MAX,
+  type EtatConversation,
+  type MessageFil,
+  type OuvrirCanal,
+  type Saisie,
+} from "./conversation";
 import { LienDiscussion } from "./Liste";
 import type { NaviguerDiscussion } from "./vue";
 
@@ -58,10 +66,33 @@ function Connexion(props: { etat: EtatConversation; naviguer: NaviguerDiscussion
       </div>
     );
   }
+  if (etat.connexion === "session_expiree") {
+    // Relecture finale de P7 (constat produit-3) : recharger la page passe par la porte d'authentification de Hermes,
+    // qui ramène sur cette discussion après la connexion (paramètre « next »).
+    const ici = typeof window === "undefined" ? "" : `${window.location.pathname}${window.location.search}`;
+    return (
+      <div className="acp-erreur" role="alert" data-acp-connexion={etat.connexion}>
+        <p>{T.discussion.sessionExpiree}</p>
+        <p>
+          <a className="acp-lien" href={ici}>
+            {T.discussion.recharger}
+          </a>
+        </p>
+      </div>
+    );
+  }
   if (etat.connexion === "reconnexion") {
+    // Tentative en cours (aucun délai à annoncer) : dite telle quelle, jamais « dans Inconnu s » (constat produit-5).
     return (
       <p className="acp-alerte-texte" role="status" data-acp-connexion={etat.connexion}>
-        <span>{T.discussion.reconnexion}</span> <Donnee valeur={etat.tentativeDans} /> <span>{T.discussion.secondes}</span>
+        {etat.tentativeDans === null ? (
+          <span>{T.discussion.reconnexionEnCours}</span>
+        ) : (
+          <span>
+            <span>{T.discussion.reconnexion}</span> <Donnee valeur={etat.tentativeDans} />{" "}
+            <span>{T.discussion.secondes}</span>
+          </span>
+        )}
       </p>
     );
   }
@@ -103,6 +134,9 @@ function Bulle(props: { message: MessageFil }): Noeud {
 export function Fil(props: { cle: string | null; naviguer: NaviguerDiscussion; surCle: (cle: string) => void;
                              ouvrir?: OuvrirCanal }): Noeud {
   const [etat, conversation] = useConversation(props.cle, props.surCle, props.ouvrir);
+  // Réponses en cours de saisie des questions « clarify », par identifiant de requête : une reconnexion démonte puis
+  // remonte la carte (même identifiant, rejouée par session.resume) ; la saisie survit (constat produit-13).
+  const brouillons = useRef(new Map<string, Record<string, Saisie>>());
   const [texte, fixerTexte] = useState("");
   const [envoi, fixerEnvoi] = useState(false);
   const fin = useRef<HTMLDivElement | null>(null);
@@ -164,8 +198,13 @@ export function Fil(props: { cle: string | null; naviguer: NaviguerDiscussion; s
         ) : null}
       </section>
       {etat.demandes.map((d) => (
-        <Clarify key={d.id} demande={d} actif={prete}
-                 repondre={(id, saisies) => conversation?.repondre(id, saisies) ?? false} />
+        <Clarify key={d.id} demande={d} actif={prete} brouillon={brouillons.current.get(d.id)}
+                 garder={(saisies) => brouillons.current.set(d.id, saisies)}
+                 repondre={(id, saisies) => {
+                   const envoyee = conversation?.repondre(id, saisies) ?? false;
+                   if (envoyee) brouillons.current.delete(id);
+                   return envoyee;
+                 }} />
       ))}
       {etat.erreur ? (
         <div className="acp-erreur" role="alert">

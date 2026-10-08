@@ -254,8 +254,8 @@ void DiagnosticsViewModel::refresh()
         entries.append({temps, QStringLiteral("Passerelle JSON-RPC"), m_flux->etatPasserelle(), true, false});
         entries.append({temps, QStringLiteral("Veille du kanban"), m_flux->etatVeille(), true, false});
         entries.append({temps, QStringLiteral("Sondage de /v1/projets"), m_flux->etatSondage(), true, false});
-        entries.append({temps, QStringLiteral("Flux d'événements du greffon"), EventStreamService::etatFluxGreffon(),
-                        false, false});
+        entries.append({temps, QStringLiteral("Flux d'événements du greffon"),
+                        EventStreamService::etatFluxGreffon(m_compatibilite->etatFlux()), false, false});
     }
 
     // --- Stockage -----------------------------------------------------------

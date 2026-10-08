@@ -1,4 +1,4 @@
-# Déploiement Railway d'ACP — procédure du propriétaire (étapes P2 et P6)
+# Déploiement Railway d'ACP — procédure du propriétaire (étapes P2, P6 et P7)
 
 État du **25 septembre 2026**. Étape P2 du [plan de la refonte](plan.md). **Rien n'est déployé**,
 aucun compte n'a été utilisé : tout ce qui suit est **préparé et prouvé côté dépôt**, puis
@@ -16,6 +16,10 @@ Conventions :
 sa conception est dans [executant.md](executant.md), ses gestes au **§ 13**. Toujours **rien de déployé** ; la sonde
 R0 (§ 13.2) est le premier geste, dans un projet jetable.
 
+**Étape P7 (8 octobre 2026)** : le service `hermes` déclare par `preserve()` les six variables du canal de
+notification (Telegram ou ntfy) ; vos gestes — canal, bilan quotidien facultatif, dépôts réels un par un, preuves —
+sont au **§ 14**. Toujours **rien de déployé**.
+
 Relecture indépendante de P2 (exploitation) : ordre des étapes rendu exécutable à la lettre,
 installation de la CLI sans configuration d'agent, prérequis WSL, sauvegardes hors IaC, refus PID 1,
 Rollback, dépôt public ; chaque correction est signalée « relecture P2 », et le tableau de
@@ -24,7 +28,8 @@ traitement est dans [`docs/reprise-poste.md`](../reprise-poste.md).
 Sommaire : § 1 ce qui est déployé · § 2 prérequis · § 3 règles de l'IaC · § 4 premier déploiement ·
 § 5 identité · § 6 cerveau (openai-codex) · § 7 preuves à relever · § 8 relais et
 `trusted_proxies` · § 9 exploitation · § 10 récupération · § 11 sécurité du compte · § 12 prouvé en
-local, seulement sur Railway, limites · § 13 exécutant (étape P6).
+local, seulement sur Railway, limites · § 13 exécutant (étape P6) · § 14 notifications, bilan quotidien et
+dépôts réels (étape P7).
 
 **Étape P9** : le calendrier, les sauvegardes, la restauration (arbre de décision, ordre des volumes, reconnexions,
 répétition) et la montée de version sont dans le [manuel d'exploitation](../exploitation.md), qui renvoie ici pour
@@ -53,7 +58,7 @@ Un projet Railway **`acp`**, environnement **`production`**, offre **Hobby**, d�
 | Redémarrage | `ON_FAILURE`, 10 relances | `ON_FAILURE`, 100 relances |
 | Serverless (mise en veille) | coupé | coupé |
 | Domaine public | `<libellé-hermes>.up.railway.app` | `<libellé-identite>.up.railway.app` |
-| Variables | toutes déclarées dans `railway.ts` | 4 déclarées, 4 posées par vous (`preserve()`), dont l'empreinte **scellée** |
+| Variables | toutes déclarées dans `railway.ts` ; depuis P7, les 6 du canal de notification posées par vous, facultatives (`preserve()`, jetons **scellés**, § 14) | 4 déclarées, 4 posées par vous (`preserve()`), dont l'empreinte **scellée** |
 
 **Aucune Start Command** : l'ENTRYPOINT de chaque image est sa garde (`acp-entree` puis s6 pour
 Hermes, `acp-identite-entree` pour l'identité). Une Start Command remplace l'ENTRYPOINT
@@ -204,12 +209,14 @@ en fin, vide, plus de 63 caractères), deux libellés identiques, et tout enviro
 2. `tsc` : `railway.ts` typé contre le SDK (options strictes, `erasableSyntaxOnly`) ;
 3. `verifier.mjs` : le fichier est évalué comme le fait la CLI (Node, suppression des types) ; les
    gabarits DOIVENT être refusés ; avec des libellés d'essai, le graphe doit compter exactement
-   deux services et deux volumes, avec les réglages du § 1, sans Start Command, pré-déploiement,
-   domaine ni secret ;
+   trois services et trois volumes (depuis P6), avec les réglages du § 1, sans Start Command,
+   pré-déploiement, domaine ni secret ; depuis P7, toute variable dont le nom désigne un secret est
+   `preserve()`, et le vérificateur s'éprouve sur trois copies altérées de `railway.ts` ;
 4. `test_railway_iac_contrat.py` : chaque image démarre avec exactement les variables que le
    graphe déclare (plus celles que Railway fournit, simulées), sa santé répond 200 sur le PORT
    déclaré avec l'hôte `healthcheck.railway.app` (rw_full.txt:29964) ; `identite` refuse de
-   démarrer, en français, sans les quatre variables du propriétaire.
+   démarrer, en français, sans les quatre variables du propriétaire ; depuis P7, Hermes démarre
+   sans aucune variable du canal posée (canal « aucune »), puis avec Telegram et avec ntfy posés.
 La suite du dépôt (`ci.yml`) lance en plus `scripts/tests/test_railway_iac.py`, contrôle statique
 sans Node.
 
@@ -231,12 +238,20 @@ politique de redémarrage, limites des répliques), consignez-le dans `docs/repr
   `.railway/node_modules` : c'est ainsi que `verifier.mjs` l'évalue (mesuré) ; que la CLI fasse de
   même est **supposé**. Si le plan échoue sur l'import, ne pas installer le SDK à la racine sans
   PR : le workspace racine est gelé (`scripts/check_engine_frozen.py`).
-- **`preserve()` sur une variable qui n'existe pas encore** (premier apply) : **supposé** « ne rien
-  créer » ; `identite` refuse alors de démarrer jusqu'au § 5.2 (échec fermé attendu, mesuré par
-  `test_identite_refuse_sans_les_variables_du_proprietaire`). Si le plan **refuse** `preserve()`
-  sur une variable absente : PR qui retire provisoirement les quatre `preserve()` (et les attend
-  absentes dans `verifier.mjs`), apply, pose des quatre variables (§ 5.2), puis PR qui les rétablit
-  et `railway config plan` → « already up to date ».
+- **`preserve()` sur une variable qui n'existe pas encore** : **supposé** « ne rien créer » et admis
+  par le plan ; la documentation ne décrit `preserve()` que pour une valeur déjà posée (« keep the
+  value that is already set in Railway », rw_full.txt:28651 ; rw_full.txt:19030). Deux usages en
+  dépendent :
+  - **identité, au premier apply** : `identite` refuse alors de démarrer jusqu'au § 5.2 (échec fermé
+    attendu, mesuré par `test_identite_refuse_sans_les_variables_du_proprietaire`). Si le plan
+    **refuse** `preserve()` sur une variable absente : PR qui retire provisoirement les quatre
+    `preserve()` (et les attend absentes dans `verifier.mjs`), apply, pose des quatre variables
+    (§ 5.2), puis PR qui les rétablit et `railway config plan` → « already up to date » ;
+  - **canal de notification (étape P7, D116), à chaque plan** : les variables du canal que vous ne
+    choisissez pas ne seront **jamais** posées (les six si vous n'en choisissez aucun). L'exposition
+    est permanente, pas limitée au premier apply, et le contournement ci-dessus (rétablir les
+    `preserve()` une fois les valeurs posées) ne s'y applique pas : conduite au § 14.1. Au premier
+    apply qui suit la fusion de P7, un refus toucherait les deux à la fois : une seule PR de repli.
 - **`RAILWAY_DOCKERFILE_PATH=image/Dockerfile`** relatif au répertoire racine `/hermes` : supposé.
   Si le premier build ne trouve pas le Dockerfile, le build **échoue** (constructeur `DOCKERFILE`) ;
   corriger par une PR (`/hermes/image/Dockerfile`, ou la clé typée `build.dockerfilePath`).
@@ -652,6 +667,17 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
   **Hobby**, l'image d'un déploiement retiré n'est gardée que **72 heures** (rw_full.txt:4938) ;
   au-delà, plus de Rollback : « Redeploy » reconstruit depuis la source avec les **variables
   d'origine** de ce déploiement (rw_full.txt:4944-4946), mêmes réserves.
+  Troisième avertissement (relecture finale de P7, D121) : depuis P7, **chaque démarrage** de `hermes` dépose
+  `/opt/data/scripts/acp-bilan.py` sur le volume, même si le bilan n'a jamais été créé. Une image **antérieure à P7**
+  refuse alors de démarrer (« /opt/data/scripts n'est pas vide (« acp-bilan.py ») », code 1, échec fermé : rien
+  n'est perdu). Avant un Rollback ou un « Redeploy » de `hermes` vers un déploiement d'avant P7 : supprimez d'abord
+  la tâche du bilan si elle existe (page Cron, P7 encore en service), puis passez en maintenance (§ 10 b, points 1 à
+  4), retirez `/opt/data/scripts/acp-bilan.py`, et seulement alors faites le Rollback, au lieu du « Retour » du
+  point 6 (qui redéploierait P7 et redéposerait le fichier) ; Start Command effacée et chemin de santé rétabli comme
+  au point 6, puis vérifiez au journal que l'image démarrée est bien celle visée (que le Rollback garde ou non ces
+  réglages du service n'est pas documenté : supposé gardés). Même conduite entre deux versions de P7 si le script a
+  changé entre elles : `EMPREINTES_BILAN_ADMISES` (`hermes/image/acp_demarrage.py`) ne connaît que les empreintes
+  livrées jusqu'à l'image démarrée (montée de version seulement).
 - Chaque déploiement : preuve du § 7 point 2.
 
 **Sauvegardes.** Quotidienne (6 jours) et hebdomadaire (27 jours), plus une manuelle avant toute
@@ -689,24 +715,21 @@ suffit pas. S'il a déjà provoqué un refus : § 10 b.
 **Modifier l'infrastructure** : PR sur `.railway/railway.ts` (et `verifier.mjs` si le graphe attendu
 change), CI verte, fusion, puis plan (« 0 to destroy » sauf décision écrite) et apply par vous.
 
-**Notifications du propriétaire (étape P4, facultatif)** ([projets.md](projets.md) § 5). Sans rien
-poser, elles restent **désactivées** : la page Projets dit « Notifications non configurées » et les
-notifications sont gardées en base, marquées `desactivee`, jamais envoyées. Le canal reste une
-décision ouverte (plan d'autonomie § 11.3 : Telegram recommandé). Pour l'activer :
+**Notifications du propriétaire (étape P4 ; variables déclarées depuis P7 ; facultatif)**
+([projets.md](projets.md) § 5, [questions.md](questions.md) § 8). Sans rien poser, elles restent **désactivées** : la
+page Projets dit « Notifications non configurées » et les notifications sont gardées en base, marquées `desactivee`,
+jamais envoyées. Canal recommandé : Telegram (plan d'autonomie § 11.3) ; ntfy possible. Pour l'activer :
 
-1. **Ne posez pas ces variables à la main d'abord.** Le fichier de l'IaC décrit le projet entier : une
-   variable posée dans Railway mais absente de `.railway/railway.ts` apparaîtrait au plan suivant comme
-   une **suppression** (rw_full.txt:28377), qui arrête la procédure (§ 3). Aucune n'y est déclarée en P4,
-   faute de canal choisi, et parce que `preserve()` sur une variable jamais posée n'est que supposé sans
-   effet (§ 3).
-2. PR qui déclare, dans le service `hermes` de `.railway/railway.ts`, les variables du canal choisi par
-   `preserve()` (jamais leur valeur) : `ACP_NOTIFICATIONS`, puis `ACP_TELEGRAM_JETON` et
-   `ACP_TELEGRAM_DISCUSSION`, ou `ACP_NTFY_SUJET` et `ACP_NTFY_JETON` (et `ACP_NTFY_SERVEUR` hors
-   `https://ntfy.sh`) ; mêmes noms dans `verifier.mjs`, `scripts/tests/test_railway_iac.py` et
-   `hermes/tests/contrat/test_railway_iac_contrat.py` ; CI verte, fusion.
-3. Posez les valeurs dans Railway (jeton en variable **scellée**), puis plan (« 0 to destroy ») et apply.
-4. Au démarrage, une valeur invalide fait **refuser** le démarrage en français (`[acp] REFUS : …`, règles :
-   [image.md](image.md) § 4). Page Projets → « Envoyer une notification de test » : la passerelle
+1. **Pas avant la fusion de P7.** Le fichier de l'IaC décrit le projet entier : une variable posée dans Railway mais
+   absente de `.railway/railway.ts` apparaîtrait au plan suivant comme une **suppression** (rw_full.txt:28377), qui
+   arrête la procédure (§ 3). En P4, aucune n'y était déclarée (canal non choisi). **Depuis P7**, la PR qui les déclare
+   est faite : les six variables du canal, Telegram et ntfy, `ACP_NOTIFICATIONS` comprise, sont déclarées par
+   `preserve()` dans le service `hermes` (jamais leur valeur, D116) ; le choix du canal ne demande plus de PR.
+2. Posez les valeurs du canal choisi dans Railway (jeton en variable **scellée**) : marche à suivre au § 14.2
+   (Telegram) ou au § 14.3 (ntfy) ; puis plan (« 0 to destroy ») et apply (§ 14.4). `preserve()` sur une variable
+   jamais posée (celles de l'autre canal) n'est que **supposé** sans effet : conduite à tenir au § 14.1.
+3. Au démarrage, une valeur invalide fait **refuser** le démarrage en français (`[acp] REFUS : …`, règles :
+   [image.md](image.md) § 4). Page Projets ou Accueil → « Envoyer une notification de test » : la passerelle
    l'envoie par son fil d'envoi, réveillé toutes les 30 s (moins d'une minute en pratique) ; `/api/plugins/acp-poste/v1/meta` → `projets.emetteur`
    (`canal`, `configure`, `envoyees`, `echecs`).
 
@@ -743,7 +766,9 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml` (dont, depuis P3, tout serveur
    MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8), `lazy-packages` (code 1 si
    un constat existe). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
-5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Un serveur MCP
+5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Exception : `acp-bilan.py` dans
+   `/opt/data/scripts/` est déposé par l'image depuis P7 et admis par son empreinte ; ne le retirez que pour revenir
+   à une image antérieure à P7 (§ 9, Rollback) — sinon le démarrage suivant le redépose. Un serveur MCP
    ajouté depuis la page MCP native (« INSTALL », « ADD SERVER ») se retire en supprimant son
    entrée `mcp_servers.<nom>` de `/opt/data/config.yaml` (jamais l'entrée `context7`, rétablie de
    toute façon au démarrage) ; tant que le service tourne encore, la suppression depuis la page MCP
@@ -1139,3 +1164,188 @@ connexion Codex est périmée (jeton déjà tourné), refaites `acp-poste connex
 `auth.json`, le jeton machine, les jetons Claude et GitHub et le code des dépôts : la frontière reste le compte
 Railway (§ 11). Exécutant restauré à un instant différent de Hermes (règle d'ordre provisoire, en attente de la
 mesure de P9) : [exploitation.md](../exploitation.md) § 4.3.
+
+---
+
+## 14. Notifications, bilan quotidien et dépôts réels (étape P7)
+
+Conception, état livré et preuves : [questions.md](questions.md) (file Questions, notifications, continuité),
+[executant.md](executant.md) § 16 (garde « dépôt privé » mesurée). Décisions appliquées : D93 à D121
+([plan.md](plan.md)). Comme au § 13 : vous fournissez les comptes, Hermes gère l'exploitation. **Rien de ce qui suit
+n'a été exécuté** : chaque étape est votre geste, sur Railway seulement.
+
+Cette section décrit l'état **réuni** de P7 (parties A à F, fusion `e2d210b` du 8 octobre 2026). Les gestes du § 14.6
+supposent la PR de P7 fusionnée : `executant.md` § 16 (`9235999`), les deux refus anonymes (`3b1cac9`), les dépôts
+mesurés de `GET /v1/poste`, la carte « Dépôts » avec la mesure et le grisage de Codex dans « Nouveau projet »
+(`e85c7e3`, `1f2574c`).
+
+### 14.1 Ce que P7 change dans l'IaC
+
+Le service `hermes` déclare six variables de plus, **toutes par `preserve()`**, sans aucune valeur (D116) :
+
+| Variable | Canal | Règle de la garde de démarrage ([image.md](image.md) § 4) |
+|---|---|---|
+| `ACP_NOTIFICATIONS` | tous | `aucune` (défaut si absente), `telegram` ou `ntfy` |
+| `ACP_TELEGRAM_JETON` (**scellée**) | Telegram | non vide, sans espace, 256 caractères au plus ; jamais affiché |
+| `ACP_TELEGRAM_DISCUSSION` | Telegram | identifiant numérique de la discussion (`-` admis) |
+| `ACP_NTFY_SERVEUR` | ntfy | URL https d'un hôte public (`https://ntfy.sh` par défaut) |
+| `ACP_NTFY_SUJET` | ntfy | 16 à 64 caractères parmi lettres, chiffres, `_` et `-` |
+| `ACP_NTFY_JETON` (**scellée**) | ntfy | exigé (D33) : un sujet sans jeton serait lisible par des tiers |
+
+Les deux canaux sont déclarés : vous choisissez le vôtre **sans autre PR** ; les variables de l'autre restent absentes.
+Aucun littéral : `ACP_NOTIFICATIONS: "telegram"`, appliqué avant la pose du jeton, ferait refuser le démarrage de Hermes
+(correction K13). Aucun autre changement : ni service, ni volume, ni réglage.
+
+**Ordre (celui du § 9, jamais l'inverse)** : (1) la PR de P7 fusionnée dans `refonte/hermes`, CI verte (c'est elle qui
+déclare les variables) ; (2) vous posez les valeurs dans Railway ; (3) `railway config plan` puis `railway config
+apply`. Une variable posée dans Railway **avant** d'être déclarée apparaîtrait au plan comme une **suppression**
+(rw_full.txt:28377).
+
+**Supposé, à constater au premier plan qui suit la fusion** : `preserve()` sur une variable jamais posée ne crée rien
+et n'est pas refusé par le plan (§ 3 ; la documentation de Railway ne traite pas ce cas). L'exposition est **plus
+grande** que pour l'identité : les variables du canal que vous ne choisissez pas restent absentes **pour toujours**
+(les six si vous ne choisissez aucun canal), donc chaque plan du projet en dépend, pas seulement le premier. Deux
+écarts possibles, deux conduites, **jamais exécutées** (sur Railway seulement) :
+
+- le plan montre la **création** d'une de ces variables (valeur vide) : arrêtez, n'appliquez pas. Une valeur vide
+  fait refuser le démarrage (`ACP_NOTIFICATIONS` vide n'est pas un canal admis ; `ACP_NTFY_SERVEUR` vide est refusé
+  avec ntfy). Posez alors d'abord `ACP_NOTIFICATIONS` = `aucune` (et, avec ntfy, `ACP_NTFY_SERVEUR` =
+  `https://ntfy.sh`), puis relancez le plan ;
+- le plan **refuse** `preserve()` sur une variable absente : rien ne s'applique, ni ces variables ni aucun autre
+  changement du projet, tant que ce `preserve()` reste dans `railway.ts`. N'appliquez rien, et ne posez **aucune
+  valeur factice** pour le canal non choisi (un jeton inventé n'est pas une configuration). Posez ou gardez les valeurs
+  de votre canal, `ACP_NOTIFICATIONS` comprise (sans canal : `aucune`). Un agent de développement prépare
+  une **PR de repli** qui retire de `.railway/railway.ts` le `preserve()` de chaque variable qui restera absente
+  (celles de l'autre canal ; sans canal, les cinq variables de Telegram et de ntfy) et met à jour ce qui exige les
+  six : `preservees` et le témoin « variable du canal omise » de `.railway/verifier.mjs`, `PRESERVEES_PAR_SERVICE` et
+  `test_canal_de_notification_memes_noms_que_l_image` dans `scripts/tests/test_railway_iac.py`, `PRESERVEES_HERMES`
+  et les cas paramétrés du canal retiré dans `hermes/tests/contrat/test_railway_iac_contrat.py`. CI verte, fusion
+  après votre accord, puis plan (« 0 to destroy ») et apply. Au premier apply, la même PR applique aussi le
+  contournement de l'identité (§ 3). Changer ensuite de canal demande alors une PR : posez d'abord les valeurs du
+  nouveau canal, **sans** plan ni apply (non déclarées, elles apparaîtraient au plan comme des suppressions), puis PR
+  qui déclare leurs `preserve()` (et retire ceux de l'ancien canal si vous supprimez ses valeurs) ; plan et apply
+  après sa fusion.
+
+Ce qui est prouvé, en local et en CI : `.railway/verifier.mjs` exige ces six `preserve()`, refuse tout littéral pour un
+nom de secret et s'éprouve sur trois copies altérées (jeton en clair, canal littéral, variable omise) ;
+`scripts/tests/test_railway_iac.py` vérifie que ce sont exactement les noms que lisent le greffon et la garde de
+démarrage ; `hermes/tests/contrat/test_railway_iac_contrat.py` (CI « Image Hermes » seulement : il démarre l'image)
+démarre Hermes sans aucune valeur posée (canal publié « aucune »), puis avec un canal Telegram et un canal ntfy posés
+(valeurs de test) : aucun refus, canal configuré publié par la passerelle, aucun jeton dans les journaux.
+
+### 14.2 Canal Telegram (recommandé)
+
+Marche à suivre de Telegram, **non éprouvée par ACP** (aucun compte n'a été utilisé) :
+
+1. Sur le téléphone, conversation avec **@BotFather** : `/newbot`, un nom affiché, puis un identifiant qui finit par
+   `bot`. BotFather répond avec le **jeton** du bot : ne le collez nulle part ailleurs que dans Railway (étape 4).
+2. Ouvrez la conversation avec votre bot et envoyez-lui `/start` : un bot ne peut écrire qu'à quelqu'un qui lui a
+   écrit d'abord.
+3. Identifiant de la discussion : dans une fenêtre de navigation **privée** du PC (le jeton figure dans l'adresse :
+   aucun historique ne doit le garder), ouvrez `https://api.telegram.org/bot<jeton>/getUpdates` et relevez le nombre
+   de `"chat":{"id": …}` du message `/start` ; fermez la fenêtre.
+4. Tableau de bord Railway → service `hermes` → **Variables** → **New Variable** : `ACP_NOTIFICATIONS` = `telegram`,
+   `ACP_TELEGRAM_JETON` = le jeton, puis menu ⋮ → **Seal** (scellée : illisible ensuite, modifiable par le menu ⋮),
+   `ACP_TELEGRAM_DISCUSSION` = l'identifiant. Préférez l'interface à `railway variables --set` : le jeton resterait
+   dans l'historique du shell.
+5. Effacez le presse-papiers de Windows (et son historique, Win+V) et celui du téléphone.
+
+### 14.3 Canal ntfy (possible)
+
+1. Choisissez un **sujet** long et imprévisible (16 à 64 caractères parmi lettres, chiffres, `_` et `-`) et créez un
+   **jeton d'accès** sur votre compte du serveur ntfy (`https://ntfy.sh` ou le vôtre) ; le sujet doit être réservé à
+   ce compte, sinon le jeton ne protège rien. Ce que l'offre de `ntfy.sh` permet (compte, réservation, jetons) est à
+   lire chez ntfy : **non vérifié** par ACP.
+2. Abonnez l'application ntfy du téléphone à ce sujet, avec le même compte.
+3. Railway, service `hermes` → **Variables** : `ACP_NOTIFICATIONS` = `ntfy`, `ACP_NTFY_SERVEUR` = l'URL du serveur
+   (posez-la même pour `https://ntfy.sh`), `ACP_NTFY_SUJET` = le sujet, `ACP_NTFY_JETON` = le jeton, **scellé**.
+
+### 14.4 Appliquer, puis la première preuve
+
+1. `railway config plan` : « 0 to destroy », et aucune ligne qui crée, modifie ou supprime une variable du canal
+   (vous les avez posées : `preserve()` les garde) ; sinon arrêtez (§ 14.1). Puis `railway config apply`, interactif
+   (§ 3).
+2. Déployez le changement de variables (bouton « Deploy » des changements en attente, comme au § 4.6). Une valeur
+   invalide fait **refuser** le démarrage, en français (`[acp] REFUS : la variable ACP_… …`) : corrigez-la par le menu
+   ⋮ de la variable, puis redéployez.
+3. **Notification de test** : Accueil ou page Projets → « Envoyer une notification de test » ; la passerelle l'envoie
+   par son fil d'envoi (moins d'une minute). `/api/plugins/acp-poste/v1/meta` → `projets.emetteur` (`canal`,
+   `configure`, `envoyees`, `echecs`). C'est la **première preuve réelle de livraison** (cahier P7 § 13.6, n° 1), à
+   consigner dans `docs/refonte/preuves-p7/` (capture sans le jeton).
+4. Pour changer de canal ou de jeton : modifiez les variables (menu ⋮), plan, apply, redéploiement. Pour couper les
+   notifications : `ACP_NOTIFICATIONS` = `aucune` (les notifications restent en base, marquées `desactivee`).
+
+### 14.5 Bilan quotidien (facultatif)
+
+Un clic, une fois, si vous le voulez : Accueil → carte « Bilan quotidien » → **Créer le bilan quotidien (8 h)** (ou la
+page Cron de Hermes, script `acp-bilan.py`, sans agent). Aucun modèle, aucun jeton ; 8 h heure de Paris ; une
+notification par jour, compteurs seulement, même quand rien n'a bougé. Pause ou suppression : page Cron. Sans canal
+configuré, la carte dit « Le bilan ne partira pas ». Preuve sur Railway seulement : bilan reçu à 8 h (cahier P7 § 13.6,
+n° 6). Le script est déposé à **chaque** démarrage de P7, même sans tâche (Hermes exige le script à la création de la
+tâche, D121) : avant tout retour à une image antérieure à P7, voir § 9 (Rollback, troisième avertissement).
+
+### 14.6 Dépôts réels, un par un
+
+Préalable : la preuve de P6 sur le dépôt jetable et privé (§ 13.3 bis, R5) est verte. **Jamais** le dépôt d'ACP
+lui-même en premier (Railway déploie `refonte/hermes`). Un dépôt à la fois (D102) :
+
+| Étape | Qui | Geste |
+|---|---|---|
+| 1. Choisir le dépôt réel | **vous** | le nommer (élargir le périmètre est votre geste) |
+| 2. Lecture du dépôt | **vous** | l'ajouter à votre jeton GitHub **à portée fine** (`Contents: Read-only`, dépôts choisis), ou en créer un nouveau et le déposer : `railway ssh -i <clé dédiée> --service executant`, puis `acp-poste connexion github --stdin` (§ 13.5, D92) |
+| 3. Politique | agent de développement | PR qui ajoute `[depots.<alias>]` à `executant/politique/executant.toml` : URL, `branche_base`, `acces = "jeton_lecture"`, préparation et vérification lues dans le dépôt (README, CI, fichier de verrou) ; CI verte |
+| 4. Fusion de cette PR | **vous** | après votre « oui pour <dépôt> » **écrit** : l'autorisation permanente des PR d'étape ne couvre pas un élargissement du périmètre |
+| 5. Déploiement et mesure | Railway, exécutant | redéploiement de l'exécutant après « Wait for CI » ; inventaire publié ; visibilité **mesurée** (D103) |
+| 6. Premier projet | Hermes ; preuve par l'agent | un petit projet sur ce dépôt, puis la preuve « aucune action accord requis sans geste », avant le dépôt suivant |
+
+**Mesure de la visibilité (étape 5)** : page Poste, carte « Dépôts » : alias, visibilité mesurée, lecture, date, voies
+ouvertes (`1f2574c`). La voie **Codex** n'est ouverte pour ce dépôt que si la mesure dit `prive`
+**et** `ok` (accès anonyme refusé deux fois, lecture avec le jeton réussie, D113, `3b1cac9`) ; sinon Codex est fermé
+(Claude reste admis sur un dépôt public, D84), et « Nouveau projet » grise Codex avec la raison (`1f2574c`). « Inconnue » ferme Codex (échec fermé) : si GitHub limite les accès
+anonymes depuis Railway (403, 429), la mesure le dira à ce premier dépôt réel. Détail : [executant.md](executant.md)
+§ 16.
+
+**Preuve « aucune action accord requis sans geste » (étape 6)**, sur des relevés que vous prenez (ou qu'un agent prend
+pour vous), depuis votre PC ; un « export » est la réponse JSON de l'adresse, ouverte dans le navigateur connecté au
+tableau de bord (`https://<libellé-hermes>.up.railway.app/…`) et enregistrée telle quelle :
+
+1. **Avant** le projet : `git ls-remote <url du dépôt> > ls-avant.txt` (avec votre accès habituel) ; export de
+   `GET /api/plugins/acp-poste/v1/poste` → `inv-avant.json`.
+2. Lancez le petit projet ; attendez « Terminé » (ou « Branche prête »).
+3. **Après** : `git ls-remote <url> > ls-apres.txt` ; exports de `GET /api/plugins/acp-poste/v1/projets/<id>` →
+   `projet.json`, de `GET /api/cron/jobs` → `cron.json`, de `GET /api/plugins/acp-poste/v1/poste` → `inv-apres.json`.
+4. `python scripts/preuve_accord_requis.py --alias <alias> --nom-depot <propriétaire/dépôt> --avant ls-avant.txt
+   --apres ls-apres.txt --projet projet.json --cron cron.json --inventaire-avant inv-avant.json --inventaire-apres
+   inv-apres.json --sortie docs/refonte/preuves-p7/accord-requis-<alias>.md` (Python du PC, bibliothèque standard
+   seulement) : tableau « geste → preuve → verdict » ; codes 0 (tout conforme), 1 (un geste NON CONFORME), 3 (aucun
+   écart, mais une preuve manquante), 2 (pièce illisible). Aucune référence n'est imprimée (nombre et empreinte
+   SHA-256 de la liste), le nom réel du dépôt est remplacé par son alias.
+5. Pièces que l'outil ne lit pas, à joindre : capture des permissions du jeton GitHub (« Contents: Read-only »),
+   demandes d'écriture en mémoire et en skills en attente (aucune appliquée sans votre geste), journal de l'exécutant
+   (`railway ssh … -- acp-poste journal`) : chemins sous `/donnees/espaces/<alias>/` seulement.
+6. Le résultat va dans `docs/refonte/preuves-p7/` par une PR ; le dépôt suivant attend un tableau sans NON CONFORME.
+
+L'outil est éprouvé sur des fixtures (`scripts/tests/test_preuve_accord_requis.py`), **jamais sur un vrai dépôt** à ce
+jour.
+
+### 14.7 Preuves à relever sur Railway (cahier P7 § 13.6)
+
+Toutes **sur Railway seulement**, après la fusion et le déploiement de P6 et de P7, avec vos gestes ; à consigner dans
+`docs/refonte/preuves-p7/` (aucun secret) :
+
+1. notification de test reçue sur le téléphone (§ 14.4) ;
+2. **parcours réel** : projet lancé depuis le téléphone sur le dépôt jetable, téléphone verrouillé ; une carte de
+   l'exécutant pose une question (consigne de test) ; notification reçue ; réponse depuis le PC en 1440×900 ; fil repris ;
+   projet terminé, notification « branche prête » (`integration`) ou « terminé » selon qu'une branche a été rapportée ;
+3. **redéploiement pendant une question** : une question ouverte, puis un redéploiement de `hermes` (une fusion qui
+   touche `hermes/`, sinon « Redeploy », § 9) ; question intacte, aucune notification en double, réponse puis reprise ;
+   au démarrage, `scripts/` inspecté, `acp-bilan.py` admis par son empreinte ;
+4. flux à travers le bord Railway : délai d'une trame, `fin` à 10 min, reconnexion sans perte ;
+5. **premier dépôt réel** : visibilité mesurée `prive` + `ok`, petit projet, tableau de `preuve_accord_requis.py` sans
+   NON CONFORME (§ 14.6) ;
+6. bilan reçu à 8 h, s'il a été créé (§ 14.5) ;
+7. transcriptions **illustratives** de la carte « répondre » (une question couverte par les décisions du projet,
+   une non couverte, escaladée) : jamais présentées comme une garantie.
+
+Ce qui restera non prouvé, même alors : la qualité des réponses de Hermes ; un navigateur autre que celui du téléphone
+utilisé ; les questions d'une discussion `/chat` dans la file (impossible, [questions.md](questions.md) § 6).

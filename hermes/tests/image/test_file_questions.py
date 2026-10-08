@@ -55,6 +55,22 @@ def test_question_ouverte_sans_carte_repondre_est_a_vous(noyau, conn):
     assert file["compteurs"]["chez_hermes"] == 0
 
 
+def test_detail_du_projet_dit_qui_repond(noyau, conn):
+    """Relecture finale de P7 (constat produit-11) : le détail d'un projet ne servait que l'état ; une question
+    « ouverte » sans carte « répondre » s'y lisait « Hermes cherche la réponse » alors que la règle unique la dit « à
+    vous ». Le détail sert ``chez``, calculé par la MÊME règle que la file."""
+    projet, q = _question(noyau, conn)
+    fiche = noyau.projets.projet(conn, projet["id"])
+    [avant] = noyau.projets.etat(conn, fiche)["questions_ouvertes"]
+    assert (avant["etat"], avant["chez"]) == ("ouverte", "hermes")
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE questions SET carte_repondre = NULL WHERE id = ?", (q["question"],))
+    [apres] = noyau.projets.etat(conn, fiche)["questions_ouvertes"]
+    assert (apres["etat"], apres["chez"]) == ("ouverte", "proprietaire")
+    [ligne] = noyau.questions.file_questions(conn)["questions"]
+    assert ligne["chez"] == apres["chez"]
+
+
 def test_chez_ne_depend_pas_du_reglage_courant(noyau, conn):
     projet, q = _question(noyau, conn)
     noyau.projets.changer_reponses(conn, projet["id"], reponses="proprietaire", auteur="proprietaire:test")
@@ -90,3 +106,27 @@ def test_discussions_comptent_les_requetes_ouvertes_du_processus(noyau):
     finally:
         server_requests.cancel("session-test")
     assert noyau.questions.discussions_en_attente()["requetes_ouvertes"] == 0
+
+
+def test_decision_lue_avant_son_rattachement(noyau, conn):
+    """Relecture finale de P7 (constat tests-1, cause réelle de l'échec de ``test_prolonger_au_plafond_puis_conclure``
+    en CI 37027816283) : ``cartes.creer`` valide la carte kanban PUIS rattache la demande, dans une autre base ; entre
+    les deux, la file lisait la carte de décision sans son genre (``["reprendre"]`` au lieu de « Prolonger » et
+    « Conclure »), et le rattachement ne changeait aucune empreinte suivie par la page. La demande est retrouvée par sa
+    CLÉ (cartes.py : « reconnue à sa clé même avant le rattachement »), et le rattachement change « projets »."""
+    from noyau import flux
+
+    projet = lancer_sur_depot(noyau, conn, titre="Décisions")
+    fiche = noyau.projets.projet(conn, projet["id"])
+    carte = noyau.graphe.creer_triage_plafond(conn, fiche, "tours", "3 tours planifiés")
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE demandes SET carte = NULL WHERE tableau = ? AND carte = ?", (projet["tableau"], carte))
+    fenetre = flux.calculer().valeurs
+    [decision] = noyau.questions.lister(conn)["triage"]
+    assert (decision["carte"], decision["genre"], decision["actions"]) == (carte, "tours", ["prolonger", "conclure"])
+    lu = noyau.questions._carte_en_triage(conn, projet["tableau"], carte)
+    assert lu["demande"] is not None and lu["demande"]["ref"] == "plafond-tours"
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE demandes SET carte = ? WHERE tableau = ? AND ref = 'plafond-tours'",
+                     (carte, projet["tableau"]))
+    assert flux.calculer().valeurs["projets"] != fenetre["projets"]

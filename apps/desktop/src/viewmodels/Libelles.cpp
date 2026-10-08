@@ -149,6 +149,14 @@ Libelle etatQuestion(const QJsonValue &etat)
     return {};
 }
 
+Libelle etatQuestion(const QJsonValue &etat, const QJsonValue &chez)
+{
+    if (chaine(etat) == QLatin1String("ouverte") && chaine(chez) == QLatin1String("proprietaire")) {
+        return etatQuestion(QJsonValue(QStringLiteral("escaladee")));
+    }
+    return etatQuestion(etat);
+}
+
 // Familles de la page web → pastilles de la station : succès « succeeded », échec « failed »,
 // dégradé « degraded », neutre « pending », actif « running », inconnu « unknown ».
 

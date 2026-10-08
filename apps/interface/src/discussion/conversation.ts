@@ -12,7 +12,9 @@
 //   « Outil : nom »), session.title, request.cancel ; texte brut seulement.
 // - Interrompre : session.interrupt.
 // - Reconnexion : fermeture non voulue → nouvelle tentative après 1, 2, 5, puis 10 s, et aussitôt au retour de la page ;
-//   chaque tentative refait session.resume, qui rejoue les requêtes encore ouvertes.
+//   chaque tentative refait session.resume, qui rejoue les requêtes encore ouvertes. Ticket refusé en 401 (session du
+//   tableau de bord expirée) : plus aucune tentative, « session_expiree » (relecture finale de P7) ; une panne réseau
+//   reste réessayée.
 // Rien n'est inventé : un champ illisible est écarté ; une réponse de Hermes est gardée telle quelle (donnée).
 import {
   ErreurCanal,
@@ -30,7 +32,15 @@ export const TEXTE_MAX = 20_000;
 /** Libellé ajouté par Hermes au premier choix d'une question (tools/clarify_tool.py, RECOMMENDED_LABEL). */
 export const MARQUE_RECOMMANDE = "(Recommended)";
 
-export type EtatConnexion = "repos" | "connexion" | "prete" | "reconnexion" | "indisponible" | "introuvable";
+export type EtatConnexion =
+  | "repos"
+  | "connexion"
+  | "prete"
+  | "reconnexion"
+  | "indisponible"
+  | "introuvable"
+  // Relecture finale de P7 : ticket refusé en 401 — plus aucune tentative ; recharger la page passe par la connexion.
+  | "session_expiree";
 export type RoleMessage = "utilisateur" | "hermes" | "outil" | "erreur";
 export type FinTour = "complete" | "interrupted" | "error" | null;
 export type GenreErreur = "envoi" | "creation" | "reprise" | "interruption" | "reponse" | "tour";
@@ -288,6 +298,12 @@ export class Conversation {
       if (generation !== this.generation) return;
       if (erreur instanceof ErreurCanal && erreur.genre === "sdk") {
         this.poser({ connexion: "indisponible" });
+        return;
+      }
+      if (erreur instanceof ErreurCanal && erreur.genre === "ticket" && erreur.code === 401) {
+        // Session du tableau de bord expirée (relecture finale de P7, constat produit-3) : chaque nouvelle tentative
+        // serait refusée ; la page le dit et propose de recharger (la porte d'authentification ramène ici).
+        this.poser({ connexion: "session_expiree", tentativeDans: null });
         return;
       }
       this.planifier();

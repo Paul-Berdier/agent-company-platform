@@ -114,8 +114,16 @@
       creerBilan: "Cr\xE9er le bilan quotidien (8 h)",
       bilanActif: "Actif",
       bilanEnPause: "En pause",
-      prochainEnvoi: "Prochain envoi",
-      dernierEnvoi: "Dernier envoi",
+      // Relecture finale de P7 : la tâche cron EXÉCUTE le script, qui ne fait qu'enfiler la notification ; Hermes date
+      // last_run_at même en échec. Jamais « envoi » ici : « exécution », et l'issue dite d'après last_status.
+      bilanEnErreur: "En erreur",
+      prochainEnvoi: "Prochaine ex\xE9cution",
+      dernierEnvoi: "Derni\xE8re ex\xE9cution",
+      bilanDerniereEchec: "Derni\xE8re ex\xE9cution en \xE9chec\xA0: le bilan de ce jour n'est pas garanti. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanTacheEnErreur: "Hermes a mis la t\xE2che en erreur\xA0: elle ne s'ex\xE9cutera plus d'elle-m\xEAme. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanStatut: "Issue de la derni\xE8re ex\xE9cution (Hermes)",
+      bilanErreurHermes: "Message de Hermes",
+      bilanCreationRefusee: "Le bilan n'a pas \xE9t\xE9 cr\xE9\xE9\xA0: Hermes a refus\xE9 la t\xE2che (d\xE9tail technique ci-dessous).",
       jamais: "Jamais",
       bilanPlusieurs: "Plusieurs t\xE2ches du bilan existent\xA0: gardez-en une depuis la page Cron.",
       bilanCree: "Bilan quotidien cr\xE9\xE9.",
@@ -176,6 +184,10 @@
     },
     tempsReel: {
       actif: "Page actualis\xE9e en temps r\xE9el tant qu'elle est visible.",
+      // Relecture finale de P7 (constat produit-12) : la portée exacte du temps réel, là où toute la page ne suit pas.
+      actifAccueil: "\xC0 traiter, projets, ex\xE9cutant, quotas et notifications actualis\xE9s en temps r\xE9el tant que la page est visible\xA0; bilan quotidien relu toutes les 2 minutes.",
+      noteAccueil: "Sessions r\xE9centes et cartes Syst\xE8me\xA0: lues \xE0 l'ouverture de la page.",
+      actifDiscussions: "Discussions en attente actualis\xE9es en temps r\xE9el tant que la page est visible\xA0; liste relue toutes les 2 minutes.",
       connexion: "Connexion au temps r\xE9el en cours\xA0: actualisation toutes les 15 secondes en attendant.",
       repli: "Temps r\xE9el indisponible\xA0: actualisation toutes les 15 secondes tant que la page est visible.",
       sansFlux: "Temps r\xE9el non pris en charge par ce tableau de bord\xA0: actualisation toutes les 15 secondes tant que la page est visible."
@@ -210,6 +222,9 @@
       termineLe: "Termin\xE9",
       etat: "\xC9tat",
       posteTitre: "Poste Windows",
+      // Relecture finale de P7 (constat produit-10) : titre d'après l'hôte publié par la machine, jamais « Windows » à tort.
+      posteTitreExecutant: "Ex\xE9cutant Railway",
+      posteTitreNeutre: "Ex\xE9cutant",
       machine: "Machine",
       derniereVue: "Vu pour la derni\xE8re fois",
       cartesEnAttente: "Cartes du poste en attente",
@@ -221,7 +236,7 @@
       etatNotifications: "\xC9tat",
       notificationsActives: "Configur\xE9es",
       notificationsInactives: "Non configur\xE9es",
-      notificationsNonConfigurees: "Notifications non configur\xE9es\xA0: leur activation passe par une PR qui d\xE9clare les variables ACP_NOTIFICATIONS\u2026 dans l'IaC Railway (docs/refonte/railway.md, \xA7 9).",
+      notificationsNonConfigurees: "Notifications non configur\xE9es\xA0: les variables du canal sont d\xE9j\xE0 d\xE9clar\xE9es dans l'IaC Railway\xA0; posez dans Railway celles de Telegram ou de ntfy, ACP_NOTIFICATIONS comprise, puis plan, apply et red\xE9ploiement (docs/refonte/railway.md, \xA7 14).",
       notificationsEtatInconnu: "\xC9tat du canal inconnu\xA0: la passerelle ne l'a pas encore publi\xE9.",
       envoyerTest: "Envoyer une notification de test",
       pauseTitre: "Pause g\xE9n\xE9rale",
@@ -245,6 +260,8 @@
       reponsesHermes: "Hermes d'abord",
       reponsesHermesAide: "Hermes r\xE9pond s'il le peut \xE0 partir de l'objectif et des d\xE9cisions du projet\xA0; sinon, il vous transmet la question.",
       reponsesProprietaire: "Moi",
+      // Le réglage se LIT « Vous » (détail du projet), comme « À vous » dans la file ; « Moi » reste le choix du formulaire.
+      reponsesVous: "Vous",
       reponsesProprietaireAide: "Chaque question vous est transmise directement.",
       reponsesSansObjet: "Sans objet sans d\xE9p\xF4t\xA0: aucune question ne na\xEEt d'un projet sans d\xE9p\xF4t\xA0; s'il manque une information, Hermes bloque une carte avec sa raison (page Questions, cartes bloqu\xE9es).",
       champDepot: "D\xE9p\xF4t",
@@ -255,6 +272,9 @@
       exploration: "Exploration du d\xE9p\xF4t",
       explorationAide: "Le poste lit le d\xE9p\xF4t, sans rien y modifier, avant la planification.",
       champVoie: "Ex\xE9cutant",
+      // Partie E (cahier P7 § 11.2) : voie fermée pour le dépôt choisi (visibilité mesurée), avec la raison du greffon.
+      voiesFermeesPourDepot: "Ferm\xE9 pour ce d\xE9p\xF4t (gris\xE9 dans la liste)",
+      aucunExecutantOuvert: "Aucun ex\xE9cutant ouvert pour ce d\xE9p\xF4t. Le projet part sans exploration du d\xE9p\xF4t.",
       champModele: "Mod\xE8le",
       modeleParDefaut: "Mod\xE8le par d\xE9faut du relev\xE9",
       modeleAChoisir: "Choisissez un mod\xE8le (le relev\xE9 n'en d\xE9signe aucun par d\xE9faut)",
@@ -302,7 +322,8 @@
       journal: "Journal",
       journalVide: "Journal vide.",
       journalOuvrir: "Entr\xE9es du journal",
-      questionsTitre: "Questions ouvertes",
+      // Relecture finale de P7 (constat produit-9) : les titres des sections de la file sont ceux de l'Accueil et de la doc.
+      questionsTitre: "Questions",
       aucuneQuestion: "Aucune question en attente.",
       projet: "Projet",
       motifEscalade: "Motif",
@@ -314,7 +335,7 @@
       reponseSansReprise: "R\xE9ponse enregistr\xE9e\xA0; la carte n'a pas \xE9t\xE9 relanc\xE9e (voir le kanban de Hermes).",
       contexte: "Contexte",
       carteDeLaQuestion: "Carte",
-      triageTitre: "Cartes en triage",
+      triageTitre: "D\xE9cisions",
       aucunTriage: "Aucune carte en triage.",
       consigne: "Consigne (facultative)",
       reprendreCarte: "Reprendre",
@@ -332,7 +353,7 @@
       relanceFaite: "Planification relanc\xE9e\xA0: Hermes planifie avec votre consigne.",
       conclusionFaite: "Projet conclu.",
       noteTronquee: "Extrait\xA0; le d\xE9tail du projet donne les r\xE9sum\xE9s en entier.",
-      revuesTitre: "Revues des fichiers de pilotage",
+      revuesTitre: "Revues",
       revuesIntro: "Une carte de l'ex\xE9cutant a modifi\xE9 des fichiers qui pilotent les agents (CLAUDE.md, AGENTS.md, .github\u2026). Acceptez-la, ou refusez-la avec un motif\xA0: elle revient alors \xE0 l'ex\xE9cutant, qui retire la modification.",
       aucuneRevue: "Aucune carte en revue.",
       chemins: "Fichiers de pilotage touch\xE9s",
@@ -347,13 +368,14 @@
       motifRefus: "Motif du refus",
       revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
       revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
-      bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
+      bloqueesTitre: "Cartes arr\xEAt\xE9es",
       // Étape P7 : file Questions, « Qui répond », « Clore » (cahier P7 § 3, § 4.2, § 10).
       fileTitre: "\xC0 traiter",
       aTraiterParVous: "\xC0 traiter par vous",
       chezHermesCompte: "Chez Hermes",
       discussionsNonComptees: "(discussions en attente\xA0: \xE9tat inconnu, non compt\xE9es)",
       cibleTraitee: "Cette demande a d\xE9j\xE0 \xE9t\xE9 trait\xE9e\xA0: elle n'est plus dans la file.",
+      cibleIllisible: "Le tableau de cette demande n'a pas pu \xEAtre lu\xA0: son \xE9tat est inconnu (voir \xAB\xA0Tableaux illisibles\xA0\xBB).",
       quiRepondQuestion: "Qui r\xE9pond",
       chezHermes: "Hermes y r\xE9pond",
       aVous: "\xC0 vous",
@@ -362,7 +384,12 @@
       bloqueesIntro: "\xAB\xA0Relancer\xA0\xBB remet la carte en route, avec votre consigne si vous en donnez une. Une carte qui rebloque pour la m\xEAme raison revient en d\xE9cision.",
       relancerCarte: "Relancer",
       relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
+      relanceIntegrationAide: "Carte d'int\xE9gration, sans agent\xA0: \xAB\xA0Relancer\xA0\xBB rejoue la m\xEAme fusion des branches, sans consigne. Un conflit revient tant qu'aucune branche ne change\xA0: r\xE9cup\xE9rez les branches sur l'ex\xE9cutant (git bundle) pour trancher, ou cl\xF4turez le projet.",
+      relanceeFusion: "La carte repart\xA0: l'ex\xE9cutant rejoue la m\xEAme fusion.",
       relancee: "La carte repart.",
+      // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
+      relanceQuarantaineAide: "Bloqu\xE9e pour un secret d\xE9tect\xE9. Le travail fautif reste en quarantaine sur l'ex\xE9cutant, jamais int\xE9gr\xE9 ni pouss\xE9. La relance repart du d\xE9part de la carte, sur une branche neuve et en session neuve.",
+      relanceeBrancheNeuve: "La carte repart sur une branche neuve, en session neuve. Le travail en quarantaine n'est pas repris.",
       relanceeSessionNeuve: "La carte repart\xA0: l'agent reprend d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       nonRelancee: "La carte n'a pas \xE9t\xE9 relanc\xE9e.",
       statutApres: "Statut\xA0:",
@@ -472,7 +499,21 @@
         termine: "Projet termin\xE9",
         reparation: "Cr\xE9ation r\xE9par\xE9e",
         surcharge: "Surcharge de routage",
-        correction: "Correction ins\xE9r\xE9e"
+        correction: "Correction ins\xE9r\xE9e",
+        // Relecture finale de P7 (constat produit-7) : actions de P6 et de P7 journalisées avec le projet.
+        relance: "Carte relanc\xE9e",
+        reglage_reponses: "Qui r\xE9pond chang\xE9",
+        cloture: "Projet clos",
+        revue_acceptee: "Revue accept\xE9e",
+        revue_refusee: "Revue refus\xE9e",
+        integration: "Int\xE9gration demand\xE9e",
+        carte_servie: "Carte servie \xE0 l'ex\xE9cutant",
+        carte_bloquee: "Carte bloqu\xE9e par l'ex\xE9cutant",
+        carte_bloquee_ecart: "Carte bloqu\xE9e\xA0: demande hors de la politique de l'ex\xE9cutant",
+        carte_non_construite: "Carte non construite pour l'ex\xE9cutant",
+        carte_voie_fermee: "Carte bloqu\xE9e\xA0: voie ferm\xE9e",
+        carte_etrangere_bloquee: "Carte \xE9trang\xE8re bloqu\xE9e",
+        attente_quota_levee: "Attente de quota lev\xE9e"
       },
       acteursJournal: {
         vous: "Vous",
@@ -563,6 +604,27 @@
       offre: "Offre",
       depotsTitre: "D\xE9p\xF4ts autoris\xE9s",
       aucunDepot: "Aucun d\xE9p\xF4t d\xE9clar\xE9 par le poste.",
+      // Étape P7, partie E (cahier P7 § 11.2) : visibilité mesurée par l'exécutant, voies ouvertes par dépôt.
+      depots: {
+        aide: "Visibilit\xE9 mesur\xE9e par l'ex\xE9cutant \xE0 chaque inventaire et avant chaque carte Codex. Priv\xE9 veut dire acc\xE8s anonyme refus\xE9 et lecture avec le jeton r\xE9ussie. Codex ne travaille que sur un d\xE9p\xF4t prouv\xE9 priv\xE9 (D83), Claude sur tout d\xE9p\xF4t (D84).",
+        visibilite: "Visibilit\xE9 mesur\xE9e",
+        lecture: "Lecture par l'ex\xE9cutant",
+        verifieLe: "Mesur\xE9e",
+        voies: "Voies pour ce d\xE9p\xF4t",
+        ouverte: "Ouverte",
+        fermee: "Ferm\xE9e",
+        nonMesure: "Jamais mesur\xE9e par l'ex\xE9cutant (Codex ferm\xE9)",
+        visibilites: {
+          prive: "Priv\xE9",
+          public: "Public",
+          inconnue: "Inconnue (Codex ferm\xE9)"
+        },
+        lectures: {
+          ok: "R\xE9ussie",
+          refusee: "Refus\xE9e",
+          inconnue: "Inconnue"
+        }
+      },
       inventaireTitre: "Dernier inventaire",
       aucunInventaire: "Aucun inventaire re\xE7u.",
       recuLe: "Re\xE7u",
@@ -792,11 +854,15 @@
       ouvrir: "Ouvrir",
       ouvrirDiscussion: "Ouvrir la discussion",
       listeIndisponible: "La liste des discussions n'a pas pu \xEAtre lue.",
+      attenteInconnue: "Discussions en attente\xA0: \xE9tat inconnu (le tableau de bord n'a pas pu \xEAtre interrog\xE9)\xA0; l'absence de la marque \xAB\xA0En attente d'une r\xE9ponse\xA0\xBB ne veut rien dire.",
       indisponible: "Discussion indisponible\xA0: ce tableau de bord n'expose pas buildWsUrl (contrat 1.1 du SDK).",
       introuvable: "Discussion introuvable\xA0: Hermes ne la conna\xEEt plus (ferm\xE9e, ou perdue au red\xE9marrage).",
       connexion: "Connexion \xE0 Hermes\u2026",
       prete: "Connect\xE9 \xE0 Hermes.",
       reconnexion: "Connexion perdue. Nouvelle tentative dans",
+      reconnexionEnCours: "Connexion perdue\xA0: nouvelle tentative en cours\u2026",
+      sessionExpiree: "Session expir\xE9e\xA0: reconnectez-vous pour reprendre la discussion (elle vous attend).",
+      recharger: "Recharger la page",
       secondes: "s",
       nouvelleIntro: "\xC9crivez votre premier message\xA0: la discussion est cr\xE9\xE9e \xE0 l'envoi.",
       fil: "Messages de la discussion",
@@ -1050,6 +1116,7 @@
   var ECHECS_AVANT_REPLI = 3;
   var NOUVEL_ESSAI_MS = 3e5;
   var FERMETURE_DIFFEREE_MS = 5e3;
+  var CHIEN_DE_GARDE_MS = 4e4;
   var TRAMES_GARDEES = 200;
   var AnalyseurSse = class {
     constructor() {
@@ -1245,6 +1312,15 @@
       const controleur = new AbortController();
       this.controleur = controleur;
       let fin = false;
+      let chien = null;
+      const relancerChien = () => {
+        if (chien !== null) clearTimeout(chien);
+        chien = setTimeout(() => {
+          chien = null;
+          if (generation === this.generation) controleur.abort();
+        }, CHIEN_DE_GARDE_MS);
+      };
+      relancerChien();
       try {
         const entetes = { Accept: "text/event-stream" };
         if (this.dernierId !== null) entetes["Last-Event-ID"] = this.dernierId;
@@ -1257,6 +1333,7 @@
           return;
         }
         if (!reponse.ok || reponse.body === null) throw new Error(`flux ${reponse.status}`);
+        relancerChien();
         const lecteur = reponse.body.getReader();
         const decodeur = new TextDecoder();
         const analyseur = new AnalyseurSse();
@@ -1267,6 +1344,7 @@
             return;
           }
           if (done) break;
+          relancerChien();
           for (const trame of analyseur.pousser(decodeur.decode(value, { stream: true }))) {
             if (trame.id !== null) this.dernierId = trame.id;
             fin = this.traiter(trame) || fin;
@@ -1274,6 +1352,9 @@
         }
       } catch {
         if (generation !== this.generation) return;
+      } finally {
+        if (chien !== null) clearTimeout(chien);
+        chien = null;
       }
       if (generation !== this.generation) return;
       this.controleur = null;
@@ -1439,9 +1520,11 @@
   }
 
   // src/actualisation.tsx
-  function EtatActualisation() {
+  function EtatActualisation(props = {}) {
     const etat = useEtatFlux();
-    const texte = etat.mode === "temps_reel" ? T.tempsReel.actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
+    const portee = props.portee ?? "page";
+    const actif = portee === "accueil" ? T.tempsReel.actifAccueil : portee === "discussions" ? T.tempsReel.actifDiscussions : T.tempsReel.actif;
+    const texte = etat.mode === "temps_reel" ? actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
     return /* @__PURE__ */ h(
       "p",
       {
@@ -1449,7 +1532,8 @@
         role: "status",
         "data-acp-temps-reel": etat.mode
       },
-      texte
+      /* @__PURE__ */ h("span", null, texte),
+      portee === "accueil" ? /* @__PURE__ */ h("span", null, " ", T.tempsReel.noteAccueil) : null
     );
   }
 
@@ -1733,7 +1817,12 @@
     try {
       url = await construire("/api/ws");
     } catch (erreur) {
-      throw new ErreurCanal("ticket", erreur instanceof Error ? erreur.message : String(erreur));
+      const statut = erreur && typeof erreur === "object" ? erreur.status : void 0;
+      throw new ErreurCanal(
+        "ticket",
+        erreur instanceof Error ? erreur.message : String(erreur),
+        typeof statut === "number" && Number.isInteger(statut) && statut > 0 ? statut : null
+      );
     }
     const fabrique = options.fabrique ?? ((adresse) => new WebSocket(adresse));
     const canal = await new Promise((resoudre, rejeter) => {
@@ -2130,16 +2219,22 @@
     const nbDiscussions = connues && props.discussions?.connu ? props.discussions.sessions.length : null;
     const total = bloc && typeof bloc.total === "number" ? bloc.total + (nbDiscussions ?? 0) : null;
     const premieres = Array.isArray(bloc?.premieres) ? bloc.premieres : [];
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.aTraiterTitre, id: "acp-accueil-a-traiter" }, bloc === null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h("span", null, T.accueil.blocIllisible), " ", /* @__PURE__ */ h(Donnee, { valeur: props.illisible })) : /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("p", { className: "acp-chiffre" }, /* @__PURE__ */ h(Donnee, { valeur: total })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.questions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.questions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.decisions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.decisions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.revues }, /* @__PURE__ */ h(Donnee, { valeur: bloc.revues ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.arretees }, /* @__PURE__ */ h(Donnee, { valeur: bloc.arretees ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.discussionsEnAttente }, nbDiscussions === null ? /* @__PURE__ */ h("span", null, T.accueil.inconnues) : /* @__PURE__ */ h(Donnee, { valeur: nbDiscussions })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.chezHermes }, /* @__PURE__ */ h(Donnee, { valeur: typeof props.chezHermes === "number" ? props.chezHermes : null }))), premieres.length > 0 ? /* @__PURE__ */ h("ul", { className: "acp-noms" }, premieres.map((d, rang) => {
+    return /* @__PURE__ */ h(Carte, { titre: T.accueil.aTraiterTitre, id: "acp-accueil-a-traiter" }, bloc === null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h("span", null, T.accueil.blocIllisible), " ", /* @__PURE__ */ h(Donnee, { valeur: props.illisible })) : /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("p", { className: "acp-chiffre" }, /* @__PURE__ */ h(Donnee, { valeur: total }), nbDiscussions === null ? /* @__PURE__ */ h("span", { className: "acp-discret" }, " ", T.projets.discussionsNonComptees) : null), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.questions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.questions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.decisions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.decisions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.revues }, /* @__PURE__ */ h(Donnee, { valeur: bloc.revues ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.arretees }, /* @__PURE__ */ h(Donnee, { valeur: bloc.arretees ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.discussionsEnAttente }, nbDiscussions === null ? /* @__PURE__ */ h("span", null, T.accueil.inconnues) : /* @__PURE__ */ h(Donnee, { valeur: nbDiscussions })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.chezHermes }, /* @__PURE__ */ h(Donnee, { valeur: typeof props.chezHermes === "number" ? props.chezHermes : null }))), premieres.length > 0 ? /* @__PURE__ */ h("ul", { className: "acp-noms" }, premieres.map((d, rang) => {
       const cible = chaine2(d.cible);
       const genre = libelleGenre(d.genre);
       return /* @__PURE__ */ h("li", { key: `${cible ?? rang}` }, genre ? /* @__PURE__ */ h("span", { className: "acp-discret" }, genre, " ") : null, cible && CIBLE.test(cible) ? /* @__PURE__ */ h(Lien, { vers: cible }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.titre) })) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.projet_titre) })));
-    })) : total === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.rienATraiter) : null), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/projets?vue=questions" }, T.accueil.ouvrirQuestions)));
+    })) : total === 0 && nbDiscussions !== null ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.rienATraiter) : null), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/projets?vue=questions" }, T.accueil.ouvrirQuestions)));
   }
 
   // src/interface/CarteBilan.tsx
   function bilanEnPause(tache) {
     return tache.enabled === false || tache.state === "paused";
+  }
+  function bilanEnErreur(tache) {
+    return !bilanEnPause(tache) && tache.state === "error";
+  }
+  function derniereEnEchec(tache) {
+    return Boolean(tache.last_run_at) && typeof tache.last_status === "string" && tache.last_status !== "ok";
   }
   function CarteBilan(props) {
     const lecture = useDonnees(lireTachesCron, props.jeton, []);
@@ -2162,10 +2257,13 @@
           surClic: () => void creer(),
           desactive: creation.etat.etat === "envoi"
         }
-      )), /* @__PURE__ */ h(RetourEnvoi, { etat: creation.etat }));
+      )), creation.etat.etat === "erreur" ? /* @__PURE__ */ h(BlocErreur, { erreur: creation.etat.erreur, message: T.accueil.bilanCreationRefusee }) : /* @__PURE__ */ h(RetourEnvoi, { etat: creation.etat }));
     } else {
       const pause = bilanEnPause(tache);
-      contenu = /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: pause ? { texte: T.accueil.bilanEnPause, famille: "neutre" } : { texte: T.accueil.bilanActif, famille: "succes" } })), pause ? null : /* @__PURE__ */ h(Ligne, { libelle: T.accueil.prochainEnvoi }, /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.next_run_at) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.dernierEnvoi }, tache.last_run_at ? /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.last_run_at) }) : /* @__PURE__ */ h("span", null, T.accueil.jamais))), taches.length > 1 ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanPlusieurs) : null, creation.etat.etat === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, T.accueil.bilanCree) : null);
+      const erreur = bilanEnErreur(tache);
+      const echec = derniereEnEchec(tache);
+      const detail = chaine2(tache.last_error);
+      contenu = /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: pause ? { texte: T.accueil.bilanEnPause, famille: "neutre" } : erreur ? { texte: T.accueil.bilanEnErreur, famille: "echec" } : { texte: T.accueil.bilanActif, famille: "succes" } })), pause || erreur ? null : /* @__PURE__ */ h(Ligne, { libelle: T.accueil.prochainEnvoi }, /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.next_run_at) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.dernierEnvoi }, tache.last_run_at ? /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.last_run_at) }) : /* @__PURE__ */ h("span", null, T.accueil.jamais))), erreur ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.accueil.bilanTacheEnErreur) : echec ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.accueil.bilanDerniereEchec) : null, (erreur || echec) && (detail || tache.last_status) ? /* @__PURE__ */ h("details", { className: "acp-details" }, /* @__PURE__ */ h("summary", null, T.commun.detailTechnique), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.bilanStatut }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(tache.last_status), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.bilanErreurHermes }, /* @__PURE__ */ h(Donnee, { valeur: detail, mono: true })))) : null, taches.length > 1 ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanPlusieurs) : null, creation.etat.etat === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, T.accueil.bilanCree) : null);
     }
     return /* @__PURE__ */ h(Carte, { titre: T.accueil.bilanTitre, id: "acp-accueil-bilan" }, contenu, notif?.connu === true && notif.configure !== true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanSansCanal) : null, /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/cron" }, T.accueil.ouvrirCron)));
   }
@@ -2240,7 +2338,7 @@
     const quotas = props.quotas ?? null;
     return /* @__PURE__ */ h(Carte, { titre: T.accueil.quotasTitre, id: "acp-accueil-quotas" }, quotas === null ? /* @__PURE__ */ h(Illisible, { raison: props.illisible }) : /* @__PURE__ */ h("div", { className: "acp-sections" }, VOIES_QUOTAS.map((voie) => {
       const q = quotas[voie] ?? {};
-      return /* @__PURE__ */ h("div", { key: voie, className: "acp-groupe" }, /* @__PURE__ */ h("h3", { className: "acp-sous-titre" }, libelleVoie(voie)), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuotas(q.etat), brut: q.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.utilise }, /* @__PURE__ */ h(Donnee, { valeur: pourcentage(q.resume?.pourcentage_utilise) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.remiseAZero }, /* @__PURE__ */ h(Horodatage, { valeur: q.resume?.remise_a_zero })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.source }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(q.source_libelle) ?? chaine2(q.source) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: q.releve_le }))));
+      return /* @__PURE__ */ h("div", { key: voie, className: "acp-groupe" }, /* @__PURE__ */ h("h3", { className: "acp-sous-titre" }, libelleVoie(voie)), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuotas(q.etat), brut: q.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.utilise }, /* @__PURE__ */ h(Donnee, { valeur: pourcentage(q.resume?.pourcentage_utilise) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.remiseAZero }, /* @__PURE__ */ h(Horodatage, { valeur: q.resume?.remise_a_zero })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.source }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(q.source_libelle) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: q.releve_le }))));
     }), /* @__PURE__ */ h("div", { className: "acp-groupe" }, /* @__PURE__ */ h("h3", { className: "acp-sous-titre" }, T.accueil.quotasHermes), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(quotas.hermes?.libelle) })))), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/poste?vue=quotas" }, T.accueil.ouvrirQuotas)));
   }
 
@@ -2332,7 +2430,7 @@
         discussions: discussions.valeur,
         illisible: raison("a_traiter")
       }
-    ) : null, accueil !== null ? /* @__PURE__ */ h(CarteProjets, { bloc: accueil.projets, illisible: raison("projets") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteExecutant, { executant: accueil.executant, illisible: raison("executant") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteQuotas, { quotas: accueil.quotas, illisible: raison("quotas") }) : null, accueil !== null ? /* @__PURE__ */ h(Notifications, { etat: accueil.notifications }) : null, accueil !== null ? /* @__PURE__ */ h(CarteBilan, { notifications: accueil.notifications, jeton, apres }) : null, /* @__PURE__ */ h(CarteSessions, null), meta.etat === "ok" ? /* @__PURE__ */ h(CarteHermes, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteGarde, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CartePersona, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteCatalogue, { meta: meta.valeur }) : null, /* @__PURE__ */ h(CarteRaccourcis, null)), meta.etat === "chargement" ? /* @__PURE__ */ h(EnChargement, null) : null, meta.etat === "erreur" ? /* @__PURE__ */ h(BlocErreur, { erreur: meta.erreur, message: T.accueil.metaIndisponible }) : null, /* @__PURE__ */ h(EtatActualisation, null), /* @__PURE__ */ h(Pied, { meta: meta.etat === "ok" ? meta.valeur : null }));
+    ) : null, accueil !== null ? /* @__PURE__ */ h(CarteProjets, { bloc: accueil.projets, illisible: raison("projets") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteExecutant, { executant: accueil.executant, illisible: raison("executant") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteQuotas, { quotas: accueil.quotas, illisible: raison("quotas") }) : null, accueil !== null ? /* @__PURE__ */ h(Notifications, { etat: accueil.notifications }) : null, accueil !== null ? /* @__PURE__ */ h(CarteBilan, { notifications: accueil.notifications, jeton, apres }) : null, /* @__PURE__ */ h(CarteSessions, null), meta.etat === "ok" ? /* @__PURE__ */ h(CarteHermes, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteGarde, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CartePersona, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteCatalogue, { meta: meta.valeur }) : null, /* @__PURE__ */ h(CarteRaccourcis, null)), meta.etat === "chargement" ? /* @__PURE__ */ h(EnChargement, null) : null, meta.etat === "erreur" ? /* @__PURE__ */ h(BlocErreur, { erreur: meta.erreur, message: T.accueil.metaIndisponible }) : null, /* @__PURE__ */ h(EtatActualisation, { portee: "accueil" }), /* @__PURE__ */ h(Pied, { meta: meta.etat === "ok" ? meta.valeur : null }));
   }
 
   // src/interface/Alertes.tsx

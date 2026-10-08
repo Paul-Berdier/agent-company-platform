@@ -109,6 +109,8 @@ export interface TacheCron {
   next_run_at?: string | null;
   last_run_at?: string | null;
   last_status?: string | null;
+  /** Message de Hermes quand la dernière exécution a échoué (anglais, montré replié). */
+  last_error?: string | null;
 }
 
 export const lireAccueil = (): Promise<Accueil> => lireJSON<Accueil>(ROUTE_ACCUEIL);

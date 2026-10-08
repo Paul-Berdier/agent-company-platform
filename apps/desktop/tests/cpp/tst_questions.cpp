@@ -126,6 +126,21 @@ void TestQuestions::questionLibellee()
     QCOMPARE(illisible.value(QStringLiteral("texte")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(illisible.value(QStringLiteral("etatCle")).toString(), QStringLiteral("unknown"));
     QCOMPARE(illisible.value(QStringLiteral("contexte")).toString(), QString());
+
+    // Relecture finale de P7 (constat desktop-4) : règle unique du greffon (`chez`). Une question « ouverte » dont la
+    // carte « répondre » n'a jamais été créée attend le propriétaire : jamais « Hermes cherche la réponse ».
+    QJsonObject ouverteAVous = source;
+    ouverteAVous.insert(QStringLiteral("etat"), QStringLiteral("ouverte"));
+    ouverteAVous.insert(QStringLiteral("carte_repondre"), QJsonValue::Null);
+    ouverteAVous.insert(QStringLiteral("chez"), QStringLiteral("proprietaire"));
+    const QJsonObject aVous = QuestionsViewModel::construireQuestion(ouverteAVous);
+    QCOMPARE(aVous.value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Votre réponse est attendue"));
+    QCOMPARE(aVous.value(QStringLiteral("etatCle")).toString(), QStringLiteral("approvalRequired"));
+    QJsonObject ouverteHermes = ouverteAVous;
+    ouverteHermes.insert(QStringLiteral("carte_repondre"), QStringLiteral("t_0a0b0c0d"));
+    ouverteHermes.insert(QStringLiteral("chez"), QStringLiteral("hermes"));
+    QCOMPARE(QuestionsViewModel::construireQuestion(ouverteHermes).value(QStringLiteral("etatLibelle")).toString(),
+             QStringLiteral("Hermes cherche la réponse"));
 }
 
 void TestQuestions::triageConstruitDepuisLesActions()
@@ -151,7 +166,10 @@ void TestQuestions::triageConstruitDepuisLesActions()
     const QJsonObject c = QuestionsViewModel::construireTriage(corrections);
     QCOMPARE(c.value(QStringLiteral("avecConsigne")).toBool(), false);
     QCOMPARE(c.value(QStringLiteral("peutConclure")).toBool(), true);
-    QCOMPARE(c.value(QStringLiteral("aide")).toString(), QStringLiteral("Prolonger le plafond de corrections arrivera à l'étape P6."));
+    // Relecture finale de P7 (constat desktop-9) : le greffon refuse cette prolongation pour de bon (PROLONGATION_P6).
+    QCOMPARE(c.value(QStringLiteral("aide")).toString(),
+             QStringLiteral("Le plafond de corrections ne se prolonge pas : la relecture qui l'a atteint est close ; "
+                            "concluez le projet depuis cette carte."));
 
     // Sans liste lisible : le geste historique « Reprendre », et pas de conclusion.
     QJsonObject autre = source;

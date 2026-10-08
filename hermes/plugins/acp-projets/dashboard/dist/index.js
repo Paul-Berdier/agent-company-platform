@@ -114,8 +114,16 @@
       creerBilan: "Cr\xE9er le bilan quotidien (8 h)",
       bilanActif: "Actif",
       bilanEnPause: "En pause",
-      prochainEnvoi: "Prochain envoi",
-      dernierEnvoi: "Dernier envoi",
+      // Relecture finale de P7 : la tâche cron EXÉCUTE le script, qui ne fait qu'enfiler la notification ; Hermes date
+      // last_run_at même en échec. Jamais « envoi » ici : « exécution », et l'issue dite d'après last_status.
+      bilanEnErreur: "En erreur",
+      prochainEnvoi: "Prochaine ex\xE9cution",
+      dernierEnvoi: "Derni\xE8re ex\xE9cution",
+      bilanDerniereEchec: "Derni\xE8re ex\xE9cution en \xE9chec\xA0: le bilan de ce jour n'est pas garanti. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanTacheEnErreur: "Hermes a mis la t\xE2che en erreur\xA0: elle ne s'ex\xE9cutera plus d'elle-m\xEAme. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanStatut: "Issue de la derni\xE8re ex\xE9cution (Hermes)",
+      bilanErreurHermes: "Message de Hermes",
+      bilanCreationRefusee: "Le bilan n'a pas \xE9t\xE9 cr\xE9\xE9\xA0: Hermes a refus\xE9 la t\xE2che (d\xE9tail technique ci-dessous).",
       jamais: "Jamais",
       bilanPlusieurs: "Plusieurs t\xE2ches du bilan existent\xA0: gardez-en une depuis la page Cron.",
       bilanCree: "Bilan quotidien cr\xE9\xE9.",
@@ -176,6 +184,10 @@
     },
     tempsReel: {
       actif: "Page actualis\xE9e en temps r\xE9el tant qu'elle est visible.",
+      // Relecture finale de P7 (constat produit-12) : la portée exacte du temps réel, là où toute la page ne suit pas.
+      actifAccueil: "\xC0 traiter, projets, ex\xE9cutant, quotas et notifications actualis\xE9s en temps r\xE9el tant que la page est visible\xA0; bilan quotidien relu toutes les 2 minutes.",
+      noteAccueil: "Sessions r\xE9centes et cartes Syst\xE8me\xA0: lues \xE0 l'ouverture de la page.",
+      actifDiscussions: "Discussions en attente actualis\xE9es en temps r\xE9el tant que la page est visible\xA0; liste relue toutes les 2 minutes.",
       connexion: "Connexion au temps r\xE9el en cours\xA0: actualisation toutes les 15 secondes en attendant.",
       repli: "Temps r\xE9el indisponible\xA0: actualisation toutes les 15 secondes tant que la page est visible.",
       sansFlux: "Temps r\xE9el non pris en charge par ce tableau de bord\xA0: actualisation toutes les 15 secondes tant que la page est visible."
@@ -210,6 +222,9 @@
       termineLe: "Termin\xE9",
       etat: "\xC9tat",
       posteTitre: "Poste Windows",
+      // Relecture finale de P7 (constat produit-10) : titre d'après l'hôte publié par la machine, jamais « Windows » à tort.
+      posteTitreExecutant: "Ex\xE9cutant Railway",
+      posteTitreNeutre: "Ex\xE9cutant",
       machine: "Machine",
       derniereVue: "Vu pour la derni\xE8re fois",
       cartesEnAttente: "Cartes du poste en attente",
@@ -221,7 +236,7 @@
       etatNotifications: "\xC9tat",
       notificationsActives: "Configur\xE9es",
       notificationsInactives: "Non configur\xE9es",
-      notificationsNonConfigurees: "Notifications non configur\xE9es\xA0: leur activation passe par une PR qui d\xE9clare les variables ACP_NOTIFICATIONS\u2026 dans l'IaC Railway (docs/refonte/railway.md, \xA7 9).",
+      notificationsNonConfigurees: "Notifications non configur\xE9es\xA0: les variables du canal sont d\xE9j\xE0 d\xE9clar\xE9es dans l'IaC Railway\xA0; posez dans Railway celles de Telegram ou de ntfy, ACP_NOTIFICATIONS comprise, puis plan, apply et red\xE9ploiement (docs/refonte/railway.md, \xA7 14).",
       notificationsEtatInconnu: "\xC9tat du canal inconnu\xA0: la passerelle ne l'a pas encore publi\xE9.",
       envoyerTest: "Envoyer une notification de test",
       pauseTitre: "Pause g\xE9n\xE9rale",
@@ -245,6 +260,8 @@
       reponsesHermes: "Hermes d'abord",
       reponsesHermesAide: "Hermes r\xE9pond s'il le peut \xE0 partir de l'objectif et des d\xE9cisions du projet\xA0; sinon, il vous transmet la question.",
       reponsesProprietaire: "Moi",
+      // Le réglage se LIT « Vous » (détail du projet), comme « À vous » dans la file ; « Moi » reste le choix du formulaire.
+      reponsesVous: "Vous",
       reponsesProprietaireAide: "Chaque question vous est transmise directement.",
       reponsesSansObjet: "Sans objet sans d\xE9p\xF4t\xA0: aucune question ne na\xEEt d'un projet sans d\xE9p\xF4t\xA0; s'il manque une information, Hermes bloque une carte avec sa raison (page Questions, cartes bloqu\xE9es).",
       champDepot: "D\xE9p\xF4t",
@@ -255,6 +272,9 @@
       exploration: "Exploration du d\xE9p\xF4t",
       explorationAide: "Le poste lit le d\xE9p\xF4t, sans rien y modifier, avant la planification.",
       champVoie: "Ex\xE9cutant",
+      // Partie E (cahier P7 § 11.2) : voie fermée pour le dépôt choisi (visibilité mesurée), avec la raison du greffon.
+      voiesFermeesPourDepot: "Ferm\xE9 pour ce d\xE9p\xF4t (gris\xE9 dans la liste)",
+      aucunExecutantOuvert: "Aucun ex\xE9cutant ouvert pour ce d\xE9p\xF4t. Le projet part sans exploration du d\xE9p\xF4t.",
       champModele: "Mod\xE8le",
       modeleParDefaut: "Mod\xE8le par d\xE9faut du relev\xE9",
       modeleAChoisir: "Choisissez un mod\xE8le (le relev\xE9 n'en d\xE9signe aucun par d\xE9faut)",
@@ -302,7 +322,8 @@
       journal: "Journal",
       journalVide: "Journal vide.",
       journalOuvrir: "Entr\xE9es du journal",
-      questionsTitre: "Questions ouvertes",
+      // Relecture finale de P7 (constat produit-9) : les titres des sections de la file sont ceux de l'Accueil et de la doc.
+      questionsTitre: "Questions",
       aucuneQuestion: "Aucune question en attente.",
       projet: "Projet",
       motifEscalade: "Motif",
@@ -314,7 +335,7 @@
       reponseSansReprise: "R\xE9ponse enregistr\xE9e\xA0; la carte n'a pas \xE9t\xE9 relanc\xE9e (voir le kanban de Hermes).",
       contexte: "Contexte",
       carteDeLaQuestion: "Carte",
-      triageTitre: "Cartes en triage",
+      triageTitre: "D\xE9cisions",
       aucunTriage: "Aucune carte en triage.",
       consigne: "Consigne (facultative)",
       reprendreCarte: "Reprendre",
@@ -332,7 +353,7 @@
       relanceFaite: "Planification relanc\xE9e\xA0: Hermes planifie avec votre consigne.",
       conclusionFaite: "Projet conclu.",
       noteTronquee: "Extrait\xA0; le d\xE9tail du projet donne les r\xE9sum\xE9s en entier.",
-      revuesTitre: "Revues des fichiers de pilotage",
+      revuesTitre: "Revues",
       revuesIntro: "Une carte de l'ex\xE9cutant a modifi\xE9 des fichiers qui pilotent les agents (CLAUDE.md, AGENTS.md, .github\u2026). Acceptez-la, ou refusez-la avec un motif\xA0: elle revient alors \xE0 l'ex\xE9cutant, qui retire la modification.",
       aucuneRevue: "Aucune carte en revue.",
       chemins: "Fichiers de pilotage touch\xE9s",
@@ -347,13 +368,14 @@
       motifRefus: "Motif du refus",
       revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
       revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
-      bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
+      bloqueesTitre: "Cartes arr\xEAt\xE9es",
       // Étape P7 : file Questions, « Qui répond », « Clore » (cahier P7 § 3, § 4.2, § 10).
       fileTitre: "\xC0 traiter",
       aTraiterParVous: "\xC0 traiter par vous",
       chezHermesCompte: "Chez Hermes",
       discussionsNonComptees: "(discussions en attente\xA0: \xE9tat inconnu, non compt\xE9es)",
       cibleTraitee: "Cette demande a d\xE9j\xE0 \xE9t\xE9 trait\xE9e\xA0: elle n'est plus dans la file.",
+      cibleIllisible: "Le tableau de cette demande n'a pas pu \xEAtre lu\xA0: son \xE9tat est inconnu (voir \xAB\xA0Tableaux illisibles\xA0\xBB).",
       quiRepondQuestion: "Qui r\xE9pond",
       chezHermes: "Hermes y r\xE9pond",
       aVous: "\xC0 vous",
@@ -362,7 +384,12 @@
       bloqueesIntro: "\xAB\xA0Relancer\xA0\xBB remet la carte en route, avec votre consigne si vous en donnez une. Une carte qui rebloque pour la m\xEAme raison revient en d\xE9cision.",
       relancerCarte: "Relancer",
       relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
+      relanceIntegrationAide: "Carte d'int\xE9gration, sans agent\xA0: \xAB\xA0Relancer\xA0\xBB rejoue la m\xEAme fusion des branches, sans consigne. Un conflit revient tant qu'aucune branche ne change\xA0: r\xE9cup\xE9rez les branches sur l'ex\xE9cutant (git bundle) pour trancher, ou cl\xF4turez le projet.",
+      relanceeFusion: "La carte repart\xA0: l'ex\xE9cutant rejoue la m\xEAme fusion.",
       relancee: "La carte repart.",
+      // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
+      relanceQuarantaineAide: "Bloqu\xE9e pour un secret d\xE9tect\xE9. Le travail fautif reste en quarantaine sur l'ex\xE9cutant, jamais int\xE9gr\xE9 ni pouss\xE9. La relance repart du d\xE9part de la carte, sur une branche neuve et en session neuve.",
+      relanceeBrancheNeuve: "La carte repart sur une branche neuve, en session neuve. Le travail en quarantaine n'est pas repris.",
       relanceeSessionNeuve: "La carte repart\xA0: l'agent reprend d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       nonRelancee: "La carte n'a pas \xE9t\xE9 relanc\xE9e.",
       statutApres: "Statut\xA0:",
@@ -472,7 +499,21 @@
         termine: "Projet termin\xE9",
         reparation: "Cr\xE9ation r\xE9par\xE9e",
         surcharge: "Surcharge de routage",
-        correction: "Correction ins\xE9r\xE9e"
+        correction: "Correction ins\xE9r\xE9e",
+        // Relecture finale de P7 (constat produit-7) : actions de P6 et de P7 journalisées avec le projet.
+        relance: "Carte relanc\xE9e",
+        reglage_reponses: "Qui r\xE9pond chang\xE9",
+        cloture: "Projet clos",
+        revue_acceptee: "Revue accept\xE9e",
+        revue_refusee: "Revue refus\xE9e",
+        integration: "Int\xE9gration demand\xE9e",
+        carte_servie: "Carte servie \xE0 l'ex\xE9cutant",
+        carte_bloquee: "Carte bloqu\xE9e par l'ex\xE9cutant",
+        carte_bloquee_ecart: "Carte bloqu\xE9e\xA0: demande hors de la politique de l'ex\xE9cutant",
+        carte_non_construite: "Carte non construite pour l'ex\xE9cutant",
+        carte_voie_fermee: "Carte bloqu\xE9e\xA0: voie ferm\xE9e",
+        carte_etrangere_bloquee: "Carte \xE9trang\xE8re bloqu\xE9e",
+        attente_quota_levee: "Attente de quota lev\xE9e"
       },
       acteursJournal: {
         vous: "Vous",
@@ -563,6 +604,27 @@
       offre: "Offre",
       depotsTitre: "D\xE9p\xF4ts autoris\xE9s",
       aucunDepot: "Aucun d\xE9p\xF4t d\xE9clar\xE9 par le poste.",
+      // Étape P7, partie E (cahier P7 § 11.2) : visibilité mesurée par l'exécutant, voies ouvertes par dépôt.
+      depots: {
+        aide: "Visibilit\xE9 mesur\xE9e par l'ex\xE9cutant \xE0 chaque inventaire et avant chaque carte Codex. Priv\xE9 veut dire acc\xE8s anonyme refus\xE9 et lecture avec le jeton r\xE9ussie. Codex ne travaille que sur un d\xE9p\xF4t prouv\xE9 priv\xE9 (D83), Claude sur tout d\xE9p\xF4t (D84).",
+        visibilite: "Visibilit\xE9 mesur\xE9e",
+        lecture: "Lecture par l'ex\xE9cutant",
+        verifieLe: "Mesur\xE9e",
+        voies: "Voies pour ce d\xE9p\xF4t",
+        ouverte: "Ouverte",
+        fermee: "Ferm\xE9e",
+        nonMesure: "Jamais mesur\xE9e par l'ex\xE9cutant (Codex ferm\xE9)",
+        visibilites: {
+          prive: "Priv\xE9",
+          public: "Public",
+          inconnue: "Inconnue (Codex ferm\xE9)"
+        },
+        lectures: {
+          ok: "R\xE9ussie",
+          refusee: "Refus\xE9e",
+          inconnue: "Inconnue"
+        }
+      },
       inventaireTitre: "Dernier inventaire",
       aucunInventaire: "Aucun inventaire re\xE7u.",
       recuLe: "Re\xE7u",
@@ -792,11 +854,15 @@
       ouvrir: "Ouvrir",
       ouvrirDiscussion: "Ouvrir la discussion",
       listeIndisponible: "La liste des discussions n'a pas pu \xEAtre lue.",
+      attenteInconnue: "Discussions en attente\xA0: \xE9tat inconnu (le tableau de bord n'a pas pu \xEAtre interrog\xE9)\xA0; l'absence de la marque \xAB\xA0En attente d'une r\xE9ponse\xA0\xBB ne veut rien dire.",
       indisponible: "Discussion indisponible\xA0: ce tableau de bord n'expose pas buildWsUrl (contrat 1.1 du SDK).",
       introuvable: "Discussion introuvable\xA0: Hermes ne la conna\xEEt plus (ferm\xE9e, ou perdue au red\xE9marrage).",
       connexion: "Connexion \xE0 Hermes\u2026",
       prete: "Connect\xE9 \xE0 Hermes.",
       reconnexion: "Connexion perdue. Nouvelle tentative dans",
+      reconnexionEnCours: "Connexion perdue\xA0: nouvelle tentative en cours\u2026",
+      sessionExpiree: "Session expir\xE9e\xA0: reconnectez-vous pour reprendre la discussion (elle vous attend).",
+      recharger: "Recharger la page",
       secondes: "s",
       nouvelleIntro: "\xC9crivez votre premier message\xA0: la discussion est cr\xE9\xE9e \xE0 l'envoi.",
       fil: "Messages de la discussion",
@@ -1014,6 +1080,7 @@
   var ECHECS_AVANT_REPLI = 3;
   var NOUVEL_ESSAI_MS = 3e5;
   var FERMETURE_DIFFEREE_MS = 5e3;
+  var CHIEN_DE_GARDE_MS = 4e4;
   var TRAMES_GARDEES = 200;
   var AnalyseurSse = class {
     constructor() {
@@ -1209,6 +1276,15 @@
       const controleur = new AbortController();
       this.controleur = controleur;
       let fin = false;
+      let chien = null;
+      const relancerChien = () => {
+        if (chien !== null) clearTimeout(chien);
+        chien = setTimeout(() => {
+          chien = null;
+          if (generation === this.generation) controleur.abort();
+        }, CHIEN_DE_GARDE_MS);
+      };
+      relancerChien();
       try {
         const entetes = { Accept: "text/event-stream" };
         if (this.dernierId !== null) entetes["Last-Event-ID"] = this.dernierId;
@@ -1221,6 +1297,7 @@
           return;
         }
         if (!reponse.ok || reponse.body === null) throw new Error(`flux ${reponse.status}`);
+        relancerChien();
         const lecteur = reponse.body.getReader();
         const decodeur = new TextDecoder();
         const analyseur = new AnalyseurSse();
@@ -1231,6 +1308,7 @@
             return;
           }
           if (done) break;
+          relancerChien();
           for (const trame of analyseur.pousser(decodeur.decode(value, { stream: true }))) {
             if (trame.id !== null) this.dernierId = trame.id;
             fin = this.traiter(trame) || fin;
@@ -1238,6 +1316,9 @@
         }
       } catch {
         if (generation !== this.generation) return;
+      } finally {
+        if (chien !== null) clearTimeout(chien);
+        chien = null;
       }
       if (generation !== this.generation) return;
       this.controleur = null;
@@ -1403,9 +1484,11 @@
   }
 
   // src/actualisation.tsx
-  function EtatActualisation() {
+  function EtatActualisation(props = {}) {
     const etat = useEtatFlux();
-    const texte = etat.mode === "temps_reel" ? T.tempsReel.actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
+    const portee = props.portee ?? "page";
+    const actif = portee === "accueil" ? T.tempsReel.actifAccueil : portee === "discussions" ? T.tempsReel.actifDiscussions : T.tempsReel.actif;
+    const texte = etat.mode === "temps_reel" ? actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
     return /* @__PURE__ */ h(
       "p",
       {
@@ -1413,7 +1496,8 @@
         role: "status",
         "data-acp-temps-reel": etat.mode
       },
-      texte
+      /* @__PURE__ */ h("span", null, texte),
+      portee === "accueil" ? /* @__PURE__ */ h("span", null, " ", T.tempsReel.noteAccueil) : null
     );
   }
 
@@ -1652,7 +1736,12 @@
     try {
       url = await construire("/api/ws");
     } catch (erreur) {
-      throw new ErreurCanal("ticket", erreur instanceof Error ? erreur.message : String(erreur));
+      const statut = erreur && typeof erreur === "object" ? erreur.status : void 0;
+      throw new ErreurCanal(
+        "ticket",
+        erreur instanceof Error ? erreur.message : String(erreur),
+        typeof statut === "number" && Number.isInteger(statut) && statut > 0 ? statut : null
+      );
     }
     const fabrique = options.fabrique ?? ((adresse) => new WebSocket(adresse));
     const canal = await new Promise((resoudre, rejeter) => {
@@ -1976,8 +2065,9 @@
         return null;
     }
   }
-  function libelleEtatQuestion(etat) {
+  function libelleEtatQuestion(etat, chez) {
     const q = T.projets.etatsQuestion;
+    if (etat === "ouverte" && chez === "proprietaire") return L(q.escaladee, "degrade");
     if (etat === "ouverte") return L(q.ouverte, "actif");
     if (etat === "escaladee") return L(q.escaladee, "degrade");
     return null;
@@ -2027,7 +2117,7 @@
   }
   function libelleReponses(reponses) {
     if (reponses === "hermes_d_abord") return T.projets.reponsesHermes;
-    if (reponses === "proprietaire") return T.projets.reponsesProprietaire;
+    if (reponses === "proprietaire") return T.projets.reponsesVous;
     return null;
   }
   function libelleCanal(canal) {
@@ -2270,9 +2360,15 @@
     const questions = entier(projet.questions_ouvertes);
     return /* @__PURE__ */ h("li", { className: "acp-entree acp-projet" }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, id ? /* @__PURE__ */ h(LienVue, { vue: { genre: "detail", id }, naviguer: props.naviguer, className: "acp-lien acp-lien--titre" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(projet.titre) })) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(projet.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatProjet(projet.etat, projet.etat_derive), brut: projet.etat }), questions !== null && questions > 0 ? /* @__PURE__ */ h("span", { className: "acp-pastille acp-pastille--degrade" }, /* @__PURE__ */ h("span", null, T.projets.questionsEnAttente), " ", /* @__PURE__ */ h(Donnee, { valeur: questions })) : null), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.cartesFaites }, /* @__PURE__ */ h(Avancement, { faites: compteurs.faites, total: compteurs.total })), entier(compteurs.en_attente_du_poste) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.enAttenteDuPoste }, /* @__PURE__ */ h(Donnee, { valeur: nombre(compteurs.en_attente_du_poste) })) : null, entier(compteurs.bloquees) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.bloquees }, /* @__PURE__ */ h(Donnee, { valeur: nombre(compteurs.bloquees) })) : null, entier(compteurs.triage) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.enTriage }, /* @__PURE__ */ h(Donnee, { valeur: nombre(compteurs.triage) })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.poste }, /* @__PURE__ */ h(EtatDuPoste, { poste: props.poste })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.derniereNote }, /* @__PURE__ */ h(DerniereNote, { projet })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.creeLe }, /* @__PURE__ */ h(Horodatage, { valeur: projet.cree_le, relative: true }))));
   }
+  function titreDeLaMachine(poste) {
+    const hote = poste?.poste?.hote;
+    if (hote === "railway") return T.projets.posteTitreExecutant;
+    if (hote === "pc") return T.projets.posteTitre;
+    return T.projets.posteTitreNeutre;
+  }
   function CartePoste(props) {
     const poste = props.poste;
-    return /* @__PURE__ */ h(Carte, { titre: T.projets.posteTitre, id: "acp-projets-poste" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(EtatDuPoste, { poste })), chaine2(poste?.machine) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.machine }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.machine), mono: true })) : null, poste?.derniere_vue ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.derniereVue }, /* @__PURE__ */ h(Horodatage, { valeur: poste.derniere_vue })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.cartesEnAttente }, /* @__PURE__ */ h(Donnee, { valeur: nombre(poste?.cartes_en_attente) }))), chaine2(poste?.message) ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.message) })) : null);
+    return /* @__PURE__ */ h(Carte, { titre: titreDeLaMachine(poste), id: "acp-projets-poste" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(EtatDuPoste, { poste })), chaine2(poste?.machine) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.machine }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.machine), mono: true })) : null, poste?.derniere_vue ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.derniereVue }, /* @__PURE__ */ h(Horodatage, { valeur: poste.derniere_vue })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.cartesEnAttente }, /* @__PURE__ */ h(Donnee, { valeur: nombre(poste?.cartes_en_attente) }))), chaine2(poste?.message) ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.message) })) : null);
   }
   function ListeProjets(props) {
     const { donnees } = props;
@@ -2428,7 +2524,7 @@
   function QuestionsDuProjet(props) {
     const questions = Array.isArray(props.projet.questions_ouvertes) ? props.projet.questions_ouvertes : [];
     if (questions.length === 0) return null;
-    return /* @__PURE__ */ h(Carte, { titre: T.projets.questionsEnAttente, id: "acp-projet-questions" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, questions.map((q, rang) => /* @__PURE__ */ h("li", { key: chaine2(q.id) ?? String(rang), className: "acp-question-courte" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(q.etat), brut: q.etat }), /* @__PURE__ */ h("p", { className: "acp-texte-long" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(q.texte) }))))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(LienVue, { vue: { genre: "questions" }, naviguer: props.naviguer }, T.projets.voirQuestions)));
+    return /* @__PURE__ */ h(Carte, { titre: T.projets.questionsEnAttente, id: "acp-projet-questions" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, questions.map((q, rang) => /* @__PURE__ */ h("li", { key: chaine2(q.id) ?? String(rang), className: "acp-question-courte" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(q.etat, q.chez), brut: q.etat }), /* @__PURE__ */ h("p", { className: "acp-texte-long" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(q.texte) }))))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(LienVue, { vue: { genre: "questions" }, naviguer: props.naviguer }, T.projets.voirQuestions)));
   }
   function Journal(props) {
     const journal = Array.isArray(props.projet.journal) ? props.projet.journal : [];
@@ -2460,6 +2556,13 @@
     for (const v of relevees) for (const d of listeDeChaines(v.depots)) alias.add(d);
     return [...alias].sort();
   }
+  function voiesFermeesPourDepot(poste, depot) {
+    if (!depot) return {};
+    const depots = Array.isArray(poste?.executant?.depots) ? poste.executant.depots : [];
+    const trouve = depots.find((d) => d.alias === depot);
+    const fermees = trouve?.voies_fermees;
+    return fermees && typeof fermees === "object" ? fermees : {};
+  }
   function effortsAdmis(voie, modele, interdits) {
     const modeles = Array.isArray(voie?.modeles) ? voie.modeles : [];
     const choisi = modele ? modeles.find((m) => m.id === modele) : modeles.find((m) => m.isDefault === true);
@@ -2484,11 +2587,13 @@
     const [effort, fixerEffort] = useState("");
     const [cle, fixerCle] = useState(nouvelleCle);
     const envoi = useEnvoi();
-    const releveVoie = voie ? cataloguePoste?.voies?.[voie] : void 0;
+    const fermees = voiesFermeesPourDepot(props.poste, depot);
+    const voieChoisie = voie !== "" && !fermees[voie] ? voie : voies.find((v) => !fermees[v]) ?? "";
+    const releveVoie = voieChoisie ? cataloguePoste?.voies?.[voieChoisie] : void 0;
     const modeles = Array.isArray(releveVoie?.modeles) ? releveVoie.modeles.filter((m) => chaine2(m.id)) : [];
     const efforts = effortsAdmis(releveVoie, modele, interdits);
     const avecExploration = depot !== "" && voies.length > 0;
-    const modeleExige = avecExploration && voie !== "" && modele === "" && !modeles.some((m) => m.isDefault === true);
+    const modeleExige = avecExploration && voieChoisie !== "" && modele === "" && !modeles.some((m) => m.isDefault === true);
     const sansDepot = depot === "";
     const complet = titre.trim() !== "" && objectif.trim() !== "" && !modeleExige;
     const lancer = async (evenement) => {
@@ -2501,8 +2606,8 @@
         depot: depot || null,
         reponses
       };
-      if (avecExploration && voie) {
-        demande.exploration = { voie, ...modele ? { modele } : {}, ...effort ? { effort } : {} };
+      if (avecExploration && voieChoisie) {
+        demande.exploration = { voie: voieChoisie, ...modele ? { modele } : {}, ...effort ? { effort } : {} };
       }
       const resultat = await envoi.envoyer(() => lancerProjet(demande, cle));
       const id = chaine2(resultat?.projet?.id);
@@ -2544,7 +2649,12 @@
         value: depot,
         disabled: depots === null,
         "aria-describedby": depots === null ? "acp-projet-depot-aide" : void 0,
-        onChange: (e) => fixerDepot(valeurDe(e))
+        onChange: (e) => {
+          fixerDepot(valeurDe(e));
+          fixerVoie("");
+          fixerModele("");
+          fixerEffort("");
+        }
       },
       /* @__PURE__ */ h("option", { value: "" }, T.projets.sansDepot),
       (depots ?? []).map((d) => /* @__PURE__ */ h("option", { key: d, value: d, "data-acp-donnee": "" }, d))
@@ -2570,7 +2680,8 @@
       "select",
       {
         id: "acp-projet-voie",
-        value: voie,
+        value: voieChoisie,
+        "aria-describedby": voies.some((v) => fermees[v]) ? "acp-projet-voie-fermee" : void 0,
         onChange: (e) => {
           fixerVoie(valeurDe(e));
           fixerModele("");
@@ -2578,9 +2689,9 @@
         }
       },
       voies.map(
-        (v) => libelleVoie(v) ? /* @__PURE__ */ h("option", { key: v, value: v }, libelleVoie(v)) : /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": "" }, v)
+        (v) => libelleVoie(v) ? /* @__PURE__ */ h("option", { key: v, value: v, disabled: Boolean(fermees[v]) }, libelleVoie(v)) : /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": "", disabled: Boolean(fermees[v]) }, v)
       )
-    )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-modele" }, T.projets.champModele), /* @__PURE__ */ h(
+    ), voies.some((v) => fermees[v]) ? /* @__PURE__ */ h("ul", { className: "acp-liste", id: "acp-projet-voie-fermee" }, voies.filter((v) => fermees[v]).map((v) => /* @__PURE__ */ h("li", { key: v, className: "acp-discret" }, /* @__PURE__ */ h("span", null, libelleVoie(v) ?? v), " ", /* @__PURE__ */ h("span", null, T.projets.voiesFermeesPourDepot), " ", /* @__PURE__ */ h(Donnee, { valeur: fermees[v] })))) : null), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-modele" }, T.projets.champModele), /* @__PURE__ */ h(
       "select",
       {
         id: "acp-projet-modele",
@@ -2592,7 +2703,7 @@
       },
       /* @__PURE__ */ h("option", { value: "", disabled: !modeles.some((m) => m.isDefault === true) }, modeles.some((m) => m.isDefault === true) ? T.projets.modeleParDefaut : T.projets.modeleAChoisir),
       modeles.map((m) => /* @__PURE__ */ h("option", { key: String(m.id), value: String(m.id), "data-acp-donnee": "" }, String(m.id)))
-    )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-effort" }, T.projets.champEffort), /* @__PURE__ */ h("select", { id: "acp-projet-effort", value: effort, onChange: (e) => fixerEffort(valeurDe(e)) }, /* @__PURE__ */ h("option", { value: "" }, T.projets.effortParDefaut), efforts.map((x) => /* @__PURE__ */ h("option", { key: x, value: x, "data-acp-donnee": "" }, x)))), /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.projets.releveDu), " ", /* @__PURE__ */ h(Donnee, { valeur: chaine2(releveVoie?.releve_le_lisible) })), releveVoie?.perime === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relevePerime) : null, modeleExige ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.modeleExige) : null) : null, /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+    )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-projet-effort" }, T.projets.champEffort), /* @__PURE__ */ h("select", { id: "acp-projet-effort", value: effort, onChange: (e) => fixerEffort(valeurDe(e)) }, /* @__PURE__ */ h("option", { value: "" }, T.projets.effortParDefaut), efforts.map((x) => /* @__PURE__ */ h("option", { key: x, value: x, "data-acp-donnee": "" }, x)))), /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.projets.releveDu), " ", /* @__PURE__ */ h(Donnee, { valeur: chaine2(releveVoie?.releve_le_lisible) })), releveVoie?.perime === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relevePerime) : null, modeleExige ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.modeleExige) : null, voieChoisie === "" ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "note", id: "acp-projet-sans-exploration" }, T.projets.aucunExecutantOuvert) : null) : null, /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
       Bouton,
       {
         type: "submit",
@@ -2633,16 +2744,29 @@
     const classes = ["acp-entree", props.classe, props.cible ? "acp-entree--cible" : null].filter(Boolean).join(" ");
     return /* @__PURE__ */ h("li", { className: classes, "aria-current": props.cible ? "true" : void 0, "data-acp-cible": props.cible ? "" : void 0 }, props.children);
   }
+  function AnnonceSection(props) {
+    const { annonce } = props;
+    if (!annonce) return null;
+    return /* @__PURE__ */ h("p", { className: annonce.alerte ? "acp-alerte-texte" : "acp-succes", role: "status" }, /* @__PURE__ */ h("span", null, annonce.texte), annonce.statut ? /* @__PURE__ */ h("span", null, " ", /* @__PURE__ */ h("span", null, T.projets.statutApres), " ", /* @__PURE__ */ h(Etiquette, { libelle: libelleStatut(annonce.statut), brut: annonce.statut })) : null);
+  }
   function messageReponse(resultat) {
     if (resultat?.reprise_differee === true) return T.projets.reponseDifferee;
     if (resultat?.carte_debloquee === true) return T.projets.reponseEnvoyee;
     return T.projets.reponseSansReprise;
+  }
+  function annonceReponse(resultat) {
+    const texte = messageReponse(resultat);
+    return { texte, alerte: texte === T.projets.reponseSansReprise };
   }
   function messageTriage(resultat) {
     if (resultat?.reprise !== true) return T.projets.carteNonReprise;
     if (resultat.action === "prolongation") return T.projets.prolongationFaite;
     if (resultat.action === "relance_planification") return T.projets.relanceFaite;
     return T.projets.carteReprise;
+  }
+  function annonceTriage(resultat) {
+    const texte = messageTriage(resultat);
+    return { texte, alerte: texte === T.projets.carteNonReprise };
   }
   function QuiRepond(props) {
     const { question } = props;
@@ -2662,12 +2786,16 @@
     const repondre = async (evenement) => {
       evenement.preventDefault();
       if (!id || !reponse.trim()) return;
-      if (await envoi.envoyer(() => repondreQuestion(id, reponse.trim())) !== null) {
+      props.annoncer(null);
+      const resultat = await envoi.envoyer(() => repondreQuestion(id, reponse.trim()));
+      if (resultat !== null) {
         fixerReponse("");
+        props.annoncer(annonceReponse(resultat));
+        props.traitee(`q:${id}`);
         props.apres();
       }
     };
-    return /* @__PURE__ */ h(Entree, { cible: props.cible, classe: "acp-question" }, /* @__PURE__ */ h("p", { className: "acp-question__texte" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.texte) })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: question.projet, titre: question.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(question.etat), brut: question.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.quiRepondQuestion }, /* @__PURE__ */ h(QuiRepond, { question })), chaine2(question.contexte) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.contexte }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.contexte) })) : null, chaine2(question.motif_escalade) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.motifEscalade }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.motif_escalade) })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.carteDeLaQuestion }, chaine2(question.carte_titre) ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte_titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true }))) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.poseeLe }, /* @__PURE__ */ h(Horodatage, { valeur: question.cree_le, relative: true }))), question.chez === "hermes" ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.chezHermesAide) : null, id ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void repondre(e) }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.votreReponse), /* @__PURE__ */ h(
+    return /* @__PURE__ */ h(Entree, { cible: props.cible, classe: "acp-question" }, /* @__PURE__ */ h("p", { className: "acp-question__texte" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.texte) })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: question.projet, titre: question.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(question.etat, question.chez), brut: question.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.quiRepondQuestion }, /* @__PURE__ */ h(QuiRepond, { question })), chaine2(question.contexte) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.contexte }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.contexte) })) : null, chaine2(question.motif_escalade) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.motifEscalade }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.motif_escalade) })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.carteDeLaQuestion }, chaine2(question.carte_titre) ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte_titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true }))) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.poseeLe }, /* @__PURE__ */ h(Horodatage, { valeur: question.cree_le, relative: true }))), question.chez === "hermes" ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.chezHermesAide) : null, id ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void repondre(e) }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.votreReponse), /* @__PURE__ */ h(
       "textarea",
       {
         id: champ,
@@ -2685,13 +2813,7 @@
         libelle: T.projets.repondre,
         desactive: !reponse.trim() || envoi.etat.etat === "envoi"
       }
-    )), /* @__PURE__ */ h(
-      RetourEnvoi,
-      {
-        etat: envoi.etat,
-        reussite: envoi.etat.etat === "ok" ? messageReponse(envoi.etat.resultat) : void 0
-      }
-    )) : null);
+    )), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat })) : null);
   }
   function Triage(props) {
     const { carte } = props;
@@ -2707,14 +2829,23 @@
     const reprendre = async (evenement) => {
       evenement.preventDefault();
       if (!tableau || !identifiant) return;
-      if (await envoi.envoyer(() => reprendreTriage(tableau, identifiant, consigne.trim() || null)) !== null) {
+      props.annoncer(null);
+      const resultat = await envoi.envoyer(() => reprendreTriage(tableau, identifiant, consigne.trim() || null));
+      if (resultat !== null) {
         fixerConsigne("");
+        props.annoncer(annonceTriage(resultat));
+        props.traitee(`carte:${tableau}/${identifiant}`);
         props.apres();
       }
     };
     const conclure = async () => {
       if (!tableau || !identifiant) return;
-      if (await conclusion.envoyer(() => conclureTriage(tableau, identifiant)) !== null) props.apres();
+      props.annoncer(null);
+      if (await conclusion.envoyer(() => conclureTriage(tableau, identifiant)) !== null) {
+        props.annoncer({ texte: T.projets.conclusionFaite, alerte: false });
+        props.traitee(`carte:${tableau}/${identifiant}`);
+        props.apres();
+      }
     };
     const libelleReprise = gestes.includes("prolonger") ? T.projets.prolonger : gestes.includes("relancer") ? T.projets.relancer : T.projets.reprendreCarte;
     const aide = carte.genre === "tours" ? T.projets.prolongerAideTours : carte.genre === "cartes" ? T.projets.prolongerAideCartes : carte.genre === "sans_plan" ? T.projets.relancerAide : carte.genre === "corrections" ? T.projets.prolongerP6 : null;
@@ -2729,13 +2860,7 @@
         value: consigne,
         onChange: (e) => fixerConsigne(e.target.value)
       }
-    )) : null, /* @__PURE__ */ h("div", { className: "acp-actions" }, avecConsigne ? /* @__PURE__ */ h(Bouton, { type: "submit", principal: true, libelle: libelleReprise, desactive: occupe }) : null, gestes.includes("conclure") ? /* @__PURE__ */ h(Bouton, { libelle: T.projets.conclure, surClic: () => void conclure(), desactive: occupe }) : null), /* @__PURE__ */ h(
-      RetourEnvoi,
-      {
-        etat: envoi.etat,
-        reussite: envoi.etat.etat === "ok" ? messageTriage(envoi.etat.resultat) : void 0
-      }
-    ), /* @__PURE__ */ h(RetourEnvoi, { etat: conclusion.etat, reussite: T.projets.conclusionFaite })) : null);
+    )) : null, /* @__PURE__ */ h("div", { className: "acp-actions" }, avecConsigne ? /* @__PURE__ */ h(Bouton, { type: "submit", principal: true, libelle: libelleReprise, desactive: occupe }) : null, gestes.includes("conclure") ? /* @__PURE__ */ h(Bouton, { libelle: T.projets.conclure, surClic: () => void conclure(), desactive: occupe }) : null), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat }), /* @__PURE__ */ h(RetourEnvoi, { etat: conclusion.etat })) : null);
   }
   function Revue(props) {
     const { revue } = props;
@@ -2750,7 +2875,8 @@
       if (!tableau || !identifiant) return;
       props.annoncer(null);
       if (await acceptation.envoyer(() => accepterRevue(tableau, identifiant)) !== null) {
-        props.annoncer(T.projets.revueAcceptee);
+        props.annoncer({ texte: T.projets.revueAcceptee, alerte: false });
+        props.traitee(`carte:${tableau}/${identifiant}`);
         props.apres();
       }
     };
@@ -2760,7 +2886,8 @@
       props.annoncer(null);
       if (await refus.envoyer(() => refuserRevue(tableau, identifiant, motif.trim())) !== null) {
         fixerMotif("");
-        props.annoncer(T.projets.revueRefusee);
+        props.annoncer({ texte: T.projets.revueRefusee, alerte: false });
+        props.traitee(`carte:${tableau}/${identifiant}`);
         props.apres();
       }
     };
@@ -2778,8 +2905,10 @@
       }
     )), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { principal: true, libelle: T.projets.accepterRevue, surClic: () => void accepter(), desactive: occupe }), /* @__PURE__ */ h(Bouton, { type: "submit", danger: true, libelle: T.projets.refuserRevue, desactive: occupe || !motif.trim() })), /* @__PURE__ */ h(RetourEnvoi, { etat: acceptation.etat }), /* @__PURE__ */ h(RetourEnvoi, { etat: refus.etat })) : null);
   }
-  function messageRelance(resultat) {
+  function messageRelance(resultat, integration = false) {
     if (resultat?.relancee === true) {
+      if (resultat.branche_neuve === true) return T.projets.relanceeBrancheNeuve;
+      if (integration) return T.projets.relanceeFusion;
       return resultat.session_neuve === true ? T.projets.relanceeSessionNeuve : T.projets.relancee;
     }
     return T.projets.nonRelancee;
@@ -2791,18 +2920,22 @@
     const [consigne, fixerConsigne] = useState("");
     const envoi = useEnvoi();
     const champ = `acp-relance-${identifiant ?? "inconnue"}`;
+    const integration = carte.integration === true;
     const relancer = async (evenement) => {
       evenement.preventDefault();
       if (!tableau || !identifiant) return;
       props.annoncer(null);
-      const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, consigne.trim() || null));
+      const envoyee = integration ? null : consigne.trim() || null;
+      const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, envoyee));
       if (resultat !== null) {
         fixerConsigne("");
-        props.annoncer({ texte: messageRelance(resultat), statut: chaine2(resultat.statut_apres) });
+        const texte = messageRelance(resultat, integration);
+        props.annoncer({ texte, alerte: texte === T.projets.nonRelancee, statut: chaine2(resultat.statut_apres) });
+        props.traitee(`carte:${tableau}/${identifiant}`);
         props.apres();
       }
     };
-    return /* @__PURE__ */ h(Entree, { cible: props.cible }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, carte.abandonnee === true ? /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.abandonnee, famille: "echec" } }) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.statuts.blocked, famille: "echec" } })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: carte.projet, titre: carte.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.assigne }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.assigne), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.raison }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.raison) }))), carte.relancable === true && tableau && identifiant ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void relancer(e) }, carte.executant === true ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceExecutantAide) : null, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.consigne), /* @__PURE__ */ h(
+    return /* @__PURE__ */ h(Entree, { cible: props.cible }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, carte.abandonnee === true ? /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.abandonnee, famille: "echec" } }) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: T.projets.statuts.blocked, famille: "echec" } })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: carte.projet, titre: carte.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.assigne }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.assigne), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.raison }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(carte.raison) }))), carte.relancable === true && tableau && identifiant ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void relancer(e) }, carte.quarantaine === true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.projets.relanceQuarantaineAide) : integration ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceIntegrationAide) : carte.executant === true ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.relanceExecutantAide) : null, integration ? null : /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.consigne), /* @__PURE__ */ h(
       "textarea",
       {
         id: champ,
@@ -2852,8 +2985,12 @@
     return /* @__PURE__ */ h("section", { className: "acp-carte", "aria-labelledby": "acp-questions-resume" }, /* @__PURE__ */ h("h2", { className: "acp-carte__titre", id: "acp-questions-resume" }, T.projets.fileTitre), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.aTraiterParVous }, /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: compte.total }), compte.discussionsConnues ? null : /* @__PURE__ */ h("span", { className: "acp-discret" }, " ", T.projets.discussionsNonComptees))), /* @__PURE__ */ h(Ligne, { libelle: T.projets.chezHermesCompte }, /* @__PURE__ */ h(Donnee, { valeur: compte.chezHermes }))));
   }
   function Questions(props) {
+    const [annonceQuestion, fixerAnnonceQuestion] = useState(null);
+    const [annonceTriage2, fixerAnnonceTriage] = useState(null);
     const [annonceRevue, fixerAnnonceRevue] = useState(null);
     const [annonceRelance, fixerAnnonceRelance] = useState(null);
+    const [traitees, fixerTraitees] = useState([]);
+    const traitee = (cle) => fixerTraitees((avant) => avant.includes(cle) ? avant : [...avant, cle]);
     const defile = useRef(null);
     const donnees = props.lecture.valeur;
     const questions = Array.isArray(donnees?.questions) ? donnees.questions : [];
@@ -2865,6 +3002,9 @@
     const estCarte = (c) => Boolean(props.cible.carte) && cleCarte(c.tableau, c.carte) === props.cible.carte;
     const cibleVoulue = props.cible.q ? `q:${props.cible.q}` : props.cible.carte ? `carte:${props.cible.carte}` : null;
     const cibleTrouvee = questions.some(estQuestion) || triage.some(estCarte) || revues.some(estCarte) || bloquees.some(estCarte);
+    const cibleTraiteeIci = cibleVoulue !== null && traitees.includes(cibleVoulue);
+    const tableauCible = props.cible.carte ? props.cible.carte.split("/")[0] : null;
+    const cibleIllisible = tableauCible !== null && illisibles.includes(tableauCible);
     useEffect(() => {
       if (!cibleVoulue || !cibleTrouvee || defile.current === cibleVoulue) return;
       defile.current = cibleVoulue;
@@ -2876,25 +3016,29 @@
     if (donnees === null) {
       return props.lecture.erreur ? /* @__PURE__ */ h(BlocErreur, { erreur: props.lecture.erreur, message: T.projets.questionsIndisponibles }) : /* @__PURE__ */ h(EnChargement, null);
     }
-    return /* @__PURE__ */ h("div", { className: "acp-sections" }, props.lecture.erreur ? /* @__PURE__ */ h(BlocRefus, { erreur: props.lecture.erreur }) : null, cibleVoulue && !cibleTrouvee ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.projets.cibleTraitee) : null, /* @__PURE__ */ h(Resume2, { file: donnees, discussions: props.discussions.valeur }), /* @__PURE__ */ h(Carte, { titre: T.projets.questionsTitre, id: "acp-questions-ouvertes" }, questions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneQuestion) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, questions.map((q, rang) => /* @__PURE__ */ h(
+    return /* @__PURE__ */ h("div", { className: "acp-sections" }, props.lecture.erreur ? /* @__PURE__ */ h(BlocRefus, { erreur: props.lecture.erreur }) : null, cibleVoulue && !cibleTrouvee && !cibleTraiteeIci ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, cibleIllisible ? T.projets.cibleIllisible : T.projets.cibleTraitee) : null, /* @__PURE__ */ h(Resume2, { file: donnees, discussions: props.discussions.valeur }), /* @__PURE__ */ h(Carte, { titre: T.projets.questionsTitre, id: "acp-questions-ouvertes" }, /* @__PURE__ */ h(AnnonceSection, { annonce: annonceQuestion }), questions.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneQuestion) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, questions.map((q, rang) => /* @__PURE__ */ h(
       Question,
       {
         key: chaine2(q.id) ?? String(rang),
         question: q,
         cible: estQuestion(q),
         naviguer: props.naviguer,
-        apres: props.apres
+        apres: props.apres,
+        annoncer: fixerAnnonceQuestion,
+        traitee
       }
-    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.triageTitre, id: "acp-questions-triage" }, triage.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucunTriage) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, triage.map((c, rang) => /* @__PURE__ */ h(
+    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.triageTitre, id: "acp-questions-triage" }, /* @__PURE__ */ h(AnnonceSection, { annonce: annonceTriage2 }), triage.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucunTriage) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, triage.map((c, rang) => /* @__PURE__ */ h(
       Triage,
       {
         key: chaine2(c.carte) ?? String(rang),
         carte: c,
         cible: estCarte(c),
         naviguer: props.naviguer,
-        apres: props.apres
+        apres: props.apres,
+        annoncer: fixerAnnonceTriage,
+        traitee
       }
-    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.revuesTitre, id: "acp-questions-revues" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.revuesIntro), annonceRevue ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, annonceRevue) : null, revues.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneRevue) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, revues.map((r, rang) => /* @__PURE__ */ h(
+    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.revuesTitre, id: "acp-questions-revues" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.revuesIntro), /* @__PURE__ */ h(AnnonceSection, { annonce: annonceRevue }), revues.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneRevue) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, revues.map((r, rang) => /* @__PURE__ */ h(
       Revue,
       {
         key: chaine2(r.carte) ?? String(rang),
@@ -2902,9 +3046,10 @@
         cible: estCarte(r),
         naviguer: props.naviguer,
         apres: props.apres,
-        annoncer: fixerAnnonceRevue
+        annoncer: fixerAnnonceRevue,
+        traitee
       }
-    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.bloqueesTitre, id: "acp-questions-bloquees" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.bloqueesIntro), annonceRelance ? /* @__PURE__ */ h("p", { className: annonceRelance.texte === T.projets.nonRelancee ? "acp-alerte-texte" : "acp-succes", role: "status" }, /* @__PURE__ */ h("span", null, annonceRelance.texte), annonceRelance.statut ? /* @__PURE__ */ h("span", null, " ", /* @__PURE__ */ h("span", null, T.projets.statutApres), " ", /* @__PURE__ */ h(Donnee, { valeur: annonceRelance.statut, mono: true })) : null) : null, bloquees.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneBloquee) : /* @__PURE__ */ h("ul", { className: "acp-entrees" }, bloquees.map((c, rang) => /* @__PURE__ */ h(
+    )))), /* @__PURE__ */ h(Carte, { titre: T.projets.bloqueesTitre, id: "acp-questions-bloquees" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.bloqueesIntro), /* @__PURE__ */ h(AnnonceSection, { annonce: annonceRelance }), bloquees.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.aucuneBloquee) : /* @__PURE__ */ h("ul", { className: "acp-entrees" }, bloquees.map((c, rang) => /* @__PURE__ */ h(
       Arretee,
       {
         key: chaine2(c.carte) ?? String(rang),
@@ -2912,7 +3057,8 @@
         cible: estCarte(c),
         naviguer: props.naviguer,
         apres: props.apres,
-        annoncer: fixerAnnonceRelance
+        annoncer: fixerAnnonceRelance,
+        traitee
       }
     )))), /* @__PURE__ */ h(Discussions, { lecture: props.discussions, serveur: donnees.discussions }), illisibles.length > 0 ? /* @__PURE__ */ h(Carte, { titre: T.projets.tableauxIllisibles, id: "acp-questions-illisibles" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, illisibles.map((t) => /* @__PURE__ */ h("li", { key: t }, /* @__PURE__ */ h(Donnee, { valeur: t, mono: true }))))) : null);
   }

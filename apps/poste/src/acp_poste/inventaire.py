@@ -9,7 +9,9 @@ ou une valeur exacte du coffre. Un inventaire refusé n'est pas envoyé (« inve
 
 Exécutant Linux (étape P6, cahier P6 § 7.3) : bloc ``poste`` en plateforme ``linux`` (``compte`` ``uid_dedie``, ``hote``,
 ``noyau``, sans ``windows``), bloc ``isolement_linux`` tiré de la sonde de plateforme (« inconnu » sans sonde : aucune
-écriture) à la place de ``bac_a_sable_codex``, politique avec les conditions d'usage et les plafonds.
+écriture) à la place de ``bac_a_sable_codex``, politique avec les conditions d'usage et les plafonds. Étape P7 (cahier P7
+§ 11.2) : chaque dépôt distant porte sa visibilité MESURÉE (``visibilite``, ``lecture``, ``verifie_le``) ; le poste
+Windows, qui n'exécute aucune carte, publie toujours l'alias seul.
 """
 
 from __future__ import annotations
@@ -47,16 +49,27 @@ def _iso(instant: datetime) -> str:
 BAC_NON_SONDE = "Sonde Codex désactivée par poste.toml ([sondes] codex = false) : écriture refusée."
 
 
+def _depot_publie(depot: Any, mesures: dict[str, Any]) -> dict[str, Any]:
+    """``{"alias"}``, plus la visibilité MESURÉE (étape P7 : ``visibilite``, ``lecture``, ``verifie_le``) si le dépôt
+    a été mesuré ; jamais une mesure inventée pour un dépôt qui ne l'a pas été (le greffon ferme alors Codex)."""
+    publie: dict[str, Any] = {"alias": depot.alias}
+    mesure = mesures.get(depot.alias)
+    if mesure is not None:
+        publie.update(mesure.contrat())
+    return publie
+
+
 def construire(politique: Politique, codex: ResultatCodex | None, claude: ResultatClaude | None, *,
                windows: str | None = None, valeurs_exactes: list[str], maintenant: datetime | None = None,
                infos: dict[str, Any] | None = None, isolement: dict[str, Any] | None = None,
-               echeance_claude: Any = None) -> dict[str, Any]:
+               echeance_claude: Any = None, mesures: dict[str, Any] | None = None) -> dict[str, Any]:
     """Inventaire validé et balayé, prêt à l'envoi ; lève :class:`InventaireRetenu` sinon. Sous Linux, ``infos``
-    (plateforme, hôte, noyau) et ``isolement`` (bloc ``isolement_linux``) remplacent ``windows`` et le bac à sable."""
+    (plateforme, hôte, noyau) et ``isolement`` (bloc ``isolement_linux``) remplacent ``windows`` et le bac à sable ;
+    ``mesures`` (alias → :class:`acp_poste.depots.Visibilite`, étape P7) porte la visibilité mesurée des dépôts."""
 
     instant = maintenant or datetime.now(UTC)
     linux = politique.plateforme == "linux"
-    depots = [{"alias": depot.alias} for depot in politique.depots]
+    depots = [_depot_publie(depot, mesures or {}) for depot in politique.depots]
     releves = [dict(resultat.releve, depots=list(depots)) for resultat in (codex, claude) if resultat is not None]
     if not releves:
         raise InventaireRetenu("Aucune sonde active ([sondes] codex et claude à false dans poste.toml) : rien à publier.")

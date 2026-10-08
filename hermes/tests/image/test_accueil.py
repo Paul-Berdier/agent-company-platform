@@ -86,6 +86,13 @@ def test_route_a_la_forme_de_la_fixture_partagee(client, noyau):  # noqa: F811
         "titre": "Exploration du dépôt « jetable »", "projet": etat["projet"]["id"], "projet_titre": "Outil jetable",
         "statut": "scheduled", "voie": "poste-claude", "connue": True}
     assert accueil["quotas"]["poste-codex"]["source_releve"] == "poste"  # relevé de l'inventaire, jamais estimé
+    # Relecture finale de P7 (constat produit-8) : source dite pour l'HÔTE du relevé — l'exécutant Railway lit ses quotas
+    # Claude dans les événements de limite de ses propres cartes, pas dans la ligne d'état d'un PC ; un libellé français
+    # pour Codex aussi (jamais le code « codex_app_server » seul à l'écran).
+    claude, codex = accueil["quotas"]["poste-claude"], accueil["quotas"]["poste-codex"]
+    assert claude["source"] == "claude_code_rate_limit_event"
+    assert claude["source_libelle"] == noyau.textes.QUOTAS_SOURCE_CLAUDE_EXECUTANT and "PC" not in claude["source_libelle"]
+    assert codex["source_libelle"] == noyau.textes.QUOTAS_SOURCE_CODEX
     assert accueil["notifications"] == {"canal": "ntfy", "configure": True, "connu": True, "message": None}
     [p] = accueil["projets"]["liste"]
     assert (p["id"], p["etat"], p["questions_ouvertes"], p["depot"], p["branche_prete"]) == (

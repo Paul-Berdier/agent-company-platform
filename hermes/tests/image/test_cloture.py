@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from conftest import cartes_du_tableau, lancer_sur_depot, reclamer, terminer
+from conftest import cartes_du_tableau, lancer_sans_depot, lancer_sur_depot, reclamer, terminer
 from test_emetteur import PLAN, _projet_planifie
 
 
@@ -49,6 +49,38 @@ def test_clore_en_pleine_execution_abandonne(noyau, conn):
     # L'exécutant voit la carte perdue : son battement suivant n'est plus valide (``_a_nous`` faux).
     tache = cartes_du_tableau(noyau, tableau)[exploration]
     assert not noyau.execution._a_nous(tache, "simule", run)
+
+
+def test_clore_arrete_le_worker_d_une_carte_hermes_en_cours(noyau, conn):
+    """Relecture finale de P7 (constat tests-4 a, cahier P7 § 13.1 « dont une running Hermes ») : une carte de Hermes
+    en cours, réclamée comme le fait le répartiteur et dont le worker est un processus vivant de cet hôte, est archivée
+    par « Clore le projet » ; Hermes (``archive_task``) arrête son worker et le dit (``archive_worker_termination``)."""
+    import subprocess
+    import sys
+    import threading
+
+    from hermes_cli import kanban_db as kb
+    from hermes_cli.kanban_db_dispatch import _set_worker_pid
+
+    projet = lancer_sans_depot(noyau, conn)
+    tableau, planif = projet["tableau"], projet["cartes"]["planification"]
+    worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    threading.Thread(target=worker.wait, daemon=True).start()  # récolté dès sa fin (jamais un zombie « vivant »)
+    try:
+        with noyau.ka.connexion(tableau) as kc:
+            tache = noyau.ka.claim_task(kc, planif, ttl_seconds=900, claimer=kb._claimer_id())  # comme le répartiteur
+            assert tache is not None and tache.status == "running"
+            _set_worker_pid(kc, planif, worker.pid)
+        resultat = _clore(noyau, conn, projet)
+        assert planif in resultat["cartes_archivees"] and resultat["cartes_non_archivees"] == []
+        with noyau.ka.connexion(tableau) as kc:
+            assert noyau.ka.get_task(kc, planif).status == "archived"
+            [fin] = [e for e in noyau.ka.list_events(kc, planif) if e.kind == "archive_worker_termination"]
+        assert fin.payload["prev_pid"] == worker.pid and fin.payload["terminated"] is True, fin.payload
+        assert worker.wait(timeout=15) is not None  # le processus du worker est bien arrêté
+    finally:
+        if worker.poll() is None:
+            worker.kill()
 
 
 def test_clore_apres_la_synthese_termine(noyau, conn, monkeypatch):

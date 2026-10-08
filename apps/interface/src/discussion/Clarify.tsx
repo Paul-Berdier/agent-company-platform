@@ -57,15 +57,25 @@ function Question(props: { demande: DemandeClarify; question: QuestionClarify; r
 }
 
 export function Clarify(props: { demande: DemandeClarify; actif: boolean;
-                                 repondre: (id: string, saisies: Record<string, Saisie>) => boolean }): Noeud {
+                                 repondre: (id: string, saisies: Record<string, Saisie>) => boolean;
+                                 brouillon?: Record<string, Saisie>;
+                                 garder?: (saisies: Record<string, Saisie>) => void }): Noeud {
   const { demande } = props;
-  const [saisies, fixer] = useState<Record<string, Saisie>>(() => {
+  const [saisies, fixerSaisies] = useState<Record<string, Saisie>>(() => {
+    // Saisie gardée par la page (même requête, carte remontée après une reconnexion) : reprise telle quelle.
+    if (props.brouillon) return props.brouillon;
     const initiales: Record<string, Saisie> = {};
     demande.questions.forEach((q, rang) => {
       initiales[String(rang)] = { choix: [], libre: q.dejaRepondu ?? "" };
     });
     return initiales;
   });
+  const fixer = (changer: (avant: Record<string, Saisie>) => Record<string, Saisie>) =>
+    fixerSaisies((avant) => {
+      const suivant = changer(avant);
+      props.garder?.(suivant);
+      return suivant;
+    });
   const [envoyee, fixerEnvoyee] = useState(false);
   const vide = demande.questions.every((q, rang) => texteDeReponse(q, saisies[String(rang)]) === "");
   const titre = demande.questions.length > 1 ? T.discussion.questionsTitre : T.discussion.questionTitre;

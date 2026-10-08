@@ -509,7 +509,11 @@ Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté inter
 - **La page dit ce qui est vrai** (`EtatActualisation`, `data-acp-temps-reel`) : « Page actualisée en temps
   réel… » seulement après une trame `etat` reçue ; « Connexion au temps réel en cours… », « Temps réel
   indisponible : actualisation toutes les 15 secondes… » (repli), « Temps réel non pris en charge par ce
-  tableau de bord… » (SDK sans `authedFetch`, que `verifierSdk` annonce par `tempsReel`).
+  tableau de bord… » (SDK sans `authedFetch`, que `verifierSdk` annonce par `tempsReel`). Là où toute la page ne suit
+  pas le flux, la phrase dit sa portée (relecture finale de P7) : l'Accueil (bilan relu toutes les 2 min ; sessions
+  récentes et cartes Système lues à l'ouverture) et la liste des discussions (relue toutes les 2 min ; seules les
+  discussions en attente suivent le flux). **Chien de garde** : 40 s sans un octet, la connexion est annulée et
+  comptée comme un échec.
 - **Tests** : Vitest `tests/flux.test.tsx` (14) : analyseur sur tous les découpages, trames exemples partagées
   avec le desktop, singleton partagé par deux copies du module, fermeture différée, `Last-Event-ID`, reprise,
   repli après trois échecs et nouvel essai, 401, page cachée, SDK sans flux, regroupement, intervalles, erreur
@@ -520,12 +524,15 @@ Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté inter
   (correction K23 : la preuve porte la relecture de sûreté à 30 min) : admis seulement PLUS LONG que 120 s, jamais
   plus court ; il ne peut qu'espacer les requêtes.
 
-## 14. Accueil (étape P7, partie C : cahier P7 § 8, décision P7-7)
+## 14. Accueil (étape P7, partie C : cahier P7 § 8, décision P7-7, soit D99)
 
-L'Accueil (`apps/interface/src/interface/Accueil.tsx`) lit UNE route agrégée, `GET /v1/accueil`
-([projets.md](projets.md) § 4), la même au téléphone, dans le navigateur du PC et, s'il le veut, pour le desktop
-(fixture partagée `hermes/tests/outils/fixtures_accueil/accueil.json`, lue telle quelle par le test d'image et par
-Vitest). **Même ordre, mêmes textes** à toutes les largeurs : grille `repeat(auto-fit, minmax(min(20rem, 100%),
+L'Accueil (`apps/interface/src/interface/Accueil.tsx`) lit ses blocs de travail (1 à 5 ci-dessous, et la pause
+générale) dans UNE route agrégée, `GET /v1/accueil` ([projets.md](projets.md) § 4), la même au téléphone, dans le
+navigateur du PC et, s'il le veut, pour le desktop (fixture partagée `hermes/tests/outils/fixtures_accueil/accueil.json`,
+lue telle quelle par le test d'image et par Vitest). Cette route ne sert ni les sessions, ni le système, ni l'état du
+bilan : la carte du bilan lit `GET /api/cron/jobs`, les sessions récentes `GET /api/sessions`, le système
+`GET /v1/meta`, et les discussions en attente sont comptées par le client sur `/api/ws`. **Même ordre, mêmes textes** à
+toutes les largeurs : grille `repeat(auto-fit, minmax(min(20rem, 100%),
 1fr))`, une colonne à 390 px, trois au bureau.
 
 1. **À traiter par vous** (`CarteATraiter.tsx`) : total (questions à vous, décisions, revues, cartes arrêtées, plus
@@ -536,10 +543,17 @@ Vitest). **Même ordre, mêmes textes** à toutes les largeurs : grille `repeat(
 3. **Exécutant** (`CarteExecutant.tsx`) : état réel (non configuré, à confirmer, en ligne, hors ligne,
    redéploiement, révoqué), nom de la machine enregistrée (jamais un libellé écrit en dur), plateforme, dernière
    vue, carte en cours, voies fermées et leur raison ;
-4. **Quotas** : par voie, état du relevé, part utilisée, remise à zéro, source et date ; Hermes : le libellé servi ;
+4. **Quotas** : par voie, état du relevé, part utilisée, remise à zéro, source et date ; Hermes : le libellé servi.
+   La source est le libellé français du greffon, propre à l'hôte du relevé (relecture finale de P7 : exécutant
+   Railway → « Dernier événement de limite des cartes Claude de l'exécutant Railway », jamais « sur ce PC » ;
+   Codex → « Compteurs de votre compte ChatGPT… ») ; sans libellé, « Inconnu », jamais le code ;
 5. **Notifications** (canal, notification de test) et **Bilan quotidien** (`CarteBilan.tsx`) : la carte lit
-   `GET /api/cron/jobs` (route NATIVE de Hermes) et dit « Actif » avec le prochain envoi, « En pause » ou « Non
-   créé » ; le bouton **Créer le bilan quotidien (8 h)** appelle, avec la session du propriétaire, la route native
+   `GET /api/cron/jobs` (route NATIVE de Hermes) et dit « Actif » avec la prochaine exécution, « En pause », « En
+   erreur » (tâche que Hermes ne relancera plus) ou « Non créé », et la **dernière exécution** — jamais « envoi » : le
+   script ne fait qu'enfiler la notification, et Hermes date `last_run_at` même en échec. Depuis la relecture finale de
+   P7, une dernière exécution dont `last_status` n'est pas `ok` est dite en alerte (« Dernière exécution en échec : le
+   bilan de ce jour n'est pas garanti »), `last_status` et `last_error` repliés ; un refus de la route native (en
+   anglais) est dit en français, détail replié ; le bouton **Créer le bilan quotidien (8 h)** appelle, avec la session du propriétaire, la route native
    `POST /api/cron/jobs` (`no_agent`, script `acp-bilan.py`, `0 8 * * *`, livraison `local`) ; seule une tâche SANS
    agent qui exécute ce script est reconnue comme le bilan. Pause et suppression : page Cron de Hermes (lien).
    Canal non configuré : « Le bilan ne partira pas » ;
@@ -552,7 +566,7 @@ sa raison (champ `illisibles` de la route). Temps réel par le flux (tous les su
 notification de test dit désormais « envoyée depuis le tableau de bord » (elle part de l'Accueil comme de la page
 Projets). Partie D : le raccourci « Discussion » mène à la discussion réduite (§ 15).
 
-## 15. Discussion réduite (étape P7, partie D : cahier P7 § 9, décision P7-8)
+## 15. Discussion réduite (étape P7, partie D : cahier P7 § 9, décision P7-8, soit D100)
 
 Greffon `acp-discussion` (onglet **Discussion**, `/discussion`, avant « Projets » dans le groupe des greffons ; sans
 code serveur, comme les quatre autres). Pourquoi une page à nous : la discussion native `/chat` est un terminal sur un
@@ -573,7 +587,12 @@ continue, et la question en attente est rejouée à la reprise depuis le PC.
   dite « recommandé »), choix multiples si Hermes le permet, réponse libre qui l'emporte si elle est remplie ;
   **Répondre** envoie toute la demande en une fois (`{answer}` ou `{answers}`).
 - **Reconnexion** : fermeture non voulue → nouvelle tentative après 1, 2, 5 puis 10 s (et aussitôt au retour de la
-  page), qui refait `session.resume`. Ping de vie toutes les 30 s.
+  page), qui refait `session.resume`. Ping de vie toutes les 30 s. Relecture finale de P7 : pendant la tentative, la
+  page dit « nouvelle tentative en cours » (jamais « dans Inconnu s ») ; une réponse en cours de saisie dans une
+  question est gardée par identifiant de requête et survit à la reconnexion ; un ticket refusé en **401** (session du
+  tableau de bord expirée : `getWsTicket` ne redirige pas) arrête les tentatives, et la page dit « Session expirée :
+  reconnectez-vous » avec un lien qui recharge la page (la porte d'authentification ramène sur la discussion) ; une
+  panne réseau reste réessayée.
 - **File Questions** : chaque discussion en attente porte **Ouvrir la discussion**, qui mène à cette page.
 
 **Garde (correction K14), dans `apps/interface/src/jsonrpc/canal.ts`, seul chemin vers `/api/ws`** (la lecture des
@@ -591,7 +610,7 @@ L'URL vient toujours de `await sdk().buildWsUrl("/api/ws")` (ticket neuf à chaq
 **Non fait, et dit dans la page** : détail des outils, pièces jointes, commandes `/`, changement de modèle, mise en
 forme riche. **Limites** : une question posée ici attend une heure au plus (`agent.clarify_timeout`) et disparaît au
 redémarrage de Hermes (elle vit en mémoire) ; ce qui doit attendre passe par un projet. Aucune notification pour une
-discussion en attente (P7-12). Une session détachée en plein tour est interrompue par Hermes après 600 s sans
+discussion en attente (P7-12, soit D104). Une session détachée en plein tour est interrompue par Hermes après 600 s sans
 activité (l'outil `clarify` bat pendant l'attente : une question n'est pas coupée par ce délai).
 
 Preuves : Vitest `tests/discussion.test.tsx` (liste blanche et témoins, `-32601`, formes de réponse, reprise,

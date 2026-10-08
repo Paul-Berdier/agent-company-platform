@@ -13,7 +13,13 @@ B. onglet Poste : « État de l'exécutant Railway », blocs Isolement (régime 
    prêtes (aucune) ; aucun bouton « Pousser » ;
 C. l'exécutant termine en touchant des fichiers de pilotage : la page Questions liste la revue (chemins, diff resté
    sur l'exécutant) ; au bureau, « Refuser » avec un motif renvoie la carte à l'exécutant, qui la reçoit avec le
-   motif.
+   motif ;
+D. (étape P7, relecture finale : cahier P7 § 13.3) l'exécutant bloque la carte : la section « Cartes arrêtées »
+   propose « Relancer » avec une consigne (mesurée aux deux formats) ; au bureau, « Relancer » : la page dit la
+   réponse de l'API (session neuve) et l'exécutant reçoit la carte en session neuve, la consigne en tête ; l'Accueil
+   peuplé (à traiter, projets, exécutant, quotas) est mesuré aux deux formats ; dans le détail du projet, le
+   formulaire « Changer qui répond » ouvert puis la confirmation « Clore le projet » sont mesurés aux deux formats ;
+   au bureau, la clôture confirmée dit son résultat.
 
 À chaque vue : chaque nœud de texte vient du catalogue français ou d'une donnée de l'API, axe-core sans violation
 « serious » ni « critical », au téléphone chaque cible mesure 44 px au moins, et aucune requête ne sort de l'origine
@@ -187,6 +193,61 @@ def test_executant_et_revues_bureau_et_telephone(playwright_sync, pile):
         assert [r["genre"] for r in resservie["reponses"]] == ["refus_revue"]
         preuves["revue_refusee_puis_resservie"] = {"carte": resservie["carte"], "reponses": resservie["reponses"]}
 
+        # ------------------------------------------------------------ D. relance, accueil, qui répond, clôture (P7)
+        bloquee = outil(hermes, FAUX, "envoyer", "bloquer", "--champs",
+                        json.dumps({"genre": "capacite", "raison": "Il manque le jeton de la base de test."}))
+        assert bloquee["statut"] == 200, bloquee
+        champ_relance = f"#acp-relance-{resservie['carte']}"
+        for format_, p in pages.items():
+            p.goto(f"{URL_HERMES}/projets?vue=questions")
+            attendre_page_acp(p, "projets")
+            p.wait_for_selector(champ_relance)
+            arretees = texte_de(p, zone("acp-questions-bloquees"))
+            assert "Il manque le jeton de la base de test." in arretees, arretees
+            assert "L'agent repart d'une session neuve, sur la branche déjà commencée." in arretees, arretees
+            assert p.locator(f'{zone("acp-questions-bloquees")} >> button:has-text("Relancer")').count() == 1
+            verifier(format_, "projets", "carte_arretee", "relance")
+        page.fill(champ_relance, "Le jeton est posé : reprends la lecture du dépôt.")
+        page.click(f'{zone("acp-questions-bloquees")} >> button:has-text("Relancer")')
+        annonce = page.wait_for_selector(f'{zone("acp-questions-bloquees")} [role="status"]:has-text("La carte repart")')
+        preuves["relance"] = " ".join(annonce.inner_text().replace(" ", " ").split())
+        assert preuves["relance"] == ("La carte repart : l'agent reprend d'une session neuve, sur la branche déjà "
+                                      "commencée. Statut : Prête"), preuves["relance"]
+        relancee = outil(hermes, FAUX, "reclamer", "--voies", "poste-claude", "--attente", "5")["corps"]["carte"]
+        assert relancee["carte"] == resservie["carte"] and relancee["reprise"] is False, relancee
+        assert relancee["consigne"].startswith("## Consigne du propriétaire (relance du ")
+        assert "Le jeton est posé : reprends la lecture du dépôt." in relancee["consigne"]
+        en_cours = f"{relancee['tableau']}:{relancee['carte']}:{relancee['run_id']}"
+        outil(hermes, FAUX, "reclamer", "--voies", "poste-claude", "--en-cours", en_cours, "--attente", "5")
+        identifiant = projet["corps"]["projet"]["id"]
+        for format_, p in pages.items():
+            p.goto(f"{URL_HERMES}/")
+            attendre_page_acp(p, "accueil")
+            p.wait_for_selector("#acp-accueil-executant")
+            assert "Exécutant Railway" in p.inner_text("#acp-accueil-executant >> xpath=..")
+            assert "Outil jetable" in p.inner_text("#acp-accueil-projets >> xpath=..")
+            verifier(format_, "accueil", "accueil_peuple", "accueil")
+            p.goto(f"{URL_HERMES}/projets?projet={identifiant}")
+            attendre_page_acp(p, "projets")
+            p.wait_for_selector("#acp-projet-titre")
+            p.click('[data-acp-racine="projets"] button:has-text("Changer qui répond")')
+            p.wait_for_selector("#acp-projet-qui-repond")
+            verifier(format_, "projets", "qui_repond_ouvert", "qui-repond")
+            p.click('[data-acp-racine="projets"] form:has(#acp-projet-qui-repond) button:has-text("Annuler")')
+            p.wait_for_selector("#acp-projet-qui-repond", state="detached")
+            p.click('[data-acp-racine="projets"] button:has-text("Clore le projet")')
+            p.wait_for_selector("#acp-clore-question")
+            verifier(format_, "projets", "cloture_confirmation", "cloture")
+            if format_ == "telephone":
+                p.click('[aria-labelledby="acp-clore-question"] button:has-text("Annuler")')
+                p.wait_for_selector("#acp-clore-question", state="detached")
+        page.click('[aria-labelledby="acp-clore-question"] button:has-text("Confirmer la clôture")')
+        clos = page.wait_for_selector('[data-acp-racine="projets"] .acp-succes:has-text("Projet clos")')
+        preuves["cloture"] = " ".join(clos.inner_text().replace(" ", " ").split())
+        assert preuves["cloture"].startswith("Projet clos : abandonné"), preuves["cloture"]
+        detail = api(page, "GET", f"/v1/projets/{identifiant}")["corps"]["projet"]
+        assert detail["etat"] == "abandonne", detail["etat"]
+
         for format_ in pages:
             etrangeres = sorted({u for u in requetes[format_]
                                  if not (u.startswith(f"{URL_HERMES}/") or u.startswith(("data:", "blob:")))})
@@ -203,4 +264,4 @@ def test_executant_et_revues_bureau_et_telephone(playwright_sync, pile):
                  json.dumps(preuves, ensure_ascii=False, indent=2, default=str))
         navigateur.close()
     if dossier:
-        assert len(fichiers) == 2 + 2, sorted(fichiers)
+        assert len(fichiers) == 2 * 6, sorted(fichiers)

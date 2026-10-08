@@ -19,6 +19,8 @@ export interface EtatPoste {
   pause_reclamations?: boolean;
   source?: string | null;
   message?: string | null;
+  /** Machine enregistrée (vue du greffon), dont l'hôte publié par l'inventaire ; null sans machine. */
+  poste?: { hote?: string | null; plateforme?: string | null; nom?: string | null } | null;
 }
 
 export interface EtatNotifications {
@@ -112,6 +114,8 @@ export interface QuestionDuProjet {
   etat?: string;
   texte?: string;
   carte_repondre?: string | null;
+  /** Relecture finale de P7 : qui répond (règle unique du greffon), comme dans la file. */
+  chez?: string;
 }
 
 export interface EntreeJournal {
@@ -175,6 +179,12 @@ export interface CarteEnAttente {
   relancable?: boolean;
   refus_relance?: string | null;
   executant?: boolean;
+  /** Partie E (K25) : bloquée pour un secret ; le travail fautif reste en quarantaine sur l'exécutant. */
+  quarantaine?: boolean;
+  /** Relecture finale de P7 : carte d'intégration, sans agent ; sa relance rejoue la même fusion, sans consigne. */
+  integration?: boolean;
+  /** Relecture finale de P7 : carte « répondre » dont la question vous a été adressée (non relançable, non comptée). */
+  question_adressee?: boolean;
 }
 
 /** POST /v1/questions/{q}/reponse. */
@@ -269,6 +279,8 @@ export interface ResultatRelance {
   relancee?: boolean;
   statut_apres?: string | null;
   session_neuve?: boolean;
+  /** Partie E (K25) : la carte repart sur une branche neuve, sans le travail en quarantaine. */
+  branche_neuve?: boolean;
 }
 
 /** POST /v1/projets/{id}/reponses. */
@@ -317,9 +329,21 @@ export interface CatalogueDuPoste {
   message?: string | null;
 }
 
+/** Étape P7 (cahier P7 § 11.2) : un dépôt du dernier inventaire, sa visibilité MESURÉE par l'exécutant (null :
+ *  jamais mesurée) et les voies du poste fermées pour lui (calcul du routage du greffon, raison française). */
+export interface DepotMesure {
+  alias?: string;
+  visibilite?: string | null;
+  lecture?: string | null;
+  verifie_le?: string | null;
+  voies_fermees?: Record<string, string>;
+}
+
 export interface ReponsePoste {
   poste?: EtatPoste;
   catalogue?: CatalogueDuPoste;
+  /** Étape P7 : visibilité des dépôts (grisage de Codex dans « Nouveau projet »). */
+  executant?: { connu?: boolean; depots?: DepotMesure[] };
 }
 
 /** Corps de POST /v1/projets. */
