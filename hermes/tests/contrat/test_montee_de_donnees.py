@@ -21,7 +21,9 @@ redémarre LES MÊMES VOLUMES avec les images « APRÈS » (ACP_IMAGE_TESTS, ACP
    d'avant disparue, ligne d'avant perdue ou modifiée dans une table que le contrôle ne change pas (hors ligne de
    version de ``meta_schema``), compteur ``AUTOINCREMENT`` revenu en arrière, intégrité perdue ; lectures égales à la
    référence ;
-5. exécutant APRÈS sur son même volume : prêt, enrôlé, en ligne ; jeton, empreinte et références git égales ;
+5. exécutant APRÈS sur son même volume : prêt, enrôlé, revu par Hermes depuis son démarrage (présence rafraîchie :
+   la vue de Hermes garde sinon la machine et l'inventaire de l'exécutant d'avant) ; jeton, empreinte et références
+   git égales ;
 6. le travail REPREND : réponse à B → fil repris (``--resume`` d'une session ouverte par l'exécutant AVANT) →
    terminée ; nouveau projet E → terminé, un commit d'exploration ; aucun jeton dans les journaux, aucun push.
 
@@ -568,24 +570,44 @@ def test_m4_montee_hermes_apres_sur_le_meme_volume(montee: Montee):
 def test_m5_executant_apres_sur_le_meme_volume(montee: Montee):
     m, b = montee, montee.banc
     b.image_executant = m.images["executant_apres"]
+    debut = int(time.time())
     b.demarrer_executant(volume=m.volumes["executant"])
     m.conteneurs["executant"].append(b.executant)
-    journal = docker("logs", b.executant, verifier=False)
-    journal_executant = journal.stdout + journal.stderr
 
-    def en_ligne():
+    def journal_de_l_executant() -> str:
+        journal = docker("logs", b.executant, verifier=False)
+        return journal.stdout + journal.stderr
+
+    def revu_ou_non_enrole() -> Optional[Dict[str, Any]]:
+        """L'exécutant APRÈS revu par Hermes DEPUIS son démarrage (présence « en ligne » rafraîchie après ``debut``,
+        voie poste-claude), ou bien non enrôlé d'après son journal (attendre ne servirait à rien). La vue de Hermes
+        seule ne prouve rien : elle garde la machine et l'inventaire de l'exécutant d'AVANT (mesuré : run 37827976940,
+        jeton machine retiré, attente de la voie passée quand même)."""
+        if "non enrôlé" in journal_de_l_executant():
+            return {"non_enrole": True}
         code, vue = b.api("GET", "/v1/poste")
-        executant = (vue or {}).get("executant") if code == 200 else None
-        return executant if executant and "poste-claude" in (executant.get("voies_disponibles") or []) else None
+        poste = ((vue or {}).get("poste") or {}) if code == 200 else {}
+        executant = ((vue or {}).get("executant") or {}) if code == 200 else {}
+        if poste.get("etat") == "en_ligne" and int(poste.get("derniere_vue") or 0) >= debut - 1 and \
+                "poste-claude" in (executant.get("voies_disponibles") or []):
+            return {"presence": {k: poste.get(k) for k in ("etat", "derniere_vue", "source")}, "executant": executant}
+        return None
 
-    vue = attendre(en_ligne, 180, f"exécutant après jamais en ligne avec la voie poste-claude ({b.fin_journal()})")
+    etat = attendre(revu_ou_non_enrole, 180,
+                    f"exécutant après jamais revu par Hermes depuis son démarrage ({b.fin_journal()})")
+    journal_executant = journal_de_l_executant()
+    vue = etat.get("executant") or {}
     lu = m.releve(executant=True)
     ecarts = m.ecarts(lu)
-    m.resultat["executant"] = ("prêt, enrôlé, en ligne ; jeton, empreinte et références égaux" if not ecarts
-                               else f"écarts : {sorted(ecarts)}")
+    if etat.get("non_enrole"):
+        m.resultat["executant"] = "non enrôlé" + (f" ; écarts : {sorted(ecarts)}" if ecarts else "")
+    else:
+        m.resultat["executant"] = ("prêt, enrôlé, revu par Hermes depuis son démarrage ; jeton, empreinte et "
+                                   "références égaux" if not ecarts else f"revu par Hermes ; écarts : {sorted(ecarts)}")
     m.ecrire_resultat()
     afficher("Montée 5 — exécutant APRÈS sur le volume d'avant", _json({
         "journal": [l for l in journal_executant.splitlines() if "[acp]" in l][:20],
+        "demarre_a": debut, "presence": etat.get("presence") or etat,
         "vue": {k: vue.get(k) for k in ("plateforme", "version", "voies_disponibles", "isolement")},
         "lectures_face_a_la_reference": ecarts or "égales"}))
     assert "[acp] volume prêt" in journal_executant and "non enrôlé" not in journal_executant
