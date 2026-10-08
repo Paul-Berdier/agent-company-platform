@@ -113,3 +113,30 @@ def test_table_de_routage_validee_pour_tout_depot(noyau, conn):
     with pytest.raises(noyau.textes.RefusACP) as exc:
         noyau.routage.resoudre(conn, classe="implementation", projet=PROJET, ref="e1")
     assert exc.value.code == "voie_fermee"
+
+
+# ------------------------------------------------------------------ partie E : carte « Dépôts » de la page Poste
+
+
+def test_depots_du_poste_mesure_publiee_et_voies_par_le_meme_calcul(noyau, conn):
+    """Carte « Dépôts » et grisage de « Nouveau projet » (cahier P7 § 11.2) : la mesure TELLE QUE PUBLIÉE par
+    l'exécutant, et les voies fermées POUR CE DÉPÔT par le calcul même du routage (aucune fonction parallèle, K24)."""
+    assert noyau.routage.depots_du_poste(conn) == []  # aucun inventaire : rien n'est inventé
+    _poste_windows(noyau, conn, mesure=("public", "ok"))
+    [depot] = noyau.routage.depots_du_poste(conn)
+    assert (depot["alias"], depot["visibilite"], depot["lecture"]) == ("jetable", "public", "ok")
+    assert depot["verifie_le"].endswith("Z")
+    assert depot["voies_fermees"] == noyau.routage.voies_fermees(conn, depot_alias="jetable")
+    assert list(depot["voies_fermees"]) == ["poste-codex"] and "visibilité mesurée : public" in \
+        depot["voies_fermees"]["poste-codex"]
+    assert noyau.execution.vue_executant(conn)["depots"] == [depot]
+
+
+@pytest.mark.parametrize("mesure, ouverte", [(True, True), (None, False), (("prive", "refusee"), False)])
+def test_depots_du_poste_selon_la_mesure(noyau, conn, mesure, ouverte):
+    _poste_windows(noyau, conn, mesure=mesure)
+    [depot] = noyau.routage.depots_du_poste(conn)
+    assert ("poste-codex" not in depot["voies_fermees"]) is ouverte
+    assert "poste-claude" not in depot["voies_fermees"]
+    if mesure is None:
+        assert (depot["visibilite"], depot["lecture"], depot["verifie_le"]) == (None, None, None)

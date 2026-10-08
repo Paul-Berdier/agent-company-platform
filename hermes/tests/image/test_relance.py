@@ -99,7 +99,7 @@ def test_refus_projet_en_pause_termine_abandonne(noyau, conn):
     assert _demande(noyau, conn, projet, exploration)["issue"] is None
 
 
-def test_refus_carte_non_arretee_en_revue_et_secret(noyau, conn):
+def test_refus_carte_non_arretee_et_en_revue(noyau, conn):
     projet = lancer_sur_depot(noyau, conn)
     exploration = projet["cartes"]["exploration"]
     exc = _refus(noyau, conn, projet, exploration)
@@ -109,15 +109,79 @@ def test_refus_carte_non_arretee_en_revue_et_secret(noyau, conn):
         assert noyau.ka.request_review(kc, exploration, summary="fichiers de pilotage touchés", expected_run_id=run)
     exc = _refus(noyau, conn, projet, exploration)
     assert exc.code == "carte_en_revue" and "Accepter" not in exc.message and "Revues" in exc.message
-    # Bloquée pour un secret (raison FIXE de l'exécutant) : refusée avant la partie E (K25), et dit dans la file.
-    projet2 = lancer_sur_depot(noyau, conn, titre="Outil secret")
-    secret = projet2["cartes"]["exploration"]
-    reclamer(noyau, projet2["tableau"], secret)
-    _bloquer(noyau, projet2["tableau"], secret, noyau.textes.RAISON_SECRET_EXECUTANT, kind="needs_input")
-    exc = _refus(noyau, conn, projet2, secret)
-    assert exc.code == "carte_secret" and "partie E" in exc.message
+
+
+def _executant_de_la_partie_e(noyau, conn, mesure=True):
+    """Exécutant actif dont le dernier inventaire porte (``mesure``) ou non (``None``, forme de P6) la visibilité
+    mesurée de ses dépôts."""
+    from conftest import inventaire_linux, poste_confirme
+
+    machine, _jeton = poste_confirme(noyau, conn, nom="Exécutant Railway")
+    with noyau.base.transaction(conn):
+        noyau.inventaire.recevoir_dans(conn, machine, inventaire_linux(mesure=mesure))
+
+
+def _carte_bloquee_pour_secret(noyau, conn, *, par_issue=True):
+    projet = lancer_sur_depot(noyau, conn, titre="Outil secret")
+    secret = projet["cartes"]["exploration"]
+    reclamer(noyau, projet["tableau"], secret)
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE demandes SET machine_id = ?, issue = ? WHERE tableau = ? AND carte = ?",
+                     (MACHINE, "bloquee:secret" if par_issue else "question", projet["tableau"], secret))
+    _bloquer(noyau, projet["tableau"], secret, noyau.textes.RAISON_SECRET_EXECUTANT, kind="needs_input")
+    return projet, secret
+
+
+@pytest.mark.parametrize("mesure", [None, "aucun"], ids=["inventaire_de_p6", "sans_inventaire"])
+def test_secret_refuse_tant_que_l_executant_n_est_pas_de_la_partie_e(noyau, conn, mesure):
+    """Échec fermé : un exécutant de P6 reprendrait le worktree en quarantaine. Sans inventaire de la partie E (aucune
+    visibilité mesurée publiée), la relance d'une carte bloquée pour secret reste refusée, et la file le dit."""
+    if mesure != "aucun":
+        _executant_de_la_partie_e(noyau, conn, mesure=mesure)
+    projet, secret = _carte_bloquee_pour_secret(noyau, conn)
+    assert noyau.questions.quarantaine_ecartee_par_l_executant(conn) is False
+    exc = _refus(noyau, conn, projet, secret)
+    assert exc.code == "carte_secret" and "exécutant à jour (étape P7, partie E)" in exc.message
     [vue] = [b for b in noyau.questions.lister(conn)["bloquees"] if b["carte"] == secret]
-    assert vue["relancable"] is False and vue["refus_relance"].startswith("Bloquée pour un secret")
+    assert (vue["relancable"], vue["quarantaine"]) == (False, True)
+    assert vue["refus_relance"].startswith("Bloquée pour un secret : relance possible dès que l'exécutant à jour")
+    assert carte(noyau, projet["tableau"], secret).status == "blocked"
+
+
+@pytest.mark.parametrize("par_issue", [True, False], ids=["issue_bloquee_secret", "raison_fixe_seule"])
+def test_carte_bloquee_pour_secret_se_relance_sur_une_branche_neuve(noyau, conn, par_issue):
+    """K25 levé par la partie E (cahier P7 § 3.4) : l'exécutant ne reprend jamais le travail en quarantaine
+    (apps/poste/tests/test_execution.py::test_relance_apres_secret_branche_neuve_sans_le_commit_fautif) ; avec un
+    exécutant de la partie E (visibilité mesurée publiée), la carte bloquée pour un secret se relance donc, la file le
+    signale (``quarantaine``) et la réponse dit ``branche_neuve``. La carte est resservie en SESSION NEUVE
+    (``reprise: false``)."""
+    _executant_de_la_partie_e(noyau, conn)
+    assert noyau.questions.quarantaine_ecartee_par_l_executant(conn) is True
+    projet = lancer_sur_depot(noyau, conn, titre="Outil secret")
+    secret = projet["cartes"]["exploration"]
+    reclamer(noyau, projet["tableau"], secret)
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE demandes SET machine_id = ?, issue = ? WHERE tableau = ? AND carte = ?",
+                     (MACHINE, "bloquee:secret" if par_issue else "question", projet["tableau"], secret))
+    _bloquer(noyau, projet["tableau"], secret, noyau.textes.RAISON_SECRET_EXECUTANT, kind="needs_input")
+    [vue] = [b for b in noyau.questions.lister(conn)["bloquees"] if b["carte"] == secret]
+    assert (vue["relancable"], vue["refus_relance"], vue["quarantaine"], vue["executant"]) == (True, None, True, True)
+    resultat = _relancer(noyau, conn, projet, secret)
+    assert resultat == {"carte": secret, "relancee": True, "statut_apres": resultat["statut_apres"],
+                        "session_neuve": True, "branche_neuve": True}
+    assert resultat["statut_apres"] in ("ready", "todo")
+    assert _demande(noyau, conn, projet, secret)["issue"] == "relancee"
+    assert _servir(noyau, conn, projet, secret)["reprise"] is False
+    journal = conn.execute("SELECT detail FROM journal WHERE action = 'relance' AND cible = ?", (secret,)).fetchone()
+    assert json.loads(journal[0])["quarantaine"] is True
+
+
+def test_carte_ordinaire_sans_quarantaine_ni_branche_neuve(noyau, conn):
+    projet, exploration = _exploration_bloquee(noyau, conn, issue_precedente="question")
+    [vue] = [b for b in noyau.questions.lister(conn)["bloquees"] if b["carte"] == exploration]
+    assert vue["quarantaine"] is False and vue["relancable"] is True
+    resultat = _relancer(noyau, conn, projet, exploration)
+    assert resultat["session_neuve"] is True and resultat["branche_neuve"] is False
 
 
 def test_refus_consigne_invalide_ou_secrete(noyau, conn):
@@ -142,7 +206,8 @@ def test_carte_hermes_commentee_puis_debloquee(noyau, conn):
     [vue] = noyau.questions.lister(conn)["bloquees"]
     assert (vue["relancable"], vue["refus_relance"], vue["executant"]) == (True, None, False)
     resultat = _relancer(noyau, conn, projet, planif, "  Prends les sources officielles seulement.  ")
-    assert resultat == {"carte": planif, "relancee": True, "statut_apres": "ready", "session_neuve": False}
+    assert resultat == {"carte": planif, "relancee": True, "statut_apres": "ready", "session_neuve": False,
+                        "branche_neuve": False}
     tache = carte(noyau, projet["tableau"], planif)
     assert tache.status == "ready" and tache.consecutive_failures == 0
     with noyau.ka.connexion(projet["tableau"]) as kc:
@@ -154,8 +219,8 @@ def test_carte_hermes_commentee_puis_debloquee(noyau, conn):
     assert demande["consigne_initiale"] is None  # la consigne d'une carte Hermes n'est pas réécrite
     journal = conn.execute("SELECT acteur, action, cible, detail FROM journal WHERE action = 'relance'").fetchall()
     assert [(l[0], l[1], l[2]) for l in journal] == [("proprietaire:test", "relance", planif)]
-    assert json.loads(journal[0][3]) == {"avec_consigne": True, "executant": False, "relancee": True,
-                                         "statut_apres": "ready"}
+    assert json.loads(journal[0][3]) == {"avec_consigne": True, "executant": False, "quarantaine": False,
+                                         "relancee": True, "statut_apres": "ready"}
     assert conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0] == 0  # geste du propriétaire
 
 
@@ -185,7 +250,8 @@ def test_carte_de_l_executant_repart_en_session_neuve_avec_la_consigne(noyau, co
     projet, exploration = _exploration_bloquee(noyau, conn, issue_precedente=issue_precedente)
     initiale = _demande(noyau, conn, projet, exploration)["consigne"]
     resultat = _relancer(noyau, conn, projet, exploration, "Lis d'abord le README, puis arrête-toi.")
-    assert resultat == {"carte": exploration, "relancee": True, "statut_apres": "ready", "session_neuve": True}
+    assert resultat == {"carte": exploration, "relancee": True, "statut_apres": "ready", "session_neuve": True,
+                        "branche_neuve": False}
     demande = _demande(noyau, conn, projet, exploration)
     assert (demande["issue"], demande["consigne_initiale"], demande["consigne_relance"]) == (
         "relancee", initiale, "Lis d'abord le README, puis arrête-toi.")
@@ -251,7 +317,8 @@ def test_echec_du_deblocage_restaure_la_demande(noyau, conn, monkeypatch):
     avant = _demande(noyau, conn, projet, exploration)
     monkeypatch.setattr(noyau.ka, "unblock_task", lambda kc, carte_id: False)
     resultat = _relancer(noyau, conn, projet, exploration, "Consigne perdue ?")
-    assert resultat == {"carte": exploration, "relancee": False, "statut_apres": "blocked", "session_neuve": False}
+    assert resultat == {"carte": exploration, "relancee": False, "statut_apres": "blocked", "session_neuve": False,
+                        "branche_neuve": False}
     apres = _demande(noyau, conn, projet, exploration)
     assert {c: apres[c] for c in ("issue", "consigne", "consigne_relance", "relancee_le", "consigne_initiale")} == {
         c: avant[c] for c in ("issue", "consigne", "consigne_relance", "relancee_le", "consigne_initiale")}
@@ -295,7 +362,8 @@ def test_carte_abandonnee_relancee_par_la_route_puis_servie_en_session_neuve(pil
     reponse = pile_machine.post(f"/api/plugins/acp-poste/v1/cartes/{projet['tableau']}/{servie['carte']}/relancer",
                                 {"consigne": "Repars de zéro : le lanceur est réparé."})
     assert reponse.status_code == 200 and reponse.json() == {
-        "carte": servie["carte"], "relancee": True, "statut_apres": "ready", "session_neuve": True}
+        "carte": servie["carte"], "relancee": True, "statut_apres": "ready", "session_neuve": True,
+        "branche_neuve": False}
     assert carte(noyau, projet["tableau"], servie["carte"]).consecutive_failures == 0
     resservie = executant.carte(("poste-claude",), en_cours={"tableau": servie["tableau"], "carte": servie["carte"],
                                                              "run_id": servie["run_id"]})

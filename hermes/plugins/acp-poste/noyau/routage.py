@@ -369,6 +369,25 @@ def voies_fermees(conn, inventaire: Optional[Dict[str, Any]] = None,
     return fermees
 
 
+def depots_du_poste(conn, inventaire: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Carte « Dépôts » de la page Poste et grisage de Codex dans « Nouveau projet » (cahier P7 § 11.2, partie E) :
+    chaque dépôt du dernier inventaire, sa visibilité telle que MESURÉE et publiée par l'exécutant (``None`` : jamais
+    mesurée, jamais devinée) et les voies du poste fermées POUR CE DÉPÔT, par le calcul même du routage
+    (:func:`voies_fermees` avec ``depot_alias`` : aucune fonction parallèle, K24). Sans inventaire : liste vide."""
+    inventaire = dernier_inventaire(conn) if inventaire is None else inventaire
+    if not inventaire:
+        return []
+    resultat = []
+    for depot in inventaire.get("depots") or []:
+        if not isinstance(depot, dict) or not isinstance(depot.get("alias"), str):
+            continue
+        alias = depot["alias"]
+        resultat.append({"alias": alias, "visibilite": depot.get("visibilite"), "lecture": depot.get("lecture"),
+                         "verifie_le": depot.get("verifie_le"),
+                         "voies_fermees": voies_fermees(conn, inventaire, depot_alias=alias)})
+    return resultat
+
+
 def _voies_fermees_du_poste(inventaire: Dict[str, Any]) -> Dict[str, str]:
     """Fermetures qui valent pour TOUT dépôt (isolement, bac à sable, conditions d'usage)."""
     fermees: Dict[str, str] = {}

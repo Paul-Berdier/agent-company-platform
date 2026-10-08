@@ -839,6 +839,8 @@ def vue_executant(conn) -> Dict[str, Any]:
         "voies_disponibles": voies if isinstance(voies, list) else None,
         "espace_libre_mio": machine.get("espace_libre_mio"),
         "voies_fermees": routage.voies_fermees(conn),
+        # Étape P7 (cahier P7 § 11.2) : visibilité mesurée de chaque dépôt et voies fermées pour lui.
+        "depots": routage.depots_du_poste(conn, inventaire),
         "cartes_en_attente_de_voie": cartes_en_attente_de_voie(conn),
         "carte_en_cours": _carte_en_main(conn, machine),
         "branches_pretes": branches_pretes(conn),

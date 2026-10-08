@@ -453,9 +453,9 @@ CARTE_NON_ACP = "la carte {carte} du tableau « {t} » n'a pas été émise par 
 CARTE_NON_ARRETEE = ("la carte {carte} n'est pas arrêtée (statut : {statut}) : seule une carte bloquée ou abandonnée se "
                      "relance.")
 CARTE_EN_REVUE = "la carte {carte} est en revue : acceptez-la ou refusez-la depuis la section Revues."
-CARTE_SECRET = ("la carte {carte} a été bloquée pour un secret détecté dans la production de l'exécutant : sa relance "
-                "reste refusée tant que la mise à l'écart du travail fautif n'est pas vérifiée sur l'exécutant (étape "
-                "P7, partie E) ; récupérez la branche pour l'examiner.")
+CARTE_SECRET = ("la carte {carte} a été bloquée pour un secret : sa relance attend un exécutant à jour (étape P7, "
+                "partie E), qui la fait repartir sans le travail en quarantaine ; son dernier inventaire ne le dit pas "
+                "(« Relever maintenant » sur la page Poste).")
 RELANCE_PROJET_EN_PAUSE = "le projet « {titre} » est en pause : reprenez d'abord le projet."
 CONSIGNE_RELANCE = "la consigne de relance doit compter de 1 à 4000 caractères."
 # Section ajoutée EN TÊTE de la consigne d'une carte de l'exécutant (la réduction à 60 Kio coupe la fin : K4).
@@ -467,8 +467,8 @@ COMMENTAIRE_RELANCE = "Relance par le propriétaire — consigne :\n{consigne}"
 REFUS_RELANCE_PAUSE = "Projet en pause : reprenez d'abord le projet."
 REFUS_RELANCE_FINI = "Projet {etat} : la carte ne serait plus servie."
 REFUS_RELANCE_NON_ACP = "Carte non émise par ACP : ACP ne la relance pas."
-REFUS_RELANCE_SECRET = ("Bloquée pour un secret : relance refusée tant que la mise à l'écart du travail fautif n'est pas "
-                        "vérifiée sur l'exécutant.")
+REFUS_RELANCE_SECRET = ("Bloquée pour un secret : relance possible dès que l'exécutant à jour (étape P7, partie E) a "
+                        "publié son inventaire.")
 REFUS_RELANCE_REVUE = "Carte en revue : acceptez-la ou refusez-la depuis la section Revues."
 ETATS_LISIBLES = {"creation": "en création", "actif": "en cours", "en_pause": "en pause", "termine": "terminé",
                   "abandonne": "abandonné"}

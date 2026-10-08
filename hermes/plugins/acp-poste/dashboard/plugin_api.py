@@ -1174,7 +1174,9 @@ CODES_HTTP.update({"carte_non_acp": 403, "carte_non_arretee": 409, "carte_en_rev
 async def relancer_carte(tableau: str, carte: str, request: Request) -> JSONResponse:
     """« Relancer » une carte bloquée ou abandonnée d'un projet actif, avec une consigne facultative (1 à 4000
     caractères) ; aucune notification (geste du propriétaire). Réponse : ``{carte, relancee, statut_apres,
-    session_neuve}`` — l'interface ne dit « La carte repart » que d'après ``relancee``."""
+    session_neuve, branche_neuve}`` — l'interface ne dit « La carte repart » que d'après ``relancee`` ;
+    ``branche_neuve`` : carte bloquée pour un secret, que l'exécutant fait repartir sans le travail en quarantaine
+    (partie E, K25)."""
     garde = await _garde_ecriture(request)
     if isinstance(garde, JSONResponse):
         return garde
