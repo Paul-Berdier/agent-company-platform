@@ -449,6 +449,31 @@ describe("useDonnees", () => {
     r.demonter();
   });
 
+  it("portée du temps réel dite là où toute la page ne suit pas le flux (Accueil, liste des discussions)", async () => {
+    // Relecture finale de P7 (constat produit-12) : « Page actualisée en temps réel » couvrait des cartes lues une
+    // seule fois (sessions récentes, système) ou relues toutes les 2 min (liste des discussions, bilan).
+    const serveur = serveurFlux();
+    installerSdk({}, { authedFetch: serveur.authedFetch });
+    const r = await rendre(
+      <div>
+        <Sonde charger={async () => "x"} sujets={["projets"]} />
+        <div data-test="accueil"><EtatActualisation portee="accueil" /></div>
+        <div data-test="discussions"><EtatActualisation portee="discussions" /></div>
+      </div>,
+    );
+    serveur.dernier().corps.envoyer(ETAT("7.0"));
+    await vider(300);
+    const texte = (cle: string) =>
+      (r.racine.querySelector(`[data-test="${cle}"]`)?.textContent ?? "").replace(/\s+/g, " ").trim();
+    expect(texte("accueil")).toBe("À traiter, projets, exécutant, quotas et notifications actualisés en temps réel tant "
+      + "que la page est visible ; bilan quotidien relu toutes les 2 minutes. Sessions récentes et cartes Système : lues "
+      + "à l'ouverture de la page.");
+    expect(texte("discussions")).toBe("Discussions en attente actualisées en temps réel tant que la page est visible ; "
+      + "liste relue toutes les 2 minutes.");
+    expect(texte("accueil")).not.toContain("Page actualisée");
+    r.demonter();
+  });
+
   it("SDK sans authedFetch : la page le dit et sonde toutes les 15 s", async () => {
     installerSdk({});
     let lectures = 0;

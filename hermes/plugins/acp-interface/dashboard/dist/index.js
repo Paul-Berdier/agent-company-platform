@@ -114,8 +114,16 @@
       creerBilan: "Cr\xE9er le bilan quotidien (8 h)",
       bilanActif: "Actif",
       bilanEnPause: "En pause",
-      prochainEnvoi: "Prochain envoi",
-      dernierEnvoi: "Dernier envoi",
+      // Relecture finale de P7 : la tâche cron EXÉCUTE le script, qui ne fait qu'enfiler la notification ; Hermes date
+      // last_run_at même en échec. Jamais « envoi » ici : « exécution », et l'issue dite d'après last_status.
+      bilanEnErreur: "En erreur",
+      prochainEnvoi: "Prochaine ex\xE9cution",
+      dernierEnvoi: "Derni\xE8re ex\xE9cution",
+      bilanDerniereEchec: "Derni\xE8re ex\xE9cution en \xE9chec\xA0: le bilan de ce jour n'est pas garanti. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanTacheEnErreur: "Hermes a mis la t\xE2che en erreur\xA0: elle ne s'ex\xE9cutera plus d'elle-m\xEAme. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanStatut: "Issue de la derni\xE8re ex\xE9cution (Hermes)",
+      bilanErreurHermes: "Message de Hermes",
+      bilanCreationRefusee: "Le bilan n'a pas \xE9t\xE9 cr\xE9\xE9\xA0: Hermes a refus\xE9 la t\xE2che (d\xE9tail technique ci-dessous).",
       jamais: "Jamais",
       bilanPlusieurs: "Plusieurs t\xE2ches du bilan existent\xA0: gardez-en une depuis la page Cron.",
       bilanCree: "Bilan quotidien cr\xE9\xE9.",
@@ -176,6 +184,10 @@
     },
     tempsReel: {
       actif: "Page actualis\xE9e en temps r\xE9el tant qu'elle est visible.",
+      // Relecture finale de P7 (constat produit-12) : la portée exacte du temps réel, là où toute la page ne suit pas.
+      actifAccueil: "\xC0 traiter, projets, ex\xE9cutant, quotas et notifications actualis\xE9s en temps r\xE9el tant que la page est visible\xA0; bilan quotidien relu toutes les 2 minutes.",
+      noteAccueil: "Sessions r\xE9centes et cartes Syst\xE8me\xA0: lues \xE0 l'ouverture de la page.",
+      actifDiscussions: "Discussions en attente actualis\xE9es en temps r\xE9el tant que la page est visible\xA0; liste relue toutes les 2 minutes.",
       connexion: "Connexion au temps r\xE9el en cours\xA0: actualisation toutes les 15 secondes en attendant.",
       repli: "Temps r\xE9el indisponible\xA0: actualisation toutes les 15 secondes tant que la page est visible.",
       sansFlux: "Temps r\xE9el non pris en charge par ce tableau de bord\xA0: actualisation toutes les 15 secondes tant que la page est visible."
@@ -822,6 +834,7 @@
       ouvrir: "Ouvrir",
       ouvrirDiscussion: "Ouvrir la discussion",
       listeIndisponible: "La liste des discussions n'a pas pu \xEAtre lue.",
+      attenteInconnue: "Discussions en attente\xA0: \xE9tat inconnu (le tableau de bord n'a pas pu \xEAtre interrog\xE9)\xA0; l'absence de la marque \xAB\xA0En attente d'une r\xE9ponse\xA0\xBB ne veut rien dire.",
       indisponible: "Discussion indisponible\xA0: ce tableau de bord n'expose pas buildWsUrl (contrat 1.1 du SDK).",
       introuvable: "Discussion introuvable\xA0: Hermes ne la conna\xEEt plus (ferm\xE9e, ou perdue au red\xE9marrage).",
       connexion: "Connexion \xE0 Hermes\u2026",
@@ -1484,9 +1497,11 @@
   }
 
   // src/actualisation.tsx
-  function EtatActualisation() {
+  function EtatActualisation(props = {}) {
     const etat = useEtatFlux();
-    const texte = etat.mode === "temps_reel" ? T.tempsReel.actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
+    const portee = props.portee ?? "page";
+    const actif = portee === "accueil" ? T.tempsReel.actifAccueil : portee === "discussions" ? T.tempsReel.actifDiscussions : T.tempsReel.actif;
+    const texte = etat.mode === "temps_reel" ? actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
     return /* @__PURE__ */ h(
       "p",
       {
@@ -1494,7 +1509,8 @@
         role: "status",
         "data-acp-temps-reel": etat.mode
       },
-      texte
+      /* @__PURE__ */ h("span", null, texte),
+      portee === "accueil" ? /* @__PURE__ */ h("span", null, " ", T.tempsReel.noteAccueil) : null
     );
   }
 
@@ -2175,16 +2191,22 @@
     const nbDiscussions = connues && props.discussions?.connu ? props.discussions.sessions.length : null;
     const total = bloc && typeof bloc.total === "number" ? bloc.total + (nbDiscussions ?? 0) : null;
     const premieres = Array.isArray(bloc?.premieres) ? bloc.premieres : [];
-    return /* @__PURE__ */ h(Carte, { titre: T.accueil.aTraiterTitre, id: "acp-accueil-a-traiter" }, bloc === null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h("span", null, T.accueil.blocIllisible), " ", /* @__PURE__ */ h(Donnee, { valeur: props.illisible })) : /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("p", { className: "acp-chiffre" }, /* @__PURE__ */ h(Donnee, { valeur: total })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.questions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.questions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.decisions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.decisions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.revues }, /* @__PURE__ */ h(Donnee, { valeur: bloc.revues ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.arretees }, /* @__PURE__ */ h(Donnee, { valeur: bloc.arretees ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.discussionsEnAttente }, nbDiscussions === null ? /* @__PURE__ */ h("span", null, T.accueil.inconnues) : /* @__PURE__ */ h(Donnee, { valeur: nbDiscussions })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.chezHermes }, /* @__PURE__ */ h(Donnee, { valeur: typeof props.chezHermes === "number" ? props.chezHermes : null }))), premieres.length > 0 ? /* @__PURE__ */ h("ul", { className: "acp-noms" }, premieres.map((d, rang) => {
+    return /* @__PURE__ */ h(Carte, { titre: T.accueil.aTraiterTitre, id: "acp-accueil-a-traiter" }, bloc === null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, /* @__PURE__ */ h("span", null, T.accueil.blocIllisible), " ", /* @__PURE__ */ h(Donnee, { valeur: props.illisible })) : /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("p", { className: "acp-chiffre" }, /* @__PURE__ */ h(Donnee, { valeur: total }), nbDiscussions === null ? /* @__PURE__ */ h("span", { className: "acp-discret" }, " ", T.projets.discussionsNonComptees) : null), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.questions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.questions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.decisions }, /* @__PURE__ */ h(Donnee, { valeur: bloc.decisions ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.revues }, /* @__PURE__ */ h(Donnee, { valeur: bloc.revues ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.arretees }, /* @__PURE__ */ h(Donnee, { valeur: bloc.arretees ?? null })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.discussionsEnAttente }, nbDiscussions === null ? /* @__PURE__ */ h("span", null, T.accueil.inconnues) : /* @__PURE__ */ h(Donnee, { valeur: nbDiscussions })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.chezHermes }, /* @__PURE__ */ h(Donnee, { valeur: typeof props.chezHermes === "number" ? props.chezHermes : null }))), premieres.length > 0 ? /* @__PURE__ */ h("ul", { className: "acp-noms" }, premieres.map((d, rang) => {
       const cible = chaine2(d.cible);
       const genre = libelleGenre(d.genre);
       return /* @__PURE__ */ h("li", { key: `${cible ?? rang}` }, genre ? /* @__PURE__ */ h("span", { className: "acp-discret" }, genre, " ") : null, cible && CIBLE.test(cible) ? /* @__PURE__ */ h(Lien, { vers: cible }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.titre) })) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(d.projet_titre) })));
-    })) : total === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.rienATraiter) : null), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/projets?vue=questions" }, T.accueil.ouvrirQuestions)));
+    })) : total === 0 && nbDiscussions !== null ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.accueil.rienATraiter) : null), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/projets?vue=questions" }, T.accueil.ouvrirQuestions)));
   }
 
   // src/interface/CarteBilan.tsx
   function bilanEnPause(tache) {
     return tache.enabled === false || tache.state === "paused";
+  }
+  function bilanEnErreur(tache) {
+    return !bilanEnPause(tache) && tache.state === "error";
+  }
+  function derniereEnEchec(tache) {
+    return Boolean(tache.last_run_at) && tache.last_status !== "ok";
   }
   function CarteBilan(props) {
     const lecture = useDonnees(lireTachesCron, props.jeton, []);
@@ -2207,10 +2229,13 @@
           surClic: () => void creer(),
           desactive: creation.etat.etat === "envoi"
         }
-      )), /* @__PURE__ */ h(RetourEnvoi, { etat: creation.etat }));
+      )), creation.etat.etat === "erreur" ? /* @__PURE__ */ h(BlocErreur, { erreur: creation.etat.erreur, message: T.accueil.bilanCreationRefusee }) : /* @__PURE__ */ h(RetourEnvoi, { etat: creation.etat }));
     } else {
       const pause = bilanEnPause(tache);
-      contenu = /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: pause ? { texte: T.accueil.bilanEnPause, famille: "neutre" } : { texte: T.accueil.bilanActif, famille: "succes" } })), pause ? null : /* @__PURE__ */ h(Ligne, { libelle: T.accueil.prochainEnvoi }, /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.next_run_at) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.dernierEnvoi }, tache.last_run_at ? /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.last_run_at) }) : /* @__PURE__ */ h("span", null, T.accueil.jamais))), taches.length > 1 ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanPlusieurs) : null, creation.etat.etat === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, T.accueil.bilanCree) : null);
+      const erreur = bilanEnErreur(tache);
+      const echec = derniereEnEchec(tache);
+      const detail = chaine2(tache.last_error);
+      contenu = /* @__PURE__ */ h("div", { className: "acp-sections" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.etat }, /* @__PURE__ */ h(Etiquette, { libelle: pause ? { texte: T.accueil.bilanEnPause, famille: "neutre" } : erreur ? { texte: T.accueil.bilanEnErreur, famille: "echec" } : { texte: T.accueil.bilanActif, famille: "succes" } })), pause || erreur ? null : /* @__PURE__ */ h(Ligne, { libelle: T.accueil.prochainEnvoi }, /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.next_run_at) })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.dernierEnvoi }, tache.last_run_at ? /* @__PURE__ */ h(Horodatage, { valeur: chaine2(tache.last_run_at) }) : /* @__PURE__ */ h("span", null, T.accueil.jamais))), erreur ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.accueil.bilanTacheEnErreur) : echec ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.accueil.bilanDerniereEchec) : null, (erreur || echec) && (detail || tache.last_status) ? /* @__PURE__ */ h("details", { className: "acp-details" }, /* @__PURE__ */ h("summary", null, T.commun.detailTechnique), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.accueil.bilanStatut }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(tache.last_status), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.accueil.bilanErreurHermes }, /* @__PURE__ */ h(Donnee, { valeur: detail, mono: true })))) : null, taches.length > 1 ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanPlusieurs) : null, creation.etat.etat === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, T.accueil.bilanCree) : null);
     }
     return /* @__PURE__ */ h(Carte, { titre: T.accueil.bilanTitre, id: "acp-accueil-bilan" }, contenu, notif?.connu === true && notif.configure !== true ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte" }, T.accueil.bilanSansCanal) : null, /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Lien, { vers: "/cron" }, T.accueil.ouvrirCron)));
   }
@@ -2377,7 +2402,7 @@
         discussions: discussions.valeur,
         illisible: raison("a_traiter")
       }
-    ) : null, accueil !== null ? /* @__PURE__ */ h(CarteProjets, { bloc: accueil.projets, illisible: raison("projets") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteExecutant, { executant: accueil.executant, illisible: raison("executant") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteQuotas, { quotas: accueil.quotas, illisible: raison("quotas") }) : null, accueil !== null ? /* @__PURE__ */ h(Notifications, { etat: accueil.notifications }) : null, accueil !== null ? /* @__PURE__ */ h(CarteBilan, { notifications: accueil.notifications, jeton, apres }) : null, /* @__PURE__ */ h(CarteSessions, null), meta.etat === "ok" ? /* @__PURE__ */ h(CarteHermes, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteGarde, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CartePersona, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteCatalogue, { meta: meta.valeur }) : null, /* @__PURE__ */ h(CarteRaccourcis, null)), meta.etat === "chargement" ? /* @__PURE__ */ h(EnChargement, null) : null, meta.etat === "erreur" ? /* @__PURE__ */ h(BlocErreur, { erreur: meta.erreur, message: T.accueil.metaIndisponible }) : null, /* @__PURE__ */ h(EtatActualisation, null), /* @__PURE__ */ h(Pied, { meta: meta.etat === "ok" ? meta.valeur : null }));
+    ) : null, accueil !== null ? /* @__PURE__ */ h(CarteProjets, { bloc: accueil.projets, illisible: raison("projets") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteExecutant, { executant: accueil.executant, illisible: raison("executant") }) : null, accueil !== null ? /* @__PURE__ */ h(CarteQuotas, { quotas: accueil.quotas, illisible: raison("quotas") }) : null, accueil !== null ? /* @__PURE__ */ h(Notifications, { etat: accueil.notifications }) : null, accueil !== null ? /* @__PURE__ */ h(CarteBilan, { notifications: accueil.notifications, jeton, apres }) : null, /* @__PURE__ */ h(CarteSessions, null), meta.etat === "ok" ? /* @__PURE__ */ h(CarteHermes, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteGarde, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CartePersona, { meta: meta.valeur }) : null, meta.etat === "ok" ? /* @__PURE__ */ h(CarteCatalogue, { meta: meta.valeur }) : null, /* @__PURE__ */ h(CarteRaccourcis, null)), meta.etat === "chargement" ? /* @__PURE__ */ h(EnChargement, null) : null, meta.etat === "erreur" ? /* @__PURE__ */ h(BlocErreur, { erreur: meta.erreur, message: T.accueil.metaIndisponible }) : null, /* @__PURE__ */ h(EtatActualisation, { portee: "accueil" }), /* @__PURE__ */ h(Pied, { meta: meta.etat === "ok" ? meta.valeur : null }));
   }
 
   // src/interface/Alertes.tsx

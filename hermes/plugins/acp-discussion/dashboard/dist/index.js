@@ -114,8 +114,16 @@
       creerBilan: "Cr\xE9er le bilan quotidien (8 h)",
       bilanActif: "Actif",
       bilanEnPause: "En pause",
-      prochainEnvoi: "Prochain envoi",
-      dernierEnvoi: "Dernier envoi",
+      // Relecture finale de P7 : la tâche cron EXÉCUTE le script, qui ne fait qu'enfiler la notification ; Hermes date
+      // last_run_at même en échec. Jamais « envoi » ici : « exécution », et l'issue dite d'après last_status.
+      bilanEnErreur: "En erreur",
+      prochainEnvoi: "Prochaine ex\xE9cution",
+      dernierEnvoi: "Derni\xE8re ex\xE9cution",
+      bilanDerniereEchec: "Derni\xE8re ex\xE9cution en \xE9chec\xA0: le bilan de ce jour n'est pas garanti. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanTacheEnErreur: "Hermes a mis la t\xE2che en erreur\xA0: elle ne s'ex\xE9cutera plus d'elle-m\xEAme. D\xE9tail ci-dessous et sur la page Cron.",
+      bilanStatut: "Issue de la derni\xE8re ex\xE9cution (Hermes)",
+      bilanErreurHermes: "Message de Hermes",
+      bilanCreationRefusee: "Le bilan n'a pas \xE9t\xE9 cr\xE9\xE9\xA0: Hermes a refus\xE9 la t\xE2che (d\xE9tail technique ci-dessous).",
       jamais: "Jamais",
       bilanPlusieurs: "Plusieurs t\xE2ches du bilan existent\xA0: gardez-en une depuis la page Cron.",
       bilanCree: "Bilan quotidien cr\xE9\xE9.",
@@ -176,6 +184,10 @@
     },
     tempsReel: {
       actif: "Page actualis\xE9e en temps r\xE9el tant qu'elle est visible.",
+      // Relecture finale de P7 (constat produit-12) : la portée exacte du temps réel, là où toute la page ne suit pas.
+      actifAccueil: "\xC0 traiter, projets, ex\xE9cutant, quotas et notifications actualis\xE9s en temps r\xE9el tant que la page est visible\xA0; bilan quotidien relu toutes les 2 minutes.",
+      noteAccueil: "Sessions r\xE9centes et cartes Syst\xE8me\xA0: lues \xE0 l'ouverture de la page.",
+      actifDiscussions: "Discussions en attente actualis\xE9es en temps r\xE9el tant que la page est visible\xA0; liste relue toutes les 2 minutes.",
       connexion: "Connexion au temps r\xE9el en cours\xA0: actualisation toutes les 15 secondes en attendant.",
       repli: "Temps r\xE9el indisponible\xA0: actualisation toutes les 15 secondes tant que la page est visible.",
       sansFlux: "Temps r\xE9el non pris en charge par ce tableau de bord\xA0: actualisation toutes les 15 secondes tant que la page est visible."
@@ -822,6 +834,7 @@
       ouvrir: "Ouvrir",
       ouvrirDiscussion: "Ouvrir la discussion",
       listeIndisponible: "La liste des discussions n'a pas pu \xEAtre lue.",
+      attenteInconnue: "Discussions en attente\xA0: \xE9tat inconnu (le tableau de bord n'a pas pu \xEAtre interrog\xE9)\xA0; l'absence de la marque \xAB\xA0En attente d'une r\xE9ponse\xA0\xBB ne veut rien dire.",
       indisponible: "Discussion indisponible\xA0: ce tableau de bord n'expose pas buildWsUrl (contrat 1.1 du SDK).",
       introuvable: "Discussion introuvable\xA0: Hermes ne la conna\xEEt plus (ferm\xE9e, ou perdue au red\xE9marrage).",
       connexion: "Connexion \xE0 Hermes\u2026",
@@ -1425,9 +1438,11 @@
   }
 
   // src/actualisation.tsx
-  function EtatActualisation() {
+  function EtatActualisation(props = {}) {
     const etat = useEtatFlux();
-    const texte = etat.mode === "temps_reel" ? T.tempsReel.actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
+    const portee = props.portee ?? "page";
+    const actif = portee === "accueil" ? T.tempsReel.actifAccueil : portee === "discussions" ? T.tempsReel.actifDiscussions : T.tempsReel.actif;
+    const texte = etat.mode === "temps_reel" ? actif : etat.mode === "sondage" ? T.tempsReel.repli : etat.mode === "indisponible" ? T.tempsReel.sansFlux : T.tempsReel.connexion;
     return /* @__PURE__ */ h(
       "p",
       {
@@ -1435,7 +1450,8 @@
         role: "status",
         "data-acp-temps-reel": etat.mode
       },
-      texte
+      /* @__PURE__ */ h("span", null, texte),
+      portee === "accueil" ? /* @__PURE__ */ h("span", null, " ", T.tempsReel.noteAccueil) : null
     );
   }
 
@@ -2465,7 +2481,10 @@
         className: "acp-bouton acp-bouton--principal"
       },
       T.discussion.nouvelle
-    )), /* @__PURE__ */ h(Carte, { titre: T.discussion.listeTitre, id: "acp-discussion-liste" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.listeIntro), lecture.valeur !== null && lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.discussion.listeIndisponible) : null, contenu));
+    )), /* @__PURE__ */ h(Carte, { titre: T.discussion.listeTitre, id: "acp-discussion-liste" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.listeIntro), lecture.valeur !== null && lecture.erreur !== null ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.discussion.listeIndisponible) : null, attente.valeur !== null && !attente.valeur.connu ? (
+      // Relecture finale de P7 (constat produit-4) : sans état d'attente lu, l'absence de marque ne prouve rien.
+      /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, T.discussion.attenteInconnue)
+    ) : null, contenu));
   }
 
   // src/discussion/Fil.tsx
@@ -2594,7 +2613,7 @@
       return () => window.removeEventListener("popstate", surRetour);
     }, []);
     const surCle = (cle) => changerAdresse({ genre: "fil", cle }, true);
-    return /* @__PURE__ */ h("div", { className: "acp-page acp-discussion", "data-acp-racine": "discussion" }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.discussion.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.intro)), vue.genre === "liste" ? /* @__PURE__ */ h(Liste, { naviguer }) : /* @__PURE__ */ h(Fil, { key: `${vue.cle ?? NOUVELLE}-${ouverture}`, cle: vue.cle, naviguer, surCle }), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.limites), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.persistance), vue.genre === "liste" ? /* @__PURE__ */ h(EtatActualisation, null) : null);
+    return /* @__PURE__ */ h("div", { className: "acp-page acp-discussion", "data-acp-racine": "discussion" }, /* @__PURE__ */ h("div", { className: "acp-entete" }, /* @__PURE__ */ h("h1", { className: "acp-titre" }, T.discussion.titre), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.intro)), vue.genre === "liste" ? /* @__PURE__ */ h(Liste, { naviguer }) : /* @__PURE__ */ h(Fil, { key: `${vue.cle ?? NOUVELLE}-${ouverture}`, cle: vue.cle, naviguer, surCle }), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.limites), /* @__PURE__ */ h("p", { className: "acp-discret" }, T.discussion.persistance), vue.genre === "liste" ? /* @__PURE__ */ h(EtatActualisation, { portee: "discussions" }) : null);
   }
 
   // src/discussion/index.ts

@@ -584,6 +584,17 @@ describe("page Discussion", () => {
     r.demonter();
   });
 
+  it("liste : état d'attente illisible dit, jamais « rien en attente » par défaut", async () => {
+    // Relecture finale de P7 (constat produit-4) : sans état d'attente lu, l'absence de marque passait pour « rien ».
+    installerSdk({ [ROUTE_DISCUSSIONS]: PAGE_SESSIONS }, { buildWsUrl: async () => { throw new Error("ticket"); } });
+    const r = await rendre(<Discussion />);
+    await tours(8);
+    expect(r.racine.querySelectorAll("ul.acp-entrees > li").length).toBe(2);
+    expect(r.texte()).toContain("Discussions en attente : état inconnu (le tableau de bord n'a pas pu être interrogé)");
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    r.demonter();
+  });
+
   it("discussion reprise : question rejouée, réponse par choix, texte brut (aucun HTML interprété)", async () => {
     vi.stubGlobal("WebSocket", HermesWs);
     window.history.replaceState(null, "", `/discussion?session=${CLE}`);

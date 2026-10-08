@@ -117,8 +117,16 @@ export const T = {
     creerBilan: "Créer le bilan quotidien (8 h)",
     bilanActif: "Actif",
     bilanEnPause: "En pause",
-    prochainEnvoi: "Prochain envoi",
-    dernierEnvoi: "Dernier envoi",
+    // Relecture finale de P7 : la tâche cron EXÉCUTE le script, qui ne fait qu'enfiler la notification ; Hermes date
+    // last_run_at même en échec. Jamais « envoi » ici : « exécution », et l'issue dite d'après last_status.
+    bilanEnErreur: "En erreur",
+    prochainEnvoi: "Prochaine exécution",
+    dernierEnvoi: "Dernière exécution",
+    bilanDerniereEchec: "Dernière exécution en échec : le bilan de ce jour n'est pas garanti. Détail ci-dessous et sur la page Cron.",
+    bilanTacheEnErreur: "Hermes a mis la tâche en erreur : elle ne s'exécutera plus d'elle-même. Détail ci-dessous et sur la page Cron.",
+    bilanStatut: "Issue de la dernière exécution (Hermes)",
+    bilanErreurHermes: "Message de Hermes",
+    bilanCreationRefusee: "Le bilan n'a pas été créé : Hermes a refusé la tâche (détail technique ci-dessous).",
     jamais: "Jamais",
     bilanPlusieurs: "Plusieurs tâches du bilan existent : gardez-en une depuis la page Cron.",
     bilanCree: "Bilan quotidien créé.",
@@ -179,6 +187,10 @@ export const T = {
   },
   tempsReel: {
     actif: "Page actualisée en temps réel tant qu'elle est visible.",
+    // Relecture finale de P7 (constat produit-12) : la portée exacte du temps réel, là où toute la page ne suit pas.
+    actifAccueil: "À traiter, projets, exécutant, quotas et notifications actualisés en temps réel tant que la page est visible ; bilan quotidien relu toutes les 2 minutes.",
+    noteAccueil: "Sessions récentes et cartes Système : lues à l'ouverture de la page.",
+    actifDiscussions: "Discussions en attente actualisées en temps réel tant que la page est visible ; liste relue toutes les 2 minutes.",
     connexion: "Connexion au temps réel en cours : actualisation toutes les 15 secondes en attendant.",
     repli: "Temps réel indisponible : actualisation toutes les 15 secondes tant que la page est visible.",
     sansFlux: "Temps réel non pris en charge par ce tableau de bord : actualisation toutes les 15 secondes tant que la page est visible.",
@@ -825,6 +837,7 @@ export const T = {
     ouvrir: "Ouvrir",
     ouvrirDiscussion: "Ouvrir la discussion",
     listeIndisponible: "La liste des discussions n'a pas pu être lue.",
+    attenteInconnue: "Discussions en attente : état inconnu (le tableau de bord n'a pas pu être interrogé) ; l'absence de la marque « En attente d'une réponse » ne veut rien dire.",
     indisponible: "Discussion indisponible : ce tableau de bord n'expose pas buildWsUrl (contrat 1.1 du SDK).",
     introuvable: "Discussion introuvable : Hermes ne la connaît plus (fermée, ou perdue au redémarrage).",
     connexion: "Connexion à Hermes…",

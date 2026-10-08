@@ -92,6 +92,12 @@ export function Liste(props: { naviguer: NaviguerDiscussion }): Noeud {
             {T.discussion.listeIndisponible}
           </p>
         ) : null}
+        {attente.valeur !== null && !attente.valeur.connu ? (
+          // Relecture finale de P7 (constat produit-4) : sans état d'attente lu, l'absence de marque ne prouve rien.
+          <p className="acp-alerte-texte" role="status">
+            {T.discussion.attenteInconnue}
+          </p>
+        ) : null}
         {contenu}
       </Carte>
     </div>

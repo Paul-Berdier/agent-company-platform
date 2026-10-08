@@ -48,7 +48,9 @@ En tête de la file : **À traiter par vous : n** et **Chez Hermes : m**.
   d'après le réglage courant du projet : une question ouverte garde son traitement quand le réglage change (§ 3).
 - **« À traiter par vous »** = questions à vous + décisions + revues + cartes arrêtées (compteurs servis par le
   greffon, `compteurs` de `GET /v1/questions`), **plus** les discussions en attente quand elles ont pu être lues.
-  Sinon la page dit « discussions : état inconnu » : jamais zéro.
+  Sinon la page dit « discussions : état inconnu » : jamais zéro. L'Accueil fait de même (total suivi de « discussions
+  en attente : état inconnu, non comptées », jamais « Rien n'attend votre décision ») ; la liste de la page Discussion
+  dit que l'état d'attente est inconnu (relecture finale de P7).
 - Une cible de lien profond est défilée et marquée (`aria-current`) ; une cible déjà traitée le dit (« Cette demande a
   déjà été traitée »), sans erreur. Une cible que la page vient de traiter n'est pas « déjà traitée » : le message tiré
   de la réponse de l'API (« la carte reprend », « reprendra à la reprise du projet », « n'a pas été relancée »…) est
@@ -210,7 +212,9 @@ en P7 (D105).
   par la garde de démarrage, à empreinte connue), lit la base et enfile **une** notification `bilan:<date de Paris>`,
   compteurs seulement, même quand rien n'a bougé (« ACP — Bilan du 02/10 : 2 projets en cours (5 cartes faites sur 12),
   1 question et 1 décision pour vous, exécutant en ligne. »). Fuseau épinglé `Europe/Paris`.
-- La carte dit « Actif » et le prochain envoi, « En pause » ou « Non créé » ; canal absent : « Le bilan ne partira pas ».
+- La carte dit « Actif » et la prochaine exécution, « En pause », « En erreur » ou « Non créé », puis la dernière
+  exécution et son issue (`last_status` ≠ `ok` : « Dernière exécution en échec », détail replié ; relecture finale de
+  P7 : jamais « envoi », Hermes date `last_run_at` même en échec) ; canal absent : « Le bilan ne partira pas ».
   Pause et suppression : page Cron de Hermes.
 
 ---

@@ -1,6 +1,8 @@
 // Carte « À traiter par vous » de l'Accueil (cahier P7 § 8.3, bloc 1) : le compte (questions à vous, décisions,
 // revues, cartes arrêtées, et les discussions en attente quand elles ont pu être lues), les trois premières demandes
 // (liens profonds vers la file Questions, en paramètres de requête) et « Chez Hermes ». Bloc illisible : sa raison.
+// Discussions en attente non lues (en cours de lecture, ou inconnues) : le total le dit, comme la file Questions, et
+// « Rien n'attend votre décision. » n'est jamais affiché (relecture finale de P7 : jamais zéro par défaut).
 import { T } from "../chaines";
 import { Carte, Donnee, Ligne, Lien } from "../commun";
 import type { LectureDiscussions } from "../jsonrpc/discussions";
@@ -46,6 +48,7 @@ export function CarteATraiter(props: {
         <div className="acp-sections">
           <p className="acp-chiffre">
             <Donnee valeur={total} />
+            {nbDiscussions === null ? <span className="acp-discret"> {T.projets.discussionsNonComptees}</span> : null}
           </p>
           <dl className="acp-liste">
             <Ligne libelle={T.accueil.questions}>
@@ -89,7 +92,7 @@ export function CarteATraiter(props: {
                 );
               })}
             </ul>
-          ) : total === 0 ? (
+          ) : total === 0 && nbDiscussions !== null ? (
             <p className="acp-discret">{T.accueil.rienATraiter}</p>
           ) : null}
         </div>

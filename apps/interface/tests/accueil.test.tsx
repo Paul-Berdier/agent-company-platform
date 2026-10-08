@@ -83,6 +83,29 @@ describe("Accueil agrégé (GET /v1/accueil)", () => {
     r.demonter();
   });
 
+  // Relecture finale de P7 (constat produit-4) : des discussions non lues comptaient pour zéro dans le total, et la
+  // carte disait « Rien n'attend votre décision. » à côté de « Discussions en attente : Inconnues ».
+  it("discussions inconnues : total qualifié, jamais « Rien n'attend »", async () => {
+    const vide = { ...ACCUEIL, a_traiter: { total: 0, questions: 0, decisions: 0, revues: 0, arretees: 0, premieres: [],
+                                           tableaux_illisibles: [] } };
+    installerSdk(reponses({ [ROUTE_ACCUEIL]: vide }));  // SDK sans buildWsUrl : discussions inconnues
+    const r = await rendre(<Accueil />);
+    await attendre();
+    const aTraiter = texteDe(carte(r.racine, "acp-accueil-a-traiter"));
+    expect(aTraiter).not.toContain("Rien n'attend votre décision.");
+    expect(aTraiter).toContain("0 (discussions en attente : état inconnu, non comptées)");
+    r.demonter();
+  });
+
+  // Constat produit-12 : « Page actualisée en temps réel » couvrait aussi des cartes lues une seule fois.
+  it("dit ce qui n'est lu qu'à l'ouverture (sessions récentes, système)", async () => {
+    installerSdk(reponses());
+    const r = await rendre(<Accueil />);
+    await attendre();
+    expect(r.texte()).toContain("Sessions récentes et cartes Système : lues à l'ouverture de la page.");
+    r.demonter();
+  });
+
   it("route /v1/accueil absente : l'accueil le dit ; le système (meta) reste lu", async () => {
     installerSdk({ [ROUTE_META]: META, [ROUTE_SESSIONS]: SESSIONS, [ROUTE_CRON]: [] });
     const r = await rendre(<Accueil />);
@@ -114,7 +137,7 @@ describe("bilan quotidien (tâche cron native du propriétaire)", () => {
     ]);
     expect(TACHE_BILAN.no_agent).toBe(true);
     expect(texteDe(carte(r.racine, "acp-accueil-bilan"))).toContain("Actif");
-    expect(texteDe(carte(r.racine, "acp-accueil-bilan"))).toContain("Prochain envoi");
+    expect(texteDe(carte(r.racine, "acp-accueil-bilan"))).toContain("Prochaine exécution");
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
     r.demonter();
   });
@@ -129,9 +152,78 @@ describe("bilan quotidien (tâche cron native du propriétaire)", () => {
     await attendre();
     const bilan = texteDe(carte(r.racine, "acp-accueil-bilan"));
     expect(bilan).toContain("En pause");
-    expect(bilan).not.toContain("Prochain envoi");
+    expect(bilan).not.toContain("Prochaine exécution");
     expect(bilan).not.toContain("Plusieurs tâches");
     expect(bilan).toContain("Le bilan ne partira pas : notifications non configurées.");
+    r.demonter();
+  });
+
+  // Relecture finale de P7 (constats produit-2, scenario-5) : Hermes date last_run_at à CHAQUE exécution, même en échec
+  // (last_status « error ») ; la carte disait « Dernier envoi » d'après last_run_at seul, donc un faux succès.
+  it("dernière exécution en échec : dite, détail replié ; jamais « envoi »", async () => {
+    installerSdk(reponses({
+      [ROUTE_CRON]: [{ ...TACHE, last_run_at: "2026-10-08T08:00:03+02:00", last_status: "error",
+                       last_error: "bilan non enfilé (OperationalError)", failure_streak: 1 }],
+    }));
+    const r = await rendre(<Accueil />);
+    await attendre();
+    const bilan = carte(r.racine, "acp-accueil-bilan");
+    const texte = texteDe(bilan);
+    expect(texte).not.toContain("envoi");
+    expect(texte).toContain("Dernière exécution");
+    expect(texteDe(bilan?.querySelector(".acp-alerte-texte"))).toBe(
+      "Dernière exécution en échec : le bilan de ce jour n'est pas garanti. Détail ci-dessous et sur la page Cron.");
+    expect(texteDe(bilan?.querySelector("details"))).toContain("bilan non enfilé (OperationalError)");
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    r.demonter();
+  });
+
+  it("tâche en erreur chez Hermes (prochaine exécution incalculable) : « En erreur », jamais « Actif »", async () => {
+    installerSdk(reponses({
+      [ROUTE_CRON]: [{ ...TACHE, state: "error", next_run_at: null, last_run_at: "2026-10-08T08:00:03+02:00",
+                       last_status: "ok", last_error: "Failed to compute next run for recurring schedule" }],
+    }));
+    const r = await rendre(<Accueil />);
+    await attendre();
+    const bilan = texteDe(carte(r.racine, "acp-accueil-bilan"));
+    expect(bilan).toContain("En erreur");
+    expect(bilan).not.toContain("Actif");
+    expect(bilan).toContain("Failed to compute next run for recurring schedule");
+    r.demonter();
+  });
+
+  it("dernière exécution réussie : aucune alerte", async () => {
+    installerSdk(reponses({
+      [ROUTE_CRON]: [{ ...TACHE, last_run_at: "2026-10-08T08:00:03+02:00", last_status: "ok", last_error: null }],
+    }));
+    const r = await rendre(<Accueil />);
+    await attendre();
+    const bilan = carte(r.racine, "acp-accueil-bilan");
+    expect(texteDe(bilan)).toContain("Actif");
+    expect(texteDe(bilan)).toContain("Prochaine exécution");
+    expect(bilan?.querySelector(".acp-alerte-texte")).toBeNull();
+    r.demonter();
+  });
+
+  // Constat produit-14 : un refus de la route NATIVE (anglais) n'est pas un message du greffon.
+  it("création refusée par la route native : message français, détail anglais replié", async () => {
+    installerSdk(reponses({
+      [`POST ${ROUTE_CRON}`]: new ApiErrorHermes("script does not exist: /opt/data/scripts/acp-bilan.py", 400,
+                                                 '{"detail":"script does not exist: /opt/data/scripts/acp-bilan.py"}'),
+    }));
+    const r = await rendre(<Accueil />);
+    await attendre();
+    const bilan = carte(r.racine, "acp-accueil-bilan");
+    const bouton = [...(bilan?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Créer le bilan quotidien (8 h)");
+    await act(async () => {
+      bouton?.click();
+    });
+    await attendre(6);
+    const erreur = carte(r.racine, "acp-accueil-bilan")?.querySelector('[role="alert"]');
+    expect(texteDe(erreur?.querySelector("p"))).toBe(
+      "Le bilan n'a pas été créé : Hermes a refusé la tâche (détail technique ci-dessous).");
+    expect(texteDe(erreur?.querySelector("details"))).toContain("script does not exist");
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
     r.demonter();
   });
 

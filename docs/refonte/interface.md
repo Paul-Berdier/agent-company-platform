@@ -509,7 +509,11 @@ Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté inter
 - **La page dit ce qui est vrai** (`EtatActualisation`, `data-acp-temps-reel`) : « Page actualisée en temps
   réel… » seulement après une trame `etat` reçue ; « Connexion au temps réel en cours… », « Temps réel
   indisponible : actualisation toutes les 15 secondes… » (repli), « Temps réel non pris en charge par ce
-  tableau de bord… » (SDK sans `authedFetch`, que `verifierSdk` annonce par `tempsReel`).
+  tableau de bord… » (SDK sans `authedFetch`, que `verifierSdk` annonce par `tempsReel`). Là où toute la page ne suit
+  pas le flux, la phrase dit sa portée (relecture finale de P7) : l'Accueil (bilan relu toutes les 2 min ; sessions
+  récentes et cartes Système lues à l'ouverture) et la liste des discussions (relue toutes les 2 min ; seules les
+  discussions en attente suivent le flux). **Chien de garde** : 40 s sans un octet, la connexion est annulée et
+  comptée comme un échec.
 - **Tests** : Vitest `tests/flux.test.tsx` (14) : analyseur sur tous les découpages, trames exemples partagées
   avec le desktop, singleton partagé par deux copies du module, fermeture différée, `Last-Event-ID`, reprise,
   repli après trois échecs et nouvel essai, 401, page cachée, SDK sans flux, regroupement, intervalles, erreur
@@ -541,8 +545,12 @@ toutes les largeurs : grille `repeat(auto-fit, minmax(min(20rem, 100%),
    vue, carte en cours, voies fermées et leur raison ;
 4. **Quotas** : par voie, état du relevé, part utilisée, remise à zéro, source et date ; Hermes : le libellé servi ;
 5. **Notifications** (canal, notification de test) et **Bilan quotidien** (`CarteBilan.tsx`) : la carte lit
-   `GET /api/cron/jobs` (route NATIVE de Hermes) et dit « Actif » avec le prochain envoi, « En pause » ou « Non
-   créé » ; le bouton **Créer le bilan quotidien (8 h)** appelle, avec la session du propriétaire, la route native
+   `GET /api/cron/jobs` (route NATIVE de Hermes) et dit « Actif » avec la prochaine exécution, « En pause », « En
+   erreur » (tâche que Hermes ne relancera plus) ou « Non créé », et la **dernière exécution** — jamais « envoi » : le
+   script ne fait qu'enfiler la notification, et Hermes date `last_run_at` même en échec. Depuis la relecture finale de
+   P7, une dernière exécution dont `last_status` n'est pas `ok` est dite en alerte (« Dernière exécution en échec : le
+   bilan de ce jour n'est pas garanti »), `last_status` et `last_error` repliés ; un refus de la route native (en
+   anglais) est dit en français, détail replié ; le bouton **Créer le bilan quotidien (8 h)** appelle, avec la session du propriétaire, la route native
    `POST /api/cron/jobs` (`no_agent`, script `acp-bilan.py`, `0 8 * * *`, livraison `local`) ; seule une tâche SANS
    agent qui exécute ce script est reconnue comme le bilan. Pause et suppression : page Cron de Hermes (lien).
    Canal non configuré : « Le bilan ne partira pas » ;
