@@ -402,12 +402,15 @@ jobs:
         run: python -m pytest -s -v -rA hermes/tests/contrat -m restauration
 
       - name: Installer Playwright (hachés vérifiés) et Chromium
+        # R3 tourne même si R1, R2 ou R4 ont échoué : chaque run doit rendre le plus de mesures possible.
+        if: success() || failure()
         run: |
           set -euo pipefail
           python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
           python -m playwright install --with-deps chromium
 
       - name: Restauration — test navigateur (R3, identité restaurée et reconnexion)
+        if: success() || failure()
         env:
           ACP_E2E_OBLIGATOIRE: "1"
           ACP_E2E_CAPTURES: /tmp/captures-restauration
