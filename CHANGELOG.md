@@ -110,10 +110,12 @@ Corrections des relectures indépendantes, une ligne par étape (détail : `docs
 - P0 : 5 défauts confirmés et corrigés (refus des NUL sans l'octet NUL, tests DPAPI réels rétablis, commande
   `journal` sans source retirée, `acp-poste quotas` refusé sans accord avec le retrait d'un réglage sans effet,
   « aucune connexion réseau » rectifié : Codex CLI, que lance `acp-poste quotas`, interroge le serveur d'OpenAI) ;
-- P1 : 5 constats, dont deux critiques (`/run/service` laissé à l'agent, `.env` du volume hors managed scope), et
-  l'élévation par le `PATH` des scripts root trouvée à la vérification finale ;
+- P1 : 5 constats, dont deux critiques (`/run/service` laissé à l'agent, `.env` du volume hors managed scope) :
+  4 corrigés, 1 en limite dite (port 9119 pris sous le même uid, paré depuis P2 par l'absence d'outil d'exécution) ;
+  plus l'élévation par le `PATH` des scripts root, trouvée à la vérification finale et corrigée ;
 - P2 : 21 constats de trois relectures (sécurité offensive, exactitude, exploitation), dont les `hooks/` et
-  `scripts/` de chaque profil rendus à root ;
+  `scripts/` de chaque profil rendus à root ; deux traités par la documentation seule (`vision_analyze`, qui lit
+  toute image locale, gardé par décision du propriétaire ; sauvegardes absentes de l'IaC) ;
 - P3 : 14 constats (4 moyens, 10 bas) ;
 - P4 : 21 constats, tous réels (projets qui s'arrêtaient en silence ou se disaient terminés à tort, redirections
   suivies par les notifications) ;
