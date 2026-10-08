@@ -163,7 +163,10 @@ def test_identite_restauree_reconnexion_mesuree(playwright_sync, pile):
         assert arrivee_temoin.startswith(f"{URL_HERMES}/"), arrivee_temoin
         [p2] = cdp_t.send("WebAuthn.getCredentials", {"authenticatorId": auth_t})["credentials"]
         temoin.close()
-        # L'authentificateur du contexte porte désormais P1 et P2 (compteurs à jour).
+        # L'authentificateur du contexte ne garde que P1 : un authentificateur virtuel refuse une seconde passkey
+        # résidente du même utilisateur pour le même site (mesuré au run 37763664941 : « An error occurred trying to
+        # create the credential »). P2 vit dans le contexte témoin, puis dans le contexte du refus (point 6).
+        cdp.send("WebAuthn.removeCredential", {"authenticatorId": auth2, "credentialId": p2["credentialId"]})
         cdp.send("WebAuthn.addCredential", {"authenticatorId": auth2,
                                             "credential": {k: p1[k] for k in CHAMPS_PASSKEY if k in p1}})
         page.goto(f"{URL_HERMES}/")
@@ -191,7 +194,9 @@ def test_identite_restauree_reconnexion_mesuree(playwright_sync, pile):
         avant = len(lignes_du_bord(str(bord)))
         rechargement = page.goto(f"{URL_HERMES}/")
         page.wait_for_timeout(3000)
-        sans_at = _obtenir(page, "/api/auth/me")
+        # /api/auth/me n'a de sens que depuis l'origine de Hermes : renvoyé au portail, la page n'y est plus.
+        sans_at = _obtenir(page, "/api/auth/me") if page.url.startswith(f"{URL_HERMES}/") else \
+            ["page hors de Hermes", page.url.split("?")[0]]
         echanges = [l["statut"] for l in lignes_du_bord(str(bord))[avant:] if l["chemin"] == "/api/oidc/token"]
         capture("apres-restauration")
         preuves["apres_restauration"] = {
@@ -206,7 +211,6 @@ def test_identite_restauree_reconnexion_mesuree(playwright_sync, pile):
         if page.url.startswith(URL_HERMES):
             page.evaluate("async () => { await fetch('/auth/logout', {method: 'POST', redirect: 'manual'}); }")
         contexte.clear_cookies()
-        cdp.send("WebAuthn.removeCredential", {"authenticatorId": auth2, "credentialId": p2["credentialId"]})
         [p1_avant] = cdp.send("WebAuthn.getCredentials", {"authenticatorId": auth2})["credentials"]
         arrivee_p1 = _connexion_passkey(page)
         [p1_apres] = cdp.send("WebAuthn.getCredentials", {"authenticatorId": auth2})["credentials"]
