@@ -2,10 +2,26 @@
 
 #include "api/ApiError.h"
 #include "events/EventStreamService.h"
+#include "events/Sondage.h"
 
 #include <QTimer>
 
 namespace acp {
+
+QString PageViewModel::cadence() const
+{
+    return m_sondageCadence ? m_sondageCadence->libelleCadence() : QString();
+}
+
+void PageViewModel::suivreCadence(Sondage *sondage)
+{
+    if (m_sondageCadence || !sondage) {
+        return;
+    }
+    m_sondageCadence = sondage;
+    connect(sondage, &Sondage::cadenceChange, this, &PageViewModel::cadenceChange);
+    emit cadenceChange();
+}
 
 PageViewModel::PageViewModel(EventStreamService *flux, QObject *parent)
     : QObject(parent)

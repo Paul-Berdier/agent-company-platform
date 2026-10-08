@@ -75,12 +75,19 @@ Item {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Ce qui attend votre décision, vos projets, l'exécutant et Hermes : le même Accueil que dans "
-                           + "le navigateur, relu toutes les 15 secondes tant que cette page est affichée.")
+                           + "le navigateur.")
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 color: Colors.textSecondary
                 font.family: Type.prose.family
                 font.pixelSize: Type.prose.pixelSize
+            }
+
+            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
+            Discret {
+                objectName: "accueil-cadence"
+                Layout.fillWidth: true
+                text: Accueil.cadence
             }
 
             EtatLecture {
@@ -241,7 +248,13 @@ Item {
                         }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Carte en cours"); value: Accueil.carteExecutant.carteEnCours || "" }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Cartes en attente"); value: Accueil.carteExecutant.cartesEnAttente || "" }
-                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Voies fermées"); texte: Accueil.carteExecutant.voiesFermees || "" }
+                        // Rien quand aucune voie n'est servie fermée (exécutant inconnu compris), comme la page web.
+                        BlocTexte {
+                            Layout.fillWidth: true
+                            visible: (Accueil.carteExecutant.voiesFermees || "").length > 0
+                            libelle: qsTr("Voies fermées")
+                            texte: Accueil.carteExecutant.voiesFermees || ""
+                        }
                         BlocTexte {
                             Layout.fillWidth: true
                             visible: (Accueil.carteExecutant.message || "").length > 0

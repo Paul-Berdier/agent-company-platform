@@ -187,6 +187,12 @@ QString EventStreamService::libelleATraiter() const
                                     : QStringLiteral("À traiter par vous : %1 (discussions non comptées)").arg(aTraiter());
 }
 
+QString EventStreamService::descriptionATraiter() const
+{
+    return m_discussions->connues() ? QStringLiteral("demandes à traiter par vous")
+                                    : QStringLiteral("demandes à traiter par vous (discussions non comptées)");
+}
+
 QString EventStreamService::libelleResume() const
 {
     if (!m_sessionOuverte) {

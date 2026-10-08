@@ -1,6 +1,7 @@
 // Accueil de la station (cahier P8 § 7.1 ; Accueil agrégé de l'étape P7, cahier P7 § 8).
 //
-// Sources, relues toutes les 15 s tant que la page est affichée :
+// Sources, relues tant que la page est affichée (toutes les 15 s hors temps réel ; cadence
+// réelle de chacune : cadence()) :
 //   - `GET /v1/accueil` du greffon : UNE lecture, la même que l'Accueil du navigateur (forme
 //     partagée : hermes/tests/outils/fixtures_accueil/accueil.json) — à traiter par vous, chez
 //     Hermes, discussions en attente, projets en cours, exécutant, quotas, canal de notifications,
@@ -79,6 +80,12 @@ public:
     void setCompatibilite(CompatibiliteHermes *compatibilite);
     /*! Intervalle des lectures de la page (15 s ; réglable pour les tests). */
     void setIntervalle(std::chrono::milliseconds intervalle);
+    /*!
+        Cadence réelle de CHAQUE lecture de la page (relecture de P8b, constat desktop-4) : en temps
+        réel, l'Accueil agrégé au signal et en sûreté, le bilan en sûreté seulement, les discussions
+        récentes et la carte Hermes à leur sondage (aucun sujet du flux pour elles).
+    */
+    [[nodiscard]] QString cadence() const override;
 
     [[nodiscard]] bool lue() const { return m_lue; }
     [[nodiscard]] const QVariantMap &carteATraiter() const { return m_carteATraiter; }

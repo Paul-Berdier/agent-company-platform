@@ -12,7 +12,10 @@
 //  - étape P7 (suivre) : une page qui suit le flux d'invalidation du greffon relit sur signal
 //    de l'un de SES sujets (regroupé sur 300 ms, seulement si elle est active) et, en temps
 //    réel, ne garde qu'une relecture de sûreté (FluxInvalidation::intervalleRelecture) ; hors
-//    temps réel, son intervalle habituel.
+//    temps réel, son intervalle habituel ;
+//  - la cadence RÉELLE se dit en une phrase (libelleCadence, signal cadenceChange) : la page
+//    l'affiche au lieu d'un « toutes les 15 secondes » écrit en dur (relecture de P8b, constat
+//    desktop-4), comme EtatActualisation de la page web.
 
 #pragma once
 
@@ -60,6 +63,20 @@ public:
     /*! Relectures déclenchées par un signal du flux (diagnostics, tests). */
     [[nodiscard]] int relecturesSurSignal() const { return m_relecturesSurSignal; }
 
+    /*! « toutes les 15 secondes », « toutes les 2 minutes » : un intervalle, en français. */
+    [[nodiscard]] static QString toutesLes(std::chrono::milliseconds intervalle);
+    /*! Le flux suivi est en temps réel (trame `etat` reçue) : la page relit au signal. */
+    [[nodiscard]] bool tempsReel() const;
+    /*! Le flux suivi s'ouvre (aucune trame `etat` encore) : sondage habituel en attendant. */
+    [[nodiscard]] bool connexionTempsReel() const;
+    /*!
+        Hors temps réel, en tête de phrase : « Sans temps réel » (aucun flux suivi, annoncé ou
+        ouvert), « Connexion au temps réel en cours » ou « Temps réel indisponible » (repli).
+    */
+    [[nodiscard]] QString etatHorsTempsReel() const;
+    /*! Cadence réelle d'une page dont c'est la lecture principale, en une phrase française. */
+    [[nodiscard]] QString libelleCadence() const;
+
     /*! Active (lecture immédiate puis périodique) ou suspend le sondage. */
     void setActif(bool actif);
     [[nodiscard]] bool actif() const { return m_actif; }
@@ -84,6 +101,8 @@ signals:
     void lu(const acp::ApiResponse &reponse);
     void echec(const acp::ApiError &erreur);
     void etatChange();
+    /*! La cadence a pu changer (mode du flux suivi, intervalle). */
+    void cadenceChange();
 
 private:
     void lancer();

@@ -196,10 +196,14 @@ void TestDiscussionsAttente::badgeAccueilEtFileLesComptent()
     banc.flux.demarrer();
     QTRY_COMPARE(banc.flux.aTraiter(), 1); // a_traiter.total de la fixture partagée
     QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : 1 (discussions non comptées)"));
+    // Relecture de P8b (constat desktop-5) : ce que compte la pastille, pour son nom accessible, suit le même cas.
+    QCOMPARE(banc.flux.property("descriptionATraiter").toString(),
+             QStringLiteral("demandes à traiter par vous (discussions non comptées)"));
     // Passerelle prête : les discussions se lisent et le badge les compte.
     banc.ouvrirPasserelle();
     QTRY_COMPARE(banc.flux.aTraiter(), 2);
     QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : 2"));
+    QCOMPARE(banc.flux.property("descriptionATraiter").toString(), QStringLiteral("demandes à traiter par vous"));
 
     // Accueil : total, nombre et mention.
     accueil.setPageVisible(true);

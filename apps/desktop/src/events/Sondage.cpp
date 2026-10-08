@@ -34,6 +34,7 @@ void Sondage::setIntervalle(std::chrono::milliseconds intervalle)
     if (m_actif && m_minuterie->isActive()) {
         programmer();
     }
+    emit cadenceChange();
 }
 
 void Sondage::suivre(FluxInvalidation *flux, const QStringList &sujets)
@@ -66,11 +67,63 @@ void Sondage::suivre(FluxInvalidation *flux, const QStringList &sujets)
         }
     });
     connect(flux, &FluxInvalidation::etatChange, this, &Sondage::reprogrammer);
+    connect(flux, &FluxInvalidation::etatChange, this, &Sondage::cadenceChange);
+    emit cadenceChange();
 }
 
 std::chrono::milliseconds Sondage::intervalleEffectif() const
 {
     return m_flux ? m_flux->intervalleRelecture(m_intervalle, m_sujets) : m_intervalle;
+}
+
+QString Sondage::toutesLes(std::chrono::milliseconds intervalle)
+{
+    const qint64 ms = intervalle.count();
+    if (ms >= 120000 && ms % 60000 == 0) {
+        return QStringLiteral("toutes les %1 minutes").arg(ms / 60000);
+    }
+    if (ms % 1000 == 0) {
+        return QStringLiteral("toutes les %1 secondes").arg(ms / 1000);
+    }
+    return QStringLiteral("toutes les %1 secondes")
+        .arg(QString::number(static_cast<double>(ms) / 1000.0, 'g', 3).replace(QLatin1Char('.'), QLatin1Char(',')));
+}
+
+bool Sondage::tempsReel() const
+{
+    return m_flux && m_flux->tempsReel();
+}
+
+bool Sondage::connexionTempsReel() const
+{
+    return m_flux && m_flux->mode() == FluxInvalidation::Mode::Connexion;
+}
+
+QString Sondage::etatHorsTempsReel() const
+{
+    if (m_flux && m_flux->mode() == FluxInvalidation::Mode::Connexion) {
+        return QStringLiteral("Connexion au temps réel en cours");
+    }
+    if (m_flux && m_flux->mode() == FluxInvalidation::Mode::Sondage) {
+        return QStringLiteral("Temps réel indisponible");
+    }
+    return QStringLiteral("Sans temps réel");
+}
+
+QString Sondage::libelleCadence() const
+{
+    const QString intervalle = toutesLes(intervalleEffectif());
+    if (tempsReel()) {
+        return m_sujets.isEmpty()
+            ? QStringLiteral("Page relue %1 (temps réel : relecture de sûreté seulement), tant qu'elle est affichée.")
+                  .arg(intervalle)
+            : QStringLiteral("Page relue à chaque changement signalé par le serveur (temps réel) et %1 par sûreté, tant "
+                             "qu'elle est affichée.")
+                  .arg(intervalle);
+    }
+    return connexionTempsReel()
+        ? QStringLiteral("%1 : page relue %2 en attendant, tant qu'elle est affichée.").arg(etatHorsTempsReel(), intervalle)
+        : QStringLiteral("%1 : page relue %2 tant qu'elle est affichée.").arg(etatHorsTempsReel(), intervalle);
 }
 
 void Sondage::reprogrammer()

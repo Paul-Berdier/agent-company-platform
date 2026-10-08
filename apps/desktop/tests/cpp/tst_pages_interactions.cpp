@@ -16,9 +16,13 @@
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
+#include "gateway/DiscussionsEnAttente.h"
+#include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
+#include "viewmodels/QuotasViewModel.h"
 #include "viewmodels/ShellViewModel.h"
 
 #include <QClipboard>
@@ -29,6 +33,8 @@
 #include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QRegularExpression>
@@ -91,11 +97,12 @@ private slots:
     void dialogueDeChangementDeServeurEnFrancais();
     void copieDuRapportParLaPalette();
     void discussionEnAttenteOuverteParLeBouton();
+    void pastilleDesQuestionsDitCeQuElleCompte();
     // En dernier : charge la fenêtre racine (App.qml).
     void chaqueRaccourciDeLaPaletteAgit();
 
 private:
-    std::unique_ptr<QObject> charger(const QString &nom);
+    std::unique_ptr<QObject> charger(const QString &nom, const QString &module = QStringLiteral("Acp.Pages"));
     //! Clic gauche réel au centre de l'élément, s'il est visible dans la fenêtre.
     bool cliquer(QQuickItem *item);
     //! Donne le focus au champ par un clic réel, puis tape le texte touche par touche.
@@ -219,11 +226,11 @@ void TestPagesInteractions::cleanupTestCase()
     m_serveur.reset();
 }
 
-std::unique_ptr<QObject> TestPagesInteractions::charger(const QString &nom)
+std::unique_ptr<QObject> TestPagesInteractions::charger(const QString &nom, const QString &module)
 {
     m_avertissements.clear();
     QQmlComponent composant(m_moteur.get());
-    composant.loadFromModule(QStringLiteral("Acp.Pages"), nom);
+    composant.loadFromModule(module, nom);
     if (!QTest::qWaitFor([&composant] { return composant.status() != QQmlComponent::Loading; }, 5000)
         || !composant.isReady()) {
         qWarning("%s", qPrintable(composant.errorString()));
@@ -569,6 +576,29 @@ void TestPagesInteractions::questionsReluesAuSignalDuFlux()
     QTRY_COMPARE_WITH_TIMEOUT(m_serveur->compter("GET", route), lectures + 1, 5000);
     QVERIFY(m_flux->tempsReel());
     QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Temps réel"));
+
+    // Relecture de P8b (constat desktop-4) : en temps réel, la page dit sa cadence RÉELLE (au signal, et relecture de
+    // sûreté), jamais « toutes les 15 secondes ». La file Questions est réglée ici à une heure (aucun sondage).
+    QQuickItem *cadence = parNom(qobject_cast<QQuickItem *>(page.get()), QStringLiteral("questions-cadence"));
+    QVERIFY(cadence && cadence->isVisible());
+    QTRY_COMPARE(cadence->property("text").toString(), m_questions->property("cadence").toString());
+    QCOMPARE(cadence->property("text").toString(),
+             QStringLiteral("Page relue à chaque changement signalé par le serveur (temps réel) et toutes les 60 minutes "
+                            "par sûreté, tant qu'elle est affichée."));
+    // Les autres pages de pilotage, à leur réglage du produit : sûreté de 2 minutes en temps réel.
+    for (QObject *autre : std::initializer_list<QObject *>{m_projets, m_application->findChild<PosteViewModel *>(),
+                                                           m_application->findChild<QuotasViewModel *>()}) {
+        QVERIFY(autre);
+        QCOMPARE(autre->property("cadence").toString(),
+                 QStringLiteral("Page relue à chaque changement signalé par le serveur (temps réel) et toutes les 2 "
+                                "minutes par sûreté, tant qu'elle est affichée."));
+    }
+    auto *accueil = m_application->findChild<AccueilViewModel *>();
+    QVERIFY(accueil);
+    QCOMPARE(accueil->property("cadence").toString(),
+             QStringLiteral("Accueil relu à chaque changement signalé par le serveur (temps réel) et toutes les 2 minutes "
+                            "par sûreté ; bilan quotidien relu toutes les 2 minutes ; discussions récentes et carte Hermes "
+                            "relues toutes les 15 secondes ; tant que la page est affichée."));
     m_serveur->envoyerFlux(trame("changement")); // projets, questions
     QTRY_COMPARE_WITH_TIMEOUT(m_serveur->compter("GET", route), lectures + 2, 5000);
     m_serveur->envoyerFlux(QByteArrayLiteral("id: 1727791200.50\nevent: changement\ndata: {\"sujets\":[\"quotas\"]}\n\n"));
@@ -583,6 +613,48 @@ void TestPagesInteractions::questionsReluesAuSignalDuFlux()
     QTRY_COMPARE_WITH_TIMEOUT(m_serveur->clientsFlux(), 0, 5000);
     QVERIFY(!m_flux->tempsReel());
     QVERIFY(m_flux->etatFlux().startsWith(QStringLiteral("Inconnu")));
+    // Hors temps réel, le sondage habituel est dit.
+    QCOMPARE(m_projets->property("cadence").toString(),
+             QStringLiteral("Sans temps réel : page relue toutes les 15 secondes tant qu'elle est affichée."));
+    QCOMPARE(m_application->findChild<QuotasViewModel *>()->property("cadence").toString(),
+             QStringLiteral("Sans temps réel : page relue toutes les 60 secondes tant qu'elle est affichée."));
+    QCOMPARE(accueil->property("cadence").toString(),
+             QStringLiteral("Sans temps réel : Accueil, bilan quotidien, discussions récentes et carte Hermes relus toutes "
+                            "les 15 secondes tant que la page est affichée."));
+}
+
+// Relecture de P8b (constat desktop-5) : le nom accessible de la pastille de la file Questions disait toujours
+// « (discussions non comptées) », même quand le total comptait déjà les discussions en attente.
+void TestPagesInteractions::pastilleDesQuestionsDitCeQuElleCompte()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    QVERIFY(passerelle);
+    m_serveur->methodes.insert(QStringLiteral("session.active_list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("rt-s1")}, {QStringLiteral("session_key"), QStringLiteral("s1")},
+            {QStringLiteral("status"), QStringLiteral("waiting")}, {QStringLiteral("title"), QStringLiteral("Plan du site")}}}}};
+    });
+    if (passerelle->etat() != GatewayClient::Etat::Pret) {
+        passerelle->ouvrir();
+        QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    }
+    m_flux->noterAccueil(fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object());
+    m_flux->discussions()->lire();
+    QTRY_VERIFY_WITH_TIMEOUT(m_flux->discussions()->connues(), 5000);
+    QCOMPARE(m_flux->discussions()->nombre(), 1);
+
+    auto barre = charger(QStringLiteral("SideNavigation"), QStringLiteral("Acp.Station"));
+    QVERIFY(barre);
+    QQuickItem *entree = parNom(qobject_cast<QQuickItem *>(barre.get()), QStringLiteral("navigation-questions"));
+    QVERIFY(entree);
+    const auto nom = [entree] { return QQmlProperty(entree, QStringLiteral("Accessible.name"), qmlContext(entree)).read().toString(); };
+    // Discussions lues : le total les compte, le nom ne dit plus le contraire.
+    QTRY_COMPARE(nom(), QStringLiteral("Questions (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
+    // Discussions inconnues (passerelle indisponible, refus) : le nom le dit.
+    m_flux->discussions()->oublier();
+    QTRY_COMPARE(nom(), QStringLiteral("Questions (%1 demandes à traiter par vous (discussions non comptées))")
+                            .arg(m_flux->aTraiter()));
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
 }
 
 // Étape P8b : la file Questions liste les discussions en attente lues par la passerelle

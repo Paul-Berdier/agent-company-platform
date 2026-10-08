@@ -92,6 +92,7 @@ ProjetsViewModel::ProjetsViewModel(ApiClient *client, ClientGreffonPoste *greffo
     // Étape P7 : mêmes sujets que la page web (Projets.tsx pour la liste, DetailProjet.tsx pour le détail).
     m_liste->suivre(flux->invalidation(), {QStringLiteral("projets"), QStringLiteral("questions"), QStringLiteral("poste"),
                                            QStringLiteral("notifications"), QStringLiteral("pause")});
+    suivreCadence(m_liste); // la phrase de la page est celle de la liste
     m_detailSondage->suivre(flux->invalidation(),
                             {QStringLiteral("projets"), QStringLiteral("questions"), QStringLiteral("pause")});
     m_pause = AccueilViewModel::construireCartePause({});

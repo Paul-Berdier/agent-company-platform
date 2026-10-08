@@ -175,15 +175,24 @@ void TestAccueil::carteExecutant()
     QCOMPARE(carte.value(QStringLiteral("cartesEnAttente")).toString(), QStringLiteral("0"));
     QVERIFY(carte.value(QStringLiteral("voiesFermees")).toString().startsWith(QStringLiteral("Poste (Codex) : isolement de l'exécutant")));
 
-    // Aucune voie fermée : « Aucune » ; forme inattendue : « Inconnu » ; aucune carte en main.
+    // Objet vide : rien n'est affiché, comme la page web (CarteExecutant.tsx) — le greffon sert `{}` aussi quand AUCUN
+    // exécutant n'est connu (noyau/accueil.py) : « Aucune » y inventerait une absence de fermeture (relecture de P8b,
+    // constat desktop-6). Forme inattendue : « Inconnu » ; aucune carte en main.
     QJsonObject document = accueilPartage();
     QJsonObject executant = document.value(QStringLiteral("executant")).toObject();
     executant.insert(QStringLiteral("voies_fermees"), QJsonObject{});
     executant.insert(QStringLiteral("carte_en_cours"), QJsonValue::Null);
     document.insert(QStringLiteral("executant"), executant);
     const QVariantMap libre = AccueilViewModel::construireCarteExecutant(document);
-    QCOMPARE(libre.value(QStringLiteral("voiesFermees")).toString(), QStringLiteral("Aucune"));
+    QCOMPARE(libre.value(QStringLiteral("voiesFermees")).toString(), QString());
     QCOMPARE(libre.value(QStringLiteral("carteEnCours")).toString(), QStringLiteral("Aucune carte en cours"));
+    // Exécutant inconnu, tel que le greffon le sert (`_executant` sans machine) : aucune voie dite fermée ni ouverte.
+    QJsonObject inconnu = executant;
+    for (const char *cle : {"plateforme", "hote", "peut_executer"}) {
+        inconnu.insert(QString::fromLatin1(cle), QJsonValue::Null);
+    }
+    document.insert(QStringLiteral("executant"), inconnu);
+    QCOMPARE(AccueilViewModel::construireCarteExecutant(document).value(QStringLiteral("voiesFermees")).toString(), QString());
     executant.insert(QStringLiteral("voies_fermees"), QJsonArray{QStringLiteral("poste-codex")});
     executant.remove(QStringLiteral("nom"));
     document.insert(QStringLiteral("executant"), executant);

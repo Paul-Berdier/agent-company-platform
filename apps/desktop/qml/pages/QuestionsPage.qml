@@ -113,7 +113,12 @@ Item {
 
             Discret {
                 text: qsTr("Ce qui attend votre décision dans vos projets : la même file que la page Questions du "
-                           + "navigateur. Page relue toutes les 15 secondes tant qu'elle est affichée.")
+                           + "navigateur.")
+            }
+            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
+            Discret {
+                objectName: "questions-cadence"
+                text: Questions.cadence
             }
             EtatLecture {
                 Layout.fillWidth: true

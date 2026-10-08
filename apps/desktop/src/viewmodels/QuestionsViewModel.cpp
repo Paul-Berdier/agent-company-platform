@@ -70,6 +70,7 @@ QuestionsViewModel::QuestionsViewModel(ApiClient *client, ClientGreffonPoste *gr
     // Étape P7 : mêmes sujets que la file de la page web (Projets.tsx, lireQuestions).
     m_sondage->suivre(flux->invalidation(),
                       {QStringLiteral("questions"), QStringLiteral("projets"), QStringLiteral("discussions")});
+    suivreCadence(m_sondage);
     m_triage->setCle({QStringLiteral("tableau"), QStringLiteral("carte")});
     m_bloquees->setCle({QStringLiteral("tableau"), QStringLiteral("carte")});
     m_revues->setCle({QStringLiteral("tableau"), QStringLiteral("carte")});

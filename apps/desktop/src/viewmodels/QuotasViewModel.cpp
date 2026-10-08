@@ -35,6 +35,7 @@ QuotasViewModel::QuotasViewModel(ClientGreffonPoste *greffon, EventStreamService
 {
     // Étape P7 : mêmes sujets que la page web (Quotas.tsx).
     m_sondage->suivre(flux->invalidation(), {QStringLiteral("quotas"), QStringLiteral("poste")});
+    suivreCadence(m_sondage);
     connect(m_sondage, &Sondage::etatChange, this, &QuotasViewModel::lectureChange);
     connect(m_sondage, &Sondage::lu, this, [this](const ApiResponse &reponse) { lire(reponse.json.object()); });
 }

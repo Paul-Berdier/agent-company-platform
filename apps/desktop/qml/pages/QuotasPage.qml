@@ -64,8 +64,12 @@ Item {
             }
 
             Discret {
-                text: qsTr("Quotas relevés par le poste, jamais estimés. Au-delà du seuil, le routage écarte la voie. "
-                           + "Page relue toutes les 60 secondes tant qu'elle est affichée.")
+                text: qsTr("Quotas relevés par le poste, jamais estimés. Au-delà du seuil, le routage écarte la voie.")
+            }
+            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
+            Discret {
+                objectName: "quotas-cadence"
+                text: Quotas.cadence
             }
             EtatLecture {
                 Layout.fillWidth: true

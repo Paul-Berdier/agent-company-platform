@@ -73,7 +73,12 @@ Item {
 
             Discret {
                 text: qsTr("Le poste Windows qui exécute les étapes de vos projets sur dépôt : enrôlement, état, "
-                           + "inventaire. Page relue toutes les 15 secondes tant qu'elle est affichée.")
+                           + "inventaire.")
+            }
+            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
+            Discret {
+                objectName: "poste-cadence"
+                text: Poste.cadence
             }
             EtatLecture {
                 Layout.fillWidth: true

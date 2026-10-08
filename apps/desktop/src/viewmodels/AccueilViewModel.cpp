@@ -108,6 +108,10 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
     });
     // Étape P7 : l'Accueil agrégé couvre tous les sujets du flux (Accueil.tsx, useDonnees(lireAccueil, …, SUJETS)).
     m_accueil->suivre(flux->invalidation(), FluxInvalidation::sujets());
+    suivreCadence(m_accueil);
+    for (Sondage *sondage : {m_sondageSessions, m_sondageBilan}) {
+        connect(sondage, &Sondage::cadenceChange, this, &AccueilViewModel::cadenceChange);
+    }
     lireAccueil({});
     m_lue = false;
     for (Sondage *sondage : {m_accueil, m_sondageSessions}) {
@@ -151,7 +155,28 @@ void AccueilViewModel::setCompatibilite(CompatibiliteHermes *compatibilite)
     connect(m_meta, &Sondage::lu, this,
             [this](const ApiResponse &reponse) { m_compatibilite->appliquerLecture(reponse.json.object()); });
     connect(m_meta, &Sondage::echec, this, [this](const ApiError &erreur) { m_compatibilite->appliquerEchec(erreur); });
+    connect(m_meta, &Sondage::cadenceChange, this, &AccueilViewModel::cadenceChange);
     m_meta->setActif(actif());
+    emit cadenceChange(); // la carte Hermes est désormais relue avec la page
+}
+
+QString AccueilViewModel::cadence() const
+{
+    // Comme EtatActualisation portee="accueil" de la page web : la portée exacte du temps réel.
+    if (m_accueil->tempsReel()) {
+        return QStringLiteral("Accueil relu à chaque changement signalé par le serveur (temps réel) et %1 par sûreté ; "
+                              "bilan quotidien relu %2 ; %3 %4 ; tant que la page est affichée.")
+            .arg(Sondage::toutesLes(m_accueil->intervalleEffectif()), Sondage::toutesLes(m_sondageBilan->intervalleEffectif()),
+                 m_meta ? QStringLiteral("discussions récentes et carte Hermes relues") : QStringLiteral("discussions récentes relues"),
+                 Sondage::toutesLes(m_sondageSessions->intervalleEffectif()));
+    }
+    // Hors temps réel, toutes les lectures de la page partagent le même intervalle (setIntervalle).
+    return QStringLiteral("%1 : %2 relus %3%4 tant que la page est affichée.")
+        .arg(m_accueil->etatHorsTempsReel(),
+             m_meta ? QStringLiteral("Accueil, bilan quotidien, discussions récentes et carte Hermes")
+                    : QStringLiteral("Accueil, bilan quotidien et discussions récentes"),
+             Sondage::toutesLes(m_accueil->intervalleEffectif()),
+             m_accueil->connexionTempsReel() ? QStringLiteral(" en attendant,") : QString());
 }
 
 void AccueilViewModel::setIntervalle(std::chrono::milliseconds intervalle)
@@ -445,10 +470,10 @@ QVariantMap AccueilViewModel::construireCarteExecutant(const QJsonObject &accuei
         {QStringLiteral("carteEnCours"), carte},
         {QStringLiteral("cartesEnAttente"), libelles::nombre(e.value(QStringLiteral("cartes_en_attente")))},
         {QStringLiteral("message"), texteOuVide(e.value(QStringLiteral("message")))},
-        // Objet servi `{voie: raison}` ; vide : « Aucune » ; autre forme : « Inconnu » (constat desktop-3 de P7).
-        {QStringLiteral("voiesFermees"), !voies.isObject() ? libelles::kInconnu
-                                         : fermees.isEmpty() ? QStringLiteral("Aucune")
-                                                             : fermees.join(QLatin1Char('\n'))},
+        // Objet servi `{voie: raison}` (constat desktop-3 de P7) ; autre forme : « Inconnu ». Vide : rien, comme la page
+        // web — le greffon sert aussi `{}` quand AUCUN exécutant n'est connu, et « Aucune » y inventerait une absence
+        // de fermeture (relecture de P8b, constat desktop-6).
+        {QStringLiteral("voiesFermees"), !voies.isObject() ? libelles::kInconnu : fermees.join(QLatin1Char('\n'))},
     };
 }
 

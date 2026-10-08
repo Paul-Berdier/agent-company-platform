@@ -50,6 +50,7 @@ class EventStreamService : public QObject
     // Résumé du sondage léger (barre d'état, badge de navigation).
     Q_PROPERTY(int aTraiter READ aTraiter NOTIFY resumeChange)
     Q_PROPERTY(QString libelleATraiter READ libelleATraiter NOTIFY resumeChange)
+    Q_PROPERTY(QString descriptionATraiter READ descriptionATraiter NOTIFY resumeChange)
     Q_PROPERTY(QString libellePoste READ libellePoste NOTIFY resumeChange)
     Q_PROPERTY(QString clePoste READ clePoste NOTIFY resumeChange)
     Q_PROPERTY(int pauseGenerale READ pauseGenerale NOTIFY resumeChange)
@@ -105,6 +106,12 @@ public:
     /*! « À traiter par vous » (discussions en attente comprises quand elles sont connues), ou -1 si inconnu. */
     [[nodiscard]] int aTraiter() const;
     [[nodiscard]] QString libelleATraiter() const;
+    /*!
+        Ce que compte `aTraiter`, pour le nom accessible de la pastille de la file Questions :
+        « demandes à traiter par vous », suivi de « (discussions non comptées) » seulement quand
+        les discussions en attente ne sont pas lues (relecture de P8b, constat desktop-5).
+    */
+    [[nodiscard]] QString descriptionATraiter() const;
     [[nodiscard]] const QString &libellePoste() const { return m_libellePoste; }
     [[nodiscard]] const QString &clePoste() const { return m_clePoste; }
     /*! 1 engagée, 0 levée, -1 inconnue. */

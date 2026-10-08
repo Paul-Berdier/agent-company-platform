@@ -276,6 +276,15 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         const QString fautes_ = examiner(objet, etape);                                                            \
         QVERIFY2(fautes_.isEmpty(), qPrintable(fautes_));                                                          \
     } while (false)
+    // Relecture de P8b (constat desktop-4) : la page affiche la cadence RÉELLE de sa relecture (propriété `cadence` de
+    // son ViewModel), jamais un « toutes les 15 secondes » écrit en dur. Ici, aucun flux annoncé : sondage habituel.
+#define VERIFIER_CADENCE(objet, modele, attendue)                                                                  \
+    do {                                                                                                           \
+        const QString cadence_ = (modele)->property("cadence").toString();                                        \
+        QCOMPARE(cadence_, QString(attendue));                                                                     \
+        QVERIFY2(contientTexte(qobject_cast<QQuickItem *>(objet), cadence_), qPrintable(cadence_));                \
+    } while (false)
+    const QString kCadencePage = QStringLiteral("Sans temps réel : page relue toutes les 15 secondes tant qu'elle est affichée.");
 
     // --- Accueil alimenté ------------------------------------------------------------------
     {
@@ -285,6 +294,9 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_COMPARE_WITH_TIMEOUT(accueil->sessions()->count(), 2, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(application.findChild<CompatibiliteHermes *>()->lecture().startsWith(QStringLiteral("Lu à")), 5000);
         VERIFIER(page.get(), QStringLiteral("Accueil"));
+        VERIFIER_CADENCE(page.get(), accueil,
+                         QStringLiteral("Sans temps réel : Accueil, bilan quotidien, discussions récentes et carte Hermes "
+                                        "relus toutes les 15 secondes tant que la page est affichée."));
         auto *item = qobject_cast<QQuickItem *>(page.get());
         // Les cartes de l'Accueil agrégé, dans l'ordre du navigateur.
         QVERIFY(contientTexte(item, QStringLiteral("À traiter par vous")));
@@ -311,6 +323,7 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_COMPARE_WITH_TIMEOUT(pageProjets->projets()->count(), 2, 5000);
         VERIFIER(page.get(), QStringLiteral("Projets, liste"));
+        VERIFIER_CADENCE(page.get(), pageProjets, kCadencePage);
         QVERIFY(contientTexte(item, QStringLiteral("Veille LLM")));
 
         pageProjets->ouvrirProjet(kId);
@@ -347,6 +360,7 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_VERIFY_WITH_TIMEOUT(pageQuestions->lue(), 5000);
         VERIFIER(page.get(), QStringLiteral("Questions"));
+        VERIFIER_CADENCE(page.get(), pageQuestions, kCadencePage);
         QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
         QVERIFY(contientTexte(item, QStringLiteral("3 tours planifiés")));
         // Étape P7 : compteurs du greffon, raison d'une carte non relançable, discussions en attente.
@@ -372,6 +386,7 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_VERIFY_WITH_TIMEOUT(pagePoste->lue() && pagePoste->peutRelever(), 5000);
         VERIFIER(page.get(), QStringLiteral("Poste en ligne"));
+        VERIFIER_CADENCE(page.get(), pagePoste, kCadencePage);
         QVERIFY(contientTexte(item, QStringLiteral("Compte dédié acp-poste")));
         // /v1/meta lu par l'accueil, sans `machine.executant` (Hermes sans l'étape P6).
         QVERIFY(contientTexte(item, QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6).")));
@@ -413,6 +428,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_VERIFY_WITH_TIMEOUT(pageQuotas->lue(), 5000);
         VERIFIER(page.get(), QStringLiteral("Quotas"));
+        VERIFIER_CADENCE(page.get(), pageQuotas,
+                         QStringLiteral("Sans temps réel : page relue toutes les 60 secondes tant qu'elle est affichée."));
         QVERIFY(contientTexte(item, QStringLiteral("Fenêtre primary · 300 min")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucun compteur relevé.")));
     }

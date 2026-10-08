@@ -103,6 +103,7 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
     // Étape P7 : mêmes sujets que la page web (EtatPoste.tsx).
     m_sondage->suivre(flux->invalidation(),
                       {QStringLiteral("poste"), QStringLiteral("projets"), QStringLiteral("pause"), QStringLiteral("quotas")});
+    suivreCadence(m_sondage);
     m_etat = construireEtat({});
     m_machine = construireMachine({});
     m_inventaire = construireInventaire({});

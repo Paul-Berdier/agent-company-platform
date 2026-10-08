@@ -120,7 +120,12 @@ Item {
 
             Discret {
                 text: qsTr("Les projets que vous confiez à Hermes : il les planifie, les fait avancer carte par carte "
-                           + "et vous pose ses questions. Page relue toutes les 15 secondes tant qu'elle est affichée.")
+                           + "et vous pose ses questions.")
+            }
+            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
+            Discret {
+                objectName: "projets-cadence"
+                text: Projets.cadence
             }
             EtatLecture {
                 Layout.fillWidth: true
