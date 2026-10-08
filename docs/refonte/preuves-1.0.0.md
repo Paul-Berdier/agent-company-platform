@@ -12,8 +12,9 @@ Conventions :
 - **à relever** : preuve attendue, pas encore produite, ou produite par une part encore ouverte et pas encore
   arrêtée ; aucune valeur n'est mise à sa place ;
 - chaque nombre vient d'une source citée : notes de reprise et journal des changements recopiés dans
-  [historique.md](historique.md) (« B, § n » : partie B ; « C, P n » : partie C), journal de P9 (brouillon de
-  session, non versionné) ou `gh` (PR et runs, relevés le 8 octobre 2026).
+  [historique.md](historique.md) (« B, § n » : partie B ; « C, P n » : partie C), journaux des corrections de P7
+  et de P9 (brouillon de session, non versionné) ou `gh` (PR et runs, relevés le 8 octobre 2026 ; compteurs lus dans
+  le journal du run par `gh run view <id> --log`).
 
 Sommaire : § 1 étapes fusionnées · § 2 relevés par étape · § 3 étape P9 · § 4 publication · § 5 non prouvé.
 
@@ -42,17 +43,22 @@ Un workflow absent d'une ligne n'a aucun run relevé sur ce commit (filtres de c
 
 ## 2. Relevés par étape (preuves publiées)
 
-| Étape | Relecture indépendante | Derniers relevés publiés avant la PR | Source |
+Pour chaque étape, le **dernier** relevé publié sur sa branche avant l'ouverture de sa PR, donc après les
+corrections de sa relecture indépendante. Entre ce relevé et la tête de la PR, seuls des commits de documentation
+(P8 : plus la fusion de P6 dans sa branche) ; les runs de la tête de la PR sont au § 1, et leurs compteurs, quand
+ils sont donnés ici, sont lus par `gh` (« relevé par `gh` »). Les relevés antérieurs restent dans la source citée.
+
+| Étape | Relecture indépendante | Derniers relevés avant la PR | Source |
 |---|---|---|---|
-| P0 | 5 défauts confirmés, corrigés | pytest Windows 240 réussis ; Linux (conteneur) 231 réussis, 9 ignorés ; moteur 74 tests ; desktop Debug 25 suites sur 25 ; aucune CI avant la PR (rien n'était poussé) | B, § 4 ; C, P0 |
-| P1 | 5 constats, corrigés | Image Hermes `36025999003` (`860fc04`) : 89 dans l'image, 32 au contrat ; CI `36025998703` verte à la deuxième tentative (test temporisé de P0 sous Windows) ; Desktop CI `36026018926` | B, § 5 |
-| P2 | 21 constats (trois relectures) | Image Hermes `36098262650` (`fb4c442`) : 216 dans l'image, 99 au contrat, 1 au navigateur ; CI `36098262486` : Windows 279, Linux 270 et 9 ignorés, moteur 74 ; mémoire d'Authelia mesurée (limite 2,5 Gio) | B, § 6 ; C, P2 |
-| P3 | 14 constats (4 moyens, 10 bas) | Image Hermes `36136507335` (`ec43987`) : 323 dans l'image, 117 au contrat, 2 au navigateur ; CI `36136507298` : Windows 342, Linux 333 et 9 ignorés, interface 55, moteur 74 | B, § 6 bis et § 6 ter ; C, P3 |
+| P0 | 5 défauts confirmés, corrigés | local, sur `ce91bbb` (après les corrections) : pytest Windows 240 réussis ; Linux (conteneur) 231 réussis, 9 ignorés ; moteur 74 tests ; desktop Debug 25 suites sur 25 ; CI : aucune dans les notes, écrites avant le push ; tête `b8f55d2`, poussée avant l'ouverture de la PR : CI `36017128209` (Windows 240, Linux 231 et 9 ignorés, moteur 74) et Desktop CI `36017128107` (25 tests CTest sur 25), relevés par `gh` | B, § 4 ; C, P0 ; `gh` |
+| P1 | 5 constats, corrigés, plus l'élévation par le `PATH` trouvée à la vérification finale | local, après les corrections : 108 dans l'image, 37 au contrat ; tête de la PR `d76d021` : Image Hermes `36039794517` (108 dans l'image, 37 au contrat) et CI `36039794414` (Windows 240, Linux 231 et 9 ignorés, moteur 74), relevés par `gh` | B, § 5 ; `gh` |
+| P2 | 21 constats (trois relectures) | sommet des corrections `5e77686` : Image Hermes `36104820150` : 242 dans l'image, 103 au contrat, 1 au navigateur ; mémoire d'Authelia 1,287 Gio à 20 (51,5 % de la limite de 2,5 Gio) ; CI `36104820007` : Windows 282, Linux 273 et 9 ignorés, moteur 74 ; puis CI `36105959556` (`d391158`, documentation seule) **rouge** : 2 tests Windows sur 282, échecs de création ou de nettoyage de processus sur le runner, non relancé ; tête de la PR `120b15c` : CI `36106167277` verte (Windows 282, Linux 273 et 9 ignorés, relevé par `gh`) | B, § 6 (relecture) ; C, P2 ; `gh` |
+| P3 | 14 constats (4 moyens, 10 bas) | sommet des corrections `0334320` : Image Hermes `36150973272` : 326 dans l'image, 118 au contrat, 5 au navigateur ; CI `36150973461` : Windows 368, Linux 359 et 9 ignorés, interface 55, moteur 74, balayage des secrets sans motif | B, § 6 ter (relecture) ; C, P3 |
 | P4 | 21 constats, tous réels | Image Hermes `36257679694` (`8aeee20`) : 511 dans l'image, 139 au contrat, 6 au navigateur ; CI `36257679667` : Windows 387, Linux 378 et 9 ignorés, interface 93, moteur 74 ; 24 témoins négatifs | B, § 6 quater ; C, P4 |
-| P5 | 16 constats (un haut, quatre moyens, onze bas) | côté Hermes : Image Hermes `36271372764` (`0a458cd`) : 619 dans l'image, 150 au contrat, 7 au navigateur ; poste Windows : CI `36284025243` (`4988ba4`) : Windows 592 réussis et 5 ignorés, installeur en simulation 19, Linux 578 réussis et 19 ignorés | B, § 6 quinquies ; C, P5 |
+| P5 | 16 constats (un haut, quatre moyens, onze bas) | après les corrections (1er octobre 2026) : Image Hermes `36803742778` (`c5cb6dc`, dernier état de `hermes/` et de l'interface) : 629 dans l'image, 150 au contrat, 7 au navigateur ; CI `36803850929` (`a6b62ff`) : Windows 616 réussis et 6 ignorés, installeur en simulation 56 vérifications, Linux 602 réussis et 20 ignorés, interface 112, moteur 74 | B, § 6 quinquies (relecture) ; [poste.md](poste.md) § 26 ; C, P5 |
 | P6 | 19 constats, plus 3 défauts trouvés en les vérifiant | sur `815ae6f` : CI `36925637152` (Windows 927 et 86 ignorés, Linux 959 et 54 ignorés, interface 120, moteur 74) ; Image de l'exécutant `36925637270` (43 tests de l'image, 777 en root) ; Image Hermes `36925637269` (682 dans l'image, 165 au contrat dont les 7 du bout en bout, 8 au navigateur) | B, § 6 sexies à § 6 nonies ; C, P6 |
 | P8 | 16 constats, chacun avec un test qui échoue sans la correction | 34 suites Qt, 0 échec, 0 ignoré (totaux Qt, local) ; Desktop CI verte sur chaque commit poussé, sauf quatre runs annulés par une poussée suivante (dernier relevé : `36987435638`, `1f3696a`) ; bout en bout local contre Authelia et l'image de test | B, § 6 decies ; C, P8 |
-| P7 | relecture finale : 37 constats retenus (dont 14 vérifiés par un sceptique) ; 33 corrigés, 3 en limite dite, 1 de procédure | tête réunie `486b285` : CI `37723784897`, Image Hermes `37723784889` (789 dans l'image, 183 au contrat, 10 au navigateur), Image de l'exécutant `37723784888` (823 en root), Desktop CI `37723784893` (34 suites) ; relecture finale : Image Hermes verte sur `87102af` et `cd4c3e6` (798, 183, 10), **rouge** sur `a16f00b` (course du test, corrigée par `201066e`) ; runs de la tête de la PR : § 1 | B, § 6 undecies ; C, P7 |
+| P7 | relecture finale : 37 constats retenus (dont 14 vérifiés par un sceptique) ; 33 corrigés, 3 en limite dite, 1 de procédure | tête de la PR `0a1ab98` : CI `37749086751` (Windows 1 011 et 87 ignorés, Linux 1 044 et 54 ignorés, Vitest 203, moteur 74) ; Image Hermes `37749086760` (798 dans l'image, 183 au contrat, 10 au navigateur) ; Image de l'exécutant `37749096235` (43 tests de l'image, 831 en root) ; Desktop CI `37749099809` (34 suites) ; juste avant, Image Hermes **rouge** sur `a16f00b` (`37742327967` : course du test, corrigée par `201066e`) | B, § 6 undecies ; C, P7 ; journal des corrections de P7 |
 
 ## 3. Étape P9 (exigences du plan → preuve)
 
