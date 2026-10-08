@@ -10,13 +10,19 @@ R1 — trois volumes restaurés au MÊME instant :
    l'exécutant (scénario « attente »), routage validé, réglage changé, notification envoyée, discussion, bilan
    quotidien (tâche cron et script de root), deux premiers facteurs sur l'identité (un réussi, un refusé) ;
 2. référence à T (champs stables), puis instantané À CHAUD (``docker pause`` des trois services) : manifestes,
-   empreintes SQLite, archives ;
+   empreintes SQLite, archives. La référence lit aussi l'exécutant : ``acp-poste cartes`` (état local des cartes),
+   ``acp-poste diagnostic`` (jetons machine, Claude et GitHub présents ; empreintes courtes des deux derniers, un
+   jeton GitHub factice étant déposé pour cela), et, chez Hermes, les cartes d'exploration (API) avec la branche et la
+   tête que Hermes a notées ;
 3. marqueurs APRÈS T (réponse à B, projet D, réglage remis, nouveau premier facteur, C libérée et terminée), puis
    instantané FROID T+1 (arrêt propre exécutant, Hermes, identité) ;
 4. restauration de T dans trois volumes NEUFS : couche 1 (manifestes égaux, entrée par entrée), couche 2
    (``integrity_check`` = ok, empreintes logiques égales) ;
-5. redémarrage, mêmes images et variables : gardes acceptées, identité « générés : aucun », exécutant prêt et enrôlé ;
-   couche 3 : lectures égales à la référence de T, marqueurs postérieurs ABSENTS ;
+5. ``acp-poste cartes`` lu sur le volume restauré de l'exécutant AVANT son démarrage (conteneur jetable de la même
+   image, volume en lecture seule, sans réseau) : égal à T, champ par champ ; redémarrage, mêmes images et variables :
+   gardes acceptées, identité « générés : aucun », exécutant prêt et enrôlé ; couche 3 : lectures égales à la
+   référence de T, marqueurs postérieurs ABSENTS (la carte en main de l'exécutant change au démarrage par
+   construction : relevée, non comparée) ;
 6. le travail REPREND : B → terminée, C reprise → terminée avec UN commit d'exploration, nouveau projet E → terminé.
    Mécanismes RELEVÉS et imprimés, jamais supposés : compteur ``oom`` de la carte C (un volume pris à chaud se relit
    comme un arrêt brutal), réclamation restaurée encore valide ou rendue (échéance passée), échecs comptés.
@@ -66,6 +72,10 @@ TACHE_BILAN = {"name": "Bilan ACP", "schedule": "0 8 * * *", "prompt": "", "no_a
                "script": "acp-bilan.py", "deliver": "local"}
 SEUIL_A_T, SEUIL_APRES_T = 85, 90  # réglage « seuil_quota_pct » : changé avant T, remis après T
 VOLUMES = ("hermes", "executant", "identite")
+# Jeton GitHub de lecture FACTICE (jamais un vrai jeton) : déposé pour que sa présence après restauration soit relevée.
+# Sans effet sur le banc : le dépôt jetable est « public », le jeton n'est lu que pour un dépôt « jeton_lecture ».
+JETON_GITHUB = "jeton-github-factice-" + "fedcba9876543210" * 2
+SECRETS_EXECUTANT = "/donnees/acp/secrets"  # claude-oauth, github-lecture, jeton-machine (root, 0600)
 
 
 def _json(valeur: Any) -> str:
@@ -90,6 +100,7 @@ class Scene:
         self.sujets_c_t1: List[str] = []
         self.restaures: Dict[str, str] = {}
         self.statuts_t: Dict[str, str] = {}
+        self.cartes_executant_t: Dict[str, Any] = {}
         self.redemarrage_r1 = 0.0
         self.temoin_avant_restauration = 0
 
@@ -269,6 +280,50 @@ class Scene:
         return {"statut": resultat["premier_facteur"]["statut"],
                 "corps": (resultat["premier_facteur"]["corps"] or {}).get("status")}
 
+    def cartes_executant(self, volume: Optional[str] = None) -> Dict[str, Any]:
+        """``acp-poste cartes`` : état local des cartes de l'exécutant (carte en main, file de sortie, sessions
+        locales, pause locale ; sans contenu ni secret). Dans le conteneur courant ; ou, avec ``volume``, dans un
+        conteneur JETABLE de la même image, ce volume monté en LECTURE SEULE et sans réseau (service non démarré)."""
+        if volume is None:
+            sortie = self.banc.acp_poste("cartes")
+        else:
+            assert self.banc.image_executant, "image de l'exécutant non construite"
+            sortie = docker("run", "--rm", "--network", "none", "-v", f"{volume}:/donnees:ro", "--entrypoint",
+                            "/usr/local/bin/acp-poste", self.banc.image_executant, "cartes", verifier=False,
+                            delai=120)
+        assert sortie.returncode == 0, ("acp-poste cartes", sortie.returncode, sortie.stdout[-1500:],
+                                        sortie.stderr[-1500:])
+        return json.loads(sortie.stdout)
+
+    def cartes_lues(self, lettres: str = "ABC") -> Dict[str, Dict[str, Any]]:
+        """Carte d'exploration (voie poste-claude) de chaque projet donné : rôle, voie et statut LUS PAR L'API
+        (``GET /v1/projets/{id}``), branche et tête que Hermes a notées à l'issue rendue par l'exécutant (table
+        ``demandes`` du greffon, lecture seule : aucune route ne les rend hors des revues et des branches prêtes).
+        Les cartes de Hermes lui-même (modèle factice) sont laissées de côté : son répartiteur les reprend au
+        redémarrage."""
+        lues: Dict[str, Dict[str, Any]] = {}
+        for lettre in lettres:
+            code, detail = self.banc.api("GET", f"/v1/projets/{self.projets[lettre]['id']}")
+            cartes = (((detail or {}).get("projet") or {}).get("cartes") or []) if code == 200 else []
+            carte = next((c for c in cartes if c.get("carte") == self.cartes[lettre]), None) or {}
+            demande = self.sql("SELECT branche, tete FROM demandes WHERE carte = ?", self.cartes[lettre])
+            lues[lettre] = {"code": code, "role": carte.get("role"), "voie": carte.get("voie"),
+                            "statut": carte.get("statut", "absente"),
+                            "branche": demande[0]["branche"] if demande else "absente",
+                            "tete": demande[0]["tete"] if demande else "absente"}
+        return lues
+
+    def jetons_executant(self, diagnostic: Dict[str, Any]) -> Dict[str, Any]:
+        """Jetons Claude et GitHub de l'exécutant : présence dite par ``acp-poste diagnostic`` (la route du
+        propriétaire, cahier § 4.4 constat e), et empreinte courte (SHA-256, 12 caractères, comme à leur dépôt)
+        calculée DANS le conteneur : le jeton ne quitte jamais l'exécutant."""
+        empreintes = {}
+        for nom in ("claude-oauth", "github-lecture"):
+            brut = self.banc.executant_sh(f"sha256sum {SECRETS_EXECUTANT}/{nom} 2>/dev/null || true").strip()
+            empreintes[nom] = brut.split()[0][:12] if brut else "absent"
+        return {"claude": (diagnostic.get("claude") or {}).get("jeton"),
+                "github": (diagnostic.get("executant") or {}).get("jeton_github"), "empreintes": empreintes}
+
     def releve_reference(self) -> Dict[str, Any]:
         """Champs STABLES lus par les API (cahier § 3.3 point 3) ; jamais un contenu de fichier ni un jeton."""
         b = self.banc
@@ -281,7 +336,17 @@ class Scene:
         taches = taches if isinstance(taches, list) else (taches or {}).get("jobs", [])
         machine = (poste.get("machine") or {}).get("machine") or {}
         diagnostic = json.loads(b.acp_poste("diagnostic").stdout or "{}")
+        cartes = self.cartes_lues()
+        # C est EN MAIN à T : son statut change au redémarrage par construction (réclamation échue reprise, carte
+        # rendue puis resservie) ; il est relevé à part. Branche et tête de C, elles, ne bougent pas.
+        cartes["C"].pop("statut")
+        executant = self.cartes_executant()
         return {
+            "cartes": cartes,
+            "jetons_executant": self.jetons_executant(diagnostic),
+            # Seules parties de « acp-poste cartes » que le démarrage ne change pas : la carte en main est rendue au
+            # démarrage (reprise mesurée), et la file de sortie peut porter cette reprise.
+            "cartes_executant": {k: executant.get(k) for k in ("sessions_locales", "pause_locale")},
             "projets": {p["id"]: {"titre": p["titre"]} for p in projets["projets"]},
             "questions_ouvertes": sorted((q["id"], q["carte"], q["texte"]) for q in questions["questions"]),
             "machine": {k: machine.get(k) for k in ("id", "etat", "empreinte")},
@@ -332,7 +397,7 @@ class Scene:
                   "file de sortie": b.executant_sh("cat /donnees/acp/sortie/* /donnees/acp/sortie/refusees/* "
                                                    "2>/dev/null || true")}
         for nom, texte in textes.items():
-            for valeur in (jeton_machine, JETON_CLAUDE, SECRET_FACTICE):
+            for valeur in (jeton_machine, JETON_CLAUDE, JETON_GITHUB, SECRET_FACTICE):
                 assert valeur not in texte, f"{etiquette} : {nom}"
             assert "acpe_" not in texte, f"{etiquette} : {nom}"
         return {"requetes_depot": len(requetes), "tailles": {n: len(t) for n, t in textes.items()}}
@@ -364,6 +429,10 @@ def test_r1_peuplement_a_t(scene):
     b = scene.banc
     scene.remote_avant = b.executant_sh("git ls-remote https://git.acp.test/proprietaire/jetable.git")
     b.mettre_en_service()
+    # Jeton GitHub de lecture factice déposé comme le propriétaire le ferait (railway ssh, entrée standard).
+    depose = b.acp_poste("connexion", "github", "--stdin", entree=JETON_GITHUB + "\n")
+    assert depose.returncode == 0 and "déposé sur le volume (root, 0600)" in depose.stdout, depose.stderr[-2000:]
+    assert JETON_GITHUB not in depose.stdout + depose.stderr
     # Routage validé par le propriétaire (classe exploration, suggestion calculée sur le relevé de l'exécutant).
     _code, routage = b.api("GET", "/v1/routage")
     entrees = ((routage["classes"].get("exploration") or {}).get("suggestion") or {}).get("entrees") or [
@@ -415,9 +484,11 @@ def test_r1_peuplement_a_t(scene):
     scene.enfiler_temoin()
     scene.reference = scene.releve_reference()
     scene.statuts_t = scene.statuts_poste()
+    # « acp-poste cartes » ENTIER à T (carte en main comprise) : comparé au volume restauré avant le démarrage.
+    scene.cartes_executant_t = scene.cartes_executant()
     afficher("R1 — référence à T (champs stables)", _json({
         **{k: v for k, v in scene.reference.items() if k != "refs"}, "refs": len(scene.reference["refs"]),
-        "statuts": scene.statuts_t, "en_main": scene.en_main(),
+        "acp_poste_cartes": scene.cartes_executant_t, "statuts": scene.statuts_t, "en_main": scene.en_main(),
         "reclamation_C": scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"]),
         "historique_C": scene.historique("C"), "notification_temoin": scene.notification_temoin(),
         "premiers_facteurs": {"reussi": reussi, "refuse": refuse}}))
@@ -426,6 +497,16 @@ def test_r1_peuplement_a_t(scene):
     assert [q[1] for q in scene.reference["questions_ouvertes"]] == [scene.cartes["B"]]
     assert scene.reference["reglages"]["seuil_quota_pct"] == SEUIL_A_T
     assert scene.reference["jeton_executant"]["present"] is True
+    jetons = scene.reference["jetons_executant"]
+    assert jetons["claude"] == "present" and jetons["github"] == "present", jetons
+    assert jetons["empreintes"]["github-lecture"] == hashlib.sha256(JETON_GITHUB.encode()).hexdigest()[:12], jetons
+    assert jetons["empreintes"]["claude-oauth"] == hashlib.sha256(JETON_CLAUDE.encode()).hexdigest()[:12], jetons
+    assert {k: v["code"] for k, v in scene.reference["cartes"].items()} == {"A": 200, "B": 200, "C": 200}
+    assert scene.reference["cartes"]["A"]["branche"] == f"hermes/{scene.cartes['A']}", scene.reference["cartes"]
+    assert (scene.cartes_executant_t.get("carte_en_main") or {}).get("carte") == scene.cartes["C"], \
+        scene.cartes_executant_t
+    assert {scene.cartes[x] for x in "ABC"} <= set(scene.reference["cartes_executant"]["sessions_locales"] or []), \
+        scene.reference["cartes_executant"]
     assert scene.session_discussion in scene.reference["sessions"]
     assert scene.reference["taches_cron"] == [scene.tache_bilan]
 
@@ -534,6 +615,14 @@ def test_r1_redemarrage_et_couche_3(scene):
     afficher("R1 — attente de l'échéance de la réclamation restaurée de C", f"{max(attente, 0):.0f} s")
     if attente > 0:
         time.sleep(attente)
+    # Couche 3 côté exécutant, AVANT son démarrage : son propre outil relit l'état des cartes sur le volume restauré
+    # (lecture seule, sans réseau). Après le démarrage, la carte en main est rendue à Hermes (reprise mesurée).
+    try:
+        cartes_restaurees = scene.cartes_executant(volume=scene.restaures["executant"])
+    except AssertionError as exc:  # relevé tel quel ; le redémarrage et la couche 3 sont mesurés quand même
+        cartes_restaurees = {"illisible": str(exc)[:1500]}
+    afficher("R1 — « acp-poste cartes » sur le volume restauré, avant le démarrage, face à T", _json({
+        "T": scene.cartes_executant_t, "restauré": cartes_restaurees}))
     scene.redemarrage_r1 = time.time()
     b.relancer(scene.restaures["hermes"], scene.restaures["executant"], volume_identite=scene.restaures["identite"],
                image_identite=scene.image_identite, empreinte=scene.empreinte)
@@ -565,9 +654,12 @@ def test_r1_redemarrage_et_couche_3(scene):
         else lu["sessions"],
         "notifications": {"T": ref["notifications"], "restauré": lu["notifications"]},
         "statuts": {"T": scene.statuts_t, "restauré": scene.statuts_poste()}, "en_main": scene.en_main(),
+        "acp_poste_cartes_apres_demarrage": scene.cartes_executant(),
         "reclamation_C": scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"]),
         "historique_C": scene.historique("C"), "envois_C_depuis_redemarrage": scene.envois("C", scene.redemarrage_r1),
         "oom_C": scene.oom("C")}))
+    assert cartes_restaurees == scene.cartes_executant_t, {"T": scene.cartes_executant_t,
+                                                           "restauré": cartes_restaurees}
     assert ecarts == {}, ecarts
     assert sessions_perdues == [] and lu["sessions"][scene.session_discussion] == ref["sessions"][
         scene.session_discussion]
