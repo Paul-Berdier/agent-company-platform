@@ -494,25 +494,35 @@ def test_r1_restauration_couches_1_et_2(scene):
     resultats = {}
     for role, volume in scene.restaures.items():
         m, bs = manifeste(scene.image_tests, volume), bases(scene.image_tests, volume)
-        ecarts_m = comparer_manifestes(t[role]["manifeste"], m)
-        ecarts_b = comparer_bases(t[role]["bases"], bs)
-        resultats[role] = {"manifeste": resume_manifeste(m), "ecarts_octets": ecarts_m[:20],
+        resultats[role] = {"manifeste": resume_manifeste(m),
+                           "ecarts_octets": comparer_manifestes(t[role]["manifeste"], m),
                            "bases": {base: e["integrite"] for base, e in bs["bases"].items()},
-                           "ecarts_sqlite": ecarts_b[:20]}
-        assert ecarts_m == [], (role, ecarts_m[:20])
-        assert ecarts_b == [], (role, ecarts_b[:20])
-        assert all(e["integrite"] == "ok" for e in bs["bases"].values()), role
-    afficher("R1 — couches 1 (octets) et 2 (SQLite) des volumes restaurés à T", _json(resultats))
+                           "ecarts_sqlite": comparer_bases(t[role]["bases"], bs), "releve": {"bases": bs}}
+    # Tout est relevé et imprimé AVANT d'affirmer : un écart d'une couche ne masque jamais celui de l'autre.
+    afficher("R1 — couches 1 (octets) et 2 (SQLite) des volumes restaurés à T", _json(
+        {role: {k: (v[:20] if k.startswith("ecarts") else v) for k, v in r.items() if k != "releve"}
+         for role, r in resultats.items()}))
+
     # Marqueurs postérieurs absents dès la couche 2 : premiers facteurs de l'identité (journal d'Authelia) et
     # projets du greffon comptés à T, à T+1 et dans le volume restauré.
-    def lignes(instant_ou_releve, role, base, table):
-        return ((instant_ou_releve[role]["bases"]["bases"].get(base) or {}).get("tables") or {}).get(table, {}) \
-            .get("lignes")
+    def lignes(releves, role, base, table):
+        return ((releves[role]["bases"]["bases"].get(base) or {}).get("tables") or {}).get(table, {}).get("lignes")
+
+    restaures = {role: r["releve"] for role, r in resultats.items()}
+    marqueurs = {}
     for role, base, table in (("identite", "db.sqlite3", "authentication_logs"),
                               ("hermes", "plugin-data/acp-poste/data.db", "projets")):
-        a_t, a_t1 = lignes(t, role, base, table), lignes(scene.instants["T1"], role, base, table)
-        afficher(f"lignes de {table} ({role})", f"T : {a_t} ; T+1 : {a_t1} ; restauré : {a_t}")
-        assert a_t is not None and a_t1 is not None and a_t1 > a_t, (table, a_t, a_t1)
+        marqueurs[f"{table} ({role})"] = {"T": lignes(t, role, base, table),
+                                          "T+1": lignes(scene.instants["T1"], role, base, table),
+                                          "restauré": lignes(restaures, role, base, table)}
+    afficher("R1 — lignes comptées à T, à T+1 et dans les volumes restaurés", _json(marqueurs))
+    for role, r in resultats.items():
+        assert r["ecarts_octets"] == [], (role, "couche 1", r["ecarts_octets"][:20], "couche 2",
+                                          r["ecarts_sqlite"][:20])
+        assert r["ecarts_sqlite"] == [], (role, "couche 2", r["ecarts_sqlite"][:20])
+        assert all(i == "ok" for i in r["bases"].values()), (role, r["bases"])
+    for nom, n in marqueurs.items():
+        assert n["T"] is not None and n["T+1"] is not None and n["T+1"] > n["T"] == n["restauré"], (nom, n)
 
 
 def test_r1_redemarrage_et_couche_3(scene):
