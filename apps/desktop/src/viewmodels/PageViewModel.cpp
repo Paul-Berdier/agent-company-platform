@@ -54,6 +54,7 @@ void PageViewModel::effacerGeste()
         return;
     }
     m_messageGeste.clear();
+    m_alerteGeste = false;
     m_erreurGeste.clear();
     emit gesteChange();
 }
@@ -62,14 +63,16 @@ void PageViewModel::debuterGeste()
 {
     m_gesteEnCours = true;
     m_messageGeste.clear();
+    m_alerteGeste = false;
     m_erreurGeste.clear();
     emit gesteChange();
 }
 
-void PageViewModel::terminerGeste(const QString &message)
+void PageViewModel::terminerGeste(const QString &message, bool alerte)
 {
     m_gesteEnCours = false;
     m_messageGeste = message;
+    m_alerteGeste = alerte;
     m_erreurGeste.clear();
     emit gesteChange();
 }
@@ -94,6 +97,7 @@ void PageViewModel::echouerGeste(const QString &message)
 {
     m_gesteEnCours = false;
     m_messageGeste.clear();
+    m_alerteGeste = false;
     m_erreurGeste = message;
     emit gesteChange();
 }

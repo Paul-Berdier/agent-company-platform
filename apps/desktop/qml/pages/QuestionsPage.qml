@@ -1,6 +1,8 @@
-// Page Questions (cahier P8 § 7.3) : répondre aux questions des projets, décider des cartes en
-// triage, voir les cartes bloquées. Les gestes de triage viennent de ce que le greffon offre
-// pour chaque carte ; le résultat de chaque geste est celui que le serveur a rendu.
+// Page Questions (cahier P8 § 7.3 ; file à cinq sections de l'étape P7) : les mêmes sections, dans
+// le même ordre et avec les mêmes gestes que la page Questions du navigateur — à traiter par vous,
+// questions, décisions, revues, cartes arrêtées, discussions en attente. Les gestes viennent de ce
+// que le greffon offre pour chaque entrée ; le résultat de chaque geste est celui que le serveur a
+// rendu.
 
 import QtQuick
 import QtQuick.Controls.Basic
@@ -67,6 +69,16 @@ Item {
         color: Colors.borderSubtle
     }
 
+    component TitreEntree: Text {
+        Layout.fillWidth: true
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        color: Colors.textPrimary
+        font.family: Type.tableCellEmphasis.family
+        font.pixelSize: Type.tableCellEmphasis.pixelSize
+        font.weight: Type.tableCellEmphasis.weight
+    }
+
     ScrollView {
         id: defilement
         anchors.fill: parent
@@ -100,8 +112,8 @@ Item {
             }
 
             Discret {
-                text: qsTr("Les questions de vos projets et les cartes qui attendent votre décision. Page relue toutes "
-                           + "les 15 secondes tant qu'elle est affichée.")
+                text: qsTr("Ce qui attend votre décision dans vos projets : la même file que la page Questions du "
+                           + "navigateur. Page relue toutes les 15 secondes tant qu'elle est affichée.")
             }
             EtatLecture {
                 Layout.fillWidth: true
@@ -109,8 +121,10 @@ Item {
                 erreur: Questions.erreur
             }
             BandeauMessage {
+                objectName: "questions-bandeau"
                 Layout.fillWidth: true
                 message: Questions.messageGeste
+                alerte: Questions.alerteGeste
                 erreur: Questions.erreurGeste
             }
             Text {
@@ -122,12 +136,28 @@ Item {
                 font.pixelSize: Type.tableCell.pixelSize
             }
 
-            // --- Questions ouvertes -----------------------------------------------------------------
+            // --- À traiter par vous -------------------------------------------------------------------
+            Carte {
+                objectName: "questions-resume"
+                Layout.fillWidth: true
+                visible: Questions.lue
+                titre: qsTr("À traiter")
+                KeyValueRow {
+                    objectName: "questions-a-traiter"
+                    Layout.fillWidth: true
+                    label: qsTr("À traiter par vous")
+                    value: Questions.resume.total + (Questions.resume.mention.length > 0 ? " " + Questions.resume.mention : "")
+                    known: Questions.resume.connu
+                }
+                KeyValueRow { Layout.fillWidth: true; label: qsTr("Chez Hermes"); value: Questions.resume.chezHermes }
+            }
+
+            // --- 1. Questions ------------------------------------------------------------------------------
             Carte {
                 objectName: "questions-ouvertes"
                 Layout.fillWidth: true
                 visible: Questions.lue
-                titre: qsTr("Questions ouvertes")
+                titre: qsTr("Questions")
                 Discret { visible: Questions.questions.count === 0; text: qsTr("Aucune question en attente.") }
                 Repeater {
                     model: Questions.questions
@@ -143,6 +173,7 @@ Item {
                             StatusChip { statusKey: question.item.etatCle; label: question.item.etatLibelle }
                         }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Projet"); value: question.item.projetTitre }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Qui répond"); value: question.item.quiRepond }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Carte"); value: question.item.carte }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Posée"); value: question.item.poseeLe }
                         BlocTexte {
@@ -157,6 +188,7 @@ Item {
                             libelle: qsTr("Motif")
                             texte: question.item.motif
                         }
+                        Discret { visible: question.item.chezHermesAide.length > 0; text: question.item.chezHermesAide }
                         Discret { visible: question.item.peutRepondre; text: qsTr("Votre réponse (4 000 caractères au plus)"); color: Colors.textSecondary }
                         ChampLong {
                             id: reponse
@@ -185,37 +217,12 @@ Item {
                 }
             }
 
-            // --- Demandes de vos discussions (approval, clarify) ---------------------------------------
-            Carte {
-                objectName: "questions-demandes"
-                Layout.fillWidth: true
-                titre: qsTr("Demandes de vos discussions")
-                sousTitre: qsTr("Autorisations et précisions demandées par Hermes dans les discussions ouvertes sur ce "
-                                + "poste. Non durables : elles disparaissent si Hermes est redéployé. Les demandes des "
-                                + "autres sessions de Hermes ne sont pas affichées par cette station : la page Questions "
-                                + "du navigateur les compte.")
-                BandeauMessage {
-                    Layout.fillWidth: true
-                    message: Demandes.message
-                    erreur: Demandes.erreur
-                }
-                Discret { visible: Demandes.nombre === 0; text: qsTr("Aucune demande en attente.") }
-                Repeater {
-                    model: Demandes.demandes
-                    delegate: CarteDemande {
-                        required property var item
-                        Layout.fillWidth: true
-                        demande: item
-                    }
-                }
-            }
-
-            // --- Cartes en triage ---------------------------------------------------------------------
+            // --- 2. Décisions (cartes en triage) -------------------------------------------------------
             Carte {
                 objectName: "questions-triage"
                 Layout.fillWidth: true
                 visible: Questions.lue
-                titre: qsTr("Cartes en triage")
+                titre: qsTr("Décisions")
                 Discret { visible: Questions.triage.count === 0; text: qsTr("Aucune carte en triage.") }
                 Repeater {
                     model: Questions.triage
@@ -225,16 +232,7 @@ Item {
                         Layout.fillWidth: true
                         spacing: Space.space2
                         Separateur {}
-                        Text {
-                            Layout.fillWidth: true
-                            text: triage.item.titre
-                            textFormat: Text.PlainText
-                            wrapMode: Text.WordWrap
-                            color: Colors.textPrimary
-                            font.family: Type.tableCellEmphasis.family
-                            font.pixelSize: Type.tableCellEmphasis.pixelSize
-                            font.weight: Type.tableCellEmphasis.weight
-                        }
+                        TitreEntree { text: triage.item.titre }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Projet"); value: triage.item.projetTitre }
                         BlocTexte {
                             Layout.fillWidth: true
@@ -280,15 +278,76 @@ Item {
                 }
             }
 
-            // --- Cartes bloquées ou abandonnées ----------------------------------------------------------
+            // --- 3. Revues des fichiers de pilotage (P6) -------------------------------------------------
+            Carte {
+                objectName: "questions-revues"
+                Layout.fillWidth: true
+                visible: Questions.lue && Questions.revuesPresentes
+                titre: qsTr("Revues")
+                sousTitre: qsTr("Une carte de l'exécutant a modifié des fichiers qui pilotent les agents (CLAUDE.md, "
+                                + "AGENTS.md, .github…). Acceptez-la, ou refusez-la avec un motif : elle revient alors à "
+                                + "l'exécutant, qui retire la modification.")
+                Discret { visible: Questions.revues.count === 0; text: qsTr("Aucune carte en revue.") }
+                Repeater {
+                    model: Questions.revues
+                    delegate: ColumnLayout {
+                        id: revue
+                        required property var item
+                        Layout.fillWidth: true
+                        spacing: Space.space2
+                        Separateur {}
+                        TitreEntree { text: revue.item.titre }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Projet"); value: revue.item.projetTitre }
+                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Fichiers de pilotage touchés"); texte: revue.item.chemins; monospace: true }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Modification"); value: revue.item.modification }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Branche"); value: revue.item.branche; monospace: true }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Tête"); value: revue.item.tete; monospace: true }
+                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Résumé"); texte: revue.item.resume }
+                        Discret { visible: revue.item.diff.length > 0; text: revue.item.diff }
+                        Discret { visible: revue.item.adressable; text: qsTr("Motif du refus (1 000 caractères au plus)"); color: Colors.textSecondary }
+                        ChampLong {
+                            id: motif
+                            objectName: "questions-motif-" + revue.item.carte
+                            cleBrouillon: "m:" + revue.item.tableau + "/" + revue.item.carte
+                            visible: revue.item.adressable
+                            Layout.preferredHeight: 56
+                            Accessible.name: qsTr("Motif du refus")
+                        }
+                        RowLayout {
+                            spacing: Space.space4
+                            AcpButton {
+                                objectName: "questions-accepter-" + revue.item.carte
+                                visible: revue.item.adressable
+                                primary: true
+                                label: qsTr("Accepter")
+                                manualEnabled: !Questions.gesteEnCours
+                                onTriggered: Questions.accepterRevue(revue.item.tableau, revue.item.carte)
+                            }
+                            AcpButton {
+                                objectName: "questions-refuser-" + revue.item.carte
+                                visible: revue.item.adressable
+                                label: qsTr("Refuser")
+                                manualEnabled: motif.text.trim().length > 0 && !Questions.gesteEnCours
+                                onTriggered: Questions.refuserRevue(revue.item.tableau, revue.item.carte, motif.text)
+                            }
+                            AcpButton {
+                                visible: revue.item.projet.length > 0
+                                label: qsTr("Ouvrir le projet")
+                                onTriggered: page.ouvrirProjet(revue.item.projet)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- 4. Cartes arrêtées (bloquées ou abandonnées) ---------------------------------------------
             Carte {
                 objectName: "questions-bloquees"
                 Layout.fillWidth: true
                 visible: Questions.lue
-                titre: qsTr("Cartes bloquées ou abandonnées")
-                sousTitre: qsTr("Lecture seule dans cette station : « Relancer » se fait depuis la page Questions du "
-                                + "navigateur, avec les gardes et la consigne d'ACP — jamais depuis le kanban de Hermes, "
-                                + "qui débloquerait la carte sans elles.")
+                titre: qsTr("Cartes arrêtées")
+                sousTitre: qsTr("« Relancer » remet la carte en route, avec votre consigne si vous en donnez une. Une "
+                                + "carte qui rebloque pour la même raison revient en décision.")
                 Discret { visible: Questions.bloquees.count === 0; text: qsTr("Aucune carte bloquée.") }
                 Repeater {
                     model: Questions.bloquees
@@ -300,52 +359,89 @@ Item {
                         Separateur {}
                         RowLayout {
                             Layout.fillWidth: true
-                            Text {
-                                Layout.fillWidth: true
-                                text: bloquee.item.titre
-                                textFormat: Text.PlainText
-                                wrapMode: Text.WordWrap
-                                color: Colors.textPrimary
-                                font.family: Type.tableCellEmphasis.family
-                                font.pixelSize: Type.tableCellEmphasis.pixelSize
-                                font.weight: Type.tableCellEmphasis.weight
-                            }
+                            TitreEntree { text: bloquee.item.titre }
                             StatusChip { statusKey: "blocked"; label: bloquee.item.etatLibelle }
                         }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Projet"); value: bloquee.item.projetTitre }
                         KeyValueRow { Layout.fillWidth: true; label: qsTr("Assignée à"); value: bloquee.item.assigne; monospace: true }
                         BlocTexte { Layout.fillWidth: true; libelle: qsTr("Raison"); texte: bloquee.item.raison }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: bloquee.item.aide.length > 0
+                            text: bloquee.item.aide
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WordWrap
+                            color: bloquee.item.aideAlerte ? Status.statusDegradedForeground : Colors.textMuted
+                            font.family: Type.metadata.family
+                            font.pixelSize: Type.metadata.pixelSize
+                        }
+                        Discret {
+                            objectName: "questions-refus-relance-" + bloquee.item.carte
+                            visible: !bloquee.item.peutRelancer
+                            text: qsTr("Relance impossible : %1").arg(bloquee.item.refusRelance)
+                        }
+                        Discret { visible: bloquee.item.avecConsigne; text: qsTr("Consigne (facultative, 4 000 caractères au plus)"); color: Colors.textSecondary }
+                        ChampLong {
+                            id: consigneRelance
+                            objectName: "questions-consigne-relance-" + bloquee.item.carte
+                            cleBrouillon: "r:" + bloquee.item.tableau + "/" + bloquee.item.carte
+                            visible: bloquee.item.avecConsigne
+                            Accessible.name: qsTr("Consigne de relance")
+                        }
+                        RowLayout {
+                            spacing: Space.space4
+                            AcpButton {
+                                objectName: "questions-relancer-" + bloquee.item.carte
+                                visible: bloquee.item.peutRelancer
+                                primary: true
+                                label: qsTr("Relancer")
+                                manualEnabled: !Questions.gesteEnCours
+                                onTriggered: Questions.relancer(bloquee.item.tableau, bloquee.item.carte,
+                                                                bloquee.item.avecConsigne ? consigneRelance.text : "")
+                            }
+                            AcpButton {
+                                visible: bloquee.item.projet.length > 0
+                                label: qsTr("Ouvrir le projet")
+                                onTriggered: page.ouvrirProjet(bloquee.item.projet)
+                            }
+                        }
                     }
                 }
             }
 
-            // --- Revues des fichiers de pilotage (P6) ---------------------------------------------------
+            // --- 5. Discussions en attente (lecture seule) --------------------------------------------------
             Carte {
-                objectName: "questions-revues"
+                objectName: "questions-discussions"
                 Layout.fillWidth: true
-                visible: Questions.lue && Questions.revuesPresentes
-                titre: qsTr("Revues des fichiers de pilotage")
-                sousTitre: qsTr("Lecture seule dans la station : l'acceptation et le refus d'une revue se font dans le "
-                                + "tableau de bord, tant que leur contrat n'est pas intégré à la station.")
-                Discret { visible: Questions.revues.count === 0; text: qsTr("Aucune revue en attente.") }
+                visible: Questions.lue
+                titre: qsTr("Discussions en attente")
+                sousTitre: qsTr("Discussions du tableau de bord dont une demande attend votre réponse, en lecture "
+                                + "seule. Cette station en lit le nombre ; leur liste est dans la page Questions du "
+                                + "navigateur.")
+                Discret { objectName: "questions-discussions-etat"; text: Questions.discussions.etat; color: Colors.textSecondary }
+                Discret { visible: Questions.discussions.limite.length > 0; text: Questions.discussions.limite }
+            }
+
+            // --- Demandes de vos discussions (approval, clarify) ---------------------------------------
+            Carte {
+                objectName: "questions-demandes"
+                Layout.fillWidth: true
+                titre: qsTr("Demandes de vos discussions")
+                sousTitre: qsTr("Autorisations et précisions demandées par Hermes dans les discussions ouvertes sur ce "
+                                + "poste. Non durables : elles disparaissent si Hermes est redéployé.")
+                BandeauMessage {
+                    Layout.fillWidth: true
+                    message: Demandes.message
+                    erreur: Demandes.erreur
+                }
+                Discret { visible: Demandes.nombre === 0; text: qsTr("Aucune demande en attente.") }
                 Repeater {
-                    model: Questions.revues
-                    delegate: ColumnLayout {
-                        id: revue
+                    model: Demandes.demandes
+                    delegate: CarteDemande {
                         required property var item
                         Layout.fillWidth: true
-                        spacing: Space.space2
-                        Separateur {}
-                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Carte"); value: revue.item.titre }
-                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Projet"); value: revue.item.projetTitre }
-                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Fichiers de pilotage"); texte: revue.item.chemins; monospace: true }
-                        BlocTexte { Layout.fillWidth: true; visible: revue.item.resume.length > 0; libelle: qsTr("Résumé"); texte: revue.item.resume }
+                        demande: item
                     }
-                }
-                AcpButton {
-                    objectName: "questions-revues-navigateur"
-                    label: qsTr("Traiter dans le navigateur")
-                    onTriggered: Questions.traiterDansLeNavigateur()
                 }
             }
 

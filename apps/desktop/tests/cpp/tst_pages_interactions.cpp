@@ -80,6 +80,7 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void brouillonDeReponseGardeAuSondageEtAuRefus();
+    void relanceEtRefusDeRevueParLesVraisBoutons();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
     void dialogueDeChangementDeServeurEnFrancais();
@@ -107,6 +108,7 @@ private:
     QJsonObject m_listeProjets;
     QJsonObject m_listeQuestions;
     ReponseFaux m_reponseQuestion;
+    ReponseFaux m_reponseRelance;
 };
 
 void TestPagesInteractions::initTestCase()
@@ -142,6 +144,13 @@ void TestPagesInteractions::initTestCase()
                      [this](const RequeteRecue &) { return ReponseFaux::json(200, m_listeQuestions); });
     m_serveur->route("POST", kP + QStringLiteral("/questions/%1/reponse").arg(kQuestion),
                      [this](const RequeteRecue &) { return m_reponseQuestion; });
+    // Étape P7 : relance d'une carte arrêtée (ARRETEE_RELANCABLE) et revue des fichiers de pilotage.
+    m_serveur->route("POST", kP + QStringLiteral("/cartes/acp-outil-3dd5/t_5e6f7a8b/relancer"),
+                     [this](const RequeteRecue &) { return m_reponseRelance; });
+    m_serveur->route("POST", kP + QStringLiteral("/revues/acp-outil-3dd5/t_aa11bb22/refuser"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), QStringLiteral("t_aa11bb22")},
+                                                  {QStringLiteral("etat"), QStringLiteral("ready")}});
+    });
     // Six projets (copies des deux formes servies, identifiants distincts) : une liste plus
     // haute que la fenêtre.
     m_listeProjets = fixture(QStringLiteral("projets.json"));
@@ -311,6 +320,73 @@ void TestPagesInteractions::brouillonDeReponseGardeAuSondageEtAuRefus()
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     page.reset();
     QTRY_VERIFY(!m_questions->actif());
+}
+
+// Étape P7 dans la station : « Relancer » une carte arrêtée avec une consigne tapée, puis
+// « Refuser » une revue avec un motif tapé, par les vrais champs et les vrais boutons.
+void TestPagesInteractions::relanceEtRefusDeRevueParLesVraisBoutons()
+{
+    const QJsonObject avant = m_listeQuestions;
+    QJsonArray bloquees = m_listeQuestions.value(QStringLiteral("bloquees")).toArray();
+    bloquees.append(fixture(QStringLiteral("arretee-relancable.json")));
+    m_listeQuestions.insert(QStringLiteral("bloquees"), bloquees);
+    m_listeQuestions.insert(QStringLiteral("revues"), QJsonArray{QJsonObject{
+        {QStringLiteral("projet"), QStringLiteral("p_367e23fd51b7")}, {QStringLiteral("projet_titre"), QStringLiteral("Outil")},
+        {QStringLiteral("tableau"), QStringLiteral("acp-outil-3dd5")}, {QStringLiteral("carte"), QStringLiteral("t_aa11bb22")},
+        {QStringLiteral("titre"), QStringLiteral("Implémentation — e2 : règles des agents")},
+        {QStringLiteral("chemins"), QJsonArray{QStringLiteral("AGENTS.md")}},
+        {QStringLiteral("diffstat"), QJsonObject{{QStringLiteral("fichiers"), 1}, {QStringLiteral("ajouts"), 4}, {QStringLiteral("retraits"), 0}}},
+        {QStringLiteral("branche"), QStringLiteral("acp/outil/e2")}, {QStringLiteral("tete"), QStringLiteral("9f8e7d6c")},
+        {QStringLiteral("resume"), QJsonValue::Null}, {QStringLiteral("diff"), QStringLiteral("Le diff reste sur l'exécutant.")}}});
+    m_reponseRelance = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), QStringLiteral("t_5e6f7a8b")},
+                                                          {QStringLiteral("relancee"), true},
+                                                          {QStringLiteral("statut_apres"), QStringLiteral("ready")},
+                                                          {QStringLiteral("session_neuve"), true},
+                                                          {QStringLiteral("branche_neuve"), false}});
+    m_questions->setIntervalle(std::chrono::hours(1));
+    auto page = charger(QStringLiteral("QuestionsPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    m_questions->actualiser();
+    QTRY_VERIFY_WITH_TIMEOUT(m_questions->bloquees()->count() == 2, 5000);
+    QTest::qWait(100);
+
+    // Carte étrangère : aucun bouton « Relancer », la raison du greffon est dite.
+    QVERIFY(!parNom(racine, QStringLiteral("questions-relancer-t_9a8b7c6d"))->isVisible());
+    QCOMPARE(parNom(racine, QStringLiteral("questions-refus-relance-t_9a8b7c6d"))->property("text").toString(),
+             QStringLiteral("Relance impossible : Carte non émise par ACP : ACP ne la relance pas."));
+
+    QPointer<QQuickItem> consigne = parNom(racine, QStringLiteral("questions-consigne-relance-t_5e6f7a8b"));
+    QVERIFY(consigne && consigne->isVisible());
+    QVERIFY(taper(consigne, QStringLiteral("Reprends avec Python 3.12")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("questions-relancer-t_5e6f7a8b"))));
+    QTRY_COMPARE_WITH_TIMEOUT(m_questions->messageGeste(),
+                              QStringLiteral("La carte repart : l'agent reprend d'une session neuve, sur la branche déjà "
+                                             "commencée. Statut : Prête."), 5000);
+    const QList<RequeteRecue> relances = m_serveur->filtrer("POST", kP + QStringLiteral("/cartes/acp-outil-3dd5/t_5e6f7a8b/relancer"));
+    QCOMPARE(relances.size(), 1);
+    QCOMPARE(relances.first().json(), (QJsonObject{{QStringLiteral("consigne"), QStringLiteral("Reprends avec Python 3.12")}}));
+    QTRY_COMPARE_WITH_TIMEOUT(consigne->property("text").toString(), QString(), 2000);
+    QQuickItem *bandeau = parNom(racine, QStringLiteral("questions-bandeau"));
+    QVERIFY(bandeau && bandeau->isVisible());
+    QVERIFY(bandeau->property("texte").toString().startsWith(QStringLiteral("La carte repart")));
+
+    // Refus de revue : « Refuser » reste inerte tant que le motif est vide, puis part avec le motif tapé.
+    QQuickItem *refuser = parNom(racine, QStringLiteral("questions-refuser-t_aa11bb22"));
+    QVERIFY(refuser && refuser->isVisible());
+    QCOMPARE(refuser->property("effectiveEnabled").toBool(), false);
+    QVERIFY(taper(parNom(racine, QStringLiteral("questions-motif-t_aa11bb22")), QStringLiteral("Ne touche pas a la CI")));
+    QTRY_VERIFY(refuser->property("effectiveEnabled").toBool());
+    QVERIFY(cliquer(refuser));
+    QTRY_COMPARE_WITH_TIMEOUT(m_questions->messageGeste(),
+                              QStringLiteral("Revue refusée : la carte revient à l'exécutant avec votre motif."), 5000);
+    const QList<RequeteRecue> refus = m_serveur->filtrer("POST", kP + QStringLiteral("/revues/acp-outil-3dd5/t_aa11bb22/refuser"));
+    QCOMPARE(refus.size(), 1);
+    QCOMPARE(refus.first().json(), (QJsonObject{{QStringLiteral("motif"), QStringLiteral("Ne touche pas a la CI")}}));
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
+    QTRY_VERIFY(!m_questions->actif());
+    m_listeQuestions = avant;
 }
 
 // Constat de relecture P8 : la liste des projets remontait en haut à chaque relecture.

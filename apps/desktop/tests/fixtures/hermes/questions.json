@@ -12,7 +12,9 @@
       "contexte": "Le dépôt cible Python 3.11 et 3.12 dans sa CI.",
       "carte_repondre": null,
       "motif_escalade": "politique du projet : le propriétaire répond lui-même",
-      "cree_le": 1790423039
+      "cree_le": 1790423039,
+      "chez": "proprietaire",
+      "carte_repondre_statut": null
     }
   ],
   "triage": [
@@ -41,8 +43,26 @@
       "titre": "Carte à la main",
       "assigne": "poste-codex",
       "abandonnee": false,
-      "raison": "Refusé par ACP : carte poste-* non émise par le greffon acp-poste ; seul le greffon crée les cartes du poste."
+      "raison": "Refusé par ACP : carte poste-* non émise par le greffon acp-poste ; seul le greffon crée les cartes du poste.",
+      "relancable": false,
+      "refus_relance": "Carte non émise par ACP : ACP ne la relance pas.",
+      "executant": false
     }
   ],
-  "tableaux_illisibles": []
+  "tableaux_illisibles": [],
+  "revues": [],
+  "discussions": {
+    "suivies": true,
+    "requetes_ouvertes": 0,
+    "message": null,
+    "limite": "Les questions posées dans la discussion en terminal (/chat) ne sont visibles que dans cette discussion."
+  },
+  "compteurs": {
+    "questions": 1,
+    "decisions": 1,
+    "revues": 0,
+    "arretees": 1,
+    "chez_hermes": 0,
+    "a_traiter": 3
+  }
 }

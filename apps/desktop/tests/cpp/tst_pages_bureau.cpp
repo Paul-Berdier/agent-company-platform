@@ -323,7 +323,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         VERIFIER(page.get(), QStringLiteral("Questions"));
         QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
         QVERIFY(contientTexte(item, QStringLiteral("3 tours planifiés")));
-        QVERIFY(contientTexte(item, QStringLiteral("Lecture seule")));
+        // Étape P7 : compteurs du greffon, raison d'une carte non relançable, discussions en attente.
+        QVERIFY(contientTexte(item, QStringLiteral("À traiter par vous")));
+        QVERIFY(contientTexte(item, QStringLiteral("Relance impossible : Carte non émise par ACP : ACP ne la relance pas.")));
+        QVERIFY(contientTexte(item, QStringLiteral("Requêtes ouvertes dans le tableau de bord : 0")));
 
         questions = QJsonObject{{QStringLiteral("questions"), QJsonArray{}}, {QStringLiteral("triage"), QJsonArray{}},
                                 {QStringLiteral("bloquees"), QJsonArray{}}, {QStringLiteral("tableaux_illisibles"), QJsonArray{}}};
