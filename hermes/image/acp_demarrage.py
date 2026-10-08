@@ -852,9 +852,16 @@ VARIABLES_VOLUME_INTERDITES: Dict[str, str] = {
 }
 
 
+# Fichiers d'environnement que Hermes charge depuis un HERMES_HOME (racine du volume ou profil), tous deux AVANT
+# la portée gérée : .env (override=True, env_loader.py:433-436) et .op.env (override=False, env_loader.py:441-443,
+# tant que OP_SERVICE_ACCOUNT_TOKEN est absent). Chantier SECU-TUI : .op.env n'était pas inspecté, et
+# HERMES_MANAGED_DIR posée là déplaçait la portée gérée comme depuis .env.
+FICHIERS_ENV_HERMES: Tuple[str, ...] = (".env", ".op.env")
+
+
 def fichiers_env_du_volume(chemins: Chemins) -> List[Path]:
-    """Fichiers .env lus par Hermes sur le volume : racine et un par profil."""
-    fichiers = [chemins.hermes_home / ".env"]
+    """Fichiers d'environnement lus par Hermes sur le volume : .env et .op.env de la racine et de chaque profil."""
+    fichiers = [chemins.hermes_home / nom for nom in FICHIERS_ENV_HERMES]
     profils = chemins.hermes_home / "profiles"
     try:
         entrees = sorted(profils.iterdir())
@@ -866,7 +873,7 @@ def fichiers_env_du_volume(chemins: Chemins) -> List[Path]:
         except OSError:
             continue
         if stat.S_ISDIR(st.st_mode):
-            fichiers.append(entree / ".env")
+            fichiers.extend(entree / nom for nom in FICHIERS_ENV_HERMES)
     return fichiers
 
 
@@ -911,6 +918,343 @@ def refuser_variables_du_volume(chemins: Chemins) -> None:
             "des variables interdites ont été injectées dans le volume (/opt/data) ; "
             "elles échapperaient à la managed scope :\n" + "\n".join(f"  - {l}" for l in lignes)
             + "\nSupprimez-les de ces fichiers avant de redémarrer.")
+
+
+# ---------------------------------------------------------------------------------------------
+# SECU-1 (décision provisoire, chantier SECU-TUI) : aucune clé épinglée dans un .env du volume
+# ---------------------------------------------------------------------------------------------
+#
+# Constat du run Image Hermes 37784838264 (tentative 1) : après un redémarrage du conteneur, une session du
+# tableau de bord a reçu terminal, file et code_execution, la valeur de HERMES_TUI_TOOLSETS écrite dans
+# /opt/data/.env, alors que /etc/hermes/.env l'épingle à vide. Cause racine : load_hermes_dotenv PUBLIE d'abord
+# la valeur du volume dans os.environ (env_loader.py:433-434 ; .op.env : 441-443), puis applique la portée gérée
+# par une écriture SÉPARÉE (env_loader.py:473 et 503-518). Un autre fil du même processus qui lit os.environ
+# entre les deux voit la valeur du volume : dans le tableau de bord, le fil de découverte et de reconnexion MCP
+# recharge le .env (tools/mcp_tool_config.py:360-371) pendant que le fil d'une session lit HERMES_TUI_TOOLSETS
+# (tui_gateway/server.py:1912). La passerelle recharge à chaque tour (gateway/run.py:1614-1623) ; « reload.env »
+# de /api/ws recopie le .env SANS la portée gérée (hermes_cli/config.py:2733-2747). Toute clé épinglée est
+# concernée (outils, mode sans greffon, programme des workers, émetteur OIDC, mandataires…).
+#
+# Une épingle n'est donc sûre que si le volume ne porte AUCUNE valeur pour sa clé. Root retire ces clés des .env
+# et .op.env du volume (racine et profils) avant tout processus de Hermes : au crochet (avant 01-hermes-setup et
+# la passerelle), dans 05-acp et à CHAQUE relance du tableau de bord ou d'une passerelle (verifier-relance).
+# Les clés sont celles du .env géré INSTALLÉ (/etc/hermes/.env), jamais une liste recopiée. Deux analyseurs de
+# Hermes lisent ces fichiers : python-dotenv (env_loader._load_dotenv_with_fallback) et le jetoniseur ligne à
+# ligne d'agent/secret_scope.py (reload_env, portée des profils) ; une clé vue par l'un OU l'autre est retirée.
+# Valeurs jamais affichées. Ce que cela ne couvre pas : une écriture du volume EN COURS DE VIE, qui suppose déjà
+# l'uid hermes ou une session authentifiée du propriétaire (docs/refonte/image.md § 10).
+
+_LIMITE_ENV = 1024 * 1024
+_TOURS_MAX_RETRAIT = 8
+
+
+def decoder_env_comme_hermes(brut: bytes, fichier: Path) -> str:
+    """Texte d'un .env tel que Hermes le lit : UTF-16 avec BOM réécrit (env_loader.py:347-355), sinon UTF-8 avec
+    ou sans BOM, repli latin-1 (env_loader.py:273-281 ; agent/secret_scope.py:305-313) ; octets NUL retirés
+    (env_loader.py:370). UTF-32 : Hermes le laisse tel quel et ne sait pas le lire ; refusé par précaution."""
+    import codecs
+
+    if brut.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+        raise Refus(f"{fichier} est encodé en UTF-32 : réenregistrez-le en UTF-8 avant de redémarrer.")
+    if brut.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        try:
+            texte = brut.decode("utf-16")
+        except UnicodeDecodeError as exc:
+            raise Refus(f"{fichier} ne se décode pas en UTF-16 : réenregistrez-le en UTF-8.") from exc
+    else:
+        try:
+            texte = brut.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            texte = (brut[len(codecs.BOM_UTF8):] if brut.startswith(codecs.BOM_UTF8) else brut).decode("latin-1")
+    return texte.replace("\x00", "")
+
+
+def normaliser_env_comme_hermes(texte: str) -> str:
+    """Normalisation de ``_sanitize_env_file_if_needed`` (sauts de ligne universels, puis lignes rognées sauf les
+    lignes vides et les commentaires : hermes_cli/config.py:2468-2478), que Hermes applique avant de charger."""
+    lignes = texte.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    sortie = []
+    for ligne in lignes:
+        rognee = ligne.strip()
+        sortie.append(ligne if not rognee or rognee.startswith("#") else rognee)
+    return "\n".join(sortie)
+
+
+def _cle_de_ligne(ligne: str) -> Optional[str]:
+    """Clé d'une ligne selon le jetoniseur d'agent/secret_scope.py:316-329 (``export``, premier ``=``)."""
+    ligne = ligne.strip()
+    if not ligne or ligne.startswith("#"):
+        return None
+    if ligne.startswith("export "):
+        ligne = ligne[len("export "):].lstrip()
+    cle, separateur, _ = ligne.partition("=")
+    cle = cle.strip()
+    return cle if separateur and cle else None
+
+
+def _liaisons_dotenv(texte: str) -> list:
+    import io
+
+    from dotenv.parser import parse_stream
+
+    return list(parse_stream(io.StringIO(texte)))
+
+
+def cles_vues_par_hermes(texte: str) -> set:
+    """Clés qu'un des deux analyseurs de Hermes lit dans ce texte."""
+    cles = {liaison.key for liaison in _liaisons_dotenv(texte) if liaison.key}
+    cles.update(c for c in (_cle_de_ligne(l) for l in texte.splitlines()) if c)
+    return cles
+
+
+def retirer_cles_env(brut: bytes, cles: Iterable[str], fichier: Path) -> Tuple[Optional[str], List[str]]:
+    """(nouveau texte ou None si rien à retirer, clés retirées). Le nouveau texte est normalisé comme Hermes le
+    ferait lui-même ; toute autre ligne est conservée. Lève :class:`Refus` si une clé subsiste."""
+    epinglees = set(cles)
+    brut_decode = decoder_env_comme_hermes(brut, fichier)
+    texte = normaliser_env_comme_hermes(brut_decode)
+    if not (cles_vues_par_hermes(brut_decode) | cles_vues_par_hermes(texte)) & epinglees:
+        return None, []
+    retirees: set = set()
+    for _ in range(_TOURS_MAX_RETRAIT):
+        modifie = False
+        liaisons = _liaisons_dotenv(texte)
+        if any(l.key in epinglees for l in liaisons):
+            retirees.update(l.key for l in liaisons if l.key in epinglees)
+            texte = "".join(l.original.string for l in liaisons if l.key not in epinglees)
+            modifie = True
+        morceaux = texte.splitlines(keepends=True)
+        if any(_cle_de_ligne(m) in epinglees for m in morceaux):
+            retirees.update(c for c in (_cle_de_ligne(m) for m in morceaux) if c in epinglees)
+            # Un morceau retiré laisse son séparateur : la ligne précédente garde sa fin pour python-dotenv.
+            texte = "".join(m[len(m.splitlines()[0]):] if _cle_de_ligne(m) in epinglees else m for m in morceaux)
+            modifie = True
+        if not modifie:
+            break
+    if cles_vues_par_hermes(texte) & epinglees:
+        raise Refus(f"{fichier} porte une clé épinglée par la portée gérée sous une forme que la garde ne sait pas "
+                    "retirer sans risque : corrigez ce fichier en maintenance (docs/refonte/railway.md §10).")
+    if texte and not texte.endswith("\n"):
+        texte += "\n"
+    return texte, sorted(retirees)
+
+
+def cles_epinglees(chemins: Chemins) -> List[str]:
+    """Clés du .env géré INSTALLÉ, fichier ordinaire de root non inscriptible par l'agent."""
+    verifier_dossier_gere(chemins.dossier_gere)
+    fichier = chemins.dossier_gere / ".env"
+    try:
+        st = os.lstat(fichier)
+    except FileNotFoundError as exc:
+        raise Refus(f"{fichier} est absent : la portée gérée n'est pas installée.") from exc
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+        raise Refus(f"{fichier} doit être un fichier ordinaire de root, non inscriptible par l'agent.")
+    brut = lire_sans_lien(fichier)
+    try:
+        cles = sorted(cles_vues_par_hermes((brut or b"").decode("utf-8")))
+    except UnicodeDecodeError as exc:
+        raise Refus(f"{fichier} ne se lit pas en UTF-8.") from exc
+    if not cles:
+        raise Refus(f"{fichier} n'épingle aucune variable : portée gérée incomplète.")
+    return cles
+
+
+def _ouvrir_repertoire(nom: str, *, dir_fd: Optional[int], affichage: Path) -> Optional[int]:
+    """Descripteur d'un répertoire RÉEL (jamais à travers un lien) ; None s'il est absent."""
+    try:
+        return os.open(nom, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise Refus(f"{affichage} n'est pas un répertoire réel ({exc.strerror}) : un lien symbolique ou un fichier "
+                    "à cet endroit est refusé ; supprimez-le avant de redémarrer.") from exc
+
+
+def _remplacer_dans(fd_rep: int, nom: str, contenu: bytes, *, uid: int, gid: int, mode: int) -> None:
+    """Remplace ``nom`` dans le répertoire ouvert ``fd_rep`` : fichier temporaire créé sans suivre de lien, puis
+    renommage atomique DANS ce même répertoire (jamais à travers un chemin que l'agent pourrait détourner)."""
+    temporaire = f".{nom}.acp-{os.urandom(6).hex()}"
+    fd = os.open(temporaire, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd_rep)
+    try:
+        with os.fdopen(fd, "wb") as flux:
+            flux.write(contenu)
+            flux.flush()
+            os.fchown(flux.fileno(), uid, gid)
+            os.fchmod(flux.fileno(), mode)
+            os.fsync(flux.fileno())
+        os.rename(temporaire, nom, src_dir_fd=fd_rep, dst_dir_fd=fd_rep)
+    except BaseException:
+        try:
+            os.unlink(temporaire, dir_fd=fd_rep)
+        except FileNotFoundError:
+            pass
+        raise
+    os.fsync(fd_rep)
+
+
+def _lire_dans(fd_rep: int, nom: str, affichage: Path) -> Tuple[Optional[bytes], Optional[os.stat_result]]:
+    try:
+        fd = os.open(nom, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd_rep)
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        raise Refus(f"{affichage} ne peut pas être lu sans suivre de lien ({exc.strerror}) : un lien symbolique à "
+                    "cet endroit est refusé ; supprimez-le avant de redémarrer.") from exc
+    with os.fdopen(fd, "rb") as flux:
+        st = os.fstat(flux.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            raise Refus(f"{affichage} n'est pas un fichier ordinaire.")
+        brut = flux.read(_LIMITE_ENV + 1)
+    if len(brut) > _LIMITE_ENV:
+        raise Refus(f"{affichage} dépasse {_LIMITE_ENV} octets.")
+    return brut, st
+
+
+def _neutraliser_fichier_env(fd_rep: int, nom: str, cles: List[str], affichage: Path) -> List[str]:
+    brut, st = _lire_dans(fd_rep, nom, affichage)
+    if brut is None or st is None:
+        return []
+    texte, retirees = retirer_cles_env(brut, cles, affichage)
+    if texte is None:
+        return []
+    _remplacer_dans(fd_rep, nom, texte.encode("utf-8"), uid=st.st_uid, gid=st.st_gid,
+                    mode=stat.S_IMODE(st.st_mode) & 0o777)
+    relu, _ = _lire_dans(fd_rep, nom, affichage)
+    if relu is None or cles_vues_par_hermes(decoder_env_comme_hermes(relu, affichage)) & set(cles):
+        raise Refus(f"{affichage} porte encore une clé épinglée après son nettoyage (écriture concurrente ?) : "
+                    "relance refusée par précaution.")
+    return retirees
+
+
+def _repertoires_hermes_home(chemins: Chemins, fd_home: int) -> List[Tuple[int, Path]]:
+    """(descripteur, chemin affiché) de la racine puis de chaque profil, sans suivre de lien. Les descripteurs des
+    profils sont à fermer par l'appelant."""
+    reperes: List[Tuple[int, Path]] = [(fd_home, chemins.hermes_home)]
+    racine_profils = chemins.hermes_home / "profiles"
+    fd_profils = _ouvrir_repertoire("profiles", dir_fd=fd_home, affichage=racine_profils)
+    if fd_profils is None:
+        return reperes
+    try:
+        for nom in sorted(os.listdir(fd_profils)):
+            st = os.lstat(nom, dir_fd=fd_profils)
+            if stat.S_ISLNK(st.st_mode):
+                raise Refus(f"{racine_profils}/{_affichable(nom)} est un lien symbolique : Hermes le prendrait pour "
+                            "un profil ; démarrage refusé (supprimez le lien).")
+            if not stat.S_ISDIR(st.st_mode):
+                continue
+            fd = _ouvrir_repertoire(nom, dir_fd=fd_profils, affichage=racine_profils / nom)
+            if fd is not None:
+                reperes.append((fd, racine_profils / nom))
+    except BaseException:
+        for fd, _ in reperes[1:]:
+            os.close(fd)
+        raise
+    finally:
+        os.close(fd_profils)
+    return reperes
+
+
+def neutraliser_epingles_du_volume(chemins: Chemins) -> List[Tuple[Path, List[str]]]:
+    """Retire de chaque .env et .op.env du volume (racine et profils) toute clé épinglée par le .env géré
+    installé. Rend (fichier, clés retirées) pour chaque fichier réécrit ; ne touche pas un fichier sans clé
+    épinglée."""
+    cles = cles_epinglees(chemins)
+    fd_home = _ouvrir_repertoire(str(chemins.hermes_home), dir_fd=None, affichage=chemins.hermes_home)
+    if fd_home is None:
+        return []
+    rapport: List[Tuple[Path, List[str]]] = []
+    try:
+        reperes = _repertoires_hermes_home(chemins, fd_home)
+        try:
+            for fd_rep, dossier in reperes:
+                for nom in FICHIERS_ENV_HERMES:
+                    retirees = _neutraliser_fichier_env(fd_rep, nom, cles, dossier / nom)
+                    if retirees:
+                        rapport.append((dossier / nom, retirees))
+        finally:
+            for fd, _ in reperes[1:]:
+                os.close(fd)
+    finally:
+        os.close(fd_home)
+    return rapport
+
+
+def cles_epinglees_dans_le_volume(chemins: Chemins) -> List[Tuple[Path, List[str]]]:
+    """Lecture seule (``diagnostiquer``) : (fichier, clés épinglées présentes) sans rien écrire."""
+    cles = cles_epinglees(chemins)
+    trouvees: List[Tuple[Path, List[str]]] = []
+    for fichier in fichiers_env_du_volume(chemins):
+        brut = lire_sans_lien(fichier)
+        if brut is None:
+            continue
+        texte = decoder_env_comme_hermes(brut, fichier)
+        presentes = sorted((cles_vues_par_hermes(texte) | cles_vues_par_hermes(normaliser_env_comme_hermes(texte)))
+                           & set(cles))
+        if presentes:
+            trouvees.append((fichier, presentes))
+    return trouvees
+
+
+def informer_neutralisation(rapport: List[Tuple[Path, List[str]]], moment: str) -> None:
+    for fichier, retirees in rapport:
+        montrees = ", ".join(retirees[:12]) + (f" et {len(retirees) - 12} autre(s)" if len(retirees) > 12 else "")
+        _informer(f"SECU-1 ({moment}) : {fichier} portait {len(retirees)} clé(s) épinglée(s) par la portée gérée "
+                  f"({montrees}) : retirées, valeurs jamais affichées. Hermes les aurait publiées un instant avant "
+                  "la portée gérée (docs/refonte/image.md § 4.3).")
+
+
+# ---------------------------------------------------------------------------------------------
+# SECU-2 (décision provisoire, chantier SECU-TUI) : aucune source externe de secrets depuis le volume
+# ---------------------------------------------------------------------------------------------
+#
+# La section ``secrets`` du config.yaml du volume est lue SANS la portée gérée (env_loader.py:620-640, par
+# read_raw_config) au premier chargement de l'environnement de CHAQUE processus de Hermes (env_loader.py:471-472).
+# La source « command » lance ``/bin/sh -c <commande>`` (agent/secret_sources/command.py:61-80 et 168-182) ; les
+# autres lancent op ou bws. Leur sortie KEY=VALUE est appliquée AVANT la portée gérée et pourrait poser
+# HERMES_MANAGED_DIR. ACP n'en utilise aucune (ses secrets sont des variables Railway) : une source activée dans
+# le volume refuse le démarrage et la relance, comme un serveur MCP stdio (décision D8). Une épingle ne servirait
+# à rien : la section est lue sans la portée gérée.
+
+
+def sources_de_secrets_actives(section: Any) -> List[str]:
+    """Sources activées d'une section ``secrets`` (même règle que SecretSource.is_enabled : ``enabled`` vrai,
+    agent/secret_sources/base.py:165-166) ; une section qui n'est pas un dictionnaire est suspecte."""
+    if not section:
+        return []
+    if not isinstance(section, dict):
+        return [f"(section de type {type(section).__name__})"]
+    return [_tronquer(str(nom), 40) for nom, conf in section.items()
+            if nom != "sources" and isinstance(conf, dict) and conf.get("enabled")]
+
+
+def problemes_sources_de_secrets(chemins: Chemins) -> List[str]:
+    problemes: List[str] = []
+    for fichier in fichiers_config_du_volume(chemins):
+        try:
+            brut = lire_sans_lien(fichier)
+        except Refus as exc:
+            problemes.append(str(exc))
+            continue
+        if brut is None:
+            continue
+        try:
+            donnees = charger_yaml(brut.decode("utf-8"))
+        except (UnicodeDecodeError, yaml.YAMLError):
+            continue  # illisible pour Hermes aussi (read_raw_config rend {}) : signalé par ailleurs
+        if not isinstance(donnees, dict):
+            continue
+        for source in sources_de_secrets_actives(donnees.get("secrets")):
+            problemes.append(
+                f"{fichier} active la source externe de secrets « {source} » : Hermes l'exécuterait au chargement "
+                "de l'environnement de chaque processus, hors des outils de l'agent et avant la portée gérée. ACP "
+                "n'en utilise aucune (secrets en variables Railway) ; retirez la section secrets puis redémarrez.")
+    return problemes
+
+
+def refuser_sources_de_secrets_du_volume(chemins: Chemins) -> None:
+    problemes = problemes_sources_de_secrets(chemins)
+    if problemes:
+        raise Refus("\n".join(problemes))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1976,6 +2320,7 @@ def preparer_donnees(chemins: Chemins, scope: ScopeGeree, *, uid: int, gid: int,
     refuser_crochets_du_volume(chemins)
     catalogue = charger_catalogue(chemins)
     avertissements_mcp = refuser_mcp_du_volume(chemins, catalogue)
+    refuser_sources_de_secrets_du_volume(chemins)
     # 2. Verrouillage, puis nouvelle inspection (rien ne doit être apparu entre-temps). Les
     #    hooks/ et scripts/ de chaque profil sont repris comme ceux de la racine.
     executes, _ = repertoires_executes(chemins)
@@ -2150,6 +2495,14 @@ def cles_executables(donnees: Any) -> List[str]:
             if isinstance(conf, dict) and str(conf.get("type") or "").strip().lower() == "exec":
                 trouvees.append(f"quick_commands.{_tronquer(nom, 60)} de type exec = "
                                 f"« {_tronquer(conf.get('command', ''))} »")
+    # SECU-2 : sources externes de secrets (agent/secret_sources : « command » lance /bin/sh -c).
+    secrets = donnees.get("secrets")
+    for source in sources_de_secrets_actives(secrets):
+        conf = secrets.get(source) if isinstance(secrets, dict) else None
+        detail = (f" = « {_tronquer(conf['command'])} »"
+                  if isinstance(conf, dict) and isinstance(conf.get("command"), str) else "")
+        trouvees.append(f"secrets.{source} activée (source externe de secrets, lancée par chaque processus de "
+                        f"Hermes){detail}")
     for section in ("tts", "stt"):
         bloc = donnees.get(section)
         if not isinstance(bloc, dict):
@@ -2307,6 +2660,14 @@ def diagnostic(chemins: Chemins) -> Tuple[List[str], List[str]]:
             constats.append(str(exc))
     for fichier, nom, raison in variables_interdites_dans_le_volume(chemins):
         constats.append(f"{fichier} définit la variable interdite {nom} : {raison}.")
+    # SECU-1 : des clés épinglées dans un .env du volume ne refusent pas le démarrage ; root les retire au
+    # démarrage et à chaque relance. Signalées ici sans rien écrire (noms seulement).
+    try:
+        for fichier, presentes in cles_epinglees_dans_le_volume(chemins):
+            infos.append(f"{fichier} porte {len(presentes)} clé(s) épinglée(s) ({', '.join(presentes[:12])}) : "
+                         "root les retirera au prochain démarrage (SECU-1).")
+    except Refus as exc:
+        constats.append(str(exc))
     try:
         inspecter_donnees(chemins)
     except Refus as exc:
@@ -2411,7 +2772,11 @@ def commande_gardes(chemins: Chemins, env: Mapping[str, str]) -> None:
     # passerelle dès son démarrage (02-reconcile-profiles) : refusé ici, avant.
     catalogue = charger_catalogue(chemins)
     avertissements_mcp = refuser_mcp_du_volume(chemins, catalogue)
+    # SECU-2 : aucune source externe de secrets (commande lancée par chaque processus de Hermes).
+    refuser_sources_de_secrets_du_volume(chemins)
     resume = installer_scope_geree(chemins, valeurs)
+    # SECU-1 : avant 01-hermes-setup et la passerelle, plus aucune clé épinglée dans les .env du volume.
+    informer_neutralisation(neutraliser_epingles_du_volume(chemins), "démarrage")
     _informer(f"variables validées ; émetteur OIDC {valeurs.oidc_emetteur}, client {valeurs.oidc_client}, "
               f"URL publique {valeurs.url_publique}"
               + (" (secret client fourni, non recopié)" if valeurs.secret_client_fourni else " (client public)")
@@ -2445,6 +2810,8 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
     verifier_scope_installee(chemins, scope, valeurs)
     compte = pwd.getpwnam("hermes")
     etat = preparer_donnees(chemins, scope, uid=compte.pw_uid, gid=compte.pw_gid, commit=commit_deploye(env))
+    # SECU-1 : 01-hermes-setup et 02-reconcile-profiles ont pu écrire dans le .env du volume entre-temps.
+    informer_neutralisation(neutraliser_epingles_du_volume(chemins), "données")
     cible = ecrire_etat(chemins, etat)
     _informer(f"{chemins.greffons_utilisateur}, {chemins.themes}, {chemins.donnees_acp}, "
               f"{chemins.crochets_passerelle} et {chemins.scripts_cron} appartiennent à root (0755)"
@@ -2478,13 +2845,16 @@ def commande_donnees(chemins: Chemins, env: Mapping[str, str]) -> None:
 def commande_verifier_relance(chemins: Chemins) -> None:
     """Garde exécutée en root en tête des scripts `run` du tableau de bord et de la passerelle :
     refuse la relance si l'agent a injecté une variable interdite dans un .env du volume, (étape
-    P3, D8) si la configuration du volume déclare un serveur MCP stdio ou hors catalogue, ou (étape
-    P4) des crochets shell."""
+    P3, D8) si la configuration du volume déclare un serveur MCP stdio ou hors catalogue, (étape
+    P4) des crochets shell ou (SECU-2) une source externe de secrets ; puis (SECU-1) retire des .env
+    du volume toute clé épinglée par la portée gérée, avant que le service ne les charge."""
     _exiger_root()
     refuser_variables_du_volume(chemins)
     refuser_mcp_du_volume(chemins, charger_catalogue(chemins))
     # Étape P4 : une relance par l'agent ne doit pas inscrire des crochets shell apparus en cours de route.
     refuser_crochets_du_volume(chemins)
+    refuser_sources_de_secrets_du_volume(chemins)
+    informer_neutralisation(neutraliser_epingles_du_volume(chemins), "relance")
 
 
 COMMANDES = ("construire", "gardes", "donnees", "verifier-relance", "diagnostiquer")

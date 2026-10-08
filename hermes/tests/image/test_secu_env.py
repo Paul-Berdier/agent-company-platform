@@ -261,3 +261,149 @@ def test_une_source_de_secrets_du_volume_est_refusee(chemins, valeurs, env_valid
         assert attendu in str(refus.value)
     # La maintenance la signale aussi.
     assert any("secrets.command" in c for c in ad.inventaire_cles_executables(chemins))
+
+
+@pytest.mark.parametrize("section, actives", [
+    ({"command": {"enabled": True, "command": "id"}, "sources": ["command"]}, ["command"]),
+    ({"onepassword": {"enabled": "oui"}, "bitwarden": {"enabled": False}}, ["onepassword"]),
+    ({"bitwarden": {"enabled": False}, "onepassword": {"enabled": False}}, []),  # défauts de Hermes : admis
+    ([{"command": "id"}], ["(section de type list)"]),
+    (None, []),
+    ({}, []),
+])
+def test_sources_de_secrets_actives(section, actives):
+    assert ad.sources_de_secrets_actives(section) == actives
+
+
+# ------------------------------------------------------------------ SECU-1 : le retrait lui-même
+
+
+CLES_TEST = ["HERMES_BIN", "HERMES_TUI_TOOLSETS", "HTTP_PROXY"]
+
+
+@pytest.mark.parametrize("brut, attendu, retirees", [
+    (b"A=1\nHERMES_BIN=x\nB=2\n", "A=1\nB=2\n", ["HERMES_BIN"]),
+    (b"export HERMES_BIN = x\nA=1\n", "A=1\n", ["HERMES_BIN"]),
+    (b"'HERMES_BIN'=x\nA=1\n", "A=1\n", ["HERMES_BIN"]),  # clé citée : vue par python-dotenv seulement
+    (b'A="x\nHERMES_BIN=y\n"\nB=2\n', 'A="x\n\n"\nB=2\n', ["HERMES_BIN"]),  # cachée dans une valeur multiligne
+    (b"HERMES_\x00BIN=x\nA=1\n", "A=1\n", ["HERMES_BIN"]),  # NUL retiré par Hermes avant l'analyse
+    (b"\xef\xbb\xbf  HERMES_BIN=x  \r\nA=1\r\n", "A=1\n", ["HERMES_BIN"]),
+    ("HERMES_TUI_TOOLSETS=terminal\nA=1\n".encode("utf-16"), "A=1\n", ["HERMES_TUI_TOOLSETS"]),
+    ("A=1\x85HERMES_BIN=x\nB=2\n".encode("utf-8"), "A=1\x85\nB=2\n", ["HERMES_BIN"]),  # séparateur de splitlines
+    (b"A=\xe9\nHTTP_PROXY=http://x\n", "A=é\n", ["HTTP_PROXY"]),  # latin-1, comme Hermes
+    (b"# HERMES_BIN=x\nA=HERMES_BIN=y\nMY_HTTP_PROXY=z\n", None, []),  # commentaire, valeur, autre clé : gardés
+    (b"A=1\nB=2", None, []),
+], ids=["simple", "export", "cle_citee", "multiligne", "nul", "bom_crlf", "utf16", "nel", "latin1", "intacts",
+        "rien"])
+def test_retirer_cles_env(brut, attendu, retirees):
+    texte, enlevees = ad.retirer_cles_env(brut, CLES_TEST, Path("/opt/data/.env"))
+    assert (texte, enlevees) == (attendu, retirees)
+    if texte is not None:
+        # Les deux analyseurs de Hermes ne voient plus aucune clé épinglée.
+        import io
+
+        from agent.secret_scope import _parse_env_text
+        from dotenv import dotenv_values
+
+        assert not set(_parse_env_text(texte)) & set(CLES_TEST)
+        assert not set(dotenv_values(stream=io.StringIO(texte), interpolate=False)) & set(CLES_TEST)
+
+
+def test_retirer_cles_env_refuse_l_utf32():
+    with pytest.raises(ad.Refus, match="UTF-32"):
+        ad.retirer_cles_env("HERMES_BIN=x\n".encode("utf-32"), CLES_TEST, Path("/opt/data/.env"))
+
+
+def _arbre(chemin: Path) -> dict:
+    return {str(p.relative_to(chemin)): (p.read_bytes() if p.is_file() and not p.is_symlink() else None,
+                                        os.lstat(p).st_ino) for p in sorted(chemin.rglob("*"))}
+
+
+def test_neutraliser_garde_le_reste_le_proprietaire_et_le_mode(chemins, valeurs):
+    installer_home_de_test(chemins, valeurs)
+    home = chemins.hermes_home
+    fichiers = {
+        home / ".env": "API_SERVER_KEY=0123456789abcdef0123456789\nHERMES_TUI_TOOLSETS=terminal\nOPENAI_API_KEY=sk\n",
+        home / ".op.env": "OP_SERVICE_ACCOUNT_TOKEN=ops\nHERMES_SAFE_MODE=1\n",
+        home / "profiles" / "coder" / ".env": "HERMES_BIN=/opt/data/faux\nANTHROPIC_API_KEY=a\n",
+        home / "profiles" / "coder" / ".op.env": "A=1\n",
+    }
+    for fichier, contenu in fichiers.items():
+        fichier.parent.mkdir(parents=True, exist_ok=True)
+        fichier.write_text(contenu, encoding="utf-8")
+        os.chown(fichier, UID_HERMES, UID_HERMES)
+        os.chmod(fichier, 0o600)
+    inode_intact = os.lstat(home / "profiles" / "coder" / ".op.env").st_ino
+    rapport = ad.neutraliser_epingles_du_volume(chemins)
+    assert [(str(f.relative_to(home)), c) for f, c in rapport] == [
+        (".env", ["HERMES_TUI_TOOLSETS"]), (".op.env", ["HERMES_SAFE_MODE"]), ("profiles/coder/.env", ["HERMES_BIN"])]
+    assert (home / ".env").read_text(encoding="utf-8") == (
+        "API_SERVER_KEY=0123456789abcdef0123456789\nOPENAI_API_KEY=sk\n")
+    assert (home / ".op.env").read_text(encoding="utf-8") == "OP_SERVICE_ACCOUNT_TOKEN=ops\n"
+    assert (home / "profiles" / "coder" / ".env").read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=a\n"
+    for fichier in fichiers:
+        st = os.lstat(fichier)
+        assert (st.st_uid, st.st_gid, st.st_mode & 0o7777) == (UID_HERMES, UID_HERMES, 0o600), fichier
+    # Un fichier sans clé épinglée n'est pas réécrit ; aucun fichier temporaire ne reste ; idempotent.
+    assert os.lstat(home / "profiles" / "coder" / ".op.env").st_ino == inode_intact
+    assert not list(home.rglob(".*.acp-*"))
+    avant = _arbre(home)
+    assert ad.neutraliser_epingles_du_volume(chemins) == []
+    assert _arbre(home) == avant
+
+
+def test_neutraliser_ne_suit_aucun_lien(chemins, valeurs, tmp_path):
+    """Un lien à la place d'un .env ou d'un profil est refusé ; une cible liée en dur n'est jamais modifiée (le
+    nom est remplacé, pas l'inode) ; la portée gérée n'est jamais touchée."""
+    installer_home_de_test(chemins, valeurs)
+    home = chemins.hermes_home
+    gere_avant = (chemins.dossier_gere / ".env").read_bytes()
+    cible = tmp_path / "cible-root"
+    cible.write_text("HERMES_BIN=/racine\n", encoding="utf-8")
+    (home / ".env").symlink_to(cible)
+    with pytest.raises(ad.Refus, match="sans suivre de lien"):
+        ad.neutraliser_epingles_du_volume(chemins)
+    (home / ".env").unlink()
+    (home / "profiles").mkdir()
+    (home / "profiles" / "intrus").symlink_to(chemins.dossier_gere, target_is_directory=True)
+    with pytest.raises(ad.Refus, match="lien symbolique"):
+        ad.neutraliser_epingles_du_volume(chemins)
+    (home / "profiles" / "intrus").unlink()
+    os.link(cible, home / ".env")
+    assert ad.neutraliser_epingles_du_volume(chemins) == [(home / ".env", ["HERMES_BIN"])]
+    assert cible.read_text(encoding="utf-8") == "HERMES_BIN=/racine\n"
+    assert (home / ".env").read_text(encoding="utf-8") == ""
+    assert (chemins.dossier_gere / ".env").read_bytes() == gere_avant
+
+
+def test_neutraliser_exige_une_portee_geree_de_root(chemins, valeurs):
+    installer_home_de_test(chemins, valeurs)
+    (chemins.hermes_home / ".env").write_text("HERMES_BIN=x\n", encoding="utf-8")
+    os.chown(chemins.dossier_gere / ".env", UID_HERMES, UID_HERMES)
+    with pytest.raises(ad.Refus, match="doit être un fichier ordinaire de root"):
+        ad.neutraliser_epingles_du_volume(chemins)
+    (chemins.dossier_gere / ".env").unlink()
+    with pytest.raises(ad.Refus, match="la portée gérée n'est pas installée"):
+        ad.commande_verifier_relance(chemins)
+    assert (chemins.hermes_home / ".env").read_text(encoding="utf-8") == "HERMES_BIN=x\n"
+
+
+def test_journal_de_la_relance_nomme_les_cles_sans_valeur(chemins, valeurs, capsys):
+    installer_home_de_test(chemins, valeurs, env="HERMES_TUI_TOOLSETS=valeur-secrete-de-test\nA=1\n")
+    ad.commande_verifier_relance(chemins)
+    sortie = capsys.readouterr().out
+    assert (f"[acp] SECU-1 (relance) : {chemins.hermes_home / '.env'} portait 1 clé(s) épinglée(s) par la portée "
+            "gérée (HERMES_TUI_TOOLSETS) : retirées, valeurs jamais affichées.") in sortie
+    assert "valeur-secrete-de-test" not in sortie
+
+
+def test_diagnostiquer_signale_les_cles_epinglees_sans_ecrire(chemins, valeurs):
+    installer_home_de_test(chemins, valeurs, env="HERMES_SAFE_MODE=1\n")
+    (chemins.hermes_home / ".op.env").write_text("HTTPS_PROXY=http://127.0.0.1:9\n", encoding="utf-8")
+    avant = _arbre(chemins.hermes_home)
+    assert ad.cles_epinglees_dans_le_volume(chemins) == [
+        (chemins.hermes_home / ".env", ["HERMES_SAFE_MODE"]), (chemins.hermes_home / ".op.env", ["HTTPS_PROXY"])]
+    infos, constats = ad.diagnostic(chemins)
+    assert any("porte 1 clé(s) épinglée(s) (HERMES_SAFE_MODE)" in i for i in infos)
+    assert not any("HERMES_SAFE_MODE" in c for c in constats)
+    assert _arbre(chemins.hermes_home) == avant
