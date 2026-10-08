@@ -19,7 +19,12 @@ Cette skill guide la **carte « répondre »** qu'un projet crée quand une cart
 - une question de **périmètre** (ajouter ou retirer une fonctionnalité, changer l'objectif) ;
 - une question de **dépense** (abonnement, service payant, palier rapide) ;
 - une question de **push, fusion, publication ou déploiement** ;
-- toute suppression hors du projet.
+- toute suppression hors du projet, et toute **suppression d'une branche** ;
+- l'**accès à un compte ou à un jeton** (en créer, en demander, en utiliser un autre) ;
+- un **nouveau dépôt** (en ajouter un, en lire un autre que celui du projet) ;
+- le **réseau des exécutants** (ouvrir un accès réseau, joindre un service).
+
+Rappel : la vraie borne n'est pas cette liste, c'est l'absence d'outil. L'exécutant n'a qu'un jeton de lecture et ne pousse jamais : une réponse « oui, poussez » resterait sans effet. Escalade quand même, pour que le propriétaire décide.
 
 ## Règles
 

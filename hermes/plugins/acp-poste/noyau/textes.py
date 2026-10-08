@@ -251,7 +251,7 @@ NOTIF_HORS_LIGNE = "ACP — Poste hors ligne depuis {heure} (Europe/Paris), {car
 NOTIF_PLAFOND = "ACP — Projet « {titre} » : plafond de {genre} atteint, votre décision est attendue. {lien}"
 NOTIF_SANS_PLAN = ("ACP — Projet « {titre} » : la planification s'est terminée sans plan, votre décision est "
                    "attendue. {lien}")
-NOTIF_TEST = "ACP — Notification de test envoyée depuis la page Projets. {lien}"
+NOTIF_TEST = "ACP — Notification de test envoyée depuis le tableau de bord. {lien}"
 NOTIF_CROCHETS = "ACP — Crochets shell détectés : pause générale engagée. {lien}"
 RAISON_PAUSE_CROCHETS = "ACP : crochets shell détectés en cours de route"
 RAISON_PAUSE_PROPRIETAIRE = "ACP : pause du propriétaire"
@@ -360,6 +360,11 @@ BADGES = {
 
 # ------------------------------------------------------------------ quotas (cahier P5 § 12.5)
 QUOTAS_SOURCE_CLAUDE = "Ligne d'état de vos sessions Claude Code sur ce PC (même abonnement déclaré)"
+# Relecture finale de P7 (constat produit-8) : la source dite d'après l'HÔTE du relevé ; jamais « sur ce PC » pour
+# l'exécutant Railway, jamais un code seul (« codex_app_server ») à l'écran.
+QUOTAS_SOURCE_CLAUDE_EXECUTANT = ("Dernier événement de limite des cartes Claude de l'exécutant Railway (inconnu tant "
+                                  "qu'aucune carte Claude n'y a tourné)")
+QUOTAS_SOURCE_CODEX = "Compteurs de votre compte ChatGPT, lus par Codex (app-server) sur la machine qui exécute"
 QUOTAS_HERMES_MEME_ENVELOPPE = "Même enveloppe que Codex (déclaré dans poste.toml)"
 
 # ------------------------------------------------------------------ exécution par l'exécutant (étape P6, cahier P6 § 5)
@@ -435,7 +440,86 @@ CONSIGNE_INTEGRATION = (
     "secrets) sur le diff cumulé. Aucun push. Conflit : abandon de la fusion et blocage avec la liste des fichiers.")
 # Routage de l'étape P6 (cahier P6 § 4.3, § 6.7).
 INTEGRATION_SANS_MODELE_ROUTAGE = "la classe « integration » n'a ni modèle ni effort (fusion locale déterministe)."
+# Étape P7 (cahier P7 § 11.2, D83) : la voie Codex n'est prêtée qu'à un dépôt MESURÉ privé et lu avec le jeton.
+VOIE_FERMEE_DEPOT = ("dépôt « {d} » non prouvé privé ({raison}) : Codex n'y travaille que sur un dépôt privé lu avec le "
+                     "jeton de lecture (D83)")
+DEPOT_ABSENT_INVENTAIRE = "absent du dernier inventaire de l'exécutant"
+VISIBILITE_NON_MESUREE = "visibilité non mesurée par l'exécutant"
+VISIBILITE_MESUREE = "visibilité mesurée : {v}"
+LECTURE_MESUREE = "lecture avec le jeton : {l}"
 REPLI_MEME_MODELE = "le modèle « {m} » est celui de l'implémentation"
 REPLI_SANS_ENTREE = "aucune entrée de la table « relecture » pour {v}"
 REPLI_IMPOSSIBLE = "la voie {v} est fermée ({fermeture}) et aucun autre modèle de la même voie n'est admis ({detail})"
 MENTION_REPLI_MEME_VOIE = "relecture de repli par la même voie, autre modèle (D91) : {raison}"
+
+# ------------------------------------------------------------------ file Questions, relance, réglage, clôture (étape P7)
+# « Relancer » une carte arrêtée (cahier P7 § 3.4, décision P7-2 ; corrections K4, K5, K25).
+CARTE_NON_ACP = "la carte {carte} du tableau « {t} » n'a pas été émise par ACP : ACP ne la relance pas."
+CARTE_NON_ARRETEE = ("la carte {carte} n'est pas arrêtée (statut : {statut}) : seule une carte bloquée ou abandonnée se "
+                     "relance.")
+CARTE_EN_REVUE = "la carte {carte} est en revue : acceptez-la ou refusez-la depuis la section Revues."
+CARTE_SECRET = ("la carte {carte} a été bloquée pour un secret : sa relance attend un exécutant à jour (étape P7, "
+                "partie E), qui la fait repartir sans le travail en quarantaine ; son dernier inventaire ne le dit pas "
+                "(« Relever maintenant » sur la page Poste).")
+RELANCE_PROJET_EN_PAUSE = "le projet « {titre} » est en pause : reprenez d'abord le projet."
+CONSIGNE_RELANCE = "la consigne de relance doit compter de 1 à 4000 caractères."
+# Relecture finale de P7 (constat scenario-2) : la carte d'intégration n'a pas d'agent ; l'exécutant rejoue la même
+# fusion déterministe (apps/poste, Execution._integrer) et ne lit aucune consigne.
+CONSIGNE_SANS_OBJET_INTEGRATION = ("la carte d'intégration {carte} n'a pas d'agent : aucune consigne n'y serait lue. "
+                                   "« Relancer » rejoue la même fusion des branches ; un conflit revient tant "
+                                   "qu'aucune branche ne change. Relancez sans consigne, ou clôturez le projet : les "
+                                   "branches restent sur l'exécutant, récupérables par git bundle.")
+# Section ajoutée EN TÊTE de la consigne d'une carte de l'exécutant (la réduction à 60 Kio coupe la fin : K4).
+SECTION_RELANCE = "## Consigne du propriétaire (relance du {date})\n{consigne}\n\n## Consigne initiale\n"
+MENTION_TRONQUE_RELANCE = ("\n\n[… consigne initiale tronquée par ACP pour tenir, avec la relance, dans les {n} caractères "
+                           "d'une carte]")
+COMMENTAIRE_RELANCE = "Relance par le propriétaire — consigne :\n{consigne}"
+# Raisons rendues par GET /v1/questions pour une carte arrêtée qui ne se relance pas (sans « Refusé par ACP : »).
+REFUS_RELANCE_PAUSE = "Projet en pause : reprenez d'abord le projet."
+REFUS_RELANCE_FINI = "Projet {etat} : la carte ne serait plus servie."
+REFUS_RELANCE_NON_ACP = "Carte non émise par ACP : ACP ne la relance pas."
+REFUS_RELANCE_SECRET = ("Bloquée pour un secret : relance possible dès que l'exécutant à jour (étape P7, partie E) a "
+                        "publié son inventaire.")
+REFUS_RELANCE_REVUE = "Carte en revue : acceptez-la ou refusez-la depuis la section Revues."
+# Relecture finale de P7 (constat scenario-6) : la carte « répondre » de Hermes dont la question n'est plus « ouverte »
+# (escaladée par le filet de l'émetteur, ou répondue) ne peut plus rien faire : question_repondre et question_escalader
+# exigent une question ouverte.
+QUESTION_ADRESSEE = ("la carte {carte} devait répondre à une question qui vous a été adressée : relancée, elle ne "
+                     "pourrait plus rien faire ; répondez à la question dans la section Questions.")
+REFUS_RELANCE_QUESTION_ADRESSEE = ("La question de cette carte vous a été adressée : répondez-y dans la section "
+                                   "Questions.")
+ETATS_LISIBLES = {"creation": "en création", "actif": "en cours", "en_pause": "en pause", "termine": "terminé",
+                  "abandonne": "abandonné"}
+
+# « Qui répond » modifiable (cahier P7 § 4.2, décision P7-3).
+REPONSES_SANS_OBJET = "Sans dépôt, aucune question ne peut naître : ce réglage est sans objet."
+
+# « Clore le projet » (cahier P7 § 10, décision P7-9).
+CONFIRMATION_CLORE = ("« confirmation » doit valoir true : clore archive les cartes ouvertes du projet, annule ses "
+                      "questions et l'arrête.")
+CLORE_COURSE = ("le projet « {titre} » a changé d'état pendant la clôture ({etat}) : rien n'a été modifié ; rechargez "
+                "la page.")
+
+# Discussions en attente (cahier P7 § 3.5) : lecture seule du compteur du tableau de bord.
+DISCUSSIONS_NON_SUIVIES = ("Discussions : état inconnu (le tableau de bord ne publie pas le nombre de requêtes ouvertes "
+                           "dans cette version de Hermes).")
+DISCUSSIONS_LIMITE = ("Les questions posées dans la discussion en terminal (/chat) ne sont visibles que dans cette "
+                      "discussion.")
+
+# Accueil agrégé (cahier P7 § 8.2) : un bloc illisible vaut null avec sa raison, jamais une valeur par défaut.
+BLOC_ILLISIBLE = "Bloc illisible ({type}) : rechargez la page ; si l'erreur reste, consultez /v1/meta."
+
+# Flux d'invalidation (cahier P7 § 5.2) : au-delà de ``flux_max`` flux simultanés.
+TROP_DE_FLUX = "Trop de pages ouvertes en temps réel : fermez-en une ou attendez."
+
+# Bilan quotidien (cahier P7 § 7, décision P7-6) : compteurs seulement, jamais un titre de carte ni une question.
+NOTIF_BILAN = "ACP — Bilan du {jour} : {projets}, {demandes}, {executant}. {lien}"
+BILAN_AUCUN_PROJET = "aucun projet en cours"
+BILAN_PROJETS_INCONNUS = "projets : état inconnu"
+BILAN_DEMANDES_INCONNUES = "demandes en attente : état inconnu"
+BILAN_RIEN_POUR_VOUS = "rien n'attend votre décision"
+BILAN_EXECUTANT_INCONNU = "état de l'exécutant inconnu"
+BILAN_EXECUTANT_HORS_LIGNE_DEPUIS = "exécutant hors ligne depuis {heure}"
+BILAN_EXECUTANT = {"en_ligne": "exécutant en ligne", "hors_ligne": "exécutant hors ligne",
+                   "redeploiement": "exécutant en redéploiement", "non_configure": "exécutant non configuré",
+                   "a_confirmer": "exécutant à confirmer", "revoque": "exécutant révoqué"}

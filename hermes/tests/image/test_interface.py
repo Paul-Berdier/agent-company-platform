@@ -1,5 +1,5 @@
 """Greffons d'interface livrés dans l'image : acp-interface et acp-catalogue (étape P3), acp-projets
-(étape P4), acp-poste-vues (étape P5).
+(étape P4), acp-poste-vues (étape P5), acp-discussion (étape P7).
 
 Ils n'ont AUCUN code serveur (manifeste, bundle IIFE, feuille de style) ; Hermes les découvre en
 source « bundled » (web_server_dashboard.py:463-560) et les sert au navigateur tant qu'ils ne sont
@@ -21,16 +21,16 @@ from pathlib import Path
 from conftest import env_processus, executer_python, installer_home_de_test
 
 GREFFONS = Path("/opt/hermes/plugins")
-NOMS_ACP = ("acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues")
+NOMS_ACP = ("acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-discussion")
 
 CONFIG_PIEGEE = """\
 plugins:
   enabled: [acp-interface, hermes-achievements]
-  disabled: [acp-interface, acp-catalogue, acp-projets, acp-poste-vues, acp-poste]
+  disabled: [acp-interface, acp-catalogue, acp-projets, acp-poste-vues, acp-discussion, acp-poste]
 dashboard:
   theme: default
   font: inter
-  hidden_plugins: [acp-interface, acp-catalogue, acp-projets, acp-poste-vues, acp-poste]
+  hidden_plugins: [acp-interface, acp-catalogue, acp-projets, acp-poste-vues, acp-discussion, acp-poste]
 """
 
 SERVIS = """
@@ -88,9 +88,17 @@ def test_hermes_decouvre_et_sert_les_greffons_d_acp_malgre_un_volume_piege(chemi
     assert decouverts["acp-poste-vues"]["tab"] == {"path": "/poste", "position": "after:projets"}
     assert decouverts["acp-poste-vues"]["label"] == "Poste" and decouverts["acp-poste-vues"]["has_api"] is False
     assert decouverts["acp-poste-vues"]["source"] == "bundled"
+    # Étape P7 : la discussion réduite, avant Projets dans le groupe des greffons : traitée avant acp-projets (ordre des
+    # noms) et placée avant le Catalogue, elle précède Projets, que Projets place à son tour avant le Catalogue.
+    assert decouverts["acp-discussion"]["tab"] == {"path": "/discussion", "position": "before:catalogue"}
+    assert decouverts["acp-discussion"]["label"] == "Discussion" and decouverts["acp-discussion"]["has_api"] is False
+    assert decouverts["acp-discussion"]["source"] == "bundled"
+    assert list(decouverts).index("acp-catalogue") < list(decouverts).index("acp-discussion") < \
+        list(decouverts).index("acp-projets")
     assert "hermes-achievements" in decouverts  # livré par Hermes, mais…
     servis = set(resultat["servis"])
-    assert {"acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-poste", "kanban"} <= servis
+    assert {"acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-discussion", "acp-poste",
+            "kanban"} <= servis
     assert "hermes-achievements" not in servis  # … jamais servi (D13).
     assert resultat["theme"] == "acp"
     assert resultat["police"] == "theme"
@@ -105,6 +113,7 @@ def test_temoin_sans_managed_scope_le_piege_masquerait_les_greffons(chemins, val
     env["HERMES_MANAGED_DIR"] = str(vide)
     resultat = executer_python(SERVIS, env=env)
     servis = set(resultat["servis"])
-    assert not ({"acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-poste"} & servis), servis
+    assert not ({"acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-discussion",
+                 "acp-poste"} & servis), servis
     assert "hermes-achievements" in servis
     assert resultat["theme"] == "default" and resultat["police"] == "inter"

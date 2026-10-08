@@ -136,23 +136,23 @@ def lire_evenements(conn) -> Dict[str, int]:
                         # Étape P6 : secret de l'exécutant (raison fixe) et conflit d'intégration, nommés.
                         demande = projets.demande_de_la_carte(conn, fiche["tableau"], carte)
                         if donnees.get("reason") == T.RAISON_SECRET_EXECUTANT:
-                            a_notifier.append(("secret", T.NOTIF_SECRET, identifiant, _texte_carte(kc, carte)))
+                            a_notifier.append(("secret", T.NOTIF_SECRET, identifiant, carte, _texte_carte(kc, carte)))
                         elif demande is not None and demande["role"] == "integration":
-                            a_notifier.append(("conflit", T.NOTIF_CONFLIT, identifiant, _texte_carte(kc, carte)))
+                            a_notifier.append(("conflit", T.NOTIF_CONFLIT, identifiant, carte, _texte_carte(kc, carte)))
                         else:
-                            a_notifier.append(("bloquee", T.NOTIF_BLOQUEE, identifiant, _texte_carte(kc, carte)))
+                            a_notifier.append(("bloquee", T.NOTIF_BLOQUEE, identifiant, carte, _texte_carte(kc, carte)))
                     elif genre == "review_requested":
-                        a_notifier.append(("revue", T.NOTIF_REVUE, identifiant, _texte_carte(kc, carte)))
+                        a_notifier.append(("revue", T.NOTIF_REVUE, identifiant, carte, _texte_carte(kc, carte)))
                     elif genre == "block_loop_detected":
-                        a_notifier.append(("triage", T.NOTIF_TRIAGE, identifiant, _texte_carte(kc, carte)))
+                        a_notifier.append(("triage", T.NOTIF_TRIAGE, identifiant, carte, _texte_carte(kc, carte)))
                     elif genre == "gave_up":
-                        a_notifier.append(("abandon", T.NOTIF_ABANDON, identifiant, _texte_carte(kc, carte)))
+                        a_notifier.append(("abandon", T.NOTIF_ABANDON, identifiant, carte, _texte_carte(kc, carte)))
             if not evenements:
                 break
             with base.transaction(conn):
-                for genre, modele, identifiant, titre_carte in a_notifier:
+                for genre, modele, identifiant, carte, titre_carte in a_notifier:
                     notifications.enfiler_dans(conn, cle=f"{genre}:{fiche['tableau']}:{identifiant}", genre=genre,
-                                               projet_id=fiche["id"],
+                                               projet_id=fiche["id"], cible=f"{fiche['tableau']}/{carte}",
                                                texte_notif=notifications.texte(modele, titre=fiche["titre"],
                                                                                carte=titre_carte))
                 curseur = evenements[-1][0]
@@ -173,7 +173,8 @@ def questions_escaladees(conn) -> int:
     with base.transaction(conn):
         for q in lignes:
             n += notifications.enfiler_dans(conn, cle=f"question:{q['id']}", genre="question", projet_id=q["projet_id"],
-                                            texte_notif=notifications.texte(T.NOTIF_QUESTION, titre=q["titre"]))
+                                            cible=q["id"], texte_notif=notifications.texte(T.NOTIF_QUESTION,
+                                                                                          titre=q["titre"]))
     return n
 
 

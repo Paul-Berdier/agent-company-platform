@@ -300,6 +300,8 @@ def test_vue_des_quotas(noyau, conn):
     assert compteur["worker_id"] == machine and compteur["worker_name"] == "Poste Windows"
     assert [f["remaining_percent"] for f in compteur["windows"]] == [59, 88] and compteur["stale"] is False
     assert vue["poste-claude"]["compteurs"] == [] and vue["poste-claude"]["source_libelle"].startswith("Ligne d'état")
+    assert vue["poste-claude"]["source"] == "ligne_etat_sessions_proprietaire"  # poste Windows : la ligne d'état du PC
+    assert vue["poste-codex"]["source_libelle"] == noyau.textes.QUOTAS_SOURCE_CODEX
     assert vue["hermes"]["etat"] == "meme_enveloppe_que_codex"
     _avancer(noyau, 7201)
     vue = noyau.quotas.vue(conn)

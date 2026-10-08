@@ -316,6 +316,98 @@ def _genre(notification: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+# =========================================================================== 4 bis. étape P7 : relancer, clore
+
+
+def _mettre_les_autres_en_pause(pile: Conteneur) -> None:
+    """Isole le projet du test : le faux exécutant sert la carte prête la plus prioritaire de TOUS les projets actifs ;
+    les projets des tests précédents passent en pause (``_candidates`` ne sert que les projets actifs)."""
+    code, liste = api(pile, "GET", "/v1/projets")
+    assert code == 200
+    for projet in liste["projets"]:
+        if projet["etat"] == "actif":
+            assert api(pile, "POST", f"/v1/projets/{projet['id']}/pause", {})[0] == 200
+
+
+def _du_projet(pile: Conteneur, titre: str) -> List[str]:
+    """Notifications reçues par le faux ntfy pour CE projet (la pile est partagée : un autre projet peut notifier)."""
+    return [n["corps"] for n in notifications(pile) if f"« {titre} »" in n.get("corps", "")]
+
+
+def _politique(pile: Conteneur, efforts: List[str]) -> None:
+    code, vue = api(pile, "POST", "/v1/routage/politique", {"efforts_interdits": efforts, "paliers_admis": ["default"],
+                                                             "motif": "contrat P7"})
+    assert code == 200, vue
+
+
+def test_p7_relance_apres_un_ecart_session_neuve(pile):
+    """Cahier P7 § 3.4, correction K4, sur le chemin réel : la carte rendue (``reprendre`` : issue ``rendue``) est
+    BLOQUÉE à la réclamation suivante par le double contrôle du greffon (effort interdit entre-temps) ; le propriétaire
+    rétablit la politique puis la relance avec une consigne (``POST /v1/cartes/{t}/{c}/relancer``) ; le ``reclamer``
+    suivant la sert en SESSION NEUVE (``reprise: false``), consigne du propriétaire en tête ; aucune notification de la
+    relance."""
+    _mettre_les_autres_en_pause(pile)
+    projet = lancer_projet(pile, "Projet P7 relance")
+    carte = carte_servie(pile)
+    assert carte["tableau"] == projet["tableau"] and carte["effort"] == "low"
+    assert envoyer(pile, "reprendre", motif="redemarrage")["corps"]["etat"] == "rendue"
+    en_cours = f"{carte['tableau']}:{carte['carte']}:{carte['run_id']}"
+    _politique(pile, ["max", "ultra", "ultracode", "low"])
+    try:
+        refusee = executant(pile, "reclamer", "--voies", "poste-claude", "--attente", "5", "--en-cours", en_cours)
+        assert refusee["statut"] == 200 and refusee["corps"]["carte"] is None, refusee
+    finally:
+        _politique(pile, ["max", "ultra", "ultracode"])
+    assert lire_tache(pile, carte["tableau"], carte["carte"])["status"] == "blocked"
+    code, file = api(pile, "GET", "/v1/questions")
+    [arretee] = [b for b in file["bloquees"] if b["carte"] == carte["carte"]]
+    assert (arretee["relancable"], arretee["executant"]) == (True, True)
+    assert arretee["raison"].startswith("Refusé par ACP au moment de la réclamation")
+    assert file["discussions"]["suivies"] is True  # le compteur de Hermes est lu dans le tableau de bord
+    # Le blocage à la réclamation est notifié par la passe de l'émetteur (P6, événement « blocked ») : l'attendre
+    # d'abord, sinon il arriverait pendant la relance et serait pris pour une notification de la relance.
+    avant = attendre(lambda: (lambda c: c if any("est bloquée" in x for x in c) else None)(
+        _du_projet(pile, "Projet P7 relance")), 60, "le blocage à la réclamation n'a pas été notifié")
+    code, relance = api(pile, "POST", f"/v1/cartes/{carte['tableau']}/{carte['carte']}/relancer",
+                        {"consigne": "La politique est rétablie : reprends l'exploration depuis le début."})
+    assert code == 200 and relance == {"carte": carte["carte"], "relancee": True, "statut_apres": "ready",
+                                       "session_neuve": True, "branche_neuve": False}, relance
+    resservie = carte_servie(pile, en_cours=en_cours)
+    extrait = {k: resservie[k] for k in ("carte", "run_id", "reprise")}
+    afficher("P7 : carte relancée servie", json.dumps(extrait, ensure_ascii=False) + " ; " + resservie["consigne"][:400])
+    assert resservie["carte"] == carte["carte"] and resservie["reprise"] is False
+    assert resservie["consigne"].startswith("## Consigne du propriétaire (relance du ")
+    assert "La politique est rétablie : reprends l'exploration depuis le début." in resservie["consigne"]
+    assert resservie["consigne"].endswith(carte["consigne"])
+    time.sleep(11)  # deux passes de l'émetteur : la relance (geste du propriétaire) ne notifie rien
+    assert _du_projet(pile, "Projet P7 relance") == avant
+
+
+def test_p7_clore_pendant_la_reclamation(pile):
+    """Cahier P7 § 10, correction K11 : clore le projet pendant que l'exécutant tient sa carte ; la carte est archivée,
+    le battement suivant rend ``valide: false`` (pas un 409), l'exécutant la rend et reçoit ``deja_libre`` ; le projet
+    est ``abandonne`` (aucune synthèse) ; aucune notification."""
+    _mettre_les_autres_en_pause(pile)
+    projet = lancer_projet(pile, "Projet P7 clore")
+    carte = carte_servie(pile)
+    assert carte["tableau"] == projet["tableau"]
+    assert envoyer(pile, "battement", note="Au travail.")["corps"]["valide"] is True
+    avant = _du_projet(pile, "Projet P7 clore")
+    code, clos = api(pile, "POST", f"/v1/projets/{projet['id']}/clore", {"confirmation": True})
+    assert code == 200 and (clos["clos"], clos["etat"]) == (True, "abandonne"), clos
+    assert carte["carte"] in clos["cartes_archivees"] and clos["cartes_non_archivees"] == []
+    tache = lire_tache(pile, carte["tableau"], carte["carte"])
+    assert tache["status"] == "archived" and tache["claim_lock"] is None
+    battement = envoyer(pile, "battement", note="Toujours au travail ?")
+    assert battement["statut"] == 200 and battement["corps"]["valide"] is False, battement
+    rendue = envoyer(pile, "reprendre", motif="reclamation_perdue")
+    assert rendue["statut"] == 200 and rendue["corps"] == {"etat": "deja_libre", "deja_recu": False}
+    code, encore = api(pile, "POST", f"/v1/projets/{projet['id']}/clore", {"confirmation": True})
+    assert code == 409 and encore["detail"]["code"] == "projet_fini"
+    time.sleep(11)  # deux passes de l'émetteur : la clôture ne notifie rien pour ce projet
+    assert _du_projet(pile, "Projet P7 clore") == avant
+
+
 # =========================================================================== 5. secrets
 
 

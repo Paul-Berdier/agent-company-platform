@@ -41,7 +41,16 @@ INTEGRITE_SDK = (
 )
 GABARITS = {"LIBELLE_HERMES": "<libellé-hermes>", "LIBELLE_IDENTITE": "<libellé-identite>"}
 LIBELLE_DNS = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-VARIABLES_PRESERVEES = ("ACP_IDP_UTILISATEUR", "ACP_IDP_NOM", "ACP_IDP_EMAIL", "ACP_IDP_MOT_DE_PASSE_ARGON2")
+# Variables posées par le propriétaire dans Railway, déclarées par preserve() : identité (P2) et, depuis P7, canal de
+# notification de Hermes (Telegram ou ntfy, ACP_NOTIFICATIONS comprise : cahier P7, correction K13).
+PRESERVEES_PAR_SERVICE = {
+    "identite": ("ACP_IDP_UTILISATEUR", "ACP_IDP_NOM", "ACP_IDP_EMAIL", "ACP_IDP_MOT_DE_PASSE_ARGON2"),
+    "hermes": ("ACP_NOTIFICATIONS", "ACP_TELEGRAM_JETON", "ACP_TELEGRAM_DISCUSSION", "ACP_NTFY_SERVEUR",
+               "ACP_NTFY_SUJET", "ACP_NTFY_JETON"),
+}
+VARIABLES_PRESERVEES = tuple(v for noms in PRESERVEES_PAR_SERVICE.values() for v in noms)
+# Nom qui désigne un secret : jamais un littéral dans railway.ts (même liste que .railway/verifier.mjs).
+NOM_SECRET = re.compile(r"JETON|TOKEN|SECRET|KEY|CLE|PASSWORD|MOT_DE_PASSE|ARGON2|OAUTH", re.I)
 FICHIERS_SUIVIS = (".gitignore", "package-lock.json", "package.json", "railway.ts", "tsconfig.json", "verifier.mjs")
 
 
@@ -227,11 +236,64 @@ def test_garde_du_projet_lie(code):
     assert constante(code, "REGION") in {"europe-west4-drams3a", "europe-west4"}
 
 
+def bloc_service(code_ts: str, nom: str) -> str:
+    """Texte de la déclaration ``service("<nom>", {…})`` de railway.ts."""
+    return code_ts.split(f'service("{nom}", {{', 1)[1].split("\n  });", 1)[0]
+
+
 def test_variables_du_proprietaire_en_preserve(code):
     preservees = re.findall(r"^\s*([A-Z][A-Z0-9_]*): preserve\(\),", code, flags=re.M)
     assert sorted(preservees) == sorted(VARIABLES_PRESERVEES)
     for nom in VARIABLES_PRESERVEES:
         assert len(re.findall(rf"\b{nom}\b", code)) == 1, f"{nom} n'apparaît qu'en preserve()."
+    # Chacune dans SON service : l'identité dans « identite », le canal de notification dans « hermes ».
+    for service, noms in PRESERVEES_PAR_SERVICE.items():
+        bloc = bloc_service(code, service)
+        assert sorted(re.findall(r"^\s*([A-Z][A-Z0-9_]*): preserve\(\),", bloc, flags=re.M)) == sorted(noms), service
+
+
+def test_canal_de_notification_memes_noms_que_l_image(code):
+    """Étape P7 (cahier P7 § 6.2, correction K13) : railway.ts déclare EXACTEMENT les variables du canal que lisent
+    le greffon (``notifications.VARIABLES``, retirées de l'environnement par ``register()``) et la garde de
+    démarrage de l'image (``erreurs_notifications``) ; un nom manquant ici serait supprimé au plan suivant une pose
+    dans Railway, un nom en trop ne serait lu par personne."""
+    declarees = sorted(PRESERVEES_PAR_SERVICE["hermes"])
+    greffon = lire(RACINE / "hermes" / "plugins" / "acp-poste" / "noyau" / "notifications.py")
+    trouve = re.search(r"^VARIABLES = \(([^)]*)\)", greffon, flags=re.M)
+    assert trouve, "notifications.VARIABLES introuvable"
+    assert sorted(re.findall(r'"([A-Z_]+)"', trouve.group(1))) == declarees
+    paquet = lire(RACINE / "hermes" / "plugins" / "acp-poste" / "__init__.py")
+    trouve = re.search(r"^VARIABLES_NOTIFICATION = \(([^)]*)\)", paquet, flags=re.M)
+    assert trouve, "VARIABLES_NOTIFICATION introuvable dans le greffon"
+    assert sorted(re.findall(r'"([A-Z_]+)"', trouve.group(1))) == declarees
+    demarrage = lire(RACINE / "hermes" / "image" / "acp_demarrage.py")
+    fonction = demarrage.split("def erreurs_notifications(", 1)[1].split("\ndef ", 1)[0]
+    assert sorted(set(re.findall(r'"(ACP_[A-Z_]+)"', fonction))) == declarees
+    # Le canal n'est jamais imposé par un littéral (le démarrage refuserait avant la pose du jeton).
+    assert not re.search(r"ACP_NOTIFICATIONS\s*:\s*[\"'`]", code)
+
+
+def test_aucun_secret_en_litteral(code):
+    """Toute variable dont le nom désigne un secret est preserve() (identité, jetons du canal), jamais un littéral ;
+    l'exécutant n'en a aucune (D92, test suivant)."""
+    for nom, valeur in re.findall(r"^\s*([A-Z][A-Z0-9_]*):\s*(.+?),?\s*$", code, flags=re.M):
+        if NOM_SECRET.search(nom):
+            assert valeur.startswith("preserve()"), f"{nom} : « {valeur} » au lieu de preserve()."
+
+
+def test_verificateur_et_ses_temoins_p7():
+    """Le vérificateur évalue la règle « nom de secret ⇒ preserve() » dans tous les services et s'éprouve lui-même
+    sur trois copies altérées (jeton en clair, canal littéral, variable omise) : son effet réel est mesuré en CI
+    (image.yml) et en local (`npm run --prefix .railway verifier`)."""
+    verificateur = lire(IAC / "verifier.mjs")
+    assert "const NOM_SECRET = /JETON|TOKEN|SECRET|KEY|CLE|PASSWORD|MOT_DE_PASSE|ARGON2|OAUTH/i;" in verificateur
+    assert "if (NOM_SECRET.test(cle)) {" in verificateur
+    for nom in PRESERVEES_PAR_SERVICE["hermes"]:
+        assert f'      "{nom}",' in verificateur, nom
+    for titre in ('"jeton Telegram écrit en clair"', '"canal imposé par un littéral"',
+                  '"variable du canal omise (le plan la supprimerait)"'):
+        assert verificateur.count(titre) == 1, titre
+    assert "await attendreEcart(" in verificateur
 
 
 def test_libelles_gabarit_detectes(code):

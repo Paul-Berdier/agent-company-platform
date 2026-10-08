@@ -53,6 +53,9 @@ inline const QString kInconnu = QStringLiteral("Inconnu");
 [[nodiscard]] Libelle statutCarte(const QJsonValue &statut);
 [[nodiscard]] Libelle etatPoste(const QJsonValue &etat);
 [[nodiscard]] Libelle etatQuestion(const QJsonValue &etat);
+//! Relecture finale de P7 : `chez` (règle unique du greffon) ; une question « ouverte » qui attend le propriétaire
+//! (carte « répondre » jamais créée) se dit « Votre réponse est attendue », jamais « Hermes cherche la réponse ».
+[[nodiscard]] Libelle etatQuestion(const QJsonValue &etat, const QJsonValue &chez);
 // Étape P5 (apps/interface/src/poste/libelles.ts) : connexions du poste, badges des listes
 // relevées, états de la table de routage et des quotas.
 [[nodiscard]] Libelle connexionCodex(const QJsonValue &etat);

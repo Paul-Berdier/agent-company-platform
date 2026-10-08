@@ -111,8 +111,13 @@ def test_detail_pause_reprise(client):
 
 
 def test_questions_triage_et_poste(client, noyau):
-    assert client.get(f"{P}/v1/questions").json() == {"questions": [], "triage": [], "bloquees": [],
-                                                       "tableaux_illisibles": [], "revues": []}  # revues : P6
+    # revues : P6 ; discussions (lecture seule) et compteurs : P7. Ce processus de test n'a aucune requête ouverte.
+    assert client.get(f"{P}/v1/questions").json() == {
+        "questions": [], "triage": [], "bloquees": [], "tableaux_illisibles": [], "revues": [],
+        "discussions": {"suivies": True, "requetes_ouvertes": 0, "message": None,
+                        "limite": "Les questions posées dans la discussion en terminal (/chat) ne sont visibles que "
+                                  "dans cette discussion."},
+        "compteurs": {"questions": 0, "decisions": 0, "revues": 0, "arretees": 0, "chez_hermes": 0, "a_traiter": 0}}
     reponse = client.post(f"{P}/v1/questions/q_inconnue/reponse", json={"reponse": "oui"})
     assert reponse.status_code == 404
     projet = _lancer(client).json()["projet"]

@@ -25,7 +25,7 @@ MACHINE_CONFORME = {"fournisseur": "enregistre", "chemins_a_jeton": {}, "fournis
                     "base": "ok", "machines": {"a_confirmer": 0, "actif": 0, "revoque": 0}, "codes_utilisables": 0,
                     "dernier_inventaire": None}
 INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0", "acp-projets": "0.11.0",
-                          "acp-poste-vues": "0.11.0"},
+                          "acp-poste-vues": "0.11.0", "acp-discussion": "0.11.0"},
              "sdk_attendu": "1.x"}
 
 
@@ -243,7 +243,8 @@ def test_meta_bloc_projets_d_une_base_neuve(tmp_path):
     alerte des projets (la base neuve n'invente rien : ni passe, ni canal)."""
     donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
     projets = donnees["projets"]
-    assert projets["base"] == "ok" and projets["schema"] == "3"
+    assert projets["base"] == "ok" and projets["schema"] == "4"
+    assert donnees["accueil"] is True  # étape P7 : la route agrégée GET /v1/accueil est annoncée
     assert (projets["projets_actifs"], projets["releve_factice_present"], projets["pause_generale"]) == (0, False, None)
     assert projets["emetteur"] == {"derniere_passe": None, "processus": None, "derniers_ticks": {}, "canal": None,
                                    "configure": None, "en_attente": 0, "echecs": 0, "envoyees": 0, "desactivees": 0,
@@ -295,3 +296,25 @@ def test_meta_base_des_projets_illisible(tmp_path, monkeypatch):
     assert donnees["projets"] == {"base": "illisible", "erreur": "OSError"}
     assert donnees["alertes"] == ["Base du greffon acp-poste illisible (OSError) : projets, questions et "
                                   "notifications inconnus."]
+    # Étape P7 : le flux reste annoncé, mais son battement et sa durée sont inconnus (jamais une valeur supposée).
+    assert donnees["flux"] == {"chemin": "/api/plugins/acp-poste/v1/flux", "version": 1, "sujets": list(SUJETS_FLUX),
+                               "battement_s": None, "duree_max_s": None}
+
+
+# ======================================================================= étape P7
+
+SUJETS_FLUX = ("projets", "questions", "poste", "quotas", "notifications", "pause", "discussions")
+
+
+def test_meta_annonce_le_flux(tmp_path):
+    """Clé ``flux`` de /v1/meta (cahier P7 § 5.2, correction K8) : le nom attendu par le desktop P8, le chemin, la
+    version, les sept sujets et les réglages tels que la base les porte (bornés)."""
+    donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
+    assert donnees["flux"] == {"chemin": "/api/plugins/acp-poste/v1/flux", "version": 1, "sujets": list(SUJETS_FLUX),
+                               "battement_s": 15, "duree_max_s": 600}
+    base = meta.sous_module_noyau("base")
+    with base.connexion() as conn:
+        base.poser_reglage(conn, "flux_battement_s", 1, "test")
+        base.poser_reglage(conn, "flux_duree_max_s", 99999, "test")
+    donnees = meta.construire_meta(_sources(tmp_path, ETAT_A_JOUR))
+    assert (donnees["flux"]["battement_s"], donnees["flux"]["duree_max_s"]) == (1, 840)

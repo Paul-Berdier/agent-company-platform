@@ -2,6 +2,8 @@
 // /dashboard/plugin_api.py). Tout champ peut manquer ou valoir null : la page affiche alors « Inconnu », jamais
 // une valeur inventée.
 
+import type { DepotMesure } from "../projets/types";
+
 export interface MachineVue {
   id?: string;
   nom?: string;
@@ -78,7 +80,8 @@ export interface ContenuInventaire {
     hote?: string;
     noyau?: string | null;
   };
-  depots?: Array<{ alias?: string }>;
+  /** Étape P7 : la mesure de visibilité, si l'exécutant l'a publiée (jamais devinée ici). */
+  depots?: Array<{ alias?: string; visibilite?: string | null; lecture?: string | null; verifie_le?: string | null }>;
   bac_a_sable_codex?: BacASable;
   connexions?: { codex?: string; plan_codex?: string | null; claude?: string };
   versions?: Record<string, VersionCli>;
@@ -170,6 +173,8 @@ export interface VueExecutant {
   carte_en_cours?: CarteEnMain | null;
   branches_pretes?: BranchePrete[];
   revues?: number;
+  /** Étape P7 : visibilité mesurée de chaque dépôt et voies fermées pour lui. */
+  depots?: DepotMesure[];
 }
 
 export interface ReponsePostePage {

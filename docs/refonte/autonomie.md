@@ -3,7 +3,8 @@
 > Copie de référence du plan d'autonomie **retenu par le propriétaire le 25 septembre 2026** pour
 > remplacer les phases P4 à P8 du [plan de la refonte](plan.md) (voir son § 1). Recopiée dans le dépôt
 > le même jour, **telle quelle** : le texte ci-dessous est celui du plan, sans ajout ni retouche ;
-> seule cette note et l'annexe finale, séparée, sont propres au dépôt.
+> seules cette note et les annexes finales, séparées (état du dépôt, P6 transposée à Railway, ce que P7
+> change), sont propres au dépôt.
 >
 > Les références `fichier:ligne` désignent le clone de Hermes Agent 0.21.5 (`f97608f`), la source
 > partielle de Codex 0.156.1 et, pour « le dépôt », le worktree `refonte-hermes-p2` **au moment de la
@@ -711,3 +712,26 @@ d'exécution sur Hermes, aucune signature par tâche, aucun push). État livré,
 Corrections du plan, portées par le cahier P6 : `codex sandbox linux` n'existe pas en 0.156.1 (`codex sandbox -P …
 -C … -- argv`) ; un non-enrôlement ou une révocation ne fait **pas** sortir l'exécutant (sinon plus de `railway ssh`) ;
 les jetons Claude et GitHub vont sur le volume, pas en variable scellée (D92).
+
+## Annexe : ce que P7 change pour l'autonomie (8 octobre 2026)
+
+Constat factuel, propre au dépôt ; il ne modifie pas le plan ci-dessus. Décisions appliquées : D93 à D121
+([plan.md](plan.md), D117 à D121 : relecture finale du 8 octobre) ; détail : [questions.md](questions.md), [executant.md](executant.md) § 16, gestes du
+propriétaire : [railway.md](railway.md) § 14. **Rien n'est déployé** : tout est prouvé en local et en CI (modèle
+factice, faux exécutant, faux ntfy) ; les preuves réelles du § 8 (P7) sont **sur Railway seulement**, à venir.
+
+Ce tableau décrit l'état **réuni** de P7 (parties A à F, fusion `e2d210b` du 8 octobre 2026).
+
+| Livrable du § 8 (P7) | Ce que P7 livre | Ce qui change pour l'autonomie |
+|---|---|---|
+| File Questions (questions du greffon, triage, `open_requests`) | une page, cinq sections : questions, décisions, revues (P6), cartes arrêtées, discussions en attente ; compteur « À traiter par vous », règle unique « chez Hermes » | tout ce qui attend le propriétaire est au même endroit, au même état, au téléphone et au bureau ; une carte arrêtée se **relance** avec une consigne, sans créer de carte ni toucher aux plafonds ; un projet se **clôt** sans passer pour réussi |
+| Carte « répondre » ; réglage par projet | « Qui répond » modifiable à tout moment, pour les questions suivantes ; la skill escalade aussi comptes, jetons, nouveau dépôt, réseau, suppression de branche | Hermes répond seul à ce que les décisions du projet couvrent ; le reste vient au propriétaire ; la borne réelle reste l'absence d'outil (lecture seule, aucun push) |
+| Émetteur complet ; bilan quotidien en cron | liens profonds **en requête**, gardés à travers la connexion ; canal Telegram ou ntfy déclaré par `preserve()` ; bilan `no_agent` créé par le propriétaire, sans modèle | le téléphone n'a besoin que de la notification : son lien ouvre la question elle-même, même après une session expirée ; l'agent ne peut toujours créer aucun cron |
+| Continuité téléphone ↔ PC | flux d'invalidation (SSE) sur toutes les pages, repli sur le sondage ; Accueil agrégé identique partout ; discussion réduite sur `/api/ws` | une réponse donnée au bureau se voit au téléphone sans rechargement ; une question de discussion posée au téléphone se reprend au bureau ; tout l'état vit sur Railway, un redémarrage de Hermes ne perd pas une question de projet |
+| Discussion mobile réduite | page `acp-discussion` : liste, reprise, envoi, `clarify`, interruption ; liste blanche des méthodes ; `approval`, `sudo`, `secret` refusés | aucune approbation ni aucun secret ne transite par ACP ; une `clarify` vit une heure au plus et meurt au redéploiement : ce qui doit attendre passe par un projet |
+| Dépôts réels ajoutés un par un | procédure (choix et jeton par le propriétaire, PR de politique après son « oui » écrit) ; garde « dépôt privé » **mesurée** par l'exécutant et revérifiée par le greffon ; relance après un secret sur une branche neuve (`e85c7e3`, `1f2574c`) ; outil de preuve « accord requis » | Codex ne s'ouvre que sur un dépôt **prouvé** privé (D83), Claude reste admis sur un dépôt public (D84) ; un dépôt mal déclaré est refusé, sans question au propriétaire ; **aucun dépôt réel ajouté à ce jour** |
+
+Écarts au plan, assumés : les questions d'une discussion en terminal (`/chat`) ne sont pas dans la file (elles vivent
+dans le processus du PTY, limite de Hermes) ; Telegram n'est pas un canal de discussion avec Hermes en P7 (D105) ;
+aucune notification pour une discussion en attente (D104) ; la station Qt (P8) lit les mêmes routes mais n'ouvre pas
+encore le flux ni les gestes de P7.

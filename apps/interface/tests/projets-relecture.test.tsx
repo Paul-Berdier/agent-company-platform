@@ -137,24 +137,33 @@ describe("relecture de P4 : questions et décisions", () => {
   });
 
   it("le message après « Répondre » suit la réponse de l'API (reprise, reprise différée, carte non relancée)", async () => {
-    const cas: Array<[Record<string, unknown>, string]> = [
-      [{ carte_debloquee: true, reprise_differee: false }, "Réponse envoyée : la carte reprend."],
-      [{ carte_debloquee: false, reprise_differee: true }, "Réponse enregistrée : la carte reprendra à la reprise du projet."],
-      [{ carte_debloquee: false, reprise_differee: false }, "Réponse enregistrée ; la carte n'a pas été relancée (voir le kanban de Hermes)."],
+    // Relecture finale de P7 : comme le serveur réel, la relecture qui suit la réponse ne sert plus la question
+    // (questions.lister ne garde que « ouverte » et « escaladee ») ; le message, annoncé par la section, reste.
+    const cas: Array<[Record<string, unknown>, string, string]> = [
+      [{ carte_debloquee: true, reprise_differee: false }, "Réponse envoyée : la carte reprend.", ".acp-succes"],
+      [{ carte_debloquee: false, reprise_differee: true }, "Réponse enregistrée : la carte reprendra à la reprise du projet.",
+       ".acp-succes"],
+      [{ carte_debloquee: false, reprise_differee: false },
+       "Réponse enregistrée ; la carte n'a pas été relancée (voir le kanban de Hermes).", ".acp-alerte-texte"],
     ];
-    for (const [resultat, attendu] of cas) {
+    for (const [resultat, attendu, classe] of cas) {
       aller("?vue=questions");
-      installerSdk({
+      const reponses: Record<string, Reponse> = {
         [ROUTE_PROJETS]: LISTE,
         [ROUTE_QUESTIONS]: QUESTIONS,
         [`POST ${routeReponse("q_b627a3c245ec")}`]: { question: "q_b627a3c245ec", etat: "repondue", ...resultat },
-      });
+      };
+      installerSdk(reponses);
       const r = await rendre(<Projets />);
       await attendre();
       await saisir(r.racine.querySelector("#acp-reponse-q_b627a3c245ec"), "Python 3.12.");
+      reponses[ROUTE_QUESTIONS] = { ...QUESTIONS, questions: [] };
       await soumettre(r.racine.querySelector("#acp-reponse-q_b627a3c245ec")?.closest("form"));
-      const succes = [...r.racine.querySelectorAll(".acp-succes")].map((e) => texteDe(e));
-      expect(succes).toEqual([attendu]);
+      expect(r.racine.querySelector("#acp-reponse-q_b627a3c245ec")).toBeNull();
+      const section = r.racine.querySelector("#acp-questions-ouvertes")?.parentElement;
+      const messages = [...(section?.querySelectorAll(".acp-succes, .acp-alerte-texte") ?? [])].map((e) => texteDe(e));
+      expect(messages).toEqual([attendu]);
+      expect(texteDe(section?.querySelector(classe))).toBe(attendu);
       r.demonter();
     }
   });
@@ -175,8 +184,8 @@ describe("relecture de P4 : questions et décisions", () => {
     const installation = installerSdk(reponses);
     const r = await rendre(<Projets />);
     await attendre();
-    // 1 question + 1 décision attendue.
-    expect(r.racine.querySelector('.acp-onglet[aria-current="page"]')?.textContent).toBe("Questions2");
+    // Étape P7 : « À traiter par vous » = 1 question + 1 décision + 1 carte arrêtée (compteurs de /v1/questions).
+    expect(r.racine.querySelector('.acp-onglet[aria-current="page"]')?.textContent).toBe("Questions3");
     const triage = r.racine.querySelector("#acp-questions-triage")?.parentElement;
     expect(texteDe(triage)).toContain("« Prolonger » accorde un tour de plus : Hermes planifie la suite avec votre consigne.");
     expect(texteDe(triage)).toContain("3 tours planifiés");

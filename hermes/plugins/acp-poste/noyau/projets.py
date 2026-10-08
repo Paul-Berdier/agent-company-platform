@@ -296,8 +296,11 @@ def etat(conn, fiche: Dict[str, Any], *, avec_journal: bool = False) -> Dict[str
     tours = [{"tour": t["tour"], "resume": ka.masquer(t["resume"])[:2000], "decisions": [
         ka.masquer(x) for x in json.loads(t["decisions"])]} for t in conn.execute(
         "SELECT * FROM tours WHERE projet_id = ? ORDER BY tour", (fiche["id"],))]
+    from . import questions as file_questions  # import différé : questions importe ce module
+
+    # ``chez`` : RÈGLE UNIQUE de la file (questions.chez), servie aussi ici (relecture finale de P7, constat produit-11).
     questions = [{"id": q["id"], "carte": q["carte"], "etat": q["etat"], "texte": ka.masquer(q["texte"])[:1000],
-                  "carte_repondre": q["carte_repondre"]}
+                  "carte_repondre": q["carte_repondre"], "chez": file_questions.chez(dict(q))}
                  for q in conn.execute("SELECT * FROM questions WHERE projet_id = ? AND etat IN ('ouverte', 'escaladee') "
                                        "ORDER BY cree_le", (fiche["id"],))]
     faites = sum(1 for c in liste_cartes if c["statut"] == "done")
@@ -437,6 +440,108 @@ def reprendre(conn, identifiant: str, *, auteur: str) -> Dict[str, Any]:
             for carte in reveillees:
                 base.journaliser(conn, auteur, "reprise_carte", projet_id=fiche["id"], cible=carte)
     return {"projet": resume_projet(conn, projet(conn, fiche["id"])), "cartes_reveillees": reveillees}
+
+
+# ------------------------------------------------------------------ « qui répond » et clôture (étape P7)
+
+
+def changer_reponses(conn, identifiant: str, *, reponses: Any, auteur: str) -> Dict[str, Any]:
+    """« Qui répond » modifiable à tout moment (cahier P7 § 4.2, décision P7-3) : ``hermes_d_abord`` ou
+    ``proprietaire``. Effet sur les questions SUIVANTES seulement : les questions ouvertes gardent leur traitement (le
+    propriétaire peut toujours répondre lui-même à une question ouverte ; la carte « répondre » qui arriverait après lui
+    voit ``question_fermee``). Sans objet pour un projet sans dépôt (D42 : seules les cartes de l'exécutant posent des
+    questions). Mise à jour CONDITIONNELLE (un projet qui finit entre-temps n'est pas modifié). Journal
+    ``reglage_reponses``."""
+    if reponses not in POLITIQUES_REPONSE:
+        raise refus("reponses", T.REPONSES.format(x=str(reponses)[:40]))
+    fiche = exiger_projet(conn, identifiant)
+    if fiche["etat"] not in ETATS_OUVERTS:
+        raise refus("projet_fini", T.PROJET_FINI.format(titre=fiche["titre"],
+                                                         etat=T.ETATS_LISIBLES.get(fiche["etat"], fiche["etat"])))
+    if not fiche["depot_alias"]:
+        raise refus("reponses_sans_objet", T.REPONSES_SANS_OBJET)
+    with base.transaction(conn):
+        change = conn.execute("UPDATE projets SET reponses = ?, maj_le = ? WHERE id = ? AND etat IN ('creation', "
+                              "'actif', 'en_pause')", (reponses, base.maintenant(), fiche["id"])).rowcount == 1
+        if not change:
+            etat = conn.execute("SELECT etat FROM projets WHERE id = ?", (fiche["id"],)).fetchone()[0]
+            raise refus("projet_fini", T.PROJET_FINI.format(titre=fiche["titre"], etat=T.ETATS_LISIBLES.get(etat, etat)))
+        ouvertes = conn.execute("SELECT COUNT(*) FROM questions WHERE projet_id = ? AND etat IN ('ouverte', "
+                                "'escaladee')", (fiche["id"],)).fetchone()[0]
+        base.journaliser(conn, auteur, "reglage_reponses", projet_id=fiche["id"],
+                         detail={"avant": fiche["reponses"], "apres": reponses, "questions_ouvertes": ouvertes})
+    return {"projet": resume_projet(conn, projet(conn, fiche["id"])), "avant": fiche["reponses"], "apres": reponses,
+            "questions_ouvertes_inchangees": ouvertes}
+
+
+def synthese_du_tour_faite(conn, fiche: Dict[str, Any]) -> bool:
+    """La synthèse du tour COURANT est-elle faite (carte ``done``) ? Faux pour un projet au tour 0."""
+    if int(fiche["tour"] or 0) < 1:
+        return False
+    ligne = conn.execute("SELECT carte FROM demandes WHERE projet_id = ? AND tour = ? AND role = 'synthese' AND carte "
+                         "IS NOT NULL", (fiche["id"], fiche["tour"])).fetchone()
+    if ligne is None:
+        return False
+    with ka.connexion(fiche["tableau"]) as kc:
+        tache = ka.get_task(kc, ligne["carte"])
+    return tache is not None and tache.status == "done"
+
+
+def clore(conn, identifiant: str, *, confirmation: Any, auteur: str) -> Dict[str, Any]:
+    """« Clore le projet » (cahier P7 § 10, décision P7-9 ; correction K11), projet actif ou en pause seulement :
+
+    1. état ``termine`` si la synthèse du tour courant est faite, sinon ``abandonne`` (clore en pleine exécution n'est
+       pas un succès) ; mise à jour CONDITIONNELLE ``etat IN ('actif','en_pause')``, faite EN PREMIER : si la passe de
+       l'émetteur termine le projet au même instant, une seule des deux gagne, et le refus le dit (rien n'est fait) ;
+    2. les questions ouvertes ou escaladées du projet passent ``annulee`` ; ses attentes de quota sont supprimées ;
+    3. toute carte du projet hors ``done``/``archived`` est archivée (``archive_task`` : un worker Hermes en cours est
+       arrêté par Hermes ; une carte réclamée par l'exécutant perd sa réclamation, son battement suivant rend
+       ``valide: false`` et l'exécutant la rend : ``deja_libre``) ; une carte qui refuse l'archivage est rendue dans
+       ``cartes_non_archivees``, jamais tue ;
+    4. aucune notification (geste du propriétaire). Les branches déjà rapportées restent sur l'exécutant jusqu'à leur
+       purge : la réponse les liste. Journal ``cloture``."""
+    if confirmation is not True:
+        raise refus("confirmation", T.CONFIRMATION_CLORE)
+    fiche = exiger_projet(conn, identifiant)
+    if fiche["etat"] not in ("actif", "en_pause"):
+        raise refus("projet_fini", T.PROJET_FINI.format(titre=fiche["titre"],
+                                                         etat=T.ETATS_LISIBLES.get(fiche["etat"], fiche["etat"])))
+    etat_final = "termine" if synthese_du_tour_faite(conn, fiche) else "abandonne"
+    from . import execution  # import différé : execution importe ce module
+
+    archivees: List[str] = []
+    non_archivees: List[str] = []
+    # Sous le verrou de l'exécution : aucune carte n'est servie à l'exécutant pendant la clôture. L'état passe D'ABORD
+    # (conditionnel) : le projet n'étant plus actif, ni l'exécutant (``_candidates``), ni la passe de l'émetteur
+    # (fin de projet, cartes de décision) n'y touchent plus ; si la passe l'a terminé au même instant, rien n'est fait.
+    with execution.verrou():
+        maintenant = base.maintenant()
+        with base.transaction(conn):
+            clos = conn.execute("UPDATE projets SET etat = ?, termine_le = ?, maj_le = ? WHERE id = ? AND etat IN "
+                                "('actif', 'en_pause')", (etat_final, maintenant, maintenant, fiche["id"])).rowcount
+            if clos != 1:
+                etat_lu = conn.execute("SELECT etat FROM projets WHERE id = ?", (fiche["id"],)).fetchone()[0]
+                raise refus("projet_fini", T.CLORE_COURSE.format(titre=fiche["titre"],
+                                                                  etat=T.ETATS_LISIBLES.get(etat_lu, etat_lu)))
+            annulees = conn.execute("UPDATE questions SET etat = 'annulee', maj_le = ? WHERE projet_id = ? AND etat IN "
+                                    "('ouverte', 'escaladee')", (maintenant, fiche["id"])).rowcount
+            conn.execute("DELETE FROM attentes WHERE tableau = ?", (fiche["tableau"],))
+        try:
+            with ka.connexion(fiche["tableau"]) as kc:
+                for tache in ka.list_tasks(kc):
+                    if tache.status in ("done", "archived"):
+                        continue
+                    (archivees if ka.archive_task(kc, tache.id) else non_archivees).append(tache.id)
+        finally:
+            with base.transaction(conn):
+                base.journaliser(conn, auteur, "cloture", projet_id=fiche["id"],
+                                 detail={"etat": etat_final, "cartes_archivees": len(archivees),
+                                         "cartes_non_archivees": non_archivees[:20], "questions_annulees": annulees})
+    branches = [l[0] for l in conn.execute("SELECT DISTINCT branche FROM demandes WHERE projet_id = ? AND branche IS "
+                                           "NOT NULL ORDER BY branche", (fiche["id"],))]
+    return {"projet": resume_projet(conn, projet(conn, fiche["id"])), "clos": True, "etat": etat_final,
+            "cartes_archivees": archivees, "cartes_non_archivees": non_archivees,
+            "questions_annulees": annulees, "branches_rapportees": branches}
 
 
 def replanifier_les_projets_en_pause(conn) -> List[str]:

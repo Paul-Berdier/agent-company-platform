@@ -7,7 +7,12 @@ import { installer } from "../src/installer";
 
 describe("verifierSdk", () => {
   it("accepte le SDK 1.1.0 de Hermes 0.21.5", () => {
-    expect(verifierSdk({ sdkVersion: "1.1.0", React, fetchJSON })).toEqual({ ok: true, version: "1.1.0" });
+    expect(verifierSdk({ sdkVersion: "1.1.0", React, fetchJSON })).toEqual({ ok: true, version: "1.1.0",
+                                                                            tempsReel: false });
+    // Étape P7 : authedFetch (contrat 1.1) permet le flux d'invalidation ; le verdict l'annonce.
+    const authedFetch = (async () => new Response("")) as SdkHermes["authedFetch"];
+    expect(verifierSdk({ sdkVersion: "1.1.0", React, fetchJSON, authedFetch })).toEqual({
+      ok: true, version: "1.1.0", tempsReel: true });
     expect(SDK_ATTENDU).toBe("1.x");
   });
 
@@ -40,6 +45,7 @@ describe("installer", () => {
     expect(installer({ nom: "acp-essai", page: Page, emplacements: [["header-left", Emplacement]] })).toEqual({
       ok: true,
       version: "1.1.0",
+      tempsReel: false,
     });
     expect(r.register).toHaveBeenCalledWith("acp-essai", Page);
     // Signature réelle de Hermes : (greffon, emplacement, composant).

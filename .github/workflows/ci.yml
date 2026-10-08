@@ -80,8 +80,8 @@ jobs:
         run: npm run test:engine
 
   interface:
-    # Étapes P3 à P5 : greffons acp-interface, acp-catalogue, acp-projets et acp-poste-vues du tableau de bord de
-    # Hermes. Sources dans apps/interface (hors des workspaces npm de la racine), bundles COMMITTÉS
+    # Étapes P3 à P7 : greffons acp-interface, acp-catalogue, acp-projets, acp-poste-vues et acp-discussion du tableau
+    # de bord de Hermes. Sources dans apps/interface (hors des workspaces npm de la racine), bundles COMMITTÉS
     # sous hermes/plugins (l'image les copie tels quels) : ils doivent correspondre exactement aux
     # sources.
     name: Interface ACP — greffons du tableau de bord (Node 22)
@@ -103,9 +103,9 @@ jobs:
           set -euo pipefail
           npm run build --prefix apps/interface
           git diff --exit-code -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue \
-            hermes/plugins/acp-projets hermes/plugins/acp-poste-vues
+            hermes/plugins/acp-projets hermes/plugins/acp-poste-vues hermes/plugins/acp-discussion
           reste="$(git status --porcelain -- hermes/plugins/acp-interface hermes/plugins/acp-catalogue \
-            hermes/plugins/acp-projets hermes/plugins/acp-poste-vues)"
+            hermes/plugins/acp-projets hermes/plugins/acp-poste-vues hermes/plugins/acp-discussion)"
           if [ -n "$reste" ]; then
             echo "Fichiers de greffon non committés : ${reste}" >&2
             exit 1

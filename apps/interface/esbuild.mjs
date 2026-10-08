@@ -21,6 +21,8 @@ export const GREFFONS = [
   { nom: "acp-catalogue", entree: "src/catalogue/index.ts" },
   { nom: "acp-projets", entree: "src/projets/index.ts" },
   { nom: "acp-poste-vues", entree: "src/poste/index.ts" },
+  // Étape P7 : discussion réduite (cahier P7 § 9).
+  { nom: "acp-discussion", entree: "src/discussion/index.ts" },
 ];
 
 function bandeau(nom, genre) {

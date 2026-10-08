@@ -100,6 +100,22 @@ def test_clone_nu_puis_fetch(distant, depots):
     assert depots.sha(nu, "refs/remotes/origin/main") == _git(distant, "rev-parse", "HEAD") != premiere
 
 
+def test_clone_d_une_autre_url_jamais_recupere(distant, depots, tmp_path):
+    """Étape P7 (relecture de la partie E) : la visibilité est mesurée sur l'URL de la politique ; un alias réaffecté
+    à une autre URL ne récupère jamais le clone nu de l'ancienne (échec fermé, message sans URL)."""
+    depots.recuperer(_depot(distant))
+    autre = tmp_path / "autre"
+    autre.mkdir()
+    _git(autre, "init", "-q")
+    (autre / "x.txt").write_text("x\n", encoding="utf-8")
+    _git(autre, "add", "-A")
+    _git(autre, "commit", "-q", "-m", "autre")
+    with pytest.raises(ErreurDepot, match="vient d'une autre URL que la politique") as exc:
+        depots.recuperer(_depot(autre))
+    assert str(autre) not in str(exc.value) and str(distant) not in str(exc.value)
+    depots.recuperer(_depot(distant))  # la même URL reste récupérée
+
+
 def test_seul_https_en_production(distant, tmp_path):
     production = Depots(racine_depots=tmp_path / "d", racine_espaces=tmp_path / "e", racine_bundles=tmp_path / "b",
                         droits=False)
@@ -251,6 +267,28 @@ def test_quarantaine(distant, depots):
     assert depots.quarantaine("jetable", "t_abcd", "hermes/t_abcd") == "quarantaine/t_abcd"
     assert not depots.branche_existe("jetable", "hermes/t_abcd")
     assert depots.branche_existe("jetable", "quarantaine/t_abcd")
+
+
+def test_worktree_en_quarantaine_jamais_repris(distant, depots):
+    """Étape P7 (K25) : le worktree d'une carte mise en quarantaine est posé sur ``quarantaine/<carte>`` ; à la carte
+    suivante, il n'est PAS repris : retiré, puis recréé depuis le départ sur une branche neuve, sans le commit fautif."""
+    depot = _depot(distant)
+    depots.recuperer(depot)
+    chemin = depots.worktree(depot, "t_abcd", "hermes/t_abcd", "origin/main")
+    (chemin / "fuite.txt").write_text("secret\n", encoding="utf-8")
+    fautif = depots.committer("jetable", "t_abcd", "implementation(t_abcd): fuite")
+    depots.quarantaine("jetable", "t_abcd", "hermes/t_abcd")
+    assert depots.branche_du_worktree("jetable", "t_abcd") == "quarantaine/t_abcd"
+    chemin = depots.worktree(depot, "t_abcd", "hermes/t_abcd", "origin/main")
+    assert depots.branche_du_worktree("jetable", "t_abcd") == "hermes/t_abcd"
+    assert not (chemin / "fuite.txt").exists()
+    nu = depots.nu("jetable")
+    assert depots.tete("jetable", "t_abcd") == depots.sha(nu, "refs/remotes/origin/main")
+    assert depots.sha(nu, "refs/heads/quarantaine/t_abcd") == fautif
+    # Un worktree posé sur SA branche est gardé tel quel (reprise ordinaire).
+    (chemin / "en_cours.txt").write_text("x\n", encoding="utf-8")
+    assert depots.worktree(depot, "t_abcd", "hermes/t_abcd", "origin/main") == chemin
+    assert (chemin / "en_cours.txt").exists()
 
 
 # ------------------------------------------------------------------ intégration et bundle (§ 6.7, § 12.2)

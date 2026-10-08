@@ -96,6 +96,70 @@ Toute route d'écriture exige `Content-Type: application/json` (415) et refuse u
 `GET /v1/meta` ajoute le bloc `projets` : base, schéma, projets actifs, relevé factice présent, pause
 générale, émetteur (dernière passe, processus, cartes du poste en attente par tableau, canal, file).
 
+## 4 ter. Flux d'invalidation `GET /v1/flux` (étape P7, cahier P7 § 5)
+
+Le flux **signale** qu'un sujet a changé ; la page relit alors la route REST du sujet. Il ne porte **aucune donnée
+métier** : un client qui rate une trame retombe sur l'état exact à la relecture suivante. Même porte
+d'authentification que les autres routes de lecture (401 sans session) ; la session n'est contrôlée qu'à
+l'ouverture, un flux ouvert survit donc au plus `flux_duree_max_s` à son expiration (il ne porte que des noms de
+sujets). Annoncé par `GET /v1/meta`, clé `flux` : `{chemin, version: 1, sujets, battement_s, duree_max_s}`
+(battement et durée `null` si la base est illisible).
+
+- Réponse `text/event-stream; charset=utf-8`, `Cache-Control: no-store`, `X-Accel-Buffering: no`.
+- Trames (exemples octet pour octet, une fois encodés en UTF-8 : chaînes JSON de
+  `hermes/tests/outils/fixtures_flux/trames.json`, comparées au greffon par
+  `test_trames_exemples_partagees_avec_le_desktop` ; en JSON parce qu'une trame finit par une ligne vide,
+  qu'aucun fichier suivi ne doit porter en fin de fichier, `scripts/tests/test_fins_de_fichier.py`) :
+
+```
+retry: 3000
+
+id: 1727791200.41
+event: etat
+data: {"revision":"1727791200.41","sujets":["projets","questions","poste","quotas","notifications","pause","discussions"],"discussions_suivies":true}
+
+: battement
+
+id: 1727791200.42
+event: changement
+data: {"sujets":["projets","questions"]}
+
+event: fin
+data: {"raison":"duree_max"}
+```
+
+- **Révision** `<époque>.<numéro>` : l'époque est l'heure de démarrage du tableau de bord, le numéro croît à chaque
+  publication. Première trame `etat` : sujets vides si `Last-Event-ID` vaut la révision courante, **tous** sinon
+  (absent, autre époque, révision dépassée). Un sujet illisible (base ou tableau) est publié **une fois**, nommé
+  dans `illisibles` ; jamais une fausse stabilité.
+- **Sujets** et ce que leur empreinte relit, en lecture seule, toutes les `flux_intervalle_s` (2 s, plancher 1),
+  dans un fil, seulement tant qu'un flux est ouvert (veilleur arrêté 60 s après le dernier) : `projets` (projets par
+  état, demandes, journal des projets, tours, dernier événement de chaque tableau non terminé, lu en `mode=ro` sans
+  la connexion de Hermes) ; `questions` (questions par état, mêmes tableaux) ; `poste` (postes, présence **évaluée
+  maintenant** au seuil `seuil_hors_ligne_s`, inventaires, ordres en attente) ; `quotas` (relevés reçus et acceptés,
+  attentes de quota, table de routage, surcharges, politique) ; `notifications` (canal publié par la passerelle,
+  file par état) ; `pause` (arrêt d'urgence, `pause_reclamations`, projets en pause) ; `discussions` (requêtes du
+  serveur au client ouvertes dans le processus du tableau de bord ; `discussions_suivies: false` si Hermes ne publie
+  pas ce compteur : le sujet n'est alors jamais publié et le client relit la section lui-même).
+- **Aller-retour entre deux passes** (A → B → A en moins de 2 s, par exemple une pause générale posée puis levée) :
+  l'état relu serait identique à celui de la passe précédente, alors qu'une page a pu relire B entre-temps. `pause`
+  et `quotas` portent donc aussi le dernier identifiant (strictement croissant) des lignes du journal de leurs gestes
+  (pause et reprise générales, veille des crochets, réglage `pause_reclamations` ; réglages de la politique de
+  routage) : le sujet est publié quand même (`test_aller_retour_entre_deux_passes_publie_quand_meme`, défaut trouvé
+  par la CI « Image Hermes » de `4c4282b`). **Limite** : un aller-retour de l'arrêt d'urgence fait hors d'ACP (CLI de
+  Hermes) dans le même intervalle n'est pas vu ; la relecture de sûreté des pages (120 s) le rattrape.
+- **Battement** (commentaire) toutes les `flux_battement_s` (15 s : le bord Railway coupe une requête après 5 min
+  sans octet) ; **fin** propre après `flux_duree_max_s` (600 s : le bord coupe à 15 min), le client rouvre aussitôt
+  avec `Last-Event-ID`.
+- Au plus `flux_max` flux (8) : au-delà, **429** `trop_de_flux` (« Trop de pages ouvertes en temps réel : fermez-en
+  une ou attendez. », `Retry-After: 30`). La place d'un client parti est rendue aussitôt : la réponse en flux de
+  Starlette voit la déconnexion et annule le flux ; `_deconnecte` est lu en plus à chaque tour (2 s au plus), après
+  la lecture du corps vide du GET (correction K10). uvicorn ignore une écriture vers un client parti : le battement
+  ne sert pas à la détection.
+- Mesures : 0,41 et 0,67 s entre la réponse de `POST /v1/questions/{q}/reponse` et la trame `changement`, à travers
+  les six intergiciels du vrai tableau de bord (battement à 15 s, veilleur à 2 s) ; place rendue en moins d'une
+  seconde après la déconnexion d'un client, avant son premier battement (`test_flux_contrat.py`).
+
 ## 4 bis. Page « Projets » (greffon d'interface `acp-projets`)
 
 Greffon de tableau de bord **sans code serveur** (manifeste, bundle IIFE, feuille de style), comme
@@ -106,10 +170,10 @@ l'Accueil.
 
 | Vue | Adresse | Routes appelées | Contenu et gestes |
 |---|---|---|---|
-| Liste | `/projets` | `GET /v1/projets` | une carte par projet : état (dérivé : exploration, planification, en cours, en attente du poste, synthèse, plafond atteint, en pause, terminé), « Cartes faites : n sur m », poste, questions en attente, dernière note ; carte « Poste Windows » ; carte « Notifications » (canal, état, notification de test) ; carte « Pause générale » |
-| Nouveau projet | `?vue=nouveau` | `GET /v1/catalogue` (types de projet), `GET /v1/poste` (dépôts et relevés), `POST /v1/projets` | titre, objectif, type de projet, dépôt, qui répond (Hermes d'abord ou moi : avec un dépôt seulement, D42), exploration (exécutant, modèle, effort) |
-| Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `GET /v1/projets/{id}/cartes/{carte}`, `POST /v1/projets/{id}/pause`, `…/reprise` | état, objectif, **résultat du projet** (synthèse du dernier tour, en entier), tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier « Standard », **« Modèle servi : Non observé »** avant P6, mention, résumé replié : un extrait le dit et **Lire le résumé en entier**) ; tours et décisions ; questions en attente ; journal en français (détail technique replié) ; **Mettre en pause** / **Reprendre** |
-| Questions | `?vue=questions` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre`, `…/conclure` | questions ouvertes ou escaladées (titre de la carte, contexte) avec **Répondre** ; cartes en triage avec les gestes offerts : **Prolonger** ou **Relancer la planification** (consigne facultative) et **Conclure le projet**, ou **Reprendre** ; cartes bloquées ou abandonnées **en lecture seule** avec leur raison (« Relancer » : P7) ; le compteur de l'onglet compte questions ET décisions |
+| Liste | `/projets` | `GET /v1/projets` | une carte par projet : état (dérivé : exploration, planification, en cours, en attente du poste, synthèse, plafond atteint, en pause, terminé), « Cartes faites : n sur m », poste, questions en attente, dernière note ; carte de la machine, titrée d'après l'hôte publié (« Exécutant Railway », « Poste Windows », ou « Exécutant » sans machine enregistrée ; relecture finale de P7) ; carte « Notifications » (canal, état, notification de test) ; carte « Pause générale » |
+| Nouveau projet | `?vue=nouveau` | `GET /v1/catalogue` (types de projet), `GET /v1/poste` (dépôts et relevés), `POST /v1/projets` | titre, objectif, type de projet, dépôt, qui répond (Hermes d'abord ou moi : avec un dépôt seulement, D42), exploration (exécutant, modèle, effort) ; (P7, partie E) un exécutant fermé **pour le dépôt choisi** est grisé, avec la raison du greffon (Codex sur un dépôt non prouvé privé : bloc `executant.depots` de `GET /v1/poste`, calcul du routage), et n'est jamais envoyé |
+| Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `GET /v1/projets/{id}/cartes/{carte}`, `POST /v1/projets/{id}/pause`, `…/reprise`, (P7) `POST /v1/projets/{id}/reponses`, `POST /v1/projets/{id}/clore` | état, objectif, **résultat du projet** (synthèse du dernier tour, en entier), tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier « Standard », **« Modèle servi : Non observé »** avant P6, mention, résumé replié : un extrait le dit et **Lire le résumé en entier**) ; tours et décisions ; questions en attente ; journal en français (détail technique replié) ; **Mettre en pause** / **Reprendre** ; (P7) **Changer qui répond** (projet sur dépôt, pas fini ; vaut pour les questions suivantes, rien ne change avant la réponse de l'API) et **Clore le projet** (confirmation qui dit les quatre effets ; résultat de l'API : état atteint, cartes archivées, questions annulées, branches restées sur l'exécutant) |
+| Questions | `?vue=questions`, (P7) `&q=<question>` ou `&carte=<tableau>/<carte>` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre`, `…/conclure`, (P6) `POST /v1/revues/…`, (P7) `POST /v1/cartes/{tableau}/{carte}/relancer`, JSON-RPC natif `session.active_list` | file à **cinq sections** (étape P7, cahier P7 § 3) : questions ouvertes ou escaladées (titre de la carte, contexte, **qui y répond** : « Hermes y répond » ou « À vous », règle unique du greffon) avec **Répondre** ; décisions (cartes en triage) : **Prolonger** ou **Relancer la planification** (consigne facultative) et **Conclure le projet**, ou **Reprendre** ; revues des fichiers de pilotage (P6) ; cartes arrêtées (bloquées ou abandonnées) avec **Relancer** (consigne facultative ; « l'agent repart d'une session neuve » pour une carte de l'exécutant ; (partie E) une carte bloquée pour un **secret** se relance aussi quand l'exécutant actif est de la partie E (sinon refus `carte_secret`, dit) : la page dit que le travail fautif reste en quarantaine sur l'exécutant, et la relance repart d'une branche neuve, `branche_neuve` dans la réponse) ou la raison du refus ; discussions en attente (lecture seule). En tête : **À traiter par vous** et **Chez Hermes**. Une cible de lien profond est défilée et marquée (`aria-current`) ; absente, la page dit « Cette demande a déjà été traitée », sauf si la page vient de la traiter elle-même (le message de l'API reste annoncé par la section) ou si son tableau est illisible (« son état est inconnu ») |
 
 Règles, toutes testées (Vitest, image, navigateur) :
 
@@ -117,11 +181,15 @@ Règles, toutes testées (Vitest, image, navigateur) :
   qu'elle arrête vraiment (la discussion reste ouverte) ; engagée par la veille des crochets shell, elle
   n'offre pas « Reprendre » (refusé tant qu'ils existent) mais la marche à suivre. La notification de test
   n'est active que si un canal est configuré ; sinon le bouton est désactivé et la page dit « Notifications
-  non configurées : leur activation passe par une PR… (railway.md, § 9) », ou « État du canal inconnu »
-  tant que la passerelle ne l'a pas publié.
+  non configurées : les variables du canal sont déjà déclarées dans l'IaC Railway ; posez dans Railway
+  celles de Telegram ou de ntfy… (railway.md, § 14) », ou « État du canal inconnu » tant que la passerelle
+  ne l'a pas publié.
 - **Une réussite suit la réponse de l'API** : « la carte reprend », « reprendra à la reprise du projet » ou
   « n'a pas été relancée » ; « Plafond relevé », « Planification relancée », « Carte reprise » ou « n'a pas
-  été reprise ».
+  été reprise ». Le message est annoncé par la **section** de la file (relecture finale de P7) : la demande traitée
+  quitte la file dès la relecture qui suit le geste (une question répondue n'est plus servie), et un message porté
+  par l'entrée disparaîtrait avec elle. « n'a pas été relancée » et « n'a pas été reprise » sont des alertes : une
+  suite reste à donner.
 - **Historique** : chaque changement de vue voulu par le propriétaire ajoute une entrée (`pushState`) ; le
   geste « retour » du téléphone ramène à la vue précédente de la page (relecture de P4).
 - **Aucune donnée inventée** : « Inconnu » pour une valeur absente, « Non configuré » pour un poste
@@ -136,7 +204,20 @@ Règles, toutes testées (Vitest, image, navigateur) :
 - **Refus de l'API affichés tels quels** (message français du greffon, code HTTP) ; le formulaire reste
   rempli. Une clé d'idempotence par envoi : un double appui ne lance qu'un projet.
 - **Sondage** toutes les 15 s tant que la page est visible, aucune lecture quand elle est cachée (D35) ;
-  relecture immédiate après chaque geste.
+  relecture immédiate après chaque geste. Depuis P7 : relecture sur signal du flux d'invalidation, sondage en
+  repli ([interface.md](interface.md) § 13).
+- **Compteur de l'onglet « Questions » (P7)** : « À traiter par vous » = compteurs de `GET /v1/questions`
+  (questions à vous, décisions, revues, cartes arrêtées) plus les discussions en attente quand elles ont pu être
+  lues ; sinon la page dit qu'elles ne sont pas comptées, jamais zéro.
+- **Discussions en attente (P7, cahier P7 § 3.5)** : lues par le JSON-RPC NATIF du tableau de bord
+  (`apps/interface/src/jsonrpc/discussions.ts`) : `await sdk().buildWsUrl("/api/ws")` (ticket de la session),
+  `gateway.ready`, puis la SEULE méthode `session.active_list`, sans `client.capabilities` (aucune requête ne lui est
+  adressée, aucune session n'est rattachée) ; les entrées `waiting` sont gardées et la connexion fermée ; délai 5 s,
+  échec : « état inconnu ». Seules les sessions ouvertes par `/api/ws` y figurent : les questions d'une discussion
+  `/chat` (terminal) vivent dans le processus de son PTY, et la page le dit. Partie D : chaque discussion en attente
+  porte **Ouvrir la discussion**, qui mène à la page Discussion ([interface.md](interface.md) § 15) ; la session y
+  est reprise et la question rejouée. Depuis la partie D, la lecture passe par le canal commun
+  (`jsonrpc/canal.ts`, liste blanche des méthodes émises).
 - Tout texte vient du catalogue français `apps/interface/src/chaines.ts` ; ni `fetch` direct, ni
   `innerHTML`, ni stockage local.
 
@@ -147,8 +228,44 @@ Variables Railway (facultatives ; validées au démarrage, refus en français) :
 `ACP_TELEGRAM_DISCUSSION` ; pour ntfy `ACP_NTFY_SUJET` (16 à 64 caractères) et `ACP_NTFY_JETON` (exigé,
 D33), `ACP_NTFY_SERVEUR` facultatif (`https://ntfy.sh`). `register()` les lit puis les **retire de
 `os.environ` dans chaque processus** ; seule la passerelle garde le canal en mémoire. Contenu minimal (D32) :
-genre, titre du projet, titre de carte tronqué, lien vers `…/projets?projet=<id>` ; jamais la consigne ni le
-texte d'une question.
+genre, titre du projet, titre de carte tronqué, lien profond ; jamais la consigne ni le texte d'une question.
+
+**Liens profonds (étape P7, cahier P7 § 6.2, décision P7-5).** Chaque lien ouvre ce qu'il annonce, en **paramètres
+de requête, jamais en fragment** : la porte d'authentification de Hermes ne garde, pour le retour après la connexion,
+que le chemin et la requête (`next`) ; au téléphone, dont la session a souvent expiré, un fragment serait perdu et le
+lien n'ouvrirait que la liste (correction K2).
+
+| Genre | Cible |
+|---|---|
+| `question` | `/projets?vue=questions&q=<question>` |
+| `bloquee`, `triage`, `abandon`, `revue`, `secret`, `conflit`, `plafond` | `/projets?vue=questions&carte=<tableau>/<carte>` |
+| `termine`, `integration` | `/projets?projet=<id>` |
+| `hors_ligne`, `isolement` | `/poste` |
+| `bilan` | `/` (Accueil) |
+| `test`, `crochets`, carte bloquée hors tableau de projet | `/projets` |
+
+La ligne en base garde le **chemin relatif** ; l'URL publique (`HERMES_DASHBOARD_PUBLIC_URL`) n'est préfixée qu'à
+l'**envoi**, dans la passerelle (correction K3) : une ligne enfilée par un sous-processus à l'environnement assaini
+(script du bilan quotidien lancé par le cron) n'a pas à la connaître. Une ligne antérieure à P7 (lien déjà absolu)
+part telle quelle ; sans URL publique valide, la notification part sans lien (jamais une adresse inventée). La vue
+Questions fait défiler jusqu'à la cible et la met en évidence ; une cible déjà traitée le dit (sauf celle que la page
+vient de traiter, dont le message de l'API reste affiché ; une cible d'un tableau illisible a un état « inconnu »).
+
+**Bilan quotidien facultatif (étape P7, cahier P7 § 7, décision P7-6).** Une tâche cron **native** de Hermes en mode
+`no_agent` (aucun modèle, aucun jeton) lance chaque jour le script de l'image `acp-bilan.py`, déposé par root dans
+`/opt/data/scripts/` (garde de démarrage élargie à ce seul fichier, d'empreinte connue : [image.md](image.md) § 6). Seul
+le **propriétaire** crée la tâche, avec sa session : bouton « Créer le bilan quotidien (8 h) » de l'Accueil
+([interface.md](interface.md) § 14), qui appelle la route native `POST /api/cron/jobs`
+(`{"name": "Bilan ACP", "schedule": "0 8 * * *", "prompt": "", "no_agent": true, "script": "acp-bilan.py",
+"deliver": "local"}`), ou la page Cron native ; l'agent ne le peut pas (`cronjob` coupé) et le jeu
+`acp_poste` reste coupé sur la plateforme `cron` (D24) : un cron ne peut pas lancer de projet. Le fuseau de Hermes est
+épinglé à `Europe/Paris` (clé `timezone` de la managed scope) : 8 h veut dire 8 h à Paris. Le script n'accepte aucune
+entrée (arguments, entrée standard et environnement ignorés, sauf `HERMES_HOME`), charge le noyau comme le tableau de
+bord et enfile UNE notification `bilan:<AAAA-MM-JJ>` (jour de Paris : deux exécutions le même jour n'en font qu'une),
+**compteurs seulement**, même quand rien n'a bougé : « ACP — Bilan du 02/10 : 2 projets en cours (5 cartes faites sur
+12), 1 question et 1 décision pour vous, exécutant en ligne. » Aucun titre de carte ni question ; ce qui ne se lit pas
+est dit « inconnu ». Canal absent : la ligne passe `desactivee`. Limite (correction K22) : l'envoi part du fil de la
+passerelle ; après un redémarrage pendant une pause générale, le bilan reste en file jusqu'à la reprise.
 
 Règles : `blocked` (hors `dependency`) → « bloquée » ; `block_loop_detected` → triage ; `gave_up` →
 abandon ; synthèse du tour courant finie sans carte ouverte → « terminé » (une fois) ; question escaladée ;
@@ -181,9 +298,10 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   en file et la notification de test partent encore. La **discussion** avec Hermes reste ouverte (l'arrêt
   d'urgence de Hermes n'est lu que par cron, le répartiteur kanban, la passerelle de messagerie et
   `api_server`) ; lancer un projet y est refusé par ACP.
-- « Clore » un projet quelconque (le passer « abandonné » et archiver ses cartes) n'existe pas en P4 : une
-  carte abandonnée par le disjoncteur laisse le projet « en cours » ; seule parade, la pause (qui libère une
-  place de projet actif). « Conclure » n'existe que sur une carte de décision (D41). P7.
+- « Clore » un projet quelconque n'existait pas en P4 (une carte abandonnée par le disjoncteur laissait le
+  projet « en cours ») : depuis P7, **Clore le projet** (détail) archive ses cartes ouvertes, annule ses questions
+  et pose « terminé » seulement si la synthèse du tour est faite, sinon « abandonné ». « Conclure » reste propre
+  aux cartes de décision (D41).
 - Surcharge de routage d'une carte existante : refusée jusqu'à P6 (D43). Prolonger le plafond de
   corrections : P6 (les corrections y sont câblées).
 - Un résumé de carte n'est rendu qu'en extrait (500 caractères) dans le détail, et le dit ; « Lire le
@@ -193,8 +311,11 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   secret OIDC) ; l'agent n'a aucun outil pour les lire, et les workers ne les reçoivent plus.
 - Une carte `poste-*` étrangère encore `todo` n'est bloquée qu'une fois `ready` (`block_task` n'agit que
   depuis `ready`/`running`) ; elle n'est pas réclamable entre-temps.
-- Les variables de notification ne sont pas déclarées dans `.railway/railway.ts` (canal non choisi) : leur
-  pose passe d'abord par une PR, sinon le plan suivant les supprimerait ([railway.md](railway.md) § 9).
+- Les six variables du canal de notification sont déclarées dans `.railway/railway.ts` par `preserve()`, sans
+  aucune valeur, depuis P7 (D116) : le propriétaire pose dans Railway celles du canal choisi, **sans autre PR**,
+  puis plan, apply et redéploiement ([railway.md](railway.md) § 14.1 à § 14.4). `preserve()` sur une variable
+  jamais posée (celles du canal non choisi, pour toujours) est **supposé** sans effet, non constaté sur Railway ;
+  conduites si le plan la crée vide ou refuse ce `preserve()` : [railway.md](railway.md) § 14.1.
 - **Course du contrôle d'écriture de Hermes 0.21.5** (`hermes_state_repair.py:537-573`, appelé à chaque
   connexion à un tableau) : si un autre processus referme la dernière connexion au moment du contrôle,
   le fichier `-wal` disparaît entre `is_file()` et `os.access()` et Hermes conclut à tort « read-only for
@@ -203,11 +324,12 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   plus (`kanban_adapter.connexion`, `test_connexion_rejoue_la_seule_course_du_controle_d_ecriture`) ; les
   processus de Hermes eux-mêmes (répartiteur, workers) n'en sont pas protégés : une carte qui la
   rencontrerait échouerait et serait relancée (`failure_limit: 3`), ce qui n'a pas été observé.
-- Page « Projets » : la file Questions complète (`open_requests`, réglage par projet) et le temps réel
-  (SSE) sont en P7 ; « Relancer » une carte bloquée ou abandonnée aussi (lecture seule en P4). Le rendu
-  n'est prouvé que dans Chromium (390×844 émulé, pas un vrai téléphone ni Safari iOS).
+- Page « Projets » : depuis P7, file Questions à cinq sections, « Relancer » une carte arrêtée, « Qui répond »
+  modifiable et temps réel (SSE). Les discussions en attente ne listent que les sessions ouvertes par `/api/ws`
+  (jamais celles du terminal `/chat`) ; les ouvrir relève de la page Discussion (partie D). Le rendu n'est prouvé
+  que dans Chromium (390×844 émulé, pas un vrai téléphone ni Safari iOS).
 - Sans dépôt, aucune question ne peut naître (seules les cartes du poste en posent) : un manque se dit par
-  une carte bloquée avec sa raison, que la page Questions montre en lecture seule (D42).
+  une carte bloquée avec sa raison, que la page Questions montre avec « Relancer » (consigne facultative ; D42).
 
 ## 8. Écarts au cahier de conception, justifiés
 
@@ -499,3 +621,63 @@ Intégration continue de ces corrections, sommet poussé `8aeee20`, **verte** :
   relecture et la porte 401 sur les 13 routes P4 (planification réclamée 3 s après la fin de
   l'exploration) ; navigateur **6 réussis** (4 min 18 s ; quatre projets « Terminé » 66,0 s après la fin
   des explorations).
+
+## 13. Étape P7, partie C : preuves locales (02/10/2026, Windows 10, Docker 29.5.3, Python 3.12.10, pytest 9.1.1, Node 24.19.0, Playwright 1.62.0 et son Chromium déjà présent)
+
+Images construites depuis le worktree `refonte-hermes-p7` (étiquettes locales `c1`, `c2`, `c3`), fournisseur d'identité
+`acp-identite:p7b` (inchangé depuis), exécutant factice `acp-executant:p7bfactice` (inchangé). Commits : `5e281dd`
+(liens profonds), `26ea837` (bilan quotidien, garde K1, fuseau), `6be09bc` (interface), puis les deux preuves
+ci-dessous.
+
+| Suite | Résultat |
+|---|---|
+| Image `c1` (liens profonds) | **760 réussis** (8 min 30) |
+| Image `c2` (+ bilan, garde, fuseau) | **777 réussis** (8 min 23) |
+| Image `c3` (+ interface, texte de la notification de test) | **777 réussis** (8 min 20) |
+| Dépôt (`pytest -q`, Windows), à chaque commit | **925 réussis, 79 ignorés** (≈ 3 min 50) |
+| Vitest (`apps/interface`) | **150 réussis** (19 fichiers) ; bundles identiques aux sources (`npm run check`) |
+| Contrat `c2` : bilan, image, sans shell, catalogue, projets, exécution | **107 réussis** (33 min 22) |
+| Contrat `c3` : interface, projets, parcours P7, flux | **32 réussis** (19 min 36) ; délai réponse → trame 0,99 s |
+| Navigateur `c3` (tous les tests, dont le parcours P7) | **9 réussis** (8 min 08) |
+
+**Bilan quotidien** (`test_bilan_contrat.py`, pile complète) : `/opt/data/scripts/acp-bilan.py` déposé par root
+(`root:root 644`, identique à la copie de l'image) ; tâche créée par la route native `POST /api/cron/jobs` avec la
+session du propriétaire (`no_agent: true`, script `acp-bilan.py`), prochaine exécution `2026-10-03T08:00:00+02:00` ;
+`POST /api/cron/jobs/{id}/trigger` : `last_status: ok`, UNE ligne `bilan:2026-10-02` (lien `/`), reçue par le faux
+ntfy (« ACP — Bilan du 02/10 : aucun projet en cours, rien n'attend votre décision, exécutant non configuré. »,
+`Click: https://hermes.acp.test/`) ; seconde exécution le même jour : aucune ligne de plus ; `diagnostiquer` : aucun
+constat, code 0 ; second démarrage sur le même volume : « vides (hors acp-bilan.py, admis par son empreinte) ».
+Les deux S du cahier sont tranchés : la page Cron accepte le script du dossier de root, et le noyau s'importe dans
+le sous-processus du cron à l'environnement assaini.
+
+**Redéploiement pendant une question** (`test_parcours_p7_contrat.py`, faux exécutant, modèle factice) : question
+`escaladee`, notification « question » avec `Click: https://hermes.acp.test/projets?vue=questions&q=<id>` ; le
+conteneur Hermes est arrêté, un nouveau démarre sur le MÊME volume (le jeton de l'exécutant, son propre stockage,
+recopié) : gardes passées (« admis par son empreinte »), même question (identifiant, texte, état, `chez`), carte
+toujours `scheduled`, long-poll repris sans carte, aucune notification en double ; réponse par la route → carte
+resservie avec `reprise: true` et la réponse → exploration, planification (une implémentation sur poste-claude),
+implémentation, synthèse, **intégration** servie sur `poste-integration` → projet `termine`, notification
+« … branche hermes/projet-… prête sur l'exécutant. » (`Click` vers le projet), aucune « terminé : n cartes faites »
+(K12). Deux passages verts (2 min 02 seul ; puis dans le contrat `c3`).
+
+**Parcours téléphone → bureau** (`test_parcours_p7.py`, deux passages verts) : au téléphone (390×844), enrôlement de
+l'exécutant, projet lancé depuis le formulaire (modèle `opus` choisi : le relevé de Claude n'en désigne aucun par
+défaut), page fermée ; notification « question » reçue, `Click` = `https://hermes-acp.test/projets?vue=questions&q=…`
+(ni fragment, ni texte de la question) ; au bureau (1440×900), contexte NEUF sans cookie de session, authentificateur
+portant une copie de la passkey : portail Authelia, second facteur par la passkey, consentement, puis **arrivée sur la
+question** (cible gardée par `next`), marquée `aria-current` ; « Répondre » ; la question quitte la file (« Cette
+demande a déjà été traitée » à ces deux passages ; depuis la relecture finale de P7, le parcours exige au contraire
+« Réponse envoyée : la carte reprend. » annoncé par la section, et aucun « déjà traitée ») ; onglet Projets puis le
+projet, dans la page ; le projet passe « Terminé » **4,9 s**
+après la fin de l'intégration (5,9 s au premier passage), sans rechargement (aucune nouvelle navigation) : les 11
+lectures du détail suivent chacune une trame du flux (`etat` ou `changement` de `projets`) de moins de 2 s, aucune
+n'est un sondage (relecture de sûreté portée à 30 min par le réglage de diagnostic, K23) ; le téléphone, rouvert,
+montre « Terminé ». Aucune violation axe « serious » ou « critical », aucun texte hors du catalogue, aucune cible
+sous 44 px au téléphone, aucune requête hors de l'origine (hors le portail d'identité). Captures (empreintes
+SHA-256) : `telephone-01-nouveau-projet.png` `8ce76654…`, `telephone-02-projet-lance.png` `96bc4903…`,
+`bureau-01-question-ciblee.png` `49b401d1…`, `bureau-02-projet-termine.png` `9817eb80…`,
+`telephone-03-projet-termine.png` `851031f0…`.
+
+Non prouvé ici, dit tel quel : un vrai téléphone, un vrai canal (Telegram ou ntfy réel) et le vrai exécutant (preuves
+sur Railway, cahier P7 § 13.6, après la fusion et le déploiement de P6) ; l'ouverture d'une discussion en attente
+depuis la file (page Discussion, partie D).

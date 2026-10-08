@@ -119,6 +119,12 @@ display:
   # les réponses de l'agent viennent de SOUL.md (config_defaults.py:875-877).
   language: fr
 
+# Étape P7 (cahier P7 § 7.1, correction K15) : fuseau de Hermes. Le cron calcule ses
+# échéances avec cette heure (cron/jobs.py:37-38, :1023) : « 0 8 * * * » vaut 8 h à Paris
+# pour le bilan quotidien. Clé de PREMIER niveau, lue dans la configuration effective,
+# managed scope comprise (hermes_time.py:88-103 ; config_defaults.py:1504).
+timezone: Europe/Paris
+
 agent:
   # Retrait outil par outil (model_tools.py:334-340) pour la messagerie, le cron, le
   # CLI, les workers kanban et la délégation. L'api_server (api_server.py:2232-2270) et

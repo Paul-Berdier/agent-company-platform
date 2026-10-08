@@ -17,7 +17,7 @@ numérotation du cahier, D71 à D89, est décalée de trois).
 Sommaire : § 1 en bref · § 2 architecture et identités · § 3 image · § 4 politique · § 5 sonde et régimes · § 6 une
 carte · § 7 infrastructure · § 8 secrets et gestes · § 9 coût · § 10 conditions d'usage · § 11 prouvé en local et en CI
 · § 12 sur Railway · § 13 non prouvé · § 14 écarts au cahier · § 15 corrections après la relecture
-indépendante.
+indépendante · § 16 étape P7, partie E : garde « dépôt privé » mesurée, quarantaine après une relance.
 
 ---
 
@@ -360,3 +360,168 @@ Docker 29.5.3, Python 3.12.10 python.org) :
 - contrôles du dépôt (`check_version`, `generer_themes --check`, `verifier_catalogue`, `check_lock`,
   `check_engine_frozen`) : code 0 ; `.railway/verifier.mjs` conforme ; Vitest 120 réussis ;
 - CI : trois workflows verts sur `815ae6f` (§ 11).
+
+## 16. Étape P7, partie E : garde « dépôt privé » mesurée, quarantaine après une relance
+
+État du **2 octobre 2026** (branche `refonte/hermes-p7e`). Cahier P7 § 11.2, § 11.3, § 12.4, § 13.5 et correction
+K25. **Aucun dépôt réel n'est ajouté à `executant.toml`** : l'ajout d'un dépôt réel est une PR à part, après le
+« oui » écrit du propriétaire pour ce dépôt (cahier P7 § 11.1).
+
+### 16.1 Ce qui change
+
+Jusqu'à P6, la voie Codex n'était refusée que si la politique **déclarait** `acces = "public"` : un dépôt public
+déclaré `jeton_lecture` passait, alors que D83 n'admet Codex avec le compte ChatGPT que sur un dépôt **privé**.
+Désormais l'exécutant **mesure** chaque dépôt (`apps/poste/src/acp_poste/depots.py`, `Depots.visibilite`) :
+
+1. **accès anonyme** : `git ls-remote --heads -- <url>` avec les options imposées à toute commande
+   (`credential.helper=` vide, protocoles fermés sauf `https`, crochets coupés…), l'environnement du superviseur
+   (`GIT_ASKPASS=/bin/false`, `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_GLOBAL=/dev/null`, `HOME=/nonexistent`), **aucun
+   jeton**, délai de 30 s (tout le groupe de processus tué au délai), lancé **depuis la racine des clones** (jamais un
+   dépôt : aucune configuration locale, `insteadOf` ou `http.extraHeader`, ne peut détourner la mesure ni le jeton) ;
+2. **lecture** : la lecture que l'exécutant fera vraiment — la même commande **avec le jeton de lecture** pour un dépôt
+   `jeton_lecture` (`acp-askpass`, variable `ACP_JETON_LECTURE` : jamais dans l'argv, le journal ni un message) ;
+   l'accès anonyme pour un dépôt déclaré `public` ; jeton absent : « inconnue ».
+
+| Sortie de git | `visibilite` (anonyme) | `lecture` |
+|---|---|---|
+| code 0 | `public` | `ok` |
+| code 128 et un motif de refus composé par git (ci-dessous) | `prive` | `refusee` |
+| tout le reste : délai, réseau, certificat, 403, 500, motif inconnu, git absent | `inconnue` | `inconnue` |
+
+Motifs reconnus, **relevés sur git 2.47.3** (la version épinglée dans `executant/Dockerfile`) contre un faux serveur
+HTTPS local (`apps/poste/tests/test_visibilite.py::test_messages_de_git_releves`), identiques sur git 2.42 :
+
+```
+fatal: could not read Username for 'https://<hôte>': terminal prompts disabled     (401 sans identifiant)
+fatal: Authentication failed for 'https://<hôte>/<propriétaire>/<dépôt>.git/'       (401 après le jeton)
+fatal: repository 'https://<hôte>/<propriétaire>/<dépôt>.git/' not found             (404 : hors de portée, inexistant)
+```
+
+Seules ces lignes, **composées par git lui-même** et en début de ligne, comptent : le texte du serveur arrive préfixé
+de `remote: ` et ne peut pas forger un refus (cas `faux-refus` du faux serveur). GitHub répond de la même façon à un
+dépôt privé et à un dépôt inexistant : seule la paire « anonyme refusé » **et** « lecture avec le jeton réussie »
+établit le privé. La mesure n'étant pas atomique, l'accès anonyme est **refait après** une lecture réussie : `prive`
+exige deux refus (un dépôt devenu lisible sans identifiant entre-temps est dit `public` ; relecture indépendante).
+
+Le clone nu d'un dépôt est lié à l'URL mesurée : si la politique réaffecte un alias à une autre URL (par une PR), le
+clone de l'ancienne n'est jamais récupéré à sa place (« vient d'une autre URL que la politique », carte bloquée) ; le
+propriétaire le retire après en avoir récupéré les branches.
+
+### 16.2 Règle, en échec fermé
+
+- **Codex** n'est ouvert pour un dépôt que si la mesure **fraîche**, refaite **avant chaque carte Codex** (la
+  visibilité peut changer entre deux inventaires), dit `prive` **et** `ok` ; sinon la carte est bloquée (`politique`)
+  avant toute préparation, avec la raison : « Voie Codex fermée pour le dépôt « … » : il n'est pas prouvé privé
+  (visibilité mesurée …, lecture avec le jeton …) ». Rien n'est lancé, rien n'est cloné.
+- **Claude** reste ouvert sur un dépôt public (D84) ; une carte Claude d'un dépôt `jeton_lecture` ne mesure rien.
+- **Déclaré `public` mais mesuré `prive`** : le dépôt est refusé avant chacune de ses cartes (« la politique dit public,
+  GitHub refuse l'accès anonyme : jeton requis ») ; la correction passe par une PR de `executant.toml`.
+- **Inventaire** : la mesure de chaque dépôt distant est publiée au démarrage, à chaque relevé (`sondes.intervalle_s`)
+  et après chaque carte, dans les champs facultatifs du contrat `Depot` (`visibilite`, `lecture`, `verifie_le`, livrés
+  par la partie A) ; jamais une mesure inventée (un dépôt non mesuré reste `{"alias"}`). La raison détaillée reste au
+  journal de l'exécutant (`visibilite_depot`), jamais dans l'inventaire.
+- **Double contrôle** : côté greffon, `routage.voies_fermees(…, depot_alias)` (partie A) ferme `poste-codex` pour tout
+  dépôt que le dernier inventaire ne dit pas `prive` + `ok` ; `routage.depots_du_poste` en tire, par le même calcul,
+  la carte « Dépôts » de la page Poste et le grisage de Codex dans « Nouveau projet » (bloc `executant.depots` de
+  `GET /v1/poste`).
+- Le poste Windows n'exécute aucune carte : il ne mesure rien, ses dépôts restent « jamais mesurés » (Codex fermé).
+
+### 16.3 Relance d'une carte bloquée pour un secret (correction K25)
+
+Après un secret, la branche `hermes/<carte>` est renommée `quarantaine/<carte>` et le worktree de la carte reste posé
+dessus. Avant la partie E, une carte relancée aurait repris ce worktree (« gardé s'il existe ») : l'agent aurait
+travaillé sur le commit fautif, et le balayage, sans base, n'aurait plus rien vu. Désormais :
+
+- `Depots.worktree` ne reprend un worktree que s'il est posé sur la branche de la carte (`HEAD` lu dans son gitdir,
+  root, jamais dans le `.git` du dossier) ; sinon il le retire et la carte repart de son départ sur une **branche
+  neuve** ;
+- branche absente alors que la carte a déjà tourné : sa base, sa **session d'agent** (dont la transcription a vu le
+  travail fautif) et sa préparation sont oubliées, même si Hermes la sert en `reprise: true` ; journal `branche_neuve` ;
+- la branche `quarantaine/<carte>` reste, jamais intégrée ni poussée.
+
+Prouvé par `apps/poste/tests/test_execution.py::test_relance_apres_secret_branche_neuve_sans_le_commit_fautif` (la
+branche servie ne contient pas le commit fautif, la quarantaine est intacte, la base est le départ actuel, le diff ne
+porte que le travail neuf, l'agent ne voit plus le fichier) et `…::test_relance_apres_secret_jamais_l_ancienne_session`.
+Le greffon **lève donc le refus** `carte_secret` **pour un exécutant de la partie E** : la carte se relance, la file
+Questions dit que le travail reste en quarantaine (`quarantaine` dans `GET /v1/questions`) et la réponse de la relance
+dit `branche_neuve`. Le greffon reconnaît un tel exécutant à ce qu'il publie : seul un exécutant de la partie E porte la
+visibilité mesurée de ses dépôts dans son inventaire (même commit que la correction K25). Sans elle (exécutant de P6
+pendant la fenêtre de déploiement, poste Windows, aucun inventaire), la relance d'une carte bloquée pour secret reste
+refusée (409 `carte_secret`, « relance possible dès que l'exécutant à jour a publié son inventaire »), en échec fermé.
+
+### 16.4 Preuve « aucune action accord requis sans geste » (premier dépôt réel)
+
+`scripts/preuve_accord_requis.py` lit les relevés `git ls-remote` avant et après le premier projet, l'export du projet
+(`GET /v1/projets/<id>`), la liste cron (`GET /api/cron/jobs`) et l'inventaire avant et après, puis imprime le tableau
+« geste → preuve → verdict » (`conforme`, `NON CONFORME`, `non prouvé` : jamais un succès supposé ; codes 0, 1, 3 ; 2
+pour une pièce illisible). Chaque ligne ne prouve que ce qu'elle lit : la suppression **côté dépôt distant** (références
+inchangées) ; le périmètre par les dépôts, le réseau des agents déclaré par la politique (le réseau mesuré est dit), les
+connexions et l'empreinte de la politique ; les revues rejouées **dans l'ordre** du journal (une carte refusée qui
+repasse en revue exige sa propre décision du propriétaire), et un journal plein (l'export n'en rend que 100 lignes) vaut
+« non prouvé ». Aucune référence imprimée (nombre et empreinte SHA-256 de la liste triée), nom réel du dépôt
+remplacé par son alias, sortie balayée par les motifs de secrets du contrat. Ce qu'il ne lit pas est listé sous le
+tableau : capture des permissions du jeton, écritures en mémoire et en skills en attente, journal de l'exécutant.
+Bibliothèque standard seulement ; éprouvé sur des fixtures (`scripts/tests/test_preuve_accord_requis.py`), **jamais
+lancé sur un vrai dépôt** à ce jour. Le résultat du premier dépôt réel ira dans `docs/refonte/preuves-p7/`.
+
+### 16.5 Prouvé en local (2 et 8 octobre 2026, Windows 10, Python 3.12.10 python.org, Node 24 ; Docker 29.5.3 le 2)
+
+| Suite | Résultat |
+|---|---|
+| `apps/poste/tests/test_visibilite.py` contre le faux serveur HTTPS (`faux_depot_https.py`, autorité jetable du faux Hermes) | 20 réussis sous Windows (git 2.42) et dans l'image d'essais de l'exécutant (git 2.47.3, root) |
+| dépôt complet sous Windows (`python -m pytest`, 8 octobre) | 1003 réussis, 83 ignorés (propres à Linux, à root ou à une image construite) |
+| `apps/poste` et contrat partagé en root dans l'image d'essais (git 2.47.3, 2 octobre) | 821 réussis, 20 ignorés (propres à Windows) avant les corrections de relecture ; après elles, 822 réussis et 1 échec de minuterie connu de P6 (`test_pause_locale_aucune_execution`, sous la charge de piles de contrat voisines ; rejoué seul trois fois : réussi) |
+| tests dans l'image Hermes (greffon, 2 octobre) | 789 réussis |
+| contrat ciblé (exécution, projets, interface, machine, bout en bout de l'exécutant, parcours P7 ; 2 octobre) | 54 réussis ; 1 échec d'environnement (`test_bundles_servis_identiques_au_depot` : image construite avant la dernière reconstruction des bundles) |
+| Vitest (interface, 8 octobre) | 179 réussis ; bundles reconstruits, `esbuild --check` à jour |
+| témoins de mutation (chaque règle de sécurité, rétablie après l'essai ; témoin sans mutation vert) | 43 mutations, **toutes rouges** : classement des sorties de git et mesure (10, dont « deux refus anonymes » et « clone d'une autre URL »), contrôle de la carte (5), inventaire (1), quarantaine côté exécutant (2), greffon (7, dans l'image, dont la garde « exécutant de la partie E »), interface (8), outil de preuve (10, dont l'ancienne logique des revues et du périmètre, remise en place) |
+
+Les suites qui demandent Docker (image, contrat, navigateur) sont rejouées à neuf par l'intégration continue sur la
+tête poussée (workflows « Image Hermes » et « Image de l'exécutant »).
+
+### 16.6 Limites, dites
+
+- La mesure ne voit que ce que voit git : un dépôt rendu public **après** la dernière mesure n'est vu qu'à la carte
+  Codex suivante (mesure fraîche) ou au relevé suivant ; une carte Claude d'un dépôt `jeton_lecture` ne mesure rien.
+- Un inventaire de P7 est refusé par un greffon de P6 (`extra="forbid"`) pendant la fenêtre de déploiement : voie
+  Codex « inconnue », donc fermée (sûr) ; « Relever maintenant » le republie.
+- Pendant la même fenêtre, une carte relancée après un secret et servie à un exécutant de P6 reprendrait le worktree
+  en quarantaine ; elle ne pourrait rien en sortir (aucun push ; branche `hermes/<carte>` absente : intégration et
+  bundle refusés ; renommage en quarantaine en échec : carte bloquée ; depuis la relecture finale de P7, bloquée pour
+  un secret, § 16.7).
+- Les motifs sont relevés sur git 2.47.3 et 2.42 ; une autre version de git dans l'image doit rejouer
+  `test_messages_de_git_releves` (la CI de l'exécutant le fait sur l'image construite).
+- Aucun appel à GitHub n'a été fait : la mesure n'est prouvée que contre le faux serveur ; sa première mesure réelle est
+  celle du premier dépôt réel (cahier P7 § 13.6, n° 5). Si GitHub limite les accès anonymes depuis les adresses de
+  Railway (403, 429), la mesure dit « inconnue » et Codex reste fermé : échec fermé, à surveiller au premier dépôt réel.
+- La mesure de chaque dépôt se fait dans la boucle des relevés : au pire 3 × 30 s par dépôt injoignable retardent la
+  publication de l'inventaire (une poignée de dépôts, un à la fois : borne acceptée).
+- Le greffon ne périme pas une mesure ancienne (`verifie_le` n'est pas comparé) : une mesure « prive + ok » vieille de
+  plusieurs jours garde Codex ouvert au routage ; l'exécutant remesure de toute façon avant chaque carte Codex.
+- Constaté par la relecture de P6 et **corrigé par la relecture finale de P7** (§ 16.7) : le balayage des secrets ne
+  portait que sur le diff cumulé de la carte (un secret d'un commit « wip » puis retiré restait dans l'historique, donc
+  dans l'intégration et le bundle) ; un échec du renommage en quarantaine bloquait la carte en « capacité ».
+- Un secret d'une forme inconnue des motifs du contrat partagé et absent du coffre passe toujours (barrière de plus,
+  pas une garantie : balayage.py). Une branche déjà poussée par ailleurs (`--remotes`) n'est pas rebalayée : rien n'est
+  jamais poussé par l'exécutant (D82).
+
+### 16.7 Relecture finale de P7 : historique balayé, quarantaine jamais contournée (D118, D119)
+
+Défauts (a) et (b) de P6, confirmés par la relecture finale de P7 (constats securite-1 et securite-2), corrigés dans
+`apps/poste` :
+
+- **Historique non poussé balayé** (`Depots.lignes_ajoutees_non_poussees`) : les lignes ajoutées par **chaque** commit
+  absent du dépôt distant (`<tête> --not --remotes`), merges compris (diff combiné `--cc` : ce qu'une fusion ajoute à
+  tous ses parents). Balayé à la conclusion de chaque carte (le diff cumulé l'est toujours), donc à l'intégration ;
+  **après chaque commit « wip »** (blocage, limite de quota, interruption) : un secret y met la branche en quarantaine et
+  la carte est bloquée **pour un secret** — jamais en quota (repris automatiquement), jamais rendue sur la branche
+  fautive ; et par `git bundle` (`acp-poste bundle`), qui refuse d'emballer une branche dont l'historique non poussé
+  porte un secret, même retiré depuis (motifs et valeurs exactes du coffre ; rien n'est écrit).
+- **Quarantaine impossible** (`git branch -M` en échec) : la carte est **quand même** bloquée pour un secret (raison
+  fixe, journal `secret_detecte` puis `quarantaine_impossible`), et sa session garde `quarantaine_en_attente`. Au
+  service suivant, l'exécutant retente le renommage **avant tout tour d'agent** : réussi, la carte repart d'une branche
+  neuve (K25) ; en échec, elle est refusée de nouveau pour un secret, sans qu'aucun agent ne tourne.
+- Preuves (Windows, git 2.42) : `apps/poste/tests/test_execution.py`, sept tests de la section « relecture finale de
+  P7 : secret dans l'historique » (blocage, limite de quota, interruption, commit fautif déjà dans l'historique,
+  intégration, bundle, quarantaine impossible) ; l'ancien code remis en place les fait **tous rougir** (témoin).
+  Linux, root, git 2.47.3 : CI « Image de l'exécutant ».

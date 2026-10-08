@@ -66,7 +66,7 @@ def test_v2_vers_v3_idempotente_sans_perte(noyau):
     _base_v2(noyau, chemin)
     noyau.base._initialisees.clear()
     with noyau.base.connexion() as conn:
-        assert noyau.base.version_schema(conn) == "3"
+        assert noyau.base.version_schema(conn) == "4"  # schéma courant (v4 depuis P7)
         noyau.base.migrer(conn)
         noyau.base.migrer(conn)
         assert conn.execute("SELECT COUNT(*) FROM meta_schema").fetchone()[0] == 1
@@ -131,7 +131,7 @@ def test_migration_v3_par_deux_processus_concurrents(noyau, tmp_path):
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
     sorties = [p.communicate(timeout=120) for p in processus]
     assert [p.returncode for p in processus] == [0, 0], [s[1][-2000:] for s in sorties]
-    assert [s[0].strip().splitlines()[-1] for s in sorties] == ["3", "3"]
+    assert [s[0].strip().splitlines()[-1] for s in sorties] == ["4", "4"]  # schéma courant (v4 depuis P7)
     conn = sqlite3.connect(chemin)
     try:
         colonnes = _colonnes(conn, "demandes")

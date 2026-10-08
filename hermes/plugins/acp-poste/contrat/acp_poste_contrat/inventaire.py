@@ -36,7 +36,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_serializer, model_validator
 
 from ._validation import ContratValide
 from .motifs_secrets import motif_trouve
@@ -253,15 +253,62 @@ class Quotas(_Contrat):
         return None if valeur is None else _instant(valeur, champ="remise_a_zero")
 
 
+VISIBILITES_DEPOT = ("public", "prive", "inconnue")
+LECTURES_DEPOT = ("ok", "refusee", "inconnue")
+_MESURE_DEPOT = ("visibilite", "lecture", "verifie_le")
+
+
 class Depot(_Contrat):
-    """Un dépôt autorisé par le poste, connu du greffon par son seul alias (jamais un chemin)."""
+    """Un dépôt autorisé par le poste, connu du greffon par son seul alias (jamais un chemin).
+
+    Étape P7 (cahier P7 § 11.2, décision D83) : visibilité MESURÉE par l'exécutant — ``visibilite`` (``git ls-remote``
+    anonyme : accepté ``public``, refusé ``prive``, sinon ``inconnue``), ``lecture`` (le même avec le jeton de lecture :
+    ``ok``, ``refusee``, ``inconnue``) et ``verifie_le``. Trois champs FACULTATIFS : un inventaire de P5 ou P6 (alias
+    seul) reste valide, et un dépôt non mesuré se sérialise toujours ``{"alias": …}`` (forme envoyée inchangée pour un
+    greffon de P6, qui refuse tout champ inconnu). Une mesure porte sa date. Le greffon ne prête la voie Codex qu'à un
+    dépôt mesuré ``prive`` ET ``ok`` (``routage.voies_fermees``)."""
 
     alias: str
+    visibilite: Optional[Literal["public", "prive", "inconnue"]] = None
+    lecture: Optional[Literal["ok", "refusee", "inconnue"]] = None
+    verifie_le: Optional[datetime] = None
 
     @field_validator("alias", mode="before")
     @classmethod
     def _alias(cls, valeur: Any) -> str:
         return _texte(valeur, champ="alias", maximum=32, motif=ALIAS_DEPOT)
+
+    @field_validator("visibilite", mode="before")
+    @classmethod
+    def _visibilite(cls, valeur: Any) -> Optional[str]:
+        return None if valeur is None else _choix(valeur, champ="visibilite", admis=VISIBILITES_DEPOT)
+
+    @field_validator("lecture", mode="before")
+    @classmethod
+    def _lecture(cls, valeur: Any) -> Optional[str]:
+        return None if valeur is None else _choix(valeur, champ="lecture", admis=LECTURES_DEPOT)
+
+    @field_validator("verifie_le", mode="before")
+    @classmethod
+    def _verifie_le(cls, valeur: Any) -> Optional[datetime]:
+        return None if valeur is None else _instant(valeur, champ="verifie_le")
+
+    @model_validator(mode="after")
+    def _mesure_datee(self) -> "Depot":
+        if (self.visibilite is not None or self.lecture is not None) and self.verifie_le is None:
+            raise ValueError("« verifie_le » : une visibilité ou une lecture mesurée porte sa date")
+        if self.verifie_le is not None and (self.visibilite is None or self.lecture is None):
+            raise ValueError("« verifie_le » : une mesure donne la visibilité ET la lecture")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _sans_mesure_absente(self, suivant: Any) -> Dict[str, Any]:
+        donnees = suivant(self)
+        if isinstance(donnees, dict):
+            for cle in _MESURE_DEPOT:
+                if donnees.get(cle) is None:
+                    donnees.pop(cle, None)
+        return donnees
 
 
 ORIGINES_LISTE = ("compte", "catalogue_embarque", "identique_au_catalogue_embarque", "alias_documentes", "aucune")

@@ -94,6 +94,9 @@ ARGUMENTS_TEMOINS: Dict[str, Dict[str, Any]] = {
     "routage_surcharger": {"portee": "projet", "cible": "p_inconnu", "classe": "recherche_web", "voie": "hermes",
                            "motif": "témoin"},
     "memory": {"action": "add", "target": "memory", "content": "témoin ACP P4"},
+    # Étape P7, part D : une question au propriétaire par l'outil clarify (discussion réduite d'ACP), en lot d'une
+    # question avec deux choix ; le résultat (réponse du propriétaire) revient au modèle, qui répond alors « fin ».
+    "clarify": {"questions": [{"question": "Quel nom donner au module ?", "choices": ["outil.py", "module.py"]}]},
 }
 
 

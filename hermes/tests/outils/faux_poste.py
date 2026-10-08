@@ -103,6 +103,14 @@ def _porteur(valeur: str | None) -> str | None:
     raise SystemExit(f"porteur inconnu : {valeur}")
 
 
+def mesurer_depots(inventaire: dict, quand: str) -> None:
+    """Étape P7 (cahier P7 § 11.2) : visibilité MESURÉE de chaque dépôt, comme la publie un poste de P7 (dépôt jetable
+    privé, lu avec le jeton de lecture) ; sans elle, le greffon ferme la voie Codex sur ce dépôt."""
+    for liste in [inventaire["depots"]] + [r["depots"] for r in inventaire["releves"]]:
+        for depot in liste:
+            depot.update(visibilite="prive", lecture="ok", verifie_le=quand)
+
+
 def inventaire_de_l_exemple() -> dict:
     inventaire = json.loads((FIXTURES / "inventaire_requete.json").read_text(encoding="utf-8"))
     quand = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -112,6 +120,7 @@ def inventaire_de_l_exemple() -> dict:
         releve["releve_le"] = quand
         for compteur in releve["compteurs"]:
             compteur["observed_at"] = quand
+    mesurer_depots(inventaire, quand)
     return inventaire
 
 

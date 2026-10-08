@@ -8,7 +8,7 @@ import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { h, useState, type Noeud } from "../react";
 import { Bouton, Etiquette, Horodatage, RetourEnvoi } from "../projets/briques";
 import { useEnvoi } from "../projets/envoi";
-import { useSondage } from "../projets/sondage";
+import { useDonnees } from "../donnees";
 import { accepterReleve, lireRoutage, refusDeLaTable, validerTable } from "./api";
 import { EditeurClasse } from "./EditeurClasse";
 import { libelleBadge, libelleClasse, libelleVoie } from "./libelles";
@@ -174,7 +174,7 @@ function Resolutions(props: { resolutions: ResolutionObservee[] }): Noeud {
 }
 
 export function Routage(props: { jeton: number; apres: () => void }): Noeud {
-  const lecture = useSondage(lireRoutage, props.jeton);
+  const lecture = useDonnees(lireRoutage, props.jeton, ["quotas", "poste"]);
   const vue = lecture.valeur;
   if (vue === null) {
     return lecture.erreur === null ? <EnChargement /> : <BlocErreur erreur={lecture.erreur} message={T.poste.indisponible} />;

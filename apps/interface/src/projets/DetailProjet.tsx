@@ -3,12 +3,16 @@
 // « Modèle servi : Non observé » avant P6, résumé replié : un extrait le DIT, et « Lire le résumé en entier »
 // appelle GET /v1/projets/{id}/cartes/{carte}), tours et décisions, questions en attente, journal en français
 // (détail technique replié) ; « Mettre en pause » et « Reprendre » appellent les routes réelles.
+// Étape P7 : « Qui répond » se change à tout moment pour un projet sur dépôt (POST /v1/projets/{id}/reponses : vaut
+// pour les questions SUIVANTES ; rien ne change à l'écran avant la réponse de l'API), et « Clore le projet »
+// (POST /v1/projets/{id}/clore) après une confirmation qui dit exactement ce que fait la clôture.
+import type * as ReactTypes from "react";
 import { T } from "../chaines";
 import { Carte, Donnee, EnChargement, Ligne } from "../commun";
 import { nombre } from "../format";
 import { h, useState, type Noeud } from "../react";
 import { chaine, listeDeChaines } from "../types";
-import { lireCarte, lireProjet, pauseProjet, repriseProjet } from "./api";
+import { changerReponses, clore, lireCarte, lireProjet, pauseProjet, repriseProjet } from "./api";
 import { BlocRefus, Bouton, EtatDuPoste, Etiquette, Horodatage, LienVue, RetourEnvoi, type Naviguer } from "./briques";
 import { useEnvoi } from "./envoi";
 import {
@@ -26,11 +30,163 @@ import {
   ORDRE_DES_ROLES,
 } from "./libelles";
 import { Avancement } from "./ListeProjets";
-import { useSondage } from "./sondage";
-import type { CarteLue, CarteProjet, DetailProjet as Detail, ListeProjets, ReponseDetail } from "./types";
+import { useDonnees } from "../donnees";
+import type {
+  CarteLue,
+  CarteProjet,
+  DetailProjet as Detail,
+  ListeProjets,
+  ReponseDetail,
+  ResultatCloture,
+  ResultatReglageReponses,
+} from "./types";
+
+const ETATS_REGLABLES = ["creation", "actif", "en_pause"];
+type Reponses = "hermes_d_abord" | "proprietaire";
 
 function Libre(props: { texte: string | null; brut: unknown; mono?: boolean }): Noeud {
   return props.texte ? <span>{props.texte}</span> : <Donnee valeur={chaine(props.brut)} mono={props.mono} />;
+}
+
+/** « Qui répond » modifiable (cahier P7 § 4.2) : projet sur dépôt, pas encore fini. Le choix n'apparaît qu'après la
+ *  réponse de l'API ; le message dit combien de questions ouvertes gardent leur traitement. */
+function ChangerQuiRepond(props: { projet: Detail; apres: () => void }): Noeud {
+  const { projet } = props;
+  const id = chaine(projet.id);
+  const actuel: Reponses = projet.reponses === "proprietaire" ? "proprietaire" : "hermes_d_abord";
+  const [ouvert, fixerOuvert] = useState(false);
+  const [choix, fixerChoix] = useState<Reponses>(actuel);
+  const envoi = useEnvoi<ResultatReglageReponses>();
+  const reglable = Boolean(id) && Boolean(chaine(projet.depot)) && ETATS_REGLABLES.includes(String(projet.etat));
+  if (!reglable && envoi.etat.etat !== "ok") return null;
+  const enregistrer = async (evenement: ReactTypes.FormEvent) => {
+    evenement.preventDefault();
+    if (!id) return;
+    if ((await envoi.envoyer(() => changerReponses(id, choix))) !== null) {
+      fixerOuvert(false);
+      props.apres();
+    }
+  };
+  const resultat = envoi.etat.etat === "ok" ? envoi.etat.resultat : null;
+  return (
+    <div className="acp-groupe">
+      {ouvert ? (
+        <form className="acp-formulaire" onSubmit={(e: ReactTypes.FormEvent) => void enregistrer(e)}>
+          <div className="acp-champ">
+            <label htmlFor="acp-projet-qui-repond">{T.projets.quiRepondSuivantes}</label>
+            <select
+              id="acp-projet-qui-repond"
+              value={choix}
+              onChange={(e: ReactTypes.ChangeEvent<HTMLSelectElement>) => fixerChoix(e.target.value as Reponses)}
+            >
+              <option value="hermes_d_abord">{T.projets.reponsesHermes}</option>
+              <option value="proprietaire">{T.projets.reponsesProprietaire}</option>
+            </select>
+          </div>
+          <p className="acp-discret">{T.projets.quiRepondAide}</p>
+          <div className="acp-actions">
+            <Bouton type="submit" principal libelle={T.projets.enregistrer} desactive={envoi.etat.etat === "envoi"} />
+            <Bouton libelle={T.projets.annuler} surClic={() => fixerOuvert(false)} />
+          </div>
+        </form>
+      ) : reglable ? (
+        <div className="acp-actions">
+          <Bouton
+            libelle={T.projets.changerQuiRepond}
+            surClic={() => {
+              envoi.oublier();
+              fixerChoix(actuel);
+              fixerOuvert(true);
+            }}
+          />
+        </div>
+      ) : null}
+      {resultat ? (
+        <p className="acp-succes" role="status">
+          <span>{T.projets.reglageEnregistre}</span>{" "}
+          <Donnee valeur={nombre(resultat.questions_ouvertes_inchangees)} />
+        </p>
+      ) : (
+        <RetourEnvoi etat={envoi.etat} />
+      )}
+    </div>
+  );
+}
+
+/** « Clore le projet » (cahier P7 § 10) : projet actif ou en pause ; la confirmation dit exactement ce que fait la
+ *  clôture ; le résultat vient de la réponse de l'API (état atteint, cartes archivées, questions annulées, branches
+ *  restées sur l'exécutant). */
+function Cloture(props: { projet: Detail; apres: () => void }): Noeud {
+  const { projet } = props;
+  const id = chaine(projet.id);
+  const [confirmation, fixerConfirmation] = useState(false);
+  const envoi = useEnvoi<ResultatCloture>();
+  const ouvert = projet.etat === "actif" || projet.etat === "en_pause";
+  const resultat = envoi.etat.etat === "ok" ? envoi.etat.resultat : null;
+  if (!id || (!ouvert && resultat === null)) return null;
+  const confirmer = async () => {
+    if ((await envoi.envoyer(() => clore(id))) !== null) {
+      fixerConfirmation(false);
+      props.apres();
+    }
+  };
+  const branches = listeDeChaines(resultat?.branches_rapportees);
+  return (
+    <div className="acp-groupe">
+      {resultat ? (
+        <div className="acp-succes" role="status">
+          <p>{resultat.etat === "termine" ? T.projets.closTermine : T.projets.closAbandonne}</p>
+          <p>
+            <span>{T.projets.cartesArchivees}</span> <Donnee valeur={listeDeChaines(resultat.cartes_archivees).length} />
+            <span> {T.commun.separateur} </span>
+            <span>{T.projets.questionsAnnulees}</span> <Donnee valeur={nombre(resultat.questions_annulees)} />
+          </p>
+          {branches.length > 0 ? (
+            <div>
+              <p>{T.projets.branchesRestent}</p>
+              <ul className="acp-noms">
+                {branches.map((b) => (
+                  <li key={b}>
+                    <Donnee valeur={b} mono />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : confirmation ? (
+        <div className="acp-confirmation" role="group" aria-labelledby="acp-clore-question">
+          <p id="acp-clore-question">{T.projets.cloreQuestion}</p>
+          <ul className="acp-noms">
+            <li>{T.projets.clorePoint1}</li>
+            <li>{T.projets.clorePoint2}</li>
+            <li>{T.projets.clorePoint3}</li>
+            <li>{T.projets.clorePoint4}</li>
+          </ul>
+          <div className="acp-actions">
+            <Bouton
+              libelle={T.projets.cloreConfirmer}
+              danger
+              surClic={() => void confirmer()}
+              desactive={envoi.etat.etat === "envoi"}
+            />
+            <Bouton
+              libelle={T.projets.annuler}
+              surClic={() => {
+                fixerConfirmation(false);
+                envoi.oublier();
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="acp-actions">
+          <Bouton libelle={T.projets.clore} danger surClic={() => fixerConfirmation(true)} />
+        </div>
+      )}
+      {resultat ? null : <RetourEnvoi etat={envoi.etat} />}
+    </div>
+  );
 }
 
 function EnTete(props: { projet: Detail; liste: ListeProjets | null; apres: () => void }): Noeud {
@@ -74,7 +230,11 @@ function EnTete(props: { projet: Detail; liste: ListeProjets | null; apres: () =
           {projet.depot === null ? <span>{T.projets.sansDepot}</span> : <Donnee valeur={chaine(projet.depot)} mono />}
         </Ligne>
         <Ligne libelle={T.projets.reponses}>
-          <Libre texte={libelleReponses(projet.reponses)} brut={projet.reponses} mono />
+          {chaine(projet.depot) ? (
+            <Libre texte={libelleReponses(projet.reponses)} brut={projet.reponses} mono />
+          ) : (
+            <span>{T.projets.reponsesSansObjetCourt}</span>
+          )}
         </Ligne>
         <Ligne libelle={T.projets.poste}>
           <EtatDuPoste poste={props.liste?.poste} />
@@ -110,6 +270,8 @@ function EnTete(props: { projet: Detail; liste: ListeProjets | null; apres: () =
         </div>
       ) : null}
       <RetourEnvoi etat={envoi.etat} />
+      <ChangerQuiRepond projet={projet} apres={props.apres} />
+      <Cloture projet={projet} apres={props.apres} />
     </section>
   );
 }
@@ -289,7 +451,7 @@ function QuestionsDuProjet(props: { projet: Detail; naviguer: Naviguer }): Noeud
       <ul className="acp-noms">
         {questions.map((q, rang) => (
           <li key={chaine(q.id) ?? String(rang)} className="acp-question-courte">
-            <Etiquette libelle={libelleEtatQuestion(q.etat)} brut={q.etat} />
+            <Etiquette libelle={libelleEtatQuestion(q.etat, q.chez)} brut={q.etat} />
             <p className="acp-texte-long">
               <Donnee valeur={chaine(q.texte)} />
             </p>
@@ -351,7 +513,7 @@ export function DetailProjet(props: {
   naviguer: Naviguer;
   apres: () => void;
 }): Noeud {
-  const sondage = useSondage<ReponseDetail>(() => lireProjet(props.id), props.jeton);
+  const sondage = useDonnees<ReponseDetail>(() => lireProjet(props.id), props.jeton, ["projets", "questions", "pause"]);
   const projet = sondage.valeur?.projet ?? null;
   return (
     <div className="acp-sections">

@@ -57,6 +57,36 @@
   }
 }
 
+/* Étape P7 : Accueil, même ordre à toutes les largeurs (une colonne à 390 px, trois au bureau). */
+.acp-grille--accueil {
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+
+@media (min-width: 768px) {
+  .acp-grille--accueil {
+    grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+  }
+}
+
+.acp-chiffre {
+  margin: 0;
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 700;
+}
+
+.acp-projet-court {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-projet-court:last-child {
+  border-bottom: 0;
+}
+
 .acp-sections {
   display: flex;
   flex-direction: column;
@@ -79,6 +109,13 @@
 .acp-entree {
   background: var(--color-secondary, var(--color-card));
   color: var(--color-secondary-foreground, var(--color-card-foreground));
+}
+
+/* Étape P7 : demande ciblée par le lien profond d'une notification (aria-current), marquée sans dépendre de la
+   couleur seule : bordure épaissie. */
+.acp-entree--cible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
 }
 
 .acp-carte__titre,
@@ -719,4 +756,82 @@
   width: 3px;
   margin-left: -1px;
   background: var(--color-warning, var(--color-muted-foreground));
+}
+
+/* Étape P7, part D : discussion réduite (greffon acp-discussion). Texte brut, retours à la ligne gardés. */
+.acp-fil {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acp-bulle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  box-sizing: border-box;
+}
+
+.acp-bulle--utilisateur {
+  align-self: flex-end;
+  max-width: 90%;
+  border-color: var(--color-primary);
+}
+
+.acp-bulle--hermes {
+  align-self: flex-start;
+  max-width: 95%;
+  background: var(--color-secondary, var(--color-card));
+  color: var(--color-secondary-foreground, var(--color-card-foreground));
+}
+
+.acp-bulle--outil {
+  display: block;
+  align-self: flex-start;
+  padding: 4px 12px;
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+
+.acp-bulle--erreur {
+  border-color: var(--color-destructive);
+}
+
+.acp-bulle__auteur {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+.acp-bulle__texte {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.acp-choix-bouton {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  height: auto;
+  padding: 8px 16px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.acp-choix-bouton[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+
+.acp-choix-bouton[aria-pressed="true"] .acp-discret {
+  color: inherit;
 }

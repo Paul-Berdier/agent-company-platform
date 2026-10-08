@@ -17,6 +17,19 @@ Dépôt privé : ``GIT_ASKPASS=/opt/acp/bin/acp-askpass`` ; le jeton **de lectur
 l'environnement d'un agent. Droits : clone nu root 0755 (aucun agent n'y écrit d'objet ni ne déplace de référence) ;
 dossier d'une carte ``root:acp-travail`` 2770 et fichiers en ``g+w`` pendant son tour, ``0700 root:root`` hors de son
 tour (§ 3.3, correction n° 21).
+
+Étape P7 (cahier P7 § 11.2, décision P7-11) : **visibilité mesurée** d'un dépôt (:meth:`Depots.visibilite`). Un
+``git ls-remote --heads`` **sans aucun identifiant** (même environnement et mêmes options que toute commande, invites
+fermées, ``credential.helper`` vide, délai de 30 s) : accepté → ``public`` ; refusé par un motif d'authentification
+reconnu de git (code 128) → ``prive`` ; tout le reste (délai, réseau, certificat, 403, 500, motif inconnu) →
+``inconnue``. Puis la lecture que l'exécutant fera réellement : avec le jeton de lecture (``acp-askpass``) pour un
+dépôt ``jeton_lecture`` → ``ok`` | ``refusee`` | ``inconnue``. La voie Codex n'est ouverte que sur ``prive`` ET ``ok``
+(:mod:`acp_poste.execution`). Rien de la sortie de git (que le serveur distant peut composer) n'est repris : seuls des
+messages français composés ici.
+
+Étape P7 (correction K25) : une carte dont la branche a été mise en **quarantaine** (secret détecté) n'est jamais
+reprise sur son worktree : :meth:`Depots.worktree` le retire et repart du départ de la carte ; la branche
+``quarantaine/<carte>`` reste, jamais intégrée ni poussée.
 """
 
 from __future__ import annotations
@@ -25,15 +38,19 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from acp_poste_contrat.inventaire import ALIAS_DEPOT as ALIAS
 from acp_poste_contrat.machine import BRANCHE_CARTE, BRANCHE_PROJET, branche_git_valide
+
+from .balayage import secret_dans
 
 GIT = "git"
 GROUPE_TRAVAIL = 10100
@@ -44,10 +61,75 @@ ASKPASS = "/opt/acp/bin/acp-askpass"
 VARIABLE_JETON = "ACP_JETON_LECTURE"
 PATH_GIT = "/usr/local/bin:/usr/bin:/bin"
 _SHA = re.compile(r"[0-9a-f]{40}")
+DELAI_VISIBILITE_S = 30.0
+CODE_FATAL_GIT = 128
+STDERR_VISIBILITE_MAX = 64 * 1024
+# Messages composés par git LUI-MÊME (jamais par le serveur : les lignes du serveur sont préfixées « remote: »), relevés
+# sur git 2.47.3, la version épinglée dans executant/Dockerfile, contre un faux serveur HTTPS
+# (apps/poste/tests/test_visibilite.py) : invite d'identifiant refusée (aucun identifiant fourni), identifiants
+# refusés par le serveur (401 après le jeton), dépôt « introuvable » (404 : GitHub répond ainsi à un dépôt privé hors
+# de portée du jeton comme à un dépôt inexistant). Tout autre message → « inconnue » (échec fermé).
+MOTIFS_REFUS_GIT = (
+    re.compile(r"^fatal: could not read (?:Username|Password) for '[^'\n]*': terminal prompts disabled$", re.M),
+    re.compile(r"^fatal: Authentication failed for '[^'\n]*'$", re.M),
+    re.compile(r"^fatal: repository '[^'\n]*' not found$", re.M),
+)
 
 
 class ErreurDepot(RuntimeError):
     """Opération git refusée ou en échec (message français, sans URL ni jeton)."""
+
+
+@dataclass(frozen=True)
+class Visibilite:
+    """Visibilité MESURÉE d'un dépôt (cahier P7 § 11.2) : ``visibilite`` (``public``, ``prive``, ``inconnue``),
+    ``lecture`` (``ok``, ``refusee``, ``inconnue``), ``verifie_le`` et ``raison`` (phrase française composée ici, pour
+    le journal ; jamais l'URL, le jeton ni une sortie de git). Publiée dans l'inventaire par :meth:`contrat`."""
+
+    visibilite: str
+    lecture: str
+    verifie_le: datetime
+    raison: str
+
+    @property
+    def codex_admis(self) -> bool:
+        """D83 : Codex (compte ChatGPT) seulement sur un dépôt prouvé privé ET lu avec le jeton."""
+        return self.visibilite == "prive" and self.lecture == "ok"
+
+    def contrat(self) -> dict[str, str]:
+        return {"visibilite": self.visibilite, "lecture": self.lecture,
+                "verifie_le": self.verifie_le.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
+@dataclass(frozen=True)
+class SortieLsRemote:
+    """Issue d'un ``git ls-remote`` : ``code`` (``None`` : délai dépassé ou git impossible à lancer) et ``refus``
+    (un motif d'authentification reconnu dans la sortie d'erreur, code 128)."""
+
+    code: int | None
+    refus: bool
+    delai: bool = False
+
+
+def classer_ls_remote(code: int | None, erreur: bytes) -> SortieLsRemote:
+    """Code et sortie d'erreur d'un ``git ls-remote`` → :class:`SortieLsRemote` (seuls les motifs de git comptent)."""
+    if code != CODE_FATAL_GIT:
+        return SortieLsRemote(code=code, refus=False)
+    texte = erreur[:STDERR_VISIBILITE_MAX].decode("utf-8", "replace").replace("\r\n", "\n")
+    return SortieLsRemote(code=code, refus=any(motif.search(texte) for motif in MOTIFS_REFUS_GIT))
+
+
+def _raison_ls_remote(objet: str, sortie: SortieLsRemote, delai_s: float, *, accepte: str, refuse: str) -> str:
+    """Phrase française d'une mesure (jamais la sortie de git, que le serveur distant peut composer)."""
+    if sortie.code == 0:
+        return f"{objet} {accepte}"
+    if sortie.refus:
+        return f"{objet} {refuse}"
+    if sortie.delai:
+        return f"{objet} : délai de {delai_s:g} s dépassé"
+    if sortie.code is None:
+        return f"{objet} : git impossible à lancer"
+    return f"{objet} : réponse de git non reconnue (code {sortie.code})"
 
 
 def options_git(protocoles: Sequence[str] = ("https",), *, liens_symboliques: bool = False) -> list[str]:
@@ -181,6 +263,14 @@ class Depots:
         self.preparer_racines()
         nu = self.nu(depot.alias)
         env = self._env_fetch(depot.acces)
+        if (nu / "HEAD").is_file():
+            # Étape P7 (relecture indépendante de la partie E) : la visibilité est mesurée sur l'URL de la politique ;
+            # un clone nu d'une AUTRE URL (alias réaffecté par une PR) ne doit jamais être récupéré à sa place.
+            origine = self.git("config", "--get", "remote.origin.url", git_dir=nu, verifier=False)
+            if origine.decode("utf-8", "replace").strip() != depot.url:
+                raise ErreurDepot(f"Le clone nu du dépôt « {depot.alias} » vient d'une autre URL que la politique : "
+                                  "récupération refusée ; retirez ce clone (/donnees/depots, session railway ssh) "
+                                  "après avoir récupéré ses branches.")
         if not (nu / "HEAD").is_file():
             if nu.exists():
                 shutil.rmtree(nu)
@@ -191,6 +281,74 @@ class Depots:
                  git_dir=nu, env=env, delai_s=DELAI_FETCH_S)
         self.verrouiller_nu(nu)
         return nu
+
+    # ------------------------------------------------------------------ visibilité mesurée (étape P7, § 11.2)
+    def _ls_remote(self, url: str, env: dict[str, str], delai_s: float) -> SortieLsRemote:
+        """``git ls-remote --heads -- <url>`` avec les options imposées ; sortie standard jetée, sortie d'erreur lue pour
+        ses seuls motifs. Lancé DEPUIS la racine des clones (root, jamais un dépôt) : git ne lit la configuration
+        d'aucun dépôt rencontré dans le dossier courant (un ``http.extraHeader`` ou un mandataire y détournerait le
+        jeton). Délai dépassé : tout le groupe de processus est tué (``git-remote-https`` compris)."""
+        argv = [GIT, *options_git(self.protocoles), "ls-remote", "--heads", "--", url]
+        posix = os.name == "posix"
+        try:
+            self.racine_depots.mkdir(parents=True, exist_ok=True)
+            processus = subprocess.Popen(argv, cwd=str(self.racine_depots), env=self._env(env),
+                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                         start_new_session=posix)
+        except OSError:
+            return SortieLsRemote(code=None, refus=False)
+        try:
+            _sortie, erreur = processus.communicate(timeout=delai_s)
+        except subprocess.TimeoutExpired:
+            try:
+                if posix:
+                    os.killpg(processus.pid, signal.SIGKILL)
+                else:
+                    processus.kill()
+            except OSError:
+                pass
+            try:
+                processus.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            return SortieLsRemote(code=None, refus=False, delai=True)
+        return classer_ls_remote(processus.returncode, erreur or b"")
+
+    def visibilite(self, depot: Any, *, delai_s: float = DELAI_VISIBILITE_S,
+                   horloge: Callable[[], datetime] | None = None) -> Visibilite:
+        """Visibilité mesurée de ``depot`` (cahier P7 § 11.2) : accès ANONYME (``GIT_ASKPASS=/bin/false``, aucun
+        jeton dans l'environnement), puis la lecture que l'exécutant fera vraiment — avec le jeton de lecture
+        (``acp-askpass``, variable ``ACP_JETON_LECTURE``, jamais l'argv) pour un dépôt ``jeton_lecture``, sans
+        identifiant pour un dépôt déclaré ``public``. Ne lève jamais : un échec se dit ``inconnue``."""
+        anonyme = self._ls_remote(depot.url, {}, delai_s)
+        visibilite = "public" if anonyme.code == 0 else "prive" if anonyme.refus else "inconnue"
+        raisons = [_raison_ls_remote("accès anonyme", anonyme, delai_s, accepte="accepté (dépôt public)",
+                                     refuse="refusé (authentification demandée)")]
+        if getattr(depot, "acces", None) == "jeton_lecture":
+            jeton = self.jeton_lecture()
+            if not jeton:
+                lecture = "inconnue"
+                raisons.append("jeton de lecture absent : déposez-le par « acp-poste connexion github --stdin » (D92)")
+            else:
+                avec = self._ls_remote(depot.url, {"GIT_ASKPASS": self.askpass, VARIABLE_JETON: jeton}, delai_s)
+                lecture = "ok" if avec.code == 0 else "refusee" if avec.refus else "inconnue"
+                raisons.append(_raison_ls_remote("lecture avec le jeton", avec, delai_s, accepte="acceptée",
+                                                 refuse="refusée"))
+                if visibilite == "prive" and lecture == "ok":
+                    # La mesure n'est pas atomique : un refus anonyme passager suivi d'une lecture réussie ferait
+                    # passer pour privé un dépôt lisible sans identifiant. L'accès anonyme est REFAIT après la lecture :
+                    # « prive » exige deux refus (relecture indépendante de la partie E).
+                    second = self._ls_remote(depot.url, {}, delai_s)
+                    if not second.refus:
+                        visibilite = "public" if second.code == 0 else "inconnue"
+                        raisons.append(_raison_ls_remote("second accès anonyme", second, delai_s,
+                                                         accepte="accepté (dépôt lisible sans identifiant)",
+                                                         refuse="refusé"))
+        else:
+            # Dépôt déclaré « public » : l'exécutant le lit sans identifiant ; sa lecture mesurée est l'accès anonyme.
+            lecture = "ok" if anonyme.code == 0 else "refusee" if anonyme.refus else "inconnue"
+        instant = (horloge or (lambda: datetime.now(UTC)))()
+        return Visibilite(visibilite=visibilite, lecture=lecture, verifie_le=instant, raison=" ; ".join(raisons) + ".")
 
     def verrouiller_nu(self, nu: Path) -> None:
         """Clone nu root, aucun droit d'écriture pour le groupe ni les autres (les agents n'y écrivent rien)."""
@@ -222,7 +380,12 @@ class Depots:
     # ------------------------------------------------------------------ worktree d'une carte
     def worktree(self, depot: Any, nom: str, branche: str, depart: str, *, liens_symboliques: bool = False) -> Path:
         """Worktree ``espaces/<alias>/<nom>`` sur la branche ``branche``, créée depuis ``depart`` ; gardé s'il existe
-        (reprise). ``depart`` : branche locale d'une carte parente (``hermes/<carte>``) ou ``origin/<base>``."""
+        (reprise). ``depart`` : branche locale d'une carte parente (``hermes/<carte>``) ou ``origin/<base>``.
+
+        Étape P7 (correction K25) : un worktree gardé n'est repris que s'il est posé sur ``branche`` (``HEAD`` lu dans
+        son gitdir, root, jamais dans le ``.git`` du dossier). Après la mise en quarantaine d'un secret, il est posé sur
+        ``quarantaine/<carte>`` : il est retiré, et la carte repart de ``depart`` sur une branche neuve, sans le commit
+        fautif (la branche de quarantaine reste, jamais intégrée ni poussée)."""
         if not (BRANCHE_CARTE.fullmatch(branche) or BRANCHE_PROJET.fullmatch(branche)):
             raise ErreurDepot("Branche d'une carte refusée (hermes/<carte> ou hermes/projet-<slug> attendu).")
         if not branche_git_valide(depart.removeprefix("origin/")):
@@ -231,7 +394,9 @@ class Depots:
         chemin = self.espace(depot.alias, nom)
         gitdir = self.gitdir_du_worktree(depot.alias, nom)
         if chemin.exists() and gitdir.is_dir():
-            return chemin
+            if self.branche_du_worktree(depot.alias, nom) == branche:
+                return chemin
+            self.retirer_worktree(depot.alias, nom)
         chemin.parent.mkdir(parents=True, exist_ok=True)
         if self.droits:
             os.chown(chemin.parent, 0, GROUPE_TRAVAIL)
@@ -246,6 +411,13 @@ class Depots:
                      liens_symboliques=liens_symboliques)
         self.verrouiller_nu(nu)
         return chemin
+
+    def branche_du_worktree(self, alias: str, nom: str) -> str | None:
+        """Branche sur laquelle le worktree ``nom`` est posé, lue dans son gitdir (root) ; ``None`` si illisible ou
+        détaché."""
+        sortie = self.git("symbolic-ref", "-q", "HEAD", git_dir=self.gitdir_du_worktree(alias, nom), verifier=False)
+        texte = sortie.decode("utf-8", "replace").strip()
+        return texte.removeprefix("refs/heads/") if texte.startswith("refs/heads/") else None
 
     def ouvrir_tour(self, chemin: Path) -> None:
         """Pendant le tour de la carte : ``root:acp-travail``, dossiers 2770 (setgid), fichiers ``g+w``."""
@@ -295,6 +467,37 @@ class Depots:
                   if ligne.startswith("+") and not ligne.startswith("+++")]
         return "\n".join(lignes)
 
+    def lignes_ajoutees_non_poussees(self, alias: str, nom: str | None = None, *, branche: str | None = None) -> str:
+        """Lignes ajoutées par CHAQUE commit absent du dépôt distant (``<tête> --not --remotes``) : celui du worktree
+        ``nom`` (HEAD), ou la ``branche`` du clone nu. Relecture finale de P7 (défaut (a) de P6) : le diff cumulé de la
+        carte ne voit pas un secret commité puis retiré (commit « wip », commit fait par l'agent lui-même) ; l'historique
+        part pourtant entier dans l'intégration (``merge --no-ff``) et dans ``git bundle``.
+
+        Commits ordinaires : leur propre diff. Fusions : le diff combiné (``--cc``), dont on garde les lignes que le
+        résultat ajoute sans en retirer (une fusion propre n'en a aucune ; une résolution de conflit, si)."""
+        if nom is not None:
+            lieu, tete = self._wt(alias, nom), "HEAD"
+        elif branche is not None:
+            lieu, tete = {"git_dir": self.nu(alias)}, f"refs/heads/{branche}"
+        else:
+            raise ErreurDepot("Historique à balayer non désigné.")
+        options = ("log", "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--format=")
+        simples = self.git(*options, "--no-merges", tete, "--not", "--remotes", "--", **lieu)
+        lignes = [ligne[1:] for ligne in simples.decode("utf-8", "replace").splitlines()
+                  if ligne.startswith("+") and not ligne.startswith("+++")]
+        fusions = self.git(*options, "--merges", "--cc", tete, "--not", "--remotes", "--", **lieu)
+        parents = 0
+        for ligne in fusions.decode("utf-8", "replace").splitlines():
+            if ligne.startswith("diff "):
+                parents = 0
+            elif ligne.startswith("@@"):
+                parents = len(ligne) - len(ligne.lstrip("@")) - 1
+            elif parents > 0:
+                prefixe = ligne[:parents]
+                if "+" in prefixe and "-" not in prefixe:
+                    lignes.append(ligne[parents:])
+        return "\n".join(lignes)
+
     def committer(self, alias: str, nom: str, message: str) -> str | None:
         """Commit local du superviseur (aucun crochet, aucune signature, aucun trailer) ; ``None`` si rien n'a changé."""
         wt = self._wt(alias, nom)
@@ -328,9 +531,11 @@ class Depots:
         return brut[:maximum].decode("utf-8", "replace")
 
     def quarantaine(self, alias: str, nom: str, branche: str) -> str:
-        """Renomme ``hermes/<carte>`` en ``quarantaine/<carte>`` (jamais intégrée, jamais poussée)."""
+        """Renomme ``hermes/<carte>`` en ``quarantaine/<carte>`` (jamais intégrée, jamais poussée) ; depuis le worktree
+        s'il existe (son HEAD suit le renommage), sinon dans le clone nu."""
         cible = "quarantaine/" + branche.removeprefix("hermes/")
-        self.git("branch", "-M", branche, cible, **self._wt(alias, nom))
+        lieu = self._wt(alias, nom) if self.gitdir_du_worktree(alias, nom).is_dir() else {"git_dir": self.nu(alias)}
+        self.git("branch", "-M", branche, cible, **lieu)
         return cible
 
     # ------------------------------------------------------------------ intégration (§ 6.7)
@@ -357,14 +562,24 @@ class Depots:
         return []
 
     # ------------------------------------------------------------------ bundle (§ 12.2)
-    def bundle(self, alias: str, branche: str) -> tuple[Path, str, str]:
-        """``git bundle create`` de ``branche`` (root, 0600) : (fichier, SHA-256 du fichier, tête)."""
+    def bundle(self, alias: str, branche: str, *, valeurs_exactes: dict[str, str] | None = None
+               ) -> tuple[Path, str, str]:
+        """``git bundle create`` de ``branche`` (root, 0600) : (fichier, SHA-256 du fichier, tête).
+
+        Relecture finale de P7 (défaut (a) de P6) : un bundle emballe TOUT l'historique de la branche ; il est refusé si
+        un commit absent du dépôt distant porte un secret (motifs du contrat partagé, et ``valeurs_exactes`` du coffre),
+        même retiré depuis. Rien n'est écrit ; le message ne porte jamais la valeur."""
         if not (BRANCHE_PROJET.fullmatch(branche) or BRANCHE_CARTE.fullmatch(branche)):
             raise ErreurDepot("Branche refusée : seules hermes/projet-<slug> et hermes/<carte> se récupèrent.")
         nu = self.nu(alias)
         tete = self.sha(nu, f"refs/heads/{branche}")
         if tete is None:
             raise ErreurDepot(f"Branche {branche} absente du dépôt {alias} sur l'exécutant.")
+        trouve = secret_dans([self.lignes_ajoutees_non_poussees(alias, branche=branche)], valeurs_exactes or {})
+        if trouve:
+            raise ErreurDepot(f"Bundle refusé : un secret ({trouve}) est dans l'historique de {branche} (commits absents "
+                              "du dépôt distant), même s'il a été retiré depuis ; rien n'est emballé. Examinez la "
+                              "branche sur l'exécutant avant toute récupération.")
         self.racine_bundles.mkdir(parents=True, exist_ok=True)
         os.chmod(self.racine_bundles, 0o700)
         fichier = self.racine_bundles / f"{alias}-{branche.split('/', 1)[1]}-{tete[:12]}.bundle"

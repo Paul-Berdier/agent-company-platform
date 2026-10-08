@@ -329,7 +329,8 @@ void TestTempsReel::serviceResumeSansFluxSse()
         QCOMPARE(requete.chemin, kProjets);
         QVERIFY(requete.entete("accept") != QByteArrayLiteral("text/event-stream"));
     }
-    QVERIFY(EventStreamService::etatFluxGreffon().startsWith(QStringLiteral("Non disponible sur ce serveur")));
+    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("absent"))
+                .startsWith(QStringLiteral("Non disponible sur ce serveur")));
 
     // Une page qui lit /v1/projets met le résumé à jour sans attendre.
     QJsonObject pause = Banc::liste();

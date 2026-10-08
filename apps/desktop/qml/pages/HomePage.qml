@@ -198,6 +198,17 @@ Item {
                         font.family: Type.tableCell.family
                         font.pixelSize: Type.tableCell.pixelSize
                     }
+                    // Relecture finale de P7 (constat desktop-5) : la station ne lit pas l'Accueil agrégé de P7.
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Questions ouvertes seulement : les décisions, revues et cartes arrêtées à traiter, "
+                                   + "et le canal de notifications, sont sur l'Accueil du navigateur.")
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Colors.textMuted
+                        font.family: Type.tableCell.family
+                        font.pixelSize: Type.tableCell.pixelSize
+                    }
                     AcpButton {
                         label: qsTr("Ouvrir les questions")
                         commandId: "navigation.questions"
@@ -209,7 +220,7 @@ Item {
                     objectName: "accueil-carte-poste"
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignTop
-                    titre: qsTr("Poste Windows")
+                    titre: Accueil.cartePoste.titre !== undefined ? Accueil.cartePoste.titre : qsTr("Exécutant")
                     cle: Accueil.cartePoste.cle
                     libelleEtat: Accueil.cartePoste.etat
                     lecture: Accueil.lectureProjets

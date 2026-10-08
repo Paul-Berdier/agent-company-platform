@@ -595,6 +595,189 @@ Référence : `docs/refonte/desktop.md`, `docs/native-desktop-architecture.md`, 
 - limites : rien n'est déployé (ni Railway ni vraie passkey) ; aucune installation sur Windows propre ; binaires non
   signés ; flux SSE, agrégat des demandes et gestes des revues attendent P6 et P7 ; MCP côté poste reporté après P6.
 
+### P7 — questions, notifications, continuité ; dépôts réels (réalisée côté dépôt, non fusionnée, non déployée)
+
+Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `docs/refonte/railway.md` § 14,
+`docs/refonte/projets.md` § 4 bis, § 4 ter, § 5 et § 13, `docs/refonte/interface.md` § 13 à § 15,
+`docs/reprise-poste.md` § 6 undecies ; décisions D93 à D121 **appliquées** (`plan.md`). Trois branches
+(`refonte/hermes-p7`, `-p7e`, `-p7f`), réunies sur `refonte/hermes-p7` par la fusion `e2d210b` (8 octobre 2026) ; PR
+à ouvrir après la relecture indépendante. Rien n'est déployé ; aucun dépôt réel n'est ajouté. Les entrées de la
+**partie E finale** (commits poussés sur `refonte/hermes-p7e` après le départ de la part F : `3b1cac9`, `e85c7e3`,
+`1f2574c`, `a41952f`, `9235999`, `a516890`) nomment leur commit.
+
+#### Ajouté
+
+- file Questions à **cinq sections** (questions, décisions, revues, cartes arrêtées, discussions en attente),
+  compteurs « À traiter par vous » et « Chez Hermes » (règle unique : chez Hermes seulement si la carte « répondre »
+  existe), liens profonds ciblés et marqués ;
+- routes du propriétaire : `POST /v1/cartes/{tableau}/{carte}/relancer` (consigne facultative, session neuve pour une
+  carte de l'exécutant), `POST /v1/projets/{id}/reponses` (qui répond, pour les questions suivantes),
+  `POST /v1/projets/{id}/clore` (archive, questions annulées, « terminé » seulement si la synthèse du tour est faite),
+  `GET /v1/accueil` (route agrégée) ; base du greffon au **schéma 4** ;
+- **flux d'invalidation** `GET /v1/flux` (SSE : noms de sujets, battement 15 s, fin 600 s, 8 flux au plus, 429 au-delà),
+  annoncé par `GET /v1/meta` (clés `flux` et `accueil`), et son client (un flux par onglet, relecture sur signal,
+  repli sur le sondage de 15 s) sur Projets, Questions, Poste et Accueil ; trames exemples partagées avec le desktop ;
+- **liens profonds** des notifications en paramètres de requête (chemin relatif en base, URL publique à l'envoi) ;
+  genre `bilan` ;
+- **bilan quotidien** facultatif : script `acp-bilan.py` de l'image, tâche cron **native** `no_agent` créée par le
+  propriétaire (carte « Bilan quotidien » de l'Accueil), une notification par jour de Paris, compteurs seulement ;
+  fuseau `Europe/Paris` épinglé ;
+- **Accueil** réécrit : à traiter, projets, exécutant, quotas, notifications et bilan, sessions, système, dans le même
+  ordre à toutes les largeurs ; les blocs du travail viennent de la route agrégée `/v1/accueil`, les sessions
+  (`/api/sessions`), le système (`/v1/meta`) et l'état du bilan (`/api/cron/jobs`) de leurs propres lectures ;
+- greffon d'interface **`acp-discussion`** : discussion réduite sur le JSON-RPC natif `/api/ws` (liste, reprise,
+  envoi, texte en flux, réponse aux questions de Hermes, interruption) ; canal commun à liste blanche des méthodes ;
+- exécutant : **visibilité mesurée** de chaque dépôt (`git ls-remote` anonyme puis avec le jeton), publiée dans
+  l'inventaire (champs facultatifs `visibilite`, `lecture`, `verifie_le` du contrat `Depot`) ; dépôts mesurés et voies
+  par dépôt servis dans `GET /v1/poste`, montrés par la carte « Dépôts » de la page Poste (`e85c7e3`, `1f2574c`) ;
+  outil `scripts/preuve_accord_requis.py` (tableau « geste → preuve → verdict » du premier dépôt réel) ;
+- IaC : les six variables du canal de notification (`ACP_NOTIFICATIONS`, Telegram et ntfy) déclarées par
+  `preserve()` dans le service `hermes` ; `verifier.mjs` refuse tout littéral pour un nom de secret et s'éprouve sur
+  trois copies altérées de `railway.ts` ;
+- tests : image (`test_migration_v4`, `test_relance`, `test_reponses_reglage`, `test_cloture`, `test_file_questions`,
+  `test_routes_p7`, `test_accueil`, `test_flux`, `test_notifications_liens`, `test_bilan`, `test_routage_depot_prive`,
+  `test_demarrage` étendu), contrat (`test_flux_contrat`, `test_bilan_contrat`, `test_discussion_contrat`,
+  `test_parcours_p7_contrat`, contrat de l'IaC étendu), navigateur (`test_parcours_p7`, `test_discussion`), Vitest
+  (`flux`, `questions-p7`, `accueil`, `discussion`), `apps/poste` (`test_visibilite` contre un faux serveur HTTPS) ;
+- documentation : `docs/refonte/questions.md`, `railway.md` § 14 (canal, bilan, dépôts réels un par un, preuves à
+  relever), décisions D93 à D116, annexe P7 d'`autonomie.md` ; relecture finale : décisions D117 à D121, retour de
+  `hermes` vers une image antérieure à P7 (`railway.md` § 9, § 10 b, § 14.5), limites de la station Qt
+  (`desktop.md`).
+
+#### Modifié
+
+- relecture des pages sur signal du flux au lieu du sondage de 15 s (gardé en repli) ;
+- la voie **Codex** n'est ouverte que sur un dépôt **prouvé privé** (accès anonyme refusé, deux fois depuis
+  `3b1cac9`, et lecture avec le jeton réussie), au routage du greffon comme sur l'exécutant ; tant qu'aucune mesure n'est publiée, Codex est fermé sur
+  tout dépôt d'un poste réel ;
+- garde de démarrage des `scripts/` élargie au **seul** `acp-bilan.py` d'empreinte connue (root 0644, racine du volume) ;
+- skill `acp-questions` : escalade aussi comptes et jetons, nouveau dépôt, réseau des exécutants, suppression d'une
+  branche ;
+- carte « Poste » de l'Accueil, figée sur « Non configuré » depuis P3, retirée (donnée devenue fausse) ;
+- message « Notifications non configurées » (Accueil et page Projets) aligné sur l'IaC : les variables du canal y
+  sont déjà déclarées, le propriétaire pose celles de son canal dans Railway sans autre PR (`railway.md` § 14) ;
+  cinq bundles reconstruits ;
+- `scripts/tests/test_decisions_documentees.py` lit les numéros de décision à trois chiffres (D100 et au-delà).
+
+#### Corrigé
+
+- flux : une pause posée puis levée entre deux passes du veilleur n'était pas signalée (trouvé par la CI « Image
+  Hermes » de `4c4282b`, corrigé par `9c87bf6`) ; trames exemples rangées en JSON (aucun fichier suivi ne finit par
+  une ligne vide, CI de `00814c4`) ;
+- discussion : événements reçus pendant la reprise d'une session perdus ou écrasés (tampon rejoué) ;
+- relance d'une carte de l'exécutant : consigne ignorée en reprise, coupée la première ou rendant la carte invalide
+  (correction K4 du cahier) ;
+- partie E, après la relecture indépendante : outil de preuve (revues rejouées dans l'ordre, journal
+  plein « non prouvé », suppression et connexions : `a41952f`), mesure non atomique (deux refus anonymes) et clone nu
+  d'une autre URL (`3b1cac9`) ;
+- tests de contrat qui comptaient toutes les notifications de la pile partagée (filtrés par projet) ;
+- **relecture finale de P7** (8 octobre 2026 : relecture indépendante en cinq lentilles — scénario, sécurité, produit,
+  station Qt, tests —, 37 constats retenus dont 14 vérifiés par un sceptique ; chacun corrigé avec un test qui échoue
+  sans la correction, ou traité en limite dite ; tableau constat → traitement → preuve résumé dans
+  `docs/reprise-poste.md` § 6 undecies) :
+  - file Questions : le message tiré de la réponse de l'API (« la carte reprend », « reprendra à la reprise du
+    projet », « n'a pas été relancée », « n'a pas été reprise ») disparaissait avec la demande traitée, qui quitte la
+    file, et un lien profond disait alors « déjà traitée » : annoncé désormais par la section ; cible d'un tableau
+    illisible dite « état inconnu » (`63f122c`) ;
+  - relance d'une carte d'**intégration** : une consigne acceptée puis jamais lue et une « session neuve » promise
+    pour une carte sans agent ; consigne refusée (`consigne_sans_objet`), raison du conflit qui dit les vrais gestes
+    (D117, `c329494`) ;
+  - carte de décision lue **avant** le rattachement de sa demande (« Reprendre » au lieu de « Prolonger » et
+    « Conclure ») : demande retrouvée par sa clé, rattachement visible dans l'empreinte « projets » du flux ; c'était
+    la cause de l'échec du contrat de `665d825` (`735071e`) ;
+  - flux : une connexion muette (veille, réseau changé) restait « temps réel » sans jamais compter d'échec ; chien de
+    garde de 40 s (`ad73cf1`) ;
+  - bilan quotidien : « Dernier envoi » d'après `last_run_at` seul, que Hermes date même en échec ; « Dernière
+    exécution », échec publié dit (`last_status`, `last_error` repliés), tâche « En erreur », refus de la route native
+    dit en français (`f3caf85`, `a16f00b`) ; Accueil : total qualifié tant que les discussions sont inconnues
+    (jamais « Rien n'attend ») ; portée du temps réel dite (Accueil, liste des discussions) (`f3caf85`) ;
+  - discussion : un ticket refusé en 401 (session expirée) faisait boucler les reconnexions ; la page le dit et
+    propose de recharger ; « nouvelle tentative en cours » au lieu de « dans Inconnu s » ; réponse en cours de saisie
+    gardée à la reconnexion (`eb2406a`) ;
+  - libellés : sections de la file nommées comme l'Accueil, statut kanban traduit, actions de P6 et P7 du journal en
+    français, carte de la machine titrée d'après l'hôte (jamais « Poste Windows » pour l'exécutant Linux), réglage lu
+    « Vous », question ouverte « à vous » dite telle dans la file et le détail (`chez` servi par le détail)
+    (`6fb03cf`) ;
+  - carte « répondre » dont la question a été adressée au propriétaire : offerte à « Relancer » (bouton qui faisait
+    semblant) et comptée deux fois ; refus 409 `question_adressee`, non comptée (D120) ; source des quotas propre à
+    l'hôte du relevé, libellé Codex, jamais un code à l'écran (`3789aa2`) ;
+  - station Qt : voies fermées lues comme un tableau (forme jamais servie : toujours « Inconnu ») ; diagnostic du flux
+    figé sur « n'annonce aucun flux (prévu à l'étape P7) » ; état d'une question sans `chez` ; aide du plafond de
+    corrections et textes qui promettaient des gestes « à l'étape P7 » ou renvoyaient au kanban (`cd4c3e6`) ;
+  - tests : `test_pause_locale_aucune_execution` lisait l'état écrit après l'arrêt (course du test, CI
+    `36996679349`) (`9ff14fb`) ; contrat du diagnostic qui passait à vide, bundles vérifiés comptés, liste et file
+    relues seulement après une trame ou un geste au parcours, clôture d'une carte Hermes dont le worker tourne, cartes
+    abandonnées après `rendue` ou `question`, gestes de P7 en navigateur (`ad73cf1`, `87102af`).
+
+#### Sécurité
+
+- liens de notification sans fragment ni texte de question ; aucune notification pour les gestes du propriétaire ;
+- discussion : liste blanche des méthodes **et** des paramètres émis ; `approval`, `sudo`, `secret` et toute autre
+  requête du serveur refusés (`-32601`) ; aucun secret ne transite par ACP ;
+- garde du dossier `scripts/` : un fichier exact, à root, sans entrée, que seule une tâche cron créée par le
+  propriétaire exécute (`cronjob` reste coupé pour l'agent) ;
+- visibilité : seules les lignes « fatal: » composées par git valent refus (le serveur ne peut pas forger un « privé ») ;
+  mesure lancée depuis la racine des clones (aucune configuration de dépôt lue) ; jeton jamais dans l'argv ni le
+  journal ; une carte bloquée pour un secret ne reprend jamais son worktree en quarantaine : elle repart sur une
+  **branche neuve**, sans l'ancienne session (`665d825`) ; sa relance par le propriétaire n'est admise qu'avec un
+  exécutant de la partie E (`e85c7e3` ; avant lui, toujours refusée) ;
+- consigne de relance balayée par les motifs de secrets ; IaC sans secret, jetons du canal en variables scellées,
+  littéral refusé par le vérificateur ;
+- exécutant (défauts (a) et (b) de P6, confirmés par la relecture finale de P7) : un secret commité dans un « wip »
+  (blocage, limite de quota reprise sans geste, interruption) puis retiré passait le balayage du seul diff cumulé et
+  restait dans l'historique intégré et dans le `git bundle` ; chaque commit absent du dépôt distant est désormais
+  balayé (conclusion, donc intégration, et après chaque « wip » : carte bloquée **pour un secret**), et `git bundle`
+  refuse un tel historique ; un renommage en quarantaine en échec bloquait la carte en « capacité » (sans garde de
+  relance, reprise de la branche fautive) : bloquée quand même pour un secret, renommage retenté avant tout tour
+  (D118, D119, `50409de`).
+
+#### Vérifié localement
+
+- parts A à E (1er et 2 octobre 2026, images reconstruites depuis les worktrees de P7) : images jusqu'à **789
+  réussis** ; contrat complet : 172 tests verts (un rejoué seul après un échec de minuterie sous charge), puis
+  passages ciblés ; navigateur **10 réussis** ; Vitest **179** ; dépôt
+  Windows **1 003 réussis, 83 ignorés** ; `apps/poste` et contrat en root dans l'image d'essais de l'exécutant
+  (git 2.47.3) : 822 réussis et 1 échec, puis 820 et 3 échecs, de minuterie sous charge ; `test_service_executant.py`
+  rejoué seul, vert trois fois ; l'échec de `test_executors.py`, jamais rejoué seul, n'est couvert que par la CI
+  « Image de l'exécutant » `37711679672` (823 réussis, aucun échec) ; témoins de mutation rouges ; détail et
+  incidents d'environnement : `docs/reprise-poste.md` § 6 undecies ;
+- part F (8 octobre 2026, **sans Docker**) : dépôt **998 réussis, 83 ignorés** (IaC), puis **999** (documentation, et encore après les corrections du contrôle de la part F) ; `.railway/verifier.mjs` conforme (trois témoins
+  signalés) ; témoins de mutation du vérificateur et des tests statiques rouges ;
+- réunion des branches (8 octobre 2026, **sans Docker**, tête réunie avec l'alignement du message) : dépôt (venv
+  python.org, `cryptography` hors du verrou) **1007 réussis, 83 ignorés** ; Vitest **179** ; `tsc` ; cinq bundles
+  reconstruits, `esbuild --check` : 10 fichiers à jour ; `.railway/verifier.mjs` conforme (trois témoins signalés) ;
+  `check_version`, `check_engine_frozen`, `balayer_secrets --arbre`, `git diff --check` : verts ; renvois à
+  `executant.md` vérifiés (§ 16, § 16.1, § 16.3, § 16.5, § 16.6 : tous vers un titre existant) ;
+- relecture finale de P7 (8 octobre 2026, **sans Docker**) : chaque correctif montré rouge sans lui puis vert (Vitest, `apps/poste`, banc local des tests d'image, chaîne Qt 6.8.3 et MSVC locale ; module POSIX, navigateur et contrat : CI) ; dépôt Windows **1 014 réussis, 83 ignorés** ; Vitest **203** ; `tsc` ; `esbuild --check` : 10 fichiers à jour ; `scripts/tests` **204** ; station Qt : **34 suites sur 34** (Release) ; témoins de mutation rouges (relance laissée en reprise, bundles non comptés) ; `check_version`, `check_engine_frozen`, `balayer_secrets --arbre`, `git diff --check` : verts ;
+- CI : « Image Hermes » verte sur `69ea021` (`37012771194` : image 777, contrat 180, navigateur 10) et sur la fusion
+  `c785af2` (`37014427594` : 778, 181, 10) ; « Image de l'exécutant » verte sur `665d825` (`37027816836` : 821 réussis
+  en root) et sur `9235999`, tête de la part E (`37711679672` : 823) ; « CI » verte sur `da74a21` (`37029770523`) et
+  sur `9235999` (`37711679692`) ; « Image Hermes » **rouge** sur `665d825` (`37027816283`, un
+  test de contrat de P4 : cause établie et corrigée par la relecture finale, `735071e`), verte ensuite sur `9235999` (`37711679574` : 789, 181, 10) ; part F : « CI »
+  verte sur `cf44486` (`37713287538`), `2136da4` (`37714145854`) et `d363c6a` (`37718287936`), « Image Hermes » verte
+  sur `cf44486`
+  (`37713287490` : image 778, contrat 183 dont Hermes démarré sans canal puis avec Telegram et avec ntfy posés,
+  navigateur 10) ; relecture finale : « Image Hermes » verte sur `50409de` (`37737197686` : image 791, contrat 183, navigateur 10, dont « Réponse envoyée : la carte reprend. » relevé au parcours), `eb2406a` (`37738374813` : 791, 183, 10), `3789aa2` (`37739622503` : 795, 183, 10), `87102af` (`37740550031` : 798, 183, 10 ; gestes de P7 mesurés aux deux formats sans cible sous 44 px ni violation axe ; liste et file relues 15 et 14 fois, aucune sans trame ni geste) et `cd4c3e6` (`37741812418` : 798, 183, 10) ; **rouge** sur `a16f00b` (`37742327967` : contrat 182 et 1 échec, `test_relecture_lit_le_code_relu_et_son_diff` : le test prenait une carte « à créer », sans identifiant ; course du test, sans rapport avec `a16f00b` qui ne touche que l'interface ; test corrigé par `201066e`) ; « Image de l'exécutant » verte sur `50409de` (`37737197677`) et `9ff14fb` (`37739879415` : 43 tests de l'image, 831 en root) ; « CI » verte sur chaque commit poussé (Windows 1 011, Linux 1 044, Vitest 203 sur `a16f00b`) ; Desktop CI verte sur `cd4c3e6` (`37741812613` : 34 suites).
+
+#### Limites connues
+
+- tout ce qui exige Railway, un vrai téléphone ou un vrai canal (notification réelle, parcours réel, redéploiement réel
+  pendant une question, flux à travers le vrai bord, premier dépôt réel, bilan à 8 h) : **non prouvé** ;
+- `preserve()` sur une variable jamais posée : **supposé** sans effet et admis par le plan ; exposition permanente pour
+  les variables du canal non choisi (jamais posées) ; si le plan le refusait, tout plan du projet serait bloqué
+  jusqu'à une PR de repli qui retire ces `preserve()` (`railway.md` § 3 et § 14.1, conduite jamais exécutée) ;
+- questions d'une discussion `/chat` absentes de la file (limite de Hermes) ; une `clarify` de la page Discussion vit
+  une heure au plus et meurt au redémarrage ; aucune notification pour une discussion en attente ;
+- rendu prouvé dans Chromium seulement ; station Qt (P8) sans le flux ni les gestes de P7 (Relancer, Qui répond,
+  Clore, revues, Accueil agrégé, compteurs de la file, visibilité des dépôts : `desktop.md`, « Non prouvé ») ;
+- « Relancer » une carte **abandonnée** : prouvé en image et par les vraies routes, jamais en navigateur ;
+- retour de `hermes` vers une image antérieure à P7 : impossible sans retirer d'abord `acp-bilan.py` du volume en
+  maintenance (D121, procédure écrite, jamais exécutée) ;
+- tests navigateur et de contrat : CI seulement depuis le 8 octobre (aucun Docker local) ; la variante déterministe
+  de `test_pause_locale_aucune_execution` (POSIX) : CI seulement ;
+- relecture indépendante : faite le 8 octobre (relecture finale, ci-dessus) ; la PR vers `refonte/hermes` reste à
+  ouvrir.
+
 ## [Unreleased]
 
 ### Quotas réels d'abonnement

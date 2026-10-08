@@ -265,7 +265,14 @@ QVariantMap AccueilViewModel::construireCartePoste(const QJsonObject &liste)
         vuA = vue.isNull() ? QStringLiteral("Jamais") : libelles::kInconnu;
     }
     const QJsonValue horsLigne = poste.value(QStringLiteral("hors_ligne_depuis"));
+    // Relecture finale de P7 : titre d'après l'hôte publié par la machine enregistrée (presence.etat_poste sert sa vue
+    // sous `poste`) ; « Exécutant » quand rien n'est publié — jamais « Poste Windows » pour une machine Linux.
+    const QString hote = poste.value(QStringLiteral("poste")).toObject().value(QStringLiteral("hote")).toString();
+    const QString titre = hote == QLatin1String("railway") ? QStringLiteral("Exécutant Railway")
+        : hote == QLatin1String("pc")                     ? QStringLiteral("Poste Windows")
+                                                          : QStringLiteral("Exécutant");
     return QVariantMap{
+        {QStringLiteral("titre"), titre},
         {QStringLiteral("etat"), etat.connu() ? etat.texte : libelles::texte(etatBrut)},
         {QStringLiteral("cle"), etat.connu() ? etat.cle : QStringLiteral("unknown")},
         {QStringLiteral("connu"), etat.connu()},

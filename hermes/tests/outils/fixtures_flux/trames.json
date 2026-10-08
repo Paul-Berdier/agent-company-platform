@@ -1,0 +1,11 @@
+{
+  "description": "Trames exemples du flux d'invalidation GET /v1/flux (étape P7, docs/refonte/projets.md § 4 ter), octet pour octet celles du greffon une fois la chaîne encodée en UTF-8 (test_trames_exemples_partagees_avec_le_desktop). Chaque trame SSE se termine par une ligne vide : elles sont rangées ici en chaînes JSON pour qu'aucun fichier suivi ne finisse par une ligne vide.",
+  "trames": {
+    "ouverture": "retry: 3000\n\nid: 1727791200.41\nevent: etat\ndata: {\"revision\":\"1727791200.41\",\"sujets\":[\"projets\",\"questions\",\"poste\",\"quotas\",\"notifications\",\"pause\",\"discussions\"],\"discussions_suivies\":true}\n\n",
+    "reprise": "retry: 3000\n\nid: 1727791200.41\nevent: etat\ndata: {\"revision\":\"1727791200.41\",\"sujets\":[],\"discussions_suivies\":true}\n\n",
+    "changement": "id: 1727791200.42\nevent: changement\ndata: {\"sujets\":[\"projets\",\"questions\"]}\n\n",
+    "illisible": "id: 1727791200.43\nevent: changement\ndata: {\"sujets\":[\"projets\",\"questions\"],\"illisibles\":[\"projets\",\"questions\"]}\n\n",
+    "battement": ": battement\n\n",
+    "fin": "event: fin\ndata: {\"raison\":\"duree_max\"}\n\n"
+  }
+}

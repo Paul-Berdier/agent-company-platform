@@ -19,6 +19,8 @@ export interface EtatPoste {
   pause_reclamations?: boolean;
   source?: string | null;
   message?: string | null;
+  /** Machine enregistrée (vue du greffon), dont l'hôte publié par l'inventaire ; null sans machine. */
+  poste?: { hote?: string | null; plateforme?: string | null; nom?: string | null } | null;
 }
 
 export interface EtatNotifications {
@@ -112,6 +114,8 @@ export interface QuestionDuProjet {
   etat?: string;
   texte?: string;
   carte_repondre?: string | null;
+  /** Relecture finale de P7 : qui répond (règle unique du greffon), comme dans la file. */
+  chez?: string;
 }
 
 export interface EntreeJournal {
@@ -153,6 +157,9 @@ export interface QuestionOuverte {
   carte_repondre?: string | null;
   motif_escalade?: string | null;
   cree_le?: number;
+  /** Étape P7 (règle unique, correction K6) : « hermes » si la carte « répondre » existe et la question est ouverte. */
+  chez?: string;
+  carte_repondre_statut?: string | null;
 }
 
 export interface CarteEnAttente {
@@ -168,6 +175,16 @@ export interface CarteEnAttente {
   genre?: string | null;
   /** Gestes offerts : « prolonger », « relancer », « conclure », « reprendre ». */
   actions?: unknown;
+  /** Étape P7 (carte arrêtée) : se relance-t-elle, sinon pourquoi ; carte de l'exécutant (session neuve). */
+  relancable?: boolean;
+  refus_relance?: string | null;
+  executant?: boolean;
+  /** Partie E (K25) : bloquée pour un secret ; le travail fautif reste en quarantaine sur l'exécutant. */
+  quarantaine?: boolean;
+  /** Relecture finale de P7 : carte d'intégration, sans agent ; sa relance rejoue la même fusion, sans consigne. */
+  integration?: boolean;
+  /** Relecture finale de P7 : carte « répondre » dont la question vous a été adressée (non relançable, non comptée). */
+  question_adressee?: boolean;
 }
 
 /** POST /v1/questions/{q}/reponse. */
@@ -228,12 +245,61 @@ export interface ResultatRevue {
   etat?: string | null;
 }
 
+/** Cinquième section (étape P7, cahier P7 § 3.5) : nombre de requêtes ouvertes du tableau de bord, en lecture seule. */
+export interface DiscussionsServeur {
+  suivies?: boolean;
+  requetes_ouvertes?: number | null;
+  message?: string | null;
+  limite?: string | null;
+}
+
+/** Compteurs de la file (étape P7, cahier P7 § 3.2) : les discussions en attente sont comptées par le client. */
+export interface CompteursFile {
+  a_traiter?: number;
+  chez_hermes?: number;
+  questions?: number;
+  decisions?: number;
+  revues?: number;
+  arretees?: number;
+}
+
 export interface ListeQuestions {
   questions?: QuestionOuverte[];
   triage?: CarteEnAttente[];
   bloquees?: CarteEnAttente[];
   tableaux_illisibles?: unknown;
   revues?: RevuePilotage[];
+  discussions?: DiscussionsServeur;
+  compteurs?: CompteursFile;
+}
+
+/** POST /v1/cartes/{tableau}/{carte}/relancer. */
+export interface ResultatRelance {
+  carte?: string;
+  relancee?: boolean;
+  statut_apres?: string | null;
+  session_neuve?: boolean;
+  /** Partie E (K25) : la carte repart sur une branche neuve, sans le travail en quarantaine. */
+  branche_neuve?: boolean;
+}
+
+/** POST /v1/projets/{id}/reponses. */
+export interface ResultatReglageReponses {
+  projet?: ResumeProjet;
+  avant?: string;
+  apres?: string;
+  questions_ouvertes_inchangees?: number;
+}
+
+/** POST /v1/projets/{id}/clore. */
+export interface ResultatCloture {
+  projet?: ResumeProjet;
+  clos?: boolean;
+  etat?: string;
+  cartes_archivees?: unknown;
+  cartes_non_archivees?: unknown;
+  questions_annulees?: number;
+  branches_rapportees?: unknown;
 }
 
 export interface ModeleReleve {
@@ -263,9 +329,21 @@ export interface CatalogueDuPoste {
   message?: string | null;
 }
 
+/** Étape P7 (cahier P7 § 11.2) : un dépôt du dernier inventaire, sa visibilité MESURÉE par l'exécutant (null :
+ *  jamais mesurée) et les voies du poste fermées pour lui (calcul du routage du greffon, raison française). */
+export interface DepotMesure {
+  alias?: string;
+  visibilite?: string | null;
+  lecture?: string | null;
+  verifie_le?: string | null;
+  voies_fermees?: Record<string, string>;
+}
+
 export interface ReponsePoste {
   poste?: EtatPoste;
   catalogue?: CatalogueDuPoste;
+  /** Étape P7 : visibilité des dépôts (grisage de Codex dans « Nouveau projet »). */
+  executant?: { connu?: boolean; depots?: DepotMesure[] };
 }
 
 /** Corps de POST /v1/projets. */

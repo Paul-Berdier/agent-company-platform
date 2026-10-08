@@ -90,6 +90,7 @@ private slots:
     void hermesNonTesteAvertit();
     void alertesComptees();
     void executantDetecteSansSupposition();
+    void fluxDuGreffonDitCeQueLeServeurAnnonce();
     void lectureContreLeFauxHermes();
     void greffonAbsentSur404();
 };
@@ -291,6 +292,33 @@ void TestCompatibiliteHermes::executantDetecteSansSupposition()
     QCOMPARE(illisible.etatExecutant, QStringLiteral("illisible"));
     // Rien de lu : inconnu.
     QCOMPARE(CompatibiliteHermes::Evaluation{}.etatExecutant, QStringLiteral("inconnu"));
+}
+
+void TestCompatibiliteHermes::fluxDuGreffonDitCeQueLeServeurAnnonce()
+{
+    // Relecture finale de P7 (constat desktop-1) : le diagnostic disait « n'annonce aucun flux (prévu à l'étape P7) »
+    // même devant un greffon de P7 qui l'annonce (clé `flux` de /v1/meta, meta.py `bloc_flux`).
+    const auto sansFlux = CompatibiliteHermes::evaluer(metaDeReference());
+    QCOMPARE(sansFlux.etatFlux, QStringLiteral("absent"));
+    QJsonObject meta = metaDeReference();
+    meta.insert(QStringLiteral("flux"), QJsonObject{
+        {QStringLiteral("chemin"), QStringLiteral("/api/plugins/acp-poste/v1/flux")}, {QStringLiteral("version"), 1},
+        {QStringLiteral("sujets"), QJsonArray{QStringLiteral("projets"), QStringLiteral("questions")}},
+        {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
+    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatFlux, QStringLiteral("annonce"));
+    meta.insert(QStringLiteral("flux"), QStringLiteral("oui"));
+    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatFlux, QStringLiteral("illisible"));
+    QCOMPARE(CompatibiliteHermes::Evaluation{}.etatFlux, QStringLiteral("inconnu"));
+    // Ce que le diagnostic en dit : jamais « n'annonce aucun flux » devant une annonce, ni une étape à venir.
+    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("annonce"))
+                .startsWith(QStringLiteral("Annoncé par le serveur ; non utilisé par cette station")));
+    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("absent"))
+                .startsWith(QStringLiteral("Non disponible sur ce serveur")));
+    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("inconnu")).startsWith(QStringLiteral("Inconnu")));
+    for (const QString &etat : {QStringLiteral("annonce"), QStringLiteral("absent"), QStringLiteral("illisible"),
+                                QStringLiteral("inconnu")}) {
+        QVERIFY(!EventStreamService::etatFluxGreffon(etat).contains(QStringLiteral("étape P7")));
+    }
 }
 
 void TestCompatibiliteHermes::lectureContreLeFauxHermes()
