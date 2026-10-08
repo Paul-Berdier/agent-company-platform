@@ -21,7 +21,7 @@ import json
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Sequence
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 # pile_identite.docker (autonome, même forme que conftest.docker) : ce module sert aussi aux tests navigateur
 # (hermes/tests/e2e), où « conftest » désigne un autre module.
@@ -29,7 +29,9 @@ from pile_identite import docker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "outils"))
 
-from empreinte_volume import comparer_bases, comparer_manifestes  # noqa: E402
+from empreinte_volume import (  # noqa: E402
+    changements_propres, comparer_bases, comparer_lignes, comparer_manifestes, comparer_schemas, defauts_de_montee,
+    projection_de)
 
 PYTHON = "/opt/hermes/.venv/bin/python"
 OUTIL = "/opt/acp-tests/outils/empreinte_volume.py"
@@ -49,6 +51,19 @@ def manifeste(image_tests: str, volume: str) -> Dict[str, Any]:
 def bases(image_tests: str, volume: str) -> Dict[str, Any]:
     """Couche 2 : empreinte logique de chaque base SQLite du volume, lue sur une copie."""
     return _releve(image_tests, volume, "sqlite")
+
+
+def lignes(image_tests: str, volume: str, projection: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Montée de données (cahier P9 § 5.6) : relevé LIGNE À LIGNE de chaque base du volume (schéma, compteurs, empreinte
+    de chaque ligne), projeté sur les colonnes d'un relevé précédent (``projection_de``) si ``projection`` est donnée
+    (passée sur l'entrée standard de l'outil)."""
+    arguments = ["run", "--rm", "-u", "0", "--network", "none", "-v", f"{volume}:/v:ro", "--entrypoint", PYTHON]
+    if projection is None:
+        sortie = docker(*arguments, image_tests, OUTIL, "lignes", "/v", delai=900)
+    else:
+        sortie = docker(arguments[0], "-i", *arguments[1:], image_tests, OUTIL, "lignes", "/v", "-",
+                        entree=json.dumps(projection), delai=900)
+    return json.loads(sortie.stdout)
 
 
 def resume_manifeste(m: Dict[str, Any]) -> str:
@@ -125,5 +140,6 @@ def a_froid(conteneurs: Sequence[str], delai: int = 90) -> List[Dict[str, Any]]:
     return etats
 
 
-__all__ = ["Archives", "a_chaud", "a_froid", "bases", "comparer_bases", "comparer_manifestes", "manifeste",
+__all__ = ["Archives", "a_chaud", "a_froid", "bases", "changements_propres", "comparer_bases", "comparer_lignes",
+           "comparer_manifestes", "comparer_schemas", "defauts_de_montee", "lignes", "manifeste", "projection_de",
            "resume_bases", "resume_manifeste"]
