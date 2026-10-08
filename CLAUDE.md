@@ -24,13 +24,17 @@ remplacées par `docs/refonte/autonomie.md`.
 **Fin de la refonte « Hermes au centre » (en cours, étape P9).** Les étapes P0 à P8 ont été publiées une à une
 vers `refonte/hermes` (recette d'alors : `docs/refonte/historique.md`, partie D). Pour finir :
 
-1. Les branches de P9 (`refonte/hermes-p9*`) suivent la même voie : commits de travail, suite complète verte
-   avant chacun, CI verte, PR vers `refonte/hermes`, fusion par commit de fusion, **sans étiquette** ; preuves de
-   l'étape publiées dans la documentation.
-2. Une fois P9 prouvée : commit d'ouverture `chore(release): open 1.0.0` (fichier `VERSION` et toutes les copies
-   vérifiées par `scripts/check_version.py`, fichier par fichier), puis `chore(release): prepare 1.0.0 changelog`
-   (section du journal datée, déjà préparée dans `CHANGELOG.md`).
-3. PR de `refonte/hermes` vers `main` ; fusion par commit de fusion **après l'accord explicite du propriétaire**,
+1. P9 se termine sur `refonte/hermes-p9`, qui réunit ses parts (`refonte/hermes-p9bc`, `-p9c`, `-p9e`) par
+   commits de fusion (comme `-p9c` dans `-p9bc`, `b867810`), jamais par rebase d'une branche poussée : commits de
+   travail, suite complète verte avant chacun, CI verte, preuves de l'étape publiées dans la documentation,
+   relecture indépendante de toute P9.
+2. Une fois P9 prouvée, sur `refonte/hermes-p9` et **avant** sa PR (D129) : commit d'ouverture
+   `chore(release): open 1.0.0` (fichier `VERSION` et toutes les copies vérifiées par `scripts/check_version.py`,
+   fichier par fichier), puis `chore(release): prepare 1.0.0 changelog` (section du journal datée, déjà préparée
+   dans `CHANGELOG.md`) : ce sont les deux derniers commits de la branche.
+3. PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion par commit de fusion, **sans
+   étiquette**.
+4. PR de `refonte/hermes` vers `main` ; fusion par commit de fusion **après l'accord explicite du propriétaire**,
    puis étiquette annotée `v1.0.0` **sur le commit de fusion**, jamais avant ; preuves publiées dans
    `docs/refonte/preuves-1.0.0.md` par une PR de documentation seule.
 
