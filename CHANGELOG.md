@@ -688,7 +688,10 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
   `c785af2` (`37014427594` : 778, 181, 10) ; « Image de l'exécutant » verte sur `665d825` (`37027816836` : 821 réussis
   en root) et sur `9235999`, tête de la part E (`37711679672` : 823) ; « CI » verte sur `da74a21` (`37029770523`) et
   sur `9235999` (`37711679692`) ; « Image Hermes » **rouge** sur `665d825` (`37027816283`, un
-  test de contrat de P4, non analysé) ; runs de la part F : `docs/reprise-poste.md` § 6 undecies.
+  test de contrat de P4, non analysé), verte ensuite sur `9235999` (`37711679574` : 789, 181, 10) ; part F : « CI »
+  verte sur `cf44486` (`37713287538`) et `2136da4` (`37714145854`), « Image Hermes » verte sur `cf44486`
+  (`37713287490` : image 778, contrat 183 dont Hermes démarré sans canal puis avec Telegram et avec ntfy posés,
+  navigateur 10).
 
 #### Limites connues
 
