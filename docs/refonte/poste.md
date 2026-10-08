@@ -174,7 +174,11 @@ onglet « Poste » après « Projets », icône `Monitor` (D62) ; détail : [int
 - **Poste** : état (en ligne, hors ligne depuis, à confirmer, révoqué), « Générer un code d'enrôlement »
   (code, « Copier », commande `acp-poste enroler`, compte à rebours ; gardé seulement dans l'état du
   composant, jamais stocké), confirmation de l'empreinte, révocation avec motif, « Relever maintenant »,
-  cartes de l'inventaire (compte d'exécution, bac à sable, connexions, versions, dépôts, politique) ;
+  cartes de l'inventaire (compte d'exécution, bac à sable, connexions, versions, dépôts, politique) ; étape P7,
+  partie E : la carte **« Dépôts »** donne pour chaque dépôt sa **visibilité mesurée** par l'exécutant (« Privé »,
+  « Public », « Inconnue », ou « Jamais mesurée » : jamais devinée), la lecture, la date de la mesure et les voies
+  ouvertes ou fermées **pour ce dépôt** avec la raison du greffon (bloc `executant.depots` de `GET /v1/poste`, même
+  calcul que le routage ; [executant.md](executant.md) § 16) ;
 - **Routage** : badges par voie, classes avec leur état, suggestion appliquée puis validée, refus rendus tels
   quels, politique, surcharges, acceptation d'un relevé ;
 - **Quotas** : jauges, seuil de 90 %, source, « Inconnu » ou « Périmé » sinon.
