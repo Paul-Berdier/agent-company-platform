@@ -840,6 +840,9 @@
       connexion: "Connexion \xE0 Hermes\u2026",
       prete: "Connect\xE9 \xE0 Hermes.",
       reconnexion: "Connexion perdue. Nouvelle tentative dans",
+      reconnexionEnCours: "Connexion perdue\xA0: nouvelle tentative en cours\u2026",
+      sessionExpiree: "Session expir\xE9e\xA0: reconnectez-vous pour reprendre la discussion (elle vous attend).",
+      recharger: "Recharger la page",
       secondes: "s",
       nouvelleIntro: "\xC9crivez votre premier message\xA0: la discussion est cr\xE9\xE9e \xE0 l'envoi.",
       fil: "Messages de la discussion",
@@ -1764,7 +1767,12 @@
     try {
       url = await construire("/api/ws");
     } catch (erreur) {
-      throw new ErreurCanal("ticket", erreur instanceof Error ? erreur.message : String(erreur));
+      const statut = erreur && typeof erreur === "object" ? erreur.status : void 0;
+      throw new ErreurCanal(
+        "ticket",
+        erreur instanceof Error ? erreur.message : String(erreur),
+        typeof statut === "number" && Number.isInteger(statut) && statut > 0 ? statut : null
+      );
     }
     const fabrique = options.fabrique ?? ((adresse) => new WebSocket(adresse));
     const canal = await new Promise((resoudre, rejeter) => {
@@ -2010,6 +2018,10 @@
         if (generation !== this.generation) return;
         if (erreur instanceof ErreurCanal && erreur.genre === "sdk") {
           this.poser({ connexion: "indisponible" });
+          return;
+        }
+        if (erreur instanceof ErreurCanal && erreur.genre === "ticket" && erreur.code === 401) {
+          this.poser({ connexion: "session_expiree", tentativeDans: null });
           return;
         }
         this.planifier();
@@ -2320,12 +2332,18 @@
   }
   function Clarify(props) {
     const { demande } = props;
-    const [saisies, fixer] = useState(() => {
+    const [saisies, fixerSaisies] = useState(() => {
+      if (props.brouillon) return props.brouillon;
       const initiales = {};
       demande.questions.forEach((q, rang) => {
         initiales[String(rang)] = { choix: [], libre: q.dejaRepondu ?? "" };
       });
       return initiales;
+    });
+    const fixer = (changer) => fixerSaisies((avant) => {
+      const suivant = changer(avant);
+      props.garder?.(suivant);
+      return suivant;
     });
     const [envoyee, fixerEnvoyee] = useState(false);
     const vide = demande.questions.every((q, rang) => texteDeReponse(q, saisies[String(rang)]) === "");
@@ -2520,8 +2538,12 @@
     if (etat.connexion === "introuvable") {
       return /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert", "data-acp-connexion": etat.connexion }, /* @__PURE__ */ h("p", null, T.discussion.introuvable), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(LienDiscussion, { vue: { genre: "liste" }, naviguer: props.naviguer }, T.discussion.retourListe)));
     }
+    if (etat.connexion === "session_expiree") {
+      const ici = typeof window === "undefined" ? "" : `${window.location.pathname}${window.location.search}`;
+      return /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert", "data-acp-connexion": etat.connexion }, /* @__PURE__ */ h("p", null, T.discussion.sessionExpiree), /* @__PURE__ */ h("p", null, /* @__PURE__ */ h("a", { className: "acp-lien", href: ici }, T.discussion.recharger)));
+    }
     if (etat.connexion === "reconnexion") {
-      return /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status", "data-acp-connexion": etat.connexion }, /* @__PURE__ */ h("span", null, T.discussion.reconnexion), " ", /* @__PURE__ */ h(Donnee, { valeur: etat.tentativeDans }), " ", /* @__PURE__ */ h("span", null, T.discussion.secondes));
+      return /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status", "data-acp-connexion": etat.connexion }, etat.tentativeDans === null ? /* @__PURE__ */ h("span", null, T.discussion.reconnexionEnCours) : /* @__PURE__ */ h("span", null, /* @__PURE__ */ h("span", null, T.discussion.reconnexion), " ", /* @__PURE__ */ h(Donnee, { valeur: etat.tentativeDans }), " ", /* @__PURE__ */ h("span", null, T.discussion.secondes)));
     }
     return /* @__PURE__ */ h("p", { className: "acp-discret", role: "status", "data-acp-connexion": etat.connexion }, etat.connexion === "prete" ? T.discussion.prete : T.discussion.connexion);
   }
@@ -2546,6 +2568,7 @@
   }
   function Fil(props) {
     const [etat, conversation] = useConversation(props.cle, props.surCle, props.ouvrir);
+    const brouillons = useRef(/* @__PURE__ */ new Map());
     const [texte, fixerTexte] = useState("");
     const [envoi, fixerEnvoi] = useState(false);
     const fin = useRef(null);
@@ -2573,7 +2596,13 @@
         key: d.id,
         demande: d,
         actif: prete,
-        repondre: (id, saisies) => conversation?.repondre(id, saisies) ?? false
+        brouillon: brouillons.current.get(d.id),
+        garder: (saisies) => brouillons.current.set(d.id, saisies),
+        repondre: (id, saisies) => {
+          const envoyee = conversation?.repondre(id, saisies) ?? false;
+          if (envoyee) brouillons.current.delete(id);
+          return envoyee;
+        }
       }
     )), etat.erreur ? /* @__PURE__ */ h("div", { className: "acp-erreur", role: "alert" }, /* @__PURE__ */ h("p", null, T.discussion.erreurs[etat.erreur.genre]), etat.erreur.detail ? /* @__PURE__ */ h("details", { className: "acp-details" }, /* @__PURE__ */ h("summary", null, T.commun.detailTechnique), /* @__PURE__ */ h(Donnee, { valeur: etat.erreur.detail, mono: true })) : null) : null, /* @__PURE__ */ h("form", { className: "acp-carte acp-formulaire", onSubmit: surEnvoi }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-discussion-message" }, T.discussion.message), /* @__PURE__ */ h(
       "textarea",

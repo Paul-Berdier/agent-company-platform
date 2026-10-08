@@ -28,7 +28,7 @@ import { Discussion } from "../src/discussion/Discussion";
 import { ROUTE_DISCUSSIONS } from "../src/discussion/Liste";
 import { rechercheDeVue, vueDepuisAdresse } from "../src/discussion/vue";
 import { CATALOGUE } from "./catalogue-chaines";
-import { attendre, installerSdk, rendre, textesHorsCatalogue } from "./sdk-factice";
+import { ApiErrorHermes, attendre, installerSdk, rendre, textesHorsCatalogue } from "./sdk-factice";
 
 type Trame = Record<string, unknown>;
 
@@ -497,6 +497,36 @@ describe("conversation", () => {
     c.arreter();
   });
 
+  it("ticket refusé en 401 (session expirée) : la boucle s'arrête et le dit ; une panne réseau reste réessayée", async () => {
+    // Relecture finale de P7 (constat produit-3) : getWsTicket de Hermes lève une ApiError (status 401) sans rediriger ;
+    // la conversation se reconnectait sans fin en ne disant que « Connexion perdue ».
+    vi.useFakeTimers();
+    installer();
+    const c = new Conversation({ cle: CLE, ouvrir: ouvrirFactice });
+    c.demarrer();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(c.etat().connexion).toBe("prete");
+    let tickets = 0;
+    installerSdk({}, { buildWsUrl: async () => {
+      tickets += 1;
+      throw tickets === 1 ? new TypeError("Failed to fetch")
+        : new ApiErrorHermes("Session expired", 401, '{"error":"session_expired","login_url":"/login"}');
+    } });
+    HermesWs.dernier().couper();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(tickets).toBe(1);
+    expect(c.etat()).toMatchObject({ connexion: "reconnexion", tentativeDans: 2 });  // panne réseau : réessayée
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(tickets).toBe(2);
+    expect(c.etat()).toMatchObject({ connexion: "session_expiree", tentativeDans: null });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(tickets).toBe(2);  // plus aucune tentative
+    c.reveiller();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(tickets).toBe(2);
+    c.arreter();
+  });
+
   it("session inconnue (4007) : « introuvable », sans nouvelle tentative ; SDK sans buildWsUrl : « indisponible »", async () => {
     installer();
     HermesWs.reprise = { erreur: { code: 4007, message: "session not found" } };
@@ -669,6 +699,60 @@ describe("page Discussion", () => {
     });
     expect(r.texte()).toContain("Tour interrompu.");
     expect([...r.racine.querySelectorAll("button")].some((b) => texteDe(b) === "Interrompre")).toBe(false);
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    r.demonter();
+  });
+
+  // Relecture finale de P7 (constats produit-5 et produit-13) : pendant une tentative, la page affichait « Nouvelle
+  // tentative dans Inconnu s » ; à la reconnexion, la réponse en cours de saisie d'une question était effacée.
+  it("reconnexion : tentative en cours dite, réponse en cours de saisie gardée", async () => {
+    vi.stubGlobal("WebSocket", HermesWs);
+    window.history.replaceState(null, "", `/discussion?session=${CLE}`);
+    const ouverte = [{ id: "srq-g", method: "clarify", params: { session_id: SID, question: "Quel nom ?" } }];
+    HermesWs.reprise = repriseAvec({ open_requests: ouverte });
+    let suspendre = false;
+    let liberer: (() => void) | null = null;
+    installerSdk({}, { buildWsUrl: async () => {
+      if (suspendre) await new Promise<void>((r) => (liberer = r));
+      return URL_WS;
+    } });
+    const r = await rendre(<Discussion />);
+    await tours(8);
+    const champ = () => r.racine.querySelector('[data-acp-clarify="srq-g"] textarea') as HTMLTextAreaElement | null;
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    await saisir(champ(), "outil.py, avec un test");
+    suspendre = true;
+    await act(async () => {
+      HermesWs.dernier().couper();
+      await new Promise((attente) => setTimeout(attente, 1_100));
+    });
+    await tours();
+    const connexion = r.racine.querySelector('[data-acp-connexion="reconnexion"]');
+    expect(texteDe(connexion)).toBe("Connexion perdue : nouvelle tentative en cours…");
+    expect(texteDe(connexion)).not.toContain("Inconnu");
+    suspendre = false;
+    await act(async () => {
+      (liberer as (() => void) | null)?.();
+    });
+    await tours(10);
+    expect(r.racine.querySelector('[data-acp-connexion="prete"]')).not.toBeNull();
+    expect(champ()?.value).toBe("outil.py, avec un test");
+    r.demonter();
+  });
+
+  it("session expirée : la page le dit et propose de recharger (la connexion ramène à la discussion)", async () => {
+    vi.stubGlobal("WebSocket", HermesWs);
+    window.history.replaceState(null, "", `/discussion?session=${CLE}`);
+    installerSdk({}, { buildWsUrl: async () => {
+      throw new ApiErrorHermes("Session expired", 401, '{"error":"session_expired","login_url":"/login"}');
+    } });
+    const r = await rendre(<Discussion />);
+    await tours(8);
+    const bloc = r.racine.querySelector('[data-acp-connexion="session_expiree"]');
+    expect(texteDe(bloc?.querySelector("p"))).toBe(
+      "Session expirée : reconnectez-vous pour reprendre la discussion (elle vous attend).");
+    expect(bloc?.querySelector("a")?.getAttribute("href")).toBe(`/discussion?session=${CLE}`);
+    expect(texteDe(bloc?.querySelector("a"))).toBe("Recharger la page");
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
     r.demonter();
   });

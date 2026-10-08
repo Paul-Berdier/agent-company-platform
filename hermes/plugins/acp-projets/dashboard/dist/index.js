@@ -840,6 +840,9 @@
       connexion: "Connexion \xE0 Hermes\u2026",
       prete: "Connect\xE9 \xE0 Hermes.",
       reconnexion: "Connexion perdue. Nouvelle tentative dans",
+      reconnexionEnCours: "Connexion perdue\xA0: nouvelle tentative en cours\u2026",
+      sessionExpiree: "Session expir\xE9e\xA0: reconnectez-vous pour reprendre la discussion (elle vous attend).",
+      recharger: "Recharger la page",
       secondes: "s",
       nouvelleIntro: "\xC9crivez votre premier message\xA0: la discussion est cr\xE9\xE9e \xE0 l'envoi.",
       fil: "Messages de la discussion",
@@ -1713,7 +1716,12 @@
     try {
       url = await construire("/api/ws");
     } catch (erreur) {
-      throw new ErreurCanal("ticket", erreur instanceof Error ? erreur.message : String(erreur));
+      const statut = erreur && typeof erreur === "object" ? erreur.status : void 0;
+      throw new ErreurCanal(
+        "ticket",
+        erreur instanceof Error ? erreur.message : String(erreur),
+        typeof statut === "number" && Number.isInteger(statut) && statut > 0 ? statut : null
+      );
     }
     const fabrique = options.fabrique ?? ((adresse) => new WebSocket(adresse));
     const canal = await new Promise((resoudre, rejeter) => {

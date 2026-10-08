@@ -45,7 +45,7 @@ export const INTERVALLE_PING_MS = 30_000;
 
 export type GenreErreurCanal =
   | "sdk" // le SDK du tableau de bord n'expose pas buildWsUrl
-  | "ticket" // buildWsUrl a échoué (session expirée, ticket refusé)
+  | "ticket" // buildWsUrl a échoué (session expirée, ticket refusé) ; ``code`` : statut HTTP s'il est connu
   | "connexion" // la connexion n'a pas pu s'ouvrir
   | "delai" // pas de réponse dans le délai
   | "ferme" // connexion fermée avant la réponse
@@ -355,7 +355,12 @@ export async function ouvrirCanal(options: OptionsCanal = {}): Promise<CanalJson
   try {
     url = await (construire as (chemin: string) => Promise<string>)("/api/ws");
   } catch (erreur) {
-    throw new ErreurCanal("ticket", erreur instanceof Error ? erreur.message : String(erreur));
+    // Relecture finale de P7 (constat produit-3) : getWsTicket de Hermes lève une ApiError dont ``status`` porte le
+    // statut HTTP (401 : session expirée, sans redirection) ; une panne réseau (TypeError) n'en a pas. Le statut est
+    // gardé dans ``code`` : seule une session expirée arrête les reconnexions.
+    const statut = erreur && typeof erreur === "object" ? (erreur as { status?: unknown }).status : undefined;
+    throw new ErreurCanal("ticket", erreur instanceof Error ? erreur.message : String(erreur),
+                          typeof statut === "number" && Number.isInteger(statut) && statut > 0 ? statut : null);
   }
   const fabrique = options.fabrique ?? ((adresse: string) => new WebSocket(adresse));
   const canal = await new Promise<Canal>((resoudre, rejeter) => {

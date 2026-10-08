@@ -584,7 +584,12 @@ continue, et la question en attente est rejouée à la reprise depuis le PC.
   dite « recommandé »), choix multiples si Hermes le permet, réponse libre qui l'emporte si elle est remplie ;
   **Répondre** envoie toute la demande en une fois (`{answer}` ou `{answers}`).
 - **Reconnexion** : fermeture non voulue → nouvelle tentative après 1, 2, 5 puis 10 s (et aussitôt au retour de la
-  page), qui refait `session.resume`. Ping de vie toutes les 30 s.
+  page), qui refait `session.resume`. Ping de vie toutes les 30 s. Relecture finale de P7 : pendant la tentative, la
+  page dit « nouvelle tentative en cours » (jamais « dans Inconnu s ») ; une réponse en cours de saisie dans une
+  question est gardée par identifiant de requête et survit à la reconnexion ; un ticket refusé en **401** (session du
+  tableau de bord expirée : `getWsTicket` ne redirige pas) arrête les tentatives, et la page dit « Session expirée :
+  reconnectez-vous » avec un lien qui recharge la page (la porte d'authentification ramène sur la discussion) ; une
+  panne réseau reste réessayée.
 - **File Questions** : chaque discussion en attente porte **Ouvrir la discussion**, qui mène à cette page.
 
 **Garde (correction K14), dans `apps/interface/src/jsonrpc/canal.ts`, seul chemin vers `/api/ws`** (la lecture des
