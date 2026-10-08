@@ -234,12 +234,20 @@ politique de redémarrage, limites des répliques), consignez-le dans `docs/repr
   `.railway/node_modules` : c'est ainsi que `verifier.mjs` l'évalue (mesuré) ; que la CLI fasse de
   même est **supposé**. Si le plan échoue sur l'import, ne pas installer le SDK à la racine sans
   PR : le workspace racine est gelé (`scripts/check_engine_frozen.py`).
-- **`preserve()` sur une variable qui n'existe pas encore** (premier apply) : **supposé** « ne rien
-  créer » ; `identite` refuse alors de démarrer jusqu'au § 5.2 (échec fermé attendu, mesuré par
-  `test_identite_refuse_sans_les_variables_du_proprietaire`). Si le plan **refuse** `preserve()`
-  sur une variable absente : PR qui retire provisoirement les quatre `preserve()` (et les attend
-  absentes dans `verifier.mjs`), apply, pose des quatre variables (§ 5.2), puis PR qui les rétablit
-  et `railway config plan` → « already up to date ».
+- **`preserve()` sur une variable qui n'existe pas encore** : **supposé** « ne rien créer » et admis
+  par le plan ; la documentation ne décrit `preserve()` que pour une valeur déjà posée (« keep the
+  value that is already set in Railway », rw_full.txt:28651 ; rw_full.txt:19030). Deux usages en
+  dépendent :
+  - **identité, au premier apply** : `identite` refuse alors de démarrer jusqu'au § 5.2 (échec fermé
+    attendu, mesuré par `test_identite_refuse_sans_les_variables_du_proprietaire`). Si le plan
+    **refuse** `preserve()` sur une variable absente : PR qui retire provisoirement les quatre
+    `preserve()` (et les attend absentes dans `verifier.mjs`), apply, pose des quatre variables
+    (§ 5.2), puis PR qui les rétablit et `railway config plan` → « already up to date » ;
+  - **canal de notification (étape P7, D116), à chaque plan** : les variables du canal que vous ne
+    choisissez pas ne seront **jamais** posées (les six si vous n'en choisissez aucun). L'exposition
+    est permanente, pas limitée au premier apply, et le contournement ci-dessus (rétablir les
+    `preserve()` une fois les valeurs posées) ne s'y applique pas : conduite au § 14.1. Au premier
+    apply qui suit la fusion de P7, un refus toucherait les deux à la fois : une seule PR de repli.
 - **`RAILWAY_DOCKERFILE_PATH=image/Dockerfile`** relatif au répertoire racine `/hermes` : supposé.
   Si le premier build ne trouve pas le Dockerfile, le build **échoue** (constructeur `DOCKERFILE`) ;
   corriger par une PR (`/hermes/image/Dockerfile`, ou la clé typée `build.dockerfilePath`).
@@ -1129,6 +1137,12 @@ Conception, état livré et preuves : [questions.md](questions.md) (file Questio
 ([plan.md](plan.md)). Comme au § 13 : vous fournissez les comptes, Hermes gère l'exploitation. **Rien de ce qui suit
 n'a été exécuté** : chaque étape est votre geste, sur Railway seulement.
 
+Cette section décrit l'état **réuni** de P7. Sur `refonte/hermes-p7f` seule (partie F, partie de `da74a21`), la
+**partie E finale** manque jusqu'à la réunion des branches : `executant.md` § 16 (`9235999`), les deux refus anonymes
+(`3b1cac9`), les dépôts mesurés de `GET /v1/poste`, la carte « Dépôts » avec la mesure et le grisage de Codex dans
+« Nouveau projet » (`e85c7e3`, `1f2574c`) ; les gestes du § 14.6 supposent la PR de P7 fusionnée, donc ces commits
+présents.
+
 ### 14.1 Ce que P7 change dans l'IaC
 
 Le service `hermes` déclare six variables de plus, **toutes par `preserve()`**, sans aucune valeur (D116) :
@@ -1151,11 +1165,30 @@ déclare les variables) ; (2) vous posez les valeurs dans Railway ; (3) `railway
 apply`. Une variable posée dans Railway **avant** d'être déclarée apparaîtrait au plan comme une **suppression**
 (rw_full.txt:28377).
 
-**Supposé, à constater au premier plan qui suit la fusion** : `preserve()` sur une variable jamais posée ne crée rien —
-la même hypothèse que pour l'identité au premier apply (§ 3). Si le plan montre la **création** d'une de ces variables
-(valeur vide), arrêtez : une valeur vide fait refuser le démarrage (`ACP_NOTIFICATIONS` vide n'est pas un canal admis ;
-`ACP_NTFY_SERVEUR` vide est refusé avec ntfy). Posez alors d'abord `ACP_NOTIFICATIONS` = `aucune` (et, avec ntfy,
-`ACP_NTFY_SERVEUR` = `https://ntfy.sh`), puis relancez le plan.
+**Supposé, à constater au premier plan qui suit la fusion** : `preserve()` sur une variable jamais posée ne crée rien
+et n'est pas refusé par le plan (§ 3 ; la documentation de Railway ne traite pas ce cas). L'exposition est **plus
+grande** que pour l'identité : les variables du canal que vous ne choisissez pas restent absentes **pour toujours**
+(les six si vous ne choisissez aucun canal), donc chaque plan du projet en dépend, pas seulement le premier. Deux
+écarts possibles, deux conduites, **jamais exécutées** (sur Railway seulement) :
+
+- le plan montre la **création** d'une de ces variables (valeur vide) : arrêtez, n'appliquez pas. Une valeur vide
+  fait refuser le démarrage (`ACP_NOTIFICATIONS` vide n'est pas un canal admis ; `ACP_NTFY_SERVEUR` vide est refusé
+  avec ntfy). Posez alors d'abord `ACP_NOTIFICATIONS` = `aucune` (et, avec ntfy, `ACP_NTFY_SERVEUR` =
+  `https://ntfy.sh`), puis relancez le plan ;
+- le plan **refuse** `preserve()` sur une variable absente : rien ne s'applique, ni ces variables ni aucun autre
+  changement du projet, tant que ce `preserve()` reste dans `railway.ts`. N'appliquez rien, et ne posez **aucune
+  valeur factice** pour le canal non choisi (un jeton inventé n'est pas une configuration). Posez ou gardez les valeurs
+  de votre canal, `ACP_NOTIFICATIONS` comprise (sans canal : `aucune`). Un agent de développement prépare
+  une **PR de repli** qui retire de `.railway/railway.ts` le `preserve()` de chaque variable qui restera absente
+  (celles de l'autre canal ; sans canal, les cinq variables de Telegram et de ntfy) et met à jour ce qui exige les
+  six : `preservees` et le témoin « variable du canal omise » de `.railway/verifier.mjs`, `PRESERVEES_PAR_SERVICE` et
+  `test_canal_de_notification_memes_noms_que_l_image` dans `scripts/tests/test_railway_iac.py`, `PRESERVEES_HERMES`
+  et les cas paramétrés du canal retiré dans `hermes/tests/contrat/test_railway_iac_contrat.py`. CI verte, fusion
+  après votre accord, puis plan (« 0 to destroy ») et apply. Au premier apply, la même PR applique aussi le
+  contournement de l'identité (§ 3). Changer ensuite de canal demande alors une PR : posez d'abord les valeurs du
+  nouveau canal, **sans** plan ni apply (non déclarées, elles apparaîtraient au plan comme des suppressions), puis PR
+  qui déclare leurs `preserve()` (et retire ceux de l'ancien canal si vous supprimez ses valeurs) ; plan et apply
+  après sa fusion.
 
 Ce qui est prouvé, en local et en CI : `.railway/verifier.mjs` exige ces six `preserve()`, refuse tout littéral pour un
 nom de secret et s'éprouve sur trois copies altérées (jeton en clair, canal littéral, variable omise) ;
@@ -1229,9 +1262,9 @@ lui-même en premier (Railway déploie `refonte/hermes`). Un dépôt à la fois 
 | 6. Premier projet | Hermes ; preuve par l'agent | un petit projet sur ce dépôt, puis la preuve « aucune action accord requis sans geste », avant le dépôt suivant |
 
 **Mesure de la visibilité (étape 5)** : page Poste, carte « Dépôts » : alias, visibilité mesurée, lecture, date, voies
-ouvertes. La voie **Codex** n'est ouverte pour ce dépôt que si la mesure dit `prive` **et** `ok` (accès anonyme refusé
-deux fois, lecture avec le jeton réussie, D113) ; sinon Codex est fermé (Claude reste admis sur un dépôt public, D84),
-et « Nouveau projet » grise Codex avec la raison. « Inconnue » ferme Codex (échec fermé) : si GitHub limite les accès
+ouvertes (`1f2574c`, partie E finale). La voie **Codex** n'est ouverte pour ce dépôt que si la mesure dit `prive`
+**et** `ok` (accès anonyme refusé deux fois, lecture avec le jeton réussie, D113, `3b1cac9`) ; sinon Codex est fermé
+(Claude reste admis sur un dépôt public, D84), et « Nouveau projet » grise Codex avec la raison (`1f2574c`). « Inconnue » ferme Codex (échec fermé) : si GitHub limite les accès
 anonymes depuis Railway (403, 429), la mesure le dira à ce premier dépôt réel. Détail : [executant.md](executant.md)
 § 16.
 

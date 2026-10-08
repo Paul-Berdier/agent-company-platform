@@ -7,6 +7,11 @@ chaque zone : routes et flux dans [projets.md](projets.md) (§ 4, § 4 bis, § 4
 [interface.md](interface.md) (§ 13 à § 15), garde « dépôt privé » dans [executant.md](executant.md) (§ 16), gestes sur
 Railway dans [railway.md](railway.md) (§ 14).
 
+Ce document décrit l'état **réuni** de P7. La branche de la partie F (`refonte/hermes-p7f`, partie de `da74a21`) n'a
+pas la **partie E finale**, poussée ensuite sur `refonte/hermes-p7e` (`3b1cac9`, `e85c7e3`, `1f2574c`, `a41952f`,
+`9235999`, `a516890`) : jusqu'à la réunion des branches, elle n'a ni `executant.md` § 16 (écrit par `9235999` ;
+`executant.md` s'y arrête au § 15), ni la relance d'une carte bloquée pour un secret (§ 4, `e85c7e3`).
+
 **Rien n'est déployé** : tout ce qui suit est prouvé en local et en CI, avec le modèle factice, le faux exécutant, le
 faux fournisseur d'identité et un faux serveur ntfy (§ 13). Ce qui exige Railway, un vrai téléphone ou un vrai canal
 est marqué **sur Railway seulement** ou **non prouvé**.
@@ -102,8 +107,9 @@ jamais ce travail : la carte repart de son départ sur une **branche neuve**, sa
 (D110). La relance n'est donc **admise que si le dernier inventaire de l'exécutant actif porte la visibilité mesurée de
 ses dépôts** (seul un exécutant de la partie E la publie) ; sinon 409 `carte_secret` (« relance possible dès que
 l'exécutant à jour a publié son inventaire »), en échec fermé. La file dit que le travail fautif reste en quarantaine
-(`quarantaine`), la réponse dit `branche_neuve`. Ce comportement arrive avec le commit `e85c7e3` de la partie E
-(branche `refonte/hermes-p7e`, à réunir avec celle-ci).
+(`quarantaine`), la réponse dit `branche_neuve`. Ce comportement arrive avec les commits `e85c7e3` (greffon) et
+`1f2574c` (page) de la partie E (branche `refonte/hermes-p7e`, à réunir avec celle-ci) : sur `refonte/hermes-p7f`
+seule, la relance d'une carte bloquée pour un secret est encore refusée dans tous les cas (409 `carte_secret`).
 
 ---
 
@@ -201,12 +207,18 @@ en P7 (D105).
 
 ## 10. Accueil agrégé (D99)
 
-`GET /api/plugins/acp-poste/v1/accueil` : une seule lecture, la même au téléphone, dans le navigateur du PC et, s'il le
-veut, pour le desktop (fixture partagée `hermes/tests/outils/fixtures_accueil/accueil.json`). Blocs, **dans cet ordre à
-toutes les largeurs** (une colonne à 390 px, trois au bureau) : **À traiter par vous** (total et trois premières
-demandes en liens profonds), **Projets en cours**, **Exécutant** (état réel, carte en cours, voies fermées et leur
-raison), **Quotas**, **Notifications et bilan**, **Sessions récentes**, **Système**. Un bloc illisible vaut `null`
-avec sa raison (`illisibles`), jamais une valeur par défaut. La carte « Poste » figée sur « Non configuré » depuis P3 a
+Page à sept blocs, **dans cet ordre à toutes les largeurs** (une colonne à 390 px, trois au bureau) : **À traiter
+par vous** (total et trois premières demandes en liens profonds), **Projets en cours**, **Exécutant** (état réel, carte
+en cours, voies fermées et leur raison), **Quotas**, **Notifications et bilan**, **Sessions récentes**, **Système**.
+
+La route agrégée `GET /api/plugins/acp-poste/v1/accueil` sert, en une lecture, la même au téléphone, dans le
+navigateur du PC et, s'il le veut, pour le desktop (fixture partagée `hermes/tests/outils/fixtures_accueil/accueil.json`),
+les blocs du travail : `a_traiter`, `chez_hermes`, `discussions`, `projets`, `executant`, `quotas`, `notifications`
+et `pause_generale`, avec `genere_le` et `illisibles`. Un bloc illisible y vaut `null` avec sa raison
+(`illisibles`), jamais une valeur par défaut. Le reste de la page a ses propres lectures : le bilan lit
+`GET /api/cron/jobs` (route native), les **Sessions récentes** `GET /api/sessions` (route native, cinq dernières), le
+**Système** `GET /api/plugins/acp-poste/v1/meta` ; les discussions en attente du bloc « À traiter » sont comptées par
+le client sur `/api/ws` (`session.active_list`). La carte « Poste » figée sur « Non configuré » depuis P3 a
 disparu (c'était devenu une donnée fausse).
 
 ---
@@ -224,7 +236,7 @@ inconnu refusé (400 `arguments`). Erreurs : `{"detail": {"code", "message"}}`, 
 | `POST /v1/cartes/{tableau}/{carte}/relancer` | `consigne?` | `{carte, relancee, statut_apres, session_neuve}` | 404 `projet_inconnu` / `carte_inconnue`, 403 `carte_non_acp`, 409 `projet_en_pause` / `projet_fini` / `carte_en_revue` / `carte_non_arretee` / `carte_secret`, 400 `arguments` / `secret` |
 | `POST /v1/projets/{id}/reponses` | `reponses` | `{projet, avant, apres, questions_ouvertes_inchangees}` | 404 `projet_inconnu`, 409 `projet_fini` / `reponses_sans_objet`, 400 `reponses` |
 | `POST /v1/projets/{id}/clore` | `{"confirmation": true}` | `{projet, clos, etat, cartes_archivees, cartes_non_archivees, questions_annulees, branches_rapportees}` | 422 `confirmation`, 404 `projet_inconnu`, 409 `projet_fini` |
-| `GET /v1/accueil` | — | blocs du § 10, `genere_le`, `illisibles` | — |
+| `GET /v1/accueil` | — | `a_traiter`, `chez_hermes`, `discussions`, `projets`, `executant`, `quotas`, `notifications`, `pause_generale`, `genere_le`, `illisibles` (ni sessions, ni système, ni bilan : § 10) | — |
 | `GET /v1/flux` | — | `text/event-stream` (trames `etat`, `changement`, battement, `fin`) | 401 sans session, 429 `trop_de_flux` (`Retry-After: 30`) |
 | `GET /v1/meta` | — | dont `flux` et `accueil` | — |
 

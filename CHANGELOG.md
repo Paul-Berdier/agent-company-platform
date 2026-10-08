@@ -601,6 +601,9 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
 `docs/refonte/projets.md` § 4 bis, § 4 ter, § 5 et § 13, `docs/refonte/interface.md` § 13 à § 15,
 `docs/reprise-poste.md` § 6 undecies ; décisions D93 à D116 **appliquées** (`plan.md`). Trois branches
 (`refonte/hermes-p7`, `-p7e`, `-p7f`) à réunir avant la PR. Rien n'est déployé ; aucun dépôt réel n'est ajouté.
+Cette section décrit l'état **réuni** : `refonte/hermes-p7f` part de `da74a21` et n'a pas, jusqu'à la réunion, la
+**partie E finale** poussée ensuite sur `refonte/hermes-p7e` (`3b1cac9`, `e85c7e3`, `1f2574c`, `a41952f`,
+`9235999`, `a516890`) ; les entrées qui en dépendent nomment leur commit.
 
 #### Ajouté
 
@@ -619,13 +622,15 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
 - **bilan quotidien** facultatif : script `acp-bilan.py` de l'image, tâche cron **native** `no_agent` créée par le
   propriétaire (carte « Bilan quotidien » de l'Accueil), une notification par jour de Paris, compteurs seulement ;
   fuseau `Europe/Paris` épinglé ;
-- **Accueil** réécrit sur `/v1/accueil` : à traiter, projets, exécutant, quotas, notifications et bilan, sessions,
-  système ; même ordre à toutes les largeurs ;
+- **Accueil** réécrit : à traiter, projets, exécutant, quotas, notifications et bilan, sessions, système, dans le même
+  ordre à toutes les largeurs ; les blocs du travail viennent de la route agrégée `/v1/accueil`, les sessions
+  (`/api/sessions`), le système (`/v1/meta`) et l'état du bilan (`/api/cron/jobs`) de leurs propres lectures ;
 - greffon d'interface **`acp-discussion`** : discussion réduite sur le JSON-RPC natif `/api/ws` (liste, reprise,
   envoi, texte en flux, réponse aux questions de Hermes, interruption) ; canal commun à liste blanche des méthodes ;
 - exécutant : **visibilité mesurée** de chaque dépôt (`git ls-remote` anonyme puis avec le jeton), publiée dans
-  l'inventaire (champs facultatifs `visibilite`, `lecture`, `verifie_le` du contrat `Depot`) ; carte « Dépôts » de la
-  page Poste ; outil `scripts/preuve_accord_requis.py` (tableau « geste → preuve → verdict » du premier dépôt réel) ;
+  l'inventaire (champs facultatifs `visibilite`, `lecture`, `verifie_le` du contrat `Depot`) ; dépôts mesurés et voies
+  par dépôt servis dans `GET /v1/poste`, montrés par la carte « Dépôts » de la page Poste (`e85c7e3`, `1f2574c`,
+  partie E finale) ; outil `scripts/preuve_accord_requis.py` (tableau « geste → preuve → verdict » du premier dépôt réel) ;
 - IaC : les six variables du canal de notification (`ACP_NOTIFICATIONS`, Telegram et ntfy) déclarées par
   `preserve()` dans le service `hermes` ; `verifier.mjs` refuse tout littéral pour un nom de secret et s'éprouve sur
   trois copies altérées de `railway.ts` ;
@@ -640,8 +645,8 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
 #### Modifié
 
 - relecture des pages sur signal du flux au lieu du sondage de 15 s (gardé en repli) ;
-- la voie **Codex** n'est ouverte que sur un dépôt **prouvé privé** (accès anonyme refusé deux fois, lecture avec le
-  jeton réussie), au routage du greffon comme sur l'exécutant ; tant qu'aucune mesure n'est publiée, Codex est fermé sur
+- la voie **Codex** n'est ouverte que sur un dépôt **prouvé privé** (accès anonyme refusé, deux fois depuis
+  `3b1cac9` de la partie E finale, et lecture avec le jeton réussie), au routage du greffon comme sur l'exécutant ; tant qu'aucune mesure n'est publiée, Codex est fermé sur
   tout dépôt d'un poste réel ;
 - garde de démarrage des `scripts/` élargie au **seul** `acp-bilan.py` d'empreinte connue (root 0644, racine du volume) ;
 - skill `acp-questions` : escalade aussi comptes et jetons, nouveau dépôt, réseau des exécutants, suppression d'une
@@ -657,8 +662,9 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
 - discussion : événements reçus pendant la reprise d'une session perdus ou écrasés (tampon rejoué) ;
 - relance d'une carte de l'exécutant : consigne ignorée en reprise, coupée la première ou rendant la carte invalide
   (correction K4 du cahier) ;
-- partie E, après la relecture indépendante : outil de preuve (revues rejouées dans l'ordre, journal plein « non
-  prouvé », suppression et connexions), mesure non atomique (deux refus anonymes), clone nu d'une autre URL ;
+- partie E, après la relecture indépendante (partie E finale) : outil de preuve (revues rejouées dans l'ordre, journal
+  plein « non prouvé », suppression et connexions : `a41952f`), mesure non atomique (deux refus anonymes) et clone nu
+  d'une autre URL (`3b1cac9`) ;
 - tests de contrat qui comptaient toutes les notifications de la pile partagée (filtrés par projet).
 
 #### Sécurité
@@ -670,8 +676,9 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
   propriétaire exécute (`cronjob` reste coupé pour l'agent) ;
 - visibilité : seules les lignes « fatal: » composées par git valent refus (le serveur ne peut pas forger un « privé ») ;
   mesure lancée depuis la racine des clones (aucune configuration de dépôt lue) ; jeton jamais dans l'argv ni le
-  journal ; relance après un secret sur une **branche neuve**, sans l'ancienne session, et seulement avec un exécutant
-  de la partie E ;
+  journal ; une carte bloquée pour un secret ne reprend jamais son worktree en quarantaine : elle repart sur une
+  **branche neuve**, sans l'ancienne session (`665d825`) ; sa relance par le propriétaire n'est admise qu'avec un
+  exécutant de la partie E (`e85c7e3`, partie E finale ; avant lui, toujours refusée) ;
 - consigne de relance balayée par les motifs de secrets ; IaC sans secret, jetons du canal en variables scellées,
   littéral refusé par le vérificateur.
 
@@ -681,15 +688,19 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
   réussis** ; contrat complet : 172 tests verts (un rejoué seul après un échec de minuterie sous charge), puis
   passages ciblés ; navigateur **10 réussis** ; Vitest **179** ; dépôt
   Windows **1 003 réussis, 83 ignorés** ; `apps/poste` et contrat en root dans l'image d'essais de l'exécutant
-  (git 2.47.3) : 822 réussis et un échec de minuterie sous charge, rejoué vert seul ; témoins de mutation rouges ; détail et incidents d'environnement : `docs/reprise-poste.md` § 6 undecies ;
-- part F (8 octobre 2026, **sans Docker**) : dépôt **998 réussis, 83 ignorés** (IaC), puis **999** (documentation) ; `.railway/verifier.mjs` conforme (trois témoins
+  (git 2.47.3) : 822 réussis et 1 échec, puis 820 et 3 échecs, de minuterie sous charge ; `test_service_executant.py`
+  rejoué seul, vert trois fois ; l'échec de `test_executors.py`, jamais rejoué seul, n'est couvert que par la CI
+  « Image de l'exécutant » `37711679672` (823 réussis, aucun échec) ; témoins de mutation rouges ; détail et
+  incidents d'environnement : `docs/reprise-poste.md` § 6 undecies ;
+- part F (8 octobre 2026, **sans Docker**) : dépôt **998 réussis, 83 ignorés** (IaC), puis **999** (documentation, et encore après les corrections du contrôle de la part F) ; `.railway/verifier.mjs` conforme (trois témoins
   signalés) ; témoins de mutation du vérificateur et des tests statiques rouges ;
 - CI : « Image Hermes » verte sur `69ea021` (`37012771194` : image 777, contrat 180, navigateur 10) et sur la fusion
   `c785af2` (`37014427594` : 778, 181, 10) ; « Image de l'exécutant » verte sur `665d825` (`37027816836` : 821 réussis
   en root) et sur `9235999`, tête de la part E (`37711679672` : 823) ; « CI » verte sur `da74a21` (`37029770523`) et
   sur `9235999` (`37711679692`) ; « Image Hermes » **rouge** sur `665d825` (`37027816283`, un
   test de contrat de P4, non analysé), verte ensuite sur `9235999` (`37711679574` : 789, 181, 10) ; part F : « CI »
-  verte sur `cf44486` (`37713287538`) et `2136da4` (`37714145854`), « Image Hermes » verte sur `cf44486`
+  verte sur `cf44486` (`37713287538`), `2136da4` (`37714145854`) et `d363c6a` (`37718287936`), « Image Hermes » verte
+  sur `cf44486`
   (`37713287490` : image 778, contrat 183 dont Hermes démarré sans canal puis avec Telegram et avec ntfy posés,
   navigateur 10).
 
@@ -697,14 +708,22 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
 
 - tout ce qui exige Railway, un vrai téléphone ou un vrai canal (notification réelle, parcours réel, redéploiement réel
   pendant une question, flux à travers le vrai bord, premier dépôt réel, bilan à 8 h) : **non prouvé** ;
-- `preserve()` sur une variable jamais posée : **supposé** sans effet (`railway.md` § 14.1) ;
+- `preserve()` sur une variable jamais posée : **supposé** sans effet et admis par le plan ; exposition permanente pour
+  les variables du canal non choisi (jamais posées) ; si le plan le refusait, tout plan du projet serait bloqué
+  jusqu'à une PR de repli qui retire ces `preserve()` (`railway.md` § 3 et § 14.1, conduite jamais exécutée) ;
 - questions d'une discussion `/chat` absentes de la file (limite de Hermes) ; une `clarify` de la page Discussion vit
   une heure au plus et meurt au redémarrage ; aucune notification pour une discussion en attente ;
 - rendu prouvé dans Chromium seulement ; station Qt (P8) sans le flux ni les gestes de P7 ;
 - relecture indépendante des parts A à D et F : **non faite** à ce jour, due avant la PR ;
-- après la réunion des branches, deux textes antérieurs à la part F restent à aligner sur la déclaration du canal
-  dans l'IaC (`apps/interface/src/chaines.ts`, message « Notifications non configurées », et `projets.md` § 7 : ils
-  disent encore qu'une PR doit déclarer les variables).
+- après la réunion des branches, des textes antérieurs à la part F restent à aligner sur la déclaration du canal dans
+  l'IaC (ils disent encore qu'une PR doit déclarer les variables) : `apps/interface/src/chaines.ts:227` (message
+  « Notifications non configurées »), **avec** le test Vitest qui fige ce message mot pour mot
+  (`apps/interface/tests/projets.test.tsx:104`, rouge si l'on corrige `chaines.ts` seul) et les cinq bundles committés
+  qui le portent (`hermes/plugins/*/dashboard/dist/index.js`, à reconstruire par `npm run build --prefix
+  apps/interface` : la CI refuse un bundle périmé), puis
+  `projets.md` § 7 ;
+- les entrées marquées « partie E finale », ici et dans la documentation de P7, décrivent l'état réuni : vraies sur
+  la tête réunie, pas sur `refonte/hermes-p7f` seule.
 
 ## [Unreleased]
 

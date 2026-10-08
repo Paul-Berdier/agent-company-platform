@@ -522,10 +522,13 @@ Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté inter
 
 ## 14. Accueil (étape P7, partie C : cahier P7 § 8, décision P7-7, soit D99)
 
-L'Accueil (`apps/interface/src/interface/Accueil.tsx`) lit UNE route agrégée, `GET /v1/accueil`
-([projets.md](projets.md) § 4), la même au téléphone, dans le navigateur du PC et, s'il le veut, pour le desktop
-(fixture partagée `hermes/tests/outils/fixtures_accueil/accueil.json`, lue telle quelle par le test d'image et par
-Vitest). **Même ordre, mêmes textes** à toutes les largeurs : grille `repeat(auto-fit, minmax(min(20rem, 100%),
+L'Accueil (`apps/interface/src/interface/Accueil.tsx`) lit ses blocs de travail (1 à 5 ci-dessous, et la pause
+générale) dans UNE route agrégée, `GET /v1/accueil` ([projets.md](projets.md) § 4), la même au téléphone, dans le
+navigateur du PC et, s'il le veut, pour le desktop (fixture partagée `hermes/tests/outils/fixtures_accueil/accueil.json`,
+lue telle quelle par le test d'image et par Vitest). Cette route ne sert ni les sessions, ni le système, ni l'état du
+bilan : la carte du bilan lit `GET /api/cron/jobs`, les sessions récentes `GET /api/sessions`, le système
+`GET /v1/meta`, et les discussions en attente sont comptées par le client sur `/api/ws`. **Même ordre, mêmes textes** à
+toutes les largeurs : grille `repeat(auto-fit, minmax(min(20rem, 100%),
 1fr))`, une colonne à 390 px, trois au bureau.
 
 1. **À traiter par vous** (`CarteATraiter.tsx`) : total (questions à vous, décisions, revues, cartes arrêtées, plus
