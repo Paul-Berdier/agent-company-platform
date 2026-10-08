@@ -35,7 +35,7 @@ Tous verts, sauf mention.
 | P5 | #18 | `4f351bc` | CI `36807365648`, `36853018686` ; Image Hermes `36853018700` | `b3faac0`, 01/10/2026 | CI `36857299903` ; Image Hermes `36857299872` |
 | P6 | #19 | `69ddab8` | CI `36947828829`, `36957872826` ; Image Hermes `36957872837` ; Image de l'exécutant `36947828939`, `36957872822` | `7697a1c`, 02/10/2026 | CI `36969374167` ; Image Hermes `36969374083` ; Image de l'exécutant `36969374198` |
 | P8 | #20 | `efef0d8` | CI `36990645230`, `36990681150` ; Image Hermes `36990645262` ; Image de l'exécutant `36990645130` ; Desktop CI `36990681257` | `b715edb`, 02/10/2026 | CI `36995236395` ; Desktop CI `36995236331` |
-| P7 | #21 | `0a1ab98` | CI `37749086751`, `37757254413` ; Image Hermes `37749086760`, `37757254372` ; Image de l'exécutant `37757254309` ; Desktop CI `37757254376` | `b9779f1`, 08/10/2026 | CI `37795932683` ; Image de l'exécutant `37795932983` ; Desktop CI `37795932742` ; Image Hermes `37795932814` **en cours** au relevé : **à relever** |
+| P7 | #21 | `0a1ab98` | CI `37749086751`, `37757254413` ; Image Hermes `37749086760`, `37757254372` ; Image de l'exécutant `37757254309` ; Desktop CI `37757254376` | `b9779f1`, 08/10/2026 | CI `37795932683` ; Image de l'exécutant `37795932983` ; Desktop CI `37795932742` ; Image Hermes `37795932814` (verte, relevée à la fin de la part E de P9) |
 
 Un workflow absent d'une ligne n'a aucun run relevé sur ce commit (filtres de chemins des workflows) ; la CI de
 `29c95b5` a été annulée.
@@ -77,9 +77,9 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
 | Restauration « dans un environnement Railway jetable » | remplacée par la répétition en production avant données (D124) | Railway | procédure écrite ([exploitation.md](../exploitation.md) § 5) | **non prouvé** : geste du propriétaire, après le premier déploiement |
 | « Reconnexion openai-codex nécessaire, constatée et documentée » | constat c de la répétition de restauration | Railway | — | **non prouvé** tant que la répétition n'a pas eu lieu |
 | « Dans un environnement éphémère (identifiant propre) » | remplacé par la porte de CI, la sauvegarde manuelle et le retour arrière (D123) | — | décision écrite | décision, sans preuve d'exécution |
-| Documentation finale (README, `CLAUDE.md`, notes de reprise remises à plat, historique figé, ce document) | relecture indépendante | dépôt | part E | **à relever** (préparation en cours sur `refonte/hermes-p9e`) |
+| Documentation finale (README, `CLAUDE.md`, notes de reprise remises à plat, historique figé, ce document) | relecture indépendante | dépôt | part E, `refonte/hermes-p9e` : `bdd0f3d` (décisions D122 à D155), `4a46022` (historique), `6b37aa2` (ce document), `478f065` (notes de reprise), `81a349a` (README, `CLAUDE.md`), `611cc58` (journal 1.0.0 préparé) ; CI verte sur `bdd0f3d`, `4a46022`, `6b37aa2` et `478f065` (`37798492510`, `37799420440`, `37800504780`, `37801841085`) | **à relever** : relecture indépendante, puis mise à jour après la fin des parts B et C |
 | Relecture indépendante de toute P9 | constats et traitement | dépôt | — | **à relever** |
-| Commit d'ouverture 1.0.0 (D129), journal 1.0.0 complet | `chore(release): open 1.0.0`, `chore(release): prepare 1.0.0 changelog` | dépôt | — | **à relever** (`VERSION` : 0.11.0 au 8 octobre 2026 ; section 1.0.0 du journal préparée, non datée) |
+| Commit d'ouverture 1.0.0 (D129), journal 1.0.0 complet | `chore(release): open 1.0.0`, `chore(release): prepare 1.0.0 changelog` | dépôt | — | **à relever** (`VERSION` : 0.11.0 au 8 octobre 2026 ; section 1.0.0 du journal préparée, non datée : `611cc58`) |
 | PR de P9 vers `refonte/hermes`, quatre workflows verts, fusion | — | CI | — | **à relever** |
 | Pixel Office et Godot hors périmètre | `scripts/check_engine_frozen.py` vert ; aucune ligne sous `packages/pixel-office-engine` | CI | chaque run de `ci.yml` | vérifié à chaque push (dernier relevé de cette branche : **à relever** à la fin de la part E) |
 
@@ -111,3 +111,11 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
 - Le premier run de `Desktop Release` tant que l'étiquette n'est pas posée ; un installeur réel sur un Windows
   propre ; binaires **non signés** (aucun certificat).
 - `preserve()` sur une variable jamais posée : supposé sans effet (D116).
+- **Constat intermittent, à instruire avant la publication** : Image Hermes `37784838264` (`fdb41c9`), tentative 1,
+  job `113336818423` rouge sur `hermes/tests/contrat/test_sans_shell_contrat.py::test_volume_piege_apres_relance` :
+  après le redémarrage du conteneur sur un volume piégé, la session du tableau de bord (`/api/ws`) listait `terminal`,
+  `write_file`, `execute_code`… (les jeux posés par le `.env` piégé), alors que l'api_server répondait « Tool
+  'terminal' does not exist » ; deuxième des trois couches de la défense de P2 ([image.md](image.md) § 5, épingles du
+  `.env` géré) vue en défaut **une fois**. Tentative 2 verte, comme ce test dans les autres runs relevés pendant P9.
+  Non reproduit, non expliqué, non corrigé ; la garde `pre_tool_call` (troisième couche) n'a pas été mesurée pour
+  cette session dans ce run.

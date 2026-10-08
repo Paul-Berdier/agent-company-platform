@@ -26,8 +26,8 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 - **Étiquettes** : `v0.2.0` à `v0.9.0` et `archive/acp-0.10.0-avant-hermes` ; ni `v0.10.0` ni `v0.11.0` (jamais
   publiées) ; aucune `v1.0.0`.
 - **Intégration continue** sur `refonte/hermes` après la fusion de P7 (`b9779f1`) : CI `37795932683`, Image de
-  l'exécutant `37795932983` et Desktop CI `37795932742` vertes ; Image Hermes `37795932814` en cours au moment
-  d'écrire : à relever. Runs de chaque étape : [preuves de 1.0.0](refonte/preuves-1.0.0.md).
+  l'exécutant `37795932983`, Desktop CI `37795932742` et Image Hermes `37795932814` : **vertes**. Runs de chaque
+  étape : [preuves de 1.0.0](refonte/preuves-1.0.0.md).
 - **Docker** : Docker Desktop est **arrêté** sur le poste de travail depuis le 8 octobre 2026 (souhait du
   propriétaire, D134). Aucune commande Docker en local : images, contrat, navigateur, restauration, témoin et montée
   de données se prouvent par la CI GitHub (`gh workflow run <fichier> --ref <branche>` pour les jobs manuels).
@@ -228,13 +228,16 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
 
 ## 6. Prochaines étapes réelles
 
-1. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, relecture indépendante de
+1. Avant tout : instruire le constat intermittent de la défense de P2 (session du tableau de bord qui a reçu, une
+   fois, les outils du `.env` piégé après un redémarrage du conteneur : Image Hermes `37784838264`, tentative 1 ;
+   détail : [preuves](refonte/preuves-1.0.0.md) § 5). Il est dit dans les limites du journal 1.0.0 préparé.
+2. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, relecture indépendante de
    toute P9, commit d'ouverture 1.0.0 puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre
    workflows verts, fusion.
-2. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
+3. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
    de fusion, branche déployée) ; premier run de `Desktop Release` (brouillon non signé).
-3. Gestes du propriétaire sur Railway : premier déploiement ([railway.md](refonte/railway.md) § 4), répétition de
+4. Gestes du propriétaire sur Railway : premier déploiement ([railway.md](refonte/railway.md) § 4), répétition de
    maintenance puis de restauration avant d'y mettre des données ([exploitation.md](exploitation.md) § 5), sonde R0
    de l'exécutant (railway.md § 13.2), canal de notification et premier dépôt réel (railway.md § 14).
-4. Ensuite : MCP côté exécutant (reporté depuis P8), première montée réelle de Hermes par la procédure du manuel
+5. Ensuite : MCP côté exécutant (reporté depuis P8), première montée réelle de Hermes par la procédure du manuel
    (§ 6), confirmation par le propriétaire des choix D1 à D73.
