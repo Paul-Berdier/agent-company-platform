@@ -9,8 +9,8 @@ relevés de l'ancien client (0.10.0, ancienne API ACP) restent sous l'étiquette
 
 ## État des preuves
 
-Sur la branche `refonte/hermes-p8` : compilation Release (`/W4 /WX`) et **34 suites**
-déclarées à CTest (31 avant les corrections de la relecture, 34 depuis), totaux Qt relevés sans échec ni test ignoré, localement et par la
+Sur la branche `refonte/hermes-p8b` : compilation Release (`/W4 /WX`) et **36 suites**
+déclarées à CTest (31 avant les corrections de la relecture de P8, 34 après, 36 depuis P8b), totaux Qt relevés sans échec ni test ignoré, localement et par la
 **Desktop CI** sur `windows-2022` (identifiants des runs dans
 [`reprise-poste.md`](reprise-poste.md), § 6 decies). Un **bout en bout local** contre la
 pile de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi (§ 12). Ni
@@ -136,15 +136,15 @@ Qt Test et Qt Quick Test sont ceux que le préréglage de test déclare. Un test
 échec fait échouer le script avec le code `5`. Aucun résultat n'est converti en
 avertissement, aucune suite n'est ignorée silencieusement.
 
-Depuis P8 et ses corrections après relecture, 34 suites :
+Depuis P8b (station alignée sur P7), 36 suites :
 
 | Domaine | Suites |
 |---|---|
 | Connexion et coffre | `tst_pkce`, `tst_flux_natif`, `tst_session_hermes`, `tst_jetons_coffre`, `tst_instance_unique`, `tst_reglages_sans_secret` |
 | Transport, compatibilité, santé | `tst_api_porteur`, `tst_api_errors`, `tst_client_greffon`, `tst_compatibilite_hermes`, `tst_sante` |
-| JSON-RPC et temps réel | `tst_canal_jsonrpc`, `tst_client_passerelle`, `tst_openrpc_conformite`, `tst_temps_reel`, `tst_sse_parser`, `tst_backoff` |
+| JSON-RPC et temps réel | `tst_canal_jsonrpc`, `tst_client_passerelle`, `tst_openrpc_conformite`, `tst_temps_reel`, `tst_flux_invalidation` (flux d'invalidation du greffon, trames partagées), `tst_discussions_attente` (`session.active_list`), `tst_sse_parser`, `tst_backoff` |
 | Pages | `tst_accueil`, `tst_projets`, `tst_questions`, `tst_discussion`, `tst_poste`, `tst_quotas`, `tst_routage`, `tst_sauvegarde`, `tst_diagnostics`, `tst_pages_bureau` |
-| Gestes réels et oubli | `tst_pages_interactions` (frappes et clics de souris sur les vrais contrôles QML : réponse à une question, consigne, message de la discussion, raccourcis de la palette, dialogue des réglages), `tst_oubli_local` (session perdue, changement de serveur, greffon bloqué), `tst_modele_liste` (mise à jour des listes par identifiant) |
+| Gestes réels et oubli | `tst_pages_interactions` (frappes et clics de souris sur les vrais contrôles QML : réponse à une question, consigne, relance, refus de revue, qui répond, clôture, exécutant grisé, relecture au signal du flux, ouverture d'une discussion en attente, message de la discussion, raccourcis de la palette, dialogue des réglages), `tst_oubli_local` (session perdue, changement de serveur, greffon bloqué), `tst_modele_liste` (mise à jour des listes par identifiant) |
 | Socle | `tst_command_registry`, `tst_redaction`, `tst_updates`, `tst_qml_shell` (Qt Quick Test) |
 
 CTest compte « Passed » un test ignoré par `QSKIP` : lire les totaux de Qt Test

@@ -5,6 +5,10 @@ branche `refonte/hermes-p8`, partie de `refonte/hermes` (`b3faac0`, P0 à P5 fus
 **Réalisée côté dépôt, poussée, sans PR ni fusion ; rien n'est déployé.** Version 0.11.0
 inchangée.
 
+**Étape P8b (8 octobre 2026)** : station alignée sur P7, branche `refonte/hermes-p8b` (de
+`refonte/hermes` `b9779f1`, P0 à P8 et P7) ; voir § « P8b » plus bas. Poussée, sans PR ni
+fusion ; rien n'est déployé.
+
 Guides : [architecture](../native-desktop-architecture.md),
 [sécurité](../desktop-security.md), [construction et bout en bout](../desktop-build.md).
 Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste.md),
@@ -25,7 +29,8 @@ Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste
   sans `Origin`, rejeu après coupure, **-32601** pour toute requête serveur non gérée,
   réponses `approval`/`clarify` avec les seuls choix offerts.
 - **Temps réel** (`EventStreamService`) : sondage des pages affichées, sondage léger de la
-  barre d'état, veille du kanban qui relit le projet ouvert.
+  barre d'état, veille du kanban qui relit le projet ouvert ; depuis P8b, flux
+  d'invalidation du greffon (`GET /v1/flux`) qui fait relire les pages au changement.
 - **Pages** : Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics,
   Sauvegarde (export chiffré DPAPI `ACPB1`, archive retirée du volume), Réglages.
 - **Qt WebSockets** dans la chaîne d'outils, CMake et la Desktop CI.
@@ -56,7 +61,7 @@ comptes et tranche l'irréversible » :
 | D8-5 | Sur 503 au rafraîchissement, le jeton est gardé, jamais effacé automatiquement |
 | D8-6 | Routage : validation, relevé et surcharges dans la station ; édition complète dans le navigateur |
 | D8-7 | Sauvegarde au format `ACPB1` (DPAPI par morceaux), suppression de l'archive par `DELETE /api/files` |
-| D8-8 | Revues de P6 en lecture seule tant que P6 n'est pas fusionnée |
+| D8-8 | Revues de P6 en lecture seule tant que P6 n'est pas fusionnée (levée en P8b : Accepter / Refuser) |
 | D8-9 | Discussion sans choix de modèle ni de profil (défaut du profil) |
 | D8-10 | Bout en bout local seulement |
 | D8-11 | MCP côté exécutant après la fusion de P6, hors de cette branche |
@@ -66,21 +71,18 @@ comptes et tranche l'irréversible » :
 
 - **MCP côté poste** (volet P8 du plan d'autonomie) : non construit ici ; il dépend des
   fichiers de P6 (`executant/`, `apps/poste`) que cette branche ne modifie pas (D8-11).
-- **Flux SSE du greffon** : la station ne l'ouvre pas et relit ses pages par sondage ;
-  `SseParser` est gardé pour lui. Depuis la relecture finale de P7, le diagnostic dit ce que
-  `/v1/meta` annonce (clé `flux`) : « Annoncé par le serveur ; non utilisé par cette
-  station », « Non disponible sur ce serveur » (clé absente), ou « Inconnu » tant que rien
-  n'est lu — jamais une étape à venir.
+- **Flux SSE du greffon** : en P8, la station ne l'ouvrait pas et relisait ses pages par
+  sondage ; depuis P8b, elle l'ouvre quand `/v1/meta` l'annonce (voir § « P8b »).
 - **Test de contrat des documents de référence** : prévu dans
   `hermes/tests/contrat/test_fixtures_desktop.py` et `image.yml` ; fait à la place dans le
   bout en bout local (lecture en porteur, comparaison de forme de 9 documents), pour ne pas
   toucher `image.yml`, que P6 et P7 modifient aussi. Il n'est donc pas en CI.
 - **Quotas** : `SubscriptionQuotasViewModel` (ancienne route) retiré puis réécrit en
   `QuotasViewModel` sur `/v1/quotas`.
-- **Demandes de l'agent** : seules celles des discussions ouvertes dans la station sont
-  affichées ; l'agrégat de toutes les sessions vivantes, servi depuis P7 (section
-  `discussions` de `GET /v1/questions`, `session.active_list`), n'est pas lu par la station,
-  qui le dit (« la page Questions du navigateur les compte »).
+- **Demandes de l'agent** : la station ne répond qu'aux demandes des discussions ouvertes
+  en elle (section « Demandes de vos discussions ») ; depuis P8b, la file Questions liste
+  aussi les discussions en attente de toutes les sessions vivantes (`session.active_list`)
+  et « Ouvrir la discussion » les reprend dans la page Discussion, comme le navigateur.
 - **`session.close`** : envoyé seulement pour une session sans tour en cours, pour ne
   jamais interrompre un travail de l'agent.
 - **Proxy des WebSockets** : ils prennent désormais la même règle que le REST (aucun proxy
@@ -116,24 +118,61 @@ Preuves : 34 suites, totaux Qt sans échec ni test ignoré ; bout en bout local 
 (0 écart) contre les images `p8` et `rv8p6` ; Desktop CI et CI vertes (runs dans
 [`reprise-poste.md`](../reprise-poste.md), § 6 decies).
 
+## P8b — station alignée sur P7 (8 octobre 2026)
+
+P8 avait été écrite contre P6 ; la relecture finale de P7 avait laissé en limites
+(constats desktop-5, desktop-7, desktop-8) les gestes de P7, l'Accueil agrégé, les
+compteurs de la file, la visibilité mesurée des dépôts et le flux. La station offre
+désormais au PC le même suivi et les mêmes gestes que la page web de P7. Formes et codes de
+refus lus dans le code du greffon (`dashboard/plugin_api.py`, `noyau/questions.py`,
+`accueil.py`, `flux.py`, `routage.py`, `execution.py`), jamais dans la documentation seule.
+
+| Vue ou geste | Station | Commit |
+|---|---|---|
+| Routes P6 et P7 du greffon (`ClientGreffonPoste`) | accueil, flux (`Last-Event-ID` seulement pour une révision « n.n »), relance, qui répond, clôture, revues | `ab6d361` |
+| File Questions à cinq sections | questions (qui répond, aide chez Hermes), décisions, **revues** (Accepter / Refuser avec motif de 1 à 1 000 caractères), **cartes arrêtées** (Relancer seulement si `relancable`, consigne de 1 à 4 000 caractères, jamais pour une carte d'intégration ; message d'après `relancee`, `branche_neuve`, `session_neuve`), discussions en attente ; refus 409 du greffon dits tels quels ; geste accepté sans effet montré « Attention : », jamais en réussite | `e65c1c1` |
+| Détail d'un projet | **Changer qui répond** (projet sur dépôt pas encore fini ; message avec `questions_ouvertes_inchangees`), **Clore le projet** (actif ou en pause, confirmation aux quatre effets, `{confirmation: true}` ; message d'après la réponse) | `d8c1f0a` |
+| Accueil agrégé | une lecture de `GET /v1/accueil` (fixture PARTAGÉE lue en place) : à traiter, projets, exécutant (voies fermées `{voie: raison}`), quotas par voie, notifications (test seulement avec un canal), pause générale ; bloc illisible dit avec sa raison | `114cc4e` |
+| Badge et barre d'état | « À traiter par vous » d'après `a_traiter.total` de `/v1/accueil` | `5c37c70` |
+| Dépôts | carte « Dépôts autorisés » de la page Poste (visibilité MESURÉE, lecture, date, voies ouvertes ou fermées par dépôt, d'après `executant.depots`) ; « Nouveau projet » grise l'exécutant fermé pour le dépôt choisi avec la raison du greffon, ne le retient ni ne l'envoie jamais, part sans exploration si aucun n'est ouvert | `7f42eaa` |
+| Flux d'invalidation `GET /v1/flux` | `FluxInvalidation` : ouvert seulement sur l'annonce de `/v1/meta` (chemin et version attendus) et quand une page peut lire ; trame `etat` → temps réel ; `changement` → les pages qui suivent le sujet se relisent (regroupé 300 ms), sinon relecture de sûreté toutes les 2 min (1 min pour les discussions non publiées) ; `fin` → réouverture aussitôt avec `Last-Event-ID` ; chien de garde de 40 s ; reprises 1, 2, 5, 10, 30 s ; trois échecs en 2 min → sondage (15 s) et nouvel essai toutes les 5 min ; 429 jamais avant `Retry-After`. Sujets de chaque page repris de la page web. Barre d'état « Temps réel » / « Sondage… », détail dans les Diagnostics | `13b86db` |
+| Discussions en attente | `DiscussionsEnAttente` : `session.active_list` par la passerelle de la station (entrées « waiting » seulement), comptées dans le badge, l'Accueil et la file quand elles sont lues, sinon le total le dit ; liste et « Ouvrir la discussion » dans la file | `eafa969` |
+| Bilan quotidien | carte de l'Accueil d'après `GET /api/cron/jobs` (route native) : Actif, En pause, En erreur, Non créé ; prochaine et dernière exécution ; issue seulement si publiée ; « Créer le bilan quotidien (8 h) » (`POST /api/cron/jobs`, offert seulement s'il n'existe pas) ; page Cron dans le navigateur | `787c979` |
+
+Décision **P8b-1** : un 401 du flux n'est jamais réessayé aussitôt ; la station passe en
+sondage et retente dans 5 min (la page web, elle, s'arrête et laisse sa lecture suivante
+rediriger vers la connexion ; la station n'a pas de page à recharger, et ses lectures REST
+font tourner le jeton ou perdent la session, ce qui ferme tout).
+
+Preuves : 36 suites déclarées à CTest (34 avant P8b ; `tst_flux_invalidation` et
+`tst_discussions_attente` ajoutées), totaux Qt relevés à chaque morceau : 0 échec, 0 test
+ignoré, en construction incrémentale locale (Release, Qt 6.8.3 msvc2022_64). Vrais clics et
+frappes dans `tst_pages_interactions` (relance avec consigne, refus de revue, qui répond,
+clôture, option grisée de l'exécutant, page Questions relue au signal du flux dans la
+composition réelle, « Ouvrir la discussion »). Fixtures PARTAGÉES lues à leur place
+(`hermes/tests/outils/fixtures_accueil/accueil.json`, `fixtures_flux/trames.json`,
+`fixtures_poste/depots.json`) ; `desktop-ci.yml` se déclenche aussi sur elles. Chaque
+correction a son témoin de mutation (tests rouges relevés, puis code restauré). Desktop CI
+et CI vertes sur chaque tête poussée (identifiants dans le rapport de l'étape ; un run de
+`e65c1c1` annulé par le push suivant).
+
 ## Non prouvé
 
 - Aucun essai contre Railway ni avec une vraie passkey (rien n'est déployé).
 - Navigateur du système réel (Chromium de Playwright le remplace au bout en bout).
 - Installation sur un Windows propre ; signature.
-- Gestes et lectures servis par P6 et P7 que la station n'emploie pas : les contrats sont
-  désormais sur la branche (P6 fusionnée, P7 sur `refonte/hermes-p7`), mais ces gestes
-  restent dans le navigateur, hors du périmètre de P7 (cahier P7 § 5.5 : « aucune
-  dépendance ») : **Relancer** une carte arrêtée, **Qui répond**, **Clore le projet**,
-  **Accepter / Refuser** une revue de fichiers de pilotage (la station renvoie au
-  navigateur et le dit) ; ouverture du flux SSE ; Accueil agrégé `GET /v1/accueil`
-  (« À traiter par vous », « Chez Hermes », canal de notifications : la carte Questions de
-  l'Accueil de la station le dit) ; compteurs de `GET /v1/questions` (le badge Questions et
-  la barre d'état comptent les questions ouvertes de `/v1/projets`, sans les décisions,
-  revues ni cartes arrêtées) ; section des discussions en attente de la file ; visibilité
-  mesurée des dépôts (`executant.depots`) : la page Poste n'en montre que les alias, et
-  « Nouveau projet » propose Codex même pour un dépôt non prouvé privé, que le greffon
-  refuse alors (`voie_fermee`, sans faux succès).
+- Gestes et lectures de P7 dans la station (P8b) : prouvés contre le faux Hermes, les
+  fixtures partagées avec le greffon et le contrat OpenRPC épinglé seulement. Le bout en
+  bout local n'a pas été rejoué contre une image de P7 (aucune commande Docker sur ce
+  poste) : flux réel derrière uvicorn, relance, clôture, revues, discussions en attente et
+  bilan quotidien contre un vrai greffon et un vrai Hermes ne sont pas prouvés.
+- Flux derrière le bord Railway (coupure avant 10 min, mise en tampon) et 401 du flux
+  (décision P8b-1) : prouvés contre le faux Hermes seulement.
+- Cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web (lues de
+  `/v1/meta`) : non reprises par la station, qui montre la carte « Hermes ».
+- Discussions en attente : seules celles du processus du tableau de bord
+  (`session.active_list`) ; les questions posées dans `/chat` en terminal restent
+  invisibles, comme dans le navigateur.
 - Constats de la relecture finale de P7 corrigés dans la station : voies fermées de
   l'exécutant (objet `{voie: raison}` servi par le greffon, lu comme un tableau : toujours
   « Inconnu ») ; état d'une question d'après `chez` ; aide du plafond de corrections
@@ -161,5 +200,6 @@ Accueil, Projets, Questions, Discussion) ; `6a068a5`, `b748194`, `b3b9e0f`, `75a
 `834a920`, `bfccf52`, `c66bc0b`, `aaf4242`, `1b28374`, `b68f645` et la documentation (troisième
 partie : Poste, Quotas, Routage, Sauvegarde, Diagnostics, bout en bout) ; `7b82c7c`,
 `54714ab`, `ee70e9f`, `da7081a`, `72f2a5b`, `ba206b4`, `4ac1de4`, `c22c8b9`, `9c76c54`,
-`de46e69`, `1f3696a` et la documentation (corrections après relecture). Aucun
-`Co-Authored-By`.
+`de46e69`, `1f3696a` et la documentation (corrections après relecture). P8b : `ab6d361`,
+`e65c1c1`, `d8c1f0a`, `114cc4e`, `5c37c70`, `7f42eaa`, `13b86db`, `eafa969`, `787c979` et la
+documentation. Aucun `Co-Authored-By`.
