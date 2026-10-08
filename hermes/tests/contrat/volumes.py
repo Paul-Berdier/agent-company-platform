@@ -23,7 +23,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Sequence
 
-from conftest import docker
+# pile_identite.docker (autonome, même forme que conftest.docker) : ce module sert aussi aux tests navigateur
+# (hermes/tests/e2e), où « conftest » désigne un autre module.
+from pile_identite import docker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "outils"))
 

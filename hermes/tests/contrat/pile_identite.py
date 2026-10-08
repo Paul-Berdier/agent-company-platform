@@ -202,12 +202,13 @@ class Pile:
     # ------------------------------------------------------------------ hermes
 
     def lancer_hermes(self, image_tests: str, reseau: str, env: Optional[Dict[str, str]] = None,
-                      fichiers: Optional[Dict[str, str]] = None) -> str:
+                      fichiers: Optional[Dict[str, str]] = None, volume: Optional[str] = None) -> str:
         """``fichiers`` : fichiers déposés dans le volume jetable AVANT le démarrage (étape P4 : le
-        config.yaml du modèle factice), rendus à l'uid hermes comme sur un volume déjà utilisé."""
+        config.yaml du modèle factice), rendus à l'uid hermes comme sur un volume déjà utilisé.
+        ``volume`` (étape P9) : volume déjà garni (restauré) au lieu d'un volume neuf."""
         nom = self.nom("hermes")
         self.conteneurs.append(nom)
-        volume = self.volume()
+        volume = volume or self.volume()
         for chemin, contenu in (fichiers or {}).items():
             cible = f"/opt/data/{chemin}"
             docker("run", "--rm", "-i", "-v", f"{volume}:/opt/data", "--entrypoint", "sh", image_tests, "-c",

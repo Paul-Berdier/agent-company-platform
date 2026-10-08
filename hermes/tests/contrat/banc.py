@@ -110,11 +110,17 @@ class Banc:
         self.reseau: str
         self.executant: str
         self.volume_executant: str
+        self.volume_hermes: str
+        # Étape P9 : vraie identité (Authelia) à côté du banc, sur son volume, non branchée sur l'OIDC du banc.
+        self.identite: Optional[str] = None
+        self.volume_identite: Optional[str] = None
+        self.bord_identite: Optional[str] = None
 
     # ------------------------------------------------------------------ pile
     def monter(self) -> None:
         r, image = self.ressources, self.image_tests
         reseau = r.reseau()
+        self.reseau = reseau
         for role, alias, commande in (
                 ("idp", "idp.acp.test", ["/opt/acp-tests/outils/idp_factice.py", "--emetteur",
                                          "https://idp.acp.test:8443", "--port", "8443", "--certificat",
@@ -131,26 +137,34 @@ class Banc:
                    image, "-u", *commande)
             setattr(self, role, nom)
         volume = r.volume(image, {"config.yaml": MODELE})
+        self.volume_hermes = volume
         self.hermes = lancer(r, image, ENV_P6, volume=volume, reseau=reseau)
-        self.hermes.executer(["sh", "-c", "echo '{}' > /tmp/acp-scenarios.json"], utilisateur="hermes", verifier=True)
-        docker("exec", "-d", "-u", "hermes", self.hermes.nom, PYTHON, "/opt/acp-tests/outils/modele_factice.py",
-               "--port", "18080", "--journal", "/tmp/modele-factice.jsonl", "--scenarios", "/tmp/acp-scenarios.json")
-        attendre_modele_factice(self.hermes, "/tmp/modele-factice.jsonl")
+        self._demarrer_modele_factice()
         # Émetteur à 5 s ; plafond des projets actifs relevé de 3 à 6 pour le banc (quatre scénarios, chacun son projet,
         # dont la planification par le modèle factice ne se conclut pas) : réglages de test, dits ici.
         for cle, valeur in (("emetteur_intervalle_s", "5"), ("projets_actifs_max", "6")):
             sortie = self.hermes.executer([PYTHON, POSTE_SIMULE, "reglage", cle, valeur], utilisateur="hermes",
                                           delai=120)
             assert sortie.returncode == 0, sortie.stderr[-2000:]
-        self.bord = r.nom("bord")
-        r.conteneurs.append(self.bord)
-        docker("run", "-d", "--name", self.bord, "--network", reseau, "--network-alias", "hermes-acp.test",
-               "--entrypoint", PYTHON, image, "-u", "/opt/acp-tests/outils/bord_factice.py", "--port", "443",
-               "--certificat", "/opt/acp-tests/ac/bord.pem", "--cle", "/opt/acp-tests/ac/bord.key", "--journal",
-               "/tmp/bord.jsonl", "--route", f"hermes-acp.test={self.hermes.nom}:9119")
+        self._lancer_bord()
         for nom, marque in ((self.bord, "[bord-factice] port 443"), (self.depot, "[depot-factice] port 443")):
             attendre(lambda: marque in docker("logs", nom, verifier=False).stdout, 60, f"{nom} non démarré")
-        self.reseau = reseau
+
+    def _demarrer_modele_factice(self) -> None:
+        """Modèle factice de Hermes, lancé dans son conteneur (hors du volume : à relancer avec le conteneur)."""
+        self.hermes.executer(["sh", "-c", "echo '{}' > /tmp/acp-scenarios.json"], utilisateur="hermes", verifier=True)
+        docker("exec", "-d", "-u", "hermes", self.hermes.nom, PYTHON, "/opt/acp-tests/outils/modele_factice.py",
+               "--port", "18080", "--journal", "/tmp/modele-factice.jsonl", "--scenarios", "/tmp/acp-scenarios.json")
+        attendre_modele_factice(self.hermes, "/tmp/modele-factice.jsonl")
+
+    def _lancer_bord(self) -> None:
+        """Bord TLS factice ``hermes-acp.test`` devant le tableau de bord du conteneur Hermes courant."""
+        self.bord = self.ressources.nom("bord")
+        self.ressources.conteneurs.append(self.bord)
+        docker("run", "-d", "--name", self.bord, "--network", self.reseau, "--network-alias", "hermes-acp.test",
+               "--entrypoint", PYTHON, self.image_tests, "-u", "/opt/acp-tests/outils/bord_factice.py", "--port", "443",
+               "--certificat", "/opt/acp-tests/ac/bord.pem", "--cle", "/opt/acp-tests/ac/bord.key", "--journal",
+               "/tmp/bord.jsonl", "--route", f"hermes-acp.test={self.hermes.nom}:9119")
 
     def construire_executant(self) -> None:
         """Image de test = cible factice + autorité de test + politique de test (aucun autre changement)."""
@@ -169,11 +183,10 @@ class Banc:
             docker("build", "-q", "--build-arg", f"IMAGE={image_factice()}", "-t", self.image_executant,
                    str(contexte), delai=600)
 
-    def demarrer_executant(self) -> None:
+    def demarrer_executant(self, volume: Optional[str] = None) -> None:
+        """Conteneur de l'exécutant sur un volume neuf, ou sur ``volume`` (étape P9 : volume restauré)."""
         r = self.ressources
-        self.volume_executant = r.nom("vol-executant")
-        docker("volume", "create", self.volume_executant)
-        r.volumes.append(self.volume_executant)
+        self.volume_executant = volume if volume is not None else self._volume_neuf("vol-executant")
         self.executant = r.nom("executant")
         r.conteneurs.append(self.executant)
         assert self.image_executant, "construire_executant() d'abord"
@@ -182,9 +195,75 @@ class Banc:
         attendre(lambda: "[acp] volume prêt" in docker("logs", self.executant, verifier=False).stdout, 60,
                  "entrée de l'exécutant non passée")
 
+    def _volume_neuf(self, role: str) -> str:
+        nom: str = self.ressources.nom(role)
+        docker("volume", "create", nom)
+        self.ressources.volumes.append(nom)
+        return nom
+
     def nettoyer_image(self) -> None:
         if self.image_executant:
             docker("rmi", "-f", self.image_executant, verifier=False)
+
+    # ------------------------------------------------------------------ étape P9 : identité, arrêt, relance
+    def lancer_identite(self, image_identite: str, empreinte: str, volume: Optional[str] = None) -> str:
+        """Vraie identité (image identite/, Authelia) sur le réseau du banc, alias ``identite-interne``, sur un volume
+        neuf ou donné (même forme que ``Pile.lancer_identite`` de pile_identite.py), et son bord TLS factice
+        ``identite-acp.test`` (lancé une fois). Elle n'est PAS branchée sur l'OIDC du banc, qui garde son faux IdP."""
+        from pile_identite import HOTE_IDENTITE, attendre_identite, env_identite, options_env
+
+        r = self.ressources
+        volume = volume if volume is not None else self._volume_neuf("vol-identite")
+        nom: str = r.nom("identite")
+        r.conteneurs.append(nom)
+        docker("run", "-d", "--name", nom, "-v", f"{volume}:/config", "--network", self.reseau, "--network-alias",
+               "identite-interne", *options_env(env_identite(empreinte)), image_identite)
+        attendre_identite(nom)
+        self.identite, self.volume_identite = nom, volume
+        if self.bord_identite is None:
+            bord: str = r.nom("bord-identite")
+            self.bord_identite = bord
+            r.conteneurs.append(bord)
+            docker("run", "-d", "--name", bord, "--network", self.reseau, "--network-alias", HOTE_IDENTITE,
+                   "--entrypoint", PYTHON, self.image_tests, "-u", "/opt/acp-tests/outils/bord_factice.py", "--port",
+                   "443", "--certificat", "/opt/acp-tests/ac/bord.pem", "--cle", "/opt/acp-tests/ac/bord.key",
+                   "--journal", "/tmp/bord.jsonl", "--route", f"{HOTE_IDENTITE}=identite-interne:9091")
+            attendre(lambda: "[bord-factice] port 443" in docker("logs", bord, verifier=False).stdout, 60,
+                     f"{bord} non démarré")
+        return nom
+
+    def arreter(self, delai: int = 90) -> List[Dict[str, Any]]:
+        """Arrêt propre dans l'ordre exécutant, Hermes, identité (cahier P9 § 3.3 point 6 : l'exécutant envoie son
+        ``arret`` à un Hermes encore en marche). Rend le code de sortie de chacun ; un conteneur déjà arrêté le reste."""
+        etats = []
+        for nom in [self.executant, self.hermes.nom] + ([self.identite] if self.identite else []):
+            docker("stop", "-t", str(delai), nom, delai=delai + 60)
+            code = docker("inspect", "-f", "{{.State.ExitCode}}", nom).stdout.strip()
+            etats.append({"conteneur": nom, "code": int(code)})
+        return etats
+
+    def relancer_hermes(self, volume_hermes: str) -> None:
+        """Hermes seul, mêmes image et variables, dans un NOUVEAU conteneur sur ``volume_hermes`` (modèle factice et
+        nouveau bord vers lui ; l'ancien bord est retiré). Le conteneur Hermes précédent doit être arrêté."""
+        docker("rm", "-f", self.bord, verifier=False, delai=120)
+        self.volume_hermes = volume_hermes
+        self.hermes = lancer(self.ressources, self.image_tests, ENV_P6, volume=volume_hermes, reseau=self.reseau)
+        self._demarrer_modele_factice()
+        self._lancer_bord()
+        bord = self.bord
+        attendre(lambda: "[bord-factice] port 443" in docker("logs", bord, verifier=False).stdout, 60,
+                 f"{bord} non démarré")
+
+    def relancer(self, volume_hermes: str, volume_executant: str, *, volume_identite: Optional[str] = None,
+                 image_identite: Optional[str] = None, empreinte: Optional[str] = None) -> None:
+        """Mêmes images et mêmes variables sur les volumes donnés (restaurés), dans de NOUVEAUX conteneurs : Hermes
+        (et son modèle factice), un nouveau bord ``hermes-acp.test`` vers lui (l'ancien est retiré : un seul alias),
+        l'identité si son volume est donné, puis l'exécutant. Les conteneurs précédents doivent être arrêtés."""
+        self.relancer_hermes(volume_hermes)
+        if volume_identite is not None:
+            assert image_identite and empreinte, "image et empreinte de l'identité exigées"
+            self.lancer_identite(image_identite, empreinte, volume=volume_identite)
+        self.demarrer_executant(volume=volume_executant)
 
     # ------------------------------------------------------------------ mise en service
     def mettre_en_service(self) -> Dict[str, Any]:
