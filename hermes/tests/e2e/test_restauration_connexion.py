@@ -11,10 +11,12 @@ Playwright, authentificateur WebAuthn VIRTUEL :
 4. arrêt, restauration des deux volumes à T dans des volumes NEUFS, redémarrage (mêmes images, variables, alias) ;
 5. MÊME contexte de navigateur : la réponse de Hermes est MESURÉE, jamais supposée (le jeton tourné après T est
    inconnu de la base restaurée : cas jamais mesuré avant ce test) : avec le jeton d'accès encore présent, puis sans
-   lui (échange du jeton de rafraîchissement : statut d'Authelia relevé au bord, statut de Hermes) ;
+   lui (échange du jeton de rafraîchissement : statut d'Authelia relevé au bord, statut de Hermes). Mesuré au run
+   37766187654, puis exigé (la consigne en dépend) : jeton d'accès d'avant encore accepté (200) ; sans lui, Authelia
+   répond 400, Hermes efface ses cookies de session et renvoie à /login (401 ``no_cookie``), sans 503 ;
 6. déconnexion (``POST /auth/logout``), puis nouvelle connexion avec P1 : ACCEPTÉE (le compteur de l'authentificateur
    dépasse celui de la base restaurée, admis) ; avec P2 seule, dans un contexte neuf : REFUSÉE (enrôlée après T) ;
-7. sortie : la consigne exacte « après restauration de l'identité ».
+7. sortie : la consigne exacte « après restauration de l'identité », écrite d'après ces mesures (CONSIGNE).
 
 La station Qt suit la même règle (même Authelia, même jeton de rafraîchissement) ; elle n'est pas rejouée ici.
 """
@@ -41,8 +43,14 @@ from volumes import Archives, a_chaud, comparer_manifestes, manifeste  # noqa: E
 
 pytestmark = pytest.mark.restauration
 
-CONSIGNE = ("Après restauration de l'identité : se déconnecter sur chaque appareil (navigateur, téléphone, station "
-            "Qt : Déconnexion puis Connexion), réenrôler les passkeys créées après la sauvegarde.")
+# Consigne écrite d'après la mesure (run 37766187654) : le jeton d'accès émis avant la restauration reste accepté (même
+# clé de signature) ; sans lui, Authelia répond 400 au jeton de rafraîchissement tourné après la sauvegarde et Hermes
+# efface ses cookies puis renvoie à la connexion ; P1 (enrôlée avant) est acceptée, P2 (enrôlée après) refusée.
+CONSIGNE = ("Après restauration de l'identité : chaque appareil (navigateur, téléphone, station Qt) garde sa session "
+            "jusqu'à l'expiration de son jeton d'accès (une heure au plus), puis est renvoyé à la connexion ; "
+            "déconnectez-vous puis reconnectez-vous sur chacun avec une passkey enrôlée avant la sauvegarde, et "
+            "réenrôlez les passkeys créées après la sauvegarde.")
+SESSION = ("hermes_session_at", "hermes_session_rt")  # cookies de SESSION de Hermes (pas celui du PKCE de la connexion)
 CHAMPS_PASSKEY = ("credentialId", "isResidentCredential", "rpId", "privateKey", "userHandle", "signCount")
 
 
@@ -205,7 +213,14 @@ def test_identite_restauree_reconnexion_mesuree(playwright_sync, pile):
                                         "url": page.url.split("?")[0]},
             "api_auth_me_sans_jeton_d_acces": sans_at,
             "reponse_d_authelia_au_jeton_tourne_apres_T": echanges,
-            "cookies_hermes_restants": sorted(c["name"] for c in contexte.cookies() if "hermes_session" in c["name"])}
+            "cookies_de_session_restants": sorted(c["name"] for c in contexte.cookies() if c["name"].endswith(SESSION)),
+            "autres_cookies_hermes": sorted(c["name"] for c in contexte.cookies() if "hermes_session" in c["name"]
+                                            and not c["name"].endswith(SESSION))}
+        # La consigne (CONSIGNE) repose sur ces mesures : si elles changent (autre version d'Authelia ou de Hermes),
+        # ce test échoue et la consigne est à réécrire d'après la nouvelle mesure.
+        assert avec_at[0] == 200, preuves["apres_restauration"]
+        assert echanges == [400] and sans_at[0] == 401, preuves["apres_restauration"]
+        assert preuves["apres_restauration"]["cookies_de_session_restants"] == [], preuves["apres_restauration"]
 
         # 6. Déconnexion, puis P1 acceptée ; P2 seule refusée (contexte neuf).
         if page.url.startswith(URL_HERMES):
@@ -228,9 +243,12 @@ def test_identite_restauree_reconnexion_mesuree(playwright_sync, pile):
                                               "credential": {k: p2[k] for k in CHAMPS_PASSKEY if k in p2}})
         arrivee_p2 = _connexion_passkey(page_refus)
         page_refus.wait_for_timeout(3000)
-        cookies_p2 = [c["name"] for c in refus.cookies() if "hermes_session" in c["name"]]
+        cookies_p2 = [c["name"] for c in refus.cookies() if c["name"].endswith(SESSION)]
         capture("p2-refusee", page_refus)
-        preuves["P2_apres_restauration"] = {"arrivee": arrivee_p2.split("?")[0], "cookies_hermes": cookies_p2,
+        preuves["P2_apres_restauration"] = {"arrivee": arrivee_p2.split("?")[0], "cookies_de_session": cookies_p2,
+                                            "autres_cookies_hermes": [c["name"] for c in refus.cookies()
+                                                                      if "hermes_session" in c["name"]
+                                                                      and not c["name"].endswith(SESSION)],
                                             "texte": page_refus.inner_text("body")[:300]}
         assert not arrivee_p2.startswith(f"{URL_HERMES}/") and cookies_p2 == [], preuves["P2_apres_restauration"]
         refus.close()
