@@ -360,6 +360,11 @@ BADGES = {
 
 # ------------------------------------------------------------------ quotas (cahier P5 § 12.5)
 QUOTAS_SOURCE_CLAUDE = "Ligne d'état de vos sessions Claude Code sur ce PC (même abonnement déclaré)"
+# Relecture finale de P7 (constat produit-8) : la source dite d'après l'HÔTE du relevé ; jamais « sur ce PC » pour
+# l'exécutant Railway, jamais un code seul (« codex_app_server ») à l'écran.
+QUOTAS_SOURCE_CLAUDE_EXECUTANT = ("Dernier événement de limite des cartes Claude de l'exécutant Railway (inconnu tant "
+                                  "qu'aucune carte Claude n'y a tourné)")
+QUOTAS_SOURCE_CODEX = "Compteurs de votre compte ChatGPT, lus par Codex (app-server) sur la machine qui exécute"
 QUOTAS_HERMES_MEME_ENVELOPPE = "Même enveloppe que Codex (déclaré dans poste.toml)"
 
 # ------------------------------------------------------------------ exécution par l'exécutant (étape P6, cahier P6 § 5)
@@ -476,6 +481,13 @@ REFUS_RELANCE_NON_ACP = "Carte non émise par ACP : ACP ne la relance pas."
 REFUS_RELANCE_SECRET = ("Bloquée pour un secret : relance possible dès que l'exécutant à jour (étape P7, partie E) a "
                         "publié son inventaire.")
 REFUS_RELANCE_REVUE = "Carte en revue : acceptez-la ou refusez-la depuis la section Revues."
+# Relecture finale de P7 (constat scenario-6) : la carte « répondre » de Hermes dont la question n'est plus « ouverte »
+# (escaladée par le filet de l'émetteur, ou répondue) ne peut plus rien faire : question_repondre et question_escalader
+# exigent une question ouverte.
+QUESTION_ADRESSEE = ("la carte {carte} devait répondre à une question qui vous a été adressée : relancée, elle ne "
+                     "pourrait plus rien faire ; répondez à la question dans la section Questions.")
+REFUS_RELANCE_QUESTION_ADRESSEE = ("La question de cette carte vous a été adressée : répondez-y dans la section "
+                                   "Questions.")
 ETATS_LISIBLES = {"creation": "en création", "actif": "en cours", "en_pause": "en pause", "termine": "terminé",
                   "abandonne": "abandonné"}
 

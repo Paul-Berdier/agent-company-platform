@@ -543,7 +543,10 @@ toutes les largeurs : grille `repeat(auto-fit, minmax(min(20rem, 100%),
 3. **Exécutant** (`CarteExecutant.tsx`) : état réel (non configuré, à confirmer, en ligne, hors ligne,
    redéploiement, révoqué), nom de la machine enregistrée (jamais un libellé écrit en dur), plateforme, dernière
    vue, carte en cours, voies fermées et leur raison ;
-4. **Quotas** : par voie, état du relevé, part utilisée, remise à zéro, source et date ; Hermes : le libellé servi ;
+4. **Quotas** : par voie, état du relevé, part utilisée, remise à zéro, source et date ; Hermes : le libellé servi.
+   La source est le libellé français du greffon, propre à l'hôte du relevé (relecture finale de P7 : exécutant
+   Railway → « Dernier événement de limite des cartes Claude de l'exécutant Railway », jamais « sur ce PC » ;
+   Codex → « Compteurs de votre compte ChatGPT… ») ; sans libellé, « Inconnu », jamais le code ;
 5. **Notifications** (canal, notification de test) et **Bilan quotidien** (`CarteBilan.tsx`) : la carte lit
    `GET /api/cron/jobs` (route NATIVE de Hermes) et dit « Actif » avec la prochaine exécution, « En pause », « En
    erreur » (tâche que Hermes ne relancera plus) ou « Non créé », et la **dernière exécution** — jamais « envoi » : le

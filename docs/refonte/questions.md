@@ -94,7 +94,12 @@ les motifs de secrets : un jeton collé par erreur est refusé). Contrôles, dan
 2. projet **actif** : en pause → 409 `projet_en_pause` (« reprenez d'abord le projet ») ; terminé, abandonné ou en
    création → 409 `projet_fini` (une carte débloquée sur un projet fini ne serait jamais servie) ;
 3. carte en **revue** → 409 `carte_en_revue` (Accepter ou Refuser) ; carte qui n'est pas `blocked` → 409
-   `carte_non_arretee` (statut lu dit).
+   `carte_non_arretee` (statut lu dit) ;
+4. (relecture finale de P7, D120) carte « répondre » de Hermes dont la question n'est plus `ouverte` (escaladée par le
+   filet de l'émetteur, ou répondue) → 409 `question_adressee` : relancée, elle ne pourrait plus rien
+   (`question_repondre` et `question_escalader` exigent une question ouverte). La file la montre non relançable
+   (`question_adressee: true`, « répondez-y dans la section Questions ») et ne la compte pas dans « À traiter par
+   vous » : la question l'est déjà.
 
 **Effet.** Aucune carte n'est créée : le plafond de cartes du projet n'est pas touché. Puis `unblock_task` (compteur
 d'échecs remis à zéro ; `block_recurrences` gardé : une carte relancée qui rebloque pour la même raison repart en
@@ -251,9 +256,9 @@ inconnu refusé (400 `arguments`). Erreurs : `{"detail": {"code", "message"}}`, 
 
 | Méthode et chemin | Corps | Réponse | Refus propres |
 |---|---|---|---|
-| `GET /v1/questions` | — | `questions[]` (dont `chez`, `carte_repondre_statut`), `triage[]`, `revues[]`, `bloquees[]` (dont `relancable`, `refus_relance`, `executant`, `integration`, `quarantaine`), `discussions` (`suivies`, `requetes_ouvertes`), `compteurs` (`a_traiter`, `chez_hermes`, `questions`, `decisions`, `revues`, `arretees`) | — |
+| `GET /v1/questions` | — | `questions[]` (dont `chez`, `carte_repondre_statut`), `triage[]`, `revues[]`, `bloquees[]` (dont `relancable`, `refus_relance`, `executant`, `integration`, `quarantaine`, `question_adressee`), `discussions` (`suivies`, `requetes_ouvertes`), `compteurs` (`a_traiter`, `chez_hermes`, `questions`, `decisions`, `revues`, `arretees`) | — |
 | `POST /v1/questions/{q}/reponse` | `reponse` | `{question, etat, carte_debloquee, reprise_differee}` | 404 `question_inconnue`, 409 `question_fermee` |
-| `POST /v1/cartes/{tableau}/{carte}/relancer` | `consigne?` | `{carte, relancee, statut_apres, session_neuve}` | 404 `projet_inconnu` / `carte_inconnue`, 403 `carte_non_acp`, 409 `projet_en_pause` / `projet_fini` / `carte_en_revue` / `carte_non_arretee` / `carte_secret`, 400 `arguments` / `secret` / `consigne_sans_objet` (carte d'intégration) |
+| `POST /v1/cartes/{tableau}/{carte}/relancer` | `consigne?` | `{carte, relancee, statut_apres, session_neuve}` | 404 `projet_inconnu` / `carte_inconnue`, 403 `carte_non_acp`, 409 `projet_en_pause` / `projet_fini` / `carte_en_revue` / `carte_non_arretee` / `carte_secret` / `question_adressee`, 400 `arguments` / `secret` / `consigne_sans_objet` (carte d'intégration) |
 | `POST /v1/projets/{id}/reponses` | `reponses` | `{projet, avant, apres, questions_ouvertes_inchangees}` | 404 `projet_inconnu`, 409 `projet_fini` / `reponses_sans_objet`, 400 `reponses` |
 | `POST /v1/projets/{id}/clore` | `{"confirmation": true}` | `{projet, clos, etat, cartes_archivees, cartes_non_archivees, questions_annulees, branches_rapportees}` | 422 `confirmation`, 404 `projet_inconnu`, 409 `projet_fini` |
 | `GET /v1/accueil` | — | `a_traiter`, `chez_hermes`, `discussions`, `projets`, `executant`, `quotas`, `notifications`, `pause_generale`, `genere_le`, `illisibles` (ni sessions, ni système, ni bilan : § 10) | — |

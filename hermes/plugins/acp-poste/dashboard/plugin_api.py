@@ -1167,7 +1167,7 @@ async def refuser_revue(tableau: str, carte: str, request: Request) -> JSONRespo
 # code de refus a son statut (correction K19 : sans entrée ici, 400 par défaut).
 
 CODES_HTTP.update({"carte_non_acp": 403, "carte_non_arretee": 409, "carte_en_revue": 409, "carte_secret": 409,
-                   "reponses_sans_objet": 409, "confirmation": 422})
+                   "question_adressee": 409, "reponses_sans_objet": 409, "confirmation": 422})
 
 
 @router.post("/v1/cartes/{tableau}/{carte}/relancer")

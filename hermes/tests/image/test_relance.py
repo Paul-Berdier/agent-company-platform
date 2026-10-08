@@ -424,3 +424,43 @@ def test_carte_d_integration_relancee_sans_consigne_ni_session(pile_machine, mon
         "branche_neuve": False}, reponse.text
     file = pile_machine.get("/api/plugins/acp-poste/v1/questions").json()
     assert servie["carte"] not in [b["carte"] for b in file["bloquees"]]  # repartie : elle a quitté la liste
+
+
+def test_carte_repondre_d_une_question_adressee_ne_se_relance_pas(noyau, conn):
+    """Relecture finale de P7 (constat scenario-6) : une carte « répondre » de Hermes bloquée fait escalader sa question
+    par le filet de l'émetteur ; relancée, elle ne pouvait plus rien (question_repondre et question_escalader exigent
+    une question « ouverte ») : un bouton qui faisait semblant, un tour de modèle perdu, et la même demande comptée deux
+    fois dans « À traiter par vous ». Elle est désormais NON relançable, avec la raison, et n'est pas comptée."""
+    projet = lancer_sur_depot(noyau, conn)
+    exploration = projet["cartes"]["exploration"]
+    run = reclamer(noyau, projet["tableau"], exploration)
+    q = noyau.questions.poser(conn, tableau=projet["tableau"], carte=exploration, run_id=run, texte="Quel nom ?")
+    repondre = q["carte_repondre"]
+    reclamer(noyau, projet["tableau"], repondre)
+    _bloquer(noyau, projet["tableau"], repondre, raison="Hermes n'a pas pu conclure.")
+    assert noyau.questions.questions_sans_suite(conn) == [q["question"]]
+    file = noyau.questions.file_questions(conn)
+    assert [x["etat"] for x in file["questions"]] == ["escaladee"]
+    [arretee] = [b for b in file["bloquees"] if b["carte"] == repondre]
+    assert arretee["relancable"] is False and arretee["question_adressee"] is True
+    assert arretee["refus_relance"] == noyau.textes.REFUS_RELANCE_QUESTION_ADRESSEE
+    assert file["compteurs"]["arretees"] == 0 and file["compteurs"]["questions"] == 1
+    assert file["compteurs"]["a_traiter"] == 1  # la question, une seule fois
+    refus = _refus(noyau, conn, projet, repondre)
+    assert refus.code == "question_adressee"
+    with noyau.ka.connexion(projet["tableau"]) as kc:
+        assert noyau.ka.get_task(kc, repondre).status == "blocked"  # rien n'a bougé
+
+
+def test_carte_repondre_d_une_question_encore_ouverte_se_relance(noyau, conn):
+    """Témoin : tant que sa question est encore « ouverte » (le filet n'est pas encore passé), la carte « répondre »
+    bloquée se relance comme toute carte de Hermes."""
+    projet = lancer_sur_depot(noyau, conn)
+    exploration = projet["cartes"]["exploration"]
+    run = reclamer(noyau, projet["tableau"], exploration)
+    q = noyau.questions.poser(conn, tableau=projet["tableau"], carte=exploration, run_id=run, texte="Quel nom ?")
+    reclamer(noyau, projet["tableau"], q["carte_repondre"])
+    _bloquer(noyau, projet["tableau"], q["carte_repondre"])
+    [arretee] = [b for b in noyau.questions.file_questions(conn)["bloquees"] if b["carte"] == q["carte_repondre"]]
+    assert arretee["relancable"] is True and arretee["question_adressee"] is False
+    assert _relancer(noyau, conn, projet, q["carte_repondre"])["relancee"] is True

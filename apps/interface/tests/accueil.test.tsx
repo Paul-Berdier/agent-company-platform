@@ -62,12 +62,29 @@ describe("Accueil agrégé (GET /v1/accueil)", () => {
     }
     const quotas = texteDe(carte(r.racine, "acp-accueil-quotas"));
     expect(quotas).toContain("41 %");
-    expect(quotas).toContain("Ligne d'état de vos sessions Claude Code sur ce PC");
+    // Relecture finale de P7 (constat produit-8) : la source dite pour l'hôte (exécutant Railway), jamais « sur ce PC »,
+    // jamais un code seul.
+    expect(quotas).toContain("Dernier événement de limite des cartes Claude de l'exécutant Railway");
+    expect(quotas).toContain("Compteurs de votre compte ChatGPT, lus par Codex (app-server)");
+    expect(quotas).not.toContain("sur ce PC");
+    expect(quotas).not.toContain("codex_app_server");
     expect(quotas).toContain("Même enveloppe que Codex");
     expect(texteDe(carte(r.racine, "acp-projets-notifications"))).toContain("ntfy");
     // La carte « Poste » figée de P3 (« Non configuré ») n'existe plus : c'était une donnée fausse.
     expect(r.racine.querySelector("#acp-accueil-poste")).toBeNull();
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    r.demonter();
+  });
+
+  it("quotas : une source sans libellé du greffon vaut « Inconnu », jamais le code (produit-8)", async () => {
+    const quotas = JSON.parse(JSON.stringify(ACCUEIL.quotas)) as Record<string, Record<string, unknown>>;
+    delete quotas["poste-codex"].source_libelle;
+    installerSdk(reponses({ [ROUTE_ACCUEIL]: { ...ACCUEIL, quotas } }));
+    const r = await rendre(<Accueil />);
+    await attendre();
+    const texte = texteDe(carte(r.racine, "acp-accueil-quotas"));
+    expect(texte).not.toContain("codex_app_server");
+    expect(texte).toContain("SourceInconnu");
     r.demonter();
   });
 

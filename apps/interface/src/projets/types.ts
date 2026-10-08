@@ -183,6 +183,8 @@ export interface CarteEnAttente {
   quarantaine?: boolean;
   /** Relecture finale de P7 : carte d'intégration, sans agent ; sa relance rejoue la même fusion, sans consigne. */
   integration?: boolean;
+  /** Relecture finale de P7 : carte « répondre » dont la question vous a été adressée (non relançable, non comptée). */
+  question_adressee?: boolean;
 }
 
 /** POST /v1/questions/{q}/reponse. */

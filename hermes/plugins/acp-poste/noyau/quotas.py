@@ -23,6 +23,20 @@ from . import textes as T
 from acp_poste_contrat.quotas import SubscriptionQuotaView  # noqa: E402
 
 SOURCES = {"poste-codex": "codex_app_server", "poste-claude": "ligne_etat_sessions_proprietaire"}
+# Exécutant Railway (étape P6, garde_quota.py) : quotas Claude tirés du dernier ``rate_limit_event`` de ses cartes.
+SOURCE_CLAUDE_EXECUTANT = "claude_code_rate_limit_event"
+
+
+def _hote(conn, machine_id: Any) -> Any:
+    """Hôte publié par la machine du relevé (``railway`` ou ``pc``), sinon celui de la machine courante ; ``None``."""
+    ligne = None
+    if machine_id:
+        ligne = conn.execute("SELECT hote FROM machines WHERE id = ?", (machine_id,)).fetchone()
+    if ligne is None:
+        ligne = conn.execute(
+            "SELECT hote FROM machines ORDER BY CASE etat WHEN 'actif' THEN 0 WHEN 'a_confirmer' THEN 1 ELSE 2 END, "
+            "cree_le DESC, rowid DESC LIMIT 1").fetchone()
+    return ligne["hote"] if ligne is not None else None
 
 
 def _vues(releve, *, machine_id: str, nom: str, recu_le: int, perime: bool, maintenant: int,
@@ -47,11 +61,17 @@ def vue(conn) -> Dict[str, Any]:
         dernier = routage.dernier_releve(conn, voie)
         bloc: Dict[str, Any] = {"etat": "inconnu", "releve_le": None, "compteurs": [], "seuil_pct": seuil,
                                 "source": SOURCES[voie]}
-        if voie == "poste-claude":
+        ligne = None
+        if dernier is not None:
+            ligne = conn.execute("SELECT machine_id, recu_le FROM releves WHERE id = ?", (dernier[0],)).fetchone()
+        if voie == "poste-codex":
+            bloc["source_libelle"] = T.QUOTAS_SOURCE_CODEX
+        elif _hote(conn, ligne["machine_id"] if ligne else None) == "railway":
+            bloc.update(source=SOURCE_CLAUDE_EXECUTANT, source_libelle=T.QUOTAS_SOURCE_CLAUDE_EXECUTANT)
+        else:
             bloc["source_libelle"] = T.QUOTAS_SOURCE_CLAUDE
         if dernier is not None:
             releve_id, releve, releve_le = dernier
-            ligne = conn.execute("SELECT machine_id, recu_le FROM releves WHERE id = ?", (releve_id,)).fetchone()
             contexte = routage.contexte_poste(conn, releve_id) or {}
             poste = contexte.get("poste") or {}
             if enveloppe is None and isinstance(poste.get("hermes_meme_enveloppe_que_codex"), bool):
