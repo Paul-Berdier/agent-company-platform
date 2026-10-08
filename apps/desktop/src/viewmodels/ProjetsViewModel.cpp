@@ -745,6 +745,20 @@ QStringList ProjetsViewModel::voiesRelevees(const QJsonObject &cataloguePoste)
     return resultat;
 }
 
+QJsonObject ProjetsViewModel::voiesFermeesPourDepot(const QJsonObject &vuePoste, const QString &depot)
+{
+    if (depot.isEmpty()) {
+        return {};
+    }
+    for (const QJsonValue &element : vuePoste.value(QStringLiteral("executant")).toObject().value(QStringLiteral("depots")).toArray()) {
+        const QJsonObject mesure = element.toObject();
+        if (mesure.value(QStringLiteral("alias")).toString() == depot) {
+            return mesure.value(QStringLiteral("voies_fermees")).toObject();
+        }
+    }
+    return {};
+}
+
 std::optional<QStringList> ProjetsViewModel::depotsConnus(const QJsonObject &cataloguePoste)
 {
     const QJsonObject voies = cataloguePoste.value(QStringLiteral("voies")).toObject();
@@ -816,7 +830,20 @@ void ProjetsViewModel::majFormulaire()
     if (m_voie.isEmpty() || !voies.contains(m_voie)) {
         m_voie = voies.value(0);
     }
-    const QJsonObject releveVoie = cataloguePoste.value(QStringLiteral("voies")).toObject().value(m_voie).toObject();
+    // Étape P7 : un exécutant fermé pour le dépôt choisi n'est jamais retenu ; le premier ouvert le remplace (le choix
+    // du propriétaire est gardé et revient avec un dépôt où il est ouvert).
+    const QJsonObject fermees = voiesFermeesPourDepot(m_poste, m_depot);
+    QString voieChoisie = m_voie;
+    if (voieChoisie.isEmpty() || fermees.contains(voieChoisie)) {
+        voieChoisie.clear();
+        for (const QString &voie : voies) {
+            if (!fermees.contains(voie)) {
+                voieChoisie = voie;
+                break;
+            }
+        }
+    }
+    const QJsonObject releveVoie = cataloguePoste.value(QStringLiteral("voies")).toObject().value(voieChoisie).toObject();
     QStringList modeles;
     bool modeleParDefaut = false;
     for (const QJsonValue &element : releveVoie.value(QStringLiteral("modeles")).toArray()) {
@@ -830,12 +857,19 @@ void ProjetsViewModel::majFormulaire()
         m_modele.clear();
     }
     const bool avecExploration = !m_depot.isEmpty() && !voies.isEmpty();
-    const bool modeleExige = avecExploration && !m_voie.isEmpty() && m_modele.isEmpty() && !modeleParDefaut;
+    const bool modeleExige = avecExploration && !voieChoisie.isEmpty() && m_modele.isEmpty() && !modeleParDefaut;
     QVariantList listeVoies;
+    QStringList voiesFermees;
     for (const QString &voie : voies) {
-        const QString libelle = libelles::voie(voie);
+        const QString libelle = libelles::voie(voie).isEmpty() ? voie : libelles::voie(voie);
+        const bool fermee = fermees.contains(voie);
         listeVoies.append(QVariantMap{{QStringLiteral("valeur"), voie},
-                                      {QStringLiteral("libelle"), libelle.isEmpty() ? voie : libelle}});
+                                      {QStringLiteral("libelle"), fermee ? QStringLiteral("%1 — fermé pour ce dépôt").arg(libelle) : libelle},
+                                      {QStringLiteral("fermee"), fermee}});
+        if (fermee) {
+            voiesFermees.append(QStringLiteral("%1 : Fermé pour ce dépôt (grisé dans la liste) — %2")
+                                    .arg(libelle, libelles::texte(fermees.value(voie))));
+        }
     }
     const bool posteIllisible = m_posteLu && !m_erreurPoste.isEmpty();
     m_formulaire = QVariantMap{
@@ -854,7 +888,9 @@ void ProjetsViewModel::majFormulaire()
         {QStringLiteral("releveFactice"), cataloguePoste.value(QStringLiteral("releve_factice")) == QJsonValue(true)},
         {QStringLiteral("avecExploration"), avecExploration},
         {QStringLiteral("voies"), listeVoies},
-        {QStringLiteral("voie"), m_voie},
+        {QStringLiteral("voie"), voieChoisie},
+        {QStringLiteral("voiesFermees"), voiesFermees},
+        {QStringLiteral("aucuneVoieOuverte"), avecExploration && voieChoisie.isEmpty()},
         {QStringLiteral("modeles"), modeles},
         {QStringLiteral("modeleParDefaut"), modeleParDefaut},
         {QStringLiteral("libelleModeleVide"), modeleParDefaut
@@ -877,6 +913,13 @@ void ProjetsViewModel::choisirDepot(const QString &depot)
 
 void ProjetsViewModel::choisirVoie(const QString &voie)
 {
+    const QJsonObject fermees = voiesFermeesPourDepot(m_poste, m_depot);
+    if (fermees.contains(voie)) {
+        // Jamais retenu : le greffon le refuserait (`voie_fermee`), sans faux succès.
+        echouerGeste(QStringLiteral("Cet exécutant est fermé pour ce dépôt : %1").arg(libelles::texte(fermees.value(voie))));
+        majFormulaire();
+        return;
+    }
     m_voie = voie;
     m_modele.clear();
     majFormulaire();
@@ -914,8 +957,9 @@ void ProjetsViewModel::lancer(const QString &titre, const QString &objectif, con
         {QStringLiteral("depot"), m_depot.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(m_depot)},
         {QStringLiteral("reponses"), reponses},
     };
-    if (m_formulaire.value(QStringLiteral("avecExploration")).toBool() && !m_voie.isEmpty()) {
-        QJsonObject exploration{{QStringLiteral("voie"), m_voie}};
+    const QString voieChoisie = m_formulaire.value(QStringLiteral("voie")).toString();
+    if (m_formulaire.value(QStringLiteral("avecExploration")).toBool() && !voieChoisie.isEmpty()) {
+        QJsonObject exploration{{QStringLiteral("voie"), voieChoisie}};
         if (!m_modele.isEmpty()) {
             exploration.insert(QStringLiteral("modele"), m_modele);
         }

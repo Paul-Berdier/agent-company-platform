@@ -362,6 +362,22 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         // /v1/meta lu par l'accueil, sans `machine.executant` (Hermes sans l'étape P6).
         QVERIFY(contientTexte(item, QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6).")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucun ordre en attente.")));
+        // Avant P7 (aucune mesure servie) : le dépôt de l'inventaire, jamais dit privé.
+        QVERIFY(contientTexte(item, QStringLiteral("Jamais mesurée par l'exécutant (Codex fermé)")));
+
+        // Étape P7 (partie E) : visibilité mesurée et voies par dépôt, fixture PARTAGÉE avec le greffon et le web.
+        poste.insert(QStringLiteral("executant"), QJsonObject{
+            {QStringLiteral("connu"), true},
+            {QStringLiteral("depots"), fixturePartagee(QStringLiteral("fixtures_poste/depots.json")).array()}});
+        pagePoste->actualiser();
+        QTRY_COMPARE_WITH_TIMEOUT(pagePoste->depots().size(), 2, 5000);
+        QTest::qWait(50);
+        VERIFIER(page.get(), QStringLiteral("Poste, dépôts mesurés"));
+        QVERIFY(contientTexte(item, QStringLiteral("Poste (Codex) : Fermée — dépôt « demo » non prouvé privé (visibilité mesurée : public)")));
+        QVERIFY(contientTexte(item, QStringLiteral("Poste (Codex) : Ouverte")));
+        QVERIFY(contientTexte(item, QStringLiteral("Privé")));
+        QVERIFY(contientTexte(item, QStringLiteral("Public")));
+        QVERIFY(contientTexte(item, QStringLiteral("Codex ne travaille que sur un dépôt prouvé privé (D83)")));
 
         poste = fixture(QStringLiteral("poste-non-configure.json"));
         pagePoste->actualiser();

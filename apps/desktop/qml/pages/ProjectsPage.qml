@@ -661,6 +661,30 @@ Item {
                         currentIndex: Math.max(0, indexOfValue(formulaire.f.voie))
                         Accessible.name: qsTr("Exécutant")
                         onActivated: Projets.choisirVoie(currentValue)
+                        // Étape P7 : un exécutant fermé pour le dépôt choisi est grisé, jamais choisissable.
+                        delegate: ItemDelegate {
+                            required property var modelData
+                            required property int index
+                            objectName: "projets-voie-option-" + modelData.valeur
+                            width: voieChoix.width
+                            text: modelData.libelle
+                            enabled: !modelData.fermee
+                            highlighted: voieChoix.highlightedIndex === index
+                        }
+                    }
+                    Repeater {
+                        model: formulaire.f.voiesFermees || []
+                        delegate: Discret {
+                            required property var modelData
+                            objectName: "projets-voie-fermee"
+                            text: modelData
+                        }
+                    }
+                    Alerte {
+                        objectName: "projets-aucune-voie-ouverte"
+                        text: formulaire.f.aucuneVoieOuverte === true
+                            ? qsTr("Aucun exécutant ouvert pour ce dépôt. Le projet part sans exploration du dépôt.")
+                            : ""
                     }
                     Discret { text: qsTr("Modèle"); color: Colors.textSecondary }
                     ComboBox {

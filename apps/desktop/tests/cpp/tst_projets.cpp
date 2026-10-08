@@ -10,7 +10,10 @@
 //    greffon rendus tels quels ;
 //  - étape P7 : « Changer qui répond » (projet sur dépôt pas encore fini) et « Clore le projet »
 //    (actif ou en pause) : corps exacts, messages d'après la réponse, 409 en français tel quel,
-//    geste non offert refusé sans envoi.
+//    geste non offert refusé sans envoi ;
+//  - étape P7 (partie E) : un exécutant fermé pour le dépôt choisi (fixture PARTAGÉE
+//    fixtures_poste/depots.json : Codex sur un dépôt non prouvé privé) est grisé avec la raison du
+//    greffon, jamais retenu ni envoyé ; aucun exécutant ouvert : le projet part sans exploration.
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
@@ -134,6 +137,7 @@ private slots:
     void messagesQuiRepondEtCloture();
     void quiRepondEtClotureCorpsExacts();
     void quiRepondEtClotureRefusEnFrancais();
+    void executantFermePourLeDepotJamaisRetenu();
 };
 
 void TestProjets::lignesDeLaListe()
@@ -656,6 +660,105 @@ void TestProjets::quiRepondEtClotureRefusEnFrancais()
     QCOMPARE(banc.serveur.filtrer("POST", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/clore")).size()
                  + banc.serveur.filtrer("POST", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/reponses")).size(),
              envois);
+}
+
+void TestProjets::executantFermePourLeDepotJamaisRetenu()
+{
+    const QJsonArray mesures = fixturePartagee(QStringLiteral("fixtures_poste/depots.json")).array();
+    const QString raison = mesures.at(0).toObject().value(QStringLiteral("voies_fermees")).toObject()
+                               .value(QStringLiteral("poste-codex")).toString();
+    QVERIFY(raison.contains(QStringLiteral("non prouvé privé")));
+
+    Banc banc;
+    // Le relevé connaît les deux dépôts de la fixture partagée ; la vue de l'exécutant porte leurs mesures.
+    QJsonObject catalogue = banc.poste.value(QStringLiteral("catalogue")).toObject();
+    QJsonObject voies = catalogue.value(QStringLiteral("voies")).toObject();
+    for (const QString &voie : voies.keys()) {
+        QJsonObject releve = voies.value(voie).toObject();
+        releve.insert(QStringLiteral("depots"), QJsonArray{QStringLiteral("demo"), QStringLiteral("jetable")});
+        voies.insert(voie, releve);
+    }
+    catalogue.insert(QStringLiteral("voies"), voies);
+    banc.poste.insert(QStringLiteral("catalogue"), catalogue);
+    banc.poste.insert(QStringLiteral("executant"), QJsonObject{{QStringLiteral("connu"), true}, {QStringLiteral("depots"), mesures}});
+
+    QCOMPARE(ProjetsViewModel::voiesFermeesPourDepot(banc.poste, QStringLiteral("demo")),
+             (QJsonObject{{QStringLiteral("poste-codex"), raison}}));
+    QVERIFY(ProjetsViewModel::voiesFermeesPourDepot(banc.poste, QStringLiteral("jetable")).isEmpty());
+    QVERIFY(ProjetsViewModel::voiesFermeesPourDepot(banc.poste, QString()).isEmpty());
+    QVERIFY(ProjetsViewModel::voiesFermeesPourDepot(banc.poste, QStringLiteral("absent")).isEmpty());
+
+    banc.ouvrirLaPage();
+    banc.projets.afficherNouveau();
+    banc.attendreFormulaire();
+    // Dépôt privé : Codex choisi par le propriétaire.
+    banc.projets.choisirDepot(QStringLiteral("jetable"));
+    banc.projets.choisirVoie(QStringLiteral("poste-codex"));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-codex"));
+    QVERIFY(banc.projets.formulaire().value(QStringLiteral("voiesFermees")).toStringList().isEmpty());
+
+    // Dépôt non prouvé privé : Codex grisé avec la raison du greffon, le premier ouvert le remplace.
+    banc.projets.choisirDepot(QStringLiteral("demo"));
+    QVariantMap f = banc.projets.formulaire();
+    QCOMPARE(f.value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(f.value(QStringLiteral("aucuneVoieOuverte")).toBool(), false);
+    const QVariantList liste = f.value(QStringLiteral("voies")).toList();
+    QCOMPARE(liste.size(), 2);
+    QCOMPARE(liste.at(0).toMap().value(QStringLiteral("valeur")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(liste.at(0).toMap().value(QStringLiteral("fermee")).toBool(), false);
+    QCOMPARE(liste.at(1).toMap().value(QStringLiteral("valeur")).toString(), QStringLiteral("poste-codex"));
+    QCOMPARE(liste.at(1).toMap().value(QStringLiteral("fermee")).toBool(), true);
+    QCOMPARE(liste.at(1).toMap().value(QStringLiteral("libelle")).toString(), QStringLiteral("Poste (Codex) — fermé pour ce dépôt"));
+    QCOMPARE(f.value(QStringLiteral("voiesFermees")).toStringList(),
+             QStringList{QStringLiteral("Poste (Codex) : Fermé pour ce dépôt (grisé dans la liste) — %1").arg(raison)});
+
+    // Le choisir quand même (clavier) : refusé en français, rien ne change, rien n'est émis.
+    banc.projets.choisirVoie(QStringLiteral("poste-codex"));
+    QCOMPARE(banc.projets.erreurGeste(), QStringLiteral("Cet exécutant est fermé pour ce dépôt : %1").arg(raison));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+
+    // Le lancement n'envoie jamais l'exécutant fermé.
+    banc.projets.lancer(QStringLiteral("Démo"), QStringLiteral("Lire le dépôt."), QStringLiteral("base"),
+                        QStringLiteral("proprietaire"), QString());
+    QTRY_VERIFY(!banc.projets.gesteEnCours());
+    auto envois = banc.serveur.filtrer("POST", kP + QStringLiteral("/projets"));
+    QCOMPARE(envois.size(), 1);
+    QCOMPARE(envois.first().json().value(QStringLiteral("depot")).toString(), QStringLiteral("demo"));
+    QCOMPARE(envois.first().json().value(QStringLiteral("exploration")).toObject(),
+             (QJsonObject{{QStringLiteral("voie"), QStringLiteral("poste-claude")}}));
+
+    // Retour sur le dépôt privé : le choix du propriétaire revient.
+    banc.projets.afficherNouveau();
+    banc.attendreFormulaire();
+    banc.projets.choisirDepot(QStringLiteral("jetable"));
+    banc.projets.choisirVoie(QStringLiteral("poste-codex"));
+    banc.projets.choisirDepot(QStringLiteral("demo"));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    banc.projets.choisirDepot(QStringLiteral("jetable"));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-codex"));
+
+    // Tous les exécutants fermés pour ce dépôt : dit, et le projet part sans exploration (comme la page web).
+    QJsonArray toutesFermees = mesures;
+    QJsonObject demo = toutesFermees.at(0).toObject();
+    demo.insert(QStringLiteral("voies_fermees"), QJsonObject{{QStringLiteral("poste-codex"), raison},
+                                                             {QStringLiteral("poste-claude"), QStringLiteral("conditions d'usage non décidées")}});
+    toutesFermees.replace(0, demo);
+    banc.poste.insert(QStringLiteral("executant"), QJsonObject{{QStringLiteral("connu"), true}, {QStringLiteral("depots"), toutesFermees}});
+    banc.projets.afficherNouveau();
+    QTRY_VERIFY(banc.projets.formulaire().value(QStringLiteral("pret")).toBool());
+    banc.projets.choisirDepot(QStringLiteral("demo"));
+    QTRY_COMPARE(banc.projets.formulaire().value(QStringLiteral("voiesFermees")).toStringList().size(), 2);
+    f = banc.projets.formulaire();
+    QCOMPARE(f.value(QStringLiteral("voie")).toString(), QString());
+    QCOMPARE(f.value(QStringLiteral("aucuneVoieOuverte")).toBool(), true);
+    QCOMPARE(f.value(QStringLiteral("modeleExige")).toBool(), false);
+    banc.projets.lancer(QStringLiteral("Démo 2"), QStringLiteral("Lire le dépôt."), QStringLiteral("base"),
+                        QStringLiteral("proprietaire"), QString());
+    QTRY_VERIFY(!banc.projets.gesteEnCours());
+    envois = banc.serveur.filtrer("POST", kP + QStringLiteral("/projets"));
+    QCOMPARE(envois.size(), 2);
+    QCOMPARE(envois.last().json().value(QStringLiteral("depot")).toString(), QStringLiteral("demo"));
+    QVERIFY(!envois.last().json().contains(QStringLiteral("exploration")));
 }
 
 QTEST_MAIN(TestProjets)

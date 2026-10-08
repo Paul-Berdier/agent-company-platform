@@ -102,6 +102,7 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
     m_etat = construireEtat({});
     m_machine = construireMachine({});
     m_inventaire = construireInventaire({});
+    m_depots = construireDepots({});
     m_decompte->setInterval(1000);
     connect(m_decompte, &QTimer::timeout, this, [this] {
         if (!m_code.isEmpty() && m_expireLe > 0 && secondesRestantes() == 0) {
@@ -158,6 +159,7 @@ void PosteViewModel::surOubli()
     m_etat = construireEtat({});
     m_machine = construireMachine({});
     m_inventaire = construireInventaire({});
+    m_depots = construireDepots({});
     m_alertes.clear();
     m_ordres->clear();
     m_lue = false;
@@ -175,6 +177,7 @@ void PosteViewModel::lire(const QJsonObject &vue)
     m_etat = construireEtat(vue);
     m_machine = construireMachine(vue);
     m_inventaire = construireInventaire(vue);
+    m_depots = construireDepots(vue);
     m_alertes.clear();
     for (const QJsonValue &alerte : vue.value(QStringLiteral("alertes")).toArray()) {
         m_alertes.append(libelles::texte(alerte));
@@ -272,6 +275,61 @@ QVariantMap PosteViewModel::construireMachine(const QJsonObject &vue)
         {QStringLiteral("confirmeLe"), libelles::date(machine.value(QStringLiteral("confirme_le")))},
         {QStringLiteral("derniereRequete"), libelles::date(machine.value(QStringLiteral("derniere_requete")))},
     };
+}
+
+QVariantList PosteViewModel::construireDepots(const QJsonObject &vue)
+{
+    // Mesure de l'exécutant (vue_executant.depots, étape P7) ; à défaut, celle publiée dans l'inventaire.
+    const QJsonValue mesures = vue.value(QStringLiteral("executant")).toObject().value(QStringLiteral("depots"));
+    const bool parLeGreffon = mesures.isArray();
+    const QJsonArray source = parLeGreffon ? mesures.toArray()
+                                           : vue.value(QStringLiteral("inventaire")).toObject().value(QStringLiteral("contenu"))
+                                                 .toObject().value(QStringLiteral("depots")).toArray();
+    QVariantList depots;
+    for (const QJsonValue &element : source) {
+        const QJsonObject depot = element.toObject();
+        const QJsonValue visibilite = depot.value(QStringLiteral("visibilite"));
+        const QJsonValue lecture = depot.value(QStringLiteral("lecture"));
+        const bool mesure = !(visibilite.isNull() || visibilite.isUndefined()) || !(lecture.isNull() || lecture.isUndefined());
+        const QString v = visibilite.toString();
+        const QString l = lecture.toString();
+        const QString visibiliteLibelle = !mesure ? QStringLiteral("Jamais mesurée par l'exécutant (Codex fermé)")
+            : v == QLatin1String("prive")         ? QStringLiteral("Privé")
+            : v == QLatin1String("public")        ? QStringLiteral("Public")
+            : v == QLatin1String("inconnue")      ? QStringLiteral("Inconnue (Codex fermé)")
+                                                  : libelles::texte(visibilite);
+        const QString visibiliteCle = !mesure ? QStringLiteral("degraded")
+            : v == QLatin1String("prive")    ? QStringLiteral("succeeded")
+            : v == QLatin1String("public")   ? QStringLiteral("pending")
+            : v == QLatin1String("inconnue") ? QStringLiteral("degraded")
+                                             : QStringLiteral("unknown");
+        const QString lectureLibelle = !mesure                  ? libelles::kInconnu
+            : l == QLatin1String("ok")       ? QStringLiteral("Réussie")
+            : l == QLatin1String("refusee")  ? QStringLiteral("Refusée")
+            : l == QLatin1String("inconnue") ? QStringLiteral("Inconnue")
+                                             : libelles::texte(lecture);
+        // Voies du poste ouvertes ou fermées POUR CE DÉPÔT (même calcul que le routage, côté greffon) : objet
+        // `{voie: raison}` ; sans lui, « Inconnu » (jamais déduit par la station).
+        const QJsonValue fermees = depot.value(QStringLiteral("voies_fermees"));
+        QStringList voies;
+        if (fermees.isObject()) {
+            const QJsonObject parVoie = fermees.toObject();
+            for (const QString &voie : {QStringLiteral("poste-codex"), QStringLiteral("poste-claude")}) {
+                voies.append(parVoie.contains(voie)
+                                 ? QStringLiteral("%1 : Fermée — %2").arg(libelles::voie(voie), libelles::texte(parVoie.value(voie)))
+                                 : QStringLiteral("%1 : Ouverte").arg(libelles::voie(voie)));
+            }
+        }
+        depots.append(QVariantMap{
+            {QStringLiteral("alias"), libelles::texte(depot.value(QStringLiteral("alias")))},
+            {QStringLiteral("visibilite"), visibiliteLibelle},
+            {QStringLiteral("visibiliteCle"), visibiliteCle},
+            {QStringLiteral("lecture"), lectureLibelle},
+            {QStringLiteral("verifieLe"), libelles::dateIso(depot.value(QStringLiteral("verifie_le")))},
+            {QStringLiteral("voies"), fermees.isObject() ? voies.join(QLatin1Char('\n')) : libelles::kInconnu},
+        });
+    }
+    return depots;
 }
 
 QVariantMap PosteViewModel::construireInventaire(const QJsonObject &vue)

@@ -139,6 +139,12 @@ public:
     [[nodiscard]] static std::optional<QStringList> depotsConnus(const QJsonObject &cataloguePoste);
     [[nodiscard]] static QStringList effortsAdmis(const QJsonObject &voie, const QString &modele,
                                                   const QStringList &interdits);
+    /*!
+        Étape P7 : voies fermées pour `depot` d'après le greffon (`executant.depots[].voies_fermees`
+        de `/v1/poste`, raison française) ; aucun dépôt choisi ou dépôt inconnu de la vue : aucune
+        fermeture dite ici (le greffon refuse de toute façon un choix fermé).
+    */
+    [[nodiscard]] static QJsonObject voiesFermeesPourDepot(const QJsonObject &vuePoste, const QString &depot);
 
 signals:
     void vueChange();

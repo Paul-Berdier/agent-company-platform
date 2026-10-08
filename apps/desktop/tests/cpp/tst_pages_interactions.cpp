@@ -82,6 +82,7 @@ private slots:
     void brouillonDeReponseGardeAuSondageEtAuRefus();
     void relanceEtRefusDeRevueParLesVraisBoutons();
     void clotureEtQuiRepondParLesVraisBoutons();
+    void executantFermeGriseDansLeFormulaire();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
     void dialogueDeChangementDeServeurEnFrancais();
@@ -449,6 +450,79 @@ void TestPagesInteractions::clotureEtQuiRepondParLesVraisBoutons()
     QCOMPARE(m_serveur->filtrer("POST", clore).first().json(), (QJsonObject{{QStringLiteral("confirmation"), true}}));
     QQuickItem *bandeau = parNom(racine, QStringLiteral("projets-bandeau"));
     QVERIFY(bandeau && bandeau->isVisible());
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    m_projets->afficherListe();
+    page.reset();
+    QTRY_VERIFY(!m_projets->actif());
+}
+
+// Étape P7 (partie E) : Codex sur un dépôt non prouvé privé est grisé dans la VRAIE liste « Exécutant »
+// (fixture PARTAGÉE fixtures_poste/depots.json) ; le choisir au clavier est refusé et la liste revient.
+void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
+{
+    const QJsonArray mesures = fixturePartagee(QStringLiteral("fixtures_poste/depots.json")).array();
+    QJsonObject poste = fixture(QStringLiteral("poste-releve.json"));
+    QJsonObject catalogue = poste.value(QStringLiteral("catalogue")).toObject();
+    QJsonObject voies = catalogue.value(QStringLiteral("voies")).toObject();
+    for (const QString &voie : voies.keys()) {
+        QJsonObject releve = voies.value(voie).toObject();
+        releve.insert(QStringLiteral("depots"), QJsonArray{QStringLiteral("demo"), QStringLiteral("jetable")});
+        voies.insert(voie, releve);
+    }
+    catalogue.insert(QStringLiteral("voies"), voies);
+    poste.insert(QStringLiteral("catalogue"), catalogue);
+    poste.insert(QStringLiteral("executant"), QJsonObject{{QStringLiteral("connu"), true}, {QStringLiteral("depots"), mesures}});
+    m_serveur->route("GET", kP + QStringLiteral("/poste"), [poste](const RequeteRecue &) { return ReponseFaux::json(200, poste); });
+    m_serveur->route("GET", kP + QStringLiteral("/catalogue"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json")));
+    });
+
+    auto page = charger(QStringLiteral("ProjectsPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    m_projets->afficherNouveau();
+    QTRY_VERIFY_WITH_TIMEOUT(m_projets->formulaire().value(QStringLiteral("pret")).toBool(), 5000);
+    QTest::qWait(100);
+
+    // Dépôt « demo » choisi au clavier dans la vraie liste (Sans dépôt, demo, jetable).
+    QQuickItem *depot = parNom(racine, QStringLiteral("projets-champ-depot"));
+    QVERIFY(depot && depot->isEnabled());
+    depot->forceActiveFocus();
+    QTRY_VERIFY(depot->hasActiveFocus());
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Down);
+    QTRY_COMPARE(m_projets->formulaire().value(QStringLiteral("depot")).toString(), QStringLiteral("demo"));
+    QTest::qWait(50);
+
+    QQuickItem *voie = parNom(racine, QStringLiteral("projets-champ-voie"));
+    QTRY_VERIFY(voie && voie->isVisible());
+    QCOMPARE(voie->property("currentValue").toString(), QStringLiteral("poste-claude"));
+    QQuickItem *raison = parNom(racine, QStringLiteral("projets-voie-fermee"));
+    QVERIFY(raison && raison->isVisible());
+    QVERIFY(raison->property("text").toString().contains(QStringLiteral("dépôt « demo » non prouvé privé")));
+
+    // Liste ouverte par un clic réel : l'option Codex est grisée ; un clic dessus ne choisit rien.
+    QVERIFY(cliquer(voie));
+    QPointer<QQuickItem> codex;
+    QTRY_VERIFY((codex = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-poste-codex"))) && codex->isVisible());
+    QCOMPARE(codex->isEnabled(), false);
+    QCOMPARE(codex->property("text").toString(), QStringLiteral("Poste (Codex) — fermé pour ce dépôt"));
+    QQuickItem *claude = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-poste-claude"));
+    QVERIFY(claude && claude->isEnabled());
+    QTest::mouseClick(m_fenetre.get(), Qt::LeftButton, Qt::NoModifier,
+                      codex->mapToScene(QPointF(codex->width() / 2, codex->height() / 2)).toPoint());
+    QTest::qWait(100);
+    QCOMPARE(m_projets->formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Escape);
+    QTRY_VERIFY(!codex || !codex->isVisible());
+
+    // Au clavier, la flèche passe sur Codex : refusé en français, la liste revient sur l'exécutant ouvert.
+    voie->forceActiveFocus();
+    QTRY_VERIFY(voie->hasActiveFocus());
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Down);
+    QTRY_VERIFY(m_projets->erreurGeste().startsWith(QStringLiteral("Cet exécutant est fermé pour ce dépôt : dépôt « demo »")));
+    QTRY_COMPARE(voie->property("currentValue").toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(m_projets->formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(m_serveur->filtrer("POST", kP + QStringLiteral("/projets")).size(), 0);
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     m_projets->afficherListe();
     page.reset();
