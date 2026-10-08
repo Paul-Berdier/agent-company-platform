@@ -37,6 +37,11 @@ Commandes, exécutées en root par l'interpréteur de Hermes
     Garde root en tête des scripts ``run`` du tableau de bord et des passerelles (variables
     interdites du volume ; depuis P3, serveurs MCP stdio ou hors catalogue).
 
+Chantier SECU-TUI (décisions provisoires SECU-1 et SECU-2) : ``gardes``, ``donnees`` et
+``verifier-relance`` retirent des ``.env`` et ``.op.env`` du volume (racine et profils) toute clé
+épinglée par ``/etc/hermes/.env``, que Hermes publierait un instant avant la portée gérée, et
+refusent toute source externe de secrets activée dans un ``config.yaml`` du volume.
+
 ``diagnostiquer``
     Maintenance (étape P2), en LECTURE SEULE et en root : rassemble tout ce qui ferait
     refuser le démarrage ou ce qui ferait exécuter du code depuis le volume (clés
@@ -827,11 +832,15 @@ def relire_env(chemin: Path) -> Dict[str, Optional[str]]:
 # ---------------------------------------------------------------------------------------------
 
 # /opt/data/.env est écrit par l'agent et Hermes le charge avec override=True AVANT la managed
-# scope (env_loader.py:433-435 puis 473). Les variables neutres (greffons, mandataires…) sont
-# épinglées à vide dans /etc/hermes/.env et gagnent donc. Mais HERMES_MANAGED_DIR, elle, choisit
-# QUELLE managed scope est lue (managed_scope.py:52) : aucune épingle ne peut la contrer, puisque
-# la managed .env qui la contrerait n'est plus consultée. On refuse donc, au démarrage ET à chaque
-# relance des services, toute variable de cette liste trouvée dans /opt/data/.env (et profiles/*/.env).
+# scope (env_loader.py:433-435 puis 473) ; .op.env aussi (override=False, env_loader.py:441-443).
+# Les variables neutres (greffons, mandataires…) sont épinglées à vide dans /etc/hermes/.env et
+# gagnent à la FIN du chargement ; pendant le chargement, la valeur du volume est publiée un instant
+# (chantier SECU-TUI) : root la retire donc des .env du volume (SECU-1, plus bas). HERMES_MANAGED_DIR,
+# elle, choisit QUELLE managed scope est lue (managed_scope.py:52) : aucune épingle ne peut la
+# contrer, puisque la managed .env qui la contrerait n'est plus consultée. On refuse donc, au
+# démarrage ET à chaque relance des services, toute variable de cette liste trouvée dans un .env ou
+# un .op.env du volume (racine et profiles/*). Une source externe de secrets du config.yaml du volume
+# pourrait aussi la poser : elle est refusée (SECU-2).
 #
 # La liste est étroite À DESSEIN : elle ne contient QUE des variables qui font échapper l'agent à la
 # managed scope ou lui font exécuter du code, et que Hermes n'écrit JAMAIS lui-même dans un .env du

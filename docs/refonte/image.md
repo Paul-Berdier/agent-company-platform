@@ -25,6 +25,11 @@ outils admis de plus), refus de démarrer sur un serveur MCP stdio ou hors catal
 `/v1/catalogue` ; détail et preuves dans [catalogue.md](catalogue.md). Chaque ajout de P3 est
 signalé comme tel.
 
+Chantier sécurité SECU-TUI (8 octobre 2026, branche `refonte/hermes-secu-tui`) : une session du tableau de
+bord a reçu `terminal` une fois en CI, parce que Hermes publie la valeur du volume avant la portée gérée ;
+cause prouvée sans course, correctif (décisions provisoires SECU-1 et SECU-2) et preuves aux § 4.3 bis,
+§ 4.3 ter, § 5, § 8, § 9 et § 10.
+
 Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiquette
 `v2026.9.24` (commit `f97608f`), sauf mention contraire.
 
@@ -238,7 +243,12 @@ mandataires, greffons de projet et groupés) sont épinglées dans `/etc/hermes/
 appliquée en dernier, et gagnent donc. Mais `HERMES_MANAGED_DIR` **choisit quel `.env` géré
 est lu** (managed_scope.py:52) : aucune épingle ne peut la contrer. Les gardes (`gardes` et
 `05-acp`) **refusent donc de démarrer**, et la garde des scripts `run` **refuse la relance**,
-si un `.env` du volume (`/opt/data/.env` ou `profiles/*/.env`) porte l'une de ces variables :
+si un fichier d'environnement du volume (`/opt/data/.env`, `profiles/*/.env` et, depuis le
+chantier SECU-TUI, `/opt/data/.op.env` et `profiles/*/.op.env`) porte l'une de ces variables.
+`.op.env` est chargé lui aussi avant la portée gérée (override=False, env_loader.py:441-443) : mesuré
+au run [37831355746](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37831355746) sur
+le code de P7, un `HERMES_MANAGED_DIR` posé là déplaçait la portée gérée vers `/opt/data/faux` et
+rendait `HERMES_TUI_TOOLSETS=terminal,file,code_execution`, sans aucun refus :
 
 | Variable | Raison |
 |---|---|
@@ -250,6 +260,73 @@ La liste est **étroite à dessein** : `API_SERVER_KEY` en est exclue, car l'ima
 et l'écrit elle-même dans `/opt/data/.env` à chaque démarrage
 (docker/stage2-hook.sh:504-540) ; la refuser bloquerait tout démarrage. `.env.example`, semé
 au premier démarrage, ne contient aucune de ces variables (vérifié).
+
+### 4.3 bis Clés épinglées retirées des `.env` du volume (SECU-1, chantier SECU-TUI)
+
+**Constat.** Run `image.yml` [37784838264](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37784838264),
+tentative 1 (job 113336818423, branche `refonte/hermes-p9bc`) : après un redémarrage du conteneur sur un
+volume piégé, une session de la discussion du tableau de bord (`/api/ws`) a reçu `execute_code`, `patch`,
+`read_file`, `search_files`, `terminal`, `tool_call`, `tool_describe`, `tool_search`, `write_file`, soit
+exactement le `HERMES_TUI_TOOLSETS=terminal,file,code_execution` écrit dans `/opt/data/.env`, que
+`/etc/hermes/.env` épingle à vide. La tentative 2 était verte. Relevé du 8 octobre 2026 : 136 runs
+d'`image.yml`, 132 terminés, 36 rouges ; le journal des échecs de chacun des 36 a été lu, et ce test n'a
+échoué qu'à cette tentative (seul run à deux tentatives). Un test qui n'échoue qu'une fois ne fonde rien :
+la preuve ci-dessous ne dépend d'aucune course.
+
+**Cause racine, prouvée.** `load_hermes_dotenv` publie d'abord la valeur du volume dans `os.environ`
+(`/opt/data/.env`, override=True, env_loader.py:433-434 ; `.op.env`, 441-443), puis applique la portée gérée
+par une **écriture séparée** (env_loader.py:473 et 503-518), sans verrou pour les lecteurs. Un autre fil du
+même processus qui lit `os.environ` entre les deux voit la valeur du volume. Dans le tableau de bord, le fil
+de découverte et de reconnexion MCP recharge le `.env` (tools/mcp_tool_config.py:360-371,
+mcp_tool_server_run.py:249 et 318) pendant que le fil qui construit l'agent d'une session lit
+`HERMES_TUI_TOOLSETS` (tui_gateway/server.py:1912, chemin « épingle explicite » 1924-1928). Seulement après
+un redémarrage : `05-acp` réécrit alors `mcp_servers.context7` dans `/opt/data/config.yaml` (injoignable en
+test, d'où des reconnexions) ; après une simple relance, la configuration piégée du test n'avait aucun
+serveur MCP, donc aucun fil rechargeur. La passerelle recharge à chaque tour (gateway/run.py:1614-1623),
+le cron aussi (cron/scheduler.py:1494 et 2341) ; « reload.env » de `/api/ws`
+(tui_gateway/methods_tools.py:251) recopie le `.env` **sans** la portée gérée jusqu'au chargement suivant
+(hermes_cli/config.py:2733-2747). Toutes les clés épinglées sont concernées (`HERMES_SAFE_MODE`,
+`HERMES_BIN`, `HERMES_ALLOW_PRIVATE_URLS`, l'émetteur OIDC, les mandataires…), pas seulement
+`HERMES_TUI_TOOLSETS`. Preuve **déterministe** (point fixe au lieu d'une course : `os.environ` lu juste
+avant `_apply_managed_env`) au run [37831355746](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37831355746)
+sur le code de P7 : dans le vrai conteneur, après une relance par l'agent, sept clés épinglées portaient
+la valeur du volume et une session aurait reçu `terminal`, `file`, `code_execution` ; avec un fil
+rechargeur, **7 181 résolutions sur 7 343** des outils d'une session rendaient `terminal` (20 144 sur 20 294
+dans l'image) ; `reload_env` republiait sept clés.
+
+**Décision SECU-1 (provisoire).** Une épingle n'est sûre que si le volume ne porte **aucune** valeur pour
+sa clé. Root retire donc des `.env` et `.op.env` du volume (racine et profils) toute clé que le `.env` géré
+**installé** épingle (`/etc/hermes/.env`, jamais une liste recopiée), avant tout processus de Hermes :
+au crochet `acp-gardes` (avant `01-hermes-setup` et la passerelle), dans `05-acp` et à **chaque relance**
+du tableau de bord ou d'une passerelle (`verifier-relance`). Détails :
+
+- les deux analyseurs de Hermes sont couverts : python-dotenv (env_loader._load_dotenv_with_fallback)
+  et le jetoniseur ligne à ligne d'agent/secret_scope.py:316-329 (`reload_env`, portée des profils) ; le
+  texte est d'abord normalisé comme Hermes le fait (UTF-16 avec BOM, BOM UTF-8, repli latin-1, octets NUL,
+  sauts de ligne, lignes rognées) ; une clé citée, cachée dans une valeur multiligne ou derrière un
+  séparateur de `splitlines` est retirée ; UTF-32 et toute forme qui résisterait au retrait refusent
+  (échec fermé) ;
+- écriture par descripteurs de répertoire ouverts sans suivre de lien (`O_NOFOLLOW`), fichier temporaire
+  `O_EXCL` puis renommage atomique dans ce même répertoire ; propriétaire et mode conservés ; un lien
+  symbolique à la place d'un `.env` ou d'un profil refuse ; une cible liée en dur n'est jamais modifiée ;
+  un fichier sans clé épinglée n'est pas réécrit ; le fichier est relu après écriture ;
+- le journal nomme les fichiers et les **clés**, jamais les valeurs : `[acp] SECU-1 (relance) :
+  /opt/data/.env portait 7 clé(s) épinglée(s) par la portée gérée (…) : retirées, valeurs jamais
+  affichées.` ; `diagnostiquer` les signale en information, sans rien écrire.
+
+### 4.3 ter Sources externes de secrets refusées (SECU-2, chantier SECU-TUI)
+
+La section `secrets` du `config.yaml` du volume est lue **sans** la portée gérée (env_loader.py:620-640,
+`read_raw_config`) au premier chargement de l'environnement de chaque processus de Hermes
+(env_loader.py:471-472). La source `command` lance `/bin/sh -c <commande>`
+(agent/secret_sources/command.py:61-80 et 168-182) ; sa sortie `KEY=VALUE` est appliquée **avant** la
+portée gérée. Mesuré au run 37831355746 sur le code de P7 : le conteneur démarrait, la commande
+s'exécutait sous l'uid 10000 (`Command helper: applied 1 secret`) et sa sortie
+`HERMES_MANAGED_DIR=/opt/data/faux` déplaçait la portée gérée, hors des trois couches. ACP n'utilise
+aucune source externe (ses secrets sont des variables Railway) et une épingle ne servirait à rien : toute
+source activée (`enabled` vrai, la règle de `SecretSource.is_enabled`) dans le `config.yaml` de la racine
+ou d'un profil **refuse le démarrage et la relance**, comme un serveur MCP stdio (D8) ; les valeurs par
+défaut de Hermes (`enabled: false`) restent admises ; `diagnostiquer` l'inventorie.
 
 ### 4.4 Reprise à root des services s6
 
@@ -381,7 +458,12 @@ tools/url_safety.py:145-173 lit cette variable et config.yaml SANS la managed sc
 `HERMES_DISABLE_LAZY_INSTALLS=1`, et des valeurs vides pour `HERMES_TUI_TOOLSETS`,
 `HERMES_BIN`, `HERMES_ACCEPT_HOOKS`, `HERMES_SAFE_MODE`, `HERMES_YOLO_MODE`,
 `HERMES_COPILOT_ACP_COMMAND`, `HERMES_COPILOT_ACP_ARGS` et `COPILOT_CLI_PATH`. Appliqué en
-dernier, ce fichier neutralise ces variables posées dans `/opt/data/.env`.
+dernier, ce fichier gagne sur `/opt/data/.env` **à la fin** de chaque chargement ; mais Hermes publie
+d'abord la valeur du volume, par une écriture séparée (env_loader.py:433-434 puis 473), et
+« reload.env » la recopie sans lui. La première version de ce document disait que ce fichier
+« neutralise » ces variables posées dans le volume : c'était inexact (run 37784838264). Depuis le
+chantier SECU-TUI, root **retire** ces clés des `.env` et `.op.env` du volume avant tout processus de
+Hermes et à chaque relance (§ 4.3 bis) : l'épingle tient parce que le volume ne porte plus la clé.
 
 Les autorités de certification sont épinglées **sur le magasin du système, jamais à
 vide** : constaté dans l'image, `SSL_CERT_FILE=` vide prive OpenSSL de toute autorité et la
@@ -406,13 +488,21 @@ Aucune couche ne suffit seule ; chacune est prouvée séparément, avec son tém
 2. **Épingles du `.env` géré** : `HERMES_TUI_TOOLSETS` (qui remplacerait la liste du
    tableau de bord), `HERMES_BIN` (programme des workers : vide = `python -m
    hermes_cli.main`, mesuré), `HERMES_ACCEPT_HOOKS`, `HERMES_SAFE_MODE`… sont vides, et
-   interdites comme variables Railway (§ 4).
+   interdites comme variables Railway (§ 4). Depuis le chantier SECU-TUI, elles ne tiennent
+   **pendant** un chargement que parce que root retire ces clés des `.env` du volume (§ 4.3 bis) :
+   seules, elles laissaient passer la valeur du volume un instant (run 37784838264).
 3. **Crochet `pre_tool_call` en LISTE BLANCHE** (`hermes/plugins/acp-poste/garde_execution.py`),
    enregistré par le greffon. Tout `AIAgent` découvre lui-même les greffons avant de choisir
    ses outils (agent/agent_init.py:1060-1065) : passerelle (api_server, cron), chaque worker
    kanban, processus du tableau de bord (`/api/ws`, en processus : web_routers/chat_ws.py:583-601),
    `tui_gateway.entry`. C'est la **seule** couche qui ferme `preview.restart`, dont l'agent
    caché reçoit `["terminal","file"]` codés en dur (tui_gateway/agent_callbacks.py:371-374).
+   Mesuré au run 37831355746 sur le code de P7 (chantier SECU-TUI) : une session `/api/ws` du vrai
+   tableau de bord qui a reçu **exactement** les outils de la session fautive du run 37784838264
+   (`HERMES_TUI_TOOLSETS` posé en root, volume piégé avec `HERMES_SAFE_MODE=1`), à qui le modèle
+   demande `terminal`, reçoit « Refusé par ACP : l'outil « terminal » … », sans témoin ; la garde
+   est enregistrée et la découverte réussie dans ce processus. La troisième couche aurait donc
+   refusé l'appel ; c'est la couche 2 qui avait cédé.
 
 **Les 33 outils admis** (noms exacts ; 34 en P4 avant sa relecture, 26 en P3, 24 en P2) : depuis P4, les
 huit outils du greffon
@@ -893,6 +983,37 @@ réussis (896,64 s), `test_interface_contrat.py` refait sur l'arbre de `c8b0887`
 image, identité, connexion, sans shell) n'a pas été relancé localement : la CI le passe. Le vrai exécutant,
 Railway et les vrais comptes ne sont pas couverts par ces tests (cahier P6 § 16).
 
+### Tests ajoutés par le chantier SECU-TUI (SECU-1, SECU-2)
+
+Écrits d'abord, **rouges sur le code de P7** (run jetable 37831355746, § 9), puis verts avec le correctif.
+
+- **Dans l'image** (`test_secu_env.py`), chaque cas après la chaîne root de production (`commande_gardes`
+  au démarrage, `commande_verifier_relance` à la relance) puis dans un processus NEUF de Hermes :
+  - `test_aucune_valeur_du_volume_dans_la_fenetre_de_publication[env|op_env|profil × demarrage|relance]` :
+    une valeur piège pour CHAQUE clé du `.env` géré ; `os.environ` lu au point fixe où la portée gérée va
+    être appliquée, et outils qu'une session du tableau de bord recevrait à cet instant ;
+  - `test_concurrence_reelle_d_un_rechargeur_et_du_fil_d_une_session` : la course réelle pendant 4 s
+    (fréquence affichée) ; `test_reload_env_ne_republie_aucune_valeur_du_volume` ;
+  - `test_hermes_managed_dir_dans_op_env_est_refuse[racine|profil]` ;
+  - `test_temoin_hermes_execute_la_commande_de_secrets_du_volume` (témoin du vecteur, vert avant comme
+    après) et `test_une_source_de_secrets_du_volume_est_refusee[racine|profil]` (crochet, relance, 05-acp,
+    inventaire de `diagnostiquer`), `test_sources_de_secrets_actives` ;
+  - le retrait lui-même : `test_retirer_cles_env` (onze formes : `export`, clé citée, valeur multiligne,
+    NUL, BOM et CRLF, UTF-16, séparateur de `splitlines`, latin-1, lignes à garder), refus de l'UTF-32,
+    propriétaire, mode et idempotence, aucun lien suivi (lien, profil lié vers `/etc/hermes`, lien dur),
+    portée gérée de root exigée, journal sans valeur, `diagnostiquer` sans écriture.
+- **Depuis l'hôte** (`test_sans_shell_contrat.py`) :
+  - `test_volume_piege_aucune_valeur_publiee_apres_relance` : `.env` et `.op.env` piégés par l'agent,
+    relance par l'agent, puis sonde DANS le conteneur sous l'uid hermes avec la vraie `/etc/hermes` : point
+    fixe, course réelle, `reload_env`, aucune clé épinglée restée dans le volume ;
+  - `test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu` (la troisième couche face à la session
+    fautive reproduite sans course, § 5) ;
+  - `test_op_env_qui_deplace_la_portee_geree_refuse_le_demarrage`,
+    `test_source_de_secrets_du_volume_refuse_le_demarrage` (témoin absent du volume).
+
+`test_volume_piege_apres_relance`, qui avait vu la faille une fois, est gardé tel quel : son contrôle final
+ne mesure que l'état stable, et une seule session ne déclenche la course que rarement.
+
 ## 9. Ce qui est prouvé, ce qui ne l'est pas
 
 Les preuves datées de P1 (sorties, identifiants de runs) sont dans
@@ -989,12 +1110,43 @@ réussis** (dont les deux tests bloquants `preview.restart`), aucun échec, aucu
 `ci.yml` [36087965871](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965871)
 du même commit : success.
 
+### Preuves du chantier SECU-TUI (CI)
+
+Aucune commande Docker locale : tout passe par la CI GitHub. Les runs « jetables » viennent de branches
+`refonte/hermes-jetable-secu-*` (workflow ad hoc qui ne rejoue que les tests visés, supprimées ensuite).
+
+- **Rouge sur le code de P7, tests seuls** (`4c3647e`, branche jetable, run
+  [37831355746](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37831355746), conclusion
+  **failure** attendue) : dans l'image, `test_secu_env.py` **12 échecs, 1 réussi** (le témoin : Hermes exécute
+  bien `secrets.command`) ; au contrat, **3 échecs, 2 réussis** : fenêtre dans le vrai conteneur (sept clés
+  publiées, `terminal`/`file`/`code_execution`, 7 181 résolutions sur 7 343 avec terminal, `reload_env`
+  republiant sept clés), `.op.env` (portée gérée déplacée vers `/opt/data/faux`), `secrets.command` (témoin
+  créé par l'uid 10000) ; réussis : `test_volume_piege_apres_relance` (la course ne se produit pas sans
+  rechargeur) et `test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu` (§ 5).
+
 ## 10. Limites connues
 
 - **Même uid 10000** pour la passerelle, les agents et le tableau de bord. Depuis P2, l'agent
   n'a plus d'outil d'exécution : tuer le tableau de bord ou écouter sur `0.0.0.0:9119` lui
   demanderait une **faille de Hermes lui-même** (analyse d'un document par `web_extract`,
   `vision_analyze`, skills, mémoire). Non testable sans exécuter l'attaque ; limite de fond.
+- **Écriture du volume en cours de vie (chantier SECU-TUI)** : SECU-1 retire les clés épinglées des
+  `.env` du volume au démarrage et à chaque relance d'un service, c'est-à-dire chaque fois qu'un volume
+  écrit hors de la vie du service (sauvegarde restaurée, maintenance, piège d'avant P2) peut entrer dans
+  un processus de Hermes. Une écriture **pendant** la vie d'un service (le tableau de bord recharge le
+  `.env` aux reconnexions MCP, la passerelle à chaque tour) rouvre la fenêtre jusqu'à la relance
+  suivante : elle suppose l'uid hermes (donc une faille de Hermes, ligne précédente) ou une session
+  authentifiée du propriétaire (`PUT /api/env`, éditeur, terminal : shell du propriétaire, § 5). La
+  troisième couche refuse alors encore `terminal` (mesuré, § 5). De même, « reload.env » (servi par
+  `/api/ws`) supprime de l'environnement du tableau de bord `API_SERVER_HOST`, `API_SERVER_PORT` et les
+  trois clés copilot quand le `.env` ne les porte plus (mesuré : `reload_env` efface les clés connues
+  absentes du fichier) jusqu'au chargement suivant ; absentes, les clés copilot valent « non défini »
+  comme leur épingle vide ; l'effet de l'absence d'`API_SERVER_*` dans le tableau de bord n'a pas été
+  mesuré.
+- **Variables interdites au conteneur mais ni épinglées ni retirées du volume** (observé pendant le
+  chantier SECU-TUI, non traité) : par exemple `HERMES_KANBAN_DISPATCH_IN_GATEWAY` posée dans
+  `/opt/data/.env` couperait le répartiteur de la passerelle (gateway/kanban_watchers.py:215-218) ; un
+  arrêt de service, pas une exécution. À trancher par une PR qui l'épinglerait.
 - **Échecs ouverts autour de la garde** : la couche d'appel de Hermes échoue ouvert si le
   crochet lève (agent_runtime_helpers.py:2348-2361 ; tool_executor.py:652-667) — la garde ne
   lève jamais ; la **découverte des greffons** qui lève fait continuer l'agent sans greffon
@@ -1011,9 +1163,10 @@ du même commit : success.
 - **Chemins d'exécution pilotés par la configuration ou le volume** (`mcp_servers.*.command`,
   `hooks:`, quick_commands exec, TTS/STT « command », `lazy-packages`) : il faut écrire
   `/opt/data`, ce que l'agent ne peut plus faire ; `diagnostiquer` les inventorie (code 1). Depuis
-  P3, un serveur MCP stdio ou hors catalogue **refuse le démarrage** et la relance (D8) ; le
-  tableau de bord authentifié peut encore en lancer un **pendant** sa session (shell du
-  propriétaire, § 5).
+  P3, un serveur MCP stdio ou hors catalogue **refuse le démarrage** et la relance (D8) ; depuis le
+  chantier SECU-TUI, une source externe de secrets activée (`secrets.command`…) aussi (SECU-2,
+  § 4.3 ter) ; le tableau de bord authentifié peut encore en lancer un **pendant** sa session (shell
+  du propriétaire, § 5).
 - **`vision_analyze` lit les images locales** (relecture P2, constat par lecture de la source,
   non exécuté) : l'outil admis accepte un chemin local ou une URL `file://`
   (tools/vision_tools.py:875) ; avec le terminal local de l'image, **tout chemin** lisible par
