@@ -8,17 +8,19 @@ redémarre LES MÊMES VOLUMES avec les images « APRÈS » (ACP_IMAGE_TESTS, ACP
 1. peuplement AVANT par les routes communes aux deux versions (celles de P6 : projets, cartes, exécutant, questions),
    gestes de R1 (test_restauration.py) réduits aux scénarios « simple » et « question », présents dans les deux cibles
    factices (« attente » n'existe pas avant P9) : routage validé, projet A terminé, projet B arrêté sur une question
-   ouverte, réglage changé, notification envoyée ; référence lue par les API (champs stables) ;
+   ouverte, réglage changé, notification envoyée ; puis REPOS (la question de B escaladée par le filet de
+   l'émetteur, plus aucune notification en attente, deux passes de l'émetteur) ; référence lue par les API ;
 2. arrêt propre (exécutant, puis Hermes) ; relevés AVANT : manifestes, et pour chaque base SQLite son schéma
    (``PRAGMA user_version``, version du greffon dans ``meta_schema``, objets de ``sqlite_master``), ses compteurs
    ``AUTOINCREMENT`` et l'empreinte de CHAQUE ligne (outils/empreinte_volume.py ``lignes``) ;
-3. CONTRÔLE : l'image AVANT redémarrée sur une COPIE du volume de Hermes, mêmes lectures, même relevé à chaud : ce
-   qu'un simple redémarrage change (tables « vivantes » : émetteur, kanban, sessions…) est MESURÉ, jamais supposé ;
-4. MONTÉE : Hermes APRÈS sur le même volume : gardes acceptées, migration du greffon faite (moment relevé), relevé APRÈS
-   à chaud (``docker pause``), projeté sur les colonnes d'avant ; schémas imprimés avant et après et « migration de
-   schéma : oui/non » (changements absents du contrôle) ; DÉFAUTS : base, table ou colonne d'avant disparue, ligne
-   d'avant perdue ou modifiée dans une table que le contrôle ne change pas (hors ligne de version de ``meta_schema``),
-   compteur ``AUTOINCREMENT`` revenu en arrière, intégrité perdue ; lectures égales à la référence ;
+3. CONTRÔLE : l'image AVANT redémarrée sur une COPIE du volume de Hermes, deux passes de l'émetteur, mêmes lectures,
+   même relevé à chaud : ce qu'un simple redémarrage change (tables « vivantes ») est MESURÉ, jamais supposé ;
+4. MONTÉE : Hermes APRÈS sur le même volume : gardes acceptées, migration du greffon faite (moment relevé), mêmes
+   deux passes, relevé APRÈS à chaud (``docker pause``), projeté sur les colonnes d'avant ; schémas imprimés avant et
+   après et « migration de schéma : oui/non » (changements absents du contrôle) ; DÉFAUTS : base, table ou colonne
+   d'avant disparue, ligne d'avant perdue ou modifiée dans une table que le contrôle ne change pas (hors ligne de
+   version de ``meta_schema``), compteur ``AUTOINCREMENT`` revenu en arrière, intégrité perdue ; lectures égales à la
+   référence ;
 5. exécutant APRÈS sur son même volume : prêt, enrôlé, en ligne ; jeton, empreinte et références git égales ;
 6. le travail REPREND : réponse à B → fil repris (``--resume`` d'une session ouverte par l'exécutant AVANT) →
    terminée ; nouveau projet E → terminé, un commit d'exploration ; aucun jeton dans les journaux, aucun push.
@@ -129,6 +131,17 @@ def _resume_releve(releve: Dict[str, Any]) -> Dict[str, Any]:
             for base, e in sorted(releve["bases"].items())}
 
 
+def _difference_sql(avant: str, apres: str, contexte: int = 80) -> Dict[str, str]:
+    """Le SQL de schéma d'un objet avant et après, à partir de peu avant leur première différence (le reste est
+    commun)."""
+    commun = 0
+    while commun < min(len(avant), len(apres)) and avant[commun] == apres[commun]:
+        commun += 1
+    debut = max(0, commun - contexte)
+    prefixe = "…" if debut else ""
+    return {"avant": prefixe + avant[debut:debut + 900], "apres": prefixe + apres[debut:debut + 900]}
+
+
 def _sans_exemples(ecarts: Dict[str, Any]) -> Dict[str, Any]:
     """Écarts de ``comparer_lignes`` réduits aux décomptes, par « base : table »."""
     resume: Dict[str, Any] = {}
@@ -181,6 +194,53 @@ class Montee:
         sortie = self.banc.hermes.executer([PYTHON, POSTE_SIMULE, "reglage", cle, json.dumps(valeur)],
                                            utilisateur="hermes", delai=120)
         assert sortie.returncode == 0, sortie.stderr[-2000:]
+
+    def derniere_passe(self) -> int:
+        """Fin de la dernière passe COMPLÈTE de l'émetteur (``emetteur.derniere_passe``, écrite en fin de passe), en
+        secondes depuis l'époque ; 0 si aucune ou illisible."""
+        try:
+            lignes_ = self.sql("SELECT valeur FROM emetteur WHERE cle = 'derniere_passe'")
+            return int(json.loads(lignes_[0]["valeur"])) if lignes_ else 0
+        except (AssertionError, ValueError, TypeError):
+            return 0
+
+    def attendre_deux_passes(self, depuis: float) -> Dict[str, Any]:
+        """Deux passes complètes de l'émetteur terminées après ``depuis`` : ce qu'un redémarrage déclenche (événements
+        en retard, filets) est fait, au même point pour le contrôle et pour la montée. Rend les instants relevés."""
+        premiere = attendre(lambda: (lambda p: p if p > int(depuis) else None)(self.derniere_passe()), 180,
+                            "aucune passe complète de l'émetteur après le redémarrage")
+        seconde = attendre(lambda: (lambda p: p if p > premiere else None)(self.derniere_passe()), 120,
+                           "pas de seconde passe complète de l'émetteur")
+        return {"premiere_passe_s": premiere - int(depuis), "seconde_passe_s": seconde - int(depuis)}
+
+    def attendre_le_repos(self) -> str:
+        """T au REPOS avant l'arrêt (run 37780726989 : sans cette attente, le contrôle et la montée relevaient, chacun
+        à son heure, un travail encore en cours à T) : la carte « répondre » de Hermes (modèle factice) finit sans
+        réponse et le filet de l'émetteur escalade la question de B (notification « question ») ; plus aucune
+        notification en attente ; deux passes complètes de l'émetteur ensuite (curseurs à jour). Mesuré : une attente
+        dépassée est dite, sans arrêter le test (la montée relèvera alors ce qui restait)."""
+        debut, constats = time.monotonic(), []
+
+        def escaladee():
+            questions = self.lire("/v1/questions")["questions"]
+            return next((q for q in questions if q["id"] == self.question_b["id"] and q.get("etat") == "escaladee"),
+                        None)
+
+        for nom, predicat, delai in (
+                ("question de B escaladée", escaladee, 480),
+                ("aucune notification en attente",
+                 lambda: not self.sql("SELECT 1 FROM notifications WHERE etat = 'en_attente'"), 180)):
+            try:
+                attendre(predicat, delai, nom)
+                constats.append(f"{nom} ({time.monotonic() - debut:.0f} s)")
+            except AssertionError as exc:
+                constats.append(f"NON : {exc}"[:300])
+        try:
+            self.attendre_deux_passes(time.time())
+            constats.append(f"deux passes de l'émetteur ensuite ({time.monotonic() - debut:.0f} s)")
+        except AssertionError as exc:
+            constats.append(f"NON : {exc}"[:300])
+        return " ; ".join(constats)
 
     def version_en_base(self) -> Optional[str]:
         """Version du greffon lue en base (lecture seule) ; ``None`` si elle est illisible à cet instant (dit)."""
@@ -260,6 +320,7 @@ class Montee:
             f"migration de schéma : {r['migration_de_schema']}", "",
             f"- schéma du greffon posé par les images : avant {r.get('schema_greffon_images', {}).get('avant')}, "
             f"après {r.get('schema_greffon_images', {}).get('apres')}",
+            f"- repos à T, avant l'arrêt : {r.get('repos_a_t', 'non mesuré')}",
             f"- migration du greffon faite : {r.get('migration_faite', 'non mesuré')}",
             "- changements de schéma propres à la montée (absents du contrôle) : "
             + ("; ".join(f"{b} : {_json(e)}".replace("\n", "") for b, e in propres.items()) or "aucun"),
@@ -352,12 +413,14 @@ def test_m1_peuplement_avant(montee: Montee):
              120, "carte de B encore « running » après sa question")
     m.poser_reglage("seuil_quota_pct", SEUIL_AVANT)
     attendre(lambda: b.notifications(), 90, "aucune notification reçue par le faux ntfy")
+    m.resultat["repos_a_t"] = m.attendre_le_repos()
     m.reference = m.releve(executant=True)
     m.resultat["avant"] = {"meta": m.meta(), "notifications": m.notifications(),
                            "executant": {k: executant.get(k) for k in ("plateforme", "version", "voies_disponibles")}}
     afficher("Montée 1 — référence AVANT (champs stables)", _json({
         **{k: v for k, v in m.reference.items() if k != "refs"}, "refs": len(m.reference["refs"]),
-        "avant": m.resultat["avant"], "notifications_recues_par_le_faux_ntfy": len(b.notifications())}))
+        "avant": m.resultat["avant"], "repos_a_t": m.resultat["repos_a_t"],
+        "notifications_recues_par_le_faux_ntfy": len(b.notifications())}))
     assert set(m.reference["projets"]) == {m.projets[x]["id"] for x in "AB"}
     assert [q[1] for q in m.reference["questions_ouvertes"]] == [m.cartes["B"]]
     assert m.reference["reglages"]["seuil_quota_pct"] == SEUIL_AVANT
@@ -399,9 +462,10 @@ def test_m3_controle_redemarrage_avec_l_image_avant(montee: Montee):
     m, b = montee, montee.banc
     volume = m.archives.volume_restaure("avant-hermes", "hermes-controle")
     b.image_tests = m.images["tests_avant"]
-    debut = time.monotonic()
+    debut, depuis = time.monotonic(), time.time()
     b.relancer_hermes(volume)
     m.conteneurs["hermes"].append(b.hermes.nom)
+    passes = m.attendre_deux_passes(depuis)
     lu = m.releve(executant=False)
     with a_chaud([b.hermes.nom]):
         releve = lignes(m.outils, volume, m.projection)
@@ -413,7 +477,7 @@ def test_m3_controle_redemarrage_avec_l_image_avant(montee: Montee):
     ecarts_lectures = m.ecarts(lu)
     m.resultat["tables_vivantes_au_controle"] = sorted(_sans_exemples(m.controle["ecarts"]))
     afficher(f"Montée 3 — CONTRÔLE : image avant redémarrée sur une copie ({duree:.0f} s jusqu'au relevé)", _json({
-        "lectures_face_a_la_reference": ecarts_lectures or "égales",
+        "passes_de_l_emetteur": passes, "lectures_face_a_la_reference": ecarts_lectures or "égales",
         "tables_vivantes": _sans_exemples(m.controle["ecarts"]),
         "schemas": m.controle["schemas"] or "inchangés", "bases": _resume_releve(releve)}))
     assert ecarts_lectures == {}, ecarts_lectures
@@ -426,7 +490,7 @@ def test_m4_montee_hermes_apres_sur_le_meme_volume(montee: Montee):
     m, b = montee, montee.banc
     volume = m.volumes["hermes"]
     b.image_tests = m.images["tests_apres"]
-    debut = time.monotonic()
+    debut, depuis = time.monotonic(), time.time()
     b.relancer_hermes(volume)
     m.conteneurs["hermes"].append(b.hermes.nom)
     pret = time.monotonic() - debut
@@ -440,6 +504,8 @@ def test_m4_montee_hermes_apres_sur_le_meme_volume(montee: Montee):
     except AssertionError:
         m.resultat["migration_faite"] = (f"pas dans les 60 s qui suivent le démarrage (version en base : "
                                          f"{m.version_en_base()!r}) : à la première lecture par une route")
+    # Mêmes passes de l'émetteur que le contrôle avant les lectures et le relevé (comparaison au même point).
+    passes = m.attendre_deux_passes(depuis)
     lu = m.releve(executant=False)
     meta = m.meta()
     with a_chaud([b.hermes.nom]):
@@ -469,12 +535,13 @@ def test_m4_montee_hermes_apres_sur_le_meme_volume(montee: Montee):
         objets_apres = (apres["bases"].get(base) or {}).get("objets") or {}
         objets = [o for cle in ("objets_modifies", "objets_ajoutes", "objets_retires") for o in (e.get(cle) or [])]
         for objet in objets:
-            sql_change[f"{base} : {objet}"] = {"avant": objets_avant.get(objet, "(absent)")[:1500],
-                                               "apres": objets_apres.get(objet, "(absent)")[:1500]}
+            sql_change[f"{base} : {objet}"] = _difference_sql(objets_avant.get(objet, "(absent)"),
+                                                              objets_apres.get(objet, "(absent)"))
     afficher(f"Montée 4 — Hermes APRÈS sur le volume d'avant (prêt en {pret:.0f} s) : journal", "\n".join(
         [l for l in journal.splitlines() if "[acp]" in l or "05-acp" in l][:60]))
     afficher("Montée 4 — schémas AVANT et APRÈS", _json({
         "migration de schéma": m.resultat["migration_de_schema"], "migration_faite": m.resultat["migration_faite"],
+        "passes_de_l_emetteur": passes,
         "schema_greffon_images": m.versions, "avant": _resume_releve(avant), "apres": _resume_releve(apres),
         "changements_de_schema": schemas, "dont_propres_a_la_montee": propres, "sql_avant_apres": sql_change}))
     afficher("Montée 4 — lignes d'avant après la montée (projetées sur les colonnes d'avant)", _json({
