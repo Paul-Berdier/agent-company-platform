@@ -715,8 +715,8 @@ les jetons Claude et GitHub vont sur le volume, pas en variable scellée (D92).
 
 ## Annexe : ce que P7 change pour l'autonomie (8 octobre 2026)
 
-Constat factuel, propre au dépôt ; il ne modifie pas le plan ci-dessus. Décisions appliquées : D93 à D116
-([plan.md](plan.md)) ; détail : [questions.md](questions.md), [executant.md](executant.md) § 16, gestes du
+Constat factuel, propre au dépôt ; il ne modifie pas le plan ci-dessus. Décisions appliquées : D93 à D121
+([plan.md](plan.md), D117 à D121 : relecture finale du 8 octobre) ; détail : [questions.md](questions.md), [executant.md](executant.md) § 16, gestes du
 propriétaire : [railway.md](railway.md) § 14. **Rien n'est déployé** : tout est prouvé en local et en CI (modèle
 factice, faux exécutant, faux ntfy) ; les preuves réelles du § 8 (P7) sont **sur Railway seulement**, à venir.
 

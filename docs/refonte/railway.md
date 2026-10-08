@@ -1146,7 +1146,7 @@ Railway (§ 11).
 ## 14. Notifications, bilan quotidien et dépôts réels (étape P7)
 
 Conception, état livré et preuves : [questions.md](questions.md) (file Questions, notifications, continuité),
-[executant.md](executant.md) § 16 (garde « dépôt privé » mesurée). Décisions appliquées : D93 à D116
+[executant.md](executant.md) § 16 (garde « dépôt privé » mesurée). Décisions appliquées : D93 à D121
 ([plan.md](plan.md)). Comme au § 13 : vous fournissez les comptes, Hermes gère l'exploitation. **Rien de ce qui suit
 n'a été exécuté** : chaque étape est votre geste, sur Railway seulement.
 

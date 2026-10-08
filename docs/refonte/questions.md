@@ -1,7 +1,7 @@
 # File Questions, notifications et continuité téléphone ↔ bureau (étape P7)
 
 État du **8 octobre 2026**. Étape P7 du [plan d'autonomie](autonomie.md) : « questions, notifications et continuité ;
-passage aux dépôts réels ». Décisions appliquées : **D93 à D116** ([plan.md](plan.md)). Ce document rassemble ce que
+passage aux dépôts réels ». Décisions appliquées : **D93 à D121** ([plan.md](plan.md) ; D117 à D121 : relecture finale du 8 octobre). Ce document rassemble ce que
 le propriétaire trouve dans la file Questions et autour d'elle ; le détail technique reste dans les documents de
 chaque zone : routes et flux dans [projets.md](projets.md) (§ 4, § 4 bis, § 4 ter, § 5), pages dans
 [interface.md](interface.md) (§ 13 à § 15), garde « dépôt privé » dans [executant.md](executant.md) (§ 16), gestes sur
