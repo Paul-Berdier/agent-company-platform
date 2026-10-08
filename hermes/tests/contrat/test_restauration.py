@@ -20,6 +20,10 @@ R1 — trois volumes restaurés au MÊME instant :
 6. le travail REPREND : B → terminée, C reprise → terminée avec UN commit d'exploration, nouveau projet E → terminé.
    Mécanismes RELEVÉS et imprimés, jamais supposés : compteur ``oom`` de la carte C (un volume pris à chaud se relit
    comme un arrêt brutal), réclamation restaurée encore valide ou rendue (échéance passée), échecs comptés.
+   Comme une restauration réelle a lieu des heures après la sauvegarde, le redémarrage attend que l'échéance de la
+   réclamation restaurée de C soit PASSÉE (au plus T + 300 s) : c'est le chemin de la sauvegarde quotidienne.
+   Notification témoin : le faux ntfy est coupé du réseau juste avant T et une notification est enfilée ; elle est EN
+   ATTENTE à T, délivrée après T (faux ntfy rebranché), puis on MESURE si l'émetteur restauré la renvoie.
 
 R2 — volumes restaurés à des instants DIFFÉRENTS (les sauvegardes de Railway ne sont pas synchronisées) :
 - R2a : Hermes ← T+1, exécutant ← T (exécutant plus ancien) ;
@@ -56,6 +60,8 @@ pytestmark = pytest.mark.restauration
 
 LIBERER = "/var/tmp/acp-factice/liberer"
 TTL_RESTAURATION_S = 300
+TEMOIN_CLE = "restauration:temoin-T"
+TEMOIN_TEXTE = "Témoin de la restauration (P9) : notification en attente à l'instant T."
 TACHE_BILAN = {"name": "Bilan ACP", "schedule": "0 8 * * *", "prompt": "", "no_agent": True,
                "script": "acp-bilan.py", "deliver": "local"}
 SEUIL_A_T, SEUIL_APRES_T = 85, 90  # réglage « seuil_quota_pct » : changé avant T, remis après T
@@ -83,6 +89,9 @@ class Scene:
         self.refs_t1: Dict[str, str] = {}
         self.sujets_c_t1: List[str] = []
         self.restaures: Dict[str, str] = {}
+        self.statuts_t: Dict[str, str] = {}
+        self.redemarrage_r1 = 0.0
+        self.temoin_avant_restauration = 0
 
     # ------------------------------------------------------------------ lectures
     def requete(self, methode: str, chemin: str, corps: Optional[Any] = None):
@@ -132,6 +141,77 @@ class Scene:
                 "'dernier_echec': (l[4] or '')[:160]}))\n")
         sortie = self.banc.hermes.executer([PYTHON, "-c", code, tableau, carte], utilisateur="hermes", verifier=True)
         return json.loads(sortie.stdout)
+
+    def historique(self, lettre: str) -> Dict[str, Any]:
+        """Chemin suivi par la carte dans le kanban de Hermes, RELEVÉ : tentatives (``task_runs`` : identifiant, statut,
+        issue), genres des événements (``task_events``, dans l'ordre), statut et échecs consécutifs. Lecture seule."""
+        code = ("import json, sys\n"
+                "sys.path.insert(0, '/opt/hermes/plugins/acp-poste')\n"
+                "from noyau import kanban_adapter as ka\n"
+                "with ka.connexion(sys.argv[1]) as kc:\n"
+                "    runs = [[l[0], l[1], l[2]] for l in kc.execute('SELECT id, status, outcome FROM task_runs "
+                "WHERE task_id = ? ORDER BY id', (sys.argv[2],))]\n"
+                "    evts = [l[0] for l in kc.execute('SELECT kind FROM task_events WHERE task_id = ? ORDER BY id', "
+                "(sys.argv[2],))]\n"
+                "    t = kc.execute('SELECT status, consecutive_failures FROM tasks WHERE id = ?', "
+                "(sys.argv[2],)).fetchone()\n"
+                "print(json.dumps({'tentatives': runs, 'evenements': evts, 'statut': t[0], 'echecs': t[1]}))\n")
+        sortie = self.banc.hermes.executer([PYTHON, "-c", code, self.projets[lettre]["tableau"], self.cartes[lettre]],
+                                           utilisateur="hermes", verifier=True)
+        return json.loads(sortie.stdout)
+
+    def envois(self, lettre: str, depuis: float = 0.0) -> List[Dict[str, Any]]:
+        """Issues de l'exécutant ACCEPTÉES par Hermes pour cette carte (table ``envois`` du greffon, réponses 2xx
+        gardées : route, statut, état rendu), reçues depuis ``depuis`` (secondes depuis l'époque)."""
+        lignes = self.sql("SELECT route, statut, reponse, recu_le FROM envois WHERE carte = ? AND recu_le >= ? "
+                          "ORDER BY recu_le, rowid", self.cartes[lettre], str(int(depuis)))
+        resultat = []
+        for l in lignes:
+            try:
+                reponse = json.loads(l["reponse"])
+            except ValueError:
+                reponse = {}
+            resultat.append({"route": l["route"], "statut": l["statut"],
+                             "etat": reponse.get("etat") if isinstance(reponse, dict) else None,
+                             "recu_apres_s": int(l["recu_le"] - depuis) if depuis else None})
+        return resultat
+
+    def appels_agent(self) -> Dict[str, List[str]]:
+        """Invocations du faux Claude dans le conteneur COURANT de l'exécutant (son journal vit hors du volume), par
+        scénario : phases dans l'ordre. Chaque projet du test a son propre scénario."""
+        appels: Dict[str, List[str]] = {}
+        for f in self.banc.faux():
+            if f.get("scenario") and f.get("phase"):
+                appels.setdefault(str(f["scenario"]), []).append(str(f["phase"]))
+        return appels
+
+    def temoins_recus(self) -> int:
+        return sum(1 for n in self.banc.notifications() if n.get("corps") == TEMOIN_TEXTE)
+
+    def notification_temoin(self) -> Dict[str, Any]:
+        lignes = self.sql("SELECT etat, tentatives FROM notifications WHERE cle = ?", TEMOIN_CLE)
+        return lignes[0] if lignes else {}
+
+    def couper_ntfy(self) -> None:
+        """Faux ntfy retiré du réseau du banc (son journal reste lisible par ``docker exec``) : tout envoi échoue."""
+        docker("network", "disconnect", self.banc.reseau, self.banc.ntfy)
+
+    def rebrancher_ntfy(self) -> None:
+        """Faux ntfy rendu au réseau sous son alias (sans effet s'il y est déjà : étape précédente en échec)."""
+        relie = docker("inspect", "-f", "{{json .NetworkSettings.Networks}}", self.banc.ntfy).stdout
+        if self.banc.reseau not in relie:
+            docker("network", "connect", "--alias", "ntfy.acp.test", self.banc.reseau, self.banc.ntfy)
+
+    def enfiler_temoin(self) -> None:
+        """Notification témoin enfilée par la fonction du greffon (genre « test »), comme le ferait l'émetteur."""
+        code = ("import sys\n"
+                "sys.path.insert(0, '/opt/hermes/plugins/acp-poste')\n"
+                "from noyau import base, notifications\n"
+                "with base.connexion() as conn:\n"
+                "    print(notifications.enfiler(conn, cle=sys.argv[1], genre='test', texte_notif=sys.argv[2]))\n")
+        sortie = self.banc.hermes.executer([PYTHON, "-c", code, TEMOIN_CLE, TEMOIN_TEXTE], utilisateur="hermes",
+                                           verifier=True)
+        assert sortie.stdout.strip() == "True", sortie.stdout
 
     def statuts_poste(self, lettres: str = "ABC") -> Dict[str, str]:
         """Statut des cartes d'exploration (voie poste-claude) des projets donnés, par lettre de projet. Seulement des
@@ -320,7 +400,9 @@ def test_r1_peuplement_a_t(scene):
     assert sortie.returncode == 0, sortie.stderr[-3000:]
     tour = json.loads(b.hermes.executer(["cat", fichier], verifier=True).stdout)
     assert (tour.get("fin") or {}).get("params", {}).get("type") == "message.complete", tour
-    scene.session_discussion = tour["session_id"]
+    # Clé STOCKÉE de la session (celle de /api/sessions), pas l'identifiant de la connexion /api/ws.
+    assert tour.get("cle"), tour.get("session_id")
+    scene.session_discussion = tour["cle"]
     # Bilan quotidien de P7 : tâche cron native du propriétaire (script de root admis par son empreinte).
     code, tache = scene.requete("POST", "/api/cron/jobs", TACHE_BILAN)
     assert code == 200, tache
@@ -328,12 +410,18 @@ def test_r1_peuplement_a_t(scene):
     # Identité : base, secrets et clé RS256 générés au premier démarrage ; deux premiers facteurs.
     reussi, refuse = scene.premier_facteur(MOT_DE_PASSE), scene.premier_facteur("mauvais-mot-de-passe-de-test")
     assert reussi["statut"] == 200 and refuse["statut"] != 200, (reussi, refuse)
+    # Notification témoin EN ATTENTE à T : faux ntfy coupé du réseau, puis notification enfilée.
+    scene.couper_ntfy()
+    scene.enfiler_temoin()
     scene.reference = scene.releve_reference()
+    scene.statuts_t = scene.statuts_poste()
     afficher("R1 — référence à T (champs stables)", _json({
         **{k: v for k, v in scene.reference.items() if k != "refs"}, "refs": len(scene.reference["refs"]),
-        "statuts": scene.statuts_poste(), "en_main": scene.en_main(),
+        "statuts": scene.statuts_t, "en_main": scene.en_main(),
         "reclamation_C": scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"]),
+        "historique_C": scene.historique("C"), "notification_temoin": scene.notification_temoin(),
         "premiers_facteurs": {"reussi": reussi, "refuse": refuse}}))
+    assert scene.notification_temoin().get("etat") == "en_attente"
     assert set(scene.reference["projets"]) == {scene.projets[x]["id"] for x in "ABC"}
     assert [q[1] for q in scene.reference["questions_ouvertes"]] == [scene.cartes["B"]]
     assert scene.reference["reglages"]["seuil_quota_pct"] == SEUIL_A_T
@@ -363,6 +451,7 @@ def test_r1_instantane_a_chaud_t(scene):
 
 def test_r1_marqueurs_apres_t_puis_instantane_froid(scene):
     b = scene.banc
+    scene.rebrancher_ntfy()
     code, repondue = b.api("POST", f"/v1/questions/{scene.question_b['id']}/reponse", {"reponse": "Oui, garde-la."})
     assert code == 200 and repondue["carte_debloquee"] is True, repondue
     scene.projets["D"] = b.lancer_projet("Restauration — D", "simple")
@@ -374,12 +463,20 @@ def test_r1_marqueurs_apres_t_puis_instantane_froid(scene):
         b.attendre_statut(scene.projets[lettre]["tableau"], scene.cartes[lettre], "done", delai=300)
     scene.refs_t1 = scene.refs_executant()
     scene.sujets_c_t1 = scene.sujets("C")
+    # Témoin : délivré APRÈS T (reprise de l'émetteur à 30 s × 2ⁿ), avant T+1. Mesuré, non exigé ici.
+    try:
+        attendre(lambda: scene.temoins_recus() > 0, 300, "notification témoin jamais délivrée après T")
+    except AssertionError as exc:
+        afficher("R1 — témoin non délivré avant T+1", str(exc))
+    scene.temoin_avant_restauration = scene.temoins_recus()
+    temoin_t1 = scene.notification_temoin()
     arrets = b.arreter()
     releves = scene.releve_volumes()
     archives = scene.archiver("T1")
     scene.instants["T1"] = dict(releves, quand=time.time(), archives=archives)
     afficher("R1 — marqueurs après T et instantané froid T+1", _json({
         "arrets": arrets, "statuts": {k: "done" for k in "BCD"}, "sujets_C": scene.sujets_c_t1,
+        "temoin": {"recu_par_le_faux_ntfy": scene.temoin_avant_restauration, "etat_a_t1": temoin_t1},
         "refs": len(scene.refs_t1), "codes_de_sortie_info": "relevés, non affirmés",
         "volumes": {role: {"manifeste": resume_manifeste(r["manifeste"]), "archive": archives[role]}
                     for role, r in releves.items()}}))
@@ -420,6 +517,14 @@ def test_r1_restauration_couches_1_et_2(scene):
 
 def test_r1_redemarrage_et_couche_3(scene):
     b = scene.banc
+    # Cas réel d'une sauvegarde quotidienne : la restauration a lieu après l'échéance de la réclamation restaurée de C
+    # (écrite en base au plus T + 300 s). Le redémarrage attend donc cette échéance (le premier run, sans cette
+    # attente, a relevé l'autre chemin : réclamation encore valide, rendue par l'exécutant lui-même).
+    attente = scene.instants["T"]["quand"] + TTL_RESTAURATION_S + 20 - time.time()
+    afficher("R1 — attente de l'échéance de la réclamation restaurée de C", f"{max(attente, 0):.0f} s")
+    if attente > 0:
+        time.sleep(attente)
+    scene.redemarrage_r1 = time.time()
     b.relancer(scene.restaures["hermes"], scene.restaures["executant"], volume_identite=scene.restaures["identite"],
                image_identite=scene.image_identite, empreinte=scene.empreinte)
     journal_hermes = b.hermes.journaux()
@@ -449,15 +554,18 @@ def test_r1_redemarrage_et_couche_3(scene):
         "sessions_nouvelles": sorted(set(lu["sessions"]) - set(ref["sessions"])) if isinstance(lu["sessions"], dict)
         else lu["sessions"],
         "notifications": {"T": ref["notifications"], "restauré": lu["notifications"]},
-        "statuts": scene.statuts_poste(), "en_main": scene.en_main(),
-        "reclamation_C": scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"])}))
+        "statuts": {"T": scene.statuts_t, "restauré": scene.statuts_poste()}, "en_main": scene.en_main(),
+        "reclamation_C": scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"]),
+        "historique_C": scene.historique("C"), "envois_C_depuis_redemarrage": scene.envois("C", scene.redemarrage_r1),
+        "oom_C": scene.oom("C")}))
     assert ecarts == {}, ecarts
     assert sessions_perdues == [] and lu["sessions"][scene.session_discussion] == ref["sessions"][
         scene.session_discussion]
     assert scene.projets["D"]["id"] not in lu["projets"]
     assert lu["reglages"]["seuil_quota_pct"] == SEUIL_A_T
+    # A terminée et B arrêtée sur sa question (statut « scheduled » de Hermes) : comme à T. C : mesurée ci-dessus.
     statuts = scene.statuts_poste()
-    assert statuts["A"] == "done" and statuts["B"] == "blocked", statuts
+    assert {k: statuts[k] for k in "AB"} == {k: scene.statuts_t[k] for k in "AB"}, (scene.statuts_t, statuts)
 
 
 def test_r1_le_travail_reprend(scene):
@@ -479,11 +587,21 @@ def test_r1_le_travail_reprend(scene):
     b.attendre_statut(scene.projets["E"]["tableau"], scene.cartes["E"], "done", delai=300)
     sujets_c = scene.sujets("C")
     explorations = [s for s in sujets_c if s.startswith(f"exploration({scene.cartes['C']}):")]
+    # Témoin : l'émetteur restauré le renvoie-t-il ? (il était en attente à T ; le faux ntfy, non restauré, l'a
+    # déjà reçu après T). Délai : la reprise de l'émetteur restauré est échue depuis longtemps ; 60 s suffisent.
+    try:
+        attendre(lambda: scene.temoins_recus() > scene.temoin_avant_restauration, 60, "témoin non renvoyé")
+    except AssertionError:
+        pass
     mecanismes.update({"apres": scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"]),
+                       "historique_C": scene.historique("C"),
+                       "envois_C_depuis_redemarrage": scene.envois("C", scene.redemarrage_r1),
                        "sujets_C": sujets_c, "notifications_recues_apres_redemarrage":
                        len(b.notifications()) - recues_avant,
-                       "appels_faux_claude_C": [(f.get("phase"), f.get("argv", [])[-1:]) for f in b.faux()
-                                                if f.get("scenario") == "attente"]})
+                       "temoin": {"recu_avant_restauration": scene.temoin_avant_restauration,
+                                  "recu_au_total": scene.temoins_recus(),
+                                  "etat_apres_redemarrage": scene.notification_temoin()},
+                       "appels_agent_depuis_redemarrage": scene.appels_agent()})
     afficher("R1 — le travail reprend : mécanismes relevés", _json(mecanismes))
     assert len(explorations) == 1, sujets_c
     afficher("R1 — aucun jeton, aucun push", _json(scene.aucun_jeton_ni_push("R1")))
@@ -496,9 +614,25 @@ def _r2(scene, instants: Dict[str, str], titre: str) -> Dict[str, Any]:
     b = scene.banc
     b.arreter()
     volumes = scene.restaurer(instants)
+    debut = time.time()
     b.relancer(volumes["hermes"], volumes["executant"])
     b.executant_sh(f"touch {LIBERER}")  # le drapeau vit hors du volume : toute attente se libère tout de suite
-    return {"titre": titre, "volumes": volumes}
+    return {"titre": titre, "volumes": volumes, "debut": debut}
+
+
+def _journal_executant(scene, contenant: str, lignes: int = 300) -> List[List[Any]]:
+    """Événements du journal local de l'exécutant qui citent ``contenant`` (une carte) : instant, événement, message
+    (aucun jeton : le même journal est contrôlé par aucun_jeton_ni_push)."""
+    retenus: List[List[Any]] = []
+    for ligne in scene.banc.acp_poste("journal", "--lignes", str(lignes)).stdout.splitlines():
+        if contenant not in ligne:
+            continue
+        try:
+            e = json.loads(ligne)
+            retenus.append([e.get("quand"), e.get("evenement"), str(e.get("message"))[:200]])
+        except ValueError:
+            retenus.append([ligne[:200]])
+    return retenus[-15:]
 
 
 def _cartes_finies(scene, lettres, delai: float = 420) -> Dict[str, str]:
@@ -513,26 +647,29 @@ def _cartes_finies(scene, lettres, delai: float = 420) -> Dict[str, str]:
 def test_r2a_executant_plus_ancien_que_hermes(scene):
     """Hermes ← T+1 (C terminée), exécutant ← T (il croit tenir C à l'étape agent)."""
     b = scene.banc
-    _r2(scene, {"hermes": "T1", "executant": "T"}, "R2a")
+    r2 = _r2(scene, {"hermes": "T1", "executant": "T"}, "R2a")
 
-    def rangee():
-        lignes = b.executant_sh("for f in /donnees/acp/sortie/refusees/*.json; do [ -f \"$f\" ] && cat \"$f\" && "
-                                "echo; done 2>/dev/null || true")
-        refusees = [json.loads(l) for l in lignes.splitlines() if l.strip()]
-        return [r for r in refusees if (r.get("corps") or {}).get("carte") == scene.cartes["C"]] or None
+    # Au démarrage, l'exécutant restauré croit tenir C (étape agent) : il envoie reprendre(redemarrage). On attend que
+    # Hermes l'ait reçu (table envois) et que l'exécutant ait lâché C ; l'issue est RELEVÉE (le premier run a mesuré
+    # « deja_libre », réponse 2xx, et non un 409 reclamation_perdue rangé dans sortie/refusees).
+    def lachee():
+        return scene.en_main().get("carte") != scene.cartes["C"] and scene.envois("C", r2["debut"])
 
     try:
-        refus_c = attendre(rangee, 180, "aucune issue de C rangée dans sortie/refusees")
-    except AssertionError:
-        refus_c = []
+        attendre(lachee, 120, "l'exécutant restauré tient encore C, ou Hermes n'a reçu aucune issue de C")
+    except AssertionError as exc:
+        afficher("R2a — C non lâchée en 120 s", str(exc))
+    refusees = b.executant_sh("ls /donnees/acp/sortie/refusees 2>/dev/null || true").split()
     scene.projets["E2a"] = b.lancer_projet("Restauration — E (R2a)", "simple")
     scene.cartes["E2a"] = b.carte_exploration(scene.projets["E2a"]["tableau"])["id"]
     b.attendre_statut(scene.projets["E2a"]["tableau"], scene.cartes["E2a"], "done", delai=300)
-    mesure = {"refusees_de_C": [(r.get("route"), (r.get("corps") or {}).get("motif")) for r in refus_c],
+    mesure = {"envois_C_depuis_redemarrage": scene.envois("C", r2["debut"]), "sortie_refusees": refusees,
               "oom_C": scene.oom("C"), "en_main": scene.en_main(),
               "statut_C_chez_hermes": scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"]),
+              "historique_C": scene.historique("C"), "appels_agent_depuis_redemarrage": scene.appels_agent(),
               "branche_C_gardee": f"refs/heads/hermes/{scene.cartes['C']}" in scene.refs_executant(),
-              "worktrees": b.executant_sh("ls /donnees/espaces/jetable 2>/dev/null || true").split()}
+              "worktrees": b.executant_sh("ls /donnees/espaces/jetable 2>/dev/null || true").split(),
+              "journal_executant_C": _journal_executant(scene, scene.cartes["C"])}
     afficher("R2a — exécutant plus ancien que Hermes : mesure", _json(mesure))
     assert mesure["statut_C_chez_hermes"]["statut"] == "done"
     assert mesure["branche_C_gardee"], "branche de C perdue"
@@ -544,7 +681,7 @@ def test_r2a_executant_plus_ancien_que_hermes(scene):
 def test_r2b_executant_plus_recent_que_hermes(scene):
     """Hermes ← T (C en main, B en question), exécutant ← T+1 (rien en main, C et B terminées de son côté)."""
     b = scene.banc
-    _r2(scene, {"hermes": "T", "executant": "T1"}, "R2b")
+    r2 = _r2(scene, {"hermes": "T", "executant": "T1"}, "R2b")
     reclamation_au_redemarrage = scene.tache_kanban(scene.projets["C"]["tableau"], scene.cartes["C"])
     code, repondue = b.api("POST", f"/v1/questions/{scene.question_b['id']}/reponse", {"reponse": "Oui, garde-la."})
     assert code == 200, repondue
@@ -554,12 +691,18 @@ def test_r2b_executant_plus_recent_que_hermes(scene):
     b.attendre_statut(scene.projets["E2b"]["tableau"], scene.cartes["E2b"], "done", delai=300)
     refs = scene.refs_executant()
     sujets_c, sujets_b = scene.sujets("C"), scene.sujets("B")
+    appels = scene.appels_agent()
     mesure = {"reclamation_C_au_redemarrage": reclamation_au_redemarrage, "fins": fins,
               "apres": {x: scene.tache_kanban(scene.projets[x]["tableau"], scene.cartes[x]) for x in ("B", "C")},
+              "historique": {x: scene.historique(x) for x in ("B", "C")},
+              "envois_depuis_redemarrage": {x: scene.envois(x, r2["debut"]) for x in ("B", "C")},
               "sujets_C": sujets_c, "sujets_B": sujets_b,
               "commits_exploration_C": len([s for s in sujets_c if s.startswith(f"exploration({scene.cartes['C']}):")]),
               "commits_exploration_B": len([s for s in sujets_b if s.startswith(f"exploration({scene.cartes['B']}):")]),
-              "appels_faux_claude": [(f.get("scenario"), f.get("phase")) for f in b.faux() if f.get("scenario")]}
+              # Chaque projet a son scénario : « attente » = C, « question » = B (agent relancé = travail refait).
+              "agent_relance_sur_C": appels.get("attente", []), "agent_relance_sur_B": appels.get("question", []),
+              "appels_agent_depuis_redemarrage": appels,
+              "journal_executant_C": _journal_executant(scene, scene.cartes["C"])}
     afficher("R2b — exécutant plus récent que Hermes : MESURE (comportement non connu avant ce test)", _json(mesure))
     # Invariants seulement : historique des branches sans perte (tout commit de T+1 encore atteignable).
     for lettre, sujets_t1 in (("C", scene.sujets_c_t1),):
