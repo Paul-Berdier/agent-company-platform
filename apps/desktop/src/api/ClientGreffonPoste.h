@@ -10,8 +10,11 @@
 // sans en-tête `Origin` (ApiClient). Seul le lancement d'un projet accepte une clé
 // d'idempotence : il est alors le seul appel d'écriture rejouable.
 //
-// Les routes des étapes suivantes (revues de P6, flux et agrégats de P7) ne sont pas
-// déclarées ici tant que leur contrat n'est pas fusionné dans `refonte/hermes`.
+// Routes de P6 et P7 (fusionnées dans `refonte/hermes`) : revues des fichiers de pilotage
+// (accepter, refuser avec un motif), relance d'une carte arrêtée, « qui répond », clôture d'un
+// projet, accueil agrégé `GET /v1/accueil` et flux d'invalidation `GET /v1/flux` (ouvert en
+// lecture au fil de l'eau, voir ouvrirFlux). Corps et bornes d'après le greffon
+// (dashboard/plugin_api.py, noyau/questions.py, projets.py, execution.py).
 //
 // Échec fermé (cahier P8 § 4.2) : tant que le verdict de compatibilité dit le greffon
 // incompatible (contrat d'une autre majeure) ou absent (`/v1/meta` en 404), CompatibiliteHermes
@@ -26,10 +29,13 @@
 #include <QJsonObject>
 #include <QString>
 
+class QNetworkReply;
+
 namespace acp {
 
 class ApiCall;
 class ApiClient;
+class ApiError;
 
 class ClientGreffonPoste
 {
@@ -64,6 +70,15 @@ public:
     ApiCall *poste();
     ApiCall *routage();
     ApiCall *quotas();
+    /*! Accueil agrégé (étape P7) : à traiter, projets, exécutant, quotas, canal, pause. */
+    ApiCall *accueil();
+
+    /*!
+        Ouvre le flux d'invalidation `GET /v1/flux` (étape P7) en lecture au fil de l'eau, avec
+        `Last-Event-ID` s'il est connu. Rend nullptr et remplit `refus` si le greffon est bloqué,
+        si l'adresse ou la session manque : rien n'est alors émis.
+    */
+    [[nodiscard]] QNetworkReply *ouvrirFlux(const QString &dernierId, ApiError *refus);
 
     // --- Projets ---------------------------------------------------------------
     /*!
@@ -74,12 +89,29 @@ public:
     ApiCall *lancerProjet(const QJsonObject &formulaire, const QString &cleIdempotence);
     ApiCall *mettreProjetEnPause(const QString &identifiant);
     ApiCall *reprendreProjet(const QString &identifiant);
+    /*!
+        « Qui répond » (étape P7) : `hermes_d_abord` ou `proprietaire`, pour les questions
+        SUIVANTES ; toute autre valeur est refusée par la station sans envoi.
+    */
+    ApiCall *changerReponses(const QString &identifiant, const QString &reponses);
+    /*! « Clore le projet » (étape P7) : `{"confirmation": true}`, après la confirmation de la page. */
+    ApiCall *clore(const QString &identifiant);
 
     // --- Questions et triage -----------------------------------------------------
     ApiCall *repondre(const QString &question, const QString &reponse);
     /*! « Prolonger », « Relancer » ou « Reprendre » : consigne facultative (vide = absente). */
     ApiCall *reprendreTriage(const QString &tableau, const QString &carte, const QString &consigne);
     ApiCall *conclureTriage(const QString &tableau, const QString &carte);
+    /*!
+        « Relancer » une carte bloquée ou abandonnée (étape P7) : consigne facultative (vide =
+        absente ; une carte d'intégration n'en reçoit jamais).
+    */
+    ApiCall *relancerCarte(const QString &tableau, const QString &carte, const QString &consigne);
+
+    // --- Revues des fichiers de pilotage (étape P6) -------------------------------------
+    ApiCall *accepterRevue(const QString &tableau, const QString &carte);
+    /*! Motif exigé (1 à 1 000 caractères, contrôlé par le greffon). */
+    ApiCall *refuserRevue(const QString &tableau, const QString &carte, const QString &motif);
 
     // --- Pause générale ---------------------------------------------------------
     /*! `generale` vrai engage l'arrêt d'urgence ; raison de 200 caractères au plus. */
@@ -102,6 +134,8 @@ private:
     ApiCall *lire(const QString &relatif);
     ApiCall *ecrire(const QString &relatif, const QJsonObject &corps, const QString &cle = {});
     ApiCall *refuserIdentifiant(const QString &nature);
+    //! Refus local si le tableau ou la carte ne peut figurer dans un chemin, sinon nul.
+    ApiCall *controlerCarte(const QString &tableau, const QString &carte);
 
     ApiClient *m_client = nullptr;
     QString m_blocage;
