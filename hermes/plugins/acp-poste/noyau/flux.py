@@ -154,9 +154,12 @@ _JOURNAL_POLITIQUE = ("SELECT MAX(id) FROM journal WHERE projet_id IS NULL AND a
 
 
 def _projets(conn, tableaux) -> Any:
+    # COUNT(carte) : le rattachement d'une demande à sa carte (cartes.creer, APRÈS la création kanban) change
+    # l'empreinte ; sans lui, une page qui a lu la carte entre les deux ne relisait qu'à la relecture de sûreté
+    # (relecture finale de P7, constat tests-1).
     return (_lignes(conn, "SELECT etat, COUNT(*), MAX(maj_le) FROM projets GROUP BY etat ORDER BY etat"),
-            _ligne(conn, "SELECT COUNT(*), MAX(cree_le), MAX(observe_le), COUNT(observe_le), MAX(reclamee_le), "
-                         "MAX(relancee_le), COUNT(relancee_le) FROM demandes"),
+            _ligne(conn, "SELECT COUNT(*), COUNT(carte), MAX(cree_le), MAX(observe_le), COUNT(observe_le), "
+                         "MAX(reclamee_le), MAX(relancee_le), COUNT(relancee_le) FROM demandes"),
             _ligne(conn, "SELECT MAX(id) FROM journal WHERE projet_id IS NOT NULL"),
             _ligne(conn, "SELECT COUNT(*), MAX(cree_le) FROM tours"),
             tableaux)

@@ -247,6 +247,23 @@ def _statut_de_carte(tableau: str, carte: Optional[str]) -> Optional[str]:
     return tache.status if tache is not None else None
 
 
+def demande_de(conn, tableau: str, tache: Any) -> Optional[Dict[str, Any]]:
+    """Demande d'une carte du greffon : par son rattachement (``demandes.carte``), sinon par sa CLÉ. ``cartes.creer``
+    valide la carte kanban PUIS rattache la demande, dans une autre base (cartes.py : « reconnue à sa clé même avant
+    le rattachement ») ; entre les deux, une lecture par le seul rattachement voyait une carte de décision sans son
+    genre, offerte à « Reprendre » (relecture finale de P7, constat tests-1)."""
+    identifiant = getattr(tache, "id", None)
+    if identifiant:
+        demande = projets.demande_de_la_carte(conn, tableau, identifiant)
+        if demande is not None:
+            return demande
+    cle = getattr(tache, "idempotency_key", None)
+    if not cle or not str(cle).startswith(ka.PREFIXE_CLE) or getattr(tache, "created_by", None) != ka.CREATEUR:
+        return None
+    return base.ligne_en_dict(conn.execute(
+        "SELECT * FROM demandes WHERE cle = ? AND tableau = ? AND carte IS NULL", (cle, tableau)).fetchone())
+
+
 def _emise_par_acp(demande: Optional[Dict[str, Any]], tache: Any) -> bool:
     """Carte émise par le greffon : sa demande existe, et la carte kanban porte la clé et le créateur du greffon."""
     return (demande is not None and tache is not None and getattr(tache, "idempotency_key", None) == demande["cle"]
@@ -343,7 +360,7 @@ def lister(conn) -> Dict[str, Any]:
                 for statut, cible in (("triage", triage), ("blocked", bloquees)):
                     for tache in ka.list_tasks(kc, status=statut):
                         evenements = ka.list_events(kc, tache.id)
-                        demande = projets.demande_de_la_carte(conn, p["tableau"], tache.id)
+                        demande = demande_de(conn, p["tableau"], tache)
                         entree = {"projet": p["id"], "projet_titre": p["titre"], "tableau": p["tableau"],
                                   "carte": tache.id, "titre": ka.masquer(tache.title)[:200],
                                   "assigne": tache.assignee,
@@ -450,10 +467,11 @@ def relancer_carte(conn, *, tableau: str, carte: str, consigne: Any, auteur: str
     from . import execution  # import différé : execution importe ce module
 
     with execution.verrou():  # aucune carte servie à l'exécutant entre la relecture de la demande et le déblocage
-        demande = projets.demande_de_la_carte(conn, tableau, carte)
         with ka.connexion(tableau) as kc:
             tache = ka.get_task(kc, carte)
             evenements = ka.list_events(kc, carte) if tache is not None else []
+        demande = (demande_de(conn, tableau, tache) if tache is not None
+                   else projets.demande_de_la_carte(conn, tableau, carte))
         if tache is None and demande is None:
             raise refus("carte_inconnue", T.CARTE_DU_PROJET_INCONNUE.format(carte=carte[:40], titre=fiche["titre"]))
         refus_ = refus_de_relance(fiche, demande, tache, evenements,
@@ -513,7 +531,7 @@ def _carte_en_triage(conn, tableau: str, carte: str) -> Dict[str, Any]:
         raise refus("triage_inconnu", T.TRIAGE_INCONNU.format(carte=carte, t=tableau))
     if fiche["etat"] == "en_pause":
         raise refus("projet_en_pause", T.TRIAGE_PROJET_EN_PAUSE.format(titre=fiche["titre"]))
-    return {"fiche": fiche, "tache": tache, "demande": projets.demande_de_la_carte(conn, tableau, carte)}
+    return {"fiche": fiche, "tache": tache, "demande": demande_de(conn, tableau, tache)}
 
 
 def reprendre_triage(conn, *, tableau: str, carte: str, consigne: Optional[str], auteur: str) -> Dict[str, Any]:
