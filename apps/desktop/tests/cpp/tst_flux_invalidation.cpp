@@ -113,6 +113,8 @@ private slots:
     void refusDuServeur();
     void pageRelitSurSignalDeSesSujets();
     void serviceSuitLaSessionEtLaFenetre();
+    void greffonBloqueFermeUnFluxOuvert();
+    void sessionNeuveOublieLeRepli();
 };
 
 void TestFluxInvalidation::tramesPartageesLuesCommeLeGreffon()
@@ -408,6 +410,88 @@ void TestFluxInvalidation::serviceSuitLaSessionEtLaFenetre()
     QTRY_COMPARE(banc.serveur.clientsFlux(), 0);
     QCOMPARE(service.libelleTempsReel(), QString());
     QVERIFY(service.etatFlux().startsWith(QStringLiteral("Fermé")));
+}
+
+// Relecture de P8b (constat desktop-1) : un flux DÉJÀ OUVERT restait ouvert, « Temps réel », quand un verdict de
+// /v1/meta bloquait ensuite le greffon (contrat d'une autre majeure) sans changer l'annonce du flux. Échec fermé :
+// le verdict qui bloque le greffon ferme aussi son flux, et aucune reprise ne le rouvre tant qu'il dure.
+void TestFluxInvalidation::greffonBloqueFermeUnFluxOuvert()
+{
+    Banc banc;
+    banc.ouvrir();
+    banc.serveur.envoyerFlux(trame("ouverture"));
+    QTRY_COMPARE(banc.flux.mode(), FluxInvalidation::Mode::TempsReel);
+    const QString blocage = QStringLiteral("Contrat du greffon incompatible : acp-poste/2, attendu acp-poste/1. Pages du "
+                                           "greffon bloquées par la station.");
+    banc.greffon.bloquer(blocage);
+    banc.flux.setAnnonce(QStringLiteral("annonce"), annonce()); // verdict republié : annonce inchangée
+    QVERIFY(!banc.flux.connecte());
+    QCOMPARE(banc.flux.mode(), FluxInvalidation::Mode::Indisponible);
+    QVERIFY(!banc.flux.tempsReel());
+    QCOMPARE(banc.flux.raison(), blocage);
+    QVERIFY2(banc.flux.libelleEtat().startsWith(QStringLiteral("Non utilisé : Contrat du greffon incompatible")),
+             qPrintable(banc.flux.libelleEtat()));
+    QTRY_COMPARE(banc.serveur.clientsFlux(), 0);
+    const int ouvertures = banc.ouvertures();
+    banc.flux.relancer(); // retour du lien : rien ne part vers un greffon bloqué
+    QTest::qWait(300);    // une reprise (40 ms ici) l'aurait rouvert
+    QCOMPARE(banc.ouvertures(), ouvertures);
+    QCOMPARE(banc.flux.mode(), FluxInvalidation::Mode::Indisponible);
+
+    // Verdict suivant, compatible : rouvert, avec la révision déjà lue (même serveur).
+    banc.greffon.debloquer();
+    banc.flux.setAnnonce(QStringLiteral("annonce"), annonce());
+    QTRY_COMPARE(banc.serveur.clientsFlux(), 1);
+    QCOMPARE(banc.serveur.ouverturesFlux.constLast().entete("last-event-id"), QByteArrayLiteral("1727791200.41"));
+}
+
+// Relecture de P8b (constat desktop-2) : le repli en sondage (401, ou trois échecs) survivait à la perte de session ; une
+// session neuve et valide restait jusqu'à 5 min sans temps réel, et l'état disait « Temps réel indisponible () ».
+void TestFluxInvalidation::sessionNeuveOublieLeRepli()
+{
+    Banc banc;
+    banc.serveur.route("GET", kAccueil, [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object());
+    });
+    banc.serveur.jetonsAccesValides.clear(); // jeton refusé : 401
+    EventStreamService service(&banc.client, &banc.greffon, nullptr);
+    service.invalidation()->setReglages(reglagesRapides()); // nouvel essai du repli : dans 1 h
+    service.setAnnonceFlux(QStringLiteral("annonce"), annonce());
+    service.demarrer();
+    QTRY_COMPARE(service.invalidation()->mode(), FluxInvalidation::Mode::Sondage);
+    QCOMPARE(service.invalidation()->raison(), QStringLiteral("session refusée par le flux (401)"));
+    const int ouvertures = banc.ouvertures();
+    QCOMPARE(ouvertures, 1);
+
+    // Session perdue, dans l'ordre d'Application : verdict oublié (annonce « inconnu »), puis temps réel arrêté.
+    service.setAnnonceFlux(QStringLiteral("inconnu"), {});
+    service.arreter();
+    // Session neuve, jeton accepté : le flux s'ouvre AUSSITÔT, sans attendre l'échéance de l'ancien repli.
+    banc.serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    service.demarrer();
+    service.setAnnonceFlux(QStringLiteral("annonce"), annonce());
+    QTRY_COMPARE(banc.ouvertures(), ouvertures + 1);
+    QTRY_COMPARE(banc.serveur.clientsFlux(), 1);
+    QCOMPARE(service.invalidation()->mode(), FluxInvalidation::Mode::Connexion);
+    QVERIFY2(!service.etatFlux().contains(QStringLiteral("()")), qPrintable(service.etatFlux()));
+    banc.serveur.envoyerFlux(trame("ouverture"));
+    QTRY_VERIFY(service.tempsReel());
+
+    // Même session, repli en cours, annonce retirée puis rendue : le repli reste (son heure), sa raison est dite.
+    Banc autre;
+    autre.serveur.jetonsAccesValides.clear();
+    autre.flux.setAnnonce(QStringLiteral("annonce"), annonce());
+    autre.flux.setActif(true);
+    QTRY_COMPARE(autre.flux.mode(), FluxInvalidation::Mode::Sondage);
+    autre.flux.setAnnonce(QStringLiteral("absent"), {});
+    autre.flux.setAnnonce(QStringLiteral("annonce"), annonce());
+    QCOMPARE(autre.flux.mode(), FluxInvalidation::Mode::Sondage);
+    QVERIFY2(autre.flux.libelleEtat().startsWith(
+                 QStringLiteral("Temps réel indisponible (session refusée par le flux (401)) : les pages sont relues par "
+                                "sondage ; nouvel essai à ")),
+             qPrintable(autre.flux.libelleEtat()));
+    QTest::qWait(100);
+    QCOMPARE(autre.ouvertures(), 1);
 }
 
 QTEST_GUILESS_MAIN(TestFluxInvalidation)

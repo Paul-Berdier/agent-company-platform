@@ -94,6 +94,7 @@ private slots:
     void fluxDuGreffonDitCeQueLeServeurAnnonce();
     void lectureContreLeFauxHermes();
     void greffonAbsentSur404();
+    void injoignableGardeLeDernierVerdictLu();
 };
 
 void TestCompatibiliteHermes::referenceConforme()
@@ -367,6 +368,70 @@ void TestCompatibiliteHermes::greffonAbsentSur404()
     QVERIFY(!compatibilite.greffonDisponible());
     QVERIFY(compatibilite.discussionDisponible());
     QVERIFY(compatibilite.explication().contains(QStringLiteral("Greffon acp-poste absent")));
+}
+
+// Relecture de P8b (constat desktop-3) : une revérification en échec réseau publiait une évaluation VIDE (flux
+// « inconnu », versions « Inconnu ») ; le flux d'invalidation se fermait et la station disait « /v1/meta n'a pas encore
+// été lu » alors qu'il l'avait été. Injoignable : le dernier verdict LU reste, avec ce qu'il a lu, daté de sa lecture.
+void TestCompatibiliteHermes::injoignableGardeLeDernierVerdictLu()
+{
+    FauxHermes serveur;
+    serveur.installerAuthentification();
+    serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    QJsonObject meta = metaDeReference();
+    meta.insert(QStringLiteral("flux"), QJsonObject{
+        {QStringLiteral("chemin"), QStringLiteral("/api/plugins/acp-poste/v1/flux")}, {QStringLiteral("version"), 1},
+        {QStringLiteral("sujets"), QJsonArray::fromStringList(FluxInvalidation::sujets())},
+        {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
+    bool panne = false;
+    serveur.route("GET", kP + QStringLiteral("/meta"), [&meta, &panne](const RequeteRecue &) {
+        if (!panne) {
+            return ReponseFaux::json(200, meta);
+        }
+        ReponseFaux indisponible = ReponseFaux::json(503, QJsonObject{{QStringLiteral("detail"), QStringLiteral("indisponible")}});
+        indisponible.entetes.append({QByteArrayLiteral("Retry-After"), QByteArrayLiteral("0")});
+        return indisponible;
+    });
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(serveur.url()).isError());
+    client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
+    ClientGreffonPoste greffon(&client);
+    CompatibiliteHermes compatibilite(&greffon);
+
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    const QString lu = compatibilite.lecture();
+    QVERIFY(lu.startsWith(QStringLiteral("Lu à")));
+
+    panne = true;
+    compatibilite.verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(compatibilite.etat(), CompatibilityStatus::Injoignable, 10000);
+    QCOMPARE(compatibilite.libelle(), QStringLiteral("Non vérifiable"));
+    QVERIFY(compatibilite.explication().startsWith(QStringLiteral("Compatibilité non vérifiée : ")));
+    QVERIFY(!compatibilite.erreurLecture().isEmpty());
+    // Ce que la dernière lecture a dit reste : annonce du flux, versions, disponibilité, date de lecture.
+    QCOMPARE(compatibilite.etatFlux(), QStringLiteral("annonce"));
+    QCOMPARE(compatibilite.annonceFlux().value(QStringLiteral("chemin")).toString(),
+             QStringLiteral("/api/plugins/acp-poste/v1/flux"));
+    QCOMPARE(compatibilite.versionHermes(), QString::fromLatin1(ACP_HERMES_VERSION));
+    QCOMPARE(compatibilite.contratRecu(), QString::fromLatin1(ACP_CONTRAT_ACP_POSTE));
+    QVERIFY(compatibilite.greffonDisponible());
+    QVERIFY(compatibilite.discussionDisponible());
+    QCOMPARE(compatibilite.lecture(), lu);
+    QVERIFY(!greffon.bloque());
+
+    // Un verdict qui bloque reste appliqué de même : greffon toujours bloqué, toujours dit indisponible.
+    panne = false;
+    meta.insert(QStringLiteral("contrat"), QStringLiteral("acp-poste/2"));
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Incompatible);
+    panne = true;
+    compatibilite.verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(compatibilite.etat(), CompatibilityStatus::Injoignable, 10000);
+    QVERIFY(greffon.bloque());
+    QVERIFY(!compatibilite.greffonDisponible());
+    QCOMPARE(compatibilite.contratRecu(), QStringLiteral("acp-poste/2"));
 }
 
 QTEST_GUILESS_MAIN(TestCompatibiliteHermes)

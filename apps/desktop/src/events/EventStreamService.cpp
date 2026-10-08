@@ -85,6 +85,7 @@ void EventStreamService::arreter()
     m_sessionOuverte = false;
     m_fond->setActif(false);
     m_invalidation->setActif(false);
+    m_invalidation->oublierRepli(); // le repli (401, échecs) était celui de la session perdue
     m_veille->arreter();
     m_discussions->oublier();
     oublierResume();

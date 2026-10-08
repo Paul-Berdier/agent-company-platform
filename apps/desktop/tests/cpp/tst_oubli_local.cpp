@@ -1,6 +1,8 @@
 // Oubli local des pages (docs/desktop-security.md, « oubli local complet ») : à la session
 // perdue, au changement de serveur et au blocage du greffon, aucune donnée lue ne reste en
 // mémoire ni affichée : modèles vidés, « Jamais lu », brouillons effacés, résumé « Inconnu ».
+// Le flux d'invalidation suit le verdict APPLIQUÉ : fermé au blocage du greffon, gardé quand
+// /v1/meta est seulement injoignable.
 //
 // Composition du produit (Application), contre deux faux Hermes : A sert le greffon, B ne le
 // sert pas (404). Porteur fixe, aucune connexion ouverte : aucune entrée de coffre n'est écrite.
@@ -9,6 +11,7 @@
 #include "app/Application.h"
 #include "auth/SessionHermes.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "gateway/DiscussionsEnAttente.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
@@ -87,6 +90,7 @@ private slots:
     void sessionPerdueOublieToutesLesPages();
     void changementDeServeurNAfficheRienDeLAncien();
     void greffonBloqueOublieSesPages();
+    void fluxSuitLeVerdictApplique();
     void cleanupTestCase();
 
 private:
@@ -316,6 +320,63 @@ void TestOubliLocal::greffonBloqueOublieSesPages()
     QVERIFY2(m_a->compter("GET", kP + QStringLiteral("/meta")) - lecturesMeta <= 1,
              qPrintable(QString::number(m_a->compter("GET", kP + QStringLiteral("/meta")) - lecturesMeta)));
     m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
+}
+
+// Relecture de P8b (constats desktop-3 et desktop-1), composition réelle : une revérification de /v1/meta en échec
+// réseau laisse le dernier verdict lu, donc le flux d'invalidation ouvert ; un verdict qui BLOQUE le greffon (contrat
+// d'une autre majeure, annonce du flux inchangée) ferme le flux, et la barre d'état ne dit plus « Temps réel ».
+void TestOubliLocal::fluxSuitLeVerdictApplique()
+{
+    const QString kFlux = kP + QStringLiteral("/flux");
+    const QJsonObject trames = fixturePartagee(QStringLiteral("fixtures_flux/trames.json")).object()
+                                   .value(QStringLiteral("trames")).toObject();
+    m_a->activerFlux();
+    m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
+    m_metaA.insert(QStringLiteral("flux"), QJsonObject{
+        {QStringLiteral("chemin"), kFlux}, {QStringLiteral("version"), 1},
+        {QStringLiteral("sujets"), QJsonArray::fromStringList(FluxInvalidation::sujets())},
+        {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
+    QVERIFY(!m_client->setBaseUrl(m_a->url()).isError());
+    m_flux->demarrer();
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::Compatible, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(m_a->clientsFlux(), 1, 5000);
+    m_a->envoyerFlux(trames.value(QStringLiteral("ouverture")).toString().toUtf8());
+    QTRY_VERIFY_WITH_TIMEOUT(m_flux->tempsReel(), 5000);
+    QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Temps réel"));
+
+    // 1. /v1/meta injoignable à la revérification : verdict et annonce restent, le flux aussi (aucune réouverture).
+    m_a->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        ReponseFaux indisponible = ReponseFaux::json(503, QJsonObject{{QStringLiteral("detail"), QStringLiteral("indisponible")}});
+        indisponible.entetes.append({QByteArrayLiteral("Retry-After"), QByteArrayLiteral("0")});
+        return indisponible;
+    });
+    const int ouvertures = m_a->compter("GET", kFlux);
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::Injoignable, 10000);
+    QTest::qWait(200);
+    QCOMPARE(m_compatibilite->etatFlux(), QStringLiteral("annonce"));
+    QVERIFY2(m_flux->tempsReel(), qPrintable(m_flux->etatFlux()));
+    QCOMPARE(m_a->clientsFlux(), 1);
+    QCOMPARE(m_a->compter("GET", kFlux), ouvertures);
+
+    // 2. Verdict suivant : contrat d'une autre majeure, même annonce du flux. Le flux se ferme et ne se rouvre pas.
+    QJsonObject *meta = &m_metaA;
+    m_a->route("GET", kP + QStringLiteral("/meta"), [meta](const RequeteRecue &) { return ReponseFaux::json(200, *meta); });
+    m_metaA.insert(QStringLiteral("contrat"), QStringLiteral("acp-poste/2"));
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::Incompatible, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(m_a->clientsFlux(), 0, 5000);
+    QVERIFY(!m_flux->tempsReel());
+    QVERIFY(m_flux->libelleTempsReel() != QStringLiteral("Temps réel"));
+    QVERIFY2(m_flux->etatFlux().contains(QStringLiteral("Contrat du greffon incompatible")), qPrintable(m_flux->etatFlux()));
+    const int apresBlocage = m_a->compter("GET", kFlux);
+    QTest::qWait(1500); // la première reprise (1 s) l'aurait rouvert
+    QCOMPARE(m_a->compter("GET", kFlux), apresBlocage);
+    QCOMPARE(m_a->clientsFlux(), 0);
+
+    m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
+    m_metaA.remove(QStringLiteral("flux"));
 }
 
 QTEST_MAIN(TestOubliLocal)

@@ -28,7 +28,10 @@
 //    nouvel essai toutes les 5 min ; 429 : jamais avant `Retry-After` ;
 //  - 401 : jamais réessayé aussitôt ; mode « sondage » et nouvel essai dans 5 min (décision
 //    P8b-1 : la station n'a pas de page à recharger ; les lectures REST de la session font
-//    tourner le jeton entre-temps, ou la perdent et ferment tout).
+//    tourner le jeton entre-temps, ou la perdent et ferment tout) ;
+//  - la perte de session ferme le flux et oublie le repli (oublierRepli) : une session neuve
+//    retente aussitôt ; un greffon BLOQUÉ par le verdict de /v1/meta ferme le flux, même
+//    déjà ouvert et même si l'annonce n'a pas changé (échec fermé, ClientGreffonPoste.h).
 // Tant que le flux n'est pas en temps réel, les pages gardent leur sondage habituel : aucune
 // fraîcheur n'est jamais supposée.
 
@@ -103,13 +106,21 @@ public:
     void setReglages(const Reglages &reglages) { m_reglages = reglages; }
     [[nodiscard]] const Reglages &reglages() const { return m_reglages; }
 
-    /*! Annonce de /v1/meta, relue à chaque verdict de compatibilité. */
+    /*!
+        Annonce de /v1/meta, relue à chaque verdict de compatibilité. Greffon bloqué par ce
+        verdict : flux fermé, et dit, quelle que soit l'annonce.
+    */
     void setAnnonce(const QString &etat, const QJsonValue &annonce);
     /*! Une page peut lire (session établie ET fenêtre non réduite). */
     void setActif(bool actif);
     [[nodiscard]] bool actif() const { return m_actif; }
     /*! Retour du lien : une reprise en attente part aussitôt (le repli de 5 min reste). */
     void relancer();
+    /*!
+        Session perdue (flux déjà fermé) : échecs, repli et sa raison oubliés ; la session
+        suivante retente aussitôt. L'annonce et la révision, celles du serveur, restent.
+    */
+    void oublierRepli();
     /*!
         Serveur changé : identifiant de reprise, échecs, repli et annonce oubliés ; rien ne
         s'ouvre avant le verdict de /v1/meta du nouveau serveur.
@@ -178,6 +189,8 @@ private:
     QString m_raison;
     QList<QDateTime> m_echecs;
     QDateTime m_repliJusqua;
+    //! Raison du repli en cours (401, dernier des trois échecs), redite tant qu'il dure.
+    QString m_raisonRepli;
     QDateTime m_prochainEssai;
     int m_trames = 0;
     int m_connexions = 0;

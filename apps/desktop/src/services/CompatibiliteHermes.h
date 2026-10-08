@@ -17,7 +17,8 @@
 //
 // Le blocage suit le dernier verdict rendu : « Compatible » ou « Compatible avec réserves » le
 // lève, l'oubli (session perdue, serveur changé) aussi ; une revérification en cours ou un
-// `/v1/meta` injoignable laissent le verdict précédent en place.
+// `/v1/meta` injoignable laissent le verdict précédent en place, avec ce qu'il avait lu
+// (annonce du flux d'invalidation comprise) : seul l'état publié dit « Non vérifiable ».
 //
 // Les étapes déployées se détectent sans supposition, d'après `machine.executant` (étape P6,
 // meta.py `_resume_executant`) : clé ABSENTE = étape non déployée (« absent »), sauf base du

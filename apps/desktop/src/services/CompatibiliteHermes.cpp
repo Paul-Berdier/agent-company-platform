@@ -168,18 +168,23 @@ void CompatibiliteHermes::verifier()
         if (generation != m_generation || erreur.kind() == ApiFailure::Cancelled) {
             return;
         }
-        Evaluation echec;
         if (erreur.httpStatus() == 404) {
-            echec.etat = CompatibilityStatus::GreffonAbsent;
-            echec.discussionDisponible = true;
-            echec.explication = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la "
-                                               "Discussion et les Diagnostics restent disponibles.");
-        } else {
-            echec.etat = CompatibilityStatus::Injoignable;
-            echec.explication = QStringLiteral("Compatibilité non vérifiée : %1").arg(erreur.message());
-            m_erreurLecture = erreur.message();
+            Evaluation absent;
+            absent.etat = CompatibilityStatus::GreffonAbsent;
+            absent.discussionDisponible = true;
+            absent.explication = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la "
+                                                "Discussion et les Diagnostics restent disponibles.");
+            publier(absent);
+            return;
         }
-        publier(echec);
+        // Injoignable : le dernier verdict LU reste, avec ce qu'il a lu (annonce du flux, versions,
+        // disponibilités), daté de sa lecture ; seuls l'état et l'explication le disent (relecture
+        // de P8b, constat desktop-3 : une évaluation vide fermait le flux d'invalidation).
+        Evaluation injoignable = m_evaluation;
+        injoignable.etat = CompatibilityStatus::Injoignable;
+        injoignable.explication = QStringLiteral("Compatibilité non vérifiée : %1").arg(erreur.message());
+        m_erreurLecture = erreur.message();
+        publier(injoignable);
     });
 }
 

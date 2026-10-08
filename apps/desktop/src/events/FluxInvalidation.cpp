@@ -83,6 +83,7 @@ FluxInvalidation::FluxInvalidation(ClientGreffonPoste *greffon, QObject *parent)
     connect(m_reprise, &QTimer::timeout, this, [this] {
         m_prochainEssai = QDateTime();
         m_repliJusqua = QDateTime(); // la reprise planifiée était celle du repli, s'il y en avait un
+        m_raisonRepli.clear();
         ouvrir();
     });
 }
@@ -101,7 +102,12 @@ FluxInvalidation::~FluxInvalidation()
 void FluxInvalidation::setAnnonce(const QString &etat, const QJsonValue &annonce)
 {
     m_etatAnnonce = etat;
-    const QString raison = raisonAnnonce(etat, annonce);
+    QString raison = raisonAnnonce(etat, annonce);
+    if (raison.isEmpty() && m_greffon && m_greffon->bloque()) {
+        // Échec fermé (relecture de P8b, constat desktop-1) : le verdict qui bloque le greffon ferme aussi un flux DÉJÀ
+        // ouvert, même quand l'annonce n'a pas changé ; rien ne se rouvre avant un verdict qui lève le blocage.
+        raison = m_greffon->raisonBlocage();
+    }
     if (!raison.isEmpty()) {
         const bool change = m_annonceUtilisable || m_mode != Mode::Indisponible || m_raison != raison;
         m_annonceUtilisable = false;
@@ -154,12 +160,22 @@ void FluxInvalidation::relancer()
     ouvrir();
 }
 
+void FluxInvalidation::oublierRepli()
+{
+    // Relecture de P8b (constat desktop-2) : le repli (401, trois échecs) appartenait à la session perdue ; une session
+    // neuve retente aussitôt. L'annonce et la révision restent : elles sont celles du serveur, qui n'a pas changé.
+    m_echecs.clear();
+    m_repliJusqua = QDateTime();
+    m_raisonRepli.clear();
+}
+
 void FluxInvalidation::oublier()
 {
     fermer();
     m_dernierId.clear();
     m_echecs.clear();
     m_repliJusqua = QDateTime();
+    m_raisonRepli.clear();
     m_discussionsSuivies.reset();
     m_journal.clear();
     m_trames = 0;
@@ -180,7 +196,9 @@ void FluxInvalidation::ouvrir()
     }
     const QDateTime instant = maintenant();
     if (m_repliJusqua.isValid() && instant < m_repliJusqua) {
-        // Fenêtre réduite puis rouverte pendant le repli : le nouvel essai garde son heure.
+        // Fenêtre réduite puis rouverte pendant le repli : le nouvel essai garde son heure, et le repli sa raison (une
+        // annonce relue entre-temps l'avait effacée : jamais « Temps réel indisponible () »).
+        m_raison = m_raisonRepli;
         changerMode(Mode::Sondage);
         planifier(milliseconds(std::max<qint64>(0, instant.msecsTo(m_repliJusqua))));
         emit etatChange();
@@ -287,6 +305,7 @@ void FluxInvalidation::terminer(QNetworkReply *reponse)
     if (statut == 401) {
         // Décision P8b-1 : jamais réessayé aussitôt ; nouvel essai dans 5 min (voir l'en-tête).
         m_raison = QStringLiteral("session refusée par le flux (401)");
+        m_raisonRepli = m_raison;
         m_echecs.clear();
         m_repliJusqua = maintenant().addMSecs(m_reglages.nouvelEssai.count());
         changerMode(Mode::Sondage);
@@ -353,6 +372,7 @@ void FluxInvalidation::traiter(const SseEvent &trame)
     if (etat) {
         m_echecs.clear();
         m_repliJusqua = QDateTime();
+        m_raisonRepli.clear();
         m_raison.clear();
         const QJsonValue suivies = donnees.value(QStringLiteral("discussions_suivies"));
         m_discussionsSuivies = suivies.isBool() ? std::optional<bool>(suivies.toBool()) : std::nullopt;
@@ -377,6 +397,7 @@ void FluxInvalidation::echec(const QString &raison, milliseconds delaiMinimal)
         m_echecs.clear();
         const milliseconds delai = std::max(m_reglages.nouvelEssai, delaiMinimal);
         m_repliJusqua = instant.addMSecs(delai.count());
+        m_raisonRepli = raison;
         changerMode(Mode::Sondage);
         planifier(delai);
         emit etatChange();
