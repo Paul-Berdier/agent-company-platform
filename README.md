@@ -15,8 +15,9 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
 1. **L'image Railway dérivée de Hermes** ([`hermes/`](hermes)) : réglages gérés (managed scope), gardes de
    démarrage, persona française, skills vendorisées à des commits épinglés, greffon serveur `acp-poste` (projets,
    questions, routage des modèles, quotas, notifications, protocole des machines) et greffons d'interface. Sur
-   Railway, l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni code). Détail :
-   [`docs/refonte/image.md`](docs/refonte/image.md).
+   Railway, l'agent ne doit avoir **aucun outil d'exécution** (ni terminal, ni fichiers, ni code) : trois couches
+   de défense, chacune prouvée en local et en intégration continue ; un défaut intermittent de l'une d'elles reste
+   **ouvert** (voir les limites ci-dessous). Détail : [`docs/refonte/image.md`](docs/refonte/image.md) § 5.
 2. **L'identité** ([`identite/`](identite)) : Authelia 4.39.28 épinglé, un seul utilisateur, passkeys ; Hermes
    n'accepte que ce fournisseur OIDC auto-hébergé. Détail : [`docs/refonte/identite.md`](docs/refonte/identite.md).
 3. **L'exécutant Railway** ([`executant/`](executant)) : un service séparé, sans port en écoute, qui réclame ses
@@ -53,6 +54,11 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
 
 ## Limites connues, en bref
 
+- **Constat de sécurité ouvert, à instruire avant la publication** : une fois, après un redémarrage du conteneur
+  sur un volume piégé, la session du tableau de bord a reçu les outils d'exécution (`terminal`, `write_file`…)
+  posés par le `.env` du volume, alors que l'api_server les refusait : deuxième des trois couches vue en défaut,
+  troisième (garde `pre_tool_call`) non mesurée pour cette session. Non reproduit, non expliqué, non corrigé
+  ([preuves](docs/refonte/preuves-1.0.0.md) § 5).
 - Rien n'est déployé : la [procédure Railway](docs/refonte/railway.md) § 12 liste ce qui ne se prouve que là.
 - Tant que `trusted_proxies` reste vide, les cookies de Hermes n'ont pas l'attribut `Secure` ; un jeton de
   rafraîchissement rejoué laisse une erreur 503 jusqu'à la déconnexion ou l'effacement des cookies du site
