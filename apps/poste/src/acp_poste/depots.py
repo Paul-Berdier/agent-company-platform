@@ -50,6 +50,8 @@ from typing import Any, Callable, Iterable, Sequence
 from acp_poste_contrat.inventaire import ALIAS_DEPOT as ALIAS
 from acp_poste_contrat.machine import BRANCHE_CARTE, BRANCHE_PROJET, branche_git_valide
 
+from .balayage import secret_dans
+
 GIT = "git"
 GROUPE_TRAVAIL = 10100
 DELAI_FETCH_S = 600.0
@@ -465,6 +467,37 @@ class Depots:
                   if ligne.startswith("+") and not ligne.startswith("+++")]
         return "\n".join(lignes)
 
+    def lignes_ajoutees_non_poussees(self, alias: str, nom: str | None = None, *, branche: str | None = None) -> str:
+        """Lignes ajoutées par CHAQUE commit absent du dépôt distant (``<tête> --not --remotes``) : celui du worktree
+        ``nom`` (HEAD), ou la ``branche`` du clone nu. Relecture finale de P7 (défaut (a) de P6) : le diff cumulé de la
+        carte ne voit pas un secret commité puis retiré (commit « wip », commit fait par l'agent lui-même) ; l'historique
+        part pourtant entier dans l'intégration (``merge --no-ff``) et dans ``git bundle``.
+
+        Commits ordinaires : leur propre diff. Fusions : le diff combiné (``--cc``), dont on garde les lignes que le
+        résultat ajoute sans en retirer (une fusion propre n'en a aucune ; une résolution de conflit, si)."""
+        if nom is not None:
+            lieu, tete = self._wt(alias, nom), "HEAD"
+        elif branche is not None:
+            lieu, tete = {"git_dir": self.nu(alias)}, f"refs/heads/{branche}"
+        else:
+            raise ErreurDepot("Historique à balayer non désigné.")
+        options = ("log", "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--format=")
+        simples = self.git(*options, "--no-merges", tete, "--not", "--remotes", "--", **lieu)
+        lignes = [ligne[1:] for ligne in simples.decode("utf-8", "replace").splitlines()
+                  if ligne.startswith("+") and not ligne.startswith("+++")]
+        fusions = self.git(*options, "--merges", "--cc", tete, "--not", "--remotes", "--", **lieu)
+        parents = 0
+        for ligne in fusions.decode("utf-8", "replace").splitlines():
+            if ligne.startswith("diff "):
+                parents = 0
+            elif ligne.startswith("@@"):
+                parents = len(ligne) - len(ligne.lstrip("@")) - 1
+            elif parents > 0:
+                prefixe = ligne[:parents]
+                if "+" in prefixe and "-" not in prefixe:
+                    lignes.append(ligne[parents:])
+        return "\n".join(lignes)
+
     def committer(self, alias: str, nom: str, message: str) -> str | None:
         """Commit local du superviseur (aucun crochet, aucune signature, aucun trailer) ; ``None`` si rien n'a changé."""
         wt = self._wt(alias, nom)
@@ -498,9 +531,11 @@ class Depots:
         return brut[:maximum].decode("utf-8", "replace")
 
     def quarantaine(self, alias: str, nom: str, branche: str) -> str:
-        """Renomme ``hermes/<carte>`` en ``quarantaine/<carte>`` (jamais intégrée, jamais poussée)."""
+        """Renomme ``hermes/<carte>`` en ``quarantaine/<carte>`` (jamais intégrée, jamais poussée) ; depuis le worktree
+        s'il existe (son HEAD suit le renommage), sinon dans le clone nu."""
         cible = "quarantaine/" + branche.removeprefix("hermes/")
-        self.git("branch", "-M", branche, cible, **self._wt(alias, nom))
+        lieu = self._wt(alias, nom) if self.gitdir_du_worktree(alias, nom).is_dir() else {"git_dir": self.nu(alias)}
+        self.git("branch", "-M", branche, cible, **lieu)
         return cible
 
     # ------------------------------------------------------------------ intégration (§ 6.7)
@@ -527,14 +562,24 @@ class Depots:
         return []
 
     # ------------------------------------------------------------------ bundle (§ 12.2)
-    def bundle(self, alias: str, branche: str) -> tuple[Path, str, str]:
-        """``git bundle create`` de ``branche`` (root, 0600) : (fichier, SHA-256 du fichier, tête)."""
+    def bundle(self, alias: str, branche: str, *, valeurs_exactes: dict[str, str] | None = None
+               ) -> tuple[Path, str, str]:
+        """``git bundle create`` de ``branche`` (root, 0600) : (fichier, SHA-256 du fichier, tête).
+
+        Relecture finale de P7 (défaut (a) de P6) : un bundle emballe TOUT l'historique de la branche ; il est refusé si
+        un commit absent du dépôt distant porte un secret (motifs du contrat partagé, et ``valeurs_exactes`` du coffre),
+        même retiré depuis. Rien n'est écrit ; le message ne porte jamais la valeur."""
         if not (BRANCHE_PROJET.fullmatch(branche) or BRANCHE_CARTE.fullmatch(branche)):
             raise ErreurDepot("Branche refusée : seules hermes/projet-<slug> et hermes/<carte> se récupèrent.")
         nu = self.nu(alias)
         tete = self.sha(nu, f"refs/heads/{branche}")
         if tete is None:
             raise ErreurDepot(f"Branche {branche} absente du dépôt {alias} sur l'exécutant.")
+        trouve = secret_dans([self.lignes_ajoutees_non_poussees(alias, branche=branche)], valeurs_exactes or {})
+        if trouve:
+            raise ErreurDepot(f"Bundle refusé : un secret ({trouve}) est dans l'historique de {branche} (commits absents "
+                              "du dépôt distant), même s'il a été retiré depuis ; rien n'est emballé. Examinez la "
+                              "branche sur l'exécutant avant toute récupération.")
         self.racine_bundles.mkdir(parents=True, exist_ok=True)
         os.chmod(self.racine_bundles, 0o700)
         fichier = self.racine_bundles / f"{alias}-{branche.split('/', 1)[1]}-{tete[:12]}.bundle"

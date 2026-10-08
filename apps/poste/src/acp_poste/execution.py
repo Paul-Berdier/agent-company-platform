@@ -43,7 +43,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from acp_poste_contrat.machine import DemandeCarte
 
@@ -100,6 +100,10 @@ CODEX_NON_PROUVE_PRIVE = ("Voie Codex fermée pour le dépôt « {alias} » : il
                           "ChatGPT sur un dépôt privé lu avec le jeton (D83). {raison}")
 DEPOT_DECLARE_PUBLIC_MESURE_PRIVE = ("Dépôt « {alias} » refusé : la politique dit public, GitHub refuse l'accès anonyme "
                                      ": jeton requis (acces = \"jeton_lecture\" dans executant.toml, par une PR).")
+QUARANTAINE_IMPOSSIBLE = ("Secret détecté ({trouve}) : renommage de {branche} en quarantaine impossible ({erreur}) ; rien "
+                          "n'est envoyé, la carte est bloquée pour un secret et ne repartira pas de cette branche.")
+QUARANTAINE_DIFFEREE = ("Branche {branche} mise en quarantaine au service suivant (renommage en échec lors de la "
+                        "détection du secret).")
 QUARANTAINE_ECARTEE = ("Branche {branche} absente (mise en quarantaine après un secret, ou clone perdu) : la carte repart "
                        "de {depart} sur une branche neuve, en session neuve ; le travail en quarantaine n'est pas repris.")
 
@@ -425,17 +429,30 @@ class Execution:
             return await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison)
         self._noter_carte(demande, "preparation")
         nom = demande.branche.removeprefix("hermes/")
+        if not await asyncio.to_thread(self._quarantaine_en_attente, demande, depot, nom):
+            # Relecture finale de P7 (défaut (b) de P6) : la branche qui porte un secret n'a pas pu être mise en
+            # quarantaine ; tant que le renommage échoue, la carte est refusée AVANT tout tour d'agent.
+            self.oublier_carte()
+            return await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
         try:
             issue = await self._executer(demande, depot, nom, arret)
         except CarteRefusee as exc:
             self._commit_wip(demande, depot, nom, "wip: blocage")
-            issue = await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison, exc.reprise_le)
+            if await asyncio.to_thread(self._secret_apres_wip, demande, depot, nom):
+                issue = await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
+            else:
+                issue = await asyncio.to_thread(self.bloquer, demande, exc.genre, exc.raison, exc.reprise_le)
         except Interruption as exc:
             self._commit_wip(demande, depot, nom, f"wip: {exc.motif}")
-            # Carte rendue proprement : un redémarrage ne la compte pas comme un arrêt mémoire.
-            self._noter_carte(demande, "arretee" if exc.route == "arret" else "rendue")
-            corps = dict(self._base(demande), motif=exc.motif)
-            issue = await asyncio.to_thread(self.emettre, exc.route, corps)
+            if await asyncio.to_thread(self._secret_apres_wip, demande, depot, nom):
+                # Jamais rendue sur une branche fautive : bloquée pour un secret (si la réclamation est perdue, Hermes
+                # refuse ce blocage ; la branche est déjà en quarantaine et la carte repartira d'une branche neuve).
+                issue = await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
+            else:
+                # Carte rendue proprement : un redémarrage ne la compte pas comme un arrêt mémoire.
+                self._noter_carte(demande, "arretee" if exc.route == "arret" else "rendue")
+                corps = dict(self._base(demande), motif=exc.motif)
+                issue = await asyncio.to_thread(self.emettre, exc.route, corps)
         except ErreurDepot as exc:
             issue = await asyncio.to_thread(self.bloquer, demande, "capacite",
                                             f"Opération git en échec sur l'exécutant : {exc}")
@@ -463,6 +480,66 @@ class Execution:
         except ErreurDepot as exc:
             self.journal.ecrire("erreur", "wip_impossible", f"Commit « wip » impossible : {exc}", carte=demande.carte)
             return None
+
+    def _secret_non_pousse(self, demande: DemandeCarte, depot: Any, nom: str, textes: Sequence[str | None] = ()
+                           ) -> str | None:
+        """Nature du premier secret trouvé dans l'historique non poussé de la carte (chaque commit, « wip » compris :
+        :meth:`Depots.lignes_ajoutees_non_poussees`) et dans ``textes`` ; ``None`` sinon."""
+        historique = self.depots.lignes_ajoutees_non_poussees(depot.alias, nom)
+        return secret_dans([historique, *textes],
+                           valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None)))
+
+    def _mettre_en_quarantaine(self, demande: DemandeCarte, depot: Any, nom: str, trouve: str) -> None:
+        """Branche de la carte renommée ``quarantaine/<carte>`` (jamais intégrée, jamais emballée, jamais reprise).
+        Relecture finale de P7 (défaut (b) de P6) : un renommage en échec ne change pas l'issue (la carte est QUAND MÊME
+        bloquée pour un secret) ; la session de la carte garde ``quarantaine_en_attente``, et le service suivant retente
+        le renommage avant tout tour d'agent (:meth:`_quarantaine_en_attente`)."""
+        try:
+            self.depots.quarantaine(depot.alias, nom, demande.branche)
+        except ErreurDepot as exc:
+            self._noter_session(demande.carte, quarantaine_en_attente=True)
+            self.journal.ecrire("erreur", "secret_detecte", f"Secret détecté ({trouve}) : rien n'est envoyé.",
+                                carte=demande.carte)
+            self.journal.ecrire("erreur", "quarantaine_impossible", QUARANTAINE_IMPOSSIBLE.format(
+                trouve=trouve, branche=demande.branche, erreur=exc), carte=demande.carte)
+            return
+        self.journal.ecrire("erreur", "secret_detecte", f"Secret détecté ({trouve}) : branche en quarantaine, rien "
+                            "n'est envoyé.", carte=demande.carte)
+
+    def _secret_apres_wip(self, demande: DemandeCarte, depot: Any, nom: str) -> bool:
+        """Après un commit « wip » (blocage, quota, interruption) : balayage de l'historique non poussé ; un secret met
+        la branche en quarantaine (vrai). Un balayage impossible est dit au journal et ne change pas l'issue : la
+        conclusion et ``git bundle`` balaient de nouveau tout l'historique."""
+        try:
+            if not self.depots.gitdir_du_worktree(depot.alias, nom).is_dir():
+                return False
+            trouve = self._secret_non_pousse(demande, depot, nom)
+        except ErreurDepot as exc:
+            self.journal.ecrire("erreur", "balayage_wip_impossible", f"Balayage du commit « wip » impossible : {exc}",
+                                carte=demande.carte)
+            return False
+        if trouve:
+            self._mettre_en_quarantaine(demande, depot, nom, trouve)
+            return True
+        return False
+
+    def _quarantaine_en_attente(self, demande: DemandeCarte, depot: Any, nom: str) -> bool:
+        """Faux tant qu'une branche porteuse d'un secret attend sa quarantaine (renommage en échec) ; le renommage est
+        retenté ici. Réussi (ou branche déjà absente) : la marque est levée, et la carte repart d'une branche neuve
+        (K25)."""
+        if not self.session(demande.carte).get("quarantaine_en_attente"):
+            return True
+        try:
+            if self.depots.branche_existe(depot.alias, demande.branche):
+                self.depots.quarantaine(depot.alias, nom, demande.branche)
+                self.journal.ecrire("avertissement", "quarantaine_differee", QUARANTAINE_DIFFEREE.format(
+                    branche=demande.branche), carte=demande.carte)
+        except ErreurDepot as exc:
+            self.journal.ecrire("erreur", "quarantaine_impossible", f"Renommage de {demande.branche} en "
+                                f"quarantaine encore impossible ({exc}) : carte refusée.", carte=demande.carte)
+            return False
+        self._oublier_session(demande.carte, "quarantaine_en_attente")
+        return True
 
     def _verification_possible(self, depot: Any) -> str | None:
         """``None`` si la vérification peut tourner, sinon la raison de « non exécutée »."""
@@ -615,12 +692,11 @@ class Execution:
         changements = self.depots.changements(depot.alias, nom, base) if base else []
         chemins = pilotage.chemins_de_pilotage(changements, depot.pilotage_supplementaire)
         ajoutees = self.depots.lignes_ajoutees(depot.alias, nom, base) if base else ""
+        # Relecture finale de P7 (défaut (a) de P6) : le diff cumulé ET chaque commit absent du dépôt distant.
         textes = [ajoutees, resume, getattr(sortie, "question", None), getattr(sortie, "corrections", None)]
-        trouve = secret_dans(textes, valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None)))
+        trouve = self._secret_non_pousse(demande, depot, nom, textes)
         if trouve:
-            self.depots.quarantaine(depot.alias, nom, demande.branche)
-            self.journal.ecrire("erreur", "secret_detecte", f"Secret détecté ({trouve}) : branche en quarantaine, rien "
-                                "n'est envoyé.", carte=demande.carte)
+            self._mettre_en_quarantaine(demande, depot, nom, trouve)
             return await asyncio.to_thread(self.bloquer, demande, "secret", RAISON_SECRET)
         if sortie is not None and sortie.issue == "question":
             corps = dict(self._base(demande), texte=sortie.question, contexte=sortie.resume[:4000])

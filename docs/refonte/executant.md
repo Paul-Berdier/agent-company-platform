@@ -487,7 +487,8 @@ tête poussée (workflows « Image Hermes » et « Image de l'exécutant »).
   Codex « inconnue », donc fermée (sûr) ; « Relever maintenant » le republie.
 - Pendant la même fenêtre, une carte relancée après un secret et servie à un exécutant de P6 reprendrait le worktree
   en quarantaine ; elle ne pourrait rien en sortir (aucun push ; branche `hermes/<carte>` absente : intégration et
-  bundle refusés ; renommage en quarantaine en échec : carte bloquée).
+  bundle refusés ; renommage en quarantaine en échec : carte bloquée ; depuis la relecture finale de P7, bloquée pour
+  un secret, § 16.7).
 - Les motifs sont relevés sur git 2.47.3 et 2.42 ; une autre version de git dans l'image doit rejouer
   `test_messages_de_git_releves` (la CI de l'exécutant le fait sur l'image construite).
 - Aucun appel à GitHub n'a été fait : la mesure n'est prouvée que contre le faux serveur ; sa première mesure réelle est
@@ -497,6 +498,30 @@ tête poussée (workflows « Image Hermes » et « Image de l'exécutant »).
   publication de l'inventaire (une poignée de dépôts, un à la fois : borne acceptée).
 - Le greffon ne périme pas une mesure ancienne (`verifie_le` n'est pas comparé) : une mesure « prive + ok » vieille de
   plusieurs jours garde Codex ouvert au routage ; l'exécutant remesure de toute façon avant chaque carte Codex.
-- Hors du périmètre de la partie E, constaté par la relecture (P6) : le balayage des secrets porte sur le diff cumulé
-  de la carte, pas sur chaque commit (un secret écrit dans un commit « wip » puis retiré resterait dans l'historique de
-  la branche) ; un échec du renommage en quarantaine bloque la carte en « capacité », pas en « secret ».
+- Constaté par la relecture de P6 et **corrigé par la relecture finale de P7** (§ 16.7) : le balayage des secrets ne
+  portait que sur le diff cumulé de la carte (un secret d'un commit « wip » puis retiré restait dans l'historique, donc
+  dans l'intégration et le bundle) ; un échec du renommage en quarantaine bloquait la carte en « capacité ».
+- Un secret d'une forme inconnue des motifs du contrat partagé et absent du coffre passe toujours (barrière de plus,
+  pas une garantie : balayage.py). Une branche déjà poussée par ailleurs (`--remotes`) n'est pas rebalayée : rien n'est
+  jamais poussé par l'exécutant (D82).
+
+### 16.7 Relecture finale de P7 : historique balayé, quarantaine jamais contournée (D118, D119)
+
+Défauts (a) et (b) de P6, confirmés par la relecture finale de P7 (constats securite-1 et securite-2), corrigés dans
+`apps/poste` :
+
+- **Historique non poussé balayé** (`Depots.lignes_ajoutees_non_poussees`) : les lignes ajoutées par **chaque** commit
+  absent du dépôt distant (`<tête> --not --remotes`), merges compris (diff combiné `--cc` : ce qu'une fusion ajoute à
+  tous ses parents). Balayé à la conclusion de chaque carte (le diff cumulé l'est toujours), donc à l'intégration ;
+  **après chaque commit « wip »** (blocage, limite de quota, interruption) : un secret y met la branche en quarantaine et
+  la carte est bloquée **pour un secret** — jamais en quota (repris automatiquement), jamais rendue sur la branche
+  fautive ; et par `git bundle` (`acp-poste bundle`), qui refuse d'emballer une branche dont l'historique non poussé
+  porte un secret, même retiré depuis (motifs et valeurs exactes du coffre ; rien n'est écrit).
+- **Quarantaine impossible** (`git branch -M` en échec) : la carte est **quand même** bloquée pour un secret (raison
+  fixe, journal `secret_detecte` puis `quarantaine_impossible`), et sa session garde `quarantaine_en_attente`. Au
+  service suivant, l'exécutant retente le renommage **avant tout tour d'agent** : réussi, la carte repart d'une branche
+  neuve (K25) ; en échec, elle est refusée de nouveau pour un secret, sans qu'aucun agent ne tourne.
+- Preuves (Windows, git 2.42) : `apps/poste/tests/test_execution.py`, sept tests de la section « relecture finale de
+  P7 : secret dans l'historique » (blocage, limite de quota, interruption, commit fautif déjà dans l'historique,
+  intégration, bundle, quarantaine impossible) ; l'ancien code remis en place les fait **tous rougir** (témoin).
+  Linux, root, git 2.47.3 : CI « Image de l'exécutant ».
