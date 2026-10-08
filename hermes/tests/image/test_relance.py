@@ -262,6 +262,33 @@ def test_carte_de_l_executant_repart_en_session_neuve_avec_la_consigne(noyau, co
     assert servie["consigne_tronquee"] is False and servie["branche"] == f"hermes/{exploration}"
 
 
+@pytest.mark.parametrize("issue_precedente", ["rendue", "question"])
+def test_carte_abandonnee_apres_une_issue_de_reprise_repart_en_session_neuve(noyau, conn, issue_precedente):
+    """Relecture finale de P7 (constat tests-4 b, cahier P7 § 13.1) : une carte ABANDONNÉE (disjoncteur de Hermes,
+    ``gave_up``) dont la dernière issue est ``rendue`` ou ``question`` (toutes deux dans ``ISSUES_REPRISE``) repart en
+    session neuve avec la consigne, jamais en reprise du fil (piège K4 n° 1)."""
+    from hermes_cli.kanban_db_dispatch import _record_task_failure
+
+    projet = lancer_sur_depot(noyau, conn)
+    exploration = projet["cartes"]["exploration"]
+    reclamer(noyau, projet["tableau"], exploration)
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE demandes SET machine_id = ?, issue = ? WHERE tableau = ? AND carte = ?",
+                     (MACHINE, issue_precedente, projet["tableau"], exploration))
+    with noyau.ka.connexion(projet["tableau"]) as kc:
+        # Carte rendue par l'exécutant (comme ``reprendre`` : réclamation rendue), puis abandonnée par le disjoncteur.
+        assert noyau.ka.reclaim_task(kc, exploration, reason="acp-poste : carte rendue")
+        _record_task_failure(kc, exploration, "panne du lanceur", outcome="crashed", force_trip=True)
+        assert noyau.ka.get_task(kc, exploration).status == "blocked"
+        assert any(e.kind == "gave_up" for e in noyau.ka.list_events(kc, exploration))
+    [arretee] = [b for b in noyau.questions.file_questions(conn)["bloquees"] if b["carte"] == exploration]
+    assert (arretee["abandonnee"], arretee["relancable"]) == (True, True)
+    resultat = _relancer(noyau, conn, projet, exploration, "Repars de zéro.")
+    assert (resultat["relancee"], resultat["session_neuve"]) == (True, True), resultat
+    servie = _servir(noyau, conn, projet, exploration)
+    assert servie["reprise"] is False and "Repars de zéro." in servie["consigne"]
+
+
 def test_consigne_longue_tronquee_section_intacte(noyau, conn):
     """Pièges n° 2 et 3 : consigne d'origine de 15 900 caractères + relance de 4 000 → carte VALIDE (contrat
     ``DemandeCarte`` : 16 000 caractères au plus), section du propriétaire intacte en tête, origine tronquée et dite."""

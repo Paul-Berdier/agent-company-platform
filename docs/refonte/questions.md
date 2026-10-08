@@ -302,7 +302,8 @@ station face à un greffon P7 au-delà de la compatibilité de lecture déjà te
 | liens profonds en requête, relatifs en base, préfixés à l'envoi | image : `test_notifications_liens.py` |
 | bilan : cron natif `no_agent` créé avec la session du propriétaire, déclenché, une seule ligne par jour de Paris, reçue par le faux ntfy, prochaine exécution 08:00 heure de Paris, second démarrage admis | image : `test_bilan.py`, `test_demarrage.py` ; contrat : `test_bilan_contrat.py` |
 | redémarrage de Hermes pendant une question (même volume) : question intacte, aucune notification en double, réponse puis reprise, projet terminé par l'intégration | contrat : `test_parcours_p7_contrat.py` |
-| parcours 390×844 → notification → 1440×900 **sans session** (connexion par passkey virtuelle) → arrivée sur la question → réponse → « Terminé » sans rechargement, chaque relecture suivant une trame | navigateur : `test_parcours_p7.py` |
+| parcours 390×844 → notification → 1440×900 **sans session** (connexion par passkey virtuelle) → arrivée sur la question → réponse (message de l'API annoncé par la section) → « Terminé » sans rechargement, chaque relecture du détail, de la liste des projets et de la file suivant une trame ou un geste | navigateur : `test_parcours_p7.py` |
+| gestes de P7 en navigateur (relecture finale de P7, cahier P7 § 13.3) : « Relancer » une carte **bloquée** de l'exécutant (consigne, réponse de l'API, carte resservie en session neuve), Accueil **peuplé**, formulaire « Changer qui répond » ouvert et confirmation « Clore le projet », mesurés aux deux formats (axe, 44 px, catalogue), clôture confirmée | navigateur : `test_executant.py` (étape D ; le fichier `test_questions_p7.py` du cahier n'a pas été créé : ces gestes sont joués dans ce parcours, qui a déjà l'exécutant) |
 | discussion : question survivant à la déconnexion, `waiting` vue par un second client, même requête rejouée, réponse | contrat : `test_discussion_contrat.py` ; navigateur : `test_discussion.py` ; Vitest : `discussion.test.tsx` |
 | Accueil égal à la fixture partagée ; bloc illisible dit | image : `test_accueil.py` ; Vitest : `accueil.test.tsx` |
 
@@ -322,4 +323,7 @@ une garantie de la qualité des réponses de Hermes).
 - Le bilan part du fil d'envoi de la passerelle : après un redémarrage pendant une pause générale, il reste en file
   jusqu'à la reprise.
 - Rendu prouvé dans Chromium seulement (390×844 émulé) : ni vrai téléphone, ni Safari iOS.
+- « Relancer » une carte **abandonnée** (disjoncteur de Hermes) n'est joué qu'aux tests d'image et par les vraies
+  routes (`test_relance.py`) : aucun parcours navigateur ne provoque un abandon ; son rendu ne diffère de la carte
+  bloquée que par l'étiquette « Abandonnée ».
 - La livraison réelle par Telegram ou ntfy n'est prouvée que contre un faux serveur.
