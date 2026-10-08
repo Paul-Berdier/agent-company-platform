@@ -13,6 +13,8 @@
 // redirige PAS un 401 vers /login (web/src/lib/api.ts de Hermes) : un 401 du flux n'est pas réessayé ; le flux
 // s'arrête, les pages reviennent au sondage par fetchJSON, dont la lecture suivante déclenche la redirection.
 //
+// Chien de garde : sans aucun octet (trame ou battement) pendant 40 s, ouverture comprise, la connexion est annulée et
+// comptée comme un échec (relecture finale de P7 : une connexion muette n'est jamais « temps réel »).
 // Reprise : aussitôt après « fin » ; sinon 1 s, 2 s, 5 s, 10 s puis 30 s. Trois échecs de suite en 2 min : mode
 // sondage (15 s, l'ancien comportement), dit par la page, et nouvel essai du flux toutes les 5 min. Page cachée : flux
 // fermé, aucune lecture (D35). SDK sans authedFetch (contrat < 1.1) : mode « indisponible », sondage d'emblée.
@@ -31,6 +33,10 @@ export const FENETRE_ECHECS_MS = 120_000;
 export const ECHECS_AVANT_REPLI = 3;
 export const NOUVEL_ESSAI_MS = 300_000;
 export const FERMETURE_DIFFEREE_MS = 5_000;
+/** Chien de garde (relecture finale de P7) : sans AUCUN octet (trame ou commentaire de battement, toutes les 15 s côté
+ *  greffon) pendant ce délai, la connexion est tenue pour morte (veille, réseau changé, connexion à moitié ouverte) :
+ *  lecture annulée, comptée comme un échec. Deux battements manqués et une marge. */
+export const CHIEN_DE_GARDE_MS = 40_000;
 /** Trames gardées pour le diagnostic (noms de sujets seulement, jamais de donnée) : FluxPartage.trames(). */
 export const TRAMES_GARDEES = 200;
 
@@ -283,6 +289,17 @@ export class FluxPartage {
     // Le mode ne change pas ici : une réouverture après « fin » (toutes les 10 min) ou une reprise isolée garde
     // « temps réel » (la trame « etat » dira ce qui a changé entre-temps) ; seuls trois échecs le font tomber.
     let fin = false;
+    // Chien de garde (relecture finale de P7, constat scenario-4) : ouverture comprise, chaque octet reçu le relance ;
+    // échu, il annule la connexion, ce qui la fait finir en échec (jamais « temps réel » sans trame ni battement).
+    let chien: Minuterie | null = null;
+    const relancerChien = () => {
+      if (chien !== null) clearTimeout(chien);
+      chien = setTimeout(() => {
+        chien = null;
+        if (generation === this.generation) controleur.abort();
+      }, CHIEN_DE_GARDE_MS);
+    };
+    relancerChien();
     try {
       const entetes: Record<string, string> = { Accept: "text/event-stream" };
       if (this.dernierId !== null) entetes["Last-Event-ID"] = this.dernierId;
@@ -296,6 +313,7 @@ export class FluxPartage {
         return;
       }
       if (!reponse.ok || reponse.body === null) throw new Error(`flux ${reponse.status}`);
+      relancerChien();
       const lecteur = reponse.body.getReader();
       const decodeur = new TextDecoder();
       const analyseur = new AnalyseurSse();
@@ -306,6 +324,7 @@ export class FluxPartage {
           return;
         }
         if (done) break;
+        relancerChien();
         for (const trame of analyseur.pousser(decodeur.decode(value, { stream: true }))) {
           if (trame.id !== null) this.dernierId = trame.id;
           fin = this.traiter(trame) || fin;
@@ -313,6 +332,9 @@ export class FluxPartage {
       }
     } catch {
       if (generation !== this.generation) return; // fermé par la page : rien à reprendre
+    } finally {
+      if (chien !== null) clearTimeout(chien);
+      chien = null;
     }
     if (generation !== this.generation) return;
     this.controleur = null;

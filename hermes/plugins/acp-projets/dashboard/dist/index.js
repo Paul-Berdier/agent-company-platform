@@ -1044,6 +1044,7 @@
   var ECHECS_AVANT_REPLI = 3;
   var NOUVEL_ESSAI_MS = 3e5;
   var FERMETURE_DIFFEREE_MS = 5e3;
+  var CHIEN_DE_GARDE_MS = 4e4;
   var TRAMES_GARDEES = 200;
   var AnalyseurSse = class {
     constructor() {
@@ -1239,6 +1240,15 @@
       const controleur = new AbortController();
       this.controleur = controleur;
       let fin = false;
+      let chien = null;
+      const relancerChien = () => {
+        if (chien !== null) clearTimeout(chien);
+        chien = setTimeout(() => {
+          chien = null;
+          if (generation === this.generation) controleur.abort();
+        }, CHIEN_DE_GARDE_MS);
+      };
+      relancerChien();
       try {
         const entetes = { Accept: "text/event-stream" };
         if (this.dernierId !== null) entetes["Last-Event-ID"] = this.dernierId;
@@ -1251,6 +1261,7 @@
           return;
         }
         if (!reponse.ok || reponse.body === null) throw new Error(`flux ${reponse.status}`);
+        relancerChien();
         const lecteur = reponse.body.getReader();
         const decodeur = new TextDecoder();
         const analyseur = new AnalyseurSse();
@@ -1261,6 +1272,7 @@
             return;
           }
           if (done) break;
+          relancerChien();
           for (const trame of analyseur.pousser(decodeur.decode(value, { stream: true }))) {
             if (trame.id !== null) this.dernierId = trame.id;
             fin = this.traiter(trame) || fin;
@@ -1268,6 +1280,9 @@
         }
       } catch {
         if (generation !== this.generation) return;
+      } finally {
+        if (chien !== null) clearTimeout(chien);
+        chien = null;
       }
       if (generation !== this.generation) return;
       this.controleur = null;

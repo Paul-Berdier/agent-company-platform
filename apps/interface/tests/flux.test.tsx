@@ -18,6 +18,7 @@ import {
 } from "../src/donnees";
 import {
   AnalyseurSse,
+  CHIEN_DE_GARDE_MS,
   ECHECS_AVANT_REPLI,
   FERMETURE_DIFFEREE_MS,
   fluxPartage,
@@ -271,6 +272,38 @@ describe("flux partagé de l'onglet", () => {
     expect(modes).toEqual(["sondage", "temps_reel"]);
   });
 
+  it("flux muet (veille, réseau changé, connexion à moitié ouverte) : lecture annulée, comptée comme un échec", async () => {
+    // Relecture finale de P7 (constat scenario-4) : sans chien de garde, une connexion muette gardait « temps réel »
+    // pour toujours (une seule connexion, relecture de sûreté de 120 s), sans jamais compter d'échec.
+    const serveur = serveurFlux();
+    installerSdk({}, { authedFetch: serveur.authedFetch });
+    const flux = fluxPartage();
+    flux.abonner(["projets"], () => undefined);
+    await vider();
+    serveur.dernier().corps.envoyer(ETAT("6.0"));
+    await vider();
+    expect(flux.etat().mode).toBe("temps_reel");
+    // Les battements (commentaires) suffisent à garder la connexion : aucun échec tant qu'ils arrivent.
+    for (let i = 0; i < 8; i += 1) {
+      await vider(15_000);
+      serveur.dernier().corps.envoyer(": battement\n\n");
+    }
+    await vider();
+    expect(serveur.appels.length).toBe(1);
+    expect(serveur.dernier().signal?.aborted).toBe(false);
+    // Plus un octet : la lecture est annulée au bout du chien de garde, puis reprise après 1 s.
+    await vider(CHIEN_DE_GARDE_MS - 1);
+    expect(serveur.dernier().signal?.aborted).toBe(false);
+    await vider(1);
+    expect(serveur.appels[0].signal?.aborted).toBe(true);
+    await vider(1_000);
+    expect(serveur.appels.length).toBe(2);
+    // Les connexions suivantes restent muettes (pas même la trame « etat ») : trois échecs en 2 min, repli dit.
+    await vider(2 * CHIEN_DE_GARDE_MS + 2_000);
+    expect(serveur.appels.length).toBe(ECHECS_AVANT_REPLI);
+    expect(flux.etat().mode).toBe("sondage");
+  });
+
   it("un 401 n'est jamais réessayé : le flux s'arrête, les pages sondent par fetchJSON (qui redirige)", async () => {
     const serveur = serveurFlux([401]);
     installerSdk({}, { authedFetch: serveur.authedFetch });
@@ -312,11 +345,17 @@ describe("flux partagé de l'onglet", () => {
 
   it("chaque bundle des pages passe par le registre partagé window.__ACP_FLUX__", async () => {
     const sorties: Map<string, string> = await construire();
+    // Relecture finale de P7 (constat tests-6) : les bundles vérifiés sont comptés ; une sortie renommée ou déplacée
+    // ne laisse plus passer ce test sans une seule assertion.
+    const verifies: string[] = [];
     for (const [chemin, contenu] of sorties) {
-      if (!/acp-(projets|poste-vues)[\\/]dashboard[\\/]dist[\\/]index\.js$/.test(chemin)) continue;
+      const trouve = /acp-(projets|poste-vues)[\\/]dashboard[\\/]dist[\\/]index\.js$/.exec(chemin);
+      if (!trouve) continue;
+      verifies.push(`acp-${trouve[1]}`);
       expect(contenu, chemin).toContain("__ACP_FLUX__");
       expect(contenu, chemin).toContain(ROUTE_FLUX);
     }
+    expect(verifies.sort()).toEqual(["acp-poste-vues", "acp-projets"]);
   });
 });
 

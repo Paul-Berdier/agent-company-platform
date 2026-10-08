@@ -170,7 +170,10 @@ Contrat complet : [projets.md](projets.md) § 4 ter ; client : [interface.md](in
   relecture de sûreté toutes les 120 s ; page cachée : flux fermé, aucune lecture.
 - **Repli** : trois échecs de suite en 2 minutes → sondage de 15 s (« Temps réel indisponible : actualisation toutes les
   15 secondes »), nouvel essai du flux toutes les 5 min ; un 401 n'est jamais réessayé (la lecture suivante redirige vers
-  la connexion). La page ne dit « actualisée en temps réel » qu'après une trame reçue.
+  la connexion). La page ne dit « actualisée en temps réel » qu'après une trame reçue. **Chien de garde** (relecture
+  finale de P7) : sans aucun octet (trame ou battement) pendant 40 s, ouverture comprise, la connexion est annulée et
+  comptée comme un échec (veille du PC, réseau changé, connexion à moitié ouverte) : une connexion muette n'est jamais
+  « temps réel », et trois flux muets en 2 minutes font le repli.
 
 ---
 
