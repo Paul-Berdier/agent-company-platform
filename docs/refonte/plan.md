@@ -396,7 +396,7 @@ Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
 - **P2** : **réalisée côté dépôt** sur `refonte/hermes-p2` (image sans outil d'exécution, fournisseur
   d'identité, IaC, procédure, CI verte) ; **rien n'est déployé** : le premier déploiement est fait par
   le propriétaire, selon [railway.md](railway.md), après la fusion. Preuves datées :
-  `docs/reprise-poste.md`.
+  `docs/reprise-poste.md` (recopiées depuis dans `docs/refonte/historique.md`, partie B, § 6).
 - **P3** : en cours sur `refonte/hermes-p3` (empilée sur P2). Première partie, **identité visuelle
   et français**, réalisée côté dépôt : thème `acp` généré depuis les jetons, persona française,
   greffons `acp-interface` et `acp-catalogue`, verrou du français, décompte des chaînes restées en

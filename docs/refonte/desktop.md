@@ -7,8 +7,8 @@ inchangée.
 
 Guides : [architecture](../native-desktop-architecture.md),
 [sécurité](../desktop-security.md), [construction et bout en bout](../desktop-build.md).
-Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste.md),
-§ 6 decies.
+Preuves datées et identifiants des runs : [`historique.md`](historique.md),
+partie B, § 6 decies.
 
 ## Ce qui est livré
 
@@ -37,7 +37,7 @@ Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste
 | Tests Qt : PKCE, `state`, redirection `127.0.0.1`, rotation du jeton, -32601 | **faits** | `tst_pkce`, `tst_flux_natif`, `tst_session_hermes`, `tst_canal_jsonrpc` |
 | Réponse à une question depuis le desktop | **faite, en local** : question posée par le poste simulé, réponse tapée dans le champ de la carte et envoyée par un clic réel sur « Répondre » de la page Questions, relue fermée par l'API | bout en bout local du 02/10/2026 (images `p8` et `rv8p6`), `tst_pages_interactions` |
 | `QSettings` sans jeton | **fait** : test du registre de préférences après un parcours complet, contrôle des préférences dans les Diagnostics, export du registre de la portée de test balayé au bout en bout | `tst_reglages_sans_secret`, `tst_diagnostics`, bout en bout |
-| Desktop CI verte sur windows-2022 | **faite** à chaque morceau poussé | runs dans `reprise-poste.md` |
+| Desktop CI verte sur windows-2022 | **faite** à chaque morceau poussé | runs dans `historique.md`, partie B |
 | Installeur non signé, dit explicitement | **dit** : aucun certificat ; l'empaquetage à blanc de la CI le produit non signé | `desktop-release-process.md` |
 | Connexion réelle à Railway, VM Windows propre | **non faites** : rien n'est déployé, aucune VM sur ce poste | — |
 
@@ -114,7 +114,7 @@ poussés :
 
 Preuves : 34 suites, totaux Qt sans échec ni test ignoré ; bout en bout local réussi
 (0 écart) contre les images `p8` et `rv8p6` ; Desktop CI et CI vertes (runs dans
-[`reprise-poste.md`](../reprise-poste.md), § 6 decies).
+[`historique.md`](historique.md), partie B, § 6 decies).
 
 ## Non prouvé
 

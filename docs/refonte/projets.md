@@ -494,7 +494,7 @@ Branche poussée le 26/09/2026, sommet `ff5d61f` :
   Windows 386, Linux 377 et 9 ignorés, interface 55, moteur 74) ; `image.yml`
   [36228251644](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36228251644) (491 dans
   l'image, **135** au contrat dont les 17 de P4, **5** au navigateur, compat vert, context7 connecté).
-  Détail et relevés : [`reprise-poste.md`](../reprise-poste.md) § 6 quater.
+  Détail et relevés : [`historique.md`](historique.md), partie B, § 6 quater.
 
 - Seconde partie (page « Projets »), sommet poussé `4d8265a`, **verte** :
   - `ci.yml` [36244812181](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36244812181) :
