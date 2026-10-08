@@ -102,6 +102,10 @@ name: Image Hermes
 # question et reprise du fil, secret en quarantaine, revue refusée puis corrigée, aucun push, aucun jeton dans les
 # journaux. L'image de production de l'exécutant (binaires réels) est prouvée par executant.yml.
 #
+# Étape P9 (exploitation) : job « restauration » (R1 à R4, parallèle au job « image », à chaque push) ; jobs lancés à la
+# main seulement (workflow_dispatch) : « temoin » (entrée temoin_etiquette : une release de Hermes essayée) et « montee »
+# (entrée ref_avant : volumes peuplés par les images d'un commit antérieur, redémarrés avec celles du run).
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -113,6 +117,13 @@ name: Image Hermes
       temoin_etiquette:
         # Étape P9 (cahier P9 § 5.5) : release de Hermes du job « temoin » ; vide, le job ne tourne pas.
         description: "Témoin de montée : release de Hermes à essayer (forme vAAAA.M.J) ; vide : aucun témoin"
+        required: false
+        default: ""
+        type: string
+      ref_avant:
+        # Étape P9 (cahier P9 § 5.6, décision P9-4) : commit « avant » du job « montee » ; donnée, les jobs « image » et
+        # « restauration » ne tournent pas ; vide, le job « montee » ne tourne pas.
+        description: "Montée de données : commit, branche ou étiquette des images « avant » ; vide : aucune montée"
         required: false
         default: ""
         type: string
@@ -166,6 +177,8 @@ concurrency:
 
 jobs:
   image:
+    # Étape P9 : pas sur un lancement manuel de la montée de données (entrée ref_avant : job « montee » seul).
+    if: github.event_name != 'workflow_dispatch' || inputs.ref_avant == ''
     name: Image ACP — construction et contrat
     runs-on: ubuntu-latest
     # Étape P4 : le contrat des projets autonomes (workers kanban réels, poste simulé) ajoute environ
@@ -374,6 +387,7 @@ jobs:
     # job « image » (environ 51 minutes pour un plafond de 90 ; ses constructions prennent moins de 2 minutes) :
     # images reconstruites ici, puis seulement les tests marqués « restauration » (contrat et navigateur), jamais
     # ignorés (ACP_E2E_OBLIGATOIRE=1). Mêmes déclencheurs que le job « image » : « Wait for CI » l'attend aussi.
+    if: github.event_name != 'workflow_dispatch' || inputs.ref_avant == ''
     name: Restauration — trois volumes, export, identité
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -472,8 +486,8 @@ jobs:
     # (contrôle → résultat, tests en échec et leur raison) dans le résumé du job et en artefact
     # (scripts/temoin_hermes.py). La borne requires_hermes du greffon n'est JAMAIS modifiée pour « passer ». Le job
     # échoue si un contrôle compté échoue : vert, il dirait que rien ne distingue la release témoin de l'épinglée pour
-    # nos contrôles. Les jobs « image » et « restauration » tournent aussi sur ce déclencheur : ils donnent, dans le
-    # même run, la référence sur la release épinglée.
+    # nos contrôles. Les jobs « image » et « restauration » tournent aussi sur ce déclencheur (sauf si ref_avant est
+    # donnée) : ils donnent, dans le même run, la référence sur la release épinglée.
     if: github.event_name == 'workflow_dispatch' && inputs.temoin_etiquette != ''
     name: Témoin de montée de Hermes (workflow_dispatch)
     runs-on: ubuntu-latest
@@ -747,6 +761,145 @@ jobs:
           fi
           if [ "$restes" -ne 0 ]; then
             echo "Des ressources acp-contrat-* restaient après le témoin : nettoyées, mais la CI échoue." >&2
+            exit 1
+          fi
+          echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."
+
+  montee:
+    # Étape P9 (cahier P9 § 5.6, décision P9-4) : MONTÉE DE DONNÉES, lancée à la main seulement :
+    #   gh workflow run image.yml --ref <branche> -f ref_avant=<commit, branche ou étiquette>
+    # Images « avant » construites depuis ref_avant (copie de travail détachée, jamais committée), images « après »
+    # depuis le commit du run, puis SEULEMENT les tests marqués « montee » (hermes/tests/contrat/
+    # test_montee_de_donnees.py) : volumes peuplés avec les images avant, redémarrés tels quels avec les images après.
+    # Le résumé du job dit « migration de schéma : oui » ou « non » (corps de la PR de montée, cahier § 5.7). Les jobs
+    # « image » et « restauration » ne tournent pas sur ce déclencheur avec ref_avant : ils tournent à chaque push.
+    if: github.event_name == 'workflow_dispatch' && inputs.ref_avant != ''
+    name: Montée de données (workflow_dispatch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ACP_IMAGE: acp-hermes:ci
+      ACP_IMAGE_TESTS: acp-hermes-tests:ci
+      ACP_IMAGE_EXECUTANT_FACTICE: acp-executant:factice
+      ACP_IMAGE_AVANT: acp-hermes:avant
+      ACP_IMAGE_TESTS_AVANT: acp-hermes-tests:avant
+      ACP_IMAGE_EXECUTANT_FACTICE_AVANT: acp-executant:factice-avant
+      ACP_RACINE_AVANT: /tmp/acp-avant
+      ACP_MONTEE_DOSSIER: /tmp/montee
+      PYTHONUTF8: "1"
+      # Entrée de l'utilisateur : jamais interpolée dans un script ; lue comme variable, validée avant tout usage.
+      REF_AVANT: ${{ inputs.ref_avant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Historique complet : le commit « avant » doit se résoudre dans la copie du runner.
+          fetch-depth: 0
+
+      - name: Commit « avant » (entrée ref_avant ; sinon refus)
+        run: |
+          set -euo pipefail
+          if ! [[ "$REF_AVANT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || [[ "$REF_AVANT" == *..* ]]; then
+            echo "Refus : ref_avant doit être un commit, une branche ou une étiquette (lettres, chiffres, . _ / -) ; rien n'est lancé." >&2
+            exit 2
+          fi
+          avant=""
+          for candidat in "$REF_AVANT" "origin/$REF_AVANT"; do
+            if avant="$(git rev-parse --verify --quiet "${candidat}^{commit}")"; then
+              break
+            fi
+            avant=""
+          done
+          if [ -z "$avant" ]; then
+            echo "Refus : ref_avant introuvable dans le dépôt ; rien n'est lancé." >&2
+            exit 2
+          fi
+          apres="$(git rev-parse HEAD)"
+          if [ "$avant" = "$apres" ]; then
+            echo "Refus : ref_avant désigne le commit du run lui-même ; aucune montée à essayer." >&2
+            exit 2
+          fi
+          git worktree add --detach "$ACP_RACINE_AVANT" "$avant"
+          lire() { sed -n "s/^$1//p" "$2" | head -n 1; }
+          {
+            echo "## Montée de données : commits"
+            echo ""
+            echo "- avant : \`${avant}\` (Hermes $(lire 'HERMES_TAG=' "$ACP_RACINE_AVANT/hermes/contrat/HERMES_VERSION"), schéma du greffon $(lire 'VERSION_SCHEMA = ' "$ACP_RACINE_AVANT/hermes/plugins/acp-poste/noyau/base.py"))"
+            echo "- après : \`${apres}\` (Hermes $(lire 'HERMES_TAG=' hermes/contrat/HERMES_VERSION), schéma du greffon $(lire 'VERSION_SCHEMA = ' hermes/plugins/acp-poste/noyau/base.py))"
+            echo ""
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Construire les images « avant » (ACP, test, cible factice de l'exécutant)
+        run: |
+          set -euo pipefail
+          docker build --pull -f "$ACP_RACINE_AVANT/hermes/image/Dockerfile" -t "$ACP_IMAGE_AVANT" "$ACP_RACINE_AVANT/hermes"
+          docker build -f "$ACP_RACINE_AVANT/hermes/tests/Dockerfile" --build-arg IMAGE_ACP="$ACP_IMAGE_AVANT" \
+            -t "$ACP_IMAGE_TESTS_AVANT" "$ACP_RACINE_AVANT/hermes/tests"
+          docker build -f "$ACP_RACINE_AVANT/executant/Dockerfile" --target factice \
+            -t "$ACP_IMAGE_EXECUTANT_FACTICE_AVANT" "$ACP_RACINE_AVANT"
+
+      - name: Construire les images « après » (ACP, test, cible factice de l'exécutant)
+        run: |
+          set -euo pipefail
+          docker build --pull -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
+          docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+          docker build -f executant/Dockerfile --target factice -t "$ACP_IMAGE_EXECUTANT_FACTICE" .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer pytest (hachés vérifiés)
+        run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
+
+      - name: Montée de données — tests de contrat (images avant, puis images après sur les mêmes volumes)
+        id: montee
+        run: python -m pytest -s -v -rA hermes/tests/contrat -m montee
+
+      - name: Migration de schéma (résumé du job)
+        if: always()
+        run: |
+          if [ -s "$ACP_MONTEE_DOSSIER/resume.md" ]; then
+            tee -a "$GITHUB_STEP_SUMMARY" < "$ACP_MONTEE_DOSSIER/resume.md"
+          else
+            echo "migration de schéma : inconnue (le test de montée n'a écrit aucun résultat ; voir son journal)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Tests de montée : ${{ steps.montee.outcome }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Résultat de la montée (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: montee-de-donnees
+          path: /tmp/montee
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Aucun conteneur, volume ni réseau de test ne reste (montée)
+        if: always()
+        run: |
+          # Même contrôle que les autres jobs : nettoie TOUJOURS, puis ÉCHOUE si quelque chose restait.
+          restes=0
+          reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
+          if [ -n "$reste" ]; then
+            echo "Conteneurs restants : ${reste}" >&2
+            docker rm -f -v $reste >/dev/null
+            restes=1
+          fi
+          volumes="$(docker volume ls -q --filter name=acp-contrat-)"
+          if [ -n "$volumes" ]; then
+            echo "Volumes restants : ${volumes}" >&2
+            docker volume rm -f $volumes >/dev/null
+            restes=1
+          fi
+          reseaux="$(docker network ls -q --filter name=acp-contrat-)"
+          if [ -n "$reseaux" ]; then
+            echo "Réseaux restants : ${reseaux}" >&2
+            docker network rm $reseaux >/dev/null
+            restes=1
+          fi
+          if [ "$restes" -ne 0 ]; then
+            echo "Des ressources acp-contrat-* restaient après la montée : nettoyées, mais la CI échoue." >&2
             exit 1
           fi
           echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."

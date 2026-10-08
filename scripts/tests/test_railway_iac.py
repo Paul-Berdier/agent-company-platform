@@ -462,6 +462,38 @@ def test_image_yml_selectionne_les_tests_de_restauration_par_job():
         "python -m pytest -s -v -rA hermes/tests/e2e -m restauration"], lancements["restauration"]
     assert 'ACP_E2E_OBLIGATOIRE: "1"' in travaux["restauration"]
     assert "timeout-minutes: 90" in travaux["restauration"]
+    # Le job « montee » ne lance que les tests de montée (cahier § 5.6).
+    assert lancements["montee"] == ["python -m pytest -s -v -rA hermes/tests/contrat -m montee"], lancements["montee"]
+
+
+def test_image_yml_montee_de_donnees_a_la_main_seulement():
+    """Étape P9 (cahier § 5.6, décision P9-4) : job « montee » sur workflow_dispatch seulement, entrée ref_avant lue une
+    fois comme variable et validée ; quand elle est donnée, les jobs « image » et « restauration » ne tournent pas ; les
+    images « avant » viennent d'une copie de travail détachée de ref_avant, sous les noms que lit le test ; le résumé
+    dit « migration de schéma : … » même quand le test n'a rien écrit."""
+    flux = lire(RACINE / ".github" / "workflows" / "image.yml")
+    entree = flux[flux.index("  workflow_dispatch:\n"):flux.index("  pull_request:\n")]
+    assert "      ref_avant:\n" in entree and entree.count('default: ""') == 2
+    travaux = _travaux_d_image_yml()
+    montee = travaux["montee"]
+    assert "    if: github.event_name == 'workflow_dispatch' && inputs.ref_avant != ''\n" in montee
+    for nom in ("image", "restauration"):
+        assert "    if: github.event_name != 'workflow_dispatch' || inputs.ref_avant == ''\n" in travaux[nom], nom
+    assert flux.count("${{ inputs.ref_avant }}") == 1 and "      REF_AVANT: ${{ inputs.ref_avant }}\n" in montee
+    assert "fetch-depth: 0" in montee and "timeout-minutes: 90" in montee
+    assert r'[[ "$REF_AVANT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || [[ "$REF_AVANT" == *..* ]]' in montee
+    assert montee.count("exit 2") == 3
+    assert 'git worktree add --detach "$ACP_RACINE_AVANT" "$avant"' in montee
+    test = lire(RACINE / "hermes" / "tests" / "contrat" / "test_montee_de_donnees.py")
+    for variable in ("ACP_IMAGE_TESTS_AVANT", "ACP_IMAGE_EXECUTANT_FACTICE_AVANT", "ACP_IMAGE_TESTS",
+                     "ACP_IMAGE_EXECUTANT_FACTICE", "ACP_RACINE_AVANT", "ACP_MONTEE_DOSSIER"):
+        assert f"      {variable}: " in montee and f'"{variable}"' in test, variable
+    assert '--build-arg IMAGE_ACP="$ACP_IMAGE_AVANT"' in montee and '-t "$ACP_IMAGE_TESTS_AVANT"' in montee
+    assert '-t "$ACP_IMAGE_EXECUTANT_FACTICE_AVANT" "$ACP_RACINE_AVANT"' in montee
+    resume = montee[montee.index("- name: Migration de schéma (résumé du job)"):]
+    assert resume.splitlines()[1].strip() == "if: always()"
+    assert '"$ACP_MONTEE_DOSSIER/resume.md"' in resume and "migration de schéma : inconnue" in resume
+    assert 'f"migration de schéma : {' in test
 
 
 def test_railway_en_lf():
