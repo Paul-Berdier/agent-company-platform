@@ -733,5 +733,6 @@ Ce tableau décrit l'état **réuni** de P7 (parties A à F, fusion `e2d210b` du
 
 Écarts au plan, assumés : les questions d'une discussion en terminal (`/chat`) ne sont pas dans la file (elles vivent
 dans le processus du PTY, limite de Hermes) ; Telegram n'est pas un canal de discussion avec Hermes en P7 (D105) ;
-aucune notification pour une discussion en attente (D104) ; la station Qt (P8) lit les mêmes routes mais n'ouvre pas
-encore le flux ni les gestes de P7.
+aucune notification pour une discussion en attente (D104) ; la station Qt (P8) lisait les mêmes routes sans le flux ni
+les gestes de P7 : l'étape P8b (8 octobre 2026) les lui donne ([desktop.md](desktop.md), § « P8b »), prouvés contre le
+faux Hermes de ses tests natifs seulement.

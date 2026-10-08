@@ -6,13 +6,14 @@ branche `refonte/hermes-p8`, partie de `refonte/hermes` (`b3faac0`, P0 à P5 fus
 inchangée.
 
 **Étape P8b (8 octobre 2026)** : station alignée sur P7, branche `refonte/hermes-p8b` (de
-`refonte/hermes` `b9779f1`, P0 à P8 et P7) ; voir § « P8b » plus bas. Poussée, sans PR ni
-fusion ; rien n'est déployé.
+`refonte/hermes` `b9779f1`, P0 à P8 et P7) ; voir § « P8b » plus bas, et ses corrections
+après relecture indépendante (constats desktop-1 à desktop-7). Poussée, sans PR ni fusion ;
+rien n'est déployé.
 
 Guides : [architecture](../native-desktop-architecture.md),
 [sécurité](../desktop-security.md), [construction et bout en bout](../desktop-build.md).
 Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste.md),
-§ 6 decies.
+§ 6 decies (P8) ; pour P8b, dans ce document (§ « P8b »).
 
 ## Ce qui est livré
 
@@ -142,7 +143,8 @@ refus lus dans le code du greffon (`dashboard/plugin_api.py`, `noyau/questions.p
 Décision **P8b-1** : un 401 du flux n'est jamais réessayé aussitôt ; la station passe en
 sondage et retente dans 5 min (la page web, elle, s'arrête et laisse sa lecture suivante
 rediriger vers la connexion ; la station n'a pas de page à recharger, et ses lectures REST
-font tourner le jeton ou perdent la session, ce qui ferme tout).
+font tourner le jeton ou perdent la session, ce qui ferme le flux et oublie le repli : la
+session suivante retente aussitôt).
 
 Preuves : 36 suites déclarées à CTest (34 avant P8b ; `tst_flux_invalidation` et
 `tst_discussions_attente` ajoutées), totaux Qt relevés à chaque morceau : 0 échec, 0 test
@@ -153,8 +155,40 @@ composition réelle, « Ouvrir la discussion »). Fixtures PARTAGÉES lues à le
 (`hermes/tests/outils/fixtures_accueil/accueil.json`, `fixtures_flux/trames.json`,
 `fixtures_poste/depots.json`) ; `desktop-ci.yml` se déclenche aussi sur elles. Chaque
 correction a son témoin de mutation (tests rouges relevés, puis code restauré). Desktop CI
-et CI vertes sur chaque tête poussée (identifiants dans le rapport de l'étape ; un run de
-`e65c1c1` annulé par le push suivant).
+et CI vertes sur chaque tête poussée, sauf la Desktop CI de `e65c1c1`, annulée par le push
+suivant :
+
+| Commit | Desktop CI | CI |
+|---|---|---|
+| `ab6d361` | `37797832083` | `37797832021` |
+| `e65c1c1` | `37799415760` (annulé) | `37799415793` |
+| `d8c1f0a` | `37800559798` | `37800559846` |
+| `114cc4e` | `37802314638` | `37802314574` |
+| `5c37c70` | `37803549317` | `37803549388` |
+| `7f42eaa` | `37826466749` | `37826466620` |
+| `13b86db` | `37829503009` | `37829503089` |
+| `eafa969` | `37831296270` (36 sur 36) | `37831296274` |
+| `787c979` | `37832722859` (36 sur 36) | `37832722925` |
+| `4e51efc` | `37833794335` (lancé à la main, 36 sur 36) | `37833112957` |
+| `2bce7b8` | `37839494684` (36 sur 36) | `37839494561` |
+| `9bec3e5` | `37841198696` (36 sur 36) | `37841198420` |
+
+### Corrections après la relecture de P8b (8 octobre 2026)
+
+Sept constats d'une relecture indépendante, chacun vérifié dans le code avant d'être
+corrigé. Chaque constat de code a un test écrit d'abord et relevé rouge sans la correction
+(construction incrémentale, puis témoin de mutation pour les cas que le premier échec
+masquait) ; suite complète ensuite : 36 suites, 0 échec, 0 test ignoré.
+
+| Constat | Traitement | Preuve |
+|---|---|---|
+| desktop-1 (moyenne) : un flux déjà ouvert restait ouvert, « Temps réel », après un verdict de `/v1/meta` bloquant le greffon (annonce inchangée) | `FluxInvalidation::setAnnonce` ferme le flux dès que le greffon est bloqué et le dit avec la raison du blocage ; rien ne se rouvre avant un verdict qui le lève | `tst_flux_invalidation` (`greffonBloqueFermeUnFluxOuvert`), `tst_oubli_local` (`fluxSuitLeVerdictApplique`, composition réelle) ; `2bce7b8` |
+| desktop-2 : le repli en sondage (401, trois échecs) survivait à la perte de session ; « Temps réel indisponible () » | `oublierRepli()` à la session perdue : la session neuve retente aussitôt ; un repli en cours redit sa raison | `tst_flux_invalidation` (`sessionNeuveOublieLeRepli`) ; `2bce7b8` |
+| desktop-3 : un `/v1/meta` injoignable publiait une évaluation vide (flux fermé, « /v1/meta n'a pas encore été lu ») | « Non vérifiable » garde le dernier verdict lu et ce qu'il a lu (annonce du flux, versions, disponibilités, heure de lecture) | `tst_compatibilite_hermes` (`injoignableGardeLeDernierVerdictLu`), `tst_oubli_local` ; `2bce7b8` |
+| desktop-4 : « Page relue toutes les 15 (ou 60) secondes » écrit en dur, faux en temps réel | propriété `cadence` de chaque page (sondage principal et état réel du flux), affichée à la place ; l'Accueil dit la cadence de chacune de ses lectures, comme `EtatActualisation` du navigateur | `tst_pages_interactions` (texte de la page Questions en temps réel, cadence des autres pages), `tst_pages_bureau` (texte affiché sur cinq pages) ; `9bec3e5` |
+| desktop-5 : le nom accessible de la pastille Questions disait toujours « (discussions non comptées) » | `Streams.descriptionATraiter` suit la lecture des discussions en attente | `tst_pages_interactions` (`pastilleDesQuestionsDitCeQuElleCompte`, nom lu sur la vraie barre de navigation), `tst_discussions_attente` ; `9bec3e5` |
+| desktop-6 : « Voies fermées : Aucune » quand aucun exécutant n'est connu (le greffon sert `{}`) | objet vide : rien n'est affiché, comme `CarteExecutant.tsx` ; autre forme : « Inconnu » | `tst_accueil` (`carteExecutant`) ; `9bec3e5` |
+| desktop-7 : documentation périmée (`desktop-build.md`, `questions.md`, commentaires de `meta.py`, identifiants renvoyés à un rapport hors du dépôt) | état des preuves et limites réécrits, bout en bout dit non rejoué sur P8b, identifiants des runs ci-dessus ; `autonomie.md` et l'architecture alignées aussi | ce document |
 
 ## Non prouvé
 
@@ -168,6 +202,8 @@ et CI vertes sur chaque tête poussée (identifiants dans le rapport de l'étape
   bilan quotidien contre un vrai greffon et un vrai Hermes ne sont pas prouvés.
 - Flux derrière le bord Railway (coupure avant 10 min, mise en tampon) et 401 du flux
   (décision P8b-1) : prouvés contre le faux Hermes seulement.
+- Cadence affichée par les pages et nom accessible de la pastille Questions : textes lus
+  sur les vraies pages QML hors écran ; aucun lecteur d'écran réel n'a été essayé.
 - Cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web (lues de
   `/v1/meta`) : non reprises par la station, qui montre la carte « Hermes ».
 - Discussions en attente : seules celles du processus du tableau de bord

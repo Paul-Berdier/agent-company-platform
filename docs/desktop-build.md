@@ -3,18 +3,24 @@
 Public : développeur du client natif C++23 / Qt 6 / Qt Quick (`apps/desktop`).
 Version du produit : `0.11.0` (fichier `VERSION` à la racine), refonte « Hermes au
 centre », étape **P8** : la station parle à Hermes (connexion native RFC 8252, porteur,
-JSON-RPC `/api/ws`, greffon `acp-poste`). État de ce document : 2 octobre 2026. Les
+JSON-RPC `/api/ws`, greffon `acp-poste`) ; étape **P8b** : alignée sur P7. État de ce
+document : 8 octobre 2026 (le bout en bout du § 12 date de P8, 2 octobre 2026). Les
 relevés de l'ancien client (0.10.0, ancienne API ACP) restent sous l'étiquette
 `archive/acp-0.10.0-avant-hermes`.
 
 ## État des preuves
 
-Sur la branche `refonte/hermes-p8b` : compilation Release (`/W4 /WX`) et **36 suites**
-déclarées à CTest (31 avant les corrections de la relecture de P8, 34 après, 36 depuis P8b), totaux Qt relevés sans échec ni test ignoré, localement et par la
-**Desktop CI** sur `windows-2022` (identifiants des runs dans
-[`reprise-poste.md`](reprise-poste.md), § 6 decies). Un **bout en bout local** contre la
-pile de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi (§ 12). Ni
-Railway, ni une vraie passkey, ni une installation sur un Windows propre ne sont prouvés.
+Sur la branche `refonte/hermes-p8b` (étape P8b, 8 octobre 2026) : compilation Release
+(`/W4 /WX`) et **36 suites** déclarées à CTest (31 avant les corrections de la relecture de
+P8, 34 après, 36 depuis P8b), totaux Qt relevés sans échec ni test ignoré, localement et par
+la **Desktop CI** sur `windows-2022` : run `37833794335` sur `4e51efc` (fin de P8b), puis
+runs `37839494684` sur `2bce7b8` et `37841198696` sur `9bec3e5` (corrections de la
+relecture de P8b), chacun 36 suites sur 36 ; tous les runs de P8b sont listés dans
+[`refonte/desktop.md`](refonte/desktop.md), § « P8b ». Ceux de P8 (34 suites) sont dans
+[`reprise-poste.md`](reprise-poste.md), § 6 decies. Le **bout en bout local** contre la pile
+de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi pour **P8**, le
+2 octobre 2026 (§ 12) ; il n'a **pas été rejoué** sur P8b (§ 11, point 5). Ni Railway, ni
+une vraie passkey, ni une installation sur un Windows propre ne sont prouvés.
 
 ## 1. Prérequis
 
@@ -242,8 +248,9 @@ Premiers contrôles historiques du 18 septembre 2026, avant installation des out
 
 Depuis ce premier relevé, CMake, CTest, `windeployqt` et Inno Setup ont été
 exécutés, en local et en CI. Pour P8 : la suite complète (34 suites) et le bout en bout
-local (§ 12). `signtool` avec un certificat de production, l'installation sur un
-Windows propre et Railway restent non prouvés.
+local (§ 12). Pour P8b : la suite complète (36 suites), en construction incrémentale
+locale et en Desktop CI ; pas de bout en bout. `signtool` avec un certificat de
+production, l'installation sur un Windows propre et Railway restent non prouvés.
 
 Pour diagnostiquer un test Qt silencieux sur ce poste, lancer son exécutable avec
 `-o <rapport-absolu>,txt` et lire le rapport. Les exécutables résident directement
@@ -281,11 +288,17 @@ elles ne bénéficient pas de la maintenance d'un CRT installé centralement.
    risque sans le supprimer.
 4. Les préréglages MSVC actuels utilisent Ninja. Leur contrat, le filtre CTest et
    les chemins doivent rester cohérents si ce générateur change.
+5. Le bout en bout local du § 12 date de l'étape P8 (2 octobre 2026, images `:p8` et
+   `:rv8p6`). Il n'a pas été rejoué sur P8b (aucune commande Docker sur ce chantier) :
+   le flux d'invalidation réel derrière uvicorn, la relance, la clôture, les revues, les
+   discussions en attente et le bilan quotidien ne sont prouvés que contre le faux Hermes
+   des tests natifs et les fixtures partagées avec le greffon.
 
 ## 12. Bout en bout local (jamais en CI)
 
 Les exécuteurs Windows de GitHub ne font pas tourner de conteneurs Linux : ce parcours se
-lance sur un poste avec Docker Desktop, contre la pile de test des greffons.
+lance sur un poste avec Docker Desktop, contre la pile de test des greffons. Dernier
+relevé : étape P8 (2 octobre 2026) ; non rejoué sur P8b (§ 11, point 5).
 
 ```powershell
 docker build -f hermes/image/Dockerfile -t acp-hermes:p8 hermes

@@ -114,7 +114,11 @@ d'invalidation du greffon (`GET /v1/flux`) quand `/v1/meta` l'annonce : chaque p
 (`Sondage::suivre`) se relit au signal de SES sujets (les mêmes que la page web), regroupé
 sur 300 ms, et ne garde en temps réel qu'une relecture de sûreté (2 min) ; hors temps réel,
 son sondage habituel (15 s). Chien de garde de 40 s, reprise avec `Last-Event-ID`, repli
-en sondage après trois échecs en 2 min, nouvel essai toutes les 5 min.
+en sondage après trois échecs en 2 min, nouvel essai toutes les 5 min ; la perte de session
+oublie ce repli. Le flux suit le verdict APPLIQUÉ de `/v1/meta` : un verdict qui bloque le
+greffon le ferme, même déjà ouvert ; un `/v1/meta` injoignable garde le dernier verdict lu,
+et le flux. Chaque page affiche sa cadence réelle (propriété `cadence` de son ViewModel),
+jamais une cadence écrite en dur.
 
 ## Pages
 
@@ -162,7 +166,8 @@ dit que le fichier chiffré est lié au profil Windows.
   passkey virtuelle, rotation, discussion JSON-RPC, projet lancé et **question répondue
   depuis la station**, veille du kanban, sauvegarde, reprise de session au redémarrage,
   déconnexion, hygiène, et forme des documents de référence comparée à l'image. Détail et
-  chiffres : [`docs/desktop-build.md`](desktop-build.md), § 12.
+  chiffres : [`docs/desktop-build.md`](desktop-build.md), § 12. Relevé de P8 (2 octobre
+  2026), non rejoué sur P8b.
 
 ## Limites connues
 
