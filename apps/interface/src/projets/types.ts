@@ -19,6 +19,8 @@ export interface EtatPoste {
   pause_reclamations?: boolean;
   source?: string | null;
   message?: string | null;
+  /** Machine enregistrée (vue du greffon), dont l'hôte publié par l'inventaire ; null sans machine. */
+  poste?: { hote?: string | null; plateforme?: string | null; nom?: string | null } | null;
 }
 
 export interface EtatNotifications {
@@ -112,6 +114,8 @@ export interface QuestionDuProjet {
   etat?: string;
   texte?: string;
   carte_repondre?: string | null;
+  /** Relecture finale de P7 : qui répond (règle unique du greffon), comme dans la file. */
+  chez?: string;
 }
 
 export interface EntreeJournal {

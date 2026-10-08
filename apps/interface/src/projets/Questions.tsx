@@ -105,7 +105,7 @@ function AnnonceSection(props: { annonce: Annonce | null }): Noeud {
       {annonce.statut ? (
         <span>
           {" "}
-          <span>{T.projets.statutApres}</span> <Donnee valeur={annonce.statut} mono />
+          <span>{T.projets.statutApres}</span> <Etiquette libelle={libelleStatut(annonce.statut)} brut={annonce.statut} />
         </span>
       ) : null}
     </p>
@@ -194,7 +194,7 @@ function Question(props: { question: QuestionOuverte; cible: boolean } & Gestes)
           <LienProjet id={question.projet} titre={question.projet_titre} naviguer={props.naviguer} />
         </Ligne>
         <Ligne libelle={T.projets.etat}>
-          <Etiquette libelle={libelleEtatQuestion(question.etat)} brut={question.etat} />
+          <Etiquette libelle={libelleEtatQuestion(question.etat, question.chez)} brut={question.etat} />
         </Ligne>
         <Ligne libelle={T.projets.quiRepondQuestion}>
           <QuiRepond question={question} />

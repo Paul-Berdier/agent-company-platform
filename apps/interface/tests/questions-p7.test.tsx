@@ -307,7 +307,8 @@ describe("cartes arrêtées : Relancer", () => {
     await soumettre(r.racine.querySelector("#acp-relance-t_5e6f7a8b")?.closest("form"));
     expect(ecritures(installation)).toEqual([["POST", route, { consigne: "Rétablis l'effort medium." }]]);
     expect(texteDe(section)).toContain(
-      "La carte repart : l'agent reprend d'une session neuve, sur la branche déjà commencée. Statut : ready");
+      "La carte repart : l'agent reprend d'une session neuve, sur la branche déjà commencée. Statut : Prête");
+    expect(texteDe(section)).not.toContain("ready");  // constat produit-6 : jamais le code kanban brut
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
     r.demonter();
   });
@@ -355,7 +356,7 @@ describe("cartes arrêtées : Relancer", () => {
     await attendre();
     await cliquer(boutons(r.racine).get("Relancer"));
     expect(ecritures(installation)).toEqual([["POST", route, { consigne: null }]]);
-    expect(r.texte()).toContain("La carte n'a pas été relancée. Statut : blocked");
+    expect(r.texte()).toContain("La carte n'a pas été relancée. Statut : Bloquée");
     r.demonter();
   });
 });
@@ -418,6 +419,79 @@ describe("discussions en attente (JSON-RPC natif, lecture seule)", () => {
   });
 });
 
+// Relecture finale de P7 : libellés cohérents d'une page à l'autre, jamais un code brut (constats produit-7, produit-9,
+// produit-10, produit-11).
+describe("libellés de la file, du détail et de la liste", () => {
+  it("les sections de la file portent les noms de l'Accueil (produit-9)", async () => {
+    aller("?vue=questions");
+    installerSdk({ [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: QUESTIONS });
+    const r = await rendre(<Projets />);
+    await attendre();
+    const titres = ["#acp-questions-ouvertes", "#acp-questions-triage", "#acp-questions-revues",
+                    "#acp-questions-bloquees"].map((id) => texteDe(r.racine.querySelector(id)));
+    expect(titres).toEqual(["Questions", "Décisions", "Revues", "Cartes arrêtées"]);
+    r.demonter();
+  });
+
+  it("une question ouverte sans carte « répondre » est dite « à vous » partout (produit-11)", async () => {
+    aller("?vue=questions");
+    const [q] = QUESTIONS.questions;
+    const ouverte = { ...q, etat: "ouverte", carte_repondre: null, chez: "proprietaire", motif_escalade: null };
+    installerSdk({ [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: { ...QUESTIONS, questions: [ouverte] } });
+    const r = await rendre(<Projets />);
+    await attendre();
+    const entree = texteDe(r.racine.querySelector("#acp-questions-ouvertes")?.parentElement);
+    expect(entree).toContain("ÉtatVotre réponse est attendue");
+    expect(entree).not.toContain("Hermes cherche la réponse");
+    r.demonter();
+    aller(`?projet=${DETAIL.projet.id}`);
+    const detail = { projet: { ...DETAIL.projet, questions_ouvertes: [
+      { id: "q_b627a3c245ec", carte: "t_7aa28f61", etat: "ouverte", texte: "Quelle version de Python viser ?",
+        carte_repondre: null, chez: "proprietaire" }] } };
+    installerSdk({ [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: QUESTIONS, [routeProjet(DETAIL.projet.id)]: detail });
+    const r2 = await rendre(<Projets />);
+    await attendre();
+    expect(texteDe(r2.racine.querySelector("#acp-projet-questions")?.parentElement)).toContain("Votre réponse est attendue");
+    r2.demonter();
+  });
+
+  it("le journal du projet dit en français les actions de P6 et de P7 (produit-7)", async () => {
+    aller(`?projet=${DETAIL.projet.id}`);
+    const actions = ["relance", "reglage_reponses", "cloture", "revue_acceptee", "revue_refusee", "integration",
+                     "carte_servie", "carte_bloquee", "carte_bloquee_ecart", "carte_non_construite", "carte_voie_fermee",
+                     "carte_etrangere_bloquee", "attente_quota_levee"];
+    const journal = actions.map((action, rang) => ({ quand: 1790423039 + rang, acteur: "acp-poste", action,
+                                                     cible: "t_7aa28f61", detail: null }));
+    installerSdk({ [ROUTE_PROJETS]: LISTE, [ROUTE_QUESTIONS]: QUESTIONS,
+                   [routeProjet(DETAIL.projet.id)]: { projet: { ...DETAIL.projet, journal } } });
+    const r = await rendre(<Projets />);
+    await attendre();
+    const bloc = r.racine.querySelector("#acp-projet-journal")?.parentElement;
+    const textes = texteDe(bloc);
+    for (const action of actions) expect(textes, action).not.toContain(action);
+    for (const libelle of ["Carte relancée", "Qui répond changé", "Projet clos", "Revue acceptée", "Revue refusée",
+                           "Intégration demandée", "Carte servie à l'exécutant", "Carte bloquée par l'exécutant"]) {
+      expect(textes).toContain(libelle);
+    }
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    r.demonter();
+  });
+
+  it("la carte de la machine dit « Exécutant Railway », « Poste Windows » ou « Exécutant », jamais à tort (produit-10)",
+     async () => {
+    for (const [poste, titre] of [[{ hote: "railway", plateforme: "linux" }, "Exécutant Railway"],
+                                  [{ hote: "pc", plateforme: "windows" }, "Poste Windows"],
+                                  [null, "Exécutant"]] as const) {
+      aller("");
+      installerSdk({ [ROUTE_PROJETS]: { ...LISTE, poste: { ...LISTE.poste, poste } }, [ROUTE_QUESTIONS]: QUESTIONS });
+      const r = await rendre(<Projets />);
+      await attendre();
+      expect(texteDe(r.racine.querySelector("#acp-projets-poste"))).toBe(titre);
+      r.demonter();
+    }
+  });
+});
+
 describe("détail : « Qui répond » et « Clore le projet »", () => {
   it("« Qui répond » ne change qu'après la réponse de l'API, et dit les questions ouvertes non touchées", async () => {
     aller(`?projet=${DETAIL.projet.id}`);
@@ -434,7 +508,8 @@ describe("détail : « Qui répond » et « Clore le projet »", () => {
     const choix = r.racine.querySelector("#acp-projet-qui-repond") as HTMLSelectElement;
     expect(choix.value).toBe("proprietaire");
     await saisir(choix, "hermes_d_abord");
-    expect(r.texte()).toContain("Qui répondMoi");  // rien ne change avant la réponse (dt puis dd)
+    // Rien ne change avant la réponse (dt puis dd) ; le réglage se lit « Vous », comme dans la file (constat produit-9).
+    expect(r.texte()).toContain("Qui répondVous");
     reponses[routeProjet(DETAIL.projet.id)] = { projet: { ...DETAIL.projet, reponses: "hermes_d_abord" } };
     await soumettre(choix.closest("form"));
     expect(ecritures(installation)).toEqual([["POST", routeReponsesProjet(DETAIL.projet.id), { reponses: "hermes_d_abord" }]]);

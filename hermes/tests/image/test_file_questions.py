@@ -55,6 +55,22 @@ def test_question_ouverte_sans_carte_repondre_est_a_vous(noyau, conn):
     assert file["compteurs"]["chez_hermes"] == 0
 
 
+def test_detail_du_projet_dit_qui_repond(noyau, conn):
+    """Relecture finale de P7 (constat produit-11) : le détail d'un projet ne servait que l'état ; une question
+    « ouverte » sans carte « répondre » s'y lisait « Hermes cherche la réponse » alors que la règle unique la dit « à
+    vous ». Le détail sert ``chez``, calculé par la MÊME règle que la file."""
+    projet, q = _question(noyau, conn)
+    fiche = noyau.projets.projet(conn, projet["id"])
+    [avant] = noyau.projets.etat(conn, fiche)["questions_ouvertes"]
+    assert (avant["etat"], avant["chez"]) == ("ouverte", "hermes")
+    with noyau.base.transaction(conn):
+        conn.execute("UPDATE questions SET carte_repondre = NULL WHERE id = ?", (q["question"],))
+    [apres] = noyau.projets.etat(conn, fiche)["questions_ouvertes"]
+    assert (apres["etat"], apres["chez"]) == ("ouverte", "proprietaire")
+    [ligne] = noyau.questions.file_questions(conn)["questions"]
+    assert ligne["chez"] == apres["chez"]
+
+
 def test_chez_ne_depend_pas_du_reglage_courant(noyau, conn):
     projet, q = _question(noyau, conn)
     noyau.projets.changer_reponses(conn, projet["id"], reponses="proprietaire", auteur="proprietaire:test")

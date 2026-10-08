@@ -222,6 +222,9 @@
       termineLe: "Termin\xE9",
       etat: "\xC9tat",
       posteTitre: "Poste Windows",
+      // Relecture finale de P7 (constat produit-10) : titre d'après l'hôte publié par la machine, jamais « Windows » à tort.
+      posteTitreExecutant: "Ex\xE9cutant Railway",
+      posteTitreNeutre: "Ex\xE9cutant",
       machine: "Machine",
       derniereVue: "Vu pour la derni\xE8re fois",
       cartesEnAttente: "Cartes du poste en attente",
@@ -257,6 +260,8 @@
       reponsesHermes: "Hermes d'abord",
       reponsesHermesAide: "Hermes r\xE9pond s'il le peut \xE0 partir de l'objectif et des d\xE9cisions du projet\xA0; sinon, il vous transmet la question.",
       reponsesProprietaire: "Moi",
+      // Le réglage se LIT « Vous » (détail du projet), comme « À vous » dans la file ; « Moi » reste le choix du formulaire.
+      reponsesVous: "Vous",
       reponsesProprietaireAide: "Chaque question vous est transmise directement.",
       reponsesSansObjet: "Sans objet sans d\xE9p\xF4t\xA0: aucune question ne na\xEEt d'un projet sans d\xE9p\xF4t\xA0; s'il manque une information, Hermes bloque une carte avec sa raison (page Questions, cartes bloqu\xE9es).",
       champDepot: "D\xE9p\xF4t",
@@ -317,7 +322,8 @@
       journal: "Journal",
       journalVide: "Journal vide.",
       journalOuvrir: "Entr\xE9es du journal",
-      questionsTitre: "Questions ouvertes",
+      // Relecture finale de P7 (constat produit-9) : les titres des sections de la file sont ceux de l'Accueil et de la doc.
+      questionsTitre: "Questions",
       aucuneQuestion: "Aucune question en attente.",
       projet: "Projet",
       motifEscalade: "Motif",
@@ -329,7 +335,7 @@
       reponseSansReprise: "R\xE9ponse enregistr\xE9e\xA0; la carte n'a pas \xE9t\xE9 relanc\xE9e (voir le kanban de Hermes).",
       contexte: "Contexte",
       carteDeLaQuestion: "Carte",
-      triageTitre: "Cartes en triage",
+      triageTitre: "D\xE9cisions",
       aucunTriage: "Aucune carte en triage.",
       consigne: "Consigne (facultative)",
       reprendreCarte: "Reprendre",
@@ -347,7 +353,7 @@
       relanceFaite: "Planification relanc\xE9e\xA0: Hermes planifie avec votre consigne.",
       conclusionFaite: "Projet conclu.",
       noteTronquee: "Extrait\xA0; le d\xE9tail du projet donne les r\xE9sum\xE9s en entier.",
-      revuesTitre: "Revues des fichiers de pilotage",
+      revuesTitre: "Revues",
       revuesIntro: "Une carte de l'ex\xE9cutant a modifi\xE9 des fichiers qui pilotent les agents (CLAUDE.md, AGENTS.md, .github\u2026). Acceptez-la, ou refusez-la avec un motif\xA0: elle revient alors \xE0 l'ex\xE9cutant, qui retire la modification.",
       aucuneRevue: "Aucune carte en revue.",
       chemins: "Fichiers de pilotage touch\xE9s",
@@ -362,7 +368,7 @@
       motifRefus: "Motif du refus",
       revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
       revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
-      bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
+      bloqueesTitre: "Cartes arr\xEAt\xE9es",
       // Étape P7 : file Questions, « Qui répond », « Clore » (cahier P7 § 3, § 4.2, § 10).
       fileTitre: "\xC0 traiter",
       aTraiterParVous: "\xC0 traiter par vous",
@@ -493,7 +499,21 @@
         termine: "Projet termin\xE9",
         reparation: "Cr\xE9ation r\xE9par\xE9e",
         surcharge: "Surcharge de routage",
-        correction: "Correction ins\xE9r\xE9e"
+        correction: "Correction ins\xE9r\xE9e",
+        // Relecture finale de P7 (constat produit-7) : actions de P6 et de P7 journalisées avec le projet.
+        relance: "Carte relanc\xE9e",
+        reglage_reponses: "Qui r\xE9pond chang\xE9",
+        cloture: "Projet clos",
+        revue_acceptee: "Revue accept\xE9e",
+        revue_refusee: "Revue refus\xE9e",
+        integration: "Int\xE9gration demand\xE9e",
+        carte_servie: "Carte servie \xE0 l'ex\xE9cutant",
+        carte_bloquee: "Carte bloqu\xE9e par l'ex\xE9cutant",
+        carte_bloquee_ecart: "Carte bloqu\xE9e\xA0: demande hors de la politique de l'ex\xE9cutant",
+        carte_non_construite: "Carte non construite pour l'ex\xE9cutant",
+        carte_voie_fermee: "Carte bloqu\xE9e\xA0: voie ferm\xE9e",
+        carte_etrangere_bloquee: "Carte \xE9trang\xE8re bloqu\xE9e",
+        attente_quota_levee: "Attente de quota lev\xE9e"
       },
       acteursJournal: {
         vous: "Vous",
@@ -2045,8 +2065,9 @@
         return null;
     }
   }
-  function libelleEtatQuestion(etat) {
+  function libelleEtatQuestion(etat, chez) {
     const q = T.projets.etatsQuestion;
+    if (etat === "ouverte" && chez === "proprietaire") return L(q.escaladee, "degrade");
     if (etat === "ouverte") return L(q.ouverte, "actif");
     if (etat === "escaladee") return L(q.escaladee, "degrade");
     return null;
@@ -2096,7 +2117,7 @@
   }
   function libelleReponses(reponses) {
     if (reponses === "hermes_d_abord") return T.projets.reponsesHermes;
-    if (reponses === "proprietaire") return T.projets.reponsesProprietaire;
+    if (reponses === "proprietaire") return T.projets.reponsesVous;
     return null;
   }
   function libelleCanal(canal) {
@@ -2339,9 +2360,15 @@
     const questions = entier(projet.questions_ouvertes);
     return /* @__PURE__ */ h("li", { className: "acp-entree acp-projet" }, /* @__PURE__ */ h("h3", { className: "acp-entree__nom" }, id ? /* @__PURE__ */ h(LienVue, { vue: { genre: "detail", id }, naviguer: props.naviguer, className: "acp-lien acp-lien--titre" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(projet.titre) })) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(projet.titre) })), /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatProjet(projet.etat, projet.etat_derive), brut: projet.etat }), questions !== null && questions > 0 ? /* @__PURE__ */ h("span", { className: "acp-pastille acp-pastille--degrade" }, /* @__PURE__ */ h("span", null, T.projets.questionsEnAttente), " ", /* @__PURE__ */ h(Donnee, { valeur: questions })) : null), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.cartesFaites }, /* @__PURE__ */ h(Avancement, { faites: compteurs.faites, total: compteurs.total })), entier(compteurs.en_attente_du_poste) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.enAttenteDuPoste }, /* @__PURE__ */ h(Donnee, { valeur: nombre(compteurs.en_attente_du_poste) })) : null, entier(compteurs.bloquees) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.bloquees }, /* @__PURE__ */ h(Donnee, { valeur: nombre(compteurs.bloquees) })) : null, entier(compteurs.triage) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.enTriage }, /* @__PURE__ */ h(Donnee, { valeur: nombre(compteurs.triage) })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.poste }, /* @__PURE__ */ h(EtatDuPoste, { poste: props.poste })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.derniereNote }, /* @__PURE__ */ h(DerniereNote, { projet })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.creeLe }, /* @__PURE__ */ h(Horodatage, { valeur: projet.cree_le, relative: true }))));
   }
+  function titreDeLaMachine(poste) {
+    const hote = poste?.poste?.hote;
+    if (hote === "railway") return T.projets.posteTitreExecutant;
+    if (hote === "pc") return T.projets.posteTitre;
+    return T.projets.posteTitreNeutre;
+  }
   function CartePoste(props) {
     const poste = props.poste;
-    return /* @__PURE__ */ h(Carte, { titre: T.projets.posteTitre, id: "acp-projets-poste" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(EtatDuPoste, { poste })), chaine2(poste?.machine) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.machine }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.machine), mono: true })) : null, poste?.derniere_vue ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.derniereVue }, /* @__PURE__ */ h(Horodatage, { valeur: poste.derniere_vue })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.cartesEnAttente }, /* @__PURE__ */ h(Donnee, { valeur: nombre(poste?.cartes_en_attente) }))), chaine2(poste?.message) ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.message) })) : null);
+    return /* @__PURE__ */ h(Carte, { titre: titreDeLaMachine(poste), id: "acp-projets-poste" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(EtatDuPoste, { poste })), chaine2(poste?.machine) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.machine }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.machine), mono: true })) : null, poste?.derniere_vue ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.derniereVue }, /* @__PURE__ */ h(Horodatage, { valeur: poste.derniere_vue })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.cartesEnAttente }, /* @__PURE__ */ h(Donnee, { valeur: nombre(poste?.cartes_en_attente) }))), chaine2(poste?.message) ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(poste?.message) })) : null);
   }
   function ListeProjets(props) {
     const { donnees } = props;
@@ -2497,7 +2524,7 @@
   function QuestionsDuProjet(props) {
     const questions = Array.isArray(props.projet.questions_ouvertes) ? props.projet.questions_ouvertes : [];
     if (questions.length === 0) return null;
-    return /* @__PURE__ */ h(Carte, { titre: T.projets.questionsEnAttente, id: "acp-projet-questions" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, questions.map((q, rang) => /* @__PURE__ */ h("li", { key: chaine2(q.id) ?? String(rang), className: "acp-question-courte" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(q.etat), brut: q.etat }), /* @__PURE__ */ h("p", { className: "acp-texte-long" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(q.texte) }))))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(LienVue, { vue: { genre: "questions" }, naviguer: props.naviguer }, T.projets.voirQuestions)));
+    return /* @__PURE__ */ h(Carte, { titre: T.projets.questionsEnAttente, id: "acp-projet-questions" }, /* @__PURE__ */ h("ul", { className: "acp-noms" }, questions.map((q, rang) => /* @__PURE__ */ h("li", { key: chaine2(q.id) ?? String(rang), className: "acp-question-courte" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(q.etat, q.chez), brut: q.etat }), /* @__PURE__ */ h("p", { className: "acp-texte-long" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(q.texte) }))))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(LienVue, { vue: { genre: "questions" }, naviguer: props.naviguer }, T.projets.voirQuestions)));
   }
   function Journal(props) {
     const journal = Array.isArray(props.projet.journal) ? props.projet.journal : [];
@@ -2720,7 +2747,7 @@
   function AnnonceSection(props) {
     const { annonce } = props;
     if (!annonce) return null;
-    return /* @__PURE__ */ h("p", { className: annonce.alerte ? "acp-alerte-texte" : "acp-succes", role: "status" }, /* @__PURE__ */ h("span", null, annonce.texte), annonce.statut ? /* @__PURE__ */ h("span", null, " ", /* @__PURE__ */ h("span", null, T.projets.statutApres), " ", /* @__PURE__ */ h(Donnee, { valeur: annonce.statut, mono: true })) : null);
+    return /* @__PURE__ */ h("p", { className: annonce.alerte ? "acp-alerte-texte" : "acp-succes", role: "status" }, /* @__PURE__ */ h("span", null, annonce.texte), annonce.statut ? /* @__PURE__ */ h("span", null, " ", /* @__PURE__ */ h("span", null, T.projets.statutApres), " ", /* @__PURE__ */ h(Etiquette, { libelle: libelleStatut(annonce.statut), brut: annonce.statut })) : null);
   }
   function messageReponse(resultat) {
     if (resultat?.reprise_differee === true) return T.projets.reponseDifferee;
@@ -2768,7 +2795,7 @@
         props.apres();
       }
     };
-    return /* @__PURE__ */ h(Entree, { cible: props.cible, classe: "acp-question" }, /* @__PURE__ */ h("p", { className: "acp-question__texte" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.texte) })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: question.projet, titre: question.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(question.etat), brut: question.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.quiRepondQuestion }, /* @__PURE__ */ h(QuiRepond, { question })), chaine2(question.contexte) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.contexte }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.contexte) })) : null, chaine2(question.motif_escalade) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.motifEscalade }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.motif_escalade) })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.carteDeLaQuestion }, chaine2(question.carte_titre) ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte_titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true }))) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.poseeLe }, /* @__PURE__ */ h(Horodatage, { valeur: question.cree_le, relative: true }))), question.chez === "hermes" ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.chezHermesAide) : null, id ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void repondre(e) }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.votreReponse), /* @__PURE__ */ h(
+    return /* @__PURE__ */ h(Entree, { cible: props.cible, classe: "acp-question" }, /* @__PURE__ */ h("p", { className: "acp-question__texte" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.texte) })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.projets.projet }, /* @__PURE__ */ h(LienProjet, { id: question.projet, titre: question.projet_titre, naviguer: props.naviguer })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.etat }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuestion(question.etat, question.chez), brut: question.etat })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.quiRepondQuestion }, /* @__PURE__ */ h(QuiRepond, { question })), chaine2(question.contexte) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.contexte }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.contexte) })) : null, chaine2(question.motif_escalade) ? /* @__PURE__ */ h(Ligne, { libelle: T.projets.motifEscalade }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.motif_escalade) })) : null, /* @__PURE__ */ h(Ligne, { libelle: T.projets.carteDeLaQuestion }, chaine2(question.carte_titre) ? /* @__PURE__ */ h("span", null, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte_titre) }), " ", /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true }))) : /* @__PURE__ */ h(Donnee, { valeur: chaine2(question.carte), mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.projets.poseeLe }, /* @__PURE__ */ h(Horodatage, { valeur: question.cree_le, relative: true }))), question.chez === "hermes" ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.projets.chezHermesAide) : null, id ? /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: (e) => void repondre(e) }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: champ }, T.projets.votreReponse), /* @__PURE__ */ h(
       "textarea",
       {
         id: champ,

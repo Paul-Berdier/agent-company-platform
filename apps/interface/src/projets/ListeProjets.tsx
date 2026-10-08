@@ -104,10 +104,19 @@ function CarteDeProjet(props: { projet: ResumeProjet; poste: EtatPoste | undefin
   );
 }
 
+/** Titre de la carte de la machine d'après l'hôte publié (relecture finale de P7, constat produit-10) : « Exécutant
+ *  Railway », « Poste Windows », ou « Exécutant » quand rien n'est publié — jamais « Windows » pour une machine Linux. */
+export function titreDeLaMachine(poste: EtatPoste | undefined): string {
+  const hote = poste?.poste?.hote;
+  if (hote === "railway") return T.projets.posteTitreExecutant;
+  if (hote === "pc") return T.projets.posteTitre;
+  return T.projets.posteTitreNeutre;
+}
+
 function CartePoste(props: { poste: EtatPoste | undefined }): Noeud {
   const poste = props.poste;
   return (
-    <Carte titre={T.projets.posteTitre} id="acp-projets-poste">
+    <Carte titre={titreDeLaMachine(poste)} id="acp-projets-poste">
       <dl className="acp-liste">
         <Ligne libelle={T.projets.etat}>
           <EtatDuPoste poste={poste} />

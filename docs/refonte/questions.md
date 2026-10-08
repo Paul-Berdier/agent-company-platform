@@ -41,11 +41,16 @@ est marqué **sur Railway seulement** ou **non prouvé**.
 | 4. **Cartes arrêtées** | cartes `blocked`, dont abandonnées (`gave_up`) | **Relancer** (consigne facultative) ou la raison du refus | idem |
 | 5. **Discussions en attente** | sessions du JSON-RPC natif `/api/ws` au statut `waiting` | **Ouvrir la discussion** (`/discussion?session=<clé>`) | — |
 
-En tête de la file : **À traiter par vous : n** et **Chez Hermes : m**.
+En tête de la file : **À traiter par vous : n** et **Chez Hermes : m**. Les noms ci-dessus sont les titres des
+sections de la page comme les lignes de l'Accueil (relecture finale de P7 : la page disait « Cartes en triage »,
+« Revues des fichiers de pilotage », « Cartes bloquées ou abandonnées »).
 
 - **Règle unique « chez »** (correction K6 du cahier) : une question est **chez Hermes** si elle est `ouverte` **et**
   que sa carte « répondre » existe ; sinon elle est **à vous** (escaladée, ou carte « répondre » jamais créée). Jamais
-  d'après le réglage courant du projet : une question ouverte garde son traitement quand le réglage change (§ 3).
+  d'après le réglage courant du projet : une question ouverte garde son traitement quand le réglage change (§ 3). Le
+  détail d'un projet sert aussi `chez` (relecture finale de P7) : une question ouverte « à vous » se lit « Votre
+  réponse est attendue » dans la file comme dans le détail, jamais « Hermes cherche la réponse » ; le réglage du
+  projet se lit « Vous » (« Moi » reste le choix du formulaire).
 - **« À traiter par vous »** = questions à vous + décisions + revues + cartes arrêtées (compteurs servis par le
   greffon, `compteurs` de `GET /v1/questions`), **plus** les discussions en attente quand elles ont pu être lues.
   Sinon la page dit « discussions : état inconnu » : jamais zéro. L'Accueil fait de même (total suivi de « discussions
@@ -108,7 +113,8 @@ triage au second blocage). Journal `relance` ; **aucune notification** (c'est vo
   disent ce que vous pouvez réellement faire — relancer (utile après un échec passager), récupérer les branches sur
   l'exécutant (`git bundle`) pour trancher vous-même, ou clôturer le projet.
 - Réponse : `{"carte", "relancee", "statut_apres", "session_neuve"}` ; la page dit « La carte repart » ou « La carte
-  n'a pas été relancée (statut : …) » d'après cette réponse seulement.
+  n'a pas été relancée (statut : …) » d'après cette réponse seulement ; le statut est traduit (« Prête », « Bloquée »),
+  jamais le code kanban brut (relecture finale de P7).
 
 **Relance après un secret (D111, D114 ; [executant.md](executant.md) § 16.3).** Une carte bloquée parce qu'un secret a
 été trouvé dans son travail a sa branche renommée `quarantaine/<carte>`. L'exécutant de la partie E ne reprend plus

@@ -342,7 +342,7 @@ describe("Projets : détail", () => {
       "0 sur 3",
       "2 sur 30",
       "jetable",
-      "Moi",
+      "Qui répondVous",  // relecture finale de P7 (produit-9) : le réglage se lit « Vous »
       "Non configuré",
       "la page Projets",
       "Planification",

@@ -222,6 +222,9 @@
       termineLe: "Termin\xE9",
       etat: "\xC9tat",
       posteTitre: "Poste Windows",
+      // Relecture finale de P7 (constat produit-10) : titre d'après l'hôte publié par la machine, jamais « Windows » à tort.
+      posteTitreExecutant: "Ex\xE9cutant Railway",
+      posteTitreNeutre: "Ex\xE9cutant",
       machine: "Machine",
       derniereVue: "Vu pour la derni\xE8re fois",
       cartesEnAttente: "Cartes du poste en attente",
@@ -257,6 +260,8 @@
       reponsesHermes: "Hermes d'abord",
       reponsesHermesAide: "Hermes r\xE9pond s'il le peut \xE0 partir de l'objectif et des d\xE9cisions du projet\xA0; sinon, il vous transmet la question.",
       reponsesProprietaire: "Moi",
+      // Le réglage se LIT « Vous » (détail du projet), comme « À vous » dans la file ; « Moi » reste le choix du formulaire.
+      reponsesVous: "Vous",
       reponsesProprietaireAide: "Chaque question vous est transmise directement.",
       reponsesSansObjet: "Sans objet sans d\xE9p\xF4t\xA0: aucune question ne na\xEEt d'un projet sans d\xE9p\xF4t\xA0; s'il manque une information, Hermes bloque une carte avec sa raison (page Questions, cartes bloqu\xE9es).",
       champDepot: "D\xE9p\xF4t",
@@ -317,7 +322,8 @@
       journal: "Journal",
       journalVide: "Journal vide.",
       journalOuvrir: "Entr\xE9es du journal",
-      questionsTitre: "Questions ouvertes",
+      // Relecture finale de P7 (constat produit-9) : les titres des sections de la file sont ceux de l'Accueil et de la doc.
+      questionsTitre: "Questions",
       aucuneQuestion: "Aucune question en attente.",
       projet: "Projet",
       motifEscalade: "Motif",
@@ -329,7 +335,7 @@
       reponseSansReprise: "R\xE9ponse enregistr\xE9e\xA0; la carte n'a pas \xE9t\xE9 relanc\xE9e (voir le kanban de Hermes).",
       contexte: "Contexte",
       carteDeLaQuestion: "Carte",
-      triageTitre: "Cartes en triage",
+      triageTitre: "D\xE9cisions",
       aucunTriage: "Aucune carte en triage.",
       consigne: "Consigne (facultative)",
       reprendreCarte: "Reprendre",
@@ -347,7 +353,7 @@
       relanceFaite: "Planification relanc\xE9e\xA0: Hermes planifie avec votre consigne.",
       conclusionFaite: "Projet conclu.",
       noteTronquee: "Extrait\xA0; le d\xE9tail du projet donne les r\xE9sum\xE9s en entier.",
-      revuesTitre: "Revues des fichiers de pilotage",
+      revuesTitre: "Revues",
       revuesIntro: "Une carte de l'ex\xE9cutant a modifi\xE9 des fichiers qui pilotent les agents (CLAUDE.md, AGENTS.md, .github\u2026). Acceptez-la, ou refusez-la avec un motif\xA0: elle revient alors \xE0 l'ex\xE9cutant, qui retire la modification.",
       aucuneRevue: "Aucune carte en revue.",
       chemins: "Fichiers de pilotage touch\xE9s",
@@ -362,7 +368,7 @@
       motifRefus: "Motif du refus",
       revueAcceptee: "Revue accept\xE9e\xA0: la carte est termin\xE9e.",
       revueRefusee: "Revue refus\xE9e\xA0: la carte revient \xE0 l'ex\xE9cutant avec votre motif.",
-      bloqueesTitre: "Cartes bloqu\xE9es ou abandonn\xE9es",
+      bloqueesTitre: "Cartes arr\xEAt\xE9es",
       // Étape P7 : file Questions, « Qui répond », « Clore » (cahier P7 § 3, § 4.2, § 10).
       fileTitre: "\xC0 traiter",
       aTraiterParVous: "\xC0 traiter par vous",
@@ -493,7 +499,21 @@
         termine: "Projet termin\xE9",
         reparation: "Cr\xE9ation r\xE9par\xE9e",
         surcharge: "Surcharge de routage",
-        correction: "Correction ins\xE9r\xE9e"
+        correction: "Correction ins\xE9r\xE9e",
+        // Relecture finale de P7 (constat produit-7) : actions de P6 et de P7 journalisées avec le projet.
+        relance: "Carte relanc\xE9e",
+        reglage_reponses: "Qui r\xE9pond chang\xE9",
+        cloture: "Projet clos",
+        revue_acceptee: "Revue accept\xE9e",
+        revue_refusee: "Revue refus\xE9e",
+        integration: "Int\xE9gration demand\xE9e",
+        carte_servie: "Carte servie \xE0 l'ex\xE9cutant",
+        carte_bloquee: "Carte bloqu\xE9e par l'ex\xE9cutant",
+        carte_bloquee_ecart: "Carte bloqu\xE9e\xA0: demande hors de la politique de l'ex\xE9cutant",
+        carte_non_construite: "Carte non construite pour l'ex\xE9cutant",
+        carte_voie_fermee: "Carte bloqu\xE9e\xA0: voie ferm\xE9e",
+        carte_etrangere_bloquee: "Carte \xE9trang\xE8re bloqu\xE9e",
+        attente_quota_levee: "Attente de quota lev\xE9e"
       },
       acteursJournal: {
         vous: "Vous",
