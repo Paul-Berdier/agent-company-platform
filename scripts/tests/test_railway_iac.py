@@ -354,15 +354,52 @@ def test_ci_yml_n_annule_aucun_run_hors_pr():
     assert "cancel-in-progress: true" not in flux
 
 
-def test_image_yml_echoue_s_il_reste_des_ressources_de_test():
-    """Relecture P2 : l'étape finale nettoie puis ÉCHOUE si des ressources acp-contrat-* restaient."""
+def _travaux_d_image_yml() -> dict:
+    """Texte de chaque job d'image.yml, par identifiant (lignes « ␣␣<id>: » sous « jobs: »)."""
     flux = lire(RACINE / ".github" / "workflows" / "image.yml")
-    etape = flux[flux.index("- name: Aucun conteneur, volume ni réseau de test ne reste"):]
-    assert "if: always()" in etape.splitlines()[1]
-    for nettoyage in ("docker rm -f -v $reste", "docker volume rm -f $volumes", "docker network rm $reseaux"):
-        assert nettoyage in etape, nettoyage
-    assert etape.count("restes=1") == 3
-    assert 'if [ "$restes" -ne 0 ]; then' in etape and "exit 1" in etape
+    bloc = flux[flux.index("\njobs:\n") + len("\njobs:\n"):]
+    morceaux = re.split(r"^  ([A-Za-z0-9_-]+):\n", bloc, flags=re.M)
+    return dict(zip(morceaux[1::2], morceaux[2::2]))
+
+
+def test_image_yml_echoue_s_il_reste_des_ressources_de_test():
+    """Relecture P2 : l'étape finale nettoie puis ÉCHOUE si des ressources acp-contrat-* restaient. Étape P9 : CHAQUE
+    job qui lance des tests de contrat ou navigateur (Docker) a sa propre étape finale, bornée à ce job."""
+    travaux = _travaux_d_image_yml()
+    avec_docker = [nom for nom, texte in travaux.items()
+                   if re.search(r"python -m pytest[^\n]*hermes/tests/(contrat|e2e)", texte)]
+    assert "image" in avec_docker and "restauration" in avec_docker, sorted(travaux)
+    for nom in avec_docker:
+        texte = travaux[nom]
+        debut = texte.index("- name: Aucun conteneur, volume ni réseau de test ne reste")
+        fin = texte.find("\n      - name: ", debut + 1)
+        etape = texte[debut:fin if fin != -1 else len(texte)]
+        assert "if: always()" in etape.splitlines()[1], nom
+        for nettoyage in ("docker rm -f -v $reste", "docker volume rm -f $volumes", "docker network rm $reseaux"):
+            assert nettoyage in etape, (nom, nettoyage)
+        assert etape.count("restes=1") == 3, nom
+        assert 'if [ "$restes" -ne 0 ]; then' in etape and "exit 1" in etape, nom
+        # Dernière étape du job : rien ne peut s'exécuter après le contrôle.
+        assert fin == -1, nom
+
+
+def test_image_yml_selectionne_les_tests_de_restauration_par_job():
+    """Étape P9 (cahier § 3.7) : marqueurs déclarés (--strict-markers) ; le job « image » désélectionne
+    « restauration » et « montee », le job « restauration » ne lance qu'eux ; rien n'est ignoré en silence."""
+    for ini in ("contrat", "e2e"):
+        texte = lire(RACINE / "hermes" / "tests" / ini / "pytest.ini")
+        assert "--strict-markers" in texte and re.search(r"^    restauration: ", texte, flags=re.M), ini
+        assert re.search(r"^    montee: ", texte, flags=re.M), ini
+    travaux = _travaux_d_image_yml()
+    lancements = {nom: re.findall(r"python -m pytest[^\n]*hermes/tests/(?:contrat|e2e)[^\n]*", texte)
+                  for nom, texte in travaux.items()}
+    assert lancements["image"] and all(l.endswith('-m "not restauration and not montee"')
+                                       for l in lancements["image"]), lancements["image"]
+    assert sorted(lancements["restauration"]) == [
+        "python -m pytest -s -v -rA hermes/tests/contrat -m restauration",
+        "python -m pytest -s -v -rA hermes/tests/e2e -m restauration"], lancements["restauration"]
+    assert 'ACP_E2E_OBLIGATOIRE: "1"' in travaux["restauration"]
+    assert "timeout-minutes: 90" in travaux["restauration"]
 
 
 def test_railway_en_lf():

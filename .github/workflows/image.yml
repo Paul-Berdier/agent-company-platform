@@ -361,3 +361,92 @@ jobs:
             exit 1
           fi
           echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."
+
+  restauration:
+    # Étape P9 (cahier P9 § 3.7, décision P9-4) : les tests de restauration (R1 à R4) dans leur PROPRE job, parallèle au
+    # job « image » (environ 51 minutes pour un plafond de 90 ; ses constructions prennent moins de 2 minutes) :
+    # images reconstruites ici, puis seulement les tests marqués « restauration » (contrat et navigateur), jamais
+    # ignorés (ACP_E2E_OBLIGATOIRE=1). Mêmes déclencheurs que le job « image » : « Wait for CI » l'attend aussi.
+    name: Restauration — trois volumes, export, identité
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ACP_IMAGE: acp-hermes:ci
+      ACP_IMAGE_TESTS: acp-hermes-tests:ci
+      ACP_IMAGE_IDENTITE: acp-identite:ci
+      ACP_IMAGE_EXECUTANT_FACTICE: acp-executant:factice
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire l'image ACP
+        run: docker build --pull -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
+
+      - name: Construire l'image de test
+        run: docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+
+      - name: Construire la cible factice de l'exécutant (aucun binaire réel téléchargé)
+        run: docker build -f executant/Dockerfile --target factice -t "$ACP_IMAGE_EXECUTANT_FACTICE" .
+
+      - name: Construire l'image du fournisseur d'identité
+        run: docker build --pull -t "$ACP_IMAGE_IDENTITE" identite
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer pytest (hachés vérifiés)
+        run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
+
+      - name: Restauration — tests de contrat (R1, R2, R4)
+        run: python -m pytest -s -v -rA hermes/tests/contrat -m restauration
+
+      - name: Installer Playwright (hachés vérifiés) et Chromium
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Restauration — test navigateur (R3, identité restaurée et reconnexion)
+        env:
+          ACP_E2E_OBLIGATOIRE: "1"
+          ACP_E2E_CAPTURES: /tmp/captures-restauration
+        run: python -m pytest -s -v -rA hermes/tests/e2e -m restauration
+
+      - name: Captures d'écran de la restauration
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-restauration
+          path: /tmp/captures-restauration
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Aucun conteneur, volume ni réseau de test ne reste (restauration)
+        if: always()
+        run: |
+          # Même contrôle que le job « image » : nettoie TOUJOURS, puis ÉCHOUE si quelque chose restait.
+          restes=0
+          reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
+          if [ -n "$reste" ]; then
+            echo "Conteneurs restants : ${reste}" >&2
+            docker rm -f -v $reste >/dev/null
+            restes=1
+          fi
+          volumes="$(docker volume ls -q --filter name=acp-contrat-)"
+          if [ -n "$volumes" ]; then
+            echo "Volumes restants : ${volumes}" >&2
+            docker volume rm -f $volumes >/dev/null
+            restes=1
+          fi
+          reseaux="$(docker network ls -q --filter name=acp-contrat-)"
+          if [ -n "$reseaux" ]; then
+            echo "Réseaux restants : ${reseaux}" >&2
+            docker network rm $reseaux >/dev/null
+            restes=1
+          fi
+          if [ "$restes" -ne 0 ]; then
+            echo "Des ressources acp-contrat-* restaient après les tests de restauration : nettoyées, mais la CI échoue." >&2
+            exit 1
+          fi
+          echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."
