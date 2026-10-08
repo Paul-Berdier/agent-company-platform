@@ -68,10 +68,11 @@ def attendre(predicat, delai: float, message: str, pas: float = 2.0):
     raise AssertionError(f"{message} (après {delai:.0f} s) ; dernier état : {str(dernier)[:2000]}")
 
 
-def politique_de_test() -> str:
+def politique_de_test(racine: Path = RACINE) -> str:
     """Politique versionnée de l'exécutant, adaptée au banc : origine de test, dépôt factice, attente courte, sonde
-    Codex coupée (voie fermée en régime B), vérification admise sans bac à sable (réseau du banc seulement)."""
-    texte = (RACINE / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8")
+    Codex coupée (voie fermée en régime B), vérification admise sans bac à sable (réseau du banc seulement).
+    ``racine`` : l'arbre dont la politique est lue (étape P9, montée de données : celui du commit « avant »)."""
+    texte = (racine / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8")
     remplacements = {
         'origine = "https://<libellé-hermes>.up.railway.app"': 'origine = "https://hermes-acp.test"',
         "attente_max_s = 25": "attente_max_s = 5",
@@ -101,6 +102,8 @@ class Banc:
         self.ressources = ressources
         self.image_tests = image_tests
         self.image_executant: Optional[str] = None
+        # Images construites par le banc (exécutant de test ; étape P9 : une par version) : nettoyer_image() les retire.
+        self.images_construites: List[str] = []
         # Posés par monter() et demarrer_executant() (déclarations seules : aucun changement de comportement).
         self.hermes: Conteneur
         self.idp: str
@@ -166,22 +169,30 @@ class Banc:
                "--certificat", "/opt/acp-tests/ac/bord.pem", "--cle", "/opt/acp-tests/ac/bord.key", "--journal",
                "/tmp/bord.jsonl", "--route", f"hermes-acp.test={self.hermes.nom}:9119")
 
-    def construire_executant(self) -> None:
-        """Image de test = cible factice + autorité de test + politique de test (aucun autre changement)."""
+    def construire_executant(self, image_base: Optional[str] = None, etiquette: str = "essai",
+                             politique: Optional[str] = None) -> str:
+        """Image de test = cible factice + autorité de test + politique de test (aucun autre changement). Étape P9
+        (montée de données) : ``image_base`` (défaut : ACP_IMAGE_EXECUTANT_FACTICE), ``politique`` (défaut :
+        :func:`politique_de_test`) et ``etiquette`` distinguent l'image « avant » de l'image « après ». L'autorité est
+        celle de ``self.image_tests``. Rend le nom de l'image, que :meth:`demarrer_executant` lance ensuite."""
         with tempfile.TemporaryDirectory(prefix="acp-exec-bout-") as dossier:
             contexte = Path(dossier)
             ac = docker("run", "--rm", "--entrypoint", "cat", self.image_tests, "/opt/acp-tests/ac/ac.pem").stdout
             (contexte / "ac.pem").write_text(ac, encoding="utf-8", newline="\n")
-            (contexte / "executant.toml").write_text(politique_de_test(), encoding="utf-8", newline="\n")
+            (contexte / "executant.toml").write_text(politique if politique is not None else politique_de_test(),
+                                                     encoding="utf-8", newline="\n")
             (contexte / "Dockerfile").write_text(
                 "ARG IMAGE\nFROM ${IMAGE}\n"
                 "COPY ac.pem /usr/local/share/ca-certificates/acp-test-jetable.crt\n"
                 "COPY executant.toml /etc/acp/executant.toml\n"
                 "RUN update-ca-certificates && chown root:root /etc/acp/executant.toml "
                 "&& chmod 0444 /etc/acp/executant.toml\n", encoding="utf-8", newline="\n")
-            self.image_executant = f"{self.ressources.prefixe}-executant:essai"
-            docker("build", "-q", "--build-arg", f"IMAGE={image_factice()}", "-t", self.image_executant,
+            image = f"{self.ressources.prefixe}-executant:{etiquette}"
+            self.images_construites.append(image)
+            self.image_executant = image
+            docker("build", "-q", "--build-arg", f"IMAGE={image_base or image_factice()}", "-t", image,
                    str(contexte), delai=600)
+        return image
 
     def demarrer_executant(self, volume: Optional[str] = None) -> None:
         """Conteneur de l'exécutant sur un volume neuf, ou sur ``volume`` (étape P9 : volume restauré)."""
@@ -202,8 +213,8 @@ class Banc:
         return nom
 
     def nettoyer_image(self) -> None:
-        if self.image_executant:
-            docker("rmi", "-f", self.image_executant, verifier=False)
+        for image in self.images_construites:
+            docker("rmi", "-f", image, verifier=False)
 
     # ------------------------------------------------------------------ étape P9 : identité, arrêt, relance
     def lancer_identite(self, image_identite: str, empreinte: str, volume: Optional[str] = None) -> str:
