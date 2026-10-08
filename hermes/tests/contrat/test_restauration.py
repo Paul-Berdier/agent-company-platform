@@ -20,7 +20,8 @@ R1 — trois volumes restaurés au MÊME instant :
    (``integrity_check`` = ok, empreintes logiques égales) ;
 5. ``acp-poste cartes`` lu sur le volume restauré de l'exécutant AVANT son démarrage (conteneur jetable de la même
    image, volume en lecture seule, sans réseau) : égal à T, champ par champ ; redémarrage, mêmes images et variables :
-   gardes acceptées, identité « générés : aucun », exécutant prêt et enrôlé ; couche 3 : lectures égales à la
+   gardes acceptées, identité « générés : aucun », exécutant prêt, enrôlé et revu par Hermes depuis son redémarrage
+   (son journal n'est lu qu'après : « non enrôlé » vient après « volume prêt ») ; couche 3 : lectures égales à la
    référence de T, marqueurs postérieurs ABSENTS (la carte en main de l'exécutant change au démarrage par
    construction : relevée, non comparée) ;
 6. le travail REPREND : B → terminée, C reprise → terminée avec UN commit d'exploration, nouveau projet E → terminé.
@@ -402,6 +403,26 @@ class Scene:
             assert "acpe_" not in texte, f"{etiquette} : {nom}"
         return {"requetes_depot": len(requetes), "tailles": {n: len(t) for n, t in textes.items()}}
 
+    def revu_ou_non_enrole(self, depuis: float, delai: float = 180) -> Dict[str, Any]:
+        """L'exécutant revu par Hermes DEPUIS ``depuis`` (présence « en ligne » rafraîchie après, voie poste-claude),
+        ou bien non enrôlé d'après son journal. « [acp] volume prêt » précède le service, seul à dire « non enrôlé » :
+        lu aussitôt, le journal ne prouve rien (même constat à l'étape 5 de la montée, run 37827976940)."""
+        b = self.banc
+
+        def etat() -> Optional[Dict[str, Any]]:
+            journal = docker("logs", b.executant, verifier=False)
+            if "non enrôlé" in journal.stdout + journal.stderr:
+                return {"non_enrole": True}
+            code, vue = b.api("GET", "/v1/poste")
+            poste = ((vue or {}).get("poste") or {}) if code == 200 else {}
+            executant = ((vue or {}).get("executant") or {}) if code == 200 else {}
+            if poste.get("etat") == "en_ligne" and int(poste.get("derniere_vue") or 0) >= int(depuis) - 1 and \
+                    "poste-claude" in (executant.get("voies_disponibles") or []):
+                return {k: poste.get(k) for k in ("etat", "derniere_vue", "source")}
+            return None
+
+        return attendre(etat, delai, f"exécutant jamais revu par Hermes depuis son redémarrage ({b.fin_journal()})")
+
     def carte_en_main_de(self, lettre: str, delai: float = 240) -> Dict[str, Any]:
         def en_agent():
             etat = self.en_main()
@@ -626,6 +647,7 @@ def test_r1_redemarrage_et_couche_3(scene):
     scene.redemarrage_r1 = time.time()
     b.relancer(scene.restaures["hermes"], scene.restaures["executant"], volume_identite=scene.restaures["identite"],
                image_identite=scene.image_identite, empreinte=scene.empreinte)
+    executant_revu = scene.revu_ou_non_enrole(scene.redemarrage_r1)
     journal_hermes = b.hermes.journaux()
     journal_identite = docker("logs", b.identite, verifier=False)
     journal_identite = journal_identite.stdout + journal_identite.stderr
@@ -634,7 +656,8 @@ def test_r1_redemarrage_et_couche_3(scene):
     afficher("R1 — redémarrage sur les volumes restaurés (extraits)", "\n".join(
         [l for l in journal_hermes.splitlines() if "[acp]" in l or "05-acp" in l][:40]
         + [l for l in journal_identite.splitlines() if "[acp-identite]" in l]
-        + [l for l in journal_executant.splitlines() if "[acp]" in l][:20]))
+        + [l for l in journal_executant.splitlines() if "[acp]" in l][:20]
+        + [f"exécutant revu par Hermes depuis le redémarrage : {_json(executant_revu)}"]))
     assert "cont-init: info: /etc/cont-init.d/05-acp exited 0" in journal_hermes
     assert "[acp] REFUS" not in journal_hermes
     assert "(hors acp-bilan.py, admis par son empreinte)" in journal_hermes
