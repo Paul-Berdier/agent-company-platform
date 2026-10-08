@@ -113,6 +113,8 @@ def test_prive_lu_avec_le_jeton(tmp_path, faux_depot, avec_autorite):
     # La première requête est ANONYME (aucun identifiant envoyé), puis la lecture porte « x-access-token » et le jeton.
     assert vues[0]["utilisateur"] is None
     assert any(v["utilisateur"] == "x-access-token" and v["jeton_attendu"] for v in vues[1:])
+    # Puis l'accès anonyme est refait APRÈS la lecture (deux refus exigés pour « prive ») : dernière requête anonyme.
+    assert vues[-1]["utilisateur"] is None
 
 
 def test_prive_jeton_refuse(tmp_path, faux_depot, avec_autorite):
@@ -203,17 +205,29 @@ def test_jeton_jamais_dans_l_argv_ni_la_raison(tmp_path, faux_depot, avec_autori
     for nom in ("prive", "hors-portee", "panne"):
         mesure = _mesurer(tmp_path, faux_depot, nom)
         assert FAUX.JETON not in mesure.raison and faux_depot.url(nom) not in mesure.raison
-    assert len(vus) == 6
+    # prive : anonyme, jeton, anonyme de nouveau (deux refus exigés) ; hors-portee et panne : anonyme, jeton.
+    assert len(vus) == 7
     for argv, env in vus:
         assert not any(FAUX.JETON in a for a in argv)
         assert argv[-4:-1] == ["ls-remote", "--heads", "--"] and argv[-1].startswith("https://127.0.0.1:")
         assert "credential.helper=" in argv and env["GIT_TERMINAL_PROMPT"] == "0"
         assert env["GIT_CONFIG_GLOBAL"] == os.devnull and env["HOME"] == "/nonexistent"
-    anonymes = [env for argv, env in vus[0::2]]
-    avec_jeton = [env for argv, env in vus[1::2]]
-    assert all("ACP_JETON_LECTURE" not in env and env["GIT_ASKPASS"] == "/bin/false" for env in anonymes)
+    avec_jeton = [env for _argv, env in vus if "ACP_JETON_LECTURE" in env]
+    anonymes = [env for _argv, env in vus if "ACP_JETON_LECTURE" not in env]
+    assert len(avec_jeton) == 3 and len(anonymes) == 4
+    assert all(env["GIT_ASKPASS"] == "/bin/false" for env in anonymes)
     assert all(env["ACP_JETON_LECTURE"] == FAUX.JETON and env["GIT_ASKPASS"].endswith("acp-askpass")
                for env in avec_jeton)
+
+
+def test_prive_exige_deux_refus_anonymes(tmp_path, faux_depot, avec_autorite):
+    """La mesure n'est pas atomique : refus anonyme, puis lecture avec le jeton, puis le dépôt devient lisible sans
+    identifiant. Le second accès anonyme le voit : jamais « prive » + « ok » (Codex reste fermé)."""
+    faux_depot.bascule_lue = False
+    mesure = _mesurer(tmp_path, faux_depot, "bascule")
+    assert (mesure.visibilite, mesure.lecture) == ("public", "ok") and not mesure.codex_admis
+    assert "second accès anonyme accepté (dépôt lisible sans identifiant)" in mesure.raison
+    assert [v["utilisateur"] for v in faux_depot.vues("bascule")][-1] is None
 
 
 def test_messages_de_git_releves(tmp_path, faux_depot, avec_autorite, capsys):

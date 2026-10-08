@@ -100,6 +100,22 @@ def test_clone_nu_puis_fetch(distant, depots):
     assert depots.sha(nu, "refs/remotes/origin/main") == _git(distant, "rev-parse", "HEAD") != premiere
 
 
+def test_clone_d_une_autre_url_jamais_recupere(distant, depots, tmp_path):
+    """Étape P7 (relecture de la partie E) : la visibilité est mesurée sur l'URL de la politique ; un alias réaffecté
+    à une autre URL ne récupère jamais le clone nu de l'ancienne (échec fermé, message sans URL)."""
+    depots.recuperer(_depot(distant))
+    autre = tmp_path / "autre"
+    autre.mkdir()
+    _git(autre, "init", "-q")
+    (autre / "x.txt").write_text("x\n", encoding="utf-8")
+    _git(autre, "add", "-A")
+    _git(autre, "commit", "-q", "-m", "autre")
+    with pytest.raises(ErreurDepot, match="vient d'une autre URL que la politique") as exc:
+        depots.recuperer(_depot(autre))
+    assert str(autre) not in str(exc.value) and str(distant) not in str(exc.value)
+    depots.recuperer(_depot(distant))  # la même URL reste récupérée
+
+
 def test_seul_https_en_production(distant, tmp_path):
     production = Depots(racine_depots=tmp_path / "d", racine_espaces=tmp_path / "e", racine_bundles=tmp_path / "b",
                         droits=False)

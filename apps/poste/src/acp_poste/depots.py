@@ -261,6 +261,14 @@ class Depots:
         self.preparer_racines()
         nu = self.nu(depot.alias)
         env = self._env_fetch(depot.acces)
+        if (nu / "HEAD").is_file():
+            # Étape P7 (relecture indépendante de la partie E) : la visibilité est mesurée sur l'URL de la politique ;
+            # un clone nu d'une AUTRE URL (alias réaffecté par une PR) ne doit jamais être récupéré à sa place.
+            origine = self.git("config", "--get", "remote.origin.url", git_dir=nu, verifier=False)
+            if origine.decode("utf-8", "replace").strip() != depot.url:
+                raise ErreurDepot(f"Le clone nu du dépôt « {depot.alias} » vient d'une autre URL que la politique : "
+                                  "récupération refusée ; retirez ce clone (/donnees/depots, session railway ssh) "
+                                  "après avoir récupéré ses branches.")
         if not (nu / "HEAD").is_file():
             if nu.exists():
                 shutil.rmtree(nu)
@@ -324,6 +332,16 @@ class Depots:
                 lecture = "ok" if avec.code == 0 else "refusee" if avec.refus else "inconnue"
                 raisons.append(_raison_ls_remote("lecture avec le jeton", avec, delai_s, accepte="acceptée",
                                                  refuse="refusée"))
+                if visibilite == "prive" and lecture == "ok":
+                    # La mesure n'est pas atomique : un refus anonyme passager suivi d'une lecture réussie ferait
+                    # passer pour privé un dépôt lisible sans identifiant. L'accès anonyme est REFAIT après la lecture :
+                    # « prive » exige deux refus (relecture indépendante de la partie E).
+                    second = self._ls_remote(depot.url, {}, delai_s)
+                    if not second.refus:
+                        visibilite = "public" if second.code == 0 else "inconnue"
+                        raisons.append(_raison_ls_remote("second accès anonyme", second, delai_s,
+                                                         accepte="accepté (dépôt lisible sans identifiant)",
+                                                         refuse="refusé"))
         else:
             # Dépôt déclaré « public » : l'exécutant le lit sans identifiant ; sa lecture mesurée est l'accès anonyme.
             lecture = "ok" if anonyme.code == 0 else "refusee" if anonyme.refus else "inconnue"
