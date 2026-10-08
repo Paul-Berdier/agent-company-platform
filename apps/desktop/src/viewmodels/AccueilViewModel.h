@@ -1,20 +1,24 @@
-// Accueil de la station (cahier P8 § 7.1).
+// Accueil de la station (cahier P8 § 7.1 ; Accueil agrégé de l'étape P7, cahier P7 § 8).
 //
 // Sources, relues toutes les 15 s tant que la page est affichée :
-//   - `GET /v1/projets` du greffon : projets, poste, pause générale, questions ouvertes ;
-//   - `GET /v1/quotas` du greffon : la voie la plus entamée ;
+//   - `GET /v1/accueil` du greffon : UNE lecture, la même que l'Accueil du navigateur (forme
+//     partagée : hermes/tests/outils/fixtures_accueil/accueil.json) — à traiter par vous, chez
+//     Hermes, discussions en attente, projets en cours, exécutant, quotas, canal de notifications,
+//     pause générale. Un bloc illisible vaut `null` avec sa raison dans `illisibles` : la carte le
+//     dit (« Bloc illisible : … »), jamais une valeur par défaut ni un zéro inventé ;
 //   - `GET /api/sessions?limit=5&offset=0&order=recent` de Hermes : discussions récentes
-//     (même appel que la page d'accueil web).
+//     (même appel que la page d'accueil web) ;
 //   - `GET /v1/meta` du greffon (dès que la compatibilité est branchée, setCompatibilite) : la
-//     carte « Hermes » (version en service, verdict, alertes) est relue au même rythme, par
-//     « Actualiser » et au retour du lien, et datée « Lu à » comme les autres cartes.
+//     carte « Hermes » (version en service, verdict, alertes), datée « Lu à » comme les autres.
 //
 // Chaque carte est une table de valeurs DÉJÀ libellées en français, aux clés fixes : une
-// valeur absente ou d'un autre type vaut « Inconnu », le poste jamais vu « Non configuré ».
-// Un échec de lecture garde la dernière valeur, datée, avec l'erreur à côté.
+// valeur absente ou d'un autre type vaut « Inconnu ». Un échec de lecture garde la dernière
+// valeur, datée, avec l'erreur à côté.
 //
-// Geste : « Mettre en pause » / « Reprendre » Hermes (pause générale) → `POST /v1/pause`
-// après confirmation de la page ; le refus du greffon (409 `crochets`…) est rendu tel quel.
+// Gestes : « Mettre en pause » / « Reprendre » Hermes (pause générale) → `POST /v1/pause` après
+// confirmation de la page ; « Envoyer une notification de test » → `POST /v1/notifications/test`,
+// offert seulement si un canal est configuré. Le refus du greffon (409 `crochets`,
+// `notifications`…) est rendu tel quel.
 
 #pragma once
 
@@ -38,16 +42,17 @@ class Sondage;
 class AccueilViewModel : public PageViewModel
 {
     Q_OBJECT
-    Q_PROPERTY(QVariantMap carteProjets READ carteProjets NOTIFY projetsChange)
-    Q_PROPERTY(QVariantMap carteQuestions READ carteQuestions NOTIFY projetsChange)
-    Q_PROPERTY(QVariantMap cartePoste READ cartePoste NOTIFY projetsChange)
-    Q_PROPERTY(QVariantMap cartePause READ cartePause NOTIFY projetsChange)
-    Q_PROPERTY(QVariantMap carteQuotas READ carteQuotas NOTIFY quotasChange)
+    Q_PROPERTY(bool lue READ lue NOTIFY accueilChange)
+    Q_PROPERTY(QVariantMap carteATraiter READ carteATraiter NOTIFY accueilChange)
+    Q_PROPERTY(QVariantMap carteProjets READ carteProjets NOTIFY accueilChange)
+    Q_PROPERTY(JsonListModel *projetsEnCours READ projetsEnCours CONSTANT)
+    Q_PROPERTY(QVariantMap carteExecutant READ carteExecutant NOTIFY accueilChange)
+    Q_PROPERTY(QVariantMap carteQuotas READ carteQuotas NOTIFY accueilChange)
+    Q_PROPERTY(QVariantMap carteNotifications READ carteNotifications NOTIFY accueilChange)
+    Q_PROPERTY(QVariantMap cartePause READ cartePause NOTIFY accueilChange)
     Q_PROPERTY(JsonListModel *sessions READ sessions CONSTANT)
-    Q_PROPERTY(QString lectureProjets READ lectureProjets NOTIFY lectureChange)
-    Q_PROPERTY(QString erreurProjets READ erreurProjets NOTIFY lectureChange)
-    Q_PROPERTY(QString lectureQuotas READ lectureQuotas NOTIFY lectureChange)
-    Q_PROPERTY(QString erreurQuotas READ erreurQuotas NOTIFY lectureChange)
+    Q_PROPERTY(QString lectureAccueil READ lectureAccueil NOTIFY lectureChange)
+    Q_PROPERTY(QString erreurAccueil READ erreurAccueil NOTIFY lectureChange)
     Q_PROPERTY(QString lectureSessions READ lectureSessions NOTIFY lectureChange)
     Q_PROPERTY(QString erreurSessions READ erreurSessions NOTIFY lectureChange)
     Q_PROPERTY(bool sessionsLues READ sessionsLues NOTIFY lectureChange)
@@ -62,37 +67,41 @@ public:
     /*! Intervalle des lectures de la page (15 s ; réglable pour les tests). */
     void setIntervalle(std::chrono::milliseconds intervalle);
 
+    [[nodiscard]] bool lue() const { return m_lue; }
+    [[nodiscard]] const QVariantMap &carteATraiter() const { return m_carteATraiter; }
     [[nodiscard]] const QVariantMap &carteProjets() const { return m_carteProjets; }
-    [[nodiscard]] const QVariantMap &carteQuestions() const { return m_carteQuestions; }
-    [[nodiscard]] const QVariantMap &cartePoste() const { return m_cartePoste; }
-    [[nodiscard]] const QVariantMap &cartePause() const { return m_cartePause; }
+    [[nodiscard]] JsonListModel *projetsEnCours() const { return m_projetsEnCours; }
+    [[nodiscard]] const QVariantMap &carteExecutant() const { return m_carteExecutant; }
     [[nodiscard]] const QVariantMap &carteQuotas() const { return m_carteQuotas; }
+    [[nodiscard]] const QVariantMap &carteNotifications() const { return m_carteNotifications; }
+    [[nodiscard]] const QVariantMap &cartePause() const { return m_cartePause; }
     [[nodiscard]] JsonListModel *sessions() const { return m_sessions; }
 
-    [[nodiscard]] QString lectureProjets() const;
-    [[nodiscard]] QString erreurProjets() const;
-    [[nodiscard]] QString lectureQuotas() const;
-    [[nodiscard]] QString erreurQuotas() const;
+    [[nodiscard]] QString lectureAccueil() const;
+    [[nodiscard]] QString erreurAccueil() const;
     [[nodiscard]] QString lectureSessions() const;
     [[nodiscard]] QString erreurSessions() const;
     [[nodiscard]] bool sessionsLues() const { return m_sessionsLues; }
 
-    /*! Relit les trois sources tout de suite. */
+    /*! Relit toutes les sources tout de suite. */
     Q_INVOKABLE void actualiser();
     /*! Engage (vrai) ou lève (faux) la pause générale de Hermes ; raison facultative. */
     Q_INVOKABLE void basculerPause(bool generale, const QString &raison);
+    /*! « Envoyer une notification de test » (canal configuré seulement). */
+    Q_INVOKABLE void envoyerNotificationDeTest();
 
-    // --- Fonctions pures (tests) --------------------------------------------------------
-    [[nodiscard]] static QVariantMap construireCarteProjets(const QJsonObject &liste);
-    [[nodiscard]] static QVariantMap construireCarteQuestions(const QJsonObject &liste);
-    [[nodiscard]] static QVariantMap construireCartePoste(const QJsonObject &liste);
-    [[nodiscard]] static QVariantMap construireCartePause(const QJsonObject &liste);
-    [[nodiscard]] static QVariantMap construireCarteQuotas(const QJsonObject &quotas);
+    // --- Fonctions pures (tests) : chacune lit le document entier de `GET /v1/accueil` ----------
+    [[nodiscard]] static QVariantMap construireCarteATraiter(const QJsonObject &accueil);
+    [[nodiscard]] static QVariantMap construireCarteProjets(const QJsonObject &accueil);
+    [[nodiscard]] static QJsonArray construireProjetsEnCours(const QJsonObject &accueil);
+    [[nodiscard]] static QVariantMap construireCarteExecutant(const QJsonObject &accueil);
+    [[nodiscard]] static QVariantMap construireCarteQuotas(const QJsonObject &accueil);
+    [[nodiscard]] static QVariantMap construireCarteNotifications(const QJsonObject &accueil);
+    [[nodiscard]] static QVariantMap construireCartePause(const QJsonObject &accueil);
     [[nodiscard]] static QJsonArray construireSessions(const QJsonObject &page);
 
 signals:
-    void projetsChange();
-    void quotasChange();
+    void accueilChange();
     void lectureChange();
 
 protected:
@@ -101,22 +110,24 @@ protected:
     void surOubli() override;
 
 private:
-    void lireProjets(const QJsonObject &liste);
+    void lireAccueil(const QJsonObject &accueil);
     [[nodiscard]] QList<Sondage *> sondages() const;
 
     ApiClient *m_client = nullptr;
     ClientGreffonPoste *m_greffon = nullptr;
-    Sondage *m_projets = nullptr;
-    Sondage *m_quotas = nullptr;
+    Sondage *m_accueil = nullptr;
     Sondage *m_sondageSessions = nullptr;
     Sondage *m_meta = nullptr; //!< `/v1/meta`, une fois la compatibilité branchée.
     CompatibiliteHermes *m_compatibilite = nullptr;
+    JsonListModel *m_projetsEnCours = nullptr;
     JsonListModel *m_sessions = nullptr;
+    bool m_lue = false;
+    QVariantMap m_carteATraiter;
     QVariantMap m_carteProjets;
-    QVariantMap m_carteQuestions;
-    QVariantMap m_cartePoste;
-    QVariantMap m_cartePause;
+    QVariantMap m_carteExecutant;
     QVariantMap m_carteQuotas;
+    QVariantMap m_carteNotifications;
+    QVariantMap m_cartePause;
     bool m_sessionsLues = false;
 };
 

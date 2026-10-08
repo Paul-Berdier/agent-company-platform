@@ -189,6 +189,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                   [&questions](const RequeteRecue &) { return ReponseFaux::json(200, questions); });
     serveur.route("GET", QStringLiteral("/api/sessions"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("sessions.json"))); });
+    // Accueil agrégé (étape P7) : la fixture partagée avec le greffon et la page web.
+    serveur.route("GET", kP + QStringLiteral("/accueil"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object());
+    });
     serveur.route("GET", QStringLiteral("/api/plugins/kanban/board"), [](const RequeteRecue &) {
         return ReponseFaux::json(200, QJsonObject{{QStringLiteral("latest_event_id"), 1}, {QStringLiteral("columns"), QJsonArray{}}});
     });
@@ -270,14 +274,18 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     {
         auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("HomePage"));
         QVERIFY(page);
-        QTRY_VERIFY_WITH_TIMEOUT(accueil->carteProjets().value(QStringLiteral("lisible")).toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(accueil->lue(), 5000);
         QTRY_COMPARE_WITH_TIMEOUT(accueil->sessions()->count(), 2, 5000);
-        QTRY_VERIFY_WITH_TIMEOUT(accueil->carteQuotas().value(QStringLiteral("connu")).toBool(), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(application.findChild<CompatibiliteHermes *>()->lecture().startsWith(QStringLiteral("Lu à")), 5000);
         VERIFIER(page.get(), QStringLiteral("Accueil"));
         auto *item = qobject_cast<QQuickItem *>(page.get());
-        QVERIFY(contientTexte(item, QStringLiteral("Plan posé : deux recherches.")));
-        QVERIFY(contientTexte(item, QStringLiteral("poste-simule")));
+        // Les cartes de l'Accueil agrégé, dans l'ordre du navigateur.
+        QVERIFY(contientTexte(item, QStringLiteral("À traiter par vous")));
+        QVERIFY(contientTexte(item, QStringLiteral("Question : Exploration du dépôt « jetable » · Outil jetable")));
+        QVERIFY(contientTexte(item, QStringLiteral("0 sur 2 cartes faites")));
+        QVERIFY(contientTexte(item, QStringLiteral("Exécutant Railway")));
+        QVERIFY(contientTexte(item, QStringLiteral("Même enveloppe que Codex (déclaré dans poste.toml)")));
+        QVERIFY(contientTexte(item, QStringLiteral("Configurées")));
         QVERIFY(contientTexte(item, QStringLiteral("Sans titre"))); // session s2 sans titre
     }
     QTRY_VERIFY(!accueil->actif());

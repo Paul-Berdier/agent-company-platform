@@ -166,6 +166,7 @@ void TestClientGreffon::ecrituresAvecLesCorpsExacts()
          QJsonObject{{QStringLiteral("reponses"), QStringLiteral("hermes_d_abord")}}},
         {suivre(banc.greffon.clore(QStringLiteral("prj_45"))), kP + QStringLiteral("/v1/projets/prj_45/clore"),
          QJsonObject{{QStringLiteral("confirmation"), true}}},
+        {suivre(banc.greffon.notificationDeTest()), kP + QStringLiteral("/v1/notifications/test"), {}},
         // Étape P6 : revues des fichiers de pilotage.
         {suivre(banc.greffon.accepterRevue(QStringLiteral("acp-prj-42"), QStringLiteral("t_6"))),
          kP + QStringLiteral("/v1/revues/acp-prj-42/t_6/accepter"), {}},

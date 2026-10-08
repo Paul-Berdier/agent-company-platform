@@ -59,6 +59,10 @@ void servirLeGreffon(FauxHermes &serveur, QJsonObject *meta)
     serveur.route("GET", QStringLiteral("/api/sessions"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("sessions.json"))); });
     serveur.route("GET", kP + QStringLiteral("/meta"), [meta](const RequeteRecue &) { return ReponseFaux::json(200, *meta); });
+    // Accueil agrégé (étape P7) : la fixture partagée avec le greffon et la page web.
+    serveur.route("GET", kP + QStringLiteral("/accueil"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object());
+    });
 }
 
 } // namespace
@@ -153,7 +157,7 @@ void TestOubliLocal::ouvrirEtLireA()
         page->setPageVisible(true);
     }
     QTRY_VERIFY_WITH_TIMEOUT(m_accueil->sessionsLues(), 10000);
-    QTRY_VERIFY_WITH_TIMEOUT(m_accueil->carteProjets().value(QStringLiteral("lisible")).toBool(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(m_accueil->lue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_projets->listeLue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_questions->lue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_poste->lue(), 10000);
@@ -175,11 +179,13 @@ QStringList TestOubliLocal::donneesRestantes() const
             restes.append(QString::fromLatin1(nom));
         }
     };
-    si(m_accueil->carteProjets().value(QStringLiteral("lisible")).toBool(), "accueil.carteProjets");
-    si(m_accueil->carteQuotas().value(QStringLiteral("connu")).toBool(), "accueil.carteQuotas");
+    si(m_accueil->lue(), "accueil.lue");
+    si(m_accueil->carteATraiter().value(QStringLiteral("lisible")).toBool(), "accueil.carteATraiter");
+    si(m_accueil->projetsEnCours()->count() > 0, "accueil.projetsEnCours");
+    si(m_accueil->carteQuotas().value(QStringLiteral("lisible")).toBool(), "accueil.carteQuotas");
     si(m_accueil->sessions()->count() > 0, "accueil.sessions");
     si(m_accueil->sessionsLues(), "accueil.sessionsLues");
-    si(m_accueil->lectureProjets() != kJamaisLu, "accueil.lectureProjets");
+    si(m_accueil->lectureAccueil() != kJamaisLu, "accueil.lectureAccueil");
     si(m_accueil->lectureSessions() != kJamaisLu, "accueil.lectureSessions");
     si(m_projets->projets()->count() > 0, "projets.liste");
     si(m_projets->listeLue(), "projets.listeLue");

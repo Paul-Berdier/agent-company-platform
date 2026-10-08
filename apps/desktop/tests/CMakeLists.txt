@@ -12,10 +12,19 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Test QuickTest)
 
 # --- Tests C++ ----------------------------------------------------------------
 
+# Fixtures PARTAGÉES avec le greffon et l'interface web (hermes/tests/outils/fixtures_*), lues à
+# leur place et jamais recopiées : un changement de forme côté greffon fait échouer la station.
+get_filename_component(ACP_FIXTURES_PARTAGEES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../hermes/tests/outils" ABSOLUTE)
+if(NOT EXISTS "${ACP_FIXTURES_PARTAGEES_DIR}/fixtures_accueil/accueil.json")
+    message(FATAL_ERROR "Fixtures partagées introuvables : ${ACP_FIXTURES_PARTAGEES_DIR}. La station doit être "
+                        "configurée depuis le dépôt complet.")
+endif()
+
 function(acp_add_cpp_test name)
     qt_add_executable(${name} cpp/${name}.cpp ${ARGN})
     target_link_libraries(${name} PRIVATE acp_core Qt6::Test)
     target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/cpp")
+    target_compile_definitions(${name} PRIVATE ACP_FIXTURES_PARTAGEES_DIR="${ACP_FIXTURES_PARTAGEES_DIR}")
     # Les tests sont des programmes de console : pas de sous-système fenêtré sur Windows,
     # sans quoi leur sortie serait invisible pour ctest.
     set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE FALSE)

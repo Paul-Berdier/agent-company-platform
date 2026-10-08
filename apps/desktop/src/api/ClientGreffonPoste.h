@@ -116,6 +116,8 @@ public:
     // --- Pause générale ---------------------------------------------------------
     /*! `generale` vrai engage l'arrêt d'urgence ; raison de 200 caractères au plus. */
     ApiCall *pauseGenerale(bool generale, const QString &raison);
+    /*! Notification de test (202 : mise en file ; 409 `notifications` : aucun canal configuré). */
+    ApiCall *notificationDeTest();
 
     // --- Poste --------------------------------------------------------------------
     ApiCall *enrolerPoste();

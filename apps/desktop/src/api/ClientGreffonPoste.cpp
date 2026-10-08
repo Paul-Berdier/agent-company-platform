@@ -258,6 +258,11 @@ ApiCall *ClientGreffonPoste::pauseGenerale(bool generale, const QString &raison)
     return ecrire(QStringLiteral("/v1/pause"), corps);
 }
 
+ApiCall *ClientGreffonPoste::notificationDeTest()
+{
+    return ecrire(QStringLiteral("/v1/notifications/test"), {});
+}
+
 ApiCall *ClientGreffonPoste::enrolerPoste()
 {
     return ecrire(QStringLiteral("/v1/poste/enrolement"), {});

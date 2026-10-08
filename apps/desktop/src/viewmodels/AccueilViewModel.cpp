@@ -19,13 +19,43 @@ namespace {
 //! reprise est alors refusée par le greffon tant qu'ils existent.
 const QString kRaisonCrochets = QStringLiteral("ACP : crochets shell détectés en cours de route");
 
-const QStringList kOrdreVoies = {QStringLiteral("poste-codex"), QStringLiteral("poste-claude"),
-                                 QStringLiteral("hermes")};
+//! Voies dont l'Accueil du navigateur montre les quotas (CarteQuotas de CarteExecutant.tsx).
+const QStringList kVoiesQuotas = {QStringLiteral("poste-codex"), QStringLiteral("poste-claude")};
 
 QString libelleVoieOuBrut(const QString &cle)
 {
     const QString libelle = libelles::voie(cle);
     return libelle.isEmpty() ? cle : libelle;
+}
+
+/*! Raison d'un bloc illisible servie par le greffon (`illisibles`), ou « Inconnu ». */
+QString raisonIllisible(const QJsonObject &accueil, const QString &bloc)
+{
+    return libelles::texte(accueil.value(QStringLiteral("illisibles")).toObject().value(bloc));
+}
+
+/*! Le bloc est lisible : un objet servi (jamais `null`, jamais absent). */
+bool lisible(const QJsonObject &accueil, const QString &bloc)
+{
+    return accueil.value(bloc).isObject();
+}
+
+QString texteOuVide(const QJsonValue &valeur)
+{
+    return libelles::estTexte(valeur) ? valeur.toString() : QString();
+}
+
+QString pourcentageBorne(const QJsonValue &valeur)
+{
+    // Comme la page web : un pourcentage n'est rendu que s'il est entre 0 et 100.
+    return valeur.isDouble() && valeur.toDouble() >= 0 && valeur.toDouble() <= 100 ? libelles::pourcentage(valeur)
+                                                                                    : libelles::kInconnu;
+}
+
+/*! Horodatage servi en secondes (nombre) ou en ISO 8601 (chaîne) ; sinon « Inconnu ». */
+QString dateServie(const QJsonValue &valeur)
+{
+    return valeur.isString() ? libelles::dateIso(valeur) : libelles::date(valeur);
 }
 
 } // namespace
@@ -35,8 +65,7 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
     : PageViewModel(flux, parent)
     , m_client(client)
     , m_greffon(greffon)
-    , m_projets(new Sondage([this] { return m_greffon->projets(); }, Sondage::kIntervallePage, this))
-    , m_quotas(new Sondage([this] { return m_greffon->quotas(); }, Sondage::kIntervallePage, this))
+    , m_accueil(new Sondage([this] { return m_greffon->accueil(); }, Sondage::kIntervallePage, this))
     , m_sondageSessions(new Sondage(
           [this] {
               // Même appel que la page d'accueil web (apps/interface/src/api.ts, ROUTE_SESSIONS).
@@ -48,21 +77,19 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
               return m_client->send(requete);
           },
           Sondage::kIntervallePage, this))
+    , m_projetsEnCours(new JsonListModel(this))
     , m_sessions(new JsonListModel(this))
 {
-    lireProjets({});
-    m_carteQuotas = construireCarteQuotas({});
-    for (Sondage *sondage : {m_projets, m_quotas, m_sondageSessions}) {
+    m_projetsEnCours->setCle({QStringLiteral("id")});
+    lireAccueil({});
+    m_lue = false;
+    for (Sondage *sondage : {m_accueil, m_sondageSessions}) {
         connect(sondage, &Sondage::etatChange, this, &AccueilViewModel::lectureChange);
     }
-    connect(m_projets, &Sondage::lu, this, [this](const ApiResponse &reponse) {
-        const QJsonObject liste = reponse.json.object();
-        lireProjets(liste);
-        this->flux()->noterProjets(liste);
-    });
-    connect(m_quotas, &Sondage::lu, this, [this](const ApiResponse &reponse) {
-        m_carteQuotas = construireCarteQuotas(reponse.json.object());
-        emit quotasChange();
+    connect(m_accueil, &Sondage::lu, this, [this](const ApiResponse &reponse) {
+        lireAccueil(reponse.json.object());
+        m_lue = true;
+        emit accueilChange();
     });
     connect(m_sondageSessions, &Sondage::lu, this, [this](const ApiResponse &reponse) {
         m_sessions->setItems(construireSessions(reponse.json.object()));
@@ -75,7 +102,7 @@ AccueilViewModel::~AccueilViewModel() = default;
 
 QList<Sondage *> AccueilViewModel::sondages() const
 {
-    QList<Sondage *> liste{m_projets, m_quotas, m_sondageSessions};
+    QList<Sondage *> liste{m_accueil, m_sondageSessions};
     if (m_meta) {
         liste.append(m_meta);
     }
@@ -88,7 +115,7 @@ void AccueilViewModel::setCompatibilite(CompatibiliteHermes *compatibilite)
         return;
     }
     m_compatibilite = compatibilite;
-    m_meta = new Sondage([this] { return m_greffon->meta(); }, m_projets->intervalle(), this);
+    m_meta = new Sondage([this] { return m_greffon->meta(); }, m_accueil->intervalle(), this);
     connect(m_meta, &Sondage::lu, this,
             [this](const ApiResponse &reponse) { m_compatibilite->appliquerLecture(reponse.json.object()); });
     connect(m_meta, &Sondage::echec, this, [this](const ApiError &erreur) { m_compatibilite->appliquerEchec(erreur); });
@@ -119,9 +146,9 @@ void AccueilViewModel::surOubli()
     for (Sondage *sondage : sondages()) {
         sondage->oublier();
     }
-    lireProjets({});
-    m_carteQuotas = construireCarteQuotas({});
-    emit quotasChange();
+    lireAccueil({});
+    m_lue = false;
+    emit accueilChange();
     m_sessions->clear();
     m_sessionsLues = false;
     emit lectureChange();
@@ -134,20 +161,20 @@ void AccueilViewModel::actualiser()
     }
 }
 
-QString AccueilViewModel::lectureProjets() const { return m_projets->libelleLuA(); }
-QString AccueilViewModel::erreurProjets() const { return m_projets->derniereErreur(); }
-QString AccueilViewModel::lectureQuotas() const { return m_quotas->libelleLuA(); }
-QString AccueilViewModel::erreurQuotas() const { return m_quotas->derniereErreur(); }
+QString AccueilViewModel::lectureAccueil() const { return m_accueil->libelleLuA(); }
+QString AccueilViewModel::erreurAccueil() const { return m_accueil->derniereErreur(); }
 QString AccueilViewModel::lectureSessions() const { return m_sondageSessions->libelleLuA(); }
 QString AccueilViewModel::erreurSessions() const { return m_sondageSessions->derniereErreur(); }
 
-void AccueilViewModel::lireProjets(const QJsonObject &liste)
+void AccueilViewModel::lireAccueil(const QJsonObject &accueil)
 {
-    m_carteProjets = construireCarteProjets(liste);
-    m_carteQuestions = construireCarteQuestions(liste);
-    m_cartePoste = construireCartePoste(liste);
-    m_cartePause = construireCartePause(liste);
-    emit projetsChange();
+    m_carteATraiter = construireCarteATraiter(accueil);
+    m_carteProjets = construireCarteProjets(accueil);
+    m_projetsEnCours->setItems(construireProjetsEnCours(accueil));
+    m_carteExecutant = construireCarteExecutant(accueil);
+    m_carteQuotas = construireCarteQuotas(accueil);
+    m_carteNotifications = construireCarteNotifications(accueil);
+    m_cartePause = construireCartePause(accueil);
 }
 
 void AccueilViewModel::basculerPause(bool generale, const QString &raison)
@@ -160,138 +187,253 @@ void AccueilViewModel::basculerPause(bool generale, const QString &raison)
     connect(appel, &ApiCall::succeeded, this, [this, generale](const ApiResponse &) {
         terminerGeste(generale ? QStringLiteral("Pause générale engagée : aucune nouvelle carte ne part.")
                                : QStringLiteral("Pause générale levée : Hermes reprend son travail autonome."));
-        m_projets->lireMaintenant();
+        m_accueil->lireMaintenant();
     });
     connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
         echouerGeste(erreur);
-        m_projets->lireMaintenant();
+        m_accueil->lireMaintenant();
+    });
+}
+
+void AccueilViewModel::envoyerNotificationDeTest()
+{
+    if (gesteEnCours()) {
+        return;
+    }
+    if (!m_carteNotifications.value(QStringLiteral("configure")).toBool()) {
+        echouerGeste(QStringLiteral("Aucun canal de notifications configuré : rien n'est envoyé."));
+        return;
+    }
+    debuterGeste();
+    ApiCall *appel = m_greffon->notificationDeTest();
+    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
+        // Le message du greffon (« mise en file : la passerelle l'envoie à sa prochaine passe »), tel quel.
+        const QJsonValue message = reponse.json.object().value(QStringLiteral("message"));
+        terminerGeste(libelles::estTexte(message) ? message.toString()
+                                                  : QStringLiteral("Notification de test acceptée par le greffon."));
+        m_accueil->lireMaintenant();
+    });
+    connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+        echouerGeste(erreur);
+        m_accueil->lireMaintenant();
     });
 }
 
 // --- Fonctions pures -------------------------------------------------------------------
 
-QVariantMap AccueilViewModel::construireCarteProjets(const QJsonObject &liste)
+QVariantMap AccueilViewModel::construireCarteATraiter(const QJsonObject &accueil)
 {
-    const QJsonValue valeur = liste.value(QStringLiteral("projets"));
-    const bool lisible = valeur.isArray();
-    int total = 0;
-    int actifs = 0;
-    int enPause = 0;
-    qint64 faites = 0;
-    qint64 cartes = 0;
-    bool faitesConnues = true;
-    qint64 attente = 0;
-    bool attenteConnue = true;
-    QString note;
-    QString noteProjet;
-    bool noteTronquee = false;
-    for (const QJsonValue &element : valeur.toArray()) {
+    const QString bloc = QStringLiteral("a_traiter");
+    if (!lisible(accueil, bloc)) {
+        return QVariantMap{{QStringLiteral("lisible"), false},
+                           {QStringLiteral("raison"), raisonIllisible(accueil, bloc)},
+                           {QStringLiteral("total"), libelles::kInconnu},
+                           {QStringLiteral("premieres"), QVariantList{}}};
+    }
+    const QJsonObject a = accueil.value(bloc).toObject();
+    QVariantList premieres;
+    for (const QJsonValue &element : a.value(QStringLiteral("premieres")).toArray()) {
+        const QJsonObject demande = element.toObject();
+        const QString genre = demande.value(QStringLiteral("genre")).toString();
+        const QString libelleGenre = genre == QLatin1String("question") ? QStringLiteral("Question :")
+            : genre == QLatin1String("decision")                       ? QStringLiteral("Décision :")
+            : genre == QLatin1String("revue")                          ? QStringLiteral("Revue :")
+            : genre == QLatin1String("arretee")                        ? QStringLiteral("Carte arrêtée :")
+                                                                       : QString();
+        premieres.append(QVariantMap{
+            {QStringLiteral("genre"), libelleGenre},
+            {QStringLiteral("titre"), libelles::texte(demande.value(QStringLiteral("titre")))},
+            {QStringLiteral("projet"), libelles::texte(demande.value(QStringLiteral("projet_titre")))},
+        });
+    }
+    const QJsonValue total = a.value(QStringLiteral("total"));
+    const QJsonValue chezHermes = accueil.value(QStringLiteral("chez_hermes"));
+    // Les discussions en attente ne sont pas lues par la station (session.active_list) : le total le dit, et
+    // « Rien n'attend votre décision » n'est jamais affiché (relecture finale de P7 : jamais zéro par défaut).
+    return QVariantMap{
+        {QStringLiteral("lisible"), true},
+        {QStringLiteral("raison"), QString()},
+        {QStringLiteral("total"), libelles::nombre(total)},
+        {QStringLiteral("mention"), QStringLiteral("(discussions en attente : état inconnu, non comptées)")},
+        {QStringLiteral("questions"), libelles::nombre(a.value(QStringLiteral("questions")))},
+        {QStringLiteral("decisions"), libelles::nombre(a.value(QStringLiteral("decisions")))},
+        {QStringLiteral("revues"), libelles::nombre(a.value(QStringLiteral("revues")))},
+        {QStringLiteral("arretees"), libelles::nombre(a.value(QStringLiteral("arretees")))},
+        {QStringLiteral("discussions"), QStringLiteral("Inconnues")},
+        {QStringLiteral("chezHermes"), libelles::nombre(chezHermes)},
+        {QStringLiteral("attente"), libelles::estNombre(total) && total.toInteger() > 0},
+        {QStringLiteral("premieres"), premieres},
+    };
+}
+
+QVariantMap AccueilViewModel::construireCarteProjets(const QJsonObject &accueil)
+{
+    const QString bloc = QStringLiteral("projets");
+    if (!lisible(accueil, bloc)) {
+        return QVariantMap{{QStringLiteral("lisible"), false}, {QStringLiteral("raison"), raisonIllisible(accueil, bloc)},
+                           {QStringLiteral("enCours"), libelles::kInconnu}, {QStringLiteral("enPause"), libelles::kInconnu},
+                           {QStringLiteral("termines7j"), libelles::kInconnu}, {QStringLiteral("aucunOuvert"), false}};
+    }
+    const QJsonObject p = accueil.value(bloc).toObject();
+    const QJsonValue liste = p.value(QStringLiteral("liste"));
+    return QVariantMap{
+        {QStringLiteral("lisible"), true},
+        {QStringLiteral("raison"), QString()},
+        {QStringLiteral("enCours"), libelles::nombre(p.value(QStringLiteral("en_cours")))},
+        {QStringLiteral("enPause"), libelles::nombre(p.value(QStringLiteral("en_pause")))},
+        {QStringLiteral("termines7j"), libelles::nombre(p.value(QStringLiteral("termines_7j")))},
+        {QStringLiteral("aucunOuvert"), liste.isArray() && liste.toArray().isEmpty()},
+    };
+}
+
+QJsonArray AccueilViewModel::construireProjetsEnCours(const QJsonObject &accueil)
+{
+    QJsonArray lignes;
+    for (const QJsonValue &element : accueil.value(QStringLiteral("projets")).toObject().value(QStringLiteral("liste")).toArray()) {
         const QJsonObject projet = element.toObject();
-        ++total;
-        const QString etat = projet.value(QStringLiteral("etat")).toString();
-        if (etat == QLatin1String("creation") || etat == QLatin1String("actif")) {
-            ++actifs;
-        } else if (etat == QLatin1String("en_pause")) {
-            ++enPause;
+        const QString identifiant = projet.value(QStringLiteral("id")).toString();
+        if (!ClientGreffonPoste::identifiantValide(identifiant)) {
+            continue; // sans identifiant lisible, la ligne ne désigne rien
         }
-        const QJsonObject compteurs = projet.value(QStringLiteral("compteurs")).toObject();
-        const QJsonValue f = compteurs.value(QStringLiteral("faites"));
-        const QJsonValue t = compteurs.value(QStringLiteral("total"));
-        if (libelles::estNombre(f) && libelles::estNombre(t)) {
-            faites += f.toInteger();
-            cartes += t.toInteger();
-        } else {
-            faitesConnues = false; // tableau illisible : compteurs inconnus, jamais inventés
-        }
-        const QJsonValue a = compteurs.value(QStringLiteral("en_attente_du_poste"));
-        if (libelles::estNombre(a)) {
-            attente += a.toInteger();
-        } else {
-            attenteConnue = false;
-        }
-        // La liste vient du plus récent au plus ancien : la première note trouvée est celle du
-        // projet le plus récent qui en a une.
-        if (note.isEmpty() && libelles::estTexte(projet.value(QStringLiteral("derniere_note")))) {
-            note = projet.value(QStringLiteral("derniere_note")).toString();
-            noteProjet = libelles::texte(projet.value(QStringLiteral("titre")));
-            noteTronquee = projet.value(QStringLiteral("derniere_note_tronquee")).toBool();
-        }
+        const libelles::Libelle etat = libelles::etatProjet(projet.value(QStringLiteral("etat")),
+                                                            projet.value(QStringLiteral("etat_derive")));
+        const QJsonValue faites = projet.value(QStringLiteral("faites"));
+        const QJsonValue total = projet.value(QStringLiteral("total"));
+        const QString note = texteOuVide(projet.value(QStringLiteral("derniere_note")));
+        lignes.append(QJsonObject{
+            {QStringLiteral("id"), identifiant},
+            {QStringLiteral("titre"), libelles::texte(projet.value(QStringLiteral("titre")))},
+            {QStringLiteral("etatLibelle"), etat.connu() ? etat.texte : libelles::texte(projet.value(QStringLiteral("etat")))},
+            {QStringLiteral("etatCle"), etat.connu() ? etat.cle : QStringLiteral("unknown")},
+            {QStringLiteral("avancement"), libelles::estNombre(faites) && libelles::estNombre(total)
+                 ? QStringLiteral("%1 sur %2 cartes faites").arg(faites.toInteger()).arg(total.toInteger())
+                 : libelles::kInconnu},
+            {QStringLiteral("note"), note.isEmpty() ? QString()
+                                     : projet.value(QStringLiteral("derniere_note_tronquee")) == QJsonValue(true)
+                                         ? note + QStringLiteral(" […] (extrait)")
+                                         : note},
+        });
     }
-    return QVariantMap{
-        {QStringLiteral("lisible"), lisible},
-        {QStringLiteral("aucunProjet"), lisible && total == 0},
-        {QStringLiteral("total"), lisible ? QString::number(total) : libelles::kInconnu},
-        {QStringLiteral("actifs"), lisible ? QString::number(actifs) : libelles::kInconnu},
-        {QStringLiteral("enPause"), lisible ? QString::number(enPause) : libelles::kInconnu},
-        {QStringLiteral("cartesFaites"), lisible && faitesConnues
-             ? QStringLiteral("%1 sur %2").arg(faites).arg(cartes) : libelles::kInconnu},
-        {QStringLiteral("attentePoste"), lisible && attenteConnue ? QString::number(attente) : libelles::kInconnu},
-        {QStringLiteral("derniereNote"), note},
-        {QStringLiteral("derniereNoteProjet"), noteProjet},
-        {QStringLiteral("derniereNoteTronquee"), noteTronquee},
-    };
+    return lignes;
 }
 
-QVariantMap AccueilViewModel::construireCarteQuestions(const QJsonObject &liste)
+QVariantMap AccueilViewModel::construireCarteExecutant(const QJsonObject &accueil)
 {
-    const QJsonValue valeur = liste.value(QStringLiteral("questions_ouvertes"));
-    if (!libelles::estNombre(valeur)) {
-        return QVariantMap{{QStringLiteral("nombre"), libelles::kInconnu}, {QStringLiteral("connu"), false},
-                           {QStringLiteral("attente"), false}, {QStringLiteral("libelle"), libelles::kInconnu}};
+    const QString bloc = QStringLiteral("executant");
+    if (!lisible(accueil, bloc)) {
+        return QVariantMap{{QStringLiteral("lisible"), false}, {QStringLiteral("raison"), raisonIllisible(accueil, bloc)},
+                           {QStringLiteral("etat"), libelles::kInconnu}, {QStringLiteral("cle"), QStringLiteral("unknown")},
+                           {QStringLiteral("voiesFermees"), QString()}};
     }
-    const qint64 nombre = valeur.toInteger();
-    const QString libelle = nombre == 0 ? QStringLiteral("Aucune question en attente.")
-        : nombre == 1             ? QStringLiteral("1 question attend votre réponse ou celle de Hermes.")
-                                  : QStringLiteral("%1 questions attendent votre réponse ou celle de Hermes.").arg(nombre);
-    return QVariantMap{{QStringLiteral("nombre"), QString::number(nombre)}, {QStringLiteral("connu"), true},
-                       {QStringLiteral("attente"), nombre > 0}, {QStringLiteral("libelle"), libelle}};
-}
-
-QVariantMap AccueilViewModel::construireCartePoste(const QJsonObject &liste)
-{
-    const QJsonValue valeur = liste.value(QStringLiteral("poste"));
-    const QJsonObject poste = valeur.toObject();
-    const QJsonValue etatBrut = poste.value(QStringLiteral("etat"));
-    const libelles::Libelle etat = libelles::etatPoste(etatBrut);
-
-    const QJsonValue machine = poste.value(QStringLiteral("machine"));
-    const QJsonValue vue = poste.value(QStringLiteral("derniere_vue"));
-    QString vuA;
-    if (libelles::estTexte(poste.value(QStringLiteral("derniere_vue_lisible")))) {
-        vuA = poste.value(QStringLiteral("derniere_vue_lisible")).toString();
-    } else if (vue.isDouble()) {
-        vuA = libelles::date(vue);
-    } else {
-        vuA = vue.isNull() ? QStringLiteral("Jamais") : libelles::kInconnu;
+    const QJsonObject e = accueil.value(bloc).toObject();
+    const libelles::Libelle etat = libelles::etatPoste(e.value(QStringLiteral("etat")));
+    const QJsonValue enCours = e.value(QStringLiteral("carte_en_cours"));
+    QString carte = QStringLiteral("Aucune carte en cours");
+    if (enCours.isObject()) {
+        const QJsonObject c = enCours.toObject();
+        const libelles::Libelle statut = libelles::statutCarte(c.value(QStringLiteral("statut")));
+        carte = QStringLiteral("%1 (projet « %2 ») · %3")
+                    .arg(libelles::texte(c.value(QStringLiteral("titre"))), libelles::texte(c.value(QStringLiteral("projet_titre"))),
+                         statut.connu() ? statut.texte : libelles::texte(c.value(QStringLiteral("statut"))));
+    } else if (!enCours.isNull()) {
+        carte = libelles::kInconnu;
     }
-    const QJsonValue horsLigne = poste.value(QStringLiteral("hors_ligne_depuis"));
-    // Relecture finale de P7 : titre d'après l'hôte publié par la machine enregistrée (presence.etat_poste sert sa vue
-    // sous `poste`) ; « Exécutant » quand rien n'est publié — jamais « Poste Windows » pour une machine Linux.
-    const QString hote = poste.value(QStringLiteral("poste")).toObject().value(QStringLiteral("hote")).toString();
-    const QString titre = hote == QLatin1String("railway") ? QStringLiteral("Exécutant Railway")
-        : hote == QLatin1String("pc")                     ? QStringLiteral("Poste Windows")
-                                                          : QStringLiteral("Exécutant");
+    QStringList fermees;
+    const QJsonValue voies = e.value(QStringLiteral("voies_fermees"));
+    const QJsonObject parVoie = voies.toObject();
+    for (auto it = parVoie.constBegin(); it != parVoie.constEnd(); ++it) {
+        fermees.append(QStringLiteral("%1 : %2").arg(libelleVoieOuBrut(it.key()), libelles::texte(it.value())));
+    }
     return QVariantMap{
-        {QStringLiteral("titre"), titre},
-        {QStringLiteral("etat"), etat.connu() ? etat.texte : libelles::texte(etatBrut)},
+        {QStringLiteral("lisible"), true},
+        {QStringLiteral("raison"), QString()},
+        {QStringLiteral("etat"), etat.connu() ? etat.texte : libelles::texte(e.value(QStringLiteral("etat")))},
         {QStringLiteral("cle"), etat.connu() ? etat.cle : QStringLiteral("unknown")},
-        {QStringLiteral("connu"), etat.connu()},
-        {QStringLiteral("machine"), libelles::estTexte(machine) ? machine.toString()
-                                    : machine.isNull() && valeur.isObject() ? QStringLiteral("Aucune")
-                                                                            : libelles::kInconnu},
-        {QStringLiteral("vuA"), valeur.isObject() ? vuA : libelles::kInconnu},
-        {QStringLiteral("horsLigneDepuis"), horsLigne.isDouble() ? libelles::date(horsLigne) : QString()},
-        {QStringLiteral("cartesEnAttente"), libelles::nombre(poste.value(QStringLiteral("cartes_en_attente")))},
-        {QStringLiteral("message"), libelles::estTexte(poste.value(QStringLiteral("message")))
-             ? poste.value(QStringLiteral("message")).toString() : QString()},
+        {QStringLiteral("machine"), libelles::texte(e.value(QStringLiteral("nom")))},
+        {QStringLiteral("plateforme"), libelles::texte(e.value(QStringLiteral("plateforme")))},
+        {QStringLiteral("derniereVue"), dateServie(e.value(QStringLiteral("derniere_vue")))},
+        {QStringLiteral("horsLigneDepuis"), e.value(QStringLiteral("hors_ligne_depuis")).isDouble()
+             ? libelles::date(e.value(QStringLiteral("hors_ligne_depuis"))) : QString()},
+        {QStringLiteral("carteEnCours"), carte},
+        {QStringLiteral("cartesEnAttente"), libelles::nombre(e.value(QStringLiteral("cartes_en_attente")))},
+        {QStringLiteral("message"), texteOuVide(e.value(QStringLiteral("message")))},
+        // Objet servi `{voie: raison}` ; vide : « Aucune » ; autre forme : « Inconnu » (constat desktop-3 de P7).
+        {QStringLiteral("voiesFermees"), !voies.isObject() ? libelles::kInconnu
+                                         : fermees.isEmpty() ? QStringLiteral("Aucune")
+                                                             : fermees.join(QLatin1Char('\n'))},
     };
 }
 
-QVariantMap AccueilViewModel::construireCartePause(const QJsonObject &liste)
+QVariantMap AccueilViewModel::construireCarteQuotas(const QJsonObject &accueil)
 {
-    const QJsonValue pause = liste.value(QStringLiteral("pause_generale"));
-    // Objet présent : engagée ; null : levée ; absente ou d'un autre type : inconnue.
-    const int etat = pause.isObject() ? 1 : pause.isNull() ? 0 : -1;
+    const QString bloc = QStringLiteral("quotas");
+    if (!lisible(accueil, bloc)) {
+        return QVariantMap{{QStringLiteral("lisible"), false}, {QStringLiteral("raison"), raisonIllisible(accueil, bloc)},
+                           {QStringLiteral("voies"), QVariantList{}}, {QStringLiteral("hermes"), libelles::kInconnu}};
+    }
+    const QJsonObject q = accueil.value(bloc).toObject();
+    QVariantList voies;
+    for (const QString &cle : kVoiesQuotas) {
+        const QJsonObject voie = q.value(cle).toObject();
+        const libelles::Libelle etat = libelles::etatQuotas(voie.value(QStringLiteral("etat")));
+        const QJsonObject resume = voie.value(QStringLiteral("resume")).toObject();
+        voies.append(QVariantMap{
+            {QStringLiteral("nom"), libelleVoieOuBrut(cle)},
+            {QStringLiteral("etat"), etat.connu() ? etat.texte : libelles::texte(voie.value(QStringLiteral("etat")))},
+            {QStringLiteral("cle"), etat.connu() ? etat.cle : QStringLiteral("unknown")},
+            {QStringLiteral("utilise"), pourcentageBorne(resume.value(QStringLiteral("pourcentage_utilise")))},
+            {QStringLiteral("remise"), libelles::dateIso(resume.value(QStringLiteral("remise_a_zero")))},
+            {QStringLiteral("source"), libelles::texte(voie.value(QStringLiteral("source_libelle")))},
+            {QStringLiteral("releveLe"), dateServie(voie.value(QStringLiteral("releve_le")))},
+        });
+    }
+    return QVariantMap{
+        {QStringLiteral("lisible"), true},
+        {QStringLiteral("raison"), QString()},
+        {QStringLiteral("voies"), voies},
+        {QStringLiteral("hermes"), libelles::texte(q.value(QStringLiteral("hermes")).toObject().value(QStringLiteral("libelle")))},
+    };
+}
+
+QVariantMap AccueilViewModel::construireCarteNotifications(const QJsonObject &accueil)
+{
+    const QString bloc = QStringLiteral("notifications");
+    if (!lisible(accueil, bloc)) {
+        return QVariantMap{{QStringLiteral("lisible"), false}, {QStringLiteral("raison"), raisonIllisible(accueil, bloc)},
+                           {QStringLiteral("canal"), libelles::kInconnu}, {QStringLiteral("etat"), libelles::kInconnu},
+                           {QStringLiteral("cle"), QStringLiteral("unknown")}, {QStringLiteral("configure"), false},
+                           {QStringLiteral("note"), QString()}};
+    }
+    const QJsonObject n = accueil.value(bloc).toObject();
+    const bool connu = n.value(QStringLiteral("connu")) == QJsonValue(true);
+    const bool configure = n.value(QStringLiteral("configure")) == QJsonValue(true);
+    const QString canal = n.value(QStringLiteral("canal")).toString();
+    QString libelleCanal = canal == QLatin1String("telegram") ? QStringLiteral("Telegram")
+        : canal == QLatin1String("ntfy")                     ? QStringLiteral("ntfy")
+        : canal == QLatin1String("aucune")                   ? QStringLiteral("Aucun")
+                                                             : libelles::texte(n.value(QStringLiteral("canal")));
+    if (!connu) {
+        libelleCanal = libelles::kInconnu;
+    }
+    return QVariantMap{
+        {QStringLiteral("lisible"), true},
+        {QStringLiteral("raison"), QString()},
+        {QStringLiteral("canal"), libelleCanal},
+        {QStringLiteral("etat"), !connu ? libelles::kInconnu : configure ? QStringLiteral("Configurées") : QStringLiteral("Non configurées")},
+        {QStringLiteral("cle"), !connu ? QStringLiteral("unknown") : configure ? QStringLiteral("succeeded") : QStringLiteral("notConfigured")},
+        {QStringLiteral("configure"), configure},
+        // Message du greffon (canal non configuré, ou état inconnu tant que la passerelle ne l'a pas publié).
+        {QStringLiteral("note"), texteOuVide(n.value(QStringLiteral("message")))},
+    };
+}
+
+QVariantMap AccueilViewModel::construireCartePause(const QJsonObject &accueil)
+{
+    const QJsonValue pause = accueil.value(QStringLiteral("pause_generale"));
+    // Objet présent : engagée ; null : levée — sauf si le greffon dit le bloc illisible ; absente ou d'un autre type :
+    // inconnue.
+    const bool illisible = accueil.value(QStringLiteral("illisibles")).toObject().contains(QStringLiteral("pause_generale"));
+    const int etat = illisible ? -1 : pause.isObject() ? 1 : pause.isNull() ? 0 : -1;
     const QJsonObject detail = pause.toObject();
     const bool crochets = detail.value(QStringLiteral("reason")).toString() == kRaisonCrochets;
     QString libelle = libelles::kInconnu;
@@ -310,59 +452,7 @@ QVariantMap AccueilViewModel::construireCartePause(const QJsonObject &liste)
         // bouton qui échouerait n'est proposé, la page dit comment en sortir.
         {QStringLiteral("reprisePossible"), etat == 1 && !crochets},
         {QStringLiteral("pausePossible"), etat == 0},
-    };
-}
-
-QVariantMap AccueilViewModel::construireCarteQuotas(const QJsonObject &quotas)
-{
-    QStringList cles = kOrdreVoies;
-    for (const QString &cle : quotas.keys()) {
-        if (!cles.contains(cle)) {
-            cles.append(cle);
-        }
-    }
-    double pire = -1;
-    QString voie;
-    QJsonObject retenue;
-    for (const QString &cle : std::as_const(cles)) {
-        const QJsonObject entree = quotas.value(cle).toObject();
-        const QJsonValue utilise = entree.value(QStringLiteral("resume")).toObject().value(QStringLiteral("pourcentage_utilise"));
-        if (utilise.isDouble() && utilise.toDouble() > pire) {
-            pire = utilise.toDouble();
-            voie = cle;
-            retenue = entree;
-        }
-    }
-    if (voie.isEmpty()) {
-        return QVariantMap{
-            {QStringLiteral("connu"), false},
-            {QStringLiteral("libelle"), libelles::kInconnu},
-            {QStringLiteral("detail"), quotas.isEmpty() ? QString()
-                                                        : QStringLiteral("Aucune voie n'a de relevé de quota.")},
-            {QStringLiteral("cle"), QStringLiteral("unknown")},
-            {QStringLiteral("etat"), libelles::kInconnu},
-            {QStringLiteral("remise"), QString()},
-        };
-    }
-    const QJsonObject resume = retenue.value(QStringLiteral("resume")).toObject();
-    const QJsonValue seuil = retenue.value(QStringLiteral("seuil_pct"));
-    const QString cle = seuil.isDouble() ? (pire >= seuil.toDouble() ? QStringLiteral("degraded") : QStringLiteral("succeeded"))
-                                         : QStringLiteral("pending");
-    // La pastille dit ce qu'elle mesure : la position par rapport au seuil d'alerte du greffon.
-    const QString etat = !seuil.isDouble()           ? QStringLiteral("Seuil inconnu")
-        : cle == QLatin1String("degraded")          ? QStringLiteral("Seuil d'alerte atteint")
-                                                    : QStringLiteral("Sous le seuil d'alerte");
-    const QJsonValue remise = resume.value(QStringLiteral("remise_a_zero"));
-    return QVariantMap{
-        {QStringLiteral("connu"), true},
-        {QStringLiteral("libelle"), QStringLiteral("%1 : %2 utilisés")
-                                        .arg(libelleVoieOuBrut(voie), libelles::pourcentage(resume.value(QStringLiteral("pourcentage_utilise"))))},
-        {QStringLiteral("detail"), seuil.isDouble() ? QStringLiteral("Seuil d'alerte : %1").arg(libelles::pourcentage(seuil))
-                                                    : QString()},
-        {QStringLiteral("cle"), cle},
-        {QStringLiteral("etat"), etat},
-        {QStringLiteral("remise"), libelles::estTexte(remise)
-             ? QStringLiteral("Remise à zéro : %1").arg(libelles::dateIso(remise)) : QString()},
+        {QStringLiteral("raisonIllisible"), illisible ? raisonIllisible(accueil, QStringLiteral("pause_generale")) : QString()},
     };
 }
 

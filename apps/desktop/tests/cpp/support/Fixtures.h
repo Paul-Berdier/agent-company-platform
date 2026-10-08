@@ -15,6 +15,8 @@
 #error "ACP_TEST_FIXTURE_DIR doit désigner tests/fixtures"
 #endif
 
+// ACP_FIXTURES_PARTAGEES_DIR (tests/CMakeLists.txt) désigne hermes/tests/outils.
+
 namespace acp::test {
 
 inline QByteArray brutFixture(const QString &nom)
@@ -35,5 +37,26 @@ inline QJsonObject fixture(const QString &nom)
     }
     return document.object();
 }
+
+#ifdef ACP_FIXTURES_PARTAGEES_DIR
+/*!
+    Fixture PARTAGÉE avec le greffon et l'interface web, lue à sa place sous
+    hermes/tests/outils (« fixtures_accueil/accueil.json », « fixtures_flux/trames.json »,
+    « fixtures_poste/depots.json ») : jamais recopiée dans la station.
+*/
+inline QJsonDocument fixturePartagee(const QString &chemin)
+{
+    QFile fichier(QStringLiteral(ACP_FIXTURES_PARTAGEES_DIR "/") + chemin);
+    if (!fichier.open(QIODevice::ReadOnly)) {
+        qFatal("Fixture partagée introuvable : %s", qPrintable(chemin));
+    }
+    QJsonParseError erreur;
+    const QJsonDocument document = QJsonDocument::fromJson(fichier.readAll(), &erreur);
+    if (erreur.error != QJsonParseError::NoError) {
+        qFatal("Fixture partagée illisible : %s", qPrintable(chemin));
+    }
+    return document;
+}
+#endif
 
 } // namespace acp::test
