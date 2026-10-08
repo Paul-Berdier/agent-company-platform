@@ -303,9 +303,13 @@ def test_parcours_telephone_question_bureau_projet_termine(playwright_sync, pile
         page.wait_for_selector('[data-acp-temps-reel="temps_reel"]', timeout=20_000)
         page.fill(f"#acp-reponse-{question}", REPONSE)
         page.click(f'form:has(#acp-reponse-{question}) button[type="submit"]')
-        # La question répondue quitte la file à la relecture ; la cible le dit (« déjà traitée »).
+        # La question répondue quitte la file à la relecture ; le message tiré de la réponse de l'API reste annoncé par
+        # la section, et la cible que la page vient de traiter n'est pas « déjà traitée » (relecture finale de P7).
         page.wait_for_selector(f"#acp-reponse-{question}", state="detached")
-        page.wait_for_selector('[data-acp-racine="projets"] [role="status"]:has-text("déjà été traitée")')
+        annonce = page.wait_for_selector('section:has(#acp-questions-ouvertes) [role="status"]:has-text("Réponse envoyée")')
+        preuves["message_de_la_reponse"] = " ".join(annonce.inner_text().replace(" ", " ").split())
+        assert preuves["message_de_la_reponse"] == "Réponse envoyée : la carte reprend.", preuves["message_de_la_reponse"]
+        assert page.locator('[data-acp-racine="projets"] [role="status"]:has-text("déjà été traitée")').count() == 0
         # Vers le détail du projet, DANS la page (aucun rechargement) : onglet « Projets », puis le projet.
         page.click('.acp-onglet >> nth=0')
         page.click(f'[data-acp-racine="projets"] a[href$="projet={identifiant}"]')

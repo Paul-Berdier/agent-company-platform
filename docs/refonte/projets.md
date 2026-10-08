@@ -173,7 +173,7 @@ l'Accueil.
 | Liste | `/projets` | `GET /v1/projets` | une carte par projet : état (dérivé : exploration, planification, en cours, en attente du poste, synthèse, plafond atteint, en pause, terminé), « Cartes faites : n sur m », poste, questions en attente, dernière note ; carte « Poste Windows » ; carte « Notifications » (canal, état, notification de test) ; carte « Pause générale » |
 | Nouveau projet | `?vue=nouveau` | `GET /v1/catalogue` (types de projet), `GET /v1/poste` (dépôts et relevés), `POST /v1/projets` | titre, objectif, type de projet, dépôt, qui répond (Hermes d'abord ou moi : avec un dépôt seulement, D42), exploration (exécutant, modèle, effort) ; (P7, partie E) un exécutant fermé **pour le dépôt choisi** est grisé, avec la raison du greffon (Codex sur un dépôt non prouvé privé : bloc `executant.depots` de `GET /v1/poste`, calcul du routage), et n'est jamais envoyé |
 | Détail | `?projet=<id>` (lien des notifications) | `GET /v1/projets/{id}`, `GET /v1/projets/{id}/cartes/{carte}`, `POST /v1/projets/{id}/pause`, `…/reprise`, (P7) `POST /v1/projets/{id}/reponses`, `POST /v1/projets/{id}/clore` | état, objectif, **résultat du projet** (synthèse du dernier tour, en entier), tour et cartes au regard des plafonds, dépôt, poste ; cartes groupées par rôle (statut, exécutant, modèle demandé, effort, palier « Standard », **« Modèle servi : Non observé »** avant P6, mention, résumé replié : un extrait le dit et **Lire le résumé en entier**) ; tours et décisions ; questions en attente ; journal en français (détail technique replié) ; **Mettre en pause** / **Reprendre** ; (P7) **Changer qui répond** (projet sur dépôt, pas fini ; vaut pour les questions suivantes, rien ne change avant la réponse de l'API) et **Clore le projet** (confirmation qui dit les quatre effets ; résultat de l'API : état atteint, cartes archivées, questions annulées, branches restées sur l'exécutant) |
-| Questions | `?vue=questions`, (P7) `&q=<question>` ou `&carte=<tableau>/<carte>` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre`, `…/conclure`, (P6) `POST /v1/revues/…`, (P7) `POST /v1/cartes/{tableau}/{carte}/relancer`, JSON-RPC natif `session.active_list` | file à **cinq sections** (étape P7, cahier P7 § 3) : questions ouvertes ou escaladées (titre de la carte, contexte, **qui y répond** : « Hermes y répond » ou « À vous », règle unique du greffon) avec **Répondre** ; décisions (cartes en triage) : **Prolonger** ou **Relancer la planification** (consigne facultative) et **Conclure le projet**, ou **Reprendre** ; revues des fichiers de pilotage (P6) ; cartes arrêtées (bloquées ou abandonnées) avec **Relancer** (consigne facultative ; « l'agent repart d'une session neuve » pour une carte de l'exécutant ; (partie E) une carte bloquée pour un **secret** se relance aussi quand l'exécutant actif est de la partie E (sinon refus `carte_secret`, dit) : la page dit que le travail fautif reste en quarantaine sur l'exécutant, et la relance repart d'une branche neuve, `branche_neuve` dans la réponse) ou la raison du refus ; discussions en attente (lecture seule). En tête : **À traiter par vous** et **Chez Hermes**. Une cible de lien profond est défilée et marquée (`aria-current`) ; absente, la page dit « Cette demande a déjà été traitée » |
+| Questions | `?vue=questions`, (P7) `&q=<question>` ou `&carte=<tableau>/<carte>` | `GET /v1/questions`, `POST /v1/questions/{q}/reponse`, `POST /v1/triage/{tableau}/{carte}/reprendre`, `…/conclure`, (P6) `POST /v1/revues/…`, (P7) `POST /v1/cartes/{tableau}/{carte}/relancer`, JSON-RPC natif `session.active_list` | file à **cinq sections** (étape P7, cahier P7 § 3) : questions ouvertes ou escaladées (titre de la carte, contexte, **qui y répond** : « Hermes y répond » ou « À vous », règle unique du greffon) avec **Répondre** ; décisions (cartes en triage) : **Prolonger** ou **Relancer la planification** (consigne facultative) et **Conclure le projet**, ou **Reprendre** ; revues des fichiers de pilotage (P6) ; cartes arrêtées (bloquées ou abandonnées) avec **Relancer** (consigne facultative ; « l'agent repart d'une session neuve » pour une carte de l'exécutant ; (partie E) une carte bloquée pour un **secret** se relance aussi quand l'exécutant actif est de la partie E (sinon refus `carte_secret`, dit) : la page dit que le travail fautif reste en quarantaine sur l'exécutant, et la relance repart d'une branche neuve, `branche_neuve` dans la réponse) ou la raison du refus ; discussions en attente (lecture seule). En tête : **À traiter par vous** et **Chez Hermes**. Une cible de lien profond est défilée et marquée (`aria-current`) ; absente, la page dit « Cette demande a déjà été traitée », sauf si la page vient de la traiter elle-même (le message de l'API reste annoncé par la section) ou si son tableau est illisible (« son état est inconnu ») |
 
 Règles, toutes testées (Vitest, image, navigateur) :
 
@@ -186,7 +186,10 @@ Règles, toutes testées (Vitest, image, navigateur) :
   ne l'a pas publié.
 - **Une réussite suit la réponse de l'API** : « la carte reprend », « reprendra à la reprise du projet » ou
   « n'a pas été relancée » ; « Plafond relevé », « Planification relancée », « Carte reprise » ou « n'a pas
-  été reprise ».
+  été reprise ». Le message est annoncé par la **section** de la file (relecture finale de P7) : la demande traitée
+  quitte la file dès la relecture qui suit le geste (une question répondue n'est plus servie), et un message porté
+  par l'entrée disparaîtrait avec elle. « n'a pas été relancée » et « n'a pas été reprise » sont des alertes : une
+  suite reste à donner.
 - **Historique** : chaque changement de vue voulu par le propriétaire ajoute une entrée (`pushState`) ; le
   geste « retour » du téléphone ramène à la vue précédente de la page (relecture de P4).
 - **Aucune donnée inventée** : « Inconnu » pour une valeur absente, « Non configuré » pour un poste
@@ -245,7 +248,8 @@ La ligne en base garde le **chemin relatif** ; l'URL publique (`HERMES_DASHBOARD
 l'**envoi**, dans la passerelle (correction K3) : une ligne enfilée par un sous-processus à l'environnement assaini
 (script du bilan quotidien lancé par le cron) n'a pas à la connaître. Une ligne antérieure à P7 (lien déjà absolu)
 part telle quelle ; sans URL publique valide, la notification part sans lien (jamais une adresse inventée). La vue
-Questions fait défiler jusqu'à la cible et la met en évidence ; une cible déjà traitée le dit.
+Questions fait défiler jusqu'à la cible et la met en évidence ; une cible déjà traitée le dit (sauf celle que la page
+vient de traiter, dont le message de l'API reste affiché ; une cible d'un tableau illisible a un état « inconnu »).
 
 **Bilan quotidien facultatif (étape P7, cahier P7 § 7, décision P7-6).** Une tâche cron **native** de Hermes en mode
 `no_agent` (aucun modèle, aucun jeton) lance chaque jour le script de l'image `acp-bilan.py`, déposé par root dans
@@ -662,7 +666,9 @@ défaut), page fermée ; notification « question » reçue, `Click` = `https://
 (ni fragment, ni texte de la question) ; au bureau (1440×900), contexte NEUF sans cookie de session, authentificateur
 portant une copie de la passkey : portail Authelia, second facteur par la passkey, consentement, puis **arrivée sur la
 question** (cible gardée par `next`), marquée `aria-current` ; « Répondre » ; la question quitte la file (« Cette
-demande a déjà été traitée ») ; onglet Projets puis le projet, dans la page ; le projet passe « Terminé » **4,9 s**
+demande a déjà été traitée » à ces deux passages ; depuis la relecture finale de P7, le parcours exige au contraire
+« Réponse envoyée : la carte reprend. » annoncé par la section, et aucun « déjà traitée ») ; onglet Projets puis le
+projet, dans la page ; le projet passe « Terminé » **4,9 s**
 après la fin de l'intégration (5,9 s au premier passage), sans rechargement (aucune nouvelle navigation) : les 11
 lectures du détail suivent chacune une trame du flux (`etat` ou `changement` de `projets`) de moins de 2 s, aucune
 n'est un sondage (relecture de sûreté portée à 30 min par le réglage de diagnostic, K23) ; le téléphone, rouvert,

@@ -360,6 +360,7 @@ export const T = {
     chezHermesCompte: "Chez Hermes",
     discussionsNonComptees: "(discussions en attente : état inconnu, non comptées)",
     cibleTraitee: "Cette demande a déjà été traitée : elle n'est plus dans la file.",
+    cibleIllisible: "Le tableau de cette demande n'a pas pu être lu : son état est inconnu (voir « Tableaux illisibles »).",
     quiRepondQuestion: "Qui répond",
     chezHermes: "Hermes y répond",
     aVous: "À vous",

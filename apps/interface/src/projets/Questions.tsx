@@ -16,8 +16,11 @@
 // En tête : « À traiter par vous » (sections 1 à 5, questions « à vous » seulement) et « Chez Hermes ».
 //
 // Cible d'un lien profond (?vue=questions&q=<id> ou &carte=<tableau>/<carte>, correction K2) : la page fait défiler
-// jusqu'à la demande et la marque (aria-current) ; une cible absente de la file le dit (« déjà traitée »).
-// Chaque message de réussite suit la RÉPONSE de l'API, jamais une supposition.
+// jusqu'à la demande et la marque (aria-current) ; une cible absente de la file le dit (« déjà traitée »), sauf si la
+// page vient de la traiter elle-même, ou si son tableau est illisible (état inconnu, jamais « traitée »).
+// Chaque message de réussite suit la RÉPONSE de l'API, jamais une supposition. Il est annoncé par la SECTION (relecture
+// finale de P7) : la demande traitée quitte la file dès la relecture qui suit le geste (une question répondue n'est
+// plus servie, une carte reprise quitte le triage), et un message porté par l'entrée disparaîtrait avec elle.
 import type * as ReactTypes from "react";
 import { T } from "../chaines";
 import { BlocErreur, Carte, Donnee, EnChargement, Ligne } from "../commun";
@@ -84,11 +87,42 @@ function Entree(props: { cible: boolean; classe?: string; children?: Noeud }): N
   );
 }
 
+/** Message d'une section, tiré de la réponse de l'API ; ``alerte`` : le geste est enregistré mais la carte n'est pas
+ *  repartie (le propriétaire a une suite à donner). ``statut`` : statut kanban rendu par l'API (relance). */
+export interface Annonce {
+  texte: string;
+  alerte: boolean;
+  statut?: string | null;
+}
+
+/** Annonce d'une section (``role="status"``) : garde le message quand l'entrée traitée quitte la file. */
+function AnnonceSection(props: { annonce: Annonce | null }): Noeud {
+  const { annonce } = props;
+  if (!annonce) return null;
+  return (
+    <p className={annonce.alerte ? "acp-alerte-texte" : "acp-succes"} role="status">
+      <span>{annonce.texte}</span>
+      {annonce.statut ? (
+        <span>
+          {" "}
+          <span>{T.projets.statutApres}</span> <Donnee valeur={annonce.statut} mono />
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
 /** Message de réussite d'une réponse, d'après la réponse de l'API (relecture de P4). */
 export function messageReponse(resultat: ResultatReponse | null | undefined): string {
   if (resultat?.reprise_differee === true) return T.projets.reponseDifferee;
   if (resultat?.carte_debloquee === true) return T.projets.reponseEnvoyee;
   return T.projets.reponseSansReprise;
+}
+
+/** Annonce d'une réponse : alerte quand la carte n'a pas été relancée (ni reprise différée). */
+export function annonceReponse(resultat: ResultatReponse | null | undefined): Annonce {
+  const texte = messageReponse(resultat);
+  return { texte, alerte: texte === T.projets.reponseSansReprise };
 }
 
 /** Message de réussite d'une décision sur une carte en triage, d'après la réponse de l'API. */
@@ -97,6 +131,20 @@ export function messageTriage(resultat: ResultatTriage | null | undefined): stri
   if (resultat.action === "prolongation") return T.projets.prolongationFaite;
   if (resultat.action === "relance_planification") return T.projets.relanceFaite;
   return T.projets.carteReprise;
+}
+
+/** Annonce d'une décision : alerte quand Hermes n'a pas repris la carte. */
+export function annonceTriage(resultat: ResultatTriage | null | undefined): Annonce {
+  const texte = messageTriage(resultat);
+  return { texte, alerte: texte === T.projets.carteNonReprise };
+}
+
+/** Gestes d'une entrée : annoncer le message dans la section, marquer la cible traitée par la page, relire. */
+interface Gestes {
+  naviguer: Naviguer;
+  apres: () => void;
+  annoncer: (annonce: Annonce | null) => void;
+  traitee: (cle: string) => void;
 }
 
 function QuiRepond(props: { question: QuestionOuverte }): Noeud {
@@ -118,7 +166,7 @@ function QuiRepond(props: { question: QuestionOuverte }): Noeud {
   return <Donnee valeur={chaine(question.chez)} mono />;
 }
 
-function Question(props: { question: QuestionOuverte; cible: boolean; naviguer: Naviguer; apres: () => void }): Noeud {
+function Question(props: { question: QuestionOuverte; cible: boolean } & Gestes): Noeud {
   const { question } = props;
   const id = chaine(question.id);
   const [reponse, fixerReponse] = useState("");
@@ -127,8 +175,12 @@ function Question(props: { question: QuestionOuverte; cible: boolean; naviguer: 
   const repondre = async (evenement: ReactTypes.FormEvent) => {
     evenement.preventDefault();
     if (!id || !reponse.trim()) return;
-    if ((await envoi.envoyer(() => repondreQuestion(id, reponse.trim()))) !== null) {
+    props.annoncer(null);
+    const resultat = await envoi.envoyer(() => repondreQuestion(id, reponse.trim()));
+    if (resultat !== null) {
       fixerReponse("");
+      props.annoncer(annonceReponse(resultat));
+      props.traitee(`q:${id}`);
       props.apres();
     }
   };
@@ -195,17 +247,14 @@ function Question(props: { question: QuestionOuverte; cible: boolean; naviguer: 
               desactive={!reponse.trim() || envoi.etat.etat === "envoi"}
             />
           </div>
-          <RetourEnvoi
-            etat={envoi.etat}
-            reussite={envoi.etat.etat === "ok" ? messageReponse(envoi.etat.resultat) : undefined}
-          />
+          <RetourEnvoi etat={envoi.etat} />
         </form>
       ) : null}
     </Entree>
   );
 }
 
-function Triage(props: { carte: CarteEnAttente; cible: boolean; naviguer: Naviguer; apres: () => void }): Noeud {
+function Triage(props: { carte: CarteEnAttente; cible: boolean } & Gestes): Noeud {
   const { carte } = props;
   const tableau = chaine(carte.tableau);
   const identifiant = chaine(carte.carte);
@@ -220,14 +269,23 @@ function Triage(props: { carte: CarteEnAttente; cible: boolean; naviguer: Navigu
   const reprendre = async (evenement: ReactTypes.FormEvent) => {
     evenement.preventDefault();
     if (!tableau || !identifiant) return;
-    if ((await envoi.envoyer(() => reprendreTriage(tableau, identifiant, consigne.trim() || null))) !== null) {
+    props.annoncer(null);
+    const resultat = await envoi.envoyer(() => reprendreTriage(tableau, identifiant, consigne.trim() || null));
+    if (resultat !== null) {
       fixerConsigne("");
+      props.annoncer(annonceTriage(resultat));
+      props.traitee(`carte:${tableau}/${identifiant}`);
       props.apres();
     }
   };
   const conclure = async () => {
     if (!tableau || !identifiant) return;
-    if ((await conclusion.envoyer(() => conclureTriage(tableau, identifiant))) !== null) props.apres();
+    props.annoncer(null);
+    if ((await conclusion.envoyer(() => conclureTriage(tableau, identifiant))) !== null) {
+      props.annoncer({ texte: T.projets.conclusionFaite, alerte: false });
+      props.traitee(`carte:${tableau}/${identifiant}`);
+      props.apres();
+    }
   };
   const libelleReprise = gestes.includes("prolonger")
     ? T.projets.prolonger
@@ -283,11 +341,8 @@ function Triage(props: { carte: CarteEnAttente; cible: boolean; naviguer: Navigu
               <Bouton libelle={T.projets.conclure} surClic={() => void conclure()} desactive={occupe} />
             ) : null}
           </div>
-          <RetourEnvoi
-            etat={envoi.etat}
-            reussite={envoi.etat.etat === "ok" ? messageTriage(envoi.etat.resultat) : undefined}
-          />
-          <RetourEnvoi etat={conclusion.etat} reussite={T.projets.conclusionFaite} />
+          <RetourEnvoi etat={envoi.etat} />
+          <RetourEnvoi etat={conclusion.etat} />
         </form>
       ) : null}
     </Entree>
@@ -296,13 +351,7 @@ function Triage(props: { carte: CarteEnAttente; cible: boolean; naviguer: Navigu
 
 /** Une revue de fichiers de pilotage. Le message de réussite est annoncé par la section (``annoncer``) : la revue
  *  quitte la liste dès le rechargement, et son propre message disparaîtrait avec elle. */
-function Revue(props: {
-  revue: RevuePilotage;
-  cible: boolean;
-  naviguer: Naviguer;
-  apres: () => void;
-  annoncer: (message: string | null) => void;
-}): Noeud {
+function Revue(props: { revue: RevuePilotage; cible: boolean } & Gestes): Noeud {
   const { revue } = props;
   const tableau = chaine(revue.tableau);
   const identifiant = chaine(revue.carte);
@@ -315,7 +364,8 @@ function Revue(props: {
     if (!tableau || !identifiant) return;
     props.annoncer(null);
     if ((await acceptation.envoyer(() => accepterRevue(tableau, identifiant))) !== null) {
-      props.annoncer(T.projets.revueAcceptee);
+      props.annoncer({ texte: T.projets.revueAcceptee, alerte: false });
+      props.traitee(`carte:${tableau}/${identifiant}`);
       props.apres();
     }
   };
@@ -325,7 +375,8 @@ function Revue(props: {
     props.annoncer(null);
     if ((await refus.envoyer(() => refuserRevue(tableau, identifiant, motif.trim()))) !== null) {
       fixerMotif("");
-      props.annoncer(T.projets.revueRefusee);
+      props.annoncer({ texte: T.projets.revueRefusee, alerte: false });
+      props.traitee(`carte:${tableau}/${identifiant}`);
       props.apres();
     }
   };
@@ -420,13 +471,7 @@ export function messageRelance(resultat: ResultatRelance | null | undefined): st
 
 /** Une carte arrêtée (bloquée ou abandonnée) : « Relancer » avec une consigne facultative, ou la raison du refus. Le
  *  message de la relance est annoncé par la section : la carte quitte la liste dès le rechargement. */
-function Arretee(props: {
-  carte: CarteEnAttente;
-  cible: boolean;
-  naviguer: Naviguer;
-  apres: () => void;
-  annoncer: (message: { texte: string; statut: string | null } | null) => void;
-}): Noeud {
+function Arretee(props: { carte: CarteEnAttente; cible: boolean } & Gestes): Noeud {
   const { carte } = props;
   const tableau = chaine(carte.tableau);
   const identifiant = chaine(carte.carte);
@@ -440,7 +485,9 @@ function Arretee(props: {
     const resultat = await envoi.envoyer(() => relancerCarte(tableau, identifiant, consigne.trim() || null));
     if (resultat !== null) {
       fixerConsigne("");
-      props.annoncer({ texte: messageRelance(resultat), statut: chaine(resultat.statut_apres) });
+      const texte = messageRelance(resultat);
+      props.annoncer({ texte, alerte: texte === T.projets.nonRelancee, statut: chaine(resultat.statut_apres) });
+      props.traitee(`carte:${tableau}/${identifiant}`);
       props.apres();
     }
   };
@@ -607,8 +654,14 @@ export function Questions(props: {
   naviguer: Naviguer;
   apres: () => void;
 }): Noeud {
-  const [annonceRevue, fixerAnnonceRevue] = useState<string | null>(null);
-  const [annonceRelance, fixerAnnonceRelance] = useState<{ texte: string; statut: string | null } | null>(null);
+  const [annonceQuestion, fixerAnnonceQuestion] = useState<Annonce | null>(null);
+  const [annonceTriage, fixerAnnonceTriage] = useState<Annonce | null>(null);
+  const [annonceRevue, fixerAnnonceRevue] = useState<Annonce | null>(null);
+  const [annonceRelance, fixerAnnonceRelance] = useState<Annonce | null>(null);
+  // Demandes traitées par un geste de CETTE page (« q:<id> », « carte:<tableau>/<carte> ») : leur sortie de la file
+  // n'est pas « déjà traitée » ; le message de l'API est annoncé par la section.
+  const [traitees, fixerTraitees] = useState<string[]>([]);
+  const traitee = (cle: string) => fixerTraitees((avant) => (avant.includes(cle) ? avant : [...avant, cle]));
   const defile = useRef<string | null>(null);
   const donnees = props.lecture.valeur;
   const questions = Array.isArray(donnees?.questions) ? donnees.questions : [];
@@ -622,6 +675,10 @@ export function Questions(props: {
   const cibleVoulue = props.cible.q ? `q:${props.cible.q}` : props.cible.carte ? `carte:${props.cible.carte}` : null;
   const cibleTrouvee =
     questions.some(estQuestion) || triage.some(estCarte) || revues.some(estCarte) || bloquees.some(estCarte);
+  const cibleTraiteeIci = cibleVoulue !== null && traitees.includes(cibleVoulue);
+  // Carte d'un tableau que le greffon n'a pas pu lire : son état est inconnu, elle n'est pas « déjà traitée ».
+  const tableauCible = props.cible.carte ? props.cible.carte.split("/")[0] : null;
+  const cibleIllisible = tableauCible !== null && illisibles.includes(tableauCible);
   // Défilement jusqu'à la cible, UNE fois par cible (une actualisation ne ramène pas la page sur elle).
   useEffect(() => {
     if (!cibleVoulue || !cibleTrouvee || defile.current === cibleVoulue) return;
@@ -642,13 +699,14 @@ export function Questions(props: {
   return (
     <div className="acp-sections">
       {props.lecture.erreur ? <BlocRefus erreur={props.lecture.erreur} /> : null}
-      {cibleVoulue && !cibleTrouvee ? (
+      {cibleVoulue && !cibleTrouvee && !cibleTraiteeIci ? (
         <p className="acp-alerte-texte" role="status">
-          {T.projets.cibleTraitee}
+          {cibleIllisible ? T.projets.cibleIllisible : T.projets.cibleTraitee}
         </p>
       ) : null}
       <Resume file={donnees} discussions={props.discussions.valeur} />
       <Carte titre={T.projets.questionsTitre} id="acp-questions-ouvertes">
+        <AnnonceSection annonce={annonceQuestion} />
         {questions.length === 0 ? (
           <p className="acp-discret">{T.projets.aucuneQuestion}</p>
         ) : (
@@ -660,12 +718,15 @@ export function Questions(props: {
                 cible={estQuestion(q)}
                 naviguer={props.naviguer}
                 apres={props.apres}
+                annoncer={fixerAnnonceQuestion}
+                traitee={traitee}
               />
             ))}
           </ul>
         )}
       </Carte>
       <Carte titre={T.projets.triageTitre} id="acp-questions-triage">
+        <AnnonceSection annonce={annonceTriage} />
         {triage.length === 0 ? (
           <p className="acp-discret">{T.projets.aucunTriage}</p>
         ) : (
@@ -677,6 +738,8 @@ export function Questions(props: {
                 cible={estCarte(c)}
                 naviguer={props.naviguer}
                 apres={props.apres}
+                annoncer={fixerAnnonceTriage}
+                traitee={traitee}
               />
             ))}
           </ul>
@@ -684,11 +747,7 @@ export function Questions(props: {
       </Carte>
       <Carte titre={T.projets.revuesTitre} id="acp-questions-revues">
         <p className="acp-discret">{T.projets.revuesIntro}</p>
-        {annonceRevue ? (
-          <p className="acp-succes" role="status">
-            {annonceRevue}
-          </p>
-        ) : null}
+        <AnnonceSection annonce={annonceRevue} />
         {revues.length === 0 ? (
           <p className="acp-discret">{T.projets.aucuneRevue}</p>
         ) : (
@@ -701,6 +760,7 @@ export function Questions(props: {
                 naviguer={props.naviguer}
                 apres={props.apres}
                 annoncer={fixerAnnonceRevue}
+                traitee={traitee}
               />
             ))}
           </ul>
@@ -708,17 +768,7 @@ export function Questions(props: {
       </Carte>
       <Carte titre={T.projets.bloqueesTitre} id="acp-questions-bloquees">
         <p className="acp-discret">{T.projets.bloqueesIntro}</p>
-        {annonceRelance ? (
-          <p className={annonceRelance.texte === T.projets.nonRelancee ? "acp-alerte-texte" : "acp-succes"} role="status">
-            <span>{annonceRelance.texte}</span>
-            {annonceRelance.statut ? (
-              <span>
-                {" "}
-                <span>{T.projets.statutApres}</span> <Donnee valeur={annonceRelance.statut} mono />
-              </span>
-            ) : null}
-          </p>
-        ) : null}
+        <AnnonceSection annonce={annonceRelance} />
         {bloquees.length === 0 ? (
           <p className="acp-discret">{T.projets.aucuneBloquee}</p>
         ) : (
@@ -731,6 +781,7 @@ export function Questions(props: {
                 naviguer={props.naviguer}
                 apres={props.apres}
                 annoncer={fixerAnnonceRelance}
+                traitee={traitee}
               />
             ))}
           </ul>

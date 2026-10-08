@@ -357,6 +357,7 @@
       chezHermesCompte: "Chez Hermes",
       discussionsNonComptees: "(discussions en attente\xA0: \xE9tat inconnu, non compt\xE9es)",
       cibleTraitee: "Cette demande a d\xE9j\xE0 \xE9t\xE9 trait\xE9e\xA0: elle n'est plus dans la file.",
+      cibleIllisible: "Le tableau de cette demande n'a pas pu \xEAtre lu\xA0: son \xE9tat est inconnu (voir \xAB\xA0Tableaux illisibles\xA0\xBB).",
       quiRepondQuestion: "Qui r\xE9pond",
       chezHermes: "Hermes y r\xE9pond",
       aVous: "\xC0 vous",

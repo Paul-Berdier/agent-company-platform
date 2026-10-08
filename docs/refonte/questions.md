@@ -50,7 +50,10 @@ En tête de la file : **À traiter par vous : n** et **Chez Hermes : m**.
   greffon, `compteurs` de `GET /v1/questions`), **plus** les discussions en attente quand elles ont pu être lues.
   Sinon la page dit « discussions : état inconnu » : jamais zéro.
 - Une cible de lien profond est défilée et marquée (`aria-current`) ; une cible déjà traitée le dit (« Cette demande a
-  déjà été traitée »), sans erreur.
+  déjà été traitée »), sans erreur. Une cible que la page vient de traiter n'est pas « déjà traitée » : le message tiré
+  de la réponse de l'API (« la carte reprend », « reprendra à la reprise du projet », « n'a pas été relancée »…) est
+  annoncé par la section et reste visible quand la demande quitte la file (relecture finale de P7). Une cible d'un
+  tableau illisible a un état « inconnu », jamais « traitée ».
 
 ---
 
