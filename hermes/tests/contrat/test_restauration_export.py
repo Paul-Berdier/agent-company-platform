@@ -13,10 +13,14 @@ docs Railway). Banc partagé (banc.py) : Hermes de test et vrai exécutant en ci
 4. volume NEUF, VIDE et À ROOT, comme celui que Railway monterait (monté en ``volume-nocopy`` : sinon Docker le garnit
    depuis l'image, à l'UID 10000) ; import sous la forme EXACTE du geste du propriétaire dans une session de
    maintenance (root, sans s6) : ``hermes import --force <archive>`` lancé par root ; l'enveloppe ``hermes`` de l'image
-   redescend alors à l'UID hermes. Forme MESURÉE ; si elle échoue, la variante retenue est mesurée à son tour et seule
-   une forme mesurée est dite ;
+   redescend alors à l'UID hermes. Chaque forme (le geste exact, puis la variante ``chown 10000:10000 /opt/data``) est
+   MESURÉE sur son propre volume neuf ; une forme n'est retenue que si l'import est COMPLET d'après la sortie de
+   ``hermes import`` (aucun fichier ignoré, tous les fichiers de l'archive restaurés) : son code de sortie seul ne
+   prouve rien (premier run 37760142007 : code 0 et « Import complete: 0 files restored ») ;
 5. démarrage normal de l'image sur ce volume : les gardes acceptent ou refusent (un refus est un CONSTAT, jamais
-   contourné) ;
+   contourné) ; si le seul refus porte sur le script du bilan (importé sous l'UID de l'import, pas root), le geste que
+   la garde prescrit elle-même (supprimer le fichier, root le redépose) est appliqué en maintenance, puis le démarrage
+   est mesuré à nouveau ;
 6. couche 2 : empreintes logiques des bases de l'archive et du volume importé égales ; couche 3 : lectures égales à la
    référence ;
 7. l'exécutant, dont le volume n'a pas bougé, continue avec ce Hermes (jeton machine de la base importée) : projet E
@@ -27,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import time
 import urllib.parse
@@ -40,8 +45,9 @@ from volumes import Archives, bases, comparer_bases, manifeste, resume_bases, re
 
 pytestmark = pytest.mark.restauration
 
+SCRIPT_BILAN = "acp-bilan.py"
 TACHE_BILAN = {"name": "Bilan ACP", "schedule": "0 8 * * *", "prompt": "", "no_agent": True,
-               "script": "acp-bilan.py", "deliver": "local"}
+               "script": SCRIPT_BILAN, "deliver": "local"}
 OUTIL = "/opt/acp-tests/outils/empreinte_volume.py"
 INVENTAIRE = r"""
 import json, sys, zipfile
@@ -89,6 +95,8 @@ class Export:
         self.ancien_hermes = ""
         self.remote_avant = ""
         self.question_b: Dict[str, Any] = {}
+        self.inventaire: Dict[str, Any] = {}
+        self.geste_au_demarrage: List[str] = []
 
     def requete(self, methode: str, chemin: str, corps=None):
         b = self.banc
@@ -170,7 +178,10 @@ def test_r4_peuplement_pause_et_export_comme_le_desktop(export):
     sortie = b.hermes.executer([PYTHON, "/opt/acp-tests/outils/client_ws.py", "prompt", b.jeton_oidc(), fichier,
                                 "Discussion d'essai avant l'export."], delai=420)
     assert sortie.returncode == 0, sortie.stderr[-3000:]
-    e.session_discussion = json.loads(b.hermes.executer(["cat", fichier], verifier=True).stdout)["session_id"]
+    tour = json.loads(b.hermes.executer(["cat", fichier], verifier=True).stdout)
+    # Clé STOCKÉE de la session (celle de /api/sessions), pas l'identifiant de la connexion /api/ws.
+    assert tour.get("cle"), tour.get("session_id")
+    e.session_discussion = tour["cle"]
     code, tache = e.requete("POST", "/api/cron/jobs", TACHE_BILAN)
     assert code == 200, tache
     e.tache_bilan = tache["id"]
@@ -221,51 +232,71 @@ def test_r4_inventaire_de_l_archive(export):
     sortie = docker("run", "--rm", "-i", "--network", "none", "-v", f"{e.archives.volume}:/a:ro", "--entrypoint",
                     PYTHON, e.image_tests, "-c", INVENTAIRE, entree=json.dumps(e.manifeste_avant["entrees"]))
     inventaire = json.loads(sortie.stdout)
+    e.inventaire = inventaire
     afficher("R4 — inventaire de l'archive face au volume (exclusions classées par hermes_cli.backup)", _json(
         dict(inventaire, attendues=inventaire["attendues"][:60])))
     assert inventaire["dans_l_archive"] > 0
     assert inventaire["inattendues"] == [], inventaire["inattendues"]
 
 
+def _bilan_import(code: int, sortie: str, dans_l_archive: int) -> Dict[str, Any]:
+    """Ce que ``hermes import`` dit avoir fait, relevé dans sa sortie. Son code de sortie et son « Import complete »
+    ne suffisent PAS : le premier run (37760142007) a mesuré, pour la forme exacte du geste, le code 0, « Import
+    complete: 0 files restored », « Warnings (400 files skipped) » (Permission denied) et « Done. Your Hermes
+    configuration has been restored. ». Complet : aucun fichier ignoré, et restaurés + fichiers d'exécution gardés
+    (ceux de la machine cible, jamais remplacés : hermes_cli/backup.py, _IMPORT_SKIP_NAMES) = fichiers de l'archive."""
+    restaures = re.search(r"Import complete: (\d+) files? restored", sortie)
+    ignores = re.search(r"Warnings \((\d+) files? skipped\)", sortie)
+    gardes = re.search(r"Preserved (\d+) runtime state file", sortie)
+    bilan: Dict[str, Any] = {"code": code, "restaures": int(restaures.group(1)) if restaures else None,
+                             "ignores": int(ignores.group(1)) if ignores else 0,
+                             "etat_d_execution_garde": int(gardes.group(1)) if gardes else 0,
+                             "dans_l_archive": dans_l_archive}
+    bilan["complet"] = (code == 0 and bool(bilan["restaures"]) and bilan["ignores"] == 0
+                        and bilan["restaures"] + bilan["etat_d_execution_garde"] == dans_l_archive)
+    return bilan
+
+
+FORMES_IMPORT = (
+    # Forme EXACTE du geste du propriétaire (railway ssh, root, maintenance sans s6), d'abord.
+    ("hermes import --force (root, enveloppe officielle)", "hermes import --force /import/export.zip"),
+    # Variante : racine du volume neuf rendue à l'UID hermes (l'enveloppe y redescend), puis le même import.
+    ("chown 10000:10000 /opt/data, puis hermes import --force (root)",
+     "chown 10000:10000 /opt/data && hermes import --force /import/export.zip"),
+)
+
+
 def test_r4_import_dans_un_volume_neuf_vide_a_root(export):
     e = export
-    volume = e.archives.ressources.nom("vol-import")
-    docker("volume", "create", volume)
-    e.archives.ressources.volumes.append(volume)
-    monte = f"type=volume,src={volume},dst=/opt/data,volume-nocopy"
-    racine = docker("run", "--rm", "-u", "0", "--network", "none", "--mount", monte, "--entrypoint", "stat",
-                    e.image, "-c", "%u:%g %a", "/opt/data").stdout.strip()
-    # Forme exacte du geste du propriétaire (railway ssh, root, maintenance sans s6).
-    geste = docker("run", "--rm", "-u", "0", "--network", "none", "-e", "HERMES_HOME=/opt/data", "--mount", monte,
-                   "-v", f"{e.archives.volume}:/import:ro", "--entrypoint", "/bin/sh", e.image, "-c",
-                   "hermes import --force /import/export.zip", verifier=False, delai=600)
-    mesures: List[Dict[str, Any]] = [{"forme": "hermes import --force (root, enveloppe officielle)",
-                                      "code": geste.returncode, "sortie": _lignes(geste.stdout + geste.stderr)}]
-    reussi = geste.returncode == 0 and "Import complete" in geste.stdout
-    if not reussi:
-        # Variante mesurée : rendre la racine du volume neuf à l'UID hermes (ce que l'image ferait de son propre
-        # /opt/data), puis le même import, sur un AUTRE volume neuf (l'essai raté a pu écrire à moitié).
+    mesures: List[Dict[str, Any]] = []
+    racines: List[str] = []
+    retenue = None
+    # Chaque forme est MESURÉE sur son propre volume neuf, vide et à root (un essai raté a pu écrire à moitié).
+    for forme, commande in FORMES_IMPORT:
         volume = e.archives.ressources.nom("vol-import")
         docker("volume", "create", volume)
         e.archives.ressources.volumes.append(volume)
         monte = f"type=volume,src={volume},dst=/opt/data,volume-nocopy"
-        variante = docker("run", "--rm", "-u", "0", "--network", "none", "-e", "HERMES_HOME=/opt/data", "--mount",
-                          monte, "-v", f"{e.archives.volume}:/import:ro", "--entrypoint", "/bin/sh", e.image, "-c",
-                          "chown 10000:10000 /opt/data && hermes import --force /import/export.zip", verifier=False,
-                          delai=600)
-        mesures.append({"forme": "chown 10000:10000 /opt/data, puis hermes import --force (root)",
-                        "code": variante.returncode, "sortie": _lignes(variante.stdout + variante.stderr)})
-        reussi = variante.returncode == 0 and "Import complete" in variante.stdout
-    e.volume_importe = volume
-    e.forme_import = mesures[-1]["forme"]
-    proprietaires = docker("run", "--rm", "-u", "0", "--network", "none", "--mount", monte, "--entrypoint", "sh",
-                           e.image, "-c", "stat -c '%u:%g %a %n' /opt/data /opt/data/.env /opt/data/auth.json "
-                           "/opt/data/state.db /opt/data/plugin-data/acp-poste/data.db 2>&1 || true").stdout
-    afficher("R4 — import dans un volume neuf, vide et à root (volume-nocopy)", _json({
-        "racine_du_volume_neuf": racine, "mesures": mesures, "forme_retenue": e.forme_import if reussi else None,
-        "proprietaires_apres_import": proprietaires.splitlines()}))
-    assert racine == "0:0 755", racine
-    assert reussi, mesures
+        racines.append(docker("run", "--rm", "-u", "0", "--network", "none", "--mount", monte, "--entrypoint",
+                              "stat", e.image, "-c", "%u:%g %a", "/opt/data").stdout.strip())
+        geste = docker("run", "--rm", "-u", "0", "--network", "none", "-e", "HERMES_HOME=/opt/data", "--mount", monte,
+                       "-v", f"{e.archives.volume}:/import:ro", "--entrypoint", "/bin/sh", e.image, "-c", commande,
+                       verifier=False, delai=600)
+        sortie = geste.stdout + geste.stderr
+        bilan = _bilan_import(geste.returncode, sortie, int(e.inventaire.get("dans_l_archive") or -1))
+        proprietaires = docker("run", "--rm", "-u", "0", "--network", "none", "--mount", monte, "--entrypoint", "sh",
+                               e.image, "-c", "stat -c '%u:%g %a %n' /opt/data /opt/data/.env /opt/data/auth.json "
+                               "/opt/data/state.db /opt/data/plugin-data/acp-poste/data.db "
+                               "/opt/data/scripts/acp-bilan.py 2>&1 || true").stdout
+        mesures.append({"forme": forme, "bilan": bilan, "proprietaires_apres_import": proprietaires.splitlines(),
+                        "sortie": [l for l in _lignes(sortie) if not l.strip().endswith("files ...")]})
+        if bilan["complet"] and retenue is None:
+            retenue = (forme, volume)
+    afficher("R4 — import dans un volume neuf, vide et à root (volume-nocopy) : formes mesurées", _json({
+        "racines_des_volumes_neufs": racines, "mesures": mesures, "forme_retenue": retenue[0] if retenue else None}))
+    assert racines and all(r == "0:0 755" for r in racines), racines
+    assert retenue is not None, "aucune forme d'import complète"
+    e.forme_import, e.volume_importe = retenue
     assert "hermes update" not in e.forme_import
 
 
@@ -282,14 +313,46 @@ def test_r4_couche_2_archive_et_volume_importe(export):
     assert all(b["integrite"] == "ok" for b in importe["bases"].values())
 
 
+def _demarrer(e: Export) -> Dict[str, Any]:
+    """Démarrage NORMAL de l'image sur le volume importé. Un refus des gardes arrête le conteneur : son journal est
+    relevé tel quel (le refus est un constat, jamais contourné)."""
+    b, ressources = e.banc, e.archives.ressources
+    avant = set(ressources.conteneurs)
+    try:
+        b.relancer_hermes(e.volume_importe)
+        return {"accepte": True, "journal": b.hermes.journaux()}
+    except AssertionError as exc:
+        nouveaux = [n for n in ressources.conteneurs if n not in avant and "-hermes-" in n]
+        if not nouveaux:
+            raise
+        journal = docker("logs", nouveaux[-1], verifier=False)
+        return {"accepte": False, "journal": journal.stdout + journal.stderr, "erreur": str(exc)[:300]}
+
+
 def test_r4_demarrage_normal_couche_3_et_reprise(export):
     e, b = export, export.banc
     e.ancien_hermes = b.hermes.nom
     docker("stop", "-t", "90", b.hermes.nom, delai=200)
-    b.relancer_hermes(e.volume_importe)
-    journal = b.hermes.journaux()
-    afficher("R4 — démarrage normal sur le volume importé (extraits)", "\n".join(
-        l for l in journal.splitlines() if "[acp]" in l or "05-acp" in l)[-6000:])
+    essais = []
+    demarrage = _demarrer(e)
+    refus = [l.split("REFUS : ", 1)[1] for l in demarrage["journal"].splitlines() if "[acp] REFUS : " in l]
+    essais.append({"geste_prealable": None, "accepte": demarrage["accepte"], "refus": refus})
+    if not demarrage["accepte"] and refus and all(SCRIPT_BILAN in r for r in refus):
+        # Constat : le script du bilan importé appartient à l'utilisateur de l'import, pas à root ; la garde le refuse
+        # et dit elle-même le geste (« supprimez ce fichier, root le redéposera au démarrage »). Geste appliqué EN
+        # MAINTENANCE (root, sans s6), puis nouveau démarrage normal : mesuré à son tour.
+        geste = f"rm -f /opt/data/scripts/{SCRIPT_BILAN}"
+        docker("run", "--rm", "-u", "0", "--network", "none", "-v", f"{e.volume_importe}:/opt/data", "--entrypoint",
+               "/bin/sh", e.image, "-c", geste)
+        e.geste_au_demarrage.append(geste)
+        demarrage = _demarrer(e)
+        refus = [l.split("REFUS : ", 1)[1] for l in demarrage["journal"].splitlines() if "[acp] REFUS : " in l]
+        essais.append({"geste_prealable": geste, "accepte": demarrage["accepte"], "refus": refus})
+    journal = demarrage["journal"]
+    afficher("R4 — démarrage normal sur le volume importé : essais et extraits", _json({
+        "forme_d_import": e.forme_import, "essais": essais,
+        "extraits": [l for l in journal.splitlines() if "[acp]" in l or "05-acp" in l][-40:]}))
+    assert demarrage["accepte"], essais
     assert "cont-init: info: /etc/cont-init.d/05-acp exited 0" in journal
     assert "[acp] REFUS" not in journal
     lu = e.releve_reference()
