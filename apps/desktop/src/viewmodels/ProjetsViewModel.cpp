@@ -393,6 +393,10 @@ QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
     const QString origine = libelles::origine(projet.value(QStringLiteral("origine")));
     const QJsonValue termine = projet.value(QStringLiteral("termine_le"));
     const QJsonValue exploration = projet.value(QStringLiteral("exploration"));
+    const QString etatCode = etat.toString();
+    const QString reponses = projet.value(QStringLiteral("reponses")).toString();
+    const bool avecDepot = libelles::estTexte(projet.value(QStringLiteral("depot")));
+    const bool adressable = ClientGreffonPoste::identifiantValide(projet.value(QStringLiteral("id")).toString());
     return QVariantMap{
         {QStringLiteral("id"), libelles::texte(projet.value(QStringLiteral("id")))},
         {QStringLiteral("titre"), libelles::texte(projet.value(QStringLiteral("titre")))},
@@ -403,8 +407,17 @@ QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
         {QStringLiteral("profil"), libelleOuBrut(libelles::profil(projet.value(QStringLiteral("profil"))),
                                                  projet.value(QStringLiteral("profil")))},
         {QStringLiteral("depot"), depot(projet.value(QStringLiteral("depot")))},
-        {QStringLiteral("reponses"), libelleOuBrut(libelles::reponses(projet.value(QStringLiteral("reponses"))),
-                                                   projet.value(QStringLiteral("reponses")))},
+        // « Qui répond » se lit « Vous » dans le détail (« Moi » reste le choix du formulaire, relecture finale de
+        // P7) ; sans dépôt, il est sans objet (aucune question ne naît d'un projet sans dépôt, D42).
+        {QStringLiteral("reponses"), !avecDepot ? QStringLiteral("Sans objet (projet sans dépôt)")
+                                     : reponses == QLatin1String("proprietaire") ? QStringLiteral("Vous")
+                                     : reponses == QLatin1String("hermes_d_abord") ? QStringLiteral("Hermes d'abord")
+                                                                                   : libelles::texte(projet.value(QStringLiteral("reponses")))},
+        {QStringLiteral("reponsesCode"), reponses == QLatin1String("proprietaire") ? reponses : QStringLiteral("hermes_d_abord")},
+        {QStringLiteral("peutChangerReponses"), adressable && avecDepot
+                                                    && (etatCode == QLatin1String("creation") || etatCode == QLatin1String("actif")
+                                                        || etatCode == QLatin1String("en_pause"))},
+        {QStringLiteral("peutClore"), adressable && (etatCode == QLatin1String("actif") || etatCode == QLatin1String("en_pause"))},
         {QStringLiteral("origine"), origine.isEmpty() ? libelles::texte(projet.value(QStringLiteral("origine")))
                                                       : QStringLiteral("Lancé depuis %1").arg(origine)},
         {QStringLiteral("tour"), sur(projet.value(QStringLiteral("tour")), plafonds.value(QStringLiteral("tours")))},
@@ -577,6 +590,81 @@ void ProjetsViewModel::reprendre()
         apresGesteProjet(QStringLiteral("Projet repris : %1 carte(s) réveillée(s).").arg(n));
     });
     connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+        echouerGeste(erreur);
+        m_detailSondage->lireMaintenant();
+    });
+}
+
+QString ProjetsViewModel::messageReglageReponses(const QJsonObject &resultat)
+{
+    return QStringLiteral("Réglage enregistré pour les questions suivantes. Questions ouvertes qui gardent leur traitement : %1")
+        .arg(libelles::nombre(resultat.value(QStringLiteral("questions_ouvertes_inchangees"))));
+}
+
+QString ProjetsViewModel::messageCloture(const QJsonObject &resultat)
+{
+    // Même lecture que la page web (Cloture de DetailProjet.tsx), d'après la réponse seulement.
+    const QString etat = resultat.value(QStringLiteral("etat")).toString();
+    QString message = etat == QLatin1String("termine")
+        ? QStringLiteral("Projet clos : terminé.")
+        : etat == QLatin1String("abandonne")
+            ? QStringLiteral("Projet clos : abandonné (la synthèse du tour en cours n'était pas faite).")
+            : QStringLiteral("Projet clos : état %1.").arg(libelles::texte(resultat.value(QStringLiteral("etat"))));
+    const QJsonValue archivees = resultat.value(QStringLiteral("cartes_archivees"));
+    message += QStringLiteral(" Cartes archivées : %1 · Questions annulées : %2.")
+                   .arg(archivees.isArray() ? QString::number(archivees.toArray().size()) : libelles::kInconnu,
+                        libelles::nombre(resultat.value(QStringLiteral("questions_annulees"))));
+    const QStringList nonArchivees = chaines(resultat.value(QStringLiteral("cartes_non_archivees")));
+    if (!nonArchivees.isEmpty()) {
+        message += QStringLiteral(" Cartes que Hermes n'a pas archivées : %1.").arg(nonArchivees.join(QStringLiteral(", ")));
+    }
+    const QStringList branches = chaines(resultat.value(QStringLiteral("branches_rapportees")));
+    if (!branches.isEmpty()) {
+        message += QStringLiteral(" Branches restées sur l'exécutant (purgées après 7 jours) : %1.").arg(branches.join(QStringLiteral(", ")));
+    }
+    return message;
+}
+
+void ProjetsViewModel::changerReponses(const QString &reponses)
+{
+    if (gesteEnCours() || m_projetOuvert.isEmpty()) {
+        return;
+    }
+    if (!m_detail.value(QStringLiteral("peutChangerReponses")).toBool()) {
+        echouerGeste(QStringLiteral("« Qui répond » ne se change que pour un projet sur dépôt, pas encore fini."));
+        return;
+    }
+    debuterGeste();
+    ApiCall *appel = m_greffon->changerReponses(m_projetOuvert, reponses);
+    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
+        apresGesteProjet(messageReglageReponses(reponse.json.object()));
+        emit reglageReponsesEnregistre();
+    });
+    connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+        // Refus du greffon (409 projet fini, sans dépôt ; 400 valeur) ou de la station : tel quel.
+        echouerGeste(erreur);
+        m_detailSondage->lireMaintenant();
+    });
+}
+
+void ProjetsViewModel::clore()
+{
+    if (gesteEnCours() || m_projetOuvert.isEmpty()) {
+        return;
+    }
+    if (!m_detail.value(QStringLiteral("peutClore")).toBool()) {
+        echouerGeste(QStringLiteral("Seul un projet actif ou en pause se clôt."));
+        return;
+    }
+    debuterGeste();
+    ApiCall *appel = m_greffon->clore(m_projetOuvert);
+    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
+        apresGesteProjet(messageCloture(reponse.json.object()));
+        m_liste->lireMaintenant();
+        emit clotureFaite();
+    });
+    connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+        // 409 `projet_fini` (l'émetteur l'a terminé au même instant) ou autre refus : tel quel, puis relu.
         echouerGeste(erreur);
         m_detailSondage->lireMaintenant();
     });

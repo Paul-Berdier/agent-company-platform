@@ -81,6 +81,7 @@ private slots:
     void cleanupTestCase();
     void brouillonDeReponseGardeAuSondageEtAuRefus();
     void relanceEtRefusDeRevueParLesVraisBoutons();
+    void clotureEtQuiRepondParLesVraisBoutons();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
     void dialogueDeChangementDeServeurEnFrancais();
@@ -147,6 +148,19 @@ void TestPagesInteractions::initTestCase()
     // Étape P7 : relance d'une carte arrêtée (ARRETEE_RELANCABLE) et revue des fichiers de pilotage.
     m_serveur->route("POST", kP + QStringLiteral("/cartes/acp-outil-3dd5/t_5e6f7a8b/relancer"),
                      [this](const RequeteRecue &) { return m_reponseRelance; });
+    // Étape P7 : détail d'un projet, « Changer qui répond » et « Clore le projet ».
+    m_serveur->route("GET", kP + QStringLiteral("/projets/p_367e23fd51b7"),
+                     [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projet-detail.json"))); });
+    m_serveur->route("POST", kP + QStringLiteral("/projets/p_367e23fd51b7/reponses"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("questions_ouvertes_inchangees"), 1}});
+    });
+    m_serveur->route("POST", kP + QStringLiteral("/projets/p_367e23fd51b7/clore"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("clos"), true}, {QStringLiteral("etat"), QStringLiteral("termine")},
+                                                  {QStringLiteral("cartes_archivees"), QJsonArray{}},
+                                                  {QStringLiteral("cartes_non_archivees"), QJsonArray{}},
+                                                  {QStringLiteral("questions_annulees"), 0},
+                                                  {QStringLiteral("branches_rapportees"), QJsonArray{}}});
+    });
     m_serveur->route("POST", kP + QStringLiteral("/revues/acp-outil-3dd5/t_aa11bb22/refuser"), [](const RequeteRecue &) {
         return ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), QStringLiteral("t_aa11bb22")},
                                                   {QStringLiteral("etat"), QStringLiteral("ready")}});
@@ -387,6 +401,58 @@ void TestPagesInteractions::relanceEtRefusDeRevueParLesVraisBoutons()
     page.reset();
     QTRY_VERIFY(!m_questions->actif());
     m_listeQuestions = avant;
+}
+
+// Étape P7 dans le détail d'un projet : « Changer qui répond » (choix changé au clavier, puis
+// « Enregistrer ») et « Clore le projet » (rien ne part avant « Confirmer la clôture »).
+void TestPagesInteractions::clotureEtQuiRepondParLesVraisBoutons()
+{
+    auto page = charger(QStringLiteral("ProjectsPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    m_projets->ouvrirProjet(QStringLiteral("p_367e23fd51b7"));
+    QTRY_VERIFY_WITH_TIMEOUT(m_projets->detailLu(), 5000);
+    QTest::qWait(150);
+    const QString reponses = kP + QStringLiteral("/projets/p_367e23fd51b7/reponses");
+    const QString clore = kP + QStringLiteral("/projets/p_367e23fd51b7/clore");
+
+    // « Changer qui répond » : le formulaire s'ouvre sur le réglage lu (« Moi »), le choix passe à « Hermes d'abord ».
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-changer-reponses"))));
+    QQuickItem *choix = parNom(racine, QStringLiteral("projets-choix-reponses"));
+    QTRY_VERIFY(choix && choix->isVisible());
+    QCOMPARE(choix->property("currentIndex").toInt(), 1);
+    choix->forceActiveFocus();
+    QTRY_VERIFY(choix->hasActiveFocus());
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Up);
+    QTRY_COMPARE(choix->property("currentIndex").toInt(), 0);
+    QCOMPARE(m_serveur->filtrer("POST", reponses).size(), 0); // rien ne part avant « Enregistrer »
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-enregistrer-reponses"))));
+    QTRY_COMPARE_WITH_TIMEOUT(m_projets->messageGeste(),
+                              QStringLiteral("Réglage enregistré pour les questions suivantes. Questions ouvertes qui gardent "
+                                             "leur traitement : 1"), 5000);
+    QCOMPARE(m_serveur->filtrer("POST", reponses).size(), 1);
+    QCOMPARE(m_serveur->filtrer("POST", reponses).first().json(),
+             (QJsonObject{{QStringLiteral("reponses"), QStringLiteral("hermes_d_abord")}}));
+    QTRY_VERIFY(!choix->isVisible()); // le formulaire se ferme après la réponse du greffon
+
+    // « Clore le projet » : une confirmation qui dit les effets ; « Annuler » ne fait rien partir.
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-clore"))));
+    QTRY_VERIFY(parNom(racine, QStringLiteral("projets-clore-question"))->isVisible());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-annuler-clore"))));
+    QTRY_VERIFY(!parNom(racine, QStringLiteral("projets-clore-question"))->isVisible());
+    QCOMPARE(m_serveur->filtrer("POST", clore).size(), 0);
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-clore"))));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-confirmer-clore"))));
+    QTRY_COMPARE_WITH_TIMEOUT(m_projets->messageGeste(),
+                              QStringLiteral("Projet clos : terminé. Cartes archivées : 0 · Questions annulées : 0."), 5000);
+    QCOMPARE(m_serveur->filtrer("POST", clore).size(), 1);
+    QCOMPARE(m_serveur->filtrer("POST", clore).first().json(), (QJsonObject{{QStringLiteral("confirmation"), true}}));
+    QQuickItem *bandeau = parNom(racine, QStringLiteral("projets-bandeau"));
+    QVERIFY(bandeau && bandeau->isVisible());
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    m_projets->afficherListe();
+    page.reset();
+    QTRY_VERIFY(!m_projets->actif());
 }
 
 // Constat de relecture P8 : la liste des projets remontait en haut à chaque relecture.

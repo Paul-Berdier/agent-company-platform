@@ -295,6 +295,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_VERIFY_WITH_TIMEOUT(pageProjets->detailLu(), 5000);
         VERIFIER(page.get(), QStringLiteral("Projets, détail"));
         QVERIFY(contientTexte(item, QStringLiteral("Écrire outil.py.")));
+        // Étape P7 : « Qui répond » se lit « Vous » ; les gestes « Changer qui répond » et « Clore le projet ».
+        QVERIFY(contientTexte(item, QStringLiteral("Vous")));
+        QVERIFY(contientTexte(item, QStringLiteral("Changer qui répond")));
+        QVERIFY(contientTexte(item, QStringLiteral("Clore le projet")));
         QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
 
         pageProjets->afficherNouveau();
