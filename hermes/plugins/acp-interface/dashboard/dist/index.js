@@ -2234,7 +2234,7 @@
     return !bilanEnPause(tache) && tache.state === "error";
   }
   function derniereEnEchec(tache) {
-    return Boolean(tache.last_run_at) && tache.last_status !== "ok";
+    return Boolean(tache.last_run_at) && typeof tache.last_status === "string" && tache.last_status !== "ok";
   }
   function CarteBilan(props) {
     const lecture = useDonnees(lireTachesCron, props.jeton, []);

@@ -209,6 +209,16 @@ describe("bilan quotidien (tâche cron native du propriétaire)", () => {
     r.demonter();
   });
 
+  it("issue de la dernière exécution non publiée : jamais dite « en échec » (aucune donnée inventée)", async () => {
+    installerSdk(reponses({ [ROUTE_CRON]: [{ ...TACHE, last_run_at: "2026-10-08T08:00:03+02:00" }] }));
+    const r = await rendre(<Accueil />);
+    await attendre();
+    const bilan = carte(r.racine, "acp-accueil-bilan");
+    expect(texteDe(bilan)).toContain("Dernière exécution");
+    expect(texteDe(bilan)).not.toContain("en échec");
+    r.demonter();
+  });
+
   it("dernière exécution réussie : aucune alerte", async () => {
     installerSdk(reponses({
       [ROUTE_CRON]: [{ ...TACHE, last_run_at: "2026-10-08T08:00:03+02:00", last_status: "ok", last_error: null }],

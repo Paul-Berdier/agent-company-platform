@@ -26,9 +26,10 @@ export function bilanEnErreur(tache: TacheCron): boolean {
   return !bilanEnPause(tache) && tache.state === "error";
 }
 
-/** Dernière exécution en échec : exécutée (last_run_at) et issue autre que « ok » (error, delivery_failed…). */
+/** Dernière exécution en échec : exécutée (last_run_at) et issue PUBLIÉE autre que « ok » (error, delivery_failed…) ;
+ *  une issue absente n'est jamais dite « en échec » (aucune donnée inventée). */
 export function derniereEnEchec(tache: TacheCron): boolean {
-  return Boolean(tache.last_run_at) && tache.last_status !== "ok";
+  return Boolean(tache.last_run_at) && typeof tache.last_status === "string" && tache.last_status !== "ok";
 }
 
 export function CarteBilan(props: { notifications: EtatNotifications | null | undefined; jeton: number;
