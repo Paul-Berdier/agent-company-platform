@@ -164,7 +164,7 @@ void TestOubliLocal::ouvrirEtLireA()
     QTRY_VERIFY_WITH_TIMEOUT(m_quotas->lue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_routage->lue(), 10000);
     QTRY_COMPARE_WITH_TIMEOUT(m_discussion->sessions()->count(), 1, 10000);
-    QTRY_VERIFY(m_flux->questionsOuvertes() >= 0);
+    QTRY_VERIFY(m_flux->aTraiter() >= 0);
     m_questions->setBrouillon(QStringLiteral("q:q_b627a3c245ec"), QStringLiteral("Brouillon tapé sur A"));
     m_routage->appliquerSuggestion(QStringLiteral("exploration"));
     QVERIFY(m_routage->brouillonModifie());
@@ -209,7 +209,7 @@ QStringList TestOubliLocal::donneesRestantes() const
     si(m_routage->lecture() != kJamaisLu, "routage.lecture");
     si(m_discussion->sessions()->count() > 0, "discussion.sessions");
     si(m_discussion->sessionsLues(), "discussion.sessionsLues");
-    si(m_flux->questionsOuvertes() >= 0, "resume.questions");
+    si(m_flux->aTraiter() >= 0, "resume.aTraiter");
     return restes;
 }
 

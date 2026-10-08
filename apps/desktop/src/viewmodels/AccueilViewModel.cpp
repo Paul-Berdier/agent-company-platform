@@ -87,9 +87,12 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
         connect(sondage, &Sondage::etatChange, this, &AccueilViewModel::lectureChange);
     }
     connect(m_accueil, &Sondage::lu, this, [this](const ApiResponse &reponse) {
-        lireAccueil(reponse.json.object());
+        const QJsonObject accueil = reponse.json.object();
+        lireAccueil(accueil);
         m_lue = true;
         emit accueilChange();
+        // La barre d'état et le badge de la file Questions suivent sans attendre le sondage léger.
+        this->flux()->noterAccueil(accueil);
     });
     connect(m_sondageSessions, &Sondage::lu, this, [this](const ApiResponse &reponse) {
         m_sessions->setItems(construireSessions(reponse.json.object()));

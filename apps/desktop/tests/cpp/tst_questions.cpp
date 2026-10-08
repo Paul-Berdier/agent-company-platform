@@ -417,7 +417,7 @@ void TestQuestions::repondreCorpsExactEtRelecture()
     Banc banc;
     banc.ouvrirLaPage();
     const int avant = banc.lectures();
-    const int fond = banc.serveur.compter("GET", kP + QStringLiteral("/projets"));
+    const int fond = banc.serveur.compter("GET", kP + QStringLiteral("/accueil"));
     banc.questions.repondre(kQuestion, QStringLiteral("  Python 3.12  "));
     QTRY_VERIFY(!banc.questions.gesteEnCours());
     QCOMPARE(banc.questions.messageGeste(), QStringLiteral("Réponse envoyée : la carte reprend."));
@@ -428,7 +428,7 @@ void TestQuestions::repondreCorpsExactEtRelecture()
     QCOMPARE(envois.first().entete("authorization"), QByteArrayLiteral("Bearer jeton-a"));
     QVERIFY(!envois.first().aEntete("origin"));
     QTRY_COMPARE(banc.lectures(), avant + 1); // la liste est relue
-    QTRY_VERIFY(banc.serveur.compter("GET", kP + QStringLiteral("/projets")) > fond); // et le badge
+    QTRY_VERIFY(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")) > fond); // et le badge (sondage léger)
 
     // Projet en pause : reprise différée, dite telle que le greffon la rend.
     banc.reponse = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte_debloquee"), false},

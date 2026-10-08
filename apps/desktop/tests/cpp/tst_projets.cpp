@@ -297,15 +297,16 @@ void TestProjets::listeLueSeulementPageAffichee()
 {
     Banc banc;
     banc.flux.demarrer();
-    QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 1); // sondage léger
+    QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), 1); // sondage léger (Accueil agrégé)
     QTest::qWait(100);
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 0); // page cachée : rien
     QCOMPARE(banc.projets.projets()->count(), 0);
     banc.projets.setPageVisible(true);
     QTRY_COMPARE(banc.projets.projets()->count(), 2);
     QVERIFY(banc.projets.listeLue());
     QCOMPARE(banc.projets.projets()->get(0).value(QStringLiteral("id")).toString(), kId);
     QCOMPARE(banc.projets.pause().value(QStringLiteral("etat")).toInt(), 0);
-    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 2);
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 1);
 }
 
 void TestProjets::detailOuvreLaVeilleEtRelitAuChangement()

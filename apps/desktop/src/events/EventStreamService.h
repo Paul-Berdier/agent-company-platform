@@ -9,9 +9,13 @@
 // | flux SSE du greffon                      | N'EXISTE PAS : rien n'est ouvert ni supposé            |
 //
 // Ce service :
-//  - porte le sondage LÉGER de `GET /v1/projets` (60 s, session établie) qui alimente la barre
-//    d'état et le badge des questions, même hors des pages ; une page qui vient de lire
-//    `/v1/projets` le lui signale (noterProjets) pour que le badge suive sans attendre ;
+//  - porte le sondage LÉGER de `GET /v1/accueil` (60 s, session établie ; Accueil agrégé de
+//    l'étape P7) qui alimente la barre d'état et le badge de la file Questions, même hors des
+//    pages : le badge compte « À traiter par vous » (compteurs du greffon : questions à vous,
+//    décisions, revues, cartes arrêtées ; les discussions en attente ne sont pas lues par la
+//    station et le libellé le dit). L'Accueil qui vient de lire `/v1/accueil` le lui signale
+//    (noterAccueil) ; la page Projets, qui lit `/v1/projets`, met à jour le poste et la pause
+//    seulement (noterProjets), jamais le compteur, qui n'a qu'une source ;
 //  - dit aux pages si elles peuvent sonder (`pagesActives` : session établie ET fenêtre non
 //    réduite) et quand relire (`lienRetabli`, `sessionsChangees`, `tableauChange`) ;
 //  - publie l'état de chaque source, sans secret, pour les diagnostics.
@@ -42,8 +46,8 @@ class EventStreamService : public QObject
     Q_PROPERTY(bool fenetreActive READ fenetreActive WRITE setFenetreActive NOTIFY fenetreActiveChange)
     Q_PROPERTY(bool pagesActives READ pagesActives NOTIFY pagesActivesChange)
     // Résumé du sondage léger (barre d'état, badge de navigation).
-    Q_PROPERTY(int questionsOuvertes READ questionsOuvertes NOTIFY resumeChange)
-    Q_PROPERTY(QString libelleQuestions READ libelleQuestions NOTIFY resumeChange)
+    Q_PROPERTY(int aTraiter READ aTraiter NOTIFY resumeChange)
+    Q_PROPERTY(QString libelleATraiter READ libelleATraiter NOTIFY resumeChange)
     Q_PROPERTY(QString libellePoste READ libellePoste NOTIFY resumeChange)
     Q_PROPERTY(QString clePoste READ clePoste NOTIFY resumeChange)
     Q_PROPERTY(int pauseGenerale READ pauseGenerale NOTIFY resumeChange)
@@ -79,15 +83,17 @@ public:
     [[nodiscard]] bool sessionOuverte() const { return m_sessionOuverte; }
     [[nodiscard]] bool pagesActives() const { return m_sessionOuverte && m_fenetreActive; }
 
-    /*! Une page vient de lire `GET /v1/projets` : le résumé suit sans attendre. */
+    /*! L'Accueil vient de lire `GET /v1/accueil` : le résumé suit sans attendre. */
+    void noterAccueil(const QJsonObject &accueil);
+    /*! La page Projets vient de lire `GET /v1/projets` : poste et pause suivent (jamais le compteur). */
     void noterProjets(const QJsonObject &liste);
     /*! Le résumé redevient « Inconnu » (session perdue, serveur changé, greffon bloqué). */
     void oublierResume();
 
     // --- Résumé ----------------------------------------------------------------------
-    /*! Nombre de questions ouvertes, ou -1 si inconnu. */
-    [[nodiscard]] int questionsOuvertes() const { return m_questionsOuvertes; }
-    [[nodiscard]] QString libelleQuestions() const;
+    /*! « À traiter par vous » (hors discussions en attente), ou -1 si inconnu. */
+    [[nodiscard]] int aTraiter() const { return m_aTraiter; }
+    [[nodiscard]] QString libelleATraiter() const;
     [[nodiscard]] const QString &libellePoste() const { return m_libellePoste; }
     [[nodiscard]] const QString &clePoste() const { return m_clePoste; }
     /*! 1 engagée, 0 levée, -1 inconnue. */
@@ -118,7 +124,8 @@ signals:
     void tableauChange(const QString &tableau);
 
 private:
-    void lireResume(const QJsonObject &liste);
+    void lireResume(const QJsonObject &accueil);
+    void lirePosteEtPause(const QJsonValue &etatPoste, const QJsonValue &pause, bool pauseIllisible);
 
     ClientGreffonPoste *m_greffon = nullptr;
     GatewayClient *m_passerelle = nullptr;
@@ -128,7 +135,7 @@ private:
     bool m_sessionOuverte = false;
     bool m_lienEnLigne = false;
     bool m_lienConnu = false;
-    int m_questionsOuvertes = -1;
+    int m_aTraiter = -1;
     QString m_libellePoste;
     QString m_clePoste;
     int m_pauseGenerale = kInconnu;

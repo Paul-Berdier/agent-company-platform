@@ -15,7 +15,7 @@ EventStreamService::EventStreamService(ApiClient *client, ClientGreffonPoste *gr
     , m_greffon(greffon)
     , m_passerelle(passerelle)
     , m_veille(new VeilleKanban(client, this))
-    , m_fond(new Sondage([this] { return m_greffon->projets(); }, kIntervalleFond, this))
+    , m_fond(new Sondage([this] { return m_greffon->accueil(); }, kIntervalleFond, this))
 {
     oublierResume();
     connect(m_fond, &Sondage::lu, this, [this](const ApiResponse &reponse) { lireResume(reponse.json.object()); });
@@ -91,48 +91,59 @@ void EventStreamService::setFenetreActive(bool active)
     }
 }
 
-void EventStreamService::noterProjets(const QJsonObject &liste)
+void EventStreamService::noterAccueil(const QJsonObject &accueil)
 {
     if (m_sessionOuverte) {
-        lireResume(liste);
+        lireResume(accueil);
     }
 }
 
-void EventStreamService::lireResume(const QJsonObject &liste)
+void EventStreamService::noterProjets(const QJsonObject &liste)
 {
-    const QJsonValue questions = liste.value(QStringLiteral("questions_ouvertes"));
-    m_questionsOuvertes = libelles::estNombre(questions) ? static_cast<int>(questions.toInteger()) : -1;
+    if (m_sessionOuverte) {
+        lirePosteEtPause(liste.value(QStringLiteral("poste")).toObject().value(QStringLiteral("etat")),
+                         liste.value(QStringLiteral("pause_generale")), false);
+        emit resumeChange();
+    }
+}
 
-    const QJsonObject poste = liste.value(QStringLiteral("poste")).toObject();
-    const libelles::Libelle etat = libelles::etatPoste(poste.value(QStringLiteral("etat")));
+void EventStreamService::lirePosteEtPause(const QJsonValue &etatPoste, const QJsonValue &pause, bool pauseIllisible)
+{
+    const libelles::Libelle etat = libelles::etatPoste(etatPoste);
     m_libellePoste = etat.connu() ? etat.texte : libelles::kInconnu;
     m_clePoste = etat.connu() ? etat.cle : QStringLiteral("unknown");
+    // pause_generale : objet présent = engagée, null = levée — sauf bloc dit illisible par le greffon ; absente ou
+    // d'un autre type = inconnue.
+    m_pauseGenerale = pauseIllisible ? kInconnu : pause.isObject() ? 1 : pause.isNull() ? 0 : kInconnu;
+}
 
-    // pause_generale : objet présent = engagée, null = levée ; absente ou d'un autre type = inconnue.
-    const QJsonValue pause = liste.value(QStringLiteral("pause_generale"));
-    m_pauseGenerale = pause.isObject() ? 1 : pause.isNull() ? 0 : kInconnu;
+void EventStreamService::lireResume(const QJsonObject &accueil)
+{
+    // Accueil agrégé (noyau/accueil.construire) : un bloc illisible vaut `null`, sa raison est dans `illisibles`.
+    const QJsonValue total = accueil.value(QStringLiteral("a_traiter")).toObject().value(QStringLiteral("total"));
+    m_aTraiter = libelles::estNombre(total) ? static_cast<int>(total.toInteger()) : -1;
+    const bool pauseIllisible = accueil.value(QStringLiteral("illisibles")).toObject().contains(QStringLiteral("pause_generale"));
+    lirePosteEtPause(accueil.value(QStringLiteral("executant")).toObject().value(QStringLiteral("etat")),
+                     accueil.value(QStringLiteral("pause_generale")), pauseIllisible);
     emit resumeChange();
 }
 
 void EventStreamService::oublierResume()
 {
-    m_questionsOuvertes = -1;
+    m_aTraiter = -1;
     m_libellePoste = libelles::kInconnu;
     m_clePoste = QStringLiteral("unknown");
     m_pauseGenerale = kInconnu;
     emit resumeChange();
 }
 
-QString EventStreamService::libelleQuestions() const
+QString EventStreamService::libelleATraiter() const
 {
-    if (m_questionsOuvertes < 0) {
-        return libelles::kInconnu;
+    // Jamais « rien à traiter » : les discussions en attente ne sont pas lues par la station.
+    if (m_aTraiter < 0) {
+        return QStringLiteral("À traiter par vous : Inconnu");
     }
-    if (m_questionsOuvertes == 0) {
-        return QStringLiteral("Aucune question ouverte");
-    }
-    return m_questionsOuvertes == 1 ? QStringLiteral("1 question ouverte")
-                                    : QStringLiteral("%1 questions ouvertes").arg(m_questionsOuvertes);
+    return QStringLiteral("À traiter par vous : %1 (discussions non comptées)").arg(m_aTraiter);
 }
 
 QString EventStreamService::libelleResume() const
@@ -144,7 +155,7 @@ QString EventStreamService::libelleResume() const
     if (m_pauseGenerale == 1) {
         pause = QStringLiteral(" · Pause générale engagée");
     }
-    return QStringLiteral("Poste : %1 · %2%3").arg(m_libellePoste, libelleQuestions(), pause);
+    return QStringLiteral("Poste : %1 · %2%3").arg(m_libellePoste, libelleATraiter(), pause);
 }
 
 QString EventStreamService::etatPasserelle() const

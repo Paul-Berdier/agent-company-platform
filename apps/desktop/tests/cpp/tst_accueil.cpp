@@ -302,15 +302,18 @@ void TestAccueil::litLAccueilEtLesSessionsQuandLaPageEstAffichee()
 {
     Banc banc;
     banc.flux.demarrer();
-    QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 1); // sondage léger
+    QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), 1); // sondage léger (barre d'état)
     banc.accueil.setPageVisible(true);
     QTRY_VERIFY(banc.accueil.actif());
     QTRY_COMPARE(banc.accueil.sessions()->count(), 2);
     QTRY_VERIFY(banc.accueil.lue());
     QCOMPARE(banc.accueil.carteATraiter().value(QStringLiteral("total")).toString(), QStringLiteral("1"));
     QCOMPARE(banc.accueil.projetsEnCours()->count(), 1);
-    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), 1);
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), 2); // sondage léger + page
     QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/quotas")), 0); // plus de lecture séparée
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 0);
+    // La barre d'état suit la lecture de la page.
+    QCOMPARE(banc.flux.aTraiter(), 1);
     const auto sessions = banc.serveur.filtrer("GET", QStringLiteral("/api/sessions"));
     QCOMPARE(sessions.size(), 1);
     QCOMPARE(sessions.first().requete.queryItemValue(QStringLiteral("limit")), QStringLiteral("5"));
@@ -330,7 +333,7 @@ void TestAccueil::litLAccueilEtLesSessionsQuandLaPageEstAffichee()
     banc.flux.signalerLien(false);
     banc.flux.signalerLien(true); // retour du lien : la page cachée ne relit pas
     QTest::qWait(200);
-    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), avant);
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), avant + 1); // seul le sondage léger relit
 }
 
 void TestAccueil::neLitRienSansSessionNiHorsDeLaPage()
