@@ -520,7 +520,7 @@ Contrat du flux côté serveur : [projets.md](projets.md) § 4 ter. Côté inter
   (correction K23 : la preuve porte la relecture de sûreté à 30 min) : admis seulement PLUS LONG que 120 s, jamais
   plus court ; il ne peut qu'espacer les requêtes.
 
-## 14. Accueil (étape P7, partie C : cahier P7 § 8, décision P7-7)
+## 14. Accueil (étape P7, partie C : cahier P7 § 8, décision P7-7, soit D99)
 
 L'Accueil (`apps/interface/src/interface/Accueil.tsx`) lit UNE route agrégée, `GET /v1/accueil`
 ([projets.md](projets.md) § 4), la même au téléphone, dans le navigateur du PC et, s'il le veut, pour le desktop
@@ -552,7 +552,7 @@ sa raison (champ `illisibles` de la route). Temps réel par le flux (tous les su
 notification de test dit désormais « envoyée depuis le tableau de bord » (elle part de l'Accueil comme de la page
 Projets). Partie D : le raccourci « Discussion » mène à la discussion réduite (§ 15).
 
-## 15. Discussion réduite (étape P7, partie D : cahier P7 § 9, décision P7-8)
+## 15. Discussion réduite (étape P7, partie D : cahier P7 § 9, décision P7-8, soit D100)
 
 Greffon `acp-discussion` (onglet **Discussion**, `/discussion`, avant « Projets » dans le groupe des greffons ; sans
 code serveur, comme les quatre autres). Pourquoi une page à nous : la discussion native `/chat` est un terminal sur un
@@ -591,7 +591,7 @@ L'URL vient toujours de `await sdk().buildWsUrl("/api/ws")` (ticket neuf à chaq
 **Non fait, et dit dans la page** : détail des outils, pièces jointes, commandes `/`, changement de modèle, mise en
 forme riche. **Limites** : une question posée ici attend une heure au plus (`agent.clarify_timeout`) et disparaît au
 redémarrage de Hermes (elle vit en mémoire) ; ce qui doit attendre passe par un projet. Aucune notification pour une
-discussion en attente (P7-12). Une session détachée en plein tour est interrompue par Hermes après 600 s sans
+discussion en attente (P7-12, soit D104). Une session détachée en plein tour est interrompue par Hermes après 600 s sans
 activité (l'outil `clarify` bat pendant l'attente : une question n'est pas coupée par ce délai).
 
 Preuves : Vitest `tests/discussion.test.tsx` (liste blanche et témoins, `-32601`, formes de réponse, reprise,

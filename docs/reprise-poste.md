@@ -1,7 +1,7 @@
 # Reprise du travail sur un autre poste
 
-État du **26 septembre 2026**, Europe/Paris. Lire aussi `CLAUDE.md`,
-[le plan de la refonte](refonte/plan.md) et [le plan d'autonomie](refonte/autonomie.md), qui
+État du **8 octobre 2026**, Europe/Paris (tableau des étapes, § 3 ; P7 : § 6 undecies). Lire aussi
+`CLAUDE.md`, [le plan de la refonte](refonte/plan.md) et [le plan d'autonomie](refonte/autonomie.md), qui
 remplace ses phases P4 à P8.
 
 ## 1. Où en est le chantier
@@ -9,8 +9,8 @@ remplace ses phases P4 à P8.
 ACP est en pleine **refonte « Hermes au centre »** : Hermes Agent devient le seul
 serveur, le seul orchestrateur et la seule source de vérité ; ACP ne garde que l'image
 Railway dérivée et ses greffons (`acp-poste` depuis P1, `acp-interface` et `acp-catalogue`
-livrés par P3, `acp-projets` par P4, `acp-poste-vues` par P5, côté dépôt, non fusionnés), le poste Windows, le client Qt et
-le tableau de bord de Hermes habillé. L'ancien backend ACP (API FastAPI, base, bus
+livrés par P3, `acp-projets` par P4, `acp-poste-vues` par P5, fusionnés dans `refonte/hermes` ; `acp-discussion` par
+P7, non fusionné), l'exécutant Railway (P6), le poste Windows, le client Qt et le tableau de bord de Hermes habillé. L'ancien backend ACP (API FastAPI, base, bus
 d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite) est retiré ;
 il reste entier sous l'étiquette annotée **`archive/acp-0.10.0-avant-hermes`**
 (commit `60a49b6`, dernière fusion de `main` avant la refonte, CI `35981934303` et
@@ -23,15 +23,21 @@ Desktop CI `35981934226` vertes sur ce commit).
 - Worktrees de travail : `.claude/worktrees/refonte-hermes`, pour P1
   `.claude/worktrees/refonte-hermes-p1`, pour P2 `.claude/worktrees/refonte-hermes-p2`, pour P3 `.claude/worktrees/refonte-hermes-p3`, pour P4
   `.claude/worktrees/refonte-hermes-p4`, pour P5 `.claude/worktrees/refonte-hermes-p5`, pour P6
-  `.claude/worktrees/refonte-hermes-p6`.
+  `.claude/worktrees/refonte-hermes-p6`, pour P8 `.claude/worktrees/refonte-hermes-p8`, pour P7
+  `.claude/worktrees/refonte-hermes-p7` (parts A à D), `refonte-hermes-p7e` (part E) et `refonte-hermes-p7f` (part F).
   **Le checkout principal
   porte un chantier Pixel Office non commité (moteur, salles, `apps/web`) : ne rien y
   modifier.** Les autres worktrees historiques peuvent contenir des travaux partiels ;
   ne pas les supprimer ni les réinitialiser sans examen.
 - Depuis P2 (côté dépôt), Hermes est prêt à être déployé sur Railway derrière son propre
   fournisseur d'identité (Authelia, service `identite`), et l'agent n'y a **aucun outil
-  d'exécution**. **Rien n'est encore déployé** : le premier déploiement est fait par le
-  propriétaire, selon [`docs/refonte/railway.md`](refonte/railway.md).
+  d'exécution**. **Rien n'est encore déployé** (aucun déploiement consigné dans le dépôt) : le premier
+  déploiement est fait par le propriétaire, selon [`docs/refonte/railway.md`](refonte/railway.md).
+- **8 octobre 2026** : P0 à P6 et P8 sont fusionnées dans `refonte/hermes` (dernière fusion : PR #20, `b715edb`) ;
+  P7 est réalisée côté dépôt sur trois branches à réunir avant sa PR (§ 6 undecies) ; P9 suit. **Docker Desktop est
+  arrêté** sur le poste de travail depuis le 8 octobre (le propriétaire ne veut plus de piles Docker multiples) : la
+  part F de P7 n'a lancé aucune commande Docker, et ce qui en demande (image, contrat, navigateur) se prouve par la CI
+  GitHub (« Image Hermes », « Image de l'exécutant »).
 
 ## 2. Décisions du propriétaire
 
@@ -68,13 +74,13 @@ Elles priment sur les recommandations du plan (détail : `docs/refonte/plan.md`,
 |---|---|---|
 | P0 | Branche, élagage et gel du moteur | **fusionnée** dans `refonte/hermes` (PR #13, `29c95b5`) (§ 4) |
 | P1 | Image dérivée et CI de contrat, sans Railway | **fusionnée** dans `refonte/hermes` (PR #14, `21d13ee`) (§ 5) |
-| P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **réalisée côté dépôt** sur `refonte/hermes-p2`, relecture indépendante traitée, poussée ; sans PR ; **rien de déployé** (§ 6) |
-| P3 | Identité, français et réglages prêts | **réalisée côté dépôt** sur `refonte/hermes-p3` : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; poussée ; sans PR ; **rien de déployé** |
-| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p4` (empilée sur `refonte/hermes-p3`) : cœur serveur (CI verte sur `165c8e2`) et page « Projets » (seconde partie, CI verte sur `4d8265a`) ; sans PR ; **rien de déployé** (§ 6 quater) |
-| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **réalisée côté dépôt** sur `refonte/hermes-p5` (empilée sur `refonte/hermes-p4`) : côté Hermes (CI verte sur `0a458cd`) puis poste Windows (seconde partie : programme, installation éprouvée en simulation, bout en bout local ; CI verte sur `cb394b4`) ; sans PR ; **rien de déployé ni d'installé** (§ 6 quinquies) |
-| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie), **sur l'exécutant Railway** | **réalisée côté dépôt** sur `refonte/hermes-p6` (empilée sur `refonte/hermes-p5`) : côté Hermes, client Linux, image `executant/`, IaC, bout en bout local ; poussée, sans PR ; sonde R0 prête, **non lancée** ; **rien de déployé** (§ 6 sexies, § 6 septies, § 6 octies) |
-| P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | à faire |
-| P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | volet desktop **réalisé côté dépôt** sur `refonte/hermes-p8` (partie de `b3faac0`) : connexion native, JSON-RPC, neuf pages, bout en bout local ; 16 constats de relecture corrigés ; Desktop CI verte ; sans PR ; **rien de déployé** ; MCP côté poste reporté après P6 (§ 6 sexies) |
+| P2 | Premier déploiement Railway authentifié (OIDC), agent sans terminal | **fusionnée** dans `refonte/hermes` (PR #15, `21ac337`), relecture indépendante traitée ; **rien de déployé** (§ 6) |
+| P3 | Identité, français et réglages prêts | **fusionnée** dans `refonte/hermes` (PR #16, `f59f384`) : identité visuelle et français (§ 6 bis), catalogue et réglages prêts (§ 6 ter) ; **rien de déployé** |
+| P4 | Projets autonomes sur Hermes (plan d'autonomie) | **fusionnée** dans `refonte/hermes` (PR #17, `6c31522`) : cœur serveur et page « Projets » ; **rien de déployé** (§ 6 quater) |
+| P5 | Poste connecté : présence, catalogue, quotas (plan d'autonomie) | **fusionnée** dans `refonte/hermes` (PR #18, `b3faac0`) : côté Hermes puis poste Windows (installation éprouvée en simulation) ; **rien de déployé ni d'installé** (§ 6 quinquies) |
+| P6 | Exécution autonome sur un dépôt jetable (plan d'autonomie), **sur l'exécutant Railway** | **fusionnée** dans `refonte/hermes` (PR #19, `7697a1c`) : côté Hermes, client Linux, image `executant/`, IaC, bout en bout local, corrections de relecture ; sonde R0 prête, **non lancée** ; **rien de déployé** (§ 6 sexies à § 6 nonies) |
+| P7 | Questions, notifications, continuité ; dépôts réels (plan d'autonomie) | **réalisée côté dépôt**, non fusionnée : parts A à D sur `refonte/hermes-p7`, part E sur `refonte/hermes-p7e` (fin en cours le 8 octobre), part F (IaC du canal, documentation) sur `refonte/hermes-p7f` ; branches à réunir, relecture indépendante de l'ensemble, puis PR ; **rien de déployé**, aucun dépôt réel ajouté (§ 6 undecies) |
+| P8 | Desktop Qt et MCP côté poste (plan d'autonomie) | volet desktop **fusionné** dans `refonte/hermes` (PR #20, `b715edb`) : connexion native, JSON-RPC, neuf pages, bout en bout local ; 16 constats de relecture corrigés ; Desktop CI verte ; **rien de déployé** ; MCP côté poste reporté (§ 6 decies) |
 | P9 | Exploitation, montée de version et publication | à faire |
 
 Les anciennes P4 à P8 du plan (discussion mobile, poste en lecture, quotas, écritures signées,
@@ -2153,6 +2159,151 @@ fin d'un run avant de pousser.
 - Flux SSE du greffon, agrégat des demandes de l'agent, gestes des revues : contrats de P6
   et P7 non fusionnés.
 - Restauration d'une sauvegarde (P9) ; seul le déchiffrement à l'identique est prouvé.
+
+## 6 undecies. P7 — questions, notifications, continuité ; dépôts réels
+
+Réalisée du 1er au 8 octobre 2026 en six parts, sur trois branches à réunir avant la PR (D93) : parts A à D sur
+`refonte/hermes-p7` (worktree `.claude/worktrees/refonte-hermes-p7`, empilée sur la pointe de P6 `a65ec13`) ; part E
+sur `refonte/hermes-p7e` (worktree `refonte-hermes-p7e`, après la fusion de `refonte/hermes` — P6 et P8 — en
+`c785af2`) ; part F (IaC du canal, documentation) sur `refonte/hermes-p7f` (worktree `refonte-hermes-p7f`, partie de
+`da74a21`). Version **0.11.0 inchangée** ; ni PR, ni fusion, ni étiquette ; **rien n'est déployé**, aucun compte
+utilisé. Documents : [`refonte/questions.md`](refonte/questions.md) (file Questions, notifications, continuité),
+[`refonte/executant.md`](refonte/executant.md) § 16 (garde « dépôt privé » mesurée), [`refonte/railway.md`](refonte/railway.md)
+§ 14 (gestes du propriétaire), [`refonte/projets.md`](refonte/projets.md) § 4 bis, § 4 ter, § 5 et § 13,
+[`refonte/interface.md`](refonte/interface.md) § 13 à § 15. Décisions **D93 à D116**, appliquées
+([`refonte/plan.md`](refonte/plan.md)). Cahier de conception et journal de P7 : brouillons de session (non versionnés),
+résumés ici.
+
+### Commits (aucun `Co-Authored-By`)
+
+| Part | Commits |
+|---|---|
+| A. socle du greffon | `00bc069` relance, qui répond, clôture, Accueil agrégé, schéma v4, garde « dépôt privé » côté greffon |
+| B. temps réel | `f8f5763` flux SSE côté serveur ; `00814c4` client (`flux.ts`, `useDonnees`) ; `4c4282b` trames exemples en JSON (fins de fichier) ; `9c87bf6` aller-retour de pause entre deux passes du veilleur |
+| C. interface et bilan | `5e281dd` liens profonds ; `26ea837` bilan quotidien, garde K1, fuseau ; `6be09bc` file Questions à cinq sections, Accueil ; `7bdcee4` preuves (redéploiement pendant une question, parcours téléphone → bureau) |
+| D. discussion mobile | `4ac6ad9` greffon `acp-discussion` ; `69ea021` preuves (contrat, navigateur) |
+| fusion | `c785af2` `refonte/hermes` (P6 et P8) dans `refonte/hermes-p7e`, sans conflit |
+| E. dépôts réels | `665d825` visibilité mesurée, voie Codex fermée sauf dépôt prouvé privé ; `da74a21` outil `scripts/preuve_accord_requis.py` ; puis, poussés le 8 octobre : `3b1cac9` deux refus anonymes, clone lié à l'URL mesurée ; `e85c7e3` relance après un secret sur une branche neuve, gardée, dépôts mesurés servis ; `1f2574c` carte « Dépôts », grisage de Codex ; `a41952f` revues rejouées dans l'ordre (outil de preuve) ; `9235999` documentation (`executant.md` § 16, `poste.md`, `projets.md`, README du poste) |
+| F. IaC et documentation | `cf44486` variables du canal déclarées par `preserve()` ; puis la documentation (décisions D93 à D116, `questions.md`, `railway.md` § 14, annexe d'`autonomie.md`, ces notes, journal) et la consigne de sa CI |
+
+### Ce qui est en place
+
+- **File Questions** à cinq sections (questions, décisions, revues, cartes arrêtées, discussions en attente),
+  compteurs « À traiter par vous » et « Chez Hermes », liens profonds ciblés ; **Relancer** une carte arrêtée (session
+  neuve pour l'exécutant), **Qui répond** modifiable, **Clore le projet** ;
+- **flux d'invalidation** `GET /v1/flux` et client (un flux par onglet, repli sur le sondage de 15 s) sur Projets,
+  Questions, Poste et Accueil ;
+- **notifications** à liens profonds en requête (relatifs en base, préfixés à l'envoi), genre `bilan` ; **bilan
+  quotidien** par cron natif `no_agent` créé par le propriétaire, garde de démarrage élargie au seul `acp-bilan.py`
+  d'empreinte connue, fuseau `Europe/Paris` ;
+- **Accueil** agrégé (`GET /v1/accueil`, sept blocs, même ordre partout) ;
+- **discussion réduite** (`acp-discussion`, `/api/ws`, liste blanche des méthodes et paramètres) ;
+- **dépôts réels** : visibilité mesurée par l'exécutant, double contrôle par le greffon, carte « Dépôts » de la page
+  Poste, relance après un secret sur une branche neuve, outil de preuve « accord requis » ; aucun dépôt réel ajouté ;
+- **IaC** : six variables du canal (Telegram et ntfy, `ACP_NOTIFICATIONS` comprise) déclarées par `preserve()` dans le
+  service `hermes` ; le vérificateur refuse tout littéral pour un nom de secret et s'éprouve sur des copies altérées.
+
+### Écarts au cahier, justifiés
+
+- **Relance d'une carte de l'exécutant** (part A, D94) : section du propriétaire recomposée **en tête** de la consigne
+  par le greffon, origine gardée (`demandes.consigne_initiale`), sans toucher `noyau/execution.py` (P6 alors en
+  correction) ; `consigne_tronquee` de la carte reste faux (la troncature n'est dite que dans le texte).
+- **Clôture** (part A, D101) : état posé en premier, sous condition, puis questions annulées et cartes archivées, sous
+  le verrou de l'exécution ; une course perdue ne fait rien.
+- **Accueil** (part A, D99) : `quotas` a la forme de `GET /v1/quotas` ; `branche_prete` au lieu de `branche` ;
+  `illisibles`.
+- **Flux** (part B, D96) : empreintes renforcées (comptes par état, `MAX(id)`), journal limité aux lignes de projet,
+  `quotas` couvre aussi routage et politique, tableau absent d'un projet en création dit « absent » ; trames exemples
+  rangées en chaînes JSON (aucun fichier suivi ne finit par une ligne vide).
+- **Liens profonds et bilan** livrés en part C (la part A ne les avait pas faits).
+- **Discussion** (part D, D100) : onglet `before:catalogue` ; liste `/api/sessions?source=tui` ; réponse aux `clarify`
+  en une fois (pas de `clarify.lock`) ; ping toutes les 30 s.
+- **Part E** : règles fines de la mesure (D106 à D115), dont deux refus anonymes exigés et la garde de la relance après
+  un secret ajoutés après la relecture indépendante ; détail : [`refonte/executant.md`](refonte/executant.md) § 16.
+- **Part F** : Telegram **et** ntfy déclarés ensemble, avant le choix du propriétaire (D116 ; le cahier disait « après
+  son choix ») ; le test des décisions documentées lit désormais les numéros à trois chiffres (D100 et au-delà
+  n'étaient ni vus cités, ni vus définis).
+
+### Preuves locales (Windows 10, Docker 29.5.3 jusqu'au 2 octobre, Python 3.12.10 python.org, Node 24.19.0)
+
+Images construites depuis les worktrees de P7 (étiquettes locales `p7b` à `p7f`, `c1` à `c3`, `d1`, `d2`, `pe1`,
+`pe2`), relevés du journal de P7 :
+
+| Part | Résultats |
+|---|---|
+| A | image `p7b` **734 réussis** ; dépôt **925 réussis, 79 ignorés** ; contrat complet **167 réussis** (141 au premier passage hors deux fichiers, plus leurs 26 tests rejoués après deux incidents d'environnement : SDK de `.railway` absent du worktree, démon Docker figé par la pile d'une autre session) |
+| B | image `p7f` **753 réussis** ; contrat flux et projets **27 réussis** (délai réponse → trame 0,968 s, place rendue 1,22 s) ; navigateur **8 réussis** (pause vue au téléphone 0,39 s, reprise 2,38 s) ; contrat complet `p7d` : 171 réussis et un échec de minuterie de `test_machine_contrat` sous charge, rejoué seul : 11 réussis ; Vitest **134** ; dépôt **925 réussis, 79 ignorés** |
+| C | image `c3` **777 réussis** ; contrat `c2` **107 réussis**, `c3` **32 réussis** ; navigateur `c3` **9 réussis** (parcours : « Terminé » 4,9 s après l'intégration, 11 lectures du détail, toutes après une trame) ; Vitest **150** ; dépôt **925 réussis, 79 ignorés** |
+| D | Vitest **173** (mutations de la liste blanche, de `-32601` et des délais : rouges) ; contrat `d2` **16 réussis** ; navigateur `d2` **10 réussis** ; image `d1` **777 réussis** ; dépôt **925 réussis, 79 ignorés** |
+| E | dépôt Windows **1 003 réussis, 83 ignorés** ; image `pe2` **789 réussis** ; Vitest **179** ; image d'essais Linux de l'exécutant (git 2.47.3, root) **822 réussis** puis **820** avec 1 et 3 échecs de minuterie sous la charge des piles de P9 (rejoués seuls : 16 réussis, trois fois) ; contrat ciblé `pe1` **54 réussis**, 1 échec d'environnement (image construite avant les bundles) ; témoins de mutation tous rouges ([`refonte/executant.md`](refonte/executant.md) § 16.5) |
+| F | **sans Docker** (Docker Desktop arrêté le 8 octobre) : dépôt (venv python.org, `cryptography` hors du verrou : voir les pièges) **998 réussis, 83 ignorés** après l'IaC, **999** après la documentation (test des décisions de P7) ; `.railway/verifier.mjs` conforme, trois témoins signalés ; témoins de mutation du vérificateur et des tests statiques (littéral pour un jeton, variable omise, règle « nom de secret » retirée, nom lu par le greffon et non déclaré) : tous rouges ; `check_version`, `check_engine_frozen`, `git diff --check` : verts ; tests de contrat de l'IaC modifiés : prouvés en CI seulement |
+
+### Intégration continue
+
+| Commit | CI | Image Hermes | Image de l'exécutant |
+|---|---|---|---|
+| `00bc069` | `36953837450` verte | `36953837537` verte | `36953837475` verte |
+| `00814c4` | `36974438848` **rouge** (fins de fichier des trames exemples ; corrigé par `4c4282b`) | `36974438733` verte (contrat 172, navigateur 8) | — |
+| `4c4282b` | `36976430673` verte | `36976430592` **rouge** (navigateur : aller-retour de pause non signalé, vrai défaut ; corrigé par `9c87bf6`) | — |
+| `9c87bf6` | `36984710076` verte | `36984710192` verte (contrat 172, navigateur 8) | — |
+| `26ea837` | `36996679349` **rouge** (un test de P6, `test_pause_locale_aucune_execution`, course connue ; non touché, revenu vert ensuite) | `36996679306` verte (contrat 177, navigateur 8) | — |
+| `6be09bc` | `37000938226` verte | `37000938147` verte (contrat 177, navigateur 8) | — |
+| `7bdcee4` | `37001054108` verte | `37001054110` verte (contrat 178, navigateur 9) | — |
+| `69ea021` | `37012771471` verte (Windows 922, Linux 950, interface 173) | `37012771194` verte (image 777, contrat 180, navigateur 10 ; délai réponse → trame 0,933 s ; parcours : « Terminé » vu au bureau 5,8 s, 12 lectures du détail, aucune sans trame) | — |
+| `c785af2` (fusion) | `37014427436` verte (Windows 938, Linux 970) | `37014427594` verte (image 778, contrat 181, navigateur 10) | `37014427757` verte (43 tests de l'image, 788 en root) ; Desktop CI `37014427957` verte (34 suites) |
+| `665d825` | `37027816688` verte (Windows 971, Linux 1 003) | `37027816283` **rouge** : contrat 180 réussis, **1 échec** (`test_projets_contrat.py::test_prolonger_au_plafond_puis_conclure` : action `reprendre` offerte au lieu de `prolonger` et `conclure`) ; test de P4, zone que `665d825` (`apps/poste` seul) ne touche pas, vert sur `c785af2` et `69ea021` ; **non analysé** par la part F | `37027816836` verte (43 tests de l'image ; `apps/poste` et contrat en root, git 2.47.3 : 821 réussis, 20 ignorés) |
+| `da74a21` | `37029770523` verte (Windows 992, Linux 1 024, interface 173) | — (aucun chemin de l'image touché) | — |
+| `9235999` (tête de la part E) | `37711679692` verte (Windows 1 000, Linux 1 032, interface 179) | `37711679574` en cours à cette rédaction | `37711679672` verte (43 tests de l'image ; 823 réussis en root, git 2.47.3) |
+| `cf44486` | `37713287538` verte (Windows 995, Linux 1 027) | `37713287490` en cours à cette rédaction (il démarre Hermes avec un canal posé : seule preuve des tests de contrat modifiés) | — |
+
+### Relecture
+
+- **Part E** : relecture indépendante (agent en lecture seule) de `c785af2` à l'arbre de travail ; constats traités
+  avec un test qui échoue sans la correction (outil de preuve : revues rejouées dans l'ordre, journal plein « non
+  prouvé », suppression et connexions ; relance après un secret gardée par la preuve « exécutant de la partie E » ;
+  clone lié à l'URL ; deux refus anonymes ; interface) ; non traités, dits : [`refonte/executant.md`](refonte/executant.md)
+  § 16.6.
+- **Parts A à D et F** : **aucune relecture indépendante faite** à ce jour (la part F n'avait aucun agent relecteur à
+  disposition) ; elle reste due avant la PR de P7 (cahier § 14 : « PR, relecture indépendante, fusion »).
+
+### Non prouvé (dit)
+
+- **Sur Railway seulement** ([`refonte/railway.md`](refonte/railway.md) § 14.7) : notification réelle sur le
+  téléphone, parcours réel, redéploiement réel pendant une question, flux à travers le vrai bord, premier dépôt réel et
+  son tableau « accord requis », bilan à 8 h, transcriptions illustratives de la carte « répondre ».
+- `preserve()` sur une variable jamais posée : **supposé** sans effet (comme pour l'identité au premier apply) ;
+  conduite à tenir si le plan crée une variable vide : `railway.md` § 14.1.
+- Livraison Telegram ou ntfy : faux serveur seulement ; procédures de BotFather et de ntfy non éprouvées par ACP.
+- Rendu : Chromium seulement (390×844 émulé), ni vrai téléphone ni Safari iOS ; station Qt (P8) face aux gestes et au
+  flux de P7 : non construite.
+- Échec du contrat de `665d825` (ci-dessus) : non analysé par la part F ; la part E l'attribue à une course du
+  répartiteur (carte de triage lue avant son genre) et le surveille sur `9235999` ; à rejouer sur la tête réunie.
+- Tests de contrat de l'IaC modifiés en part F (Hermes avec un canal posé) : CI seulement, aucun Docker local.
+
+### Pièges (P7)
+
+- **Nettoyage de `%TEMP%`** : les environnements virtuels rangés dans le brouillon de session (`venv-p5b`, `venv-ci`,
+  `venv-ci2`) ont perdu des fichiers (`_pytest/__init__.py` absent : « cannot import name '__version__' from
+  '_pytest' ») ; un venv python.org **hors de `%TEMP%`** est nécessaire (la part F a employé un venv python.org
+  existant d'un ancien worktree, avec `cryptography` 47.0.0 au lieu de 50.0.1 du verrou : aucun test n'en dépend
+  autrement ; à refaire par `scripts/setup.ps1` sur le poste suivant).
+- **`git stash` est commun à tous les worktrees** d'un dépôt : une session qui fait `git stash pop` dans un autre
+  worktree peut reprendre le dépôt d'une autre ; mettre de côté dans des fichiers, jamais dans la pile partagée.
+- **Docker partagé** entre sessions : un démon figé par la pile d'une autre session fait échouer des tests sans rapport
+  (part A) ; règle de la part E : un seul verrou `scratchpad/verrou-docker-pile`, préfixe de pile propre ; depuis le
+  8 octobre, Docker Desktop est arrêté et tout ce qui demande Docker passe par la CI.
+- Une image construite **avant** la reconstruction des bundles fait échouer `test_bundles_servis_identiques_au_depot`
+  (part E) : reconstruire l'image après `npm run build`.
+- Aucun fichier suivi ne doit finir par une ligne vide (`scripts/tests/test_fins_de_fichier.py`) : des trames SSE se
+  rangent en chaînes JSON (part B).
+- Un `heredoc` du shell transforme « \n » en vrai saut de ligne : tout correctif qui contient une barre oblique inverse
+  s'écrit par l'éditeur, jamais par un `heredoc` (part C).
+- L'authentificateur virtuel de Chromium est lié à **sa** page : la passkey se recopie (CDP) avant de fermer la page
+  du téléphone (part C).
+- Les tests qui comptent les notifications d'une pile partagée doivent filtrer **leur** projet : le blocage d'une carte
+  est notifié par la passe, parfois après la question (part A).
+- Les documents `docs/**/*.md` sont en CRLF dans l'arbre de travail (autocrlf) : garder ces fins de ligne à l'écriture,
+  puis `git diff --check`.
 
 ## 7. Chaîne d'outils Windows
 
