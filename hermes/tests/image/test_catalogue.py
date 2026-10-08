@@ -251,6 +251,23 @@ def test_reglages_config_semee_par_l_image_commentaires_conserves(chemins):
     assert hashlib.sha256(cible.read_bytes()).hexdigest() == empreinte and os.lstat(cible).st_mtime_ns == date
 
 
+def test_config_semee_puis_reglee_a_la_derniere_version_du_schema(chemins):
+    """Témoin de montée P9 (v2026.9.21 face à v2026.9.24) : le config.yaml que l'image sème
+    (cli-config.yaml.example), une fois réglé par 05-acp, porte la DERNIÈRE version de schéma que connaît
+    Hermes, relue par Hermes lui-même (check_config_version, lecture brute du fichier) : aucune migration
+    en attente. Hermes 0.21.4 semait un fichier sans ``_config_version`` : version 0, et au démarrage
+    « [config-migrate] … predates version 12 … can no longer be auto-migrated » ; aucun autre contrôle
+    ne le voyait (/api/status rendait config_version 0, latest_config_version 45)."""
+    _preparer(chemins, Path("/opt/hermes/cli-config.yaml.example").read_text(encoding="utf-8"))
+    assert ad.appliquer_reglages_skills(chemins, CATALOGUE, uid=0, gid=0)["etat"] == "applique"
+    code = ("from hermes_cli.config import check_config_version\n"
+            "resultat = list(check_config_version(raise_on_parse_error=True))")
+    actuelle, derniere = executer_python(code, env=env_processus(chemins))
+    assert actuelle == derniere, (
+        f"config.yaml semé par l'image puis réglé par 05-acp : version de schéma {actuelle}, alors que Hermes "
+        f"connaît la version {derniere} (migration en attente, ou refusée au démarrage sous la version 12)")
+
+
 def test_reglages_entrees_du_proprietaire_gardees(chemins):
     cible = _preparer(chemins, "# réglages du propriétaire\nskills:\n  external_dirs:\n    - /opt/data/mes-skills\n"
                                "    - /opt/acp/skills/\n  disabled: [maps, ma-skill]\n  creation_nudge_interval: 3\n"

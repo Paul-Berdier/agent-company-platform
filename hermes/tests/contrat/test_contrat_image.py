@@ -219,6 +219,10 @@ def test_passerelle_et_tableau_de_bord_tournent_sous_l_uid_hermes(hermes_en_marc
     assert any(l.startswith("hermes") and "hermes gateway run" in l for l in lignes)
     code, statut = hermes_en_marche.json("/api/status")
     assert code == 200 and statut["version"] == EPINGLE["HERMES_VERSION"]
+    # Témoin de montée P9 : sur un volume neuf, le config.yaml semé par l'image puis réglé par 05-acp est à la
+    # dernière version de schéma de Hermes (0.21.4 rendait 0 face à 45 et refusait la migration au démarrage).
+    assert statut["config_version"] == statut["latest_config_version"], (
+        statut.get("config_version"), statut.get("latest_config_version"))
     assert statut["gateway_running"] is True
     assert statut["gateway_platforms"]["api_server"]["listener_base"] == "http://127.0.0.1:8642"
 
