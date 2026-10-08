@@ -15,7 +15,12 @@
 //    les réglages attendus (source, Wait for CI, constructeur, santé, région, limites, politique de
 //    redémarrage, variables déclarées ou preserve()), et AUCUNE Start Command, commande de
 //    pré-déploiement, domaine ni secret ; l'exécutant n'a ni santé, ni PORT, ni preserve(), ni
-//    référence vers un autre service (et réciproquement).
+//    référence vers un autre service (et réciproquement) ;
+// 3. étape P7 : les six variables du canal de notification de Hermes (ACP_NOTIFICATIONS, Telegram et
+//    ntfy) sont déclarées par preserve(), jamais par un littéral ; dans tout service, une variable dont le
+//    nom désigne un secret (JETON, TOKEN, SECRET, MOT_DE_PASSE…) n'est jamais un littéral ;
+// 4. témoins : des copies altérées (jeton Telegram en clair, ACP_NOTIFICATIONS littérale, variable du
+//    canal omise) DOIVENT être signalées par ce vérificateur, sinon il échoue lui-même.
 // --graphe écrit le graphe d'essai en JSON : hermes/tests/contrat/test_railway_iac_contrat.py
 // démarre les deux images avec ses variables.
 //
@@ -59,7 +64,16 @@ const ATTENDU = {
       HERMES_DASHBOARD_OIDC_CLIENT_ID: "hermes-acp",
       HERMES_DASHBOARD_OIDC_SCOPES: "openid profile email offline_access",
     }),
-    preservees: [],
+    // Étape P7 (cahier P7, correction K13 ; docs/refonte/railway.md § 14) : canal de notification, Telegram ou
+    // ntfy, posé par le propriétaire dans Railway ; mêmes noms que ceux que lisent l'image et le greffon.
+    preservees: [
+      "ACP_NOTIFICATIONS",
+      "ACP_TELEGRAM_JETON",
+      "ACP_TELEGRAM_DISCUSSION",
+      "ACP_NTFY_SERVEUR",
+      "ACP_NTFY_SUJET",
+      "ACP_NTFY_JETON",
+    ],
   },
   identite: {
     racine: "/identite",
@@ -119,6 +133,9 @@ const CLES_DEPLOY = [
   "restartPolicyType",
   "sleepApplication",
 ];
+// Nom de variable qui désigne un secret : jamais un littéral, dans aucun service (preserve() exigé ; aucune
+// variable de ce nom dans l'exécutant, D92).
+const NOM_SECRET = /JETON|TOKEN|SECRET|KEY|CLE|PASSWORD|MOT_DE_PASSE|ARGON2|OAUTH/i;
 const SECRETS = [
   /\$argon2/i,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
@@ -172,10 +189,18 @@ async function evaluerFichier(chemin, environnement, projet = "acp") {
 }
 
 // Évalue une COPIE de railway.ts, libellés remplacés, dans .railway/ (pour que Node y résolve
-// railway/iac) sous un nom ignoré par Git ; la copie est toujours supprimée.
-async function evaluerCopie(libelles, environnement = "production", projet = "acp") {
+// railway/iac) sous un nom ignoré par Git ; la copie est toujours supprimée. `alterations` : couples
+// [texte exact, remplacement] appliqués à la copie (témoins du vérificateur), chacun présent une fois.
+async function evaluerCopie(libelles, environnement = "production", projet = "acp", alterations = []) {
   let texte = readFileSync(SOURCE, "utf8");
   for (const [constante, valeur] of Object.entries(libelles)) texte = remplacer(texte, constante, valeur);
+  for (const [avant, apres] of alterations) {
+    const occurrences = texte.split(avant).length - 1;
+    if (occurrences !== 1) {
+      throw new Error(`témoin : « ${avant} » doit figurer exactement une fois dans railway.ts (${occurrences} trouvée(s)).`);
+    }
+    texte = texte.replace(avant, () => apres);
+  }
   essais += 1;
   const copie = join(ICI, `.essai-${process.pid}-${essais}.ts`);
   writeFileSync(copie, texte, "utf8");
@@ -197,6 +222,20 @@ async function attendreRefus(titre, evaluation, fragment) {
     return;
   }
   erreurs.push(`${titre} : l'évaluation a RÉUSSI au lieu de refuser (échec fermé rompu).`);
+}
+
+// Témoin du vérificateur lui-même : une copie altérée de railway.ts DOIT produire l'écart attendu. Les écarts
+// de la copie sont retirés de la liste (ils sont voulus) ; seule leur absence est une erreur.
+async function attendreEcart(titre, alterations, fragment) {
+  const graphe = await evaluerCopie(ESSAI, "production", "acp", alterations);
+  const avant = erreurs.length;
+  verifierGraphe(graphe, ESSAI.LIBELLE_HERMES, ESSAI.LIBELLE_IDENTITE);
+  const ecarts = erreurs.splice(avant);
+  if (ecarts.some((e) => e.includes(fragment))) {
+    constats.push(`écart attendu — ${titre} : ${ecarts.find((e) => e.includes(fragment))}`);
+  } else {
+    erreurs.push(`${titre} : le vérificateur n'a PAS signalé « ${fragment} » (écarts : ${JSON.stringify(ecarts)}).`);
+  }
 }
 
 function verifierService(noeud, nom, h, i) {
@@ -253,6 +292,9 @@ function verifierService(noeud, nom, h, i) {
   for (const [cle, valeur] of Object.entries(variables)) {
     const texte = JSON.stringify(valeur);
     for (const motif of SECRETS) exiger(!motif.test(texte), `${ici} : ${cle} ressemble à un secret (${motif}).`);
+    if (NOM_SECRET.test(cle)) {
+      exiger(valeur?.type === "preserve", `${ici} : ${cle} nomme un secret : preserve() exigé, jamais un littéral (sa valeur se pose, scellée, dans Railway).`);
+    }
     // Aucune référence de variable entre services (${{ service.VAR }}), ni variable partagée.
     exiger(!texte.includes("${{"), `${ici} : ${cle} référence une autre ressource (${texte}).`);
     exiger(valeur?.type === "literal" || valeur?.type === "preserve", `${ici} : ${cle} de type « ${valeur?.type} ».`);
@@ -342,6 +384,23 @@ async function principal() {
     writeFileSync(fichierGraphe, `${JSON.stringify({ libelles: ESSAI, projet: graphe }, null, 2)}\n`, "utf8");
     constats.push(`graphe d'essai écrit dans ${fichierGraphe}.`);
   }
+
+  // 4. Témoins (étape P7) : chaque altération DOIT être signalée.
+  await attendreEcart(
+    "jeton Telegram écrit en clair",
+    [["ACP_TELEGRAM_JETON: preserve(),", 'ACP_TELEGRAM_JETON: "essai-jeton-en-clair",']],
+    "ACP_TELEGRAM_JETON nomme un secret : preserve() exigé",
+  );
+  await attendreEcart(
+    "canal imposé par un littéral",
+    [["ACP_NOTIFICATIONS: preserve(),", 'ACP_NOTIFICATIONS: "telegram",']],
+    "ACP_NOTIFICATIONS doit être preserve()",
+  );
+  await attendreEcart(
+    "variable du canal omise (le plan la supprimerait)",
+    [["      ACP_NTFY_JETON: preserve(), // variable SCELLÉE\n", ""]],
+    "service hermes : variables",
+  );
 
   for (const ligne of constats) console.log(`[verifier] ${ligne}`);
   if (erreurs.length > 0) {
