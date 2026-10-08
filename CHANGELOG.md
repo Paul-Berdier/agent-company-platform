@@ -108,7 +108,8 @@ H ; en P5, les réglages `ACP_WORKER_*` du poste (sauf `ACP_WORKER_CLAUDE_QUOTA_
 
 Corrections des relectures indépendantes, une ligne par étape (détail : `docs/refonte/historique.md`, partie B) :
 - P0 : 5 défauts confirmés et corrigés (refus des NUL sans l'octet NUL, tests DPAPI réels rétablis, commande
-  `journal` sans source retirée, `acp-poste quotas` refusé sans accord, réglage sans effet retiré) ;
+  `journal` sans source retirée, `acp-poste quotas` refusé sans accord avec le retrait d'un réglage sans effet,
+  « aucune connexion réseau » rectifié : Codex CLI, que lance `acp-poste quotas`, interroge le serveur d'OpenAI) ;
 - P1 : 5 constats, dont deux critiques (`/run/service` laissé à l'agent, `.env` du volume hors managed scope), et
   l'élévation par le `PATH` des scripts root trouvée à la vérification finale ;
 - P2 : 21 constats de trois relectures (sécurité offensive, exactitude, exploitation), dont les `hooks/` et
