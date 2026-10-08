@@ -306,7 +306,10 @@ jobs:
         run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
 
       - name: Tests de contrat des images (Hermes et fournisseur d'identité)
-        run: python -m pytest -s -v -rA hermes/tests/contrat
+        # Étape P9 (cahier § 3.7) : les tests de restauration tournent dans le job « restauration » (parallèle), ceux de
+        # la montée de données dans le job « montee » (workflow_dispatch) ; le résumé de pytest dit combien sont
+        # désélectionnés ici.
+        run: python -m pytest -s -v -rA hermes/tests/contrat -m "not restauration and not montee"
 
       - name: Installer Playwright (hachés vérifiés) et Chromium
         run: |
@@ -318,7 +321,7 @@ jobs:
         env:
           ACP_E2E_OBLIGATOIRE: "1"
           ACP_E2E_CAPTURES: /tmp/captures-e2e
-        run: python -m pytest -s -v -rA hermes/tests/e2e
+        run: python -m pytest -s -v -rA hermes/tests/e2e -m "not restauration and not montee"
 
       - name: Captures d'écran du test navigateur
         if: always()
