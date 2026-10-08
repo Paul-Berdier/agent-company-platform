@@ -6,6 +6,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
 #include "events/FluxInvalidation.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "events/Sondage.h"
 #include "models/JsonListModel.h"
 #include "viewmodels/Libelles.h"
@@ -82,6 +83,10 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
     , m_sessions(new JsonListModel(this))
 {
     m_projetsEnCours->setCle({QStringLiteral("id")});
+    connect(flux->discussions(), &DiscussionsEnAttente::change, this, [this] {
+        m_carteATraiter = construireCarteATraiter(m_dernierAccueil, this->flux()->discussions()->nombre());
+        emit accueilChange();
+    });
     // Étape P7 : l'Accueil agrégé couvre tous les sujets du flux (Accueil.tsx, useDonnees(lireAccueil, …, SUJETS)).
     m_accueil->suivre(flux->invalidation(), FluxInvalidation::sujets());
     lireAccueil({});
@@ -96,6 +101,8 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
         emit accueilChange();
         // La barre d'état et le badge de la file Questions suivent sans attendre le sondage léger.
         this->flux()->noterAccueil(accueil);
+        // Discussions en attente : lues par la passerelle, comme la page web (Accueil.tsx).
+        this->flux()->discussions()->lire();
     });
     connect(m_sondageSessions, &Sondage::lu, this, [this](const ApiResponse &reponse) {
         m_sessions->setItems(construireSessions(reponse.json.object()));
@@ -174,7 +181,8 @@ QString AccueilViewModel::erreurSessions() const { return m_sondageSessions->der
 
 void AccueilViewModel::lireAccueil(const QJsonObject &accueil)
 {
-    m_carteATraiter = construireCarteATraiter(accueil);
+    m_dernierAccueil = accueil;
+    m_carteATraiter = construireCarteATraiter(accueil, flux()->discussions()->nombre());
     m_carteProjets = construireCarteProjets(accueil);
     m_projetsEnCours->setItems(construireProjetsEnCours(accueil));
     m_carteExecutant = construireCarteExecutant(accueil);
@@ -227,7 +235,7 @@ void AccueilViewModel::envoyerNotificationDeTest()
 
 // --- Fonctions pures -------------------------------------------------------------------
 
-QVariantMap AccueilViewModel::construireCarteATraiter(const QJsonObject &accueil)
+QVariantMap AccueilViewModel::construireCarteATraiter(const QJsonObject &accueil, int discussions)
 {
     const QString bloc = QStringLiteral("a_traiter");
     if (!lisible(accueil, bloc)) {
@@ -252,22 +260,26 @@ QVariantMap AccueilViewModel::construireCarteATraiter(const QJsonObject &accueil
             {QStringLiteral("projet"), libelles::texte(demande.value(QStringLiteral("projet_titre")))},
         });
     }
-    const QJsonValue total = a.value(QStringLiteral("total"));
+    const QJsonValue totalGreffon = a.value(QStringLiteral("total"));
     const QJsonValue chezHermes = accueil.value(QStringLiteral("chez_hermes"));
-    // Les discussions en attente ne sont pas lues par la station (session.active_list) : le total le dit, et
-    // « Rien n'attend votre décision » n'est jamais affiché (relecture finale de P7 : jamais zéro par défaut).
+    // Discussions en attente lues par la passerelle (session.active_list) et ajoutées au total, comme la page web ;
+    // inconnues : le total le dit, et « Rien n'attend votre décision » n'est jamais affiché (jamais zéro par défaut).
+    const bool connues = discussions >= 0;
+    const bool totalConnu = libelles::estNombre(totalGreffon);
+    const qint64 total = totalConnu ? totalGreffon.toInteger() + (connues ? discussions : 0) : -1;
     return QVariantMap{
         {QStringLiteral("lisible"), true},
         {QStringLiteral("raison"), QString()},
-        {QStringLiteral("total"), libelles::nombre(total)},
-        {QStringLiteral("mention"), QStringLiteral("(discussions en attente : état inconnu, non comptées)")},
+        {QStringLiteral("total"), totalConnu ? QString::number(total) : libelles::kInconnu},
+        {QStringLiteral("mention"), connues ? QString() : QStringLiteral("(discussions en attente : état inconnu, non comptées)")},
+        {QStringLiteral("rien"), connues && total == 0 && a.value(QStringLiteral("premieres")).toArray().isEmpty()},
         {QStringLiteral("questions"), libelles::nombre(a.value(QStringLiteral("questions")))},
         {QStringLiteral("decisions"), libelles::nombre(a.value(QStringLiteral("decisions")))},
         {QStringLiteral("revues"), libelles::nombre(a.value(QStringLiteral("revues")))},
         {QStringLiteral("arretees"), libelles::nombre(a.value(QStringLiteral("arretees")))},
-        {QStringLiteral("discussions"), QStringLiteral("Inconnues")},
+        {QStringLiteral("discussions"), connues ? QString::number(discussions) : QStringLiteral("Inconnues")},
         {QStringLiteral("chezHermes"), libelles::nombre(chezHermes)},
-        {QStringLiteral("attente"), libelles::estNombre(total) && total.toInteger() > 0},
+        {QStringLiteral("attente"), total > 0},
         {QStringLiteral("premieres"), premieres},
     };
 }

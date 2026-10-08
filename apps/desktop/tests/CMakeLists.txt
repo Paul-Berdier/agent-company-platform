@@ -76,6 +76,8 @@ target_compile_definitions(tst_projets PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CUR
 acp_add_cpp_test(tst_discussion cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_questions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_questions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_discussions_attente cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_discussions_attente PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_flux_invalidation cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_flux_invalidation PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_poste cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)

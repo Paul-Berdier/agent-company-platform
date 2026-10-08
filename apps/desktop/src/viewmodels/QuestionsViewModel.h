@@ -22,7 +22,10 @@
 //     avec une consigne facultative (1 à 4 000 caractères ; jamais pour une carte d'intégration),
 //     seulement si le greffon la dit `relancable` ; sinon la raison du refus (`refus_relance`).
 //     Message d'après la réponse (`relancee`, `session_neuve`, `branche_neuve`, `statut_apres`).
-//  5. Discussions en attente : compteur du tableau de bord (`discussions`), en lecture seule.
+//  5. Discussions en attente : lues par la passerelle (`session.active_list`, DiscussionsEnAttente),
+//     en lecture seule : titre, activité, aperçu, session ; « Ouvrir la discussion » reprend la
+//     session dans la page Discussion. Illisibles : « état inconnu », avec le compteur du tableau
+//     de bord (`discussions` de la file) s'il le publie.
 //  Tableaux illisibles : signalés tels quels.
 //
 // Une réponse rendue sans effet (carte non relancée, non reprise) est une ALERTE, pas une
@@ -46,6 +49,7 @@
 #include <QVariantMap>
 
 #include <chrono>
+#include <optional>
 
 namespace acp {
 
@@ -115,10 +119,18 @@ public:
     [[nodiscard]] static QJsonObject construireTriage(const QJsonObject &carte);
     [[nodiscard]] static QJsonObject construireBloquee(const QJsonObject &carte);
     [[nodiscard]] static QJsonObject construireRevue(const QJsonObject &revue);
-    /*! « À traiter par vous » : `compteurs` du greffon (et les discussions si elles sont connues). */
-    [[nodiscard]] static QVariantMap construireResume(const QJsonObject &liste);
-    /*! Section « Discussions en attente » : compteur du tableau de bord, ou ce qui en est su. */
-    [[nodiscard]] static QVariantMap construireDiscussions(const QJsonValue &discussions);
+    /*!
+        « À traiter par vous » : `compteurs` du greffon, plus les `discussions` en attente quand elles
+        sont connues (-1 : inconnues, le total le dit).
+    */
+    [[nodiscard]] static QVariantMap construireResume(const QJsonObject &liste, int discussions = -1);
+    /*!
+        Section « Discussions en attente » : les `sessions` lues par la passerelle
+        (DiscussionsEnAttente::sessionsEnAttente) ; `nullopt` : inconnues, avec le compteur du
+        tableau de bord (`serveur`, section `discussions` de la file) ou ce qui en est su.
+    */
+    [[nodiscard]] static QVariantMap construireDiscussions(const QJsonValue &serveur,
+                                                           const std::optional<QJsonArray> &sessions = std::nullopt);
     [[nodiscard]] static QString messageReponse(const QJsonObject &resultat);
     [[nodiscard]] static QString messageTriage(const QJsonObject &resultat);
     /*! Message d'une relance, d'après la réponse du greffon (`integration` : carte sans agent). */
@@ -142,6 +154,8 @@ private:
     void apresGeste();
     void effacerBrouillon(const QString &cle);
 
+    void majDiscussions();
+
     ClientGreffonPoste *m_greffon = nullptr;
     ApiClient *m_client = nullptr;
     Sondage *m_sondage = nullptr;
@@ -154,6 +168,7 @@ private:
     QStringList m_illisibles;
     QVariantMap m_resume;
     QVariantMap m_discussions;
+    QJsonObject m_derniereListe;
     QHash<QString, QStringList> m_gestes;   //!< « tableau/carte » → gestes offerts par le greffon.
     QHash<QString, bool> m_relancables;     //!< « tableau/carte » → carte d'intégration ?
     QHash<QString, bool> m_revuesOuvertes;  //!< « tableau/carte » des revues servies.

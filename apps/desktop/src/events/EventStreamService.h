@@ -13,8 +13,9 @@
 //  - porte le sondage LÉGER de `GET /v1/accueil` (60 s, session établie ; Accueil agrégé de
 //    l'étape P7) qui alimente la barre d'état et le badge de la file Questions, même hors des
 //    pages : le badge compte « À traiter par vous » (compteurs du greffon : questions à vous,
-//    décisions, revues, cartes arrêtées ; les discussions en attente ne sont pas lues par la
-//    station et le libellé le dit). L'Accueil qui vient de lire `/v1/accueil` le lui signale
+//    décisions, revues, cartes arrêtées ; plus les discussions en attente lues par la passerelle,
+//    DiscussionsEnAttente, et le libellé dit quand elles n'ont pas pu l'être). L'Accueil qui vient
+//    de lire `/v1/accueil` le lui signale
 //    (noterAccueil) ; la page Projets, qui lit `/v1/projets`, met à jour le poste et la pause
 //    seulement (noterProjets), jamais le compteur, qui n'a qu'une source ;
 //  - dit aux pages si elles peuvent sonder (`pagesActives` : session établie ET fenêtre non
@@ -35,6 +36,7 @@ namespace acp {
 
 class ApiClient;
 class ClientGreffonPoste;
+class DiscussionsEnAttente;
 class FluxInvalidation;
 class GatewayClient;
 class Sondage;
@@ -73,6 +75,8 @@ public:
     [[nodiscard]] VeilleKanban *veille() const { return m_veille; }
     [[nodiscard]] Sondage *sondageFond() const { return m_fond; }
     [[nodiscard]] FluxInvalidation *invalidation() const { return m_invalidation; }
+    /*! Discussions en attente (`session.active_list`), partagées par le badge, l'Accueil et la file Questions. */
+    [[nodiscard]] DiscussionsEnAttente *discussions() const { return m_discussions; }
     /*! Annonce du flux lue dans /v1/meta (CompatibiliteHermes::etatFlux et annonceFlux). */
     void setAnnonceFlux(const QString &etat, const QJsonObject &annonce);
     void setIntervalleFond(std::chrono::milliseconds intervalle);
@@ -98,8 +102,8 @@ public:
     void oublierResume();
 
     // --- Résumé ----------------------------------------------------------------------
-    /*! « À traiter par vous » (hors discussions en attente), ou -1 si inconnu. */
-    [[nodiscard]] int aTraiter() const { return m_aTraiter; }
+    /*! « À traiter par vous » (discussions en attente comprises quand elles sont connues), ou -1 si inconnu. */
+    [[nodiscard]] int aTraiter() const;
     [[nodiscard]] QString libelleATraiter() const;
     [[nodiscard]] const QString &libellePoste() const { return m_libellePoste; }
     [[nodiscard]] const QString &clePoste() const { return m_clePoste; }
@@ -137,12 +141,13 @@ private:
     GatewayClient *m_passerelle = nullptr;
     VeilleKanban *m_veille = nullptr;
     FluxInvalidation *m_invalidation = nullptr;
+    DiscussionsEnAttente *m_discussions = nullptr;
     Sondage *m_fond = nullptr;
     bool m_fenetreActive = true;
     bool m_sessionOuverte = false;
     bool m_lienEnLigne = false;
     bool m_lienConnu = false;
-    int m_aTraiter = -1;
+    int m_aTraiterGreffon = -1;
     QString m_libellePoste;
     QString m_clePoste;
     int m_pauseGenerale = kInconnu;

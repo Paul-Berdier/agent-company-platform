@@ -90,6 +90,7 @@ private slots:
     void messageEnvoyeParLeBoutonDeLaDiscussion();
     void dialogueDeChangementDeServeurEnFrancais();
     void copieDuRapportParLaPalette();
+    void discussionEnAttenteOuverteParLeBouton();
     // En dernier : charge la fenêtre racine (App.qml).
     void chaqueRaccourciDeLaPaletteAgit();
 
@@ -582,6 +583,54 @@ void TestPagesInteractions::questionsReluesAuSignalDuFlux()
     QTRY_COMPARE_WITH_TIMEOUT(m_serveur->clientsFlux(), 0, 5000);
     QVERIFY(!m_flux->tempsReel());
     QVERIFY(m_flux->etatFlux().startsWith(QStringLiteral("Inconnu")));
+}
+
+// Étape P8b : la file Questions liste les discussions en attente lues par la passerelle
+// (`session.active_list`) ; « Ouvrir la discussion » (vrai clic) reprend la session par sa clé
+// stockée dans la page Discussion.
+void TestPagesInteractions::discussionEnAttenteOuverteParLeBouton()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *navigation = m_application->findChild<NavigationModel *>();
+    QVERIFY(passerelle && navigation);
+    m_serveur->methodes.insert(QStringLiteral("session.active_list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{
+            QJsonObject{{QStringLiteral("id"), QStringLiteral("rt-s1")}, {QStringLiteral("session_key"), QStringLiteral("s1")},
+                        {QStringLiteral("status"), QStringLiteral("waiting")}, {QStringLiteral("title"), QStringLiteral("Plan du site")},
+                        {QStringLiteral("preview"), QStringLiteral("Quel nom de domaine ?")},
+                        {QStringLiteral("last_active"), 1790451615}, {QStringLiteral("started_at"), 1790450000},
+                        {QStringLiteral("message_count"), 4}, {QStringLiteral("model"), QStringLiteral("modele")},
+                        {QStringLiteral("current"), false}},
+            QJsonObject{{QStringLiteral("id"), QStringLiteral("rt-s2")}, {QStringLiteral("session_key"), QStringLiteral("s2")},
+                        {QStringLiteral("status"), QStringLiteral("idle")}, {QStringLiteral("title"), QStringLiteral("Autre")},
+                        {QStringLiteral("preview"), QString()}, {QStringLiteral("last_active"), 1790451615},
+                        {QStringLiteral("started_at"), 1790450000}, {QStringLiteral("message_count"), 1},
+                        {QStringLiteral("model"), QStringLiteral("modele")}, {QStringLiteral("current"), false}}}}};
+    });
+    if (passerelle->etat() != GatewayClient::Etat::Pret) {
+        passerelle->ouvrir();
+        QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    }
+    auto page = charger(QStringLiteral("QuestionsPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY_WITH_TIMEOUT(m_questions->discussions().value(QStringLiteral("connues")).toBool(), 5000);
+    QTest::qWait(100);
+    // Seule la discussion en attente est listée, et le total la compte.
+    QVERIFY(parNom(racine, QStringLiteral("questions-discussion-s1")));
+    QVERIFY(!parNom(racine, QStringLiteral("questions-discussion-s2")));
+    QCOMPARE(m_questions->resume().value(QStringLiteral("mention")).toString(), QString());
+
+    const int reprises = static_cast<int>(m_serveur->tramesDeMethode(QStringLiteral("session.resume")).size());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("questions-ouvrir-discussion-s1"))));
+    QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("chat"));
+    QTRY_COMPARE_WITH_TIMEOUT(static_cast<int>(m_serveur->tramesDeMethode(QStringLiteral("session.resume")).size()), reprises + 1, 5000);
+    QCOMPARE(m_serveur->tramesDeMethode(QStringLiteral("session.resume")).constLast().value(QStringLiteral("params")).toObject()
+                 .value(QStringLiteral("session_id")).toString(),
+             QStringLiteral("s1"));
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
+    QTRY_VERIFY(!m_questions->actif());
 }
 
 // Constat de relecture P8 : la liste des projets remontait en haut à chaque relecture.

@@ -172,6 +172,8 @@ set(ACP_CORE_SOURCES
     src/events/VeilleKanban.h
     src/gateway/DemandesAgent.cpp
     src/gateway/DemandesAgent.h
+    src/gateway/DiscussionsEnAttente.cpp
+    src/gateway/DiscussionsEnAttente.h
     src/gateway/GatewayClient.cpp
     src/gateway/GatewayClient.h
     src/gateway/JsonRpcChannel.cpp

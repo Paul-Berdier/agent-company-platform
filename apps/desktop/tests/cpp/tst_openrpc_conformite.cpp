@@ -90,7 +90,9 @@ void TestOpenRpcConformite::methodesEmployeesPresentes()
     const QSet<QString> methodes = noms(contrat().value(QStringLiteral("methods")).toArray());
     for (const char *methode : {"client.capabilities", "session.list", "session.create", "session.resume",
                                 "session.history", "session.events.since", "session.interrupt",
-                                "session.close", "prompt.submit", "approval.respond", "request.answer", "ping"}) {
+                                "session.close", "prompt.submit", "approval.respond", "request.answer", "ping",
+                                // Étape P8b : discussions en attente (DiscussionsEnAttente).
+                                "session.active_list"}) {
         QVERIFY2(methodes.contains(QString::fromLatin1(methode)), methode);
     }
 }
@@ -152,6 +154,11 @@ void TestOpenRpcConformite::champsDeLaDiscussion()
         }
     };
     exiger("SessionListParams", {"limit"});
+    // Étape P8b : `session.active_list` (DiscussionsEnAttente) — champs lus, et l'état « waiting » qui les filtre.
+    exiger("SessionActiveListResult", {"sessions"});
+    exiger("SessionActiveItem", {"session_key", "status", "title", "preview", "last_active"});
+    QVERIFY(schema(racine, QStringLiteral("LiveSessionStatus")).value(QStringLiteral("enum")).toArray()
+                .contains(QStringLiteral("waiting")));
     exiger("SessionListResult", {"sessions"});
     exiger("SessionListRow", {"id", "title", "preview", "started_at", "message_count", "source"});
     exiger("SessionResumeParams", {"session_id"});

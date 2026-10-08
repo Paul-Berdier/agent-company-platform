@@ -91,7 +91,12 @@ public:
     Q_INVOKABLE void envoyerNotificationDeTest();
 
     // --- Fonctions pures (tests) : chacune lit le document entier de `GET /v1/accueil` ----------
-    [[nodiscard]] static QVariantMap construireCarteATraiter(const QJsonObject &accueil);
+    /*!
+        Carte « À traiter par vous » : compteurs du greffon, plus les `discussions` en attente lues
+        par la passerelle (-1 : inconnues, le total le dit ; « Rien n'attend votre décision »
+        seulement si elles sont connues et que rien n'attend).
+    */
+    [[nodiscard]] static QVariantMap construireCarteATraiter(const QJsonObject &accueil, int discussions = -1);
     [[nodiscard]] static QVariantMap construireCarteProjets(const QJsonObject &accueil);
     [[nodiscard]] static QJsonArray construireProjetsEnCours(const QJsonObject &accueil);
     [[nodiscard]] static QVariantMap construireCarteExecutant(const QJsonObject &accueil);
@@ -123,6 +128,7 @@ private:
     JsonListModel *m_sessions = nullptr;
     bool m_lue = false;
     QVariantMap m_carteATraiter;
+    QJsonObject m_dernierAccueil;
     QVariantMap m_carteProjets;
     QVariantMap m_carteExecutant;
     QVariantMap m_carteQuotas;

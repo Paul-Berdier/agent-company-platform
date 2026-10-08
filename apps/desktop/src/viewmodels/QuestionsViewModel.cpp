@@ -4,6 +4,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
 #include "events/FluxInvalidation.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "events/Sondage.h"
 #include "models/JsonListModel.h"
 #include "viewmodels/Libelles.h"
@@ -75,7 +76,21 @@ QuestionsViewModel::QuestionsViewModel(ApiClient *client, ClientGreffonPoste *gr
     m_resume = construireResume({});
     m_discussions = construireDiscussions({});
     connect(m_sondage, &Sondage::etatChange, this, &QuestionsViewModel::lectureChange);
-    connect(m_sondage, &Sondage::lu, this, [this](const ApiResponse &reponse) { lire(reponse.json.object()); });
+    connect(m_sondage, &Sondage::lu, this, [this](const ApiResponse &reponse) {
+        lire(reponse.json.object());
+        // Cinquième section : les discussions en attente, lues par la passerelle avec la file.
+        this->flux()->discussions()->lire();
+    });
+    connect(flux->discussions(), &DiscussionsEnAttente::change, this, &QuestionsViewModel::majDiscussions);
+}
+
+void QuestionsViewModel::majDiscussions()
+{
+    const DiscussionsEnAttente *lecture = flux()->discussions();
+    m_resume = construireResume(m_derniereListe, lecture->nombre());
+    m_discussions = construireDiscussions(m_derniereListe.value(QStringLiteral("discussions")),
+                                          lecture->connues() ? std::optional<QJsonArray>(lecture->sessions()) : std::nullopt);
+    emit listeChange();
 }
 
 QuestionsViewModel::~QuestionsViewModel() = default;
@@ -110,6 +125,7 @@ void QuestionsViewModel::surOubli()
     m_gestes.clear();
     m_relancables.clear();
     m_revuesOuvertes.clear();
+    m_derniereListe = {};
     m_resume = construireResume({});
     m_discussions = construireDiscussions({});
     const QStringList brouillons = m_brouillons.keys();
@@ -171,10 +187,9 @@ void QuestionsViewModel::lire(const QJsonObject &liste)
     m_revues->setItems(revues);
 
     m_illisibles = chaines(liste.value(QStringLiteral("tableaux_illisibles")));
-    m_resume = construireResume(liste);
-    m_discussions = construireDiscussions(liste.value(QStringLiteral("discussions")));
+    m_derniereListe = liste;
     m_lue = true;
-    emit listeChange();
+    majDiscussions();
 }
 
 QJsonObject QuestionsViewModel::construireQuestion(const QJsonObject &question)
@@ -363,19 +378,23 @@ QJsonObject QuestionsViewModel::construireRevue(const QJsonObject &revue)
     };
 }
 
-QVariantMap QuestionsViewModel::construireResume(const QJsonObject &liste)
+QVariantMap QuestionsViewModel::construireResume(const QJsonObject &liste, int discussions)
 {
     // Étape P7 : « À traiter par vous » = compteurs du greffon (questions à vous, décisions, revues, cartes
-    // arrêtées). Les discussions en attente ne sont pas lues par cette page : le total le dit, jamais zéro par défaut.
+    // arrêtées), plus les discussions en attente quand elles ont pu être lues (Questions.tsx, aTraiter) ; sinon le
+    // total le dit, jamais zéro par défaut.
     const QJsonObject compteurs = liste.value(QStringLiteral("compteurs")).toObject();
-    const QJsonValue total = compteurs.value(QStringLiteral("a_traiter"));
+    const QJsonValue totalGreffon = compteurs.value(QStringLiteral("a_traiter"));
     const QJsonValue chezHermes = compteurs.value(QStringLiteral("chez_hermes"));
-    const bool connu = libelles::estNombre(total);
+    const bool connu = libelles::estNombre(totalGreffon);
+    const bool discussionsConnues = discussions >= 0;
+    const int total = connu ? static_cast<int>(totalGreffon.toInteger()) + (discussionsConnues ? discussions : 0) : -1;
     return QVariantMap{
         {QStringLiteral("connu"), connu},
-        {QStringLiteral("total"), connu ? QString::number(total.toInteger()) : libelles::kInconnu},
-        {QStringLiteral("nombre"), connu ? static_cast<int>(total.toInteger()) : -1},
-        {QStringLiteral("mention"), connu ? QStringLiteral("(discussions en attente : état inconnu, non comptées)") : QString()},
+        {QStringLiteral("total"), connu ? QString::number(total) : libelles::kInconnu},
+        {QStringLiteral("nombre"), total},
+        {QStringLiteral("mention"), connu && !discussionsConnues ? QStringLiteral("(discussions en attente : état inconnu, non comptées)")
+                                                                 : QString()},
         {QStringLiteral("chezHermes"), libelles::nombre(chezHermes)},
         {QStringLiteral("questions"), libelles::nombre(compteurs.value(QStringLiteral("questions")))},
         {QStringLiteral("decisions"), libelles::nombre(compteurs.value(QStringLiteral("decisions")))},
@@ -384,11 +403,33 @@ QVariantMap QuestionsViewModel::construireResume(const QJsonObject &liste)
     };
 }
 
-QVariantMap QuestionsViewModel::construireDiscussions(const QJsonValue &discussions)
+QVariantMap QuestionsViewModel::construireDiscussions(const QJsonValue &serveur, const std::optional<QJsonArray> &sessions)
 {
-    // Cinquième section (lecture seule) : nombre de requêtes du serveur au client ouvertes dans le processus du
-    // tableau de bord (`questions.discussions_en_attente`). Inconnu : le message du greffon, jamais zéro.
-    const QJsonObject d = discussions.toObject();
+    const QJsonObject d = serveur.toObject();
+    if (sessions) {
+        // Lues par la passerelle (session.active_list) : chaque discussion dont une demande attend votre réponse.
+        QVariantList liste;
+        for (const QJsonValue &element : *sessions) {
+            const QJsonObject s = element.toObject();
+            liste.append(QVariantMap{
+                {QStringLiteral("cle"), s.value(QStringLiteral("cle")).toString()},
+                {QStringLiteral("titre"), libelles::estTexte(s.value(QStringLiteral("titre")))
+                                              ? s.value(QStringLiteral("titre")).toString()
+                                              : QStringLiteral("Sans titre")},
+                {QStringLiteral("etat"), QStringLiteral("En attente d'une réponse")},
+                {QStringLiteral("activite"), libelles::date(s.value(QStringLiteral("derniereActivite")))},
+                {QStringLiteral("apercu"), libelles::texte(s.value(QStringLiteral("apercu")))},
+            });
+        }
+        return QVariantMap{
+            {QStringLiteral("connues"), true},
+            {QStringLiteral("etat"), liste.isEmpty() ? QStringLiteral("Aucune discussion en attente.") : QString()},
+            {QStringLiteral("sessions"), liste},
+            {QStringLiteral("limite"), texteOuVide(d.value(QStringLiteral("limite")))},
+        };
+    }
+    // Illisibles par la passerelle : nombre de requêtes du serveur au client ouvertes dans le processus du tableau de
+    // bord (`questions.discussions_en_attente`) s'il le publie ; sinon son message ; jamais zéro.
     const bool suivies = vrai(d.value(QStringLiteral("suivies")));
     const QJsonValue requetes = d.value(QStringLiteral("requetes_ouvertes"));
     QString etat;
@@ -400,7 +441,9 @@ QVariantMap QuestionsViewModel::construireDiscussions(const QJsonValue &discussi
         etat = QStringLiteral("Discussions : état inconnu (le tableau de bord n'a pas pu être interrogé).");
     }
     return QVariantMap{
+        {QStringLiteral("connues"), false},
         {QStringLiteral("etat"), etat},
+        {QStringLiteral("sessions"), QVariantList{}},
         {QStringLiteral("limite"), texteOuVide(d.value(QStringLiteral("limite")))},
     };
 }

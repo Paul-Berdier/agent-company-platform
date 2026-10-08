@@ -415,10 +415,40 @@ Item {
                 Layout.fillWidth: true
                 visible: Questions.lue
                 titre: qsTr("Discussions en attente")
-                sousTitre: qsTr("Discussions du tableau de bord dont une demande attend votre réponse, en lecture "
-                                + "seule. Cette station en lit le nombre ; leur liste est dans la page Questions du "
-                                + "navigateur.")
-                Discret { objectName: "questions-discussions-etat"; text: Questions.discussions.etat; color: Colors.textSecondary }
+                sousTitre: qsTr("Discussions du tableau de bord dont une demande attend votre réponse, en lecture seule.")
+                Discret {
+                    objectName: "questions-discussions-etat"
+                    visible: text.length > 0
+                    text: Questions.discussions.etat
+                    color: Colors.textSecondary
+                }
+                // Étape P8b : lues par la passerelle (session.active_list), comme la page web ; « Ouvrir la
+                // discussion » reprend la session dans la page Discussion, qui y rejoue la demande ouverte.
+                Repeater {
+                    model: Questions.discussions.sessions || []
+                    delegate: ColumnLayout {
+                        id: discussionAttente
+                        required property var modelData
+                        objectName: "questions-discussion-" + modelData.cle
+                        Layout.fillWidth: true
+                        spacing: Space.space2
+                        Separateur {}
+                        TitreEntree { text: discussionAttente.modelData.titre }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("État"); value: discussionAttente.modelData.etat }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Dernière activité"); value: discussionAttente.modelData.activite }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Aperçu"); value: discussionAttente.modelData.apercu }
+                        KeyValueRow { Layout.fillWidth: true; label: qsTr("Session"); value: discussionAttente.modelData.cle }
+                        AcpButton {
+                            objectName: "questions-ouvrir-discussion-" + discussionAttente.modelData.cle
+                            primary: true
+                            label: qsTr("Ouvrir la discussion")
+                            onTriggered: {
+                                Discussion.ouvrir(discussionAttente.modelData.cle);
+                                Navigation.setCurrentRoute("chat");
+                            }
+                        }
+                    }
+                }
                 Discret { visible: Questions.discussions.limite.length > 0; text: Questions.discussions.limite }
             }
 

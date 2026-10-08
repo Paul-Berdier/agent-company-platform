@@ -144,6 +144,17 @@ Item {
                                 font.pixelSize: Type.tableCell.pixelSize
                             }
                         }
+                        // Seulement si les discussions en attente ont pu être lues : jamais zéro par défaut.
+                        Text {
+                            objectName: "accueil-rien-a-traiter"
+                            Layout.fillWidth: true
+                            visible: Accueil.carteATraiter.rien === true
+                            text: qsTr("Rien n'attend votre décision.")
+                            textFormat: Text.PlainText
+                            color: Colors.textMuted
+                            font.family: Type.metadata.family
+                            font.pixelSize: Type.metadata.pixelSize
+                        }
                     }
                     AcpButton {
                         label: qsTr("Ouvrir la file Questions")

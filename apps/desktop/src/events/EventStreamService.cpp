@@ -5,8 +5,11 @@
 #include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "events/VeilleKanban.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "gateway/GatewayClient.h"
 #include "viewmodels/Libelles.h"
+
+#include <algorithm>
 
 namespace acp {
 
@@ -17,18 +20,29 @@ EventStreamService::EventStreamService(ApiClient *client, ClientGreffonPoste *gr
     , m_passerelle(passerelle)
     , m_veille(new VeilleKanban(client, this))
     , m_invalidation(new FluxInvalidation(greffon, this))
+    , m_discussions(new DiscussionsEnAttente(passerelle, this))
     , m_fond(new Sondage([this] { return m_greffon->accueil(); }, kIntervalleFond, this))
 {
     oublierResume();
     // Le badge et la barre d'état suivent tous les sujets (l'Accueil agrégé les couvre tous).
     m_fond->suivre(m_invalidation, FluxInvalidation::sujets());
     connect(m_invalidation, &FluxInvalidation::etatChange, this, &EventStreamService::sourcesChange);
-    connect(m_fond, &Sondage::lu, this, [this](const ApiResponse &reponse) { lireResume(reponse.json.object()); });
+    connect(m_discussions, &DiscussionsEnAttente::change, this, &EventStreamService::resumeChange);
+    connect(m_fond, &Sondage::lu, this, [this](const ApiResponse &reponse) {
+        lireResume(reponse.json.object());
+        m_discussions->lire(); // le badge compte aussi les discussions en attente, comme la page web
+    });
     connect(m_fond, &Sondage::etatChange, this, &EventStreamService::sourcesChange);
     connect(m_veille, &VeilleKanban::etatChange, this, &EventStreamService::sourcesChange);
     connect(m_veille, &VeilleKanban::changement, this, &EventStreamService::tableauChange);
     if (m_passerelle) {
         connect(m_passerelle, &GatewayClient::etatChange, this, &EventStreamService::sourcesChange);
+        // Passerelle prête (après le premier sondage, ou après une coupure) : les discussions se relisent.
+        connect(m_passerelle, &GatewayClient::prete, this, [this] {
+            if (m_sessionOuverte) {
+                m_discussions->lire();
+            }
+        });
         connect(m_passerelle, &GatewayClient::evenement, this,
                 [this](const QString &type, const QString &, qint64, const QJsonValue &) {
                     if (type == QLatin1String("sessions.changed")) {
@@ -72,6 +86,7 @@ void EventStreamService::arreter()
     m_fond->setActif(false);
     m_invalidation->setActif(false);
     m_veille->arreter();
+    m_discussions->oublier();
     oublierResume();
     if (avant != pagesActives()) {
         emit pagesActivesChange();
@@ -136,7 +151,7 @@ void EventStreamService::lireResume(const QJsonObject &accueil)
 {
     // Accueil agrégé (noyau/accueil.construire) : un bloc illisible vaut `null`, sa raison est dans `illisibles`.
     const QJsonValue total = accueil.value(QStringLiteral("a_traiter")).toObject().value(QStringLiteral("total"));
-    m_aTraiter = libelles::estNombre(total) ? static_cast<int>(total.toInteger()) : -1;
+    m_aTraiterGreffon = libelles::estNombre(total) ? static_cast<int>(total.toInteger()) : -1;
     const bool pauseIllisible = accueil.value(QStringLiteral("illisibles")).toObject().contains(QStringLiteral("pause_generale"));
     lirePosteEtPause(accueil.value(QStringLiteral("executant")).toObject().value(QStringLiteral("etat")),
                      accueil.value(QStringLiteral("pause_generale")), pauseIllisible);
@@ -145,20 +160,30 @@ void EventStreamService::lireResume(const QJsonObject &accueil)
 
 void EventStreamService::oublierResume()
 {
-    m_aTraiter = -1;
+    m_aTraiterGreffon = -1;
+    m_discussions->oublier();
     m_libellePoste = libelles::kInconnu;
     m_clePoste = QStringLiteral("unknown");
     m_pauseGenerale = kInconnu;
     emit resumeChange();
 }
 
+int EventStreamService::aTraiter() const
+{
+    if (m_aTraiterGreffon < 0) {
+        return -1;
+    }
+    return m_aTraiterGreffon + std::max(0, m_discussions->nombre());
+}
+
 QString EventStreamService::libelleATraiter() const
 {
-    // Jamais « rien à traiter » : les discussions en attente ne sont pas lues par la station.
-    if (m_aTraiter < 0) {
+    if (m_aTraiterGreffon < 0) {
         return QStringLiteral("À traiter par vous : Inconnu");
     }
-    return QStringLiteral("À traiter par vous : %1 (discussions non comptées)").arg(m_aTraiter);
+    // Discussions en attente illisibles (passerelle indisponible, refus) : le libellé le dit, jamais zéro deviné.
+    return m_discussions->connues() ? QStringLiteral("À traiter par vous : %1").arg(aTraiter())
+                                    : QStringLiteral("À traiter par vous : %1 (discussions non comptées)").arg(aTraiter());
 }
 
 QString EventStreamService::libelleResume() const
