@@ -356,6 +356,15 @@ def _detail_journal(controle: Controle, journal: Optional[str]) -> str:
     return " ⏎ ".join(vues[:12]) or "journal vide"
 
 
+# Noms des ressources jetables des tests de contrat (conftest.Ressources.nom : acp-contrat-<aléa>-<rôle>-<n>) : ils
+# changent d'un test à l'autre ; retirés pour regrouper les raisons identiques (« le conteneur … s'est arrêté »).
+NOM_JETABLE = re.compile(r"acp-contrat-[0-9a-z]+(?:-[a-z_]+-[0-9]+)?")
+
+
+def _sans_noms_jetables(raison: str) -> str:
+    return NOM_JETABLE.sub("acp-contrat-…", raison)
+
+
 def _etiquette_affichee(etiquette: str) -> str:
     return etiquette if FORME_ETIQUETTE_TEMOIN.fullmatch(etiquette) else "(étiquette refusée : hors forme vAAAA.M.J)"
 
@@ -432,7 +441,7 @@ def tableau(etapes: Mapping[str, object], dossier: Path, etiquette: str, epingle
         if not en_cause:
             sortie += ["Aucun test en échec ni en erreur.", ""]
             continue
-        frequentes = Counter(_cellule(r, 300) for _, _, r in en_cause).most_common(10)
+        frequentes = Counter(_cellule(_sans_noms_jetables(r), 300) for _, _, r in en_cause).most_common(10)
         sortie += ["Raisons les plus fréquentes :", "", "| Tests | Raison (première ligne) |", "|---|---|"]
         sortie += [f"| {n} | {r} |" for r, n in frequentes]
         sortie += ["", "| Nature | Test | Raison (première ligne) |", "|---|---|---|"]

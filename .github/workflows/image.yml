@@ -656,6 +656,13 @@ jobs:
       - name: Installer pytest (hachés vérifiés)
         run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: SDK Railway épinglé (lu par les tests de contrat de l'IaC, comme dans le job « image »)
+        run: npm ci --ignore-scripts --prefix .railway
+
       - name: Tests de contrat des images (hors restauration et montée ; rapport JUnit)
         id: contrat
         if: steps.image_acp.outcome == 'success' && steps.image_tests.outcome == 'success'
@@ -678,10 +685,6 @@ jobs:
           } > "$TEMOIN/journaux/depot-installation.txt" 2>&1
           /tmp/venv-depot/bin/python -m pytest -q -rs -p no:cacheprovider --junitxml="$TEMOIN/junit/depot.xml" 2>&1 \
             | tee "$TEMOIN/journaux/depot.txt"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
 
       - name: Interface — types et Vitest sur les fixtures réécrites
         id: interface

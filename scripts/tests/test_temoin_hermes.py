@@ -344,6 +344,18 @@ def test_tableau_echecs_non_lances_et_tests_en_echec(tmp_path):
     assert "Raisons les plus fréquentes" in texte
 
 
+def test_tableau_regroupe_les_raisons_aux_noms_jetables_pres(tmp_path):
+    """Run 37763734990 : 114 erreurs de contrat pour une seule cause (« le conteneur … s'est arrêté »), éclatées en
+    autant de raisons que de conteneurs ; le regroupement retire les noms jetables (acp-contrat-<aléa>-<rôle>-<n>)."""
+    cas = "".join(f'<testcase classname="c" name="t{n}"><error message="failed on setup with &quot;AssertionError: le '
+                  f'conteneur acp-contrat-1b1e98a8-hermes-{n} s\'est arrêté :&quot;"/></testcase>' for n in (5, 46, 88))
+    dossier = _dossier(tmp_path, {"contrat.xml": f"<testsuites><testsuite>{cas}</testsuite></testsuites>"}, {})
+    texte, _code = th.tableau(_etapes(contrat="failure"), dossier, "v2026.9.21", "v2026.9.24")
+    assert ("| 3 | failed on setup with \"AssertionError: le conteneur acp-contrat-… s'est arrêté :\" |") in texte
+    # Le détail garde le nom réel de chaque conteneur.
+    assert "acp-contrat-1b1e98a8-hermes-46 s'est arrêté" in texte
+
+
 def test_tableau_anomalies_rapport_absent_ou_vide_et_incoherence(tmp_path):
     vide = '<testsuites><testsuite tests="0"></testsuite></testsuites>'
     dossier = _dossier(tmp_path, {"pytest-image.xml": vide, "contrat.xml": JUNIT}, {})
@@ -449,3 +461,19 @@ def test_image_yml_le_tableau_et_l_artefact_tournent_toujours_et_la_borne_n_est_
     # Mêmes tests de contrat que le job « image » (restauration et montée ont leurs jobs).
     assert 'python -m pytest -s -v -rA hermes/tests/contrat -m "not restauration and not montee"' in job
     assert "timeout-minutes: 150" in job
+
+
+def test_image_yml_le_temoin_prepare_les_tests_de_contrat_comme_le_job_image():
+    """Témoin de contrôle sur l'épinglée (run 37763738685, v2026.9.24) : 5 erreurs de test_railway_iac_contrat.py, « SDK
+    absent : lancez d'abord `npm ci --ignore-scripts --prefix .railway` » ; ce test évalue railway.ts avec Node 22
+    (--experimental-strip-types). Le SDK et Node 22 sont installés AVANT les tests de contrat, comme dans le job
+    « image »."""
+    etapes = _etapes_du_job(_job_temoin())
+    contrat = next(i for i, e in enumerate(etapes) if "id: contrat" in e)
+    sdk = next(i for i, e in enumerate(etapes) if "npm ci --ignore-scripts --prefix .railway" in e)
+    node = next(i for i, e in enumerate(etapes) if "actions/setup-node@v4" in e)
+    assert 'node-version: "22"' in etapes[node]
+    assert node < sdk < contrat
+    assert "continue-on-error" not in etapes[sdk]
+    interface = next(i for i, e in enumerate(etapes) if "id: interface" in e)
+    assert node < interface
