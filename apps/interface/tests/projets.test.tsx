@@ -101,7 +101,7 @@ describe("Projets : liste", () => {
       "Canal",
       "Aucun",
       "Non configurées",
-      "Notifications non configurées : leur activation passe par une PR qui déclare les variables ACP_NOTIFICATIONS… dans l'IaC Railway (docs/refonte/railway.md, § 9).",
+      "Notifications non configurées : les variables du canal sont déjà déclarées dans l'IaC Railway ; posez dans Railway celles de Telegram ou de ntfy, ACP_NOTIFICATIONS comprise, puis plan, apply et redéploiement (docs/refonte/railway.md, § 14).",
     ]) {
       expect(texte).toContain(attendu);
     }

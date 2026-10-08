@@ -224,7 +224,7 @@ export const T = {
     etatNotifications: "État",
     notificationsActives: "Configurées",
     notificationsInactives: "Non configurées",
-    notificationsNonConfigurees: "Notifications non configurées : leur activation passe par une PR qui déclare les variables ACP_NOTIFICATIONS… dans l'IaC Railway (docs/refonte/railway.md, § 9).",
+    notificationsNonConfigurees: "Notifications non configurées : les variables du canal sont déjà déclarées dans l'IaC Railway ; posez dans Railway celles de Telegram ou de ntfy, ACP_NOTIFICATIONS comprise, puis plan, apply et redéploiement (docs/refonte/railway.md, § 14).",
     notificationsEtatInconnu: "État du canal inconnu : la passerelle ne l'a pas encore publié.",
     envoyerTest: "Envoyer une notification de test",
     pauseTitre: "Pause générale",

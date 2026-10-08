@@ -181,8 +181,9 @@ Règles, toutes testées (Vitest, image, navigateur) :
   qu'elle arrête vraiment (la discussion reste ouverte) ; engagée par la veille des crochets shell, elle
   n'offre pas « Reprendre » (refusé tant qu'ils existent) mais la marche à suivre. La notification de test
   n'est active que si un canal est configuré ; sinon le bouton est désactivé et la page dit « Notifications
-  non configurées : leur activation passe par une PR… (railway.md, § 9) », ou « État du canal inconnu »
-  tant que la passerelle ne l'a pas publié.
+  non configurées : les variables du canal sont déjà déclarées dans l'IaC Railway ; posez dans Railway
+  celles de Telegram ou de ntfy… (railway.md, § 14) », ou « État du canal inconnu » tant que la passerelle
+  ne l'a pas publié.
 - **Une réussite suit la réponse de l'API** : « la carte reprend », « reprendra à la reprise du projet » ou
   « n'a pas été relancée » ; « Plafond relevé », « Planification relancée », « Carte reprise » ou « n'a pas
   été reprise ».
@@ -306,8 +307,11 @@ profil. Les réglages du répartiteur sont lus au démarrage de la passerelle : 
   secret OIDC) ; l'agent n'a aucun outil pour les lire, et les workers ne les reçoivent plus.
 - Une carte `poste-*` étrangère encore `todo` n'est bloquée qu'une fois `ready` (`block_task` n'agit que
   depuis `ready`/`running`) ; elle n'est pas réclamable entre-temps.
-- Les variables de notification ne sont pas déclarées dans `.railway/railway.ts` (canal non choisi) : leur
-  pose passe d'abord par une PR, sinon le plan suivant les supprimerait ([railway.md](railway.md) § 9).
+- Les six variables du canal de notification sont déclarées dans `.railway/railway.ts` par `preserve()`, sans
+  aucune valeur, depuis P7 (D116) : le propriétaire pose dans Railway celles du canal choisi, **sans autre PR**,
+  puis plan, apply et redéploiement ([railway.md](railway.md) § 14.1 à § 14.4). `preserve()` sur une variable
+  jamais posée (celles du canal non choisi, pour toujours) est **supposé** sans effet, non constaté sur Railway ;
+  conduites si le plan la crée vide ou refuse ce `preserve()` : [railway.md](railway.md) § 14.1.
 - **Course du contrôle d'écriture de Hermes 0.21.5** (`hermes_state_repair.py:537-573`, appelé à chaque
   connexion à un tableau) : si un autre processus referme la dernière connexion au moment du contrôle,
   le fichier `-wal` disparaît entre `is_file()` et `os.access()` et Hermes conclut à tort « read-only for
