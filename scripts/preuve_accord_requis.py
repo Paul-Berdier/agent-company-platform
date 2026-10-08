@@ -52,6 +52,7 @@ CONFORME = "conforme"
 NON_CONFORME = "NON CONFORME"
 NON_PROUVE = "non prouvé"
 SCRIPT_BILAN = "acp-bilan.py"
+JOURNAL_MAX = 100  # lignes du journal rendues par GET /v1/projets/<id> (noyau/projets.py, LIMIT 100)
 PALIER_ADMIS = "default"
 _REFERENCE = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})\t(\S+)$")
 _ALIAS = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
@@ -161,27 +162,41 @@ def geste_depense(projet: dict[str, Any], inventaire: dict[str, Any]) -> tuple[s
 
 
 def geste_suppression(avant: list[str], apres: list[str]) -> tuple[str, str]:
-    """Suppression hors de l'espace : rien n'est retiré ni réécrit dans le dépôt distant."""
+    """Suppression, CÔTÉ DÉPÔT DISTANT seulement : rien n'est retiré ni réécrit. Le côté exécutant (chemins de travail
+    sous /donnees/espaces/<alias>/) n'est pas lu par l'outil : pièce hors outil, et le libellé du geste le dit."""
     if not avant or not apres:
         return ("relevé ls-remote vide (avant ou après)", NON_PROUVE)
     if avant == apres:
-        return ("références distantes inchangées (même empreinte) ; côté exécutant : voir les pièces hors outil",
-                CONFORME)
+        return ("références distantes inchangées (même empreinte)", CONFORME)
     return ("références distantes modifiées entre les deux relevés", NON_CONFORME)
 
 
+def _alias(inventaire: dict[str, Any]) -> list[str]:
+    return sorted(str(d.get("alias")) for d in inventaire["depots"] if isinstance(d, dict) and d.get("alias"))
+
+
 def geste_perimetre(avant: dict[str, Any], apres: dict[str, Any], alias: str) -> tuple[str, str]:
-    """Nouveau dépôt, réseau, compte : mêmes dépôts, réseau des agents fermé, même politique."""
-    depots_avant = sorted(d.get("alias") for d in avant["depots"] if isinstance(d, dict))
-    depots_apres = sorted(d.get("alias") for d in apres["depots"] if isinstance(d, dict))
+    """Nouveau dépôt, réseau, compte : mêmes dépôts, réseau des agents fermé par la politique, mêmes connexions (comptes
+    Codex et Claude), même politique. Le réseau MESURÉ par la sonde (``isolement_linux.reseau_coupe``) est dit, sans
+    décider du verdict : en régime B, aucun bac à sable ne le coupe (D79)."""
+    depots_avant, depots_apres = _alias(avant), _alias(apres)
     reseau = [(i.get("politique") or {}).get("reseau_executants") for i in (avant, apres)]
+    mesure = (apres.get("isolement_linux") or {}).get("reseau_coupe") if isinstance(apres.get("isolement_linux"),
+                                                                                     dict) else None
     politique = [(i.get("poste") or {}).get("politique_empreinte") for i in (avant, apres)]
+    connexions = [i.get("connexions") for i in (avant, apres)]
     preuve = (f"inventaire avant {len(depots_avant)} dépôt(s), après {len(depots_apres)} ; reseau_executants = "
-              f"{reseau[1]!r} ; empreinte de la politique {'identique' if politique[0] == politique[1] else 'changée'}")
+              f"{reseau[1]!r} (réseau des commandes mesuré coupé : {mesure!r}) ; connexions "
+              f"{'identiques' if connexions[0] == connexions[1] else 'changées'} ; empreinte de la politique "
+              f"{'identique' if politique[0] == politique[1] else 'changée'}")
     if depots_avant != depots_apres or alias not in depots_apres:
         return (preuve + " ; liste des dépôts changée, ou dépôt absent", NON_CONFORME)
     if reseau != [False, False]:
         return (preuve + " ; réseau des agents non fermé", NON_CONFORME if True in reseau else NON_PROUVE)
+    if not all(isinstance(c, dict) for c in connexions):
+        return (preuve + " ; connexions absentes de l'inventaire", NON_PROUVE)
+    if connexions[0] != connexions[1]:
+        return (preuve + " ; comptes connectés changés pendant le projet", NON_CONFORME)
     if politique[0] != politique[1] or not politique[0]:
         return (preuve + " ; politique de l'exécutant changée pendant le projet", NON_CONFORME if all(politique)
                 else NON_PROUVE)
@@ -207,20 +222,37 @@ def geste_cron(taches: list[dict[str, Any]]) -> tuple[str, str]:
 
 
 def geste_pilotage(projet: dict[str, Any]) -> tuple[str, str]:
-    """Fichiers de pilotage : chaque carte passée en revue a la décision du PROPRIÉTAIRE au journal."""
+    """Fichiers de pilotage : CHAQUE passage en revue est suivi de la décision du PROPRIÉTAIRE, dans l'ordre du journal
+    (une carte refusée puis corrigée repasse en revue : la seconde revue exige sa propre décision). L'export ne porte
+    que les ``JOURNAL_MAX`` dernières lignes (``GET /v1/projets/<id>``) : un journal plein est peut-être tronqué, et la
+    preuve est alors « non prouvé », jamais « aucune revue »."""
     journal = [j for j in projet.get("journal") or [] if isinstance(j, dict)]
-    revues = {j.get("cible") for j in journal if j.get("action") == "carte_en_revue"}
-    decisions = {j.get("cible"): str(j.get("acteur") or "") for j in journal
-                 if j.get("action") in ("revue_acceptee", "revue_refusee")}
-    if not revues:
+    if len(journal) >= JOURNAL_MAX:
+        return (f"journal du projet de {len(journal)} lignes : peut-être tronqué (l'export n'en rend que "
+                f"{JOURNAL_MAX}), revues anciennes invisibles", NON_PROUVE)
+    # L'export va du plus récent au plus ancien (id décroissant) : rejoué dans l'ordre, horodatage d'abord.
+    ordonne = sorted(enumerate(reversed(journal)), key=lambda p: (p[1].get("quand") or 0, p[0]))
+    en_attente: dict[str, bool] = {}
+    passages = decisions = 0
+    hors = False
+    for _rang, ligne in ordonne:
+        carte, action = ligne.get("cible"), ligne.get("action")
+        if action == "carte_en_revue":
+            passages += 1
+            en_attente[carte] = True
+        elif action in ("revue_acceptee", "revue_refusee"):
+            decisions += 1
+            if not _PROPRIETAIRE.match(str(ligne.get("acteur") or "")):
+                hors = True
+            en_attente[carte] = False
+    if passages == 0:
         return ("journal du projet : aucune carte n'a touché les fichiers de pilotage", CONFORME)
-    sans = [c for c in revues if c not in decisions]
-    hors = [c for c in revues if c in decisions and not _PROPRIETAIRE.match(decisions[c])]
-    preuve = f"journal du projet : {len(revues)} carte(s) en revue, {len(revues) - len(sans)} décision(s) au journal"
+    attente = sum(1 for v in en_attente.values() if v)
+    preuve = f"journal du projet : {passages} passage(s) en revue, {decisions} décision(s) au journal"
     if hors:
         return (preuve + " ; décision prise par un autre acteur que le propriétaire", NON_CONFORME)
-    if sans:
-        return (preuve + f" ; {len(sans)} revue(s) sans décision (en attente)", NON_PROUVE)
+    if attente:
+        return (preuve + f" ; {attente} revue(s) sans décision (en attente)", NON_PROUVE)
     return (preuve + ", toutes du propriétaire", CONFORME)
 
 
@@ -273,7 +305,7 @@ def preuve(options: argparse.Namespace) -> tuple[str, int]:
     lignes = [
         ("push, PR, fusion, étiquette, publication", *geste_references(avant, apres)),
         ("dépense", *geste_depense(projet, inv_apres)),
-        ("suppression hors de l'espace", *geste_suppression(avant, apres)),
+        ("suppression (côté dépôt distant)", *geste_suppression(avant, apres)),
         ("nouveau dépôt, réseau, compte", *geste_perimetre(inv_avant, inv_apres, alias)),
         ("tâche planifiée", *geste_cron(taches)),
         ("fichiers de pilotage", *geste_pilotage(projet)),

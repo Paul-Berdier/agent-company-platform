@@ -96,7 +96,7 @@ def _verdict(sortie: str, geste: str) -> str:
     return ligne.rsplit("|", 2)[-2].strip()
 
 
-GESTES = ("push, PR, fusion, étiquette, publication", "dépense", "suppression hors de l'espace",
+GESTES = ("push, PR, fusion, étiquette, publication", "dépense", "suppression (côté dépôt distant)",
           "nouveau dépôt, réseau, compte", "tâche planifiée", "fichiers de pilotage")
 
 
@@ -105,7 +105,7 @@ def test_releve_conforme_tout_vert_sans_reference_ni_nom_reel(pieces, capsys, tm
     assert code == 0, (sortie, erreur)
     assert [_verdict(sortie, g) for g in GESTES] == ["conforme"] * 6
     assert "ls-remote avant 3 référence(s), après 3" in sortie and "identiques" in sortie
-    assert "1 carte(s) en revue, 1 décision(s) au journal, toutes du propriétaire" in sortie
+    assert "1 passage(s) en revue, 1 décision(s) au journal, toutes du propriétaire" in sortie
     assert "1 tâche(s), dont 1 bilan quotidien" in sortie
     # Aucune référence (ni SHA, ni nom de branche ou d'étiquette) ; le nom réel du dépôt n'apparaît jamais.
     for interdit in (_sha("main"), _sha("v1"), "refs/heads/main", "v1.0.0", NOM_REEL, "proprietaire-reel"):
@@ -177,6 +177,55 @@ def test_revue_decidee_par_un_autre_que_le_proprietaire(pieces, capsys):
     pieces.contenus["projet"]["projet"]["journal"][1]["acteur"] = "acp-poste:emetteur"
     code, sortie, _ = _lancer(pieces, capsys)
     assert code == 1 and _verdict(sortie, "fichiers de pilotage") == "NON CONFORME"
+
+
+def _ligne(quand: int, acteur: str, action: str, cible: str = "t_5e6f7a8b") -> dict:
+    return {"quand": quand, "acteur": acteur, "action": action, "cible": cible, "detail": None}
+
+
+@pytest.mark.parametrize("ajout, verdict", [
+    # Refus du propriétaire, carte corrigée qui REPASSE en revue, seconde décision par un autre acteur.
+    ([_ligne(1790423095, "proprietaire:proprietaire-test", "revue_refusee"),
+      _ligne(1790423096, "poste:m3b7783ebfe4", "carte_en_revue"),
+      _ligne(1790423097, "acp-poste:emetteur", "revue_acceptee")], "NON CONFORME"),
+    # Même parcours, seconde revue encore sans décision : jamais « conforme ».
+    ([_ligne(1790423095, "proprietaire:proprietaire-test", "revue_refusee"),
+      _ligne(1790423096, "poste:m3b7783ebfe4", "carte_en_revue")], "non prouvé"),
+    # Seconde revue décidée par le propriétaire : conforme.
+    ([_ligne(1790423095, "proprietaire:proprietaire-test", "revue_refusee"),
+      _ligne(1790423096, "poste:m3b7783ebfe4", "carte_en_revue"),
+      _ligne(1790423097, "proprietaire:proprietaire-test", "revue_acceptee")], "conforme"),
+])
+def test_revues_successives_rejouees_dans_l_ordre(pieces, capsys, ajout, verdict):
+    journal = pieces.contenus["projet"]["projet"]["journal"]
+    # L'export est du plus récent au plus ancien : les nouvelles lignes vont en tête.
+    pieces.contenus["projet"]["projet"]["journal"] = list(reversed(ajout)) + journal
+    _code, sortie, _ = _lancer(pieces, capsys)
+    assert _verdict(sortie, "fichiers de pilotage") == verdict
+
+
+def test_journal_peut_etre_tronque_jamais_conforme(pieces, capsys):
+    """L'export ne rend que les 100 dernières lignes : un journal plein peut avoir perdu une revue ancienne."""
+    pieces.contenus["projet"]["projet"]["journal"] = [
+        _ligne(1790424000 - i, "poste:m3b7783ebfe4", "carte_servie", f"t_{i:08x}") for i in range(100)]
+    code, sortie, _ = _lancer(pieces, capsys)
+    assert code == 3 and _verdict(sortie, "fichiers de pilotage") == "non prouvé" and "peut-être tronqué" in sortie
+
+
+def test_comptes_connectes_changes_ou_absents(pieces, capsys):
+    contenu = pieces.contenus["inventaire-apres"]["inventaire"]["contenu"]
+    contenu["connexions"] = dict(contenu["connexions"], codex="cle_api")
+    code, sortie, _ = _lancer(pieces, capsys)
+    assert code == 1 and "comptes connectés changés pendant le projet" in sortie
+    del contenu["connexions"]
+    code, sortie, _ = _lancer(pieces, capsys)
+    assert code == 3 and "connexions absentes de l'inventaire" in sortie
+
+
+def test_alias_absent_de_l_inventaire_sans_plantage(pieces, capsys):
+    pieces.contenus["inventaire-apres"]["inventaire"]["contenu"]["depots"].append({"alias": None})
+    code, sortie, _ = _lancer(pieces, capsys)
+    assert code == 0 and _verdict(sortie, "nouveau dépôt, réseau, compte") == "conforme"
 
 
 def test_preuves_manquantes_jamais_un_succes(pieces, capsys):
