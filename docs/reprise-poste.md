@@ -19,9 +19,11 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
   ([railway.md](refonte/railway.md) § 4).
 - **Branches** : `main` = `60a49b6` (ancienne plateforme) ; `refonte/hermes`, branche d'intégration et branche
   déployée par l'IaC, porte P0 à P8 et P7 (dernière fusion : PR #21, `b9779f1`, 8 octobre 2026) ; P9 vit sur
-  `refonte/hermes-p9` (parts A et D et leur relecture, tête `2243923`), `refonte/hermes-p9bc` (intégration : P7 finale,
-  parts B et C ; tête `e448b7a` au 8 octobre), `refonte/hermes-p9c` (témoin, fusionnée dans `-p9bc` par `b867810`) et
-  `refonte/hermes-p9e` (part E, documentation), **sans PR** ; `refonte/hermes-p8b` (partie de `b9779f1`, 8 octobre) :
+  `refonte/hermes-p9` (parts A et D et leur relecture), `refonte/hermes-p9bc` (intégration : P7 finale, parts B et
+  C), `refonte/hermes-p9c` (témoin, fusionnée dans `-p9bc` par `b867810`) et `refonte/hermes-p9e` (part E,
+  documentation), **sans PR**. Ces branches peuvent encore avancer (travail en parallèle) : leurs têtes ne sont
+  pas recopiées ici (elles se lisent par `git ls-remote origin 'refonte/hermes-p9*'`) et seront relevées dans
+  ces notes à la réunion des branches de P9 ; `refonte/hermes-p8b` (partie de `b9779f1`, 8 octobre) :
   autre chantier de la station Qt, en cours, hors de ces notes.
 - **Étiquettes** : `v0.2.0` à `v0.9.0` et `archive/acp-0.10.0-avant-hermes` ; ni `v0.10.0` ni `v0.11.0` (jamais
   publiées) ; aucune `v1.0.0`.
@@ -231,9 +233,10 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
 1. Avant tout : instruire le constat intermittent de la défense de P2 (session du tableau de bord qui a reçu, une
    fois, les outils du `.env` piégé après un redémarrage du conteneur : Image Hermes `37784838264`, tentative 1 ;
    détail : [preuves](refonte/preuves-1.0.0.md) § 5). Il est dit dans les limites du journal 1.0.0 préparé.
-2. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, relecture indépendante de
-   toute P9, commit d'ouverture 1.0.0 puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre
-   workflows verts, fusion.
+2. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, réunir les branches de P9
+   sur `refonte/hermes-p9` et relever leurs têtes dans ces notes, relecture indépendante de toute P9, commit
+   d'ouverture 1.0.0 puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts,
+   fusion.
 3. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
    de fusion, branche déployée) ; premier run de `Desktop Release` (brouillon non signé).
 4. Gestes du propriétaire sur Railway : premier déploiement ([railway.md](refonte/railway.md) § 4), répétition de
