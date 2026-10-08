@@ -1137,11 +1137,10 @@ Conception, état livré et preuves : [questions.md](questions.md) (file Questio
 ([plan.md](plan.md)). Comme au § 13 : vous fournissez les comptes, Hermes gère l'exploitation. **Rien de ce qui suit
 n'a été exécuté** : chaque étape est votre geste, sur Railway seulement.
 
-Cette section décrit l'état **réuni** de P7. Sur `refonte/hermes-p7f` seule (partie F, partie de `da74a21`), la
-**partie E finale** manque jusqu'à la réunion des branches : `executant.md` § 16 (`9235999`), les deux refus anonymes
-(`3b1cac9`), les dépôts mesurés de `GET /v1/poste`, la carte « Dépôts » avec la mesure et le grisage de Codex dans
-« Nouveau projet » (`e85c7e3`, `1f2574c`) ; les gestes du § 14.6 supposent la PR de P7 fusionnée, donc ces commits
-présents.
+Cette section décrit l'état **réuni** de P7 (parties A à F, fusion `e2d210b` du 8 octobre 2026). Les gestes du § 14.6
+supposent la PR de P7 fusionnée : `executant.md` § 16 (`9235999`), les deux refus anonymes (`3b1cac9`), les dépôts
+mesurés de `GET /v1/poste`, la carte « Dépôts » avec la mesure et le grisage de Codex dans « Nouveau projet »
+(`e85c7e3`, `1f2574c`).
 
 ### 14.1 Ce que P7 change dans l'IaC
 
@@ -1262,7 +1261,7 @@ lui-même en premier (Railway déploie `refonte/hermes`). Un dépôt à la fois 
 | 6. Premier projet | Hermes ; preuve par l'agent | un petit projet sur ce dépôt, puis la preuve « aucune action accord requis sans geste », avant le dépôt suivant |
 
 **Mesure de la visibilité (étape 5)** : page Poste, carte « Dépôts » : alias, visibilité mesurée, lecture, date, voies
-ouvertes (`1f2574c`, partie E finale). La voie **Codex** n'est ouverte pour ce dépôt que si la mesure dit `prive`
+ouvertes (`1f2574c`). La voie **Codex** n'est ouverte pour ce dépôt que si la mesure dit `prive`
 **et** `ok` (accès anonyme refusé deux fois, lecture avec le jeton réussie, D113, `3b1cac9`) ; sinon Codex est fermé
 (Claude reste admis sur un dépôt public, D84), et « Nouveau projet » grise Codex avec la raison (`1f2574c`). « Inconnue » ferme Codex (échec fermé) : si GitHub limite les accès
 anonymes depuis Railway (403, 429), la mesure le dira à ce premier dépôt réel. Détail : [executant.md](executant.md)

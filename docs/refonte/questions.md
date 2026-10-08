@@ -7,10 +7,8 @@ chaque zone : routes et flux dans [projets.md](projets.md) (§ 4, § 4 bis, § 4
 [interface.md](interface.md) (§ 13 à § 15), garde « dépôt privé » dans [executant.md](executant.md) (§ 16), gestes sur
 Railway dans [railway.md](railway.md) (§ 14).
 
-Ce document décrit l'état **réuni** de P7. La branche de la partie F (`refonte/hermes-p7f`, partie de `da74a21`) n'a
-pas la **partie E finale**, poussée ensuite sur `refonte/hermes-p7e` (`3b1cac9`, `e85c7e3`, `1f2574c`, `a41952f`,
-`9235999`, `a516890`) : jusqu'à la réunion des branches, elle n'a ni `executant.md` § 16 (écrit par `9235999` ;
-`executant.md` s'y arrête au § 15), ni la relance d'une carte bloquée pour un secret (§ 4, `e85c7e3`).
+Ce document décrit l'état **réuni** de P7 (parties A à F, fusion `e2d210b` du 8 octobre 2026) ; `executant.md` § 16
+est écrit par `9235999`, la relance d'une carte bloquée pour un secret (§ 4) arrive avec `e85c7e3` et `1f2574c`.
 
 **Rien n'est déployé** : tout ce qui suit est prouvé en local et en CI, avec le modèle factice, le faux exécutant, le
 faux fournisseur d'identité et un faux serveur ntfy (§ 13). Ce qui exige Railway, un vrai téléphone ou un vrai canal
@@ -108,8 +106,8 @@ jamais ce travail : la carte repart de son départ sur une **branche neuve**, sa
 ses dépôts** (seul un exécutant de la partie E la publie) ; sinon 409 `carte_secret` (« relance possible dès que
 l'exécutant à jour a publié son inventaire »), en échec fermé. La file dit que le travail fautif reste en quarantaine
 (`quarantaine`), la réponse dit `branche_neuve`. Ce comportement arrive avec les commits `e85c7e3` (greffon) et
-`1f2574c` (page) de la partie E (branche `refonte/hermes-p7e`, à réunir avec celle-ci) : sur `refonte/hermes-p7f`
-seule, la relance d'une carte bloquée pour un secret est encore refusée dans tous les cas (409 `carte_secret`).
+`1f2574c` (page) de la partie E ; avant eux, la relance d'une carte bloquée pour un secret était refusée dans tous
+les cas (409 `carte_secret`).
 
 ---
 
