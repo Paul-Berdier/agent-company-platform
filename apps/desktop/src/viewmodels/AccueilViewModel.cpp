@@ -5,6 +5,7 @@
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "models/JsonListModel.h"
 #include "viewmodels/Libelles.h"
@@ -81,6 +82,8 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
     , m_sessions(new JsonListModel(this))
 {
     m_projetsEnCours->setCle({QStringLiteral("id")});
+    // Étape P7 : l'Accueil agrégé couvre tous les sujets du flux (Accueil.tsx, useDonnees(lireAccueil, …, SUJETS)).
+    m_accueil->suivre(flux->invalidation(), FluxInvalidation::sujets());
     lireAccueil({});
     m_lue = false;
     for (Sondage *sondage : {m_accueil, m_sondageSessions}) {

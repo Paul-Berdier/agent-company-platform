@@ -10,6 +10,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "app/BuildConfig.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "viewmodels/QuestionsViewModel.h"
@@ -305,19 +306,22 @@ void TestCompatibiliteHermes::fluxDuGreffonDitCeQueLeServeurAnnonce()
         {QStringLiteral("chemin"), QStringLiteral("/api/plugins/acp-poste/v1/flux")}, {QStringLiteral("version"), 1},
         {QStringLiteral("sujets"), QJsonArray{QStringLiteral("projets"), QStringLiteral("questions")}},
         {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
-    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatFlux, QStringLiteral("annonce"));
+    const auto annonce = CompatibiliteHermes::evaluer(meta);
+    QCOMPARE(annonce.etatFlux, QStringLiteral("annonce"));
+    QCOMPARE(annonce.annonceFlux.value(QStringLiteral("chemin")).toString(), QStringLiteral("/api/plugins/acp-poste/v1/flux"));
+    // Étape P8b : l'annonce de chemin et de version attendus ouvre le flux ; toute autre le dit, jamais deviné.
+    QCOMPARE(FluxInvalidation::raisonAnnonce(annonce.etatFlux, annonce.annonceFlux), QString());
     meta.insert(QStringLiteral("flux"), QStringLiteral("oui"));
-    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatFlux, QStringLiteral("illisible"));
+    const auto illisible = CompatibiliteHermes::evaluer(meta);
+    QCOMPARE(illisible.etatFlux, QStringLiteral("illisible"));
+    QVERIFY(illisible.annonceFlux.isEmpty());
     QCOMPARE(CompatibiliteHermes::Evaluation{}.etatFlux, QStringLiteral("inconnu"));
-    // Ce que le diagnostic en dit : jamais « n'annonce aucun flux » devant une annonce, ni une étape à venir.
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("annonce"))
-                .startsWith(QStringLiteral("Annoncé par le serveur ; non utilisé par cette station")));
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("absent"))
-                .startsWith(QStringLiteral("Non disponible sur ce serveur")));
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("inconnu")).startsWith(QStringLiteral("Inconnu")));
+    QCOMPARE(FluxInvalidation::raisonAnnonce(QStringLiteral("absent"), {}),
+             QStringLiteral("le greffon acp-poste n'annonce aucun flux d'invalidation (/v1/meta)"));
+    QCOMPARE(FluxInvalidation::raisonAnnonce(QStringLiteral("inconnu"), {}), QStringLiteral("/v1/meta n'a pas encore été lu"));
     for (const QString &etat : {QStringLiteral("annonce"), QStringLiteral("absent"), QStringLiteral("illisible"),
                                 QStringLiteral("inconnu")}) {
-        QVERIFY(!EventStreamService::etatFluxGreffon(etat).contains(QStringLiteral("étape P7")));
+        QVERIFY(!FluxInvalidation::raisonAnnonce(etat, {}).contains(QStringLiteral("étape P7")));
     }
 }
 

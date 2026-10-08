@@ -3,6 +3,7 @@
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "viewmodels/Libelles.h"
 
@@ -32,6 +33,8 @@ QuotasViewModel::QuotasViewModel(ClientGreffonPoste *greffon, EventStreamService
     , m_voies(new JsonListModel(this))
     , m_hermes(libelles::kInconnu)
 {
+    // Étape P7 : mêmes sujets que la page web (Quotas.tsx).
+    m_sondage->suivre(flux->invalidation(), {QStringLiteral("quotas"), QStringLiteral("poste")});
     connect(m_sondage, &Sondage::etatChange, this, &QuotasViewModel::lectureChange);
     connect(m_sondage, &Sondage::lu, this, [this](const ApiResponse &reponse) { lire(reponse.json.object()); });
 }

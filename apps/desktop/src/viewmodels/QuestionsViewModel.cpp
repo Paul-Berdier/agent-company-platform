@@ -3,6 +3,7 @@
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "models/JsonListModel.h"
 #include "viewmodels/Libelles.h"
@@ -65,6 +66,9 @@ QuestionsViewModel::QuestionsViewModel(ApiClient *client, ClientGreffonPoste *gr
     // Mise à jour par identifiant : une relecture ne détruit jamais le champ où le propriétaire
     // écrit sa réponse, sa consigne ou son motif (le délégué de la ligne est conservé).
     m_questions->setCle({QStringLiteral("id")});
+    // Étape P7 : mêmes sujets que la file de la page web (Projets.tsx, lireQuestions).
+    m_sondage->suivre(flux->invalidation(),
+                      {QStringLiteral("questions"), QStringLiteral("projets"), QStringLiteral("discussions")});
     m_triage->setCle({QStringLiteral("tableau"), QStringLiteral("carte")});
     m_bloquees->setCle({QStringLiteral("tableau"), QStringLiteral("carte")});
     m_revues->setCle({QStringLiteral("tableau"), QStringLiteral("carte")});

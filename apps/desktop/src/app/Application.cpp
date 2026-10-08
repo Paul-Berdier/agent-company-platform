@@ -8,6 +8,7 @@
 #include "auth/SessionHermes.h"
 #include "commands/CommandRegistry.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/VeilleKanban.h"
 #include "gateway/DemandesAgent.h"
 #include "gateway/GatewayClient.h"
@@ -150,6 +151,7 @@ Application::Application(QObject *parent, const QString &nomCoffre)
         // perdue par SessionHermes ; ceci couvre aussi un canal ouvert sans elle).
         m_passerelle->fermer();
         m_flux->veille()->arreter();
+        m_flux->invalidation()->oublier(); // ni révision ni repli d'un autre serveur
         m_compatibilite->oublier(); // un verdict n'appartient qu'au serveur qui l'a rendu
         m_flux->oublierResume();
         oublierLesPages();
@@ -168,6 +170,11 @@ Application::Application(QObject *parent, const QString &nomCoffre)
                  m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage}) {
             page->oublier();
         }
+    });
+    // Flux d'invalidation du greffon (étape P7) : ouvert seulement sur l'annonce de /v1/meta, relue à
+    // chaque verdict (session perdue ou serveur changé : « inconnu », flux fermé).
+    connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
+        m_flux->setAnnonceFlux(m_compatibilite->etatFlux(), m_compatibilite->annonceFlux());
     });
     connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
         const CompatibilityStatus::State etat = m_compatibilite->etat();

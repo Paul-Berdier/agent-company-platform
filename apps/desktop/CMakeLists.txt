@@ -161,6 +161,8 @@ set(ACP_CORE_SOURCES
     src/events/Backoff.h
     src/events/EventStreamService.cpp
     src/events/EventStreamService.h
+    src/events/FluxInvalidation.cpp
+    src/events/FluxInvalidation.h
     src/events/Sondage.cpp
     src/events/Sondage.h
     src/events/SseEvent.h

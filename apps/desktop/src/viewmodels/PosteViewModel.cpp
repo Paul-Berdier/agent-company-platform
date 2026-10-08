@@ -3,6 +3,7 @@
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "models/JsonListModel.h"
 #include "services/CompatibiliteHermes.h"
@@ -99,6 +100,9 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
         return true;
     })
 {
+    // Étape P7 : mêmes sujets que la page web (EtatPoste.tsx).
+    m_sondage->suivre(flux->invalidation(),
+                      {QStringLiteral("poste"), QStringLiteral("projets"), QStringLiteral("pause"), QStringLiteral("quotas")});
     m_etat = construireEtat({});
     m_machine = construireMachine({});
     m_inventaire = construireInventaire({});

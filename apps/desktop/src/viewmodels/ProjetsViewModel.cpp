@@ -4,6 +4,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "api/IdempotencyKey.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "events/VeilleKanban.h"
 #include "models/JsonListModel.h"
@@ -88,6 +89,11 @@ ProjetsViewModel::ProjetsViewModel(ApiClient *client, ClientGreffonPoste *greffo
 {
     // Liste relue par identifiant : la liste garde son défilement et ses délégués.
     m_projets->setCle({QStringLiteral("id")});
+    // Étape P7 : mêmes sujets que la page web (Projets.tsx pour la liste, DetailProjet.tsx pour le détail).
+    m_liste->suivre(flux->invalidation(), {QStringLiteral("projets"), QStringLiteral("questions"), QStringLiteral("poste"),
+                                           QStringLiteral("notifications"), QStringLiteral("pause")});
+    m_detailSondage->suivre(flux->invalidation(),
+                            {QStringLiteral("projets"), QStringLiteral("questions"), QStringLiteral("pause")});
     m_pause = AccueilViewModel::construireCartePause({});
     viderDetail();
     majFormulaire();

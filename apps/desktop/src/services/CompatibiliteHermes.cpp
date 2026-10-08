@@ -83,6 +83,7 @@ CompatibiliteHermes::Evaluation CompatibiliteHermes::evaluer(const QJsonObject &
         resultat.etatFlux = QStringLiteral("absent");
     } else if (flux.isObject() && flux.toObject().value(QStringLiteral("chemin")).isString()) {
         resultat.etatFlux = QStringLiteral("annonce");
+        resultat.annonceFlux = flux.toObject();
     } else {
         resultat.etatFlux = QStringLiteral("illisible");
     }

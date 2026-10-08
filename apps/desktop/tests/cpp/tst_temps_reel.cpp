@@ -337,8 +337,8 @@ void TestTempsReel::serviceResumeSansFluxSse()
         QCOMPARE(requete.chemin, kAccueil);
         QVERIFY(requete.entete("accept") != QByteArrayLiteral("text/event-stream"));
     }
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("absent"))
-                .startsWith(QStringLiteral("Non disponible sur ce serveur")));
+    // /v1/meta non lu par ce banc : le flux n'est pas ouvert, et l'état le dit (« Inconnu », jamais deviné).
+    QVERIFY(flux.etatFlux().startsWith(QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu")));
 
     // La page Projets (GET /v1/projets) met à jour le poste et la pause, jamais le compteur (une seule source).
     QJsonObject pause = Banc::liste();

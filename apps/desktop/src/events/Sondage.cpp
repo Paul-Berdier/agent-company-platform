@@ -1,6 +1,7 @@
 #include "events/Sondage.h"
 
 #include "api/ApiClient.h"
+#include "events/FluxInvalidation.h"
 
 #include <QTimer>
 
@@ -35,6 +36,51 @@ void Sondage::setIntervalle(std::chrono::milliseconds intervalle)
     }
 }
 
+void Sondage::suivre(FluxInvalidation *flux, const QStringList &sujets)
+{
+    if (m_flux || !flux) {
+        return;
+    }
+    m_flux = flux;
+    m_sujets = sujets;
+    m_regroupement = new QTimer(this);
+    m_regroupement->setSingleShot(true);
+    connect(m_regroupement, &QTimer::timeout, this, [this] {
+        if (m_actif) {
+            ++m_relecturesSurSignal;
+            lireMaintenant();
+        }
+    });
+    connect(flux, &FluxInvalidation::invalidation, this, [this](const QStringList &changes) {
+        if (!m_actif) {
+            return; // la page relit à son activation, de toute façon
+        }
+        for (const QString &sujet : changes) {
+            if (m_sujets.contains(sujet)) {
+                // Une rafale de trames, une lecture.
+                if (!m_regroupement->isActive()) {
+                    m_regroupement->start(m_flux->reglages().regroupement);
+                }
+                return;
+            }
+        }
+    });
+    connect(flux, &FluxInvalidation::etatChange, this, &Sondage::reprogrammer);
+}
+
+std::chrono::milliseconds Sondage::intervalleEffectif() const
+{
+    return m_flux ? m_flux->intervalleRelecture(m_intervalle, m_sujets) : m_intervalle;
+}
+
+void Sondage::reprogrammer()
+{
+    // Le mode du flux a changé (temps réel gagné ou perdu) : la prochaine lecture suit le nouvel intervalle.
+    if (m_actif && m_minuterie->isActive() && intervalleEffectif() != m_intervalleApplique) {
+        programmer();
+    }
+}
+
 void Sondage::setActif(bool actif)
 {
     if (actif == m_actif) {
@@ -43,6 +89,9 @@ void Sondage::setActif(bool actif)
     m_actif = actif;
     if (!m_actif) {
         m_minuterie->stop();
+        if (m_regroupement) {
+            m_regroupement->stop();
+        }
         m_relire = false;
         emit etatChange();
         return;
@@ -72,6 +121,9 @@ void Sondage::oublier()
     m_luA = QDateTime();
     m_derniereErreur.clear();
     m_minuterie->stop();
+    if (m_regroupement) {
+        m_regroupement->stop();
+    }
     if (m_actif) {
         // Toujours affichée : la page relit aussitôt (le nouveau serveur, ou le refus du greffon
         // bloqué, qui s'affiche alors à la place des données oubliées).
@@ -129,7 +181,8 @@ void Sondage::programmer()
         return;
     }
     if (m_actif) {
-        m_minuterie->start(m_intervalle);
+        m_intervalleApplique = intervalleEffectif();
+        m_minuterie->start(m_intervalleApplique);
     }
 }
 

@@ -9,9 +9,11 @@
 #include "app/Application.h"
 #include "commands/CommandRegistry.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
+#include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
 #include "viewmodels/DiscussionViewModel.h"
@@ -83,6 +85,7 @@ private slots:
     void relanceEtRefusDeRevueParLesVraisBoutons();
     void clotureEtQuiRepondParLesVraisBoutons();
     void executantFermeGriseDansLeFormulaire();
+    void questionsReluesAuSignalDuFlux();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
     void dialogueDeChangementDeServeurEnFrancais();
@@ -527,6 +530,58 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     m_projets->afficherListe();
     page.reset();
     QTRY_VERIFY(!m_projets->actif());
+}
+
+// Étape P8b : dans la composition réelle, le verdict de /v1/meta qui ANNONCE le flux d'invalidation
+// l'ouvre ; la page Questions affichée se relit au signal de ses sujets (trames PARTAGÉES de
+// fixtures_flux/trames.json), jamais pour un sujet qu'elle ne suit pas ; le retrait de l'annonce
+// le ferme.
+void TestPagesInteractions::questionsReluesAuSignalDuFlux()
+{
+    auto *compatibilite = m_application->findChild<CompatibiliteHermes *>();
+    QVERIFY(compatibilite);
+    const QJsonObject trames = fixturePartagee(QStringLiteral("fixtures_flux/trames.json")).object()
+                                   .value(QStringLiteral("trames")).toObject();
+    const auto trame = [&trames](const char *nom) { return trames.value(QString::fromLatin1(nom)).toString().toUtf8(); };
+    m_questions->setIntervalle(std::chrono::hours(1)); // aucune relecture par sondage pendant ce test
+    m_serveur->activerFlux();
+    const int avantOuvertures = m_serveur->compter("GET", kP + QStringLiteral("/flux"));
+
+    auto page = charger(QStringLiteral("QuestionsPage"));
+    QVERIFY(page);
+    QTRY_VERIFY_WITH_TIMEOUT(m_questions->lue(), 5000);
+    QTest::qWait(100);
+    QCOMPARE(m_serveur->compter("GET", kP + QStringLiteral("/flux")), avantOuvertures); // rien d'annoncé : rien d'ouvert
+
+    QJsonObject meta = fixture(QStringLiteral("meta.json"));
+    meta.insert(QStringLiteral("flux"), QJsonObject{
+        {QStringLiteral("chemin"), QStringLiteral("/api/plugins/acp-poste/v1/flux")}, {QStringLiteral("version"), 1},
+        {QStringLiteral("sujets"), QJsonArray::fromStringList(FluxInvalidation::sujets())},
+        {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
+    compatibilite->appliquerLecture(meta);
+    QTRY_COMPARE_WITH_TIMEOUT(m_serveur->clientsFlux(), 1, 5000);
+    QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Temps réel : connexion…"));
+
+    const QString route = kP + QStringLiteral("/questions");
+    const int lectures = m_serveur->compter("GET", route);
+    m_serveur->envoyerFlux(trame("ouverture"));
+    QTRY_COMPARE_WITH_TIMEOUT(m_serveur->compter("GET", route), lectures + 1, 5000);
+    QVERIFY(m_flux->tempsReel());
+    QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Temps réel"));
+    m_serveur->envoyerFlux(trame("changement")); // projets, questions
+    QTRY_COMPARE_WITH_TIMEOUT(m_serveur->compter("GET", route), lectures + 2, 5000);
+    m_serveur->envoyerFlux(QByteArrayLiteral("id: 1727791200.50\nevent: changement\ndata: {\"sujets\":[\"quotas\"]}\n\n"));
+    QTest::qWait(700);
+    QCOMPARE(m_serveur->compter("GET", route), lectures + 2); // sujet que la file ne suit pas
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+
+    // Verdict oublié (serveur changé, session perdue) : le flux se ferme, la page revient au sondage.
+    page.reset();
+    QTRY_VERIFY(!m_questions->actif());
+    compatibilite->oublier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_serveur->clientsFlux(), 0, 5000);
+    QVERIFY(!m_flux->tempsReel());
+    QVERIFY(m_flux->etatFlux().startsWith(QStringLiteral("Inconnu")));
 }
 
 // Constat de relecture P8 : la liste des projets remontait en haut à chaque relecture.

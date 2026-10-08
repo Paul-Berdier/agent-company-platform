@@ -157,8 +157,8 @@ void TestDiagnostics::valeursInconnuesJamaisInventees()
     QVERIFY(!banc.connue(QStringLiteral("Alertes de Hermes")));
     // Relecture finale de P7 (constat desktop-1) : rien n'a été lu, donc « Inconnu » — jamais « Non disponible sur ce
     // serveur » affirmé sans avoir lu /v1/meta.
-    QVERIFY(banc.valeur(QStringLiteral("Flux d'événements du greffon")).startsWith(QStringLiteral("Inconnu")));
-    QVERIFY(!banc.connue(QStringLiteral("Flux d'événements du greffon")));
+    QVERIFY(banc.valeur(QStringLiteral("Flux d'invalidation du greffon")).startsWith(QStringLiteral("Inconnu")));
+    QVERIFY(!banc.connue(QStringLiteral("Flux d'invalidation du greffon")));
     QCOMPARE(banc.valeur(QStringLiteral("Entrée au coffre pour ce serveur")), QStringLiteral("Absente"));
 
     // Versions et contrats épinglés : lus de la construction, jamais du serveur.

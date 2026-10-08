@@ -3,6 +3,7 @@
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "viewmodels/Libelles.h"
 
@@ -78,6 +79,8 @@ RoutageViewModel::RoutageViewModel(ApiClient *client, ClientGreffonPoste *greffo
 {
     m_politiqueHermes = construirePolitiqueHermes({});
     m_politiquePoste = construirePolitiquePoste({});
+    // Étape P7 : mêmes sujets que la page web (Routage.tsx).
+    m_sondage->suivre(flux->invalidation(), {QStringLiteral("quotas"), QStringLiteral("poste")});
     connect(m_sondage, &Sondage::etatChange, this, &RoutageViewModel::lectureChange);
     connect(m_sondage, &Sondage::lu, this, [this](const ApiResponse &reponse) { lire(reponse.json.object()); });
 }

@@ -8,7 +8,11 @@
 //  - lecture immédiate après un geste du propriétaire ou au retour du lien (lireMaintenant) ;
 //    pendant une lecture en vol, la demande est retenue et servie une fois à sa fin ;
 //  - échec : la dernière valeur lue reste à l'appelant (le signal `echec` ne vide rien),
-//    l'heure de la dernière lecture réussie et l'erreur sont publiées côte à côte.
+//    l'heure de la dernière lecture réussie et l'erreur sont publiées côte à côte ;
+//  - étape P7 (suivre) : une page qui suit le flux d'invalidation du greffon relit sur signal
+//    de l'un de SES sujets (regroupé sur 300 ms, seulement si elle est active) et, en temps
+//    réel, ne garde qu'une relecture de sûreté (FluxInvalidation::intervalleRelecture) ; hors
+//    temps réel, son intervalle habituel.
 
 #pragma once
 
@@ -19,6 +23,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QStringList>
 
 #include <chrono>
 #include <functional>
@@ -28,6 +33,7 @@ class QTimer;
 namespace acp {
 
 class ApiCall;
+class FluxInvalidation;
 
 class Sondage : public QObject
 {
@@ -45,6 +51,14 @@ public:
 
     void setIntervalle(std::chrono::milliseconds intervalle);
     [[nodiscard]] std::chrono::milliseconds intervalle() const { return m_intervalle; }
+
+    /*! Suit le flux d'invalidation pour ces sujets (une fois, à la construction de la page). */
+    void suivre(FluxInvalidation *flux, const QStringList &sujets);
+    [[nodiscard]] const QStringList &sujetsSuivis() const { return m_sujets; }
+    /*! Intervalle appliqué : celui du sondage, ou la relecture de sûreté en temps réel. */
+    [[nodiscard]] std::chrono::milliseconds intervalleEffectif() const;
+    /*! Relectures déclenchées par un signal du flux (diagnostics, tests). */
+    [[nodiscard]] int relecturesSurSignal() const { return m_relecturesSurSignal; }
 
     /*! Active (lecture immédiate puis périodique) ou suspend le sondage. */
     void setActif(bool actif);
@@ -75,9 +89,16 @@ private:
     void lancer();
     void programmer();
 
+    void reprogrammer();
+
     Lecteur m_lecteur;
     std::chrono::milliseconds m_intervalle;
     QTimer *m_minuterie = nullptr;
+    QPointer<FluxInvalidation> m_flux;
+    QStringList m_sujets;
+    QTimer *m_regroupement = nullptr;
+    std::chrono::milliseconds m_intervalleApplique{0};
+    int m_relecturesSurSignal = 0;
     QPointer<ApiCall> m_appel;
     bool m_actif = false;
     bool m_relire = false;

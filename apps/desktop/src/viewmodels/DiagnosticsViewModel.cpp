@@ -5,6 +5,7 @@
 #include "auth/SessionHermes.h"
 #include "diagnostics/Redaction.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "gateway/GatewayClient.h"
 #include "gateway/JsonRpcChannel.h"
 #include "services/CompatibiliteHermes.h"
@@ -16,6 +17,8 @@
 #include <QLibraryInfo>
 #include <QStringList>
 #include <QSysInfo>
+
+#include <algorithm>
 
 namespace acp {
 
@@ -253,9 +256,14 @@ void DiagnosticsViewModel::refresh()
         const QString temps = QStringLiteral("Temps réel");
         entries.append({temps, QStringLiteral("Passerelle JSON-RPC"), m_flux->etatPasserelle(), true, false});
         entries.append({temps, QStringLiteral("Veille du kanban"), m_flux->etatVeille(), true, false});
-        entries.append({temps, QStringLiteral("Sondage de /v1/projets"), m_flux->etatSondage(), true, false});
-        entries.append({temps, QStringLiteral("Flux d'événements du greffon"),
-                        EventStreamService::etatFluxGreffon(m_compatibilite->etatFlux()), false, false});
+        entries.append({temps, QStringLiteral("Sondage léger de /v1/accueil"), m_flux->etatSondage(), true, false});
+        entries.append({temps, QStringLiteral("Flux d'invalidation du greffon"), m_flux->etatFlux(),
+                        m_compatibilite->etatFlux() != QLatin1String("inconnu"), false});
+        const QStringList trames = m_flux->invalidation()->journal();
+        entries.append({temps, QStringLiteral("Dernières trames du flux"),
+                        trames.isEmpty() ? QStringLiteral("Aucune") : trames.mid(std::max<qsizetype>(0, trames.size() - 5))
+                                                                         .join(QStringLiteral(" · ")),
+                        true, true});
     }
 
     // --- Stockage -----------------------------------------------------------

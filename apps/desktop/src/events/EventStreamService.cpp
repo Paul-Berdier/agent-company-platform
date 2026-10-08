@@ -2,6 +2,7 @@
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "events/VeilleKanban.h"
 #include "gateway/GatewayClient.h"
@@ -15,9 +16,13 @@ EventStreamService::EventStreamService(ApiClient *client, ClientGreffonPoste *gr
     , m_greffon(greffon)
     , m_passerelle(passerelle)
     , m_veille(new VeilleKanban(client, this))
+    , m_invalidation(new FluxInvalidation(greffon, this))
     , m_fond(new Sondage([this] { return m_greffon->accueil(); }, kIntervalleFond, this))
 {
     oublierResume();
+    // Le badge et la barre d'état suivent tous les sujets (l'Accueil agrégé les couvre tous).
+    m_fond->suivre(m_invalidation, FluxInvalidation::sujets());
+    connect(m_invalidation, &FluxInvalidation::etatChange, this, &EventStreamService::sourcesChange);
     connect(m_fond, &Sondage::lu, this, [this](const ApiResponse &reponse) { lireResume(reponse.json.object()); });
     connect(m_fond, &Sondage::etatChange, this, &EventStreamService::sourcesChange);
     connect(m_veille, &VeilleKanban::etatChange, this, &EventStreamService::sourcesChange);
@@ -40,6 +45,11 @@ void EventStreamService::setIntervalleFond(std::chrono::milliseconds intervalle)
     m_fond->setIntervalle(intervalle);
 }
 
+void EventStreamService::setAnnonceFlux(const QString &etat, const QJsonObject &annonce)
+{
+    m_invalidation->setAnnonce(etat, annonce);
+}
+
 void EventStreamService::demarrer()
 {
     if (m_sessionOuverte) {
@@ -48,6 +58,7 @@ void EventStreamService::demarrer()
     const bool avant = pagesActives();
     m_sessionOuverte = true;
     m_fond->setActif(true);
+    m_invalidation->setActif(pagesActives());
     if (avant != pagesActives()) {
         emit pagesActivesChange();
     }
@@ -59,6 +70,7 @@ void EventStreamService::arreter()
     const bool avant = pagesActives();
     m_sessionOuverte = false;
     m_fond->setActif(false);
+    m_invalidation->setActif(false);
     m_veille->arreter();
     oublierResume();
     if (avant != pagesActives()) {
@@ -74,6 +86,7 @@ void EventStreamService::signalerLien(bool enLigne)
     m_lienEnLigne = enLigne;
     if (retour && m_sessionOuverte) {
         m_fond->lireMaintenant();
+        m_invalidation->relancer();
         emit lienRetabli();
     }
 }
@@ -85,6 +98,8 @@ void EventStreamService::setFenetreActive(bool active)
     }
     const bool avant = pagesActives();
     m_fenetreActive = active;
+    // Fenêtre réduite : flux fermé, comme une page web cachée ; rouverte : il se rouvre.
+    m_invalidation->setActif(pagesActives());
     emit fenetreActiveChange();
     if (avant != pagesActives()) {
         emit pagesActivesChange();
@@ -186,7 +201,7 @@ QString EventStreamService::etatSondage() const
         return QStringLiteral("Arrêté (aucune session)");
     }
     QString texte = QStringLiteral("Toutes les %1 s · %2")
-                        .arg(m_fond->intervalle().count() / 1000)
+                        .arg(m_fond->intervalleEffectif().count() / 1000)
                         .arg(m_fond->libelleLuA());
     if (!m_fond->derniereErreur().isEmpty()) {
         texte += QStringLiteral(" · Dernière lecture impossible : ") + m_fond->derniereErreur();
@@ -194,20 +209,19 @@ QString EventStreamService::etatSondage() const
     return texte;
 }
 
-QString EventStreamService::etatFluxGreffon(const QString &etatFlux)
+QString EventStreamService::etatFlux() const
 {
-    if (etatFlux == QLatin1String("annonce")) {
-        return QStringLiteral("Annoncé par le serveur ; non utilisé par cette station : les pages sont relues par "
-                              "sondage (le navigateur, lui, l'emploie).");
-    }
-    if (etatFlux == QLatin1String("absent")) {
-        return QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce aucun flux "
-                              "d'événements ; les pages sont relues par sondage.");
-    }
-    if (etatFlux == QLatin1String("illisible")) {
-        return QStringLiteral("Annonce illisible dans /v1/meta ; les pages sont relues par sondage.");
-    }
-    return QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu ; les pages sont relues par sondage.");
+    return m_invalidation->libelleEtat();
+}
+
+bool EventStreamService::tempsReel() const
+{
+    return m_invalidation->tempsReel();
+}
+
+QString EventStreamService::libelleTempsReel() const
+{
+    return m_sessionOuverte ? m_invalidation->libelleCourt() : QString();
 }
 
 } // namespace acp

@@ -1,12 +1,13 @@
-// Temps réel de la station : ce qui existe vraiment à `refonte/hermes` b3faac0, et seulement
-// cela (cahier P8 § 6).
+// Temps réel de la station : ce qui existe vraiment (cahier P8 § 6 ; étape P7 pour le flux).
 //
 // | Source                                   | Rôle dans la station                                   |
 // |------------------------------------------|--------------------------------------------------------|
 // | passerelle `/api/ws` (GatewayClient)     | Discussion ; `sessions.changed` relit les sessions     |
 // | kanban `/api/plugins/kanban/events`      | signal d'invalidation du projet affiché (VeilleKanban) |
-// | routes REST du greffon                   | vérité de toutes les pages, par sondage (Sondage)      |
-// | flux SSE du greffon                      | N'EXISTE PAS : rien n'est ouvert ni supposé            |
+// | flux SSE du greffon `GET /v1/flux`       | signal d'invalidation par sujet (FluxInvalidation) :   |
+// |                                          | ouvert seulement s'il est annoncé par /v1/meta         |
+// | routes REST du greffon                   | vérité de toutes les pages, relues sur signal du flux  |
+// |                                          | et par sondage (Sondage, repli et relecture de sûreté) |
 //
 // Ce service :
 //  - porte le sondage LÉGER de `GET /v1/accueil` (60 s, session établie ; Accueil agrégé de
@@ -18,11 +19,9 @@
 //    seulement (noterProjets), jamais le compteur, qui n'a qu'une source ;
 //  - dit aux pages si elles peuvent sonder (`pagesActives` : session établie ET fenêtre non
 //    réduite) et quand relire (`lienRetabli`, `sessionsChangees`, `tableauChange`) ;
+//  - ouvre le flux d'invalidation quand une page peut lire et que /v1/meta l'annonce
+//    (setAnnonceFlux) ; le sondage léger le suit pour tous les sujets ;
 //  - publie l'état de chaque source, sans secret, pour les diagnostics.
-//
-// Flux SSE du greffon : il « viendra en P7 » (sondage.ts de l'interface web) ; tant que son
-// contrat n'est pas fusionné dans `refonte/hermes`, la station n'ouvre rien et l'écrit :
-// « Non disponible sur ce serveur ».
 
 #pragma once
 
@@ -36,6 +35,7 @@ namespace acp {
 
 class ApiClient;
 class ClientGreffonPoste;
+class FluxInvalidation;
 class GatewayClient;
 class Sondage;
 class VeilleKanban;
@@ -56,6 +56,10 @@ class EventStreamService : public QObject
     Q_PROPERTY(QString etatPasserelle READ etatPasserelle NOTIFY sourcesChange)
     Q_PROPERTY(QString etatVeille READ etatVeille NOTIFY sourcesChange)
     Q_PROPERTY(QString etatSondage READ etatSondage NOTIFY sourcesChange)
+    // Flux d'invalidation du greffon (barre d'état, diagnostics).
+    Q_PROPERTY(bool tempsReel READ tempsReel NOTIFY sourcesChange)
+    Q_PROPERTY(QString libelleTempsReel READ libelleTempsReel NOTIFY sourcesChange)
+    Q_PROPERTY(QString etatFlux READ etatFlux NOTIFY sourcesChange)
 
 public:
     //! Valeur de `pauseGenerale` quand l'état n'a pas encore été lu.
@@ -68,6 +72,9 @@ public:
 
     [[nodiscard]] VeilleKanban *veille() const { return m_veille; }
     [[nodiscard]] Sondage *sondageFond() const { return m_fond; }
+    [[nodiscard]] FluxInvalidation *invalidation() const { return m_invalidation; }
+    /*! Annonce du flux lue dans /v1/meta (CompatibiliteHermes::etatFlux et annonceFlux). */
+    void setAnnonceFlux(const QString &etat, const QJsonObject &annonce);
     void setIntervalleFond(std::chrono::milliseconds intervalle);
 
     // --- Cycle de vie (Application) -------------------------------------------------
@@ -104,12 +111,11 @@ public:
     [[nodiscard]] QString etatPasserelle() const;
     [[nodiscard]] QString etatVeille() const;
     [[nodiscard]] QString etatSondage() const;
-    /*!
-        Ce que la station dit du flux d'invalidation du greffon, d'après `etatFlux` de l'évaluation de
-        /v1/meta (« annonce », « absent », « illisible », « inconnu ») : elle ne l'ouvre pas et relit ses
-        pages par sondage (relecture finale de P7 : jamais « n'annonce aucun flux » devant une annonce).
-    */
-    [[nodiscard]] static QString etatFluxGreffon(const QString &etatFlux);
+    /*! État du flux d'invalidation (FluxInvalidation::libelleEtat). */
+    [[nodiscard]] QString etatFlux() const;
+    [[nodiscard]] bool tempsReel() const;
+    /*! Libellé court de la barre d'état (« Temps réel », « Sondage (aucun flux) »…), vide hors session. */
+    [[nodiscard]] QString libelleTempsReel() const;
 
 signals:
     void fenetreActiveChange();
@@ -130,6 +136,7 @@ private:
     ClientGreffonPoste *m_greffon = nullptr;
     GatewayClient *m_passerelle = nullptr;
     VeilleKanban *m_veille = nullptr;
+    FluxInvalidation *m_invalidation = nullptr;
     Sondage *m_fond = nullptr;
     bool m_fenetreActive = true;
     bool m_sessionOuverte = false;

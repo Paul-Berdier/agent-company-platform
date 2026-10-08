@@ -80,10 +80,12 @@ public:
         QJsonObject executant;
         /*!
             Flux d'invalidation du greffon (clé `flux` de /v1/meta, étape P7) : « annonce » (objet avec
-            un chemin), « absent » (clé absente), « illisible », « inconnu » (rien de lu). La station ne
-            l'ouvre pas : elle le DIT (relecture finale de P7, constat desktop-1).
+            un chemin), « absent » (clé absente), « illisible », « inconnu » (rien de lu). La station
+            l'ouvre seulement sur une annonce de chemin et de version attendus (FluxInvalidation).
         */
         QString etatFlux = QStringLiteral("inconnu");
+        //! Objet `flux` servi (chemin, version, sujets, battement, durée), vide sans annonce.
+        QJsonObject annonceFlux;
     };
 
     explicit CompatibiliteHermes(ClientGreffonPoste *greffon, QObject *parent = nullptr);
@@ -129,6 +131,7 @@ public:
     [[nodiscard]] const QString &etatExecutant() const { return m_evaluation.etatExecutant; }
     [[nodiscard]] const QJsonObject &executant() const { return m_evaluation.executant; }
     [[nodiscard]] const QString &etatFlux() const { return m_evaluation.etatFlux; }
+    [[nodiscard]] const QJsonObject &annonceFlux() const { return m_evaluation.annonceFlux; }
 
 signals:
     void change();

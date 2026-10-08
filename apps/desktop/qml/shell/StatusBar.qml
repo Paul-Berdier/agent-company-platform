@@ -50,8 +50,9 @@ Rectangle {
                 contentItem: Text { text: noticeTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
             }
         }
-        // Résumé du sondage léger de /v1/projets (60 s) : état du poste, questions ouvertes,
-        // pause générale. Vide hors session ; « Inconnu » tant que rien n'a été lu.
+        // Résumé du sondage léger de /v1/accueil (relu au signal du flux d'invalidation, sinon
+        // toutes les 60 s) : état du poste, « À traiter par vous », pause générale. Vide hors
+        // session ; « Inconnu » tant que rien n'a été lu.
         Text {
             objectName: "barre-etat-resume"
             visible: Streams.libelleResume.length > 0
@@ -62,6 +63,27 @@ Rectangle {
             color: Streams.pauseGenerale === 1 ? Status.statusDegradedForeground : Colors.textSecondary
             font.family: Type.metadata.family
             font.pixelSize: Type.metadata.pixelSize
+        }
+        // Étape P7 : temps réel (flux d'invalidation du greffon) ou sondage, dit tel quel ; le
+        // détail (raison, nouvel essai) est dans l'info-bulle et les diagnostics.
+        Text {
+            objectName: "barre-etat-temps-reel"
+            visible: Streams.libelleTempsReel.length > 0
+            text: Streams.libelleTempsReel
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            Layout.maximumWidth: statusBar.width * 0.16
+            color: Streams.tempsReel ? Colors.textSecondary : Colors.textMuted
+            font.family: Type.metadata.family
+            font.pixelSize: Type.metadata.pixelSize
+            Accessible.name: Streams.etatFlux
+            HoverHandler { id: fluxHover }
+            ToolTip {
+                id: fluxTip
+                visible: fluxHover.hovered && Streams.etatFlux.length > 0
+                text: Streams.etatFlux
+                contentItem: Text { text: fluxTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+            }
         }
         Text {
             text: Session.connectee ? Session.nomAffiche : Session.libelleEtat
