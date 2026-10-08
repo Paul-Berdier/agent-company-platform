@@ -255,6 +255,9 @@
       exploration: "Exploration du d\xE9p\xF4t",
       explorationAide: "Le poste lit le d\xE9p\xF4t, sans rien y modifier, avant la planification.",
       champVoie: "Ex\xE9cutant",
+      // Partie E (cahier P7 § 11.2) : voie fermée pour le dépôt choisi (visibilité mesurée), avec la raison du greffon.
+      voiesFermeesPourDepot: "Ferm\xE9 pour ce d\xE9p\xF4t (gris\xE9 dans la liste)",
+      aucunExecutantOuvert: "Aucun ex\xE9cutant ouvert pour ce d\xE9p\xF4t. Le projet part sans exploration du d\xE9p\xF4t.",
       champModele: "Mod\xE8le",
       modeleParDefaut: "Mod\xE8le par d\xE9faut du relev\xE9",
       modeleAChoisir: "Choisissez un mod\xE8le (le relev\xE9 n'en d\xE9signe aucun par d\xE9faut)",
@@ -363,6 +366,9 @@
       relancerCarte: "Relancer",
       relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       relancee: "La carte repart.",
+      // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
+      relanceQuarantaineAide: "Bloqu\xE9e pour un secret d\xE9tect\xE9. Le travail fautif reste en quarantaine sur l'ex\xE9cutant, jamais int\xE9gr\xE9 ni pouss\xE9. La relance repart du d\xE9part de la carte, sur une branche neuve et en session neuve.",
+      relanceeBrancheNeuve: "La carte repart sur une branche neuve, en session neuve. Le travail en quarantaine n'est pas repris.",
       relanceeSessionNeuve: "La carte repart\xA0: l'agent reprend d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
       nonRelancee: "La carte n'a pas \xE9t\xE9 relanc\xE9e.",
       statutApres: "Statut\xA0:",
@@ -563,6 +569,27 @@
       offre: "Offre",
       depotsTitre: "D\xE9p\xF4ts autoris\xE9s",
       aucunDepot: "Aucun d\xE9p\xF4t d\xE9clar\xE9 par le poste.",
+      // Étape P7, partie E (cahier P7 § 11.2) : visibilité mesurée par l'exécutant, voies ouvertes par dépôt.
+      depots: {
+        aide: "Visibilit\xE9 mesur\xE9e par l'ex\xE9cutant \xE0 chaque inventaire et avant chaque carte Codex. Priv\xE9 veut dire acc\xE8s anonyme refus\xE9 et lecture avec le jeton r\xE9ussie. Codex ne travaille que sur un d\xE9p\xF4t prouv\xE9 priv\xE9 (D83), Claude sur tout d\xE9p\xF4t (D84).",
+        visibilite: "Visibilit\xE9 mesur\xE9e",
+        lecture: "Lecture par l'ex\xE9cutant",
+        verifieLe: "Mesur\xE9e",
+        voies: "Voies pour ce d\xE9p\xF4t",
+        ouverte: "Ouverte",
+        fermee: "Ferm\xE9e",
+        nonMesure: "Jamais mesur\xE9e par l'ex\xE9cutant (Codex ferm\xE9)",
+        visibilites: {
+          prive: "Priv\xE9",
+          public: "Public",
+          inconnue: "Inconnue (Codex ferm\xE9)"
+        },
+        lectures: {
+          ok: "R\xE9ussie",
+          refusee: "Refus\xE9e",
+          inconnue: "Inconnue"
+        }
+      },
       inventaireTitre: "Dernier inventaire",
       aucunInventaire: "Aucun inventaire re\xE7u.",
       recuLe: "Re\xE7u",
@@ -920,6 +947,9 @@
   function h(type, props, ...enfants) {
     const createElement = react().createElement;
     return createElement(type, props, ...enfants);
+  }
+  function Fragment(props) {
+    return props.children ?? null;
   }
   function useState(initial) {
     return react().useState(initial);
@@ -1468,6 +1498,15 @@
     return null;
   }
 
+  // src/projets/libelles.ts
+  function libelleVoie(voie) {
+    const v = T.projets.voies;
+    if (voie === "hermes") return v.hermes;
+    if (voie === "poste-codex") return v.posteCodex;
+    if (voie === "poste-claude") return v.posteClaude;
+    return null;
+  }
+
   // src/projets/briques.tsx
   function Etiquette(props) {
     if (props.libelle) {
@@ -1819,12 +1858,39 @@
   function libelleClasse(classe) {
     return typeof classe === "string" && classe in CLASSES ? CLASSES[classe] ?? null : null;
   }
-  function libelleVoie(voie) {
+  function libelleVoie2(voie) {
     const v = T.projets.voies;
     return voie === "hermes" ? v.hermes : voie === "poste-codex" ? v.posteCodex : voie === "poste-claude" ? v.posteClaude : null;
   }
+  function libelleVisibilite(visibilite) {
+    const v = T.poste.depots.visibilites;
+    switch (visibilite) {
+      case "prive":
+        return L(v.prive, "succes");
+      case "public":
+        return L(v.public, "neutre");
+      case "inconnue":
+        return L(v.inconnue, "degrade");
+      default:
+        return null;
+    }
+  }
+  function libelleLecture(lecture) {
+    const l = T.poste.depots.lectures;
+    switch (lecture) {
+      case "ok":
+        return L(l.ok, "succes");
+      case "refusee":
+        return L(l.refusee, "echec");
+      case "inconnue":
+        return L(l.inconnue, "degrade");
+      default:
+        return null;
+    }
+  }
 
   // src/poste/EtatPoste.tsx
+  var VOIES_DU_POSTE = ["poste-codex", "poste-claude"];
   function OuiNon2(props) {
     if (typeof props.valeur !== "boolean") return /* @__PURE__ */ h(Donnee, { valeur: null });
     return /* @__PURE__ */ h("span", null, props.valeur ? T.commun.oui : T.commun.non);
@@ -1898,7 +1964,21 @@
     const bac = c.bac_a_sable_codex ?? {};
     const versions = c.versions ?? {};
     const depots = Array.isArray(c.depots) ? c.depots : [];
-    return /* @__PURE__ */ h("div", { className: "acp-grille" }, /* @__PURE__ */ h(Carte, { titre: T.poste.inventaireTitre, id: "acp-poste-inventaire" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.recuLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.recu_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.releve_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.versionPoste }, /* @__PURE__ */ h(Donnee, { valeur: c.version_poste, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.compteTitre, id: "acp-poste-compte" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.compte }, c.poste?.compte === "dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteDedie) : c.poste?.compte === "proprietaire" ? /* @__PURE__ */ h("span", null, T.poste.compteProprietaire) : c.poste?.compte === "uid_dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteUidDedie) : /* @__PURE__ */ h(Donnee, { valeur: c.poste?.compte })), c.poste?.plateforme === "linux" ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.noyau }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.noyau, mono: true })) : /* @__PURE__ */ h(Ligne, { libelle: T.poste.windows }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.windows, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.python }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.python, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.empreintePolitique }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.politique_empreinte, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.versionsTitre, id: "acp-poste-versions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, ["codex", "claude"].map((cle) => /* @__PURE__ */ h(Ligne, { key: cle, libelle: cle === "codex" ? T.poste.codex : T.poste.claude }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.lue), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.lue, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.testee), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.testee, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.conformite), " ", /* @__PURE__ */ h(OuiNon2, { valeur: versions[cle]?.conforme })))))), c.poste?.plateforme === "linux" ? null : /* @__PURE__ */ h(Carte, { titre: T.poste.bacTitre, id: "acp-poste-bac" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.readiness }, /* @__PURE__ */ h(Donnee, { valeur: bac.readiness, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.modeLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.mode_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.origineMode }, /* @__PURE__ */ h(Donnee, { valeur: bac.origine_mode, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.palierLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.palier_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.stockage }, /* @__PURE__ */ h(Donnee, { valeur: bac.stockage_identifiants_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.ecritureAdmise }, /* @__PURE__ */ h(OuiNon2, { valeur: bac.ecriture_admise })), bac.raison ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.raison }, /* @__PURE__ */ h(Donnee, { valeur: bac.raison })) : null)), /* @__PURE__ */ h(Carte, { titre: T.poste.connexionsTitre, id: "acp-poste-connexions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.codex }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionCodex(c.connexions?.codex), brut: c.connexions?.codex })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.offre }, /* @__PURE__ */ h(Donnee, { valeur: c.connexions?.plan_codex, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.claude }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionClaude(c.connexions?.claude), brut: c.connexions?.claude })))), /* @__PURE__ */ h(Carte, { titre: T.poste.depotsTitre, id: "acp-poste-depots" }, depots.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunDepot) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, depots.map((d, i) => /* @__PURE__ */ h("li", { key: `${d.alias ?? i}` }, /* @__PURE__ */ h(Donnee, { valeur: d.alias, mono: true }))))));
+    const mesures = Array.isArray(props.donnees.executant?.depots) ? props.donnees.executant.depots : null;
+    return /* @__PURE__ */ h("div", { className: "acp-grille" }, /* @__PURE__ */ h(Carte, { titre: T.poste.inventaireTitre, id: "acp-poste-inventaire" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.recuLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.recu_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.releveLe }, /* @__PURE__ */ h(Horodatage, { valeur: inventaire.releve_le })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.versionPoste }, /* @__PURE__ */ h(Donnee, { valeur: c.version_poste, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.compteTitre, id: "acp-poste-compte" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.compte }, c.poste?.compte === "dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteDedie) : c.poste?.compte === "proprietaire" ? /* @__PURE__ */ h("span", null, T.poste.compteProprietaire) : c.poste?.compte === "uid_dedie" ? /* @__PURE__ */ h("span", null, T.poste.compteUidDedie) : /* @__PURE__ */ h(Donnee, { valeur: c.poste?.compte })), c.poste?.plateforme === "linux" ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.executant.noyau }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.noyau, mono: true })) : /* @__PURE__ */ h(Ligne, { libelle: T.poste.windows }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.windows, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.python }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.python, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.empreintePolitique }, /* @__PURE__ */ h(Donnee, { valeur: c.poste?.politique_empreinte, mono: true })))), /* @__PURE__ */ h(Carte, { titre: T.poste.versionsTitre, id: "acp-poste-versions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, ["codex", "claude"].map((cle) => /* @__PURE__ */ h(Ligne, { key: cle, libelle: cle === "codex" ? T.poste.codex : T.poste.claude }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.lue), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.lue, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.testee), " ", /* @__PURE__ */ h(Donnee, { valeur: versions[cle]?.testee, mono: true }), /* @__PURE__ */ h("span", { className: "acp-discret" }, T.poste.conformite), " ", /* @__PURE__ */ h(OuiNon2, { valeur: versions[cle]?.conforme })))))), c.poste?.plateforme === "linux" ? null : /* @__PURE__ */ h(Carte, { titre: T.poste.bacTitre, id: "acp-poste-bac" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.readiness }, /* @__PURE__ */ h(Donnee, { valeur: bac.readiness, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.modeLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.mode_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.origineMode }, /* @__PURE__ */ h(Donnee, { valeur: bac.origine_mode, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.palierLu }, /* @__PURE__ */ h(Donnee, { valeur: bac.palier_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.stockage }, /* @__PURE__ */ h(Donnee, { valeur: bac.stockage_identifiants_lu, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.ecritureAdmise }, /* @__PURE__ */ h(OuiNon2, { valeur: bac.ecriture_admise })), bac.raison ? /* @__PURE__ */ h(Ligne, { libelle: T.poste.raison }, /* @__PURE__ */ h(Donnee, { valeur: bac.raison })) : null)), /* @__PURE__ */ h(Carte, { titre: T.poste.connexionsTitre, id: "acp-poste-connexions" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.codex }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionCodex(c.connexions?.codex), brut: c.connexions?.codex })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.offre }, /* @__PURE__ */ h(Donnee, { valeur: c.connexions?.plan_codex, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: T.poste.claude }, /* @__PURE__ */ h(Etiquette, { libelle: libelleConnexionClaude(c.connexions?.claude), brut: c.connexions?.claude })))), /* @__PURE__ */ h(Depots, { depots: mesures ?? depots.map((d) => ({
+      alias: d.alias,
+      visibilite: d.visibilite ?? null,
+      lecture: d.lecture ?? null,
+      verifie_le: d.verifie_le ?? null
+    })) }));
+  }
+  function Depots(props) {
+    const D = T.poste.depots;
+    return /* @__PURE__ */ h(Carte, { titre: T.poste.depotsTitre, id: "acp-poste-depots" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, D.aide), props.depots.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunDepot) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, props.depots.map((d, i) => {
+      const mesure = d.visibilite != null || d.lecture != null;
+      const fermees = d.voies_fermees && typeof d.voies_fermees === "object" ? d.voies_fermees : null;
+      return /* @__PURE__ */ h("li", { key: `${d.alias ?? i}`, "data-acp-depot": d.alias ?? "" }, /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: d.alias, mono: true })), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: D.visibilite }, mesure ? /* @__PURE__ */ h(Etiquette, { libelle: libelleVisibilite(d.visibilite), brut: d.visibilite }) : /* @__PURE__ */ h("span", null, D.nonMesure)), /* @__PURE__ */ h(Ligne, { libelle: D.lecture }, mesure ? /* @__PURE__ */ h(Etiquette, { libelle: libelleLecture(d.lecture), brut: d.lecture }) : /* @__PURE__ */ h(Donnee, { valeur: null })), /* @__PURE__ */ h(Ligne, { libelle: D.verifieLe }, /* @__PURE__ */ h(Horodatage, { valeur: d.verifie_le })), /* @__PURE__ */ h(Ligne, { libelle: D.voies }, fermees === null ? /* @__PURE__ */ h(Donnee, { valeur: null }) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, VOIES_DU_POSTE.map((voie) => /* @__PURE__ */ h("li", { key: voie, className: "acp-etat", "data-acp-voie": voie }, /* @__PURE__ */ h("span", null, libelleVoie(voie)), " ", fermees[voie] ? /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h(Etiquette, { libelle: { texte: D.fermee, famille: "echec" } }), " ", /* @__PURE__ */ h(Donnee, { valeur: fermees[voie] })) : /* @__PURE__ */ h(Etiquette, { libelle: { texte: D.ouverte, famille: "succes" } })))))));
+    })));
   }
   function EtatPoste(props) {
     const lecture = useDonnees(lirePostePage, props.jeton, ["poste", "projets", "pause", "quotas"]);
@@ -1945,7 +2025,7 @@
     const compteurs = Array.isArray(q.compteurs) ? q.compteurs : [];
     const seuil = typeof q.seuil_pct === "number" ? q.seuil_pct : null;
     const id = `acp-quotas-${props.voie}`;
-    return /* @__PURE__ */ h(Carte, { titre: libelleVoie(props.voie) ?? props.voie, id }, /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuotas(q.etat), brut: q.etat }), q.releve_le ? /* @__PURE__ */ h(Horodatage, { valeur: q.releve_le }) : null), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.seuil }, /* @__PURE__ */ h(Donnee, { valeur: seuil === null ? null : `${seuil} %` }))), q.source_libelle ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: q.source_libelle })) : null, q.detail ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: q.detail })) : null, compteurs.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunCompteur) : compteurs.map((c, i) => /* @__PURE__ */ h(Compteur, { key: `${c.limit_id ?? i}`, compteur: c, seuil, prefixe: id })));
+    return /* @__PURE__ */ h(Carte, { titre: libelleVoie2(props.voie) ?? props.voie, id }, /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleEtatQuotas(q.etat), brut: q.etat }), q.releve_le ? /* @__PURE__ */ h(Horodatage, { valeur: q.releve_le }) : null), /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: T.poste.seuil }, /* @__PURE__ */ h(Donnee, { valeur: seuil === null ? null : `${seuil} %` }))), q.source_libelle ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: q.source_libelle })) : null, q.detail ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: q.detail })) : null, compteurs.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, T.poste.aucunCompteur) : compteurs.map((c, i) => /* @__PURE__ */ h(Compteur, { key: `${c.limit_id ?? i}`, compteur: c, seuil, prefixe: id })));
   }
   function Quotas(props) {
     const lecture = useDonnees(lireQuotas, props.jeton, ["quotas", "poste"]);
@@ -1995,7 +2075,7 @@
           palier: entree.palier ?? null
         })
       },
-      props.voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": libelleVoie(v) ? void 0 : "" }, libelleVoie(v) ?? v))
+      props.voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": libelleVoie2(v) ? void 0 : "" }, libelleVoie2(v) ?? v))
     )), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: `${id}-modele` }, T.poste.champModele), /* @__PURE__ */ h(
       "select",
       {
@@ -2174,7 +2254,7 @@
         surClic: () => desactiver(Number(s.id)),
         desactive: desactivation.etat.etat === "envoi"
       }
-    ))))), /* @__PURE__ */ h(RetourEnvoi, { etat: desactivation.etat, reussite: T.poste.surchargeDesactivee }), /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: envoyer }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-classe" }, T.poste.classe), /* @__PURE__ */ h("select", { id: "acp-surcharge-classe", value: classe, onChange: (e) => fixerClasse(e.currentTarget.value) }, classes.map((c) => /* @__PURE__ */ h("option", { key: c, value: c, "data-acp-donnee": libelleClasse(c) ? void 0 : "" }, libelleClasse(c) ?? c)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-voie" }, T.poste.champVoie), /* @__PURE__ */ h("select", { id: "acp-surcharge-voie", value: voieChoisie, onChange: (e) => fixerVoie(e.currentTarget.value) }, voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": libelleVoie(v) ? void 0 : "" }, libelleVoie(v) ?? v)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-modele" }, T.poste.champModele), /* @__PURE__ */ h("input", { id: "acp-surcharge-modele", value: modele, onChange: (e) => fixerModele(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-effort" }, T.poste.champEffort), /* @__PURE__ */ h("input", { id: "acp-surcharge-effort", value: effort, onChange: (e) => fixerEffort(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-motif" }, T.poste.champMotif), /* @__PURE__ */ h("input", { id: "acp-surcharge-motif", value: motif, maxLength: 200, onChange: (e) => fixerMotif(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+    ))))), /* @__PURE__ */ h(RetourEnvoi, { etat: desactivation.etat, reussite: T.poste.surchargeDesactivee }), /* @__PURE__ */ h("form", { className: "acp-formulaire", onSubmit: envoyer }, /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-classe" }, T.poste.classe), /* @__PURE__ */ h("select", { id: "acp-surcharge-classe", value: classe, onChange: (e) => fixerClasse(e.currentTarget.value) }, classes.map((c) => /* @__PURE__ */ h("option", { key: c, value: c, "data-acp-donnee": libelleClasse(c) ? void 0 : "" }, libelleClasse(c) ?? c)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-voie" }, T.poste.champVoie), /* @__PURE__ */ h("select", { id: "acp-surcharge-voie", value: voieChoisie, onChange: (e) => fixerVoie(e.currentTarget.value) }, voies.map((v) => /* @__PURE__ */ h("option", { key: v, value: v, "data-acp-donnee": libelleVoie2(v) ? void 0 : "" }, libelleVoie2(v) ?? v)))), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-modele" }, T.poste.champModele), /* @__PURE__ */ h("input", { id: "acp-surcharge-modele", value: modele, onChange: (e) => fixerModele(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-effort" }, T.poste.champEffort), /* @__PURE__ */ h("input", { id: "acp-surcharge-effort", value: effort, onChange: (e) => fixerEffort(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-champ" }, /* @__PURE__ */ h("label", { htmlFor: "acp-surcharge-motif" }, T.poste.champMotif), /* @__PURE__ */ h("input", { id: "acp-surcharge-motif", value: motif, maxLength: 200, onChange: (e) => fixerMotif(e.currentTarget.value) })), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
       Bouton,
       {
         type: "submit",
@@ -2195,7 +2275,7 @@
       if (fait) props.apres();
     };
     const id = `acp-routage-liste-${props.voie}`;
-    return /* @__PURE__ */ h("section", { className: "acp-carte", "aria-labelledby": id }, /* @__PURE__ */ h("h3", { className: "acp-carte__titre", id }, libelleVoie(props.voie) ?? props.voie), /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleBadge(c?.badge), brut: c?.badge }), c?.releve_le ? /* @__PURE__ */ h(Horodatage, { valeur: c.releve_le }) : null, c?.version_cli ? /* @__PURE__ */ h(Donnee, { valeur: c.version_cli, mono: true }) : null), c?.detail ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: c.detail })) : null, c?.documentation_lue_le ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: c.documentation_lue_le, mono: true })) : null, modeles.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, !c || c.badge === "inconnu" ? T.poste.aucunReleve : T.poste.aucunModele) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, modeles.map((m) => /* @__PURE__ */ h("li", { key: m.id, className: "acp-groupe" }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: m.id, mono: true }), m.isDefault === true ? /* @__PURE__ */ h("span", { className: "acp-pastille acp-pastille--actif" }, T.poste.parDefaut) : null), /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.efforts), " ", Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length === 0 ? /* @__PURE__ */ h("span", null, T.poste.aucunEffort) : Array.isArray(m.supportedReasoningEfforts) ? /* @__PURE__ */ h(Donnee, { valeur: m.supportedReasoningEfforts.join(", "), mono: true }) : /* @__PURE__ */ h("span", null, T.poste.effortsInconnus)), m.resolution_documentee ? /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.resolution), " ", /* @__PURE__ */ h(Donnee, { valeur: m.resolution_documentee, mono: true })) : null))), c?.badge === "liste_de_secours_probable" && typeof c.releve_id === "number" ? /* @__PURE__ */ h("div", { className: "acp-groupe" }, /* @__PURE__ */ h("p", { className: "acp-discret", id: `${id}-accepter` }, T.poste.accepterAide), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
+    return /* @__PURE__ */ h("section", { className: "acp-carte", "aria-labelledby": id }, /* @__PURE__ */ h("h3", { className: "acp-carte__titre", id }, libelleVoie2(props.voie) ?? props.voie), /* @__PURE__ */ h("p", { className: "acp-etat" }, /* @__PURE__ */ h(Etiquette, { libelle: libelleBadge(c?.badge), brut: c?.badge }), c?.releve_le ? /* @__PURE__ */ h(Horodatage, { valeur: c.releve_le }) : null, c?.version_cli ? /* @__PURE__ */ h(Donnee, { valeur: c.version_cli, mono: true }) : null), c?.detail ? /* @__PURE__ */ h("p", null, /* @__PURE__ */ h(Donnee, { valeur: c.detail })) : null, c?.documentation_lue_le ? /* @__PURE__ */ h("p", { className: "acp-discret" }, /* @__PURE__ */ h(Donnee, { valeur: c.documentation_lue_le, mono: true })) : null, modeles.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, !c || c.badge === "inconnu" ? T.poste.aucunReleve : T.poste.aucunModele) : /* @__PURE__ */ h("ul", { className: "acp-liste" }, modeles.map((m) => /* @__PURE__ */ h("li", { key: m.id, className: "acp-groupe" }, /* @__PURE__ */ h("span", { className: "acp-etat" }, /* @__PURE__ */ h(Donnee, { valeur: m.id, mono: true }), m.isDefault === true ? /* @__PURE__ */ h("span", { className: "acp-pastille acp-pastille--actif" }, T.poste.parDefaut) : null), /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.efforts), " ", Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length === 0 ? /* @__PURE__ */ h("span", null, T.poste.aucunEffort) : Array.isArray(m.supportedReasoningEfforts) ? /* @__PURE__ */ h(Donnee, { valeur: m.supportedReasoningEfforts.join(", "), mono: true }) : /* @__PURE__ */ h("span", null, T.poste.effortsInconnus)), m.resolution_documentee ? /* @__PURE__ */ h("span", { className: "acp-discret" }, /* @__PURE__ */ h("span", null, T.poste.resolution), " ", /* @__PURE__ */ h(Donnee, { valeur: m.resolution_documentee, mono: true })) : null))), c?.badge === "liste_de_secours_probable" && typeof c.releve_id === "number" ? /* @__PURE__ */ h("div", { className: "acp-groupe" }, /* @__PURE__ */ h("p", { className: "acp-discret", id: `${id}-accepter` }, T.poste.accepterAide), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(
       Bouton,
       {
         libelle: T.poste.accepterReleve,
