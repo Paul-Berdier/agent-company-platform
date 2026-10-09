@@ -3,7 +3,7 @@
 État du 2 octobre 2026 (P8) et du 9 octobre 2026 (P8b). Étape P8 du [plan d'autonomie](autonomie.md) (§ 8,
 volet desktop), branche `refonte/hermes-p8`, partie de `refonte/hermes` (`b3faac0`, P0 à P5 fusionnées) ;
 fusionnée dans `refonte/hermes` par la PR #20 (`b715edb`, 2 octobre 2026). **Rien n'est déployé.** Version
-0.11.0 inchangée.
+0.11.0 inchangée par P8 et P8b.
 
 **Étape P8b (8 octobre 2026)** : station alignée sur P7, branche `refonte/hermes-p8b` (de
 `refonte/hermes` `b9779f1`, P0 à P8 et P7) ; voir § « P8b » plus bas, et ses corrections

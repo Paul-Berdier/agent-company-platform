@@ -6,14 +6,14 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [1.0.0] - date à relever — refonte « Hermes au centre »
 
-> **Section préparée, version non ouverte.** Écrite le 8 octobre 2026 à l'étape P9 (part E), complétée le 9 octobre
-> 2026 (parts B et C closes, SECU-TUI et P8b fusionnées, branches de P9 réunies) : `VERSION` vaut encore 0.11.0. La
-> date sera celle du commit `chore(release): prepare 1.0.0 changelog`, après la relecture indépendante de toute P9
-> et le commit d'ouverture (D129). Les runs de la PR de `refonte/hermes-p9` et de
-> celle vers `main` n'y figureront pas : le commit du journal les précède (un commit ne peut citer les runs que son
-> propre push déclenche, et le compléter après la fusion déplacerait l'étiquette hors du commit de fusion). Ils vont
-> dans `docs/refonte/preuves-1.0.0.md` : § 3 pour la PR de `refonte/hermes-p9`, § 4 pour celle vers `main`
-> (complété après l'étiquette par une PR de documentation seule).
+> **Section préparée.** Écrite le 8 octobre 2026 à l'étape P9 (part E), complétée le 9 octobre 2026 (parts B et C
+> closes, SECU-TUI et P8b fusionnées, branches de P9 réunies, relecture indépendante de toute P9 traitée). Le commit
+> `chore(release): prepare 1.0.0 changelog`, dernier de P9, pose la date et retire cet encadré (D163) ; il suit le
+> commit d'ouverture (D129). Les runs de ces deux commits, de la PR de `refonte/hermes-p9` et de celle vers `main`
+> n'y figureront pas : le commit du journal les précède (un commit ne peut citer les runs que son propre push
+> déclenche, et le compléter après la fusion déplacerait l'étiquette hors du commit de fusion). Ils vont dans
+> `docs/refonte/preuves-1.0.0.md`, § 3 et § 4, complétés après l'étiquette par une PR de documentation seule
+> (D163).
 
 1.0.0 achève la refonte « Hermes au centre » (étapes P0 à P9). Hermes Agent 0.21.5, épinglé par le condensat de
 l'image `v2026.9.24`, est le seul serveur, le seul orchestrateur et la seule source de vérité ; ACP n'a plus de
@@ -1144,7 +1144,8 @@ Les tags `v0.2.0` à `v0.8.0` existent sur `origin` ; le Lot G a été finalisé
 (fusion `e71ebf6`) après observation d'une CI verte, et son tag annoté `v0.8.0` a été posé
 sur ce commit le 18 septembre 2026. Le tag `v0.9.0` ne sera posé qu'après fusion du Lot H.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.9.0...HEAD
+[1.0.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.9.0...v1.0.0
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.9.0...archive/acp-0.10.0-avant-hermes
 [0.9.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...v0.7.0

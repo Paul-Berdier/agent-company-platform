@@ -307,13 +307,15 @@ numérotées à part, sont dans [desktop.md](desktop.md)). La documentation écr
 
 ### Étape P9 : décisions D122 à D155, **appliquées**
 
-État au 9 octobre 2026 (côté dépôt, rien de déployé, P9 non fusionnée, 1.0.0 non ouverte) : manuel d'exploitation
+État au 9 octobre 2026 (côté dépôt, rien de déployé ; 1.0.0 préparée, fusion dans `main` et étiquette en attente
+de l'accord du propriétaire) : manuel d'exploitation
 [exploitation.md](../exploitation.md) ; procédures de restauration et de montée de version dans [railway.md](railway.md)
 § 4.11 bis, § 9, § 10 d et § 10 g ; parts A (outillage de version) et D (procédures) relues ; parts B (test de
 restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, exécutées par l'intégration continue,
 preuves relevées dans [preuves-1.0.0.md](preuves-1.0.0.md) § 3 ; part E (documentation finale) faite ; branches
-réunies sur `refonte/hermes-p9`. Restent : relecture indépendante de toute P9, ouverture 1.0.0 (D129) et journal
-daté, PR vers `refonte/hermes`, puis publication (part F, accord du propriétaire).
+réunies sur `refonte/hermes-p9` ; relecture indépendante de toute P9 faite le 9 octobre 2026 (D161 à D163). Puis :
+ouverture 1.0.0 (D129) et journal daté, les deux derniers commits de la branche ; PR vers `refonte/hermes` ;
+publication (part F, accord du propriétaire).
 
 Comme pour P6 et P7, le propriétaire **fournit les comptes** et laisse Hermes gérer l'exploitation : les
 recommandations du cahier de conception P9 (§ 12) sont **appliquées**, et non « à confirmer », de même que les
@@ -339,7 +341,7 @@ commentaires : la colonne « Remarque » donne la correspondance.
 | D126 | Instantané local des volumes | « À chaud » par `docker pause`, l'analogue local le plus proche d'un instantané copie-sur-écriture de Railway, plus un instantané froid | Copie sans gel : des fichiers d'instants différents dans un même volume | P9-5 du cahier ; cahier § 3.3 ; `hermes/tests/contrat/volumes.py` |
 | D127 | Ordre de restauration de l'exécutant face à Hermes | Fixé **par la mesure** R2b, jamais écrit sans elle ; tranché par D136 | Règle écrite sans mesure : une donnée inventée | P9-6 du cahier ; cahier § 3.4 |
 | D128 | Forme du journal 1.0.0 | Section 1.0.0 synthétique (six rubriques) ; journal par étape et notes de reprise déplacés sans modification dans `docs/refonte/historique.md` | Garder dans le journal les quelque 770 lignes des sections d'étape : journal illisible | P9-7 du cahier ; cahier § 7.1 et § 8.4 |
-| D129 | Place du commit d'ouverture 1.0.0 | Avant-dernier commit de P9, **une fois P9 prouvée** ; remplacements fichier par fichier, jamais global ; faux positif exclu : l'intervalle `^0.11.0` de `graphql` dans `.railway/package-lock.json` | Ouverture en tête de branche : `refonte/hermes` porterait 1.0.0 sans ses preuves | P9-8 du cahier ; cahier § 6 ; **pas encore fait** au 9 octobre 2026 (`VERSION` : 0.11.0) |
+| D129 | Place du commit d'ouverture 1.0.0 | Avant-dernier commit de P9, **une fois P9 prouvée** ; remplacements fichier par fichier, jamais global ; faux positif exclu : l'intervalle `^0.11.0` de `graphql` dans `.railway/package-lock.json` | Ouverture en tête de branche : `refonte/hermes` porterait 1.0.0 sans ses preuves | P9-8 du cahier ; cahier § 6 ; SHA de l'ouverture relevé au § 3 des [preuves](preuves-1.0.0.md) (D163) |
 | D130 | Engagement de versionnage sémantique de 1.0.0 | Limité à **nos** interfaces : contrat `acp-poste/1` (routes `/api/plugins/acp-poste/v1/*`, dont `/v1/meta`), protocole `acp-machine/1`, format `ACPB1`, commandes `acp-poste`, formats de `poste.toml` et d'`executant.toml`, variables Railway documentées ([image.md](image.md) § 4) ; une rupture de l'une d'elles appelle 2.0.0 | Engager aussi les surfaces de Hermes (REST du tableau de bord, JSON-RPC, SDK des greffons) : elles ne nous appartiennent pas et suivent la version épinglée | P9-9 du cahier ; cahier § 6.4 |
 | D131 | `Desktop Release` à l'étiquette `v1.0.0` | Laissé tel quel : l'étiquette crée un **brouillon non signé** ; le publier est un geste du propriétaire seul | Désactiver le déclencheur pour 1.0.0 : le premier exercice du workflow serait perdu, alors que le brouillon n'est pas public et qu'un échec ne publie rien | P9-10 du cahier ; cahier § 9.3 |
 | D132 | Contrôle des décisions documentées | Numéros à trois chiffres, en citation comme en définition ; `docs/exploitation.md` ajouté aux sources contrôlées | Deux chiffres : D100 et au-delà n'étaient ni vus cités, ni vus définis | P9-11 du cahier ; `scripts/tests/test_decisions_documentees.py` ; fait en part A (`3c47033`) |
@@ -444,8 +446,9 @@ Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
   geste du propriétaire ([railway.md](railway.md) § 4).
 - **P9** : parts A à E faites côté dépôt et réunies sur `refonte/hermes-p9` (état ci-dessus, § 1, « Étape P9 ») ;
   preuves : [preuves-1.0.0.md](preuves-1.0.0.md) § 3 ; manuel du propriétaire : [exploitation.md](../exploitation.md).
-  Restent la relecture indépendante de toute P9, l'ouverture 1.0.0 et le journal daté, la PR vers
-  `refonte/hermes`, puis la PR vers `main` et l'étiquette `v1.0.0`, après l'accord du propriétaire.
+  Relecture indépendante de toute P9 faite (9 octobre 2026) ; puis l'ouverture 1.0.0 et le journal daté (deux
+  derniers commits de la branche), la PR vers `refonte/hermes`, puis la PR vers `main` et l'étiquette `v1.0.0`,
+  après l'accord du propriétaire.
 
 ### État d'avancement au 25 septembre 2026 (pour mémoire)
 
@@ -1346,8 +1349,8 @@ Autres preuves :
 
 ### P9 — Exploitation, montée de version et publication
 
-> **État du 9 octobre 2026** : parts A à E **faites côté dépôt** sur `refonte/hermes-p9` (non fusionnée ; 1.0.0 non
-> ouverte) : manuel [exploitation.md](../exploitation.md), restauration R1 à R4 et montée de données prouvées en
+> **État du 9 octobre 2026** : parts A à E **faites côté dépôt** sur `refonte/hermes-p9`, relues de bout en bout
+> (1.0.0 préparée ; fusion dans `main` et étiquette en attente de l'accord du propriétaire) : manuel [exploitation.md](../exploitation.md), restauration R1 à R4 et montée de données prouvées en
 > intégration continue, témoin `v2026.9.21`. Écarts à ce texte, décidés et dits : montée répétée à blanc et témoin
 > d'une release antérieure, faute de release suivante (D122) ; aucun environnement Railway éphémère (D123) ;
 > restauration répétée en production avant d'y mettre des données, et non dans un environnement jetable (D124).

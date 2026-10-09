@@ -1,8 +1,8 @@
 # Agent Company Platform (ACP)
 
 Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT) : c'est la
-refonte « Hermes au centre ». Version **0.11.0** ; **1.0.0 est préparée** (étape P9 ; ouverture et publication à
-venir) : rien n'est encore publié ni **déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL,
+refonte « Hermes au centre ». **1.0.0 est préparée** (étape P9) ; sa fusion dans `main` et l'étiquette `v1.0.0`
+attendent l'accord du propriétaire : rien n'est encore publié ni **déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL,
 interface web Vite, CLI `acp`,
 déploiement Railway multi-services) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
 
@@ -44,8 +44,9 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
 - Étapes P0 à P8 de la refonte fusionnées dans `refonte/hermes`, puis, le 9 octobre 2026, le correctif de sécurité
   SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`). P9 (exploitation, montée
   de version, publication) est faite côté dépôt sur `refonte/hermes-p9` (parts A à E, branches réunies le
-  9 octobre 2026), non fusionnée : restent sa relecture indépendante, l'ouverture de 1.0.0 et sa PR, puis la
-  publication après l'accord du propriétaire. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
+  9 octobre 2026), relue de bout en bout le 9 octobre 2026 ; la version 1.0.0 s'ouvre par les deux derniers commits
+  de cette branche (ouverture, puis journal daté) ; la fusion dans `main` et l'étiquette attendent l'accord du
+  propriétaire. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
 - **Non déployé** : le premier déploiement est un geste du propriétaire
   ([`docs/refonte/railway.md`](docs/refonte/railway.md) § 4). La branche que l'IaC déploie (`refonte/hermes`) porte
   depuis le 9 octobre 2026 le correctif du constat de sécurité ci-dessous. Ce qui ne se prouve que sur Railway (bord,

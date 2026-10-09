@@ -24,14 +24,15 @@ remplacées par `docs/refonte/autonomie.md`.
 **Fin de la refonte « Hermes au centre » (en cours, étape P9).** Les étapes P0 à P8 ont été publiées une à une
 vers `refonte/hermes` (recette d'alors : `docs/refonte/historique.md`, partie D). Pour finir :
 
-1. P9 se termine sur `refonte/hermes-p9`, qui a réuni ses parts (`refonte/hermes-p9bc`, `-p9c`, `-p9e`) et
-   `refonte/hermes` le 9 octobre 2026 par commits de fusion (comme `-p9c` dans `-p9bc`, `b867810`), jamais par
-   rebase d'une branche poussée : commits de travail, suite complète verte avant chacun, CI verte, preuves de
+1. P9 se termine sur `refonte/hermes-p9`, qui a réuni ses parts et `refonte/hermes` le 9 octobre 2026 :
+   `refonte/hermes-p9bc` (qui contient `-p9c`, fusionnée par `b867810`) en avance rapide, puis `-p9e` (`916bf7a`)
+   et `refonte/hermes` (`7b0d3d7`) par commits de fusion, jamais par rebase d'une branche poussée : commits de travail, suite complète verte avant chacun, CI verte, preuves de
    l'étape publiées dans la documentation, relecture indépendante de toute P9.
 2. Une fois P9 prouvée, sur `refonte/hermes-p9` et **avant** sa PR (D129) : commit d'ouverture
    `chore(release): open 1.0.0` (fichier `VERSION` et toutes les copies vérifiées par `scripts/check_version.py`,
    fichier par fichier), puis `chore(release): prepare 1.0.0 changelog` (section du journal datée, déjà préparée
-   dans `CHANGELOG.md`) : ce sont les deux derniers commits de la branche.
+   dans `CHANGELOG.md`) : ce sont les deux derniers commits de la branche. Les textes d'état sont déjà vrais après
+   eux (D163) : l'ouverture reste mécanique ; le journal pose sa date et retire son encadré « Section préparée ».
 3. PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion par commit de fusion, **sans
    étiquette**.
 4. PR de `refonte/hermes` vers `main` ; fusion par commit de fusion **après l'accord explicite du propriétaire**,
