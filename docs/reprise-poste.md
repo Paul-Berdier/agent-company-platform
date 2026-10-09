@@ -15,30 +15,30 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 
 - **Version 0.11.0**. **1.0.0 en préparation, non ouverte** : le commit d'ouverture et le journal daté viendront à
   la fin de P9 (D129) ; la fusion dans `main` et l'étiquette `v1.0.0` attendront l'accord du propriétaire.
-- **Rien n'est déployé sur Railway**, et rien ne devrait l'être avant la fusion du chantier SECU-TUI (§ 6, n° 1) :
-  la branche que l'IaC déploie porte encore le défaut qu'il corrige. Le premier déploiement est un geste du
-  propriétaire ([railway.md](refonte/railway.md) § 4).
+- **Rien n'est déployé sur Railway**. Le chantier SECU-TUI, qui retenait le déploiement, est fusionné (PR #23,
+  `5026a70`, 9 octobre 2026) : la branche que l'IaC déploie porte son correctif (§ 6, n° 1). Le premier
+  déploiement est un geste du propriétaire ([railway.md](refonte/railway.md) § 4).
 - **Branches** : `main` = `60a49b6` (ancienne plateforme) ; `refonte/hermes`, branche d'intégration et branche
-  déployée par l'IaC, porte P0 à P8 et P7 (dernière fusion : PR #21, `b9779f1`, 8 octobre 2026) ; P9 vit sur
-  `refonte/hermes-p9` (parts A et D et leur relecture), `refonte/hermes-p9bc` (intégration : P7 finale, parts B et
-  C), `refonte/hermes-p9c` (témoin, fusionnée dans `-p9bc` par `b867810`) et `refonte/hermes-p9e` (part E,
-  documentation), **sans PR**. Ces branches peuvent encore avancer (travail en parallèle) : leurs têtes ne sont
-  pas recopiées ici (elles se lisent par `git ls-remote origin 'refonte/hermes-p9*'`) et seront relevées dans
-  ces notes à la réunion des branches de P9 ; `refonte/hermes-p8b` (partie de `b9779f1`, 8 octobre) :
-  autre chantier de la station Qt, en cours, hors de ces notes ; `refonte/hermes-secu-tui` (partie de `b9779f1`,
-  worktree `refonte-hermes-secu`) : **chantier sécurité SECU-TUI**, qui corrige le constat de la défense de P2
-  (§ 6, n° 1), avec sa propre PR vers `refonte/hermes`, pas encore ouverte au 9 octobre 2026 ; tête mouvante,
-  lue par `git ls-remote origin refonte/hermes-secu-tui`.
+  déployée par l'IaC, porte P0 à P8, P7, le correctif de sécurité SECU-TUI (PR #23, `5026a70`) et la station Qt
+  alignée sur P7 (P8b, PR #22, `8583642`, dernière fusion, 9 octobre 2026) ; P9 est **réunie** sur
+  `refonte/hermes-p9` depuis le 9 octobre 2026 : parts A et D, `refonte/hermes-p9bc` (parts B et C, tête
+  `b6f2ada` ; elle contient `refonte/hermes-p9c`, le témoin, fusionnée par `b867810`), `refonte/hermes-p9e` (part
+  E, documentation, tête `3d8d723`) et `refonte/hermes` (`8583642`), réunies par des commits de fusion, **sans PR**
+  à ce jour. Les branches `refonte/hermes-p8b` et `refonte/hermes-secu-tui` sont closes par leurs fusions.
 - **Étiquettes** : `v0.2.0` à `v0.9.0` et `archive/acp-0.10.0-avant-hermes` ; ni `v0.10.0` ni `v0.11.0` (jamais
   publiées) ; aucune `v1.0.0`.
-- **Intégration continue** sur `refonte/hermes` après la fusion de P7 (`b9779f1`) : CI `37795932683`, Image de
-  l'exécutant `37795932983`, Desktop CI `37795932742` et Image Hermes `37795932814` : **vertes**. Runs de chaque
-  étape : [preuves de 1.0.0](refonte/preuves-1.0.0.md).
-- **Docker** : Docker Desktop est **arrêté** sur le poste de travail depuis le 8 octobre 2026 (souhait du
-  propriétaire, D134). Aucune commande Docker en local : images, contrat, navigateur, restauration, témoin et montée
-  de données se prouvent par la CI GitHub (`gh workflow run <fichier> --ref <branche>` pour les jobs manuels) ;
-  les scripts locaux à Docker (bouts en bout du poste et de la station, témoins négatifs de P4 à P6, recompilation
-  du verrou Python) ne tournent plus nulle part (§ 4).
+- **Intégration continue** sur `refonte/hermes` : après la fusion de P7 (`b9779f1`), CI `37795932683`, Image de
+  l'exécutant `37795932983`, Desktop CI `37795932742` et Image Hermes `37795932814` ; après celle de SECU-TUI
+  (`5026a70`), CI `37894912135` et Image Hermes `37894912140` ; après celle de P8b (`8583642`, tête), CI
+  `37900882829`, Desktop CI `37900882827` et Image Hermes `37900882826` : **toutes vertes**. Runs de chaque étape :
+  [preuves de 1.0.0](refonte/preuves-1.0.0.md).
+- **Docker** : Docker Desktop a été **arrêté** sur le poste de travail du 8 au 9 octobre 2026 (souhait du
+  propriétaire, D134) : images, contrat, navigateur, restauration, témoin et montée de données se sont prouvés par la
+  CI GitHub (`gh workflow run <fichier> --ref <branche>` pour les jobs manuels) ; les scripts locaux à Docker (bouts
+  en bout du poste et de la station, témoins négatifs de P4 à P6, recompilation du verrou Python) n'ont tourné nulle
+  part (§ 4). Le 9 octobre 2026, le propriétaire a de nouveau permis Docker en local (« Docker OK »), avec sobriété :
+  une seule pile à la fois, ressources nommées et nettoyées ; la CI reste la preuve qui fait foi. La décision qui
+  remplace D134 et la mise à jour des documents qui le citent restent **à écrire** (fin de P9).
 
 | Étape | Objet | État |
 |---|---|---|
@@ -51,10 +51,12 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 | P6 | exécutant Railway | fusionnée (PR #19, `7697a1c`) ; sonde R0 prête, non lancée |
 | P8 | station Qt rebranchée sur Hermes | fusionnée (PR #20, `b715edb`) ; MCP côté poste reporté |
 | P7 | questions, notifications, continuité ; dépôts réels | fusionnée (PR #21, `b9779f1`) ; aucun dépôt réel ajouté |
-| P9 | exploitation, montée de version, publication 1.0.0 | **en cours**, sans PR : parts A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) exécutées par la CI, encore ouvertes ; E (documentation finale) en préparation ; F (publication) après accord |
+| SECU-TUI | correctif de sécurité : `.env` et sources de secrets du volume | fusionné (PR #23, `5026a70`) ; D156, D157 |
+| P8b | station Qt alignée sur P7 | fusionnée (PR #22, `8583642`) ; D158, D159 ; prouvée contre le faux Hermes seulement |
+| P9 | exploitation, montée de version, publication 1.0.0 | **en cours**, sans PR : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; parts A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) exécutées par la CI, preuves finales à relever ; E (documentation finale) préparée ; F (publication) après accord |
 
 Détail de chaque étape : [historique](refonte/historique.md), partie A (tableau des fusions) et partie B ; P9 :
-[plan](refonte/plan.md) § 1 (D122 à D155) et [manuel](exploitation.md).
+[plan](refonte/plan.md) § 1 (D122 à D155 ; D156 à D159 pour SECU-TUI et P8b) et [manuel](exploitation.md).
 
 ## 2. Décisions du propriétaire
 
@@ -73,7 +75,7 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
   élargissement du périmètre).
 - Exécution principale sur un service Railway séparé, l'**exécutant** (D74) ; le poste Windows devient facultatif.
 - Le propriétaire **fournit les comptes**, Hermes gère l'exploitation : décisions de conception **appliquées** depuis
-  P6 (D74 à D155) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
+  P6 (D74 à D159) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
   comptes, la dépense et l'irréversible ; pour 1.0.0, une seule question : fusion dans `main`, étiquette et branche
   déployée.
 
@@ -82,7 +84,7 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
 | Besoin | Où |
 |---|---|
 | Règles de travail, recette de publication, interdits | `CLAUDE.md` |
-| Plan validé et décisions D1 à D155 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
+| Plan validé et décisions D1 à D159 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
 | Gestes du propriétaire : sauvegardes, restauration, montée de version, incidents | [exploitation.md](exploitation.md), puis [refonte/railway.md](refonte/railway.md) |
 | Image Hermes, variables Railway, managed scope | [refonte/image.md](refonte/image.md) |
 | Identité, interface, catalogue, projets, poste, exécutant, questions | [identite.md](refonte/identite.md), [interface.md](refonte/interface.md), [catalogue.md](refonte/catalogue.md), [projets.md](refonte/projets.md), [poste.md](refonte/poste.md), [executant.md](refonte/executant.md), [questions.md](refonte/questions.md) |
@@ -254,22 +256,18 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
 
 ## 6. Prochaines étapes réelles
 
-1. Avant tout : faire aboutir le **chantier SECU-TUI** (branche `refonte/hermes-secu-tui`), qui a instruit le
-   constat de la défense de P2 (session du tableau de bord qui a reçu, une fois, les outils du `.env` piégé après un
-   redémarrage du conteneur : Image Hermes `37784838264`, tentative 1) : cause prouvée sans course, troisième couche
-   mesurée, correctif SECU-1 et refus SECU-2 verts sur branche jetable (runs `37831355746`, rouge attendu, et
-   `37832691849` ; détail : [preuves](refonte/preuves-1.0.0.md) § 5 et `docs/refonte/image.md` de la branche,
-   § 4.3 bis, § 4.3 ter, § 5). Reste : relecture, PR vers `refonte/hermes`, CI verte, fusion ; ses numéros de
-   décision, provisoires, doivent suivre D155 (D122 à D155 sont déjà pris par P9, sur `refonte/hermes-p9e`), quel
-   que soit l'ordre des fusions ; puis reprendre ses preuves dans les preuves de 1.0.0 et dans le journal 1.0.0
-   préparé (« Limites connues », « Sécurité »).
-2. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, réunir les branches de P9
-   sur `refonte/hermes-p9` et relever leurs têtes dans ces notes, relecture indépendante de toute P9, commit
-   d'ouverture 1.0.0 puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts,
-   fusion.
+1. Fait le 9 octobre 2026 : le **chantier SECU-TUI**, qui a instruit le constat de la défense de P2 (session du
+   tableau de bord qui a reçu, une fois, les outils du `.env` piégé après un redémarrage du conteneur : Image Hermes
+   `37784838264`, tentative 1), est fusionné (PR #23, `5026a70` ; D156, D157 ; limite restante :
+   [image.md](refonte/image.md) § 10) ; la station alignée sur P7 aussi (P8b, PR #22, `8583642` ; D158, D159) ;
+   `refonte/hermes-p9bc`, `refonte/hermes-p9e` et `refonte/hermes` sont réunies sur `refonte/hermes-p9`. Leurs
+   preuves sont reprises dans les [preuves](refonte/preuves-1.0.0.md) (§ 1 et § 5) et le journal 1.0.0 préparé.
+2. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, écrire la décision qui
+   remplace D134 (Docker de nouveau permis en local), relecture indépendante de toute P9, commit d'ouverture 1.0.0
+   puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion.
 3. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
    de fusion, branche déployée) ; premier run de `Desktop Release` (brouillon non signé).
-4. Gestes du propriétaire sur Railway, après la fusion de SECU-TUI : premier déploiement
+4. Gestes du propriétaire sur Railway : premier déploiement
    ([railway.md](refonte/railway.md) § 4), répétition de maintenance puis de restauration avant d'y mettre des
    données ([exploitation.md](exploitation.md) § 5), sonde R0 de l'exécutant (railway.md § 13.2), canal de
    notification et premier dépôt réel (railway.md § 14).

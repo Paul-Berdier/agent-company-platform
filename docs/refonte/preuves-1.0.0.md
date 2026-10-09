@@ -15,8 +15,8 @@ Conventions :
   arrêtée ; aucune valeur n'est mise à sa place ;
 - chaque nombre vient d'une source citée : notes de reprise et journal des changements recopiés dans
   [historique.md](historique.md) (« B, § n » : partie B ; « C, P n » : partie C), journaux des corrections de P7
-  et de P9 (brouillon de session, non versionné) ou `gh` (PR et runs, relevés le 8 octobre 2026 ; compteurs lus dans
-  le journal du run par `gh run view <id> --log`).
+  et de P9 (brouillon de session, non versionné) ou `gh` (PR et runs, relevés les 8 et 9 octobre 2026 ; compteurs
+  lus dans le journal du run par `gh run view <id> --log`, ou celui du job par l'API des jobs).
 
 Sommaire : § 1 étapes fusionnées · § 2 relevés par étape · § 3 étape P9 · § 4 publication · § 5 non prouvé.
 
@@ -39,6 +39,8 @@ Tous verts, sauf mention.
 | P6 | #19 | `69ddab8` | CI `36947828829`, `36957872826` ; Image Hermes `36957872837` ; Image de l'exécutant `36947828939`, `36957872822` | `7697a1c`, 02/10/2026 | CI `36969374167` ; Image Hermes `36969374083` ; Image de l'exécutant `36969374198` |
 | P8 | #20 | `efef0d8` | CI `36990645230`, `36990681150` ; Image Hermes `36990645262` ; Image de l'exécutant `36990645130` ; Desktop CI `36990681257` | `b715edb`, 02/10/2026 | CI `36995236395` ; Desktop CI `36995236331` |
 | P7 | #21 | `0a1ab98` | CI `37749086751`, `37757254413` ; Image Hermes `37749086760`, `37757254372` ; Image de l'exécutant `37757254309` ; Desktop CI `37757254376` | `b9779f1`, 08/10/2026 | CI `37795932683` ; Image de l'exécutant `37795932983` ; Desktop CI `37795932742` ; Image Hermes `37795932814` (verte, relevée à la fin de la part E de P9) |
+| SECU-TUI (correctif de sécurité, D156 et D157) | #23 | `6a37a8c` | CI `37882628793` (Windows 1 011 et 87 ignorés, Linux 1 044 et 54 ignorés, interface 203, moteur 74), `37877696357` ; Image Hermes `37882628800` (846 dans l'image, 191 au contrat, 10 au navigateur) | `5026a70`, 09/10/2026 | CI `37894912135` ; Image Hermes `37894912140` (846 dans l'image, 191 au contrat, 10 au navigateur) |
+| P8b (station alignée sur P7, D158 et D159) | #22 | `afcb8b3` | CI `37894932818` (Windows 1 011 et 87 ignorés, Linux 1 044 et 54 ignorés, interface 203, moteur 74), `37894929143` ; Image Hermes `37894932956` (846 dans l'image, 191 au contrat, 10 au navigateur), `37894929205` ; Desktop CI `37894932850` (36 suites CTest sur 36) | `8583642`, 09/10/2026 | CI `37900882829` ; Desktop CI `37900882827` ; Image Hermes `37900882826` (846 dans l'image, 191 au contrat, 10 au navigateur) |
 
 Un workflow absent d'une ligne n'a aucun run relevé sur ce commit (filtres de chemins des workflows) ; la CI de
 `29c95b5` a été annulée.
@@ -104,7 +106,7 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
 
 ## 5. Non prouvé (dit)
 
-État au 8 octobre 2026 ; détail : [exploitation.md](../exploitation.md) § 10, [railway.md](railway.md) § 12 et
+État au 9 octobre 2026 ; détail : [exploitation.md](../exploitation.md) § 10, [railway.md](railway.md) § 12 et
 § 14.7, [desktop.md](desktop.md).
 - **Rien n'est déployé sur Railway** : tout ce qui ne se constate que sur Railway (PID 1 et bord réels, cookies
   `Secure` et `trusted_proxies`, clés non documentées de l'IaC, sonde R0 et régime de l'exécutant, sauvegardes
@@ -113,7 +115,8 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
 - La répétition de restauration en production et les reconnexions réelles ; la chaîne complète export chiffré →
   déchiffrement → import sur Railway (prouvée par morceaux).
 - La station Qt après une restauration de l'identité (même règle que le navigateur, non rejouée) ; la station Qt
-  face aux gestes et au flux de P7.
+  alignée sur P7 (P8b) face à un vrai greffon P7 : son flux et ses gestes ne sont éprouvés que contre le faux Hermes
+  de ses tests natifs et les fixtures partagées ([desktop.md](desktop.md), « Non prouvé »).
 - Une montée de Hermes vers une release future ; la montée d'Authelia ; un retour arrière par Rollback ; un vrai agent
   à la place de l'agent factice.
 - Le premier run de `Desktop Release` tant que l'étiquette n'est pas posée ; un installeur réel sur un Windows
@@ -124,15 +127,15 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
   (`scripts/temoins_negatifs_p4.sh` à `_p6.sh`) : scripts à Docker local, appelés par aucun workflow ; depuis D134
   ils ne tournent plus nulle part, et n'ont donc jamais été rejoués sur le code de P7 ni de P9. Le verrou Python ne
   peut pas non plus être recompilé (`scripts/lock_python.ps1` lance Docker).
-- **Constat de sécurité, à corriger avant la publication** : Image Hermes `37784838264` (`fdb41c9`), tentative 1,
-  job `113336818423` rouge sur `hermes/tests/contrat/test_sans_shell_contrat.py::test_volume_piege_apres_relance` :
+- **Constat de sécurité, corrigé et fusionné le 9 octobre 2026 (PR #23, `5026a70` ; § 1), avec une limite** :
+  Image Hermes `37784838264` (`fdb41c9`), tentative 1, job `113336818423` rouge sur `hermes/tests/contrat/test_sans_shell_contrat.py::test_volume_piege_apres_relance` :
   après le redémarrage du conteneur sur un volume piégé, la session du tableau de bord (`/api/ws`) listait `terminal`,
   `write_file`, `execute_code`… (les jeux posés par le `.env` piégé), alors que l'api_server répondait « Tool
   'terminal' does not exist » ; deuxième des trois couches de la défense de P2 ([image.md](image.md) § 5, épingles du
   `.env` géré) vue en défaut **une fois**. Tentative 2 verte, comme ce test dans les autres runs relevés pendant P9.
-  **Instruit hors de P9** par le chantier SECU-TUI : branche `refonte/hermes-secu-tui` (partie de `b9779f1`,
-  worktree `refonte-hermes-secu`, sa propre PR vers `refonte/hermes`, pas encore ouverte au 9 octobre 2026 ; sa tête
-  avance encore). D'après sa documentation (`docs/refonte/image.md` de la branche, § 4.3 bis, § 4.3 ter, § 5 et § 9) :
+  **Instruit hors de P9** par le chantier SECU-TUI : branche `refonte/hermes-secu-tui` (partie de `b9779f1`), sa
+  propre PR vers `refonte/hermes` (#23, tête `6a37a8c`, fusion `5026a70`). D'après sa documentation
+  ([image.md](image.md) § 4.3 bis, § 4.3 ter, § 5, § 9 et § 10) :
   cause racine prouvée sans course (Hermes publie la valeur du `.env` du volume dans `os.environ`, puis applique la
   portée gérée par une écriture séparée ; un fil concurrent du tableau de bord lit l'entre-deux), par un point fixe
   dans le vrai conteneur ; troisième couche mesurée : une session qui a reçu exactement ces outils se voit refuser
@@ -141,6 +144,9 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
   Preuves relevées par `gh` : tests seuls (`4c3647e`) sur le code de P7, run jetable `37831355746` (8 octobre 2026),
   **rouge attendu** ; correctif SECU-1 (retrait par root des clés épinglées des `.env` du volume) et refus SECU-2
   (`373b047`), run jetable `37832691849` (8 octobre 2026), **vert** ; `208ecd7` (documentation de la branche) :
-  Image Hermes `37835575233` et CI `37835575491`, **verts**. Décisions SECU-1 et SECU-2 à numérotation provisoire.
-  **À relever** : relecture, PR, fusion dans `refonte/hermes`, numéros définitifs (à la suite de D155, déjà pris par
-  P9), runs de la fusion ; d'ici là, la branche déployée par l'IaC porte ces défauts.
+  Image Hermes `37835575233` et CI `37835575491`, **verts** ; audit défensif du 9 octobre 2026 : tests seuls
+  (`e5e3f3c`, sur `d5d8b73`), run jetable `37873430373`, **rouge attendu** ; correctif `2c4e2d4`, run jetable
+  `37873804340`, **vert**. Décisions SECU-1 et SECU-2 numérotées **D156** et **D157** ([plan](plan.md) § 1) ; runs
+  de la PR et de la fusion au § 1, verts. **Reste non corrigé** ([image.md](image.md) § 10) : une écriture **directe** d'un `.env` du volume pendant
+  la vie d'un service (faille de Hermes, ou shell du propriétaire) rouvrirait la fenêtre jusqu'à la relance
+  suivante ; quelques variables ni épinglées ni refusées dans le volume restent non mesurées.
