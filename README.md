@@ -85,10 +85,15 @@ de cet engagement ; une rupture de nos interfaces appellera 2.0.0.
 
 ## Vérifier
 
-Sous Windows, avec un Python 3.12 de **python.org** (jamais celui du Microsoft Store), sans Docker :
+Sous Windows, depuis la racine d'un clone, avec un Python 3.12 de **python.org** (jamais celui du Microsoft
+Store, que `scripts/setup.ps1` refuse, même s'il est le premier du `PATH`), sans Docker. `scripts/setup.ps1`
+n'installe que pytest, pytest-asyncio, le contrat et le poste : la troisième ligne complète le venv par le verrou
+haché de la CI, dont `cryptography`, sans lequel des dizaines de tests du poste sont en erreur.
 
 ```powershell
+& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv .venv
 ./scripts/setup.ps1
+.venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
 $env:PYTHONUTF8 = '1'
 .venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 .venv\Scripts\python.exe scripts/check_version.py

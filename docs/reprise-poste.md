@@ -99,10 +99,15 @@ CMake et Ninja ; Inno Setup pour l'empaquetage. Desktop CI tourne sur `windows-2
 Studio 2026 depuis juin 2026).
 
 **Python** : un venv de **python.org**, jamais l'alias Microsoft Store (son interpréteur réel sort du Job Object ;
-`scripts/setup.ps1` le refuse), et **hors de `%TEMP%`** (un nettoyage y a abîmé des venvs). Venv des suites du
-8 octobre 2026 : `.claude/worktrees/lot-h-hardening/.venv` (Python 3.12.10, pytest 9.1.1), avec `cryptography`
-47.0.0 au lieu de 50.0.1 du verrou (aucun test n'en dépend autrement) : sur un nouveau poste, refaire le venv par
-`scripts/setup.ps1`.
+`scripts/setup.ps1` le refuse, même premier du `PATH` : créer d'abord `.venv` avec le Python 3.12 de python.org),
+et **hors de `%TEMP%`** (un nettoyage y a abîmé des venvs). **`scripts/setup.ps1` ne suffit pas** : il n'installe
+que pytest, pytest-asyncio, le contrat et le poste, pas `cryptography`, dont dépendent les tests du poste (autorité
+de test du faux Hermes HTTPS) ; le compléter par le verrou haché de la CI (troisième ligne du bloc ci-dessous).
+Mesuré le 9 octobre 2026 sur un clone neuf de `46e57f1` : venv de `setup.ps1` seul, **1 126 réussis, 84 ignorés,
+48 erreurs** (`ModuleNotFoundError: cryptography`) ; complété par le verrou, **1 174 réussis, 84 ignorés**, et les
+contrôles, le moteur (74) et l'interface (203) verts ; la station Qt n'y a pas été reconstruite. Venv des suites du
+8 octobre 2026 : `.claude/worktrees/lot-h-hardening/.venv` (Python 3.12.10, pytest 9.1.1) ; il n'a `cryptography`
+(47.0.0, au lieu de 50.0.1 du verrou) que parce que le paquet `acp-api` de l'ancienne plateforme l'y a installé.
 
 Qt dans un environnement d'outillage séparé :
 
@@ -116,7 +121,9 @@ $env:QT_ROOT_DIR = "$env:USERPROFILE\Qt\6.8.3\msvc2022_64"
 Contrôles courants depuis la racine du worktree (sans Docker) :
 
 ```powershell
-./scripts/setup.ps1                                   # venv python.org, poste, contrat, npm
+& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv .venv   # Python 3.12 de python.org
+./scripts/setup.ps1                                   # garde du Python, poste, contrat, npm
+.venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt   # dont cryptography
 $env:PYTHONUTF8 = '1'
 .venv\Scripts\python.exe -m pytest -q -p no:cacheprovider   # poste, contrat, outillage, scripts
 .venv\Scripts\python.exe scripts/check_version.py
@@ -161,6 +168,9 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
 
 **Python et tests**
 - Sous Windows, lancer les suites avec `PYTHONUTF8=1` (sinon `UnicodeEncodeError` dans les `print` de preuve).
+- Venv sans `cryptography` (celui de `scripts/setup.ps1` seul) : des dizaines d'**erreurs d'environnement** dans les
+  tests du poste (`ModuleNotFoundError`, depuis `apps/poste/tests/contrat/faux_hermes.py`), sans rapport avec le
+  code ; compléter par le verrou (§ 4) (P6 : 29 erreurs ; P9 : 48).
 - Tests de contrat : Node.js ≥ 22 et `npm ci --ignore-scripts --prefix .railway` (sans eux ils **échouent**) ;
   tests navigateur : Node ≥ 22 et `npm ci --ignore-scripts --prefix apps/interface` ; Hermes ajoute
   `?profile=default` à l'URL de « / » : comparer le chemin.
