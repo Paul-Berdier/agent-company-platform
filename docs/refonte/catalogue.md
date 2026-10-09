@@ -352,8 +352,8 @@ Tests nouveaux :
   `external_dirs` retiré puis rétabli, deux démarrages successifs sans écriture, relance refusée sur
   un serveur stdio, démarrage refusé sur un serveur stdio ou hors catalogue) ; tout conteneur Hermes de test résout `mcp.context7.com` vers son
   bouclage local (aucun appel au vrai serveur) ;
-- navigateur : l'Accueil affiche 16 / 16 skills actives, le Catalogue sert la route et ses 26
-  entrées.
+- navigateur : l'Accueil affiche 16 / 16 skills actives (21 / 21 depuis P4 :
+  `hermes/tests/e2e/test_interface_fr.py`), le Catalogue sert la route et ses 26 entrées.
 
 Protections et leurs témoins négatifs (chaque test prouve ce qui se passerait sans la protection,
 dans l'image épinglée ; aucune image altérée n'a été construite pour cette seconde partie) :

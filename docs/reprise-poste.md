@@ -280,9 +280,9 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
    1.0.0 puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion.
 3. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
    de fusion, branche déployée) ; premier run de `Desktop Release` (brouillon non signé).
-4. Gestes du propriétaire sur Railway : premier déploiement
-   ([railway.md](refonte/railway.md) § 4), répétition de maintenance puis de restauration avant d'y mettre des
-   données ([exploitation.md](exploitation.md) § 5), sonde R0 de l'exécutant (railway.md § 13.2), canal de
-   notification et premier dépôt réel (railway.md § 14).
+4. Gestes du propriétaire sur Railway : sonde R0 de l'exécutant (railway.md § 13.2), **avant** le premier apply ;
+   premier déploiement ([railway.md](refonte/railway.md) § 4) ; répétition de maintenance puis de restauration avant
+   d'y mettre des données ([exploitation.md](exploitation.md) § 5) ; canal de notification et premier dépôt réel
+   (railway.md § 14).
 5. Ensuite : MCP côté exécutant (reporté depuis P8), première montée réelle de Hermes par la procédure du manuel
    (§ 6), confirmation par le propriétaire des choix D1 à D73.

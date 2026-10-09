@@ -212,7 +212,8 @@ d'autre :
 Sans la route (greffon ancien, erreur), l'onglet le dit (« Catalogue ACP indisponible ») ; depuis
 la seconde partie de P3, le test navigateur **exige** la route servie (`catalogue_route_v1:
 "servie"`), les 26 entrées du catalogue (16 livrées, 10 candidates pour le poste) et, sur l'Accueil,
-16 / 16 skills d'ACP actives.
+16 / 16 skills d'ACP actives ; depuis P4, 21 / 21 (cinq skills maison des projets en plus :
+`hermes/tests/e2e/test_interface_fr.py`).
 
 ## 7. Français
 

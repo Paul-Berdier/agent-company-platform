@@ -267,7 +267,9 @@ Chaque étape se termine par un contrôle ; au moindre écart, arrêt et retour 
 
 ### 4.1 Choisir les deux libellés, puis les écrire par une PR
 
-Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues et consignées.
+Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues et consignées. **Sonde R0 faite**
+(§ 13.2, projet jetable `acp-sonde`, sans aucun identifiant) **avant le premier apply** (D88) : son verdict (régime A
+ou B, `uid_separes`) dit ce que l'exécutant pourra faire ; `uid_separes: false` ⇒ aucun apply, transmettez le relevé.
 
 1. Choisissez deux libellés DNS **distincts**, par exemple `acp-hermes-<6 caractères aléatoires>`
    et `acp-identite-<6 caractères aléatoires>` (a-z, 0-9, tirets ; 63 caractères au plus). Ils
@@ -431,7 +433,8 @@ Attendu : `/package/admin/s6/command/s6-svscan -d4 -- /run/service` (ou `s6-svsc
 § 5.3 (passkeys), connexion à `https://<libellé-hermes>.up.railway.app` depuis le PC **et** le
 téléphone (captures), § 6 (openai-codex).
 
-Exécutant (étape P6) : dépôt de preuve, enrôlement et connexions, § 13.3 bis à 13.6.
+Exécutant (étape P6) : sonde R0 déjà faite (§ 13.2, avant le premier apply, § 4.1) ; dépôt de preuve, enrôlement
+et connexions, § 13.3 bis à 13.6.
 
 Poste Windows (étape P5, [poste.md](poste.md)) : **aucune variable Railway nouvelle**. Le poste s'enrôle
 après le premier déploiement, depuis l'onglet « Poste » (code à usage unique, empreinte à recopier) ; ses
@@ -598,12 +601,14 @@ plus l'identifiant ; Authelia, lui, peut le journaliser lors d'une tentative de 
 13. Compte rendu de la répétition de maintenance (§ 4.11), avec le résultat de
     `railway volume files` sur un service arrêté.
 14. `railway ssh keys` **vide** hors opération (sortie datée).
-15. Étape P3 : l'onglet **Catalogue** (16 skills d'ACP « Active », 10 « Candidate pour le poste, non planifiée ») et
-    l'Accueil (16 / 16) ; après une première discussion, context7 « Connecté » ; une question qui
+15. Étape P3 : l'onglet **Catalogue** (21 skills d'ACP « Active » depuis P4, 10 « Candidate pour le poste, non
+    planifiée » : `hermes/catalogue/catalogue.lock.json`) et l'Accueil (21 / 21, valeur exigée par
+    `hermes/tests/e2e/test_interface_fr.py`) ; après une première discussion, context7 « Connecté » ; une question qui
     appelle la documentation d'une bibliothèque, avec la source citée ; une réponse **en français**
     du vrai modèle à une question posée en anglais. Aucun refus « serveur MCP » dans les journaux
     de démarrage.
-16. Étape P4 : `/api/plugins/acp-poste/v1/meta` → bloc `projets` (`base: ok`, `schema: "1"`,
+16. Étape P4 : `/api/plugins/acp-poste/v1/meta` → bloc `projets` (`base: ok`, `schema: "4"` depuis P7, valeur
+    exigée par `hermes/tests/image/test_meta.py`,
     `emetteur.processus: "passerelle"` avec une `derniere_passe` récente, aucune alerte) ; un projet
     **sans dépôt** lancé depuis le téléphone (page Projets), suivi jusqu'à « terminé » depuis le PC ; un
     projet **sur dépôt** refusé en français tant que le poste n'a publié aucun inventaire (P5) ; si un
