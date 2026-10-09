@@ -52,10 +52,10 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
   sauvegardes, coût et notifications réels, sonde de l'exécutant) reste **non prouvé**.
 - Prouvé en local et en intégration continue : les images et leurs gardes, les tests de contrat de Hermes et de
   l'identité, les parcours dans un navigateur, l'exécutant de bout en bout avec des CLI factices, la station Qt ;
-  et, depuis P9, la restauration des trois volumes (R1 à R4), le témoin d'une release antérieure de Hermes et la
-  montée de données d'une version d'ACP à la suivante, chacun avec ses témoins de mutation, tous en intégration
-  continue. Agent, CLI et comptes y sont **factices** : aucun vrai compte n'a servi. Relevés (runs, compteurs, ce
-  qui reste non prouvé) : [`docs/refonte/preuves-1.0.0.md`](docs/refonte/preuves-1.0.0.md).
+  et, depuis P9, la restauration des trois volumes (R1 à R4) et la montée de données d'une version d'ACP à la
+  suivante, chacune avec ses témoins de mutation, et le témoin d'une release antérieure de Hermes avec son contrôle,
+  tous en intégration continue. Agent, CLI et comptes y sont **factices** : aucun vrai compte n'a servi. Relevés
+  (runs, compteurs, ce qui reste non prouvé) : [`docs/refonte/preuves-1.0.0.md`](docs/refonte/preuves-1.0.0.md).
 - Binaires de la station : **non signés** (aucun certificat de signature de code) ; l'installeur est fabriqué par
   chaque Desktop CI, mais n'a jamais été installé sur un Windows propre.
 
