@@ -154,6 +154,9 @@ void TestDiagnostics::valeursInconnuesJamaisInventees()
     QVERIFY(!banc.connue(QStringLiteral("Verdict")));
     QCOMPARE(banc.valeur(QStringLiteral("Hermes servi")), QStringLiteral("Inconnu"));
     QCOMPARE(banc.valeur(QStringLiteral("Exécutant Railway (P6)")), QStringLiteral("Inconnu"));
+    // Seconde relecture de P8b (constat desktop-8) : l'étape P7 n'est dite ni annoncée ni absente sans /v1/meta lu.
+    QCOMPARE(banc.valeur(QStringLiteral("Accueil agrégé et gestes de l'étape P7")), QStringLiteral("Inconnu"));
+    QVERIFY(!banc.connue(QStringLiteral("Accueil agrégé et gestes de l'étape P7")));
     QVERIFY(!banc.connue(QStringLiteral("Alertes de Hermes")));
     // Relecture finale de P7 (constat desktop-1) : rien n'a été lu, donc « Inconnu » — jamais « Non disponible sur ce
     // serveur » affirmé sans avoir lu /v1/meta.
@@ -258,6 +261,7 @@ void TestDiagnostics::secretDuServeurExpurgeALEcranEtAuRapport()
     banc.compatibilite.verifier();
     QTRY_VERIFY(banc.compatibilite.etat() != CompatibilityStatus::Verification);
     QCOMPARE(banc.valeur(QStringLiteral("Alertes de Hermes")), QStringLiteral("2"));
+    QCOMPARE(banc.valeur(QStringLiteral("Accueil agrégé et gestes de l'étape P7")), QStringLiteral("Annoncés par le greffon"));
     const QStringList alertes = banc.valeurs(QStringLiteral("Alerte"));
     QCOMPARE(alertes.size(), 2);
     QVERIFY(alertes.contains(QStringLiteral("Sauvegarde du volume ancienne de 9 jours")));

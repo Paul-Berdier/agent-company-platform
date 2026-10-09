@@ -117,6 +117,11 @@ ProjetsViewModel::ProjetsViewModel(ApiClient *client, ClientGreffonPoste *greffo
             m_detailSondage->lireMaintenant();
         }
     });
+    // Les gestes de l'étape P7 suivent l'annonce de /v1/meta, sans attendre la relecture du détail.
+    connect(flux, &EventStreamService::etapeP7Change, this, [this] {
+        m_detail = construireDetail(m_detailLu ? m_dernierProjet : QJsonObject(), this->flux()->etapeP7());
+        emit detailChange();
+    });
 }
 
 ProjetsViewModel::~ProjetsViewModel() = default;
@@ -335,7 +340,8 @@ void ProjetsViewModel::viderDetail()
     m_detailLu = false;
     m_tableauOuvert.clear();
     m_etatProjet.clear();
-    m_detail = construireDetail({});
+    m_dernierProjet = {};
+    m_detail = construireDetail({}, flux()->etapeP7());
     m_cartes->clear();
     m_questionsDuProjet->clear();
     m_tours->clear();
@@ -351,7 +357,8 @@ void ProjetsViewModel::lireDetail(const QJsonObject &reponse)
     if (projet.value(QStringLiteral("id")).toString() != m_projetOuvert) {
         return; // réponse d'un projet quitté entre-temps
     }
-    m_detail = construireDetail(projet);
+    m_dernierProjet = projet;
+    m_detail = construireDetail(projet, flux()->etapeP7());
     m_cartes->setItems(construireCartes(projet.value(QStringLiteral("cartes")).toArray()));
     QJsonArray questions;
     for (const QJsonValue &element : projet.value(QStringLiteral("questions_ouvertes")).toArray()) {
@@ -388,7 +395,7 @@ void ProjetsViewModel::lireDetail(const QJsonObject &reponse)
     }
 }
 
-QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
+QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet, const QString &etapeP7)
 {
     const QJsonValue etat = projet.value(QStringLiteral("etat"));
     const libelles::Libelle libelle = libelles::etatProjet(etat, projet.value(QStringLiteral("etat_derive")));
@@ -404,6 +411,19 @@ QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
     const QString reponses = projet.value(QStringLiteral("reponses")).toString();
     const bool avecDepot = libelles::estTexte(projet.value(QStringLiteral("depot")));
     const bool adressable = ClientGreffonPoste::identifiantValide(projet.value(QStringLiteral("id")).toString());
+    const bool reponsesPossible = adressable && avecDepot
+        && (etatCode == QLatin1String("creation") || etatCode == QLatin1String("actif") || etatCode == QLatin1String("en_pause"));
+    const bool cloturePossible = adressable && (etatCode == QLatin1String("actif") || etatCode == QLatin1String("en_pause"));
+    // Seconde relecture de P8b (constat desktop-8) : ces deux routes sont nées avec la clé `accueil` de /v1/meta ;
+    // sans son annonce, aucun bouton n'est offert, et le détail dit pourquoi.
+    const bool etapeAnnoncee = etapeP7 == QLatin1String("annonce");
+    QStringList gestesRetenus;
+    if (!etapeAnnoncee && reponsesPossible) {
+        gestesRetenus.append(QStringLiteral("« Qui répond »"));
+    }
+    if (!etapeAnnoncee && cloturePossible) {
+        gestesRetenus.append(QStringLiteral("« Clore le projet »"));
+    }
     return QVariantMap{
         {QStringLiteral("id"), libelles::texte(projet.value(QStringLiteral("id")))},
         {QStringLiteral("titre"), libelles::texte(projet.value(QStringLiteral("titre")))},
@@ -421,10 +441,12 @@ QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
                                      : reponses == QLatin1String("hermes_d_abord") ? QStringLiteral("Hermes d'abord")
                                                                                    : libelles::texte(projet.value(QStringLiteral("reponses")))},
         {QStringLiteral("reponsesCode"), reponses == QLatin1String("proprietaire") ? reponses : QStringLiteral("hermes_d_abord")},
-        {QStringLiteral("peutChangerReponses"), adressable && avecDepot
-                                                    && (etatCode == QLatin1String("creation") || etatCode == QLatin1String("actif")
-                                                        || etatCode == QLatin1String("en_pause"))},
-        {QStringLiteral("peutClore"), adressable && (etatCode == QLatin1String("actif") || etatCode == QLatin1String("en_pause"))},
+        {QStringLiteral("peutChangerReponses"), etapeAnnoncee && reponsesPossible},
+        {QStringLiteral("peutClore"), etapeAnnoncee && cloturePossible},
+        {QStringLiteral("gestesP7"), gestesRetenus.isEmpty()
+                                         ? QString()
+                                         : QStringLiteral("%1 : %2").arg(gestesRetenus.join(QStringLiteral(" et ")),
+                                                                         ClientGreffonPoste::libelleEtapeP7(etapeP7))},
         {QStringLiteral("origine"), origine.isEmpty() ? libelles::texte(projet.value(QStringLiteral("origine")))
                                                       : QStringLiteral("Lancé depuis %1").arg(origine)},
         {QStringLiteral("tour"), sur(projet.value(QStringLiteral("tour")), plafonds.value(QStringLiteral("tours")))},
@@ -638,7 +660,10 @@ void ProjetsViewModel::changerReponses(const QString &reponses)
         return;
     }
     if (!m_detail.value(QStringLiteral("peutChangerReponses")).toBool()) {
-        echouerGeste(QStringLiteral("« Qui répond » ne se change que pour un projet sur dépôt, pas encore fini."));
+        const QString raison = m_detail.value(QStringLiteral("gestesP7")).toString();
+        echouerGeste(raison.contains(QStringLiteral("« Qui répond »"))
+                         ? raison
+                         : QStringLiteral("« Qui répond » ne se change que pour un projet sur dépôt, pas encore fini."));
         return;
     }
     debuterGeste();
@@ -660,7 +685,10 @@ void ProjetsViewModel::clore()
         return;
     }
     if (!m_detail.value(QStringLiteral("peutClore")).toBool()) {
-        echouerGeste(QStringLiteral("Seul un projet actif ou en pause se clôt."));
+        const QString raison = m_detail.value(QStringLiteral("gestesP7")).toString();
+        echouerGeste(raison.contains(QStringLiteral("« Clore le projet »"))
+                         ? raison
+                         : QStringLiteral("Seul un projet actif ou en pause se clôt."));
         return;
     }
     debuterGeste();

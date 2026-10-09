@@ -36,6 +36,31 @@ void ClientGreffonPoste::bloquer(const QString &raison)
     m_blocage = raison.isEmpty() ? QStringLiteral("Greffon acp-poste incompatible avec la station.") : raison;
 }
 
+QString ClientGreffonPoste::libelleEtapeP7(const QString &etat)
+{
+    if (etat == QLatin1String("annonce")) {
+        return {};
+    }
+    if (etat == QLatin1String("absent")) {
+        return QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce pas l'étape P7 (clé "
+                              "« accueil » absente de /v1/meta).");
+    }
+    if (etat == QLatin1String("illisible")) {
+        return QStringLiteral("Inconnu : l'annonce de l'étape P7 est illisible dans /v1/meta (clé « accueil »).");
+    }
+    return QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu.");
+}
+
+ApiCall *ClientGreffonPoste::controlerEtapeP7()
+{
+    // Le blocage prime : lire() et ecrire() le disent. Avant tout verdict (« inconnu »), rien n'est refusé ici,
+    // comme pour le reste du greffon ; l'Accueil et les gestes de P7, eux, attendent l'annonce.
+    if (bloque() || (m_etapeP7 != QLatin1String("absent") && m_etapeP7 != QLatin1String("illisible"))) {
+        return nullptr;
+    }
+    return m_client->reject(ApiError::refusal(libelleEtapeP7(m_etapeP7) + QStringLiteral(" Rien n'a été envoyé.")));
+}
+
 ApiCall *ClientGreffonPoste::lire(const QString &relatif)
 {
     if (bloque()) {
@@ -96,7 +121,14 @@ QNetworkReply *ClientGreffonPoste::ouvrirFlux(const QString &dernierId, ApiError
                                 entetes);
 }
 
-ApiCall *ClientGreffonPoste::accueil() { return lire(QStringLiteral("/v1/accueil")); }
+ApiCall *ClientGreffonPoste::accueil()
+{
+    if (ApiCall *refus = controlerEtapeP7()) {
+        return refus;
+    }
+    return lire(QStringLiteral("/v1/accueil"));
+}
+
 ApiCall *ClientGreffonPoste::catalogue() { return lire(QStringLiteral("/v1/catalogue")); }
 ApiCall *ClientGreffonPoste::projets() { return lire(QStringLiteral("/v1/projets")); }
 ApiCall *ClientGreffonPoste::questions() { return lire(QStringLiteral("/v1/questions")); }
@@ -167,6 +199,9 @@ ApiCall *ClientGreffonPoste::changerReponses(const QString &identifiant, const Q
         return m_client->reject(ApiError::refusal(
             QStringLiteral("« Qui répond » vaut « Hermes d'abord » ou « Moi » : réglage refusé par la station.")));
     }
+    if (ApiCall *refus = controlerEtapeP7()) {
+        return refus;
+    }
     return ecrire(QStringLiteral("/v1/projets/%1/reponses").arg(identifiant),
                   QJsonObject{{QStringLiteral("reponses"), reponses}});
 }
@@ -176,6 +211,9 @@ ApiCall *ClientGreffonPoste::clore(const QString &identifiant)
     if (!identifiantValide(identifiant)) {
         return refuserIdentifiant(QStringLiteral("projet"));
     }
+    if (ApiCall *refus = controlerEtapeP7()) {
+        return refus;
+    }
     return ecrire(QStringLiteral("/v1/projets/%1/clore").arg(identifiant),
                   QJsonObject{{QStringLiteral("confirmation"), true}});
 }
@@ -183,6 +221,9 @@ ApiCall *ClientGreffonPoste::clore(const QString &identifiant)
 ApiCall *ClientGreffonPoste::relancerCarte(const QString &tableau, const QString &carte, const QString &consigne)
 {
     if (ApiCall *refus = controlerCarte(tableau, carte)) {
+        return refus;
+    }
+    if (ApiCall *refus = controlerEtapeP7()) {
         return refus;
     }
     QJsonObject corps;

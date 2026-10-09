@@ -71,6 +71,7 @@ private slots:
     void quiRepondSeulementAvecUneValeurDuGreffon();
     void fluxOuvertEnPorteurAvecLaRevision();
     void greffonBloqueRefuseLesRoutesDeP7();
+    void routesDeP7RefuseesQuandLeVerdictLesDitAbsentes();
 };
 
 void TestClientGreffon::lecturesSurLesBonsChemins()
@@ -312,6 +313,54 @@ void TestClientGreffon::greffonBloqueRefuseLesRoutesDeP7()
     QCOMPARE(refus.kind(), ApiFailure::Incompatible);
     QVERIFY(refus.detail().contains(QStringLiteral("acp-poste/2")));
     QVERIFY(banc.serveur.requetes.isEmpty());
+}
+
+// Seconde relecture de P8b (constat desktop-8) : les quatre routes nées avec la clé `accueil` de /v1/meta (00bc069)
+// sont refusées par la station, sans rien émettre, quand le verdict appliqué dit l'étape P7 absente ou son annonce
+// illisible ; le blocage du greffon prime ; avant tout verdict (« inconnu »), comme le reste du greffon, rien n'est
+// refusé ici ; les routes antérieures (questions, revues de P6, pause) ne sont jamais concernées.
+void TestClientGreffon::routesDeP7RefuseesQuandLeVerdictLesDitAbsentes()
+{
+    Banc banc;
+    const QString absent = QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce pas l'étape P7 (clé "
+                                          "« accueil » absente de /v1/meta).");
+    QCOMPARE(ClientGreffonPoste::libelleEtapeP7(QStringLiteral("annonce")), QString());
+    QCOMPARE(ClientGreffonPoste::libelleEtapeP7(QStringLiteral("absent")), absent);
+    QCOMPARE(ClientGreffonPoste::libelleEtapeP7(QStringLiteral("inconnu")), QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu."));
+    QCOMPARE(banc.greffon.etapeP7(), QStringLiteral("inconnu"));
+
+    for (const QString &etat : {QStringLiteral("absent"), QStringLiteral("illisible")}) {
+        banc.greffon.setEtapeP7(etat);
+        const QList<ApiError> refus = {
+            Banc::attendre(banc.greffon.accueil()),
+            Banc::attendre(banc.greffon.relancerCarte(QStringLiteral("t"), QStringLiteral("c"), QStringLiteral("consigne"))),
+            Banc::attendre(banc.greffon.clore(QStringLiteral("p"))),
+            Banc::attendre(banc.greffon.changerReponses(QStringLiteral("p"), QStringLiteral("proprietaire"))),
+        };
+        for (const ApiError &erreur : refus) {
+            QCOMPARE(erreur.kind(), ApiFailure::ClientRefusal);
+            QCOMPARE(erreur.detail(), ClientGreffonPoste::libelleEtapeP7(etat) + QStringLiteral(" Rien n'a été envoyé."));
+        }
+    }
+    QVERIFY(banc.serveur.requetes.isEmpty());
+    // Une route antérieure à P7 part toujours (revue de P6, questions de P4).
+    QVERIFY(Banc::attendre(banc.greffon.questions()).kind() != ApiFailure::ClientRefusal);
+    Banc::attendre(banc.greffon.accepterRevue(QStringLiteral("t"), QStringLiteral("c")));
+    QCOMPARE(banc.serveur.requetes.size(), 2);
+
+    // Le blocage prime sur l'absence de l'étape : c'est lui qui est dit.
+    banc.greffon.bloquer(QStringLiteral("Greffon acp-poste absent de ce Hermes."));
+    QCOMPARE(Banc::attendre(banc.greffon.clore(QStringLiteral("p"))).kind(), ApiFailure::Incompatible);
+    banc.greffon.debloquer();
+
+    // Annoncée, ou pas encore de verdict : les routes partent.
+    for (const QString &etat : {QStringLiteral("annonce"), QStringLiteral("inconnu")}) {
+        banc.greffon.setEtapeP7(etat);
+        const int avant = static_cast<int>(banc.serveur.requetes.size());
+        Banc::attendre(banc.greffon.accueil());
+        Banc::attendre(banc.greffon.clore(QStringLiteral("p")));
+        QCOMPARE(static_cast<int>(banc.serveur.requetes.size()), avant + 2);
+    }
 }
 
 QTEST_GUILESS_MAIN(TestClientGreffon)

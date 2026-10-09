@@ -222,6 +222,15 @@ void DiagnosticsViewModel::refresh()
                     : executant == QLatin1String("illisible")  ? QStringLiteral("Inconnu (base du greffon illisible)")
                                                                : unknownValue(),
                     executant != QLatin1String("inconnu"), false});
+    // Seconde relecture de P8b (constat desktop-8) : clé `accueil` de /v1/meta (Accueil agrégé, relance, qui répond,
+    // clôture), lue sans supposition.
+    const QString etapeP7 = m_compatibilite->etatEtapeP7();
+    entries.append({compatibility, QStringLiteral("Accueil agrégé et gestes de l'étape P7"),
+                    etapeP7 == QLatin1String("annonce")     ? QStringLiteral("Annoncés par le greffon")
+                    : etapeP7 == QLatin1String("absent")    ? QStringLiteral("Non disponible sur ce serveur")
+                    : etapeP7 == QLatin1String("illisible") ? QStringLiteral("Inconnu (annonce illisible dans /v1/meta)")
+                                                            : unknownValue(),
+                    etapeP7 != QLatin1String("inconnu"), false});
     const QStringList alertes = m_compatibilite->alertes();
     entries.append({compatibility, QStringLiteral("Alertes de Hermes"),
                     QString::number(alertes.size()),

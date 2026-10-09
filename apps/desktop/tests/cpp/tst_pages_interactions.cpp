@@ -98,6 +98,7 @@ private slots:
     void copieDuRapportParLaPalette();
     void discussionEnAttenteOuverteParLeBouton();
     void pastilleDesQuestionsDitCeQuElleCompte();
+    void greffonSansEtapeP7NiAccueilNiGestes();
     // En dernier : charge la fenêtre racine (App.qml).
     void chaqueRaccourciDeLaPaletteAgit();
 
@@ -204,6 +205,12 @@ void TestPagesInteractions::initTestCase()
     m_client->setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
     m_flux->setIntervalleFond(std::chrono::hours(1));
     m_flux->demarrer();
+    // Verdict d'un greffon de l'étape P7 (document de référence : clé `accueil`), relayé par la composition réelle :
+    // « Qui répond », « Clore » et l'Accueil agrégé sont offerts (seconde relecture de P8b, constat desktop-8).
+    auto *compatibilite = m_application->findChild<CompatibiliteHermes *>();
+    QVERIFY(compatibilite);
+    compatibilite->appliquerLecture(fixture(QStringLiteral("meta.json")));
+    QCOMPARE(m_flux->etapeP7(), QStringLiteral("annonce"));
 
     m_moteur = std::make_unique<QQmlApplicationEngine>();
     connect(m_moteur.get(), &QQmlEngine::warnings, this, [this](const QList<QQmlError> &erreurs) {
@@ -618,6 +625,12 @@ void TestPagesInteractions::questionsReluesAuSignalDuFlux()
              QStringLiteral("Sans temps réel : page relue toutes les 15 secondes tant qu'elle est affichée."));
     QCOMPARE(m_application->findChild<QuotasViewModel *>()->property("cadence").toString(),
              QStringLiteral("Sans temps réel : page relue toutes les 60 secondes tant qu'elle est affichée."));
+    // Seconde relecture de P8b (constat desktop-8) : sans verdict, l'Accueil agrégé ne se lit pas, et sa cadence le dit.
+    QCOMPARE(accueil->property("cadence").toString(),
+             QStringLiteral("Accueil agrégé non lu (voir ci-dessous) ; discussions récentes et carte Hermes relues toutes les "
+                            "15 secondes tant que la page est affichée."));
+    // Verdict d'un greffon de P7 sans flux annoncé : sondage habituel de toutes les lectures de l'Accueil.
+    compatibilite->appliquerLecture(fixture(QStringLiteral("meta.json")));
     QCOMPARE(accueil->property("cadence").toString(),
              QStringLiteral("Sans temps réel : Accueil, bilan quotidien, discussions récentes et carte Hermes relus toutes "
                             "les 15 secondes tant que la page est affichée."));
@@ -655,6 +668,76 @@ void TestPagesInteractions::pastilleDesQuestionsDitCeQuElleCompte()
     QTRY_COMPARE(nom(), QStringLiteral("Questions (%1 demandes à traiter par vous (discussions non comptées))")
                             .arg(m_flux->aTraiter()));
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+}
+
+// Seconde relecture de P8b (constat desktop-8), composition réelle et vraies pages : face à un greffon de P5 ou P6 (même
+// contrat acp-poste/1, verdict « Compatible », clé `accueil` absente de /v1/meta), l'Accueil n'affichait qu'un 404, le
+// badge restait « Inconnu », et « Clore » et « Qui répond » étaient offerts puis refusés en 404. Désormais : rien de
+// /v1/accueil ne part, l'Accueil et le badge disent « Non disponible sur ce serveur », les deux boutons sont absents et
+// le détail dit pourquoi ; tout revient avec l'annonce.
+void TestPagesInteractions::greffonSansEtapeP7NiAccueilNiGestes()
+{
+    auto *compatibilite = m_application->findChild<CompatibiliteHermes *>();
+    QVERIFY(compatibilite);
+    QJsonObject metaP6 = fixture(QStringLiteral("meta.json"));
+    metaP6.remove(QStringLiteral("accueil"));
+    // L'Accueil relit /v1/meta avec la page : il y lit le même greffon de P6.
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [metaP6](const RequeteRecue &) { return ReponseFaux::json(200, metaP6); });
+    compatibilite->appliquerLecture(metaP6);
+    QCOMPARE(compatibilite->etat(), CompatibilityStatus::Compatible);
+    QCOMPARE(m_flux->etapeP7(), QStringLiteral("absent"));
+    const QString accueil = kP + QStringLiteral("/accueil");
+    const int lecturesAccueil = m_serveur->compter("GET", accueil);
+
+    auto pageAccueil = charger(QStringLiteral("HomePage"));
+    QVERIFY(pageAccueil);
+    auto *racineAccueil = qobject_cast<QQuickItem *>(pageAccueil.get());
+    QQuickItem *disponibilite = parNom(racineAccueil, QStringLiteral("accueil-disponibilite"));
+    QVERIFY(disponibilite);
+    QTRY_VERIFY(disponibilite->isVisible());
+    QVERIFY2(disponibilite->property("text").toString().startsWith(
+                 QStringLiteral("Accueil agrégé : Non disponible sur ce serveur : le greffon acp-poste n'annonce pas l'étape P7")),
+             qPrintable(disponibilite->property("text").toString()));
+    QVERIFY(!parNom(racineAccueil, QStringLiteral("accueil-carte-a-traiter"))->isVisible());
+    QTRY_VERIFY_WITH_TIMEOUT(m_serveur->compter("GET", kP + QStringLiteral("/meta")) > 0, 5000); // la carte Hermes relit
+    QTest::qWait(300);
+    QCOMPARE(m_serveur->compter("GET", accueil), lecturesAccueil); // ni la page ni le badge
+    QCOMPARE(m_flux->libelleATraiter(), QStringLiteral("À traiter par vous : Non disponible sur ce serveur"));
+    pageAccueil.reset();
+
+    auto pageProjets = charger(QStringLiteral("ProjectsPage"));
+    QVERIFY(pageProjets);
+    auto *racine = qobject_cast<QQuickItem *>(pageProjets.get());
+    m_projets->ouvrirProjet(QStringLiteral("p_367e23fd51b7"));
+    QTRY_VERIFY_WITH_TIMEOUT(m_projets->detailLu(), 5000);
+    QTest::qWait(150);
+    QQuickItem *raison = parNom(racine, QStringLiteral("projet-gestes-p7"));
+    QVERIFY(raison && raison->isVisible());
+    QVERIFY2(raison->property("text").toString().startsWith(
+                 QStringLiteral("« Qui répond » et « Clore le projet » : Non disponible sur ce serveur")),
+             qPrintable(raison->property("text").toString()));
+    QVERIFY(!cliquer(parNom(racine, QStringLiteral("projets-clore"))));
+    QVERIFY(!cliquer(parNom(racine, QStringLiteral("projets-changer-reponses"))));
+    const int clotures = m_serveur->compter("POST", kP + QStringLiteral("/projets/p_367e23fd51b7/clore"));
+    const int reglages = m_serveur->compter("POST", kP + QStringLiteral("/projets/p_367e23fd51b7/reponses"));
+
+    // Le greffon redéployé en P7 : les boutons reviennent, sans relecture du détail, et la raison disparaît.
+    QJsonObject metaP7 = fixture(QStringLiteral("meta.json"));
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [metaP7](const RequeteRecue &) { return ReponseFaux::json(200, metaP7); });
+    compatibilite->appliquerLecture(metaP7);
+    QTRY_VERIFY(parNom(racine, QStringLiteral("projets-clore"))->isVisible());
+    QVERIFY(parNom(racine, QStringLiteral("projets-changer-reponses"))->isVisible());
+    QVERIFY(!raison->isVisible());
+    QCOMPARE(m_serveur->compter("POST", kP + QStringLiteral("/projets/p_367e23fd51b7/clore")), clotures);
+    QCOMPARE(m_serveur->compter("POST", kP + QStringLiteral("/projets/p_367e23fd51b7/reponses")), reglages);
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    m_projets->afficherListe();
+    pageProjets.reset();
+    QTRY_VERIFY(!m_projets->actif());
+    // Comme avant ce test pour la suite (aucune route /v1/meta servie).
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+    });
 }
 
 // Étape P8b : la file Questions liste les discussions en attente lues par la passerelle

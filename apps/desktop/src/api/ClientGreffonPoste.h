@@ -20,6 +20,11 @@
 // incompatible (contrat d'une autre majeure) ou absent (`/v1/meta` en 404), CompatibiliteHermes
 // le BLOQUE : toute lecture et toute écriture est refusée par la station, sans rien émettre,
 // avec l'explication du verdict. Seul `/v1/meta` reste lisible, pour revérifier.
+//
+// Étape P7 (seconde relecture de P8b, constat desktop-8) : les quatre routes nées avec la clé
+// `accueil` de /v1/meta (accueil, relancerCarte, changerReponses, clore) sont refusées de même,
+// sans rien émettre, quand le verdict appliqué dit l'étape absente ou son annonce illisible
+// (setEtapeP7, posé par CompatibiliteHermes) ; le blocage du greffon, s'il y en a un, prime.
 
 #pragma once
 
@@ -58,6 +63,18 @@ public:
     void debloquer() { m_blocage.clear(); }
     [[nodiscard]] bool bloque() const { return !m_blocage.isEmpty(); }
     [[nodiscard]] const QString &raisonBlocage() const { return m_blocage; }
+
+    // --- Étape P7 (clé `accueil` de /v1/meta) ------------------------------------------
+    /*! « annonce », « absent », « illisible » ou « inconnu » : posé à chaque verdict rendu. */
+    void setEtapeP7(const QString &etat) { m_etapeP7 = etat; }
+    [[nodiscard]] const QString &etapeP7() const { return m_etapeP7; }
+    [[nodiscard]] bool etapeP7Annoncee() const { return m_etapeP7 == QLatin1String("annonce"); }
+    /*!
+        Ce que la station dit de l'étape P7 pour cet état, en une phrase française : vide sur
+        l'annonce ; « Non disponible sur ce serveur : … » (absent) ; « Inconnu : … » (illisible,
+        ou /v1/meta pas encore lu).
+    */
+    [[nodiscard]] static QString libelleEtapeP7(const QString &etat);
 
     // --- Lectures --------------------------------------------------------------
     ApiCall *meta();
@@ -138,9 +155,12 @@ private:
     ApiCall *refuserIdentifiant(const QString &nature);
     //! Refus local si le tableau ou la carte ne peut figurer dans un chemin, sinon nul.
     ApiCall *controlerCarte(const QString &tableau, const QString &carte);
+    //! Refus local d'une route de l'étape P7 que le verdict dit absente ou illisible, sinon nul.
+    ApiCall *controlerEtapeP7();
 
     ApiClient *m_client = nullptr;
     QString m_blocage;
+    QString m_etapeP7 = QStringLiteral("inconnu");
 };
 
 } // namespace acp

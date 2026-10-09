@@ -17,6 +17,12 @@
 //     prochaine et dernière EXÉCUTION, issue de la dernière d'après `last_status` (jamais un
 //     échec supposé), canal non configuré dit.
 //
+// Détecté avant d'être lu (seconde relecture de P8b, constat desktop-8 ; décision P8b-2) :
+// `GET /v1/accueil` ne part que si /v1/meta annonce l'étape P7 (clé `accueil`, relayée par
+// EventStreamService::etapeP7). Sinon rien n'est lu, ce qui avait été lu est oublié, et la page
+// le dit (disponibilite) : « Non disponible sur ce serveur » (greffon antérieur à P7), « Inconnu »
+// (annonce illisible, /v1/meta pas encore lu) ou la raison du blocage du greffon.
+//
 // Chaque carte est une table de valeurs DÉJÀ libellées en français, aux clés fixes : une
 // valeur absente ou d'un autre type vaut « Inconnu ». Un échec de lecture garde la dernière
 // valeur, datée, avec l'erreur à côté.
@@ -54,6 +60,7 @@ class AccueilViewModel : public PageViewModel
 {
     Q_OBJECT
     Q_PROPERTY(bool lue READ lue NOTIFY accueilChange)
+    Q_PROPERTY(QString disponibilite READ disponibilite NOTIFY accueilChange)
     Q_PROPERTY(QVariantMap carteATraiter READ carteATraiter NOTIFY accueilChange)
     Q_PROPERTY(QVariantMap carteProjets READ carteProjets NOTIFY accueilChange)
     Q_PROPERTY(JsonListModel *projetsEnCours READ projetsEnCours CONSTANT)
@@ -88,6 +95,11 @@ public:
     [[nodiscard]] QString cadence() const override;
 
     [[nodiscard]] bool lue() const { return m_lue; }
+    /*!
+        Pourquoi l'Accueil agrégé n'est pas lu, en une phrase française ; vide quand /v1/meta annonce
+        l'étape P7 (voir l'en-tête).
+    */
+    [[nodiscard]] QString disponibilite() const;
     [[nodiscard]] const QVariantMap &carteATraiter() const { return m_carteATraiter; }
     [[nodiscard]] const QVariantMap &carteProjets() const { return m_carteProjets; }
     [[nodiscard]] JsonListModel *projetsEnCours() const { return m_projetsEnCours; }
@@ -156,6 +168,8 @@ protected:
 private:
     void lireAccueil(const QJsonObject &accueil);
     void majBilan();
+    //! L'Accueil agrégé lit seulement page active ET étape P7 annoncée ; hors annonce, il oublie.
+    void majEtapeP7();
     [[nodiscard]] QList<Sondage *> sondages() const;
 
     ApiClient *m_client = nullptr;

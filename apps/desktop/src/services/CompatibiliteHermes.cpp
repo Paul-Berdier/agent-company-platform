@@ -87,6 +87,15 @@ CompatibiliteHermes::Evaluation CompatibiliteHermes::evaluer(const QJsonObject &
     } else {
         resultat.etatFlux = QStringLiteral("illisible");
     }
+    // Étape P7 : `accueil` vrai l'annonce ; absente (ou fausse), le greffon ne la sert pas (voir l'en-tête).
+    const QJsonValue accueil = meta.value(QStringLiteral("accueil"));
+    if (accueil == QJsonValue(true)) {
+        resultat.etatEtapeP7 = QStringLiteral("annonce");
+    } else if (accueil.isUndefined() || accueil == QJsonValue(false)) {
+        resultat.etatEtapeP7 = QStringLiteral("absent");
+    } else {
+        resultat.etatEtapeP7 = QStringLiteral("illisible");
+    }
 
     // Contrat du greffon : une autre majeure bloque toutes les pages du greffon.
     const auto [nomRecu, majeureRecue] = contrat(resultat.contratRecu);
@@ -233,6 +242,9 @@ QString CompatibiliteHermes::lecture() const
 void CompatibiliteHermes::publier(Evaluation evaluation)
 {
     m_evaluation = std::move(evaluation);
+    // Étape P7 : posée sur le client du greffon à chaque verdict (une revérification en cours ou un /v1/meta
+    // injoignable recopient le verdict précédent, et donc son annonce).
+    m_greffon->setEtapeP7(m_evaluation.etatEtapeP7);
     // Échec fermé : le verdict rendu s'applique au client du greffon, pas seulement à l'écran.
     switch (m_evaluation.etat) {
     case CompatibilityStatus::Incompatible:

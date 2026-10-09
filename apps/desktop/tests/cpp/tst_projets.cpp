@@ -35,6 +35,7 @@ namespace {
 
 const QString kP = QStringLiteral("/api/plugins/acp-poste/v1");
 const QString kId = QStringLiteral("p_367e23fd51b7");
+const QString kAnnonce = QStringLiteral("annonce"); //!< étape P7 annoncée par /v1/meta (clé `accueil`)
 
 QJsonObject refus(const QString &code, const QString &message)
 {
@@ -67,6 +68,8 @@ struct Banc
         client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
         flux.setIntervalleFond(std::chrono::hours(1));
         flux.veille()->setRegroupement(std::chrono::milliseconds(20));
+        // Greffon de l'étape P7 (clé `accueil` de /v1/meta, relayée par Application) : « Qui répond » et « Clore » offerts.
+        flux.setEtapeP7(QStringLiteral("annonce"));
         projets.setOuvreur([this](const QUrl &url) {
             ouvertes.append(url);
             return true;
@@ -137,6 +140,7 @@ private slots:
     void messagesQuiRepondEtCloture();
     void quiRepondEtClotureCorpsExacts();
     void quiRepondEtClotureRefusEnFrancais();
+    void gestesDeP7SeulementSurLAnnonce();
     void executantFermePourLeDepotJamaisRetenu();
 };
 
@@ -177,7 +181,7 @@ void TestProjets::lignesDeLaListe()
 void TestProjets::detailLibelle()
 {
     const QJsonObject projet = fixture(QStringLiteral("projet-detail.json")).value(QStringLiteral("projet")).toObject();
-    const QVariantMap detail = ProjetsViewModel::construireDetail(projet);
+    const QVariantMap detail = ProjetsViewModel::construireDetail(projet, kAnnonce);
     QCOMPARE(detail.value(QStringLiteral("titre")).toString(), QStringLiteral("Outil"));
     QCOMPARE(detail.value(QStringLiteral("objectif")).toString(), QStringLiteral("Écrire outil.py."));
     QCOMPARE(detail.value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Exploration du dépôt"));
@@ -199,7 +203,7 @@ void TestProjets::detailLibelle()
     QCOMPARE(detail.value(QStringLiteral("peutReprendre")).toBool(), false);
 
     // Détail vide : chaque clé existe et vaut « Inconnu » ou rien, jamais « undefined ».
-    const QVariantMap vide = ProjetsViewModel::construireDetail({});
+    const QVariantMap vide = ProjetsViewModel::construireDetail({}, kAnnonce);
     QCOMPARE(vide.value(QStringLiteral("titre")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(vide.value(QStringLiteral("tour")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(vide.value(QStringLiteral("peutMettreEnPause")).toBool(), false);
@@ -211,18 +215,18 @@ void TestProjets::detailLibelle()
     // création se règle mais ne se clôt pas (comme le greffon : clore exige actif ou en pause).
     QJsonObject sansDepot = projet;
     sansDepot.insert(QStringLiteral("depot"), QJsonValue::Null);
-    const QVariantMap s = ProjetsViewModel::construireDetail(sansDepot);
+    const QVariantMap s = ProjetsViewModel::construireDetail(sansDepot, kAnnonce);
     QCOMPARE(s.value(QStringLiteral("reponses")).toString(), QStringLiteral("Sans objet (projet sans dépôt)"));
     QCOMPARE(s.value(QStringLiteral("peutChangerReponses")).toBool(), false);
     QCOMPARE(s.value(QStringLiteral("peutClore")).toBool(), true);
     QJsonObject fini = projet;
     fini.insert(QStringLiteral("etat"), QStringLiteral("termine"));
-    QCOMPARE(ProjetsViewModel::construireDetail(fini).value(QStringLiteral("peutChangerReponses")).toBool(), false);
-    QCOMPARE(ProjetsViewModel::construireDetail(fini).value(QStringLiteral("peutClore")).toBool(), false);
+    QCOMPARE(ProjetsViewModel::construireDetail(fini, kAnnonce).value(QStringLiteral("peutChangerReponses")).toBool(), false);
+    QCOMPARE(ProjetsViewModel::construireDetail(fini, kAnnonce).value(QStringLiteral("peutClore")).toBool(), false);
     QJsonObject creation = projet;
     creation.insert(QStringLiteral("etat"), QStringLiteral("creation"));
     creation.insert(QStringLiteral("reponses"), QStringLiteral("hermes_d_abord"));
-    const QVariantMap c = ProjetsViewModel::construireDetail(creation);
+    const QVariantMap c = ProjetsViewModel::construireDetail(creation, kAnnonce);
     QCOMPARE(c.value(QStringLiteral("reponses")).toString(), QStringLiteral("Hermes d'abord"));
     QCOMPARE(c.value(QStringLiteral("reponsesCode")).toString(), QStringLiteral("hermes_d_abord"));
     QCOMPARE(c.value(QStringLiteral("peutChangerReponses")).toBool(), true);
@@ -230,7 +234,29 @@ void TestProjets::detailLibelle()
     // Identifiant illisible : aucun geste.
     QJsonObject illisible = projet;
     illisible.insert(QStringLiteral("id"), QStringLiteral("p/../x"));
-    QCOMPARE(ProjetsViewModel::construireDetail(illisible).value(QStringLiteral("peutClore")).toBool(), false);
+    QCOMPARE(ProjetsViewModel::construireDetail(illisible, kAnnonce).value(QStringLiteral("peutClore")).toBool(), false);
+    QCOMPARE(detail.value(QStringLiteral("gestesP7")).toString(), QString());
+
+    // Seconde relecture de P8b (constat desktop-8) : sans l'annonce de l'étape P7 dans /v1/meta, ni « Qui répond » ni
+    // « Clore » ne sont offerts, et le détail dit pourquoi ; un geste déjà impossible n'est pas cité.
+    const QString absent = QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce pas l'étape P7 "
+                                          "(clé « accueil » absente de /v1/meta).");
+    const QVariantMap sansP7 = ProjetsViewModel::construireDetail(projet, QStringLiteral("absent"));
+    QCOMPARE(sansP7.value(QStringLiteral("peutChangerReponses")).toBool(), false);
+    QCOMPARE(sansP7.value(QStringLiteral("peutClore")).toBool(), false);
+    QCOMPARE(sansP7.value(QStringLiteral("gestesP7")).toString(), QStringLiteral("« Qui répond » et « Clore le projet » : ") + absent);
+    QCOMPARE(sansP7.value(QStringLiteral("peutMettreEnPause")).toBool(), true); // route de P4 : inchangée
+    QCOMPARE(ProjetsViewModel::construireDetail(sansDepot, QStringLiteral("absent")).value(QStringLiteral("gestesP7")).toString(),
+             QStringLiteral("« Clore le projet » : ") + absent);
+    QCOMPARE(ProjetsViewModel::construireDetail(fini, QStringLiteral("absent")).value(QStringLiteral("gestesP7")).toString(), QString());
+    const QVariantMap avantMeta = ProjetsViewModel::construireDetail(projet, QStringLiteral("inconnu"));
+    QCOMPARE(avantMeta.value(QStringLiteral("peutClore")).toBool(), false);
+    QCOMPARE(avantMeta.value(QStringLiteral("gestesP7")).toString(),
+             QStringLiteral("« Qui répond » et « Clore le projet » : Inconnu : /v1/meta n'a pas encore été lu."));
+    const QVariantMap annonceIllisible = ProjetsViewModel::construireDetail(projet, QStringLiteral("illisible"));
+    QCOMPARE(annonceIllisible.value(QStringLiteral("peutChangerReponses")).toBool(), false);
+    QVERIFY(annonceIllisible.value(QStringLiteral("gestesP7")).toString().endsWith(
+        QStringLiteral("Inconnu : l'annonce de l'étape P7 est illisible dans /v1/meta (clé « accueil »).")));
 }
 
 void TestProjets::cartesRangeesDansLOrdreDuGraphe()
@@ -660,6 +686,54 @@ void TestProjets::quiRepondEtClotureRefusEnFrancais()
     QCOMPARE(banc.serveur.filtrer("POST", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/clore")).size()
                  + banc.serveur.filtrer("POST", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/reponses")).size(),
              envois);
+}
+
+// Seconde relecture de P8b (constat desktop-8) : face à un greffon de P5 ou P6 (contrat acp-poste/1, verdict
+// « Compatible »), « Clore » et « Qui répond » étaient offerts d'après le seul état du projet, puis refusés en 404.
+// Désormais : offerts seulement sur l'annonce de l'étape P7, retirés AUSSITÔT quand le verdict la dit absente (sans
+// attendre la relecture du détail), refusés par la page avec la raison, et rien n'est émis ; client du greffon
+// compris (il suit le verdict appliqué).
+void TestProjets::gestesDeP7SeulementSurLAnnonce()
+{
+    Banc banc;
+    banc.ouvrirLaPage();
+    banc.projets.ouvrirProjet(kId);
+    QTRY_VERIFY(banc.projets.detailLu());
+    QVERIFY(banc.projets.detail().value(QStringLiteral("peutClore")).toBool());
+    QVERIFY(banc.projets.detail().value(QStringLiteral("peutChangerReponses")).toBool());
+    const int lectures = banc.serveur.compter("GET", kP + QStringLiteral("/projets/") + kId);
+
+    // Verdict suivant : greffon antérieur à P7 (comme CompatibiliteHermes::publier puis le relais d'Application).
+    banc.greffon.setEtapeP7(QStringLiteral("absent"));
+    banc.flux.setEtapeP7(QStringLiteral("absent"));
+    QVERIFY(!banc.projets.detail().value(QStringLiteral("peutClore")).toBool());
+    QVERIFY(!banc.projets.detail().value(QStringLiteral("peutChangerReponses")).toBool());
+    const QString raison = banc.projets.detail().value(QStringLiteral("gestesP7")).toString();
+    QVERIFY2(raison.startsWith(QStringLiteral("« Qui répond » et « Clore le projet » : Non disponible sur ce serveur")),
+             qPrintable(raison));
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets/") + kId), lectures); // sans relecture
+    QCOMPARE(banc.projets.detail().value(QStringLiteral("titre")).toString(), QStringLiteral("Outil")); // rien d'oublié
+
+    banc.projets.clore();
+    QCOMPARE(banc.projets.erreurGeste(), raison);
+    banc.projets.changerReponses(QStringLiteral("hermes_d_abord"));
+    QCOMPARE(banc.projets.erreurGeste(), raison);
+    // Le client du greffon refuse de même, sans rien émettre (échec fermé sous la page).
+    QString refus;
+    ApiCall *appel = banc.greffon.clore(kId);
+    QObject::connect(appel, &ApiCall::failed, [&refus](const ApiError &erreur) { refus = erreur.message(); });
+    QTRY_VERIFY(!refus.isEmpty());
+    QVERIFY2(refus.contains(QStringLiteral("Non disponible sur ce serveur")) && refus.endsWith(QStringLiteral("Rien n'a été envoyé.")),
+             qPrintable(refus));
+    QTest::qWait(100);
+    QCOMPARE(banc.serveur.filtrer("POST", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/clore")).size(), 0);
+    QCOMPARE(banc.serveur.filtrer("POST", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/reponses")).size(), 0);
+
+    // Le verdict revient à l'annonce : les gestes reviennent, sans relecture non plus.
+    banc.greffon.setEtapeP7(QStringLiteral("annonce"));
+    banc.flux.setEtapeP7(QStringLiteral("annonce"));
+    QVERIFY(banc.projets.detail().value(QStringLiteral("peutClore")).toBool());
+    QCOMPARE(banc.projets.detail().value(QStringLiteral("gestesP7")).toString(), QString());
 }
 
 void TestProjets::executantFermePourLeDepotJamaisRetenu()

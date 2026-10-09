@@ -96,6 +96,20 @@ Item {
                 erreur: Accueil.erreurAccueil
             }
 
+            // Seconde relecture de P8b (constat desktop-8) : l'Accueil agrégé n'est lu que sur l'annonce de l'étape P7
+            // par /v1/meta ; sinon, pourquoi (« Non disponible sur ce serveur », « Inconnu », blocage du greffon).
+            Text {
+                objectName: "accueil-disponibilite"
+                Layout.fillWidth: true
+                visible: Accueil.disponibilite.length > 0
+                text: Accueil.disponibilite
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Colors.textSecondary
+                font.family: Type.prose.family
+                font.pixelSize: Type.prose.pixelSize
+            }
+
             BandeauMessage {
                 objectName: "accueil-bandeau"
                 Layout.fillWidth: true

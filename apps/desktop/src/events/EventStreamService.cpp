@@ -64,6 +64,35 @@ void EventStreamService::setAnnonceFlux(const QString &etat, const QJsonObject &
     m_invalidation->setAnnonce(etat, annonce);
 }
 
+void EventStreamService::setEtapeP7(const QString &etat)
+{
+    const bool bloque = m_greffon && m_greffon->bloque();
+    if (etat == m_etapeP7 && bloque == m_greffonBloque) {
+        return;
+    }
+    const bool etaitAnnoncee = etapeP7Annoncee();
+    m_etapeP7 = etat;
+    m_greffonBloque = bloque;
+    if (etaitAnnoncee && !etapeP7Annoncee()) {
+        // Ce que le sondage léger avait lu de /v1/accueil n'est plus celui de ce greffon : rien n'en reste.
+        m_fond->setActif(false);
+        m_fond->oublier();
+        oublierResume();
+    } else if (!etapeP7Annoncee()) {
+        m_aTraiterGreffon = -1; // ce compteur ne vient que de /v1/accueil (poste et pause, aussi de /v1/projets)
+    }
+    majFond();
+    emit etapeP7Change();
+    emit resumeChange();
+    emit sourcesChange();
+}
+
+void EventStreamService::majFond()
+{
+    // Détecté avant d'être lu (décision P8b-2) : /v1/accueil ne part que sur l'annonce de /v1/meta.
+    m_fond->setActif(m_sessionOuverte && etapeP7Annoncee());
+}
+
 void EventStreamService::demarrer()
 {
     if (m_sessionOuverte) {
@@ -71,7 +100,7 @@ void EventStreamService::demarrer()
     }
     const bool avant = pagesActives();
     m_sessionOuverte = true;
-    m_fond->setActif(true);
+    majFond();
     m_invalidation->setActif(pagesActives());
     if (avant != pagesActives()) {
         emit pagesActivesChange();
@@ -101,7 +130,9 @@ void EventStreamService::signalerLien(bool enLigne)
     m_lienConnu = true;
     m_lienEnLigne = enLigne;
     if (retour && m_sessionOuverte) {
-        m_fond->lireMaintenant();
+        if (m_fond->actif()) {
+            m_fond->lireMaintenant(); // jamais sans l'annonce de l'étape P7
+        }
         m_invalidation->relancer();
         emit lienRetabli();
     }
@@ -124,7 +155,7 @@ void EventStreamService::setFenetreActive(bool active)
 
 void EventStreamService::noterAccueil(const QJsonObject &accueil)
 {
-    if (m_sessionOuverte) {
+    if (m_sessionOuverte && etapeP7Annoncee()) { // une lecture de /v1/accueil n'existe que sur l'annonce
         lireResume(accueil);
     }
 }
@@ -180,7 +211,10 @@ int EventStreamService::aTraiter() const
 QString EventStreamService::libelleATraiter() const
 {
     if (m_aTraiterGreffon < 0) {
-        return QStringLiteral("À traiter par vous : Inconnu");
+        // Seconde relecture de P8b (constat desktop-8) : un greffon sans l'étape P7 n'a pas ce compteur ; le dire.
+        return m_etapeP7 == QLatin1String("absent") && !m_greffonBloque
+            ? QStringLiteral("À traiter par vous : Non disponible sur ce serveur")
+            : QStringLiteral("À traiter par vous : Inconnu");
     }
     // Discussions en attente illisibles (passerelle indisponible, refus) : le libellé le dit, jamais zéro deviné.
     return m_discussions->connues() ? QStringLiteral("À traiter par vous : %1").arg(aTraiter())
@@ -231,6 +265,10 @@ QString EventStreamService::etatSondage() const
 {
     if (!m_sessionOuverte) {
         return QStringLiteral("Arrêté (aucune session)");
+    }
+    if (!etapeP7Annoncee()) {
+        return QStringLiteral("Arrêté : %1").arg(m_greffonBloque ? m_greffon->raisonBlocage()
+                                                                   : ClientGreffonPoste::libelleEtapeP7(m_etapeP7));
     }
     QString texte = QStringLiteral("Toutes les %1 s · %2")
                         .arg(m_fond->intervalleEffectif().count() / 1000)

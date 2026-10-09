@@ -66,6 +66,7 @@ struct Banc
         }
         client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
         flux.setIntervalleFond(std::chrono::hours(1));
+        flux.setEtapeP7(QStringLiteral("annonce")); // greffon de l'étape P7 : /v1/meta annonce `accueil`
         passerelle.setRecul(Backoff(std::chrono::milliseconds(20), std::chrono::milliseconds(40), 0));
         serveur.methodes.insert(QStringLiteral("session.active_list"),
                                 [this](const QJsonObject &) { return QJsonObject{{QStringLiteral("sessions"), actives}}; });

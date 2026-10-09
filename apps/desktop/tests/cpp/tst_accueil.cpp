@@ -49,7 +49,8 @@ struct Banc
         {QStringLiteral("notification"), QStringLiteral("test:1790886944")}, {QStringLiteral("etat"), QStringLiteral("en_attente")},
         {QStringLiteral("message"), QStringLiteral("Notification de test mise en file : la passerelle l'envoie à sa prochaine passe.")}});
 
-    Banc()
+    //! `etapeP7` : ce que le verdict de /v1/meta a dit de la clé `accueil` (Application le relaie) ; un greffon de P7.
+    explicit Banc(const QString &etapeP7 = QStringLiteral("annonce"))
     {
         serveur.installerAuthentification();
         serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
@@ -59,6 +60,8 @@ struct Banc
         }
         client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
         flux.setIntervalleFond(std::chrono::hours(1));
+        greffon.setEtapeP7(etapeP7);
+        flux.setEtapeP7(etapeP7);
         serveur.route("GET", kP + QStringLiteral("/accueil"), [this](const RequeteRecue &) {
             return statutAccueil == 200 ? ReponseFaux::json(200, document)
                                         : ReponseFaux::json(statutAccueil, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
@@ -101,6 +104,7 @@ private slots:
     void sessionsRecentes();
     void litLAccueilEtLesSessionsQuandLaPageEstAffichee();
     void neLitRienSansSessionNiHorsDeLaPage();
+    void accueilEtBadgeSeulementSurLAnnonceDeLEtapeP7();
     void echecGardeLaDerniereValeur();
     void pauseGeneraleCorpsExactEtRefusTelQuel();
     void notificationDeTestSeulementAvecUnCanal();
@@ -368,6 +372,71 @@ void TestAccueil::neLitRienSansSessionNiHorsDeLaPage()
     QTRY_VERIFY(banc.accueil.actif());
     banc.flux.setFenetreActive(false); // fenêtre réduite
     QTRY_VERIFY(!banc.accueil.actif());
+}
+
+// Seconde relecture de P8b (constat desktop-8) : l'Accueil et le sondage léger lisaient /v1/accueil sans condition.
+// Face à un greffon de P5 ou P6 (verdict « Compatible »), la page n'affichait qu'un 404 et le badge restait « Inconnu ».
+// Détecté avant d'être lu : rien ne part sans l'annonce de l'étape P7 ; absente, la page et le badge le disent.
+void TestAccueil::accueilEtBadgeSeulementSurLAnnonceDeLEtapeP7()
+{
+    const QString kAccueil = kP + QStringLiteral("/accueil");
+    Banc banc(QStringLiteral("inconnu")); // /v1/meta pas encore lu
+    banc.flux.demarrer();
+    banc.accueil.setPageVisible(true);
+    QTRY_VERIFY(banc.accueil.actif());
+    QTRY_VERIFY(banc.accueil.sessionsLues()); // le reste de la page lit
+    banc.accueil.actualiser();
+    banc.flux.signalerLien(false);
+    banc.flux.signalerLien(true);
+    QTest::qWait(200);
+    QCOMPARE(banc.serveur.compter("GET", kAccueil), 0); // ni la page, ni le sondage léger, ni « Actualiser », ni le lien
+    QVERIFY(!banc.accueil.lue());
+    QCOMPARE(banc.accueil.disponibilite(), QStringLiteral("Accueil agrégé : Inconnu : /v1/meta n'a pas encore été lu."));
+    QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : Inconnu"));
+    QVERIFY2(banc.accueil.cadence().startsWith(QStringLiteral("Accueil agrégé non lu")), qPrintable(banc.accueil.cadence()));
+
+    // Verdict : étape annoncée. La page et le sondage léger lisent aussitôt.
+    banc.greffon.setEtapeP7(QStringLiteral("annonce"));
+    banc.flux.setEtapeP7(QStringLiteral("annonce"));
+    QTRY_VERIFY(banc.accueil.lue());
+    QTRY_COMPARE(banc.serveur.compter("GET", kAccueil), 2);
+    QCOMPARE(banc.accueil.disponibilite(), QString());
+    QTRY_COMPARE(banc.flux.aTraiter(), 1);
+
+    // Hermes redéployé avec un greffon antérieur à P7 : ce qui avait été lu est oublié, rien ne part plus, c'est dit.
+    banc.greffon.setEtapeP7(QStringLiteral("absent"));
+    banc.flux.setEtapeP7(QStringLiteral("absent"));
+    QVERIFY(!banc.accueil.lue());
+    QCOMPARE(banc.accueil.carteATraiter().value(QStringLiteral("total")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(banc.accueil.projetsEnCours()->count(), 0);
+    QCOMPARE(banc.accueil.lectureAccueil(), QStringLiteral("Jamais lu"));
+    QCOMPARE(banc.accueil.erreurAccueil(), QString()); // jamais un 404 à la place de l'explication
+    QCOMPARE(banc.accueil.disponibilite(),
+             QStringLiteral("Accueil agrégé : Non disponible sur ce serveur : le greffon acp-poste n'annonce pas l'étape P7 "
+                            "(clé « accueil » absente de /v1/meta). Questions, projets, poste et quotas restent dans leurs pages."));
+    QCOMPARE(banc.flux.aTraiter(), -1);
+    banc.flux.noterAccueil(accueilPartage()); // aucune lecture de /v1/accueil n'existe sans l'annonce : ignorée
+    QCOMPARE(banc.flux.aTraiter(), -1);
+    QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : Non disponible sur ce serveur"));
+    QVERIFY2(banc.flux.etatSondage().startsWith(QStringLiteral("Arrêté : Non disponible sur ce serveur")),
+             qPrintable(banc.flux.etatSondage()));
+    const int lectures = banc.serveur.compter("GET", kAccueil);
+    banc.accueil.actualiser();
+    banc.flux.signalerLien(false);
+    banc.flux.signalerLien(true);
+    QTest::qWait(300);
+    QCOMPARE(banc.serveur.compter("GET", kAccueil), lectures);
+    QVERIFY(banc.accueil.sessionsLues()); // discussions récentes : route native de Hermes, toujours lues
+
+    // Greffon bloqué (404 de /v1/meta) : la raison du blocage, jamais « /v1/meta n'a pas encore été lu ».
+    const QString blocage = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la Discussion et les Diagnostics "
+                                           "restent disponibles.");
+    banc.greffon.bloquer(blocage);
+    banc.greffon.setEtapeP7(QStringLiteral("inconnu"));
+    banc.flux.setEtapeP7(QStringLiteral("inconnu"));
+    QCOMPARE(banc.accueil.disponibilite(), QStringLiteral("Accueil agrégé non lu : ") + blocage);
+    QCOMPARE(banc.flux.etatSondage(), QStringLiteral("Arrêté : ") + blocage);
+    QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : Inconnu"));
 }
 
 void TestAccueil::echecGardeLaDerniereValeur()

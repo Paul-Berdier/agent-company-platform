@@ -114,6 +114,7 @@ AccueilViewModel::AccueilViewModel(ApiClient *client, ClientGreffonPoste *greffo
     }
     lireAccueil({});
     m_lue = false;
+    connect(flux, &EventStreamService::etapeP7Change, this, &AccueilViewModel::majEtapeP7);
     for (Sondage *sondage : {m_accueil, m_sondageSessions}) {
         connect(sondage, &Sondage::etatChange, this, &AccueilViewModel::lectureChange);
     }
@@ -160,8 +161,47 @@ void AccueilViewModel::setCompatibilite(CompatibiliteHermes *compatibilite)
     emit cadenceChange(); // la carte Hermes est désormais relue avec la page
 }
 
+QString AccueilViewModel::disponibilite() const
+{
+    if (flux()->etapeP7Annoncee()) {
+        return {};
+    }
+    if (m_greffon->bloque()) {
+        return QStringLiteral("Accueil agrégé non lu : %1").arg(m_greffon->raisonBlocage());
+    }
+    const QString etat = flux()->etapeP7();
+    QString texte = QStringLiteral("Accueil agrégé : %1").arg(ClientGreffonPoste::libelleEtapeP7(etat));
+    if (etat == QLatin1String("absent")) {
+        texte += QStringLiteral(" Questions, projets, poste et quotas restent dans leurs pages.");
+    }
+    return texte;
+}
+
+void AccueilViewModel::majEtapeP7()
+{
+    if (flux()->etapeP7Annoncee()) {
+        m_accueil->setActif(actif());
+    } else {
+        // Rien de /v1/accueil ne part sans l'annonce ; ce qui en avait été lu n'est plus celui de ce greffon.
+        m_accueil->setActif(false);
+        m_accueil->oublier();
+        if (m_lue) {
+            lireAccueil({});
+            m_lue = false;
+        }
+    }
+    emit accueilChange();
+    emit lectureChange();
+    emit cadenceChange();
+}
+
 QString AccueilViewModel::cadence() const
 {
+    if (!flux()->etapeP7Annoncee()) {
+        return QStringLiteral("Accueil agrégé non lu (voir ci-dessous) ; %1 %2 tant que la page est affichée.")
+            .arg(m_meta ? QStringLiteral("discussions récentes et carte Hermes relues") : QStringLiteral("discussions récentes relues"),
+                 Sondage::toutesLes(m_sondageSessions->intervalleEffectif()));
+    }
     // Comme EtatActualisation portee="accueil" de la page web : la portée exacte du temps réel.
     if (m_accueil->tempsReel()) {
         return QStringLiteral("Accueil relu à chaque changement signalé par le serveur (temps réel) et %1 par sûreté ; "
@@ -189,7 +229,8 @@ void AccueilViewModel::setIntervalle(std::chrono::milliseconds intervalle)
 void AccueilViewModel::surActivite(bool actif)
 {
     for (Sondage *sondage : sondages()) {
-        sondage->setActif(actif);
+        // L'Accueil agrégé attend l'annonce de l'étape P7 (majEtapeP7) ; les autres lectures, non.
+        sondage->setActif(actif && (sondage != m_accueil || flux()->etapeP7Annoncee()));
     }
 }
 
@@ -215,7 +256,9 @@ void AccueilViewModel::surOubli()
 void AccueilViewModel::actualiser()
 {
     for (Sondage *sondage : sondages()) {
-        sondage->lireMaintenant();
+        if (sondage != m_accueil || flux()->etapeP7Annoncee()) { // jamais /v1/accueil sans l'annonce
+            sondage->lireMaintenant();
+        }
     }
 }
 

@@ -89,6 +89,7 @@ struct Banc
         }
         client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
         flux.setIntervalleFond(std::chrono::hours(1));
+        flux.setEtapeP7(QStringLiteral("annonce")); // greffon de l'étape P7 : le badge lit /v1/accueil
         serveur.route("GET", kP + QStringLiteral("/questions"), [this](const RequeteRecue &) { return ReponseFaux::json(200, liste); });
         serveur.route("GET", kP + QStringLiteral("/projets"),
                       [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projets.json"))); });

@@ -173,8 +173,11 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     });
     // Flux d'invalidation du greffon (étape P7) : ouvert seulement sur l'annonce de /v1/meta, relue à
     // chaque verdict (session perdue ou serveur changé : « inconnu », flux fermé).
+    // Étape P7 (clé `accueil`, seconde relecture de P8b, constat desktop-8) : l'Accueil agrégé, le badge et les gestes de
+    // P7 suivent le même verdict ; le client du greffon l'a déjà reçu (CompatibiliteHermes::publier).
     connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
         m_flux->setAnnonceFlux(m_compatibilite->etatFlux(), m_compatibilite->annonceFlux());
+        m_flux->setEtapeP7(m_compatibilite->etatEtapeP7());
     });
     connect(m_compatibilite, &CompatibiliteHermes::change, this, [this] {
         const CompatibilityStatus::State etat = m_compatibilite->etat();

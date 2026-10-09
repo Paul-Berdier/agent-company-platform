@@ -127,7 +127,12 @@ public:
 
     // --- Fonctions pures (tests) ------------------------------------------------------------
     [[nodiscard]] static QJsonObject construireLigneProjet(const QJsonObject &projet);
-    [[nodiscard]] static QVariantMap construireDetail(const QJsonObject &projet);
+    /*!
+        Détail d'un projet. `etapeP7` (EventStreamService::etapeP7) : « Qui répond » et « Clore le
+        projet » ne sont offerts que sur l'annonce de /v1/meta ; sinon `gestesP7` dit pourquoi
+        (seconde relecture de P8b, constat desktop-8).
+    */
+    [[nodiscard]] static QVariantMap construireDetail(const QJsonObject &projet, const QString &etapeP7);
     [[nodiscard]] static QJsonArray construireCartes(const QJsonArray &cartes);
     [[nodiscard]] static QJsonArray construireJournal(const QJsonArray &journal);
     /*! Message d'un réglage « qui répond » enregistré, d'après la réponse du greffon. */
@@ -195,6 +200,7 @@ private:
     QString m_tableauOuvert;
     QString m_etatProjet;
     bool m_detailLu = false;
+    QJsonObject m_dernierProjet; //!< projet lu, pour refaire le détail quand l'étape P7 change
     QVariantMap m_detail;
     QVariantMap m_carteLue;
     quint64 m_generationDetail = 0;

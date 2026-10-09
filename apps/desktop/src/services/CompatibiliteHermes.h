@@ -25,6 +25,15 @@
 // greffon illisible (`machine.base` = « illisible » : « illisible ») ; `null` = étape en place
 // mais aucun exécutant connu pour l'instant (« aucun ») ; objet = exécutant annoncé
 // (« annonce »). Avant toute lecture de /v1/meta : « inconnu ».
+//
+// De même pour l'étape P7 (seconde relecture de P8b, constat desktop-8 ; décision P8b-2) : la clé
+// `accueil` de /v1/meta (meta.py) est née dans le MÊME commit du greffon (00bc069) que les quatre
+// routes qu'elle couvre, `GET /v1/accueil`, la relance d'une carte arrêtée, « qui répond » et la
+// clôture d'un projet. `accueil` vrai = « annonce » ; clé absente (ou faux) = greffon antérieur à P7
+// (« absent ») ; toute autre valeur = « illisible ». Le verdict APPLIQUÉ le pose sur le client du
+// greffon (ClientGreffonPoste::setEtapeP7), qui refuse alors localement ces quatre routes ; l'Accueil
+// agrégé et le sondage léger ne les lisent que sur l'annonce, « Clore » et « Qui répond » ne sont
+// offerts que sur elle.
 
 #pragma once
 
@@ -87,6 +96,11 @@ public:
         QString etatFlux = QStringLiteral("inconnu");
         //! Objet `flux` servi (chemin, version, sujets, battement, durée), vide sans annonce.
         QJsonObject annonceFlux;
+        /*!
+            Étape P7 (clé `accueil` de /v1/meta) : « annonce », « absent », « illisible » ou « inconnu »
+            (rien de lu). Voir l'en-tête.
+        */
+        QString etatEtapeP7 = QStringLiteral("inconnu");
     };
 
     explicit CompatibiliteHermes(ClientGreffonPoste *greffon, QObject *parent = nullptr);
@@ -133,6 +147,7 @@ public:
     [[nodiscard]] const QJsonObject &executant() const { return m_evaluation.executant; }
     [[nodiscard]] const QString &etatFlux() const { return m_evaluation.etatFlux; }
     [[nodiscard]] const QJsonObject &annonceFlux() const { return m_evaluation.annonceFlux; }
+    [[nodiscard]] const QString &etatEtapeP7() const { return m_evaluation.etatEtapeP7; }
 
 signals:
     void change();

@@ -291,6 +291,14 @@ Item {
                     }
                     KeyValueRow { Layout.fillWidth: true; label: qsTr("Tableau kanban"); value: Projets.detail.tableau; monospace: true }
                     Discret { objectName: "projets-veille"; text: Projets.etatVeille }
+                    // Seconde relecture de P8b (constat desktop-8) : sans l'annonce de l'étape P7 par /v1/meta, aucun
+                    // bouton « Qui répond » ni « Clore » ; la raison est dite à leur place.
+                    Discret {
+                        objectName: "projet-gestes-p7"
+                        visible: (Projets.detail.gestesP7 || "").length > 0
+                        text: Projets.detail.gestesP7 || ""
+                        color: Colors.textSecondary
+                    }
 
                     // --- « Changer qui répond » (étape P7) : rien ne change à l'écran avant la réponse du greffon.
                     Item {

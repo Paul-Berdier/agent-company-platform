@@ -316,6 +316,7 @@ void TestTempsReel::serviceResumeSansFluxSse()
     Banc banc;
     EventStreamService flux(&banc.client, &banc.greffon, nullptr);
     flux.setIntervalleFond(std::chrono::milliseconds(60));
+    flux.setEtapeP7(QStringLiteral("annonce")); // greffon de l'étape P7 : /v1/meta annonce `accueil`
     QCOMPARE(flux.aTraiter(), -1);
     QCOMPARE(flux.libelleATraiter(), QStringLiteral("À traiter par vous : Inconnu"));
     QCOMPARE(flux.libellePoste(), QStringLiteral("Inconnu"));

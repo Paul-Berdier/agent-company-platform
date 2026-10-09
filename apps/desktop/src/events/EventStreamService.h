@@ -22,6 +22,9 @@
 //    réduite) et quand relire (`lienRetabli`, `sessionsChangees`, `tableauChange`) ;
 //  - ouvre le flux d'invalidation quand une page peut lire et que /v1/meta l'annonce
 //    (setAnnonceFlux) ; le sondage léger le suit pour tous les sujets ;
+//  - relaie aux pages l'état de l'étape P7 lu dans /v1/meta (setEtapeP7, clé `accueil`) : le
+//    sondage léger ne lit `/v1/accueil` que sur l'annonce ; sinon le badge dit « Non disponible
+//    sur ce serveur » ou « Inconnu », jamais un compteur ;
 //  - publie l'état de chaque source, sans secret, pour les diagnostics.
 
 #pragma once
@@ -47,6 +50,7 @@ class EventStreamService : public QObject
     Q_OBJECT
     Q_PROPERTY(bool fenetreActive READ fenetreActive WRITE setFenetreActive NOTIFY fenetreActiveChange)
     Q_PROPERTY(bool pagesActives READ pagesActives NOTIFY pagesActivesChange)
+    Q_PROPERTY(QString etapeP7 READ etapeP7 NOTIFY etapeP7Change)
     // Résumé du sondage léger (barre d'état, badge de navigation).
     Q_PROPERTY(int aTraiter READ aTraiter NOTIFY resumeChange)
     Q_PROPERTY(QString libelleATraiter READ libelleATraiter NOTIFY resumeChange)
@@ -80,6 +84,15 @@ public:
     [[nodiscard]] DiscussionsEnAttente *discussions() const { return m_discussions; }
     /*! Annonce du flux lue dans /v1/meta (CompatibiliteHermes::etatFlux et annonceFlux). */
     void setAnnonceFlux(const QString &etat, const QJsonObject &annonce);
+    /*!
+        État de l'étape P7 lu dans /v1/meta (CompatibiliteHermes::etatEtapeP7) : « annonce », « absent »,
+        « illisible » ou « inconnu ». Hors annonce, le sondage léger s'arrête et oublie ce qu'il avait lu.
+        `etapeP7Change` est émis à chaque changement de l'état OU du blocage du greffon (les pages en
+        tirent ce qu'elles disent).
+    */
+    void setEtapeP7(const QString &etat);
+    [[nodiscard]] const QString &etapeP7() const { return m_etapeP7; }
+    [[nodiscard]] bool etapeP7Annoncee() const { return m_etapeP7 == QLatin1String("annonce"); }
     void setIntervalleFond(std::chrono::milliseconds intervalle);
 
     // --- Cycle de vie (Application) -------------------------------------------------
@@ -139,10 +152,14 @@ signals:
     void sessionsChangees();
     /*! Le kanban du tableau surveillé a bougé (après regroupement). */
     void tableauChange(const QString &tableau);
+    /*! L'état de l'étape P7 (ou le blocage du greffon) a changé : voir setEtapeP7. */
+    void etapeP7Change();
 
 private:
     void lireResume(const QJsonObject &accueil);
     void lirePosteEtPause(const QJsonValue &etatPoste, const QJsonValue &pause, bool pauseIllisible);
+    //! Le sondage léger lit seulement session ouverte ET étape P7 annoncée.
+    void majFond();
 
     ClientGreffonPoste *m_greffon = nullptr;
     GatewayClient *m_passerelle = nullptr;
@@ -154,6 +171,8 @@ private:
     bool m_sessionOuverte = false;
     bool m_lienEnLigne = false;
     bool m_lienConnu = false;
+    QString m_etapeP7 = QStringLiteral("inconnu");
+    bool m_greffonBloque = false; //!< blocage vu au dernier setEtapeP7
     int m_aTraiterGreffon = -1;
     QString m_libellePoste;
     QString m_clePoste;

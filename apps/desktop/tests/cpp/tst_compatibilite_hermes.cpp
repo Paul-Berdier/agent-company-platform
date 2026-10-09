@@ -92,6 +92,7 @@ private slots:
     void alertesComptees();
     void executantDetecteSansSupposition();
     void fluxDuGreffonDitCeQueLeServeurAnnonce();
+    void etapeP7DetecteeSansSuppositionEtAppliqueeAuClient();
     void lectureContreLeFauxHermes();
     void greffonAbsentSur404();
     void injoignableGardeLeDernierVerdictLu();
@@ -324,6 +325,52 @@ void TestCompatibiliteHermes::fluxDuGreffonDitCeQueLeServeurAnnonce()
                                 QStringLiteral("inconnu")}) {
         QVERIFY(!FluxInvalidation::raisonAnnonce(etat, {}).contains(QStringLiteral("étape P7")));
     }
+}
+
+// Seconde relecture de P8b (constat desktop-8) : la clé `accueil` de /v1/meta, posée par le greffon de P7 dans le même
+// commit (00bc069) que /v1/accueil, la relance, « qui répond » et la clôture, n'était jamais lue. Elle se lit sans
+// supposition, et le verdict APPLIQUÉ la pose sur le client du greffon (comme le blocage).
+void TestCompatibiliteHermes::etapeP7DetecteeSansSuppositionEtAppliqueeAuClient()
+{
+    QCOMPARE(CompatibiliteHermes::evaluer(metaDeReference()).etatEtapeP7, QStringLiteral("annonce")); // forme de P7
+    QJsonObject meta = metaDeReference();
+    meta.remove(QStringLiteral("accueil")); // greffon de P5 ou P6 : même contrat acp-poste/1, verdict « Compatible »
+    const auto p6 = CompatibiliteHermes::evaluer(meta);
+    QCOMPARE(p6.etatEtapeP7, QStringLiteral("absent"));
+    QCOMPARE(p6.etat, CompatibilityStatus::Compatible);
+    meta.insert(QStringLiteral("accueil"), false);
+    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatEtapeP7, QStringLiteral("absent"));
+    for (const QJsonValue &illisible : {QJsonValue(QStringLiteral("oui")), QJsonValue(1), QJsonValue(QJsonValue::Null),
+                                        QJsonValue(QJsonObject{})}) {
+        meta.insert(QStringLiteral("accueil"), illisible);
+        QCOMPARE(CompatibiliteHermes::evaluer(meta).etatEtapeP7, QStringLiteral("illisible"));
+    }
+    QCOMPARE(CompatibiliteHermes::Evaluation{}.etatEtapeP7, QStringLiteral("inconnu"));
+
+    // Le verdict rendu s'applique au client du greffon ; l'oubli revient à « inconnu ».
+    FauxHermes serveur;
+    serveur.installerAuthentification();
+    serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    QJsonObject servi = metaDeReference();
+    serveur.route("GET", kP + QStringLiteral("/meta"), [&servi](const RequeteRecue &) { return ReponseFaux::json(200, servi); });
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(serveur.url()).isError());
+    client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
+    ClientGreffonPoste greffon(&client);
+    CompatibiliteHermes compatibilite(&greffon);
+    QCOMPARE(greffon.etapeP7(), QStringLiteral("inconnu"));
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    QCOMPARE(compatibilite.etatEtapeP7(), QStringLiteral("annonce"));
+    QCOMPARE(greffon.etapeP7(), QStringLiteral("annonce"));
+    servi.remove(QStringLiteral("accueil")); // Hermes redéployé avec un greffon antérieur à P7
+    compatibilite.verifier();
+    QTRY_COMPARE(greffon.etapeP7(), QStringLiteral("absent"));
+    QCOMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    QVERIFY(!greffon.bloque());
+    compatibilite.oublier();
+    QCOMPARE(greffon.etapeP7(), QStringLiteral("inconnu"));
 }
 
 void TestCompatibiliteHermes::lectureContreLeFauxHermes()

@@ -11,6 +11,13 @@ mêmes clés de premier niveau, mêmes sous-clés pour `hermes`, `openrpc`, `gre
 Sa forme est comparée à celle que sert l'image de test par le bout en bout local de la
 station (voir « Forme vérifiée sur l'image » plus bas).
 
+Étape P8b (seconde relecture, constat desktop-8) : la clé `accueil` (vrai) est celle que pose
+le greffon de l'étape P7 (`meta.py`, commit `00bc069`, le même que `/v1/accueil`, la relance,
+« qui répond » et la clôture) ; sans elle, la station ne lit ni n'offre rien de ces routes.
+La clé `flux` (étape P7 aussi) n'y figure pas : les tests qui ouvrent le flux d'invalidation
+l'ajoutent eux-mêmes. Le bout en bout du § « Forme vérifiée sur l'image » date de P8 : il n'a
+pas été rejoué avec la clé `accueil`.
+
 ## Documents des pages de pilotage
 
 Les fichiers suivants sont une conversion MÉCANIQUE en JSON des réponses que les tests de

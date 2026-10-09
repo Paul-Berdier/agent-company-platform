@@ -383,6 +383,7 @@ void TestFluxInvalidation::serviceSuitLaSessionEtLaFenetre()
     EventStreamService service(&banc.client, &banc.greffon, nullptr);
     service.invalidation()->setReglages(reglagesRapides()); // sondage léger : 60 s, jamais atteint ici
     service.setAnnonceFlux(QStringLiteral("annonce"), annonce());
+    service.setEtapeP7(QStringLiteral("annonce")); // le sondage léger lit /v1/accueil sur l'annonce de l'étape P7
     QTest::qWait(80);
     QCOMPARE(banc.ouvertures(), 0); // aucune session : rien
     QCOMPARE(service.libelleTempsReel(), QString());
@@ -457,6 +458,7 @@ void TestFluxInvalidation::sessionNeuveOublieLeRepli()
     EventStreamService service(&banc.client, &banc.greffon, nullptr);
     service.invalidation()->setReglages(reglagesRapides()); // nouvel essai du repli : dans 1 h
     service.setAnnonceFlux(QStringLiteral("annonce"), annonce());
+    service.setEtapeP7(QStringLiteral("annonce"));
     service.demarrer();
     QTRY_COMPARE(service.invalidation()->mode(), FluxInvalidation::Mode::Sondage);
     QCOMPARE(service.invalidation()->raison(), QStringLiteral("session refusée par le flux (401)"));
