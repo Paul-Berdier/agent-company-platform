@@ -764,8 +764,12 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    `diagnostiquer` est en lecture seule ; il lit l'environnement du PID 1 (`/proc/1/environ`),
    jamais celui de la session `railway ssh`, dont la doc ne dit rien ; il liste variables
    interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml` (dont, depuis P3, tout serveur
-   MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8), `lazy-packages` (code 1 si
-   un constat existe). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
+   MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8 ; depuis le chantier SECU-TUI,
+   toute source externe de secrets activée : D157), `lazy-packages` (code 1 si un constat existe).
+   Une ligne d'information « … porte N clé(s) épinglée(s) (…) : root les retirera au prochain
+   démarrage (SECU-1) » n'est pas un constat et n'appelle aucun retrait à la main : root retire ces
+   clés au démarrage (D156) ; Hermes n'en écrit aucune lui-même, consignez-la
+   ([image.md](image.md) § 6). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
 5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Exception : `acp-bilan.py` dans
    `/opt/data/scripts/` est déposé par l'image depuis P7 et admis par son empreinte ; ne le retirez que pour revenir
    à une image antérieure à P7 (§ 9, Rollback) — sinon le démarrage suivant le redépose. Un serveur MCP

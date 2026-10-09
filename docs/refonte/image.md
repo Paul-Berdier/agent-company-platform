@@ -720,8 +720,16 @@ rassemble tout ce qui ferait refuser le démarrage ou exécuter du code depuis l
 - **clés exécutables** de `/opt/data/config.yaml` et `/opt/data/profiles/*/config.yaml`, lues
   sans suivre de lien : `mcp_servers.*.command`, `hooks` non vide, `quick_commands` de type
   `exec`, fournisseurs TTS ou STT de type `command` ; depuis P3, tout serveur MCP absent du
-  catalogue (qui refuse aussi le démarrage) ;
-- contenu de `/opt/data/lazy-packages`.
+  catalogue (qui refuse aussi le démarrage) ; depuis le chantier SECU-TUI, toute source externe
+  de secrets activée (§ 4.3 ter, D157, qui refuse aussi le démarrage) ;
+- contenu de `/opt/data/lazy-packages` ;
+- **en information, sans constat** (chantier SECU-TUI, § 4.3 bis, D156) : les clés épinglées par la
+  managed scope présentes dans un `.env` ou `.op.env` du volume, par leurs noms (jamais leurs
+  valeurs) ; elles ne refusent pas le démarrage, root les retire au démarrage suivant. Ni l'image
+  (le `.env.example` semé au premier démarrage n'en porte aucune, et `API_SERVER_KEY`, qu'elle
+  ajoute, n'est pas épinglée : lu dans l'image le 9 octobre 2026), ni Hermes pendant la vie d'un
+  service (§ 10) n'en écrivent : sur un volume restauré, leur présence dit qu'une écriture directe
+  du fichier, ou un piège d'avant P2, les y a mises.
 
 Chaque constat est préfixé `[acp] DIAGNOSTIC :` ; code 0 si rien n'est trouvé, 1 sinon. Aucune
 liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'emploie est dans
