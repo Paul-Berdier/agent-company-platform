@@ -6,9 +6,10 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 ## [1.0.0] - date à relever — refonte « Hermes au centre »
 
-> **Section préparée, version non ouverte.** Écrite le 8 octobre 2026 à l'étape P9 (part E) : `VERSION` vaut encore
-> 0.11.0. La date sera celle du commit `chore(release): prepare 1.0.0 changelog`, après le commit d'ouverture
-> (D129) ; les preuves des parts B et C de P9 sont **à relever**. Les runs de la PR de `refonte/hermes-p9` et de
+> **Section préparée, version non ouverte.** Écrite le 8 octobre 2026 à l'étape P9 (part E), complétée le 9 octobre
+> 2026 (parts B et C closes, SECU-TUI et P8b fusionnées, branches de P9 réunies) : `VERSION` vaut encore 0.11.0. La
+> date sera celle du commit `chore(release): prepare 1.0.0 changelog`, après la relecture indépendante de toute P9
+> et le commit d'ouverture (D129). Les runs de la PR de `refonte/hermes-p9` et de
 > celle vers `main` n'y figureront pas : le commit du journal les précède (un commit ne peut citer les runs que son
 > propre push déclenche, et le compléter après la fusion déplacerait l'étiquette hors du commit de fusion). Ils vont
 > dans `docs/refonte/preuves-1.0.0.md` : § 3 pour la PR de `refonte/hermes-p9`, § 4 pour celle vers `main`
@@ -42,7 +43,7 @@ rupture de nos interfaces appellera 2.0.0.
 | P7 | questions, notifications, continuité ; dépôts réels | #21 | `b9779f1` |
 | SECU-TUI | correctif de sécurité : `.env` et sources de secrets du volume (D156, D157) | #23 | `5026a70` |
 | P8b | station Qt alignée sur P7 (D158, D159) | #22 | `8583642` |
-| P9 | exploitation, montée de version, publication | à relever | à relever |
+| P9 | exploitation, montée de version, publication | postérieure à ce journal (preuves, § 3) | postérieur à ce journal (preuves, § 3) |
 
 ### Ajouté
 
@@ -82,13 +83,14 @@ rupture de nos interfaces appellera 2.0.0.
   P8b, alignée sur P7 : flux d'invalidation `GET /v1/flux` (D158), Accueil agrégé, file Questions à cinq sections et
   ses gestes (relancer, revues, qui répond, clore), discussions en attente, bilan quotidien, étape P7 détectée par
   `/v1/meta` avant d'être lue (D159).
-- **Exploitation** (P9, état du 8 octobre 2026, parts B et C encore ouvertes) : `scripts/monter_hermes.py`
-  (`verifier`, `ecrire`, `inventaire`, `derniere`) et sa répétition à blanc à chaque construction ; concordance de
-  toutes les épingles de Hermes (`scripts/tests/test_epingles_hermes.py`) ; toute copie versionnée contrôlée
-  (`scripts/tests/test_version_complete.py`) ; tests de restauration de trois volumes (job `restauration`
-  d'`image.yml`) ; témoin d'une release antérieure de Hermes (job `temoin`, `scripts/temoin_hermes.py`) ; montée de
-  données d'une version d'ACP à la suivante (job `montee`) ; manuel du propriétaire `docs/exploitation.md` ;
-  `docs/refonte/historique.md` et `docs/refonte/preuves-1.0.0.md`.
+- **Exploitation** (P9) : `scripts/monter_hermes.py` (`verifier`, `ecrire`, `inventaire`, `derniere`) et sa
+  répétition à blanc à chaque construction ; concordance de toutes les épingles de Hermes
+  (`scripts/tests/test_epingles_hermes.py`) ; toute copie versionnée contrôlée (`scripts/tests/test_version_complete.py`) ;
+  tests de restauration de trois volumes, R1 à R4 (job `restauration` d'`image.yml`, à chaque construction : trois
+  volumes au même instant et à des instants différents, reconnexion du propriétaire, Hermes réimporté depuis son
+  export) ; témoin d'une release antérieure de Hermes (job `temoin`, `scripts/temoin_hermes.py`) ; montée de données
+  d'une version d'ACP à la suivante (job `montee`, chaque ligne d'avant comparée à un contrôle) ; manuel du
+  propriétaire `docs/exploitation.md` ; `docs/refonte/historique.md` et `docs/refonte/preuves-1.0.0.md`.
 - **CI** : `ci.yml` (moteur gelé, suites sous Linux et Windows, installeur du poste en simulation, interface,
   balayage des secrets), `image.yml`, `executant.yml`, `desktop-ci.yml` ; `desktop-release.yml` crée à l'étiquette
   un brouillon non signé (D131).
@@ -105,6 +107,9 @@ rupture de nos interfaces appellera 2.0.0.
 - Pages relues sur signal du flux au lieu du sondage de 15 s (gardé en repli) ; voie Codex ouverte seulement sur un
   dépôt prouvé privé (P7, D103).
 - Contrôle des décisions documentées à trois chiffres (P7, P9 : D132).
+- Docker sur le poste de travail : arrêté le 8 octobre 2026 (D134), de nouveau permis avec sobriété le 9 octobre
+  2026 (D160 : une seule pile à la fois, ressources nommées et retirées) ; l'intégration continue reste la preuve qui
+  fait foi.
 
 **Retiré de l'ancienne plateforme** (tout reste sous l'étiquette `archive/acp-0.10.0-avant-hermes`) : en P0, API
 FastAPI, base et migrations, bus d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite (hors
@@ -141,9 +146,18 @@ Corrections des relectures indépendantes, une ligne par étape (détail : `docs
 - P8b : deux relectures, 12 constats (desktop-1 à desktop-12), chacun vérifié dans le code puis traité, les
   constats de code avec un test relevé rouge sans la correction ;
 - P9 : relecture de l'outillage de version (six constats sur `scripts/monter_hermes.py` et `image.yml`, chacun avec
-  un test rouge d'abord) et vérification factuelle du manuel (19 constats recoupés et corrigés) ; compteur
-  `AUTOINCREMENT` ramené par la reconstruction d'une table du greffon, trouvé par la montée de données et corrigé
-  (`fdb41c9`, D153) ; relecture indépendante de toute P9 : **à relever**.
+  un test rouge d'abord) et vérification factuelle du manuel (19 constats recoupés et corrigés) ; défaut du produit
+  trouvé par la montée de données : la reconstruction d'une table du greffon (`notifications`, schéma 4) ramenait
+  son compteur `AUTOINCREMENT` (de 7 à 5), corrigé (`fdb41c9`, D153, test d'image rouge sur le code d'avant) ;
+  défauts des tests trouvés à leur premier passage en CI, corrigés avant le premier vert (dont un import de l'export
+  réputé réussi qui n'avait rien restauré : le test refuse désormais tout import incomplet) ; une attente qui passait
+  avec un exécutant non enrôlé (vue que Hermes garde de l'exécutant d'avant) dans la montée, puis la même lecture
+  sans attente dans R1, corrigées (`8e58ac9`, `83394a9`) ; la seule différence de la release témoin que rien
+  n'attrapait (`config.yaml` sans `_config_version`) attrapée par un test nouveau (`d07753b`) ; critique et
+  contre-vérification d'un sceptique des preuves de B et C : listes « jamais vu rouge » complétées, 33 runs de
+  témoins de mutation au total (20 pour la restauration, 13 pour la montée) et un inventaire mécanique des
+  vérifications (`docs/exploitation.md` § 6.6 et § 10) ; relecture indépendante de toute P9, qui précède le commit
+  de ce journal : **à relever** (constats et traitement : `docs/refonte/preuves-1.0.0.md` § 3).
 
 ### Sécurité
 
@@ -171,7 +185,16 @@ dans `docs/refonte/preuves-1.0.0.md`.
   des PR #23 et #22 et de leurs commits de fusion (preuves, § 1).
 - P9, parts A et D : outillage de version vert en CI (répétition à blanc « Aucun écart », Image Hermes
   `37004128839` puis `37028491959`) ; ébauche du manuel relue contre le code et la documentation de Railway.
-- P9, parts B et C (restauration, témoin, montée de données) : **à relever**.
+- P9, part B : test de restauration (job `restauration` d'`image.yml`, R1 à R4) vert depuis `27d2123` (run
+  `37768789724`) et sur la tête réunie `90102b1` (run `37908787791`) ; 20 runs de témoins de mutation, chacun rouge
+  pour sa raison.
+- P9, part C : témoin `v2026.9.21` rouge comme attendu (5 écarts, tous attrapés) et son contrôle sur `v2026.9.24`
+  vert (runs `37769347253` et `37769357764`, jobs « temoin ») ; montée de données de la fin de P8 (schéma 3) au
+  schéma 4 verte (run `37784839347`), rejouée sur la tête réunie depuis `b715edb` et depuis `8583642` (runs
+  `37908841650`, « migration de schéma : oui », et `37908855369`, « non ») ; 13 runs de témoins de mutation.
+- Réunion de P9 avec SECU-TUI et P8b (9 octobre 2026), tête `90102b1` : CI, Image de l'exécutant, Desktop CI et
+  Image Hermes verts (le job « image » à sa seconde tentative, voir « Limites connues ») ; en local, sur Docker de
+  nouveau permis (D160) : pytest dans l'image 874 réussis, contrat de sécurité 68, contrat de restauration 13.
 - PR de `refonte/hermes-p9` vers `refonte/hermes`, puis de `refonte/hermes` vers `main` (quatre workflows) :
   postérieures à ce journal ; leurs runs sont relevés dans `docs/refonte/preuves-1.0.0.md`, § 3 et § 4.
 
@@ -180,7 +203,9 @@ dans `docs/refonte/preuves-1.0.0.md`.
 - **Rien n'est déployé sur Railway** : tout ce qui ne se prouve que là reste non prouvé (`docs/refonte/railway.md`
   § 12 et § 14.7, `docs/exploitation.md` § 10) : bord et PID 1 réels, sonde R0 (régime de l'exécutant, donc ouverture
   de la voie Codex), sauvegardes réelles, répétition de restauration et reconnexions réelles, notification et
-  parcours réels sur le téléphone, premier dépôt réel, coût réel.
+  parcours réels sur le téléphone, premier dépôt réel, coût réel. **Aucun vrai compte** n'a servi (abonnement ChatGPT
+  de Hermes, Codex, Claude Code, GitHub, canal de notification) : tous les tests emploient un agent, des CLI et des
+  comptes factices.
 - **Constat de sécurité corrigé, avec une limite** : une fois, après un redémarrage du conteneur sur un volume
   piégé, la session du tableau de bord a reçu les outils d'exécution posés par le `.env` du volume (deuxième des
   trois couches de la défense de P2, `docs/refonte/image.md` § 5), alors que l'api_server les refusait (Image Hermes
@@ -188,13 +213,21 @@ dans `docs/refonte/preuves-1.0.0.md`.
   course : Hermes publie la valeur du `.env` du volume avant d'appliquer la portée gérée (run jetable `37831355746`,
   rouge attendu sur le code de P7) ; il y mesure que la garde `pre_tool_call` aurait refusé l'appel. Correctif et
   refus d'une seconde faille hors des trois couches (D156, D157, rubrique « Sécurité ») fusionnés par la PR #23
-  (`5026a70`, 9 octobre 2026). Reste, non corrigée : une écriture **directe** d'un `.env` du volume pendant la vie
-  d'un service (faille de Hermes, ou shell du propriétaire) rouvrirait la fenêtre jusqu'à la relance suivante ;
+  (`5026a70`, 9 octobre 2026). Reste, non corrigée : root ne retire les clés épinglées des `.env` du volume qu'au
+  démarrage et à chaque relance d'un service ; une écriture **directe** d'un `.env` du volume pendant la vie d'un
+  service (faille de Hermes, ou shell du propriétaire) rouvrirait donc la fenêtre jusqu'à la relance suivante ;
   quelques variables ni épinglées ni refusées dans le volume restent non mesurées (`docs/refonte/image.md` § 10).
-- Binaires de la station **non signés** ; aucune installation sur un Windows propre.
-- Sans Docker sur le poste de travail (D134), les bouts en bout locaux du poste (dernier passage : P5) et de la
-  station (P8), les témoins négatifs de P4 à P6 et la recompilation du verrou Python ne tournent plus nulle part
-  (aucun workflow ne les appelle) ; les deux bouts en bout n'ont pas été rejoués sur le code de P7 ni de P9.
+- Binaires de la station **non signés** (aucun certificat) : l'installeur et l'archive portable sont fabriqués par
+  chaque Desktop CI (empaquetage « à blanc » : produits, ni signés ni publiés), jamais installés ni lancés sur un
+  Windows propre ; `Desktop Release` n'a jamais tourné (premier run à l'étiquette, brouillon non signé : D131).
+- Les bouts en bout locaux du poste (dernier passage : P5) et de la station (P8), les témoins négatifs de P4 à P6 et
+  la recompilation du verrou Python sont des scripts à Docker local qu'aucun workflow n'appelle : arrêtés avec Docker
+  le 8 octobre 2026 (D134), ils peuvent de nouveau tourner depuis le 9 octobre 2026 (D160), mais n'ont été rejoués
+  ni sur le code de P7 ni sur celui de P9.
+- Tests instables connus, verts sur la tête : le test navigateur de la connexion (course avec la relecture
+  périodique du tableau de bord de Hermes, qui renvoie la page à la connexion après la déconnexion : rouge une fois,
+  Image Hermes `37908787791`, tentative 1) ; sous Windows, `apps/poste/tests/contrat/test_enrolement.py:78` (faux
+  serveur TLS) ; des tests temporisés du poste sous forte charge locale.
 - Cookies de Hermes sans `Secure` tant que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué : 503
   persistant jusqu'à la déconnexion ou l'effacement des cookies (`docs/refonte/identite.md` § 12).
 - Pages natives de Hermes en partie en anglais ; rendu éprouvé dans Chromium seulement.
@@ -202,8 +235,9 @@ dans `docs/refonte/preuves-1.0.0.md`.
   partagées seulement, jamais face à un vrai greffon P7 (`docs/refonte/desktop.md`, « Non prouvé ») ; MCP côté
   exécutant reporté.
 - `preserve()` sur une variable jamais posée : supposé sans effet (D116).
-- Aucune montée vers une release de Hermes postérieure à `v2026.9.24` (aucune n'existait au 2 octobre 2026) ;
-  montée de données depuis `v2026.9.21` non lancée (D147) ; montée d'Authelia non prouvée (D152).
+- Aucune montée vers une release de Hermes postérieure à `v2026.9.24` (aucune n'existe au 9 octobre 2026, mesuré par
+  `scripts/monter_hermes.py derniere`) ; montée de données depuis `v2026.9.21` non lancée (D147) ; montée d'Authelia
+  non prouvée (D152) ; retour arrière par Rollback non prouvé ; un vrai agent jamais employé.
 - Signature cosign de Codex non vérifiée (identité non établie).
 - Moteur Pixel Office gelé ; Godot hors périmètre.
 
