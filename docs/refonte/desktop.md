@@ -7,8 +7,8 @@ inchangée.
 
 **Étape P8b (8 octobre 2026)** : station alignée sur P7, branche `refonte/hermes-p8b` (de
 `refonte/hermes` `b9779f1`, P0 à P8 et P7) ; voir § « P8b » plus bas, et ses corrections
-après relecture indépendante (constats desktop-1 à desktop-7). Poussée, sans PR ni fusion ;
-rien n'est déployé.
+après deux relectures indépendantes (constats desktop-1 à desktop-7, le 8 octobre, puis
+desktop-8 à desktop-12, le 9 octobre). Poussée, sans PR ni fusion ; rien n'est déployé.
 
 Guides : [architecture](../native-desktop-architecture.md),
 [sécurité](../desktop-security.md), [construction et bout en bout](../desktop-build.md).
@@ -133,10 +133,10 @@ refus lus dans le code du greffon (`dashboard/plugin_api.py`, `noyau/questions.p
 | Routes P6 et P7 du greffon (`ClientGreffonPoste`) | accueil, flux (`Last-Event-ID` seulement pour une révision « n.n »), relance, qui répond, clôture, revues | `ab6d361` |
 | File Questions à cinq sections | questions (qui répond, aide chez Hermes), décisions, **revues** (Accepter / Refuser avec motif de 1 à 1 000 caractères), **cartes arrêtées** (Relancer seulement si `relancable`, consigne de 1 à 4 000 caractères, jamais pour une carte d'intégration ; message d'après `relancee`, `branche_neuve`, `session_neuve`), discussions en attente ; refus 409 du greffon dits tels quels ; geste accepté sans effet montré « Attention : », jamais en réussite | `e65c1c1` |
 | Détail d'un projet | **Changer qui répond** (projet sur dépôt pas encore fini ; message avec `questions_ouvertes_inchangees`), **Clore le projet** (actif ou en pause, confirmation aux quatre effets, `{confirmation: true}` ; message d'après la réponse) | `d8c1f0a` |
-| Accueil agrégé | une lecture de `GET /v1/accueil` (fixture PARTAGÉE lue en place) : à traiter, projets, exécutant (voies fermées `{voie: raison}`), quotas par voie, notifications (test seulement avec un canal), pause générale ; bloc illisible dit avec sa raison | `114cc4e` |
+| Accueil agrégé | une lecture de `GET /v1/accueil` (fixture PARTAGÉE lue en place), seulement sur l'annonce de l'étape P7 par `/v1/meta` (décision P8b-2) : à traiter, projets, exécutant (voies fermées `{voie: raison}`), quotas par voie, notifications (test seulement avec un canal), pause générale ; bloc illisible dit avec sa raison | `114cc4e` |
 | Badge et barre d'état | « À traiter par vous » d'après `a_traiter.total` de `/v1/accueil` | `5c37c70` |
 | Dépôts | carte « Dépôts autorisés » de la page Poste (visibilité MESURÉE, lecture, date, voies ouvertes ou fermées par dépôt, d'après `executant.depots`) ; « Nouveau projet » grise l'exécutant fermé pour le dépôt choisi avec la raison du greffon, ne le retient ni ne l'envoie jamais, part sans exploration si aucun n'est ouvert | `7f42eaa` |
-| Flux d'invalidation `GET /v1/flux` | `FluxInvalidation` : ouvert seulement sur l'annonce de `/v1/meta` (chemin et version attendus) et quand une page peut lire ; trame `etat` → temps réel ; `changement` → les pages qui suivent le sujet se relisent (regroupé 300 ms), sinon relecture de sûreté toutes les 2 min (1 min pour les discussions non publiées) ; `fin` → réouverture aussitôt avec `Last-Event-ID` ; chien de garde de 40 s ; reprises 1, 2, 5, 10, 30 s ; trois échecs en 2 min → sondage (15 s) et nouvel essai toutes les 5 min ; 429 jamais avant `Retry-After`. Sujets de chaque page repris de la page web. Barre d'état « Temps réel » / « Sondage… », détail dans les Diagnostics | `13b86db` |
+| Flux d'invalidation `GET /v1/flux` | `FluxInvalidation` : ouvert seulement sur l'annonce de `/v1/meta` (chemin et version attendus) et quand une page peut lire ; trame `etat` → temps réel ; `changement` → les pages qui suivent le sujet se relisent (regroupé 300 ms), sinon relecture de sûreté toutes les 2 min (1 min pour les discussions non publiées) ; `fin` → réouverture aussitôt avec `Last-Event-ID` ; chien de garde de 40 s ; reprises 1, 2, 5, 10, 30 s ; trois échecs en 2 min → sondage (chaque page à son sondage habituel : 15 s, 60 s pour la page Quotas et pour le sondage léger du badge et de la barre d'état) et nouvel essai toutes les 5 min ; 429 jamais avant `Retry-After`. Sujets de chaque page repris de la page web. Barre d'état « Temps réel » / « Sondage… », détail dans les Diagnostics | `13b86db` |
 | Discussions en attente | `DiscussionsEnAttente` : `session.active_list` par la passerelle de la station (entrées « waiting » seulement), comptées dans le badge, l'Accueil et la file quand elles sont lues, sinon le total le dit ; liste et « Ouvrir la discussion » dans la file | `eafa969` |
 | Bilan quotidien | carte de l'Accueil d'après `GET /api/cron/jobs` (route native) : Actif, En pause, En erreur, Non créé ; prochaine et dernière exécution ; issue seulement si publiée ; « Créer le bilan quotidien (8 h) » (`POST /api/cron/jobs`, offert seulement s'il n'existe pas) ; page Cron dans le navigateur | `787c979` |
 
@@ -146,17 +146,32 @@ rediriger vers la connexion ; la station n'a pas de page à recharger, et ses le
 font tourner le jeton ou perdent la session, ce qui ferme le flux et oublie le repli : la
 session suivante retente aussitôt).
 
+Décision **P8b-2** (seconde relecture, constat desktop-8) : la station détecte l'étape P7
+avant de la lire, par la clé `accueil` de `/v1/meta`, née dans le même commit du greffon
+(`00bc069`) que les quatre routes qu'elle couvre (`GET /v1/accueil`, relance d'une carte,
+« qui répond », clôture ; `git log -S` le montre). L'Accueil agrégé et le sondage léger ne
+lisent `/v1/accueil` que sur l'annonce (avant tout verdict, ils attendent) ; « Qui répond »
+et « Clore » ne sont offerts que sur elle, sinon le détail du projet dit pourquoi ; le client
+du greffon refuse localement les quatre routes, sans rien émettre, quand le verdict rendu dit
+l'étape absente ou l'annonce illisible (le blocage du greffon prime). « Relancer » reste
+offert d'après `relancable` de `/v1/questions`, champ né dans le même commit. Face à un
+greffon de P5 ou P6, la page dit « Non disponible sur ce serveur » et renvoie aux pages
+Questions, Projets, Poste et Quotas : l'Accueil de P8 (projets et quotas lus séparément)
+n'est pas repris.
+
 Preuves : 36 suites déclarées à CTest (34 avant P8b ; `tst_flux_invalidation` et
 `tst_discussions_attente` ajoutées), totaux Qt relevés à chaque morceau : 0 échec, 0 test
-ignoré, en construction incrémentale locale (Release, Qt 6.8.3 msvc2022_64). Vrais clics et
+ignoré, en construction incrémentale locale (Release, Qt 6.8.3 msvc2022_64) ; la Desktop CI
+ne relève que le compte de CTest (« N sur 36 » ci-dessous), qui range un `QSKIP` parmi les
+réussites : l'absence de test ignoré n'y est pas prouvée (constat desktop-10). Vrais clics et
 frappes dans `tst_pages_interactions` (relance avec consigne, refus de revue, qui répond,
 clôture, option grisée de l'exécutant, page Questions relue au signal du flux dans la
 composition réelle, « Ouvrir la discussion »). Fixtures PARTAGÉES lues à leur place
 (`hermes/tests/outils/fixtures_accueil/accueil.json`, `fixtures_flux/trames.json`,
 `fixtures_poste/depots.json`) ; `desktop-ci.yml` se déclenche aussi sur elles. Chaque
 correction a son témoin de mutation (tests rouges relevés, puis code restauré). Desktop CI
-et CI vertes sur chaque tête poussée, sauf la Desktop CI de `e65c1c1`, annulée par le push
-suivant :
+et CI vertes sur chaque tête poussée, sauf les Desktop CI de `e65c1c1` et `46d4226`,
+annulées par le push suivant :
 
 | Commit | Desktop CI | CI |
 |---|---|---|
@@ -172,13 +187,18 @@ suivant :
 | `4e51efc` | `37833794335` (lancé à la main, 36 sur 36) | `37833112957` |
 | `2bce7b8` | `37839494684` (36 sur 36) | `37839494561` |
 | `9bec3e5` | `37841198696` (36 sur 36) | `37841198420` |
+| `662435a` | `37842321240` (lancé à la main, 36 sur 36) | `37842268360` (et Image Hermes `37842267779`) |
+| `46d4226` | `37874770611` (annulé) | `37874770597` |
+| `afa4f8f` | `37875463386` (36 sur 36) | `37875463427` |
+| `ac31836` | `37876255274` (36 sur 36) | `37876255273` |
 
 ### Corrections après la relecture de P8b (8 octobre 2026)
 
 Sept constats d'une relecture indépendante, chacun vérifié dans le code avant d'être
 corrigé. Chaque constat de code a un test écrit d'abord et relevé rouge sans la correction
 (construction incrémentale, puis témoin de mutation pour les cas que le premier échec
-masquait) ; suite complète ensuite : 36 suites, 0 échec, 0 test ignoré.
+masquait) ; suite complète ensuite : 36 suites, 0 échec, 0 test ignoré (totaux Qt, en
+local).
 
 | Constat | Traitement | Preuve |
 |---|---|---|
@@ -189,6 +209,22 @@ masquait) ; suite complète ensuite : 36 suites, 0 échec, 0 test ignoré.
 | desktop-5 : le nom accessible de la pastille Questions disait toujours « (discussions non comptées) » | `Streams.descriptionATraiter` suit la lecture des discussions en attente | `tst_pages_interactions` (`pastilleDesQuestionsDitCeQuElleCompte`, nom lu sur la vraie barre de navigation), `tst_discussions_attente` ; `9bec3e5` |
 | desktop-6 : « Voies fermées : Aucune » quand aucun exécutant n'est connu (le greffon sert `{}`) | objet vide : rien n'est affiché, comme `CarteExecutant.tsx` ; autre forme : « Inconnu » | `tst_accueil` (`carteExecutant`) ; `9bec3e5` |
 | desktop-7 : documentation périmée (`desktop-build.md`, `questions.md`, commentaires de `meta.py`, identifiants renvoyés à un rapport hors du dépôt) | état des preuves et limites réécrits, bout en bout dit non rejoué sur P8b, identifiants des runs ci-dessus ; `autonomie.md` et l'architecture alignées aussi | ce document |
+
+### Corrections après la seconde relecture de P8b (9 octobre 2026)
+
+Cinq constats, de gravité basse, chacun vérifié dans le code avant d'être traité. Les
+constats de code ont un test relevé rouge sans la correction : écrit d'abord (desktop-9,
+desktop-11), ou témoin de mutation qui retire la détection (desktop-8 : 7 cas rouges sur
+5 suites). Suite complète ensuite : 36 suites, 513 tests, 0 échec, 0 ignoré (totaux Qt, en
+local), puis Desktop CI et CI vertes (tableau ci-dessus).
+
+| Constat | Traitement | Preuve |
+|---|---|---|
+| desktop-8 : la station supposait l'étape P7 sans la vérifier ; face à un greffon de P5 ou P6 (verdict « Compatible »), l'Accueil n'affichait qu'un 404, le badge restait « Inconnu », « Clore » et « Qui répond » étaient offerts puis refusés en 404 | décision P8b-2 ci-dessus : clé `accueil` lue (`CompatibiliteHermes`), posée sur le client du greffon par le verdict appliqué, relayée aux pages ; Accueil et sondage léger sur l'annonce seulement ; gestes de P7 offerts sur elle seulement ; « Non disponible sur ce serveur » dit par l'Accueil, le badge, le détail d'un projet et les Diagnostics ; le document de référence `meta.json` porte la clé | `tst_compatibilite_hermes`, `tst_client_greffon`, `tst_accueil`, `tst_projets`, `tst_diagnostics`, `tst_pages_interactions` (`greffonSansEtapeP7NiAccueilNiGestes` : composition réelle, vraies pages, aucune lecture de `/v1/accueil`, boutons absents) ; `46d4226` |
+| desktop-9 : `/v1/meta` en 404 (greffon absent) : « Inconnu : /v1/meta n'a pas encore été lu ; les pages sont relues par sondage. » et « Sondage (aucun flux) » ; la ligne desktop-1 ci-dessus ne valait que derrière une annonce utilisable | le blocage du greffon prime sur l'annonce, quelle qu'elle soit : « Non utilisé : <raison du blocage> ; les pages du greffon ne lisent rien tant que ce verdict le bloque. » et « Aucun flux (greffon bloqué) » | `tst_flux_invalidation` (`greffonAbsentDitLaRaisonDuBlocage`, `greffonBloqueFermeUnFluxOuvert`), `tst_oubli_local` (`greffonAbsentDitLeBlocageAuTempsReel`, composition réelle contre un Hermes sans le greffon) ; `afa4f8f` |
+| desktop-10 : `desktop-build.md` disait les totaux Qt « sans test ignoré » relevés aussi par la Desktop CI | corrigé : la CI ne relève que le compte de CTest (un `QSKIP` y compte pour réussi) ; l'absence de test ignoré n'est prouvée qu'en local | `desktop-build.md`, ce document, l'architecture ; trois `QSKIP` conditionnels nommés |
+| desktop-11 : la liste des discussions ne marquait pas « En attente d'une réponse » ni ne disait l'état d'attente illisible, comme `Liste.tsx` | la page Discussion lit l'état d'attente avec sa liste, marque chaque discussion en attente (nom accessible compris) et, après une lecture ratée, dit le texte même du navigateur | `tst_discussion` (`discussionsEnAttenteMarqueesDansLaListe`), `tst_pages_interactions` (`discussionEnAttenteMarqueeDansLaListe`, vraie page) ; `ac31836` |
+| desktop-12 : documentation : repli « sondage (15 s) » alors que la page Quotas et le sondage léger sont à 60 s | architecture, ce document et l'en-tête de `FluxInvalidation.h` disent les cadences réelles (15 s, 60 s) ; la cadence affichée à l'écran était déjà juste | ce document ; `afa4f8f` (en-tête) |
 
 ## Non prouvé
 
@@ -206,6 +242,11 @@ masquait) ; suite complète ensuite : 36 suites, 0 échec, 0 test ignoré.
   sur les vraies pages QML hors écran ; aucun lecteur d'écran réel n'a été essayé.
 - Cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web (lues de
   `/v1/meta`) : non reprises par la station, qui montre la carte « Hermes ».
+- Face à un greffon de P5 ou P6 (décision P8b-2) : « Non disponible sur ce serveur » prouvé
+  contre le faux Hermes et le document de référence privé de la clé `accueil` seulement ;
+  l'Accueil de P8 (projets et quotas lus séparément) n'est pas repris.
+- Desktop CI : aucun total de Qt Test relevé (seul le compte de CTest) ; l'absence de test
+  ignoré n'est prouvée qu'en local (constat desktop-10).
 - Discussions en attente : seules celles du processus du tableau de bord
   (`session.active_list`) ; les questions posées dans `/chat` en terminal restent
   invisibles, comme dans le navigateur.
@@ -224,8 +265,10 @@ masquait) ; suite complète ensuite : 36 suites, 0 échec, 0 test ignoré.
 - Une réponse de `/auth/native/token` refusée par la station pour une autre raison que
   l'horloge (fournisseur, identité, type de jeton) laisse chez Authelia la session émise :
   aucune révocation n'est tentée.
-- Avant le premier verdict de `/v1/meta` d'une session, les pages peuvent LIRE le greffon ;
-  le blocage s'applique dès le verdict, et aucune écriture ne part sans geste.
+- Avant le premier verdict de `/v1/meta` d'une session, les pages peuvent LIRE le greffon
+  (sauf l'Accueil agrégé et le sondage léger, qui attendent l'annonce de l'étape P7) ; le
+  blocage et le refus des routes de P7 s'appliquent dès le verdict, et aucune écriture ne
+  part sans geste (« Relancer » est offert d'après `relancable` de `/v1/questions`).
 
 ## Commits
 
@@ -238,4 +281,6 @@ partie : Poste, Quotas, Routage, Sauvegarde, Diagnostics, bout en bout) ; `7b82c
 `54714ab`, `ee70e9f`, `da7081a`, `72f2a5b`, `ba206b4`, `4ac1de4`, `c22c8b9`, `9c76c54`,
 `de46e69`, `1f3696a` et la documentation (corrections après relecture). P8b : `ab6d361`,
 `e65c1c1`, `d8c1f0a`, `114cc4e`, `5c37c70`, `7f42eaa`, `13b86db`, `eafa969`, `787c979` et la
-documentation. Aucun `Co-Authored-By`.
+documentation ; corrections de la relecture : `2bce7b8`, `9bec3e5` et la documentation
+(`662435a`) ; seconde relecture : `46d4226`, `afa4f8f`, `ac31836` et la documentation.
+Aucun `Co-Authored-By`.

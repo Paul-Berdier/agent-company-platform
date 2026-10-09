@@ -4,18 +4,25 @@ Public : développeur du client natif C++23 / Qt 6 / Qt Quick (`apps/desktop`).
 Version du produit : `0.11.0` (fichier `VERSION` à la racine), refonte « Hermes au
 centre », étape **P8** : la station parle à Hermes (connexion native RFC 8252, porteur,
 JSON-RPC `/api/ws`, greffon `acp-poste`) ; étape **P8b** : alignée sur P7. État de ce
-document : 8 octobre 2026 (le bout en bout du § 12 date de P8, 2 octobre 2026). Les
+document : 9 octobre 2026 (le bout en bout du § 12 date de P8, 2 octobre 2026). Les
 relevés de l'ancien client (0.10.0, ancienne API ACP) restent sous l'étiquette
 `archive/acp-0.10.0-avant-hermes`.
 
 ## État des preuves
 
-Sur la branche `refonte/hermes-p8b` (étape P8b, 8 octobre 2026) : compilation Release
+Sur la branche `refonte/hermes-p8b` (étape P8b, 8 et 9 octobre 2026) : compilation Release
 (`/W4 /WX`) et **36 suites** déclarées à CTest (31 avant les corrections de la relecture de
-P8, 34 après, 36 depuis P8b), totaux Qt relevés sans échec ni test ignoré, localement et par
-la **Desktop CI** sur `windows-2022` : run `37833794335` sur `4e51efc` (fin de P8b), puis
-runs `37839494684` sur `2bce7b8` et `37841198696` sur `9bec3e5` (corrections de la
-relecture de P8b), chacun 36 suites sur 36 ; tous les runs de P8b sont listés dans
+P8, 34 après, 36 depuis P8b). **Localement** (construction incrémentale, chaque exécutable
+lancé avec `-o <rapport>,txt`), les totaux de Qt Test sont relevés sans échec ni test
+ignoré : 36 rapports, 513 tests passés, 0 échec, 0 ignoré sur `ac31836` (relevé hors du
+dépôt). La **Desktop CI** sur `windows-2022` ne relève, elle, que le compte de CTest
+(« 100% tests passed, 0 tests failed out of 36 »), qui range un test ignoré par `QSKIP`
+parmi les réussites : elle prouve 36 suites sur 36 sans échec, pas l'absence de test
+ignoré (`tst_flux_natif`, `tst_jetons_coffre` et `tst_sauvegarde` contiennent un `QSKIP`
+conditionnel, voir § 5). Runs : `37833794335` sur `4e51efc` (fin de P8b), `37839494684`
+sur `2bce7b8` et `37841198696` sur `9bec3e5` (corrections de la relecture), `37842321240`
+sur `662435a`, `37875463386` sur `afa4f8f` et `37876255274` sur `ac31836` (seconde
+relecture) ; tous les runs de P8b sont listés dans
 [`refonte/desktop.md`](refonte/desktop.md), § « P8b ». Ceux de P8 (34 suites) sont dans
 [`reprise-poste.md`](reprise-poste.md), § 6 decies. Le **bout en bout local** contre la pile
 de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi pour **P8**, le
@@ -155,7 +162,8 @@ Depuis P8b (station alignée sur P7), 36 suites :
 
 CTest compte « Passed » un test ignoré par `QSKIP` : lire les totaux de Qt Test
 (`Totals: N passed, 0 failed, 0 skipped`) en lançant chaque exécutable avec
-`-o <rapport-absolu>,txt`. `tst_jetons_coffre` et `tst_sauvegarde` font un aller-retour
+`-o <rapport-absolu>,txt`. La Desktop CI ne le fait pas : son journal ne porte que le
+compte de CTest. `tst_jetons_coffre` et `tst_sauvegarde` font un aller-retour
 réel dans le coffre Windows et DPAPI (ignorés, avec la raison, hors Windows).
 
 ## 6. Développer

@@ -93,7 +93,11 @@ d'information** (`openrpc.info_version`) différente de celle épinglée coupe l
 Discussion ; une **empreinte** différente ne donne qu'un avertissement, la Discussion
 restant ouverte. Hermes testé (`hermes/contrat/HERMES_VERSION`, 0.21.5) : une autre version
 avertit. Alertes publiées telles quelles ; l'exécutant de l'étape P6 seulement s'il est
-annoncé.
+annoncé. L'étape P7 se détecte de même, par la clé `accueil` (née dans le même commit du
+greffon que `/v1/accueil`, la relance, « qui répond » et la clôture) : sans elle, l'Accueil
+agrégé et le sondage léger ne lisent rien, « Qui répond » et « Clore » ne sont pas offerts,
+la page et le badge disent « Non disponible sur ce serveur », et le client du greffon refuse
+ces quatre routes sans rien émettre (décision P8b-2, [`refonte/desktop.md`](refonte/desktop.md)).
 
 ## JSON-RPC et temps réel
 
@@ -107,27 +111,31 @@ aux demandes `approval` et `clarify` avec le même identifiant et seulement par 
 offerts, bat toutes les 15 s (échéance 45 s), n'en rejoue aucune requête.
 
 `EventStreamService` : sondage des pages affichées, seulement fenêtre non réduite et
-session ouverte ; sondage léger de `GET /v1/accueil` pour la barre d'état et le badge ;
+session ouverte ; sondage léger de `GET /v1/accueil` pour la barre d'état et le badge
+(60 s, seulement sur l'annonce de l'étape P7) ;
 `VeilleKanban` suit le tableau du projet ouvert (`since=latest_event_id`, regroupement
 d'1 s) et déclenche une relecture du détail. `FluxInvalidation` (étape P8b) ouvre le flux
 d'invalidation du greffon (`GET /v1/flux`) quand `/v1/meta` l'annonce : chaque page
 (`Sondage::suivre`) se relit au signal de SES sujets (les mêmes que la page web), regroupé
 sur 300 ms, et ne garde en temps réel qu'une relecture de sûreté (2 min) ; hors temps réel,
-son sondage habituel (15 s). Chien de garde de 40 s, reprise avec `Last-Event-ID`, repli
+son sondage habituel : 15 s pour les pages, 60 s pour la page Quotas, pour le détail d'un
+projet tant que la veille du kanban est prête et pour le sondage léger du badge et de la
+barre d'état. Chien de garde de 40 s, reprise avec `Last-Event-ID`, repli
 en sondage après trois échecs en 2 min, nouvel essai toutes les 5 min ; la perte de session
 oublie ce repli. Le flux suit le verdict APPLIQUÉ de `/v1/meta` : un verdict qui bloque le
-greffon le ferme, même déjà ouvert ; un `/v1/meta` injoignable garde le dernier verdict lu,
-et le flux. Chaque page affiche sa cadence réelle (propriété `cadence` de son ViewModel),
-jamais une cadence écrite en dur.
+greffon le ferme, même déjà ouvert, et se dit avec sa raison (« Aucun flux (greffon
+bloqué) » : ses pages ne lisent rien), quelle que soit l'annonce ; un `/v1/meta` injoignable
+garde le dernier verdict lu, et le flux. Chaque page affiche sa cadence réelle (propriété
+`cadence` de son ViewModel), jamais une cadence écrite en dur.
 
 ## Pages
 
 | Route | Page | Ce qu'elle fait |
 |---|---|---|
-| `home` | Accueil | Accueil agrégé `GET /v1/accueil` : à traiter par vous (discussions en attente comprises quand elles sont lues), projets en cours, exécutant, quotas par voie, notifications (test), bilan quotidien (tâche cron native, création), pause générale avec confirmation ; sessions récentes ; carte Hermes |
+| `home` | Accueil | Accueil agrégé `GET /v1/accueil`, lu seulement sur l'annonce de l'étape P7 (sinon « Non disponible sur ce serveur ») : à traiter par vous (discussions en attente comprises quand elles sont lues), projets en cours, exécutant, quotas par voie, notifications (test), bilan quotidien (tâche cron native, création), pause générale avec confirmation ; sessions récentes ; carte Hermes |
 | `projects` | Projets | liste, détail (cartes dans l'ordre du graphe, journal, carte entière), pause et reprise, qui répond, clôture, nouveau projet (mêmes règles que la page web, exécutant fermé pour le dépôt grisé, clé d'idempotence gardée après un refus), kanban dans le navigateur |
 | `questions` | Questions | file à cinq sections : questions (répondre, 1 à 4 000 caractères), décisions construites depuis `actions`, revues (accepter, refuser avec motif), cartes arrêtées (relancer avec consigne), discussions en attente (ouvrir) ; demandes de l'agent des discussions ouvertes |
-| `chat` | Discussion | sessions, transcription, tour en flux, outils sans arguments ni sortie bruts, demandes `approval`/`clarify` |
+| `chat` | Discussion | sessions (« En attente d'une réponse » marqué d'après `session.active_list`, comme le navigateur ; état illisible dit), transcription, tour en flux, outils sans arguments ni sortie bruts, demandes `approval`/`clarify` |
 | `station` | Poste | enrôlement (code affiché une fois), empreinte, révocation, relevé, inventaire, dépôts (visibilité mesurée, voies par dépôt), alertes, exécutant P6 s'il est annoncé |
 | `quotas` | Quotas | voies, compteurs, fenêtres ; jauge seulement sur une part restante servie |
 | `routing` | Routage | table par classe, brouillon, validation, relevé de secours, surcharges ; édition complète dans le navigateur |
@@ -155,8 +163,9 @@ dit que le fichier chiffré est lié au profil Windows.
 
 ## Tests et preuves
 
-- **36 suites** déclarées à CTest (Qt Test et Qt Quick Test), totaux Qt relevés : 0
-  échec, 0 ignoré. Le banc `tests/cpp/support/FauxHermes` sert HTTP et WebSocket sur le
+- **36 suites** déclarées à CTest (Qt Test et Qt Quick Test), totaux Qt relevés en local :
+  0 échec, 0 ignoré (la Desktop CI ne relève que le compte de CTest, qui range un `QSKIP`
+  parmi les réussites). Le banc `tests/cpp/support/FauxHermes` sert HTTP et WebSocket sur le
   même port de bouclage (flux natif, rotation, passerelle, kanban, routes du greffon, flux
   d'invalidation en `text/event-stream`).
 - **Desktop CI** sur `windows-2022` : compilation Release (`/W4 /WX`), suites, empaquetage
@@ -179,3 +188,6 @@ dit que le fichier chiffré est lié au profil Windows.
   bilan quotidien) ne sont prouvés que contre le faux Hermes et les fixtures partagées :
   le bout en bout local n'a pas été rejoué contre une image de P7.
 - Installation sur un Windows propre et signature : non faites.
+- Face à un greffon antérieur à P7, la station ne reprend pas l'Accueil de P8 (projets et
+  quotas lus séparément) : elle le dit « Non disponible sur ce serveur » et renvoie aux
+  pages ; prouvé contre le faux Hermes seulement.
