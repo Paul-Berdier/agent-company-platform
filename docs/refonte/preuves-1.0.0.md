@@ -1,22 +1,25 @@
 # Preuves de 1.0.0
 
-**Squelette en préparation**, écrit le 8 octobre 2026 à l'étape P9 (part E), sur `refonte/hermes-p9e`. Il n'est
-**pas encore relu** : la relecture indépendante, ligne à ligne contre les sources citées, est prévue avant la PR de
-`refonte/hermes` vers `main` ; le document est complété après l'étiquette (fusion, runs sur `main`, `Desktop
-Release`). Tant que ce bandeau est là, ce document ne prouve rien par lui-même : il range des preuves déjà publiées
-et dit lesquelles manquent.
+État du **9 octobre 2026**, fin de l'étape P9, **avant** l'ouverture de 1.0.0 (D129), sur `refonte/hermes-p9`. Écrit
+à la part E (8 octobre 2026, `refonte/hermes-p9e`), complété le 9 octobre 2026 par les preuves des parts B et C, du
+correctif SECU-TUI et de la station P8b, après la réunion des branches. **Pas encore relu dans sa version finale** :
+la relecture indépendante de toute P9, ligne à ligne contre les sources citées, précède l'ouverture de 1.0.0 ; le § 4
+est complété après l'étiquette (fusion, runs sur `main`, `Desktop Release`). Ce document ne prouve rien par
+lui-même : il range des preuves publiées (runs de la CI du dépôt public, commits) et dit lesquelles manquent.
 
 Conventions :
-- **lieu** : *local* (poste de travail Windows, ou banc local), *CI* (GitHub Actions du dépôt public), *Railway*
-  (rien n'y est déployé au 8 octobre 2026) ;
+- **lieu** : *local* (poste de travail Windows, ou banc local sans Docker), *local (Docker)* (piles Docker du poste
+  de travail, de nouveau permises depuis le 9 octobre 2026 : D160 ; preuve d'appoint), *CI* (GitHub Actions du dépôt
+  public : la preuve qui fait foi), *Railway* (rien n'y est déployé au 9 octobre 2026) ;
 - **date** : jour, à l'heure de Paris, des runs cités (`gh run view <id> --json createdAt`) ou, sans run, des commits
   cités ; au § 1, la date de chaque fusion ;
-- **à relever** : preuve attendue, pas encore produite, ou produite par une part encore ouverte et pas encore
-  arrêtée ; aucune valeur n'est mise à sa place ;
+- **à relever** : preuve d'une étape à venir (relecture indépendante de toute P9, ouverture 1.0.0, PR de P9, PR vers
+  `main`, étiquette), dite comme telle ; aucune valeur n'est mise à sa place ;
 - chaque nombre vient d'une source citée : notes de reprise et journal des changements recopiés dans
-  [historique.md](historique.md) (« B, § n » : partie B ; « C, P n » : partie C), journaux des corrections de P7
-  et de P9 (brouillon de session, non versionné) ou `gh` (PR et runs, relevés les 8 et 9 octobre 2026 ; compteurs
-  lus dans le journal du run par `gh run view <id> --log`, ou celui du job par l'API des jobs).
+  [historique.md](historique.md) (« B, § n » : partie B ; « C, P n » : partie C), journaux des corrections de P7, de
+  P8b, de SECU-TUI et de P9 (brouillon de session, non versionné) ou `gh` (PR et runs, relevés les 8 et 9 octobre
+  2026 ; conclusions par `gh run view` et par l'API des jobs ; compteurs lus dans le journal du run, ou celui du job
+  par l'API des jobs) ; « job » désigne l'identifiant d'un job de l'API.
 
 Sommaire : § 1 étapes fusionnées · § 2 relevés par étape · § 3 étape P9 · § 4 publication · § 5 non prouvé.
 
@@ -43,7 +46,8 @@ Tous verts, sauf mention.
 | P8b (station alignée sur P7, D158 et D159) | #22 | `afcb8b3` | CI `37894932818` (Windows 1 011 et 87 ignorés, Linux 1 044 et 54 ignorés, interface 203, moteur 74), `37894929143` ; Image Hermes `37894932956` (846 dans l'image, 191 au contrat, 10 au navigateur), `37894929205` ; Desktop CI `37894932850` (36 suites CTest sur 36) | `8583642`, 09/10/2026 | CI `37900882829` ; Desktop CI `37900882827` ; Image Hermes `37900882826` (846 dans l'image, 191 au contrat, 10 au navigateur) |
 
 Un workflow absent d'une ligne n'a aucun run relevé sur ce commit (filtres de chemins des workflows) ; la CI de
-`29c95b5` a été annulée.
+`29c95b5` a été annulée. Les arbres des commits de fusion de SECU-TUI et de P8b sont identiques à ceux de leurs têtes
+testées (`git rev-parse <commit>^{tree}`).
 
 ## 2. Relevés par étape (preuves publiées)
 
@@ -63,37 +67,50 @@ ils sont donnés ici, sont lus par `gh` (« relevé par `gh` »). Les relevés a
 | P6 | 19 constats, plus 3 défauts trouvés en les vérifiant | sur `815ae6f` : CI `36925637152` (Windows 927 et 86 ignorés, Linux 959 et 54 ignorés, interface 120, moteur 74) ; Image de l'exécutant `36925637270` (43 tests de l'image, 777 en root) ; Image Hermes `36925637269` (682 dans l'image, 165 au contrat dont les 7 du bout en bout, 8 au navigateur) | 01/10/2026 | B, § 6 sexies à § 6 nonies ; C, P6 |
 | P8 | 16 constats, chacun avec un test qui échoue sans la correction | 34 suites Qt, 0 échec, 0 ignoré (totaux Qt, local) ; Desktop CI verte sur chaque commit poussé, sauf quatre runs annulés par une poussée suivante (dernier relevé : `36987435638`, `1f3696a`) ; bout en bout local contre Authelia et l'image de test | 02/10/2026 | B, § 6 decies ; C, P8 |
 | P7 | relecture finale : 37 constats retenus (dont 14 vérifiés par un sceptique) ; 33 corrigés, 3 en limite dite, 1 de procédure | tête de la PR `0a1ab98` : CI `37749086751` (Windows 1 011 et 87 ignorés, Linux 1 044 et 54 ignorés, Vitest 203, moteur 74) ; Image Hermes `37749086760` (798 dans l'image, 183 au contrat, 10 au navigateur) ; Image de l'exécutant `37749096235` (43 tests de l'image, 831 en root) ; Desktop CI `37749099809` (34 suites) ; juste avant, Image Hermes **rouge** sur `a16f00b` (`37742327967` : course du test, corrigée par `201066e`) | 08/10/2026 | B, § 6 undecies ; C, P7 ; journal des corrections de P7 |
+| SECU-TUI | contre-vérification d'un sceptique (failles traitées par D156 et D157 ; l'écriture d'une clé épinglée par `PUT /api/env`, en partie réfutée par la mesure : Hermes la refuse) et audit défensif du 9 octobre 2026 (variables d'emplacement et d'exécution comme `HERMES_HOME`, lecture des `.env` comme Hermes : deux manques prouvés rouges, corrigés) | rouge d'abord, puis vert, sur des branches jetables : tests seuls `4c3647e` sur le code de P7, run `37831355746` **rouge attendu** (dans l'image 12 échecs et 1 réussi, au contrat 3 échecs et 2 réussis) ; correctif SECU-1 et SECU-2 `373b047`, run `37832691849` **vert** (834 dans l'image, 64 au contrat) ; audit : tests seuls `e5e3f3c`, run `37873430373` **rouge attendu** (dans l'image 7 échecs et 240 réussis, au contrat 3 échecs et 2 réussis) ; correctif `2c4e2d4`, run `37873804340` **vert** (846 dans l'image, 68 au contrat) ; tête de la branche `6a37a8c` : CI `37877696357`, Image Hermes `37877723138` (846 dans l'image, 191 au contrat, 10 au navigateur), relevés par `gh` | 08/10/2026 et 09/10/2026 | [image.md](image.md) § 4.3 bis, § 4.3 ter, § 9 et § 10 ; journal de SECU-TUI ; `gh` |
+| P8b | deux relectures, 12 constats (desktop-1 à desktop-12), chacun vérifié dans le code puis traité ; les constats de code avec un test relevé rouge sans la correction | totaux Qt locaux sur `ac31836` : 36 suites, 513 réussis, 0 échec, 0 ignoré ; Desktop CI `37876255274` (36 suites CTest sur 36) et CI `37876255273` (Windows 1 011 et 87 ignorés, Linux 1 044 et 54 ignorés, interface 203, moteur 74) ; documentation `9adc706` : CI `37876926305`, Desktop CI `37876937821` (lancée à la main, 36 sur 36) | 09/10/2026 | [desktop.md](desktop.md), « P8b » ; journal de P8b ; `gh` |
 
 ## 3. Étape P9 (exigences du plan → preuve)
 
 Exigences du plan validé pour P9 ([plan](plan.md) § 13, « P9 ») et du cahier de conception de P9 ; décisions D122 à
-D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octobre 2026 : leurs lignes restent
-**à relever**, même quand des mesures intermédiaires sont déjà consignées dans le manuel (renvoi donné).
+D155 et D160 ([plan](plan.md) § 1). Les parts A à E sont closes au 9 octobre 2026 ; les lignes **à relever** sont
+celles d'étapes à venir. Restauration et montée : chaque vérification des quatre fichiers de test (R1 et R2, R3, R4,
+montée de données), vue rouge pour sa raison ou non, avec la raison, est rangée dans
+[exploitation.md](../exploitation.md) § 6.6 et § 10, d'après un inventaire mécanique de ces fichiers (journal de P9) :
+63 vues rouges, 12 impossibles à rendre rouges seules (raison écrite), 6 jamais montrées, 5 mesures non exigées,
+72 préconditions, 9 outils et 4 appels de contrôles partagés. Les fichiers de test n'ont pas changé depuis cet
+inventaire (`83394a9`).
 
 | Exigence | Preuve | Lieu | Date | Commit, run | Résultat |
 |---|---|---|---|---|---|
-| Outil de montée de version de Hermes (`scripts/monter_hermes.py` : `verifier`, `ecrire`, `inventaire`, `derniere`) | tests de l'outil (exécuteur injecté) ; `verifier` réel : « Aucun écart » | local + CI | 02/10/2026 | `ff33ea6` (outil) ; relecture : `11276d6` et suivants | fait (journal de P9, part A et relecture) ; suite du dépôt verte à chaque commit |
-| Répétition à blanc de la montée sur l'épinglée, à chaque construction (D122) | étape `verifier` d'`image.yml` : « Aucun écart : l'épinglage de v2026.9.24 est reproduit à l'octet près » | CI | 02/10/2026 | `9a4d6ad`, Image Hermes `37004128839` (image 682, contrat 165, navigateur 8) | **vert** ; de nouveau vert sur la tête de la relecture, `2243923` (Image Hermes `37028491959`, CI `37028494538`) |
+| Outil de montée de version de Hermes (`scripts/monter_hermes.py` : `verifier`, `ecrire`, `inventaire`, `derniere`) | tests de l'outil (exécuteur injecté) ; `verifier` réel : « Aucun écart » ; `derniere` réel : « Aucune release plus récente que celle épinglée » | local + CI | 02/10/2026 ; `derniere` aussi le 09/10/2026 | `ff33ea6` (outil) ; relecture : `11276d6` et suivants | fait (journal de P9, part A et relecture) ; suite du dépôt verte à chaque commit ; aucune release postérieure à `v2026.9.24` au 9 octobre 2026 |
+| Répétition à blanc de la montée sur l'épinglée, à chaque construction (D122) | étape `verifier` d'`image.yml` : « Aucun écart : l'épinglage de v2026.9.24 est reproduit à l'octet près » | CI | 02/10/2026 ; 09/10/2026 | `9a4d6ad`, Image Hermes `37004128839` (image 682, contrat 165, navigateur 8) ; `2243923`, Image Hermes `37028491959` ; tête réunie `90102b1`, Image Hermes `37908787791`, job `113768708907` | **vert** à chaque construction relevée |
 | Concordance statique de toutes les épingles de Hermes | `scripts/tests/test_epingles_hermes.py` (rouge d'abord : 7 valeurs figées trouvées) | local + CI | 02/10/2026 | `985ea68` | fait (journal de P9, part A) |
 | Toute copie versionnée vérifiée par `scripts/check_version.py` | `scripts/tests/test_version_complete.py` (rouge d'abord : verrou de l'interface comparé à rien) | local + CI | 02/10/2026 | `49ee6ef` | fait |
 | Décisions à trois chiffres contrôlées (D132) | `scripts/tests/test_decisions_documentees.py` (rouge d'abord) | local + CI | 02/10/2026 | `3c47033` | fait |
-| Procédure d'exploitation en français | [exploitation.md](../exploitation.md) ; [railway.md](railway.md) § 4.11 bis, § 9, § 10 d, § 10 g | dépôt | 02/10/2026 (ébauche), 08/10/2026 (mesures de B et C) | ébauche `80481af`, `c10192d`, `8fa69fb` (CI `37011986945`, `37012625374`, `37013142812`) ; corrections après vérification factuelle (19 constats recoupés) ; mesures de B et C versées (`9ea2b6e`, `e448b7a`) | **à relever** : version finale et relecture, après la fin des parts B et C |
-| Test de restauration ; identité des données (R1, R2 : trois volumes au même instant et à des instants différents) | job `restauration` d'`image.yml` | CI (D134) | **à relever** | **à relever** | **à relever** (mesures intermédiaires : [exploitation.md](../exploitation.md) § 4 et § 10) |
-| « Sessions et cartes relues » après restauration ; reconnexion du propriétaire (R3) | R1 et R4 (lectures, travail repris) ; R3 au navigateur | CI | **à relever** | **à relever** | **à relever** |
-| Restauration de Hermes depuis son propre export (R4) | job `restauration` | CI | **à relever** | **à relever** | **à relever** (geste mesuré : D137) |
-| Témoins de mutation des tests de restauration (D140) | branches jetables, runs rouges pour la bonne raison | CI | **à relever** | **à relever** | **à relever** |
-| Montée de version répétée ; `hermes plugins compat` et contrat verts, ou écart documenté | témoin `v2026.9.21` (job `temoin`, tableau des écarts) et son contrôle sur `v2026.9.24` | CI (D141) | **à relever** | **à relever** | **à relever** (relevé intermédiaire : [exploitation.md](../exploitation.md) § 6.6) |
-| Montée de données d'une version d'ACP à la suivante (« migration de schéma : oui », lignes d'avant identiques, travail repris) | job `montee`, `ref_avant` = fin de P8 | CI (D148) | **à relever** | **à relever** | **à relever** (relevé intermédiaire : [exploitation.md](../exploitation.md) § 6.6) |
+| Procédure d'exploitation en français | [exploitation.md](../exploitation.md) ; [railway.md](railway.md) § 4.11 bis, § 9, § 10 d, § 10 g et § 12 | dépôt | 02/10/2026 (ébauche) ; 08/10/2026 (mesures de B et C) ; 09/10/2026 (relevé complet des témoins, réunion, version finale) | ébauche `80481af`, `c10192d`, `8fa69fb` (CI `37011986945`, `37012625374`, `37013142812`) ; vérification factuelle, 19 constats recoupés et corrigés : `2243923` ; mesures de B et C : `d34b7a7`, `9ea2b6e`, `e448b7a`, `58f3a31`, `5107934`, `b6f2ada` ; réunion avec SECU-TUI : `05c6686`, `f613873` ; version finale : `83c0467` (avec [railway.md](railway.md) § 12) | fait ; chaque statut tranché (vérifié, mesuré avec sa preuve, supposé, ou sur Railway seulement) ; relecture de la version finale : avec celle de toute P9, **à relever** |
+| Test de restauration ; identité des données (R1 : trois volumes restaurés au même instant ; R2 : à des instants différents) | job `restauration` d'`image.yml` : couches 1 (octets) et 2 (contenu des bases), lectures par l'API, cartes et jetons de l'exécutant, marqueurs postérieurs absents, travail repris ; R2 : règle d'ordre mesurée (D136) | CI (D125) ; local (Docker, D160) | 08/10/2026 ; 09/10/2026 | premier passage `d34b7a7`, run `37760142007`, job `113254280526` **rouge** (5 échecs, 8 réussis : quatre défauts des tests, corrigés par `916a4f0`, `46cc13e`, `bdbe930` et `b8b64b4` ; R3 ensuite par `59c793e` et `27d2123`) ; premier vert `27d2123`, run `37768789724`, job `113282884939` (13 réussis, 184 désélectionnés) ; tests enrichis, verts : `58f3a31` (`37827848241`, job `113485190650`), `8e58ac9` (`37831745518`, job `113498563899`), `83394a9` (`37843294142`, job `113537817083` : 13 réussis, 190 désélectionnés) ; après la réunion de P9 avec SECU-TUI et P8b, `90102b1` : run `37908787791`, job `113748621950` (13 réussis, 198 désélectionnés) ; en local (Docker), sur l'arbre de `90102b1` : R1, R2 et R4, 13 réussis | **vert** ; mesures : [exploitation.md](../exploitation.md) § 4 ; limites : § 10 |
+| « Sessions et cartes relues » après restauration ; reconnexion du propriétaire (R3) | R1 et R4 : sessions, cartes de l'exécutant (`acp-poste cartes`) et cartes des projets relues par l'API ; R3 dans un navigateur : jeton d'accès d'avant accepté, 400 d'Authelia au jeton de rafraîchissement tourné, renvoi à la connexion sans 503, passkey d'avant acceptée, passkey d'après refusée | CI | 08/10/2026 ; 09/10/2026 | R3 mesuré en entier pour la première fois : `59c793e`, run `37766187654` (rouge pour un défaut du test, corrigé par `27d2123`) ; vert : `37768789724` (1 réussi) et chaque run de la ligne précédente ; tête réunie : job `113748621950` (R3 1 réussi) | **vert** ; consigne de reconnexion écrite d'après R3 et exigée par le test (D138) ; reconnexion d'openai-codex : **non prouvé** (Railway) |
+| Restauration de Hermes depuis son propre export (R4) | job `restauration` : export de 402 fichiers, inventaire de l'archive, import sur un volume neuf vide et à root (`volume-nocopy`), démarrage, lectures égales, travail repris | CI ; local (Docker, D160) | 08/10/2026 ; 09/10/2026 | geste du cahier mesuré **en échec silencieux** (code 0, 0 restauré, 400 ignorés) dès le premier passage (`37760142007`, pris alors pour un succès : défaut du test corrigé par `bdbe930`) ; forme retenue (D137), mesurée complète dès `37763664941` : `chown 10000:10000 /opt/data`, import, 400 restaurés et 2 gardés = 402 ; démarrage refusé puis accepté après le retrait du script du bilan ; vert dans les runs de la ligne « Test de restauration » | **vert** (geste mesuré : D137) |
+| Témoins de mutation des tests de restauration (D140) | branches jetables, une mutation ciblée par fonction de test et par branche, supprimées ensuite ; chaque run vu rouge pour sa raison | CI | 08/10/2026 ; 09/10/2026 | 20 runs, jobs « restauration » tous en échec : `37768810187`, `37768815524`, `37768823436`, `37771453643`, `37827864047` (run annulé après le relevé de son job `113485245964`, en échec), `37827867735`, `37843377826`, `37843382904`, `37843389881`, `37843394067`, `37843400261`, `37843405627`, `37843412029`, `37873903805`, `37873907527`, `37873911870`, `37873919895`, `37873923797`, `37874263493`, `37875859984` | **fait** ; jamais montrées rouges : dans R4, la forme d'import sans `hermes update` et la réponse de la route de reprise ; impossibles seules, champs jamais altérés seuls et préconditions : [exploitation.md](../exploitation.md) § 10 |
+| Montée de version répétée ; `hermes plugins compat` et contrat verts, ou écart documenté | témoin `v2026.9.21` (job `temoin`, tableau des écarts) et son contrôle sur `v2026.9.24` ; station Qt sur l'épinglage 9.21 | CI (D141) ; local (station, D145) | 08/10/2026 | `54a5632` : run `37769347253`, job `113284760187` **rouge attendu** (« Verdict : 5 écart(s) ou anomalie(s) sur 16 contrôles comptés ») ; contrôle : run `37769357764`, job `113284791411` **vert** (« Verdict : aucun écart : les 16 contrôles comptés ont réussi ») ; les deux runs sont rouges par leur job « restauration » (tests R1 à R4 d'avant leurs corrections) ; station Qt : 33 suites sur 34 | **écarts documentés** ([exploitation.md](../exploitation.md) § 6.6) : borne `requires_hermes`, image d'ACP qui ne démarre pas sur 0.21.4, contrat de 219 méthodes ; la seule différence que rien n'attrapait (`config.yaml` sans `_config_version`) est attrapée par un test nouveau (`d07753b`) |
+| Montée de données d'une version d'ACP à la suivante (« migration de schéma : oui », lignes d'avant identiques, travail repris) | job `montee` (`ref_avant`), comparaison ligne à ligne de chaque base contre un contrôle | CI (D148) | 08/10/2026 ; 09/10/2026 | `ref_avant=b715edb` (fin de P8, schéma 3) : `711eb61`, run `37780726989` **rouge** (travail en cours à l'arrêt : D150) ; `70fc372`, run `37782764948`, job `113329768783` **rouge** sur un défaut réel (compteur `AUTOINCREMENT` ramené de 7 à 5), corrigé par `fdb41c9` (D153) ; `fdb41c9`, run `37784839347`, job `113336832227` **vert** (6 réussis, 197 désélectionnés, « migration de schéma : oui ») ; `8e58ac9`, run `37831896582`, job `113499085619` **vert** (exécutant d'après revu par Hermes) ; après la réunion, `90102b1` : run `37908841650`, job `113748806867` (6 réussis, 205 désélectionnés, « oui », 3 → 4) et, `ref_avant=8583642` (tête de la branche déployée), run `37908855369`, job `113748851939` (6 réussis, « non ») ; test d'image du compteur rouge sur le code d'avant le correctif (`37827867735`, job `113485259873`, « 2 == 4 ») | **vert** ; détail : [exploitation.md](../exploitation.md) § 6.6 |
+| Témoins de mutation de la montée de données (D155) | branches jetables hors `refonte/**`, supprimées ensuite ; chaque run vu rouge pour sa raison | CI | 08/10/2026 ; 09/10/2026 | 13 runs, jobs « montee » tous en échec : `37782832188`, `37827971930`, `37827976940`, `37827981834`, `37827986497`, `37831900759`, `37831905352`, `37831910158`, `37843421400`, `37843424899`, `37843429082`, `37873974079`, `37874288049` | **fait** ; jamais montrées rouges : la version de schéma relue après la montée, « contrôle mesuré » (raisonné), et, dans ce fichier, « requêtes GET ou HEAD seulement » et « aucun chemin receive-pack » (vus rouges dans le test de restauration) : [exploitation.md](../exploitation.md) § 6.6 |
+| Runs de la tête de `refonte/hermes-p9` après la réunion des branches | quatre workflows sur la tête poussée, et la montée de données | CI | 09/10/2026 | `90102b1` : CI `37908787830` (Windows 1 171 réussis et 87 ignorés, Linux 1 204 et 54 ignorés, interface 203, moteur 74, aucun motif de secret) ; Image de l'exécutant `37908787759` (43 tests de l'image, 831 réussis et 20 ignorés en root) ; Desktop CI `37908787797` (36 suites CTest sur 36) ; Image Hermes `37908787791` : job « restauration » vert à la 1re tentative, job « image » **rouge à la 1re tentative** (job `113748621786` : 874 dans l'image, 192 au contrat, navigateur 1 échec et 9 réussis, `test_connexion_navigateur.py::test_connexion_complete_rafraichissement_et_refus`, « Execution context was destroyed ») puis **vert à la 2e** (job `113768708907` : 874, 192, 10, « Aucun écart ») ; montées de la ligne précédente ; `f613873` (documentation) : CI `37911451671`, mêmes compteurs | **vert**, avec une relance dite : course du test avec la relecture périodique du tableau de bord de Hermes, qui renvoie la page à la connexion après la déconnexion (source épinglée de Hermes, `web/src/hooks/useSidebarStatus.ts`, `web/src/lib/api.ts`) ; test inchangé, non corrigé ; runs des têtes suivantes : avec la PR de P9 |
+| Suites locales sur Docker, une pile à la fois (D160) | images construites depuis le worktree de la réunion ; préfixe `acp-contrat-p9f-`, aucune ressource restante | local (Docker) | 09/10/2026 | arbre de `90102b1` : pytest dans l'image 874 réussis ; contrat de sécurité (`test_sans_shell_contrat.py`, `test_contrat_image.py`) 68 réussis ; contrat de restauration (R1, R2, R4) 13 réussis ; R3 non lancé (Playwright absent du venv) | vert ; preuve d'appoint, la CI fait foi |
 | Restauration « dans un environnement Railway jetable » | remplacée par la répétition en production avant données (D124) | Railway | — | procédure écrite ([exploitation.md](../exploitation.md) § 5) | **non prouvé** : geste du propriétaire, après le premier déploiement |
 | « Reconnexion openai-codex nécessaire, constatée et documentée » | constat c de la répétition de restauration | Railway | — | — | **non prouvé** tant que la répétition n'a pas eu lieu |
 | « Dans un environnement éphémère (identifiant propre) » | remplacé par la porte de CI, la sauvegarde manuelle et le retour arrière (D123) | — | — | décision écrite | décision, sans preuve d'exécution |
-| Documentation finale (README, `CLAUDE.md`, notes de reprise remises à plat, historique figé, ce document) | relecture indépendante | dépôt | 08/10/2026 et 09/10/2026 | part E, `refonte/hermes-p9e` : `bdd0f3d` (décisions D122 à D155), `4a46022` (historique), `6b37aa2` (ce document), `478f065` (notes de reprise), `81a349a` (README, `CLAUDE.md`), `611cc58` (journal 1.0.0 préparé), `3f367a8` (runs de la fusion de P7, constat du § 5) ; relecture indépendante de cette préparation : 5 constats, tous vérifiés et corrigés (`3449287` : derniers relevés du § 2 ; `aa3d1ee` : constat du § 5 dans le README ; `ec37ac4` : place de l'ouverture 1.0.0 dans `CLAUDE.md` ; `ae1f881` : cinquième correction de P0 dans le journal ; `bf05a7f` : têtes des branches de P9 dans les notes de reprise), plus `46e57f1` (constats de P1 et P2 laissés en limites, trouvé en les vérifiant) ; seconde relecture : 8 constats, tous vérifiés et corrigés (`34f8c90` : venv complété par le verrou haché, mesuré sur un clone neuf ; `e35fc23` : scripts à Docker qui ne tournent plus nulle part ; `a3eba55` : chantier SECU-TUI cité ; `a9a2033` : « prêt à déployer » retiré ; `c5f1ac0` : runs des PR renvoyés hors du journal 1.0.0 ; `2757d18` : liens réécrits de la ligne 0.10 dits ; `14b7d99` : jobs du témoin dans D143 ; `e19367b` : dates de ce document) ; CI verte sur chaque commit poussé, de `bdd0f3d` (`37798492510`) à `e19367b` (`37879198392` : Windows 1 171 réussis et 87 ignorés, Linux 1 204 et 54 ignorés, interface 203, moteur 74) | relecture de la préparation faite (deux passes) ; **à relever** : version finale et sa relecture, après la fin des parts B et C |
-| Relecture indépendante de toute P9 | constats et traitement | dépôt | **à relever** | — | **à relever** |
-| Commit d'ouverture 1.0.0 (D129), journal 1.0.0 complet | `chore(release): open 1.0.0`, `chore(release): prepare 1.0.0 changelog` | dépôt | **à relever** | — | **à relever** (`VERSION` : 0.11.0 au 8 octobre 2026 ; section 1.0.0 du journal préparée, non datée : `611cc58`) |
-| PR de P9 vers `refonte/hermes`, quatre workflows verts, fusion | — | CI | **à relever** | — | **à relever** |
-| Pixel Office et Godot hors périmètre | `scripts/check_engine_frozen.py` vert ; aucune ligne sous `packages/pixel-office-engine` | CI | chaque run | chaque run de `ci.yml` | vérifié à chaque push (dernier relevé de cette branche : **à relever** à la fin de la part E) |
+| Documentation finale (README, `CLAUDE.md`, notes de reprise remises à plat, historique, ce document) | relecture indépendante | dépôt | 08/10/2026 et 09/10/2026 | part E, `refonte/hermes-p9e` : `bdd0f3d` (décisions D122 à D155), `4a46022` (historique), `6b37aa2` (ce document), `478f065` (notes de reprise), `81a349a` (README, `CLAUDE.md`), `611cc58` (journal 1.0.0 préparé), `3f367a8` (runs de la fusion de P7, constat du § 5) ; relecture indépendante de cette préparation : 5 constats, tous vérifiés et corrigés (`3449287` : derniers relevés du § 2 ; `aa3d1ee` : constat du § 5 dans le README ; `ec37ac4` : place de l'ouverture 1.0.0 dans `CLAUDE.md` ; `ae1f881` : cinquième correction de P0 dans le journal ; `bf05a7f` : têtes des branches de P9 dans les notes de reprise), plus `46e57f1` (constats de P1 et P2 laissés en limites, trouvé en les vérifiant) ; seconde relecture : 8 constats, tous vérifiés et corrigés (`34f8c90` : venv complété par le verrou haché, mesuré sur un clone neuf ; `e35fc23` : scripts à Docker qui ne tournent plus nulle part ; `a3eba55` : chantier SECU-TUI cité ; `a9a2033` : « prêt à déployer » retiré ; `c5f1ac0` : runs des PR renvoyés hors du journal 1.0.0 ; `2757d18` : liens réécrits de la ligne 0.10 dits ; `14b7d99` : jobs du témoin dans D143 ; `e19367b` : dates de ce document) ; CI verte sur chaque commit poussé, de `bdd0f3d` (`37798492510`) à `e19367b` (`37879198392` : Windows 1 171 réussis et 87 ignorés, Linux 1 204 et 54 ignorés, interface 203, moteur 74) ; réunion du 9 octobre 2026 : `07a72f4`, `05c6686`, `9729c73`, `90102b1`, `f613873` ; version finale : `7042677` (D160, plan, `CLAUDE.md`, historique), `83c0467` (manuel), puis ce document et les commits qui le suivent sur la branche | faite ; relecture de la préparation faite (deux passes) ; relecture de la version finale : avec celle de toute P9, **à relever** |
+| Relecture indépendante de toute P9 | constats et traitement | dépôt | **à relever** | — | **à relever** : étape suivante, avant l'ouverture de 1.0.0 |
+| Commit d'ouverture 1.0.0 (D129), journal 1.0.0 complet | `chore(release): open 1.0.0`, `chore(release): prepare 1.0.0 changelog` | dépôt | **à relever** | — | **à relever** : après la relecture (`VERSION` : 0.11.0 au 9 octobre 2026 ; section 1.0.0 du journal préparée, non datée) |
+| PR de P9 vers `refonte/hermes`, quatre workflows verts, fusion | — | CI | **à relever** | — | **à relever** : après l'ouverture et le journal |
+| Pixel Office et Godot hors périmètre | `scripts/check_engine_frozen.py` vert ; aucune ligne sous `packages/pixel-office-engine` | CI | chaque run | chaque run de `ci.yml` | vérifié à chaque push ; derniers relevés sur cette branche : CI `37908787830` (`90102b1`) et `37911451671` (`f613873`), job du moteur vert |
 
 ## 4. Publication (après l'accord du propriétaire)
+
+Ces lignes viennent avec la PR de `refonte/hermes` vers `main`, sa fusion et l'étiquette (part F) : elles restent
+**à relever** jusque-là, puis sont complétées par une PR de documentation seule.
 
 | Exigence | Preuve attendue | Date | Résultat |
 |---|---|---|---|
@@ -113,21 +130,32 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
   réelles et leur atomicité, contradiction de la documentation sur les sauvegardes postérieures, reconnexion
   d'openai-codex, notification réelle, parcours téléphone réel, premier dépôt réel, bilan à 8 h, coût réel).
 - La répétition de restauration en production et les reconnexions réelles ; la chaîne complète export chiffré →
-  déchiffrement → import sur Railway (prouvée par morceaux).
+  déchiffrement → import sur Railway (prouvée par morceaux : déchiffrement à l'identique par la station Qt, import
+  sur un volume vide à root par R4).
 - La station Qt après une restauration de l'identité (même règle que le navigateur, non rejouée) ; la station Qt
   alignée sur P7 (P8b) face à un vrai greffon P7 : son flux et ses gestes ne sont éprouvés que contre le faux Hermes
   de ses tests natifs et les fixtures partagées ([desktop.md](desktop.md), « Non prouvé »).
-- Une montée de Hermes vers une release future ; la montée d'Authelia ; un retour arrière par Rollback ; un vrai agent
-  à la place de l'agent factice.
-- Le premier run de `Desktop Release` tant que l'étiquette n'est pas posée ; un installeur réel sur un Windows
-  propre ; binaires **non signés** (aucun certificat).
+- Une montée de Hermes vers une release future (aucune postérieure à `v2026.9.24` au 9 octobre 2026, mesuré par
+  `scripts/monter_hermes.py derniere`) ; la montée de données depuis `v2026.9.21` (l'image d'ACP sur 0.21.4 ne
+  démarre pas) ; la montée d'Authelia ; un retour arrière par Rollback ; un vrai agent à la place de l'agent
+  factice.
+- Le premier run de `Desktop Release` tant que l'étiquette n'est pas posée. Chaque Desktop CI fabrique l'installeur
+  et l'archive portable, **non signés** (empaquetage « à blanc » : produits réellement, ni signés ni publiés ;
+  dernier relevé : artefact du run `37908787797`) ; ils n'ont jamais été installés ni lancés sur un Windows propre ;
+  aucun certificat de signature de code.
 - `preserve()` sur une variable jamais posée : supposé sans effet (D116).
 - Les bouts en bout locaux du poste Windows (`scripts/e2e-poste-windows.ps1`, dernier passage relevé : P5) et de la
   station Qt (`scripts/e2e-desktop-windows.ps1`, dernier passage relevé : P8), et les témoins négatifs de P4 à P6
-  (`scripts/temoins_negatifs_p4.sh` à `_p6.sh`) : scripts à Docker local, appelés par aucun workflow ; depuis D134
-  ils ne tournent plus nulle part, et n'ont donc jamais été rejoués sur le code de P7 ni de P9. Le verrou Python ne
-  peut pas non plus être recompilé (`scripts/lock_python.ps1` lance Docker).
-- **Constat de sécurité, corrigé et fusionné le 9 octobre 2026 (PR #23, `5026a70` ; § 1), avec une limite** :
+  (`scripts/temoins_negatifs_p4.sh` à `_p6.sh`) : scripts à Docker local qu'aucun workflow n'appelle. Docker local
+  est de nouveau permis depuis le 9 octobre 2026 (D160), mais ils n'ont été rejoués ni sur le code de P7 ni sur
+  celui de P9. Le verrou Python n'a pas été recompilé depuis D134 (`scripts/lock_python.ps1` lance Docker).
+- Tests instables connus, verts sur la tête au moment du relevé : le test navigateur de la connexion (course avec la
+  relecture périodique du tableau de bord : Image Hermes `37908787791`, tentative 1, § 3) ; sous Windows,
+  `apps/poste/tests/contrat/test_enrolement.py:78` (`ssl.SSLEOFError` du faux serveur TLS : CI `37016933709` et
+  `37763665065`) ; en local, des tests temporisés du poste sous charge (le 9 octobre 2026,
+  `apps/poste/tests/test_local_runner.py::test_stop_event_terminates_the_real_process`, rouge une fois sur
+  `916bf7a`, vert seul et dans les suites suivantes).
+- **Constat de sécurité, corrigé et fusionné le 9 octobre 2026 (PR #23, `5026a70` ; § 1 et § 2), avec une limite** :
   Image Hermes `37784838264` (`fdb41c9`), tentative 1, job `113336818423` rouge sur `hermes/tests/contrat/test_sans_shell_contrat.py::test_volume_piege_apres_relance` :
   après le redémarrage du conteneur sur un volume piégé, la session du tableau de bord (`/api/ws`) listait `terminal`,
   `write_file`, `execute_code`… (les jeux posés par le `.env` piégé), alors que l'api_server répondait « Tool
@@ -141,12 +169,15 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
   dans le vrai conteneur ; troisième couche mesurée : une session qui a reçu exactement ces outils se voit refuser
   `terminal` par la garde `pre_tool_call` ; seconde faille trouvée en chemin, hors des trois couches : une source
   externe de secrets (`secrets.command`) du `config.yaml` du volume, lancée par `/bin/sh` avant la portée gérée.
-  Preuves relevées par `gh` : tests seuls (`4c3647e`) sur le code de P7, run jetable `37831355746` (8 octobre 2026),
-  **rouge attendu** ; correctif SECU-1 (retrait par root des clés épinglées des `.env` du volume) et refus SECU-2
-  (`373b047`), run jetable `37832691849` (8 octobre 2026), **vert** ; `208ecd7` (documentation de la branche) :
-  Image Hermes `37835575233` et CI `37835575491`, **verts** ; audit défensif du 9 octobre 2026 : tests seuls
-  (`e5e3f3c`, sur `d5d8b73`), run jetable `37873430373`, **rouge attendu** ; correctif `2c4e2d4`, run jetable
+  Preuves relevées par `gh` (§ 2) : tests seuls (`4c3647e`) sur le code de P7, run jetable `37831355746` (8 octobre
+  2026), **rouge attendu** ; correctif SECU-1 (retrait par root des clés épinglées des `.env` du volume) et refus
+  SECU-2 (`373b047`), run jetable `37832691849` (8 octobre 2026), **vert** ; `208ecd7` (documentation de la
+  branche) : Image Hermes `37835575233` et CI `37835575491`, **verts** ; audit défensif du 9 octobre 2026 : tests
+  seuls (`e5e3f3c`, sur `d5d8b73`), run jetable `37873430373`, **rouge attendu** ; correctif `2c4e2d4`, run jetable
   `37873804340`, **vert**. Décisions SECU-1 et SECU-2 numérotées **D156** et **D157** ([plan](plan.md) § 1) ; runs
-  de la PR et de la fusion au § 1, verts. **Reste non corrigé** ([image.md](image.md) § 10) : une écriture **directe** d'un `.env` du volume pendant
-  la vie d'un service (faille de Hermes, ou shell du propriétaire) rouvrirait la fenêtre jusqu'à la relance
-  suivante ; quelques variables ni épinglées ni refusées dans le volume restent non mesurées.
+  de la PR et de la fusion au § 1, verts. Depuis la réunion, la restauration et la montée de P9 ont été rejouées avec
+  ce correctif (§ 3) : aucun `.env` des volumes du banc ne porte de clé épinglée (lu dans l'image), et les journaux de
+  démarrage que ces jobs affichent n'ont aucune ligne `SECU-1`. **Reste non corrigé** ([image.md](image.md) § 10) : une écriture **directe** d'un `.env` du volume
+  pendant la vie d'un service (faille de Hermes, ou shell du propriétaire) rouvrirait la fenêtre jusqu'à la relance
+  suivante ; quelques variables ni épinglées ni refusées dans le volume restent non mesurées ; le retrait des clés
+  épinglées n'a lieu qu'au démarrage et aux relances.
