@@ -77,9 +77,10 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
   ([`docs/refonte/identite.md`](docs/refonte/identite.md) § 12).
 - Pages natives de Hermes en partie en anglais (comptées, non traduites) ; rendu éprouvé dans Chromium seulement.
 - Serveurs MCP côté exécutant reportés ; aucun dépôt réel encore confié à l'exécutant.
-- Aucune montée de Hermes vers une release postérieure à `v2026.9.24` (aucune n'existe au 9 octobre 2026) ; retour
-  arrière par Rollback, montée d'Authelia et vrai agent jamais éprouvés ([`docs/exploitation.md`](docs/exploitation.md)
-  § 10).
+- 1.0.0 reste sur Hermes 0.21.5 : v0.21.6, publiée le 8 octobre 2026, n'est pas montée, car son image n'est pas
+  construite depuis le commit de son étiquette (refus de `scripts/monter_hermes.py`, D161) ; aucune montée vers une
+  release postérieure à `v2026.9.24` n'est donc prouvée ; retour arrière par Rollback, montée d'Authelia et vrai
+  agent jamais éprouvés ([`docs/exploitation.md`](docs/exploitation.md) § 6.1 et § 10).
 
 ## Ce que 1.0.0 engagera
 

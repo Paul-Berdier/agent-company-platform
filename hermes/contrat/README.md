@@ -35,8 +35,11 @@ nouvelle image). Jamais de `hermes update`, de `git pull` de Hermes, d'étiquett
 Outil (étape P9) : `scripts/monter_hermes.py` (bibliothèque standard, `docker` et `git`).
 
 - `derniere` : dernière release publiée à la fois en étiquette git amont et sur Docker Hub
-  (veille mensuelle) ; n'écrit rien.
-- `ecrire vAAAA.M.J` : relève la release (condensats, commit, image tirée par condensat) et
+  (veille mensuelle), sous l'une des deux formes de l'amont, `vAAAA.M.J[.N]` jusqu'à
+  `v2026.9.24`, `vX.Y.Z` depuis v0.21.6 ; candidates (`rc.N-…`) et canaris écartés, toute
+  autre forme publiée refusée ; n'écrit rien.
+- `ecrire <étiquette>` : relève la release (condensats, commit, image tirée par condensat ;
+  refus si l'image n'est pas construite depuis le commit de l'étiquette) et
   réécrit toutes les épingles fortes, dont ce dossier, le bloc `hermes` et
   `livrees.instantane_hermes` du verrou du catalogue, `hermes/THIRD_PARTY.md` et les fixtures
   `/v1/meta` du desktop et de l'interface ; rapporte les méthodes OpenRPC ajoutées et retirées,

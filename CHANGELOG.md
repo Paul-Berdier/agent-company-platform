@@ -235,9 +235,14 @@ dans `docs/refonte/preuves-1.0.0.md`.
   partagées seulement, jamais face à un vrai greffon P7 (`docs/refonte/desktop.md`, « Non prouvé ») ; MCP côté
   exécutant reporté.
 - `preserve()` sur une variable jamais posée : supposé sans effet (D116).
-- Aucune montée vers une release de Hermes postérieure à `v2026.9.24` (aucune n'existe au 9 octobre 2026, mesuré par
-  `scripts/monter_hermes.py derniere`) ; montée de données depuis `v2026.9.21` non lancée (D147) ; montée d'Authelia
-  non prouvée (D152) ; retour arrière par Rollback non prouvé ; un vrai agent jamais employé.
+- **Hermes v0.21.6 est publiée depuis le 8 octobre 2026** (étiquette git, image Docker Hub, release GitHub) ; 1.0.0
+  reste sur Hermes 0.21.5 (`v2026.9.24`, D161). `scripts/monter_hermes.py derniere` ne retenait que la forme
+  `vAAAA.M.J` et a conclu à tort, le 9 octobre 2026, qu'aucune release plus récente n'existait ; corrigé le même jour
+  (`6ee8871`, tests rouges d'abord). Le relevé de v0.21.6 est **refusé** par l'outil : l'image `v0.21.6` de Docker Hub
+  est construite depuis `a28a5d03`, 39 commits avant celui de l'étiquette (`818c13be`). Aucune montée vers une
+  release postérieure à `v2026.9.24` n'est donc faite ni prouvée ; montée de données depuis `v2026.9.21` non lancée
+  (D147) ; montée d'Authelia non prouvée (D152) ; retour arrière par Rollback non prouvé ; un vrai agent jamais
+  employé.
 - Signature cosign de Codex non vérifiée (identité non établie).
 - Moteur Pixel Office gelé ; Godot hors périmètre.
 

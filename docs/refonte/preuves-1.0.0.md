@@ -73,7 +73,7 @@ ils sont donnés ici, sont lus par `gh` (« relevé par `gh` »). Les relevés a
 ## 3. Étape P9 (exigences du plan → preuve)
 
 Exigences du plan validé pour P9 ([plan](plan.md) § 13, « P9 ») et du cahier de conception de P9 ; décisions D122 à
-D155 et D160 ([plan](plan.md) § 1). Les parts A à E sont closes au 9 octobre 2026 ; les lignes **à relever** sont
+D155 et D160 à D163 ([plan](plan.md) § 1). Les parts A à E sont closes au 9 octobre 2026 ; les lignes **à relever** sont
 celles d'étapes à venir. Restauration et montée : chaque vérification des quatre fichiers de test (R1 et R2, R3, R4,
 montée de données), vue rouge pour sa raison ou non, avec la raison, est rangée dans
 [exploitation.md](../exploitation.md) § 6.6 et § 10, d'après un inventaire mécanique de ces fichiers (journal de P9) :
@@ -83,7 +83,7 @@ inventaire (`83394a9`).
 
 | Exigence | Preuve | Lieu | Date | Commit, run | Résultat |
 |---|---|---|---|---|---|
-| Outil de montée de version de Hermes (`scripts/monter_hermes.py` : `verifier`, `ecrire`, `inventaire`, `derniere`) | tests de l'outil (exécuteur injecté) ; `verifier` réel : « Aucun écart » ; `derniere` réel : « Aucune release plus récente que celle épinglée » | local + CI | 02/10/2026 ; `derniere` aussi le 09/10/2026 | `ff33ea6` (outil) ; relecture : `11276d6` et suivants | fait (journal de P9, part A et relecture) ; suite du dépôt verte à chaque commit ; aucune release postérieure à `v2026.9.24` au 9 octobre 2026 |
+| Outil de montée de version de Hermes (`scripts/monter_hermes.py` : `verifier`, `ecrire`, `inventaire`, `derniere`) | tests de l'outil (exécuteur injecté) ; `verifier` réel : « Aucun écart » ; `derniere` réel : « Aucune release plus récente que celle épinglée » | local + CI | 02/10/2026 ; `derniere` aussi le 09/10/2026 | `ff33ea6` (outil) ; relecture : `11276d6` et suivants ; relecture finale : `6ee8871` | fait (journal de P9, part A et relecture) ; suite du dépôt verte à chaque commit, sauf `cdc8593` : CI `37016933709` **rouge** (test instable `apps/poste/tests/contrat/test_enrolement.py:78`, § 5), non relancée. `derniere` réel du 9 octobre 2026 **faux** : « Aucune release plus récente que celle épinglée », alors que v0.21.6 était publiée depuis la veille (filtre sur la seule forme `vAAAA.M.J`) ; corrigé par `6ee8871` (11 tests rouges d'abord : formes `vAAAA.M.J[.N]` et `vX.Y.Z`, candidates et canaris écartés, forme inconnue publiée refusée), puis relevé réel : « Dernière release publiée (git et Docker Hub) : v0.21.6 », « Une release plus récente existe » ; `verifier --etiquette v0.21.6` (local, Docker) : **refus**, l'image n'est pas construite depuis le commit de l'étiquette (D161) |
 | Répétition à blanc de la montée sur l'épinglée, à chaque construction (D122) | étape `verifier` d'`image.yml` : « Aucun écart : l'épinglage de v2026.9.24 est reproduit à l'octet près » | CI | 02/10/2026 ; 09/10/2026 | `9a4d6ad`, Image Hermes `37004128839` (image 682, contrat 165, navigateur 8) ; `2243923`, Image Hermes `37028491959` ; tête réunie `90102b1`, Image Hermes `37908787791`, job `113768708907` | **vert** à chaque construction relevée |
 | Concordance statique de toutes les épingles de Hermes | `scripts/tests/test_epingles_hermes.py` (rouge d'abord : 7 valeurs figées trouvées) | local + CI | 02/10/2026 | `985ea68` | fait (journal de P9, part A) |
 | Toute copie versionnée vérifiée par `scripts/check_version.py` | `scripts/tests/test_version_complete.py` (rouge d'abord : verrou de l'interface comparé à rien) | local + CI | 02/10/2026 | `49ee6ef` | fait |
@@ -135,10 +135,11 @@ Ces lignes viennent avec la PR de `refonte/hermes` vers `main`, sa fusion et l'�
 - La station Qt après une restauration de l'identité (même règle que le navigateur, non rejouée) ; la station Qt
   alignée sur P7 (P8b) face à un vrai greffon P7 : son flux et ses gestes ne sont éprouvés que contre le faux Hermes
   de ses tests natifs et les fixtures partagées ([desktop.md](desktop.md), « Non prouvé »).
-- Une montée de Hermes vers une release future (aucune postérieure à `v2026.9.24` au 9 octobre 2026, mesuré par
-  `scripts/monter_hermes.py derniere`) ; la montée de données depuis `v2026.9.21` (l'image d'ACP sur 0.21.4 ne
-  démarre pas) ; la montée d'Authelia ; un retour arrière par Rollback ; un vrai agent à la place de l'agent
-  factice.
+- Une montée de Hermes vers une release postérieure à `v2026.9.24` : v0.21.6 est publiée depuis le 8 octobre 2026,
+  mais `scripts/monter_hermes.py verifier --etiquette v0.21.6` la refuse (son image est construite depuis
+  `a28a5d03`, 39 commits avant celui de l'étiquette, `818c13be`) ; 1.0.0 reste sur 0.21.5 (D161) ; la montée de
+  données depuis `v2026.9.21` (l'image d'ACP sur 0.21.4 ne démarre pas) ; la montée d'Authelia ; un retour arrière
+  par Rollback ; un vrai agent à la place de l'agent factice.
 - Le premier run de `Desktop Release` tant que l'étiquette n'est pas posée. Chaque Desktop CI fabrique l'installeur
   et l'archive portable, **non signés** (empaquetage « à blanc » : produits réellement, ni signés ni publiés ;
   dernier relevé : artefact du run `37908787797`) ; ils n'ont jamais été installés ni lancés sur un Windows propre ;

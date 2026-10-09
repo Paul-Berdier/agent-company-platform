@@ -128,7 +128,7 @@ lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++
 
 - `docs/reprise-poste.md` — état courant, chaîne d'outils, pièges connus.
 - `docs/exploitation.md` — manuel du propriétaire : sauvegardes, restauration, montée de version, incidents.
-- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi), décisions D1 à D160.
+- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi), décisions D1 à D163.
 - `docs/refonte/autonomie.md` — plan d'autonomie qui remplace les phases P4 à P8.
 - `docs/refonte/historique.md` — historique figé des étapes P0 à P9 (notes de reprise et journal par étape).
 - `docs/refonte/preuves-1.0.0.md` — preuves de 1.0.0 (PR, runs, relevés ; complétées après l'étiquette).

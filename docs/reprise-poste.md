@@ -59,7 +59,7 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 | P9 | exploitation, montée de version, publication 1.0.0 | **parts A à E faites**, sans PR : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, prouvées en CI ([preuves](refonte/preuves-1.0.0.md) § 3) ; E (documentation finale) faite ; restent la relecture indépendante de toute P9, l'ouverture 1.0.0 et la PR ; F (publication) après accord |
 
 Détail de chaque étape : [historique](refonte/historique.md), partie A (tableau des fusions) et partie B ; P9 :
-[plan](refonte/plan.md) § 1 (D122 à D155 et D160 ; D156 à D159 pour SECU-TUI et P8b) et [manuel](exploitation.md).
+[plan](refonte/plan.md) § 1 (D122 à D155 et D160 à D163 ; D156 à D159 pour SECU-TUI et P8b) et [manuel](exploitation.md).
 
 ## 2. Décisions du propriétaire
 
@@ -78,7 +78,7 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
   élargissement du périmètre).
 - Exécution principale sur un service Railway séparé, l'**exécutant** (D74) ; le poste Windows devient facultatif.
 - Le propriétaire **fournit les comptes**, Hermes gère l'exploitation : décisions de conception **appliquées** depuis
-  P6 (D74 à D160) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
+  P6 (D74 à D163) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
   comptes, la dépense et l'irréversible ; pour 1.0.0, une seule question : fusion dans `main`, étiquette et branche
   déployée.
 
@@ -87,7 +87,7 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
 | Besoin | Où |
 |---|---|
 | Règles de travail, recette de publication, interdits | `CLAUDE.md` |
-| Plan validé et décisions D1 à D160 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
+| Plan validé et décisions D1 à D163 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
 | Gestes du propriétaire : sauvegardes, restauration, montée de version, incidents | [exploitation.md](exploitation.md), puis [refonte/railway.md](refonte/railway.md) |
 | Image Hermes, variables Railway, managed scope | [refonte/image.md](refonte/image.md) |
 | Identité, interface, catalogue, projets, poste, exécutant, questions | [identite.md](refonte/identite.md), [interface.md](refonte/interface.md), [catalogue.md](refonte/catalogue.md), [projets.md](refonte/projets.md), [poste.md](refonte/poste.md), [executant.md](refonte/executant.md), [questions.md](refonte/questions.md) |
