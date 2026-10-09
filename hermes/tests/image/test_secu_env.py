@@ -299,6 +299,147 @@ def test_hermes_managed_dir_dans_op_env_est_refuse(chemins, valeurs, env_valide,
         assert attendu in str(refus.value)
 
 
+# ------------------------------------------------------------------ variables d'emplacement et d'exécution (audit)
+#
+# Audit défensif du 9 octobre 2026, manque 1 : une variable qui choisit un répertoire ou un programme, posée dans
+# un .env du volume, est publiée par Hermes (override=True, env_loader.py:433-434) et SUIVIE ensuite :
+# get_hermes_home() relit HERMES_HOME dans os.environ à chaque appel (hermes_constants.py:112-119 et 161-170), donc
+# tout ce que Hermes lit après vient d'un répertoire qu'aucune garde n'inspecte. Ni refusées, ni épinglées, ni
+# retirées jusque-là. Famille attendue, calculée ICI sans la liste d'ACP : les valeurs que l'image fixe au conteneur
+# (VALEURS_IMPOSEES) et les noms que l'écrivain de .env de Hermes refuse lui-même (hermes_cli/config.py:62-117,
+# « influence subprocess execution or Hermes runtime location »), moins les clés que la portée gérée épingle
+# (celles-là, SECU-1 les retire).
+
+SONDE_LISTE_DE_HERMES = r'''
+from hermes_cli.config import _ENV_VAR_NAME_DENYLIST, _ENV_VAR_NAME_DENY_PREFIXES
+resultat = {"noms": sorted(_ENV_VAR_NAME_DENYLIST), "prefixes": list(_ENV_VAR_NAME_DENY_PREFIXES)}
+'''
+
+
+def _famille_attendue(chemins) -> set:
+    liste = executer_python(SONDE_LISTE_DE_HERMES, env=env_processus(chemins))
+    assert "HERMES_HOME" in liste["noms"] and liste["prefixes"], liste  # sinon la source a changé : à relire
+    noms = set(ad.VALEURS_IMPOSEES) | set(liste["noms"]) | {f"{p}ACP_PIEGE" for p in liste["prefixes"]}
+    return noms - set(ad.valeurs_env_gere(ad.VALEURS_VIDES))
+
+
+def _ecrire_famille(chemins, ou: str, noms) -> Path:
+    dossier = chemins.hermes_home / "profiles" / "coder" if ou == "profil" else chemins.hermes_home
+    dossier.mkdir(parents=True, exist_ok=True)
+    fichier = dossier / (".op.env" if ou == "op_env" else ".env")
+    fichier.write_text("API_SERVER_KEY=0123456789abcdef0123456789\nOPENAI_API_KEY=legitime\n"
+                       + "".join(f"{nom}=/nonexistent/acp-piege\n" for nom in sorted(noms)), encoding="utf-8")
+    return fichier
+
+
+@pytest.mark.parametrize("ou", ["env", "op_env", "profil"])
+def test_variables_d_emplacement_et_d_execution_du_volume_refusees(chemins, valeurs, env_valide, ou):
+    """Chaque nom de la famille, posé dans un fichier d'environnement du volume, refuse le démarrage (crochet,
+    05-acp) et la relance ; les clés ordinaires (API_SERVER_KEY écrite par l'image, clés de fournisseur) restent
+    admises."""
+    installer_home_de_test(chemins, valeurs)
+    attendues = _famille_attendue(chemins)
+    fichier = _ecrire_famille(chemins, ou, attendues)
+    trouvees = {nom for f, nom, _ in ad.variables_interdites_dans_le_volume(chemins) if f == fichier}
+    print(json.dumps({"attendues": sorted(attendues), "trouvees": sorted(trouvees)}, ensure_ascii=False))
+    assert not trouvees & {"API_SERVER_KEY", "OPENAI_API_KEY"}, trouvees
+    assert sorted(attendues - trouvees) == [], f"non refusées : {', '.join(sorted(attendues - trouvees))}"
+    for refuser in (ad.commande_verifier_relance, lambda c: ad.commande_gardes(c, env_valide),
+                    lambda c: ad.commande_donnees(c, env_valide)):
+        with pytest.raises(ad.Refus) as refus:
+            refuser(chemins)
+        assert f"{fichier} définit la variable interdite HERMES_HOME" in str(refus.value)
+
+
+SONDE_PUBLICATION = r'''
+import json, os
+NOMS = json.loads(%(noms)r)
+from hermes_cli.env_loader import load_hermes_dotenv
+load_hermes_dotenv()
+resultat = sorted(n for n in NOMS if os.environ.get(n) == "/nonexistent/acp-piege")
+'''
+
+
+def test_temoin_hermes_publie_la_famille_depuis_le_env_du_volume(chemins, valeurs):
+    """Témoin (comportement de Hermes, sans garde ; vert avant comme après le correctif) : le chargement réel
+    publie chaque nom de la famille posé dans /opt/data/.env, que la portée gérée ne recouvre pas."""
+    installer_home_de_test(chemins, valeurs)
+    attendues = _famille_attendue(chemins)
+    _ecrire_famille(chemins, "env", attendues)
+    publiees = executer_python(SONDE_PUBLICATION % {"noms": json.dumps(sorted(attendues))},
+                               env=env_processus(chemins))
+    assert sorted(attendues - set(publiees)) == [], sorted(attendues - set(publiees))
+
+
+SONDE_HOME = r'''
+import json, os
+from hermes_cli.env_loader import load_hermes_dotenv
+from hermes_constants import get_hermes_home
+load_hermes_dotenv()
+apres_un = str(get_hermes_home())
+load_hermes_dotenv()
+resultat = {"home_apres_un_chargement": apres_un, "temoin_lu_au_second": os.environ.get("ACP_TEMOIN_HOME")}
+'''
+
+
+def test_temoin_hermes_suit_le_home_du_env_du_volume(chemins, valeurs):
+    """Témoin : HERMES_HOME posée dans /opt/data/.env devient le home de Hermes, et le chargement suivant lit le
+    .env de ce répertoire, qu'aucune garde n'inspectait."""
+    installer_home_de_test(chemins, valeurs)
+    autre = chemins.hermes_home / "autre"
+    autre.mkdir()
+    (chemins.hermes_home / ".env").write_text(f"HERMES_HOME={autre}\n", encoding="utf-8")
+    (autre / ".env").write_text("ACP_TEMOIN_HOME=lu\n", encoding="utf-8")
+    resultat = executer_python(SONDE_HOME, env=env_processus(chemins))
+    print(json.dumps(resultat, ensure_ascii=False))
+    assert resultat == {"home_apres_un_chargement": str(autre), "temoin_lu_au_second": "lu"}, resultat
+
+
+# Audit défensif, manque 2 : la garde de HERMES_MANAGED_DIR doit lire les fichiers comme Hermes (décodage et deux
+# analyseurs), comme SECU-1 le fait pour les clés épinglées. HERMES_MANAGED_DIR ne peut pas être épinglée : rien ne
+# rattrape une forme que la garde ne voit pas. Pour chaque forme, le témoin montre le chemin réel de Hermes qui la
+# publie : le chargement (UTF-16 réécrit et NUL retiré : env_loader.py:347-370) ou « reload.env » (jetoniseur sur
+# splitlines : agent/secret_scope.py:316-329, hermes_cli/config.py:2733-2747).
+FORMES_MANAGED_DIR = {
+    "nul": (lambda faux: f"HERMES_MANAGED\x00_DIR={faux}\n".encode("utf-8"), "chargement"),
+    "utf16": (lambda faux: f"HERMES_MANAGED_DIR={faux}\n".encode("utf-16"), "chargement"),
+    "saut_de_page": (lambda faux: f"ACP_X=1\x0cHERMES_MANAGED_DIR={faux}\n".encode("utf-8"), "reload_env"),
+    "u2028": (lambda faux: f"ACP_X=1 HERMES_MANAGED_DIR={faux}\n".encode("utf-8"), "reload_env"),
+}
+
+SONDE_MANAGED_DIR = r'''
+import os
+from hermes_cli.env_loader import load_hermes_dotenv
+from hermes_cli import config
+load_hermes_dotenv()
+if %(reload)r:
+    config.reload_env()
+resultat = os.environ.get("HERMES_MANAGED_DIR")
+'''
+
+
+@pytest.mark.parametrize("forme", sorted(FORMES_MANAGED_DIR))
+def test_hermes_managed_dir_sous_les_formes_lues_par_hermes_est_refuse(chemins, valeurs, env_valide, forme):
+    installer_home_de_test(chemins, valeurs)
+    faux = chemins.hermes_home / "faux"
+    encoder, chemin_de_hermes = FORMES_MANAGED_DIR[forme]
+    fichier = chemins.hermes_home / ".env"
+    fichier.write_bytes(encoder(faux))
+    attendu = f"{fichier} définit la variable interdite HERMES_MANAGED_DIR"
+    for refuser in (ad.refuser_variables_du_volume, ad.commande_verifier_relance,
+                    lambda c: ad.commande_gardes(c, env_valide)):
+        try:
+            refuser(chemins)
+        except ad.Refus as exc:
+            assert attendu in str(exc), str(exc)
+        else:
+            pytest.fail(f"forme « {forme} » : aucun refus ({refuser})")
+    # Témoin APRÈS les gardes (le chargement de Hermes réécrit le fichier) : Hermes publie bien la variable.
+    publiee = executer_python(SONDE_MANAGED_DIR % {"reload": chemin_de_hermes == "reload_env"},
+                              env=env_processus(chemins))
+    assert publiee == str(faux), (forme, chemin_de_hermes, publiee)
+
+
 # ------------------------------------------------------------------ sources externes de secrets
 
 

@@ -186,6 +186,59 @@ def test_source_de_secrets_du_volume_refuse_le_demarrage(ressources, image):
     assert "[stage2]" not in journal
 
 
+SONDE_HOME = ("import json, os; from hermes_cli.env_loader import load_hermes_dotenv; load_hermes_dotenv(); "
+              "load_hermes_dotenv(); from hermes_constants import get_hermes_home; "
+              "from hermes_cli import managed_scope; import sys; sys.stderr.write('SONDE ' + json.dumps({"
+              "'home': str(get_hermes_home()), 'portee_geree': str(managed_scope.get_managed_dir()), "
+              "'HERMES_TUI_TOOLSETS': os.environ.get('HERMES_TUI_TOOLSETS')}) + '\\n')")
+
+
+def test_home_du_volume_qui_redirige_hermes_refuse_le_demarrage(ressources, image):
+    """Audit défensif, manque 1 : HERMES_HOME posée dans /opt/data/.env est publiée par Hermes puis suivie
+    (hermes_constants.py:112-119 et 161-170) ; le chargement suivant lit le .env d'un répertoire qu'aucune garde
+    n'inspecte, qui peut à son tour déplacer la portée gérée."""
+    volume = ressources.volume(image, {
+        ".env": "HERMES_HOME=/opt/data/autre\n",
+        "autre/.env": "HERMES_MANAGED_DIR=/opt/data/faux\n",
+        "faux/.env": "HERMES_TUI_TOOLSETS=terminal,file,code_execution\n"})
+    issue, conteneur, journal = _demarrer_et_observer(ressources, image, volume)
+    sonde = ""
+    if issue == "démarré":
+        sonde = conteneur.executer(["/opt/hermes/.venv/bin/python", "-c", SONDE_HOME], utilisateur="hermes").stderr
+    afficher(f".env avec HERMES_HOME : {issue}", _lignes_acp(journal) + ("\n" + sonde if sonde else ""))
+    assert issue == "arrêté (code 1)", f"{issue} ; sonde : {sonde}"
+    assert "/opt/data/.env définit la variable interdite HERMES_HOME" in journal
+    assert "[stage2]" not in journal
+
+
+def _deposer_octets(image: str, volume: str, chemin: str, octets: bytes) -> None:
+    """Dépose un fichier aux octets exacts (UTF-16, NUL) dans le volume, rendu à l'uid hermes."""
+    import base64
+
+    cible = f"/opt/data/{chemin}"
+    docker("run", "--rm", "-i", "-v", f"{volume}:/opt/data", "--entrypoint", "sh", image, "-c",
+           f'base64 -d > "{cible}" && chown 10000:10000 "{cible}"', entree=base64.b64encode(octets).decode("ascii"))
+
+
+@pytest.mark.parametrize("forme", ["utf16", "nul"])
+def test_managed_dir_que_seul_hermes_decode_refuse_le_demarrage(ressources, image, forme):
+    """Audit défensif, manque 2 : la garde lisait les .env en UTF-8 avec python-dotenv seul ; Hermes réécrit un
+    .env UTF-16 en UTF-8 et retire les octets NUL avant de le charger (env_loader.py:347-370), puis publie
+    HERMES_MANAGED_DIR, qui choisit le .env géré lu."""
+    ligne = "HERMES_MANAGED_DIR=/opt/data/faux\n"
+    octets = ligne.encode("utf-16") if forme == "utf16" else ligne.replace("_DIR", "\x00_DIR").encode("utf-8")
+    volume = ressources.volume(image, {"faux/.env": "HERMES_TUI_TOOLSETS=terminal,file,code_execution\n"})
+    _deposer_octets(image, volume, ".env", octets)
+    issue, conteneur, journal = _demarrer_et_observer(ressources, image, volume)
+    sonde = ""
+    if issue == "démarré":
+        sonde = conteneur.executer(["/opt/hermes/.venv/bin/python", "-c", SONDE_PORTEE], utilisateur="hermes").stderr
+    afficher(f".env {forme} avec HERMES_MANAGED_DIR : {issue}", _lignes_acp(journal) + ("\n" + sonde if sonde else ""))
+    assert issue == "arrêté (code 1)", f"{issue} ; sonde : {sonde}"
+    assert "/opt/data/.env définit la variable interdite HERMES_MANAGED_DIR" in journal
+    assert "[stage2]" not in journal
+
+
 @pytest.fixture(scope="module")
 def hermes_railway(ressources, image) -> Conteneur:
     """Conteneur « comme sur Railway » : marqueurs, volume déclaré, commit déployé."""
