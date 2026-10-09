@@ -1,6 +1,6 @@
 # Reprise du travail sur un autre poste
 
-État du **8 octobre 2026**, Europe/Paris. Notes remises à plat à l'étape P9 (part E, préparation de 1.0.0) :
+État du **9 octobre 2026**, Europe/Paris. Notes remises à plat à l'étape P9 (part E, préparation de 1.0.0) :
 l'historique de chaque étape, avec ses preuves, ses écarts et ses pièges, est recopié sans modification dans
 [l'historique de la refonte](refonte/historique.md) (partie B : ces notes telles qu'au 8 octobre 2026, avant leur
 remise à plat). Lire aussi `CLAUDE.md` (règles de travail), [le plan](refonte/plan.md) (décisions, § 1) et
@@ -15,8 +15,9 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 
 - **Version 0.11.0**. **1.0.0 en préparation, non ouverte** : le commit d'ouverture et le journal daté viendront à
   la fin de P9 (D129) ; la fusion dans `main` et l'étiquette `v1.0.0` attendront l'accord du propriétaire.
-- **Rien n'est déployé sur Railway**. Le premier déploiement est un geste du propriétaire
-  ([railway.md](refonte/railway.md) § 4).
+- **Rien n'est déployé sur Railway**, et rien ne devrait l'être avant la fusion du chantier SECU-TUI (§ 6, n° 1) :
+  la branche que l'IaC déploie porte encore le défaut qu'il corrige. Le premier déploiement est un geste du
+  propriétaire ([railway.md](refonte/railway.md) § 4).
 - **Branches** : `main` = `60a49b6` (ancienne plateforme) ; `refonte/hermes`, branche d'intégration et branche
   déployée par l'IaC, porte P0 à P8 et P7 (dernière fusion : PR #21, `b9779f1`, 8 octobre 2026) ; P9 vit sur
   `refonte/hermes-p9` (parts A et D et leur relecture), `refonte/hermes-p9bc` (intégration : P7 finale, parts B et
@@ -268,8 +269,9 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
    fusion.
 3. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
    de fusion, branche déployée) ; premier run de `Desktop Release` (brouillon non signé).
-4. Gestes du propriétaire sur Railway : premier déploiement ([railway.md](refonte/railway.md) § 4), répétition de
-   maintenance puis de restauration avant d'y mettre des données ([exploitation.md](exploitation.md) § 5), sonde R0
-   de l'exécutant (railway.md § 13.2), canal de notification et premier dépôt réel (railway.md § 14).
+4. Gestes du propriétaire sur Railway, après la fusion de SECU-TUI : premier déploiement
+   ([railway.md](refonte/railway.md) § 4), répétition de maintenance puis de restauration avant d'y mettre des
+   données ([exploitation.md](exploitation.md) § 5), sonde R0 de l'exécutant (railway.md § 13.2), canal de
+   notification et premier dépôt réel (railway.md § 14).
 5. Ensuite : MCP côté exécutant (reporté depuis P8), première montée réelle de Hermes par la procédure du manuel
    (§ 6), confirmation par le propriétaire des choix D1 à D73.

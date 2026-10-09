@@ -38,12 +38,13 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
 L'infrastructure Railway (trois services, trois volumes) est déclarée en code dans
 [`.railway/railway.ts`](.railway/railway.ts) et appliquée par le propriétaire seul.
 
-## État réel (8 octobre 2026)
+## État réel (9 octobre 2026)
 
 - Étapes P0 à P8 de la refonte fusionnées dans `refonte/hermes` ; P9 (exploitation, montée de version, publication)
   en cours. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
-- **Prêt à déployer, non déployé** : aucun service ne tourne sur Railway ; tout ce qui ne se prouve que là
-  (bord réel, sauvegardes réelles, coût, notifications réelles, sonde de l'exécutant) reste **non prouvé**.
+- **Non déployé, et pas encore prêt à l'être** : la branche que l'IaC déploie (`refonte/hermes`) porte le défaut
+  de sécurité ci-dessous tant que son correctif n'y est pas fusionné. Ce qui ne se prouve que sur Railway (bord,
+  sauvegardes, coût et notifications réels, sonde de l'exécutant) reste **non prouvé**.
 - Prouvé en local et en intégration continue : les images et leurs gardes, les tests de contrat de Hermes et de
   l'identité, les parcours dans un navigateur, l'exécutant de bout en bout avec des CLI factices, la station Qt.
   Les tests de P9 (restauration des volumes, témoin d'une release antérieure de Hermes, montée de données) tournent
@@ -81,7 +82,8 @@ de cet engagement ; une rupture de nos interfaces appellera 2.0.0.
 
 - **Propriétaire** : le [manuel d'exploitation](docs/exploitation.md) (calendrier, sauvegardes, restauration,
   montée de version, incidents), puis la [procédure Railway](docs/refonte/railway.md), § 4 pour le premier
-  déploiement. Tout geste sur le compte Railway est le vôtre ; un agent prépare, teste et documente.
+  déploiement, **pas avant** la fusion du correctif de sécurité (limites ci-dessous). Tout geste sur le compte
+  Railway est le vôtre ; un agent prépare, teste et documente.
 - **Agent ou développeur** : [`CLAUDE.md`](CLAUDE.md) (règles, doctrine, interdits), puis les
   [notes de reprise](docs/reprise-poste.md) (état courant, chaîne d'outils, pièges) et le
   [plan](docs/refonte/plan.md) (décisions, § 1).
