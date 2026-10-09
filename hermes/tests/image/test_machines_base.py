@@ -15,7 +15,7 @@ from acp_poste_contrat.machine import PROTOCOLE, empreinte_courte, empreinte_jet
 
 def _enroler(noyau, conn, code: str, nom: str = "Poste Windows"):
     with noyau.base.transaction(conn):
-        return noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom=nom, version_poste="0.11.0",
+        return noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom=nom, version_poste="1.0.0",
                                            protocole=PROTOCOLE)
 
 
@@ -66,7 +66,7 @@ def test_un_seul_poste_actif(noyau, conn):
     with pytest.raises(Exception, match="UNIQUE"):
         with noyau.base.transaction(conn):
             conn.execute("INSERT INTO machines (id, nom, empreinte_jeton, etat, protocole, version_poste, cree_le) "
-                         "VALUES ('m00000000001', 'x', ?, 'actif', 'acp-machine/1', '0.11.0', 0)", ("0" * 64,))
+                         "VALUES ('m00000000001', 'x', ?, 'actif', 'acp-machine/1', '1.0.0', 0)", ("0" * 64,))
     assert conn.execute("SELECT COUNT(*) FROM machines WHERE etat = 'actif'").fetchone()[0] == 1
     assert noyau.machines.machine_active(conn)["id"] == machine
 

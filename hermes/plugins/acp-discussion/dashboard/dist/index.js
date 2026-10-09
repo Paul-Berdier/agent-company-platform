@@ -1,4 +1,4 @@
-/* acp-discussion 0.11.0 (ACP) — bundle généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
+/* acp-discussion 1.0.0 (ACP) — bundle généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
 
 "use strict";
 (() => {
@@ -726,7 +726,7 @@
         jetonAbsent: "Jeton absent",
         inconnu: "Inconnu"
       },
-      routageIntro: "Chaque \xE9tape d'un projet part vers la premi\xE8re entr\xE9e admise de sa classe. Les listes viennent du relev\xE9 du poste\xA0; rien n'est devin\xE9, et ce que le poste interdit reste interdit.",
+      routageIntro: "Une \xE9tape d'un projet suit, dans cet ordre\xA0: la surcharge active du projet ou de la carte\xA0; sinon le choix explicite (ex\xE9cutant et mod\xE8le de l'exploration choisis dans \xAB\xA0Nouveau projet\xA0\xBB, ou fix\xE9s par Hermes dans son plan)\xA0; sinon la premi\xE8re entr\xE9e admise de sa classe dans cette table, Hermes faisant lui-m\xEAme les \xE9tapes d'un projet sans d\xE9p\xF4t qui l'admettent. Les listes viennent du relev\xE9 du poste\xA0; rien n'est devin\xE9, et ce que le poste interdit reste interdit.",
       listesTitre: "Listes relev\xE9es",
       resolutionsTitre: "R\xE9solutions observ\xE9es",
       resolutionsAide: "Mod\xE8le r\xE9ellement servi pour chaque alias, rapport\xE9 par l'ex\xE9cutant \xE0 la fin de ses cartes.",

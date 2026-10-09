@@ -293,8 +293,8 @@ son flux et ses gestes ne sont éprouvés que contre le faux Hermes de ses tests
 ## 13. Preuves et limites
 
 **Prouvé en local** (Windows 10, Docker, images construites depuis les branches de P7 ; journal de P7) **et en CI**
-(workflow « Image Hermes ») : relevés datés et identifiants de runs dans [`docs/reprise-poste.md`](../reprise-poste.md)
-§ 6 undecies.
+(workflow « Image Hermes ») : relevés datés et identifiants de runs dans [`historique.md`](historique.md),
+partie B, § 6 undecies.
 
 | Preuve | Tests |
 |---|---|

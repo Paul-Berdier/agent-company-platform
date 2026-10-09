@@ -16,7 +16,7 @@ export const FORMES_EXECUTANT = {
         "etat": "actif",
         "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "cree_le": 1790853175,
         "confirme_le": 1790853175,
         "revoque_le": null,
@@ -39,7 +39,7 @@ export const FORMES_EXECUTANT = {
         "etat": "actif",
         "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "cree_le": 1790853175,
         "confirme_le": 1790853175,
         "revoque_le": null,
@@ -134,7 +134,7 @@ export const FORMES_EXECUTANT = {
           "poste-claude": 2,
           "poste-codex": 1
         },
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "versions": {
           "claude": {
             "conforme": true,
@@ -457,7 +457,7 @@ export const FORMES_EXECUTANT = {
         "etat": "actif",
         "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "cree_le": 1790853175,
         "confirme_le": 1790853175,
         "revoque_le": null,
@@ -482,7 +482,7 @@ export const FORMES_EXECUTANT = {
         "etat": "actif",
         "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "cree_le": 1790853175,
         "confirme_le": 1790853175,
         "revoque_le": null,
@@ -577,7 +577,7 @@ export const FORMES_EXECUTANT = {
           "poste-claude": 2,
           "poste-codex": 1
         },
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "versions": {
           "claude": {
             "conforme": true,
@@ -1434,7 +1434,7 @@ export const FORMES_EXECUTANT = {
         "etat": "actif",
         "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "cree_le": 1790853175,
         "confirme_le": 1790853175,
         "revoque_le": null,
@@ -1459,7 +1459,7 @@ export const FORMES_EXECUTANT = {
         "etat": "actif",
         "empreinte": "6CA2-C9E8",
         "protocole": "acp-machine/1",
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "cree_le": 1790853175,
         "confirme_le": 1790853175,
         "revoque_le": null,
@@ -1554,7 +1554,7 @@ export const FORMES_EXECUTANT = {
           "poste-claude": 2,
           "poste-codex": 1
         },
-        "version_poste": "0.11.0",
+        "version_poste": "1.0.0",
         "versions": {
           "claude": {
             "conforme": true,

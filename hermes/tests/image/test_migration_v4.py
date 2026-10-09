@@ -99,6 +99,38 @@ def test_v3_vers_v4_idempotente_sans_perte(noyau):
         assert noyau.notifications.enfiler(conn, cle="bilan:2026-10-02", genre="bilan", texte_notif="x") is False
 
 
+def test_v3_vers_v4_garde_le_compteur_autoincrement_de_notifications(noyau, tmp_path):
+    """Étape P9 (montée de données, run 37782764948 : compteur de ``notifications`` ramené de 7 à 5 par la
+    reconstruction v4) : un numéro déjà consommé ne resert jamais après la migration. Ici consommé par une ligne
+    insérée puis retirée (et par un ``INSERT OR IGNORE`` ignoré, qui en consomme un dans SQLite)."""
+    chemin = tmp_path / "compteur-v4.db"
+    _base_v3(noyau, chemin)
+    conn = sqlite3.connect(chemin, isolation_level=None)
+    try:
+        conn.execute("INSERT OR IGNORE INTO notifications (cle, genre, texte, etat, cree_le) VALUES "
+                     "('termine:p_000000000003', 'termine', 'Rejoué', 'envoyee', 3)")
+        conn.execute("INSERT INTO notifications (cle, genre, texte, etat, cree_le) VALUES "
+                     "('isolement:retire', 'isolement', 'Retiré', 'envoyee', 4)")
+        conn.execute("DELETE FROM notifications WHERE cle = 'isolement:retire'")
+        compteur = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'notifications'").fetchone()[0]
+        plus_grand = conn.execute("SELECT MAX(id) FROM notifications").fetchone()[0]
+        assert compteur > plus_grand == 2, (compteur, plus_grand)
+        noyau.base.migrer(conn)
+        assert "'bilan'" in _sql(conn, "notifications")
+        assert conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'notifications'").fetchone()[0] == compteur
+        conn.execute("INSERT INTO notifications (cle, genre, texte, etat, cree_le) VALUES "
+                     "('bilan:2026-10-08', 'bilan', 'Bilan', 'en_attente', 5)")
+        assert conn.execute("SELECT id FROM notifications WHERE cle = 'bilan:2026-10-08'").fetchone()[0] == compteur + 1
+        assert [tuple(l) for l in conn.execute("SELECT id, cle FROM notifications WHERE id <= 2 ORDER BY id")] == [
+            (1, "termine:p_000000000003"), (2, "isolement:abc")]
+        # Seconde migration : rien n'est reconstruit, le compteur suit les insertions.
+        noyau.base.migrer(conn)
+        seq = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'notifications'").fetchone()[0]
+        assert seq == compteur + 1, (seq, compteur)
+    finally:
+        conn.close()
+
+
 def test_base_neuve_et_bases_migrees_v4_ont_le_meme_schema(noyau, tmp_path):
     """K21 : une base v2 (reconstruction v3 de ``demandes`` à sa forme explicite) et une base v3 finissent avec les
     MÊMES colonnes et contraintes qu'une base neuve — colonnes de la relance comprises."""

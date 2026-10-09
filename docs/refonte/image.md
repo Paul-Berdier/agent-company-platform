@@ -13,7 +13,7 @@ L'étape P1 (image dérivée, gardes de démarrage, managed scope, greffon `acp-
 contrat) reste valable ; ses sections sont mises à jour ci-dessous, et chaque ajout de P2 est
 signalé comme tel. Les corrections de la **relecture indépendante de P2** (sécurité, exactitude,
 exploitation) sont signalées « relecture P2 » ; leur tableau de traitement est dans
-[`docs/reprise-poste.md`](../reprise-poste.md).
+[`historique.md`](historique.md), partie B, § 6.
 
 Étape P3 (identité visuelle et français, première partie) : thème `acp` généré depuis
 `design/tokens`, persona française réécrite, greffons de tableau de bord `acp-interface` et
@@ -25,10 +25,11 @@ outils admis de plus), refus de démarrer sur un serveur MCP stdio ou hors catal
 `/v1/catalogue` ; détail et preuves dans [catalogue.md](catalogue.md). Chaque ajout de P3 est
 signalé comme tel.
 
-Chantier sécurité SECU-TUI (8 octobre 2026, branche `refonte/hermes-secu-tui`) : une session du tableau de
-bord a reçu `terminal` une fois en CI, parce que Hermes publie la valeur du volume avant la portée gérée ;
-cause prouvée sans course, correctif (décisions provisoires SECU-1 et SECU-2) et preuves aux § 4.3 bis,
-§ 4.3 ter, § 5, § 8, § 9 et § 10.
+Chantier sécurité SECU-TUI (8 et 9 octobre 2026, branche `refonte/hermes-secu-tui`, fusionnée dans
+`refonte/hermes` par la PR #23, `5026a70`) : une session du tableau de bord a reçu `terminal` une fois en CI,
+parce que Hermes publie la valeur du volume avant la portée gérée ; cause prouvée sans course, correctif
+(décisions SECU-1 et SECU-2, numérotées **D156** et **D157** dans le [plan](plan.md) § 1) et preuves aux
+§ 4.3 bis, § 4.3 ter, § 5, § 8, § 9 et § 10.
 
 Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiquette
 `v2026.9.24` (commit `f97608f`), sauf mention contraire.
@@ -323,7 +324,7 @@ la valeur du volume et une session aurait reçu `terminal`, `file`, `code_execut
 rechargeur, **7 181 résolutions sur 7 343** des outils d'une session rendaient `terminal` (20 144 sur 20 294
 dans l'image) ; `reload_env` republiait sept clés.
 
-**Décision SECU-1 (provisoire).** Une épingle n'est sûre que si le volume ne porte **aucune** valeur pour
+**Décision SECU-1 (D156 du [plan](plan.md) § 1).** Une épingle n'est sûre que si le volume ne porte **aucune** valeur pour
 sa clé. Root retire donc des `.env` et `.op.env` du volume (racine et profils) toute clé que le `.env` géré
 **installé** épingle (`/etc/hermes/.env`, jamais une liste recopiée), avant tout processus de Hermes :
 au crochet `acp-gardes` (avant `01-hermes-setup` et la passerelle), dans `05-acp` et à **chaque relance**
@@ -354,7 +355,7 @@ s'exécutait sous l'uid 10000 (`Command helper: applied 1 secret`) et sa sortie
 `HERMES_MANAGED_DIR=/opt/data/faux` déplaçait la portée gérée, hors des trois couches. ACP n'utilise
 aucune source externe (ses secrets sont des variables Railway) et une épingle ne servirait à rien : toute
 source activée (`enabled` vrai, la règle de `SecretSource.is_enabled`) dans le `config.yaml` de la racine
-ou d'un profil **refuse le démarrage et la relance**, comme un serveur MCP stdio (D8) ; les valeurs par
+ou d'un profil **refuse le démarrage et la relance**, comme un serveur MCP stdio (D8 ; décision SECU-2, D157) ; les valeurs par
 défaut de Hermes (`enabled: false`) restent admises ; `diagnostiquer` l'inventorie.
 
 ### 4.4 Reprise à root des services s6
@@ -719,8 +720,16 @@ rassemble tout ce qui ferait refuser le démarrage ou exécuter du code depuis l
 - **clés exécutables** de `/opt/data/config.yaml` et `/opt/data/profiles/*/config.yaml`, lues
   sans suivre de lien : `mcp_servers.*.command`, `hooks` non vide, `quick_commands` de type
   `exec`, fournisseurs TTS ou STT de type `command` ; depuis P3, tout serveur MCP absent du
-  catalogue (qui refuse aussi le démarrage) ;
-- contenu de `/opt/data/lazy-packages`.
+  catalogue (qui refuse aussi le démarrage) ; depuis le chantier SECU-TUI, toute source externe
+  de secrets activée (§ 4.3 ter, D157, qui refuse aussi le démarrage) ;
+- contenu de `/opt/data/lazy-packages` ;
+- **en information, sans constat** (chantier SECU-TUI, § 4.3 bis, D156) : les clés épinglées par la
+  managed scope présentes dans un `.env` ou `.op.env` du volume, par leurs noms (jamais leurs
+  valeurs) ; elles ne refusent pas le démarrage, root les retire au démarrage suivant. Ni l'image
+  (le `.env.example` semé au premier démarrage n'en porte aucune, et `API_SERVER_KEY`, qu'elle
+  ajoute, n'est pas épinglée : lu dans l'image le 9 octobre 2026), ni Hermes pendant la vie d'un
+  service (§ 10) n'en écrivent : sur un volume restauré, leur présence dit qu'une écriture directe
+  du fichier, ou un piège d'avant P2, les y a mises.
 
 Chaque constat est préfixé `[acp] DIAGNOSTIC :` ; code 0 si rien n'est trouvé, 1 sinon. Aucune
 liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'emploie est dans
@@ -1067,7 +1076,7 @@ ne mesure que l'état stable, et une seule session ne déclenche la course que r
 ## 9. Ce qui est prouvé, ce qui ne l'est pas
 
 Les preuves datées de P1 (sorties, identifiants de runs) sont dans
-[`docs/reprise-poste.md`](../reprise-poste.md), § P1.
+[`historique.md`](historique.md), partie B, § 5.
 
 Prouvé en P1 (local et CI) : version et condensat ; `CMD`, crochet et variables s6 de
 l'image ; OpenRPC identique ; `hermes plugins compat` vert sur `acp-poste`, rouge sur un
@@ -1137,7 +1146,7 @@ Non prouvé — et non garanti :
 **Partie 1 seulement (commit `efbf7b0`)** : ces chiffres datent de la première partie de P2 et
 sont périmés au sommet de la branche (216 tests dans l'image dès `822d6e6`, 99 au contrat avec
 l'identité et l'IaC). Les preuves à jour, partie par partie puis après la relecture indépendante,
-sont dans [`docs/reprise-poste.md`](../reprise-poste.md) (§ P2). Relevé de la partie 1 : images
+sont dans [`historique.md`](historique.md) (partie B, § 6). Relevé de la partie 1 : images
 construites depuis le worktree (`docker build -f hermes/image/Dockerfile hermes`, puis l'image de
 test), Docker 29.5.3 sous Windows, le 25/09/2026 :
 
@@ -1152,7 +1161,7 @@ test), Docker 29.5.3 sous Windows, le 25/09/2026 :
 
 ### Preuves de P2 (CI)
 
-Partie 1 seulement ; les runs suivants sont dans [`docs/reprise-poste.md`](../reprise-poste.md).
+Partie 1 seulement ; les runs suivants sont dans [`historique.md`](historique.md), partie B, § 6.
 Run `image.yml` [36087965990](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965990)
 sur `refonte/hermes-p2` (commit `efbf7b0`, 25/09/2026, conclusion **success**) : condensat de
 l'image officielle confirmé, **212 tests réussis dans l'image**, **56 tests de contrat

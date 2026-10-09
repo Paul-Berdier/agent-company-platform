@@ -9,7 +9,8 @@ Lancement (le workflow image.yml le fait après la construction des deux images)
 
 Chaque conteneur démarre sur un volume nommé JETABLE, jamais sur un volume qui contient des
 données ; tout ce qui est créé (conteneurs, volumes, réseau) porte le préfixe
-``acp-contrat-<aléa>`` et est supprimé à la fin, même en cas d'échec.
+``acp-contrat-<aléa>`` (``acp-contrat-<étiquette>-<aléa>`` avec ``ACP_CONTRAT_ETIQUETTE``, sur un Docker
+partagé : pile_identite.prefixe_jetable) et est supprimé à la fin, même en cas d'échec.
 """
 
 from __future__ import annotations
@@ -18,11 +19,12 @@ import json
 import os
 import subprocess
 import time
-import uuid
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import pytest
+
+from pile_identite import prefixe_jetable
 
 RACINE_HERMES = Path(__file__).resolve().parents[2]
 
@@ -93,7 +95,7 @@ class Ressources:
     """Conteneurs, volumes et réseaux créés par les tests ; tout est supprimé à la fin."""
 
     def __init__(self) -> None:
-        self.prefixe = f"acp-contrat-{uuid.uuid4().hex[:8]}"
+        self.prefixe = prefixe_jetable()
         self.conteneurs: List[str] = []
         self.volumes: List[str] = []
         self.reseaux: List[str] = []

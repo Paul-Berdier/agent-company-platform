@@ -1,19 +1,21 @@
 # P8 — Station de travail Qt rebranchée sur Hermes
 
-État du 2 octobre 2026. Étape P8 du [plan d'autonomie](autonomie.md) (§ 8, volet desktop),
-branche `refonte/hermes-p8`, partie de `refonte/hermes` (`b3faac0`, P0 à P5 fusionnées).
-**Réalisée côté dépôt, poussée, sans PR ni fusion ; rien n'est déployé.** Version 0.11.0
-inchangée.
+État du 2 octobre 2026 (P8) et du 9 octobre 2026 (P8b). Étape P8 du [plan d'autonomie](autonomie.md) (§ 8,
+volet desktop), branche `refonte/hermes-p8`, partie de `refonte/hermes` (`b3faac0`, P0 à P5 fusionnées) ;
+fusionnée dans `refonte/hermes` par la PR #20 (`b715edb`, 2 octobre 2026). **Rien n'est déployé.** Version
+0.11.0 inchangée par P8 et P8b.
 
 **Étape P8b (8 octobre 2026)** : station alignée sur P7, branche `refonte/hermes-p8b` (de
 `refonte/hermes` `b9779f1`, P0 à P8 et P7) ; voir § « P8b » plus bas, et ses corrections
 après deux relectures indépendantes (constats desktop-1 à desktop-7, le 8 octobre, puis
-desktop-8 à desktop-12, le 9 octobre). Poussée, sans PR ni fusion ; rien n'est déployé.
+desktop-8 à desktop-12, le 9 octobre). Fusionnée dans `refonte/hermes` par la PR #22 (`8583642`,
+9 octobre 2026), sur des vérifications toutes vertes ; rien n'est déployé. Ses deux décisions, P8b-1 et P8b-2,
+sont numérotées **D158** et **D159** dans le [plan](plan.md) § 1.
 
 Guides : [architecture](../native-desktop-architecture.md),
 [sécurité](../desktop-security.md), [construction et bout en bout](../desktop-build.md).
-Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste.md),
-§ 6 decies (P8) ; pour P8b, dans ce document (§ « P8b »).
+Preuves datées et identifiants des runs : [`historique.md`](historique.md),
+partie B, § 6 decies (P8) ; pour P8b, dans ce document (§ « P8b »).
 
 ## Ce qui est livré
 
@@ -43,7 +45,7 @@ Preuves datées et identifiants des runs : [`reprise-poste.md`](../reprise-poste
 | Tests Qt : PKCE, `state`, redirection `127.0.0.1`, rotation du jeton, -32601 | **faits** | `tst_pkce`, `tst_flux_natif`, `tst_session_hermes`, `tst_canal_jsonrpc` |
 | Réponse à une question depuis le desktop | **faite, en local** : question posée par le poste simulé, réponse tapée dans le champ de la carte et envoyée par un clic réel sur « Répondre » de la page Questions, relue fermée par l'API | bout en bout local du 02/10/2026 (images `p8` et `rv8p6`), `tst_pages_interactions` |
 | `QSettings` sans jeton | **fait** : test du registre de préférences après un parcours complet, contrôle des préférences dans les Diagnostics, export du registre de la portée de test balayé au bout en bout | `tst_reglages_sans_secret`, `tst_diagnostics`, bout en bout |
-| Desktop CI verte sur windows-2022 | **faite** à chaque morceau poussé | runs dans `reprise-poste.md` |
+| Desktop CI verte sur windows-2022 | **faite** à chaque morceau poussé | runs dans `historique.md`, partie B |
 | Installeur non signé, dit explicitement | **dit** : aucun certificat ; l'empaquetage à blanc de la CI le produit non signé | `desktop-release-process.md` |
 | Connexion réelle à Railway, VM Windows propre | **non faites** : rien n'est déployé, aucune VM sur ce poste | — |
 
@@ -117,7 +119,7 @@ poussés :
 
 Preuves : 34 suites, totaux Qt sans échec ni test ignoré ; bout en bout local réussi
 (0 écart) contre les images `p8` et `rv8p6` ; Desktop CI et CI vertes (runs dans
-[`reprise-poste.md`](../reprise-poste.md), § 6 decies).
+[`historique.md`](historique.md), partie B, § 6 decies).
 
 ## P8b — station alignée sur P7 (8 octobre 2026)
 
@@ -140,13 +142,13 @@ refus lus dans le code du greffon (`dashboard/plugin_api.py`, `noyau/questions.p
 | Discussions en attente | `DiscussionsEnAttente` : `session.active_list` par la passerelle de la station (entrées « waiting » seulement), comptées dans le badge, l'Accueil et la file quand elles sont lues, sinon le total le dit ; liste et « Ouvrir la discussion » dans la file | `eafa969` |
 | Bilan quotidien | carte de l'Accueil d'après `GET /api/cron/jobs` (route native) : Actif, En pause, En erreur, Non créé ; prochaine et dernière exécution ; issue seulement si publiée ; « Créer le bilan quotidien (8 h) » (`POST /api/cron/jobs`, offert seulement s'il n'existe pas) ; page Cron dans le navigateur | `787c979` |
 
-Décision **P8b-1** : un 401 du flux n'est jamais réessayé aussitôt ; la station passe en
+Décision **P8b-1** (D158) : un 401 du flux n'est jamais réessayé aussitôt ; la station passe en
 sondage et retente dans 5 min (la page web, elle, s'arrête et laisse sa lecture suivante
 rediriger vers la connexion ; la station n'a pas de page à recharger, et ses lectures REST
 font tourner le jeton ou perdent la session, ce qui ferme le flux et oublie le repli : la
 session suivante retente aussitôt).
 
-Décision **P8b-2** (seconde relecture, constat desktop-8) : la station détecte l'étape P7
+Décision **P8b-2** (D159 ; seconde relecture, constat desktop-8) : la station détecte l'étape P7
 avant de la lire, par la clé `accueil` de `/v1/meta`, née dans le même commit du greffon
 (`00bc069`) que les quatre routes qu'elle couvre (`GET /v1/accueil`, relance d'une carte,
 « qui répond », clôture ; `git log -S` le montre). L'Accueil agrégé et le sondage léger ne
@@ -226,22 +228,34 @@ local), puis Desktop CI et CI vertes (tableau ci-dessus).
 | desktop-11 : la liste des discussions ne marquait pas « En attente d'une réponse » ni ne disait l'état d'attente illisible, comme `Liste.tsx` | la page Discussion lit l'état d'attente avec sa liste, marque chaque discussion en attente (nom accessible compris) et, après une lecture ratée, dit le texte même du navigateur | `tst_discussion` (`discussionsEnAttenteMarqueesDansLaListe`), `tst_pages_interactions` (`discussionEnAttenteMarqueeDansLaListe`, vraie page) ; `ac31836` |
 | desktop-12 : documentation : repli « sondage (15 s) » alors que la page Quotas et le sondage léger sont à 60 s | architecture, ce document et l'en-tête de `FluxInvalidation.h` disent les cadences réelles (15 s, 60 s) ; la cadence affichée à l'écran était déjà juste | ce document ; `afa4f8f` (en-tête) |
 
+## Écarts assumés
+
+Fonctions du navigateur absentes de la station, à consulter dans le navigateur (relecture finale de P9 : elles étaient
+rangées sous « Non prouvé », alors que c'est un manque de fonction et non de preuve) :
+
+- la page Catalogue (greffon `acp-catalogue`) ;
+- les cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web (lues de `/v1/meta`) : la station
+  montre la carte « Hermes ».
+
+Le suivi des projets et des questions est le même des deux côtés.
+
 ## Non prouvé
 
 - Aucun essai contre Railway ni avec une vraie passkey (rien n'est déployé).
 - Navigateur du système réel (Chromium de Playwright le remplace au bout en bout).
-- Installation sur un Windows propre ; signature.
+- Installation sur un Windows propre ; signature. L'installeur est fabriqué, non signé, par
+  chaque Desktop CI (empaquetage à blanc), mais n'a jamais été installé ; `Desktop Release`
+  n'a jamais tourné (premier run à l'étiquette).
 - Gestes et lectures de P7 dans la station (P8b) : prouvés contre le faux Hermes, les
   fixtures partagées avec le greffon et le contrat OpenRPC épinglé seulement. Le bout en
-  bout local n'a pas été rejoué contre une image de P7 (aucune commande Docker sur ce
-  poste) : flux réel derrière uvicorn, relance, clôture, revues, discussions en attente et
+  bout local n'a pas été rejoué contre une image de P7 (Docker était arrêté sur ce poste
+  pendant P8b ; de nouveau permis depuis le 9 octobre 2026, D160, il n'a pas servi à le
+  rejouer) : flux réel derrière uvicorn, relance, clôture, revues, discussions en attente et
   bilan quotidien contre un vrai greffon et un vrai Hermes ne sont pas prouvés.
 - Flux derrière le bord Railway (coupure avant 10 min, mise en tampon) et 401 du flux
   (décision P8b-1) : prouvés contre le faux Hermes seulement.
 - Cadence affichée par les pages et nom accessible de la pastille Questions : textes lus
   sur les vraies pages QML hors écran ; aucun lecteur d'écran réel n'a été essayé.
-- Cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web (lues de
-  `/v1/meta`) : non reprises par la station, qui montre la carte « Hermes ».
 - Face à un greffon de P5 ou P6 (décision P8b-2) : « Non disponible sur ce serveur » prouvé
   contre le faux Hermes et le document de référence privé de la clé `accueil` seulement ;
   l'Accueil de P8 (projets et quotas lus séparément) n'est pas repris.
@@ -256,7 +270,12 @@ local), puis Desktop CI et CI vertes (tableau ci-dessus).
   (prolongation refusée pour de bon par le greffon) ; titre de la carte de la machine
   d'après l'hôte publié ; textes qui promettaient des gestes « à l'étape P7 » ou
   renvoyaient au kanban de Hermes (qui débloquerait une carte sans les gardes d'ACP).
-- Restauration d'une sauvegarde (étape P9) ; seul le déchiffrement à l'identique est prouvé.
+- Restauration d'une sauvegarde (étape P9) : la station prouve le déchiffrement à
+  l'identique ; l'import d'un export de Hermes dans un volume neuf est prouvé par le test
+  de restauration de P9 (R4, en intégration continue : [exploitation.md](../exploitation.md)
+  § 4.5) ; la chaîne complète export de la station → déchiffrement → import sur Railway ne
+  l'est pas, ni la station après une restauration de l'identité (la règle de reconnexion
+  est mesurée par R3 dans un navigateur seulement).
 - Durée réelle de la session chez Authelia (7 jours, fenêtre glissante supposée).
 - Garde de transition du blocage du greffon (pages oubliées seulement au passage au
   blocage) : défensive ; son témoin ne boucle pas, le sondage se reprogrammant à 15 s.

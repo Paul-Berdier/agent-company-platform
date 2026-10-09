@@ -6,7 +6,10 @@
 > client d'avant la refonte et restent consultables sous l'étiquette
 > `archive/acp-0.10.0-avant-hermes`.
 
-Public : mainteneur du dépôt. État du 23 septembre 2026, **0.10.0 en préparation**.
+Public : mainteneur du dépôt. Relevés ci-dessous : état du 23 septembre 2026, 0.10.0 alors en préparation ; au
+9 octobre 2026, la ligne 0.10 est **archivée, jamais étiquetée** (`CHANGELOG.md`, « 0.10 — ligne archivée »), et la
+prochaine publication est **v1.0.0**, dont l'étiquette déclenchera le premier run de Desktop Release (brouillon non
+signé, D131 du [plan](refonte/plan.md)).
 
 La fondation native a été compilée et empaquetée localement, et son CI historique
 est vert. Les tags historiques 0.8.0/0.9.0 existent. Les compléments 0.10.0 sont
@@ -82,12 +85,12 @@ par `sha256sum -c SHA256SUMS.txt`.
 ### 3.2 Étiqueter
 
 Suivre `CLAUDE.md` : poser une étiquette **annotée**, sur le commit de fusion
-validé, puis la pousser. Pour la version 0.10.0, uniquement une fois ces conditions
-remplies :
+validé, puis la pousser. Pour la version 1.0.0, uniquement une fois ces conditions
+remplies et l'accord du propriétaire donné :
 
 ```bash
-git tag -a v0.10.0 <commit-de-fusion-valide> -m "Release 0.10.0"
-git push origin v0.10.0
+git tag -a v1.0.0 <commit de fusion> -m "Agent Company Platform 1.0.0 (refonte « Hermes au centre »)"
+git push origin v1.0.0
 ```
 
 L'étiquette doit avoir la forme `vX.Y.Z`. Le workflow compare `VERSION` à
@@ -256,8 +259,9 @@ paragraphe d'état de signature. Aucune mise en forme n'est reconstruite dans le
 YAML, où l'indentation du bloc la casserait.
 
 Le gabarit porte une section « Ce que cette publication ne prouve pas ». La relire
-avant diffusion : le client existe et a parlé à une API locale réelle ; Railway,
-la signature et l'installation sur Windows propre restent non prouvés. Les notes
+avant diffusion : depuis la refonte (gabarit réécrit le 9 octobre 2026, étape P9), la
+station est testée en CI contre un faux Hermes ; Railway, une vraie passkey, la
+signature et l'installation sur Windows propre restent non prouvés. Les notes
 doivent décrire le paquet courant sans recopier les anciennes absences devenues fausses.
 
 ## 7. Ce qui a été vérifié pour ce document

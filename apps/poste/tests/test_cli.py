@@ -24,7 +24,7 @@ def test_commandes_de_l_ancienne_api_absentes(commande: str):
 def test_version(capsys):
     with pytest.raises(SystemExit) as fin:
         main(["--version"])
-    assert fin.value.code == 0 and capsys.readouterr().out.strip() == "acp-poste 0.11.0"
+    assert fin.value.code == 0 and capsys.readouterr().out.strip() == "acp-poste 1.0.0"
 
 
 @pytest.mark.parametrize("argv, attendu", [

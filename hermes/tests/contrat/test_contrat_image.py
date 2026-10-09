@@ -44,7 +44,11 @@ def test_version_de_hermes_et_condensat_epingle(image):
     assert ligne_from == attendu
     version = docker("run", "--rm", "--entrypoint", "/opt/hermes/.venv/bin/hermes", image, "--version").stdout
     afficher("hermes --version", version)
-    assert f"Hermes Agent v{EPINGLE['HERMES_VERSION']} (2026.9.24) · upstream {EPINGLE['HERMES_COMMIT'][:8]}" in version
+    # Étape P9 : la date de release affichée par Hermes est celle de l'étiquette épinglée (vAAAA.M.J), lue dans
+    # HERMES_VERSION comme le reste (aucune épingle en dur : scripts/tests/test_epingles_hermes.py).
+    date_de_release = EPINGLE["HERMES_TAG"].removeprefix("v")
+    assert (f"Hermes Agent v{EPINGLE['HERMES_VERSION']} ({date_de_release}) · upstream {EPINGLE['HERMES_COMMIT'][:8]}"
+            in version)
     provenance = json.loads(docker("run", "--rm", "--entrypoint", "cat", image,
                                    "/etc/hermes/image-provenance.json").stdout)
     assert provenance["version"] == EPINGLE["HERMES_VERSION"]
@@ -61,6 +65,57 @@ def test_version_de_hermes_et_condensat_epingle(image):
     assert entree == ["root:root 755", 'exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"']
     assert "S6_BEHAVIOUR_IF_STAGE2_FAILS=2" in config["Env"]
     assert "S6_STAGE2_HOOK=/opt/acp/bin/acp-gardes" in config["Env"]
+
+
+# Relecture finale de P9 (constat securite-1) : garde de dérive de l'ENV de l'image. Une variable que l'ENV de
+# l'image amont fixe (emplacement, programme lancé…) et qu'ACP ne connaît pas passerait une montée de Hermes sans
+# que SECU-TUI réagisse : la garde de démarrage ne refuse dans les .env du volume que les valeurs imposées
+# (VALEURS_IMPOSEES de hermes/image/acp_demarrage.py) et les listes connues. Chaque nom de l'ENV de l'image est donc
+# classé : imposé (VALEURS_IMPOSEES, obligatoire), ou admis sans valeur imposée ci-dessous, classé à la lecture de
+# l'image amont v2026.9.24 (Hermes 0.21.5) le 9 octobre 2026. Un nom nouveau, ou disparu, fait rougir ce test : la
+# PR de montée le classe après lecture de son rôle dans la source de Hermes (docs/exploitation.md § 6.3, point 3).
+ENV_ADMISES_SANS_VALEUR_IMPOSEE = frozenset({
+    "PATH", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE", "PLAYWRIGHT_BROWSERS_PATH", "npm_config_install_links",
+})
+
+
+def _valeurs_imposees_obligatoires() -> set:
+    """Noms obligatoires de VALEURS_IMPOSEES, lus dans le source du démarrage (sans l'importer sur l'hôte)."""
+    import ast
+
+    arbre = ast.parse((RACINE_HERMES / "image" / "acp_demarrage.py").read_text(encoding="utf-8"))
+    for noeud in arbre.body:
+        cible = noeud.target if isinstance(noeud, ast.AnnAssign) else (
+            noeud.targets[0] if isinstance(noeud, ast.Assign) and len(noeud.targets) == 1 else None)
+        if isinstance(cible, ast.Name) and cible.id == "VALEURS_IMPOSEES" and noeud.value is not None:
+            return {nom for nom, (_valeur, obligatoire) in ast.literal_eval(noeud.value).items() if obligatoire}
+    raise AssertionError("VALEURS_IMPOSEES introuvable dans hermes/image/acp_demarrage.py")
+
+
+def _ecarts_env_de_l_image(noms: set, imposees: set) -> list:
+    classees = imposees | ENV_ADMISES_SANS_VALEUR_IMPOSEE
+    return ([f"variable de l'ENV de l'image non classée : {n}" for n in sorted(noms - classees)]
+            + [f"variable classée absente de l'ENV de l'image : {n}" for n in sorted(classees - noms)])
+
+
+def test_chaque_variable_de_l_env_de_l_image_est_classee(image):
+    config = json.loads(docker("image", "inspect", "-f", "{{json .Config}}", image).stdout)
+    noms = {entree.split("=", 1)[0] for entree in config["Env"]}
+    afficher("ENV de l'image", "\n".join(sorted(noms)))
+    assert _ecarts_env_de_l_image(noms, _valeurs_imposees_obligatoires()) == []
+
+
+def test_la_garde_de_l_env_de_l_image_nomme_un_ajout_de_l_amont():
+    """Témoin de la garde ci-dessus, sans image : un nom ajouté par l'amont, ou une valeur imposée qui a disparu de
+    l'ENV, est nommé."""
+    imposees = _valeurs_imposees_obligatoires()
+    assert "HERMES_HOME" in imposees and "XDG_RUNTIME_DIR" in imposees
+    noms = imposees | ENV_ADMISES_SANS_VALEUR_IMPOSEE
+    assert _ecarts_env_de_l_image(noms, imposees) == []
+    assert _ecarts_env_de_l_image(noms | {"HERMES_NOUVEL_EMPLACEMENT"}, imposees) == [
+        "variable de l'ENV de l'image non classée : HERMES_NOUVEL_EMPLACEMENT"]
+    assert _ecarts_env_de_l_image(noms - {"HERMES_HOME"}, imposees) == [
+        "variable classée absente de l'ENV de l'image : HERMES_HOME"]
 
 
 def test_la_copie_de_l_openrpc_est_identique_a_celle_de_l_image(image):
@@ -214,7 +269,11 @@ def test_passerelle_et_tableau_de_bord_tournent_sous_l_uid_hermes(hermes_en_marc
     assert any(l.startswith("hermes") and "hermes dashboard --host 0.0.0.0 --port 9119" in l for l in lignes)
     assert any(l.startswith("hermes") and "hermes gateway run" in l for l in lignes)
     code, statut = hermes_en_marche.json("/api/status")
-    assert code == 200 and statut["version"] == "0.21.5"
+    assert code == 200 and statut["version"] == EPINGLE["HERMES_VERSION"]
+    # Témoin de montée P9 : sur un volume neuf, le config.yaml semé par l'image puis réglé par 05-acp est à la
+    # dernière version de schéma de Hermes (0.21.4 rendait 0 face à 45 et refusait la migration au démarrage).
+    assert statut["config_version"] == statut["latest_config_version"], (
+        statut.get("config_version"), statut.get("latest_config_version"))
     assert statut["gateway_running"] is True
     assert statut["gateway_platforms"]["api_server"]["listener_base"] == "http://127.0.0.1:8642"
 
@@ -438,10 +497,10 @@ def test_la_meta_repond_avec_une_session_oidc(pile):
     afficher(f"GET /api/plugins/acp-poste/v1/meta avec session OIDC : {code}", _texte_json(meta))
     assert code == 200
     assert meta["contrat"] == "acp-poste/1"
-    assert meta["greffon"] == {"nom": "acp-poste", "version": "0.11.0"}
-    assert meta["hermes"]["version"] == meta["hermes"]["version_testee"] == "0.21.5"
+    assert meta["greffon"] == {"nom": "acp-poste", "version": "1.0.0"}
+    assert meta["hermes"]["version"] == meta["hermes"]["version_testee"] == EPINGLE["HERMES_VERSION"]
     assert meta["hermes"]["conforme"] is True
-    assert meta["openrpc"]["identique"] is True and meta["openrpc"]["info_version"] == "1"
+    assert meta["openrpc"]["identique"] is True and meta["openrpc"]["info_version"] == EPINGLE["OPENRPC_INFO_VERSION"]
     assert meta["image"]["condensat_index"] == EPINGLE["HERMES_IMAGE_INDEX"]
     assert meta["demarrage"]["soul"]["etat"] == "depose"
     # Étape P2 : garde d'exécution présente dans le processus du tableau de bord ; en bouclage

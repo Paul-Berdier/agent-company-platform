@@ -3,8 +3,8 @@ name: CI
 # Refonte « Hermes au centre » : quatre volets.
 #   - moteur : gel de packages/pixel-office-engine sur l'étiquette d'archive, puis ses
 #     tests npm ;
-#   - interface (étapes P3 et P4) : greffons acp-interface, acp-catalogue et acp-projets
-#     (apps/interface), tests et bundles committés à jour ;
+#   - interface (étapes P3 à P7) : greffons acp-interface, acp-catalogue, acp-projets,
+#     acp-poste-vues et acp-discussion (apps/interface), tests et bundles committés à jour ;
 #   - poste : pytest sur apps/poste (contrat du poste contre un faux Hermes compris), le contrat
 #     partagé et l'outillage, sous Linux et sous Windows ; installeur du poste en simulation
 #     sous Windows (étape P5) ;

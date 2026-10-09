@@ -317,17 +317,17 @@ MSYS_NO_PATHCONV=1 docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes acp
 ```
 
 Preuves locales du 25 septembre 2026, chaque commit vérifié sur son propre arbre (détail :
-`docs/reprise-poste.md` § 6 ter) : dépôt **342** réussis ; dans l'image **323** ; contrat **117**
+`docs/refonte/historique.md`, partie B, § 6 ter) : dépôt **342** réussis ; dans l'image **323** ; contrat **117**
 (dont 10 du catalogue) ; navigateur **2** ; vérificateur hors ligne et `--amont` : code 0 ; aucun
 échec, aucun test ignoré. En CI (`image.yml` 36136507335 et `ci.yml` 36136507298, sommet `ec43987`) :
 mêmes nombres (323, 117, 2 ; dépôt 342 sous Windows, 333 et 9 ignorés sous Linux), `--amont` vert,
-sonde réelle de context7 connectée (1 600 ms, 2 outils) ; détail : `docs/reprise-poste.md` § 6 ter.
+sonde réelle de context7 connectée (1 600 ms, 2 outils) ; détail : `docs/refonte/historique.md`, partie B, § 6 ter.
 
 Après la relecture de P3 (images `p3r` reconstruites sans cache depuis le worktree, 25/09/2026) :
 dépôt **368** réussis ; dans l'image **326** ; contrat **118** ; navigateur **5** (les 2 parcours
 et 3 tests du détecteur de capture blanche) ; vérificateur hors ligne et `--amont`, balayage des
 secrets : code 0 ; `GET /api/skills` du vrai tableau de bord : 69 skills, **24 activées, 45
-désactivées**. Tests ajoutés et détail : `docs/reprise-poste.md` § 6 ter, « Relecture
+désactivées**. Tests ajoutés et détail : `docs/refonte/historique.md`, partie B, § 6 ter, « Relecture
 indépendante de P3 ».
 
 Tests nouveaux :
@@ -352,8 +352,8 @@ Tests nouveaux :
   `external_dirs` retiré puis rétabli, deux démarrages successifs sans écriture, relance refusée sur
   un serveur stdio, démarrage refusé sur un serveur stdio ou hors catalogue) ; tout conteneur Hermes de test résout `mcp.context7.com` vers son
   bouclage local (aucun appel au vrai serveur) ;
-- navigateur : l'Accueil affiche 16 / 16 skills actives, le Catalogue sert la route et ses 26
-  entrées.
+- navigateur : l'Accueil affiche 16 / 16 skills actives (21 / 21 depuis P4 :
+  `hermes/tests/e2e/test_interface_fr.py`), le Catalogue sert la route et ses 26 entrées.
 
 Protections et leurs témoins négatifs (chaque test prouve ce qui se passerait sans la protection,
 dans l'image épinglée ; aucune image altérée n'a été construite pour cette seconde partie) :

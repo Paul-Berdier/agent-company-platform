@@ -61,7 +61,7 @@ def reclamer(voies, en_cours, attente: int, peut_executer: bool) -> int:
     if en_cours:
         tableau, carte, run = en_cours.split(":")
         carte_en_cours = {"tableau": tableau, "carte": carte, "run_id": int(run)}
-    corps = {"protocole": "acp-machine/1", "version_poste": "0.11.0", "peut_executer": peut_executer,
+    corps = {"protocole": "acp-machine/1", "version_poste": "1.0.0", "peut_executer": peut_executer,
              "ordres_acquittes": [], "attente_max_s": attente, "politique_valide": True,
              "voies_disponibles": list(voies) if peut_executer else [], "carte_en_cours": carte_en_cours,
              "espace_libre_mio": 3120}

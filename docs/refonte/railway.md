@@ -23,13 +23,24 @@ sont au **§ 14**. Toujours **rien de déployé**.
 Relecture indépendante de P2 (exploitation) : ordre des étapes rendu exécutable à la lettre,
 installation de la CLI sans configuration d'agent, prérequis WSL, sauvegardes hors IaC, refus PID 1,
 Rollback, dépôt public ; chaque correction est signalée « relecture P2 », et le tableau de
-traitement est dans [`docs/reprise-poste.md`](../reprise-poste.md).
+traitement est dans [`historique.md`](historique.md), partie B, § 6.
 
 Sommaire : § 1 ce qui est déployé · § 2 prérequis · § 3 règles de l'IaC · § 4 premier déploiement ·
 § 5 identité · § 6 cerveau (openai-codex) · § 7 preuves à relever · § 8 relais et
 `trusted_proxies` · § 9 exploitation · § 10 récupération · § 11 sécurité du compte · § 12 prouvé en
 local, seulement sur Railway, limites · § 13 exécutant (étape P6) · § 14 notifications, bilan quotidien et
 dépôts réels (étape P7).
+
+**Étape P9** : le calendrier, les sauvegardes, la restauration (arbre de décision, ordre des volumes, reconnexions,
+répétition) et la montée de version sont dans le [manuel d'exploitation](../exploitation.md), qui renvoie ici pour
+les commandes.
+
+**Branche déployée : `main`** (votre décision du 9 octobre 2026, avec la fusion de 1.0.0 : D164 du
+[plan](plan.md)). Elle remplace celle du 25 septembre 2026 (`refonte/hermes`, après la fusion de P2) : constante
+`BRANCHE` de `.railway/railway.ts`, valeur attendue par `.railway/verifier.mjs`, et chaque geste ci-dessous (clone,
+PR, chaîne de déploiement). **Rien n'est appliqué** par ce changement : `railway config apply` reste votre geste.
+Avant la fusion de 1.0.0, `main` porte encore l'ancienne plateforme, sans `.railway/` : aucun clone pour l'apply ni
+aucun apply avant elle (§ 4).
 
 ---
 
@@ -41,7 +52,7 @@ Un projet Railway **`acp`**, environnement **`production`**, offre **Hobby**, d�
 | | `hermes` | `identite` |
 |---|---|---|
 | Rôle | Hermes Agent 0.21.5, image dérivée d'ACP (tableau de bord, passerelle, greffon `acp-poste`) | Authelia 4.39.28, un seul utilisateur, client OIDC `hermes-acp` |
-| Source | GitHub `Paul-Berdier/agent-company-platform`, branche **`refonte/hermes`** | idem |
+| Source | GitHub `Paul-Berdier/agent-company-platform`, branche **`main`** (D164) | idem |
 | Répertoire racine / Dockerfile | `/hermes`, `RAILWAY_DOCKERFILE_PATH=image/Dockerfile` | `/identite`, `Dockerfile` |
 | Constructeur | `DOCKERFILE` | `DOCKERFILE` |
 | Wait for CI | oui (`checkSuites: true`) | oui |
@@ -131,10 +142,11 @@ URL **publique** ; le domaine privé `*.railway.internal` est refusé par les de
      d'agents, ni sous Windows (`claude mcp list`, section `[mcp_servers]` de
      `%USERPROFILE%\.codex\config.toml`) ni dans WSL (`~/.claude.json`, `~/.codex/config.toml`) ;
    - `gh` (GitHub CLI), connecté à votre compte ;
-   - un **clone propre** de la branche déployée, dans le système de fichiers de WSL (pas le checkout
-     Windows, qui porte un chantier Pixel Office non commité) :
+   - un **clone propre** de la branche déployée (`main`, D164 ; après la fusion de 1.0.0 : avant elle, `main` n'a
+     pas de `.railway/`), dans le système de fichiers de WSL (pas le checkout Windows, qui porte un chantier Pixel
+     Office non commité) :
      ```sh
-     git clone --branch refonte/hermes https://github.com/Paul-Berdier/agent-company-platform.git ~/acp-railway
+     git clone --branch main https://github.com/Paul-Berdier/agent-company-platform.git ~/acp-railway
      cd ~/acp-railway
      npm ci --ignore-scripts --prefix .railway
      npm run --prefix .railway verifier     # tsc, puis l'évaluation locale (§ 3)
@@ -263,7 +275,9 @@ Chaque étape se termine par un contrôle ; au moindre écart, arrêt et retour 
 
 ### 4.1 Choisir les deux libellés, puis les écrire par une PR
 
-Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues et consignées.
+Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues et consignées. **Sonde R0 faite**
+(§ 13.2, projet jetable `acp-sonde`, sans aucun identifiant) **avant le premier apply** (D88) : son verdict (régime A
+ou B, `uid_separes`) dit ce que l'exécutant pourra faire ; `uid_separes: false` ⇒ aucun apply, transmettez le relevé.
 
 1. Choisissez deux libellés DNS **distincts**, par exemple `acp-hermes-<6 caractères aléatoires>`
    et `acp-identite-<6 caractères aléatoires>` (a-z, 0-9, tirets ; 63 caractères au plus). Ils
@@ -272,15 +286,15 @@ Prérequis vérifiés (§ 2), dont le **point 6** : conditions de context7 lues 
    public (`"visibility": "public"`) et la PR qui les écrit les publie ; l'aléa n'apporte donc
    aucun secret, seulement l'absence de collision. La sécurité repose sur l'OIDC, les passkeys et
    le bannissement, jamais sur un nom caché.
-2. Branche depuis `refonte/hermes`, remplacement des deux constantes `LIBELLE_HERMES` et
+2. Branche depuis `main`, remplacement des deux constantes `LIBELLE_HERMES` et
    `LIBELLE_IDENTITE` de `.railway/railway.ts` et, **depuis P6, dans la même PR**, de l'origine de Hermes dans
    `executant/politique/executant.toml` (`origine = "https://<LIBELLE_HERMES>.up.railway.app"` ; un test exige
    l'égalité, et l'exécutant refuse de démarrer tant qu'elle vaut le gabarit), puis :
    ```sh
    npm run --prefix .railway verifier     # « graphe du fichier committé conforme »
    ```
-3. PR vers `refonte/hermes`, CI verte (`image.yml` tourne : `.railway/**` a changé), fusion.
-4. Contrôle : `gh run list --workflow image.yml --commit <sha de tête de refonte/hermes>` →
+3. PR vers `main`, CI verte (`image.yml` tourne : `.railway/**` a changé), fusion.
+4. Contrôle : `gh run list --workflow image.yml --commit <sha de tête de main>` →
    `success`.
 
 ### 4.2 Créer le projet vide et le lier
@@ -427,7 +441,8 @@ Attendu : `/package/admin/s6/command/s6-svscan -d4 -- /run/service` (ou `s6-svsc
 § 5.3 (passkeys), connexion à `https://<libellé-hermes>.up.railway.app` depuis le PC **et** le
 téléphone (captures), § 6 (openai-codex).
 
-Exécutant (étape P6) : dépôt de preuve, enrôlement et connexions, § 13.3 bis à 13.6.
+Exécutant (étape P6) : sonde R0 déjà faite (§ 13.2, avant le premier apply, § 4.1) ; dépôt de preuve, enrôlement
+et connexions, § 13.3 bis à 13.6.
 
 Poste Windows (étape P5, [poste.md](poste.md)) : **aucune variable Railway nouvelle**. Le poste s'enrôle
 après le premier déploiement, depuis l'onglet « Poste » (code à usage unique, empreinte à recopier) ; ses
@@ -439,6 +454,11 @@ routes `/api/plugins/acp-poste/machine/v1/*` passent par le même domaine que le
 (Start Command de maintenance, santé vidée, `diagnostiquer`), essai du § 10 b-bis
 (`railway volume files` sur un service arrêté), retour à la normale, puis
 `railway config plan --detailed-exit-code` → 0. Compte rendu écrit.
+
+### 4.11 bis Répétition de restauration, une fois, avant d'y mettre des données
+
+Étape P9 : à la suite du § 4.11, restauration des trois volumes à une sauvegarde manuelle, en douze étapes, avec les
+constats à relever (openai-codex, sessions, sauvegardes postérieures) : [exploitation.md](../exploitation.md) § 5.
 
 ### 4.12 Clôture
 
@@ -547,7 +567,8 @@ seulement ; il relit l'environnement du PID 1, jamais celui de la session) :
    d'exécution sur Railway ([image.md](image.md) § 5).
 
 Les jetons (tournants) vivent dans `/opt/data` : ils sont dans les sauvegardes du volume ; une
-restauration impose de reconnecter openai-codex.
+restauration impose **probablement** de reconnecter openai-codex (supposé, jamais constaté : constat c de la
+répétition, [exploitation.md](../exploitation.md) § 5).
 
 ---
 
@@ -583,17 +604,19 @@ plus l'identifiant ; Authelia, lui, peut le journaliser lors d'une tentative de 
 9. openai-codex connecté ; « Exécute `id` dans un terminal » → refus.
 10. Après un redéploiement : sessions, `state.db` et passkeys conservés.
 11. États `WAITING` puis déploiement après CI verte ; **aucun run `image.yml` annulé** sur
-    `refonte/hermes`.
+    `main`.
 12. Métriques d'une semaine (mémoire, CPU) et coût constaté (`railway usage`) ; sauvegardes listées.
 13. Compte rendu de la répétition de maintenance (§ 4.11), avec le résultat de
     `railway volume files` sur un service arrêté.
 14. `railway ssh keys` **vide** hors opération (sortie datée).
-15. Étape P3 : l'onglet **Catalogue** (16 skills d'ACP « Active », 10 « Candidate pour le poste, non planifiée ») et
-    l'Accueil (16 / 16) ; après une première discussion, context7 « Connecté » ; une question qui
+15. Étape P3 : l'onglet **Catalogue** (21 skills d'ACP « Active » depuis P4, 10 « Candidate pour le poste, non
+    planifiée » : `hermes/catalogue/catalogue.lock.json`) et l'Accueil (21 / 21, valeur exigée par
+    `hermes/tests/e2e/test_interface_fr.py`) ; après une première discussion, context7 « Connecté » ; une question qui
     appelle la documentation d'une bibliothèque, avec la source citée ; une réponse **en français**
     du vrai modèle à une question posée en anglais. Aucun refus « serveur MCP » dans les journaux
     de démarrage.
-16. Étape P4 : `/api/plugins/acp-poste/v1/meta` → bloc `projets` (`base: ok`, `schema: "1"`,
+16. Étape P4 : `/api/plugins/acp-poste/v1/meta` → bloc `projets` (`base: ok`, `schema: "4"` depuis P7, valeur
+    exigée par `hermes/tests/image/test_meta.py`,
     `emetteur.processus: "passerelle"` avec une `derniere_passe` récente, aucune alerte) ; un projet
     **sans dépôt** lancé depuis le téléphone (page Projets), suivi jusqu'à « terminé » depuis le PC ; un
     projet **sur dépôt** refusé en français tant que le poste n'a publié aucun inventaire (P5) ; si un
@@ -630,12 +653,12 @@ Le changer passe par une PR sur `hermes/gere/config.yaml` (managed scope), avec 
 
 ## 9. Exploitation courante
 
-**Chaîne de déploiement.** PR vers `refonte/hermes` → fusion → Railway voit le push (motifs
-surveillés) → déploiement **`WAITING`** jusqu'à la fin de **tous** les workflows GitHub Actions du
+**Chaîne de déploiement.** PR vers `main` (D164 ; un lot au sens de `CLAUDE.md`) → fusion → Railway voit le
+push (motifs surveillés) → déploiement **`WAITING`** jusqu'à la fin de **tous** les workflows GitHub Actions du
 commit (rw_full.txt:29696-29707) : un échec saute le déploiement ; un run annulé n'est ignoré que si
 un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
 
-- **Ne jamais annuler `image.yml` à la main** sur `refonte/hermes` : un run annulé ne prouve rien et
+- **Ne jamais annuler `image.yml` à la main** sur `main` : un run annulé ne prouve rien et
   « Wait for CI » l'ignore dès qu'un autre workflow a réussi. Hors PR, `image.yml` a un groupe de
   concurrence **par exécution** : aucun run n'est jamais remplacé.
 - `ci.yml` et, s'il se déclenche, Desktop CI comptent aussi : un rouge saute le déploiement.
@@ -648,7 +671,8 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
   rw_full.txt:52320-52330). **« Deploy Latest Commit »** seulement après
   `gh run list --workflow image.yml --commit <sha de tête>` → `success` : la doc dit tantôt qu'il
   déploie la branche connectée (rw_full.txt:29653), tantôt la branche par défaut du dépôt
-  (rw_full.txt:29564, 52330) ; vérifiez le SHA déployé dans le journal.
+  (rw_full.txt:29564, 52330) ; depuis D164, les deux sont `main` (branche par défaut du dépôt, relevée par
+  `gh repo view` le 9 octobre 2026) ; vérifiez le SHA déployé dans le journal.
 - **Rollback** : restaure l'image et les variables d'un déploiement précédent
   (rw_full.txt:29547-29548) ; la doc ne dit rien du volume, qui reste celui du service (supposé) :
   des données écrites par une version plus récente peuvent ne pas être relues par l'ancienne.
@@ -668,6 +692,11 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
   réglages du service n'est pas documenté : supposé gardés). Même conduite entre deux versions de P7 si le script a
   changé entre elles : `EMPREINTES_BILAN_ADMISES` (`hermes/image/acp_demarrage.py`) ne connaît que les empreintes
   livrées jusqu'à l'image démarrée (montée de version seulement).
+  Après le Rollback d'une **montée de version** : le Rollback ne change pas la branche, dont la tête porte encore la
+  nouvelle version ; une **PR de retour** (revert de la fusion de la montée, ou épingles d'avant) est fusionnée
+  avant toute autre fusion qui toucherait les motifs surveillés, sinon la fusion suivante redéploie la nouvelle
+  version. Ordre des gestes avec une restauration (Rollback à la place du « Retour » du § 10 b.6) :
+  [exploitation.md](../exploitation.md) § 6.4.
 - Chaque déploiement : preuve du § 7 point 2.
 
 **Sauvegardes.** Quotidienne (6 jours) et hebdomadaire (27 jours), plus une manuelle avant toute
@@ -675,7 +704,8 @@ maintenance. Limites (rw_full.txt:32452-32464) : une sauvegarde manuelle est lim
 taille du volume ; **effacer un volume efface ses sauvegardes** ; restauration dans le même projet
 et le même environnement seulement. Les sauvegardes d'`identite` contiennent ses secrets et sa clé
 de signature ; celles de `hermes` contiennent `auth.json` (jetons openai-codex) : la frontière de
-confiance est le compte Railway (§ 11).
+confiance est le compte Railway (§ 11). Contenu de chaque volume, export chiffré de Hermes, pertes au pire et
+calendrier : [exploitation.md](../exploitation.md) § 1 à 3.
 
 **Coûts** (Hobby : 5 $ déduits de l'usage, RAM 10 $/Go/mois, CPU 20 $/vCPU/mois, volume 0,15 $/Go/mois,
 sortie 0,05 $/Go ; seul l'usage réel est facturé, rw_full.txt:4848-4892) :
@@ -691,7 +721,9 @@ sortie 0,05 $/Go ; seul l'usage réel est facturé, rw_full.txt:4848-4892) :
 
 **Montée de version de Hermes ou d'Authelia** : PR qui change le `FROM` épinglé (et
 `hermes/contrat/`), CI verte, déploiement par la chaîne normale. Jamais `hermes update`, `:latest`
-ni `AUTO_UPDATE`.
+ni `AUTO_UPDATE`. Étape P9 : veille mensuelle et PR de montée par `scripts/monter_hermes.py`, vos gestes, point
+de non-retour et retour arrière (Rollback ne restaure pas le volume, supposé) :
+[exploitation.md](../exploitation.md) § 6.
 
 **Page MCP du tableau de bord** (relecture de P3) : n'y utilisez ni « INSTALL » ni « ADD SERVER » :
 un serveur MCP s'ajoute par une PR au catalogue ([catalogue.md](catalogue.md) § 7.3). Un serveur
@@ -751,8 +783,12 @@ Journaux du déploiement (`railway logs --service hermes`) : `[acp] REFUS : …`
    `diagnostiquer` est en lecture seule ; il lit l'environnement du PID 1 (`/proc/1/environ`),
    jamais celui de la session `railway ssh`, dont la doc ne dit rien ; il liste variables
    interdites, `hooks/`, `scripts/`, clés exécutables de `config.yaml` (dont, depuis P3, tout serveur
-   MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8), `lazy-packages` (code 1 si
-   un constat existe). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
+   MCP stdio ou hors catalogue, qui refuse le démarrage : décision D8 ; depuis le chantier SECU-TUI,
+   toute source externe de secrets activée : D157), `lazy-packages` (code 1 si un constat existe).
+   Une ligne d'information « … porte N clé(s) épinglée(s) (…) : root les retirera au prochain
+   démarrage (SECU-1) » n'est pas un constat et n'appelle aucun retrait à la main : root retire ces
+   clés au démarrage (D156) ; Hermes n'en écrit aucune lui-même, consignez-la
+   ([image.md](image.md) § 6). Pour `identite` : `/opt/acp-identite/acp-identite-admin …` (§ 5.4).
 5. **Correction** : retirez ce qui est signalé, en consignant ce qui a été retiré. Exception : `acp-bilan.py` dans
    `/opt/data/scripts/` est déposé par l'image depuis P7 et admis par son empreinte ; ne le retirez que pour revenir
    à une image antérieure à P7 (§ 9, Rollback) — sinon le démarrage suivant le redépose. Un serveur MCP
@@ -797,7 +833,10 @@ Déplacer un volume vers un autre environnement pour l'examiner n'est pas docume
 **Aucun `railway config apply` entre la restauration et cette PR** : le fichier désignerait encore
 l'ancien volume, et un apply pourrait détacher le volume restauré. Même traitement pour `/config`
 d'`identite`. Les sauvegardes plus récentes que celle restaurée restent sur l'ancien volume
-(rw_full.txt:32438).
+(rw_full.txt:32438) ; une autre page de la documentation dit au contraire que la restauration les supprime
+(rw_full.txt:42610) : ne supprimez jamais l'ancien volume avant validation (constat g de la répétition). Plusieurs
+volumes, ordre entre eux (exécutant et Hermes restaurés à des instants différents), effets à la reprise et
+reconnexions : [exploitation.md](../exploitation.md) § 4.
 
 ### e) Identité
 
@@ -819,6 +858,13 @@ conseille de retirer `--init`) :
 4. la suite est une **décision de conception**, prise par une PR (par exemple : lancer s6-overlay
    autrement, avec une nouvelle preuve que les gardes s'appliquent), relue et testée comme P2,
    jamais un réglage fait dans Railway.
+
+### g) Hermes depuis son propre export (étape P9)
+
+Volume de Hermes effacé avec ses sauvegardes : réimport de l'export chiffré de la station Qt dans un volume vide.
+Forme du geste mesurée par le test de restauration de P9 (R4 : racine du volume rendue à l'utilisateur de Hermes avant
+l'import, sortie contrôlée, script du bilan importé supprimé) ; déroulé et messages de Hermes à ignorer :
+[exploitation.md](../exploitation.md) § 4.5.
 
 ---
 
@@ -873,6 +919,16 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
   gardes, maintenance `sleep infinity` avec et sans `CMD` hérité, `diagnostiquer`) et
   [identite.md](identite.md) § 13 (gardes, OIDC à travers un bord factice, navigateur, mémoire).
 
+### Prouvé en intégration continue par l'étape P9 (8 et 9 octobre 2026)
+
+Sur des volumes Docker jetables, avec l'agent et les comptes factices du banc (jamais sur Railway) : restauration des
+trois volumes au même instant et à des instants différents (R1, R2 : identité des données, règle d'ordre de
+l'exécutant face à Hermes), reconnexion du propriétaire après la restauration de l'identité (R3), Hermes réimporté
+depuis son export sur un volume neuf vide et à root (R4) ; montée de données d'une version d'ACP à la suivante ;
+témoin d'une release antérieure de Hermes et répétition à blanc de la montée à chaque construction. Mesures et
+limites : [exploitation.md](../exploitation.md) § 4, § 6.6 et § 10 ; runs : [preuves-1.0.0.md](preuves-1.0.0.md) § 3.
+Ce qui ne se constate que sur Railway (point 5 ci-dessous) reste à la répétition du § 4.11 bis.
+
 ### Seulement sur Railway (non prouvé ici)
 
 1. **PID 1** : non documenté ; indice tiers seulement (PR mobius-os #1165 du 14/09/2026 : Railway
@@ -886,7 +942,8 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
 4. Environnement et utilisateur d'une session `railway ssh` ; `railway volume files` sur un service
    arrêté.
 5. **Restauration** : mise en attente combinable avec une Start Command dans le même lot ; renommage
-   des volumes avec un plan à « 0 to destroy ».
+   des volumes avec un plan à « 0 to destroy » ; sort des sauvegardes postérieures (documentation
+   contradictoire, § 10 d) ; reconnexion d'openai-codex. Tous relevés par la répétition du § 4.11 bis.
 6. **Déploiements hors automatisme** : « Deploy Latest Commit » et premier déploiement créé par
    l'apply face à « Wait for CI ».
 7. « Wait for CI » avec les workflows réels et des groupes de concurrence par exécution.
@@ -928,7 +985,7 @@ exécuté : chaque étape est **votre** geste.
 | | `executant` |
 |---|---|
 | Rôle | client `apps/poste` en mode Linux ; Codex CLI 0.156.1 (UID 10001) et Claude Code 2.1.283 (UID 10002) ; vérification sous l'UID 10003 |
-| Source | GitHub, branche `refonte/hermes`, **racine `/`** (l'image embarque `apps/poste` et le contrat), « Wait for CI » |
+| Source | GitHub, branche `main` (D164), **racine `/`** (l'image embarque `apps/poste` et le contrat), « Wait for CI » |
 | Dockerfile | `RAILWAY_DOCKERFILE_PATH=executant/Dockerfile` (relatif à la racine : supposé, prouvé au premier build) |
 | Motifs surveillés | `/executant/**`, `/apps/poste/src/**`, `/packaging/poste/lancer.py`, `/hermes/plugins/acp-poste/contrat/**`, `/requirements/poste-3.12.lock.txt`, sauf `/executant/tests/**` et `/executant/factice/**` |
 | Volume | `executant-donnees` sur `/donnees` (5 Go, maximum de l'offre Hobby) |
@@ -949,7 +1006,7 @@ minutes de conteneur. Le projet `acp-sonde` est **distinct** de `acp` (l'IaC dé
    la pointe de P6, n'a aucun run) ; ce workflow doit y être **vert** :
    ```sh
    git clone https://github.com/Paul-Berdier/agent-company-platform.git acp-sonde-r0
-   cd acp-sonde-r0 && git checkout refonte/hermes
+   cd acp-sonde-r0 && git checkout main     # après la fusion de 1.0.0 (D164)
    sha="$(git log -1 --format=%H -- executant apps/poste hermes/plugins/acp-poste/contrat packaging/poste/lancer.py \
           requirements/poste-3.12.lock.txt requirements/python-3.12.lock.txt pytest.ini .github/workflows/executant.yml)"
    git checkout "$sha"
@@ -992,9 +1049,9 @@ session Windows, § 2.4, n'est liée à rien) :
 railway login
 railway link --project acp --environment production
 ```
-Après la fusion de P6 dans `refonte/hermes` (CI verte : `ci.yml`, `image.yml`, `executant.yml`), selon le § 4.3 :
-le plan doit afficher le service `executant` et le volume `executant-donnees`, **0 to destroy** (« 2 to create » si
-P2 est déjà appliqué). Après `railway config apply` :
+Sur `main`, qui porte P6 depuis la fusion de 1.0.0 (D164 ; CI verte : `ci.yml`, `image.yml`, `executant.yml`), selon
+le § 4.3 : le plan doit afficher le service `executant` et le volume `executant-donnees`, **0 to destroy** (« 2 to
+create » si P2 est déjà appliqué). Après `railway config apply` :
 - build : les lignes « [acp] … vérifié » de `verifier-binaires` (une empreinte ou une signature fausse fait échouer le
   build, en français) ;
 - démarrage, dans les journaux du service : `[acp] commit déployé : <sha>`, `[acp] volume prêt (/donnees)`,
@@ -1139,7 +1196,8 @@ Hermes fait foi : l'exécutant rejoue sa file de sortie (les `reclamation_perdue
 les worktrees des cartes qu'il ne détient plus et **garde les branches**. Lancez `acp-poste diagnostic` : si la
 connexion Codex est périmée (jeton déjà tourné), refaites `acp-poste connexion codex`. Les sauvegardes contiennent
 `auth.json`, le jeton machine, les jetons Claude et GitHub et le code des dépôts : la frontière reste le compte
-Railway (§ 11).
+Railway (§ 11). Exécutant restauré à un instant différent de Hermes (règle d'ordre mesurée par le test de
+restauration de P9 : exécutant antérieur ou égal à Hermes) : [exploitation.md](../exploitation.md) § 4.3.
 
 ---
 
@@ -1172,10 +1230,10 @@ Les deux canaux sont déclarés : vous choisissez le vôtre **sans autre PR** ; 
 Aucun littéral : `ACP_NOTIFICATIONS: "telegram"`, appliqué avant la pose du jeton, ferait refuser le démarrage de Hermes
 (correction K13). Aucun autre changement : ni service, ni volume, ni réglage.
 
-**Ordre (celui du § 9, jamais l'inverse)** : (1) la PR de P7 fusionnée dans `refonte/hermes`, CI verte (c'est elle qui
-déclare les variables) ; (2) vous posez les valeurs dans Railway ; (3) `railway config plan` puis `railway config
-apply`. Une variable posée dans Railway **avant** d'être déclarée apparaîtrait au plan comme une **suppression**
-(rw_full.txt:28377).
+**Ordre (celui du § 9, jamais l'inverse)** : (1) P7 fusionnée dans la branche déployée (`main`, avec 1.0.0 : D164), CI
+verte (c'est elle qui déclare les variables) ; (2) vous posez les valeurs dans Railway ; (3) `railway config plan`
+puis `railway config apply`. Une variable posée dans Railway **avant** d'être déclarée apparaîtrait au plan comme une
+**suppression** (rw_full.txt:28377).
 
 **Supposé, à constater au premier plan qui suit la fusion** : `preserve()` sur une variable jamais posée ne crée rien
 et n'est pas refusé par le plan (§ 3 ; la documentation de Railway ne traite pas ce cas). L'exposition est **plus
@@ -1263,7 +1321,7 @@ tâche, D121) : avant tout retour à une image antérieure à P7, voir § 9 (Rol
 ### 14.6 Dépôts réels, un par un
 
 Préalable : la preuve de P6 sur le dépôt jetable et privé (§ 13.3 bis, R5) est verte. **Jamais** le dépôt d'ACP
-lui-même en premier (Railway déploie `refonte/hermes`). Un dépôt à la fois (D102) :
+lui-même en premier (Railway déploie `main`, D164). Un dépôt à la fois (D102) :
 
 | Étape | Qui | Geste |
 |---|---|---|

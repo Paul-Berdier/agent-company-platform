@@ -662,7 +662,8 @@ de P2 à P4 ; il ne modifie pas le plan ci-dessus.
   `kanban.dispatch_profiles: [default]`, `approvals` (`manual`, `deny`), `plugins.enabled: []`,
   `plugins.allow_deprecated_imports: false`, `auth.adopt_external_logins: false`. `kanban_create` et
   `kanban_attach_url` sont refusés à l'agent par la garde d'exécution d'`acp-poste`.
-- **Posé par P4** (branche `refonte/hermes-p4`, non fusionnée, non déployée ; [projets.md](projets.md)) :
+- **Posé par P4** (branche `refonte/hermes-p4`, fusionnée par la PR #17, `6c31522` ; non déployée ;
+  [projets.md](projets.md)) :
   refus de démarrer (et de relancer) sur une clé `hooks` non vide de `config.yaml` ou sur
   `shell-hooks-allowlist.json`, à la racine du volume ou d'un profil ; `kanban.dispatch_in_gateway: true`,
   `kanban.max_in_progress: 4`, `kanban.max_in_progress_per_profile: 2`, `kanban.review_dispatch: false`,
@@ -672,7 +673,7 @@ de P2 à P4 ; il ne modifie pas le plan ci-dessus.
   confirmer) ; la page mobile « Projets » (greffon d'interface `acp-projets` : lancer, suivre, répondre,
   pauses ; [projets.md](projets.md) § 4 bis). (`skills.disabled` et `skills.external_dirs` sont posés depuis P3, hors managed scope :
   [catalogue.md](catalogue.md) § 6.)
-- **Posé par la première partie de P5** (branche `refonte/hermes-p5`, non fusionnée, non déployée ;
+- **Posé par la première partie de P5** (branche `refonte/hermes-p5`, fusionnée par la PR #18, `b3faac0` ; non déployée ;
   [poste.md](poste.md)) : protocole `acp-machine/1` sur trois chemins exacts `/machine/v1/*`, jeton machine
   haché et code d'enrôlement à usage unique (décision D48, et non le jeton affiché de `plan.md`), empreinte
   à confirmer, un seul poste actif, révocation ; long-poll `reclamer` (présence, ordres, `carte` toujours

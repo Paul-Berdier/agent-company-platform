@@ -13,6 +13,8 @@ Lancé DANS le conteneur de test (bouclage local, interpréteur de Hermes, bibli
    - ``session`` : rien de plus ; les outils de la session sont relevés dans ``session.info`` ;
    - ``prompt`` (étape P3) : ``prompt.submit`` avec le texte donné (tui_gateway/methods_prompt.py:564),
      jusqu'à ``message.complete`` : un tour complet de la discussion du tableau de bord.
+   Dans ces trois modes, la sortie porte aussi ``cle`` (étape P9) : la clé stockée de la session
+   (``stored_session_id``), sous laquelle ``/api/sessions`` la liste.
 
 Étape P7, part D (cahier P7 § 9.4) : trois modes de la discussion réduite, avec les SEULES méthodes de la liste blanche
 d'ACP (apps/interface/src/jsonrpc/canal.ts) :
@@ -72,9 +74,13 @@ async def dialoguer(mode: str, jeton: str, texte: str = "") -> dict:
             return lambda m: m.get("method") == "event" and (m.get("params") or {}).get("type") == type_
 
         await ws.send(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "session.create", "params": {}}))
-        session = (await attendre(lambda m: m.get("id") == 1))["result"]["session_id"]
+        creee = (await attendre(lambda m: m.get("id") == 1))["result"]
+        session = creee["session_id"]
         info = await attendre(evenement("session.info"), 120)
-        resultat = {"session_id": session, "outils_session": (info["params"].get("payload") or {}).get("tools")}
+        # Étape P9 : « cle » = clé STOCKÉE de la session (stored_session_id), celle que liste /api/sessions ;
+        # « session_id » n'est que l'identifiant de la connexion /api/ws.
+        resultat = {"session_id": session, "cle": creee.get("stored_session_id"),
+                    "outils_session": (info["params"].get("payload") or {}).get("tools")}
         if mode == "preview-restart":
             await ws.send(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "preview.restart", "params": {
                 "session_id": session, "url": "http://127.0.0.1:1", "cwd": "/tmp", "context": "OUTIL:terminal"}}))

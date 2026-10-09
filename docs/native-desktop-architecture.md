@@ -1,8 +1,11 @@
 # Architecture du client desktop natif (station de travail)
 
 État du 2 octobre 2026, version **0.11.0**, refonte « Hermes au centre », étape **P8**
-(branche `refonte/hermes-p8`, non fusionnée). Cahier de l'étape et journal d'avancement :
-voir [`docs/reprise-poste.md`](reprise-poste.md), § 6 decies. Le client d'avant la refonte
+(branche `refonte/hermes-p8`, fusionnée dans `refonte/hermes` par la PR #20, `b715edb`, le
+2 octobre 2026), complété par l'étape **P8b**, station alignée sur P7 (branche
+`refonte/hermes-p8b`, fusionnée par la PR #22, `8583642`, le 9 octobre 2026 ;
+[`refonte/desktop.md`](refonte/desktop.md), § « P8b »). Cahier de l'étape et journal d'avancement :
+voir [l'historique de la refonte](refonte/historique.md), partie B, § 6 decies. Le client d'avant la refonte
 (cookie `acp_session`, ancienne API ACP) reste consultable sous l'étiquette
 `archive/acp-0.10.0-avant-hermes`.
 
@@ -97,7 +100,7 @@ annoncé. L'étape P7 se détecte de même, par la clé `accueil` (née dans le 
 greffon que `/v1/accueil`, la relance, « qui répond » et la clôture) : sans elle, l'Accueil
 agrégé et le sondage léger ne lisent rien, « Qui répond » et « Clore » ne sont pas offerts,
 la page et le badge disent « Non disponible sur ce serveur », et le client du greffon refuse
-ces quatre routes sans rien émettre (décision P8b-2, [`refonte/desktop.md`](refonte/desktop.md)).
+ces quatre routes sans rien émettre (décision P8b-2, D159 du [plan](refonte/plan.md) § 1 ; [`refonte/desktop.md`](refonte/desktop.md)).
 
 ## JSON-RPC et temps réel
 

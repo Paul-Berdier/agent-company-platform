@@ -212,7 +212,8 @@ d'autre :
 Sans la route (greffon ancien, erreur), l'onglet le dit (« Catalogue ACP indisponible ») ; depuis
 la seconde partie de P3, le test navigateur **exige** la route servie (`catalogue_route_v1:
 "servie"`), les 26 entrées du catalogue (16 livrées, 10 candidates pour le poste) et, sur l'Accueil,
-16 / 16 skills d'ACP actives.
+16 / 16 skills d'ACP actives ; depuis P4, 21 / 21 (cinq skills maison des projets en plus :
+`hermes/tests/e2e/test_interface_fr.py`).
 
 ## 7. Français
 
@@ -353,7 +354,7 @@ Files, MCP, Channels, Webhooks, Pairing, System).
 | Texte, gabarit ou attribut lisible écrit en dur ; `innerHTML`, `eval`, `fetch` direct, URL externe | Vitest : témoins négatifs de `chaines.test.ts` et `statique.test.ts` |
 | Jeton manquant, contraste insuffisant, URL externe, CSS trop lourd, sortie ou QML périmés | `test_generer_themes.py` (9 tests rouges) |
 
-Intégration continue (détail : `docs/reprise-poste.md` § 6 bis) : `image.yml` 36120533900 et
+Intégration continue (détail : `docs/refonte/historique.md`, partie B, § 6 bis) : `image.yml` 36120533900 et
 `ci.yml` 36120533812, sur `b237912`, **succès** (259 dans l'image, 107 au contrat, 2 au navigateur,
 Vitest 55 ; décompte identique à la mesure locale ; captures en artefact).
 

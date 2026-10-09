@@ -3,7 +3,8 @@ name: Image Hermes
 # Refonte « Hermes au centre », étape P1 : construit l'image Railway d'ACP, dérivée de
 # l'image officielle de Hermes Agent épinglée par condensat, et prouve son contrat :
 #   - condensat de la base relevé par `docker buildx imagetools inspect` et comparé à
-#     hermes/contrat/HERMES_VERSION ;
+#     hermes/contrat/HERMES_VERSION ; depuis P9, répétition à blanc de la montée de version
+#     (scripts/monter_hermes.py verifier : tout l'épinglage reproduit à l'octet près) ;
 #   - `hermes --version`, `hermes plugins compat` (greffon acp-poste accepté, témoin
 #     refusé) ;
 #   - pytest DANS l'image de test (gardes de démarrage, managed scope, adaptateur kanban,
@@ -101,6 +102,10 @@ name: Image Hermes
 # question et reprise du fil, secret en quarantaine, revue refusée puis corrigée, aucun push, aucun jeton dans les
 # journaux. L'image de production de l'exécutant (binaires réels) est prouvée par executant.yml.
 #
+# Étape P9 (exploitation) : job « restauration » (R1 à R4, parallèle au job « image », à chaque push) ; jobs lancés à la
+# main seulement (workflow_dispatch) : « temoin » (entrée temoin_etiquette : une release de Hermes essayée) et « montee »
+# (entrée ref_avant : volumes peuplés par les images d'un commit antérieur, redémarrés avec celles du run).
+#
 # Rien n'est publié : ni image poussée, ni déploiement. Railway construit lui-même
 # hermes/image/Dockerfile et identite/Dockerfile avec « Wait for CI », d'où le déclencheur `push`.
 # Ne JAMAIS annuler ce workflow à la main sur la branche déployée : un run annulé ne prouve rien,
@@ -108,6 +113,20 @@ name: Image Hermes
 
 "on":
   workflow_dispatch:
+    inputs:
+      temoin_etiquette:
+        # Étape P9 (cahier P9 § 5.5) : release de Hermes du job « temoin » ; vide, le job ne tourne pas.
+        description: "Témoin de montée : release de Hermes à essayer (forme vAAAA.M.J) ; vide : aucun témoin"
+        required: false
+        default: ""
+        type: string
+      ref_avant:
+        # Étape P9 (cahier P9 § 5.6, décision P9-4) : commit « avant » du job « montee » ; donnée, les jobs « image » et
+        # « restauration » ne tournent pas ; vide, le job « montee » ne tourne pas.
+        description: "Montée de données : commit, branche ou étiquette des images « avant » ; vide : aucune montée"
+        required: false
+        default: ""
+        type: string
   pull_request:
     branches:
       - main
@@ -118,6 +137,10 @@ name: Image Hermes
       - ".railway/**"
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
+      # Étape P9 : la répétition à blanc de la montée de Hermes relance ce workflow quand l'outil ou une épingle
+      # forte hors des chemins ci-dessus change (fixture /v1/meta du desktop).
+      - "scripts/monter_hermes.py"
+      - "apps/desktop/tests/fixtures/hermes/meta.json"
       - "executant/**"
       - "apps/poste/src/**"
       - "packaging/poste/lancer.py"
@@ -133,6 +156,8 @@ name: Image Hermes
       - ".railway/**"
       - "apps/interface/**"
       - "scripts/verifier_catalogue.py"
+      - "scripts/monter_hermes.py"
+      - "apps/desktop/tests/fixtures/hermes/meta.json"
       - "executant/**"
       - "apps/poste/src/**"
       - "packaging/poste/lancer.py"
@@ -152,6 +177,8 @@ concurrency:
 
 jobs:
   image:
+    # Étape P9 : pas sur un lancement manuel de la montée de données (entrée ref_avant : job « montee » seul).
+    if: github.event_name != 'workflow_dispatch' || inputs.ref_avant == ''
     name: Image ACP — construction et contrat
     runs-on: ubuntu-latest
     # Étape P4 : le contrat des projets autonomes (workers kanban réels, poste simulé) ajoute environ
@@ -180,18 +207,17 @@ jobs:
           npm ci --ignore-scripts --prefix .railway
           npm run --prefix .railway verifier
 
-      - name: Relever le condensat de l'image officielle
+      - name: Répétition à blanc de la montée de Hermes (épinglage reproduit à l'octet près)
+        # Étape P9 (cahier § 5.4) : remplace le seul relevé du condensat d'index, dont elle est un sur-ensemble.
+        # scripts/monter_hermes.py verifier relève ce que l'amont publie pour l'étiquette épinglée (condensat
+        # d'index et par plate-forme, commit de l'étiquette ; dans l'image tirée PAR CONDENSAT : hermes --version,
+        # provenance, OpenRPC, LICENSE, skills livrées), rend chaque épingle forte depuis ce relevé et la compare
+        # octet pour octet au dépôt (ligne FROM, HERMES_VERSION, copie de l'OpenRPC, provenances, verrou du
+        # catalogue, fixtures). N'écrit rien. Exigés : code 0 et « Aucun écart » dans le journal.
         run: |
           set -euo pipefail
-          attendu="$(sed -n 's/^HERMES_IMAGE_INDEX=//p' hermes/contrat/HERMES_VERSION)"
-          etiquette="$(sed -n 's/^HERMES_TAG=//p' hermes/contrat/HERMES_VERSION)"
-          docker buildx imagetools inspect "nousresearch/hermes-agent:${etiquette}" | tee /tmp/imagetools.txt
-          if ! grep -Eq "^Digest: +${attendu}$" /tmp/imagetools.txt; then
-            echo "Le condensat publié de ${etiquette} ne correspond plus à ${attendu} : refus." >&2
-            exit 1
-          fi
-          grep -q "FROM nousresearch/hermes-agent:${etiquette}@${attendu}" hermes/image/Dockerfile
-          echo "Condensat épinglé confirmé : ${etiquette}@${attendu}"
+          python3 scripts/monter_hermes.py verifier | tee /tmp/repetition-montee.txt
+          grep -q "^Aucun écart : " /tmp/repetition-montee.txt
 
       - name: Relever le condensat de l'image Authelia
         run: |
@@ -300,7 +326,10 @@ jobs:
         run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
 
       - name: Tests de contrat des images (Hermes et fournisseur d'identité)
-        run: python -m pytest -s -v -rA hermes/tests/contrat
+        # Étape P9 (cahier § 3.7) : les tests de restauration tournent dans le job « restauration » (parallèle), ceux de
+        # la montée de données dans le job « montee » (workflow_dispatch) ; le résumé de pytest dit combien sont
+        # désélectionnés ici.
+        run: python -m pytest -s -v -rA hermes/tests/contrat -m "not restauration and not montee"
 
       - name: Installer Playwright (hachés vérifiés) et Chromium
         run: |
@@ -312,7 +341,7 @@ jobs:
         env:
           ACP_E2E_OBLIGATOIRE: "1"
           ACP_E2E_CAPTURES: /tmp/captures-e2e
-        run: python -m pytest -s -v -rA hermes/tests/e2e
+        run: python -m pytest -s -v -rA hermes/tests/e2e -m "not restauration and not montee"
 
       - name: Captures d'écran du test navigateur
         if: always()
@@ -349,6 +378,528 @@ jobs:
           fi
           if [ "$restes" -ne 0 ]; then
             echo "Des ressources acp-contrat-* restaient après les tests : nettoyées, mais la CI échoue." >&2
+            exit 1
+          fi
+          echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."
+
+  restauration:
+    # Étape P9 (cahier P9 § 3.7, décision P9-4) : les tests de restauration (R1 à R4) dans leur PROPRE job, parallèle au
+    # job « image » (environ 51 minutes pour un plafond de 90 ; ses constructions prennent moins de 2 minutes) :
+    # images reconstruites ici, puis seulement les tests marqués « restauration » (contrat et navigateur), jamais
+    # ignorés (ACP_E2E_OBLIGATOIRE=1). Mêmes déclencheurs que le job « image » : « Wait for CI » l'attend aussi.
+    if: github.event_name != 'workflow_dispatch' || inputs.ref_avant == ''
+    name: Restauration — trois volumes, export, identité
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ACP_IMAGE: acp-hermes:ci
+      ACP_IMAGE_TESTS: acp-hermes-tests:ci
+      ACP_IMAGE_IDENTITE: acp-identite:ci
+      ACP_IMAGE_EXECUTANT_FACTICE: acp-executant:factice
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire l'image ACP
+        run: docker build --pull -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
+
+      - name: Construire l'image de test
+        run: docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+
+      - name: Construire la cible factice de l'exécutant (aucun binaire réel téléchargé)
+        run: docker build -f executant/Dockerfile --target factice -t "$ACP_IMAGE_EXECUTANT_FACTICE" .
+
+      - name: Construire l'image du fournisseur d'identité
+        run: docker build --pull -t "$ACP_IMAGE_IDENTITE" identite
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer pytest (hachés vérifiés)
+        run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
+
+      - name: Restauration — tests de contrat (R1, R2, R4)
+        run: python -m pytest -s -v -rA hermes/tests/contrat -m restauration
+
+      - name: Installer Playwright (hachés vérifiés) et Chromium
+        # R3 tourne même si R1, R2 ou R4 ont échoué : chaque run doit rendre le plus de mesures possible.
+        if: success() || failure()
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-e2e.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Restauration — test navigateur (R3, identité restaurée et reconnexion)
+        if: success() || failure()
+        env:
+          ACP_E2E_OBLIGATOIRE: "1"
+          ACP_E2E_CAPTURES: /tmp/captures-restauration
+        run: python -m pytest -s -v -rA hermes/tests/e2e -m restauration
+
+      - name: Captures d'écran de la restauration
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-restauration
+          path: /tmp/captures-restauration
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Aucun conteneur, volume ni réseau de test ne reste (restauration)
+        if: always()
+        run: |
+          # Même contrôle que le job « image » : nettoie TOUJOURS, puis ÉCHOUE si quelque chose restait.
+          restes=0
+          reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
+          if [ -n "$reste" ]; then
+            echo "Conteneurs restants : ${reste}" >&2
+            docker rm -f -v $reste >/dev/null
+            restes=1
+          fi
+          volumes="$(docker volume ls -q --filter name=acp-contrat-)"
+          if [ -n "$volumes" ]; then
+            echo "Volumes restants : ${volumes}" >&2
+            docker volume rm -f $volumes >/dev/null
+            restes=1
+          fi
+          reseaux="$(docker network ls -q --filter name=acp-contrat-)"
+          if [ -n "$reseaux" ]; then
+            echo "Réseaux restants : ${reseaux}" >&2
+            docker network rm $reseaux >/dev/null
+            restes=1
+          fi
+          if [ "$restes" -ne 0 ]; then
+            echo "Des ressources acp-contrat-* restaient après les tests de restauration : nettoyées, mais la CI échoue." >&2
+            exit 1
+          fi
+          echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."
+
+  temoin:
+    # Étape P9 (cahier P9 § 5.5) : TÉMOIN de montée de version de Hermes. Plus aucune pile Docker ne tourne sur le poste
+    # du propriétaire : ce qui se faisait dans un worktree jetable se fait ici, lancé à la main seulement :
+    #   gh workflow run image.yml --ref <branche> -f temoin_etiquette=v2026.9.21
+    # Dans la copie de travail du runner (jamais committée ni poussée) : scripts/monter_hermes.py ecrire <étiquette>,
+    # git diff --stat (seulement les épingles fortes, sinon défaut de l'outil), images (production, test, identité,
+    # factice), hermes --version, hermes plugins compat, sonde de démarrage, pytest dans l'image, tests de contrat,
+    # suite du dépôt et Vitest, SANS s'arrêter au premier échec (continue-on-error) ; puis le TABLEAU DES ÉCARTS
+    # (contrôle → résultat, tests en échec et leur raison) dans le résumé du job et en artefact
+    # (scripts/temoin_hermes.py). La borne requires_hermes du greffon n'est JAMAIS modifiée pour « passer ». Le job
+    # échoue si un contrôle compté échoue : vert, il dirait que rien ne distingue la release témoin de l'épinglée pour
+    # nos contrôles. Les jobs « image » et « restauration » tournent aussi sur ce déclencheur (sauf si ref_avant est
+    # donnée) : ils donnent, dans le même run, la référence sur la release épinglée.
+    if: github.event_name == 'workflow_dispatch' && inputs.temoin_etiquette != ''
+    name: Témoin de montée de Hermes (workflow_dispatch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      ACP_IMAGE: acp-hermes:temoin
+      ACP_IMAGE_TESTS: acp-hermes-tests:temoin
+      ACP_IMAGE_IDENTITE: acp-identite:temoin
+      ACP_IMAGE_EXECUTANT_FACTICE: acp-executant:factice-temoin
+      PYTHONUTF8: "1"
+      TEMOIN: /tmp/temoin
+      # Entrée de l'utilisateur : jamais interpolée dans un script ; lue comme variable, validée avant tout usage.
+      TEMOIN_ETIQUETTE: ${{ inputs.temoin_etiquette }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Étiquette témoin (forme vAAAA.M.J, sinon refus)
+        id: etiquette
+        run: |
+          set -euo pipefail
+          mkdir -p "$TEMOIN/journaux" "$TEMOIN/junit"
+          if ! [[ "$TEMOIN_ETIQUETTE" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            echo "Refus : l'étiquette témoin ne suit pas la forme vAAAA.M.J (exemple : v2026.9.21) ; rien n'est lancé." >&2
+            exit 2
+          fi
+          echo "Étiquette témoin : ${TEMOIN_ETIQUETTE} ; épinglée : $(sed -n 's/^HERMES_TAG=//p' hermes/contrat/HERMES_VERSION)."
+
+      - name: Écrire l'épinglage de la release témoin (monter_hermes.py ecrire)
+        # Sans continue-on-error : si l'écriture échoue, AUCUN contrôle ne tourne (ils prouveraient l'épinglée sous le
+        # nom du témoin) ; le tableau le dit.
+        id: ecrire
+        run: |
+          set -euo pipefail
+          python3 scripts/monter_hermes.py ecrire "$TEMOIN_ETIQUETTE" 2>&1 | tee "$TEMOIN/journaux/ecrire.txt"
+          if ! grep -qx "HERMES_TAG=${TEMOIN_ETIQUETTE}" hermes/contrat/HERMES_VERSION; then
+            echo "Refus : HERMES_TAG ne vaut pas ${TEMOIN_ETIQUETTE} après l'écriture ; aucun contrôle n'est lancé." \
+              | tee -a "$TEMOIN/journaux/ecrire.txt" >&2
+            exit 1
+          fi
+          git diff > "$TEMOIN/epinglage-temoin.patch"
+
+      - name: Fichiers réécrits — seulement les épingles fortes (sinon défaut de l'outil)
+        id: perimetre
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git diff --stat | tee "$TEMOIN/journaux/perimetre.txt"
+          python3 scripts/temoin_hermes.py perimetre 2>&1 | tee -a "$TEMOIN/journaux/perimetre.txt"
+
+      - name: Concordance de l'épinglage écrit avec la release (monter_hermes.py verifier)
+        id: verifier
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/monter_hermes.py verifier --etiquette "$TEMOIN_ETIQUETTE" 2>&1 \
+            | tee "$TEMOIN/journaux/verifier.txt"
+
+      - name: Catalogue hors ligne (verrou réécrit)
+        id: catalogue
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/verifier_catalogue.py 2>&1 | tee "$TEMOIN/journaux/catalogue.txt"
+
+      - name: Construire l'image ACP (FROM de la release témoin)
+        id: image_acp
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker build --progress=plain --pull -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes 2>&1 \
+            | tee "$TEMOIN/journaux/image_acp.txt"
+
+      - name: Construire l'image de test
+        id: image_tests
+        if: steps.image_acp.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker build --progress=plain -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" \
+            -t "$ACP_IMAGE_TESTS" hermes/tests 2>&1 | tee "$TEMOIN/journaux/image_tests.txt"
+
+      - name: Construire la cible factice de l'exécutant (aucun binaire réel téléchargé)
+        id: image_factice
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker build --progress=plain -f executant/Dockerfile --target factice -t "$ACP_IMAGE_EXECUTANT_FACTICE" . \
+            2>&1 | tee "$TEMOIN/journaux/image_factice.txt"
+
+      - name: Construire l'image du fournisseur d'identité
+        id: image_identite
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker build --progress=plain --pull -t "$ACP_IMAGE_IDENTITE" identite 2>&1 \
+            | tee "$TEMOIN/journaux/image_identite.txt"
+
+      - name: hermes --version (Hermes de la release témoin)
+        id: version
+        if: steps.image_acp.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set +e
+          set -uo pipefail
+          attendu="$(sed -n 's/^HERMES_VERSION=//p' hermes/contrat/HERMES_VERSION)"
+          sortie="$(docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes "$ACP_IMAGE" --version 2>&1)"
+          code=$?
+          { printf '%s\n' "$sortie"; echo "Code : ${code} ; attendu : « Hermes Agent v${attendu} » (HERMES_VERSION écrite)."; } \
+            | tee "$TEMOIN/journaux/version.txt"
+          test "$code" -eq 0 && printf '%s\n' "$sortie" | grep -q "^Hermes Agent v${attendu} "
+
+      - name: hermes plugins compat — greffon acp-poste (noyau compris)
+        id: compat
+        if: steps.image_acp.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set +e
+          set -uo pipefail
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes "$ACP_IMAGE" \
+            plugins compat /opt/hermes/plugins/acp-poste > /tmp/compat.txt 2>&1
+          code=$?
+          { cat /tmp/compat.txt; echo "Code : ${code} (0 attendu)"; } | tee "$TEMOIN/journaux/compat.txt"
+          exit "$code"
+
+      - name: hermes plugins compat — greffon témoin refusé
+        id: compat_temoin
+        if: steps.image_tests.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set +e
+          set -uo pipefail
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes "$ACP_IMAGE_TESTS" \
+            plugins compat /opt/acp-tests/outils/temoin_compat > /tmp/compat-temoin.txt 2>&1
+          code=$?
+          { cat /tmp/compat-temoin.txt; echo "Code du témoin : ${code} (1 attendu : il importe hermes_cli.kanban_db.connect)"; } \
+            | tee "$TEMOIN/journaux/compat_temoin.txt"
+          test "$code" -eq 1
+
+      - name: Démarrage de l'image ACP sur un volume neuf (sonde)
+        id: sonde
+        if: steps.image_acp.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/temoin_hermes.py sonde --image "$ACP_IMAGE" --prefixe acp-contrat-temoin-sonde \
+            --journal-conteneur "$TEMOIN/journaux/sonde-conteneur.txt" 2>&1 | tee "$TEMOIN/journaux/sonde.txt"
+
+      - name: Diagnostic hors verdict — même sonde, variables d'image réclamées par la garde ajoutées
+        # Seulement si la sonde a échoué : montre ce qui se cache derrière le premier refus de la garde (variable
+        # que l'image amont ne fixe plus). La borne requires_hermes n'est pas touchée.
+        id: sonde_diag
+        if: steps.sonde.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/temoin_hermes.py sonde --image "$ACP_IMAGE" --prefixe acp-contrat-temoin-diag \
+            --variables-de "$TEMOIN/journaux/sonde-conteneur.txt" \
+            --journal-conteneur "$TEMOIN/journaux/sonde_diag-conteneur.txt" 2>&1 | tee "$TEMOIN/journaux/sonde_diag.txt"
+
+      - name: pytest dans l'image de test (rapport JUnit)
+        id: pytest_image
+        if: steps.image_tests.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set +e
+          set -uo pipefail
+          nom=acp-contrat-temoin-pytest-image
+          docker run --name "$nom" --entrypoint /opt/hermes/.venv/bin/python \
+            -e PYTHONPATH=/opt/acp-tests/site "$ACP_IMAGE_TESTS" \
+            -m pytest -v -rA --junitxml=/tmp/junit-image.xml /opt/acp-tests/image 2>&1 \
+            | tee "$TEMOIN/journaux/pytest_image.txt"
+          code=${PIPESTATUS[0]}
+          docker cp "$nom:/tmp/junit-image.xml" "$TEMOIN/junit/pytest-image.xml" \
+            || echo "Rapport JUnit introuvable dans le conteneur." | tee -a "$TEMOIN/journaux/pytest_image.txt"
+          docker rm -f -v "$nom" > /dev/null
+          echo "Code de pytest : ${code}" | tee -a "$TEMOIN/journaux/pytest_image.txt"
+          exit "$code"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer pytest (hachés vérifiés)
+        run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: SDK Railway épinglé (lu par les tests de contrat de l'IaC, comme dans le job « image »)
+        run: npm ci --ignore-scripts --prefix .railway
+
+      - name: Tests de contrat des images (hors restauration et montée ; rapport JUnit)
+        id: contrat
+        if: steps.image_acp.outcome == 'success' && steps.image_tests.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python -m pytest -s -v -rA hermes/tests/contrat -m "not restauration and not montee" \
+            --junitxml="$TEMOIN/junit/contrat.xml" 2>&1 | tee "$TEMOIN/journaux/contrat.txt"
+
+      - name: Suite du dépôt hors ligne sur l'épinglage écrit (environnement virtuel, verrou haché)
+        id: depot
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/venv-depot
+          {
+            /tmp/venv-depot/bin/python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
+            /tmp/venv-depot/bin/python -m pip install --no-deps --no-build-isolation \
+              -e hermes/plugins/acp-poste/contrat -e apps/poste
+          } > "$TEMOIN/journaux/depot-installation.txt" 2>&1
+          /tmp/venv-depot/bin/python -m pytest -q -rs -p no:cacheprovider --junitxml="$TEMOIN/junit/depot.xml" 2>&1 \
+            | tee "$TEMOIN/journaux/depot.txt"
+
+      - name: Interface — types et Vitest sur les fixtures réécrites
+        id: interface
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --prefix apps/interface > "$TEMOIN/journaux/interface-installation.txt" 2>&1
+          npm test --prefix apps/interface 2>&1 | tee "$TEMOIN/journaux/interface.txt"
+
+      - name: Tableau des écarts (résumé du job ; le job échoue si un contrôle compté échoue)
+        if: always()
+        env:
+          ETAPES: ${{ toJSON(steps) }}
+        run: |
+          set +e
+          mkdir -p "$TEMOIN"
+          python3 scripts/temoin_hermes.py tableau --etapes-env ETAPES --dossier "$TEMOIN" \
+            --etiquette="$TEMOIN_ETIQUETTE" --sortie "$TEMOIN/tableau-des-ecarts.md"
+          code=$?
+          if [ -f "$TEMOIN/tableau-des-ecarts.md" ]; then
+            cat "$TEMOIN/tableau-des-ecarts.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$code"
+
+      - name: Tableau des écarts, journaux, rapports JUnit et correctif d'épinglage (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temoin-montee-hermes
+          path: /tmp/temoin
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Aucun conteneur, volume ni réseau de test ne reste (témoin)
+        if: always()
+        run: |
+          # Même contrôle que les jobs « image » et « restauration » : nettoie TOUJOURS, puis ÉCHOUE si quelque chose
+          # restait.
+          restes=0
+          reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
+          if [ -n "$reste" ]; then
+            echo "Conteneurs restants : ${reste}" >&2
+            docker rm -f -v $reste >/dev/null
+            restes=1
+          fi
+          volumes="$(docker volume ls -q --filter name=acp-contrat-)"
+          if [ -n "$volumes" ]; then
+            echo "Volumes restants : ${volumes}" >&2
+            docker volume rm -f $volumes >/dev/null
+            restes=1
+          fi
+          reseaux="$(docker network ls -q --filter name=acp-contrat-)"
+          if [ -n "$reseaux" ]; then
+            echo "Réseaux restants : ${reseaux}" >&2
+            docker network rm $reseaux >/dev/null
+            restes=1
+          fi
+          if [ "$restes" -ne 0 ]; then
+            echo "Des ressources acp-contrat-* restaient après le témoin : nettoyées, mais la CI échoue." >&2
+            exit 1
+          fi
+          echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."
+
+  montee:
+    # Étape P9 (cahier P9 § 5.6, décision P9-4) : MONTÉE DE DONNÉES, lancée à la main seulement :
+    #   gh workflow run image.yml --ref <branche> -f ref_avant=<commit, branche ou étiquette>
+    # Images « avant » construites depuis ref_avant (copie de travail détachée, jamais committée), images « après »
+    # depuis le commit du run, puis SEULEMENT les tests marqués « montee » (hermes/tests/contrat/
+    # test_montee_de_donnees.py) : volumes peuplés avec les images avant, redémarrés tels quels avec les images après.
+    # Le résumé du job dit « migration de schéma : oui » ou « non » (corps de la PR de montée, cahier § 5.7). Les jobs
+    # « image » et « restauration » ne tournent pas sur ce déclencheur avec ref_avant : ils tournent à chaque push.
+    if: github.event_name == 'workflow_dispatch' && inputs.ref_avant != ''
+    name: Montée de données (workflow_dispatch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ACP_IMAGE: acp-hermes:ci
+      ACP_IMAGE_TESTS: acp-hermes-tests:ci
+      ACP_IMAGE_EXECUTANT_FACTICE: acp-executant:factice
+      ACP_IMAGE_AVANT: acp-hermes:avant
+      ACP_IMAGE_TESTS_AVANT: acp-hermes-tests:avant
+      ACP_IMAGE_EXECUTANT_FACTICE_AVANT: acp-executant:factice-avant
+      ACP_RACINE_AVANT: /tmp/acp-avant
+      ACP_MONTEE_DOSSIER: /tmp/montee
+      PYTHONUTF8: "1"
+      # Entrée de l'utilisateur : jamais interpolée dans un script ; lue comme variable, validée avant tout usage.
+      REF_AVANT: ${{ inputs.ref_avant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Historique complet : le commit « avant » doit se résoudre dans la copie du runner.
+          fetch-depth: 0
+
+      - name: Commit « avant » (entrée ref_avant ; sinon refus)
+        run: |
+          set -euo pipefail
+          if ! [[ "$REF_AVANT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || [[ "$REF_AVANT" == *..* ]]; then
+            echo "Refus : ref_avant doit être un commit, une branche ou une étiquette (lettres, chiffres, . _ / -) ; rien n'est lancé." >&2
+            exit 2
+          fi
+          avant=""
+          for candidat in "$REF_AVANT" "origin/$REF_AVANT"; do
+            if avant="$(git rev-parse --verify --quiet "${candidat}^{commit}")"; then
+              break
+            fi
+            avant=""
+          done
+          if [ -z "$avant" ]; then
+            echo "Refus : ref_avant introuvable dans le dépôt ; rien n'est lancé." >&2
+            exit 2
+          fi
+          apres="$(git rev-parse HEAD)"
+          if [ "$avant" = "$apres" ]; then
+            echo "Refus : ref_avant désigne le commit du run lui-même ; aucune montée à essayer." >&2
+            exit 2
+          fi
+          git worktree add --detach "$ACP_RACINE_AVANT" "$avant"
+          lire() { sed -n "s/^$1//p" "$2" | head -n 1; }
+          {
+            echo "## Montée de données : commits"
+            echo ""
+            echo "- avant : \`${avant}\` (Hermes $(lire 'HERMES_TAG=' "$ACP_RACINE_AVANT/hermes/contrat/HERMES_VERSION"), schéma du greffon $(lire 'VERSION_SCHEMA = ' "$ACP_RACINE_AVANT/hermes/plugins/acp-poste/noyau/base.py"))"
+            echo "- après : \`${apres}\` (Hermes $(lire 'HERMES_TAG=' hermes/contrat/HERMES_VERSION), schéma du greffon $(lire 'VERSION_SCHEMA = ' hermes/plugins/acp-poste/noyau/base.py))"
+            echo ""
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Construire les images « avant » (ACP, test, cible factice de l'exécutant)
+        run: |
+          set -euo pipefail
+          docker build --pull -f "$ACP_RACINE_AVANT/hermes/image/Dockerfile" -t "$ACP_IMAGE_AVANT" "$ACP_RACINE_AVANT/hermes"
+          docker build -f "$ACP_RACINE_AVANT/hermes/tests/Dockerfile" --build-arg IMAGE_ACP="$ACP_IMAGE_AVANT" \
+            -t "$ACP_IMAGE_TESTS_AVANT" "$ACP_RACINE_AVANT/hermes/tests"
+          docker build -f "$ACP_RACINE_AVANT/executant/Dockerfile" --target factice \
+            -t "$ACP_IMAGE_EXECUTANT_FACTICE_AVANT" "$ACP_RACINE_AVANT"
+
+      - name: Construire les images « après » (ACP, test, cible factice de l'exécutant)
+        run: |
+          set -euo pipefail
+          docker build --pull -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
+          docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+          docker build -f executant/Dockerfile --target factice -t "$ACP_IMAGE_EXECUTANT_FACTICE" .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer pytest (hachés vérifiés)
+        run: python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
+
+      - name: Montée de données — tests de contrat (images avant, puis images après sur les mêmes volumes)
+        id: montee
+        run: python -m pytest -s -v -rA hermes/tests/contrat -m montee
+
+      - name: Migration de schéma (résumé du job)
+        if: always()
+        run: |
+          if [ -s "$ACP_MONTEE_DOSSIER/resume.md" ]; then
+            tee -a "$GITHUB_STEP_SUMMARY" < "$ACP_MONTEE_DOSSIER/resume.md"
+          else
+            echo "migration de schéma : inconnue (le test de montée n'a écrit aucun résultat ; voir son journal)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Tests de montée : ${{ steps.montee.outcome }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Résultat de la montée (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: montee-de-donnees
+          path: /tmp/montee
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Aucun conteneur, volume ni réseau de test ne reste (montée)
+        if: always()
+        run: |
+          # Même contrôle que les autres jobs : nettoie TOUJOURS, puis ÉCHOUE si quelque chose restait.
+          restes=0
+          reste="$(docker ps -a --filter name=acp-contrat- --format '{{.Names}}')"
+          if [ -n "$reste" ]; then
+            echo "Conteneurs restants : ${reste}" >&2
+            docker rm -f -v $reste >/dev/null
+            restes=1
+          fi
+          volumes="$(docker volume ls -q --filter name=acp-contrat-)"
+          if [ -n "$volumes" ]; then
+            echo "Volumes restants : ${volumes}" >&2
+            docker volume rm -f $volumes >/dev/null
+            restes=1
+          fi
+          reseaux="$(docker network ls -q --filter name=acp-contrat-)"
+          if [ -n "$reseaux" ]; then
+            echo "Réseaux restants : ${reseaux}" >&2
+            docker network rm $reseaux >/dev/null
+            restes=1
+          fi
+          if [ "$restes" -ne 0 ]; then
+            echo "Des ressources acp-contrat-* restaient après la montée : nettoyées, mais la CI échoue." >&2
             exit 1
           fi
           echo "Aucun conteneur, volume ni réseau acp-contrat-* ne restait."

@@ -216,11 +216,49 @@ def test_reglages_declares(code, motif, nombre):
     assert len(re.findall(motif, code)) == nombre, f"« {motif} » attendu {nombre} fois dans railway.ts."
 
 
+# Branche déployée : décision du propriétaire du 9 octobre 2026 (D164), avec la fusion de 1.0.0 ; elle remplace celle
+# du 25 septembre 2026 (refonte/hermes).
+BRANCHE_DEPLOYEE = "main"
+
+
 def test_constantes(code):
     assert constante(code, "DEPOT") == "Paul-Berdier/agent-company-platform"
-    assert constante(code, "BRANCHE") == "refonte/hermes", "branche déployée : décision du propriétaire."
+    assert constante(code, "BRANCHE") == BRANCHE_DEPLOYEE, "branche déployée : décision du propriétaire (D164)."
     assert constante(code, "ENVIRONNEMENT") == "production"
     assert constante(code, "PROJET") == "acp"
+
+
+def test_le_verificateur_attend_la_meme_branche():
+    """verifier.mjs écrit ses valeurs attendues indépendamment de railway.ts (« modification consciente de l'un et de
+    l'autre, dans la même PR ») : un changement de branche déployée qui n'en toucherait qu'un est refusé ici, sans
+    Node, en plus de l'évaluation d'image.yml."""
+    trouves = re.findall(r'^const BRANCHE = "([^"\n]*)";$', lire(IAC / "verifier.mjs"), flags=re.M)
+    assert trouves == [BRANCHE_DEPLOYEE], f"verifier.mjs : branche attendue {trouves}, décidée {BRANCHE_DEPLOYEE!r}."
+
+
+def _branches_de_push(flux: str) -> list[str]:
+    """Branches du déclencheur ``push`` d'un workflow (bloc « ␣␣push: / ␣␣␣␣branches: », motifs entre guillemets ou
+    non), lues sans PyYAML."""
+    bloc = re.search(r"^  push:\n    branches:\n((?:      - .+\n)+)", flux, flags=re.M)
+    assert bloc, "déclencheur push sans liste de branches"
+    return [ligne.strip()[2:].strip().strip('"') for ligne in bloc.group(1).splitlines()]
+
+
+@pytest.mark.parametrize("workflow", ["ci.yml", "image.yml", "executant.yml", "desktop-ci.yml"])
+def test_les_workflows_qu_attend_railway_tournent_sur_la_branche_deployee(workflow):
+    """« Wait for CI » (railway.md § 9) attend les workflows GitHub Actions du commit poussé sur la branche déployée :
+    chacun doit donc se déclencher sur un push vers elle, nommée telle quelle (D164 : ``main``). Sans cela, Railway
+    déploierait un commit dont ce workflow n'a jamais rendu de verdict."""
+    branches = _branches_de_push(lire(RACINE / ".github" / "workflows" / workflow))
+    assert BRANCHE_DEPLOYEE in branches, f"{workflow} : push sur {branches}, sans la branche déployée."
+
+
+def test_branches_de_push_ne_lit_que_le_push():
+    """Témoin pur : la branche citée par ``pull_request`` seulement ne compte pas ; motifs entre guillemets lus."""
+    flux = ('"on":\n  pull_request:\n    branches:\n      - main\n  push:\n    branches:\n      - "refonte/**"\n'
+            '    paths:\n      - "VERSION"\n')
+    assert _branches_de_push(flux) == ["refonte/**"]
+    assert BRANCHE_DEPLOYEE not in _branches_de_push(flux)
 
 
 def test_garde_du_projet_lie(code):
@@ -416,15 +454,84 @@ def test_ci_yml_n_annule_aucun_run_hors_pr():
     assert "cancel-in-progress: true" not in flux
 
 
-def test_image_yml_echoue_s_il_reste_des_ressources_de_test():
-    """Relecture P2 : l'étape finale nettoie puis ÉCHOUE si des ressources acp-contrat-* restaient."""
+def _travaux_d_image_yml() -> dict:
+    """Texte de chaque job d'image.yml, par identifiant (lignes « ␣␣<id>: » sous « jobs: »)."""
     flux = lire(RACINE / ".github" / "workflows" / "image.yml")
-    etape = flux[flux.index("- name: Aucun conteneur, volume ni réseau de test ne reste"):]
-    assert "if: always()" in etape.splitlines()[1]
-    for nettoyage in ("docker rm -f -v $reste", "docker volume rm -f $volumes", "docker network rm $reseaux"):
-        assert nettoyage in etape, nettoyage
-    assert etape.count("restes=1") == 3
-    assert 'if [ "$restes" -ne 0 ]; then' in etape and "exit 1" in etape
+    bloc = flux[flux.index("\njobs:\n") + len("\njobs:\n"):]
+    morceaux = re.split(r"^  ([A-Za-z0-9_-]+):\n", bloc, flags=re.M)
+    return dict(zip(morceaux[1::2], morceaux[2::2]))
+
+
+def test_image_yml_echoue_s_il_reste_des_ressources_de_test():
+    """Relecture P2 : l'étape finale nettoie puis ÉCHOUE si des ressources acp-contrat-* restaient. Étape P9 : CHAQUE
+    job qui lance des tests de contrat ou navigateur (Docker) a sa propre étape finale, bornée à ce job."""
+    travaux = _travaux_d_image_yml()
+    avec_docker = [nom for nom, texte in travaux.items()
+                   if re.search(r"python -m pytest[^\n]*hermes/tests/(contrat|e2e)", texte)]
+    assert "image" in avec_docker and "restauration" in avec_docker, sorted(travaux)
+    for nom in avec_docker:
+        texte = travaux[nom]
+        debut = texte.index("- name: Aucun conteneur, volume ni réseau de test ne reste")
+        fin = texte.find("\n      - name: ", debut + 1)
+        etape = texte[debut:fin if fin != -1 else len(texte)]
+        assert "if: always()" in etape.splitlines()[1], nom
+        for nettoyage in ("docker rm -f -v $reste", "docker volume rm -f $volumes", "docker network rm $reseaux"):
+            assert nettoyage in etape, (nom, nettoyage)
+        assert etape.count("restes=1") == 3, nom
+        assert 'if [ "$restes" -ne 0 ]; then' in etape and "exit 1" in etape, nom
+        # Dernière étape du job : rien ne peut s'exécuter après le contrôle.
+        assert fin == -1, nom
+
+
+def test_image_yml_selectionne_les_tests_de_restauration_par_job():
+    """Étape P9 (cahier § 3.7) : marqueurs déclarés (--strict-markers) ; le job « image » désélectionne
+    « restauration » et « montee », le job « restauration » ne lance qu'eux ; rien n'est ignoré en silence."""
+    for ini in ("contrat", "e2e"):
+        texte = lire(RACINE / "hermes" / "tests" / ini / "pytest.ini")
+        assert "--strict-markers" in texte and re.search(r"^    restauration: ", texte, flags=re.M), ini
+        assert re.search(r"^    montee: ", texte, flags=re.M), ini
+    travaux = _travaux_d_image_yml()
+    lancements = {nom: re.findall(r"python -m pytest[^\n]*hermes/tests/(?:contrat|e2e)[^\n]*", texte)
+                  for nom, texte in travaux.items()}
+    assert lancements["image"] and all(l.endswith('-m "not restauration and not montee"')
+                                       for l in lancements["image"]), lancements["image"]
+    assert sorted(lancements["restauration"]) == [
+        "python -m pytest -s -v -rA hermes/tests/contrat -m restauration",
+        "python -m pytest -s -v -rA hermes/tests/e2e -m restauration"], lancements["restauration"]
+    assert 'ACP_E2E_OBLIGATOIRE: "1"' in travaux["restauration"]
+    assert "timeout-minutes: 90" in travaux["restauration"]
+    # Le job « montee » ne lance que les tests de montée (cahier § 5.6).
+    assert lancements["montee"] == ["python -m pytest -s -v -rA hermes/tests/contrat -m montee"], lancements["montee"]
+
+
+def test_image_yml_montee_de_donnees_a_la_main_seulement():
+    """Étape P9 (cahier § 5.6, décision P9-4) : job « montee » sur workflow_dispatch seulement, entrée ref_avant lue une
+    fois comme variable et validée ; quand elle est donnée, les jobs « image » et « restauration » ne tournent pas ; les
+    images « avant » viennent d'une copie de travail détachée de ref_avant, sous les noms que lit le test ; le résumé
+    dit « migration de schéma : … » même quand le test n'a rien écrit."""
+    flux = lire(RACINE / ".github" / "workflows" / "image.yml")
+    entree = flux[flux.index("  workflow_dispatch:\n"):flux.index("  pull_request:\n")]
+    assert "      ref_avant:\n" in entree and entree.count('default: ""') == 2
+    travaux = _travaux_d_image_yml()
+    montee = travaux["montee"]
+    assert "    if: github.event_name == 'workflow_dispatch' && inputs.ref_avant != ''\n" in montee
+    for nom in ("image", "restauration"):
+        assert "    if: github.event_name != 'workflow_dispatch' || inputs.ref_avant == ''\n" in travaux[nom], nom
+    assert flux.count("${{ inputs.ref_avant }}") == 1 and "      REF_AVANT: ${{ inputs.ref_avant }}\n" in montee
+    assert "fetch-depth: 0" in montee and "timeout-minutes: 90" in montee
+    assert r'[[ "$REF_AVANT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || [[ "$REF_AVANT" == *..* ]]' in montee
+    assert montee.count("exit 2") == 3
+    assert 'git worktree add --detach "$ACP_RACINE_AVANT" "$avant"' in montee
+    test = lire(RACINE / "hermes" / "tests" / "contrat" / "test_montee_de_donnees.py")
+    for variable in ("ACP_IMAGE_TESTS_AVANT", "ACP_IMAGE_EXECUTANT_FACTICE_AVANT", "ACP_IMAGE_TESTS",
+                     "ACP_IMAGE_EXECUTANT_FACTICE", "ACP_RACINE_AVANT", "ACP_MONTEE_DOSSIER"):
+        assert f"      {variable}: " in montee and f'"{variable}"' in test, variable
+    assert '--build-arg IMAGE_ACP="$ACP_IMAGE_AVANT"' in montee and '-t "$ACP_IMAGE_TESTS_AVANT"' in montee
+    assert '-t "$ACP_IMAGE_EXECUTANT_FACTICE_AVANT" "$ACP_RACINE_AVANT"' in montee
+    resume = montee[montee.index("- name: Migration de schéma (résumé du job)"):]
+    assert resume.splitlines()[1].strip() == "if: always()"
+    assert '"$ACP_MONTEE_DOSSIER/resume.md"' in resume and "migration de schéma : inconnue" in resume
+    assert 'f"migration de schéma : {' in test
 
 
 def test_railway_en_lf():

@@ -12,6 +12,22 @@ import meta
 from conftest import executer_python
 
 GREFFON = Path("/opt/hermes/plugins/acp-poste")
+
+
+def _lire_version_epinglee() -> dict:
+    """Étape P9 : valeurs attendues lues dans le fichier d'épingle de l'image (copie de hermes/contrat/HERMES_VERSION),
+    jamais écrites en dur (scripts/tests/test_epingles_hermes.py) ; lecture indépendante de meta.lire_cles_valeurs."""
+    valeurs = {}
+    for ligne in Path("/opt/acp/contrat/HERMES_VERSION").read_text(encoding="utf-8").splitlines():
+        ligne = ligne.strip()
+        if ligne and not ligne.startswith("#") and "=" in ligne:
+            cle, _, valeur = ligne.partition("=")
+            valeurs[cle] = valeur
+    return valeurs
+
+
+EPINGLE = _lire_version_epinglee()
+
 _ETAT_GARDE_REEL = meta.etat_garde_execution
 GARDE_PRESENTE = {
     "processus": meta.LIBELLE_PROCESSUS, "decouverte": "reussie", "erreur_decouverte": None, "enregistree": True,
@@ -24,8 +40,8 @@ CATALOGUE_CONFORME = {"verrou_sha256": "0" * 64, "skills_actives": 16, "skills_a
 MACHINE_CONFORME = {"fournisseur": "enregistre", "chemins_a_jeton": {}, "fournisseurs_de_session": ["self-hosted"],
                     "base": "ok", "machines": {"a_confirmer": 0, "actif": 0, "revoque": 0}, "codes_utilisables": 0,
                     "dernier_inventaire": None}
-INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0", "acp-projets": "0.11.0",
-                          "acp-poste-vues": "0.11.0", "acp-discussion": "0.11.0"},
+INTERFACE = {"greffons": {"acp-interface": "1.0.0", "acp-catalogue": "1.0.0", "acp-projets": "1.0.0",
+                          "acp-poste-vues": "1.0.0", "acp-discussion": "1.0.0"},
              "sdk_attendu": "1.x"}
 
 
@@ -53,15 +69,14 @@ def _sources(tmp_path: Path, etat: object = None) -> "meta.SourcesMeta":
 def test_la_meta_decrit_le_contrat_et_les_versions(tmp_path):
     donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}, "greffons_utilisateur": {}}))
     assert donnees["contrat"] == "acp-poste/1"
-    assert donnees["greffon"] == {"nom": "acp-poste", "version": "0.11.0"}
-    assert donnees["hermes"]["version"] == "0.21.5"
-    assert donnees["hermes"]["version_testee"] == "0.21.5"
+    assert donnees["greffon"] == {"nom": "acp-poste", "version": "1.0.0"}
+    assert donnees["hermes"]["version"] == EPINGLE["HERMES_VERSION"]
+    assert donnees["hermes"]["version_testee"] == EPINGLE["HERMES_VERSION"]
     assert donnees["hermes"]["conforme"] is True
-    assert donnees["hermes"]["commit"] == "f97608f178d1ffeca59860195ab7da295f7c8e5f"
-    assert donnees["image"]["condensat_index"] == (
-        "sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7")
-    assert donnees["openrpc"]["info_version"] == "1"
-    assert donnees["openrpc"]["methodes"] == 237
+    assert donnees["hermes"]["commit"] == EPINGLE["HERMES_COMMIT"]
+    assert donnees["image"]["condensat_index"] == EPINGLE["HERMES_IMAGE_INDEX"]
+    assert donnees["openrpc"]["info_version"] == EPINGLE["OPENRPC_INFO_VERSION"]
+    assert donnees["openrpc"]["methodes"] == int(EPINGLE["OPENRPC_METHODES"])
     assert donnees["openrpc"]["identique"] is True
     assert donnees["catalogue"] == CATALOGUE_CONFORME and donnees["interface"] == INTERFACE
     assert donnees["alertes"] == []

@@ -1,7 +1,13 @@
 # Sécurité du client desktop natif (station de travail)
 
 État du 2 octobre 2026, version **0.11.0**, étape **P8** de la refonte « Hermes au centre »
-(branche `refonte/hermes-p8`, non fusionnée). Ce document décrit le code, ses frontières
+(branche `refonte/hermes-p8`, fusionnée dans `refonte/hermes` par la PR #20, `b715edb`, le
+2 octobre 2026). L'étape **P8b** (station alignée sur P7, PR #22, `8583642`, 9 octobre 2026)
+n'a modifié ni la connexion native (`src/auth`), ni le stockage, ni la sauvegarde ; ses nouvelles
+lectures, dont le flux d'invalidation, passent par le client du greffon (`ClientGreffonPoste`), et
+le flux porteur d'`ApiClient` n'admet en plus que des en-têtes de lecture (`Last-Event-ID`), jamais
+`Authorization`, `Cookie` ni `Origin` : voir [l'architecture](native-desktop-architecture.md). Ce
+document n'a pas été modifié par P8b. Il décrit le code, ses frontières
 et ses limites ; il n'est ni une certification ni une revue de sécurité indépendante.
 Architecture : [`native-desktop-architecture.md`](native-desktop-architecture.md).
 

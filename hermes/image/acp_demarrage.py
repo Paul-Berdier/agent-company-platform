@@ -37,7 +37,7 @@ Commandes, exécutées en root par l'interpréteur de Hermes
     Garde root en tête des scripts ``run`` du tableau de bord et des passerelles (variables
     interdites du volume ; depuis P3, serveurs MCP stdio ou hors catalogue).
 
-Chantier SECU-TUI (décisions provisoires SECU-1 et SECU-2) : ``gardes``, ``donnees`` et
+Chantier SECU-TUI (décisions SECU-1 et SECU-2, D156 et D157 du plan) : ``gardes``, ``donnees`` et
 ``verifier-relance`` retirent des ``.env`` et ``.op.env`` du volume (racine et profils) toute clé
 épinglée par ``/etc/hermes/.env``, que Hermes publierait un instant avant la portée gérée, et
 refusent toute source externe de secrets activée dans un ``config.yaml`` du volume.
@@ -724,6 +724,8 @@ def generer_config_geree(modele: str, valeurs: ValeursDeploiement) -> str:
 # Managed scope : /etc/hermes/.env
 # ---------------------------------------------------------------------------------------------
 
+# Citations de Hermes 0.21.5 dans ce bloc (env_loader.py, secret_sources, secret_scope) : à revérifier à chaque
+# montée, listées par « monter_hermes.py inventaire » grâce à cette ligne (docs/exploitation.md § 6.3, point 3).
 # Épinglées vides : le fournisseur correspondant ne peut pas être configuré par
 # /opt/data/.env, chargé avec override=True (hermes_cli/env_loader.py:433-435) avant la
 # managed scope, appliquée en dernier (env_loader.py:473 et 503-518).
@@ -820,6 +822,8 @@ def texte_env_gere(contenu: Mapping[str, str]) -> str:
     return "\n".join(lignes) + "\n"
 
 
+# Citations de Hermes 0.21.5 dans ce bloc (env_loader.py, secret_sources, secret_scope) : à revérifier à chaque
+# montée, listées par « monter_hermes.py inventaire » grâce à cette ligne (docs/exploitation.md § 6.3, point 3).
 def relire_env(chemin: Path) -> Dict[str, Optional[str]]:
     """Relit un .env avec python-dotenv, l'analyseur que Hermes emploie (env_loader.py:284-287)."""
     from dotenv import dotenv_values
@@ -831,6 +835,8 @@ def relire_env(chemin: Path) -> Dict[str, Optional[str]]:
 # Variables interdites injectées dans /opt/data (défense contre l'agent)
 # ---------------------------------------------------------------------------------------------
 
+# Citations de Hermes 0.21.5 dans ce bloc (env_loader.py, secret_sources, secret_scope) : à revérifier à chaque
+# montée, listées par « monter_hermes.py inventaire » grâce à cette ligne (docs/exploitation.md § 6.3, point 3).
 # /opt/data/.env est écrit par l'agent et Hermes le charge avec override=True AVANT la managed
 # scope (env_loader.py:433-435 puis 473) ; .op.env aussi (override=False, env_loader.py:441-443).
 # Les variables neutres (greffons, mandataires…) sont épinglées à vide dans /etc/hermes/.env et
@@ -931,6 +937,8 @@ def raison_refus_dans_le_volume(nom: str) -> Optional[str]:
     return None
 
 
+# Citations de Hermes 0.21.5 dans ce bloc (env_loader.py, secret_sources, secret_scope) : à revérifier à chaque
+# montée, listées par « monter_hermes.py inventaire » grâce à cette ligne (docs/exploitation.md § 6.3, point 3).
 # Fichiers d'environnement que Hermes charge depuis un HERMES_HOME (racine du volume ou profil), tous deux AVANT
 # la portée gérée : .env (override=True, env_loader.py:433-436) et .op.env (override=False, env_loader.py:441-443,
 # tant que OP_SERVICE_ACCOUNT_TOKEN est absent). Chantier SECU-TUI : .op.env n'était pas inspecté, et
@@ -1007,8 +1015,11 @@ def refuser_variables_du_volume(chemins: Chemins) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# SECU-1 (décision provisoire, chantier SECU-TUI) : aucune clé épinglée dans un .env du volume
+# SECU-1 (D156 du plan, chantier SECU-TUI) : aucune clé épinglée dans un .env du volume
 # ---------------------------------------------------------------------------------------------
+#
+# Citations de Hermes 0.21.5 dans ce bloc (env_loader.py, secret_sources, secret_scope) : à revérifier à chaque
+# montée, listées par « monter_hermes.py inventaire » grâce à cette ligne (docs/exploitation.md § 6.3, point 3).
 #
 # Constat du run Image Hermes 37784838264 (tentative 1) : après un redémarrage du conteneur, une session du
 # tableau de bord a reçu terminal, file et code_execution, la valeur de HERMES_TUI_TOOLSETS écrite dans
@@ -1034,6 +1045,8 @@ _LIMITE_ENV = 1024 * 1024
 _TOURS_MAX_RETRAIT = 8
 
 
+# Citations de Hermes 0.21.5 dans ce bloc (env_loader.py, secret_sources, secret_scope) : à revérifier à chaque
+# montée, listées par « monter_hermes.py inventaire » grâce à cette ligne (docs/exploitation.md § 6.3, point 3).
 def decoder_env_comme_hermes(brut: bytes, fichier: Path) -> str:
     """Texte d'un .env tel que Hermes le lit : UTF-16 avec BOM réécrit (env_loader.py:347-355), sinon UTF-8 avec
     ou sans BOM, repli latin-1 (env_loader.py:273-281 ; agent/secret_scope.py:305-313) ; octets NUL retirés
@@ -1290,9 +1303,11 @@ def informer_neutralisation(rapport: List[Tuple[Path, List[str]]], moment: str) 
 
 
 # ---------------------------------------------------------------------------------------------
-# SECU-2 (décision provisoire, chantier SECU-TUI) : aucune source externe de secrets depuis le volume
+# SECU-2 (D157 du plan, chantier SECU-TUI) : aucune source externe de secrets depuis le volume
 # ---------------------------------------------------------------------------------------------
 #
+# Citations de Hermes 0.21.5 dans ce bloc (env_loader.py, secret_sources, secret_scope) : à revérifier à chaque
+# montée, listées par « monter_hermes.py inventaire » grâce à cette ligne (docs/exploitation.md § 6.3, point 3).
 # La section ``secrets`` du config.yaml du volume est lue SANS la portée gérée (env_loader.py:620-640, par
 # read_raw_config) au premier chargement de l'environnement de CHAQUE processus de Hermes (env_loader.py:471-472).
 # La source « command » lance ``/bin/sh -c <commande>`` (agent/secret_sources/command.py:61-80 et 168-182) ; les

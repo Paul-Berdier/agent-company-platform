@@ -31,3 +31,33 @@ Une montée de Hermes change, dans une seule PR : la ligne `FROM` de
 `hermes/image/Dockerfile`, `HERMES_VERSION` et la copie de l'OpenRPC (relevée dans la
 nouvelle image). Jamais de `hermes update`, de `git pull` de Hermes, d'étiquette
 `:latest` ni d'`AUTO_UPDATE`.
+
+Outil (étape P9) : `scripts/monter_hermes.py` (bibliothèque standard, `docker` et `git`).
+
+- `derniere` : dernière release publiée à la fois en étiquette git amont et sur Docker Hub
+  (veille mensuelle), sous l'une des deux formes de l'amont, `vAAAA.M.J[.N]` jusqu'à
+  `v2026.9.24`, `vX.Y.Z` depuis v0.21.6 ; candidates (`rc.N-…`) et canaris écartés, toute
+  autre forme publiée refusée ; n'écrit rien.
+- `ecrire <étiquette>` : relève la release (condensats, commit, image tirée par condensat ;
+  refus si l'image n'est pas construite depuis le commit de l'étiquette) et
+  réécrit toutes les épingles fortes, dont ce dossier, le bloc `hermes` et
+  `livrees.instantane_hermes` du verrou du catalogue, `hermes/THIRD_PARTY.md` et les fixtures
+  `/v1/meta` du desktop et de l'interface ; rapporte les méthodes OpenRPC ajoutées et retirées,
+  les skills livrées à classer et l'inventaire des anciennes valeurs. Ne touche jamais la borne
+  `requires_hermes` du greffon.
+- `verifier` : relève sans rien écrire et compare chaque épingle forte, octet pour octet ;
+  `image.yml` le lance à chaque construction (répétition à blanc : « Aucun écart »).
+- `inventaire` : fixtures de faux serveur et citations « Hermes X.Y.Z … fichier:ligne » à
+  revérifier à la main dans la PR de montée.
+
+La PR de montée revérifie aussi, à la main, le correctif de sécurité SECU-TUI (D156, D157)
+contre la nouvelle release : fichiers d'environnement chargés avant la portée gérée, leur
+ordre, leur décodage et leurs analyseurs ; règle d'activation des sources externes de
+secrets ; liste des noms que l'écrivain de `.env` de Hermes refuse ; variables que l'ENV de
+l'image amont fixe, face à `VALEURS_IMPOSEES`. Liste et renvois : `docs/exploitation.md`
+§ 6.3, point 3. La CI voit un comportement connu qui change, une variable nouvelle dans l'ENV
+de l'image et un fichier d'environnement de plus chargé depuis `HERMES_HOME` (deux gardes de
+dérive) ; les autres ajouts de l'amont, non.
+
+La concordance de toutes ces copies est vérifiée hors ligne par
+`scripts/tests/test_epingles_hermes.py` (CI, Linux et Windows).

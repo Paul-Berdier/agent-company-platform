@@ -36,7 +36,7 @@ def test_a_confirmer_ne_compte_pas(noyau, conn):
     _horloge(noyau, debut)
     code = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
     with noyau.base.transaction(conn):
-        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="Poste", version_poste="0.11.0",
+        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="Poste", version_poste="1.0.0",
                                               protocole=PROTOCOLE)
         # Présence posée à la main (la route n'en écrit jamais pour un poste à confirmer) : elle ne compte pas.
         noyau.presence.enregistrer_dans(conn, reponse["machine_id"], "longpoll")
@@ -107,7 +107,7 @@ def test_etats_du_poste(noyau, conn):
     assert noyau.presence.etat_poste(conn)["etat"] == "non_configure"
     code = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
     with noyau.base.transaction(conn):
-        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="Poste", version_poste="0.11.0",
+        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="Poste", version_poste="1.0.0",
                                               protocole=PROTOCOLE)
     assert noyau.presence.etat_poste(conn)["etat"] == "a_confirmer"
     noyau.machines.confirmer(conn, reponse["machine_id"], reponse["empreinte"], "proprietaire:test")

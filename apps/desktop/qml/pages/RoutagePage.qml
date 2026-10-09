@@ -74,10 +74,14 @@ Item {
             }
 
             Discret {
-                text: qsTr("Chaque étape d'un projet part vers la première entrée admise de sa classe. Les listes "
-                           + "viennent du relevé du poste ; rien n'est deviné, et ce que le poste interdit reste "
-                           + "interdit. La station applique les suggestions et valide la table ; l'édition libre, les "
-                           + "nouvelles surcharges et les interdits côté Hermes se modifient dans le navigateur.")
+                text: qsTr("Une étape d'un projet suit, dans cet ordre : la surcharge active du projet ou de la "
+                           + "carte ; sinon le choix explicite (exécutant et modèle de l'exploration choisis dans "
+                           + "« Nouveau projet », ou fixés par Hermes dans son plan) ; sinon la première entrée admise "
+                           + "de sa classe dans cette table, Hermes faisant lui-même les étapes d'un projet sans dépôt "
+                           + "qui l'admettent. Les listes viennent du relevé du poste ; rien n'est deviné, et ce que le "
+                           + "poste interdit reste interdit. La station applique les suggestions et valide la table ; "
+                           + "l'édition libre, les nouvelles surcharges et les interdits côté Hermes se modifient dans "
+                           + "le navigateur.")
             }
             EtatLecture {
                 Layout.fillWidth: true

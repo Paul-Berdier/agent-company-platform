@@ -39,7 +39,8 @@ const PREFIXE_REFUS = "[acp] REFUS (.railway/railway.ts) : ";
 // Valeurs ATTENDUES, écrites ici indépendamment de railway.ts : toute modification de l'un exige
 // la modification consciente de l'autre, dans la même PR.
 const DEPOT = "Paul-Berdier/agent-company-platform";
-const BRANCHE = "refonte/hermes";
+// Branche déployée : main depuis la décision du propriétaire du 09/10/2026 (D164), qui remplace refonte/hermes.
+const BRANCHE = "main";
 const REGION = "europe-west4-drams3a";
 const GABARITS = { LIBELLE_HERMES: "<libellé-hermes>", LIBELLE_IDENTITE: "<libellé-identite>" };
 const ESSAI = { LIBELLE_HERMES: "essai-hermes-acp", LIBELLE_IDENTITE: "essai-identite-acp" };

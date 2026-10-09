@@ -12,13 +12,16 @@ Sur un réseau Docker JETABLE :
 
 hermes-acp.test et identite-acp.test ont des domaines enregistrables DISTINCTS, comme deux
 sous-domaines de up.railway.app (suffixe public) : le navigateur les traite en sites différents.
-Tout ce qui est créé porte le préfixe ``acp-contrat-<aléa>`` et est supprimé par ``nettoyer()``.
+Tout ce qui est créé porte le préfixe ``acp-contrat-<aléa>`` (``acp-contrat-<étiquette>-<aléa>`` si
+``ACP_CONTRAT_ETIQUETTE`` est posée : voir ``prefixe_jetable``) et est supprimé par ``nettoyer()``.
 Le mot de passe ci-dessous n'existe que pour ces tests.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import time
 import uuid
@@ -26,6 +29,19 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 RACINE_DEPOT = Path(__file__).resolve().parents[3]
+
+
+def prefixe_jetable() -> str:
+    """Préfixe des conteneurs, volumes et réseaux d'une pile de test : ``acp-contrat-<aléa>``.
+
+    Étape P9 : sur un poste dont le Docker est partagé par plusieurs suites lancées en même temps,
+    ``ACP_CONTRAT_ETIQUETTE`` (1 à 12 caractères parmi a-z et 0-9) donne ``acp-contrat-<étiquette>-<aléa>`` : chaque
+    suite reconnaît et nettoie ses ressources sans toucher à celles des autres. Les filtres de nettoyage de la CI
+    (« name=acp-contrat- ») les couvrent toujours. Toute autre valeur est refusée : jamais un nom imprévu."""
+    etiquette = os.environ.get("ACP_CONTRAT_ETIQUETTE", "").strip()
+    if etiquette and not re.fullmatch(r"[a-z0-9]{1,12}", etiquette):
+        raise ValueError(f"ACP_CONTRAT_ETIQUETTE refusée : {etiquette!r} (1 à 12 caractères parmi a-z et 0-9).")
+    return f"acp-contrat-{etiquette + '-' if etiquette else ''}{uuid.uuid4().hex[:8]}"
 
 HOTE_HERMES = "hermes-acp.test"
 HOTE_IDENTITE = "identite-acp.test"
@@ -106,7 +122,7 @@ class Pile:
     """Conteneurs, volumes et réseaux créés ; tout est supprimé par nettoyer()."""
 
     def __init__(self) -> None:
-        self.prefixe = f"acp-contrat-{uuid.uuid4().hex[:8]}"
+        self.prefixe = prefixe_jetable()
         self.conteneurs: List[str] = []
         self.volumes: List[str] = []
         self.reseaux: List[str] = []
@@ -186,12 +202,13 @@ class Pile:
     # ------------------------------------------------------------------ hermes
 
     def lancer_hermes(self, image_tests: str, reseau: str, env: Optional[Dict[str, str]] = None,
-                      fichiers: Optional[Dict[str, str]] = None) -> str:
+                      fichiers: Optional[Dict[str, str]] = None, volume: Optional[str] = None) -> str:
         """``fichiers`` : fichiers déposés dans le volume jetable AVANT le démarrage (étape P4 : le
-        config.yaml du modèle factice), rendus à l'uid hermes comme sur un volume déjà utilisé."""
+        config.yaml du modèle factice), rendus à l'uid hermes comme sur un volume déjà utilisé.
+        ``volume`` (étape P9) : volume déjà garni (restauré) au lieu d'un volume neuf."""
         nom = self.nom("hermes")
         self.conteneurs.append(nom)
-        volume = self.volume()
+        volume = volume or self.volume()
         for chemin, contenu in (fichiers or {}).items():
             cible = f"/opt/data/{chemin}"
             docker("run", "--rm", "-i", "-v", f"{volume}:/opt/data", "--entrypoint", "sh", image_tests, "-c",

@@ -36,7 +36,8 @@ propriétaire (``consigne_relance``, ``relancee_le``) et la consigne d'origine g
 (``consigne_initiale``). Les colonnes v4 s'ajoutent APRÈS les reconstructions v3 : la reconstruction v3 de
 ``demandes`` ne recopie que les colonnes de sa forme explicite (``DEMANDES_V3``) et perdrait une colonne ajoutée avant
 elle. La forme v4 de ``notifications`` est complète (aucune colonne nouvelle) ; aucune reconstruction v4 de
-``demandes`` (aucune contrainte élargie).
+``demandes`` (aucune contrainte élargie). Étape P9 : une reconstruction garde le compteur ``AUTOINCREMENT`` de la table
+(:func:`reconstruire_dans`).
 """
 
 from __future__ import annotations
@@ -443,16 +444,33 @@ def _sql_de_la_table(conn: sqlite3.Connection, table: str) -> str:
     return str(ligne[0]) if ligne and ligne[0] else ""
 
 
+def _compteur_autoincrement(conn: sqlite3.Connection, table: str) -> Optional[int]:
+    """Compteur ``AUTOINCREMENT`` de ``table`` (``sqlite_sequence``), ``None`` s'il n'y en a pas."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'").fetchone() is None:
+        return None
+    ligne = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = ?", (table,)).fetchone()
+    return int(ligne[0]) if ligne else None
+
+
 def reconstruire_dans(conn: sqlite3.Connection, table: str, forme: str, index: tuple) -> None:
     """Reconstruit ``table`` selon ``forme`` (contrainte ``CHECK`` élargie), SOUS la transaction de l'appelant :
-    table neuve, copie de toutes les lignes colonne par colonne, ``DROP``, ``RENAME``, index recréés."""
+    table neuve, copie de toutes les lignes colonne par colonne, ``DROP``, ``RENAME``, index recréés.
+
+    Étape P9 (montée de données, run 37782764948) : le compteur ``AUTOINCREMENT`` de la table est GARDÉ. ``DROP`` efface
+    sa ligne de ``sqlite_sequence`` et la table neuve repartirait du plus grand identifiant recopié (mesuré : 7 → 5
+    pour ``notifications``), alors que les numéros au-delà ont déjà été consommés (un ``INSERT OR IGNORE`` ignoré en
+    consomme un) ; ``AUTOINCREMENT`` promet qu'un numéro consommé ne resert jamais."""
     neuve = f"{table}_v3"
+    compteur = _compteur_autoincrement(conn, table)
     conn.execute(f"DROP TABLE IF EXISTS {neuve}")
     conn.execute(forme.format(nom=neuve))
     colonnes = ", ".join(str(l[1]) for l in conn.execute(f"PRAGMA table_info({neuve})").fetchall())
     conn.execute(f"INSERT INTO {neuve} ({colonnes}) SELECT {colonnes} FROM {table}")
     conn.execute(f"DROP TABLE {table}")
     conn.execute(f"ALTER TABLE {neuve} RENAME TO {table}")
+    if compteur is not None:
+        if conn.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?", (compteur, table)).rowcount == 0:
+            conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", (table, compteur))
     for instruction in index:
         conn.execute(instruction)
 

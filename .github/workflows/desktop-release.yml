@@ -8,8 +8,9 @@ name: Desktop Release
 # défaut de GitHub Actions, et aucune étape de ce workflow ne le contourne par
 # `continue-on-error`.
 #
-# Ce workflow n'a jamais été exercé : aucune étiquette v0.8.0 ni v0.9.0 n'existe
-# dans ce dépôt au moment où il est écrit.
+# Ce workflow n'a jamais été exercé : aucun run au 9 octobre 2026 ; premier
+# déclenchement attendu à l'étiquette v1.0.0 (brouillon non signé, D131 de
+# docs/refonte/plan.md).
 
 "on":
   push:

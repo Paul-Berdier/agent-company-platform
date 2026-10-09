@@ -53,7 +53,7 @@ def test_bon_jeton_principal_machine(jm, noyau, conn):
 def test_poste_a_confirmer_reconnu(jm, noyau, conn):
     code = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
     with noyau.base.transaction(conn):
-        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="P", version_poste="0.11.0",
+        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="P", version_poste="1.0.0",
                                               protocole=PROTOCOLE)
     principal = _fournisseur(jm).verify_token(token=reponse["jeton"])
     assert principal.principal == f"acp-poste:{reponse['machine_id']}" and principal.scopes == ("machine",)
@@ -64,7 +64,7 @@ def test_code_principal_enrolement(jm, noyau, conn):
     principal = _fournisseur(jm).verify_token(token=code)
     assert principal.principal == f"enrolement:{empreinte_jeton(code)[:12]}" and principal.scopes == ("enrolement",)
     with noyau.base.transaction(conn):
-        noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="P", version_poste="0.11.0", protocole=PROTOCOLE)
+        noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom="P", version_poste="1.0.0", protocole=PROTOCOLE)
     assert _fournisseur(jm).verify_token(token=code) is None  # usage unique
     code2 = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
     debut = noyau.base.maintenant()
@@ -105,7 +105,7 @@ def test_comparaison_a_temps_constant(jm, noyau, conn, monkeypatch):
     with noyau.base.transaction(conn):
         for i in (1, 2):
             conn.execute("INSERT INTO machines (id, nom, empreinte_jeton, etat, protocole, version_poste, cree_le) "
-                         "VALUES (?, 'x', ?, 'a_confirmer', 'acp-machine/1', '0.11.0', 0)",
+                         "VALUES (?, 'x', ?, 'a_confirmer', 'acp-machine/1', '1.0.0', 0)",
                          (f"m0000000000{i}", str(i) * 64))
     appels = []
 

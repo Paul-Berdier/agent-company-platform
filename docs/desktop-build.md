@@ -24,7 +24,7 @@ sur `2bce7b8` et `37841198696` sur `9bec3e5` (corrections de la relecture), `378
 sur `662435a`, `37875463386` sur `afa4f8f` et `37876255274` sur `ac31836` (seconde
 relecture) ; tous les runs de P8b sont listés dans
 [`refonte/desktop.md`](refonte/desktop.md), § « P8b ». Ceux de P8 (34 suites) sont dans
-[`reprise-poste.md`](reprise-poste.md), § 6 decies. Le **bout en bout local** contre la pile
+[l'historique de la refonte](refonte/historique.md), partie B, § 6 decies. Le **bout en bout local** contre la pile
 de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi pour **P8**, le
 2 octobre 2026 (§ 12) ; il n'a **pas été rejoué** sur P8b (§ 11, point 5). Ni Railway, ni
 une vraie passkey, ni une installation sur un Windows propre ne sont prouvés.
@@ -49,7 +49,7 @@ changement de version doit mettre à jour la chaîne épinglée et ses preuves.
 Qt WebSockets (LGPLv3, comme les autres modules employés) porte la passerelle JSON-RPC
 de Hermes et la veille du kanban ; aucune autre voie native n'existe pour `/api/ws`.
 Installation par aqtinstall, dans l'environnement d'outillage séparé
-([`reprise-poste.md`](reprise-poste.md), § 7) :
+([`reprise-poste.md`](reprise-poste.md), § 4) :
 
 ```powershell
 aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtwebsockets --outputdir "$env:USERPROFILE\Qt"

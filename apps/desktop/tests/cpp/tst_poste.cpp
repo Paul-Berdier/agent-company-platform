@@ -180,7 +180,7 @@ void TestPoste::inventaireLibelle()
     const QVariantMap machine = PosteViewModel::construireMachine(vue);
     QCOMPARE(machine.value(QStringLiteral("presente")).toBool(), true);
     QCOMPARE(machine.value(QStringLiteral("nom")).toString(), QStringLiteral("Poste Windows"));
-    QCOMPARE(machine.value(QStringLiteral("versionPoste")).toString(), QStringLiteral("0.11.0"));
+    QCOMPARE(machine.value(QStringLiteral("versionPoste")).toString(), QStringLiteral("1.0.0"));
     QCOMPARE(machine.value(QStringLiteral("protocole")).toString(), QStringLiteral("acp-machine/1"));
 
     const QVariantMap inventaire = PosteViewModel::construireInventaire(vue);

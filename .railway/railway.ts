@@ -46,9 +46,11 @@ import { defineRailway, github, preserve, project, service, volume } from "railw
 
 const DEPOT = "Paul-Berdier/agent-company-platform";
 
-// Décision du propriétaire (25/09/2026) : la branche déployée est refonte/hermes, après la fusion
-// de P2. Railway construit chaque commit poussé sur cette branche, après « Wait for CI ».
-const BRANCHE = "refonte/hermes";
+// Décision du propriétaire (09/10/2026, D164), avec la fusion de 1.0.0 : la branche déployée est main ;
+// elle remplace celle du 25/09/2026 (refonte/hermes, après la fusion de P2). Railway construit chaque
+// commit poussé sur cette branche, après « Wait for CI ». Avant la fusion de 1.0.0, main porte encore
+// l'ancienne plateforme (sans ce fichier) : aucun apply avant elle (docs/refonte/railway.md § 4).
+const BRANCHE = "main";
 
 // Seul projet admis (relecture P2) : ce fichier décrit un projet ENTIER ; évalué pour un autre projet
 // lié par erreur (lien interactif, homonyme d'un autre espace), le plan y supprimerait tout ce qui
