@@ -76,7 +76,7 @@ import tempfile
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional, Tuple
 
 import yaml
 
@@ -838,8 +838,9 @@ def relire_env(chemin: Path) -> Dict[str, Optional[str]]:
 # (chantier SECU-TUI) : root la retire donc des .env du volume (SECU-1, plus bas). HERMES_MANAGED_DIR,
 # elle, choisit QUELLE managed scope est lue (managed_scope.py:52) : aucune épingle ne peut la
 # contrer, puisque la managed .env qui la contrerait n'est plus consultée. On refuse donc, au
-# démarrage ET à chaque relance des services, toute variable de cette liste trouvée dans un .env ou
-# un .op.env du volume (racine et profiles/*). Une source externe de secrets du config.yaml du volume
+# démarrage ET à chaque relance des services, toute variable de cette liste (et de la famille
+# d'emplacement et d'exécution plus bas) trouvée dans un .env ou un .op.env du volume (racine et
+# profiles/*), lu comme Hermes le lit. Une source externe de secrets du config.yaml du volume
 # pourrait aussi la poser : elle est refusée (SECU-2).
 #
 # La liste est étroite À DESSEIN : elle ne contient QUE des variables qui font échapper l'agent à la
@@ -858,7 +859,76 @@ VARIABLES_VOLUME_INTERDITES: Dict[str, str] = {
     "HERMES_ENABLE_PROJECT_PLUGINS": (
         "elle servirait le JS de l'agent au navigateur authentifié du propriétaire "
         "(web_server_dashboard.py:502-503)"),
+    # Audit défensif du 9 octobre 2026 (manque 1). Hermes publie HERMES_HOME du volume puis la SUIT
+    # (hermes_constants.py:112-119 et 161-170) : config.yaml, .env et hooks/ seraient lus ensuite dans un
+    # répertoire qu'aucune garde n'inspecte. Elle ne peut pas être épinglée : un profil tourne avec son propre
+    # HERMES_HOME (/opt/data/profiles/<nom>), que la portée gérée, commune, écraserait.
+    "HERMES_HOME": (
+        "Hermes la publierait puis la suivrait (hermes_constants.py:112-119) : sa configuration, ses .env et "
+        "ses crochets seraient lus dans un répertoire qu'aucune garde n'inspecte ; elle ne peut pas être "
+        "épinglée, chaque profil ayant son propre HERMES_HOME"),
 }
+
+# Audit défensif du 9 octobre 2026 (manque 1) : variables d'EMPLACEMENT et d'EXÉCUTION. Hermes publie chaque
+# ligne d'un .env du volume (override=True) ; une variable qui choisit un répertoire ou un programme serait
+# ensuite suivie par Hermes ou par les sous-processus qu'il lance. La famille vient de deux sources, aucune
+# inventée ici :
+#  - les valeurs que l'image fixe à tout le conteneur (VALEURS_IMPOSEES : interface servie au navigateur,
+#    programme de l'interface en terminal, cible des installations paresseuses, racine d'écriture sûre,
+#    répertoire d'exécution, écoute du tableau de bord…) ;
+#  - les noms que l'écrivain de .env de Hermes refuse LUI-MÊME (hermes_cli/config.py:62-117 de Hermes 0.21.5,
+#    _ENV_VAR_NAME_DENYLIST et _ENV_VAR_NAME_DENY_PREFIXES : « influence subprocess execution or Hermes runtime
+#    location »), recopiés ci-dessous ; Hermes n'applique ce refus qu'à l'ÉCRITURE (save_env_value), jamais au
+#    chargement. Un test de l'image exige que la copie contienne la liste de la version épinglée.
+# Hermes ne les écrit donc jamais dans un .env (son écrivain les refuse ; stage2-hook.sh n'écrit que
+# API_SERVER_KEY et les adresses Nous) et le .env.example semé n'en porte aucune : les refuser ne bloque aucun
+# démarrage légitime. Les clés que la portée gérée épingle en sont exclues : SECU-1 les retire (plus bas).
+NOMS_REFUSES_PAR_L_ECRIVAIN_DE_HERMES: FrozenSet[str] = frozenset({
+    "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
+    "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+    "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
+    "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE",
+    "PYTHONEXECUTABLE", "PYTHONNOUSERSITE", "PYTHONBREAKPOINT", "PYTHONCASEOK",
+    "NODE_OPTIONS", "NODE_PATH",
+    "PERL5OPT", "PERL5LIB", "PERLLIB", "RUBYOPT", "RUBYLIB", "CLASSPATH",
+    "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS",
+    "GOFLAGS", "RUSTFLAGS",
+    "PATH", "SHELL", "BROWSER", "EDITOR", "VISUAL", "PAGER", "MANPAGER",
+    "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_SHELL",
+    "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SUDO_ASKPASS",
+    "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER", "GIT_EXTERNAL_DIFF",
+    "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR", "GIT_DIR",
+    "BASH_ENV", "ENV", "ZDOTDIR", "PROMPT_COMMAND", "VIMINIT", "EXINIT",
+    "HERMES_HOME", "HERMES_PROFILE", "HERMES_CONFIG", "HERMES_ENV",
+    "HERMES_CONFIG_PATH", "HERMES_ENV_PATH",
+    "HERMES_OPTIONAL_MCPS",
+    "HERMES_COPILOT_ACP_COMMAND", "HERMES_COPILOT_ACP_ARGS",
+    "HERMES_YOLO_MODE", "HERMES_ACCEPT_HOOKS", "HERMES_REDACT_SECRETS",
+    "HERMES_INTERACTIVE", "HERMES_EXEC_ASK", "HERMES_GATEWAY_SESSION",
+    "HERMES_CRON_SESSION", "HERMES_SINGLE_QUERY_SESSION",
+    "HERMES_SESSION_KEY", "HERMES_SESSION_PLATFORM"})
+PREFIXES_REFUSES_PAR_L_ECRIVAIN_DE_HERMES: Tuple[str, ...] = ("LD_", "DYLD_", "GIT_CONFIG_")
+
+# Clés que la portée gérée épingle quel que soit le déploiement (marqueurs OIDC compris) : SECU-1 les retire du
+# volume au lieu de refuser le démarrage.
+_EPINGLEES_PAR_LA_PORTEE_GEREE: FrozenSet[str] = frozenset(valeurs_env_gere(VALEURS_VIDES))
+
+
+def raison_refus_dans_le_volume(nom: str) -> Optional[str]:
+    """Raison du refus d'une variable posée dans un fichier d'environnement du volume, ou None si elle est admise
+    (ou épinglée par la portée gérée, donc retirée par SECU-1)."""
+    raison = VARIABLES_VOLUME_INTERDITES.get(nom)
+    if raison:
+        return raison
+    if nom in _EPINGLEES_PAR_LA_PORTEE_GEREE:
+        return None
+    if nom in VALEURS_IMPOSEES:
+        return (f"l'image la fixe à « {VALEURS_IMPOSEES[nom][0]} » pour tout le conteneur ; posée dans le volume, "
+                "Hermes la publierait (override=True) et suivrait l'emplacement ou le programme qu'elle désigne")
+    if nom in NOMS_REFUSES_PAR_L_ECRIVAIN_DE_HERMES or nom.startswith(PREFIXES_REFUSES_PAR_L_ECRIVAIN_DE_HERMES):
+        return ("Hermes refuse lui-même de l'écrire dans un .env (hermes_cli/config.py:62-117) : elle oriente "
+                "l'exécution d'un sous-processus ou l'emplacement de Hermes, et le chargement la publierait")
+    return None
 
 
 # Fichiers d'environnement que Hermes charge depuis un HERMES_HOME (racine du volume ou profil), tous deux AVANT
@@ -886,46 +956,53 @@ def fichiers_env_du_volume(chemins: Chemins) -> List[Path]:
     return fichiers
 
 
-def _relire_env_sans_lien(chemin: Path) -> Dict[str, Optional[str]]:
-    """Analyse un .env sans suivre de lien symbolique, avec l'analyseur de Hermes."""
-    import io
-
-    from dotenv import dotenv_values
-
-    donnees = lire_sans_lien(chemin)
-    if donnees is None:
-        return {}
-    texte = donnees.decode("utf-8", errors="replace")
-    return dict(dotenv_values(stream=io.StringIO(texte), interpolate=False))
+def cles_du_fichier_env_comme_hermes(chemin: Path) -> set:
+    """Clés d'un fichier d'environnement du volume telles que Hermes les lit, sans suivre de lien : même décodage
+    (UTF-16 avec BOM, BOM UTF-8, repli latin-1, octets NUL retirés ; UTF-32 refusé) et mêmes DEUX analyseurs
+    (python-dotenv au chargement, jetoniseur ligne à ligne de « reload.env ») que SECU-1. Audit défensif du 9
+    octobre 2026 (manque 2) : la garde décodait en UTF-8 avec remplacement et n'employait que python-dotenv ;
+    une clé coupée par un NUL, un fichier UTF-16 ou un séparateur de splitlines (saut de page, U+2028) lui
+    échappait alors que Hermes la publiait."""
+    brut = lire_sans_lien(chemin)
+    if brut is None:
+        return set()
+    texte = decoder_env_comme_hermes(brut, chemin)
+    return cles_vues_par_hermes(texte) | cles_vues_par_hermes(normaliser_env_comme_hermes(texte))
 
 
 def variables_interdites_dans_le_volume(chemins: Chemins) -> List[Tuple[Path, str, str]]:
-    """(fichier, variable, raison) pour chaque variable de VARIABLES_VOLUME_INTERDITES posée dans un
-    .env du volume."""
+    """(fichier, variable, raison) pour chaque variable refusée (``raison_refus_dans_le_volume``) posée dans un
+    .env ou un .op.env du volume. Un fichier illisible comme Hermes le lirait (lien, fichier spécial, UTF-32)
+    est signalé sous le nom « (fichier) »."""
     trouvees: List[Tuple[Path, str, str]] = []
     for fichier in fichiers_env_du_volume(chemins):
         try:
-            valeurs = _relire_env_sans_lien(fichier)
-        except Refus:
-            # Un lien symbolique ou un fichier spécial à la place d'un .env est déjà suspect.
-            trouvees.append((fichier, "(fichier)", "n'est pas un fichier ordinaire"))
+            cles = cles_du_fichier_env_comme_hermes(fichier)
+        except Refus as exc:
+            # Un lien symbolique, un fichier spécial ou un encodage refusé à la place d'un .env est déjà suspect.
+            trouvees.append((fichier, "(fichier)", str(exc).rstrip(".")))
             continue
-        for nom in sorted(valeurs):
-            raison = VARIABLES_VOLUME_INTERDITES.get(nom)
+        for nom in sorted(cles):
+            raison = raison_refus_dans_le_volume(nom)
             if raison:
                 trouvees.append((fichier, nom, raison))
     return trouvees
 
 
+def constat_variable_du_volume(fichier: Path, nom: str, raison: str) -> str:
+    if nom == "(fichier)":
+        return f"{raison} (fichier d'environnement du volume)."
+    return f"{fichier} définit la variable interdite {nom} : {raison}."
+
+
 def refuser_variables_du_volume(chemins: Chemins) -> None:
-    """Lève :class:`Refus` si un .env du volume porte une variable interdite."""
+    """Lève :class:`Refus` si un .env ou un .op.env du volume porte une variable interdite."""
     trouvees = variables_interdites_dans_le_volume(chemins)
     if trouvees:
-        lignes = [f"{fichier} définit la variable interdite {nom} : {raison}."
-                  for fichier, nom, raison in trouvees]
+        lignes = [constat_variable_du_volume(fichier, nom, raison) for fichier, nom, raison in trouvees]
         raise Refus(
             "des variables interdites ont été injectées dans le volume (/opt/data) ; "
-            "elles échapperaient à la managed scope :\n" + "\n".join(f"  - {l}" for l in lignes)
+            "elles échapperaient à la managed scope ou à ses gardes :\n" + "\n".join(f"  - {l}" for l in lignes)
             + "\nSupprimez-les de ces fichiers avant de redémarrer.")
 
 
@@ -2668,7 +2745,7 @@ def diagnostic(chemins: Chemins) -> Tuple[List[str], List[str]]:
         except Refus as exc:
             constats.append(str(exc))
     for fichier, nom, raison in variables_interdites_dans_le_volume(chemins):
-        constats.append(f"{fichier} définit la variable interdite {nom} : {raison}.")
+        constats.append(constat_variable_du_volume(fichier, nom, raison))
     # SECU-1 : des clés épinglées dans un .env du volume ne refusent pas le démarrage ; root les retire au
     # démarrage et à chaque relance. Signalées ici sans rien écrire (noms seulement).
     try:

@@ -351,6 +351,24 @@ def test_variables_d_emplacement_et_d_execution_du_volume_refusees(chemins, vale
         assert f"{fichier} définit la variable interdite HERMES_HOME" in str(refus.value)
 
 
+def test_la_copie_d_acp_contient_la_liste_de_l_ecrivain_de_hermes(chemins):
+    """Garde de dérive (ajoutée avec le correctif) : la copie d'ACP de la liste que l'écrivain de .env de Hermes
+    refuse (hermes_cli/config.py:62-117) contient celle de la version épinglée ; une montée de Hermes qui
+    l'allonge fait échouer ce test au lieu d'ouvrir un trou silencieux."""
+    liste = executer_python(SONDE_LISTE_DE_HERMES, env=env_processus(chemins))
+    assert sorted(set(liste["noms"]) - ad.NOMS_REFUSES_PAR_L_ECRIVAIN_DE_HERMES) == []
+    assert set(liste["prefixes"]) <= set(ad.PREFIXES_REFUSES_PAR_L_ECRIVAIN_DE_HERMES), liste["prefixes"]
+
+
+def test_un_env_du_volume_illisible_comme_hermes_refuse(chemins, valeurs):
+    """Corollaire du correctif (non montré rouge) : la garde lit le fichier comme SECU-1 ; un .env en UTF-32,
+    que Hermes ne sait pas lire, refuse au lieu d'être lu à moitié."""
+    installer_home_de_test(chemins, valeurs)
+    (chemins.hermes_home / ".op.env").write_bytes("A=1\n".encode("utf-32"))
+    with pytest.raises(ad.Refus, match="UTF-32"):
+        ad.refuser_variables_du_volume(chemins)
+
+
 SONDE_PUBLICATION = r'''
 import json, os
 NOMS = json.loads(%(noms)r)
