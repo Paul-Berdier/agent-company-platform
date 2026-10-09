@@ -1182,6 +1182,21 @@ Aucune commande Docker locale : tout passe par la CI GitHub. Les runs « jetable
   dans l'image, 0 sur 697 (395 rechargements) ; journal `[acp] SECU-1 (relance) : /opt/data/.env portait 7
   clé(s)…` et `/opt/data/.op.env portait 4 clé(s)…`, sans valeur ; `.op.env` avec `HERMES_MANAGED_DIR` et
   `secrets.command` refusent le démarrage (code 1, message français, témoin absent).
+- **Branche du chantier, workflow complet** (`208ecd7`, run
+  [37835575233](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37835575233), conclusion
+  **success**) : image 834 réussis, contrat 187 réussis, navigateur 10 réussis ; dans l'image 0 résolution sur
+  1 062 avec terminal (452 rechargements), dans le vrai conteneur 0 sur 1 411.
+- **Reprise 4 : mesures sans nouveau correctif** (`d5d8b73`, run
+  [37872456294](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37872456294), conclusion
+  **success** ; CI [37872456262](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37872456262)
+  success) : image **835 réussis** (834 + 1), contrat **188 réussis** (187 + 1), navigateur 10 réussis, aucune
+  ressource `acp-contrat-*` restante. Les deux tests ajoutés réfutent ou mesurent au lieu de corriger : ils sont
+  verts dès leur écriture, chacun avec un contrôle qui l'empêche de réussir à vide. `PUT /api/env` de trois clés
+  épinglées : `200 {"ok": true}` pour chacune, aucune écrite (« Cannot set … managed by your administrator »
+  au journal), contrôle positif écrit puis retiré (§ 10). Absences d'épingles : fenêtre d'un rechargement, les
+  trois clés copilot ; après `reload_env`, ces trois et `API_SERVER_HOST`, `API_SERVER_PORT` ; lecteurs de
+  Hermes identiques à ceux de l'épingle (§ 10). Course réelle : 0 sur 653 dans l'image (318 rechargements),
+  0 sur 1 032 dans le vrai conteneur (110 rechargements).
 - **Audit défensif du 9 octobre 2026, rouge sur `d5d8b73`, tests seuls** (`e5e3f3c`, branche jetable
   supprimée, run [37873430373](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37873430373),
   conclusion **failure** attendue) : dans l'image (`test_secu_env.py` et `test_demarrage.py`) **7 échecs,
@@ -1209,16 +1224,35 @@ Aucune commande Docker locale : tout passe par la CI GitHub. Les runs « jetable
 - **Écriture du volume en cours de vie (chantier SECU-TUI)** : SECU-1 retire les clés épinglées des
   `.env` du volume au démarrage et à chaque relance d'un service, c'est-à-dire chaque fois qu'un volume
   écrit hors de la vie du service (sauvegarde restaurée, maintenance, piège d'avant P2) peut entrer dans
-  un processus de Hermes. Une écriture **pendant** la vie d'un service (le tableau de bord recharge le
-  `.env` aux reconnexions MCP, la passerelle à chaque tour) rouvre la fenêtre jusqu'à la relance
-  suivante : elle suppose l'uid hermes (donc une faille de Hermes, ligne précédente) ou une session
-  authentifiée du propriétaire (`PUT /api/env`, éditeur, terminal : shell du propriétaire, § 5). La
-  troisième couche refuse alors encore `terminal` (mesuré, § 5). De même, « reload.env » (servi par
-  `/api/ws`) supprime de l'environnement du tableau de bord `API_SERVER_HOST`, `API_SERVER_PORT` et les
-  trois clés copilot quand le `.env` ne les porte plus (mesuré : `reload_env` efface les clés connues
-  absentes du fichier) jusqu'au chargement suivant ; absentes, les clés copilot valent « non défini »
-  comme leur épingle vide ; l'effet de l'absence d'`API_SERVER_*` dans le tableau de bord n'a pas été
-  mesuré.
+  un processus de Hermes. **Pendant** la vie d'un service, Hermes lui-même n'écrit aucune clé épinglée
+  dans un `.env` : ses écrivains passent par `save_env_value`, qui refuse une clé que la portée gérée
+  épingle (hermes_cli/config.py:2619-2646, `managed_scope.is_env_managed`), qu'il s'agisse de
+  `PUT /api/env` ou de la saisie d'un secret demandé par une skill (tui_gateway/agent_callbacks.py:207) ;
+  les autres écrivains (mémoire openviking, migration relay, retrait des canaux d'un profil) n'écrivent
+  que des clés fixes non épinglées (lecture de la source). Mesuré au run
+  [37872456294](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37872456294)
+  (`test_put_api_env_n_ecrit_aucune_cle_epinglee`) : `PUT /api/env` de `HERMES_TUI_TOOLSETS`, `HERMES_BIN`
+  et `HERMES_SAFE_MODE` par le propriétaire authentifié n'écrit rien dans `/opt/data/.env`, alors qu'une
+  clé ordinaire est écrite puis retirée par la même route ; Hermes répond pourtant `200 {"ok": true}` et ne
+  dit son refus que dans le journal du tableau de bord (« Cannot set HERMES_BIN: it is managed by your
+  administrator »). La version précédente de ce paragraphe citait `PUT /api/env` comme moyen d'écrire une
+  clé épinglée : c'était inexact. Reste une écriture **directe** du fichier, par l'uid hermes (une faille
+  de Hermes, ligne précédente) ou par le shell du propriétaire (`/api/pty`, `shell.exec`, éditeur de
+  fichiers : § 5) : elle rouvrirait la fenêtre jusqu'à la relance suivante pour chaque processus qui
+  recharge le `.env` (tableau de bord aux reconnexions MCP, passerelle à chaque tour, cron). La troisième
+  couche refuserait encore `terminal` dans une session (mesuré, § 5) ; en revanche, un `HERMES_BIN` lu
+  par le répartiteur kanban pendant la fenêtre (kanban_db_dispatch.py:2524) ferait lancer le programme
+  désigné comme worker (lecture de la source, non mesuré).
+- **Épingles absentes un instant (effet de bord de SECU-1, mesuré)** : le volume ne portant plus les clés
+  épinglées, Hermes retire d'`os.environ` les trois clés copilot dans la fenêtre de chaque rechargement
+  (`_clear_known_keys_missing_from_dotenv`, env_loader.py:82-94) et, après « reload.env » (servi par
+  `/api/ws`), `API_SERVER_HOST` et `API_SERVER_PORT` en plus (hermes_cli/config.py:2743-2746), jusqu'au
+  chargement suivant. Mesuré au run 37872456294 (`test_les_epingles_absentes_un_instant_valent_leur_epingle`,
+  dans l'image) : aucune autre clé épinglée n'est absente ni ne change, et les lecteurs de Hermes rendent
+  exactement ce qu'ils rendent avec l'épingle : écoute de l'api_server `127.0.0.1:8642`, URL
+  `http://127.0.0.1:8642` des outils cron et `…/api/cron/fire` du tableau de bord, audit de démarrage
+  sans alerte, programme copilot `copilot --acp --stdio` (la valeur par défaut, que l'épingle vide donne
+  aussi).
 - **Variables interdites au conteneur mais ni épinglées ni refusées dans le volume.** Depuis l'audit du
   9 octobre 2026, la famille d'emplacement et d'exécution (`HERMES_HOME`, valeurs imposées par l'image, liste
   de l'écrivain de `.env` de Hermes) est refusée dans les `.env` et `.op.env` du volume (§ 4.3) : une
