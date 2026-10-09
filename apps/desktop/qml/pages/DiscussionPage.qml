@@ -86,6 +86,14 @@ Item {
                 visible: Discussion.sessionsLues && Discussion.sessions.count === 0
                 text: qsTr("Aucune discussion pour l'instant.")
             }
+            // Comme la liste du navigateur (seconde relecture de P8b, constat desktop-11) : sans état d'attente lu,
+            // l'absence de la marque « En attente d'une réponse » ne prouve rien, et c'est dit.
+            Discret {
+                objectName: "discussion-attente-inconnue"
+                visible: Discussion.attenteInconnue.length > 0
+                text: Discussion.attenteInconnue
+                color: Colors.textSecondary
+            }
             ListView {
                 id: listeSessions
                 objectName: "discussion-sessions"
@@ -120,6 +128,12 @@ Item {
                             font.pixelSize: Type.tableCellEmphasis.pixelSize
                             font.weight: Type.tableCellEmphasis.weight
                         }
+                        StatusChip {
+                            objectName: "discussion-en-attente-" + ligneSession.item.id
+                            visible: ligneSession.item.enAttente === true
+                            statusKey: "approvalRequired"
+                            label: qsTr("En attente d'une réponse")
+                        }
                         Discret {
                             visible: ligneSession.item.apercu.length > 0
                             text: ligneSession.item.apercu
@@ -134,7 +148,9 @@ Item {
                     HoverHandler { id: survol; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: Discussion.ouvrir(ligneSession.item.id) }
                     Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Ouvrir la discussion « %1 »").arg(ligneSession.item.titre)
+                    Accessible.name: ligneSession.item.enAttente === true
+                        ? qsTr("Ouvrir la discussion « %1 », en attente d'une réponse").arg(ligneSession.item.titre)
+                        : qsTr("Ouvrir la discussion « %1 »").arg(ligneSession.item.titre)
                     Accessible.onPressAction: Discussion.ouvrir(ligneSession.item.id)
                 }
             }

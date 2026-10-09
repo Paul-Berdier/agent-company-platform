@@ -97,6 +97,7 @@ private slots:
     void dialogueDeChangementDeServeurEnFrancais();
     void copieDuRapportParLaPalette();
     void discussionEnAttenteOuverteParLeBouton();
+    void discussionEnAttenteMarqueeDansLaListe();
     void pastilleDesQuestionsDitCeQuElleCompte();
     void greffonSansEtapeP7NiAccueilNiGestes();
     // En dernier : charge la fenêtre racine (App.qml).
@@ -786,6 +787,49 @@ void TestPagesInteractions::discussionEnAttenteOuverteParLeBouton()
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     page.reset();
     QTRY_VERIFY(!m_questions->actif());
+}
+
+// Seconde relecture de P8b (constat desktop-11), vraie page Discussion : la discussion dont une demande attend porte la
+// marque « En attente d'une réponse » (comme Liste.tsx), son nom accessible le dit ; état d'attente illisible : aucune
+// marque, et la page dit que l'absence de marque ne veut rien dire.
+void TestPagesInteractions::discussionEnAttenteMarqueeDansLaListe()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *discussion = m_application->findChild<DiscussionViewModel *>();
+    QVERIFY(passerelle && discussion);
+    m_serveur->methodes.insert(QStringLiteral("session.active_list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{
+            {QStringLiteral("session_key"), QStringLiteral("s1")}, {QStringLiteral("status"), QStringLiteral("waiting")},
+            {QStringLiteral("title"), QStringLiteral("Plan du site")}}}}};
+    });
+    if (passerelle->etat() != GatewayClient::Etat::Pret) {
+        passerelle->ouvrir();
+        QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    }
+    auto page = charger(QStringLiteral("DiscussionPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QTRY_COMPARE_WITH_TIMEOUT(discussion->sessions()->count(), 1, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(parNom(racine, QStringLiteral("discussion-en-attente-s1")), 5000);
+    QQuickItem *marque = parNom(racine, QStringLiteral("discussion-en-attente-s1"));
+    QTRY_VERIFY(marque->isVisible());
+    QCOMPARE(marque->property("label").toString(), QStringLiteral("En attente d'une réponse"));
+    QQuickItem *ligne = marque->parentItem() ? marque->parentItem()->parentItem() : nullptr;
+    QVERIFY(ligne);
+    QCOMPARE(QQmlProperty(ligne, QStringLiteral("Accessible.name"), qmlContext(ligne)).read().toString(),
+             QStringLiteral("Ouvrir la discussion « Plan du site », en attente d'une réponse"));
+    QQuickItem *inconnue = parNom(racine, QStringLiteral("discussion-attente-inconnue"));
+    QVERIFY(inconnue && !inconnue->isVisible());
+
+    m_serveur->methodes.remove(QStringLiteral("session.active_list"));
+    discussion->actualiserSessions();
+    QTRY_VERIFY_WITH_TIMEOUT(inconnue->isVisible(), 5000);
+    QVERIFY2(inconnue->property("text").toString().endsWith(
+                 QStringLiteral("l'absence de la marque « En attente d'une réponse » ne veut rien dire.")),
+             qPrintable(inconnue->property("text").toString()));
+    QTRY_VERIFY(!marque->isVisible());
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
 }
 
 // Constat de relecture P8 : la liste des projets remontait en haut à chaque relecture.

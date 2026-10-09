@@ -70,6 +70,7 @@ void DiscussionsEnAttente::lire()
     }
     m_relire = false;
     if (!m_passerelle || m_passerelle->etat() != GatewayClient::Etat::Pret) {
+        m_tentee = true;
         publier(false, {}, m_passerelle
                                ? QStringLiteral("passerelle de Hermes indisponible (%1)").arg(m_passerelle->libelleEtat())
                                : QStringLiteral("passerelle de Hermes absente"));
@@ -82,6 +83,7 @@ void DiscussionsEnAttente::lire()
             return;
         }
         m_appel = nullptr;
+        m_tentee = true;
         const std::optional<QJsonArray> sessions = sessionsEnAttente(resultat);
         if (sessions) {
             publier(true, *sessions, QString());
@@ -97,6 +99,7 @@ void DiscussionsEnAttente::lire()
             return;
         }
         m_appel = nullptr;
+        m_tentee = true;
         publier(false, {}, erreur.locale ? erreur.message
                                          : QStringLiteral("Hermes a refusé « %1 » : %2 (code %3)")
                                                .arg(QString::fromLatin1(kMethode), erreur.message)
@@ -114,6 +117,7 @@ void DiscussionsEnAttente::oublier()
         m_appel = nullptr;
     }
     m_relire = false;
+    m_tentee = false;
     publier(false, {}, QStringLiteral("pas encore lues"));
 }
 

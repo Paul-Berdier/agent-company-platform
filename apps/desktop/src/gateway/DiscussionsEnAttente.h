@@ -58,6 +58,8 @@ public:
     [[nodiscard]] const QJsonArray &sessions() const { return m_sessions; }
     /*! Pourquoi c'est inconnu (« passerelle indisponible », refus de Hermes…), vide sinon. */
     [[nodiscard]] const QString &raison() const { return m_raison; }
+    /*! Une lecture a abouti ou échoué depuis la création ou le dernier oubli (sinon : « pas encore lues »). */
+    [[nodiscard]] bool tentee() const { return m_tentee; }
 
 signals:
     void change();
@@ -69,6 +71,7 @@ private:
     QPointer<AppelRpc> m_appel;
     bool m_relire = false;
     bool m_connues = false;
+    bool m_tentee = false;
     QJsonArray m_sessions;
     QString m_raison;
 };

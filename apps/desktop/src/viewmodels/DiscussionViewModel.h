@@ -1,7 +1,11 @@
 // Discussion avec Hermes sur la passerelle JSON-RPC `/api/ws` (cahier P8 § 7.4).
 //
 //  - Liste : `session.list {limit: 50}`, relue à l'affichage de la page et sur
-//    `sessions.changed`.
+//    `sessions.changed`. Comme la liste du navigateur (Liste.tsx, étape P7 ; seconde relecture
+//    de P8b, constat desktop-11), chaque discussion dont une demande attend votre réponse
+//    (`session.active_list`, DiscussionsEnAttente, relue avec la liste) est marquée « En attente
+//    d'une réponse » ; état d'attente illisible : aucune marque, et la page le dit
+//    (attenteInconnue).
 //  - Ouvrir : `session.resume {session_id: <identifiant stocké>}` → identifiant VIVANT, puis
 //    transcription (`role`, `text`, `timestamp`), `running`, `inflight` ; « Nouvelle
 //    discussion » : `session.create {}`. La session vivante est suivie par la passerelle
@@ -40,6 +44,7 @@ class DiscussionViewModel : public PageViewModel
     Q_PROPERTY(JsonListModel *sessions READ sessions CONSTANT)
     Q_PROPERTY(bool sessionsLues READ sessionsLues NOTIFY sessionsChange)
     Q_PROPERTY(QString erreurSessions READ erreurSessions NOTIFY sessionsChange)
+    Q_PROPERTY(QString attenteInconnue READ attenteInconnue NOTIFY sessionsChange)
     Q_PROPERTY(QString sessionOuverte READ sessionOuverte NOTIFY sessionChange)
     Q_PROPERTY(QString sessionVivante READ sessionVivante NOTIFY sessionChange)
     Q_PROPERTY(QString titreSession READ titreSession NOTIFY sessionChange)
@@ -60,6 +65,11 @@ public:
     [[nodiscard]] JsonListModel *sessions() const { return m_sessions; }
     [[nodiscard]] bool sessionsLues() const { return m_sessionsLues; }
     [[nodiscard]] const QString &erreurSessions() const { return m_erreurSessions; }
+    /*!
+        Vide si l'état d'attente des discussions est lu ; sinon, pourquoi aucune marque « En attente
+        d'une réponse » ne prouve rien (la liste lue seulement).
+    */
+    [[nodiscard]] QString attenteInconnue() const;
     [[nodiscard]] const QString &sessionOuverte() const { return m_stockee; }
     [[nodiscard]] const QString &sessionVivante() const { return m_vivante; }
     [[nodiscard]] const QString &titreSession() const { return m_titre; }
@@ -85,6 +95,11 @@ public:
 
     // --- Fonctions pures (tests) ------------------------------------------------------------
     [[nodiscard]] static QJsonObject construireSession(const QJsonObject &ligne);
+    /*!
+        Lignes de la liste avec `enAttente` : vrai seulement si l'état d'attente est connu et que la
+        clé de la session figure parmi les discussions en attente (`cle` de DiscussionsEnAttente).
+    */
+    [[nodiscard]] static QJsonArray marquerEnAttente(const QJsonArray &lignes, const QJsonArray &enAttente, bool connues);
     [[nodiscard]] static QJsonObject construireMessage(const QJsonObject &message, int rang);
     [[nodiscard]] static QString messageEnvoi(const QJsonValue &statut);
     [[nodiscard]] static QString issueDuTour(const QJsonObject &fin);
@@ -109,11 +124,14 @@ private:
     void ajouter(QJsonObject ligne);
     void echecRpc(const QString &methode, const ErreurRpc &erreur);
     void majTour(bool enCours);
+    //! Marque les lignes lues d'après les discussions en attente (après chaque lecture de l'une ou de l'autre).
+    void appliquerAttente();
 
     GatewayClient *m_passerelle = nullptr;
     JsonListModel *m_sessions = nullptr;
     JsonListModel *m_transcription = nullptr;
     bool m_sessionsLues = false;
+    QJsonArray m_lignes; //!< lignes lues de `session.list`, avant marque
     QString m_erreurSessions;
     QString m_stockee;
     QString m_vivante;
