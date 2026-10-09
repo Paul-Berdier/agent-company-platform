@@ -158,12 +158,16 @@ dans `docs/refonte/preuves-1.0.0.md`.
   § 12 et § 14.7, `docs/exploitation.md` § 10) : bord et PID 1 réels, sonde R0 (régime de l'exécutant, donc ouverture
   de la voie Codex), sauvegardes réelles, répétition de restauration et reconnexions réelles, notification et
   parcours réels sur le téléphone, premier dépôt réel, coût réel.
-- **À instruire avant la publication** : une fois, après un redémarrage du conteneur sur un volume piégé, la session
+- **À corriger avant la publication** : une fois, après un redémarrage du conteneur sur un volume piégé, la session
   du tableau de bord a reçu les outils d'exécution posés par le `.env` du volume (deuxième des trois couches de la
   défense de P2, `docs/refonte/image.md` § 5), alors que l'api_server les refusait (Image Hermes `37784838264`,
-  tentative 1, test `test_volume_piege_apres_relance`) ; la tentative 2 est verte, comme ce test dans les autres
-  runs relevés pendant P9. Non expliqué, non corrigé ; la garde `pre_tool_call` n'a pas été mesurée pour cette
-  session dans ce run.
+  tentative 1, test `test_volume_piege_apres_relance`). Le chantier SECU-TUI (branche `refonte/hermes-secu-tui`,
+  partie de `b9779f1`, sa propre PR, non fusionnée au 9 octobre 2026) en a prouvé la cause sans course : Hermes
+  publie la valeur du `.env` du volume avant d'appliquer la portée gérée (run jetable `37831355746`, rouge attendu
+  sur le code de P7) ; il y mesure que la garde `pre_tool_call` aurait refusé l'appel. Son correctif (SECU-1) et le
+  refus d'une seconde faille, hors des trois couches (SECU-2 : source externe de secrets du volume), sont verts sur
+  une branche jetable (`37832691849`) ; leur fusion, leurs preuves finales et leurs numéros de décision sont
+  **à relever**.
 - Binaires de la station **non signés** ; aucune installation sur un Windows propre.
 - Sans Docker sur le poste de travail (D134), les bouts en bout locaux du poste (dernier passage : P5) et de la
   station (P8), les témoins négatifs de P4 à P6 et la recompilation du verrou Python ne tournent plus nulle part

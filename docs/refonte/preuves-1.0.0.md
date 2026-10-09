@@ -122,11 +122,23 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
   (`scripts/temoins_negatifs_p4.sh` à `_p6.sh`) : scripts à Docker local, appelés par aucun workflow ; depuis D134
   ils ne tournent plus nulle part, et n'ont donc jamais été rejoués sur le code de P7 ni de P9. Le verrou Python ne
   peut pas non plus être recompilé (`scripts/lock_python.ps1` lance Docker).
-- **Constat intermittent, à instruire avant la publication** : Image Hermes `37784838264` (`fdb41c9`), tentative 1,
+- **Constat de sécurité, à corriger avant la publication** : Image Hermes `37784838264` (`fdb41c9`), tentative 1,
   job `113336818423` rouge sur `hermes/tests/contrat/test_sans_shell_contrat.py::test_volume_piege_apres_relance` :
   après le redémarrage du conteneur sur un volume piégé, la session du tableau de bord (`/api/ws`) listait `terminal`,
   `write_file`, `execute_code`… (les jeux posés par le `.env` piégé), alors que l'api_server répondait « Tool
   'terminal' does not exist » ; deuxième des trois couches de la défense de P2 ([image.md](image.md) § 5, épingles du
   `.env` géré) vue en défaut **une fois**. Tentative 2 verte, comme ce test dans les autres runs relevés pendant P9.
-  Non reproduit, non expliqué, non corrigé ; la garde `pre_tool_call` (troisième couche) n'a pas été mesurée pour
-  cette session dans ce run.
+  **Instruit hors de P9** par le chantier SECU-TUI : branche `refonte/hermes-secu-tui` (partie de `b9779f1`,
+  worktree `refonte-hermes-secu`, sa propre PR vers `refonte/hermes`, pas encore ouverte au 9 octobre 2026 ; sa tête
+  avance encore). D'après sa documentation (`docs/refonte/image.md` de la branche, § 4.3 bis, § 4.3 ter, § 5 et § 9) :
+  cause racine prouvée sans course (Hermes publie la valeur du `.env` du volume dans `os.environ`, puis applique la
+  portée gérée par une écriture séparée ; un fil concurrent du tableau de bord lit l'entre-deux), par un point fixe
+  dans le vrai conteneur ; troisième couche mesurée : une session qui a reçu exactement ces outils se voit refuser
+  `terminal` par la garde `pre_tool_call` ; seconde faille trouvée en chemin, hors des trois couches : une source
+  externe de secrets (`secrets.command`) du `config.yaml` du volume, lancée par `/bin/sh` avant la portée gérée.
+  Preuves relevées par `gh` : tests seuls (`4c3647e`) sur le code de P7, run jetable `37831355746` (8 octobre 2026),
+  **rouge attendu** ; correctif SECU-1 (retrait par root des clés épinglées des `.env` du volume) et refus SECU-2
+  (`373b047`), run jetable `37832691849` (8 octobre 2026), **vert** ; `208ecd7` (documentation de la branche) :
+  Image Hermes `37835575233` et CI `37835575491`, **verts**. Décisions SECU-1 et SECU-2 à numérotation provisoire.
+  **À relever** : relecture, PR, fusion dans `refonte/hermes`, numéros définitifs (à la suite de D155, déjà pris par
+  P9), runs de la fusion ; d'ici là, la branche déployée par l'IaC porte ces défauts.

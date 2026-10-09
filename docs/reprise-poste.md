@@ -24,7 +24,10 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
   documentation), **sans PR**. Ces branches peuvent encore avancer (travail en parallèle) : leurs têtes ne sont
   pas recopiées ici (elles se lisent par `git ls-remote origin 'refonte/hermes-p9*'`) et seront relevées dans
   ces notes à la réunion des branches de P9 ; `refonte/hermes-p8b` (partie de `b9779f1`, 8 octobre) :
-  autre chantier de la station Qt, en cours, hors de ces notes.
+  autre chantier de la station Qt, en cours, hors de ces notes ; `refonte/hermes-secu-tui` (partie de `b9779f1`,
+  worktree `refonte-hermes-secu`) : **chantier sécurité SECU-TUI**, qui corrige le constat de la défense de P2
+  (§ 6, n° 1), avec sa propre PR vers `refonte/hermes`, pas encore ouverte au 9 octobre 2026 ; tête mouvante,
+  lue par `git ls-remote origin refonte/hermes-secu-tui`.
 - **Étiquettes** : `v0.2.0` à `v0.9.0` et `archive/acp-0.10.0-avant-hermes` ; ni `v0.10.0` ni `v0.11.0` (jamais
   publiées) ; aucune `v1.0.0`.
 - **Intégration continue** sur `refonte/hermes` après la fusion de P7 (`b9779f1`) : CI `37795932683`, Image de
@@ -88,7 +91,8 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
 | Journal des changements | `CHANGELOG.md` (section 1.0.0 préparée, non datée) |
 
 **Worktrees** (sous `.claude/worktrees/`) : `refonte-hermes` (P0), `refonte-hermes-p1` à `-p8` (une par étape),
-`-p7e` et `-p7f` (parts E et F de P7), `-p8b`, `-p9`, `-p9bc`, `-p9c`, `-p9e`. Les autres (`lot-*`, `desktop-*`,
+`-p7e` et `-p7f` (parts E et F de P7), `-p8b`, `-p9`, `-p9bc`, `-p9c`, `-p9e`, `-secu` (branche
+`refonte/hermes-secu-tui`). Les autres (`lot-*`, `desktop-*`,
 `subscription-chat`, `wf_*`) datent de l'ancienne plateforme et peuvent contenir des travaux partiels : ne pas les
 supprimer ni les réinitialiser sans examen. Branche locale `essai/hermes-v2026.9.21` (part C de P9, jamais poussée) :
 gardée. **Le checkout principal porte un chantier Pixel Office non commité** (moteur, salles, `apps/web`) : ne rien
@@ -249,9 +253,15 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
 
 ## 6. Prochaines étapes réelles
 
-1. Avant tout : instruire le constat intermittent de la défense de P2 (session du tableau de bord qui a reçu, une
-   fois, les outils du `.env` piégé après un redémarrage du conteneur : Image Hermes `37784838264`, tentative 1 ;
-   détail : [preuves](refonte/preuves-1.0.0.md) § 5). Il est dit dans les limites du journal 1.0.0 préparé.
+1. Avant tout : faire aboutir le **chantier SECU-TUI** (branche `refonte/hermes-secu-tui`), qui a instruit le
+   constat de la défense de P2 (session du tableau de bord qui a reçu, une fois, les outils du `.env` piégé après un
+   redémarrage du conteneur : Image Hermes `37784838264`, tentative 1) : cause prouvée sans course, troisième couche
+   mesurée, correctif SECU-1 et refus SECU-2 verts sur branche jetable (runs `37831355746`, rouge attendu, et
+   `37832691849` ; détail : [preuves](refonte/preuves-1.0.0.md) § 5 et `docs/refonte/image.md` de la branche,
+   § 4.3 bis, § 4.3 ter, § 5). Reste : relecture, PR vers `refonte/hermes`, CI verte, fusion ; ses numéros de
+   décision, provisoires, doivent suivre D155 (D122 à D155 sont déjà pris par P9, sur `refonte/hermes-p9e`), quel
+   que soit l'ordre des fusions ; puis reprendre ses preuves dans les preuves de 1.0.0 et dans le journal 1.0.0
+   préparé (« Limites connues », « Sécurité »).
 2. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, réunir les branches de P9
    sur `refonte/hermes-p9` et relever leurs têtes dans ces notes, relecture indépendante de toute P9, commit
    d'ouverture 1.0.0 puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts,
