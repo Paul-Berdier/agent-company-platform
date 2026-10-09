@@ -360,6 +360,85 @@ def test_la_copie_d_acp_contient_la_liste_de_l_ecrivain_de_hermes(chemins):
     assert set(liste["prefixes"]) <= set(ad.PREFIXES_REFUSES_PAR_L_ECRIVAIN_DE_HERMES), liste["prefixes"]
 
 
+# Relecture finale de P9 (constat securite-1) : garde de dérive des fichiers d'environnement. SECU-1 et la garde de
+# la famille d'emplacement n'inspectent que FICHIERS_ENV_HERMES (.env, .op.env), recopiés de load_hermes_dotenv
+# (Hermes 0.21.5, hermes_cli/env_loader.py:424-447). Une release qui chargerait un fichier de plus depuis
+# HERMES_HOME avant la portée gérée rouvrirait en silence ce que SECU-1 ferme. La sonde relève, dans un processus
+# neuf, chaque chemin du HERMES_HOME dont load_hermes_dotenv teste l'existence et chaque fichier qu'il charge.
+SONDE_FICHIERS_DE_HERMES = r'''
+import os, pathlib
+home = pathlib.Path(os.environ["HERMES_HOME"]).resolve()
+vus, charges = set(), []
+def _sous_home(p):
+    try:
+        r = pathlib.Path(p).resolve()
+    except OSError:
+        return None
+    return r.relative_to(home).as_posix() if (r == home or home in r.parents) else None
+_existe = pathlib.Path.exists
+def _existe_releve(self, *a, **k):
+    rel = _sous_home(self)
+    if rel is not None:
+        vus.add(rel)
+    return _existe(self, *a, **k)
+pathlib.Path.exists = _existe_releve
+from hermes_cli import env_loader
+_charger = env_loader._load_dotenv_with_fallback
+def _charger_releve(path, *a, **k):
+    rel = _sous_home(path)
+    if rel is not None:
+        charges.append(rel)
+    return _charger(path, *a, **k)
+env_loader._load_dotenv_with_fallback = _charger_releve
+try:
+    env_loader.load_hermes_dotenv(load_external_secrets=False)
+finally:
+    pathlib.Path.exists = _existe
+resultat = {"vus": sorted(vus), "charges": charges}
+'''
+
+# Chemins du HERMES_HOME que l'import et l'appel de load_hermes_dotenv sondent sans les charger comme fichiers
+# d'environnement, relevés sur Hermes 0.21.5 le 9 octobre 2026 (journal de P9, relecture finale) : « .managed »,
+# marqueur d'une installation tenue par un gestionnaire de paquets, lu en texte (hermes_constants.py,
+# get_managed_system) ; « SOUL.md », persona du profil. Ni l'un ni l'autre ne publie de variable.
+SONDES_ADMISES_HORS_ENV: frozenset = frozenset({".managed", "SOUL.md"})
+
+
+def _ecarts_fichiers_de_hermes(releve: dict, attendus) -> list:
+    ecarts = []
+    if releve["charges"] != list(attendus):
+        ecarts.append(f"fichiers chargés depuis HERMES_HOME : {releve['charges']}, attendus {list(attendus)}")
+    inconnus = sorted(set(releve["vus"]) - set(attendus) - SONDES_ADMISES_HORS_ENV)
+    if inconnus:
+        ecarts.append(f"chemins du HERMES_HOME sondés par load_hermes_dotenv, inconnus de SECU : {inconnus}")
+    return ecarts
+
+
+def test_hermes_ne_charge_que_les_fichiers_d_environnement_que_secu_inspecte(chemins, valeurs):
+    installer_home_de_test(chemins, valeurs)
+    for nom in ad.FICHIERS_ENV_HERMES:
+        fichier = chemins.hermes_home / nom
+        if not fichier.exists():
+            fichier.write_text("OPENAI_API_KEY=legitime\n", encoding="utf-8")
+    env = env_processus(chemins)
+    env.pop("OP_SERVICE_ACCOUNT_TOKEN", None)  # sinon Hermes saute .op.env (env_loader.py:442)
+    releve = executer_python(SONDE_FICHIERS_DE_HERMES, env=env)
+    print(json.dumps(releve, ensure_ascii=False))
+    assert _ecarts_fichiers_de_hermes(releve, ad.FICHIERS_ENV_HERMES) == []
+
+
+def test_la_garde_des_fichiers_d_environnement_nomme_un_fichier_de_plus():
+    """Témoin de la garde ci-dessus : un fichier chargé ou sondé que SECU n'inspecte pas est nommé."""
+    juste = {"vus": [".env", ".op.env"], "charges": [".env", ".op.env"]}
+    assert _ecarts_fichiers_de_hermes(juste, (".env", ".op.env")) == []
+    assert _ecarts_fichiers_de_hermes(juste, (".env",)) == [
+        "fichiers chargés depuis HERMES_HOME : ['.env', '.op.env'], attendus ['.env']",
+        "chemins du HERMES_HOME sondés par load_hermes_dotenv, inconnus de SECU : ['.op.env']"]
+    sonde = {"vus": [".env", ".op.env", ".secrets.env"], "charges": [".env", ".op.env"]}
+    assert _ecarts_fichiers_de_hermes(sonde, (".env", ".op.env")) == [
+        "chemins du HERMES_HOME sondés par load_hermes_dotenv, inconnus de SECU : ['.secrets.env']"]
+
+
 def test_un_env_du_volume_illisible_comme_hermes_refuse(chemins, valeurs):
     """Corollaire du correctif (non montré rouge) : la garde lit le fichier comme SECU-1 ; un .env en UTF-32,
     que Hermes ne sait pas lire, refuse au lieu d'être lu à moitié."""

@@ -55,7 +55,9 @@ contre la nouvelle release : fichiers d'environnement chargés avant la portée 
 ordre, leur décodage et leurs analyseurs ; règle d'activation des sources externes de
 secrets ; liste des noms que l'écrivain de `.env` de Hermes refuse ; variables que l'ENV de
 l'image amont fixe, face à `VALEURS_IMPOSEES`. Liste et renvois : `docs/exploitation.md`
-§ 6.3, point 3. La CI voit un comportement connu qui change ; un ajout de l'amont, non.
+§ 6.3, point 3. La CI voit un comportement connu qui change, une variable nouvelle dans l'ENV
+de l'image et un fichier d'environnement de plus chargé depuis `HERMES_HOME` (deux gardes de
+dérive) ; les autres ajouts de l'amont, non.
 
 La concordance de toutes ces copies est vérifiée hors ligne par
 `scripts/tests/test_epingles_hermes.py` (CI, Linux et Windows).

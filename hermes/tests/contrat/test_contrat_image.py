@@ -67,6 +67,57 @@ def test_version_de_hermes_et_condensat_epingle(image):
     assert "S6_STAGE2_HOOK=/opt/acp/bin/acp-gardes" in config["Env"]
 
 
+# Relecture finale de P9 (constat securite-1) : garde de dérive de l'ENV de l'image. Une variable que l'ENV de
+# l'image amont fixe (emplacement, programme lancé…) et qu'ACP ne connaît pas passerait une montée de Hermes sans
+# que SECU-TUI réagisse : la garde de démarrage ne refuse dans les .env du volume que les valeurs imposées
+# (VALEURS_IMPOSEES de hermes/image/acp_demarrage.py) et les listes connues. Chaque nom de l'ENV de l'image est donc
+# classé : imposé (VALEURS_IMPOSEES, obligatoire), ou admis sans valeur imposée ci-dessous, classé à la lecture de
+# l'image amont v2026.9.24 (Hermes 0.21.5) le 9 octobre 2026. Un nom nouveau, ou disparu, fait rougir ce test : la
+# PR de montée le classe après lecture de son rôle dans la source de Hermes (docs/exploitation.md § 6.3, point 3).
+ENV_ADMISES_SANS_VALEUR_IMPOSEE = frozenset({
+    "PATH", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE", "PLAYWRIGHT_BROWSERS_PATH", "npm_config_install_links",
+})
+
+
+def _valeurs_imposees_obligatoires() -> set:
+    """Noms obligatoires de VALEURS_IMPOSEES, lus dans le source du démarrage (sans l'importer sur l'hôte)."""
+    import ast
+
+    arbre = ast.parse((RACINE_HERMES / "image" / "acp_demarrage.py").read_text(encoding="utf-8"))
+    for noeud in arbre.body:
+        cible = noeud.target if isinstance(noeud, ast.AnnAssign) else (
+            noeud.targets[0] if isinstance(noeud, ast.Assign) and len(noeud.targets) == 1 else None)
+        if isinstance(cible, ast.Name) and cible.id == "VALEURS_IMPOSEES" and noeud.value is not None:
+            return {nom for nom, (_valeur, obligatoire) in ast.literal_eval(noeud.value).items() if obligatoire}
+    raise AssertionError("VALEURS_IMPOSEES introuvable dans hermes/image/acp_demarrage.py")
+
+
+def _ecarts_env_de_l_image(noms: set, imposees: set) -> list:
+    classees = imposees | ENV_ADMISES_SANS_VALEUR_IMPOSEE
+    return ([f"variable de l'ENV de l'image non classée : {n}" for n in sorted(noms - classees)]
+            + [f"variable classée absente de l'ENV de l'image : {n}" for n in sorted(classees - noms)])
+
+
+def test_chaque_variable_de_l_env_de_l_image_est_classee(image):
+    config = json.loads(docker("image", "inspect", "-f", "{{json .Config}}", image).stdout)
+    noms = {entree.split("=", 1)[0] for entree in config["Env"]}
+    afficher("ENV de l'image", "\n".join(sorted(noms)))
+    assert _ecarts_env_de_l_image(noms, _valeurs_imposees_obligatoires()) == []
+
+
+def test_la_garde_de_l_env_de_l_image_nomme_un_ajout_de_l_amont():
+    """Témoin de la garde ci-dessus, sans image : un nom ajouté par l'amont, ou une valeur imposée qui a disparu de
+    l'ENV, est nommé."""
+    imposees = _valeurs_imposees_obligatoires()
+    assert "HERMES_HOME" in imposees and "XDG_RUNTIME_DIR" in imposees
+    noms = imposees | ENV_ADMISES_SANS_VALEUR_IMPOSEE
+    assert _ecarts_env_de_l_image(noms, imposees) == []
+    assert _ecarts_env_de_l_image(noms | {"HERMES_NOUVEL_EMPLACEMENT"}, imposees) == [
+        "variable de l'ENV de l'image non classée : HERMES_NOUVEL_EMPLACEMENT"]
+    assert _ecarts_env_de_l_image(noms - {"HERMES_HOME"}, imposees) == [
+        "variable classée absente de l'ENV de l'image : HERMES_HOME"]
+
+
 def test_la_copie_de_l_openrpc_est_identique_a_celle_de_l_image(image):
     locale = (RACINE_HERMES / "contrat" / "gateway-contract.openrpc.json").read_bytes()
     dans_image = docker("run", "--rm", "--entrypoint", "sha256sum", image,
