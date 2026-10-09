@@ -235,6 +235,18 @@ dans `docs/refonte/preuves-1.0.0.md`.
   partagées seulement, jamais face à un vrai greffon P7 (`docs/refonte/desktop.md`, « Non prouvé ») ; MCP côté
   exécutant reporté.
 - `preserve()` sur une variable jamais posée : supposé sans effet (D116).
+- Test de restauration, hors Railway : il ne prouve ni le second arrêt brutal d'une même carte (lu dans le code), ni
+  un fichier de root illisible par Hermes dans le volume exporté, ni l'identité et Hermes restaurés à des instants
+  différents (supposé), ni la station Qt après une restauration de l'identité (`docs/exploitation.md` § 10).
+- Le travail d'un projet ne quitte l'exécutant que par un geste du propriétaire depuis un ordinateur (`railway ssh`,
+  `git bundle`, push et PR par lui : `docs/refonte/railway.md` § 13.7, D82) ; le téléphone suit et répond, sans
+  récupérer.
+- Formulaire « Nouveau projet » : pour un projet sur un dépôt, l'exploration part toujours d'un choix explicite
+  (exécutant, et modèle exigé pour Claude : D73, encore à confirmer), résolu avant la table de routage, contrairement
+  au plan d'autonomie ; la discussion laisse Hermes choisir. Le texte de la page Routage le dit depuis la relecture
+  finale de P9.
+- Station Qt sans page Catalogue ni cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web
+  (`docs/refonte/desktop.md`, « Écarts assumés »).
 - **Hermes v0.21.6 est publiée depuis le 8 octobre 2026** (étiquette git, image Docker Hub, release GitHub) ; 1.0.0
   reste sur Hermes 0.21.5 (`v2026.9.24`, D161). `scripts/monter_hermes.py derniere` ne retenait que la forme
   `vAAAA.M.J` et a conclu à tort, le 9 octobre 2026, qu'aucune release plus récente n'existait ; corrigé le même jour

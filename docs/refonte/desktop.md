@@ -228,6 +228,17 @@ local), puis Desktop CI et CI vertes (tableau ci-dessus).
 | desktop-11 : la liste des discussions ne marquait pas « En attente d'une réponse » ni ne disait l'état d'attente illisible, comme `Liste.tsx` | la page Discussion lit l'état d'attente avec sa liste, marque chaque discussion en attente (nom accessible compris) et, après une lecture ratée, dit le texte même du navigateur | `tst_discussion` (`discussionsEnAttenteMarqueesDansLaListe`), `tst_pages_interactions` (`discussionEnAttenteMarqueeDansLaListe`, vraie page) ; `ac31836` |
 | desktop-12 : documentation : repli « sondage (15 s) » alors que la page Quotas et le sondage léger sont à 60 s | architecture, ce document et l'en-tête de `FluxInvalidation.h` disent les cadences réelles (15 s, 60 s) ; la cadence affichée à l'écran était déjà juste | ce document ; `afa4f8f` (en-tête) |
 
+## Écarts assumés
+
+Fonctions du navigateur absentes de la station, à consulter dans le navigateur (relecture finale de P9 : elles étaient
+rangées sous « Non prouvé », alors que c'est un manque de fonction et non de preuve) :
+
+- la page Catalogue (greffon `acp-catalogue`) ;
+- les cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web (lues de `/v1/meta`) : la station
+  montre la carte « Hermes ».
+
+Le suivi des projets et des questions est le même des deux côtés.
+
 ## Non prouvé
 
 - Aucun essai contre Railway ni avec une vraie passkey (rien n'est déployé).
@@ -245,8 +256,6 @@ local), puis Desktop CI et CI vertes (tableau ci-dessus).
   (décision P8b-1) : prouvés contre le faux Hermes seulement.
 - Cadence affichée par les pages et nom accessible de la pastille Questions : textes lus
   sur les vraies pages QML hors écran ; aucun lecteur d'écran réel n'a été essayé.
-- Cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web (lues de
-  `/v1/meta`) : non reprises par la station, qui montre la carte « Hermes ».
 - Face à un greffon de P5 ou P6 (décision P8b-2) : « Non disponible sur ce serveur » prouvé
   contre le faux Hermes et le document de référence privé de la clé `accueil` seulement ;
   l'Accueil de P8 (projets et quotas lus séparément) n'est pas repris.

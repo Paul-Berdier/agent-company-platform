@@ -43,8 +43,9 @@ Construction, tests et architecture, dans le dépôt à l'étiquette de cette pu
 
 ## Ce que cette publication ne prouve pas
 
-Les binaires sont compilés et testés par l'intégration continue (Desktop CI, exécuteur GitHub `windows-2022`) ;
-ses tests natifs éprouvent la station contre un faux Hermes et contre les documents de référence partagés avec le
+Les binaires sont compilés, testés (Qt Test et Qt Quick Test) et empaquetés par le workflow Desktop Release, à
+l'étiquette de cette publication, sur l'exécuteur GitHub `windows-2022`, avec les mêmes scripts que Desktop CI ;
+ces tests natifs éprouvent la station contre un faux Hermes et contre les documents de référence partagés avec le
 greffon. Cela ne prouve pas : une installation sur un Windows propre (jamais faite) ; une connexion à un Hermes
 déployé sur Railway, avec une vraie passkey et un vrai appareil (aucun test n'en emploie) ; une revue visuelle ou un
 lecteur d'écran réel. Les binaires ne sont signés que si la section « Signature de code » ci-dessus le dit. Limites

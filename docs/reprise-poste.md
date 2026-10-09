@@ -273,8 +273,9 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
 
 1. Fait le 9 octobre 2026 : le **chantier SECU-TUI**, qui a instruit le constat de la défense de P2 (session du
    tableau de bord qui a reçu, une fois, les outils du `.env` piégé après un redémarrage du conteneur : Image Hermes
-   `37784838264`, tentative 1), est fusionné (PR #23, `5026a70` ; D156, D157 ; limite restante :
-   [image.md](refonte/image.md) § 10) ; la station alignée sur P7 aussi (P8b, PR #22, `8583642` ; D158, D159) ;
+   `37784838264`, tentative 1), est fusionné (PR #23, `5026a70` ; D156, D157 ; limites restantes, écriture directe
+   d'un `.env` en cours de vie et variables ni épinglées ni refusées, non mesurées : [image.md](refonte/image.md)
+   § 10) ; la station alignée sur P7 aussi (P8b, PR #22, `8583642` ; D158, D159) ;
    `refonte/hermes-p9bc`, `refonte/hermes-p9e` et `refonte/hermes` sont réunies sur `refonte/hermes-p9`. Leurs
    preuves sont reprises dans les [preuves](refonte/preuves-1.0.0.md) (§ 1 et § 5) et le journal 1.0.0 préparé.
 2. Fin de P9 : fait le 9 octobre 2026, parts B et C closes (preuves relevées), manuel finalisé, décision D160

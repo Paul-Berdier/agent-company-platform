@@ -6,7 +6,8 @@
 > client d'avant la refonte et restent consultables sous l'étiquette
 > `archive/acp-0.10.0-avant-hermes`.
 
-État du 23 septembre 2026, **0.10.0 en préparation**. `UpdateService` existe dans
+Relevés ci-dessous : état du 23 septembre 2026, 0.10.0 alors en préparation ; au 9 octobre 2026, la ligne 0.10 est
+**archivée, jamais étiquetée**, et la prochaine publication est **v1.0.0**. `UpdateService` existe dans
 `apps/desktop/src/services/`. Il vérifie les publications GitHub et ouvre leur
 page officielle. **Il ne télécharge ni n'installe de paquet.** La validation du
 nouvel arbre est consignée dans le relevé daté (sous l'étiquette d'archive).
@@ -55,7 +56,8 @@ Le workflow de publication prépare un **brouillon** depuis une étiquette.
 L'existence du workflow ne prouve pas qu'une nouvelle publication a été créée
 ou rendue publique.
 
-La version 0.10.0 est ouverte dans le dépôt, sans annonce de publication finalisée.
+La ligne 0.10 n'a jamais été étiquetée ni publiée (archivée sous `archive/acp-0.10.0-avant-hermes`) ; 1.0.0 est
+préparée, sans annonce de publication finalisée.
 Fusion, artefact de CI, étiquette et publication GitHub sont des objets distincts.
 Le journal et le relevé de validation (sous l'étiquette d'archive) suivent
 les preuves finales.

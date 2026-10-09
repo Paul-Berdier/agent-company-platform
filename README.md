@@ -70,14 +70,28 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
   volume toute clé que la portée gérée épingle, au démarrage et à chaque relance (D156), et une source externe de
   secrets du volume, seconde faille trouvée en chemin hors des trois couches, refuse le démarrage (D157). Reste une
   écriture **directe** d'un `.env` du volume pendant la vie d'un service (faille de Hermes, ou shell du
-  propriétaire) : elle rouvrirait la fenêtre jusqu'à la relance suivante
-  ([`docs/refonte/image.md`](docs/refonte/image.md) § 10).
+  propriétaire) : elle rouvrirait la fenêtre jusqu'à la relance suivante ; et quelques variables ni épinglées ni
+  refusées dans le volume restent non mesurées ([`docs/refonte/image.md`](docs/refonte/image.md) § 10).
 - Rien n'est déployé : la [procédure Railway](docs/refonte/railway.md) § 12 liste ce qui ne se prouve que là.
 - Tant que `trusted_proxies` reste vide, les cookies de Hermes n'ont pas l'attribut `Secure` ; un jeton de
   rafraîchissement rejoué laisse une erreur 503 jusqu'à la déconnexion ou l'effacement des cookies du site
   ([`docs/refonte/identite.md`](docs/refonte/identite.md) § 12).
 - Pages natives de Hermes en partie en anglais (comptées, non traduites) ; rendu éprouvé dans Chromium seulement.
 - Serveurs MCP côté exécutant reportés ; aucun dépôt réel encore confié à l'exécutant.
+- **Récupérer le travail d'un projet demande un ordinateur** : l'exécutant committe sur son volume et ne pousse
+  jamais (D82). Depuis le téléphone, on suit le projet et on répond à ses questions ; la branche prête ne quitte
+  Railway que par un geste du propriétaire depuis un ordinateur (`railway ssh` avec la clé dédiée, `git bundle`,
+  puis push et PR par lui-même : [procédure Railway](docs/refonte/railway.md) § 13.7). La poussée par l'exécutant
+  (option B de D82) attend sa décision.
+- **Formulaire « Nouveau projet »** (navigateur et station Qt) : pour un projet sur un dépôt, il envoie toujours un
+  exécutant d'exploration (le premier ouvert, par défaut) et, pour Claude, exige d'en choisir le modèle (D73, choix
+  par défaut encore à confirmer). Ce choix explicite passe avant la table de routage, que l'exploration lancée ainsi
+  n'emploie pas, contrairement au [plan d'autonomie](docs/refonte/autonomie.md) (exploration « selon la classe
+  exploration de la table de routage ») ; lancé depuis la discussion, Hermes choisit lui-même ou s'en remet à la
+  table.
+- **Station Qt et navigateur** : même suivi des projets et des questions ; la station n'a ni page Catalogue ni les
+  cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web, à consulter dans le navigateur
+  ([`docs/refonte/desktop.md`](docs/refonte/desktop.md), « Écarts assumés »).
 - 1.0.0 reste sur Hermes 0.21.5 : v0.21.6, publiée le 8 octobre 2026, n'est pas montée, car son image n'est pas
   construite depuis le commit de son étiquette (refus de `scripts/monter_hermes.py`, D161) ; aucune montée vers une
   release postérieure à `v2026.9.24` n'est donc prouvée ; retour arrière par Rollback, montée d'Authelia et vrai
