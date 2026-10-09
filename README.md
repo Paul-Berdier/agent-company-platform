@@ -1,8 +1,9 @@
 # Agent Company Platform (ACP)
 
 Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT) : c'est la
-refonte « Hermes au centre ». Version **0.11.0** ; **1.0.0 est en préparation** (étape P9) : rien n'est encore
-publié ni **déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL, interface web Vite, CLI `acp`,
+refonte « Hermes au centre ». Version **0.11.0** ; **1.0.0 est préparée** (étape P9 ; ouverture et publication à
+venir) : rien n'est encore publié ni **déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL,
+interface web Vite, CLI `acp`,
 déploiement Railway multi-services) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
 
 ## Ce que c'est
@@ -41,19 +42,22 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
 ## État réel (9 octobre 2026)
 
 - Étapes P0 à P8 de la refonte fusionnées dans `refonte/hermes`, puis, le 9 octobre 2026, le correctif de sécurité
-  SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`) ; P9 (exploitation, montée
-  de version, publication) en cours. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
+  SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`). P9 (exploitation, montée
+  de version, publication) est faite côté dépôt sur `refonte/hermes-p9` (parts A à E, branches réunies le
+  9 octobre 2026), non fusionnée : restent sa relecture indépendante, l'ouverture de 1.0.0 et sa PR, puis la
+  publication après l'accord du propriétaire. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
 - **Non déployé** : le premier déploiement est un geste du propriétaire
   ([`docs/refonte/railway.md`](docs/refonte/railway.md) § 4). La branche que l'IaC déploie (`refonte/hermes`) porte
   depuis le 9 octobre 2026 le correctif du constat de sécurité ci-dessous. Ce qui ne se prouve que sur Railway (bord,
   sauvegardes, coût et notifications réels, sonde de l'exécutant) reste **non prouvé**.
 - Prouvé en local et en intégration continue : les images et leurs gardes, les tests de contrat de Hermes et de
-  l'identité, les parcours dans un navigateur, l'exécutant de bout en bout avec des CLI factices, la station Qt.
-  Les tests de P9 (restauration des volumes, témoin d'une release antérieure de Hermes, montée de données) tournent
-  en intégration continue seulement ; leurs preuves finales restent à relever. Relevés :
-  [`docs/refonte/preuves-1.0.0.md`](docs/refonte/preuves-1.0.0.md) (en préparation).
-- Binaires de la station : **non signés** (aucun certificat de signature de code) ; aucune installation éprouvée sur
-  un Windows propre.
+  l'identité, les parcours dans un navigateur, l'exécutant de bout en bout avec des CLI factices, la station Qt ;
+  et, depuis P9, la restauration des trois volumes (R1 à R4), le témoin d'une release antérieure de Hermes et la
+  montée de données d'une version d'ACP à la suivante, chacun avec ses témoins de mutation, tous en intégration
+  continue. Agent, CLI et comptes y sont **factices** : aucun vrai compte n'a servi. Relevés (runs, compteurs, ce
+  qui reste non prouvé) : [`docs/refonte/preuves-1.0.0.md`](docs/refonte/preuves-1.0.0.md).
+- Binaires de la station : **non signés** (aucun certificat de signature de code) ; l'installeur est fabriqué par
+  chaque Desktop CI, mais n'a jamais été installé sur un Windows propre.
 
 ## Limites connues, en bref
 
@@ -73,6 +77,9 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
   ([`docs/refonte/identite.md`](docs/refonte/identite.md) § 12).
 - Pages natives de Hermes en partie en anglais (comptées, non traduites) ; rendu éprouvé dans Chromium seulement.
 - Serveurs MCP côté exécutant reportés ; aucun dépôt réel encore confié à l'exécutant.
+- Aucune montée de Hermes vers une release postérieure à `v2026.9.24` (aucune n'existe au 9 octobre 2026) ; retour
+  arrière par Rollback, montée d'Authelia et vrai agent jamais éprouvés ([`docs/exploitation.md`](docs/exploitation.md)
+  § 10).
 
 ## Ce que 1.0.0 engagera
 
@@ -86,8 +93,8 @@ de cet engagement ; une rupture de nos interfaces appellera 2.0.0.
 
 - **Propriétaire** : le [manuel d'exploitation](docs/exploitation.md) (calendrier, sauvegardes, restauration,
   montée de version, incidents), puis la [procédure Railway](docs/refonte/railway.md), § 4 pour le premier
-  déploiement, **pas avant** la fusion du correctif de sécurité (limites ci-dessous). Tout geste sur le compte
-  Railway est le vôtre ; un agent prépare, teste et documente.
+  déploiement, qui suit la publication de 1.0.0 ([notes de reprise](docs/reprise-poste.md) § 6). Tout geste sur le
+  compte Railway est le vôtre ; un agent prépare, teste et documente.
 - **Agent ou développeur** : [`CLAUDE.md`](CLAUDE.md) (règles, doctrine, interdits), puis les
   [notes de reprise](docs/reprise-poste.md) (état courant, chaîne d'outils, pièges) et le
   [plan](docs/refonte/plan.md) (décisions, § 1).
@@ -114,17 +121,19 @@ npm ci --prefix apps/interface ; npm test --prefix apps/interface
 ./scripts/test-desktop.ps1 -Configuration Release
 ```
 
-Docker ne tourne plus sur le poste de travail (D134) ; l'intégration continue (GitHub Actions, dépôt public) en
-reprend l'essentiel, ci-dessous. Ne tournent plus nulle part, faute de workflow : les bouts en bout locaux du poste
-Windows et de la station Qt, les témoins négatifs de P4 à P6 et la recompilation du verrou Python
-([notes de reprise](docs/reprise-poste.md) § 4).
+Ce qui demande Docker (images, contrat, navigateur, restauration, montée) se prouve par l'intégration continue
+(GitHub Actions, dépôt public), ci-dessous ; Docker local est de nouveau permis depuis le 9 octobre 2026, avec
+sobriété (D160 : une seule pile à la fois, ressources nommées et retirées), pour itérer plus vite, la CI restant la
+preuve qui fait foi. Aucun workflow n'appelle les bouts en bout locaux du poste Windows et de la station Qt, les
+témoins négatifs de P4 à P6 ni la recompilation du verrou Python : ils n'ont été rejoués ni sur le code de P7 ni sur
+celui de P9 ([notes de reprise](docs/reprise-poste.md) § 4).
 
 | Workflow | Ce qu'il prouve |
 |---|---|
 | `ci.yml` (CI) | suites du dépôt sous Linux et Windows, installeur du poste en simulation, greffons d'interface, moteur gelé, balayage des secrets |
 | `image.yml` (Image Hermes) | images Hermes et identité, tests dans l'image, contrat depuis l'hôte, navigateur, IaC, répétition à blanc de la montée de Hermes ; job `restauration` ; jobs manuels `temoin` et `montee` |
 | `executant.yml` (Image de l'exécutant) | image réelle, binaires vérifiés, sonde locale, suite du client en root |
-| `desktop-ci.yml` (Desktop CI) | construction Release MSVC, tests Qt et empaquetage à blanc sur `windows-2022` |
+| `desktop-ci.yml` (Desktop CI) | construction Release MSVC, tests Qt et empaquetage à blanc (installeur et archive portable produits, ni signés ni publiés) sur `windows-2022` |
 | `desktop-release.yml` (Desktop Release) | à l'étiquette `v*` : brouillon de publication non signé ; jamais encore exécuté |
 
 ## Carte du dépôt

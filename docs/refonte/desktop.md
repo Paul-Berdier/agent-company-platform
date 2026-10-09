@@ -232,11 +232,14 @@ local), puis Desktop CI et CI vertes (tableau ci-dessus).
 
 - Aucun essai contre Railway ni avec une vraie passkey (rien n'est déployé).
 - Navigateur du système réel (Chromium de Playwright le remplace au bout en bout).
-- Installation sur un Windows propre ; signature.
+- Installation sur un Windows propre ; signature. L'installeur est fabriqué, non signé, par
+  chaque Desktop CI (empaquetage à blanc), mais n'a jamais été installé ; `Desktop Release`
+  n'a jamais tourné (premier run à l'étiquette).
 - Gestes et lectures de P7 dans la station (P8b) : prouvés contre le faux Hermes, les
   fixtures partagées avec le greffon et le contrat OpenRPC épinglé seulement. Le bout en
-  bout local n'a pas été rejoué contre une image de P7 (aucune commande Docker sur ce
-  poste) : flux réel derrière uvicorn, relance, clôture, revues, discussions en attente et
+  bout local n'a pas été rejoué contre une image de P7 (Docker était arrêté sur ce poste
+  pendant P8b ; de nouveau permis depuis le 9 octobre 2026, D160, il n'a pas servi à le
+  rejouer) : flux réel derrière uvicorn, relance, clôture, revues, discussions en attente et
   bilan quotidien contre un vrai greffon et un vrai Hermes ne sont pas prouvés.
 - Flux derrière le bord Railway (coupure avant 10 min, mise en tampon) et 401 du flux
   (décision P8b-1) : prouvés contre le faux Hermes seulement.
@@ -258,7 +261,12 @@ local), puis Desktop CI et CI vertes (tableau ci-dessus).
   (prolongation refusée pour de bon par le greffon) ; titre de la carte de la machine
   d'après l'hôte publié ; textes qui promettaient des gestes « à l'étape P7 » ou
   renvoyaient au kanban de Hermes (qui débloquerait une carte sans les gardes d'ACP).
-- Restauration d'une sauvegarde (étape P9) ; seul le déchiffrement à l'identique est prouvé.
+- Restauration d'une sauvegarde (étape P9) : la station prouve le déchiffrement à
+  l'identique ; l'import d'un export de Hermes dans un volume neuf est prouvé par le test
+  de restauration de P9 (R4, en intégration continue : [exploitation.md](../exploitation.md)
+  § 4.5) ; la chaîne complète export de la station → déchiffrement → import sur Railway ne
+  l'est pas, ni la station après une restauration de l'identité (la règle de reconnexion
+  est mesurée par R3 dans un navigateur seulement).
 - Durée réelle de la session chez Authelia (7 jours, fenêtre glissante supposée).
 - Garde de transition du blocage du greffon (pages oubliées seulement au passage au
   blocage) : défensive ; son témoin ne boucle pas, le sondage se reprogrammant à 15 s.

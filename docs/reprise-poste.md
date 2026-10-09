@@ -13,8 +13,9 @@ le seul orchestrateur et la seule source de vérité ; ACP fournit son image dé
 (Authelia), l'exécutant Railway, le poste Windows facultatif, la station Qt et l'interface du tableau de bord.
 L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.10.0-avant-hermes` (`60a49b6`).
 
-- **Version 0.11.0**. **1.0.0 en préparation, non ouverte** : le commit d'ouverture et le journal daté viendront à
-  la fin de P9 (D129) ; la fusion dans `main` et l'étiquette `v1.0.0` attendront l'accord du propriétaire.
+- **Version 0.11.0**. **1.0.0 préparée, non ouverte** : le commit d'ouverture et le journal daté viendront après la
+  relecture indépendante de toute P9 (D129) ; la fusion dans `main` et l'étiquette `v1.0.0` attendront l'accord du
+  propriétaire.
 - **Rien n'est déployé sur Railway**. Le chantier SECU-TUI, qui retenait le déploiement, est fusionné (PR #23,
   `5026a70`, 9 octobre 2026) : la branche que l'IaC déploie porte son correctif (§ 6, n° 1). Le premier
   déploiement est un geste du propriétaire ([railway.md](refonte/railway.md) § 4).
@@ -30,15 +31,17 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 - **Intégration continue** sur `refonte/hermes` : après la fusion de P7 (`b9779f1`), CI `37795932683`, Image de
   l'exécutant `37795932983`, Desktop CI `37795932742` et Image Hermes `37795932814` ; après celle de SECU-TUI
   (`5026a70`), CI `37894912135` et Image Hermes `37894912140` ; après celle de P8b (`8583642`, tête), CI
-  `37900882829`, Desktop CI `37900882827` et Image Hermes `37900882826` : **toutes vertes**. Runs de chaque étape :
-  [preuves de 1.0.0](refonte/preuves-1.0.0.md).
-- **Docker** : Docker Desktop a été **arrêté** sur le poste de travail du 8 au 9 octobre 2026 (souhait du
-  propriétaire, D134) : images, contrat, navigateur, restauration, témoin et montée de données se sont prouvés par la
-  CI GitHub (`gh workflow run <fichier> --ref <branche>` pour les jobs manuels) ; les scripts locaux à Docker (bouts
-  en bout du poste et de la station, témoins négatifs de P4 à P6, recompilation du verrou Python) n'ont tourné nulle
-  part (§ 4). Le 9 octobre 2026, le propriétaire a de nouveau permis Docker en local (« Docker OK »), avec sobriété :
-  une seule pile à la fois, ressources nommées et nettoyées ; la CI reste la preuve qui fait foi. La décision qui
-  remplace D134 et la mise à jour des documents qui le citent restent **à écrire** (fin de P9).
+  `37900882829`, Desktop CI `37900882827` et Image Hermes `37900882826` : **toutes vertes**. Sur
+  `refonte/hermes-p9` après la réunion (`90102b1`) : CI `37908787830`, Image de l'exécutant `37908787759`, Desktop CI
+  `37908787797`, Image Hermes `37908787791` (job « image » vert à sa seconde tentative, après un échec du test
+  navigateur de la connexion : [preuves](refonte/preuves-1.0.0.md) § 3) et montées de données `37908841650` et
+  `37908855369` : **vertes**. Runs de chaque étape : [preuves de 1.0.0](refonte/preuves-1.0.0.md).
+- **Docker** : arrêté sur le poste de travail du 8 au 9 octobre 2026 (D134) ; **de nouveau permis** depuis le
+  9 octobre 2026 (« Docker OK » du propriétaire, D160), **avec sobriété** : seuls les agents qui écrivent et le
+  vérificateur final en lancent, jamais un relecteur ; une seule pile à la fois ; ressources nommées par un préfixe
+  propre au chantier et retirées à la fin de chaque suite ; jamais les conteneurs d'autres projets. La CI GitHub
+  reste la preuve qui fait foi (`gh workflow run <fichier> --ref <branche>` pour les jobs manuels) ; scripts locaux à
+  Docker : § 4.
 
 | Étape | Objet | État |
 |---|---|---|
@@ -53,10 +56,10 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 | P7 | questions, notifications, continuité ; dépôts réels | fusionnée (PR #21, `b9779f1`) ; aucun dépôt réel ajouté |
 | SECU-TUI | correctif de sécurité : `.env` et sources de secrets du volume | fusionné (PR #23, `5026a70`) ; D156, D157 |
 | P8b | station Qt alignée sur P7 | fusionnée (PR #22, `8583642`) ; D158, D159 ; prouvée contre le faux Hermes seulement |
-| P9 | exploitation, montée de version, publication 1.0.0 | **en cours**, sans PR : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; parts A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) exécutées par la CI, preuves finales à relever ; E (documentation finale) préparée ; F (publication) après accord |
+| P9 | exploitation, montée de version, publication 1.0.0 | **parts A à E faites**, sans PR : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, prouvées en CI ([preuves](refonte/preuves-1.0.0.md) § 3) ; E (documentation finale) faite ; restent la relecture indépendante de toute P9, l'ouverture 1.0.0 et la PR ; F (publication) après accord |
 
 Détail de chaque étape : [historique](refonte/historique.md), partie A (tableau des fusions) et partie B ; P9 :
-[plan](refonte/plan.md) § 1 (D122 à D155 ; D156 à D159 pour SECU-TUI et P8b) et [manuel](exploitation.md).
+[plan](refonte/plan.md) § 1 (D122 à D155 et D160 ; D156 à D159 pour SECU-TUI et P8b) et [manuel](exploitation.md).
 
 ## 2. Décisions du propriétaire
 
@@ -75,7 +78,7 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
   élargissement du périmètre).
 - Exécution principale sur un service Railway séparé, l'**exécutant** (D74) ; le poste Windows devient facultatif.
 - Le propriétaire **fournit les comptes**, Hermes gère l'exploitation : décisions de conception **appliquées** depuis
-  P6 (D74 à D159) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
+  P6 (D74 à D160) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
   comptes, la dépense et l'irréversible ; pour 1.0.0, une seule question : fusion dans `main`, étiquette et branche
   déployée.
 
@@ -84,7 +87,7 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
 | Besoin | Où |
 |---|---|
 | Règles de travail, recette de publication, interdits | `CLAUDE.md` |
-| Plan validé et décisions D1 à D159 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
+| Plan validé et décisions D1 à D160 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
 | Gestes du propriétaire : sauvegardes, restauration, montée de version, incidents | [exploitation.md](exploitation.md), puis [refonte/railway.md](refonte/railway.md) |
 | Image Hermes, variables Railway, managed scope | [refonte/image.md](refonte/image.md) |
 | Identité, interface, catalogue, projets, poste, exécutant, questions | [identite.md](refonte/identite.md), [interface.md](refonte/interface.md), [catalogue.md](refonte/catalogue.md), [projets.md](refonte/projets.md), [poste.md](refonte/poste.md), [executant.md](refonte/executant.md), [questions.md](refonte/questions.md) |
@@ -142,14 +145,18 @@ $env:PYTHONUTF8 = '1'
 npm ci ; npm run test:engine
 npm ci --prefix apps/interface ; npm test --prefix apps/interface   # greffons d'interface (Vitest)
 ./scripts/build-desktop.ps1 -Configuration Release    # ou -QtDir <Qt>/6.8.3/msvc2022_64
-./scripts/test-desktop.ps1 -Configuration Release     # 34 suites ; lire aussi les totaux Qt
+./scripts/test-desktop.ps1 -Configuration Release     # 36 suites depuis P8b ; lire aussi les totaux Qt
 git diff --check
 ```
 
-**Docker** : plus aucune commande sur le poste de travail depuis le 8 octobre 2026 (D134). Passent par la CI : les
-images, les tests dans l'image, de contrat et du navigateur, le bout en bout de l'exécutant (`image.yml`, avec ses
-jobs `restauration`, `temoin` et `montee`) et la suite du client en root (`executant.yml`). **Ne tournent nulle
-part depuis**, car ce sont des scripts locaux à Docker qu'aucun workflow n'appelle :
+**Docker** : de nouveau permis sur le poste de travail depuis le 9 octobre 2026, avec sobriété (D160, § 1). Passent
+par la CI, qui fait foi : les images, les tests dans l'image, de contrat et du navigateur, le bout en bout de
+l'exécutant (`image.yml`, avec ses jobs `restauration`, `temoin` et `montee`) et la suite du client en root
+(`executant.yml`). En local, une pile à la fois : images construites depuis le worktree comme dans ces workflows,
+sous des noms préfixés propres au chantier ; tests de contrat avec `ACP_CONTRAT_ETIQUETTE` (préfixe
+`acp-contrat-<étiquette>-` de leurs conteneurs, volumes et réseaux) ; R3 demande Playwright ; tout retirer à la fin.
+Premières suites locales (9 octobre 2026) : [preuves](refonte/preuves-1.0.0.md) § 3. **Aucun workflow n'appelle**
+ces scripts locaux à Docker, qui n'ont été rejoués ni sur le code de P7 ni sur celui de P9 :
 - le bout en bout du poste Windows, `scripts/e2e-poste-windows.ps1` (« jamais en CI » ; dernier passage relevé :
   étape P5) ;
 - celui de la station Qt, `scripts/e2e-desktop-windows.ps1` (« jamais en CI » ; dernier passage relevé : étape P8) ;
@@ -158,7 +165,8 @@ part depuis**, car ce sont des scripts locaux à Docker qu'aucun workflow n'appe
 - la recompilation du verrou Python : `scripts/lock_python.ps1` lance `docker run` sur `python:3.12-slim` (jamais
   pip-tools sur le poste) et produit aussi le verrou d'exécution du poste (`requirements/poste-3.12.lock.txt`).
 
-Les relancer demande soit de revenir sur D134 (accord du propriétaire), soit un workflow qui n'existe pas encore.
+Les relancer se fait en local, sous la règle de D160 (prérequis dans l'en-tête de chaque script), ou par un
+workflow qui n'existe pas encore.
 
 ## 5. Pièges connus
 
@@ -192,7 +200,12 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
   `?profile=default` à l'URL de « / » : comparer le chemin.
 - Tests temporisés du poste sous forte charge (compilation MSVC, piles parallèles) : échecs sans rapport avec le
   code ; ne pas lancer pytest pendant une compilation (P0) ; test Windows instable connu :
-  `apps/poste/tests/contrat/test_enrolement.py:78` (`ssl.SSLEOFError` du faux serveur TLS, P9).
+  `apps/poste/tests/contrat/test_enrolement.py:78` (`ssl.SSLEOFError` du faux serveur TLS, P9) ; en local, le
+  9 octobre 2026, `apps/poste/tests/test_local_runner.py::test_stop_event_terminates_the_real_process` (rouge une
+  fois sous charge, vert seul et dans les suites suivantes, P9).
+- Test navigateur de la connexion (`hermes/tests/e2e/test_connexion_navigateur.py`) : course possible avec la
+  relecture périodique du tableau de bord de Hermes, qui renvoie la page à la connexion après la déconnexion
+  (« Execution context was destroyed ») ; vu rouge une fois, vert à la relance (P9).
 - Greffons d'interface : bundles **committés** ; après toute modification de `apps/interface/src`,
   `npm run build --prefix apps/interface` ; une image construite avant les bundles fait échouer
   `test_bundles_servis_identiques_au_depot` ; `src/chaines.ts` emploie des espaces insécables réelles (P3, P7).
@@ -262,9 +275,9 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
    [image.md](refonte/image.md) § 10) ; la station alignée sur P7 aussi (P8b, PR #22, `8583642` ; D158, D159) ;
    `refonte/hermes-p9bc`, `refonte/hermes-p9e` et `refonte/hermes` sont réunies sur `refonte/hermes-p9`. Leurs
    preuves sont reprises dans les [preuves](refonte/preuves-1.0.0.md) (§ 1 et § 5) et le journal 1.0.0 préparé.
-2. Fin de P9 : clore les parts B et C (preuves finales relevées), finaliser le manuel, écrire la décision qui
-   remplace D134 (Docker de nouveau permis en local), relecture indépendante de toute P9, commit d'ouverture 1.0.0
-   puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion.
+2. Fin de P9 : fait le 9 octobre 2026, parts B et C closes (preuves relevées), manuel finalisé, décision D160
+   (Docker de nouveau permis en local) écrite. Restent : relecture indépendante de toute P9, commit d'ouverture
+   1.0.0 puis journal daté, PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion.
 3. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
    de fusion, branche déployée) ; premier run de `Desktop Release` (brouillon non signé).
 4. Gestes du propriétaire sur Railway : premier déploiement
