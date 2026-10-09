@@ -23,7 +23,7 @@ sont au **§ 14**. Toujours **rien de déployé**.
 Relecture indépendante de P2 (exploitation) : ordre des étapes rendu exécutable à la lettre,
 installation de la CLI sans configuration d'agent, prérequis WSL, sauvegardes hors IaC, refus PID 1,
 Rollback, dépôt public ; chaque correction est signalée « relecture P2 », et le tableau de
-traitement est dans [`docs/reprise-poste.md`](../reprise-poste.md).
+traitement est dans [`historique.md`](historique.md), partie B, § 6.
 
 Sommaire : § 1 ce qui est déployé · § 2 prérequis · § 3 règles de l'IaC · § 4 premier déploiement ·
 § 5 identité · § 6 cerveau (openai-codex) · § 7 preuves à relever · § 8 relais et

@@ -4,783 +4,202 @@ Les changements notables d'Agent Company Platform sont consignés dans ce fichie
 Le projet suit le versionnage sémantique ; tant que la version majeure reste à zéro,
 les interfaces peuvent encore évoluer entre deux versions mineures.
 
-## 0.11.0 (en cours) — refonte « Hermes au centre »
-
-Branche `refonte/hermes`, ouverte depuis l'étiquette `archive/acp-0.10.0-avant-hermes`
-(plan : `docs/refonte/plan.md`). La section complète (Ajouté, Modifié, Corrigé,
-Sécurité, Vérifié localement, Limites connues) sera rédigée avant la PR finale vers
-`main`, en 1.0.0.
-
-### P0 — branche, élagage et gel du moteur
-
-- retirés : API FastAPI, base et migrations, bus d'événements, passerelle de
-  fournisseurs, CLI `acp`, interface web Vite (hors `apps/web/public/assets`),
-  `packages/ui`, contrats TypeScript et Python (hors quotas), `agent-sdk`,
-  `playwright-reporter`, `e2e`, déploiement Railway multi-services et scripts liés,
-  documentation datée des lots A à H ;
-- `apps/worker` devient `apps/poste` (commande `acp-poste` : `diagnostic`, local, et
-  `quotas`, sur accord `ACP_WORKER_SUBSCRIPTION_QUOTAS=1`, qui lance Codex CLI, lequel
-  interroge le serveur d'OpenAI ; le poste n'ouvre lui-même aucune connexion),
-  élagué des modules liés à l'API ; le contrat des quotas passe dans
-  `hermes/plugins/acp-poste/contrat` ; la ligne d'état Claude Code devient
-  `python -m acp_poste.claude_statusline` ;
-- `scripts/check_engine_frozen.py` : garde du gel du moteur Pixel Office ; CI en trois
-  volets (moteur, poste sous Linux et Windows, desktop) ;
-- corrections de la relecture indépendante : le refus des NUL du contrat ne contient
-  plus l'octet NUL ; tests DPAPI réels rétablis ; commande `journal`, qu'aucun
-  composant n'alimentait, et `ACP_POSTE_STATE_DIR` retirées ; `acp-poste quotas`
-  refusé (code 2) sans l'accord `ACP_WORKER_SUBSCRIPTION_QUOTAS=1` ;
-  `ACP_WORKER_QUOTA_INTERVAL_SECONDS`, sans effet, retiré ;
-- les sections « Unreleased » et « 0.10.0 (préparation) » ci-dessous décrivent la ligne
-  archivée : leurs fonctions côté API, web et CLI n'existent plus sur cette branche, et
-  les documents qu'elles citent restent consultables sous l'étiquette d'archive.
-
-### P1 — image dérivée et CI de contrat (sans Railway)
-
-- `hermes/image/Dockerfile` : image Railway dérivée de
-  `nousresearch/hermes-agent:v2026.9.24` épinglée par le condensat de son index
-  (`sha256:fca358f1…`), `S6_BEHAVIOUR_IF_STAGE2_FAILS=2`, `CMD ["gateway","run"]`,
-  `ENTRYPOINT` officiel conservé ;
-- gardes de démarrage dans le crochet s6 `S6_STAGE2_HOOK` (`acp-gardes`), avant tout
-  script cont-init : refus en français, code 1, de toute variable interdite ou invalide
-  (émetteur OIDC non https, `API_SERVER_KEY`, `HERMES_MANAGED_DIR`, fournisseurs Nous,
-  basic et drain, mandataires…) et de tout greffon utilisateur qui déclare un nom
-  `acp-*` ; `05-acp` refait ces contrôles, verrouille `/opt/data/plugins`,
-  `/opt/data/dashboard-themes` et `/opt/data/acp` (root 0755), dépose le thème et
-  `SOUL.md` selon son empreinte ;
-- managed scope `/etc/hermes` régénérée et relue à chaque démarrage : connexion au
-  tableau de bord par OIDC auto-hébergé seulement, approbations manuelles,
-  auto-décomposition du kanban coupée, profils lançables épinglés, aucun greffon
-  utilisateur activable, anciens chemins d'import refusés, api_server en boucle locale,
-  magasin de certificats et mandataires fixés ;
-- greffon groupé `acp-poste` en squelette : route `GET /api/plugins/acp-poste/v1/meta`
-  (contrat `acp-poste/1`) et adaptateur kanban qui importe chaque fonction depuis son
-  module de définition ;
-- contrat épinglé (`hermes/contrat/`) : `HERMES_VERSION` et copie de l'OpenRPC de la
-  passerelle (MIT, provenance) ;
-- tests dans l'image et tests de contrat pilotés depuis l'hôte, avec un modèle factice
-  compatible OpenAI et un faux fournisseur d'identité ; workflow `image.yml` ;
-- documentation : `docs/refonte/image.md`.
-
-### P2 — premier déploiement Railway authentifié, agent sans terminal (préparé, non déployé)
-
-Tout est prouvé en local et en CI ; **rien n'est déployé** : le premier déploiement est fait par le
-propriétaire, selon `docs/refonte/railway.md`.
-
-- **agent sans outil d'exécution sur Railway** (ni terminal, ni fichiers, ni code, ni navigateur,
-  ni cron, ni délégation, ni connexions), en trois couches : managed scope à 40 clés (jeux
-  d'outils coupés, `platform_toolsets` explicites pour api_server, CLI et cron,
-  `coding_context "off"`, `service_tier ""`, `write_approval` des skills et de la mémoire,
-  `hooks_auto_accept: false`, réseau privé et installations paresseuses fermés), `.env` géré à
-  38 variables, et garde `pre_tool_call` en **liste blanche de 24 outils** dans `acp-poste`
-  (`garde_execution.py`) ; `kanban_create` et `kanban_attach_url` refusés avec leur propre
-  message ; `preview.restart` fermé dans le processus réel (deux tests bloquants : stdio
-  `tui_gateway.entry` et `/api/ws` du vrai tableau de bord) ;
-- **gardes de plateforme** : `acp-entree` refuse de démarrer hors du PID 1 ; le greffon arrête
-  (code 78) une passerelle ou un tableau de bord lancés hors de s6 ; `/opt/data/hooks` et
-  `/opt/data/scripts` exigés vides puis rendus à root ; sur Railway, volume exigé sur `/opt/data`
-  (variable et point de montage réel) ; `RAILWAY_RUN_UID` absente ou `0` ; treize variables
-  interdites et cinq valeurs imposées de plus ; domaine privé `*.railway.internal` refusé pour
-  l'URL publique et l'émetteur ; commit déployé journalisé ;
-- `diagnostiquer` : commande de maintenance en lecture seule (environnement du PID 1, clés
-  exécutables de `config.yaml`, `lazy-packages`) ; `/v1/meta` gagne les blocs `garde_execution`,
-  `reseau` et `deploiement` ;
-- **fournisseur d'identité** `identite/` : Authelia 4.39.28 épinglé par condensat, un seul
-  utilisateur réécrit à chaque démarrage, un seul client OIDC public `hermes-acp`, politique
-  `deny` par défaut, passkeys (WebAuthn), secrets générés une fois dans le volume, garde root en
-  français (`acp-identite-entree`), administration en maintenance (`acp-identite-admin`),
-  HEALTHCHECK Docker de l'image amont retiré (élévation possible) ; limite mémoire **mesurée**
-  (2,5 Gio) ;
-- **infrastructure Railway** `.railway/railway.ts` : projet entier (services `hermes` et
-  `identite`, deux volumes), branche `refonte/hermes`, Wait for CI, constructeur Dockerfile,
-  santé, région EU West, limites, redémarrage, Serverless coupé, aucune Start Command, variables
-  du propriétaire en `preserve()` ; libellés des sous-domaines en gabarit qui font **échouer
-  fermé** plan et apply ; SDK `railway@3.11.0` isolé dans `.railway/` et épinglé par son verrou
-  haché ; `verifier.mjs` évalue le fichier comme la CLI ;
-- **procédure** du propriétaire (`docs/refonte/railway.md`) : premier déploiement pas à pas,
-  identité et enrôlement, openai-codex, preuves à relever, `trusted_proxies`, exploitation,
-  maintenance `/bin/sh -c "exec sleep infinity"`, restauration, sécurité du compte (clé SSH dédiée
-  retirée après usage) ;
-- **CI** : `image.yml` suit aussi `identite/**` et `.railway/**`, relève le condensat d'Authelia,
-  construit l'image d'identité, type et évalue l'IaC, lance les tests d'identité et le test
-  navigateur (Playwright, WebAuthn virtuel) ; hors PR, un groupe de concurrence **par
-  exécution** : aucun run poussé n'est annulé ni remplacé ;
-- tests : dans l'image (216), contrat depuis l'hôte (Hermes, identité, IaC), navigateur, et
-  contrôle statique de l'IaC dans la suite du dépôt ;
-- documentation : `docs/refonte/image.md`, `identite.md`, `railway.md` ; phases P4 à P8 du plan
-  remplacées par le plan d'autonomie (`docs/refonte/autonomie.md`) ;
-- corrections de la relecture indépendante (sécurité, exactitude, exploitation) :
-  - **sécurité** : les `hooks/` et `scripts/` de **chaque profil** de `/opt/data/profiles` sont
-    exigés vides puis rendus à root, comme ceux de la racine (un script cron de profil tournait
-    sous l'uid 10000 sans refus) ; un lien symbolique sous `profiles/` refuse le démarrage ;
-    `diagnostiquer` signale aussi les tâches cron à script ;
-  - `diagnostiquer` lit `/run/s6/container_environment` comme `with-contenv` (un « \n » final
-    retiré) : il rendait 29 faux constats sur un conteneur sain ;
-  - sentinelle hors s6 : options globales à valeur relevées dans l'analyseur de Hermes (et
-    comparées à lui par un test), `HERMES_HOME` normalisé (profils compris), `gateway` nu et
-    `serve` visés ;
-  - pont `tool_call` décrit tel que Hermes le traite (déballé avant la garde, qui juge l'outil
-    sous-jacent) et prouvé dans les deux sens ; `kanban_create` n'est plus annoncé « en P5 » :
-    les projets passent par les outils du greffon (P4) ;
-  - `acp-entree` renvoie, sur Railway, à la procédure de refus PID 1 ; `identite` ne journalise
-    plus l'identifiant du propriétaire (dépôt public) ;
-  - `railway.ts` refuse tout projet lié autre que `acp` ; Node ≥ 22.6 exigé pour `.railway/` ;
-  - CI : `ci.yml` n'annule plus de run hors PR (« Wait for CI ») ; l'étape finale d'`image.yml`
-    échoue s'il restait des ressources de test ; le modèle factice doit répondre avant tout test
-    qui conclut « aucune requête » ;
-  - procédure Railway exécutable dans l'ordre écrit : CLI installée sans configuration d'agent,
-    prérequis WSL et Node, compte GitHub relié, limites de dépense, clé SSH (mode opératoire),
-    sauvegardes hors IaC contrôlées au plan, Rollback et 72 h de rétention sur Hobby, 503 et
-    session de 7 jours décrits exactement, libellés publics et identifiant masqué, refus PID 1.
-
-Limites connues de P2 (détail : `image.md` § 10, `identite.md` § 12, `railway.md` § 12) : le
-tableau de bord authentifié reste un shell du propriétaire ; cookies de Hermes sans `Secure` tant
-que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué → 503 persistant ; rafale de
-premiers facteurs non bornée ; `vision_analyze` peut faire décrire toute image locale lisible par
-l'agent ; PID 1, bord, clés IaC non documentées, sort des sauvegardes posées hors IaC et coûts réels
-ne se prouvent que sur Railway.
-
-### P3 — identité, français et réglages prêts (réalisée côté dépôt, non fusionnée)
-
-Première partie : identité visuelle et français.
-
-- thème `acp` du tableau de bord généré depuis `design/tokens` (`scripts/generer_themes.py`, même
-  chargeur que le QML du desktop, `--check` pour les deux), contrastes recalculés, aucune police
-  téléchargée ;
-- persona `SOUL.md` réécrite en français pour un agent sans outil d'exécution, avec vouvoiement ;
-- greffons de tableau de bord `acp-interface` (Accueil à la place de « / », logotype « ACP »,
-  bannière d'alertes, français verrouillé, contrôle du SDK) et `acp-catalogue` (onglet en lecture
-  seule), sans code serveur, sources dans `apps/interface`, bundles committés et vérifiés en CI ;
-- managed scope à 42 clés : `hermes-achievements` désactivé, police du thème et aucun greffon masqué
-  épinglés ;
-- décompte des chaînes de Hermes restées en anglais, mesuré sur l'image (105 clés du tableau de bord
-  sur 746, 6 libellés de navigation, messages de l'agent complets) ;
-- test navigateur de l'interface aux formats 390×844 et 1440×900 (catalogue des chaînes, axe,
-  cibles tactiles, aucune requête externe) ; connexion factorisée avec le test de P2.
-
-Limites connues (détail : `interface.md` § 9) : titre « Sessions » sur « / » imposé par Hermes ;
-logotype visible au téléphone seulement dans le menu ; sélecteurs de thème et de police actifs
-jusqu'au rechargement ; pages natives en partie en anglais (comptées, non traduites).
-
-Seconde partie : réglages prêts (`docs/refonte/catalogue.md`).
-
-- catalogue épinglé livré dans l'image sous `/opt/acp/skills` : 14 skills vendorisées à l'octet
-  près depuis les blobs git de `emilkowalski/skills` (`d16ebe60`), `leonxlnx/taste-skill`
-  (`c184364c`) et `affaan-m/ECC` (`v2.2.1`, `5064474`), toutes sous licence MIT, avec `LICENSE`,
-  `PROVENANCE.md` et `hermes/THIRD_PARTY.md` ; 2 skills maison en français (`acp-redaction`,
-  `acp-profils`) ; 10 skills candidates pour le poste (non planifiées) ; exclusions motivées (dont
-  `literature-review`, de provenance incertaine, et les `docx`/`pdf`/`pptx`/`xlsx`
-  d'`anthropics/skills`) ;
-- verrou `hermes/catalogue/catalogue.lock.json` (empreintes, blobs git, licences, profils base, web,
-  recherche, données) et `scripts/verifier_catalogue.py` (empreintes, licences, noms, collisions avec
-  les 58 skills livrées et les 150 optionnelles de Hermes, texte seul, cohérence avec la garde et la
-  managed scope ; `--amont` compare chaque fichier au dépôt amont), en CI ;
-- au démarrage, `05-acp` écrit dans `/opt/data/config.yaml` (Hermes les lit sans la managed scope)
-  `skills.external_dirs`, `skills.disabled` (46 skills livrées inertes sur Railway) et une entrée
-  `mcp_servers.context7`, en gardant commentaires, propriétaire et mode ;
-- context7, seul serveur MCP côté Hermes, **distant** : huit épingles (managed scope à 50 clés),
-  `context7` dans `platform_toolsets.cli`, deux outils de plus dans la garde (26) ; échantillonnage
-  et élicitation coupés ; `api_server` et cron sans MCP ; Playwright MCP prévu au poste en P8,
-  Figma hors v1 ;
-- refus de démarrer, et de relancer le tableau de bord, sur un serveur MCP stdio ou hors catalogue
-  dans la configuration du volume (décision D8) ; `diagnostiquer` le signale ;
-- `GET /api/plugins/acp-poste/v1/catalogue` et blocs `catalogue` et `interface` de `/v1/meta` ;
-  l'Accueil et le Catalogue affichent l'état réel.
-
-Limites connues (détail : `catalogue.md` § 10) : context7 non éprouvé depuis Railway et ses
-conditions d'utilisation non lues ; il peut manquer au premier tour d'une première session du
-tableau de bord ; profils nommés du volume sans réglages ; effet sur les workers kanban non prouvé
-par un vrai worker.
-
-Corrections de la relecture indépendante de P3 (exactitude et conformité, 14 constats ; détail :
-`docs/reprise-poste.md` § 6 ter, « Relecture indépendante de P3 ») :
-
-- `claude-design` et `hermes-agent-skill-authoring` **désactivées** (leur livrable exige un outil
-  fermé sur Railway) : 46 skills livrées désactivées, 8 gardées, chacune avec une raison qui dit ce
-  qui reste fermé (recherche d'`arxiv` par `curl`, fichier d'état, planification) ; un test de
-  l'image relit leur texte ;
-- côté poste, plus rien d'annoncé hors du plan d'autonomie : skills « candidates, non
-  planifiées », Figma « hors v1 », Playwright seul « prévu en P8 » (vérificateur, route, onglet
-  Catalogue, `acp-profils`) ;
-- `skill-creator`, `mcp-builder`, `frontend-design` et `obra/superpowers` classés aux exclus
-  (D12) ; le vérificateur exige que toute skill recommandée par le plan soit classée ;
-- persona et `acp-redaction` : les skills du catalogue guident la méthode sans lever une règle ; le
-  web, les réponses d'outils et toute autre skill restent des données ;
-- test d'identité : une rafale ne compte que si elle a chargé les trois quarts de n vérifications
-  argon2id simultanées, sinon elle est refaite (trois essais au plus) ;
-- alerte d'un serveur MCP hors catalogue : le remède est dit (le supprimer depuis la page MCP
-  avant tout redémarrage) et prouvé par les routes de Hermes ;
-- captures du navigateur : rendu attendu, page blanche refusée, contenu défilant capturé en
-  entier ; onglet Catalogue situé dans le groupe « Plugins » de Hermes (test et documentation) ;
-- décompte des chaînes restées en anglais étendu à tout `web/src` (615 textes dans 31 fichiers) ;
-- `scripts/balayer_secrets.py` (fichiers suivis et lignes ajoutées par la branche), en CI ;
-- choix par défaut D1 à D20 de P3 consignés dans `plan.md` § 1, **non confirmés** par le
-  propriétaire ; lecture des conditions de context7 exigée avant le premier déploiement.
-
-### P4 — projets autonomes sur Hermes, cœur serveur (réalisé côté dépôt, non fusionné, non déployé)
-
-Référence : `docs/refonte/projets.md`.
-
-- greffon `acp-poste`, sous-paquet `noyau/` : un tableau kanban par projet, base propre
-  (`plugin-data/acp-poste/data.db` : projets, demandes, questions, présence, curseurs et tables
-  techniques), graphe déterministe [exploration par le poste] → planification → implémentation et
-  relecture croisée par l'autre exécutant, ou carte Hermes → synthèse gardée par tout le tour ; un tour
-  créé sous une seule transaction ; plafonds (3 tours, 30 cartes, 2 corrections) avec carte de triage ;
-  corrections préparées (câblées en P6) ;
-- routage déterministe contre le relevé du poste (contrat partagé `acp_poste_contrat.inventaire`) :
-  surcharge, choix explicite, table ; efforts interdits (`max`, `ultra`, `ultracode`), palier
-  `default` seul, effort hors énumération de Hermes gardé dans la demande et jamais posé sur la carte ;
-- huit outils de l'agent (`projet_lancer`, `projet_planifier`, `projet_etat`, `poste_etat`,
-  `poste_catalogue`, `question_repondre`, `question_escalader`, `routage_surcharger`), seuls ajouts à
-  la garde (26 → 34 noms) ; `kanban_create` toujours refusé ; `memory` refusé dans un worker kanban
-  (l'invite d'approbation attendait 300 s sans personne ; décision D40, à confirmer) ; section de prompt
-  « acp-projets » ; Hermes diffère ces outils derrière `tool_search`, le modèle les appelle par
-  `tool_call` ;
-- routes `/v1/projets`, `/v1/questions`, `/v1/triage/…/reprendre`, `/v1/pause`, `/v1/poste`,
-  `/v1/notifications/test` derrière la session du tableau de bord (JSON exigé, `Origin` contrôlé) ;
-  bloc `projets` de `/v1/meta` ;
-- émetteur de notifications dans la passerelle (crochet `on_kanban_dispatch_tick`) : une notification
-  par événement, Telegram ou ntfy, désactivé sans `ACP_NOTIFICATIONS` ; variables retirées de
-  `os.environ` par `register()` ; cartes `poste-*` étrangères bloquées ; présence du poste ; pause
-  d'un projet et pause générale ; veille des crochets shell ;
-- managed scope à 57 clés (répartiteur dans la passerelle, `max_in_progress` 4 et 2 par profil,
-  `review_dispatch: false`, `failure_limit` 3, `known_plugin_toolsets`) ; démarrage refusé sur une clé
-  `hooks` ou un `shell-hooks-allowlist.json` ; `HERMES_KANBAN_DISPATCH_IN_GATEWAY` interdite ;
-- cinq skills maison des projets (`acp-exploration`, `acp-orchestration`, `acp-routage`,
-  `acp-synthese`, `acp-questions`), persona et `acp-profils` mis à jour ;
-- tests : poste simulé, faux serveur ntfy, modèle factice à scénarios ; contrat de bout en bout ;
-  douze témoins négatifs (`scripts/temoins_negatifs_p4.sh`) ;
-- corrigé en cours de route : accord de « carte » dans les notifications (« 1 carte », « 0 carte ») ;
-- notifications : variables non déclarées dans `.railway/railway.ts` (canal non choisi), procédure
-  d'activation par PR dans `railway.md` § 9 ;
-- page « Projets » de l'interface : seconde partie de P4 (ci-dessous) ;
-- choix par défaut D21 à D40 consignés dans `plan.md` § 1, **non confirmés** par le propriétaire.
-
-### P4 — page « Projets » (seconde partie ; réalisée côté dépôt, non fusionnée, non déployée)
-
-Référence : `docs/refonte/projets.md` § 4 bis, `docs/refonte/interface.md` § 10.
-
-- greffon d'interface `acp-projets` (sans code serveur ; sources `apps/interface/src/projets/`, bundle
-  déterministe committé) : onglet « Projets » avant « Catalogue », pensé d'abord pour le téléphone ;
-  liste des projets (état, cartes faites, poste, questions, dernière note), formulaire « Nouveau
-  projet » (dépôt désactivé et expliqué sans inventaire du poste ; exploration choisie seulement dans
-  le relevé, efforts interdits exclus ; relevé factice signalé), détail (cartes par rôle, « Modèle
-  servi : Non observé », tours et décisions, journal, pause et reprise), questions (réponse du
-  propriétaire, reprise d'un triage ; cartes bloquées en lecture seule jusqu'à P7), notifications
-  (test actif seulement avec un canal configuré), pause générale confirmée et son bandeau ;
-- règle des boutons : aucun bouton sans route réelle et testée ; refus du greffon affichés tels quels ;
-  clé d'idempotence par lancement ; sondage de 15 s tant que la page est visible (D35) ;
-- raccourci « Projets » sur l'Accueil ; catalogue français à 274 chaînes ; les trois bundles portent le
-  catalogue entier ;
-- image : `acp-projets` copié et normalisé (root, 0644), version vérifiée par `check_version.py`,
-  versions des greffons dans le bloc `interface` de la méta ; CI « Interface » : trois bundles vérifiés ;
-- tests : Vitest 80 (dont 25 pour la page, sur des formes relevées sur l'image) ; route de reprise d'un
-  triage et notification de test envoyée par la passerelle au faux ntfy ; navigateur
-  `test_projets.py` : parcours « lancer un projet → questions → avancement » aux formats 390×844 et
-  1440×900 avec le modèle factice et le poste simulé (axe sans violation grave, cibles de 44 px,
-  chaînes du catalogue seulement, aucune requête hors de l'origine) ;
-- corrigé en cours de route : les tests Vitest démontent toute racine React restée montée (des
-  minuteries de sondage couraient dans le test suivant) ; espaces conservées dans les pastilles et les
-  replis (conteneurs flex) ; le greffon rejoue une connexion à un tableau refusée à tort par le contrôle
-  d'écriture de Hermes 0.21.5 (un `-wal` supprimé par un autre processus pendant le contrôle ; constaté
-  une fois au contrat, trois tentatives, jamais sur un fichier vraiment illisible) ; la page remonte en
-  haut à chaque changement de vue (Hermes fait défiler un conteneur interne, pas la fenêtre : au
-  téléphone, le détail d'un projet lancé s'ouvrait au niveau du bouton) ;
-- écarts dits : icône `FolderOpen` (Hermes ne connaît pas `FolderKanban`), position `before:catalogue`
-  (`after:acp` serait sans effet).
-
-### P4 — corrections de la relecture indépendante (réalisées côté dépôt, non fusionnées, non déployées)
-
-Référence : `docs/refonte/projets.md` § 12 ; décisions D41 à D47 (`plan.md` § 1, non confirmées).
-
-- corrigé (projets qui s'arrêtaient en silence ou se disaient « terminés » à tort) : une planification finie
-  sans plan adresse une carte de décision et une notification (filet de l'émetteur) ; « Reprendre » au
-  plafond devient « Prolonger » (plafond de tours + 1, de cartes + 10, journalisé) et la carte de
-  décision planifie elle-même la suite ; plafond de cartes sans plan possible → carte de décision et
-  notification ; « Conclure » (projet « terminé », ou « abandonné » sans aucun tour, sans notification) ;
-  une question dont la carte « répondre » s'est finie sans suite est escaladée et notifiée ; une carte de
-  décision par valeur de plafond ;
-- corrigé : surcharge de routage d'une carte refusée (elle ne s'appliquait pas) ; plafond de projets
-  actifs vérifié à la reprise ; réponse à une question d'un projet en pause gardée jusqu'à sa reprise
-  (la carte n'était plus réclamable « prête » entre deux passes) ; décision de triage refusée pendant la
-  pause ;
-- sécurité : un worker ne touche que le tableau de son projet et ne commente que sa carte ; `kanban_link`
-  retiré (garde : 33 noms) ; l'envoi des notifications ne suit plus aucune redirection (le jeton ntfy
-  suivait un 302 vers un autre hôte) ; reprise de la pause générale refusée tant que des crochets shell
-  sont déclarés ;
-- page « Projets » : un résumé coupé le dit et se lit en entier (route
-  `GET /v1/projets/{id}/cartes/{carte}`), résultat du projet en entier, dernière note marquée comme
-  extrait ; raison réelle des cartes bloquées (lue dans l'événement) ; « Qui répond » sans objet sans
-  dépôt ; texte exact de la pause générale (la discussion reste ouverte) ; réussites d'après la réponse de
-  l'API ; gestes « Prolonger », « Relancer la planification », « Conclure le projet » ; compteur des
-  décisions ; historique (`pushState`) : « retour » reste dans la page ; « état du canal inconnu »,
-  « dépôts inconnus » ; journal en français, palier « Standard », titre de carte et contexte des
-  questions ; catalogue français à 329 chaînes ;
-- hygiène : deux lignes vides en fin de fichier retirées (`git diff --check` n'était pas propre) et test
-  du dépôt qui l'interdit ; décisions de P4 avec une priorité et l'autre option pour chacune ;
-- tests : 18 nouveaux tests dans l'image (tous en échec sur le greffon de `463db67`), 13 Vitest (tous en
-  échec sur les sources de `463db67`), 3 au contrat sur la pile complète, parcours navigateur étendu
-  (retour et avancer, résultat du projet, « Qui répond » sans dépôt) ; 24 témoins négatifs.
-
-### P5 — poste connecté, côté Hermes (première partie ; réalisée côté dépôt, non fusionnée, non déployée)
-
-Référence : `docs/refonte/poste.md` ; décisions D48 à D66 (`plan.md` § 1, non confirmées).
-
-- contrat partagé : protocole `acp-machine/1` (`acp_poste_contrat.machine` : requêtes et réponses
-  d'enrôlement, de réclamation et d'inventaire, erreurs françaises à codes fermés, empreintes) ; contrat
-  d'inventaire étendu sans rien casser de P4 (inventaire du poste, bac à sable, connexions, versions,
-  politique de `poste.toml`, alias `opus[1m]`, efforts inconnus nuls, résumé des quotas) ; garde « aucun
-  identifiant » ; motifs de secrets déplacés dans le contrat (jetons `acpm_` et `acpe_` compris), partagés
-  avec `scripts/balayer_secrets.py` ;
-- greffon `acp-poste` : base au schéma 2 (migration idempotente : postes, codes d'enrôlement, ordres,
-  inventaires ; relevés rattachés au poste et acceptables) ; fournisseur de jeton `acp-poste-machine` sur
-  trois chemins exacts (jeton haché, lecture seule, comparaison de chaque ligne, 503 sur base illisible) ;
-  routes du poste `/machine/v1/{enrolement,reclamer,inventaire}` (fournisseur et portée revérifiés, JSON
-  exigé, tailles bornées, long-poll de 25 s par événement, ordres `releve`, `pause`, `reprise`, `carte`
-  toujours nulle) ; enrôlement par code à usage unique de 10 min et empreinte à confirmer, un seul poste
-  actif, révocation ; présence persistée avec grâce de redémarrage ; inventaire tout ou rien, un par
-  minute ;
-- routage sur le relevé **et** la politique du poste : voie en échec, non connectée, liste de secours (sauf
-  relevé accepté), CLI hors version, interdit par le poste, efforts inconnus : chacun refusé en français ;
-  suggestion sur les seuls champs relevés ; table validée tout ou rien ; politique de Hermes levée seulement
-  avec la phrase de confirmation ; surcharges globales ; quotas par voie (`SubscriptionQuotaView`) ;
-- routes du propriétaire `/v1/poste` (et enrôlement, confirmation, révocation, relevé), `/v1/routage` (et
-  politique, surcharges, relevé accepté), `/v1/quotas` ; la pause générale ordonne aussi `pause` ou
-  `reprise` au poste ; bloc `machine` de `/v1/meta` et ses alertes ;
-- greffon d'interface `acp-poste-vues` : onglet « Poste » après « Projets », trois vues (Poste, Routage,
-  Quotas), code d'enrôlement affiché une fois et jamais stocké ; catalogue français à 528 chaînes ; image
-  et CI « Interface » : quatre bundles ;
-- corrigé en cours de route : attente d'un poste parti jamais libérée derrière les intergiciels de Hermes
-  (lecture bornée) ; efforts vides affichés « Inconnu » (désormais « Aucun effort documenté ») ; suggestion
-  affichée deux fois ; seuil des quotas invisible ; valeurs de l'API dans les listes de choix non marquées
-  comme données ; exemple capturé d'un code d'enrôlement qui expirait dix minutes après sa capture ;
-- tests : dans l'image 619 (511 à la base de P4) ; contrat du protocole contre un faux poste (11) ;
-  navigateur `test_poste.py` aux deux formats ; Vitest 110 ; 28 témoins négatifs
-  (`scripts/temoins_negatifs_p5.sh`) ;
-- choix par défaut D48 à D66 consignés dans `plan.md` § 1, **non confirmés** par le propriétaire (le cahier
-  les numérotait 40 à 58) ; le poste Windows lui-même (seconde partie de P5) est livré à part.
-
-### P5 — poste Windows (seconde partie ; réalisée côté dépôt, non fusionnée, non déployée)
-
-Référence : `docs/refonte/poste.md` § 16 à § 25 et `apps/poste/README.md` ; décisions D51 à D55, D57, D60, D61,
-D64 et D66 appliquées (`plan.md` § 1, non confirmées).
-
-- poste `apps/poste` réécrit autour de `poste.toml` (`%ProgramData%\ACP\`, lecture seule pour le compte du poste :
-  refus de démarrer s'il peut le modifier ou le remplacer) ; emplacements lus par `SHGetKnownFolderPath` ; les
-  réglages `ACP_WORKER_*` et `PosteConfig.from_env` disparaissent (reste `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT`, lu dans
-  les sessions du propriétaire) ;
-- coffre DPAPI à entropie par usage (jeton machine, jeton Claude), jetons au `repr` masqué, journal JSONL local
-  masqué avant écriture (remplace `local_log.py`), verrous d'instance et des sondes (`LockFileEx`) ;
-- client HTTPS de la bibliothèque standard (TLS vérifié, magasin de Windows, ni redirection ni mandataire, réponses
-  bornées) et protocole `acp-machine/1` validé par le contrat partagé ; commandes `servir`, `enroler`, `connexion
-  codex|claude|bac-a-sable`, `releve`, `preuve model-list`, `diagnostic [--reseau] [--isolement]`, `journal`,
-  `oublier-jeton`, `quotas` ; codes de sortie 0 à 4 ; 401 `poste_revoque` : jeton effacé ; 401 de la couture :
-  jeton gardé, arrêt code 4 ;
-- sondes Codex par une session `codex app-server` à liste blanche de méthodes (`-c windows.sandbox="elevated"`,
-  `cli_auth_credentials_store="keyring"`, `service_tier="default"` imposés ; `-32601` aux requêtes du serveur ;
-  extraction par liste blanche ; « Liste de secours » par comparaison au catalogue embarqué d'un second app-server
-  éphémère ; mode du bac à sable lu par `config/read`) ; sondes Claude (version ≥ 2.1.248, code de sortie seul de
-  `auth status`, alias et efforts documentés datés) ; inventaire balayé par la garde « aucun identifiant » avant
-  l'envoi ;
-- installation `packaging/poste` : `Installer-PosteAcp.ps1` (compte `acp-poste`, ACL par SID, poste sans venv lancé
-  en `python -I`, binaires copiés et hachés, `poste.toml` depuis le modèle, tâche `\ACP\Poste ACP` au démarrage et
-  toutes les 15 min, options système sur confirmation) et `Desinstaller-PosteAcp.ps1`, tous deux avec `-Simulation` ;
-  verrou d'exécution haché `requirements/poste-3.12.lock.txt` vérifié par `scripts/check_lock.py` ;
-- tests : unitaires Windows et Linux, faux Codex et faux Claude pilotés par scénario (schémas de Codex 0.156.1
-  régénérés, identiques), contrat du vrai poste contre un faux Hermes HTTPS (autorité de test générée par
-  `cryptography`, ajoutée au verrou des tests), installeur en simulation (CI Windows), bout en bout local
-  `scripts/e2e-poste-windows.ps1` avec l'image Hermes et le vrai poste sous le compte courant (vrai Codex sur un
-  `CODEX_HOME` jetable : liste de secours ; vrai Claude Code : `cli_hors_version`, 2.1.239 installé) ;
-- corrigé en cours de route : enrôlement et connexions refusés hors du compte du poste (le jeton ou le profil
-  auraient atterri dans un autre profil) ; message du mode propriétaire après `connexion bac-a-sable` ; deux témoins
-  d'ACL réelles ignorés sous le jeton élevé de la CI Windows (qui contourne les ACL), gardés sous jeton standard ;
-- sécurité : l'arrêt d'un arbre de processus sous Windows ne tue plus un processus étranger plus ancien dont le
-  parent mort portait le PID de la racine (parent déclaré jamais mis à jour par Windows) : instant de création de la
-  racine relevé au spawn, descendants admis sur preuve de naissance, `taskkill /T` retiré (défaut antérieur à P5,
-  cause la plus probable de deux blocages du runner Windows) ;
-- limites : aucune exécution avant P6 ; compte dédié, tâche planifiée, UAC et vrais comptes non éprouvés (§ 25 de
-  `poste.md`) ; Claude Code de ce PC à mettre à jour (2.1.248 au moins).
-
-### P6 — exécution autonome sur l'exécutant Railway (réalisée côté dépôt, non fusionnée, non déployée)
-
-Référence : `docs/refonte/executant.md`, `docs/refonte/railway.md` § 13, `docs/reprise-poste.md` § 6 sexies à
-§ 6 nonies ; décisions D74 à D92 **appliquées** (`plan.md` : le propriétaire fournit les comptes, Hermes gère
-l'exploitation ; numérotation du cahier décalée de trois). Rien n'est déployé ; la sonde R0 est prête, non lancée.
-
-#### Ajouté
-
-- côté Hermes (première partie) : contrat `acp-machine/1` de P6 (six routes `battement`, `terminer`, `question`,
-  `bloquer`, `reprendre`, `arret` ; `reclamer` sert une carte ; inventaire Linux `isolement_linux`) ; base du greffon
-  au schéma 3 ; cycle de carte (revue des fichiers de pilotage, intégration, voies fermées, attentes de quota,
-  relecture de repli D91) ; onglet Poste (isolement, conditions, carte en cours, branches prêtes) et revues dans la
-  page Questions ; résolutions de modèles observées dans la vue Routage ;
-- client multiplateforme (deuxième partie) : couche `plateforme/` (Windows inchangé ; Linux : `/donnees`, coffre en
-  fichiers 0600 de root, un UID par agent par `setpriv`, arrêt par groupe puis par UID), politique versionnée
-  `executant/politique/executant.toml`, sonde de plateforme (régime A ou B), dépôts (clone nu, worktree, commit local
-  sans crochets, quarantaine, intégration, `git bundle`), fichiers de pilotage et balayage des secrets, commandes
-  imposées de `codex exec` et `claude -p`, garde de quota et plafonds du jour, file de sortie persistante, exécution
-  d'une carte, boucle de l'exécutant et gestes (`connexion claude|github|codex`, `bundle`, `pause`, `reprise`,
-  `cartes`, `sonde-plateforme`) ;
-- image de l'exécutant (troisième partie) : `executant/Dockerfile` (base `python:3.12-slim-trixie` épinglée par
-  condensat, paquets Debian fixés, Codex 0.156.1 et Claude Code 2.1.283 vérifiés au build par
-  `executant/bin/verifier-binaires` et `executant/binaires.toml`, clé de publication de Claude Code, comptes
-  `acp-codex`, `acp-claude`, `acp-verif`, entrée root `acp-entree-executant` sous `tini`, `/etc/gitconfig`,
-  `/etc/acp/claude-settings.json`, commande `acp-poste` sur le `PATH`, cible de test `factice`) ;
-- service `executant` et volume `executant-donnees` dans `.railway/railway.ts` (trois services, trois volumes ;
-  `verifier.mjs` et `test_railway_iac.py` étendus) ;
-- `scripts/verifier_releve_r0.py` : contrôle du relevé de la sonde R0 avant publication ;
-- CI : workflow `executant.yml` (image réelle, tests de l'image, sonde locale, suite `apps/poste` en root dans
-  l'image) ; `image.yml` construit la cible factice et lance le bout en bout ;
-- documentation : `docs/refonte/executant.md`, `executant/README.md`, `railway.md` § 13 (sonde R0, apply,
-  enrôlement et connexions par `railway ssh`, bundle, exploitation, restauration), annexe « P6 transposée à
-  Railway » d'`autonomie.md`, § 27 de `poste.md`.
-
-#### Modifié
-
-- l'exécution principale passe du PC Windows au service Railway `executant` (D74) ; le poste Windows devient
-  facultatif et n'exécute aucune carte en P6 ;
-- `pytest.ini` collecte `executant/tests` (tests de l'image ignorés, avec leur raison, sans image construite).
-
-#### Corrigé
-
-- côté Hermes : message de revue refusée perdu au rechargement de la page Questions ; trois tests de contrat P5 qui
-  faisaient échouer la CI de l'image ;
-- client : ordre de la file de sortie quand deux envois tombent dans la même tranche d'horloge (vu sur
-  `windows-2022`) ; base d'une carte retrouvée par `merge-base` si l'état local est perdu ; un modèle servi n'est
-  pris pour la résolution documentée de l'alias qu'avec un suffixe de **date** (`claude-sonnet-5-5` n'est plus pris
-  pour `claude-sonnet-5`) ; diagnostic du `config.toml` de Codex comparé à la variante Linux ; sortie de la sonde
-  débarrassée de l'avertissement de Codex qui masquait la cause d'un refus.
-
-#### Sécurité
-
-- aucun outil d'exécution sur Hermes (inchangé) ; l'exécutant n'écoute aucun port et n'a aucune variable secrète :
-  jetons déposés sur le volume (root, 0600) par `railway ssh` (D92) ; le jeton Claude n'entre que dans
-  l'environnement du processus `claude` ; consignes par l'entrée standard (jamais l'argv) ;
-- binaires des agents vérifiés au build (SHA-256, taille, signature GPG du manifeste de Claude Code), échec fermé ;
-  tout ce que lit ou exécute le superviseur est non inscriptible par les agents (transposition de D67, testé dans
-  l'image) ; `--git-dir` explicite et `core.fsmonitor=false` ; crochets git coupés ; `https` seul ;
-- aucun push (D82) ; fichiers de pilotage ⇒ revue du propriétaire ; secret ⇒ quarantaine, rien n'est envoyé.
-
-#### Vérifié localement
-
-- image construite avec les binaires réels ; tests de l'image ; suite `apps/poste` et contrat en root dans l'image
-  (745 réussis, 20 ignorés, propres à Windows) ; sonde : régime B sous le seccomp Docker par défaut, régime A en
-  témoin (le vrai `codex sandbox -P` accepte le profil du superviseur) ; options imposées admises par les vraies CLI
-  sans compte ;
-- bout en bout avec l'image Hermes et le vrai exécutant (CLI factices) : 6 réussis — carte exécutée, committée
-  localement et terminée, question et reprise, secret en quarantaine, revue refusée puis corrigée, références
-  distantes inchangées, aucun jeton dans les journaux ;
-- détail, commandes et CI : `docs/refonte/executant.md` § 11 et `docs/reprise-poste.md` § 6 octies.
-
-#### Limites connues
-
-- régime A ou B **sur Railway** inconnu tant que R0 n'est pas lancée ; régime B probable : voie Codex fermée sur
-  l'exécutant, Claude seul en écriture ;
-- signature cosign de Codex non vérifiée (identité non établie) ; versions apt fixées : une version intermédiaire de
-  Debian peut faire échouer le build (montée par PR) ;
-- vraies CLI connectées, `railway ssh`, `scp`, coût réel et prise en compte des clés non documentées de l'IaC : non
-  prouvés (R0 à R10) ; purge des worktrees et alerte J-30 du jeton Claude : faites depuis la relecture (ci-dessous) ;
-- les faux CLI ne prouvent que la plomberie.
-
-### P6 — corrections de la relecture indépendante (réalisées côté dépôt, non fusionnées, non déployées)
-
-Référence : `docs/refonte/executant.md` § 15 (tableau constat → correction → preuve), `docs/reprise-poste.md`
-§ 6 nonies. Relecture de `35c94af` en trois lentilles : 19 constats (un critique, quatre hauts dont deux recoupés),
-tous vérifiés et réels ; trois défauts de plus trouvés en les vérifiant. Chaque correction de code a un test qui
-échoue sur le commit d'avant.
-
-#### Corrigé
-
-- `acp-poste diagnostic`, `quotas`, `releve` et `preuve`, lancés en root dans `railway ssh`, lancent Codex et Claude
-  sous leur UID, avec les verrous du service : ils laissaient des fichiers de root sous `/donnees/codex`, et
-  l'exécutant refusait ensuite de redémarrer ; l'entrée retire les alias temporaires que Codex laisse, **même sous
-  son UID**, sous `/donnees/codex/tmp/arg0` (trouvé en vérifiant) ; `acp-poste releve` ne lève plus de trace sous
-  Linux (trouvé) ;
-- la relecture lit enfin ce qu'elle relit : worktree sur la branche relue, diff lisible par le groupe des agents ;
-  branche ou diff absents : carte bloquée ;
-- une requête refusée par le contrat avant l'envoi ne bloque plus la file de sortie (rangée dans `sortie/refusees`,
-  carte bloquée avec une raison composée) ; caractères de contrôle retirés des textes de l'agent (un NUL faisait
-  échouer le commit) ;
-- forme de dépôt de la politique éprouvée dans l'image (`python3.12 -m unittest`) ; une commande absente (code 127)
-  rend « vérification impossible », sans relancer l'agent ;
-- `scripts/verifier_releve_r0.py` tourne avec la seule bibliothèque standard (Python du PC du propriétaire) ; motifs
-  introuvables : code 2 en français ;
-- verdict de la sonde et attente d'enrôlement écrits aussi dans les journaux du conteneur (donc de Railway) ;
-- procédure (`railway.md` § 9 et § 13) : coûts à trois services (≈ 9 à 32 $ par mois, pire cas ≈ 159 $), commit à
-  sonder, `railway login` et `link`, dépôt jetable et privé (§ 13.3 bis), outils de l'image, commentaires du
-  diagnostic, exploitation et renouvellement des jetons, bascule vers le PC requalifiée, remise en état après un
-  refus au démarrage.
-
-#### Ajouté
-
-- purge automatique, une fois par jour et hors carte, des worktrees inactifs depuis `purge_apres_jours` (branches
-  gardées), des bundles et des requêtes refusées anciens, sans suivre aucun lien ;
-- échéance estimée du jeton Claude (dépôt + un an) publiée dans l'inventaire (`connexions.claude_echeance`,
-  facultatif), alerte de la page Poste à 30 jours et ligne quotidienne des journaux ;
-- scénario de relecture dans le bout en bout (7 scénarios) ; faux fournisseur de modèle pour éprouver le vrai
-  `codex exec` (`executant/tests/faux_fournisseur.py`).
-
-#### Sécurité
-
-- régime A : `codex exec` reçoit un profil de permissions nommé (`acp_agent`, `acp_lecture`), **sans** `--sandbox`
-  (qui le faisait ignorer) : lecture de `/donnees/codex`, `/donnees/claude`, `/donnees/acp` et `/etc/acp` interdite,
-  réseau coupé ; avant, une commande de Codex lisait `auth.json` et son contenu repartait vers le modèle (mesuré
-  avec le vrai Codex 0.156.1 et un faux fournisseur, témoin A) ;
-- le superviseur ne suit plus aucun lien posé par un agent sous `/tmp/acp` (dossiers repris sur descripteur
-  `O_NOFOLLOW`, propriétaire exigé) ni dans la réponse de Codex (fichier ordinaire de `acp-codex`, 64 Kio au plus) ;
-- `AGENTS.override.md` (Codex) et `CLAUDE.local.md` (Claude Code) sont des fichiers de pilotage, à toute profondeur
-  (D90 complétée) ;
-- `acp-poste quotas` et `releve` prennent les verrous de Codex et de Claude : plus de second processus Codex sur le
-  `CODEX_HOME` d'une carte en cours (trouvé).
-
-#### Vérifié localement
-
-- rejeu complet sur la pointe `815ae6f` (export LF, images reconstruites) : Windows 927 réussis ; `executant/tests`
-  33 et 18 ; `apps/poste` et contrat en root dans l'image 777 réussis, 20 ignorés ; image Hermes 682 ; contrat 162
-  sur l'export, plus les 3 tests IaC dans le worktree ; navigateur 8 ; témoins négatifs 27 sans
-  anomalie ; contrôles du dépôt à 0 ;
-- CI verte sur `815ae6f` : `ci.yml` 36925637152, `executant.yml` 36925637270, `image.yml` 36925637269 (contrat 165,
-  navigateur 8).
-
-#### Limites connues
-
-- profil de Codex éprouvé en témoin A local et en CI seulement ; sur Railway, R0 dit si la voie Codex s'ouvre ;
-- alerte du jeton Claude : page Poste et journaux, pas de notification téléphone (un nouveau genre de notification
-  exige une migration du schéma du greffon, non faite) ; échéance estimée ; celle du jeton GitHub n'est pas connue
-  de l'exécutant ;
-- historiques des CLI non purgés ; `uv` non ajouté à l'image (version et empreinte hors du cahier) ; forme `pip`
-  de la préparation non éprouvée ; les fichiers non suivis laissés par une vérification sont committés s'ils ne sont
-  pas ignorés par le dépôt.
-### P8 — station de travail Qt rebranchée sur Hermes (réalisée côté dépôt, non fusionnée, non déployée)
-
-Référence : `docs/refonte/desktop.md`, `docs/native-desktop-architecture.md`, `docs/desktop-security.md`,
-`docs/desktop-build.md` ; décisions D8-1 à D8-12 appliquées (recommandations du cahier).
-
-- ajouté : connexion native RFC 8252 contre le fournisseur `self-hosted` (PKCE S256, état, écouteur `127.0.0.1` à
-  port éphémère, page de rappel statique) ; jeton de rafraîchissement au coffre Windows sur consentement (décoché par
-  défaut), rotation écrite au coffre avant usage, un seul rafraîchissement en vol, une seule station par session
-  Windows (code 3) ; déconnexion par `POST /auth/logout` ;
-- ajouté : porteur sur les API du tableau de bord et la façade `acp-poste` ; compatibilité par `/v1/meta` (contrat,
-  OpenRPC épinglé, Hermes testé, alertes, exécutant P6 s'il est annoncé) ; santé par `/api/health` et `/api/status` ;
-- ajouté : passerelle JSON-RPC `/api/ws` sur Qt WebSockets (ticket en sous-protocole, sans `Origin`, rejeu,
-  -32601 aux requêtes serveur non gérées, réponses `approval`/`clarify`) ; sondages, veille du kanban ;
-- ajouté : pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics (contrôle des
-  préférences, valeurs expurgées), Sauvegarde (export chiffré DPAPI au format `ACPB1`, archive retirée du volume) ;
-- ajouté : bout en bout local `scripts/e2e-desktop-windows.ps1` (pilote de test `acp_desktop_e2e`, jamais installé)
-  contre Authelia et l'image de test : connexion par Chromium et passkey virtuelle, question posée par le poste
-  simulé et répondue depuis la station, sauvegarde, reprise de session, déconnexion, hygiène, forme des documents de
-  référence ;
-- retiré : `AuthManager`, cookie `acp_session`, `SessionPersistence`, `CompatibilityService`, l'ancien
-  `EventStreamService`, `ArtifactDownload` et les pages de l'ancienne API (archive : `archive/acp-0.10.0-avant-hermes`) ;
-- modifié : `qtwebsockets` dans `packaging/windows/toolchain.json`, CMake et la Desktop CI (déclencheur
-  `hermes/contrat/**`) ; les WebSockets suivent la règle de proxy du REST ; `check_layout.py` tolère le domaine
-  réservé `.test` ;
-- corrigé en cours de route : pings sans réponse évincés du plus ancien ; discussion et code d'enrôlement oubliés à
-  la perte de session (aussi fenêtre réduite) ; export de sauvegarde arrêté à la perte de session sans couper une
-  suppression en vol ;
-- corrigé après relecture (16 constats, chacun avec un test qui échoue sans la correction) : brouillons de réponse
-  et de consigne et défilement des listes gardés aux relectures (listes mises à jour par identifiant) ; verdict
-  « contrat incompatible » ou « greffon absent » appliqué (client du greffon bloqué, rien n'est émis) ; pages
-  oubliées à la session perdue, au changement de serveur et au blocage du greffon ; exécutant `null` de P6 distingué
-  de l'étape absente ; liens du navigateur sous le préfixe du serveur ; erreurs réseau en français ; Ctrl+6 à Ctrl+9
-  et copie du rapport par la palette effectifs ; carte « Hermes » de l'accueil relue et datée ; dialogue des
-  réglages en français ; jauge des quotas sur la part utilisée avec le repère du seuil, comme le web ;
-- sécurité : aucun secret en QML ni dans `QSettings` (liste blanche et contrôle) ; journaux et rapports expurgés
-  (jetons de Hermes et d'Authelia, ticket, code et état, `acpm_`/`acpe_`) ; archive de sauvegarde jamais en clair
-  sur le disque du PC ; une rotation acceptée par Hermes mais refusée par la station efface l'entrée du coffre (le
-  jeton consommé n'est jamais rejoué) et l'échéance d'un jeton est jugée contre l'en-tête `Date` de Hermes ;
-- vérifié localement : 34 suites, 0 échec, 0 ignoré (totaux Qt) ; Desktop CI verte sur windows-2022 ; bout en bout
-  local réussi le 02/10/2026, rejoué après les corrections contre les images `p8` et `rv8p6` (P6 fusionnée) avec la
-  réponse et le message tapés dans les vrais champs et envoyés par les vrais boutons ;
-- limites : rien n'est déployé (ni Railway ni vraie passkey) ; aucune installation sur Windows propre ; binaires non
-  signés ; flux SSE, agrégat des demandes et gestes des revues attendent P6 et P7 ; MCP côté poste reporté après P6.
-
-### P7 — questions, notifications, continuité ; dépôts réels (réalisée côté dépôt, non fusionnée, non déployée)
-
-Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `docs/refonte/railway.md` § 14,
-`docs/refonte/projets.md` § 4 bis, § 4 ter, § 5 et § 13, `docs/refonte/interface.md` § 13 à § 15,
-`docs/reprise-poste.md` § 6 undecies ; décisions D93 à D121 **appliquées** (`plan.md`). Trois branches
-(`refonte/hermes-p7`, `-p7e`, `-p7f`), réunies sur `refonte/hermes-p7` par la fusion `e2d210b` (8 octobre 2026) ; PR
-à ouvrir après la relecture indépendante. Rien n'est déployé ; aucun dépôt réel n'est ajouté. Les entrées de la
-**partie E finale** (commits poussés sur `refonte/hermes-p7e` après le départ de la part F : `3b1cac9`, `e85c7e3`,
-`1f2574c`, `a41952f`, `9235999`, `a516890`) nomment leur commit.
-
-#### Ajouté
-
-- file Questions à **cinq sections** (questions, décisions, revues, cartes arrêtées, discussions en attente),
-  compteurs « À traiter par vous » et « Chez Hermes » (règle unique : chez Hermes seulement si la carte « répondre »
-  existe), liens profonds ciblés et marqués ;
-- routes du propriétaire : `POST /v1/cartes/{tableau}/{carte}/relancer` (consigne facultative, session neuve pour une
-  carte de l'exécutant), `POST /v1/projets/{id}/reponses` (qui répond, pour les questions suivantes),
-  `POST /v1/projets/{id}/clore` (archive, questions annulées, « terminé » seulement si la synthèse du tour est faite),
-  `GET /v1/accueil` (route agrégée) ; base du greffon au **schéma 4** ;
-- **flux d'invalidation** `GET /v1/flux` (SSE : noms de sujets, battement 15 s, fin 600 s, 8 flux au plus, 429 au-delà),
-  annoncé par `GET /v1/meta` (clés `flux` et `accueil`), et son client (un flux par onglet, relecture sur signal,
-  repli sur le sondage de 15 s) sur Projets, Questions, Poste et Accueil ; trames exemples partagées avec le desktop ;
-- **liens profonds** des notifications en paramètres de requête (chemin relatif en base, URL publique à l'envoi) ;
-  genre `bilan` ;
-- **bilan quotidien** facultatif : script `acp-bilan.py` de l'image, tâche cron **native** `no_agent` créée par le
-  propriétaire (carte « Bilan quotidien » de l'Accueil), une notification par jour de Paris, compteurs seulement ;
-  fuseau `Europe/Paris` épinglé ;
-- **Accueil** réécrit : à traiter, projets, exécutant, quotas, notifications et bilan, sessions, système, dans le même
-  ordre à toutes les largeurs ; les blocs du travail viennent de la route agrégée `/v1/accueil`, les sessions
-  (`/api/sessions`), le système (`/v1/meta`) et l'état du bilan (`/api/cron/jobs`) de leurs propres lectures ;
-- greffon d'interface **`acp-discussion`** : discussion réduite sur le JSON-RPC natif `/api/ws` (liste, reprise,
-  envoi, texte en flux, réponse aux questions de Hermes, interruption) ; canal commun à liste blanche des méthodes ;
-- exécutant : **visibilité mesurée** de chaque dépôt (`git ls-remote` anonyme puis avec le jeton), publiée dans
-  l'inventaire (champs facultatifs `visibilite`, `lecture`, `verifie_le` du contrat `Depot`) ; dépôts mesurés et voies
-  par dépôt servis dans `GET /v1/poste`, montrés par la carte « Dépôts » de la page Poste (`e85c7e3`, `1f2574c`) ;
-  outil `scripts/preuve_accord_requis.py` (tableau « geste → preuve → verdict » du premier dépôt réel) ;
-- IaC : les six variables du canal de notification (`ACP_NOTIFICATIONS`, Telegram et ntfy) déclarées par
-  `preserve()` dans le service `hermes` ; `verifier.mjs` refuse tout littéral pour un nom de secret et s'éprouve sur
-  trois copies altérées de `railway.ts` ;
-- tests : image (`test_migration_v4`, `test_relance`, `test_reponses_reglage`, `test_cloture`, `test_file_questions`,
-  `test_routes_p7`, `test_accueil`, `test_flux`, `test_notifications_liens`, `test_bilan`, `test_routage_depot_prive`,
-  `test_demarrage` étendu), contrat (`test_flux_contrat`, `test_bilan_contrat`, `test_discussion_contrat`,
-  `test_parcours_p7_contrat`, contrat de l'IaC étendu), navigateur (`test_parcours_p7`, `test_discussion`), Vitest
-  (`flux`, `questions-p7`, `accueil`, `discussion`), `apps/poste` (`test_visibilite` contre un faux serveur HTTPS) ;
-- documentation : `docs/refonte/questions.md`, `railway.md` § 14 (canal, bilan, dépôts réels un par un, preuves à
-  relever), décisions D93 à D116, annexe P7 d'`autonomie.md` ; relecture finale : décisions D117 à D121, retour de
-  `hermes` vers une image antérieure à P7 (`railway.md` § 9, § 10 b, § 14.5), limites de la station Qt
-  (`desktop.md`).
-
-#### Modifié
-
-- relecture des pages sur signal du flux au lieu du sondage de 15 s (gardé en repli) ;
-- la voie **Codex** n'est ouverte que sur un dépôt **prouvé privé** (accès anonyme refusé, deux fois depuis
-  `3b1cac9`, et lecture avec le jeton réussie), au routage du greffon comme sur l'exécutant ; tant qu'aucune mesure n'est publiée, Codex est fermé sur
-  tout dépôt d'un poste réel ;
-- garde de démarrage des `scripts/` élargie au **seul** `acp-bilan.py` d'empreinte connue (root 0644, racine du volume) ;
-- skill `acp-questions` : escalade aussi comptes et jetons, nouveau dépôt, réseau des exécutants, suppression d'une
-  branche ;
-- carte « Poste » de l'Accueil, figée sur « Non configuré » depuis P3, retirée (donnée devenue fausse) ;
-- message « Notifications non configurées » (Accueil et page Projets) aligné sur l'IaC : les variables du canal y
-  sont déjà déclarées, le propriétaire pose celles de son canal dans Railway sans autre PR (`railway.md` § 14) ;
-  cinq bundles reconstruits ;
-- `scripts/tests/test_decisions_documentees.py` lit les numéros de décision à trois chiffres (D100 et au-delà).
-
-#### Corrigé
-
-- flux : une pause posée puis levée entre deux passes du veilleur n'était pas signalée (trouvé par la CI « Image
-  Hermes » de `4c4282b`, corrigé par `9c87bf6`) ; trames exemples rangées en JSON (aucun fichier suivi ne finit par
-  une ligne vide, CI de `00814c4`) ;
-- discussion : événements reçus pendant la reprise d'une session perdus ou écrasés (tampon rejoué) ;
-- relance d'une carte de l'exécutant : consigne ignorée en reprise, coupée la première ou rendant la carte invalide
-  (correction K4 du cahier) ;
-- partie E, après la relecture indépendante : outil de preuve (revues rejouées dans l'ordre, journal
-  plein « non prouvé », suppression et connexions : `a41952f`), mesure non atomique (deux refus anonymes) et clone nu
-  d'une autre URL (`3b1cac9`) ;
-- tests de contrat qui comptaient toutes les notifications de la pile partagée (filtrés par projet) ;
-- **relecture finale de P7** (8 octobre 2026 : relecture indépendante en cinq lentilles — scénario, sécurité, produit,
-  station Qt, tests —, 37 constats retenus dont 14 vérifiés par un sceptique ; chacun corrigé avec un test qui échoue
-  sans la correction, ou traité en limite dite ; tableau constat → traitement → preuve résumé dans
-  `docs/reprise-poste.md` § 6 undecies) :
-  - file Questions : le message tiré de la réponse de l'API (« la carte reprend », « reprendra à la reprise du
-    projet », « n'a pas été relancée », « n'a pas été reprise ») disparaissait avec la demande traitée, qui quitte la
-    file, et un lien profond disait alors « déjà traitée » : annoncé désormais par la section ; cible d'un tableau
-    illisible dite « état inconnu » (`63f122c`) ;
-  - relance d'une carte d'**intégration** : une consigne acceptée puis jamais lue et une « session neuve » promise
-    pour une carte sans agent ; consigne refusée (`consigne_sans_objet`), raison du conflit qui dit les vrais gestes
-    (D117, `c329494`) ;
-  - carte de décision lue **avant** le rattachement de sa demande (« Reprendre » au lieu de « Prolonger » et
-    « Conclure ») : demande retrouvée par sa clé, rattachement visible dans l'empreinte « projets » du flux ; c'était
-    la cause de l'échec du contrat de `665d825` (`735071e`) ;
-  - flux : une connexion muette (veille, réseau changé) restait « temps réel » sans jamais compter d'échec ; chien de
-    garde de 40 s (`ad73cf1`) ;
-  - bilan quotidien : « Dernier envoi » d'après `last_run_at` seul, que Hermes date même en échec ; « Dernière
-    exécution », échec publié dit (`last_status`, `last_error` repliés), tâche « En erreur », refus de la route native
-    dit en français (`f3caf85`, `a16f00b`) ; Accueil : total qualifié tant que les discussions sont inconnues
-    (jamais « Rien n'attend ») ; portée du temps réel dite (Accueil, liste des discussions) (`f3caf85`) ;
-  - discussion : un ticket refusé en 401 (session expirée) faisait boucler les reconnexions ; la page le dit et
-    propose de recharger ; « nouvelle tentative en cours » au lieu de « dans Inconnu s » ; réponse en cours de saisie
-    gardée à la reconnexion (`eb2406a`) ;
-  - libellés : sections de la file nommées comme l'Accueil, statut kanban traduit, actions de P6 et P7 du journal en
-    français, carte de la machine titrée d'après l'hôte (jamais « Poste Windows » pour l'exécutant Linux), réglage lu
-    « Vous », question ouverte « à vous » dite telle dans la file et le détail (`chez` servi par le détail)
-    (`6fb03cf`) ;
-  - carte « répondre » dont la question a été adressée au propriétaire : offerte à « Relancer » (bouton qui faisait
-    semblant) et comptée deux fois ; refus 409 `question_adressee`, non comptée (D120) ; source des quotas propre à
-    l'hôte du relevé, libellé Codex, jamais un code à l'écran (`3789aa2`) ;
-  - station Qt : voies fermées lues comme un tableau (forme jamais servie : toujours « Inconnu ») ; diagnostic du flux
-    figé sur « n'annonce aucun flux (prévu à l'étape P7) » ; état d'une question sans `chez` ; aide du plafond de
-    corrections et textes qui promettaient des gestes « à l'étape P7 » ou renvoyaient au kanban (`cd4c3e6`) ;
-  - tests : `test_pause_locale_aucune_execution` lisait l'état écrit après l'arrêt (course du test, CI
-    `36996679349`) (`9ff14fb`) ; contrat du diagnostic qui passait à vide, bundles vérifiés comptés, liste et file
-    relues seulement après une trame ou un geste au parcours, clôture d'une carte Hermes dont le worker tourne, cartes
-    abandonnées après `rendue` ou `question`, gestes de P7 en navigateur (`ad73cf1`, `87102af`).
-
-#### Sécurité
-
-- liens de notification sans fragment ni texte de question ; aucune notification pour les gestes du propriétaire ;
-- discussion : liste blanche des méthodes **et** des paramètres émis ; `approval`, `sudo`, `secret` et toute autre
-  requête du serveur refusés (`-32601`) ; aucun secret ne transite par ACP ;
-- garde du dossier `scripts/` : un fichier exact, à root, sans entrée, que seule une tâche cron créée par le
-  propriétaire exécute (`cronjob` reste coupé pour l'agent) ;
-- visibilité : seules les lignes « fatal: » composées par git valent refus (le serveur ne peut pas forger un « privé ») ;
-  mesure lancée depuis la racine des clones (aucune configuration de dépôt lue) ; jeton jamais dans l'argv ni le
-  journal ; une carte bloquée pour un secret ne reprend jamais son worktree en quarantaine : elle repart sur une
-  **branche neuve**, sans l'ancienne session (`665d825`) ; sa relance par le propriétaire n'est admise qu'avec un
-  exécutant de la partie E (`e85c7e3` ; avant lui, toujours refusée) ;
-- consigne de relance balayée par les motifs de secrets ; IaC sans secret, jetons du canal en variables scellées,
-  littéral refusé par le vérificateur ;
-- exécutant (défauts (a) et (b) de P6, confirmés par la relecture finale de P7) : un secret commité dans un « wip »
-  (blocage, limite de quota reprise sans geste, interruption) puis retiré passait le balayage du seul diff cumulé et
-  restait dans l'historique intégré et dans le `git bundle` ; chaque commit absent du dépôt distant est désormais
-  balayé (conclusion, donc intégration, et après chaque « wip » : carte bloquée **pour un secret**), et `git bundle`
-  refuse un tel historique ; un renommage en quarantaine en échec bloquait la carte en « capacité » (sans garde de
-  relance, reprise de la branche fautive) : bloquée quand même pour un secret, renommage retenté avant tout tour
-  (D118, D119, `50409de`).
-
-#### Vérifié localement
-
-- parts A à E (1er et 2 octobre 2026, images reconstruites depuis les worktrees de P7) : images jusqu'à **789
-  réussis** ; contrat complet : 172 tests verts (un rejoué seul après un échec de minuterie sous charge), puis
-  passages ciblés ; navigateur **10 réussis** ; Vitest **179** ; dépôt
-  Windows **1 003 réussis, 83 ignorés** ; `apps/poste` et contrat en root dans l'image d'essais de l'exécutant
-  (git 2.47.3) : 822 réussis et 1 échec, puis 820 et 3 échecs, de minuterie sous charge ; `test_service_executant.py`
-  rejoué seul, vert trois fois ; l'échec de `test_executors.py`, jamais rejoué seul, n'est couvert que par la CI
-  « Image de l'exécutant » `37711679672` (823 réussis, aucun échec) ; témoins de mutation rouges ; détail et
-  incidents d'environnement : `docs/reprise-poste.md` § 6 undecies ;
-- part F (8 octobre 2026, **sans Docker**) : dépôt **998 réussis, 83 ignorés** (IaC), puis **999** (documentation, et encore après les corrections du contrôle de la part F) ; `.railway/verifier.mjs` conforme (trois témoins
-  signalés) ; témoins de mutation du vérificateur et des tests statiques rouges ;
-- réunion des branches (8 octobre 2026, **sans Docker**, tête réunie avec l'alignement du message) : dépôt (venv
-  python.org, `cryptography` hors du verrou) **1007 réussis, 83 ignorés** ; Vitest **179** ; `tsc` ; cinq bundles
-  reconstruits, `esbuild --check` : 10 fichiers à jour ; `.railway/verifier.mjs` conforme (trois témoins signalés) ;
-  `check_version`, `check_engine_frozen`, `balayer_secrets --arbre`, `git diff --check` : verts ; renvois à
-  `executant.md` vérifiés (§ 16, § 16.1, § 16.3, § 16.5, § 16.6 : tous vers un titre existant) ;
-- relecture finale de P7 (8 octobre 2026, **sans Docker**) : chaque correctif montré rouge sans lui puis vert (Vitest, `apps/poste`, banc local des tests d'image, chaîne Qt 6.8.3 et MSVC locale ; module POSIX, navigateur et contrat : CI) ; dépôt Windows **1 014 réussis, 83 ignorés** ; Vitest **203** ; `tsc` ; `esbuild --check` : 10 fichiers à jour ; `scripts/tests` **204** ; station Qt : **34 suites sur 34** (Release) ; témoins de mutation rouges (relance laissée en reprise, bundles non comptés) ; `check_version`, `check_engine_frozen`, `balayer_secrets --arbre`, `git diff --check` : verts ;
-- CI : « Image Hermes » verte sur `69ea021` (`37012771194` : image 777, contrat 180, navigateur 10) et sur la fusion
-  `c785af2` (`37014427594` : 778, 181, 10) ; « Image de l'exécutant » verte sur `665d825` (`37027816836` : 821 réussis
-  en root) et sur `9235999`, tête de la part E (`37711679672` : 823) ; « CI » verte sur `da74a21` (`37029770523`) et
-  sur `9235999` (`37711679692`) ; « Image Hermes » **rouge** sur `665d825` (`37027816283`, un
-  test de contrat de P4 : cause établie et corrigée par la relecture finale, `735071e`), verte ensuite sur `9235999` (`37711679574` : 789, 181, 10) ; part F : « CI »
-  verte sur `cf44486` (`37713287538`), `2136da4` (`37714145854`) et `d363c6a` (`37718287936`), « Image Hermes » verte
-  sur `cf44486`
-  (`37713287490` : image 778, contrat 183 dont Hermes démarré sans canal puis avec Telegram et avec ntfy posés,
-  navigateur 10) ; relecture finale : « Image Hermes » verte sur `50409de` (`37737197686` : image 791, contrat 183, navigateur 10, dont « Réponse envoyée : la carte reprend. » relevé au parcours), `eb2406a` (`37738374813` : 791, 183, 10), `3789aa2` (`37739622503` : 795, 183, 10), `87102af` (`37740550031` : 798, 183, 10 ; gestes de P7 mesurés aux deux formats sans cible sous 44 px ni violation axe ; liste et file relues 15 et 14 fois, aucune sans trame ni geste) et `cd4c3e6` (`37741812418` : 798, 183, 10) ; **rouge** sur `a16f00b` (`37742327967` : contrat 182 et 1 échec, `test_relecture_lit_le_code_relu_et_son_diff` : le test prenait une carte « à créer », sans identifiant ; course du test, sans rapport avec `a16f00b` qui ne touche que l'interface ; test corrigé par `201066e`) ; « Image de l'exécutant » verte sur `50409de` (`37737197677`) et `9ff14fb` (`37739879415` : 43 tests de l'image, 831 en root) ; « CI » verte sur chaque commit poussé (Windows 1 011, Linux 1 044, Vitest 203 sur `a16f00b`) ; Desktop CI verte sur `cd4c3e6` (`37741812613` : 34 suites).
-
-#### Limites connues
-
-- tout ce qui exige Railway, un vrai téléphone ou un vrai canal (notification réelle, parcours réel, redéploiement réel
-  pendant une question, flux à travers le vrai bord, premier dépôt réel, bilan à 8 h) : **non prouvé** ;
-- `preserve()` sur une variable jamais posée : **supposé** sans effet et admis par le plan ; exposition permanente pour
-  les variables du canal non choisi (jamais posées) ; si le plan le refusait, tout plan du projet serait bloqué
-  jusqu'à une PR de repli qui retire ces `preserve()` (`railway.md` § 3 et § 14.1, conduite jamais exécutée) ;
-- questions d'une discussion `/chat` absentes de la file (limite de Hermes) ; une `clarify` de la page Discussion vit
-  une heure au plus et meurt au redémarrage ; aucune notification pour une discussion en attente ;
-- rendu prouvé dans Chromium seulement ; station Qt (P8) sans le flux ni les gestes de P7 (Relancer, Qui répond,
-  Clore, revues, Accueil agrégé, compteurs de la file, visibilité des dépôts : `desktop.md`, « Non prouvé ») ;
-- « Relancer » une carte **abandonnée** : prouvé en image et par les vraies routes, jamais en navigateur ;
-- retour de `hermes` vers une image antérieure à P7 : impossible sans retirer d'abord `acp-bilan.py` du volume en
-  maintenance (D121, procédure écrite, jamais exécutée) ;
-- tests navigateur et de contrat : CI seulement depuis le 8 octobre (aucun Docker local) ; la variante déterministe
-  de `test_pause_locale_aucune_execution` (POSIX) : CI seulement ;
-- relecture indépendante : faite le 8 octobre (relecture finale, ci-dessus) ; la PR vers `refonte/hermes` reste à
-  ouvrir.
-
-## [Unreleased]
-
-### Quotas réels d'abonnement
+## [1.0.0] - date à relever — refonte « Hermes au centre »
+
+> **Section préparée, version non ouverte.** Écrite le 8 octobre 2026 à l'étape P9 (part E) : `VERSION` vaut encore
+> 0.11.0. La date sera celle du commit `chore(release): prepare 1.0.0 changelog`, après le commit d'ouverture
+> (D129) ; les preuves des parts B et C de P9 sont **à relever**. Les runs de la PR de `refonte/hermes-p9` et de
+> celle vers `main` n'y figureront pas : le commit du journal les précède (un commit ne peut citer les runs que son
+> propre push déclenche, et le compléter après la fusion déplacerait l'étiquette hors du commit de fusion). Ils vont
+> dans `docs/refonte/preuves-1.0.0.md` : § 3 pour la PR de `refonte/hermes-p9`, § 4 pour celle vers `main`
+> (complété après l'étiquette par une PR de documentation seule).
+
+1.0.0 achève la refonte « Hermes au centre » (étapes P0 à P9). Hermes Agent 0.21.5, épinglé par le condensat de
+l'image `v2026.9.24`, est le seul serveur, le seul orchestrateur et la seule source de vérité ; ACP n'a plus de
+backend propre et fournit l'image dérivée et ses greffons, l'identité (Authelia), l'exécutant Railway, le poste
+Windows facultatif, la station Qt et l'interface française du tableau de bord. L'ancienne plateforme (ligne 0.10,
+ci-dessous) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`. **Rien n'est déployé sur Railway** :
+la publication précède le premier déploiement, geste du propriétaire (`docs/refonte/railway.md` § 4). Le journal de
+chaque étape, mot pour mot, est dans `docs/refonte/historique.md` (partie C) ; les preuves dans
+`docs/refonte/preuves-1.0.0.md`.
+
+À partir de 1.0.0, le versionnage sémantique porte sur **nos** interfaces (D130) : contrat `acp-poste/1` (routes
+`/api/plugins/acp-poste/v1/*`), protocole `acp-machine/1`, format `ACPB1`, commandes `acp-poste`, formats de
+`poste.toml` et d'`executant.toml`, variables Railway documentées (`docs/refonte/image.md` § 4). Les surfaces de
+Hermes (API du tableau de bord, JSON-RPC, SDK des greffons) suivent la version épinglée, hors de cet engagement. Une
+rupture de nos interfaces appellera 2.0.0.
+
+| Étape | Objet | PR | Commit de fusion |
+|---|---|---|---|
+| P0 | branche, élagage, gel du moteur | #13 | `29c95b5` |
+| P1 | image dérivée et CI de contrat | #14 | `21d13ee` |
+| P2 | agent sans outil d'exécution, identité, Railway en code | #15 | `21ac337` |
+| P3 | identité visuelle, français, catalogue | #16 | `f59f384` |
+| P4 | projets autonomes | #17 | `6c31522` |
+| P5 | poste connecté | #18 | `b3faac0` |
+| P6 | exécutant Railway | #19 | `7697a1c` |
+| P8 | station Qt rebranchée | #20 | `b715edb` |
+| P7 | questions, notifications, continuité ; dépôts réels | #21 | `b9779f1` |
+| P9 | exploitation, montée de version, publication | à relever | à relever |
+
+### Ajouté
+
+- **Image Hermes d'ACP** (P1, P2) : image Railway dérivée de `nousresearch/hermes-agent:v2026.9.24` épinglée par
+  condensat ; gardes de démarrage dans le crochet s6 `S6_STAGE2_HOOK` et refus en français ; managed scope
+  `/etc/hermes` régénérée et relue à chaque démarrage ; agent **sans outil d'exécution** sur Railway (managed scope,
+  `.env` géré, garde `pre_tool_call` en liste blanche) ; gardes de plateforme (PID 1, s6, volume) ; commande de
+  maintenance `diagnostiquer` ; contrat épinglé (`hermes/contrat/HERMES_VERSION`, OpenRPC de la passerelle).
+- **Identité** (P2) : `identite/`, Authelia 4.39.28 épinglé, un seul utilisateur, un seul client OIDC public, passkeys,
+  garde root en français, limite mémoire mesurée.
+- **Infrastructure Railway en code** (P2, P6, P7) : `.railway/railway.ts` (trois services, trois volumes, échec fermé
+  sur les libellés en gabarit), `verifier.mjs`, procédure du propriétaire `docs/refonte/railway.md` ; variables du
+  canal de notification déclarées par `preserve()` (D116).
+- **Interface** (P3, P4, P5, P7) : thème `acp` généré depuis `design/tokens`, persona française, greffons d'interface
+  `acp-interface` (Accueil), `acp-catalogue`, `acp-projets` (Projets et file Questions), `acp-poste-vues` (Poste,
+  Routage, Quotas) et `acp-discussion` (discussion réduite sur `/api/ws`), sources dans `apps/interface`, bundles
+  committés et vérifiés en CI ; décompte des chaînes de Hermes restées en anglais.
+- **Catalogue** (P3, P4) : 14 skills vendorisées à des commits épinglés, sous licence MIT, et 7 skills maison en
+  français (deux en P3, cinq pour les projets en P4) ; verrou `hermes/catalogue/catalogue.lock.json` et
+  `scripts/verifier_catalogue.py` ; context7, seul serveur MCP côté Hermes, distant ; refus de démarrer sur un
+  serveur MCP stdio ou hors catalogue (D8).
+- **Projets autonomes** (P4, P7) : greffon `acp-poste` : un tableau kanban par projet, graphe déterministe
+  (exploration, planification, implémentation et relecture croisée, synthèse), plafonds et cartes de décision,
+  routage des modèles, outils de l'agent, routes du propriétaire, émetteur de notifications (Telegram ou ntfy) ; en
+  P7 : file Questions à cinq sections, relancer une carte, qui répond, clore un projet, flux d'invalidation
+  `GET /v1/flux`, liens profonds des notifications, bilan quotidien par cron natif, Accueil agrégé ; base du greffon
+  au schéma 4.
+- **Machines** (P5, P6) : protocole `acp-machine/1` (enrôlement par code, réclamation en attente longue,
+  inventaire ; en P6 : `battement`, `terminer`, `question`, `bloquer`, `reprendre`, `arret`), fournisseur de
+  jeton machine ; client `apps/poste` : poste Windows (`poste.toml`, coffre DPAPI, sondes Codex et Claude Code,
+  installation `packaging/poste`) et exécutant Linux (un UID par agent, dépôts et worktrees, quarantaine des secrets,
+  `git bundle`, file de sortie persistante, purge) ; image `executant/` (Codex CLI 0.156.1 et Claude Code 2.1.283
+  vérifiés au build) ; visibilité des dépôts mesurée et outil `scripts/preuve_accord_requis.py` (P7).
+- **Station de travail Qt** (P8) : connexion native RFC 8252, porteur sur les API du tableau de bord et la façade du
+  greffon, JSON-RPC sur Qt WebSockets, pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage,
+  Diagnostics et Sauvegarde (export chiffré `ACPB1`), bout en bout local `scripts/e2e-desktop-windows.ps1`.
+- **Exploitation** (P9, état du 8 octobre 2026, parts B et C encore ouvertes) : `scripts/monter_hermes.py`
+  (`verifier`, `ecrire`, `inventaire`, `derniere`) et sa répétition à blanc à chaque construction ; concordance de
+  toutes les épingles de Hermes (`scripts/tests/test_epingles_hermes.py`) ; toute copie versionnée contrôlée
+  (`scripts/tests/test_version_complete.py`) ; tests de restauration de trois volumes (job `restauration`
+  d'`image.yml`) ; témoin d'une release antérieure de Hermes (job `temoin`, `scripts/temoin_hermes.py`) ; montée de
+  données d'une version d'ACP à la suivante (job `montee`) ; manuel du propriétaire `docs/exploitation.md` ;
+  `docs/refonte/historique.md` et `docs/refonte/preuves-1.0.0.md`.
+- **CI** : `ci.yml` (moteur gelé, suites sous Linux et Windows, installeur du poste en simulation, interface,
+  balayage des secrets), `image.yml`, `executant.yml`, `desktop-ci.yml` ; `desktop-release.yml` crée à l'étiquette
+  un brouillon non signé (D131).
+
+### Modifié
+
+- Architecture : Hermes seul serveur et seule source de vérité ; ACP sans API, sans base, sans bus d'événements ni
+  CLI propres (P0 à P2) ; exécution principale sur le service Railway `executant`, poste Windows facultatif (P6,
+  D74).
+- `apps/worker` devient `apps/poste` (commande `acp-poste`), contrat des quotas dans
+  `hermes/plugins/acp-poste/contrat` (P0) ; `poste.toml` remplace les réglages `ACP_WORKER_*` (P5).
+- Station Qt : rebranchée sur Hermes, ancien client retiré (P8).
+- Pages relues sur signal du flux au lieu du sondage de 15 s (gardé en repli) ; voie Codex ouverte seulement sur un
+  dépôt prouvé privé (P7, D103).
+- Contrôle des décisions documentées à trois chiffres (P7, P9 : D132).
+
+**Retiré de l'ancienne plateforme** (tout reste sous l'étiquette `archive/acp-0.10.0-avant-hermes`) : en P0, API
+FastAPI, base et migrations, bus d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite (hors
+`apps/web/public/assets`), `packages/ui`, contrats TypeScript et Python (hors quotas), `agent-sdk`,
+`playwright-reporter`, `e2e`, déploiement Railway multi-services et scripts liés, documentation datée des lots A à
+H ; en P5, les réglages `ACP_WORKER_*` du poste (sauf `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT`) et
+`PosteConfig.from_env` ; en P8, l'ancien client Qt (`AuthManager`, cookie `acp_session`, `SessionPersistence`,
+`CompatibilityService`, ancien `EventStreamService`, `ArtifactDownload`, pages de l'ancienne API).
+
+### Corrigé
+
+Corrections des relectures indépendantes, une ligne par étape (détail : `docs/refonte/historique.md`, partie B) :
+- P0 : 5 défauts confirmés et corrigés (refus des NUL sans l'octet NUL, tests DPAPI réels rétablis, commande
+  `journal` sans source retirée, `acp-poste quotas` refusé sans accord avec le retrait d'un réglage sans effet,
+  « aucune connexion réseau » rectifié : Codex CLI, que lance `acp-poste quotas`, interroge le serveur d'OpenAI) ;
+- P1 : 5 constats, dont deux critiques (`/run/service` laissé à l'agent, `.env` du volume hors managed scope) :
+  4 corrigés, 1 en limite dite (port 9119 pris sous le même uid, paré depuis P2 par l'absence d'outil d'exécution) ;
+  plus l'élévation par le `PATH` des scripts root, trouvée à la vérification finale et corrigée ;
+- P2 : 21 constats de trois relectures (sécurité offensive, exactitude, exploitation), dont les `hooks/` et
+  `scripts/` de chaque profil rendus à root ; deux traités par la documentation seule (`vision_analyze`, qui lit
+  toute image locale, gardé par décision du propriétaire ; sauvegardes absentes de l'IaC) ;
+- P3 : 14 constats (4 moyens, 10 bas) ;
+- P4 : 21 constats, tous réels (projets qui s'arrêtaient en silence ou se disaient terminés à tort, redirections
+  suivies par les notifications) ;
+- P5 : 16 constats (un haut, quatre moyens, onze bas), décisions D67 à D73 ;
+- P6 : 19 constats (un critique, quatre hauts), tous réels, plus trois défauts trouvés en les vérifiant ; parmi
+  les corrections, l'`auth.json` de Codex n'est plus lisible par une commande de l'agent en régime A ;
+- P8 : 16 constats, chacun avec un test qui échoue sans la correction ;
+- P7 : relecture finale, 37 constats retenus : 33 corrigés, 3 en limite dite, 1 de procédure (D117 à D121) ;
+- P9 : relecture de l'outillage de version (six constats sur `scripts/monter_hermes.py` et `image.yml`, chacun avec
+  un test rouge d'abord) et vérification factuelle du manuel (19 constats recoupés et corrigés) ; compteur
+  `AUTOINCREMENT` ramené par la reconstruction d'une table du greffon, trouvé par la montée de données et corrigé
+  (`fdb41c9`, D153) ; relecture indépendante de toute P9 : **à relever**.
+
+### Sécurité
+
+- Agent sans outil d'exécution sur Railway, garde en liste blanche ; `PATH` des scripts root sans répertoire du
+  volume ; managed scope régénérée à chaque démarrage ; Hermes jamais hors de s6 en PID 1.
+- Connexion par OIDC auto-hébergé seulement (Authelia, un utilisateur, passkeys) ; aucun fournisseur `basic` ni Nous.
+- Jetons : coffres Windows (DPAPI, Gestionnaire d'identification) sur le poste et la station ; fichiers 0600 de root
+  sur le volume de l'exécutant, jamais en variable (D92) ; aucun secret dans Git (balayage en CI).
+- Exécutant : un UID par agent, bac à sable, binaires vérifiés au build, crochets git coupés, `https` seul, **aucun
+  push** (D82) ; fichiers de pilotage soumis à revue ; secret détecté : quarantaine, y compris dans chaque commit non
+  poussé (D118, D119).
+- Hermes et Authelia épinglés par condensat ; montée de version par PR seulement, répétée à blanc à chaque
+  construction.
+
+### Vérifié localement
+
+Et en intégration continue : chaque étape a été fusionnée sur des runs verts ; identifiants, compteurs et relectures
+dans `docs/refonte/preuves-1.0.0.md`.
+- P0 à P8 et P7 : runs des PR #13 à #21 et des commits de fusion (preuves, § 1 et § 2).
+- P9, parts A et D : outillage de version vert en CI (répétition à blanc « Aucun écart », Image Hermes
+  `37004128839` puis `37028491959`) ; ébauche du manuel relue contre le code et la documentation de Railway.
+- P9, parts B et C (restauration, témoin, montée de données) : **à relever**.
+- PR de `refonte/hermes-p9` vers `refonte/hermes`, puis de `refonte/hermes` vers `main` (quatre workflows) :
+  postérieures à ce journal ; leurs runs sont relevés dans `docs/refonte/preuves-1.0.0.md`, § 3 et § 4.
+
+### Limites connues
+
+- **Rien n'est déployé sur Railway** : tout ce qui ne se prouve que là reste non prouvé (`docs/refonte/railway.md`
+  § 12 et § 14.7, `docs/exploitation.md` § 10) : bord et PID 1 réels, sonde R0 (régime de l'exécutant, donc ouverture
+  de la voie Codex), sauvegardes réelles, répétition de restauration et reconnexions réelles, notification et
+  parcours réels sur le téléphone, premier dépôt réel, coût réel.
+- **À corriger avant la publication** : une fois, après un redémarrage du conteneur sur un volume piégé, la session
+  du tableau de bord a reçu les outils d'exécution posés par le `.env` du volume (deuxième des trois couches de la
+  défense de P2, `docs/refonte/image.md` § 5), alors que l'api_server les refusait (Image Hermes `37784838264`,
+  tentative 1, test `test_volume_piege_apres_relance`). Le chantier SECU-TUI (branche `refonte/hermes-secu-tui`,
+  partie de `b9779f1`, sa propre PR, non fusionnée au 9 octobre 2026) en a prouvé la cause sans course : Hermes
+  publie la valeur du `.env` du volume avant d'appliquer la portée gérée (run jetable `37831355746`, rouge attendu
+  sur le code de P7) ; il y mesure que la garde `pre_tool_call` aurait refusé l'appel. Son correctif (SECU-1) et le
+  refus d'une seconde faille, hors des trois couches (SECU-2 : source externe de secrets du volume), sont verts sur
+  une branche jetable (`37832691849`) ; leur fusion, leurs preuves finales et leurs numéros de décision sont
+  **à relever**.
+- Binaires de la station **non signés** ; aucune installation sur un Windows propre.
+- Sans Docker sur le poste de travail (D134), les bouts en bout locaux du poste (dernier passage : P5) et de la
+  station (P8), les témoins négatifs de P4 à P6 et la recompilation du verrou Python ne tournent plus nulle part
+  (aucun workflow ne les appelle) ; les deux bouts en bout n'ont pas été rejoués sur le code de P7 ni de P9.
+- Cookies de Hermes sans `Secure` tant que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué : 503
+  persistant jusqu'à la déconnexion ou l'effacement des cookies (`docs/refonte/identite.md` § 12).
+- Pages natives de Hermes en partie en anglais ; rendu éprouvé dans Chromium seulement.
+- Station Qt sans le flux ni les gestes de P7 ; MCP côté exécutant reporté.
+- `preserve()` sur une variable jamais posée : supposé sans effet (D116).
+- Aucune montée vers une release de Hermes postérieure à `v2026.9.24` (aucune n'existait au 2 octobre 2026) ;
+  montée de données depuis `v2026.9.21` non lancée (D147) ; montée d'Authelia non prouvée (D152).
+- Signature cosign de Codex non vérifiée (identité non établie).
+- Moteur Pixel Office gelé ; Godot hors périmètre.
+
+## 0.10 — ligne archivée, jamais étiquetée
+
+Ancienne plateforme (API, base, interface web Vite, CLI `acp`, client Qt d'avant la refonte) : ses trois sections,
+autrefois « [Unreleased] », « 0.10.0 (préparation) » et « 0.9.1 (préparation) », sont gardées telles quelles, à
+deux retouches près : titres abaissés d'un niveau, et **trois liens réécrits** (`docs/subscription-quotas.md`,
+`docs/desktop-chat-projects-2026-09-23.md` et `docs/functional-completion-2026-09-23.md`, retirés de l'arbre
+depuis P0), qui mènent désormais à ces fichiers sous l'étiquette `archive/acp-0.10.0-avant-hermes`
+(`blob/60a49b6…`). Aucune n'a été publiée ni étiquetée ; leurs fonctions n'existent plus depuis P0, et les autres
+documents qu'elles citent restent consultables sous la même étiquette.
+
+### [Unreleased]
+
+#### Quotas réels d'abonnement
 
 - écran desktop « Quotas », réservé au propriétaire de la plateforme : une jauge
   par fenêtre de limite (utilisé et restant), remise à zéro en heure locale avec
@@ -802,9 +221,9 @@ Référence : `docs/refonte/questions.md`, `docs/refonte/executant.md` § 16, `d
 Le chemin « compte connecté » de Codex n'est éprouvé qu'avec un faux `app-server`
 validé contre les schémas officiels : le profil dédié attend la connexion du
 titulaire. Figma et les crédits d'API ne sont pas mesurés. Détails et mise en place
-dans [`docs/subscription-quotas.md`](docs/subscription-quotas.md).
+dans [`docs/subscription-quotas.md`](https://github.com/Paul-Berdier/agent-company-platform/blob/60a49b6c5ab2ca5d73cfdf55919c85903a261330/docs/subscription-quotas.md).
 
-### Interface conversations et projets
+#### Interface conversations et projets
 
 - accueil à deux entrées : chat libre sans titre préalable ou projet à créer/reprendre ;
 - identité native graphite/ivoire/sarcelle et pictogrammes originaux ;
@@ -819,9 +238,9 @@ dans [`docs/subscription-quotas.md`](docs/subscription-quotas.md).
 - suite Python complète : 3 037 réussis, 70 ignorés ; 492 tests Node réussis, typage et build verts ;
 - 23 suites Qt vertes, deux parcours UI Windows et parcours Qt/API réelle avec création sans titre ;
 - recette de l'interface et limites dans
-  [`docs/desktop-chat-projects-2026-09-23.md`](docs/desktop-chat-projects-2026-09-23.md).
+  [`docs/desktop-chat-projects-2026-09-23.md`](https://github.com/Paul-Berdier/agent-company-platform/blob/60a49b6c5ab2ca5d73cfdf55919c85903a261330/docs/desktop-chat-projects-2026-09-23.md).
 
-### Intégration fonctionnelle desktop et poste local
+#### Intégration fonctionnelle desktop et poste local
 
 - formulaires Qt Standard, Codex, Claude et équipe ; conversations générales ou
   de projet, arrêt visible et commentaires actualisés ;
@@ -841,17 +260,17 @@ dans [`docs/subscription-quotas.md`](docs/subscription-quotas.md).
 - 22 suites Qt vertes, interactions réelles avec captures et parcours API jetable.
 
 Les preuves détaillées et limites sont dans
-[`docs/functional-completion-2026-09-23.md`](docs/functional-completion-2026-09-23.md).
+[`docs/functional-completion-2026-09-23.md`](https://github.com/Paul-Berdier/agent-company-platform/blob/60a49b6c5ab2ca5d73cfdf55919c85903a261330/docs/functional-completion-2026-09-23.md).
 Hermes répond localement, mais son diagnostic est dégradé ; aucune génération réelle
 payante, reprise automatique d'équipe interrompue, fusion automatique des branches
 produites ou publication finale 0.10.0 n'est annoncée.
 
-## 0.10.0 (préparation) - 2026-09-23
+### 0.10.0 (préparation) - 2026-09-23
 
 Client natif Qt : intégration du Lot H et parcours métier reliés à l'API.
 Cette version reste en préparation ; elle n'annonce pas une recette Railway achevée.
 
-### Ajouté
+#### Ajouté
 
 - écrans natifs de projets, conversations, missions/tentatives, Studio et livrables ;
 - inventaire des agents, workers et fournisseurs, liaisons MCP et compétences ;
@@ -861,14 +280,14 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - tests HTTP loopback, chargement QML et parcours du client Qt contre une vraie API
   SQLite jetable ; projection hachée du verrou Python pour cette recette en CI Windows.
 
-### Modifié
+#### Modifié
 
 - contexte de projet partagé par les écrans, navigation et palette de commandes ;
 - arrêt, relance et envois incertains rapprochés avec la même clé pendant la session ;
 - README, documentation de parité, sécurité, construction, installation et reprise
   alignés sur les fonctions présentes et les limites observées.
 
-### Corrigé
+#### Corrigé
 
 - réponses et réessais d'une ancienne origine annulés après changement de serveur ;
 - reprise de session préservant le contexte connu, refus 401/403 terminaux uniques,
@@ -879,7 +298,7 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - droits effectifs de création de projet et de liaison d'extensions vérifiés avant envoi ;
 - DLL redistribuables MSVC x64 embarquées dans le paquet portable, avec contrôle de version.
 
-### Sécurité
+#### Sécurité
 
 - aucun cookie ACP transmis à GitHub ; notes de publication et contenus métier rendus
   en texte brut, liens de publication limités au dépôt officiel ;
@@ -887,7 +306,7 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - téléchargement de livrable atomique et borné, contrôles de taille/SHA-256, redirections refusées ;
 - un corps HTML ou une redirection ne peut plus apparaître comme un flux SSE en direct.
 
-### Vérifié localement
+#### Vérifié localement
 
 - backend combiné : 2 896 tests réussis, 70 ignorés ; contrats desktop : 6 réussis ;
 - compilation MSVC Release et 21 suites natives réussies en 54,82 secondes ;
@@ -899,7 +318,7 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - résultats finaux de compilation, CI et empaquetage dans
   `docs/desktop-validation-2026-09-23.md` ; les tentatives échouées y restent distinguées.
 
-### Limites connues
+#### Limites connues
 
 - recette Railway, fournisseur/worker réels, Windows propre et signature de code non prouvés ;
 - première revue visuelle interrompue par l'expiration de l'autorisation de capture ;
@@ -909,12 +328,12 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - aucune publication 0.10.0 ni fin de la Desktop V1 annoncée ; Pixel Office conservé à part ;
 - les 26 constats ouverts du Lot H demeurent suivis dans `docs/lot-h-091-review-status.md`.
 
-## 0.9.1 (préparation) - 2026-09-22
+### 0.9.1 (préparation) - 2026-09-22
 
 Durcissement du Lot H en cours. L'inventaire des constats, des corrections reprises
 et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 
-### Ajouté
+#### Ajouté
 
 - migration PostgreSQL 0003 pour les tailles, durées, codes de sortie et séquences
   sur 64 bits, ainsi que les références longues ; schéma SQLite historique conservé ;
@@ -922,7 +341,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
   réservation concurrente ; suites et parcours PostgreSQL dans l'intégration continue ;
 - validation commune des bornes de stockage, des horodatages UTC et des NUL.
 
-### Modifié
+#### Modifié
 
 - événements métier numérotés et journalisés au commit ; verrous de projet
   budgétaires compatibles avec les insertions filles tout en sérialisant les décisions ;
@@ -931,7 +350,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 - installation CI Python depuis le verrou haché, sans résolution des dépendances
   locales, puis vérification de cohérence des distributions et des déclarations.
 
-### Corrigé
+#### Corrigé
 
 - messages d'outbox illisibles isolés en lettre morte ; une panne du consommateur
   n'épuise plus les essais d'un message valide ; hôtes HTTP internes autorisés explicitement ;
@@ -945,7 +364,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
   de volume absent, déduplication des livraisons concurrentes et refus temporaires 503
   pour les interblocages et l'épuisement du pool.
 
-### Sécurité
+#### Sécurité
 
 - diagnostics de messages illisibles expurgés de leur contenu et des détails SQL ;
 - exclusions Docker récursives des données locales, secrets et éléments sous licence,
@@ -953,7 +372,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 - les garde-fous de schéma ne déclarent pas une base utilisable sur la seule présence
   d'une estampille Alembic.
 
-### Vérifié localement
+#### Vérifié localement
 
 - SQLite : 2 852 tests réussis et 70 ignorés ; PostgreSQL : 2 862 réussis et 60 ignorés,
   après suites complètes et reprises ciblées documentées, sans modification du produit ;
@@ -962,7 +381,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 - rapports initiaux, incidents de validation et limitations détaillés dans
   `docs/lot-h-091-review-status.md` ; les exécutions interrompues n'y valent pas succès.
 
-### Limites connues
+#### Limites connues
 
 - 0.9.1 n'est pas publiée ; plusieurs constats de sauvegarde, rétention, déploiement,
   reprise du worker et routes asynchrones restent ouverts dans l'inventaire ;

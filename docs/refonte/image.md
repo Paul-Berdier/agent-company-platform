@@ -13,7 +13,7 @@ L'étape P1 (image dérivée, gardes de démarrage, managed scope, greffon `acp-
 contrat) reste valable ; ses sections sont mises à jour ci-dessous, et chaque ajout de P2 est
 signalé comme tel. Les corrections de la **relecture indépendante de P2** (sécurité, exactitude,
 exploitation) sont signalées « relecture P2 » ; leur tableau de traitement est dans
-[`docs/reprise-poste.md`](../reprise-poste.md).
+[`historique.md`](historique.md), partie B, § 6.
 
 Étape P3 (identité visuelle et français, première partie) : thème `acp` généré depuis
 `design/tokens`, persona française réécrite, greffons de tableau de bord `acp-interface` et
@@ -896,7 +896,7 @@ Railway et les vrais comptes ne sont pas couverts par ces tests (cahier P6 § 16
 ## 9. Ce qui est prouvé, ce qui ne l'est pas
 
 Les preuves datées de P1 (sorties, identifiants de runs) sont dans
-[`docs/reprise-poste.md`](../reprise-poste.md), § P1.
+[`historique.md`](historique.md), partie B, § 5.
 
 Prouvé en P1 (local et CI) : version et condensat ; `CMD`, crochet et variables s6 de
 l'image ; OpenRPC identique ; `hermes plugins compat` vert sur `acp-poste`, rouge sur un
@@ -966,7 +966,7 @@ Non prouvé — et non garanti :
 **Partie 1 seulement (commit `efbf7b0`)** : ces chiffres datent de la première partie de P2 et
 sont périmés au sommet de la branche (216 tests dans l'image dès `822d6e6`, 99 au contrat avec
 l'identité et l'IaC). Les preuves à jour, partie par partie puis après la relecture indépendante,
-sont dans [`docs/reprise-poste.md`](../reprise-poste.md) (§ P2). Relevé de la partie 1 : images
+sont dans [`historique.md`](historique.md) (partie B, § 6). Relevé de la partie 1 : images
 construites depuis le worktree (`docker build -f hermes/image/Dockerfile hermes`, puis l'image de
 test), Docker 29.5.3 sous Windows, le 25/09/2026 :
 
@@ -981,7 +981,7 @@ test), Docker 29.5.3 sous Windows, le 25/09/2026 :
 
 ### Preuves de P2 (CI)
 
-Partie 1 seulement ; les runs suivants sont dans [`docs/reprise-poste.md`](../reprise-poste.md).
+Partie 1 seulement ; les runs suivants sont dans [`historique.md`](historique.md), partie B, § 6.
 Run `image.yml` [36087965990](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965990)
 sur `refonte/hermes-p2` (commit `efbf7b0`, 25/09/2026, conclusion **success**) : condensat de
 l'image officielle confirmé, **212 tests réussis dans l'image**, **56 tests de contrat

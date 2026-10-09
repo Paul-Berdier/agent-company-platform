@@ -21,22 +21,35 @@ remplacées par `docs/refonte/autonomie.md`.
 
 ## Recette de publication
 
-La refonte « Hermes au centre » se publie **étape par étape** (P0 à P9 du plan).
+**Fin de la refonte « Hermes au centre » (en cours, étape P9).** Les étapes P0 à P8 ont été publiées une à une
+vers `refonte/hermes` (recette d'alors : `docs/refonte/historique.md`, partie D). Pour finir :
 
-1. Chaque étape vit sur une branche `refonte/hermes-pN`, ouverte depuis
-   `refonte/hermes`.
+1. P9 se termine sur `refonte/hermes-p9`, qui réunit ses parts (`refonte/hermes-p9bc`, `-p9c`, `-p9e`) par
+   commits de fusion (comme `-p9c` dans `-p9bc`, `b867810`), jamais par rebase d'une branche poussée : commits de
+   travail, suite complète verte avant chacun, CI verte, preuves de l'étape publiées dans la documentation,
+   relecture indépendante de toute P9.
+2. Une fois P9 prouvée, sur `refonte/hermes-p9` et **avant** sa PR (D129) : commit d'ouverture
+   `chore(release): open 1.0.0` (fichier `VERSION` et toutes les copies vérifiées par `scripts/check_version.py`,
+   fichier par fichier), puis `chore(release): prepare 1.0.0 changelog` (section du journal datée, déjà préparée
+   dans `CHANGELOG.md`) : ce sont les deux derniers commits de la branche.
+3. PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion par commit de fusion, **sans
+   étiquette**.
+4. PR de `refonte/hermes` vers `main` ; fusion par commit de fusion **après l'accord explicite du propriétaire**,
+   puis étiquette annotée `v1.0.0` **sur le commit de fusion**, jamais avant ; preuves publiées dans
+   `docs/refonte/preuves-1.0.0.md` par une PR de documentation seule.
+
+**Après 1.0.0, pour chaque lot :**
+
+1. Branche ouverte depuis `main` ; commit d'ouverture de version (fichier `VERSION` et
+   toutes les copies vérifiées par `scripts/check_version.py`).
 2. Commits de travail, suite complète verte avant chacun.
-3. Pousser la branche, attendre l'intégration continue **verte**, ouvrir une pull
-   request vers `refonte/hermes` ; fusion par commit de fusion après validation,
-   **sans étiquette**.
-4. Publier les preuves de validation de l'étape dans la documentation
-   (`docs/reprise-poste.md`, puis le document de preuves prévu par le plan).
-5. Fin de refonte : commit d'ouverture de version `1.0.0` (fichier `VERSION` et toutes
-   les copies vérifiées par `scripts/check_version.py`), puis
-   `chore(release): prepare 1.0.0 changelog` : section complète du journal (Ajouté,
-   Modifié, Corrigé, Sécurité, Vérifié localement, Limites connues).
-6. PR de `refonte/hermes` vers `main`, fusion après validation, puis étiquette annotée
-   `vX.Y.Z` **sur le commit de fusion**, jamais avant.
+3. `chore(release): prepare X changelog` : section complète du journal (Ajouté, Modifié,
+   Corrigé, Sécurité, Vérifié localement, Limites connues).
+4. Pousser la branche, attendre l'intégration continue **verte**, ouvrir la pull request
+   vers `main`.
+5. Fusionner par commit de fusion seulement après validation, puis poser l'étiquette
+   annotée `vX.Y.Z` **sur le commit de fusion**, jamais avant.
+6. Publier les preuves de validation dans la documentation.
 
 ## Doctrine du produit
 
@@ -55,15 +68,15 @@ La refonte « Hermes au centre » se publie **étape par étape** (P0 à P9 du p
 **Hermes Agent** (épinglé sur une release par condensat d'image, déployé sur Railway
 derrière son propre fournisseur d'identité OIDC, Authelia auto-hébergé dans le service
 `identite`, un seul utilisateur) est le seul serveur, le seul orchestrateur et la seule
-source de vérité, étendu par les greffons `acp-interface`, `acp-catalogue`, `acp-projets` et
-`acp-poste` livrés dans l'image ; sur Railway, l'agent n'a **aucun outil d'exécution** (ni
-terminal, ni fichiers, ni code) : tout ce qui s'exécute passe par l'**exécutant** (depuis P6 : service Railway
-`executant`, image `executant/`, client `apps/poste` en mode Linux, un UID par agent ; le **poste Windows** P5
-devient facultatif), qui réclame son travail en HTTPS sortant sans écouter aucun port et y lance Codex et Claude
-Code ; le **client desktop natif** C++23 / Qt 6 / QML (`apps/desktop`) **ne parle qu'au
-Hermes authentifié du propriétaire** (tableau de bord, JSON-RPC, façade versionnée du
-greffon), **jamais directement au PC** ni aux fichiers, à la base ou aux secrets du
-serveur.
+source de vérité, étendu par le greffon serveur `acp-poste` (projets, questions, routage des modèles, quotas,
+notifications, flux d'invalidation, protocole `acp-machine/1`) et les greffons d'interface `acp-interface`,
+`acp-catalogue`, `acp-projets`, `acp-poste-vues` et `acp-discussion`, tous livrés dans l'image ; sur Railway,
+l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni code) : tout ce qui s'exécute passe par
+l'**exécutant** (service Railway `executant`, image `executant/`, client `apps/poste` en mode Linux, un UID par
+agent ; le **poste Windows** est facultatif), qui réclame son travail en HTTPS sortant sans écouter aucun port, y
+lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++23 / Qt 6 / QML (`apps/desktop`)
+**ne parle qu'au Hermes authentifié du propriétaire** (tableau de bord, JSON-RPC, façade versionnée du greffon),
+**jamais directement au PC** ni aux fichiers, à la base ou aux secrets du serveur.
 
 ## Interdits de fond
 
@@ -74,8 +87,9 @@ serveur.
   l'exécutant Railway, en fichiers 0600 de root sur son volume, déposés par `railway ssh`
   (D92), jamais en variable Railway.
 - **Hermes épinglé** : image par condensat, montée de version uniquement par une PR
-  qui change ce condensat. Jamais de `git pull` de Hermes, jamais de `hermes update`,
-  jamais de `:latest`, jamais d'`AUTO_UPDATE`. Même règle pour l'image d'Authelia.
+  qui change ce condensat (`scripts/monter_hermes.py`, procédure de `docs/exploitation.md` § 6). Jamais de
+  `git pull` de Hermes, jamais de `hermes update`, jamais de `:latest`, jamais d'`AUTO_UPDATE`. Même règle
+  pour l'image d'Authelia.
 - **Aucun outil d'exécution pour l'agent sur Railway** : ne jamais rouvrir terminal,
   fichiers, exécution de code, navigateur, cron, délégation ni connexions (managed scope,
   `.env` géré, garde `hermes/plugins/acp-poste/garde_execution.py`). Hermes ne tourne
@@ -86,8 +100,10 @@ serveur.
   (`scripts/verifier_catalogue.py`).
 - **Railway au propriétaire seul** : `railway login`, `railway link`,
   `railway config apply` et toute action sur le compte (variables, domaines, clés SSH,
-  sauvegardes) sont faits par lui, jamais par un agent ni par la CI ; aucun jeton
+  sauvegardes, restaurations) sont faits par lui, jamais par un agent ni par la CI ; aucun jeton
   Railway dans GitHub. Un agent prépare, teste et documente (`docs/refonte/railway.md`).
+- Une restauration ou une montée de version suit `docs/exploitation.md` ; jamais une garde désactivée, jamais un
+  volume supprimé pour « repartir ».
 - **Moteur Pixel Office gelé** : `packages/pixel-office-engine` reste identique octet
   pour octet à l'étiquette `archive/acp-0.10.0-avant-hermes`, avec
   `apps/web/public/assets`, `plugins/`, son bloc `.gitignore`, son workspace npm et
@@ -96,16 +112,23 @@ serveur.
   commité passe par une PR dédiée qui met à jour cette garde. Aucun travail Godot avant
   les dix critères du prompt maître (dernière phase).
 - Ne jamais pointer un test ou un parcours de vérification sur un Hermes, un volume
-  ou une base contenant des données : `HERMES_HOME` jetable et volume nommé jetable
-  seulement.
+  ou une base contenant des données, ni sur un volume restauré : `HERMES_HOME` jetable et
+  volume nommé jetable seulement.
+- Sur le poste de travail, **aucune commande Docker ni Docker Desktop** (souhait du propriétaire, 8 octobre 2026,
+  D134) : ce qui demande Docker (images, contrat, navigateur, restauration, montée) se prouve par la CI GitHub ;
+  les scripts locaux à Docker qu'aucun workflow n'appelle (bouts en bout du poste et de la station, témoins négatifs
+  de P4 à P6, `scripts/lock_python.ps1`) ne tournent plus nulle part (`docs/reprise-poste.md` § 4).
 - Le checkout principal du dépôt porte un chantier Pixel Office non commité : ne rien
   y modifier depuis un worktree de la refonte.
 
 ## Documents de référence
 
-- `docs/reprise-poste.md` — état courant, étapes, chaîne d'outils, pièges connus.
-- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi).
+- `docs/reprise-poste.md` — état courant, chaîne d'outils, pièges connus.
+- `docs/exploitation.md` — manuel du propriétaire : sauvegardes, restauration, montée de version, incidents.
+- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi), décisions D1 à D155.
 - `docs/refonte/autonomie.md` — plan d'autonomie qui remplace les phases P4 à P8.
+- `docs/refonte/historique.md` — historique figé des étapes P0 à P9 (notes de reprise et journal par étape).
+- `docs/refonte/preuves-1.0.0.md` — preuves de 1.0.0 (PR, runs, relevés ; en préparation).
 - `docs/refonte/image.md` — image Hermes d'ACP : démarrage, variables Railway attendues
   et interdites, managed scope, agent sans outil d'exécution, greffon `acp-poste`, tests
   et limites.
@@ -118,13 +141,14 @@ serveur.
   refus des serveurs MCP stdio, route `/v1/catalogue`.
 - `docs/refonte/projets.md` — projets autonomes (P4) : cœur déterministe du greffon `acp-poste`
   (tableaux, outils, routes, émetteur de notifications) et page « Projets » (greffon `acp-projets`).
+- `docs/refonte/questions.md` — file Questions, notifications et continuité entre appareils (P7).
 - `docs/refonte/identite.md` — fournisseur d'identité (Authelia) : garde, configuration,
   compatibilité OIDC avec Hermes, mémoire mesurée, limites.
 - `docs/refonte/railway.md` — infrastructure Railway (`.railway/railway.ts`) et
   procédure du propriétaire : premier déploiement, exploitation, récupération.
 - `docs/refonte/executant.md` — exécutant Railway (P6) : image, binaires vérifiés, identités par UID, sonde R0,
-  régimes A et B, preuves et limites ; gestes du propriétaire dans `docs/refonte/railway.md` § 13.
+  régimes A et B, garde « dépôt privé » (P7), preuves et limites ; gestes du propriétaire dans
+  `docs/refonte/railway.md` § 13 et § 14.
 - `apps/poste/README.md` — poste Windows et exécutant Linux : modules, configuration, limites.
 - `hermes/plugins/acp-poste/contrat/README.md` — contrat Python partagé.
-- `apps/desktop/README.md`, `docs/desktop-build.md` — client natif (hors service
-  jusqu'à P8).
+- `apps/desktop/README.md`, `docs/refonte/desktop.md`, `docs/desktop-build.md` — station de travail Qt (P8).

@@ -353,7 +353,7 @@ Files, MCP, Channels, Webhooks, Pairing, System).
 | Texte, gabarit ou attribut lisible écrit en dur ; `innerHTML`, `eval`, `fetch` direct, URL externe | Vitest : témoins négatifs de `chaines.test.ts` et `statique.test.ts` |
 | Jeton manquant, contraste insuffisant, URL externe, CSS trop lourd, sortie ou QML périmés | `test_generer_themes.py` (9 tests rouges) |
 
-Intégration continue (détail : `docs/reprise-poste.md` § 6 bis) : `image.yml` 36120533900 et
+Intégration continue (détail : `docs/refonte/historique.md`, partie B, § 6 bis) : `image.yml` 36120533900 et
 `ci.yml` 36120533812, sur `b237912`, **succès** (259 dans l'image, 107 au contrat, 2 au navigateur,
 Vitest 55 ; décompte identique à la mesure locale ; captures en artefact).
 
