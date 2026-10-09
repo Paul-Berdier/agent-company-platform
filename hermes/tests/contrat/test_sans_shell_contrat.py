@@ -736,6 +736,42 @@ def test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu(pile):
         pile.attendre_pret()
 
 
+PUT_EPINGLEES = {"HERMES_TUI_TOOLSETS": "terminal,file,code_execution", "HERMES_BIN": "/opt/data/faux-hermes",
+                 "HERMES_SAFE_MODE": "1"}
+
+
+def test_put_api_env_n_ecrit_aucune_cle_epinglee(pile):
+    """SECU-1, faille 8 de la contre-vérification : une écriture du .env du volume EN COURS DE VIE rouvrirait la
+    fenêtre jusqu'à la relance suivante, et « PUT /api/env » était cité comme moyen. Toute écriture du .env par
+    Hermes passe par save_env_value (hermes_cli/config.py:2641-2646), qui refuse une clé que la portée gérée
+    épingle (_env_write_blocked, config.py:2619-2632 ; managed_scope.is_env_managed) : la même fonction sert
+    PUT /api/env (web_routers/config_env.py:292-307, credential_lifecycle.py:163-182) et la saisie d'un secret
+    demandé par une skill (tui_gateway/agent_callbacks.py:207). Mesuré ici avec le propriétaire authentifié.
+    Contrôle positif : une clé NON épinglée est bien écrite puis retirée par la même route (sinon le test
+    réussirait à vide)."""
+    cle = jeton(pile)
+    avant = _cles_epinglees_dans_le_volume(pile)
+    reponses = {nom: pile.json("/api/env", jeton=cle, methode="PUT", corps=json.dumps({"key": nom, "value": valeur}))
+                for nom, valeur in PUT_EPINGLEES.items()}
+    apres = _cles_epinglees_dans_le_volume(pile)
+    valeurs_ecrites = pile.sh("grep -c -e 'terminal,file,code_execution' -e 'faux-hermes' /opt/data/.env || true",
+                              verifier=True).stdout.strip()
+    temoin = pile.json("/api/env", jeton=cle, methode="PUT", corps=json.dumps({"key": "ACP_TEMOIN_SECU", "value": "1"}))
+    ecrit = pile.sh("grep -c '^ACP_TEMOIN_SECU=1$' /opt/data/.env || true", verifier=True).stdout.strip()
+    retrait = pile.json("/api/env", jeton=cle, methode="DELETE", corps=json.dumps({"key": "ACP_TEMOIN_SECU"}))
+    restant = pile.sh("grep -c '^ACP_TEMOIN_SECU=' /opt/data/.env || true", verifier=True).stdout.strip()
+    refus = "\n".join(l for l in pile.journaux().splitlines() if "managed by your administrator" in l)
+    afficher("SECU-1 : PUT /api/env de clés épinglées par le propriétaire authentifié",
+             f"réponses : {_texte(reponses)}\nclés épinglées dans le volume avant :\n{avant or '(aucune)'}\n"
+             f"après :\n{apres or '(aucune)'}\nvaleurs pièges dans /opt/data/.env : {valeurs_ecrites}\n"
+             f"contrôle positif : PUT {temoin}, lignes écrites {ecrit}, DELETE {retrait}, lignes restantes {restant}\n"
+             f"refus journalisés par Hermes :\n{refus or '(aucune ligne dans le journal du conteneur)'}")
+    assert temoin[0] == 200 and ecrit == "1", ("la route n'écrit pas une clé ordinaire : test à vide", temoin, ecrit)
+    assert retrait[0] == 200 and restant == "0", (retrait, restant)
+    assert apres == avant == "", (avant, apres)
+    assert valeurs_ecrites == "0", valeurs_ecrites
+
+
 def test_preview_restart_par_api_ws_temoin_negatif(pile):
     """Témoin négatif du test bloquant, EN DERNIER (il modifie le conteneur) : la managed scope est
     altérée en root pour désactiver acp-poste, puis le tableau de bord est relancé. preview.restart

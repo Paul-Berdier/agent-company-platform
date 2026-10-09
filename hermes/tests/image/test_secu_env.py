@@ -207,6 +207,77 @@ def test_reload_env_ne_republie_aucune_valeur_du_volume(chemins, valeurs, env_va
     assert apres["HERMES_DISABLE_LAZY_INSTALLS"] == "1"
 
 
+# Clés épinglées que Hermes RETIRE d'os.environ quand le .env du volume ne les porte pas, ce que SECU-1 assure :
+# dans la fenêtre de chaque rechargement (_clear_known_keys_missing_from_dotenv, env_loader.py:82-94, liste
+# _PROFILE_MANAGED_ENV_KEYS) et par reload_env (hermes_cli/config.py:2743-2746, OPTIONAL_ENV_VARS et
+# _EXTRA_ENV_KEYS), jusqu'au chargement suivant. Elles sont alors ABSENTES un instant, au lieu de valoir leur
+# épingle ; toute autre clé épinglée qui deviendrait absente fait échouer le test ci-dessous (à analyser).
+ABSENCES_ADMISES = {"API_SERVER_HOST", "API_SERVER_PORT", "HERMES_COPILOT_ACP_COMMAND", "HERMES_COPILOT_ACP_ARGS",
+                    "COPILOT_CLI_PATH"}
+
+SONDE_ABSENCES = r'''
+import json, os
+from pathlib import Path
+from dotenv import dotenv_values
+GERE = {k: (v or "") for k, v in dotenv_values(Path(os.environ["HERMES_MANAGED_DIR"]) / ".env",
+                                                 interpolate=False).items()}
+from hermes_cli import env_loader, config
+def etat():
+    return {"absentes": sorted(k for k in GERE if os.environ.get(k) is None),
+            "autres": sorted(k for k, v in GERE.items() if os.environ.get(k) not in (None, v))}
+def lecteurs():
+    # Les lecteurs de Hermes de ces clés, avec leurs valeurs par défaut (gateway/platforms/api_server.py:204-219 ;
+    # tools/cronjob_tools.py:102-122 ; hermes_cli/web_server_cron.py:315-370 ; security_audit_startup.py:121-140 ;
+    # agent/copilot_acp_client.py:75-80).
+    from gateway.platforms.api_server import listen_address
+    from tools.cronjob_tools import _api_server_base_url
+    from hermes_cli.web_server_cron import _cron_default_profile, _gateway_fire_endpoint
+    from hermes_cli.security_audit_startup import _network_listener_without_auth
+    from agent.copilot_acp_client import _resolve_args, _resolve_command
+    return {"api_server_ecoute": list(listen_address({})),
+            "api_server_url_des_outils_cron": _api_server_base_url(),
+            "api_server_url_du_tableau_de_bord": _gateway_fire_endpoint(_cron_default_profile(),
+                                                                        Path(os.environ["HERMES_HOME"])),
+            "audit_api_server": _network_listener_without_auth({"platforms": {"api_server": {"enabled": True}}}),
+            "copilot_commande": _resolve_command(), "copilot_arguments": _resolve_args()}
+env_loader.load_hermes_dotenv()
+reference = {"etat": etat(), "lecteurs": lecteurs()}
+fenetre = {}
+appliquer = env_loader._apply_managed_env
+def sonde(*a, **k):
+    # Point fixe d'un RECHARGEMENT en cours de vie (le premier chargement a déjà appliqué la portée gérée).
+    if not fenetre:
+        fenetre.update(etat=etat(), lecteurs=lecteurs())
+    return appliquer(*a, **k)
+env_loader._apply_managed_env = sonde
+env_loader.load_hermes_dotenv()
+env_loader._apply_managed_env = appliquer
+config.reload_env()
+resultat = {"reference": reference, "fenetre": fenetre, "reload_env": {"etat": etat(), "lecteurs": lecteurs()}}
+'''
+
+
+def test_les_epingles_absentes_un_instant_valent_leur_epingle(chemins, valeurs, env_valide):
+    """Effet de bord de SECU-1, mesuré : le volume ne portant plus les clés épinglées, Hermes en retire quelques-
+    unes d'os.environ dans la fenêtre d'un rechargement et après « reload.env » (servi par /api/ws). Exigé : aucune
+    autre valeur que l'épingle ou l'absence, des absences limitées à ABSENCES_ADMISES, et des lecteurs de Hermes
+    qui rendent EXACTEMENT ce qu'ils rendent avec l'épingle (127.0.0.1:8642, programme copilot par défaut)."""
+    home, _ = _volume_piege(chemins, valeurs, "env")
+    _chaine(chemins, env_valide, "relance")
+    resultat = executer_python(SONDE_ABSENCES, env=env_processus(chemins, HERMES_HOME=str(home)))
+    print(json.dumps(resultat, ensure_ascii=False, indent=1))
+    reference = resultat["reference"]
+    assert reference["etat"] == {"absentes": [], "autres": []}, reference["etat"]
+    assert reference["lecteurs"]["api_server_ecoute"] == ["127.0.0.1", 8642], reference["lecteurs"]
+    for moment in ("fenetre", "reload_env"):
+        mesure = resultat[moment]
+        assert mesure["etat"]["autres"] == [], (moment, mesure["etat"])
+        assert set(mesure["etat"]["absentes"]) <= ABSENCES_ADMISES, (moment, mesure["etat"])
+        assert mesure["lecteurs"] == reference["lecteurs"], (moment, mesure["lecteurs"], reference["lecteurs"])
+    # Contrôle : les absences mesurées existent bien (sinon le test passerait à vide).
+    assert resultat["reload_env"]["etat"]["absentes"], resultat["reload_env"]
+
+
 # ------------------------------------------------------------------ .op.env et la portée gérée
 
 
