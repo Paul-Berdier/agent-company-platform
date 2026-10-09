@@ -255,11 +255,38 @@ rendait `HERMES_TUI_TOOLSETS=terminal,file,code_execution`, sans aucun refus :
 | `HERMES_MANAGED_DIR` | déplacerait la portée gérée hors de `/etc/hermes` ; aucune épingle ne la contre |
 | `HERMES_BUNDLED_PLUGINS` | ferait charger le code de greffon de l'agent (aussi épinglée vide) |
 | `HERMES_ENABLE_PROJECT_PLUGINS` | servirait le JS de l'agent au navigateur du propriétaire (aussi épinglée à `0`) |
+| `HERMES_HOME` (audit du 9 octobre 2026) | Hermes la publie puis la **suit** (hermes_constants.py:112-119 et 161-170) : sa configuration, ses `.env` et ses crochets seraient lus dans un répertoire qu'aucune garde n'inspecte ; impossible à épingler, chaque profil ayant son propre `HERMES_HOME` |
+| Famille d'emplacement et d'exécution (audit du 9 octobre 2026) | toute variable que l'image fixe au conteneur (`VALEURS_IMPOSEES` : `HERMES_WEB_DIST`, `HERMES_TUI_DIR`, `HERMES_LAZY_INSTALL_TARGET`, `HERMES_WRITE_SAFE_ROOT`, `XDG_RUNTIME_DIR`, `HERMES_DASHBOARD_HOST`, `HERMES_DASHBOARD_PORT`…) et tout nom que l'écrivain de `.env` de Hermes refuse **lui-même** (hermes_cli/config.py:62-117 : chargeur dynamique `LD_*`/`DYLD_*`, `PYTHON*`, `NODE_OPTIONS`, `PATH`, `GIT_*`, `EDITOR`, `HERMES_PROFILE`, `HERMES_CONFIG*`…), **hors** les clés que la portée gérée épingle (retirées par SECU-1, § 4.3 bis) |
 
-La liste est **étroite à dessein** : `API_SERVER_KEY` en est exclue, car l'image la génère
+**Audit défensif du 9 octobre 2026.** Deux manques prouvés, corrigés dans `2c4e2d4` :
+
+- *Variables d'emplacement et d'exécution.* Hermes publie chaque ligne d'un `.env` du volume
+  (override=True, env_loader.py:433-434) ; une variable qui choisit un répertoire ou un programme est
+  ensuite suivie par Hermes ou par les sous-processus qu'il lance. La famille vient de deux sources
+  qu'ACP n'invente pas : les valeurs que l'image impose au conteneur, et la liste par laquelle Hermes
+  refuse d'**écrire** ces noms (`save_env_value`), qu'il n'applique jamais au **chargement**. La copie
+  d'ACP (76 noms et 3 préfixes, Hermes 0.21.5) est gardée par un test qui exige qu'elle contienne la
+  liste de la version épinglée. Mesuré au run rouge jetable
+  [37873430373](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37873430373) sur
+  `d5d8b73` : aucun des 85 noms mesurés (82 noms et un exemple par préfixe) n'était refusé, Hermes
+  les publiait tous, et dans le vrai conteneur un `HERMES_HOME=/opt/data/autre` dans `/opt/data/.env`
+  faisait lire `/opt/data/autre/.env`, dont le `HERMES_MANAGED_DIR` déplaçait la portée gérée vers
+  `/opt/data/faux` et rendait
+  `HERMES_TUI_TOOLSETS=terminal,file,code_execution`, sans aucun refus.
+- *Lecture des fichiers par la garde.* La garde lisait les `.env` en UTF-8 avec remplacement et avec
+  python-dotenv seul. Elle les lit désormais **comme SECU-1** (`cles_du_fichier_env_comme_hermes`) :
+  UTF-16 avec BOM, BOM UTF-8, repli latin-1, octets NUL retirés, UTF-32 refusé, et les **deux**
+  analyseurs de Hermes (python-dotenv au chargement, jetoniseur ligne à ligne de « reload.env »). Au même
+  run rouge, `HERMES_MANAGED\0_DIR=…`, la même ligne en UTF-16, et une ligne précédée d'un saut de page
+  ou d'un U+2028 passaient la garde ; Hermes publiait la variable au chargement (NUL, UTF-16 : portée
+  gérée déplacée dans le vrai conteneur) ou par `reload_env` (saut de page, U+2028).
+
+La liste reste **fermée à ce qui échappe à la portée gérée ou fait exécuter**, et ne contient que des
+noms que Hermes n'écrit jamais lui-même : `API_SERVER_KEY` en est exclue, car l'image la génère
 et l'écrit elle-même dans `/opt/data/.env` à chaque démarrage
 (docker/stage2-hook.sh:504-540) ; la refuser bloquerait tout démarrage. `.env.example`, semé
-au premier démarrage, ne contient aucune de ces variables (vérifié).
+au premier démarrage, ne contient aucune de ces variables (vérifié pour toute la famille sur la
+source de Hermes 0.21.5).
 
 ### 4.3 bis Clés épinglées retirées des `.env` du volume (SECU-1, chantier SECU-TUI)
 
@@ -279,10 +306,12 @@ par une **écriture séparée** (env_loader.py:473 et 503-518), sans verrou pour
 même processus qui lit `os.environ` entre les deux voit la valeur du volume. Dans le tableau de bord, le fil
 de découverte et de reconnexion MCP recharge le `.env` (tools/mcp_tool_config.py:360-371,
 mcp_tool_server_run.py:249 et 318) pendant que le fil qui construit l'agent d'une session lit
-`HERMES_TUI_TOOLSETS` (tui_gateway/server.py:1912, chemin « épingle explicite » 1924-1928). Seulement après
-un redémarrage : `05-acp` réécrit alors `mcp_servers.context7` dans `/opt/data/config.yaml` (injoignable en
-test, d'où des reconnexions) ; après une simple relance, la configuration piégée du test n'avait aucun
-serveur MCP, donc aucun fil rechargeur. La passerelle recharge à chaque tour (gateway/run.py:1614-1623),
+`HERMES_TUI_TOOLSETS` (tui_gateway/server.py:1912, chemin « épingle explicite » 1924-1928). Pourquoi
+seulement après un redémarrage (explication par la lecture de la source, NON mesurée, et fondée sur un
+seul échec observé) : `05-acp` réécrit alors `mcp_servers.context7` dans `/opt/data/config.yaml`
+(injoignable en test, d'où des reconnexions) ; après une simple relance, la configuration piégée du test
+n'avait aucun serveur MCP, donc aucun fil rechargeur. La preuve ci-dessous n'en dépend pas. La passerelle
+recharge à chaque tour (gateway/run.py:1614-1623),
 le cron aussi (cron/scheduler.py:1494 et 2341) ; « reload.env » de `/api/ws`
 (tui_gateway/methods_tools.py:251) recopie le `.env` **sans** la portée gérée jusqu'au chargement suivant
 (hermes_cli/config.py:2733-2747). Toutes les clés épinglées sont concernées (`HERMES_SAFE_MODE`,
@@ -1001,7 +1030,21 @@ Railway et les vrais comptes ne sont pas couverts par ces tests (cahier P6 § 16
   - le retrait lui-même : `test_retirer_cles_env` (onze formes : `export`, clé citée, valeur multiligne,
     NUL, BOM et CRLF, UTF-16, séparateur de `splitlines`, latin-1, lignes à garder), refus de l'UTF-32,
     propriétaire, mode et idempotence, aucun lien suivi (lien, profil lié vers `/etc/hermes`, lien dur),
-    portée gérée de root exigée, journal sans valeur, `diagnostiquer` sans écriture.
+    portée gérée de root exigée, journal sans valeur, `diagnostiquer` sans écriture ;
+  - `test_les_epingles_absentes_un_instant_valent_leur_epingle` (`d5d8b73`, effet de bord de SECU-1) : dans la
+    fenêtre d'un rechargement en cours de vie et après `reload_env`, aucune clé épinglée ne porte une autre
+    valeur que son épingle ; seules absences admises : `API_SERVER_HOST`, `API_SERVER_PORT` et les trois clés
+    copilot, dont les lecteurs de Hermes rendent alors exactement ce qu'ils rendent avec l'épingle ;
+  - audit défensif du 9 octobre 2026 (rouges au run jetable 37873430373, § 9) :
+    `test_variables_d_emplacement_et_d_execution_du_volume_refusees[env|op_env|profil]` (la famille, calculée
+    sans la liste d'ACP à partir de `VALEURS_IMPOSEES` et de la liste de l'écrivain de Hermes, refuse au
+    crochet, dans 05-acp et à la relance ; `API_SERVER_KEY` et une clé de fournisseur restent admises),
+    `test_hermes_managed_dir_sous_les_formes_lues_par_hermes_est_refuse[nul|utf16|saut_de_page|u2028]` (avec,
+    pour chaque forme, le chemin réel de Hermes qui la publie) ; témoins verts avant comme après :
+    `test_temoin_hermes_publie_la_famille_depuis_le_env_du_volume`,
+    `test_temoin_hermes_suit_le_home_du_env_du_volume` ; ajoutés avec le correctif (non montrés rouges) :
+    `test_la_copie_d_acp_contient_la_liste_de_l_ecrivain_de_hermes` (garde de dérive à la montée de Hermes) et
+    `test_un_env_du_volume_illisible_comme_hermes_refuse` (UTF-32).
 - **Depuis l'hôte** (`test_sans_shell_contrat.py`) :
   - `test_volume_piege_aucune_valeur_publiee_apres_relance` : `.env` et `.op.env` piégés par l'agent,
     relance par l'agent, puis sonde DANS le conteneur sous l'uid hermes avec la vraie `/etc/hermes` : point
@@ -1009,7 +1052,14 @@ Railway et les vrais comptes ne sont pas couverts par ces tests (cahier P6 § 16
   - `test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu` (la troisième couche face à la session
     fautive reproduite sans course, § 5) ;
   - `test_op_env_qui_deplace_la_portee_geree_refuse_le_demarrage`,
-    `test_source_de_secrets_du_volume_refuse_le_demarrage` (témoin absent du volume).
+    `test_source_de_secrets_du_volume_refuse_le_demarrage` (témoin absent du volume) ;
+  - `test_put_api_env_n_ecrit_aucune_cle_epinglee` (`d5d8b73`) : le propriétaire authentifié demande
+    `PUT /api/env` de `HERMES_TUI_TOOLSETS`, `HERMES_BIN` et `HERMES_SAFE_MODE` ; aucune n'arrive dans
+    `/opt/data/.env`, alors qu'une clé ordinaire est écrite puis retirée par la même route (contrôle positif) ;
+  - audit défensif du 9 octobre 2026 (rouges au run jetable 37873430373) :
+    `test_home_du_volume_qui_redirige_hermes_refuse_le_demarrage` et
+    `test_managed_dir_que_seul_hermes_decode_refuse_le_demarrage[utf16|nul]` (code 1, message français, sonde
+    de la portée gérée si le conteneur démarre).
 
 `test_volume_piege_apres_relance`, qui avait vu la faille une fois, est gardé tel quel : son contrôle final
 ne mesure que l'état stable, et une seule session ne déclenche la course que rarement.
@@ -1132,6 +1182,23 @@ Aucune commande Docker locale : tout passe par la CI GitHub. Les runs « jetable
   dans l'image, 0 sur 697 (395 rechargements) ; journal `[acp] SECU-1 (relance) : /opt/data/.env portait 7
   clé(s)…` et `/opt/data/.op.env portait 4 clé(s)…`, sans valeur ; `.op.env` avec `HERMES_MANAGED_DIR` et
   `secrets.command` refusent le démarrage (code 1, message français, témoin absent).
+- **Audit défensif du 9 octobre 2026, rouge sur `d5d8b73`, tests seuls** (`e5e3f3c`, branche jetable
+  supprimée, run [37873430373](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37873430373),
+  conclusion **failure** attendue) : dans l'image (`test_secu_env.py` et `test_demarrage.py`) **7 échecs,
+  240 réussis** : « non refusées : » les 85 noms de la famille (pour `.env`, `.op.env` et un profil), « aucun
+  refus » pour `HERMES_MANAGED_DIR` coupée par un NUL, en UTF-16, après un saut de page et après un U+2028 ;
+  les deux témoins réussissent (Hermes publie les 85 noms ; il suit `HERMES_HOME` et lit le `.env` du
+  répertoire désigné). Au contrat, **3 échecs, 2 réussis** : conteneurs démarrés, sonde
+  `{"home": "/opt/data/autre", "portee_geree": "/opt/data/faux", "HERMES_TUI_TOOLSETS":
+  "terminal,file,code_execution"}` pour `HERMES_HOME`, et portée gérée `/opt/data/faux` avec les mêmes outils
+  pour l'UTF-16 et le NUL.
+- **Vert avec le correctif** (`2c4e2d4`, branche jetable supprimée, run
+  [37873804340](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37873804340), conclusion
+  **success**) : suite COMPLÈTE dans l'image **846 réussis**, 0 échec (dont les 48 de `test_secu_env.py`) ;
+  `test_sans_shell_contrat.py` et `test_contrat_image.py` **68 réussis**, 0 échec (dont
+  `test_put_api_env_n_ecrit_aucune_cle_epinglee` de `d5d8b73`). Journal du conteneur :
+  `[acp] REFUS :   - /opt/data/.env définit la variable interdite HERMES_HOME : …` (code 1), et le même
+  refus de `HERMES_MANAGED_DIR` pour l'UTF-16 et le NUL.
 
 ## 10. Limites connues
 
@@ -1152,10 +1219,22 @@ Aucune commande Docker locale : tout passe par la CI GitHub. Les runs « jetable
   absentes du fichier) jusqu'au chargement suivant ; absentes, les clés copilot valent « non défini »
   comme leur épingle vide ; l'effet de l'absence d'`API_SERVER_*` dans le tableau de bord n'a pas été
   mesuré.
-- **Variables interdites au conteneur mais ni épinglées ni retirées du volume** (observé pendant le
-  chantier SECU-TUI, non traité) : par exemple `HERMES_KANBAN_DISPATCH_IN_GATEWAY` posée dans
-  `/opt/data/.env` couperait le répartiteur de la passerelle (gateway/kanban_watchers.py:215-218) ; un
-  arrêt de service, pas une exécution. À trancher par une PR qui l'épinglerait.
+- **Variables interdites au conteneur mais ni épinglées ni refusées dans le volume.** Depuis l'audit du
+  9 octobre 2026, la famille d'emplacement et d'exécution (`HERMES_HOME`, valeurs imposées par l'image, liste
+  de l'écrivain de `.env` de Hermes) est refusée dans les `.env` et `.op.env` du volume (§ 4.3) : une
+  version antérieure de cette limite la tenait pour un simple arrêt de service, à tort pour `HERMES_HOME`.
+  Restent admises dans le volume, sans épingle ni refus, et **non mesurées** : `HERMES_KANBAN_HOME`,
+  `HERMES_KANBAN_DB`, `HERMES_KANBAN_BOARD` (emplacement et tableau du kanban), `HERMES_KANBAN_DISPATCH_IN_GATEWAY`
+  (couperait le répartiteur de la passerelle, gateway/kanban_watchers.py:215-218), `API_SERVER_ENABLED`,
+  `HERMES_ALLOW_ROOT_GATEWAY`, `HERMES_DOCKER_EXEC_AS_ROOT`, `HERMES_GATEWAY_NO_SUPERVISE`,
+  `HERMES_GATEWAY_BOOTSTRAP_STATE`, `HERMES_AUTH_JSON_BOOTSTRAP`, `HERMES_AUTH_JSON_REBOOTSTRAP`,
+  `HERMES_UID`, `HERMES_GID`, `PUID`, `PGID`, `AUTO_UPDATE`, `DASHBOARD_PASSWORD`,
+  `HERMES_DASHBOARD_INSECURE` (sans effet dans Hermes 0.21.5 selon sa documentation, non vérifié dans le
+  code), `HERMES_PORTAL_BASE_URL`, `NOUS_PORTAL_BASE_URL`, `NOUS_INFERENCE_BASE_URL` (ces trois, stage2-hook.sh
+  les écrit lui-même quand le conteneur les porte, ce qu'ACP refuse) ; `API_SERVER_KEY` reste admise à
+  dessein (§ 4.3). Plusieurs ne sont lues que dans l'environnement du conteneur par les scripts de
+  démarrage ; aucune n'a été montrée menant à une exécution. À trancher par une PR qui les épinglerait ou
+  les refuserait après mesure.
 - **Échecs ouverts autour de la garde** : la couche d'appel de Hermes échoue ouvert si le
   crochet lève (agent_runtime_helpers.py:2348-2361 ; tool_executor.py:652-667) — la garde ne
   lève jamais ; la **découverte des greffons** qui lève fait continuer l'agent sans greffon
