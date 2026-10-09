@@ -51,6 +51,10 @@ vers `refonte/hermes` (recette d'alors : `docs/refonte/historique.md`, partie D)
    annotée `vX.Y.Z` **sur le commit de fusion**, jamais avant.
 6. Publier les preuves de validation dans la documentation.
 
+Une montée de version de Hermes, d'Authelia ou des binaires de l'exécutant est un lot comme un autre (D162) :
+version de correctif 1.0.x, journal, étiquette sur le commit de fusion ; procédure et gestes du propriétaire :
+`docs/exploitation.md` § 6.
+
 ## Doctrine du produit
 
 - **Aucun faux succès.** Un test ignoré, une étape non exécutée ou un binaire non signé

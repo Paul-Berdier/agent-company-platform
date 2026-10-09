@@ -50,5 +50,12 @@ Outil (étape P9) : `scripts/monter_hermes.py` (bibliothèque standard, `docker`
 - `inventaire` : fixtures de faux serveur et citations « Hermes X.Y.Z … fichier:ligne » à
   revérifier à la main dans la PR de montée.
 
+La PR de montée revérifie aussi, à la main, le correctif de sécurité SECU-TUI (D156, D157)
+contre la nouvelle release : fichiers d'environnement chargés avant la portée gérée, leur
+ordre, leur décodage et leurs analyseurs ; règle d'activation des sources externes de
+secrets ; liste des noms que l'écrivain de `.env` de Hermes refuse ; variables que l'ENV de
+l'image amont fixe, face à `VALEURS_IMPOSEES`. Liste et renvois : `docs/exploitation.md`
+§ 6.3, point 3. La CI voit un comportement connu qui change ; un ajout de l'amont, non.
+
 La concordance de toutes ces copies est vérifiée hors ligne par
 `scripts/tests/test_epingles_hermes.py` (CI, Linux et Windows).

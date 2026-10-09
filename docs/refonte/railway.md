@@ -678,6 +678,11 @@ un autre a réussi ; au-delà de 2 heures, le déploiement est sauté.
   réglages du service n'est pas documenté : supposé gardés). Même conduite entre deux versions de P7 si le script a
   changé entre elles : `EMPREINTES_BILAN_ADMISES` (`hermes/image/acp_demarrage.py`) ne connaît que les empreintes
   livrées jusqu'à l'image démarrée (montée de version seulement).
+  Après le Rollback d'une **montée de version** : le Rollback ne change pas la branche, dont la tête porte encore la
+  nouvelle version ; une **PR de retour** (revert de la fusion de la montée, ou épingles d'avant) est fusionnée
+  avant toute autre fusion qui toucherait les motifs surveillés, sinon la fusion suivante redéploie la nouvelle
+  version. Ordre des gestes avec une restauration (Rollback à la place du « Retour » du § 10 b.6) :
+  [exploitation.md](../exploitation.md) § 6.4.
 - Chaque déploiement : preuve du § 7 point 2.
 
 **Sauvegardes.** Quotidienne (6 jours) et hebdomadaire (27 jours), plus une manuelle avant toute
